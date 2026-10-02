@@ -113,6 +113,9 @@ static void run_builtins(long *cases) {
         "function f(a){function a(){}}", "function f(a){function a(){}return a}",
         "function f(){var [a]=[];function a(){}return[a,a]}",
         "function f(){const x=073\nfunction f(g){x}[x,x]}", /* a dropped function keeps no child to re-read */
+        /* script grammar: static blocks, a field named async, new.target as a callee, import(), await/yield names */
+        "class C{static{var a=1;f(a)}async}", "function F(){return new new.target()}", "import(\"x\").then(f)",
+        "function f(await,yield=0){return await(yield)}",
     };
     for (size_t index = 0; index < sizeof(snippets) / sizeof(snippets[0]); index++) {
         const char *text = snippets[index];

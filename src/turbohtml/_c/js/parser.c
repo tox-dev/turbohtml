@@ -20,7 +20,9 @@ typedef struct {
     jm_lexer lx;
     jm_program *prog;
     int err;
-    int32_t depth; /* current parse-recursion depth; a nesting cap stops a stack overflow (#421) */
+    int32_t depth;     /* current parse-recursion depth; a nesting cap stops a stack overflow (#421) */
+    int await_keyword; /* `await` starts an AwaitExpression: in an async function, or at a module's top level */
+    int yield_keyword; /* `yield` starts a YieldExpression: in a generator */
     char *errbuf;
     size_t errlen;
 } P;
@@ -152,9 +154,16 @@ static int32_t parse_binary_base(P *parser);
 static int32_t parse_unary(P *parser);
 static int32_t parse_call_member(P *parser);
 static int32_t parse_primary(P *parser);
+static int32_t parse_new_target(P *parser);
+static int32_t parse_import_call(P *parser);
+static int operand_follows(P *parser);
+static int32_t parse_arrow_rest(P *parser, int32_t node);
 static int32_t parse_function(P *parser, int is_expr, int is_async);
+static void parse_function_rest(P *parser, int32_t fn);
 static int32_t parse_class(P *parser, int is_expr);
+static void parse_static_block(P *parser, int32_t member);
 static void parse_params(P *parser, int32_t fn);
+static void parse_key(P *parser, int32_t owner);
 
 /* Store a child index into a node's a/b/c/d slot. Written as calls, never a direct
    `prog->nodes[node].slot = parse_x(...)`, because the right-hand parse can append a node
@@ -276,7 +285,7 @@ static int32_t parse_if(P *parser) {
 static int32_t parse_for(P *parser) {
     advance(parser); /* for */
     int is_await = 0;
-    if (kw(parser, "await")) {
+    if (parser->await_keyword && kw(parser, "await")) {
         is_await = 1;
         advance(parser);
     }
@@ -585,7 +594,7 @@ static int32_t parse_stmt_body(P *parser) {
         semicolon(parser);
         return node;
     }
-    if (kw(parser, "import") || kw(parser, "export")) {
+    if (kw(parser, "export")) {
         fail(parser, "module syntax unsupported"); /* falls back to the source verbatim */
         return -1;
     }
@@ -794,8 +803,21 @@ static int looks_like_arrow(P *parser) {
     return result;
 }
 
+/* An arrow sets its own await and yield context: its body is ConciseBody[~Await] or AsyncConciseBody[+Await], never
+   [+Yield] (ECMA-262 15.3, 15.9). */
 static int32_t parse_arrow(P *parser) {
     int32_t node = jm_node_new(parser->prog, JN_ARROW);
+    int outer_await = parser->await_keyword;
+    int outer_yield = parser->yield_keyword;
+    parser->await_keyword = kw(parser, "async");
+    parser->yield_keyword = 0;
+    int32_t result = parse_arrow_rest(parser, node);
+    parser->await_keyword = outer_await;
+    parser->yield_keyword = outer_yield;
+    return result;
+}
+
+static int32_t parse_arrow_rest(P *parser, int32_t node) {
     if (kw(parser, "async")) {
         parser->prog->nodes[node].flags |= JN_F_ASYNC;
         advance(parser);
@@ -839,7 +861,7 @@ static int32_t parse_arrow(P *parser) {
 }
 
 static int32_t parse_assign_body(P *parser, int no_in) {
-    if (kw(parser, "yield")) {
+    if (parser->yield_keyword && kw(parser, "yield")) {
         int32_t node = jm_node_new(parser->prog, JN_YIELD);
         advance(parser);
         if (eat(parser, JT_STAR)) {
@@ -905,7 +927,7 @@ static int32_t parse_unary(P *parser) {
         node_kind = JN_UNARY;
     } else if (kind == JT_INC || kind == JT_DEC) {
         node_kind = JN_UPDATE;
-    } else if (kw(parser, "await")) {
+    } else if (parser->await_keyword && kw(parser, "await")) {
         node_kind = JN_AWAIT;
     } else {
         return parse_binary_base(parser); /* no prefix operator: the postfix ++/-- + call/member expression */
@@ -978,20 +1000,24 @@ static void parse_args(P *parser, int32_t call) {
 static int32_t parse_new_callee(P *parser) {
     int32_t expr;
     if (kw(parser, "new")) {
-        int32_t node = jm_node_new(parser->prog, JN_NEW);
         advance(parser);
-        if (!enter(parser)) { /* `new new new ...` recurses here */
-            return -1;
+        if (at(parser, JT_DOT)) { /* `new new.target()` constructs the meta property's value */
+            expr = parse_new_target(parser);
+        } else {
+            int32_t node = jm_node_new(parser->prog, JN_NEW);
+            if (!enter(parser)) { /* `new new new ...` recurses here */
+                return -1;
+            }
+            set_a(parser, node, parse_new_callee(parser));
+            leave(parser);
+            if (parser->err) {
+                return -1;
+            }
+            if (at(parser, JT_LPAREN)) {
+                parse_args(parser, node);
+            }
+            expr = node;
         }
-        set_a(parser, node, parse_new_callee(parser));
-        leave(parser);
-        if (parser->err) {
-            return -1;
-        }
-        if (at(parser, JT_LPAREN)) {
-            parse_args(parser, node);
-        }
-        expr = node;
     } else {
         expr = parse_primary(parser);
     }
@@ -1035,20 +1061,12 @@ static int32_t parse_call_member(P *parser) {
     int32_t expr;
     int32_t built = 0; /* every call/member/tag link deepens the left-leaning spine by one */
     if (kw(parser, "new")) {
-        int32_t node = jm_node_new(parser->prog, JN_NEW);
         advance(parser);
-        if (at(parser, JT_DOT)) { /* new.target */
-            static const Py_UCS4 new_kw[] = {'n', 'e', 'w', 0};
-            advance(parser);
-            int32_t target = leaf(parser, JN_IDENT);
-            int32_t kwn = jm_node_new(parser->prog, JN_IDENT);
-            parser->prog->nodes[kwn].str = new_kw;
-            parser->prog->nodes[kwn].str_len = 3;
-            expr = jm_node_new(parser->prog, JN_MEMBER_EXPR);
-            set_a(parser, expr, kwn);
-            set_b(parser, expr, target);
+        if (at(parser, JT_DOT)) {
+            expr = parse_new_target(parser);
             goto chain; /* allow a following member/call chain */
         }
+        int32_t node = jm_node_new(parser->prog, JN_NEW);
         set_a(parser, node, parse_new_callee(parser)); /* MemberExpression, no trailing call */
         if (parser->err) {
             return -1;
@@ -1132,6 +1150,21 @@ chain:
     return expr;
 }
 
+/* The `new.target` meta property (ECMA-262 13.3.12), from the `.` after `new`, as a member access on an identifier
+   `new` that every pass leaves alone. */
+static int32_t parse_new_target(P *parser) {
+    static const Py_UCS4 new_kw[] = {'n', 'e', 'w', 0};
+    advance(parser);
+    int32_t target = leaf(parser, JN_IDENT);
+    int32_t kwn = jm_node_new(parser->prog, JN_IDENT);
+    parser->prog->nodes[kwn].str = new_kw;
+    parser->prog->nodes[kwn].str_len = 3;
+    int32_t expr = jm_node_new(parser->prog, JN_MEMBER_EXPR);
+    set_a(parser, expr, kwn);
+    set_b(parser, expr, target);
+    return expr;
+}
+
 static int32_t parse_template(P *parser) {
     int32_t node = jm_node_new(parser->prog, JN_TEMPLATE);
     int32_t head = jm_node_new(parser->prog, JN_QUASI);
@@ -1196,17 +1229,7 @@ static int32_t parse_object(P *parser) {
             if (!is_get && !is_set && eat(parser, JT_STAR)) {
                 is_gen = 1;
             }
-            /* key */
-            if (at(parser, JT_LBRACK)) {
-                advance(parser);
-                parser->prog->nodes[prop].flags |= JN_F_COMPUTED;
-                set_a(parser, prop, parse_assign(parser, 0));
-                expect(parser, JT_RBRACK, "expected ]");
-            } else if (at(parser, JT_STRING) || at(parser, JT_NUM)) {
-                set_a(parser, prop, leaf(parser, at(parser, JT_STRING) ? JN_STRING : JN_NUM));
-            } else {
-                set_a(parser, prop, leaf(parser, JN_IDENT)); /* identifier or #private key */
-            }
+            parse_key(parser, prop);
             if (parser->err) {
                 return -1;
             }
@@ -1227,11 +1250,7 @@ static int32_t parse_object(P *parser) {
                 } else {
                     parser->prog->nodes[prop].flags |= JN_F_METHOD;
                 }
-                parse_params(parser, fn);
-                if (parser->err) {
-                    return -1;
-                }
-                set_b(parser, fn, parse_block(parser, 1));
+                parse_function_rest(parser, fn);
                 set_b(parser, prop, fn);
             } else if (eat(parser, JT_COLON)) {
                 set_b(parser, prop, parse_assign(parser, 0));
@@ -1262,6 +1281,21 @@ static int32_t parse_object(P *parser) {
     }
     expect(parser, JT_RBRACE, "expected }");
     return parser->err ? -1 : node;
+}
+
+/* A property or class element name: a [computed] expression, a string or number literal, or an identifier or #private
+   name, stored in owner's key slot. */
+static void parse_key(P *parser, int32_t owner) {
+    if (at(parser, JT_LBRACK)) {
+        advance(parser);
+        parser->prog->nodes[owner].flags |= JN_F_COMPUTED;
+        set_a(parser, owner, parse_assign(parser, 0));
+        expect(parser, JT_RBRACK, "expected ]");
+    } else if (at(parser, JT_STRING) || at(parser, JT_NUM)) {
+        set_a(parser, owner, leaf(parser, at(parser, JT_STRING) ? JN_STRING : JN_NUM));
+    } else {
+        set_a(parser, owner, leaf(parser, JN_IDENT));
+    }
 }
 
 static int32_t parse_array(P *parser) {
@@ -1339,9 +1373,8 @@ static int32_t parse_primary(P *parser) {
         return expr;
     }
     case JT_IDENT:
-        if (kw(parser, "import")) { /* import.meta / import(); export never reaches expression position */
-            fail(parser, "module syntax unsupported");
-            return -1;
+        if (kw(parser, "import")) {
+            return parse_import_call(parser);
         }
         if (kw(parser, "function")) {
             return parse_function(parser, 1, 0);
@@ -1357,11 +1390,59 @@ static int32_t parse_primary(P *parser) {
             }
             reset(parser, save);
         }
+        if (parser->lx.text_len == 5 && (kw(parser, "await") || kw(parser, "yield")) && operand_follows(parser)) {
+            fail(parser, "await or yield expression not allowed here");
+            return -1;
+        }
         return leaf(parser, JN_IDENT);
     default:
         fail(parser, "unexpected token");
         return -1;
     }
+}
+
+/* `import(...)` is the one import form a script holds (ECMA-262 13.3.10). Its callee parses as the identifier
+   `import`, a reserved word no binding shadows; import.meta and import declarations are module syntax. */
+static int32_t parse_import_call(P *parser) {
+    jm_mark save = mark(parser);
+    advance(parser);
+    int call = at(parser, JT_LPAREN);
+    reset(parser, save);
+    if (!call) {
+        fail(parser, "module syntax unsupported");
+        return -1;
+    }
+    return leaf(parser, JN_IDENT);
+}
+
+/* Whether a token that starts an operand follows the current identifier on the same line. Nothing continues an
+   identifier that way, so `await x` or `yield x` outside an async function or generator is an AwaitExpression or
+   YieldExpression the grammar forbids there (ECMA-262 15.8, 15.5), which the lenient statement end would otherwise
+   split into `await;x`. */
+static int operand_follows(P *parser) {
+    jm_mark save = mark(parser);
+    advance(parser);
+    int operand = 0;
+    if (!parser->lx.newline_before) {
+        switch (parser->lx.kind) {
+        case JT_NUM:
+        case JT_STRING:
+        case JT_BIGINT:
+        case JT_PRIVATE:
+        case JT_LBRACE:
+        case JT_NOT:
+        case JT_BIT_NOT:
+            operand = 1;
+            break;
+        case JT_IDENT:
+            operand = !kw(parser, "in") && !kw(parser, "instanceof") && !kw(parser, "of");
+            break;
+        default:
+            break;
+        }
+    }
+    reset(parser, save);
+    return operand;
 }
 
 static void parse_params(P *parser, int32_t fn) {
@@ -1404,12 +1485,23 @@ static int32_t parse_function(P *parser, int is_expr, int is_async) {
         fail(parser, "expected function name"); /* a declaration binds a name (§15.2); only an expression omits it */
         return -1;
     }
-    parse_params(parser, node);
-    if (parser->err) {
-        return -1;
-    }
-    set_b(parser, node, parse_block(parser, 1));
+    parse_function_rest(parser, node);
     return parser->err ? -1 : node;
+}
+
+/* The parameters and body of a function or method, where `await` and `yield` are operators exactly when it is async
+   or a generator (ECMA-262 15.2-15.8); elsewhere in a script they are identifiers (13.1). */
+static void parse_function_rest(P *parser, int32_t fn) {
+    int outer_await = parser->await_keyword;
+    int outer_yield = parser->yield_keyword;
+    parser->await_keyword = (parser->prog->nodes[fn].flags & JN_F_ASYNC) != 0;
+    parser->yield_keyword = (parser->prog->nodes[fn].flags & JN_F_GENERATOR) != 0;
+    parse_params(parser, fn);
+    if (!parser->err) {
+        set_b(parser, fn, parse_block(parser, 1));
+    }
+    parser->await_keyword = outer_await;
+    parser->yield_keyword = outer_yield;
 }
 
 static int32_t parse_class(P *parser, int is_expr) {
@@ -1455,8 +1547,9 @@ static int32_t parse_class(P *parser, int is_expr) {
         if (kw(parser, "async")) {
             jm_mark save = mark(parser);
             advance(parser);
-            if (at(parser, JT_LPAREN) || at(parser, JT_ASSIGN) || at(parser, JT_SEMI) || parser->lx.newline_before) {
-                reset(parser, save);
+            if (at(parser, JT_LPAREN) || at(parser, JT_ASSIGN) || at(parser, JT_SEMI) || at(parser, JT_RBRACE) ||
+                parser->lx.newline_before) {
+                reset(parser, save); /* a field named async */
             } else {
                 is_async = 1;
             }
@@ -1479,21 +1572,16 @@ static int32_t parse_class(P *parser, int is_expr) {
         if (is_static) {
             parser->prog->nodes[member].flags |= JN_F_STATIC;
         }
-        /* key */
-        if (at(parser, JT_LBRACK)) {
-            advance(parser);
-            parser->prog->nodes[member].flags |= JN_F_COMPUTED;
-            set_a(parser, member, parse_assign(parser, 0));
-            expect(parser, JT_RBRACK, "expected ]");
-        } else if (at(parser, JT_STRING) || at(parser, JT_NUM)) {
-            set_a(parser, member, leaf(parser, at(parser, JT_STRING) ? JN_STRING : JN_NUM));
-        } else {
-            set_a(parser, member, leaf(parser, JN_IDENT)); /* identifier or #private */
+        int is_block = is_static && at(parser, JT_LBRACE);
+        if (!is_block) {
+            parse_key(parser, member);
         }
         if (parser->err) {
             return -1;
         }
-        if (is_get || is_set || is_gen || is_async || at(parser, JT_LPAREN)) {
+        if (is_block) {
+            parse_static_block(parser, member);
+        } else if (is_get || is_set || is_gen || is_async || at(parser, JT_LPAREN)) {
             int32_t fn = jm_node_new(parser->prog, JN_FUNC);
             parser->prog->nodes[fn].flags |= JN_F_EXPR;
             if (is_async) {
@@ -1503,11 +1591,7 @@ static int32_t parse_class(P *parser, int is_expr) {
                 parser->prog->nodes[fn].flags |= JN_F_GENERATOR;
             }
             parser->prog->nodes[member].decl = is_get ? 1 : is_set ? 2 : 0; /* 0 method, 1 get, 2 set */
-            parse_params(parser, fn);
-            if (parser->err) {
-                return -1;
-            }
-            set_b(parser, fn, parse_block(parser, 1));
+            parse_function_rest(parser, fn);
             set_b(parser, member, fn);
         } else {
             /* a field: optional initializer, then ASI */
@@ -1531,6 +1615,22 @@ static int32_t parse_class(P *parser, int is_expr) {
     return parser->err ? -1 : node;
 }
 
+/* A class static block `static{...}` (ECMA-262 15.7): a keyless member whose value is a parameterless function, so
+   every pass gives the body its own var scope. Neither `await` nor `yield` is an operator in it (15.7.1). */
+static void parse_static_block(P *parser, int32_t member) {
+    int32_t fn = jm_node_new(parser->prog, JN_FUNC);
+    parser->prog->nodes[fn].flags |= JN_F_EXPR;
+    parser->prog->nodes[member].decl = 4; /* static block */
+    int outer_await = parser->await_keyword;
+    int outer_yield = parser->yield_keyword;
+    parser->await_keyword = 0;
+    parser->yield_keyword = 0;
+    set_b(parser, fn, parse_block(parser, 0));
+    parser->await_keyword = outer_await;
+    parser->yield_keyword = outer_yield;
+    set_b(parser, member, fn);
+}
+
 jm_program *jm_parse(const Py_UCS4 *src, Py_ssize_t len, int module, char *errbuf, size_t errlen) {
     jm_program *prog = jm_calloc(1, sizeof(jm_program));
     if (prog == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -1542,7 +1642,7 @@ jm_program *jm_parse(const Py_UCS4 *src, Py_ssize_t len, int module, char *errbu
     prog->src = src;
     prog->src_len = len;
 
-    P parser = {.prog = prog, .err = 0, .errbuf = errbuf, .errlen = errlen};
+    P parser = {.prog = prog, .err = 0, .errbuf = errbuf, .errlen = errlen, .await_keyword = module};
     if (errlen > 0) { /* errlen==0 is the no-message opt-out the HTML inline-<script> path uses */
         errbuf[0] = '\0';
     }

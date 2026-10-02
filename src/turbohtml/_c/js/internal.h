@@ -175,7 +175,8 @@ typedef enum {
     JN_TRY,       /* a = block; b = catch param or -1; c = catch block or -1; d = finally or -1 */
     JN_FUNC,      /* str = name or NULL; a = first param; b = body block; flags async/generator/expr */
     JN_CLASS,     /* str = name or NULL; a = superclass or -1; b = first JN_MEMBER */
-    JN_MEMBER,    /* class member: a = key; b = value; decl = member kind; flags static/computed */
+    JN_MEMBER,    /* class member: a = key; b = value; flags static/computed; decl = member kind: 0 method,
+                     1 get, 2 set, 3 field, 4 static block (no key; b = a parameterless function) */
     JN_LABEL,     /* str = label; a = statement */
     JN_WITH,      /* a = object; b = body */
     JN_DEBUGGER,

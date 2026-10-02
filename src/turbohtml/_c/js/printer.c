@@ -1005,6 +1005,11 @@ static void print_class(St *st, int32_t index) {
     put_char(st, '{');
     for (int32_t member = node->b; member >= 0; member = st->prog->nodes[member].next) {
         const jm_node *mn = &st->prog->nodes[member];
+        if (mn->decl == 4) { /* a static block: its value is a parameterless function holding the body */
+            put_ascii(st, "static");
+            print_block(st, st->prog->nodes[mn->b].b, 0);
+            continue;
+        }
         if (mn->flags & JN_F_STATIC) {
             put_ascii(st, "static ");
         }

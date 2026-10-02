@@ -114,6 +114,9 @@ def minify(source: str) -> str:
         pytest.param("async function f(){await}", id="await-no-operand"),
         pytest.param("switch(x){case 1:a()", id="unterminated-switch"),
         pytest.param("break\\x", id="break-lexer-error"),
+        pytest.param("class C{static{1*}}", id="static-block-body-error"),
+        pytest.param("import.meta", id="import-meta-unsupported"),
+        pytest.param("for await(x of y);", id="for-await-outside-async"),
         pytest.param("function*g(){yield 1*}", id="yield-operand-error"),
         pytest.param("function*g(){yield", id="yield-at-eof"),
         # a trailing comma then EOF, so the comma-separated loop exits on its end-of-input guard
@@ -341,3 +344,80 @@ def test_backtrack_parses(source: str, expected: str) -> None:
 )
 def test_async_function_expression_keeps_name_and_star(source: str) -> None:
     assert minify(source) == source
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("(async function(){})()", "(async function(){}())", id="anonymous-async-function-expression"),
+        pytest.param("function f(await){}", "function f(await){}", id="await-parameter"),
+        pytest.param("await(1)", "await(1)", id="await-call"),
+        pytest.param("async function f(){await(1)}", "async function f(){await 1}", id="await-in-async-function"),
+        pytest.param("async function f(){for(;;);}", "async function f(){for(;;);}", id="for-in-async-function"),
+        pytest.param("async function f(){()=>await(1)}", "async function f(){()=>await(1)}", id="await-in-arrow"),
+        pytest.param("x=async()=>await(1)", "x=async ()=>await 1", id="await-in-async-arrow"),
+        pytest.param(
+            "async function f(){x={async m(){await(1)},n(){await(1)}}}",
+            "async function f(){x={async m(){await 1},n(){await(1)}}}",
+            id="await-in-methods",
+        ),
+        pytest.param("yield&&0", "yield&&0", id="yield-operand"),
+        pytest.param("function f(yield=0){}", "function f(yield=0){}", id="yield-parameter-default"),
+        pytest.param("function*g(){function f(){yield(1)}}", "function*g(){function f(){yield(1)}}", id="nested"),
+        pytest.param("for(await of a);", "for(await of a);", id="await-for-of-target"),
+        pytest.param("x=await in a", "x=await in a", id="await-in-operator"),
+        pytest.param("x=yield instanceof a", "x=yield instanceof a", id="yield-instanceof-operator"),
+        pytest.param("x=await\n1", "x=await;1", id="await-then-newline"),
+        pytest.param("class C{static{}}", "class C{static{}}", id="static-block"),
+        pytest.param("class C{x;static{f()}y}", "class C{x;static{f()}y}", id="static-block-between-fields"),
+        pytest.param("class C{async}", "class C{async}", id="async-field-before-brace"),
+        pytest.param("class C{static async}", "class C{static async}", id="static-async-field"),
+        pytest.param(
+            "function F(){return new new.target()}", "function F(){return new new.target()}", id="new-new-target"
+        ),
+        pytest.param("function F(){new new.target.x}", "function F(){new new.target.x()}", id="new-new-target-member"),
+        pytest.param('import("x")', 'import("x")', id="dynamic-import-statement"),
+        pytest.param('x=import("y").then(f)', 'x=import("y").then(f)', id="dynamic-import-expression"),
+    ],
+)
+def test_script_grammar_minifies_to(source: str, expected: str) -> None:
+    assert minify(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("function f(){await 1}", id="number"),
+        pytest.param("function f(){await 's'}", id="string"),
+        pytest.param("function f(){await 1n}", id="bigint"),
+        pytest.param("class C{#p;m(){await #p in this}}", id="private-name"),
+        pytest.param("function f(){await{}}", id="object"),
+        pytest.param("function f(){await!x}", id="not"),
+        pytest.param("function f(){await~x}", id="bitwise-not"),
+        pytest.param("function f(){await x}", id="identifier"),
+        pytest.param("function f(){yield x}", id="yield"),
+        pytest.param("function*g(){()=>yield 1}", id="yield-in-arrow"),
+        pytest.param("async function f(){class C{static{await x}}}", id="await-in-static-block"),
+        pytest.param("function*g(){class C{static{yield x}}}", id="yield-in-static-block"),
+    ],
+)
+def test_await_or_yield_operator_outside_its_function_raises(source: str) -> None:
+    with pytest.raises(ValueError, match="await or yield expression not allowed here at offset"):
+        minify(source)
+
+
+def test_static_block_scopes_its_vars() -> None:
+    source = "function f(t){class C{static{var t=1;g(t)}}return t}"
+    assert minify_js(source) == "function f(a){class b{static{g(1)}}return a}"
+
+
+@pytest.mark.parametrize(
+    ("script_type", "expected"),
+    [
+        pytest.param("", "<script type>await(1)</script>", id="classic-call"),
+        pytest.param("module", "<script type=module>await 1</script>", id="module-top-level-await"),
+    ],
+)
+def test_await_follows_script_goal(script_type: str, expected: str) -> None:
+    html = f'<script type="{script_type}">await(1)</script>'
+    assert clean.minify(html, Minify(minify_js=JSMinify())) == expected
