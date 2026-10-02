@@ -1,0 +1,2 @@
+:meth:`~turbohtml.Node.to_markdown`, :meth:`~turbohtml.Node.to_text`, and :meth:`~turbohtml.Node.to_annotated_text`
+render trees of any depth, including nested ``<template>`` elements, instead of raising :exc:`RecursionError`.

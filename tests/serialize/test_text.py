@@ -211,6 +211,9 @@ def test_text_edge_cases(html: str, opts: PlainText, expected: str) -> None:
         pytest.param("<table></table>", "", id="empty-table"),
         pytest.param("<table><tr></tr></table>", "", id="row-no-cells"),
         pytest.param(
+            "<table><thead></thead><tbody><tr><td>a</td><td>b</td></tr></tbody></table>", "a  b", id="empty-row-group"
+        ),
+        pytest.param(
             "<table><caption>c</caption><thead><tr><th>H</th></tr></thead>"
             "<tbody><tr><td>a</td></tr></tbody><tfoot><tr><td>f</td></tr></tfoot></table>",
             "H\na\nf",

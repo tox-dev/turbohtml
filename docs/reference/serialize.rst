@@ -64,10 +64,8 @@ string helpers; :func:`annotation_surface` and :func:`annotation_tags` post-proc
 :class:`~turbohtml.clean.JSMinify` passed to :class:`Minify` extends HTML minification into inline ``<script>`` content;
 the standalone :func:`~turbohtml.clean.minify_js` lives with the other minifiers in :mod:`turbohtml.clean`.
 
-Markup serialization and :attr:`Node.text` use parent-linked tree walks and do not impose a nesting limit. The stateful
-:meth:`Node.to_markdown`, :meth:`Node.to_text`, and :meth:`Node.to_annotated_text` formatters accept nesting below 1,024
-levels. At 1,024 levels they raise :exc:`RecursionError` before output allocation or converter invocation. Callers
-receive no partial prefix.
+Markup serialization, :attr:`Node.text`, :meth:`Node.to_markdown`, :meth:`Node.to_text`, and
+:meth:`Node.to_annotated_text` walk the tree without recursion and impose no nesting limit.
 
 .. autofunction:: escape
 

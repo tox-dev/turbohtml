@@ -1474,23 +1474,43 @@ def test_css_has_reads_a_deep_programmatic_tree() -> None:
 
 
 @pytest.mark.parametrize(
-    ("method", "args"),
+    ("method", "args", "expected"),
     [
-        pytest.param("to_markdown", (), id="markdown"),
-        pytest.param("to_text", (), id="text"),
-        pytest.param("to_annotated_text", ({"div": ["deep"]},), id="annotated-text"),
+        pytest.param("to_markdown", (), "X", id="markdown"),
+        pytest.param("to_text", (), "X", id="text"),
+        pytest.param(
+            "to_annotated_text", ({"div": ["deep"]},), ("X", [(0, 1, "deep")] * (_DEEP + 1)), id="annotated-text"
+        ),
     ],
 )
-def test_recursive_renderers_reject_a_deep_tree_before_output(method: str, args: tuple[object, ...]) -> None:
-    root = _nested("div", _DEEP)
-    with pytest.raises(RecursionError, match=rf"{method}\(\).*1024"):
-        getattr(root, method)(*args)
+def test_renderers_complete_a_deep_tree(method: str, args: tuple[object, ...], expected: object) -> None:
+    assert getattr(_nested("div", _DEEP), method)(*args) == expected
 
 
-def test_recursive_renderers_accept_the_last_supported_depth() -> None:
-    root = _nested("b", 1_022)
-    assert "X" in root.to_markdown()
-    assert root.to_text() == "X"
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda: parse("<body>" + "<template>" * 511 + "x"), id="parse"),
+        pytest.param(lambda: parse_fragment("<template>" * 600 + "x"), id="parse_fragment"),
+        pytest.param(lambda: parse_xml("<a>" * _DEEP + "x" + "</a>" * _DEEP), id="parse_xml"),
+    ],
+)
+def test_renderers_complete_every_parsed_depth(build: Callable[[], Document | Element]) -> None:
+    document = build()
+    assert (document.to_markdown(), document.to_text(), document.to_annotated_text({"template": ["t"]})[0]) == (
+        "x",
+        "x",
+        "x",
+    )
+
+
+def test_markdown_closes_every_nested_emphasis() -> None:
+    assert _nested("i", 40).to_markdown() == "*" * 40 + "X" + "*" * 40
+
+
+def test_annotated_text_labels_every_nested_template() -> None:
+    document = parse("<body>" + "<template>" * 511 + "x")
+    assert document.to_annotated_text({"template": ["t"]}) == ("x", [(0, 1, "t")] * 510)
 
 
 @pytest.mark.parametrize("duplicate", [pytest.param(copy.copy, id="copy"), pytest.param(copy.deepcopy, id="deepcopy")])
@@ -1534,14 +1554,11 @@ def test_normalize_walk_merges_text_within_the_cap() -> None:
     assert element.text == "ab"
 
 
-def test_readability_reaches_a_deep_programmatic_tree_before_render_preflight() -> None:
+def test_readability_renders_a_deep_programmatic_tree() -> None:
     root = _nested("x", _DEEP, None)
     root.append(Element("p", None, [Text("A long article sentence, " * 20)]))
-    assert root.main_content() == root
-    with pytest.raises(RecursionError, match=r"to_text\(\).*1024"):
-        root.main_text()
-    with pytest.raises(RecursionError, match=r"to_text\(\).*1024"):
-        root.article()
+    expected = ("A long article sentence, " * 20).rstrip()
+    assert (root.main_content(), root.main_text(), root.article().text) == (root, expected, expected)
 
 
 @pytest.mark.parametrize("method", ["clone_contents", "extract_contents", "delete_contents"])
@@ -1608,16 +1625,15 @@ def test_deep_operations_fit_a_small_thread_stack() -> None:
         _nested("x", _DEEP, "bottom"),
     ]
 
-    def run() -> list[tuple[str, str, str]]:
-        captured: list[tuple[str, str, str]] = []
+    def run() -> list[tuple[str, str, str, str, str]]:
+        captured: list[tuple[str, str, str, str, str]] = []
         for root in roots:
             assert isinstance(root, Element)
             clone = copy.deepcopy(root)
             clone.normalize()
-            with pytest.raises(RecursionError):
-                root.to_markdown()
             assert root.matches(":has(x)")
-            captured.append((root.text, clone.text, root.serialize(Html(layout=Indent(1)))))
+            markup = root.serialize(Html(layout=Indent(1)))
+            captured.append((root.text, clone.text, root.to_markdown(), root.to_text(), markup))
         return captured
 
     previous = threading.stack_size(256 * 1024)
@@ -1626,5 +1642,5 @@ def test_deep_operations_fit_a_small_thread_stack() -> None:
             captured = pool.submit(run).result()
     finally:
         threading.stack_size(previous)
-    assert [(text, clone_text) for text, clone_text, _ in captured] == [("bottom", "bottom")] * 2
-    assert all("bottom" in markup for _, _, markup in captured)
+    assert [entry[:4] for entry in captured] == [("bottom",) * 4] * 2
+    assert all("bottom" in entry[4] for entry in captured)

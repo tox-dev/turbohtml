@@ -828,6 +828,11 @@ def test_edge_cases(html: str, expected: str) -> None:
             "| a |\n| --- |\n| b |",
             id="table-with-comment",
         ),
+        pytest.param(
+            "<table><thead></thead><tbody><tr><td>a</td><td>b</td></tr></tbody></table>",
+            "| a | b |\n| --- | --- |",
+            id="empty-row-group",
+        ),
     ],
 )
 def test_table_edge_cases(html: str, expected: str) -> None:
@@ -1813,6 +1818,24 @@ def test_wrap_list_items(config: Markdown, expected: str) -> None:
             "[alpha\nbeta gamma](u)",
             id="links-wrap-when-allowed",
         ),
+        pytest.param(
+            "<p><a>alpha beta gamma</a></p>",
+            Markdown(wrapping=Markdown.Wrapping(width=10, links=False)),
+            "alpha beta gamma",
+            id="anchor-without-href-unbroken",
+        ),
+        pytest.param(
+            '<p>aaaaaaaaaaaa <a href="http://e.example/x">http://e.example/x</a></p>',
+            Markdown(wrapping=Markdown.Wrapping(width=10, links=False)),
+            "aaaaaaaaaaaa <http://e.example/x>",
+            id="autolink-unbroken",
+        ),
+        pytest.param(
+            '<p>aaaaaaaaaaaa <a href="http://e.example/x">http://e.example/x</a></p>',
+            Markdown(wrapping=Markdown.Wrapping(width=10)),
+            "aaaaaaaaaaaa\n<http://e.example/x>",
+            id="autolink-wraps-when-allowed",
+        ),
     ],
 )
 def test_wrap_links(html: str, config: Markdown, expected: str) -> None:
@@ -1833,6 +1856,18 @@ def test_wrap_links(html: str, config: Markdown, expected: str) -> None:
             Markdown(tables=Markdown.Tables(mode="html")),
             "<table><tbody><tr><td>a</td></tr></tbody></table>",
             id="table-html-verbatim",
+        ),
+        pytest.param(
+            "<p>a</p><table></table><p>b</p>",
+            Markdown(tables=Markdown.Tables(mode="html")),
+            "a\n\nb",
+            id="table-html-without-rows",
+        ),
+        pytest.param(
+            "<p>a</p><table><tr></tr></table><p>b</p>",
+            Markdown(tables=Markdown.Tables(mode="html")),
+            "a\n\nb",
+            id="table-html-without-cells",
         ),
     ],
 )
@@ -2133,6 +2168,12 @@ def test_images(html: str, opts: Markdown, expected: str) -> None:
             Markdown(tables=Markdown.Tables(mode="strip")),
             "a b",
             id="table-strip",
+        ),
+        pytest.param(
+            "<table><tr><td><b>a</b> c</td><td>b</td></tr></table>",
+            Markdown(tables=Markdown.Tables(mode="strip")),
+            "**a** c b",
+            id="table-strip-cell-markup",
         ),
         pytest.param(
             "<table><caption>cap</caption><tr><td>a</td></tr></table>",

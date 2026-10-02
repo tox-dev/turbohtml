@@ -29,10 +29,6 @@
    parser bookkeeping bounded, and caps the O(depth^2) cost a linear run of start tags would otherwise pay. */
 #define TH_MAX_TREE_DEPTH 512
 
-/* Markdown and layout-text formatting still use recursive state machines whose entry/exit actions depend on the C call
-   stack. They preflight this limit with a parent-linked walk and raise before producing output. */
-#define TH_MAX_RECURSIVE_RENDER_DEPTH ((Py_ssize_t)(TH_MAX_TREE_DEPTH * 2))
-
 enum th_node_type {
     TH_NODE_DOCUMENT,
     TH_NODE_ELEMENT,
