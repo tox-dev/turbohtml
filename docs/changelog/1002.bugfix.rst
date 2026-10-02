@@ -1,0 +1,1 @@
+Make :func:`turbohtml.clean.sanitize` HTML output re-parse to the tree the policy judged.

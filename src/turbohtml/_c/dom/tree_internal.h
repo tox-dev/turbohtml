@@ -108,6 +108,9 @@ struct th_tree {
     int drop_newline;       /* drop a single leading LF after pre/listing/textarea */
     Py_ssize_t text_offset; /* leading code points of a reprocessed text token already consumed */
     int foster;             /* when set, inserts are foster-parented out of a table */
+    /* set on the rare tree-construction branches whose result its own serialization can re-parse differently (see
+       th_tree_reparse_hazard); it fills the padding before the next pointer, so th_tree stays at 512 bytes */
+    int reparse_hazard;
     /* the end-tag token currently being processed, or NULL; stack_pop flags the
        element it closes with TH_ELEM_CLOSED_BY_END_TAG so the sanitizer can tell a
        source-closed element from a parser-closed one */

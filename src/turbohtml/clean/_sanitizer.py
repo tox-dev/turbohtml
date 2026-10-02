@@ -419,6 +419,7 @@ class Sanitizer:
             policy.allow_mathml,
             policy.attribute_predicate,
             policy._bleach_url_policy,  # ruff:ignore[private-member-access]  # bridge the migration-only C option
+            policy.xml,  # the XML serializer round-trips through parse_xml, so the HTML parse-stability pass is skipped
         )
 
 

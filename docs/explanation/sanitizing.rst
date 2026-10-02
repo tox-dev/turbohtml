@@ -95,6 +95,23 @@ reached.
 The policy walk uses an explicit checked stack rather than C recursion. It reaches the final safety pass at all depths
 that fits in memory; nesting cannot truncate the sanitized result or skip a descendant's checks.
 
+The HTML output carries a guarantee beyond keeping every node safe: parsed again as the content of a ``div``, it
+rebuilds the tree the policy judged. HTML has no close tags in its abstract syntax, so a browser re-running the
+tree-construction rules on the string can nest, drop, or move an element the walk left in place, and the tree it then
+builds, not the one the walk judged, is what runs. That gap is a mutation-XSS surface: two forms the form-element
+pointer collapses, a cell foster-parented out of a table, a list item a sibling auto-closes, an HTML element re-read as
+MathML.
+
+A balancer closes it. It escapes to inert text any kept element the output would not re-parse to its place, and moves
+non-whitespace table text out of the table, where a browser puts it. The rules are a browser's own: implied end tags and
+the list-item, option, select, button, heading, ruby, and block auto-close; the form-element pointer; ``a`` and ``nobr``
+re-entry; foster parenting, the implied ``tbody``/``tr``/``colgroup`` wrappers, and what a table or ``colgroup`` keeps,
+a hidden ``input`` included; the foreign-content integration points.
+
+One difference remains: whitespace-only text inside a ``form`` that sits directly in a table can re-parse one position
+over, as the form's sibling. XML output skips the balancer, since the XML serializer round-trips through
+:func:`turbohtml.parse_xml`.
+
 The ``xml`` flag sits outside the subtractive stack entirely: it changes how the surviving tree is *serialized*, not
 what survives. The walk is identical, and the safety baseline is unchanged, so an XML-mode policy is exactly as safe as
 its HTML-mode twin -- serializing more strictly cannot make a safe tree unsafe. What the XML serializer adds is

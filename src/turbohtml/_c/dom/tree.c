@@ -327,6 +327,10 @@ int th_tree_scripting(const th_tree *tree) {
     return tree->scripting;
 }
 
+int th_tree_reparse_hazard(const th_tree *tree) {
+    return tree->reparse_hazard;
+}
+
 Py_ssize_t th_tree_max_depth(const th_tree *tree) {
     return tree->max_depth;
 }
@@ -1912,6 +1916,8 @@ static void reconstruct_afe(th_tree *tree) {
         node_insert_before(parent, clone, before);
         stack_push(tree, clone);
         tree->afe[index] = clone;
+        /* an a or nobr start tag closes an open one in scope, so a clone the output nests in its namesake moves out */
+        tree->reparse_hazard |= (clone->atom == TH_TAG_A) | (clone->atom == TH_TAG_NOBR);
     }
 }
 
@@ -1978,6 +1984,8 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
             afe_remove_at(tree, fi);
             return 1;
         }
+        /* moving the furthest block under a formatting clone can nest it where its own start tag would not */
+        tree->reparse_hazard = 1;
         th_node *common = tree->open[fmt_stack - 1];
         Py_ssize_t bookmark = afe_index_of(tree, fmt);
         th_node *node, *last = furthest;
@@ -2117,6 +2125,17 @@ static void close_p_in_button_scope(th_tree *tree) {
     if (has_in_button_scope(tree, TH_TAG_P)) {
         generate_implied_end_tags(tree, TH_TAG_P);
         pop_until_atom(tree, TH_TAG_P);
+    }
+}
+
+/* close_p_in_button_scope for a list-item start tag whose scan stopped at the special element at `barrier` (-1 when it
+   found its item instead). Closing the p can pop that element too; the output then closes it explicitly, so a re-parse
+   scan runs past it to the list item this one now nests in. */
+static void close_p_before_list_item(th_tree *tree, Py_ssize_t barrier) {
+    if (has_in_button_scope(tree, TH_TAG_P)) {
+        generate_implied_end_tags(tree, TH_TAG_P);
+        pop_until_atom(tree, TH_TAG_P);
+        tree->reparse_hazard |= barrier >= tree->open_len;
     }
 }
 
@@ -3171,6 +3190,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_LI) {
+            Py_ssize_t barrier = -1;
             /* html bounds the stack walk */
             for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
                 uint16_t open_atom = tree->open[index]->atom;
@@ -3181,10 +3201,11 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
                 }
                 if ((tree->open[index]->tag_flags & TH_TAG_SPECIAL) && open_atom != TH_TAG_ADDRESS &&
                     open_atom != TH_TAG_DIV && open_atom != TH_TAG_P) {
+                    barrier = index;
                     break;
                 }
             }
-            close_p_in_button_scope(tree);
+            close_p_before_list_item(tree, barrier);
             th_node *node = insert_element(tree, tok);
             if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
                 stack_push(tree, node);
@@ -3192,6 +3213,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_DD || atom == TH_TAG_DT) {
+            Py_ssize_t barrier = -1;
             /* html bounds the stack walk */
             for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
                 uint16_t open_atom = tree->open[index]->atom;
@@ -3202,10 +3224,11 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
                 }
                 if ((tree->open[index]->tag_flags & TH_TAG_SPECIAL) && open_atom != TH_TAG_ADDRESS &&
                     open_atom != TH_TAG_DIV && open_atom != TH_TAG_P) {
+                    barrier = index;
                     break;
                 }
             }
-            close_p_in_button_scope(tree);
+            close_p_before_list_item(tree, barrier);
             th_node *node = insert_element(tree, tok);
             if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
                 stack_push(tree, node);
@@ -3313,6 +3336,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             return TH_DRAIN_NEXT; /* img is void */
         }
         if (atom == TH_TAG_PLAINTEXT) {
+            tree->reparse_hazard = 1; /* the serialized </plaintext> re-parses as text, as does everything after it */
             close_p_in_button_scope(tree);
             th_node *node = insert_element(tree, tok);
             if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
@@ -3502,6 +3526,10 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
                     }
                 }
                 if (!in_scope) {
+                    /* the form stays open with its pointer cleared, so a later <form> nests inside it */
+                    if (node != NULL) {
+                        tree->reparse_hazard = 1;
+                    }
                     return TH_DRAIN_NEXT; /* parse error, ignored */
                 }
                 generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
@@ -3510,6 +3538,10 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
                 /* the form element is on the stack when this runs, so it */
                 for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
                     if (tree->open[index] == node) {
+                        /* removed from under still-open descendants, which a later <form> then nests inside */
+                        if (index != tree->open_len - 1) {
+                            tree->reparse_hazard = 1;
+                        }
                         stack_remove_at(tree, index);
                         break;
                     }
@@ -3691,6 +3723,9 @@ static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc)
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_INPUT && input_is_hidden(tok)) {
+            /* it stays only while its type attribute does: an attribute filter dropping it makes the output foster it
+             */
+            tree->reparse_hazard = 1;
             insert_void_element(tree, tok); /* a hidden input stays in the table, no fostering */
             dc->mode = dc->table_origin;
             return TH_DRAIN_NEXT;
@@ -3704,8 +3739,11 @@ static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc)
             dc->mode = dc->table_origin;
             return TH_DRAIN_NEXT;
         }
-        /* anything else: foster-parent this one token under in-body rules */
+        /* anything else: foster-parent this one token under in-body rules; the output nests it where it landed,
+           which a re-parse in the plain mode for that position treats differently (and in a template, the token never
+           left) */
         tree->foster = 1;
+        tree->reparse_hazard = 1;
         dc->foster_pending = 1;
         dc->foster_return = dc->table_origin;
         dc->mode = M_IN_BODY;
@@ -4153,6 +4191,9 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
         if (tok->kind == TH_END_TAG && dc->mode >= M_IN_HEAD && tok_atom(tok) == TH_TAG_TEMPLATE) {
             if (stack_index_of_atom(tree, TH_TAG_TEMPLATE) >= 0) {
                 generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
+                /* an element still open inside the template may have pushed its own formatting marker, which the clear
+                   below leaves behind, shielding an outer a/nobr the output's explicit end tags no longer shield */
+                tree->reparse_hazard |= current_node(tree)->atom != TH_TAG_TEMPLATE;
                 pop_until_atom(tree, TH_TAG_TEMPLATE);
                 afe_clear_to_marker(tree);
                 tmpl_pop(tree);

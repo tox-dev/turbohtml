@@ -475,6 +475,14 @@ void th_tree_set_quirks(th_tree *tree, int quirks);
    syntax the node does not record, so th_tree_quirks can hold where this does not. */
 int th_doctype_is_quirky(th_node *node);
 
+/* Whether the parse took a branch whose result its serialization can re-parse differently: a start tag a table mode
+   foster-parents, the adoption agency's furthest-block repair, reconstructing an a or nobr, a form left open after its
+   pointer cleared, a foreign <html>, <plaintext>, a list-item scan barrier popped with an open p, a template closed
+   over open elements, or a hidden input kept in a table (it stays only while its type attribute does). Without it,
+   serialize-then-parse rebuilds the tree (measured on 8M fuzzed inputs), so the sanitizer re-checks only its own
+   edits; a tree not built by the parser reports 0 and gets the whole-tree pass from its caller. */
+int th_tree_reparse_hazard(const th_tree *tree);
+
 /* Whether the tree was parsed with the WHATWG scripting flag on (noscript is a
    raw-text element); programmatic trees default to off. innerHTML fragment parsing
    reads it so a scripting-parsed subtree keeps building noscript as raw text. */

@@ -280,6 +280,9 @@ static th_node *insert_foreign(th_tree *tree, th_token *token, uint8_t ns) {
                   (ns == TH_NS_SVG &&
                    (node->atom == TH_TAG_FOREIGNOBJECT || node->atom == TH_TAG_DESC || node->atom == TH_TAG_TITLE));
     node->tag_flags = special ? TH_TAG_SPECIAL : 0;
+    /* reset_insertion_mode matches the html atom without its namespace, so re-parsing the output can take a foreign
+       <html> for the root and open head/body under it */
+    tree->reparse_hazard |= node->atom == TH_TAG_HTML;
     /* "adjust MathML/SVG attributes": map a lowercased foreign attribute name back to
        its mixed case (definitionURL, viewBox, attributeName, ...). foreign_adjust_attr
        dispatches on the namespace. Done here, at construction, so the cased name lands
