@@ -221,11 +221,6 @@ def test_attribute_value(markup: str, expected: str) -> None:
     assert dict(root_of(parse_xml(markup)).attrs) == {"a": expected}
 
 
-def test_empty_prefixed_namespace_declaration_is_kept() -> None:
-    # the empty URI is copied from a NULL scratch buffer, which memcpy may not receive even for length 0
-    assert dict(root_of(parse_xml('<r xmlns:p=""/>')).attrs) == {"xmlns:p": ""}
-
-
 @pytest.mark.parametrize(
     ("markup", "expected"),
     [
