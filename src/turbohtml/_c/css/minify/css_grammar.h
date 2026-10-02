@@ -741,13 +741,15 @@ static inline int css_is_plain(css_char character) {
    declaration at a ';' outside ( [ blocks, as css_read_until splits the parser's tokens, and it steps over the token
    contents css_tokenize keeps whole, so the `(` of an escaped `\(`, a ';' in a comment and the `(` inside `url(x(y)`
    are not delimiters. A '(' after any `url` opens a url: reading one the tokenizer did not can only end a block early
-   and add a name. The callers have excluded a body with a string or a nested rule. Returns 0 at the end. */
-static int css_body_next_prop(const css_char *body, Py_ssize_t len, Py_ssize_t *pos, Py_ssize_t *start,
-                              Py_ssize_t *end) {
+   and add a name. *escaped tells whether the name holds a `\`. The callers have excluded a body with a string or a
+   nested rule. Returns 0 at the end. */
+static int css_body_next_prop(const css_char *body, Py_ssize_t len, Py_ssize_t *pos, Py_ssize_t *start, Py_ssize_t *end,
+                              int *escaped) {
     if (*pos >= len) {
         return 0;
     }
     *start = *pos;
+    *escaped = 0;
     Py_ssize_t colon = -1;
     int depth = 0;
     enum { CSS_SCAN_TOKENS, CSS_SCAN_COMMENT, CSS_SCAN_URL } mode = CSS_SCAN_TOKENS;
@@ -757,6 +759,7 @@ static int css_body_next_prop(const css_char *body, Py_ssize_t len, Py_ssize_t *
         switch (body[index]) {
         case '\\':
             if (mode != CSS_SCAN_COMMENT) {
+                *escaped |= colon < 0;
                 index += index + 1 < len; /* skip the escaped byte, if the body has one */
             }
             break;
@@ -838,8 +841,15 @@ typedef struct {
     Py_ssize_t start;
     Py_ssize_t length;
     const char *longhands;
-    int all;
+    int flags;
 } css_property_summary;
+
+/* A name that resets every property, and a name spelled with a `\` the byte comparison cannot read. Either one settles
+   a check apart from the plain names, so one test of the two flags keeps the plain pair at one branch. */
+enum { CSS_NAME_ALL = 1, CSS_NAME_ESCAPED = 2 };
+
+/* Longer than every name the shorthand tables hold, the longest being transition-timing-function. */
+#define CSS_NAME_KEY 32
 
 typedef struct {
     Py_ssize_t offset;
@@ -852,8 +862,10 @@ typedef struct {
 /* Marks a property whose longhand list is not looked up yet: most checks settle on the name alone. */
 static const char css_longhands_unknown[] = "";
 
-static css_property_summary css_summarize_property(const css_char *body, Py_ssize_t start, Py_ssize_t length) {
-    return (css_property_summary){start, length, css_longhands_unknown, css_run_ieq(body + start, length, "all")};
+static css_property_summary css_summarize_property(const css_char *body, Py_ssize_t start, Py_ssize_t length,
+                                                   int escaped) {
+    return (css_property_summary){start, length, css_longhands_unknown,
+                                  css_run_ieq(body + start, length, "all") | escaped * CSS_NAME_ESCAPED};
 }
 
 static const char *css_property_longhands(const css_char *body, css_property_summary *property) {
@@ -863,6 +875,9 @@ static const char *css_property_longhands(const css_char *body, css_property_sum
     return property->longhands;
 }
 
+static int css_escaped_properties_conflict(const css_char *left, Py_ssize_t left_len, const css_char *right,
+                                           Py_ssize_t right_len);
+
 /* Two properties conflict when one could override the other on an element: the same name, a shorthand and one of its
    longhands, or `all` (which resets every property). Conflict decides whether a declaration can be moved past another
    rule without changing the cascade. */
@@ -870,9 +885,12 @@ static int css_properties_conflict(const css_char *left_body, css_property_summa
                                    css_property_summary *right) {
     const css_char *left_name = left_body + left->start;
     const css_char *right_name = right_body + right->start;
-    if (left->all || right->all ||
-        (left->length == right->length &&
-         memcmp(left_name, right_name, (size_t)left->length * sizeof(css_char)) == 0)) {
+    const int flags = left->flags | right->flags;
+    if (flags != 0) {
+        return !(flags & CSS_NAME_ESCAPED) ||
+               css_escaped_properties_conflict(left_name, left->length, right_name, right->length);
+    }
+    if (left->length == right->length && memcmp(left_name, right_name, (size_t)left->length * sizeof(css_char)) == 0) {
         return 1;
     }
     const char *left_longhands = css_property_longhands(left_body, left);
@@ -881,6 +899,63 @@ static int css_properties_conflict(const css_char *left_body, css_property_summa
     }
     const char *right_longhands = css_property_longhands(right_body, right);
     return right_longhands != NULL && css_prop_in_list(left_name, left->length, right_longhands);
+}
+
+static Py_ssize_t css_name_key(const css_char *name, Py_ssize_t len, css_char *key);
+
+/* css_properties_conflict for names spelled with an escape, compared by value. A name without a key differs from one
+   with a key and sits in no shorthand table, so it conflicts only with another keyless name, which is assumed to be the
+   same. */
+static int css_escaped_properties_conflict(const css_char *left, Py_ssize_t left_len, const css_char *right,
+                                           Py_ssize_t right_len) {
+    css_char left_key[CSS_NAME_KEY];
+    css_char right_key[CSS_NAME_KEY];
+    Py_ssize_t left_key_len = css_name_key(left, left_len, left_key);
+    Py_ssize_t right_key_len = css_name_key(right, right_len, right_key);
+    if (left_key_len < 0 || right_key_len < 0) {
+        return left_key_len == right_key_len;
+    }
+    css_property_summary left_property = css_summarize_property(left_key, 0, left_key_len, 0);
+    css_property_summary right_property = css_summarize_property(right_key, 0, right_key_len, 0);
+    return css_properties_conflict(left_key, &left_property, right_key, &right_property);
+}
+
+static uint32_t css_name_code_point(const css_char *name, Py_ssize_t len, Py_ssize_t *pos);
+
+/* The name's value lower-cased into key (property names are ASCII case-insensitive), or -1 when it holds a code point
+   outside U+0001-U+007F or runs past CSS_NAME_KEY: no name in the shorthand tables does either. */
+static Py_ssize_t css_name_key(const css_char *name, Py_ssize_t len, css_char *key) {
+    Py_ssize_t key_len = 0;
+    for (Py_ssize_t pos = 0; pos < len; key_len++) {
+        uint32_t code_point = css_name_code_point(name, len, &pos);
+        if (code_point - 1 >= 0x7F || key_len == CSS_NAME_KEY) {
+            return -1;
+        }
+        key[key_len] = css_lower((css_char)code_point);
+    }
+    return key_len;
+}
+
+/* The code point of a rendered property name at *pos, reading an escape as CSS Syntax 3 §4.3.7 consumes one, after
+   sel_consume_escape in css/select/selector.c. The renderer drops whitespace from a name, so none follows a hex
+   escape. */
+static uint32_t css_name_code_point(const css_char *name, Py_ssize_t len, Py_ssize_t *pos) {
+    css_char byte = name[(*pos)++];
+    if (byte != '\\') {
+        return byte;
+    }
+    /* a `\` ending the name escapes itself: the read stays inside the name, and the name it gives can only add a
+       conflict */
+    *pos -= *pos == len;
+    if (!css_is_hex(name[*pos])) {
+        return name[(*pos)++];
+    }
+    uint32_t value = 0;
+    for (int digits = 0; digits < 6 && *pos < len && css_is_hex(name[*pos]); digits++) {
+        css_char hex = name[(*pos)++];
+        value = value * 16 + (hex <= '9' ? (uint32_t)(hex - '0') : (uint32_t)((hex | 32) - 'a' + 10));
+    }
+    return value;
 }
 
 /* Whether moving one rendered body past another could change the cascade: either is opaque, or they set a conflicting
@@ -901,16 +976,17 @@ static int css_bodies_conflict(const css_buf *pool, Py_ssize_t a_off, Py_ssize_t
     Py_ssize_t b_pos = 0;
     Py_ssize_t start = 0;
     Py_ssize_t end = 0;
-    while (css_body_next_prop(b, b_len, &b_pos, &start, &end)) {
-        css_property_summary right = css_summarize_property(b, start, end - start);
+    int escaped = 0;
+    while (css_body_next_prop(b, b_len, &b_pos, &start, &end, &escaped)) {
+        css_property_summary right = css_summarize_property(b, start, end - start, escaped);
         for (Py_ssize_t index = 0; index < cached_count; index++) {
             if (css_properties_conflict(a, &cached[index], b, &right)) {
                 return 1;
             }
         }
         Py_ssize_t a_pos = after_cached;
-        while (css_body_next_prop(a, a_len, &a_pos, &start, &end)) {
-            css_property_summary left = css_summarize_property(a, start, end - start);
+        while (css_body_next_prop(a, a_len, &a_pos, &start, &end, &escaped)) {
+            css_property_summary left = css_summarize_property(a, start, end - start, escaped);
             css_property_summary *property = &left;
             if (cached_count < CSS_NAME_CACHE) {
                 cached[cached_count] = left;
@@ -936,8 +1012,9 @@ static int css_summarize_body(const css_buf *pool, Py_ssize_t offset, Py_ssize_t
         Py_ssize_t position = 0;
         Py_ssize_t start = 0;
         Py_ssize_t end = 0;
+        int escaped = 0;
         size_t capacity = 0;
-        while (css_body_next_prop(pool->data + offset, length, &position, &start, &end)) {
+        while (css_body_next_prop(pool->data + offset, length, &position, &start, &end, &escaped)) {
             if ((size_t)summary->count == capacity) {
                 size_t bytes;
                 int grew = th_grow_cap(capacity + 1, capacity, 8, sizeof(*summary->properties), &capacity, &bytes);
@@ -951,8 +1028,9 @@ static int css_summarize_body(const css_buf *pool, Py_ssize_t offset, Py_ssize_t
                 summary->properties = properties;
             }
             const css_char *name = pool->data + offset + start;
-            summary->properties[summary->count++] = (css_property_summary){
-                start, end - start, css_longhand_list(name, end - start), css_run_ieq(name, end - start, "all")};
+            summary->properties[summary->count++] =
+                (css_property_summary){start, end - start, css_longhand_list(name, end - start),
+                                       css_run_ieq(name, end - start, "all") | escaped * CSS_NAME_ESCAPED};
         }
     }
     summary->offset = offset;
@@ -979,9 +1057,17 @@ static int css_summaries_conflict(const css_buf *pool, const rule_item *first, c
         for (Py_ssize_t inner = 0; inner < right->count; inner++) {
             const css_property_summary *right_property = &right->properties[inner];
             const css_char *right_name = pool->data + second->body_off + right_property->start;
-            if (left_property->all || right_property->all ||
-                (left_property->length == right_property->length &&
-                 memcmp(left_name, right_name, (size_t)left_property->length * sizeof(css_char)) == 0)) {
+            const int flags = left_property->flags | right_property->flags;
+            if (flags != 0) {
+                if (!(flags & CSS_NAME_ESCAPED) ||
+                    css_escaped_properties_conflict(left_name, left_property->length, right_name,
+                                                    right_property->length)) {
+                    return 1;
+                }
+                continue;
+            }
+            if (left_property->length == right_property->length &&
+                memcmp(left_name, right_name, (size_t)left_property->length * sizeof(css_char)) == 0) {
                 return 1;
             }
             const int left_covers_right =

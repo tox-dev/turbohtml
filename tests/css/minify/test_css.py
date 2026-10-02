@@ -340,6 +340,41 @@ def test_minify_css_merge_passes_rule_without_property(filler_rules: str, body: 
     assert minify_css(source) == f".t{{color:blue;color:green}}{filler_rules}.u{{{body}}}"
 
 
+@pytest.mark.parametrize(
+    ("first", "blocker", "last"),
+    [
+        pytest.param("color:blue", "colo\\r:red", "color:green", id="escaped-letter"),
+        pytest.param("color:blue", "\\63olor:red", "color:green", id="hex-escape"),
+        pytest.param("color:blue", "\\43olor:red", "color:green", id="hex-escape-upper-case"),
+        pytest.param("color:blue", "co\\6cor:red", "color:green", id="hex-escape-letter-digit"),
+        pytest.param("color:blue", "\\000063olor:red", "color:green", id="hex-escape-six-digits"),
+        pytest.param("color:blue", "colo\\72:red", "color:green", id="hex-escape-at-end"),
+        pytest.param("color:blue", "\\61ll:initial", "color:green", id="escaped-all"),
+        pytest.param("margin-top:1px", "marg\\in:0", "margin-top:2px", id="escaped-shorthand"),
+        pytest.param("margin:1px", "margin-t\\op:0", "margin:2px", id="escaped-longhand"),
+        pytest.param("colo\\r:blue", "color:red", "colo\\r:green", id="escaped-moving-rule"),
+        pytest.param("--\u00e9:blue", "--\\e9:red", "--\u00e9:green", id="non-ascii-escape"),
+    ],
+)
+def test_minify_css_merge_reads_escaped_property_names(filler_rules: str, first: str, blocker: str, last: str) -> None:
+    # .u sets the property .t sets, spelled through an escape, so the last .t cannot fold back past it
+    source: Final = f".t{{{first}}}{filler_rules}.u{{{blocker}}}.t{{{last}}}"
+    assert minify_css(source) == source
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("c\\olour:red", id="other-name"),
+        pytest.param("--\\e9:red", id="non-ascii-escape"),
+        pytest.param("--abcdefghijklmnopqrstuvwxyz0123456789\\78:red", id="long-name"),
+    ],
+)
+def test_minify_css_merge_passes_escaped_property_name(filler_rules: str, body: str) -> None:
+    source: Final = f".t{{color:blue}}{filler_rules}.u{{{body}}}.t{{color:green}}"
+    assert minify_css(source) == f".t{{color:blue;color:green}}{filler_rules}.u{{{body}}}"
+
+
 # past 32 rules the merge pass finds repeated selectors and bodies through a hash table before scanning back
 @pytest.fixture(params=[pytest.param(1, id="short-list"), pytest.param(40, id="hashed-list")])
 def filler_rules(request: pytest.FixtureRequest) -> str:
