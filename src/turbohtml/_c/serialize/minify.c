@@ -571,9 +571,7 @@ static int mini_emit_script_js(sbuf *out, th_tree *tree, th_node *node, const th
     }
     Py_ssize_t pos = 0;
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->text_len > 0) { /* a parsed empty comment has a NULL text pointer */
-            memcpy(src + pos, need_text(tree, child), (size_t)child->text_len * sizeof(Py_UCS4));
-        }
+        memcpy(src + pos, need_text(tree, child), (size_t)child->text_len * sizeof(Py_UCS4));
         pos += child->text_len;
     }
     /* errlen 0: the HTML path discards the message and falls back to verbatim instead */
@@ -614,9 +612,7 @@ static int mini_emit_style_css(sbuf *out, th_tree *tree, th_node *node, int base
     }
     Py_ssize_t pos = 0;
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        if (child->text_len > 0) { /* a parsed empty comment has a NULL text pointer */
-            memcpy(src + pos, need_text(tree, child), (size_t)child->text_len * sizeof(Py_UCS4));
-        }
+        memcpy(src + pos, need_text(tree, child), (size_t)child->text_len * sizeof(Py_UCS4));
         pos += child->text_len;
     }
     Py_ssize_t css_len;
