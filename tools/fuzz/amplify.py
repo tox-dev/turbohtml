@@ -47,7 +47,7 @@ from turbohtml.transform import Transform
 from turbohtml.validate import RelaxNG, XMLSchema
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Sequence
+    from collections.abc import Callable, Generator, Sequence
 
 __all__ = [
     "KINDS",
@@ -328,7 +328,7 @@ def measure(run: Callable[[str], str | None], shape: Shape, base: int = _BASE_BY
 
 
 @contextmanager
-def _gc_paused() -> Iterator[None]:
+def _gc_paused() -> Generator[None, None, None]:
     # a collection lands on whichever sample crosses the allocation threshold, so timeit runs with the collector off too
     enabled = gc.isenabled()
     gc.disable()
@@ -340,7 +340,7 @@ def _gc_paused() -> Iterator[None]:
 
 
 @contextmanager
-def _watchdog() -> Iterator[None]:
+def _watchdog() -> Generator[None, None, None]:
     # a hung call never returns to Python, so a C-level watchdog dumps the stack and exits the process instead
     faulthandler.dump_traceback_later(_HANG_SECONDS, exit=True, file=_STDERR)
     try:
