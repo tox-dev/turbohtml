@@ -475,6 +475,41 @@ def test_stray_html_in_colgroup_keeps_it_open() -> None:
     assert out == ('<html lang="en"><head></head><body><table><colgroup><col><col></colgroup></table></body></html>')
 
 
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param("<p><html lang=en>", '<html lang="en"><head></head><body><p></p></body></html>', id="html"),
+        pytest.param("<p><body class=x>", '<html><head></head><body class="x"><p></p></body></html>', id="body"),
+    ],
+)
+def test_late_start_tag_merges_attributes_onto_a_bare_element(markup: str, expected: str) -> None:
+    # the implied element has no attributes, so its attribute array is NULL; memcpy declares it non-null even for 0
+    assert parse(markup).html == expected
+
+
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param(
+            "<p><b x><b x><b x><b x></p>t",
+            '<p><b x=""><b x=""><b x=""><b x=""></b></b></b></b></p><b x=""><b x=""><b x="">t</b></b></b>',
+            id="three-identical-kept",
+        ),
+        pytest.param(
+            "<p><b x><b x=1><b x><b x></p>t",
+            '<p><b x=""><b x="1"><b x=""><b x=""></b></b></b></b></p>'
+            '<b x=""><b x="1"><b x=""><b x="">t</b></b></b></b>',
+            id="differing-value-kept",
+        ),
+    ],
+)
+def test_noahs_ark_compares_empty_attribute_values(markup: str, expected: str) -> None:
+    # a valueless attribute stores a NULL value; memcmp declares its arguments non-null even for length 0
+    body = parse(markup).find("body")
+    assert isinstance(body, Element)
+    assert body.inner_html == expected
+
+
 def test_colgroup_fragment_keeps_whitespace_after_ignored_characters() -> None:
     # with no colgroup to pop, each non-whitespace character is ignored in "in column group" and the
     # whitespace between them is still inserted

@@ -213,10 +213,17 @@ def test_processing_instruction_without_data() -> None:
         # XML 2.11 collapses CRLF before 3.3.3 folds attribute whitespace.
         pytest.param('<r a="x\r\ny\r\n\tz"/>', "x y  z", id="crlf"),
         pytest.param('<r a="1 &lt; 2"/>', "1 < 2", id="reference"),
+        # an empty value leaves the scratch buffer NULL, which memcpy may not receive even for length 0
+        pytest.param('<r a=""/>', "", id="empty"),
     ],
 )
 def test_attribute_value(markup: str, expected: str) -> None:
     assert dict(root_of(parse_xml(markup)).attrs) == {"a": expected}
+
+
+def test_empty_prefixed_namespace_declaration_is_kept() -> None:
+    # the empty URI is copied from a NULL scratch buffer, which memcpy may not receive even for length 0
+    assert dict(root_of(parse_xml('<r xmlns:p=""/>')).attrs) == {"xmlns:p": ""}
 
 
 @pytest.mark.parametrize(

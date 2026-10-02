@@ -945,7 +945,9 @@ static void merge_attrs(th_tree *tree, th_node *node, const th_token *token) {
     if (merged == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
     }
-    memcpy(merged, node->attrs, (size_t)node->attr_count * sizeof(th_node_attr));
+    if (node->attr_count > 0) { /* an element without attributes has a NULL attrs array */
+        memcpy(merged, node->attrs, (size_t)node->attr_count * sizeof(th_node_attr));
+    }
     Py_ssize_t at = node->attr_count;
     for (Py_ssize_t index = 0; index < token->attr_count; index++) {
         const th_attr *src = &token->attrs[index];
@@ -1581,8 +1583,9 @@ static int afe_push(th_tree *tree, th_node *node) {
                 for (Py_ssize_t aidx = 0; aidx < node->attr_count && same; aidx++) {
                     if (entry->attrs[aidx].name_atom != node->attrs[aidx].name_atom ||
                         entry->attrs[aidx].value_len != node->attrs[aidx].value_len ||
-                        memcmp(entry->attrs[aidx].value, node->attrs[aidx].value,
-                               (size_t)node->attrs[aidx].value_len * sizeof(Py_UCS4)) != 0) {
+                        (node->attrs[aidx].value_len > 0 &&
+                         memcmp(entry->attrs[aidx].value, node->attrs[aidx].value,
+                                (size_t)node->attrs[aidx].value_len * sizeof(Py_UCS4)) != 0)) {
                         same = 0;
                     }
                 }

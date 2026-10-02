@@ -383,7 +383,9 @@ static Py_UCS4 *arena_copy(th_tree *tree, const Py_UCS4 *src, Py_ssize_t len) {
     if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    memcpy(out, src, (size_t)len * sizeof(Py_UCS4));
+    if (len > 0) { /* the scratch buffer stays NULL until a value pushes a code point */
+        memcpy(out, src, (size_t)len * sizeof(Py_UCS4));
+    }
     return out;
 }
 

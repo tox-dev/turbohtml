@@ -148,7 +148,7 @@ static int collapse_text(th_tree *tree, th_node *node, int *last_space) {
         *last_space = previous;
         return 0;
     }
-    Py_UCS4 *output = NULL;
+    Py_UCS4 *output = (Py_UCS4 *)th_empty_text;
     if (length != 0) {
         output = arena_alloc(tree, length * (Py_ssize_t)sizeof(Py_UCS4));
         if (output == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */

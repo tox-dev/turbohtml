@@ -678,6 +678,21 @@ def test_chunked_feeds_equal_a_one_shot_detect() -> None:
 
 
 @pytest.mark.parametrize(
+    ("chunk", "confidence"),
+    [
+        pytest.param(b"a", 1.0, id="ascii"),
+        pytest.param(b"\x1b", 1.0, id="unfinished-escape"),
+        pytest.param(b"\x81", 0.0, id="unfinished-lead-byte"),
+    ],
+)
+def test_close_scores_the_end_of_stream(chunk: bytes, confidence: float) -> None:
+    # close() feeds an empty final chunk, which the scanners hand to memchr and memcpy
+    detector: Final = EncodingDetector()
+    detector.feed(chunk)
+    assert detector.close() == EncodingMatch("windows-1252", confidence, None, codec="whatwg-windows-1252")
+
+
+@pytest.mark.parametrize(
     ("prefix", "expected"),
     [
         pytest.param(

@@ -1,0 +1,1 @@
+Fix undefined behavior that sanitizer builds report on empty attribute values, text nodes, and namespace names.

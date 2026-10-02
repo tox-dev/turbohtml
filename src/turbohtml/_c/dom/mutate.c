@@ -105,12 +105,15 @@ Py_UCS4 *th_node_realize_text(th_tree *tree, th_node *node) {
     return need_text(tree, node);
 }
 
+const Py_UCS4 th_empty_text[1] = {0};
+
 /* Construct a text/comment/doctype node owning a copy of data in tree's arena. */
 th_node *th_tree_make_data_node(th_tree *tree, int type, const Py_UCS4 *data, Py_ssize_t len) {
     th_node *node = node_new(tree, (enum th_node_type)type);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    node->text = (Py_UCS4 *)th_empty_text;
     if (len > 0) {
         Py_UCS4 *owned = arena_alloc(tree, len * (Py_ssize_t)sizeof(Py_UCS4));
         if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -265,7 +268,9 @@ static int node_attr_store(th_tree *tree, th_node *node, const char *name, Py_ss
         if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        memcpy(owned, value, (size_t)value_len * sizeof(Py_UCS4));
+        if (value_len > 0) { /* an empty value may arrive as a NULL pointer */
+            memcpy(owned, value, (size_t)value_len * sizeof(Py_UCS4));
+        }
     }
     Py_ssize_t existing = append ? -1 : th_node_attr_find(tree, node, name, name_len);
     if (existing >= 0) {
@@ -322,7 +327,7 @@ int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize
     const Py_UCS4 *old = node->text_len > 0 ? need_text(tree, node) : NULL;
     th_mo_char_data_changed(tree, node, old, node->text_len);
     if (len == 0) {
-        node->text = NULL;
+        node->text = (Py_UCS4 *)th_empty_text;
         node->text_len = 0;
         return 0;
     }
@@ -866,6 +871,7 @@ th_node *th_tree_copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_nod
     node->atom = src_node->atom;
     node->ns = src_node->ns;
     node->tag_flags = src_node->tag_flags;
+    node->text = (Py_UCS4 *)th_empty_text;
     if (src_node->text_len > 0) {
         const Py_UCS4 *text = need_text(src, src_node);
         Py_UCS4 *owned = arena_alloc(dest, src_node->text_len * (Py_ssize_t)sizeof(Py_UCS4));

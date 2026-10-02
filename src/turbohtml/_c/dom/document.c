@@ -1263,7 +1263,8 @@ static PyObject *detect_stream_close(PyObject *self, PyObject *Py_UNUSED(ignored
     if (!detector->fed) {
         Py_RETURN_NONE; /* no bytes were ever seen: the ranker answers with the no-match row */
     }
-    th_detect_stream_feed(&detector->stream, NULL, 0, 1);
+    /* the scanners pass the chunk to memchr and memcpy, which take no NULL pointer even at length 0 */
+    th_detect_stream_feed(&detector->stream, (const unsigned char *)"", 0, 1);
     int certain, bom;
     const char *winner = detect_declared(detector->prefix, detector->prefix_len, &certain, &bom);
     th_detect_scores scores = {.count = 0, .structural = 0};

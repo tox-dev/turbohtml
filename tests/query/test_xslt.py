@@ -597,6 +597,16 @@ def test_transform_sort_static_attribute_tracks_mutation() -> None:
     assert convert(document) == "ba"
 
 
+def test_transform_keeps_an_inherited_valueless_default_namespace() -> None:
+    # the stylesheet's valueless xmlns has a NULL value, which memcmp may not receive even for length 0
+    style: Final = parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="/"><a><b/></a></xsl:template></xsl:stylesheet>'
+    )
+    style.select("a")[0].attrs["xmlns"] = None
+    assert Transform(style)(parse_xml("<r/>")) == '<?xml version="1.0"?>\n<a xmlns=""><b/></a>'
+
+
 def test_transform_sort_static_attribute_on_attribute_context() -> None:
     body = (
         '<xsl:template match="/"><xsl:for-each select="r/n/@id">'

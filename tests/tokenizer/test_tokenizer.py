@@ -124,6 +124,8 @@ def test_self_closing_tag() -> None:
         pytest.param("<a x=1 y x=2 z=''>", "a", [("x", "1"), ("y", ""), ("z", "")], id="duplicates-keep-first"),
         pytest.param("<a xy=1 xő=2>", "a", [("xy", "1"), ("xő", "2")], id="same-length-mixed-width-names"),
         pytest.param("<ab xyz=ő q=🎉>", "ab", [("xyz", "ő"), ("q", "🎉")], id="wide-buffer-after-narrow"),
+        # a start tag never writes the text and doctype buffers, which stay NULL and pack as empty
+        pytest.param("<p>", "p", [], id="no-attributes"),
     ],
 )
 def test_tag_attrs(document: str, tag_name: str, attrs: list[tuple[str, str | None]]) -> None:

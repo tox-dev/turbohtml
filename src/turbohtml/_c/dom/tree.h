@@ -245,6 +245,10 @@ int th_tree_is_xml(const th_tree *tree);
    copy keeps case-sensitive name lookups. */
 void th_tree_set_xml(th_tree *tree, int xml);
 
+/* Empty character data built or edited through the API points here rather than at NULL, so the find(text=)
+   scan can memcpy every Text node without a per-node length check (memcpy takes no NULL even at length 0). */
+extern const Py_UCS4 th_empty_text[1];
+
 /* Construct a text/comment/doctype/cdata node (by enum th_node_type) owning a copy
    of the data code points in the tree's arena. NULL on allocation failure. */
 th_node *th_tree_make_data_node(th_tree *tree, int type, const Py_UCS4 *data, Py_ssize_t len);

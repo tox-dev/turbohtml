@@ -92,10 +92,7 @@ static int u_eq_ascii(const Py_UCS4 *text, Py_ssize_t len, const char *ascii) {
 }
 
 static int u_eq_u(const Py_UCS4 *left, Py_ssize_t left_len, const Py_UCS4 *right, Py_ssize_t right_len) {
-    if (left_len != right_len) {
-        return 0;
-    }
-    return memcmp(left, right, (size_t)left_len * sizeof(Py_UCS4)) == 0;
+    return left_len == right_len && (left_len == 0 || memcmp(left, right, (size_t)left_len * sizeof(Py_UCS4)) == 0);
 }
 
 /* Whether a node carries character data (a text node or a CDATA section). */

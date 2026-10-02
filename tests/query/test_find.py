@@ -10,7 +10,8 @@ from weakref import finalize
 
 import pytest
 
-from turbohtml import Axis, Document, Element, Text, parse, parse_xml
+from turbohtml import Axis, Comment, Document, Element, Range, Text, parse, parse_xml
+from turbohtml.clean import collapse_whitespace_node
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -446,6 +447,60 @@ def test_text_matches_an_ancestor_whose_collected_text_equals_the_target() -> No
 def test_text_find_returns_first_match() -> None:
     section = _el(parse(_TEXT_DOC).find("section"))
     assert _el(section.find(text=re.compile(r"\$"))).tag == "p"
+
+
+def _first_text(root: Element) -> Text:
+    paragraph = root.children[0]
+    assert isinstance(paragraph, Element)
+    text = paragraph.children[0]
+    assert isinstance(text, Text)
+    return text
+
+
+def _copied_empty_text() -> Element:
+    return Element("div", children=[Element("p", children=[Text(""), Text("xy")])])
+
+
+def _emptied_text() -> Element:
+    root = Element("div", children=[Element("p", children=[Text("a"), Text("xy")])])
+    _first_text(root).data = ""
+    return root
+
+
+def _split_off_empty_text() -> Element:
+    root = Element("div", children=[Element("p", children=[Text("xy")])])
+    Range(_first_text(root), 2).insert_node(Comment("c"))
+    return root
+
+
+def _collapsed_text() -> Element:
+    root = Element("div", children=[Element("p", children=[Text("a "), Text(" "), Text("xy")])])
+    collapse_whitespace_node(root)
+    return root
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(_copied_empty_text, id="copied"),
+        pytest.param(_emptied_text, id="emptied"),
+        pytest.param(_split_off_empty_text, id="split-off"),
+        pytest.param(_collapsed_text, id="collapsed"),
+    ],
+)
+def test_text_scan_copies_an_empty_text_node(build: Callable[[], Element]) -> None:
+    # the scan memcpys every Text node, so an empty one must not carry a NULL text pointer even at length 0
+    assert _tags(build().find_all(text=re.compile(r"x"))) == ["p"]
+
+
+@pytest.mark.parametrize(
+    ("pattern", "expected"),
+    [pytest.param(r"x", [], id="needle"), pytest.param(r"", ["p"], id="empty-needle")],
+)
+def test_text_scan_over_an_empty_subtree(pattern: str, expected: list[str]) -> None:
+    # an all-empty subtree never allocates the scratch buffer, which memcpy may not receive as NULL
+    root: Final = Element("div", children=[Element("p", children=[Text("")])])
+    assert _tags(root.find_all(text=re.compile(pattern))) == expected
 
 
 @pytest.mark.parametrize(

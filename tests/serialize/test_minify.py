@@ -468,6 +468,22 @@ def test_body_start_omitted_with_empty_first_text() -> None:
     assert out == "<html><p></html>"
 
 
+@pytest.mark.parametrize(
+    ("tag", "source", "layout", "expected"),
+    [
+        pytest.param("script", "var a = 1;", Minify(minify_js=JSMinify()), "var a=1", id="script"),
+        pytest.param("style", "a { color: red }", Minify(minify_css=CSSMinify()), "a{color:red}", id="style"),
+    ],
+)
+def test_minify_raw_text_skips_an_empty_comment_child(tag: str, source: str, layout: Minify, expected: str) -> None:
+    # a parsed empty comment has a NULL text pointer, which memcpy may not receive even for length 0
+    document: Final = parse(f"<!----><{tag}>{source}</{tag}>")
+    element = document.find(tag)
+    assert isinstance(element, Element)
+    element.insert(0, document.children[0])
+    assert element.serialize(Html(layout=layout)) == f"<{tag}>{expected}</{tag}>"
+
+
 def test_omit_dd_end_kept_before_text() -> None:
     assert frag("<dl><dd>a</dd>x</dl>", strip_comments=False) == "<dl><dd>a</dd>x</dl>"
 

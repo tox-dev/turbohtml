@@ -505,6 +505,16 @@ def test_insert_node_into_element() -> None:
     assert _tags(div.children) == ["p", "b", "p"]
 
 
+def test_delete_contents_from_an_empty_parsed_comment() -> None:
+    # a parsed empty comment has a NULL text pointer, which memcpy may not receive even for length 0
+    paragraph: Final = _by_id(parse("<p id=a><!---->x</p>"), "a")
+    comment, text = paragraph.children
+    boundary: Final = Range(comment, 0)
+    boundary.set_end(text, 1)
+    boundary.delete_contents()
+    assert paragraph.serialize() == '<p id="a"><!----></p>'
+
+
 def test_insert_node_preserves_hash_across_trees() -> None:
     node = Element("b")
     held = {node}

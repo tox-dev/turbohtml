@@ -405,6 +405,11 @@ def test_target_namespace_qualified() -> None:
     assert not check(schema, "<r><a>x</a></r>").valid  # wrong namespace
 
 
+def test_no_namespace_root_matches_a_no_namespace_declaration() -> None:
+    # both sides carry the absent namespace as a NULL, empty URI that memcmp may not receive
+    assert check(typed("xs:string"), "<v>x</v>") == ValidationResult(valid=True, errors=())
+
+
 def test_many_namespace_declarations_keep_the_xs_binding() -> None:
     # Nine xmlns declarations grow the in-scope namespace stack past its initial capacity; xmlns:xs comes first,
     # so a grow that failed to copy the existing bindings would drop the xs binding and stop recognizing xs:element.

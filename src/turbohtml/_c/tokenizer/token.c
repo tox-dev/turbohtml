@@ -36,10 +36,12 @@ static PyObject *buf_to_str(const th_buf *buf) {
 /* Place src into the arena at cursor, aligned to its storage width so wide
    code points are never read through a misaligned pointer. */
 static char *pack_buf(th_buf *dst, const th_buf *src, char *cursor) {
-    cursor +=
-        (uintptr_t)cursor % (size_t)src->kind ? src->kind - (Py_ssize_t)((uintptr_t)cursor % (size_t)src->kind) : 0;
     Py_ssize_t bytes = src->len * src->kind;
-    memcpy(cursor, src->data, (size_t)bytes);
+    /* a buffer the tokenizer never wrote to has a NULL data pointer, and an empty one needs no alignment */
+    if (bytes > 0) {
+        cursor += ((uintptr_t)0 - (uintptr_t)cursor) & (uintptr_t)(src->kind - 1); /* kind is 1, 2 or 4 */
+        memcpy(cursor, src->data, (size_t)bytes);
+    }
     *dst = *src;
     dst->data = cursor;
     dst->cap = 0;

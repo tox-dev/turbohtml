@@ -4254,7 +4254,8 @@ static int output_ns_in_scope(engine *eng, th_node *start, const char *name, Py_
             if (anc_len != name_len || memcmp(anc_name, name, (size_t)name_len) != 0) {
                 continue;
             }
-            return attr->value_len == value_len && memcmp(attr->value, value, (size_t)value_len * sizeof(Py_UCS4)) == 0;
+            return attr->value_len == value_len &&
+                   (value_len == 0 || memcmp(attr->value, value, (size_t)value_len * sizeof(Py_UCS4)) == 0);
         }
     }
     return 0;

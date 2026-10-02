@@ -89,8 +89,10 @@ static int replace_data_delete(th_tree *tree, th_node *node, Py_ssize_t from, Py
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    memcpy(buffer, text, (size_t)from * sizeof(Py_UCS4));
-    memcpy(buffer + from, text + to, (size_t)remaining * sizeof(Py_UCS4));
+    if (node->text_len > 0) { /* parsed empty character data has a NULL text pointer */
+        memcpy(buffer, text, (size_t)from * sizeof(Py_UCS4));
+        memcpy(buffer + from, text + to, (size_t)remaining * sizeof(Py_UCS4));
+    }
     int rc = th_node_set_data(tree, node, buffer, new_len);
     PyMem_Free(buffer);
     return rc < 0 ? -1 : 0; /* GCOVR_EXCL_BR_LINE: th_node_set_data only fails on OOM */
