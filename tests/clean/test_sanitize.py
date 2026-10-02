@@ -14,7 +14,7 @@ import pytest
 from bench.operations import INPUTS
 from typing_extensions import assert_type
 
-from turbohtml import Document, Element, parse, parse_fragment, parse_xml
+from turbohtml import Comment, Document, Element, parse, parse_fragment, parse_xml
 from turbohtml._html import _sanitize, _sanitize_policy
 from turbohtml.build import E
 from turbohtml.clean import (
@@ -1528,6 +1528,15 @@ def test_escape_propagates_a_child_filter_error() -> None:
     # default policy escapes <unknown> and allows the <a> inside it, whose attribute filter raises
     with pytest.raises(ValueError, match="href"):
         sanitize('<unknown><a href="http://x">y</a></unknown>', Policy(attribute_filter=boom))
+
+
+def test_node_propagates_a_filter_error() -> None:
+    def boom(_tag: str, name: str, _value: str) -> str:
+        raise ValueError(name)
+
+    policy = Policy(tags=frozenset({"a"}), attributes={"a": frozenset({"href"})}, attribute_filter=boom)
+    with pytest.raises(ValueError, match="href"):
+        sanitize_node(parse_fragment('<a href="http://x">y</a>'), policy)
 
 
 def test_strip_propagates_a_child_filter_error() -> None:
@@ -3291,6 +3300,247 @@ def test_parse_stable_built_trees(tree: Element, tags: frozenset[str]) -> None:
     # a table) reach the balancer only through sanitize_node on a built tree
     once = sanitize_node(tree, Policy(tags=tags)).inner_html
     assert parse_fragment(once).inner_html == once, f"not parse-stable: {once!r}"
+    assert _live_danger(once) == []
+
+
+def _math_text_point(*children: Element) -> Element:
+    """A math element whose mi text integration point holds the given HTML children."""
+    math = cast("Element", parse_fragment("<math><mi></mi></math>").children[0])
+    text_point = math.find("mi")
+    assert text_point is not None
+    for child in children:
+        text_point.append(child)
+    return math
+
+
+def _foreign_object(*children: Element) -> Element:
+    """An svg element whose foreignObject integration point holds the given HTML children."""
+    svg = cast("Element", parse_fragment("<svg><foreignObject></foreignObject></svg>").children[0])
+    point = cast("Element", svg.children[0])
+    for child in children:
+        point.append(child)
+    return svg
+
+
+def _svg_child_named(name: str) -> Element:
+    """An svg element holding one SVG child renamed to `name`, which the parser would never build."""
+    svg = cast("Element", parse_fragment("<svg><g></g></svg>").children[0])
+    cast("Element", svg.children[0]).tag = name
+    return svg
+
+
+_BALANCED_WALK_CASES: Final = [
+    pytest.param(
+        lambda: E.div(E.li(E.span(E.li("x"), E.li("y")))),
+        frozenset({"div", "li"}),
+        "<div><li>&lt;span&gt;&lt;li&gt;x&lt;/li&gt;&lt;li&gt;y&lt;/li&gt;&lt;/span&gt;</li></div>",
+        id="items-recorded-under-an-escaped-inline",
+    ),
+    pytest.param(
+        lambda: E.div(E.li(E.span(E.li(E.li("x"))))),
+        frozenset({"div", "li"}),
+        "<div><li>&lt;span&gt;&lt;li&gt;&lt;li&gt;x&lt;/li&gt;&lt;/li&gt;&lt;/span&gt;</li></div>",
+        id="item-judged-past-a-recorded-item",
+    ),
+    pytest.param(
+        lambda: E.div(E.li(E.span(E.b(E.li("x"))))),
+        frozenset({"div", "li", "b"}),
+        "<div><li>&lt;span&gt;<b>&lt;li&gt;x&lt;/li&gt;</b>&lt;/span&gt;</li></div>",
+        id="item-recorded-below-the-hoisted-range",
+    ),
+    pytest.param(
+        lambda: E.div(E.li(E.span(E.address(E.li("x"))))),
+        frozenset({"div", "li", "address"}),
+        "<div><li>&lt;span&gt;<address>&lt;li&gt;x&lt;/li&gt;</address>&lt;/span&gt;</li></div>",
+        id="item-scan-passes-an-address",
+    ),
+    pytest.param(
+        lambda: E.div(E.select(E.li(E.span(E.div(E.li(E.option("x"))))))),
+        frozenset({"div", "select", "li", "option"}),
+        "<div><select><li>&lt;span&gt;<div>&lt;li&gt;<option>x</option>&lt;/li&gt;</div>&lt;/span&gt;</li></select></div>",
+        id="option-judged-past-a-recorded-item",
+    ),
+    pytest.param(
+        lambda: E.div(E.span(E.table(E.td("x")))),
+        frozenset({"div", "table", "td"}),
+        "<div>&lt;span&gt;<table><tbody><tr><td>x</td></tr></tbody></table>&lt;/span&gt;</div>",
+        id="table-under-an-escaped-inline",
+    ),
+    pytest.param(
+        lambda: E.div(E.span(E.h1(E.em(E.h2("x"))))),
+        frozenset({"div", "h1", "h2"}),
+        "<div>&lt;span&gt;<h1>&lt;em&gt;&lt;h2&gt;x&lt;/h2&gt;&lt;/em&gt;</h1>&lt;/span&gt;</div>",
+        id="settle-edit-under-an-escaped-inline",
+    ),
+    pytest.param(
+        lambda: E.div(E.li(E.li(E.section(E.b("x"))))),
+        frozenset({"div", "li", "b"}),
+        "<div><li>&lt;li&gt;&lt;section&gt;<b>x</b>&lt;/section&gt;&lt;/li&gt;</li></div>",
+        id="barrier-under-an-escaped-item",
+    ),
+    pytest.param(
+        lambda: E.div(E.form(E.li(E.form(E.section(E.li("x")))))),
+        frozenset({"div", "form", "li"}),
+        "<div><form><li>&lt;form&gt;&lt;section&gt;&lt;li&gt;x&lt;/li&gt;&lt;/section&gt;&lt;/form&gt;</li></form></div>",
+        id="barrier-under-a-dropped-form",
+    ),
+    pytest.param(
+        lambda: E.div(E.li(E.li("a", E.section(E.b("x"))))),
+        frozenset({"div", "li", "b"}),
+        "<div><li>&lt;li&gt;a&lt;section&gt;<b>x</b>&lt;/section&gt;&lt;/li&gt;</li></div>",
+        id="barrier-after-a-sibling-under-an-escaped-item",
+    ),
+    pytest.param(
+        lambda: E.div(E.form(_math_text_point(E.form(Element("mglyph"))))),
+        frozenset({"div", "form", "math", "mi", "mglyph"}),
+        "<div><form><math><mi>&lt;form&gt;&lt;mglyph&gt;&lt;/mglyph&gt;&lt;/form&gt;</mi></math></form></div>",
+        id="escaped-form-leaves-its-child-in-mathml",
+    ),
+    pytest.param(
+        lambda: E.div(E.form(_math_text_point(E.form(E.section(Element("mglyph")))))),
+        frozenset({"div", "form", "math", "mi", "mglyph"}),
+        "<div><form><math><mi>&lt;form&gt;&lt;section&gt;&lt;mglyph&gt;&lt;/mglyph&gt;&lt;/section&gt;&lt;/form&gt;</mi></math>"
+        "</form></div>",
+        id="hoisted-child-of-an-escaped-form-in-mathml",
+    ),
+    pytest.param(
+        lambda: E.div(E.table(E.tr(E.td(cast("Element", parse_fragment("<svg><g></g></svg>").children[0]))))),
+        frozenset({"div", "table", "tr", "td", "svg", "g"}),
+        "<div><table><tbody><tr><td><svg><g></g></svg></td></tr></tbody></table></div>",
+        id="foreign-content-in-a-cell",
+    ),
+    pytest.param(
+        lambda: E.form(E.div("x")),
+        frozenset({"form"}),
+        "<form>&lt;div&gt;x&lt;/div&gt;</form>",
+        id="barrier-under-a-root-form",
+    ),
+    pytest.param(
+        lambda: E.div(_svg_child_named("tbody")),
+        frozenset({"div", "svg", "tbody"}),
+        "<div><svg><tbody></tbody></svg></div>",
+        id="foreign-element-named-like-a-table-part",
+    ),
+]
+
+
+@pytest.mark.parametrize(("build", "tags", "expected"), _BALANCED_WALK_CASES)
+def test_node_balanced_walk(build: Callable[[], Element], tags: frozenset[str], expected: str) -> None:
+    # the node path balances inside the walk: verdicts under a disallowed element wait for its unwrap, a table balances
+    # once walked, and an escaped element's children are judged against the parent they land under
+    once = sanitize_node(build(), Policy(tags=tags)).html
+    assert once == expected
+    assert parse_fragment(once).inner_html == once
+
+
+_SETTLE_SCAN_CASES: Final = [
+    pytest.param(
+        lambda: E.div(E.b(E.section(E.li("x")))),
+        frozenset({"div", "li", "b"}),
+        "<div><b>&lt;section&gt;<li>x</li>&lt;/section&gt;</b></div>",
+        id="item-scan-reaches-the-root",
+    ),
+    pytest.param(
+        lambda: E.div(E.li(E.div(E.section(E.li("x"))))),
+        frozenset({"div", "li"}),
+        "<div><li><div>&lt;section&gt;&lt;li&gt;x&lt;/li&gt;&lt;/section&gt;</div></li></div>",
+        id="item-scan-passes-a-div",
+    ),
+    pytest.param(
+        lambda: E.div(E.li(E.address(E.section(E.li("x"))))),
+        frozenset({"div", "li", "address"}),
+        "<div><li><address>&lt;section&gt;&lt;li&gt;x&lt;/li&gt;&lt;/section&gt;</address></li></div>",
+        id="item-scan-passes-an-address",
+    ),
+    pytest.param(
+        lambda: E.div(E.li(E.p(E.section(E.li("x"))))),
+        frozenset({"div", "li", "p"}),
+        "<div><li><p>&lt;section&gt;&lt;li&gt;x&lt;/li&gt;&lt;/section&gt;</p></li></div>",
+        id="item-scan-passes-a-p",
+    ),
+    pytest.param(
+        lambda: E.div(E.select(E.optgroup(E.section(E.optgroup("x"))))),
+        frozenset({"div", "select", "optgroup"}),
+        "<div><select><optgroup>&lt;section&gt;&lt;optgroup&gt;x&lt;/optgroup&gt;&lt;/section&gt;</optgroup></select></div>",
+        id="optgroup-in-optgroup",
+    ),
+    pytest.param(
+        lambda: E.div(E.select(E.optgroup(E.span(E.section(E.optgroup("x")))))),
+        frozenset({"div", "select", "optgroup", "span"}),
+        "<div><select><optgroup><span>&lt;section&gt;&lt;optgroup&gt;x&lt;/optgroup&gt;&lt;/section&gt;</span></optgroup>"
+        "</select></div>",
+        id="optgroup-scan-passes-a-span",
+    ),
+    pytest.param(
+        lambda: E.div(E.span(E.section(E.option("x")))),
+        frozenset({"div", "span", "option"}),
+        "<div><span>&lt;section&gt;<option>x</option>&lt;/section&gt;</span></div>",
+        id="option-scan-reaches-the-root",
+    ),
+    pytest.param(
+        lambda: E.div(E.rp(E.section(E.rb("x")))),
+        frozenset({"div", "rp", "rb"}),
+        "<div><rp>&lt;section&gt;<rb>x</rb>&lt;/section&gt;</rp></div>",
+        id="implied-end-without-ruby-in-scope",
+    ),
+    pytest.param(
+        lambda: E.div(_foreign_object(E.section(E.form("x")))),
+        frozenset({"div", "svg", "foreignobject", "form"}),
+        "<div><svg>&lt;foreignObject&gt;&lt;section&gt;&lt;form&gt;x&lt;/form&gt;&lt;/section&gt;&lt;/foreignObject&gt;</svg></div>",
+        id="form-scan-crosses-foreign-content",
+    ),
+    pytest.param(
+        lambda: E.div(_foreign_object(E.section(E.td("x")))),
+        frozenset({"div", "svg", "foreignobject", "td"}),
+        "<div><svg>&lt;foreignObject&gt;&lt;section&gt;&lt;td&gt;x&lt;/td&gt;&lt;/section&gt;&lt;/foreignObject&gt;</svg></div>",
+        id="cell-orphaned-by-foreign-content",
+    ),
+    pytest.param(
+        lambda: E.table(E.tr(E.td(E.form(_math_text_point(E.form(Element("mglyph"))))))),
+        frozenset({"table", "tbody", "tr", "td", "form", "math", "mi", "mglyph"}),
+        "<table><tbody><tr><td><form><math><mi>&lt;form&gt;&lt;mglyph&gt;&lt;/mglyph&gt;&lt;/form&gt;</mi></math></form>"
+        "</td></tr></tbody></table>",
+        id="root-table-escape-exposes-a-namespace-confusion",
+    ),
+]
+
+
+@pytest.mark.parametrize(("build", "tags", "expected"), _SETTLE_SCAN_CASES)
+def test_node_settle_scans_the_hoisted_range(build: Callable[[], Element], tags: frozenset[str], expected: str) -> None:
+    # unwrapping a barrier re-checks what it hoists by scanning the tree's ancestors, the same rules the walk carries
+    # down as context bits; a table root balances the same way once the walk is done
+    once = sanitize_node(build(), Policy(tags=tags)).html
+    assert once == expected
+    assert parse_fragment(once).inner_html == once
+
+
+@pytest.mark.parametrize(
+    ("tree", "expected"),
+    [
+        pytest.param(
+            E.div(E.table(E.tbody(Comment("c"), E.tr(E.td("x"))))),
+            "<div><table><tbody><!--c--><tr><td>x</td></tr></tbody></table></div>",
+            id="in-a-walked-table",
+        ),
+        pytest.param(
+            E.table(Comment("c"), E.tr(E.td("x"))),
+            "<table><!--c--><tbody><tr><td>x</td></tr></tbody></table>",
+            id="in-a-root-table",
+        ),
+    ],
+)
+def test_node_balance_keeps_a_comment_in_a_table(tree: Element, expected: str) -> None:
+    policy = Policy(tags=frozenset({"div", "table", "tbody", "tr", "td"}), strip_comments=False)
+    assert sanitize_node(tree, policy).html == expected
+
+
+@pytest.mark.parametrize(("payload", "tags"), _PARSE_STABLE_RULES)
+def test_parse_stable_rule_corpus_under_a_table_root(payload: str, tags: frozenset[str]) -> None:
+    # a table part handed to sanitize_node as the root balances after the walk, scanning the tree's own ancestors, so
+    # every rule must still hold there
+    cell = E.td(*list(parse_fragment(payload).children))
+    once = sanitize_node(E.table(E.tr(cell)), Policy(tags=tags | {"table", "tbody", "tr", "td"})).html
+    assert parse_fragment(once).inner_html == once, f"not parse-stable under a table root: {once!r}"
     assert _live_danger(once) == []
 
 
