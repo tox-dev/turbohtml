@@ -97,6 +97,7 @@ typedef struct {
         text_table *table;
     };
     int saved_tight;
+    int saved_levels; /* the indent_levels to restore with the prefix */
     uint8_t walk;
     uint8_t leave;
     uint8_t in_run; /* block walk: inside a run of inline children */
@@ -136,6 +137,7 @@ typedef struct {
     int suppress_break;
     int tight;
     int list_depth;
+    int indent_levels; /* list and quote nesting that indents the prefix, capped by TH_MAX_INDENT_LEVELS */
     int failed;
 } text_ctx;
 
@@ -511,11 +513,16 @@ static void text_render_inline(text_ctx *ctx, th_node *node) {
     text_close_annotations(ctx, opened);
 }
 
-/* A run of count spaces appended to the continuation prefix; returns the prior len. */
-static Py_ssize_t text_push_indent(text_ctx *ctx, Py_ssize_t count) {
+/* Indent what follows by count more columns, levels deeper, and return the prefix length
+   to pop back to. Past TH_MAX_INDENT_LEVELS the prefix stops growing and deeper content
+   lays out at that depth. */
+static Py_ssize_t text_indent(text_ctx *ctx, Py_ssize_t count, int levels) {
     Py_ssize_t base = ctx->prefix.len;
-    for (Py_ssize_t index = 0; index < count; index++) {
-        sbuf_putc(&ctx->prefix, ' ');
+    ctx->indent_levels += levels;
+    if (ctx->indent_levels <= TH_MAX_INDENT_LEVELS) {
+        for (Py_ssize_t index = 0; index < count; index++) {
+            sbuf_putc(&ctx->prefix, ' ');
+        }
     }
     return base;
 }
@@ -629,13 +636,15 @@ static void text_list_child(text_ctx *ctx, text_frame *frame, th_node *child) {
         /* a list nested directly in a list (a sibling of the <li>s) belongs to
            the preceding item; the parser makes this shape and skipping it would
            drop every nested item's text */
-        Py_ssize_t base = text_push_indent(ctx, frame->list.sub_indent);
+        int saved_levels = ctx->indent_levels;
+        Py_ssize_t base = text_indent(ctx, frame->list.sub_indent, 2);
         int saved_tight = ctx->tight;
         ctx->tight = 1;
         text_frame *nested = text_enter_list(ctx, child, text_open_annotations(ctx, child));
         if (nested != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             nested->prefix_base = base;
             nested->saved_tight = saved_tight;
+            nested->saved_levels = saved_levels;
         }
         return;
     }
@@ -658,7 +667,8 @@ static void text_list_child(text_ctx *ctx, text_frame *frame, th_node *child) {
     ctx->column = (int)(ctx->prefix.len + width);
     ctx->line_has_content = 1;
     frame->list.sub_indent = width;
-    Py_ssize_t base = text_push_indent(ctx, width);
+    int saved_levels = ctx->indent_levels;
+    Py_ssize_t base = text_indent(ctx, width, 2);
     int saved_tight = ctx->tight;
     ctx->tight = 1;
     ctx->suppress_break = text_leads_with_inline(ctx, child);
@@ -666,6 +676,7 @@ static void text_list_child(text_ctx *ctx, text_frame *frame, th_node *child) {
     if (item != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         item->prefix_base = base;
         item->saved_tight = saved_tight;
+        item->saved_levels = saved_levels;
     }
 }
 
@@ -877,7 +888,8 @@ static void text_render_block(text_ctx *ctx, th_node *node) {
         text_enter_table(ctx, node, opened);
         return;
     case TH_TAG_BLOCKQUOTE: {
-        Py_ssize_t base = text_push_indent(ctx, 4);
+        int saved_levels = ctx->indent_levels;
+        Py_ssize_t base = text_indent(ctx, 4, 1);
         int saved_tight = ctx->tight;
         ctx->tight = 0;
         if (ctx->started) {
@@ -894,6 +906,7 @@ static void text_render_block(text_ctx *ctx, th_node *node) {
         if (frame != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             frame->prefix_base = base;
             frame->saved_tight = saved_tight;
+            frame->saved_levels = saved_levels;
         }
         return;
     }
@@ -940,6 +953,7 @@ static void text_leave(text_ctx *ctx) {
     }
     if (frame->prefix_base >= 0) {
         ctx->tight = frame->saved_tight;
+        ctx->indent_levels = frame->saved_levels;
         ctx->prefix.len = frame->prefix_base;
     }
     text_close_annotations(ctx, frame->opened);

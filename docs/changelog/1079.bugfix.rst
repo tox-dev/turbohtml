@@ -1,0 +1,2 @@
+:meth:`~turbohtml.Node.to_markdown` and :meth:`~turbohtml.Node.to_text` stop indenting nested lists and block quotes
+past 20 nesting levels.

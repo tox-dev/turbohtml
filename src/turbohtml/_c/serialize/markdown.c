@@ -23,6 +23,7 @@
 #include "dom/tree.h"
 #include "dom/tree_internal.h"
 
+#include <limits.h>
 #include <string.h>
 
 /* Whether an element's own Markdown markup is dropped under the strip/convert
@@ -232,7 +233,8 @@ typedef struct {
         md_table *table;
     };
     int saved_tight;
-    int in_run; /* block walk: inside a run of inline children */
+    int saved_levels; /* the indent_levels to restore with the prefix */
+    int in_run;       /* block walk: inside a run of inline children */
     uint8_t walk;
     uint8_t leave;
 } md_frame;
@@ -274,6 +276,7 @@ typedef struct {
     int suppress_break;         /* the next block attaches to the current (list marker) line */
     int tight;                  /* inside a list item: inline runs do not add blank lines */
     int list_depth;             /* nesting depth of the current list, for bullet cycling */
+    int indent_levels;          /* list and quote nesting that indents the prefix, capped by TH_MAX_INDENT_LEVELS */
     Py_ssize_t list_end;        /* output length when the last list closed, to spot a list right after it */
     Py_ssize_t list_end_prefix; /* the prefix length that list was laid out under */
     char list_end_marker;       /* its bullet or ordered delimiter; 0 until a list closes */
@@ -291,12 +294,16 @@ static void md_puts8(sbuf *out, const char *text) {
     sbuf_put_utf8(out, text, (Py_ssize_t)strlen(text));
 }
 
-/* Append n spaces to the continuation prefix and return the start offset, so the
-   caller can pop them back off after the nested block. */
-static Py_ssize_t md_push_spaces(md_ctx *ctx, Py_ssize_t count) {
+/* Indent what follows by count more columns, one list level deeper, and return the
+   prefix length to pop back to after the nested block. Past TH_MAX_INDENT_LEVELS the
+   prefix stops growing and deeper content lays out at that depth. */
+static Py_ssize_t md_indent(md_ctx *ctx, Py_ssize_t count) {
     Py_ssize_t base = ctx->prefix.len;
-    for (Py_ssize_t index = 0; index < count; index++) {
-        sbuf_putc(&ctx->prefix, ' ');
+    ctx->indent_levels += 2;
+    if (ctx->indent_levels <= TH_MAX_INDENT_LEVELS) {
+        for (Py_ssize_t index = 0; index < count; index++) {
+            sbuf_putc(&ctx->prefix, ' ');
+        }
     }
     return base;
 }
@@ -747,7 +754,11 @@ static int md_css_unordered(const Py_UCS4 *value, Py_ssize_t len) {
 static int md_css_px(const Py_UCS4 *value, Py_ssize_t len) {
     int pixels = 0;
     for (Py_ssize_t index = 0; index < len && value[index] >= '0' && value[index] <= '9'; index++) {
-        pixels = pixels * 10 + (int)(value[index] - '0');
+        int digit = (int)(value[index] - '0');
+        if (pixels > (INT_MAX - digit) / 10) {
+            return INT_MAX;
+        }
+        pixels = pixels * 10 + digit;
     }
     return pixels;
 }
@@ -1975,6 +1986,9 @@ static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
         Py_ssize_t value_len;
         if (style != NULL && md_css_prop(style, style_len, "margin-left", &value, &value_len)) {
             int nest = md_css_px(value, value_len) / ctx->opt->google_list_indent;
+            if (nest > TH_MAX_INDENT_LEVELS / 2) {
+                nest = TH_MAX_INDENT_LEVELS / 2; /* each margin step is a list level */
+            }
             for (int level = 0; level < nest; level++) {
                 sbuf_puts(&ctx->out, "  ");
             }
@@ -2000,7 +2014,8 @@ static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
     state->sub_indent = width;
     state->item_seen = 1;
     state->in_run = 0;
-    Py_ssize_t base = md_push_spaces(ctx, width);
+    int saved_levels = ctx->indent_levels;
+    Py_ssize_t base = md_indent(ctx, width);
     int saved_tight = ctx->tight;
     ctx->tight = !state->loose;
     ctx->suppress_break = md_leads_with_inline(ctx, child) > 0;
@@ -2011,19 +2026,22 @@ static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
     if (frame != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         frame->prefix_base = base;
         frame->saved_tight = saved_tight;
+        frame->saved_levels = saved_levels;
     }
 }
 
 /* Indent what follows under the last item, restoring the prefix and tightness once
    the frames pushed on top of this one are done. */
 static void md_push_indent(md_ctx *ctx, Py_ssize_t width, int tight) {
-    Py_ssize_t base = md_push_spaces(ctx, width);
+    int saved_levels = ctx->indent_levels;
+    Py_ssize_t base = md_indent(ctx, width);
     int saved_tight = ctx->tight;
     ctx->tight = tight;
     md_frame *frame = md_push(ctx, NULL, MD_WALK_NONE, MD_LEAVE_NONE);
     if (frame != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         frame->prefix_base = base;
         frame->saved_tight = saved_tight;
+        frame->saved_levels = saved_levels;
     }
 }
 
@@ -2060,12 +2078,14 @@ static void md_list_child(md_ctx *ctx, Py_ssize_t owner, th_node *child) {
         md_block_child(ctx, child, &state->in_run);
     } else if (child->type == TH_NODE_TEXT) {
         /* text pushes no frame, so its indent is undone right here */
-        Py_ssize_t base = md_push_spaces(ctx, state->sub_indent);
+        int saved_levels = ctx->indent_levels;
+        Py_ssize_t base = md_indent(ctx, state->sub_indent);
         int saved_tight = ctx->tight;
         ctx->tight = !state->loose;
         md_block_child(ctx, child, &state->in_run);
         ctx->tight = saved_tight;
         ctx->prefix.len = base;
+        ctx->indent_levels = saved_levels;
     } else {
         md_push_indent(ctx, state->sub_indent, !state->loose);
         md_block_child(ctx, child, &ctx->frames[owner].list.state.in_run);
@@ -2728,6 +2748,8 @@ static void md_render_block(md_ctx *ctx, th_node *node) {
         return;
     case TH_TAG_BLOCKQUOTE: {
         Py_ssize_t base = ctx->prefix.len;
+        int saved_levels = ctx->indent_levels;
+        const char *marker = ++ctx->indent_levels <= TH_MAX_INDENT_LEVELS ? "> " : "";
         if (ctx->started) {
             /* close the previous block and open the separator with the OUTER
                prefix, so the blank line is not itself quoted, before adding the
@@ -2737,7 +2759,7 @@ static void md_render_block(md_ctx *ctx, th_node *node) {
                 md_write_blank_prefix(ctx);
                 sbuf_putc(&ctx->out, '\n');
             }
-            sbuf_puts(&ctx->prefix, "> ");
+            sbuf_puts(&ctx->prefix, marker);
             md_write_prefix(ctx);
             ctx->line_has_content = 0;
             ctx->space_pending = 0;
@@ -2745,7 +2767,7 @@ static void md_render_block(md_ctx *ctx, th_node *node) {
             ctx->pending_loose = 1;
             ctx->suppress_break = 1;
         } else {
-            sbuf_puts(&ctx->prefix, "> ");
+            sbuf_puts(&ctx->prefix, marker);
         }
         int saved_tight = ctx->tight;
         ctx->tight = 0;
@@ -2753,6 +2775,7 @@ static void md_render_block(md_ctx *ctx, th_node *node) {
         if (frame != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             frame->prefix_base = base;
             frame->saved_tight = saved_tight;
+            frame->saved_levels = saved_levels;
         }
         return;
     }
@@ -2849,6 +2872,7 @@ static void md_leave(md_ctx *ctx) {
     }
     if (frame->prefix_base >= 0) {
         ctx->tight = frame->saved_tight;
+        ctx->indent_levels = frame->saved_levels;
         ctx->prefix.len = frame->prefix_base;
     }
 }

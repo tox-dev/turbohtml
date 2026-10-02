@@ -11,6 +11,13 @@
 #include "core/ascii.h" /* is_space, the shared HTML ASCII-whitespace predicate */
 #include "dom/tree.h"
 
+/* The nesting depth past which list items and block quotes indent no further, so every line's prefix stays bounded
+   and the output linear in the input. markdown-it's CommonMark preset stops nesting at the same 20 levels, counting
+   two per list level (the list and its item) and one per block quote:
+   https://github.com/markdown-it/markdown-it/blob/3c51991c32aaa2b002a52c009334ebe5752c84b3/src/presets/commonmark.ts#L40
+ */
+#define TH_MAX_INDENT_LEVELS 20
+
 /* A block-level element opens its own line(s); everything else is inline and
    flows into the surrounding line. Shared by the markdown and text renderers. */
 static inline int is_md_block(uint16_t atom) {

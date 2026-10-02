@@ -65,7 +65,9 @@ string helpers; :func:`annotation_surface` and :func:`annotation_tags` post-proc
 the standalone :func:`~turbohtml.clean.minify_js` lives with the other minifiers in :mod:`turbohtml.clean`.
 
 Markup serialization, :attr:`Node.text`, :meth:`Node.to_markdown`, :meth:`Node.to_text`, and
-:meth:`Node.to_annotated_text` walk the tree without recursion and impose no nesting limit.
+:meth:`Node.to_annotated_text` walk the tree without recursion and impose no nesting limit. The layout renderers indent
+nested lists and block quotes up to 20 nesting levels, counting two per list level and one per block quote. Deeper
+content keeps the indentation of that depth, so output stays proportional to the input.
 
 .. autofunction:: escape
 
