@@ -750,33 +750,34 @@ static int css_props_conflict(const css_char *a, Py_ssize_t a_len, const css_cha
     return b_longhands != NULL && css_prop_in_list(a, a_len, b_longhands);
 }
 
-/* Advance *pos over one declaration of a rendered body [0,len), returning its property-name run [*start,*end) -- the
-   ident up to the declaration's ':'. A property name holds no parenthesis, so the first ':' is always the separator;
-   the value's terminating ';' is read at paren depth 0, since a ';' can sit inside an unquoted data URL. The callers
-   have already excluded a body carrying a string or a nested rule, so no quote or brace state is tracked. Returns 0 at
-   the end. */
+/* Advance *pos over one declaration of a rendered body [0,len), returning its property-name run [*start,*end): the
+   text before its first ':', or all of it when it has none. A ';' ends the declaration at paren depth 0, since one can
+   sit inside an unquoted data URL; a stray ')' leaves the depth at 0, as css_read_until does. That parser also nests
+   [ blocks, so a declaration it kept whole, such as `c:d[;e]`, can split here into a piece with no ':', which then
+   counts as a name: an extra name can only add a conflict, never hide one. The callers have already excluded a body
+   carrying a string or a nested rule, so no quote or brace state is tracked. Returns 0 at the end. */
 static int css_body_next_prop(const css_char *body, Py_ssize_t len, Py_ssize_t *pos, Py_ssize_t *start,
                               Py_ssize_t *end) {
     if (*pos >= len) {
         return 0;
     }
     *start = *pos;
-    Py_ssize_t index = *pos;
-    while (body[index] != ':') {
-        index++;
-    }
-    *end = index;
+    Py_ssize_t colon = -1;
     int depth = 0;
+    Py_ssize_t index = *pos;
     for (; index < len; index++) {
         css_char character = body[index];
-        if (character == '(') {
+        if (character == ':' && colon < 0) {
+            colon = index;
+        } else if (character == '(') {
             depth++;
-        } else if (character == ')') {
+        } else if (character == ')' && depth > 0) {
             depth--;
         } else if (depth == 0 && character == ';') {
             break;
         }
     }
+    *end = colon < 0 ? index : colon;
     *pos = index < len ? index + 1 : index;
     return 1;
 }

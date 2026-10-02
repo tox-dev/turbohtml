@@ -1,0 +1,2 @@
+The CSS minifier no longer crashes, or merges a rule past another that sets the same property, on a declaration such as
+``c:d[;e]`` whose ``;`` does not end it.

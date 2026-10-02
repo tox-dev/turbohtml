@@ -267,6 +267,50 @@ def test_minify_css_many_rules_keep_blocked_merge() -> None:
     assert minify_css(source) == source
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("[:;a", id="unclosed-bracket"),
+        pytest.param("c:d[;e]", id="semicolon-in-bracket"),
+        pytest.param("c:d\\;e", id="escaped-semicolon"),
+    ],
+)
+def test_minify_css_merge_scan_stays_in_body(filler_rules: str, body: str) -> None:
+    # the last body piece the merge scan splits off holds no ':'; reading on for one ran past the end of the body
+    assert minify_css(f"b{{g:h}}{filler_rules}b{{{body}") == f"b{{g:h;{body}}}{filler_rules}"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("c:d[;e];color:red", id="semicolon-in-bracket"),
+        pytest.param("c:d);color:red", id="stray-paren"),
+    ],
+)
+def test_minify_css_merge_scan_sees_every_property(filler_rules: str, body: str) -> None:
+    # .u sets color, so folding the last .t back into the first would let .u's red win over green
+    source = f".t{{color:blue}}{filler_rules}.u{{{body}}}.t{{color:green}}"
+    assert minify_css(source) == source
+
+
+# past 32 rules the merge pass compares cached body summaries instead of rescanning each pair
+@pytest.fixture(params=[pytest.param(1, id="pairwise-scan"), pytest.param(40, id="summary-scan")])
+def filler_rules(request: pytest.FixtureRequest) -> str:
+    return "".join(f".c{index}{{--p{index}:{index + 1}px}}" for index in range(request.param))
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("a{{b:c}}", id="nested-rule-without-selector"),
+        pytest.param("a{b:}", id="declaration-without-value"),
+    ],
+)
+def test_minify_css_empty_run(source: str) -> None:
+    # the empty selector or value is a NULL buffer; memcpy declares its source non-null even for length 0
+    assert minify_css(source) == source
+
+
 def _max_decls_per_rule(rule_count: int) -> int:
     out = minify_css("".join(f"a{{--p{index}:{index}}}" for index in range(rule_count)))
     return max(body.count(":") for body in re.findall(r"\{([^}]*)\}", out))

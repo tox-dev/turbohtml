@@ -152,6 +152,11 @@ static inline void cbuf_putc(css_buf *buffer, css_char character) {
 }
 
 static inline void cbuf_put_run(css_buf *buffer, const css_char *text, Py_ssize_t len) {
+    /* an empty run carries a NULL text pointer, and memcpy declares its source non-null even for 0; `<=` rather than
+       `==` keeps gcc's -Wstringop-overflow from reading the negative range as a 2^63 byte copy */
+    if (len <= 0) {
+        return;
+    }
     cbuf_reserve(buffer, len);
     if (buffer->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
