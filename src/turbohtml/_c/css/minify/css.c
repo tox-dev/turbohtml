@@ -34,6 +34,7 @@
 #include "css/minify/css_grammar.h"
 #include "css/minify/css.h"
 
+static int css_spell_eof_escape(const css_token *last, const css_char *view, Py_ssize_t length, css_buf *spelled);
 static int css_spells_style_end(const css_char *text, Py_ssize_t len);
 
 /* The allocator-agnostic core: minify a code-point view into a freshly allocated buffer (free with css_free). The
@@ -50,6 +51,15 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
         tokens.cap = token_guess;
     }
     css_tokenize(view, length, &tokens);
+    if (tokens.len > 0 && view[length - 1] == '\\') {
+        css_buf spelled = {NULL, 0, 0, 0};
+        if (css_spell_eof_escape(&tokens.items[tokens.len - 1], view, length, &spelled)) {
+            css_free(tokens.items);
+            css_char *minified = th_minify_css_bytes(spelled.data, spelled.len, inline_mode, baseline, out_len);
+            cbuf_free(&spelled);
+            return minified;
+        }
+    }
     css_buf pool = {NULL, 0, 0, 0};
     css_buf out = {NULL, 0, 0, 0};
     /* the pool holds the value scratch plus every interned selector and body, so it runs to roughly twice the input */
@@ -74,6 +84,36 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
     }
     *out_len = out.len;
     return out.data;
+}
+
+/* A `\` ending the input that starts an escape reads as nothing inside a string (CSS Syntax 3 §4.3.5) and as U+FFFD
+   wherever else the tokenizer consumes an escape (§4.3.7). The tokens keep the raw `\`, which would escape the `}`,
+   `)` or quote the output adds to close the input, so spelled gets the input with it spelled out, and the return tells
+   whether it did. The last token holds that `\`, and an escape there pairs each `\` with the next code point from the
+   token's start. */
+static int css_spell_eof_escape(const css_token *last, const css_char *view, Py_ssize_t length, css_buf *spelled) {
+    Py_ssize_t run = 1;
+    while (run < last->text_len && last->text[last->text_len - 1 - run] == '\\') {
+        run++;
+    }
+    if (run % 2 == 0 || last->kind == CSS_COMMENT) {
+        return 0;
+    }
+    int in_string = last->kind == CSS_STR;
+    if (last->kind == CSS_URL) {
+        /* a quote opening the argument makes `url(` a function with a string (§4.3.4); the text ends in the `\`, so
+           the whitespace run stops inside it */
+        Py_ssize_t open = 4;
+        while (css_is_ws(last->text[open])) {
+            open++;
+        }
+        in_string = last->text[open] == '"' || last->text[open] == '\'';
+    }
+    cbuf_put_run(spelled, view, length - 1);
+    if (!in_string) {
+        cbuf_puts(spelled, "\xEF\xBF\xBD");
+    }
+    return 1;
 }
 
 /* The tokenizer lowercases an end tag name, so `</STYLE` counts too; OR-ing 0x20 folds the ASCII letters and no other

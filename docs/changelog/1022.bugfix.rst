@@ -1,0 +1,2 @@
+The CSS minifier no longer lets a backslash at the end of the input escape the brace, parenthesis or quote it adds to
+close the input.

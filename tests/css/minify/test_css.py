@@ -22,6 +22,8 @@ from turbohtml.clean import CSSMinify, minify_css, minify_css_inline
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from _pytest.mark.structures import ParameterSet
+
 _NEWLY = CSSMinify(baseline=2021)
 
 
@@ -539,8 +541,8 @@ def _max_decls_per_rule(rule_count: int) -> int:
         pytest.param(r"@a\,b{c:d}", r"@a\,b{c:d}", id="escaped-at-keyword-kept"),
         pytest.param("/*a*b*/x{y:1}", "x{y:1}", id="comment-with-lone-star"),
         pytest.param("a{x:1}/* unterminated", "a{x:1}", id="unterminated-comment"),
-        pytest.param("@a\\", "@a\\", id="escaped-at-keyword-backslash-at-eof"),
-        pytest.param("x{}#a\\", "#a\\", id="escaped-hash-backslash-at-eof"),
+        pytest.param("@a\\", "@a\ufffd", id="escaped-at-keyword-backslash-at-eof"),
+        pytest.param("x{}#a\\", "#a\ufffd", id="escaped-hash-backslash-at-eof"),
         pytest.param("a{x:1!important/*c*/}", "a{x:1!important}", id="important-trailing-comment"),
         pytest.param("a{x:1 !/*c*/important}", "a{x:1!important}", id="important-comment-between-bang"),
         pytest.param(r"#a\9 b{x:1}", r"#a\9 b{x:1}", id="escaped-hash-selector-kept"),
@@ -698,6 +700,32 @@ def _max_decls_per_rule(rule_count: int) -> int:
 )
 def test_minify_css_spec_fixes(source: str, expected: str) -> None:
     assert minify_css(source) == expected
+
+
+_BACKSLASH_AT_EOF: Final[list[ParameterSet]] = [
+    pytest.param("a{e:f\\", "a{e:f\ufffd}", id="ident"),
+    pytest.param("a{e:\\", "a{e:\ufffd}", id="lone"),
+    pytest.param("a{e:#f\\", "a{e:#f\ufffd}", id="hash"),
+    pytest.param("a{e:f(\\", "a{e:f(\ufffd)}", id="function-argument"),
+    pytest.param("@media x\\", "@media x\ufffd", id="at-rule-prelude"),
+    pytest.param('a{e:"abc\\', 'a{e:"abc"}', id="double-quoted-string"),
+    pytest.param("a{e:'abc\\", "a{e:'abc'}", id="single-quoted-string"),
+    pytest.param('a{e:"abc\\\\', 'a{e:"abc\\\\"}', id="string-escaped-backslash"),
+    pytest.param("a{e:f\\\\", "a{e:f\\\\}", id="escaped-backslash"),
+    pytest.param("url('x\\", "url('x", id="single-quoted-url"),
+    pytest.param('url( "x\\', 'url( "x', id="quoted-url-after-whitespace"),
+    pytest.param("a{e:f}/*! c \\", "a{e:f}/*! c \\", id="comment"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _BACKSLASH_AT_EOF)
+def test_minify_css_backslash_at_eof(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _BACKSLASH_AT_EOF)
+def test_minify_css_backslash_at_eof_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
 
 
 @pytest.mark.parametrize(
@@ -976,7 +1004,7 @@ _GOLDEN: Final[list[list[str]]] = json.loads(
 _UNSTABLE: Final[frozenset[str]] = frozenset({
     "a{a:)'''", "{d:url( \n  \n\t0", "{d:urL(     '0", '{-ms-filter:"',
     "a{width:calc((1px + 2px}", "a{width:calc((1px}", "a{width:calc((", "a{width:calc((1px+2px",
-    'a{x:"abc\\', "a{x:url(", 'a{src:local("', "a{color:rgba(10 20 30 .5)}",
+    "a{x:url(", 'a{src:local("', "a{color:rgba(10 20 30 .5)}",
 })  # fmt: skip
 
 
