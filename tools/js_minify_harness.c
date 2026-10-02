@@ -116,6 +116,8 @@ static void run_builtins(long *cases) {
         /* script grammar: static blocks, a field named async, new.target as a callee, import(), await/yield names */
         "class C{static{var a=1;f(a)}async}", "function F(){return new new.target()}", "import(\"x\").then(f)",
         "function f(await,yield=0){return await(yield)}",
+        /* early errors: `let` bound by let/const, and repeated parameters past the name buffer's first growth */
+        "let [let]=[]", "function f(a,a){\"use strict\"}", "x=(a,b,c,d,e,f,g,h,i,j,{k:[a]})=>a",
     };
     for (size_t index = 0; index < sizeof(snippets) / sizeof(snippets[0]); index++) {
         const char *text = snippets[index];

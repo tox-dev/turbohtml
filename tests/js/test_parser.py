@@ -421,3 +421,98 @@ def test_static_block_scopes_its_vars() -> None:
 def test_await_follows_script_goal(script_type: str, expected: str) -> None:
     html = f'<script type="{script_type}">await(1)</script>'
     assert clean.minify(html, Minify(minify_js=JSMinify())) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "match"),
+    [
+        pytest.param("let let=1", "offset 4 near 'let'", id="let"),
+        pytest.param("const let=1", "offset 6 near 'let'", id="const"),
+        pytest.param("let a,let=1", "offset 6 near 'let'", id="second-declarator"),
+        pytest.param("let [,let]=[]", "offset 4 near '['", id="array-element"),
+        pytest.param("let [let=1]=[]", "offset 4 near '['", id="array-default"),
+        pytest.param("let [...let]=[]", "offset 4 near '['", id="array-rest"),
+        pytest.param("let {let}={}", "offset 4 near '{'", id="object-shorthand"),
+        pytest.param("let {let=1}={}", "offset 4 near '{'", id="object-shorthand-default"),
+        pytest.param("const {a:{b:let}}={}", "offset 6 near '{'", id="nested-object-value"),
+        pytest.param("for(let let of a);", "offset 8 near 'let'", id="for-of-head"),
+        pytest.param("for(const let in a);", "offset 10 near 'let'", id="for-in-head"),
+        pytest.param("for(let let;;);", "offset 8 near 'let'", id="for-init"),
+    ],
+)
+def test_let_as_lexical_binding_raises(source: str, match: str) -> None:
+    with pytest.raises(ValueError, match=re.escape(f"let is disallowed as a lexically bound name at {match}")):
+        minify(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("var let=1", id="var"),
+        pytest.param("let {let:a}={}", id="property-key"),
+        pytest.param("let [a,{b},...c]=d", id="pattern-without-let"),
+        pytest.param("let lax=1,lex=2,les=3", id="names-sharing-a-prefix-with-let"),
+    ],
+)
+def test_binding_not_named_let_minifies(source: str) -> None:
+    assert minify(source) == source
+
+
+@pytest.mark.parametrize(
+    ("source", "match"),
+    [
+        pytest.param('function f(a,a){"use strict"}', "offset 10", id="own-directive"),
+        pytest.param("function f(a,a){'use strict'}", "offset 10", id="own-directive-single-quotes"),
+        pytest.param('function f(a,a){"a";"use strict"}', "offset 10", id="second-directive"),
+        pytest.param('"use strict";function f(a,a){}', "offset 23", id="script-directive"),
+        pytest.param('function g(){"use strict";function f(a,a){}}', "offset 36", id="enclosing-function-directive"),
+        pytest.param("class C{m(){function f(a,a){}}}", "offset 22", id="class-body"),
+        pytest.param("class C extends(function(a,a){}){}", "offset 24", id="class-heritage"),
+        pytest.param("class C{m(a,a){}}", "offset 9", id="class-method"),
+        pytest.param("x={m(a,a){}}", "offset 4", id="object-method"),
+        pytest.param("x={set y([a,a]){}}", "offset 8", id="setter-pattern"),
+        pytest.param("x=(a,a)=>a", "offset 2", id="arrow"),
+        pytest.param("x=async(a,a)=>a", "offset 2", id="async-arrow"),
+        pytest.param("function f(a,a=1){}", "offset 10", id="default"),
+        pytest.param("function f(a,...a){}", "offset 10", id="rest"),
+        pytest.param("function f(a,{b:a}){}", "offset 10", id="object-pattern"),
+        pytest.param("x=(bb,a,bb)=>a", "offset 2", id="not-adjacent"),
+        pytest.param("x=(a,b,c,d,e,f,g,h,i,j,a)=>a", "offset 2", id="beyond-initial-capacity"),
+    ],
+)
+def test_duplicate_parameter_raises(source: str, match: str) -> None:
+    with pytest.raises(ValueError, match=re.escape(f"duplicate parameter name at {match} near")):
+        minify(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("function f(a,a){}", id="sloppy-simple"),
+        pytest.param("function*g(a,a){}", id="sloppy-generator"),
+        pytest.param("async function f(a,a){}", id="sloppy-async"),
+        pytest.param('function f(a,a){f();"use strict"}', id="directive-after-statement"),
+        pytest.param('function f(a,a){"use\\x20strict"}', id="escaped-directive"),
+        pytest.param('function f(a,a){"use strics"}', id="other-twelve-character-string"),
+        pytest.param('function f(a,a){"use strictly"}', id="longer-string"),
+        pytest.param('function f(){"use strict"}function g(a,a){}', id="directive-scope-ends-with-function"),
+        pytest.param('x=()=>{"use strict"};function g(a,a){}', id="directive-scope-ends-with-arrow"),
+        pytest.param("class C{}function g(a,a){}", id="strictness-ends-with-class"),
+        pytest.param("x=(a,b,cc)=>a", id="distinct-arrow-parameters"),
+        pytest.param("class C{m(a,{b},...c){}}", id="distinct-method-parameters"),
+    ],
+)
+def test_parameters_allowed_to_repeat_minify(source: str) -> None:
+    assert minify(source) == source
+
+
+@pytest.mark.parametrize(
+    ("script_type", "expected"),
+    [
+        pytest.param("", "<script type>function f(a,a){}</script>", id="classic-sloppy"),
+        pytest.param("module", "<script type=module>function f(a, a) {}</script>", id="module-strict"),
+    ],
+)
+def test_duplicate_parameter_follows_script_goal(script_type: str, expected: str) -> None:
+    html = f'<script type="{script_type}">function f(a, a) {{}}</script>'
+    assert clean.minify(html, Minify(minify_js=JSMinify())) == expected
