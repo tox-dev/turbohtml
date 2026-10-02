@@ -1,0 +1,2 @@
+The CSS minifier no longer merges a rule past another that sets the same property after an escaped ``\(`` or a ``(``
+inside ``url()``.

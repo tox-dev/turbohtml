@@ -285,6 +285,32 @@ def test_minify_css_merge_scan_stays_in_body(filler_rules: str, body: str) -> No
     [
         pytest.param("c:d[;e];color:red", id="semicolon-in-bracket"),
         pytest.param("c:d);color:red", id="stray-paren"),
+        pytest.param("c:d\\(;color:red", id="escaped-paren"),
+        pytest.param("c:url(x(y);color:red", id="paren-in-url"),
+        pytest.param("c:url(x;y);color:red", id="semicolon-in-url"),
+        pytest.param("c:url(x\\));color:red", id="escaped-paren-in-url"),
+        pytest.param("c:f(\\();color:red", id="escaped-paren-in-function"),
+        pytest.param("c:f(g(h);i);color:red", id="nested-functions"),
+        pytest.param("c\\:d:e;color:red", id="escaped-colon-in-name"),
+        pytest.param("--x:\\(;color:red", id="custom-property"),
+        pytest.param("c:d\\(!important;color:red", id="important-before"),
+        pytest.param("c:d\\(;color:red!important", id="important-conflict"),
+        pytest.param("c/*;(*/:d\\(;color:red", id="comment-in-name"),
+        pytest.param('c:"(;";color:red', id="string"),
+        pytest.param("c/*/;(*/:d\\(;color:red", id="comment-opening-with-slash"),
+        pytest.param("c/*\\([)]}:;/*/:d\\(;color:red", id="delimiters-in-comment"),
+        pytest.param("c:a/;color:red", id="slash"),
+        pytest.param("color:red;c:a/", id="slash-at-end"),
+        pytest.param("c:url(a[b);color:red", id="bracket-in-url"),
+        pytest.param("c:f(x});color:red", id="brace-closing-paren"),
+        pytest.param("c:a]b;color:red", id="stray-bracket"),
+        pytest.param("c:a:b;color:red", id="second-colon"),
+        pytest.param("c:xé;color:red", id="non-ascii"),
+        pytest.param("@x y;color:red", id="at-statement"),
+        pytest.param("color:red;@x y", id="at-statement-at-end"),
+        pytest.param("(a:b);color:red", id="paren-in-name"),
+        pytest.param("c:nil(x);color:red", id="function-ending-in-l"),
+        pytest.param(";".join(f"--p{index}:{index}" for index in range(40)) + ";color:red", id="many-properties"),
     ],
 )
 def test_minify_css_merge_scan_sees_every_property(filler_rules: str, body: str) -> None:
@@ -293,8 +319,29 @@ def test_minify_css_merge_scan_sees_every_property(filler_rules: str, body: str)
     assert minify_css(source) == source
 
 
-# past 32 rules the merge pass compares cached body summaries instead of rescanning each pair
-@pytest.fixture(params=[pytest.param(1, id="pairwise-scan"), pytest.param(40, id="summary-scan")])
+def test_minify_css_merge_sees_property_after_comment(filler_rules: str) -> None:
+    source = f".t{{color:blue}}{filler_rules}.u{{c:d\\(/*;*/;color:red}}.t{{color:green}}"
+    assert minify_css(source) == f".t{{color:blue}}{filler_rules}.u{{c:d\\(;color:red}}.t{{color:green}}"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("c:d\\;color:red", id="escaped-semicolon"),
+        pytest.param("c:d[;color:red]", id="semicolon-in-bracket"),
+        pytest.param("c:url(x;color:red)", id="semicolon-in-url"),
+        pytest.param("c:f(\\;color:red)", id="escaped-semicolon-in-function"),
+        pytest.param("--color:red", id="custom-property"),
+    ],
+)
+def test_minify_css_merge_passes_rule_without_property(filler_rules: str, body: str) -> None:
+    # `color:red` sits inside one declaration's value or custom property name, so .u leaves color alone
+    source = f".t{{color:blue}}{filler_rules}.u{{{body}}}.t{{color:green}}"
+    assert minify_css(source) == f".t{{color:blue;color:green}}{filler_rules}.u{{{body}}}"
+
+
+# past 32 rules the merge pass finds repeated selectors and bodies through a hash table before scanning back
+@pytest.fixture(params=[pytest.param(1, id="short-list"), pytest.param(40, id="hashed-list")])
 def filler_rules(request: pytest.FixtureRequest) -> str:
     return "".join(f".c{index}{{--p{index}:{index + 1}px}}" for index in range(request.param))
 
