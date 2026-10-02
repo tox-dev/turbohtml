@@ -937,8 +937,7 @@ static Py_ssize_t css_name_key(const css_char *name, Py_ssize_t len, css_char *k
 }
 
 /* The code point of a rendered property name at *pos, reading an escape as CSS Syntax 3 §4.3.7 consumes one, after
-   sel_consume_escape in css/select/selector.c. The renderer drops whitespace from a name, so none follows a hex
-   escape. */
+   sel_consume_escape in css/select/selector.c: a hex escape takes one whitespace after it. */
 static uint32_t css_name_code_point(const css_char *name, Py_ssize_t len, Py_ssize_t *pos) {
     css_char byte = name[(*pos)++];
     if (byte != '\\') {
@@ -955,6 +954,7 @@ static uint32_t css_name_code_point(const css_char *name, Py_ssize_t len, Py_ssi
         css_char hex = name[(*pos)++];
         value = value * 16 + (hex <= '9' ? (uint32_t)(hex - '0') : (uint32_t)((hex | 32) - 'a' + 10));
     }
+    *pos += *pos < len && css_is_ws(name[*pos]);
     return value;
 }
 

@@ -356,6 +356,7 @@ def test_minify_css_merge_passes_rule_without_property(filler_rules: str, body: 
         pytest.param("margin:1px", "margin-t\\op:0", "margin:2px", id="escaped-longhand"),
         pytest.param("colo\\r:blue", "color:red", "colo\\r:green", id="escaped-moving-rule"),
         pytest.param("--\u00e9:blue", "--\\e9:red", "--\u00e9:green", id="non-ascii-escape"),
+        pytest.param("ca:blue", "\\63 a:red", "ca:green", id="hex-escape-space"),
     ],
 )
 def test_minify_css_merge_reads_escaped_property_names(filler_rules: str, first: str, blocker: str, last: str) -> None:
@@ -375,6 +376,19 @@ def test_minify_css_merge_reads_escaped_property_names(filler_rules: str, first:
 def test_minify_css_merge_passes_escaped_property_name(filler_rules: str, body: str) -> None:
     source: Final = f".t{{color:blue}}{filler_rules}.u{{{body}}}.t{{color:green}}"
     assert minify_css(source) == f".t{{color:blue;color:green}}{filler_rules}.u{{{body}}}"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{\\63 a:red}", "a{\\63 a:red}", id="hex-digit-after"),
+        pytest.param("a{\\63 A:red}", "a{\\63 a:red}", id="upper-case-hex-digit-after"),
+        pytest.param("a{\\63\ta:red}", "a{\\63 a:red}", id="tab"),
+        pytest.param("a{\\63 z:red}", "a{\\63z:red}", id="other-letter-after"),
+    ],
+)
+def test_minify_css_property_name_hex_escape_space(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
 
 
 # past 32 rules the merge pass finds repeated selectors and bodies through a hash table before scanning back

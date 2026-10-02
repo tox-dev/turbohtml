@@ -204,6 +204,12 @@ static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start,
                     cbuf_putc(pool, css_lower(token->text[pos]));
                 }
             }
+        } else if (css_is_hex(vec->items[index - 1].text[vec->items[index - 1].text_len - 1]) &&
+                   css_is_hex(vec->items[index + 1].text[0])) {
+            /* whitespace inside a valid name ends a hex escape, which would otherwise read on into a following hex
+               digit (CSS Syntax 3 §4.3.7); the name's first and last tokens are not whitespace, so both neighbors
+               are in it */
+            cbuf_putc(pool, ' ');
         }
     }
     Py_ssize_t prop_len = pool->len - prop_off;
