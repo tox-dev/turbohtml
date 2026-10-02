@@ -376,8 +376,15 @@ static void hoist_block(M *mangler, int32_t first, int32_t scope) {
             declare(mangler, scope, node->str, node->str_len, 4);
             node->sym = resolve(mangler, node->str, node->str_len); /* so the name renames with its references */
             if (node->sym >= 0) { /* GCOVR_EXCL_BR_LINE: unresolved only on an allocation failure */
-                mangler->prog->syms[node->sym].decl_node = idx; /* let drop_unused find an unused function */
-                mangler->prog->syms[node->sym].pinned |= (uint8_t)annex_b;
+                jm_sym *sym = &mangler->prog->syms[node->sym];
+                if (sym->decl == 4) {
+                    sym->decl_node = idx; /* let drop_unused find an unused function */
+                } else {
+                    /* a same-scope parameter or var keeps its binding and the function assigns it on
+                       entry (§10.2.11 steps 29.2 and 37.3); the declaration is a write, not a declarator */
+                    sym->writes++;
+                }
+                sym->pinned |= (uint8_t)annex_b;
             }
         } else if (node->kind == JN_CLASS) { /* likewise a class is always a named declaration */
             declare(mangler, scope, node->str, node->str_len, 6);

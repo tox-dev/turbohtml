@@ -1,0 +1,1 @@
+The JavaScript minifier no longer crashes on a function declaration that shares a parameter's name.

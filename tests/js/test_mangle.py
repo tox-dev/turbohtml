@@ -222,6 +222,66 @@ def test_annex_b_block_function_preserves_behavior(snippet: str) -> None:
     assert _run(snippet) == _run(minify_js(snippet))
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("function f(param){function param(){}}", "function f(a){function a(){}}", id="param-unread"),
+        pytest.param(
+            "function f(param){function param(){}return param}",
+            "function f(a){function a(){}return a}",
+            id="param-read-once",
+        ),
+        pytest.param(
+            "function f(param){return param;function param(){}}",
+            "function f(a){return a;function a(){}}",
+            id="param-read-before-declaration",
+        ),
+        pytest.param("function f(...rest){function rest(){}}", "function f(...a){function a(){}}", id="rest-param"),
+        pytest.param(
+            "function f({key}){function key(){}}", "function f({key:a}){function a(){}}", id="destructured-param"
+        ),
+        pytest.param("var g=param=>{function param(){}}", "var g=a=>{function a(){}}", id="arrow-param"),
+        pytest.param("class C{m(param){function param(){}}}", "class C{m(a){function a(){}}}", id="method-param"),
+        pytest.param(
+            "function f(){var [item]=[];function item(){}}",
+            "function f(){var [a]=[];function a(){}}",
+            id="destructured-var-unread",
+        ),
+        pytest.param(
+            "function f(){var [item]=[];function item(){}return[item,item]}",
+            "function f(){var [a]=[];function a(){}return[a,a]}",
+            id="destructured-var-read-twice",
+        ),
+        pytest.param(
+            "function f(){for(var [item] of list);function item(){}}",
+            "function f(){for(var [a] of list);function a(){}}",
+            id="for-of-destructured-var",
+        ),
+    ],
+)
+def test_function_declaration_shares_binding(source: str, expected: str) -> None:
+    assert minify_js(source) == expected
+
+
+@pytest.mark.skipif(_NODE is None, reason="node not available")
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        pytest.param("function f(a){function a(){}return typeof a}console.log(f(1))", id="param"),
+        pytest.param("function f(a){'use strict';function a(){}return typeof a}console.log(f(1))", id="strict"),
+        pytest.param(
+            "function f(a=1,g=()=>a){function a(){}return[typeof a,g()]}console.log(f())", id="default-param-scope"
+        ),
+        pytest.param("function f(a){function a(){}return typeof arguments[0]}console.log(f(1))", id="arguments-alias"),
+        pytest.param("function f(a){function a(){}a=5;return a}console.log(f(1))", id="reassigned"),
+        pytest.param("function f(){var [a]=[2];function a(){}return[a,a]}console.log(f())", id="destructured-var"),
+        pytest.param("function f(){var [a]=[];function a(){}return typeof a}console.log(f())", id="var-hole"),
+    ],
+)
+def test_function_declaration_shares_binding_preserves_behavior(snippet: str) -> None:
+    assert _run(snippet) == _run(minify_js(snippet))
+
+
 _BS = chr(0x5C)  # backslash, kept out of the literals so the \u escapes are unambiguous
 
 

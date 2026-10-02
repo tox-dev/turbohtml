@@ -117,6 +117,7 @@ int32_t jm_sym_new(jm_program *prog, const Py_UCS4 *name, Py_ssize_t name_len, i
     sym->ref_prop = -1;
     sym->min_ref = INT32_MAX;
     sym->decl_node = -1;
+    sym->declr_node = -1;
     return index;
 }
 

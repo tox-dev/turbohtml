@@ -863,6 +863,11 @@ def test_unparseable_script_emitted_verbatim() -> None:
     assert script("function( broken", minify_js=JSMinify()) == "<script>function( broken</script>"
 
 
+def test_script_function_declaration_sharing_param_name() -> None:
+    expected = "<script>function f(a){function a(){}}</script>"
+    assert script("function f(param){function param(){}}", minify_js=JSMinify()) == expected
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     [

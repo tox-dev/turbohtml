@@ -99,6 +99,9 @@ static void run_builtins(long *cases) {
         "new a.b.C(1)", "1 .toString()", "x=[1,,3,,]", "switch(x){case 1:a();break;default:b()}",
         "t.0.", "t,(0).", /* empty member name: the run borrows a zero-length span at the buffer end */
         "x={async*[k](){yield* a}}", "label:for(;;)break label", "(function(){})()",
+        /* a function declaration sharing a parameter's or var's binding has no declarator to drop or inline */
+        "function f(a){function a(){}}", "function f(a){function a(){}return a}",
+        "function f(){var [a]=[];function a(){}return[a,a]}",
     };
     for (size_t index = 0; index < sizeof(snippets) / sizeof(snippets[0]); index++) {
         const char *text = snippets[index];
