@@ -1,0 +1,1 @@
+Reject a prefixed namespace declaration with an empty value, such as ``xmlns:p=""``, in :func:`turbohtml.parse_xml`.

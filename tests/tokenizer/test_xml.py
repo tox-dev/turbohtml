@@ -495,6 +495,12 @@ def test_long_reference_run_grows_scratch() -> None:
         pytest.param("<̀a/>", "xml-invalid-name", id="combining-mark-name-start"),
         pytest.param("<·a/>", "xml-invalid-name", id="middle-dot-name-start"),
         pytest.param('<r xmlns:="u"/>', "xml-invalid-namespace-decl", id="empty-prefix-declaration"),
+        pytest.param('<r xmlns:p=""/>', "xml-invalid-namespace-decl", id="empty-uri-declaration"),
+        pytest.param(
+            '<a:r xmlns:a="urn:a"><a:c xmlns:a=""/></a:r>',
+            "xml-invalid-namespace-decl",
+            id="prefix-undeclared-in-scope",
+        ),
         pytest.param('<r xmlns:xml="urn:x"/>', "xml-reserved-prefix", id="xml-prefix-rebound"),
         pytest.param(
             '<r xmlns:xmlns="http://www.w3.org/2000/xmlns/"/>', "xml-reserved-prefix", id="xmlns-prefix-declared"
@@ -538,6 +544,10 @@ def test_combining_mark_is_a_name_char_but_not_a_name_start() -> None:
 def test_xml_prefix_may_bind_its_own_namespace() -> None:
     doc = parse_xml('<r xmlns:xml="http://www.w3.org/XML/1998/namespace" xml:lang="en"/>')
     assert dict(root_of(doc).attrs)["xml:lang"] == "en"
+
+
+def test_empty_default_declaration_parses() -> None:
+    assert dict(root_of(parse_xml('<r xmlns=""/>')).attrs) == {"xmlns": ""}
 
 
 def test_default_declaration_of_a_plain_2000_length_uri_parses() -> None:

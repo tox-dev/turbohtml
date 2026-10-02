@@ -1003,7 +1003,9 @@ static int consume_namespace_decl(xml_parser *parser, Py_ssize_t name_start, Py_
     }
     Py_ssize_t prefix_start = name_start + 6;
     Py_ssize_t prefix_len = name_end - prefix_start;
-    if (prefix_len == 0) { /* xmlns:="..." -- an empty prefix is not an NCName */
+    /* an empty prefix is not an NCName, and an empty URI would undeclare the prefix, which only Namespaces in XML 1.1
+       allows (NSC: No Prefix Undeclaring) */
+    if (prefix_len == 0 || parser->scratch_len == 0) {
         record(parser, "xml-invalid-namespace-decl", name_start);
         return -1;
     }

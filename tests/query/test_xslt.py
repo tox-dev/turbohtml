@@ -5852,7 +5852,7 @@ def test_transform_number_deep_namespace_scopes(level: str, prefix: str) -> None
 def test_transform_number_namespace_scope_restoration(*, reverse: bool) -> None:
     source: Final = parse_xml(
         '<root xmlns:a="urn:x"><a:n rank="1"/>'
-        '<section xmlns:a="urn:y"><a:n rank="2"/><section xmlns:a=""><n rank="3"/></section></section>'
+        '<section xmlns:a="urn:y"><a:n rank="2"/><section xmlns:a="urn:w"><n rank="3"/></section></section>'
         '<a:n rank="4"/><section xmlns:a="urn:z"><a:n rank="5"/></section><a:n rank="6"/></root>'
     )
     sheet: Final = parse_xml(

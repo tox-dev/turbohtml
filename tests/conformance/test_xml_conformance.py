@@ -75,7 +75,6 @@ _NS_COLON = (
     "name that uses it as one reads as an undeclared prefix, and a processing-instruction target that does reads "
     "as a non-NCName -- both rejected where plain XML 1.0 accepts them"
 )
-_NS_11 = "namespace prefix undeclaration is a Namespaces 1.1 feature; parse_xml targets XML 1.0"
 
 # Cases that exercise a documented parse_xml limitation rather than a bug. Every entry is a
 # deliberate spec deviation argued in the reason; all other in-scope cases are hard assertions.
@@ -91,7 +90,6 @@ _DEVIATIONS = {
     "x-ibm-1-0.5-valid-P05-ibm05v02.xml": _NS_COLON,
     "x-ibm-1-0.5-valid-P05-ibm05v03.xml": _NS_COLON,
     "valid-sa-012": "the namespace declaration is supplied by a DTD ATTLIST default, which parse_xml does not apply",
-    "rmt-ns10-023": _NS_11,
 }
 
 
