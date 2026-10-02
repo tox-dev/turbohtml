@@ -166,7 +166,7 @@ jobs:
     # MSVC is detected by meson without a CC override and maps -Werror to /WX; split from the matrix
     # above so an empty CC env never shadows the auto-detection. x64 builds the SSE2 branch; on
     # windows-11-arm meson does not self-detect MSVC, so that cell installs an arm64 dev Python and
-    # activates the native arm64 toolchain with msvc-dev-cmd (its INCLUDE/LIB ride through tox via
+    # activates the native arm64 toolchain with setup-msvc-dev (its INCLUDE/LIB ride through tox via
     # pass_env), giving MSVC coverage of the _M_ARM64 NEON branch too.
     strategy:
       fail-fast: false
@@ -187,7 +187,7 @@ jobs:
           architecture: arm64
       - name: 🧰 Activate native arm64 MSVC (so meson picks cl over MinGW gcc)
         if: matrix.arm
-        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        uses: TheMrMilchmann/setup-msvc-dev@368ef7d1ee4d1171b31d4a7f67f4d954f903f5a9 # v4.1.0
         with:
           arch: arm64
       - name: 🔄 Install uv
