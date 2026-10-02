@@ -1369,29 +1369,70 @@ static int node_has_attr(const th_node *node, uint32_t atom) {
     return 0;
 }
 
-/* The first HTML element with this atom in a depth-first walk of parent's
-   subtree, not descending into nested selects. */
-static th_node *first_descendant_atom(th_node *parent, uint16_t atom) {
-    th_node *node = parent->first_child;
-    while (node != NULL) {
+/* The select's first option in tree order, not descending into nested selects.
+   The popped option is a descendant outside any nested select, so the walk
+   reaches an option before it would climb back to the select. */
+static th_node *first_option(th_node *select) {
+    th_node *node = select->first_child;
+    for (;;) {
         int skip_children = 0;
         if (node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML) {
-            if (node->atom == atom) {
+            if (node->atom == TH_TAG_OPTION) {
                 return node;
             }
-            /* GCOVR_EXCL_START: a nested <select> start closes the open select, so a select never contains one */
             skip_children = node->atom == TH_TAG_SELECT;
-            /* GCOVR_EXCL_STOP */
         }
-        if (!skip_children && /* GCOVR_EXCL_BR_LINE: tree construction closes nested selects */
-            node->first_child != NULL) {
+        if (!skip_children && node->first_child != NULL) {
             node = node->first_child;
             continue;
         }
-        while (node != parent && node->next_sibling == NULL) {
+        while (node->next_sibling == NULL) {
             node = node->parent;
         }
-        node = node == parent ? NULL : node->next_sibling;
+        node = node->next_sibling;
+    }
+}
+
+/* An HTML select, option, or selectedcontent element: a selectedcontent below one
+   of these, other than its nearest select, is disabled. */
+static int disables_selectedcontent(const th_node *node) {
+    if (node->type != TH_NODE_ELEMENT || node->ns != TH_NS_HTML) {
+        return 0;
+    }
+    switch (node->atom) {
+    case TH_TAG_SELECT:
+    case TH_TAG_OPTION:
+    case TH_TAG_SELECTEDCONTENT:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+/* The select's first descendant selectedcontent whose disabled flag ("recalculate
+   a selectedcontent element's disabledness") is false. Skipping the disabled ones
+   keeps an option from being cloned into a selectedcontent inside itself, a copy
+   that would grow the subtree it walks. */
+static th_node *first_enabled_selectedcontent(th_node *select) {
+    for (const th_node *ancestor = select->parent; ancestor != NULL; ancestor = ancestor->parent) {
+        if (disables_selectedcontent(ancestor)) {
+            return NULL;
+        }
+    }
+    th_node *node = select->first_child;
+    while (node != NULL) {
+        if (disables_selectedcontent(node)) {
+            if (node->atom == TH_TAG_SELECTEDCONTENT) {
+                return node;
+            }
+        } else if (node->first_child != NULL) {
+            node = node->first_child;
+            continue;
+        }
+        while (node != select && node->next_sibling == NULL) {
+            node = node->parent;
+        }
+        node = node == select ? NULL : node->next_sibling;
     }
     return NULL;
 }
@@ -1461,10 +1502,10 @@ static void maybe_clone_option(th_tree *tree, th_node *option) {
     if (select == NULL || node_has_attr(select, TH_ATTR_MULTIPLE)) {
         return;
     }
-    if (!node_has_attr(option, TH_ATTR_SELECTED) && first_descendant_atom(select, TH_TAG_OPTION) != option) {
+    if (!node_has_attr(option, TH_ATTR_SELECTED) && first_option(select) != option) {
         return;
     }
-    th_node *sc = first_descendant_atom(select, TH_TAG_SELECTEDCONTENT);
+    th_node *sc = first_enabled_selectedcontent(select);
     if (sc == NULL || node_has_attr(sc, TH_ATTR_DISABLED)) {
         return;
     }

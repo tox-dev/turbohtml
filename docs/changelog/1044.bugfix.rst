@@ -1,0 +1,2 @@
+A ``selectedcontent`` element nested in an ``option``, another ``selectedcontent``, or a second ``select`` stays empty,
+and parsing one inside an ``option`` no longer runs out of memory.
