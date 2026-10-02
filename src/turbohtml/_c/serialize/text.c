@@ -601,6 +601,25 @@ static void text_cell_text(text_ctx *ctx, th_node *node, sbuf *dst) {
     PyMem_Free(rendered.data);
 }
 
+/* Count every row text_collect_rows will keep, recursing through row groups exactly as
+   it does, so the row array holds the real total. A row group nests arbitrarily deep in
+   a tree built by the API or parsed from a fragment or XML, so a two-level count would
+   under-allocate and the collection would write past the array. */
+static Py_ssize_t text_count_rows(const th_node *node) {
+    Py_ssize_t rows = 0;
+    for (const th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        if (child->atom == TH_TAG_TR) {
+            rows++;
+        } else if (child->atom == TH_TAG_THEAD || child->atom == TH_TAG_TBODY || child->atom == TH_TAG_TFOOT) {
+            rows += text_count_rows(child);
+        }
+    }
+    return rows;
+}
+
 static Py_ssize_t text_collect_rows(th_node *node, th_node **rows, Py_ssize_t *count, Py_ssize_t *columns) {
     Py_ssize_t cols = *columns;
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
@@ -623,13 +642,7 @@ static Py_ssize_t text_collect_rows(th_node *node, th_node **rows, Py_ssize_t *c
 }
 
 static void text_render_table(text_ctx *ctx, th_node *node) {
-    Py_ssize_t cap = 0;
-    for (th_node *body = node->first_child; body != NULL; body = body->next_sibling) {
-        cap += 1;
-        for (th_node *row = body->first_child; row != NULL; row = row->next_sibling) {
-            cap += 1;
-        }
-    }
+    Py_ssize_t cap = text_count_rows(node);
     th_node **rows = PyMem_Malloc((size_t)(cap > 0 ? cap : 1) * sizeof(th_node *));
     if (rows == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */

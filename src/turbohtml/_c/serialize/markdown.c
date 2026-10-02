@@ -1973,8 +1973,28 @@ static void md_emit_row(md_ctx *ctx, th_node *row, Py_ssize_t columns) {
     ctx->line_has_content = 1;
 }
 
-/* Collect the table's rows in document order across an optional thead/tbody/tfoot
-   wrapper, append each into rows, and return the widest row's column count. */
+/* Count every row the collection below will keep, recursing through row groups exactly
+   as it does, so the row array is sized for the real total rather than two tree levels.
+   A row group nests arbitrarily deep in a tree built by the API or parsed from a
+   fragment or XML, so a two-level count would under-allocate and the collection would
+   write past the array. */
+static Py_ssize_t md_count_rows(const th_node *node) {
+    Py_ssize_t rows = 0;
+    for (const th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        if (child->atom == TH_TAG_TR) {
+            rows++;
+        } else if (child->atom == TH_TAG_THEAD || child->atom == TH_TAG_TBODY || child->atom == TH_TAG_TFOOT) {
+            rows += md_count_rows(child);
+        }
+    }
+    return rows;
+}
+
+/* Collect the table's rows in document order across its thead/tbody/tfoot wrappers,
+   append each into rows, and return the widest row's column count. */
 static Py_ssize_t md_collect_rows(th_node *node, th_node **rows, Py_ssize_t *count) {
     Py_ssize_t columns = 0;
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
@@ -1982,8 +2002,7 @@ static Py_ssize_t md_collect_rows(th_node *node, th_node **rows, Py_ssize_t *cou
             continue;
         }
         if (child->atom == TH_TAG_TR) {
-            /* cap counts every child and grandchild, so it bounds the rows by
-               construction and indexing it needs no run-time guard */
+            /* md_count_rows bounds the array to the same recursion, so indexing is safe */
             rows[*count] = child;
             (*count)++;
             Py_ssize_t cells = md_row_cells(child);
@@ -2085,13 +2104,7 @@ static void md_render_captions(md_ctx *ctx, th_node *node) {
 }
 
 static void md_render_table(md_ctx *ctx, th_node *node) {
-    Py_ssize_t cap = 0;
-    for (th_node *body = node->first_child; body != NULL; body = body->next_sibling) {
-        cap += 1;
-        for (th_node *row = body->first_child; row != NULL; row = row->next_sibling) {
-            cap += 1;
-        }
-    }
+    Py_ssize_t cap = md_count_rows(node);
     th_node **rows = PyMem_Malloc((size_t)(cap > 0 ? cap : 1) * sizeof(th_node *));
     if (rows == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */

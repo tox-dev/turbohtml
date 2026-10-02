@@ -1,0 +1,2 @@
+:meth:`~turbohtml.Node.to_markdown`, :meth:`~turbohtml.Node.to_text` and :meth:`~turbohtml.Node.to_annotated_text`
+render every row of a table whose rows sit under nested row groups.
