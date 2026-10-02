@@ -491,6 +491,74 @@ commands = [
 ]
 allowlist_externals = [ "git" ]
 
+[env.fuzz-release-diff]
+description = "compare HEAD with the latest PyPI release on generated inputs (a local triage aid, not a CI gate)"
+package = "skip"  # commands_pre installs a plain release build to compare with the release wheel
+deps = []  # override the base env's gcovr; this env compares outputs, not coverage
+dependency_groups = [ "test" ]  # carries the meson-python build backend the no-build-isolation install below needs
+pass_env = [ "FUZZ_RNG_SEED" ]
+set_env = { PYTHONHASHSEED = "0" }
+commands_pre = [
+  [ "git", "-C", "{tox_root}", "submodule", "update", "--init", "--depth", "1", "tests/html5lib-tests" ],
+  [
+    "uv",
+    "pip",
+    "install",
+    "--reinstall",
+    "--no-deps",
+    "--no-build-isolation",
+    "--editable",
+    "{tox_root}",
+    "--config-settings=build-dir={env_dir}{/}cbuild",
+    "--config-settings=setup-args=-Dbuildtype=release",
+  ],
+]
+commands = [
+  [
+    "python",
+    "{tox_root}{/}tools{/}fuzz{/}fuzz.py",
+    "--mode",
+    "release-diff",
+    { replace = "posargs", default = [ "--minutes", "2" ], extend = true },
+  ],
+]
+allowlist_externals = [ "git" ]
+
+[env.fuzz-round-trip]
+description = "run the round-trip, minifier-semantics, entry-point and source-span oracles under ASan/UBSan"
+deps = []  # override the base env's gcovr; this env instruments for ASan, not coverage
+dependency_groups = [ "test" ]  # carries markdown-it-py, the Markdown reader the to_markdown oracle re-reads with
+pass_env = [ "FUZZ_RNG_SEED" ]
+set_env = { CC = "clang", PYTHONHASHSEED = "0" }
+commands_pre = [
+  # the HTML seeds come from html5lib-tests; the JS identifier oracle needs `npm ci` in tools/bench/node
+  [ "git", "-C", "{tox_root}", "submodule", "update", "--init", "--depth", "1", "tests/html5lib-tests" ],
+  [
+    "uv",
+    "pip",
+    "install",
+    "--reinstall",
+    "--no-deps",
+    "--no-build-isolation",
+    "--editable",
+    "{tox_root}",
+    "--config-settings=build-dir={env_dir}{/}cbuild",
+    "--config-settings=setup-args=-Dc_args=-fsanitize=address,undefined",
+    "--config-settings=setup-args=-Dc_link_args=-fsanitize=address,undefined",
+    "--config-settings=setup-args=-Dbuildtype=debugoptimized",
+  ],
+]
+commands = [
+  [
+    "python",
+    "{tox_root}{/}tools{/}fuzz{/}fuzz.py",
+    "--mode",
+    "round-trip",
+    { replace = "posargs", default = [ "--minutes", "2" ], extend = true },
+  ],
+]
+allowlist_externals = [ "git" ]
+
 [env.fuzz-smoke]
 description = "replay past fuzz finds and the seed corpus through every harness under ASan/UBSan (the per-PR gate)"
 deps = []  # override the base env's gcovr; this env instruments for ASan, not coverage

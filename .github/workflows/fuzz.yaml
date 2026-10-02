@@ -65,6 +65,64 @@ jobs:
         env:
           UV_PYTHON_PREFERENCE: only-managed
           MINUTES: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '0' || github.event.schedule == '0 4 * * 1' && '20' || '8' }}
+  round-trip:
+    name: 🔁 round-trip and consistency oracles
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # a printer or minifier bug returns wrong text without crashing, so this lane checks print-and-reparse fixpoints,
+    # minifier semantics, agreeing entry points and source spans. Like the deep hunt below it is not a PR gate: a
+    # finding needs triage first, and the crashers leave the runner only encrypted.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 🟢 Install Node
+        # zizmor: ignore[cache-poisoning] no cache: input is set, so setup-node writes no restorable cache
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: 📦 Install acorn and eslint-scope for the JS identifier oracle
+        run: npm ci
+        working-directory: tools/bench/node
+      - name: 🔄 Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: ✅ Run fuzz-round-trip
+        # the seed regenerates every finding from the public code, so it stays out of the tox command line it echoes
+        run: |
+          FUZZ_RNG_SEED="$(python3 -c 'import secrets; print(secrets.randbits(32))')"
+          export FUZZ_RNG_SEED
+          uvx --with tox-uv tox run -e fuzz-round-trip -- --minutes "${MINUTES}"
+        env:
+          UV_PYTHON_PREFERENCE: only-managed
+          MINUTES: ${{ github.event.schedule == '0 4 * * 1' && '20' || '8' }}
+      - name: 🔐 Encrypt findings
+        if: failure() && vars.FUZZ_AGE_RECIPIENT != ''
+        run: |
+          curl -sSfL -o "${RUNNER_TEMP}/age.tar.gz" \
+            "https://github.com/FiloSottile/age/releases/download/${AGE_VERSION}/age-${AGE_VERSION}-linux-amd64.tar.gz"
+          echo "${AGE_SHA256}  ${RUNNER_TEMP}/age.tar.gz" | sha256sum --check --strict
+          tar -xzf "${RUNNER_TEMP}/age.tar.gz" -C "${RUNNER_TEMP}" age/age
+          mkdir -p "${RUNNER_TEMP}/fuzz-round-trip"
+          shopt -s nullglob
+          for finding in .fuzz-crashes/crash-*; do
+            "${RUNNER_TEMP}/age/age" --recipient "${RECIPIENT}" \
+              --output "${RUNNER_TEMP}/fuzz-round-trip/$(basename "${finding}").age" "${finding}"
+          done
+        env:
+          AGE_VERSION: v1.3.2
+          AGE_SHA256: cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10
+          RECIPIENT: ${{ vars.FUZZ_AGE_RECIPIENT }}
+      - name: 📤 Upload encrypted findings
+        if: failure() && vars.FUZZ_AGE_RECIPIENT != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-round-trip
+          path: ${{ runner.temp }}/fuzz-round-trip/*.age
+          if-no-files-found: ignore
+          retention-days: 14
   amplify:
     name: 📈 super-linear regressions
     runs-on: ubuntu-24.04

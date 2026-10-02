@@ -11,6 +11,8 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "acorn": "^8.18.0",
+    "eslint-scope": "^9.1.2",
     "isomorphic-dompurify": "^3.18.0",
     "jsdom": "^29.0.0",
     "parse5": "^8.0.1",

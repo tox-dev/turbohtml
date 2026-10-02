@@ -14,7 +14,9 @@ Two mechanisms cover the untrusted-input entry points the security spike priorit
 ``smoke`` replays the past finds under ``tests/fuzz_regressions`` and a benign seed corpus once (fast, deterministic,
 gates every PR). ``deep`` adds a mutation loop and structural probes for a per-target budget (the scheduled/manual run
 that hunts for crashes). ``oracle`` runs the sanitizer wrong-output oracles (``sanitize_oracles.py``) instead,
-because a sanitizer bug usually returns unsafe markup without crashing. A crashing input lands in ``--crash-dir`` as
+because a sanitizer bug usually returns unsafe markup without crashing. ``round-trip`` runs the printer, minifier,
+entry-point and source-span oracles (``round_trip_oracles.py``) and ``release-diff`` compares HEAD with the latest PyPI
+release (``release_diff.py``), for the bugs that return wrong text. A crashing input lands in ``--crash-dir`` as
 ``crash-<sha256>``, and the log names it only by hash, length and harness, because CI logs on a public repository are
 public. The in-process extension is expected to be pre-built by the tox env; ``--build`` builds it here for a local run.
 """
@@ -48,7 +50,7 @@ _WPT: Final = "tools/fuzz-data/wpt"
 def main() -> int:
     """Return 0 when every harness stays clean, nonzero on the first sanitizer abort or soft finding."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=("smoke", "deep", "oracle"), default="smoke")
+    parser.add_argument("--mode", choices=("smoke", "deep", "oracle", "round-trip", "release-diff"), default="smoke")
     parser.add_argument(
         "--minutes", type=float, default=1.0, help="deep-mode budget per in-process target, split across the allocators"
     )
@@ -62,13 +64,17 @@ def main() -> int:
     parser.add_argument("--build", action="store_true", help="build the ASan extension here (tox builds it otherwise)")
     parser.add_argument("--extra-corpus", type=Path, default=None, help="a second seed directory (vendored test data)")
     parser.add_argument("--skip-inprocess", action="store_true", help="only run the standalone C harnesses")
-    args = parser.parse_args()
+    args, passthrough = parser.parse_known_args()
+    if passthrough and args.mode not in {"round-trip", "release-diff"}:
+        parser.error(f"unrecognized arguments: {' '.join(passthrough)}")
 
     if args.build:
         _build_extension(Path(tempfile.mkdtemp(prefix="th-fuzz-build-")))
     args.crash_dir.mkdir(parents=True, exist_ok=True)
     if args.mode == "oracle":
         return _run_oracles(args.minutes, args.rng_seed, args.crash_dir)
+    if args.mode in {"round-trip", "release-diff"}:
+        return _run_round_trip(args.mode, args.minutes, args.rng_seed, args.crash_dir, passthrough)
     if (code := _run_standalone(args.mode, args.extra_corpus, args.crash_dir)) != 0:
         return code
     return 0 if args.skip_inprocess else _run_inprocess(args.mode, args.minutes, args.rng_seed, args.crash_dir)
@@ -117,6 +123,30 @@ def _run_oracles(minutes: float, rng_seed: int, crash_dir: Path) -> int:
     )
     if result.returncode not in {0, 1, 2}:
         print(f"SANITIZER ABORT in the oracle run (exit {result.returncode})", file=sys.stderr)
+    return result.returncode
+
+
+def _run_round_trip(mode: str, minutes: float, rng_seed: int, crash_dir: Path, passthrough: list[str]) -> int:
+    """
+    Run the round-trip oracles under the ASan preload, or the release differential without it.
+
+    The seed reaches the child only through ``FUZZ_RNG_SEED``, never its command line, because it regenerates every
+    finding from the public code. The release differential runs a PyPI wheel built without the sanitizers, so
+    preloading the runtime would only slow it. Both run as modules of ``tools/`` so the differential can reuse the
+    oracles' generators; arguments ``fuzz.py`` does not know (``--oracle``, ``--errors``) pass through to them.
+    """
+    module = "fuzz.round_trip_oracles" if mode == "round-trip" else "fuzz.release_diff"
+    env = {
+        **(_asan_preload() if mode == "round-trip" else os.environ),
+        "FUZZ_RNG_SEED": str(rng_seed),
+        "PYTHONPATH": os.pathsep.join(filter(None, [str(_ROOT / "tools"), os.environ.get("PYTHONPATH")])),
+    }
+    if minutes > 0 and mode == "round-trip":
+        env = _private_reports(env, crash_dir)
+    command = [sys.executable, "-m", module, "--minutes", str(minutes), "--crash-dir", str(crash_dir), *passthrough]
+    result = subprocess.run(command, env=env, check=False)
+    if result.returncode not in {0, 1, 2}:
+        print(f"SANITIZER ABORT in the {mode} run (exit {result.returncode})", file=sys.stderr)
     return result.returncode
 
 

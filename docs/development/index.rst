@@ -176,6 +176,29 @@ to a JSON report and logs only their hashes.
     $ tox r -e fuzz-oracle -- --minutes 0   # the per-PR seed pass
     $ tox r -e fuzz-oracle -- --minutes 10  # adds generated markup and URL obfuscations
 
+Printers and minifiers fail the same way, so ``fuzz-round-trip`` (``tools/fuzz/round_trip_oracles.py``) checks that
+printed HTML, XML, CSS, JS, style declarations and Markdown parse back to what they came from and print unchanged. It
+also checks that ``minify_js`` keeps every free identifier and static string, as acorn and eslint-scope read them, and
+that ``minify_css`` keeps each element's computed style and selector matches. The XPath and CSS entry points must agree,
+and source spans must slice their tags. Each oracle has negative controls that must fire and a floor on how much it
+compared. The JS oracle needs ``npm ci`` in ``tools/bench/node`` first; the scheduled workflow runs it daily.
+
+.. code-block:: console
+
+    $ npm ci --prefix tools/bench/node
+    $ tox r -e fuzz-round-trip -- --minutes 0   # the seed pass
+    $ tox r -e fuzz-round-trip -- --minutes 10  # adds generated inputs
+
+``fuzz-release-diff`` feeds the same generated inputs to HEAD and the latest PyPI wheel, each in its own interpreter,
+and stores every operation whose result moved. Every fix since the release shows up too, so it is a triage aid before a
+release or after a refactor, not a CI gate. ``--errors`` sets how two failures compare: ``message``, ``type`` (the
+default) or ``any``.
+
+.. code-block:: console
+
+    $ tox r -e fuzz-release-diff -- --minutes 5
+    $ tox r -e fuzz-release-diff -- --minutes 5 --errors any
+
 A quadratic only shows on long inputs, so ``fuzz-amplify`` (``tools/fuzz/amplify.py``) grows a repeated shape from 1 KiB
 through three doublings and fails when thread CPU time grows 2.5 times or more at every doubling, or when the output
 passes its per-target ``k * len(input) + c`` bound. Every pull request re-scores
