@@ -56,6 +56,12 @@ static void lossless_put_text(sbuf *out, th_tree *tree, th_node *node) {
     }
 }
 
+/* Whether node, a Text or CDATA node below the walk root, sits in a raw-text element: the walk reaches one only after
+   the DOM API gave that element a markup child. */
+static int lossless_in_rawtext(th_tree *tree, const th_node *node, const th_node *root) {
+    return node != root && node->parent->type == TH_NODE_ELEMENT && is_rawtext_element(node->parent, tree->scripting);
+}
+
 /* Emit a raw-text element's child: its verbatim source span while it is still the
    zero-copy slice the parse left, else its current code points literally
    (raw-text content is never escaped, so both paths emit the bytes unchanged). */
@@ -109,10 +115,16 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
             sbuf_putc(out, '\n'); /* re-emit the newline pre/textarea/listing dropped on read */
         }
         if (is_rawtext_element(node, tree->scripting)) {
-            for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+            th_node *child = node->first_child;
+            for (; child != NULL && (child->type == TH_NODE_TEXT || child->type == TH_NODE_CDATA);
+                 child = child->next_sibling) {
                 lossless_put_rawtext(out, tree, child);
             }
-            lossless_close_tag(out, tree, node, loc);
+            if (child == NULL) {
+                lossless_close_tag(out, tree, node, loc);
+                break;
+            }
+            descend = child; /* a markup child, which only the DOM API inserts: the walk takes it from here */
             break;
         }
         if (node->first_child != NULL) {
@@ -123,7 +135,12 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
         break;
     }
     case TH_NODE_TEXT:
-        lossless_put_text(out, tree, node);
+        /* a span copies its source bytes either way, so only a realized or edited text pays the parent check */
+        if (!text_is_span(node) && lossless_in_rawtext(tree, node, root)) {
+            sbuf_put_ucs4(out, node->text, node->text_len);
+        } else {
+            lossless_put_text(out, tree, node);
+        }
         break;
     case TH_NODE_COMMENT:
         sbuf_puts(out, "<!--");
@@ -139,7 +156,9 @@ static th_node *lossless_step(sbuf *out, th_tree *tree, th_node *node, th_node *
         sbuf_put_html_pi(out, node->text, node->text_len);
         break;
     case TH_NODE_CDATA:
-        if (ucs4_has_gt(node->text, node->text_len)) {
+        if (lossless_in_rawtext(tree, node, root)) {
+            sbuf_put_ucs4(out, node->text, node->text_len);
+        } else if (ucs4_has_gt(node->text, node->text_len)) {
             /* a CDATA section is a Text node, so its escaped text is the one HTML form that holds a ">" */
             sbuf_put_text(out, node->text, node->text_len, 0, TH_FMT_WHATWG);
         } else {

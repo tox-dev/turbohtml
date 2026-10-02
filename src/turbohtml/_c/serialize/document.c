@@ -186,6 +186,27 @@ Py_UCS4 *th_tree_serialize(th_tree *tree, Py_ssize_t *out_len) {
     return out.data;
 }
 
+/* The raw-text helpers stay out of line: a page holds few raw-text elements, and keeping their loops out of
+   serialize_compact_step leaves the common walk's code, and the instructions it runs per node, as they were. */
+#if defined(_MSC_VER)
+#define SER_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define SER_NOINLINE __attribute__((noinline))
+#else
+#define SER_NOINLINE
+#endif
+
+/* A raw-text element's text children go out literally; the first markup child hands the rest to the markup walk. */
+SER_NOINLINE static void ser_put_rawtext(sbuf *out, th_tree *tree, th_node *element, const th_serialize_opts *opts) {
+    for (th_node *child = element->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type != TH_NODE_TEXT && child->type != TH_NODE_CDATA) {
+            ser_put_rawtext_markup(out, tree, element, child, opts, 0);
+            return;
+        }
+        sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
+    }
+}
+
 /* Emit one node under the compact (WHATWG fragment) layout and return the next node
    the walk rooted at root visits, or NULL once the subtree is fully written. Split
    out of serialize_compact so serialize_iter can resume the walk one node at a time
@@ -228,10 +249,7 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
             sbuf_putc(out, '\n');
         }
         if (is_rawtext_element(node, tree->scripting)) {
-            /* a rawtext element's children are always text nodes */
-            for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-                sbuf_put_ucs4(out, need_text(tree, child), child->text_len);
-            }
+            ser_put_rawtext(out, tree, node, opts);
             ser_close_tag(out, node);
             break;
         }
@@ -315,6 +333,47 @@ static void serialize_compact(sbuf *out, th_tree *tree, th_node *root, const th_
     th_node *node = root;
     while (node != NULL) {
         node = serialize_compact_step(out, tree, node, root, opts);
+    }
+}
+
+/* The next node of a walk inside element after node is done, closing each element left behind but not element
+   itself: the ascent serialize_compact_step makes under inner. */
+static th_node *ser_markup_next(sbuf *out, th_node *node, const th_node *element) {
+    while (node != element) {
+        if (node->next_sibling != NULL) {
+            return node->next_sibling;
+        }
+        node = node->parent;
+        if (node != element) {
+            ser_close_tag(out, node);
+        }
+    }
+    return NULL;
+}
+
+/* Walks the content with the common step and takes over the nodes it would get wrong: a text child of a raw-text
+   element, written literally, and a raw-text element holding markup, opened and descended into here so the step never
+   calls back and the recursion stops at one level however deep they nest. */
+SER_NOINLINE void ser_put_rawtext_markup(sbuf *out, th_tree *tree, th_node *element, th_node *from,
+                                         const th_serialize_opts *opts, int strip_comments) {
+    th_serialize_opts content = *opts;
+    content.inner = 1;
+    th_node *node = from;
+    while (node != NULL) {
+        if ((node->type == TH_NODE_TEXT || node->type == TH_NODE_CDATA) &&
+            is_rawtext_element(node->parent, tree->scripting)) {
+            sbuf_put_ucs4(out, need_text(tree, node), node->text_len);
+            node = ser_markup_next(out, node, element);
+        } else if (node->type == TH_NODE_COMMENT && strip_comments) {
+            node = ser_markup_next(out, node, element);
+        } else if (node->type == TH_NODE_ELEMENT && is_rawtext_element(node, tree->scripting) &&
+                   rawtext_markup_child(node) != NULL) {
+            ser_open_tag(out, tree, node, &content);
+            sbuf_putc(out, '>');
+            node = node->first_child;
+        } else {
+            node = serialize_compact_step(out, tree, node, element, &content);
+        }
     }
 }
 

@@ -434,6 +434,21 @@ static inline int is_rawtext_element(const th_node *node, int scripting) {
     return (node->tag_flags & TH_TAG_RAWTEXT) && (node->atom != TH_TAG_NOSCRIPT || scripting);
 }
 
+/* A raw-text element's first child that is not text, or NULL: a parse gives such an element only text children, so
+   anything else came from the DOM API. */
+static inline th_node *rawtext_markup_child(const th_node *node) {
+    th_node *child = node->first_child;
+    while (child != NULL && (child->type == TH_NODE_TEXT || child->type == TH_NODE_CDATA)) {
+        child = child->next_sibling;
+    }
+    return child;
+}
+
+/* Append a raw-text element's content from its first markup child on, as the compact layout writes it, dropping
+   comments when the minifier strips them. */
+void ser_put_rawtext_markup(sbuf *out, th_tree *tree, th_node *element, th_node *from, const th_serialize_opts *opts,
+                            int strip_comments);
+
 /* The WHATWG fragment-serialization void set extends the parser's void elements
    with `frame`: it is emitted as a start tag only, never an end tag. `frame` is
    absent from is_void_atom because, unlike a true void element, it is a normal
