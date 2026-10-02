@@ -55,9 +55,9 @@ repos:
         files: ^src/turbohtml/.*\.c$
         require_serial: true
         additional_dependencies:
-          - clang-tidy==22.1.7
-          - meson>=1.11.1
-          - ninja>=1.13
+          - clang-tidy==22.1.8
+          - meson>=1.12.1
+          - ninja>=1.13.2
       - id: mdformat
         name: mdformat
         entry: mdformat --wrap 120
@@ -73,7 +73,7 @@ repos:
         language: python
         files: ^docs/.*\.rst$
         additional_dependencies:
-          - ruff==0.15.20 # kept on the ruff-pre-commit rev by sync-pre-commit-deps
+          - ruff==0.16.10 # kept on the ruff-pre-commit rev by sync-pre-commit-deps
       - id: changelogs-rst
         name: changelog filenames
         language: fail
