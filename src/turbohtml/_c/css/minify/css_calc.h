@@ -586,8 +586,7 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
             css_minify_string(pool, token->text, token->text_len, &off, &len);
             /* local(<font-family-name>): a quoted name drops its quotes only when it is a valid identifier (Fonts 4
                §src local()); local("123") must keep its quotes since 123 is a <number>, not a <custom-ident>. */
-            if (!is_var && css_run_ieq(name, name_len, "local") && len >= 2 &&
-                css_is_ident_string(pool->data + off + 1, len - 2)) {
+            if (!is_var && css_run_ieq(name, name_len, "local") && css_is_ident_string(pool->data + off + 1, len - 2)) {
                 cbuf_put_run(out, pool->data + off + 1, len - 2);
             } else {
                 cbuf_put_run(out, pool->data + off, len);

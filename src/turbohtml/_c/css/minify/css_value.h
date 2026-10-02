@@ -410,17 +410,26 @@ static int css_url_unquotable(const css_char *text, Py_ssize_t len) {
     return 1;
 }
 
+/* Whether text[end] follows an odd run of `\`: escapes pair from the token's start, so the run's last `\` escapes
+   text[end]. */
+static int css_escapes(const css_char *text, Py_ssize_t end) {
+    Py_ssize_t start = end;
+    while (start > 0 && text[start - 1] == '\\') {
+        start--;
+    }
+    return (end - start) % 2;
+}
+
+/* Whether a string token ends in its own closing quote, rather than before a newline or at the end of input. */
+static int css_string_closed(const css_char *text, Py_ssize_t len) {
+    return len > 1 && text[len - 1] == text[0] && !css_escapes(text, len - 1);
+}
+
 static void css_minify_string(css_buf *pool, const css_char *text, Py_ssize_t len, Py_ssize_t *out_off,
                               Py_ssize_t *out_len) {
     Py_ssize_t off = pool->len;
-    if (len < 2) {
-        cbuf_put_run(pool, text, len);
-        *out_off = off;
-        *out_len = len;
-        return;
-    }
     css_char quote = text[0];
-    int closed = text[len - 1] == quote;
+    int closed = len > 1 && text[len - 1] == quote;
     Py_ssize_t body_len = closed ? len - 2 : len - 1;
     cbuf_putc(pool, quote);
     css_strip_continuations(pool, text + 1, body_len);
@@ -432,13 +441,9 @@ static void css_minify_string(css_buf *pool, const css_char *text, Py_ssize_t le
 static void css_minify_url(css_buf *pool, const css_char *text, Py_ssize_t len, Py_ssize_t *out_off,
                            Py_ssize_t *out_len) {
     Py_ssize_t off = pool->len;
-    cbuf_put_run(pool, text, 4 < len ? 4 : len); /* the "url(" prefix */
+    cbuf_put_run(pool, text, 4); /* the "url(" prefix */
     Py_ssize_t inner_start = 4;
-    Py_ssize_t inner_end = len;
-    int closed = len > 4 && text[len - 1] == ')';
-    if (closed) {
-        inner_end--;
-    }
+    Py_ssize_t inner_end = len - 1; /* th_minify_css_bytes closes a url the input leaves open */
     while (inner_start < inner_end && css_is_ws(text[inner_start])) {
         inner_start++;
     }
@@ -462,9 +467,7 @@ static void css_minify_url(css_buf *pool, const css_char *text, Py_ssize_t len, 
     } else {
         cbuf_put_run(pool, inner, inner_len);
     }
-    if (closed) {
-        cbuf_putc(pool, ')');
-    }
+    cbuf_putc(pool, ')');
     *out_off = off;
     *out_len = pool->len - off;
 }

@@ -747,8 +747,9 @@ _BACKSLASH_AT_EOF: Final[list[ParameterSet]] = [
     pytest.param("a{e:'abc\\", "a{e:'abc'}", id="single-quoted-string"),
     pytest.param('a{e:"abc\\\\', 'a{e:"abc\\\\"}', id="string-escaped-backslash"),
     pytest.param("a{e:f\\\\", "a{e:f\\\\}", id="escaped-backslash"),
-    pytest.param("url('x\\", "url('x", id="single-quoted-url"),
-    pytest.param('url( "x\\', 'url( "x', id="quoted-url-after-whitespace"),
+    pytest.param("a{e:url('x\\", "a{e:url(x)}", id="single-quoted-url"),
+    pytest.param('a{e:url( "x\\', "a{e:url(x)}", id="quoted-url-after-whitespace"),
+    pytest.param('a{e:url("a"b\\', 'a{e:url("a"b\ufffd)}', id="url-string-then-ident"),
     pytest.param("a{e:f}/*! c \\", "a{e:f}/*! c \\", id="comment"),
 ]
 
@@ -760,6 +761,51 @@ def test_minify_css_backslash_at_eof(source: str, expected: str) -> None:
 
 @pytest.mark.parametrize(("source", "expected"), _BACKSLASH_AT_EOF)
 def test_minify_css_backslash_at_eof_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
+_OPEN_AT_EOF: Final[list[ParameterSet]] = [
+    pytest.param("a{e:url(x", "a{e:url(x)}", id="url"),
+    pytest.param('a{e:url("x', "a{e:url(x)}", id="url-open-string"),
+    pytest.param('a{e:url("x"', "a{e:url(x)}", id="url-closed-string"),
+    pytest.param("a{e:url(", "a{e:url()}", id="url-empty"),
+    pytest.param("a{e:url(x\\)", "a{e:url(x\\))}", id="url-escaped-paren"),
+    pytest.param("a{e:url(x\\\\)", "a{e:url(x\\\\)}", id="url-escaped-backslash"),
+    pytest.param('a{e:url("x)', 'a{e:url("x)")}', id="url-paren-in-string"),
+    pytest.param('a{e:url("x\\")', 'a{e:url("x\\")")}', id="url-escaped-quote"),
+    pytest.param("a{e:f(url(x", "a{e:f(url(x))}", id="url-in-function"),
+    pytest.param("@import url(x", '@import "x"', id="import-url"),
+    pytest.param('a{e:"x\\"', 'a{e:"x\\""}', id="string-escaped-quote"),
+    pytest.param('a{e:"x\\\\"', 'a{e:"x\\\\"}', id="string-escaped-backslash"),
+    pytest.param('a{e:"', 'a{e:""}', id="lone-quote"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _OPEN_AT_EOF)
+def test_minify_css_closes_token_open_at_eof(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _OPEN_AT_EOF)
+def test_minify_css_closes_token_open_at_eof_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
+_STRING_CUT_BY_NEWLINE: Final[list[ParameterSet]] = [
+    pytest.param('a{e:"\n}', 'a{e:""}', id="lone-quote"),
+    pytest.param('a{e:f("\n)}', 'a{e:f("")}', id="lone-quote-in-function"),
+    pytest.param('"x\n', '"x\n', id="stray-segment"),
+    pytest.param('"x" ', '"x"', id="stray-segment-closed"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _STRING_CUT_BY_NEWLINE)
+def test_minify_css_string_cut_by_newline(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _STRING_CUT_BY_NEWLINE)
+def test_minify_css_string_cut_by_newline_is_a_fixed_point(source: str, expected: str) -> None:
     assert minify_css(minify_css(source)) == expected
 
 
@@ -1037,9 +1083,8 @@ _GOLDEN: Final[list[list[str]]] = json.loads(
 # Malformed/invalid inputs with no closing delimiter or balance: error recovery keeps the broken tail verbatim, which
 # is not a fixed point under re-minification. Output is still deterministic and pinned; only round-trip safety is moot.
 _UNSTABLE: Final[frozenset[str]] = frozenset({
-    "a{a:)'''", "{d:url( \n  \n\t0", "{d:urL(     '0", '{-ms-filter:"',
     "a{width:calc((1px + 2px}", "a{width:calc((1px}", "a{width:calc((", "a{width:calc((1px+2px",
-    "a{x:url(", 'a{src:local("', "a{color:rgba(10 20 30 .5)}",
+    "a{color:rgba(10 20 30 .5)}",
 })  # fmt: skip
 
 

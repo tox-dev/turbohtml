@@ -34,7 +34,7 @@
 #include "css/minify/css_grammar.h"
 #include "css/minify/css.h"
 
-static int css_spell_eof_escape(const css_token *last, const css_char *view, Py_ssize_t length, css_buf *spelled);
+static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t length, css_buf *spelled);
 static int css_spells_style_end(const css_char *text, Py_ssize_t len);
 
 /* The allocator-agnostic core: minify a code-point view into a freshly allocated buffer (free with css_free). The
@@ -51,9 +51,10 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
         tokens.cap = token_guess;
     }
     css_tokenize(view, length, &tokens);
-    if (tokens.len > 0 && view[length - 1] == '\\') {
+    if (tokens.len > 0 && (view[length - 1] == '\\' || tokens.items[tokens.len - 1].kind == CSS_STR ||
+                           tokens.items[tokens.len - 1].kind == CSS_URL)) {
         css_buf spelled = {NULL, 0, 0, 0};
-        if (css_spell_eof_escape(&tokens.items[tokens.len - 1], view, length, &spelled)) {
+        if (css_spell_eof(&tokens.items[tokens.len - 1], view, length, &spelled)) {
             css_free(tokens.items);
             css_char *minified = th_minify_css_bytes(spelled.data, spelled.len, inline_mode, baseline, out_len);
             cbuf_free(&spelled);
@@ -86,32 +87,44 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
     return out.data;
 }
 
-/* A `\` ending the input that starts an escape reads as nothing inside a string (CSS Syntax 3 §4.3.5) and as U+FFFD
-   wherever else the tokenizer consumes an escape (§4.3.7). The tokens keep the raw `\`, which would escape the `}`,
-   `)` or quote the output adds to close the input, so spelled gets the input with it spelled out, and the return tells
-   whether it did. The last token holds that `\`, and an escape there pairs each `\` with the next code point from the
-   token's start. */
-static int css_spell_eof_escape(const css_token *last, const css_char *view, Py_ssize_t length, css_buf *spelled) {
-    Py_ssize_t run = 1;
-    while (run < last->text_len && last->text[last->text_len - 1 - run] == '\\') {
-        run++;
+/* The tokens keep, as written, a string or url the input leaves open and a `\` ending the input, so the `}`, `)` or
+   quote the output adds would land inside that token or be escaped. Spelled gets the input with that `\` read as CSS
+   Syntax 3 reads it (nothing inside a string, §4.3.5; U+FFFD elsewhere, §4.3.7), then the quote and `)` the open token
+   needs: consuming a string or url (§4.3.5, §4.3.6) returns the token at the end of input. Returns whether it spelled
+   anything. A url's quote state mirrors css_tokenize, which reads a quoted stretch inside any url. */
+static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t length, css_buf *spelled) {
+    const css_char *text = last->text;
+    Py_ssize_t len = last->text_len + last->unit_len; /* a dimension's unit follows its number */
+    int escape = last->kind != CSS_COMMENT && css_escapes(text, len);
+    css_char quote = 0;
+    int open_url = last->kind == CSS_URL;
+    if (last->kind == CSS_STR && !css_string_closed(text, len)) {
+        quote = text[0];
     }
-    if (run % 2 == 0 || last->kind == CSS_COMMENT) {
+    for (Py_ssize_t pos = 4; open_url && pos < len; pos++) {
+        css_char character = text[pos];
+        if (character == '\\') {
+            pos++;
+        } else if (quote != 0) {
+            quote = character == quote ? 0 : quote;
+        } else if (character == '"' || character == '\'') {
+            quote = character;
+        } else {
+            open_url = character != ')';
+        }
+    }
+    if (!escape && quote == 0 && !open_url) {
         return 0;
     }
-    int in_string = last->kind == CSS_STR;
-    if (last->kind == CSS_URL) {
-        /* a quote opening the argument makes `url(` a function with a string (§4.3.4); the text ends in the `\`, so
-           the whitespace run stops inside it */
-        Py_ssize_t open = 4;
-        while (css_is_ws(last->text[open])) {
-            open++;
-        }
-        in_string = last->text[open] == '"' || last->text[open] == '\'';
-    }
-    cbuf_put_run(spelled, view, length - 1);
-    if (!in_string) {
+    cbuf_put_run(spelled, view, length - escape);
+    if (escape && quote == 0) {
         cbuf_puts(spelled, "\xEF\xBF\xBD");
+    }
+    if (quote != 0) {
+        cbuf_putc(spelled, quote);
+    }
+    if (open_url) {
+        cbuf_putc(spelled, ')');
     }
     return 1;
 }

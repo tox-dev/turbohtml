@@ -372,26 +372,23 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
                 cbuf_put_run(out, pool->data + off, len);
                 continue;
             }
-            /* an @import/@namespace url() keeps a quoted body, or wraps a bare body in quotes */
-            if (token->text_len > 4 && token->text[token->text_len - 1] == ')') {
-                Py_ssize_t body_start = 4;
-                Py_ssize_t body_end = token->text_len - 1;
-                while (body_start < body_end && css_is_ws(token->text[body_start])) {
-                    body_start++;
-                }
-                while (body_end > body_start && css_is_ws(token->text[body_end - 1])) {
-                    body_end--;
-                }
-                if (body_end > body_start && (token->text[body_start] == '"' || token->text[body_start] == '\'')) {
-                    cbuf_put_run(out, token->text + body_start, body_end - body_start);
-                } else {
-                    cbuf_putc(out, '"');
-                    cbuf_put_run(out, token->text + body_start, body_end - body_start);
-                    cbuf_putc(out, '"');
-                }
-                continue;
+            /* an @import/@namespace url() keeps a quoted body, or wraps a bare body in quotes; th_minify_css_bytes
+               closed a url the input left open, so the text ends in its `)` */
+            Py_ssize_t body_start = 4;
+            Py_ssize_t body_end = token->text_len - 1;
+            while (body_start < body_end && css_is_ws(token->text[body_start])) {
+                body_start++;
             }
-            cbuf_put_run(out, token->text, token->text_len);
+            while (body_end > body_start && css_is_ws(token->text[body_end - 1])) {
+                body_end--;
+            }
+            if (body_end > body_start && (token->text[body_start] == '"' || token->text[body_start] == '\'')) {
+                cbuf_put_run(out, token->text + body_start, body_end - body_start);
+            } else {
+                cbuf_putc(out, '"');
+                cbuf_put_run(out, token->text + body_start, body_end - body_start);
+                cbuf_putc(out, '"');
+            }
             continue;
         }
         if (token->kind == CSS_DELIM && (token->delim == ':' || token->delim == ',')) {
@@ -644,10 +641,14 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int keyframe, rule_i
         cur->index++;
     }
     /* a stray segment with no block: keep its trimmed text verbatim (error recovery). The caller (css_parse_rules)
-       consumes leading whitespace/comments before dispatching here, so only the trailing edge needs trimming. */
+       consumes leading whitespace/comments before dispatching here, so only the trailing edge needs trimming, and a
+       whitespace token there follows another token. The newline that cut a string short stays: without it the string
+       would run to the end of the input (CSS Syntax 3 §4.3.5). */
     Py_ssize_t start = prelude_start;
     Py_ssize_t end = prelude_end;
-    while (end > start && cur->vec->items[end - 1].kind == CSS_WS) {
+    while (end > start && cur->vec->items[end - 1].kind == CSS_WS &&
+           (cur->vec->items[end - 2].kind != CSS_STR ||
+            css_string_closed(cur->vec->items[end - 2].text, cur->vec->items[end - 2].text_len))) {
         end--;
     }
     css_buf text = {NULL, 0, 0, 0};

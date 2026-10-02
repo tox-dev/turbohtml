@@ -176,8 +176,8 @@
 ],
 [
 "a{a:)'''",
-"a{a:)'' '}",
-"a{a:)'' '}"
+"a{a:)'' ''}",
+"a{a:)'' ''}"
 ],
 [
 "{T:l(",
@@ -191,28 +191,28 @@
 ],
 [
 "{d:url( \n  \n\t0",
-"{d:url(0}",
-"{d:url(0}"
+"{d:url(0)}",
+"{d:url(0)}"
 ],
 [
 "{d:urL(     '0",
-"{d:urL('0}",
-"{d:urL('0}"
+"{d:urL(0)}",
+"{d:urL(0)}"
 ],
 [
 "{-ms-filter:\"",
-"{-ms-filter:\"}",
-"{-ms-filter:\"}"
+"{-ms-filter:\"\"}",
+"{-ms-filter:\"\"}"
 ],
 [
 "@import url(",
-"@import url(",
-"@import url("
+"@import \"\"",
+"@import \"\""
 ],
 [
 "@import url( ",
-"@import url(",
-"@import url("
+"@import \"\"",
+"@import \"\""
 ],
 [
 "@import url(  )",
@@ -1591,8 +1591,8 @@
 ],
 [
 "FONT-FAMILY: ru\"",
-"FONT-FAMILY: ru\"",
-"font-family:ru \""
+"FONT-FAMILY: ru\"\"",
+"font-family:ru \"\""
 ],
 [
 "d:hsl(0033333333333333333333333333333333333333333333333333333333333333333333333333333200,040000199823736,2444)",
@@ -2026,8 +2026,8 @@
 ],
 [
 "@import a url(b",
-"@import a url(b",
-"@import a url(b"
+"@import a \"b\"",
+"@import a \"b\""
 ],
 [
 "a{p0:0px;p1:1px;p2:2px;p3:3px;p4:4px;p5:5px;p6:6px;p7:7px;p8:8px;p9:9px;p10:10px;p11:11px;p12:12px;p13:13px;p14:14px;p15:15px;p16:16px;p17:17px;p18:18px;p19:19px;p20:20px;p21:21px;p22:22px;p23:23px;p24:24px;p25:25px;p26:26px;p27:27px;p28:28px;p29:29px;p30:30px;p31:31px;p32:32px;color:red;color:blue}",
@@ -2386,27 +2386,27 @@
 ],
 [
 "\"\\",
-"\"",
+"\"\"",
 ""
 ],
 [
 "\"\\\r",
-"\"\\\r",
+"\"\\\r\"",
 ""
 ],
 [
 "\"\\\rx",
-"\"\\\rx",
+"\"\\\rx\"",
 ""
 ],
 [
 "\"a\r",
-"\"a",
+"\"a\r",
 ""
 ],
 [
 "\"a\f",
-"\"a",
+"\"a\f",
 ""
 ],
 [
@@ -2486,12 +2486,12 @@
 ],
 [
 "url(\"\\",
-"url(\"",
+"url(\"\")",
 ""
 ],
 [
 "url(a\\",
-"url(a\ufffd",
+"url(a\ufffd)",
 ""
 ],
 [
@@ -2586,8 +2586,8 @@
 ],
 [
 "a{x:url(",
-"a{x:url(}",
-"a{x:url(}"
+"a{x:url()}",
+"a{x:url()}"
 ],
 [
 "a{color:#fff000}",
@@ -2911,8 +2911,8 @@
 ],
 [
 "a{src:local(\"",
-"a{src:local(\")}",
-"a{src:local(\")}"
+"a{src:local(\"\")}",
+"a{src:local(\"\")}"
 ],
 [
 "a{width:calc((",
@@ -4286,18 +4286,18 @@
 ],
 [
 "@import url(unclosed",
-"@import url(unclosed",
-"@import url(unclosed"
+"@import \"unclosed\"",
+"@import \"unclosed\""
 ],
 [
 "@x ( url(unclosed",
-"@x(url(unclosed",
-"@x(url(unclosed"
+"@x(url(unclosed)",
+"@x(url(unclosed)"
 ],
 [
 "@x ( url(open ",
-"@x(url(open",
-"@x(url(open"
+"@x(url(open)",
+"@x(url(open)"
 ],
 [
 "@supports(a:b){x{y:1}}",
@@ -4321,8 +4321,8 @@
 ],
 [
 "@x ( a, url(unterminated",
-"@x(a,url(unterminated",
-"@x(a,url(unterminated"
+"@x(a,url(unterminated)",
+"@x(a,url(unterminated)"
 ],
 [
 "@x ( a ,url(b) )",
@@ -4391,12 +4391,12 @@
 ],
 [
 "font-family:\"abc def",
-"font-family:\"abc def",
+"font-family:\"abc def\"",
 "font-family:abc def"
 ],
 [
 "font:bold 12px \"unending",
-"font:bold 12px \"unending",
+"font:bold 12px \"unending\"",
 "font:700 12px unending"
 ],
 [
@@ -4451,13 +4451,13 @@
 ],
 [
 "@x(url(unterm",
-"@x(url(unterm",
-"@x(url(unterm"
+"@x(url(unterm)",
+"@x(url(unterm)"
 ],
 [
 "@import url(a),url(b",
-"@import \"a\",url(b",
-"@import \"a\",url(b"
+"@import \"a\",\"b\"",
+"@import \"a\",\"b\""
 ],
 [
 "r0{x:0}r1{x:1}r2{x:2}r3{x:3}r4{x:4}r5{x:5}r6{x:6}r7{x:7}r8{x:8}r9{x:9}r10{x:10}r11{x:11}r12{x:12}r13{x:13}r14{x:14}r15{x:15}r16{x:16}r17{x:17}r18{x:18}r19{x:19}",

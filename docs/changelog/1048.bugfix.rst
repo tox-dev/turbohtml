@@ -1,0 +1,1 @@
+The CSS minifier no longer puts the brace it adds at the end of the input inside an unterminated string or ``url(``.
