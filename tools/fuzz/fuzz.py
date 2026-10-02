@@ -132,7 +132,9 @@ def _checkout_sparse_wpt() -> None:
     commit = _git("rev-parse", f"HEAD:{_WPT}")
     url = _git("config", "--file", ".gitmodules", f"submodule.{_WPT}.url")
     _git("init", "--quiet", _WPT)
-    _git("-C", _WPT, "fetch", "--quiet", "--depth", "1", "--filter=blob:none", url, commit)
+    # actions/checkout's post-job cleanup reads remote.origin.url in every submodule and fails on one without it
+    _git("-C", _WPT, "config", "remote.origin.url", url)
+    _git("-C", _WPT, "fetch", "--quiet", "--depth", "1", "--filter=blob:none", "origin", commit)
     _git("-C", _WPT, "sparse-checkout", "set", "--no-cone", "/sanitizer-api/", "/LICENSE.md")
     _git("-C", _WPT, "checkout", "--quiet", "FETCH_HEAD")
     print(f"checked out {target.relative_to(_ROOT)} at {commit[:12]}")
