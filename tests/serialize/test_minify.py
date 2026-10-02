@@ -475,12 +475,8 @@ def test_body_start_omitted_with_empty_first_text() -> None:
         pytest.param("style", "a { color: red }", Minify(minify_css=CSSMinify()), "a{color:red}", id="style"),
     ],
 )
-def test_minify_raw_text_skips_an_empty_comment_child(tag: str, source: str, layout: Minify, expected: str) -> None:
-    # a parsed empty comment has a NULL text pointer, which memcpy may not receive even for length 0
-    document: Final = parse(f"<!----><{tag}>{source}</{tag}>")
-    element = document.find(tag)
-    assert isinstance(element, Element)
-    element.insert(0, document.children[0])
+def test_minify_raw_text_joins_an_empty_text_child(tag: str, source: str, layout: Minify, expected: str) -> None:
+    element: Final = Element(tag, children=[Text(""), Text(source)])
     assert element.serialize(Html(layout=layout)) == f"<{tag}>{expected}</{tag}>"
 
 

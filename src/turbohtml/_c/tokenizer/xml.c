@@ -396,15 +396,14 @@ static int push_open(xml_parser *parser, th_node *element) {
     return 0;
 }
 
-/* Copy a code-point run (an entity-normalized attribute value) into the arena. */
+/* Copy a namespace URI into the arena. consume_namespace_decl rejects an empty one first, so src is never the
+   NULL scratch buffer. */
 static Py_UCS4 *arena_copy(th_tree *tree, const Py_UCS4 *src, Py_ssize_t len) {
     Py_UCS4 *out = arena_alloc(tree, len * (Py_ssize_t)sizeof(Py_UCS4));
     if (out == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (len > 0) { /* the scratch buffer stays NULL until a value pushes a code point */
-        memcpy(out, src, (size_t)len * sizeof(Py_UCS4));
-    }
+    memcpy(out, src, (size_t)len * sizeof(Py_UCS4));
     return out;
 }
 
