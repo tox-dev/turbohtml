@@ -1,0 +1,2 @@
+The JavaScript minifier no longer folds a variable that a function declared in a catch block or in a bare ``if`` clause
+reassigns.

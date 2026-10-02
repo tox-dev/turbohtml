@@ -104,6 +104,7 @@ static void run_builtins(long *cases) {
         "new a.b.C(1)", "1 .toString()", "x=[1,,3,,]", "switch(x){case 1:a();break;default:b()}",
         "t.0.", "t,(0).", /* empty member name: the run borrows a zero-length span at the buffer end */
         "x.\"\\a\\", "x.`\\a\\", /* a literal ending in `\`: its lexeme must stop at the buffer end */
+        "function f(){var g;try{}catch(e){function g(){}}if(1)function h(){}return[g,h]}", /* Annex B blocks */
         "function f(){function(a){return a}}", "function f(){class{}}", /* a declaration with no name */
         "x={async*[k](){yield* a}}", "label:for(;;)break label", "(function(){})()",
         /* a function declaration sharing a parameter's or var's binding has no declarator to drop or inline */

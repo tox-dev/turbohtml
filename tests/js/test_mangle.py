@@ -194,6 +194,32 @@ def test_mangling_preserves_behavior(snippet: str) -> None:
         pytest.param(
             "function t(){class C{}return[C,C]}", "function t(){class a{}return[a,a]}", id="body-level-class-renamed"
         ),
+        pytest.param(
+            "function t(){var g=1;try{throw 0}catch(e){function g(){}}return typeof g}",
+            "function t(){var g=1;try{throw 0}catch(a){function g(){}}return typeof g}",
+            id="catch-block-outer-var-kept",
+        ),
+        pytest.param(
+            "function t(){var g=1;try{throw 0}catch{function g(){}}return typeof g}",
+            "function t(){var g=1;try{throw 0}catch{function g(){}}return typeof g}",
+            id="catch-block-without-binding",
+        ),
+        pytest.param(
+            "function t(){var g=1;if(1)function g(){}return typeof g}",
+            "function t(){var g=1;if(1)function g(){}return typeof g}",
+            id="if-clause-outer-var-kept",
+        ),
+        pytest.param(
+            "function t(){var g=1;if(0);else function g(){}return typeof g}",
+            "function t(){var g=1;if(0);else function g(){}return typeof g}",
+            id="else-clause-outer-var-kept",
+        ),
+        # a catch block scopes its own let like any block, so the binding renames instead of resolving outward
+        pytest.param(
+            "function t(){try{throw 0}catch(e){let q=h();return[q,q]}}",
+            "function t(){try{throw 0}catch(b){let a=h();return[a,a]}}",
+            id="catch-block-let-renamed",
+        ),
     ],
 )
 def test_annex_b_block_function(source: str, expected: str) -> None:
@@ -215,6 +241,23 @@ def test_annex_b_block_function(source: str, expected: str) -> None:
         pytest.param(
             "function o(){var g=5;function t(){{function g(){}}return g}return typeof t()}console.log(o())",
             id="outer-function-binding",
+        ),
+        pytest.param(
+            "function f(){var g=1;try{throw 0}catch(e){function g(){}}return typeof g}console.log(f())",
+            id="catch-block-outer-var",
+        ),
+        pytest.param(
+            "function f(){var g=1;try{throw 0}catch(e){function g(){return 2}}return g()}console.log(f())",
+            id="catch-block-outer-var-called",
+        ),
+        pytest.param(
+            "function o(){var g=5;function t(){try{throw 0}catch(e){function g(){}}return g}return typeof t()}"
+            "console.log(o())",
+            id="catch-block-outer-function-binding",
+        ),
+        pytest.param("function f(){var g=1;if(1)function g(){}return typeof g}console.log(f())", id="if-clause"),
+        pytest.param(
+            "function f(){var g=1;if(0);else function g(){}return typeof g}console.log(f())", id="else-clause"
         ),
     ],
 )

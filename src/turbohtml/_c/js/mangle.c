@@ -421,6 +421,28 @@ static void walk_chain(M *mangler, int32_t first, int32_t scope, int bind) {
     }
 }
 
+/* Walk the statements from first in a new block scope, declaring its block-level bindings first. */
+static void walk_block(M *mangler, int32_t first, int32_t scope) {
+    int32_t inner = jm_scope_new(mangler->prog, scope, 0);
+    if (inner < 0) {         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        mangler->failed = 1; /* GCOVR_EXCL_LINE */
+        return;              /* GCOVR_EXCL_LINE */
+    }
+    int32_t mark = mangler->undo_count;
+    hoist_block(mangler, first, inner);
+    walk_chain(mangler, first, inner, 0);
+    undo_to(mangler, mark);
+}
+
+/* Annex B.3.3: a function declaration as a sloppy if clause scopes as the sole statement of a block. */
+static void walk_if_clause(M *mangler, int32_t clause, int32_t scope) {
+    if (clause >= 0 && mangler->prog->nodes[clause].kind == JN_FUNC) {
+        walk_block(mangler, clause, scope);
+    } else {
+        walk(mangler, clause, scope, 0);
+    }
+}
+
 /* Open a function/arrow scope: declare params + hoisted bindings, then walk the body. */
 static void walk_function(M *mangler, int32_t idx, int32_t parent) {
     jm_node *node = &mangler->prog->nodes[idx];
@@ -514,18 +536,14 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
     case JN_ARROW:
         walk_function(mangler, idx, scope);
         return;
-    case JN_BLOCK: {
-        int32_t inner = jm_scope_new(mangler->prog, scope, 0);
-        if (inner < 0) {         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-            mangler->failed = 1; /* GCOVR_EXCL_LINE */
-            return;              /* GCOVR_EXCL_LINE */
-        }
-        int32_t mark = mangler->undo_count;
-        hoist_block(mangler, node->a, inner);
-        walk_chain(mangler, node->a, inner, 0);
-        undo_to(mangler, mark);
+    case JN_BLOCK:
+        walk_block(mangler, node->a, scope);
         return;
-    }
+    case JN_IF:
+        walk(mangler, node->a, scope, 0);
+        walk_if_clause(mangler, node->b, scope);
+        walk_if_clause(mangler, node->c, scope);
+        return;
     case JN_FOR:
     case JN_FORIN:
     case JN_FOROF: {
@@ -582,6 +600,8 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
                 declare_pattern(mangler, node->b, cat, 5);
                 walk(mangler, node->b, cat, 1);
             }
+            /* the body shares the parameter's scope, so its block-level declarations land there too */
+            hoist_block(mangler, mangler->prog->nodes[node->c].a, cat);
             walk_chain(mangler, mangler->prog->nodes[node->c].a, cat, 0);
             undo_to(mangler, mark);
         }
