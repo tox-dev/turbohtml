@@ -13,6 +13,7 @@ import re
 
 import pytest
 
+from turbohtml import Minify, clean
 from turbohtml.clean import JSMinify, minify_js
 
 
@@ -42,7 +43,8 @@ def minify(source: str) -> str:
         pytest.param("function f", id="function-no-params"),
         pytest.param("function f(a,", id="function-params-trailing"),
         pytest.param("function f(){", id="function-unclosed-body"),
-        pytest.param("class", id="class-no-body"),
+        pytest.param("class", id="class-no-name"),
+        pytest.param("class C", id="class-no-body"),
         pytest.param("class C{", id="class-unclosed"),
         pytest.param("class C extends", id="class-extends-nothing"),
         pytest.param("return*", id="return-bad-expr"),
@@ -142,11 +144,47 @@ def test_malformed_raises(source: str) -> None:
         pytest.param('"' + "a" * 40, "lexical error at offset 0 near '\"aaaaaaaaaaaaaa'", id="truncated-slice"),
         # a control code point in the offending token also renders as ?
         pytest.param(chr(0x01), "lexical error at offset 0 near '?'", id="control-char-slice"),
+        # a literal ending in `\` is unterminated at the source end, and the slice stops there too
+        pytest.param('x."\\a\\', "lexical error at offset 2 near '\"\\a\\'", id="string-ends-in-backslash"),
+        pytest.param("x.`\\a\\", "lexical error at offset 2 near '`\\a\\'", id="template-ends-in-backslash"),
     ],
 )
 def test_error_message_names_token(source: str, match: str) -> None:
     with pytest.raises(ValueError, match=re.escape(match)):
         minify(source)
+
+
+@pytest.mark.parametrize(
+    ("source", "match"),
+    [
+        pytest.param(
+            "function f(){function(a){return a}}", "expected function name at offset 21 near '('", id="function"
+        ),
+        pytest.param("function*(){}", "expected function name at offset 9 near '('", id="generator"),
+        pytest.param("async function(){}", "expected function name at offset 14 near '('", id="async-function"),
+        pytest.param("function f(){class{}}", "expected class name at offset 18 near '{'", id="class"),
+        pytest.param("class extends B{}", "expected class name at offset 6 near 'extends'", id="class-extends"),
+        pytest.param(
+            "function f(){retlet function(a){return a&1?1:2}}",
+            "expected function name at offset 28 near '('",
+            id="after-expression-statement",
+        ),
+        pytest.param(
+            "function f(){g();var a=1\x95return function(){return a+a}}",
+            "expected function name at offset 40 near '('",
+            id="after-non-ascii-name",
+        ),
+    ],
+)
+def test_declaration_without_name_raises(source: str, match: str) -> None:
+    # the full pipeline, so the scope analysis that binds a declaration's name is in reach
+    with pytest.raises(ValueError, match=re.escape(match)):
+        minify_js(source)
+
+
+def test_inline_script_with_unparsable_declaration_stays_verbatim() -> None:
+    html = "<script>function f(){retlet function(a){return a&1?1:2}}</script>"
+    assert clean.minify(html, Minify(minify_js=JSMinify())) == html
 
 
 # deeply nested / long input is rejected with a clean error rather than overflowing the C stack (#421);

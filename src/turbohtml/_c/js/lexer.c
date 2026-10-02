@@ -323,7 +323,7 @@ static void jm_scan_string(jm_lexer *lx, Py_UCS4 quote) {
             jm_emit(lx, JT_STRING);
             return;
         }
-        if (ch == '\\') {
+        if (ch == '\\' && lx->pos + 1 < lx->len) { /* a final `\` must not step past the source end */
             /* a `\`+<CR><LF> LineContinuation is one unit (ECMA-262 §12.3): consume all three so
                the trailing LF is not left to read as an unescaped newline. Every other escape (and
                a lone LF/CR/LS/PS continuation) is two code points and opaque here. */
@@ -354,7 +354,7 @@ static void jm_scan_template_body(jm_lexer *lx, int is_head) {
             jm_emit(lx, is_head ? JT_TEMPLATE : JT_TEMPLATE_TAIL);
             return;
         }
-        if (ch == '\\') {
+        if (ch == '\\' && lx->pos + 1 < lx->len) { /* a final `\` must not step past the source end */
             lx->pos += 2;
             continue;
         }

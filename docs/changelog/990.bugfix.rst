@@ -1,0 +1,2 @@
+The JavaScript minifier now raises ``ValueError`` for a function or class declaration without a name and for a string or
+template that ends in a backslash.

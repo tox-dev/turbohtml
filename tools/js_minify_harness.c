@@ -98,6 +98,8 @@ static void run_builtins(long *cases) {
         "for(var a=(b in c);;);", "(foo?.bar()).baz=true", "a<! --b", "a-- >b",
         "new a.b.C(1)", "1 .toString()", "x=[1,,3,,]", "switch(x){case 1:a();break;default:b()}",
         "t.0.", "t,(0).", /* empty member name: the run borrows a zero-length span at the buffer end */
+        "x.\"\\a\\", "x.`\\a\\", /* a literal ending in `\`: its lexeme must stop at the buffer end */
+        "function f(){function(a){return a}}", "function f(){class{}}", /* a declaration with no name */
         "x={async*[k](){yield* a}}", "label:for(;;)break label", "(function(){})()",
     };
     for (size_t index = 0; index < sizeof(snippets) / sizeof(snippets[0]); index++) {

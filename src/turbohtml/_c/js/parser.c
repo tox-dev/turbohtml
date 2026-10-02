@@ -1402,6 +1402,9 @@ static int32_t parse_function(P *parser, int is_expr, int is_async) {
     if (at(parser, JT_IDENT)) {
         set_ident(parser, node);
         advance(parser);
+    } else if (!is_expr) {
+        fail(parser, "expected function name"); /* a declaration binds a name (§15.2); only an expression omits it */
+        return -1;
     }
     parse_params(parser, node);
     if (parser->err) {
@@ -1420,6 +1423,9 @@ static int32_t parse_class(P *parser, int is_expr) {
     if (at(parser, JT_IDENT) && !kw(parser, "extends")) {
         set_ident(parser, node);
         advance(parser);
+    } else if (!is_expr) {
+        fail(parser, "expected class name"); /* a declaration binds a name (§15.7) */
+        return -1;
     }
     if (kw(parser, "extends")) {
         advance(parser);
