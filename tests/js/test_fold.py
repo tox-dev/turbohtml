@@ -1441,3 +1441,133 @@ def test_arguments_keeps_parameter_stores(source: str, expected: str) -> None:
 )
 def test_arguments_alias_preserves_behavior(snippet: str) -> None:
     assert _run(snippet) == _run(minify_js(snippet))
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "function f(){if(g())if(x)return;else h()}", "function f(){if(g())if(x)return;else h()}", id="if-branch"
+        ),
+        pytest.param(
+            "L:while(++b<2)while(1)if(!b)continue L;else break L",
+            "L:for(;++b<2;)for(;;)if(!b)continue L;else break L",
+            id="loop-body",
+        ),
+        pytest.param(
+            "function f(){if(a)return 1;else if(b)return 2;else h()}",
+            "function f(){if(a)return 1;if(b)return 2;h()}",
+            id="else-if-chain-splices",
+        ),
+        pytest.param(
+            "function f(){if(a)return;else function g(){}}",
+            "function f(){if(a)return;else function g(){}}",
+            id="annex-b-else-function",
+        ),
+        pytest.param("function f(){if(a)g();else h();i()}", "function f(){a?g():h(),i()}", id="falling-through"),
+    ],
+)
+def test_fold_splices_abrupt_else_only_in_statement_list(source: str, expected: str) -> None:
+    assert minify_js(source, JSMinify(mangle=False)) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("delete undefined", "delete undefined", id="delete"),
+        pytest.param("delete undefined.x", "delete(void 0).x", id="delete-member"),
+        pytest.param("typeof undefined", "typeof void 0", id="typeof"),
+        pytest.param("undefined=undefined", "undefined=void 0", id="assign"),
+        pytest.param("undefined++", "undefined++", id="update"),
+        pytest.param("undefined.x=undefined", "(void 0).x=void 0", id="member-target"),
+        pytest.param("for(undefined in undefined);", "for(undefined in void 0);", id="for-in"),
+        pytest.param("for(undefined of undefined);", "for(undefined of void 0);", id="for-of"),
+        pytest.param("for(;undefined;);", "for(;void 0;);", id="for-test"),
+        pytest.param("[undefined=undefined,...undefined]=a", "[undefined=void 0,...undefined]=a", id="array-pattern"),
+        pytest.param(
+            "({[undefined]:undefined,undefined,u:undefined=undefined}=a)",
+            "({[void 0]:undefined,undefined,u:undefined=void 0}=a)",
+            id="object-pattern",
+        ),
+        pytest.param("({undefined=undefined}=a)", "({undefined=void 0}=a)", id="shorthand-default"),
+        pytest.param("with(o)undefined;undefined", "with(o)undefined;void 0", id="with-body"),
+        pytest.param(
+            "with(undefined)(function(){return undefined})",
+            "with(void 0)(function(){return undefined})",
+            id="with-nested-function",
+        ),
+    ],
+)
+def test_fold_keeps_undefined_reference(source: str, expected: str) -> None:
+    assert minify_js(source, JSMinify(mangle=False)) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("function f(){return a;class a{}}", "function f(){return a;class a{}}", id="class"),
+        pytest.param("function f(){return a;let a}", "function f(){return a;let a}", id="let"),
+        pytest.param("function f(){return a;const a=1}", "function f(){return a;const a=1}", id="const"),
+        pytest.param("switch(x){case 0:break;let a}", "switch(x){case 0:break;let a}", id="switch-clause"),
+        pytest.param("function f(){return a;if(b){let a}}", "function f(){return a}", id="nested-block-dropped"),
+        pytest.param("function f(){return a;g()}", "function f(){return a}", id="statement-dropped"),
+    ],
+)
+def test_fold_keeps_unreachable_lexical_declaration(source: str, expected: str) -> None:
+    assert minify_js(source, JSMinify(mangle=False)) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "console.log(typeof function c(){c=7;return c}())",
+            "console.log(typeof function a(){return a=7,a}())",
+            id="function-name-read",
+        ),
+        pytest.param("(function c(){c=7})()", "(function a(){a=7}())", id="function-name-unread"),
+        pytest.param("(class C{m(){C=1}})", "(class a{m(){a=1}})", id="class-name-unread"),
+        pytest.param("(function(){const k=1;k=2})()", "(function(){const a=1;a=2}())", id="const-unread"),
+        pytest.param(
+            "(function(){const k=1;return k=2,k})()", "(function(){const a=1;return a=2,a}())", id="const-read"
+        ),
+        pytest.param("(function(){let k=1;return k=2,k})()", "(function(){return 2}())", id="let-collapses"),
+        pytest.param("(function(){var k;k=g()})()", "(function(){g()}())", id="var-dead-store"),
+    ],
+)
+def test_compress_keeps_immutable_binding_writes(source: str, expected: str) -> None:
+    assert minify_js(source) == expected
+
+
+@pytest.mark.skipif(_NODE is None, reason="node not available")
+@pytest.mark.parametrize(
+    "options", [pytest.param(JSMinify(mangle=False), id="fold"), pytest.param(JSMinify(), id="full")]
+)
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "var x=0;function g(){return 1}function f(){if(g())if(x)return;else console.log('h')}f()",
+            "h\n",
+            id="dangling-else",
+        ),
+        pytest.param("console.log(delete undefined)", "false\n", id="delete-undefined"),
+        pytest.param("var o={undefined:3};with(o)console.log(undefined)", "3\n", id="with-undefined"),
+        pytest.param(
+            "var a='FAIL';try{console.log(function(){return a;class a{}}())}catch(e){console.log('PASS')}",
+            "PASS\n",
+            id="class-tdz",
+        ),
+        pytest.param("console.log(typeof function c(){c=7;return c}())", "function\n", id="function-name-sloppy"),
+        pytest.param(
+            "try{(function c(){'use strict';c=7})()}catch(e){console.log(e.name)}",
+            "TypeError\n",
+            id="function-name-strict",
+        ),
+        pytest.param(
+            "try{(function(){const k=1;k=2})()}catch(e){console.log(e.name)}", "TypeError\n", id="const-write"
+        ),
+    ],
+)
+def test_fold_and_compress_preserve_behavior(source: str, expected: str, options: JSMinify) -> None:
+    assert (_run(source), _run(minify_js(source, options))) == (expected, expected)

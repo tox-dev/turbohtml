@@ -976,16 +976,23 @@ static int is_pure_value(jm_program *prog, int32_t idx) {
     return is_droppable_init(prog, idx);
 }
 
-/* If node assigns `x = EXPR` to a local that is never read, the store is dead -- ECMA-262 makes only
-   EXPR's evaluation observable. Decrement x's write count (a later pass drops the now-unwritten binding)
-   and return EXPR, else -1. */
+/* Whether the binding is immutable: a const, or the self-name of a function or class expression (15.2.5,
+   15.7.14). Assigning one never stores and throws for a const or in strict code (9.1.1.1.5), so no pass
+   may drop the assignment, and its value is the assigned one while the binding keeps its own. */
+static int is_immutable(const jm_sym *sym) {
+    return sym->decl == 2 || sym->decl == 7;
+}
+
+/* If node assigns `x = EXPR` to a mutable local that is never read, the store is dead -- ECMA-262 makes
+   only EXPR's evaluation observable. Decrement x's write count (a later pass drops the now-unwritten
+   binding) and return EXPR, else -1. */
 static int32_t dead_store_value(jm_program *prog, int32_t node) {
     if (prog->nodes[node].kind != JN_ASSIGN || prog->nodes[node].op != JT_ASSIGN ||
         prog->nodes[prog->nodes[node].a].kind != JN_IDENT) {
         return -1;
     }
     int32_t target = prog->nodes[prog->nodes[node].a].sym;
-    if (target < 0 || prog->syms[target].refs != 0) {
+    if (target < 0 || prog->syms[target].refs != 0 || is_immutable(&prog->syms[target])) {
         return -1;
     }
     prog->syms[target].writes--;
@@ -1012,8 +1019,9 @@ static void collapse_sequence(jm_program *prog, int32_t seq, int *changed) {
             continue;
         }
         int32_t target = prog->nodes[prog->nodes[elem].a].sym;
-        if (target < 0 || prog->nodes[use].kind != JN_IDENT || prog->nodes[use].sym != target) {
-            continue; /* not `t = EXPR` immediately followed by a read of the same local t */
+        if (target < 0 || prog->nodes[use].kind != JN_IDENT || prog->nodes[use].sym != target ||
+            is_immutable(&prog->syms[target])) {
+            continue; /* not `t = EXPR` immediately followed by a read of the same mutable local t */
         }
         int32_t after = prog->nodes[use].next;
         if (prog->syms[target].refs == 1 && prog->syms[target].writes == 1) {
@@ -1076,10 +1084,12 @@ static void collapse_chain(jm_program *prog, int32_t first, int *changed) {
 /* Descend into every nested statement list (block, function/arrow body, switch case) and every
    expression that may hold one, mirroring the fold pass's traversal. */
 /* A function/class expression's self-name binds only inside its own body (13.2.4 / 15.7.4); with
-   zero reads it names nothing, so the expression prints anonymous and the name's slot is freed. */
+   zero reads and writes it names nothing, so the expression prints anonymous and the name's slot is
+   freed. A write keeps it: without the binding the assignment would land on an outer name. */
 static void drop_unread_expr_name(jm_program *prog, jm_node *node, int *changed) {
     /* a named expression always resolved its self-name, so str != NULL implies a live sym */
-    if ((node->flags & JN_F_EXPR) && node->str != NULL && prog->syms[node->sym].refs == 0) {
+    if ((node->flags & JN_F_EXPR) && node->str != NULL && prog->syms[node->sym].refs == 0 &&
+        prog->syms[node->sym].writes == 0) {
         node->str = NULL;
         node->str_len = 0;
         node->sym = -1;

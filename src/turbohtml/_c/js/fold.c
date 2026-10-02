@@ -32,7 +32,8 @@
 
 typedef struct {
     jm_program *prog;
-    int changed; /* a transform fired this pass: jm_fold walks again so cascades finish */
+    int changed;    /* a transform fired this pass: jm_fold walks again so cascades finish */
+    int with_depth; /* enclosing with bodies: their object may own an `undefined` property */
 } F;
 
 static int ident_is(const jm_node *node, const char *word) {
@@ -387,16 +388,30 @@ static void walk_chain(F *folder, int32_t first) {
     }
 }
 
-/* Drop statements that follow a return / throw / break / continue, as long as none of
-   them declares a hoisted var or function (which would survive the jump). */
+/* Whether a statement list declares a name that outlives the statements: a var or function hoists out
+   of any nested statement, and a let, const or class at the list's own level covers the whole block
+   from its start (14.2.3), so a read above it throws in its TDZ rather than reaching an outer binding.
+   A class in a statement list is always a declaration. */
+static int chain_declares(F *folder, int32_t first) {
+    for (int32_t idx = first; idx >= 0; idx = folder->prog->nodes[idx].next) {
+        int kind = folder->prog->nodes[idx].kind;
+        if (kind == JN_VAR || kind == JN_CLASS || node_hoists(folder, idx)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Drop statements that follow a return / throw / break / continue, as long as none of them declares a
+   name (a hoisted one survives the jump, a lexical one shadows its block). */
 static void drop_unreachable(F *folder, int32_t first) {
     for (int32_t idx = first; idx >= 0; idx = folder->prog->nodes[idx].next) {
         jm_node *node = &folder->prog->nodes[idx];
         if (node->kind != JN_RETURN && node->kind != JN_THROW && node->kind != JN_BREAK && node->kind != JN_CONTINUE) {
             continue;
         }
-        if (node->next < 0 || chain_hoists(folder, node->next)) {
-            return; /* nothing after, or the tail hoists names: keep it */
+        if (node->next < 0 || chain_declares(folder, node->next)) {
+            return; /* nothing after, or the tail declares names: keep it */
         }
         node->next = -1; /* cut the unreachable tail */
         folder->changed = 1;
@@ -797,8 +812,8 @@ static void convert_if(F *folder, int32_t idx) {
     if (else_stmt < 0) {
         return;
     }
-    /* both returns never reach here: an abrupt consequent had its else spliced away already, and
-       fold_if_return_chain then folds the pair -- so only the two-expression form remains */
+    /* a list member's abrupt consequent had its else spliced away and fold_if_return_chain folds the
+       pair; an abrupt if that is a lone branch or loop body keeps its else as written */
     if (prog->nodes[then_stmt].kind != JN_EXPR_STMT || prog->nodes[else_stmt].kind != JN_EXPR_STMT) {
         return;
     }
@@ -1108,8 +1123,28 @@ static int32_t drop_empties(F *folder, int32_t first) {
     return first;
 }
 
+/* An `if` whose consequent always jumps runs its alternate exactly when control would fall through,
+   so the alternate splices into the statement list after the if (14.6.2). Only a list member has a
+   following statement to splice before: an if that is itself a branch or loop body would orphan the
+   alternate. A spliced `else if` is visited next and splices in turn. A bare `else function f(){}`
+   stays: promoting that Annex-B legacy form to a list declaration would change its scope. */
+static void splice_abrupt_else(F *folder, int32_t first) {
+    jm_node *nodes = folder->prog->nodes;
+    for (int32_t idx = first; idx >= 0; idx = nodes[idx].next) {
+        int32_t alt = nodes[idx].c;
+        if (nodes[idx].kind != JN_IF || alt < 0 || !ends_abruptly(folder, nodes[idx].b) || nodes[alt].kind == JN_FUNC) {
+            continue;
+        }
+        nodes[idx].c = -1;
+        nodes[alt].next = nodes[idx].next;
+        nodes[idx].next = alt;
+        folder->changed = 1;
+    }
+}
+
 static int32_t optimize_chain(F *folder, int32_t first) {
     first = drop_empties(folder, first);
+    splice_abrupt_else(folder, first);
     first = merge_declarations(folder, first);
     merge_sequences(folder, first);
     fold_if_return_chain(folder, first);
@@ -1223,6 +1258,43 @@ static void fold_concat(F *folder, int32_t idx) {
     folder->changed = 1;
 }
 
+/* Walk an assignment, update or for-in/of target. A bare name there is the Reference being written,
+   so `undefined` stays a name: `void 0=1` is an early error (13.15.1). A pattern's default values and
+   computed keys are ordinary expressions. */
+static void walk_target(F *folder, int32_t idx) {
+    const jm_node *node = &folder->prog->nodes[idx];
+    int32_t child_a = node->a;
+    int32_t child_b = node->b;
+    switch (node->kind) {
+    case JN_IDENT:
+        return;
+    case JN_ARRAY:
+    case JN_OBJECT:
+        for (int32_t element = child_a; element >= 0; element = folder->prog->nodes[element].next) {
+            walk_target(folder, element);
+        }
+        return;
+    case JN_PROP:
+        if (node->flags & JN_F_COMPUTED) {
+            walk(folder, child_a);
+        }
+        if (child_b >= 0) {
+            walk_target(folder, child_b);
+        }
+        return;
+    case JN_SPREAD:
+        walk_target(folder, child_a);
+        return;
+    case JN_ASSIGN:
+        walk_target(folder, child_a);
+        walk(folder, child_b);
+        return;
+    default:
+        walk(folder, idx);
+        return;
+    }
+}
+
 static void walk(F *folder, int32_t idx) {
     if (idx < 0) {
         return;
@@ -1251,10 +1323,23 @@ static void walk(F *folder, int32_t idx) {
             fold_boolean(folder, idx, 1);
         } else if (ident_is(node, "false")) {
             fold_boolean(folder, idx, 0);
-        } else if (ident_is(node, "undefined") &&
+        } else if (ident_is(node, "undefined") && folder->with_depth == 0 &&
                    (!folder->prog->shadows_undefined || (folder->prog->resolved && node->sym < 0))) {
             fold_void(folder, idx); /* a read no binding shadows is the global undefined, void 0 */
         }
+        return;
+    case JN_WITH:
+        walk(folder, child_a);
+        folder->with_depth++;
+        walk(folder, child_b);
+        folder->with_depth--;
+        return;
+    case JN_ASSIGN:
+        walk_target(folder, child_a);
+        walk(folder, child_b);
+        return;
+    case JN_UPDATE:
+        walk_target(folder, child_a);
         return;
     case JN_MEMBER_EXPR:
         walk(folder, child_a);
@@ -1314,7 +1399,11 @@ static void walk(F *folder, int32_t idx) {
     case JN_FOROF:
     case JN_WHILE:
     case JN_DOWHILE: {
-        walk(folder, child_a);
+        if (kind == JN_FORIN || kind == JN_FOROF) {
+            walk_target(folder, child_a);
+        } else {
+            walk(folder, child_a);
+        }
         walk(folder, child_b);
         walk(folder, child_c);
         walk(folder, child_d);
@@ -1388,6 +1477,13 @@ static void walk(F *folder, int32_t idx) {
         }
         return;
     }
+    case JN_UNARY:
+        /* `delete undefined` deletes the global binding, which is non-configurable (false, 13.5.1.2);
+           `delete void 0` deletes a value (true) */
+        if (node->op != JT_IDENT || !ident_is(node, "delete") || folder->prog->nodes[child_a].kind != JN_IDENT) {
+            walk(folder, child_a);
+        }
+        break;
     default:
         walk(folder, child_a);
         walk(folder, child_b);
@@ -1462,22 +1558,6 @@ static void walk(F *folder, int32_t idx) {
     case JN_IF: {
         if (node->c >= 0 && is_empty_branch(folder, node->c)) {
             node->c = -1; /* an empty else does nothing: if(a)b();else{} -> if(a)b() -> a&&b() */
-            folder->changed = 1;
-        }
-        if (node->c >= 0 && ends_abruptly(folder, node->b) && folder->prog->nodes[node->c].kind != JN_FUNC) {
-            /* the consequent always jumps, so the else keyword is redundant: the alternate splices
-               into the statement chain after the if. Its own splice may already have chained
-               statements onto it, so the outer rest attaches at that chain's tail. A bare
-               `else function f(){}` stays: promoting that Annex-B legacy form to a chain
-               declaration would change its scope. */
-            int32_t alt = node->c;
-            node->c = -1;
-            int32_t alt_tail = alt;
-            while (folder->prog->nodes[alt_tail].next >= 0) {
-                alt_tail = folder->prog->nodes[alt_tail].next;
-            }
-            folder->prog->nodes[alt_tail].next = node->next;
-            node->next = alt;
             folder->changed = 1;
         }
         int truth = pure_truthy(folder, node->a);
