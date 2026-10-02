@@ -351,6 +351,26 @@ def test_statement_position_parens_preserved(source: str, expected: str) -> None
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
+        pytest.param("f({a:0},({}=0))", "f({a:0},({}=0))", id="object-pattern"),
+        pytest.param("f([1],([a]=[]))", "f([1],([a]=[]))", id="array-pattern"),
+        pytest.param("new f({a:0},({}=0))", "new f({a:0},({}=0))", id="new"),
+        pytest.param("f({a:0},...({}=0))", "f({a:0},...({}=0))", id="spread"),
+        pytest.param("f(g({a:0}),({}=0))", "f(g({a:0}),({}=0))", id="after-nested-call"),
+        pytest.param("f(({}=0),{a:0})", "f({}=0,{a:0})", id="first-argument"),
+        pytest.param("f(...({}=0))", "f(...{}=0)", id="first-spread"),
+        pytest.param("f({a:0},(b=0))", "f({a:0},b=0)", id="identifier-target"),
+        pytest.param("f({a:0},b=({}=0))", "f({a:0},b={}=0)", id="nested-in-value"),
+        pytest.param("x=[{a:0},({}=0)]", "x=[{a:0},{}=0]", id="array-element"),
+        pytest.param("f({a:0},([b])=>b)", "f({a:0},([b])=>b)", id="arrow-pattern-parameter"),
+    ],
+)
+def test_destructuring_assignment_argument_parens(source: str, expected: str) -> None:
+    assert minify(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
         # a bang block comment is a license/banner header kept byte-exact, the way the CSS minifier keeps
         # `/*! ... */`; every other comment is still stripped
         pytest.param("/*! (c) 2026 Me */\nvar x = 1", "/*! (c) 2026 Me */var x=1", id="bang-kept"),

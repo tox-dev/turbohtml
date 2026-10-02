@@ -1,0 +1,2 @@
+:func:`~turbohtml.clean.minify_js` keeps the parentheses V8 needs around a destructuring assignment passed as an
+argument.

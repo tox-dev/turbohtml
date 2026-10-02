@@ -19,6 +19,16 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifndef TH_NOINLINE
+#if defined(_MSC_VER)
+#define TH_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__)
+#define TH_NOINLINE __attribute__((noinline))
+#else
+#define TH_NOINLINE
+#endif
+#endif
+
 typedef struct {
     const jm_program *prog;
     Py_UCS4 *data;
@@ -439,11 +449,38 @@ static void print_text(St *st, const jm_node *node) {
     put_run(st, node->str, node->str_len);
 }
 
+/* V8 rejects a destructuring assignment argument, plain or spread, after an argument holding an object or array
+   literal that is no valid pattern: its argument list accumulates pattern errors across arguments, so `f({a:0},{}=0)`
+   throws "Invalid destructuring assignment target". ECMA-262 allows the bare form and V8 accepts the parenthesized
+   one, so such an argument after the first keeps its parens. */
+static int needs_v8_parens(const jm_program *prog, int32_t index) {
+    const jm_node *node = &prog->nodes[index];
+    if (node->kind == JN_SPREAD) {
+        node = &prog->nodes[node->a];
+    }
+    return node->kind == JN_ASSIGN && (prog->nodes[node->a].kind == JN_OBJECT || prog->nodes[node->a].kind == JN_ARRAY);
+}
+
+/* Out of line so print_args, which runs for every call, keeps the frame and code it had before this rare case. */
+static TH_NOINLINE void print_v8_parenthesized(St *st, int32_t index) {
+    if (st->prog->nodes[index].kind == JN_SPREAD) {
+        put_ascii(st, "...");
+        index = st->prog->nodes[index].a;
+    }
+    put_char(st, '(');
+    print_expr(st, index);
+    put_char(st, ')');
+}
+
 static void print_args(St *st, int32_t first) {
     put_char(st, '(');
     for (int32_t index = first; index >= 0; index = st->prog->nodes[index].next) {
         if (index != first) {
             put_char(st, ',');
+            if (needs_v8_parens(st->prog, index)) {
+                print_v8_parenthesized(st, index);
+                continue;
+            }
         }
         print_sub(st, index, 2); /* each argument is an AssignmentExpression */
     }
