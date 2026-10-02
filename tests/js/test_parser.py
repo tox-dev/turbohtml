@@ -115,7 +115,6 @@ def minify(source: str) -> str:
         pytest.param("switch(x){case 1:a()", id="unterminated-switch"),
         pytest.param("break\\x", id="break-lexer-error"),
         pytest.param("function*g(){yield 1*}", id="yield-operand-error"),
-        pytest.param("x=async function(){}", id="async-function-expression-unsupported"),
         pytest.param("function*g(){yield", id="yield-at-eof"),
         # a trailing comma then EOF, so the comma-separated loop exits on its end-of-input guard
         pytest.param("x={a:1,", id="object-trailing-comma-eof"),
@@ -327,3 +326,18 @@ def test_constructs_minify_to(source: str, expected: str) -> None:
 )
 def test_backtrack_parses(source: str, expected: str) -> None:
     assert minify(source) == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("(async function f(a){if(a)console.log(typeof f)}(1))", id="named"),
+        pytest.param("x=async function(a){}", id="anonymous-with-params"),
+        pytest.param("x=async function*(){}", id="generator"),
+        pytest.param("x=async function*g(){yield g}", id="named-generator"),
+        pytest.param("x=[async function f(){},async function*g(){}]", id="in-array"),
+        pytest.param("async function*g(){}", id="generator-declaration"),
+    ],
+)
+def test_async_function_expression_keeps_name_and_star(source: str) -> None:
+    assert minify(source) == source

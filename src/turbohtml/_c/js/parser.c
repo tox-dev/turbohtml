@@ -559,11 +559,10 @@ static int32_t parse_stmt_body(P *parser) {
     if (kw(parser, "async")) { /* an async function declaration, distinct from an async expression */
         jm_mark save = mark(parser);
         advance(parser);
-        int is_decl = kw(parser, "function") && !parser->lx.newline_before;
-        reset(parser, save);
-        if (is_decl) {
+        if (kw(parser, "function") && !parser->lx.newline_before) {
             return parse_function(parser, 0, 1);
         }
+        reset(parser, save);
     }
     if (kw(parser, "class")) {
         return parse_class(parser, 0);
@@ -1393,9 +1392,8 @@ static int32_t parse_function(P *parser, int is_expr, int is_async) {
     }
     if (is_async) {
         parser->prog->nodes[node].flags |= JN_F_ASYNC;
-        advance(parser); /* async (the function keyword is current) */
     }
-    advance(parser); /* function */
+    advance(parser); /* function: an async caller has already consumed `async` */
     if (eat(parser, JT_STAR)) {
         parser->prog->nodes[node].flags |= JN_F_GENERATOR;
     }

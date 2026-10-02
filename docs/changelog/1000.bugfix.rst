@@ -1,0 +1,2 @@
+:func:`~turbohtml.clean.minify_js` keeps the name and ``*`` of an async function expression and accepts an unnamed one
+with parameters.
