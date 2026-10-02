@@ -20,6 +20,7 @@ import argparse
 import contextlib
 import dataclasses
 import hashlib
+import os
 import random
 import re
 import sys
@@ -211,13 +212,16 @@ def _past_depth_cap(root: turbohtml.Node) -> bool:
 
 def _finding(target: str, origin: str, kind: str, data: bytes, crash_dir: Path) -> str:
     """
-    Keep the input for the encrypted upload and log it by hash: a public CI log must never carry crasher bytes.
+    Keep the input for the encrypted upload and log it by hash.
 
-    It logs at once, not at exit, so a later sanitizer abort in the same run cannot swallow the line.
+    A public CI log must carry neither the crasher bytes nor the origin (seed and mutation index) that regenerates
+    them, so the origin goes to the encrypted ``.replay`` file. It logs at once, not at exit, so a later sanitizer abort
+    in the same run cannot swallow the line.
     """
     digest = hashlib.sha256(data).hexdigest()
     (crash_dir / f"crash-{digest}").write_bytes(data)
-    finding = f"[{target}] {origin}: {kind} sha256={digest} bytes={len(data)}"
+    (crash_dir / f"crash-{digest}.replay").write_text(f"{origin} PYTHONMALLOC={os.environ.get('PYTHONMALLOC')}\n")
+    finding = f"[{target}] {kind} sha256={digest} bytes={len(data)}"
     print(f"FINDING {finding}", file=sys.stderr, flush=True)
     return finding
 

@@ -140,12 +140,14 @@ per-target budget; it is the continuous hunt, run daily and on demand, not a mer
 
 The in-process driver runs each input under pymalloc and again under ``PYTHONMALLOC=malloc``, because AddressSanitizer
 cannot see an over-read that stays inside a pymalloc pool. The deep run splits ``--minutes`` between the two passes.
-Both environments pin ``PYTHONHASHSEED=0``. ``--rng-seed`` (default 0) fixes the mutation sequence, and the scheduled
-run passes its run number, so each run explores new mutations and the seed in its log replays it.
+Both environments pin ``PYTHONHASHSEED=0``. ``--rng-seed`` (default ``$FUZZ_RNG_SEED``, else 0) fixes the mutation
+sequence. The scheduled run draws a random seed and keeps it out of the log, since the seed regenerates every crasher.
 
-``fuzz.py`` stores a crashing input as ``.fuzz-crashes/crash-<sha256>`` and logs only its SHA-256, length, harness and
-seeds, because anyone can read the CI logs of a public repository. Once the fix lands, copy the input into
-``tests/fuzz_regressions/`` with the issue number in its name, and every later run replays it first.
+``fuzz.py`` stores a crashing input as ``.fuzz-crashes/crash-<sha256>``, with its seed and mutation index in
+``crash-<sha256>.replay``, and logs only the SHA-256, length and harness, because anyone can read the CI logs of a
+public repository. A deep run writes sanitizer reports to ``crash-sanitizer.<pid>`` beside them for the same reason.
+Once the fix lands, copy the input into ``tests/fuzz_regressions/`` with the issue number in its name, and every later
+run replays it first.
 
 The scheduled run uploads crashers only when the ``FUZZ_AGE_RECIPIENT`` repository variable holds an `age
 <https://github.com/FiloSottile/age>`_ public key, and it encrypts each one to that key first. Without the variable it

@@ -50,7 +50,12 @@ def main() -> int:
     parser.add_argument(
         "--minutes", type=float, default=1.0, help="deep-mode budget per in-process target, split across the allocators"
     )
-    parser.add_argument("--rng-seed", type=int, default=0, help="seed of the deep-mode mutation sequence")
+    parser.add_argument(
+        "--rng-seed",
+        type=int,
+        default=int(os.environ.get("FUZZ_RNG_SEED", "0")),
+        help="seed of the deep-mode mutation sequence (default: $FUZZ_RNG_SEED, else 0)",
+    )
     parser.add_argument("--crash-dir", type=Path, default=_ROOT / ".fuzz-crashes", help="where crashing inputs land")
     parser.add_argument("--build", action="store_true", help="build the ASan extension here (tox builds it otherwise)")
     parser.add_argument("--extra-corpus", type=Path, default=None, help="a second seed directory (vendored test data)")
@@ -59,7 +64,8 @@ def main() -> int:
 
     if args.build:
         _build_extension(Path(tempfile.mkdtemp(prefix="th-fuzz-build-")))
-    if (code := _run_standalone(args.mode, args.extra_corpus)) != 0:
+    args.crash_dir.mkdir(parents=True, exist_ok=True)
+    if (code := _run_standalone(args.mode, args.extra_corpus, args.crash_dir)) != 0:
         return code
     return 0 if args.skip_inprocess else _run_inprocess(args.mode, args.minutes, args.rng_seed, args.crash_dir)
 
@@ -83,7 +89,7 @@ def _build_extension(build_dir: Path) -> None:
     subprocess.run(cmd, check=True, env={**os.environ, "CC": _CC})
 
 
-def _run_standalone(mode: str, extra: Path | None) -> int:
+def _run_standalone(mode: str, extra: Path | None, crash_dir: Path) -> int:
     work = Path(tempfile.mkdtemp(prefix="th-fuzz-"))
     idna = work / "idna_harness"
     js = work / "js_harness"
@@ -102,6 +108,8 @@ def _run_standalone(mode: str, extra: Path | None) -> int:
         "ASAN_OPTIONS": f"detect_leaks={1 if platform.system() == 'Linux' else 0}:halt_on_error=1",
         "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1",
     }
+    if mode == "deep":
+        env = _private_reports(env, crash_dir)
     for binary, seeds in ((idna, _seed_files("idna", extra)), (phone, _seed_files("phone", extra)), (js, js_seeds)):
         if (result := subprocess.run([str(binary), *seeds], env=env, check=False)).returncode != 0:
             print(f"SANITIZER ABORT in {binary.name} (exit {result.returncode})", file=sys.stderr)
@@ -152,11 +160,12 @@ def _files(directory: Path) -> list[str]:
 
 def _run_inprocess(mode: str, minutes: float, rng_seed: int, crash_dir: Path) -> int:
     env = {"PYTHONHASHSEED": "0", **_asan_preload()}
-    crash_dir.mkdir(parents=True, exist_ok=True)
+    if mode == "deep":
+        env = _private_reports(env, crash_dir)
     status = 0
     for allocator in _ALLOCATORS:
         repro_dir = Path(tempfile.mkdtemp(prefix="th-fuzz-repro-"))
-        context = f"PYTHONMALLOC={allocator} PYTHONHASHSEED={env['PYTHONHASHSEED']} rng-seed={rng_seed}"
+        context = f"PYTHONMALLOC={allocator} PYTHONHASHSEED={env['PYTHONHASHSEED']}"
         print(f"in-process pass: {context}, crashers kept in {crash_dir}", flush=True)
         result = subprocess.run(
             [
@@ -186,6 +195,7 @@ def _run_inprocess(mode: str, minutes: float, rng_seed: int, crash_dir: Path) ->
                 data = repro.read_bytes()
                 digest = hashlib.sha256(data).hexdigest()
                 (crash_dir / f"crash-{digest}").write_bytes(data)
+                (crash_dir / f"crash-{digest}.replay").write_text(f"{context} rng-seed={rng_seed}\n")
                 print(f"crashing input: [{repro.name}] sha256={digest} bytes={len(data)}", file=sys.stderr)
             return result.returncode
         status |= result.returncode
@@ -205,6 +215,13 @@ def _asan_preload() -> dict[str, str]:
         "ASAN_OPTIONS": "detect_leaks=0:halt_on_error=1:abort_on_error=1",
         "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=1",
     }
+
+
+def _private_reports(env: dict[str, str], crash_dir: Path) -> dict[str, str]:
+    # a sanitizer report names the faulting function and line, which discloses an unfixed bug in a public CI log, so a
+    # deep run writes reports beside the crashers, where the workflow encrypts them
+    log = f":log_path={crash_dir / 'crash-sanitizer'}"
+    return {**env, "ASAN_OPTIONS": env["ASAN_OPTIONS"] + log, "UBSAN_OPTIONS": env["UBSAN_OPTIONS"] + log}
 
 
 if __name__ == "__main__":

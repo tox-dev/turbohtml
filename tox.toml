@@ -379,6 +379,7 @@ commands = [
 description = "coverage-guided/mutation deep fuzz of every harness under ASan/UBSan (scheduled/manual, not a PR gate)"
 deps = []  # override the base env's gcovr; this env instruments for ASan, not coverage
 dependency_groups = [ "test" ]
+pass_env = [ "FUZZ_RNG_SEED" ]
 # tox draws a fresh hash seed per run unless set_env pins it, and the XML duplicate-attribute hash salts from it, so a
 # find on a hash-dependent path would not replay; fuzz.py logs the seed at the start of each pass
 set_env = { CC = "clang", PYTHONHASHSEED = "0" }

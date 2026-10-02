@@ -49,12 +49,15 @@ jobs:
           enable-cache: false
       - name: ✅ Run fuzz (deep)
         # the Monday 04:00 slot runs each target longer; the daily 06:00 slot and manual dispatch use the shorter budget
-        run: uvx --with tox-uv tox run -e fuzz -- --minutes "${MINUTES}" --rng-seed "${RNG_SEED}"
+        # The seed is secret: with the public code it regenerates every crasher, so it stays out of the command line
+        # tox echoes and reaches fuzz.py only through the environment and the encrypted .replay files.
+        run: |
+          FUZZ_RNG_SEED="$(python3 -c 'import secrets; print(secrets.randbits(32))')"
+          export FUZZ_RNG_SEED
+          uvx --with tox-uv tox run -e fuzz -- --minutes "${MINUTES}"
         env:
           UV_PYTHON_PREFERENCE: only-managed
           MINUTES: ${{ github.event.schedule == '0 4 * * 1' && '20' || '8' }}
-          # a fresh mutation sequence per run; fuzz.py logs the seed, so passing it to --rng-seed replays the run
-          RNG_SEED: ${{ github.run_number }}
       # A crasher of an unfixed bug is an undisclosed vulnerability, and artifacts on a public repository are readable
       # by anyone, so crashers leave the runner only encrypted to the maintainers' age key; without the key nothing
       # leaves.
