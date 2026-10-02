@@ -1024,6 +1024,41 @@ def test_non_int_baseline_raises_type_error() -> None:
         minify_css("a{}", CSSMinify(baseline="newest"))  # ty: ignore[invalid-argument-type]
 
 
+_DIMENSION_UNIT: Final[list[ParameterSet]] = [
+    pytest.param("a{e:1px\u00e9}", "a{e:1px\u00e9}", id="non-ascii"),
+    pytest.param("a{e:1\u00e9}", "a{e:1\u00e9}", id="non-ascii-first"),
+    pytest.param("a{e:1p\\78}", "a{e:1p\\78}", id="escape"),
+    pytest.param("a{e:1x2}", "a{e:1x2}", id="digit"),
+    pytest.param("a{e:1_x}", "a{e:1_x}", id="underscore"),
+    pytest.param("a{e:1-x}", "a{e:1-x}", id="hyphen"),
+    pytest.param("a{e:1--x}", "a{e:1--x}", id="two-hyphens"),
+    pytest.param("a{e:1-\\78}", "a{e:1-\\78}", id="hyphen-escape"),
+    pytest.param("a{e:1px-2px}", "a{e:1px-2px}", id="hyphen-dimension"),
+    pytest.param("a{e:1px\\", "a{e:1px\ufffd}", id="backslash-at-eof"),
+    pytest.param("a{e:1\\", "a{e:1\ufffd}", id="unit-backslash-at-eof"),
+    pytest.param("a{e:1-1}", "a{e:1 -1}", id="hyphen-digit"),
+    pytest.param("a{e:1-}", "a{e:1 -}", id="hyphen-delimiter"),
+    pytest.param("a{e:1-", "a{e:1 -}", id="hyphen-at-eof"),
+    pytest.param("a{e:1\\\n}", "a{e:1 \\\n}", id="escaped-line-feed"),
+    pytest.param("a{e:1\\\r}", "a{e:1 \\\r}", id="escaped-carriage-return"),
+    pytest.param("a{e:1\\\f}", "a{e:1 \\\f}", id="escaped-form-feed"),
+    pytest.param("a{e:f(1px+1px)}", "a{e:f(1px 1px)}", id="signed-dimension-after-dimension"),
+    pytest.param("a{e:f(1+1)}", "a{e:f(1 1)}", id="signed-number-after-number"),
+    pytest.param("a{e:f(+1)}", "a{e:f(1)}", id="signed-number-first"),
+    pytest.param("a{e:f(1,+1)}", "a{e:f(1,1)}", id="signed-number-after-comma"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _DIMENSION_UNIT)
+def test_minify_css_dimension_unit(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _DIMENSION_UNIT)
+def test_minify_css_dimension_unit_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
 def test_lone_surrogate_raises_encode_error() -> None:
     # a lone surrogate has no UTF-8 form, so the engine cannot take its byte view
     with pytest.raises(UnicodeEncodeError):

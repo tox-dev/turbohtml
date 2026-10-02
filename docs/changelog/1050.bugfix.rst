@@ -1,0 +1,2 @@
+The CSS minifier no longer splits a dimension whose unit holds a digit, ``-``, ``_``, an escape or a non-ASCII
+character, such as ``1pxé`` or ``1p\78``.

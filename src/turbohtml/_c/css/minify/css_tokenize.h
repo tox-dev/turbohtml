@@ -384,6 +384,42 @@ static Py_ssize_t css_scan_number(const css_char *text, Py_ssize_t pos, Py_ssize
     return scan;
 }
 
+/* Whether source[pos..], a byte the caller has read, starts an ident sequence (CSS Syntax 3 §4.3.9): a letter, `_`,
+   `-`, non-ASCII byte or valid escape (a `\` before anything but a newline or the end), optionally after one `-`. */
+static inline int css_starts_ident(const css_char *source, Py_ssize_t pos, Py_ssize_t length) {
+    pos += source[pos] == '-';
+    if (pos >= length || !css_is_ident(source[pos]) || css_is_digit(source[pos])) {
+        return 0;
+    }
+    if (source[pos] != '\\') {
+        return 1;
+    }
+    return pos + 1 < length && source[pos + 1] != '\n' && source[pos + 1] != '\r' && source[pos + 1] != '\f';
+}
+
+/* The end of the ident sequence at scan (CSS Syntax 3 §4.3.12): the plain run, then a `\` escape (two bytes) or a
+   non-ASCII byte, repeated. */
+static inline Py_ssize_t css_scan_ident(const css_char *source, Py_ssize_t scan, Py_ssize_t length) {
+    for (;;) {
+        scan += css_ident_plain_run(source + scan, length - scan);
+        if (scan >= length || !css_is_ident(source[scan])) {
+            return scan;
+        }
+        scan += (source[scan] == '\\' && scan + 1 < length) ? 2 : 1;
+    }
+}
+
+/* The end of a unit whose ASCII letters run from after_number to scan, where an ident code point stops them: the rest
+   of the ident sequence, if the letters began one or the unit starts one here. Out of line, which keeps it off the
+   tokenizer's loop. */
+CSS_NOINLINE static Py_ssize_t css_scan_unit(const css_char *source, Py_ssize_t after_number, Py_ssize_t scan,
+                                             Py_ssize_t length) {
+    if (scan > after_number || css_starts_ident(source, scan, length)) {
+        return css_scan_ident(source, scan, length);
+    }
+    return scan;
+}
+
 /* Tokenize the whole source into vec; tokens point into source (zero-copy). */
 static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *vec) {
     Py_ssize_t pos = 0;
@@ -472,9 +508,18 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
             if (unit_end < length && source[unit_end] == '%') {
                 unit_end++;
             } else {
-                while (unit_end < length && ((source[unit_end] >= 'a' && source[unit_end] <= 'z') ||
-                                             (source[unit_end] >= 'A' && source[unit_end] <= 'Z'))) {
-                    unit_end++;
+                /* ASCII letters make up nearly every unit, so they go first; any other ident code point after them, or
+                   a unit that starts another way, takes the full ident scan */
+                while (unit_end < length) {
+                    css_char unit_char = source[unit_end];
+                    if ((css_char)((unit_char | 0x20) - 'a') < 26) {
+                        unit_end++;
+                        continue;
+                    }
+                    if (css_is_ident(unit_char)) {
+                        unit_end = css_scan_unit(source, after_number, unit_end, length);
+                    }
+                    break;
                 }
             }
             token.kind = CSS_NUM;
@@ -505,15 +550,7 @@ static void css_tokenize(const css_char *source, Py_ssize_t length, token_vec *v
             token_vec_push(vec, token);
             pos = scan;
         } else if (css_is_ident(character)) {
-            Py_ssize_t scan = pos;
-            for (;;) {
-                scan += css_ident_plain_run(source + scan, length - scan);
-                if (scan >= length || !css_is_ident(source[scan])) {
-                    break;
-                }
-                /* a non-plain ident byte: a '\' escape advances two, a non-ASCII continuation one */
-                scan += (source[scan] == '\\' && scan + 1 < length) ? 2 : 1;
-            }
+            Py_ssize_t scan = css_scan_ident(source, pos, length);
             int is_url = scan - pos == 3 && css_lower(source[pos]) == 'u' && css_lower(source[pos + 1]) == 'r' &&
                          css_lower(source[pos + 2]) == 'l' && scan < length && source[scan] == '(';
             if (is_url) {
