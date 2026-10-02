@@ -1,0 +1,2 @@
+Write the text and CDATA children of ``<script>``, ``<style>`` and the other raw-text elements unescaped in
+``inner_html`` and ``serialize(inner=True)``.

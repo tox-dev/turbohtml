@@ -223,6 +223,10 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
                 return NULL;
             }
             ser_inject_head_meta(out, tree, node, opts);
+            if (is_rawtext_element(node, tree->scripting)) {
+                ser_put_rawtext(out, tree, node, opts);
+                return NULL;
+            }
         }
         return node->first_child;
     }
@@ -273,10 +277,7 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         /* a CDATA section is a Text node, so its escaped text is the one HTML form that holds a ">" */
         TH_FALLTHROUGH;
     case TH_NODE_TEXT:
-        if (opts->inner && !opts->xml && root->type == TH_NODE_ELEMENT && is_rawtext_element(root, tree->scripting) &&
-            node->parent == root) {
-            sbuf_put_ucs4(out, need_text(tree, node), node->text_len);
-        } else if (opts->xml) {
+        if (opts->xml) {
             sbuf_put_xml_text(out, need_text(tree, node), node->text_len, 0);
         } else {
             sbuf_put_text(out, need_text(tree, node), node->text_len, 0, opts->formatter);
@@ -854,8 +855,13 @@ Py_UCS4 *th_node_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
 
 Py_UCS4 *th_node_inner_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
-    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        serialize_compact(&out, tree, child, &ser_default_opts);
+    /* a clonable shadow root sets the bit that marks a raw-text element */
+    if (node->type == TH_NODE_ELEMENT && is_rawtext_element(node, tree->scripting)) {
+        ser_put_rawtext(&out, tree, node, &ser_default_opts);
+    } else {
+        for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+            serialize_compact(&out, tree, child, &ser_default_opts);
+        }
     }
     return sbuf_finish(&out, out_len);
 }
