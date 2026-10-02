@@ -349,6 +349,15 @@ static inline void jm_node_replace(jm_program *prog, int32_t dst, int32_t src) {
     prog->nodes[dst].flags = (uint16_t)((prog->nodes[dst].flags & ~JN_F_VALUE) | value);
 }
 
+/* Turn node idx into an empty statement in place, keeping its sibling link. Analysis treats JN_EMPTY as a leaf, so
+   children left attached would keep symbol ids from an earlier pass that a later pass indexes its tables with. */
+static inline void jm_node_empty(jm_program *prog, int32_t idx) {
+    jm_node *node = &prog->nodes[idx];
+    node->kind = JN_EMPTY;
+    node->sym = -1;
+    node->a = node->b = node->c = node->d = -1;
+}
+
 /* Copy len code points into a program-owned buffer (freed with the program) and return it, or NULL
    on allocation failure. Used by the fold pass for a literal it synthesizes. */
 const Py_UCS4 *jm_program_own(jm_program *prog, const Py_UCS4 *buf, Py_ssize_t len);

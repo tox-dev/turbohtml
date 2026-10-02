@@ -1061,8 +1061,9 @@ static void collapse_chain(jm_program *prog, int32_t first, int *changed) {
         if (prog->nodes[node].kind == JN_EXPR_STMT) {
             int32_t init = dead_store_value(prog, prog->nodes[node].a);
             if (init >= 0) {
-                prog->nodes[node].kind = is_pure_value(prog, init) ? JN_EMPTY : prog->nodes[node].kind;
-                if (prog->nodes[node].kind == JN_EXPR_STMT) {
+                if (is_pure_value(prog, init)) {
+                    jm_node_empty(prog, node);
+                } else {
                     prog->nodes[node].a = init;
                 }
                 *changed = 1;
@@ -1221,7 +1222,7 @@ static int drop_unused(jm_program *prog, int32_t global) {
         }
         int32_t stmt = prog->syms[sym].decl_node;
         if (prog->syms[sym].decl == 4) { /* an unused function declaration: drop the whole statement */
-            prog->nodes[stmt].kind = JN_EMPTY;
+            jm_node_empty(prog, stmt);
             prog->syms[sym].decl_node = -2;
             changed = 1;
             continue;
@@ -1360,7 +1361,7 @@ static int inline_single_use(jm_program *prog, int32_t global) {
             prog->nodes[ref].flags |= JN_F_EXPR;
             prog->nodes[ref].str = NULL;
             prog->nodes[ref].str_len = 0;
-            prog->nodes[decl].kind = JN_EMPTY;
+            jm_node_empty(prog, decl);
             prog->syms[sym].decl_node = -2;
             changed = 1;
             continue;

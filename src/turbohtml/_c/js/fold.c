@@ -888,7 +888,7 @@ static void merge_sequences(F *folder, int32_t first) {
             }
             seq_append(prog, seq, prog->nodes[next].a);
             prog->nodes[next].a = seq;
-            prog->nodes[idx].kind = JN_EMPTY; /* the next pass's drop_empties unlinks it */
+            jm_node_empty(prog, idx); /* the next pass's drop_empties unlinks it */
             folder->changed = 1;
             continue;
         }
@@ -906,7 +906,7 @@ static void merge_sequences(F *folder, int32_t first) {
                 seq_append(prog, seq, prog->nodes[next].a);
                 prog->nodes[next].a = seq;
             }
-            prog->nodes[idx].kind = JN_EMPTY; /* the next pass's drop_empties unlinks it */
+            jm_node_empty(prog, idx); /* the next pass's drop_empties unlinks it */
             folder->changed = 1;
             continue;
         }
@@ -1379,7 +1379,7 @@ static void walk(F *folder, int32_t idx) {
                             folder->prog->nodes[body].a = folder->prog->nodes[guard].next;
                         }
                         if (!body_is_block || folder->prog->nodes[body].a < 0) {
-                            folder->prog->nodes[body].kind = JN_EMPTY; /* prints as the bare `;` body */
+                            jm_node_empty(folder->prog, body); /* prints as the bare `;` body */
                         }
                         folder->changed = 1;
                     }
@@ -1496,7 +1496,7 @@ static void walk(F *folder, int32_t idx) {
         if (taken >= 0) {
             replace_with(folder, idx, taken);
         } else {
-            folder->prog->nodes[idx].kind = JN_EMPTY; /* if(false) with no else */
+            jm_node_empty(folder->prog, idx); /* if(false) with no else */
             folder->changed = 1;
         }
         return;

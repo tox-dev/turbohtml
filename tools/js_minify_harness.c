@@ -41,21 +41,26 @@ static Py_UCS4 *widen(const unsigned char *bytes, size_t len, Py_ssize_t *out_le
     return wide;
 }
 
-/* Run one input through the minifier twice (source, then its own output) and free
-   every buffer. A parse error is expected for unsupported constructs and leaks
-   nothing. Returns 1 if the source minified, 0 if it failed to parse. */
+/* Run one input through the minifier twice (source, then its own output) with folding on and
+   off, since mangling alone walks the tree a fold pass would have rewritten, and free every
+   buffer. A parse error is expected for unsupported constructs and leaks nothing. Returns 1 if
+   the source minified, 0 if it failed to parse. */
 static int run_once(const Py_UCS4 *src, Py_ssize_t len) {
-    char err[160];
-    Py_ssize_t out_len = 0;
-    Py_UCS4 *out = th_js_minify(src, len, 1, 1, 0, &out_len, err, sizeof(err));
-    if (out == NULL) {
-        return 0; /* parse error (err set) or OOM (err empty) — nothing allocated leaks */
+    int minified = 0;
+    for (int fold = 1; fold >= 0; fold--) {
+        char err[160];
+        Py_ssize_t out_len = 0;
+        Py_UCS4 *out = th_js_minify(src, len, fold, 1, 0, &out_len, err, sizeof(err));
+        if (out == NULL) {
+            continue; /* parse error (err set) or OOM (err empty) — nothing allocated leaks */
+        }
+        Py_ssize_t round_len = 0;
+        Py_UCS4 *round = th_js_minify(out, out_len, fold, 1, 0, &round_len, err, sizeof(err));
+        free(round); /* may be NULL; free(NULL) is a no-op */
+        free(out);
+        minified = 1;
     }
-    Py_ssize_t round_len = 0;
-    Py_UCS4 *round = th_js_minify(out, out_len, 1, 1, 0, &round_len, err, sizeof(err));
-    free(round); /* may be NULL; free(NULL) is a no-op */
-    free(out);
-    return 1;
+    return minified;
 }
 
 static int run_bytes(const unsigned char *bytes, size_t len) {
@@ -104,6 +109,7 @@ static void run_builtins(long *cases) {
         /* a function declaration sharing a parameter's or var's binding has no declarator to drop or inline */
         "function f(a){function a(){}}", "function f(a){function a(){}return a}",
         "function f(){var [a]=[];function a(){}return[a,a]}",
+        "function f(){const x=073\nfunction f(g){x}[x,x]}", /* a dropped function keeps no child to re-read */
     };
     for (size_t index = 0; index < sizeof(snippets) / sizeof(snippets[0]); index++) {
         const char *text = snippets[index];

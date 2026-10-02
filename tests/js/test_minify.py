@@ -132,6 +132,20 @@ def test_empty_member_name_does_not_over_read(source: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "options",
+    [pytest.param(JSMinify(fold=False), id="mangle-only"), pytest.param(JSMinify(), id="mangle-and-fold")],
+)
+def test_dropped_function_leaves_no_binding_behind(options: JSMinify) -> None:
+    source: Final = "function f(){const x=073\nfunction f(g){x}[x,x]}"
+    assert minify_js(source, options) == "function f(){[073,073]}"
+
+
+def test_dropped_function_in_inline_script_leaves_no_binding_behind() -> None:
+    markup: Final = "<script>function f(){const x=073\nfunction f(g){x}[x,x]}</script>"
+    assert clean.minify(markup, Minify(minify_js=JSMinify(fold=False))) == "<script>function f(){[073,073]}</script>"
+
+
+@pytest.mark.parametrize(
     ("body", "value"),
     [
         # ECMA-262 §12.3 LineContinuation: a backslash then a LineTerminatorSequence (LF, CR, or the CR-LF
