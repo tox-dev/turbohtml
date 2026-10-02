@@ -12,7 +12,7 @@
    stops; the caller raises. There is no silent recovery. */
 
 #include "dom/tree.h"
-#include "dom/tree_internal.h" /* arena, node_new, node_append, copy_input_span */
+#include "dom/tree_internal.h" /* arena, node_new, node_append */
 
 #include "core/vec.h"
 #include "tokenizer/xml_names.h"
@@ -31,12 +31,21 @@ static int is_xml_char(long ch) {
            (ch >= 0x10000 && ch <= 0x10FFFF);
 }
 
-/* One in-scope namespace prefix declared by an ancestor's xmlns:prefix attribute,
-   kept as arena-owned code points and popped when its declaring element closes. */
+/* One distinct prefix in the prefix table, named by the input span of the binding that first entered
+   it. `binding` is the innermost in-scope xml_nsdecl of it, or -1 once every declaring element has
+   closed, so a lookup costs one hash probe however many bindings are in scope. */
 typedef struct {
-    Py_UCS4 *prefix;
-    Py_ssize_t prefix_len;
-    Py_UCS4 *uri; /* the namespace name the prefix binds, for expanded-name comparison */
+    Py_ssize_t start, len;
+    Py_ssize_t binding;
+} xml_nsprefix;
+
+/* One in-scope namespace binding declared by an ancestor's xmlns:prefix attribute, popped when its
+   declaring element closes. `prefix` and `shadowed` are set only once the prefix table exists. */
+typedef struct {
+    Py_ssize_t start, len; /* the prefix's span in the input */
+    Py_ssize_t prefix;     /* index into the parser's prefixes */
+    Py_ssize_t shadowed;   /* the binding of the same prefix this one hides until it closes, or -1 */
+    Py_UCS4 *uri;          /* the namespace name the prefix binds, for expanded-name comparison */
     Py_ssize_t uri_len;
     Py_ssize_t depth;
 } xml_nsdecl;
@@ -45,18 +54,25 @@ typedef struct {
     Py_ssize_t start, end, colon, declaration;
 } xml_attr_span;
 
-/* One open-addressing slot for per-element duplicate-attribute detection. `gen` is the
-   generation it was last written in: a slot counts as live only while it equals the
-   parser's current generation, so a new element (or the switch from the raw-name to the
-   expanded-name keying) resets the whole table by bumping the generation rather than
-   clearing it, which keeps a tiny element after a huge one O(1). `hash` lets a grow
-   re-slot entries without re-reading their key; `index` points back into the array the
-   current keying scans (element attributes, then attribute spans). */
+/* One open-addressing slot of the per-element duplicate-attribute table or the prefix table. `gen`
+   is the generation it was last written in: a slot counts as live only while it equals the table's
+   current generation, so a new element (or the switch from the raw-name to the expanded-name
+   keying) resets the duplicate table by bumping the generation rather than clearing it, which keeps
+   a tiny element after a huge one O(1). The prefix table never resets and stays at PREFIX_SLOT_LIVE.
+   `hash` lets a grow re-slot entries without re-reading their key; `index` points back into the
+   array the table keys (element attributes, attribute spans, or prefixes). */
 typedef struct {
     uint64_t gen;
     uint64_t hash;
     Py_ssize_t index;
-} xml_dupslot;
+} xml_hashslot;
+
+#define PREFIX_SLOT_LIVE 1
+
+/* Below this many in-scope bindings a lookup scans them, which costs less than hashing the prefix for
+   the handful most documents declare; the bindings move into the prefix table when the scope reaches
+   it, the cutoff .NET's XmlNamespaceManager uses (MinDeclsCountForHashtable). */
+#define PREFIX_TABLE_MIN_BINDINGS 16
 
 typedef struct {
     th_tree *tree;
@@ -69,6 +85,10 @@ typedef struct {
     Py_ssize_t stack_len, stack_cap;
     xml_nsdecl *ns; /* in-scope prefix declarations */
     Py_ssize_t ns_len, ns_cap;
+    xml_nsprefix *prefixes; /* every distinct declared prefix */
+    Py_ssize_t prefixes_len, prefixes_cap;
+    xml_hashslot *prefix_slots; /* prefix name hash to its index in prefixes */
+    Py_ssize_t prefix_slots_cap;
     xml_attr_span *attr_spans;
     Py_ssize_t attr_spans_len, attr_spans_cap;
     Py_UCS4 *scratch; /* reusable buffer for entity-expanded text/attribute runs */
@@ -77,14 +97,14 @@ typedef struct {
     Py_ssize_t names_cap;
     char *u8; /* reusable buffer holding an attribute name as UTF-8 */
     Py_ssize_t u8_cap;
-    th_node *root;    /* the single root element once opened */
-    int root_closed;  /* the root element has been closed */
-    int have_doctype; /* a doctype has been consumed */
-    int error;        /* a well-formedness error has been recorded */
-    xml_dupslot *dup; /* per-element duplicate-attribute hash table (open addressing) */
+    th_node *root;     /* the single root element once opened */
+    int root_closed;   /* the root element has been closed */
+    int have_doctype;  /* a doctype has been consumed */
+    int error;         /* a well-formedness error has been recorded */
+    xml_hashslot *dup; /* per-element duplicate-attribute hash table (open addressing) */
     Py_ssize_t dup_cap, dup_count;
-    uint64_t dup_gen;  /* bumped per element and per keying to reset `dup` in O(1) */
-    uint64_t dup_seed; /* per-parse salt so chosen attribute names cannot flood one bucket */
+    uint64_t dup_gen;   /* bumped per element and per keying to reset `dup` in O(1) */
+    uint64_t hash_seed; /* per-parse salt so chosen attribute or prefix names cannot flood one bucket */
 } xml_parser;
 
 static Py_UCS4 cp(const xml_parser *parser, Py_ssize_t index) {
@@ -376,7 +396,6 @@ static int push_open(xml_parser *parser, th_node *element) {
     return 0;
 }
 
-/* Declare a namespace prefix (arena-owned copy) in scope at `depth`. */
 /* Copy a code-point run (an entity-normalized attribute value) into the arena. */
 static Py_UCS4 *arena_copy(th_tree *tree, const Py_UCS4 *src, Py_ssize_t len) {
     Py_UCS4 *out = arena_alloc(tree, len * (Py_ssize_t)sizeof(Py_UCS4));
@@ -387,9 +406,114 @@ static Py_UCS4 *arena_copy(th_tree *tree, const Py_UCS4 *src, Py_ssize_t len) {
     return out;
 }
 
-/* Declare a namespace prefix bound to `uri` (arena-owned copies) in scope at `depth`. */
-static int declare_prefix(xml_parser *parser, Py_ssize_t start, Py_ssize_t len, const Py_UCS4 *uri, Py_ssize_t uri_len,
-                          Py_ssize_t depth) {
+#define FNV_PRIME UINT64_C(1099511628211)
+#define FNV_BASIS UINT64_C(14695981039346656037)
+
+/* splitmix64 finalizer: a full-avalanche bijection so the low slot bits depend on every
+   input bit. Without it, sequential interned atoms keep a near-permutation low-bit pattern
+   that avoids slot collisions below a full table, which both hides the probe path and leaves
+   the common case brittle against adversarial clustering. */
+static uint64_t hash_mix(uint64_t hash) {
+    hash = (hash ^ (hash >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
+    hash = (hash ^ (hash >> 27)) * UINT64_C(0x94D049BB133111EB);
+    return hash ^ (hash >> 31);
+}
+
+/* Double the table, re-slotting the entries live at `gen` by their stored hash. Callers grow once
+   one more entry would reach a load factor of 1/2, which keeps probing amortized O(1), as expat
+   sizes an open-addressing table per element (xmlparse.c storeAtts) and libxml2 does in
+   xmlAttrHashInsert and xmlParserNsPush. */
+static int slots_grow(xml_parser *parser, xml_hashslot **slots, Py_ssize_t *slots_cap, uint64_t gen) {
+    Py_ssize_t cap = *slots_cap ? *slots_cap * 2 : 64;
+    xml_hashslot *grown = PyMem_Calloc((size_t)cap, sizeof(xml_hashslot));
+    if (grown == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        parser->tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < *slots_cap; index++) {
+        if ((*slots)[index].gen != gen) {
+            continue;
+        }
+        Py_ssize_t slot = (Py_ssize_t)((*slots)[index].hash & (uint64_t)(cap - 1));
+        while (grown[slot].gen == gen) {
+            slot = (slot + 1) & (cap - 1);
+        }
+        grown[slot] = (*slots)[index];
+    }
+    PyMem_Free(*slots);
+    *slots = grown;
+    *slots_cap = cap;
+    return 0;
+}
+
+/* Whether the input runs [a, a+len) and [b, b+len) are equal code point for code point. */
+static int local_names_equal(const xml_parser *parser, Py_ssize_t a, Py_ssize_t b, Py_ssize_t len) {
+    for (Py_ssize_t offset = 0; offset < len; offset++) {
+        if (cp(parser, a + offset) != cp(parser, b + offset)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static uint64_t prefix_hash(const xml_parser *parser, Py_ssize_t start, Py_ssize_t len) {
+    uint64_t hash = parser->hash_seed ^ FNV_BASIS;
+    for (Py_ssize_t offset = 0; offset < len; offset++) {
+        hash = (hash ^ cp(parser, start + offset)) * FNV_PRIME;
+    }
+    return hash_mix(hash);
+}
+
+/* The prefix-table slot holding prefix [start, start+len), or the empty slot it would take. */
+static Py_ssize_t prefix_slot(const xml_parser *parser, uint64_t hash, Py_ssize_t start, Py_ssize_t len) {
+    Py_ssize_t slot = (Py_ssize_t)(hash & (uint64_t)(parser->prefix_slots_cap - 1));
+    while (parser->prefix_slots[slot].gen == PREFIX_SLOT_LIVE) {
+        const xml_nsprefix *known = &parser->prefixes[parser->prefix_slots[slot].index];
+        if (known->len == len && local_names_equal(parser, known->start, start, len)) {
+            return slot;
+        }
+        slot = (slot + 1) & (parser->prefix_slots_cap - 1);
+    }
+    return slot;
+}
+
+/* Enter binding `index` under its prefix's record, creating the record on first sight, so the record
+   names the innermost binding and the binding keeps the one it shadows. */
+static int index_binding(xml_parser *parser, Py_ssize_t index) {
+    xml_nsdecl *binding = &parser->ns[index];
+    if ((parser->prefixes_len + 1) * 2 > parser->prefix_slots_cap) {
+        int grown = slots_grow(parser, &parser->prefix_slots, &parser->prefix_slots_cap, PREFIX_SLOT_LIVE);
+        if (grown < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    uint64_t hash = prefix_hash(parser, binding->start, binding->len);
+    Py_ssize_t slot = prefix_slot(parser, hash, binding->start, binding->len);
+    if (parser->prefix_slots[slot].gen != PREFIX_SLOT_LIVE) {
+        if (parser->prefixes_len == parser->prefixes_cap) {
+            Py_ssize_t cap = parser->prefixes_cap ? parser->prefixes_cap * 2 : 8;
+            xml_nsprefix *grown = PyMem_Realloc(parser->prefixes, (size_t)cap * sizeof(xml_nsprefix));
+            if (grown == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                parser->tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+                return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            parser->prefixes = grown;
+            parser->prefixes_cap = cap;
+        }
+        parser->prefixes[parser->prefixes_len] = (xml_nsprefix){binding->start, binding->len, -1};
+        parser->prefix_slots[slot] = (xml_hashslot){PREFIX_SLOT_LIVE, hash, parser->prefixes_len++};
+    }
+    binding->prefix = parser->prefix_slots[slot].index;
+    binding->shadowed = parser->prefixes[binding->prefix].binding;
+    parser->prefixes[binding->prefix].binding = index;
+    return 0;
+}
+
+/* Bind the prefix [start, start+len) to `uri` (an arena-owned copy) in scope at `depth`, shadowing
+   any outer binding of it until the declaring element closes. Kept out of line so the per-element
+   start-tag path the parse loop inlines stays as small as it is without namespaces. */
+static TH_NOINLINE int declare_prefix(xml_parser *parser, Py_ssize_t start, Py_ssize_t len, const Py_UCS4 *uri,
+                                      Py_ssize_t uri_len, Py_ssize_t depth) {
     if (parser->ns_len == parser->ns_cap) {
         Py_ssize_t cap = parser->ns_cap ? parser->ns_cap * 2 : 8;
         xml_nsdecl *grown = PyMem_Realloc(parser->ns, (size_t)cap * sizeof(xml_nsdecl));
@@ -400,47 +524,55 @@ static int declare_prefix(xml_parser *parser, Py_ssize_t start, Py_ssize_t len, 
         parser->ns = grown;
         parser->ns_cap = cap;
     }
-    Py_UCS4 *owned = copy_input_span(parser->tree, start, len);
-    if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
     Py_UCS4 *owned_uri = arena_copy(parser->tree, uri, uri_len);
     if (owned_uri == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;           /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    parser->ns[parser->ns_len].prefix = owned;
-    parser->ns[parser->ns_len].prefix_len = len;
-    parser->ns[parser->ns_len].uri = owned_uri;
-    parser->ns[parser->ns_len].uri_len = uri_len;
-    parser->ns[parser->ns_len].depth = depth;
-    parser->ns_len++;
+    parser->ns[parser->ns_len++] = (xml_nsdecl){start, len, -1, -1, owned_uri, uri_len, depth};
+    if (parser->prefix_slots_cap == 0 && parser->ns_len < PREFIX_TABLE_MIN_BINDINGS) {
+        return 0;
+    }
+    /* the binding that reaches the cutoff enters every live one, outermost first, rebuilding each shadow chain */
+    for (Py_ssize_t index = parser->prefix_slots_cap == 0 ? 0 : parser->ns_len - 1; index < parser->ns_len; index++) {
+        if (index_binding(parser, index) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure only */
+            return -1;                          /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
     return 0;
 }
 
-static void pop_prefixes(xml_parser *parser, Py_ssize_t depth) {
+/* Pop the bindings declared at `depth` or deeper, restoring what each shadowed. Out of line, behind
+   pop_prefixes's inlined check, so every end tag of a document without bindings pays one comparison. */
+static TH_NOINLINE void unwind_prefixes(xml_parser *parser, Py_ssize_t depth) {
     while (parser->ns_len > 0 && parser->ns[parser->ns_len - 1].depth >= depth) {
-        parser->ns_len--;
+        const xml_nsdecl *closing = &parser->ns[--parser->ns_len];
+        if (parser->prefix_slots_cap != 0) {
+            parser->prefixes[closing->prefix].binding = closing->shadowed;
+        }
+    }
+}
+
+static void pop_prefixes(xml_parser *parser, Py_ssize_t depth) {
+    if (parser->ns_len > 0 && parser->ns[parser->ns_len - 1].depth >= depth) {
+        unwind_prefixes(parser, depth);
     }
 }
 
 /* The index of the innermost in-scope declaration of prefix [start, start+len), or -1. */
 static Py_ssize_t find_prefix(const xml_parser *parser, Py_ssize_t start, Py_ssize_t len) {
-    for (Py_ssize_t index = parser->ns_len - 1; index >= 0; index--) {
-        if (parser->ns[index].prefix_len != len) {
-            continue;
-        }
-        int same = 1;
-        for (Py_ssize_t offset = 0; offset < len; offset++) {
-            if (parser->ns[index].prefix[offset] != cp(parser, start + offset)) {
-                same = 0;
-                break;
+    if (parser->prefix_slots_cap == 0) {
+        for (Py_ssize_t index = parser->ns_len - 1; index >= 0; index--) {
+            if (parser->ns[index].len == len && local_names_equal(parser, parser->ns[index].start, start, len)) {
+                return index;
             }
         }
-        if (same) {
-            return index;
-        }
+        return -1;
     }
-    return -1;
+    Py_ssize_t slot = prefix_slot(parser, prefix_hash(parser, start, len), start, len);
+    if (parser->prefix_slots[slot].gen != PREFIX_SLOT_LIVE) {
+        return -1;
+    }
+    return parser->prefixes[parser->prefix_slots[slot].index].binding;
 }
 
 /* Whether the prefix range [start, end) is the reserved "xml" or an in-scope
@@ -1031,67 +1163,24 @@ static int consume_namespace_decl(xml_parser *parser, Py_ssize_t name_start, Py_
     return 0;
 }
 
-#define DUP_FNV_PRIME UINT64_C(1099511628211)
-#define DUP_FNV_BASIS UINT64_C(14695981039346656037)
-
-/* splitmix64 finalizer: a full-avalanche bijection so the low slot bits depend on every
-   input bit. Without it, sequential interned atoms keep a near-permutation low-bit pattern
-   that avoids slot collisions below a full table, which both hides the probe path and leaves
-   the common case brittle against adversarial clustering. */
-static uint64_t dup_mix(uint64_t hash) {
-    hash = (hash ^ (hash >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
-    hash = (hash ^ (hash >> 27)) * UINT64_C(0x94D049BB133111EB);
-    return hash ^ (hash >> 31);
-}
-
 /* Slot hash for the raw-name keying: fold the attribute's interned atom into the salt. */
 static uint64_t dup_hash_atom(uint64_t seed, uint32_t atom) {
-    return dup_mix(seed ^ DUP_FNV_BASIS ^ atom);
+    return hash_mix(seed ^ FNV_BASIS ^ atom);
 }
 
 /* Slot hash for the expanded-name keying: salt, then the namespace URI, a ':' separator
    so "ab"+"c" and "a"+"bc" differ, then the local name. */
 static uint64_t dup_hash_expanded(uint64_t seed, const Py_UCS4 *uri, Py_ssize_t uri_len, const xml_parser *parser,
                                   Py_ssize_t local_start, Py_ssize_t local_len) {
-    uint64_t hash = seed ^ DUP_FNV_BASIS;
+    uint64_t hash = seed ^ FNV_BASIS;
     for (Py_ssize_t offset = 0; offset < uri_len; offset++) {
-        hash = (hash ^ uri[offset]) * DUP_FNV_PRIME;
+        hash = (hash ^ uri[offset]) * FNV_PRIME;
     }
-    hash = (hash ^ ':') * DUP_FNV_PRIME;
+    hash = (hash ^ ':') * FNV_PRIME;
     for (Py_ssize_t offset = 0; offset < local_len; offset++) {
-        hash = (hash ^ cp(parser, local_start + offset)) * DUP_FNV_PRIME;
+        hash = (hash ^ cp(parser, local_start + offset)) * FNV_PRIME;
     }
-    return dup_mix(hash);
-}
-
-/* Ensure one free slot at a load factor below 1/2, growing (and re-slotting the live
-   entries by their stored hash) when full. Replaces the nested O(A^2) duplicate scans
-   with amortized O(1) probing, as expat sizes an open-addressing table per element
-   (xmlparse.c storeAtts) and libxml2 does in xmlAttrHashInsert. */
-static int dup_reserve(xml_parser *parser) {
-    if (parser->dup_cap != 0 && (parser->dup_count + 1) * 2 <= parser->dup_cap) {
-        return 0;
-    }
-    Py_ssize_t cap = parser->dup_cap ? parser->dup_cap * 2 : 64;
-    xml_dupslot *grown = PyMem_Calloc((size_t)cap, sizeof(xml_dupslot));
-    if (grown == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        parser->tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;                /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    for (Py_ssize_t index = 0; index < parser->dup_cap; index++) {
-        if (parser->dup[index].gen != parser->dup_gen) {
-            continue;
-        }
-        Py_ssize_t slot = (Py_ssize_t)(parser->dup[index].hash & (uint64_t)(cap - 1));
-        while (grown[slot].gen == parser->dup_gen) {
-            slot = (slot + 1) & (cap - 1);
-        }
-        grown[slot] = parser->dup[index];
-    }
-    PyMem_Free(parser->dup);
-    parser->dup = grown;
-    parser->dup_cap = cap;
-    return 0;
+    return hash_mix(hash);
 }
 
 /* Parse one attribute onto `element`, tracking any xmlns declaration at `depth`.
@@ -1197,11 +1286,14 @@ static int consume_attribute(xml_parser *parser, th_node *element, Py_ssize_t de
     }
     /* Reject a repeated raw name (XML 1.0 3.1 Unique Att Spec) by its interned atom; the
        append just assigned it. The discarded tree keeps the duplicate just stored. */
-    if (dup_reserve(parser) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+    if ((parser->dup_count + 1) * 2 > parser->dup_cap) {
+        int grown = slots_grow(parser, &parser->dup, &parser->dup_cap, parser->dup_gen);
+        if (grown < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
     }
     uint32_t atom = element->attrs[element->attr_count - 1].name_atom;
-    uint64_t hash = dup_hash_atom(parser->dup_seed, atom);
+    uint64_t hash = dup_hash_atom(parser->hash_seed, atom);
     Py_ssize_t slot = (Py_ssize_t)(hash & (uint64_t)(parser->dup_cap - 1));
     while (parser->dup[slot].gen == parser->dup_gen) {
         if (element->attrs[parser->dup[slot].index].name_atom == atom) {
@@ -1210,7 +1302,7 @@ static int consume_attribute(xml_parser *parser, th_node *element, Py_ssize_t de
         }
         slot = (slot + 1) & (parser->dup_cap - 1);
     }
-    parser->dup[slot] = (xml_dupslot){parser->dup_gen, hash, element->attr_count - 1};
+    parser->dup[slot] = (xml_hashslot){parser->dup_gen, hash, element->attr_count - 1};
     parser->dup_count++;
     if (parser->attr_spans_len == parser->attr_spans_cap) {
         Py_ssize_t cap = parser->attr_spans_cap ? parser->attr_spans_cap * 2 : 16;
@@ -1240,16 +1332,6 @@ static Py_ssize_t attr_ns_index(const xml_parser *parser, Py_ssize_t start, Py_s
         }
     }
     return -1;
-}
-
-/* Whether the local names [a, a+len) and [b, b+len) are equal code point for code point. */
-static int local_names_equal(const xml_parser *parser, Py_ssize_t a, Py_ssize_t b, Py_ssize_t len) {
-    for (Py_ssize_t offset = 0; offset < len; offset++) {
-        if (cp(parser, a + offset) != cp(parser, b + offset)) {
-            return 0;
-        }
-    }
-    return 1;
 }
 
 static int consume_start_tag(xml_parser *parser) {
@@ -1331,9 +1413,9 @@ static int consume_start_tag(xml_parser *parser) {
     }
     /* Reject attributes that share an expanded name (Namespaces in XML 6.3) through the same
        table, now keyed on (namespace URI, local name) under a fresh generation. Resolve after
-       declarations and prefix validation to preserve error precedence. */
+       declarations and prefix validation to preserve error precedence. The raw-name pass sized the
+       table for every attribute, so keying a subset of them never needs it to grow. */
     parser->dup_gen++;
-    parser->dup_count = 0;
     for (Py_ssize_t index = 0; index < parser->attr_spans_len; index++) {
         const xml_attr_span *span = &parser->attr_spans[index];
         if (span->declaration < 0) {
@@ -1342,11 +1424,8 @@ static int consume_start_tag(xml_parser *parser) {
         const Py_ssize_t local_start = span->colon + 1;
         const Py_ssize_t local_len = span->end - local_start;
         const xml_nsdecl *decl_ns = &parser->ns[span->declaration];
-        if (dup_reserve(parser) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
         uint64_t hash =
-            dup_hash_expanded(parser->dup_seed, decl_ns->uri, decl_ns->uri_len, parser, local_start, local_len);
+            dup_hash_expanded(parser->hash_seed, decl_ns->uri, decl_ns->uri_len, parser, local_start, local_len);
         Py_ssize_t slot = (Py_ssize_t)(hash & (uint64_t)(parser->dup_cap - 1));
         while (parser->dup[slot].gen == parser->dup_gen) {
             const xml_attr_span *previous = &parser->attr_spans[parser->dup[slot].index];
@@ -1361,8 +1440,7 @@ static int consume_start_tag(xml_parser *parser) {
             }
             slot = (slot + 1) & (parser->dup_cap - 1);
         }
-        parser->dup[slot] = (xml_dupslot){parser->dup_gen, hash, index};
-        parser->dup_count++;
+        parser->dup[slot] = (xml_hashslot){parser->dup_gen, hash, index};
     }
     node_append(current(parser), element);
     if (parser->stack_len == 0) {
@@ -1433,7 +1511,7 @@ th_tree *th_tree_parse_xml(int kind, const void *data, Py_ssize_t length) {
         th_tree_free(tree); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    parser.dup_seed = (uint64_t)PyObject_Hash(salt);
+    parser.hash_seed = (uint64_t)PyObject_Hash(salt);
     Py_DECREF(salt);
 
     while (parser.pos < length) { /* a well-formedness error returns -1 and breaks */
@@ -1451,6 +1529,8 @@ th_tree *th_tree_parse_xml(int kind, const void *data, Py_ssize_t length) {
     }
     PyMem_Free(parser.stack);
     PyMem_Free(parser.ns);
+    PyMem_Free(parser.prefixes);
+    PyMem_Free(parser.prefix_slots);
     PyMem_Free(parser.attr_spans);
     PyMem_Free(parser.scratch);
     PyMem_Free(parser.names);
