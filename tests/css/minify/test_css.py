@@ -391,6 +391,23 @@ def test_minify_css_property_name_hex_escape_space(source: str, expected: str) -
     assert minify_css(source) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{\\2d-X:1}", "a{\\2d-X:1}", id="hex-escape"),
+        pytest.param("a{\\2d -X:1}", "a{\\2d-X:1}", id="hex-escape-space"),
+        pytest.param("a{-\\2d X:1}", "a{-\\2dX:1}", id="second-hyphen-escaped"),
+        pytest.param("a{\\-\\-X:1}", "a{\\-\\-X:1}", id="escaped-hyphens"),
+        pytest.param("a{\\2d-X: 0px }", "a{\\2d-X:0px}", id="value-kept-raw"),
+        pytest.param("a{\\2dX:1}", "a{\\2dx:1}", id="one-hyphen"),
+        pytest.param("a{-\\X:1}", "a{-\\x:1}", id="escaped-letter-after-hyphen"),
+        pytest.param("a{\\58-Y:1}", "a{\\58-y:1}", id="escaped-letter-before-hyphen"),
+    ],
+)
+def test_minify_css_escaped_custom_property_name(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
 # past 32 rules the merge pass finds repeated selectors and bodies through a hash table before scanning back
 @pytest.fixture(params=[pytest.param(1, id="short-list"), pytest.param(40, id="hashed-list")])
 def filler_rules(request: pytest.FixtureRequest) -> str:

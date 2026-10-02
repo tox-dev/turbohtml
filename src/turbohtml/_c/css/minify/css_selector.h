@@ -157,6 +157,19 @@ static void decl_vec_push(decl_vec *vec, css_decl decl) {
     vec->items[vec->len++] = decl;
 }
 
+static uint32_t css_name_code_point(const css_char *name, Py_ssize_t len, Py_ssize_t *pos);
+
+/* Whether a property name starts with `--` once its escapes are read (CSS Syntax 3 §4.3.7), as `\2d-X` does, making it
+   a custom property. The name runs through the declaration's colon, so it holds two bytes at least, and one without a
+   `\` in its first two takes the byte test. */
+static int css_name_is_custom(const css_char *name, Py_ssize_t len) {
+    if (name[0] != '\\' && name[1] != '\\') {
+        return name[0] == '-' && name[1] == '-';
+    }
+    Py_ssize_t pos = 0;
+    return css_name_code_point(name, len, &pos) == '-' && css_name_code_point(name, len, &pos) == '-';
+}
+
 /* Build a declaration from a segment [start, end). Returns 1 if a declaration was produced. */
 static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, comp_vec *scratch,
                                 css_decl *decl) {
@@ -181,8 +194,9 @@ static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start,
         return 0;
     }
     /* the raw property text spans from the first to the last non-ws token; build it for the --* check and interning */
-    int is_custom = vec->items[prop_start].kind == CSS_IDENT && vec->items[prop_start].text_len >= 2 &&
-                    vec->items[prop_start].text[0] == '-' && vec->items[prop_start].text[1] == '-';
+    const css_token *first = &vec->items[prop_start];
+    int is_custom =
+        first->kind == CSS_IDENT && css_name_is_custom(first->text, vec->items[colon].text + 1 - first->text);
     Py_ssize_t prop_off = pool->len;
     for (Py_ssize_t index = prop_start; index < prop_end; index++) {
         css_token *token = &vec->items[index];
