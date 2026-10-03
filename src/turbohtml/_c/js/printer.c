@@ -1188,7 +1188,7 @@ static int print_branch(St *st, int32_t index, int has_else) {
     if (st->prog->nodes[index].kind == JN_BLOCK) {
         int32_t only = block_single_stmt(st, index);
         if (only >= 0) {
-            return print_stmt(st, only);
+            return print_branch(st, only, has_else); /* peel a nested scope-free block too (#1066) */
         }
     }
     return print_substmt(st, index);

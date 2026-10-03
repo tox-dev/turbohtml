@@ -820,6 +820,40 @@ def test_compresses(source: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
+        pytest.param("if(a){{b()}}", "a&&b()", id="if-body-to-logical"),
+        pytest.param("for(;;){{{}}}", "for(;;){}", id="loop-body-empties"),
+        pytest.param("{{b()}}", "b()", id="bare-block"),
+        pytest.param("{{{x()}}}", "x()", id="three-deep"),
+        pytest.param("if(a){{b()}}else{{c()}}", "a?b():c()", id="both-branches"),
+        pytest.param("while(x){{y()}}", "for(;x;)y()", id="while-body"),
+        pytest.param("{{var v=1}}", "var v=1", id="transparent-var"),
+        pytest.param("{{function f(){}}}", "{function f(){}}", id="function-keeps-its-block"),
+        pytest.param("a();{{b()}}", "a(),b()", id="block-after-a-statement"),
+        pytest.param("{{a();b()}}", "a(),b()", id="multi-statement-inner-block"),
+        # a string a block hid is not a directive; flattening it to the prologue keeps it parenthesized
+        pytest.param('function f(){{"use strict"}}', 'function f(){("use strict")}', id="no-directive-from-flatten"),
+    ],
+)
+def test_nested_blocks_collapse_in_one_call(source: str, expected: str) -> None:
+    # the fold reaches a fixpoint per call, so a redundant block never survives to need a second (#1066)
+    assert minify_js(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("if(a){{b()}}", "if(a)b()", id="if-body-braceless"),
+        pytest.param("for(;;){{{}}}", "for(;;){}", id="loop-body-empties"),
+        pytest.param("while(x){{y()}}", "while(x)y()", id="while-body"),
+    ],
+)
+def test_nested_blocks_collapse_without_folding(source: str, expected: str) -> None:
+    assert minify_js(source, JSMinify(mangle=False, fold=False)) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
         pytest.param("(0,o.f)()", "(0,o.f)()", id="sequence-callee"),
         pytest.param("(0,0,o.f)()", "(0,o.f)()", id="long-sequence-callee"),
         pytest.param("((0,o.f))()", "(0,o.f)()", id="parenthesized-sequence-callee"),

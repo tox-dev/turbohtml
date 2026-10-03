@@ -1101,26 +1101,65 @@ static void fold_tail_return(F *folder, int32_t block) {
    can fold against it, the fold turns an `if` into a return, and the second merge then absorbs a
    statement that sat before that new return. drop_unreachable runs last to cut what a merged return
    makes dead. The whole sequence reaches a fixpoint, so re-minifying is a no-op. */
-/* Unlink no-op empty statements -- left by a dropped declaration, an `if(false)`, or a bare `;` -- from
-   a statement chain. Removing them lets the merges below see true adjacency (so a binding the mangler
-   drops between two `var`s no longer blocks their merge) and keeps the output stable under
-   re-minification. Returns the new head, the first non-empty statement or -1. */
+/* A block adds observable scope only for a block-scoped declaration directly in it: a `let`/`const`
+   (14.2.3), a class, or a function declaration (Annex B.3.3). With none, it is transparent and its
+   statements run identically spliced into the enclosing list (a `var` hoists either way), the same
+   predicate the printer uses to shed a block's braces. */
+static int block_is_transparent(const F *folder, int32_t block) {
+    for (int32_t stmt = folder->prog->nodes[block].a; stmt >= 0; stmt = folder->prog->nodes[stmt].next) {
+        int kind = folder->prog->nodes[stmt].kind;
+        if (kind == JN_CLASS || kind == JN_FUNC || (kind == JN_VAR && folder->prog->nodes[stmt].decl != 0)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Normalize a statement chain in one pass: drop no-op empty statements (left by a dropped declaration,
+   an `if(false)` or a bare `;`) and splice every transparent nested block's statements in place, so a
+   redundant block collapses at any depth in the same call (#1066): `{{b()}}` becomes `b()`, exposing an
+   enclosing `if`/loop to the folds that follow. A spliced-in statement is re-examined, so a block nested
+   several deep flattens whole. Removing empties also lets the merges below see true adjacency (a binding
+   the mangler drops between two `var`s no longer blocks their merge). No node is allocated, so the cached
+   arena base stays valid. Returns the new head, the first surviving statement, or -1. */
 static int32_t drop_empties(F *folder, int32_t first) {
     jm_node *nodes = folder->prog->nodes;
-    while (first >= 0 && nodes[first].kind == JN_EMPTY) {
-        first = nodes[first].next;
-        folder->changed = 1;
-    }
+    int32_t head = -1;
+    int32_t prev = -1;
     for (int32_t idx = first; idx >= 0;) {
         int32_t next = nodes[idx].next;
-        while (next >= 0 && nodes[next].kind == JN_EMPTY) {
-            next = nodes[next].next;
+        if (nodes[idx].kind == JN_EMPTY) {
             folder->changed = 1;
+            idx = next;
+            continue;
         }
-        nodes[idx].next = next;
+        if (nodes[idx].kind == JN_BLOCK && block_is_transparent(folder, idx)) {
+            folder->changed = 1;
+            int32_t inner = nodes[idx].a;
+            if (inner < 0) {
+                idx = next; /* an empty block drops out entirely */
+                continue;
+            }
+            int32_t tail = inner;
+            while (nodes[tail].next >= 0) {
+                tail = nodes[tail].next;
+            }
+            nodes[tail].next = next;
+            idx = inner; /* re-examine the spliced-in statements */
+            continue;
+        }
+        if (prev < 0) {
+            head = idx;
+        } else {
+            nodes[prev].next = idx;
+        }
+        prev = idx;
         idx = next;
     }
-    return first;
+    if (prev >= 0) {
+        nodes[prev].next = -1;
+    }
+    return head;
 }
 
 /* An `if` whose consequent always jumps runs its alternate exactly when control would fall through,
