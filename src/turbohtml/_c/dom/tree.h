@@ -109,6 +109,12 @@ struct th_node {
     uint8_t tag_flags;           /* category bitmask from the atom table */
     uint8_t ns;                  /* enum th_ns: HTML / SVG / MathML */
     uint16_t binding_id;
+    /* Per-tree creation sequence, stamped as each node is allocated (document order for
+       a parsed tree). It is a stable node identity independent of the heap address, so
+       the query engine can hash nodes (match sets, dispatch cache, node maps) into probe
+       sequences that depend only on the input, not on where the allocator placed the
+       tree. */
+    uint32_t seq;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;
