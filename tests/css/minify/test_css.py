@@ -1145,6 +1145,29 @@ def test_minify_css_dimension_unit_is_a_fixed_point(source: str, expected: str) 
     assert minify_css(minify_css(source)) == expected
 
 
+# shortening a number (dropping a zero unit or a sign) must keep a separator so it does not read as the neighboring
+# token, in an at-rule prelude and inside calc(), as the declaration-value path already does
+_NUMBER_BOUNDARY: Final[list[ParameterSet]] = [
+    pytest.param("@x 0px.5;", "@x 0 .5", id="at-prelude-zero-unit-before-fraction"),
+    pytest.param("@x a.-0;", "@x a. 0", id="at-prelude-dot-before-signed-zero"),
+    pytest.param("@x (a)0px.5{b:c}", "@x(a)0 .5{b:c}", id="at-prelude-with-block"),
+    pytest.param("a{width:calc(0-0)}", "a{width:calc(0 0)}", id="calc-minus-zero"),
+    pytest.param("a{width:calc(0+0)}", "a{width:calc(0 0)}", id="calc-plus-zero"),
+    pytest.param("a{width:calc(1px+2px)}", "a{width:calc(1px 2px)}", id="calc-dim-plus-dim"),
+    pytest.param("a{width:calc(5-.5)}", "a{width:calc(5 -.5)}", id="calc-digit-before-neg-fraction"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _NUMBER_BOUNDARY)
+def test_minify_css_number_boundary(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _NUMBER_BOUNDARY)
+def test_minify_css_number_boundary_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
 def test_lone_surrogate_raises_encode_error() -> None:
     # a lone surrogate has no UTF-8 form, so the engine cannot take its byte view
     with pytest.raises(UnicodeEncodeError):

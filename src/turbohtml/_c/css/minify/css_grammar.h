@@ -444,22 +444,27 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
         /* `)and`/`)or` tokenizes the same as `) and`/`) or` (Syntax 3 §4: a ')' then an ident), so the space before a
            combinator after a ')' is dropped; the space *after* it is kept by the '(' branch above, since `and(` would
            otherwise be one function token. */
-        int after_paren_combinator =
-            out->len > mark && out->data[out->len - 1] == ')' && token->kind == CSS_IDENT &&
-            (css_run_ieq(token->text, token->text_len, "and") || css_run_ieq(token->text, token->text_len, "or"));
-        if (pending_ws && !after_paren_combinator && out->len > mark && out->data[out->len - 1] != '(' &&
-            out->data[out->len - 1] != ',' && out->data[out->len - 1] != ':') {
-            cbuf_putc(out, ' ');
-        }
-        pending_ws = 0;
+        const css_char *next_text = token->text;
+        Py_ssize_t next_len = token->text_len;
         if (token->kind == CSS_NUM) {
             Py_ssize_t off;
             Py_ssize_t len;
             css_format_dimension(pool, token, 1, &off, &len);
-            cbuf_put_run(out, pool->data + off, len);
-        } else {
-            cbuf_put_run(out, token->text, token->text_len);
+            next_text = pool->data + off;
+            next_len = len;
         }
+        int after_paren_combinator =
+            out->len > mark && out->data[out->len - 1] == ')' && token->kind == CSS_IDENT &&
+            (css_run_ieq(token->text, token->text_len, "and") || css_run_ieq(token->text, token->text_len, "or"));
+        int spaced = pending_ws && !after_paren_combinator && out->len > mark && out->data[out->len - 1] != '(' &&
+                     out->data[out->len - 1] != ',' && out->data[out->len - 1] != ':';
+        /* with no source whitespace, shortening a number (dropping a zero unit or sign) can glue it onto the previous
+           token to read as one different token (CSS Syntax 3 §9.1), so keep the boundary the value path keeps */
+        if (spaced || (out->len > mark && css_would_merge(out->data[out->len - 1], 0, next_text, next_len))) {
+            cbuf_putc(out, ' ');
+        }
+        pending_ws = 0;
+        cbuf_put_run(out, next_text, next_len);
     }
     css_rtrim(out);
     /* a non-empty prelude not opening with '(' is preceded by a single space */

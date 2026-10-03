@@ -578,9 +578,10 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
                 Py_ssize_t off;
                 Py_ssize_t len;
                 css_format_dimension(pool, token, !keep_ws, &off, &len);
-                /* dropping a `+` sign can glue the number onto the name or number before it (CSS Syntax 3 §9.1) */
-                if (token->text[0] == '+' && out->len > 0 &&
-                    css_would_merge(out->data[out->len - 1], 0, pool->data + off, len)) {
+                /* dropping a sign or unit (e.g. +0/-0/0px -> 0) can glue the number onto the token before it to read as
+                   one different token (CSS Syntax 3 §9.1), including a second adjacent number in an invalid calc, so
+                   keep a boundary as the declaration-value path does */
+                if (out->len > 0 && css_would_merge(out->data[out->len - 1], 0, pool->data + off, len)) {
                     cbuf_putc(out, ' ');
                 }
                 cbuf_put_run(out, pool->data + off, len);

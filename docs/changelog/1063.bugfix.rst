@@ -1,0 +1,1 @@
+:func:`~turbohtml.clean.minify_css` no longer merges a number into the next token in at-rules and ``calc()``.
