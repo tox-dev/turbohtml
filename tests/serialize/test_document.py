@@ -266,6 +266,38 @@ def test_document_html_round_trips() -> None:
     assert parse(source).html == source
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('<!DOCTYPE o SYSTEM "s"><r>', id="doctype-system-id"),
+        pytest.param('<!DOCTYPE o PUBLIC "p" "s"><r>', id="doctype-public-id"),
+        pytest.param('<!DOCTYPE o PUBLIC "p"><r>', id="doctype-public-id-no-system"),
+        pytest.param("<!DOCTYPE o SYSTEM 'a\"b'><r>", id="doctype-system-id-with-quote"),
+        pytest.param("<!DOCTYPE café><r>", id="doctype-non-ascii-name"),
+        pytest.param("<!DOCTYPE><p>", id="doctype-empty-name"),
+        pytest.param("<!DOCTYPE 1><p>", id="doctype-invalid-name"),
+        pytest.param("<div><template></template></div>", id="empty-template"),
+        pytest.param("<div><template><b>x</b></template></div>", id="non-empty-template"),
+        pytest.param("<svg xlink:href=a>", id="injected-namespace-declarations"),
+    ],
+)
+def test_xml_serialization_re_reads_unchanged(source: str) -> None:
+    once = parse(source).serialize(Html(xml=True))
+    assert parse_xml(once).serialize(Html(xml=True)) == once
+
+
+def test_xml_serialization_keeps_doctype_external_ids() -> None:
+    assert parse('<!DOCTYPE o SYSTEM "s"><r>').serialize(Html(xml=True)).startswith('<!DOCTYPE o SYSTEM "s">')
+
+
+def test_xml_serialization_drops_a_doctype_without_an_xml_name() -> None:
+    assert "DOCTYPE" not in parse("<!DOCTYPE><p>").serialize(Html(xml=True))
+
+
+def test_xml_serialization_self_closes_an_empty_template() -> None:
+    assert "<template/>" in parse("<div><template></template></div>").serialize(Html(xml=True))
+
+
 def test_document_text_skips_comments_and_doctype() -> None:
     doc = parse("<!-- c --><!DOCTYPE html><html><body>hello</body></html>")
     assert doc.text == "hello"

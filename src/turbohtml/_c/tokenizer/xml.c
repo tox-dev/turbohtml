@@ -974,17 +974,23 @@ static int is_pubid_char(Py_UCS4 ch) {
 }
 
 /* Move past the quoted literal at parser->pos. A SystemLiteral takes any code point but its quote, so a '>' inside it
-   does not end the declaration; a PubidLiteral takes only PubidChar. Returns 0, or -1 with an error recorded. */
-static int skip_doctype_literal(xml_parser *parser, int pubid) {
+   does not end the declaration; a PubidLiteral takes only PubidChar. When content_start/content_end are given, they
+   receive the half-open span of the literal's content (between the quotes). Returns 0, or -1 with an error recorded. */
+static int skip_doctype_literal(xml_parser *parser, int pubid, Py_ssize_t *content_start, Py_ssize_t *content_end) {
     Py_ssize_t open = parser->pos;
     Py_UCS4 quote = open < parser->length ? cp(parser, open) : 0;
     if (quote != '"' && quote != '\'') {
         record(parser, "xml-malformed-declaration", open);
         return -1;
     }
+    Py_ssize_t start = open + 1;
     for (parser->pos++; parser->pos < parser->length; parser->pos++) {
         Py_UCS4 ch = cp(parser, parser->pos);
         if (ch == quote) {
+            if (content_start != NULL) {
+                *content_start = start;
+                *content_end = parser->pos;
+            }
             parser->pos++;
             return 0;
         }
@@ -1010,6 +1016,52 @@ static int skip_past(xml_parser *parser, const char *close, Py_ssize_t open) {
     return -1;
 }
 
+/* Build the Doctype node from the captured name and external-identifier spans, storing it
+   in the same ``name "public" "system"`` layout the HTML tree builder uses (attr_count is
+   the public id's length, the flags record which identifiers are present) so the XML
+   serializer writes the identifiers back and the output re-reads unchanged (#1031). Kept out of line: it runs once
+   per document, and inlined it grows the parse loop past the size at which the text and reference paths inline. */
+static TH_NOINLINE th_node *build_doctype(xml_parser *parser, Py_ssize_t name_start, Py_ssize_t name_end,
+                                          int has_public, Py_ssize_t pub_start, Py_ssize_t pub_end, int has_system,
+                                          Py_ssize_t sys_start, Py_ssize_t sys_end) {
+    Py_ssize_t name_len = name_end - name_start;
+    Py_ssize_t pub_len = pub_end - pub_start;
+    Py_ssize_t sys_len = sys_end - sys_start;
+    int has_ids = has_public || has_system;
+    Py_ssize_t total = name_len + (has_ids ? pub_len + sys_len + 6 : 0);
+    Py_UCS4 *text = PyMem_Malloc((size_t)total * sizeof(Py_UCS4));
+    if (text == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        parser->tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;              /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t at = 0;
+    for (Py_ssize_t index = 0; index < name_len; index++) {
+        text[at++] = cp(parser, name_start + index);
+    }
+    if (has_ids) {
+        text[at++] = ' ';
+        text[at++] = '"';
+        for (Py_ssize_t index = 0; index < pub_len; index++) {
+            text[at++] = cp(parser, pub_start + index);
+        }
+        text[at++] = '"';
+        text[at++] = ' ';
+        text[at++] = '"';
+        for (Py_ssize_t index = 0; index < sys_len; index++) {
+            text[at++] = cp(parser, sys_start + index);
+        }
+        text[at++] = '"';
+    }
+    th_node *node = th_tree_make_data_node(parser->tree, TH_NODE_DOCTYPE, text, total);
+    PyMem_Free(text);
+    if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    node->attr_count = has_public ? pub_len : 0;
+    node->tag_flags = (uint8_t)((has_public ? TH_DOCTYPE_HAS_PUBLIC : 0) | (has_system ? TH_DOCTYPE_HAS_SYSTEM : 0));
+    return node;
+}
+
 /* Skip a <!DOCTYPE ...> declaration: the root name, an optional external ID (XML 1.0 [75]), and a bracketed internal
    subset, stepping over the quoted literals, comments and processing instructions in it so a '>' or ']' inside one
    does not end the declaration early. The root name becomes a Doctype node; DTD-declared entities are not honored. */
@@ -1028,24 +1080,32 @@ static int consume_doctype(xml_parser *parser) {
     }
     skip_space(parser);
     int public_id = starts_with(parser, parser->pos, "PUBLIC");
+    int has_public = 0;
+    int has_system = 0;
+    Py_ssize_t pub_start = 0;
+    Py_ssize_t pub_end = 0;
+    Py_ssize_t sys_start = 0;
+    Py_ssize_t sys_end = 0;
     if (public_id || starts_with(parser, parser->pos, "SYSTEM")) {
         parser->pos += 6;
         skip_space(parser);
-        if (skip_doctype_literal(parser, public_id) < 0) {
-            return -1;
-        }
         if (public_id) {
-            skip_space(parser);
-            if (skip_doctype_literal(parser, 0) < 0) {
+            if (skip_doctype_literal(parser, 1, &pub_start, &pub_end) < 0) {
                 return -1;
             }
+            has_public = 1;
+            skip_space(parser);
         }
+        if (skip_doctype_literal(parser, 0, &sys_start, &sys_end) < 0) {
+            return -1;
+        }
+        has_system = 1;
     }
     int depth = 0;
     while (parser->pos < parser->length) {
         Py_UCS4 ch = cp(parser, parser->pos);
         if (depth > 0 && (ch == '"' || ch == '\'')) {
-            if (skip_doctype_literal(parser, 0) < 0) {
+            if (skip_doctype_literal(parser, 0, NULL, NULL) < 0) {
                 return -1;
             }
             continue;
@@ -1061,11 +1121,8 @@ static int consume_doctype(xml_parser *parser) {
         } else if (ch == ']') {
             depth--;
         } else if (ch == '>' && depth == 0) {
-            Py_UCS4 *name = widen(parser, name_start, name_end - name_start);
-            if (name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-            th_node *node = th_tree_make_data_node(parser->tree, TH_NODE_DOCTYPE, name, name_end - name_start);
+            th_node *node = build_doctype(parser, name_start, name_end, has_public, pub_start, pub_end, has_system,
+                                          sys_start, sys_end);
             if (node == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
             }

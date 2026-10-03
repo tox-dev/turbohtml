@@ -662,12 +662,12 @@ static inline void ser_inject_head_meta(sbuf *out, th_tree *tree, const th_node 
     }
 }
 
-/* Which namespace declarations ser_xml_ns_decls emitted for a start tag, so the
-   attribute writer drops a stored duplicate of exactly those (a second xmlns on the
-   same tag is ill-formed) while keeping every other xmlns:prefix a caller declared. */
+/* Whether ser_xml_ns_decls injected the foreign-root default namespace for a start tag, so
+   the attribute writer drops a stored xmlns that would duplicate it (a second xmlns on the
+   same tag is ill-formed). The xlink binding needs no such flag: it is injected only when
+   the element carries no stored xmlns:xlink, so there is never a duplicate to drop. */
 typedef struct {
-    int default_ns; /* the foreign-root xmlns="..." was written */
-    int xlink;      /* the xmlns:xlink prefix binding was written */
+    int default_ns;
 } xml_ns_emitted;
 
 /* Emit the namespace declarations an XML start tag needs to stay well-formed: the
@@ -676,22 +676,61 @@ typedef struct {
    carrying an `xlink:`-prefixed attribute (a redundant redeclaration on a nested
    element is still well-formed, so no ancestor tracking is needed). */
 static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th_node *node) {
-    xml_ns_emitted emitted = {0, 0};
+    xml_ns_emitted emitted = {0};
     if (node->ns != TH_NS_HTML && (node->parent == NULL || node->parent->ns != node->ns)) {
         sbuf_puts(out, node->ns == TH_NS_SVG ? " xmlns=\"http://www.w3.org/2000/svg\""
                                              : " xmlns=\"http://www.w3.org/1998/Math/MathML\"");
         emitted.default_ns = 1;
     }
+    int has_xlink_attr = 0;
+    int has_xlink_decl = 0;
     for (Py_ssize_t position = 0; position < node->attr_count; position++) {
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, node->attrs[position].name_atom, &name_len);
-        if (name_len >= 6 && memcmp(name, "xlink:", 6) == 0) {
-            sbuf_puts(out, " xmlns:xlink=\"http://www.w3.org/1999/xlink\"");
-            emitted.xlink = 1;
-            break;
+        if (name_len == 11 && memcmp(name, "xmlns:xlink", 11) == 0) {
+            has_xlink_decl = 1;
+        } else if (name_len >= 6 && memcmp(name, "xlink:", 6) == 0) {
+            has_xlink_attr = 1;
         }
     }
+    /* Inject the xlink binding only when the element does not already carry one: a stored
+       xmlns:xlink is emitted in attribute order instead, which keeps the declarations in
+       the same order whether the element came from an HTML parse (namespace injected) or
+       an XML parse (namespace stored), so serialize/parse_xml round-trips (#1031). */
+    if (has_xlink_attr && !has_xlink_decl) {
+        sbuf_puts(out, " xmlns:xlink=\"http://www.w3.org/1999/xlink\"");
+    }
     return emitted;
+}
+
+/* XML Name character classes over ASCII: bit 0 NameStartChar, bit 1 NameChar. A code
+   point >= 0x80 is accepted wholesale rather than decoding the full Unicode Name ranges,
+   matching the datatype validator. A table keeps gcc and clang counting the same branches,
+   which a chained comparison over the character literals would not. */
+static const unsigned char XML_NAME_FLAGS[128] = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 0, 0, 0, 0, 0,
+    0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 3,
+    0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0,
+};
+
+/* Whether a wide (Py_UCS4) string is a well-formed XML Name (non-empty, NameStartChar
+   then NameChar*). Used to drop a doctype whose name XML cannot write. */
+static inline int xml_wide_name_wellformed(const Py_UCS4 *name, Py_ssize_t len) {
+    if (len == 0) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 character = name[index];
+        if (character >= 0x80) {
+            continue;
+        }
+        unsigned char need = index == 0 ? 0x1 : 0x2;
+        if ((XML_NAME_FLAGS[character] & need) == 0) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 /* Whether an attribute's name can be written into an XML start tag: a stored
@@ -699,33 +738,19 @@ static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th
    because a second copy would make the tag ill-formed (but any other xmlns:prefix a
    caller declared is kept), and a name carrying a character XML forbids in a Name --
    the tag-soup `=`, `/`, `<`, quotes and spaces the HTML parser keeps but XML cannot
-   -- is dropped so the tag stays well-formed. ASCII is checked against the
-   NameStart/NameChar table; a byte >= 0x80 is accepted wholesale rather than decode
-   UTF-8 to consult the full Unicode Name ranges, matching the datatype validator. The
-   table (bit 0 NameStart, bit 1 NameChar) makes gcc and clang count the same
-   branches, which a chained comparison over the name literals would not. */
+   -- is dropped so the tag stays well-formed. */
 static inline int xml_attr_name_writable(const char *name, Py_ssize_t name_len, xml_ns_emitted emitted) {
-    static const unsigned char NAME_FLAGS[128] = {
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 0, 0, 0, 0, 0,
-        0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 3,
-        0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0,
-    };
     int is_default_decl = name_len == 5 && memcmp(name, "xmlns", 5) == 0;
     if (is_default_decl && emitted.default_ns) {
         return 0;
     }
-    int is_xlink_decl = name_len == 11 && memcmp(name, "xmlns:xlink", 11) == 0;
-    if (is_xlink_decl && emitted.xlink) {
-        return 0;
-    }
     unsigned char first = (unsigned char)name[0];
-    if (first < 0x80 && (NAME_FLAGS[first] & 0x1) == 0) {
+    if (first < 0x80 && (XML_NAME_FLAGS[first] & 0x1) == 0) {
         return 0;
     }
     for (Py_ssize_t index = 1; index < name_len; index++) {
         unsigned char character = (unsigned char)name[index];
-        if (character < 0x80 && (NAME_FLAGS[character] & 0x2) == 0) {
+        if (character < 0x80 && (XML_NAME_FLAGS[character] & 0x2) == 0) {
             return 0;
         }
     }
@@ -741,7 +766,7 @@ static inline int xml_attr_name_writable(const char *name, Py_ssize_t name_len, 
 static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_serialize_opts *opts) {
     sbuf_putc(out, '<');
     sbuf_put_ucs4(out, node->text, node->text_len);
-    xml_ns_emitted emitted = {0, 0};
+    xml_ns_emitted emitted = {0};
     if (opts->xml) {
         emitted = ser_xml_ns_decls(out, tree, node);
     }

@@ -207,6 +207,51 @@ SER_NOINLINE static void ser_put_rawtext(sbuf *out, th_tree *tree, th_node *elem
     }
 }
 
+/* Write a doctype external identifier in XML quotes, choosing the delimiter the id does
+   not contain (a SystemLiteral or PubidLiteral holds any character but its own quote). */
+static void ser_put_doctype_id(sbuf *out, const Py_UCS4 *id, Py_ssize_t len) {
+    Py_UCS4 quote = '"';
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (id[index] == '"') {
+            quote = '\'';
+            break;
+        }
+    }
+    sbuf_putc(out, quote);
+    sbuf_put_ucs4(out, id, len);
+    sbuf_putc(out, quote);
+}
+
+/* XML serialization of a DocumentType node (DOM-Parsing), with its public and system
+   identifiers. A name that is not a well-formed XML Name (empty, or carrying a character
+   XML forbids) has no XML form, so the whole doctype is dropped rather than written as tag
+   soup that parse_xml would reject (#1031). */
+static void ser_put_xml_doctype(sbuf *out, th_node *node) {
+    Py_ssize_t name_len = doctype_name_len(node);
+    if (!xml_wide_name_wellformed(node->text, name_len)) {
+        return;
+    }
+    sbuf_puts(out, "<!DOCTYPE ");
+    sbuf_put_ucs4(out, node->text, name_len);
+    const Py_UCS4 *public_id;
+    const Py_UCS4 *system_id;
+    Py_ssize_t public_len;
+    Py_ssize_t system_len;
+    if (th_node_doctype_ids(node, &public_id, &public_len, &system_id, &system_len)) {
+        if (public_len > 0) {
+            /* XML requires a system literal after a public one, so both are always written */
+            sbuf_puts(out, " PUBLIC ");
+            ser_put_doctype_id(out, public_id, public_len);
+            sbuf_putc(out, ' ');
+            ser_put_doctype_id(out, system_id, system_len);
+        } else {
+            sbuf_puts(out, " SYSTEM ");
+            ser_put_doctype_id(out, system_id, system_len);
+        }
+    }
+    sbuf_putc(out, '>');
+}
+
 /* Emit one node under the compact (WHATWG fragment) layout and return the next node
    the walk rooted at root visits, or NULL once the subtree is fully written. Split
    out of serialize_compact so serialize_iter can resume the walk one node at a time
@@ -235,8 +280,14 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         ser_open_tag(out, tree, node, opts);
         if (opts->xml) {
             /* XML syntax: every empty element self-closes, no void/raw-text special
-               casing, so a childless element ends the tag and a parent descends */
-            if (node->first_child == NULL) {
+               casing, so a childless element ends the tag and a parent descends. A
+               template's content fragment is transparent, so an empty one self-closes and
+               round-trips as <template/> the way parse_xml reads it back (#1031). */
+            th_node *xml_first = node->first_child;
+            if (xml_first != NULL && xml_first->type == TH_NODE_CONTENT) {
+                xml_first = xml_first->first_child;
+            }
+            if (xml_first == NULL) {
                 sbuf_puts(out, "/>");
             } else {
                 sbuf_putc(out, '>');
@@ -295,6 +346,10 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         sbuf_puts(out, "-->");
         break;
     case TH_NODE_DOCTYPE:
+        if (opts->xml) {
+            ser_put_xml_doctype(out, node);
+            break;
+        }
         sbuf_puts(out, "<!DOCTYPE ");
         sbuf_put_ucs4(out, node->text, doctype_name_len(node));
         sbuf_putc(out, '>');

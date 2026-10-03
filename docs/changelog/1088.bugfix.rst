@@ -1,0 +1,1 @@
+XML output from ``serialize(Html(xml=True))`` now reads back unchanged with ``parse_xml``.
