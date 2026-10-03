@@ -1377,24 +1377,36 @@ static int is_html_element(const th_node *node, uint16_t atom) {
     return node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML && node->atom == atom;
 }
 
-/* The first option in tree order below the select, not descending into nested selects.
-   The select's "list of options" counts the first option whatever it nests in, so this
-   matches first_descendant_atom's old raw-position result. */
-static th_node *first_option_below(th_node *select) {
+/* An option is disabled by its own disabled attribute or by sitting directly in a
+   disabled optgroup ("a disabled option"), so "reset a select's selectedness" skips it. */
+static int option_is_disabled(const th_node *option) {
+    th_node *parent = option->parent;
+    return node_has_attr(option, TH_ATTR_DISABLED) ||
+           (is_html_element(parent, TH_TAG_OPTGROUP) && node_has_attr(parent, TH_ATTR_DISABLED));
+}
+
+/* The first enabled option in tree order below the select, not descending into nested
+   selects, or NULL when every option is disabled. This is the option "reset a select's
+   selectedness" makes selected by default when no option carries the selected attribute. */
+static th_node *first_enabled_option_below(th_node *select) {
     th_node *node = select->first_child;
-    for (;;) { /* the popped option this answers for lives under select, so an option is always found */
+    while (node != NULL) {
         if (is_html_element(node, TH_TAG_OPTION)) {
-            return node;
-        }
-        if (!is_html_element(node, TH_TAG_SELECT) && node->first_child != NULL) {
+            if (!option_is_disabled(node)) {
+                return node;
+            }
+        } else if (node->type != TH_NODE_CONTENT && !is_html_element(node, TH_TAG_SELECT) &&
+                   node->first_child != NULL) {
+            /* a template's content fragment is not part of the select's list of options */
             node = node->first_child;
             continue;
         }
-        while (node->next_sibling == NULL) {
+        while (node != select && node->next_sibling == NULL) {
             node = node->parent;
         }
-        node = node->next_sibling;
+        node = node == select ? NULL : node->next_sibling;
     }
+    return NULL;
 }
 
 /* An HTML select, option, or selectedcontent element: a selectedcontent below one
@@ -1413,28 +1425,6 @@ static int disables_selectedcontent(const th_node *node) {
     }
 }
 
-/* The first selectedcontent below the select whose own ancestors up to the select
-   leave its disabled flag ("recalculate a selectedcontent element's disabledness")
-   false. The select's ancestors can disable it too; the caller checks those. */
-static th_node *first_selectedcontent_candidate(th_node *root) {
-    th_node *node = root->first_child;
-    while (node != NULL) {
-        if (disables_selectedcontent(node)) {
-            if (node->atom == TH_TAG_SELECTEDCONTENT) {
-                return node;
-            }
-        } else if (node->first_child != NULL) {
-            node = node->first_child;
-            continue;
-        }
-        while (node != root && node->next_sibling == NULL) {
-            node = node->parent;
-        }
-        node = node == root ? NULL : node->next_sibling;
-    }
-    return NULL;
-}
-
 static int select_disabled_by_ancestor(const th_node *select) {
     for (const th_node *ancestor = select->parent; ancestor != NULL; ancestor = ancestor->parent) {
         if (disables_selectedcontent(ancestor)) {
@@ -1444,10 +1434,51 @@ static int select_disabled_by_ancestor(const th_node *select) {
     return 0;
 }
 
-static void select_cache_fill(th_select_cache *cache) {
-    th_node *select = cache->select;
-    cache->target = first_selectedcontent_candidate(select);
-    cache->target_disabled = (uint8_t)(cache->target != NULL && node_has_attr(cache->target, TH_ATTR_DISABLED));
+/* Record one clone destination, growing the per-select buffer as needed. */
+static void select_cache_add_target(th_tree *tree, th_select_cache *cache, th_node *target) {
+    if (cache->target_count == cache->target_cap) {
+        size_t cap;
+        size_t bytes;
+        int grew =
+            th_grow_cap((size_t)cache->target_count + 1, (size_t)cache->target_cap, 4, sizeof(th_node *), &cap, &bytes);
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow cannot be forced from a test */
+            tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            return;           /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+        }
+        th_node **grown = PyMem_Realloc(cache->targets, bytes);
+        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+            return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        }
+        cache->targets = grown;
+        cache->target_cap = (Py_ssize_t)cap;
+    }
+    cache->targets[cache->target_count++] = target;
+}
+
+/* Collect the select's enabled descendant selectedcontent elements ("update a select's
+   descendant selectedcontent elements"): every selectedcontent whose nearest ancestor
+   select is this one (not nested under an inner select/option/selectedcontent) and that
+   carries no disabled attribute. The buffer is reused across refills. */
+static void select_cache_fill(th_tree *tree, th_select_cache *cache) {
+    th_node *root = cache->select;
+    cache->target_count = 0;
+    th_node *node = root->first_child;
+    while (node != NULL) {
+        if (disables_selectedcontent(node)) {
+            if (node->atom == TH_TAG_SELECTEDCONTENT && !node_has_attr(node, TH_ATTR_DISABLED)) {
+                select_cache_add_target(tree, cache, node);
+            }
+        } else if (node->type != TH_NODE_CONTENT && node->first_child != NULL) {
+            /* a template's content fragment holds its own selectedcontent, not the select's */
+            node = node->first_child;
+            continue;
+        }
+        while (node != root && node->next_sibling == NULL) {
+            node = node->parent;
+        }
+        node = node == root ? NULL : node->next_sibling;
+    }
     cache->valid = 1;
 }
 
@@ -1490,12 +1521,15 @@ static th_select_cache *select_cache_get(th_tree *tree, th_node *select) {
         }
         th_select_cache *cache = &state->caches[slot - 1];
         cache->select = select;
+        cache->targets = NULL;
+        cache->target_count = 0;
+        cache->target_cap = 0;
         cache->multiple = (uint8_t)node_has_attr(select, TH_ATTR_MULTIPLE);
         cache->valid = 0;
     }
     th_select_cache *cache = &state->caches[slot - 1];
     if (!cache->valid) {
-        select_cache_fill(cache);
+        select_cache_fill(tree, cache);
     }
     return cache;
 }
@@ -1543,6 +1577,9 @@ static void select_cache_invalidate_above(th_tree *tree, th_node *node) {
 static void select_cache_free(th_tree *tree) {
     th_select_state *state = tree->select_state;
     if (state != NULL) {
+        for (Py_ssize_t index = 0; index < state->count; index++) {
+            PyMem_Free(state->caches[index].targets);
+        }
         PyMem_Free(state->caches);
         PyMem_Free(state->index.entries);
         PyMem_Free(state);
@@ -1612,6 +1649,11 @@ static void deep_copy_children(th_tree *tree, const th_node *src, th_node *dst) 
 static th_node *option_nearest_select(th_node *option) {
     th_node *ancestor_optgroup = NULL;
     for (th_node *ancestor = option->parent; ancestor != NULL; ancestor = ancestor->parent) {
+        if (ancestor->type == TH_NODE_CONTENT) {
+            /* a template's content (or a shadow root) is a separate document fragment, so
+               an option inside it has no nearest ancestor select in this tree */
+            return NULL;
+        }
         if (ancestor->type != TH_NODE_ELEMENT || ancestor->ns != TH_NS_HTML) {
             continue;
         }
@@ -1647,17 +1689,19 @@ static void maybe_clone_option(th_tree *tree, th_node *option) {
     if (cache->multiple) {
         return;
     }
-    if (!node_has_attr(option, TH_ATTR_SELECTED) && first_option_below(select) != option) {
+    if (!node_has_attr(option, TH_ATTR_SELECTED) && first_enabled_option_below(select) != option) {
         return;
     }
-    th_node *target = cache->target;
-    if (target == NULL || cache->target_disabled || select_disabled_by_ancestor(select)) {
+    if (cache->target_count == 0 || select_disabled_by_ancestor(select)) {
         return;
     }
-    while (target->first_child != NULL) {
-        node_remove(target->first_child);
+    for (Py_ssize_t index = 0; index < cache->target_count; index++) {
+        th_node *target = cache->targets[index];
+        while (target->first_child != NULL) {
+            node_remove(target->first_child);
+        }
+        deep_copy_children(tree, option, target);
     }
-    deep_copy_children(tree, option, target);
 }
 
 /* Remove the active-formatting-elements entry at index, shifting the tail down. */

@@ -1,0 +1,1 @@
+``<selectedcontent>`` mirrors the option the spec selects.

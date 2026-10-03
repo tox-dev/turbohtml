@@ -62,10 +62,11 @@ typedef struct {
    select's first option in tree order. */
 typedef struct {
     th_node *select;
-    th_node *target; /* the first enabled descendant selectedcontent, the clone destination */
+    th_node **targets; /* the enabled descendant selectedcontent elements, the clone destinations */
+    Py_ssize_t target_count;
+    Py_ssize_t target_cap;
     uint8_t valid;
     uint8_t multiple;
-    uint8_t target_disabled; /* the target carries a disabled attribute */
 } th_select_cache;
 
 /* The select caches of one parse, allocated on the first selected-option clone so a

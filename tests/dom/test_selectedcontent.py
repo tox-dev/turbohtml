@@ -139,6 +139,52 @@ def test_set_inner_html_leaves_selectedcontent_in_option_empty() -> None:
             '<option selected="">o<div><option selected="">p</option></div></option><option>q</option></select>',
             id="option-in-option-cloned-once",
         ),
+        pytest.param(
+            "<select><button><selectedcontent></button><template><option selected>T</option></template>"
+            "<option>x</option></select>",
+            "<select><button><selectedcontent>x</selectedcontent></button>"
+            '<template><option selected="">T</option></template><option>x</option></select>',
+            id="option-in-template-has-no-nearest-select",
+        ),
+        pytest.param(
+            "<select><template><selectedcontent></selectedcontent></template>"
+            "<button><selectedcontent></button><option>x</option></select>",
+            "<select><template><selectedcontent></selectedcontent></template>"
+            "<button><selectedcontent>x</selectedcontent></button><option>x</option></select>",
+            id="templated-selectedcontent-is-not-a-target",
+        ),
+        pytest.param(
+            "<select><button><selectedcontent></button><option disabled>A</option><option>B</option></select>",
+            '<select><button><selectedcontent>B</selectedcontent></button><option disabled="">A</option>'
+            "<option>B</option></select>",
+            id="default-selected-skips-disabled-option",
+        ),
+        pytest.param(
+            "<select><button><selectedcontent></button><optgroup disabled><option>A</option></optgroup>"
+            "<option>B</option></select>",
+            '<select><button><selectedcontent>B</selectedcontent></button><optgroup disabled=""><option>A</option>'
+            "</optgroup><option>B</option></select>",
+            id="default-selected-skips-disabled-optgroup",
+        ),
+        pytest.param(
+            "<select><button><selectedcontent></button><optgroup><option>A</option></optgroup>"
+            "<option>B</option></select>",
+            "<select><button><selectedcontent>A</selectedcontent></button><optgroup><option>A</option></optgroup>"
+            "<option>B</option></select>",
+            id="default-selected-enters-enabled-optgroup",
+        ),
+        pytest.param(
+            "<select><button><selectedcontent></selectedcontent><selectedcontent></selectedcontent></button>"
+            "<option>x</option></select>",
+            "<select><button><selectedcontent>x</selectedcontent><selectedcontent>x</selectedcontent></button>"
+            "<option>x</option></select>",
+            id="every-enabled-selectedcontent-updated",
+        ),
+        pytest.param(
+            "<select><button><selectedcontent></button><option disabled>A</option></select>",
+            '<select><button><selectedcontent></selectedcontent></button><option disabled="">A</option></select>',
+            id="no-enabled-option-leaves-selectedcontent-empty",
+        ),
     ],
 )
 def test_parse_clones_only_options_with_a_nearest_select(markup: str, body: str) -> None:
