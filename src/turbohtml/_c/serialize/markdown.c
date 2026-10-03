@@ -335,6 +335,17 @@ static void md_block_line(md_ctx *ctx, int loose) {
     } else if (ctx->suppress_break) {
         ctx->suppress_break = 0;
     } else {
+        /* an empty block quote left its "> " prefix on the line with nothing after
+           it; trim the trailing spaces so the quoted blank line reads as ">" */
+        if (!ctx->line_has_content) {
+            Py_ssize_t end = ctx->out.len;
+            while (end > 0 && ctx->out.data[end - 1] == ' ') {
+                end--;
+            }
+            if (end > 0 && ctx->out.data[end - 1] == '>') {
+                ctx->out.len = end;
+            }
+        }
         sbuf_putc(&ctx->out, '\n');
         if ((ctx->pending_loose || loose) && !ctx->tight && !ctx->opt->block_spacing_single) {
             md_write_blank_prefix(ctx);
@@ -2887,6 +2898,10 @@ static void md_leave(md_ctx *ctx) {
         ctx->tight = frame->saved_tight;
         ctx->indent_levels = frame->saved_levels;
         ctx->prefix.len = frame->prefix_base;
+        /* a list item or block quote defers its marker line's break for the first
+           block to ride; an empty one emits no such block, so the pending break has
+           to be released here or the next block attaches to the marker */
+        ctx->suppress_break = 0;
     }
 }
 

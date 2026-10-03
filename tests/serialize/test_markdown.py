@@ -497,6 +497,14 @@ def test_selected_item_keeps_nested_list_depth() -> None:
             id="blockquote-nested",
         ),
         pytest.param("<p>a<br>b</p>", "a  \nb", id="br"),
+        pytest.param("<ol><li><p></p></li></ol><p>b</p>", "1. \n\nb", id="empty-item-keeps-next-block-out"),
+        pytest.param(
+            "<p>a</p><blockquote><p></p></blockquote><p>b</p>",
+            "a\n\n>\n\nb",
+            id="empty-quote-keeps-next-block-out",
+        ),
+        pytest.param("<blockquote><span></span></blockquote>", ">", id="empty-quote-with-empty-element"),
+        pytest.param("<blockquote></blockquote>", "", id="empty-quote"),
     ],
 )
 def test_breaks_quotes_rules(html: str, expected: str) -> None:
