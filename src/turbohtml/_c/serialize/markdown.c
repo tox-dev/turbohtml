@@ -1733,6 +1733,17 @@ static inline void md_block_child(md_ctx *ctx, th_node *child, int *in_run) {
         if (only_ws) {
             return;
         }
+        if (child->type == TH_NODE_ELEMENT && atom != TH_TAG_A && child->first_child != NULL &&
+            child->first_child->type == TH_NODE_ELEMENT && md_leads_with_inline(ctx, child) == 0) {
+            /* an inline wrapper whose first child is a self-framing block (a nested
+               list, quote or table) has no inline run of its own; opening one would
+               leave an empty line that reads as a blank line and splits the surrounding
+               item, so let the inner block open its own line instead. The element
+               first-child test keeps the scan off the common inline run, and a link is
+               excluded because it flattens its block content into the run it needs. */
+            md_render_inline(ctx, child);
+            return;
+        }
         md_block_line(ctx, ctx->tight ? 0 : 1);
         *in_run = 1;
     }

@@ -362,6 +362,11 @@ _LOOSE_NAV_HTML: Final[str] = (
             "> - a\n- b",
             id="list-after-a-quoted-list-keeps-its-marker",
         ),
+        pytest.param(
+            "<ol><li><ol><span><ol><li>x</li></ol></span></ol></li></ol>",
+            "1. \n   1. x",
+            id="nested-list-in-a-non-item-wrapper-stays-nested",
+        ),
     ],
 )
 def test_lists(html: str, expected: str) -> None:
