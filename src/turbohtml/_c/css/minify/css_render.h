@@ -1,9 +1,74 @@
 #ifndef TURBOHTML_CSS_RENDER_H
 #define TURBOHTML_CSS_RENDER_H
 
-/* Render a value's tokens [start, end) into components in the pool. */
-static void css_render_components(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, int is_color,
-                                  int drop_zero_unit, comp_vec *comps) {
+/* Collect into blocks the `(` and `[` a value's tokens [start, end) leave open, innermost last: consuming a simple
+   block returns it at the end of input (CSS Syntax 3 §5.4.7), so without its closer the `}` ending the rule would land
+   inside it. Only a matching `)` or `]` closes a block. With skip_functions, a function's arguments are skipped, as
+   css_render_components prints them through css_emit_function, which closes its own `(`. */
+static void css_collect_open_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t end, int skip_functions,
+                                    css_buf *blocks) {
+    Py_ssize_t index = start;
+    while (index < end) {
+        css_token *token = &vec->items[index];
+        if (skip_functions && token->kind == CSS_IDENT && index + 1 < end && vec->items[index + 1].kind == CSS_DELIM &&
+            vec->items[index + 1].delim == '(') {
+            index = css_match_paren(vec, index + 1, end) + 1;
+            continue;
+        }
+        if (token->delim == '(' || token->delim == '[') {
+            cbuf_putc(blocks, token->delim);
+        } else if ((token->delim == ')' || token->delim == ']') && blocks->len > 0 &&
+                   blocks->data[blocks->len - 1] == (token->delim == ')' ? '(' : '[')) {
+            blocks->len--;
+        }
+        index++;
+    }
+}
+
+/* Whether a declaration's tokens [start, end) that run to the end of the input leave a `(` or `[` open. Kept out of
+   line: only the last declaration of an unterminated stylesheet reaches it. */
+CSS_NOINLINE static int css_leaves_block_open(token_vec *vec, Py_ssize_t start, Py_ssize_t end) {
+    css_buf blocks = {NULL, 0, 0, 0};
+    css_collect_open_blocks(vec, start, end, 0, &blocks);
+    int open = blocks.len > 0;
+    cbuf_free(&blocks);
+    return open;
+}
+
+/* Append a closer component for each bare block a rendered value leaves open. Kept out of line: only a value that runs
+   to the end of the input reaches it. */
+CSS_NOINLINE static void css_close_bare_blocks(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end,
+                                               comp_vec *comps) {
+    css_buf blocks = {NULL, 0, 0, 0};
+    css_collect_open_blocks(vec, start, end, 1, &blocks);
+    for (Py_ssize_t depth = blocks.len - 1; depth >= 0; depth--) {
+        css_comp closer = {0};
+        css_char byte = blocks.data[depth] == '(' ? ')' : ']';
+        closer.off = pool_run(pool, &byte, 1);
+        closer.len = 1;
+        closer.kind = CK_DELIM;
+        comp_vec_push(comps, closer);
+    }
+    cbuf_free(&blocks);
+}
+
+/* Write a closer for each block a raw value leaves open, functions included: the raw path prints a function's `(` as a
+   plain delimiter. Kept out of line: only a value that runs to the end of the input reaches it. */
+CSS_NOINLINE static void css_close_raw_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out) {
+    css_buf blocks = {NULL, 0, 0, 0};
+    css_collect_open_blocks(vec, start, end, 0, &blocks);
+    for (Py_ssize_t depth = blocks.len - 1; depth >= 0; depth--) {
+        cbuf_putc(out, blocks.data[depth] == '(' ? ')' : ']');
+    }
+    cbuf_free(&blocks);
+}
+
+/* Render a value's tokens [start, end) into components in the pool. A bare `(` or `[` (one not opened by a function)
+   reaches the default branch below and prints without its closer, so a value that runs to the end of the input gets the
+   closers from css_close_bare_blocks. A value that stops earlier has none open: css_read_until ends a declaration
+   before the end of the input only at a `;` or `}` outside every block its depth count tracks. */
+static CSS_FORCEINLINE void css_render_components(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end,
+                                                  int is_color, int drop_zero_unit, comp_vec *comps) {
     Py_ssize_t index = start;
     while (index < end) {
         css_token *token = &vec->items[index];
@@ -64,6 +129,9 @@ static void css_render_components(css_buf *pool, token_vec *vec, Py_ssize_t star
         comp_vec_push(comps, comp);
         index++;
     }
+    if (end == vec->len) {
+        css_close_bare_blocks(pool, vec, start, end, comps);
+    }
 }
 
 /* Assemble components into the value buffer: a single space between components, except after a function/url/separator,
@@ -116,7 +184,7 @@ static int css_prop_is_color(const css_char *prop, Py_ssize_t len) {
 }
 
 /* Render a custom property or otherwise-raw value: collapse whitespace and comments, keep everything else verbatim. */
-static void css_render_raw_value(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out) {
+CSS_NOINLINE static void css_render_raw_value(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out) {
     int pending_ws = 0;
     int any_ws = 0;
     int comment_gap = 0;
@@ -154,6 +222,9 @@ static void css_render_raw_value(token_vec *vec, Py_ssize_t start, Py_ssize_t en
      */
     if (written == 0 && any_ws) {
         cbuf_putc(out, ' ');
+    }
+    if (end == vec->len) {
+        css_close_raw_blocks(vec, start, end, out);
     }
 }
 

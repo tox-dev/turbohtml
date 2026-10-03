@@ -1,0 +1,1 @@
+:func:`~turbohtml.clean.minify_css` closes a ``(`` or ``[`` left open at the end of input.
