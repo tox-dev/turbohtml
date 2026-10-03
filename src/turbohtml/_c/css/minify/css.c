@@ -73,7 +73,7 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
         css_render_declarations(&pool, &decls, baseline, &out);
         css_free(decls.items);
     } else {
-        css_parse_rules(&pool, &cur, 1, 0, &out);
+        css_parse_rules(&pool, &cur, 1, 0, NULL, 0, &out);
     }
     css_free(tokens.items);
     cbuf_free(&pool);

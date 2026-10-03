@@ -1187,6 +1187,37 @@ def test_minify_output_is_a_fixed_point(stylesheet: str, inline: str) -> None:
             "@media screen{a{x:1}b{x:2}c{x:3}}",
             id="media-run",
         ),
+        pytest.param(
+            "@media all{a{color:red}}@media all{a{margin:0}}",
+            "@media all{a{color:red;margin:0}}",
+            id="media-merge-inner-same-selector",
+        ),
+        pytest.param(
+            "@media all{a{x:1}}@media all{b{x:1}}",
+            "@media all{a,b{x:1}}",
+            id="media-merge-inner-same-body",
+        ),
+        pytest.param(
+            "@media screen{a{x:1}} @media screen{b{x:1}}",
+            "@media screen{a,b{x:1}}",
+            id="media-merge-across-whitespace",
+        ),
+        pytest.param(
+            "@media screen{a{x:1}}/*x*/@media screen{b{x:1}}",
+            "@media screen{a,b{x:1}}",
+            id="media-merge-across-plain-comment",
+        ),
+        pytest.param(
+            "@media screen{a{x:1}}@media screen",
+            "@media screen{a{x:1}}@media screen",
+            id="media-followed-by-blockless-at-eof",
+        ),
+        pytest.param(
+            "@media screen{a{x:1}}@media screen;",
+            "@media screen{a{x:1}}@media screen",
+            id="media-followed-by-at-statement",
+        ),
+        pytest.param("@media screen{a{x:1}}/*", "@media screen{a{x:1}}", id="media-followed-by-unterminated-comment"),
         pytest.param("a{x:1}b{x:1}c{x:1}", "a,b,c{x:1}", id="selector-run"),
         pytest.param("a{x:1}b{x:1}a,b{x:1}", "a,b{x:1}", id="growing-list-equality"),
         pytest.param("a{x:1}b{x:1}a{x:1}", "a,b,a{x:1}", id="repeated-selector"),
@@ -1215,6 +1246,22 @@ def test_minify_css_batch_merge_order(source: str, expected: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "@media all{a{color:red}}@media all{a{margin:0}}",
+            "@media all{a{color:red;margin:0}}",
+            id="same-selector",
+        ),
+        pytest.param("@media all{a{x:1}}@media all{b{x:1}}", "@media all{a,b{x:1}}", id="same-body"),
+    ],
+)
+def test_minify_css_merged_media_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+    assert minify_css(minify_css(source)) == expected
+
+
+@pytest.mark.parametrize(
     "case_index",
     [
         pytest.param(0, id="media10"),
@@ -1231,7 +1278,7 @@ def test_minify_css_merge_shared_inputs(case_index: int) -> None:
     source: Final = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
     count: Final = (10, 100, 1_000)[case_index % 3]
     expected: Final = (
-        "@media screen{" + "".join(f".a{index}{{color:red}}" for index in range(count)) + "}"
+        "@media screen{" + ",".join(f".a{index}" for index in range(count)) + "{color:red}}"
         if case_index < 3
         else ",".join(f".a{index}" for index in range(count)) + "{color:red}"
         if case_index < 6
