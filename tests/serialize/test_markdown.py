@@ -219,6 +219,132 @@ def test_code(html: str, expected: str) -> None:
     assert md(html) == expected
 
 
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<del><del>x</del></del>", "<del><del>x</del></del>", id="strike-nested-del"),
+        pytest.param("<s><s>x</s></s>", "<s><s>x</s></s>", id="strike-nested-s"),
+        pytest.param(
+            "<strike><strike>x</strike></strike>", "<strike><strike>x</strike></strike>", id="strike-nested-strike"
+        ),
+        pytest.param(
+            "<del><del><del>x</del></del></del>", "<del><del><del>x</del></del></del>", id="strike-nested-deep"
+        ),
+        pytest.param("<p><del>a</del><del>b</del></p>", "~~a~~<del>b</del>", id="strike-adjacent"),
+        pytest.param("<p><code>a</code><code>b</code></p>", "`a`<code>b</code>", id="code-adjacent"),
+        pytest.param(
+            "<p><code>a</code><code>*x*</code></p>", "`a`<code>\\*x\\*</code>", id="code-adjacent-escapes-content"
+        ),
+        pytest.param("<p><i>a</i><i>b</i></p>", "*a*_b_", id="emphasis-adjacent-alternates"),
+        pytest.param("<p><i>a</i><i>b</i> c</p>", "*a*_b_ c", id="emphasis-adjacent-alternates-before-space"),
+        pytest.param("<p><i>a</i><i>b</i>.</p>", "*a*_b_.", id="emphasis-adjacent-alternates-before-punct"),
+        pytest.param("<p><i>a</i><i>b</i>c</p>", "*a*<em>b</em>c", id="emphasis-adjacent-before-letter-html"),
+        pytest.param("<p><i>a</i><i>b</i><i>c</i></p>", "*a*<em>b</em>*c*", id="emphasis-adjacent-before-element-html"),
+        pytest.param("<p><i>a</i><i>b</i><!-- c-->x</p>", "*a*<em>b</em>x", id="emphasis-adjacent-before-comment-html"),
+        pytest.param("<p><b>a</b><b>b</b></p>", "**a**__b__", id="strong-adjacent-alternates"),
+        pytest.param("<p><b>a</b><i>b</i></p>", "**a**_b_", id="strong-then-emphasis-alternates"),
+        pytest.param("<p><span><i>a</i><i>b</i></span>x</p>", "*a*<em>b</em>x", id="emphasis-adjacent-in-span-html"),
+        pytest.param(
+            "<p><template><i>a</i><i>b</i></template>x</p>", "*a*<em>b</em>x", id="emphasis-adjacent-in-template-html"
+        ),
+        pytest.param(
+            "<p><math><mtext><i>a</i><i>b</i></mtext></math>x</p>",
+            "*a*<em>b</em>x",
+            id="emphasis-adjacent-in-mtext-html",
+        ),
+        pytest.param(
+            "<a href='h'><div><i>a</i><i>b</i></div>x</a>", "[*a*<em>b</em>x](h)", id="emphasis-adjacent-in-link-html"
+        ),
+        pytest.param("<p><i>;</i>i</p>", "<em>;</em>i", id="emphasis-close-punct-before-letter"),
+        pytest.param("<p>i<i>;</i></p>", "i<em>;</em>", id="emphasis-open-letter-before-punct"),
+        pytest.param("<p><b>c<i>\\</i></b></p>", "**c<em>\\\\</em>**", id="emphasis-in-strong-backslash"),
+        pytest.param("<p><i>end.</i></p>", "*end.*", id="emphasis-trailing-punct-at-end-keeps-delimiter"),
+        pytest.param("<p><i>;</i>.x</p>", "*;*.x", id="emphasis-close-before-punct-keeps-delimiter"),
+        pytest.param("<p>.<i>;</i> z</p>", ".*;* z", id="emphasis-open-after-punct-keeps-delimiter"),
+        pytest.param("<p>*<i>x</i></p>", "\\**x*", id="escaped-asterisk-before-emphasis-keeps-delimiter"),
+        pytest.param("<p><i><i>x</i></i></p>", "**x**", id="nested-emphasis-keeps-delimiters"),
+        pytest.param("<p><i>;</i><b>x</b></p>", "*;*__x__", id="emphasis-then-strong-adjacent"),
+        pytest.param("<p>a<b>  </b>b</p>", "a b", id="whitespace-only-emphasis-dropped"),
+    ],
+)
+def test_inline_delimiter_round_trip(html: str, expected: str) -> None:
+    assert md(html) == expected
+
+
+def test_inline_delimiter_keeps_delimiter_before_empty_text() -> None:
+    root = Element("p", children=[Element("i", children=[Text(";")]), Text("")])
+    assert root.to_markdown() == "*;*"
+
+
+def test_inline_delimiter_html_in_foreign_parent() -> None:
+    document = parse("<p><svg><section></section></svg>x</p>")
+    section = document.select_one("section")
+    assert section is not None
+    section.extend([Element("i", children=[Text("a")]), Element("i", children=[Text("b")])])
+    assert document.to_markdown() == "*a*<em>b</em>x"
+
+
+def test_inline_delimiter_skips_empty_text_content() -> None:
+    root = Element("p", children=[Element("i", children=[Text("")]), Text("x")])
+    assert root.to_markdown() == "x"
+
+
+def test_inline_delimiter_html_before_empty_text() -> None:
+    root = Element("p", children=[Element("i", children=[Text("a")]), Element("i", children=[Text("b")]), Text("")])
+    assert root.to_markdown() == "*a*<em>b</em>"
+
+
+@pytest.mark.parametrize(
+    ("html", "options", "expected"),
+    [
+        pytest.param(
+            "<p>*<i>x</i></p>",
+            Markdown(escaping=Markdown.Escaping(asterisks=False)),
+            "*_x_",
+            id="alternates-after-unescaped-asterisk",
+        ),
+        pytest.param(
+            "<p><i>a</i><i>b</i></p>",
+            Markdown(inline=Markdown.Inline(emphasis="_")),
+            "_a_*b*",
+            id="underscore-emphasis-alternates-to-asterisk",
+        ),
+        pytest.param(
+            "<p><b>a</b><b>b</b></p>",
+            Markdown(inline=Markdown.Inline(strong="__")),
+            "__a__**b**",
+            id="underscore-strong-alternates-to-asterisks",
+        ),
+        pytest.param(
+            "<p><i>a</i><i>b</i></p>",
+            Markdown(escaping=Markdown.Escaping(underscores=False)),
+            "*a*<em>b</em>",
+            id="unescaped-underscores-keep-html",
+        ),
+        pytest.param(
+            "<p><i>;</i>i</p>",
+            Markdown(inline=Markdown.Inline(ignore_emphasis=True)),
+            ";i",
+            id="ignored-emphasis-gets-no-html",
+        ),
+        pytest.param(
+            "<table><tr><td><div><i>a</i><i>b</i></div>x</td></tr></table>",
+            Markdown(tables=Markdown.Tables(cell_blocks="text")),
+            "| *a*<em>b</em>x |\n| --- |",
+            id="text-cell-keeps-html",
+        ),
+        pytest.param(
+            "<div><i>a</i><i>b</i></div>",
+            Markdown(converters={"div": lambda _element, content: f"{content}x"}),
+            "*a*<em>b</em>x",
+            id="converter-keeps-html",
+        ),
+    ],
+)
+def test_adjacent_emphasis_alternation(html: str, options: Markdown, expected: str) -> None:
+    assert parse(html).to_markdown(options) == expected
+
+
 def test_code_empty_text_keeps_block_boundary() -> None:
     code: Final = Element("code", children=[Element("p", children=[Text("one")]), Text(""), Text("two")])
     assert Element("main", children=[code]).to_markdown() == "`one two`"

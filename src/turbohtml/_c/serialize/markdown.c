@@ -93,10 +93,33 @@ typedef struct {
 /* An emphasis/strikethrough marker or a link's opening bracket whose run is deferred
    until the first visible character of its content, so a leading inner space lands
    outside the marker (`a<b> x</b>` -> `a **x**`, never the invalid `a** x**`). The
-   open markers stack outermost first. */
+   open markers stack outermost first.
+
+   open/close hold what is written for the run; they start as the Markdown delimiter
+   and are swapped at emit time when the delimiter would not round-trip: for the other
+   emphasis character where that one can pair, else for the element's HTML tag (CommonMark
+   6 allows raw inline HTML). The flanking context of a single-text-node element is kept
+   as two bits, filled in O(1) so the decision needs no subtree scan. */
+enum md_html { MD_HTML_NONE, MD_HTML_EM, MD_HTML_STRONG, MD_HTML_DEL, MD_HTML_S, MD_HTML_STRIKE };
+
+/* The raw-HTML fallback tags, indexed by enum md_html minus one. */
+static const char *const MD_HTML_TAGS[][2] = {
+    {"<em>", "</em>"}, {"<strong>", "</strong>"}, {"<del>", "</del>"}, {"<s>", "</s>"}, {"<strike>", "</strike>"},
+};
+
+enum {
+    MD_MARK_STRIKE = 1,      /* a ~~ run: it must not touch another ~~ run */
+    MD_MARK_OPEN_PUNCT = 2,  /* the content starts with punctuation */
+    MD_MARK_CLOSE_FAILS = 4, /* the content ends with punctuation and an ordinary character follows */
+};
+
 typedef struct {
-    const char *text;
-    int emitted;
+    const char *open;
+    const char *close;
+    th_node *node;   /* the wrapped element when it has an HTML fallback, else NULL */
+    uint8_t html;    /* enum md_html */
+    uint8_t flags;   /* MD_MARK_* */
+    uint8_t emitted; /* the open run was written, so the close run must be too */
 } md_marker;
 
 /* The layout state one list threads through its items, including the items it
@@ -399,6 +422,65 @@ static void md_settle_pending(md_ctx *ctx) {
     ctx->pending = ctx->marker_count > ctx->marker_base ? &ctx->markers[ctx->marker_count - 1] : NULL;
 }
 
+/* What a character is to the CommonMark flanking rules: whitespace, ASCII punctuation,
+   or (0) anything else. */
+enum { MD_EDGE_SPACE = 1, MD_EDGE_PUNCT = 2 };
+static const uint8_t MD_EDGE[128] = {
+    ['\t'] = MD_EDGE_SPACE, ['\n'] = MD_EDGE_SPACE, ['\f'] = MD_EDGE_SPACE, ['\r'] = MD_EDGE_SPACE,
+    [' '] = MD_EDGE_SPACE,  ['!'] = MD_EDGE_PUNCT,  ['"'] = MD_EDGE_PUNCT,  ['#'] = MD_EDGE_PUNCT,
+    ['$'] = MD_EDGE_PUNCT,  ['%'] = MD_EDGE_PUNCT,  ['&'] = MD_EDGE_PUNCT,  ['\''] = MD_EDGE_PUNCT,
+    ['('] = MD_EDGE_PUNCT,  [')'] = MD_EDGE_PUNCT,  ['*'] = MD_EDGE_PUNCT,  ['+'] = MD_EDGE_PUNCT,
+    [','] = MD_EDGE_PUNCT,  ['-'] = MD_EDGE_PUNCT,  ['.'] = MD_EDGE_PUNCT,  ['/'] = MD_EDGE_PUNCT,
+    [':'] = MD_EDGE_PUNCT,  [';'] = MD_EDGE_PUNCT,  ['<'] = MD_EDGE_PUNCT,  ['='] = MD_EDGE_PUNCT,
+    ['>'] = MD_EDGE_PUNCT,  ['?'] = MD_EDGE_PUNCT,  ['@'] = MD_EDGE_PUNCT,  ['['] = MD_EDGE_PUNCT,
+    ['\\'] = MD_EDGE_PUNCT, [']'] = MD_EDGE_PUNCT,  ['^'] = MD_EDGE_PUNCT,  ['_'] = MD_EDGE_PUNCT,
+    ['`'] = MD_EDGE_PUNCT,  ['{'] = MD_EDGE_PUNCT,  ['|'] = MD_EDGE_PUNCT,  ['}'] = MD_EDGE_PUNCT,
+    ['~'] = MD_EDGE_PUNCT,
+};
+
+static inline uint8_t md_edge(Py_UCS4 ch) {
+    return ch < 128 ? MD_EDGE[ch] : 0;
+}
+
+static int md_is_ascii_punct(Py_UCS4 ch) {
+    return md_edge(ch) == MD_EDGE_PUNCT;
+}
+
+static const char *md_alternate_run(md_ctx *ctx, const md_marker *marker);
+
+/* Whether marker[index] must fall back to raw inline HTML because its Markdown
+   delimiter would not survive a round-trip. Three ways it fails: it touches an
+   identical delimiter, so the two runs merge into one, unless the other emphasis
+   character can take its place; a ~~ run nests directly in another, which opens a code
+   fence (and commonmark.js has no strikethrough); or its flanking context (CommonMark
+   6.2) leaves neither side able to pair. The flanking test runs only for a
+   single-text-node element, where the surrounding characters are known without a
+   subtree scan, so the walk stays linear. */
+static int md_marker_html(md_ctx *ctx, Py_ssize_t index, Py_ssize_t first) {
+    md_marker *marker = &ctx->markers[index];
+    if (marker->node == NULL) {
+        return 0;
+    }
+    Py_ssize_t len = ctx->out.len;
+    if (index == first && len > 0 && ctx->out.data[len - 1] == (unsigned char)marker->open[0] &&
+        !(len >= 2 && ctx->out.data[len - 2] == '\\')) {
+        const char *alternate = md_alternate_run(ctx, marker);
+        if (alternate == NULL) {
+            return 1;
+        }
+        marker->open = alternate;
+        marker->close = alternate;
+        return 0;
+    }
+    if ((marker->flags & MD_MARK_STRIKE) &&
+        ((index > first && (ctx->markers[index - 1].flags & MD_MARK_STRIKE)) ||
+         (index + 1 < ctx->marker_count && (ctx->markers[index + 1].flags & MD_MARK_STRIKE)))) {
+        return 1; /* a ~~ run directly inside another: the pair would read as `~~~~` */
+    }
+    return (marker->flags & MD_MARK_CLOSE_FAILS) ||
+           ((marker->flags & MD_MARK_OPEN_PUNCT) && md_edge(len > 0 ? ctx->out.data[len - 1] : ' ') == 0);
+}
+
 /* Emit the deferred opening markers from outermost to innermost (skipping any
    already written), so nested emphasis opens in source order. */
 static TH_NOINLINE void md_emit_pending(md_ctx *ctx) {
@@ -407,8 +489,13 @@ static TH_NOINLINE void md_emit_pending(md_ctx *ctx) {
         first--;
     }
     for (Py_ssize_t index = first; index < ctx->marker_count; index++) {
-        md_puts8(&ctx->out, ctx->markers[index].text);
-        ctx->markers[index].emitted = 1;
+        md_marker *marker = &ctx->markers[index];
+        if (md_marker_html(ctx, index, first)) {
+            marker->open = MD_HTML_TAGS[marker->html - 1][0];
+            marker->close = MD_HTML_TAGS[marker->html - 1][1];
+        }
+        md_puts8(&ctx->out, marker->open);
+        marker->emitted = 1;
         ctx->line_has_content = 1;
     }
 }
@@ -815,20 +902,20 @@ static Py_ssize_t md_push_marker(md_ctx *ctx, const char *text) {
             return -1;   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
-    ctx->markers[ctx->marker_count] = (md_marker){text, 0};
+    ctx->markers[ctx->marker_count] = (md_marker){.open = text, .close = text};
     ctx->pending = &ctx->markers[ctx->marker_count];
     return ctx->marker_count++;
 }
 
-/* Close the marker a frame opened, returning its text when the open run was written
-   (so the close run must be too), NULL otherwise. */
+/* Close the marker a frame opened, returning its closing run when the open run was
+   written (so the close run must be too), NULL otherwise. */
 static const char *md_pop_marker(md_ctx *ctx, Py_ssize_t marker) {
     if (marker < 0) {
         return NULL;
     }
     ctx->marker_count = marker;
     md_settle_pending(ctx);
-    return ctx->markers[marker].emitted ? ctx->markers[marker].text : NULL;
+    return ctx->markers[marker].emitted ? ctx->markers[marker].close : NULL;
 }
 
 static int md_enter_converter(md_ctx *ctx, th_node *node);
@@ -838,16 +925,117 @@ static inline int md_apply_converter(md_ctx *ctx, th_node *node) {
 }
 static void md_render_block(md_ctx *ctx, th_node *node);
 
+/* Whether whitespace or punctuation follows the element in the output, which a closing
+   `_` run needs to pair (commonmark.js 0.31.2 inlines.js L295-L297) and is enough for a
+   `*` run too. It is known in O(1) when a text sibling follows, or when the element ends
+   a block laid out in the normal flow, whose line then ends. Link text, a text-mode
+   table cell and a converter can each put text right after a block, so there it is not. */
+static int md_followed_by_break(md_ctx *ctx, th_node *node) {
+    th_node *sibling = node->next_sibling;
+    if (sibling == NULL) {
+        /* a node that is not an element carries TH_TAG_UNKNOWN, never a block atom */
+        th_node *parent = node->parent;
+        return parent->ns == TH_NS_HTML && is_md_block(parent->atom) && ctx->inline_only == 0 && !ctx->in_cell &&
+               ctx->opt->converters == NULL;
+    }
+    if (sibling->type != TH_NODE_TEXT || sibling->text_len == 0) {
+        return 0;
+    }
+    return md_edge(need_text(ctx->tree, sibling)[0]) != 0;
+}
+
+static const char *const MD_ALTERNATES[][2] = {{"*", "_"}, {"_", "*"}, {"**", "__"}, {"__", "**"}};
+
+/* The other emphasis character for a run that would merge with the identical run the
+   element before it left (`*a*_b_`), or NULL when that cannot round-trip either. Right
+   after the earlier run's punctuation it always opens; it closes where whitespace or
+   punctuation follows, and the prose must escape it so no literal one joins the run. */
+static const char *md_alternate_run(md_ctx *ctx, const md_marker *marker) {
+    for (size_t index = 0; index < sizeof(MD_ALTERNATES) / sizeof(MD_ALTERNATES[0]); index++) {
+        if (strcmp(marker->open, MD_ALTERNATES[index][0]) == 0) {
+            const char *alternate = MD_ALTERNATES[index][1];
+            return MD_ASCII[(unsigned char)alternate[0]] & ctx->escape_mask && md_followed_by_break(ctx, marker->node)
+                       ? alternate
+                       : NULL;
+        }
+    }
+    return NULL;
+}
+
+/* Record, as MD_MARK_OPEN_PUNCT and MD_MARK_CLOSE_FAILS, the flanking context an
+   emphasis/strikethrough element needs to choose between its delimiter and the raw-HTML
+   fallback: whether the first visible content character is punctuation, and whether the
+   last one is punctuation with an ordinary character after the element. Only an element
+   whose content is one text node is handled, so the lookup is O(1) and never descends
+   the tree; any richer content keeps the delimiter. A run around ordinary text always
+   flanks, so it returns after one look at each end. An element at the end of its
+   parent, or before a non-text sibling, is treated as followed by whitespace, which is
+   what the end of a line is to the flanking rules. */
+static void md_wrap_flank(md_ctx *ctx, th_node *node, md_marker *marker) {
+    th_node *only = node->first_child;
+    if (only == NULL || only->next_sibling != NULL || only->type != TH_NODE_TEXT || only->text_len == 0) {
+        return;
+    }
+    const Py_UCS4 *text = need_text(ctx->tree, only);
+    Py_ssize_t start = 0;
+    Py_ssize_t end = only->text_len;
+    Py_UCS4 first = text[start];
+    Py_UCS4 last = text[end - 1];
+    if ((first | last) < 128 && (MD_EDGE[first] | MD_EDGE[last]) == 0) {
+        return; /* ordinary characters at both ends: the run flanks wherever it sits */
+    }
+    while (start < end && is_space(text[start])) {
+        start++;
+    }
+    while (end > start && is_space(text[end - 1])) {
+        end--;
+    }
+    if (start == end) {
+        return;
+    }
+    if (md_is_ascii_punct(text[start])) {
+        marker->flags |= MD_MARK_OPEN_PUNCT;
+    }
+    if (md_is_ascii_punct(text[end - 1])) {
+        th_node *sibling = node->next_sibling;
+        Py_UCS4 next = sibling != NULL && sibling->type == TH_NODE_TEXT && sibling->text_len > 0
+                           ? need_text(ctx->tree, sibling)[0]
+                           : ' ';
+        if (md_edge(next) == 0) {
+            marker->flags |= MD_MARK_CLOSE_FAILS;
+        }
+    }
+}
+
 /* Wrap an inline element's content in a marker (** , * , ~~). The open run is
    deferred (md_before_visible writes it at the first visible character) so a
    leading inner space moves outside; the close run is written only if the open
    one was, so an empty <b></b> leaves nothing behind. The owed space is left
-   pending across the close, so a trailing inner space also lands outside. */
-static void md_enter_wrap(md_ctx *ctx, th_node *node, const char *marker) {
+   pending across the close, so a trailing inner space also lands outside. Returns the
+   marker's index, or -1 after an allocation failure. */
+static Py_ssize_t md_enter_wrap(md_ctx *ctx, th_node *node, const char *delim) {
     md_frame *frame = md_push(ctx, node, MD_WALK_INLINE, MD_LEAVE_WRAP);
-    if (frame != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        frame->marker = md_push_marker(ctx, marker);
+    if (frame == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    return frame->marker = md_push_marker(ctx, delim);
+}
+
+/* Wrap an emphasis or strikethrough element, giving its marker the raw-HTML fallback
+   (html) used when the delimiter would not round-trip, and its flanking context. */
+static void md_enter_emphasis(md_ctx *ctx, th_node *node, const char *delim, uint8_t html) {
+    Py_ssize_t index = md_enter_wrap(ctx, node, delim);
+    if (index < 0) { /* GCOVR_EXCL_BR_LINE: -1 only on an allocation failure */
+        return;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (delim[0] == '\0') {
+        return; /* the options drop the markup, so there is nothing to fall back from */
+    }
+    md_marker *marker = &ctx->markers[index];
+    marker->node = node;
+    marker->html = html;
+    marker->flags = html >= MD_HTML_DEL ? MD_MARK_STRIKE : 0;
+    md_wrap_flank(ctx, node, marker);
 }
 
 /* The longest run of backticks anywhere in s, so an inline code span can fence
@@ -925,6 +1113,22 @@ static void md_emit_code_span(md_ctx *ctx, th_node *node) {
         return;
     }
     md_before_visible(ctx);
+    if (ctx->out.len > 0 && ctx->out.data[ctx->out.len - 1] == '`') {
+        /* a backtick right before this span would merge the two code runs into one
+           (CommonMark 6.1); raw inline HTML keeps them apart, its content escaped so a
+           reader takes it literally */
+        sbuf_puts(&ctx->out, "<code>");
+        for (Py_ssize_t index = 0; index < len; index++) {
+            if (md_is_ascii_punct(content.data[index])) {
+                sbuf_putc(&ctx->out, '\\');
+            }
+            sbuf_putc(&ctx->out, content.data[index]);
+        }
+        sbuf_puts(&ctx->out, "</code>");
+        ctx->line_has_content = 1;
+        PyMem_Free(content.data);
+        return;
+    }
     Py_ssize_t fence = md_max_backtick_run(content.data, len) + 1;
     int pad = content.data[0] == '`' || content.data[len - 1] == '`';
     for (Py_ssize_t index = 0; index < fence; index++) {
@@ -1357,11 +1561,11 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
     switch (atom) {
     case TH_TAG_STRONG:
     case TH_TAG_B:
-        md_enter_wrap(ctx, node, opt->keep_emphasis ? opt->strong : "");
+        md_enter_emphasis(ctx, node, opt->keep_emphasis ? opt->strong : "", MD_HTML_STRONG);
         return;
     case TH_TAG_EM:
     case TH_TAG_I:
-        md_enter_wrap(ctx, node, opt->keep_emphasis ? opt->emphasis : "");
+        md_enter_emphasis(ctx, node, opt->keep_emphasis ? opt->emphasis : "", MD_HTML_EM);
         return;
     case TH_TAG_DEL:
     case TH_TAG_S:
@@ -1369,7 +1573,9 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
         if (!opt->keep_strikethrough) {
             return; /* hide struck-through content entirely */
         }
-        md_enter_wrap(ctx, node, opt->keep_emphasis ? opt->strikethrough : "");
+        /* the fallback keeps the element's own tag so the round-trip reaches the same element */
+        md_enter_emphasis(ctx, node, opt->keep_emphasis ? opt->strikethrough : "",
+                          atom == TH_TAG_DEL ? MD_HTML_DEL : (atom == TH_TAG_S ? MD_HTML_S : MD_HTML_STRIKE));
         return;
     case TH_TAG_SUB:
         md_enter_wrap(ctx, node, opt->sub);
