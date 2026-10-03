@@ -126,6 +126,17 @@ def minify(source: str) -> str:
         # a backslash then a lone CR at end of input: the CRLF probe runs off the buffer and the string
         # is unterminated (exercises the line-continuation bound at the source end)
         pytest.param('x="a' + chr(0x5C) + chr(0x0D), id="continuation-backslash-cr-at-eof"),
+        # two statements sharing a line with no `;` and no line break between them: ASI cannot insert a
+        # terminator (ECMA-262 12.10), so the script is rejected rather than silently dropping one (#984)
+        pytest.param("{1 2}3", id="block-two-statements"),
+        pytest.param("a b", id="two-expression-statements"),
+        pytest.param("throw a b", id="throw-then-token"),
+        pytest.param("debugger x", id="debugger-then-token"),
+        pytest.param("var a b", id="var-decl-then-token"),
+        pytest.param("class C{x y}", id="class-field-then-token"),
+        pytest.param("label:a b", id="labeled-statement-then-token"),
+        # `.0` lexes as a number, so `t.0` is `t` then `.0` with no separator, not a member access
+        pytest.param("t.0.", id="numeric-token-after-expression"),
     ],
 )
 def test_malformed_raises(source: str) -> None:
@@ -167,13 +178,13 @@ def test_error_message_names_token(source: str, match: str) -> None:
         pytest.param("function f(){class{}}", "expected class name at offset 18 near '{'", id="class"),
         pytest.param("class extends B{}", "expected class name at offset 6 near 'extends'", id="class-extends"),
         pytest.param(
-            "function f(){retlet function(a){return a&1?1:2}}",
+            "function f(){retlet\nfunction(a){return a&1?1:2}}",
             "expected function name at offset 28 near '('",
             id="after-expression-statement",
         ),
         pytest.param(
-            "function f(){g();var a=1\x95return function(){return a+a}}",
-            "expected function name at offset 40 near '('",
+            "function f(){g();var a=1;\x95return\nfunction(){return a+a}}",
+            "expected function name at offset 41 near '('",
             id="after-non-ascii-name",
         ),
     ],
@@ -300,6 +311,10 @@ def test_nesting_just_under_the_cap_still_minifies() -> None:
         pytest.param("class C{*get(){}}", "class C{*get(){}}", id="generator-method-named-get"),
         pytest.param("class C{get\nx(){}}", "class C{get x(){}}", id="get-name-then-newline"),
         pytest.param("class C{get;m(){}}", "class C{get;m(){}}", id="get-name-then-semicolon"),
+        # ECMA-262 12.10.1 inserts a do-while's terminator after `)` unconditionally, so a following
+        # statement needs no line break, with or without the optional explicit `;`
+        pytest.param("do a();while(b)c()", "do a();while(b);c()", id="do-while-then-statement"),
+        pytest.param("do a();while(b);c()", "do a();while(b);c()", id="do-while-semicolon-then-statement"),
     ],
 )
 def test_constructs_minify_to(source: str, expected: str) -> None:

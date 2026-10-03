@@ -122,10 +122,9 @@ def test_computed_member_to_dot(source: str, expected: str) -> None:
     assert minify(source) == expected
 
 
-@pytest.mark.parametrize("source", [pytest.param("t.0.", id="dot"), pytest.param("t,(0).", id="paren")])
-def test_minify_keeps_trailing_dot_after_numeric_member(source: str) -> None:
-    assert minify_js(source) == "t,(0)."
-    assert clean.minify(f"<script>{source}</script>", Minify(minify_js=JSMinify())) == "<script>t,(0).</script>"
+def test_minify_keeps_trailing_dot_after_numeric_member() -> None:
+    assert minify_js("t,(0).") == "t,(0)."
+    assert clean.minify("<script>t,(0).</script>", Minify(minify_js=JSMinify())) == "<script>t,(0).</script>"
 
 
 @pytest.mark.parametrize(

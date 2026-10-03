@@ -1,0 +1,1 @@
+:func:`~turbohtml.clean.minify_js` rejects two statements on one line with no separator.

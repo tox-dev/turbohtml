@@ -240,14 +240,20 @@ static int32_t leaf(P *parser, jm_kind kind) {
     return index;
 }
 
-/* Consume a statement terminator: an explicit `;`, or an ASI boundary (a `}`, EOF,
-   or a preceding line break). The parser is lenient - it never rejects a missing
-   semicolon - because the input is already valid and the printer re-inserts them. */
+/* Consume a statement terminator (ECMA-262 12.10). An explicit `;` always ends the statement;
+   otherwise a semicolon is inserted only before a `}`, at end of input, or across a line break.
+   Any other token leaves two statements sharing a line with no separator, which no production
+   allows, so reject it rather than silently drop a statement (`{1 2}` is not `{1;2}`, #984). This
+   matches acorn's semicolon()/canInsertSemicolon()
+   (https://github.com/acornjs/acorn/blob/c912cf2611079812638a49bc38292557a1096be8/acorn/src/parseutil.js#L97-L115). */
 static void semicolon(P *parser) {
     if (eat(parser, JT_SEMI)) {
         return;
     }
-    /* ASI: a close brace, end of input, or a newline ends the statement. */
+    if (at(parser, JT_RBRACE) || at(parser, JT_EOF) || parser->lx.newline_before) {
+        return;
+    }
+    fail(parser, "missing semicolon");
 }
 
 static int32_t parse_var(P *parser, int no_in) {
@@ -437,7 +443,8 @@ static int32_t parse_do(P *parser) {
     expect(parser, JT_LPAREN, "expected (");
     set_b(parser, node, parse_expr(parser, 0));
     expect(parser, JT_RPAREN, "expected )");
-    semicolon(parser);
+    /* ECMA-262 12.10.1 inserts the terminator after `)` unconditionally, so `do x; while(y) z` is valid */
+    eat(parser, JT_SEMI);
     return parser->err ? -1 : node;
 }
 
