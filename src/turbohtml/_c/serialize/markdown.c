@@ -216,6 +216,7 @@ typedef struct {
         struct {
             Py_ssize_t mark; /* where the heading text starts */
             int level;
+            int outer_in_heading;
         } heading;
         struct {
             const Py_UCS4 *href;
@@ -271,6 +272,7 @@ typedef struct {
     int no_wrap;                /* >0 inside verbatim/grid/unbreakable content: never insert a wrap break */
     int inline_only;            /* >0 inside link text: a block flattens to inline, never opens a line */
     int in_cell;                /* inside a table cell: a pipe is escaped as it is written, a block turns into HTML */
+    int in_heading;             /* inside a heading: a <br> becomes a space, since a heading is one line of text */
     int drop_space;             /* swallow the next pending space (block/inline start) without emitting */
     int pending_loose;          /* the previous block wants a blank line after it */
     int suppress_break;         /* the next block attaches to the current (list marker) line */
@@ -333,6 +335,17 @@ static void md_block_line(md_ctx *ctx, int loose) {
     } else if (ctx->suppress_break) {
         ctx->suppress_break = 0;
     } else {
+        /* an empty block quote left its "> " prefix on the line with nothing after
+           it; trim the trailing spaces so the quoted blank line reads as ">" */
+        if (!ctx->line_has_content) {
+            Py_ssize_t end = ctx->out.len;
+            while (end > 0 && ctx->out.data[end - 1] == ' ') {
+                end--;
+            }
+            if (end > 0 && ctx->out.data[end - 1] == '>') {
+                ctx->out.len = end;
+            }
+        }
         sbuf_putc(&ctx->out, '\n');
         if ((ctx->pending_loose || loose) && !ctx->tight && !ctx->opt->block_spacing_single) {
             md_write_blank_prefix(ctx);
@@ -1292,14 +1305,16 @@ static void md_cell_flat_child(md_ctx *ctx, Py_ssize_t owner, th_node *child) {
 }
 
 /* Write an image's alt text, falling back to the configured default. Inside the
-   `![...]` description a bracket or backslash is escaped the same way link text
-   escapes them (an unescaped `]` would close the description early); the plain
-   alt-only image mode passes escape=0 since it emits no brackets to protect. */
+   `![...]` description a bracket, backslash or backtick is escaped the same way
+   link text escapes them: an unescaped `]` would close the description early, and
+   a backtick pairs with a later one into a code span, which CommonMark 6.3 reads
+   before the image brackets. The plain alt-only image mode passes escape=0 since
+   it emits no brackets to protect. */
 static void md_emit_alt(md_ctx *ctx, const Py_UCS4 *alt, Py_ssize_t alt_len, int escape) {
     if (alt != NULL) {
         if (escape) {
             for (Py_ssize_t index = 0; index < alt_len; index++) {
-                if (alt[index] == '[' || alt[index] == ']' || alt[index] == '\\') {
+                if (alt[index] == '[' || alt[index] == ']' || alt[index] == '\\' || alt[index] == '`') {
                     sbuf_putc(&ctx->out, '\\');
                 }
                 md_put_literal(ctx, alt[index]);
@@ -1347,6 +1362,37 @@ static void md_emit_image(md_ctx *ctx, th_node *node) {
     }
     sbuf_putc(&ctx->out, ')');
     ctx->line_has_content = 1;
+}
+
+/* Whether a <br> sits at the end of its block, where a hard break does nothing
+   (CommonMark 6.7): no visible content follows it before a block boundary. Scanning
+   forward, a following non-space text run or inline element is visible content and a
+   following block ends the run; climbing out of an inline wrapper reaches the block
+   that encloses the break. A parsed tree always wraps a break in a block (the body at
+   least), so the climb meets that block and never a parentless node. */
+static int md_br_trailing(md_ctx *ctx, th_node *node) {
+    for (th_node *cursor = node;; cursor = cursor->parent) {
+        for (th_node *sibling = cursor->next_sibling; sibling != NULL; sibling = sibling->next_sibling) {
+            if (sibling->type == TH_NODE_TEXT) {
+                const Py_UCS4 *text = need_text(ctx->tree, sibling);
+                for (Py_ssize_t index = 0; index < sibling->text_len; index++) {
+                    if (!is_space(text[index])) {
+                        return 0;
+                    }
+                }
+            } else if (sibling->type == TH_NODE_ELEMENT && !is_md_skipped(sibling)) {
+                uint16_t atom = sibling->ns == TH_NS_HTML ? sibling->atom : TH_TAG_UNKNOWN;
+                if (atom == TH_TAG_BR) {
+                    continue; /* another break is not visible content; keep looking past it */
+                }
+                return is_md_block(atom); /* a block ends the run (trailing); any other element is content */
+            }
+        }
+        th_node *parent = cursor->parent;
+        if (is_md_block(parent->ns == TH_NS_HTML ? parent->atom : TH_TAG_UNKNOWN)) {
+            return 1;
+        }
+    }
 }
 
 /* Render an element (or content node) by its tag, the common path shared by the
@@ -1404,6 +1450,17 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
             } else {
                 ctx->space_pending = 1;
             }
+            return;
+        }
+        if (ctx->in_heading) {
+            /* a hard break ends the line, but an ATX heading is one line and a
+               setext heading joins its lines, so the break reads as a space */
+            ctx->space_pending = 1;
+            return;
+        }
+        if (md_br_trailing(ctx, node)) {
+            /* a hard break at the end of a block does nothing (CommonMark 6.7); emitting
+               it would leave a line of spaces that reads as a blank line */
             return;
         }
         sbuf_puts(&ctx->out, opt->line_break == TH_MD_BREAK_BACKSLASH ? "\\" : "  ");
@@ -1660,6 +1717,9 @@ static inline void md_block_child(md_ctx *ctx, th_node *child, int *in_run) {
         return;
     }
     if (!*in_run) {
+        if (atom == TH_TAG_BR) {
+            return; /* a hard break with no content before it in the block does nothing */
+        }
         int only_ws = child->type == TH_NODE_TEXT;
         if (only_ws) {
             const Py_UCS4 *text = need_text(ctx->tree, child);
@@ -1671,6 +1731,17 @@ static inline void md_block_child(md_ctx *ctx, th_node *child, int *in_run) {
             }
         }
         if (only_ws) {
+            return;
+        }
+        if (child->type == TH_NODE_ELEMENT && atom != TH_TAG_A && child->first_child != NULL &&
+            child->first_child->type == TH_NODE_ELEMENT && md_leads_with_inline(ctx, child) == 0) {
+            /* an inline wrapper whose first child is a self-framing block (a nested
+               list, quote or table) has no inline run of its own; opening one would
+               leave an empty line that reads as a blank line and splits the surrounding
+               item, so let the inner block open its own line instead. The element
+               first-child test keeps the scan off the common inline run, and a link is
+               excluded because it flattens its block content into the run it needs. */
+            md_render_inline(ctx, child);
             return;
         }
         md_block_line(ctx, ctx->tight ? 0 : 1);
@@ -2727,7 +2798,9 @@ static void md_render_block(md_ctx *ctx, th_node *node) {
         if (frame != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             frame->heading.mark = ctx->out.len;
             frame->heading.level = level;
+            frame->heading.outer_in_heading = ctx->in_heading;
         }
+        ctx->in_heading = 1;
         return;
     }
     case TH_TAG_HR:
@@ -2789,6 +2862,7 @@ static void md_render_block(md_ctx *ctx, th_node *node) {
    (h2) as wide as the text; an ATX one closes with its '#' run or escapes a trailing
    one that would read as a closing sequence. */
 static void md_leave_heading(md_ctx *ctx, md_frame *frame) {
+    ctx->in_heading = frame->heading.outer_in_heading;
     Py_ssize_t mark = frame->heading.mark;
     int level = frame->heading.level;
     if (frame->leave == MD_LEAVE_SETEXT) {
@@ -2874,6 +2948,10 @@ static void md_leave(md_ctx *ctx) {
         ctx->tight = frame->saved_tight;
         ctx->indent_levels = frame->saved_levels;
         ctx->prefix.len = frame->prefix_base;
+        /* a list item or block quote defers its marker line's break for the first
+           block to ride; an empty one emits no such block, so the pending break has
+           to be released here or the next block attaches to the marker */
+        ctx->suppress_break = 0;
     }
 }
 

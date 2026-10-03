@@ -1,0 +1,1 @@
+:meth:`~turbohtml.Node.to_markdown` keeps a list nested when a non-``li`` element wraps it inside a list item.

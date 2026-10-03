@@ -39,7 +39,7 @@ def test_blockquote_indent_stops_at_the_nesting_cap(method: str, expected: str) 
     [
         pytest.param("<ol><li>" * 8192, "to_markdown", 301_068, id="ordered-items-markdown"),
         pytest.param("<ol><li>" * 8192, "to_text", 301_068, id="ordered-items-text"),
-        pytest.param("<blockquote>x<br>" * 4096, "to_markdown", 510_818, id="quoted-lines-markdown"),
+        pytest.param("<blockquote>x<br>" * 4096, "to_markdown", 621_951, id="quoted-lines-markdown"),
         pytest.param("<blockquote>x<br>" * 4096, "to_text", 670_141, id="quoted-lines-text"),
     ],
 )
