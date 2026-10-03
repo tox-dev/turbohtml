@@ -5,8 +5,7 @@
 #include <stdint.h>
 
 #include "core/vec.h"
-
-struct th_node;
+#include "dom/tree.h"
 
 typedef struct {
     const struct th_node *node;
@@ -19,9 +18,11 @@ typedef struct {
     size_t count;
 } th_node_map;
 
+/* Hash the node's creation sequence, not its address: probe sequences then depend on
+   the input document, not on where the allocator placed the tree. The multiply mixes
+   the otherwise contiguous sequence so a document-order subset still scatters. */
 static inline size_t th_node_map_slot(const th_node_map *map, const struct th_node *node) {
-    const uintptr_t address = (uintptr_t)node;
-    size_t slot = ((address >> 4) ^ (address >> 13)) & (map->capacity - 1);
+    size_t slot = ((size_t)node->seq * 0x9E3779B97F4A7C15ULL >> 32) & (map->capacity - 1);
     while (map->entries[slot].node != NULL && map->entries[slot].node != node) {
         slot = (slot + 1) & (map->capacity - 1);
     }

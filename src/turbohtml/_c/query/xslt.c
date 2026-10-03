@@ -242,8 +242,11 @@ typedef struct {
     size_t count;
 } match_set;
 
-static size_t ptr_hash(const void *ptr, Py_ssize_t attr) {
-    size_t value = (size_t)(uintptr_t)ptr;
+/* Hash a node by its creation sequence rather than its address, so match-set and
+   dispatch-cache probe counts depend on the input document and not on where the
+   allocator placed the tree. */
+static size_t node_hash(const th_node *node, Py_ssize_t attr) {
+    size_t value = node->seq;
     value ^= (size_t)attr * 0x9E3779B97F4A7C15ULL;
     value *= 0xff51afd7ed558ccdULL;
     value ^= value >> 33;
@@ -258,7 +261,7 @@ static int match_set_grow(match_set *set) {
     }
     for (size_t index = 0; index < set->cap; index++) {
         if (set->slots[index].used) {
-            size_t probe = ptr_hash(set->slots[index].node, set->slots[index].attr) & (new_cap - 1);
+            size_t probe = node_hash(set->slots[index].node, set->slots[index].attr) & (new_cap - 1);
             while (slots[probe].used) {
                 probe = (probe + 1) & (new_cap - 1);
             }
@@ -277,7 +280,7 @@ static int match_set_add(match_set *set, const th_node *node, Py_ssize_t attr) {
             return -1;                 /* GCOVR_EXCL_LINE */
         }
     }
-    size_t probe = ptr_hash(node, attr) & (set->cap - 1);
+    size_t probe = node_hash(node, attr) & (set->cap - 1);
     while (set->slots[probe].used) {
         /* A rule's match set is built from one duplicate-free pattern evaluation, so the
            same item is never re-added; the dedup guard is defensive. */
@@ -297,7 +300,7 @@ static int match_set_has(const match_set *set, const th_node *node, Py_ssize_t a
     if (set->cap == 0) {
         return 0;
     }
-    size_t probe = ptr_hash(node, attr) & (set->cap - 1);
+    size_t probe = node_hash(node, attr) & (set->cap - 1);
     while (set->slots[probe].used) {
         /* The attr comparison separates attribute items of one element; reaching its
            false arm needs a probe to land on a same-node different-attr slot, a hash
@@ -1648,7 +1651,7 @@ static int build_rule(engine *eng, xslt_rule *rule) {
 static size_t dispatch_slot(const xslt_dispatch_entry *entries, size_t capacity, const th_node *node, Py_ssize_t attr,
                             const Py_UCS4 *mode, Py_ssize_t mode_len) {
     const size_t mode_hash = mode == NULL ? 0 : str_hash(mode, mode_len);
-    size_t slot = (ptr_hash(node, attr) ^ mode_hash) & (capacity - 1);
+    size_t slot = (node_hash(node, attr) ^ mode_hash) & (capacity - 1);
     while (entries[slot].node != NULL &&
            (entries[slot].node != node || entries[slot].attr != attr ||
             (entries[slot].mode == NULL) != (mode == NULL) ||
