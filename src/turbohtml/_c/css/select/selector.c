@@ -1117,6 +1117,8 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
 static int sel_match_compound(th_node *node, const sel_compound *compound, const sel_ctx *ctx);
 static int sel_matches_alts(th_node *node, const sel_complex *alts, int count, const sel_ctx *ctx);
 static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx);
+static int sel_memo_get(const sel_memo *memo, const void *key, const th_node *node, int *out);
+static void sel_memo_put(sel_memo *memo, const void *key, const th_node *node, int result);
 
 int sel_eq(const Py_UCS4 *left, Py_ssize_t alen, const Py_UCS4 *right, Py_ssize_t blen, int ci) {
     if (alen != blen) {
@@ -2009,21 +2011,87 @@ static int sel_compound_has_scope(const sel_compound *compound) {
     return 0;
 }
 
-/* node matches compounds[index]; verify the combinators and compounds to its left,
-   with backtracking on the descendant and general-sibling axes. anchor is NULL for an
-   ordinary selector (the leftmost compound is the end); for a :has() relative selector
-   it is the element :has() tests, and the leftmost compound's leading combinator must
-   connect to it. The interior-combinator machinery is shared by both. */
-static int sel_match_from(th_node *node, const sel_complex *complex, int index, th_node *anchor, const sel_ctx *ctx) {
-    if (index == 0) {
-        if (anchor == NULL) {
-            return 1;
+/* How matching compounds[0..index] at a node ended, after Blink's SelectorChecker::MatchStatus
+   (https://github.com/chromium/chromium/blob/98efee7338d7c5a17952aab8887d8212fc35fb0c/third_party/blink/renderer/core/css/selector_checker.cc#L1097-L1179).
+   A failure no earlier sibling or higher ancestor can fix ends the combinator walks to its
+   right instead of letting them retry the next sibling or ancestor. Miss and hit are 0 and
+   1, so a comparison is a status. */
+enum sel_status {
+    SEL_FAILS_LOCALLY = 0,  /* this node fails; an earlier sibling or higher ancestor may still match */
+    SEL_MATCHES = 1,        /* this node matches */
+    SEL_FAILS_ALL_SIBLINGS, /* this node and every earlier sibling fail */
+    SEL_FAILS_COMPLETELY,   /* this node, its earlier siblings, its ancestors and theirs all fail */
+};
+
+/* A sibling walk this short runs without the memo: Blink's nth-index cache starts past 32
+   siblings
+   (https://github.com/chromium/chromium/blob/98efee7338d7c5a17952aab8887d8212fc35fb0c/third_party/blink/renderer/core/dom/nth_index_cache.cc#L54),
+   so the sibling runs of ordinary markup never pay for a hash probe. */
+#define SEL_SIBLING_MEMO_MIN_RUN 32
+
+static enum sel_status sel_match_left(th_node *node, const sel_complex *complex, int index, th_node *anchor,
+                                      const sel_ctx *ctx);
+
+/* node matches compounds[index]; verify the combinators and compounds to its left. The
+   leftmost compound of an ordinary selector ends the chain, so a one-compound selector
+   and the last step of every chain return here without the frame of the combinator
+   walks. */
+static inline enum sel_status sel_match_from(th_node *node, const sel_complex *complex, int index, th_node *anchor,
+                                             const sel_ctx *ctx) {
+    if (index == 0 && anchor == NULL) {
+        return SEL_MATCHES;
+    }
+    return sel_match_left(node, complex, index, anchor, ctx);
+}
+
+/* The general sibling combinator to the left of compounds[index]: some earlier element
+   sibling of node matches compounds[index - 1] and everything left of it. Whether such a
+   sibling exists at or before a node depends only on that node, so past the first
+   SEL_SIBLING_MEMO_MIN_RUN siblings the walk stops at the first one whose answer the
+   sibling memo holds, and it stores its own answer under node's nearest earlier sibling.
+   A query walking the siblings in document order then visits each one a bounded number of
+   times. Inside :has() the answer also depends on the anchor, so the memo stays out. */
+static enum sel_status sel_match_earlier_sibling(th_node *node, const sel_complex *complex, int index, th_node *anchor,
+                                                 const sel_ctx *ctx) {
+    const sel_compound *target = &complex->compounds[index - 1];
+    const uint16_t target_atom = sel_compound_known_type_atom(target, ctx->tree);
+    sel_memo *memo = anchor == NULL ? ctx->sibling_memo : NULL;
+    th_node *nearest = sel_prev_element(node);
+    enum sel_status status = SEL_FAILS_ALL_SIBLINGS;
+    int walked = 0;
+    for (th_node *prev = nearest; prev != NULL; prev = sel_prev_element(prev), walked++) {
+        int cached;
+        if (memo != NULL && walked >= SEL_SIBLING_MEMO_MIN_RUN && sel_memo_get(memo, target, prev, &cached)) {
+            status = cached ? SEL_MATCHES : SEL_FAILS_ALL_SIBLINGS;
+            break;
         }
+        if (target_atom != TH_TAG_UNKNOWN ? prev->atom == target_atom : sel_match_compound(prev, target, ctx)) {
+            const enum sel_status left = sel_match_from(prev, complex, index - 1, anchor, ctx);
+            if (left != SEL_FAILS_LOCALLY) {
+                status = left;
+                break;
+            }
+        }
+    }
+    if (memo != NULL && walked >= SEL_SIBLING_MEMO_MIN_RUN) {
+        sel_memo_put(memo, target, nearest, status == SEL_MATCHES);
+    }
+    return status;
+}
+
+/* The combinator walks behind sel_match_from, with backtracking on the descendant and
+   general-sibling axes. anchor is NULL for an ordinary selector; for a :has() relative
+   selector it is the element :has() tests, and the leftmost compound's leading
+   combinator must connect to it, so the :has() callers enter here directly. The
+   interior-combinator machinery is shared by both. */
+static enum sel_status sel_match_left(th_node *node, const sel_complex *complex, int index, th_node *anchor,
+                                      const sel_ctx *ctx) {
+    if (index == 0) {
         /* an explicit :scope in the leftmost compound already matched the anchor (the
            scope was rebound to it), so it pins the compound to the anchor: :has(:scope >
            p) equals :has(> p), and the leading combinator adds nothing (issue #431) */
         if (sel_compound_has_scope(&complex->compounds[0])) {
-            return 1;
+            return SEL_MATCHES;
         }
         switch (complex->compounds[0].combinator) {
         case '>':
@@ -2033,17 +2101,17 @@ static int sel_match_from(th_node *node, const sel_complex *complex, int index, 
         case '~':
             for (th_node *prev = sel_prev_element(node); prev != NULL; prev = sel_prev_element(prev)) {
                 if (prev == anchor) {
-                    return 1;
+                    return SEL_MATCHES;
                 }
             }
-            return 0;
+            return SEL_FAILS_LOCALLY;
         default: /* descendant */
             for (th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
                 if (ancestor == anchor) {
-                    return 1;
+                    return SEL_MATCHES;
                 }
             }
-            return 0;
+            return SEL_FAILS_LOCALLY;
         }
     }
     const sel_compound *target = &complex->compounds[index - 1];
@@ -2053,52 +2121,48 @@ static int sel_match_from(th_node *node, const sel_complex *complex, int index, 
         /* a matched node is an element, so it always has a parent (the document
            at the root), which sel_match_compound rejects as a non-element */
         th_node *parent = node->parent;
-        if (target_atom != TH_TAG_UNKNOWN) {
-            return parent != NULL && parent->type == TH_NODE_ELEMENT && parent->atom == target_atom &&
-                   sel_match_from(parent, complex, index - 1, anchor, ctx);
+        enum sel_status status = SEL_FAILS_LOCALLY;
+        if (target_atom != TH_TAG_UNKNOWN
+                ? parent != NULL && parent->type == TH_NODE_ELEMENT && parent->atom == target_atom
+                : sel_match_compound(parent, target, ctx)) {
+            status = sel_match_from(parent, complex, index - 1, anchor, ctx);
         }
-        return sel_match_compound(parent, target, ctx) && sel_match_from(parent, complex, index - 1, anchor, ctx);
+        /* every earlier sibling has the same parent, so it fails the same way */
+        return status == SEL_FAILS_LOCALLY ? SEL_FAILS_ALL_SIBLINGS : status;
     }
     case '+': {
         th_node *prev = sel_prev_element(node);
-        if (target_atom != TH_TAG_UNKNOWN) {
-            return prev != NULL && prev->atom == target_atom && sel_match_from(prev, complex, index - 1, anchor, ctx);
+        if (prev == NULL) {
+            return SEL_FAILS_ALL_SIBLINGS;
         }
-        return prev != NULL && sel_match_compound(prev, target, ctx) &&
-               sel_match_from(prev, complex, index - 1, anchor, ctx);
+        if (target_atom != TH_TAG_UNKNOWN ? prev->atom != target_atom : !sel_match_compound(prev, target, ctx)) {
+            return SEL_FAILS_LOCALLY;
+        }
+        return sel_match_from(prev, complex, index - 1, anchor, ctx);
     }
     case '~':
-        if (target_atom != TH_TAG_UNKNOWN) {
-            for (th_node *prev = sel_prev_element(node); prev != NULL; prev = sel_prev_element(prev)) {
-                if (prev->atom == target_atom && sel_match_from(prev, complex, index - 1, anchor, ctx)) {
-                    return 1;
-                }
-            }
-            return 0;
-        }
-        for (th_node *prev = sel_prev_element(node); prev != NULL; prev = sel_prev_element(prev)) {
-            if (sel_match_compound(prev, target, ctx) && sel_match_from(prev, complex, index - 1, anchor, ctx)) {
-                return 1;
-            }
-        }
-        return 0;
+        return sel_match_earlier_sibling(node, complex, index, anchor, ctx);
     default: /* descendant */
         if (target_atom != TH_TAG_UNKNOWN) {
             for (th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
-                if (ancestor->type == TH_NODE_ELEMENT && ancestor->atom == target_atom &&
-                    sel_match_from(ancestor, complex, index - 1, anchor, ctx)) {
-                    return 1;
+                if (ancestor->type == TH_NODE_ELEMENT && ancestor->atom == target_atom) {
+                    const enum sel_status status = sel_match_from(ancestor, complex, index - 1, anchor, ctx);
+                    if (status == SEL_MATCHES || status == SEL_FAILS_COMPLETELY) {
+                        return status;
+                    }
                 }
             }
-            return 0;
+            return SEL_FAILS_COMPLETELY;
         }
         for (th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
-            if (sel_match_compound(ancestor, target, ctx) &&
-                sel_match_from(ancestor, complex, index - 1, anchor, ctx)) {
-                return 1;
+            if (sel_match_compound(ancestor, target, ctx)) {
+                const enum sel_status status = sel_match_from(ancestor, complex, index - 1, anchor, ctx);
+                if (status == SEL_MATCHES || status == SEL_FAILS_COMPLETELY) {
+                    return status;
+                }
             }
         }
-        return 0;
+        return SEL_FAILS_COMPLETELY;
     }
 }
 
@@ -2108,7 +2172,7 @@ static int sel_match_from(th_node *node, const sel_complex *complex, int index, 
 int selector_matches_alt(th_node *node, const sel_complex *complex, const sel_ctx *ctx) {
     int subject = complex->count - 1;
     return sel_match_compound(node, &complex->compounds[subject], ctx) &&
-           sel_match_from(node, complex, subject, NULL, ctx);
+           sel_match_from(node, complex, subject, NULL, ctx) == SEL_MATCHES;
 }
 
 static int sel_matches_alts(th_node *node, const sel_complex *alts, int count, const sel_ctx *ctx) {
@@ -2121,95 +2185,96 @@ static int sel_matches_alts(th_node *node, const sel_complex *alts, int count, c
 }
 
 /* Hash the node pointer to a slot; drop the always-zero low alignment bits before
-   mixing. The key stays (rel, node) -- see sel_has_memo_find -- but only the node feeds
-   the hash, so the two entries a same node picks up under two different :has() arguments
-   land on the same home slot and always collide. That makes the "occupied by a different
-   relative selector" probe edge fire on every multi-argument query rather than only when
-   pointer layout happens to collide, keeping branch coverage independent of the allocator. */
-static size_t sel_has_hash(const th_node *node, size_t mask) {
+   mixing. The key stays (key, node) -- see sel_memo_find -- but only the node feeds
+   the hash, so the two entries a same node picks up under two different keys land on
+   the same home slot and always collide. That makes the "occupied by a different key"
+   probe edge fire on every multi-argument query rather than only when pointer layout
+   happens to collide, keeping branch coverage independent of the allocator. */
+static size_t sel_memo_hash(const th_node *node, size_t mask) {
     return (size_t)(((uintptr_t)node >> 4) * 0x9E3779B97F4A7C15u >> 32) & mask;
 }
 
-/* Linear-probe from node's home slot to the slot holding the (rel, node) key or, if
+/* Linear-probe from node's home slot to the slot holding the (key, node) pair or, if
    absent, the first empty slot it would occupy (the table is never full, so an empty slot
    always exists). Shared by get and insert so one probe loop carries both. */
-static size_t sel_has_memo_find(const sel_has_memo *memo, const sel_complex *rel, const th_node *node) {
-    size_t idx = sel_has_hash(node, memo->mask);
+static size_t sel_memo_find(const sel_memo *memo, const void *key, const th_node *node) {
+    size_t idx = sel_memo_hash(node, memo->mask);
     for (;;) {
-        const sel_has_slot *slot = &memo->slots[idx];
-        if (slot->node == node && slot->rel == rel) {
+        const sel_memo_slot *slot = &memo->slots[idx];
+        if (slot->node == node && slot->key == key) {
             return idx;
         }
-        if (slot->rel == NULL) {
+        if (slot->key == NULL) {
             return idx;
         }
         idx = (idx + 1) & memo->mask;
     }
 }
 
-/* Look up (rel, node); on a hit store the cached result in *out and return 1. */
-static int sel_has_memo_get(const sel_has_memo *memo, const sel_complex *rel, const th_node *node, int *out) {
+/* Look up (key, node); on a hit store the cached result in *out and return 1. */
+static int sel_memo_get(const sel_memo *memo, const void *key, const th_node *node, int *out) {
     if (memo->slots == NULL) {
         return 0;
     }
-    const sel_has_slot *slot = &memo->slots[sel_has_memo_find(memo, rel, node)];
-    if (slot->rel == NULL) {
+    const sel_memo_slot *slot = &memo->slots[sel_memo_find(memo, key, node)];
+    if (slot->key == NULL) {
         return 0;
     }
     *out = slot->result;
     return 1;
 }
 
-static void sel_has_memo_insert(sel_has_memo *memo, const sel_complex *rel, const th_node *node, unsigned char result) {
-    sel_has_slot *slot = &memo->slots[sel_has_memo_find(memo, rel, node)];
-    memo->count += slot->rel == NULL;
-    *slot = (sel_has_slot){rel, node, result};
+static void sel_memo_insert(sel_memo *memo, const void *key, const th_node *node, unsigned char result) {
+    sel_memo_slot *slot = &memo->slots[sel_memo_find(memo, key, node)];
+    memo->count += slot->key == NULL;
+    *slot = (sel_memo_slot){key, node, result};
 }
 
 /* Grow (or first-allocate) the table to the next power of two and rehash. On
    allocation failure sets memo->failed so the matcher falls back to the direct walk. */
-static void sel_has_memo_grow(sel_has_memo *memo) {
+static void sel_memo_grow(sel_memo *memo) {
     size_t new_cap = memo->slots == NULL ? 64 : (memo->mask + 1) * 2;
-    sel_has_slot *slots = PyMem_Calloc(new_cap, sizeof(sel_has_slot));
+    sel_memo_slot *slots = PyMem_Calloc(new_cap, sizeof(sel_memo_slot));
     if (slots == NULL) {  /* GCOVR_EXCL_BR_LINE: a calloc failure cannot be forced from a test */
         memo->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
         return;           /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    sel_has_slot *old_slots = memo->slots;
+    sel_memo_slot *old_slots = memo->slots;
     size_t old_cap = memo->slots == NULL ? 0 : memo->mask + 1;
     memo->slots = slots;
     memo->mask = new_cap - 1;
     memo->count = 0;
     for (size_t idx = 0; idx < old_cap; idx++) {
-        if (old_slots[idx].rel != NULL) {
-            sel_has_memo_insert(memo, old_slots[idx].rel, old_slots[idx].node, old_slots[idx].result);
+        if (old_slots[idx].key != NULL) {
+            sel_memo_insert(memo, old_slots[idx].key, old_slots[idx].node, old_slots[idx].result);
         }
     }
     PyMem_Free(old_slots);
 }
 
-/* Cache a (rel, node) subtree-contains-match result, growing past a 0.75 load factor. */
-static void sel_has_memo_put(sel_has_memo *memo, const sel_complex *rel, const th_node *node, int result) {
+/* Cache a (key, node) answer, growing past a 0.75 load factor. */
+static void sel_memo_put(sel_memo *memo, const void *key, const th_node *node, int result) {
     if ((memo->count + 1) * 4 > (memo->mask + 1) * 3) {
-        sel_has_memo_grow(memo);
+        sel_memo_grow(memo);
         if (memo->failed) { /* GCOVR_EXCL_BR_LINE: growth only fails on unforceable allocation failure */
             return;         /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
-    sel_has_memo_insert(memo, rel, node, (unsigned char)(result != 0));
+    sel_memo_insert(memo, key, node, (unsigned char)(result != 0));
 }
 
-void sel_has_memo_free(sel_has_memo *memo) {
+void sel_memo_free(sel_memo *memo) {
     PyMem_Free(memo->slots);
     memo->slots = NULL;
     memo->mask = 0;
     memo->count = 0;
 }
 
-/* Whether the relative selector rel writes :scope anywhere (directly or inside a
-   nested functional pseudo). A written :scope binds to the tested anchor, so its match
-   depends on which anchor is asking and the anchor-independent subtree memo cannot be
-   used; such a rel keeps the direct per-anchor walk. */
+/* Whether the complex selector writes :scope anywhere (directly or inside a nested
+   functional pseudo). A written :scope binds to the scope element, so an answer that
+   holds for one scope cannot be reused for another: a :has() argument that writes it
+   keeps the direct per-anchor walk, and a driver that rebinds scope per candidate keeps
+   the sibling memo out. */
 static int sel_rel_uses_scope(const sel_complex *rel);
 
 static int sel_compound_uses_scope(const sel_compound *compound) {
@@ -2273,7 +2338,7 @@ static void sel_has_mark_ancestors(th_node *node, th_node *root, int descent, co
     th_node *ancestor = node->parent;
     for (int depth = descent - 1;; depth--) {
         if (depth >= SEL_HAS_MEMO_MIN_DESCENT) {
-            sel_has_memo_put(ctx->has_memo, rel, ancestor, 1);
+            sel_memo_put(ctx->has_memo, rel, ancestor, 1);
         }
         if (ancestor == root) {
             return;
@@ -2302,7 +2367,7 @@ static int sel_has_desc(th_node *node, const sel_complex *rel, const sel_compoun
         entered:
             if (current_descent >= SEL_HAS_MEMO_MIN_DESCENT) {
                 int cached;
-                if (sel_has_memo_get(ctx->has_memo, rel, current, &cached)) {
+                if (sel_memo_get(ctx->has_memo, rel, current, &cached)) {
                     if (cached) {
                         sel_has_mark_ancestors(current, node, current_descent, rel, ctx);
                         return 1;
@@ -2318,7 +2383,7 @@ static int sel_has_desc(th_node *node, const sel_complex *rel, const sel_compoun
         }
     complete:
         if (current_descent >= SEL_HAS_MEMO_MIN_DESCENT) {
-            sel_has_memo_put(ctx->has_memo, rel, current, 0);
+            sel_memo_put(ctx->has_memo, rel, current, 0);
         }
         while (current != node) {
             th_node *sibling = sel_next_element_sibling(current);
@@ -2329,7 +2394,7 @@ static int sel_has_desc(th_node *node, const sel_complex *rel, const sel_compoun
             current = current->parent;
             current_descent--;
             if (current != node && current_descent >= SEL_HAS_MEMO_MIN_DESCENT) {
-                sel_has_memo_put(ctx->has_memo, rel, current, 0);
+                sel_memo_put(ctx->has_memo, rel, current, 0);
             }
         }
         return 0;
@@ -2340,7 +2405,7 @@ static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, t
     th_node *current = sel_first_element_child(node);
     while (current != NULL) {
         if (sel_match_compound(current, &rel->compounds[subject], ctx) &&
-            sel_match_from(current, rel, subject, anchor, ctx)) {
+            sel_match_left(current, rel, subject, anchor, ctx) == SEL_MATCHES) {
             return 1;
         }
         th_node *child = sel_first_element_child(current);
@@ -2363,18 +2428,73 @@ static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, t
     return 0;
 }
 
+/* :has(~ x R) or :has(+ x R) for a rel without :scope: an element sibling y after the
+   anchor (for +, the next one) matches x and y:has(R) holds, R being the rest of rel with
+   its own leading combinator. The match can only reach y's level from a sibling, so the
+   anchor's own subtree never needs a scan. Whether such a y exists at or after a node
+   depends only on that node, so for ~, past the first SEL_SIBLING_MEMO_MIN_RUN siblings
+   the walk stops at the first one whose answer the sibling memo holds, and it stores its
+   answer under each sibling it passed from there: a query testing anchors in document
+   order visits each sibling a bounded number of times. */
+static int sel_has_later_sibling(th_node *anchor, const sel_complex *rel, const sel_ctx *ctx) {
+    const char lead = rel->compounds[0].combinator;
+    const sel_complex rest = {rel->compounds + 1, rel->count - 1};
+    /* rest lives in this frame, so it must not key the :has() memo; the sibling memo keys a
+       relative selector by its first compound instead, which outlives the frame. Without
+       :scope in rel, nothing below depends on the scope, so the sibling memo carries over. */
+    sel_ctx scoped = {ctx->tree, anchor, ctx->quirks, NULL, ctx->nth_memo, ctx->default_memo, ctx->sibling_memo};
+    sel_memo *memo = lead == '~' ? ctx->sibling_memo : NULL;
+    const uint16_t target_atom = sel_compound_known_type_atom(&rel->compounds[0], ctx->tree);
+    th_node *memo_from = NULL;
+    int found = 0;
+    int walked = 0;
+    th_node *sibling = sel_next_element_sibling(anchor);
+    for (; sibling != NULL; sibling = sel_next_element_sibling(sibling), walked++) {
+        if (memo != NULL && walked >= SEL_SIBLING_MEMO_MIN_RUN) {
+            if (walked == SEL_SIBLING_MEMO_MIN_RUN) {
+                memo_from = sibling;
+            }
+            if (sel_memo_get(memo, rel->compounds, sibling, &found)) {
+                break;
+            }
+        }
+        if ((target_atom != TH_TAG_UNKNOWN ? sibling->atom == target_atom
+                                           : sel_match_compound(sibling, &rel->compounds[0], &scoped)) &&
+            (rest.count == 0 || sel_has_match(sibling, &rest, 1, &scoped))) {
+            found = 1;
+            break;
+        }
+        if (lead == '+') {
+            break;
+        }
+    }
+    if (memo_from != NULL) {
+        for (th_node *passed = memo_from; passed != sibling; passed = sel_next_element_sibling(passed)) {
+            sel_memo_put(memo, rel->compounds, passed, found);
+        }
+    }
+    return found;
+}
+
 /* Whether the anchor element satisfies any :has() relative selector. A relative
    selector reaches the anchor's descendants and, through a leading sibling
    combinator, its following siblings and their subtrees. */
 static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, const sel_ctx *ctx) {
     /* inside a :has() relative selector the scope element is the anchor, so a written
-       :scope resolves to it rather than the outer query root (Selectors-4 §6.6.2, #431) */
-    sel_ctx scoped = {ctx->tree, anchor, ctx->quirks, ctx->has_memo, ctx->nth_memo, ctx->default_memo};
+       :scope resolves to it rather than the outer query root (Selectors-4 §6.6.2, #431),
+       and sibling answers memoized under the outer scope do not carry over */
+    sel_ctx scoped = {ctx->tree, anchor, ctx->quirks, ctx->has_memo, ctx->nth_memo, ctx->default_memo, NULL};
     for (int index = 0; index < count; index++) {
         const sel_complex *rel = &alts[index];
         int subject = rel->count - 1;
         char lead_combinator = rel->compounds[0].combinator;
         if (rel->count == 1 && (lead_combinator == '>' || lead_combinator == '+' || lead_combinator == '~')) {
+            if (lead_combinator == '~' && ctx->sibling_memo != NULL && !sel_rel_uses_scope(rel)) {
+                if (sel_has_later_sibling(anchor, rel, ctx)) {
+                    return 1;
+                }
+                continue;
+            }
             th_node *candidate =
                 lead_combinator == '>' ? sel_first_element_child(anchor) : sel_next_element_sibling(anchor);
             if (candidate == NULL) {
@@ -2399,19 +2519,27 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
             }
             continue;
         }
-        if (sel_has_subtree(anchor, rel, subject, anchor, &scoped)) {
-            return 1;
-        }
         /* only a leading sibling combinator (:has(+ x) / :has(~ x)) can match outside
-           the anchor's subtree; a descendant or child relative selector cannot, so its
-           following-sibling scan would always fail and is skipped. An explicit leading
-           :scope pins compound[0] to the anchor, so the reach is set by the combinator
-           after it (:has(:scope + x) equals :has(+ x)) (issue #431) */
+           the anchor's subtree, and then only there: a descendant or child relative
+           selector scans the subtree, a sibling one the following siblings. An explicit
+           leading :scope pins compound[0] to the anchor, so the reach is set by the
+           combinator after it (:has(:scope + x) equals :has(+ x)) (issue #431) */
         char lead = rel->compounds[0].combinator;
         if (rel->count > 1 && sel_compound_has_scope(&rel->compounds[0])) {
             lead = rel->compounds[1].combinator;
         }
         if (lead != '+' && lead != '~') {
+            if (sel_has_subtree(anchor, rel, subject, anchor, &scoped)) {
+                return 1;
+            }
+            continue;
+        }
+        /* a single test has no memo, and without one testing each later sibling y on its own
+           would re-walk y's siblings for every y */
+        if ((lead == '+' || ctx->sibling_memo != NULL) && !sel_rel_uses_scope(rel)) {
+            if (sel_has_later_sibling(anchor, rel, ctx)) {
+                return 1;
+            }
             continue;
         }
         for (th_node *sibling = anchor->next_sibling; sibling != NULL; sibling = sibling->next_sibling) {
@@ -2419,7 +2547,7 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
                 continue;
             }
             if ((sel_match_compound(sibling, &rel->compounds[subject], &scoped) &&
-                 sel_match_from(sibling, rel, subject, anchor, &scoped)) ||
+                 sel_match_left(sibling, rel, subject, anchor, &scoped) == SEL_MATCHES) ||
                 sel_has_subtree(sibling, rel, subject, anchor, &scoped)) {
                 return 1;
             }
@@ -2431,7 +2559,7 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
 /* scope is the element :scope matches: the node the query was rooted at. A single
    test builds a throwaway context with no :has() memo (nothing to amortize over). */
 int selector_matches(th_node *node, const sel_compiled *compiled, th_node *scope) {
-    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL};
+    sel_ctx ctx = {compiled->tree, scope, compiled->quirks, NULL, NULL, NULL, NULL};
     return sel_matches_alts(node, compiled->alts, compiled->count, &ctx);
 }
 
@@ -2448,6 +2576,14 @@ int selector_matches_c(th_node *node, const sel_compiled *compiled, const sel_ct
    ctx->has_memo NULL and the matcher runs the exact pre-memo path with no added per-node cost. */
 int selector_uses_has_memo(const sel_compiled *compiled) {
     return compiled->has_relational && th_tree_max_depth(compiled->tree) >= SEL_HAS_MEMO_MIN_DESCENT;
+}
+
+int selector_uses_scope(const sel_compiled *compiled) {
+    int uses_scope = 0;
+    for (int alt = 0; alt < compiled->count; alt++) {
+        uses_scope |= sel_rel_uses_scope(&compiled->alts[alt]);
+    }
+    return uses_scope;
 }
 
 /* The lone simple selector of a selector that is one group, one compound, one

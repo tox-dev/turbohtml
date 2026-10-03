@@ -140,6 +140,20 @@
     }
   },
   {
+    "name": "1081-sibling-combinator-walk",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1081",
+    "targets": [
+      "select_tree"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "head": "<div>",
+      "left": "<b></b>",
+      "tail": "</div>"
+    }
+  },
+  {
     "name": "cmark-backticks",
     "source": "https://github.com/commonmark/cmark/blob/6566d91bdb25898bd910f8bed2a3f18f4a05cf91/test/pathological_tests.py#L86",
     "targets": [

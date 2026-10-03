@@ -1,0 +1,2 @@
+Selectors using ``~``, ``:has(~ ...)``, ``:has(+ ...)`` or several descendant combinators no longer re-walk the same
+siblings and ancestors for every element they test.
