@@ -58,6 +58,13 @@ def md(html: str) -> str:
         pytest.param("<h5>Five</h5>", "##### Five", id="h5"),
         pytest.param("<h6>Six</h6>", "###### Six", id="h6"),
         pytest.param("<h1>A</h1><h2>B</h2>", "# A\n\n## B", id="two-headings-blank-line"),
+        pytest.param("<h3>a<br>b</h3>", "### a b", id="heading-break-joins-with-space"),
+        pytest.param("<h3>a<br></h3>", "### a", id="heading-trailing-break-dropped"),
+        pytest.param(
+            "<h1><div><h2>x<br>y</h2>z<br>w</div></h1>",
+            "# \n\n## x y\n\nz w",
+            id="nested-heading-keeps-break-as-space",
+        ),
     ],
 )
 def test_headings(html: str, expected: str) -> None:

@@ -216,6 +216,7 @@ typedef struct {
         struct {
             Py_ssize_t mark; /* where the heading text starts */
             int level;
+            int outer_in_heading;
         } heading;
         struct {
             const Py_UCS4 *href;
@@ -271,6 +272,7 @@ typedef struct {
     int no_wrap;                /* >0 inside verbatim/grid/unbreakable content: never insert a wrap break */
     int inline_only;            /* >0 inside link text: a block flattens to inline, never opens a line */
     int in_cell;                /* inside a table cell: a pipe is escaped as it is written, a block turns into HTML */
+    int in_heading;             /* inside a heading: a <br> becomes a space, since a heading is one line of text */
     int drop_space;             /* swallow the next pending space (block/inline start) without emitting */
     int pending_loose;          /* the previous block wants a blank line after it */
     int suppress_break;         /* the next block attaches to the current (list marker) line */
@@ -1406,6 +1408,12 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
             } else {
                 ctx->space_pending = 1;
             }
+            return;
+        }
+        if (ctx->in_heading) {
+            /* a hard break ends the line, but an ATX heading is one line and a
+               setext heading joins its lines, so the break reads as a space */
+            ctx->space_pending = 1;
             return;
         }
         sbuf_puts(&ctx->out, opt->line_break == TH_MD_BREAK_BACKSLASH ? "\\" : "  ");
@@ -2729,7 +2737,9 @@ static void md_render_block(md_ctx *ctx, th_node *node) {
         if (frame != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             frame->heading.mark = ctx->out.len;
             frame->heading.level = level;
+            frame->heading.outer_in_heading = ctx->in_heading;
         }
+        ctx->in_heading = 1;
         return;
     }
     case TH_TAG_HR:
@@ -2791,6 +2801,7 @@ static void md_render_block(md_ctx *ctx, th_node *node) {
    (h2) as wide as the text; an ATX one closes with its '#' run or escapes a trailing
    one that would read as a closing sequence. */
 static void md_leave_heading(md_ctx *ctx, md_frame *frame) {
+    ctx->in_heading = frame->heading.outer_in_heading;
     Py_ssize_t mark = frame->heading.mark;
     int level = frame->heading.level;
     if (frame->leave == MD_LEAVE_SETEXT) {
