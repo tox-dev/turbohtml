@@ -2336,8 +2336,16 @@ static enum mode reset_insertion_mode(th_tree *tree) {
     for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
         th_node *node = tree->open[index];
         int last = (index == 0);
-        /* Fragment case: the bottom of the stack stands in for the context. */
-        uint16_t atom = last && tree->fragment_root != NULL ? tree->ctx_atom : node->atom;
+        uint16_t atom;
+        if (last && tree->fragment_root != NULL) {
+            atom = tree->ctx_atom; /* the bottom of the stack stands in for the context */
+        } else if (node->ns != TH_NS_HTML) {
+            /* the reset algorithm names HTML-namespace elements only, so a foreign
+               element (an SVG/MathML td/tr/table/html/...) matches no step; skip it */
+            continue;
+        } else {
+            atom = node->atom;
+        }
         /* the frameset arm is unreachable; the remaining arms are exercised by line coverage */
         switch (atom) /* GCOVR_EXCL_BR_LINE */ {
         case TH_TAG_TD:

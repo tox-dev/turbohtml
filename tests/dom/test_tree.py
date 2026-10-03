@@ -816,6 +816,20 @@ def test_foreign_end_tag_in_fragment(data: str, context: str, expected: str) -> 
     assert _html._parse_fragment(data, context).rstrip("\n") == expected
 
 
+def test_reset_insertion_mode_skips_a_foreign_html_element() -> None:
+    # closing the table resets the insertion mode: the SVG desc and html are foreign and
+    # match no step of the algorithm, so the walk lands in "in body" and x stays in desc
+    root = parse_fragment("<svg><html><desc><table></table>x")
+    assert root.inner_html == "<svg><html><desc><table></table>x</desc></html></svg>"
+
+
+def test_reset_insertion_mode_skips_a_foreign_html_in_a_document() -> None:
+    document = parse("<math><html><mtext><table></table>x")
+    assert document.html == (
+        "<html><head></head><body><math><html><mtext><table></table>x</mtext></html></math></body></html>"
+    )
+
+
 @pytest.mark.parametrize("distinct", [pytest.param(True, id="distinct-values"), pytest.param(False, id="same-values")])
 def test_formatting_duplicate_scan_keeps_all_source_elements(*, distinct: bool) -> None:
     values: Final = [str(index) if distinct else "same" for index in range(256)]
