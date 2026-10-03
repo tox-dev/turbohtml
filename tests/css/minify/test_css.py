@@ -235,9 +235,9 @@ _NEWLY = CSSMinify(baseline=2021)
         pytest.param("@layer x{}", "@layer x{}", id="keep-empty-layer"),
         pytest.param("@keyframes x{}", "@keyframes x{}", id="keep-empty-keyframes"),
         pytest.param('@import "x"', '@import "x"', id="keep-import-statement"),
-        pytest.param("{--x:\n}", "{--x: }", id="selector-less-custom-property"),
-        pytest.param("{color:red}", "{color:red}", id="selector-less-declaration"),
-        pytest.param("  \t {color:red}", "{color:red}", id="whitespace-only-selector"),
+        pytest.param("{--x:\n}", "", id="selector-less-custom-property"),
+        pytest.param("{color:red}", "", id="selector-less-declaration"),
+        pytest.param("  \t {color:red}", "", id="whitespace-only-selector"),
         pytest.param("{}", "", id="selector-less-empty-body"),
     ],
 )
@@ -424,6 +424,26 @@ def filler_rules(request: pytest.FixtureRequest) -> str:
 def test_minify_css_empty_run(source: str) -> None:
     # the empty selector or value is a NULL buffer; memcpy declares its source non-null even for length 0
     assert minify_css(source) == source
+
+
+# an empty prelude is not a selector list, so a top-level rule with one is invalid and dropped rather than merged in
+_EMPTY_SELECTOR_RULE: Final[list[ParameterSet]] = [
+    pytest.param("a{color:red}{color:red}", "a{color:red}", id="after-rule-same-body"),
+    pytest.param("{color:red}", "", id="lone"),
+    pytest.param("a{color:red}{margin:0}", "a{color:red}", id="after-rule-other-body"),
+    pytest.param(" {color:red}a{margin:0}", "a{margin:0}", id="before-rule"),
+    pytest.param("@media all{ {color:red}a{margin:0}}", "@media all{a{margin:0}}", id="nested-in-media"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _EMPTY_SELECTOR_RULE)
+def test_minify_css_empty_selector_rule(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _EMPTY_SELECTOR_RULE)
+def test_minify_css_empty_selector_rule_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
 
 
 def test_minify_css_same_selector_merge_is_bounded() -> None:
