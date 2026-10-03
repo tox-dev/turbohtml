@@ -1292,14 +1292,16 @@ static void md_cell_flat_child(md_ctx *ctx, Py_ssize_t owner, th_node *child) {
 }
 
 /* Write an image's alt text, falling back to the configured default. Inside the
-   `![...]` description a bracket or backslash is escaped the same way link text
-   escapes them (an unescaped `]` would close the description early); the plain
-   alt-only image mode passes escape=0 since it emits no brackets to protect. */
+   `![...]` description a bracket, backslash or backtick is escaped the same way
+   link text escapes them: an unescaped `]` would close the description early, and
+   a backtick pairs with a later one into a code span, which CommonMark 6.3 reads
+   before the image brackets. The plain alt-only image mode passes escape=0 since
+   it emits no brackets to protect. */
 static void md_emit_alt(md_ctx *ctx, const Py_UCS4 *alt, Py_ssize_t alt_len, int escape) {
     if (alt != NULL) {
         if (escape) {
             for (Py_ssize_t index = 0; index < alt_len; index++) {
-                if (alt[index] == '[' || alt[index] == ']' || alt[index] == '\\') {
+                if (alt[index] == '[' || alt[index] == ']' || alt[index] == '\\' || alt[index] == '`') {
                     sbuf_putc(&ctx->out, '\\');
                 }
                 md_put_literal(ctx, alt[index]);

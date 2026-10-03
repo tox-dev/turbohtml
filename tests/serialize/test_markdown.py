@@ -147,6 +147,7 @@ def test_code_elements_preserve_text(tag: str, content: str, expected: str) -> N
         pytest.param(
             '<img src="/i.jpg" alt="a[b\\c">', "![a\\[b\\\\c](/i.jpg)", id="image-alt-escapes-open-and-backslash"
         ),
+        pytest.param('<p><img alt="`" src="x">`</p>', "![\\`](x)\\`", id="image-alt-escapes-backtick"),
         pytest.param('<a href="/u" title="a\\b">L</a>', '[L](/u "a\\\\b")', id="link-title-escapes-backslash"),
         pytest.param(
             '<img src="/i.jpg" alt="Alt text" title="Optional title">',
