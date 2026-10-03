@@ -92,6 +92,8 @@ _URL_ATTRS: Final = frozenset({
     "longdesc",
 })
 _CSS_DANGER: Final = ("javascript:", "vbscript:", "expression(", "behavior:", "-moz-binding")
+# the code points sanitize.c is_url_ignorable skips besides C0, space and DEL
+_URL_IGNORABLE: Final = frozenset("\u00ad\u200b\u200c\u200d\u2060\ufeff")
 _FAILING_ORACLES: Final = frozenset({"mutation", "string-path", "policy", "url-unsafe", "decode"})
 
 
@@ -157,6 +159,18 @@ def _negative_controls() -> Iterator[tuple[str, bool]]:
     yield "policy css", "dangerous css in b@style" in _violations('<b style="x:expr/**/ession(1)">', Policy())
     yield "url unsafe keep", _url_verdict("javascript:alert(1)", kept=True, policy=Policy()) == "url-unsafe"
     yield "url strict drop", _url_verdict("https://example.com/", kept=False, policy=Policy()) == "url-strict"
+    relative = Policy(allow_relative_urls=True)
+    yield (
+        "url hidden scheme drop is not strict",
+        _url_verdict("java\u200bscript:x", kept=False, policy=relative) is None,
+    )
+    yield (
+        "url hidden scheme keep is unsafe",
+        _url_verdict("java\u200bscript:x", kept=True, policy=relative) == "url-unsafe",
+    )
+    yield "css selector prelude is inert", not _css_danger("javascript:{}")
+    yield "css import prelude is live", _css_danger("@import url(javascript:x);")
+    yield "css declaration is live", _css_danger("a{b:url(javascript:x)}")
 
 
 def _mutation_detail(tree: Node, serialized: str) -> str | None:
@@ -324,6 +338,9 @@ def _css_danger(text: str) -> bool:
         text,
     )
     flat = re.sub(r"\s+", "", re.sub(r"/\*.*?(?:\*/|$)", "", decoded, flags=re.DOTALL)).lower()
+    # a style rule's prelude is a selector, which matches nothing when invalid (Selectors 4 3.9) and runs no script, so
+    # only declarations and at-rule preludes such as @import url(...) can carry a live token
+    flat = re.sub(r"(^|[;{}])[^@;{}][^;{}]*(?=\{)", r"\1", flat)
     return any(token in flat for token in _CSS_DANGER)
 
 
@@ -360,7 +377,26 @@ def _whatwg_allows(value: str, policy: Policy) -> bool | None:
         return scheme[1] != "javascript" and scheme[1] in policy.url_schemes
     # the WHATWG parser trims C0 and space at both ends and drops every tab and newline before reading the URL
     trimmed = value.strip(_C0_OR_SPACE).replace("\t", "").replace("\n", "").replace("\r", "")
-    return policy.allow_relative_urls or (policy.allow_fragment_urls and trimmed.startswith("#"))
+    if not (policy.allow_relative_urls or (policy.allow_fragment_urls and trimmed.startswith("#"))):
+        return False
+    # the documented hidden-scheme rule (docs/explanation/sanitizing.rst) also refuses a relative value that spells a
+    # refused scheme once its URL-ignorable and non-ASCII code points are dropped, as DOMPurify and bleach do
+    hidden = _hidden_scheme(value)
+    return hidden is None or (hidden != "javascript" and hidden in policy.url_schemes)
+
+
+def _hidden_scheme(value: str) -> str | None:
+    """Mirror sanitize.c ``hidden_scheme_allowed``: the scheme a value spells without ignorable or non-ASCII points."""
+    scheme: list[str] = []
+    for character in value:
+        if character in _URL_IGNORABLE or ord(character) <= 0x20 or ord(character) == 0x7F or ord(character) >= 0x80:
+            continue
+        if character == ":" and scheme:
+            return "".join(scheme).lower()
+        if not (character.isascii() and (character.isalnum() or character in "+-.") if scheme else character.isalpha()):
+            return None
+        scheme.append(character)
+    return None
 
 
 def _url_verdict(decoded: str, *, kept: bool, policy: Policy) -> str | None:
