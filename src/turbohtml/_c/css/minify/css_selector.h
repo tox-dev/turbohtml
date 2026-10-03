@@ -244,7 +244,10 @@ static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start,
         while (bang > value_start && (vec->items[bang].kind == CSS_WS || vec->items[bang].kind == CSS_COMMENT)) {
             bang--;
         }
-        if (vec->items[bang].kind == CSS_DELIM && vec->items[bang].delim == '!') {
+        /* in a declaration left open at the end of the input, a `(` or `[` still open before the "!" holds the pair, so
+           it is block content, not the priority */
+        if (vec->items[bang].kind == CSS_DELIM && vec->items[bang].delim == '!' &&
+            !(end == vec->len && css_leaves_block_open(vec, value_start, bang))) {
             important = 1;
             value_end = bang;
         }

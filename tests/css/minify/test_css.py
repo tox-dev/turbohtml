@@ -771,6 +771,46 @@ def _max_decls_per_rule(rule_count: int) -> int:
         pytest.param('@import url("a.css");', '@import "a.css"', id="import-url-no-modifier-unwrapped"),
         pytest.param("@import url(a.css);", '@import "a.css"', id="import-bare-url-unwrapped"),
         pytest.param("@import url();", '@import ""', id="import-empty-url-unwrapped"),
+        # a `(` or `[` the input leaves open is closed before the `}` that ends the rule (CSS Syntax 3 §5.4.7), so the
+        # brace stays outside the block and re-minifying adds nothing
+        pytest.param("a{d:(", "a{d:()}", id="close-open-paren-at-eof"),
+        pytest.param("a{d:[1", "a{d:[1]}", id="close-open-bracket-at-eof"),
+        pytest.param("a{d:(}", "a{d:(})}", id="brace-inside-open-paren-at-eof"),
+        pytest.param("a{d:(a[b", "a{d:(a[b])}", id="close-nested-open-blocks-at-eof"),
+        pytest.param("a{d:(]", "a{d:(])}", id="close-open-paren-over-stray-bracket"),
+        pytest.param("a{d:)}", "a{d:)}", id="keep-stray-close-paren"),
+        pytest.param("a{d:())", "a{d:())}", id="keep-stray-close-after-balanced-block"),
+        pytest.param("a{d:(1)}", "a{d:(1)}", id="keep-balanced-bare-block"),
+        pytest.param("a{d:f(1", "a{d:f(1)}", id="close-open-function-at-eof"),
+        pytest.param("a{d:[1 + 2", "a{d:[1+ 2]}", id="close-open-bracket-past-operator"),
+        pytest.param("a{d:[x*y", "a{d:[x*y]}", id="close-open-bracket-past-glued-operator"),
+        pytest.param("a{d:[x)", "a{d:[x)]}", id="close-open-bracket-over-stray-paren"),
+        pytest.param("a{d:(f(x)", "a{d:(f(x))}", id="close-open-paren-around-function"),
+        pytest.param("a{--d:(", "a{--d:()}", id="custom-property-close-open-paren"),
+        pytest.param("a{--d:[1", "a{--d:[1]}", id="custom-property-close-open-bracket"),
+        pytest.param("a{--d:f(1", "a{--d:f(1)}", id="custom-property-close-open-function"),
+        pytest.param("a{--d:(a[b", "a{--d:(a[b])}", id="custom-property-close-nested-blocks"),
+        pytest.param("a{--d:[1 + 2", "a{--d:[1 + 2]}", id="custom-property-close-bracket-past-operator"),
+        pytest.param("a{--d:(x)}", "a{--d:(x)}", id="custom-property-keep-balanced-block"),
+        pytest.param("a{--d:(]", "a{--d:(])}", id="custom-property-close-paren-over-stray-bracket"),
+        pytest.param("a{--d:([)]", "a{--d:([)])}", id="custom-property-close-paren-after-mismatched-close"),
+        pytest.param(
+            "a{--d:" + "(" * 65, "a{--d:" + "(" * 65 + ")" * 65 + "}", id="custom-property-close-past-mask-depth"
+        ),
+        pytest.param(
+            "a{--d:" + "[" * 65,
+            "a{--d:" + "[" * 65 + "]" * 65 + "}",
+            id="custom-property-close-brackets-past-mask-depth",
+        ),
+        pytest.param("a{--d:[)", "a{--d:[)]}", id="custom-property-close-bracket-over-stray-paren"),
+        pytest.param("a{--d:)}", "a{--d:)}", id="custom-property-keep-stray-close-paren"),
+        pytest.param("a{--d:]", "a{--d:]}", id="custom-property-keep-stray-close-bracket"),
+        # a "!important" inside a block still open at the end of the input is block content (CSS Syntax 3 §5.4.4 reads
+        # the last two component values, and the open block is one), so the closer goes after it
+        pytest.param("a{d:(x !important", "a{d:(x!important)}", id="important-inside-open-block-at-eof"),
+        pytest.param("a{--d:(x !important", "a{--d:(x !important)}", id="custom-property-important-inside-open-block"),
+        pytest.param("a{d:f(x !important", "a{d:f(x !important)}", id="important-inside-open-function-at-eof"),
+        pytest.param("a{d:(x) !important", "a{d:(x)!important}", id="important-after-closed-block-at-eof"),
     ],
 )
 def test_minify_css_spec_fixes(source: str, expected: str) -> None:

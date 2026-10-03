@@ -235,6 +235,16 @@ static inline void css_nesting_leave(token_vec *vec) {
 #define CSS_NOINLINE
 #endif
 
+/* Keeps a single-caller helper on the per-value path inside its caller once its size passes the inliner's limit, so
+   the hot loop pays no call. */
+#if defined(_MSC_VER)
+#define CSS_FORCEINLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define CSS_FORCEINLINE inline __attribute__((always_inline))
+#else
+#define CSS_FORCEINLINE inline
+#endif
+
 static void token_vec_push(token_vec *vec, css_token token) {
     if (vec->len == vec->cap) {
         size_t cap;
