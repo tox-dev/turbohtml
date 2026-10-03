@@ -597,6 +597,24 @@ static int32_t parse_block(P *parser, int body) {
     return parser->err ? -1 : node;
 }
 
+/* `let` at the head of a statement begins a LexicalDeclaration only when a binding follows: an array
+   or object pattern (`[` / `{`), or a BindingIdentifier (an identifier other than the relational
+   operators `in`/`instanceof`). For any other following token `let` is a plain identifier and the
+   statement is an ExpressionStatement, so `let`, `let.x`, `let-1`, `let/x/g`, `let(f)` and `let,x`
+   all parse (`let` is reserved only in strict code, ECMA-262 13.1.1). The one binding form the
+   ExpressionStatement grammar still excludes is `let [` (its negative lookahead, 14.5), left a
+   declaration here. The lookahead ignores line terminators, so `let\n[0]` stays a declaration, as in
+   acorn's isLet
+   (https://github.com/acornjs/acorn/blob/c912cf2611079812638a49bc38292557a1096be8/acorn/src/statement.js#L768-L788). */
+static int let_starts_declaration(P *parser) {
+    jm_mark saved = mark(parser);
+    advance(parser); /* past `let`, to its following token */
+    int declaration = at(parser, JT_LBRACK) || at(parser, JT_LBRACE) ||
+                      (at(parser, JT_IDENT) && !kw(parser, "in") && !kw(parser, "instanceof"));
+    reset(parser, saved);
+    return declaration;
+}
+
 /* A bare `{` is a block; an expression statement never starts with one (an object
    literal in statement position is parenthesized). */
 static int32_t parse_stmt_body(P *parser) {
@@ -611,7 +629,7 @@ static int32_t parse_stmt_body(P *parser) {
         advance(parser);
         return node;
     }
-    if (kw(parser, "var") || kw(parser, "let") || kw(parser, "const")) {
+    if (kw(parser, "var") || kw(parser, "const") || (kw(parser, "let") && let_starts_declaration(parser))) {
         int32_t node = parse_var(parser, 0);
         semicolon(parser);
         return parser->err ? -1 : node;

@@ -459,6 +459,41 @@ def test_binding_not_named_let_minifies(source: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("let-[]", "let-[]", id="minus"),
+        pytest.param("x;let-1", "x;let-1", id="minus-after-statement"),
+        pytest.param("let/t/ A", "let/t/A", id="division-not-regex"),
+        pytest.param("let(f)", "let(f)", id="call"),
+        pytest.param("let.x", "let.x", id="member"),
+        pytest.param("let`x`", "let`x`", id="tagged-template"),
+        pytest.param("let++", "let++", id="postfix-update"),
+        pytest.param("let;x", "let;x", id="bare-then-statement"),
+        pytest.param("let", "let", id="bare"),
+        pytest.param("let in x", "let in x", id="in-operator"),
+        pytest.param("let instanceof x", "let instanceof x", id="instanceof-operator"),
+        pytest.param("(let,[])", "let,[]", id="unwrapped-sequence"),
+        pytest.param("(let.x)", "let.x", id="unwrapped-member"),
+        pytest.param("(let)", "let", id="unwrapped-identifier"),
+    ],
+)
+def test_let_as_identifier_statement_minifies_to(source: str, expected: str) -> None:
+    # the output must re-parse: an unwrapped `(let,[])` once produced code minify_js rejected (#1036)
+    assert (minify(source), minify(expected)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("(let[0])", id="computed-member"),
+        pytest.param("(let[0].p)", id="computed-member-chain"),
+    ],
+)
+def test_let_computed_member_statement_keeps_parens(source: str) -> None:
+    assert minify(source) == source
+
+
+@pytest.mark.parametrize(
     ("source", "match"),
     [
         pytest.param('function f(a,a){"use strict"}', "offset 10", id="own-directive"),
