@@ -58,8 +58,14 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
         if (pending_ws) {
             css_char last = out->data[out->len - 1];
             int blocked = last == '>' || last == '+' || last == '~' || last == ',' || last == '[' || last == '(';
-            if (attr_depth > 0 && (last == '[' || last == '=' || last == '~' || last == '^' || last == '$' ||
-                                   last == '*' || last == '|')) {
+            /* the space before an opening `[` separates it from the previous compound (`* [x]` is a descendant
+               combinator, not the `*=` operator), so it uses the general rules; attr_depth is already raised for this
+               `[`, and attribute selectors do not nest, so an opening bracket is the only token at a fresh attr level
+             */
+            int opening_bracket = token->kind == CSS_DELIM && token->delim == '[';
+            if (attr_depth > 0 && !opening_bracket &&
+                (last == '[' || last == '=' || last == '~' || last == '^' || last == '$' || last == '*' ||
+                 last == '|')) {
                 blocked = 1;
             }
             if (!blocked) {

@@ -1,0 +1,1 @@
+:func:`~turbohtml.clean.minify_css` keeps spaces that a selector or value needs.

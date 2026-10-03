@@ -303,7 +303,9 @@ static int css_would_merge(css_char last, int last_is_ident, const css_char *nex
     css_char first = next[0];
     int fraction =
         first == '.' && next_len > 1; /* a token of two or more code points that opens with `.` is a number */
-    if (css_is_ident(last) && (css_is_ident(first) || (first == '(' && last_is_ident))) {
+    /* an ident token extends over a following name code point even when its own last byte is not one, which happens
+       when it ends in an escaped delimiter (`\!` ends in `!`): `\!` then `U` reads as the single ident `\!U` */
+    if ((css_is_ident(last) || last_is_ident) && (css_is_ident(first) || (first == '(' && last_is_ident))) {
         return 1;
     }
     switch (last) {

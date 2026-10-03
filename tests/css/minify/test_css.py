@@ -771,6 +771,18 @@ def _max_decls_per_rule(rule_count: int) -> int:
         pytest.param('@import url("a.css");', '@import "a.css"', id="import-url-no-modifier-unwrapped"),
         pytest.param("@import url(a.css);", '@import "a.css"', id="import-bare-url-unwrapped"),
         pytest.param("@import url();", '@import ""', id="import-empty-url-unwrapped"),
+        # a `*` universal or a combinator before an attribute selector keeps its descendant-combinator space (#1034): a
+        # `[` opens a fresh attribute, so a `*` before it is the universal selector, not the `*=` operator
+        pytest.param("* [lang]{c:d}", "* [lang]{c:d}", id="universal-descendant-attribute"),
+        pytest.param("* .a{c:d}", "* .a{c:d}", id="universal-descendant-class"),
+        pytest.param("a ~ [x]{c:d}", "a~[x]{c:d}", id="sibling-combinator-before-attribute"),
+        pytest.param("[ x]{c:d}", "[x]{c:d}", id="attribute-leading-space-dropped"),
+        # an ident ending in an escaped delimiter extends over a following name code point (#1034): `\!` then `U` is the
+        # single ident `\!U`, so the space before `U+5` is significant
+        pytest.param("a{e:\\! U+5}", "a{e:\\! U+5}", id="escaped-delim-ident-before-urange"),
+        pytest.param("a{e:\\! x}", "a{e:\\! x}", id="escaped-delim-ident-before-ident"),
+        pytest.param("a{e:\\! (x)}", "a{e:\\! (x)}", id="escaped-delim-ident-before-paren"),
+        pytest.param("a{b:var(--x) y}", "a{b:var(--x)y}", id="function-before-name-glued"),
     ],
 )
 def test_minify_css_spec_fixes(source: str, expected: str) -> None:
