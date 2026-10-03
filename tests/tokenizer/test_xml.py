@@ -126,6 +126,20 @@ def test_comment_and_processing_instruction() -> None:
     assert pi.data == "the data"
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("<!----><r/>", id="empty-comment-before-root"),
+        pytest.param("<r><!----></r>", id="empty-comment-in-root"),
+        pytest.param("<r><![CDATA[]]></r>", id="empty-cdata"),
+    ],
+)
+def test_empty_prolog_and_content_constructs_parse(source: str) -> None:
+    # an empty span before the first name must not read back as an allocation failure
+    elements = [child for child in parse_xml(source).children if isinstance(child, Element)]
+    assert [element.tag for element in elements] == ["r"]
+
+
 def test_cdata_section_is_its_own_node() -> None:
     doc = parse_xml("<root><![CDATA[<not> & parsed]]></root>")
     cdata = doc.children[0].children[0]

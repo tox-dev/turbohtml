@@ -1,0 +1,1 @@
+:func:`~turbohtml.parse_xml` accepts an empty comment, CDATA section or processing instruction before the root element.

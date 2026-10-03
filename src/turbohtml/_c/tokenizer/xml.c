@@ -151,7 +151,9 @@ static int scratch_push(xml_parser *parser, Py_UCS4 ch) {
 
 /* Widen the input range [start, start+len) into the reusable name buffer. */
 static Py_UCS4 *widen(xml_parser *parser, Py_ssize_t start, Py_ssize_t len) {
-    if (len > parser->names_cap) {
+    /* allocate the buffer even for a zero-length span so an empty comment, CDATA or PI
+       before the first name does not read back as a NULL (allocation-failure) result */
+    if (len > parser->names_cap || parser->names == NULL) {
         size_t cap;
         size_t bytes;
         int grew = th_grow_cap((size_t)len, (size_t)parser->names_cap, 64, sizeof(Py_UCS4), &cap, &bytes);
