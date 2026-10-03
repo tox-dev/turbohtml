@@ -452,6 +452,22 @@ def test_cr_character_reference_is_tree_whitespace(html: str, expected: str) -> 
     assert parse(html).serialize() == f"<html><head></head>{expected}</html>"
 
 
+@pytest.mark.parametrize(
+    ("source", "equivalent"),
+    [
+        pytest.param("<table><caption></body>a</caption>v", "<table><caption>a</caption>v", id="caption-ignores-body"),
+        pytest.param(
+            "<table><caption></body><tr><td>x", "<table><caption><tr><td>x", id="caption-ignores-body-then-row"
+        ),
+        pytest.param("<object></body><!--c-->", "<object><!--c-->", id="object-keeps-body-out-of-scope"),
+    ],
+)
+def test_end_body_without_body_in_scope_is_ignored(source: str, equivalent: str) -> None:
+    # a caption/object keeps body out of scope, so </body> (and </html>) are ignored and
+    # the tree matches the same input without the stray end tag
+    assert parse(source).serialize() == parse(equivalent).serialize()
+
+
 @pytest.mark.parametrize("tag", ["caption", "table", "tbody", "tfoot", "thead", "tr", "td", "th"])
 def test_table_family_start_tag_pops_select_in_table(tag: str) -> None:
     # "in select in table": a table-family start tag pops the open select and reprocesses,

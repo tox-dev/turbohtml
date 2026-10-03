@@ -3463,11 +3463,14 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         uint8_t flags = tok->tag_flags;
         uint16_t atom = tok->atom;
         if (atom == TH_TAG_BODY || atom == TH_TAG_HTML) {
+            if (!has_in_scope(tree, TH_TAG_BODY)) {
+                /* parse error, ignored: with no body in scope (a caption/object/applet/
+                   marquee keeps it out) the mode must not switch to "after body" */
+                return TH_DRAIN_NEXT;
+            }
             if (atom == TH_TAG_BODY) {
-                Py_ssize_t body_index = stack_index_of_atom(tree, TH_TAG_BODY);
-                if (body_index >= 0) { /* a body-context fragment closes </body> with no body on the stack */
-                    record_end_tag_location(tree, tree->open[body_index], tok);
-                }
+                /* body is in scope here, so it is on the stack and the lookup finds it */
+                record_end_tag_location(tree, tree->open[stack_index_of_atom(tree, TH_TAG_BODY)], tok);
             }
             dc->mode = M_AFTER_BODY;
             if (atom == TH_TAG_HTML) {
