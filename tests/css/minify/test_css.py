@@ -408,6 +408,24 @@ def test_minify_css_escaped_custom_property_name(source: str, expected: str) -> 
     assert minify_css(source) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(".a\\ {color:red}", ".a\\ {color:red}", id="selector-escaped-space"),
+        pytest.param("\\ {color:red}", "\\ {color:red}", id="selector-only-escaped-space"),
+        pytest.param("@x \\ ;", "@x \\ ", id="at-prelude-escaped-space"),
+        pytest.param(".a\\  b{x:1}", ".a\\  b{x:1}", id="escaped-space-then-descendant"),
+        pytest.param(".a\\\\ {x:1}", ".a\\\\{x:1}", id="escaped-backslash-trailing-space-trimmed"),
+        pytest.param("a b{x:1}", "a b{x:1}", id="descendant-space-kept"),
+        pytest.param("a > b{x:1}", "a>b{x:1}", id="combinator-space-trimmed"),
+    ],
+)
+def test_minify_css_escaped_space_kept(source: str, expected: str) -> None:
+    # a backslash-space escapes U+0020, a name code point, so it survives minification (#1061)
+    assert minify_css(source) == expected
+    assert minify_css(expected) == expected
+
+
 # past 32 rules the merge pass finds repeated selectors and bodies through a hash table before scanning back
 @pytest.fixture(params=[pytest.param(1, id="short-list"), pytest.param(40, id="hashed-list")])
 def filler_rules(request: pytest.FixtureRequest) -> str:

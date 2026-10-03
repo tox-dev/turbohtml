@@ -796,9 +796,12 @@ static int css_is_math_func(const css_char *name, Py_ssize_t len) {
     return 0;
 }
 
-/* Trim trailing spaces already written to a scratch buffer (the func-arg comma rule). */
+/* Trim trailing spaces already written to a scratch buffer (the func-arg comma rule). A space a backslash precedes is a
+   `\ ` escape of U+0020 (CSS Syntax 3 §4.3.7 "anything else"), a name code point, not trailing whitespace, so it is
+   kept: a rendered name emits a space only as such an escape (a backslash before it) or as a separator (a token before
+   it), so a trailing space here always has a preceding byte and reading it needs no bounds guard. */
 static void css_rtrim(css_buf *buffer) {
-    while (buffer->len > 0 && buffer->data[buffer->len - 1] == ' ') {
+    while (buffer->len > 0 && buffer->data[buffer->len - 1] == ' ' && buffer->data[buffer->len - 2] != '\\') {
         buffer->len--;
     }
 }
