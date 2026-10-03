@@ -1,3 +1,1 @@
-Parsing a long run of selected ``option`` elements in a ``select`` no longer takes time that grows with the square of
-their count, and an ``option`` whose nearest ancestor is another ``option``, a ``datalist``, or an ``hr`` is no longer
-copied into a ``selectedcontent``.
+Parsing many selected ``option`` elements is no longer quadratic, and nested options stay out of ``selectedcontent``.

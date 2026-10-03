@@ -1,2 +1,1 @@
-:func:`~turbohtml.clean.minify_js` accepts ``await`` and ``yield`` as identifiers, class static blocks, a class field
-named ``async``, ``new new.target()`` and ``import()`` in scripts, and keeps ``await(1)`` a call.
+:func:`~turbohtml.clean.minify_js` accepts more valid scripts, such as ``await`` identifiers and class static blocks.

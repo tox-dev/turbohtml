@@ -1,2 +1,1 @@
-:func:`~turbohtml.clean.minify_js` rejects ``let`` as a ``let`` or ``const`` binding name and a repeated parameter name
-where the function's parameters must be unique.
+:func:`~turbohtml.clean.minify_js` rejects ``let`` as a lexical binding name and duplicate unique parameters.

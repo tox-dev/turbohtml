@@ -1,2 +1,1 @@
-The CSS minifier keeps an ``@import`` or ``@namespace`` ``url()`` that carries a modifier as a ``url()`` rather than
-unwrapping it to a string.
+The CSS minifier keeps ``url()`` with a modifier in ``@import`` and ``@namespace``.

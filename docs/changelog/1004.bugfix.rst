@@ -1,2 +1,1 @@
-Stop :func:`~turbohtml.clean.minify_js` from changing what a script does when it folds a nested ``if``/``else``,
-``undefined``, unreachable declarations, or writes to a ``const`` or a function expression's name.
+Folding in :func:`~turbohtml.clean.minify_js` no longer changes what a script does.

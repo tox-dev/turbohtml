@@ -1,2 +1,1 @@
-Resetting the insertion mode skips a foreign (SVG or MathML) element, so a foreign ``html``, ``table`` or cell no longer
-makes the parser build ``head`` and ``body`` inside foreign content.
+The parser no longer builds ``head`` and ``body`` inside SVG or MathML content.

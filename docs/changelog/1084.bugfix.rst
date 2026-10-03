@@ -1,2 +1,1 @@
-:func:`~turbohtml.clean.minify_js` reads a statement's leading ``let`` as an identifier when no binding follows, so
-``let-[]``, ``let/x/g``, ``let(f)`` and ``(let,[])`` parse and minify to valid code.
+:func:`~turbohtml.clean.minify_js` reads a leading ``let`` with no binding after it as an identifier.

@@ -1,2 +1,1 @@
-The CSS minifier no longer merges a rule past another that sets the same property through an escaped name such as
-``colo\r``.
+The CSS minifier no longer merges rules past an override with an escaped property name.
