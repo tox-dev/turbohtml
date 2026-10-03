@@ -1,0 +1,1 @@
+:func:`~turbohtml.clean.minify_css` no longer trims the space of a backslash-space escape.
