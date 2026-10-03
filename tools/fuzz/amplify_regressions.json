@@ -136,7 +136,7 @@
     "shape": {
       "kind": "repeat",
       "head": "a",
-      "left": "̖́"
+      "left": "\u0316\u0301"
     }
   },
   {
@@ -659,7 +659,7 @@
     ],
     "shape": {
       "kind": "repeat",
-      "left": "*~~ "
+      "left": "*~~\u00a0"
     }
   },
   {
@@ -748,6 +748,18 @@
     "shape": {
       "kind": "repeat",
       "left": "*_ "
+    }
+  },
+  {
+    "name": "1057-selectedcontent-option-scan",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1057",
+    "targets": [
+      "parse"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "head": "<select>",
+      "left": "<option selected>x"
     }
   }
 ]

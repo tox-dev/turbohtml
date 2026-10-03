@@ -57,6 +57,26 @@ typedef struct {
     th_node *root;
 } th_shadow_link;
 
+/* What maybe_clone_option needs from one select, kept while the tree is built:
+   the first enabled descendant selectedcontent (the clone destination) and the
+   select's first option in tree order. */
+typedef struct {
+    th_node *select;
+    th_node *target; /* the first enabled descendant selectedcontent, the clone destination */
+    uint8_t valid;
+    uint8_t multiple;
+    uint8_t target_disabled; /* the target carries a disabled attribute */
+} th_select_cache;
+
+/* The select caches of one parse, allocated on the first selected-option clone so a
+   tree that never clones one carries a single NULL pointer. */
+typedef struct {
+    th_select_cache *caches;
+    Py_ssize_t count;
+    Py_ssize_t cap;
+    th_node_map index; /* select node -> 1-based position in caches */
+} th_select_state;
+
 struct th_tree {
     arena_block *arena;
     th_node *document;
@@ -105,7 +125,8 @@ struct th_tree {
     const void *data;
     void *owned_data; /* normalized one-shot input retained when source spans need it */
     Py_ssize_t length;
-    int failed; /* an allocation failed; abandon the parse */
+    int failed;              /* an allocation failed; abandon the parse */
+    int input_errors_merged; /* set once the preprocessing errors are folded into errors */
     /* Dynamic intern table for attribute names outside attr_atom.h: the record
        for atom d is attr_recs[d - TH_ATTR__DYNAMIC_BASE]; attr_slots maps a name
        hash to its record. Grown only as uncommon names appear; read-only after
@@ -148,7 +169,10 @@ struct th_tree {
        are folded in on the first read rather than at parse time: a document nobody
        asks for errors from should not pay to find them. */
     th_error_sink errors;
-    int input_errors_merged;
+    /* Per-select state for cloning a selected option into selectedcontent, released when
+       parsing closes. One pointer keeps th_tree at 512 bytes, inside pymalloc's
+       small-object limit, so every parse still allocates its tree from pymalloc. */
+    th_select_state *select_state;
 };
 
 static inline void *arena_alloc(th_tree *tree, Py_ssize_t size) {

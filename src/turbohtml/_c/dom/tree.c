@@ -1369,20 +1369,20 @@ static int node_has_attr(const th_node *node, uint32_t atom) {
     return 0;
 }
 
-/* The select's first option in tree order, not descending into nested selects.
-   The popped option is a descendant outside any nested select, so the walk
-   reaches an option before it would climb back to the select. */
-static th_node *first_option(th_node *select) {
+static int is_html_element(const th_node *node, uint16_t atom) {
+    return node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML && node->atom == atom;
+}
+
+/* The first option in tree order below the select, not descending into nested selects.
+   The select's "list of options" counts the first option whatever it nests in, so this
+   matches first_descendant_atom's old raw-position result. */
+static th_node *first_option_below(th_node *select) {
     th_node *node = select->first_child;
-    for (;;) {
-        int skip_children = 0;
-        if (node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML) {
-            if (node->atom == TH_TAG_OPTION) {
-                return node;
-            }
-            skip_children = node->atom == TH_TAG_SELECT;
+    for (;;) { /* the popped option this answers for lives under select, so an option is always found */
+        if (is_html_element(node, TH_TAG_OPTION)) {
+            return node;
         }
-        if (!skip_children && node->first_child != NULL) {
+        if (!is_html_element(node, TH_TAG_SELECT) && node->first_child != NULL) {
             node = node->first_child;
             continue;
         }
@@ -1409,17 +1409,11 @@ static int disables_selectedcontent(const th_node *node) {
     }
 }
 
-/* The select's first descendant selectedcontent whose disabled flag ("recalculate
-   a selectedcontent element's disabledness") is false. Skipping the disabled ones
-   keeps an option from being cloned into a selectedcontent inside itself, a copy
-   that would grow the subtree it walks. */
-static th_node *first_enabled_selectedcontent(th_node *select) {
-    for (const th_node *ancestor = select->parent; ancestor != NULL; ancestor = ancestor->parent) {
-        if (disables_selectedcontent(ancestor)) {
-            return NULL;
-        }
-    }
-    th_node *node = select->first_child;
+/* The first selectedcontent below the select whose own ancestors up to the select
+   leave its disabled flag ("recalculate a selectedcontent element's disabledness")
+   false. The select's ancestors can disable it too; the caller checks those. */
+static th_node *first_selectedcontent_candidate(th_node *root) {
+    th_node *node = root->first_child;
     while (node != NULL) {
         if (disables_selectedcontent(node)) {
             if (node->atom == TH_TAG_SELECTEDCONTENT) {
@@ -1429,12 +1423,127 @@ static th_node *first_enabled_selectedcontent(th_node *select) {
             node = node->first_child;
             continue;
         }
-        while (node != select && node->next_sibling == NULL) {
+        while (node != root && node->next_sibling == NULL) {
             node = node->parent;
         }
-        node = node == select ? NULL : node->next_sibling;
+        node = node == root ? NULL : node->next_sibling;
     }
     return NULL;
+}
+
+static int select_disabled_by_ancestor(const th_node *select) {
+    for (const th_node *ancestor = select->parent; ancestor != NULL; ancestor = ancestor->parent) {
+        if (disables_selectedcontent(ancestor)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void select_cache_fill(th_select_cache *cache) {
+    th_node *select = cache->select;
+    cache->target = first_selectedcontent_candidate(select);
+    cache->target_disabled = (uint8_t)(cache->target != NULL && node_has_attr(cache->target, TH_ATTR_DISABLED));
+    cache->valid = 1;
+}
+
+/* The select's cached first option and selectedcontent target, filled on first use
+   and refilled after the adoption agency moved nodes under it. Every popped
+   selected option needs both, and finding them walks the select's subtree, so
+   without the cache a run of options costs quadratic time. */
+static th_select_cache *select_cache_get(th_tree *tree, th_node *select) {
+    if (tree->select_state == NULL) {
+        tree->select_state = PyMem_Calloc(1, sizeof(th_select_state));
+        if (tree->select_state == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            tree->failed = 1;             /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+            return NULL;                  /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        }
+    }
+    th_select_state *state = tree->select_state;
+    Py_ssize_t slot = th_node_map_find(&state->index, select);
+    if (slot == 0) {
+        if (state->count == state->cap) {
+            size_t cap;
+            size_t bytes;
+            int grew =
+                th_grow_cap((size_t)state->count + 1, (size_t)state->cap, 8, sizeof(th_select_cache), &cap, &bytes);
+            if (!grew) {          /* GCOVR_EXCL_BR_LINE: size overflow cannot be forced from a test */
+                tree->failed = 1; /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+                return NULL;      /* GCOVR_EXCL_LINE: size-overflow path, unreachable from a test */
+            }
+            th_select_cache *grown = PyMem_Realloc(state->caches, bytes);
+            if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+                return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+            }
+            state->caches = grown;
+            state->cap = (Py_ssize_t)cap;
+        }
+        slot = ++state->count;
+        if (th_node_map_insert(&state->index, select, slot) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+            return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        }
+        th_select_cache *cache = &state->caches[slot - 1];
+        cache->select = select;
+        cache->multiple = (uint8_t)node_has_attr(select, TH_ATTR_MULTIPLE);
+        cache->valid = 0;
+    }
+    th_select_cache *cache = &state->caches[slot - 1];
+    if (!cache->valid) {
+        select_cache_fill(cache);
+    }
+    return cache;
+}
+
+/* Keep the cache of the select an option or selectedcontent was just inserted
+   under current: the new element is a leaf, so it can only take over as the first
+   option or as the target. */
+/* A new selectedcontent under the select can change the cached clone target, so drop
+   the cache and let the next pop recompute it. Only the target is cached; the first
+   option is cheap to find fresh each time, so option inserts need no bookkeeping. The
+   walk stops at an ancestor option: a selectedcontent inside an option is disabled and
+   never the target, which keeps a chain of nested options O(1) each. */
+static void select_cache_note_insert(th_select_state *state, th_node *inserted) {
+    th_node *select = inserted->parent;
+    while (select != NULL && !is_html_element(select, TH_TAG_SELECT)) {
+        if (is_html_element(select, TH_TAG_OPTION)) {
+            return;
+        }
+        select = select->parent;
+    }
+    Py_ssize_t slot = select != NULL ? th_node_map_find(&state->index, select) : 0;
+    if (slot != 0) {
+        state->caches[slot - 1].valid = 0;
+    }
+}
+
+/* The adoption agency is the one place that reorders existing nodes, so a select
+   whose subtree it disturbs has its cache dropped and lazily refilled on the next
+   clone. This keeps the common no-move case O(1) per option without tracking moves. */
+static void select_cache_invalidate_above(th_tree *tree, th_node *node) {
+    th_select_state *state = tree->select_state;
+    if (state == NULL) {
+        return;
+    }
+    for (; node != NULL; node = node->parent) {
+        if (is_html_element(node, TH_TAG_SELECT)) {
+            Py_ssize_t slot = th_node_map_find(&state->index, node);
+            if (slot != 0) {
+                state->caches[slot - 1].valid = 0;
+            }
+        }
+    }
+}
+
+static void select_cache_free(th_tree *tree) {
+    th_select_state *state = tree->select_state;
+    if (state != NULL) {
+        PyMem_Free(state->caches);
+        PyMem_Free(state->index.entries);
+        PyMem_Free(state);
+        tree->select_state = NULL;
+    }
 }
 
 static th_node *copy_node_in_tree(th_tree *tree, th_node *source) {
@@ -1491,28 +1600,60 @@ static void deep_copy_children(th_tree *tree, const th_node *src, th_node *dst) 
 /* "Maybe clone an option into selectedcontent": when a selected option (the
    selected attribute, or the select's first option by default) is popped, its
    children are mirrored into the select's selectedcontent element. */
+/* The HTML Standard's "nearest ancestor select" for element: walking ancestors
+   nearest first, a datalist, hr, or option returns null, a second optgroup returns
+   null, and the first select is the answer. An option nested in another option (or
+   below a datalist/hr) therefore has no select and is never cloned, so a chain of
+   nested options stays linear instead of each level recopying the one below. */
+static th_node *option_nearest_select(th_node *option) {
+    th_node *ancestor_optgroup = NULL;
+    for (th_node *ancestor = option->parent; ancestor != NULL; ancestor = ancestor->parent) {
+        if (ancestor->type != TH_NODE_ELEMENT || ancestor->ns != TH_NS_HTML) {
+            continue;
+        }
+        switch (ancestor->atom) {
+        case TH_TAG_DATALIST:
+        case TH_TAG_HR:
+        case TH_TAG_OPTION:
+            return NULL;
+        case TH_TAG_OPTGROUP:
+            if (ancestor_optgroup != NULL) {
+                return NULL;
+            }
+            ancestor_optgroup = ancestor;
+            break;
+        case TH_TAG_SELECT:
+            return ancestor;
+        default:
+            break;
+        }
+    }
+    return NULL;
+}
+
 static void maybe_clone_option(th_tree *tree, th_node *option) {
-    th_node *select = option->parent;
-    while (select != NULL &&
-           /* an option always has a select ancestor, so the walk never reaches a non-element node */
-           !(select->type == TH_NODE_ELEMENT /* GCOVR_EXCL_BR_LINE */ && select->ns == TH_NS_HTML &&
-             select->atom == TH_TAG_SELECT)) {
-        select = select->parent;
-    }
-    if (select == NULL || node_has_attr(select, TH_ATTR_MULTIPLE)) {
+    th_node *select = option_nearest_select(option);
+    if (select == NULL) {
         return;
     }
-    if (!node_has_attr(option, TH_ATTR_SELECTED) && first_option(select) != option) {
+    th_select_cache *cache = select_cache_get(tree, select);
+    if (cache == NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
+        return;          /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    }
+    if (cache->multiple) {
         return;
     }
-    th_node *sc = first_enabled_selectedcontent(select);
-    if (sc == NULL || node_has_attr(sc, TH_ATTR_DISABLED)) {
+    if (!node_has_attr(option, TH_ATTR_SELECTED) && first_option_below(select) != option) {
         return;
     }
-    while (sc->first_child != NULL) {
-        node_remove(sc->first_child);
+    th_node *target = cache->target;
+    if (target == NULL || cache->target_disabled || select_disabled_by_ancestor(select)) {
+        return;
     }
-    deep_copy_children(tree, option, sc);
+    while (target->first_child != NULL) {
+        node_remove(target->first_child);
+    }
+    deep_copy_children(tree, option, target);
 }
 
 /* Remove the active-formatting-elements entry at index, shifting the tail down. */
@@ -1903,6 +2044,7 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
             child = next;
         }
         node_append(furthest, fmt_clone);
+        select_cache_invalidate_above(tree, furthest);
         /* remove fmt from the list, insert the clone at the bookmark */
         Py_ssize_t fi = afe_index_of(tree, fmt);
         if (fi < bookmark) {
@@ -3277,6 +3419,11 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         if (node != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
             stack_push(tree, node);
         }
+        /* every HTML selectedcontent the parser creates lands here, so a select cached before
+           it arrived learns of it without a test on every other element's insert or push */
+        if (atom == TH_TAG_SELECTEDCONTENT && tree->select_state != NULL) {
+            select_cache_note_insert(tree->select_state, node);
+        }
         return TH_DRAIN_NEXT;
     }
     /* only an end tag reaches here: text/comment/start break above, a DOCTYPE is ignored before the switch */
@@ -4133,6 +4280,7 @@ static void run_close(th_tree *tree) {
     while (tree->open_len > 0) {
         stack_pop(tree);
     }
+    select_cache_free(tree);
 }
 
 /* Feed the input to the tokenizer (borrowing when there is no CR to normalize)
@@ -4484,6 +4632,7 @@ void th_tree_free(th_tree *tree) {
     PyMem_Free(tree->attr_recs);
     PyMem_Free(tree->shadows);
     PyMem_Free(tree->shadow_index.entries);
+    select_cache_free(tree);
     PyMem_Free(tree->meta_labels);
     PyMem_Free(tree->owned_data);
     th_error_sink_free(&tree->errors);
