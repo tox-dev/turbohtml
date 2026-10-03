@@ -630,8 +630,31 @@ static void rule_vec_push(rule_vec *vec, rule_item item) {
     vec->items[vec->len++] = item;
 }
 
+/* Index of the first depth-0 '{' from `from`, or -1. At the top level a qualified rule's prelude runs to this '{'
+   (CSS Syntax 3 §5.4.3 consume a qualified rule), so a ';' or '}' before it is a prelude component value, not a
+   boundary. */
+static Py_ssize_t css_find_top_block(const token_vec *vec, Py_ssize_t from) {
+    int depth = 0;
+    for (Py_ssize_t index = from; index < vec->len; index++) {
+        const css_token *token = &vec->items[index];
+        if (token->kind != CSS_DELIM) {
+            continue;
+        }
+        css_char delim = token->delim;
+        if (depth == 0 && delim == '{') {
+            return index;
+        }
+        if (delim == '(' || delim == '[' || delim == '{') {
+            depth++;
+        } else if ((delim == ')' || delim == ']' || delim == '}') && depth > 0) {
+            depth--;
+        }
+    }
+    return -1;
+}
+
 /* Parse a qualified rule into item (selector + rendered body), or recover a stray segment as opaque text. */
-static void css_parse_qualified(css_buf *pool, cursor *cur, int keyframe, rule_item *item) {
+static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyframe, rule_item *item) {
     item->is_rule = 0;
     item->dropped = 0;
     item->at_statement = 0;
@@ -666,6 +689,24 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int keyframe, rule_i
         css_free(decls.items);
         cbuf_free(&body);
         return;
+    }
+    /* A non-NULL peek here is a ';' or '}' stop (the '{' case returned above). At the top level both are prelude
+       component values, so read on to the block: if one follows, the prelude holds a token no selector list can, so
+       the invalid rule is dropped with its block (CSS Syntax 3 §5.4.3), matching lightningcss 1.33.0 and csso 5.0.5.
+       With no block it is stray recovery text kept verbatim, and a stray '}' is that text's terminator to consume. */
+    if (top && token) {
+        Py_ssize_t block = css_find_top_block(cur->vec, prelude_end);
+        if (block >= 0) {
+            cur->index = block + 1;
+            css_read_until(cur, "}");
+            if (cur->index < cur->vec->len) {
+                cur->index++;
+            }
+            return;
+        }
+        if (token->delim == '}') {
+            cur->index++;
+        }
     }
     if (token && token->delim == ';') {
         cur->index++;
@@ -1315,12 +1356,9 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, c
             cur->index++;
             continue;
         }
-        if (token->kind == CSS_DELIM && token->delim == '}') {
+        if (token->kind == CSS_DELIM && token->delim == '}' && !top) {
             cur->index++;
-            if (!top) {
-                break;
-            }
-            continue;
+            break;
         }
         if (token->kind == CSS_AT) {
             css_buf piece = {NULL, 0, 0, 0};
@@ -1337,7 +1375,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, c
             cbuf_free(&piece);
         } else {
             rule_item item = {0};
-            css_parse_qualified(pool, cur, keyframe, &item);
+            css_parse_qualified(pool, cur, top, keyframe, &item);
             if (item.is_rule || item.text_len > 0) {
                 rule_vec_push(&items, item);
             }

@@ -1,0 +1,1 @@
+:func:`~turbohtml.clean.minify_css` drops a rule whose selector holds a stray ``;`` or ``}``.

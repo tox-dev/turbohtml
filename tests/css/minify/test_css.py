@@ -849,6 +849,34 @@ def test_minify_css_string_cut_by_newline_is_a_fixed_point(source: str, expected
     assert minify_css(minify_css(source)) == expected
 
 
+# A top-level ';' or '}' is a prelude component value, so a qualified rule carrying one has an invalid selector list
+# and is dropped with its block (CSS Syntax 3 §5.4.3); with no block the stray text is kept as recovery.
+_STRAY_TOP_TOKEN: Final[list[ParameterSet]] = [
+    pytest.param("}p{color:red}", "", id="brace-before-rule"),
+    pytest.param("x;p{color:red}", "", id="semicolon-before-rule"),
+    pytest.param("/}*a{color:red}b{color:blue}", "b{color:blue}", id="brace-splits-comment"),
+    pytest.param("a{x:1}}b{x:1}", "a{x:1}", id="brace-between-rules"),
+    pytest.param("a;b{x:1}", "", id="semicolon-joins-prelude"),
+    pytest.param("x;a(b){y:1}", "", id="paren-in-invalid-prelude"),
+    pytest.param("x;a[b]{y:1}", "", id="bracket-in-invalid-prelude"),
+    pytest.param("x;a({}){y:1}", "", id="braces-in-invalid-prelude"),
+    pytest.param("x;p{color:red", "", id="invalid-prelude-unterminated-block"),
+    pytest.param("}", "", id="lone-brace"),
+    pytest.param("a{x:1}}", "a{x:1}", id="trailing-brace"),
+    pytest.param("a;", "a", id="stray-no-block-kept"),
+]
+
+
+@pytest.mark.parametrize(("source", "expected"), _STRAY_TOP_TOKEN)
+def test_minify_css_stray_top_token(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(("source", "expected"), _STRAY_TOP_TOKEN)
+def test_minify_css_stray_top_token_is_a_fixed_point(source: str, expected: str) -> None:
+    assert minify_css(minify_css(source)) == expected
+
+
 @pytest.mark.parametrize(
     "value",
     [
