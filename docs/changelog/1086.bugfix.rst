@@ -1,0 +1,2 @@
+:func:`~turbohtml.convert.css_to_xpath` translates an empty-value case-insensitive attribute selector like ``[att=""
+i]`` to an expression that matches only elements carrying the attribute.

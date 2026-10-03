@@ -664,6 +664,12 @@ static int xt_simple_cond(xt_ctx *ctx, const sel_simple *simple, const sel_compo
             xt_attr_ref(ctx, simple);
             return 1;
         case OP_EQ:
+            if (fold && simple->value_len == 0) {
+                /* translate() of an absent attribute is also '', so [att="" i] would match
+                   elements without the attribute; guard the match on its presence */
+                xt_attr_ref(ctx, simple);
+                xt_text(&ctx->out, " and ");
+            }
             xt_attr_value_ref(ctx, simple, fold);
             xt_text(&ctx->out, " = ");
             xt_value_literal(ctx, simple->value, simple->value_len, fold, 0, 0);
