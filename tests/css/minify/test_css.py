@@ -408,6 +408,29 @@ def test_minify_css_escaped_custom_property_name(source: str, expected: str) -> 
     assert minify_css(source) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{col or:red}", "", id="two-idents"),
+        pytest.param("a{foo bar:red}", "", id="two-idents-longer"),
+        pytest.param("a{x/ *y:1;color:red}b{c:d}", "a{color:red}b{c:d}", id="slash-star-not-joined-to-comment"),
+        pytest.param("a{\\63  a:red}", "", id="hex-escape-double-space"),
+        pytest.param("a{\\63x z:red}", "", id="hex-escape-not-at-name-end"),
+        pytest.param("a{\\z z:red}", "", id="non-hex-escape-then-space"),
+        pytest.param("a{ab z:1}", "", id="hex-byte-end-is-not-an-escape"),
+        pytest.param("a{\\000063 z:red}", "a{\\000063z:red}", id="six-digit-hex-escape-space"),
+        pytest.param("a{\\0000631 z:red}", "", id="hex-escape-past-six-digits-then-space"),
+        pytest.param("a{*zoom:1px}", "a{*zoom:1px}", id="star-hack-kept"),
+        pytest.param("a{_color:red}", "a{_color:red}", id="underscore-hack-kept"),
+    ],
+)
+def test_minify_css_property_name_whitespace_not_fused(source: str, expected: str) -> None:
+    # a declaration name is one ident; whitespace that is not a hex escape's single consumed space joins two tokens,
+    # so the invalid declaration is dropped rather than fused into a different valid name (#1052)
+    assert minify_css(source) == expected
+    assert minify_css(expected) == expected
+
+
 # past 32 rules the merge pass finds repeated selectors and bodies through a hash table before scanning back
 @pytest.fixture(params=[pytest.param(1, id="short-list"), pytest.param(40, id="hashed-list")])
 def filler_rules(request: pytest.FixtureRequest) -> str:

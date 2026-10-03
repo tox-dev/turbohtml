@@ -170,6 +170,38 @@ static int css_name_is_custom(const css_char *name, Py_ssize_t len) {
     return css_name_code_point(name, len, &pos) == '-' && css_name_code_point(name, len, &pos) == '-';
 }
 
+/* Whether a token ends with a hex escape (CSS Syntax 3 §4.3.7: `\` then 1-6 hex digits), the only escape that consumes
+   a following whitespace. It runs on the token before a whitespace in a name, which the tokenizer never leaves ending
+   in a bare `\` (an escape keeps its following byte in the same token), so every `\` here has an escaped byte after it.
+   Walking the escapes forward resolves `\\` (an escaped backslash, not an escape start) so literal hex digits trailing
+   one are not read as an escape. */
+CSS_NOINLINE static int css_token_ends_hex_escape(const css_token *token) {
+    const css_char *text = token->text;
+    Py_ssize_t len = token->text_len;
+    int ends_hex_escape = 0;
+    Py_ssize_t index = 0;
+    while (index < len) {
+        if (text[index] != '\\') {
+            ends_hex_escape = 0;
+            index++;
+            continue;
+        }
+        if (!css_is_hex(text[index + 1])) {
+            ends_hex_escape = 0;
+            index += 2;
+            continue;
+        }
+        Py_ssize_t hex = index + 1;
+        Py_ssize_t limit = index + 7 < len ? index + 7 : len;
+        while (hex < limit && css_is_hex(text[hex])) {
+            hex++;
+        }
+        ends_hex_escape = hex == len;
+        index = hex;
+    }
+    return ends_hex_escape;
+}
+
 /* Build a declaration from a segment [start, end). Returns 1 if a declaration was produced. */
 static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, comp_vec *scratch,
                                 css_decl *decl) {
@@ -218,12 +250,26 @@ static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start,
                     cbuf_putc(pool, css_lower(token->text[pos]));
                 }
             }
-        } else if (css_is_hex(vec->items[index - 1].text[vec->items[index - 1].text_len - 1]) &&
-                   css_is_hex(vec->items[index + 1].text[0])) {
-            /* whitespace inside a valid name ends a hex escape, which would otherwise read on into a following hex
-               digit (CSS Syntax 3 §4.3.7); the name's first and last tokens are not whitespace, so both neighbors
-               are in it */
-            cbuf_putc(pool, ' ');
+        } else if (css_token_ends_hex_escape(&vec->items[index - 1])) {
+            /* a declaration name is a single <ident-token> (CSS Syntax 3 §5.4.4); the only whitespace inside one is the
+               single space a hex escape consumes (§4.3.7). This run is real source whitespace (a synthetic
+               end-tag-splitting space never follows an escape), so its length is the gap to the next token: a single
+               space is kept only when the next byte is a hex digit the escape would otherwise read on into, dropped
+               otherwise, and a longer run joins a second token, so the name is invalid and the declaration drops. */
+            if (vec->items[index + 1].text - vec->items[index].text != 1) {
+                pool->len = prop_off;
+                return 0;
+            }
+            if (css_is_hex(vec->items[index + 1].text[0])) {
+                cbuf_putc(pool, ' ');
+            }
+        } else if (vec->items[index - 1].kind == CSS_DELIM && vec->items[index - 1].delim == '<') {
+            /* the tokenizer turns a comment that would join `</` into a space; drop it and keep the declaration so the
+               output's `</style` safety net (css.c) can return the source unchanged */
+        } else {
+            /* whitespace joining two tokens: the name is not one ident, so drop the invalid declaration */
+            pool->len = prop_off;
+            return 0;
         }
     }
     Py_ssize_t prop_len = pool->len - prop_off;

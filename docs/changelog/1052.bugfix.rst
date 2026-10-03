@@ -1,0 +1,1 @@
+:func:`~turbohtml.clean.minify_css` no longer joins two idents in a property name.
