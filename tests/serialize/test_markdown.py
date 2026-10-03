@@ -505,10 +505,26 @@ def test_selected_item_keeps_nested_list_depth() -> None:
         ),
         pytest.param("<blockquote><span></span></blockquote>", ">", id="empty-quote-with-empty-element"),
         pytest.param("<blockquote></blockquote>", "", id="empty-quote"),
+        pytest.param("<p>a<br><br>b</p>", "a  \n  \nb", id="double-break-kept"),
+        pytest.param("<ul><li>a<br></li><li>b</li></ul>", "- a\n- b", id="item-trailing-break-stays-tight"),
+        pytest.param("<ul><li>a</li><br><li>b</li></ul>", "- a\n- b", id="break-between-items-dropped"),
+        pytest.param("<ul><li>a<br>b</li><li>c</li></ul>", "- a  \n  b\n- c", id="item-inner-break-kept"),
+        pytest.param("<p>a<br></p><p>c</p>", "a\n\nc", id="paragraph-trailing-break-dropped"),
+        pytest.param("<blockquote>a<br></blockquote><p>c</p>", "> a\n\nc", id="quote-trailing-break-dropped"),
+        pytest.param("<p>a<br> <i>c</i></p>", "a  \n*c*", id="break-before-space-then-inline-is-kept"),
+        pytest.param("<p>a<br><!--x-->b</p>", "a  \nb", id="break-looks-past-a-comment"),
+        pytest.param("<p>a<br><script>s</script>b</p>", "a  \nb", id="break-looks-past-a-skipped-element"),
+        pytest.param("<p>a<br><svg></svg>b</p>", "a  \nb", id="break-before-a-foreign-element-is-kept"),
+        pytest.param("<p>a<b>x<br></b>c</p>", "a**x  \n**c", id="break-climbs-out-of-inline-wrapper"),
+        pytest.param("<math><mtext>x<br></mtext></math>", "x", id="break-climbs-out-of-a-foreign-parent"),
     ],
 )
 def test_breaks_quotes_rules(html: str, expected: str) -> None:
     assert md(html) == expected
+
+
+def test_trailing_break_at_an_inline_root_is_dropped() -> None:
+    assert parse_fragment("x<br>").to_markdown() == "x"
 
 
 @pytest.mark.parametrize(

@@ -1364,6 +1364,37 @@ static void md_emit_image(md_ctx *ctx, th_node *node) {
     ctx->line_has_content = 1;
 }
 
+/* Whether a <br> sits at the end of its block, where a hard break does nothing
+   (CommonMark 6.7): no visible content follows it before a block boundary. Scanning
+   forward, a following non-space text run or inline element is visible content and a
+   following block ends the run; climbing out of an inline wrapper reaches the block
+   that encloses the break. A parsed tree always wraps a break in a block (the body at
+   least), so the climb meets that block and never a parentless node. */
+static int md_br_trailing(md_ctx *ctx, th_node *node) {
+    for (th_node *cursor = node;; cursor = cursor->parent) {
+        for (th_node *sibling = cursor->next_sibling; sibling != NULL; sibling = sibling->next_sibling) {
+            if (sibling->type == TH_NODE_TEXT) {
+                const Py_UCS4 *text = need_text(ctx->tree, sibling);
+                for (Py_ssize_t index = 0; index < sibling->text_len; index++) {
+                    if (!is_space(text[index])) {
+                        return 0;
+                    }
+                }
+            } else if (sibling->type == TH_NODE_ELEMENT && !is_md_skipped(sibling)) {
+                uint16_t atom = sibling->ns == TH_NS_HTML ? sibling->atom : TH_TAG_UNKNOWN;
+                if (atom == TH_TAG_BR) {
+                    continue; /* another break is not visible content; keep looking past it */
+                }
+                return is_md_block(atom); /* a block ends the run (trailing); any other element is content */
+            }
+        }
+        th_node *parent = cursor->parent;
+        if (is_md_block(parent->ns == TH_NS_HTML ? parent->atom : TH_TAG_UNKNOWN)) {
+            return 1;
+        }
+    }
+}
+
 /* Render an element (or content node) by its tag, the common path shared by the
    plain walk and the google_doc CSS wrapper. Text is handled by the caller. */
 static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
@@ -1425,6 +1456,11 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
             /* a hard break ends the line, but an ATX heading is one line and a
                setext heading joins its lines, so the break reads as a space */
             ctx->space_pending = 1;
+            return;
+        }
+        if (md_br_trailing(ctx, node)) {
+            /* a hard break at the end of a block does nothing (CommonMark 6.7); emitting
+               it would leave a line of spaces that reads as a blank line */
             return;
         }
         sbuf_puts(&ctx->out, opt->line_break == TH_MD_BREAK_BACKSLASH ? "\\" : "  ");
@@ -1681,6 +1717,9 @@ static inline void md_block_child(md_ctx *ctx, th_node *child, int *in_run) {
         return;
     }
     if (!*in_run) {
+        if (atom == TH_TAG_BR) {
+            return; /* a hard break with no content before it in the block does nothing */
+        }
         int only_ws = child->type == TH_NODE_TEXT;
         if (only_ws) {
             const Py_UCS4 *text = need_text(ctx->tree, child);
