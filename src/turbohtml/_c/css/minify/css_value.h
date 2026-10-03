@@ -599,19 +599,21 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
     int types[4]; /* 1 = percentage, 0 = number */
     const css_token *raws[4];
     int count = 0;
-    int has_slash = 0;
-    int has_comma = 0;
+    int comma_count = 0;
+    int slash_count = 0;
+    int slash_at = -1;
     for (Py_ssize_t index = start; index < end; index++) {
         css_token *token = &vec->items[index];
         if (token->kind == CSS_COMMENT || token->kind == CSS_WS) {
             continue;
         }
         if (token->kind == CSS_DELIM && token->delim == '/') {
-            has_slash = 1;
+            slash_at = count;
+            slash_count++;
             continue;
         }
         if (token->kind == CSS_DELIM && token->delim == ',') {
-            has_comma = 1;
+            comma_count++;
             continue;
         }
         if (token->kind != CSS_NUM || count >= 4) {
@@ -630,6 +632,23 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
         count++;
     }
     if (count < 3) {
+        return 0;
+    }
+    /* keep the function verbatim unless the arguments form a legal rgb()/hsl() shape (CSS Color 4 §4): the legacy form
+       separates every value with a comma, the modern form separates with whitespace and takes an optional alpha after a
+       single slash. A mixed or otherwise malformed shape (e.g. `rgb(0 0 0 .5)`) is invalid, so folding or rebuilding it
+       would turn an invalid declaration into a valid color. */
+    int has_comma = comma_count > 0;
+    int has_slash = slash_count > 0;
+    if (has_comma) {
+        if (has_slash || comma_count != count - 1) {
+            return 0;
+        }
+    } else if (has_slash) {
+        if (slash_count != 1 || count != 4 || slash_at != 3) {
+            return 0;
+        }
+    } else if (count != 3) {
         return 0;
     }
     double alpha = 1.0;

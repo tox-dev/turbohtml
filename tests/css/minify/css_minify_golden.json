@@ -2651,8 +2651,8 @@
 ],
 [
 "a{color:rgba(10 20 30 .5)}",
-"a{color:rgb(10 20 30,.5)}",
-"a{color:rgb(10 20 30,.5)}"
+"a{color:rgba(10 20 30 .5)}",
+"a{color:rgba(10 20 30 .5)}"
 ],
 [
 "a{color:rgb(10% 20% 30%/.5)}",

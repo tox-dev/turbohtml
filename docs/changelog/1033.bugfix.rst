@@ -1,0 +1,1 @@
+:func:`~turbohtml.clean.minify_css` no longer turns an invalid ``rgb()`` shape into a valid color.

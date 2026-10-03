@@ -408,6 +408,30 @@ def test_minify_css_escaped_custom_property_name(source: str, expected: str) -> 
     assert minify_css(source) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{color:rgb(0 0 0 .5)}", "a{color:rgb(0 0 0 .5)}", id="modern-alpha-without-slash"),
+        pytest.param("a{color:rgb(0 0 0 0)}", "a{color:rgb(0 0 0 0)}", id="modern-alpha-without-slash-all-zero"),
+        pytest.param("a{color:rgb(255,0,0 0)}", "a{color:rgb(255,0,0 0)}", id="comma-then-space"),
+        pytest.param("a{color:rgb(0,0 0/.5)}", "a{color:rgb(0,0 0/.5)}", id="comma-and-slash-mixed"),
+        pytest.param("a{color:rgb(0 0/0)}", "a{color:rgb(0 0/0)}", id="slash-with-three-values"),
+        pytest.param("a{color:rgb(0/0 0 0)}", "a{color:rgb(0/0 0 0)}", id="slash-not-before-alpha"),
+        pytest.param("a{color:rgb(0 0 0//.5)}", "a{color:rgb(0 0 0//.5)}", id="two-slashes"),
+        pytest.param("a{color:rgb(0,0,0)}", "a{color:#000}", id="legacy-folds"),
+        pytest.param("a{color:rgb(0 0 0)}", "a{color:#000}", id="modern-folds"),
+        pytest.param("a{color:rgb(0 0 0/.5)}", "a{color:rgb(0 0 0/.5)}", id="modern-alpha-slash-kept"),
+        pytest.param("a{color:rgb(0 0 0/0)}", "a{color:#0000}", id="modern-transparent-folds"),
+        pytest.param("a{color:rgba(0,0,0,0)}", "a{color:#0000}", id="legacy-transparent-folds"),
+    ],
+)
+def test_minify_css_rgb_argument_shape(source: str, expected: str) -> None:
+    # rgb()/hsl() fold only when the arguments match a legal shape (legacy commas or modern spaces with one slash before
+    # the alpha); an illegal shape is kept verbatim, never rebuilt into a valid color (#1033)
+    assert minify_css(source) == expected
+    assert minify_css(expected) == expected
+
+
 # past 32 rules the merge pass finds repeated selectors and bodies through a hash table before scanning back
 @pytest.fixture(params=[pytest.param(1, id="short-list"), pytest.param(40, id="hashed-list")])
 def filler_rules(request: pytest.FixtureRequest) -> str:
