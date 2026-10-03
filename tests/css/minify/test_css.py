@@ -1132,6 +1132,15 @@ _DIMENSION_UNIT: Final[list[ParameterSet]] = [
     pytest.param("a{e:f(1+1)}", "a{e:f(1 1)}", id="signed-number-after-number"),
     pytest.param("a{e:f(+1)}", "a{e:f(1)}", id="signed-number-first"),
     pytest.param("a{e:f(1,+1)}", "a{e:f(1,1)}", id="signed-number-after-comma"),
+    # a unit that reads as an exponent (e/E then an optional sign and a digit) must not fuse with a shortened number
+    pytest.param("a{e:1e1e3px}", "a{e:1e1e3px}", id="exponent-unit"),
+    pytest.param("a{e:1e1e3}", "a{e:1e1e3}", id="exponent-unit-bare"),
+    pytest.param("a{e:1E1E3px}", "a{e:1E1E3px}", id="exponent-unit-upper"),
+    pytest.param("a{e:1e1e-3px}", "a{e:1e1e-3px}", id="exponent-unit-negative"),
+    pytest.param("a{e:1e5e3px}", "a{e:1e5e3px}", id="exponent-unit-keeps-scientific"),
+    pytest.param("a{e:1ex}", "a{e:1ex}", id="exponent-like-unit-x-height"),
+    pytest.param("a{e:1e-}", "a{e:1e-}", id="e-unit-trailing-hyphen"),
+    pytest.param("a{e:1e}", "a{e:1e}", id="e-unit-bare"),
 ]
 
 

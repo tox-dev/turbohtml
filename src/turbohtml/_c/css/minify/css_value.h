@@ -251,6 +251,17 @@ static int css_unit_zero_droppable(const css_char *unit, Py_ssize_t len) {
     return 0;
 }
 
+/* Whether a unit re-reads as the exponent of a preceding number: e/E, an optional '-' (an ident unit cannot carry a
+   '+'), then a digit. Written after a shortened number that lost its own exponent, such a unit fuses into one number
+   (CSS Syntax 3 §4.3.3 consume-a-number reads one exponent), so 1e1e3px -> 10 + e3px would read as 10e3. */
+static int css_unit_reads_as_exponent(const css_char *unit, Py_ssize_t len) {
+    if (len < 2 || (unit[0] != 'e' && unit[0] != 'E')) {
+        return 0;
+    }
+    Py_ssize_t digit = unit[1] == '-' ? 2 : 1;
+    return digit < len && css_is_digit(unit[digit]);
+}
+
 /* Render a dimension (number + unit) into the pool: shorten the number, lower-case a known unit, and drop the unit
    when the value is 0 and the unit is a length (CSS Values 4 §5.2). */
 static void css_format_dimension(css_buf *pool, const css_token *token, int drop_zero_unit, Py_ssize_t *out_off,
@@ -258,18 +269,37 @@ static void css_format_dimension(css_buf *pool, const css_token *token, int drop
     Py_ssize_t off;
     Py_ssize_t len;
     css_format_number(pool, token->text, token->text_len, token->unit_len != 0, &off, &len);
+    const css_char *unit = token->text + token->text_len;
+    if (css_unit_reads_as_exponent(unit, token->unit_len)) {
+        int has_exponent = 0;
+        for (Py_ssize_t index = 0; index < len; index++) {
+            /* a shortened number carries its exponent only as css_format_number's lower-case 'e'; a preserved source
+               number is already rewritten verbatim below, so re-detecting its 'E' would only rewrite it to itself */
+            if (pool->data[off + index] == 'e') {
+                has_exponent = 1;
+                break;
+            }
+        }
+        if (!has_exponent) {
+            /* the shortened number dropped its exponent; a unit starting one would fuse onto it, so keep the source
+               number, which still carries its exponent and holds the token boundary */
+            pool->len = off;
+            cbuf_put_run(pool, token->text, token->text_len);
+            len = pool->len - off;
+        }
+    }
     int is_zero = len == 1 && pool->data[off] == '0';
-    if (drop_zero_unit && is_zero && css_unit_zero_droppable((token->text + token->text_len), token->unit_len)) {
+    if (drop_zero_unit && is_zero && css_unit_zero_droppable(unit, token->unit_len)) {
         *out_off = off;
         *out_len = len;
         return;
     }
-    if (css_unit_known((token->text + token->text_len), token->unit_len)) {
+    if (css_unit_known(unit, token->unit_len)) {
         for (Py_ssize_t index = 0; index < token->unit_len; index++) {
-            cbuf_putc(pool, css_lower((token->text + token->text_len)[index]));
+            cbuf_putc(pool, css_lower(unit[index]));
         }
     } else {
-        cbuf_put_run(pool, (token->text + token->text_len), token->unit_len);
+        cbuf_put_run(pool, unit, token->unit_len);
     }
     *out_off = off;
     *out_len = pool->len - off;
