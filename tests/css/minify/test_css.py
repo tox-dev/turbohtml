@@ -745,6 +745,15 @@ def _max_decls_per_rule(rule_count: int) -> int:
         pytest.param('a{b:"x\\\ny"}', 'a{b:"xy"}', id="string-continuation-dropped"),
         pytest.param('a{b:"</stylo"}', 'a{b:"</stylo"}', id="end-tag-prefix-of-other-name"),
         pytest.param('a { b : "</style" }', 'a{b:"</style"}', id="end-tag-from-source-still-minified"),
+        # an @import/@namespace url() with a <url-modifier> keeps its function form (CSS Values 4 §4.5.4): moving the
+        # modifier outside the url() would make @import read it as a media query and @namespace as the prefix
+        pytest.param('@import url("a.css" screen);', '@import url("a.css" screen)', id="import-url-modifier-kept"),
+        pytest.param('@namespace url("" e);', '@namespace url("" e)', id="namespace-url-modifier-kept"),
+        pytest.param("@import url('a.css' x);", "@import url('a.css' x)", id="import-url-modifier-single-quote-kept"),
+        pytest.param("@import url(a b);", "@import url(a b)", id="import-bare-url-modifier-kept"),
+        pytest.param('@import url("a.css");', '@import "a.css"', id="import-url-no-modifier-unwrapped"),
+        pytest.param("@import url(a.css);", '@import "a.css"', id="import-bare-url-unwrapped"),
+        pytest.param("@import url();", '@import ""', id="import-empty-url-unwrapped"),
     ],
 )
 def test_minify_css_spec_fixes(source: str, expected: str) -> None:

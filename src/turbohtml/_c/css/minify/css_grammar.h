@@ -341,6 +341,28 @@ static int css_is_nested_rule_at(const css_char *name, Py_ssize_t len) {
 static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls);
 static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, css_buf *out);
 
+/* Whether an @import/@namespace url() carries a <url-modifier> after its URL (CSS Values 4 §4.5.4): any content beyond
+   trailing whitespace past the quoted or bare URL. text[start, end) is the url()'s whitespace-trimmed interior. A url()
+   with a modifier keeps its function form, since the @import grammar (CSS Cascade 5 §3.1) reads a token moved outside
+   the url() as a media query, and @namespace reads it as the prefix. */
+static int css_url_has_modifier(const css_char *text, Py_ssize_t start, Py_ssize_t end) {
+    if (start >= end) {
+        return 0;
+    }
+    css_char first = text[start];
+    if (first == '"' || first == '\'') {
+        /* th_minify_css_bytes closes a string the input left open, so a quoted body's closing quote is present; a body
+           that ends on it is the bare URL, anything after it (a modifier) leaves a different last byte */
+        return text[end - 1] != first;
+    }
+    for (Py_ssize_t index = start; index < end; index++) {
+        if (css_is_ws(text[index])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Render an at-rule prelude into out (a leading space unless it opens with '('). */
 static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, int allow_url_string,
                            css_buf *out) {
@@ -381,6 +403,14 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
             }
             while (body_end > body_start && css_is_ws(token->text[body_end - 1])) {
                 body_end--;
+            }
+            if (css_url_has_modifier(token->text, body_start, body_end)) {
+                /* a <url-modifier> follows the URL: keep the url() function, minified in place */
+                Py_ssize_t off;
+                Py_ssize_t len;
+                css_minify_url(pool, token->text, token->text_len, &off, &len);
+                cbuf_put_run(out, pool->data + off, len);
+                continue;
             }
             if (body_end > body_start && (token->text[body_start] == '"' || token->text[body_start] == '\'')) {
                 cbuf_put_run(out, token->text + body_start, body_end - body_start);
