@@ -651,7 +651,6 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int keyframe, rule_i
             /* render the selector straight into the pool (it reads only the source tokens, never the pool scratch),
                which avoids a per-rule temporary buffer allocation; the body needs its own buffer because rendering it
                uses the pool as value scratch, so it is interned afterwards */
-            item->is_rule = 1;
             item->sel_off = pool->len;
             css_minify_selector(cur->vec, prelude_start, prelude_end, keyframe, pool);
             /* an empty prelude ({--x:}) lets css_minify_selector's rtrim cut below sel_off, and a negative length
@@ -660,8 +659,13 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int keyframe, rule_i
                 pool->len = item->sel_off;
             }
             item->sel_len = pool->len - item->sel_off;
-            item->body_off = pool_run(pool, body.data, body.len);
-            item->body_len = body.len;
+            /* an empty prelude is not a selector list (CSS Syntax 3 §5.4.3), so the rule is invalid and dropped rather
+               than merged into the previous list as an empty entry; lightningcss 1.33.0 and csso 5.0.5 drop it too */
+            if (item->sel_len > 0) {
+                item->is_rule = 1;
+                item->body_off = pool_run(pool, body.data, body.len);
+                item->body_len = body.len;
+            }
         }
         css_free(decls.items);
         cbuf_free(&body);
