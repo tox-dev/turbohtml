@@ -76,6 +76,8 @@ static int css_value_has_top_space(const css_buf *pool, const css_decl *decl) {
     return 0;
 }
 
+static int css_box_edge_supported(const css_buf *pool, const css_decl *decl, int padding);
+
 /* Merge four longhands (top, right, bottom, left order) into their shorthand when it is value-safe: all four present
    and the only sub-properties of that prefix in the rule (so no logical margin-inline/-block to reorder), same
    importance, no var()/env() substitution, and -- if any is a CSS-wide keyword -- all four the identical keyword. A
@@ -125,6 +127,11 @@ static void css_merge_box(css_buf *pool, decl_vec *decls, const char *shorthand,
         }
         cbuf_put_run(&value, pool->data + decls->items[idx[0]].val_off, decls->items[idx[0]].val_len);
     } else {
+        for (int edge = 0; prefix != NULL && edge < 4; edge++) {
+            if (!css_box_edge_supported(pool, &decls->items[idx[edge]], shorthand[0] == 'p')) {
+                return;
+            }
+        }
         int kept = 4;
         if (css_decl_value_eq(pool, &decls->items[idx[3]], &decls->items[idx[1]])) {
             kept = 3;
@@ -161,6 +168,23 @@ static void css_merge_box(css_buf *pool, decl_vec *decls, const char *shorthand,
     }
     cbuf_free(&value);
     css_dedup(pool, decls);
+}
+
+/* An invalid edge would invalidate the shorthand and discard its valid edges (CSS Box 3 §3/§4). */
+CSS_NOINLINE static int css_box_edge_supported(const css_buf *pool, const css_decl *decl, int padding) {
+    const css_char *value = pool->data + decl->val_off;
+    if (!padding && css_run_ieq(value, decl->val_len, "auto")) {
+        return 1;
+    }
+    if (!css_starts_number(value, 0, decl->val_len) || (padding && value[0] == '-')) {
+        return 0;
+    }
+    Py_ssize_t number_end = css_scan_number(value, 0, decl->val_len);
+    if (number_end == decl->val_len) {
+        return decl->val_len == 1 && value[0] == '0';
+    }
+    return css_run_ieq(value + number_end, decl->val_len - number_end, "%") ||
+           css_unit_zero_droppable(value + number_end, decl->val_len - number_end);
 }
 
 /* Merge two longhands into a two-value shorthand (longhand0 then longhand1, collapsing to one value when both are

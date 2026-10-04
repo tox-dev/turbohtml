@@ -275,11 +275,28 @@ static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start,
             !(end == vec->len && css_leaves_block_open(vec, value_start, bang))) {
             important = 1;
             value_end = bang;
+            if (!is_custom) {
+                last = bang - 1;
+                while (last >= value_start &&
+                       (vec->items[last].kind == CSS_WS || vec->items[last].kind == CSS_COMMENT)) {
+                    last--;
+                }
+            }
         }
+    }
+
+    if (!is_custom && last < value_start) {
+        pool->len = prop_off;
+        return 0;
     }
 
     css_buf value = {NULL, 0, 0, 0};
     css_minify_value(pool, vec, value_start, value_end, pool->data + prop_off, prop_len, is_custom, scratch, &value);
+    if (!is_custom && value.len == 0) {
+        cbuf_free(&value);
+        pool->len = prop_off;
+        return 0;
+    }
     Py_ssize_t val_off = pool_run(pool, value.data, value.len);
     Py_ssize_t val_len = value.len;
     cbuf_free(&value);

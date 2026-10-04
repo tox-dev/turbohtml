@@ -1,0 +1,1 @@
+Preserve valid CSS declarations beside empty values and invalid box edges.

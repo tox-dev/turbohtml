@@ -240,8 +240,7 @@ static inline void css_nesting_leave(token_vec *vec) {
 #define CSS_NOINLINE
 #endif
 
-/* Keeps a single-caller helper on the per-value path inside its caller once its size passes the inliner's limit, so
-   the hot loop pays no call. */
+/* Keep hot helpers inline when additional callers would make the compiler outline them. */
 #if defined(_MSC_VER)
 #define CSS_FORCEINLINE __forceinline
 #elif defined(__GNUC__) || defined(__clang__)
@@ -350,7 +349,7 @@ static int css_would_merge(css_char last, int last_is_ident, const css_char *nex
 }
 
 /* Whether text[pos..] begins a numeric token: a digit, a dot before a digit, or a sign before either. */
-static int css_starts_number(const css_char *text, Py_ssize_t pos, Py_ssize_t length) {
+static CSS_FORCEINLINE int css_starts_number(const css_char *text, Py_ssize_t pos, Py_ssize_t length) {
     css_char character = text[pos];
     if (css_is_digit(character)) {
         return 1;
@@ -371,7 +370,7 @@ static int css_starts_number(const css_char *text, Py_ssize_t pos, Py_ssize_t le
 }
 
 /* Match [+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)? at pos, returning the end index. */
-static Py_ssize_t css_scan_number(const css_char *text, Py_ssize_t pos, Py_ssize_t length) {
+static CSS_FORCEINLINE Py_ssize_t css_scan_number(const css_char *text, Py_ssize_t pos, Py_ssize_t length) {
     /* callers pass a numeric token, so its optional sign and first digit/dot need no bounds check */
     Py_ssize_t scan = pos;
     if (text[scan] == '+' || text[scan] == '-') {

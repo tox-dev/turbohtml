@@ -607,10 +607,16 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
             cbuf_put_run(&joined, token->text, token->text_len);
         }
     }
+    if (joined.failed || pool->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        out->failed = 1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        cbuf_free(&joined);              /* GCOVR_EXCL_LINE: allocation-failure path */
+        return;                          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     const char *legacy = "progid:dximagetransform.microsoft.alpha(opacity=";
     Py_ssize_t legacy_len = (Py_ssize_t)strlen(legacy);
     int is_ms = css_run_ieq(prop, prop_len, "-ms-filter");
-    int quote = joined.len > 0 && (joined.data[0] == '"' || joined.data[0] == '\'');
+    /* Empty declarations are rejected before this handler, so a successful join contains a token. */
+    int quote = joined.data[0] == '"' || joined.data[0] == '\'';
     Py_ssize_t scan = is_ms && quote ? 1 : 0;
     int matches_legacy = joined.len - scan >= legacy_len;
     for (Py_ssize_t index = 0; matches_legacy && index < legacy_len; index++) {

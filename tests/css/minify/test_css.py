@@ -594,15 +594,14 @@ def filler_rules(request: pytest.FixtureRequest) -> str:
 
 
 @pytest.mark.parametrize(
-    "source",
+    ("source", "expected"),
     [
-        pytest.param("a{{b:c}}", id="nested-rule-without-selector"),
-        pytest.param("a{b:}", id="declaration-without-value"),
+        pytest.param("a{{b:c}}", "a{{b:c}}", id="nested-rule-without-selector"),
+        pytest.param("a{b:}", "", id="declaration-without-value"),
     ],
 )
-def test_minify_css_empty_run(source: str) -> None:
-    # the empty selector or value is a NULL buffer; memcpy declares its source non-null even for length 0
-    assert minify_css(source) == source
+def test_minify_css_empty_run(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
 
 
 # an empty prelude is not a selector list, so a top-level rule with one is invalid and dropped rather than merged in
