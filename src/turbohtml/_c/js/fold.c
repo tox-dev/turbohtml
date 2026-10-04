@@ -1420,7 +1420,7 @@ static void walk(F *folder, int32_t idx) {
     case JN_EXPR_STMT:
         walk(folder, child_a);
         /* a constant has no side effect, so the statement only matters as a directive (11.2.1) */
-        if (!(flags & JN_F_DIRECTIVE) && is_pure_const(folder, child_a)) {
+        if (is_pure_const(folder, child_a) && !(flags & JN_F_DIRECTIVE)) {
             jm_node_empty(folder->prog, idx);
             folder->changed = 1;
         }

@@ -892,16 +892,16 @@ def test_constant_statement_kept_without_folding(source: str, options: JSMinify,
 
 
 @pytest.mark.parametrize(
-    "source",
+    ("source", "expected"),
     [
-        pytest.param('function f(){{"use strict";x()}}', id="constant-statement"),
-        pytest.param("for(;;){{{}}}", id="empty-loop-body"),
-        pytest.param("do{}while(x)", id="empty-do-while-body"),
+        pytest.param('function f(){{"use strict";x()}}', "function f(){x()}", id="constant-statement"),
+        pytest.param("for(;;){{{}}}", "for(;;);", id="empty-loop-body"),
+        pytest.param("do{}while(x)", "do;while(x)", id="empty-do-while-body"),
     ],
 )
-def test_constant_and_empty_body_reach_fixpoint(source: str) -> None:
-    once = minify_js(source)
-    assert minify_js(once) == once
+def test_constant_and_empty_body_reach_fixpoint(source: str, expected: str) -> None:
+    once: Final[str] = minify_js(source)
+    assert (once, minify_js(once)) == (expected, expected)
 
 
 @pytest.mark.parametrize(
