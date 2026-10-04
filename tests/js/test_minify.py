@@ -169,8 +169,8 @@ def test_string_line_continuation_lexes(body: str, value: str) -> None:
     [
         pytest.param("if ( x ) { a ( ) } else { b ( ) }", "if(x)a();else b()", id="if-else"),
         pytest.param("for ( let i = 0 ; i < n ; i ++ ) { f ( i ) }", "for(let i=0;i<n;i++)f(i)", id="for"),
-        pytest.param("for ( const k in o ) { }", "for(const k in o){}", id="for-in"),
-        pytest.param("for ( const v of a ) { }", "for(const v of a){}", id="for-of"),
+        pytest.param("for ( const k in o ) { }", "for(const k in o);", id="for-in"),
+        pytest.param("for ( const v of a ) { }", "for(const v of a);", id="for-of"),
         pytest.param("do { f ( ) } while ( c )", "do f();while(c)", id="do-while"),
         pytest.param(
             "switch ( x ) { case 1 : a ( ) ; break ; default : b ( ) }",
@@ -186,7 +186,16 @@ def test_string_line_continuation_lexes(body: str, value: str) -> None:
         pytest.param("for ( ; ; ) g ( )", "for(;;)g()", id="loop-body-braceless-kept"),
         pytest.param("for ( ; ; ) { class C { } }", "for(;;){class C{}}", id="loop-body-class-kept"),
         pytest.param("for ( ; ; ) { function h ( ) { } }", "for(;;){function h(){}}", id="loop-body-function-kept"),
-        pytest.param("do { } while ( c )", "do{}while(c)", id="do-while-empty-kept"),
+        pytest.param("do { } while ( c )", "do;while(c)", id="do-while-empty-body"),
+        # an empty body block prints as the empty statement
+        pytest.param("for ( ; ; ) { }", "for(;;);", id="loop-body-empty-block"),
+        pytest.param("for ( ; ; ) { ; ; }", "for(;;);", id="loop-body-empty-statements"),
+        pytest.param("for ( ; ; ) { { } }", "for(;;);", id="loop-body-nested-empty-block"),
+        pytest.param("while ( x ) { }", "while(x);", id="while-body-empty-block"),
+        pytest.param("with ( o ) { }", "with(o);", id="with-body-empty-block"),
+        pytest.param("l : { }", "l:;", id="label-body-empty-block"),
+        pytest.param("if ( a ) { } else { b ( ) }", "if(a);else b()", id="if-consequent-empty-block"),
+        pytest.param("if ( a ) b ( ) ; else { }", "if(a)b();else;", id="if-alternate-empty-block"),
         pytest.param("do a ( ) ; while ( b )", "do a();while(b)", id="do-while-braceless-kept"),
         pytest.param("for ( ; ; ) { ; g ( ) }", "for(;;)g()", id="loop-body-empty-then-stmt"),
         pytest.param("for ( var a = ( b in c ) ; ; ) ;", "for(var a=(b in c);;);", id="for-init-in-parenthesised"),
@@ -744,10 +753,12 @@ def _dump_sexpr(node: _SExpr) -> str:
 
 
 def _norm(dump: str) -> str:
-    """Normalize an AST dump: drop empty statements (minified out) and canonicalize
-    numeric and BigInt literals (value-preserving number minification, BigInt separator
-    stripping) so equivalent ASTs match."""
+    """Normalize an AST dump: drop empty statements and empty blocks (minified out, or printed as
+    `;`) and canonicalize numeric and BigInt literals (value-preserving number minification, BigInt
+    separator stripping) so equivalent ASTs match."""
     dump = re.sub(r"\(empty\)", "", dump)
+    while (stripped := re.sub(r"\(block\s*\(body\s*\)\)", "", dump)) != dump:
+        dump = stripped
     dump = re.sub(r"\(num '([^']*)'\)", lambda mt: f"(num '{_canon_num(mt.group(1))}')", dump)
     dump = re.sub(r"\(bigint '([^']*)'\)", lambda mt: f"(bigint '{mt.group(1).replace('_', '')}')", dump)
     # a["x"] == a.x and {"x":1} == {x:1} when the key is a bare identifier name; a quoted __proto__

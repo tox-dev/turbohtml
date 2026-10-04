@@ -98,9 +98,11 @@ def test_renames(source: str, expected: str) -> None:
             "function f(){5}",
             id="dropped-local-read",
         ),
-        # fold first merges `0;$` into the sequence `0,$`, which the mangler then collapses
-        pytest.param("{let $=1;0;$}", JSMinify(mangle=True, fold=True), "1", id="pure-statement-merged-then-collapsed"),
-        pytest.param("{let $=1;/a/;$}", JSMinify(mangle=True, fold=True), "1", id="regex-statement-dropped"),
+        # fold first merges `g();$` into the sequence `g(),$`, which the mangler then collapses
+        pytest.param(
+            "{let $=1;g();$}", JSMinify(mangle=True, fold=True), "g(),1", id="pure-statement-merged-then-collapsed"
+        ),
+        pytest.param("{let $=1;/a/;x=$}", JSMinify(mangle=True, fold=True), "x=1", id="regex-statement-dropped"),
         pytest.param(
             "function f(){const y=5;var x;return 0,x=y}",
             JSMinify(mangle=True, fold=False),

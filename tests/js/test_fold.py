@@ -43,9 +43,9 @@ _NODE = shutil.which("node")
         # dead-code elimination drops a constant-condition branch, but only when the dropped
         # branch hoists nothing (a var or function declaration), checked across every control-flow
         # shape; an impure condition is left untouched
-        pytest.param("null?1:2", "2", id="dce-null-falsy"),
+        pytest.param("x=null?1:2", "x=2", id="dce-null-falsy"),
         pytest.param("x?1:2", "x?1:2", id="dce-impure-cond-kept"),
-        pytest.param("void 0?1:2", "2", id="dce-void-pure-falsy"),
+        pytest.param("x=void 0?1:2", "x=2", id="dce-void-pure-falsy"),
         pytest.param("void x?1:2", "void x?1:2", id="dce-void-impure-kept"),
         pytest.param("if(0){class C{}}b", "b", id="dce-class-no-hoist-dropped"),
         # `undefined` folds to `void 0` only when nothing declares the name; a class named
@@ -196,10 +196,10 @@ def test_folds(source: str, expected: str) -> None:
         # check descends every control-flow shape and short-circuits across both branch slots. The full
         # pipeline goes further and drops the binding (see test_compresses); here fold must not.
         pytest.param("function f(){return;if(a)var x}", id="unreach-if-then"),
-        pytest.param("function f(){return;if(a){}else var y}", id="unreach-if-else"),
-        pytest.param("function f(){return;for(var i=0;;){}}", id="unreach-for-init"),
+        pytest.param("function f(){return;if(a);else var y}", id="unreach-if-else"),
+        pytest.param("function f(){return;for(var i=0;;);}", id="unreach-for-init"),
         pytest.param("function f(){return;for(;;)var x}", id="unreach-for-body"),
-        pytest.param("function f(){return;for(var k in o){}}", id="unreach-forin-bind"),
+        pytest.param("function f(){return;for(var k in o);}", id="unreach-forin-bind"),
         pytest.param("function f(){return;for(k in o)var x}", id="unreach-forin-body"),
     ],
 )
@@ -228,10 +228,10 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         pytest.param("if(a)b();else{}", "a&&b()", id="if-empty-else-dropped"),
         pytest.param("if(a)b();else{;}", "a&&b()", id="if-empty-stmt-else-dropped"),
         pytest.param("if(!a){}else b()", "a&&b()", id="if-empty-then-neg-to-and"),
-        pytest.param("if(a){}else{}", "if(a){}", id="if-both-empty-guard-kept"),
+        pytest.param("if(a){}else{}", "if(a);", id="if-both-empty-guard-kept"),
         # an empty then with a non-expression else is left intact (nothing shorter to fold to)
-        pytest.param("if(a){}else{var x=1}", "if(a){}else var x=1", id="if-empty-then-nonexpr-else-kept"),
-        pytest.param("if(a){}else{for(;;);var z}", "if(a){}else{for(;;);var z}", id="if-empty-then-multi-else-kept"),
+        pytest.param("if(a){}else{var x=1}", "if(a);else var x=1", id="if-empty-then-nonexpr-else-kept"),
+        pytest.param("if(a){}else{for(;;);var z}", "if(a);else{for(;;);var z}", id="if-empty-then-multi-else-kept"),
         pytest.param("function f(){if(a){return 1}return 2}", "function f(){return a?1:2}", id="guard-block-return"),
         # guard clause -> conditional return; cascades right
         pytest.param("function f(){if(a)return 1;return 2}", "function f(){return a?1:2}", id="guard-return"),
@@ -244,21 +244,17 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         pytest.param("a();b();c()", "a(),b(),c()", id="seq-merge"),
         pytest.param("a,b;c,d;e", "a,b,c,d,e", id="seq-flatten"),
         pytest.param('function f(){"use strict";a();b()}', 'function f(){"use strict";a(),b()}', id="directive-kept"),
-        # only a string the source wrote in the prologue prints bare there; any other is parenthesized, which is
-        # no directive and ends the prologue (11.2.1)
-        pytest.param('function f(){"use "+"strict";a()}', 'function f(){("use strict");a()}', id="folded-directive"),
-        pytest.param('"use "+"strict";a()', '("use strict");a()', id="folded-script-directive"),
-        pytest.param(
-            'function f(){"a";"use "+"strict"}', 'function f(){"a";("use strict")}', id="folded-after-directive"
-        ),
-        pytest.param('("use strict");a()', '("use strict");a()', id="parenthesized-string-kept"),
-        pytest.param(
-            'function f(){"a"+"b";"use strict"}', 'function f(){("ab");"use strict"}', id="folded-ends-prologue"
-        ),
-        pytest.param('function f(){if(0){}"use strict"}', 'function f(){("use strict")}', id="dropped-statement"),
-        pytest.param('function f(){;"use strict"}', 'function f(){("use strict")}', id="dropped-empty-statement"),
-        pytest.param('()=>{"use "+"strict";a()}', '()=>{("use strict");a()}', id="folded-arrow-directive"),
-        pytest.param('o={m(){"use "+"strict"}}', 'o={m(){("use strict")}}', id="folded-method-directive"),
+        # only a string the source wrote in the prologue is a directive (11.2.1); any other string statement is
+        # a constant without effect, so it goes, and never lands in the prologue
+        pytest.param('function f(){"use "+"strict";a()}', "function f(){a()}", id="folded-directive"),
+        pytest.param('"use "+"strict";a()', "a()", id="folded-script-directive"),
+        pytest.param('function f(){"a";"use "+"strict"}', 'function f(){"a"}', id="folded-after-directive"),
+        pytest.param('("use strict");a()', "a()", id="parenthesized-string"),
+        pytest.param('function f(){"a"+"b";"use strict"}', "function f(){}", id="folded-ends-prologue"),
+        pytest.param('function f(){if(0){}"use strict"}', "function f(){}", id="dropped-statement"),
+        pytest.param('function f(){;"use strict"}', "function f(){}", id="dropped-empty-statement"),
+        pytest.param('()=>{"use "+"strict";a()}', "()=>{a()}", id="folded-arrow-directive"),
+        pytest.param('o={m(){"use "+"strict"}}', "o={m(){}}", id="folded-method-directive"),
         pytest.param('function f(){"use strict";"a";b()}', 'function f(){"use strict";"a";b()}', id="directives-kept"),
         pytest.param("function f(){a();b();return c}", "function f(){return a(),b(),c}", id="seq-into-return"),
         # double negation in a conditional test peels fully
@@ -783,7 +779,7 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         pytest.param("while(c){if(a!=b)break;g()}", "for(;c&&a==b;)g()", id="break-guard-ne-flips"),
         pytest.param("while(c){if(a!==b)break;g()}", "for(;c&&a===b;)g()", id="break-guard-strict-ne-flips"),
         pytest.param("while(c){if(-d)break;g()}", "for(;c&&!-d;)g()", id="break-guard-other-unary-wraps"),
-        pytest.param("while(c){}", "for(;c;){}", id="while-empty-body"),
+        pytest.param("while(c){}", "for(;c;);", id="while-empty-body"),
         pytest.param(
             "for(;c;){if(d){g();break}h()}", "for(;c;){if(d){g();break}h()}", id="break-multi-stmt-guard-kept"
         ),
@@ -821,7 +817,7 @@ def test_compresses(source: str, expected: str) -> None:
     ("source", "expected"),
     [
         pytest.param("if(a){{b()}}", "a&&b()", id="if-body-to-logical"),
-        pytest.param("for(;;){{{}}}", "for(;;){}", id="loop-body-empties"),
+        pytest.param("for(;;){{{}}}", "for(;;);", id="loop-body-empties"),
         pytest.param("{{b()}}", "b()", id="bare-block"),
         pytest.param("{{{x()}}}", "x()", id="three-deep"),
         pytest.param("if(a){{b()}}else{{c()}}", "a?b():c()", id="both-branches"),
@@ -830,8 +826,8 @@ def test_compresses(source: str, expected: str) -> None:
         pytest.param("{{function f(){}}}", "{function f(){}}", id="function-keeps-its-block"),
         pytest.param("a();{{b()}}", "a(),b()", id="block-after-a-statement"),
         pytest.param("{{a();b()}}", "a(),b()", id="multi-statement-inner-block"),
-        # a string a block hid is not a directive; flattening it to the prologue keeps it parenthesized
-        pytest.param('function f(){{"use strict"}}', 'function f(){("use strict")}', id="no-directive-from-flatten"),
+        # a string a block hid is not a directive, so flattening it to the prologue drops it
+        pytest.param('function f(){{"use strict"}}', "function f(){}", id="no-directive-from-flatten"),
     ],
 )
 def test_nested_blocks_collapse_in_one_call(source: str, expected: str) -> None:
@@ -843,12 +839,69 @@ def test_nested_blocks_collapse_in_one_call(source: str, expected: str) -> None:
     ("source", "expected"),
     [
         pytest.param("if(a){{b()}}", "if(a)b()", id="if-body-braceless"),
-        pytest.param("for(;;){{{}}}", "for(;;){}", id="loop-body-empties"),
+        pytest.param("for(;;){{{}}}", "for(;;);", id="loop-body-empties"),
         pytest.param("while(x){{y()}}", "while(x)y()", id="while-body"),
     ],
 )
 def test_nested_blocks_collapse_without_folding(source: str, expected: str) -> None:
     assert minify_js(source, JSMinify(mangle=False, fold=False)) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param('function f(){{"use strict";x()}}', "function f(){x()}", id="flattened-string"),
+        pytest.param("function f(){1}", "function f(){}", id="number"),
+        pytest.param('a();"x"', "a()", id="trailing-string"),
+        pytest.param("a();1;/re/;null;!0;void 0", "a()", id="each-constant"),
+        pytest.param('for(;;)"x"', "for(;;);", id="loop-body"),
+        pytest.param('if(a)"x";else b()', "a||b()", id="if-branch"),
+        pytest.param('x="a"+"b";"a"+"b"', 'x="ab"', id="folded-concat"),
+        pytest.param('"use strict";"x";f()', '"use strict";"x";f()', id="script-directives-kept"),
+        pytest.param('function f(){"use strict";"x";g()}', 'function f(){"use strict";"x";g()}', id="directives-kept"),
+        pytest.param("a();x;b()", "a(),x,b()", id="name-kept"),
+    ],
+)
+def test_fold_drops_constant_statement(source: str, expected: str) -> None:
+    assert minify_js(source, JSMinify(mangle=False)) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "options", "expected"),
+    [
+        pytest.param(
+            'function f(){{"use strict";x()}}',
+            JSMinify(mangle=False, fold=False),
+            'function f(){{"use strict";x()}}',
+            id="block-string",
+        ),
+        # a string that is no directive stays parenthesized when it lands at the start of a body
+        pytest.param(
+            '("use strict");a()', JSMinify(mangle=False, fold=False), '("use strict");a()', id="parenthesized"
+        ),
+        pytest.param(
+            'function f(){var a;"use strict"}',
+            JSMinify(fold=False),
+            'function f(){("use strict")}',
+            id="moved-by-mangle",
+        ),
+    ],
+)
+def test_constant_statement_kept_without_folding(source: str, options: JSMinify, expected: str) -> None:
+    assert minify_js(source, options) == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('function f(){{"use strict";x()}}', id="constant-statement"),
+        pytest.param("for(;;){{{}}}", id="empty-loop-body"),
+        pytest.param("do{}while(x)", id="empty-do-while-body"),
+    ],
+)
+def test_constant_and_empty_body_reach_fixpoint(source: str) -> None:
+    once = minify_js(source)
+    assert minify_js(once) == once
 
 
 @pytest.mark.parametrize(
@@ -1025,6 +1078,8 @@ def _run(code: str) -> str:
         pytest.param('function f(){"use "+"strict";return typeof this}console.log(f())', id="folded-no-strict"),
         pytest.param('function f(){if(0){}"use strict";return typeof this}console.log(f())', id="dropped-no-strict"),
         pytest.param('function f(){"use strict";"a";return typeof this}console.log(f())', id="directive-strict"),
+        pytest.param('function f(){{"use strict";return typeof this}}console.log(f())', id="block-string-no-strict"),
+        pytest.param("var n=0;do{}while(n++<3);for(;n++<9;){}console.log(n)", id="empty-loop-bodies"),
     ],
 )
 def test_folding_preserves_behavior(snippet: str) -> None:
@@ -1104,7 +1159,7 @@ def test_concat_reencodes_by_value(source: str, expected: str) -> None:
     ],
 )
 def test_string_truthiness_reads_value(source: str, expected: str) -> None:
-    assert minify_js(source) == expected
+    assert minify_js(f"x={source}") == f"x={expected}"
 
 
 @pytest.mark.parametrize(
@@ -1524,7 +1579,7 @@ def test_fold_splices_abrupt_else_only_in_statement_list(source: str, expected: 
             id="object-pattern",
         ),
         pytest.param("({undefined=undefined}=a)", "({undefined=void 0}=a)", id="shorthand-default"),
-        pytest.param("with(o)undefined;undefined", "with(o)undefined;void 0", id="with-body"),
+        pytest.param("with(o)undefined;x=undefined", "with(o)undefined;x=void 0", id="with-body"),
         pytest.param(
             "with(undefined)(function(){return undefined})",
             "with(void 0)(function(){return undefined})",

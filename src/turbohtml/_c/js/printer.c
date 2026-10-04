@@ -1112,8 +1112,10 @@ static int keeps_block_scope(const jm_program *prog, int32_t stmt) {
     return kind == JN_CLASS || kind == JN_FUNC || (kind == JN_VAR && prog->nodes[stmt].decl != 0);
 }
 
-/* The statement a block prints braceless -- its single scope-free statement -- or -1 when the
-   braces stay (several statements, or one that needs the block scope). */
+enum { NO_STATEMENT = -2 };
+
+/* The statement a block prints braceless -- its single scope-free statement --, -1 when the braces stay
+   (several statements, or one that needs the block scope), or NO_STATEMENT when it holds none. */
 static int32_t block_single_stmt(const St *st, int32_t index) {
     int32_t only = -1;
     int count = 0;
@@ -1125,6 +1127,9 @@ static int32_t block_single_stmt(const St *st, int32_t index) {
         if (++count > 1) {
             break;
         }
+    }
+    if (count == 0) {
+        return NO_STATEMENT;
     }
     return count == 1 && !keeps_block_scope(st->prog, only) ? only : -1;
 }
@@ -1170,7 +1175,8 @@ static int ends_with_open_if(const St *st, int32_t index) {
 }
 
 /* A substatement -- a loop/label/with body or an if branch -- prints without braces when it is a
-   block holding a single scope-free statement: `for(;;){g()}` -> `for(;;)g()`. An if consequent
+   block holding a single scope-free statement: `for(;;){g()}` -> `for(;;)g()`, and as the empty
+   statement when it holds none (`{}` and `;` both complete empty, ECMA-262 14.2.2, 14.4.1). An if consequent
    (has_else set) that would end in an open `if` -- which the following `else` would re-attach to --
    is braced instead, whether it arrived as a block or as a bare statement whose trailing
    substatement flattens into that shape (`if(a)b:{if(c)break b}else...`). */
@@ -1187,6 +1193,10 @@ static int print_branch(St *st, int32_t index, int has_else) {
     }
     if (st->prog->nodes[index].kind == JN_BLOCK) {
         int32_t only = block_single_stmt(st, index);
+        if (only == NO_STATEMENT) {
+            put_char(st, ';');
+            return 0;
+        }
         if (only >= 0) {
             return print_branch(st, only, has_else); /* peel a nested scope-free block too (#1066) */
         }

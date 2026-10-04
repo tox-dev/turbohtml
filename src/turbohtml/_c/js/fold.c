@@ -1417,6 +1417,14 @@ static void walk(F *folder, int32_t idx) {
             folder->prog->nodes[clause].b = consequent;
         }
         return;
+    case JN_EXPR_STMT:
+        walk(folder, child_a);
+        /* a constant has no side effect, so the statement only matters as a directive (11.2.1) */
+        if (!(flags & JN_F_DIRECTIVE) && is_pure_const(folder, child_a)) {
+            jm_node_empty(folder->prog, idx);
+            folder->changed = 1;
+        }
+        return;
     case JN_VAR:
         for (int32_t declr = child_a; declr >= 0; declr = folder->prog->nodes[declr].next) {
             walk(folder, folder->prog->nodes[declr].b);
