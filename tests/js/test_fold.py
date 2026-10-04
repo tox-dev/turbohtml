@@ -824,6 +824,7 @@ def test_compresses(source: str, expected: str) -> None:
         pytest.param("while(x){{y()}}", "for(;x;)y()", id="while-body"),
         pytest.param("{{var v=1}}", "var v=1", id="transparent-var"),
         pytest.param("{{function f(){}}}", "{function f(){}}", id="function-keeps-its-block"),
+        pytest.param("{{class C{}f(C)}}", "{class C{}f(C)}", id="class-keeps-its-block"),
         pytest.param("a();{{b()}}", "a(),b()", id="block-after-a-statement"),
         pytest.param("{{a();b()}}", "a(),b()", id="multi-statement-inner-block"),
         # a string a block hid is not a directive, so flattening it to the prologue drops it
