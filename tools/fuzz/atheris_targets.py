@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Final
 from .atheris_content_targets import content_targets
 from .atheris_dom_targets import dom_targets
 from .atheris_driver import fuzz
+from .atheris_javascript_targets import initialize_javascript, javascript_targets
 from .atheris_parser_targets import parser_targets
 from .atheris_reference_targets import reference_targets
 from .atheris_registry import validate_owners
@@ -56,6 +57,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parsed: Final = parser.parse_known_args(argv)
     arguments: Final = parsed[0]
     flags: Final = parsed[1]
+    if arguments.target == "javascript":
+        initialize_javascript()
     arguments.corpus.mkdir(parents=True, exist_ok=True)
     manifest: Final = {
         "target": arguments.target,
@@ -69,7 +72,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def public_targets() -> tuple[Target, ...]:
     """Each group owns separate modules and qualified re-export aliases."""
-    targets: Final = parser_targets() + reference_targets() + content_targets() + dom_targets() + stylesheet_targets()
+    targets: Final = (
+        parser_targets()
+        + reference_targets()
+        + content_targets()
+        + dom_targets()
+        + stylesheet_targets()
+        + javascript_targets()
+    )
     validate_owners(targets, MODULES)
     return targets
 

@@ -56,7 +56,7 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
         check=True,
     )
     targets: Final = json.loads(inventory.stdout)
-    assert (targets["owners"], len(targets["targets"])) == (209, 29)
+    assert (targets["owners"], len(targets["targets"])) == (209, 30)
     outcomes: Final[dict[str, dict[str, int | str]]] = {}
     for target in targets["targets"]:
         corpus: Final = tmp_path / target
@@ -68,6 +68,8 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
             if target == "css-translate"
             else b"p { color: red; }"
             if target == "css-stylesheet"
+            else b'consume("kept",external);'
+            if target == "javascript"
             else "水😀".encode()
         )
         (corpus / "utf8").write_bytes(seed)

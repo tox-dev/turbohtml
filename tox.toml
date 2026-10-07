@@ -312,6 +312,7 @@ dependency_groups = []
 set_env = { PYTHONPATH = "{tox_root}/tools", PYTHONHASHSEED = "0", CC = "clang", CXX = "clang++", CFLAGS = "-fsanitize=fuzzer-no-link --coverage" }
 platform = "linux"
 commands_pre = [
+  [ "npm", "ci", "--ignore-scripts", "--prefix", "{tox_root}/tools/bench/node" ],
   [
     "uv",
     "pip",
@@ -339,7 +340,7 @@ commands = [
     "--basetemp={env_tmp_dir}/native",
   ]
 ]
-allowlist_externals = [ "env" ]
+allowlist_externals = [ "env", "npm" ]
 
 [env.bench]
 description = "benchmark turbohtml against each competitor isolated in its own uv venv (not run in CI)"

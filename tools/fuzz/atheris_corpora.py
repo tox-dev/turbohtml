@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 __all__ = ["CorpusEntry", "CorpusManifest", "CorpusProfile", "RejectedEntry", "main", "write_corpora"]
 
-CorpusProfile = Literal["html", "xml", "css-stylesheet", "css-declaration", "css-selector"]
+CorpusProfile = Literal["html", "xml", "css-stylesheet", "css-declaration", "css-selector", "javascript"]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -93,6 +93,7 @@ def _routes(case: Generated, profile: CorpusProfile) -> tuple[str, ...]:
             else ("html-fragment", "html-tokenizer")
         )
     return {
+        "javascript": ("javascript",),
         "xml": ("xml-schema",),
         "css-stylesheet": ("css-stylesheet",),
         "css-declaration": ("css-object-model",),
