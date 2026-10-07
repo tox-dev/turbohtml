@@ -1,0 +1,1 @@
+``to_markdown`` writes a leading ``<br>`` and each ``<br>`` of a consecutive run as a hard line break.

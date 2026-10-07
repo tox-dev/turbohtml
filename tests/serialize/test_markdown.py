@@ -640,7 +640,8 @@ def test_selected_item_keeps_nested_list_depth() -> None:
         pytest.param("<blockquote><blockquote></blockquote></blockquote>", "> >", id="empty-quote-nested"),
         pytest.param("<blockquote></blockquote><p>b</p>", ">\n\nb", id="empty-quote-before-block"),
         pytest.param("<blockquote></blockquote><ul><li>a</li></ul>", ">\n\n- a", id="empty-quote-before-list"),
-        pytest.param("<p>a<br><br>b</p>", "a  \n  \nb", id="double-break-kept"),
+        pytest.param("<p>a<br><br>b</p>", "a  \n\\\nb", id="double-break-kept"),
+        pytest.param("<p><br>a</p>", "\\\na", id="leading-break-kept"),
         pytest.param("<ul><li>a<br></li><li>b</li></ul>", "- a\n- b", id="item-trailing-break-stays-tight"),
         pytest.param("<ul><li>a</li><br><li>b</li></ul>", "- a\n- b", id="break-between-items-dropped"),
         pytest.param("<ul><li>a<br>b</li><li>c</li></ul>", "- a  \n  b\n- c", id="item-inner-break-kept"),
@@ -1323,6 +1324,19 @@ def test_inner_all_whitespace_trims_to_empty() -> None:
     # a child that renders to only a break trims away entirely, so the hook sees ""
     out = parse("<p>a<i><br></i>b</p>").to_markdown(Markdown(converters={"i": lambda _e, content: f"[{content}]"}))
     assert out == "a []b"
+
+
+def test_inner_content_as_long_as_outer_break_is_kept() -> None:
+    # the outer "a  \n" break ends at the same length as the hook's own "abcd", in another buffer
+    out = parse("<p>a<br><i>abcd</i></p>").to_markdown(Markdown(converters={"i": lambda _e, content: f"[{content}]"}))
+    assert out == "a  \n[abcd]"
+
+
+def test_inner_trailing_marker_space_is_trimmed() -> None:
+    out = parse("<div><ul><li></li></ul></div>").to_markdown(
+        Markdown(converters={"div": lambda _e, content: f"[{content}]"})
+    )
+    assert out == "[-]"
 
 
 def test_custom_element_with_attribute() -> None:

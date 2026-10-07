@@ -397,10 +397,12 @@ static void md_newline(md_ctx *ctx) {
 }
 
 /* Write a hard break, remembering where it sits so an emphasis run that closes right
-   after it can put its closing delimiter in front of it (md_put_close). */
+   after it can put its closing delimiter in front of it (md_put_close). A line of only
+   spaces is blank (CommonMark 4.9) and ends the paragraph, so a break with nothing
+   before it on its line takes the backslash spelling whatever the style. */
 static void md_write_break(md_ctx *ctx) {
     ctx->break_start = ctx->out.len;
-    sbuf_puts(&ctx->out, ctx->opt->line_break == TH_MD_BREAK_BACKSLASH ? "\\" : "  ");
+    sbuf_puts(&ctx->out, ctx->opt->line_break == TH_MD_BREAK_BACKSLASH || !ctx->line_has_content ? "\\" : "  ");
     md_newline(ctx);
     ctx->break_end = ctx->out.len;
     ctx->break_data = ctx->out.data;
@@ -415,6 +417,7 @@ static void md_put_close(md_ctx *ctx, const char *close) {
     if (ctx->out.len == ctx->break_end && ctx->out.data == ctx->break_data) {
         ctx->out.len = ctx->break_start;
         md_puts8(&ctx->out, close);
+        ctx->line_has_content = 1;
         md_write_break(ctx);
         return;
     }
@@ -1951,8 +1954,8 @@ static inline void md_block_child(md_ctx *ctx, th_node *child, int *in_run) {
         return;
     }
     if (!*in_run) {
-        if (atom == TH_TAG_BR) {
-            return; /* a hard break with no content before it in the block does nothing */
+        if (atom == TH_TAG_BR && md_br_trailing(ctx, child)) {
+            return; /* nothing visible follows, so the break does nothing (CommonMark 6.7) */
         }
         int only_ws = child->type == TH_NODE_TEXT;
         if (only_ws) {
@@ -2138,12 +2141,12 @@ static void md_emit_converted(md_ctx *ctx, th_node *node, PyObject *text, int bl
 }
 
 /* Hand the rendered children to the converter and splice in what it returns. The
-   walk never begins a block with whitespace, so only a trailing line break is
-   trimmed off the children's Markdown. */
+   walk never begins a block with whitespace, so only a trailing hard break and
+   whitespace are trimmed off the children's Markdown. */
 static void md_leave_converter(md_ctx *ctx, md_frame *frame) {
     md_converting *saved = frame->convert;
     Py_UCS4 *data = ctx->out.data;
-    Py_ssize_t end = ctx->out.len;
+    Py_ssize_t end = ctx->out.len == ctx->break_end && data == ctx->break_data ? ctx->break_start : ctx->out.len;
     while (end > 0 && is_space(data[end - 1])) {
         end--;
     }
