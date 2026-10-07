@@ -561,6 +561,7 @@ static int rng_datatype_id(th_schema *schema, th_node *node, int default_datatyp
 }
 
 static pattern *rng_build(th_schema *schema, th_node *node);
+static void rng_check_href(th_schema *schema, th_node *node);
 static int rng_check_interleave_node(th_schema *schema, th_node *interleave);
 
 /* Group the pattern children of a container into a single pattern (Empty when none). */
@@ -712,7 +713,23 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
         PyErr_SetString(PyExc_ValueError, "RELAX NG <ref> has no matching define");
         return schema->p_notallowed;
     }
+    rng_check_href(schema, node);
     return schema->p_notallowed;
+}
+
+static void rng_check_href(th_schema *schema, th_node *node) {
+    if (node->type != TH_NODE_ELEMENT) {
+        return;
+    }
+    const Py_UCS4 *local, *prefix;
+    Py_ssize_t local_len = 0, prefix_len = 0;
+    split_prefix(node->text, node->text_len, &local, &local_len, &prefix, &prefix_len);
+    if (!u_eq_ascii(local, local_len, "externalRef") && !u_eq_ascii(local, local_len, "include")) {
+        return;
+    }
+    if (attr_exact(schema->tree, node, "href", 4) == NULL) {
+        PyErr_SetString(PyExc_ValueError, "RELAX NG resource reference is missing the required href attribute");
+    }
 }
 
 static pattern *rng_resolve(th_schema *schema, int def_index) {
@@ -1135,6 +1152,11 @@ static int rng_compile(th_schema *schema) {
                 PyErr_NoMemory();                   /* GCOVR_EXCL_LINE */
                 return 0;                           /* GCOVR_EXCL_LINE */
             }
+        } else {
+            rng_check_href(schema, child);
+            if (PyErr_Occurred()) {
+                return 0;
+            }
         }
     }
     th_node *start = first_schema_child(schema, schema->root, RNG_NS, "start");
@@ -1163,7 +1185,7 @@ static int rng_compile(th_schema *schema) {
         }
     }
     schema->start = rng_build_children(schema, start, NULL);
-    return 1;
+    return PyErr_Occurred() ? 0 : 1;
 }
 
 /* Section 4.1 removes annotation subtrees before pattern and name-class construction. */
@@ -1200,7 +1222,8 @@ static int rng_check_unused_refs(th_schema *schema, th_node *container) {
                 return -1;
             }
         }
-        if (rng_check_unused_refs(schema, child) < 0) {
+        rng_check_href(schema, child);
+        if (PyErr_Occurred() || rng_check_unused_refs(schema, child) < 0) {
             return -1;
         }
     }

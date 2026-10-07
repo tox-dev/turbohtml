@@ -114,7 +114,8 @@ def _cases(suite: lxml.etree._Element) -> Iterator[lxml.etree._Element]:
 
 def _requires_resources(case: lxml.etree._Element) -> bool:
     return any(child.tag in {"resource", "dir"} for child in case) or any(
-        element.tag in {f"{{{_RNG}}}externalRef", f"{{{_RNG}}}include"} or _XML_BASE in element.attrib
+        (element.tag in {f"{{{_RNG}}}externalRef", f"{{{_RNG}}}include"} and "href" in element.attrib)
+        or _XML_BASE in element.attrib
         for label in case
         if label.tag in {"correct", "incorrect"}
         for element in label.iter()

@@ -43,6 +43,17 @@ def engines() -> tuple[ModuleType, ModuleType]:
             id="incorrect-schema",
         ),
         pytest.param(
+            f'<incorrect><element xmlns="{_RNG}" name="foo"><externalRef/></element></incorrect>',
+            [("turbohtml", "compilation", False, False), ("libxml2", "compilation", False, False)],
+            id="missing-external-href",
+        ),
+        pytest.param(
+            f'<incorrect><grammar xmlns="{_RNG}"><include/><start><element name="foo">'
+            "<empty/></element></start></grammar></incorrect>",
+            [("turbohtml", "compilation", False, False), ("libxml2", "compilation", False, False)],
+            id="missing-include-href",
+        ),
+        pytest.param(
             f'<correct><grammar xmlns="{_RNG}"/></correct><valid><root/></valid>',
             [
                 ("turbohtml", "compilation", True, False),
@@ -90,6 +101,8 @@ def test_rng_labels_instance_names_are_not_resource_metadata(engines: tuple[Modu
         pytest.param('<dir name="other"/>', id="directory"),
         pytest.param(f'<correct><externalRef xmlns="{_RNG}" href="other.rng"/></correct>', id="external-reference"),
         pytest.param(f'<correct><include xmlns="{_RNG}" href="other.rng"/></correct>', id="include"),
+        pytest.param(f'<incorrect><externalRef xmlns="{_RNG}" href=""/></incorrect>', id="empty-external-href"),
+        pytest.param(f'<incorrect><include xmlns="{_RNG}" href=""/></incorrect>', id="empty-include-href"),
         pytest.param(f'<correct xml:base="other/"><empty xmlns="{_RNG}"/></correct>', id="base-uri"),
     ],
 )

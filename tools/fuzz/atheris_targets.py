@@ -14,6 +14,7 @@ from .atheris_driver import fuzz
 from .atheris_parser_targets import parser_targets
 from .atheris_reference_targets import reference_targets
 from .atheris_registry import validate_owners
+from .atheris_stylesheet_targets import stylesheet_targets
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -68,7 +69,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def public_targets() -> tuple[Target, ...]:
     """Each group owns separate modules and qualified re-export aliases."""
-    targets: Final = parser_targets() + reference_targets() + content_targets() + dom_targets()
+    targets: Final = parser_targets() + reference_targets() + content_targets() + dom_targets() + stylesheet_targets()
     validate_owners(targets, MODULES)
     return targets
 

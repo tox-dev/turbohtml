@@ -56,13 +56,19 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
         check=True,
     )
     targets: Final = json.loads(inventory.stdout)
-    assert (targets["owners"], len(targets["targets"])) == (209, 28)
+    assert (targets["owners"], len(targets["targets"])) == (209, 29)
     outcomes: Final[dict[str, dict[str, int | str]]] = {}
     for target in targets["targets"]:
         corpus: Final = tmp_path / target
         corpus.mkdir()
         seed: Final = (
-            b"<root>one</root>" if target == "xml-schema" else b"p.x" if target == "css-translate" else "水😀".encode()
+            b"<root>one</root>"
+            if target == "xml-schema"
+            else b"p.x"
+            if target == "css-translate"
+            else b"p { color: red; }"
+            if target == "css-stylesheet"
+            else "水😀".encode()
         )
         (corpus / "utf8").write_bytes(seed)
         counters: Final = tmp_path / f"{target}-gcda"

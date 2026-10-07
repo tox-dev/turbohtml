@@ -275,11 +275,13 @@ base_python = [ "3.14" ]
 package = "skip"
 deps = [
   "atheris==3.1",
+  "html5lib>=1.1",
   "markdown-it-py>=4.2",
   "meson>=1.12.1",
   "meson-python>=0.22.1",
   "ninja>=1.13.2",
   "pytest>=9.1.1",
+  "tinycss2>=1.5.1",
   "typing-extensions>=4.16",
 ]
 dependency_groups = []

@@ -86,6 +86,7 @@ test = [
   "covdefaults>=2.3",
   "docutils>=0.23",            # render the docs bench-table directive in tests/test_bench_table_directive.py
   "elementpath>=5.1.4",        # the XPath 2.0 oracle the string-function differential test cross-checks against
+  "html5lib>=1.1",             # compare HTML meaning before the native Markdown conversion
   "httpx2>=2.13.1",            # the benchmark corpora and the tools/generate_* scripts fetch pinned data over it
   "jinja2>=3.1.6",             # the markup migration test renders templates with markupsafe swapped for turbohtml.markup
   "markdown-it-py>=4.2",       # a pure-Python GFM reference to round-trip to_markdown() output back to HTML and check it
@@ -308,7 +309,7 @@ lint.per-file-ignores."tests/**/*.py" = [
   "import-private-name",        # the conformance harness drives the private _html._tokenize_states hook
   "private-member-access",      # same private hook
 ]
-lint.per-file-ignores."tests/{test_fuzz_structure_generation,test_fuzz_html_structure_generation,test_fuzz_xml_structure_generation}.py" = [
+lint.per-file-ignores."tests/{test_fuzz_structure_generation,test_fuzz_html_structure_generation,test_fuzz_xml_structure_generation,test_fuzz_markdown_structure_generation}.py" = [
   "suspicious-non-cryptographic-random-usage", # deterministic grammar seeds reproduce public parser cases
 ]
 lint.per-file-ignores."tools/**/*.py" = [

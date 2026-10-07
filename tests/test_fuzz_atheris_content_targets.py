@@ -29,7 +29,7 @@ def test_content_target_behaviors(target: Target, data: bytes) -> None:
 
 def test_content_targets_have_unique_owners() -> None:
     exports: Final = [export for target in _TARGETS for export in target.exports]
-    assert len(exports) == len(set(exports)) == 92
+    assert len(exports) == len(set(exports)) == 91
 
 
 def test_content_sanitizer_removes_attributes_and_comments() -> None:

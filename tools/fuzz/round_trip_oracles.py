@@ -43,6 +43,13 @@ from fuzz.css_custom_oracles import (
     css_custom_generate,
     css_custom_seeds,
 )
+from fuzz.dom_program import (
+    UnsupportedDomProgramError,
+    dom_program_check,
+    dom_program_controls,
+    dom_program_generate,
+    dom_program_seeds,
+)
 from fuzz.html_foreign_oracles import (
     UnsupportedHtmlForeignCaseError,
     html_foreign_check,
@@ -85,6 +92,14 @@ from fuzz.iterator_oracles import (
     iterator_sequence_controls,
     iterator_sequence_generate,
     iterator_sequence_seeds,
+)
+from fuzz.markdown_structure_generators import (
+    MarkdownProfileError,
+    markdown_controls,
+    markdown_generate,
+    markdown_html_check,
+    markdown_source_check,
+    markdown_source_seeds,
 )
 from fuzz.observer_oracles import (
     UnsupportedObserverCaseError,
@@ -512,6 +527,13 @@ def _observer_sequence_check(case: str) -> str | None:
     try:
         return observer_sequence_check(case)
     except UnsupportedObserverCaseError as error:
+        raise OutOfScopeError from error
+
+
+def _dom_program_check(case: str) -> str | None:
+    try:
+        return dom_program_check(case)
+    except UnsupportedDomProgramError as error:
         raise OutOfScopeError from error
 
 
@@ -1107,7 +1129,9 @@ def js_names_check(source: str, names: JsNames, minify: Callable[[str, JSMinify]
     return None
 
 
-def css_semantics_check(markup: str, minify: Callable[[str], str] = minify_css) -> str | None:
+def css_semantics_check(
+    markup: str, minify: Callable[[str], str] = minify_css, *, stylesheet: str | None = None
+) -> str | None:
     """
     Require ``minify_css`` to keep every element's computed style and every selector's match set.
 
@@ -1118,8 +1142,7 @@ def css_semantics_check(markup: str, minify: Callable[[str], str] = minify_css) 
     own and must select the same elements.
     """
     document = parse(markup)
-    if (style := document.select_one("style")) is None:
-        raise OutOfScopeError
+    style = _css_style(document, stylesheet)
     sheet = style.text
     elements = list(document.iter_elements())
     before = [computed_style(element) for element in elements]
@@ -1143,6 +1166,14 @@ def css_semantics_check(markup: str, minify: Callable[[str], str] = minify_css) 
         except SelectorSyntaxError:
             return "minified selector does not parse"
     return None
+
+
+def _css_style(document: Document, stylesheet: str | None) -> Element:
+    if (style := document.select_one("style")) is None:
+        raise OutOfScopeError
+    if stylesheet is not None:
+        style.text = stylesheet
+    return style
 
 
 def _value_verdict(name: str, before: str, after: str) -> str | None:
@@ -1638,6 +1669,28 @@ _MARKDOWN_TEXT: Final = (
     "+", "=", "~", "!", "<", ">", "'", '"', "&nbsp;", "---", "***", "```", "~~", "x*y", "a_b_c", "[x](y)", "\U0001f600",
     "é", "http://e.x", " ", "  ",
 )  # fmt: skip
+
+
+def _markdown_source_generate(rng: random.Random) -> str:
+    return markdown_generate(rng).data.decode("utf-8")
+
+
+def _markdown_html_generate(rng: random.Random) -> str:
+    return markdown_generate(rng, html=True).data.decode("utf-8")
+
+
+def _markdown_source_check(source: str) -> str | None:
+    try:
+        return markdown_source_check(source)
+    except MarkdownProfileError as error:
+        raise OutOfScopeError from error
+
+
+def _markdown_html_check(source: str) -> str | None:
+    try:
+        return markdown_html_check(source)
+    except MarkdownProfileError as error:
+        raise OutOfScopeError from error
 
 
 def _markdown_document(rng: random.Random) -> str:
@@ -2430,6 +2483,9 @@ ORACLES: Final[dict[str, Oracle]] = {
         observer_sequence_controls,
         Floor(100, 1),
     ),
+    "dom-program": Oracle(
+        _dom_program_check, dom_program_generate, dom_program_seeds, dom_program_controls, Floor(100, 1)
+    ),
     "xml-island-grammar": Oracle(_xml_island, xml_island_generate, xml_island_seeds, xml_island_controls, Floor(54, 1)),
     "xml-literal-grammar": Oracle(
         _xml_literal, xml_literal_generate, xml_literal_seeds, xml_literal_controls, Floor(96, 1)
@@ -2497,6 +2553,21 @@ ORACLES: Final[dict[str, Oracle]] = {
     "js-fixpoint": Oracle(_js_fixpoint, _generate_js, _seeds_js, _js_controls, Floor(300, 0.6), syntax="js"),
     "style-fixpoint": Oracle(
         style_check, _generate_style, _seeds_style, _style_controls, Floor(300, 0.95), syntax="css"
+    ),
+    "markdown-source-grammar": Oracle(
+        _markdown_source_check,
+        _markdown_source_generate,
+        markdown_source_seeds,
+        markdown_controls,
+        Floor(48, 1),
+    ),
+    "markdown-html-grammar": Oracle(
+        _markdown_html_check,
+        _markdown_html_generate,
+        partial(markdown_source_seeds, html=True),
+        partial(markdown_controls, html=True),
+        Floor(29, 1),
+        syntax="html",
     ),
     "markdown-fixpoint": Oracle(
         markdown_check,

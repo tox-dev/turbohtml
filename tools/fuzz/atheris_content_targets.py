@@ -102,7 +102,6 @@ def content_targets() -> tuple[Target, ...]:
                     "JSMinify",
                     "Minify",
                     "minify",
-                    "minify_css",
                     "minify_css_inline",
                     "minify_js",
                 )
