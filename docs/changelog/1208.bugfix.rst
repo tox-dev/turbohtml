@@ -1,0 +1,2 @@
+The Markdown conversion check accepts HTML shapes CommonMark cannot write and rejects list and table content outside its
+HTML content model.

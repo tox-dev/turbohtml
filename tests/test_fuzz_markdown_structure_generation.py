@@ -157,10 +157,41 @@ def test_markdown_unsupported_element() -> None:
         pytest.param('<div idef="#x">target</a></p></vid>', id="repaired-empty-paragraph"),
         pytest.param("<pre>x  y\n</pre>", id="preserved-code-whitespace"),
         pytest.param('<p class="ignored">x</p>', id="nonsemantic-attribute"),
+        pytest.param('<p href="/x">y</p>', id="attribute-of-another-element"),
+        pytest.param("<p>x<strong></strong>y</p>", id="empty-emphasis"),
+        pytest.param("<p>x<em> </em>y</p>", id="whitespace-emphasis"),
+        pytest.param("<p>x</p><p></p>", id="empty-paragraph"),
+        pytest.param("<p>x</p><ul></ul>", id="empty-list"),
+        pytest.param("<p>x</p><table></table>", id="empty-table"),
+        pytest.param("<table><tr><td>a</td></tr></table>", id="header-cell-kind"),
+        pytest.param("<p><a>x</a></p>", id="placeholder-link"),
+        pytest.param('<p><img src="a"></p>', id="image-without-alt"),
+        pytest.param("<pre>x</pre>", id="code-without-final-newline"),
+        pytest.param("<p>x<br></p>", id="break-ending-block"),
+        pytest.param("<p>x<strong>a<br></strong>y</p>", id="break-ending-emphasis"),
+        pytest.param("<p>x<strong><br></strong>y</p>", id="emphasis-around-break"),
+        pytest.param("<p>x<em> y </em>z</p>", id="emphasis-edge-spaces"),
+        pytest.param('<p><img src="a" title=""></p>', id="empty-title"),
+        pytest.param("<pre><b>x</b></pre>", id="markup-in-code-block"),
+        pytest.param("<pre><p>x</p></pre>", id="block-in-code-block"),
+        pytest.param("<p><code><i>x</i></code></p>", id="markup-in-code-span"),
     ],
 )
 def test_markdown_supported_html_meaning(markup: str) -> None:
     assert markdown_html_check(markup) is None
+
+
+@pytest.mark.parametrize(
+    ("markup", "container"),
+    [
+        pytest.param("<ul>x<li>y</li></ul>", "ul", id="text-in-list"),
+        pytest.param("<ol><p>x</p></ol>", "ol", id="paragraph-in-list"),
+        pytest.param("<li>x</li>", "li", id="item-outside-list"),
+    ],
+)
+def test_markdown_content_model_violation(markup: str, container: str) -> None:
+    with pytest.raises(MarkdownProfileError, match=f"content model violated at {container}$"):
+        markdown_html_check(markup)
 
 
 @pytest.mark.parametrize("budget", [GenerationBudget(0, 20), GenerationBudget(20, 0)], ids=["nodes", "steps"])
