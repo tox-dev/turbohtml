@@ -32,7 +32,7 @@ def test_atheris_targets_complete_qualified_inventory() -> None:
 
 def test_atheris_targets_missing_group_is_rejected() -> None:
     with pytest.raises(ValueError, match="missing="):
-        validate_owners(public_targets()[:-1], MODULES)
+        validate_owners(tuple(target for target in public_targets() if target.name != "javascript"), MODULES)
 
 
 def test_atheris_targets_duplicate_group_is_rejected() -> None:

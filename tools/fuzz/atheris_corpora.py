@@ -11,8 +11,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, cast
 
 from .atheris_targets import public_targets
-from .html_structure_generators import html_document, html_generate, html_grammar_complete
-from .structure_generators import generation_sweep
+from .css_structure_generators import css_grammar
+from .encoding_structure_generators import encoding_check, encoding_grammar, encoding_profile
+from .html_structure_generators import html_document, html_grammar_complete
+from .markdown_structure_generators import markdown_grammar
+from .structure_generators import GenerationBudget, generate, generation_sweep
+from .xml_structure_generators import xml_grammar
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -22,24 +26,52 @@ if TYPE_CHECKING:
 
 __all__ = ["CorpusEntry", "CorpusManifest", "CorpusProfile", "RejectedEntry", "main", "write_corpora"]
 
-CorpusProfile = Literal["html", "xml", "css-stylesheet", "css-declaration", "css-selector", "javascript"]
+CorpusProfile = Literal[
+    "html",
+    "xml",
+    "css-stylesheet",
+    "css-declaration",
+    "css-selector",
+    "javascript",
+    "markdown-source",
+    "markdown-html",
+    "encoding",
+]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Export generated HTML into its executable parsing contexts."""
+    """Admit domain bytes through the same callbacks used by coverage-guided consumers."""
     parser: Final = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--count", type=int, default=1)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--budget", type=int, default=30)
     parser.add_argument("--sweep", action="store_true")
-    arguments: Final = parser.parse_args(argv)
-    generator: Final = random.Random(arguments.seed)
-    cases: Final = (
-        *(generation_sweep(html_grammar_complete(), budget=arguments.budget) if arguments.sweep else ()),
-        *(html_generate(generator, arguments.budget) for _ in range(arguments.count)),
+    parser.add_argument("--steps", type=int, default=256)
+    parser.add_argument(
+        "--profile",
+        choices=("html", "xml", "css-stylesheet", "markdown-source", "markdown-html", "encoding"),
+        default="html",
     )
-    write_corpora(cases, html_grammar_complete(), arguments.output, "html")
+    arguments: Final = parser.parse_args(argv)
+    grammar: Final = (
+        html_grammar_complete()
+        if arguments.profile == "html"
+        else xml_grammar()
+        if arguments.profile == "xml"
+        else css_grammar()
+        if arguments.profile == "css-stylesheet"
+        else encoding_grammar()
+        if arguments.profile == "encoding"
+        else markdown_grammar(html=arguments.profile == "markdown-html")
+    )
+    generator: Final = random.Random(arguments.seed)
+    budget: Final = GenerationBudget(arguments.budget, arguments.steps)
+    cases: Final = (
+        *(generation_sweep(grammar, budget=budget) if arguments.sweep else ()),
+        *(generate(grammar, generator, budget) for _ in range(arguments.count)),
+    )
+    write_corpora(cases, grammar, arguments.output, arguments.profile)
     return 0
 
 
@@ -56,17 +88,27 @@ def write_corpora(
     for case in cases:
         digest: Final = hashlib.sha256(case.data).hexdigest()
         for name in _routes(case, profile):
-            target: Final = targets[name]
+            context: Final = encoding_profile(case) if profile == "encoding" else None
+            target: Final = (
+                next(target for target in public_targets(context.encoding, sniff=context.sniff) if target.name == name)
+                if context
+                else targets[name]
+            )
+            if context and (error := encoding_check(case)):
+                raise AssertionError(error)
             try:
                 target.callback(case.data)
             except target.exceptions as error:
                 rejected.append(RejectedEntry(name, digest, type(error).__name__))
                 continue
-            destination: Final = directory / name / digest
-            if (name, digest) not in admitted:
+            subdirectory: Final = (
+                f"{name}/{context.encoding}-{'sniff' if context.sniff else 'fixed'}" if context else name
+            )
+            destination: Final = directory / subdirectory / digest
+            if (subdirectory, digest) not in admitted:
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(case.data)
-                admitted.add((name, digest))
+                admitted.add((subdirectory, digest))
             entries.append(
                 CorpusEntry(
                     name,
@@ -78,6 +120,8 @@ def write_corpora(
                     case.depth,
                     tuple((production, origins[production]) for production in case.productions),
                     case.bindings,
+                    context.encoding if context else None,
+                    context.sniff if context else False,
                 )
             )
     manifest: Final = CorpusManifest(tuple(entries), tuple(rejected))
@@ -94,6 +138,9 @@ def _routes(case: Generated, profile: CorpusProfile) -> tuple[str, ...]:
         )
     return {
         "javascript": ("javascript",),
+        "markdown-source": ("markdown-source",),
+        "markdown-html": ("markdown-html",),
+        "encoding": ("encoding-bytes",),
         "xml": ("xml-schema",),
         "css-stylesheet": ("css-stylesheet",),
         "css-declaration": ("css-object-model",),
@@ -114,6 +161,8 @@ class CorpusEntry:
     generation_depth: int
     productions: tuple[tuple[str, str], ...]
     bindings: tuple[tuple[str, str], ...]
+    encoding: str | None = None
+    sniff: bool = False
 
 
 @dataclass(frozen=True)

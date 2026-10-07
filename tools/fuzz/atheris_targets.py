@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Final
 from .atheris_content_targets import content_targets
 from .atheris_dom_targets import dom_targets
 from .atheris_driver import fuzz
+from .atheris_generation_targets import generation_targets
 from .atheris_javascript_targets import initialize_javascript, javascript_targets
 from .atheris_parser_targets import parser_targets
 from .atheris_reference_targets import reference_targets
@@ -50,13 +51,15 @@ MODULES: Final = (
 
 def main(argv: Sequence[str] | None = None) -> int:
     """LibFuzzer receives its flags after the target and corpus arguments."""
-    targets: Final = public_targets()
     parser: Final = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", required=True, choices=tuple(target.name for target in targets))
+    parser.add_argument("--target", required=True, choices=tuple(target.name for target in public_targets()))
+    parser.add_argument("--encoding", default="UTF-8")
+    parser.add_argument("--sniff", action="store_true")
     parser.add_argument("--corpus", required=True, type=Path)
     parsed: Final = parser.parse_known_args(argv)
     arguments: Final = parsed[0]
     flags: Final = parsed[1]
+    targets: Final = public_targets(arguments.encoding, sniff=arguments.sniff)
     if arguments.target == "javascript":
         initialize_javascript()
     arguments.corpus.mkdir(parents=True, exist_ok=True)
@@ -65,12 +68,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "exports": sorted(export for export, owner in owner_inventory().items() if owner == arguments.target),
         "corpus": str(arguments.corpus),
     }
+    if arguments.target == "encoding-bytes":
+        manifest.update(encoding=arguments.encoding, sniff=arguments.sniff)
     arguments.corpus.with_suffix(".json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     fuzz(targets, MODULES, arguments.target, (sys.argv[0], str(arguments.corpus), *flags))
     return 0
 
 
-def public_targets() -> tuple[Target, ...]:
+def public_targets(encoding: str = "UTF-8", *, sniff: bool = False) -> tuple[Target, ...]:
     """Each group owns separate modules and qualified re-export aliases."""
     targets: Final = (
         parser_targets()
@@ -79,6 +84,7 @@ def public_targets() -> tuple[Target, ...]:
         + dom_targets()
         + stylesheet_targets()
         + javascript_targets()
+        + generation_targets(encoding, sniff=sniff)
     )
     validate_owners(targets, MODULES)
     return targets

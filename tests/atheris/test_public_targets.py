@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib
 import importlib.util
 import json
@@ -31,6 +32,11 @@ _TARGET.callback(Path(sys.argv[2]).read_bytes())
 
 _LIST: Final = """
 import json
+from fuzz.atheris_generation_targets import encoding_observation, generation_targets
+assert encoding_observation(b"<p>\\xe9</p>", "windows-1252") == "é"
+assert [target.name for target in generation_targets("windows-1252")] == [
+    "markdown-source", "markdown-html", "encoding-bytes"
+]
 from fuzz.atheris_targets import owner_inventory, public_targets
 print(json.dumps({"owners": len(owner_inventory()), "targets": [target.name for target in public_targets()]}))
 """
@@ -56,21 +62,59 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
         check=True,
     )
     targets: Final = json.loads(inventory.stdout)
-    assert (targets["owners"], len(targets["targets"])) == (209, 30)
+    assert (targets["owners"], len(targets["targets"])) == (209, 33)
+    generated_seeds: Final[dict[str, bytes]] = {}
+    for profile in ("html", "xml", "css-stylesheet", "markdown-source", "markdown-html", "encoding"):
+        generated: Final = tmp_path / ("generated-" + profile)
+        run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed interpreter and finite production sweep.
+            [
+                sys.executable,
+                "-m",
+                "fuzz.atheris_corpora",
+                "--profile",
+                profile,
+                *(["--count", "0", "--sweep"] if profile == "encoding" else ["--count", "1"]),
+                "--budget",
+                "512",
+                "--output",
+                str(generated),
+            ],
+            env={**environment, "GCOV_PREFIX": str(tmp_path / (profile + "-generation-gcda"))},
+            capture_output=True,
+            check=True,
+        )
+        generated_manifest: Final = json.loads((generated / "manifest.json").read_text())
+        assert generated_manifest["entries"]
+        assert not generated_manifest["rejected"]
+        for generated_entry in generated_manifest["entries"]:
+            if generated_entry["encoding"] is None or (
+                generated_entry["encoding"] == "UTF-8" and not generated_entry["sniff"]
+            ):
+                generated_seeds[generated_entry["target"]] = (generated / generated_entry["file"]).read_bytes()
+    assert {
+        "html-tokenizer",
+        "xml-schema",
+        "css-stylesheet",
+        "markdown-source",
+        "markdown-html",
+        "encoding-bytes",
+    } <= generated_seeds.keys()
+    (tmp_path / "generated-targets.json").write_text(
+        json.dumps({name: hashlib.sha256(data).hexdigest() for name, data in generated_seeds.items()}, sort_keys=True)
+    )
     outcomes: Final[dict[str, dict[str, int | str]]] = {}
     for target in targets["targets"]:
         corpus: Final = tmp_path / target
         corpus.mkdir()
-        seed: Final = (
-            b"<root>one</root>"
-            if target == "xml-schema"
-            else b"p.x"
-            if target == "css-translate"
-            else b"p { color: red; }"
-            if target == "css-stylesheet"
-            else b'consume("kept",external);'
-            if target == "javascript"
-            else "水😀".encode()
+        seed: Final = generated_seeds.get(
+            target,
+            (
+                b"p.x"
+                if target == "css-translate"
+                else b'consume("kept",external);'
+                if target == "javascript"
+                else "水😀".encode()
+            ),
         )
         (corpus / "utf8").write_bytes(seed)
         counters: Final = tmp_path / f"{target}-gcda"
@@ -108,7 +152,10 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
         assert b"ft:" in result.stderr
         assert b"Coverage symbols are being provided by a library other than libFuzzer" not in result.stderr
         manifest: Final = json.loads(corpus.with_suffix(".json").read_text())
-        assert (manifest["target"], bool(manifest["exports"])) == (target, True)
+        assert (manifest["target"], bool(manifest["exports"])) == (
+            target,
+            target not in {"markdown-source", "markdown-html", "encoding-bytes"},
+        )
         native_counters: Final = tuple(counters.rglob("*.gcda"))
         assert native_counters, target
         outcomes[target] = {

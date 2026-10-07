@@ -164,6 +164,8 @@ def _element(element: XmlElement, parent: str, *, preserve: bool) -> tuple[_Mean
         msg = f"HTML element has no declared Markdown meaning: {element.tag}"
         raise MarkdownProfileError(msg)
     children: Final = _children(element, preserve=preserve or element.tag == "pre")
+    if element.tag == "p" and not children:
+        return ()
     if (
         element.tag in {"div", "span", "thead", "tbody"}
         or (element.tag == "p" and parent == "li")
