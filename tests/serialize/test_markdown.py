@@ -122,6 +122,9 @@ def test_blocks_and_whitespace(html: str, expected: str) -> None:
         pytest.param("<span>a<p>x</p>c</span>", "a\n\nx\n\nc", id="inline-text-after-block-opens-block"),
         pytest.param("<strong>a<ul><li>i</li></ul>c</strong>", "**a**\n\n- **i**\n\n**c**", id="emphasis-around-list"),
         pytest.param("<em>a<blockquote>b</blockquote>c</em>", "*a*\n\n> *b*\n\n*c*", id="emphasis-around-quote"),
+        pytest.param("<hr><code><hr>a</code>", "---\n\n`a`", id="code-span-holding-a-block-opens-its-line"),
+        pytest.param("<hr><kbd><hr>a</kbd>", "---\n\n`a`", id="keyboard-input-holding-a-block-opens-its-line"),
+        pytest.param("<hr><samp><hr>a</samp>", "---\n\n`a`", id="sample-output-holding-a-block-opens-its-line"),
     ],
 )
 def test_inline_emphasis(html: str, expected: str) -> None:
@@ -545,6 +548,80 @@ _LOOSE_NAV_HTML: Final[str] = (
             "<ul><li>a</li></ul><p>x&gt;</p><ul><li>b</li></ul>",
             "- a\n\nx>\n\n- b",
             id="list-after-text-ending-in-gt-keeps-marker",
+        ),
+        pytest.param("<ul><li>x<ul><li></li></ul></li></ul>", "- x\n\n  -", id="empty-nested-item-after-text"),
+        pytest.param("<p><b><code>><p>\n", "**`>`**\n\n**` `**", id="sweep-code-span-split-by-paragraph"),
+        pytest.param("<p><strong><code>x<p>\n<d", "**`x`**\n\n**` `**", id="sweep-code-span-split-before-element"),
+        pytest.param(
+            "<p><strong>x</p><code><p><", "**x**\n\n**`<`**", id="sweep-emphasis-reopened-around-code-paragraph"
+        ),
+        pytest.param("<p>x<strong><code><p>\n", "x\n\n**` `**", id="sweep-code-span-of-newline-in-emphasis"),
+        pytest.param("><p><b></p><code><p><", "\\>\n\n**`<`**", id="sweep-code-paragraph-after-empty-strong"),
+        pytest.param("><p><code><strong><div>\n", "\\>\n\n` `", id="sweep-code-span-split-by-division"),
+        pytest.param("><p><em></p><code><p><", "\\>\n\n*`<`*", id="sweep-code-paragraph-after-empty-emphasis"),
+        pytest.param("><p><em></p><code><p>e", "\\>\n\n*`e`*", id="sweep-code-letter-after-empty-emphasis"),
+        pytest.param("><p><s></p><code><p><", "\\>\n\n~~`<`~~", id="sweep-code-paragraph-after-empty-strikethrough"),
+        pytest.param(
+            "<p>x</p><strong><code><p>&lt;</p></code></strong>",
+            "x\n\n**`<`**",
+            id="code-span-holding-a-block-in-emphasis-opens-its-line",
+        ),
+        pytest.param(
+            "<p><code>g</code></p><div><code><a> </a></code></div>",
+            "`g`\n\n` `",
+            id="code-span-of-spaces-opens-its-line",
+        ),
+        pytest.param("<pre></pre><p><code>\n</code></p>", "```\n```\n\n` `", id="code-span-of-a-newline-after-a-fence"),
+        pytest.param(
+            "<div><strong><p>x</p>y</strong>z</div>", "**x**\n\n**y**z", id="text-after-a-wrapper-continues-its-line"
+        ),
+        pytest.param(
+            "<ul><li><em><p><img src='a'></p></em></li></ul>",
+            "- *![](a)*",
+            id="image-in-paragraph-in-emphasis-leads-item",
+        ),
+        pytest.param(
+            "<ul><li><em><p><code>x</code></p></em></li></ul>",
+            "- *`x`*",
+            id="code-span-in-paragraph-in-emphasis-leads-item",
+        ),
+        pytest.param("<ul><li><q></q>x</li></ul>", '- ""x', id="empty-quote-leads-item"),
+        pytest.param(
+            '<ul><li>x<ol start="2"><li>y</li></ol></li></ul>', "- x\n\n  2. y", id="ordered-from-two-after-text"
+        ),
+        pytest.param(
+            "<ul><li>x<ul><li><i></i></li></ul></li></ul>", "- x\n\n  -", id="item-of-empty-inline-after-text"
+        ),
+        pytest.param(
+            "<ul><li><blockquote>q</blockquote><p>y</p><p>z</p></li></ul>",
+            "- \n  > q\n\n  y\n\n  z",
+            id="loose-item-opening-with-a-quote",
+        ),
+        pytest.param(
+            "<ul><li><hr><p>y</p><p>z</p></li></ul>", "- \n  ---\n\n  y\n\n  z", id="loose-item-opening-with-a-rule"
+        ),
+        pytest.param(
+            "<ul><li><i></i></li><li>y<p>z</p></li></ul>", "- \n\n- y\n\n  z", id="item-of-empty-inline-in-loose-list"
+        ),
+        pytest.param("<ul><li><em><p>x</p></em></li></ul>", "- *x*", id="item-wrapper-opening-with-a-paragraph"),
+        pytest.param(
+            "<ul><li>x<ul><li><q>y</q></li></ul></li></ul>", '- x\n  - "y"', id="nested-item-opening-with-a-quote"
+        ),
+        pytest.param(
+            '<ul><li>x<ul><li><img src="i"></li></ul></li></ul>',
+            "- x\n  - ![](i)",
+            id="nested-item-opening-with-an-image",
+        ),
+        pytest.param(
+            "<ul><li>x<ul><li><br>y</li></ul></li></ul>", "- x\n  - \\\n    y", id="nested-item-opening-with-a-break"
+        ),
+        pytest.param(
+            "<ul><li><a><ul><li>x</li></ul></a></li></ul>", "- \n  - x", id="placeholder-link-opening-with-a-list"
+        ),
+        pytest.param(
+            "<ul><li>x<ul><svg></svg><li>y</li></ul></li></ul>",
+            "- x\n  - y",
+            id="nested-list-opening-with-foreign-content",
         ),
     ],
 )
@@ -1443,6 +1520,11 @@ def test_custom_element_with_attribute() -> None:
     html = "<p>play <video src='m.mp4'>fallback</video> here</p>"
     out = parse(html).to_markdown(Markdown(converters={"video": lambda el, _t: f"[{el.attrs['src']}]"}))
     assert out == "play [m.mp4] here"
+
+
+def test_converters_keep_the_run_line_before_blocks_in_emphasis() -> None:
+    out = parse("<em><p>a</p><p>b</p></em>").to_markdown(Markdown(converters={"span": wrap("@")}))
+    assert out == "*a*\n\n*b*"
 
 
 def test_converter_on_foreign_element() -> None:
