@@ -930,7 +930,226 @@ def test_list_item_below_foreign_parent() -> None:
 
 
 def test_ordered_list_item_value() -> None:
-    assert md('<ol start="3"><li>a</li><li value="8">b</li><li>c</li></ol>') == "3. a\n8. b\n9. c"
+    assert md('<ol start="3"><li>a</li><li value="8">b</li><li>c</li></ol>') == (
+        '<ol start="3"><li>a</li><li value="8">b</li><li>c</li></ol>'
+    )
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            "<ol reversed><li>a</li><li>b</li></ol>",
+            '<ol reversed=""><li>a</li><li>b</li></ol>',
+            id="reversed",
+        ),
+        pytest.param(
+            '<ol reversed start="5"><li>a</li><li>b</li></ol>',
+            '<ol reversed="" start="5"><li>a</li><li>b</li></ol>',
+            id="reversed-start",
+        ),
+        pytest.param(
+            '<ol><li value="-3">a</li><li>b</li></ol>',
+            '<ol><li value="-3">a</li><li>b</li></ol>',
+            id="negative-first-value",
+        ),
+        pytest.param(
+            '<ol start=" -5"><li>a</li></ol>',
+            '<ol start=" -5"><li>a</li></ol>',
+            id="negative-start-leading-space",
+        ),
+        pytest.param('<ol start=""><li>a</li></ol>', "1. a", id="empty-start"),
+        pytest.param('<ol start=" "><li>a</li></ol>', "1. a", id="space-only-start"),
+        pytest.param('<ol start="-"><li>a</li></ol>', "1. a", id="incomplete-negative-start"),
+        pytest.param('<ol start="-/"><li>a</li></ol>', "1. a", id="nondigit-negative-start"),
+        pytest.param('<ol start="-:"><li>a</li></ol>', "1. a", id="high-nondigit-negative-start"),
+        pytest.param(
+            '<ol start="1000000000"><li>a</li></ol>',
+            '<ol start="1000000000"><li>a</li></ol>',
+            id="gfm-marker-limit",
+        ),
+        pytest.param(
+            '<ol><li value="8">a</li><li>b</li></ol>',
+            "8. a\n9. b",
+            id="first-value-representable",
+        ),
+        pytest.param(
+            '<ol><li>a</li><li value="2">b</li></ol>',
+            '<ol><li>a</li><li value="2">b</li></ol>',
+            id="explicit-subsequent-value",
+        ),
+        pytest.param(
+            '<ol><li><p>a</p><p>b</p></li><li>c</li><li value="5">d</li></ol>',
+            '<ol><li><p>a</p><p>b</p></li><li>c</li><li value="5">d</li></ol>',
+            id="value-after-loose-items",
+        ),
+        pytest.param(
+            "<ul><li>x<ol reversed><li>a</li><li>b</li></ol></li></ul>",
+            '- x\n  <ol reversed=""><li>a</li><li>b</li></ol>',
+            id="nested-reversed",
+        ),
+        pytest.param(
+            "<blockquote><ol reversed><li>a</li><li>b</li></ol></blockquote>",
+            '> <ol reversed=""><li>a</li><li>b</li></ol>',
+            id="quoted-reversed",
+        ),
+        pytest.param(
+            "<ol reversed><li>a\n\nb</li><li>c</li></ol>",
+            '<ol reversed=""><li>a&#10;&#10;b</li><li>c</li></ol>',
+            id="blank-line-in-item",
+        ),
+        pytest.param(
+            "<ol reversed><li><pre>a\r\nb</pre></li></ol>",
+            '<ol reversed=""><li><pre>a&#10;b</pre></li></ol>',
+            id="pre-line-break",
+        ),
+    ],
+)
+def test_ordered_list_ordinals(html: str, expected: str) -> None:
+    assert md(html) == expected
+
+
+def test_ordered_list_carriage_return_stays_inside_html_block() -> None:
+    root: Final = Element("ol", {"reversed": ""}, [Element("li", children=[Text("a\rb")])])
+    assert root.to_markdown() == '<ol reversed=""><li>a&#13;b</li></ol>'
+
+
+def test_ordered_list_html_fallback_escapes_text_and_attributes() -> None:
+    root: Final = Element("ol", {"reversed": 'a"&'}, [Element("li", children=[Text("<x&y>")])])
+    assert root.to_markdown() == '<ol reversed="a&quot;&amp;"><li>&lt;x&amp;y&gt;</li></ol>'
+
+
+def test_ordered_list_empty_text_item() -> None:
+    root: Final = Element("ol", children=[Element("li", children=[Text("")])])
+    assert root.to_markdown() == "1."
+
+
+def test_ordered_list_ordinals_with_explicit_default_options() -> None:
+    assert parse("<ol reversed><li>a</li></ol>").to_markdown(Markdown()) == '<ol reversed=""><li>a</li></ol>'
+
+
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        pytest.param(Markdown(strip=["b"]), "1. x\n2. y", id="strip"),
+        pytest.param(Markdown(convert=["li"]), "x\n\ny", id="convert"),
+        pytest.param(
+            Markdown(converters={"b": lambda _element, _content: "Y"}),
+            "1. Y\n2. y",
+            id="converter",
+        ),
+    ],
+)
+def test_ordered_list_ordinal_fallback_preserves_conversion_options(options: Markdown, expected: str) -> None:
+    assert parse("<ol reversed><li><b>x</b></li><li>y</li></ol>").to_markdown(options) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "options", "expected"),
+    [
+        pytest.param(
+            "<ol reversed><li>a<script>alert(1)</script>b</li><li>c</li></ol>",
+            None,
+            "1. ab\n2. c",
+            id="script",
+        ),
+        pytest.param(
+            "<ol reversed><li>a<style>x{color:red}</style>b</li></ol>",
+            None,
+            "1. ab",
+            id="style",
+        ),
+        pytest.param(
+            '<ol reversed onclick="alert(1)"><li>a</li></ol>',
+            None,
+            "1. a",
+            id="list-attribute",
+        ),
+        pytest.param(
+            '<ol reversed><li onclick="alert(1)">a</li></ol>',
+            None,
+            "1. a",
+            id="item-attribute",
+        ),
+        pytest.param(
+            '<ol reversed><li><a href="/x">x</a></li></ol>',
+            None,
+            "1. [x](/x)",
+            id="link",
+        ),
+        pytest.param(
+            "<ol reversed><li><svg><text>x</text></svg></li></ol>",
+            None,
+            "1. x",
+            id="foreign-element",
+        ),
+        pytest.param(
+            '<ol reversed><li><img src="x" alt="a"></li></ol>',
+            None,
+            "1. ![a](x)",
+            id="image",
+        ),
+        pytest.param(
+            "<ol reversed><li>a<!-- hidden -->b</li></ol>",
+            None,
+            "1. ab",
+            id="comment",
+        ),
+        pytest.param(
+            '<ol reversed><li><p class="x">a</p></li></ol>',
+            None,
+            "1. a",
+            id="paragraph-attribute",
+        ),
+        pytest.param(
+            '<ol><li>a</li><li value="5" onclick="x">b</li></ol>',
+            None,
+            "1. a\n5. b",
+            id="valued-item-extra-attribute",
+        ),
+        pytest.param(
+            '<ol><li class="x">a</li><li>b</li></ol>',
+            None,
+            "1. a\n2. b",
+            id="unrelated-item-attribute",
+        ),
+        pytest.param(
+            '<ol><li><p>a</p><p>b</p></li><li class="x">c</li></ol>',
+            None,
+            "1. a\n\n   b\n\n2. c",
+            id="loose-unrelated-item-attribute",
+        ),
+        pytest.param(
+            "<ol><div><li><p>a</p><p>b</p></li></div><li>c</li></ol>",
+            None,
+            "1. a\n\n   b\n\n2. c",
+            id="loose-wrapped-item",
+        ),
+        pytest.param(
+            "<ol><li><p>a</p><p>b</p></li><p>x</p><li>c</li></ol>",
+            None,
+            "1. a\n\n   b\n\n   x\n\n2. c",
+            id="loose-nonitem-sibling",
+        ),
+        pytest.param("<ol><li> a</li></ol>", None, "1. a", id="leading-space-item"),
+        pytest.param(
+            '<ol reversed><li><img src="x" alt="a"></li></ol>',
+            Markdown(images=Markdown.Images(mode="ignore")),
+            "1.",
+            id="image-ignore",
+        ),
+        pytest.param(
+            "<ol reversed><li>“a”</li><li>b</li></ol>",
+            Markdown(document=Markdown.Document(transliterate=True)),
+            '1. "a"\n2. b',
+            id="transliterate",
+        ),
+    ],
+)
+def test_ordered_list_ordinal_fallback_keeps_existing_rendering(
+    html: str, options: Markdown | None, expected: str
+) -> None:
+    assert parse(html).to_markdown(options) == expected
 
 
 def test_selected_nested_item_uses_list_depth() -> None:
@@ -1475,7 +1694,7 @@ def test_table_edge_cases(html: str, expected: str) -> None:
         pytest.param("<p>3) item</p>", "3\\) item", id="escape-line-start-paren-number"),
         pytest.param('<ol start="10"><li>a</li></ol>', "10. a", id="ol-two-digit-number"),
         pytest.param('<ol start="2x"><li>a</li></ol>', "2. a", id="ol-start-digits-then-letter"),
-        pytest.param('<ol start="-5"><li>a</li></ol>', "1. a", id="ol-start-negative-ignored"),
+        pytest.param('<ol start="-5"><li>a</li></ol>', '<ol start="-5"><li>a</li></ol>', id="ol-start-negative"),
         pytest.param("<pre><svg></svg>code</pre>", "```\ncode\n```", id="pre-foreign-first-child"),
         pytest.param("<p><a href>x</a></p>", "[x](<>)", id="link-valueless-href"),
         pytest.param("<p><code></code></p>", "", id="code-span-empty"),
