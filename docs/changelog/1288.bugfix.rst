@@ -1,0 +1,1 @@
+Keep empty ``<h1>`` and ``<h2>`` elements when exporting Markdown with setext headings.
