@@ -541,10 +541,10 @@ static const th_css_color_entry *css_hex_to_name(const css_char *hash, Py_ssize_
 /* Try to shorten an ident (color keyword) or hash; returns 1 and sets (off,len) when it changes, else 0. */
 static int css_color_keyword_or_hash(css_buf *pool, const css_token *token, int is_color_context, Py_ssize_t *out_off,
                                      Py_ssize_t *out_len) {
+    if (!is_color_context) {
+        return 0;
+    }
     if (token->kind == CSS_IDENT) {
-        if (!is_color_context) {
-            return 0;
-        }
         return css_name_to_hex(pool, token->text, token->text_len, out_off, out_len);
     }
     /* a hash: lower-case it, fold #rrggbbaa with aa==ff/00, then map to a keyword or a 3/4-digit short form */

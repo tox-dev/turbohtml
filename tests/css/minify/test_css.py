@@ -254,6 +254,67 @@ def test_minify_css(source: str, expected: str) -> None:
     assert minify_css(source) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("p {font-family: #f00}", "p{font-family:#f00}", id="font-family"),
+        pytest.param("p {font-family: #ff0000}", "p{font-family:#ff0000}", id="long-font-family-hash"),
+        pytest.param("p {opacity: #f00}", "p{opacity:#f00}", id="non-color-property"),
+        pytest.param("p {unknown: #F00}", "p{unknown:#F00}", id="unknown-property-case"),
+        pytest.param("p {background: #ff0000}", "p{background:red}", id="background-color"),
+        pytest.param("p {border: #ff0000}", "p{border:red}", id="border-color"),
+    ],
+)
+def test_minify_css_hash_color_context(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(
+    "property_name",
+    [
+        "accent-color",
+        "background",
+        "background-color",
+        "border",
+        "border-color",
+        "border-top-color",
+        "border-right-color",
+        "border-bottom-color",
+        "border-left-color",
+        "border-top",
+        "border-right",
+        "border-bottom",
+        "border-left",
+        "border-block",
+        "border-inline",
+        "border-block-start",
+        "border-block-end",
+        "border-inline-start",
+        "border-inline-end",
+        "box-shadow",
+        "color",
+        "caret-color",
+        "column-rule-color",
+        "column-rule",
+        "fill",
+        "flood-color",
+        "lighting-color",
+        "outline-color",
+        "outline",
+        "stroke",
+        "stop-color",
+        "scrollbar-color",
+        "text-decoration-color",
+        "text-emphasis-color",
+        "text-decoration",
+        "text-emphasis",
+        "text-shadow",
+    ],
+)
+def test_minify_css_color_property_hash(property_name: str) -> None:
+    assert minify_css(f"p{{{property_name}:#ff0000}}") == f"p{{{property_name}:red}}"
+
+
 @pytest.mark.parametrize("count", [pytest.param(40, id="stack"), pytest.param(300, id="heap")])
 def test_minify_css_many_unique_rules(count: int) -> None:
     source = "".join(f".c{index}{{--p{index}:{index + 1}px}}" for index in range(count))
