@@ -1,0 +1,1 @@
+Keep ``calc()`` when folding a negative value for a CSS property that clamps it at computed-value time.

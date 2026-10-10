@@ -1721,8 +1721,8 @@
 ],
 [
 "a{width:calc(2px - 5px)}",
-"a{width:-3px}",
-"a{width:-3px}"
+"a{width:calc(-3px)}",
+"a{width:calc(-3px)}"
 ],
 [
 "a{width:calc(1.5px + 2px)}",
@@ -1856,8 +1856,8 @@
 ],
 [
 "a{width:calc(-3px/2)}",
-"a{width:-1.5px}",
-"a{width:-1.5px}"
+"a{width:calc(-1.5px)}",
+"a{width:calc(-1.5px)}"
 ],
 [
 "a{width:calc(1px/40)}",
@@ -1891,8 +1891,8 @@
 ],
 [
 "a{width:calc(-1px/2)}",
-"a{width:-.5px}",
-"a{width:-.5px}"
+"a{width:calc(-.5px)}",
+"a{width:calc(-.5px)}"
 ],
 [
 "a{width:calc(1px/1000)}",
@@ -2751,8 +2751,8 @@
 ],
 [
 "a{width:calc(-5px*2)}",
-"a{width:-10px}",
-"a{width:-10px}"
+"a{width:calc(-10px)}",
+"a{width:calc(-10px)}"
 ],
 [
 "a{width:calc(+5px*2)}",
