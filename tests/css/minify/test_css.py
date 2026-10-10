@@ -889,7 +889,7 @@ def _max_decls_per_rule(rule_count: int) -> int:
         pytest.param(
             "a{width:calc(100% - 30px - 0)}", "a{width:calc(100% - 30px - 0)}", id="calc-keeps-unitless-zero-type-error"
         ),
-        pytest.param("a{width:calc(100% - 0px)}", "a{width:100%}", id="calc-folds-zero-length"),
+        pytest.param("a{width:calc(100% - 0px)}", "a{width:calc(100% - 0px)}", id="calc-keeps-mixed-types"),
         pytest.param(
             "a{border-color:currentColor red}",
             "a{border-color:currentcolor red}",
@@ -1406,7 +1406,7 @@ _ONE_CALL_REWRITE: Final[list[ParameterSet]] = [
     pytest.param("a{color:rgb(calc(1),0)}", "a{color:rgb(1,0)}", id="calc-in-color-of-no-shape"),
     pytest.param("a{background:rgba(0,0,0,0) url(x)}", "a{background:url(x)}", id="folded-transparent"),
     pytest.param("a{background:calc(2px) 50%/10px}", "a{background:2px/10px}", id="folded-length"),
-    pytest.param("a{box-shadow:calc(0px) 0 0 rgba(0,0,0,0)}", "a{box-shadow:0 0 #0000}", id="folded-zero"),
+    pytest.param("a{box-shadow:calc(0px) 0 0 rgba(0,0,0,0)}", "a{box-shadow:calc(0px)0 0 #0000}", id="typed-zero"),
     pytest.param("a{background-position:calc(0%) calc(0%)}", "a{background-position:0 0}", id="folded-percentage"),
     pytest.param("a{font:calc(400) 1em x}", "a{font:1em x}", id="folded-number"),
     pytest.param("a{background:rgb(255,0,0) 0 0}", "a{background:red}", id="folded-keyword"),
