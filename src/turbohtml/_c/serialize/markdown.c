@@ -3982,6 +3982,11 @@ static void md_leave_heading(md_ctx *ctx, md_frame *frame) {
     int level = frame->heading.level;
     if (frame->leave == MD_LEAVE_SETEXT) {
         Py_ssize_t width = ctx->out.len - mark;
+        if (width == 0) {
+            sbuf_puts(&ctx->out, level == 1 ? "#" : "##");
+            ctx->line_has_content = 1;
+            return;
+        }
         md_newline(ctx);
         Py_UCS4 rule = level == 1 ? '=' : '-';
         for (Py_ssize_t index = 0; index < width; index++) {

@@ -2603,6 +2603,18 @@ def _configured_markdown(html: str, options: Markdown) -> str:
             "<h2>Hi</h2>", Markdown(headings=Markdown.Headings(style="setext")), "Hi\n--", id="heading-setext-h2"
         ),
         pytest.param(
+            "<h1></h1>", Markdown(headings=Markdown.Headings(style="setext")), "#", id="heading-empty-setext-h1"
+        ),
+        pytest.param(
+            "<h2> </h2>", Markdown(headings=Markdown.Headings(style="setext")), "##", id="heading-empty-setext-h2"
+        ),
+        pytest.param(
+            "<h1></h1><p>after</p>",
+            Markdown(headings=Markdown.Headings(style="setext")),
+            "#\n\nafter",
+            id="heading-empty-setext-before-paragraph",
+        ),
+        pytest.param(
             "<h3>H</h3>",
             Markdown(headings=Markdown.Headings(style="setext")),
             "### H",
