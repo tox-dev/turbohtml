@@ -102,7 +102,7 @@ CSS_NOINLINE static void css_close_raw_blocks(token_vec *vec, Py_ssize_t start, 
    before the end of the input only at a `;` or `}` outside every block its depth count tracks. */
 static CSS_FORCEINLINE void css_render_components(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end,
                                                   int color_mode, int drop_zero_unit, const css_char *property,
-                                                  Py_ssize_t property_len, comp_vec *comps) {
+                                                  Py_ssize_t property_len, int bare_zero_allowed, comp_vec *comps) {
     Py_ssize_t index = start;
     while (index < end) {
         css_token *token = &vec->items[index];
@@ -124,7 +124,7 @@ static CSS_FORCEINLINE void css_render_components(css_buf *pool, token_vec *vec,
         if (token->kind == CSS_IDENT && index + 1 < end && vec->items[index + 1].kind == CSS_DELIM &&
             vec->items[index + 1].delim == '(') {
             Py_ssize_t close_index = css_match_paren(vec, index + 1, end);
-            css_emit_function(pool, vec, index, close_index, &comp.off, &comp.len, &comp.kind);
+            css_emit_function(pool, vec, index, close_index, &comp.off, &comp.len, &comp.kind, bare_zero_allowed);
             comp.isfunc = comp.kind == CK_FUNC;
             comp_vec_push(comps, comp);
             index = close_index + 1;

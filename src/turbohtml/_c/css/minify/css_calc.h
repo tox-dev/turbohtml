@@ -418,20 +418,10 @@ static int css_char_unit_droppable(const char *unit, int len) {
     return css_unit_zero_droppable(wide, len);
 }
 
-/* Format a zero term, keeping the unit only where a 0 of that unit is not the same as a bare 0 (so 0px -> 0 but a
-   0% / 0s / 0deg... keeps its unit, matching the dimension rules). */
-static void css_format_zero_term(css_buf *out, const cterm *term) {
-    cbuf_putc(out, '0');
-    if (term->unit_len > 0 && !css_char_unit_droppable(term->unit, term->unit_len)) {
-        for (int index = 0; index < term->unit_len; index++) {
-            cbuf_putc(out, (css_char)(unsigned char)term->unit[index]);
-        }
-    }
-}
-
 /* Try to simplify calc(args); returns 1 and writes the shortest exact form to the pool, 0 to keep the input. */
 CSS_NOINLINE static int css_try_calc(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end,
-                                     Py_ssize_t *out_off, Py_ssize_t *out_len, css_compkind *kind) {
+                                     Py_ssize_t *out_off, Py_ssize_t *out_len, css_compkind *kind,
+                                     int bare_zero_allowed) {
     calc_parser parser = {vec, start, end};
     csum sum;
     calc_parse_sum(&parser, &sum);
@@ -453,7 +443,7 @@ CSS_NOINLINE static int css_try_calc(css_buf *pool, token_vec *vec, Py_ssize_t s
     if (has_unitless && has_dimension) {
         return 0;
     }
-    /* the sum keeps canceled (zero) terms to preserve units; drop them now unless every term is zero */
+    /* Keep canceled terms until their type contribution is checked. */
     cterm nonzero[CALC_MAX_TERMS];
     int nonzero_count = 0;
     for (int index = 0; index < sum.count; index++) {
@@ -461,15 +451,27 @@ CSS_NOINLINE static int css_try_calc(css_buf *pool, token_vec *vec, Py_ssize_t s
             nonzero[nonzero_count++] = sum.terms[index];
         }
     }
+    /* Zero terms still participate in math type checking. */
+    if (nonzero_count < sum.count && sum.count > 1) {
+        return 0;
+    }
     css_buf result = {NULL, 0, 0, pool->oom};
     int formatted = 1;
     if (nonzero_count == 0) {
-        if (sum.count == 1) {
-            css_format_zero_term(&result, &sum.terms[0]);
+        if (sum.count == 1 && sum.terms[0].unit_len > 0 &&
+            !css_char_unit_droppable(sum.terms[0].unit, sum.terms[0].unit_len)) {
+            formatted = css_format_cterm(&result, &sum.terms[0]);
+            *kind = CK_DIM;
+        } else if (sum.count == 1 && (sum.terms[0].unit_len > 0 || !bare_zero_allowed)) {
+            /* Bare zero can have a different type from a zero-valued calc(). */
+            cbuf_puts(&result, "calc(");
+            formatted = css_format_cterm(&result, &sum.terms[0]);
+            cbuf_putc(&result, ')');
+            *kind = CK_FUNC;
         } else {
             cbuf_putc(&result, '0');
+            *kind = CK_NUM;
         }
-        *kind = result.len > 1 ? CK_DIM : CK_NUM;
     } else if (nonzero_count == 1) {
         formatted = css_format_cterm(&result, &nonzero[0]);
         *kind = nonzero[0].unit_len > 0 ? CK_DIM : CK_NUM;
@@ -526,10 +528,10 @@ CSS_NOINLINE static void css_refold_color(css_buf *pool, Py_ssize_t *out_off, Py
    the rendered text's component kind: CK_FUNC for a function call (so the assembler glues the following component),
    else the hex, keyword, number or dimension a fold produced, typed as the next call would read that text. */
 static void css_emit_function(css_buf *pool, token_vec *vec, Py_ssize_t name_index, Py_ssize_t close_index,
-                              Py_ssize_t *out_off, Py_ssize_t *out_len, css_compkind *kind) {
+                              Py_ssize_t *out_off, Py_ssize_t *out_len, css_compkind *kind, int bare_zero_allowed) {
     css_token *name_token = &vec->items[name_index];
     if (css_run_ieq(name_token->text, name_token->text_len, "calc") &&
-        css_try_calc(pool, vec, name_index + 2, close_index, out_off, out_len, kind)) {
+        css_try_calc(pool, vec, name_index + 2, close_index, out_off, out_len, kind, bare_zero_allowed)) {
         return;
     }
     /* only rgb()/rgba()/hsl()/hsla() fold to a color, so any other name skips the call */
@@ -614,7 +616,7 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
                 Py_ssize_t off;
                 Py_ssize_t len;
                 css_compkind kind;
-                css_emit_function(pool, vec, index, close_index, &off, &len, &kind);
+                css_emit_function(pool, vec, index, close_index, &off, &len, &kind, 0);
                 css_nesting_leave(vec);
                 cbuf_put_run(out, pool->data + off, len);
             } else {

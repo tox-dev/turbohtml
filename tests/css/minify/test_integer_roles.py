@@ -22,6 +22,7 @@ _INTEGER_ROLES: Final[list[ParameterSet]] = [
     pytest.param("a{z-index:calc(1000)}", "a{z-index:1000}", id="math-large-integer"),
     pytest.param("a{z-index:calc(-1.0)}", "a{z-index:-1}", id="math-negative-integer"),
     pytest.param("a{z-index:calc(-0.0)}", "a{z-index:0}", id="math-zero"),
+    pytest.param("a{z-index:calc(1 - 1)}", "a{z-index:0}", id="math-zero-cancellation"),
     pytest.param("a{z-index:calc(1 + 1)}", "a{z-index:2}", id="math-resolved-integer"),
     pytest.param("a{z-index:CALC(1.0)!important}", "a{z-index:1!important}", id="math-integer-priority"),
     pytest.param("a{z-index:calc(1.0", "a{z-index:1}", id="math-integer-eof"),
