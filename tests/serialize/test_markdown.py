@@ -134,6 +134,24 @@ def test_inline_emphasis(html: str, expected: str) -> None:
     assert md(html) == expected
 
 
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<p><i>&nbsp;</i></p>", "<em>\u00a0</em>", id="emphasis-only-nbsp"),
+        pytest.param("<p><b>&nbsp;x</b></p>", "<strong>\u00a0x</strong>", id="strong-leading-nbsp"),
+        pytest.param("<p><b>x&nbsp;</b></p>", "<strong>x\u00a0</strong>", id="strong-trailing-nbsp"),
+        pytest.param("<p>a<b>&nbsp;</b>z</p>", "a<strong>\u00a0</strong>z", id="strong-between-text"),
+    ],
+)
+def test_nonbreaking_space_emphasis(html: str, expected: str) -> None:
+    assert md(html) == expected
+
+
+@pytest.mark.parametrize("space", ["\u00a0", "\u1680", "\u2000", "\u200a", "\u202f", "\u205f", "\u3000"])
+def test_unicode_space_emphasis(space: str) -> None:
+    assert md(f"<p><b>{space}</b></p>") == f"<strong>{space}</strong>"
+
+
 @pytest.mark.parametrize("tag", ["code", "kbd", "samp"])
 @pytest.mark.parametrize(
     ("content", "expected"),

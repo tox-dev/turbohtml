@@ -490,7 +490,8 @@ static void md_settle_pending(md_ctx *ctx) {
 /* What a character is to the CommonMark flanking rules: whitespace, ASCII punctuation,
    or (0) anything else. */
 enum { MD_EDGE_SPACE = 1, MD_EDGE_PUNCT = 2 };
-static const uint8_t MD_EDGE[128] = {
+/* U+3000 is the highest Zs space; direct indexing keeps the ASCII lookup unchanged. */
+static const uint8_t MD_EDGE[0x3001] = {
     ['\t'] = MD_EDGE_SPACE, ['\n'] = MD_EDGE_SPACE, ['\f'] = MD_EDGE_SPACE, ['\r'] = MD_EDGE_SPACE,
     [' '] = MD_EDGE_SPACE,  ['!'] = MD_EDGE_PUNCT,  ['"'] = MD_EDGE_PUNCT,  ['#'] = MD_EDGE_PUNCT,
     ['$'] = MD_EDGE_PUNCT,  ['%'] = MD_EDGE_PUNCT,  ['&'] = MD_EDGE_PUNCT,  ['\''] = MD_EDGE_PUNCT,
@@ -501,10 +502,14 @@ static const uint8_t MD_EDGE[128] = {
     ['\\'] = MD_EDGE_PUNCT, [']'] = MD_EDGE_PUNCT,  ['^'] = MD_EDGE_PUNCT,  ['_'] = MD_EDGE_PUNCT,
     ['`'] = MD_EDGE_PUNCT,  ['{'] = MD_EDGE_PUNCT,  ['|'] = MD_EDGE_PUNCT,  ['}'] = MD_EDGE_PUNCT,
     ['~'] = MD_EDGE_PUNCT,
+    [0xA0] = MD_EDGE_SPACE, [0x1680] = MD_EDGE_SPACE, [0x2000] = MD_EDGE_SPACE, [0x2001] = MD_EDGE_SPACE,
+    [0x2002] = MD_EDGE_SPACE, [0x2003] = MD_EDGE_SPACE, [0x2004] = MD_EDGE_SPACE, [0x2005] = MD_EDGE_SPACE,
+    [0x2006] = MD_EDGE_SPACE, [0x2007] = MD_EDGE_SPACE, [0x2008] = MD_EDGE_SPACE, [0x2009] = MD_EDGE_SPACE,
+    [0x200A] = MD_EDGE_SPACE, [0x202F] = MD_EDGE_SPACE, [0x205F] = MD_EDGE_SPACE, [0x3000] = MD_EDGE_SPACE,
 };
 
 static inline uint8_t md_edge(Py_UCS4 ch) {
-    return ch < 128 ? MD_EDGE[ch] : 0;
+    return ch < sizeof(MD_EDGE) ? MD_EDGE[ch] : 0;
 }
 
 static int md_is_ascii_punct(Py_UCS4 ch) {
