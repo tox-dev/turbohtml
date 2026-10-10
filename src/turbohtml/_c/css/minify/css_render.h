@@ -649,8 +649,7 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
             matches_legacy = 0;
         }
     }
-    /* matches_legacy implies joined.len >= legacy_len (48), so it is always positive here */
-    if (!is_ms && matches_legacy && joined.data[joined.len - 1] == ')') {
+    if (!is_ms && matches_legacy) {
         cbuf_puts(out, "alpha(opacity=");
         cbuf_put_run(out, joined.data + legacy_len, joined.len - legacy_len);
     } else if (is_ms && quote && matches_legacy) {
