@@ -3443,8 +3443,7 @@ static void md_enter_table(md_ctx *ctx, th_node *node) {
     Py_ssize_t count = 0;
     int has_spans = 0;
     Py_ssize_t columns = md_collect_rows(node, rows, &count, &has_spans);
-    if (ctx->opt->table_mode == TH_MD_TABLE_HTML ||
-        (ctx->opt->table_mode == TH_MD_TABLE_MARKDOWN && has_spans)) {
+    if (ctx->opt->table_mode == TH_MD_TABLE_HTML || (ctx->opt->table_mode == TH_MD_TABLE_MARKDOWN && has_spans)) {
         if (count > 0) { /* a collected row holds a cell, so there are columns too */
             md_block_line(ctx, 1);
             md_emit_raw_html(ctx, node);
