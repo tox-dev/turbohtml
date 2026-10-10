@@ -3171,8 +3171,8 @@
 ],
 [
 "@font-face{unicode-range:U+0 ! U+5}",
-"@font-face{unicode-range:U+0!U+5}",
-"@font-face{unicode-range:U+0!U+5}"
+"@font-face{unicode-range:U+0 ! U+5}",
+"@font-face{unicode-range:U+0 ! U+5}"
 ],
 [
 "@font-face{unicode-range:U+??????}",

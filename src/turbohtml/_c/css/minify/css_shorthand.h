@@ -825,7 +825,14 @@ static void css_minify_value(css_buf *pool, token_vec *vec, Py_ssize_t start, Py
         css_handle_filter(pool, vec, start, end, name, name_len, out);
         return;
     }
-    if (css_run_ieq(name, name_len, "unicode-range") && css_handle_unicode_range(vec, start, end, out)) {
+    if (css_run_ieq(name, name_len, "unicode-range")) {
+        if (css_handle_unicode_range(vec, start, end, out)) {
+            return;
+        }
+        /* Rebuilding invalid ranges can join separated U+ and a tokens into a valid range. */
+        const css_token *last = &vec->items[end - 1];
+        cbuf_put_run(out, vec->items[start].text,
+                     last->text + last->text_len + last->unit_len - vec->items[start].text);
         return;
     }
     int is_z_index = name_len == 7 && css_run_ieq(name, name_len, "z-index");
