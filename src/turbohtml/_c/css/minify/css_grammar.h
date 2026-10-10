@@ -1335,7 +1335,7 @@ static int css_merge_known_pseudo(const css_char *name, Py_ssize_t len, int elem
     size_t count = element ? sizeof(elements) / sizeof(elements[0]) : sizeof(classes) / sizeof(classes[0]);
     css_char initial = css_lower(name[0]);
     for (size_t index = 0; index < count; index++) {
-        if (initial == names[index][0] && css_run_ieq(name, len, names[index])) {
+        if (initial == (css_char)(unsigned char)names[index][0] && css_run_ieq(name, len, names[index])) {
             return element || index >= count - 4 ? 2 : 1;
         }
     }
