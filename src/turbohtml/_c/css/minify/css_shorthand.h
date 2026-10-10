@@ -5,6 +5,7 @@
    (off, len); ident records the edge keyword so the normalizer can rewrite right/bottom to left/top offsets. */
 typedef enum { PVK_COMMA, PVK_IDENT, PVK_PCT, PVK_NUM, PVK_LEN } pv_kind;
 typedef enum { PVI_NONE, PVI_LEFT, PVI_RIGHT, PVI_TOP, PVI_BOTTOM, PVI_CENTER } pv_ident;
+typedef enum { PVR_INVALID, PVR_HORIZONTAL, PVR_VERTICAL, PVR_CENTER, PVR_LENGTH } pv_role;
 typedef struct {
     pv_kind kind;
     Py_ssize_t off;
@@ -61,6 +62,45 @@ static void css_pv_del(pos_val *vals, Py_ssize_t *count, Py_ssize_t index) {
         vals[pos] = vals[pos + 1];
     }
     (*count)--;
+}
+
+static pv_role css_position_role(const pos_val *value) {
+    if (value->kind != PVK_IDENT) {
+        return PVR_LENGTH;
+    }
+    if (value->ident == PVI_LEFT || value->ident == PVI_RIGHT) {
+        return PVR_HORIZONTAL;
+    }
+    if (value->ident == PVI_TOP || value->ident == PVI_BOTTOM) {
+        return PVR_VERTICAL;
+    }
+    return value->ident == PVI_CENTER ? PVR_CENTER : PVR_INVALID;
+}
+
+static int css_position_order_valid(const pos_val *vals, Py_ssize_t count) {
+    pv_role first = css_position_role(&vals[0]);
+    pv_role second = css_position_role(&vals[1]);
+    if (count == 2) {
+        static const unsigned int second_roles[] = {0, (1u << PVR_VERTICAL) | (1u << PVR_CENTER) | (1u << PVR_LENGTH),
+                                                    (1u << PVR_HORIZONTAL) | (1u << PVR_CENTER),
+                                                    (1u << PVR_HORIZONTAL) | (1u << PVR_VERTICAL) | (1u << PVR_CENTER) |
+                                                        (1u << PVR_LENGTH),
+                                                    (1u << PVR_VERTICAL) | (1u << PVR_CENTER) | (1u << PVR_LENGTH)};
+        return (second_roles[first] & (1u << second)) != 0;
+    }
+    pv_role third = css_position_role(&vals[2]);
+    if (count == 3) {
+        return ((second == PVR_LENGTH) &
+                (((first == PVR_HORIZONTAL) & ((third == PVR_VERTICAL) | (third == PVR_CENTER))) |
+                 ((first == PVR_VERTICAL) & ((third == PVR_HORIZONTAL) | (third == PVR_CENTER))))) |
+               ((third == PVR_LENGTH) &
+                (((second == PVR_HORIZONTAL) & ((first == PVR_VERTICAL) | (first == PVR_CENTER))) |
+                 ((second == PVR_VERTICAL) & ((first == PVR_HORIZONTAL) | (first == PVR_CENTER)))));
+    }
+    pv_role fourth = css_position_role(&vals[3]);
+    return (second == PVR_LENGTH) & (fourth == PVR_LENGTH) &
+           (((first == PVR_HORIZONTAL) & (third == PVR_VERTICAL)) |
+            ((first == PVR_VERTICAL) & (third == PVR_HORIZONTAL)));
 }
 
 /* Resolve a 1-4 value background-position run to the shortest equivalent offsets (CSS Backgrounds 3 §3.6). */
@@ -207,7 +247,9 @@ static Py_ssize_t css_position_run(css_buf *pool, const css_comp *items, Py_ssiz
         }
         out_run[run_count++] = value;
     }
-    css_normalize_position_run(pool, out_run, &run_count);
+    if (run_count < 2 || run_count > 4 || css_position_order_valid(out_run, run_count)) {
+        css_normalize_position_run(pool, out_run, &run_count);
+    }
     return run_count;
 }
 
