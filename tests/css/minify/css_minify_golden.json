@@ -1936,8 +1936,8 @@
 ],
 [
 "a{border-color:red,blue}",
-"a{border-color:red blue}",
-"a{border-color:red blue}"
+"a{border-color:red,blue}",
+"a{border-color:red,blue}"
 ],
 [
 "a{box-shadow:1px 2px 3px 0 red}",

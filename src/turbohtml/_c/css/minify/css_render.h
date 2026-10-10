@@ -493,7 +493,11 @@ static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char
 static void css_handle_border_color(css_buf *pool, comp_vec *comps) {
     Py_ssize_t value_count = 0;
     for (Py_ssize_t index = 0; index < comps->len; index++) {
-        if (comps->items[index].kind != CK_SEP) {
+        if (comps->items[index].kind == CK_SEP) {
+            if (comps->len > 1) {
+                return;
+            }
+        } else {
             value_count++;
         }
     }
