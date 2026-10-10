@@ -396,8 +396,7 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         }
         node = node->parent;
         if (node->type == TH_NODE_ELEMENT && !(opts->inner && node == root)) {
-            if (node->atom == TH_TAG_UNKNOWN && opts->xml &&
-                !xml_wide_name_wellformed(node->text, node->text_len)) {
+            if (node->atom == TH_TAG_UNKNOWN && opts->xml && !xml_wide_name_wellformed(node->text, node->text_len)) {
                 continue;
             }
             ser_close_tag(out, node);
