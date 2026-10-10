@@ -25,6 +25,15 @@ static void css_collect_open_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t
     }
 }
 
+CSS_NOINLINE static void css_close_function_args(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *args) {
+    css_buf blocks = {NULL, 0, 0, args->oom};
+    css_collect_open_blocks(vec, start, end, 1, &blocks);
+    for (Py_ssize_t depth = blocks.len - 1; depth >= 0; depth--) {
+        cbuf_putc(args, blocks.data[depth] == '(' ? ')' : ']');
+    }
+    cbuf_free(&blocks);
+}
+
 /* Collect into blocks the blocks tokens [start, end) of a value or at-rule prelude leave open, innermost last, reading
    functions as plain delimiters. Tokens holding a `{` are read as css_read_until reads them, each closer ending the
    innermost block of any kind: a `}` at depth 0 ends the run, so a `}` written for a `{` that a `)` already closed
@@ -624,6 +633,9 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
     if (*pool->oom) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         cbuf_free(&joined); /* GCOVR_EXCL_LINE: allocation-failure path */
         return;             /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (end == vec->len) {
+        css_close_raw_blocks(vec, start, end, &joined);
     }
     const char *legacy = "progid:dximagetransform.microsoft.alpha(opacity=";
     Py_ssize_t legacy_len = (Py_ssize_t)strlen(legacy);

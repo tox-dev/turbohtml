@@ -870,6 +870,7 @@ static void css_rtrim(css_buf *buffer) {
 static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, const css_char *name,
                                  Py_ssize_t name_len, css_buf *out);
 static int css_is_ident_string(const css_char *text, Py_ssize_t len);
+CSS_NOINLINE static void css_close_function_args(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *args);
 
 static int css_arg_is_zero(const css_char *text, Py_ssize_t len) {
     return (len == 1 && text[0] == '0') || (len == 2 && text[0] == '0' && text[1] == '%');
@@ -919,6 +920,9 @@ static void css_render_function(css_buf *pool, token_vec *vec, Py_ssize_t name_i
     css_buf args = {NULL, 0, 0, pool->oom};
     css_minify_func_args(pool, vec, name_index + 2, close_index, name_token->text, name_token->text_len, &args);
     css_collapse_transform_args(name_token->text, name_token->text_len, &args);
+    if (close_index == vec->len) {
+        css_close_function_args(vec, name_index + 2, close_index, &args);
+    }
     *out_off = pool->len;
     cbuf_put_run(pool, name_token->text, name_token->text_len);
     cbuf_putc(pool, '(');

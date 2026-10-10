@@ -1058,6 +1058,21 @@ def test_minify_css_spec_fixes(source: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
+        pytest.param("a{h:c((", "a{h:c(())}", id="bare-block-in-function"),
+        pytest.param("a{h:c((}", "a{h:c((}))}", id="brace-in-function-block"),
+        pytest.param("a{h:c([", "a{h:c([])}", id="bracket-in-function"),
+        pytest.param("a{-ms-filter:(", "a{-ms-filter:()}", id="filter-open-block"),
+        pytest.param("a{-ms-filter:(}", "a{-ms-filter:(})}", id="filter-brace-in-block"),
+    ],
+)
+def test_minify_css_closes_nested_blocks_at_eof(source: str, expected: str) -> None:
+    first: Final = minify_css(source)
+    assert (first, minify_css(first)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
         pytest.param('["x"] { c : d }', '["x"]{c:d}', id="quoted-name"),
         pytest.param(".a*.b { color : red }", ".a*.b{color:red}", id="universal-after-class"),
         pytest.param("a*:hover { color : red }", "a*:hover{color:red}", id="universal-after-type"),
@@ -1772,13 +1787,6 @@ _GOLDEN: Final[list[list[str]]] = json.loads(
     (Path(__file__).parent / "css_minify_golden.json").read_text(encoding="utf-8")
 )
 
-# Malformed/invalid inputs with no closing delimiter or balance: error recovery keeps the broken tail verbatim, which
-# is not a fixed point under re-minification. Output is still deterministic and pinned; only round-trip safety is moot.
-_UNSTABLE: Final[frozenset[str]] = frozenset({
-    "a{width:calc((1px + 2px}", "a{width:calc((1px}", "a{width:calc((", "a{width:calc((1px+2px",
-    "a{color:rgba(10 20 30 .5)}",
-})  # fmt: skip
-
 
 @pytest.mark.parametrize(
     ("source", "stylesheet", "inline"),
@@ -1790,7 +1798,7 @@ def test_minify_matches_golden(source: str, stylesheet: str, inline: str) -> Non
 
 @pytest.mark.parametrize(
     ("stylesheet", "inline"),
-    [pytest.param(row[1], row[2], id=row[0][:40]) for row in _GOLDEN if row[0] not in _UNSTABLE],
+    [pytest.param(row[1], row[2], id=row[0][:40]) for row in _GOLDEN if row[0] != "a{color:rgba(10 20 30 .5)}"],
 )
 def test_minify_output_is_a_fixed_point(stylesheet: str, inline: str) -> None:
     assert (minify_css(stylesheet), minify_css_inline(inline)) == (stylesheet, inline)
