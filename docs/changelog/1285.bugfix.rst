@@ -1,0 +1,1 @@
+Close unclosed CSS blocks at EOF so repeated minification keeps the same output.
