@@ -428,9 +428,22 @@ static void css_format_zero_term(css_buf *out, const cterm *term) {
     }
 }
 
+static int css_calc_negative_literal_allowed(const css_char *prop, Py_ssize_t prop_len) {
+    if (prop == NULL) {
+        return 1;
+    }
+    return css_run_ieq(prop, prop_len, "margin") || (prop_len > 7 && css_run_ieq(prop, 7, "margin-")) ||
+           css_run_ieq(prop, prop_len, "inset") || (prop_len > 6 && css_run_ieq(prop, 6, "inset-")) ||
+           css_run_ieq(prop, prop_len, "top") || css_run_ieq(prop, prop_len, "right") ||
+           css_run_ieq(prop, prop_len, "bottom") || css_run_ieq(prop, prop_len, "left") ||
+           css_run_ieq(prop, prop_len, "z-index") || css_run_ieq(prop, prop_len, "order") ||
+           css_run_ieq(prop, prop_len, "text-indent");
+}
+
 /* Try to simplify calc(args); returns 1 and writes the shortest exact form to the pool, 0 to keep the input. */
 CSS_NOINLINE static int css_try_calc(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end,
-                                     Py_ssize_t *out_off, Py_ssize_t *out_len, css_compkind *kind) {
+                                     const css_char *prop, Py_ssize_t prop_len, Py_ssize_t *out_off,
+                                     Py_ssize_t *out_len, css_compkind *kind) {
     calc_parser parser = {vec, start, end};
     csum sum;
     calc_parse_sum(&parser, &sum);
@@ -470,8 +483,16 @@ CSS_NOINLINE static int css_try_calc(css_buf *pool, token_vec *vec, Py_ssize_t s
         }
         *kind = result.len > 1 ? CK_DIM : CK_NUM;
     } else if (nonzero_count == 1) {
+        /* Only a top-level negative literal can bypass calc()'s computed-value range clamp. */
+        int preserve_calc = nonzero[0].coeff.num < 0 && !css_calc_negative_literal_allowed(prop, prop_len);
+        if (preserve_calc) {
+            cbuf_puts(&result, "calc(");
+        }
         formatted = css_format_cterm(&result, &nonzero[0]);
-        *kind = nonzero[0].unit_len > 0 ? CK_DIM : CK_NUM;
+        if (preserve_calc) {
+            cbuf_putc(&result, ')');
+        }
+        *kind = preserve_calc ? CK_FUNC : (nonzero[0].unit_len > 0 ? CK_DIM : CK_NUM);
     } else {
         *kind = CK_FUNC;
         cbuf_puts(&result, "calc(");
@@ -525,10 +546,11 @@ CSS_NOINLINE static void css_refold_color(css_buf *pool, Py_ssize_t *out_off, Py
    the rendered text's component kind: CK_FUNC for a function call (so the assembler glues the following component),
    else the hex, keyword, number or dimension a fold produced, typed as the next call would read that text. */
 static void css_emit_function(css_buf *pool, token_vec *vec, Py_ssize_t name_index, Py_ssize_t close_index,
-                              Py_ssize_t *out_off, Py_ssize_t *out_len, css_compkind *kind) {
+                              const css_char *prop, Py_ssize_t prop_len, Py_ssize_t *out_off, Py_ssize_t *out_len,
+                              css_compkind *kind) {
     css_token *name_token = &vec->items[name_index];
     if (css_run_ieq(name_token->text, name_token->text_len, "calc") &&
-        css_try_calc(pool, vec, name_index + 2, close_index, out_off, out_len, kind)) {
+        css_try_calc(pool, vec, name_index + 2, close_index, prop, prop_len, out_off, out_len, kind)) {
         return;
     }
     /* only rgb()/rgba()/hsl()/hsla() fold to a color, so any other name skips the call */
@@ -613,7 +635,10 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
                 Py_ssize_t off;
                 Py_ssize_t len;
                 css_compkind kind;
-                css_emit_function(pool, vec, index, close_index, &off, &len, &kind);
+                /* var()/env() substitute their fallback outside the containing function's range context. */
+                int substitution = is_var || css_run_ieq(name, name_len, "env");
+                css_emit_function(pool, vec, index, close_index, substitution ? name : NULL,
+                                  substitution ? name_len : 0, &off, &len, &kind);
                 css_nesting_leave(vec);
                 cbuf_put_run(out, pool->data + off, len);
             } else {
