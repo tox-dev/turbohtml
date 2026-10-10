@@ -2174,6 +2174,20 @@ def test_minify_css_unicode_range_union(ranges: tuple[str, ...], expected: str) 
 
 
 @pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("U+/**/a", id="comment-before-hex"),
+        pytest.param("U+ a", id="space-before-hex"),
+        pytest.param("U+/**/1", id="comment-before-digit"),
+    ],
+)
+def test_minify_css_unicode_range_keeps_split_tokens(value: str) -> None:
+    source: Final = f"@font-face{{font-family:x; unicode-range:{value};src: url(a)}}"
+    expected: Final = f"@font-face{{font-family:x;unicode-range:{value};src:url(a)}}"
+    assert (minify_css(source), minify_css(minify_css(source))) == (expected, expected)
+
+
+@pytest.mark.parametrize(
     ("source", "expected"),
     [
         pytest.param("width:calc(0e10000px + 1px)", "width:1px", id="zero-positive-exponent"),
