@@ -630,6 +630,20 @@ static int css_comp_is_comma(css_buf *pool, const css_comp *comp) {
     return pool->data[comp->off] == ','; /* a SEP comp is always len 1 */
 }
 
+static CSS_NOINLINE void css_quote_leading_hyphen_family(css_buf *pool, css_comp *comp) {
+    if (comp->kind != CK_IDENT) {
+        return;
+    }
+    css_buf quoted = {NULL, 0, 0, pool->oom};
+    cbuf_putc(&quoted, '\'');
+    cbuf_put_run(&quoted, pool->data + comp->off, comp->len);
+    cbuf_putc(&quoted, '\'');
+    comp->off = pool_run(pool, quoted.data, quoted.len);
+    comp->len = quoted.len;
+    comp->kind = CK_STR;
+    cbuf_free(&quoted);
+}
+
 /* Minify the font shorthand (CSS Fonts 4 §2.7): lower-case the family, normalize font-weight (normal->drop, bold->700,
    400->drop) and drop a normal line-height. The shorthand resets every pre-size longhand to its initial value, so
    dropping a `normal` token there is safe whichever longhand it nominally binds to. */
@@ -676,14 +690,7 @@ static void css_handle_font(css_buf *pool, comp_vec *comps) {
     }
     /* family was set to at most values.len-1 then decremented at least once above, so family+1 < values.len holds */
     if (pool->data[values.items[family + 1].off] == '-') {
-        css_buf quoted = {NULL, 0, 0, pool->oom};
-        cbuf_putc(&quoted, '\'');
-        cbuf_put_run(&quoted, pool->data + values.items[family + 1].off, values.items[family + 1].len);
-        cbuf_putc(&quoted, '\'');
-        values.items[family + 1].off = pool_run(pool, quoted.data, quoted.len);
-        values.items[family + 1].len = quoted.len;
-        values.items[family + 1].kind = CK_STR;
-        cbuf_free(&quoted);
+        css_quote_leading_hyphen_family(pool, &values.items[family + 1]);
     }
     if (family > 0) {
         Py_ssize_t index = family;

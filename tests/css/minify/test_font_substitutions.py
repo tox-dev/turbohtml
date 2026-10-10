@@ -61,6 +61,8 @@ from turbohtml.clean import minify_css
         pytest.param("a { font:bold 16px serif; }", "a{font:700 16px serif}", id="literal-bold-control"),
         pytest.param("a { font:400 calc(8px + 8px) serif; }", "a{font:16px serif}", id="folded-size-control"),
         pytest.param('a { font:400 16px "Arial"; }', "a{font:16px arial}", id="literal-family-control"),
+        pytest.param("a { font:1px -1px; }", "a{font:1px -1px}", id="invalid-dimension-family"),
+        pytest.param("a { font:0px -apple-system; }", "a{font:0 '-apple-system'}", id="ident-family-control"),
     ],
 )
 def test_font_substitutions(source: str, expected: str) -> None:
