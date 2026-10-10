@@ -311,8 +311,11 @@ def test_minify_css_hash_color_context(source: str, expected: str) -> None:
         "text-shadow",
     ],
 )
-def test_minify_css_color_property_hash(property_name: str) -> None:
-    assert minify_css(f"p{{{property_name}:#ff0000}}") == f"p{{{property_name}:red}}"
+@pytest.mark.parametrize("near_match", [False, True], ids=["color-property", "same-length-other-property"])
+def test_minify_css_color_property_hash(property_name: str, *, near_match: bool) -> None:
+    name = f"{property_name[:-1]}x" if near_match else property_name
+    expected = "#ff0000" if near_match else "red"
+    assert minify_css(f"p{{{name}:#ff0000}}") == f"p{{{name}:{expected}}}"
 
 
 @pytest.mark.parametrize("count", [pytest.param(40, id="stack"), pytest.param(300, id="heap")])

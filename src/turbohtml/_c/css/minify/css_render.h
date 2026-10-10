@@ -193,59 +193,58 @@ static void css_assemble(css_buf *pool, comp_vec *comps, css_buf *out) {
 }
 
 /* Property classification for the value pipeline. */
+#define CSS_COLOR_EQ(literal) (len == (Py_ssize_t)(sizeof(literal) - 1) && css_run_ieq(prop, len, literal))
 static int css_prop_color_mode(const css_char *prop, Py_ssize_t len) {
     switch (css_lower(prop[0])) {
     case 'a':
-        return css_run_ieq(prop, len, "accent-color") ? 2 : 0;
+        return CSS_COLOR_EQ("accent-color") ? 2 : 0;
     case 'b':
-        if (css_run_ieq(prop, len, "background") || css_run_ieq(prop, len, "border")) {
+        if (CSS_COLOR_EQ("background") || CSS_COLOR_EQ("border")) {
             return 2;
         }
-        if (css_run_ieq(prop, len, "background-color") || css_run_ieq(prop, len, "border-color") ||
-            css_run_ieq(prop, len, "border-top-color") || css_run_ieq(prop, len, "border-right-color") ||
-            css_run_ieq(prop, len, "border-bottom-color") || css_run_ieq(prop, len, "border-left-color")) {
+        if (CSS_COLOR_EQ("background-color") || CSS_COLOR_EQ("border-color") || CSS_COLOR_EQ("border-top-color") ||
+            CSS_COLOR_EQ("border-right-color") || CSS_COLOR_EQ("border-bottom-color") ||
+            CSS_COLOR_EQ("border-left-color")) {
             return 1;
         }
-        return (css_run_ieq(prop, len, "border-top") || css_run_ieq(prop, len, "border-right") ||
-                css_run_ieq(prop, len, "border-bottom") || css_run_ieq(prop, len, "border-left") ||
-                css_run_ieq(prop, len, "border-block") || css_run_ieq(prop, len, "border-inline") ||
-                css_run_ieq(prop, len, "border-block-start") || css_run_ieq(prop, len, "border-block-end") ||
-                css_run_ieq(prop, len, "border-inline-start") || css_run_ieq(prop, len, "border-inline-end") ||
-                css_run_ieq(prop, len, "box-shadow"))
+        return (CSS_COLOR_EQ("border-top") || CSS_COLOR_EQ("border-right") || CSS_COLOR_EQ("border-bottom") ||
+                CSS_COLOR_EQ("border-left") || CSS_COLOR_EQ("border-block") || CSS_COLOR_EQ("border-inline") ||
+                CSS_COLOR_EQ("border-block-start") || CSS_COLOR_EQ("border-block-end") ||
+                CSS_COLOR_EQ("border-inline-start") || CSS_COLOR_EQ("border-inline-end") || CSS_COLOR_EQ("box-shadow"))
                    ? 2
                    : 0;
     case 'c':
-        if (css_run_ieq(prop, len, "color") || css_run_ieq(prop, len, "caret-color") ||
-            css_run_ieq(prop, len, "column-rule-color")) {
+        if (CSS_COLOR_EQ("color") || CSS_COLOR_EQ("caret-color") || CSS_COLOR_EQ("column-rule-color")) {
             return 1;
         }
-        return css_run_ieq(prop, len, "column-rule") ? 2 : 0;
+        return CSS_COLOR_EQ("column-rule") ? 2 : 0;
     case 'f':
-        return css_run_ieq(prop, len, "fill") || css_run_ieq(prop, len, "flood-color") ? 1 : 0;
+        return CSS_COLOR_EQ("fill") || CSS_COLOR_EQ("flood-color") ? 1 : 0;
     case 'l':
-        return css_run_ieq(prop, len, "lighting-color") ? 1 : 0;
+        return CSS_COLOR_EQ("lighting-color") ? 1 : 0;
     case 'o':
-        if (css_run_ieq(prop, len, "outline-color")) {
+        if (CSS_COLOR_EQ("outline-color")) {
             return 1;
         }
-        return css_run_ieq(prop, len, "outline") ? 2 : 0;
+        return CSS_COLOR_EQ("outline") ? 2 : 0;
     case 's':
-        if (css_run_ieq(prop, len, "stroke") || css_run_ieq(prop, len, "stop-color")) {
+        if (CSS_COLOR_EQ("stroke") || CSS_COLOR_EQ("stop-color")) {
             return 1;
         }
-        return css_run_ieq(prop, len, "scrollbar-color") ? 2 : 0;
+        return CSS_COLOR_EQ("scrollbar-color") ? 2 : 0;
     case 't':
-        if (css_run_ieq(prop, len, "text-decoration-color") || css_run_ieq(prop, len, "text-emphasis-color")) {
+        if (CSS_COLOR_EQ("text-decoration-color") || CSS_COLOR_EQ("text-emphasis-color")) {
             return 1;
         }
-        return (css_run_ieq(prop, len, "text-decoration") || css_run_ieq(prop, len, "text-emphasis") ||
-                css_run_ieq(prop, len, "text-shadow"))
-                   ? 2
-                   : 0;
+        if (CSS_COLOR_EQ("text-decoration") || CSS_COLOR_EQ("text-emphasis") || CSS_COLOR_EQ("text-shadow")) {
+            return 2;
+        }
+        return 0;
     default:
         return 0;
     }
 }
+#undef CSS_COLOR_EQ
 
 /* Render a custom property or otherwise-raw value: collapse whitespace and comments, keep everything else verbatim. */
 CSS_NOINLINE static void css_render_raw_value(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out) {
