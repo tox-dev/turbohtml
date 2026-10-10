@@ -1,0 +1,1 @@
+Preserve invalid CSS Unicode ranges so minification cannot turn them into valid font ranges.
