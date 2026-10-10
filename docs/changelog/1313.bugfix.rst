@@ -1,0 +1,1 @@
+Preserve invalid border-color declarations containing commas or slashes.
