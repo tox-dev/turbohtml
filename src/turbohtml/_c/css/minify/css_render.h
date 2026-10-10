@@ -522,10 +522,19 @@ static void css_handle_border_color(css_buf *pool, comp_vec *comps) {
             }
         }
         if (all_equal) {
+            css_comp *first = &comps->items[0];
+            if (write > 1 && first->len >= 5 &&
+                (css_lower(pool->data[first->off]) == 'i' || css_lower(pool->data[first->off]) == 'u' ||
+                 css_lower(pool->data[first->off]) == 'r') &&
+                (css_comp_kw(pool, first, "inherit") || css_comp_kw(pool, first, "initial") ||
+                 css_comp_kw(pool, first, "unset") || css_comp_kw(pool, first, "revert") ||
+                 css_comp_kw(pool, first, "revert-layer"))) {
+                return;
+            }
             comps->len = 1;
             /* the list collapsed to a single value, so a lone currentcolor is now safe to shorten to initial */
-            if (css_comp_kw(pool, &comps->items[0], "currentcolor")) {
-                css_set_comp(pool, &comps->items[0], "initial", CK_IDENT);
+            if (css_comp_kw(pool, first, "currentcolor")) {
+                css_set_comp(pool, first, "initial", CK_IDENT);
             }
         }
     }
