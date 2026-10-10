@@ -3,6 +3,8 @@
 
 #include "dom/nodes.h"
 
+#include <stdbool.h>
+
 #include "encoding/encoding.h"
 #include "encoding/decode.h"
 #include "encoding/detect.h"
@@ -295,6 +297,30 @@ PyDoc_STRVAR(base_url_doc, "base_url(fallback='')\n--\n\n"
                            "    itself when the document has no <base href>.\n"
                            ":returns: the document's base URL.");
 
+static bool base_has_forbidden_scheme(PyObject *url) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(url);
+    if (length < 5) {
+        return false;
+    }
+    int kind = PyUnicode_KIND(url);
+    const void *data = PyUnicode_DATA(url);
+    Py_UCS4 first = lower_ascii(PyUnicode_READ(kind, data, 0));
+    if (first != 'd' && first != 'j') {
+        return false;
+    }
+    const char *scheme = first == 'd' ? "data:" : "javascript:";
+    size_t scheme_length = strlen(scheme);
+    if (length < (Py_ssize_t)scheme_length) {
+        return false;
+    }
+    for (size_t offset = 1; offset < scheme_length; offset++) {
+        if (lower_ascii(PyUnicode_READ(kind, data, offset)) != (unsigned char)scheme[offset]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
    when there is none or the href is blank (HTML spec 4.2.3). Returns a new reference; the extraction methods share it
    so a base_url they take honors a <base href> the same way base_url() does. NULL with a ValueError set when the href
@@ -324,6 +350,9 @@ PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
         result = Py_NewRef(fallback); /* a blank href leaves the fallback as the base */
     } else {
         result = th_url_resolve(fallback, stripped);
+        if (result != NULL && base_has_forbidden_scheme(result)) {
+            Py_SETREF(result, Py_NewRef(fallback));
+        }
     }
     Py_DECREF(stripped);
     return result;

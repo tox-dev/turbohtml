@@ -31,6 +31,17 @@ from turbohtml._html import _url_scrub, _url_split, _url_variant_key
     [
         pytest.param('<base href="/sub/page">', "http://site.com/dir/", "http://site.com/sub/page", id="relative-base"),
         pytest.param('<base href="http://abs.com/x">', "http://site.com/", "http://abs.com/x", id="absolute-base"),
+        pytest.param('<base href="data:text/plain,x">', "http://site.com/", "http://site.com/", id="data-base"),
+        pytest.param('<base href="JaVaScRiPt:alert(1)">', "http://site.com/", "http://site.com/", id="javascript-base"),
+        pytest.param(
+            '<base href="data:text/plain,x"><base href="https://other.com/">',
+            "http://site.com/",
+            "http://site.com/",
+            id="first-base-disallowed",
+        ),
+        pytest.param('<base href="ftp://other.com/x">', "http://site.com/", "ftp://other.com/x", id="other-scheme"),
+        pytest.param('<base href="dog:x">', "http://site.com/", "dog:x", id="data-prefix-is-not-data"),
+        pytest.param('<base href="just:foo">', "http://site.com/", "just:foo", id="short-javascript-prefix"),
         pytest.param("<p>no base</p>", "http://site.com/", "http://site.com/", id="no-base"),
         pytest.param("<base>", "http://site.com/", "http://site.com/", id="valueless-href"),
         pytest.param('<base href="  ">', "http://site.com/", "http://site.com/", id="blank-href"),
