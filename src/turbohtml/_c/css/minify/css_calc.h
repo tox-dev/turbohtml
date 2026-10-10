@@ -189,7 +189,8 @@ static void calc_parse_value(calc_parser *parser, csum *out) {
     css_token *token = &parser->vec->items[parser->pos];
     if (token->kind == CSS_NUM) {
         parser->pos++;
-        if (token->unit_len >= CALC_MAX_UNIT) {
+        if (token->unit_len >= CALC_MAX_UNIT ||
+            css_unit_reads_as_exponent(token->text + token->text_len, token->unit_len)) {
             return;
         }
         cterm term;
