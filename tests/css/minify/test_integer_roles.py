@@ -10,6 +10,16 @@ if TYPE_CHECKING:
     from _pytest.mark.structures import ParameterSet
 
 _INTEGER_ROLES: Final[list[ParameterSet]] = [
+    pytest.param("a{order:1.0}", "a{order:1.0}", id="order-fraction"),
+    pytest.param("a{order:+1.0}", "a{order:+1.0}", id="order-positive-fraction"),
+    pytest.param("a{order:1e0}", "a{order:1e0}", id="order-exponent"),
+    pytest.param("a{order:0px}", "a{order:0px}", id="order-zero-dimension"),
+    pytest.param("a{order:calc(1.0)}", "a{order:1}", id="order-math-integral"),
+    pytest.param("a{order:calc(1.5)}", "a{order:calc(1.5)}", id="order-math-fraction"),
+    pytest.param("a{order:calc(0px)}", "a{order:calc(0px)}", id="order-math-dimension"),
+    pytest.param("a{order:+01}", "a{order:1}", id="order-signed-integer"),
+    pytest.param("a{ORDER:1.0!important}", "a{order:1.0!important}", id="order-priority"),
+    pytest.param("a{order:2;order:1.0}", "a{order:2;order:1.0}", id="order-cascade"),
     pytest.param("a{z-index:1.0}", "a{z-index:1.0}", id="fraction"),
     pytest.param("a{z-index:+1.0}", "a{z-index:+1.0}", id="positive-fraction"),
     pytest.param("a{z-index:-0.0}", "a{z-index:-0.0}", id="negative-zero"),
