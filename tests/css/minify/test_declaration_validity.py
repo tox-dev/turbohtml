@@ -50,6 +50,79 @@ def test_empty_inline_declarations(source: str, expected: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "p { background-color: red; background: rg }", "p{background-color:red;background:rg}", id="color"
+        ),
+        pytest.param(
+            "p { background-image: url(a); background: rg }",
+            "p{background-image:url(a);background:rg}",
+            id="image",
+        ),
+        pytest.param(
+            "p { background-color: red!important; background: rg!important }",
+            "p{background-color:red!important;background:rg!important}",
+            id="important",
+        ),
+        pytest.param(
+            "p { background-color: red; background: unknown-ident }",
+            "p{background-color:red;background:unknown-ident}",
+            id="hyphenated-ident",
+        ),
+        pytest.param("p{background-color:red;background:red}", "p{background:red}", id="named-color"),
+        pytest.param("p{background-color:red;background:blue}", "p{background:blue}", id="equal-length-color"),
+        pytest.param("p{background-color:red;background:green}", "p{background:green}", id="shorter-color-name"),
+        pytest.param("p{background-color:red;background:black}", "p{background:#000}", id="shortened-color"),
+        pytest.param("p{background-color:red;background:none}", "p{background:0 0}", id="none"),
+        pytest.param("p{background-color:red;background:inherit}", "p{background:inherit}", id="css-wide"),
+        pytest.param("p{background-color:red;background:url(a)}", "p{background:url(a)}", id="image-function"),
+    ],
+)
+def test_background_dedup_respects_identifier_validity(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+def test_background_invalid_identifier_preserves_inline_longhand() -> None:
+    assert minify_css_inline("background-color: red; background: rg") == "background-color:red;background:rg"
+
+
+@pytest.mark.parametrize(
+    ("property_name", "value", "expected_value"),
+    [
+        pytest.param("background-position", "left", "0", id="position"),
+        pytest.param("background-size", "cover", "cover", id="size"),
+        pytest.param("background-repeat", "repeat", "repeat", id="repeat"),
+        pytest.param("background-origin", "border-box", "border-box", id="origin"),
+        pytest.param("background-clip", "padding-box", "padding-box", id="clip"),
+        pytest.param("background-attachment", "fixed", "fixed", id="attachment"),
+    ],
+)
+def test_background_invalid_identifier_preserves_other_longhands(
+    property_name: str, value: str, expected_value: str
+) -> None:
+    assert minify_css(f"p {{ {property_name}: {value}; background: rg }}") == (
+        f"p{{{property_name}:{expected_value};background:rg}}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("tail", "expected"),
+    [
+        pytest.param(
+            "background-color: red; background: rg",
+            "background-color:red;background:rg",
+            id="covered-longhand",
+        ),
+        pytest.param("background: rg; background: rg", "background:rg", id="identical-shorthand"),
+    ],
+)
+def test_background_invalid_identifier_hashed_dedup(tail: str, expected: str) -> None:
+    filler: Final = "".join(f"--v{index}:{index};" for index in range(40))
+    assert minify_css(f"p{{ {filler}{tail} }}") == f"p{{{filler}{expected}}}"
+
+
+@pytest.mark.parametrize(
     ("property_name", "edge"),
     [
         pytest.param("margin", "x", id="margin-unknown-keyword"),
