@@ -709,7 +709,10 @@ static int32_t parse_try(P *parser) {
 static int32_t parse_return_throw(P *parser, jm_kind kind) {
     int32_t node = jm_node_new(parser->prog, kind);
     advance(parser);
-    /* a restricted production: no argument when a line break or terminator follows */
+    if (kind == JN_THROW && parser->lx.newline_before) {
+        fail(parser, "line terminator after throw");
+        return -1;
+    }
     if (kind == JN_RETURN &&
         (at(parser, JT_SEMI) || at(parser, JT_RBRACE) || at(parser, JT_EOF) || parser->lx.newline_before)) {
         semicolon(parser);
