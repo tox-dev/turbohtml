@@ -41,6 +41,15 @@ _NUMERIC_CASES: Final[list[ParameterSet]] = [
     pytest.param("a { width:+1.500px }", "a{width:1.5px}", id="positive-fraction"),
     pytest.param("a { width:1e3px }", "a{width:1e3px}", id="exponent"),
     pytest.param("a { width:1e-3px }", "a{width:.001px}", id="negative-exponent"),
+    pytest.param("a{width:calc(1E1E3PX + 1px)}", "a{width:calc(1E1E3PX + 1px)}", id="calc-exponent-unit"),
+    pytest.param("a{width:calc(1e1e-3px + 1px)}", "a{width:calc(1e1e-3px + 1px)}", id="calc-negative-exponent-unit"),
+    pytest.param("a{width:calc(1E1E3PX)}", "a{width:calc(1E1E3PX)}", id="calc-single-exponent-unit"),
+    pytest.param(
+        "a{width:calc(1E1E3PX - 1E1E3PX)}",
+        "a{width:calc(1E1E3PX - 1E1E3PX)}",
+        id="calc-canceling-exponent-unit",
+    ),
+    pytest.param("a{width:calc(1e3px + 1px)}", "a{width:1001px}", id="calc-normal-exponent"),
     pytest.param("a { opacity:1.0 }", "a{opacity:1}", id="valid-whole-number"),
     pytest.param("a { --x:1. }", "a{--x:1.}", id="custom-property"),
 ]
