@@ -1059,6 +1059,16 @@ def test_trailing_break_at_an_inline_root_is_dropped() -> None:
             id="table-basic",
         ),
         pytest.param(
+            "<table><tr><th colspan=2>A</th></tr><tr><td>B</td><td>C</td></tr></table>",
+            '<table><tbody><tr><th colspan="2">A</th></tr><tr><td>B</td><td>C</td></tr></tbody></table>',
+            id="table-colspan-keeps-html",
+        ),
+        pytest.param(
+            "<table><tr><td rowspan=2>A</td><td>B</td></tr><tr><td>C</td></tr></table>",
+            '<table><tbody><tr><td rowspan="2">A</td><td>B</td></tr><tr><td>C</td></tr></tbody></table>',
+            id="table-rowspan-keeps-html",
+        ),
+        pytest.param(
             "<table><thead><tr><th>H</th></tr></thead><tbody><tr><td>v</td></tr></tbody></table>",
             "| H |\n| --- |\n| v |",
             id="table-thead-tbody",
@@ -2838,6 +2848,12 @@ def test_images(html: str, opts: Markdown, expected: str) -> None:
             Markdown(tables=Markdown.Tables(mode="strip")),
             "**a** c b",
             id="table-strip-cell-markup",
+        ),
+        pytest.param(
+            "<table><tr><td colspan=2>A</td></tr></table>",
+            Markdown(tables=Markdown.Tables(mode="strip")),
+            "A",
+            id="table-strip-with-span",
         ),
         pytest.param(
             "<table><caption>cap</caption><tr><td>a</td></tr></table>",

@@ -3323,11 +3323,21 @@ static int md_row_is_header(th_node *row) {
     return 0;
 }
 
+static TH_NOINLINE int md_cell_has_span(th_node *cell) {
+    for (Py_ssize_t index = 0; index < cell->attr_count; index++) {
+        uint32_t atom = cell->attrs[index].name_atom;
+        if (atom == TH_ATTR_COLSPAN || atom == TH_ATTR_ROWSPAN) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Collect the table's rows in document order across nested thead/tbody/tfoot wrappers
    and return the widest row's column count. With rows NULL it only counts, so the
    array is sized by the same walk that fills it. A row with no cell draws nothing,
    while every pipe row holds at least one cell (GFM 4.10), so it is left out. */
-static Py_ssize_t md_collect_rows(th_node *table, th_node **rows, Py_ssize_t *count) {
+static Py_ssize_t md_collect_rows(th_node *table, th_node **rows, Py_ssize_t *count, int *has_spans) {
     Py_ssize_t columns = 0;
     th_node *node = table->first_child;
     while (node != NULL) {
@@ -3336,7 +3346,15 @@ static Py_ssize_t md_collect_rows(th_node *table, th_node **rows, Py_ssize_t *co
                 if (rows == NULL) {
                     (*count)++;
                 } else {
-                    Py_ssize_t cells = md_row_cells(node);
+                    Py_ssize_t cells = 0;
+                    for (th_node *cell = node->first_child; cell != NULL; cell = cell->next_sibling) {
+                        if (cell->type == TH_NODE_ELEMENT && (cell->atom == TH_TAG_TD || cell->atom == TH_TAG_TH)) {
+                            cells++;
+                            if (cell->attr_count != 0 && md_cell_has_span(cell)) {
+                                *has_spans = 1;
+                            }
+                        }
+                    }
                     if (cells > 0) {
                         rows[(*count)++] = node;
                     }
@@ -3413,19 +3431,20 @@ static void md_emit_separator_row(md_ctx *ctx, Py_ssize_t columns) {
     ctx->line_has_content = 1;
 }
 
-/* Start a table: an HTML-mode table is written whole; any other walks its captions
-   and then its cells through md_table_step. */
+/* GFM pipe tables cannot encode merged cells, so spans require raw HTML. */
 static void md_enter_table(md_ctx *ctx, th_node *node) {
     Py_ssize_t cap = 0;
-    md_collect_rows(node, NULL, &cap);
+    md_collect_rows(node, NULL, &cap, NULL);
     th_node **rows = PyMem_Malloc((size_t)(cap > 0 ? cap : 1) * sizeof(th_node *));
     if (rows == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
         return;              /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t count = 0;
-    Py_ssize_t columns = md_collect_rows(node, rows, &count);
-    if (ctx->opt->table_mode == TH_MD_TABLE_HTML) {
+    int has_spans = 0;
+    Py_ssize_t columns = md_collect_rows(node, rows, &count, &has_spans);
+    if (ctx->opt->table_mode == TH_MD_TABLE_HTML ||
+        (ctx->opt->table_mode == TH_MD_TABLE_MARKDOWN && has_spans)) {
         if (count > 0) { /* a collected row holds a cell, so there are columns too */
             md_block_line(ctx, 1);
             md_emit_raw_html(ctx, node);
