@@ -1462,12 +1462,12 @@
 [
 "width:calc(0% - 0px)",
 "width:calc(0% - 0px)",
-"width:0"
+"width:calc(0% - 0px)"
 ],
 [
 "width:calc(calc(0% - 0px) + 1em)",
 "width:calc(calc(0% - 0px) + 1em)",
-"width:1em"
+"width:calc(calc(0% - 0px) + 1em)"
 ],
 [
 "animation:Ident",
@@ -1761,8 +1761,8 @@
 ],
 [
 "a{width:calc(1px - 1px)}",
-"a{width:0}",
-"a{width:0}"
+"a{width:calc(0px)}",
+"a{width:calc(0px)}"
 ],
 [
 "a{width:calc(1s - 1s)}",
@@ -1901,8 +1901,8 @@
 ],
 [
 "a{width:calc(0px)}",
-"a{width:0}",
-"a{width:0}"
+"a{width:calc(0px)}",
+"a{width:calc(0px)}"
 ],
 [
 "a{width:calc(0%)}",
@@ -2841,13 +2841,13 @@
 ],
 [
 "a{width:calc(2px - 2px)}",
-"a{width:0}",
-"a{width:0}"
+"a{width:calc(0px)}",
+"a{width:calc(0px)}"
 ],
 [
 "a{width:calc(5 - 5)}",
-"a{width:0}",
-"a{width:0}"
+"a{width:calc(0)}",
+"a{width:calc(0)}"
 ],
 [
 "a{width:calc(1px + 1em/3)}",
