@@ -352,6 +352,10 @@ static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start,
 /* The space-separated set of properties a shorthand fully overrides (including itself), or NULL when prop is not a
    shorthand. Resolving this once per declaration -- instead of rescanning the table for every pair -- keeps dedup off
    the O(n^2 * table) path that a rule with hundreds of custom properties would otherwise hit. */
+static const char CSS_BACKGROUND_LONGHANDS[] =
+    "background background-image background-color background-position background-size background-repeat "
+    "background-origin background-clip background-attachment";
+
 static const char *css_longhand_list(const css_char *prop, Py_ssize_t prop_len) {
     static const char *const shorthands[] = {
         "background",  "font",         "border",        "border-width",  "border-style", "border-color",
@@ -364,8 +368,7 @@ static const char *css_longhand_list(const css_char *prop, Py_ssize_t prop_len) 
     // space-separated string; clang-format wraps the long ones across lines, which is string concatenation, not a
     // missing comma between array elements
     static const char *const longhands[] = {
-        "background background-image background-position background-size background-repeat background-origin "
-        "background-clip background-attachment background-color",
+        CSS_BACKGROUND_LONGHANDS,
         "font font-style font-variant font-weight font-stretch font-size font-family line-height",
         "border border-width border-top-width border-right-width border-bottom-width border-left-width border-style "
         "border-top-style border-right-style border-bottom-style border-left-style border-color border-top-color "
@@ -447,10 +450,48 @@ static int css_decl_value_eq(const css_buf *pool, const css_decl *left, const cs
                                                      (size_t)left->val_len * sizeof(css_char)) == 0;
 }
 
+static int css_background_ident_unknown(const css_buf *pool, const css_decl *decl) {
+    const css_char *value = pool->data + decl->val_off;
+    if (value[decl->val_len - 1] == ')' || !css_starts_ident(value, 0, decl->val_len)) {
+        return 0;
+    }
+    for (Py_ssize_t index = 1; index < decl->val_len; index++) {
+        if (!css_is_ident(value[index])) {
+            return 0;
+        }
+    }
+    if (decl->val_len < 3) {
+        return 1;
+    }
+    /* The color names at the end are absent from the shortening tables because their encodings are no shorter. */
+    static const char *const keywords[] = {
+        "red",          "blue",         "none",       "inherit",     "left",        "right",   "top",     "bottom",
+        "center",       "repeat",       "repeat-x",   "repeat-y",    "no-repeat",   "space",   "round",   "scroll",
+        "fixed",        "local",        "border-box", "padding-box", "content-box", "initial", "unset",   "revert",
+        "revert-layer", "currentcolor", "aqua",       "crimson",     "cyan",        "darkred", "dimgray", "dimgrey",
+        "grey",         "hotpink",      "lime",       "oldlace",     "skyblue",     "thistle"};
+    for (size_t index = 0; index < sizeof(keywords) / sizeof(keywords[0]); index++) {
+        if (css_run_ieq(value, decl->val_len, keywords[index])) {
+            return 0;
+        }
+    }
+    for (int index = 0; index < th_css_hex_count; index++) {
+        if (css_run_ieq(value, decl->val_len, th_css_hex_to_name[index].val)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static const char *css_dedup_longhand_list(const css_buf *pool, const css_decl *decl) {
+    const char *list = css_longhand_list(pool->data + decl->prop_off, decl->prop_len);
+    return list == CSS_BACKGROUND_LONGHANDS && css_background_ident_unknown(pool, decl) ? NULL : list;
+}
+
 /* The pairwise dedup, fine for the typical small rule. Per CSS Cascade last-wins only among declarations that parse:
    a later same-name declaration with a *different* value may be a progressive-enhancement fallback a browser keeps
-   when it cannot parse the later value, so only an identical same-name duplicate is dropped. A longhand covered by a
-   later shorthand (a different name in its longhand list) is a strict subset and stays droppable. */
+   when it cannot parse the later value, so only an identical same-name duplicate is dropped. Unknown bare background
+   identifiers likewise cannot override earlier longhands. */
 static void css_dedup_pairwise(css_buf *pool, decl_vec *decls) {
     for (Py_ssize_t index = 0; index < decls->len; index++) {
         css_decl *later = &decls->items[index];
@@ -459,7 +500,7 @@ static void css_dedup_pairwise(css_buf *pool, decl_vec *decls) {
         }
         const css_char *prop = pool->data + later->prop_off;
         Py_ssize_t prop_len = later->prop_len;
-        const char *list = css_longhand_list(prop, prop_len);
+        const char *list = css_dedup_longhand_list(pool, later);
         for (Py_ssize_t earlier = 0; earlier < index; earlier++) {
             css_decl *prev = &decls->items[earlier];
             if (prev->nested || prev->dropped || prev->important != later->important) {
@@ -574,7 +615,7 @@ static void css_dedup(css_buf *pool, decl_vec *decls) {
         const css_char *prop = pool->data + later->prop_off;
         Py_ssize_t prop_len = later->prop_len;
         int important = later->important;
-        const char *list = css_longhand_list(prop, prop_len);
+        const char *list = css_dedup_longhand_list(pool, later);
         if (list == NULL) {
             Py_ssize_t slot = dedup_slot_run(table, mask, pool, prop, prop_len, important);
             /* a same-name duplicate is dropped only when its value is identical (see css_dedup_pairwise) */
