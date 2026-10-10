@@ -334,8 +334,9 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
     if (query == NULL) {
         goto done;
     }
-    int web = str_equals(scheme, "http") || str_equals(scheme, "https");
-    if (has_netloc && web && PyUnicode_GET_LENGTH(path) == 0) {
+    if (has_netloc && PyUnicode_GET_LENGTH(path) == 0 &&
+        (str_equals(scheme, "http") || str_equals(scheme, "https") || str_equals(scheme, "ftp") ||
+         str_equals(scheme, "ws") || str_equals(scheme, "wss"))) {
         Py_SETREF(path, PyUnicode_FromString("/")); /* a special URL with a host never serializes an empty path */
     }
     if (!options->trailing_slash && PyUnicode_GET_LENGTH(query) == 0 && PyUnicode_GET_LENGTH(path) > 1 &&
