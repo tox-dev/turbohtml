@@ -18,7 +18,7 @@ enum { TH_HOST_REGNAME = 0, TH_HOST_IPV4 = 1, TH_HOST_IPV6 = 2 };
 
 /* The WHATWG component percent-encode sets (URL standard 1.3), the safe run each encoder keeps raw; every other byte is
    UTF-8 percent-encoded. th_url_encode_span and turbohtml_url_percent_encode take one of these tags. */
-enum { TH_URL_SET_PATH = 0, TH_URL_SET_QUERY = 1, TH_URL_SET_FRAGMENT = 2 };
+enum { TH_URL_SET_PATH = 0, TH_URL_SET_QUERY = 1, TH_URL_SET_FRAGMENT = 2, TH_URL_SET_USERINFO = 3 };
 
 /* The RFC 3986 ALPHA run, shared by the percent-encode keep sets in url.c and the scheme scanners that build on it. */
 #define TH_URL_ALPHA "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"

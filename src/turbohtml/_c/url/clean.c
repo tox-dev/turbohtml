@@ -171,7 +171,39 @@ static PyObject *port_suffix(const th_url_parts *parts) {
     return suffix;
 }
 
-/* The authority rebuilt from its WHATWG-canonical host and port, keeping userinfo verbatim. */
+static PyObject *normalize_userinfo(PyObject *userinfo) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(userinfo);
+    Py_ssize_t colon = PyUnicode_FindChar(userinfo, ':', 0, length, 1);
+    PyObject *username = colon < 0 ? Py_NewRef(userinfo) : PyUnicode_Substring(userinfo, 0, colon);
+    if (username == NULL) { /* GCOVR_EXCL_BR_LINE: substring of an existing str only fails on allocation */
+        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *encoded_username = th_url_encode_component(username, TH_URL_SET_USERINFO);
+    Py_DECREF(username);
+    if (encoded_username == NULL) {
+        return NULL;
+    }
+    if (colon < 0 || colon + 1 == length) {
+        return encoded_username;
+    }
+    PyObject *password = PyUnicode_Substring(userinfo, colon + 1, length);
+    if (password == NULL) { /* GCOVR_EXCL_BR_LINE: substring of an existing str only fails on allocation */
+        Py_DECREF(encoded_username);
+        return NULL; /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *encoded_password = th_url_encode_component(password, TH_URL_SET_USERINFO);
+    Py_DECREF(password);
+    if (encoded_password == NULL) {
+        Py_DECREF(encoded_username);
+        return NULL;
+    }
+    PyObject *result = th_str_format("%U:%U", encoded_username, encoded_password);
+    Py_DECREF(encoded_username);
+    Py_DECREF(encoded_password);
+    return result;
+}
+
+/* The authority rebuilt from its WHATWG-canonical host and port. */
 static PyObject *normalize_netloc(const th_url_parts *parts, int web_only) {
     PyObject *canonical = th_url_host_canonical(parts->part[TH_URL_HOST], parts->kind);
     if (canonical == NULL) {
@@ -188,8 +220,20 @@ static PyObject *normalize_netloc(const th_url_parts *parts, int web_only) {
         return NULL;      /* GCOVR_EXCL_LINE */
     }
     PyObject *userinfo = parts->part[TH_URL_USERINFO];
-    PyObject *netloc = PyUnicode_GET_LENGTH(userinfo) > 0 ? th_str_format("%U@%U%U", userinfo, host, suffix)
-                                                          : th_str_format("%U%U", host, suffix);
+    PyObject *netloc;
+    if (PyUnicode_GET_LENGTH(userinfo) == 0) {
+        netloc = th_str_format("%U%U", host, suffix);
+    } else {
+        PyObject *encoded_userinfo = normalize_userinfo(userinfo);
+        if (encoded_userinfo == NULL) {
+            Py_DECREF(suffix);
+            Py_DECREF(host);
+            return NULL;
+        }
+        netloc = PyUnicode_GET_LENGTH(encoded_userinfo) > 0 ? th_str_format("%U@%U%U", encoded_userinfo, host, suffix)
+                                                            : th_str_format("%U%U", host, suffix);
+        Py_DECREF(encoded_userinfo);
+    }
     Py_DECREF(suffix);
     if (netloc == NULL) { /* GCOVR_EXCL_BR_LINE: rebuilding the authority only fails on allocation failure */
         Py_DECREF(host);  /* GCOVR_EXCL_LINE: allocation-failure path */

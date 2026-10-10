@@ -93,12 +93,12 @@ def test_clean_accepts_colon_hosts(url: str) -> None:
         pytest.param("HTTP://EXAMPLE｡ORG:80/x", "http://example.org/x", id="halfwidth-dot"),
         pytest.param("HTTP://user:pw@LOCALHOST:80/a/../x", "http://user:pw@localhost/x", id="userinfo-colon-kept"),
         pytest.param("HTTP://m\xfcnchen.de:80/a/../x", "http://xn--mnchen-3ya.de/x", id="latin1-host"),
-        pytest.param("HTTP://\xe9:pw@LOCALHOST:80/a/../x", "http://\xe9:pw@localhost/x", id="latin1-userinfo-colon"),
+        pytest.param("HTTP://\xe9:pw@LOCALHOST:80/a/../x", "http://%C3%A9:pw@localhost/x", id="latin1-userinfo-colon"),
         pytest.param("HTTP://\xe9@LOCALHOST:80/a/../x", None, id="latin1-userinfo-no-colon"),
-        pytest.param("HTTP://\u0100:pw@LOCALHOST:80/a/../x", "http://\u0100:pw@localhost/x", id="bmp-userinfo-colon"),
+        pytest.param("HTTP://\u0100:pw@LOCALHOST:80/a/../x", "http://%C4%80:pw@localhost/x", id="bmp-userinfo-colon"),
         pytest.param("HTTP://\u0100@LOCALHOST:80/a/../x", None, id="bmp-userinfo-no-colon"),
         pytest.param(
-            "HTTP://\U00010000:pw@LOCALHOST:80/a/../x", "http://\U00010000:pw@localhost/x", id="astral-userinfo-colon"
+            "HTTP://\U00010000:pw@LOCALHOST:80/a/../x", "http://%F0%90%80%80:pw@localhost/x", id="astral-userinfo-colon"
         ),
         pytest.param("HTTP://\U00010000@LOCALHOST:80/a/../x", None, id="astral-userinfo-no-colon"),
         pytest.param("HTTP://a\u202eb/a/../x", None, id="bmp-host-low-byte-dot"),
@@ -107,7 +107,7 @@ def test_clean_accepts_colon_hosts(url: str) -> None:
         pytest.param("HTTP://\U0001003a@LOCALHOST:80/a/../x", None, id="astral-userinfo-low-byte-colon"),
         pytest.param("HTTP://a\ufffeb.EXAMPLE:80/a/../x", "http://a\ufffeb.example/x", id="wide-host-dot"),
         pytest.param(
-            "HTTP://u\x00:pw@LOCALHOST:80/a/../x", "http://u\x00:pw@localhost/x", id="nul-before-userinfo-colon"
+            "HTTP://u\x00:pw@LOCALHOST:80/a/../x", "http://u%00:pw@localhost/x", id="nul-before-userinfo-colon"
         ),
         pytest.param("HTTP://a\x00b.EXAMPLE:80/a/../x", None, id="nul-before-host-dot"),
         pytest.param("HTTP://:8000/a/../x", None, id="empty-host"),
@@ -170,6 +170,8 @@ def test_clean_strict_checks_language_subdomains(url: str, expected: str | None)
         pytest.param("http://a.com/\udce9", None, id="surrogate-in-path"),
         pytest.param("http://a.com/p?q=\udce9", None, id="surrogate-in-query"),
         pytest.param("http://a.com/p#\udce9", None, id="surrogate-in-fragment"),
+        pytest.param("http://\udce9:p@a.com/", None, id="surrogate-in-username"),
+        pytest.param("http://u:\udce9@a.com/", None, id="surrogate-in-password"),
         pytest.param("http://\udce9.com/", "http://\udce9.com/", id="surrogate-in-host-survives"),
     ],
 )
@@ -329,7 +331,13 @@ def test_a_relative_href_against_an_unsplittable_base_element_raises() -> None:
         pytest.param("http://[::1]:80/", "http://[::1]/", id="ipv6-default-port"),
         pytest.param("http://[::1]:8080/", "http://[::1]:8080/", id="ipv6-other-port"),
         pytest.param("http://[::1]:/", "http://[::1]/", id="ipv6-empty-port"),
-        pytest.param("http://user:pw@Example.ORG/x", "http://user:pw@example.org/x", id="userinfo-kept-verbatim"),
+        pytest.param("http://user:pw@Example.ORG/x", "http://user:pw@example.org/x", id="userinfo-colon-preserved"),
+        pytest.param("http://user:pa ss@Example.ORG/x", "http://user:pa%20ss@example.org/x", id="password-space"),
+        pytest.param("http://us:er:pa@Example.ORG/x", "http://us:er%3Apa@example.org/x", id="password-colon"),
+        pytest.param("http://a@b@Example.ORG/x", "http://a%40b@example.org/x", id="repeated-at-sign"),
+        pytest.param("http://user:@Example.ORG/x", "http://user@example.org/x", id="empty-password"),
+        pytest.param("http://:@Example.ORG/x", "http://example.org/x", id="empty-credentials"),
+        pytest.param("http://u%3As:p%40w@Example.ORG/x", "http://u%3As:p%40w@example.org/x", id="existing-escapes"),
         pytest.param("http://münchen.de", "http://xn--mnchen-3ya.de/", id="unicode-host-to-punycode"),
         pytest.param("http://münchen..de/x", "http://xn--mnchen-3ya..de/x", id="empty-label-still-encoded"),
         pytest.param(
@@ -469,10 +477,18 @@ def test_normalize_rejects_unsplittable_input() -> None:
         normalize_url("http://[::1/x")
 
 
-def test_normalize_rejects_lone_surrogate() -> None:
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("http://a.com/\udce9", id="path"),
+        pytest.param("http://\udce9:p@a.com/", id="username"),
+        pytest.param("http://u:\udce9@a.com/", id="password"),
+    ],
+)
+def test_normalize_rejects_lone_surrogate(url: str) -> None:
     # a lone surrogate has no UTF-8 form, so the component cannot be percent-encoded and the URL is not serializable
     with pytest.raises(ValueError, match="cannot be percent-encoded"):
-        normalize_url("http://a.com/\udce9")
+        normalize_url(url)
 
 
 def test_normalize_rejects_non_str() -> None:
