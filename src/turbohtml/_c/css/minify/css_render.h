@@ -360,8 +360,14 @@ static const char *const CSS_CURRENTCOLOR_INIT[] = {"border-left-color",     "bo
 static const char *const CSS_SINGLE_COLOR[] = {"color", "caret-color", "outline-color",
                                                "fill",  "stroke",      "background-color"};
 
+CSS_NOINLINE static int css_box_is_wide_keyword(const css_buf *pool, const css_comp *comp) {
+    return css_comp_kw(pool, comp, "inherit") || css_comp_kw(pool, comp, "initial") ||
+           css_comp_kw(pool, comp, "unset") || css_comp_kw(pool, comp, "revert") ||
+           css_comp_kw(pool, comp, "revert-layer");
+}
+
 /* Collapse a 2-4 value box shorthand (margin/padding/...) when the mirrored edges are equal. */
-CSS_NOINLINE static void css_handle_box(const css_buf *pool, comp_vec *comps) {
+static void css_handle_box(const css_buf *pool, comp_vec *comps) {
     /* dispatched only when the value has no separator (css_apply_handler), so no component is a CK_SEP here */
     Py_ssize_t count = comps->len;
     if (count < 2 || count > 4) {
@@ -380,12 +386,7 @@ CSS_NOINLINE static void css_handle_box(const css_buf *pool, comp_vec *comps) {
     }
     if (count == 2 && css_comp_text_eq(pool, &comps->items[1], &comps->items[0])) {
         css_comp *first = &comps->items[0];
-        if (first->len >= 5 &&
-            (css_lower(pool->data[first->off]) == 'i' || css_lower(pool->data[first->off]) == 'u' ||
-             css_lower(pool->data[first->off]) == 'r') &&
-            (css_comp_kw(pool, first, "inherit") || css_comp_kw(pool, first, "initial") ||
-             css_comp_kw(pool, first, "unset") || css_comp_kw(pool, first, "revert") ||
-             css_comp_kw(pool, first, "revert-layer"))) {
+        if (first->len >= 5 && css_box_is_wide_keyword(pool, first)) {
             return;
         }
         count = 1;
