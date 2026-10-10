@@ -513,7 +513,7 @@ static void css_handle_border_color(css_buf *pool, comp_vec *comps) {
         comps->items[write++] = comp;
     }
     comps->len = write;
-    if (write > 0) {
+    if (write > 0 && write <= 4) {
         int all_equal = 1;
         for (Py_ssize_t index = 1; index < write; index++) {
             if (!css_comp_text_eq(pool, &comps->items[index], &comps->items[0])) {
