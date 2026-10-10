@@ -1236,15 +1236,6 @@ static void md_settle_run(md_ctx *ctx, Py_ssize_t index, th_node *node) {
         (marker->open_at == 0 || md_edge(data[marker->open_at - 1]) == MD_EDGE_SPACE)) {
         return;
     }
-    Py_ssize_t suffix_start = close_at;
-    while (suffix_start > marker->open_at + open_len && md_live_delimiter(data, suffix_start - 1, delimiter)) {
-        suffix_start--;
-    }
-    /* A nested close of the same width would merge with this close into one run. */
-    if (close_at - suffix_start == open_len) {
-        md_rewrite_open(ctx, marker, open_len);
-        return;
-    }
     Py_ssize_t run_start = marker->open_at;
     while (run_start > 0 && md_live_delimiter(data, run_start - 1, delimiter)) {
         run_start--;
@@ -1284,6 +1275,14 @@ static void md_settle_run(md_ctx *ctx, Py_ssize_t index, th_node *node) {
             (open_run + close_run) % 3 == 0 && open_run % 3 != 0) {
             settled = 0;
         }
+    }
+    Py_ssize_t suffix_start = close_at;
+    while (suffix_start > marker->open_at + open_len && md_live_delimiter(data, suffix_start - 1, delimiter)) {
+        suffix_start--;
+    }
+    /* A nested close of the same width would merge with this close into one run. */
+    if (close_at - suffix_start == open_len) {
+        settled = 0;
     }
     if (!settled) {
         md_rewrite_open(ctx, marker, open_len);
