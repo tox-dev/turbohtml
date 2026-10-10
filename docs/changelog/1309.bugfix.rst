@@ -1,0 +1,1 @@
+Preserve paragraphs whose ordered-list markers cross inline element boundaries in Markdown output.
