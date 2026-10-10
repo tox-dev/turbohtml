@@ -1,0 +1,1 @@
+Drop element wrappers with invalid XML names while retaining their children during XML serialization.

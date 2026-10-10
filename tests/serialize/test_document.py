@@ -1022,6 +1022,7 @@ def test_xml_serialize_makes_a_comment_well_formed() -> None:
         pytest.param('<p title="a&#x1;b">x</p>', id="control-in-attribute-value"),
         pytest.param("<style>a{b:1}\x01</style>", id="control-in-style-body"),
         pytest.param("<p a\x01b=1>x</p>", id="control-in-attribute-name"),
+        pytest.param("<d<>x<p>y</p>", id="invalid-element-name"),
         pytest.param("<!--a--b\x01--><p>x</p>", id="double-hyphen-and-control-in-comment"),
     ],
 )
@@ -1034,6 +1035,38 @@ def test_serialize_xml_output_reparses_as_xml(markup: str) -> None:
 def test_serialize_xml_drops_an_attribute_name_xml_cannot_hold() -> None:
     # a tag-soup attribute name the HTML parser keeps would break the XML start tag, so serialize(xml) omits it
     assert Element("p", {'a"b': "1", "ok": "v"}, children=[Text("t")]).serialize(_XML) == '<p ok="v">t</p>'
+
+
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        pytest.param(Html(xml=True), "<html><head/><body>x<p>y</p></body></html>", id="compact"),
+        pytest.param(
+            Html(xml=True, layout=Indent()), "<html>\n  <head/>\n  <body>x<p>y</p></body>\n</html>", id="indent"
+        ),
+    ],
+)
+def test_serialize_xml_drops_invalid_element_wrapper(options: Html, expected: str) -> None:
+    assert parse("<d<>x<p>y</p>").serialize(options) == expected
+
+
+@pytest.mark.parametrize("options", [Html(xml=True), Html(xml=True, layout=Indent())])
+def test_serialize_iter_xml_drops_invalid_element_wrapper(options: Html) -> None:
+    document: Final = parse("<d<>x<p>y</p>")
+    assert "".join(document.serialize_iter(options)) == document.serialize(options)
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        pytest.param("\u00a0bad", "x", id="nonbreaking-space-first"),
+        pytest.param("a\u00a0b", "x", id="nonbreaking-space-later"),
+        pytest.param("\u0301bad", "x", id="combining-mark-first"),
+        pytest.param("é", "<é>x</é>", id="valid-non-ascii"),
+    ],
+)
+def test_serialize_xml_checks_unicode_element_names(name: str, expected: str) -> None:
+    assert Element(name, children=[Text("x")]).serialize(Html(xml=True)) == expected
 
 
 @pytest.mark.parametrize(

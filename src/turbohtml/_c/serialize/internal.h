@@ -714,25 +714,6 @@ static const unsigned char XML_NAME_FLAGS[128] = {
     0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0,
 };
 
-/* Whether a wide (Py_UCS4) string is a well-formed XML Name (non-empty, NameStartChar
-   then NameChar*). Used to drop a doctype whose name XML cannot write. */
-static inline int xml_wide_name_wellformed(const Py_UCS4 *name, Py_ssize_t len) {
-    if (len == 0) {
-        return 0;
-    }
-    for (Py_ssize_t index = 0; index < len; index++) {
-        Py_UCS4 character = name[index];
-        if (character >= 0x80) {
-            continue;
-        }
-        unsigned char need = index == 0 ? 0x1 : 0x2;
-        if ((XML_NAME_FLAGS[character] & need) == 0) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
 /* Whether an attribute's name can be written into an XML start tag: a stored
    namespace declaration ser_xml_ns_decls already emitted for this tag is dropped
    because a second copy would make the tag ill-formed (but any other xmlns:prefix a
