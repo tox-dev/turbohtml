@@ -933,6 +933,60 @@ def test_ordered_list_item_value() -> None:
     assert md('<ol start="3"><li>a</li><li value="8">b</li><li>c</li></ol>') == "3. a\n8. b\n9. c"
 
 
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<ul><li><input type=checkbox>done</li></ul>", "- [ ] done", id="unchecked"),
+        pytest.param("<ul><li><input type=checkbox checked>done</li></ul>", "- [x] done", id="checked"),
+        pytest.param("<ul><li><input type=checkbox checked></li></ul>", "- [x]", id="empty-task"),
+        pytest.param("<ul><li> \n<input type=checkbox checked> done</li></ul>", "- [x] done", id="leading-space"),
+        pytest.param("<ul><li><p><input type=checkbox>done</p></li></ul>", "- [ ] done", id="paragraph"),
+        pytest.param("<ul><li><input type=CHECKBOX checked=false>done</li></ul>", "- [x] done", id="boolean-checked"),
+        pytest.param("<ul><li><input type=text checked>done</li></ul>", "- done", id="other-input"),
+        pytest.param("<ul><li><input checked>done</li></ul>", "- done", id="missing-type"),
+        pytest.param(
+            "<ul><li><input type=text><input type=checkbox checked>done</li></ul>",
+            "- done",
+            id="second-input",
+        ),
+        pytest.param("<ul><li><span><input type=checkbox checked>done</span></li></ul>", "- done", id="nested-input"),
+        pytest.param("<ul><li>first<input type=checkbox checked>done</li></ul>", "- firstdone", id="later-input"),
+        pytest.param("<ol><li><input type=checkbox checked>done</li></ol>", "1. [x] done", id="ordered-task"),
+    ],
+)
+def test_task_list_checkbox(html: str, expected: str) -> None:
+    assert md(html) == expected
+
+
+def test_task_list_interrupts_paragraph() -> None:
+    assert md("<p>a</p><ul><li><input type=checkbox checked>b</li></ul>") == "a\n\n- [x] b"
+
+
+def test_task_list_respects_input_strip() -> None:
+    assert (
+        parse("<ul><li><input type=checkbox checked>done</li></ul>").to_markdown(Markdown(strip=["input"])) == "- done"
+    )
+
+
+def test_task_list_respects_item_strip() -> None:
+    assert parse("<ul><li><input type=checkbox checked>done</li></ul>").to_markdown(Markdown(strip=["li"])) == "- done"
+
+
+def test_task_list_respects_tag_allowlist() -> None:
+    assert (
+        parse("<ul><li><input type=checkbox checked>done</li></ul>").to_markdown(Markdown(convert=["input"])) == "done"
+    )
+
+
+def test_task_list_respects_converters() -> None:
+    assert (
+        parse("<ul><li><input type=checkbox checked>done</li></ul>").to_markdown(
+            Markdown(converters={"input": lambda _element, _content: "X"})
+        )
+        == "- Xdone"
+    )
+
+
 def test_selected_nested_item_uses_list_depth() -> None:
     item = parse_fragment("<ul><li>a<ul><li>b</li></ul></li></ul>").select_one("ul ul li")
     assert item is not None
