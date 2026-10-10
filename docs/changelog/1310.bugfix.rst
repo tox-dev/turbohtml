@@ -1,0 +1,1 @@
+Preserve invalid border-color declarations with more than four values.
