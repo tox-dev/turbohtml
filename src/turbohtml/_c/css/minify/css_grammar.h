@@ -1252,6 +1252,225 @@ static int css_summaries_conflict(const css_buf *pool, const rule_item *first, c
    bench corpora (normalize.css, pico). */
 #define CSS_MAX_MERGE_REACH 256
 
+static Py_ssize_t css_merge_attribute_end(const css_char *selector, Py_ssize_t len, Py_ssize_t open) {
+    Py_ssize_t index = open + 1;
+    Py_ssize_t start = index;
+    while (index < len && css_is_ident(selector[index])) { /* GCOVR_EXCL_BR_LINE: unclosed [ */
+        index++;
+    }
+    if (!css_is_ident_string(selector + start, index - start)) {
+        return -1;
+    }
+    while (index < len && css_is_ws(selector[index])) { /* GCOVR_EXCL_BR_LINE: unclosed [ */
+        index++;
+    }
+    if (index < len && selector[index] == ']') { /* GCOVR_EXCL_BR_LINE: unclosed [ */
+        return index;
+    }
+    if (index < len && selector[index] == '=') { /* GCOVR_EXCL_BR_LINE: unclosed [ */
+        index++;
+    } else if (index + 1 < len && /* GCOVR_EXCL_BR_LINE: unclosed [ */
+               (selector[index] == '~' || selector[index] == '|' || selector[index] == '^' || selector[index] == '$' ||
+                selector[index] == '*') &&
+               selector[index + 1] == '=') {
+        index += 2;
+    } else {
+        return -1;
+    }
+    if (index < len &&                                         /* GCOVR_EXCL_BR_LINE: unclosed [ */
+        (selector[index] == '\'' || selector[index] == '"')) { /* GCOVR_EXCL_BR_LINE: unclosed [ */
+        css_char quote = selector[index++];
+        while (index < len && selector[index] != quote) { /* GCOVR_EXCL_BR_LINE: unclosed quote */
+            if (selector[index] == '\\') {
+                index++;
+            }
+            index++;
+        }
+        if (index >= len) { /* GCOVR_EXCL_BR_LINE: unclosed quote */
+            return -1;      /* GCOVR_EXCL_LINE: the CSS tokenizer consumes the rule on an unclosed quote */
+        }
+        index++;
+    } else {
+        start = index;
+        while (index < len && css_is_ident(selector[index])) { /* GCOVR_EXCL_BR_LINE: unclosed [ */
+            index++;
+        }
+        if (!css_is_ident_string(selector + start, index - start)) {
+            return -1;
+        }
+    }
+    while (index < len && css_is_ws(selector[index])) { /* GCOVR_EXCL_BR_LINE: unclosed [ */
+        index++;
+    }
+    if (index < len && css_lower(selector[index]) == 'i' && /* GCOVR_EXCL_BR_LINE: unclosed [ */
+        index + 1 < len &&                                  /* GCOVR_EXCL_BR_LINE: unclosed [ */
+        (css_is_ws(selector[index + 1]) || selector[index + 1] == ']')) {
+        index++;
+        while (index < len && css_is_ws(selector[index])) { /* GCOVR_EXCL_BR_LINE: unclosed [ */
+            index++;
+        }
+    }
+    return index < len && selector[index] == ']' ? index : -1; /* GCOVR_EXCL_BR_LINE: unclosed [ */
+}
+
+static int css_merge_known_pseudo(const css_char *name, Py_ssize_t len, int element) {
+    if (!element && len == 5 && (css_run_ieq(name, len, "hover") || css_run_ieq(name, len, "focus"))) {
+        return 1;
+    }
+    if (!element && len == 6 && css_run_ieq(name, len, "active")) {
+        return 1;
+    }
+    static const char *const classes[] = {
+        "active",        "any-link",      "checked",      "default",      "defined",
+        "disabled",      "empty",         "enabled",      "first-child",  "first-of-type",
+        "focus",         "focus-visible", "focus-within", "hover",        "in-range",
+        "indeterminate", "invalid",       "last-child",   "last-of-type", "link",
+        "only-child",    "only-of-type",  "optional",     "out-of-range", "placeholder-shown",
+        "read-only",     "read-write",    "required",     "root",         "scope",
+        "target",        "user-invalid",  "valid",        "visited",      "before",
+        "after",         "first-line",    "first-letter"};
+    static const char *const elements[] = {"before",      "after",     "first-line", "first-letter",        "marker",
+                                           "placeholder", "selection", "backdrop",   "file-selector-button"};
+    const char *const *names = element ? elements : classes;
+    size_t count = element ? sizeof(elements) / sizeof(elements[0]) : sizeof(classes) / sizeof(classes[0]);
+    css_char initial = css_lower(name[0]);
+    for (size_t index = 0; index < count; index++) {
+        if (initial == names[index][0] && css_run_ieq(name, len, names[index])) {
+            return element || index >= count - 4 ? 2 : 1;
+        }
+    }
+    return 0;
+}
+
+/* Ordinary selector lists are unforgiving, so merge only selectors this subset can validate. */
+static int css_selector_merge_safe(const css_buf *pool, const rule_item *rule) {
+    const css_char *selector = pool->data + rule->sel_off;
+    if ((rule->sel_len == 1 && css_is_name_start(selector[0])) ||
+        (rule->sel_len == 2 && (selector[0] == '.' || selector[0] == '#') && css_is_name_start(selector[1]))) {
+        return 1;
+    }
+    Py_ssize_t ident_start = selector[0] == '.' || selector[0] == '#';
+    if (css_is_ident_string(selector + ident_start, rule->sel_len - ident_start)) {
+        return 1;
+    }
+    if (selector[0] == '[' && css_merge_attribute_end(selector, rule->sel_len, 0) == rule->sel_len - 1) {
+        return 1;
+    }
+    if (rule->sel_len > 20 && memchr(selector, '(', (size_t)rule->sel_len) != NULL) {
+        return 0;
+    }
+    int arm = 0;
+    int combinator = 0;
+    int type_allowed = 1;
+    int element = 0;
+    for (Py_ssize_t index = 0; index < rule->sel_len; index++) {
+        css_char ch = selector[index];
+        if (css_is_ws(ch)) {
+            if (arm && !combinator) { /* GCOVR_EXCL_BR_LINE: normalized space */
+                type_allowed = 1;
+            }
+            continue;
+        }
+        if (element && ch != ',') {
+            return 0;
+        }
+        if (ch == '[') {
+            if ((index = css_merge_attribute_end(selector, rule->sel_len, index)) < 0) {
+                return 0;
+            }
+            arm = 1;
+            combinator = 0;
+            type_allowed = 0;
+            continue;
+        }
+        if (ch == ':') {
+            int double_colon = index + 1 < rule->sel_len && selector[index + 1] == ':';
+            Py_ssize_t start = index + 1 + double_colon;
+            Py_ssize_t end = start;
+            while (end < rule->sel_len && css_is_ident(selector[end])) {
+                end++;
+            }
+            if (!css_is_ident_string(selector + start, end - start)) {
+                return 0;
+            }
+            if (end < rule->sel_len && selector[end] == '(') {
+                return 0;
+            }
+            int kind = css_merge_known_pseudo(selector + start, end - start, double_colon);
+            if (!kind) {
+                return 0;
+            }
+            element = kind == 2;
+            index = end - 1;
+            arm = 1;
+            combinator = 0;
+            type_allowed = 0;
+            continue;
+        }
+        if (ch == '.' || ch == '#') {
+            Py_ssize_t start = index + 1;
+            Py_ssize_t end = start;
+            while (end < rule->sel_len && css_is_ident(selector[end])) {
+                end++;
+            }
+            if (!css_is_ident_string(selector + start, end - start)) {
+                return 0;
+            }
+            index = end - 1;
+            arm = 1;
+            combinator = 0;
+            type_allowed = 0;
+            continue;
+        }
+        if (ch == '*') {
+            if (!type_allowed) {
+                return 0;
+            }
+            arm = 1;
+            combinator = 0;
+            type_allowed = 0;
+            continue;
+        }
+        if (css_starts_ident(selector, index, rule->sel_len)) {
+            Py_ssize_t end = index;
+            while (end < rule->sel_len && css_is_ident(selector[end])) {
+                end++;
+            }
+            if (end < rule->sel_len && selector[end] == '>' && end - index == 2 && selector[index] == '-' &&
+                selector[index + 1] == '-') {
+                return 0; /* a bare -- followed by > retokenizes as CDC */
+            }
+            if (!type_allowed || !css_is_ident_string(selector + index, end - index)) {
+                return 0;
+            }
+            index = end - 1;
+            arm = 1;
+            combinator = 0;
+            type_allowed = 0;
+            continue;
+        }
+        if (ch == '>' || ch == '+' || ch == '~') {
+            if (!arm || combinator) {
+                return 0;
+            }
+            combinator = 1;
+            type_allowed = 1;
+            continue;
+        }
+        if (ch == ',') {
+            if (!arm || combinator) {
+                return 0;
+            }
+            arm = 0;
+            type_allowed = 1;
+            element = 0;
+            continue;
+        }
+        return 0;
+    }
+    return arm && !combinator;
+}
+
 /* Merge qualified rules: same selector -> combine declaration bodies; identical body -> combine selectors into a list.
    A rule may merge with an earlier one across intervening rules, but only while every rule between them sets no
    property the moved body sets (so the cascade cannot change); an opaque node (a bang comment) or a conflicting rule
@@ -1312,7 +1531,8 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
                 merged = target;
                 break;
             }
-            if (rule_run_eq(pool, target->body_off, target->body_len, it->body_off, it->body_len)) {
+            if (rule_run_eq(pool, target->body_off, target->body_len, it->body_off, it->body_len) &&
+                css_selector_merge_safe(pool, it) && css_selector_merge_safe(pool, target)) {
                 Py_ssize_t end = index + 1;
                 Py_ssize_t length = target->sel_len + 1 + it->sel_len;
                 /* An intervening live rule could claim a later selector before this target does. */
@@ -1320,8 +1540,10 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
                     while (end < items->len) {
                         rule_item *next = &items->items[end];
                         /* A selector list might equal the growing target and take the body-merge path. */
-                        if (!next->is_rule || memchr(pool->data + next->sel_off, ',', (size_t)next->sel_len) != NULL ||
-                            !rule_run_eq(pool, target->body_off, target->body_len, next->body_off, next->body_len)) {
+                        if (!next->is_rule ||
+                            !rule_run_eq(pool, target->body_off, target->body_len, next->body_off, next->body_len) ||
+                            memchr(pool->data + next->sel_off, ',', (size_t)next->sel_len) != NULL ||
+                            !css_selector_merge_safe(pool, next)) {
                             break;
                         }
                         length += 1 + next->sel_len;
