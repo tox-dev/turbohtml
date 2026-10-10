@@ -1306,6 +1306,23 @@ static void md_settle_run(md_ctx *ctx, Py_ssize_t index, th_node *node) {
     if (close_at - suffix_start == open_len) {
         settled = 0;
     }
+    /* GFM can bind adjacent strike and emphasis runs across a punctuation edge. */
+    if (settled && delimiter == '~' && marker->open_at > 0) {
+        Py_UCS4 previous = data[marker->open_at - 1];
+        if (previous == '*' || previous == '_') {
+            Py_ssize_t boundary = marker->open_at;
+            while (boundary > 0 && md_live_delimiter(data, boundary - 1, previous)) {
+                boundary--;
+            }
+            if (boundary > 0 && md_edge(data[boundary - 1]) == MD_EDGE_PUNCT) {
+                settled = 0;
+            }
+        }
+    }
+    if (settled && delimiter != '~' && marker->open_at >= 2 && data[marker->open_at - 1] == '~' &&
+        data[marker->open_at - 2] == '~' && md_edge(data[marker->open_at + open_len]) == MD_EDGE_PUNCT) {
+        settled = 0;
+    }
     if (!settled) {
         md_rewrite_open(ctx, marker, open_len);
     }

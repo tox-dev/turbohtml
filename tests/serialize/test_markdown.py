@@ -369,6 +369,12 @@ def test_code(html: str, expected: str) -> None:
         pytest.param("<p>*<i>x</i></p>", "\\**x*", id="escaped-asterisk-before-emphasis-keeps-delimiter"),
         pytest.param("<p><i><i>x</i></i></p>", "*_x_*", id="nested-emphasis-alternates-delimiters"),
         pytest.param("<p><i>;</i><b>x</b></p>", "*;*__x__", id="emphasis-then-strong-adjacent"),
+        pytest.param(
+            "<p><del>a</del><strong>_</strong></p>", "~~a~~<strong>\\_</strong>", id="strike-before-strong-punct"
+        ),
+        pytest.param("<p><del>a</del><em>_</em></p>", "~~a~~<em>\\_</em>", id="strike-before-emphasis-punct"),
+        pytest.param("<p><em>_</em><del>a</del></p>", "*\\_*<del>a</del>", id="emphasis-punct-before-strike"),
+        pytest.param("<p><strong>_</strong><del>a</del></p>", "**\\_**<del>a</del>", id="strong-punct-before-strike"),
         pytest.param("<p>a<b>  </b>b</p>", "a b", id="whitespace-only-emphasis-dropped"),
         pytest.param("<p><strong><b>x</b>e</strong></p>", "**<strong>x</strong>e**", id="nested-strong-before-text"),
         pytest.param("<p><strong><em>x</em></strong></p>", "**_x_**", id="emphasis-inside-strong"),
@@ -475,6 +481,12 @@ def test_inline_delimiter_html_before_empty_text() -> None:
             id="underscore-emphasis-alternates-to-asterisk",
         ),
         pytest.param(
+            "<p><em>!</em><del>b</del></p>",
+            Markdown(inline=Markdown.Inline(emphasis="_")),
+            "_!_<del>b</del>",
+            id="underscore-punct-before-strike",
+        ),
+        pytest.param(
             "<p><b>a</b><b>b</b></p>",
             Markdown(inline=Markdown.Inline(strong="__")),
             "__a__**b**",
@@ -522,7 +534,7 @@ def test_inline_delimiter_html_before_empty_text() -> None:
             "<em>x.</em>y",
             id="close-before-hidden-strike",
         ),
-        pytest.param("<p><em>x.</em><del>z</del>y</p>", Markdown(), "*x.*~~z~~y", id="close-before-kept-del"),
+        pytest.param("<p><em>x.</em><del>z</del>y</p>", Markdown(), "*x.*<del>z</del>y", id="close-before-kept-del"),
         pytest.param(
             "<p><em>x.</em><b><img src=a></b></p>", Markdown(), "*x.*__![](a)__", id="close-before-image-in-strong"
         ),
