@@ -23,8 +23,13 @@ def test_minify_css_border_color_preserves_wide_keyword_fallback() -> None:
     ("value", "expected"),
     [
         pytest.param("red red", "red", id="color"),
+        pytest.param("rebeccapurple rebeccapurple", "#639", id="long-color"),
         pytest.param("currentColor currentColor", "initial", id="current-color"),
     ],
 )
 def test_minify_css_border_color_still_collapses_colors(value: str, expected: str) -> None:
     assert minify_css(f"a{{border-color:{value}}}") == f"a{{border-color:{expected}}}"
+
+
+def test_minify_css_border_color_still_collapses_non_wide_identifier() -> None:
+    assert minify_css("a{border-color:revertish revertish}") == "a{border-color:revertish}"
