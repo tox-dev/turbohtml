@@ -1,0 +1,1 @@
+Escape a literal ``!`` before a Markdown link so CommonMark preserves the link instead of treating it as an image.

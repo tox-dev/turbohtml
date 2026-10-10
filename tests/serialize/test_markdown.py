@@ -154,6 +154,12 @@ def test_code_elements_preserve_text(tag: str, content: str, expected: str) -> N
     ("html", "expected"),
     [
         pytest.param('<p><a href="http://x.com">link</a></p>', "[link](http://x.com)", id="link"),
+        pytest.param('!<a href="/x">x</a>', "\\![x](/x)", id="bang-before-link"),
+        pytest.param('a!<a href="/x">x</a>', "a\\![x](/x)", id="bang-before-link-mid-line"),
+        pytest.param('!!<a href="/x">x</a>', "!\\![x](/x)", id="two-bangs-before-link"),
+        pytest.param('! <a href="/x">x</a>', "! [x](/x)", id="bang-separated-from-link"),
+        pytest.param('!<a href="/x"></a>', "\\![](/x)", id="bang-before-empty-link"),
+        pytest.param(r'\!<a href="/x">x</a>', r"\\\![x](/x)", id="literal-backslash-before-bang-link"),
         pytest.param('<p><a href="/p" title="T">l</a></p>', '[l](/p "T")', id="link-title"),
         pytest.param("<p><a>no href</a></p>", "no href", id="link-no-href"),
         pytest.param('<p><a href="a b">l</a></p>', "[l](<a b>)", id="link-space-url"),
@@ -218,6 +224,19 @@ def test_code_elements_preserve_text(tag: str, content: str, expected: str) -> N
 )
 def test_links_and_images(html: str, expected: str) -> None:
     assert md(html) == expected
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(Markdown(), id="inline"),
+        pytest.param(Markdown(links=Markdown.Links(style="reference")), id="reference"),
+        pytest.param(Markdown(escaping=Markdown.Escaping(mode="all")), id="already-escaped"),
+    ],
+)
+def test_bang_before_link_keeps_link_semantics(config: Markdown) -> None:
+    output: Final = parse('!<a href="/x">x</a>').to_markdown(config)
+    assert MarkdownIt("commonmark").render(output) == '<p>!<a href="/x">x</a></p>\n'
 
 
 @pytest.mark.parametrize(
@@ -2656,6 +2675,9 @@ def test_bullets(html: str, opts: Markdown, expected: str) -> None:
             "<p><em>x</em></p>", Markdown(inline=Markdown.Inline(emphasis="_")), "_x_", id="emphasis-underscore"
         ),
         pytest.param(
+            "!<em>x</em>", Markdown(inline=Markdown.Inline(emphasis="[[")), "![[x[[", id="bang-before-custom-brackets"
+        ),
+        pytest.param(
             "<p>a<b>x</b><i>y</i><s>z</s>b</p>",
             Markdown(inline=Markdown.Inline(ignore_emphasis=True)),
             "axyzb",
@@ -2665,6 +2687,7 @@ def test_bullets(html: str, opts: Markdown, expected: str) -> None:
             "<p>a<s>z</s>b</p>", Markdown(inline=Markdown.Inline(strikethrough="hide")), "ab", id="strikethrough-hide"
         ),
         pytest.param("<p>H<sub>2</sub>O</p>", Markdown(inline=Markdown.Inline(sub="~")), "H~2~O", id="sub-symbol"),
+        pytest.param("<p>H<sub>2</sub>O</p>", Markdown(), "H2O", id="sub-default-plain"),
         pytest.param("<p>x<sup>2</sup></p>", Markdown(inline=Markdown.Inline(sup="^")), "x^2^", id="sup-symbol"),
         pytest.param(
             "<p><q>hi</q></p>",
