@@ -563,8 +563,24 @@ static TH_NOINLINE void md_emit_pending(md_ctx *ctx) {
             marker->open = MD_HTML_TAGS[marker->html - 1][0];
             marker->close = MD_HTML_TAGS[marker->html - 1][1];
         }
+        if (marker->open[0] == '[' && marker->open[1] == '\0' && ctx->out.len > 0 &&
+            ctx->out.data[ctx->out.len - 1] == '!') {
+            Py_ssize_t slash = ctx->out.len - 1;
+            while (slash > 0 && ctx->out.data[slash - 1] == '\\') {
+                slash--;
+            }
+            if (((ctx->out.len - 1 - slash) & 1) == 0) {
+                /* CommonMark reads an unescaped ! before a link as an image. */
+                ctx->out.data[ctx->out.len - 1] = '\\';
+                sbuf_putc(&ctx->out, '!');
+            }
+        }
         marker->open_at = ctx->out.len;
-        md_puts8(&ctx->out, marker->open);
+        if (marker->open[0] != '\0' && marker->open[1] == '\0') {
+            sbuf_putc(&ctx->out, (unsigned char)marker->open[0]);
+        } else {
+            md_puts8(&ctx->out, marker->open);
+        }
         marker->emitted = 1;
         ctx->line_has_content = 1;
     }
