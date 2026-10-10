@@ -1,0 +1,1 @@
+Keep CSS zero-length dimensions followed by negative numbers stable across repeated minification.
