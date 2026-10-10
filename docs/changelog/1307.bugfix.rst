@@ -1,0 +1,1 @@
+Preserve emphasis next to strikethrough when punctuation would change how Markdown delimiters bind.
