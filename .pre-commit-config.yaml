@@ -53,6 +53,7 @@ repos:
         name: clang-tidy
         entry: python tools/run_clang_tidy.py
         language: python
+        language_version: python3.15
         files: ^src/turbohtml/.*\.c$
         require_serial: true
         additional_dependencies:
