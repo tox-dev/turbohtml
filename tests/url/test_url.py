@@ -59,6 +59,10 @@ def test_base_url_default_fallback() -> None:
         pytest.param("http://h?a=b c", "http://x", "http://h?a=b%20c", id="authority-then-query"),
         pytest.param("http://h#f g", "http://x", "http://h#f%20g", id="authority-then-fragment"),
         pytest.param("http://h/p#f g", "http://x", "http://h/p#f%20g", id="fragment-without-query"),
+        pytest.param("^", "https://example.org/dir/file", "https://example.org/dir/%5E", id="relative-path-caret"),
+        pytest.param(
+            "x?c=^#^", "https://example.org/dir/file", "https://example.org/dir/x?c=^#^", id="query-fragment-caret"
+        ),
         pytest.param("http://h", "http://x", "http://h", id="authority-only"),
         pytest.param("ab/cd", "", "ab/cd", id="relative-without-scheme"),
         pytest.param("/x", "", "/x", id="protocol-relative-root"),
@@ -712,7 +716,7 @@ _PATH, _QUERY, _FRAGMENT = 0, 1, 2
 # The safe run each set keeps raw, mirroring URL_PATH_KEEP / URL_QUERY_KEEP / URL_FRAGMENT_KEEP in _c/url/url.c; the
 # unreserved characters quote() always keeps are implicit, so only the set-specific additions are listed.
 _SAFE: dict[int, str] = {
-    _PATH: "!$%&'()*+,-./:;=@[\\]^_|~",
+    _PATH: "!$%&'()*+,-./:;=@[\\]_|~",
     _QUERY: "!$%&()*+,-./:;=?@[\\]^`{|}~",
     _FRAGMENT: "!#$%&'()*+,-./:;=?@[\\]^_{|}~",
 }

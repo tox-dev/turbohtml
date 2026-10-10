@@ -354,6 +354,7 @@ def test_a_relative_href_against_an_unsplittable_base_element_raises() -> None:
         pytest.param("http://x.org/r%c3%a9sum%c3%a9", "http://x.org/r%C3%A9sum%C3%A9", id="escape-hex-uppercased"),
         pytest.param("http://x.org/a b", "http://x.org/a%20b", id="space-percent-encoded"),
         pytest.param("http://x.org/ab'c!$&,;=", "http://x.org/ab'c!$&,;=", id="path-safe-punctuation-kept"),
+        pytest.param("http://x.org/a^b", "http://x.org/a%5Eb", id="caret-encoded-in-path"),
         pytest.param("http://x.org/a{b}", "http://x.org/a%7Bb%7D", id="curly-braces-encoded-in-path"),
         pytest.param("http://x.org/x?q=a b#f g", "http://x.org/x?q=a%20b#f%20g", id="query-and-fragment-encoded"),
         pytest.param("http://x.org/x#a{b}", "http://x.org/x#a{b}", id="fragment-set-looser-than-path"),

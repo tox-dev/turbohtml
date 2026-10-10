@@ -16,7 +16,7 @@
    ' (special-query set) and keeps `, the path set keeps neither, and the fragment set keeps ' but not `. All three keep
    '%', so an already-encoded %XX passes through the encoder unchanged (only its hex digits are uppercased). */
 #define URL_UNRESERVED TH_URL_ALPHA "0123456789-._~"
-static const char URL_PATH_KEEP[] = URL_UNRESERVED "!$%&'()*+,/:;=@[\\]^|";
+static const char URL_PATH_KEEP[] = URL_UNRESERVED "!$%&'()*+,/:;=@[\\]|";
 static const char URL_QUERY_KEEP[] = URL_UNRESERVED "!$%&()*+,/:;=?@[\\]^`{|}";
 static const char URL_FRAGMENT_KEEP[] = URL_UNRESERVED "!#$%&'()*+,/:;=?@[\\]^{|}";
 static const char *const URL_KEEP_SETS[] = {URL_PATH_KEEP, URL_QUERY_KEEP, URL_FRAGMENT_KEEP};
