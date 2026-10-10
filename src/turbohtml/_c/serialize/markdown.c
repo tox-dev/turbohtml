@@ -75,6 +75,7 @@ md_opts th_markdown_default_opts(void) {
     opt.google_doc = 0;
     opt.google_list_indent = 36;
     opt.hide_strikethrough = 0;
+    opt.raw_list_html = 1;
     opt.tag_filter = TH_MD_FILTER_NONE;
     opt.converters = NULL;
     opt.wrap_node = NULL;
@@ -1879,6 +1880,27 @@ static void md_emit_raw_html(md_ctx *ctx, th_node *node) {
     PyMem_Free(html);
 }
 
+static void md_emit_raw_list(md_ctx *ctx, th_node *node) {
+    Py_ssize_t len;
+    Py_UCS4 *html = th_node_html(ctx->tree, node, &len);
+    if (html == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        return;              /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t run = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (html[index] == '\n' || html[index] == '\r') {
+            /* A blank line ends a GFM raw-HTML block before its closing </ol>. */
+            sbuf_put_run(&ctx->out, html + run, index - run);
+            sbuf_puts(&ctx->out, html[index] == '\n' ? "&#10;" : "&#13;");
+            run = index + 1;
+        }
+    }
+    sbuf_put_run(&ctx->out, html + run, len - run);
+    ctx->line_has_content = 1;
+    PyMem_Free(html);
+}
+
 /* The length of a bare `<tbody>`/`</tbody>` tag at the head of text, or 0 for
    anything else. One with attributes is not bare and keeps its markup. */
 static Py_ssize_t md_tbody_tag(const Py_UCS4 *text, Py_ssize_t len) {
@@ -2520,6 +2542,10 @@ static TH_NOINLINE int md_run_lead(md_ctx *ctx, th_node *child, uint16_t atom) {
    heading, rule or code block ends on its own line and does not force looseness, so a
    tight item can still carry one, and the scan never enters a self-framing block. */
 static int md_item_is_loose(md_ctx *ctx, th_node *node) {
+    if (node->first_child == NULL ||
+        (node->first_child == node->last_child && node->first_child->type == TH_NODE_TEXT)) {
+        return 0;
+    }
     int units = 0;
     int in_run = 0;
     int absorbs = 0; /* the last block reads a following line as its own */
@@ -2902,6 +2928,22 @@ static Py_ssize_t md_list_number_attr(md_ctx *ctx, th_node *node, const char *na
     return number;
 }
 
+static int md_list_number_needs_html(md_ctx *ctx, th_node *node, const char *name) {
+    Py_ssize_t length;
+    const Py_UCS4 *value = md_attr(ctx->tree, node, name, &length);
+    if (value == NULL) {
+        return 0;
+    }
+    Py_ssize_t index = 0;
+    while (index < length && is_space(value[index])) {
+        index++;
+    }
+    if (index < length && value[index] == '-') {
+        return index + 1 < length && value[index + 1] >= '0' && value[index + 1] <= '9';
+    }
+    return md_list_number_attr(ctx, node, name, 1) > 999999999;
+}
+
 /* Whether a list child is a wrapper around list items (`<ul><div><li>`), which the
    list looks through so its items keep their markers and numbering. */
 static int md_is_item_wrapper(th_node *node) {
@@ -2916,28 +2958,105 @@ static int md_is_item_wrapper(th_node *node) {
     return 0;
 }
 
-/* CommonMark: a list is loose (blank lines around every item and between an
-   item's blocks) when any item holds more than one paragraph. The scan looks
-   through item wrappers the way the layout does. */
-static int md_list_is_loose(md_ctx *ctx, th_node *list) {
+/* Scan through item wrappers once for both loose layout and ordinals that GFM
+   cannot carry. Subsequent list-marker numbers are ignored by GFM readers. */
+static int md_list_layout(md_ctx *ctx, th_node *list, int ordered, int *raw_html) {
     th_node *parent = list;
     th_node *scan = list->first_child;
+    int loose = 0;
+    int first = 1;
     for (;;) {
         while (scan == NULL) {
             if (parent == list) {
-                return 0;
+                return loose;
             }
             scan = parent->next_sibling;
             parent = parent->parent;
         }
         if (scan->type == TH_NODE_ELEMENT && scan->ns == TH_NS_HTML && scan->atom == TH_TAG_LI) {
-            if (md_item_is_loose(ctx, scan)) {
-                return 1;
+            if (!loose && md_item_is_loose(ctx, scan)) {
+                loose = 1;
+            }
+            if (ordered && scan->attr_count > 0) {
+                Py_ssize_t length;
+                if (md_attr(ctx->tree, scan, "value", &length) != NULL) {
+                    *raw_html |= !first || md_list_number_needs_html(ctx, scan, "value");
+                }
+            }
+            if (ordered) {
+                first = 0;
             }
         } else if (md_is_item_wrapper(scan)) {
             parent = scan;
             scan = scan->first_child;
             continue;
+        }
+        if (loose && (!ordered || *raw_html)) {
+            return loose;
+        }
+        if (loose && parent == list) {
+            scan = scan->next_sibling;
+            while (scan != NULL && scan->atom == TH_TAG_LI && scan->attr_count == 0) {
+                scan = scan->next_sibling;
+            }
+            continue;
+        }
+        scan = scan->next_sibling;
+    }
+}
+
+static int md_list_raw_safe(th_tree *tree, th_node *list) {
+    th_node *scan = list;
+    for (;;) {
+        if (scan->type == TH_NODE_ELEMENT && scan->ns == TH_NS_HTML) {
+            switch (scan->atom) {
+            case TH_TAG_OL:
+                if (scan->attr_count > 0 &&
+                    scan->attr_count > (th_node_attr_find(tree, scan, "start", 5) >= 0) +
+                                           (th_node_attr_find(tree, scan, "reversed", 8) >= 0)) {
+                    return 0;
+                }
+                break;
+            case TH_TAG_LI:
+                if (scan->attr_count > 0 && (scan->attr_count > 1 || th_node_attr_find(tree, scan, "value", 5) < 0)) {
+                    return 0;
+                }
+                break;
+            case TH_TAG_UL:
+            case TH_TAG_MENU:
+            case TH_TAG_P:
+            case TH_TAG_DIV:
+            case TH_TAG_SPAN:
+            case TH_TAG_B:
+            case TH_TAG_STRONG:
+            case TH_TAG_I:
+            case TH_TAG_EM:
+            case TH_TAG_S:
+            case TH_TAG_DEL:
+            case TH_TAG_STRIKE:
+            case TH_TAG_CODE:
+            case TH_TAG_PRE:
+            case TH_TAG_BR:
+            case TH_TAG_BLOCKQUOTE:
+                if (scan->attr_count > 0) {
+                    return 0;
+                }
+                break;
+            default:
+                return 0;
+            }
+        } else if (scan->type != TH_NODE_TEXT) {
+            return 0;
+        }
+        if (scan->first_child != NULL) {
+            scan = scan->first_child;
+            continue;
+        }
+        while (scan != list && scan->next_sibling == NULL) {
+            scan = scan->parent;
+        }
+        if (scan == list) {
+            return 1;
         }
         scan = scan->next_sibling;
     }
@@ -2990,7 +3109,10 @@ static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
     Py_ssize_t base = md_indent(ctx, width);
     int saved_tight = ctx->tight;
     ctx->tight = !state->loose;
-    ctx->suppress_break = md_leads_with_inline(ctx, child) > 0;
+    th_node *only = child->first_child;
+    ctx->suppress_break = (only != NULL && only == child->last_child && only->type == TH_NODE_TEXT &&
+                           only->text_len > 0 && !is_space(need_text(ctx->tree, only)[0])) ||
+                          md_leads_with_inline(ctx, child) > 0;
     if (!ctx->opt->wrap_list_items) {
         ctx->no_wrap++;
     }
@@ -3123,6 +3245,19 @@ static TH_NOINLINE int md_list_cannot_interrupt(md_ctx *ctx, th_node *list, int 
 static void md_enter_list(md_ctx *ctx, th_node *node) {
     int ordered = md_list_ordered(ctx, node);
     Py_ssize_t number = ordered ? md_list_number_attr(ctx, node, "start", 1) : 1;
+    int preserve_ordinals = node->atom == TH_TAG_OL && ctx->opt->raw_list_html;
+    int raw_html = preserve_ordinals && (th_node_attr_find(ctx->tree, node, "reversed", 8) >= 0 ||
+                                         md_list_number_needs_html(ctx, node, "start"));
+    int loose = raw_html ? 0 : md_list_layout(ctx, node, preserve_ordinals, &raw_html);
+    if (raw_html && !md_list_raw_safe(ctx->tree, node)) {
+        raw_html = 0;
+        loose = md_list_layout(ctx, node, 0, &raw_html);
+    }
+    if (raw_html) {
+        md_block_line(ctx, 1);
+        md_emit_raw_list(ctx, node);
+        return;
+    }
     if (ctx->line_has_content && md_list_cannot_interrupt(ctx, node, ordered, number)) {
         ctx->interrupt_blank = 1;
     }
@@ -3133,7 +3268,7 @@ static void md_enter_list(md_ctx *ctx, th_node *node) {
         .bullet = ctx->opt->bullets[ctx->list_depth % bullets_len],
         .delimiter = '.',
         .ordered = ordered,
-        .loose = md_list_is_loose(ctx, node),
+        .loose = loose,
     };
     /* CommonMark keeps items with the same bullet or ordered delimiter in one list,
        blank line or not, so a list that follows one of its own kind with nothing in

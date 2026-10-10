@@ -1116,6 +1116,7 @@ static PyObject *node_render_with_options(PyObject *self, PyObject *args, PyObje
    The caller owns spec; the borrowed strings stay valid for this call. */
 static PyObject *node_markdown_render(PyObject *self, PyObject *spec) {
     md_opts opt = th_markdown_default_opts();
+    opt.raw_list_html = spec == NULL || PyDict_Size(spec) == 0;
     PyObject *heading = NULL, *strike = NULL, *code_style = NULL, *link = NULL, *image = NULL, *table = NULL;
     PyObject *header = NULL, *cell_blocks = NULL, *escape = NULL, *brk = NULL, *spacing = NULL, *docstrip = NULL;
     PyObject *converters = NULL, *strip = NULL, *convert = NULL;

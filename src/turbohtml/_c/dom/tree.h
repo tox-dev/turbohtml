@@ -688,6 +688,7 @@ typedef struct {
     int google_doc;                           /* read inline-CSS styling the way a Google Docs export encodes it */
     int google_list_indent;                   /* px of margin-left per list-nesting level (>= 1); divides margin-left */
     int hide_strikethrough;                   /* in google_doc mode, drop text a CSS line-through struck */
+    int raw_list_html;                        /* default options permit ordinal-preserving HTML fallback */
     int tag_filter;                           /* enum th_md_filter selecting how filter_tags reads */
     uint64_t filter_tags[TH_MD_FILTER_WORDS]; /* atoms named by strip (denylist) or convert (allowlist) */
     /* Per-tag converter hook: a registered tag's built-in rendering is replaced by a
