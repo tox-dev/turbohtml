@@ -1,0 +1,1 @@
+Preserve hash tokens in CSS properties that do not accept colors.
