@@ -170,8 +170,8 @@ static void css_assemble(css_buf *pool, comp_vec *comps, css_buf *out) {
             int opens_end_tag = pool->data[prev->off + prev->len - 1] == '<' && text[0] == '/';
             int glued = !opens_end_tag && (comp->isfunc == 2 || prev->isfunc == 1 || prev->isfunc == 2 ||
                                            starts_paren || comp->kind == CK_DELIM || prev->kind == CK_DELIM);
-            int negative_after_number =
-                prev->kind == CK_NUM && comp->len > 1 && text[0] == '-' && (css_is_digit(text[1]) || text[1] == '.');
+            int negative_after_number = (prev->kind == CK_NUM || (prev->kind == CK_DIM && prev->len == 1)) &&
+                                        comp->len > 1 && text[0] == '-' && (css_is_digit(text[1]) || text[1] == '.');
             if (!negative_after_number &&
                 (!glued || css_would_merge(pool->data[prev->off + prev->len - 1], prev->kind == CK_IDENT,
                                            pool->data + comp->off, comp->len))) {
