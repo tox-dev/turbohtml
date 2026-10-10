@@ -2464,13 +2464,25 @@ enum md_lead {
     MD_LEAD_IN_BLOCK = 2, /* a paragraph's content or an ATX heading, which opens its own line */
 };
 
+static TH_NOINLINE int md_task_checkbox(md_ctx *ctx, th_node *node) {
+    if (ctx->opt->converters != NULL || ctx->opt->tag_filter != TH_MD_FILTER_NONE) {
+        return 0;
+    }
+    Py_ssize_t length;
+    const Py_UCS4 *type = md_attr(ctx->tree, node, "type", &length);
+    if (type == NULL || !md_ucs4_ieq(type, length, "checkbox")) {
+        return 0;
+    }
+    return th_node_attr_find(ctx->tree, node, "checked", 7) >= 0 ? 2 : 1;
+}
+
 /* A loose item needs its first block on the marker line even when a transparent
    container wraps it; otherwise CommonMark reads that block as code. The scan descends
    into such containers, into inline elements and into paragraphs, and climbs back out of
    one that leads with nothing: an inline element that writes nothing (an empty <em>, a
    link placeholder) does not count as content. A code span writes all its text, spaces
    and blocks included, on one line, so it leads inline once it holds any. */
-static int md_leads_with_inline(md_ctx *ctx, th_node *root) {
+static int md_leads_with_inline(md_ctx *ctx, th_node *root, int *task) {
     th_node *parent = root;
     th_node *child = root->first_child;
     th_node *paragraph = NULL; /* the outermost paragraph block the scan is inside */
@@ -2499,6 +2511,12 @@ static int md_leads_with_inline(md_ctx *ctx, th_node *root) {
             continue;
         }
         uint16_t atom = child->ns == TH_NS_HTML ? child->atom : TH_TAG_UNKNOWN;
+        if (atom == TH_TAG_INPUT && task != NULL && *task == 0 && (parent == root || parent == paragraph)) {
+            int state = md_task_checkbox(ctx, child);
+            *task = state == 0 ? -1 : state;
+            child = child->next_sibling;
+            continue;
+        }
         if (md_is_code_span(atom)) {
             if (md_code_writes_text(ctx, child)) {
                 return paragraph != NULL ? MD_LEAD_IN_BLOCK : MD_LEAD_INLINE;
@@ -2545,7 +2563,7 @@ static int md_element_lead(md_ctx *ctx, th_node *node, uint16_t atom) {
     if (node->first_child == NULL) {
         return atom == TH_TAG_BR || atom == TH_TAG_IMG || atom == TH_TAG_Q ? MD_LEAD_INLINE : MD_LEAD_NOTHING;
     }
-    return md_leads_with_inline(ctx, node);
+    return md_leads_with_inline(ctx, node, NULL);
 }
 
 /* What an inline child at a run start leads with, to decide whether it opens a run line:
@@ -3139,9 +3157,17 @@ static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
     int saved_tight = ctx->tight;
     ctx->tight = !state->loose;
     th_node *only = child->first_child;
+    int task = 0;
     ctx->suppress_break = (only != NULL && only == child->last_child && only->type == TH_NODE_TEXT &&
                            only->text_len > 0 && !is_space(need_text(ctx->tree, only)[0])) ||
-                          md_leads_with_inline(ctx, child) > 0;
+                          md_leads_with_inline(ctx, child, &task) > 0;
+    if (task > 0) {
+        sbuf_puts(&ctx->out, task == 2 ? "[x]" : "[ ]");
+        if (ctx->suppress_break) {
+            sbuf_putc(&ctx->out, ' ');
+        }
+        ctx->line_has_content = 1;
+    }
     if (!ctx->opt->wrap_list_items) {
         ctx->no_wrap++;
     }
@@ -3268,7 +3294,8 @@ static TH_NOINLINE int md_list_cannot_interrupt(md_ctx *ctx, th_node *list, int 
     if (item == NULL || item->ns != TH_NS_HTML || item->atom != TH_TAG_LI) {
         return 0;
     }
-    return md_leads_with_inline(ctx, item) <= 0 || (ordered && md_list_number_attr(ctx, item, "value", number) != 1);
+    return md_leads_with_inline(ctx, item, NULL) <= 0 ||
+           (ordered && md_list_number_attr(ctx, item, "value", number) != 1);
 }
 
 static void md_enter_list(md_ctx *ctx, th_node *node) {
