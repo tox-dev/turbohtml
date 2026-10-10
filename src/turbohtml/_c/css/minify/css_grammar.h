@@ -509,7 +509,7 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
         if (token->kind == CSS_NUM) {
             Py_ssize_t off;
             Py_ssize_t len;
-            css_format_dimension(pool, token, 1, &off, &len);
+            css_format_dimension(pool, token, 1, NULL, 0, &off, &len);
             next_text = pool->data + off;
             next_len = len;
         }

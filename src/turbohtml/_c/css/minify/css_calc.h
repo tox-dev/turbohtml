@@ -631,7 +631,7 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
             } else {
                 Py_ssize_t off;
                 Py_ssize_t len;
-                css_format_dimension(pool, token, !keep_ws, &off, &len);
+                css_format_dimension(pool, token, !keep_ws, NULL, 0, &off, &len);
                 /* dropping a sign or unit (e.g. +0/-0/0px -> 0) can glue the number onto the token before it to read as
                    one different token (CSS Syntax 3 §9.1), including a second adjacent number in an invalid calc, so
                    keep a boundary as the declaration-value path does; a negative number after a unitless one starts
