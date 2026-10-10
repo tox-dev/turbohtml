@@ -2221,13 +2221,13 @@
 ],
 [
 "a{width:calc((1px + 2px}",
-"a{width:calc((1px + 2px})}",
-"a{width:calc((1px + 2px})}"
+"a{width:calc((1px + 2px}))}",
+"a{width:calc((1px + 2px}))}"
 ],
 [
 "a{width:calc((1px}",
-"a{width:calc((1px})}",
-"a{width:calc((1px})}"
+"a{width:calc((1px}))}",
+"a{width:calc((1px}))}"
 ],
 [
 "a{width:calc(calc(1px 2px))}",
@@ -2916,13 +2916,13 @@
 ],
 [
 "a{width:calc((",
-"a{width:calc(()}",
-"a{width:calc(()}"
+"a{width:calc(())}",
+"a{width:calc(())}"
 ],
 [
 "a{width:calc((1px+2px",
-"a{width:calc((1px 2px)}",
-"a{width:calc((1px 2px)}"
+"a{width:calc((1px 2px))}",
+"a{width:calc((1px 2px))}"
 ],
 [
 "a{margin:1px 2px 3px 4px}",
@@ -3121,8 +3121,8 @@
 ],
 [
 "a{filter:progid:dximagetransform.microsoft.alpha(opacity=50x}",
-"a{filter:progid:dximagetransform.microsoft.alpha(opacity=50x}}",
-"a{filter:progid:dximagetransform.microsoft.alpha(opacity=50x}}"
+"a{filter:alpha(opacity=50x})}",
+"a{filter:alpha(opacity=50x})}"
 ],
 [
 "a{-ms-filter:\"foo\"}",
