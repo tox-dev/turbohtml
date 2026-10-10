@@ -195,6 +195,7 @@ typedef struct {
     Py_ssize_t saved_marker_base;
     int saved_started;
     int saved_line;
+    Py_ssize_t saved_line_number_start;
     int saved_space;
     int saved_drop;
 } md_table;
@@ -211,6 +212,7 @@ typedef struct {
     Py_ssize_t line_checked;
     int started;
     int line_has_content;
+    Py_ssize_t line_number_start;
     int space_pending;
     int drop_space;
     int pending_loose;
@@ -294,6 +296,7 @@ typedef struct {
     Py_ssize_t ref_cap;
     int started;          /* has any block content been emitted yet */
     int line_has_content; /* real content past the prefix/marker on the current line */
+    Py_ssize_t line_number_start;
     Py_ssize_t line_start;
     Py_ssize_t line_checked;
     int space_pending;          /* a collapsed-away whitespace run is owed one space */
@@ -849,6 +852,27 @@ static void md_escape_split_reference(md_ctx *ctx, const Py_UCS4 *text, Py_ssize
    (which resolves the deferred space, markers and escapes) the rest of the run --
    no whitespace, nothing to escape -- is bulk-copied in one memcpy. */
 static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
+    if (ctx->line_number_start > 0 && !ctx->space_pending && ctx->pending == NULL) {
+        Py_ssize_t start = ctx->line_number_start - 1;
+        Py_ssize_t end = ctx->out.len;
+        while (end > start && ctx->out.data[end - 1] >= '0' && ctx->out.data[end - 1] <= '9') {
+            end--;
+        }
+        if (end == start && ctx->out.len > start) {
+            Py_ssize_t scan = 0;
+            while (scan < len && text[scan] >= '0' && text[scan] <= '9') {
+                scan++;
+            }
+            if (scan < len && (text[scan] == '.' || text[scan] == ')')) {
+                md_emit_text(ctx, text, scan);
+                sbuf_putc(&ctx->out, '\\');
+                md_emit_text(ctx, &text[scan], len - scan);
+                return;
+            }
+        } else {
+            ctx->line_number_start = 0;
+        }
+    }
     /* a reference continues only when nothing comes between the last node's `&` and name
        and this node's first character; what is already written md_escape_split_reference
        reads back, and an opening run still pending would come between */
@@ -881,6 +905,9 @@ static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
             if (consumed > 0) {
                 index += consumed;
                 continue;
+            }
+            if (ctx->pending == NULL) {
+                ctx->line_number_start = ctx->out.len + 1;
             }
         }
         int by_context = ((kind & MD_CH_CONTEXT) || (translit && ch == 0x2190)) && ctx->escape_prose &&
@@ -2750,6 +2777,7 @@ static int md_enter_converter(md_ctx *ctx, th_node *node) {
         .line_checked = ctx->line_checked,
         .started = ctx->started,
         .line_has_content = ctx->line_has_content,
+        .line_number_start = ctx->line_number_start,
         .space_pending = ctx->space_pending,
         .drop_space = ctx->drop_space,
         .pending_loose = ctx->pending_loose,
@@ -2767,6 +2795,7 @@ static int md_enter_converter(md_ctx *ctx, th_node *node) {
     ctx->pending = NULL;
     ctx->started = 0;
     ctx->line_has_content = 0;
+    ctx->line_number_start = 0;
     ctx->line_start = 0;
     ctx->line_checked = 0;
     ctx->space_pending = 0;
@@ -2880,6 +2909,7 @@ static void md_leave_converter(md_ctx *ctx, md_frame *frame) {
     md_settle_pending(ctx);
     ctx->started = saved->started;
     ctx->line_has_content = saved->line_has_content;
+    ctx->line_number_start = saved->line_number_start;
     ctx->line_start = saved->line_start;
     ctx->line_checked = saved->line_checked;
     ctx->space_pending = saved->space_pending;
@@ -3397,6 +3427,7 @@ static void md_enter_cell(md_ctx *ctx, md_table *table) {
     table->saved_marker_base = ctx->marker_base;
     table->saved_started = ctx->started;
     table->saved_line = ctx->line_has_content;
+    table->saved_line_number_start = ctx->line_number_start;
     table->saved_space = ctx->space_pending;
     table->saved_drop = ctx->drop_space;
     ctx->out = (sbuf){NULL, 0, 0, 0};
@@ -3416,6 +3447,7 @@ static void md_enter_cell(md_ctx *ctx, md_table *table) {
         }
     }
     ctx->line_has_content = 1;
+    ctx->line_number_start = 0;
     ctx->space_pending = 0;
     ctx->drop_space = 1;
     ctx->in_cell = 1;
@@ -3436,6 +3468,7 @@ static void md_leave_cell(md_ctx *ctx, md_table *table) {
     md_settle_pending(ctx);
     ctx->started = table->saved_started;
     ctx->line_has_content = table->saved_line;
+    ctx->line_number_start = table->saved_line_number_start;
     ctx->space_pending = table->saved_space;
     ctx->drop_space = table->saved_drop;
     ctx->in_cell = 0;
