@@ -391,6 +391,8 @@ def test_code(html: str, expected: str) -> None:
         pytest.param("<p><em>x.</em><samp>k</samp></p>", "*x.*`k`", id="close-before-sample-output"),
         pytest.param("<p>.<em><strong>.</strong></em>.</p>", ".***.***.", id="rule-of-three-both-multiples"),
         pytest.param("<p><em>x.</em><svg></svg>b</p>", "<em>x.</em>b", id="close-before-foreign-content"),
+        pytest.param("<p><b>b<b> z</b></b>a</p>", "<strong>b **z**</strong>a", id="nested-strong-close-run"),
+        pytest.param("<p><i>a<i> b</i></i>c</p>", "<em>a *b*</em>c", id="nested-emphasis-close-run"),
     ],
 )
 def test_inline_delimiter_round_trip(html: str, expected: str) -> None:

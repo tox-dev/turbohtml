@@ -1,0 +1,1 @@
+Preserve nested emphasis when adjacent closing delimiters would change the rendered Markdown.

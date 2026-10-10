@@ -1276,6 +1276,14 @@ static void md_settle_run(md_ctx *ctx, Py_ssize_t index, th_node *node) {
             settled = 0;
         }
     }
+    Py_ssize_t suffix_start = close_at;
+    while (suffix_start > marker->open_at + open_len && md_live_delimiter(data, suffix_start - 1, delimiter)) {
+        suffix_start--;
+    }
+    /* A nested close of the same width would merge with this close into one run. */
+    if (close_at - suffix_start == open_len) {
+        settled = 0;
+    }
     if (!settled) {
         md_rewrite_open(ctx, marker, open_len);
     }
