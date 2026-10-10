@@ -3246,9 +3246,8 @@ static void md_enter_list(md_ctx *ctx, th_node *node) {
     int ordered = md_list_ordered(ctx, node);
     Py_ssize_t number = ordered ? md_list_number_attr(ctx, node, "start", 1) : 1;
     int preserve_ordinals = node->atom == TH_TAG_OL && ctx->opt->raw_list_html;
-    int raw_html = preserve_ordinals &&
-                   (th_node_attr_find(ctx->tree, node, "reversed", 8) >= 0 ||
-                    md_list_number_needs_html(ctx, node, "start"));
+    int raw_html = preserve_ordinals && (th_node_attr_find(ctx->tree, node, "reversed", 8) >= 0 ||
+                                         md_list_number_needs_html(ctx, node, "start"));
     int loose = raw_html ? 0 : md_list_layout(ctx, node, preserve_ordinals, &raw_html);
     if (raw_html && !md_list_raw_safe(ctx->tree, node)) {
         raw_html = 0;
