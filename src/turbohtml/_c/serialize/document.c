@@ -6,8 +6,21 @@
 
 #include "dom/tree.h"
 #include "dom/tree_internal.h"
+#include "tokenizer/xml_names.h"
 
 #include <string.h>
+
+static int xml_wide_name_wellformed(const Py_UCS4 *name, Py_ssize_t len) {
+    if (len == 0 || !is_name_start(name[0])) {
+        return 0;
+    }
+    for (Py_ssize_t index = 1; index < len; index++) {
+        if (!is_name_char(name[index])) {
+            return 0;
+        }
+    }
+    return 1;
+}
 
 /* Write an attribute's displayed name (the form the #document line uses) into buf:
    namespaced foreign attributes show "prefix localname", everything else is the
@@ -277,6 +290,10 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
     }
     switch ((enum th_node_type)node->type) { /* GCOVR_EXCL_BR_LINE: node types are exhaustive */
     case TH_NODE_ELEMENT:
+        if (node->atom == TH_TAG_UNKNOWN && opts->xml && !xml_wide_name_wellformed(node->text, node->text_len)) {
+            descend = node->first_child;
+            break;
+        }
         ser_open_tag(out, tree, node, opts);
         if (opts->xml) {
             /* XML syntax: every empty element self-closes, no void/raw-text special
@@ -379,6 +396,10 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         }
         node = node->parent;
         if (node->type == TH_NODE_ELEMENT && !(opts->inner && node == root)) {
+            if (node->atom == TH_TAG_UNKNOWN && opts->xml &&
+                !xml_wide_name_wellformed(node->text, node->text_len)) {
+                continue;
+            }
             ser_close_tag(out, node);
         }
     }
