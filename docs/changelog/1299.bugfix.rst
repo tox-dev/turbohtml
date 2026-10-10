@@ -1,0 +1,1 @@
+Preserve ``colspan`` and ``rowspan`` in Markdown tables by serializing those tables as HTML.
