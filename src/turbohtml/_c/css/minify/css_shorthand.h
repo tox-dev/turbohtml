@@ -771,7 +771,7 @@ static void css_apply_handler(css_buf *pool, const css_char *prop, Py_ssize_t pr
     }
 }
 
-static int css_z_index_needs_raw(token_vec *vec, Py_ssize_t start, Py_ssize_t end, int *whole_calc) {
+static int css_integer_role_needs_raw(token_vec *vec, Py_ssize_t start, Py_ssize_t end, int *whole_calc) {
     while (vec->items[start].kind == CSS_WS || vec->items[start].kind == CSS_COMMENT) {
         start++;
     }
@@ -800,7 +800,7 @@ static int css_z_index_needs_raw(token_vec *vec, Py_ssize_t start, Py_ssize_t en
     return 0;
 }
 
-static int css_z_index_fold_is_integer(const css_buf *pool, const css_comp *comp) {
+static int css_integer_role_fold_is_integer(const css_buf *pool, const css_comp *comp) {
     if (comp->kind != CK_NUM) {
         return 0;
     }
@@ -842,9 +842,12 @@ static void css_minify_value(css_buf *pool, token_vec *vec, Py_ssize_t start, Py
                      last->text + last->text_len + last->unit_len - vec->items[start].text);
         return;
     }
-    int is_z_index = name_len == 7 && css_run_ieq(name, name_len, "z-index");
+    int is_integer_role = name_len == 7 && css_run_ieq(name, name_len, "z-index");
+    if (name_len == 5) {
+        is_integer_role = css_run_ieq(name, name_len, "order");
+    }
     int whole_calc = 0;
-    if (is_z_index && css_z_index_needs_raw(vec, start, end, &whole_calc)) {
+    if (is_integer_role && css_integer_role_needs_raw(vec, start, end, &whole_calc)) {
         css_render_raw_value(vec, start, end, out);
         return;
     }
@@ -852,14 +855,14 @@ static void css_minify_value(css_buf *pool, token_vec *vec, Py_ssize_t start, Py
     int color_mode = css_prop_color_mode(name, name_len);
     /* Flexbox 1 §7.1: a unitless zero not preceded by two flex factors is a flex factor, so flex keeps zero units */
     css_render_components(pool, vec, start, end, color_mode,
-                          !is_z_index && (name_len != 4 || !css_run_ieq(name, name_len, "flex")), name, name_len,
+                          !is_integer_role && (name_len != 4 || !css_run_ieq(name, name_len, "flex")), name, name_len,
                           scratch);
     /* the handlers and the assembler read the components' pool text, which a failed growth left unwritten */
     if (*pool->oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     if (whole_calc) {
-        if (!css_z_index_fold_is_integer(pool, &scratch->items[0])) {
+        if (!css_integer_role_fold_is_integer(pool, &scratch->items[0])) {
             css_render_raw_value(vec, start, end, out);
             return;
         }
