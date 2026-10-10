@@ -1,0 +1,1 @@
+Preserve numeric types when folding zero-valued CSS calc() expressions.
