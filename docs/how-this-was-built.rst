@@ -15,4 +15,5 @@ of them.
 
 Some engines owe a specific debt. The html5lib-tests and WPT conformance data and lexbor shaped the parser and tree
 builder; the encoding and language detectors follow the models chardetng and whatlang published. Where I reused another
-project's code or data, its license requires attribution, which lives in the ``LICENSE`` file at the repository root.
+project's code or data, its license requires attribution, which lives in the ``licenses/`` directory at the repository
+root.

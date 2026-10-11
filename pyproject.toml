@@ -28,7 +28,9 @@ keywords = [
 license = "MIT"
 license-files = [
   "LICENSE",
+  "licenses/LICENSE-CHARDETNG",
   "licenses/LICENSE-LIBPHONENUMBER",
+  "licenses/LICENSE-WHATLANG",
   "licenses/LICENSE-WHATWG",
 ]
 maintainers = [
