@@ -33,6 +33,11 @@ from turbohtml.clean import minify_css
         pytest.param("none revert", "none revert", id="revert-with-none"),
         pytest.param("none revert-layer", "none revert-layer", id="revert-layer-with-none"),
         pytest.param("solid var(--decoration)", "solid var(--decoration)", id="substitution"),
+        pytest.param("none color(display-p3 1 0 0)", "color(display-p3 1 0 0)", id="valid-color-function"),
+        pytest.param("none hsl(47.3 83% 72%)", "hsl(47.3 83% 72%)", id="valid-unfolded-hsl"),
+        pytest.param("currentcolor hsl(47.3 83% 72%)", "currentcolor hsl(47.3 83% 72%)", id="duplicate-color-function"),
+        pytest.param("none calc(var(--width))", "calc(var(--width))", id="valid-math-function"),
+        pytest.param("none mystery(1px)", "none mystery(1px)", id="unknown-function"),
         pytest.param('none "x"', 'none "x"', id="unexpected-token"),
         pytest.param("none solid", "none", id="valid-defaults"),
         pytest.param("solid none", "none", id="valid-reversed-defaults"),
@@ -46,6 +51,7 @@ from turbohtml.clean import minify_css
         pytest.param("none 10%", "10%", id="valid-percent-thickness"),
         pytest.param("none 0", "0", id="valid-zero-thickness"),
         pytest.param("none #fff", "#fff", id="valid-hash-color"),
+        pytest.param("#fff none", "#fff", id="valid-hash-first"),
     ],
 )
 def test_text_decoration_defaults_preserve_validity(value: str, expected: str) -> None:

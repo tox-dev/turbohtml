@@ -335,12 +335,7 @@ static int css_func_name_is(css_buf *pool, const css_comp *comp, const char *nam
     if (comp->kind != CK_FUNC) {
         return 0;
     }
-    /* a CK_FUNC component always contains its '(' within comp->len, so the scan always finds it before the end */
-    Py_ssize_t paren = 0;
-    while (pool->data[comp->off + paren] != '(') {
-        paren++;
-    }
-    return css_run_ieq(pool->data + comp->off, paren, name);
+    return css_run_ieq(pool->data + comp->off, css_func_name_len(pool, comp), name);
 }
 
 static int css_comp_is_lp(css_buf *pool, const css_comp *comp) {

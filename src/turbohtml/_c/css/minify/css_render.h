@@ -458,6 +458,14 @@ static void css_handle_color_single(css_buf *pool, comp_vec *comps, const css_ch
     }
 }
 
+static Py_ssize_t css_func_name_len(const css_buf *pool, const css_comp *comp) {
+    Py_ssize_t length = 0;
+    while (pool->data[comp->off + length] != '(') {
+        length++;
+    }
+    return length;
+}
+
 CSS_NOINLINE static int css_text_decoration_drop_safe(css_buf *pool, const comp_vec *comps) {
     if (comps->len == 2 && comps->items[0].kind == CK_IDENT && comps->items[1].kind == CK_IDENT &&
         ((css_comp_kw(pool, &comps->items[0], "none") && css_comp_kw(pool, &comps->items[1], "solid")) ||
@@ -472,8 +480,22 @@ CSS_NOINLINE static int css_text_decoration_drop_safe(css_buf *pool, const comp_
     int other_colors = 0;
     for (Py_ssize_t index = 0; index < comps->len; index++) {
         const css_comp *comp = &comps->items[index];
-        if (comp->kind == CK_SEP || comp->kind == CK_FUNC) {
+        if (comp->kind == CK_SEP) {
             return 0;
+        }
+        if (comp->kind == CK_FUNC) {
+            static const char *const color_funcs[] = {"rgb",       "rgba",       "hsl",        "hsla",  "hwb",
+                                                      "lab",       "lch",        "oklab",      "oklch", "color",
+                                                      "color-mix", "light-dark", "device-cmyk"};
+            static const char *const length_funcs[] = {"calc", "min", "max", "clamp"};
+            const css_char *name = pool->data + comp->off;
+            Py_ssize_t name_len = css_func_name_len(pool, comp);
+            if (css_prop_in(name, name_len, color_funcs, sizeof(color_funcs) / sizeof(char *))) {
+                other_colors++;
+            } else if (!css_prop_in(name, name_len, length_funcs, sizeof(length_funcs) / sizeof(char *))) {
+                return 0;
+            }
+            continue;
         }
         if (comp->kind == CK_IDENT) {
             if (css_comp_kw(pool, comp, "none")) {
