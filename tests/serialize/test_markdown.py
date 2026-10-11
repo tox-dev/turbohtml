@@ -160,7 +160,9 @@ def test_unicode_space_emphasis(space: str) -> None:
 )
 def test_unicode_space_prose_round_trip(space: str, before: str, after: str) -> None:
     output: Final = md(f"<p>{before}{space}{after}</p>")
-    assert (output, parse_fragment(MarkdownIt("commonmark").render(output)).find("p").text) == (
+    paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
+    assert paragraph is not None
+    assert (output, paragraph.text) == (
         f"{before}{f'&#{ord(space)};' if not before or not after else space}{after}",
         f"{before}{space}{after}",
     )
@@ -169,7 +171,9 @@ def test_unicode_space_prose_round_trip(space: str, before: str, after: str) -> 
 @pytest.mark.parametrize("suffix", ["", " ", "\n"])
 def test_multiple_unicode_spaces_at_prose_end(suffix: str) -> None:
     output: Final = md(f"<p>x&nbsp;&nbsp;{suffix}</p>")
-    assert (output, parse_fragment(MarkdownIt("commonmark").render(output)).find("p").text) == (
+    paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
+    assert paragraph is not None
+    assert (output, paragraph.text) == (
         "x&#160;&#160;",
         "x\u00a0\u00a0",
     )
@@ -177,12 +181,16 @@ def test_multiple_unicode_spaces_at_prose_end(suffix: str) -> None:
 
 def test_unicode_space_after_non_ascii_letter_at_prose_end() -> None:
     output: Final = md("<p>xé&nbsp;</p>")
-    assert (output, parse_fragment(MarkdownIt("commonmark").render(output)).find("p").text) == ("xé&#160;", "xé\u00a0")
+    paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
+    assert paragraph is not None
+    assert (output, paragraph.text) == ("xé&#160;", "xé\u00a0")
 
 
 def test_unicode_space_before_non_ascii_letter_at_prose_start() -> None:
     output: Final = md("<p>&nbsp;é</p>")
-    assert (output, parse_fragment(MarkdownIt("commonmark").render(output)).find("p").text) == ("&#160;é", "\u00a0é")
+    paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
+    assert paragraph is not None
+    assert (output, paragraph.text) == ("&#160;é", "\u00a0é")
 
 
 @pytest.mark.parametrize(
