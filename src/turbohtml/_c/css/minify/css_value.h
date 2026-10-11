@@ -837,6 +837,9 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
                fold; keep the function verbatim rather than drop or reorder its arguments */
             return token->kind == CSS_IDENT && css_run_ieq(token->text, token->text_len, "calc") ? -1 : 0;
         }
+        if (token->text_len >= 64) {
+            return 0;
+        }
         double magnitude = css_run_to_double(token->text, token->text_len);
         int is_pct = token->unit_len == 1 && (token->text + token->text_len)[0] == '%';
         if (is_pct) {

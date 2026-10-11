@@ -492,6 +492,8 @@ def test_minify_css_escaped_custom_property_name(source: str, expected: str) -> 
         pytest.param("a{color:rgb(0 0 0/.5)}", "a{color:rgb(0 0 0/.5)}", id="modern-alpha-slash-kept"),
         pytest.param("a{color:rgb(0 0 0/0)}", "a{color:#0000}", id="modern-transparent-folds"),
         pytest.param("a{color:rgba(0,0,0,0)}", "a{color:#0000}", id="legacy-transparent-folds"),
+        pytest.param("a{color:hsl(0%,100%,50%)}", "a{color:hsl(0%,100%,50%)}", id="hsl-percent-hue"),
+        pytest.param("a{color:hsl(0,100,50%)}", "a{color:hsl(0,100,50%)}", id="hsl-number-saturation"),
     ],
 )
 def test_minify_css_rgb_argument_shape(source: str, expected: str) -> None:
@@ -499,6 +501,10 @@ def test_minify_css_rgb_argument_shape(source: str, expected: str) -> None:
     # the alpha); an illegal shape is kept verbatim, never rebuilt into a valid color (#1033)
     assert minify_css(source) == expected
     assert minify_css(expected) == expected
+
+
+def test_minify_css_keeps_long_rgb_channel_value() -> None:
+    assert minify_css("a{color:rgb(" + "0" * 63 + "1,0,0)}") == "a{color:rgb(1,0,0)}"
 
 
 @pytest.mark.parametrize(
@@ -672,6 +678,19 @@ def test_minify_css_keeps_invalid_background_position_order(property_name: str, 
 )
 def test_minify_css_position_order_controls(source: str, expected: str) -> None:
     assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("percentage", "expected"),
+    [
+        pytest.param("0" * 128 + "1%", "right " + "0" * 128 + "1% top 10px", id="nonzero-offset"),
+        pytest.param("0" * 129 + "%", "100% 10px", id="zero-offset"),
+        pytest.param("0" * 129 + "e1%", "100% 10px", id="zero-lowercase-exponent"),
+        pytest.param("0" * 129 + "E1%", "100% 10px", id="zero-uppercase-exponent"),
+    ],
+)
+def test_minify_css_background_position_long_percentage(percentage: str, expected: str) -> None:
+    assert minify_css(f"a{{background-position:right {percentage} top 10px}}") == f"a{{background-position:{expected}}}"
 
 
 @pytest.mark.parametrize(("value", "expected"), _POSITION_DELIMITERS)

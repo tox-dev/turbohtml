@@ -136,7 +136,7 @@ static TH_FORCEINLINE int is_web_host(PyObject *host, PyObject *netloc) {
 }
 
 /* The ":port" suffix, or "" for an absent, empty, or scheme-default port (port state, URL standard 4.4). A port of
-   digits is read as the integer it spells, so leading zeros fall away and "0080" is the http default. */
+   ASCII digits is read as the integer it spells, so leading zeros fall away and "0080" is the http default. */
 static PyObject *port_suffix(const th_url_parts *parts) {
     PyObject *port = parts->part[TH_URL_PORT];
     Py_ssize_t len = PyUnicode_GET_LENGTH(port);
@@ -146,12 +146,13 @@ static PyObject *port_suffix(const th_url_parts *parts) {
     int kind = PyUnicode_KIND(port);
     const void *data = PyUnicode_DATA(port);
     for (Py_ssize_t index = 0; index < len; index++) {
-        if (!Py_UNICODE_ISDIGIT(PyUnicode_READ(kind, data, index))) {
+        Py_UCS4 ch = PyUnicode_READ(kind, data, index);
+        if (ch < '0' || ch > '9') {
             return th_str_format(":%U", port);
         }
     }
     PyObject *number = PyLong_FromUnicodeObject(port, 10);
-    if (number == NULL) { /* GCOVR_EXCL_BR_LINE: a digit-only string always parses */
+    if (number == NULL) { /* GCOVR_EXCL_BR_LINE: an ASCII-digit-only string always parses */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     static const struct {
@@ -326,7 +327,7 @@ static PyObject *unsplit(PyObject *scheme, PyObject *netloc, PyObject *path, PyO
    "/dir/" and "/dir" into one form that trailing_slash=False asks for. */
 static PyObject *trim_trailing_slash(PyObject *path) {
     Py_ssize_t end = PyUnicode_GET_LENGTH(path);
-    while (end > 0 && PyUnicode_READ_CHAR(path, end - 1) == '/') {
+    while (end > 1 && PyUnicode_READ_CHAR(path, end - 1) == '/') {
         end--;
     }
     return PyUnicode_Substring(path, 0, end);

@@ -317,13 +317,17 @@ def test_normalize_reassembles_every_shape(url: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("url", "expected"),
     [
-        pytest.param("http://x.com//", "http://x.com", id="a-slash-run-is-trimmed-whole"),
+        pytest.param("http://x.com//", "http://x.com/", id="a-slash-run-keeps-root"),
+        pytest.param("http://x.com/a//", "http://x.com/a", id="a-slash-run-after-segment"),
+        pytest.param("file://server//", "file://server/", id="a-file-root"),
+        pytest.param("foo://server//", "foo://server/", id="a-non-special-root"),
         pytest.param("http://x.com/", "http://x.com/", id="the-root-stays"),
         pytest.param("http://x.com/a", "http://x.com/a", id="no-slash-to-trim"),
     ],
 )
 def test_trailing_slash_off(url: str, expected: str) -> None:
-    assert normalize_url(url, UrlCleaning(trailing_slash=False)) == expected
+    options: Final = UrlCleaning(trailing_slash=False)
+    assert ((normalized := normalize_url(url, options)), normalize_url(normalized, options)) == (expected, expected)
 
 
 def test_a_fragment_key_with_a_lone_surrogate_cannot_be_encoded() -> None:
@@ -1088,3 +1092,22 @@ def test_normalize_special_path_reverse_solidus(url: str, expected: str) -> None
 
 def test_clean_special_path_reverse_solidus() -> None:
     assert clean_url("https://example.org/a\\b") == "https://example.org/a/b"
+
+
+@pytest.mark.parametrize(
+    "normalizer",
+    [pytest.param(normalize_url, id="normalize"), pytest.param(clean_url, id="clean")],
+)
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("http://example.com:८०/", "http://example.com:८०/", id="non-ascii-decimal-port"),
+        pytest.param("http://example.com:①/", "http://example.com:①/", id="non-decimal-digit-port"),
+        pytest.param("http://example.com:0080/", "http://example.com/", id="ascii-default-port"),
+        pytest.param("http://example.com:80x/", "http://example.com:80x/", id="invalid-ascii-port"),
+        pytest.param("http://example.com:!/", "http://example.com:!/", id="punctuation-port"),
+        pytest.param("http://example.com:65536/", "http://example.com:65536/", id="overflowing-ascii-port"),
+    ],
+)
+def test_normalize_port_uses_ascii_digits(normalizer: Callable[[str], str | None], url: str, expected: str) -> None:
+    assert normalizer(url) == expected
