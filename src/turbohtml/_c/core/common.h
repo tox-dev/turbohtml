@@ -202,8 +202,10 @@ PyObject *turbohtml_url_to_ascii(PyObject *module, PyObject *arg);
 /* Implemented in url/url.c. th_url_host_canonical runs the rest of the WHATWG host parser
    (https://url.spec.whatwg.org/#concept-host-parser) over the bracket-stripped host url_split reports, so two spellings
    of one address compare equal. A host invalid for its form falls back to its lowercased spelling, the advisory
-   behavior normalize_url takes for an unencodable label. NULL only on allocation failure. */
+   behavior normalize_url takes for an unencodable label. The checked IPv6 variant lets clean_url reject an address
+   a browser cannot fetch. NULL only on allocation failure. */
 PyObject *th_url_host_canonical(PyObject *host, int kind);
+PyObject *th_url_ipv6_canonical_checked(PyObject *host);
 
 /* Implemented in url/registrable.c. _registrable_domain(host) returns a lowercased
    host's registrable domain (eTLD+1) from the shipped IANA and Public Suffix List

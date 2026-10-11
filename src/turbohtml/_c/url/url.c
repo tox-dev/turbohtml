@@ -277,23 +277,33 @@ static PyObject *domain_to_ascii(PyObject *host);
 static PyObject *maybe_ipv4(PyObject *ascii);
 static int ipv4_number(const Py_UCS4 *cp, Py_ssize_t start, Py_ssize_t end, uint64_t *out);
 
+static PyObject *ipv6_canonical(PyObject *host, int checked) {
+    Py_ssize_t len = PyUnicode_GET_LENGTH(host);
+    int host_kind = PyUnicode_KIND(host);
+    const void *data = PyUnicode_DATA(host);
+    Py_UCS4 *cp = PyMem_Malloc(((size_t)len + 1) * sizeof(Py_UCS4));
+    if (cp == NULL) {            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    for (Py_ssize_t index = 0; index < len; index++) {
+        cp[index] = PyUnicode_READ(host_kind, data, index);
+    }
+    uint16_t pieces[8];
+    int parsed = ipv6_parse(cp, len, pieces);
+    PyObject *result = parsed    ? ipv6_serialize(pieces)
+                       : checked ? Py_NewRef(Py_None)
+                                 : PyObject_CallMethod(host, "lower", NULL);
+    PyMem_Free(cp);
+    return result;
+}
+
+PyObject *th_url_ipv6_canonical_checked(PyObject *host) {
+    return ipv6_canonical(host, 1);
+}
+
 PyObject *th_url_host_canonical(PyObject *host, int kind) {
     if (kind == TH_HOST_IPV6) {
-        Py_ssize_t len = PyUnicode_GET_LENGTH(host);
-        int host_kind = PyUnicode_KIND(host);
-        const void *data = PyUnicode_DATA(host);
-        Py_UCS4 *cp = PyMem_Malloc(((size_t)len + 1) * sizeof(Py_UCS4));
-        if (cp == NULL) {            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        for (Py_ssize_t index = 0; index < len; index++) {
-            cp[index] = PyUnicode_READ(host_kind, data, index);
-        }
-        uint16_t pieces[8];
-        PyObject *result =
-            ipv6_parse(cp, len, pieces) ? ipv6_serialize(pieces) : PyObject_CallMethod(host, "lower", NULL);
-        PyMem_Free(cp);
-        return result;
+        return ipv6_canonical(host, 0);
     }
     PyObject *decoded = th_url_percent_decode_obj(host);
     if (decoded == NULL) { /* GCOVR_EXCL_BR_LINE: decode only fails on the excluded allocation path */

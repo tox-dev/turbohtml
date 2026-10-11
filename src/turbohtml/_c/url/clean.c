@@ -173,9 +173,14 @@ static PyObject *port_suffix(const th_url_parts *parts) {
 
 /* The authority rebuilt from its WHATWG-canonical host and port, keeping userinfo verbatim. */
 static PyObject *normalize_netloc(const th_url_parts *parts, int web_only) {
-    PyObject *canonical = th_url_host_canonical(parts->part[TH_URL_HOST], parts->kind);
+    PyObject *canonical = web_only && parts->kind == TH_HOST_IPV6
+                              ? th_url_ipv6_canonical_checked(parts->part[TH_URL_HOST])
+                              : th_url_host_canonical(parts->part[TH_URL_HOST], parts->kind);
     if (canonical == NULL) {
         return NULL;
+    }
+    if (canonical == Py_None) {
+        return canonical;
     }
     PyObject *host = parts->kind == TH_HOST_IPV6 ? th_str_format("[%U]", canonical) : Py_NewRef(canonical);
     Py_DECREF(canonical);

@@ -228,12 +228,18 @@ static int css_prop_color_mode(const css_char *prop, Py_ssize_t len) {
         }
         return CSS_COLOR_EQ("outline") ? 2 : 0;
     case 's':
-        if (CSS_COLOR_EQ("stroke") || CSS_COLOR_EQ("stop-color")) {
+        if (CSS_COLOR_EQ("stroke")) {
+            return 1;
+        }
+        if (CSS_COLOR_EQ("stop-color")) {
             return 1;
         }
         return CSS_COLOR_EQ("scrollbar-color") ? 2 : 0;
     case 't':
-        if (CSS_COLOR_EQ("text-decoration-color") || CSS_COLOR_EQ("text-emphasis-color")) {
+        if (CSS_COLOR_EQ("text-decoration-color")) {
+            return 1;
+        }
+        if (CSS_COLOR_EQ("text-emphasis-color")) {
             return 1;
         }
         if (CSS_COLOR_EQ("text-decoration") || CSS_COLOR_EQ("text-emphasis") || CSS_COLOR_EQ("text-shadow")) {

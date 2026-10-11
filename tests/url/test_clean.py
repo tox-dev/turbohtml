@@ -73,6 +73,18 @@ def test_clean_accepts_colon_hosts(url: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("https://[:::1]/", id="extra-compression-colon"),
+        pytest.param("https://[::g]/", id="non-hex-group"),
+        pytest.param("https://[1:2:3]/", id="too-few-groups"),
+    ],
+)
+def test_clean_rejects_invalid_ipv6_hosts(url: str) -> None:
+    assert clean_url(url) is None
+
+
+@pytest.mark.parametrize(
     ("url", "expected"),
     [
         pytest.param("HTTP://LOCALHOST:/x", None, id="dotless-empty-port"),
