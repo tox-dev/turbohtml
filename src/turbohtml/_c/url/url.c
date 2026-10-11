@@ -702,6 +702,11 @@ int th_url_split(PyObject *arg, th_url_parts *out, int host_brackets_only) {
     Py_ssize_t query_start = query_at >= 0 ? query_at + 1 : url_end;
     th_authority auth;
     th_url_authority(work, netloc_start, netloc_end, &auth);
+    if (auth.host_start == auth.host_end && auth.host_start > netloc_start && work[auth.host_start - 1] == '@') {
+        PyMem_Free(work);
+        PyErr_SetString(PyExc_ValueError, "missing host after credentials");
+        return -1;
+    }
     Py_ssize_t spans[8][2] = {
         {0, scheme_end >= 0 ? scheme_end : 0},
         {netloc_start, netloc_end},

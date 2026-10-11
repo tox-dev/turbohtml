@@ -924,6 +924,24 @@ def test_normalize_host_valid_and_fallback_forms(source: str, expected: str) -> 
 @pytest.mark.parametrize(
     "source",
     [
+        pytest.param("https://user@", id="special-user"),
+        pytest.param("https://@/path", id="special-empty-user"),
+        pytest.param("git://user@?query", id="opaque-user"),
+        pytest.param("git://@", id="opaque-empty-user"),
+    ],
+)
+def test_normalize_rejects_credentials_without_host(source: str) -> None:
+    with pytest.raises(ValueError, match="missing host after credentials"):
+        normalize_url(source)
+
+
+def test_normalize_accepts_credentials_with_host() -> None:
+    assert normalize_url("git://user@host/path") == "git://user@host/path"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
         pytest.param("http://a%23b.example/", id="decoded-fragment"),
         pytest.param("http://a\uff05\uff14\uff11.example/", id="mapped-escape"),
     ],
