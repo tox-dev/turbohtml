@@ -862,6 +862,9 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
         if (has_slash || comma_count != count - 1) {
             return 0;
         }
+        if (is_rgb && (types[0] != types[1] || types[1] != types[2])) {
+            return 0;
+        }
     } else if (has_slash) {
         if (slash_count != 1 || count != 4 || slash_at != 3) {
             return 0;
