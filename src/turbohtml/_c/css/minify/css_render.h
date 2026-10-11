@@ -751,15 +751,17 @@ static int css_handle_unicode_range(token_vec *vec, Py_ssize_t start, Py_ssize_t
         return 1;         /* GCOVR_EXCL_LINE */
     }
     Py_ssize_t count = 0;
+    Py_ssize_t commas = 0;
     for (Py_ssize_t index = start; index < end; index++) {
         css_token *token = &vec->items[index];
         if (token->kind == CSS_WS || token->kind == CSS_COMMENT) {
             continue;
         }
         if (token->kind == CSS_DELIM && token->delim == ',') {
+            commas++;
             continue;
         }
-        if (token->kind != CSS_URANGE) {
+        if (token->kind != CSS_URANGE || commas != count) {
             css_free(ranges);
             return 0;
         }
@@ -782,6 +784,10 @@ static int css_handle_unicode_range(token_vec *vec, Py_ssize_t start, Py_ssize_t
         }
         css_parse_unicode_range(token->text, token->text_len, &ranges[count][0], &ranges[count][1]);
         count++;
+    }
+    if (count != commas + 1) {
+        css_free(ranges);
+        return 0;
     }
     if (count > 64) {
         Py_ssize_t index = 1;
