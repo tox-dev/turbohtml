@@ -858,7 +858,7 @@ static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
         while (end > start && ctx->out.data[end - 1] >= '0' && ctx->out.data[end - 1] <= '9') {
             end--;
         }
-        if (end == start && ctx->out.len > start) {
+        if (end == start) {
             Py_ssize_t scan = 0;
             while (scan < len && text[scan] >= '0' && text[scan] <= '9') {
                 scan++;
@@ -906,9 +906,7 @@ static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
                 index += consumed;
                 continue;
             }
-            if (ctx->pending == NULL) {
-                ctx->line_number_start = ctx->out.len + 1;
-            }
+            ctx->line_number_start = ctx->out.len + 1;
         }
         int by_context = ((kind & MD_CH_CONTEXT) || (translit && ch == 0x2190)) && ctx->escape_prose &&
                          md_escape_in_text(ctx, text, index, len);
