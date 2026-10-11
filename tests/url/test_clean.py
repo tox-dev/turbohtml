@@ -358,6 +358,10 @@ def test_a_relative_href_against_an_unsplittable_base_element_raises() -> None:
         pytest.param("http://x.org/x?q=a b#f g", "http://x.org/x?q=a%20b#f%20g", id="query-and-fragment-encoded"),
         pytest.param("http://x.org/x#a{b}", "http://x.org/x#a{b}", id="fragment-set-looser-than-path"),
         pytest.param("mailto:someone@example.org", "mailto:someone@example.org", id="opaque-scheme-untouched"),
+        pytest.param("foo:/a/../b", "foo:/b", id="hostless-non-special-dot-segment"),
+        pytest.param("foo:/a/%2e%2e/b?x=1#f", "foo:/b?x=1#f", id="hostless-escaped-dot-segment"),
+        pytest.param("mailto:/a/../b", "mailto:/b", id="hostless-mailto-dot-segment"),
+        pytest.param("foo:a/../b", "foo:a/../b", id="opaque-dot-segment-untouched"),
         pytest.param("page.html?b=2&a=1", "page.html?a=1&b=2", id="relative-url-keeps-shape"),
     ],
 )

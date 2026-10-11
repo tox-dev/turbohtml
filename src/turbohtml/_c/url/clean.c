@@ -324,7 +324,7 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
     if (path == NULL) {
         goto done;
     }
-    if (has_netloc) {
+    if (has_netloc || (PyUnicode_GET_LENGTH(scheme) > 0 && str_has_prefix(path, "/"))) {
         Py_SETREF(path, turbohtml_url_remove_dot_segments(NULL, path));
         if (path == NULL) { /* GCOVR_EXCL_BR_LINE: dot-segment removal only fails on allocation failure */
             goto done;      /* GCOVR_EXCL_LINE: allocation-failure path */
