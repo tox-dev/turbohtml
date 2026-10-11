@@ -156,7 +156,7 @@ def test_external_only_canonicalizes_ipv4_hosts_before_comparing() -> None:
 def test_external_only_attributes_backslash_authority_to_the_real_host() -> None:
     # a browser resolves evil.example\@good.example to evil.example, so the link leaves the base's site and is kept
     html: Final = '<a href="http://evil.example\\@good.example/">x</a>'
-    assert extract_links(html, "http://good.example/", external_only=True) == {"http://evil.example\\@good.example/"}
+    assert extract_links(html, "http://good.example/", external_only=True) == {"http://evil.example/@good.example/"}
 
 
 def test_external_only_requires_a_base() -> None:

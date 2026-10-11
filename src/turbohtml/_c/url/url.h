@@ -113,6 +113,7 @@ typedef struct {
     int has_authority;
     int has_port;
     int kind;
+    int special;
 } th_url_parts;
 
 /* Split `url` (a str) into its components the way urllib.parse.urlsplit does, lowercasing the scheme and dropping the
@@ -125,6 +126,7 @@ void th_url_parts_clear(th_url_parts *parts);
    a lone surrogate. th_url_is_tracker_obj returns 1 for a tracker, 0 otherwise, -1 with an error set. */
 PyObject *th_url_percent_encode_obj(PyObject *text, int set_id);
 PyObject *th_url_encode_component(PyObject *text, int set_id);
+PyObject *th_url_encode_special_path(PyObject *text);
 PyObject *th_url_percent_decode_obj(PyObject *text);
 int th_url_is_tracker_obj(PyObject *key);
 PyObject *th_url_literalize_dot_segments(PyObject *url);

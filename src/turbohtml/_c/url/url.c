@@ -18,6 +18,7 @@
    ASCII. All sets keep '%', so an already-encoded %XX passes through unchanged. */
 #define URL_UNRESERVED TH_URL_ALPHA "0123456789-._~"
 static const char URL_PATH_KEEP[] = URL_UNRESERVED "!$%&'()*+,/:;=@[\\]|";
+static const char URL_SPECIAL_PATH_KEEP[] = URL_UNRESERVED "!$%&'()*+,/:;=@[]|";
 static const char URL_QUERY_KEEP[] = URL_UNRESERVED "!$%&()*+,/:;=?@[\\]^`{|}";
 static const char URL_FRAGMENT_KEEP[] = URL_UNRESERVED "!#$%&'()*+,/:;=?@[\\]^{|}";
 static const char URL_OPAQUE_PATH_KEEP[] = URL_UNRESERVED " !\"#$%&'()*+,/:;<=>?@[\\]^`{|}";
@@ -67,7 +68,7 @@ Py_ssize_t th_url_encode_span(char *out, Py_ssize_t at, const char *bytes, Py_ss
    encoding, so this raises the UnicodeEncodeError PyUnicode_AsUTF8AndSize sets), then rewrites an existing %XX to
    uppercase hex and percent-encodes every byte outside the set. Since '%' stays in every keep set, a valid escape
    survives; a stray '%' or a truncated %X is a literal byte the set keeps. */
-PyObject *th_url_percent_encode_obj(PyObject *text, int set_id) {
+static inline PyObject *percent_encode_obj(PyObject *text, int set_id, int special_path) {
     Py_ssize_t len;
     const char *bytes = PyUnicode_AsUTF8AndSize(text, &len);
     if (bytes == NULL) {
@@ -77,8 +78,8 @@ PyObject *th_url_percent_encode_obj(PyObject *text, int set_id) {
     if (out == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    const char *keep = URL_KEEP_SETS[set_id];
-    size_t keep_len = URL_KEEP_LENS[set_id];
+    const char *keep = special_path ? URL_SPECIAL_PATH_KEEP : URL_KEEP_SETS[set_id];
+    size_t keep_len = special_path ? sizeof(URL_SPECIAL_PATH_KEEP) - 1 : URL_KEEP_LENS[set_id];
     Py_ssize_t at = 0;
     Py_ssize_t index = 0;
     while (index < len) {
@@ -93,6 +94,9 @@ PyObject *th_url_percent_encode_obj(PyObject *text, int set_id) {
         } else if (th_url_in_set(byte, keep, keep_len)) {
             out[at++] = (char)byte;
             index++;
+        } else if (special_path && byte == '\\') {
+            out[at++] = '/';
+            index++;
         } else {
             out[at++] = '%';
             out[at++] = HEX_UPPER[byte >> 4];
@@ -103,6 +107,10 @@ PyObject *th_url_percent_encode_obj(PyObject *text, int set_id) {
     PyObject *result = PyUnicode_DecodeUTF8(out, at, "strict"); /* out is pure ASCII by construction, so strict holds */
     PyMem_Free(out);
     return result; /* NULL only on the excluded decode-failure path */
+}
+
+PyObject *th_url_percent_encode_obj(PyObject *text, int set_id) {
+    return percent_encode_obj(text, set_id, 0);
 }
 
 /* _url_percent_encode(text, set_id): the shim's per-component encoder, replacing urllib.parse.quote plus a preceding
@@ -725,6 +733,7 @@ int th_url_split(PyObject *arg, th_url_parts *out, int host_brackets_only) {
     out->has_authority = netloc_start > body;
     out->has_port = auth.has_port;
     out->kind = auth.kind;
+    out->special = special;
     PyMem_Free(work);
     return 0;
 }
@@ -1622,8 +1631,8 @@ PyObject *turbohtml_url_variant_key(PyObject *Py_UNUSED(module), PyObject *arg) 
 
 /* Percent-encode one component for its set, rewrapping the encoder's UnicodeEncodeError as the ValueError
    normalize_url raises, so a lone surrogate reports the "cannot be percent-encoded" message with the component. */
-PyObject *th_url_encode_component(PyObject *text, int set_id) {
-    PyObject *encoded = th_url_percent_encode_obj(text, set_id);
+static PyObject *encode_component(PyObject *text, int set_id, int special_path) {
+    PyObject *encoded = percent_encode_obj(text, set_id, special_path);
     if (encoded != NULL) {
         return encoded;
     }
@@ -1639,6 +1648,14 @@ PyObject *th_url_encode_component(PyObject *text, int set_id) {
     Py_DECREF(value);
     Py_XDECREF(traceback);
     return NULL;
+}
+
+PyObject *th_url_encode_component(PyObject *text, int set_id) {
+    return encode_component(text, set_id, 0);
+}
+
+PyObject *th_url_encode_special_path(PyObject *text) {
+    return encode_component(text, TH_URL_SET_PATH, 1);
 }
 
 /* Percent-encode the query pair query[start:end) for the query set. */

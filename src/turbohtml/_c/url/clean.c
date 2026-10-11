@@ -307,11 +307,6 @@ static int scheme_is_special(PyObject *scheme) {
     }
 }
 
-static int scheme_has_special_path(PyObject *scheme) {
-    return str_equals(scheme, "ftp") || str_equals(scheme, "http") || str_equals(scheme, "https") ||
-           str_equals(scheme, "ws") || str_equals(scheme, "wss");
-}
-
 /* Preserve explicit empty authorities and the default marker for special schemes. An empty query or fragment loses its
    delimiter; a path behind an authority already has its leading slash. */
 static PyObject *unsplit(PyObject *scheme, PyObject *netloc, PyObject *path, PyObject *query, PyObject *fragment,
@@ -413,13 +408,14 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
         Py_DECREF(file_path);
     } else {
         int opaque = !has_netloc && PyUnicode_GET_LENGTH(scheme) > 0 &&
-                     !str_has_prefix(parts->part[TH_URL_PATH], "/") && !scheme_has_special_path(scheme);
+                     !str_has_prefix(parts->part[TH_URL_PATH], "/") && !parts->special;
         if (opaque) {
             path = opaque_path_needs_encoding(parts->part[TH_URL_PATH])
                        ? th_url_encode_component(parts->part[TH_URL_PATH], TH_URL_SET_OPAQUE_PATH)
                        : Py_NewRef(parts->part[TH_URL_PATH]);
         } else {
-            path = th_url_encode_component(parts->part[TH_URL_PATH], TH_URL_SET_PATH);
+            path = parts->special ? th_url_encode_special_path(parts->part[TH_URL_PATH])
+                                  : th_url_encode_component(parts->part[TH_URL_PATH], TH_URL_SET_PATH);
         }
         if (opaque && path != NULL && PyUnicode_GET_LENGTH(path) > 0 &&
             PyUnicode_READ_CHAR(path, PyUnicode_GET_LENGTH(path) - 1) == ' ') {

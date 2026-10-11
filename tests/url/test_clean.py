@@ -957,7 +957,7 @@ def test_external_links_reject_forbidden_base_domain() -> None:
         pytest.param("file:///a\\\U0001f600", "file:///a/%F0%9F%98%80", id="four-byte-unicode"),
         pytest.param("file:///a\\\x00b", "file:///a/%00b", id="embedded-null"),
         pytest.param("FIZZ://EXAMPLE.ORG/a\\b?x=1#part", "fizz://example.org/a\\b?x=1#part", id="f-prefixed-non-file"),
-        pytest.param("HTTPS://EXAMPLE.ORG/a\\b?x=1#part", "https://example.org/a\\b?x=1#part", id="web-path-policy"),
+        pytest.param("HTTPS://EXAMPLE.ORG/a\\b?x=1#part", "https://example.org/a/b?x=1#part", id="web-path-policy"),
         pytest.param(
             "CUSTOM://EXAMPLE.ORG/a\\b?x=1#part", "custom://example.org/a\\b?x=1#part", id="custom-path-policy"
         ),
@@ -1061,3 +1061,30 @@ def test_normalize_file_keeps_at_in_path() -> None:
 def test_normalize_file_rejects_surrogate(url: str) -> None:
     with pytest.raises(ValueError, match="cannot be percent-encoded"):
         normalize_url(url)
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("https://example.org/a\\b", "https://example.org/a/b", id="https-path"),
+        pytest.param("http://example.org\\a", "http://example.org/a", id="http-authority-boundary"),
+        pytest.param("ftp://example.org/a\\b", "ftp://example.org/a/b", id="ftp-path"),
+        pytest.param("ws://example.org/a\\b", "ws://example.org/a/b", id="ws-path"),
+        pytest.param("wss://example.org/a\\b", "wss://example.org/a/b", id="wss-path"),
+        pytest.param("https://example.org/a\\..\\b", "https://example.org/b", id="parent-segment"),
+        pytest.param(
+            "https://example.org/a\\b?x=\\y#z\\w",
+            "https://example.org/a/b?x=\\y#z\\w",
+            id="query-and-fragment-remain-separate",
+        ),
+        pytest.param("https://example.org/a%5Cb", "https://example.org/a%5Cb", id="encoded-reverse-solidus"),
+        pytest.param("foo://example.org/a\\b", "foo://example.org/a\\b", id="non-special-path"),
+    ],
+)
+def test_normalize_special_path_reverse_solidus(url: str, expected: str) -> None:
+    normalized: Final = normalize_url(url)
+    assert (normalized, normalize_url(normalized)) == (expected, expected)
+
+
+def test_clean_special_path_reverse_solidus() -> None:
+    assert clean_url("https://example.org/a\\b") == "https://example.org/a/b"
