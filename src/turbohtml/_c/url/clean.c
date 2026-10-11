@@ -241,29 +241,23 @@ static PyObject *normalize_fragment(PyObject *fragment, const clean_options *opt
     return tracker ? PyUnicode_FromString("") : th_url_encode_component(fragment, TH_URL_SET_FRAGMENT);
 }
 
-/* The schemes urllib.parse.uses_netloc lists, the ones whose serialization always carries the "//" authority marker
-   before an absolute path even when the authority is empty. */
-static const char *const NETLOC_SCHEMES[] = {"ftp",   "http",    "gopher", "nntp",  "telnet",       "imap",     "wais",
-                                             "file",  "mms",     "https",  "shttp", "snews",        "prospero", "rtsp",
-                                             "rtsps", "rtspu",   "rsync",  "svn",   "svn+ssh",      "sftp",     "nfs",
-                                             "git",   "git+ssh", "ws",     "wss",   "itms-services"};
+static const char *const SPECIAL_SCHEMES[] = {"file", "ftp", "http", "https", "ws", "wss"};
 
-static int scheme_uses_netloc(PyObject *scheme) {
-    for (size_t index = 0; index < sizeof(NETLOC_SCHEMES) / sizeof(*NETLOC_SCHEMES); index++) {
-        if (str_equals(scheme, NETLOC_SCHEMES[index])) {
+static int scheme_is_special(PyObject *scheme) {
+    for (size_t index = 0; index < sizeof(SPECIAL_SCHEMES) / sizeof(*SPECIAL_SCHEMES); index++) {
+        if (str_equals(scheme, SPECIAL_SCHEMES[index])) {
             return 1;
         }
     }
     return 0;
 }
 
-/* Reassemble the components the way urllib.parse.urlunsplit does: an authority (or, for a netloc scheme, an empty
-   one before an absolute path) is introduced by "//"; an empty query or fragment is dropped with its delimiter. The
-   split never leaves a relative path behind an authority, so the path needs no leading slash added. */
+/* Reassemble components, preserving the existing empty authority marker for special schemes. An empty query or
+   fragment is dropped with its delimiter; a path behind an authority already has its leading slash. */
 static PyObject *unsplit(PyObject *scheme, PyObject *netloc, PyObject *path, PyObject *query, PyObject *fragment) {
     int has_scheme = PyUnicode_GET_LENGTH(scheme) > 0;
     int has_netloc = PyUnicode_GET_LENGTH(netloc) > 0;
-    if (!has_netloc && has_scheme && scheme_uses_netloc(scheme) &&
+    if (!has_netloc && has_scheme && scheme_is_special(scheme) &&
         (PyUnicode_GET_LENGTH(path) == 0 || str_has_prefix(path, "/"))) {
         has_netloc = 1;
     }
