@@ -1,0 +1,1 @@
+Honor ``__html__`` on values returned by ``__html__`` in the MarkupSafe migration API.
