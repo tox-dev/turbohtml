@@ -349,11 +349,10 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
             PyUnicode_READ_CHAR(path, PyUnicode_GET_LENGTH(path) - 1) == ' ') {
             PyObject *prefix = PyUnicode_Substring(path, 0, PyUnicode_GET_LENGTH(path) - 1);
             if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: substring of an existing string only fails on allocation */
-                Py_CLEAR(path);   /* GCOVR_EXCL_LINE: allocation-failure path */
-            } else {
-                Py_SETREF(path, th_str_format("%U%%20", prefix));
-                Py_DECREF(prefix);
+                goto done;        /* GCOVR_EXCL_LINE: allocation-failure path */
             }
+            Py_SETREF(path, th_str_format("%U%%20", prefix));
+            Py_DECREF(prefix);
         }
     }
     if (path == NULL) {
