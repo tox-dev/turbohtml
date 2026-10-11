@@ -1,0 +1,1 @@
+Preserve hostless non-special URL paths without adding an empty authority.

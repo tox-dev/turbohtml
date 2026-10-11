@@ -124,7 +124,7 @@ static CSS_FORCEINLINE void css_render_components(css_buf *pool, token_vec *vec,
         if (token->kind == CSS_IDENT && index + 1 < end && vec->items[index + 1].kind == CSS_DELIM &&
             vec->items[index + 1].delim == '(') {
             Py_ssize_t close_index = css_match_paren(vec, index + 1, end);
-            css_emit_function(pool, vec, index, close_index, &comp.off, &comp.len, &comp.kind);
+            css_emit_function(pool, vec, index, close_index, property, property_len, &comp.off, &comp.len, &comp.kind);
             comp.isfunc = comp.kind == CK_FUNC;
             comp_vec_push(comps, comp);
             index = close_index + 1;
@@ -358,6 +358,7 @@ static void css_minify_color_comp(css_buf *pool, css_comp *comp) {
 static const char *const CSS_BOX_PROPS[] = {"margin", "padding",       "border-width",  "border-style",
                                             "inset",  "border-radius", "scroll-margin", "scroll-padding",
                                             "gap",    "grid-gap",      "overflow",      "overscroll-behavior"};
+static const char *const CSS_TWO_VALUE_BOX_PROPS[] = {"gap", "grid-gap", "overflow", "overscroll-behavior"};
 
 static const char *const CSS_CURRENTCOLOR_INIT[] = {"border-left-color",     "border-right-color",
                                                     "border-top-color",      "border-bottom-color",
@@ -447,7 +448,7 @@ static void css_handle_color_single(css_buf *pool, comp_vec *comps, const css_ch
 
 static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char *prop, Py_ssize_t prop_len) {
     static const char *const border_drop[] = {"none", "currentcolor", "medium"};
-    static const char *const outline_drop[] = {"invert", "none", "medium"};
+    static const char *const outline_drop[] = {"none", "medium"};
     static const char *const column_drop[] = {"currentcolor", "none", "medium"};
     static const char *const decoration_drop[] = {"currentcolor", "none", "solid"};
     static const char *const emphasis_drop[] = {"currentcolor", "none"};
@@ -455,6 +456,7 @@ static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char
     size_t drop_count = 3;
     if (css_run_ieq(prop, prop_len, "outline")) {
         drop = outline_drop;
+        drop_count = 2;
     } else if (css_run_ieq(prop, prop_len, "column-rule")) {
         drop = column_drop;
     } else if (css_run_ieq(prop, prop_len, "text-decoration")) {
@@ -519,7 +521,7 @@ static void css_handle_border_color(css_buf *pool, comp_vec *comps) {
         comps->items[write++] = comp;
     }
     comps->len = write;
-    if (write > 0) {
+    if (write > 0 && write <= 4) {
         int all_equal = 1;
         for (Py_ssize_t index = 1; index < write; index++) {
             if (!css_comp_text_eq(pool, &comps->items[index], &comps->items[0])) {
@@ -528,10 +530,19 @@ static void css_handle_border_color(css_buf *pool, comp_vec *comps) {
             }
         }
         if (all_equal) {
+            css_comp *first = &comps->items[0];
+            if (write > 1 && first->len >= 5 &&
+                (css_lower(pool->data[first->off]) == 'i' || css_lower(pool->data[first->off]) == 'u' ||
+                 css_lower(pool->data[first->off]) == 'r') &&
+                (css_comp_kw(pool, first, "inherit") || css_comp_kw(pool, first, "initial") ||
+                 css_comp_kw(pool, first, "unset") || css_comp_kw(pool, first, "revert") ||
+                 css_comp_kw(pool, first, "revert-layer"))) {
+                return;
+            }
             comps->len = 1;
             /* the list collapsed to a single value, so a lone currentcolor is now safe to shorten to initial */
-            if (css_comp_kw(pool, &comps->items[0], "currentcolor")) {
-                css_set_comp(pool, &comps->items[0], "initial", CK_IDENT);
+            if (css_comp_kw(pool, first, "currentcolor")) {
+                css_set_comp(pool, first, "initial", CK_IDENT);
             }
         }
     }

@@ -1,0 +1,1 @@
+Preserve invalid integer syntax in CSS order declarations during minification.

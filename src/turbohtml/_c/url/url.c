@@ -20,9 +20,12 @@ static const char URL_PATH_KEEP[] = URL_UNRESERVED "!$%&'()*+,/:;=@[\\]^|";
 static const char URL_QUERY_KEEP[] = URL_UNRESERVED "!$%&()*+,/:;=?@[\\]^`{|}";
 static const char URL_FRAGMENT_KEEP[] = URL_UNRESERVED "!#$%&'()*+,/:;=?@[\\]^{|}";
 static const char URL_OPAQUE_PATH_KEEP[] = URL_UNRESERVED " !\"#$%&'()*+,/:;<=>?@[\\]^`{|}";
-static const char *const URL_KEEP_SETS[] = {URL_PATH_KEEP, URL_QUERY_KEEP, URL_FRAGMENT_KEEP, URL_OPAQUE_PATH_KEEP};
+static const char URL_USERINFO_KEEP[] = URL_UNRESERVED "!$%&'()*+,";
+static const char *const URL_KEEP_SETS[] = {URL_PATH_KEEP, URL_QUERY_KEEP, URL_FRAGMENT_KEEP, URL_USERINFO_KEEP,
+                                           URL_OPAQUE_PATH_KEEP};
 static const size_t URL_KEEP_LENS[] = {sizeof(URL_PATH_KEEP) - 1, sizeof(URL_QUERY_KEEP) - 1,
-                                       sizeof(URL_FRAGMENT_KEEP) - 1, sizeof(URL_OPAQUE_PATH_KEEP) - 1};
+                                       sizeof(URL_FRAGMENT_KEEP) - 1, sizeof(URL_USERINFO_KEEP) - 1,
+                                       sizeof(URL_OPAQUE_PATH_KEEP) - 1};
 static const char HEX_UPPER[] = "0123456789ABCDEF";
 
 /* The value of a hex digit, or -1 when `ch` is not one; a memchr over the digit set, never a chained range test, so the

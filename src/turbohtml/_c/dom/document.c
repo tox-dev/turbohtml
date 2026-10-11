@@ -3,6 +3,8 @@
 
 #include "dom/nodes.h"
 
+#include <stdbool.h>
+
 #include "encoding/encoding.h"
 #include "encoding/decode.h"
 #include "encoding/detect.h"
@@ -143,11 +145,49 @@ static PyObject *url_percent_encode(PyObject *url) {
     return result; /* NULL on the excluded decode-failure path */
 }
 
+/* Resolved URLs trim trailing C0 controls per WHATWG; th_url_join retains urllib's raw-reference contract. */
+static int url_ends_in_c0(PyObject *url) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(url);
+    if (length == 0) {
+        return 0;
+    }
+    if (PyUnicode_IS_ASCII(url)) {
+        return PyUnicode_1BYTE_DATA(url)[length - 1] <= 0x20;
+    }
+    return PyUnicode_READ(PyUnicode_KIND(url), PyUnicode_DATA(url), length - 1) <= 0x20;
+}
+
+static PyObject *trim_url_trailing_c0(PyObject *url) {
+    Py_ssize_t end = PyUnicode_GET_LENGTH(url);
+    int kind = PyUnicode_KIND(url);
+    const void *data = PyUnicode_DATA(url);
+    while (end > 0 && PyUnicode_READ(kind, data, end - 1) <= 0x20) {
+        end--;
+    }
+    return end == PyUnicode_GET_LENGTH(url) ? Py_NewRef(url) : PyUnicode_Substring(url, 0, end);
+}
+
 /* Resolve `target` against `base` and percent-encode the result the way base_url() does, the URL-resolution routine the
    extraction methods reuse rather than reinventing. A relative target absolutizes against base; an absolute one wins.
    NULL with a ValueError set when base or target cannot be split (e.g. an unclosed IPv6 bracket). */
 PyObject *th_url_resolve(PyObject *base, PyObject *target) {
-    PyObject *joined = th_url_join(base, target);
+    PyObject *joined;
+    if (!url_ends_in_c0(base) && !url_ends_in_c0(target)) {
+        joined = th_url_join(base, target);
+    } else {
+        PyObject *trimmed_base = trim_url_trailing_c0(base);
+        if (trimmed_base == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;            /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyObject *trimmed_target = trim_url_trailing_c0(target);
+        if (trimmed_target == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(trimmed_base);  /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;              /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        joined = th_url_join(trimmed_base, trimmed_target);
+        Py_DECREF(trimmed_base);
+        Py_DECREF(trimmed_target);
+    }
     if (joined == NULL) {
         return NULL;
     }
@@ -295,6 +335,30 @@ PyDoc_STRVAR(base_url_doc, "base_url(fallback='')\n--\n\n"
                            "    itself when the document has no <base href>.\n"
                            ":returns: the document's base URL.");
 
+static bool base_has_forbidden_scheme(PyObject *url) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(url);
+    if (length < 5) {
+        return false;
+    }
+    int kind = PyUnicode_KIND(url);
+    const void *data = PyUnicode_DATA(url);
+    Py_UCS4 first = lower_ascii(PyUnicode_READ(kind, data, 0));
+    if (first != 'd' && first != 'j') {
+        return false;
+    }
+    const char *scheme = first == 'd' ? "data:" : "javascript:";
+    size_t scheme_length = strlen(scheme);
+    if (length < (Py_ssize_t)scheme_length) {
+        return false;
+    }
+    for (size_t offset = 1; offset < scheme_length; offset++) {
+        if (lower_ascii(PyUnicode_READ(kind, data, offset)) != (unsigned char)scheme[offset]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
    when there is none or the href is blank (HTML spec 4.2.3). Returns a new reference; the extraction methods share it
    so a base_url they take honors a <base href> the same way base_url() does. NULL with a ValueError set when the href
@@ -324,6 +388,9 @@ PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
         result = Py_NewRef(fallback); /* a blank href leaves the fallback as the base */
     } else {
         result = th_url_resolve(fallback, stripped);
+        if (result != NULL && base_has_forbidden_scheme(result)) {
+            Py_SETREF(result, Py_NewRef(fallback));
+        }
     }
     Py_DECREF(stripped);
     return result;
