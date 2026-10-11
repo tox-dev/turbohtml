@@ -3621,6 +3621,15 @@ static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc)
         }
         tree->drop_newline = 0;
         if (all_whitespace_or_nul(text, len)) {
+            if (tree->afe_len > 0) {
+                uint16_t atom = current_node(tree)->atom;
+                if (atom != TH_TAG_TABLE && atom != TH_TAG_TBODY && atom != TH_TAG_TEMPLATE && atom != TH_TAG_TFOOT &&
+                    atom != TH_TAG_THEAD && atom != TH_TAG_TR) {
+                    tree->foster = 1;
+                    reconstruct_afe(tree);
+                    tree->foster = 0;
+                }
+            }
             insert_text(tree, text, len);
         } else {
             /* non-space character: foster-parent it out of the table */

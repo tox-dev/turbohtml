@@ -1,0 +1,1 @@
+Keep whitespace in active formatting when table content moves outside the table.
