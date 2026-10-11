@@ -402,6 +402,28 @@ def test_normalize_spec_behaviors(url: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("url", "expected"),
     [
+        pytest.param("http://[u@example.org/x", "http://%5Bu@example.org/x", id="open-in-username"),
+        pytest.param("http://]u@example.org/x", "http://%5Du@example.org/x", id="close-in-username"),
+        pytest.param("http://[u]@example.org/x", "http://%5Bu%5D@example.org/x", id="paired-in-username"),
+        pytest.param("http://u]@[::1]/x", "http://u%5D@[::1]/x", id="close-in-username-ipv6-host"),
+    ],
+)
+def test_normalize_encodes_userinfo_brackets(url: str, expected: str) -> None:
+    assert normalize_url(url) == expected
+
+
+def test_normalize_rejects_unclosed_host_bracket_after_userinfo() -> None:
+    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
+        normalize_url("http://]u@[::1/x")
+
+
+def test_clean_accepts_unpaired_userinfo_bracket() -> None:
+    assert clean_url("http://[u@example.org/x") == "http://%5Bu@example.org/x"
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
         pytest.param("http://test.org/?utm_source=rss&utm_medium=rss", "http://test.org/", id="utm-family"),
         pytest.param("http://test.org/?s_cid=123&clickid=1", "http://test.org/", id="cid-and-clickid"),
         pytest.param("http://test.org/?aftr_source=0", "http://test.org/", id="generic-source-suffix"),
