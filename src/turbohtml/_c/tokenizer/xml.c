@@ -973,9 +973,8 @@ static int is_pubid_char(Py_UCS4 ch) {
     return ch < 0x80 && memchr(pubid, (int)ch, sizeof(pubid) - 1) != NULL;
 }
 
-/* Move past the quoted literal at parser->pos. A SystemLiteral takes any code point but its quote, so a '>' inside it
-   does not end the declaration; a PubidLiteral takes only PubidChar. When content_start/content_end are given, they
-   receive the half-open span of the literal's content (between the quotes). Returns 0, or -1 with an error recorded. */
+/* A SystemLiteral takes XML characters except its quote, so '>' does not end the declaration; a PubidLiteral takes
+   PubidChar. The output span excludes the quotes. */
 static int skip_doctype_literal(xml_parser *parser, int pubid, Py_ssize_t *content_start, Py_ssize_t *content_end) {
     Py_ssize_t open = parser->pos;
     Py_UCS4 quote = open < parser->length ? cp(parser, open) : 0;
@@ -987,18 +986,41 @@ static int skip_doctype_literal(xml_parser *parser, int pubid, Py_ssize_t *conte
     for (parser->pos++; parser->pos < parser->length; parser->pos++) {
         Py_UCS4 ch = cp(parser, parser->pos);
         if (ch == quote) {
-            if (content_start != NULL) {
-                *content_start = start;
-                *content_end = parser->pos;
-            }
+            *content_start = start;
+            *content_end = parser->pos;
             parser->pos++;
             return 0;
         }
-        if (pubid && !is_pubid_char(ch)) {
-            record(parser, "xml-malformed-declaration", parser->pos);
+        if (pubid) {
+            if (!is_pubid_char(ch)) {
+                record(parser, is_xml_char(ch) ? "xml-malformed-declaration" : "xml-invalid-char", parser->pos);
+                return -1;
+            }
+        } else if ((unsigned)(ch - 0x20) > 0xD7DF && !is_xml_char(ch)) {
+            record(parser, "xml-invalid-char", parser->pos);
             return -1;
         }
     }
+    record(parser, "xml-unterminated-doctype", open);
+    return -1;
+}
+
+static int skip_doctype_quote(xml_parser *parser) {
+    Py_ssize_t open = parser->pos;
+    Py_UCS4 quote = cp(parser, open);
+    for (Py_ssize_t index = open + 1; index < parser->length; index++) {
+        Py_UCS4 ch = cp(parser, index);
+        if (ch == quote) {
+            parser->pos = index + 1;
+            return 0;
+        }
+        if ((unsigned)(ch - 0x20) > 0xD7DF && !is_xml_char(ch)) {
+            parser->pos = index;
+            record(parser, "xml-invalid-char", index);
+            return -1;
+        }
+    }
+    parser->pos = parser->length;
     record(parser, "xml-unterminated-doctype", open);
     return -1;
 }
@@ -1007,9 +1029,14 @@ static int skip_doctype_literal(xml_parser *parser, int pubid, Py_ssize_t *conte
 static int skip_past(xml_parser *parser, const char *close, Py_ssize_t open) {
     size_t close_len = strlen(close);
     for (; parser->pos < parser->length; parser->pos++) {
-        if (starts_with(parser, parser->pos, close)) {
+        Py_UCS4 ch = cp(parser, parser->pos);
+        if (ch == (Py_UCS4)close[0] && starts_with(parser, parser->pos, close)) {
             parser->pos += (Py_ssize_t)close_len;
             return 0;
+        }
+        if ((unsigned)(ch - 0x20) > 0xD7DF && !is_xml_char(ch)) {
+            record(parser, "xml-invalid-char", parser->pos);
+            return -1;
         }
     }
     record(parser, "xml-unterminated-doctype", open);
@@ -1105,7 +1132,7 @@ static int consume_doctype(xml_parser *parser) {
     while (parser->pos < parser->length) {
         Py_UCS4 ch = cp(parser, parser->pos);
         if (depth > 0 && (ch == '"' || ch == '\'')) {
-            if (skip_doctype_literal(parser, 0, NULL, NULL) < 0) {
+            if (skip_doctype_quote(parser) < 0) {
                 return -1;
             }
             continue;
@@ -1130,6 +1157,10 @@ static int consume_doctype(xml_parser *parser) {
             parser->have_doctype = 1;
             parser->pos++; /* past '>' */
             return 0;
+        }
+        if (parser->kind == PyUnicode_1BYTE_KIND ? ch < 0x20 && !xml_is_space(ch) : !is_xml_char(ch)) {
+            record(parser, "xml-invalid-char", parser->pos);
+            return -1;
         }
         parser->pos++;
     }

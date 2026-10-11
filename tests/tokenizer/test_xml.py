@@ -169,11 +169,16 @@ def test_doctype_with_internal_subset() -> None:
     [
         # a quoted literal, comment or processing instruction may hold '>' or ']' (XML 1.0 [11], [9], [15], [16])
         pytest.param('<!DOCTYPE r SYSTEM "a>b.dtd"><r/>', id="system-literal"),
+        pytest.param('<!DOCTYPE r SYSTEM "x\ue000y"><r/>', id="system-literal-private-use"),
         pytest.param("<!DOCTYPE r SYSTEM 'a>b.dtd'><r/>", id="system-literal-single-quote"),
         pytest.param('<!DOCTYPE r PUBLIC "-//x//y" "a>b"><r/>', id="public-system-literal"),
         pytest.param('<!DOCTYPE r [<!ENTITY e "a]>b">]><r/>', id="subset-entity-value"),
+        pytest.param('<!DOCTYPE r [<!ENTITY e "a\ue000b">]><r/>', id="subset-entity-value-private-use"),
+        pytest.param('<!DOCTYPE r [<!ENTITY \uf900 "x">]><r/>', id="subset-entity-name-high"),
+        pytest.param("<!DOCTYPE r [\t\n\r]><r/>", id="subset-xml-whitespace"),
         pytest.param("<!DOCTYPE r [<!ENTITY e 'a]>b'>]><r/>", id="subset-entity-value-single-quote"),
         pytest.param("<!DOCTYPE r [<!-- a]>'b -->]><r/>", id="subset-comment"),
+        pytest.param("<!DOCTYPE r [<!--a-\ue000b-->]><r/>", id="subset-comment-private-use"),
         pytest.param("<!DOCTYPE r [<?pi a]>b?>]><r/>", id="subset-pi"),
     ],
 )
@@ -415,7 +420,17 @@ def test_long_reference_run_grows_scratch() -> None:
         pytest.param("<!DOCTYPE root", "xml-unterminated-doctype", id="unterminated-doctype"),
         pytest.param('<!DOCTYPE r SYSTEM "x', "xml-unterminated-doctype", id="unterminated-system-literal"),
         pytest.param("<!DOCTYPE r [<!-- x", "xml-unterminated-doctype", id="unterminated-subset-comment"),
+        pytest.param("<!DOCTYPE r [<!--x\x01y-->]><r/>", "xml-invalid-char", id="subset-comment-control"),
+        pytest.param("<!DOCTYPE r [<?p x\ufffey?>]><r/>", "xml-invalid-char", id="subset-pi-noncharacter"),
+        pytest.param("<!DOCTYPE r [\x01]><r/>", "xml-invalid-char", id="subset-control"),
+        pytest.param("<!DOCTYPE r [\ufffe]><r/>", "xml-invalid-char", id="subset-noncharacter"),
+        pytest.param('<!DOCTYPE r SYSTEM "x\x01y"><r/>', "xml-invalid-char", id="system-literal-control"),
+        pytest.param('<!DOCTYPE r [<!ENTITY x "a\x01b">]><r/>', "xml-invalid-char", id="subset-entity-value-control"),
+        pytest.param(
+            '<!DOCTYPE r [<!ENTITY x "a\ufffeb">]><r/>', "xml-invalid-char", id="subset-entity-value-noncharacter"
+        ),
         pytest.param('<!DOCTYPE r PUBLIC "a>b" "s"><r/>', "xml-malformed-declaration", id="pubid-rejects-gt"),
+        pytest.param('<!DOCTYPE r PUBLIC "a\x01b" "s"><r/>', "xml-invalid-char", id="pubid-control"),
         pytest.param("<!DOCTYPE r SYSTEM x><r/>", "xml-malformed-declaration", id="unquoted-system-literal"),
         pytest.param('<!DOCTYPE r PUBLIC "p"><r/>', "xml-malformed-declaration", id="public-without-system-literal"),
         pytest.param(

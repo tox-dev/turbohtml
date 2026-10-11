@@ -1,0 +1,1 @@
+Reject invalid XML characters in doctype markup and literals.
