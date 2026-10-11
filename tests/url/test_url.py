@@ -76,6 +76,9 @@ def test_base_url_default_fallback() -> None:
         ),
         pytest.param("http://h", "http://x", "http://h", id="authority-only"),
         pytest.param("ab/cd", "", "ab/cd", id="relative-without-scheme"),
+        pytest.param("a+bc", "", "a+bc", id="scheme-tail-without-colon"),
+        pytest.param("a'bc", "", "a'bc", id="quote-in-relative-path"),
+        pytest.param("+", "", "+", id="one-character-relative-path"),
         pytest.param("/x", "", "/x", id="protocol-relative-root"),
         pytest.param("http://x/a%20b?c=%7e", "http://x", "http://x/a%20b?c=%7e", id="existing-escapes-untouched"),
         pytest.param(
@@ -113,6 +116,12 @@ def test_base_url_percent_encodes(href: str, fallback: str, expected: str) -> No
             id="unicode-and-other-escapes",
         ),
         pytest.param("/a/%2e%2e/x#f", "https://example.org/dir/file", "https://example.org/x#f", id="fragment"),
+        pytest.param(
+            "https://other.org/a/%2e/x?x= y",
+            "https://example.org/dir/file",
+            "https://other.org/a/x?x=%20y",
+            id="dot-segments-and-query-spaces",
+        ),
         pytest.param("mailto:a/%2e%2e/x", "https://example.org/dir/file", "mailto:a/%2e%2e/x", id="opaque-path"),
         pytest.param("mailto:?q=%2e", "https://example.org/dir/file", "mailto:?q=%2e", id="opaque-query"),
         pytest.param("foo:/a/%2e%2e/x", "https://example.org/dir/file", "foo:/x", id="non-special-root-path"),

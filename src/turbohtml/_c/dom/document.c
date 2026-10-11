@@ -53,6 +53,9 @@ static const char URL_SCHEME_TAIL[] = TH_URL_ALPHA "0123456789+-.";
    USVString), so the UTF-8 encode below cannot fail. Returns a new reference, the original when it is already scalar.
  */
 static PyObject *url_scalarize(PyObject *url) {
+    if (PyUnicode_IS_ASCII(url)) {
+        return Py_NewRef(url);
+    }
     int kind = PyUnicode_KIND(url);
     const void *data = PyUnicode_DATA(url);
     Py_ssize_t len = PyUnicode_GET_LENGTH(url);
@@ -81,14 +84,6 @@ static PyObject *url_scalarize(PyObject *url) {
 }
 
 static int url_has_encoded_dot(const char *bytes, Py_ssize_t length) {
-    if (length < 32) {
-        for (Py_ssize_t index = 0; index + 2 < length; index++) {
-            if (bytes[index] == '%' && bytes[index + 1] == '2' && (bytes[index + 2] | 0x20) == 'e') {
-                return 1;
-            }
-        }
-        return 0;
-    }
     const char *end = bytes + length;
     while (bytes < end && (bytes = memchr(bytes, '%', (size_t)(end - bytes))) != NULL) {
         if (end - bytes >= 3 && bytes[1] == '2' && (bytes[2] | 0x20) == 'e') {
@@ -116,8 +111,14 @@ static int url_has_encoded_dot_unicode(PyObject *url) {
 }
 
 /* Percent-encode a resolved URL's path, query, and fragment per the WHATWG sets, leaving the scheme and authority
-   verbatim; the authority's own bytes stay raw, matching this surface's non-IDNA host handling. Returns a new str. */
+   verbatim; the authority's own bytes stay raw, matching this surface's non-IDNA host handling. Returns a new
+   reference. */
 static PyObject *url_percent_encode(PyObject *url, int check_encoded_dot) {
+    static const char ASCII_SAFE[] = TH_URL_ALPHA "0123456789-._~:/?&=#%";
+    if (check_encoded_dot == 0 && PyUnicode_IS_ASCII(url) &&
+        (Py_ssize_t)strspn((const char *)PyUnicode_1BYTE_DATA(url), ASCII_SAFE) == PyUnicode_GET_LENGTH(url)) {
+        return Py_NewRef(url);
+    }
     PyObject *scalar = url_scalarize(url);
     if (scalar == NULL) { /* GCOVR_EXCL_BR_LINE: url_scalarize only fails on allocation */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -196,7 +197,9 @@ static PyObject *url_percent_encode(PyObject *url, int check_encoded_dot) {
         out[written++] = '#';
         written = th_url_encode_span(out, written, bytes, fragment_start, len, TH_URL_SET_FRAGMENT);
     }
-    PyObject *result = PyUnicode_DecodeUTF8(out, written, "strict");
+    PyObject *result = written == len && memcmp(out, bytes, (size_t)len) == 0
+                           ? Py_NewRef(scalar)
+                           : PyUnicode_DecodeUTF8(out, written, "strict");
     PyMem_Free(out);
     Py_DECREF(scalar);
     return result; /* NULL on the excluded decode-failure path */
