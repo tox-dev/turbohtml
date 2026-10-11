@@ -662,6 +662,20 @@ def test_minify_css_keeps_invalid_background_position_order(property_name: str, 
 
 
 @pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("scroll fixed top", "scroll fixed top", id="default-before-fixed"),
+        pytest.param("fixed scroll", "fixed scroll", id="default-after-fixed"),
+        pytest.param("scroll scroll", "scroll scroll", id="duplicate-default"),
+        pytest.param("scroll local", "scroll local", id="default-before-local"),
+        pytest.param("scroll top", "top", id="single-attachment"),
+    ],
+)
+def test_minify_css_background_attachment_cardinality(value: str, expected: str) -> None:
+    assert minify_css(f"a{{background:{value}}}") == f"a{{background:{expected}}}"
+
+
+@pytest.mark.parametrize(
     ("source", "expected"),
     [
         pytest.param("a{background-position:left top 0}", "a{background-position:0 0}", id="zero-edge-offset"),
