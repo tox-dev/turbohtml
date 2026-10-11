@@ -1191,7 +1191,7 @@ static int consume_namespace_decl(xml_parser *parser, Py_ssize_t name_start, Py_
             record(parser, "xml-reserved-namespace", name_start);
             return -1;
         }
-        parser->tree->xml |= TH_TREE_XML_HAS_NS;
+        parser->tree->has_xml_ns = 1;
         return 0;
     }
     Py_ssize_t prefix_start = name_start + 6;
@@ -1223,7 +1223,7 @@ static int consume_namespace_decl(xml_parser *parser, Py_ssize_t name_start, Py_
     if (declared < 0) { /* GCOVR_EXCL_BR_LINE: declare_prefix only fails on allocation */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    parser->tree->xml |= TH_TREE_XML_HAS_NS;
+    parser->tree->has_xml_ns = 1;
     return 0;
 }
 

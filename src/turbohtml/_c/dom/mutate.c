@@ -38,11 +38,12 @@ void th_tree_set_quirks(th_tree *tree, int quirks) {
 }
 
 int th_tree_is_xml(const th_tree *tree) {
-    return tree->xml & 1;
+    return tree->xml;
 }
 
 void th_tree_set_xml(th_tree *tree, int xml) {
     tree->xml = xml;
+    tree->has_xml_ns = 0;
 }
 
 /* Construct an empty document-fragment node in tree's arena: the container the
@@ -246,7 +247,7 @@ int th_tree_set_attr(th_tree *tree, th_node *node, Py_ssize_t index, const char 
         return -1;                            /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     if (tree->xml && is_xml_namespace_decl(name, name_len)) {
-        tree->xml |= TH_TREE_XML_HAS_NS;
+        tree->has_xml_ns = 1;
     }
     if (!has_value) {
         return 0;
@@ -297,7 +298,7 @@ static int node_attr_store(th_tree *tree, th_node *node, const char *name, Py_ss
         return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     if (tree->xml && is_xml_namespace_decl(name, name_len)) {
-        tree->xml |= TH_TREE_XML_HAS_NS;
+        tree->has_xml_ns = 1;
     }
     if (existing >= 0) {
         th_mo_attr_changed(tree, node, atom, node->attrs[existing].value, node->attrs[existing].value_len, 1);
@@ -1106,7 +1107,7 @@ static th_node *copy_node_at(th_tree *dest, th_tree *src, th_node *src_node, int
 
 th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node) {
     if (dest->xml) {
-        dest->xml |= src->xml & TH_TREE_XML_HAS_NS;
+        dest->has_xml_ns |= src->has_xml_ns;
     }
     return copy_node_at(dest, src, src_node, 0);
 }
@@ -1171,7 +1172,7 @@ static th_node *copy_adopted_shadows(th_tree *dest, th_tree *src, th_node *src_n
 th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node) {
     th_node *copy =
         src->shadow_count == 0 ? th_tree_copy_node(dest, src, src_node) : copy_adopted_shadows(dest, src, src_node);
-    if (copy == NULL || (src->xml & 1) == (dest->xml & 1)) { /* GCOVR_EXCL_BR_LINE: the copy is NULL on OOM only */
+    if (copy == NULL || src->xml == dest->xml) { /* GCOVR_EXCL_BR_LINE: the copy is NULL on OOM only */
         return copy;
     }
     for (th_node *node = copy; node != NULL; node = th_node_next_including_shadow(dest, node, copy)) {

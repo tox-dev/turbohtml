@@ -87,8 +87,6 @@ typedef struct {
     th_node_map index; /* select node -> 1-based position in caches */
 } th_select_state;
 
-#define TH_TREE_XML_HAS_NS 2
-
 struct th_tree {
     arena_block *arena;
     th_node *document;
@@ -133,12 +131,13 @@ struct th_tree {
     int scripting;          /* the WHATWG scripting flag: noscript is a rawtext element when set */
     int declarative_shadow; /* allow a <template shadowrootmode> to attach a shadow root to its parent */
     int has_nul;            /* the input contains a U+0000; otherwise text needs no NUL filtering */
-    int xml;                /* bit 0: XML mode; bit 1: a namespace declaration was stored */
-    int can_span;           /* input is borrowed and outlives the tree: text nodes may be
-                               zero-copy spans into it instead of materialized copies */
-    int track_positions;    /* record each element's source line/col in trailing node slots */
-    int track_locations;    /* record each element's granular source spans (implies track_positions) */
-    int kind;               /* borrowed input storage */
+    int xml;                /* parsed under XML rules: tag and attribute names are case-sensitive */
+    int has_xml_ns;
+    int can_span;        /* input is borrowed and outlives the tree: text nodes may be
+                            zero-copy spans into it instead of materialized copies */
+    int track_positions; /* record each element's source line/col in trailing node slots */
+    int track_locations; /* record each element's granular source spans (implies track_positions) */
+    int kind;            /* borrowed input storage */
     const void *data;
     void *owned_data; /* normalized one-shot input retained when source spans need it */
     Py_ssize_t length;

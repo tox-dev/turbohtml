@@ -438,7 +438,7 @@ static void c14n_document(sbuf *out, th_tree *tree, th_node *doc, const th_c14n_
 }
 
 Py_UCS4 *th_node_canonicalize(th_tree *tree, th_node *node, const th_c14n_opts *opts, Py_ssize_t *out_len) {
-    if (tree->xml & TH_TREE_XML_HAS_NS) {
+    if (tree->has_xml_ns) {
         return th_node_canonicalize_xml(tree, node, opts, out_len);
     }
     sbuf out = {NULL, 0, 0, 0};
