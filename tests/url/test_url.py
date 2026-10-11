@@ -73,6 +73,70 @@ def test_base_url_percent_encodes(href: str, fallback: str, expected: str) -> No
     assert parse(f'<base href="{href}">').base_url(fallback) == expected
 
 
+@pytest.mark.parametrize(
+    ("href", "fallback", "expected"),
+    [
+        pytest.param("%2e%2e/x", "https://example.org/dir/file", "https://example.org/x", id="parent"),
+        pytest.param("%2E./x", "https://example.org/dir/file", "https://example.org/x", id="mixed-parent"),
+        pytest.param("%2e/x", "https://example.org/dir/file", "https://example.org/dir/x", id="current"),
+        pytest.param("%2e?x", "https://example.org/dir/file", "https://example.org/dir/?x", id="query"),
+        pytest.param("%2e%2e/x", "https://example.org/dir/%2e%2e/file", "https://example.org/x", id="base"),
+        pytest.param("x", "https://example.org/dir/%2e%2e", "https://example.org/x", id="base-terminal"),
+        pytest.param("x", "https://example.org/é/%2e%2e", "https://example.org/x", id="unicode-base"),
+        pytest.param("a%2eb", "https://example.org/dir/file", "https://example.org/dir/a%2eb", id="non-dot"),
+        pytest.param("/a/%2e%2e/..", "https://example.org/.", "https://example.org/", id="mixed-order"),
+        pytest.param(
+            "https://example.org/aaaaaaaaaaaaaaa/%2e%2e/x",
+            "https://example.org/dir/file",
+            "https://example.org/x",
+            id="long-absolute",
+        ),
+        pytest.param(
+            "https://example.org/é/%3e/%2f/%2e%2e/x",
+            "https://example.org/dir/file",
+            "https://example.org/%C3%A9/%3e/x",
+            id="unicode-and-other-escapes",
+        ),
+        pytest.param("/a/%2e%2e/x#f", "https://example.org/dir/file", "https://example.org/x#f", id="fragment"),
+        pytest.param("mailto:a/%2e%2e/x", "https://example.org/dir/file", "mailto:a/%2e%2e/x", id="opaque-path"),
+        pytest.param("mailto:?q=%2e", "https://example.org/dir/file", "mailto:?q=%2e", id="opaque-query"),
+        pytest.param("foo:/a/%2e%2e/x", "https://example.org/dir/file", "foo:/x", id="non-special-root-path"),
+        pytest.param("b", "https://example.org/a?x=%2e", "https://example.org/b", id="base-query-only"),
+        pytest.param("x", "mailto:%2e", "x", id="opaque-base"),
+        pytest.param(
+            "https://other.org/a/%2e%2e/x", "https://example.org/dir/file", "https://other.org/x", id="absolute"
+        ),
+    ],
+)
+def test_base_url_resolves_encoded_dot_segments(href: str, fallback: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url(fallback) == expected
+
+
+@pytest.mark.parametrize(
+    "href",
+    [
+        pytest.param("https://example.org/abcdefghijklmnop", id="no-escape"),
+        pytest.param("https://example.org/aaaaaaaaaaaaaaa/%20/x", id="space-escape"),
+        pytest.param("https://example.org/aaaaaaaaaaaaaaa/%3e/x", id="non-dot-escape"),
+        pytest.param("https://example.org/aaaaaaaaaaaaaaa/%", id="trailing-percent"),
+    ],
+)
+def test_base_url_preserves_long_non_dot_paths(href: str) -> None:
+    assert parse(f'<base href="{href}">').base_url("https://example.org/dir/file") == href
+
+
+def test_base_url_rejects_unclosed_bracket_with_encoded_dot() -> None:
+    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
+        parse('<base href="https://[bad/%2e">').base_url("https://example.org/")
+
+
+def test_meta_refresh_resolves_encoded_dot_segments() -> None:
+    assert parse('<meta http-equiv=refresh content="0;url=/a/%2e%2e/..">').meta_refresh("https://example.org/.") == (
+        0.0,
+        "https://example.org/",
+    )
+
+
 _SITE = "http://s.com/"
 
 

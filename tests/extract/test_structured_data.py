@@ -756,6 +756,11 @@ def test_opengraph_base_href_refines_base_url() -> None:
     assert parse(html).opengraph(base_url="http://ex.com/") == {"image": "http://b.com/sub/a.png"}
 
 
+def test_opengraph_empty_base_resolves_encoded_parent() -> None:
+    html: Final = '<base href="%2e%2e/sub/"><meta property="og:image" content="photo.jpg">'
+    assert parse(html).opengraph(base_url="") == {"image": "sub/photo.jpg"}
+
+
 def test_opengraph_malformed_base_href_falls_back_to_base_url() -> None:
     html = '<base href="http://[bad"><meta property="og:image" content="a.png">'
     assert parse(html).opengraph(base_url="http://ex.com/d/") == {"image": "http://ex.com/d/a.png"}

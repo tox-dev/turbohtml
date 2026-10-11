@@ -1269,6 +1269,56 @@ static int dot_segment(const Py_UCS4 *work, Py_ssize_t start, Py_ssize_t end, in
     return count == 1 || count == 2;
 }
 
+PyObject *th_url_literalize_dot_segments(PyObject *url) {
+    url_ref ref;
+    if (parse_ref(url, &ref, 0) < 0) {
+        return NULL;
+    }
+    if (ref.has_scheme && !ref.has_netloc && (ref.path_start == ref.path_end || ref.buf[ref.path_start] != '/')) {
+        PyMem_Free(ref.buf);
+        return Py_NewRef(url);
+    }
+    Py_ssize_t length = ref.has_fragment ? ref.fragment_end : ref.has_query ? ref.query_end : ref.path_end;
+    Py_UCS4 *out = PyMem_Malloc((size_t)(length + 1) * sizeof(Py_UCS4));
+    if (out == NULL) {           /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyMem_Free(ref.buf);     /* GCOVR_EXCL_LINE: allocation-failure path */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t written = 0;
+    for (Py_ssize_t index = 0; index < ref.path_start; index++) {
+        out[written++] = ref.buf[index];
+    }
+    int changed = 0;
+    Py_ssize_t start = ref.path_start;
+    for (Py_ssize_t index = start; index <= ref.path_end; index++) {
+        if (index < ref.path_end && ref.buf[index] != '/') {
+            continue;
+        }
+        int dots = 0;
+        if (dot_segment(ref.buf, start, index, &dots) && index - start != dots) {
+            for (int dot = 0; dot < dots; dot++) {
+                out[written++] = '.';
+            }
+            changed = 1;
+        } else {
+            for (Py_ssize_t cursor = start; cursor < index; cursor++) {
+                out[written++] = ref.buf[cursor];
+            }
+        }
+        if (index < ref.path_end) {
+            out[written++] = '/';
+        }
+        start = index + 1;
+    }
+    for (Py_ssize_t index = ref.path_end; index < length; index++) {
+        out[written++] = ref.buf[index];
+    }
+    PyObject *result = changed ? PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, out, written) : Py_NewRef(url);
+    PyMem_Free(out);
+    PyMem_Free(ref.buf);
+    return result;
+}
+
 /* _url_remove_dot_segments(path): resolve the "." and ".." segments of a path, in either their literal or %2E
    spelling, keeping every other segment's encoding verbatim. */
 PyObject *turbohtml_url_remove_dot_segments(PyObject *Py_UNUSED(module), PyObject *arg) {
