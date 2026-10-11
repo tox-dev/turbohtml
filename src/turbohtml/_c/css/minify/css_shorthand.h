@@ -604,7 +604,7 @@ static int css_is_reserved_family(const css_char *text, Py_ssize_t len) {
 }
 
 static css_comp css_font_family_comp(css_buf *pool, css_comp comp) {
-    if (comp.kind != CK_STR || comp.len <= 2) {
+    if (comp.len <= 2) {
         return comp;
     }
     css_char quote = pool->data[comp.off];
@@ -645,8 +645,22 @@ static css_comp css_font_family_comp(css_buf *pool, css_comp comp) {
     return result;
 }
 
+static inline int css_font_family_quote_isolated(css_buf *pool, const css_comp *items, Py_ssize_t index,
+                                                 Py_ssize_t start, Py_ssize_t len) {
+    if (index > start && (items[index - 1].kind != CK_SEP || pool->data[items[index - 1].off] != ',')) {
+        return 0;
+    }
+    return index + 1 == len || (items[index + 1].kind == CK_SEP && pool->data[items[index + 1].off] == ',');
+}
+
 static void css_handle_font_family(css_buf *pool, comp_vec *comps) {
     for (Py_ssize_t index = 0; index < comps->len; index++) {
+        if (comps->items[index].kind != CK_STR) {
+            continue;
+        }
+        if (!css_font_family_quote_isolated(pool, comps->items, index, 0, comps->len)) {
+            return;
+        }
         comps->items[index] = css_font_family_comp(pool, comps->items[index]);
     }
 }
@@ -780,6 +794,13 @@ static void css_handle_font(css_buf *pool, comp_vec *comps) {
         }
     }
     for (Py_ssize_t index = family + 1; index < values.len; index++) {
+        if (values.items[index].kind != CK_STR) {
+            continue;
+        }
+        if (!css_font_family_quote_isolated(pool, values.items, index, family + 1, values.len)) {
+            css_free(values.items);
+            return;
+        }
         values.items[index] = css_font_family_comp(pool, values.items[index]);
     }
     /* family was set to at most values.len-1 then decremented at least once above, so family+1 < values.len holds */

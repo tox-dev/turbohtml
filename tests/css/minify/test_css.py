@@ -2629,6 +2629,29 @@ def test_minify_css_keeps_overlong_calculated_font_size_invalid() -> None:
 
 
 @pytest.mark.parametrize(
+    "source",
+    [
+        'a{font:16px "Times New Roman" oblique}',
+        'a{font:16px foo "Times New Roman"}',
+        'a{font-family:"Times New Roman" oblique}',
+        'a{font-family:foo "Times New Roman"}',
+        'a{font-family:"Times New Roman" "Arial"}',
+        'a{font-family:foo/"Times New Roman"}',
+        'a{font-family:"Times New Roman"/foo}',
+        'a{font-family:""}',
+    ],
+)
+def test_minify_css_preserves_adjacent_quoted_font_family(source: str) -> None:
+    assert minify_css(source) == source
+
+
+def test_minify_css_keeps_later_adjacent_quoted_font_family_invalid() -> None:
+    assert minify_css('a{font-family:"Arial","Times New Roman" oblique}') == (
+        'a{font-family:arial,"Times New Roman" oblique}'
+    )
+
+
+@pytest.mark.parametrize(
     ("value", "expected"),
     [
         pytest.param("normal normal normal normal 16px serif", "16px serif", id="four-defaults"),

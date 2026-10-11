@@ -1971,8 +1971,8 @@
 ],
 [
 "a{font:bold \"x\" 12px}",
-"a{font:bold x 12px}",
-"a{font:bold x 12px}"
+"a{font:bold \"x\" 12px}",
+"a{font:bold \"x\" 12px}"
 ],
 [
 "a/*x*/b{color:red}",
