@@ -488,6 +488,7 @@ CSS_NOINLINE static int css_text_decoration_drop_safe(css_buf *pool, const comp_
     int other_lines = 0;
     int other_styles = 0;
     int other_colors = 0;
+    Py_ssize_t last_line = -1;
     for (Py_ssize_t index = 0; index < comps->len; index++) {
         const css_comp *comp = &comps->items[index];
         if (comp->kind == CK_SEP) {
@@ -517,6 +518,10 @@ CSS_NOINLINE static int css_text_decoration_drop_safe(css_buf *pool, const comp_
             } else if (css_comp_kw(pool, comp, "underline") || css_comp_kw(pool, comp, "overline") ||
                        css_comp_kw(pool, comp, "line-through") || css_comp_kw(pool, comp, "blink") ||
                        css_comp_kw(pool, comp, "spelling-error") || css_comp_kw(pool, comp, "grammar-error")) {
+                if (last_line >= 0 && index != last_line + 1) {
+                    return 0;
+                }
+                last_line = index;
                 other_lines++;
             } else if (css_comp_kw(pool, comp, "double") || css_comp_kw(pool, comp, "dotted") ||
                        css_comp_kw(pool, comp, "dashed") || css_comp_kw(pool, comp, "wavy")) {
