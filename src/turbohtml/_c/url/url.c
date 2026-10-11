@@ -651,6 +651,9 @@ int th_url_split(PyObject *arg, th_url_parts *out, int host_brackets_only) {
     while (read < raw_len && input_char(kind, data, read) <= 0x20) {
         read++;
     }
+    while (read < raw_len && input_char(kind, data, raw_len - 1) <= 0x20) {
+        raw_len--;
+    }
     Py_ssize_t len = 0;
     for (; read < raw_len; read++) {
         Py_UCS4 ch = input_char(kind, data, read);

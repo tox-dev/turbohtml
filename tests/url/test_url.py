@@ -1106,9 +1106,9 @@ def _split_corpus() -> list[str]:
     return sorted(set(urls))
 
 
-def test_url_split_matches_urllib_over_corpus() -> None:
+def test_url_split_matches_urllib_after_input_trim() -> None:
     for url in _split_corpus():
-        reference = urlsplit(url)
+        reference = urlsplit(url.rstrip(_C0_OR_SPACE))
         scheme, netloc, path, query, fragment, _userinfo, host, *_rest = _url_split(url)
         assert (scheme, netloc, path, query, fragment) == (
             reference.scheme,
