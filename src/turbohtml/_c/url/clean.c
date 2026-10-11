@@ -187,9 +187,9 @@ static PyObject *normalize_userinfo(PyObject *userinfo) {
         return encoded_username;
     }
     PyObject *password = PyUnicode_Substring(userinfo, colon + 1, length);
-    if (password == NULL) { /* GCOVR_EXCL_BR_LINE: substring of an existing str only fails on allocation */
-        Py_DECREF(encoded_username);
-        return NULL; /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (password == NULL) {          /* GCOVR_EXCL_BR_LINE: substring of an existing str only fails on allocation */
+        Py_DECREF(encoded_username); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;                 /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     PyObject *encoded_password = th_url_encode_component(password, TH_URL_SET_USERINFO);
     Py_DECREF(password);
