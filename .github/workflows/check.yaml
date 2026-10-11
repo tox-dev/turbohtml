@@ -314,7 +314,7 @@ jobs:
     runs-on: ubuntu-24.04
     # Upstream tags its Python 3.15 TSan build as 3.15t-dev; pin the digest so nightly rebuilds cannot change the runtime.
     container:
-      image: ghcr.io/nascheme/cpython-tsan:3.15t-dev@sha256:00220ef2d363541741c5dda18fa7f936c11240fc1b9680ea87c5a7287e33f0f5
+      image: ghcr.io/nascheme/cpython-tsan:3.15t-dev@sha256:6ed3ed2ec59d84737c3b53ca113fc8a58ea5a5bb415d25f53bcb9800a495e2a1
       options: --shm-size=2g # TSan shadow memory needs the headroom
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
