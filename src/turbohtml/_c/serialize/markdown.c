@@ -851,7 +851,13 @@ static void md_escape_split_reference(md_ctx *ctx, const Py_UCS4 *text, Py_ssize
    Prose is mostly plain runs, so after the first character of a word is placed
    (which resolves the deferred space, markers and escapes) the rest of the run --
    no whitespace, nothing to escape -- is bulk-copied in one memcpy. */
-static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
+static int md_br_trailing(md_ctx *ctx, th_node *node);
+
+static inline int md_non_ascii_space(Py_UCS4 ch) {
+    return Py_UNICODE_ISSPACE(ch); /* GCOVR_EXCL_BR_LINE: ch >= 128 makes the macro's ASCII arm unreachable */
+}
+
+static void md_emit_text(md_ctx *ctx, th_node *node, const Py_UCS4 *text, Py_ssize_t len) {
     if (ctx->line_number_start > 0 && !ctx->space_pending && ctx->pending == NULL) {
         Py_ssize_t start = ctx->line_number_start - 1;
         Py_ssize_t end = ctx->out.len;
@@ -864,9 +870,9 @@ static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
                 scan++;
             }
             if (scan < len && (text[scan] == '.' || text[scan] == ')')) {
-                md_emit_text(ctx, text, scan);
+                md_emit_text(ctx, node, text, scan);
                 sbuf_putc(&ctx->out, '\\');
-                md_emit_text(ctx, &text[scan], len - scan);
+                md_emit_text(ctx, node, &text[scan], len - scan);
                 return;
             }
         } else {
@@ -884,6 +890,8 @@ static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
     }
     int translit = ctx->opt->transliterate;
     Py_ssize_t index = 0;
+    Py_ssize_t trailing_space_start = -1;
+    int at_line_end = -1;
     while (index < len) {
         Py_UCS4 ch = text[index];
         uint8_t kind = ch < 0x80 ? MD_ASCII[ch] : 0;
@@ -910,13 +918,37 @@ static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
         }
         int by_context = ((kind & MD_CH_CONTEXT) || (translit && ch == 0x2190)) && ctx->escape_prose &&
                          md_escape_in_text(ctx, text, index, len);
-        md_put_char(ctx, ch, (kind & ctx->escape_mask) || by_context);
+        /* markdown-it decodes &#133; as U+FFFD. */
+        if (ch >= 0x80 && ch != 0x85 && !translit && ctx->escape_prose && ctx->marker_count == 0 &&
+            md_non_ascii_space(ch)) {
+            if (trailing_space_start < 0) {
+                trailing_space_start = len;
+                while (trailing_space_start > index && Py_UNICODE_ISSPACE(text[trailing_space_start - 1])) {
+                    trailing_space_start--;
+                }
+            }
+            if (index >= trailing_space_start && at_line_end < 0) {
+                at_line_end = node == NULL || md_br_trailing(ctx, node);
+            }
+            if (!ctx->line_has_content || (index >= trailing_space_start && at_line_end)) {
+                sbuf_puts(&ctx->out, "&#");
+                md_put_decimal(&ctx->out, (Py_ssize_t)ch);
+                sbuf_putc(&ctx->out, ';');
+                ctx->line_has_content = 1;
+            } else {
+                md_put_char(ctx, ch, 0);
+            }
+        } else {
+            md_put_char(ctx, ch, (kind & ctx->escape_mask) || by_context);
+        }
         index++;
         /* past the word's first character nothing is at a line start, so an escaped
            character only needs its backslash and the plain runs between them copy whole */
         while (1) {
             Py_ssize_t start = index;
-            while (index < len && (text[index] < 0x80 ? !(MD_ASCII[text[index]] & ctx->run_stop) : !translit)) {
+            while (index < len && (text[index] < 0x80 ? !(MD_ASCII[text[index]] & ctx->run_stop)
+                                                      : !translit && (!ctx->escape_prose || ctx->marker_count > 0 ||
+                                                                      !md_non_ascii_space(text[index])))) {
                 index++;
             }
             if (index > start) {
@@ -2461,7 +2493,7 @@ static void md_leave_google(md_ctx *ctx, md_frame *frame) {
    flow (rare, e.g. a <div> inside a <span>) is laid out as its own block. */
 static void md_render_inline(md_ctx *ctx, th_node *node) {
     if (node->type == TH_NODE_TEXT) {
-        md_emit_text(ctx, need_text(ctx->tree, node), node->text_len);
+        md_emit_text(ctx, node, need_text(ctx->tree, node), node->text_len);
         return;
     }
     if (node->type != TH_NODE_ELEMENT) {
@@ -3849,7 +3881,7 @@ static int md_table_step(md_ctx *ctx, md_frame *frame) {
         }
         /* a cell of text alone renders in place, with no frame of its own */
         for (th_node *child = cell->first_child; child != NULL; child = child->next_sibling) {
-            md_emit_text(ctx, need_text(ctx->tree, child), child->text_len);
+            md_emit_text(ctx, child, need_text(ctx->tree, child), child->text_len);
         }
         if (table->phase != MD_TABLE_STRIP) {
             md_leave_cell(ctx, table);
@@ -4368,7 +4400,7 @@ static void md_run(md_ctx *ctx) {
             /* text lays out without running Python or pushing a frame, so a run of it renders in place */
             if (frame->walk == MD_WALK_INLINE) {
                 for (; child != NULL && child->type == TH_NODE_TEXT; child = child->next_sibling) {
-                    md_emit_text(ctx, need_text(ctx->tree, child), child->text_len);
+                    md_emit_text(ctx, child, need_text(ctx->tree, child), child->text_len);
                 }
             } else if (frame->walk == MD_WALK_BLOCK) {
                 for (; child != NULL && child->type == TH_NODE_TEXT; child = child->next_sibling) {
@@ -4461,7 +4493,7 @@ Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, Py_s
     if (node->type == TH_NODE_TEXT) {
         ctx.started = 1;
         ctx.line_has_content = 1;
-        md_emit_text(&ctx, need_text(tree, node), node->text_len);
+        md_emit_text(&ctx, NULL, need_text(tree, node), node->text_len);
     } else if (md_apply_converter(&ctx, node) ||
                (node->type == TH_NODE_ELEMENT &&
                 md_render_whitespace(&ctx, node, md_inherited_whitespace(&ctx, node)))) {

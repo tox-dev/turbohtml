@@ -149,6 +149,95 @@ def test_unicode_space_emphasis(space: str) -> None:
     assert md(f"<p><b>{space}</b></p>") == f"<strong>{space}</strong>"
 
 
+@pytest.mark.parametrize("space", ["\u00a0", "\u1680", "\u2000", "\u200a", "\u202f", "\u205f", "\u3000"])
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        pytest.param("", "x", id="leading"),
+        pytest.param("x", "", id="trailing"),
+        pytest.param("x", "y", id="between-letters"),
+    ],
+)
+def test_unicode_space_prose_round_trip(space: str, before: str, after: str) -> None:
+    output: Final = md(f"<p>{before}{space}{after}</p>")
+    assert (output, parse_fragment(MarkdownIt("commonmark").render(output)).find("p").text) == (
+        f"{before}{f'&#{ord(space)};' if not before or not after else space}{after}",
+        f"{before}{space}{after}",
+    )
+
+
+@pytest.mark.parametrize("suffix", ["", " ", "\n"])
+def test_multiple_unicode_spaces_at_prose_end(suffix: str) -> None:
+    output: Final = md(f"<p>x&nbsp;&nbsp;{suffix}</p>")
+    assert (output, parse_fragment(MarkdownIt("commonmark").render(output)).find("p").text) == (
+        "x&#160;&#160;",
+        "x\u00a0\u00a0",
+    )
+
+
+def test_unicode_space_after_non_ascii_letter_at_prose_end() -> None:
+    output: Final = md("<p>xé&nbsp;</p>")
+    assert (output, parse_fragment(MarkdownIt("commonmark").render(output)).find("p").text) == ("xé&#160;", "xé\u00a0")
+
+
+def test_unicode_space_before_non_ascii_letter_at_prose_start() -> None:
+    output: Final = md("<p>&nbsp;é</p>")
+    assert (output, parse_fragment(MarkdownIt("commonmark").render(output)).find("p").text) == ("&#160;é", "\u00a0é")
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<p>x&nbsp;<span>y</span></p>", "x\u00a0y", id="followed-by-inline-text"),
+        pytest.param("<p>x&nbsp;<span></span></p>", "x&#160;", id="followed-by-empty-inline"),
+    ],
+)
+def test_unicode_space_at_text_node_end(html: str, expected: str) -> None:
+    assert md(html) == expected
+
+
+def test_unicode_space_at_text_node_root_end() -> None:
+    assert Text("x\u00a0").to_markdown() == "x&#160;"
+
+
+def test_next_line_control_remains_literal() -> None:
+    assert Text("x\u0085").to_markdown() == "x\u0085"
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<p><code>x&nbsp;</code></p>", "`x\u00a0`", id="code-span"),
+        pytest.param("<p><a href='/'>x&nbsp;</a></p>", "[x\u00a0](/)", id="link-label"),
+    ],
+)
+def test_unicode_space_inside_delimiters(html: str, expected: str) -> None:
+    assert md(html) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<p>x&nbsp;</p>", "x\u00a0", id="trailing"),
+        pytest.param("<p>&nbsp;x</p>", "\u00a0x", id="leading"),
+    ],
+)
+def test_unicode_space_with_escaping_disabled(html: str, expected: str) -> None:
+    assert parse(html).to_markdown(Markdown(escaping=Markdown.Escaping(mode="none"))) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<p>x&nbsp;</p>", "x", id="trailing"),
+        pytest.param("<p>&nbsp;x</p>", " x", id="leading"),
+        pytest.param("<p>x&nbsp;y</p>", "x y", id="middle"),
+    ],
+)
+def test_unicode_space_with_transliteration(html: str, expected: str) -> None:
+    assert parse(html).to_markdown(Markdown(document=Markdown.Document(transliterate=True))) == expected
+
+
 @pytest.mark.parametrize("tag", ["code", "kbd", "samp"])
 @pytest.mark.parametrize(
     ("content", "expected"),

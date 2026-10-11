@@ -1,0 +1,1 @@
+Preserve nonbreaking and other Unicode spaces at Markdown prose edges.
