@@ -151,7 +151,30 @@ static PyObject *port_suffix(const th_url_parts *parts) {
             return th_str_format(":%U", port);
         }
     }
-    PyObject *number = PyLong_FromUnicodeObject(port, 10);
+    PyObject *number;
+    /* Python's decimal conversion limit can reject a port with enough leading zeros. */
+    if (len > 19) {
+        Py_ssize_t start = 0;
+        while (start < len && PyUnicode_READ(kind, data, start) == '0') {
+            start++;
+        }
+        if (start == len) {
+            return PyUnicode_FromString(":0");
+        }
+        PyObject *significant = start > 0 ? PyUnicode_Substring(port, start, len) : Py_NewRef(port);
+        if (significant == NULL) { /* GCOVR_EXCL_BR_LINE: substring only fails on allocation failure */
+            return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (len - start > 19) {
+            PyObject *suffix = th_str_format(":%U", significant);
+            Py_DECREF(significant);
+            return suffix;
+        }
+        number = PyLong_FromUnicodeObject(significant, 10);
+        Py_DECREF(significant);
+    } else {
+        number = PyLong_FromUnicodeObject(port, 10);
+    }
     if (number == NULL) { /* GCOVR_EXCL_BR_LINE: an ASCII-digit-only string always parses */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }

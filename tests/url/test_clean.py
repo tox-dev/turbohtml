@@ -1084,3 +1084,26 @@ def test_normalize_file_rejects_surrogate(url: str) -> None:
 )
 def test_normalize_port_uses_ascii_digits(normalizer: Callable[[str], str | None], url: str, expected: str) -> None:
     assert normalizer(url) == expected
+
+
+@pytest.mark.parametrize(
+    "normalizer",
+    [pytest.param(normalize_url, id="normalize"), pytest.param(clean_url, id="clean")],
+)
+@pytest.mark.parametrize(
+    ("port", "suffix"),
+    [
+        pytest.param("0080", "", id="ascii-default-control"),
+        pytest.param("65536", ":65536", id="ascii-overflow-control"),
+        pytest.param("9" * 19, ":" + "9" * 19, id="long-limit"),
+        pytest.param("9" * 20, ":" + "9" * 20, id="long-overflow"),
+        pytest.param("0" * 20 + "80", "", id="padded-default"),
+        pytest.param("0" * 4301 + "80", "", id="padded-default-past-python-limit"),
+        pytest.param("0" * 4301 + "1", ":1", id="padded-nondefault-past-python-limit"),
+        pytest.param("0" * 4301, ":0", id="zero-past-python-limit"),
+        pytest.param("0" * 4301 + "9" * 20, ":" + "9" * 20, id="padded-overflow-past-python-limit"),
+        pytest.param("9" * 4301, ":" + "9" * 4301, id="overflow-past-python-limit"),
+    ],
+)
+def test_normalize_long_ascii_port(normalizer: Callable[[str], str | None], port: str, suffix: str) -> None:
+    assert normalizer(f"http://example.com:{port}/") == f"http://example.com{suffix}/"
