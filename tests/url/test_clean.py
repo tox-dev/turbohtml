@@ -1199,3 +1199,29 @@ def test_normalize_rejects_forbidden_opaque_host(host: str) -> None:
 def test_normalize_rejects_surrogate_opaque_host() -> None:
     with pytest.raises(ValueError, match="cannot be percent-encoded"):
         normalize_url("git://a\udcff/")
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("file://C:/foo", "file:///C:/foo", id="colon-drive"),
+        pytest.param("file://C|/foo", "file:///C:/foo", id="bar-drive"),
+        pytest.param("file://C:", "file:///C:", id="drive-only"),
+        pytest.param("file://C|", "file:///C:", id="bar-drive-only"),
+        pytest.param("file://c:/foo", "file:///c:/foo", id="lowercase-drive"),
+        pytest.param("file://ab/foo", "file://ab/foo", id="two-letter-host"),
+        pytest.param("file://C|?q=1", "file:///C:?q=1", id="query-after-drive"),
+        pytest.param("file://C|#part", "file:///C:#part", id="fragment-after-drive"),
+    ],
+)
+def test_normalize_file_drive_in_authority(url: str, expected: str) -> None:
+    normalized: Final = normalize_url(url)
+    assert (normalized, normalize_url(normalized)) == (expected, expected)
+
+
+@pytest.mark.parametrize("scheme", ["http", "fuzz", "fizz", "film"])
+def test_normalize_file_drive_authority_only_for_file(scheme: str) -> None:
+    url: Final = f"{scheme}://c:/foo"
+    expected: Final = f"{scheme}://c/foo"
+    normalized: Final = normalize_url(url)
+    assert (normalized, normalize_url(normalized)) == (expected, expected)

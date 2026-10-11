@@ -1,0 +1,1 @@
+Treat Windows drive letters in file URL authorities as paths.

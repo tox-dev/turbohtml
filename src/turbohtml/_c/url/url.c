@@ -777,6 +777,12 @@ int th_url_split(PyObject *arg, th_url_parts *out, int host_brackets_only) {
     }
     Py_ssize_t path_end = query_at >= 0 ? query_at : url_end;
     Py_ssize_t query_start = query_at >= 0 ? query_at + 1 : url_end;
+    if (scheme_end == 4 && netloc_end - netloc_start == 2 && is_ascii_alpha(work[netloc_start]) && work[0] == 'f' &&
+        work[1] == 'i' && work[2] == 'l' && work[3] == 'e' &&
+        (work[netloc_start + 1] == ':' || work[netloc_start + 1] == '|')) {
+        rem = netloc_start - 1;
+        netloc_end = netloc_start;
+    }
     th_authority auth;
     th_url_authority(work, netloc_start, netloc_end, &auth);
     if (auth.host_start == auth.host_end && auth.host_start > netloc_start && work[auth.host_start - 1] == '@') {
