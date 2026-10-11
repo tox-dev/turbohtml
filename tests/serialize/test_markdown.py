@@ -11,20 +11,18 @@ WPT tree-construction corpus, so to_markdown() is exercised on malformed markup 
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Final
 from urllib.parse import unquote
 
 import pytest
 from markdown_it import MarkdownIt
 
-from turbohtml import parse, parse_fragment
+from turbohtml import Element, Markdown, PlainText, Text, parse, parse_fragment
 
 if TYPE_CHECKING:
     from wpt_tree_corpus import WptHtmlTreeCorpus
-from types import MappingProxyType
-from typing import Final
 
-from turbohtml import Element, Markdown, Text
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -36,7 +34,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from turbohtml import Document
-from turbohtml import PlainText
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -3724,3 +3721,58 @@ def test_reference_links_grow_past_initial_capacity() -> None:
 def test_table_cells_with_th_and_comment(opts: Markdown, expected: str) -> None:
     html = "<table><tr><!--c--><template></template><th>H</th><td>x</td></tr><tr><td>a</td><td>b</td></tr></table>"
     assert _configured_markdown(html, opts) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "language", "content"),
+    [
+        pytest.param(
+            '<pre><code class="highlight language-python">one</code></pre>', "python", "one", id="second-class"
+        ),
+        pytest.param('<pre><code class=" language-python">one</code></pre>', "python", "one", id="leading-space"),
+        pytest.param(
+            '<pre><code class="highlight&#9;&#10;&#12;&#13;language-python other">one</code></pre>',
+            "python",
+            "one",
+            id="ascii-whitespace",
+        ),
+        pytest.param(
+            '<pre><code class="language- language-python">one</code></pre>', "python", "one", id="empty-token"
+        ),
+        pytest.param(
+            '<pre><code class="language-python language-ruby">one</code></pre>', "python", "one", id="first-language"
+        ),
+        pytest.param(
+            '<pre><code class="highlight\u00a0language-python">one</code></pre>',
+            "fallback",
+            "one",
+            id="nbsp-is-not-separator",
+        ),
+        pytest.param('<pre><code class="LANGUAGE-python">one</code></pre>', "fallback", "one", id="case-sensitive"),
+        pytest.param('<pre class="language-ruby">one</pre>', "ruby", "one", id="pre-language"),
+        pytest.param('<pre class="language-ruby"><code>one</code></pre>', "ruby", "one", id="inherit-pre"),
+        pytest.param(
+            '<pre class="language-ruby"><code class="language-python">one</code></pre>', "python", "one", id="code-wins"
+        ),
+        pytest.param('<pre> <code class="language-python">one</code> </pre>', "python", " one ", id="space-siblings"),
+        pytest.param('<pre><code class="language-python">one</code> </pre>', "python", "one ", id="trailing-space"),
+        pytest.param(
+            '<pre>\n\n<code class="language-python">one</code>\n\n</pre>', "python", "\none\n", id="newline-siblings"
+        ),
+        pytest.param('<pre><code class="language-python">one</code>two</pre>', "fallback", "onetwo", id="text-sibling"),
+        pytest.param(
+            '<pre><code class="language-python">one</code><code>two</code></pre>',
+            "fallback",
+            "onetwo",
+            id="two-code-elements",
+        ),
+        pytest.param(
+            '<pre><!--comment--><code class="language-python">one</code></pre>', "fallback", "one", id="comment-sibling"
+        ),
+        pytest.param("<pre><svg>one</svg></pre>", "fallback", "one", id="foreign-element"),
+    ],
+)
+def test_code_language(source: str, language: str, content: str) -> None:
+    assert (
+        parse(source).to_markdown(Markdown(code=Markdown.Code(language="fallback"))) == f"```{language}\n{content}\n```"
+    )

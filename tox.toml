@@ -86,8 +86,8 @@ commands = [
     # without its oracle -- a missing oracle must error there, not skip silently in the matrix.
     "--ignore={tox_root}{/}tests{/}conformance",
     # this build compiles neither the operation limit nor the -Dfuzzing=true allocation-failure hook that
-    # tests/fuzz_build needs; fuzz-smoke runs it
-    "--ignore={tox_root}{/}tests{/}fuzz_build",
+    # fuzz-only allocation tests need; fuzz-smoke runs them
+    "--ignore={tox_root}{/}tests{/}test_fuzz_self_test.py",
     { replace = "posargs", default = [ "tests" ], extend = true },
   ],
   { replace = "if", condition = "factor.win32 or factor['3.15'] or factor['3.14t'] or factor['3.15t']", then = [
@@ -122,7 +122,8 @@ commands = [
     "pytest",
     "{tox_root}{/}tests{/}dom{/}test_tree_freethread.py",
     "{tox_root}{/}tests{/}clean{/}test_linkify.py::test_linker_is_reusable_across_concurrent_callbacks",
-    "{tox_root}{/}tests{/}test_fuzz_dom_lifecycle_race.py",
+    "{tox_root}{/}tests{/}test_fuzz_dom_lifecycle.py::test_dom_lifecycle_race_matches_the_serial_run",
+    "{tox_root}{/}tests{/}test_fuzz_dom_lifecycle.py::test_dom_lifecycle_race_on_shared_trees_keeps_every_tree_intact",
     "--no-cov",
     "--parallel-threads=auto",
     "--iterations=20",
@@ -277,7 +278,7 @@ commands = [
     "10",
     "--no-cov",
     "--ignore={tox_root}{/}tests{/}conformance",
-    "--ignore={tox_root}{/}tests{/}fuzz_build",
+    "--ignore={tox_root}{/}tests{/}test_fuzz_self_test.py",
     { replace = "posargs", default = [ "tests" ], extend = true },
   ],
 ]
@@ -326,17 +327,31 @@ commands_pre = [
     "--config-settings=setup-args=-Dfuzzing=true",
     "--config-settings=compile-args=-j2"
   ],
+  [
+    "env",
+    "CC=gcc",
+    "CXX=g++",
+    "python",
+    "-c",
+    """\
+  from pathlib import Path; import atheris; from fuzz.atheris_runtime import build_runtime; \
+  build_runtime(Path(atheris.path()) / 'libclang_rt.fuzzer_no_main.a', Path(r'{env_tmp_dir}/native-runtime'))\
+  """,
+  ],
 ]
 commands = [
   [
     "env",
     "CC=gcc",
     "CXX=g++",
+    "LD_PRELOAD={env_tmp_dir}/native-runtime/libatheris_fuzzer.so",
     "python",
     "-m",
     "pytest",
-    "{tox_root}/tests/atheris",
-    "--confcutdir={tox_root}/tests/atheris",
+    "{tox_root}/tests/test_fuzz_self_test.py",
+    "-m",
+    "atheris_native",
+    "--noconftest",
     "--basetemp={env_tmp_dir}/native",
   ]
 ]
@@ -807,7 +822,7 @@ commands = [
     "pytest",
     "--no-cov",
     "--ignore={tox_root}{/}tests{/}conformance",
-    "--ignore={tox_root}{/}tests{/}fuzz_build",
+    "--ignore={tox_root}{/}tests{/}test_fuzz_self_test.py",
     { replace = "posargs", default = [ "tests" ], extend = true },
   ],
 ]
@@ -851,6 +866,7 @@ commands = [
     "--iterations=20",
     "{tox_root}{/}tests{/}dom{/}test_tree_freethread.py",
     "{tox_root}{/}tests{/}clean{/}test_linkify.py::test_linker_is_reusable_across_concurrent_callbacks",
-    "{tox_root}{/}tests{/}test_fuzz_dom_lifecycle_race.py",
+    "{tox_root}{/}tests{/}test_fuzz_dom_lifecycle.py::test_dom_lifecycle_race_matches_the_serial_run",
+    "{tox_root}{/}tests{/}test_fuzz_dom_lifecycle.py::test_dom_lifecycle_race_on_shared_trees_keeps_every_tree_intact",
   ],
 ]

@@ -1043,3 +1043,605 @@ def test_is_valid_reuses_schema_after_failure(document: str) -> None:
 def test_validation_verdict_benchmark(index: int, *, expected: bool) -> None:
     source, document = cast("tuple[str, str]", INPUTS["is-valid-rng"]()[index][1])
     assert RelaxNG(source).is_valid(parse_xml(document)) is expected
+
+
+_RNG: Final = "http://relaxng.org/ns/structure/1.0"
+
+
+@pytest.mark.parametrize("as_node", [False, True], ids=["text", "node"])
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(f'<externalRef xmlns="{_RNG}"/>', id="short-external"),
+        pytest.param(f'<include xmlns="{_RNG}"/>', id="short-include"),
+        pytest.param(f'<element xmlns="{_RNG}" name="foo"><externalRef/></element>', id="element-external"),
+        pytest.param(
+            f'<grammar xmlns="{_RNG}"><start><element name="foo"><externalRef/></element></start></grammar>',
+            id="grammar-external",
+        ),
+        pytest.param(
+            f'<grammar xmlns="{_RNG}"><include/><start><element name="foo"><empty/></element></start></grammar>',
+            id="grammar-include",
+        ),
+        pytest.param(
+            f'<grammar xmlns="{_RNG}"><div><include/></div><start><element name="foo"><empty/></element></start>'
+            "</grammar>",
+            id="div-include",
+        ),
+        pytest.param(
+            f'<rng:grammar xmlns:rng="{_RNG}"><rng:include/><rng:start><rng:element name="foo">'
+            "<rng:empty/></rng:element></rng:start></rng:grammar>",
+            id="prefixed-include",
+        ),
+        pytest.param(
+            f'<rng:element xmlns:rng="{_RNG}" name="foo"><rng:externalRef/></rng:element>',
+            id="prefixed-external",
+        ),
+        pytest.param(
+            f'<element xmlns="{_RNG}" xmlns:doc="urn:annotation" name="foo"><externalRef doc:href="x"/></element>',
+            id="foreign-href-attribute",
+        ),
+        pytest.param(
+            f'<grammar xmlns="{_RNG}"><start><element name="foo"><empty/></element></start>'
+            '<define name="unused"><externalRef/></define></grammar>',
+            id="unused-definition-external",
+        ),
+    ],
+)
+def test_relaxng_missing_href_rejects_compilation(schema: str, *, as_node: bool) -> None:
+    source: Final = parse_xml(schema) if as_node else schema
+    for _ in range(2):
+        with pytest.raises(ValueError, match="required href attribute"):
+            RelaxNG(source)
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        pytest.param("<doc:include/>", id="foreign-include"),
+        pytest.param("<doc:externalRef/>", id="foreign-external"),
+        pytest.param("<doc:annotation><externalRef/></doc:annotation>", id="foreign-subtree"),
+    ],
+)
+def test_relaxng_missing_href_ignores_foreign_annotations(annotation: str) -> None:
+    schema: Final = (
+        f'<grammar xmlns="{_RNG}" xmlns:doc="urn:annotation">\n<!-- annotation -->'
+        f'{annotation}<start><element name="foo"><empty/></element></start></grammar>'
+    )
+    validator: Final = RelaxNG(schema)
+    assert [validator.validate(parse_xml(document)).valid for document in ("<foo/>", "<wrong/>")] == [True, False]
+
+
+def test_relaxng_missing_href_preserves_ordinary_patterns() -> None:
+    validator: Final = RelaxNG(f'<element xmlns="{_RNG}" name="foo"><text/></element>')
+    assert [validator.validate(parse_xml(document)).valid for document in ("<foo>text</foo>", "<wrong/>")] == [
+        True,
+        False,
+    ]
+
+
+_NAMESPACE: Final = 'xmlns="http://relaxng.org/ns/structure/1.0"'
+
+
+@pytest.mark.parametrize("count", [0, 1, 12], ids=["empty", "linear", "hashed"])
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        pytest.param('<ref name="missing"/>', id="start"),
+        pytest.param('<element name="root"><ref name="missing"/></element>', id="element"),
+    ],
+)
+def test_relaxng_undefined_reference_rejects_compilation(count: int, pattern: str) -> None:
+    definitions: Final = "".join(f'<define name="entry{index}"><empty/></define>' for index in range(count))
+    schema: Final = f"<grammar {_NAMESPACE}><start>{pattern}</start>{definitions}</grammar>"
+    for _ in range(2):
+        with pytest.raises(ValueError, match="has no matching define"):
+            RelaxNG(schema)
+
+
+def test_relaxng_undefined_short_reference_rejects_compilation() -> None:
+    for _ in range(2):
+        with pytest.raises(ValueError, match="has no matching define"):
+            RelaxNG(f'<element {_NAMESPACE} name="root"><ref name="missing"/></element>')
+
+
+@pytest.mark.parametrize("count", [0, 12], ids=["linear", "hashed"])
+def test_relaxng_forward_reference_preserves_recursive_validation(count: int) -> None:
+    definitions: Final = "".join(f'<define name="unused{index}"><empty/></define>' for index in range(count))
+    schema: Final = (
+        f'<grammar {_NAMESPACE}><start><ref name="entry"/></start>'
+        '<define name="entry"><element name="root"><optional><ref name="entry"/></optional></element></define>'
+        f"{definitions}</grammar>"
+    )
+    validator: Final = RelaxNG(schema)
+    assert [
+        [validator.is_valid(parse_xml(document)) for document in ("<root/>", "<root><root/></root>", "<wrong/>")]
+        for _ in range(2)
+    ] == [[True, True, False], [True, True, False]]
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        pytest.param('<ref name="missing"/>', id="unknown"),
+        pytest.param("<ref/>", id="absent-name"),
+        pytest.param('<element name="dead"><ref name="missing"/></element>', id="nested"),
+    ],
+)
+def test_relaxng_undefined_unused_reference_rejects_compilation(pattern: str) -> None:
+    schema: Final = (
+        f'<grammar {_NAMESPACE}><start><element name="root"><empty/></element></start>'
+        f'<define name="unused">{pattern}</define></grammar>'
+    )
+    with pytest.raises(ValueError, match="RELAX NG <ref>"):
+        RelaxNG(schema)
+
+
+@pytest.mark.parametrize(
+    "definitions",
+    [
+        pytest.param(
+            '<define name="unused"><!--annotation--><ref name="unused"/></define>',
+            id="unused-cycle",
+        ),
+        pytest.param(
+            '<define name="unused" combine="choice"><empty/></define>'
+            '<define name="unused" combine="choice"><ref name="unused"/></define>',
+            id="combined-unused-cycle",
+        ),
+    ],
+)
+def test_relaxng_unused_reference_cycle_preserves_reachable_validation(definitions: str) -> None:
+    schema: Final = (
+        f'<grammar {_NAMESPACE}><start><element name="root"><empty/></element></start>{definitions}</grammar>'
+    )
+    validator: Final = RelaxNG(schema)
+    assert [validator.is_valid(parse_xml(document)) for document in ("<root/>", "<other/>")] == [True, False]
+
+
+def test_relaxng_undefined_combined_unused_reference_rejects_compilation() -> None:
+    schema: Final = (
+        f'<grammar {_NAMESPACE}><start><element name="root"><empty/></element></start>'
+        '<define name="unused" combine="choice"><empty/></define>'
+        '<define name="unused" combine="choice"><ref name="missing"/></define></grammar>'
+    )
+    with pytest.raises(ValueError, match="has no matching define"):
+        RelaxNG(schema)
+
+
+def test_relaxng_unused_foreign_annotation_is_ignored() -> None:
+    schema: Final = (
+        f'<grammar {_NAMESPACE} xmlns:doc="urn:documentation">'
+        '<start><element name="root"><empty/></element></start>'
+        '<define name="unused"><doc:annotation><ref name="missing"/></doc:annotation><empty/></define></grammar>'
+    )
+    assert RelaxNG(schema).is_valid(parse_xml("<root/>"))
+
+
+def test_relaxng_annotation_normalization_preserves_public_source() -> None:
+    source: Final = parse_xml(
+        f'<element {_NAMESPACE} xmlns:doc="urn:documentation" name="root">'
+        '<empty/><doc:annotation><ref name="missing"/></doc:annotation></element>'
+    )
+    serialized: Final = source.serialize()
+    validator: Final = RelaxNG(source)
+    assert (source.serialize(), validator.is_valid(parse_xml("<root/>"))) == (serialized, True)
+
+
+_RELAXNG_EMPTY_CONTENT_NAMESPACE: Final = "http://relaxng.org/ns/structure/1.0"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param("", id="absent"),
+        pytest.param("<!--comment-->", id="comment"),
+        pytest.param("<?probe value?>", id="processing-instruction"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("pattern", "expected"),
+    [
+        pytest.param('<data type="string"/>', True, id="data-string"),
+        pytest.param('<data type="token"/>', True, id="data-token"),
+        pytest.param('<value type="string"></value>', True, id="value-string"),
+        pytest.param('<value type="token"></value>', True, id="value-token"),
+        pytest.param('<value type="string">x</value>', False, id="nonempty-value"),
+        pytest.param(
+            '<data datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes" type="integer"/>',
+            False,
+            id="integer",
+        ),
+        pytest.param("<empty/>", True, id="empty-pattern"),
+        pytest.param('<element name="child"><empty/></element>', False, id="required-child"),
+        pytest.param('<optional><element name="child"><empty/></element></optional>', True, id="optional-child"),
+        pytest.param('<list><zeroOrMore><data type="token"/></zeroOrMore></list>', True, id="empty-list"),
+        pytest.param(
+            '<attribute name="required"><text/></attribute><data type="string"/>', False, id="required-attribute"
+        ),
+        pytest.param(
+            '<optional><attribute name="optional"><text/></attribute></optional><data type="string"/>',
+            True,
+            id="optional-attribute",
+        ),
+    ],
+)
+def test_rng_empty_content(pattern: str, content: str, *, expected: bool) -> None:
+    validator: Final = RelaxNG(f'<element xmlns="{_RELAXNG_EMPTY_CONTENT_NAMESPACE}" name="doc">{pattern}</element>')
+    assert tuple(validator.validate(parse_xml(f"<doc>{content}</doc>")).valid for _ in range(2)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
+    ("pattern", "content", "expected"),
+    [
+        pytest.param('<value type="string"></value>', " ", False, id="string-whitespace"),
+        pytest.param('<value type="token"></value>', " ", True, id="token-whitespace"),
+        pytest.param('<data type="string"/>', "text", True, id="string-text"),
+        pytest.param('<data type="token"/>', "<child/>", False, id="data-child"),
+        pytest.param('<element name="child"><empty/></element>', "<child/>", True, id="required-child"),
+        pytest.param("<empty/>", "text", False, id="empty-text"),
+    ],
+)
+def test_rng_empty_content_controls(pattern: str, content: str, *, expected: bool) -> None:
+    validator: Final = RelaxNG(f'<element xmlns="{_RELAXNG_EMPTY_CONTENT_NAMESPACE}" name="doc">{pattern}</element>')
+    assert tuple(validator.validate(parse_xml(f"<doc>{content}</doc>")).valid for _ in range(2)) == (expected, expected)
+
+
+_VALUE_NS: Final = "http://relaxng.org/ns/structure/1.0"
+_XSD: Final = "http://www.w3.org/2001/XMLSchema-datatypes"
+
+
+@pytest.mark.parametrize("attribute", [pytest.param(False, id="text"), pytest.param(True, id="attribute")])
+@pytest.mark.parametrize(
+    ("attributes", "literal", "content", "expected"),
+    [
+        pytest.param(("", ""), "alpha beta", "alpha beta", True, id="exact"),
+        pytest.param(("", ""), "alpha beta", " alpha  beta ", True, id="collapse-spaces"),
+        pytest.param(("", ""), "alpha beta", "&#x9;alpha&#xA; beta&#xD;", True, id="xml-whitespace"),
+        pytest.param(("", ""), " alpha&#x9; beta ", "alpha beta", True, id="schema-whitespace"),
+        pytest.param(("", ""), " alpha&#x9; beta ", " alpha  beta ", True, id="both-whitespace"),
+        pytest.param(("", f'datatypeLibrary="{_XSD}"'), "alpha beta", " alpha  beta ", True, id="reset-xsd"),
+        pytest.param(("", 'datatypeLibrary="urn:unknown"'), "alpha beta", " alpha  beta ", True, id="reset-unknown"),
+        pytest.param(("", ""), "alpha beta", "alphabeta", False, id="missing-space"),
+        pytest.param(("", ""), "alpha beta", "alpha gamma", False, id="different-token"),
+        pytest.param(("", ""), "alpha beta", "alpha&#xA0;beta", False, id="nonbreaking-space"),
+        pytest.param(("", ""), "alpha&#xA0;beta", "alpha&#xA0;beta", True, id="literal-nonbreaking-space"),
+        pytest.param(('type="string"', ""), "alpha beta", "alpha beta", True, id="string-exact"),
+        pytest.param(('type="string"', ""), "alpha beta", " alpha  beta ", False, id="string-spacing"),
+        pytest.param(('type="token"', ""), "alpha beta", " alpha  beta ", True, id="explicit-token"),
+        pytest.param(
+            ('type="token"', f'datatypeLibrary="{_XSD}"'), "alpha beta", " alpha  beta ", True, id="xsd-token"
+        ),
+    ],
+)
+def test_relaxng_value_default_token(
+    *, attribute: bool, attributes: tuple[str, str], literal: str, content: str, expected: bool
+) -> None:
+    value: Final = f"<value {attributes[0]}>{literal}</value>"
+    pattern: Final = f'<attribute name="content">{value}</attribute>' if attribute else value
+    validator: Final = RelaxNG(f'<element xmlns="{_VALUE_NS}" name="doc" {attributes[1]}>{pattern}</element>')
+    document: Final = f'<doc content="{content}"/>' if attribute else f"<doc>{content}</doc>"
+    assert tuple(validator.validate(parse_xml(document)).valid for _ in range(2)) == (expected, expected)
+
+
+_RELAXNG_ROOT_NAMESPACE: Final = "http://relaxng.org/ns/structure/1.0"
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param("<thisIsJunk/>", id="jing001"),
+        pytest.param('<element name="doc"><empty/></element>', id="absent-namespace"),
+        pytest.param('<element xmlns="" name="doc"><empty/></element>', id="empty-default-namespace"),
+        pytest.param('<element xmlns="urn:other" name="doc"><empty/></element>', id="foreign-default-namespace"),
+        pytest.param(
+            '<r:element xmlns:r="urn:other" name="doc"><r:empty/></r:element>', id="foreign-prefixed-namespace"
+        ),
+        pytest.param(
+            f'<element xmlns:r="{_RELAXNG_ROOT_NAMESPACE}" name="doc"><empty/></element>', id="unused-structure-prefix"
+        ),
+        pytest.param('<grammar xmlns="urn:other"><start/></grammar>', id="foreign-grammar"),
+        pytest.param('<xml:element name="doc"/>', id="reserved-xml-prefix"),
+    ],
+)
+def test_relaxng_rejects_foreign_root(schema: str) -> None:
+    for _ in range(2):
+        with pytest.raises(ValueError, match="RELAX NG schema root must use the structure namespace"):
+            RelaxNG(schema)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(f'<element xmlns="{_RELAXNG_ROOT_NAMESPACE}" name="doc"><empty/></element>', id="default-element"),
+        pytest.param(
+            f'<r:element xmlns:r="{_RELAXNG_ROOT_NAMESPACE}" name="doc"><r:empty/></r:element>', id="prefixed-element"
+        ),
+        pytest.param(
+            (
+                f'<grammar xmlns="{_RELAXNG_ROOT_NAMESPACE}"><start>'
+                '<element name="doc"><empty/></element></start></grammar>'
+            ),
+            id="default-grammar",
+        ),
+        pytest.param(
+            f'<r:grammar xmlns:r="{_RELAXNG_ROOT_NAMESPACE}"><r:start>'
+            '<r:element name="doc"><r:empty/></r:element></r:start></r:grammar>',
+            id="prefixed-grammar",
+        ),
+    ],
+)
+def test_relaxng_structure_root_preserves_validation(schema: str) -> None:
+    validator: Final = RelaxNG(schema)
+    assert [
+        (validator.validate(parse_xml("<doc/>")).valid, validator.validate(parse_xml("<other/>")).valid)
+        for _ in range(2)
+    ] == [(True, False), (True, False)]
+
+
+_RELAXNG_DATA_EXCEPT_NAMESPACE: Final = "http://relaxng.org/ns/structure/1.0"
+_RELAXNG_DATA_EXCEPT_XSD: Final = "http://www.w3.org/2001/XMLSchema-datatypes"
+
+
+@pytest.mark.parametrize("attribute", [pytest.param(False, id="text"), pytest.param(True, id="attribute")])
+@pytest.mark.parametrize(
+    ("pattern", "content", "expected"),
+    [
+        pytest.param(
+            '<data type="token"><except><value type="token">x</value></except></data>', "x", False, id="single-excluded"
+        ),
+        pytest.param(
+            '<data type="token"><except><value type="token">x</value></except></data>', "y", True, id="single-allowed"
+        ),
+        pytest.param(
+            '<data type="token"><except><value type="token">x</value>'
+            '<value type="token">y</value><value type="token">z</value></except></data>',
+            "x",
+            False,
+            id="multiple-first",
+        ),
+        pytest.param(
+            '<data type="token"><except><value type="token">x</value>'
+            '<value type="token">y</value><value type="token">z</value></except></data>',
+            "y",
+            False,
+            id="multiple-middle",
+        ),
+        pytest.param(
+            '<data type="token"><except><value type="token">x</value>'
+            '<value type="token">y</value><value type="token">z</value></except></data>',
+            "z",
+            False,
+            id="multiple-last",
+        ),
+        pytest.param(
+            '<data type="token"><except><value type="token">x</value>'
+            '<value type="token">y</value><value type="token">z</value></except></data>',
+            "xyz",
+            True,
+            id="multiple-allowed",
+        ),
+        pytest.param(
+            '<data type="token"><except><choice><value type="token">x</value>'
+            '<value type="token">y</value></choice></except></data>',
+            "y",
+            False,
+            id="choice-excluded",
+        ),
+        pytest.param(
+            '<data type="token"><except><choice><value type="token">x</value>'
+            '<value type="token">y</value></choice></except></data>',
+            "z",
+            True,
+            id="choice-allowed",
+        ),
+        pytest.param(
+            '<data type="token"><except><value type="token">alpha beta</value></except></data>',
+            " alpha  beta ",
+            False,
+            id="token-spacing",
+        ),
+        pytest.param(
+            '<data type="token"><except><value type="string">alpha beta</value></except></data>',
+            " alpha  beta ",
+            True,
+            id="string-spacing",
+        ),
+        pytest.param(
+            '<data type="string"><except><value type="string">alpha beta</value></except></data>',
+            "alpha beta",
+            False,
+            id="string-excluded",
+        ),
+        pytest.param(
+            (
+                f'<data datatypeLibrary="{_RELAXNG_DATA_EXCEPT_XSD}" type="integer">'
+                '<except><value type="integer">7</value></except></data>'
+            ),
+            "not-a-number",
+            False,
+            id="datatype-invalid",
+        ),
+        pytest.param(
+            (
+                f'<data datatypeLibrary="{_RELAXNG_DATA_EXCEPT_XSD}" type="integer">'
+                '<except><value type="integer">7</value></except></data>'
+            ),
+            "24",
+            True,
+            id="datatype-allowed",
+        ),
+        pytest.param(
+            (
+                f'<data datatypeLibrary="{_RELAXNG_DATA_EXCEPT_XSD}" type="integer">'
+                '<except><value type="integer">7</value></except></data>'
+            ),
+            "7",
+            False,
+            id="datatype-excluded",
+        ),
+        pytest.param(
+            f'<data datatypeLibrary="{_RELAXNG_DATA_EXCEPT_XSD}" type="string"><param name="minLength">3</param>'
+            '<except><value type="string">abc</value></except></data>',
+            "xy",
+            False,
+            id="facet-invalid",
+        ),
+        pytest.param(
+            f'<data datatypeLibrary="{_RELAXNG_DATA_EXCEPT_XSD}" type="string"><param name="minLength">3</param>'
+            '<except><value type="string">abc</value></except></data>',
+            "abcd",
+            True,
+            id="facet-allowed",
+        ),
+        pytest.param(
+            f'<data datatypeLibrary="{_RELAXNG_DATA_EXCEPT_XSD}" type="string"><param name="minLength">3</param>'
+            '<except><value type="string">abc</value></except></data>',
+            "abc",
+            False,
+            id="facet-excluded",
+        ),
+        pytest.param(
+            (
+                '<data type="token"><except>'
+                f'<data datatypeLibrary="{_RELAXNG_DATA_EXCEPT_XSD}" type="integer"/></except></data>'
+            ),
+            "7",
+            False,
+            id="excluded-datatype",
+        ),
+        pytest.param(
+            (
+                '<data type="token"><except>'
+                f'<data datatypeLibrary="{_RELAXNG_DATA_EXCEPT_XSD}" type="integer"/></except></data>'
+            ),
+            "word",
+            True,
+            id="excluded-datatype-miss",
+        ),
+        pytest.param(
+            '<data type="token"><except><data type="token"><except><value type="token">x</value>'
+            "</except></data></except></data>",
+            "x",
+            True,
+            id="nested-allowed",
+        ),
+        pytest.param(
+            '<data type="token"><except><data type="token"><except><value type="token">x</value>'
+            "</except></data></except></data>",
+            "y",
+            False,
+            id="nested-excluded",
+        ),
+        pytest.param('<data type="token"/>', "x", True, id="without-exclusion"),
+        pytest.param(
+            '<data type="token"><except>\n<!--annotation--><value type="token">x</value>\n</except></data>',
+            "x",
+            False,
+            id="comments",
+        ),
+        pytest.param(
+            '<data type="token"><except><note xmlns="urn:annotation"/><value type="token">x</value></except></data>',
+            "x",
+            False,
+            id="foreign-annotation",
+        ),
+    ],
+)
+def test_relaxng_data_except(*, attribute: bool, pattern: str, content: str, expected: bool) -> None:
+    body: Final = f'<attribute name="content">{pattern}</attribute>' if attribute else pattern
+    validator: Final = RelaxNG(f'<element xmlns="{_RELAXNG_DATA_EXCEPT_NAMESPACE}" name="doc">{body}</element>')
+    document: Final = f'<doc content="{content}"/>' if attribute else f"<doc>{content}</doc>"
+    assert tuple(validator.validate(parse_xml(document)).valid for _ in range(2)) == (expected, expected)
+
+
+_RELAXNG_NUMERIC_BOUNDS_NAMESPACE: Final = "http://relaxng.org/ns/structure/1.0"
+_LIBRARY: Final = "http://www.w3.org/2001/XMLSchema-datatypes"
+
+
+@pytest.mark.parametrize("datatype", ["integer", "decimal", "double"])
+@pytest.mark.parametrize("attribute", [pytest.param(False, id="text"), pytest.param(True, id="attribute")])
+@pytest.mark.parametrize(
+    ("facet", "value", "expected"),
+    [
+        pytest.param("minInclusive", "0", False, id="min-inclusive-below"),
+        pytest.param("minInclusive", "1", True, id="min-inclusive-equal"),
+        pytest.param("minInclusive", "2", True, id="min-inclusive-above"),
+        pytest.param("maxInclusive", "0", True, id="max-inclusive-below"),
+        pytest.param("maxInclusive", "1", True, id="max-inclusive-equal"),
+        pytest.param("maxInclusive", "2", False, id="max-inclusive-above"),
+        pytest.param("minExclusive", "0", False, id="min-exclusive-below"),
+        pytest.param("minExclusive", "1", False, id="min-exclusive-equal"),
+        pytest.param("minExclusive", "2", True, id="min-exclusive-above"),
+        pytest.param("maxExclusive", "0", True, id="max-exclusive-below"),
+        pytest.param("maxExclusive", "1", False, id="max-exclusive-equal"),
+        pytest.param("maxExclusive", "2", False, id="max-exclusive-above"),
+        pytest.param("minInclusive", "invalid", False, id="invalid-lexical"),
+    ],
+)
+def test_rng_numeric_bound(datatype: str, facet: str, value: str, *, attribute: bool, expected: bool) -> None:
+    pattern: Final = f'<data type="{datatype}"><param name="{facet}">1</param></data>'
+    validator: Final = RelaxNG(
+        f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
+        + (f'<attribute name="value">{pattern}</attribute>' if attribute else pattern)
+        + "</element>"
+    )
+    document: Final = f'<doc value="{value}"/>' if attribute else f"<doc>{value}</doc>"
+    assert tuple(validator.validate(parse_xml(document)).valid for _ in range(2)) == (expected, expected)
+
+
+@pytest.mark.parametrize("facet", ["minInclusive", "maxInclusive", "minExclusive", "maxExclusive"])
+def test_rng_numeric_bound_nan(facet: str) -> None:
+    validator: Final = RelaxNG(
+        f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
+        f'<data type="double"><param name="{facet}">1</param></data></element>'
+    )
+    assert tuple(validator.validate(parse_xml("<doc>NaN</doc>")).valid for _ in range(2)) == (False, False)
+
+
+@pytest.mark.parametrize(
+    ("datatype", "params", "value", "expected"),
+    [
+        pytest.param("double", "", "NaN", True, id="unbounded-nan"),
+        pytest.param("double", "", "INF", True, id="unbounded-positive-infinity"),
+        pytest.param("double", "", "-INF", True, id="unbounded-negative-infinity"),
+        pytest.param("double", "", "2", True, id="unbounded-finite"),
+        pytest.param("double", "", "invalid", False, id="unbounded-invalid"),
+        pytest.param(
+            "double",
+            '<param name="minInclusive">0</param><param name="maxInclusive">1</param>',
+            "0.5",
+            True,
+            id="two-bounds-inside",
+        ),
+        pytest.param(
+            "double",
+            '<param name="minInclusive">0</param><param name="maxInclusive">1</param>',
+            "INF",
+            False,
+            id="two-bounds-positive-infinity",
+        ),
+        pytest.param(
+            "double",
+            '<param name="minInclusive">0</param><param name="maxInclusive">1</param>',
+            "-INF",
+            False,
+            id="two-bounds-negative-infinity",
+        ),
+        pytest.param("double", '<param name="maxInclusive">1</param>', "1e0", True, id="exponent-equal"),
+        pytest.param("double", '<param name="maxInclusive">1</param>', " 0.5 ", True, id="normalized-space"),
+        pytest.param(
+            "date",
+            '<param name="maxExclusive">2024-12-31</param>',
+            "2024-01-01",
+            True,
+            id="date-keeps-calendar-comparison",
+        ),
+    ],
+)
+def test_rng_numeric_bound_controls(datatype: str, params: str, value: str, *, expected: bool) -> None:
+    validator: Final = RelaxNG(
+        f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
+        f'<data type="{datatype}">{params}</data></element>'
+    )
+    assert tuple(validator.validate(parse_xml(f"<doc>{value}</doc>")).valid for _ in range(2)) == (expected, expected)

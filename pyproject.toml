@@ -304,10 +304,10 @@ lint.per-file-ignores."tests/**/*.py" = [
   "import-private-name",        # the conformance harness drives the private _html._tokenize_states hook
   "private-member-access",      # same private hook
 ]
-lint.per-file-ignores."tests/conformance/test_css_generation_ast_conformance.py" = [
+lint.per-file-ignores."tests/conformance/test_cssom_jsdom_conformance.py" = [
   "suspicious-non-cryptographic-random-usage", # deterministic grammar seeds reproduce public parser cases
 ]
-lint.per-file-ignores."tests/{test_fuzz_structure_generation,test_fuzz_html_structure_generation,test_fuzz_xml_structure_generation,test_fuzz_css_structure_generation,test_fuzz_markdown_structure_generation,test_fuzz_encoding_structure_generation}.py" = [
+lint.per-file-ignores."tests/test_fuzz_amplify_shape.py" = [
   "suspicious-non-cryptographic-random-usage", # deterministic grammar seeds reproduce public parser cases
 ]
 lint.per-file-ignores."tools/**/*.py" = [
@@ -383,7 +383,11 @@ ini_options.addopts = [
   "--ignore=tests/html5lib-tests",                    # vendored conformance data, not our test modules
   "--import-mode=importlib",                          # tests mirror the source tree in nested dirs without __init__.py
 ]
-ini_options.markers = [ "oracle: requires optional competitor dependencies" ]
+ini_options.markers = [
+  "atheris_native: requires the native Atheris runtime",
+  "fuzz_build: requires the fuzz-only extension build",
+  "oracle: requires optional competitor dependencies",
+]
 ini_options.filterwarnings = [
   "error",
 ]
@@ -392,13 +396,12 @@ ini_options.filterwarnings = [
 # Optional competitors lack wheels on parts of the test matrix. Exclude their checks
 # from portable coverage; the oracle marker scopes exclusions within consolidated modules.
 run.omit = [
-  "tests/benchmarks/*",                                       # run only under --codspeed (the CI benchmark job), never in the coverage run
-  "tests/conformance/test_c14n_conformance.py",               # runs only in the dedicated conformance env; the matrix deselects tests/conformance
-  "tests/conformance/test_css_generation_ast_conformance.py", # pinned Node AST runs in the dedicated conformance env
-  "tests/conformance/test_cssom_jsdom_conformance.py",        # differential oracle: skips when the node/jsdom toolchain is absent
+  "tests/benchmarks/*",                                # run only under --codspeed (the CI benchmark job), never in the coverage run
+  "tests/conformance/test_c14n_conformance.py",        # runs only in the dedicated conformance env; the matrix deselects tests/conformance
+  "tests/conformance/test_cssom_jsdom_conformance.py", # differential oracle: skips when the node/jsdom toolchain is absent
   "tests/conformance/test_dom_jsdom_differential.py",
   "tests/conformance/test_xml_conformance.py",
-  "tests/fuzz_build/*",                                       # coverage builds lack the operation limit and the -Dfuzzing=true hook
+  "tests/test_fuzz_self_test.py",                      # dedicated fuzz-only and Atheris checks run in their own envs
 ]
 run.parallel = true
 run.plugins = [

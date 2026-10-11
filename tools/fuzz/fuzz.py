@@ -13,7 +13,7 @@ Two mechanisms cover the untrusted-input entry points the security spike priorit
   fault aborts the interpreter with a stack trace. It calls the public API, so it survives the in-flight C refactors.
 
 ``smoke`` replays the past finds under ``tests/fuzz_regressions`` and a benign seed corpus once (fast, deterministic,
-gates every PR), then runs ``tests/fuzz_build`` against the operation limit and the allocation-failure hook the fuzz
+gates every PR), then runs the fuzz-build tests against the operation limit and the allocation-failure hook the fuzz
 build compiles in. ``deep`` adds a mutation loop and structural probes for a per-target budget (the scheduled/manual run
 that hunts for crashes). ``alloc`` replays the same seeds once per PyMem allocation, failing that allocation through a
 ``failure_pos`` header. ``oracle`` runs the sanitizer wrong-output oracles (``sanitize_oracles.py``) instead, because a
@@ -424,7 +424,17 @@ def _run_inprocess(mode: str, minutes: float, rng_seed: int, crash_dir: Path) ->
 def _run_fuzz_build_tests() -> int:
     # the release build compiles neither the counters nor the injection hook, so these checks run only here
     return subprocess.run(
-        [sys.executable, "-m", "pytest", str(_ROOT / "tests" / "fuzz_build"), "--no-cov", "-p", "no:cacheprovider"],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            str(_ROOT / "tests" / "test_fuzz_self_test.py"),
+            "-m",
+            "fuzz_build",
+            "--no-cov",
+            "-p",
+            "no:cacheprovider",
+        ],
         cwd=_ROOT,
         env={"PYTHONHASHSEED": "0", **_asan_preload()},
         check=False,

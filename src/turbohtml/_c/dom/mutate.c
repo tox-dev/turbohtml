@@ -556,7 +556,7 @@ void th_node_append_child_observed(th_tree *tree, th_node *parent, th_node *chil
 
 /* Whether node lies in one of tree's arena blocks. A node of another tree linked in here points into an arena that can
    be freed under this one, so the walk counts it rather than follow it. Only a corrupt tree reaches the not-found and
-   over-budget paths below; tests/fuzz_build/test_tree_verify_breakage.py builds such trees in the fuzz build. */
+   over-budget paths below; tests/test_fuzz_self_test.py builds such trees in the fuzz build. */
 static int arena_owns(const th_tree *tree, const th_node *node) {
     /* the loop runs out of blocks for a corrupt tree alone */
     for (const arena_block *block = tree->arena; block != NULL; block = block->next) { /* GCOVR_EXCL_BR_LINE */
