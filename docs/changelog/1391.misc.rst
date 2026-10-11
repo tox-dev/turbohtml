@@ -1,0 +1,1 @@
+Make the installed-version test follow the package's actual build directory.

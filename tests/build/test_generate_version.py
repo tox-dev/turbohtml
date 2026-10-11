@@ -10,6 +10,8 @@ from typing import Final
 
 import pytest
 
+from turbohtml import _version
+
 
 @pytest.mark.parametrize("version", ["1.2.3", "1.2.3.dev4+gabc"], ids=["release", "development"])
 def test_generate_version_configured_value(version_project: Path, version: str) -> None:
@@ -58,7 +60,7 @@ def test_generate_version_import_matches_layout(version_project: Path, *, editab
 
 
 def test_generate_version_installed_source_in_wheel_layout(version_project: Path) -> None:
-    installed: Final = Path(sys.prefix) / "cbuild" / "_version.py"
+    installed: Final = Path(_version.__file__)
     frozen: Final = version_project / "src/turbohtml/_version.py"
     frozen.parent.mkdir(parents=True)
     frozen.symlink_to(installed)
