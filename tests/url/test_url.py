@@ -81,6 +81,15 @@ def test_base_url_default_fallback() -> None:
         pytest.param("+", "", "+", id="one-character-relative-path"),
         pytest.param("/x", "", "/x", id="protocol-relative-root"),
         pytest.param("http://x/a%20b?c=%7e", "http://x", "http://x/a%20b?c=%7e", id="existing-escapes-untouched"),
+        pytest.param("a: x", "https://example.org/dir/page", "a: x", id="opaque-path-space"),
+        pytest.param("a:x ?y", "https://example.org/dir/page", "a:x%20?y", id="opaque-path-space-before-query"),
+        pytest.param("a:x  ?y", "https://example.org/dir/page", "a:x %20?y", id="opaque-path-two-spaces-before-query"),
+        pytest.param("a:x?<", "https://example.org/dir/page", "a:x?%3C", id="opaque-path-nonspace-before-query"),
+        pytest.param("a:?<", "https://example.org/dir/page", "a:?%3C", id="empty-opaque-path-before-query"),
+        pytest.param("a:x #f", "https://example.org/dir/page", "a:x%20#f", id="opaque-path-space-before-fragment"),
+        pytest.param("a: [x]", "https://example.org/dir/page", "a: [x]", id="opaque-path-brackets"),
+        pytest.param("a:/ x", "https://example.org/dir/page", "a:/%20x", id="hierarchical-path-space"),
+        pytest.param("http: x", "https://example.org/dir/page", "http:%20x", id="special-scheme-still-path-encoded"),
         pytest.param(
             "rel", "http://x/\U0001f389\udce9/", "http://x/%F0%9F%8E%89%EF%BF%BD/rel", id="high-char-and-surrogate"
         ),

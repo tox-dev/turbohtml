@@ -110,6 +110,24 @@ static int url_has_encoded_dot_unicode(PyObject *url) {
     return 0;
 }
 
+static int url_special_scheme_bytes(const char *bytes, Py_ssize_t length) {
+    static const char *const SPECIAL[] = {"http", "https", "ws", "wss", "ftp", "file"};
+    for (size_t choice = 0; choice < sizeof(SPECIAL) / sizeof(SPECIAL[0]); choice++) {
+        const char *scheme = SPECIAL[choice];
+        if ((Py_ssize_t)strlen(scheme) != length) {
+            continue;
+        }
+        Py_ssize_t index = 0;
+        while (index < length && lower_ascii((unsigned char)bytes[index]) == (unsigned char)scheme[index]) {
+            index++;
+        }
+        if (index == length) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Percent-encode a resolved URL's path, query, and fragment per the WHATWG sets, leaving the scheme and authority
    verbatim; the authority's own bytes stay raw, matching this surface's non-IDNA host handling. Returns a new
    reference. */
@@ -141,6 +159,7 @@ static PyObject *url_percent_encode(PyObject *url, int check_encoded_dot) {
         }
     }
     int hierarchical = bytes[cursor] == '/';
+    int opaque_path = cursor > 0 && !hierarchical && !url_special_scheme_bytes(bytes, cursor - 1);
     if (cursor + 1 < len && bytes[cursor] == '/' && bytes[cursor + 1] == '/') {
         cursor += 2;
         while (cursor < len && bytes[cursor] != '/' && bytes[cursor] != '?' && bytes[cursor] != '#') {
@@ -167,7 +186,19 @@ static PyObject *url_percent_encode(PyObject *url, int check_encoded_dot) {
         return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     memcpy(out, bytes, (size_t)prefix_end); /* the scheme and authority pass through unchanged */
-    Py_ssize_t written = th_url_encode_span(out, prefix_end, bytes, prefix_end, path_end, TH_URL_SET_PATH);
+    Py_ssize_t opaque_end = path_end;
+    /* The URL parser encodes only the final opaque-path space before '?' or '#'. */
+    if (opaque_path && (query_start >= 0 || fragment_start >= 0) && opaque_end > prefix_end &&
+        bytes[opaque_end - 1] == ' ') {
+        opaque_end--;
+    }
+    Py_ssize_t written = th_url_encode_span(out, prefix_end, bytes, prefix_end, opaque_end,
+                                            opaque_path ? TH_URL_SET_OPAQUE_PATH : TH_URL_SET_PATH);
+    for (Py_ssize_t index = opaque_end; index < path_end; index++) {
+        out[written++] = '%';
+        out[written++] = '2';
+        out[written++] = '0';
+    }
     if (hierarchical && (check_encoded_dot == 2 ||
                          (check_encoded_dot && url_has_encoded_dot(out + prefix_end, written - prefix_end)))) {
         PyObject *path = PyUnicode_DecodeASCII(out + prefix_end, written - prefix_end, "strict");
