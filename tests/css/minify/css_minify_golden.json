@@ -772,7 +772,7 @@
 [
 "box-shadow:0 inset 0 0 blue 0",
 "box-shadow:0 inset 0 0 blue 0",
-"box-shadow:0 inset 0 blue"
+"box-shadow:0 inset 0 0 blue 0"
 ],
 [
 "box-shadow:rgba(0,0,0,0) 0 8px",

@@ -859,6 +859,9 @@ static Py_ssize_t css_collapse_box_shadow_run(css_buf *pool, css_comp *items, Py
     }
     /* drop a zero blur/spread (the 4th then 3rd length); delete the element in place, since a color may follow it */
     if (number_count == 4 && css_comp_is_zero(pool, &items[numbers[3]])) {
+        if (numbers[3] != numbers[0] + 3) {
+            return count;
+        }
         for (Py_ssize_t index = numbers[3]; index + 1 < count; index++) {
             items[index] = items[index + 1];
         }
@@ -866,6 +869,9 @@ static Py_ssize_t css_collapse_box_shadow_run(css_buf *pool, css_comp *items, Py
         number_count = 3;
     }
     if (number_count == 3 && css_comp_is_zero(pool, &items[numbers[2]])) {
+        if (numbers[2] != numbers[0] + 2) {
+            return count;
+        }
         for (Py_ssize_t index = numbers[2]; index + 1 < count; index++) {
             items[index] = items[index + 1];
         }
