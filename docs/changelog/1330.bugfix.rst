@@ -1,0 +1,1 @@
+Preserve invalid zero dimensions in CSS flex bases, background positions, and shadows.
