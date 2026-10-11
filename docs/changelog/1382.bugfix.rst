@@ -1,0 +1,1 @@
+Preserve leading U+FEFF characters in Markdown exports for CommonMark readers.

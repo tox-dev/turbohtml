@@ -4489,5 +4489,15 @@ Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, Py_s
         return NULL;
     }
     md_trim(&ctx.out, opt->document_strip);
+    if (ctx.out.len > 0 && ctx.out.data[0] == 0xFEFF) {
+        /* Some Markdown readers consume a leading BOM as an input signature. */
+        sbuf_reserve(&ctx.out, 7);
+        if (!ctx.out.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            const Py_UCS4 reference[] = {'&', '#', '6', '5', '2', '7', '9', ';'};
+            memmove(&ctx.out.data[8], &ctx.out.data[1], (size_t)(ctx.out.len - 1) * sizeof(Py_UCS4));
+            memcpy(ctx.out.data, reference, sizeof(reference));
+            ctx.out.len += 7;
+        }
+    }
     return sbuf_finish(&ctx.out, out_len);
 }
