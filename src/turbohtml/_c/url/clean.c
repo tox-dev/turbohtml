@@ -13,6 +13,7 @@
    Extraction walks the anchors, resolves each against the document base, cleans it, and deduplicates the http/https
    and trailing-slash twins, first in document order winning. */
 
+#include "core/ascii.h"
 #include "core/common.h"
 #include "dom/nodes.h"
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
@@ -326,10 +327,29 @@ static PyObject *normalize_file_path(PyObject *path) {
     if (length == 0) {
         return PyUnicode_FromString("/");
     }
-    if (!str_holds(path, '\\')) {
-        return Py_NewRef(path);
+    if (length < 3 ||
+        (PyUnicode_IS_ASCII(path) ? PyUnicode_1BYTE_DATA(path)[2] : PyUnicode_READ_CHAR(path, 2)) != '|') {
+        if (!str_holds(path, '\\')) {
+            return Py_NewRef(path);
+        }
+        return PyObject_CallMethod(path, "replace", "ss", "\\", "/");
     }
-    return PyObject_CallMethod(path, "replace", "ss", "\\", "/");
+    PyObject *normalized =
+        str_holds(path, '\\') ? PyObject_CallMethod(path, "replace", "ss", "\\", "/") : Py_NewRef(path);
+    if (normalized == NULL) { /* GCOVR_EXCL_BR_LINE: replacement only fails on allocation failure */
+        return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (PyUnicode_READ_CHAR(path, 0) == '/' && is_ascii_alpha(PyUnicode_READ_CHAR(path, 1)) &&
+        (length == 3 || PyUnicode_READ_CHAR(path, 3) == '/' || PyUnicode_READ_CHAR(path, 3) == '\\')) {
+        PyObject *drive_path = th_str_from_kind(PyUnicode_KIND(normalized), PyUnicode_DATA(normalized), length);
+        Py_DECREF(normalized);
+        if (drive_path == NULL) { /* GCOVR_EXCL_BR_LINE: copying only fails on allocation failure */
+            return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyUnicode_WRITE(PyUnicode_KIND(drive_path), PyUnicode_DATA(drive_path), 2, ':');
+        return drive_path;
+    }
+    return normalized;
 }
 
 /* Rebuild the URL from spec-normalized components plus the beyond-spec query/fragment canonicalization. Returns NULL

@@ -38,6 +38,26 @@ def test_normalize_file_path(url: str, expected: str) -> None:
     assert (normalized, normalize_url(normalized)) == (expected, expected)
 
 
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("file:///C|/foo", "file:///C:/foo", id="absolute-drive"),
+        pytest.param("file:///c|", "file:///c:", id="lowercase-drive"),
+        pytest.param("file:/C|/foo", "file:///C:/foo", id="single-slash"),
+        pytest.param("file:///C|\\foo", "file:///C:/foo", id="backslash-separator"),
+        pytest.param("file:///C|?x=1", "file:///C:?x=1", id="query-after-drive"),
+        pytest.param("file:///C|/\u0100", "file:///C:/%C4%80", id="two-byte-unicode"),
+        pytest.param("file:///C|/\U0001f600", "file:///C:/%F0%9F%98%80", id="four-byte-unicode"),
+        pytest.param("file:///C|foo", "file:///C|foo", id="longer-segment"),
+        pytest.param("file:///1|/foo", "file:///1|/foo", id="non-letter"),
+        pytest.param("FILE:ab|\\foo", "file:ab|/foo", id="relative-file-path"),
+    ],
+)
+def test_normalize_file_drive_separator(url: str, expected: str) -> None:
+    normalized: Final = normalize_url(url)
+    assert (normalized, normalize_url(normalized)) == (expected, expected)
+
+
 def test_normalize_file_root_survives_trailing_slash_option() -> None:
     assert normalize_url("FILE:", UrlCleaning(trailing_slash=False)) == "file:///"
 
