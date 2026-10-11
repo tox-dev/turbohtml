@@ -14,6 +14,7 @@ from turbohtml.clean import minify_css
         pytest.param("line-through solid underline", id="reversed-lines"),
         pytest.param("underline currentcolor overline", id="color-between-lines"),
         pytest.param("overline solid blink", id="blink-after-style"),
+        pytest.param("none underline", id="default-with-line"),
     ],
 )
 def test_minify_css_preserves_split_decoration_lines(value: str) -> None:
