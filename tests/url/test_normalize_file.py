@@ -106,6 +106,24 @@ def test_normalize_file_keeps_drive_root(url: str, expected: str) -> None:
 @pytest.mark.parametrize(
     "url",
     [
+        pytest.param("file://user@server/share", id="username"),
+        pytest.param("file://user:pass@server/share", id="password"),
+        pytest.param("file://@server/share", id="empty-username"),
+        pytest.param("file://user@localhost/share", id="local-host"),
+    ],
+)
+def test_normalize_file_rejects_userinfo(url: str) -> None:
+    with pytest.raises(ValueError, match="file URL cannot contain userinfo"):
+        normalize_url(url)
+
+
+def test_normalize_file_keeps_at_in_path() -> None:
+    assert normalize_url("file://server/share@name") == "file://server/share@name"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
         pytest.param("file:///a\udce9", id="unchanged-path-surrogate"),
         pytest.param("file:///a\\\udce9", id="rewritten-path-surrogate"),
     ],

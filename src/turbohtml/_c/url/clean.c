@@ -394,6 +394,10 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
     int is_file =
         PyUnicode_GET_LENGTH(scheme) == 4 && PyUnicode_READ_CHAR(scheme, 0) == 'f' && str_equals(scheme, "file");
     if (is_file) {
+        if (str_holds(parts->part[TH_URL_NETLOC], '@')) {
+            PyErr_SetString(PyExc_ValueError, "file URL cannot contain userinfo");
+            goto done;
+        }
         if (PyUnicode_GET_LENGTH(netloc) == 9 && str_equals(netloc, "localhost")) {
             Py_SETREF(netloc, PyUnicode_FromString(""));
             if (netloc == NULL) { /* GCOVR_EXCL_BR_LINE: the empty host only fails on allocation failure */
