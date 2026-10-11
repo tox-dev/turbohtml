@@ -419,6 +419,10 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
             PyErr_SetString(PyExc_ValueError, "file URL cannot contain userinfo");
             goto done;
         }
+        if (parts->has_port) {
+            PyErr_SetString(PyExc_ValueError, "file URL cannot have a port");
+            goto done;
+        }
         if (PyUnicode_GET_LENGTH(netloc) == 9 && str_equals(netloc, "localhost")) {
             Py_SETREF(netloc, PyUnicode_FromString(""));
             if (netloc == NULL) { /* GCOVR_EXCL_BR_LINE: the empty host only fails on allocation failure */

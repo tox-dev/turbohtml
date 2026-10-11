@@ -1,0 +1,1 @@
+Reject explicit ports in ``file:`` URLs passed to :func:`~turbohtml.extract.normalize_url`.

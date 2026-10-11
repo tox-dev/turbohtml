@@ -1225,3 +1225,18 @@ def test_normalize_file_drive_authority_only_for_file(scheme: str) -> None:
     expected: Final = f"{scheme}://c/foo"
     normalized: Final = normalize_url(url)
     assert (normalized, normalize_url(normalized)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("file://server:80/share", id="numeric-port"),
+        pytest.param("file://server:/share", id="empty-port"),
+        pytest.param("file://server:abc/share", id="text-port"),
+        pytest.param("file://[::1]:80/share", id="ipv6-port"),
+        pytest.param("file://localhost:0/share", id="localhost-port"),
+    ],
+)
+def test_normalize_file_rejects_port(url: str) -> None:
+    with pytest.raises(ValueError, match="file URL cannot have a port"):
+        normalize_url(url)
