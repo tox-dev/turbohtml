@@ -538,6 +538,89 @@ CSS_NOINLINE static int css_text_decoration_drop_safe(css_buf *pool, const comp_
            (!currentcolor || !other_colors);
 }
 
+static int css_text_emphasis_ident_role(css_buf *pool, const css_comp *comp) {
+    switch (comp->len) {
+    case 3:
+        return css_comp_kw(pool, comp, "dot");
+    case 4:
+        return css_comp_kw(pool, comp, "open");
+    case 5:
+        return css_comp_kw(pool, comp, "unset") ? 2 : 0;
+    case 6:
+        switch (css_lower(pool->data[comp->off])) {
+        case 'c':
+            return css_comp_kw(pool, comp, "circle");
+        case 'f':
+            return css_comp_kw(pool, comp, "filled");
+        case 's':
+            return css_comp_kw(pool, comp, "sesame");
+        case 'r':
+            return css_comp_kw(pool, comp, "revert") ? 2 : 0;
+        default:
+            return 0;
+        }
+    case 7:
+        return css_comp_kw(pool, comp, "inherit") || css_comp_kw(pool, comp, "initial") ? 2 : 0;
+    case 8:
+        return css_comp_kw(pool, comp, "triangle");
+    case 12:
+        return css_comp_kw(pool, comp, "revert-layer") ? 2 : 0;
+    case 13:
+        return css_comp_kw(pool, comp, "double-circle");
+    default:
+        return 0;
+    }
+}
+
+CSS_NOINLINE static int css_text_emphasis_drop_safe(css_buf *pool, const comp_vec *comps) {
+    static const char *const color_funcs[] = {"rgb",   "rgba",  "hsl",   "hsla",      "hwb",        "lab",        "lch",
+                                              "oklab", "oklch", "color", "color-mix", "light-dark", "device-cmyk"};
+    int none = 0;
+    int currentcolor = 0;
+    int other_style = 0;
+    int other_color = 0;
+    int color_after_style = 0;
+    for (Py_ssize_t index = 0; index < comps->len; index++) {
+        const css_comp *comp = &comps->items[index];
+        if (comp->kind == CK_SEP) {
+            return 0;
+        }
+        if (comp->kind == CK_IDENT) {
+            if (css_comp_kw(pool, comp, "none")) {
+                none++;
+            } else if (css_comp_kw(pool, comp, "currentcolor")) {
+                currentcolor++;
+                color_after_style = other_style > 0;
+            } else {
+                int role = css_text_emphasis_ident_role(pool, comp);
+                if (role == 1) {
+                    if (color_after_style) {
+                        return 0;
+                    }
+                    other_style++;
+                } else if (role == 2) {
+                    return 0;
+                } else {
+                    other_color++;
+                }
+            }
+        } else if (comp->kind == CK_HASH) {
+            other_color++;
+        } else if (comp->kind == CK_STR) {
+            other_style++;
+        } else if (comp->kind == CK_FUNC) {
+            Py_ssize_t name_len = css_func_name_len(pool, comp);
+            if (!css_prop_in(pool->data + comp->off, name_len, color_funcs, sizeof(color_funcs) / sizeof(char *))) {
+                return 0;
+            }
+            other_color++;
+        } else {
+            return 0;
+        }
+    }
+    return none <= 1 && currentcolor <= 1 && (!none || !other_style) && (!currentcolor || !other_color);
+}
+
 static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char *prop, Py_ssize_t prop_len) {
     static const char *const border_drop[] = {"none", "currentcolor", "medium"};
     static const char *const outline_drop[] = {"none", "medium"};
@@ -557,6 +640,56 @@ static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char
         }
         drop = decoration_drop;
     } else if (css_run_ieq(prop, prop_len, "text-emphasis")) {
+        if (comps->len == 2) {
+            const css_comp *first = &comps->items[0];
+            const css_comp *second = &comps->items[1];
+            Py_ssize_t keep = -1;
+            int minify_color = 1;
+            if (first->kind == CK_IDENT) {
+                if (first->len == 4 && css_comp_kw(pool, first, "none")) {
+                    if (second->kind == CK_HASH ||
+                        (second->kind == CK_IDENT && !css_comp_kw(pool, second, "none") &&
+                         !css_comp_kw(pool, second, "currentcolor") && !css_text_emphasis_ident_role(pool, second))) {
+                        keep = 1;
+                        minify_color = second->kind == CK_IDENT;
+                    }
+                } else if (first->len == 12 && css_comp_kw(pool, first, "currentcolor")) {
+                    if (second->kind == CK_STR ||
+                        (second->kind == CK_IDENT && css_text_emphasis_ident_role(pool, second) == 1)) {
+                        keep = 1;
+                        minify_color = 0;
+                    }
+                }
+            }
+            if (keep < 0 && second->kind == CK_IDENT) {
+                if (second->len == 4 && css_comp_kw(pool, second, "none")) {
+                    if (first->kind == CK_HASH ||
+                        (first->kind == CK_IDENT && !css_comp_kw(pool, first, "none") &&
+                         !css_comp_kw(pool, first, "currentcolor") && !css_text_emphasis_ident_role(pool, first))) {
+                        keep = 0;
+                        minify_color = first->kind == CK_IDENT;
+                    }
+                } else if (second->len == 12 && css_comp_kw(pool, second, "currentcolor")) {
+                    if (first->kind == CK_STR ||
+                        (first->kind == CK_IDENT && css_text_emphasis_ident_role(pool, first) == 1)) {
+                        keep = 0;
+                        minify_color = 0;
+                    }
+                }
+            }
+            if (keep >= 0) {
+                css_comp value = comps->items[keep];
+                if (minify_color) {
+                    css_minify_color_comp(pool, &value);
+                }
+                comps->items[0] = value;
+                comps->len = 1;
+                return;
+            }
+        }
+        if (comps->len > 1 && !css_text_emphasis_drop_safe(pool, comps)) {
+            return;
+        }
         drop = emphasis_drop;
         drop_count = 2;
     }
