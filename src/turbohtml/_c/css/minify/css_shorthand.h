@@ -644,6 +644,26 @@ static CSS_NOINLINE void css_quote_leading_hyphen_family(css_buf *pool, css_comp
     cbuf_free(&quoted);
 }
 
+CSS_NOINLINE static int css_font_has_duplicate_weight(css_buf *pool, const css_comp *items, Py_ssize_t count) {
+    int seen = 0;
+    for (Py_ssize_t index = 0; index < count; index++) {
+        const css_comp *value = &items[index];
+        int is_weight = value->kind == CK_NUM;
+        if (value->kind == CK_IDENT) {
+            css_char first = css_lower(pool->data[value->off]);
+            is_weight = (first == 'b' && (comp_ieq(pool, value, "bold") || comp_ieq(pool, value, "bolder"))) ||
+                        (first == 'l' && comp_ieq(pool, value, "lighter"));
+        }
+        if (is_weight) {
+            if (seen) {
+                return 1;
+            }
+            seen = 1;
+        }
+    }
+    return 0;
+}
+
 /* Minify the font shorthand (CSS Fonts 4 §2.7): lower-case the family, normalize font-weight (normal->drop, bold->700,
    400->drop) and drop a normal line-height. The shorthand resets every pre-size longhand to its initial value, so
    dropping a `normal` token there is safe whichever longhand it nominally binds to. */
@@ -684,6 +704,16 @@ static void css_handle_font(css_buf *pool, comp_vec *comps) {
             break;
         }
         family--;
+    }
+    if (family > 1) {
+        Py_ssize_t size = family;
+        if (css_comp_is_slash(pool, &values.items[family - 1])) {
+            size -= 2;
+        }
+        if (size > 1 && css_font_has_duplicate_weight(pool, values.items, size)) {
+            css_free(values.items);
+            return;
+        }
     }
     for (Py_ssize_t index = family + 1; index < values.len; index++) {
         values.items[index] = css_font_family_comp(pool, values.items[index]);
