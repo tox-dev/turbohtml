@@ -2636,8 +2636,8 @@
 ],
 [
 "a{color:rgb(1s,2,3)}",
-"a{color:#010203}",
-"a{color:#010203}"
+"a{color:rgb(1s,2,3)}",
+"a{color:rgb(1s,2,3)}"
 ],
 [
 "a{color:hsl(60,50%,50)}",
