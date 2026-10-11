@@ -1,0 +1,1 @@
+Preserve fractional and large CSS background-position offsets measured from an edge.
