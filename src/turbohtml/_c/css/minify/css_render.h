@@ -459,6 +459,11 @@ static void css_handle_color_single(css_buf *pool, comp_vec *comps, const css_ch
 }
 
 CSS_NOINLINE static int css_text_decoration_drop_safe(css_buf *pool, const comp_vec *comps) {
+    if (comps->len == 2 && comps->items[0].kind == CK_IDENT && comps->items[1].kind == CK_IDENT &&
+        ((css_comp_kw(pool, &comps->items[0], "none") && css_comp_kw(pool, &comps->items[1], "solid")) ||
+         (css_comp_kw(pool, &comps->items[0], "solid") && css_comp_kw(pool, &comps->items[1], "none")))) {
+        return 1;
+    }
     int none = 0;
     int solid = 0;
     int currentcolor = 0;
@@ -502,10 +507,6 @@ CSS_NOINLINE static int css_text_decoration_drop_safe(css_buf *pool, const comp_
 }
 
 static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char *prop, Py_ssize_t prop_len) {
-    if (prop_len == 15 && comps->len > 1 && css_run_ieq(prop, prop_len, "text-decoration") &&
-        !css_text_decoration_drop_safe(pool, comps)) {
-        return;
-    }
     static const char *const border_drop[] = {"none", "currentcolor", "medium"};
     static const char *const outline_drop[] = {"none", "medium"};
     static const char *const column_drop[] = {"currentcolor", "none", "medium"};
@@ -519,6 +520,9 @@ static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char
     } else if (css_run_ieq(prop, prop_len, "column-rule")) {
         drop = column_drop;
     } else if (css_run_ieq(prop, prop_len, "text-decoration")) {
+        if (comps->len > 1 && !css_text_decoration_drop_safe(pool, comps)) {
+            return;
+        }
         drop = decoration_drop;
     } else if (css_run_ieq(prop, prop_len, "text-emphasis")) {
         drop = emphasis_drop;

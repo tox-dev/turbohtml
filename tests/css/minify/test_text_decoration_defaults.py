@@ -35,6 +35,7 @@ from turbohtml.clean import minify_css
         pytest.param("solid var(--decoration)", "solid var(--decoration)", id="substitution"),
         pytest.param('none "x"', 'none "x"', id="unexpected-token"),
         pytest.param("none solid", "none", id="valid-defaults"),
+        pytest.param("solid none", "none", id="valid-reversed-defaults"),
         pytest.param("currentcolor none solid", "none", id="valid-all-defaults"),
         pytest.param("white none solid", "#fff", id="valid-color"),
         pytest.param("underline overline solid", "underline overline", id="valid-lines"),
