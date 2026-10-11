@@ -58,6 +58,21 @@ def test_normalize_file_drive_separator(url: str, expected: str) -> None:
     assert (normalized, normalize_url(normalized)) == (expected, expected)
 
 
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("file://localhost/C:/foo", "file:///C:/foo", id="localhost"),
+        pytest.param("file://LOCALHOST/x", "file:///x", id="uppercase"),
+        pytest.param("file://%6cocalhost/x", "file:///x", id="encoded"),
+        pytest.param("file://localhost./x", "file://localhost./x", id="trailing-dot"),
+        pytest.param("file://localhosx/x", "file://localhosx/x", id="same-length-host"),
+    ],
+)
+def test_normalize_file_localhost_host(url: str, expected: str) -> None:
+    normalized: Final = normalize_url(url)
+    assert (normalized, normalize_url(normalized)) == (expected, expected)
+
+
 def test_normalize_file_root_survives_trailing_slash_option() -> None:
     assert normalize_url("FILE:", UrlCleaning(trailing_slash=False)) == "file:///"
 
