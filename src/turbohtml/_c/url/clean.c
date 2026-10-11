@@ -341,12 +341,8 @@ static PyObject *normalize_file_path(PyObject *path) {
     }
     if (PyUnicode_READ_CHAR(path, 0) == '/' && is_ascii_alpha(PyUnicode_READ_CHAR(path, 1)) &&
         (length == 3 || PyUnicode_READ_CHAR(path, 3) == '/' || PyUnicode_READ_CHAR(path, 3) == '\\')) {
-        PyObject *drive_path = th_str_from_kind(PyUnicode_KIND(normalized), PyUnicode_DATA(normalized), length);
+        PyObject *drive_path = PyObject_CallMethod(normalized, "replace", "ssi", "|", ":", 1);
         Py_DECREF(normalized);
-        if (drive_path == NULL) { /* GCOVR_EXCL_BR_LINE: copying only fails on allocation failure */
-            return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        PyUnicode_WRITE(PyUnicode_KIND(drive_path), PyUnicode_DATA(drive_path), 2, ':');
         return drive_path;
     }
     return normalized;
