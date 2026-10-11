@@ -763,6 +763,13 @@ static void css_handle_border_color(css_buf *pool, comp_vec *comps) {
         }
         if (all_equal) {
             css_comp *first = &comps->items[0];
+            if (write > 1 && first->kind == CK_FUNC) {
+                static const char *const dynamic_funcs[] = {"var", "env", "attr"};
+                if (css_prop_in(pool->data + first->off, css_func_name_len(pool, first), dynamic_funcs,
+                                sizeof(dynamic_funcs) / sizeof(char *))) {
+                    return;
+                }
+            }
             if (write > 1 && first->len >= 5 &&
                 (css_lower(pool->data[first->off]) == 'i' || css_lower(pool->data[first->off]) == 'u' ||
                  css_lower(pool->data[first->off]) == 'r') &&
