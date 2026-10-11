@@ -256,13 +256,9 @@ PyObject *turbohtml_markup_escape(PyObject *module, PyObject *s) {
         if (rendered == NULL) {
             return NULL;
         }
-        PyObject *text = PyObject_Str(rendered);
+        PyObject *result = PyUnicode_CheckExact(rendered) ? markup_wrap(markup_type, rendered)
+                                                          : PyObject_CallOneArg(markup_type, rendered);
         Py_DECREF(rendered);
-        if (text == NULL) {
-            return NULL;
-        }
-        PyObject *result = markup_wrap(markup_type, text);
-        Py_DECREF(text);
         return result;
     }
     if (!PyErr_ExceptionMatches(PyExc_AttributeError)) {
