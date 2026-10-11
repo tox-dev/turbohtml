@@ -769,6 +769,16 @@ _LOOSE_NAV_HTML: Final[str] = (
             id="list-after-text-ending-in-gt-keeps-marker",
         ),
         pytest.param("<ul><li>x<ul><li></li></ul></li></ul>", "- x\n\n  -", id="empty-nested-item-after-text"),
+        pytest.param(
+            "<ul><li>x<ol><li><br></li><li>y</li></ol></li></ul>",
+            "- x\n\n  1. \n  2. y",
+            id="trailing-break-does-not-occupy-first-nested-item",
+        ),
+        pytest.param(
+            "<ul><li>x<ol><li><span><br></span></li><li>y</li></ol></li></ul>",
+            "- x\n\n  1. \n  2. y",
+            id="wrapped-trailing-break-does-not-occupy-first-nested-item",
+        ),
         pytest.param("<p><b><code>><p>\n", "**`>`**\n\n**` `**", id="sweep-code-span-split-by-paragraph"),
         pytest.param("<p><strong><code>x<p>\n<d", "**`x`**\n\n**` `**", id="sweep-code-span-split-before-element"),
         pytest.param(
@@ -875,6 +885,18 @@ _LOOSE_NAV_HTML: Final[str] = (
 )
 def test_lists(html: str, expected: str) -> None:
     assert md(html) == expected
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param("<ul><li>x<ol><li><br></li><li>y</li></ol></li></ul>", id="break"),
+        pytest.param("<ul><li>x<ol><li><span><br></span></li><li>y</li></ol></li></ul>", id="wrapped-break"),
+    ],
+)
+def test_trailing_break_before_nested_list_keeps_items(html: str) -> None:
+    rendered = parse_fragment(_render(parse_fragment(html).to_markdown()))
+    assert [[item.text for item in nested.select("li")] for nested in rendered.select("ol")] == [["", "y"]]
 
 
 def test_loose_list_nested_heading_and_link_stay_structural() -> None:

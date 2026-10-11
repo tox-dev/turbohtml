@@ -2524,7 +2524,7 @@ static TH_NOINLINE int md_task_checkbox(md_ctx *ctx, th_node *node) {
    one that leads with nothing: an inline element that writes nothing (an empty <em>, a
    link placeholder) does not count as content. A code span writes all its text, spaces
    and blocks included, on one line, so it leads inline once it holds any. */
-static int md_leads_with_inline(md_ctx *ctx, th_node *root, int *task) {
+static int md_leads_with_inline(md_ctx *ctx, th_node *root, int *task, int for_list_interrupt) {
     th_node *parent = root;
     th_node *child = root->first_child;
     th_node *paragraph = NULL; /* the outermost paragraph block the scan is inside */
@@ -2566,8 +2566,9 @@ static int md_leads_with_inline(md_ctx *ctx, th_node *root, int *task) {
             child = child->next_sibling;
             continue;
         }
-        if (atom == TH_TAG_IMG || atom == TH_TAG_BR || atom == TH_TAG_Q ||
-            (atom == TH_TAG_A && th_node_attr_find(ctx->tree, child, "href", 4) >= 0)) {
+        /* A trailing break writes nothing, so its empty item cannot interrupt a paragraph. */
+        if (atom == TH_TAG_IMG || (atom == TH_TAG_BR && (!for_list_interrupt || !md_br_trailing(ctx, child))) ||
+            atom == TH_TAG_Q || (atom == TH_TAG_A && th_node_attr_find(ctx->tree, child, "href", 4) >= 0)) {
             return paragraph != NULL ? MD_LEAD_IN_BLOCK : MD_LEAD_INLINE; /* it writes markup even with no text */
         }
         if (atom >= TH_TAG_H1 && atom <= TH_TAG_H6) {
@@ -2605,7 +2606,7 @@ static int md_element_lead(md_ctx *ctx, th_node *node, uint16_t atom) {
     if (node->first_child == NULL) {
         return atom == TH_TAG_BR || atom == TH_TAG_IMG || atom == TH_TAG_Q ? MD_LEAD_INLINE : MD_LEAD_NOTHING;
     }
-    return md_leads_with_inline(ctx, node, NULL);
+    return md_leads_with_inline(ctx, node, NULL, 0);
 }
 
 /* What an inline child at a run start leads with, to decide whether it opens a run line:
@@ -3205,7 +3206,7 @@ static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
     int task = 0;
     ctx->suppress_break = (only != NULL && only == child->last_child && only->type == TH_NODE_TEXT &&
                            only->text_len > 0 && !is_space(need_text(ctx->tree, only)[0])) ||
-                          md_leads_with_inline(ctx, child, &task) > 0;
+                          md_leads_with_inline(ctx, child, &task, 0) > 0;
     if (task > 0) {
         sbuf_puts(&ctx->out, task == 2 ? "[x]" : "[ ]");
         if (ctx->suppress_break) {
@@ -3339,7 +3340,7 @@ static TH_NOINLINE int md_list_cannot_interrupt(md_ctx *ctx, th_node *list, int 
     if (item == NULL || item->ns != TH_NS_HTML || item->atom != TH_TAG_LI) {
         return 0;
     }
-    return md_leads_with_inline(ctx, item, NULL) <= 0 ||
+    return md_leads_with_inline(ctx, item, NULL, 1) <= 0 ||
            (ordered && md_list_number_attr(ctx, item, "value", number) != 1);
 }
 

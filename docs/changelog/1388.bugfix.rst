@@ -1,0 +1,1 @@
+Keep empty nested list items when their only content is a trailing line break.
