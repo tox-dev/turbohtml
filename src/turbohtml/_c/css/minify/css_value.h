@@ -838,12 +838,11 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
             return token->kind == CSS_IDENT && css_run_ieq(token->text, token->text_len, "calc") ? -1 : 0;
         }
         double magnitude = css_run_to_double(token->text, token->text_len);
-        int is_pct = token->unit_len != 0;
-        if (is_pct && (token->unit_len != 1 || (token->text + token->text_len)[0] != '%')) {
-            return 0;
-        }
+        int is_pct = token->unit_len == 1 && (token->text + token->text_len)[0] == '%';
         if (is_pct) {
             magnitude /= 100.0;
+        } else if (token->unit_len) {
+            return 0;
         }
         values[count] = magnitude;
         types[count] = is_pct;
