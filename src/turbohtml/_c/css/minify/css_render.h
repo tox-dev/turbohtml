@@ -621,6 +621,29 @@ CSS_NOINLINE static int css_text_emphasis_drop_safe(css_buf *pool, const comp_ve
     return none <= 1 && currentcolor <= 1 && (!none || !other_style) && (!currentcolor || !other_color);
 }
 
+CSS_NOINLINE static int css_border_has_other_style(const css_buf *pool, const comp_vec *comps, Py_ssize_t dropped,
+                                                   int outline) {
+    static const char *const styles[] = {"none",   "hidden", "dotted", "dashed", "solid",
+                                         "double", "groove", "ridge",  "inset",  "outset"};
+    static const char *const dynamic_funcs[] = {"var", "env", "attr"};
+    for (Py_ssize_t index = 0; index < comps->len; index++) {
+        if (index == dropped) {
+            continue;
+        }
+        const css_comp *comp = &comps->items[index];
+        if (comp->kind == CK_IDENT && comp->len >= 4 && comp->len <= 6 &&
+            (css_prop_in(pool->data + comp->off, comp->len, styles, sizeof(styles) / sizeof(char *)) ||
+             (outline && css_comp_kw(pool, comp, "auto")))) {
+            return 1;
+        }
+        if (comp->kind == CK_FUNC && css_prop_in(pool->data + comp->off, css_func_name_len(pool, comp), dynamic_funcs,
+                                                 sizeof(dynamic_funcs) / sizeof(char *))) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char *prop, Py_ssize_t prop_len) {
     static const char *const border_drop[] = {"none", "currentcolor", "medium"};
     static const char *const outline_drop[] = {"none", "medium"};
@@ -702,6 +725,17 @@ static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char
             continue;
         }
         if (comp.kind == CK_IDENT) {
+            if (comp.len == 4 && comps->len > 1 && drop != decoration_drop && drop != emphasis_drop &&
+                comp_ieq(pool, &comp, "none")) {
+                const css_comp *other = comps->len == 2 ? &comps->items[1 - index] : NULL;
+                if ((!other || other->kind == CK_FUNC ||
+                     (other->kind == CK_IDENT && other->len >= 4 && other->len <= 6)) &&
+                    css_border_has_other_style(pool, comps, index, drop == outline_drop)) {
+                    comps->items[write++] = comp;
+                    any_value = 1;
+                }
+                continue;
+            }
             int dropped = 0;
             for (size_t which = 0; which < drop_count; which++) {
                 if (comp_ieq(pool, &comp, drop[which])) {
