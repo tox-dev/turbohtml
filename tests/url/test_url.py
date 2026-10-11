@@ -73,6 +73,23 @@ def test_base_url_percent_encodes(href: str, fallback: str, expected: str) -> No
     assert parse(f'<base href="{href}">').base_url(fallback) == expected
 
 
+@pytest.mark.parametrize(
+    ("href", "fallback", "expected"),
+    [
+        pytest.param("a\x01", "https://example.org/d/f", "https://example.org/d/a", id="relative-path"),
+        pytest.param("\x01", "https://example.org/d/f", "https://example.org/d/f", id="control-only"),
+        pytest.param("é\x01", "https://example.org/d/f", "https://example.org/d/%C3%A9", id="unicode-path"),
+        pytest.param("?q\x02", "https://example.org/d/f", "https://example.org/d/f?q", id="query"),
+        pytest.param("#f\x01", "https://example.org/d/f", "https://example.org/d/f#f", id="fragment"),
+        pytest.param("https://other.org/a\x01", "https://example.org/d/f", "https://other.org/a", id="absolute"),
+        pytest.param("#f", "https://example.org/d/f\x01", "https://example.org/d/f#f", id="fallback"),
+        pytest.param("a\x01b", "https://example.org/d/f", "https://example.org/d/a%01b", id="interior-retained"),
+    ],
+)
+def test_base_url_trims_trailing_c0(href: str, fallback: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url(fallback) == expected
+
+
 _SITE = "http://s.com/"
 
 
