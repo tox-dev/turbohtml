@@ -810,6 +810,20 @@ static void css_handle_font(css_buf *pool, comp_vec *comps) {
     *comps = values;
 }
 
+static inline int css_has_mixed_wide(const css_buf *pool, const comp_vec *comps) {
+    for (Py_ssize_t index = 0; index < comps->len; index++) {
+        const css_comp *comp = &comps->items[index];
+        if (comp->kind != CK_IDENT) {
+            continue;
+        }
+        css_char first = css_lower(pool->data[comp->off]);
+        if ((first == 'i' || first == 'u' || first == 'r') && css_box_is_wide_keyword(pool, comp)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Dispatch the per-property shorthand handler over the rendered components. */
 static void css_apply_handler(css_buf *pool, const css_char *prop, Py_ssize_t prop_len, comp_vec *comps) {
     int has_sep = 0;
@@ -841,6 +855,9 @@ static void css_apply_handler(css_buf *pool, const css_char *prop, Py_ssize_t pr
                css_run_ieq_first(prop, prop_len, first, "column-rule") ||
                css_run_ieq_first(prop, prop_len, first, "text-decoration") ||
                css_run_ieq_first(prop, prop_len, first, "text-emphasis")) {
+        if (first != 't' && comps->len > 1 && css_has_mixed_wide(pool, comps)) {
+            return;
+        }
         css_handle_color_drop(pool, comps, prop, prop_len);
     } else if (css_run_ieq_first(prop, prop_len, first, "border-color")) {
         css_handle_border_color(pool, comps);
