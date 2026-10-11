@@ -756,6 +756,19 @@ static void css_handle_font(css_buf *pool, comp_vec *comps) {
             css_free(values.items);
             return;
         }
+        if (size > 4) {
+            int has_oblique_angle = 0;
+            for (Py_ssize_t index = 0; size == 5 && index + 1 < size; index++) {
+                if (css_comp_kw(pool, &values.items[index], "oblique") && values.items[index + 1].kind == CK_DIM) {
+                    has_oblique_angle = 1;
+                    break;
+                }
+            }
+            if (!has_oblique_angle) {
+                css_free(values.items);
+                return;
+            }
+        }
     }
     for (Py_ssize_t index = family + 1; index < values.len; index++) {
         values.items[index] = css_font_family_comp(pool, values.items[index]);
