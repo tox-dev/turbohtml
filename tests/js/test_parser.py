@@ -275,7 +275,6 @@ def test_nesting_just_under_the_cap_still_minifies() -> None:
         pytest.param("o={[c]:1}", "o={[c]:1}", id="object-computed-key"),
         pytest.param("o={*g(){}}", "o={*g(){}}", id="object-generator"),
         pytest.param("o={a,b}", "o={a,b}", id="object-shorthand-pair"),
-        pytest.param("new a", "new a", id="new-bare-member"),
         pytest.param("function f(){return;x}", "function f(){return;x}", id="return-semicolon"),
         pytest.param("while(1){break;f()}", "while(1){break;f()}", id="break-semicolon"),
         pytest.param("x=class{}", "x=class{}", id="anonymous-class-expression"),

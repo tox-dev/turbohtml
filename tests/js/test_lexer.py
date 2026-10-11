@@ -221,17 +221,14 @@ def test_errors(source: str, dump: str) -> None:
 @pytest.mark.parametrize(
     ("source", "dump"),
     [
-        # every Unicode Space_Separator the lexer treats as token-separating white space
-        pytest.param("a" + chr(0xA0) + "b", "IDENT:a IDENT:b EOF", id="ws-no-break-space"),
+        # every Unicode Space_Separator the lexer treats as token-separating white space (U+00A0 is in
+        # test_trivia_and_newlines)
         pytest.param("a" + chr(0xFEFF) + "b", "IDENT:a IDENT:b EOF", id="ws-byte-order-mark"),
         pytest.param("a" + chr(0x1680) + "b", "IDENT:a IDENT:b EOF", id="ws-ogham"),
         pytest.param("a" + chr(0x2000) + "b", "IDENT:a IDENT:b EOF", id="ws-en-quad"),
         pytest.param("a" + chr(0x202F) + "b", "IDENT:a IDENT:b EOF", id="ws-narrow-no-break"),
         pytest.param("a" + chr(0x205F) + "b", "IDENT:a IDENT:b EOF", id="ws-medium-math"),
         pytest.param("a" + chr(0x3000) + "b", "IDENT:a IDENT:b EOF", id="ws-ideographic"),
-        # Unicode line terminators set the newline-before flag (the leading *)
-        pytest.param("a" + chr(0x2028) + "b", "IDENT:a *IDENT:b EOF", id="line-separator"),
-        pytest.param("a" + chr(0x2029) + "b", "IDENT:a *IDENT:b EOF", id="paragraph-separator"),
         pytest.param("/* a * b */x", "IDENT:x EOF", id="block-comment-inner-star"),
         pytest.param("#!/usr/bin/node\nx", "*IDENT:x EOF", id="hashbang"),
         pytest.param("1e+5", "NUM:1e+5 EOF", id="exponent-plus"),

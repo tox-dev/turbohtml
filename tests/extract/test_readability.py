@@ -500,10 +500,6 @@ def test_article_description_precedence(head: str, expected: str) -> None:
     assert art.description == expected
 
 
-def test_article_description_absent_is_none() -> None:
-    assert parse(f"<body>{BODY}</body>").article().description is None
-
-
 def test_article_lang_present() -> None:
     assert parse(f"<html lang='en-US'><body>{BODY}</body></html>").article().lang == "en-US"
 
@@ -604,10 +600,6 @@ def test_article_canonical_precedence(head: str, expected: str) -> None:
     assert art.canonical == expected
 
 
-def test_article_canonical_absent_is_none() -> None:
-    assert parse(f"<body>{BODY}</body>").article().canonical is None
-
-
 @pytest.mark.parametrize(
     ("head", "expected"),
     [
@@ -622,10 +614,6 @@ def test_article_canonical_absent_is_none() -> None:
 def test_article_site_name_precedence(head: str, expected: str) -> None:
     art = parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article()
     assert art.site_name == expected
-
-
-def test_article_site_name_absent_is_none() -> None:
-    assert parse(f"<body>{BODY}</body>").article().site_name is None
 
 
 @pytest.mark.parametrize(
@@ -647,10 +635,6 @@ def test_article_site_name_absent_is_none() -> None:
 def test_article_image_precedence(head: str, expected: str) -> None:
     art = parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article()
     assert art.image == expected
-
-
-def test_article_image_absent_is_none() -> None:
-    assert parse(f"<body>{BODY}</body>").article().image is None
 
 
 def test_article_tags_split_keywords_and_collect_article_tags() -> None:

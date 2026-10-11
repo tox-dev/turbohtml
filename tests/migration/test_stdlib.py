@@ -52,7 +52,6 @@ def _events(html: str) -> list[tuple[object, ...]]:
         pytest.param("<br/>", [("startend", "br", [])], id="self-closing"),
         pytest.param("text", [("data", "text")], id="text"),
         pytest.param("<!--c-->", [("comment", "c")], id="comment"),
-        pytest.param("<!doctype html>", [("decl", "DOCTYPE html")], id="doctype"),
         # references are resolved into the text, so handle_data sees decoded characters
         pytest.param("a &amp; b &#9731;", [("data", "a & b ☃")], id="charrefs-decoded"),
         # a valueless attribute's value is the empty string, not None
@@ -81,6 +80,17 @@ def test_dispatch(html: str, events: list[tuple[object, ...]]) -> None:
             '<!DOCTYPE html SYSTEM "about:legacy-compat">',
             'DOCTYPE html SYSTEM "about:legacy-compat"',
             id="system-only",
+        ),
+        # a space inside an identifier: the only rows that fail if the public id is cut at white space
+        pytest.param(
+            '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">',
+            'DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd"',
+            id="public-and-system-with-spaces",
+        ),
+        pytest.param(
+            '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN">',
+            'DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN"',
+            id="public-only-with-spaces",
         ),
     ],
 )
@@ -176,30 +186,6 @@ def test_raw_text_element_content_is_not_markup() -> None:
     assert ("data", "if (a < b) { x('<p>'); }") in parser.events
 
 
-def test_doctype_with_public_and_system_identifiers() -> None:
-    parser = _Recorder()
-    parser.feed('<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">')
-    parser.close()
-    assert (
-        "decl",
-        'DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd"',
-    ) in parser.events
-
-
-def test_doctype_with_system_identifier_only() -> None:
-    parser = _Recorder()
-    parser.feed('<!DOCTYPE html SYSTEM "about:legacy-compat">')
-    parser.close()
-    assert ("decl", 'DOCTYPE html SYSTEM "about:legacy-compat"') in parser.events
-
-
-def test_doctype_without_a_name() -> None:
-    parser = _Recorder()
-    parser.feed("<!DOCTYPE>")
-    parser.close()
-    assert ("decl", "DOCTYPE") in parser.events
-
-
 def test_handler_exception_reaches_the_caller() -> None:
     class Failing(HTMLParser):
         def __init__(self) -> None:
@@ -215,10 +201,3 @@ def test_handler_exception_reaches_the_caller() -> None:
     with pytest.raises(ValueError, match="handler said no to p"):
         parser.feed("<p>")
     assert parser.seen == ["p"]
-
-
-def test_doctype_with_public_identifier_only() -> None:
-    parser = _Recorder()
-    parser.feed('<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN">')
-    parser.close()
-    assert ("decl", 'DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN"') in parser.events

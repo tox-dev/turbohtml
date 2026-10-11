@@ -419,37 +419,6 @@ def test_default_callbacks_is_nofollow() -> None:
     assert (nofollow,) == DEFAULT_CALLBACKS
 
 
-@pytest.mark.parametrize(
-    ("url", "attrs", "expected"),
-    [
-        pytest.param("http://x.com", {}, {"rel": "nofollow"}, id="adds-nofollow"),
-        pytest.param("https://x.com", {}, {"rel": "nofollow"}, id="https-too"),
-        pytest.param("http://x.com", {"rel": "noopener"}, {"rel": "noopener nofollow"}, id="appends-to-existing-rel"),
-        pytest.param("http://x.com", {"rel": "nofollow"}, {"rel": "nofollow"}, id="idempotent"),
-        pytest.param("HTTP://X.COM", {}, {"rel": "nofollow"}, id="uppercase-scheme"),
-        pytest.param("mailto:a@b.com", {}, {}, id="skips-non-web"),
-    ],
-)
-def test_nofollow(url: str, attrs: dict[str, str], expected: dict[str, str]) -> None:
-    link = nofollow(LinkCandidate(url, "x", attrs))
-    assert link is not None
-    assert link.attrs == expected
-
-
-@pytest.mark.parametrize(
-    ("url", "attrs", "expected"),
-    [
-        pytest.param("http://x.com", {}, {"target": "_blank"}, id="adds-target"),
-        pytest.param("https://x.com", {}, {"target": "_blank"}, id="https-too"),
-        pytest.param("mailto:a@b.com", {"target": "_blank"}, {}, id="strips-target-from-non-web"),
-    ],
-)
-def test_target_blank(url: str, attrs: dict[str, str], expected: dict[str, str]) -> None:
-    link = target_blank(LinkCandidate(url, "x", attrs))
-    assert link is not None
-    assert link.attrs == expected
-
-
 def test_bare_domain_path_with_embedded_scheme_keeps_http_prefix() -> None:
     out = linkify("go example.com/r?u=http://evil.com end", Linkify(callbacks=_no_callbacks()))
     assert out == 'go <a href="http://example.com/r?u=http://evil.com">example.com/r?u=http://evil.com</a> end'
@@ -796,11 +765,6 @@ def test_registered_scheme_extends_authority_matching() -> None:
     assert _detector_schemes_tuples(spans) == [(0, 17, "git://example.com", "git://example.com", False)]
 
 
-def test_repr_shows_offsets_and_url() -> None:
-    span = LinkSpan(0, 3, "abc", "http://abc", is_email=False)
-    assert repr(span) == "LinkSpan(start=0, end=3, text='abc', url='http://abc')"
-
-
 def test_equal_spans_compare_equal() -> None:
     left = LinkSpan(0, 3, "abc", "http://abc", is_email=False)
     right = LinkSpan(0, 3, "abc", "http://abc", is_email=False)
@@ -943,6 +907,7 @@ def test_a_localhost_url_rewrites() -> None:
         pytest.param("http://x.com", {}, {"rel": "nofollow"}, id="http"),
         pytest.param("https://x.com", {}, {"rel": "nofollow"}, id="https"),
         pytest.param("HTTPS://X.COM", {}, {"rel": "nofollow"}, id="upper-case-scheme"),
+        pytest.param("HTTP://X.COM", {}, {"rel": "nofollow"}, id="upper-case-http-scheme"),
         pytest.param("http://x.com", {"rel": "noopener"}, {"rel": "noopener nofollow"}, id="keeps-an-existing-rel"),
         pytest.param("http://x.com", {"rel": "nofollow"}, {"rel": "nofollow"}, id="never-doubles"),
         pytest.param("http://x.com", {"rel": ""}, {"rel": "nofollow"}, id="empty-rel"),

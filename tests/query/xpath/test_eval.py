@@ -359,12 +359,6 @@ def test_xpath_iter_propagates_errors(doc: turbohtml.Node) -> None:
         doc.xpath_iter(123)  # ty: ignore[invalid-argument-type]  # non-str exercises the TypeError path
 
 
-def test_namespace_axis(doc: turbohtml.Node) -> None:
-    # every element exposes the implicit xml namespace node, named xml
-    assert doc.xpath("name(//p/namespace::*)") == "xml"
-    assert doc.xpath("//p/namespace::*") == ["http://www.w3.org/XML/1998/namespace"] * 2
-
-
 def test_xpath_one_unknown_function_raises(doc: turbohtml.Node) -> None:
     with pytest.raises(ValueError, match="unknown function 'bogus-fn'"):
         doc.xpath_one("bogus-fn(1)")

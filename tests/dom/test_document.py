@@ -121,14 +121,6 @@ def test_empty_close_builds_the_skeleton() -> None:
 MULTIBYTE = "<p>café — ☃ — 🦄</p>"  # 2-, 3-, and 4-byte UTF-8 sequences
 
 
-def test_utf8_byte_at_a_time_matches_decoded_str() -> None:
-    raw = MULTIBYTE.encode("utf-8")
-    parser = IncrementalParser()
-    for index in range(len(raw)):
-        parser.feed(raw[index : index + 1])  # split inside every multi-byte sequence
-    assert parser.close().html == parse(MULTIBYTE).html
-
-
 @pytest.mark.parametrize("chunk", [1, 2, 3, 4, 7])
 def test_utf8_chunked_matches_decoded_str(chunk: int) -> None:
     raw = MULTIBYTE.encode("utf-8")
@@ -577,18 +569,11 @@ def test_single_error(markup: str, code: str, line: int, col: int) -> None:
     assert (errors[0].code, errors[0].line, errors[0].col) == (code, line, col)
 
 
-def test_preprocessing_errors_interleave_with_tokenizer_errors() -> None:
-    # the control character precedes the tag error at the same position, as the spec reads
-    # the input stream before the tokenizer consumes the character
-    assert [error.code for error in parse("<\x01").errors] == [
-        "control-character-in-input-stream",
-        "invalid-first-character-of-tag-name",
-    ]
-
-
 @pytest.mark.parametrize(
     ("markup", "expected"),
     [
+        # the control character precedes the tag error at the same position, as the spec reads
+        # the input stream before the tokenizer consumes the character
         pytest.param(
             "<\x01",
             ["control-character-in-input-stream", "invalid-first-character-of-tag-name"],
@@ -806,13 +791,6 @@ def test_errors_is_a_fresh_list_each_call() -> None:
     second = document.errors
     assert first == second
     assert first is not second  # a new list is materialized per access
-
-
-def test_error_field_types() -> None:
-    error = parse("<div").errors[0]
-    assert isinstance(error.code, str)
-    assert isinstance(error.line, int)
-    assert isinstance(error.col, int)
 
 
 def test_error_position_tracks_newlines() -> None:

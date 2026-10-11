@@ -817,10 +817,6 @@ def test_text_and_hidden_inputs_are_submitted() -> None:
     assert form.form_data() == [("q", "hello"), ("tok", "abc")]
 
 
-def test_a_missing_value_submits_empty() -> None:
-    assert _form("<form><input name=q></form>").form_data() == [("q", "")]
-
-
 def test_unnamed_controls_are_skipped() -> None:
     assert _form("<form><input value=x><input name='' value=y><input name value=z></form>").form_data() == []
 

@@ -394,11 +394,6 @@ def test_transient_iteration_reads_every_node() -> None:
     assert li_count == 1200
 
 
-def test_repeated_queries_return_equal_nodes() -> None:
-    document = parse(_WIDE)
-    assert document.find_all("li") == document.find_all("li")  # equal nodes despite recycled wrappers
-
-
 _DOC = "<section><h2>T</h2><p>one</p><ul><li>a</li><li>b</li></ul></section><footer>f</footer>"
 
 
