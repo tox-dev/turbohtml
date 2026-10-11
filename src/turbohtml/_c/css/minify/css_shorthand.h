@@ -39,9 +39,12 @@ static void css_pv_set(css_buf *pool, pos_val *value, pv_kind kind, const char *
     value->ident = ident;
 }
 
-static int css_pv_is_zero(css_buf *pool, const pos_val *value) {
+CSS_NOINLINE static int css_pv_is_zero(css_buf *pool, const pos_val *value) {
     if (value->kind == PVK_IDENT) {
         return 0;
+    }
+    if (value->kind == PVK_LEN) {
+        return value->len == 1;
     }
     char buffer[64];
     Py_ssize_t written = 0;

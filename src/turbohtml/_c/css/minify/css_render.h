@@ -317,9 +317,16 @@ static void css_set_comp(css_buf *pool, css_comp *comp, const char *text, css_co
     comp->kind = kind;
 }
 
-static int css_comp_is_zero(const css_buf *pool, const css_comp *comp) {
-    if (comp->kind != CK_NUM && comp->kind != CK_DIM && comp->kind != CK_PCT) {
+CSS_NOINLINE static int css_comp_is_zero(const css_buf *pool, const css_comp *comp) {
+    if (comp->kind == CK_NUM) {
+        return comp->len == 1 && pool->data[comp->off] == '0';
+    }
+    if (comp->kind != CK_DIM) {
         return 0;
+    }
+    if (comp->len == 3 && pool->data[comp->off] == '0' && pool->data[comp->off + 1] == 'p' &&
+        pool->data[comp->off + 2] == 'x') {
+        return 1;
     }
     char buffer[64];
     Py_ssize_t written = 0;
@@ -331,7 +338,12 @@ static int css_comp_is_zero(const css_buf *pool, const css_comp *comp) {
         buffer[written++] = (char)character; /* numeric/percentage value text is ASCII only */
     }
     buffer[written] = '\0';
-    return strtod(buffer, NULL) == 0.0;
+    char *unit;
+    if (strtod(buffer, &unit) != 0.0) {
+        return 0;
+    }
+    Py_ssize_t number_len = (Py_ssize_t)(unit - buffer);
+    return css_unit_zero_droppable(pool->data + comp->off + number_len, comp->len - number_len);
 }
 
 /* Replace an ident component naming a color with its shortest hash. */
@@ -400,7 +412,7 @@ static void css_handle_flex_basis(css_buf *pool, comp_vec *comps) {
         css_comp *comp = &comps->items[index];
         if (css_comp_kw(pool, comp, "initial")) {
             css_set_comp(pool, comp, "auto", CK_IDENT);
-        } else if (css_comp_is_zero(pool, comp) && pool->data[comp->off + comp->len - 1] != '%') {
+        } else if (pool->data[comp->off + comp->len - 1] != '%' && css_comp_is_zero(pool, comp)) {
             /* a 0% basis resolves against an indefinite container to content, a zero length does not */
             css_set_comp(pool, comp, "0", CK_NUM);
         }
