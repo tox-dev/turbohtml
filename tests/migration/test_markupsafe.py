@@ -264,6 +264,12 @@ def test_more_wrap_only_methods_keep_markup(op: Callable[[Markup], Markup], expe
     assert str(result) == expected
 
 
+def test_removesuffix_accepts_named_suffix() -> None:
+    result = Markup("abcd").removesuffix(suffix="cd")
+    assert type(result) is Markup
+    assert result == "ab"
+
+
 def test_split_keeps_markup() -> None:
     parts = Markup("a b c").split()
     assert all(isinstance(part, Markup) for part in parts)

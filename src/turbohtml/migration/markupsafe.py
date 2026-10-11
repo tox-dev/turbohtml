@@ -232,7 +232,7 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         """Remove a prefix, keeping the result a Markup."""
         return self.__class__(str.removeprefix(self, prefix))
 
-    def removesuffix(self, suffix: str, /) -> Markup:
+    def removesuffix(self, suffix: str) -> Markup:
         """Remove a suffix, keeping the result a Markup."""
         return self.__class__(str.removesuffix(self, suffix))
 
