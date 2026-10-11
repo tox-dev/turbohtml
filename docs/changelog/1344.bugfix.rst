@@ -1,0 +1,1 @@
+Preserve invalid border, outline, and column-rule shorthands that mix a CSS-wide keyword with another value.
