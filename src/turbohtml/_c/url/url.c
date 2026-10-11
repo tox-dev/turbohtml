@@ -1547,6 +1547,19 @@ PyObject *turbohtml_url_scrub(PyObject *Py_UNUSED(module), PyObject *arg) {
             index++;
         }
     }
+    Py_ssize_t before_trim = at;
+    while (at > 0 && work[at - 1] <= 0x20) {
+        at--;
+    }
+    /* Normalization drops empty query/fragment markers, which can leave a dangling '&' for the next clean pass. */
+    if (at < before_trim) {
+        if (at >= 4 && work[at - 4] == '/' && work[at - 3] == '&' && work[at - 2] == '?' && work[at - 1] == '#') {
+            at -= 2;
+        } else if (at >= 3 && work[at - 3] == '/' && work[at - 2] == '&' &&
+                   (work[at - 1] == '?' || work[at - 1] == '#')) {
+            at--;
+        }
+    }
     if (at >= 2 && work[at - 2] == '/' && work[at - 1] == '&') {
         at -= 1; /* removesuffix("&") on a "/&" tail, the dangling separator a stripped &amp; can leave */
     }

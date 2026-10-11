@@ -958,6 +958,13 @@ def _oracle_scrub(url: str) -> str:
     if remainder.startswith("<![CDATA["):
         remainder = remainder.removeprefix("<![CDATA[").removesuffix("]]>")
     remainder = _MARKUP_DELIMITER.split(remainder, maxsplit=1)[0].replace("&amp;", "&")
+    trimmed: Final = remainder.rstrip(_C0_AND_SPACE)
+    if trimmed != remainder:
+        remainder = trimmed
+        if remainder.endswith("/&?#"):
+            remainder = remainder[:-2]
+        elif remainder.endswith(("/&?", "/&#")):
+            remainder = remainder[:-1]
     return remainder.removesuffix("&") if remainder.endswith("/&") else remainder
 
 
@@ -1007,6 +1014,10 @@ _EDGE_CASES = (
     "https://x.example/path/&amp;",
     "https://x.example/path/&",
     "https://x.example/&amp;",
+    "https://x.example/&\x01>",
+    "https://x.example/&?\x01>",
+    "https://x.example/&#\x01>",
+    "https://x.example/&?#\x01>",
     "trailing&",
 )
 

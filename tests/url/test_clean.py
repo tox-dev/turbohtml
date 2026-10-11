@@ -31,6 +31,25 @@ if TYPE_CHECKING:
             id="amp-entity-undone",
         ),
         pytest.param("https://test.org/example/&", "https://test.org/example/", id="trailing-slash-amp"),
+        pytest.param("https://test.org/example/&\x00>", "https://test.org/example/", id="trailing-control-slash-amp"),
+        pytest.param(
+            "https://test.org/example/&?\x00>", "https://test.org/example/", id="trailing-control-empty-query"
+        ),
+        pytest.param(
+            "https://test.org/example/&#\x00>", "https://test.org/example/", id="trailing-control-empty-fragment"
+        ),
+        pytest.param(
+            "https://test.org/example/&?#\x00>", "https://test.org/example/", id="trailing-control-empty-both"
+        ),
+        pytest.param("https://test.org/example/x?#\x00>", "https://test.org/example/x", id="trailing-control-no-amp"),
+        pytest.param("https://test.org/example/&x#\x00>", "https://test.org/example/&x", id="trailing-control-path"),
+        pytest.param("https://test.org/example/&?x\x00>", "https://test.org/example/&?x", id="trailing-control-query"),
+        pytest.param(
+            "https://test.org/example/x?\x00>", "https://test.org/example/x", id="trailing-control-no-amp-query"
+        ),
+        pytest.param(
+            "https://test.org/example/&x\x00>", "https://test.org/example/&x", id="trailing-control-path-only"
+        ),
         pytest.param("https://test.org/a&b", "https://test.org/a&b", id="interior-amp-kept"),
         pytest.param(
             "https://example.org:443/file.html?p=100&abc=1#frag",
