@@ -1,0 +1,1 @@
+Keep invalid CSS ``font`` declarations with repeated explicit weights from becoming active after minification.

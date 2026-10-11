@@ -5,6 +5,7 @@
    (off, len); ident records the edge keyword so the normalizer can rewrite right/bottom to left/top offsets. */
 typedef enum { PVK_COMMA, PVK_IDENT, PVK_PCT, PVK_NUM, PVK_LEN } pv_kind;
 typedef enum { PVI_NONE, PVI_LEFT, PVI_RIGHT, PVI_TOP, PVI_BOTTOM, PVI_CENTER } pv_ident;
+typedef enum { PVR_INVALID, PVR_HORIZONTAL, PVR_VERTICAL, PVR_CENTER, PVR_LENGTH } pv_role;
 typedef struct {
     pv_kind kind;
     Py_ssize_t off;
@@ -61,6 +62,45 @@ static void css_pv_del(pos_val *vals, Py_ssize_t *count, Py_ssize_t index) {
         vals[pos] = vals[pos + 1];
     }
     (*count)--;
+}
+
+static pv_role css_position_role(const pos_val *value) {
+    if (value->kind != PVK_IDENT) {
+        return PVR_LENGTH;
+    }
+    if (value->ident == PVI_LEFT || value->ident == PVI_RIGHT) {
+        return PVR_HORIZONTAL;
+    }
+    if (value->ident == PVI_TOP || value->ident == PVI_BOTTOM) {
+        return PVR_VERTICAL;
+    }
+    return value->ident == PVI_CENTER ? PVR_CENTER : PVR_INVALID;
+}
+
+static int css_position_order_valid(const pos_val *vals, Py_ssize_t count) {
+    pv_role first = css_position_role(&vals[0]);
+    pv_role second = css_position_role(&vals[1]);
+    if (count == 2) {
+        static const unsigned int second_roles[] = {0, (1u << PVR_VERTICAL) | (1u << PVR_CENTER) | (1u << PVR_LENGTH),
+                                                    (1u << PVR_HORIZONTAL) | (1u << PVR_CENTER),
+                                                    (1u << PVR_HORIZONTAL) | (1u << PVR_VERTICAL) | (1u << PVR_CENTER) |
+                                                        (1u << PVR_LENGTH),
+                                                    (1u << PVR_VERTICAL) | (1u << PVR_CENTER) | (1u << PVR_LENGTH)};
+        return (second_roles[first] & (1u << second)) != 0;
+    }
+    pv_role third = css_position_role(&vals[2]);
+    if (count == 3) {
+        return ((second == PVR_LENGTH) &
+                (((first == PVR_HORIZONTAL) & ((third == PVR_VERTICAL) | (third == PVR_CENTER))) |
+                 ((first == PVR_VERTICAL) & ((third == PVR_HORIZONTAL) | (third == PVR_CENTER))))) |
+               ((third == PVR_LENGTH) &
+                (((second == PVR_HORIZONTAL) & ((first == PVR_VERTICAL) | (first == PVR_CENTER))) |
+                 ((second == PVR_VERTICAL) & ((first == PVR_HORIZONTAL) | (first == PVR_CENTER)))));
+    }
+    pv_role fourth = css_position_role(&vals[3]);
+    return (second == PVR_LENGTH) & (fourth == PVR_LENGTH) &
+           (((first == PVR_HORIZONTAL) & (third == PVR_VERTICAL)) |
+            ((first == PVR_VERTICAL) & (third == PVR_HORIZONTAL)));
 }
 
 /* Resolve a 1-4 value background-position run to the shortest equivalent offsets (CSS Backgrounds 3 §3.6). */
@@ -207,7 +247,9 @@ static Py_ssize_t css_position_run(css_buf *pool, const css_comp *items, Py_ssiz
         }
         out_run[run_count++] = value;
     }
-    css_normalize_position_run(pool, out_run, &run_count);
+    if (run_count < 2 || run_count > 4 || css_position_order_valid(out_run, run_count)) {
+        css_normalize_position_run(pool, out_run, &run_count);
+    }
     return run_count;
 }
 
@@ -644,6 +686,26 @@ static CSS_NOINLINE void css_quote_leading_hyphen_family(css_buf *pool, css_comp
     cbuf_free(&quoted);
 }
 
+CSS_NOINLINE static int css_font_has_duplicate_weight(css_buf *pool, const css_comp *items, Py_ssize_t count) {
+    int seen = 0;
+    for (Py_ssize_t index = 0; index < count; index++) {
+        const css_comp *value = &items[index];
+        int is_weight = value->kind == CK_NUM;
+        if (value->kind == CK_IDENT) {
+            css_char first = css_lower(pool->data[value->off]);
+            is_weight = (first == 'b' && (comp_ieq(pool, value, "bold") || comp_ieq(pool, value, "bolder"))) ||
+                        (first == 'l' && comp_ieq(pool, value, "lighter"));
+        }
+        if (is_weight) {
+            if (seen) {
+                return 1;
+            }
+            seen = 1;
+        }
+    }
+    return 0;
+}
+
 /* Minify the font shorthand (CSS Fonts 4 §2.7): lower-case the family, normalize font-weight (normal->drop, bold->700,
    400->drop) and drop a normal line-height. The shorthand resets every pre-size longhand to its initial value, so
    dropping a `normal` token there is safe whichever longhand it nominally binds to. */
@@ -685,6 +747,16 @@ static void css_handle_font(css_buf *pool, comp_vec *comps) {
         }
         family--;
     }
+    if (family > 1) {
+        Py_ssize_t size = family;
+        if (css_comp_is_slash(pool, &values.items[family - 1])) {
+            size -= 2;
+        }
+        if (size > 1 && css_font_has_duplicate_weight(pool, values.items, size)) {
+            css_free(values.items);
+            return;
+        }
+    }
     for (Py_ssize_t index = family + 1; index < values.len; index++) {
         values.items[index] = css_font_family_comp(pool, values.items[index]);
     }
@@ -725,7 +797,10 @@ static void css_apply_handler(css_buf *pool, const css_char *prop, Py_ssize_t pr
     }
     css_char first = css_lower(prop[0]);
     if (!has_sep && css_prop_in(prop, prop_len, CSS_BOX_PROPS, sizeof(CSS_BOX_PROPS) / sizeof(char *))) {
-        css_handle_box(pool, comps);
+        if (comps->len <= 2 ||
+            !css_prop_in(prop, prop_len, CSS_TWO_VALUE_BOX_PROPS, sizeof(CSS_TWO_VALUE_BOX_PROPS) / sizeof(char *))) {
+            css_handle_box(pool, comps);
+        }
     } else if (css_run_ieq_first(prop, prop_len, first, "background")) {
         css_handle_background(pool, comps);
     } else if (css_run_ieq_first(prop, prop_len, first, "background-position")) {
@@ -771,7 +846,7 @@ static void css_apply_handler(css_buf *pool, const css_char *prop, Py_ssize_t pr
     }
 }
 
-static int css_z_index_needs_raw(token_vec *vec, Py_ssize_t start, Py_ssize_t end, int *whole_calc) {
+static int css_integer_role_needs_raw(token_vec *vec, Py_ssize_t start, Py_ssize_t end, int *whole_calc) {
     while (vec->items[start].kind == CSS_WS || vec->items[start].kind == CSS_COMMENT) {
         start++;
     }
@@ -800,7 +875,7 @@ static int css_z_index_needs_raw(token_vec *vec, Py_ssize_t start, Py_ssize_t en
     return 0;
 }
 
-static int css_z_index_fold_is_integer(const css_buf *pool, const css_comp *comp) {
+static int css_integer_role_fold_is_integer(const css_buf *pool, const css_comp *comp) {
     if (comp->kind != CK_NUM) {
         return 0;
     }
@@ -842,9 +917,12 @@ static void css_minify_value(css_buf *pool, token_vec *vec, Py_ssize_t start, Py
                      last->text + last->text_len + last->unit_len - vec->items[start].text);
         return;
     }
-    int is_z_index = name_len == 7 && css_run_ieq(name, name_len, "z-index");
+    int is_integer_role = name_len == 7 && css_run_ieq(name, name_len, "z-index");
+    if (name_len == 5) {
+        is_integer_role = css_run_ieq(name, name_len, "order");
+    }
     int whole_calc = 0;
-    if (is_z_index && css_z_index_needs_raw(vec, start, end, &whole_calc)) {
+    if (is_integer_role && css_integer_role_needs_raw(vec, start, end, &whole_calc)) {
         css_render_raw_value(vec, start, end, out);
         return;
     }
@@ -852,14 +930,14 @@ static void css_minify_value(css_buf *pool, token_vec *vec, Py_ssize_t start, Py
     int color_mode = css_prop_color_mode(name, name_len);
     /* Flexbox 1 §7.1: a unitless zero not preceded by two flex factors is a flex factor, so flex keeps zero units */
     css_render_components(pool, vec, start, end, color_mode,
-                          !is_z_index && (name_len != 4 || !css_run_ieq(name, name_len, "flex")), name, name_len,
+                          !is_integer_role && (name_len != 4 || !css_run_ieq(name, name_len, "flex")), name, name_len,
                           scratch);
     /* the handlers and the assembler read the components' pool text, which a failed growth left unwritten */
     if (*pool->oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     if (whole_calc) {
-        if (!css_z_index_fold_is_integer(pool, &scratch->items[0])) {
+        if (!css_integer_role_fold_is_integer(pool, &scratch->items[0])) {
             css_render_raw_value(vec, start, end, out);
             return;
         }

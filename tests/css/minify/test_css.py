@@ -645,6 +645,35 @@ def test_minify_css_background_position_delimiters(value: str, expected: str) ->
     assert minify_css(f"a{{background-position:{value}}}") == f"a{{background-position:{expected}}}"
 
 
+@pytest.mark.parametrize("property_name", ["background-position", "background"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("bottom 10%", id="vertical-edge-before-offset"),
+        pytest.param("10px left", id="offset-before-horizontal-edge"),
+        pytest.param("left left", id="same-axis-edges"),
+        pytest.param("center 10px top", id="center-before-offset"),
+        pytest.param("left center 10px", id="center-before-offset-after-edge"),
+    ],
+)
+def test_minify_css_keeps_invalid_background_position_order(property_name: str, value: str) -> None:
+    source: Final = f"a{{{property_name}:{value}}}"
+    assert minify_css(source) == source
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{background-position:left top 0}", "a{background-position:0 0}", id="zero-edge-offset"),
+        pytest.param("a{background-position:center top 10px}", "a{background-position:50% 10px}", id="center-top"),
+        pytest.param("a{background-position:top 10px center}", "a{background-position:50% 10px}", id="top-center"),
+        pytest.param("a{background-position:foo}", "a{background-position:foo}", id="unknown-keyword"),
+    ],
+)
+def test_minify_css_position_order_controls(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
 @pytest.mark.parametrize(("value", "expected"), _POSITION_DELIMITERS)
 def test_minify_css_background_position_delimiters_are_a_fixed_point(value: str, expected: str) -> None:
     assert minify_css(minify_css(f"a{{background-position:{value}}}")) == f"a{{background-position:{expected}}}"

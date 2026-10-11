@@ -18,7 +18,7 @@ enum { TH_HOST_REGNAME = 0, TH_HOST_IPV4 = 1, TH_HOST_IPV6 = 2 };
 
 /* The WHATWG component percent-encode sets (URL standard 1.3), the safe run each encoder keeps raw; every other byte is
    UTF-8 percent-encoded. th_url_encode_span and turbohtml_url_percent_encode take one of these tags. */
-enum { TH_URL_SET_PATH = 0, TH_URL_SET_QUERY = 1, TH_URL_SET_FRAGMENT = 2 };
+enum { TH_URL_SET_PATH = 0, TH_URL_SET_QUERY = 1, TH_URL_SET_FRAGMENT = 2, TH_URL_SET_USERINFO = 3 };
 
 /* The RFC 3986 ALPHA run, shared by the percent-encode keep sets in url.c and the scheme scanners that build on it. */
 #define TH_URL_ALPHA "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -109,7 +109,7 @@ typedef struct {
 
 /* Split `url` (a str) into its components the way urllib.parse.urlsplit does, lowercasing the scheme and dropping the
    tab and newline bytes the WHATWG parser removes. Returns -1 with a ValueError set for an unbalanced IPv6 bracket. */
-int th_url_split(PyObject *url, th_url_parts *out);
+int th_url_split(PyObject *url, th_url_parts *out, int host_brackets_only);
 void th_url_parts_clear(th_url_parts *parts);
 
 /* The per-component encoder and decoder bodies, and the tracker-name test, shared with the cleaning pipeline in

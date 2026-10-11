@@ -1191,6 +1191,60 @@ def test_ordered_list_ordinal_fallback_keeps_existing_rendering(
     assert parse(html).to_markdown(options) == expected
 
 
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<ul><li><input type=checkbox>done</li></ul>", "- [ ] done", id="unchecked"),
+        pytest.param("<ul><li><input type=checkbox checked>done</li></ul>", "- [x] done", id="checked"),
+        pytest.param("<ul><li><input type=checkbox checked></li></ul>", "- [x]", id="empty-task"),
+        pytest.param("<ul><li> \n<input type=checkbox checked> done</li></ul>", "- [x] done", id="leading-space"),
+        pytest.param("<ul><li><p><input type=checkbox>done</p></li></ul>", "- [ ] done", id="paragraph"),
+        pytest.param("<ul><li><input type=CHECKBOX checked=false>done</li></ul>", "- [x] done", id="boolean-checked"),
+        pytest.param("<ul><li><input type=text checked>done</li></ul>", "- done", id="other-input"),
+        pytest.param("<ul><li><input checked>done</li></ul>", "- done", id="missing-type"),
+        pytest.param(
+            "<ul><li><input type=text><input type=checkbox checked>done</li></ul>",
+            "- done",
+            id="second-input",
+        ),
+        pytest.param("<ul><li><span><input type=checkbox checked>done</span></li></ul>", "- done", id="nested-input"),
+        pytest.param("<ul><li>first<input type=checkbox checked>done</li></ul>", "- firstdone", id="later-input"),
+        pytest.param("<ol><li><input type=checkbox checked>done</li></ol>", "1. [x] done", id="ordered-task"),
+    ],
+)
+def test_task_list_checkbox(html: str, expected: str) -> None:
+    assert md(html) == expected
+
+
+def test_task_list_interrupts_paragraph() -> None:
+    assert md("<p>a</p><ul><li><input type=checkbox checked>b</li></ul>") == "a\n\n- [x] b"
+
+
+def test_task_list_respects_input_strip() -> None:
+    assert (
+        parse("<ul><li><input type=checkbox checked>done</li></ul>").to_markdown(Markdown(strip=["input"])) == "- done"
+    )
+
+
+def test_task_list_respects_item_strip() -> None:
+    assert parse("<ul><li><input type=checkbox checked>done</li></ul>").to_markdown(Markdown(strip=["li"])) == "- done"
+
+
+def test_task_list_respects_tag_allowlist() -> None:
+    assert (
+        parse("<ul><li><input type=checkbox checked>done</li></ul>").to_markdown(Markdown(convert=["input"])) == "done"
+    )
+
+
+def test_task_list_respects_converters() -> None:
+    assert (
+        parse("<ul><li><input type=checkbox checked>done</li></ul>").to_markdown(
+            Markdown(converters={"input": lambda _element, _content: "X"})
+        )
+        == "- Xdone"
+    )
+
+
 def test_selected_nested_item_uses_list_depth() -> None:
     item = parse_fragment("<ul><li>a<ul><li>b</li></ul></li></ul>").select_one("ul ul li")
     assert item is not None
@@ -1457,6 +1511,21 @@ _COMMONMARK_TEXT_CASES: Final = [
     pytest.param("<ul><li><p>- b</p></li></ul>", "- \\- b", id="li-paragraph-dash"),
     pytest.param("<ul><li>a<ul><li>- b</li></ul></li></ul>", "- a\n  - \\- b", id="nested-li-dash"),
     pytest.param("<blockquote><p>1. x</p></blockquote>", "> 1\\. x", id="blockquote-ordered-marker"),
+    pytest.param("<p><span>1</span>.</p>", "1\\.", id="ordered-marker-split-after-digits"),
+    pytest.param("<p>1<span>.</span></p>", "1\\.", id="ordered-marker-split-before-dot"),
+    pytest.param("<p><span>1</span>2.</p>", "12\\.", id="ordered-marker-split-with-more-digits"),
+    pytest.param("<p><span>1</span>) x</p>", "1\\) x", id="ordered-paren-marker-split"),
+    pytest.param("<p><span>1</span>)</p>", "1\\)", id="ordered-paren-marker-without-space"),
+    pytest.param("<p><span>1</span>2)</p>", "12\\)", id="ordered-paren-marker-after-more-digits"),
+    pytest.param("<p><span>1</span>2</p>", "12", id="split-digits-without-marker"),
+    pytest.param("<p><span>1</span>x</p>", "1x", id="split-digits-followed-by-letter"),
+    pytest.param("<p><span>1</span> x</p>", "1 x", id="split-digits-followed-by-space"),
+    pytest.param("<p>1 <span>.</span></p>", "1 .", id="split-marker-after-space"),
+    pytest.param("<p>x <span>1</span>.</p>", "x 1.", id="mid-line-number-unchanged"),
+    pytest.param("<p><em><span>1</span>.</em></p>", "*1.*", id="emphasis-number-unchanged"),
+    pytest.param("<p><a href='/x'><span>1</span>.</a></p>", "[1.](/x)", id="link-number-unchanged"),
+    pytest.param("<ul><li><span>1</span>. x</li></ul>", "- 1\\. x", id="list-item-ordered-marker-split"),
+    pytest.param("<blockquote><p><span>1</span>. x</p></blockquote>", "> 1\\. x", id="quote-ordered-marker-split"),
     pytest.param("<p>~~x~~</p>", "\\~\\~x\\~\\~", id="double-tilde"),
     pytest.param("<p>~x~</p>", "\\~x\\~", id="single-tilde"),
     pytest.param("<p>~~~</p>", "\\~\\~\\~", id="tilde-fence"),

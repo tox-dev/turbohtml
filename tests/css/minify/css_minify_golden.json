@@ -187,7 +187,7 @@
 [
 "{background:0 0 0",
 "",
-"{background:0 0}"
+"{background:0 0 0}"
 ],
 [
 "{d:url( \n  \n\t0",
@@ -567,12 +567,12 @@
 [
 "background-position:center 0px center 0%",
 "background-position:center 0px center 0%",
-"background-position:50%"
+"background-position:center 0 center 0%"
 ],
 [
 "background-position:center 0px center 0%,,right 0 top 0",
 "background-position:center 0px center 0%,,right 0 top 0",
-"background-position:50%,,100% 0"
+"background-position:center 0 center 0%,,100% 0"
 ],
 [
 "background-repeat:space space",
@@ -1721,8 +1721,8 @@
 ],
 [
 "a{width:calc(2px - 5px)}",
-"a{width:-3px}",
-"a{width:-3px}"
+"a{width:calc(-3px)}",
+"a{width:calc(-3px)}"
 ],
 [
 "a{width:calc(1.5px + 2px)}",
@@ -1856,8 +1856,8 @@
 ],
 [
 "a{width:calc(-3px/2)}",
-"a{width:-1.5px}",
-"a{width:-1.5px}"
+"a{width:calc(-1.5px)}",
+"a{width:calc(-1.5px)}"
 ],
 [
 "a{width:calc(1px/40)}",
@@ -1891,8 +1891,8 @@
 ],
 [
 "a{width:calc(-1px/2)}",
-"a{width:-.5px}",
-"a{width:-.5px}"
+"a{width:calc(-.5px)}",
+"a{width:calc(-.5px)}"
 ],
 [
 "a{width:calc(1px/1000)}",
@@ -2751,8 +2751,8 @@
 ],
 [
 "a{width:calc(-5px*2)}",
-"a{width:-10px}",
-"a{width:-10px}"
+"a{width:calc(-10px)}",
+"a{width:calc(-10px)}"
 ],
 [
 "a{width:calc(+5px*2)}",
@@ -3336,8 +3336,8 @@
 ],
 [
 "a{background-position:top center 50%}",
-"a{background-position:50% 0}",
-"a{background-position:50% 0}"
+"a{background-position:top center 50%}",
+"a{background-position:top center 50%}"
 ],
 [
 "a{background-position:center right}",

@@ -1,0 +1,1 @@
+Use the document fallback URL for data: and javascript: base elements.

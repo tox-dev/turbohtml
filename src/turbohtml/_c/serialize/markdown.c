@@ -195,6 +195,7 @@ typedef struct {
     Py_ssize_t saved_marker_base;
     int saved_started;
     int saved_line;
+    Py_ssize_t saved_line_number_start;
     int saved_space;
     int saved_drop;
 } md_table;
@@ -211,6 +212,7 @@ typedef struct {
     Py_ssize_t line_checked;
     int started;
     int line_has_content;
+    Py_ssize_t line_number_start;
     int space_pending;
     int drop_space;
     int pending_loose;
@@ -294,6 +296,7 @@ typedef struct {
     Py_ssize_t ref_cap;
     int started;          /* has any block content been emitted yet */
     int line_has_content; /* real content past the prefix/marker on the current line */
+    Py_ssize_t line_number_start;
     Py_ssize_t line_start;
     Py_ssize_t line_checked;
     int space_pending;          /* a collapsed-away whitespace run is owed one space */
@@ -849,6 +852,27 @@ static void md_escape_split_reference(md_ctx *ctx, const Py_UCS4 *text, Py_ssize
    (which resolves the deferred space, markers and escapes) the rest of the run --
    no whitespace, nothing to escape -- is bulk-copied in one memcpy. */
 static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
+    if (ctx->line_number_start > 0 && !ctx->space_pending && ctx->pending == NULL) {
+        Py_ssize_t start = ctx->line_number_start - 1;
+        Py_ssize_t end = ctx->out.len;
+        while (end > start && ctx->out.data[end - 1] >= '0' && ctx->out.data[end - 1] <= '9') {
+            end--;
+        }
+        if (end == start) {
+            Py_ssize_t scan = 0;
+            while (scan < len && text[scan] >= '0' && text[scan] <= '9') {
+                scan++;
+            }
+            if (scan < len && (text[scan] == '.' || text[scan] == ')')) {
+                md_emit_text(ctx, text, scan);
+                sbuf_putc(&ctx->out, '\\');
+                md_emit_text(ctx, &text[scan], len - scan);
+                return;
+            }
+        } else {
+            ctx->line_number_start = 0;
+        }
+    }
     /* a reference continues only when nothing comes between the last node's `&` and name
        and this node's first character; what is already written md_escape_split_reference
        reads back, and an opening run still pending would come between */
@@ -882,6 +906,7 @@ static void md_emit_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
                 index += consumed;
                 continue;
             }
+            ctx->line_number_start = ctx->out.len + 1;
         }
         int by_context = ((kind & MD_CH_CONTEXT) || (translit && ch == 0x2190)) && ctx->escape_prose &&
                          md_escape_in_text(ctx, text, index, len);
@@ -2464,13 +2489,25 @@ enum md_lead {
     MD_LEAD_IN_BLOCK = 2, /* a paragraph's content or an ATX heading, which opens its own line */
 };
 
+static TH_NOINLINE int md_task_checkbox(md_ctx *ctx, th_node *node) {
+    if (ctx->opt->converters != NULL || ctx->opt->tag_filter != TH_MD_FILTER_NONE) {
+        return 0;
+    }
+    Py_ssize_t length;
+    const Py_UCS4 *type = md_attr(ctx->tree, node, "type", &length);
+    if (type == NULL || !md_ucs4_ieq(type, length, "checkbox")) {
+        return 0;
+    }
+    return th_node_attr_find(ctx->tree, node, "checked", 7) >= 0 ? 2 : 1;
+}
+
 /* A loose item needs its first block on the marker line even when a transparent
    container wraps it; otherwise CommonMark reads that block as code. The scan descends
    into such containers, into inline elements and into paragraphs, and climbs back out of
    one that leads with nothing: an inline element that writes nothing (an empty <em>, a
    link placeholder) does not count as content. A code span writes all its text, spaces
    and blocks included, on one line, so it leads inline once it holds any. */
-static int md_leads_with_inline(md_ctx *ctx, th_node *root) {
+static int md_leads_with_inline(md_ctx *ctx, th_node *root, int *task) {
     th_node *parent = root;
     th_node *child = root->first_child;
     th_node *paragraph = NULL; /* the outermost paragraph block the scan is inside */
@@ -2499,6 +2536,12 @@ static int md_leads_with_inline(md_ctx *ctx, th_node *root) {
             continue;
         }
         uint16_t atom = child->ns == TH_NS_HTML ? child->atom : TH_TAG_UNKNOWN;
+        if (atom == TH_TAG_INPUT && task != NULL && *task == 0 && (parent == root || parent == paragraph)) {
+            int state = md_task_checkbox(ctx, child);
+            *task = state == 0 ? -1 : state;
+            child = child->next_sibling;
+            continue;
+        }
         if (md_is_code_span(atom)) {
             if (md_code_writes_text(ctx, child)) {
                 return paragraph != NULL ? MD_LEAD_IN_BLOCK : MD_LEAD_INLINE;
@@ -2545,7 +2588,7 @@ static int md_element_lead(md_ctx *ctx, th_node *node, uint16_t atom) {
     if (node->first_child == NULL) {
         return atom == TH_TAG_BR || atom == TH_TAG_IMG || atom == TH_TAG_Q ? MD_LEAD_INLINE : MD_LEAD_NOTHING;
     }
-    return md_leads_with_inline(ctx, node);
+    return md_leads_with_inline(ctx, node, NULL);
 }
 
 /* What an inline child at a run start leads with, to decide whether it opens a run line:
@@ -2750,6 +2793,7 @@ static int md_enter_converter(md_ctx *ctx, th_node *node) {
         .line_checked = ctx->line_checked,
         .started = ctx->started,
         .line_has_content = ctx->line_has_content,
+        .line_number_start = ctx->line_number_start,
         .space_pending = ctx->space_pending,
         .drop_space = ctx->drop_space,
         .pending_loose = ctx->pending_loose,
@@ -2767,6 +2811,7 @@ static int md_enter_converter(md_ctx *ctx, th_node *node) {
     ctx->pending = NULL;
     ctx->started = 0;
     ctx->line_has_content = 0;
+    ctx->line_number_start = 0;
     ctx->line_start = 0;
     ctx->line_checked = 0;
     ctx->space_pending = 0;
@@ -2880,6 +2925,7 @@ static void md_leave_converter(md_ctx *ctx, md_frame *frame) {
     md_settle_pending(ctx);
     ctx->started = saved->started;
     ctx->line_has_content = saved->line_has_content;
+    ctx->line_number_start = saved->line_number_start;
     ctx->line_start = saved->line_start;
     ctx->line_checked = saved->line_checked;
     ctx->space_pending = saved->space_pending;
@@ -3139,9 +3185,17 @@ static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
     int saved_tight = ctx->tight;
     ctx->tight = !state->loose;
     th_node *only = child->first_child;
+    int task = 0;
     ctx->suppress_break = (only != NULL && only == child->last_child && only->type == TH_NODE_TEXT &&
                            only->text_len > 0 && !is_space(need_text(ctx->tree, only)[0])) ||
-                          md_leads_with_inline(ctx, child) > 0;
+                          md_leads_with_inline(ctx, child, &task) > 0;
+    if (task > 0) {
+        sbuf_puts(&ctx->out, task == 2 ? "[x]" : "[ ]");
+        if (ctx->suppress_break) {
+            sbuf_putc(&ctx->out, ' ');
+        }
+        ctx->line_has_content = 1;
+    }
     if (!ctx->opt->wrap_list_items) {
         ctx->no_wrap++;
     }
@@ -3268,7 +3322,8 @@ static TH_NOINLINE int md_list_cannot_interrupt(md_ctx *ctx, th_node *list, int 
     if (item == NULL || item->ns != TH_NS_HTML || item->atom != TH_TAG_LI) {
         return 0;
     }
-    return md_leads_with_inline(ctx, item) <= 0 || (ordered && md_list_number_attr(ctx, item, "value", number) != 1);
+    return md_leads_with_inline(ctx, item, NULL) <= 0 ||
+           (ordered && md_list_number_attr(ctx, item, "value", number) != 1);
 }
 
 static void md_enter_list(md_ctx *ctx, th_node *node) {
@@ -3397,6 +3452,7 @@ static void md_enter_cell(md_ctx *ctx, md_table *table) {
     table->saved_marker_base = ctx->marker_base;
     table->saved_started = ctx->started;
     table->saved_line = ctx->line_has_content;
+    table->saved_line_number_start = ctx->line_number_start;
     table->saved_space = ctx->space_pending;
     table->saved_drop = ctx->drop_space;
     ctx->out = (sbuf){NULL, 0, 0, 0};
@@ -3416,6 +3472,7 @@ static void md_enter_cell(md_ctx *ctx, md_table *table) {
         }
     }
     ctx->line_has_content = 1;
+    ctx->line_number_start = 0;
     ctx->space_pending = 0;
     ctx->drop_space = 1;
     ctx->in_cell = 1;
@@ -3436,6 +3493,7 @@ static void md_leave_cell(md_ctx *ctx, md_table *table) {
     md_settle_pending(ctx);
     ctx->started = table->saved_started;
     ctx->line_has_content = table->saved_line;
+    ctx->line_number_start = table->saved_line_number_start;
     ctx->space_pending = table->saved_space;
     ctx->drop_space = table->saved_drop;
     ctx->in_cell = 0;

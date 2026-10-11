@@ -1,0 +1,1 @@
+Add root paths to hosted FTP and WebSocket URLs.
