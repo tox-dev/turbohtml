@@ -797,8 +797,13 @@ static void css_handle_font(css_buf *pool, comp_vec *comps) {
         }
         index--;
         while (index > -1) {
-            if (css_comp_kw(pool, &values.items[index], "normal") ||
-                (values.items[index].kind == CK_NUM && comp_ieq(pool, &values.items[index], "400"))) {
+            if (css_comp_kw(pool, &values.items[index], "normal")) {
+                if (index > 0 && css_comp_is_slash(pool, &values.items[index - 1])) {
+                    css_free(values.items);
+                    return;
+                }
+                comp_vec_splice(&values, index, 1, NULL, 0);
+            } else if (values.items[index].kind == CK_NUM && comp_ieq(pool, &values.items[index], "400")) {
                 comp_vec_splice(&values, index, 1, NULL, 0);
             } else if (css_comp_kw(pool, &values.items[index], "bold")) {
                 css_set_comp(pool, &values.items[index], "700", CK_NUM);

@@ -2612,6 +2612,17 @@ def test_minify_css_keeps_overlong_calculated_font_size_invalid() -> None:
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
+        ("1.2 20px / normal 20px normal", "1.2 20px/normal 20px normal"),
+        ("16px/normal 20px serif", "16px/normal 20px serif"),
+    ],
+)
+def test_minify_css_keeps_misplaced_normal_after_font_slash(value: str, expected: str) -> None:
+    assert minify_css(f"a{{font:{value}}}") == f"a{{font:{expected}}}"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
         pytest.param("normal normal normal normal 16px serif", "16px serif", id="four-defaults"),
         pytest.param("normal normal normal normal 16px/normal serif", "16px serif", id="with-line-height"),
         pytest.param("normal normal 16px Normal", "16px Normal", id="normal-family-name"),
