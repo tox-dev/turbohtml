@@ -331,7 +331,7 @@ static PyObject *unsplit(PyObject *scheme, PyObject *netloc, PyObject *path, PyO
    "/dir/" and "/dir" into one form that trailing_slash=False asks for. */
 static PyObject *trim_trailing_slash(PyObject *path) {
     Py_ssize_t end = PyUnicode_GET_LENGTH(path);
-    while (end > 0 && PyUnicode_READ_CHAR(path, end - 1) == '/') {
+    while (end > 1 && PyUnicode_READ_CHAR(path, end - 1) == '/') {
         end--;
     }
     return PyUnicode_Substring(path, 0, end);

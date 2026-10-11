@@ -308,13 +308,17 @@ def test_normalize_reassembles_every_shape(url: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("url", "expected"),
     [
-        pytest.param("http://x.com//", "http://x.com", id="a-slash-run-is-trimmed-whole"),
+        pytest.param("http://x.com//", "http://x.com/", id="a-slash-run-keeps-root"),
+        pytest.param("http://x.com/a//", "http://x.com/a", id="a-slash-run-after-segment"),
+        pytest.param("file://server//", "file://server/", id="a-file-root"),
+        pytest.param("foo://server//", "foo://server/", id="a-non-special-root"),
         pytest.param("http://x.com/", "http://x.com/", id="the-root-stays"),
         pytest.param("http://x.com/a", "http://x.com/a", id="no-slash-to-trim"),
     ],
 )
 def test_trailing_slash_off(url: str, expected: str) -> None:
-    assert normalize_url(url, UrlCleaning(trailing_slash=False)) == expected
+    options: Final = UrlCleaning(trailing_slash=False)
+    assert ((normalized := normalize_url(url, options)), normalize_url(normalized, options)) == (expected, expected)
 
 
 def test_a_fragment_key_with_a_lone_surrogate_cannot_be_encoded() -> None:
