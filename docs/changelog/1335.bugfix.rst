@@ -1,0 +1,1 @@
+Normalize ``localhost`` file URL hosts to empty.
