@@ -25,8 +25,8 @@ Include:
 - the configuration you used (default, or the exact non-default options),
 - the impact you observed or expect.
 
-A reproducer we can run is worth more than a description. If you cannot reach GitHub, email the maintainer listed on the
-[PyPI project page](https://pypi.org/project/turbohtml/).
+A reproducer we can run is worth more than a description. If you cannot reach GitHub, email
+[gaborjbernat@gmail.com](mailto:gaborjbernat@gmail.com).
 
 ## What counts as a security issue
 
