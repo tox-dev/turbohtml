@@ -23,7 +23,8 @@ enum {
     TH_URL_SET_QUERY = 1,
     TH_URL_SET_FRAGMENT = 2,
     TH_URL_SET_USERINFO = 3,
-    TH_URL_SET_OPAQUE_PATH = 4
+    TH_URL_SET_OPAQUE_PATH = 4,
+    TH_URL_SET_QUERY_NON_SPECIAL = 5
 };
 
 /* The RFC 3986 ALPHA run, shared by the percent-encode keep sets in url.c and the scheme scanners that build on it. */
@@ -130,7 +131,7 @@ int th_url_is_tracker_obj(PyObject *key);
    as borrowed objects so the cleaning pipeline runs them without an argument tuple. th_url_language_matches returns 1
    to keep, 0 to reject, -1 with an error set. */
 PyObject *th_url_normalize_query(PyObject *query, PyObject *allow, PyObject *deny, int strict, PyObject *content,
-                                 PyObject *language);
+                                 PyObject *language, int set_id);
 int th_url_language_matches(PyObject *query, PyObject *path, PyObject *hostname, PyObject *language, int strict,
                             PyObject *language_params, PyObject *iso_639_1);
 

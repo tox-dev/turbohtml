@@ -12,20 +12,21 @@
 #include "url/url.h"
 
 /* The characters each URL component keeps raw, complementing the WHATWG percent-encode sets (URL standard 1.3): every
-   byte outside its set is UTF-8 percent-encoded. The three sets share the RFC 3986 unreserved run; the query set drops
-   ' (special-query set) and keeps `, the path set keeps neither, and the fragment set keeps ' but not `. The opaque
-   path set keeps every printable ASCII byte. All sets keep '%', so an already-encoded %XX passes through unchanged. */
+   byte outside its set is UTF-8 percent-encoded. The special-query set drops ' and keeps `, while the non-special set
+   keeps both. The path set keeps neither, the fragment set keeps ' but not `, and the opaque path set keeps printable
+   ASCII. All sets keep '%', so an already-encoded %XX passes through unchanged. */
 #define URL_UNRESERVED TH_URL_ALPHA "0123456789-._~"
 static const char URL_PATH_KEEP[] = URL_UNRESERVED "!$%&'()*+,/:;=@[\\]|";
 static const char URL_QUERY_KEEP[] = URL_UNRESERVED "!$%&()*+,/:;=?@[\\]^`{|}";
 static const char URL_FRAGMENT_KEEP[] = URL_UNRESERVED "!#$%&'()*+,/:;=?@[\\]^{|}";
 static const char URL_OPAQUE_PATH_KEEP[] = URL_UNRESERVED " !\"#$%&'()*+,/:;<=>?@[\\]^`{|}";
 static const char URL_USERINFO_KEEP[] = URL_UNRESERVED "!$%&'()*+,";
-static const char *const URL_KEEP_SETS[] = {URL_PATH_KEEP, URL_QUERY_KEEP, URL_FRAGMENT_KEEP, URL_USERINFO_KEEP,
-                                            URL_OPAQUE_PATH_KEEP};
-static const size_t URL_KEEP_LENS[] = {sizeof(URL_PATH_KEEP) - 1, sizeof(URL_QUERY_KEEP) - 1,
-                                       sizeof(URL_FRAGMENT_KEEP) - 1, sizeof(URL_USERINFO_KEEP) - 1,
-                                       sizeof(URL_OPAQUE_PATH_KEEP) - 1};
+static const char URL_QUERY_NON_SPECIAL_KEEP[] = URL_UNRESERVED "!$%&'()*+,/:;=?@[\\]^`{|}";
+static const char *const URL_KEEP_SETS[] = {URL_PATH_KEEP,     URL_QUERY_KEEP,       URL_FRAGMENT_KEEP,
+                                            URL_USERINFO_KEEP, URL_OPAQUE_PATH_KEEP, URL_QUERY_NON_SPECIAL_KEEP};
+static const size_t URL_KEEP_LENS[] = {sizeof(URL_PATH_KEEP) - 1,        sizeof(URL_QUERY_KEEP) - 1,
+                                       sizeof(URL_FRAGMENT_KEEP) - 1,    sizeof(URL_USERINFO_KEEP) - 1,
+                                       sizeof(URL_OPAQUE_PATH_KEEP) - 1, sizeof(URL_QUERY_NON_SPECIAL_KEEP) - 1};
 static const char HEX_UPPER[] = "0123456789ABCDEF";
 
 /* The value of a hex digit, or -1 when `ch` is not one; a memchr over the digit set, never a chained range test, so the
@@ -1561,12 +1562,12 @@ PyObject *th_url_encode_component(PyObject *text, int set_id) {
 }
 
 /* Percent-encode the query pair query[start:end) for the query set. */
-static PyObject *encode_pair(PyObject *query, Py_ssize_t start, Py_ssize_t end) {
+static PyObject *encode_pair(PyObject *query, Py_ssize_t start, Py_ssize_t end, int set_id) {
     PyObject *pair = PyUnicode_Substring(query, start, end);
     if (pair == NULL) { /* GCOVR_EXCL_BR_LINE: substring of an existing string cannot fail here */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *encoded = th_url_encode_component(pair, TH_URL_SET_QUERY);
+    PyObject *encoded = th_url_encode_component(pair, set_id);
     Py_DECREF(pair);
     return encoded;
 }
@@ -1586,11 +1587,11 @@ PyObject *turbohtml_url_normalize_query(PyObject *Py_UNUSED(module), PyObject *a
     if (!PyArg_ParseTuple(args, "UOOpOO", &query, &allow, &deny, &strict, &content, &language)) {
         return NULL;
     }
-    return th_url_normalize_query(query, allow, deny, strict, content, language);
+    return th_url_normalize_query(query, allow, deny, strict, content, language, TH_URL_SET_QUERY);
 }
 
 PyObject *th_url_normalize_query(PyObject *query, PyObject *allow, PyObject *deny, int strict, PyObject *content,
-                                 PyObject *language) {
+                                 PyObject *language, int set_id) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(query);
     int kind = PyUnicode_KIND(query);
     const void *data = PyUnicode_DATA(query);
@@ -1640,7 +1641,7 @@ PyObject *th_url_normalize_query(PyObject *query, PyObject *allow, PyObject *den
             goto error;
         }
         if (drop == 0) {
-            PyObject *encoded = encode_pair(query, pair_start, index);
+            PyObject *encoded = encode_pair(query, pair_start, index, set_id);
             if (encoded == NULL) {
                 Py_DECREF(key);
                 goto error;

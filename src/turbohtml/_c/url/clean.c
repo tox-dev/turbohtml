@@ -253,9 +253,9 @@ static PyObject *normalize_netloc(const th_url_parts *parts, int web_only) {
 }
 
 /* The query with denied, tracker, or non-allowlisted parameters dropped and the rest sorted. */
-static PyObject *normalize_query(PyObject *query, const clean_options *options) {
+static PyObject *normalize_query(PyObject *query, const clean_options *options, int set_id) {
     return th_url_normalize_query(query, options->allow, options->deny, options->strict, options->content,
-                                  options->language_params);
+                                  options->language_params, set_id);
 }
 
 /* The fragment percent-encoded, after scrubbing one shaped like a query string the way the query is: a `&`-joined
@@ -265,7 +265,7 @@ static PyObject *normalize_fragment(PyObject *fragment, const clean_options *opt
         return th_url_encode_component(fragment, TH_URL_SET_FRAGMENT);
     }
     if (str_holds(fragment, '&')) {
-        return normalize_query(fragment, options);
+        return normalize_query(fragment, options, TH_URL_SET_QUERY);
     }
     Py_ssize_t equals = PyUnicode_FindChar(fragment, '=', 0, PyUnicode_GET_LENGTH(fragment), 1);
     PyObject *key = PyUnicode_Substring(fragment, 0, equals);
@@ -290,15 +290,20 @@ static PyObject *normalize_fragment(PyObject *fragment, const clean_options *opt
     return tracker ? PyUnicode_FromString("") : th_url_encode_component(fragment, TH_URL_SET_FRAGMENT);
 }
 
-static const char *const SPECIAL_SCHEMES[] = {"file", "ftp", "http", "https", "ws", "wss"};
-
 static int scheme_is_special(PyObject *scheme) {
-    for (size_t index = 0; index < sizeof(SPECIAL_SCHEMES) / sizeof(*SPECIAL_SCHEMES); index++) {
-        if (str_equals(scheme, SPECIAL_SCHEMES[index])) {
-            return 1;
-        }
+    const char *text = (const char *)PyUnicode_1BYTE_DATA(scheme);
+    switch (PyUnicode_GET_LENGTH(scheme)) {
+    case 2:
+        return text[0] == 'w' && text[1] == 's';
+    case 3:
+        return memcmp(text, "ftp", 3) == 0 || memcmp(text, "wss", 3) == 0;
+    case 4:
+        return memcmp(text, "file", 4) == 0 || memcmp(text, "http", 4) == 0;
+    case 5:
+        return memcmp(text, "https", 5) == 0;
+    default:
+        return 0;
     }
-    return 0;
 }
 
 static int scheme_has_special_path(PyObject *scheme) {
@@ -407,7 +412,13 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
             goto done;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
-    query = normalize_query(parts->part[TH_URL_QUERY], options);
+    int query_set = TH_URL_SET_QUERY;
+    PyObject *raw_query = parts->part[TH_URL_QUERY];
+    if (PyUnicode_GET_LENGTH(raw_query) > 0 && !scheme_is_special(scheme) &&
+        PyUnicode_FindChar(raw_query, '\'', 0, PyUnicode_GET_LENGTH(raw_query), 1) >= 0) {
+        query_set = TH_URL_SET_QUERY_NON_SPECIAL;
+    }
+    query = normalize_query(raw_query, options, query_set);
     if (query == NULL) {
         goto done;
     }
