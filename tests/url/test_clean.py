@@ -1061,3 +1061,22 @@ def test_normalize_file_keeps_at_in_path() -> None:
 def test_normalize_file_rejects_surrogate(url: str) -> None:
     with pytest.raises(ValueError, match="cannot be percent-encoded"):
         normalize_url(url)
+
+
+@pytest.mark.parametrize(
+    "normalizer",
+    [pytest.param(normalize_url, id="normalize"), pytest.param(clean_url, id="clean")],
+)
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("http://example.com:८०/", "http://example.com:८०/", id="non-ascii-decimal-port"),
+        pytest.param("http://example.com:①/", "http://example.com:①/", id="non-decimal-digit-port"),
+        pytest.param("http://example.com:0080/", "http://example.com/", id="ascii-default-port"),
+        pytest.param("http://example.com:80x/", "http://example.com:80x/", id="invalid-ascii-port"),
+        pytest.param("http://example.com:!/", "http://example.com:!/", id="punctuation-port"),
+        pytest.param("http://example.com:65536/", "http://example.com:65536/", id="overflowing-ascii-port"),
+    ],
+)
+def test_normalize_port_uses_ascii_digits(normalizer: Callable[[str], str | None], url: str, expected: str) -> None:
+    assert normalizer(url) == expected
