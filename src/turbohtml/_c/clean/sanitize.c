@@ -4882,18 +4882,35 @@ TH_NODE_API(, PyObject *, turbohtml_sanitize, (PyObject * module, PyObject *args
     } else {
         th_tree *source_tree;
         th_node *source_root;
+#ifndef Py_GIL_DISABLED
         if (turbohtml_node_borrow(module, source, &source_tree, &source_root) < 0) { /* GCOVR_EXCL_BR_LINE: the typed
                                                                                      facade passes str or Element */
             return NULL; /* GCOVR_EXCL_LINE: private-call type error */
         }
+#endif
         s.tree = th_tree_new();
         if (s.tree == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         }
+#ifdef Py_GIL_DISABLED
+        node_guard source_guard;
+        node_guard_begin(&source_guard, is_node(source, PyModule_GetState(module)) ? (NodeObject *)source : NULL, NULL);
+        if (turbohtml_node_borrow(module, source, &source_tree, &source_root) < 0) { /* GCOVR_EXCL_BR_LINE: the typed
+                                                                                     facade passes str or Element */
+            node_guard_end(&source_guard);
+            th_tree_free(s.tree);
+            return NULL; /* GCOVR_EXCL_LINE: private-call type error */
+        }
+#endif
         th_tree_set_xml(s.tree, th_tree_is_xml(source_tree));
+#ifdef Py_GIL_DISABLED
+        root = th_tree_copy_node(s.tree, source_tree, source_root);
+        node_guard_end(&source_guard);
+#else
         Py_BEGIN_CRITICAL_SECTION(turbohtml_node_handle(source));
         root = th_tree_copy_node(s.tree, source_tree, source_root);
         Py_END_CRITICAL_SECTION();
+#endif
     }
     if (root == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         th_tree_free(s.tree);    /* GCOVR_EXCL_LINE: allocation-failure path */

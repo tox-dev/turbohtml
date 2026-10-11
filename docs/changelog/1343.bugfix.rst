@@ -1,0 +1,1 @@
+Keep the source tree stable while `sanitize_node` copies a node on free-threaded Python.
