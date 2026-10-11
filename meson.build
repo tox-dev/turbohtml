@@ -87,6 +87,7 @@ py.extension_module(
         'src/turbohtml/_c/serialize/document.c',
         'src/turbohtml/_c/serialize/lossless.c',
         'src/turbohtml/_c/serialize/c14n.c',
+        'src/turbohtml/_c/serialize/c14n_xml.c',
         'src/turbohtml/_c/serialize/minify.c',
         'src/turbohtml/_c/css/minify/css.c',
         'src/turbohtml/_c/serialize/markdown.c',

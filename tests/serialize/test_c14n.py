@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping this test's own bytes
 from io import BytesIO
 from typing import Final, cast
 
 import pytest
 from bench.operations import INPUTS
 
-from turbohtml import Canonical, CData, Element, Html, ProcessingInstruction, Text, parse
+from turbohtml import Canonical, CData, Element, Html, ProcessingInstruction, Text, parse, parse_xml
 
 
 def _one(markup: str, selector: str) -> Element:
@@ -237,6 +238,404 @@ def test_attributes_sort_shorter_local_name_first(source_order: dict[str, str]) 
 def test_stored_namespace_prefix_declaration_is_dropped() -> None:
     # turbohtml's HTML infoset binds no arbitrary prefix, so a stored xmlns:* is not a plain attribute
     assert Element("p", {"xmlns:foo": "bar", "id": "x"}).canonicalize() == b'<p id="x"></p>'
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param('<r xmlns:p="urn:p" p:a="v"/>', b'<r xmlns:p="urn:p" p:a="v"></r>', id="used-attribute"),
+        pytest.param('<r xmlns:p="urn:p"/>', b'<r xmlns:p="urn:p"></r>', id="unused-declaration"),
+        pytest.param(
+            '<r xmlns="urn:r"><a xmlns=""/></r>', b'<r xmlns="urn:r"><a xmlns=""></a></r>', id="default-reset"
+        ),
+        pytest.param('<r xmlns:p="urn:p"><p:a/></r>', b'<r xmlns:p="urn:p"><p:a></p:a></r>', id="inherited-prefix"),
+        pytest.param(
+            '<r xmlns:p="urn:a"><a xmlns:p="urn:b" p:x="v"/></r>',
+            b'<r xmlns:p="urn:a"><a xmlns:p="urn:b" p:x="v"></a></r>',
+            id="rebound-prefix",
+        ),
+        pytest.param('<r xmlns:é="urn:p" é:x="v"/>', '<r xmlns:é="urn:p" é:x="v"></r>'.encode(), id="unicode-prefix"),
+    ],
+)
+def test_xml_c14n_renders_namespace_axis(source: str, expected: bytes) -> None:
+    assert parse_xml(source).canonicalize() == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            '<r xmlns:a="urn:z" xmlns:z="urn:a" a:x="1" z:x="2"/>',
+            b'<r xmlns:a="urn:z" xmlns:z="urn:a" z:x="2" a:x="1"></r>',
+            id="different-uri-text",
+        ),
+        pytest.param(
+            '<r xmlns:a="urn:p" xmlns:b="urn:p:q" b:x="1" a:x="2"/>',
+            b'<r xmlns:a="urn:p" xmlns:b="urn:p:q" a:x="2" b:x="1"></r>',
+            id="uri-prefix-reversed",
+        ),
+        pytest.param(
+            '<r xmlns:a="urn:p" xmlns:b="urn:p:q" a:x="2" b:x="1"/>',
+            b'<r xmlns:a="urn:p" xmlns:b="urn:p:q" a:x="2" b:x="1"></r>',
+            id="uri-prefix-sorted",
+        ),
+    ],
+)
+def test_xml_c14n_sorts_attributes_by_namespace_uri(source: str, expected: bytes) -> None:
+    assert parse_xml(source).canonicalize() == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "exclusive", "expected"),
+    [
+        pytest.param(
+            '<r xmlns:a="urn:a" xmlns:b="urn:b" a:x="1" b:y="2"><c xmlns:a="urn:c" b:z="3"/></r>',
+            False,
+            b'<r xmlns:a="urn:a" xmlns:b="urn:b" a:x="1" b:y="2"><c xmlns:a="urn:c" b:z="3"></c></r>',
+            id="inclusive-rebound-and-two-prefixes",
+        ),
+        pytest.param(
+            '<r xmlns:a="urn:a" xmlns:b="urn:b" a:x="1" b:y="2"><c xmlns:a="urn:c" b:z="3"/></r>',
+            True,
+            b'<r xmlns:a="urn:a" xmlns:b="urn:b" a:x="1" b:y="2"><c b:z="3"></c></r>',
+            id="exclusive-unused-rebound",
+        ),
+        pytest.param(
+            '<r xmlns="urn:r" xmlns:p="urn:p"><a xmlns=""><p:b xmlns:q="urn:q" q:x="1"/></a></r>',
+            False,
+            b'<r xmlns="urn:r" xmlns:p="urn:p"><a xmlns=""><p:b xmlns:q="urn:q" q:x="1"></p:b></a></r>',
+            id="inclusive-default-reset-and-inherited-prefix",
+        ),
+        pytest.param(
+            '<r xmlns="urn:r" xmlns:p="urn:p"><a xmlns=""><p:b xmlns:q="urn:q" q:x="1"/></a></r>',
+            True,
+            b'<r xmlns="urn:r"><a xmlns=""><p:b xmlns:p="urn:p" xmlns:q="urn:q" q:x="1"></p:b></a></r>',
+            id="exclusive-default-reset-and-inherited-prefix",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a><p:b p:x="1"/></a></r>',
+            False,
+            b'<r xmlns:p="urn:p"><a><p:b p:x="1"></p:b></a></r>',
+            id="inclusive-distant-binding",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p"><a><p:b p:x="1"/></a></r>',
+            True,
+            b'<r><a><p:b xmlns:p="urn:p" p:x="1"></p:b></a></r>',
+            id="exclusive-distant-binding",
+        ),
+        pytest.param(
+            '<r xmlns:a="urn:a" xmlns:b="urn:b"><a xmlns:a="urn:c" b:x="1"><b a:x="2"/></a></r>',
+            False,
+            b'<r xmlns:a="urn:a" xmlns:b="urn:b"><a xmlns:a="urn:c" b:x="1"><b a:x="2"></b></a></r>',
+            id="inclusive-rebound-at-intermediate-element",
+        ),
+        pytest.param(
+            '<r xmlns:a="urn:a" xmlns:b="urn:b"><a xmlns:a="urn:c" b:x="1"><b a:x="2"/></a></r>',
+            True,
+            b'<r><a xmlns:b="urn:b" b:x="1"><b xmlns:a="urn:c" a:x="2"></b></a></r>',
+            id="exclusive-rebound-at-intermediate-element",
+        ),
+        pytest.param(
+            '<r id="x"><longprefix:a xmlns:longprefix="urn:p" id="y"/></r>',
+            True,
+            b'<r id="x"><longprefix:a xmlns:longprefix="urn:p" id="y"></longprefix:a></r>',
+            id="exclusive-local-long-prefix",
+        ),
+        pytest.param(
+            '<r><a xmlns=""><b/></a></r>',
+            False,
+            b"<r><a><b></b></a></r>",
+            id="inclusive-empty-default-without-parent-binding",
+        ),
+        pytest.param(
+            '<r xmlns=""><a xmlns="urn:a"/></r>',
+            False,
+            b'<r><a xmlns="urn:a"></a></r>',
+            id="inclusive-new-default-after-empty-parent-binding",
+        ),
+    ],
+)
+def test_xml_c14n_nested_namespace_scopes(source: str, expected: bytes, *, exclusive: bool) -> None:
+    assert parse_xml(source).canonicalize(Canonical(exclusive=exclusive)) == expected
+
+
+def test_xml_c14n_forced_prefix_declared_below_apex() -> None:
+    source: Final = '<r><a xmlns:p="urn:p"><b/></a></r>'
+    assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("p",))) == (
+        b'<r><a xmlns:p="urn:p"><b></b></a></r>'
+    )
+
+
+def test_xml_c14n_forced_empty_default_without_parent_binding() -> None:
+    source: Final = '<r><a xmlns=""><b/></a></r>'
+    assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("#default",))) == (
+        b"<r><a><b></b></a></r>"
+    )
+
+
+def test_xml_c14n_apex_inherits_namespace_axis() -> None:
+    document = parse_xml('<r xmlns:p="urn:p"><p:a/></r>')
+    assert document.children[0].children[0].canonicalize() == b'<p:a xmlns:p="urn:p"></p:a>'
+
+
+def test_xml_c14n_pickle_preserves_namespace_axis() -> None:
+    document = parse_xml('<r xmlns:p="urn:p"><p:a/></r>')
+    restored = pickle.loads(pickle.dumps(document))  # ruff:ignore[suspicious-pickle-usage]  # this test's own bytes
+    assert restored.canonicalize() == b'<r xmlns:p="urn:p"><p:a></p:a></r>'
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param('<r xmlns:p="urn:p"><p:a/></r>', b'<r><p:a xmlns:p="urn:p"></p:a></r>', id="used-child"),
+        pytest.param('<r xmlns:p="urn:p"><a/></r>', b"<r><a></a></r>", id="unused-prefix"),
+        pytest.param(
+            '<r xmlns:p="urn:a"><a xmlns:p="urn:b"><p:x/></a></r>',
+            b'<r><a><p:x xmlns:p="urn:b"></p:x></a></r>',
+            id="rebound-prefix",
+        ),
+        pytest.param(
+            '<r xmlns="urn:r"><a xmlns=""/></r>', b'<r xmlns="urn:r"><a xmlns=""></a></r>', id="default-reset"
+        ),
+    ],
+)
+def test_xml_c14n_exclusive_renders_visible_bindings(source: str, expected: bytes) -> None:
+    assert parse_xml(source).canonicalize(Canonical(exclusive=True)) == expected
+
+
+def test_xml_c14n_exclusive_keeps_forced_prefix() -> None:
+    document = parse_xml('<r xmlns:p="urn:p"><a/></r>')
+    assert (
+        document.children[0].children[0].canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("p",)))
+        == b'<a xmlns:p="urn:p"></a>'
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            '<r xmlns:p="urn:p" xmlns:q="urn:q" p:a="1" q:a="2"/>',
+            b'<r xmlns:p="urn:p" xmlns:q="urn:q" p:a="1" q:a="2"></r>',
+            id="same-length-prefixes",
+        ),
+        pytest.param(
+            '<r xmlns:xml="http://www.w3.org/XML/1998/namespace" xml:lang="en"/>',
+            b'<r xml:lang="en"></r>',
+            id="reserved-xml-prefix",
+        ),
+        pytest.param(
+            '<r xmlns:ࠀ="urn:p" ࠀ:x="v"/>', '<r xmlns:ࠀ="urn:p" ࠀ:x="v"></r>'.encode(), id="three-byte-prefix"
+        ),
+        pytest.param('<r xmlns:𐀀="urn:p" 𐀀:x="v"/>', '<r xmlns:𐀀="urn:p" 𐀀:x="v"></r>'.encode(), id="four-byte-prefix"),
+        pytest.param(
+            '<r xmlns:p="urn:p" a="1" ab="2" p:a="3" p:ab="4"/>',
+            b'<r xmlns:p="urn:p" a="1" ab="2" p:a="3" p:ab="4"></r>',
+            id="local-name-length",
+        ),
+        pytest.param(
+            '<r xmlns:p="urn:p" xmlns:q="urn:p" p:a="1" q:b="2"/>',
+            b'<r xmlns:p="urn:p" xmlns:q="urn:p" p:a="1" q:b="2"></r>',
+            id="same-namespace-uri",
+        ),
+    ],
+)
+def test_xml_c14n_namespace_prefixes_and_attribute_keys(source: str, expected: bytes) -> None:
+    assert parse_xml(source).canonicalize() == expected
+
+
+def test_xml_c14n_preserves_text_and_cdata() -> None:
+    source: Final = '<r xmlns:p="urn:p">a&amp;b&lt;c&gt;d&#xD;<![CDATA[<x>&]]></r>'
+    assert parse_xml(source).canonicalize() == b'<r xmlns:p="urn:p">a&amp;b&lt;c&gt;d&#xD;&lt;x&gt;&amp;</r>'
+
+
+def test_xml_c14n_plain_text() -> None:
+    assert parse_xml('<r xmlns:p="urn:p">plain</r>').canonicalize() == b'<r xmlns:p="urn:p">plain</r>'
+
+
+@pytest.mark.parametrize(
+    ("source_value", "expected"),
+    [
+        pytest.param("&amp;", b"&amp;", id="ampersand"),
+        pytest.param("&lt;", b"&lt;", id="less-than"),
+        pytest.param("&quot;", b"&quot;", id="quote"),
+        pytest.param("&#x9;", b"&#x9;", id="tab"),
+        pytest.param("&#xA;", b"&#xA;", id="newline"),
+        pytest.param("&#xD;", b"&#xD;", id="carriage-return"),
+    ],
+)
+def test_xml_c14n_attribute_character_references(source_value: str, expected: bytes) -> None:
+    source = f'<r xmlns:p="urn:p" p:a="{source_value}"/>'
+    assert parse_xml(source).canonicalize() == b'<r xmlns:p="urn:p" p:a="' + expected + b'"></r>'
+
+
+def test_xml_c14n_renders_comments_and_processing_instructions() -> None:
+    source: Final = '<r xmlns:p="urn:p"><!--x--><?pi a?><p:a/></r>'
+    assert parse_xml(source).canonicalize(Canonical(with_comments=True)) == (
+        b'<r xmlns:p="urn:p"><!--x--><?pi a?><p:a></p:a></r>'
+    )
+
+
+def test_xml_c14n_processing_instruction_without_data() -> None:
+    assert parse_xml('<r xmlns:p="urn:p"><?pi?></r>').canonicalize() == b'<r xmlns:p="urn:p"><?pi?></r>'
+
+
+def test_xml_c14n_document_nodes_surround_root() -> None:
+    source: Final = '<!--pre--><?pi lead?><!DOCTYPE r><r xmlns:p="urn:p"/><?pi tail?><!--post-->'
+    assert parse_xml(source).canonicalize(Canonical(with_comments=True)) == (
+        b'<!--pre-->\n<?pi lead?>\n<r xmlns:p="urn:p"></r>\n<?pi tail?>\n<!--post-->'
+    )
+
+
+def test_xml_c14n_inherits_xml_attributes_on_apex() -> None:
+    document = parse_xml('<r xmlns:p="urn:p" xml:lang="en"><p:a xml:space="preserve"/></r>')
+    assert document.children[0].children[0].canonicalize() == (
+        b'<p:a xmlns:p="urn:p" xml:lang="en" xml:space="preserve"></p:a>'
+    )
+
+
+def test_xml_c14n_1_1_does_not_inherit_xml_id() -> None:
+    document = parse_xml('<r xmlns:p="urn:p" xml:id="top" xml:lang="en"><p:a/></r>')
+    assert document.children[0].children[0].canonicalize(Canonical(version="1.1")) == (
+        b'<p:a xmlns:p="urn:p" xml:lang="en"></p:a>'
+    )
+
+
+def test_xml_c14n_many_namespaces_and_attributes() -> None:
+    names: Final = tuple(f"p{index:02d}" for index in range(33))
+    source: Final = "<r " + " ".join(f'xmlns:{name}="urn:{name}" {name}:x="v"' for name in names) + "/>"
+    expected: Final = (
+        "<r "
+        + " ".join(f'xmlns:{name}="urn:{name}"' for name in names)
+        + " "
+        + " ".join(f'{name}:x="v"' for name in names)
+        + "></r>"
+    ).encode()
+    assert parse_xml(source).canonicalize() == expected
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [pytest.param("é", id="two-byte"), pytest.param("ࠀ", id="three-byte"), pytest.param("𐀀", id="four-byte")],
+)
+def test_xml_c14n_exclusive_renders_unicode_prefix_on_child(prefix: str) -> None:
+    source: Final = f'<r xmlns:{prefix}="urn:p"><{prefix}:a/></r>'
+    assert parse_xml(source).canonicalize(Canonical(exclusive=True)) == (
+        f'<r><{prefix}:a xmlns:{prefix}="urn:p"></{prefix}:a></r>'.encode()
+    )
+
+
+def test_xml_c14n_exclusive_sorts_visible_prefixes() -> None:
+    source: Final = '<r xmlns:p="urn:p" xmlns:long="urn:long"><x long:a="1" p:a="2"/></r>'
+    assert parse_xml(source).canonicalize(Canonical(exclusive=True)) == (
+        b'<r><x xmlns:long="urn:long" xmlns:p="urn:p" long:a="1" p:a="2"></x></r>'
+    )
+
+
+def test_xml_c14n_exclusive_renders_rebound_prefix_after_nonusing_element() -> None:
+    source: Final = '<r xmlns:p="urn:a"><p:a><x xmlns:p="urn:b"><p:b/></x></p:a></r>'
+    assert parse_xml(source).canonicalize(Canonical(exclusive=True)) == (
+        b'<r><p:a xmlns:p="urn:a"><x><p:b xmlns:p="urn:b"></p:b></x></p:a></r>'
+    )
+
+
+def test_xml_c14n_exclusive_forced_prefix_list_renders_once() -> None:
+    source: Final = '<r xmlns:p="urn:p"><a/></r>'
+    assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("p", "other"))) == (
+        b'<r xmlns:p="urn:p"><a></a></r>'
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param('<l xmlns:long="urn:long"/>', b"<l></l>", id="prefix-longer-than-tag"),
+        pytest.param(
+            '<pp:a xmlns:p="urn:p" xmlns:pp="urn:pp"/>',
+            b'<pp:a xmlns:pp="urn:pp"></pp:a>',
+            id="tag-prefix-longer-than-binding",
+        ),
+        pytest.param(
+            '<p:a xmlns:p="urn:p" xmlns:pp="urn:pp"/>',
+            b'<p:a xmlns:p="urn:p"></p:a>',
+            id="same-leading-byte",
+        ),
+        pytest.param(
+            '<ࠀ:a xmlns:é="urn:e" xmlns:ࠀ="urn:p"/>',
+            '<ࠀ:a xmlns:ࠀ="urn:p"></ࠀ:a>'.encode(),
+            id="different-utf8-length",
+        ),
+        pytest.param(
+            '<ê:a xmlns:é="urn:e" xmlns:ê="urn:p"/>',
+            '<ê:a xmlns:ê="urn:p"></ê:a>'.encode(),
+            id="same-utf8-length",
+        ),
+        pytest.param('<r xmlns=""/>', b"<r></r>", id="empty-default-root"),
+        pytest.param(
+            '<r xmlns=""><a xmlns="urn:a"/></r>', b'<r><a xmlns="urn:a"></a></r>', id="new-default-after-empty"
+        ),
+    ],
+)
+def test_xml_c14n_exclusive_prefix_boundaries(source: str, expected: bytes) -> None:
+    assert parse_xml(source).canonicalize(Canonical(exclusive=True)) == expected
+
+
+def test_xml_c14n_exclusive_forced_default_namespace() -> None:
+    source: Final = '<r xmlns="urn:d"><a/></r>'
+    assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("#default",))) == (
+        b'<r xmlns="urn:d"><a></a></r>'
+    )
+
+
+def test_xml_c14n_exclusive_forces_unused_default_namespace() -> None:
+    source: Final = '<p:r xmlns="urn:d" xmlns:p="urn:p"><a xmlns="urn:e"/></p:r>'
+    assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("#default",))) == (
+        b'<p:r xmlns="urn:d" xmlns:p="urn:p"><a xmlns="urn:e"></a></p:r>'
+    )
+
+
+def test_xml_c14n_exclusive_forced_prefix_rebound_on_child() -> None:
+    source: Final = '<r xmlns:p="urn:p"><p:a xmlns:p="urn:q"/></r>'
+    assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("p",))) == (
+        b'<r xmlns:p="urn:p"><p:a xmlns:p="urn:q"></p:a></r>'
+    )
+
+
+def test_xml_c14n_exclusive_forced_prefix_rebound_without_use() -> None:
+    source: Final = '<r xmlns:p="urn:a"><a xmlns:p="urn:b"><b/></a></r>'
+    assert parse_xml(source).canonicalize(Canonical(exclusive=True, inclusive_ns_prefixes=("p",))) == (
+        b'<r xmlns:p="urn:a"><a xmlns:p="urn:b"><b></b></a></r>'
+    )
+
+
+def test_xml_c14n_apex_uses_nearest_xml_attribute() -> None:
+    document = parse_xml('<r xmlns:p="urn:p" xml:lang="en"><a xml:lang="fr"><p:b/></a></r>')
+    assert document.children[0].children[0].children[0].canonicalize() == (b'<p:b xmlns:p="urn:p" xml:lang="fr"></p:b>')
+
+
+def test_xml_c14n_apex_inherits_distinct_xml_attributes() -> None:
+    document = parse_xml('<r xmlns:p="urn:p" a="1" xml:lang="en" xml:mode="x"><p:a xml:space="preserve"/></r>')
+    assert document.children[0].children[0].canonicalize(Canonical(version="1.1")) == (
+        b'<p:a xmlns:p="urn:p" xml:lang="en" xml:mode="x" xml:space="preserve"></p:a>'
+    )
+
+
+def test_xml_c14n_1_1_inherits_other_xml_attribute() -> None:
+    document = parse_xml('<r xmlns:p="urn:p" xml:ab="x"><p:a/></r>')
+    assert document.children[0].children[0].canonicalize(Canonical(version="1.1")) == (
+        b'<p:a xmlns:p="urn:p" xml:ab="x"></p:a>'
+    )
+
+
+def test_xml_c14n_comment_is_omitted_without_option() -> None:
+    source: Final = '<!--pre--><r xmlns:p="urn:p"><!--inner--><p:a/></r><!--post-->'
+    assert parse_xml(source).canonicalize() == b'<r xmlns:p="urn:p"><p:a></p:a></r>'
+
+
+def test_xml_c14n_doctype_node_is_empty() -> None:
+    document = parse_xml('<!DOCTYPE r><r xmlns:p="urn:p"/>')
+    assert document.children[0].canonicalize() == b""
 
 
 def test_inherited_attributes_skip_non_xml_ancestor_attributes() -> None:

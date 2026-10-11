@@ -38,7 +38,7 @@ void th_tree_set_quirks(th_tree *tree, int quirks) {
 }
 
 int th_tree_is_xml(const th_tree *tree) {
-    return tree->xml;
+    return tree->xml & 1;
 }
 
 void th_tree_set_xml(th_tree *tree, int xml) {
@@ -168,6 +168,10 @@ static uint32_t th_attr_intern_utf8(th_tree *tree, const char *bytes, Py_ssize_t
     return intern_attr_dynamic(tree, bytes, len);
 }
 
+static int is_xml_namespace_decl(const char *name, Py_ssize_t len) {
+    return (len == 5 && memcmp(name, "xmlns", 5) == 0) || (len > 6 && memcmp(name, "xmlns:", 6) == 0);
+}
+
 /* Construct an element node, with attr_count empty attribute slots to fill with
    th_tree_set_attr. A NULL known tag selects the generated immutable spelling. */
 int th_node_rename(th_tree *tree, th_node *node, const Py_UCS4 *tag, Py_ssize_t tag_len, uint16_t atom) {
@@ -241,6 +245,9 @@ int th_tree_set_attr(th_tree *tree, th_node *node, Py_ssize_t index, const char 
     if (attr->name_atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
         return -1;                            /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    if (tree->xml && is_xml_namespace_decl(name, name_len)) {
+        tree->xml |= TH_TREE_XML_HAS_NS;
+    }
     if (!has_value) {
         return 0;
     }
@@ -288,6 +295,9 @@ static int node_attr_store(th_tree *tree, th_node *node, const char *name, Py_ss
     /* testing right after interning changed how LTO inlined the lookup and cost a class edit 150 instructions */
     if (atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
         return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (tree->xml && is_xml_namespace_decl(name, name_len)) {
+        tree->xml |= TH_TREE_XML_HAS_NS;
     }
     if (existing >= 0) {
         th_mo_attr_changed(tree, node, atom, node->attrs[existing].value, node->attrs[existing].value_len, 1);
@@ -1095,6 +1105,9 @@ static th_node *copy_node_at(th_tree *dest, th_tree *src, th_node *src_node, int
 }
 
 th_node *th_tree_copy_node(th_tree *dest, th_tree *src, th_node *src_node) {
+    if (dest->xml) {
+        dest->xml |= src->xml & TH_TREE_XML_HAS_NS;
+    }
     return copy_node_at(dest, src, src_node, 0);
 }
 
@@ -1158,7 +1171,7 @@ static th_node *copy_adopted_shadows(th_tree *dest, th_tree *src, th_node *src_n
 th_node *th_tree_adopt_copy(th_tree *dest, th_tree *src, th_node *src_node) {
     th_node *copy =
         src->shadow_count == 0 ? th_tree_copy_node(dest, src, src_node) : copy_adopted_shadows(dest, src, src_node);
-    if (copy == NULL || src->xml == dest->xml) { /* GCOVR_EXCL_BR_LINE: the copy is NULL on OOM only */
+    if (copy == NULL || (src->xml & 1) == (dest->xml & 1)) { /* GCOVR_EXCL_BR_LINE: the copy is NULL on OOM only */
         return copy;
     }
     for (th_node *node = copy; node != NULL; node = th_node_next_including_shadow(dest, node, copy)) {

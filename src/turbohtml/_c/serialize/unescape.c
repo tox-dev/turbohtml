@@ -296,7 +296,7 @@ PyObject *turbohtml_unescape(PyObject *Py_UNUSED(module), PyObject *arg) {
 
     /* reached only after finding '&', so length >= 1; unescape never lengthens
        the text, so length code points is a safe upper bound for the output */
-    Py_UCS4 *out =
+    Py_UCS4 *out =                  /* GCOVR_EXCL_LINE: size-overflow guard unreachable for valid lengths */
         PyMem_New(Py_UCS4, length); /* GCOVR_EXCL_BR_LINE: size-overflow guard unreachable for valid lengths */
     if (out == NULL) {              /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return PyErr_NoMemory();    /* GCOVR_EXCL_LINE: allocation-failure path */
