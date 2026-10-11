@@ -494,24 +494,18 @@ static PyObject *ipv6_serialize(const uint16_t pieces[8]) {
 /* The domain-to-ASCII step of host parsing (URL standard 3.5); a host ToASCII rejects falls back to its lowercased
    form. */
 static PyObject *domain_to_ascii(PyObject *host) {
-    PyObject *lowered = PyObject_CallMethod(host, "lower", NULL);
-    if (lowered == NULL) { /* GCOVR_EXCL_BR_LINE: str.lower cannot fail on a host */
-        return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (PyUnicode_IS_ASCII(host)) {
+        return PyObject_CallMethod(host, "lower", NULL);
     }
-    if (PyUnicode_IS_ASCII(lowered)) {
-        return lowered;
-    }
-    PyObject *encoded = th_url_to_ascii(lowered);
+    PyObject *encoded = th_url_to_ascii(host);
     if (encoded != NULL) {
-        Py_DECREF(lowered);
         return encoded;
     }
     if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: ToASCII raises nothing else */
-        Py_DECREF(lowered);                          /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;                                 /* GCOVR_EXCL_LINE */
+        return NULL;                                 /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     PyErr_Clear();
-    return lowered;
+    return PyObject_CallMethod(host, "lower", NULL);
 }
 
 /* The dotted-decimal form of `ascii` read by the WHATWG IPv4 parser (https://url.spec.whatwg.org/#concept-ipv4-parser),
