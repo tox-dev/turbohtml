@@ -13,15 +13,16 @@
 
 /* The characters each URL component keeps raw, complementing the WHATWG percent-encode sets (URL standard 1.3): every
    byte outside its set is UTF-8 percent-encoded. The three sets share the RFC 3986 unreserved run; the query set drops
-   ' (special-query set) and keeps `, the path set keeps neither, and the fragment set keeps ' but not `. All three keep
-   '%', so an already-encoded %XX passes through the encoder unchanged (only its hex digits are uppercased). */
+   ' (special-query set) and keeps `, the path set keeps neither, and the fragment set keeps ' but not `. The opaque
+   path set keeps every printable ASCII byte. All sets keep '%', so an already-encoded %XX passes through unchanged. */
 #define URL_UNRESERVED TH_URL_ALPHA "0123456789-._~"
 static const char URL_PATH_KEEP[] = URL_UNRESERVED "!$%&'()*+,/:;=@[\\]^|";
 static const char URL_QUERY_KEEP[] = URL_UNRESERVED "!$%&()*+,/:;=?@[\\]^`{|}";
 static const char URL_FRAGMENT_KEEP[] = URL_UNRESERVED "!#$%&'()*+,/:;=?@[\\]^{|}";
-static const char *const URL_KEEP_SETS[] = {URL_PATH_KEEP, URL_QUERY_KEEP, URL_FRAGMENT_KEEP};
+static const char URL_OPAQUE_PATH_KEEP[] = URL_UNRESERVED " !\"#$%&'()*+,/:;<=>?@[\\]^`{|}";
+static const char *const URL_KEEP_SETS[] = {URL_PATH_KEEP, URL_QUERY_KEEP, URL_FRAGMENT_KEEP, URL_OPAQUE_PATH_KEEP};
 static const size_t URL_KEEP_LENS[] = {sizeof(URL_PATH_KEEP) - 1, sizeof(URL_QUERY_KEEP) - 1,
-                                       sizeof(URL_FRAGMENT_KEEP) - 1};
+                                       sizeof(URL_FRAGMENT_KEEP) - 1, sizeof(URL_OPAQUE_PATH_KEEP) - 1};
 static const char HEX_UPPER[] = "0123456789ABCDEF";
 
 /* The value of a hex digit, or -1 when `ch` is not one; a memchr over the digit set, never a chained range test, so the

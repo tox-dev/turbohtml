@@ -358,6 +358,22 @@ def test_a_relative_href_against_an_unsplittable_base_element_raises() -> None:
         pytest.param("http://x.org/x?q=a b#f g", "http://x.org/x?q=a%20b#f%20g", id="query-and-fragment-encoded"),
         pytest.param("http://x.org/x#a{b}", "http://x.org/x#a{b}", id="fragment-set-looser-than-path"),
         pytest.param("mailto:someone@example.org", "mailto:someone@example.org", id="opaque-scheme-untouched"),
+        pytest.param("foo:hello world", "foo:hello world", id="opaque-path-keeps-interior-space"),
+        pytest.param("foo:hello<>world", "foo:hello<>world", id="opaque-path-keeps-angle-brackets"),
+        pytest.param("foo:hello`{world}", "foo:hello`{world}", id="opaque-path-keeps-printable-ascii"),
+        pytest.param("foo:hello ?x", "foo:hello%20?x", id="opaque-path-encodes-space-before-query"),
+        pytest.param("foo:hello #x", "foo:hello%20#x", id="opaque-path-encodes-space-before-fragment"),
+        pytest.param("foo:hello%2f", "foo:hello%2F", id="opaque-path-normalizes-escape"),
+        pytest.param("foo:a\x01b", "foo:a%01b", id="opaque-path-encodes-control"),
+        pytest.param("foo:é", "foo:%C3%A9", id="opaque-path-encodes-non-ascii"),
+        pytest.param("foo:", "foo:", id="empty-opaque-path"),
+        pytest.param("foo:hello ?", "foo:hello%20", id="empty-query-marker-keeps-path-encoding"),
+        pytest.param("foo:/hello world", "foo:/hello%20world", id="hierarchical-path-encodes-space"),
+        pytest.param("ftp:x y", "ftp:x%20y", id="ftp-path-encodes-space"),
+        pytest.param("http:x y", "http:x%20y", id="http-path-encodes-space"),
+        pytest.param("https:x y", "https:x%20y", id="https-path-encodes-space"),
+        pytest.param("ws:x y", "ws:x%20y", id="ws-path-encodes-space"),
+        pytest.param("wss:x y", "wss:x%20y", id="wss-path-encodes-space"),
         pytest.param("page.html?b=2&a=1", "page.html?a=1&b=2", id="relative-url-keeps-shape"),
     ],
 )
@@ -469,10 +485,11 @@ def test_normalize_rejects_unsplittable_input() -> None:
         normalize_url("http://[::1/x")
 
 
-def test_normalize_rejects_lone_surrogate() -> None:
+@pytest.mark.parametrize("url", ["http://a.com/\udce9", "foo:\udce9"], ids=["hierarchical", "opaque"])
+def test_normalize_rejects_lone_surrogate(url: str) -> None:
     # a lone surrogate has no UTF-8 form, so the component cannot be percent-encoded and the URL is not serializable
     with pytest.raises(ValueError, match="cannot be percent-encoded"):
-        normalize_url("http://a.com/\udce9")
+        normalize_url(url)
 
 
 def test_normalize_rejects_non_str() -> None:

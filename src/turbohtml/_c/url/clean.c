@@ -257,6 +257,11 @@ static int scheme_uses_netloc(PyObject *scheme) {
     return 0;
 }
 
+static int scheme_has_special_path(PyObject *scheme) {
+    return str_equals(scheme, "ftp") || str_equals(scheme, "http") || str_equals(scheme, "https") ||
+           str_equals(scheme, "ws") || str_equals(scheme, "wss");
+}
+
 /* Reassemble the components the way urllib.parse.urlunsplit does: an authority (or, for a netloc scheme, an empty
    one before an absolute path) is introduced by "//"; an empty query or fragment is dropped with its delimiter. The
    split never leaves a relative path behind an authority, so the path needs no leading slash added. */
@@ -294,6 +299,18 @@ static PyObject *normalize_file_path(PyObject *path) {
     return PyObject_CallMethod(path, "replace", "ss", "\\", "/");
 }
 
+static int opaque_path_needs_encoding(PyObject *path) {
+    int kind = PyUnicode_KIND(path);
+    const void *data = PyUnicode_DATA(path);
+    for (Py_ssize_t index = 0; index < PyUnicode_GET_LENGTH(path); index++) {
+        Py_UCS4 ch = PyUnicode_READ(kind, data, index);
+        if (ch < 0x20 || ch > 0x7E || ch == '%') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Rebuild the URL from spec-normalized components plus the beyond-spec query/fragment canonicalization. Returns NULL
    with a ValueError when a component cannot be percent-encoded (a lone surrogate). */
 static PyObject *normalize_parts(const th_url_parts *parts, const clean_options *options, int web_only) {
@@ -319,7 +336,25 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
         path = th_url_encode_component(file_path, TH_URL_SET_PATH);
         Py_DECREF(file_path);
     } else {
-        path = th_url_encode_component(parts->part[TH_URL_PATH], TH_URL_SET_PATH);
+        int opaque = !has_netloc && PyUnicode_GET_LENGTH(scheme) > 0 &&
+                     !str_has_prefix(parts->part[TH_URL_PATH], "/") && !scheme_has_special_path(scheme);
+        if (opaque) {
+            path = opaque_path_needs_encoding(parts->part[TH_URL_PATH])
+                       ? th_url_encode_component(parts->part[TH_URL_PATH], TH_URL_SET_OPAQUE_PATH)
+                       : Py_NewRef(parts->part[TH_URL_PATH]);
+        } else {
+            path = th_url_encode_component(parts->part[TH_URL_PATH], TH_URL_SET_PATH);
+        }
+        if (opaque && path != NULL && PyUnicode_GET_LENGTH(path) > 0 &&
+            PyUnicode_READ_CHAR(path, PyUnicode_GET_LENGTH(path) - 1) == ' ') {
+            PyObject *prefix = PyUnicode_Substring(path, 0, PyUnicode_GET_LENGTH(path) - 1);
+            if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: substring of an existing string only fails on allocation */
+                Py_CLEAR(path);   /* GCOVR_EXCL_LINE: allocation-failure path */
+            } else {
+                Py_SETREF(path, th_str_format("%U%%20", prefix));
+                Py_DECREF(prefix);
+            }
+        }
     }
     if (path == NULL) {
         goto done;
