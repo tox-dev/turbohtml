@@ -386,7 +386,9 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
     if (netloc == Py_None) {
         return netloc;
     }
-    if (PyUnicode_GET_LENGTH(scheme) == 4 && PyUnicode_READ_CHAR(scheme, 0) == 'f' && str_equals(scheme, "file")) {
+    int is_file =
+        PyUnicode_GET_LENGTH(scheme) == 4 && PyUnicode_READ_CHAR(scheme, 0) == 'f' && str_equals(scheme, "file");
+    if (is_file) {
         if (PyUnicode_GET_LENGTH(netloc) == 9 && str_equals(netloc, "localhost")) {
             Py_SETREF(netloc, PyUnicode_FromString(""));
             if (netloc == NULL) { /* GCOVR_EXCL_BR_LINE: the empty host only fails on allocation failure */
@@ -424,7 +426,8 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
         goto done;
     }
     if (has_netloc || (PyUnicode_GET_LENGTH(scheme) > 0 && str_has_prefix(path, "/"))) {
-        Py_SETREF(path, turbohtml_url_remove_dot_segments(NULL, path));
+        Py_SETREF(path,
+                  is_file ? th_url_remove_file_dot_segments(path) : turbohtml_url_remove_dot_segments(NULL, path));
         if (path == NULL) { /* GCOVR_EXCL_BR_LINE: dot-segment removal only fails on allocation failure */
             goto done;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }

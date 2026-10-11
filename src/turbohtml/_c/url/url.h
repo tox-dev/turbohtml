@@ -126,6 +126,7 @@ PyObject *th_url_encode_component(PyObject *text, int set_id);
 PyObject *th_url_percent_decode_obj(PyObject *text);
 int th_url_is_tracker_obj(PyObject *key);
 PyObject *th_url_literalize_dot_segments(PyObject *url);
+PyObject *th_url_remove_file_dot_segments(PyObject *path);
 
 /* The query filter and the language filter, the bodies behind _url_normalize_query and _url_language_matches, taken
    as borrowed objects so the cleaning pipeline runs them without an argument tuple. th_url_language_matches returns 1

@@ -9,6 +9,7 @@
    literal, or registered name), never decoded or lowercased here. An authority whose brackets are unbalanced is the one
    split-time failure, matching the "Invalid IPv6 URL" the shim's normalize_url path documents. */
 
+#include "core/ascii.h"
 #include "url/url.h"
 
 /* The characters each URL component keeps raw, complementing the WHATWG percent-encode sets (URL standard 1.3): every
@@ -1390,15 +1391,15 @@ PyObject *th_url_literalize_dot_segments(PyObject *url) {
 
 /* _url_remove_dot_segments(path): resolve the "." and ".." segments of a path, in either their literal or %2E
    spelling, keeping every other segment's encoding verbatim. */
-PyObject *turbohtml_url_remove_dot_segments(PyObject *Py_UNUSED(module), PyObject *arg) {
-    if (!PyUnicode_Check(arg)) {
-        PyErr_SetString(PyExc_TypeError, "_url_remove_dot_segments() argument must be str");
-        return NULL;
-    }
+static PyObject *remove_dot_segments(PyObject *arg, int file) {
     Py_ssize_t len = PyUnicode_GET_LENGTH(arg);
     if (PyUnicode_FindChar(arg, '.', 0, len, 1) == -1 && PyUnicode_FindChar(arg, '%', 0, len, 1) == -1) {
         return Py_NewRef(arg);
     }
+    Py_ssize_t floor = file && len >= 4 && is_ascii_alpha(PyUnicode_READ_CHAR(arg, 1)) &&
+                               PyUnicode_READ_CHAR(arg, 2) == ':' && PyUnicode_READ_CHAR(arg, 3) == '/'
+                           ? 2
+                           : 1;
     int kind = PyUnicode_KIND(arg);
     const void *data = PyUnicode_DATA(arg);
     Py_UCS4 *work = PyMem_Malloc((size_t)(len + 1) * sizeof(Py_UCS4));
@@ -1430,7 +1431,7 @@ PyObject *turbohtml_url_remove_dot_segments(PyObject *Py_UNUSED(module), PyObjec
             last_dots = 1;
         } else if (single) {
             /* a ".." drops the previous segment, but never the leading empty one a rooted path opens with */
-            if (kept > 1) {
+            if (kept > floor) {
                 kept -= 1;
             }
         } else {
@@ -1472,6 +1473,18 @@ PyObject *turbohtml_url_remove_dot_segments(PyObject *Py_UNUSED(module), PyObjec
     PyMem_Free(ends);
     PyMem_Free(out);
     return result;
+}
+
+PyObject *turbohtml_url_remove_dot_segments(PyObject *Py_UNUSED(module), PyObject *arg) {
+    if (!PyUnicode_Check(arg)) {
+        PyErr_SetString(PyExc_TypeError, "_url_remove_dot_segments() argument must be str");
+        return NULL;
+    }
+    return remove_dot_segments(arg, 0);
+}
+
+PyObject *th_url_remove_file_dot_segments(PyObject *path) {
+    return remove_dot_segments(path, 1);
 }
 
 /* _url_scrub(url): undo the HTML transport damage a scraped URL carries before it is split. It strips the leading and

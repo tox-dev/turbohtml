@@ -78,6 +78,32 @@ def test_normalize_file_root_survives_trailing_slash_option() -> None:
 
 
 @pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("file:///C:/../x", "file:///C:/x", id="drive-root-parent"),
+        pytest.param("file:///C:/a/../../x", "file:///C:/x", id="drive-root-nested-parent"),
+        pytest.param("file:///C:/../C:/x", "file:///C:/C:/x", id="repeated-drive-segment"),
+        pytest.param("file:///C:/%2e%2e/x", "file:///C:/x", id="drive-root-escaped-parent"),
+        pytest.param("file:///C:/..", "file:///C:/", id="drive-root-trailing-parent"),
+        pytest.param("file:///C:", "file:///C:", id="drive-root-without-child"),
+        pytest.param("file:///", "file:///", id="short-file-root"),
+        pytest.param("file:///..", "file:///", id="short-parent-path"),
+        pytest.param("file:///C:foo", "file:///C:foo", id="long-first-segment-without-dot"),
+        pytest.param("file:///C:foo/../x", "file:///x", id="long-first-segment-with-parent"),
+        pytest.param("file://server/C:/../x", "file://server/C:/x", id="unc-drive-root-parent"),
+        pytest.param("file:///CC:/../x", "file:///x", id="long-segment-is-not-drive"),
+        pytest.param("file:///4:/../x", "file:///x", id="digit-is-not-drive"),
+        pytest.param("file:///Ca/../x", "file:///x", id="missing-drive-colon"),
+        pytest.param("foo:/C:/../x", "foo:/x", id="other-scheme-does-not-protect-drive"),
+        pytest.param("file:ab:c/foo", "file:ab:c/foo", id="colon-without-leading-slash"),
+    ],
+)
+def test_normalize_file_keeps_drive_root(url: str, expected: str) -> None:
+    normalized: Final = normalize_url(url)
+    assert (normalized, normalize_url(normalized)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
     "url",
     [
         pytest.param("file:///a\udce9", id="unchanged-path-surrogate"),
