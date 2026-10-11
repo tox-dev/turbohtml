@@ -1,0 +1,1 @@
+Canonicalize dotted IPv4 tails inside IPv6 URL hosts.
