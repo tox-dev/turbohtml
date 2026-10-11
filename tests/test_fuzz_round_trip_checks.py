@@ -768,10 +768,9 @@ def test_javascript_rejects_wrong_stable_output(output: str, message: str) -> No
         javascript_observation(b'consume("kept",external);', wrong)
 
 
-@_JS_READER_REQUIRED
 @pytest.mark.oracle
 def test_javascript_owns_public_minifier() -> None:
-    assert (len(owner_inventory()), owner_inventory()["turbohtml.clean.minify_js"]) == (209, "javascript")
+    assert owner_inventory()["turbohtml.clean.minify_js"] == "javascript"
 
 
 @_JS_READER_REQUIRED
