@@ -266,7 +266,7 @@ static PyObject *normalize_fragment(PyObject *fragment, const clean_options *opt
         return th_url_encode_component(fragment, TH_URL_SET_FRAGMENT);
     }
     if (str_holds(fragment, '&')) {
-        return normalize_query(fragment, options, TH_URL_SET_QUERY);
+        return normalize_query(fragment, options, TH_URL_SET_FRAGMENT);
     }
     Py_ssize_t equals = PyUnicode_FindChar(fragment, '=', 0, PyUnicode_GET_LENGTH(fragment), 1);
     PyObject *key = PyUnicode_Substring(fragment, 0, equals);

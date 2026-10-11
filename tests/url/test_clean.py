@@ -540,6 +540,48 @@ def test_normalize_fragment_cleaning(url: str, expected: str) -> None:
     assert normalize_url(url) == expected
 
 
+@pytest.mark.parametrize("normalizer", [normalize_url, clean_url], ids=["normalize", "clean"])
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "https://example.org/#a=o'k&b=2",
+            "https://example.org/#a=o'k&b=2",
+            id="apostrophe-kept",
+        ),
+        pytest.param(
+            "https://example.org/#a=`&b=2",
+            "https://example.org/#a=%60&b=2",
+            id="backtick-encoded",
+        ),
+        pytest.param(
+            "https://example.org/#a=foo#bar&b=2",
+            "https://example.org/#a=foo#bar&b=2",
+            id="hash-kept",
+        ),
+        pytest.param(
+            "https://example.org/#a=o%27k&b=2",
+            "https://example.org/#a=o%27k&b=2",
+            id="existing-escape-kept",
+        ),
+        pytest.param(
+            "https://example.org/#b=2&a=1",
+            "https://example.org/#a=1&b=2",
+            id="pairs-sorted",
+        ),
+        pytest.param(
+            "https://example.org/#utm_source=x&a=1",
+            "https://example.org/#a=1",
+            id="tracker-removed",
+        ),
+    ],
+)
+def test_query_shaped_fragment_uses_fragment_encoding(
+    normalizer: Callable[[str], str | None], source: str, expected: str
+) -> None:
+    assert normalizer(source) == expected
+
+
 @pytest.mark.parametrize(
     ("url", "options", "expected"),
     [
