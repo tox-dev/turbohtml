@@ -357,6 +357,12 @@ def test_anchor_attributes_are_read_the_way_html_defines_them(html: str, expecte
     assert extract_links(html, "https://test.com/") == expected
 
 
+def test_extract_links_keeps_unicode_whitespace_in_base_path() -> None:
+    assert extract_links('<base href="\u2028"><a href="?x=1">x</a>', "https://test.com/dir/page") == {
+        "https://test.com/dir/%E2%80%A8?x=1"
+    }
+
+
 def test_a_longer_hreflang_subtag_is_another_language() -> None:
     html = '<a href="https://test.com/a" hreflang="deu">x</a>'
     assert extract_links(html, "https://test.com/", UrlCleaning(language="de")) == set()

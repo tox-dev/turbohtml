@@ -442,8 +442,46 @@ static bool base_has_forbidden_scheme(PyObject *url) {
     return true;
 }
 
+/* th_url_join preserves urllib's raw references, while HTML base href uses URL parser input cleanup. */
+static int base_url_removed(Py_UCS4 point) {
+    return point == '\t' || point == '\n' || point == '\r';
+}
+
+static PyObject *base_url_input(PyObject *href) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(href);
+    int kind = PyUnicode_KIND(href);
+    const void *data = PyUnicode_DATA(href);
+    Py_ssize_t start = 0;
+    Py_ssize_t end = length;
+    while (start < end && PyUnicode_READ(kind, data, start) <= 0x20) {
+        start++;
+    }
+    while (end > start && PyUnicode_READ(kind, data, end - 1) <= 0x20) {
+        end--;
+    }
+    Py_ssize_t removed = 0;
+    for (Py_ssize_t index = start; index < end; index++) {
+        removed += base_url_removed(PyUnicode_READ(kind, data, index));
+    }
+    if (removed == 0) {
+        return start == 0 && end == length ? Py_NewRef(href) : PyUnicode_Substring(href, start, end);
+    }
+    PyObject *input = PyUnicode_New(end - start - removed, PyUnicode_MAX_CHAR_VALUE(href));
+    if (input == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE */
+    }
+    Py_ssize_t written = 0;
+    for (Py_ssize_t index = start; index < end; index++) {
+        Py_UCS4 point = PyUnicode_READ(kind, data, index);
+        if (!base_url_removed(point)) {
+            PyUnicode_WRITE(PyUnicode_KIND(input), PyUnicode_DATA(input), written++, point);
+        }
+    }
+    return input;
+}
+
 /* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
-   when there is none or the href is blank (HTML spec 4.2.3). Returns a new reference; the extraction methods share it
+   when there is none or URL input cleanup leaves it empty (HTML spec 4.2.3). The extraction methods share it
    so a base_url they take honors a <base href> the same way base_url() does. NULL with a ValueError set when the href
    cannot be resolved against fallback, or on the excluded allocation-failure path. */
 PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
@@ -461,21 +499,21 @@ PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
     if (href == NULL) {
         return Py_NewRef(fallback); /* no <base href>: the fallback is the base */
     }
-    PyObject *stripped = PyObject_CallMethod(href, "strip", NULL);
+    PyObject *input = base_url_input(href);
     Py_DECREF(href);
-    if (stripped == NULL) { /* GCOVR_EXCL_BR_LINE: str.strip cannot fail here */
-        return NULL;        /* GCOVR_EXCL_LINE */
+    if (input == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE */
     }
     PyObject *result;
-    if (PyUnicode_GET_LENGTH(stripped) == 0) {
-        result = Py_NewRef(fallback); /* a blank href leaves the fallback as the base */
+    if (PyUnicode_GET_LENGTH(input) == 0) {
+        result = Py_NewRef(fallback); /* an empty href leaves the fallback as the base */
     } else {
-        result = th_url_resolve(fallback, stripped);
+        result = th_url_resolve(fallback, input);
         if (result != NULL && base_has_forbidden_scheme(result)) {
             Py_SETREF(result, Py_NewRef(fallback));
         }
     }
-    Py_DECREF(stripped);
+    Py_DECREF(input);
     return result;
 }
 

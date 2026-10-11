@@ -44,7 +44,13 @@ from turbohtml._html import _url_scrub, _url_split, _url_variant_key
         pytest.param('<base href="just:foo">', "http://site.com/", "just:foo", id="short-javascript-prefix"),
         pytest.param("<p>no base</p>", "http://site.com/", "http://site.com/", id="no-base"),
         pytest.param("<base>", "http://site.com/", "http://site.com/", id="valueless-href"),
+        pytest.param('<base href="">', "http://site.com/", "http://site.com/", id="empty-href"),
         pytest.param('<base href="  ">', "http://site.com/", "http://site.com/", id="blank-href"),
+        pytest.param('<base href=" b:_">', "https://example.org/dir/page", "b:_", id="opaque-leading-space"),
+        pytest.param('<base href="b\n:_">', "https://example.org/dir/page", "b:_", id="opaque-internal-line-feed"),
+        pytest.param('<base href="b&#13;:_">', "https://example.org/dir/page", "b:_", id="opaque-internal-return"),
+        pytest.param('<base href="a:!\tx">', "https://example.org/dir/page", "a:!x", id="opaque-internal-tab"),
+        pytest.param('<base href="&#31;b:_">', "https://example.org/dir/page", "b:_", id="opaque-leading-c0"),
     ],
 )
 def test_base_url(html: str, fallback: str, expected: str) -> None:
@@ -81,6 +87,21 @@ def test_base_url_default_fallback() -> None:
         pytest.param("+", "", "+", id="one-character-relative-path"),
         pytest.param("/x", "", "/x", id="protocol-relative-root"),
         pytest.param("http://x/a%20b?c=%7e", "http://x", "http://x/a%20b?c=%7e", id="existing-escapes-untouched"),
+        pytest.param(
+            "\u2028", "https://example.org/dir/page", "https://example.org/dir/%E2%80%A8", id="line-separator"
+        ),
+        pytest.param(
+            "a/\u2028",
+            "https://example.org/dir/page",
+            "https://example.org/dir/a/%E2%80%A8",
+            id="trailing-line-separator",
+        ),
+        pytest.param(
+            "\u00a0", "https://example.org/dir/page", "https://example.org/dir/%C2%A0", id="nonbreaking-space"
+        ),
+        pytest.param(
+            " \u2003a ", "https://example.org/dir/page", "https://example.org/dir/%E2%80%83a", id="edge-em-space"
+        ),
         pytest.param(
             "rel", "http://x/\U0001f389\udce9/", "http://x/%F0%9F%8E%89%EF%BF%BD/rel", id="high-char-and-surrogate"
         ),
@@ -205,6 +226,7 @@ _SITE = "http://s.com/"
         pytest.param("2;ab", (2.0, _SITE + "ab"), id="short-url-after-separator"),
         pytest.param("0;url='unbalanced", (0.0, _SITE + "'unbalanced"), id="unbalanced-quote-kept"),
         pytest.param("0;url=a:b", (0.0, "a:b"), id="opaque-scheme-no-authority"),
+        pytest.param("5;url=\x01", (5.0, _SITE), id="control-only-url"),
     ],
 )
 def test_meta_refresh_content(content: str, expected: tuple[float, str]) -> None:
