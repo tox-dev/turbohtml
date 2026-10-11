@@ -352,6 +352,7 @@ static void css_minify_color_comp(css_buf *pool, css_comp *comp) {
 static const char *const CSS_BOX_PROPS[] = {"margin", "padding",       "border-width",  "border-style",
                                             "inset",  "border-radius", "scroll-margin", "scroll-padding",
                                             "gap",    "grid-gap",      "overflow",      "overscroll-behavior"};
+static const char *const CSS_TWO_VALUE_BOX_PROPS[] = {"gap", "grid-gap", "overflow", "overscroll-behavior"};
 
 static const char *const CSS_CURRENTCOLOR_INIT[] = {"border-left-color",     "border-right-color",
                                                     "border-top-color",      "border-bottom-color",

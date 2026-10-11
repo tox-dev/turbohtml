@@ -725,7 +725,10 @@ static void css_apply_handler(css_buf *pool, const css_char *prop, Py_ssize_t pr
     }
     css_char first = css_lower(prop[0]);
     if (!has_sep && css_prop_in(prop, prop_len, CSS_BOX_PROPS, sizeof(CSS_BOX_PROPS) / sizeof(char *))) {
-        css_handle_box(pool, comps);
+        if (comps->len <= 2 ||
+            !css_prop_in(prop, prop_len, CSS_TWO_VALUE_BOX_PROPS, sizeof(CSS_TWO_VALUE_BOX_PROPS) / sizeof(char *))) {
+            css_handle_box(pool, comps);
+        }
     } else if (css_run_ieq_first(prop, prop_len, first, "background")) {
         css_handle_background(pool, comps);
     } else if (css_run_ieq_first(prop, prop_len, first, "background-position")) {
