@@ -1,0 +1,1 @@
+Price fuzz grammar route edges once per grammar, so the structure-generation sweeps no longer dominate test collection.
