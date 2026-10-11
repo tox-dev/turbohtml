@@ -727,8 +727,8 @@ static int css_parse_unicode_range(const css_char *data, Py_ssize_t len, long lo
             }
             pos++;
         }
-        if (end <= start) {
-            end = start;
+        if (end < start) {
+            return 0;
         }
     }
     *low = start;
@@ -780,7 +780,10 @@ static int css_handle_unicode_range(token_vec *vec, Py_ssize_t start, Py_ssize_t
             ranges = grown;
             capacity = (Py_ssize_t)cap;
         }
-        css_parse_unicode_range(token->text, token->text_len, &ranges[count][0], &ranges[count][1]);
+        if (!css_parse_unicode_range(token->text, token->text_len, &ranges[count][0], &ranges[count][1])) {
+            css_free(ranges);
+            return 0;
+        }
         count++;
     }
     if (count > 64) {
