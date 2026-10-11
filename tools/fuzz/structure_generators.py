@@ -91,8 +91,23 @@ def compile_grammar(
         {name: tuple(items) for name, items in rules.items()},
         minimum,
         identifiers,
+        _edges(productions, minimum),
         materialize,
     )
+
+
+def _edges(
+    productions: Sequence[Production], minimum: dict[str, tuple[int, int]]
+) -> tuple[tuple[Production, int, str, int, int], ...]:
+    """Price every reference once as its production's minimum cost less the referenced child's minimum."""
+    edges: Final[list[tuple[Production, int, str, int, int]]] = []
+    for production in productions:
+        base: Final = _cost(production, minimum)
+        for index, part in enumerate(production.parts):
+            if isinstance(part, Reference):
+                child: Final = minimum[part.symbol]
+                edges.append((production, index, part.symbol, base[0] - child[0], base[1] - child[1]))
+    return tuple(edges)
 
 
 def _reachable(root: str, rules: dict[str, list[Production]]) -> set[str]:
@@ -134,19 +149,13 @@ def _route(grammar: Grammar, name: str) -> tuple[tuple[Production, int], ...]:
     changed = True
     while changed:
         changed = False
-        for production in grammar.productions:
-            for index, part in enumerate(production.parts):
-                if isinstance(part, Reference) and part.symbol in costs:
-                    base: Final = _cost(production, grammar.minimum)
-                    child: Final = grammar.minimum[part.symbol]
-                    cost: Final = (
-                        base[0] - child[0] + costs[part.symbol][0],
-                        base[1] - child[1] + costs[part.symbol][1],
-                    )
-                    if production.symbol not in costs or cost < costs[production.symbol]:
-                        costs[production.symbol] = cost
-                        paths[production.symbol] = ((production, index), *paths[part.symbol])
-                        changed = True
+        for production, index, symbol, nodes, steps in grammar.edges:
+            if symbol in costs:
+                cost: Final = nodes + costs[symbol][0], steps + costs[symbol][1]
+                if production.symbol not in costs or cost < costs[production.symbol]:
+                    costs[production.symbol] = cost
+                    paths[production.symbol] = ((production, index), *paths[symbol])
+                    changed = True
     return paths[grammar.root]
 
 
@@ -368,6 +377,7 @@ class Grammar:
     rules: dict[str, tuple[Production, ...]]
     minimum: dict[str, tuple[int, int]]
     identifiers: tuple[str, ...]
+    edges: tuple[tuple[Production, int, str, int, int], ...]  # every reference, priced once for _route's relaxation
     materialize: Callable[[Generated], Generated] | None = None
 
 
