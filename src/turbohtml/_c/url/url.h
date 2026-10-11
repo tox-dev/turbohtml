@@ -110,6 +110,7 @@ enum {
 
 typedef struct {
     PyObject *part[TH_URL_PART_COUNT];
+    int has_authority;
     int has_port;
     int kind;
 } th_url_parts;

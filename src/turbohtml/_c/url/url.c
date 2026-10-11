@@ -722,6 +722,7 @@ int th_url_split(PyObject *arg, th_url_parts *out, int host_brackets_only) {
             return -1;        /* GCOVR_EXCL_LINE */
         }
     }
+    out->has_authority = netloc_start > body;
     out->has_port = auth.has_port;
     out->kind = auth.kind;
     PyMem_Free(work);

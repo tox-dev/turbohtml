@@ -312,16 +312,16 @@ static int scheme_has_special_path(PyObject *scheme) {
            str_equals(scheme, "ws") || str_equals(scheme, "wss");
 }
 
-/* Reassemble components, preserving the existing empty authority marker for special schemes. An empty query or
-   fragment is dropped with its delimiter; a path behind an authority already has its leading slash. */
-static PyObject *unsplit(PyObject *scheme, PyObject *netloc, PyObject *path, PyObject *query, PyObject *fragment) {
+/* Preserve explicit empty authorities and the default marker for special schemes. An empty query or fragment loses its
+   delimiter; a path behind an authority already has its leading slash. */
+static PyObject *unsplit(PyObject *scheme, PyObject *netloc, PyObject *path, PyObject *query, PyObject *fragment,
+                         int has_netloc) {
     int has_scheme = PyUnicode_GET_LENGTH(scheme) > 0;
-    int has_netloc = PyUnicode_GET_LENGTH(netloc) > 0;
     if (!has_netloc && has_scheme && scheme_is_special(scheme) &&
         (PyUnicode_GET_LENGTH(path) == 0 || str_has_prefix(path, "/"))) {
         has_netloc = 1;
     }
-    const char *marker = has_netloc || str_has_prefix(path, "//") ? "//" : "";
+    const char *marker = has_netloc ? "//" : str_has_prefix(path, "//") ? "/." : "";
     return th_str_format("%U%s%s%U%U%s%U%s%U", scheme, has_scheme ? ":" : "", marker, netloc, path,
                          PyUnicode_GET_LENGTH(query) > 0 ? "?" : "", query,
                          PyUnicode_GET_LENGTH(fragment) > 0 ? "#" : "", fragment);
@@ -475,7 +475,7 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
             }
         }
     }
-    result = unsplit(scheme, netloc, path, query, fragment);
+    result = unsplit(scheme, netloc, path, query, fragment, has_netloc || parts->has_authority);
 done:
     Py_XDECREF(netloc);
     Py_XDECREF(path);
