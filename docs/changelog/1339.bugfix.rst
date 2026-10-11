@@ -1,0 +1,1 @@
+Preserve invalid CSS text-decoration shorthands when removing initial values would make them valid.
