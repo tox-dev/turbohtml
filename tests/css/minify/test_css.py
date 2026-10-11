@@ -491,6 +491,8 @@ def test_minify_css_escaped_custom_property_name(source: str, expected: str) -> 
         pytest.param("a{color:rgb(0,255,0%)}", "a{color:rgb(0,255,0%)}", id="legacy-mixed-third-channel"),
         pytest.param("a{color:rgb(100%,0,0)}", "a{color:rgb(100%,0,0)}", id="legacy-mixed-first-channel"),
         pytest.param("a{color:rgb(100% 0 0)}", "a{color:red}", id="modern-mixed-channels"),
+        pytest.param("a{color:rgb(0 -1 , 1 ,)}", "a{color:rgb(0 -1,1,)}", id="misplaced-commas"),
+        pytest.param("a{color:rgb(0,,0 0)}", "a{color:rgb(0,,0 0)}", id="adjacent-commas"),
         pytest.param("a{color:rgb(0,0,0)}", "a{color:#000}", id="legacy-folds"),
         pytest.param("a{color:rgb(0 0 0)}", "a{color:#000}", id="modern-folds"),
         pytest.param("a{color:rgb(0 0 0/.5)}", "a{color:rgb(0 0 0/.5)}", id="modern-alpha-slash-kept"),
@@ -507,8 +509,15 @@ def test_minify_css_rgb_argument_shape(source: str, expected: str) -> None:
     assert minify_css(expected) == expected
 
 
-def test_minify_css_keeps_long_rgb_channel_value() -> None:
-    assert minify_css("a{color:rgb(" + "0" * 63 + "1,0,0)}") == "a{color:rgb(1,0,0)}"
+@pytest.mark.parametrize(
+    ("zeroes", "expected"),
+    [
+        pytest.param(62, "a{color:#010000}", id="63-digit-folds"),
+        pytest.param(63, "a{color:rgb(1,0,0)}", id="64-digit-kept"),
+    ],
+)
+def test_minify_css_long_rgb_channel_value(zeroes: int, expected: str) -> None:
+    assert minify_css("a{color:rgb(" + "0" * zeroes + "1,0,0)}") == expected
 
 
 @pytest.mark.parametrize(

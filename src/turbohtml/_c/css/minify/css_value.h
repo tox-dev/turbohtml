@@ -829,7 +829,9 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
             continue;
         }
         if (token->kind == CSS_DELIM && token->delim == ',') {
-            comma_count++;
+            if (++comma_count != count) {
+                return 0;
+            }
             continue;
         }
         if (token->kind != CSS_NUM || count >= 4) {
