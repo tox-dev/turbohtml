@@ -695,6 +695,20 @@ def test_minify_css_background_attachment_cardinality(value: str, expected: str)
 
 
 @pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("top/left", "top/left", id="left-is-not-size"),
+        pytest.param("center/right", "center/right", id="right-is-not-size"),
+        pytest.param("bottom/center", "bottom/center", id="center-is-not-size"),
+        pytest.param("top/#f00", "top/red", id="color-is-not-size"),
+        pytest.param("top/cover", "top/cover", id="cover-is-size"),
+    ],
+)
+def test_minify_css_background_size_rejects_position_keyword(value: str, expected: str) -> None:
+    assert minify_css(f"a{{background:{value}}}") == f"a{{background:{expected}}}"
+
+
+@pytest.mark.parametrize(
     ("source", "expected"),
     [
         pytest.param("a{background-position:left top 0}", "a{background-position:0 0}", id="zero-edge-offset"),

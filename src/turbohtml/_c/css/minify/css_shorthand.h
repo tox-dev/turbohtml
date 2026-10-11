@@ -391,6 +391,10 @@ static void css_background_run(css_buf *pool, comp_vec *run) {
         if (comp->kind == CK_SEP) {
             int first_size = index + 1 < run->len && (css_comp_is_lp(pool, &run->items[index + 1]) ||
                                                       css_comp_kw(pool, &run->items[index + 1], "auto"));
+            if (!first_size && index + 1 < run->len && run->items[index + 1].kind == CK_IDENT &&
+                css_comp_is_position_keyword(pool, &run->items[index + 1])) {
+                return;
+            }
             if (first_size) {
                 int second_size = index + 2 < run->len && (css_comp_is_lp(pool, &run->items[index + 2]) ||
                                                            css_comp_kw(pool, &run->items[index + 2], "auto"));
