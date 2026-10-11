@@ -114,6 +114,7 @@ typedef struct {
     int has_port;
     int kind;
     int special;
+    int opaque_host;
 } th_url_parts;
 
 /* Split `url` (a str) into its components the way urllib.parse.urlsplit does, lowercasing the scheme and dropping the
@@ -127,6 +128,7 @@ void th_url_parts_clear(th_url_parts *parts);
 PyObject *th_url_percent_encode_obj(PyObject *text, int set_id);
 PyObject *th_url_encode_component(PyObject *text, int set_id);
 PyObject *th_url_encode_special_path(PyObject *text);
+PyObject *th_url_opaque_host_canonical(PyObject *host);
 PyObject *th_url_percent_decode_obj(PyObject *text);
 int th_url_is_tracker_obj(PyObject *key);
 PyObject *th_url_literalize_dot_segments(PyObject *url);

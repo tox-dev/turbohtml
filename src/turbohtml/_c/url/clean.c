@@ -232,6 +232,8 @@ static PyObject *normalize_userinfo(PyObject *userinfo) {
 static PyObject *normalize_netloc(const th_url_parts *parts, int web_only) {
     PyObject *canonical = web_only && parts->kind == TH_HOST_IPV6
                               ? th_url_ipv6_canonical_checked(parts->part[TH_URL_HOST])
+                          : parts->opaque_host && parts->kind != TH_HOST_IPV6
+                              ? th_url_opaque_host_canonical(parts->part[TH_URL_HOST])
                               : th_url_host_canonical(parts->part[TH_URL_HOST], parts->kind);
     if (canonical == NULL) {
         return NULL;

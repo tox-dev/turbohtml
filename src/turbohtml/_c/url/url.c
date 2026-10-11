@@ -9,6 +9,8 @@
    literal, or registered name), never decoded or lowercased here. An authority whose brackets are unbalanced is the one
    split-time failure, matching the "Invalid IPv6 URL" the shim's normalize_url path documents. */
 
+#include <stdint.h>
+
 #include "core/ascii.h"
 #include "url/url.h"
 
@@ -313,6 +315,79 @@ static PyObject *ipv6_canonical(PyObject *host, int checked) {
 
 PyObject *th_url_ipv6_canonical_checked(PyObject *host) {
     return ipv6_canonical(host, 1);
+}
+
+PyObject *th_url_opaque_host_canonical(PyObject *host) {
+    static const char forbidden[] = "\t\n\r #/:<>?@[\\]^|";
+    int kind = PyUnicode_KIND(host);
+    const void *data = PyUnicode_DATA(host);
+    Py_ssize_t len = PyUnicode_GET_LENGTH(host);
+    if (len > PTRDIFF_MAX / 12) { /* GCOVR_EXCL_BR_LINE: a Python str cannot reach this allocation limit */
+        return PyErr_NoMemory();  /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t encoded = len;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 ch = PyUnicode_READ(kind, data, index);
+        if (ch == 0 || (ch < 0x80 && memchr(forbidden, (char)ch, sizeof(forbidden) - 1) != NULL)) {
+            PyErr_SetString(PyExc_ValueError, "host contains a forbidden host code point");
+            return NULL;
+        }
+        if (ch >= 0xd800 && ch <= 0xdfff) {
+            PyErr_Format(PyExc_ValueError,
+                         "URL component %R has a character that cannot be percent-encoded: surrogates not allowed",
+                         host);
+            return NULL;
+        }
+        if (ch < 0x20 || ch == 0x7f) {
+            encoded += 2;
+        } else if (ch >= 0x80) {
+            encoded += ch < 0x800 ? 5 : ch < 0x10000 ? 8 : 11;
+        }
+    }
+    if (encoded == len) {
+        return Py_NewRef(host);
+    }
+    PyObject *result = PyUnicode_New(encoded, 0x7f);
+    if (result == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_UCS1 *out = PyUnicode_1BYTE_DATA(result);
+    Py_ssize_t at = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 ch = PyUnicode_READ(kind, data, index);
+        if (ch >= 0x20 && ch < 0x7f) {
+            out[at++] = (Py_UCS1)ch;
+            continue;
+        }
+        unsigned char utf8[4];
+        int count;
+        if (ch < 0x80) {
+            utf8[0] = (unsigned char)ch;
+            count = 1;
+        } else if (ch < 0x800) {
+            utf8[0] = 0xc0 | (ch >> 6);
+            utf8[1] = 0x80 | (ch & 0x3f);
+            count = 2;
+        } else if (ch < 0x10000) {
+            utf8[0] = 0xe0 | (ch >> 12);
+            utf8[1] = 0x80 | ((ch >> 6) & 0x3f);
+            utf8[2] = 0x80 | (ch & 0x3f);
+            count = 3;
+        } else {
+            utf8[0] = 0xf0 | (ch >> 18);
+            utf8[1] = 0x80 | ((ch >> 12) & 0x3f);
+            utf8[2] = 0x80 | ((ch >> 6) & 0x3f);
+            utf8[3] = 0x80 | (ch & 0x3f);
+            count = 4;
+        }
+        for (int byte_index = 0; byte_index < count; byte_index++) {
+            unsigned char byte = utf8[byte_index];
+            out[at++] = '%';
+            out[at++] = HEX_UPPER[byte >> 4];
+            out[at++] = HEX_UPPER[byte & 0x0f];
+        }
+    }
+    return result;
 }
 
 PyObject *th_url_host_canonical(PyObject *host, int kind) {
@@ -733,6 +808,7 @@ int th_url_split(PyObject *arg, th_url_parts *out, int host_brackets_only) {
     out->has_port = auth.has_port;
     out->kind = auth.kind;
     out->special = special;
+    out->opaque_host = scheme_end > 0 && !special;
     PyMem_Free(work);
     return 0;
 }

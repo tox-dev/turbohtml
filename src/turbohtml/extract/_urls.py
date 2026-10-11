@@ -2,8 +2,9 @@
 URL cleaning, normalization, and page-level link extraction for :mod:`turbohtml.extract`.
 
 The normalization core follows the `WHATWG URL standard <https://url.spec.whatwg.org/>`__ wherever it defines the
-behavior: input stripping (basic URL parser, spec 4.4), scheme lowercasing (scheme state), host lowercasing and
-domain-to-ASCII (host parsing, spec 3.5), default-port removal (port state), dot-segment resolution including the
+behavior: input stripping (basic URL parser, spec 4.4), scheme lowercasing (scheme state), domain-to-ASCII for special
+URL hosts and percent-encoding for opaque hosts (host parsing, spec 3.5), default-port removal (port state), and
+dot-segment resolution including the
 ``%2e`` forms (path state), the empty-path-to-``/`` serialization of special URLs (URL serializing, spec 4.5), and
 the path/query/fragment percent-encode sets (percent-encoded bytes, spec 1.3). On top of that sits the crawl-oriented
 canonicalization ``courlan`` and ``w3lib`` users expect -- query-parameter sorting, tracking-parameter removal, an
@@ -132,9 +133,10 @@ def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
     """
     Return the canonical form of a URL, so that two spellings of the same resource compare equal.
 
-    The spec-defined part lowercases the scheme and host, converts a Unicode host to its ASCII (punycode) form the
-    way the URL standard's host parser does (spec 3.5; browsers serialize ``münchen.de`` as ``xn--mnchen-3ya.de``),
-    drops a default port (port state), resolves ``.``/``..``/``%2e`` path segments (path state), percent-encodes what
+    The spec-defined part lowercases the scheme. Special URL hosts are lowercased and converted to ASCII (browsers
+    serialize ``http://münchen.de`` as ``http://xn--mnchen-3ya.de``). Non-special hosts preserve ASCII case and
+    percent-encode Unicode (``git://münchen.de`` becomes ``git://m%C3%BCnchen.de``). Normalization also drops a default
+    port (port state), resolves ``.``/``..``/``%2e`` path segments (path state), percent-encodes what
     the path/query/fragment percent-encode sets require -- with uppercase hex digits, leaving existing escapes alone
     -- and serializes an empty special-URL path as ``/`` (URL serializing). Beyond the spec, query parameters are
     sorted and known tracking parameters dropped (strict mode instead keeps only the content-identifying allowlist),

@@ -984,10 +984,10 @@ def test_external_links_reject_forbidden_base_domain() -> None:
         pytest.param("file:///a\\\u0100", "file:///a/%C4%80", id="two-byte-unicode"),
         pytest.param("file:///a\\\U0001f600", "file:///a/%F0%9F%98%80", id="four-byte-unicode"),
         pytest.param("file:///a\\\x00b", "file:///a/%00b", id="embedded-null"),
-        pytest.param("FIZZ://EXAMPLE.ORG/a\\b?x=1#part", "fizz://example.org/a\\b?x=1#part", id="f-prefixed-non-file"),
+        pytest.param("FIZZ://EXAMPLE.ORG/a\\b?x=1#part", "fizz://EXAMPLE.ORG/a\\b?x=1#part", id="f-prefixed-non-file"),
         pytest.param("HTTPS://EXAMPLE.ORG/a\\b?x=1#part", "https://example.org/a/b?x=1#part", id="web-path-policy"),
         pytest.param(
-            "CUSTOM://EXAMPLE.ORG/a\\b?x=1#part", "custom://example.org/a\\b?x=1#part", id="custom-path-policy"
+            "CUSTOM://EXAMPLE.ORG/a\\b?x=1#part", "custom://EXAMPLE.ORG/a\\b?x=1#part", id="custom-path-policy"
         ),
     ],
 )
@@ -1158,3 +1158,44 @@ def test_normalize_port_uses_ascii_digits(normalizer: Callable[[str], str | None
 )
 def test_normalize_long_ascii_port(normalizer: Callable[[str], str | None], port: str, suffix: str) -> None:
     assert normalizer(f"http://example.com:{port}/") == f"http://example.com{suffix}/"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("git://EXAMPLE.ORG/a", "git://EXAMPLE.ORG/a", id="ascii-case"),
+        pytest.param("git://münchen.de/a", "git://m%C3%BCnchen.de/a", id="latin1-host"),
+        pytest.param("git://Ā.example/a", "git://%C4%80.example/a", id="bmp-host"),
+        pytest.param("git://中.example/a", "git://%E4%B8%AD.example/a", id="three-byte-host"),
+        pytest.param("git://😀.example/a", "git://%F0%9F%98%80.example/a", id="astral-host"),
+        pytest.param("git://0/a", "git://0/a", id="numeric-host"),
+        pytest.param("git://exa%6dple.org/a", "git://exa%6dple.org/a", id="existing-escape"),
+        pytest.param("git://exa%2fple.org/a", "git://exa%2fple.org/a", id="escaped-slash"),
+        pytest.param("git://exa%aaple.org/a", "git://exa%aaple.org/a", id="escaped-non-ascii"),
+        pytest.param("git://münchen%aa.de/a", "git://m%C3%BCnchen%aa.de/a", id="unicode-and-escape"),
+        pytest.param("git://a\x01b/a", "git://a%01b/a", id="c0-control"),
+        pytest.param("git://a\x7fb/a", "git://a%7Fb/a", id="del-control"),
+        pytest.param("git://[0:0::1]/a", "git://[::1]/a", id="ipv6-literal"),
+    ],
+)
+def test_normalize_opaque_host(source: str, expected: str) -> None:
+    normalized: Final = normalize_url(source)
+    assert (normalized, normalize_url(normalized)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        pytest.param("a b", id="space"),
+        pytest.param("a^b", id="caret"),
+        pytest.param("a\x00b", id="null"),
+    ],
+)
+def test_normalize_rejects_forbidden_opaque_host(host: str) -> None:
+    with pytest.raises(ValueError, match="host contains a forbidden host code point"):
+        normalize_url(f"git://{host}/")
+
+
+def test_normalize_rejects_surrogate_opaque_host() -> None:
+    with pytest.raises(ValueError, match="cannot be percent-encoded"):
+        normalize_url("git://a\udcff/")
