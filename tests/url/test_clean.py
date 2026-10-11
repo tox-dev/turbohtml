@@ -44,6 +44,21 @@ def test_clean_scrubs_markup_damage(url: str, expected: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("https://example.org/&?&", "https://example.org/", id="empty-query-amp"),
+        pytest.param("https://example.org//&?&&", "https://example.org//", id="empty-query-amps"),
+        pytest.param("https://example.org/&?&#", "https://example.org/", id="empty-query-fragment"),
+        pytest.param("https://example.org/&?foo=1", "https://example.org/&?foo=1", id="nonempty-query"),
+        pytest.param("https://example.org/&?#keep", "https://example.org/&#keep", id="nonempty-fragment"),
+        pytest.param("https://example.org/a&?&", "https://example.org/a&", id="nonslash-amp-kept"),
+    ],
+)
+def test_clean_dangling_amp_after_query_cleanup(url: str, expected: str) -> None:
+    assert ((cleaned := clean_url(url)), clean_url(cleaned) if cleaned is not None else None) == (expected, expected)
+
+
+@pytest.mark.parametrize(
     "url",
     [
         pytest.param("ftp://example.org/x", id="non-web-scheme"),

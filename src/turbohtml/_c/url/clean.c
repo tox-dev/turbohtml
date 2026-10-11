@@ -450,6 +450,17 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
     if (fragment == NULL) {
         goto done;
     }
+    if (web_only && PyUnicode_GET_LENGTH(query) == 0 && PyUnicode_GET_LENGTH(fragment) == 0) {
+        Py_ssize_t length = PyUnicode_GET_LENGTH(path);
+        if (length >= 2 && PyUnicode_READ_CHAR(path, length - 1) == '&' &&
+            PyUnicode_READ_CHAR(path, length - 2) == '/') {
+            /* Query/fragment cleanup can expose the scrub's dangling /& suffix. */
+            Py_SETREF(path, PyUnicode_Substring(path, 0, length - 1));
+            if (path == NULL) { /* GCOVR_EXCL_BR_LINE: substring only fails on allocation failure */
+                goto done;      /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+        }
+    }
     result = unsplit(scheme, netloc, path, query, fragment);
 done:
     Py_XDECREF(netloc);
