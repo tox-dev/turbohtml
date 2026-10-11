@@ -3554,7 +3554,7 @@ TH_NODE_API(, PyObject *, node_wrap_in, (PyObject * self, PyObject *wrapper_obj)
         handle_drop_index(handle);
         th_node *parent = sibling_parent(wrapped, handle, wrapper_list);
         /* parent is NULL only when another thread detached this node, or on OOM */
-        th_node *wrapper =
+        th_node *wrapper = /* GCOVR_EXCL_LINE: detached node or OOM */
             parent == NULL ? NULL : adopt_wrapper(handle, wrapped, parent, wrapper_obj); /* GCOVR_EXCL_BR_LINE */
         if (wrapper == NULL) {
             error = 1;
