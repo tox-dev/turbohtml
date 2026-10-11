@@ -123,6 +123,73 @@ def test_background_invalid_identifier_hashed_dedup(tail: str, expected: str) ->
 
 
 @pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{filter:drop-shadow(0 0 red)}", "a{filter:drop-shadow(0 0 red)}", id="zero-offsets"),
+        pytest.param(
+            "a{filter:drop-shadow(1px 2px 3px red)}",
+            "a{filter:drop-shadow(1px 2px 3px red)}",
+            id="lengths-and-color",
+        ),
+        pytest.param(
+            "a{filter:blur(0) drop-shadow(0 0 red)}",
+            "a{filter:blur(0)drop-shadow(0 0 red)}",
+            id="after-another-function",
+        ),
+        pytest.param(
+            "a{filter:drop-shadow(var(--x) 0 red)}",
+            "a{filter:drop-shadow(var(--x) 0 red)}",
+            id="variable-offset",
+        ),
+        pytest.param(
+            "a{filter:drop-shadow(0/**/0 red)}",
+            "a{filter:drop-shadow(0 0 red)}",
+            id="comment-separated-offsets",
+        ),
+        pytest.param(
+            "a{filter:drop-shadow( 0 0 red )}",
+            "a{filter:drop-shadow(0 0 red)}",
+            id="trim-outer-space",
+        ),
+        pytest.param(
+            "a{filter:drop-shadow(0 , 0 red)}",
+            "a{filter:drop-shadow(0,0 red)}",
+            id="trim-comma-space",
+        ),
+        pytest.param(
+            "a{filter:drop-shadow(0 + 0 red)}",
+            "a{filter:drop-shadow(0 + 0 red)}",
+            id="keep-delimiter-space",
+        ),
+    ],
+)
+def test_filter_drop_shadow_preserves_offsets(source: str, expected: str) -> None:
+    first: Final = minify_css(source)
+    assert (first, minify_css(first)) == (expected, expected)
+
+
+def test_filter_drop_shadow_unclosed_function_keeps_recovery() -> None:
+    assert minify_css("a{filter:drop-shadow(0 0 red") == "a{filter:drop-shadow(00red)}"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{filter:foobar12345(0 0 red)}", "a{filter:foobar12345(00red)}", id="other-function"),
+        pytest.param("a{filter:drop-shadow}", "a{filter:drop-shadow}", id="no-call"),
+        pytest.param("a{filter:drop-shadow[0 0 red]}", "a{filter:drop-shadow[00red]}", id="other-delimiter"),
+        pytest.param("a{filter:drop-shadow/**/(0 0 red)}", "a{filter:drop-shadow(00red)}", id="comment-before-call"),
+    ],
+)
+def test_filter_drop_shadow_unrecognized_call_keeps_recovery(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+def test_legacy_filter_drop_shadow_is_unchanged() -> None:
+    assert minify_css("a{-ms-filter:drop-shadow(0 0 red)}") == "a{-ms-filter:drop-shadow(00red)}"
+
+
+@pytest.mark.parametrize(
     ("property_name", "edge"),
     [
         pytest.param("margin", "x", id="margin-unknown-keyword"),

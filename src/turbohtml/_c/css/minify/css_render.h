@@ -878,10 +878,28 @@ static Py_ssize_t css_collapse_box_shadow_run(css_buf *pool, css_comp *items, Py
 static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, const css_char *prop,
                               Py_ssize_t prop_len, css_buf *out) {
     css_buf joined = {NULL, 0, 0, pool->oom};
+    int is_ms = css_run_ieq(prop, prop_len, "-ms-filter");
+    Py_ssize_t shadow_end = -1;
+    int pending_ws = 0;
     for (Py_ssize_t index = start; index < end; index++) {
         css_token *token = &vec->items[index];
         if (token->kind == CSS_WS || token->kind == CSS_COMMENT) {
+            pending_ws = index < shadow_end;
             continue;
+        }
+        if (pending_ws && joined.len > 0 && /* GCOVR_EXCL_BR_LINE: only allocation failure empties an active shadow */
+            joined.data[joined.len - 1] != '(' && joined.data[joined.len - 1] != ',' &&
+            (token->kind != CSS_DELIM || (token->delim != ')' && token->delim != ','))) {
+            cbuf_putc(&joined, ' ');
+        }
+        pending_ws = 0;
+        if (token->kind == CSS_IDENT && token->text_len == 11 && !is_ms &&
+            css_run_ieq(token->text, token->text_len, "drop-shadow") && index + 1 < end &&
+            vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == '(') {
+            Py_ssize_t close_index = css_match_paren(vec, index + 1, end);
+            if (close_index < end) {
+                shadow_end = close_index;
+            }
         }
         if (token->kind == CSS_NUM) {
             cbuf_put_run(&joined, token->text, token->text_len);
@@ -915,7 +933,6 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
     }
     const char *legacy = "progid:dximagetransform.microsoft.alpha(opacity=";
     Py_ssize_t legacy_len = (Py_ssize_t)strlen(legacy);
-    int is_ms = css_run_ieq(prop, prop_len, "-ms-filter");
     /* Empty declarations are rejected before this handler, so a successful join contains a token. */
     int quote = joined.data[0] == '"' || joined.data[0] == '\'';
     Py_ssize_t scan = is_ms && quote ? 1 : 0;
