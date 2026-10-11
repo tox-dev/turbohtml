@@ -1,0 +1,1 @@
+Preserve in-scope namespace declarations and namespace URI attribute order when canonicalizing parsed XML.
