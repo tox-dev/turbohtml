@@ -47,17 +47,16 @@ CSS_NOINLINE static int css_pv_is_zero(css_buf *pool, const pos_val *value) {
     if (value->kind == PVK_LEN) {
         return value->len == 1;
     }
-    char buffer[64];
-    Py_ssize_t written = 0;
-    for (Py_ssize_t index = 0; index < value->len && written < 63; index++) {
+    for (Py_ssize_t index = 0; index < value->len; index++) {
         css_char character = pool->data[value->off + index];
-        if (character == '%') {
+        if (character == '%' || character == 'e' || character == 'E') {
             break;
         }
-        buffer[written++] = (char)character; /* numeric/percentage value text is ASCII only */
+        if (character > '0') {
+            return 0;
+        }
     }
-    buffer[written] = '\0';
-    return strtod(buffer, NULL) == 0.0;
+    return 1;
 }
 
 static void css_pv_del(pos_val *vals, Py_ssize_t *count, Py_ssize_t index) {

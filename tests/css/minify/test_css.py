@@ -674,6 +674,19 @@ def test_minify_css_position_order_controls(source: str, expected: str) -> None:
     assert minify_css(source) == expected
 
 
+@pytest.mark.parametrize(
+    ("percentage", "expected"),
+    [
+        pytest.param("0" * 128 + "1%", "right " + "0" * 128 + "1% top 10px", id="nonzero-offset"),
+        pytest.param("0" * 129 + "%", "100% 10px", id="zero-offset"),
+        pytest.param("0" * 129 + "e1%", "100% 10px", id="zero-lowercase-exponent"),
+        pytest.param("0" * 129 + "E1%", "100% 10px", id="zero-uppercase-exponent"),
+    ],
+)
+def test_minify_css_background_position_long_percentage(percentage: str, expected: str) -> None:
+    assert minify_css(f"a{{background-position:right {percentage} top 10px}}") == f"a{{background-position:{expected}}}"
+
+
 @pytest.mark.parametrize(("value", "expected"), _POSITION_DELIMITERS)
 def test_minify_css_background_position_delimiters_are_a_fixed_point(value: str, expected: str) -> None:
     assert minify_css(minify_css(f"a{{background-position:{value}}}")) == f"a{{background-position:{expected}}}"
