@@ -1,0 +1,1 @@
+Accept ``suffix=`` in ``Markup.removesuffix`` in the MarkupSafe migration API.
