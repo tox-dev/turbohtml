@@ -187,7 +187,7 @@
 [
 "{background:0 0 0",
 "",
-"{background:0 0}"
+"{background:0 0 0}"
 ],
 [
 "{d:url( \n  \n\t0",
@@ -567,12 +567,12 @@
 [
 "background-position:center 0px center 0%",
 "background-position:center 0px center 0%",
-"background-position:50%"
+"background-position:center 0 center 0%"
 ],
 [
 "background-position:center 0px center 0%,,right 0 top 0",
 "background-position:center 0px center 0%,,right 0 top 0",
-"background-position:50%,,100% 0"
+"background-position:center 0 center 0%,,100% 0"
 ],
 [
 "background-repeat:space space",
@@ -3336,8 +3336,8 @@
 ],
 [
 "a{background-position:top center 50%}",
-"a{background-position:50% 0}",
-"a{background-position:50% 0}"
+"a{background-position:top center 50%}",
+"a{background-position:top center 50%}"
 ],
 [
 "a{background-position:center right}",

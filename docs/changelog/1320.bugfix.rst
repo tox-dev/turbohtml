@@ -1,0 +1,1 @@
+Collapse dot segments in hostless hierarchical URL paths.
