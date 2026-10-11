@@ -492,6 +492,8 @@ def test_minify_css_escaped_custom_property_name(source: str, expected: str) -> 
         pytest.param("a{color:rgb(0 0 0/.5)}", "a{color:rgb(0 0 0/.5)}", id="modern-alpha-slash-kept"),
         pytest.param("a{color:rgb(0 0 0/0)}", "a{color:#0000}", id="modern-transparent-folds"),
         pytest.param("a{color:rgba(0,0,0,0)}", "a{color:#0000}", id="legacy-transparent-folds"),
+        pytest.param("a{color:hsl(0%,100%,50%)}", "a{color:hsl(0%,100%,50%)}", id="hsl-percent-hue"),
+        pytest.param("a{color:hsl(0,100,50%)}", "a{color:hsl(0,100,50%)}", id="hsl-number-saturation"),
     ],
 )
 def test_minify_css_rgb_argument_shape(source: str, expected: str) -> None:
@@ -499,6 +501,10 @@ def test_minify_css_rgb_argument_shape(source: str, expected: str) -> None:
     # the alpha); an illegal shape is kept verbatim, never rebuilt into a valid color (#1033)
     assert minify_css(source) == expected
     assert minify_css(expected) == expected
+
+
+def test_minify_css_keeps_long_rgb_channel_value() -> None:
+    assert minify_css("a{color:rgb(" + "0" * 63 + "1,0,0)}") == "a{color:rgb(1,0,0)}"
 
 
 @pytest.mark.parametrize(
