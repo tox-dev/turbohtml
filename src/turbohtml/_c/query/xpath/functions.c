@@ -651,7 +651,7 @@ static int regex_error(xp_ctx *ctx, const xr_error *error) {
         return -1;                   /* GCOVR_EXCL_LINE */
     }
     PyObject *re_module = PyImport_ImportModule("re");
-    PyObject *error_type =
+    PyObject *error_type =                                                     /* GCOVR_EXCL_LINE: stdlib import */
         re_module == NULL ? NULL : PyObject_GetAttrString(re_module, "error"); /* GCOVR_EXCL_BR_LINE: stdlib import */
     Py_XDECREF(re_module);
     if (error_type != NULL) { /* GCOVR_EXCL_BR_LINE: stdlib import */
