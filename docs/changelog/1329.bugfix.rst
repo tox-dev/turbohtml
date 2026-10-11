@@ -1,0 +1,1 @@
+Preserve printable ASCII in opaque URL paths during normalization.
