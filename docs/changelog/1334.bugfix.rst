@@ -1,0 +1,1 @@
+Preserve malformed CSS Unicode-range lists instead of activating ignored font descriptors.
