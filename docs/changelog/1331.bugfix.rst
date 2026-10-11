@@ -1,0 +1,1 @@
+Preserve descending CSS Unicode ranges so invalid font descriptors stay ignored.
