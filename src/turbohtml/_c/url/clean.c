@@ -294,7 +294,7 @@ static int scheme_is_special(PyObject *scheme) {
     const char *text = (const char *)PyUnicode_1BYTE_DATA(scheme);
     switch (PyUnicode_GET_LENGTH(scheme)) {
     case 2:
-        return text[0] == 'w' && text[1] == 's';
+        return memcmp(text, "ws", 2) == 0;
     case 3:
         return memcmp(text, "ftp", 3) == 0 || memcmp(text, "wss", 3) == 0;
     case 4:
