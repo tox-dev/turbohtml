@@ -1,0 +1,1 @@
+Keep invalid CSS ``font`` values with excess pre-size options invalid during minification.
