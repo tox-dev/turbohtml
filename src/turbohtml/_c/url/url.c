@@ -578,13 +578,14 @@ static int ipv4_number(const Py_UCS4 *cp, Py_ssize_t start, Py_ssize_t end, uint
 
 static int url_scheme_special(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end);
 static int url_slash(Py_UCS4 ch, int special);
-static Py_ssize_t authority_end(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len, int special);
+static Py_ssize_t authority_end(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len, int special,
+                                int host_brackets_only);
 
 /* _url_split(url) -> (scheme, netloc, path, query, fragment, userinfo, host, port, has_port, host_kind). scheme is
    lowercased; the host is the bracket-stripped ASCII span; every other component is the verbatim slice. Raises
    ValueError on an authority with an unbalanced '['/']' pair. The shim guarantees a str argument, as the other _html
    entry points assume. */
-int th_url_split(PyObject *arg, th_url_parts *out) {
+int th_url_split(PyObject *arg, th_url_parts *out, int host_brackets_only) {
     Py_ssize_t raw_len = PyUnicode_GET_LENGTH(arg);
     int kind = PyUnicode_KIND(arg);
     const void *data = PyUnicode_DATA(arg);
@@ -615,7 +616,7 @@ int th_url_split(PyObject *arg, th_url_parts *out) {
     Py_ssize_t rem = body;
     if (body + 1 < len && url_slash(work[body], special) && url_slash(work[body + 1], special)) {
         netloc_start = body + 2;
-        netloc_end = authority_end(work, netloc_start, len, special);
+        netloc_end = authority_end(work, netloc_start, len, special, host_brackets_only);
         rem = netloc_end;
         if (netloc_end < 0) {
             PyMem_Free(work);
@@ -677,7 +678,7 @@ void th_url_parts_clear(th_url_parts *parts) {
 
 PyObject *turbohtml_url_split(PyObject *Py_UNUSED(module), PyObject *arg) {
     th_url_parts parts;
-    if (th_url_split(arg, &parts) < 0) {
+    if (th_url_split(arg, &parts, 0) < 0) {
         return NULL;
     }
     PyObject *result =
@@ -760,7 +761,7 @@ static int parse_ref(PyObject *src, url_ref *out, int special_hint) {
     int special = out->has_scheme ? url_scheme_special(buf, out->scheme_start, out->scheme_end) : special_hint;
     if (rest + 1 < len && url_slash(buf[rest], special) && url_slash(buf[rest + 1], special)) {
         Py_ssize_t netloc_start = rest + 2;
-        Py_ssize_t netloc_end = authority_end(buf, netloc_start, len, special);
+        Py_ssize_t netloc_end = authority_end(buf, netloc_start, len, special, 0);
         if (netloc_end < 0) {
             PyMem_Free(buf);
             PyErr_SetString(PyExc_ValueError, "Invalid IPv6 URL");
@@ -1120,9 +1121,10 @@ static int url_slash(Py_UCS4 ch, int special) {
     return ch == '/' || (special && ch == '\\');
 }
 
-/* The end of the authority starting at `start` (https://url.spec.whatwg.org/#authority-state), or -1 on an unbalanced
-   '['/']' pair, the "Invalid IPv6 URL" the shim surfaces. */
-static Py_ssize_t authority_end(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len, int special) {
+/* Normalized URLs parse brackets after the last '@'; the raw shims retain their urllib-style whole-authority check. */
+static Py_ssize_t authority_end(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len, int special,
+                                int host_brackets_only) {
+    Py_ssize_t authority_start = start;
     int has_open = 0;
     int has_close = 0;
     for (; start < len; start++) {
@@ -1132,6 +1134,19 @@ static Py_ssize_t authority_end(const Py_UCS4 *value, Py_ssize_t start, Py_ssize
         }
         has_open |= ch == '[';
         has_close |= ch == ']';
+    }
+    if (host_brackets_only && (has_open || has_close)) {
+        Py_ssize_t host_start = start;
+        while (host_start > authority_start && value[host_start - 1] != '@') {
+            host_start--;
+        }
+        if (host_start > authority_start) {
+            has_open = has_close = 0;
+            for (Py_ssize_t index = host_start; index < start; index++) {
+                has_open |= value[index] == '[';
+                has_close |= value[index] == ']';
+            }
+        }
     }
     return has_open == has_close ? start : -1;
 }

@@ -109,7 +109,7 @@ typedef struct {
 
 /* Split `url` (a str) into its components the way urllib.parse.urlsplit does, lowercasing the scheme and dropping the
    tab and newline bytes the WHATWG parser removes. Returns -1 with a ValueError set for an unbalanced IPv6 bracket. */
-int th_url_split(PyObject *url, th_url_parts *out);
+int th_url_split(PyObject *url, th_url_parts *out, int host_brackets_only);
 void th_url_parts_clear(th_url_parts *parts);
 
 /* The per-component encoder and decoder bodies, and the tracker-name test, shared with the cleaning pipeline in

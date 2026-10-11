@@ -423,7 +423,7 @@ PyObject *turbohtml_url_normalize(PyObject *Py_UNUSED(module), PyObject *args) {
         return NULL;
     }
     th_url_parts parts;
-    if (require_str(url) < 0 || th_url_split(url, &parts) < 0) {
+    if (require_str(url) < 0 || th_url_split(url, &parts, 1) < 0) {
         return NULL;
     }
     PyObject *result = NULL;
@@ -453,7 +453,7 @@ static PyObject *clean(PyObject *url, const clean_options *options) {
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     th_url_parts parts;
-    int split = th_url_split(scrubbed, &parts);
+    int split = th_url_split(scrubbed, &parts, 1);
     Py_DECREF(scrubbed);
     if (split < 0) {
         if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: the split raises nothing else */
@@ -524,7 +524,7 @@ PyObject *turbohtml_url_clean(PyObject *Py_UNUSED(module), PyObject *args) {
    split. */
 static PyObject *site_of(PyObject *url) {
     th_url_parts parts;
-    if (th_url_split(url, &parts) < 0) {
+    if (th_url_split(url, &parts, 0) < 0) {
         return NULL;
     }
     PyObject *host = th_url_host_canonical(parts.part[TH_URL_HOST], parts.kind);
