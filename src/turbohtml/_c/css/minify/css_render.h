@@ -441,7 +441,7 @@ static void css_handle_color_single(css_buf *pool, comp_vec *comps, const css_ch
 
 static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char *prop, Py_ssize_t prop_len) {
     static const char *const border_drop[] = {"none", "currentcolor", "medium"};
-    static const char *const outline_drop[] = {"invert", "none", "medium"};
+    static const char *const outline_drop[] = {"none", "medium"};
     static const char *const column_drop[] = {"currentcolor", "none", "medium"};
     static const char *const decoration_drop[] = {"currentcolor", "none", "solid"};
     static const char *const emphasis_drop[] = {"currentcolor", "none"};
@@ -449,6 +449,7 @@ static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char
     size_t drop_count = 3;
     if (css_run_ieq(prop, prop_len, "outline")) {
         drop = outline_drop;
+        drop_count = 2;
     } else if (css_run_ieq(prop, prop_len, "column-rule")) {
         drop = column_drop;
     } else if (css_run_ieq(prop, prop_len, "text-decoration")) {
