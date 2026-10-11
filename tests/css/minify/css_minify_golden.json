@@ -3916,18 +3916,18 @@
 ],
 [
 "a{font:bold inherit serif}",
-"a{font:700 inherit serif}",
-"a{font:700 inherit serif}"
+"a{font:bold inherit serif}",
+"a{font:bold inherit serif}"
 ],
 [
 "a{font:bold initial serif}",
-"a{font:700 initial serif}",
-"a{font:700 initial serif}"
+"a{font:bold initial serif}",
+"a{font:bold initial serif}"
 ],
 [
 "a{font:bold unset serif}",
-"a{font:700 unset serif}",
-"a{font:700 unset serif}"
+"a{font:bold unset serif}",
+"a{font:bold unset serif}"
 ],
 [
 "a]b{x:1}",

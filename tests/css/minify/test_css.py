@@ -2629,6 +2629,12 @@ def test_minify_css_still_shortens_valid_font_options(value: str, expected: str)
     assert minify_css(f"a{{font:{value}}}") == f"a{{font:{expected}}}"
 
 
+@pytest.mark.parametrize("keyword", ["inherit", "initial", "unset"])
+def test_minify_css_preserves_wide_keyword_after_font_size(keyword: str) -> None:
+    source = f"a{{font:16px bold {keyword} x}}"
+    assert minify_css(source) == source
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [

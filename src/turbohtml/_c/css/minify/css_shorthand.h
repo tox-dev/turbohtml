@@ -760,9 +760,13 @@ static void css_handle_font(css_buf *pool, comp_vec *comps) {
         if (values.items[family].kind != CK_IDENT && values.items[family].kind != CK_STR) {
             break;
         }
-        if (css_is_font_size_kw(pool, &values.items[family]) || css_comp_kw(pool, &values.items[family], "inherit") ||
-            css_comp_kw(pool, &values.items[family], "initial") || css_comp_kw(pool, &values.items[family], "unset")) {
+        if (css_is_font_size_kw(pool, &values.items[family])) {
             break;
+        }
+        if (css_comp_kw(pool, &values.items[family], "inherit") ||
+            css_comp_kw(pool, &values.items[family], "initial") || css_comp_kw(pool, &values.items[family], "unset")) {
+            css_free(values.items);
+            return;
         }
         family--;
     }
