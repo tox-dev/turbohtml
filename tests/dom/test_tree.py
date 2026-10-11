@@ -596,6 +596,35 @@ def test_formatting_end_tag_ignored_across_foreign_scope_boundary(html: str, inn
     ("html", "expected"),
     [
         pytest.param(
+            "<h1><math><annotation-xml></h1><span>x",
+            "<h1><math><annotation-xml></annotation-xml></math><span>x</span></h1>",
+            id="mathml-annotation-xml",
+        ),
+        pytest.param(
+            "<h1><math><mi></h1><span>x",
+            "<h1><math><mi><span>x</span></mi></math></h1>",
+            id="mathml-mi",
+        ),
+        pytest.param(
+            "<h1><svg><foreignObject></h1><span>x",
+            "<h1><svg><foreignObject><span>x</span></foreignObject></svg></h1>",
+            id="svg-foreignobject",
+        ),
+        pytest.param(
+            "<h1><svg><desc></h1><span>x",
+            "<h1><svg><desc><span>x</span></desc></svg></h1>",
+            id="svg-desc",
+        ),
+    ],
+)
+def test_heading_end_tag_ignored_across_foreign_scope_boundary(html: str, expected: str) -> None:
+    assert parse_fragment(html).inner_html == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
             "<!doctype html><!doctype></p>",
             "<!DOCTYPE html><html><head></head><body></body></html>",
             id="stray-end-tag-after",
