@@ -316,8 +316,41 @@ PyObject *th_url_host_canonical(PyObject *host, int kind) {
     return ascii;
 }
 
-/* The WHATWG IPv6 parser (https://url.spec.whatwg.org/#concept-ipv6-parser), returning 1 on success. An embedded IPv4
-   tail fails the parse, so such a literal keeps its given spelling rather than being rewritten. */
+static int ipv4_in_ipv6_parse(const Py_UCS4 *cp, Py_ssize_t len, uint16_t out[2]) {
+    uint8_t octets[4];
+    Py_ssize_t index = 0;
+    for (int part = 0; part < 4; part++) {
+        if (index == len || cp[index] < '0' || cp[index] > '9') {
+            return 0;
+        }
+        int value = 0;
+        int digits = 0;
+        while (index < len && cp[index] >= '0' && cp[index] <= '9') {
+            if (digits && value == 0) {
+                return 0;
+            }
+            value = value * 10 + (int)(cp[index++] - '0');
+            if (value > 255) {
+                return 0;
+            }
+            digits++;
+        }
+        octets[part] = (uint8_t)value;
+        if (part < 3) {
+            if (index == len || cp[index] != '.') {
+                return 0;
+            }
+            index++;
+        }
+    }
+    if (index != len) {
+        return 0;
+    }
+    out[0] = (uint16_t)((octets[0] << 8) | octets[1]);
+    out[1] = (uint16_t)((octets[2] << 8) | octets[3]);
+    return 1;
+}
+
 static int ipv6_parse(const Py_UCS4 *cp, Py_ssize_t len, uint16_t out[8]) {
     for (int index = 0; index < 8; index++) {
         out[index] = 0;
@@ -360,6 +393,13 @@ static int ipv6_parse(const Py_UCS4 *cp, Py_ssize_t len, uint16_t out[8]) {
         }
         if (length == 0) {
             return 0; /* a group with no hex digit (a '.' tail or stray byte) */
+        }
+        if (index < len && cp[index] == '.') {
+            if (piece > 6 || !ipv4_in_ipv6_parse(cp + index - length, len - index + length, out + piece)) {
+                return 0;
+            }
+            piece += 2;
+            break;
         }
         out[piece++] = (uint16_t)value;
         if (index == len) {

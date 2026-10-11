@@ -626,6 +626,10 @@ def test_dot_segment_resolution(url: str, expected: str) -> None:
         pytest.param("http://[fe80:0:0:0:0:0:0:0]/", "http://[fe80::]/", id="trailing-zero-run"),
         pytest.param("http://[2001:db8:0:0:1:0:0:1]/", "http://[2001:db8::1:0:0:1]/", id="first-longest-run-wins"),
         pytest.param("http://[::]/", "http://[::]/", id="all-zeros"),
+        pytest.param("http://[::ffff:192.168.0.1]/", "http://[::ffff:c0a8:1]/", id="embedded-ipv4"),
+        pytest.param("http://[2001:db8:0:0:0:0:192.0.2.1]/", "http://[2001:db8::c000:201]/", id="full-ipv4-tail"),
+        pytest.param("http://[::ffff:0.0.0.0]/", "http://[::ffff:0:0]/", id="zero-ipv4-tail"),
+        pytest.param("http://[::ffff:255.255.255.255]/", "http://[::ffff:ffff:ffff]/", id="max-ipv4-tail"),
         pytest.param("http://good%2eexample/", "http://good.example/", id="percent-dot"),
         pytest.param(
             "http://trusted.example%2eattacker.example/", "http://trusted.example.attacker.example/", id="split-label"
@@ -652,7 +656,15 @@ def test_normalize_url_canonicalizes_hosts(url: str, expected: str) -> None:
         pytest.param("http://99999999999/", id="number-over-32-bits"),
         pytest.param("http://foo.0x1/", id="non-numeric-leading-part"),
         pytest.param("http://1..2.3/", id="empty-interior-part"),
-        pytest.param("http://[::ffff:1.2.3.4]/", id="embedded-ipv4-tail"),
+        pytest.param("http://[::ffff:192.168.00.1]/", id="ipv4-tail-leading-zero"),
+        pytest.param("http://[::ffff:256.1.1.1]/", id="ipv4-tail-out-of-range"),
+        pytest.param("http://[1:2:3:4:5:6:7:1.2.3.4]/", id="ipv4-tail-too-many-pieces"),
+        pytest.param("http://[::ffff:1.2.3]/", id="ipv4-tail-too-few-parts"),
+        pytest.param("http://[::ffff:1.2.3.]/", id="ipv4-tail-empty-part"),
+        pytest.param("http://[::ffff:1.2.3.-4]/", id="ipv4-tail-negative-part"),
+        pytest.param("http://[::ffff:1.2.3.x]/", id="ipv4-tail-letter-part"),
+        pytest.param("http://[::ffff:1.2.3:4]/", id="ipv4-tail-missing-dot"),
+        pytest.param("http://[::ffff:1.2.3.4x]/", id="ipv4-tail-extra-suffix"),
         pytest.param("http://[::1x]/", id="trailing-non-hex"),
         pytest.param("http://[1:2:3]/", id="too-few-groups"),
         pytest.param("http://[:::1]/", id="double-compressor"),
@@ -665,6 +677,4 @@ def test_normalize_url_canonicalizes_hosts(url: str, expected: str) -> None:
     ],
 )
 def test_normalize_url_keeps_hosts_it_cannot_parse(url: str) -> None:
-    # a numeric-looking host that is no valid IPv4 address stays a registered name, and an IPv6 literal the compact
-    # parser rejects (an embedded-IPv4 tail, or an invalid form) keeps its spelling
     assert normalize_url(url) == url
