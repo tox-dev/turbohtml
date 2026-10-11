@@ -86,23 +86,33 @@ static void css_normalize_position_run(css_buf *pool, pos_val *vals, Py_ssize_t 
             Py_ssize_t pos = loop[which];
             if (pos + 1 < count && pos + 1 != axis) {
                 if (vals[pos + 1].kind == PVK_PCT && (vals[pos].ident == PVI_RIGHT || vals[pos].ident == PVI_BOTTOM)) {
-                    char digits[64];
-                    Py_ssize_t written = 0;
-                    for (Py_ssize_t index = 0; index < vals[pos + 1].len - 1 && written < 63; index++) {
-                        css_char character = pool->data[vals[pos + 1].off + index];
-                        digits[written++] = (char)character; /* percentage value text is ASCII only */
-                    }
-                    digits[written] = '\0';
-                    char flipped[24];
-                    /* long long, not long: long is 32-bit on Windows, so a percentage that overflows it would flip to
-                       a different value there than on a 64-bit platform */
-                    snprintf(flipped, sizeof(flipped), "%lld%%", 100 - strtoll(digits, NULL, 10));
-                    vals[pos + 1].off = pool_cstr(pool, flipped);
-                    vals[pos + 1].len = (Py_ssize_t)strlen(flipped);
-                    if (vals[pos].ident == PVI_RIGHT) {
-                        css_pv_set(pool, &vals[pos], PVK_IDENT, "left", PVI_LEFT);
-                    } else {
-                        css_pv_set(pool, &vals[pos], PVK_IDENT, "top", PVI_TOP);
+                    Py_ssize_t digits_len = vals[pos + 1].len - 1;
+                    if (digits_len <= 18) {
+                        const css_char *digits = pool->data + vals[pos + 1].off;
+                        int negative = digits[0] == '-';
+                        Py_ssize_t index = negative;
+                        long long percentage = 0;
+                        for (; index < digits_len; index++) {
+                            if (digits[index] < '0' || digits[index] > '9') {
+                                break;
+                            }
+                            percentage = percentage * 10 + (long long)(digits[index] - '0');
+                        }
+                        if (index != digits_len) {
+                            continue;
+                        }
+                        if (negative) {
+                            percentage = -percentage;
+                        }
+                        char flipped[24];
+                        snprintf(flipped, sizeof(flipped), "%lld%%", 100 - percentage);
+                        vals[pos + 1].off = pool_cstr(pool, flipped);
+                        vals[pos + 1].len = (Py_ssize_t)strlen(flipped);
+                        if (vals[pos].ident == PVI_RIGHT) {
+                            css_pv_set(pool, &vals[pos], PVK_IDENT, "left", PVI_LEFT);
+                        } else {
+                            css_pv_set(pool, &vals[pos], PVK_IDENT, "top", PVI_TOP);
+                        }
                     }
                 }
                 if (vals[pos].ident == PVI_LEFT) {
