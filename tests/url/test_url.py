@@ -111,6 +111,56 @@ def test_base_url_default_fallback() -> None:
         pytest.param(
             " \u2003a ", "https://example.org/dir/page", "https://example.org/dir/%E2%80%83a", id="edge-em-space"
         ),
+        pytest.param("\\x", "https://example.org/dir/page", "https://example.org/x", id="special-root-backslash"),
+        pytest.param(
+            "\\x?q=\\", "https://example.org/dir/page", "https://example.org/x?q=\\", id="root-query-backslash"
+        ),
+        pytest.param(
+            "\\x#\\", "https://example.org/dir/page", "https://example.org/x#\\", id="root-fragment-backslash"
+        ),
+        pytest.param(
+            "\\x?q#frag", "https://example.org/dir/page", "https://example.org/x?q#frag", id="root-query-fragment"
+        ),
+        pytest.param(
+            "\\x#frag?q", "https://example.org/dir/page", "https://example.org/x#frag?q", id="root-fragment-question"
+        ),
+        pytest.param("/\\host/x", "https://example.org/dir/page", "https://host/x", id="mixed-authority-backslash"),
+        pytest.param("/", "https://example.org/dir/page", "https://example.org/", id="single-root-slash"),
+        pytest.param("\\é", "https://example.org/dir/page", "https://example.org/%C3%A9", id="unicode-root-backslash"),
+        pytest.param(
+            "/\\host/é", "https://example.org/dir/page", "https://host/%C3%A9", id="unicode-authority-backslash"
+        ),
+        pytest.param("/é", "https://example.org/dir/page", "https://example.org/%C3%A9", id="unicode-root-slash"),
+        pytest.param(
+            "a\\b", "https://example.org/dir/page", "https://example.org/dir/a/b", id="special-path-backslash"
+        ),
+        pytest.param(
+            "a\\./b", "https://example.org/dir/page", "https://example.org/dir/a/b", id="backslash-dot-segment"
+        ),
+        pytest.param(
+            "a\\%2e/b", "https://example.org/dir/page", "https://example.org/dir/a/b", id="backslash-encoded-dot"
+        ),
+        pytest.param("\\\\host\\a", "https://example.org/dir/page", "https://host/a", id="special-authority-backslash"),
+        pytest.param(
+            "a\\b?q=\\",
+            "https://example.org/dir/page",
+            "https://example.org/dir/a/b?q=\\",
+            id="special-query-backslash-unchanged",
+        ),
+        pytest.param(
+            "?q=\\", "https://example.org/dir/page", "https://example.org/dir/page?q=\\", id="query-backslash-unchanged"
+        ),
+        pytest.param(
+            "#\\", "https://example.org/dir/page", "https://example.org/dir/page#\\", id="fragment-backslash-unchanged"
+        ),
+        pytest.param("a:\\x", "https://example.org/dir/page", "a:\\x", id="non-special-absolute-backslash"),
+        pytest.param("\\x", "a:/dir/page", "\\x", id="non-special-root-backslash"),
+        pytest.param("\\x", "a", "\\x", id="schemeless-base-backslash"),
+        pytest.param("\\x", "h!tp", "\\x", id="invalid-scheme-base-backslash"),
+        pytest.param("\\x", "hxxp:opaque", "\\x", id="other-scheme-base-backslash"),
+        pytest.param("\\x", "", "\\x", id="empty-base-root-backslash"),
+        pytest.param("\\x", "é:/dir/page", "%C3%A9:/dir/\\x", id="unicode-initial-base-backslash"),
+        pytest.param("\\x", "hétp:/dir/page", "h%C3%A9tp:/dir/\\x", id="unicode-scheme-base-backslash"),
         pytest.param(
             "rel", "http://x/\U0001f389\udce9/", "http://x/%F0%9F%8E%89%EF%BF%BD/rel", id="high-char-and-surrogate"
         ),
@@ -189,6 +239,12 @@ def test_meta_refresh_resolves_encoded_dot_segments() -> None:
         0.0,
         "https://example.org/",
     )
+
+
+def test_meta_refresh_resolves_root_backslash_before_trailing_control() -> None:
+    assert parse('<meta http-equiv="refresh" content="0;url=\\x\x01">').meta_refresh(
+        "https://example.org/dir/page"
+    ) == (0.0, "https://example.org/x")
 
 
 @pytest.mark.parametrize(

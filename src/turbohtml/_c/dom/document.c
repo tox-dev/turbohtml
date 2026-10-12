@@ -128,6 +128,29 @@ static int url_special_scheme_bytes(const char *bytes, Py_ssize_t length) {
     return 0;
 }
 
+static int url_web_special_base(PyObject *base) {
+    static const char *const SPECIAL[] = {"http", "https", "ws", "wss", "ftp"};
+    Py_ssize_t length = PyUnicode_GET_LENGTH(base);
+    int kind = PyUnicode_KIND(base);
+    const void *data = PyUnicode_DATA(base);
+    for (size_t choice = 0; choice < sizeof(SPECIAL) / sizeof(SPECIAL[0]); choice++) {
+        const char *scheme = SPECIAL[choice];
+        Py_ssize_t scheme_length = (Py_ssize_t)strlen(scheme);
+        if (length <= scheme_length || PyUnicode_READ(kind, data, scheme_length) != ':') {
+            continue;
+        }
+        Py_ssize_t index = 0;
+        while (index < scheme_length &&
+               lower_ascii(PyUnicode_READ(kind, data, index)) == (unsigned char)scheme[index]) {
+            index++;
+        }
+        if (index == scheme_length) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Percent-encode a resolved URL's path, query, and fragment per the WHATWG sets, leaving the scheme and authority
    verbatim; the authority's own bytes stay raw, matching this surface's non-IDNA host handling. Returns a new
    reference. */
@@ -199,8 +222,19 @@ static PyObject *url_percent_encode(PyObject *url, int check_encoded_dot) {
         out[written++] = '2';
         out[written++] = '0';
     }
-    if (hierarchical && (check_encoded_dot == 2 ||
-                         (check_encoded_dot && url_has_encoded_dot(out + prefix_end, written - prefix_end)))) {
+    int backslash_path = 0;
+    if (memchr(bytes + prefix_end, '\\', (size_t)(path_end - prefix_end)) != NULL && url_web_special_base(scalar)) {
+        for (Py_ssize_t index = prefix_end; index < written; index++) {
+            if (out[index] == '\\') {
+                out[index] = '/';
+                backslash_path = 1;
+            }
+        }
+    }
+    if (hierarchical &&
+        (check_encoded_dot == 2 || (check_encoded_dot && url_has_encoded_dot(out + prefix_end, written - prefix_end)) ||
+         (backslash_path && (memchr(out + prefix_end, '.', (size_t)(written - prefix_end)) != NULL ||
+                             memchr(out + prefix_end, '%', (size_t)(written - prefix_end)) != NULL)))) {
         PyObject *path = PyUnicode_DecodeASCII(out + prefix_end, written - prefix_end, "strict");
         if (path == NULL) {    /* GCOVR_EXCL_BR_LINE: encoded path contains ASCII only */
             PyMem_Free(out);   /* GCOVR_EXCL_LINE: decode-failure path */
@@ -264,6 +298,37 @@ static PyObject *url_join_encoded_dot_segments(PyObject *base, PyObject *target,
     return joined;
 }
 
+static PyObject *url_join_web_special_backslashes(PyObject *base, PyObject *target, int *literalized) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(target);
+    if (!url_web_special_base(base)) {
+        return url_join_encoded_dot_segments(base, target, literalized);
+    }
+    Py_ssize_t query = PyUnicode_FindChar(target, '?', 0, length, 1);
+    Py_ssize_t fragment = PyUnicode_FindChar(target, '#', 0, length, 1);
+    Py_ssize_t path_end = length;
+    if (query >= 0) {
+        path_end = query;
+    }
+    if (fragment >= 0 && fragment < path_end) {
+        path_end = fragment;
+    }
+    PyObject *normalized = PyUnicode_New(length, PyUnicode_MAX_CHAR_VALUE(target));
+    if (normalized == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int source_kind = PyUnicode_KIND(target);
+    const void *source = PyUnicode_DATA(target);
+    int result_kind = PyUnicode_KIND(normalized);
+    void *result = PyUnicode_DATA(normalized);
+    for (Py_ssize_t index = 0; index < length; index++) {
+        Py_UCS4 point = PyUnicode_READ(source_kind, source, index);
+        PyUnicode_WRITE(result_kind, result, index, index < path_end && point == '\\' ? '/' : point);
+    }
+    PyObject *joined = url_join_encoded_dot_segments(base, normalized, literalized);
+    Py_DECREF(normalized);
+    return joined;
+}
+
 /* Resolved URLs trim trailing C0 controls per WHATWG; th_url_join retains urllib's raw-reference contract. */
 static int url_ends_in_c0(PyObject *url) {
     Py_ssize_t length = PyUnicode_GET_LENGTH(url);
@@ -274,6 +339,24 @@ static int url_ends_in_c0(PyObject *url) {
         return PyUnicode_1BYTE_DATA(url)[length - 1] <= 0x20;
     }
     return PyUnicode_READ(PyUnicode_KIND(url), PyUnicode_DATA(url), length - 1) <= 0x20;
+}
+
+static inline int url_target_flags(PyObject *target) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(target);
+    if (length == 0) {
+        return 0;
+    }
+    if (PyUnicode_IS_ASCII(target)) {
+        const unsigned char *bytes = PyUnicode_1BYTE_DATA(target);
+        int leading = bytes[0] == '\\' || (bytes[0] == '/' && length > 1 && bytes[1] == '\\');
+        return (bytes[length - 1] <= 0x20) | (leading << 1);
+    }
+    int kind = PyUnicode_KIND(target);
+    const void *data = PyUnicode_DATA(target);
+    Py_UCS4 first = PyUnicode_READ(kind, data, 0);
+    /* A non-ASCII string beginning with '/' has another code point. */
+    int leading = first == '\\' || (first == '/' && PyUnicode_READ(kind, data, 1) == '\\');
+    return (PyUnicode_READ(kind, data, length - 1) <= 0x20) | (leading << 1);
 }
 
 static PyObject *trim_url_trailing_c0(PyObject *url) {
@@ -292,8 +375,11 @@ static PyObject *trim_url_trailing_c0(PyObject *url) {
 PyObject *th_url_resolve(PyObject *base, PyObject *target) {
     int literalized;
     PyObject *joined;
-    if (!url_ends_in_c0(base) && !url_ends_in_c0(target)) {
-        joined = url_join_encoded_dot_segments(base, target, &literalized);
+    int target_flags = url_target_flags(target);
+    int leading_backslash = target_flags & 2;
+    if (!url_ends_in_c0(base) && !(target_flags & 1)) {
+        joined = leading_backslash ? url_join_web_special_backslashes(base, target, &literalized)
+                                   : url_join_encoded_dot_segments(base, target, &literalized);
     } else {
         PyObject *trimmed_base = trim_url_trailing_c0(base);
         if (trimmed_base == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -304,7 +390,8 @@ PyObject *th_url_resolve(PyObject *base, PyObject *target) {
             Py_DECREF(trimmed_base);  /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;              /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        joined = url_join_encoded_dot_segments(trimmed_base, trimmed_target, &literalized);
+        joined = leading_backslash ? url_join_web_special_backslashes(trimmed_base, trimmed_target, &literalized)
+                                   : url_join_encoded_dot_segments(trimmed_base, trimmed_target, &literalized);
         Py_DECREF(trimmed_base);
         Py_DECREF(trimmed_target);
     }
