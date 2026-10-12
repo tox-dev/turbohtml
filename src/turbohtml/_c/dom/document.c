@@ -354,7 +354,6 @@ static inline int url_target_flags(PyObject *target) {
     int kind = PyUnicode_KIND(target);
     const void *data = PyUnicode_DATA(target);
     Py_UCS4 first = PyUnicode_READ(kind, data, 0);
-    /* A non-ASCII string beginning with '/' has another code point. */
     int leading = first == '\\' || (first == '/' && PyUnicode_READ(kind, data, 1) == '\\');
     return (PyUnicode_READ(kind, data, length - 1) <= 0x20) | (leading << 1);
 }
