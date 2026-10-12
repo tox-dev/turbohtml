@@ -27,7 +27,9 @@ case $1 in
             -m "$2 (run $GITHUB_RUN_ID)"
         for _ in 1 2 3; do
             git -c "http.https://github.com/.extraheader=$header" push --quiet && exit 0
-            git -c "http.https://github.com/.extraheader=$header" pull --quiet --rebase
+            # Rebase recreates the commit after a concurrent run pushes, so it also needs the bot identity.
+            git -c user.name="turbohtml ClusterFuzzLite" -c user.email="cflite@users.noreply.github.com" \
+                -c "http.https://github.com/.extraheader=$header" pull --quiet --rebase
         done
         exit 1
         ;;
