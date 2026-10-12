@@ -1,0 +1,1 @@
+Resolve links beginning with backslashes against HTTP(S) document URLs the way browsers do.

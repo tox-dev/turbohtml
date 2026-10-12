@@ -798,7 +798,8 @@ static PyObject *cleaned_href(PyObject *href, PyObject *base, const clean_option
     if (base == Py_None || str_has_prefix(href, "http://") || str_has_prefix(href, "https://")) {
         candidate = Py_NewRef(href);
     } else {
-        candidate = th_url_join(base, href);
+        candidate = PyUnicode_READ(PyUnicode_KIND(href), PyUnicode_DATA(href), 0) == '\\' ? th_url_resolve(base, href)
+                                                                                          : th_url_join(base, href);
         if (candidate == NULL) {
             return NULL; /* the document base cannot be split (an unbalanced IPv6 bracket) */
         }

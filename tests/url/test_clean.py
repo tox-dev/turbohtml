@@ -369,6 +369,17 @@ def test_extract_links_keeps_unicode_whitespace_in_base_path() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("\\x", "http://site.org/x", id="root-backslash"),
+        pytest.param("\\\\example.com\\p", "http://example.com/p", id="authority-backslashes"),
+    ],
+)
+def test_extract_links_resolves_special_backslashes(href: str, expected: str) -> None:
+    assert extract_links(f'<a href="{href}">x</a>', "http://site.org/dir/page") == {expected}
+
+
 def test_a_longer_hreflang_subtag_is_another_language() -> None:
     html = '<a href="https://test.com/a" hreflang="deu">x</a>'
     assert extract_links(html, "https://test.com/", UrlCleaning(language="de")) == set()
