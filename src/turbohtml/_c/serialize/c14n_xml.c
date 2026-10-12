@@ -10,6 +10,11 @@
 static const char C14N_XML[] = "http://www.w3.org/XML/1998/namespace";
 #define C14N_STACK_ATTRS 32
 
+static TH_NOINLINE int c14n_xml_1_1_inherits_xml_attribute(const char *name, Py_ssize_t len) {
+    return (len == 8 && (memcmp(name + 4, "lang", 4) == 0 || memcmp(name + 4, "base", 4) == 0)) ||
+           (len == 9 && memcmp(name + 4, "space", 5) == 0);
+}
+
 static int c14n_prefix_forced(const th_c14n_opts *opts, const char *prefix) {
     int forced = 0;
     for (Py_ssize_t index = 0; index < opts->inclusive_count && !forced; index++) {
@@ -340,7 +345,7 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
                 Py_ssize_t name_len;
                 const char *name = th_attr_name(tree, ancestor->attrs[index].name_atom, &name_len);
                 if (name_len <= 4 || memcmp(name, "xml:", 4) != 0 ||
-                    (opts->version == 1 && name_len == 6 && memcmp(name, "xml:id", 6) == 0)) {
+                    (opts->version == 1 && !c14n_xml_1_1_inherits_xml_attribute(name, name_len))) {
                     continue;
                 }
                 if (!c14n_xml_already_has(attrs, count, name, name_len)) {

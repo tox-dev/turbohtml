@@ -8,7 +8,8 @@
 
    turbohtml canonicalizes a complete subtree (a node and every descendant), never a
    filtered node-set, so the only place c14n 1.1 diverges from 1.0 here is the apex's
-   inherited xml: attributes: 1.1 excludes xml:id from that inheritance. The namespace
+   inherited xml: attributes: 1.1 excludes xml:id and arbitrary xml: attributes
+   from simple inheritance. The namespace
    axis this walks is turbohtml's HTML infoset -- HTML elements carry no namespace,
    SVG and MathML carry their default namespace, and an xlink: attribute binds the
    xlink prefix on the element that uses it -- which is exactly what the XML
@@ -26,6 +27,11 @@ static const char C14N_SVG[] = "http://www.w3.org/2000/svg";
 static const char C14N_MATHML[] = "http://www.w3.org/1998/Math/MathML";
 static const char C14N_XLINK[] = "http://www.w3.org/1999/xlink";
 static const char C14N_XML[] = "http://www.w3.org/XML/1998/namespace";
+
+static TH_NOINLINE int c14n_1_1_inherits_xml_attribute(const char *name, Py_ssize_t len) {
+    return (len == 8 && (memcmp(name + 4, "lang", 4) == 0 || memcmp(name + 4, "base", 4) == 0)) ||
+           (len == 9 && memcmp(name + 4, "space", 5) == 0);
+}
 
 /* Append c14n text: only & < > and a carriage return take a reference (as &amp;
    &lt; &gt; &#xD;); tab and newline stay literal, unlike an attribute value. Each
@@ -276,8 +282,6 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
         attrs[count++] = c14n_make_ref(name, name_len, node->attrs[index].value, node->attrs[index].value_len);
     }
     if (node == apex) {
-        /* the apex of the subset inherits its ancestors' xml: attributes, nearest
-           value winning; c14n 1.1 keeps xml:id local to avoid duplicating an id */
         for (const th_node *anc = node->parent; anc != NULL; anc = anc->parent) {
             if (anc->type != TH_NODE_ELEMENT) {
                 continue;
@@ -288,7 +292,7 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
                 if (name_len <= 4 || memcmp(name, "xml:", 4) != 0) {
                     continue;
                 }
-                if (opts->version == 1 && name_len == 6 && memcmp(name, "xml:id", 6) == 0) {
+                if (opts->version == 1 && !c14n_1_1_inherits_xml_attribute(name, name_len)) {
                     continue;
                 }
                 if (!c14n_already_has(attrs, count, name, name_len)) {

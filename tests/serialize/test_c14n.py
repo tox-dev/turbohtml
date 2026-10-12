@@ -614,17 +614,25 @@ def test_xml_c14n_apex_uses_nearest_xml_attribute() -> None:
     assert document.children[0].children[0].children[0].canonicalize() == (b'<p:b xmlns:p="urn:p" xml:lang="fr"></p:b>')
 
 
-def test_xml_c14n_apex_inherits_distinct_xml_attributes() -> None:
+def test_xml_c14n_1_1_inherits_simple_xml_attributes() -> None:
     document = parse_xml('<r xmlns:p="urn:p" a="1" xml:lang="en" xml:mode="x"><p:a xml:space="preserve"/></r>')
     assert document.children[0].children[0].canonicalize(Canonical(version="1.1")) == (
-        b'<p:a xmlns:p="urn:p" xml:lang="en" xml:mode="x" xml:space="preserve"></p:a>'
+        b'<p:a xmlns:p="urn:p" xml:lang="en" xml:space="preserve"></p:a>'
     )
 
 
-def test_xml_c14n_1_1_inherits_other_xml_attribute() -> None:
+def test_xml_c14n_1_1_does_not_inherit_other_xml_attribute() -> None:
     document = parse_xml('<r xmlns:p="urn:p" xml:ab="x"><p:a/></r>')
+    assert document.children[0].children[0].canonicalize(Canonical(version="1.1")) == (b'<p:a xmlns:p="urn:p"></p:a>')
+
+
+def test_xml_c14n_1_1_keeps_only_named_inherited_attributes() -> None:
+    document = parse_xml(
+        '<r xmlns:p="urn:p" xml:lang="en" xml:base="urn:root" xml:space="preserve" xml:shade="x">'
+        '<p:a xml:lang="fr"/></r>'
+    )
     assert document.children[0].children[0].canonicalize(Canonical(version="1.1")) == (
-        b'<p:a xmlns:p="urn:p" xml:ab="x"></p:a>'
+        b'<p:a xmlns:p="urn:p" xml:base="urn:root" xml:lang="fr" xml:space="preserve"></p:a>'
     )
 
 
@@ -684,9 +692,18 @@ def test_distinct_same_length_xml_attributes_both_inherit() -> None:
     assert node.canonicalize() == b'<p xml:base="u" xml:lang="en">x</p>'
 
 
-def test_1_1_inherits_a_six_char_xml_attribute_that_is_not_xml_id() -> None:
+def test_1_1_does_not_inherit_other_xml_attribute() -> None:
     node = _one("<div xml:xx=v><p>x</p></div>", "p")
-    assert node.canonicalize(Canonical(version="1.1")) == b'<p xml:xx="v">x</p>'
+    assert node.canonicalize(Canonical(version="1.1")) == b"<p>x</p>"
+
+
+def test_1_1_keeps_only_named_inherited_attributes() -> None:
+    node = _one(
+        '<div xml:lang="en" xml:base="urn:root" xml:space="preserve" xml:mode="x" xml:shade="x"><p>x</p></div>', "p"
+    )
+    assert node.canonicalize(Canonical(version="1.1")) == (
+        b'<p xml:base="urn:root" xml:lang="en" xml:space="preserve">x</p>'
+    )
 
 
 def test_apex_does_not_reinherit_its_own_xml_attribute() -> None:
