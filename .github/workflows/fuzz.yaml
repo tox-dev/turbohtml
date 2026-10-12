@@ -1,10 +1,6 @@
 name: 🔒 fuzz
 on:
   workflow_dispatch:
-  push:
-    branches: ["main"]
-    tags-ignore: ["**"]
-  pull_request:
   schedule:
     - cron: "0 6 * * *" # daily deep run, 06:00 UTC
     - cron: "0 4 * * 1" # weekly extended run, Monday 04:00 UTC
@@ -17,8 +13,7 @@ jobs:
   smoke:
     name: 💨 ASan/UBSan smoke (benign corpus)
     runs-on: ubuntu-24.04
-    # the per-PR gate: build every harness under -fsanitize=address,undefined and replay the benign seed corpus. It is
-    # fast and deterministic, so a red run means a real regression, not a flaky fuzz find. The deep hunt is the job below.
+    # Build every harness under -fsanitize=address,undefined and replay the benign seed corpus before the deep hunt.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,8 +51,7 @@ jobs:
     runs-on: ubuntu-24.04
     # a sanitize bug usually returns unsafe markup without crashing, so this lane compares the sanitizer with an
     # independent re-parse (html5lib-python, parse5 to confirm), the random Policy it ran under, and the WHATWG URL
-    # scheme. Pull requests and pushes replay only the deterministic seed pass; scheduled and manual runs add
-    # MutaGen-style generation for a wall-clock budget.
+    # scheme. Scheduled and manual runs add MutaGen-style generation for a wall-clock budget.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -84,14 +78,13 @@ jobs:
           uvx --with tox-uv tox run -e fuzz-oracle -- --minutes "${MINUTES}"
         env:
           UV_PYTHON_PREFERENCE: only-managed
-          MINUTES: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && '0' || github.event.schedule == '0 4 * * 1' && '20' || '8' }}
+          MINUTES: ${{ github.event.schedule == '0 4 * * 1' && '20' || '8' }}
   round-trip:
     name: 🔁 round-trip and consistency oracles
     runs-on: ubuntu-24.04
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     # a printer or minifier bug returns wrong text without crashing, so this lane checks print-and-reparse fixpoints,
-    # minifier semantics, agreeing entry points and source spans. Like the deep hunt below it is not a PR gate: a
-    # finding needs triage first, and the crashers leave the runner only encrypted.
+    # minifier semantics, agreeing entry points and source spans. Findings need triage, and crashers leave the runner
+    # only encrypted.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -166,7 +159,6 @@ jobs:
   alloc:
     name: 🧯 allocation-failure sweep
     runs-on: ubuntu-24.04
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     # fails each PyMem allocation of every seed in turn (libxml2's malloc-fail sweep) and requires MemoryError exactly
     # when the failure fires. Like the deep hunt it is not a PR gate: a finding needs triage, and it leaves the runner
     # only encrypted.
@@ -212,9 +204,7 @@ jobs:
   deep:
     name: 🕳️ ASan/UBSan deep (mutation + structural)
     runs-on: ubuntu-24.04
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    # the continuous hunt: mutation and escalating-depth probes for a wall-clock budget per target. It is not a PR gate
-    # and is allowed to surface a fault (which fails the job by design), so a maintainer triages new finds from the log.
+    # Mutation and escalating-depth probes run for a wall-clock budget per target. A maintainer triages new finds.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

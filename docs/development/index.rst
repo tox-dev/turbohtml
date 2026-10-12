@@ -130,13 +130,12 @@ Two mechanisms share one driver (``tools/fuzz/fuzz.py``):
   a stack trace and the harness survives internal C refactors.
 
 The ``fuzz-smoke`` environment replays every past find in ``tests/fuzz_regressions/`` through every harness, then a
-benign seed corpus (``tools/fuzz/corpus/``) once per target. It is deterministic and gates every pull request in the
-``🔒 fuzz`` workflow. The ``fuzz`` environment adds a mutation loop and escalating-depth structural probes for a
-per-target budget; it is the continuous hunt, run daily and on demand, not a merge gate.
+benign seed corpus (``tools/fuzz/corpus/``) once per target. The separate daily ``🔒 fuzz`` workflow runs it before the
+``fuzz`` environment adds a mutation loop and escalating-depth structural probes for a per-target budget.
 
 .. code-block:: console
 
-    $ tox r -e fuzz-smoke            # the per-PR gate: past finds and benign corpus, no crash expected
+    $ tox r -e fuzz-smoke            # past finds and benign corpus, no crash expected
     $ tox r -e fuzz -- --minutes 5   # the deep run: mutation + structural probes per target
 
 Both environments build the fuzz-only mode (``meson setup -Dfuzzing=true``, which defines
@@ -211,7 +210,7 @@ to a JSON report and logs only their hashes.
 
 .. code-block:: console
 
-    $ tox r -e fuzz-oracle -- --minutes 0   # the per-PR seed pass
+    $ tox r -e fuzz-oracle -- --minutes 0   # the seed pass
     $ tox r -e fuzz-oracle -- --minutes 10  # adds generated markup and URL obfuscations
 
 Printers and minifiers fail the same way, so ``fuzz-round-trip`` (``tools/fuzz/round_trip_oracles.py``) checks that
@@ -244,30 +243,28 @@ default) or ``any``.
 
 A quadratic only shows on long inputs, so ``fuzz-amplify`` (``tools/fuzz/amplify.py``) grows a repeated shape from 1 KiB
 through three doublings and fails when thread CPU time grows 2.5 times or more at every doubling, or when the output
-passes its per-target ``k * len(input) + c`` bound. Every pull request re-scores
-``tools/fuzz/amplify_regressions.json``; add a row there once a super-linear input is fixed. The daily run searches
-shapes built from literals in the C sources.
+passes its per-target ``k * len(input) + c`` bound. The daily fuzz run re-scores
+``tools/fuzz/amplify_regressions.json``; add a row there once a super-linear input is fixed. It also searches shapes
+built from literals in the C sources.
 
 .. code-block:: console
 
-    $ tox r -e fuzz-amplify                        # the per-PR gate: the regression list
+    $ tox r -e fuzz-amplify                        # re-score the regression list
     $ tox r -e fuzz-amplify -- search --minutes 5  # shapes drawn from the C literals
 
 `ClusterFuzzLite <https://google.github.io/clusterfuzzlite/>`_ keeps a corpus across runs. ``.clusterfuzzlite/`` holds
 the ``project.yaml``, ``Dockerfile`` and ``build.sh``. An OSS-Fuzz project reuses ``project.yaml`` and ``build.sh``; its
 ``Dockerfile`` clones the repository where this one copies the checkout. ``build.sh`` builds the fuzz-only mode and
 packages each Atheris target in the registry (``tools/fuzz/atheris_targets.py``) as its own fuzzer, plus the native
-IDNA, phone and JS minifier harnesses. The ``🧬 ClusterFuzzLite`` workflow fuzzes each push to ``main`` that touches C
-or fuzz sources for 600 s per sanitizer and reports only crashes that the previous push's build does not reproduce. This
-workflow skips pull requests because their jobs have no stored base build, and CIFuzz would report each of ``main``'s
-crashes there as new. A daily run fuzzes for 3,600 s, prunes the corpus and measures coverage, then fails when a
-target's callback or a Python-implemented export it owns executes no line (``tox r -e fuzz-reachability``).
+IDNA, phone and JS minifier harnesses. The separate daily ``🧬 ClusterFuzzLite`` workflow fuzzes for 3,600 s per
+sanitizer, prunes the corpus and measures coverage, then fails when a target's callback or a Python-implemented export
+it owns executes no line (``tox r -e fuzz-reachability``).
 
 ``tools/fuzz/cflite.py`` drives the ClusterFuzzLite images and writes their logs, crashes and corpus to files under its
 workspace instead of the console, because a crash report prints short inputs and this repository's logs are public.
 Every job keeps these files in the private repository named by the ``CFLITE_STORAGE_REPO`` variable, written with the
-``CFLITE_STORAGE_TOKEN`` secret, and skips while the variable is unset. A push run caches its build for the next push
-and sends its findings encrypted to ``FUZZ_AGE_RECIPIENT`` as well.
+``CFLITE_STORAGE_TOKEN`` secret, and skips while the variable is unset. The ``🔒 fuzz`` workflow runs separately each
+day, with a longer run on Mondays. Both workflows can also be started manually.
 
 Add a target by registering a ``bytes``-taking callable in ``_TARGETS`` (in-process) and dropping a representative
 benign seed under ``tools/fuzz/corpus/<target>/``; add a standalone harness by mirroring ``idna_harness.c`` for any C

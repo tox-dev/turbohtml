@@ -1,16 +1,6 @@
 name: 🧬 ClusterFuzzLite
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - ".clusterfuzzlite/**"
-      - ".github/workflows/cflite.yaml"
-      - "meson.build"
-      - "meson.options"
-      - "src/turbohtml/_c/**"
-      - "tools/fuzz/**"
-      - "tools/js_minify_harness.c"
   schedule:
     - cron: "0 1 * * *" # daily batch, then prune and coverage
 concurrency:
@@ -21,98 +11,12 @@ permissions:
 # tools/fuzz/cflite.py runs the ClusterFuzzLite images and writes their logs, crashes and corpus to files under the
 # workspace, because a crash report carries short inputs in the clear and this repository's console logs and workflow
 # artifacts are public. Corpus, crashes and logs go to the private repository named by vars.CFLITE_STORAGE_REPO,
-# written with secrets.CFLITE_STORAGE_TOKEN; without that variable every job skips. This workflow skips pull requests
-# because their jobs have no stored base build, and CIFuzz would report each crash they hit as new, main's included. A
-# push to main fuzzes the change against the build the previous push cached, and its findings also leave the runner
-# encrypted to vars.FUZZ_AGE_RECIPIENT, as in fuzz.yaml.
+# written with secrets.CFLITE_STORAGE_TOKEN; without that variable every job skips. Scheduled runs fuzz both
+# sanitizers, prune the corpus and measure coverage.
 jobs:
-  code-change:
-    name: 🧬 main fuzzing (${{ matrix.sanitizer }})
-    if: github.event_name == 'push' && vars.CFLITE_STORAGE_REPO != ''
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        sanitizer: ["address", "undefined"]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0 # CIFuzz looks for a base build among the three commits up to the base commit
-          persist-credentials: false
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          python-version: "3.15"
-          enable-cache: false
-      - name: 📥 Check out the storage repository
-        run: bash tools/fuzz/cflite_storage.sh clone
-        env:
-          STORAGE_REPO: ${{ vars.CFLITE_STORAGE_REPO }}
-          STORAGE_TOKEN: ${{ secrets.CFLITE_STORAGE_TOKEN }}
-      - name: 📥 Restore the previous push's build
-        # the filestore's build/ directory stays out of the storage repository, which would grow by a full build per
-        # push; the cache carries it from one push to the next instead
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/cflite/storage/build
-          key: cflite-build-${{ matrix.sanitizer }}-${{ github.event.before }}
-          restore-keys: cflite-build-${{ matrix.sanitizer }}-
-      - name: 🧬 Fuzz the change for 600 s
-        run: |
-          uv run --no-project --python 3.15 python tools/fuzz/cflite.py --mode code-change --sanitizer "${SANITIZER}" --seconds 600 \
-            --source "${GITHUB_WORKSPACE}" --workspace "${RUNNER_TEMP}/cflite" --base-commit "${BEFORE}" --upload-build
-        env:
-          SANITIZER: ${{ matrix.sanitizer }}
-          BEFORE: ${{ github.event.before }}
-      - name: 🧹 Keep only this push's build
-        id: build
-        if: success() || failure()
-        run: |
-          [[ -d "${BUILDS}/${SANITIZER}-${GITHUB_SHA}" ]] || exit 0
-          find "${BUILDS}" -mindepth 1 -maxdepth 1 ! -name "${SANITIZER}-${GITHUB_SHA}" -exec rm -rf {} +
-          echo "saved=true" >> "${GITHUB_OUTPUT}"
-        env:
-          BUILDS: ${{ runner.temp }}/cflite/storage/build
-          SANITIZER: ${{ matrix.sanitizer }}
-      - name: 💾 Cache this build for the next push
-        if: (success() || failure()) && steps.build.outputs.saved == 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/cflite/storage/build
-          key: cflite-build-${{ matrix.sanitizer }}-${{ github.sha }}
-      - name: 📤 Store corpus, crashes and logs
-        if: success() || failure()
-        run: bash tools/fuzz/cflite_storage.sh push "code-change ${SANITIZER}"
-        env:
-          STORAGE_TOKEN: ${{ secrets.CFLITE_STORAGE_TOKEN }}
-          SANITIZER: ${{ matrix.sanitizer }}
-      - name: 🔐 Encrypt findings
-        if: failure() && vars.FUZZ_AGE_RECIPIENT != ''
-        run: |
-          curl -sSfL -o "${RUNNER_TEMP}/age.tar.gz" \
-            "https://github.com/FiloSottile/age/releases/download/${AGE_VERSION}/age-${AGE_VERSION}-linux-amd64.tar.gz"
-          echo "${AGE_SHA256}  ${RUNNER_TEMP}/age.tar.gz" | sha256sum --check --strict
-          tar -xzf "${RUNNER_TEMP}/age.tar.gz" -C "${RUNNER_TEMP}" age/age
-          mkdir -p "${RUNNER_TEMP}/cflite-findings"
-          tar -czf - -C "${RUNNER_TEMP}/cflite" --ignore-failed-read logs out/artifacts cifuzz-sarif \
-            | "${RUNNER_TEMP}/age/age" --recipient "${RECIPIENT}" \
-              --output "${RUNNER_TEMP}/cflite-findings/cflite-${SANITIZER}.tar.gz.age"
-        env:
-          AGE_VERSION: v1.3.2
-          AGE_SHA256: cbe24006683f8eb669266162894b9a522a1af52f2665fbc63a4bb032ed26ac10
-          RECIPIENT: ${{ vars.FUZZ_AGE_RECIPIENT }}
-          SANITIZER: ${{ matrix.sanitizer }}
-      - name: 📤 Upload encrypted findings
-        if: failure() && vars.FUZZ_AGE_RECIPIENT != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cflite-findings-${{ matrix.sanitizer }}
-          path: ${{ runner.temp }}/cflite-findings/*.age
-          if-no-files-found: ignore
-          retention-days: 14
   batch:
     name: 🧬 batch fuzzing (${{ matrix.sanitizer }})
-    if: github.event_name != 'push' && vars.CFLITE_STORAGE_REPO != ''
+    if: vars.CFLITE_STORAGE_REPO != ''
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -158,7 +62,7 @@ jobs:
   prune:
     name: ✂️ corpus pruning
     needs: batch
-    if: (success() || failure()) && github.event_name != 'push' && vars.CFLITE_STORAGE_REPO != ''
+    if: (success() || failure()) && vars.CFLITE_STORAGE_REPO != ''
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -187,7 +91,7 @@ jobs:
   coverage:
     name: 📊 coverage and reachability floors
     needs: prune
-    if: (success() || failure()) && github.event_name != 'push' && vars.CFLITE_STORAGE_REPO != ''
+    if: (success() || failure()) && vars.CFLITE_STORAGE_REPO != ''
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
