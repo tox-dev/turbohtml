@@ -672,6 +672,29 @@ static CSS_FORCEINLINE int css_border_has_other_width(const css_buf *pool, const
     return 0;
 }
 
+static CSS_FORCEINLINE int css_border_maybe_color(const css_buf *pool, const css_comp *comp) {
+    static const char *const non_colors[] = {"solid", "none",  "hidden", "dotted", "dashed", "double", "groove",
+                                             "ridge", "inset", "outset", "thin",   "medium", "thick",  "auto"};
+    static const char *const width_funcs[] = {"calc", "min", "max", "clamp"};
+    return comp->kind != CK_NUM && comp->kind != CK_DIM &&
+           (comp->kind != CK_IDENT ||
+            !css_prop_in(pool->data + comp->off, comp->len, non_colors, sizeof(non_colors) / sizeof(char *))) &&
+           (comp->kind != CK_FUNC || !css_prop_in(pool->data + comp->off, css_func_name_len(pool, comp), width_funcs,
+                                                  sizeof(width_funcs) / sizeof(char *)));
+}
+
+static CSS_FORCEINLINE int css_border_has_other_color(const css_buf *pool, const comp_vec *comps, Py_ssize_t dropped) {
+    if (comps->len == 2) {
+        return css_border_maybe_color(pool, &comps->items[1 - dropped]);
+    }
+    for (Py_ssize_t index = 0; index < comps->len; index++) {
+        if (index != dropped && css_border_maybe_color(pool, &comps->items[index])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char *prop, Py_ssize_t prop_len) {
     static const char *const border_drop[] = {"none", "currentcolor", "medium"};
     static const char *const outline_drop[] = {"none", "medium"};
@@ -776,6 +799,10 @@ static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char
                             css_border_has_other_width(pool, comps, index)) {
                             break;
                         }
+                    }
+                    if (comp.len == 12 && comps->len > 1 && drop != decoration_drop && drop != emphasis_drop &&
+                        css_border_has_other_color(pool, comps, index)) {
+                        break;
                     }
                     dropped = 1;
                     break;

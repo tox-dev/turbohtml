@@ -2522,6 +2522,40 @@ def test_minify_css_drops_border_default_width_with_color(value: str, expected: 
 @pytest.mark.parametrize(
     ("property_name", "value", "expected"),
     [
+        pytest.param("border", "currentcolor red", "currentcolor red", id="named-color"),
+        pytest.param("border", "red currentcolor", "red currentcolor", id="reverse-order"),
+        pytest.param("border", "currentcolor currentcolor", "currentcolor currentcolor", id="two-defaults"),
+        pytest.param("border", "currentcolor solid red", "currentcolor solid red", id="style-and-other-color"),
+        pytest.param("border-top", "currentcolor #fff", "currentcolor #fff", id="side-hash"),
+        pytest.param("border", "currentcolor rgb(255,0,0)", "currentcolor red", id="color-function"),
+        pytest.param("column-rule", "currentcolor red", "currentcolor red", id="column-rule"),
+        pytest.param("border", "currentcolor var(--color)", "currentcolor var(--color)", id="substitution"),
+    ],
+)
+def test_minify_css_preserves_duplicate_border_colors(property_name: str, value: str, expected: str) -> None:
+    assert minify_css(f"a{{{property_name}:{value}}}") == f"a{{{property_name}:{expected}}}"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("currentcolor", "none", id="color-only"),
+        pytest.param("currentcolor solid", "solid", id="style"),
+        pytest.param("currentcolor 2px", "2px", id="width"),
+        pytest.param("currentcolor 2px solid", "2px solid", id="width-and-style"),
+        pytest.param("currentcolor 0", "0", id="zero-width"),
+        pytest.param("currentcolor calc(1px + 2px)", "3px", id="calculated-width"),
+        pytest.param("currentcolor calc(var(--x) + 1px)", "calc(var(--x) + 1px)", id="dynamic-width"),
+        pytest.param("currentcolor none", "none", id="default-style"),
+    ],
+)
+def test_minify_css_drops_single_border_color_default(value: str, expected: str) -> None:
+    assert minify_css(f"a{{border:{value}}}") == f"a{{border:{expected}}}"
+
+
+@pytest.mark.parametrize(
+    ("property_name", "value", "expected"),
+    [
         pytest.param("border", "none red", "red", id="border-color"),
         pytest.param("border", "none red medium", "red", id="border-short-color"),
         pytest.param("border", "none rgb(0 0 0)", "#000", id="border-color-function"),
