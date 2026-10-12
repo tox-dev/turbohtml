@@ -1,0 +1,1 @@
+Reject malformed XML qualified names in element, attribute, and namespace declarations.
