@@ -2463,6 +2463,40 @@ def test_minify_css_preserves_duplicate_border_styles(property_name: str, value:
 
 
 @pytest.mark.parametrize(
+    ("property_name", "value"),
+    [
+        pytest.param("border", "medium thick", id="keyword-after"),
+        pytest.param("border", "thin medium", id="keyword-before"),
+        pytest.param("border", "medium medium", id="two-defaults"),
+        pytest.param("border-left", "medium 1px", id="border-side-length"),
+        pytest.param("border", "medium 0", id="unitless-zero"),
+        pytest.param("outline", "medium thick solid", id="outline"),
+        pytest.param("column-rule", "medium 1px solid", id="column-rule"),
+        pytest.param("border", "medium var(--width)", id="dynamic-width"),
+    ],
+)
+def test_minify_css_preserves_duplicate_border_widths(property_name: str, value: str) -> None:
+    source: Final = f"a{{{property_name}:{value}}}"
+    assert minify_css(source) == source
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("medium", "none", id="width-only"),
+        pytest.param("medium red", "red", id="short-color-name"),
+        pytest.param("medium magenta", "#f0f", id="long-color-name"),
+        pytest.param("medium rgb(1,2,3)", "#010203", id="color-function"),
+        pytest.param("medium color-mix(in srgb,red,blue)", "color-mix(in srgb,red,blue)", id="modern-color"),
+        pytest.param("medium #f00", "red", id="hash-color"),
+        pytest.param("medium solid red", "solid red", id="style-and-color"),
+    ],
+)
+def test_minify_css_drops_border_default_width_with_color(value: str, expected: str) -> None:
+    assert minify_css(f"a{{border:{value}}}") == f"a{{border:{expected}}}"
+
+
+@pytest.mark.parametrize(
     ("property_name", "value", "expected"),
     [
         pytest.param("border", "none red", "red", id="border-color"),

@@ -649,6 +649,29 @@ CSS_NOINLINE static int css_border_has_other_style(const css_buf *pool, const co
     return 0;
 }
 
+static CSS_FORCEINLINE int css_border_has_other_width(const css_buf *pool, const comp_vec *comps, Py_ssize_t dropped) {
+    static const char *const widths[] = {"thin", "medium", "thick"};
+    static const char *const width_funcs[] = {"calc", "min", "max", "clamp", "var", "env", "attr"};
+    for (Py_ssize_t index = 0; index < comps->len; index++) {
+        if (index == dropped) {
+            continue;
+        }
+        const css_comp *comp = &comps->items[index];
+        if (comp->kind == CK_NUM || comp->kind == CK_DIM) {
+            return 1;
+        }
+        if (comp->kind == CK_IDENT &&
+            css_prop_in(pool->data + comp->off, comp->len, widths, sizeof(widths) / sizeof(char *))) {
+            return 1;
+        }
+        if (comp->kind == CK_FUNC && css_prop_in(pool->data + comp->off, css_func_name_len(pool, comp), width_funcs,
+                                                 sizeof(width_funcs) / sizeof(char *))) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char *prop, Py_ssize_t prop_len) {
     static const char *const border_drop[] = {"none", "currentcolor", "medium"};
     static const char *const outline_drop[] = {"none", "medium"};
@@ -744,6 +767,16 @@ static void css_handle_color_drop(css_buf *pool, comp_vec *comps, const css_char
             int dropped = 0;
             for (size_t which = 0; which < drop_count; which++) {
                 if (comp_ieq(pool, &comp, drop[which])) {
+                    if (comp.len == 6 && comps->len > 1) {
+                        const css_comp *other = comps->len == 2 ? &comps->items[1 - index] : NULL;
+                        if ((!other || other->kind == CK_NUM || other->kind == CK_DIM || other->kind == CK_FUNC ||
+                             (other->kind == CK_IDENT && other->len >= 4 && other->len <= 6 &&
+                              (css_lower(pool->data[other->off]) == 't' ||
+                               css_lower(pool->data[other->off]) == 'm'))) &&
+                            css_border_has_other_width(pool, comps, index)) {
+                            break;
+                        }
+                    }
                     dropped = 1;
                     break;
                 }
