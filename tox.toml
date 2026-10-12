@@ -104,7 +104,7 @@ commands = [
     "--filter",
     "src/turbohtml/.*\\.(c|h)",
     "--gcov-executable",
-    "{env:COV_GCOV:xcrun llvm-cov gcov}",
+    "{env:COV_GCOV:gcov}",
     "--fail-under-line",
     "100",
     "--fail-under-branch",
