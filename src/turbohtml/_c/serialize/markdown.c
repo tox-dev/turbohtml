@@ -2374,6 +2374,19 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
                it would leave a line of spaces that reads as a blank line */
             return;
         }
+        for (Py_ssize_t index = ctx->marker_base; index < ctx->marker_count; index++) {
+            md_marker *marker = &ctx->markers[index];
+            if (!marker->emitted || marker->node == NULL) {
+                continue;
+            }
+            const char *open = marker->open;
+            Py_ssize_t open_len = (Py_ssize_t)strlen(open);
+            if (md_edge(ctx->out.data[marker->open_at + open_len]) == MD_EDGE_SPACE) {
+                sbuf_puts(&ctx->out, "<br>");
+                ctx->line_has_content = 1;
+                return;
+            }
+        }
         md_write_break(ctx);
         return;
     case TH_TAG_WBR:

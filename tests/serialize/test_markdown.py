@@ -1470,6 +1470,12 @@ def test_break_in_skipped_link_inside_link_text() -> None:
     assert root.to_markdown(Markdown(links=Markdown.Links(skip_internal=True))) == "[x  \ny](/u)"
 
 
+def test_break_inside_raw_emphasis_survives_round_trip() -> None:
+    output: Final = md("<ol><li><em>&nbsp;<br>e</em></li></ol>")
+    assert output == "1. <em>\u00a0<br>e</em>"
+    assert MarkdownIt("commonmark").render(output) == "<ol>\n<li><em>\u00a0<br>e</em></li>\n</ol>\n"
+
+
 @pytest.mark.parametrize(
     ("html", "options", "expected"),
     [

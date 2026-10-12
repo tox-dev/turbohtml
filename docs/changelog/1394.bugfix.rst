@@ -1,0 +1,1 @@
+Preserve line breaks inside emphasized Markdown that needs HTML tags.
