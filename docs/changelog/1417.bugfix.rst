@@ -1,0 +1,1 @@
+Resolve links with extra leading slashes to their target host, matching browser URL handling.

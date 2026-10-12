@@ -798,8 +798,14 @@ static PyObject *cleaned_href(PyObject *href, PyObject *base, const clean_option
     if (base == Py_None || th_url_web_authority(href) != TH_URL_WEB_AUTHORITY_NONE) {
         candidate = Py_NewRef(href);
     } else {
-        candidate = PyUnicode_READ(PyUnicode_KIND(href), PyUnicode_DATA(href), 0) == '\\' ? th_url_resolve(base, href)
-                                                                                          : th_url_join(base, href);
+        int kind = PyUnicode_KIND(href);
+        const void *data = PyUnicode_DATA(href);
+        Py_UCS4 first = PyUnicode_READ(kind, data, 0);
+        int special_slashes =
+            first == '\\' || (first == '/' && PyUnicode_GET_LENGTH(href) > 2 &&
+                              (PyUnicode_READ(kind, data, 1) == '/' || PyUnicode_READ(kind, data, 1) == '\\') &&
+                              (PyUnicode_READ(kind, data, 2) == '/' || PyUnicode_READ(kind, data, 2) == '\\'));
+        candidate = special_slashes ? th_url_resolve(base, href) : th_url_join(base, href);
         if (candidate == NULL) {
             return NULL; /* the document base cannot be split (an unbalanced IPv6 bracket) */
         }

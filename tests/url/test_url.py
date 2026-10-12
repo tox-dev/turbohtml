@@ -197,6 +197,42 @@ def test_base_url_resolves_absolute_special_backslashes(base: str, href: str, ex
 
 
 @pytest.mark.parametrize(
+    "href",
+    [
+        pytest.param("///example.com/p", id="three-slashes"),
+        pytest.param("////example.com/p", id="four-slashes"),
+        pytest.param("//\\example.com/p", id="third-backslash"),
+        pytest.param("///\\//\\//example.com/p", id="mixed-extra-slashes"),
+    ],
+)
+def test_base_url_resolves_extra_special_slashes(href: str) -> None:
+    assert parse(f'<base href="{href}">').base_url("http://site.org/dir/page") == "http://example.com/p"
+
+
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("//", "http://site.org/dir/page", id="empty-authority"),
+        pytest.param("///", "http://site.org/dir/page", id="extra-slashes-without-host"),
+        pytest.param("//example.com/p", "http://example.com/p", id="two-slashes"),
+        pytest.param("/\\/example.com/p", "http://example.com/p", id="mixed-three-slashes"),
+        pytest.param("/\\example.com/é", "http://example.com/%C3%A9", id="unicode-second-backslash"),
+        pytest.param("//example.com/é", "http://example.com/%C3%A9", id="unicode-two-slashes"),
+        pytest.param("///example.com/é", "http://example.com/%C3%A9", id="unicode-three-slashes"),
+        pytest.param("//\\example.com/é", "http://example.com/%C3%A9", id="unicode-third-backslash"),
+    ],
+)
+def test_base_url_keeps_special_slash_boundaries(href: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url("http://site.org/dir/page") == expected
+
+
+def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
+    assert (
+        parse('<base href="///example.com/p?q=\\">').base_url("http://site.org/dir/page") == "http://example.com/p?q=\\"
+    )
+
+
+@pytest.mark.parametrize(
     ("href", "fallback", "expected"),
     [
         pytest.param("%2e%2e/x", "https://example.org/dir/file", "https://example.org/x", id="parent"),

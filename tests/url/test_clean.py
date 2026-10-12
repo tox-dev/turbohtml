@@ -425,6 +425,31 @@ def test_extract_links_rejects_invalid_web_authorities(href: str) -> None:
     ) == {"http://good.example/p"}
 
 
+@pytest.mark.parametrize(
+    "href",
+    [
+        pytest.param("///example.com/p", id="three-slashes"),
+        pytest.param("////example.com/p", id="four-slashes"),
+        pytest.param("//\\example.com/p", id="third-backslash"),
+        pytest.param("///\\//\\//example.com/p", id="mixed-extra-slashes"),
+    ],
+)
+def test_extract_links_resolves_extra_special_slashes(href: str) -> None:
+    assert extract_links(f'<a href="{href}">x</a>', "http://site.org/dir/page") == {"http://example.com/p"}
+
+
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("/", "http://site.org/", id="root-path"),
+        pytest.param("//example.com/p", "http://example.com/p", id="two-slashes"),
+        pytest.param("/\\/example.com/p", "http://example.com/p", id="mixed-three-slashes"),
+    ],
+)
+def test_extract_links_keeps_special_slash_boundaries(href: str, expected: str) -> None:
+    assert extract_links(f'<a href="{href}">x</a>', "http://site.org/dir/page") == {expected}
+
+
 def test_a_longer_hreflang_subtag_is_another_language() -> None:
     html = '<a href="https://test.com/a" hreflang="deu">x</a>'
     assert extract_links(html, "https://test.com/", UrlCleaning(language="de")) == set()
