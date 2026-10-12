@@ -676,6 +676,14 @@ static CSS_FORCEINLINE int css_border_maybe_color(const css_buf *pool, const css
     static const char *const non_colors[] = {"solid", "none",  "hidden", "dotted", "dashed", "double", "groove",
                                              "ridge", "inset", "outset", "thin",   "medium", "thick",  "auto"};
     static const char *const width_funcs[] = {"calc", "min", "max", "clamp"};
+    if (comp->kind == CK_IDENT) {
+        if (comp->len < 4 || comp->len > 6) {
+            return 1;
+        }
+        if (comp->len == 5 && comp_ieq(pool, comp, "solid")) {
+            return 0;
+        }
+    }
     return comp->kind != CK_NUM && comp->kind != CK_DIM &&
            (comp->kind != CK_IDENT ||
             !css_prop_in(pool->data + comp->off, comp->len, non_colors, sizeof(non_colors) / sizeof(char *))) &&

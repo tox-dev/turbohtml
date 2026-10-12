@@ -2523,6 +2523,7 @@ def test_minify_css_drops_border_default_width_with_color(value: str, expected: 
     ("property_name", "value", "expected"),
     [
         pytest.param("border", "currentcolor red", "currentcolor red", id="named-color"),
+        pytest.param("border", "currentcolor black", "currentcolor #000", id="five-letter-color"),
         pytest.param("border", "red currentcolor", "red currentcolor", id="reverse-order"),
         pytest.param("border", "currentcolor currentcolor", "currentcolor currentcolor", id="two-defaults"),
         pytest.param("border", "currentcolor solid red", "currentcolor solid red", id="style-and-other-color"),
@@ -2542,6 +2543,7 @@ def test_minify_css_preserves_duplicate_border_colors(property_name: str, value:
         pytest.param("currentcolor", "none", id="color-only"),
         pytest.param("currentcolor solid", "solid", id="style"),
         pytest.param("currentcolor 2px", "2px", id="width"),
+        pytest.param("currentcolor thin", "thin", id="named-width"),
         pytest.param("currentcolor 2px solid", "2px solid", id="width-and-style"),
         pytest.param("currentcolor 0", "0", id="zero-width"),
         pytest.param("currentcolor calc(1px + 2px)", "3px", id="calculated-width"),
