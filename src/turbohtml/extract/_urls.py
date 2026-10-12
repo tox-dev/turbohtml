@@ -142,6 +142,8 @@ def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
     sorted and known tracking parameters dropped (strict mode instead keeps only the content-identifying allowlist),
     and a fragment shaped like a query string is scrubbed the same way. Unlike ``courlan``, repeated slashes are kept
     (the spec preserves them) and punycode is the output form, not the input form.
+    For special schemes, a host after the scheme is recognized even when the input omits the authority slashes;
+    a hostless ``file:`` path is serialized with an empty authority.
 
     A Unicode host longer than 16384 code points, or holding a code point UTS #46 disallows in a domain (a C1
     control, a noncharacter), keeps its lowercased Unicode form instead of punycode. The cap bounds the domain-to-ASCII
@@ -154,7 +156,7 @@ def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
     :returns: the normalized URL.
     :raises TypeError: if ``url`` is not a ``str``.
     :raises ValueError: if the URL cannot be split into components (e.g. an unclosed IPv6 bracket) or carries a
-        forbidden domain character after host decoding or IDNA mapping, or a character that cannot be percent-encoded
+        forbidden or empty domain after host decoding or IDNA mapping, or a character that cannot be percent-encoded
         (a lone surrogate).
     """
     return _url_normalize(url, *_knobs(options or _DEFAULT))

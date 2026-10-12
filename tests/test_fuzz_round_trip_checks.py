@@ -2163,7 +2163,7 @@ if TYPE_CHECKING:
     ("source", "expected"),
     [
         pytest.param("HTTPS://Example.test/a?b=2&a=1#f", "https://example.test/a?a=1&b=2#f", id="canonical-components"),
-        pytest.param("https:a", "https:a", id="special-without-authority"),
+        pytest.param("https:a", "https://a/", id="special-without-authority"),
         pytest.param("file:///tmp/x", "file:///tmp/x", id="empty-authority"),
         pytest.param("file:/tmp/x", "file:///tmp/x", id="file-without-authority"),
         pytest.param("//host/a?q=1#f", "//host/a?q=1#f", id="scheme-relative"),

@@ -272,7 +272,7 @@ static PyObject *normalize_netloc(const th_url_parts *parts, int web_only) {
         return NULL;      /* GCOVR_EXCL_LINE */
     }
     /* Port normalization can erase the colon that admitted a dotless host. */
-    if (web_only && !is_web_host(host, netloc)) {
+    if (web_only && !web_host_holds(host, '.') && !web_host_holds(netloc, ':')) {
         Py_SETREF(netloc, Py_NewRef(Py_None));
     }
     Py_DECREF(host);
@@ -338,8 +338,7 @@ static int scheme_is_special(PyObject *scheme) {
 static PyObject *unsplit(PyObject *scheme, PyObject *netloc, PyObject *path, PyObject *query, PyObject *fragment,
                          int has_netloc) {
     int has_scheme = PyUnicode_GET_LENGTH(scheme) > 0;
-    if (!has_netloc && has_scheme && scheme_is_special(scheme) &&
-        (PyUnicode_GET_LENGTH(path) == 0 || str_has_prefix(path, "/"))) {
+    if (!has_netloc && has_scheme && scheme_is_special(scheme)) {
         has_netloc = 1;
     }
     const char *marker = has_netloc ? "//" : str_has_prefix(path, "//") ? "/." : "";
@@ -375,12 +374,30 @@ static PyObject *normalize_file_path(PyObject *path) {
     if (normalized == NULL) { /* GCOVR_EXCL_BR_LINE: replacement only fails on allocation failure */
         return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (PyUnicode_READ_CHAR(path, 0) == '/' && is_ascii_alpha(PyUnicode_READ_CHAR(path, 1)) &&
-        (length == 3 || PyUnicode_READ_CHAR(path, 3) == '/' || PyUnicode_READ_CHAR(path, 3) == '\\')) {
+    if (is_ascii_alpha(PyUnicode_READ_CHAR(normalized, 1)) &&
+        (length == 3 || PyUnicode_READ_CHAR(normalized, 3) == '/')) {
         PyObject *drive_path = PyObject_CallMethod(normalized, "replace", "ssi", "|", ":", 1);
         Py_DECREF(normalized);
         return drive_path;
     }
+    return normalized;
+}
+
+static PyObject *normalize_hostless_file_path(PyObject *path) {
+    if (PyUnicode_GET_LENGTH(path) == 0) {
+        return PyUnicode_FromString("/");
+    }
+    PyObject *slashed = str_holds(path, '\\') ? PyObject_CallMethod(path, "replace", "ss", "\\", "/") : Py_NewRef(path);
+    if (slashed == NULL) { /* GCOVR_EXCL_BR_LINE: replacement only fails on allocation failure */
+        return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *rooted = PyUnicode_READ_CHAR(slashed, 0) == '/' ? Py_NewRef(slashed) : th_str_format("/%U", slashed);
+    Py_DECREF(slashed);
+    if (rooted == NULL) { /* GCOVR_EXCL_BR_LINE: formatting only fails on allocation failure */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *normalized = normalize_file_path(rooted);
+    Py_DECREF(rooted);
     return normalized;
 }
 
@@ -430,7 +447,8 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
             }
         }
         /* A literal backslash can become an authority delimiter on the next parse. */
-        PyObject *file_path = normalize_file_path(parts->part[TH_URL_PATH]);
+        PyObject *file_path = parts->has_authority ? normalize_file_path(parts->part[TH_URL_PATH])
+                                                   : normalize_hostless_file_path(parts->part[TH_URL_PATH]);
         if (file_path == NULL) { /* GCOVR_EXCL_BR_LINE: file-path rewriting only fails on allocation failure */
             goto done;           /* GCOVR_EXCL_LINE: allocation-failure path */
         }

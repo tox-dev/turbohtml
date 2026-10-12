@@ -5,7 +5,7 @@
    one translation unit needs: the scheme-grammar predicate (RFC 3986 scheme production), which linkify.c and sanitize.c
    scan a scheme with too and used to each redefine, and the host-classification tags url_split reports for each
    authority. The percent-encoding, relative join, IDNA host ToASCII, and registrable-domain fold stay elsewhere; this
-   unit only splits and classifies ASCII authorities. */
+   unit only splits and classifies authorities. */
 
 #ifndef TURBOHTML_URL_H
 #define TURBOHTML_URL_H

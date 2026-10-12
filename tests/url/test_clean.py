@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     [
         pytest.param("  https://www.dwds.de ", "https://www.dwds.de/", id="surrounding-whitespace"),
         pytest.param("https://www.dwds\t.de/x\n", "https://www.dwds.de/x", id="embedded-tab-and-newline"),
+        pytest.param("http:example.org/x", "http://example.org/x", id="host-after-scheme"),
         pytest.param("\x00\x1fhttps://example.org/\x07", "https://example.org/", id="control-characters"),
         pytest.param("https://exam ple.org/pa th", "https://example.org/path", id="embedded-spaces-removed"),
         pytest.param("<![CDATA[https://www.dwds.de]]>", "https://www.dwds.de/", id="cdata-wrapper"),
@@ -290,9 +291,14 @@ def test_the_document_entry_point_rejects_too_few_arguments() -> None:
         pytest.param("ws://x.com", "ws://x.com/", id="special-ws-empty-path-is-root"),
         pytest.param("wss://x.com", "wss://x.com/", id="special-wss-empty-path-is-root"),
         pytest.param("foo://x.com", "foo://x.com", id="non-special-empty-path-stays-empty"),
-        pytest.param("http:/x", "http:///x", id="a-netloc-scheme-without-an-authority-gets-the-marker"),
-        pytest.param("http:x", "http:x", id="a-netloc-scheme-with-a-relative-path-keeps-its-shape"),
+        pytest.param("http:/x", "http://x/", id="a-netloc-scheme-with-one-slash"),
+        pytest.param("http:x", "http://x/", id="a-netloc-scheme-without-slashes"),
+        pytest.param("http:///x", "http://x/", id="a-netloc-scheme-with-three-slashes"),
+        pytest.param("http:////x", "http://x/", id="a-netloc-scheme-with-four-slashes"),
+        pytest.param("http:example.com/path?x=1", "http://example.com/path?x=1", id="host-after-scheme"),
         pytest.param("http:", "http://", id="a-netloc-scheme-alone-gets-the-marker"),
+        pytest.param("http:?q=1", "http://?q=1", id="hostless-query"),
+        pytest.param("http:#f", "http://#f", id="hostless-fragment"),
         pytest.param("gopher:/a", "gopher:/a", id="non-special-hostless-path-keeps-its-shape"),
         pytest.param("git:/a", "git:/a", id="git-hostless-path-keeps-its-shape"),
         pytest.param("gopher:", "gopher:", id="non-special-empty-path-has-no-authority"),
@@ -457,11 +463,6 @@ def test_a_relative_href_against_an_unsplittable_base_element_raises() -> None:
         pytest.param("foo:", "foo:", id="empty-opaque-path"),
         pytest.param("foo:hello ?", "foo:hello%20", id="empty-query-marker-keeps-path-encoding"),
         pytest.param("foo:/hello world", "foo:/hello%20world", id="hierarchical-path-encodes-space"),
-        pytest.param("ftp:x y", "ftp:x%20y", id="ftp-path-encodes-space"),
-        pytest.param("http:x y", "http:x%20y", id="http-path-encodes-space"),
-        pytest.param("https:x y", "https:x%20y", id="https-path-encodes-space"),
-        pytest.param("ws:x y", "ws:x%20y", id="ws-path-encodes-space"),
-        pytest.param("wss:x y", "wss:x%20y", id="wss-path-encodes-space"),
         pytest.param("foo:/a/../b", "foo:/b", id="hostless-non-special-dot-segment"),
         pytest.param("foo:/a/%2e%2e/b?x=1#f", "foo:/b?x=1#f", id="hostless-escaped-dot-segment"),
         pytest.param("mailto:/a/../b", "mailto:/b", id="hostless-mailto-dot-segment"),
@@ -636,9 +637,16 @@ def test_normalize_options(url: str, options: UrlCleaning, expected: str) -> Non
     assert normalize_url(url, options) == expected
 
 
-def test_normalize_rejects_unsplittable_input() -> None:
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("http://[::1/x", id="explicit-authority"),
+        pytest.param("http:[::1/x", id="inferred-authority"),
+    ],
+)
+def test_normalize_rejects_unsplittable_input(url: str) -> None:
     with pytest.raises(ValueError, match="Invalid IPv6 URL"):
-        normalize_url("http://[::1/x")
+        normalize_url(url)
 
 
 @pytest.mark.parametrize(
@@ -817,6 +825,7 @@ def test_dot_segment_resolution(url: str, expected: str) -> None:
         ),
         pytest.param("http://caf%C3%A9.example/", "http://xn--caf-dma.example/", id="percent-utf8-to-punycode"),
         pytest.param("http://:80/x", "http:///x", id="port-only-empty-host"),
+        pytest.param("file://12/p", "file://0.0.0.12/p", id="file-numeric-host"),
     ],
 )
 def test_normalize_url_canonicalizes_hosts(url: str, expected: str) -> None:
@@ -855,6 +864,7 @@ def test_normalize_url_canonicalizes_hosts(url: str, expected: str) -> None:
         pytest.param("http://[::g]/", id="non-hex-group"),
         pytest.param("http://[::1:]/", id="trailing-colon"),
         pytest.param("http://[1:2:3:4:5:6:7:8:9]/", id="nine-groups"),
+        pytest.param("file://[example]/", id="file-invalid-ipv6"),
     ],
 )
 def test_normalize_url_keeps_hosts_it_cannot_parse(url: str) -> None:
@@ -960,6 +970,23 @@ def test_clean_rejects_forbidden_domain(source: str) -> None:
     assert clean_url(source) is None
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("file://\u00ad/p", id="file-unicode"),
+        pytest.param("file://%C2%AD/p", id="file-encoded"),
+        pytest.param("http://%C2%AD/p", id="web-encoded"),
+    ],
+)
+def test_normalize_rejects_host_mapped_to_empty(source: str) -> None:
+    with pytest.raises(ValueError, match="host maps to an empty domain"):
+        normalize_url(source)
+
+
+def test_clean_rejects_host_mapped_to_empty() -> None:
+    assert clean_url("http://%C2%AD/p") is None
+
+
 def test_external_links_reject_forbidden_base_domain() -> None:
     with pytest.raises(ValueError, match="host contains a forbidden domain code point"):
         extract_links("<a href='https://valid.example/'>link</a>", "http://a%23b.example/", external_only=True)
@@ -984,6 +1011,13 @@ def test_external_links_reject_forbidden_base_domain() -> None:
         pytest.param("file:///a\\\u0100", "file:///a/%C4%80", id="two-byte-unicode"),
         pytest.param("file:///a\\\U0001f600", "file:///a/%F0%9F%98%80", id="four-byte-unicode"),
         pytest.param("file:///a\\\x00b", "file:///a/%00b", id="embedded-null"),
+        pytest.param("file:test", "file:///test", id="hostless-path"),
+        pytest.param("file:..", "file:///", id="hostless-parent"),
+        pytest.param("file:.//p", "file:////p", id="hostless-double-slash"),
+        pytest.param("file:C|/m/", "file:///C:/m/", id="hostless-drive-bar"),
+        pytest.param("file:\\C|/m/", "file:///C:/m/", id="hostless-backslash-drive-bar"),
+        pytest.param("file:C||/m/", "file:///C||/m/", id="hostless-non-drive"),
+        pytest.param("file://server\\C|/m", "file://server/C:/m", id="hosted-backslash-drive-bar"),
         pytest.param("FIZZ://EXAMPLE.ORG/a\\b?x=1#part", "fizz://EXAMPLE.ORG/a\\b?x=1#part", id="f-prefixed-non-file"),
         pytest.param("HTTPS://EXAMPLE.ORG/a\\b?x=1#part", "https://example.org/a/b?x=1#part", id="web-path-policy"),
         pytest.param(
@@ -1008,7 +1042,7 @@ def test_normalize_file_path(url: str, expected: str) -> None:
         pytest.param("file:///C|/\U0001f600", "file:///C:/%F0%9F%98%80", id="four-byte-unicode"),
         pytest.param("file:///C|foo", "file:///C|foo", id="longer-segment"),
         pytest.param("file:///1|/foo", "file:///1|/foo", id="non-letter"),
-        pytest.param("FILE:ab|\\foo", "file:ab|/foo", id="relative-file-path"),
+        pytest.param("FILE:ab|\\foo", "file:///ab|/foo", id="relative-file-path"),
     ],
 )
 def test_normalize_file_drive_separator(url: str, expected: str) -> None:
@@ -1053,7 +1087,7 @@ def test_normalize_file_root_survives_trailing_slash_option() -> None:
         pytest.param("file:///4:/../x", "file:///x", id="digit-is-not-drive"),
         pytest.param("file:///Ca/../x", "file:///x", id="missing-drive-colon"),
         pytest.param("foo:/C:/../x", "foo:/x", id="other-scheme-does-not-protect-drive"),
-        pytest.param("file:ab:c/foo", "file:ab:c/foo", id="colon-without-leading-slash"),
+        pytest.param("file:ab:c/foo", "file:///ab:c/foo", id="colon-without-leading-slash"),
     ],
 )
 def test_normalize_file_keeps_drive_root(url: str, expected: str) -> None:
@@ -1240,3 +1274,7 @@ def test_normalize_file_drive_authority_only_for_file(scheme: str) -> None:
 def test_normalize_file_rejects_port(url: str) -> None:
     with pytest.raises(ValueError, match="file URL cannot have a port"):
         normalize_url(url)
+
+
+def test_normalize_file_keeps_ascii_xn_host() -> None:
+    assert normalize_url("file://xn--/p") == "file://xn--/p"

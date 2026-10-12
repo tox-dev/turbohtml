@@ -3,11 +3,11 @@
 
    The split follows the URL standard's basic parser as far as component boundaries: it drops the leading C0-control and
    space bytes and every tab, newline, and carriage return (spec 4.4), reads a scheme when a leading letter is followed
-   by scheme characters up to a ':', an authority after '//', and the path, query, and fragment at the first '?' and
-   '#'. Percent-encoding, dot-segment resolution, IDNA host ToASCII, and relative joining are not this unit's job -- the
-   Python shim keeps those for now -- so the host is reported as raw ASCII spans plus a kind tag (IPv6 literal, IPv4
-   literal, or registered name), never decoded or lowercased here. An authority whose brackets are unbalanced is the one
-   split-time failure, matching the "Invalid IPv6 URL" the shim's normalize_url path documents. */
+   by scheme characters up to a ':', a special-scheme host even without '//', and the path, query, and fragment at the
+   first '?' and '#'. Percent-encoding, dot-segment resolution, IDNA host ToASCII, and relative joining are not this
+   unit's job -- the Python shim keeps those for now -- so the host is reported as raw ASCII spans plus a kind tag
+   (IPv6 literal, IPv4 literal, or registered name), never decoded or lowercased here. Unbalanced authority brackets
+   are the one split-time failure, matching the shim's "Invalid IPv6 URL". */
 
 #include <stdint.h>
 
@@ -582,6 +582,11 @@ static PyObject *domain_to_ascii(PyObject *host) {
     }
     PyObject *encoded = th_url_to_ascii(host);
     if (encoded != NULL) {
+        if (PyUnicode_GET_LENGTH(encoded) == 0) {
+            Py_DECREF(encoded);
+            PyErr_SetString(PyExc_ValueError, "host maps to an empty domain");
+            return NULL;
+        }
         return encoded;
     }
     if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: ToASCII raises nothing else */
@@ -745,6 +750,7 @@ int th_url_split(PyObject *arg, th_url_parts *out, int host_brackets_only) {
         work[index] |= 0x20; /* scheme chars are ASCII; |0x20 lowercases a letter and is identity on a digit or +-. */
     }
     int special = scheme_end > 0 && url_scheme_special(work, 0, scheme_end);
+    int file_scheme = special && scheme_end == 4 && work[0] == 'f';
     Py_ssize_t body = scheme_end >= 0 ? scheme_end + 1 : 0;
     Py_ssize_t netloc_start = body;
     Py_ssize_t netloc_end = body;
@@ -757,6 +763,22 @@ int th_url_split(PyObject *arg, th_url_parts *out, int host_brackets_only) {
             PyMem_Free(work);
             PyErr_SetString(PyExc_ValueError, "Invalid IPv6 URL");
             return -1;
+        }
+    }
+    if (special && !file_scheme && netloc_start == netloc_end) {
+        Py_ssize_t host_start = rem;
+        while (host_start < len && url_slash(work[host_start], 1)) {
+            host_start++;
+        }
+        if (host_start < len && work[host_start] != '?' && work[host_start] != '#') {
+            netloc_start = host_start;
+            netloc_end = authority_end(work, host_start, len, 1, host_brackets_only);
+            if (netloc_end < 0) {
+                PyMem_Free(work);
+                PyErr_SetString(PyExc_ValueError, "Invalid IPv6 URL");
+                return -1;
+            }
+            rem = netloc_end;
         }
     }
     Py_ssize_t hash = -1;
@@ -777,8 +799,7 @@ int th_url_split(PyObject *arg, th_url_parts *out, int host_brackets_only) {
     }
     Py_ssize_t path_end = query_at >= 0 ? query_at : url_end;
     Py_ssize_t query_start = query_at >= 0 ? query_at + 1 : url_end;
-    if (scheme_end == 4 && netloc_end - netloc_start == 2 && is_ascii_alpha(work[netloc_start]) && work[0] == 'f' &&
-        work[1] == 'i' && work[2] == 'l' && work[3] == 'e' &&
+    if (file_scheme && netloc_end - netloc_start == 2 && is_ascii_alpha(work[netloc_start]) &&
         (work[netloc_start + 1] == ':' || work[netloc_start + 1] == '|')) {
         rem = netloc_start - 1;
         netloc_end = netloc_start;
@@ -810,7 +831,7 @@ int th_url_split(PyObject *arg, th_url_parts *out, int host_brackets_only) {
             return -1;        /* GCOVR_EXCL_LINE */
         }
     }
-    out->has_authority = netloc_start > body;
+    out->has_authority = netloc_start > body || netloc_end > netloc_start;
     out->has_port = auth.has_port;
     out->kind = auth.kind;
     out->special = special;
