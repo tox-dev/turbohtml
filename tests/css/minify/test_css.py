@@ -4173,6 +4173,55 @@ def test_legacy_filter_drop_shadow_is_unchanged() -> None:
 
 
 @pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{filter:blur(calc(1px + 2px))}", "a{filter:blur(calc(1px + 2px))}", id="length-addition"),
+        pytest.param("a{filter:blur(calc(1px - 2px))}", "a{filter:blur(calc(1px - 2px))}", id="length-subtraction"),
+        pytest.param("a{filter:brightness(calc(1 + 1))}", "a{filter:brightness(calc(1 + 1))}", id="number-addition"),
+        pytest.param(
+            "a{filter:hue-rotate(calc(30deg + 30deg))}",
+            "a{filter:hue-rotate(calc(30deg + 30deg))}",
+            id="angle-addition",
+        ),
+        pytest.param(
+            "a{filter:blur(min(1px + 2px, 4px))}",
+            "a{filter:blur(min(1px + 2px,4px))}",
+            id="nested-math",
+        ),
+        pytest.param(
+            "a{filter:drop-shadow(calc(1px + 2px) 0 red)}",
+            "a{filter:drop-shadow(calc(1px + 2px) 0 red)}",
+            id="shadow-offset",
+        ),
+    ],
+)
+def test_filter_math_keeps_operator_spacing(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{filter:calc 2px}", "a{filter:calc2px}", id="identifier"),
+        pytest.param("a{filter:calc}", "a{filter:calc}", id="last-identifier"),
+        pytest.param("a{filter:calc)}", "a{filter:calc)}", id="wrong-delimiter"),
+        pytest.param("a{filter:foo(1px + 2px)}", "a{filter:foo(1px+2px)}", id="unknown-function"),
+        pytest.param("a{filter:calc(1px + 2px}", "a{filter:calc(1px+2px})}", id="unclosed-function"),
+    ],
+)
+def test_filter_math_malformed_source(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+def test_filter_math_keeps_ordinary_function() -> None:
+    assert minify_css("a{filter:contrast(2)}") == "a{filter:contrast(2)}"
+
+
+def test_legacy_filter_math_is_unchanged() -> None:
+    assert minify_css("a{-ms-filter:blur(calc(1px + 2px))}") == "a{-ms-filter:blur(calc(1px+2px))}"
+
+
+@pytest.mark.parametrize(
     ("property_name", "edge"),
     [
         pytest.param("margin", "x", id="margin-unknown-keyword"),

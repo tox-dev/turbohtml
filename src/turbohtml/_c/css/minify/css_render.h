@@ -931,15 +931,15 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
                               Py_ssize_t prop_len, css_buf *out) {
     css_buf joined = {NULL, 0, 0, pool->oom};
     int is_ms = css_run_ieq(prop, prop_len, "-ms-filter");
-    Py_ssize_t shadow_end = -1;
+    Py_ssize_t keep_ws_end = -1;
     int pending_ws = 0;
     for (Py_ssize_t index = start; index < end; index++) {
         css_token *token = &vec->items[index];
         if (token->kind == CSS_WS || token->kind == CSS_COMMENT) {
-            pending_ws = index < shadow_end;
+            pending_ws = index < keep_ws_end;
             continue;
         }
-        if (pending_ws && joined.len > 0 && /* GCOVR_EXCL_BR_LINE: only allocation failure empties an active shadow */
+        if (pending_ws && joined.len > 0 && /* GCOVR_EXCL_BR_LINE: only allocation failure empties an active function */
             joined.data[joined.len - 1] != '(' && joined.data[joined.len - 1] != ',' &&
             (token->kind != CSS_DELIM || (token->delim != ')' && token->delim != ','))) {
             cbuf_putc(&joined, ' ');
@@ -950,7 +950,14 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
             vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == '(') {
             Py_ssize_t close_index = css_match_paren(vec, index + 1, end);
             if (close_index < end) {
-                shadow_end = close_index;
+                keep_ws_end = close_index;
+            }
+        } else if (!is_ms && token->kind == CSS_IDENT && css_lower(token->text[0]) != 'b' && index >= keep_ws_end &&
+                   index + 1 < end && vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == '(' &&
+                   token->text_len <= 5 && css_is_math_func(token->text, token->text_len)) {
+            Py_ssize_t close_index = css_match_paren(vec, index + 1, end);
+            if (close_index < end) {
+                keep_ws_end = close_index;
             }
         }
         if (token->kind == CSS_NUM) {
