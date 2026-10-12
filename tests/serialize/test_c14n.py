@@ -486,7 +486,7 @@ def test_xml_c14n_processing_instruction_without_data() -> None:
 
 
 def test_xml_c14n_omits_inserted_processing_instruction_with_invalid_target() -> None:
-    root = parse_xml('<r xmlns:p="urn:p"/>').children[0]
+    root = cast("Element", parse_xml('<r xmlns:p="urn:p"/>').children[0])
     root.append(ProcessingInstruction("1x", "d"))
     assert root.canonicalize() == b'<r xmlns:p="urn:p"></r>'
 
