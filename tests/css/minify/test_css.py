@@ -4268,27 +4268,52 @@ def test_legacy_filter_drop_shadow_is_unchanged() -> None:
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        pytest.param("a{filter:blur(calc(1px + 2px))}", "a{filter:blur(calc(1px + 2px))}", id="length-addition"),
-        pytest.param("a{filter:blur(calc(1px - 2px))}", "a{filter:blur(calc(1px - 2px))}", id="length-subtraction"),
-        pytest.param("a{filter:brightness(calc(1 + 1))}", "a{filter:brightness(calc(1 + 1))}", id="number-addition"),
+        pytest.param("a{filter:blur(calc(1px + 2px))}", "a{filter:blur(3px)}", id="length-addition"),
+        pytest.param("a{filter:brightness(calc(1 + 1))}", "a{filter:brightness(2)}", id="number-addition"),
         pytest.param(
             "a{filter:hue-rotate(calc(30deg + 30deg))}",
-            "a{filter:hue-rotate(calc(30deg + 30deg))}",
+            "a{filter:hue-rotate(60deg)}",
             id="angle-addition",
         ),
+        pytest.param(
+            "a{filter:drop-shadow(calc(1px + 2px) 0 red)}",
+            "a{filter:drop-shadow(3px 0 red)}",
+            id="shadow-offset",
+        ),
+        pytest.param(
+            "a{filter:blur(min(calc(1px + 2px),4px))}",
+            "a{filter:blur(min(3px,4px))}",
+            id="nested-calculation",
+        ),
+    ],
+)
+def test_filter_math_folds_constant_calc(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{filter:blur(calc(1px - 2px))}", "a{filter:blur(calc(-1px))}", id="negative-blur"),
         pytest.param(
             "a{filter:blur(min(1px + 2px, 4px))}",
             "a{filter:blur(min(1px + 2px,4px))}",
             id="nested-math",
         ),
         pytest.param(
-            "a{filter:drop-shadow(calc(1px + 2px) 0 red)}",
-            "a{filter:drop-shadow(calc(1px + 2px) 0 red)}",
-            id="shadow-offset",
+            "a{filter:blur(calc(var(--x) + 1px))}",
+            "a{filter:blur(calc(var(--x) + 1px))}",
+            id="dynamic-value",
         ),
+        pytest.param(
+            "a{filter:blur(calc(1px + 2em))}",
+            "a{filter:blur(calc(1px + 2em))}",
+            id="different-units",
+        ),
+        pytest.param("a{filter:blur(sqrt(4))}", "a{filter:blur(sqrt(4))}", id="other-four-letter-math"),
     ],
 )
-def test_filter_math_keeps_operator_spacing(source: str, expected: str) -> None:
+def test_filter_math_keeps_unresolved_expression(source: str, expected: str) -> None:
     assert minify_css(source) == expected
 
 

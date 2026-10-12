@@ -1020,12 +1020,26 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
             if (close_index < end) {
                 keep_ws_end = close_index;
             }
-        } else if (!is_ms && token->kind == CSS_IDENT && css_lower(token->text[0]) != 'b' && index >= keep_ws_end &&
-                   index + 1 < end && vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == '(' &&
+        } else if (!is_ms && token->kind == CSS_IDENT && css_lower(token->text[0]) != 'b' && index + 1 < end &&
+                   vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == '(' &&
                    token->text_len <= 5 && css_is_math_func(token->text, token->text_len)) {
             Py_ssize_t close_index = css_match_paren(vec, index + 1, end);
             if (close_index < end) {
-                keep_ws_end = close_index;
+                if (index >= keep_ws_end) {
+                    keep_ws_end = close_index;
+                }
+                if (token->text_len == 4 && css_run_ieq(token->text, token->text_len, "calc")) {
+                    css_calc_context context = {prop, prop_len, 0};
+                    Py_ssize_t off;
+                    Py_ssize_t len;
+                    css_compkind kind;
+                    if (css_try_calc(pool, vec, index + 2, close_index, &context, &off, &len, &kind) &&
+                        len < vec->items[close_index].text + vec->items[close_index].text_len - token->text) {
+                        cbuf_put_run(&joined, pool->data + off, len);
+                        index = close_index;
+                        continue;
+                    }
+                }
             }
         }
         if (token->kind == CSS_NUM) {
