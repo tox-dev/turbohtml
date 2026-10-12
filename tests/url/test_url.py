@@ -172,6 +172,31 @@ def test_base_url_percent_encodes(href: str, fallback: str, expected: str) -> No
 
 
 @pytest.mark.parametrize(
+    ("base", "href", "expected"),
+    [
+        pytest.param(
+            "http://site.org/dir/page", "http:\\\\example.com\\p", "http://example.com/p", id="backslash-authority"
+        ),
+        pytest.param(
+            "http://site.org/dir/page", "HTTP:\\\\example.com\\p", "HTTP://example.com/p", id="uppercase-scheme"
+        ),
+        pytest.param("http://site.org/dir/page", "http:/\\example.com\\p", "http://example.com/p", id="mixed-opener"),
+        pytest.param("https://site.org/dir/page", "https:\\\\example.com\\p", "https://example.com/p", id="https"),
+        pytest.param(
+            "http://site.org/dir/page", "http:\\\\example.com\\p\x01", "http://example.com/p", id="trailing-control"
+        ),
+        pytest.param(
+            "http://site.org/dir/page\x01", "http:\\\\example.com\\p", "http://example.com/p", id="trimmed-base"
+        ),
+        pytest.param("http://site.org/dir/page", "http:other", "http://site.org/dir/other", id="same-scheme-relative"),
+        pytest.param("http://site.org/dir/page", "http:/page", "http://site.org/page", id="single-slash"),
+    ],
+)
+def test_base_url_resolves_absolute_special_backslashes(base: str, href: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url(base) == expected
+
+
+@pytest.mark.parametrize(
     ("href", "fallback", "expected"),
     [
         pytest.param("%2e%2e/x", "https://example.org/dir/file", "https://example.org/x", id="parent"),

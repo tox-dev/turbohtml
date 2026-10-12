@@ -795,7 +795,7 @@ static PyObject *cleaned_href(PyObject *href, PyObject *base, const clean_option
         return cached;
     }
     PyObject *candidate;
-    if (base == Py_None || str_has_prefix(href, "http://") || str_has_prefix(href, "https://")) {
+    if (base == Py_None || th_url_web_authority(href) != TH_URL_WEB_AUTHORITY_NONE) {
         candidate = Py_NewRef(href);
     } else {
         candidate = PyUnicode_READ(PyUnicode_KIND(href), PyUnicode_DATA(href), 0) == '\\' ? th_url_resolve(base, href)

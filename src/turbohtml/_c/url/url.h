@@ -10,6 +10,7 @@
 #ifndef TURBOHTML_URL_H
 #define TURBOHTML_URL_H
 
+#include "core/ascii.h"
 #include "core/common.h"
 
 /* The kind of host url_split found inside an authority, so the shim skips IDNA for the two literal forms a domain
@@ -42,6 +43,31 @@ static inline int th_scheme_char(Py_UCS4 ch) {
    companion of th_scheme_char for every byte after it. */
 static inline int th_scheme_start(Py_UCS4 ch) {
     return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+}
+
+enum { TH_URL_WEB_AUTHORITY_NONE = 0, TH_URL_WEB_AUTHORITY_FORWARD = 1, TH_URL_WEB_AUTHORITY_BACKSLASH = 2 };
+
+static inline int th_url_web_authority(PyObject *url) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(url);
+    if (length < 7) {
+        return TH_URL_WEB_AUTHORITY_NONE;
+    }
+    int kind = PyUnicode_KIND(url);
+    const void *data = PyUnicode_DATA(url);
+    if (lower_ascii(PyUnicode_READ(kind, data, 0)) != 'h' || lower_ascii(PyUnicode_READ(kind, data, 1)) != 't' ||
+        lower_ascii(PyUnicode_READ(kind, data, 2)) != 't' || lower_ascii(PyUnicode_READ(kind, data, 3)) != 'p') {
+        return TH_URL_WEB_AUTHORITY_NONE;
+    }
+    Py_ssize_t colon = lower_ascii(PyUnicode_READ(kind, data, 4)) == 's' ? 5 : 4;
+    if (length < colon + 3 || PyUnicode_READ(kind, data, colon) != ':') {
+        return TH_URL_WEB_AUTHORITY_NONE;
+    }
+    Py_UCS4 first = PyUnicode_READ(kind, data, colon + 1);
+    Py_UCS4 second = PyUnicode_READ(kind, data, colon + 2);
+    if ((first != '/' && first != '\\') || (second != '/' && second != '\\')) {
+        return TH_URL_WEB_AUTHORITY_NONE;
+    }
+    return first == '\\' || second == '\\' ? TH_URL_WEB_AUTHORITY_BACKSLASH : TH_URL_WEB_AUTHORITY_FORWARD;
 }
 
 /* The WHATWG scheme state (https://url.spec.whatwg.org/#scheme-state) over value[start,len), where `start` is past the

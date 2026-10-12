@@ -380,6 +380,51 @@ def test_extract_links_resolves_special_backslashes(href: str, expected: str) ->
     assert extract_links(f'<a href="{href}">x</a>', "http://site.org/dir/page") == {expected}
 
 
+@pytest.mark.parametrize(
+    ("base", "href", "expected"),
+    [
+        pytest.param(
+            "http://site.org/dir/page", "http:\\\\example.com\\p", "http://example.com/p", id="backslash-authority"
+        ),
+        pytest.param(
+            "http://site.org/dir/page", "HTTP:\\\\example.com\\p", "http://example.com/p", id="uppercase-scheme"
+        ),
+        pytest.param("http://site.org/dir/page", "http:/\\example.com\\p", "http://example.com/p", id="mixed-opener"),
+        pytest.param(
+            "http://site.org/dir/page", "http:\\/example.com\\p", "http://example.com/p", id="reverse-mixed-opener"
+        ),
+        pytest.param("https://site.org/dir/page", "https:\\\\example.com\\p", "https://example.com/p", id="https"),
+        pytest.param(
+            "http://site.org/dir/page",
+            "http:example.com/p",
+            "http://site.org/dir/example.com/p",
+            id="same-scheme-relative",
+        ),
+        pytest.param(
+            "http://site.org/dir/page", "http:/example.com/p", "http://site.org/example.com/p", id="single-slash"
+        ),
+    ],
+)
+def test_extract_links_resolves_absolute_special_backslashes(base: str, href: str, expected: str) -> None:
+    assert extract_links(f'<a href="{href}">x</a>', base) == {expected}
+
+
+@pytest.mark.parametrize(
+    "href",
+    [
+        pytest.param("hxtp://example.com/p", id="second-scheme-letter"),
+        pytest.param("htxp://example.com/p", id="third-scheme-letter"),
+        pytest.param("httx://example.com/p", id="fourth-scheme-letter"),
+        pytest.param("httpx://example.com/p", id="missing-scheme-colon"),
+        pytest.param("https:/", id="missing-authority"),
+    ],
+)
+def test_extract_links_rejects_invalid_web_authorities(href: str) -> None:
+    assert extract_links(
+        f'<a href="{href}">x</a><a href="http://good.example/p">y</a>', "http://site.org/dir/page"
+    ) == {"http://good.example/p"}
+
+
 def test_a_longer_hreflang_subtag_is_another_language() -> None:
     html = '<a href="https://test.com/a" hreflang="deu">x</a>'
     assert extract_links(html, "https://test.com/", UrlCleaning(language="de")) == set()

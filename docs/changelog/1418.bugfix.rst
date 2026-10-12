@@ -1,0 +1,1 @@
+Resolve HTTP(S) links and document base URLs with backslash authority separators without adding a path slash.

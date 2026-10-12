@@ -368,6 +368,16 @@ static PyObject *trim_url_trailing_c0(PyObject *url) {
     return end == PyUnicode_GET_LENGTH(url) ? Py_NewRef(url) : PyUnicode_Substring(url, 0, end);
 }
 
+static PyObject *url_join_absolute_web(PyObject *target, int *literalized) {
+    PyObject *empty = PyUnicode_FromStringAndSize("", 0);
+    if (empty == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *joined = url_join_encoded_dot_segments(empty, target, literalized);
+    Py_DECREF(empty);
+    return joined;
+}
+
 /* Resolve `target` against `base` and percent-encode the result the way base_url() does, the URL-resolution routine the
    extraction methods reuse rather than reinventing. A relative target absolutizes against base; an absolute one wins.
    NULL with a ValueError set when base or target cannot be split (e.g. an unclosed IPv6 bracket). */
@@ -376,9 +386,14 @@ PyObject *th_url_resolve(PyObject *base, PyObject *target) {
     PyObject *joined;
     int target_flags = url_target_flags(target);
     int leading_backslash = target_flags & 2;
+    int absolute_web = th_url_web_authority(target);
     if (!url_ends_in_c0(base) && !(target_flags & 1)) {
-        joined = leading_backslash ? url_join_web_special_backslashes(base, target, &literalized)
-                                   : url_join_encoded_dot_segments(base, target, &literalized);
+        if (absolute_web == TH_URL_WEB_AUTHORITY_BACKSLASH) {
+            joined = url_join_absolute_web(target, &literalized);
+        } else {
+            joined = leading_backslash ? url_join_web_special_backslashes(base, target, &literalized)
+                                       : url_join_encoded_dot_segments(base, target, &literalized);
+        }
     } else {
         PyObject *trimmed_base = trim_url_trailing_c0(base);
         if (trimmed_base == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -389,8 +404,12 @@ PyObject *th_url_resolve(PyObject *base, PyObject *target) {
             Py_DECREF(trimmed_base);  /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;              /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        joined = leading_backslash ? url_join_web_special_backslashes(trimmed_base, trimmed_target, &literalized)
-                                   : url_join_encoded_dot_segments(trimmed_base, trimmed_target, &literalized);
+        if (absolute_web == TH_URL_WEB_AUTHORITY_BACKSLASH) {
+            joined = url_join_absolute_web(trimmed_target, &literalized);
+        } else {
+            joined = leading_backslash ? url_join_web_special_backslashes(trimmed_base, trimmed_target, &literalized)
+                                       : url_join_encoded_dot_segments(trimmed_base, trimmed_target, &literalized);
+        }
         Py_DECREF(trimmed_base);
         Py_DECREF(trimmed_target);
     }
