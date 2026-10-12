@@ -1115,13 +1115,22 @@ static int consume_doctype(xml_parser *parser) {
     Py_ssize_t sys_end = 0;
     if (public_id || starts_with(parser, parser->pos, "SYSTEM")) {
         parser->pos += 6;
+        if (parser->pos >= parser->length || !xml_is_space(cp(parser, parser->pos))) {
+            record(parser, "xml-malformed-declaration", parser->pos);
+            return -1;
+        }
         skip_space(parser);
         if (public_id) {
             if (skip_doctype_literal(parser, 1, &pub_start, &pub_end) < 0) {
                 return -1;
             }
             has_public = 1;
+            Py_ssize_t space_start = parser->pos;
             skip_space(parser);
+            if (parser->pos == space_start) {
+                record(parser, "xml-malformed-declaration", parser->pos);
+                return -1;
+            }
         }
         if (skip_doctype_literal(parser, 0, &sys_start, &sys_end) < 0) {
             return -1;
