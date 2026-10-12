@@ -52,7 +52,27 @@ static int c14n_xml_ns_index(const c14n_xml_ns *namespaces, Py_ssize_t count, co
     return -1;
 }
 
-static Py_ssize_t c14n_xml_ns_collect(th_tree *tree, const th_node *node, c14n_xml_ns *namespaces) {
+static TH_NOINLINE int c14n_xml_absolute_uri(const Py_UCS4 *uri, Py_ssize_t len) {
+    if (len == 0) {
+        return 1;
+    }
+    if (!((uri[0] >= 'A' && uri[0] <= 'Z') || (uri[0] >= 'a' && uri[0] <= 'z'))) {
+        return 0;
+    }
+    for (Py_ssize_t index = 1; index < len; index++) {
+        Py_UCS4 character = uri[index];
+        if (character == ':') {
+            return 1;
+        }
+        if (!((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') ||
+              (character >= '0' && character <= '9') || character == '+' || character == '-' || character == '.')) {
+            return 0;
+        }
+    }
+    return 0;
+}
+
+static Py_ssize_t c14n_xml_ns_collect(sbuf *out, th_tree *tree, const th_node *node, c14n_xml_ns *namespaces) {
     Py_ssize_t count = 0;
     for (const th_node *ancestor = node; ancestor != NULL; ancestor = ancestor->parent) {
         if (ancestor->type != TH_NODE_ELEMENT) {
@@ -70,6 +90,11 @@ static Py_ssize_t c14n_xml_ns_collect(th_tree *tree, const th_node *node, c14n_x
                 continue;
             }
             if (c14n_xml_ns_index(namespaces, count, prefix, prefix_len) < 0) {
+                if (!c14n_xml_absolute_uri(ancestor->attrs[index].value, ancestor->attrs[index].value_len)) {
+                    PyErr_SetString(PyExc_ValueError, "relative namespace URI cannot be canonicalized");
+                    out->failed = 1;
+                    return count;
+                }
                 namespaces[count++] =
                     (c14n_xml_ns){prefix, prefix_len, ancestor->attrs[index].value, ancestor->attrs[index].value_len};
             }
@@ -286,7 +311,13 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
         out->failed = 1;      /* GCOVR_EXCL_LINE: allocation-failure path */
         return;               /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_ssize_t ns_count = c14n_xml_ns_collect(tree, node, namespaces);
+    Py_ssize_t ns_count = c14n_xml_ns_collect(out, tree, node, namespaces);
+    if (out->failed) {
+        if (namespaces != stack_namespaces) {
+            PyMem_Free(namespaces);
+        }
+        return;
+    }
     if (ns_count > 1) {
         qsort(namespaces, (size_t)ns_count, sizeof(c14n_xml_ns), c14n_xml_ns_cmp);
     }

@@ -516,6 +516,45 @@ def test_xml_c14n_many_namespaces_and_attributes() -> None:
 
 
 @pytest.mark.parametrize(
+    ("namespace", "options"),
+    [
+        pytest.param("relative", Canonical(), id="plain-relative"),
+        pytest.param("./relative", Canonical(exclusive=True), id="exclusive-relative"),
+        pytest.param("a/b", Canonical(version="1.1"), id="slash-before-colon"),
+        pytest.param("1:bad", Canonical(), id="digit-before-colon"),
+        pytest.param("é:bad", Canonical(), id="non-ascii-before-colon"),
+        pytest.param("aé:bad", Canonical(), id="non-ascii-in-scheme"),
+        pytest.param("a/:bad", Canonical(), id="slash-in-scheme"),
+    ],
+)
+def test_xml_c14n_rejects_relative_namespace(namespace: str, options: Canonical) -> None:
+    with pytest.raises(ValueError, match="relative namespace URI cannot be canonicalized"):
+        parse_xml(f'<r xmlns:p="{namespace}"/>').canonicalize(options)
+
+
+def test_xml_c14n_rejects_relative_namespace_with_heap_allocated_bindings() -> None:
+    source: Final = "<r " + " ".join(f'xmlns:p{index}="urn:{index}"' for index in range(33)) + ' xmlns:bad="rel"/>'
+    with pytest.raises(ValueError, match="relative namespace URI cannot be canonicalized"):
+        parse_xml(source).canonicalize()
+
+
+def test_xml_c14n_accepts_shadowed_relative_namespace_on_subtree() -> None:
+    document: Final = parse_xml('<r xmlns:p="relative"><c xmlns:p="urn:absolute"><p:a/></c></r>')
+    assert document.children[0].children[0].canonicalize() == (b'<c xmlns:p="urn:absolute"><p:a></p:a></c>')
+
+
+def test_xml_c14n_accepts_empty_default_namespace() -> None:
+    assert parse_xml('<r xmlns=""/>').canonicalize() == b"<r></r>"
+
+
+@pytest.mark.parametrize("scheme", ["URN", "urn", "u0", "u+", "u-", "u."])
+def test_xml_c14n_accepts_absolute_namespace_scheme(scheme: str) -> None:
+    assert parse_xml(f'<r xmlns:p="{scheme}:part"><p:a/></r>').canonicalize() == (
+        f'<r xmlns:p="{scheme}:part"><p:a></p:a></r>'.encode()
+    )
+
+
+@pytest.mark.parametrize(
     "prefix",
     [pytest.param("é", id="two-byte"), pytest.param("ࠀ", id="three-byte"), pytest.param("𐀀", id="four-byte")],
 )

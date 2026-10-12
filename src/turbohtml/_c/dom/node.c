@@ -2451,6 +2451,13 @@ static int parse_canonical_spec(PyObject *spec, th_c14n_opts *opts, const char *
     return 0;
 }
 
+static Py_NO_INLINE PyObject *canonicalize_failed(void) {
+    if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: only allocation failure has no pending exception */
+        return NULL;
+    }
+    return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+}
+
 static PyObject *node_canonicalize_from_spec(PyObject *self, PyObject *spec) {
     th_c14n_opts opts = {0, 0, 0, NULL, 0};
     const char **inclusive_utf8;
@@ -2464,8 +2471,8 @@ static PyObject *node_canonicalize_from_spec(PyObject *self, PyObject *spec) {
     data = th_node_canonicalize(tree_of(self), ((NodeObject *)self)->node, &opts, &out_len);
     Py_END_CRITICAL_SECTION();
     PyMem_Free(inclusive_utf8);
-    if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (data == NULL) {
+        return canonicalize_failed();
     }
     PyObject *text = ucs4_to_str(data, out_len);
     PyMem_Free(data);
