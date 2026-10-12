@@ -1,1 +1,2 @@
-Cache value-symbol tokenization in the fuzz HTML grammar, so processes importing the fuzz oracles start about twice as fast.
+Cache value-symbol tokenization in the fuzz HTML grammar, so processes importing the fuzz oracles start about twice as
+fast.
