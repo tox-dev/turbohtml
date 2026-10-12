@@ -130,6 +130,10 @@ def test_processing_instruction_without_data_omits_space() -> None:
     assert Element("a", children=[ProcessingInstruction("pi", "")]).canonicalize() == b"<a><?pi?></a>"
 
 
+def test_processing_instruction_invalid_target_is_omitted() -> None:
+    assert Element("a", children=[ProcessingInstruction("1x", "d")]).canonicalize() == b"<a></a>"
+
+
 def test_comment_dropped_by_default() -> None:
     assert _one("<a><!--c--><b/></a>", "a").canonicalize() == b"<a><b></b></a>"
 
@@ -479,6 +483,12 @@ def test_xml_c14n_renders_comments_and_processing_instructions() -> None:
 
 def test_xml_c14n_processing_instruction_without_data() -> None:
     assert parse_xml('<r xmlns:p="urn:p"><?pi?></r>').canonicalize() == b'<r xmlns:p="urn:p"><?pi?></r>'
+
+
+def test_xml_c14n_omits_inserted_processing_instruction_with_invalid_target() -> None:
+    root = parse_xml('<r xmlns:p="urn:p"/>').children[0]
+    root.append(ProcessingInstruction("1x", "d"))
+    assert root.canonicalize() == b'<r xmlns:p="urn:p"></r>'
 
 
 def test_xml_c14n_document_nodes_surround_root() -> None:

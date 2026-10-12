@@ -931,6 +931,35 @@ def test_xml_processing_instruction_closes_with_question_mark() -> None:
     assert node.serialize(Html(xml=True, layout=Indent(2))) == "<doc><?t d?></doc>"
 
 
+@pytest.mark.parametrize(
+    "target",
+    [
+        pytest.param("xml", id="reserved-lowercase"),
+        pytest.param("Xml", id="reserved-mixed-case"),
+        pytest.param("1x", id="digit-start"),
+        pytest.param(":a", id="colon-start"),
+        pytest.param("a:b", id="colon"),
+        pytest.param("a?b", id="question-mark"),
+        pytest.param("a\u00d7", id="unicode-name-gap"),
+    ],
+)
+def test_xml_processing_instruction_omits_invalid_target(target: str) -> None:
+    assert Element("doc", children=[ProcessingInstruction(target, "d")]).serialize(_XML) == "<doc></doc>"
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        pytest.param("xml-stylesheet", id="reserved-prefix-is-allowed"),
+        pytest.param("é", id="unicode-start"),
+        pytest.param("a\u0301", id="unicode-continuation"),
+        pytest.param("😀", id="supplementary-start"),
+    ],
+)
+def test_xml_processing_instruction_keeps_valid_target(target: str) -> None:
+    assert Element("doc", children=[ProcessingInstruction(target, "d")]).serialize(_XML) == f"<doc><?{target} d?></doc>"
+
+
 _XML_ONLY_NODES: Final = "<r><![CDATA[a><b>c</b>]]><![CDATA[x < y]]><?pi a><i>p</i>--?><?ok x y?></r>"
 
 

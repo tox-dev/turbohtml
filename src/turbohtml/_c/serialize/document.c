@@ -374,6 +374,9 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
     case TH_NODE_PI:
         /* XML closes a PI with "?>"; the HTML serialization has no PI syntax and ends the bogus-comment form at ">". */
         if (opts->xml) {
+            if (node->tag_flags & TH_PI_XML_INVALID) {
+                break;
+            }
             sbuf_puts(out, "<?");
             sbuf_put_xml_pi_data(out, node->text, node->text_len);
             sbuf_puts(out, "?>");

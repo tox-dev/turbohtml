@@ -68,6 +68,9 @@ static void c14n_close_tag(sbuf *out, const th_node *node) {
 }
 
 static void c14n_put_pi(sbuf *out, const th_node *node) {
+    if (node->tag_flags & TH_PI_XML_INVALID) {
+        return;
+    }
     Py_ssize_t target_len = node->attr_count;
     sbuf_puts(out, "<?");
     sbuf_put_ucs4(out, node->text, target_len);
