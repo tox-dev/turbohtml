@@ -1220,6 +1220,9 @@ static int consume_end_tag(xml_parser *parser) {
    scratch buffer, declaring a well-formed prefix binding. Returns 0 for an ordinary attribute
    or a valid declaration, -1 with an error recorded for a reserved-binding violation. */
 static int consume_namespace_decl(xml_parser *parser, Py_ssize_t name_start, Py_ssize_t name_end, Py_ssize_t depth) {
+    if (name_end - name_start < 5 || cp(parser, name_start) != 'x') {
+        return 0;
+    }
     int is_default = name_equals(parser, name_start, name_end, "xmlns");
     if (!is_default && !starts_with(parser, name_start, "xmlns:")) {
         return 0;
