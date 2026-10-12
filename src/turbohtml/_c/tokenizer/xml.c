@@ -588,11 +588,20 @@ static int prefix_in_scope(xml_parser *parser, Py_ssize_t start, Py_ssize_t end,
     return 0;
 }
 
-/* Validate the prefix of the qualified name in [start, end): a leading prefix
-   before ':' must be declared. Returns 0, or -1 with an error recorded. */
+/* A QName has at most one colon between two NCNames, and its prefix must be in scope. */
 static int check_qname_prefix(xml_parser *parser, Py_ssize_t start, Py_ssize_t end) {
     for (Py_ssize_t index = start; index < end; index++) {
         if (cp(parser, index) == ':') {
+            if (index == start || index == end - 1) {
+                record(parser, "xml-invalid-name", start);
+                return -1;
+            }
+            for (Py_ssize_t local = index + 1; local < end; local++) {
+                if (cp(parser, local) == ':') {
+                    record(parser, "xml-invalid-name", start);
+                    return -1;
+                }
+            }
             if (!prefix_in_scope(parser, start, index, start)) {
                 return -1;
             }
@@ -1232,6 +1241,12 @@ static int consume_namespace_decl(xml_parser *parser, Py_ssize_t name_start, Py_
     if (prefix_len == 0 || parser->scratch_len == 0) {
         record(parser, "xml-invalid-namespace-decl", name_start);
         return -1;
+    }
+    for (Py_ssize_t index = prefix_start; index < name_end; index++) {
+        if (cp(parser, index) == ':') {
+            record(parser, "xml-invalid-namespace-decl", name_start);
+            return -1;
+        }
     }
     if (name_equals(parser, prefix_start, name_end, "xmlns")) { /* the xmlns prefix is never declarable */
         record(parser, "xml-reserved-prefix", prefix_start);
