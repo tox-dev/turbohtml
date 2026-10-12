@@ -235,6 +235,17 @@ static void ser_put_doctype_id(sbuf *out, const Py_UCS4 *id, Py_ssize_t len) {
     sbuf_putc(out, quote);
 }
 
+static int xml_pubid_valid(const Py_UCS4 *id, Py_ssize_t len) {
+    static const char pubid[] =
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \r\n-'()+,./:=?;!*#@$_%";
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (id[index] >= 128 || memchr(pubid, (int)id[index], sizeof(pubid) - 1) == NULL) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* XML serialization of a DocumentType node (DOM-Parsing), with its public and system
    identifiers. A name that is not a well-formed XML Name (empty, or carrying a character
    XML forbids) has no XML form, so the whole doctype is dropped rather than written as tag
@@ -251,13 +262,15 @@ static void ser_put_xml_doctype(sbuf *out, th_node *node) {
     Py_ssize_t public_len;
     Py_ssize_t system_len;
     if (th_node_doctype_ids(node, &public_id, &public_len, &system_id, &system_len)) {
-        if (public_len > 0) {
+        if (public_len > 0 && xml_pubid_valid(public_id, public_len)) {
             /* XML requires a system literal after a public one, so both are always written */
             sbuf_puts(out, " PUBLIC ");
-            ser_put_doctype_id(out, public_id, public_len);
+            sbuf_putc(out, '"');
+            sbuf_put_ucs4(out, public_id, public_len);
+            sbuf_putc(out, '"');
             sbuf_putc(out, ' ');
             ser_put_doctype_id(out, system_id, system_len);
-        } else {
+        } else if (public_len == 0 || (node->tag_flags & TH_DOCTYPE_HAS_SYSTEM)) {
             sbuf_puts(out, " SYSTEM ");
             ser_put_doctype_id(out, system_id, system_len);
         }

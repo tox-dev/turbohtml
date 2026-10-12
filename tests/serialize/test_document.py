@@ -286,8 +286,29 @@ def test_xml_serialization_re_reads_unchanged(source: str) -> None:
     assert parse_xml(once).serialize(Html(xml=True)) == once
 
 
-def test_xml_serialization_keeps_doctype_external_ids() -> None:
-    assert parse('<!DOCTYPE o SYSTEM "s"><r>').serialize(Html(xml=True)).startswith('<!DOCTYPE o SYSTEM "s">')
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param('<!DOCTYPE o SYSTEM "s"><r>', '<!DOCTYPE o SYSTEM "s">', id="system"),
+        pytest.param('<!DOCTYPE o PUBLIC "wxyzYZ" "s"><r>', '<!DOCTYPE o PUBLIC "wxyzYZ" "s">', id="public"),
+    ],
+)
+def test_xml_serialization_keeps_doctype_external_ids(source: str, expected: str) -> None:
+    assert parse(source).serialize(Html(xml=True)).startswith(expected)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param('<!DOCTYPE o PUBLIC "a<" "x&"><r>', '<!DOCTYPE o SYSTEM "x&">', id="less-than"),
+        pytest.param('<!DOCTYPE o PUBLIC "a<" ""><r>', '<!DOCTYPE o SYSTEM "">', id="empty-system"),
+        pytest.param('<!DOCTYPE o PUBLIC "a&"><r>', "<!DOCTYPE o>", id="ampersand-without-system"),
+        pytest.param('<!DOCTYPE o PUBLIC "café" "s"><r>', '<!DOCTYPE o SYSTEM "s">', id="non-ascii"),
+    ],
+)
+def test_xml_serialization_omits_invalid_public_id(source: str, expected: str) -> None:
+    serialized: Final = parse(source).serialize(Html(xml=True))
+    assert parse_xml(serialized).serialize(Html(xml=True)) == expected + "<html><head/><body><r/></body></html>"
 
 
 def test_xml_serialization_drops_a_doctype_without_an_xml_name() -> None:
