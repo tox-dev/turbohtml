@@ -509,6 +509,21 @@ def test_minify_css_rgb_argument_shape(source: str, expected: str) -> None:
     assert minify_css(expected) == expected
 
 
+@pytest.mark.parametrize("unit", ["px", "em", "deg"])
+def test_minify_css_invalid_rgb_zero_unit_stays_invalid(unit: str) -> None:
+    source = f"a{{color:rgb(0,0,0{unit})}}"
+    expected = source
+    assert minify_css(source) == expected
+    assert minify_css(expected) == expected
+
+
+def test_minify_css_unclosed_invalid_rgb_stays_invalid() -> None:
+    source = "a{n:rgb(0,0,0px"
+    expected = "a{n:rgb(0,0,0px)}"
+    assert minify_css(source) == expected
+    assert minify_css(expected) == expected
+
+
 @pytest.mark.parametrize(
     ("zeroes", "expected"),
     [

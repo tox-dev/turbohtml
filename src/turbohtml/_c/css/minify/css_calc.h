@@ -583,6 +583,8 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
                                  Py_ssize_t name_len, css_buf *out) {
     int is_var = css_run_ieq(name, name_len, "var");
     int keep_ws = css_is_math_func(name, name_len);
+    int is_color = css_run_ieq(name, name_len, "rgb") || css_run_ieq(name, name_len, "rgba") ||
+                   css_run_ieq(name, name_len, "hsl") || css_run_ieq(name, name_len, "hsla");
     int pending_ws = 0;
     Py_ssize_t index = start;
     while (index < end) {
@@ -665,7 +667,7 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
             } else {
                 Py_ssize_t off;
                 Py_ssize_t len;
-                css_format_dimension(pool, token, !keep_ws, NULL, 0, &off, &len);
+                css_format_dimension(pool, token, !keep_ws && !is_color, NULL, 0, &off, &len);
                 /* dropping a sign or unit (e.g. +0/-0/0px -> 0) can glue the number onto the token before it to read as
                    one different token (CSS Syntax 3 §9.1), including a second adjacent number in an invalid calc, so
                    keep a boundary as the declaration-value path does; a negative number after a unitless one starts
