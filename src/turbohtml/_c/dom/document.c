@@ -94,6 +94,32 @@ static int url_has_encoded_dot(const char *bytes, Py_ssize_t length) {
     return 0;
 }
 
+static int url_has_literal_dot_path(const char *bytes, Py_ssize_t length) {
+    const char *end = bytes + length;
+    while (bytes < end && (bytes = memchr(bytes, '/', (size_t)(end - bytes))) != NULL) {
+        bytes++;
+        if (bytes < end && *bytes == '.') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static inline int url_has_literal_dot_unicode(PyObject *url) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(url);
+    if (length < 2) {
+        return 0;
+    }
+    int kind = PyUnicode_KIND(url);
+    const void *data = PyUnicode_DATA(url);
+    for (Py_ssize_t index = 0; index + 1 < length; index++) {
+        if (PyUnicode_READ(kind, data, index) == '/' && PyUnicode_READ(kind, data, index + 1) == '.') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int url_has_encoded_dot_unicode(PyObject *url) {
     Py_ssize_t length = PyUnicode_GET_LENGTH(url);
     if (PyUnicode_IS_ASCII(url)) {
@@ -231,10 +257,11 @@ static PyObject *url_percent_encode(PyObject *url, int check_encoded_dot) {
             }
         }
     }
-    if (hierarchical &&
-        (check_encoded_dot == 2 || (check_encoded_dot && url_has_encoded_dot(out + prefix_end, written - prefix_end)) ||
-         (backslash_path && (memchr(out + prefix_end, '.', (size_t)(written - prefix_end)) != NULL ||
-                             memchr(out + prefix_end, '%', (size_t)(written - prefix_end)) != NULL)))) {
+    if (hierarchical && (check_encoded_dot == 2 ||
+                         (check_encoded_dot && (url_has_literal_dot_path(out + prefix_end, written - prefix_end) ||
+                                                url_has_encoded_dot(out + prefix_end, written - prefix_end))) ||
+                         (backslash_path && (memchr(out + prefix_end, '.', (size_t)(written - prefix_end)) != NULL ||
+                                             memchr(out + prefix_end, '%', (size_t)(written - prefix_end)) != NULL)))) {
         PyObject *path = PyUnicode_DecodeASCII(out + prefix_end, written - prefix_end, "strict");
         if (path == NULL) {    /* GCOVR_EXCL_BR_LINE: encoded path contains ASCII only */
             PyMem_Free(out);   /* GCOVR_EXCL_LINE: decode-failure path */
@@ -384,6 +411,11 @@ static PyObject *url_join_absolute_web(PyObject *target, int *literalized) {
 PyObject *th_url_resolve(PyObject *base, PyObject *target) {
     int literalized;
     PyObject *joined;
+    Py_ssize_t target_len = PyUnicode_GET_LENGTH(target);
+    int raw_dot =
+        url_has_literal_dot_unicode(target) ||
+        ((target_len == 0 || PyUnicode_READ_CHAR(target, 0) == '?' || PyUnicode_READ_CHAR(target, 0) == '#') &&
+         url_has_literal_dot_unicode(base));
     int target_flags = url_target_flags(target);
     int leading_backslash = target_flags & 2;
     int absolute_web = th_url_web_authority(target);
@@ -416,7 +448,7 @@ PyObject *th_url_resolve(PyObject *base, PyObject *target) {
     if (joined == NULL) {
         return NULL;
     }
-    PyObject *encoded = url_percent_encode(joined, literalized ? 2 : 0);
+    PyObject *encoded = url_percent_encode(joined, literalized ? 2 : raw_dot);
     Py_DECREF(joined);
     return encoded;
 }

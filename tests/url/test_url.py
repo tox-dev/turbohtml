@@ -242,6 +242,38 @@ def test_base_url_resolves_encoded_dot_segments(href: str, fallback: str, expect
 
 
 @pytest.mark.parametrize(
+    ("href", "fallback", "expected"),
+    [
+        pytest.param("http://example.org/a/../b", "http://site.org/", "http://example.org/b", id="absolute-parent"),
+        pytest.param("//example.org/a/./b", "http://site.org/", "http://example.org/a/b", id="authority-current"),
+        pytest.param("http://example.org/a/..", "http://site.org/", "http://example.org/", id="trailing-parent"),
+        pytest.param(
+            "http://example.org/.well-known/x", "http://site.org/", "http://example.org/.well-known/x", id="name"
+        ),
+        pytest.param(
+            "http://example.org/a/../b?next=/../x#f/./g",
+            "http://site.org/",
+            "http://example.org/b?next=/../x#f/./g",
+            id="query-and-fragment",
+        ),
+        pytest.param("foo:/a/../b", "http://site.org/", "foo:/b", id="non-special"),
+        pytest.param("mailto:x/../y", "http://site.org/", "mailto:x/../y", id="opaque"),
+        pytest.param("http://example.org?x=/../", "http://site.org/", "http://example.org?x=/../", id="query-only"),
+        pytest.param(
+            "http://example.org/a/?next=/../",
+            "http://site.org/",
+            "http://example.org/a/?next=/../",
+            id="path-ending-slash",
+        ),
+        pytest.param("#f", "http://example.org/a/../b", "http://example.org/b#f", id="fragment-inherits-base"),
+        pytest.param("?q", "http://example.org/a/./b", "http://example.org/a/b?q", id="query-inherits-base"),
+    ],
+)
+def test_base_url_resolves_literal_dot_segments(href: str, fallback: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url(fallback) == expected
+
+
+@pytest.mark.parametrize(
     "href",
     [
         pytest.param("https://example.org/abcdefghijklmnop", id="no-escape"),

@@ -1,0 +1,1 @@
+Remove literal `.` and `..` path segments from absolute document base URLs.
