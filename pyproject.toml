@@ -399,6 +399,7 @@ ini_options.filterwarnings = [
 # Optional competitors lack wheels on parts of the test matrix. Exclude their checks
 # from portable coverage; the oracle marker scopes exclusions within consolidated modules.
 run.omit = [
+  ".tox/*/cbuild/*",                                   # generated editable-build files can be imported during another tox env's run
   "tests/benchmarks/*",                                # run only under --codspeed (the CI benchmark job), never in the coverage run
   "tests/conformance/test_c14n_conformance.py",        # runs only in the dedicated conformance env; the matrix deselects tests/conformance
   "tests/conformance/test_cssom_jsdom_conformance.py", # differential oracle: skips when the node/jsdom toolchain is absent

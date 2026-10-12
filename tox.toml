@@ -34,7 +34,7 @@ pass_env = [ "COV_GCOV", "PYTEST_*" ]
 # branch on some runs and not others. The C branch gate wants every branch every run, and llvm-cov
 # (the macOS cells) counts branches gcc does not, so such a branch flakes only on macOS -- one cell,
 # rotating by interpreter, green on rerun. A fixed seed makes the gate reproducible.
-set_env = { PYTHONHASHSEED = "0" }
+set_env = { PYTHONHASHSEED = "0", COVERAGE_FILE = "{env_tmp_dir}{/}.coverage" }
 commands_pre = [
   [
     "python",
