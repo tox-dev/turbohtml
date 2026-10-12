@@ -52,27 +52,36 @@ static int c14n_xml_ns_index(const c14n_xml_ns *namespaces, Py_ssize_t count, co
     return -1;
 }
 
-static TH_NOINLINE int c14n_xml_absolute_uri(const Py_UCS4 *uri, Py_ssize_t len) {
+static int c14n_xml_absolute_uri(const Py_UCS4 *uri, Py_ssize_t len) {
     if (len == 0) {
         return 1;
     }
-    if (!((uri[0] >= 'A' && uri[0] <= 'Z') || (uri[0] >= 'a' && uri[0] <= 'z'))) {
+    if (len >= 4 && uri[0] == 'u' && uri[1] == 'r' && uri[2] == 'n' && uri[3] == ':') {
+        return 1;
+    }
+    if (len >= 5 && uri[0] == 'h' && uri[1] == 't' && uri[2] == 't' && uri[3] == 'p' &&
+        (uri[4] == ':' || (len >= 6 && uri[4] == 's' && uri[5] == ':'))) {
+        return 1;
+    }
+    Py_UCS4 first = uri[0] | 0x20;
+    if (first < 'a' || first > 'z') {
         return 0;
     }
     for (Py_ssize_t index = 1; index < len; index++) {
-        Py_UCS4 character = uri[index];
+        Py_UCS4 character = uri[index] | 0x20;
         if (character == ':') {
             return 1;
         }
-        if (!((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') ||
-              (character >= '0' && character <= '9') || character == '+' || character == '-' || character == '.')) {
+        if ((character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '+' &&
+            character != '-' && character != '.') {
             return 0;
         }
     }
     return 0;
 }
 
-static Py_ssize_t c14n_xml_ns_collect(sbuf *out, th_tree *tree, const th_node *node, c14n_xml_ns *namespaces) {
+static Py_ssize_t c14n_xml_ns_collect(th_tree *tree, const th_node *node, const th_node *apex,
+                                      c14n_xml_ns *namespaces) {
     Py_ssize_t count = 0;
     for (const th_node *ancestor = node; ancestor != NULL; ancestor = ancestor->parent) {
         if (ancestor->type != TH_NODE_ELEMENT) {
@@ -90,10 +99,10 @@ static Py_ssize_t c14n_xml_ns_collect(sbuf *out, th_tree *tree, const th_node *n
                 continue;
             }
             if (c14n_xml_ns_index(namespaces, count, prefix, prefix_len) < 0) {
-                if (!c14n_xml_absolute_uri(ancestor->attrs[index].value, ancestor->attrs[index].value_len)) {
+                if ((node == apex || ancestor == node) &&
+                    !c14n_xml_absolute_uri(ancestor->attrs[index].value, ancestor->attrs[index].value_len)) {
                     PyErr_SetString(PyExc_ValueError, "relative namespace URI cannot be canonicalized");
-                    out->failed = 1;
-                    return count;
+                    return -1;
                 }
                 namespaces[count++] =
                     (c14n_xml_ns){prefix, prefix_len, ancestor->attrs[index].value, ancestor->attrs[index].value_len};
@@ -311,11 +320,12 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
         out->failed = 1;      /* GCOVR_EXCL_LINE: allocation-failure path */
         return;               /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_ssize_t ns_count = c14n_xml_ns_collect(out, tree, node, namespaces);
-    if (out->failed) {
+    Py_ssize_t ns_count = c14n_xml_ns_collect(tree, node, apex, namespaces);
+    if (ns_count < 0) {
         if (namespaces != stack_namespaces) {
             PyMem_Free(namespaces);
         }
+        out->failed = 1;
         return;
     }
     if (ns_count > 1) {

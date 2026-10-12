@@ -525,6 +525,7 @@ def test_xml_c14n_many_namespaces_and_attributes() -> None:
         pytest.param("é:bad", Canonical(), id="non-ascii-before-colon"),
         pytest.param("aé:bad", Canonical(), id="non-ascii-in-scheme"),
         pytest.param("a/:bad", Canonical(), id="slash-in-scheme"),
+        pytest.param("https", Canonical(), id="scheme-without-colon"),
     ],
 )
 def test_xml_c14n_rejects_relative_namespace(namespace: str, options: Canonical) -> None:
@@ -538,6 +539,20 @@ def test_xml_c14n_rejects_relative_namespace_with_heap_allocated_bindings() -> N
         parse_xml(source).canonicalize()
 
 
+@pytest.mark.parametrize(
+    ("source", "scope"),
+    [
+        pytest.param('<r><c xmlns:p="relative"><p:a/></c></r>', "document", id="descendant-binding"),
+        pytest.param('<r xmlns:p="relative"><c><p:a/></c></r>', "child", id="inherited-binding"),
+    ],
+)
+def test_xml_c14n_rejects_relative_namespace_in_subtree(source: str, scope: str) -> None:
+    document: Final = parse_xml(source)
+    node = document.children[0].children[0] if scope == "child" else document
+    with pytest.raises(ValueError, match="relative namespace URI cannot be canonicalized"):
+        node.canonicalize()
+
+
 def test_xml_c14n_accepts_shadowed_relative_namespace_on_subtree() -> None:
     document: Final = parse_xml('<r xmlns:p="relative"><c xmlns:p="urn:absolute"><p:a/></c></r>')
     assert document.children[0].children[0].canonicalize() == (b'<c xmlns:p="urn:absolute"><p:a></p:a></c>')
@@ -547,7 +562,10 @@ def test_xml_c14n_accepts_empty_default_namespace() -> None:
     assert parse_xml('<r xmlns=""/>').canonicalize() == b"<r></r>"
 
 
-@pytest.mark.parametrize("scheme", ["URN", "urn", "u0", "u+", "u-", "u."])
+@pytest.mark.parametrize(
+    "scheme",
+    ["URN", "urn", "urx", "urnx", "http", "https", "hax", "htx", "httx", "httpx", "httpsx", "u0", "u+", "u-", "u."],
+)
 def test_xml_c14n_accepts_absolute_namespace_scheme(scheme: str) -> None:
     assert parse_xml(f'<r xmlns:p="{scheme}:part"><p:a/></r>').canonicalize() == (
         f'<r xmlns:p="{scheme}:part"><p:a></p:a></r>'.encode()
