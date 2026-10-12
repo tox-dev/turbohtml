@@ -65,6 +65,8 @@ commands_pre = [
 commands = [
   [
     "pytest",
+    "-n",
+    "auto",
     "--durations",
     "10",
     "--no-cov-on-fail",

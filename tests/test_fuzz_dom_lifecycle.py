@@ -97,9 +97,14 @@ def test_dom_lifecycle_seed_holds_and_reports_a_violation(text: str) -> None:
     )
 
 
-def test_dom_lifecycle_generated_cases_hold() -> None:
+def _generated_lifecycle_cases() -> list[str]:
     rng: Final = random.Random(1017)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - a fixed seed reproduces failing programs
-    assert all(dom_lifecycle_check(dom_lifecycle_generate(rng)) is None for _ in range(100))
+    return [dom_lifecycle_generate(rng) for _ in range(100)]
+
+
+@pytest.mark.parametrize("text", _generated_lifecycle_cases(), ids=[f"{index:03d}" for index in range(100)])
+def test_dom_lifecycle_generated_case_holds(text: str) -> None:
+    assert dom_lifecycle_check(text) is None
 
 
 @pytest.mark.parametrize(
