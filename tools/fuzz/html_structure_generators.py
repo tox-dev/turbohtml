@@ -7,6 +7,7 @@ import random
 import re
 from collections import deque
 from dataclasses import dataclass
+from functools import cache
 from html import escape
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, TypeAlias
@@ -289,6 +290,7 @@ class _Values:
         return tuple(parts)
 
 
+@cache  # owner() re-reads the same value sources for every one of the ~1000 value alternatives
 def _symbols(source: str) -> tuple[str, ...]:
     return tuple(token[1].split()[0] for token in _TOKEN.finditer(source))
 
