@@ -677,9 +677,10 @@ typedef struct {
    element is still well-formed, so no ancestor tracking is needed). */
 static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th_node *node) {
     xml_ns_emitted emitted = {0};
-    if (node->ns != TH_NS_HTML && (node->parent == NULL || node->parent->ns != node->ns)) {
-        sbuf_puts(out, node->ns == TH_NS_SVG ? " xmlns=\"http://www.w3.org/2000/svg\""
-                                             : " xmlns=\"http://www.w3.org/1998/Math/MathML\"");
+    if (node->parent == NULL ? node->ns != TH_NS_HTML : node->parent->ns != node->ns) {
+        sbuf_puts(out, node->ns == TH_NS_HTML  ? " xmlns=\"\""
+                       : node->ns == TH_NS_SVG ? " xmlns=\"http://www.w3.org/2000/svg\""
+                                               : " xmlns=\"http://www.w3.org/1998/Math/MathML\"");
         emitted.default_ns = 1;
     }
     int has_xlink_attr = 0;

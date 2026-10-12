@@ -864,6 +864,35 @@ def test_nested_foreign_element_does_not_redeclare_default() -> None:
     assert "xmlns=" not in node.serialize(_XML).split("<g", 1)[1]
 
 
+@pytest.mark.parametrize(
+    ("markup", "selector", "expected"),
+    [
+        pytest.param(
+            "<svg><foreignObject><div>x</div></foreignObject></svg>",
+            "svg",
+            '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><div xmlns="">x</div></foreignObject></svg>',
+            id="svg-to-html",
+        ),
+        pytest.param(
+            '<math><annotation-xml encoding="text/html"><div>x</div></annotation-xml></math>',
+            "math",
+            '<math xmlns="http://www.w3.org/1998/Math/MathML"><annotation-xml encoding="text/html">'
+            '<div xmlns="">x</div></annotation-xml></math>',
+            id="mathml-to-html",
+        ),
+        pytest.param(
+            "<svg><foreignObject><p><svg><circle/></svg></p></foreignObject></svg>",
+            "svg",
+            '<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><p xmlns="">'
+            '<svg xmlns="http://www.w3.org/2000/svg"><circle/></svg></p></foreignObject></svg>',
+            id="svg-to-html-to-svg",
+        ),
+    ],
+)
+def test_html_subtree_clears_foreign_default_namespace(markup: str, selector: str, expected: str) -> None:
+    assert _fragment(markup, selector).serialize(_XML) == expected
+
+
 def test_detached_foreign_element_declares_namespace() -> None:
     svg = _fragment("<svg></svg>", "svg")
     svg.extract()
