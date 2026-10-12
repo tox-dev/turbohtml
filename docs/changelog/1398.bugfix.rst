@@ -1,0 +1,1 @@
+Omit invalid public identifiers from XML output while retaining valid system identifiers.
