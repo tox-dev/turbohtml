@@ -1,0 +1,1 @@
+Limit inherited XML attributes in Canonical XML 1.1 output.
