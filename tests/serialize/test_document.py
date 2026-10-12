@@ -988,6 +988,23 @@ def test_output_is_well_formed_xml(markup: str) -> None:
     ET.fromstring(node.serialize(_XML))  # ruff:ignore[suspicious-xml-element-tree-usage]  # our own serialized output, parsed only to assert well-formedness
 
 
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        pytest.param("\u00d7", "<p>x</p>", id="invalid-two-byte-start"),
+        pytest.param("a\u00d7", "<p>x</p>", id="invalid-two-byte-continued"),
+        pytest.param("\u0301", "<p>x</p>", id="invalid-three-byte-start"),
+        pytest.param("\U000f0000", "<p>x</p>", id="invalid-four-byte-start"),
+        pytest.param("é", '<p é="v">x</p>', id="valid-two-byte-start"),
+        pytest.param("a\u0301", '<p a\u0301="v">x</p>', id="valid-three-byte-continued"),
+        pytest.param("・", '<p ・="v">x</p>', id="valid-three-byte-start"),
+        pytest.param("😀", '<p 😀="v">x</p>', id="valid-four-byte-start"),
+    ],
+)
+def test_xml_attribute_name_unicode(name: str, expected: str) -> None:
+    assert _fragment(f'<p {name}="v">x', "p").serialize(_XML) == expected
+
+
 def test_round_trip_reparses_to_same_html() -> None:
     node = _fragment("<div><br><p>x&amp;y</p></div>", "div")
     reparsed = parse(node.serialize(_XML)).select_one("div")

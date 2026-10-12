@@ -703,10 +703,9 @@ static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th
     return emitted;
 }
 
-/* XML Name character classes over ASCII: bit 0 NameStartChar, bit 1 NameChar. A code
-   point >= 0x80 is accepted wholesale rather than decoding the full Unicode Name ranges,
-   matching the datatype validator. A table keeps gcc and clang counting the same branches,
-   which a chained comparison over the character literals would not. */
+/* XML Name character classes over ASCII: bit 0 NameStartChar, bit 1 NameChar.
+   Non-ASCII names use the XML Name ranges. A table keeps gcc and clang counting
+   the same branches, which a chained comparison would not. */
 static const unsigned char XML_NAME_FLAGS[128] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 0, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 0, 0, 0, 0, 0,
@@ -720,18 +719,26 @@ static const unsigned char XML_NAME_FLAGS[128] = {
    caller declared is kept), and a name carrying a character XML forbids in a Name --
    the tag-soup `=`, `/`, `<`, quotes and spaces the HTML parser keeps but XML cannot
    -- is dropped so the tag stays well-formed. */
+int th_xml_attr_name_wellformed_utf8(const char *name, Py_ssize_t name_len);
+
 static inline int xml_attr_name_writable(const char *name, Py_ssize_t name_len, xml_ns_emitted emitted) {
     int is_default_decl = name_len == 5 && memcmp(name, "xmlns", 5) == 0;
     if (is_default_decl && emitted.default_ns) {
         return 0;
     }
     unsigned char first = (unsigned char)name[0];
-    if (first < 0x80 && (XML_NAME_FLAGS[first] & 0x1) == 0) {
+    if (first >= 0x80) {
+        return th_xml_attr_name_wellformed_utf8(name, name_len);
+    }
+    if ((XML_NAME_FLAGS[first] & 0x1) == 0) {
         return 0;
     }
     for (Py_ssize_t index = 1; index < name_len; index++) {
         unsigned char character = (unsigned char)name[index];
-        if (character < 0x80 && (XML_NAME_FLAGS[character] & 0x2) == 0) {
+        if (character >= 0x80) {
+            return th_xml_attr_name_wellformed_utf8(name, name_len);
+        }
+        if ((XML_NAME_FLAGS[character] & 0x2) == 0) {
             return 0;
         }
     }

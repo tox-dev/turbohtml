@@ -209,6 +209,34 @@ Py_UCS4 *th_tree_serialize(th_tree *tree, Py_ssize_t *out_len) {
 #define SER_NOINLINE
 #endif
 
+SER_NOINLINE int th_xml_attr_name_wellformed_utf8(const char *name, Py_ssize_t name_len) {
+    Py_ssize_t index = 0;
+    while (index < name_len) {
+        int first = index == 0;
+        unsigned char lead = (unsigned char)name[index];
+        Py_UCS4 character;
+        if (lead < 0x80) {
+            character = lead;
+            index++;
+        } else if (lead < 0xE0) {
+            character = (Py_UCS4)(lead & 0x1F) << 6 | ((unsigned char)name[index + 1] & 0x3F);
+            index += 2;
+        } else if (lead < 0xF0) {
+            character = (Py_UCS4)(lead & 0x0F) << 12 | ((unsigned char)(name[index + 1] & 0x3F)) << 6 |
+                        ((unsigned char)name[index + 2] & 0x3F);
+            index += 3;
+        } else {
+            character = (Py_UCS4)(lead & 0x07) << 18 | ((unsigned char)(name[index + 1] & 0x3F)) << 12 |
+                        ((unsigned char)(name[index + 2] & 0x3F)) << 6 | ((unsigned char)name[index + 3] & 0x3F);
+            index += 4;
+        }
+        if (!(first ? is_name_start(character) : is_name_char(character))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* A raw-text element's text children go out literally; the first markup child hands the rest to the markup walk. */
 SER_NOINLINE static void ser_put_rawtext(sbuf *out, th_tree *tree, th_node *element, const th_serialize_opts *opts) {
     for (th_node *child = element->first_child; child != NULL; child = child->next_sibling) {
