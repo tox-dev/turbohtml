@@ -274,6 +274,8 @@ def test_document_html_round_trips() -> None:
         pytest.param('<!DOCTYPE o PUBLIC "p"><r>', id="doctype-public-id-no-system"),
         pytest.param("<!DOCTYPE o SYSTEM 'a\"b'><r>", id="doctype-system-id-with-quote"),
         pytest.param("<!DOCTYPE café><r>", id="doctype-non-ascii-name"),
+        pytest.param('<!DOCTYPE o SYSTEM "a\x01b"><r>', id="doctype-system-id-control"),
+        pytest.param('<!DOCTYPE o SYSTEM "a\uffffb"><r>', id="doctype-system-id-noncharacter"),
         pytest.param("<!DOCTYPE><p>", id="doctype-empty-name"),
         pytest.param("<!DOCTYPE 1><p>", id="doctype-invalid-name"),
         pytest.param("<div><template></template></div>", id="empty-template"),
@@ -288,6 +290,13 @@ def test_xml_serialization_re_reads_unchanged(source: str) -> None:
 
 def test_xml_serialization_keeps_doctype_external_ids() -> None:
     assert parse('<!DOCTYPE o SYSTEM "s"><r>').serialize(Html(xml=True)).startswith('<!DOCTYPE o SYSTEM "s">')
+
+
+@pytest.mark.parametrize("invalid", [pytest.param("\x01", id="control"), pytest.param("\uffff", id="noncharacter")])
+def test_xml_serialization_drops_invalid_system_id_characters(invalid: str) -> None:
+    assert (
+        parse(f'<!DOCTYPE o SYSTEM "a{invalid}b"><r>').serialize(Html(xml=True)).startswith('<!DOCTYPE o SYSTEM "ab">')
+    )
 
 
 def test_xml_serialization_drops_a_doctype_without_an_xml_name() -> None:

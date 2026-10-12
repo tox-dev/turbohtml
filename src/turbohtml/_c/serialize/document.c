@@ -220,18 +220,29 @@ SER_NOINLINE static void ser_put_rawtext(sbuf *out, th_tree *tree, th_node *elem
     }
 }
 
-/* Write a doctype external identifier in XML quotes, choosing the delimiter the id does
-   not contain (a SystemLiteral or PubidLiteral holds any character but its own quote). */
+/* HTML doctypes can contain characters XML forbids, so discard them in XML output. */
 static void ser_put_doctype_id(sbuf *out, const Py_UCS4 *id, Py_ssize_t len) {
     Py_UCS4 quote = '"';
+    int has_invalid = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
         if (id[index] == '"') {
             quote = '\'';
-            break;
         }
+        has_invalid |= xml_char_invalid(id[index]);
     }
     sbuf_putc(out, quote);
-    sbuf_put_ucs4(out, id, len);
+    if (has_invalid) {
+        Py_ssize_t start = 0;
+        for (Py_ssize_t index = 0; index < len; index++) {
+            if (xml_char_invalid(id[index])) {
+                sbuf_put_ucs4(out, id + start, index - start);
+                start = index + 1;
+            }
+        }
+        sbuf_put_ucs4(out, id + start, len - start);
+    } else {
+        sbuf_put_ucs4(out, id, len);
+    }
     sbuf_putc(out, quote);
 }
 
