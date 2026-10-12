@@ -24,7 +24,8 @@ case $SANITIZER in
 esac
 export PYTHONPATH=$SRC/turbohtml/tools
 python3 -m fuzz.atheris_runtime --archive "$fuzzer_archive" --output "$WORK/atheris-runtime" "${sanitizer_runtime[@]}"
-cp "$WORK/atheris-runtime/libatheris_fuzzer.so" "$OUT/sanitizer_with_fuzzer.so"
+# The runner treats executable files in $OUT as fuzz targets; the preloaded library is data, not a target.
+install -m 0644 "$WORK/atheris-runtime/libatheris_fuzzer.so" "$OUT/sanitizer_with_fuzzer.so"
 
 export LD_PRELOAD=$OUT/sanitizer_with_fuzzer.so ASAN_OPTIONS=detect_leaks=0
 mkdir -p "$WORK/seeds"
