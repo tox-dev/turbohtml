@@ -887,9 +887,8 @@ typedef struct {
 /* Split `src` into a url_ref the way urllib's _urlsplit bounds the components: strip the leading C0-or-space and every
    tab, newline, and carriage return, read a scheme when a leading letter runs to the first ':' over scheme characters,
    an authority after '//', and the query and fragment at the first '?' and '#'. Owns a freshly allocated buffer stored
-   in `out->buf`. Returns -1 with a ValueError on an authority whose '['/']' pair is unbalanced (the one split-time
-   failure urljoin surfaces), matching turbohtml_url_split's shallow host check. A schemeless reference inherits
-   `special_hint`, the base's specialness. */
+   in `out->buf`. Returns -1 with a ValueError on unbalanced host brackets, allowing brackets before the last '@'. A
+   schemeless reference inherits `special_hint`, the base's specialness. */
 static int parse_ref(PyObject *src, url_ref *out, int special_hint) {
     Py_ssize_t raw_len = PyUnicode_GET_LENGTH(src);
     int kind = PyUnicode_KIND(src);
@@ -933,9 +932,12 @@ static int parse_ref(PyObject *src, url_ref *out, int special_hint) {
         Py_ssize_t netloc_start = rest + 2;
         Py_ssize_t netloc_end = authority_end(buf, netloc_start, len, special, 0);
         if (netloc_end < 0) {
-            PyMem_Free(buf);
-            PyErr_SetString(PyExc_ValueError, "Invalid IPv6 URL");
-            return -1;
+            netloc_end = authority_end(buf, netloc_start, len, special, 1);
+            if (netloc_end < 0) {
+                PyMem_Free(buf);
+                PyErr_SetString(PyExc_ValueError, "Invalid IPv6 URL");
+                return -1;
+            }
         }
         out->has_netloc = 1;
         out->netloc_start = netloc_start;
@@ -1151,7 +1153,7 @@ static PyObject *build_url(int scheme_has, const Py_UCS4 *scheme_buf, Py_ssize_t
 /* Join a (possibly relative) reference onto a base URL, the RFC 3986 5.3 reference-transform urllib.parse.urljoin runs,
    ported so base_url(), the extraction methods, and the extract_links shim resolve links in C rather than importing
    urllib.parse. `base` and `target` are borrowed str references. Returns a new reference, or NULL with a ValueError set
-   when a component cannot be split (an unbalanced IPv6 bracket). */
+   when a host has an unbalanced IPv6 bracket. */
 PyObject *th_url_join(PyObject *base, PyObject *target) {
     if (PyUnicode_GET_LENGTH(base) == 0) {
         return Py_NewRef(target); /* an empty base leaves the reference as the whole URL */
@@ -1291,7 +1293,7 @@ static int url_slash(Py_UCS4 ch, int special) {
     return ch == '/' || (special && ch == '\\');
 }
 
-/* Normalized URLs parse brackets after the last '@'; the raw shims retain their urllib-style whole-authority check. */
+/* URL joins and normalization check host brackets after the last '@'; raw splitting checks the whole authority. */
 static Py_ssize_t authority_end(const Py_UCS4 *value, Py_ssize_t start, Py_ssize_t len, int special,
                                 int host_brackets_only) {
     Py_ssize_t authority_start = start;

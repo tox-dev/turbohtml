@@ -327,6 +327,56 @@ def test_base_url_rejects_unclosed_bracket_with_encoded_dot() -> None:
         parse('<base href="https://[bad/%2e">').base_url("https://example.org/")
 
 
+@pytest.mark.parametrize(
+    ("href", "fallback", "expected"),
+    [
+        pytest.param(
+            "http://user]@example.org/path",
+            "https://site.org/x",
+            "http://user%5D@example.org/path",
+            id="close-in-username",
+        ),
+        pytest.param(
+            "http://user[@example.org/path",
+            "https://site.org/x",
+            "http://user%5B@example.org/path",
+            id="open-in-username",
+        ),
+        pytest.param(
+            "http://[u]@example.org/a/%2e/x",
+            "https://site.org/x",
+            "http://%5Bu%5D@example.org/a/x",
+            id="paired-with-encoded-dot",
+        ),
+        pytest.param(
+            "//user]@example.org/path",
+            "https://site.org/x",
+            "https://user%5D@example.org/path",
+            id="schemeless-authority",
+        ),
+        pytest.param(
+            "child",
+            "https://user]@example.org/dir/file",
+            "https://user%5D@example.org/dir/child",
+            id="inherited-userinfo",
+        ),
+        pytest.param(
+            "http://user]@[::1]/x",
+            "https://site.org/x",
+            "http://user%5D@[::1]/x",
+            id="ipv6-host",
+        ),
+    ],
+)
+def test_base_url_encodes_userinfo_brackets(href: str, fallback: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url(fallback) == expected
+
+
+def test_base_url_rejects_unclosed_host_bracket_after_userinfo() -> None:
+    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
+        parse('<base href="http://user]@[::1/x">').base_url("https://site.org/x")
+
+
 def test_meta_refresh_resolves_encoded_dot_segments() -> None:
     assert parse('<meta http-equiv=refresh content="0;url=/a/%2e%2e/..">').meta_refresh("https://example.org/.") == (
         0.0,

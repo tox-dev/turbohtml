@@ -177,15 +177,19 @@ static int url_web_special_base(PyObject *base) {
     return 0;
 }
 
-/* Percent-encode a resolved URL's path, query, and fragment per the WHATWG sets, leaving the scheme and authority
-   verbatim; the authority's own bytes stay raw, matching this surface's non-IDNA host handling. Returns a new
-   reference. */
+/* Encode the resolved URL's path, query, fragment, and userinfo brackets, preserving the raw host. */
+static PyObject *url_percent_encode_slow(PyObject *url, int check_encoded_dot);
+
 static PyObject *url_percent_encode(PyObject *url, int check_encoded_dot) {
     static const char ASCII_SAFE[] = TH_URL_ALPHA "0123456789-._~:/?&=#%";
     if (check_encoded_dot == 0 && PyUnicode_IS_ASCII(url) &&
         (Py_ssize_t)strspn((const char *)PyUnicode_1BYTE_DATA(url), ASCII_SAFE) == PyUnicode_GET_LENGTH(url)) {
         return Py_NewRef(url);
     }
+    return url_percent_encode_slow(url, check_encoded_dot);
+}
+
+static PyObject *url_percent_encode_slow(PyObject *url, int check_encoded_dot) {
     PyObject *scalar = url_scalarize(url);
     if (scalar == NULL) { /* GCOVR_EXCL_BR_LINE: url_scalarize only fails on allocation */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -209,8 +213,10 @@ static PyObject *url_percent_encode(PyObject *url, int check_encoded_dot) {
     }
     int hierarchical = bytes[cursor] == '/';
     int opaque_path = cursor > 0 && !hierarchical && !url_special_scheme_bytes(bytes, cursor - 1);
+    Py_ssize_t authority_start = cursor;
     if (cursor + 1 < len && bytes[cursor] == '/' && bytes[cursor + 1] == '/') {
         cursor += 2;
+        authority_start = cursor;
         while (cursor < len && bytes[cursor] != '/' && bytes[cursor] != '?' && bytes[cursor] != '#') {
             cursor++;
         }
@@ -234,14 +240,52 @@ static PyObject *url_percent_encode(PyObject *url, int check_encoded_dot) {
         Py_DECREF(scalar); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    memcpy(out, bytes, (size_t)prefix_end); /* the scheme and authority pass through unchanged */
+    Py_ssize_t userinfo_end = -1;
+    for (Py_ssize_t index = authority_start; index < prefix_end; index++) {
+        if (bytes[index] == '@') {
+            userinfo_end = index;
+        }
+    }
+    if (userinfo_end >= 0) {
+        int has_open = 0;
+        int has_close = 0;
+        for (Py_ssize_t index = userinfo_end + 1; index < prefix_end; index++) {
+            has_open |= bytes[index] == '[';
+            has_close |= bytes[index] == ']';
+        }
+        if (has_open != has_close) {
+            PyMem_Free(out);
+            Py_DECREF(scalar);
+            PyErr_SetString(PyExc_ValueError, "Invalid IPv6 URL");
+            return NULL;
+        }
+    }
+    Py_ssize_t prefix_written = prefix_end;
+    if (userinfo_end < 0) {
+        memcpy(out, bytes, (size_t)prefix_end);
+    } else {
+        memcpy(out, bytes, (size_t)authority_start);
+        prefix_written = authority_start;
+        for (Py_ssize_t index = authority_start; index < userinfo_end; index++) {
+            unsigned char byte = (unsigned char)bytes[index];
+            if (byte == '[' || byte == ']') {
+                out[prefix_written++] = '%';
+                out[prefix_written++] = '5';
+                out[prefix_written++] = byte == '[' ? 'B' : 'D';
+            } else {
+                out[prefix_written++] = (char)byte;
+            }
+        }
+        memcpy(out + prefix_written, bytes + userinfo_end, (size_t)(prefix_end - userinfo_end));
+        prefix_written += prefix_end - userinfo_end;
+    }
     Py_ssize_t opaque_end = path_end;
     /* The URL parser encodes only the final opaque-path space before '?' or '#'. */
     if (opaque_path && (query_start >= 0 || fragment_start >= 0) && opaque_end > prefix_end &&
         bytes[opaque_end - 1] == ' ') {
         opaque_end--;
     }
-    Py_ssize_t written = th_url_encode_span(out, prefix_end, bytes, prefix_end, opaque_end,
+    Py_ssize_t written = th_url_encode_span(out, prefix_written, bytes, prefix_end, opaque_end,
                                             opaque_path ? TH_URL_SET_OPAQUE_PATH : TH_URL_SET_PATH);
     for (Py_ssize_t index = opaque_end; index < path_end; index++) {
         out[written++] = '%';
@@ -250,19 +294,20 @@ static PyObject *url_percent_encode(PyObject *url, int check_encoded_dot) {
     }
     int backslash_path = 0;
     if (memchr(bytes + prefix_end, '\\', (size_t)(path_end - prefix_end)) != NULL && url_web_special_base(scalar)) {
-        for (Py_ssize_t index = prefix_end; index < written; index++) {
+        for (Py_ssize_t index = prefix_written; index < written; index++) {
             if (out[index] == '\\') {
                 out[index] = '/';
                 backslash_path = 1;
             }
         }
     }
-    if (hierarchical && (check_encoded_dot == 2 ||
-                         (check_encoded_dot && (url_has_literal_dot_path(out + prefix_end, written - prefix_end) ||
-                                                url_has_encoded_dot(out + prefix_end, written - prefix_end))) ||
-                         (backslash_path && (memchr(out + prefix_end, '.', (size_t)(written - prefix_end)) != NULL ||
-                                             memchr(out + prefix_end, '%', (size_t)(written - prefix_end)) != NULL)))) {
-        PyObject *path = PyUnicode_DecodeASCII(out + prefix_end, written - prefix_end, "strict");
+    if (hierarchical &&
+        (check_encoded_dot == 2 ||
+         (check_encoded_dot && (url_has_literal_dot_path(out + prefix_written, written - prefix_written) ||
+                                url_has_encoded_dot(out + prefix_written, written - prefix_written))) ||
+         (backslash_path && (memchr(out + prefix_written, '.', (size_t)(written - prefix_written)) != NULL ||
+                             memchr(out + prefix_written, '%', (size_t)(written - prefix_written)) != NULL)))) {
+        PyObject *path = PyUnicode_DecodeASCII(out + prefix_written, written - prefix_written, "strict");
         if (path == NULL) {    /* GCOVR_EXCL_BR_LINE: encoded path contains ASCII only */
             PyMem_Free(out);   /* GCOVR_EXCL_LINE: decode-failure path */
             Py_DECREF(scalar); /* GCOVR_EXCL_LINE: decode-failure path */
@@ -277,8 +322,8 @@ static PyObject *url_percent_encode(PyObject *url, int check_encoded_dot) {
         }
         Py_ssize_t normalized_length;
         const char *normalized_bytes = PyUnicode_AsUTF8AndSize(normalized, &normalized_length);
-        memcpy(out + prefix_end, normalized_bytes, (size_t)normalized_length);
-        written = prefix_end + normalized_length;
+        memcpy(out + prefix_written, normalized_bytes, (size_t)normalized_length);
+        written = prefix_written + normalized_length;
         Py_DECREF(normalized);
     }
     if (query_start >= 0) {
