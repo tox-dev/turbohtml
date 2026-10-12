@@ -564,7 +564,7 @@ def test_xml_c14n_accepts_empty_default_namespace() -> None:
 
 @pytest.mark.parametrize(
     "scheme",
-    ["URN", "urn", "urx", "urnx", "http", "https", "hax", "htx", "httx", "httpx", "httpsx", "u0", "u+", "u-", "u."],
+    ["URN", "urn", "urx", "urnx", "http", "https", "hex", "htx", "httx", "httpx", "httpsx", "u0", "u+", "u-", "u."],
 )
 def test_xml_c14n_accepts_absolute_namespace_scheme(scheme: str) -> None:
     assert parse_xml(f'<r xmlns:p="{scheme}:part"><p:a/></r>').canonicalize() == (
