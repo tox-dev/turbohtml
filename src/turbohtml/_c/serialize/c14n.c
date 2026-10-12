@@ -28,7 +28,7 @@ static const char C14N_MATHML[] = "http://www.w3.org/1998/Math/MathML";
 static const char C14N_XLINK[] = "http://www.w3.org/1999/xlink";
 static const char C14N_XML[] = "http://www.w3.org/XML/1998/namespace";
 
-static TH_NOINLINE int c14n_1_1_inherits_xml_attribute(const char *name, Py_ssize_t len) {
+static int c14n_1_1_inherits_xml_attribute(const char *name, Py_ssize_t len) {
     return (len == 8 && (memcmp(name + 4, "lang", 4) == 0 || memcmp(name + 4, "base", 4) == 0)) ||
            (len == 9 && memcmp(name + 4, "space", 5) == 0);
 }
