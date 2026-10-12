@@ -381,6 +381,9 @@ static int css_background_non_color(css_buf *pool, const css_comp *comp) {
         return 1;
     }
     if (comp->kind == CK_IDENT) {
+        if (comp->len == 5 && css_comp_kw(pool, comp, "fixed")) {
+            return 1;
+        }
         return css_prop_in(pool->data + comp->off, comp->len, keywords, sizeof(keywords) / sizeof(char *));
     }
     return comp->kind == CK_FUNC && css_prop_in(pool->data + comp->off, css_func_name_len(pool, comp), functions,
@@ -425,7 +428,9 @@ CSS_NOINLINE static int css_background_unshortenable(css_buf *pool, const comp_v
 
 /* Resolve one background layer in place over a single comma-separated run (CSS Backgrounds 3 §3.10). */
 static void css_background_run(css_buf *pool, comp_vec *run) {
-    if (run->len > 1 && css_background_unshortenable(pool, run)) {
+    int skip_attachment_scan = run->len == 2 && run->items[0].kind == CK_IDENT && run->items[1].kind == CK_IDENT &&
+                               (run->items[0].len < 5 || run->items[0].len > 6);
+    if (run->len > 1 && !skip_attachment_scan && css_background_unshortenable(pool, run)) {
         return;
     }
     int had_tokens = run->len > 0;
@@ -499,7 +504,14 @@ static void css_background_run(css_buf *pool, comp_vec *run) {
             if (run->len > 1 && css_background_has_other_color(pool, run, index)) {
                 return;
             }
-            comp_vec_splice(run, index, 1, NULL, 0);
+            if (run->len == 2) {
+                if (index == 0) {
+                    run->items[0] = run->items[1];
+                }
+                run->len = 1;
+            } else {
+                comp_vec_splice(run, index, 1, NULL, 0);
+            }
             continue;
         } else if (css_func_name_is(pool, comp, "var")) {
             index++;
