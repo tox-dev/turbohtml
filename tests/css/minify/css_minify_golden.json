@@ -1587,7 +1587,7 @@
 [
 "background:transparent var(--bs-btn-close-bg) center/1em auto no-repeat",
 "background:transparent var(--bs-btn-close-bg) center/1em auto no-repeat",
-"background:var(--bs-btn-close-bg)50%/1em no-repeat"
+"background:#0000 var(--bs-btn-close-bg)center/1em no-repeat"
 ],
 [
 "FONT-FAMILY: ru\"",

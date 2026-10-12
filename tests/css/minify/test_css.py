@@ -698,6 +698,29 @@ def test_minify_css_keeps_invalid_background_position_order(property_name: str, 
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
+        pytest.param("red transparent", "red #0000", id="color-before-transparent"),
+        pytest.param("transparent red", "#0000 red", id="transparent-before-color"),
+        pytest.param("transparent center red", "#0000 center red", id="position-and-other-color"),
+        pytest.param("transparent transparent", "#0000 transparent", id="two-transparents"),
+        pytest.param("transparent #f00", "#0000 red", id="hash-color"),
+        pytest.param("transparent rgb(255,0,0)", "#0000 red", id="function-color"),
+        pytest.param("transparent fixed", "fixed", id="attachment"),
+        pytest.param("transparent url(x)", "url(x)", id="image"),
+        pytest.param("transparent var(--color)", "#0000 var(--color)", id="variable-color"),
+        pytest.param("transparent linear-gradient(red,blue)", "linear-gradient(red,blue)", id="gradient-image"),
+        pytest.param("transparent 0", "0", id="unitless-position"),
+        pytest.param("transparent 1px", "1px", id="length-position"),
+        pytest.param("transparent center/cover", "50%/cover", id="size-separator"),
+        pytest.param("50% transparent", "50%", id="position-before-transparent"),
+    ],
+)
+def test_minify_css_background_transparent_with_other_component(value: str, expected: str) -> None:
+    assert minify_css(f"a{{background:{value}}}") == f"a{{background:{expected}}}"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
         pytest.param("scroll fixed top", "scroll fixed top", id="default-before-fixed"),
         pytest.param("fixed scroll", "fixed scroll", id="default-after-fixed"),
         pytest.param("scroll scroll", "scroll scroll", id="duplicate-default"),
