@@ -1,0 +1,1 @@
+Drop XML-forbidden characters from doctype system identifiers during XML serialization.
