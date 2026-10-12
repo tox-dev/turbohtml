@@ -1,0 +1,1 @@
+Keep required spaces around math operators in CSS filters.
