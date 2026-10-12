@@ -48,6 +48,8 @@ enum th_node_type {
 #define TH_DOCTYPE_HAS_PUBLIC 0x40u
 #define TH_DOCTYPE_HAS_SYSTEM 0x80u
 
+#define TH_PI_XML_INVALID 0x01u
+
 /* An element node reuses a spare tag_flags bit (the category bits from the atom
    table only occupy 0x01..0x10) to record that the source actually closed it with
    an end tag, as opposed to the parser closing it implicitly or at EOF. The
@@ -271,6 +273,8 @@ Py_UCS4 *th_node_realize_text(th_tree *tree, th_node *node);
    split point in attr_count). NULL on allocation failure. */
 th_node *th_tree_make_pi(th_tree *tree, const Py_UCS4 *target, Py_ssize_t target_len, const Py_UCS4 *data,
                          Py_ssize_t data_len);
+
+int th_pi_target_invalid_xml(const Py_UCS4 *target, Py_ssize_t target_len);
 
 /* Rename an element in place: tag is the spelling to copy, or NULL for a known atom
    that points at its table entry. -1 on allocation failure, leaving it unchanged. */
