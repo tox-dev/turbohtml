@@ -363,10 +363,13 @@ static void css_position_single(css_buf *pool, const css_comp *items, Py_ssize_t
     css_emit_position_run(out, run, resolved);
 }
 
-CSS_NOINLINE static int css_background_duplicate_attachment(css_buf *pool, const comp_vec *run) {
+CSS_NOINLINE static int css_background_unshortenable(css_buf *pool, const comp_vec *run) {
     int attachments = 0;
     for (Py_ssize_t pos = 0; pos < run->len; pos++) {
         const css_comp *comp = &run->items[pos];
+        if (comp->kind == CK_DELIM) {
+            return 1;
+        }
         if (comp->kind == CK_IDENT && comp->len >= 5 &&
             (css_comp_kw(pool, comp, "scroll") || css_comp_kw(pool, comp, "fixed") ||
              css_comp_kw(pool, comp, "local"))) {
@@ -380,7 +383,7 @@ CSS_NOINLINE static int css_background_duplicate_attachment(css_buf *pool, const
 
 /* Resolve one background layer in place over a single comma-separated run (CSS Backgrounds 3 §3.10). */
 static void css_background_run(css_buf *pool, comp_vec *run) {
-    if (run->len > 1 && css_background_duplicate_attachment(pool, run)) {
+    if (run->len > 1 && css_background_unshortenable(pool, run)) {
         return;
     }
     int had_tokens = run->len > 0;

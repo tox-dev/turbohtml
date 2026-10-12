@@ -694,6 +694,14 @@ def test_minify_css_background_attachment_cardinality(value: str, expected: str)
     assert minify_css(f"a{{background:{value}}}") == f"a{{background:{expected}}}"
 
 
+@pytest.mark.parametrize("suffix", ["", "}"])
+def test_minify_css_background_keeps_invalid_colon_value(suffix: str) -> None:
+    source = f"a{{backGROUnd:0px 0:{suffix}"
+    expected = "a{background:0 0:}"
+    assert minify_css(source) == expected
+    assert minify_css(expected) == expected
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
