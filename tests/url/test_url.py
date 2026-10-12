@@ -62,6 +62,19 @@ def test_base_url_default_fallback() -> None:
 
 
 @pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("p", "https://example.org/dir/p", id="relative-segment"),
+        pytest.param("/p0", "https://example.org/p0", id="rooted-segment"),
+        pytest.param("/", "https://example.org/", id="root"),
+        pytest.param("A_b-2", "https://example.org/dir/A_b-2", id="safe-path-characters"),
+    ],
+)
+def test_base_url_resolves_simple_web_path(href: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url("https://example.org/dir/page") == expected
+
+
+@pytest.mark.parametrize(
     ("href", "fallback", "expected"),
     [
         pytest.param(
@@ -73,14 +86,14 @@ def test_base_url_default_fallback() -> None:
             "http://x/p%20q?a=b%20c&e=f%27#h%20i",
             id="all-components-encoded",
         ),
-        pytest.param("http://h?a=b c", "http://x", "http://h?a=b%20c", id="authority-then-query"),
-        pytest.param("http://h#f g", "http://x", "http://h#f%20g", id="authority-then-fragment"),
+        pytest.param("http://h?a=b c", "http://x", "http://h/?a=b%20c", id="authority-then-query"),
+        pytest.param("http://h#f g", "http://x", "http://h/#f%20g", id="authority-then-fragment"),
         pytest.param("http://h/p#f g", "http://x", "http://h/p#f%20g", id="fragment-without-query"),
         pytest.param("^", "https://example.org/dir/file", "https://example.org/dir/%5E", id="relative-path-caret"),
         pytest.param(
             "x?c=^#^", "https://example.org/dir/file", "https://example.org/dir/x?c=^#^", id="query-fragment-caret"
         ),
-        pytest.param("http://h", "http://x", "http://h", id="authority-only"),
+        pytest.param("http://h", "http://x", "http://h/", id="authority-only"),
         pytest.param("ab/cd", "", "ab/cd", id="relative-without-scheme"),
         pytest.param("a+bc", "", "a+bc", id="scheme-tail-without-colon"),
         pytest.param("a'bc", "", "a'bc", id="quote-in-relative-path"),
@@ -95,7 +108,6 @@ def test_base_url_default_fallback() -> None:
         pytest.param("a:x #f", "https://example.org/dir/page", "a:x%20#f", id="opaque-path-space-before-fragment"),
         pytest.param("a: [x]", "https://example.org/dir/page", "a: [x]", id="opaque-path-brackets"),
         pytest.param("a:/ x", "https://example.org/dir/page", "a:/%20x", id="hierarchical-path-space"),
-        pytest.param("http: x", "https://example.org/dir/page", "http:%20x", id="special-scheme-still-path-encoded"),
         pytest.param(
             "\u2028", "https://example.org/dir/page", "https://example.org/dir/%E2%80%A8", id="line-separator"
         ),
@@ -154,7 +166,7 @@ def test_base_url_default_fallback() -> None:
             "#\\", "https://example.org/dir/page", "https://example.org/dir/page#\\", id="fragment-backslash-unchanged"
         ),
         pytest.param("a:\\x", "https://example.org/dir/page", "a:\\x", id="non-special-absolute-backslash"),
-        pytest.param("\\x", "a:/dir/page", "\\x", id="non-special-root-backslash"),
+        pytest.param("\\x", "a:/dir/page", "a:/dir/\\x", id="non-special-root-backslash"),
         pytest.param("\\x", "a", "\\x", id="schemeless-base-backslash"),
         pytest.param("\\x", "h!tp", "\\x", id="invalid-scheme-base-backslash"),
         pytest.param("\\x", "hxxp:opaque", "\\x", id="other-scheme-base-backslash"),
@@ -172,13 +184,217 @@ def test_base_url_percent_encodes(href: str, fallback: str, expected: str) -> No
 
 
 @pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("http://ExAmPlE.Org", "http://example.org/", id="host-case-and-empty-path"),
+        pytest.param("http://example.org:80/p", "http://example.org/p", id="default-port"),
+        pytest.param("http://é@example.com/", "http://%C3%A9@example.com/", id="unicode-userinfo"),
+        pytest.param("http://münchen.de/", "http://xn--mnchen-3ya.de/", id="unicode-host"),
+        pytest.param("http://192.168.257/", "http://192.168.1.1/", id="numeric-host"),
+        pytest.param("ftp://example.org/x", "ftp://example.org/x", id="ftp-host"),
+        pytest.param("ws://example.org/x", "ws://example.org/x", id="ws-host"),
+        pytest.param("wss://example.org/x", "wss://example.org/x", id="wss-host"),
+        pytest.param("http://abc.def/", "http://abc.def/", id="hex-letter-host-ending"),
+        pytest.param("http://foo.0x/", "http://foo.0x/", id="incomplete-hex-host"),
+        pytest.param("http://0x/p", "http://0.0.0.0/p", id="hex-zero-host"),
+        pytest.param("http://foo.ax/p", "http://foo.ax/p", id="nonhex-x-suffix"),
+        pytest.param("http://a0x/p", "http://a0x/p", id="x-after-zero-in-label"),
+        pytest.param("http://foo.0xa/", "http://foo.0xa/", id="invalid-hex-host"),
+        pytest.param("http://foo.0xg/", "http://foo.0xg/", id="nonhex-host"),
+        pytest.param("http://foo.-/", "http://foo.-/", id="hyphen-host-ending"),
+        pytest.param("http://./", "http://./", id="single-dot-host"),
+        pytest.param("http://example.org./x", "http://example.org./x", id="trailing-dot-host"),
+        pytest.param("http://example.org?x", "http://example.org/?x", id="host-query-without-path"),
+        pytest.param("http://foo-bar.org/", "http://foo-bar.org/", id="hyphenated-host"),
+        pytest.param("http://a{b.com/", "http://a{b.com/", id="braced-host"),
+        pytest.param("http://foo.a/", "http://foo.a/", id="one-letter-hex-host"),
+        pytest.param("http://[::127.0.0.1]", "http://[::7f00:1]/", id="ipv6-host"),
+        pytest.param("https://@@@example/", "https://%40%40@example/", id="repeated-userinfo-separators"),
+        pytest.param("sc://ñ.test/p", "sc://%C3%B1.test/p", id="opaque-unicode-host"),
+        pytest.param("notspecial://host/?'", "notspecial://host/?'", id="non-special-query-quote"),
+        pytest.param("http://a:b@c\\", "http://a:b@c/", id="special-backslash-after-authority"),
+        pytest.param("http://example.org\\\\a", "http://example.org//a", id="special-backslash-path"),
+        pytest.param("non-spec:/.//path", "non-spec:/.//path", id="protective-path-marker"),
+        pytest.param("non-spec:/..//path", "non-spec:/.//path", id="protective-path-after-dot-removal"),
+        pytest.param("http:other/path", "http://other/path", id="foreign-absolute-special-scheme"),
+        pytest.param(
+            "https://example.org/p?b=2&a=1#", "https://example.org/p?b=2&a=1#", id="query-order-empty-fragment"
+        ),
+    ],
+)
+def test_base_url_canonical_authority(href: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url("https://base.test/dir/page") == expected
+
+
+def test_base_url_rejects_special_url_without_host() -> None:
+    with pytest.raises(ValueError, match="host contains a forbidden domain code point"):
+        parse('<base href="http: x">').base_url("https://example.org/dir/page")
+
+
+def test_meta_refresh_canonical_authority() -> None:
+    assert parse('<meta http-equiv=refresh content="0;url=http://ExAmPlE.Org:80">').meta_refresh() == (
+        0.0,
+        "http://example.org/",
+    )
+
+
+@pytest.mark.parametrize(
+    ("fallback", "expected"),
+    [
+        pytest.param("about:blank", "about:blank#next", id="about"),
+        pytest.param("mailto:user@example.org#old", "mailto:user@example.org#next", id="replaces-old-fragment"),
+        pytest.param("custom:opaque?x=1", "custom:opaque?x=1#next", id="preserves-query"),
+        pytest.param("a:", "a:#next", id="empty-opaque-path"),
+        pytest.param("", "#next", id="empty-fallback"),
+        pytest.param("1", "1#next", id="fallback-without-scheme-start"),
+        pytest.param("abc", "abc#next", id="fallback-without-colon"),
+        pytest.param("a!b", "a!b#next", id="fallback-with-invalid-scheme-character"),
+        pytest.param("1abc:opaque", "1abc:opaque#next", id="fallback-with-digit-scheme-start"),
+        pytest.param("a:/p", "a:/p#next", id="hierarchical-without-authority"),
+        pytest.param("http:opaque", "http://opaque/#next", id="special-fallback"),
+        pytest.param("file:opaque", "file:///opaque#next", id="file-fallback"),
+    ],
+)
+def test_base_url_resolves_fragment_against_opaque_base(fallback: str, expected: str) -> None:
+    assert parse('<base href="#next">').base_url(fallback) == expected
+
+
+@pytest.mark.parametrize(
+    ("href", "fallback", "expected"),
+    [
+        pytest.param("file:c:\\foo\\bar.html", "file:///tmp/mock/path", "file:///c:/foo/bar.html", id="absolute-drive"),
+        pytest.param("C|/foo/bar", "file:///tmp/mock/path", "file:///C:/foo/bar", id="relative-drive"),
+        pytest.param("\\\\server\\file", "file:///tmp/mock/path", "file://server/file", id="unc-share"),
+        pytest.param("..", "file:///C:/", "file:///C:/", id="drive-root-parent"),
+        pytest.param("/", "file:///C:/a/b", "file:///C:/", id="drive-root-slash"),
+        pytest.param("C|", "file://host/dir/file", "file://host/C:", id="hosted-drive"),
+        pytest.param("file://localhost/test", "file:///tmp/mock/path", "file:///test", id="localhost-authority"),
+        pytest.param("file:", "file:///test?test#test", "file:///test?test", id="file-empty-target"),
+        pytest.param("", "file:///test?test#test", "file:///test?test", id="empty-href-drops-fragment"),
+        pytest.param("file:foo", "file://host/dir/page", "file://host/dir/foo", id="relative-file-target"),
+        pytest.param("foo", "file://host/dir/page", "file://host/dir/foo", id="relative-file-path"),
+        pytest.param("//d:", "file:///C:/a/b", "file:///d:", id="drive-authority"),
+        pytest.param("//d:/..", "file:///C:/a/b", "file:///d:/", id="drive-authority-parent"),
+        pytest.param("file://localhost//a//../..//foo", "", "file://///foo", id="file-empty-segments"),
+        pytest.param("file:///other", "https://example.org/", "file:///other", id="file-from-web-base"),
+        pytest.param("https://other.org/", "file:///x", "https://other.org/", id="web-from-file-base"),
+        pytest.param("file:/example.com/", "https://example.org/", "file:///example.com/", id="file-from-web-path"),
+        pytest.param("file:C|/m/", "", "file:///C:/m/", id="file-drive-without-base"),
+        pytest.param("file:C||/m/", "", "file:///C||/m/", id="file-drive-extra-bar"),
+        pytest.param("file:///w|m", "", "file:///w|m", id="bar-in-file-name"),
+        pytest.param("file:///w|/m", "", "file:///w:/m", id="bar-in-drive"),
+        pytest.param("/C|\\foo\\bar", "file:///tmp/mock/path", "file:///C:/foo/bar", id="rooted-drive-backslashes"),
+        pytest.param("//C|/foo/bar", "file:///tmp/mock/path", "file:///C:/foo/bar", id="drive-in-authority"),
+        pytest.param("//server/file", "file:///tmp/mock/path", "file://server/file", id="unc-forward-slashes"),
+        pytest.param("//", "file:///tmp/mock/path", "file:///", id="empty-unc-authority"),
+        pytest.param("file://test", "file:///tmp/mock/path", "file://test/", id="file-host-no-path"),
+        pytest.param("file://localhost", "file:///tmp/mock/path", "file:///", id="localhost-no-path"),
+        pytest.param("..", "file:///", "file:///", id="parent-of-file-root"),
+        pytest.param("/", "file://h/C:/a/b", "file://h/C:/", id="hosted-drive-root"),
+        pytest.param("/", "file://h/a/b", "file://h/", id="hosted-root"),
+        pytest.param("?x", "file:///test?test#test", "file:///test?x", id="file-query"),
+        pytest.param("#x", "file:///test?test#test", "file:///test?test#x", id="file-fragment"),
+        pytest.param("file:?x", "file:///test?test#test", "file:///test?x", id="file-scheme-query"),
+        pytest.param("file:#x", "file:///test?test#test", "file:///test?test#x", id="file-scheme-fragment"),
+        pytest.param("C|#", "file://host/dir/file", "file://host/C:#", id="drive-fragment"),
+        pytest.param("C|?", "file://host/dir/file", "file://host/C:?", id="drive-query"),
+        pytest.param("C|/", "file://host/dir/file", "file://host/C:/", id="drive-trailing-slash"),
+        pytest.param("C", "file://host/dir/file", "file://host/dir/C", id="drive-letter-is-relative"),
+        pytest.param("C|a", "file://host/dir/file", "file://host/dir/C|a", id="bar-without-drive-slash"),
+        pytest.param("/c:/foo/bar", "file://host/path", "file://host/c:/foo/bar", id="hosted-rooted-drive"),
+        pytest.param("file:C:/", "file://host/", "file://host/C:/", id="hosted-file-drive"),
+        pytest.param("//C:/", "file://host/", "file:///C:/", id="drive-authority-trailing-slash"),
+        pytest.param("file://C|/", "", "file:///C:/", id="file-drive-authority-without-base"),
+        pytest.param("file://localhost//a//../..//", "", "file://///", id="file-empty-segments-root"),
+        pytest.param("/..//localhost//pig", "file://lion/", "file://lion//localhost//pig", id="rooted-parent-slashes"),
+        pytest.param("file:.//p", "", "file:////p", id="file-protective-relative"),
+        pytest.param("file:/.//p", "", "file:////p", id="file-protective-root"),
+        pytest.param("foo", "file://host/dir/", "file://host/dir/foo", id="file-directory-base"),
+        pytest.param("foo", "file://host", "file://host/foo", id="file-host-without-path"),
+    ],
+)
+def test_base_url_file_resolution(href: str, fallback: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url(fallback) == expected
+
+
+@pytest.mark.parametrize(
+    "href",
+    [
+        pytest.param("file://user@host/x", id="file-userinfo"),
+        pytest.param("file://host:9/x", id="file-port"),
+    ],
+)
+def test_base_url_rejects_invalid_file_authority(href: str) -> None:
+    with pytest.raises(ValueError, match="file URL cannot"):
+        parse(f'<base href="{href}">').base_url("https://example.org/")
+
+
+@pytest.mark.parametrize(
+    ("href", "fallback"),
+    [
+        pytest.param("file://[bad/", "file:///x", id="invalid-file-target"),
+        pytest.param("x", "file://[bad/", id="invalid-file-base"),
+    ],
+)
+def test_base_url_rejects_unbalanced_file_authority(href: str, fallback: str) -> None:
+    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
+        parse(f'<base href="{href}">').base_url(fallback)
+
+
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("a//", "https://example.org/dir/a//", id="trailing-double-slash"),
+        pytest.param("a///b", "https://example.org/dir/a///b", id="middle-triple-slash"),
+        pytest.param("a/..//b", "https://example.org/dir//b", id="parent-then-double-slash"),
+    ],
+)
+def test_base_url_preserves_relative_path_slash_runs(href: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url("https://example.org/dir/page") == expected
+
+
+@pytest.mark.parametrize(
+    ("href", "fallback", "expected"),
+    [
+        pytest.param("i", "sc:/pa/pa", "sc:/pa/i", id="rooted-path"),
+        pytest.param("i", "sc://ho/pa", "sc://ho/i", id="authority"),
+        pytest.param("i", "sc:///pa/pa", "sc:///pa/i", id="empty-authority"),
+        pytest.param("../i", "sc://ho/pa", "sc://ho/i", id="parent"),
+        pytest.param("/i", "sc://ho/pa", "sc://ho/i", id="root"),
+        pytest.param("?i", "sc://ho/pa", "sc://ho/pa?i", id="query"),
+        pytest.param("#i", "sc://ho/pa", "sc://ho/pa#i", id="fragment"),
+        pytest.param("x", "sc://ñ", "sc://%C3%B1/x", id="opaque-host"),
+        pytest.param("a//b", "sc://ho/pa", "sc://ho/a//b", id="relative-slash-run"),
+        pytest.param("///", "sc://x/", "sc:///", id="empty-authority-root"),
+        pytest.param("////", "sc://x/", "sc:////", id="empty-authority-double-slash"),
+        pytest.param("////x/", "sc://x/", "sc:////x/", id="empty-authority-double-slash-path"),
+        pytest.param("/.//path", "non-spec:/p", "non-spec:/.//path", id="protective-root"),
+        pytest.param("/..//path", "non-spec:/p", "non-spec:/.//path", id="protective-root-parent"),
+        pytest.param("..//path", "non-spec:/p", "non-spec:/.//path", id="protective-relative-parent"),
+        pytest.param("a/..//path", "non-spec:/p", "non-spec:/.//path", id="protective-relative-nested-parent"),
+        pytest.param("", "non-spec:/..//p", "non-spec:/.//p", id="protective-empty-reference"),
+        pytest.param("path", "non-spec:/..//p", "non-spec:/.//path", id="protective-base-parent"),
+        pytest.param("../path", "non-spec:/.//p", "non-spec:/path", id="protective-base-parent-resolution"),
+        pytest.param("gopher:q", "gopher://host/p", "gopher:q", id="same-non-special-scheme-is-absolute"),
+        pytest.param("p", "sc:", "p", id="opaque-base-relative-target"),
+        pytest.param("p", "a/b", "a/p", id="schemeless-relative-base"),
+        pytest.param("x", "a", "x", id="one-character-merged-path"),
+        pytest.param("sc:other", "sc:old", "sc:other", id="same-opaque-scheme-is-absolute"),
+        pytest.param("p", "http:///", "http://p/", id="hostless-special-base"),
+    ],
+)
+def test_base_url_resolves_non_special_relative(href: str, fallback: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url(fallback) == expected
+
+
+@pytest.mark.parametrize(
     ("base", "href", "expected"),
     [
         pytest.param(
             "http://site.org/dir/page", "http:\\\\example.com\\p", "http://example.com/p", id="backslash-authority"
         ),
         pytest.param(
-            "http://site.org/dir/page", "HTTP:\\\\example.com\\p", "HTTP://example.com/p", id="uppercase-scheme"
+            "http://site.org/dir/page", "HTTP:\\\\example.com\\p", "http://example.com/p", id="uppercase-scheme"
         ),
         pytest.param("http://site.org/dir/page", "http:/\\example.com\\p", "http://example.com/p", id="mixed-opener"),
         pytest.param("https://site.org/dir/page", "https:\\\\example.com\\p", "https://example.com/p", id="https"),
@@ -294,7 +510,7 @@ def test_base_url_resolves_encoded_dot_segments(href: str, fallback: str, expect
         ),
         pytest.param("foo:/a/../b", "http://site.org/", "foo:/b", id="non-special"),
         pytest.param("mailto:x/../y", "http://site.org/", "mailto:x/../y", id="opaque"),
-        pytest.param("http://example.org?x=/../", "http://site.org/", "http://example.org?x=/../", id="query-only"),
+        pytest.param("http://example.org?x=/../", "http://site.org/", "http://example.org/?x=/../", id="query-only"),
         pytest.param(
             "http://example.org/a/?next=/../",
             "http://site.org/",

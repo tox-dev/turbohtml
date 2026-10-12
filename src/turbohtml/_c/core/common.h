@@ -205,7 +205,7 @@ PyObject *turbohtml_url_to_ascii(PyObject *module, PyObject *arg);
    behavior normalize_url takes for an unencodable label. The checked IPv6 variant lets clean_url reject an address
    a browser cannot fetch. NULL only on allocation failure. */
 PyObject *th_url_host_canonical(PyObject *host, int kind);
-PyObject *th_url_ipv6_canonical_checked(PyObject *host);
+PyObject *th_url_host_canonical_checked(PyObject *host, int kind);
 
 /* Implemented in url/registrable.c. _registrable_domain(host) returns a lowercased
    host's registrable domain (eTLD+1) from the shipped IANA and Public Suffix List

@@ -289,8 +289,9 @@ void th_url_authority(const Py_UCS4 *work, Py_ssize_t start, Py_ssize_t end, th_
 
 static int ipv6_parse(const Py_UCS4 *cp, Py_ssize_t len, uint16_t out[8]);
 static PyObject *ipv6_serialize(const uint16_t pieces[8]);
-static PyObject *domain_to_ascii(PyObject *host);
+static PyObject *domain_to_ascii(PyObject *host, int checked);
 static PyObject *maybe_ipv4(PyObject *ascii);
+static int host_ends_in_number(PyObject *ascii);
 static int ipv4_number(const Py_UCS4 *cp, Py_ssize_t start, Py_ssize_t end, uint64_t *out);
 
 static PyObject *ipv6_canonical(PyObject *host, int checked) {
@@ -311,10 +312,6 @@ static PyObject *ipv6_canonical(PyObject *host, int checked) {
                                  : PyObject_CallMethod(host, "lower", NULL);
     PyMem_Free(cp);
     return result;
-}
-
-PyObject *th_url_ipv6_canonical_checked(PyObject *host) {
-    return ipv6_canonical(host, 1);
 }
 
 PyObject *th_url_opaque_host_canonical(PyObject *host) {
@@ -390,18 +387,37 @@ PyObject *th_url_opaque_host_canonical(PyObject *host) {
     return result;
 }
 
-PyObject *th_url_host_canonical(PyObject *host, int kind) {
+static PyObject *host_canonical(PyObject *host, int kind, int checked) {
     if (kind == TH_HOST_IPV6) {
-        return ipv6_canonical(host, 0);
+        return ipv6_canonical(host, checked);
+    }
+    if (checked && PyUnicode_IS_ASCII(host)) {
+        const char *bytes = (const char *)PyUnicode_1BYTE_DATA(host);
+        Py_ssize_t length = PyUnicode_GET_LENGTH(host);
+        unsigned char last = (unsigned char)(bytes[length - 1] | 0x20);
+        if (last >= 'g' && last <= 'z' && last != 'x') {
+            Py_ssize_t index = 0;
+            for (; index < length; index++) {
+                unsigned char ch = (unsigned char)bytes[index];
+                unsigned char lower = (unsigned char)(ch | 0x20);
+                if (!((lower >= 'a' && lower <= 'z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '.' ||
+                      ch == '_')) {
+                    break;
+                }
+            }
+            if (index == length) {
+                return PyObject_CallMethod(host, "lower", NULL);
+            }
+        }
     }
     PyObject *decoded = th_url_percent_decode_obj(host);
     if (decoded == NULL) { /* GCOVR_EXCL_BR_LINE: decode only fails on the excluded allocation path */
         return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *ascii = domain_to_ascii(decoded);
+    PyObject *ascii = domain_to_ascii(decoded, checked);
     Py_DECREF(decoded);
-    if (ascii == NULL) { /* GCOVR_EXCL_BR_LINE: domain_to_ascii only fails on the excluded allocation path */
-        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (ascii == NULL) {
+        return NULL;
     }
     PyObject *ipv4 = maybe_ipv4(ascii);
     if (ipv4 != NULL) {
@@ -412,7 +428,20 @@ PyObject *th_url_host_canonical(PyObject *host, int kind) {
         Py_DECREF(ascii);
         return NULL;
     }
+    if (checked && host_ends_in_number(ascii)) {
+        Py_DECREF(ascii);
+        PyErr_SetString(PyExc_ValueError, "invalid IPv4 host");
+        return NULL;
+    }
     return ascii;
+}
+
+PyObject *th_url_host_canonical(PyObject *host, int kind) {
+    return host_canonical(host, kind, 0);
+}
+
+PyObject *th_url_host_canonical_checked(PyObject *host, int kind) {
+    return host_canonical(host, kind, 1);
 }
 
 static int ipv4_in_ipv6_parse(const Py_UCS4 *cp, Py_ssize_t len, uint16_t out[2]) {
@@ -574,9 +603,8 @@ static PyObject *ipv6_serialize(const uint16_t pieces[8]) {
     return PyUnicode_FromStringAndSize(buf, at);
 }
 
-/* The domain-to-ASCII step of host parsing (URL standard 3.5); a host ToASCII rejects falls back to its lowercased
-   form. */
-static PyObject *domain_to_ascii(PyObject *host) {
+/* The crawl normalizer retains invalid Unicode hosts; the web cleaner rejects them. */
+static PyObject *domain_to_ascii(PyObject *host, int checked) {
     if (PyUnicode_IS_ASCII(host)) {
         return PyObject_CallMethod(host, "lower", NULL);
     }
@@ -592,8 +620,47 @@ static PyObject *domain_to_ascii(PyObject *host) {
     if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: ToASCII raises nothing else */
         return NULL;                                 /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    if (checked) {
+        return NULL;
+    }
     PyErr_Clear();
     return PyObject_CallMethod(host, "lower", NULL);
+}
+
+static int host_ends_in_number(PyObject *ascii) {
+    Py_ssize_t end = PyUnicode_GET_LENGTH(ascii);
+    if (end > 1 && PyUnicode_READ_CHAR(ascii, end - 1) == '.') {
+        end--;
+    }
+    if (end == 0) { /* GCOVR_EXCL_BR_LINE: clean_url rejects an empty host before canonicalization */
+        return 0;   /* GCOVR_EXCL_LINE: empty hosts never reach this helper */
+    }
+    Py_UCS4 last = PyUnicode_READ_CHAR(ascii, end - 1);
+    if (!((last >= '0' && last <= '9') || (last >= 'a' && last <= 'f') || last == 'x')) {
+        return 0;
+    }
+    Py_ssize_t start = end;
+    while (start > 0 &&
+           PyUnicode_READ_CHAR(ascii, start - 1) != '.') { /* GCOVR_EXCL_BR_LINE: checked hosts contain a dot */
+        start--;
+    }
+    int decimal = 1;
+    for (Py_ssize_t index = start; index < end; index++) {
+        Py_UCS4 ch = PyUnicode_READ_CHAR(ascii, index);
+        decimal &= ch >= '0' && ch <= '9';
+    }
+    if (decimal) {
+        return 1;
+    }
+    if (end - start < 2 || PyUnicode_READ_CHAR(ascii, start) != '0' || PyUnicode_READ_CHAR(ascii, start + 1) != 'x') {
+        return 0;
+    }
+    for (Py_ssize_t index = start + 2; index < end; index++) {
+        if (hex_value(PyUnicode_READ_CHAR(ascii, index)) < 0) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 /* The dotted-decimal form of `ascii` read by the WHATWG IPv4 parser (https://url.spec.whatwg.org/#concept-ipv4-parser),
@@ -1045,19 +1112,20 @@ static Py_ssize_t split_segments(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_
    both paths' segments. The merge drops the base's trailing non-directory segment, joins on a rooted reference path or
    splices a relative one onto the base directory (collapsing the redundant empty segments urllib's filter removes),
    then walks the segments popping ".." and dropping ".". */
-static Py_ssize_t merge_path(const url_ref *base, const url_ref *ref, url_seg *scratch, url_seg *resolved,
-                             Py_UCS4 *out) {
+static Py_ssize_t merge_path(const url_ref *base, const url_ref *ref, url_seg *scratch, url_seg *resolved, Py_UCS4 *out,
+                             int preserve_slashes) {
     int ref_absolute = ref->buf[ref->path_start] == '/'; /* the caller only merges a non-empty reference path */
     Py_ssize_t total;
     if (ref_absolute) {
         total = split_segments(ref->buf, ref->path_start, ref->path_end, scratch);
     } else {
         total = split_segments(base->buf, base->path_start, base->path_end, scratch);
-        if (scratch[total - 1].end > scratch[total - 1].start) {
+        if (preserve_slashes || scratch[total - 1].end > scratch[total - 1].start) {
             total--; /* the base's last segment is a file, not a directory, so the reference replaces it */
         }
         total += split_segments(ref->buf, ref->path_start, ref->path_end, scratch + total);
-        if (total > 2) { /* drop the empty interior segments a splice would re-join into redundant slashes */
+        if (!preserve_slashes &&
+            total > 2) { /* drop the empty interior segments a splice would re-join into redundant slashes */
             Py_ssize_t write = 1;
             for (Py_ssize_t index = 1; index < total - 1; index++) {
                 if (scratch[index].end > scratch[index].start) {
@@ -1071,10 +1139,11 @@ static Py_ssize_t merge_path(const url_ref *base, const url_ref *ref, url_seg *s
     int last_is_dot = segment_eq(scratch[total - 1].buf, scratch[total - 1].start, scratch[total - 1].end, ".") ||
                       segment_eq(scratch[total - 1].buf, scratch[total - 1].start, scratch[total - 1].end, "..");
     Py_ssize_t kept = 0;
+    Py_ssize_t floor = preserve_slashes && scratch[0].start == scratch[0].end ? 1 : 0;
     for (Py_ssize_t index = 0; index < total; index++) {
         url_seg segment = scratch[index];
         if (segment_eq(segment.buf, segment.start, segment.end, "..")) {
-            if (kept > 0) {
+            if (kept > floor) {
                 kept--;
             }
         } else if (!segment_eq(segment.buf, segment.start, segment.end, ".")) {
@@ -1154,7 +1223,7 @@ static PyObject *build_url(int scheme_has, const Py_UCS4 *scheme_buf, Py_ssize_t
    ported so base_url(), the extraction methods, and the extract_links shim resolve links in C rather than importing
    urllib.parse. `base` and `target` are borrowed str references. Returns a new reference, or NULL with a ValueError set
    when a host has an unbalanced IPv6 bracket. */
-PyObject *th_url_join(PyObject *base, PyObject *target) {
+static PyObject *join_url(PyObject *base, PyObject *target, int document) {
     if (PyUnicode_GET_LENGTH(base) == 0) {
         return Py_NewRef(target); /* an empty base leaves the reference as the whole URL */
     }
@@ -1185,13 +1254,17 @@ PyObject *th_url_join(PyObject *base, PyObject *target) {
         ref_parts.has_scheme &&
         !(base_parts.has_scheme && spans_equal(base_parts.buf, base_parts.scheme_start, base_parts.scheme_end,
                                                ref_parts.buf, ref_parts.scheme_start, ref_parts.scheme_end));
-    if (scheme_differs || (scheme_has && !scheme_is_relative(scheme_buf, scheme_start, scheme_end))) {
+    int hierarchical = document && (base_parts.has_netloc || (base_parts.path_end > base_parts.path_start &&
+                                                              base_parts.buf[base_parts.path_start] == '/'));
+    int relative = scheme_has && scheme_is_relative(scheme_buf, scheme_start, scheme_end);
+    if (scheme_differs || (scheme_has && !relative && !(document && !ref_parts.has_scheme && hierarchical)) ||
+        (document && ref_parts.has_scheme && !base_special)) {
         PyMem_Free(base_parts.buf);
         PyMem_Free(ref_parts.buf);
         return Py_NewRef(target);
     }
     PyObject *result;
-    if (ref_parts.has_netloc && ref_parts.netloc_end > ref_parts.netloc_start) {
+    if (ref_parts.has_netloc && ((!base_special && document) || ref_parts.netloc_end > ref_parts.netloc_start)) {
         result = build_url(base_parts.has_scheme, base_parts.buf, base_parts.scheme_start, base_parts.scheme_end, 1,
                            ref_parts.buf, ref_parts.netloc_start, ref_parts.netloc_end, ref_parts.buf,
                            ref_parts.path_start, ref_parts.path_end, ref_parts.has_query, ref_parts.buf,
@@ -1237,7 +1310,13 @@ PyObject *th_url_join(PyObject *base, PyObject *target) {
             PyMem_Free(ref_parts.buf);                             /* GCOVR_EXCL_LINE: allocation-failure path */
             return PyErr_NoMemory();                               /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        Py_ssize_t path_len = merge_path(&base_parts, &ref_parts, scratch, resolved, path);
+        Py_ssize_t path_len = merge_path(&base_parts, &ref_parts, scratch, resolved, path, document);
+        if (document && !base_parts.has_netloc && path_len > 1 && path[0] == '/' && path[1] == '/') {
+            memmove(path + 2, path, (size_t)path_len * sizeof(Py_UCS4));
+            path[0] = '/';
+            path[1] = '.';
+            path_len += 2;
+        }
         result = build_url(base_parts.has_scheme, base_parts.buf, base_parts.scheme_start, base_parts.scheme_end,
                            base_parts.has_netloc, base_parts.buf, base_parts.netloc_start, base_parts.netloc_end, path,
                            0, path_len, ref_parts.has_query, ref_parts.buf, ref_parts.query_start, ref_parts.query_end,
@@ -1246,6 +1325,153 @@ PyObject *th_url_join(PyObject *base, PyObject *target) {
         PyMem_Free(resolved);
         PyMem_Free(path);
     }
+    PyMem_Free(base_parts.buf);
+    PyMem_Free(ref_parts.buf);
+    return result;
+}
+
+PyObject *th_url_join(PyObject *base, PyObject *target) {
+    return join_url(base, target, 0);
+}
+
+PyObject *th_url_document_join(PyObject *base, PyObject *target) {
+    return join_url(base, target, 1);
+}
+
+static int file_drive(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end) {
+    return end - start >= 2 && th_scheme_start(buf[start]) && (buf[start + 1] == ':' || buf[start + 1] == '|') &&
+           (end - start == 2 || buf[start + 2] == '/');
+}
+
+static Py_ssize_t file_drive_start(const url_ref *ref) {
+    Py_ssize_t start = ref->path_start;
+    return start < ref->path_end && ref->buf[start] == '/' ? start + 1 : start;
+}
+
+static void file_slashes(url_ref *ref) {
+    for (Py_ssize_t index = ref->path_start; index < ref->path_end; index++) {
+        if (ref->buf[index] == '\\') {
+            ref->buf[index] = '/';
+        }
+    }
+}
+
+static Py_ssize_t file_path(const url_ref *base, const url_ref *ref, int base_is_file, int rooted, int drive,
+                            Py_UCS4 *out) {
+    Py_ssize_t at = 0;
+    if (drive) {
+        out[at++] = '/';
+        Py_ssize_t start = file_drive_start(ref);
+        out[at++] = ref->buf[start];
+        out[at++] = ':';
+        for (Py_ssize_t index = start + 2; index < ref->path_end; index++) {
+            out[at++] = ref->buf[index];
+        }
+        return at;
+    }
+    if (rooted) {
+        if (base_is_file && file_drive(base->buf, file_drive_start(base), base->path_end)) {
+            Py_ssize_t start = file_drive_start(base);
+            out[at++] = '/';
+            out[at++] = base->buf[start];
+            out[at++] = ':';
+        }
+    } else if (base_is_file) {
+        for (Py_ssize_t index = base->path_start; index < base->path_end; index++) {
+            out[at++] = base->buf[index];
+        }
+        while (at > 0 && out[at - 1] != '/') {
+            at--;
+        }
+    }
+    if (at == 0 && (ref->path_start == ref->path_end || ref->buf[ref->path_start] != '/')) {
+        out[at++] = '/';
+    }
+    for (Py_ssize_t index = ref->path_start; index < ref->path_end; index++) {
+        out[at++] = ref->buf[index];
+    }
+    return at;
+}
+
+PyObject *th_url_file_join(PyObject *base, PyObject *target) {
+    url_ref base_parts;
+    url_ref ref_parts;
+    if (parse_ref(base, &base_parts, 0) < 0) {
+        return NULL;
+    }
+    if (parse_ref(target, &ref_parts, 1) < 0) {
+        PyMem_Free(base_parts.buf);
+        return NULL;
+    }
+    int base_is_file = base_parts.has_scheme && scheme_eq(base_parts.buf, 0, base_parts.scheme_end, "file");
+    int ref_is_file = ref_parts.has_scheme && scheme_eq(ref_parts.buf, 0, ref_parts.scheme_end, "file");
+    if (ref_parts.has_scheme && !ref_is_file) {
+        PyMem_Free(base_parts.buf);
+        PyMem_Free(ref_parts.buf);
+        return Py_NewRef(target);
+    }
+    file_slashes(&base_parts);
+    file_slashes(&ref_parts);
+    int has_authority = ref_parts.has_netloc;
+    int inherit = base_is_file && !has_authority;
+    int rooted = ref_parts.path_start < ref_parts.path_end && ref_parts.buf[ref_parts.path_start] == '/';
+    int drive = file_drive(ref_parts.buf, file_drive_start(&ref_parts), ref_parts.path_end);
+    int path_empty = ref_parts.path_start == ref_parts.path_end;
+    Py_ssize_t cap = base_parts.path_end - base_parts.path_start + ref_parts.path_end - ref_parts.path_start + 8;
+    Py_UCS4 *path = PyMem_Malloc((size_t)cap * sizeof(Py_UCS4));
+    if (path == NULL) {             /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyMem_Free(base_parts.buf); /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(ref_parts.buf);  /* GCOVR_EXCL_LINE: allocation-failure path */
+        return PyErr_NoMemory();    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    Py_ssize_t path_len;
+    if (path_empty && inherit) {
+        path_len = base_parts.path_end - base_parts.path_start;
+        memcpy(path, base_parts.buf + base_parts.path_start, (size_t)path_len * sizeof(Py_UCS4));
+    } else {
+        path_len = file_path(&base_parts, &ref_parts, inherit, rooted, drive, path);
+    }
+    const url_ref *host = has_authority ? &ref_parts : &base_parts;
+    int host_has = has_authority || inherit;
+    if (has_authority && file_drive(ref_parts.buf, ref_parts.netloc_start, ref_parts.netloc_end)) {
+        if (!path_empty) {
+            memmove(path + 3, path, (size_t)path_len * sizeof(Py_UCS4));
+        }
+        path[0] = '/';
+        path[1] = ref_parts.buf[ref_parts.netloc_start];
+        path[2] = ':';
+        path_len = path_empty ? 3 : path_len + 3;
+        host_has = 0;
+    }
+    PyObject *raw_path = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, path, path_len);
+    PyObject *normalized_path = NULL;
+    if (raw_path != NULL) { /* GCOVR_EXCL_BR_LINE: raw_path only fails on allocation */
+        normalized_path = th_url_remove_file_dot_segments(raw_path);
+    }
+    Py_XDECREF(raw_path);
+    if (normalized_path == NULL) {  /* GCOVR_EXCL_BR_LINE: the path operations only fail on allocation */
+        PyMem_Free(path);           /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(base_parts.buf); /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(ref_parts.buf);  /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;                /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    path_len = PyUnicode_GET_LENGTH(normalized_path);
+    for (Py_ssize_t index = 0; index < path_len; index++) {
+        path[index] = PyUnicode_READ_CHAR(normalized_path, index);
+    }
+    Py_DECREF(normalized_path);
+    int query_has = ref_parts.has_query;
+    const url_ref *query = &ref_parts;
+    if (path_empty && !query_has && inherit) {
+        query_has = base_parts.has_query;
+        query = &base_parts;
+    }
+    static const Py_UCS4 FILE_SCHEME[] = {'f', 'i', 'l', 'e'};
+    PyObject *result = build_url(1, FILE_SCHEME, 0, 4, 1, host->buf, host_has ? host->netloc_start : 0,
+                                 host_has ? host->netloc_end : 0, path, 0, path_len, query_has, query->buf,
+                                 query->query_start, query->query_end, ref_parts.has_fragment, ref_parts.buf,
+                                 ref_parts.fragment_start, ref_parts.fragment_end);
+    PyMem_Free(path);
     PyMem_Free(base_parts.buf);
     PyMem_Free(ref_parts.buf);
     return result;
