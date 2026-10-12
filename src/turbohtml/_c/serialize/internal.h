@@ -683,6 +683,9 @@ static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th
                                                : " xmlns=\"http://www.w3.org/1998/Math/MathML\"");
         emitted.default_ns = 1;
     }
+    if (node->attr_count == 0) {
+        return emitted;
+    }
     int has_xlink_attr = 0;
     int has_xlink_decl = 0;
     for (Py_ssize_t position = 0; position < node->attr_count; position++) {
