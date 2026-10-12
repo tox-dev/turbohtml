@@ -1,1 +1,2 @@
-Resolve document base URLs with canonical hosts, file paths, and relative non-special schemes; reject malformed web hosts when cleaning URLs.
+Resolve document base URLs with canonical hosts, file paths, and relative non-special schemes; reject malformed web
+hosts when cleaning URLs.
