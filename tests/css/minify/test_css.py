@@ -1785,6 +1785,37 @@ def test_minify_css_baseline_year_is_a_threshold() -> None:
     assert minify_css(source, CSSMinify(baseline=2021)) == "a{inset:0}"
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "a{margin-top:1px;&{margin-top:2px}margin-right:1px;margin-bottom:1px;margin-left:1px}",
+            "a{margin-top:1px;&{margin-top:2px};margin-right:1px;margin-bottom:1px;margin-left:1px}",
+            id="nested-selector",
+        ),
+        pytest.param(
+            "a{padding-top:1px;@media (min-width:1px){padding-top:2px}padding-right:1px;"
+            "padding-bottom:1px;padding-left:1px}",
+            "a{padding-top:1px;@media(min-width:1px){padding-top:2px};padding-right:1px;"
+            "padding-bottom:1px;padding-left:1px}",
+            id="nested-at-rule",
+        ),
+        pytest.param(
+            "a{margin-top:1px;@apply x;margin-right:1px;margin-bottom:1px;margin-left:1px}",
+            "a{margin-top:1px;@apply x;margin-right:1px;margin-bottom:1px;margin-left:1px}",
+            id="bodyless-at-rule",
+        ),
+        pytest.param(
+            "a{&{margin-top:2px}margin-top:1px;margin-right:1px;margin-bottom:1px;margin-left:1px}",
+            "a{&{margin-top:2px};margin:1px}",
+            id="merge-within-run",
+        ),
+    ],
+)
+def test_minify_css_nested_rules_bound_shorthand_merges(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
 def test_logical_shorthand_kept_when_physical_alias_present() -> None:
     # margin-inline-start aliases margin-left by writing mode, so the shorthand could reorder against it: no merge.
     source = "a{margin-left:9px;margin-inline-start:1px;margin-inline-end:2px}"

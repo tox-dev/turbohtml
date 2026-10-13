@@ -495,15 +495,12 @@ static const char *css_dedup_longhand_list(const css_buf *pool, const css_decl *
 static void css_dedup_pairwise(css_buf *pool, decl_vec *decls) {
     for (Py_ssize_t index = 0; index < decls->len; index++) {
         css_decl *later = &decls->items[index];
-        if (later->nested) {
-            continue;
-        }
         const css_char *prop = pool->data + later->prop_off;
         Py_ssize_t prop_len = later->prop_len;
         const char *list = css_dedup_longhand_list(pool, later);
         for (Py_ssize_t earlier = 0; earlier < index; earlier++) {
             css_decl *prev = &decls->items[earlier];
-            if (prev->nested || prev->dropped || prev->important != later->important) {
+            if (prev->dropped || prev->important != later->important) {
                 continue;
             }
             const css_char *prior = pool->data + prev->prop_off;
@@ -609,9 +606,6 @@ static void css_dedup(css_buf *pool, decl_vec *decls) {
     uint32_t mask = (uint32_t)(cap - 1);
     for (Py_ssize_t index = 0; index < decls->len; index++) {
         css_decl *later = &decls->items[index];
-        if (later->nested) {
-            continue;
-        }
         const css_char *prop = pool->data + later->prop_off;
         Py_ssize_t prop_len = later->prop_len;
         int important = later->important;

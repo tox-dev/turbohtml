@@ -30,7 +30,7 @@ static Py_ssize_t css_find_active_decl(const decl_vec *decls, const css_buf *poo
     css_char first = (css_char)(unsigned char)name[0];
     for (Py_ssize_t index = 0; index < decls->len; index++) {
         const css_decl *decl = &decls->items[index];
-        if (!decl->dropped && !decl->nested && css_lower(pool->data[decl->prop_off]) == first &&
+        if (!decl->dropped && css_lower(pool->data[decl->prop_off]) == first &&
             css_run_ieq(pool->data + decl->prop_off, decl->prop_len, name)) {
             return index;
         }
@@ -42,7 +42,7 @@ static int css_count_active_prefixed(const decl_vec *decls, const css_buf *pool,
     int count = 0;
     for (Py_ssize_t index = 0; index < decls->len; index++) {
         const css_decl *decl = &decls->items[index];
-        if (decl->dropped || decl->nested || decl->prop_len < len) {
+        if (decl->dropped || decl->prop_len < len) {
             continue;
         }
         int match = 1;
@@ -335,8 +335,18 @@ static void css_render_declarations(css_buf *pool, decl_vec *decls, int baseline
     if (*pool->oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    css_dedup(pool, decls);
-    css_merge_shorthands(pool, decls, baseline);
+    Py_ssize_t start = 0;
+    for (Py_ssize_t index = 0; index <= decls->len; index++) {
+        if (index < decls->len && !decls->items[index].nested) {
+            continue;
+        }
+        if (index > start) {
+            decl_vec run = {decls->items + start, index - start, index - start, pool->oom};
+            css_dedup(pool, &run);
+            css_merge_shorthands(pool, &run, baseline);
+        }
+        start = index + 1;
+    }
     /* a shorthand merged after a failed growth points at the pool's start, which holds at least the longhands it
        replaced, so the merges read inside the pool; the render must not copy it */
     if (*pool->oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
