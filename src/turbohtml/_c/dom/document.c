@@ -670,7 +670,39 @@ static int url_has_backslash_dot(PyObject *url) {
     return 0;
 }
 
-static int url_has_separator_candidate(PyObject *url) {
+static int url_same_scheme_at(PyObject *base, PyObject *target, Py_ssize_t colon) {
+    if (PyUnicode_GET_LENGTH(base) <= colon) {
+        return 0;
+    }
+    if (PyUnicode_IS_ASCII(base) && PyUnicode_IS_ASCII(target)) {
+        const char *base_bytes = (const char *)PyUnicode_1BYTE_DATA(base);
+        const char *target_bytes = (const char *)PyUnicode_1BYTE_DATA(target);
+        if (base_bytes[colon] != ':') {
+            return 0;
+        }
+        for (Py_ssize_t index = 0; index < colon; index++) {
+            if (lower_ascii((unsigned char)base_bytes[index]) != lower_ascii((unsigned char)target_bytes[index])) {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    if (PyUnicode_READ_CHAR(base, colon) != ':') {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < colon; index++) {
+        if (lower_ascii(PyUnicode_READ_CHAR(base, index)) != lower_ascii(PyUnicode_READ_CHAR(target, index))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int url_same_scheme(PyObject *base, PyObject *target) {
+    return url_same_scheme_at(base, target, PyUnicode_FindChar(target, ':', 0, PyUnicode_GET_LENGTH(target), 1));
+}
+
+static int url_has_separator_candidate(PyObject *base, PyObject *url) {
     Py_ssize_t length = PyUnicode_GET_LENGTH(url);
     if (PyUnicode_IS_ASCII(url)) {
         const char *bytes = (const char *)PyUnicode_1BYTE_DATA(url);
@@ -678,7 +710,9 @@ static int url_has_separator_candidate(PyObject *url) {
             if (bytes[index] == 0) {
                 return 0;
             }
-            if (bytes[index] == '%' || bytes[index] == '\\' || (bytes[index] == '.' && bytes[index - 1] != '/')) {
+            if (bytes[index] == '%' || bytes[index] == '\\' ||
+                (bytes[index] == '.' &&
+                 (bytes[index - 1] != '/' || (bytes[index - 2] == ':' && !url_same_scheme_at(base, url, index - 2))))) {
                 return 1;
             }
         }
@@ -693,20 +727,6 @@ static int url_has_separator_candidate(PyObject *url) {
         }
     }
     return 0;
-}
-
-static int url_same_scheme(PyObject *base, PyObject *target) {
-    Py_ssize_t length = PyUnicode_GET_LENGTH(target);
-    Py_ssize_t colon = PyUnicode_FindChar(target, ':', 0, length, 1);
-    if (colon != PyUnicode_FindChar(base, ':', 0, PyUnicode_GET_LENGTH(base), 1)) {
-        return 0;
-    }
-    for (Py_ssize_t index = 0; index < colon; index++) {
-        if (lower_ascii(PyUnicode_READ_CHAR(base, index)) != lower_ascii(PyUnicode_READ_CHAR(target, index))) {
-            return 0;
-        }
-    }
-    return 1;
 }
 
 static inline int url_target_flags(PyObject *target) {
@@ -895,7 +915,7 @@ PyObject *th_url_resolve(PyObject *base, PyObject *target) {
     if (target_len >= 4 &&
         (lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'h' || lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'f' ||
          lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'w') &&
-        absolute_web != TH_URL_WEB_AUTHORITY_FORWARD && url_has_separator_candidate(target)) {
+        absolute_web != TH_URL_WEB_AUTHORITY_FORWARD && url_has_separator_candidate(base, target)) {
         PyObject *separator = url_resolve_special_separator(base, target);
         if (separator != NULL || PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: only allocation can fail */
             return separator;

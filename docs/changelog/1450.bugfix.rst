@@ -1,0 +1,1 @@
+Preserve a single-dot host when resolving a foreign special URL with one slash after its scheme.
