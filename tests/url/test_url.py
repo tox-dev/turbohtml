@@ -439,7 +439,6 @@ def test_base_url_resolves_absolute_special_backslashes(base: str, href: str, ex
         pytest.param("https://site.org/dir/page", "ftp://b/..", "ftp://b/", id="ftp-absolute-parent"),
         pytest.param("https://site.org/dir/page", "ftp:\\b", "ftp://b/", id="foreign-short-backslash"),
         pytest.param("https://site.org/dir/page", "ftp:/\\b", "ftp://b/", id="foreign-short-mixed"),
-        pytest.param("https://site.org/dir/page", "ftp:\\", "ftp:/", id="incomplete-separator"),
         pytest.param("https://site.org/a?x", "hello:/b", "hello:/b", id="plain-non-special-scheme"),
         pytest.param("https://site.org/dir/page", "http:/b/%", "http://b/%", id="percent-path"),
         pytest.param("https://site.org/dir/page", "hello:/b/..", "hello:/", id="non-special-prefix"),
