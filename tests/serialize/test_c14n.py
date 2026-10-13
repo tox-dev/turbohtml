@@ -505,6 +505,14 @@ def test_xml_c14n_inherits_xml_attributes_on_apex() -> None:
     )
 
 
+def test_xml_c14n_exclusive_omits_ancestor_xml_attributes() -> None:
+    document = parse_xml(
+        '<r xml:lang="en" xml:base="urn:root" xml:mode="x"><a xml:space="preserve"><b xml:lang="fr"/></a></r>'
+    )
+    node = document.children[0].children[0].children[0]
+    assert node.canonicalize(Canonical(exclusive=True)) == b'<b xml:lang="fr"></b>'
+
+
 def test_xml_c14n_1_1_does_not_inherit_xml_id() -> None:
     document = parse_xml('<r xmlns:p="urn:p" xml:id="top" xml:lang="en"><p:a/></r>')
     assert document.children[0].children[0].canonicalize(Canonical(version="1.1")) == (
@@ -718,6 +726,15 @@ def test_inherited_attributes_skip_non_xml_ancestor_attributes() -> None:
     assert node.canonicalize() == b'<p xml:lang="en">y</p>'
 
 
+def test_exclusive_omits_ancestor_xml_attributes() -> None:
+    node = _one(
+        '<div xml:lang="en" xml:base="urn:root" xml:mode="x">'
+        '<section xml:space="preserve"><p xml:lang="fr">x</p></section></div>',
+        "p",
+    )
+    assert node.canonicalize(Canonical(exclusive=True)) == b'<p xml:lang="fr">x</p>'
+
+
 def test_doctype_node_canonicalizes_to_nothing() -> None:
     doctype = parse("<!doctype html>").children[0]
     assert doctype.canonicalize() == b""
@@ -888,18 +905,22 @@ def test_canonicalize_sibling_scopes(children: str, expected: str, *, exclusive:
 
 
 @pytest.mark.parametrize(
-    ("options", "apex_declaration", "child_declaration"),
+    ("options", "apex_declaration", "child_declaration", "inherited"),
     [
-        pytest.param(Canonical(), _XLINK, "", id="inclusive"),
-        pytest.param(Canonical(exclusive=True), "", _XLINK, id="exclusive"),
-        pytest.param(Canonical(exclusive=True, inclusive_ns_prefixes=("xlink",)), _XLINK, _XLINK, id="forced-prefix"),
+        pytest.param(Canonical(), _XLINK, "", ' xml:lang="en"', id="inclusive"),
+        pytest.param(Canonical(exclusive=True), "", _XLINK, "", id="exclusive"),
+        pytest.param(
+            Canonical(exclusive=True, inclusive_ns_prefixes=("xlink",)), _XLINK, _XLINK, "", id="forced-prefix"
+        ),
     ],
 )
-def test_canonicalize_inherited_scope(options: Canonical, apex_declaration: str, child_declaration: str) -> None:
+def test_canonicalize_inherited_scope(
+    options: Canonical, apex_declaration: str, child_declaration: str, inherited: str
+) -> None:
     node = parse('<svg xlink:href="outer" xml:lang="en"><g><use xlink:href="inner"/></g></svg>').select_one("g")
     assert node is not None
     assert node.canonicalize(options) == (
-        f'<g{_SVG}{apex_declaration} xml:lang="en"><use{child_declaration} xlink:href="inner"></use></g>'.encode()
+        f'<g{_SVG}{apex_declaration}{inherited}><use{child_declaration} xlink:href="inner"></use></g>'.encode()
     )
 
 

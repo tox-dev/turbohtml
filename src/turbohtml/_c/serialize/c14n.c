@@ -260,7 +260,7 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
     }
 
     Py_ssize_t capacity = node->attr_count;
-    if (node == apex) {
+    if (node == apex && !opts->exclusive) {
         for (const th_node *anc = node->parent; anc != NULL; anc = anc->parent) {
             if (anc->type == TH_NODE_ELEMENT) {
                 capacity += anc->attr_count;
@@ -281,7 +281,7 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
         }
         attrs[count++] = c14n_make_ref(name, name_len, node->attrs[index].value, node->attrs[index].value_len);
     }
-    if (node == apex) {
+    if (node == apex && !opts->exclusive) {
         for (const th_node *anc = node->parent; anc != NULL; anc = anc->parent) {
             if (anc->type != TH_NODE_ELEMENT) {
                 continue;

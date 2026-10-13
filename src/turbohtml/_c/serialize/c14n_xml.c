@@ -351,7 +351,7 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
     }
 
     Py_ssize_t attr_capacity = node->attr_count;
-    if (node == apex) {
+    if (node == apex && !opts->exclusive) {
         for (const th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
             if (ancestor->type == TH_NODE_ELEMENT) {
                 attr_capacity += ancestor->attr_count;
@@ -377,7 +377,7 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
                                                 namespaces, ns_count);
         }
     }
-    if (node == apex) {
+    if (node == apex && !opts->exclusive) {
         for (const th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
             if (ancestor->type != TH_NODE_ELEMENT) {
                 continue;
