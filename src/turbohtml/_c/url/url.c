@@ -1433,7 +1433,67 @@ PyObject *th_url_join(PyObject *base, PyObject *target) {
     return join_url(base, target, 0);
 }
 
+static int c14n_appendable_base(PyObject *base) {
+    if (!PyUnicode_IS_ASCII(base)) {
+        return 0;
+    }
+    Py_ssize_t length = PyUnicode_GET_LENGTH(base);
+    if (length == 0 || PyUnicode_1BYTE_DATA(base)[length - 1] != '/') {
+        return 0;
+    }
+    const unsigned char *data = PyUnicode_1BYTE_DATA(base);
+    Py_ssize_t start = 0;
+    int parent_prefix = 1;
+    for (Py_ssize_t index = 0; index < length; index++) {
+        unsigned char character = data[index];
+        if (character == ':' || character == '?' || character == '#') {
+            return 0;
+        }
+        if (character != '/') {
+            continue;
+        }
+        Py_ssize_t segment_length = index - start;
+        if (segment_length == 0 || (segment_length == 1 && data[start] == '.')) {
+            return 0;
+        }
+        if (segment_length == 2 && data[start] == '.' && data[start + 1] == '.') {
+            if (!parent_prefix) {
+                return 0;
+            }
+        } else {
+            parent_prefix = 0;
+        }
+        start = index + 1;
+    }
+    return 1;
+}
+
+static int c14n_appendable_target(PyObject *target) {
+    if (!PyUnicode_IS_ASCII(target)) {
+        return 0;
+    }
+    Py_ssize_t length = PyUnicode_GET_LENGTH(target);
+    if (length == 0) {
+        return 0;
+    }
+    const unsigned char *data = PyUnicode_1BYTE_DATA(target);
+    if (data[0] == '.') {
+        if (length == 1 || (length == 2 && data[1] == '.')) {
+            return 0;
+        }
+    }
+    for (Py_ssize_t index = 0; index < length; index++) {
+        if (data[index] == '/' || data[index] == ':' || data[index] == '?' || data[index] == '#') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 PyObject *th_url_join_c14n(PyObject *base, PyObject *target) {
+    if (c14n_appendable_base(base) && c14n_appendable_target(target)) {
+        return PyUnicode_Concat(base, target);
+    }
     Py_ssize_t base_length = PyUnicode_GET_LENGTH(base);
     int base_kind = PyUnicode_KIND(base);
     const void *base_data = PyUnicode_DATA(base);

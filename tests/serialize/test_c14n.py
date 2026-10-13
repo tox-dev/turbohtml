@@ -897,6 +897,39 @@ def test_xml_c14n_1_1_fixes_ancestor_base(source: str, selector: str, expected: 
     assert node.canonicalize(Canonical(version="1.1")) == expected
 
 
+@pytest.mark.parametrize(
+    ("base", "reference", "expected"),
+    [
+        pytest.param("../ab/", "b", "../ab/b", id="leading-parent-prefix"),
+        pytest.param("ab/", "b", "ab/b", id="ordinary-relative-base"),
+        pytest.param(".a/", "b", ".a/b", id="dot-starting-segment"),
+        pytest.param("a:b/", "c", "a:b/c", id="base-scheme"),
+        pytest.param("a/?q/", "b", "a/b", id="base-query"),
+        pytest.param("a/#f/", "b", "a/b", id="base-fragment"),
+        pytest.param("/a/", "b", "/a/b", id="rooted-base"),
+        pytest.param("./a/", "b", "a/b", id="dot-base-segment"),
+        pytest.param("a/../", "b", "b", id="parent-after-segment"),
+        pytest.param("a/", "é", "a/é", id="unicode-reference"),
+        pytest.param("a/", "", "a/", id="empty-reference"),
+        pytest.param("a/", ".", "a/", id="dot-reference"),
+        pytest.param("a/", "..", "", id="parent-reference"),
+        pytest.param("a/", ".b", "a/.b", id="dot-starting-reference"),
+        pytest.param("a/", ".ab", "a/.ab", id="long-dot-starting-reference"),
+        pytest.param("a/", "ab", "a/ab", id="two-character-reference"),
+        pytest.param("a/", "b/c", "a/b/c", id="reference-slash"),
+        pytest.param("a/", "b:c", "b:c", id="reference-scheme"),
+        pytest.param("a/", "b?q", "a/b?q", id="reference-query"),
+        pytest.param("a/", "b#f", "a/b", id="reference-fragment"),
+    ],
+)
+def test_xml_c14n_1_1_resolves_relative_base_segments(base: str, reference: str, expected: str) -> None:
+    node = parse_xml(f'<r xml:base="{base}"><b xml:base="{reference}"/></r>').select_one("b")
+    assert node is not None
+    assert node.canonicalize(Canonical(version="1.1")) == (
+        f'<b xml:base="{expected}"></b>'.encode() if expected else b"<b></b>"
+    )
+
+
 def test_xml_c14n_1_0_does_not_fix_ancestor_base() -> None:
     node = parse_xml('<r xml:base="foo/bar"><a xml:base="../x"/></r>').select_one("a")
     assert node is not None
