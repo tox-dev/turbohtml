@@ -18,44 +18,13 @@ from subprocess import run  # ruff: ignore[suspicious-subprocess-import] - start
 from typing import TYPE_CHECKING, Final
 
 import pytest
-from fuzz.atheris_content_targets import (
-    content_targets,
-    detector_check,
-    minifier_check,
-    minifier_observation,
-    sanitizer_check,
-    sanitizer_observation,
-    stdlib_check,
-    stdlib_observation,
-    url_check,
-)
 from fuzz.atheris_corpora import CorpusProfile, write_corpora
 from fuzz.atheris_corpora import main as corpus_main
 from fuzz.atheris_corpora import main as fuzz_atheris_corpora_main
-from fuzz.atheris_dom_targets import DomObservation, dom_observation, dom_targets
 from fuzz.atheris_driver import fuzz
-from fuzz.atheris_generation_targets import encoding_observation, generation_targets
 from fuzz.atheris_header import BYTEWISE, HEADER_SIZE, SEED_HEADER, Header, feed_chunks, split_header
 from fuzz.atheris_invariants import assert_invariant
 from fuzz.atheris_javascript_targets import javascript_observation, javascript_targets
-from fuzz.atheris_parser_targets import (
-    document_observation,
-    fragment_observation,
-    incremental_observation,
-    parser_targets,
-    token_observation,
-)
-from fuzz.atheris_reference_targets import (
-    cli_observation,
-    computed_observation,
-    conformance_observation,
-    cssom_observation,
-    reference_targets,
-    render_observation,
-    schema_observation,
-    selector_observation,
-    transform_observation,
-)
 from fuzz.atheris_registry import Target, validate_owners
 from fuzz.atheris_runtime import (
     build_runtime,
@@ -66,8 +35,18 @@ from fuzz.atheris_runtime import (
 from fuzz.atheris_runtime import (
     main as fuzz_atheris_runtime_main,
 )
-from fuzz.atheris_stylesheet_targets import stylesheet_observation, stylesheet_targets
 from fuzz.atheris_targets import MODULES, main, owner_inventory, public_modules, public_targets
+from fuzz.content_targets import (
+    content_targets,
+    detector_check,
+    minifier_check,
+    minifier_observation,
+    sanitizer_check,
+    sanitizer_observation,
+    stdlib_check,
+    stdlib_observation,
+    url_check,
+)
 from fuzz.css_custom_oracles import (
     UnsupportedCssCustomCaseError,
     css_custom_check,
@@ -75,7 +54,9 @@ from fuzz.css_custom_oracles import (
     css_custom_generate,
     css_custom_seeds,
 )
+from fuzz.dom_targets import DomObservation, dom_observation, dom_targets
 from fuzz.encoding_structure_generators import encoding_grammar
+from fuzz.generation_targets import encoding_observation, generation_targets
 from fuzz.html_structure_generators import html_grammar_complete
 from fuzz.idna_nfc_oracles import (
     UnsupportedIdnaNfcCaseError,
@@ -91,6 +72,24 @@ from fuzz.parser_byte_oracles import (
     parser_bytes_controls,
     parser_bytes_generate,
     parser_bytes_seeds,
+)
+from fuzz.parser_targets import (
+    document_observation,
+    fragment_observation,
+    incremental_observation,
+    parser_targets,
+    token_observation,
+)
+from fuzz.reference_targets import (
+    cli_observation,
+    computed_observation,
+    conformance_observation,
+    cssom_observation,
+    reference_targets,
+    render_observation,
+    schema_observation,
+    selector_observation,
+    transform_observation,
 )
 from fuzz.round_trip_oracles import (
     ORACLES,
@@ -130,6 +129,7 @@ from fuzz.round_trip_oracles import main as fuzz_url_reparse_main
 from fuzz.round_trip_oracles import main as fuzz_xml_island_invariants_main
 from fuzz.round_trip_oracles import main as fuzz_xml_literal_invariants_main
 from fuzz.structure_generators import GenerationBudget, Grammar, Identifier, Production, compile_grammar, generate
+from fuzz.stylesheet_targets import stylesheet_observation, stylesheet_targets
 from fuzz.xml_grammar_oracles import (
     UnsupportedXmlLiteralCaseError,
     xml_literal_check,

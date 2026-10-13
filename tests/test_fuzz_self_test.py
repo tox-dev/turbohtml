@@ -640,7 +640,7 @@ assert windows[1][1], windows
 
 _LIST: Final = """
 import json
-from fuzz.atheris_generation_targets import encoding_observation, generation_targets
+from fuzz.generation_targets import encoding_observation, generation_targets
 assert encoding_observation(b"<p>\\xe9</p>", "windows-1252") == "é"
 assert [target.name for target in generation_targets("windows-1252")] == [
     "markdown-source", "markdown-html", "encoding-bytes"

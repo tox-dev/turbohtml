@@ -10,15 +10,15 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
-from .atheris_content_targets import content_targets
-from .atheris_dom_targets import dom_targets
 from .atheris_driver import fuzz
-from .atheris_generation_targets import generation_targets
 from .atheris_javascript_targets import initialize_javascript, javascript_targets
-from .atheris_parser_targets import parser_targets
-from .atheris_reference_targets import reference_targets
 from .atheris_registry import validate_owners
-from .atheris_stylesheet_targets import stylesheet_targets
+from .content_targets import content_targets
+from .dom_targets import dom_targets
+from .generation_targets import generation_targets
+from .parser_targets import parser_targets
+from .reference_targets import reference_targets
+from .stylesheet_targets import stylesheet_targets
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
