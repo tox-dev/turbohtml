@@ -424,6 +424,24 @@ static Py_ssize_t url_same_scheme_colon(PyObject *base, PyObject *target) {
     return colon;
 }
 
+static int url_has_backslash_dot_path(PyObject *target) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(target);
+    if (PyUnicode_IS_ASCII(target) ? memchr(PyUnicode_1BYTE_DATA(target), '\\', (size_t)length) == NULL
+                                   : PyUnicode_FindChar(target, '\\', 0, length, 1) < 0) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index + 1 < length; index++) {
+        Py_UCS4 point = PyUnicode_READ_CHAR(target, index);
+        if (point == '?' || point == '#') {
+            break;
+        }
+        if (point == '\\' && PyUnicode_READ_CHAR(target, index + 1) == '.') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static PyObject *url_join_web_special_slashes(PyObject *base, PyObject *target, int *literalized);
 
 static PyObject *url_join_encoded_dot_segments(PyObject *base, PyObject *target, int *literalized) {
@@ -495,7 +513,7 @@ static PyObject *url_join_encoded_dot_segments(PyObject *base, PyObject *target,
 
 static PyObject *url_join_web_special_slashes(PyObject *base, PyObject *target, int *literalized) {
     Py_ssize_t length = PyUnicode_GET_LENGTH(target);
-    if (!url_web_special_base(base)) {
+    if (!url_web_special_base(base) && !url_web_special_base(target)) {
         return url_join_encoded_dot_segments(base, target, literalized);
     }
     Py_ssize_t query = PyUnicode_FindChar(target, '?', 0, length, 1);
@@ -524,12 +542,18 @@ static PyObject *url_join_web_special_slashes(PyObject *base, PyObject *target, 
     }
     int result_kind = PyUnicode_KIND(normalized);
     void *result = PyUnicode_DATA(normalized);
+    int backslash_dot = 0;
     for (Py_ssize_t index = 0; index < length - skipped; index++) {
         Py_ssize_t source_index = index < 2 ? index : index + skipped;
         Py_UCS4 point = PyUnicode_READ(source_kind, source, source_index);
+        backslash_dot |= source_index + 1 < path_end && point == '\\' &&
+                         PyUnicode_READ(source_kind, source, source_index + 1) == '.';
         PyUnicode_WRITE(result_kind, result, index, source_index < path_end && point == '\\' ? '/' : point);
     }
     PyObject *joined = url_join_encoded_dot_segments(base, normalized, literalized);
+    if (joined != NULL && backslash_dot) {
+        *literalized = 1;
+    }
     Py_DECREF(normalized);
     return joined;
 }
@@ -664,6 +688,15 @@ PyObject *th_url_resolve(PyObject *base, PyObject *target) {
     int target_flags = url_target_flags(target);
     int web_slashes = target_flags & 2;
     int absolute_web = th_url_web_authority(target);
+    if (!web_slashes && absolute_web == TH_URL_WEB_AUTHORITY_NONE && target_len >= 5 &&
+        (lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'h' || lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'f' ||
+         lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'w') &&
+        url_has_backslash_dot_path(target) && url_web_special_base(target)) {
+        Py_ssize_t colon = PyUnicode_FindChar(target, ':', 0, target_len, 1);
+        if (PyUnicode_READ_CHAR(target, colon + 1) != '/' && PyUnicode_READ_CHAR(target, colon + 1) != '\\') {
+            web_slashes = 2;
+        }
+    }
     if (!url_ends_in_c0(base) && !(target_flags & 1)) {
         if (absolute_web == TH_URL_WEB_AUTHORITY_BACKSLASH) {
             joined = url_join_absolute_web(target, &literalized);

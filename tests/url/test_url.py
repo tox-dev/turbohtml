@@ -554,6 +554,25 @@ def test_base_url_resolves_encoded_dot_segments(href: str, fallback: str, expect
 
 
 @pytest.mark.parametrize(
+    ("fallback", "href", "expected"),
+    [
+        pytest.param("https://site.org/a/b", "http:é\\./", "http://xn--9ca/", id="foreign-unicode-host"),
+        pytest.param("git://site.org/a/b", "http:a\\../", "http://a/", id="foreign-non-special-base"),
+        pytest.param("file:///C:/a/b", "https:a\\../", "https://a/", id="foreign-file-base"),
+        pytest.param("https://site.org/a/b", "https:a\\../", "https://site.org/a/", id="same-scheme"),
+        pytest.param("https://site.org/a/b", "https:/a\\..", "https://site.org/", id="single-slash-same-scheme"),
+        pytest.param("https://site.org/a/b", "http:\\.\\a", "http://./a", id="leading-backslash-dot-host"),
+        pytest.param("https://site.org/a/b", "http:a\\..#x\\.", "http://a/#x\\.", id="fragment-backslash"),
+        pytest.param("https://site.org/a/b", "http:a#x\\.", "http://a/#x\\.", id="fragment-only-backslash"),
+        pytest.param("https://site.org/a/b", "http:a?x=\\.", "http://a/?x=\\.", id="query-backslash"),
+        pytest.param("https://site.org/a/b", "faux:a\\..", "faux:a\\..", id="non-special-scheme"),
+    ],
+)
+def test_base_url_resolves_special_backslash_dot(fallback: str, href: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url(fallback) == expected
+
+
+@pytest.mark.parametrize(
     ("href", "fallback", "expected"),
     [
         pytest.param("http://example.org/a/../b", "http://site.org/", "http://example.org/b", id="absolute-parent"),
