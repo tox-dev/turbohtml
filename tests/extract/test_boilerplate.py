@@ -299,7 +299,7 @@ def test_boilerplate_releases_text_snapshots() -> None:
     page: Final = "<article><p>" + "A comet passes near the Sun. " * 256 + '<a href="/more">more</a></p></article>'
     tracing.start()
     try:
-        for _ in range(2):
+        for _ in range(128):
             boilerplate(page)
         gc.collect()
         before: Final = tracing.get_traced_memory()[0]
