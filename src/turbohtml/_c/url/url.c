@@ -1228,7 +1228,23 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document) {
         return Py_NewRef(target); /* an empty base leaves the reference as the whole URL */
     }
     if (PyUnicode_GET_LENGTH(target) == 0) {
-        return Py_NewRef(base); /* an empty reference resolves to the base unchanged */
+        if (!document) {
+            return Py_NewRef(base); /* RFC 3986 joining keeps the base fragment */
+        }
+        url_ref parts;
+        if (parse_ref(base, &parts, 0) < 0) {
+            return NULL;
+        }
+        int hierarchical =
+            parts.has_netloc || (parts.path_end > parts.path_start && parts.buf[parts.path_start] == '/');
+        PyObject *result = hierarchical && parts.has_fragment
+                               ? build_url(parts.has_scheme, parts.buf, parts.scheme_start, parts.scheme_end,
+                                           parts.has_netloc, parts.buf, parts.netloc_start, parts.netloc_end, parts.buf,
+                                           parts.path_start, parts.path_end, parts.has_query, parts.buf,
+                                           parts.query_start, parts.query_end, 0, parts.buf, 0, 0)
+                               : Py_NewRef(base);
+        PyMem_Free(parts.buf);
+        return result;
     }
     url_ref base_parts;
     url_ref ref_parts;

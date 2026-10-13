@@ -46,6 +46,13 @@ from turbohtml._html import _url_scrub, _url_split, _url_variant_key
         pytest.param("<base>", "http://site.com/", "http://site.com/", id="valueless-href"),
         pytest.param('<base href="">', "http://site.com/", "http://site.com/", id="empty-href"),
         pytest.param('<base href="  ">', "http://site.com/", "http://site.com/", id="blank-href"),
+        pytest.param(
+            '<base href="">', "https://site.com/p?x#old", "https://site.com/p?x", id="empty-href-drops-fragment"
+        ),
+        pytest.param('<base href="  ">', "git:/p#old", "git:/p", id="blank-href-drops-hierarchical-fragment"),
+        pytest.param('<base href="">', "git:opaque#old", "git:opaque#old", id="empty-href-opaque-fallback"),
+        pytest.param('<base href="">', "git:#old", "git:#old", id="empty-href-empty-opaque-path"),
+        pytest.param("<p>no base</p>", "https://site.com/p#old", "https://site.com/p#old", id="no-base-keeps-fragment"),
         pytest.param('<base href=" b:_">', "https://example.org/dir/page", "b:_", id="opaque-leading-space"),
         pytest.param('<base href="b\n:_">', "https://example.org/dir/page", "b:_", id="opaque-internal-line-feed"),
         pytest.param('<base href="b&#13;:_">', "https://example.org/dir/page", "b:_", id="opaque-internal-return"),
@@ -55,6 +62,11 @@ from turbohtml._html import _url_scrub, _url_split, _url_variant_key
 )
 def test_base_url(html: str, fallback: str, expected: str) -> None:
     assert parse(html).base_url(fallback) == expected
+
+
+def test_base_url_empty_href_rejects_malformed_fallback() -> None:
+    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
+        parse('<base href="">').base_url("https://[bad")
 
 
 def test_base_url_default_fallback() -> None:
