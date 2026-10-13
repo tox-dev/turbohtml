@@ -1,0 +1,2 @@
+Treat a backslash after a web URL's authority as one path separator and normalize following dot segments when resolving
+document URLs.

@@ -458,6 +458,35 @@ def test_base_url_resolves_non_special_relative(href: str, fallback: str, expect
         ),
         pytest.param("http://site.org/dir/page", "http:other", "http://site.org/dir/other", id="same-scheme-relative"),
         pytest.param("http://site.org/dir/page", "http:/page", "http://site.org/page", id="single-slash"),
+        pytest.param("https://site.org/dir/page", "//other\\p", "https://other/p", id="network-authority-end"),
+        pytest.param("https://site.org/dir/page", "https://other\\p", "https://other/p", id="web-authority-end"),
+        pytest.param("git://site.org/dir/page", "https://other\\p", "https://other/p", id="web-under-git"),
+        pytest.param("https://site.org/dir/page", "//é\\p", "https://xn--9ca/p", id="unicode-host"),
+        pytest.param("https://site.org/dir/page", "//other\\p?q=\\", "https://other/p?q=\\", id="query-backslash"),
+        pytest.param("https://site.org/dir/page", "git://other/path\\p", "git://other/path\\p", id="non-special-path"),
+        pytest.param("https://site.org/dir/page", "//other/p\\q", "https://other/p/q", id="network-path-backslash"),
+        pytest.param(
+            "https://site.org/dir/page", "//other?x=\\q", "https://other/?x=\\q", id="network-query-backslash"
+        ),
+        pytest.param(
+            "https://site.org/dir/page", "//other#x\\q", "https://other/#x\\q", id="network-fragment-backslash"
+        ),
+        pytest.param("https://site.org/dir/page", "https://other/p\\q", "https://other/p/q", id="web-path-backslash"),
+        pytest.param("https://site.org/dir/page", "//other\\..", "https://other/", id="network-parent"),
+        pytest.param("https://site.org/dir/page", "\\\\other\\.", "https://other/", id="double-backslash-dot"),
+        pytest.param("https://site.org/dir/page", "//other\\..#f", "https://other/#f", id="network-parent-fragment"),
+        pytest.param("https://site.org/dir/page", "//other?q=\\..", "https://other/?q=\\..", id="query-dot"),
+        pytest.param(
+            "https://site.org/dir/page", "https://other?x=\\q", "https://other/?x=\\q", id="web-query-backslash"
+        ),
+        pytest.param(
+            "https://site.org/dir/page", "https://other#x\\q", "https://other/#x\\q", id="web-fragment-backslash"
+        ),
+        pytest.param("https://site.org/dir/page", "ftp://other\\p", "ftp://other/p", id="ftp-authority-end"),
+        pytest.param("https://site.org/dir/page", "ws://other\\p", "ws://other/p", id="ws-authority-end"),
+        pytest.param("https://site.org/dir/page", "file://other\\p", "file://other/p", id="file-authority-end"),
+        pytest.param("https://site.org/dir/page", "faux:x\\p", "faux:x\\p", id="non-special-f-prefix"),
+        pytest.param("https://site.org/dir/page", "web:x\\p", "web:x\\p", id="non-special-w-prefix"),
     ],
 )
 def test_base_url_resolves_absolute_special_backslashes(base: str, href: str, expected: str) -> None:

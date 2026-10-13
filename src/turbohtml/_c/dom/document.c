@@ -568,6 +568,18 @@ static int url_ends_in_c0(PyObject *url) {
     return PyUnicode_READ(PyUnicode_KIND(url), PyUnicode_DATA(url), length - 1) <= 0x20;
 }
 
+static int url_authority_backslash(PyObject *target, Py_ssize_t start, Py_ssize_t backslash) {
+    int kind = PyUnicode_KIND(target);
+    const void *data = PyUnicode_DATA(target);
+    for (Py_ssize_t index = start; index < backslash; index++) {
+        Py_UCS4 point = PyUnicode_READ(kind, data, index);
+        if (point == '/' || point == '?' || point == '#') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static int url_needs_dot_normalization(PyObject *joined, int literalized, int raw_dot) {
     if (!(literalized || raw_dot) || !url_web_special_base(joined) ||
         (!url_has_literal_dot_unicode(joined) &&
@@ -686,6 +698,25 @@ PyObject *th_url_resolve(PyObject *base, PyObject *target) {
     int target_flags = url_target_flags(target);
     int web_slashes = target_flags & 2;
     int absolute_web = th_url_web_authority(target);
+    if (!web_slashes && target_len >= 4 &&
+        (absolute_web == TH_URL_WEB_AUTHORITY_FORWARD ||
+         (PyUnicode_READ_CHAR(target, 0) == '/' && PyUnicode_READ_CHAR(target, 1) == '/'))) {
+        Py_ssize_t backslash;
+        if (PyUnicode_IS_ASCII(target)) {
+            const char *bytes = (const char *)PyUnicode_1BYTE_DATA(target);
+            const char *found = memchr(bytes, '\\', (size_t)target_len);
+            backslash = found == NULL ? -1 : found - bytes;
+        } else {
+            backslash = PyUnicode_FindChar(target, '\\', 0, target_len, 1);
+        }
+        if (backslash >= 0 && url_authority_backslash(target,
+                                                      absolute_web == TH_URL_WEB_AUTHORITY_FORWARD
+                                                          ? (lower_ascii(PyUnicode_READ_CHAR(target, 4)) == 's' ? 8 : 7)
+                                                          : 2,
+                                                      backslash)) {
+            web_slashes = 2;
+        }
+    }
     if (!web_slashes && absolute_web == TH_URL_WEB_AUTHORITY_NONE && target_len >= 5 &&
         (lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'h' || lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'f' ||
          lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'w') &&
@@ -1008,6 +1039,10 @@ PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
         if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: allocation failure only */
             Py_DECREF(input);                            /* GCOVR_EXCL_LINE */
             return NULL;                                 /* GCOVR_EXCL_LINE */
+        }
+        if (PyUnicode_GET_LENGTH(input) == 0) {
+            Py_DECREF(input);
+            return NULL;
         }
         PyErr_Clear();
         result = Py_NewRef(fallback);
