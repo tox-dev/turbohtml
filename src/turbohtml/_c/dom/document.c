@@ -668,12 +668,77 @@ static PyObject *url_resolve_simple_web(PyObject *base, PyObject *target) {
     return result;
 }
 
+static PyObject *url_special_extra_authority_slashes(PyObject *target) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(target);
+    if (length < 8) {
+        return NULL;
+    }
+    Py_UCS4 first = lower_ascii(PyUnicode_READ_CHAR(target, 0));
+    if (first != 'h' && first != 'f' && first != 'w') {
+        return NULL;
+    }
+    Py_ssize_t colon = first == 'h'   ? (PyUnicode_READ_CHAR(target, 4) == ':' ? 4 : 5)
+                       : first == 'f' ? 3
+                                      : (PyUnicode_READ_CHAR(target, 2) == ':' ? 2 : 3);
+    if (colon + 3 >= length || PyUnicode_READ_CHAR(target, colon) != ':' ||
+        (PyUnicode_READ_CHAR(target, colon + 3) != '/' && PyUnicode_READ_CHAR(target, colon + 3) != '\\')) {
+        return NULL;
+    }
+    Py_ssize_t host = colon + 1;
+    for (int separator = 0; separator < 3; separator++, host++) {
+        Py_UCS4 point = PyUnicode_READ_CHAR(target, host);
+        if (point != '/' && point != '\\') {
+            return NULL;
+        }
+    }
+    if (!url_web_special_base(target)) {
+        return NULL;
+    }
+    while (host < length) {
+        Py_UCS4 point = PyUnicode_READ_CHAR(target, host);
+        if (point != '/' && point != '\\') {
+            break;
+        }
+        host++;
+    }
+    if (host == length || PyUnicode_READ_CHAR(target, host) == '?' || PyUnicode_READ_CHAR(target, host) == '#') {
+        PyErr_SetString(PyExc_ValueError, "special URL requires a host");
+        return NULL;
+    }
+    PyObject *normalized = PyUnicode_New(length + colon + 3 - host, PyUnicode_MAX_CHAR_VALUE(target));
+    if (normalized == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int source_kind = PyUnicode_KIND(target);
+    const void *source = PyUnicode_DATA(target);
+    int result_kind = PyUnicode_KIND(normalized);
+    void *result = PyUnicode_DATA(normalized);
+    for (Py_ssize_t index = 0; index <= colon; index++) {
+        PyUnicode_WRITE(result_kind, result, index, PyUnicode_READ(source_kind, source, index));
+    }
+    PyUnicode_WRITE(result_kind, result, colon + 1, '/');
+    PyUnicode_WRITE(result_kind, result, colon + 2, '/');
+    for (Py_ssize_t index = host; index < length; index++) {
+        PyUnicode_WRITE(result_kind, result, index + colon + 3 - host, PyUnicode_READ(source_kind, source, index));
+    }
+    return normalized;
+}
+
 PyObject *th_url_resolve(PyObject *base, PyObject *target) {
     PyObject *simple = url_resolve_simple_web(base, target);
     if (simple != NULL) {
         return simple;
     }
     if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: the fast path only raises on allocation */
+        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *normalized = url_special_extra_authority_slashes(target);
+    if (normalized != NULL) {
+        PyObject *resolved = th_url_resolve(base, normalized);
+        Py_DECREF(normalized);
+        return resolved;
+    }
+    if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: only normalization allocation can fail */
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     int literalized;

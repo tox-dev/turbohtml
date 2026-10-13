@@ -271,6 +271,8 @@ def test_base_url_uses_fallback_for_special_url_without_host() -> None:
         pytest.param("http://[::1]:8080/a/b", r"http:\\\?x#f", id="same-scheme-extra-backslash-authority"),
         pytest.param("https://site.org/a?x#old", "http://[x]/", id="invalid-ipv6"),
         pytest.param("https://site.org/a?x#old", "http://?q", id="empty-host-query"),
+        pytest.param("https://site.org/a?x#old", "http:////", id="extra-slashes-without-host"),
+        pytest.param("https://site.org/a?x#old", "http:////?q", id="extra-slashes-before-query"),
         pytest.param("https://site.org/a?x#old", "http://#f", id="empty-host-fragment"),
         pytest.param("https://site.org/a?x#old", "ws://", id="empty-ws-host"),
         pytest.param("https://site.org/a?x#old", "wss://", id="empty-wss-host"),
@@ -462,6 +464,26 @@ def test_base_url_resolves_non_special_relative(href: str, fallback: str, expect
 )
 def test_base_url_resolves_absolute_special_backslashes(base: str, href: str, expected: str) -> None:
     assert parse(f'<base href="{href}">').base_url(base) == expected
+
+
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("http:///a/..", "http://a/", id="host-before-parent"),
+        pytest.param("http:///.", "http://./", id="dot-host"),
+        pytest.param("http:///%2e%2e/a", "http://../a", id="encoded-parent-host"),
+        pytest.param("ftp:////b/..", "ftp://b/", id="four-slashes"),
+        pytest.param("ws://\\b/..", "ws://b/", id="mixed-backslash"),
+        pytest.param("WSS:\\\\..", "wss://../", id="uppercase-backslashes"),
+        pytest.param("http:///é/..", "http://xn--9ca/", id="unicode-host"),
+        pytest.param("http:///%2e?x#f", "http://./?x#f", id="query-and-fragment"),
+        pytest.param("http:///[::1]/..", "http://[::1]/", id="ipv6-host"),
+        pytest.param("http:////\\a/..", "http://a/", id="extra-mixed-separators"),
+        pytest.param("hello:///a/..", "hello:///", id="non-special-scheme"),
+    ],
+)
+def test_base_url_resolves_extra_special_authority_slashes(href: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url("https://site.org/a") == expected
 
 
 @pytest.mark.parametrize(
@@ -820,6 +842,21 @@ def test_meta_refresh_unresolvable_url_raises() -> None:
     html = '<meta http-equiv=refresh content="0;url=//[bad">'
     with pytest.raises(ValueError, match="Invalid IPv6 URL"):
         parse(html).meta_refresh(_SITE)
+
+
+@pytest.mark.parametrize(
+    ("href", "fallback"),
+    [
+        pytest.param("https://", "http://site.org/a", id="two-slashes-foreign-scheme"),
+        pytest.param("http:///", "http://site.org/a", id="three-slashes-same-scheme"),
+        pytest.param("http:////", "http://site.org/a", id="four-slashes-same-scheme"),
+        pytest.param("http:////?q", "https://site.org/a", id="empty-host-query"),
+        pytest.param("http:////#f", "https://site.org/a", id="empty-host-fragment"),
+    ],
+)
+def test_meta_refresh_rejects_missing_special_host(href: str, fallback: str) -> None:
+    with pytest.raises(ValueError, match="special URL requires a host"):
+        parse(f'<meta http-equiv=refresh content="0;url={href}">').meta_refresh(fallback)
 
 
 @pytest.mark.parametrize(
