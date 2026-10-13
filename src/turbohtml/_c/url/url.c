@@ -873,6 +873,12 @@ int th_url_split(PyObject *arg, th_url_parts *out, int host_brackets_only) {
     }
     th_authority auth;
     th_url_authority(work, netloc_start, netloc_end, &auth);
+    if (host_brackets_only && auth.kind == TH_HOST_IPV6 && auth.host_end + 1 < netloc_end &&
+        work[auth.host_end + 1] != ':') {
+        PyMem_Free(work);
+        PyErr_SetString(PyExc_ValueError, "Invalid IPv6 URL");
+        return -1;
+    }
     if (auth.host_start == auth.host_end && auth.host_start > netloc_start && work[auth.host_start - 1] == '@') {
         PyMem_Free(work);
         PyErr_SetString(PyExc_ValueError, "missing host after credentials");

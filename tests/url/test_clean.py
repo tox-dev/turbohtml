@@ -113,6 +113,7 @@ def test_clean_accepts_colon_hosts(url: str) -> None:
         pytest.param("https://[:::1]/", id="extra-compression-colon"),
         pytest.param("https://[::g]/", id="non-hex-group"),
         pytest.param("https://[1:2:3]/", id="too-few-groups"),
+        pytest.param("https://[::1]x/", id="suffix-after-bracket"),
     ],
 )
 def test_clean_rejects_invalid_ipv6_hosts(url: str) -> None:
@@ -577,6 +578,12 @@ def test_normalize_encodes_userinfo_brackets(url: str, expected: str) -> None:
 def test_normalize_rejects_unclosed_host_bracket_after_userinfo() -> None:
     with pytest.raises(ValueError, match="Invalid IPv6 URL"):
         normalize_url("http://]u@[::1/x")
+
+
+@pytest.mark.parametrize("url", ["http://[::1]x/", "git://[::1]\\.."])
+def test_normalize_rejects_ipv6_host_tail(url: str) -> None:
+    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
+        normalize_url(url)
 
 
 def test_clean_accepts_unpaired_userinfo_bracket() -> None:

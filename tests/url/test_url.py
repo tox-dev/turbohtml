@@ -285,6 +285,19 @@ def test_base_url_uses_fallback_for_invalid_special_authority(fallback: str, hre
     assert parse(f'<base href="{href}">').base_url(fallback) == fallback
 
 
+@pytest.mark.parametrize(
+    "href",
+    [
+        pytest.param("http://[::1]x/", id="special-host-tail"),
+        pytest.param("git://[::1]\\..", id="non-special-backslash-tail"),
+        pytest.param("git://[::1]]/", id="extra-closing-bracket"),
+        pytest.param("git://[::1] /", id="space-after-bracket"),
+    ],
+)
+def test_base_url_uses_fallback_for_ipv6_host_tail(href: str) -> None:
+    assert parse(f'<base href="{href}">').base_url("https://site.org/a") == "https://site.org/a"
+
+
 def test_meta_refresh_canonical_authority() -> None:
     assert parse('<meta http-equiv=refresh content="0;url=http://ExAmPlE.Org:80">').meta_refresh() == (
         0.0,
