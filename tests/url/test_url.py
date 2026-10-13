@@ -470,6 +470,8 @@ def test_base_url_resolves_absolute_special_backslashes(base: str, href: str, ex
     ("href", "expected"),
     [
         pytest.param("http:///a/..", "http://a/", id="host-before-parent"),
+        pytest.param("ws:///a", "ws://a/", id="short-ws-host"),
+        pytest.param("ws:///.", "ws://./", id="short-ws-dot-host"),
         pytest.param("http:///.", "http://./", id="dot-host"),
         pytest.param("http:///%2e%2e/a", "http://../a", id="encoded-parent-host"),
         pytest.param("ftp:////b/..", "ftp://b/", id="four-slashes"),
@@ -850,6 +852,7 @@ def test_meta_refresh_unresolvable_url_raises() -> None:
         pytest.param("https://", "http://site.org/a", id="two-slashes-foreign-scheme"),
         pytest.param("http:///", "http://site.org/a", id="three-slashes-same-scheme"),
         pytest.param("http:////", "http://site.org/a", id="four-slashes-same-scheme"),
+        pytest.param("ws:////", "http://site.org/a", id="short-ws-missing-host"),
         pytest.param("http:////?q", "https://site.org/a", id="empty-host-query"),
         pytest.param("http:////#f", "https://site.org/a", id="empty-host-fragment"),
     ],

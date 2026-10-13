@@ -670,7 +670,7 @@ static PyObject *url_resolve_simple_web(PyObject *base, PyObject *target) {
 
 static PyObject *url_special_extra_authority_slashes(PyObject *target) {
     Py_ssize_t length = PyUnicode_GET_LENGTH(target);
-    if (length < 8) {
+    if (length < 7) {
         return NULL;
     }
     Py_UCS4 first = lower_ascii(PyUnicode_READ_CHAR(target, 0));
