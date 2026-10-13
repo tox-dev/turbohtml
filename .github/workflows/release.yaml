@@ -58,12 +58,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu-24.04", "ubuntu-24.04-arm", "macos-15", "windows-2025"]
         include:
-          - {os: "ubuntu-24.04", label: Linux}
-          - {os: "ubuntu-24.04-arm", label: Linux ARM}
-          - {os: "macos-15", label: macOS}
-          - {os: "windows-2025", label: Windows}
+          - {os: "ubuntu-24.04", label: Linux manylinux, build: "*-manylinux*", artifact: linux-manylinux}
+          - {os: "ubuntu-24.04", label: Linux musllinux, build: "*-musllinux*", artifact: linux-musllinux}
+          - {os: "ubuntu-24.04-arm", label: Linux ARM manylinux, build: "*-manylinux*", artifact: linux-arm-manylinux}
+          - {os: "ubuntu-24.04-arm", label: Linux ARM musllinux, build: "*-musllinux*", artifact: linux-arm-musllinux}
+          - {os: "macos-15", label: macOS, build: "*", artifact: macos-15}
+          - {os: "windows-2025", label: Windows, build: "*", artifact: windows-2025}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -84,15 +85,27 @@ jobs:
           enable-cache: false
       - name: 🎡 Build wheels
         uses: pypa/cibuildwheel@e090b81e30c4d855ea63bf4b6e59204c09a101ae # v4.2.1
+        env:
+          CIBW_BUILD: ${{ matrix.build }}
       - name: 📤 Upload wheels
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: dist-${{ matrix.os }}
+          name: dist-${{ matrix.artifact }}
           path: wheelhouse/*.whl
           retention-days: 7
+  wheels-gate:
+    name: 🎡 wheels - ${{ matrix.label }}
+    needs: wheels
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        label: [Linux, Linux ARM]
+    steps:
+      - run: test '${{ needs.wheels.result }}' = success
   publish:
     name: 🚀 Publish ${{ matrix.artifact }}
-    needs: [sdist, source-install, wheels]
+    needs: [sdist, source-install, wheels, wheels-gate]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     # one job per build artifact: signing every wheel in a single job exceeds the
@@ -103,8 +116,10 @@ jobs:
       matrix:
         artifact:
           - dist-sdist
-          - dist-ubuntu-24.04
-          - dist-ubuntu-24.04-arm
+          - dist-linux-manylinux
+          - dist-linux-musllinux
+          - dist-linux-arm-manylinux
+          - dist-linux-arm-musllinux
           - dist-macos-15
           - dist-windows-2025
     environment:
