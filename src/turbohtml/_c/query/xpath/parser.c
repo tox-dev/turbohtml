@@ -22,7 +22,7 @@ typedef struct {
 static void fail(parser *ps, const char *msg) {
     if (strcmp(msg, "out of memory") == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         ps->out_of_memory = 1;               /* GCOVR_EXCL_LINE */
-    }
+    } /* GCOVR_EXCL_LINE */
     if (!ps->failed) {
         ps->failed = 1;
         ps->msg = msg;
@@ -757,7 +757,7 @@ xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t 
         format_error(errbuf, errlen, &ps);
         if (ps.out_of_memory || ps.msg == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             PyErr_NoMemory();                     /* GCOVR_EXCL_LINE */
-        }
+        } /* GCOVR_EXCL_LINE */
         xp_free(prog);
         return NULL;
     }

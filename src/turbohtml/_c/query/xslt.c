@@ -1489,9 +1489,9 @@ static int eval_program(engine *eng, const xp_program *prog, th_node *context, P
         PyMem_Free(bindings); /* GCOVR_EXCL_LINE: only the >64-binding path allocates */
     }
     if (status < 0 && !PyErr_Occurred()) {
-        if (status == -1) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
-            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
-        } else {
+        if (status == -1) {             /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory();           /* GCOVR_EXCL_LINE */
+        } else {                        /* GCOVR_EXCL_LINE */
             if (feature == NULL) {      /* GCOVR_EXCL_BR_LINE */
                 feature = "evaluation"; /* GCOVR_EXCL_LINE */
             } /* GCOVR_EXCL_LINE */
@@ -1751,7 +1751,7 @@ static xslt_rule *best_rule(engine *eng, th_node *node, Py_ssize_t attr, const P
         if (!rule->built && build_rule(eng, rule) < 0) {
             if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: match-set allocation failure */
                 PyErr_NoMemory();    /* GCOVR_EXCL_LINE */
-            }
+            } /* GCOVR_EXCL_LINE */
             fail_py(eng);
             return NULL;
         }
@@ -2063,7 +2063,7 @@ static int do_value_of(engine *eng, th_node *instruction, th_node *out_parent) {
     if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
         if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
             PyErr_Format(PyExc_ValueError, "xslt: bad value-of select: %s", errbuf); /* GCOVR_EXCL_LINE */
-        }
+        } /* GCOVR_EXCL_LINE */
         return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
     xp_result value;
@@ -2115,7 +2115,7 @@ static int do_copy_of(engine *eng, th_node *instruction, th_node *out_parent) {
     if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
         if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
             PyErr_Format(PyExc_ValueError, "xslt: bad copy-of select: %s", errbuf); /* GCOVR_EXCL_LINE */
-        }
+        } /* GCOVR_EXCL_LINE */
         return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
     /* A lone $var that is a result tree fragment copies the fragment's children. */
@@ -2653,7 +2653,7 @@ static int eval_test(engine *eng, th_node *instruction, int *out_bool) {
     if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed tests before a run */
         if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
             PyErr_Format(PyExc_ValueError, "xslt: bad test: %s", errbuf); /* GCOVR_EXCL_LINE */
-        }
+        } /* GCOVR_EXCL_LINE */
         return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
     xp_result value;
@@ -2780,7 +2780,7 @@ static int compile_sorts(engine *eng, th_node *instruction, sort_spec *specs, in
         if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed sort selects before a run */
             if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
                 PyErr_Format(PyExc_ValueError, "xslt: bad sort select: %s", errbuf); /* GCOVR_EXCL_LINE */
-            }
+            } /* GCOVR_EXCL_LINE */
             fail_py(eng); /* GCOVR_EXCL_LINE */
             return -1;    /* GCOVR_EXCL_LINE */
         }
@@ -3147,7 +3147,7 @@ static int build_matcher(engine *eng, th_node *instruction, const Py_UCS4 *patte
         if (status < 0) {
             if (status == -1 && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 PyErr_NoMemory();                    /* GCOVR_EXCL_LINE */
-            }
+            } /* GCOVR_EXCL_LINE */
             if (!PyErr_Occurred() || !PyErr_ExceptionMatches(PyExc_MemoryError)) { /* GCOVR_EXCL_BR_LINE */
                 PyErr_Format(PyExc_ValueError, "xslt: xsl:number pattern error");
             }
@@ -3800,7 +3800,7 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
         if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed values before a run */
             if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
                 PyErr_Format(PyExc_ValueError, "xslt: bad number value: %s", errbuf); /* GCOVR_EXCL_LINE */
-            }
+            } /* GCOVR_EXCL_LINE */
             return fail_py(eng); /* GCOVR_EXCL_LINE */
         }
         xp_result result;
@@ -3949,7 +3949,7 @@ static int compute_binding(engine *eng, th_node *declaration, xp_result *out_val
         if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed bindings before a run */
             if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
                 PyErr_Format(PyExc_ValueError, "xslt: bad variable select: %s", errbuf); /* GCOVR_EXCL_LINE */
-            }
+            } /* GCOVR_EXCL_LINE */
             return fail_py(eng); /* GCOVR_EXCL_LINE */
         }
         int status = eval_program(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, out_value);
@@ -4164,7 +4164,7 @@ static int do_for_each(engine *eng, th_node *instruction, th_node *out_parent) {
     if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
         if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
             PyErr_Format(PyExc_ValueError, "xslt: bad for-each select: %s", errbuf); /* GCOVR_EXCL_LINE */
-        }
+        } /* GCOVR_EXCL_LINE */
         return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
     xp_result value;
@@ -4303,7 +4303,7 @@ static int apply_templates(engine *eng, th_node *instruction, th_node *out_paren
         if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
             if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
                 PyErr_Format(PyExc_ValueError, "xslt: bad apply-templates select: %s", errbuf); /* GCOVR_EXCL_LINE */
-            }
+            } /* GCOVR_EXCL_LINE */
             return fail_py(eng); /* GCOVR_EXCL_LINE */
         }
         int status = eval_program(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, &value);
