@@ -1231,6 +1231,30 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document) {
         if (!document) {
             return Py_NewRef(base); /* RFC 3986 joining keeps the base fragment */
         }
+        if (PyUnicode_IS_ASCII(base)) {
+            Py_ssize_t length = PyUnicode_GET_LENGTH(base);
+            const unsigned char *chars = PyUnicode_1BYTE_DATA(base);
+            Py_ssize_t prefix = length >= 8 && memcmp(chars, "https://", 8) == 0  ? 8
+                                : length >= 7 && memcmp(chars, "http://", 7) == 0 ? 7
+                                                                                  : 0;
+            if (prefix) {
+                Py_ssize_t fragment = length;
+                int simple = 1;
+                for (Py_ssize_t pos = prefix; pos < length; pos++) {
+                    if (chars[pos] == '#') {
+                        fragment = pos;
+                        break;
+                    }
+                    if (chars[pos] <= 0x20 || chars[pos] == '[' || chars[pos] == ']' || chars[pos] == '\\') {
+                        simple = 0;
+                        break;
+                    }
+                }
+                if (simple) {
+                    return fragment == length ? Py_NewRef(base) : PyUnicode_Substring(base, 0, fragment);
+                }
+            }
+        }
         url_ref parts;
         if (parse_ref(base, &parts, 0) < 0) {
             return NULL;

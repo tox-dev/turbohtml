@@ -49,6 +49,14 @@ from turbohtml._html import _url_scrub, _url_split, _url_variant_key
         pytest.param(
             '<base href="">', "https://site.com/p?x#old", "https://site.com/p?x", id="empty-href-drops-fragment"
         ),
+        pytest.param('<base href="">', "https://site.com/p?x", "https://site.com/p?x", id="empty-href-no-fragment"),
+        pytest.param('<base href="">', "http://site.com/p#old", "http://site.com/p", id="empty-href-http"),
+        pytest.param('<base href="">', "https://[::1]/p#old", "https://[::1]/p", id="empty-href-ipv6"),
+        pytest.param('<base href="">', "https://site.com/p\t#old", "https://site.com/p", id="empty-href-tab"),
+        pytest.param('<base href="">', "https://site.com/é#old", "https://site.com/%C3%A9", id="empty-href-unicode"),
+        pytest.param('<base href="">', "https://site.com/p\\q#old", "https://site.com/p/q", id="empty-href-backslash"),
+        pytest.param('<base href="">', "ftp://site.com/p#old", "ftp://site.com/p", id="empty-href-ftp"),
+        pytest.param('<base href="">', "a#old", "a#old", id="empty-href-short-opaque"),
         pytest.param('<base href="  ">', "git:/p#old", "git:/p", id="blank-href-drops-hierarchical-fragment"),
         pytest.param('<base href="">', "git:opaque#old", "git:opaque#old", id="empty-href-opaque-fallback"),
         pytest.param('<base href="">', "git:#old", "git:#old", id="empty-href-empty-opaque-path"),
@@ -64,9 +72,10 @@ def test_base_url(html: str, fallback: str, expected: str) -> None:
     assert parse(html).base_url(fallback) == expected
 
 
-def test_base_url_empty_href_rejects_malformed_fallback() -> None:
+@pytest.mark.parametrize("fallback", ["https://[bad", "https://site.com]/p#old"])
+def test_base_url_empty_href_rejects_malformed_fallback(fallback: str) -> None:
     with pytest.raises(ValueError, match="Invalid IPv6 URL"):
-        parse('<base href="">').base_url("https://[bad")
+        parse('<base href="">').base_url(fallback)
 
 
 def test_base_url_default_fallback() -> None:
