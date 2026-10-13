@@ -502,6 +502,12 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
         ),
         pytest.param("mailto:a/%2e%2e/x", "https://example.org/dir/file", "mailto:a/%2e%2e/x", id="opaque-path"),
         pytest.param("mailto:?q=%2e", "https://example.org/dir/file", "mailto:?q=%2e", id="opaque-query"),
+        pytest.param(
+            "https://other.org/a%2eb/x?q=/./",
+            "https://example.org/dir/file",
+            "https://other.org/a%2eb/x?q=/./",
+            id="encoded-name-and-query-dot",
+        ),
         pytest.param("foo:/a/%2e%2e/x", "https://example.org/dir/file", "foo:/x", id="non-special-root-path"),
         pytest.param("b", "https://example.org/a?x=%2e", "https://example.org/b", id="base-query-only"),
         pytest.param("x", "mailto:%2e", "x", id="opaque-base"),
