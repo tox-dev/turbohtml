@@ -832,24 +832,49 @@ static PyObject *base_url_input(PyObject *href) {
 }
 
 static int base_url_missing_special_host(PyObject *fallback, PyObject *input) {
-    if (PyUnicode_GET_LENGTH(input) < 2) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(input);
+    if (length < 2) {
         return 0;
     }
     Py_UCS4 first = PyUnicode_READ_CHAR(input, 0);
-    if (first != '/' && first != '\\') {
-        return 0;
+    Py_ssize_t index;
+    int absolute = first != '/' && first != '\\';
+    if (absolute) {
+        if (length < 5 || (lower_ascii(first) != 'h' && lower_ascii(first) != 'f' && lower_ascii(first) != 'w')) {
+            return 0;
+        }
+        if (PyUnicode_IS_ASCII(input)) {
+            const char *bytes = (const char *)PyUnicode_1BYTE_DATA(input);
+            Py_ssize_t authority = first == 'h' && length > 7 && memcmp(bytes, "http://", 7) == 0    ? 7
+                                   : first == 'h' && length > 8 && memcmp(bytes, "https://", 8) == 0 ? 8
+                                   : first == 'f' && length > 6 && memcmp(bytes, "ftp://", 6) == 0   ? 6
+                                   : first == 'w' && length > 5 && memcmp(bytes, "ws://", 5) == 0    ? 5
+                                   : first == 'w' && length > 6 && memcmp(bytes, "wss://", 6) == 0   ? 6
+                                                                                                     : 0;
+            if (authority && bytes[authority] != '/' && bytes[authority] != '\\' && bytes[authority] != '?' &&
+                bytes[authority] != '#') {
+                return 0;
+            }
+        }
+        Py_ssize_t colon = PyUnicode_FindChar(input, ':', 0, length, 1);
+        if (colon < 0 || colon + 2 >= length ||
+            (PyUnicode_READ_CHAR(input, colon + 1) != '/' && PyUnicode_READ_CHAR(input, colon + 1) != '\\') ||
+            (PyUnicode_READ_CHAR(input, colon + 2) != '/' && PyUnicode_READ_CHAR(input, colon + 2) != '\\')) {
+            return 0;
+        }
+        index = colon + 3;
+    } else {
+        Py_UCS4 second = PyUnicode_READ_CHAR(input, 1);
+        if (second != '/' && second != '\\') {
+            return 0;
+        }
+        index = 2;
     }
-    Py_UCS4 second = PyUnicode_READ_CHAR(input, 1);
-    if (second != '/' && second != '\\') {
-        return 0;
-    }
-    Py_ssize_t index = 2;
-    Py_ssize_t length = PyUnicode_GET_LENGTH(input);
     while (index < length && (PyUnicode_READ_CHAR(input, index) == '/' || PyUnicode_READ_CHAR(input, index) == '\\')) {
         index++;
     }
     return (index == length || PyUnicode_READ_CHAR(input, index) == '?' || PyUnicode_READ_CHAR(input, index) == '#') &&
-           url_web_special_base(fallback);
+           url_web_special_base(absolute ? input : fallback);
 }
 
 /* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
