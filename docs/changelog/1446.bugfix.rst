@@ -1,0 +1,1 @@
+Resolve a same-scheme special URL ending in a backslash to the host root instead of adding a second slash.
