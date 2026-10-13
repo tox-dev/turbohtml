@@ -80,8 +80,9 @@ jobs:
           STORAGE_REPO: ${{ vars.CFLITE_STORAGE_REPO }}
           STORAGE_TOKEN: ${{ secrets.CFLITE_STORAGE_TOKEN }}
       - name: ✂️ Prune the corpus
+        # CIFuzz divides this budget across targets; 37 targets need 11100 s for a 300 s merge deadline each.
         run: |
-          uv run --no-project --python 3.15 python tools/fuzz/cflite.py --mode prune --sanitizer address --seconds 600 \
+          uv run --no-project --python 3.15 python tools/fuzz/cflite.py --mode prune --sanitizer address --seconds 11100 \
             --source "${GITHUB_WORKSPACE}" --workspace "${RUNNER_TEMP}/cflite"
       - name: 📤 Store the pruned corpus and logs
         if: success() || failure()
