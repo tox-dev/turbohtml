@@ -3,6 +3,8 @@
 
 #include "serialize/internal.h"
 
+#include "serialize/c14n_base.h"
+
 /* Keep these writers local so the ordinary C14N path retains its inlining. */
 static void c14n_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
     Py_ssize_t index = 0;

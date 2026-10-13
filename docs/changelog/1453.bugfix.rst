@@ -1,0 +1,1 @@
+Resolve ``xml:base`` values across omitted ancestors when Canonical XML 1.1 serializes a subtree.

@@ -7,15 +7,15 @@
    elements written as start-end pairs, and the c14n character-reference rules.
 
    turbohtml canonicalizes a complete subtree (a node and every descendant), never a
-   filtered node-set, so the only place c14n 1.1 diverges from 1.0 here is the apex's
-   inherited xml: attributes: 1.1 excludes xml:id and arbitrary xml: attributes
-   from simple inheritance. The namespace
+   filtered node-set, so c14n 1.1 fixes the apex's inherited xml:base and excludes
+   xml:id and arbitrary xml: attributes from simple inheritance. The namespace
    axis this walks is turbohtml's HTML infoset -- HTML elements carry no namespace,
    SVG and MathML carry their default namespace, and an xlink: attribute binds the
    xlink prefix on the element that uses it -- which is exactly what the XML
    serialization emits, so the output matches lxml/libxml2 reparsing that form. */
 
 #include "serialize/internal.h"
+#include "serialize/c14n_base.h"
 
 #include "dom/tree.h"
 #include "dom/tree_internal.h"
@@ -273,6 +273,7 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
         return;          /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t count = 0;
+    int needs_base_fixup = 0;
     for (Py_ssize_t index = 0; index < node->attr_count; index++) {
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, node->attrs[index].name_atom, &name_len);
@@ -289,6 +290,7 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
             for (Py_ssize_t index = 0; index < anc->attr_count; index++) {
                 Py_ssize_t name_len;
                 const char *name = th_attr_name(tree, anc->attrs[index].name_atom, &name_len);
+                needs_base_fixup |= name_len == 8 && memcmp(name, "xml:base", 8) == 0;
                 if (name_len <= 4 || memcmp(name, "xml:", 4) != 0) {
                     continue;
                 }
@@ -300,6 +302,27 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
                         c14n_make_ref(name, name_len, anc->attrs[index].value, anc->attrs[index].value_len);
                 }
             }
+        }
+    }
+    Py_UCS4 *fixed_base = NULL;
+    if (node == apex && opts->version == 1 && needs_base_fixup) {
+        Py_ssize_t base_len;
+        if (c14n_base_fixup(tree, node, &fixed_base, &base_len) < 0) {
+            if (attrs != stack_attrs) {
+                PyMem_Free(attrs);
+            }
+            out->failed = 1;
+            return;
+        }
+        Py_ssize_t base_index = 0;
+        while (attrs[base_index].name_len != 8 || memcmp(attrs[base_index].name, "xml:base", 8) != 0) {
+            base_index++;
+        }
+        if (base_len == 0) {
+            attrs[base_index] = attrs[--count];
+        } else {
+            attrs[base_index].value = fixed_base;
+            attrs[base_index].value_len = base_len;
         }
     }
     if (count > 32) {
@@ -325,6 +348,7 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
     if (attrs != stack_attrs) {
         PyMem_Free(attrs);
     }
+    PyMem_Free(fixed_base);
     sbuf_putc(out, '>');
 }
 

@@ -46,9 +46,8 @@ The c14n specifications are written over an arbitrary *node-set* -- a document w
 subtlest rules (how an apex inherits ``xml:`` attributes from excluded ancestors) exist to handle that filtering.
 turbohtml canonicalizes a **complete subtree**: a node and every descendant, nothing removed. For a complete subtree,
 Canonical XML 1.1 inherits ``xml:lang`` and ``xml:space`` from excluded ancestors, but not ``xml:id`` or arbitrary
-``xml:`` attributes. This can make the ``version`` knob change the apex's output. turbohtml copies the nearest
-ancestor's ``xml:base`` value; it does not yet resolve relative ancestor bases as Canonical XML 1.1 requires. This
-matches the XML attribute inheritance rule used by libxml2 (and therefore lxml) when canonicalizing an element.
+``xml:`` attributes. It resolves the apex's ``xml:base`` against those of excluded ancestors, preserving relative parent
+segments when the result has no absolute base. Both rules can change the apex's output when ``version="1.1"``.
 
 ********************************
  An HTML infoset, canonicalized

@@ -396,8 +396,8 @@ class Canonical:
 
     Canonical XML is the byte-exact serialization an XML signature signs: attributes are reordered, redundant
     namespace declarations are dropped, empty elements are written as start-end pairs, and character references are
-    normalized. turbohtml canonicalizes a complete subtree, so ``1.0`` and ``1.1`` produce identical bytes here bar the
-    apex's inherited ``xml:`` attributes (``1.1`` keeps ``xml:id`` local).
+    normalized. For a subtree, version ``1.1`` excludes inherited ``xml:id`` and fixes up ``xml:base`` across omitted
+    ancestors.
 
     :param version: ``1.0`` (`Canonical XML 1.0 <https://www.w3.org/TR/xml-c14n>`_) or ``1.1``
         (`Canonical XML 1.1 <https://www.w3.org/TR/xml-c14n11/>`_).

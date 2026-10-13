@@ -962,7 +962,7 @@ typedef struct {
    an authority after '//', and the query and fragment at the first '?' and '#'. Owns a freshly allocated buffer stored
    in `out->buf`. Returns -1 with a ValueError on unbalanced host brackets, allowing brackets before the last '@'. A
    schemeless reference inherits `special_hint`, the base's specialness. */
-static int parse_ref(PyObject *src, url_ref *out, int special_hint) {
+static int parse_ref(PyObject *src, url_ref *out, int special_hint, int raw) {
     Py_ssize_t raw_len = PyUnicode_GET_LENGTH(src);
     int kind = PyUnicode_KIND(src);
     const void *data = PyUnicode_DATA(src);
@@ -972,13 +972,13 @@ static int parse_ref(PyObject *src, url_ref *out, int special_hint) {
         return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t read = 0;
-    while (read < raw_len && input_char(kind, data, read) <= 0x20) {
+    while (!raw && read < raw_len && input_char(kind, data, read) <= 0x20) {
         read++;
     }
     Py_ssize_t len = 0;
     for (; read < raw_len; read++) {
         Py_UCS4 ch = input_char(kind, data, read);
-        if (!is_removed(ch)) {
+        if (raw || !is_removed(ch)) {
             buf[len++] = ch;
         }
     }
@@ -991,7 +991,7 @@ static int parse_ref(PyObject *src, url_ref *out, int special_hint) {
     Py_ssize_t rest = 0;
     Py_ssize_t colon = th_url_scheme_colon(buf, 0, len);
     if (colon > 0) {
-        for (Py_ssize_t index = 0; index < colon; index++) {
+        for (Py_ssize_t index = 0; index < colon && !raw; index++) {
             buf[index] |= 0x20; /* scheme chars are ASCII; |0x20 lowercases a letter, identity on a digit or +-. */
         }
         out->has_scheme = 1;
@@ -1119,14 +1119,17 @@ static Py_ssize_t split_segments(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_
    splices a relative one onto the base directory (collapsing the redundant empty segments urllib's filter removes),
    then walks the segments popping ".." and dropping ".". */
 static Py_ssize_t merge_path(const url_ref *base, const url_ref *ref, url_seg *scratch, url_seg *resolved, Py_UCS4 *out,
-                             int preserve_slashes) {
+                             int preserve_slashes, int c14n) {
     int ref_absolute = ref->buf[ref->path_start] == '/'; /* the caller only merges a non-empty reference path */
     Py_ssize_t total;
     if (ref_absolute) {
         total = split_segments(ref->buf, ref->path_start, ref->path_end, scratch);
     } else {
         total = split_segments(base->buf, base->path_start, base->path_end, scratch);
-        if (preserve_slashes || scratch[total - 1].end > scratch[total - 1].start) {
+        if (c14n && base->path_start == base->path_end && !base->has_netloc) {
+            total = 0;
+        }
+        if (total > 0 && (preserve_slashes || scratch[total - 1].end > scratch[total - 1].start)) {
             total--; /* the base's last segment is a file, not a directory, so the reference replaces it */
         }
         total += split_segments(ref->buf, ref->path_start, ref->path_end, scratch + total);
@@ -1145,12 +1148,19 @@ static Py_ssize_t merge_path(const url_ref *base, const url_ref *ref, url_seg *s
     int last_is_dot = segment_eq(scratch[total - 1].buf, scratch[total - 1].start, scratch[total - 1].end, ".") ||
                       segment_eq(scratch[total - 1].buf, scratch[total - 1].start, scratch[total - 1].end, "..");
     Py_ssize_t kept = 0;
-    Py_ssize_t floor = preserve_slashes && scratch[0].start == scratch[0].end ? 1 : 0;
+    Py_ssize_t floor =
+        (preserve_slashes || c14n) &&
+                (ref_absolute || (base->path_start < base->path_end && base->buf[base->path_start] == '/'))
+            ? 1
+            : 0;
     for (Py_ssize_t index = 0; index < total; index++) {
         url_seg segment = scratch[index];
         if (segment_eq(segment.buf, segment.start, segment.end, "..")) {
-            if (kept > floor) {
+            if (kept > floor && (!c14n || !segment_eq(resolved[kept - 1].buf, resolved[kept - 1].start,
+                                                      resolved[kept - 1].end, ".."))) {
                 kept--;
+            } else if (c14n && floor == 0) {
+                resolved[kept++] = segment;
             }
         } else if (!segment_eq(segment.buf, segment.start, segment.end, ".")) {
             resolved[kept++] = segment;
@@ -1168,7 +1178,7 @@ static Py_ssize_t merge_path(const url_ref *base, const url_ref *ref, url_seg *s
             out[at++] = resolved[index].buf[cursor];
         }
     }
-    if (at == 0) {
+    if (at == 0 && !c14n) {
         out[at++] = '/'; /* an empty join serializes as the root, urllib's "'/'.join(...) or '/'" */
     }
     return at;
@@ -1230,10 +1240,22 @@ static PyObject *build_url(int scheme_has, const Py_UCS4 *scheme_buf, Py_ssize_t
    urllib.parse. `base` and `target` are borrowed str references. Returns a new reference, or NULL with a ValueError set
    when a host has an unbalanced IPv6 bracket. */
 static PyObject *join_url(PyObject *base, PyObject *target, int document) {
-    if (PyUnicode_GET_LENGTH(base) == 0) {
+    int c14n = document == 2;
+    if (PyUnicode_GET_LENGTH(base) == 0 && !c14n) {
         return Py_NewRef(target); /* an empty base leaves the reference as the whole URL */
     }
     if (PyUnicode_GET_LENGTH(target) == 0) {
+        if (c14n) {
+            Py_ssize_t length = PyUnicode_GET_LENGTH(base);
+            int kind = PyUnicode_KIND(base);
+            const void *data = PyUnicode_DATA(base);
+            for (Py_ssize_t index = 0; index < length; index++) {
+                if (PyUnicode_READ(kind, data, index) == '#') {
+                    return PyUnicode_Substring(base, 0, index);
+                }
+            }
+            return Py_NewRef(base);
+        }
         if (!document) {
             return Py_NewRef(base); /* RFC 3986 joining keeps the base fragment */
         }
@@ -1262,7 +1284,7 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document) {
             }
         }
         url_ref parts;
-        if (parse_ref(base, &parts, 0) < 0) {
+        if (parse_ref(base, &parts, 0, c14n) < 0) {
             return NULL;
         }
         int hierarchical =
@@ -1278,13 +1300,13 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document) {
     }
     url_ref base_parts;
     url_ref ref_parts;
-    if (parse_ref(base, &base_parts, 0) < 0) {
+    if (parse_ref(base, &base_parts, 0, c14n) < 0) {
         return NULL;
     }
     /* a schemeless reference inherits the base's scheme, so its '\' handling follows whether the base is special */
     int base_special =
         base_parts.has_scheme && url_scheme_special(base_parts.buf, base_parts.scheme_start, base_parts.scheme_end);
-    if (parse_ref(target, &ref_parts, base_special) < 0) {
+    if (parse_ref(target, &ref_parts, c14n ? 0 : base_special, c14n) < 0) {
         PyMem_Free(base_parts.buf);
         return NULL;
     }
@@ -1302,7 +1324,38 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document) {
                                                ref_parts.buf, ref_parts.scheme_start, ref_parts.scheme_end));
     int hierarchical = document && (base_parts.has_netloc || (base_parts.path_end > base_parts.path_start &&
                                                               base_parts.buf[base_parts.path_start] == '/'));
-    int relative = scheme_has && scheme_is_relative(scheme_buf, scheme_start, scheme_end);
+    int relative = c14n || (scheme_has && scheme_is_relative(scheme_buf, scheme_start, scheme_end));
+    if (c14n && (ref_parts.has_scheme || ref_parts.has_netloc)) {
+        Py_ssize_t path_capacity = ref_parts.path_end - ref_parts.path_start + 4;
+        url_seg *scratch = PyMem_Malloc((size_t)path_capacity * sizeof(url_seg));
+        url_seg *resolved = PyMem_Malloc((size_t)path_capacity * sizeof(url_seg));
+        Py_UCS4 *path = PyMem_Malloc((size_t)path_capacity * sizeof(Py_UCS4));
+        if (scratch == NULL || resolved == NULL || path == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyMem_Free(scratch);                                   /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyMem_Free(resolved);                                  /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyMem_Free(path);                                      /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyMem_Free(base_parts.buf);                            /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyMem_Free(ref_parts.buf);                             /* GCOVR_EXCL_LINE: allocation-failure path */
+            return PyErr_NoMemory();                               /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        url_ref empty_base = {0};
+        empty_base.buf = ref_parts.buf;
+        empty_base.path_start = ref_parts.path_start;
+        empty_base.path_end = ref_parts.path_start;
+        Py_ssize_t path_len = ref_parts.path_end == ref_parts.path_start
+                                  ? 0
+                                  : merge_path(&empty_base, &ref_parts, scratch, resolved, path, 0, 1);
+        PyObject *absolute =
+            build_url(scheme_has, scheme_buf, scheme_start, scheme_end, ref_parts.has_netloc, ref_parts.buf,
+                      ref_parts.netloc_start, ref_parts.netloc_end, path, 0, path_len, ref_parts.has_query,
+                      ref_parts.buf, ref_parts.query_start, ref_parts.query_end, 0, ref_parts.buf, 0, 0);
+        PyMem_Free(scratch);
+        PyMem_Free(resolved);
+        PyMem_Free(path);
+        PyMem_Free(base_parts.buf);
+        PyMem_Free(ref_parts.buf);
+        return absolute;
+    }
     if (scheme_differs || (scheme_has && !relative && !(document && !ref_parts.has_scheme && hierarchical)) ||
         (document && ref_parts.has_scheme && !base_special)) {
         PyMem_Free(base_parts.buf);
@@ -1356,8 +1409,8 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document) {
             PyMem_Free(ref_parts.buf);                             /* GCOVR_EXCL_LINE: allocation-failure path */
             return PyErr_NoMemory();                               /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        Py_ssize_t path_len = merge_path(&base_parts, &ref_parts, scratch, resolved, path, document);
-        if (document && !base_parts.has_netloc && path_len > 1 && path[0] == '/' && path[1] == '/') {
+        Py_ssize_t path_len = merge_path(&base_parts, &ref_parts, scratch, resolved, path, document == 1, c14n);
+        if (document == 1 && !base_parts.has_netloc && path_len > 1 && path[0] == '/' && path[1] == '/') {
             memmove(path + 2, path, (size_t)path_len * sizeof(Py_UCS4));
             path[0] = '/';
             path[1] = '.';
@@ -1378,6 +1431,59 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document) {
 
 PyObject *th_url_join(PyObject *base, PyObject *target) {
     return join_url(base, target, 0);
+}
+
+PyObject *th_url_join_c14n(PyObject *base, PyObject *target) {
+    Py_ssize_t base_length = PyUnicode_GET_LENGTH(base);
+    int base_kind = PyUnicode_KIND(base);
+    const void *base_data = PyUnicode_DATA(base);
+    Py_ssize_t path_end = base_length;
+    for (Py_ssize_t index = 0; index < base_length; index++) {
+        Py_UCS4 character = PyUnicode_READ(base_kind, base_data, index);
+        if (character == '?' || character == '#') {
+            path_end = index;
+            break;
+        }
+    }
+    PyObject *adjusted = Py_NewRef(base);
+    if (path_end >= 2 && PyUnicode_READ(base_kind, base_data, path_end - 2) == '.' &&
+        PyUnicode_READ(base_kind, base_data, path_end - 1) == '.' &&
+        (path_end == 2 || PyUnicode_READ(base_kind, base_data, path_end - 3) == '/' ||
+         PyUnicode_READ(base_kind, base_data, path_end - 3) == ':')) {
+        Py_DECREF(adjusted);
+        adjusted = PyUnicode_New(base_length + 1, PyUnicode_MAX_CHAR_VALUE(base));
+        if (adjusted == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        int kind = PyUnicode_KIND(adjusted);
+        void *data = PyUnicode_DATA(adjusted);
+        for (Py_ssize_t index = 0; index < path_end; index++) {
+            PyUnicode_WRITE(kind, data, index, PyUnicode_READ(base_kind, base_data, index));
+        }
+        PyUnicode_WRITE(kind, data, path_end, '/');
+        for (Py_ssize_t index = path_end; index < base_length; index++) {
+            PyUnicode_WRITE(kind, data, index + 1, PyUnicode_READ(base_kind, base_data, index));
+        }
+    }
+    Py_ssize_t target_length = PyUnicode_GET_LENGTH(target);
+    int target_kind = PyUnicode_KIND(target);
+    const void *target_data = PyUnicode_DATA(target);
+    PyObject *reference = Py_NewRef(target);
+    for (Py_ssize_t index = 0; index < target_length; index++) {
+        if (PyUnicode_READ(target_kind, target_data, index) == '#') {
+            Py_DECREF(reference);
+            reference = PyUnicode_Substring(target, 0, index);
+            break;
+        }
+    }
+    if (reference == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(adjusted); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *joined = join_url(adjusted, reference, 2);
+    Py_DECREF(adjusted);
+    Py_DECREF(reference);
+    return joined;
 }
 
 PyObject *th_url_document_join(PyObject *base, PyObject *target) {
@@ -1442,10 +1548,10 @@ static Py_ssize_t file_path(const url_ref *base, const url_ref *ref, int base_is
 PyObject *th_url_file_join(PyObject *base, PyObject *target) {
     url_ref base_parts;
     url_ref ref_parts;
-    if (parse_ref(base, &base_parts, 0) < 0) {
+    if (parse_ref(base, &base_parts, 0, 0) < 0) {
         return NULL;
     }
-    if (parse_ref(target, &ref_parts, 1) < 0) {
+    if (parse_ref(target, &ref_parts, 1, 0) < 0) {
         PyMem_Free(base_parts.buf);
         return NULL;
     }
@@ -1731,7 +1837,7 @@ static int dot_segment(const Py_UCS4 *work, Py_ssize_t start, Py_ssize_t end, in
 
 PyObject *th_url_literalize_dot_segments(PyObject *url) {
     url_ref ref;
-    if (parse_ref(url, &ref, 0) < 0) {
+    if (parse_ref(url, &ref, 0, 0) < 0) {
         return NULL;
     }
     if (ref.has_scheme && !ref.has_netloc && (ref.path_start == ref.path_end || ref.buf[ref.path_start] != '/')) {
