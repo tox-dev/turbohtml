@@ -732,6 +732,59 @@ def test_minify_css_background_attachment_cardinality(value: str, expected: str)
     assert minify_css(f"a{{background:{value}}}") == f"a{{background:{expected}}}"
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("none url(x)", "none url(x)", id="duplicate-image"),
+        pytest.param("none none", "none none", id="duplicate-none"),
+        pytest.param("initial scroll", "initial scroll", id="mixed-wide-keyword"),
+        pytest.param("inherit scroll", "inherit scroll", id="mixed-inherit"),
+        pytest.param("revert repeat", "revert repeat", id="mixed-revert"),
+        pytest.param("revert-layer none", "revert-layer none", id="mixed-revert-layer"),
+        pytest.param("unset fixed", "unset fixed", id="mixed-unset"),
+        pytest.param("repeat scroll repeat", "repeat scroll repeat", id="split-repeat"),
+        pytest.param("repeat none repeat", "repeat none repeat", id="triple-repeat"),
+        pytest.param("repeat repeat repeat", "repeat repeat repeat", id="three-repeat-keywords"),
+        pytest.param("repeat repeat-x", "repeat repeat-x", id="axis-repeat-pair"),
+        pytest.param("repeat-x repeat", "repeat-x repeat", id="axis-repeat-plus-repeat"),
+        pytest.param("border-box padding-box border-box", "border-box padding-box border-box", id="extra-box"),
+        pytest.param("/ auto", "/auto", id="size-without-position"),
+        pytest.param("left transparent top", "left transparent top", id="split-position"),
+        pytest.param("url(x) / auto", "url(x)/auto", id="size-after-image"),
+        pytest.param("unknown scroll", "unknown", id="unrecognized-keyword"),
+        pytest.param("nonsense scroll", "nonsense", id="unrecognized-n-keyword"),
+    ],
+)
+def test_minify_css_background_preserves_invalid_layers(value: str, expected: str) -> None:
+    assert minify_css(f"a{{background:{value}}}") == f"a{{background:{expected}}}"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("left/0 0", "0/0 0", id="two-zero-size-components"),
+        pytest.param("url(x) 0 0/50% 50%", "url(x)0 0/50% 50%", id="equal-size-components"),
+    ],
+)
+def test_minify_css_background_keeps_two_size_components(value: str, expected: str) -> None:
+    assert minify_css(f"a{{background:{value}}}") == f"a{{background:{expected}}}"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("content-box no-repeat", "content-box no-repeat", id="box-and-repeat"),
+        pytest.param("coral scroll", "coral", id="color-c-prefix"),
+        pytest.param("ivory scroll", "ivory", id="color-i-prefix"),
+        pytest.param("navy scroll", "navy", id="color-n-prefix"),
+        pytest.param("left/contain", "0/contain", id="contain-size"),
+        pytest.param("left/cover", "0/cover", id="cover-size"),
+    ],
+)
+def test_minify_css_background_valid_role_combinations(value: str, expected: str) -> None:
+    assert minify_css(f"a{{background:{value}}}") == f"a{{background:{expected}}}"
+
+
 @pytest.mark.parametrize("suffix", ["", "}"])
 def test_minify_css_background_keeps_invalid_colon_value(suffix: str) -> None:
     source = f"a{{backGROUnd:0px 0:{suffix}"

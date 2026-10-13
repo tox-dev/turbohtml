@@ -727,7 +727,7 @@
 [
 "background:#fff / 5% auto",
 "background:#fff / 5% auto",
-"background:#fff/5%"
+"background:#fff/5% auto"
 ],
 [
 "background:#fff / auto 5%",
@@ -757,7 +757,7 @@
 [
 "background:left top,#fff / 5% auto",
 "background:left top,#fff / 5% auto",
-"background:0 0,#fff/5%"
+"background:0 0,#fff/5% auto"
 ],
 [
 "box-shadow:0 0 0 0",
@@ -3221,18 +3221,18 @@
 ],
 [
 "a{background:url(x) / auto auto}",
-"a{background:url(x)}",
-"a{background:url(x)}"
+"a{background:url(x)/auto auto}",
+"a{background:url(x)/auto auto}"
 ],
 [
 "a{background:url(x) / 50% auto}",
-"a{background:url(x)/50%}",
-"a{background:url(x)/50%}"
+"a{background:url(x)/50% auto}",
+"a{background:url(x)/50% auto}"
 ],
 [
 "a{background:url(x) / auto}",
-"a{background:url(x)}",
-"a{background:url(x)}"
+"a{background:url(x)/auto}",
+"a{background:url(x)/auto}"
 ],
 [
 "a{background:none scroll transparent}",
@@ -4671,8 +4671,8 @@
 ],
 [
 "a{background:url(x) 0 0/50% 50%}",
-"a{background:url(x)0 0/50%}",
-"a{background:url(x)0 0/50%}"
+"a{background:url(x)0 0/50% 50%}",
+"a{background:url(x)0 0/50% 50%}"
 ],
 [
 "a{background:url(x) 0 0/50% auto}",
