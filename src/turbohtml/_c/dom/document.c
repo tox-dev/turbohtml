@@ -724,7 +724,8 @@ PyObject *th_url_resolve(PyObject *base, PyObject *target) {
     if (joined == NULL) {
         return NULL;
     }
-    int normalize_dot = url_needs_dot_normalization(joined, literalized, raw_dot);
+    int normalize_dot = url_needs_dot_normalization(joined, literalized, raw_dot) ||
+                        (url_has_backslash_dot_path(target) && url_web_special_base(target));
     PyObject *encoded = url_percent_encode(joined, literalized ? 2 : raw_dot);
     Py_DECREF(joined);
     if (encoded == NULL) {
