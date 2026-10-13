@@ -1,0 +1,1 @@
+Document the repository setup, test, lint, type-check, warning, and docs commands for coding agents.
