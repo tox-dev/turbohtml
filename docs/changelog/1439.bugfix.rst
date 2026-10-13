@@ -1,0 +1,1 @@
+Resolve literal and encoded parent segments in special URL references that omit the authority slashes.

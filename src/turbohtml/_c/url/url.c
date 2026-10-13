@@ -1827,6 +1827,10 @@ PyObject *turbohtml_url_remove_dot_segments(PyObject *Py_UNUSED(module), PyObjec
     return remove_dot_segments(arg, 0);
 }
 
+PyObject *th_url_remove_dot_segments(PyObject *path) {
+    return remove_dot_segments(path, 0);
+}
+
 PyObject *th_url_remove_file_dot_segments(PyObject *path) {
     return remove_dot_segments(path, 1);
 }

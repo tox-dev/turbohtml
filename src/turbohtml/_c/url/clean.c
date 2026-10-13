@@ -439,8 +439,8 @@ Py_ssize_t th_url_document_web_authority(PyObject *url) {
                : end;
 }
 
-PyObject *th_url_document_canonical(PyObject *url) {
-    if (th_url_document_web_authority(url) >= 0) {
+PyObject *th_url_document_canonical(PyObject *url, int normalize_dot) {
+    if (!normalize_dot && th_url_document_web_authority(url) >= 0) {
         return Py_NewRef(url);
     }
     th_url_parts parts;
@@ -485,6 +485,12 @@ PyObject *th_url_document_canonical(PyObject *url) {
     }
     if (path == NULL) { /* GCOVR_EXCL_BR_LINE: path creation only fails on allocation */
         goto done;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (normalize_dot) {
+        Py_SETREF(path, th_url_remove_dot_segments(path));
+        if (path == NULL) { /* GCOVR_EXCL_BR_LINE: dot segment removal only fails on allocation */
+            goto done;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
     }
     Py_ssize_t length = PyUnicode_GET_LENGTH(url);
     Py_ssize_t hash = PyUnicode_FindChar(url, '#', 0, length, 1);
