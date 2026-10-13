@@ -413,6 +413,44 @@ def test_base_url_resolves_absolute_special_backslashes(base: str, href: str, ex
 
 
 @pytest.mark.parametrize(
+    ("base", "href", "expected"),
+    [
+        pytest.param("https://site.org/dir/page", "http:/b/..", "http://b/", id="foreign-parent"),
+        pytest.param("https://site.org/dir/page", "http:/b/%2e%2e", "http://b/", id="foreign-encoded-parent"),
+        pytest.param("https://site.org/dir/page", "ftp:/b/..", "ftp://b/", id="ftp-parent"),
+        pytest.param("https://site.org/dir/page", "ws:/..", "ws://../", id="ws-dot-host"),
+        pytest.param("https://site.org/dir/page", "wss:/b/..", "wss://b/", id="wss-parent"),
+        pytest.param("https://site.org/dir/page", "http:\\b\\..", "http://b/", id="foreign-backslash"),
+        pytest.param("https://site.org/dir/page", "ftp:\\é", "ftp://xn--9ca/", id="unicode-host"),
+        pytest.param("https://site.org/dir/page", "https:\\b\\..", "https://site.org/", id="same-backslash"),
+        pytest.param("https://site.org/dir/page", "https:/b/..", "https://site.org/", id="same-slash"),
+        pytest.param("https://site.org/dir/page", "HTTP:/b/..", "http://b/", id="uppercase-scheme"),
+        pytest.param("https://site.org/dir/page", "http:/b", "http://b/", id="plain-host"),
+        pytest.param("https://site.org/dir/page", "http:\\b\\..?q=\\", "http://b/?q=\\", id="query-backslash"),
+        pytest.param("https://site.org/dir/page", "http:/b/..#x\\f", "http://b/#x\\f", id="fragment-backslash"),
+        pytest.param("https://site.org/dir/page", "http:/\\b/..", "http://b/", id="mixed-separators"),
+        pytest.param("https://site.org/dir/page", "http:\\/b/%2e%2e", "http://b/", id="reversed-separators"),
+        pytest.param("https://site.org/dir/page", "ftp:\\\\b/..", "ftp://b/", id="double-backslash"),
+        pytest.param("ftp://site.org/dir/page", "wss:/b/..", "wss://b/", id="same-length-foreign-scheme"),
+        pytest.param("ftp://site.org/dir/page", "ftp:/", "ftp://site.org/", id="short-same-scheme"),
+        pytest.param("https://site.org/dir/page", "ftp:/é", "ftp://xn--9ca/", id="unicode-slash-host"),
+        pytest.param("https://site.org/dir/page", "ftp:/é/..", "ftp://xn--9ca/", id="unicode-parent"),
+        pytest.param("https://site.org/dir/page", "ftp:/é%2e%2e", "ftp://xn--9ca../", id="unicode-encoded-dot"),
+        pytest.param("https://site.org/dir/page", "ftp://b/..", "ftp://b/", id="ftp-absolute-parent"),
+        pytest.param("https://site.org/dir/page", "ftp:\\b", "ftp://b/", id="foreign-short-backslash"),
+        pytest.param("https://site.org/dir/page", "ftp:/\\b", "ftp://b/", id="foreign-short-mixed"),
+        pytest.param("https://site.org/dir/page", "ftp:\\", "ftp:/", id="incomplete-separator"),
+        pytest.param("https://site.org/a?x", "hello:/b", "hello:/b", id="plain-non-special-scheme"),
+        pytest.param("https://site.org/dir/page", "http:/b/%", "http://b/%", id="percent-path"),
+        pytest.param("https://site.org/dir/page", "hello:/b/..", "hello:/", id="non-special-prefix"),
+        pytest.param("https://site.org/dir/page", "git:\\b\\..", "git:\\b\\..", id="non-special"),
+    ],
+)
+def test_base_url_resolves_single_special_separator(base: str, href: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url(base) == expected
+
+
+@pytest.mark.parametrize(
     "href",
     [
         pytest.param("///example.com/p", id="three-slashes"),
