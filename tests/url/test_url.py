@@ -171,7 +171,7 @@ def test_base_url_resolves_simple_web_path(href: str, expected: str) -> None:
         pytest.param("\\x", "a:/dir/page", "a:/dir/\\x", id="non-special-root-backslash"),
         pytest.param("\\x", "a", "\\x", id="schemeless-base-backslash"),
         pytest.param("\\x", "h!tp", "\\x", id="invalid-scheme-base-backslash"),
-        pytest.param("\\x", "hxxp:opaque", "\\x", id="other-scheme-base-backslash"),
+        pytest.param("\\x", "hxxp:opaque", "hxxp:opaque", id="other-scheme-base-backslash"),
         pytest.param("\\x", "", "\\x", id="empty-base-root-backslash"),
         pytest.param("\\x", "é:/dir/page", "%C3%A9:/dir/\\x", id="unicode-initial-base-backslash"),
         pytest.param("\\x", "hétp:/dir/page", "h%C3%A9tp:/dir/\\x", id="unicode-scheme-base-backslash"),
@@ -293,6 +293,52 @@ def test_base_url_resolves_fragment_against_opaque_base(fallback: str, expected:
 
 
 @pytest.mark.parametrize(
+    ("fallback", "href"),
+    [
+        pytest.param("mailto:user@example.org", "child", id="mailto-path"),
+        pytest.param("mailto:user@example.org", "child#part", id="fragment-on-relative-path"),
+        pytest.param("mailto:user@example.org", "?q", id="query"),
+        pytest.param("mailto:user@example.org", "", id="empty-reference"),
+        pytest.param("mailto:user@example.org", "/child", id="rooted-path"),
+        pytest.param("mailto:user@example.org", "//other/path", id="authority"),
+        pytest.param("data:text/plain,hello", "child", id="data-path"),
+        pytest.param("about:blank", "../child", id="about-parent"),
+        pytest.param("custom:opaque?x#old", ".#part", id="dot-fragment"),
+        pytest.param("a:", "child", id="empty-opaque-path"),
+    ],
+)
+def test_base_url_uses_fallback_for_relative_opaque_reference(fallback: str, href: str) -> None:
+    assert parse(f'<base href="{href}">').base_url(fallback) == fallback
+
+
+def test_base_url_uses_absolute_url_with_opaque_fallback() -> None:
+    assert parse('<base href="https://site.org/x">').base_url("mailto:user@example.org") == "https://site.org/x"
+
+
+@pytest.mark.parametrize(
+    ("fallback", "expected"),
+    [
+        pytest.param("a:é", "a:é", id="unicode-opaque-path"),
+        pytest.param("a:/é", "a:/x", id="unicode-hierarchical-path"),
+        pytest.param("aé:foo", "x", id="unicode-invalid-scheme"),
+        pytest.param("aéfoo", "x", id="unicode-no-colon"),
+        pytest.param("http:é", "http://x/", id="unicode-special-host"),
+        pytest.param("file:é", "file:///x", id="unicode-file-path"),
+        pytest.param("a:", "a:", id="empty-opaque-path"),
+        pytest.param("a!b:foo", "x", id="ascii-invalid-scheme"),
+        pytest.param("a!b:é", "x", id="invalid-scheme-character"),
+    ],
+)
+def test_base_url_classifies_non_ascii_opaque_fallback(fallback: str, expected: str) -> None:
+    assert parse('<base href="x">').base_url(fallback) == expected
+
+
+@pytest.mark.parametrize("separator", ["\t", "\n", "\r"])
+def test_base_url_recognizes_scheme_with_ascii_whitespace(separator: str) -> None:
+    assert parse(f'<base href="a{separator}:b">').base_url("mailto:x@y") == "a:b"
+
+
+@pytest.mark.parametrize(
     ("href", "fallback", "expected"),
     [
         pytest.param("file:c:\\foo\\bar.html", "file:///tmp/mock/path", "file:///c:/foo/bar.html", id="absolute-drive"),
@@ -407,7 +453,7 @@ def test_base_url_preserves_relative_path_slash_runs(href: str, expected: str) -
         pytest.param("path", "non-spec:/..//p", "non-spec:/.//path", id="protective-base-parent"),
         pytest.param("../path", "non-spec:/.//p", "non-spec:/path", id="protective-base-parent-resolution"),
         pytest.param("gopher:q", "gopher://host/p", "gopher:q", id="same-non-special-scheme-is-absolute"),
-        pytest.param("p", "sc:", "p", id="opaque-base-relative-target"),
+        pytest.param("p", "sc:", "sc:", id="opaque-base-relative-target"),
         pytest.param("p", "a/b", "a/p", id="schemeless-relative-base"),
         pytest.param("x", "a", "x", id="one-character-merged-path"),
         pytest.param("sc:other", "sc:old", "sc:other", id="same-opaque-scheme-is-absolute"),
@@ -515,7 +561,7 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
         pytest.param("mailto:?q=%2e", "https://example.org/dir/file", "mailto:?q=%2e", id="opaque-query"),
         pytest.param("foo:/a/%2e%2e/x", "https://example.org/dir/file", "foo:/x", id="non-special-root-path"),
         pytest.param("b", "https://example.org/a?x=%2e", "https://example.org/b", id="base-query-only"),
-        pytest.param("x", "mailto:%2e", "x", id="opaque-base"),
+        pytest.param("x", "mailto:%2e", "mailto:%2e", id="opaque-base"),
         pytest.param(
             "https://other.org/a/%2e%2e/x", "https://example.org/dir/file", "https://other.org/x", id="absolute"
         ),
@@ -707,6 +753,11 @@ def test_meta_refresh_unresolvable_url_raises() -> None:
     html = '<meta http-equiv=refresh content="0;url=//[bad">'
     with pytest.raises(ValueError, match="Invalid IPv6 URL"):
         parse(html).meta_refresh(_SITE)
+
+
+def test_meta_refresh_rejects_relative_opaque_reference() -> None:
+    with pytest.raises(ValueError, match="cannot resolve against an opaque URL"):
+        parse('<meta http-equiv=refresh content="0;url=child">').meta_refresh("mailto:user@example.org")
 
 
 @pytest.mark.parametrize(

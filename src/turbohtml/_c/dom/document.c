@@ -354,23 +354,60 @@ static PyObject *url_percent_encode_slow(PyObject *url, int check_encoded_dot) {
 
 static int url_has_file_scheme(PyObject *url);
 
+static int url_has_scheme(PyObject *url) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(url);
+    if (length == 0 || !th_scheme_start(PyUnicode_READ_CHAR(url, 0))) {
+        return 0;
+    }
+    for (Py_ssize_t index = 1; index < length; index++) {
+        Py_UCS4 point = PyUnicode_READ_CHAR(url, index);
+        if (point == ':') {
+            return 1;
+        }
+        if (!th_scheme_char(point)) {
+            return 0;
+        }
+    }
+    return 0;
+}
+
+static Py_ssize_t url_base_opaque_colon(PyObject *base) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(base);
+    if (length < 2 || !th_scheme_start(PyUnicode_READ_CHAR(base, 0))) {
+        return -1;
+    }
+    if (PyUnicode_IS_ASCII(base)) {
+        const char *bytes = (const char *)PyUnicode_1BYTE_DATA(base);
+        const char *found = memchr(bytes + 1, ':', (size_t)(length - 1));
+        if (found == NULL || found[1] == '/') {
+            return -1;
+        }
+        for (const char *point = bytes + 1; point < found; point++) {
+            if (!th_scheme_char((unsigned char)*point)) {
+                return -1;
+            }
+        }
+        return url_web_special_base(base) || url_has_file_scheme(base) ? -1 : found - bytes;
+    }
+    Py_ssize_t colon = 1;
+    while (th_scheme_char(PyUnicode_READ_CHAR(base, colon))) {
+        colon++;
+    }
+    return PyUnicode_READ_CHAR(base, colon) != ':' || PyUnicode_READ_CHAR(base, colon + 1) == '/' ||
+                   url_web_special_base(base) || url_has_file_scheme(base)
+               ? -1
+               : colon;
+}
+
 static PyObject *url_join_opaque_fragment(PyObject *base, PyObject *target) {
     if (PyUnicode_GET_LENGTH(target) == 0 || PyUnicode_READ_CHAR(target, 0) != '#') {
         return NULL;
     }
+    Py_ssize_t colon = url_base_opaque_colon(base);
+    if (colon < 0) {
+        return NULL;
+    }
     Py_ssize_t length = PyUnicode_GET_LENGTH(base);
-    if (length < 2 || !th_scheme_start(PyUnicode_READ_CHAR(base, 0))) {
-        return NULL;
-    }
-    Py_ssize_t colon = 1;
-    while (colon < length && th_scheme_char(PyUnicode_READ_CHAR(base, colon))) {
-        colon++;
-    }
-    if (colon == length || PyUnicode_READ_CHAR(base, colon) != ':' ||
-        (colon + 1 < length && PyUnicode_READ_CHAR(base, colon + 1) == '/') || url_web_special_base(base) ||
-        url_has_file_scheme(base)) {
-        return NULL;
-    }
     Py_ssize_t hash = PyUnicode_FindChar(base, '#', colon + 1, length, 1);
     PyObject *prefix = PyUnicode_Substring(base, 0, hash < 0 ? length : hash);
     if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: substring only fails on allocation */
@@ -624,6 +661,13 @@ PyObject *th_url_resolve(PyObject *base, PyObject *target) {
         Py_DECREF(trimmed_target);
     }
     if (joined == NULL) {
+        return NULL;
+    }
+    if (absolute_web == TH_URL_WEB_AUTHORITY_NONE && (target_len == 0 || PyUnicode_READ_CHAR(target, 0) != '#') &&
+        th_url_web_authority(base) == TH_URL_WEB_AUTHORITY_NONE && url_base_opaque_colon(base) >= 0 &&
+        !url_has_scheme(target)) {
+        Py_DECREF(joined);
+        PyErr_SetString(PyExc_ValueError, "cannot resolve against an opaque URL");
         return NULL;
     }
     PyObject *encoded = url_percent_encode(joined, literalized ? 2 : raw_dot);
