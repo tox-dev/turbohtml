@@ -3148,7 +3148,7 @@ static int build_matcher(engine *eng, th_node *instruction, const Py_UCS4 *patte
             if (status == -1 && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 PyErr_NoMemory();                    /* GCOVR_EXCL_LINE */
             }
-            if (!PyErr_ExceptionMatches(PyExc_MemoryError)) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            if (!PyErr_Occurred() || !PyErr_ExceptionMatches(PyExc_MemoryError)) { /* GCOVR_EXCL_BR_LINE */
                 PyErr_Format(PyExc_ValueError, "xslt: xsl:number pattern error");
             }
             return fail_py(eng);
