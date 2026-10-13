@@ -130,7 +130,7 @@ def test_clean_rejects_invalid_ipv6_hosts(url: str) -> None:
         pytest.param("HTTP://user.name@LOCALHOST:/x", None, id="userinfo-dot-is-not-host-dot"),
         pytest.param("HTTP://\u00ad:8000/x", None, id="mapped-empty-host"),
         pytest.param("HTTP://LOCALHOST:08000/a/../x", "http://localhost:8000/x", id="nondefault-port"),
-        pytest.param("HTTP://LOCALHOST:80x/a/../x", "http://localhost:80x/x", id="retained-port-spelling"),
+        pytest.param("HTTP://LOCALHOST:80x/a/../x", None, id="invalid-port"),
         pytest.param("HTTP://[0:0:0:0:0:0:0:1]:80/a/../x", "http://[::1]/x", id="ipv6-default-port"),
         pytest.param("HTTP://[::1]:/a/../x", "http://[::1]/x", id="ipv6-empty-port"),
         pytest.param("HTTP://EXAMPLE.ORG:80/a/../x", "http://example.org/x", id="dotted-default-port"),
@@ -281,9 +281,6 @@ def test_the_document_entry_point_rejects_too_few_arguments() -> None:
     ("url", "expected"),
     [
         pytest.param("http://x.com:443/", "http://x.com:443/", id="another-scheme-default-is-kept"),
-        pytest.param(
-            "http://x.com:99999999999999999999/", "http://x.com:99999999999999999999/", id="an-overflowing-port"
-        ),
         pytest.param("http://x.com:0080/", "http://x.com/", id="leading-zeros-read-as-the-default"),
         pytest.param("http://x.com:0081/", "http://x.com:81/", id="leading-zeros-fall-away"),
         pytest.param("ftp://x.com", "ftp://x.com/", id="special-ftp-empty-path-is-root"),
@@ -492,7 +489,6 @@ def test_a_relative_href_against_an_unsplittable_base_element_is_dropped() -> No
         pytest.param("http://example.org:8080/x", "http://example.org:8080/x", id="other-port-kept"),
         pytest.param("http://example.org:0080/x", "http://example.org/x", id="port-leading-zeros"),
         pytest.param("http://example.org:/x", "http://example.org/x", id="empty-port-dropped"),
-        pytest.param("http://example.org:80x/x", "http://example.org:80x/x", id="garbage-port-kept"),
         pytest.param("http://[::1]:80/", "http://[::1]/", id="ipv6-default-port"),
         pytest.param("http://[::1]:8080/", "http://[::1]:8080/", id="ipv6-other-port"),
         pytest.param("http://[::1]:/", "http://[::1]/", id="ipv6-empty-port"),
@@ -777,7 +773,7 @@ def test_normalize_rejects_non_str() -> None:
     [
         pytest.param("https://example.org:443/file.html?p=100&abc=1#frag", id="kitchen-sink"),
         pytest.param("http://test.org/?utm_source=x", id="tracker-only-query"),
-        pytest.param("https://:443/a", id="empty-host-default-port"),
+        pytest.param("https://example.org:443/a", id="default-port"),
         pytest.param("http://münchen.de/a/../b//c/?z=1&a=2#frag=1&utm_x=2", id="unicode-host-dots-and-fragment"),
     ],
 )
@@ -919,7 +915,6 @@ def test_dot_segment_resolution(url: str, expected: str) -> None:
             "http://trusted.example%2eattacker.example/", "http://trusted.example.attacker.example/", id="split-label"
         ),
         pytest.param("http://caf%C3%A9.example/", "http://xn--caf-dma.example/", id="percent-utf8-to-punycode"),
-        pytest.param("http://:80/x", "http://:80/x", id="port-only-empty-host"),
         pytest.param("file://12/p", "file://0.0.0.12/p", id="file-numeric-host"),
     ],
 )
@@ -1314,15 +1309,12 @@ def test_clean_special_path_reverse_solidus() -> None:
 @pytest.mark.parametrize(
     ("url", "expected"),
     [
-        pytest.param("http://example.com:८०/", "http://example.com:८०/", id="non-ascii-decimal-port"),
-        pytest.param("http://example.com:①/", "http://example.com:①/", id="non-decimal-digit-port"),
         pytest.param("http://example.com:0080/", "http://example.com/", id="ascii-default-port"),
-        pytest.param("http://example.com:80x/", "http://example.com:80x/", id="invalid-ascii-port"),
-        pytest.param("http://example.com:!/", "http://example.com:!/", id="punctuation-port"),
-        pytest.param("http://example.com:65536/", "http://example.com:65536/", id="overflowing-ascii-port"),
+        pytest.param("http://example.com:65535/", "http://example.com:65535/", id="maximum-port"),
+        pytest.param("http://example.com:00081/", "http://example.com:81/", id="leading-zeros"),
     ],
 )
-def test_normalize_port_uses_ascii_digits(normalizer: Callable[[str], str | None], url: str, expected: str) -> None:
+def test_normalize_valid_port(normalizer: Callable[[str], str | None], url: str, expected: str) -> None:
     assert normalizer(url) == expected
 
 
@@ -1334,19 +1326,58 @@ def test_normalize_port_uses_ascii_digits(normalizer: Callable[[str], str | None
     ("port", "suffix"),
     [
         pytest.param("0080", "", id="ascii-default-control"),
-        pytest.param("65536", ":65536", id="ascii-overflow-control"),
-        pytest.param("9" * 19, ":" + "9" * 19, id="long-limit"),
-        pytest.param("9" * 20, ":" + "9" * 20, id="long-overflow"),
         pytest.param("0" * 20 + "80", "", id="padded-default"),
         pytest.param("0" * 4301 + "80", "", id="padded-default-past-python-limit"),
         pytest.param("0" * 4301 + "1", ":1", id="padded-nondefault-past-python-limit"),
         pytest.param("0" * 4301, ":0", id="zero-past-python-limit"),
-        pytest.param("0" * 4301 + "9" * 20, ":" + "9" * 20, id="padded-overflow-past-python-limit"),
-        pytest.param("9" * 4301, ":" + "9" * 4301, id="overflow-past-python-limit"),
     ],
 )
 def test_normalize_long_ascii_port(normalizer: Callable[[str], str | None], port: str, suffix: str) -> None:
     assert normalizer(f"http://example.com:{port}/") == f"http://example.com{suffix}/"
+
+
+@pytest.mark.parametrize(
+    "port",
+    [
+        pytest.param("80x", id="ascii-suffix"),
+        pytest.param("!", id="punctuation"),
+        pytest.param("८०", id="non-ascii-decimal"),
+        pytest.param("①", id="non-decimal-digit"),
+        pytest.param("65536", id="out-of-range"),
+        pytest.param("9" * 19, id="long-out-of-range"),
+        pytest.param("0" * 4301 + "9" * 20, id="padded-out-of-range"),
+    ],
+)
+def test_normalize_rejects_invalid_port(port: str) -> None:
+    with pytest.raises(ValueError, match="invalid URL port"):
+        normalize_url(f"http://example.com:{port}/")
+
+
+@pytest.mark.parametrize(
+    "port",
+    [
+        pytest.param("80x", id="ascii-suffix"),
+        pytest.param("८०", id="non-ascii-decimal"),
+        pytest.param("65536", id="out-of-range"),
+        pytest.param("9" * 4301, id="long-out-of-range"),
+    ],
+)
+def test_clean_rejects_invalid_port(port: str) -> None:
+    assert clean_url(f"http://example.com:{port}/") is None
+
+
+@pytest.mark.parametrize(
+    ("url", "error"),
+    [
+        pytest.param("http://:80/x", "URL port requires a host", id="special-empty-host"),
+        pytest.param("git://:80/x", "URL port requires a host", id="opaque-empty-host"),
+        pytest.param("git://example.com:80x/x", "invalid URL port", id="opaque-invalid-port"),
+        pytest.param("git://example.com:65536/x", "invalid URL port", id="opaque-out-of-range"),
+    ],
+)
+def test_normalize_rejects_invalid_port_authority(url: str, error: str) -> None:
+    with pytest.raises(ValueError, match=error):
+        normalize_url(url)
 
 
 @pytest.mark.parametrize(

@@ -281,6 +281,10 @@ def test_base_url_uses_fallback_for_special_url_without_host() -> None:
         pytest.param("git://site.org/a", "//[x]/", id="invalid-opaque-ipv6-host"),
         pytest.param("git://site.org/a", "//:x", id="missing-opaque-host-with-port"),
         pytest.param("https://site.org/a?x#old", "//:x", id="missing-special-host-with-port"),
+        pytest.param("https://site.org/a", "http://other.org:80x/x", id="non-digit-port"),
+        pytest.param("https://site.org/a", "http://other.org:65536/x", id="out-of-range-port"),
+        pytest.param("https://site.org/a", "http://other.org:८०/x", id="non-ascii-port"),
+        pytest.param("git://site.org/a", "git://other.org:80x/x", id="non-special-port"),
     ],
 )
 def test_base_url_uses_fallback_for_invalid_special_authority(fallback: str, href: str) -> None:

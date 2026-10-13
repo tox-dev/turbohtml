@@ -135,8 +135,6 @@ static TH_FORCEINLINE int is_web_host(PyObject *host, PyObject *netloc) {
     return PyUnicode_GET_LENGTH(host) > 0 && (web_host_holds(host, '.') || web_host_holds(netloc, ':'));
 }
 
-/* The ":port" suffix, or "" for an absent, empty, or scheme-default port (port state, URL standard 4.4). A port of
-   ASCII digits is read as the integer it spells, so leading zeros fall away and "0080" is the http default. */
 static PyObject *port_suffix(const th_url_parts *parts) {
     PyObject *port = parts->part[TH_URL_PORT];
     Py_ssize_t len = PyUnicode_GET_LENGTH(port);
@@ -145,55 +143,26 @@ static PyObject *port_suffix(const th_url_parts *parts) {
     }
     int kind = PyUnicode_KIND(port);
     const void *data = PyUnicode_DATA(port);
+    unsigned int value = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 ch = PyUnicode_READ(kind, data, index);
-        if (ch < '0' || ch > '9') {
-            return th_str_format(":%U", port);
+        if (ch < '0' || ch > '9' || value > (65535 - (ch - '0')) / 10) {
+            PyErr_SetString(PyExc_ValueError, "invalid URL port");
+            return NULL;
         }
-    }
-    PyObject *number;
-    /* Python's decimal conversion limit can reject a port with enough leading zeros. */
-    if (len > 19) {
-        Py_ssize_t start = 0;
-        while (start < len && PyUnicode_READ(kind, data, start) == '0') {
-            start++;
-        }
-        if (start == len) {
-            return PyUnicode_FromString(":0");
-        }
-        PyObject *significant = start > 0 ? PyUnicode_Substring(port, start, len) : Py_NewRef(port);
-        if (significant == NULL) { /* GCOVR_EXCL_BR_LINE: substring only fails on allocation failure */
-            return NULL;           /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        if (len - start > 19) {
-            PyObject *suffix = th_str_format(":%U", significant);
-            Py_DECREF(significant);
-            return suffix;
-        }
-        number = PyLong_FromUnicodeObject(significant, 10);
-        Py_DECREF(significant);
-    } else {
-        number = PyLong_FromUnicodeObject(port, 10);
-    }
-    if (number == NULL) { /* GCOVR_EXCL_BR_LINE: an ASCII-digit-only string always parses */
-        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        value = value * 10 + (unsigned int)(ch - '0');
     }
     static const struct {
         const char *scheme;
-        long port;
+        unsigned int port;
     } defaults[] = {{"ftp", 21}, {"http", 80}, {"ws", 80}, {"https", 443}, {"wss", 443}};
-    int overflow;
-    long value = PyLong_AsLongAndOverflow(number, &overflow);
     PyObject *scheme = parts->part[TH_URL_SCHEME];
     for (size_t index = 0; index < sizeof(defaults) / sizeof(*defaults); index++) {
-        if (!overflow && value == defaults[index].port && str_equals(scheme, defaults[index].scheme)) {
-            Py_DECREF(number);
+        if (value == defaults[index].port && str_equals(scheme, defaults[index].scheme)) {
             return PyUnicode_FromString("");
         }
     }
-    PyObject *suffix = th_str_format(":%S", number);
-    Py_DECREF(number);
-    return suffix;
+    return th_str_format(":%u", value);
 }
 
 static PyObject *normalize_userinfo(PyObject *userinfo) {
@@ -245,12 +214,10 @@ static PyObject *normalize_netloc(const th_url_parts *parts, int web_only, int c
     if (host == NULL) { /* GCOVR_EXCL_BR_LINE: the host fold only fails on allocation failure */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *suffix = !web_only && parts->has_port && PyUnicode_GET_LENGTH(host) == 0
-                           ? th_str_format(":%U", parts->part[TH_URL_PORT])
-                           : port_suffix(parts);
-    if (suffix == NULL) { /* GCOVR_EXCL_BR_LINE: the suffix only fails on allocation failure */
-        Py_DECREF(host);  /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;      /* GCOVR_EXCL_LINE */
+    PyObject *suffix = port_suffix(parts);
+    if (suffix == NULL) {
+        Py_DECREF(host);
+        return NULL;
     }
     PyObject *userinfo = parts->part[TH_URL_USERINFO];
     PyObject *netloc;
@@ -456,6 +423,11 @@ PyObject *th_url_document_canonical(PyObject *url, int normalize_dot) {
         PyErr_SetString(PyExc_ValueError, "special URL requires a host");
         return NULL;
     }
+    if (is_file && parts.has_port) {
+        th_url_parts_clear(&parts);
+        PyErr_SetString(PyExc_ValueError, "file URL cannot have a port");
+        return NULL;
+    }
     PyObject *netloc = has_netloc ? normalize_netloc(&parts, 0, parts.special || parts.kind == TH_HOST_IPV6)
                                   : PyUnicode_FromString("");
     PyObject *path = NULL;
@@ -470,10 +442,6 @@ PyObject *th_url_document_canonical(PyObject *url, int normalize_dot) {
     if (is_file) {
         if (str_holds(parts.part[TH_URL_NETLOC], '@')) {
             PyErr_SetString(PyExc_ValueError, "file URL cannot contain userinfo");
-            goto done;
-        }
-        if (parts.has_port) {
-            PyErr_SetString(PyExc_ValueError, "file URL cannot have a port");
             goto done;
         }
         if (str_equals(netloc, "localhost")) {
@@ -533,27 +501,31 @@ static int opaque_path_needs_encoding(PyObject *path) {
    with a ValueError when a component cannot be percent-encoded (a lone surrogate). */
 static PyObject *normalize_parts(const th_url_parts *parts, const clean_options *options, int web_only) {
     PyObject *scheme = parts->part[TH_URL_SCHEME];
+    int is_file =
+        PyUnicode_GET_LENGTH(scheme) == 4 && PyUnicode_READ_CHAR(scheme, 0) == 'f' && str_equals(scheme, "file");
+    if (is_file && parts->has_port) {
+        PyErr_SetString(PyExc_ValueError, "file URL cannot have a port");
+        return NULL;
+    }
+    if (parts->has_port && PyUnicode_GET_LENGTH(parts->part[TH_URL_HOST]) == 0) {
+        PyErr_SetString(PyExc_ValueError, "URL port requires a host");
+        return NULL;
+    }
     int has_netloc = PyUnicode_GET_LENGTH(parts->part[TH_URL_NETLOC]) > 0;
     PyObject *netloc = has_netloc ? normalize_netloc(parts, web_only, web_only) : PyUnicode_FromString("");
     PyObject *path = NULL;
     PyObject *query = NULL;
     PyObject *fragment = NULL;
     PyObject *result = NULL;
-    if (netloc == NULL) { /* GCOVR_EXCL_BR_LINE: the authority rebuild only fails on allocation failure */
-        goto done;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (netloc == NULL) {
+        goto done;
     }
     if (netloc == Py_None) {
         return netloc;
     }
-    int is_file =
-        PyUnicode_GET_LENGTH(scheme) == 4 && PyUnicode_READ_CHAR(scheme, 0) == 'f' && str_equals(scheme, "file");
     if (is_file) {
         if (str_holds(parts->part[TH_URL_NETLOC], '@')) {
             PyErr_SetString(PyExc_ValueError, "file URL cannot contain userinfo");
-            goto done;
-        }
-        if (parts->has_port) {
-            PyErr_SetString(PyExc_ValueError, "file URL cannot have a port");
             goto done;
         }
         if (PyUnicode_GET_LENGTH(netloc) == 9 && str_equals(netloc, "localhost")) {
@@ -733,7 +705,7 @@ static PyObject *clean(PyObject *url, const clean_options *options) {
         if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: normalization raises nothing else */
             goto done;                                   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        /* an unencodable component (a lone surrogate) is not a fetchable URL, as courlan also decides */
+        /* Invalid ports and unencodable components are not fetchable URLs. */
         PyErr_Clear();
         result = Py_NewRef(Py_None);
     }

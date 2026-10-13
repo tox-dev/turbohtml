@@ -1,0 +1,1 @@
+Reject URL ports containing characters outside 0–9 or values above 65535 during normalization and cleaning.
