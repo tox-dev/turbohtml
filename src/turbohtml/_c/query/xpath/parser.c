@@ -11,6 +11,7 @@ typedef struct {
     lexer lx;
     xp_program *prog;
     int failed;
+    int out_of_memory;
     int depth; /* current parse recursion depth, capped at XP_MAX_DEPTH */
     const char *msg;
     Py_ssize_t err_pos;     /* offset of the offending token when failed */
@@ -19,6 +20,9 @@ typedef struct {
 } parser;
 
 static void fail(parser *ps, const char *msg) {
+    if (strcmp(msg, "out of memory") == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        ps->out_of_memory = 1;               /* GCOVR_EXCL_LINE */
+    }
     if (!ps->failed) {
         ps->failed = 1;
         ps->msg = msg;
@@ -719,6 +723,7 @@ xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t 
     xp_program *prog = PyMem_Malloc(sizeof(*prog));
     if (prog == NULL) {                            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
         snprintf(errbuf, errlen, "out of memory"); /* GCOVR_EXCL_LINE */
+        PyErr_NoMemory();                          /* GCOVR_EXCL_LINE */
         return NULL;                               /* GCOVR_EXCL_LINE */
     }
     prog->references = 1;
@@ -750,6 +755,9 @@ xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t 
        did not record a message, so those branches cannot be forced from a test */
     if (ps.failed || prog->root < 0) { /* GCOVR_EXCL_BR_LINE: root < 0 is an unforced arena OOM */
         format_error(errbuf, errlen, &ps);
+        if (ps.out_of_memory || ps.msg == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory();                     /* GCOVR_EXCL_LINE */
+        }
         xp_free(prog);
         return NULL;
     }

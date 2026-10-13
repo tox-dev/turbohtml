@@ -996,7 +996,9 @@ static xp_program *cached_xpath_compile(HandleObject *handle, PyObject *arg) {
     xp_program *prog = xp_compile(src, len, err, sizeof(err));
     PyMem_Free(src);
     if (prog == NULL) {
-        PyErr_SetString(PyExc_ValueError, err);
+        if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation error */
+            PyErr_SetString(PyExc_ValueError, err);
+        }
         return NULL;
     }
     if (handle->xpath_cache == NULL) {
@@ -2064,7 +2066,9 @@ static PyObject *xpath_compiled_new(PyTypeObject *type, PyObject *args, PyObject
     xp_program *prog = xp_compile(src, len, err, sizeof(err));
     PyMem_Free(src);
     if (prog == NULL) {
-        PyErr_SetString(PyExc_ValueError, err);
+        if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation error */
+            PyErr_SetString(PyExc_ValueError, err);
+        }
         return NULL;
     }
     XPathObject *self = (XPathObject *)type->tp_alloc(type, 0);

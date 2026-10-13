@@ -934,6 +934,11 @@ XSLT_FORCEINLINE static const Py_UCS4 *number_attr(const engine *eng, const th_n
 /* ---- error helpers -------------------------------------------------------- */
 
 static int fail(engine *eng, const char *message) {
+    if (strcmp(message, "out of memory") == 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyErr_NoMemory();                        /* GCOVR_EXCL_LINE */
+        eng->py_error = 1;                       /* GCOVR_EXCL_LINE */
+        return -1;                               /* GCOVR_EXCL_LINE */
+    }
     eng->error = message;
     return -1;
 }
@@ -1088,7 +1093,9 @@ static xp_program *compile_pattern_new(engine *eng, const Py_UCS4 *src, Py_ssize
     xp_program *prog = xp_compile(expr.data, expr.len, errbuf, sizeof(errbuf));
     xb_free(&expr);
     if (prog == NULL) {
-        PyErr_Format(PyExc_ValueError, "xslt: bad match pattern: %s", errbuf);
+        if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation error */
+            PyErr_Format(PyExc_ValueError, "xslt: bad match pattern: %s", errbuf);
+        }
         fail_py(eng);
         return NULL;
     }
@@ -1482,12 +1489,14 @@ static int eval_program(engine *eng, const xp_program *prog, th_node *context, P
         PyMem_Free(bindings); /* GCOVR_EXCL_LINE: only the >64-binding path allocates */
     }
     if (status < 0 && !PyErr_Occurred()) {
-        /* A -3/-4 error always names a feature; only an unforced allocation failure
-           returns <0 with none, so the fallback string is exercised nowhere. */
-        if (feature == NULL) {      /* GCOVR_EXCL_BR_LINE */
-            feature = "evaluation"; /* GCOVR_EXCL_LINE */
-        } /* GCOVR_EXCL_LINE */
-        PyErr_Format(PyExc_ValueError, "xslt: expression error (%s)", feature);
+        if (status == -1) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        } else {
+            if (feature == NULL) {      /* GCOVR_EXCL_BR_LINE */
+                feature = "evaluation"; /* GCOVR_EXCL_LINE */
+            } /* GCOVR_EXCL_LINE */
+            PyErr_Format(PyExc_ValueError, "xslt: expression error (%s)", feature);
+        }
     }
     return status;
 }
@@ -1740,6 +1749,10 @@ static xslt_rule *best_rule(engine *eng, th_node *node, Py_ssize_t attr, const P
             continue;
         }
         if (!rule->built && build_rule(eng, rule) < 0) {
+            if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: match-set allocation failure */
+                PyErr_NoMemory();    /* GCOVR_EXCL_LINE */
+            }
+            fail_py(eng);
             return NULL;
         }
         if (match_set_has(&rule->matched, node, attr)) {
@@ -1959,7 +1972,9 @@ static int eval_avt(engine *eng, const Py_UCS4 *src, Py_ssize_t len, Py_UCS4 **o
             /* GCOVR_EXCL_START */
             if (prog == NULL) {
                 xb_free(&buffer);
-                PyErr_Format(PyExc_ValueError, "xslt: bad expression in attribute value template: %s", errbuf);
+                if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation error */
+                    PyErr_Format(PyExc_ValueError, "xslt: bad expression in attribute value template: %s", errbuf);
+                }
                 fail_py(eng);
                 return -1;
             }
@@ -2045,9 +2060,11 @@ static int do_value_of(engine *eng, th_node *instruction, th_node *out_parent) {
     }
     char errbuf[256];
     xp_program *prog = compile_expression(eng, select, select_len, errbuf, sizeof(errbuf));
-    if (prog == NULL) { /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
-        PyErr_Format(PyExc_ValueError, "xslt: bad value-of select: %s", errbuf); /* GCOVR_EXCL_LINE */
-        return fail_py(eng);                                                     /* GCOVR_EXCL_LINE */
+    if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
+        if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
+            PyErr_Format(PyExc_ValueError, "xslt: bad value-of select: %s", errbuf); /* GCOVR_EXCL_LINE */
+        }
+        return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
     xp_result value;
     int status = eval_program(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, &value);
@@ -2095,9 +2112,11 @@ static int do_copy_of(engine *eng, th_node *instruction, th_node *out_parent) {
     }
     char errbuf[256];
     xp_program *prog = compile_expression(eng, select, select_len, errbuf, sizeof(errbuf));
-    if (prog == NULL) { /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
-        PyErr_Format(PyExc_ValueError, "xslt: bad copy-of select: %s", errbuf); /* GCOVR_EXCL_LINE */
-        return fail_py(eng);                                                    /* GCOVR_EXCL_LINE */
+    if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
+        if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
+            PyErr_Format(PyExc_ValueError, "xslt: bad copy-of select: %s", errbuf); /* GCOVR_EXCL_LINE */
+        }
+        return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
     /* A lone $var that is a result tree fragment copies the fragment's children. */
     if (prog->nodes[prog->root].kind == XN_VAR) {
@@ -2631,9 +2650,11 @@ static int eval_test(engine *eng, th_node *instruction, int *out_bool) {
     }
     char errbuf[256];
     xp_program *prog = compile_expression(eng, test, test_len, errbuf, sizeof(errbuf));
-    if (prog == NULL) { /* GCOVR_EXCL_BR_LINE: compilation rejects malformed tests before a run */
-        PyErr_Format(PyExc_ValueError, "xslt: bad test: %s", errbuf); /* GCOVR_EXCL_LINE */
-        return fail_py(eng);                                          /* GCOVR_EXCL_LINE */
+    if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed tests before a run */
+        if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
+            PyErr_Format(PyExc_ValueError, "xslt: bad test: %s", errbuf); /* GCOVR_EXCL_LINE */
+        }
+        return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
     xp_result value;
     int status = eval_program(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, &value);
@@ -2756,10 +2777,12 @@ static int compile_sorts(engine *eng, th_node *instruction, sort_spec *specs, in
         }
         char errbuf[256];
         xp_program *prog = compile_expression(eng, select, select_len, errbuf, sizeof(errbuf));
-        if (prog == NULL) { /* GCOVR_EXCL_BR_LINE: compilation rejects malformed sort selects before a run */
-            PyErr_Format(PyExc_ValueError, "xslt: bad sort select: %s", errbuf); /* GCOVR_EXCL_LINE */
-            fail_py(eng);                                                        /* GCOVR_EXCL_LINE */
-            return -1;                                                           /* GCOVR_EXCL_LINE */
+        if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed sort selects before a run */
+            if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
+                PyErr_Format(PyExc_ValueError, "xslt: bad sort select: %s", errbuf); /* GCOVR_EXCL_LINE */
+            }
+            fail_py(eng); /* GCOVR_EXCL_LINE */
+            return -1;    /* GCOVR_EXCL_LINE */
         }
         Py_ssize_t type_len = 0;
         const Py_UCS4 *type = attr_lookup(eng->sheet_tree, child, "data-type", 9, &type_len);
@@ -3122,7 +3145,12 @@ static int build_matcher(engine *eng, th_node *instruction, const Py_UCS4 *patte
                          : xp_eval_at(prog, eng->src_tree, eng->src_root, 1, 1, NULL, NULL, xslt_extension, eng,
                                       &matched, &feature);
         if (status < 0) {
-            PyErr_Format(PyExc_ValueError, "xslt: xsl:number pattern error");
+            if (status == -1 && !PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                PyErr_NoMemory();                    /* GCOVR_EXCL_LINE */
+            }
+            if (!PyErr_ExceptionMatches(PyExc_MemoryError)) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                PyErr_Format(PyExc_ValueError, "xslt: xsl:number pattern error");
+            }
             return fail_py(eng);
         }
         for (Py_ssize_t slot = 0; slot < matched.nodes.len; slot++) {
@@ -3130,7 +3158,8 @@ static int build_matcher(engine *eng, th_node *instruction, const Py_UCS4 *patte
             int added = match_set_add(set, item.node, item.attr);
             if (added < 0) {              /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
                 xp_result_free(&matched); /* GCOVR_EXCL_LINE */
-                return -1;                /* GCOVR_EXCL_LINE */
+                PyErr_NoMemory();         /* GCOVR_EXCL_LINE */
+                return fail_py(eng);      /* GCOVR_EXCL_LINE */
             }
         }
         xp_result_free(&matched);
@@ -3768,9 +3797,11 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
     if (value_expr != NULL) {
         char errbuf[256];
         xp_program *prog = compile_expression(eng, value_expr, value_len, errbuf, sizeof(errbuf));
-        if (prog == NULL) { /* GCOVR_EXCL_BR_LINE: compilation rejects malformed values before a run */
-            PyErr_Format(PyExc_ValueError, "xslt: bad number value: %s", errbuf); /* GCOVR_EXCL_LINE */
-            return fail_py(eng);                                                  /* GCOVR_EXCL_LINE */
+        if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed values before a run */
+            if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
+                PyErr_Format(PyExc_ValueError, "xslt: bad number value: %s", errbuf); /* GCOVR_EXCL_LINE */
+            }
+            return fail_py(eng); /* GCOVR_EXCL_LINE */
         }
         xp_result result;
         int status = eval_program(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, &result);
@@ -3915,9 +3946,11 @@ static int compute_binding(engine *eng, th_node *declaration, xp_result *out_val
     if (select != NULL) {
         char errbuf[256];
         xp_program *prog = compile_expression(eng, select, select_len, errbuf, sizeof(errbuf));
-        if (prog == NULL) { /* GCOVR_EXCL_BR_LINE: compilation rejects malformed bindings before a run */
-            PyErr_Format(PyExc_ValueError, "xslt: bad variable select: %s", errbuf); /* GCOVR_EXCL_LINE */
-            return fail_py(eng);                                                     /* GCOVR_EXCL_LINE */
+        if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed bindings before a run */
+            if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
+                PyErr_Format(PyExc_ValueError, "xslt: bad variable select: %s", errbuf); /* GCOVR_EXCL_LINE */
+            }
+            return fail_py(eng); /* GCOVR_EXCL_LINE */
         }
         int status = eval_program(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, out_value);
         if (status < 0) {
@@ -4128,9 +4161,11 @@ static int do_for_each(engine *eng, th_node *instruction, th_node *out_parent) {
     }
     char errbuf[256];
     xp_program *prog = compile_expression(eng, select, select_len, errbuf, sizeof(errbuf));
-    if (prog == NULL) { /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
-        PyErr_Format(PyExc_ValueError, "xslt: bad for-each select: %s", errbuf); /* GCOVR_EXCL_LINE */
-        return fail_py(eng);                                                     /* GCOVR_EXCL_LINE */
+    if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
+        if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
+            PyErr_Format(PyExc_ValueError, "xslt: bad for-each select: %s", errbuf); /* GCOVR_EXCL_LINE */
+        }
+        return fail_py(eng); /* GCOVR_EXCL_LINE */
     }
     xp_result value;
     int status = eval_program(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, &value);
@@ -4265,9 +4300,11 @@ static int apply_templates(engine *eng, th_node *instruction, th_node *out_paren
     if (select != NULL) {
         char errbuf[256];
         xp_program *prog = compile_expression(eng, select, select_len, errbuf, sizeof(errbuf));
-        if (prog == NULL) { /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
-            PyErr_Format(PyExc_ValueError, "xslt: bad apply-templates select: %s", errbuf); /* GCOVR_EXCL_LINE */
-            return fail_py(eng);                                                            /* GCOVR_EXCL_LINE */
+        if (prog == NULL) {          /* GCOVR_EXCL_BR_LINE: compilation rejects malformed selects before a run */
+            if (!PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation error */
+                PyErr_Format(PyExc_ValueError, "xslt: bad apply-templates select: %s", errbuf); /* GCOVR_EXCL_LINE */
+            }
+            return fail_py(eng); /* GCOVR_EXCL_LINE */
         }
         int status = eval_program(eng, prog, eng->cur_node, eng->ctx_pos, eng->ctx_size, &value);
         if (status < 0) {
@@ -5822,7 +5859,9 @@ static int bind_globals(engine *eng, PyObject *params) {
                 xp_program *prog = xp_compile(expr, expr_len, errbuf, sizeof(errbuf));
                 PyMem_Free(expr);
                 if (prog == NULL) {
-                    PyErr_Format(PyExc_ValueError, "xslt: bad parameter expression: %s", errbuf);
+                    if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation error */
+                        PyErr_Format(PyExc_ValueError, "xslt: bad parameter expression: %s", errbuf);
+                    }
                     return fail_py(eng);
                 }
                 xp_result value;
