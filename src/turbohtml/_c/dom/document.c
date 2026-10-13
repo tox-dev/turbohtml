@@ -923,6 +923,9 @@ static int base_url_missing_special_host(PyObject *fallback, PyObject *input) {
         }
         if (PyUnicode_IS_ASCII(input)) {
             const char *bytes = (const char *)PyUnicode_1BYTE_DATA(input);
+            if (first == 'h' && length > 6 && memcmp(bytes, "http:/", 6) == 0 && bytes[6] != '/' && bytes[6] != '\\') {
+                return 0;
+            }
             Py_ssize_t authority = first == 'h' && length > 7 && memcmp(bytes, "http://", 7) == 0    ? 7
                                    : first == 'h' && length > 8 && memcmp(bytes, "https://", 8) == 0 ? 8
                                    : first == 'f' && length > 6 && memcmp(bytes, "ftp://", 6) == 0   ? 6
