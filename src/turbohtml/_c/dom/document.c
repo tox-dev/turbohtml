@@ -474,9 +474,7 @@ static PyObject *url_join_encoded_dot_segments(PyObject *base, PyObject *target,
     int path_encoded_dot = special && PyUnicode_FindChar(target, '?', 0, encoded_dot, 1) < 0 &&
                            PyUnicode_FindChar(target, '#', 0, encoded_dot, 1) < 0;
     Py_ssize_t colon = path_encoded_dot ? url_same_scheme_colon(base, target) : -1;
-    if (colon >= 0 &&
-        !((PyUnicode_READ_CHAR(target, colon + 1) == '/' || PyUnicode_READ_CHAR(target, colon + 1) == '\\') &&
-          (PyUnicode_READ_CHAR(target, colon + 2) == '/' || PyUnicode_READ_CHAR(target, colon + 2) == '\\'))) {
+    if (colon >= 0 && th_url_web_authority(target) == TH_URL_WEB_AUTHORITY_NONE) {
         PyObject *relative = PyUnicode_Substring(target, colon + 1, target_len);
         if (relative == NULL) {          /* GCOVR_EXCL_BR_LINE: only allocation can fail */
             Py_XDECREF(normalized_base); /* GCOVR_EXCL_LINE: allocation-failure path */

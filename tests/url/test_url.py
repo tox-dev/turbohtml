@@ -516,7 +516,9 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
             "https:\\b/%2e", "https://site.org/a/%2e/b", "https://site.org/b/", id="backslash-encoded-dot-base"
         ),
         pytest.param("https:/\\b/%2e", "https://site.org/a/b", "https://b/", id="mixed-authority-separators"),
+        pytest.param("https:\\/b/%2e", "https://site.org/a/b", "https://b/", id="reverse-mixed-authority"),
         pytest.param("https:\\\\b/%2e", "https://site.org/a/b", "https://b/", id="double-backslash-authority"),
+        pytest.param("https://b/%2e", "https://site.org/a/%2e/b", "https://b/", id="authority-with-encoded-dot-base"),
         pytest.param("ftp:\\\\b/%2e", "ftp://site.org/a/b", "ftp://b/", id="ftp-double-backslash-authority"),
         pytest.param("https://other.org/%2e", "https://site.org/a/b", "https://other.org/", id="same-scheme-authority"),
         pytest.param("hxxp:%2e/..", "hxxp://site.org/a/b", "hxxp:%2e/..", id="non-special-same-scheme"),
