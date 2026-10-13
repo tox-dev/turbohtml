@@ -1074,6 +1074,10 @@ PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
             Py_DECREF(input);                            /* GCOVR_EXCL_LINE */
             return NULL;                                 /* GCOVR_EXCL_LINE */
         }
+        if (PyUnicode_GET_LENGTH(input) == 0) {
+            Py_DECREF(input);
+            return NULL;
+        }
         PyErr_Clear();
         result = Py_NewRef(fallback);
     }
