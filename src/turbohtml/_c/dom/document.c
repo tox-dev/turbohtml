@@ -682,7 +682,7 @@ PyObject *th_url_resolve(PyObject *base, PyObject *target) {
             int backslash =
                 PyUnicode_READ_CHAR(target, colon + 1) == '\\' || PyUnicode_READ_CHAR(target, colon + 2) == '\\';
             int dot = url_has_literal_dot_unicode(target) || url_has_encoded_dot_unicode(target) ||
-                      (backslash && url_has_backslash_dot(target));
+                      url_has_backslash_dot(target);
             if ((backslash || dot) && url_web_special_base(target)) {
                 int same_scheme = url_same_scheme(base, target);
                 if ((same_scheme && backslash) || (!same_scheme && (dot || separators == 2))) {

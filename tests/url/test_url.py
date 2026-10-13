@@ -447,6 +447,8 @@ def test_base_url_resolves_absolute_special_backslashes(base: str, href: str, ex
     ("base", "href", "expected"),
     [
         pytest.param("https://site.org/dir/page", "http:/b/..", "http://b/", id="foreign-parent"),
+        pytest.param("https://site.org/dir/page", "http:/b\\..", "http://b/", id="foreign-backslash-parent"),
+        pytest.param("https://site.org/dir/page", "FTP:/b\\..", "ftp://b/", id="foreign-ftp-backslash-parent"),
         pytest.param("https://site.org/dir/page", "http:/b/%2e%2e", "http://b/", id="foreign-encoded-parent"),
         pytest.param("https://site.org/dir/page", "ftp:/b/..", "ftp://b/", id="ftp-parent"),
         pytest.param("https://site.org/dir/page", "ws:/..", "ws://../", id="ws-dot-host"),
