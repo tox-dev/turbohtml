@@ -83,6 +83,30 @@ def test_base_url_default_fallback() -> None:
 
 
 @pytest.mark.parametrize(
+    ("href", "fallback", "expected"),
+    [
+        pytest.param("http:", "http://site.org/a?x#old", "http://site.org/a?x", id="http"),
+        pytest.param("HTTPS:", "https://site.org/a#old", "https://site.org/a", id="uppercase-https"),
+        pytest.param("ftp:", "ftp://site.org/a#old", "ftp://site.org/a", id="ftp"),
+        pytest.param("WS:", "ws://site.org/a#old", "ws://site.org/a", id="uppercase-ws"),
+        pytest.param("wss:", "wss://site.org/a#old", "wss://site.org/a", id="wss"),
+        pytest.param(
+            "https:",
+            "https://user:pass@example.org:443/a/b?x#old",
+            "https://user:pass@example.org/a/b?x",
+            id="credentials-default-port-query",
+        ),
+        pytest.param("https:", "https://é.example/a#old", "https://xn--9ca.example/a", id="unicode-host"),
+        pytest.param("https:", "http://site.org/a#old", "http://site.org/a#old", id="foreign-scheme"),
+        pytest.param("file:", "file:///a#old", "file:///a", id="file-scheme"),
+        pytest.param("a:", "a:/p#old", "a:", id="non-special-scheme"),
+    ],
+)
+def test_base_url_scheme_only_reference(href: str, fallback: str, expected: str) -> None:
+    assert parse(f'<base href="{href}">').base_url(fallback) == expected
+
+
+@pytest.mark.parametrize(
     ("href", "expected"),
     [
         pytest.param("p", "https://example.org/dir/p", id="relative-segment"),

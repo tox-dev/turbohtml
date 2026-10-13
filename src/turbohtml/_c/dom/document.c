@@ -891,6 +891,16 @@ PyObject *th_url_resolve(PyObject *base, PyObject *target) {
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t target_len = PyUnicode_GET_LENGTH(target);
+    if (target_len >= 3 && PyUnicode_READ_CHAR(target, target_len - 1) == ':' && url_web_special_base(target) &&
+        url_same_scheme(base, target)) {
+        PyObject *empty = PyUnicode_New(0, 127);
+        if (empty == NULL) { /* GCOVR_EXCL_BR_LINE: only allocation can fail */
+            return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyObject *resolved = th_url_resolve(base, empty);
+        Py_DECREF(empty);
+        return resolved;
+    }
     int absolute_web = th_url_web_authority(target);
     if (target_len >= 4 &&
         (lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'h' || lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'f' ||

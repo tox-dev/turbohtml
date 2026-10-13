@@ -1,0 +1,1 @@
+Drop the fallback URL's fragment when resolving a reference that contains only the same special scheme.
