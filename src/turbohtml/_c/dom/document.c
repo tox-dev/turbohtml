@@ -533,6 +533,19 @@ static int url_has_backslash_dot(PyObject *url) {
 
 static int url_has_separator_candidate(PyObject *url) {
     Py_ssize_t length = PyUnicode_GET_LENGTH(url);
+    if (PyUnicode_IS_ASCII(url)) {
+        const char *bytes = (const char *)PyUnicode_1BYTE_DATA(url);
+        const char *candidate = bytes + 1;
+        while ((candidate = strpbrk(candidate, "%\\.")) != NULL) {
+            if (*candidate != '.' || candidate[-1] == '/') {
+                return 1;
+            }
+            candidate++;
+        }
+        if ((Py_ssize_t)strlen(bytes) == length) {
+            return 0;
+        }
+    }
     int kind = PyUnicode_KIND(url);
     const void *data = PyUnicode_DATA(url);
     for (Py_ssize_t index = 0; index < length; index++) {
@@ -646,18 +659,28 @@ PyObject *th_url_resolve(PyObject *base, PyObject *target) {
         return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t target_len = PyUnicode_GET_LENGTH(target);
-    int absolute_web = th_url_web_authority(target);
-    if (absolute_web != TH_URL_WEB_AUTHORITY_FORWARD && target_len >= 5 &&
+    int plain_special_authority = 0;
+    if (target_len >= 7 && PyUnicode_IS_ASCII(target)) {
+        const char *bytes = (const char *)PyUnicode_1BYTE_DATA(target);
+        plain_special_authority = (bytes[0] == 'h' && (memcmp(bytes, "http://", 7) == 0 ||
+                                                       (target_len >= 8 && memcmp(bytes, "https://", 8) == 0))) ||
+                                  (((bytes[0] == 'f' && memcmp(bytes, "ftp://", 6) == 0) ||
+                                    (bytes[0] == 'w' && (bytes[2] == 's' ? memcmp(bytes, "wss://", 6) == 0
+                                                                         : memcmp(bytes, "ws://", 5) == 0))) &&
+                                   memchr(bytes + 5, '\\', (size_t)(target_len - 5)) == NULL);
+    }
+    if (!plain_special_authority && target_len >= 5 &&
         (lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'h' || lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'f' ||
          lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'w') &&
-        url_has_separator_candidate(target)) {
+        url_has_separator_candidate(target) && th_url_web_authority(target) != TH_URL_WEB_AUTHORITY_FORWARD) {
         Py_ssize_t colon = PyUnicode_FindChar(target, ':', 0, target_len, 1);
         if (colon + 2 < target_len &&
             (PyUnicode_READ_CHAR(target, colon + 1) == '/' || PyUnicode_READ_CHAR(target, colon + 1) == '\\') &&
             !(PyUnicode_READ_CHAR(target, colon + 1) == '/' && PyUnicode_READ_CHAR(target, colon + 2) == '/')) {
             int separators =
                 PyUnicode_READ_CHAR(target, colon + 2) == '/' || PyUnicode_READ_CHAR(target, colon + 2) == '\\' ? 2 : 1;
-            int backslash = PyUnicode_READ_CHAR(target, colon + 1) == '\\' || separators == 2;
+            int backslash =
+                PyUnicode_READ_CHAR(target, colon + 1) == '\\' || PyUnicode_READ_CHAR(target, colon + 2) == '\\';
             int dot = url_has_literal_dot_unicode(target) || url_has_encoded_dot_unicode(target) ||
                       (backslash && url_has_backslash_dot(target));
             if ((backslash || dot) && url_web_special_base(target)) {

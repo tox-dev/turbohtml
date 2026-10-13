@@ -468,6 +468,9 @@ def test_base_url_resolves_absolute_special_backslashes(base: str, href: str, ex
         pytest.param("https://site.org/dir/page", "ftp:/é/..", "ftp://xn--9ca/", id="unicode-parent"),
         pytest.param("https://site.org/dir/page", "ftp:/é%2e%2e", "ftp://xn--9ca../", id="unicode-encoded-dot"),
         pytest.param("https://site.org/dir/page", "ftp://b/..", "ftp://b/", id="ftp-absolute-parent"),
+        pytest.param("https://site.org/dir/page", "FTP://b/..", "ftp://b/", id="uppercase-ftp-parent"),
+        pytest.param("https://site.org/dir/page", "ws://b\\a", "ws://b/a", id="ws-authority-backslash"),
+        pytest.param("https://site.org/dir/page", "web://host/a", "web://host/a", id="non-special-w-prefix"),
         pytest.param("https://site.org/dir/page", "ftp:\\b", "ftp://b/", id="foreign-short-backslash"),
         pytest.param("https://site.org/dir/page", "ftp:/\\b", "ftp://b/", id="foreign-short-mixed"),
         pytest.param("https://site.org/a?x", "hello:/b", "hello:/b", id="plain-non-special-scheme"),
@@ -478,6 +481,12 @@ def test_base_url_resolves_absolute_special_backslashes(base: str, href: str, ex
 )
 def test_base_url_resolves_single_special_separator(base: str, href: str, expected: str) -> None:
     assert parse(f'<base href="{href}">').base_url(base) == expected
+
+
+def test_base_url_resolves_dom_set_nul_before_parent_segment() -> None:
+    document = parse("<base href=x>")
+    document.select("base")[0].attrs["href"] = "http:/b/a\0/.."
+    assert document.base_url("https://site.org/a") == "http://b/"
 
 
 @pytest.mark.parametrize(
