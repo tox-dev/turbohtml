@@ -1108,27 +1108,18 @@ def _load_cases() -> list[_TokenizerCase]:
     return cases
 
 
-def _token_cases() -> list[ParameterSet]:
-    return [pytest.param(text, state, tag, tokens, id=name) for text, state, tag, tokens, _, name in _load_cases()]
+def _tokenizer_cases() -> list[ParameterSet]:
+    return [pytest.param(case, id=case[-1]) for case in _load_cases()]
 
 
-def _error_cases() -> list[ParameterSet]:
-    return [pytest.param(text, state, tag, errors, id=name) for text, state, tag, _, errors, name in _load_cases()]
-
-
-@pytest.mark.parametrize(("text", "state", "last_start_tag", "expected"), _token_cases())
-def test_tokenizer_conformance(
-    text: str, state: str, last_start_tag: str | None, expected: list[_ExpectedToken], storage_kind: int
-) -> None:
-    actual, _ = _html._tokenize_states(text, state, last_start_tag, storage_kind)
-    assert [list(token) for token in actual] == expected
-
-
-@pytest.mark.parametrize(("text", "state", "last_start_tag", "errors"), _error_cases())
-def test_tokenizer_parse_errors(
-    text: str, state: str, last_start_tag: str | None, errors: list[_ParseError], storage_kind: int
-) -> None:
-    _, raised = _html._tokenize_states(text, state, last_start_tag, storage_kind)
-    assert [code for code, _, _ in raised] == [code for code, _, _ in errors]
-    if all(ord(character) <= 0xFFFF for character in text):
-        assert [(code, line, col + 1) for code, line, col in raised] == errors
+@pytest.mark.parametrize("case", _tokenizer_cases())
+def test_tokenizer_conformance(case: _TokenizerCase, storage_kind: int) -> None:
+    text: Final = case[0]
+    errors: Final = case[4]
+    result: Final = _html._tokenize_states(text, case[1], case[2], storage_kind)
+    check_positions: Final = all(ord(character) <= 0xFFFF for character in text)
+    assert (
+        [list(token) for token in result[0]],
+        [code for code, _, _ in result[1]],
+        [(code, line, col + 1) for code, line, col in result[1]] if check_positions else None,
+    ) == (case[3], [code for code, _, _ in errors], errors if check_positions else None)
