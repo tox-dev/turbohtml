@@ -120,6 +120,7 @@ commands = [
   ] },
   # free-threaded build only: re-run the thread-safety tests with one thread per core
   # (pytest-run-parallel) to surface data races the single-threaded coverage run hides
+  # TSan repeats them 20 times on Linux; 10 here cover each OS and interpreter.
   { replace = "if", condition = "factor['3.14t'] or factor['3.15t']", then = [
     "pytest",
     "{tox_root}{/}tests{/}dom{/}test_tree_freethread.py",
@@ -128,7 +129,7 @@ commands = [
     "{tox_root}{/}tests{/}test_fuzz_dom_lifecycle.py::test_dom_lifecycle_race_on_shared_trees_keeps_every_tree_intact",
     "--no-cov",
     "--parallel-threads=auto",
-    "--iterations=20",
+    "--iterations=10",
   ], else = [
     "python",
     "-c",
