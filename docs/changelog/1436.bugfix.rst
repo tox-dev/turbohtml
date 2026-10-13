@@ -1,0 +1,1 @@
+Preserve token boundaries in CSS filter values, including before variable functions and inside unresolved functions.

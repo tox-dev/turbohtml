@@ -4237,6 +4237,11 @@ def test_background_invalid_identifier_hashed_dedup(tail: str, expected: str) ->
             "a{filter:drop-shadow(0 + 0 red)}",
             id="keep-delimiter-space",
         ),
+        pytest.param(
+            "a{filter:drop-shadow(var(--x ) 0 red)}",
+            "a{filter:drop-shadow(var(--x) 0 red)}",
+            id="trim-inner-call-space",
+        ),
     ],
 )
 def test_filter_drop_shadow_preserves_offsets(source: str, expected: str) -> None:
@@ -4245,16 +4250,16 @@ def test_filter_drop_shadow_preserves_offsets(source: str, expected: str) -> Non
 
 
 def test_filter_drop_shadow_unclosed_function_keeps_recovery() -> None:
-    assert minify_css("a{filter:drop-shadow(0 0 red") == "a{filter:drop-shadow(00red)}"
+    assert minify_css("a{filter:drop-shadow(0 0 red") == "a{filter:drop-shadow(0 0 red)}"
 
 
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        pytest.param("a{filter:foobar12345(0 0 red)}", "a{filter:foobar12345(00red)}", id="other-function"),
+        pytest.param("a{filter:foobar12345(0 0 red)}", "a{filter:foobar12345(0 0 red)}", id="other-function"),
         pytest.param("a{filter:drop-shadow}", "a{filter:drop-shadow}", id="no-call"),
-        pytest.param("a{filter:drop-shadow[0 0 red]}", "a{filter:drop-shadow[00red]}", id="other-delimiter"),
-        pytest.param("a{filter:drop-shadow/**/(0 0 red)}", "a{filter:drop-shadow(00red)}", id="comment-before-call"),
+        pytest.param("a{filter:drop-shadow[0 0 red]}", "a{filter:drop-shadow[0 0 red]}", id="other-delimiter"),
+        pytest.param("a{filter:drop-shadow/**/(0 0 red)}", "a{filter:drop-shadow (0 0 red)}", id="comment-before-call"),
     ],
 )
 def test_filter_drop_shadow_unrecognized_call_keeps_recovery(source: str, expected: str) -> None:
@@ -4262,7 +4267,12 @@ def test_filter_drop_shadow_unrecognized_call_keeps_recovery(source: str, expect
 
 
 def test_legacy_filter_drop_shadow_is_unchanged() -> None:
-    assert minify_css("a{-ms-filter:drop-shadow(0 0 red)}") == "a{-ms-filter:drop-shadow(00red)}"
+    assert minify_css("a{-ms-filter:drop-shadow(0 0 red)}") == "a{-ms-filter:drop-shadow(0 0 red)}"
+
+
+@pytest.mark.parametrize("value", ["none var(--x)", "inherit var(--x)"])
+def test_filter_preserves_variable_token_boundary(value: str) -> None:
+    assert minify_css(f"a{{filter:{value}}}") == f"a{{filter:{value}}}"
 
 
 @pytest.mark.parametrize(
@@ -4320,11 +4330,11 @@ def test_filter_math_keeps_unresolved_expression(source: str, expected: str) -> 
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        pytest.param("a{filter:calc 2px}", "a{filter:calc2px}", id="identifier"),
+        pytest.param("a{filter:calc 2px}", "a{filter:calc 2px}", id="identifier"),
         pytest.param("a{filter:calc}", "a{filter:calc}", id="last-identifier"),
         pytest.param("a{filter:calc)}", "a{filter:calc)}", id="wrong-delimiter"),
-        pytest.param("a{filter:foo(1px + 2px)}", "a{filter:foo(1px+2px)}", id="unknown-function"),
-        pytest.param("a{filter:calc(1px + 2px}", "a{filter:calc(1px+2px})}", id="unclosed-function"),
+        pytest.param("a{filter:foo(1px + 2px)}", "a{filter:foo(1px+ 2px)}", id="unknown-function"),
+        pytest.param("a{filter:calc(1px + 2px}", "a{filter:calc(1px+ 2px})}", id="unclosed-function"),
     ],
 )
 def test_filter_math_malformed_source(source: str, expected: str) -> None:
@@ -4336,7 +4346,7 @@ def test_filter_math_keeps_ordinary_function() -> None:
 
 
 def test_legacy_filter_math_is_unchanged() -> None:
-    assert minify_css("a{-ms-filter:blur(calc(1px + 2px))}") == "a{-ms-filter:blur(calc(1px+2px))}"
+    assert minify_css("a{-ms-filter:blur(calc(1px + 2px))}") == "a{-ms-filter:blur(calc(1px+ 2px))}"
 
 
 @pytest.mark.parametrize(

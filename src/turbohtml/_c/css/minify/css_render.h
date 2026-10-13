@@ -1001,18 +1001,21 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
     int is_ms = css_run_ieq(prop, prop_len, "-ms-filter");
     Py_ssize_t keep_ws_end = -1;
     int pending_ws = 0;
+    int last_is_ident = 0;
     for (Py_ssize_t index = start; index < end; index++) {
         css_token *token = &vec->items[index];
         if (token->kind == CSS_WS || token->kind == CSS_COMMENT) {
-            pending_ws = index < keep_ws_end;
+            pending_ws = 1;
             continue;
         }
         if (pending_ws && joined.len > 0 && /* GCOVR_EXCL_BR_LINE: only allocation failure empties an active function */
-            joined.data[joined.len - 1] != '(' && joined.data[joined.len - 1] != ',' &&
-            (token->kind != CSS_DELIM || (token->delim != ')' && token->delim != ','))) {
+            ((index < keep_ws_end && joined.data[joined.len - 1] != '(' && joined.data[joined.len - 1] != ',' &&
+              (token->kind != CSS_DELIM || (token->delim != ')' && token->delim != ','))) ||
+             css_would_merge(joined.data[joined.len - 1], last_is_ident, token->text, token->text_len))) {
             cbuf_putc(&joined, ' ');
         }
         pending_ws = 0;
+        last_is_ident = token->kind == CSS_IDENT;
         if (token->kind == CSS_IDENT && token->text_len == 11 && !is_ms &&
             css_run_ieq(token->text, token->text_len, "drop-shadow") && index + 1 < end &&
             vec->items[index + 1].kind == CSS_DELIM && vec->items[index + 1].delim == '(') {
@@ -1037,6 +1040,7 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
                         len < vec->items[close_index].text + vec->items[close_index].text_len - token->text) {
                         cbuf_put_run(&joined, pool->data + off, len);
                         index = close_index;
+                        last_is_ident = 0;
                         continue;
                     }
                 }
