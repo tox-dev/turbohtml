@@ -2050,10 +2050,17 @@ static void path_put_css_ident(path_buf *buf, const Py_UCS4 *text, Py_ssize_t le
 }
 
 static int path_css_ident_safe(const Py_UCS4 *text, Py_ssize_t len) {
+    if (len == 1 && text[0] == '-') {
+        return 0;
+    }
+    if (text[0] >= '0' && text[0] <= '9') {
+        return 0;
+    }
+    if (len > 1 && text[0] == '-' && text[1] >= '0' && text[1] <= '9') {
+        return 0;
+    }
     for (Py_ssize_t index = 0; index < len; index++) {
-        Py_UCS4 code = text[index];
-        if (!sel_is_ident(code) || (code >= '0' && code <= '9' && (index == 0 || (index == 1 && text[0] == '-'))) ||
-            (index == 0 && code == '-' && len == 1)) {
+        if (!sel_is_ident(text[index])) {
             return 0;
         }
     }
@@ -2077,17 +2084,18 @@ static void path_put_int(path_buf *buf, Py_ssize_t value) {
     }
 }
 
-/* Whether an id value is a bare CSS identifier the selector parser reads back
-   verbatim (every code point an identifier char), so #value round-trips with no
-   escaping. An empty value (a valueless id) never qualifies. */
-static int path_id_safe(const Py_UCS4 *value, Py_ssize_t len) {
+static int path_id_safe(const Py_UCS4 *value, Py_ssize_t len, int *escaped) {
     if (len == 0) {
         return 0;
     }
+    *escaped =
+        (value[0] >= '0' && value[0] <= '9') || (value[0] == '-' && (len == 1 || (value[1] >= '0' && value[1] <= '9')));
     for (Py_ssize_t index = 0; index < len; index++) {
-        if (!sel_is_ident(value[index])) {
+        /* CSS input preprocessing replaces these code points, so the selector would name a different ID. */
+        if (value[index] == 0 || (value[index] >= 0xD800 && value[index] <= 0xDFFF)) {
             return 0;
         }
+        *escaped |= !sel_is_ident(value[index]);
     }
     return 1;
 }
@@ -2267,10 +2275,11 @@ TH_NODE_API(static, PyObject *, element_css_path, (PyObject * self, PyObject *ig
         int anchored = 0;
         for (Py_ssize_t index = 0; index < count; index++) {
             const th_node_attr *id = find_node_attr(chain[index], TH_ATTR_ID);
-            if (id != NULL && id->value != NULL && path_id_safe(id->value, id->value_len) && id_map != NULL &&
+            int escaped;
+            if (id != NULL && id->value != NULL && path_id_safe(id->value, id->value_len, &escaped) && id_map != NULL &&
                 path_id_unique(id_map, id->value, id->value_len)) {
                 top = index;
-                anchored = 1;
+                anchored = escaped ? 2 : 1;
                 break;
             }
         }
@@ -2282,7 +2291,11 @@ TH_NODE_API(static, PyObject *, element_css_path, (PyObject * self, PyObject *ig
             if (anchored && index == top) {
                 const th_node_attr *id = find_node_attr(element, TH_ATTR_ID);
                 path_puts(&buf, "#");
-                path_put_ucs4(&buf, id->value, id->value_len);
+                if (anchored == 2) {
+                    path_put_css_ident(&buf, id->value, id->value_len);
+                } else {
+                    path_put_ucs4(&buf, id->value, id->value_len);
+                }
             } else {
                 if (element->atom == TH_TAG_UNKNOWN && element->css_name_safety != 1) {
                     if (element->css_name_safety == 0) {
