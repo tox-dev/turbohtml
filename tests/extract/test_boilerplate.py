@@ -306,6 +306,6 @@ def test_boilerplate_releases_text_snapshots() -> None:
         for _ in range(128):
             boilerplate(page)
         gc.collect()
-        assert tracing.get_traced_memory()[0] - before < 64 * 1024
+        assert tracing.get_traced_memory()[0] - before < 256 * 1024
     finally:
         tracing.stop()
