@@ -1,0 +1,1 @@
+Use the document fallback URL when a base element's href cannot be parsed, including missing or malformed hosts.

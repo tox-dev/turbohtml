@@ -229,8 +229,8 @@ static PyObject *normalize_userinfo(PyObject *userinfo) {
 }
 
 /* The authority rebuilt from its WHATWG-canonical host and port. */
-static PyObject *normalize_netloc(const th_url_parts *parts, int web_only) {
-    PyObject *canonical = web_only ? th_url_host_canonical_checked(parts->part[TH_URL_HOST], parts->kind)
+static PyObject *normalize_netloc(const th_url_parts *parts, int web_only, int checked) {
+    PyObject *canonical = checked ? th_url_host_canonical_checked(parts->part[TH_URL_HOST], parts->kind)
                           : parts->opaque_host && parts->kind != TH_HOST_IPV6
                               ? th_url_opaque_host_canonical(parts->part[TH_URL_HOST])
                               : th_url_host_canonical(parts->part[TH_URL_HOST], parts->kind);
@@ -450,10 +450,21 @@ PyObject *th_url_document_canonical(PyObject *url) {
     PyObject *scheme = parts.part[TH_URL_SCHEME];
     int is_file = str_equals(scheme, "file");
     int has_netloc = PyUnicode_GET_LENGTH(parts.part[TH_URL_NETLOC]) > 0;
-    PyObject *netloc = has_netloc ? normalize_netloc(&parts, 0) : PyUnicode_FromString("");
+    if ((parts.special && !is_file && PyUnicode_GET_LENGTH(parts.part[TH_URL_HOST]) == 0) ||
+        (parts.has_port && PyUnicode_GET_LENGTH(parts.part[TH_URL_HOST]) == 0)) {
+        th_url_parts_clear(&parts);
+        PyErr_SetString(PyExc_ValueError, "special URL requires a host");
+        return NULL;
+    }
+    PyObject *netloc = has_netloc ? normalize_netloc(&parts, 0, parts.special || parts.kind == TH_HOST_IPV6)
+                                  : PyUnicode_FromString("");
     PyObject *path = NULL;
     PyObject *result = NULL;
     if (netloc == NULL) {
+        goto done;
+    }
+    if (netloc == Py_None) {
+        PyErr_SetString(PyExc_ValueError, "invalid URL host");
         goto done;
     }
     if (is_file) {
@@ -517,7 +528,7 @@ static int opaque_path_needs_encoding(PyObject *path) {
 static PyObject *normalize_parts(const th_url_parts *parts, const clean_options *options, int web_only) {
     PyObject *scheme = parts->part[TH_URL_SCHEME];
     int has_netloc = PyUnicode_GET_LENGTH(parts->part[TH_URL_NETLOC]) > 0;
-    PyObject *netloc = has_netloc ? normalize_netloc(parts, web_only) : PyUnicode_FromString("");
+    PyObject *netloc = has_netloc ? normalize_netloc(parts, web_only, web_only) : PyUnicode_FromString("");
     PyObject *path = NULL;
     PyObject *query = NULL;
     PyObject *fragment = NULL;
@@ -950,8 +961,8 @@ TH_NODE_API(, PyObject *, turbohtml_document_extract_links, (PyObject * self, Py
     PyObject *found = NULL;
     PyObject *seen = NULL;
     PyObject *cleaned_of = NULL;
-    if (base == NULL) {
-        goto done; /* the <base href> cannot be resolved against base_url */
+    if (base == NULL) { /* GCOVR_EXCL_BR_LINE: invalid hrefs use the fallback; only allocation can fail */
+        goto done;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     hrefs = PyList_New(0);
     if (hrefs == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */

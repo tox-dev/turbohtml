@@ -909,10 +909,54 @@ static PyObject *base_url_input(PyObject *href) {
     return input;
 }
 
+static int base_url_missing_special_host(PyObject *fallback, PyObject *input) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(input);
+    if (length < 2) {
+        return 0;
+    }
+    Py_UCS4 first = PyUnicode_READ_CHAR(input, 0);
+    Py_ssize_t index;
+    int absolute = first != '/' && first != '\\';
+    if (absolute) {
+        if (length < 5 || (lower_ascii(first) != 'h' && lower_ascii(first) != 'f' && lower_ascii(first) != 'w')) {
+            return 0;
+        }
+        if (PyUnicode_IS_ASCII(input)) {
+            const char *bytes = (const char *)PyUnicode_1BYTE_DATA(input);
+            Py_ssize_t authority = first == 'h' && length > 7 && memcmp(bytes, "http://", 7) == 0    ? 7
+                                   : first == 'h' && length > 8 && memcmp(bytes, "https://", 8) == 0 ? 8
+                                   : first == 'f' && length > 6 && memcmp(bytes, "ftp://", 6) == 0   ? 6
+                                   : first == 'w' && length > 5 && memcmp(bytes, "ws://", 5) == 0    ? 5
+                                   : first == 'w' && length > 6 && memcmp(bytes, "wss://", 6) == 0   ? 6
+                                                                                                     : 0;
+            if (authority && bytes[authority] != '/' && bytes[authority] != '\\' && bytes[authority] != '?' &&
+                bytes[authority] != '#') {
+                return 0;
+            }
+        }
+        Py_ssize_t colon = PyUnicode_FindChar(input, ':', 0, length, 1);
+        if (colon < 0 || colon + 2 >= length ||
+            (PyUnicode_READ_CHAR(input, colon + 1) != '/' && PyUnicode_READ_CHAR(input, colon + 1) != '\\') ||
+            (PyUnicode_READ_CHAR(input, colon + 2) != '/' && PyUnicode_READ_CHAR(input, colon + 2) != '\\')) {
+            return 0;
+        }
+        index = colon + 3;
+    } else {
+        Py_UCS4 second = PyUnicode_READ_CHAR(input, 1);
+        if (second != '/' && second != '\\') {
+            return 0;
+        }
+        index = 2;
+    }
+    while (index < length && (PyUnicode_READ_CHAR(input, index) == '/' || PyUnicode_READ_CHAR(input, index) == '\\')) {
+        index++;
+    }
+    return (index == length || PyUnicode_READ_CHAR(input, index) == '?' || PyUnicode_READ_CHAR(input, index) == '#') &&
+           url_web_special_base(absolute ? input : fallback);
+}
+
 /* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
-   when there is none or URL input cleanup leaves it empty (HTML spec 4.2.3). The extraction methods share it
-   so a base_url they take honors a <base href> the same way base_url() does. NULL with a ValueError set when the href
-   cannot be resolved against fallback, or on the excluded allocation-failure path. */
+   when there is none or the href fails URL parsing (HTML spec 2.4.3). The extraction methods share it. */
 PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
     PyObject *href = NULL;
     th_tree *tree = tree_of(self);
@@ -933,8 +977,17 @@ PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
     if (input == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE */
     }
-    PyObject *result = th_url_resolve(fallback, input);
-    if (result != NULL && base_has_forbidden_scheme(result)) {
+    PyObject *result =
+        base_url_missing_special_host(fallback, input) ? Py_NewRef(fallback) : th_url_resolve(fallback, input);
+    if (result == NULL) {
+        if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: allocation failure only */
+            Py_DECREF(input);                            /* GCOVR_EXCL_LINE */
+            return NULL;                                 /* GCOVR_EXCL_LINE */
+        }
+        PyErr_Clear();
+        result = Py_NewRef(fallback);
+    }
+    if (base_has_forbidden_scheme(result)) {
         Py_SETREF(result, Py_NewRef(fallback));
     }
     Py_DECREF(input);
