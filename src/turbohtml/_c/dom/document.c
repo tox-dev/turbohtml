@@ -411,6 +411,21 @@ static PyObject *url_join_document(PyObject *base, PyObject *target) {
     return th_url_document_join(base, target);
 }
 
+static Py_ssize_t url_same_scheme_colon(PyObject *base, PyObject *target) {
+    Py_ssize_t colon = PyUnicode_FindChar(base, ':', 0, PyUnicode_GET_LENGTH(base), 1);
+    if (colon < 0 || PyUnicode_GET_LENGTH(target) <= colon || PyUnicode_READ_CHAR(target, colon) != ':') {
+        return -1;
+    }
+    for (Py_ssize_t index = 0; index < colon; index++) {
+        if (lower_ascii(PyUnicode_READ_CHAR(base, index)) != lower_ascii(PyUnicode_READ_CHAR(target, index))) {
+            return -1;
+        }
+    }
+    return colon;
+}
+
+static PyObject *url_join_web_special_slashes(PyObject *base, PyObject *target, int *literalized);
+
 static PyObject *url_join_encoded_dot_segments(PyObject *base, PyObject *target, int *literalized) {
     PyObject *opaque_fragment = url_join_opaque_fragment(base, target);
     if (opaque_fragment != NULL) {
@@ -431,15 +446,35 @@ static PyObject *url_join_encoded_dot_segments(PyObject *base, PyObject *target,
     }
     PyObject *joined;
     *literalized = 0;
-    Py_ssize_t encoded_dot = url_find_encoded_dot_unicode(target, PyUnicode_GET_LENGTH(target));
+    Py_ssize_t target_len = PyUnicode_GET_LENGTH(target);
+    Py_ssize_t encoded_dot = url_find_encoded_dot_unicode(target, target_len);
     int special =
         encoded_dot >= 0 &&
         (lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'h' || lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'f' ||
          lower_ascii(PyUnicode_READ_CHAR(target, 0)) == 'w') &&
         url_web_special_base(target);
+    int path_encoded_dot = special && PyUnicode_FindChar(target, '?', 0, encoded_dot, 1) < 0 &&
+                           PyUnicode_FindChar(target, '#', 0, encoded_dot, 1) < 0;
+    Py_ssize_t colon = path_encoded_dot ? url_same_scheme_colon(base, target) : -1;
+    if (colon >= 0 &&
+        !((PyUnicode_READ_CHAR(target, colon + 1) == '/' || PyUnicode_READ_CHAR(target, colon + 1) == '\\') &&
+          (PyUnicode_READ_CHAR(target, colon + 2) == '/' || PyUnicode_READ_CHAR(target, colon + 2) == '\\'))) {
+        PyObject *relative = PyUnicode_Substring(target, colon + 1, target_len);
+        if (relative == NULL) {          /* GCOVR_EXCL_BR_LINE: only allocation can fail */
+            Py_XDECREF(normalized_base); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyObject *resolved =
+            PyUnicode_READ_CHAR(relative, 0) == '\\'
+                ? url_join_web_special_slashes(normalized_base == NULL ? base : normalized_base, relative, literalized)
+                : url_join_encoded_dot_segments(normalized_base == NULL ? base : normalized_base, relative,
+                                                literalized);
+        Py_XDECREF(normalized_base);
+        Py_DECREF(relative);
+        return resolved;
+    }
     if (encoded_dot >= 0 && PyUnicode_READ_CHAR(target, 0) != '?' && PyUnicode_READ_CHAR(target, 0) != '#' &&
-        (!special || (PyUnicode_FindChar(target, '?', 0, encoded_dot, 1) < 0 &&
-                      PyUnicode_FindChar(target, '#', 0, encoded_dot, 1) < 0))) {
+        (!special || path_encoded_dot)) {
         PyObject *literal_target = th_url_literalize_dot_segments(target);
         if (literal_target == NULL) {
             Py_XDECREF(normalized_base);

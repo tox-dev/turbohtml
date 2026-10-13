@@ -493,6 +493,38 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
         pytest.param(
             "https:%2e%2e/a", "https://example.org/dir/file", "https://example.org/a", id="same-scheme-prefix"
         ),
+        pytest.param(
+            "https:%2e/..", "https://example.org/dir/file", "https://example.org/", id="same-scheme-encoded-dot-parent"
+        ),
+        pytest.param(
+            "https:%2e/../x", "https://example.org/dir/file", "https://example.org/x", id="same-scheme-encoded-dot-path"
+        ),
+        pytest.param(
+            "https:a/%2e/..", "https://example.org/dir/file", "https://example.org/dir/", id="middle-dot-parent"
+        ),
+        pytest.param("https:.%2e/..", "https://example.org/dir/file", "https://example.org/", id="mixed-dot-parent"),
+        pytest.param(
+            "HTTPS:%2E/..?q=x", "https://example.org/dir/file", "https://example.org/?q=x", id="uppercase-encoded-dot"
+        ),
+        pytest.param("http:%2e/..", "hxxp://site.org/a/b", "http://./", id="different-same-length-scheme"),
+        pytest.param("https:%2e/..", "", "https://./", id="no-fallback-scheme"),
+        pytest.param("https:%2e/..", "customlong://site.org/a/b", "https://./", id="long-foreign-scheme"),
+        pytest.param("https:%2e/..", "extraverylongscheme://site.org/a/b", "https://./", id="longer-foreign-scheme"),
+        pytest.param("https:%2e/..", "https://site.org/a/%2e/b", "https://site.org/", id="encoded-dot-base"),
+        pytest.param("https:\\b/%2e", "https://site.org/a/b", "https://site.org/b/", id="same-scheme-backslash"),
+        pytest.param(
+            "https:\\b/%2e", "https://site.org/a/%2e/b", "https://site.org/b/", id="backslash-encoded-dot-base"
+        ),
+        pytest.param("https:/\\b/%2e", "https://site.org/a/b", "https://b/", id="mixed-authority-separators"),
+        pytest.param("https:\\\\b/%2e", "https://site.org/a/b", "https://b/", id="double-backslash-authority"),
+        pytest.param("ftp:\\\\b/%2e", "ftp://site.org/a/b", "ftp://b/", id="ftp-double-backslash-authority"),
+        pytest.param("https://other.org/%2e", "https://site.org/a/b", "https://other.org/", id="same-scheme-authority"),
+        pytest.param("hxxp:%2e/..", "hxxp://site.org/a/b", "hxxp:%2e/..", id="non-special-same-scheme"),
+        pytest.param(
+            "https:%20?x=%2e", "https://site.org/a/b", "https://site.org/a/%20?x=%2e", id="other-leading-escape"
+        ),
+        pytest.param("https:%2f?x=%2e", "https://site.org/a/b", "https://site.org/a/%2f?x=%2e", id="encoded-slash"),
+        pytest.param("https:%2e#%2e", "https://site.org/a/b", "https://site.org/a/#%2e", id="fragment-after-dot"),
         pytest.param("http:%2e/a", "https://example.org/dir/file", "http://./a", id="encoded-dot-host"),
         pytest.param("http:g/%2", "https://example.org/dir/file", "http://g/%2", id="incomplete-escape"),
         pytest.param("http:g/%2f", "https://example.org/dir/file", "http://g/%2f", id="non-dot-escape"),
