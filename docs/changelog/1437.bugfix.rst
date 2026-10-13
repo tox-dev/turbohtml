@@ -1,1 +1,2 @@
-Reject qualified XML element and attribute names whose local part starts with an invalid character.
+Reject qualified XML element and attribute names whose local part starts with an invalid character, and namespace
+declarations whose prefix starts with one.

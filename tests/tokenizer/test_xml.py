@@ -547,6 +547,10 @@ def test_long_reference_run_grows_scratch() -> None:
         pytest.param("<̀a/>", "xml-invalid-name", id="combining-mark-name-start"),
         pytest.param("<·a/>", "xml-invalid-name", id="middle-dot-name-start"),
         pytest.param('<r xmlns:="u"/>', "xml-invalid-namespace-decl", id="empty-prefix-declaration"),
+        pytest.param('<r xmlns:-="u"/>', "xml-invalid-namespace-decl", id="hyphen-prefix-declaration"),
+        pytest.param('<r xmlns:.="u"/>', "xml-invalid-namespace-decl", id="period-prefix-declaration"),
+        pytest.param('<r xmlns:0="u"/>', "xml-invalid-namespace-decl", id="digit-prefix-declaration"),
+        pytest.param('<r xmlns:̀="u"/>', "xml-invalid-namespace-decl", id="combining-prefix-declaration"),
         pytest.param('<r xmlns:p=""/>', "xml-invalid-namespace-decl", id="empty-uri-declaration"),
         pytest.param(
             '<a:r xmlns:a="urn:a"><a:c xmlns:a=""/></a:r>',
