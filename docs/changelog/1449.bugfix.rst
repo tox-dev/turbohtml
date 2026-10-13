@@ -1,0 +1,1 @@
+Use the document URL when a relative base reference cannot resolve against an opaque-path URL.
