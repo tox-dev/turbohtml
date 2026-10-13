@@ -831,10 +831,29 @@ static PyObject *base_url_input(PyObject *href) {
     return input;
 }
 
+static int base_url_missing_special_host(PyObject *fallback, PyObject *input) {
+    if (PyUnicode_GET_LENGTH(input) < 2) {
+        return 0;
+    }
+    Py_UCS4 first = PyUnicode_READ_CHAR(input, 0);
+    if (first != '/' && first != '\\') {
+        return 0;
+    }
+    Py_UCS4 second = PyUnicode_READ_CHAR(input, 1);
+    if (second != '/' && second != '\\') {
+        return 0;
+    }
+    Py_ssize_t index = 2;
+    Py_ssize_t length = PyUnicode_GET_LENGTH(input);
+    while (index < length && (PyUnicode_READ_CHAR(input, index) == '/' || PyUnicode_READ_CHAR(input, index) == '\\')) {
+        index++;
+    }
+    return (index == length || PyUnicode_READ_CHAR(input, index) == '?' || PyUnicode_READ_CHAR(input, index) == '#') &&
+           url_web_special_base(fallback);
+}
+
 /* The document's base URL: its first <base href> resolved against `fallback` (a borrowed str), or `fallback` itself
-   when there is none or URL input cleanup leaves it empty (HTML spec 4.2.3). The extraction methods share it
-   so a base_url they take honors a <base href> the same way base_url() does. NULL with a ValueError set when the href
-   cannot be resolved against fallback, or on the excluded allocation-failure path. */
+   when there is none or the href fails URL parsing (HTML spec 2.4.3). The extraction methods share it. */
 PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
     PyObject *href = NULL;
     th_tree *tree = tree_of(self);
@@ -855,8 +874,17 @@ PyObject *th_document_base_url(PyObject *self, PyObject *fallback) {
     if (input == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE */
     }
-    PyObject *result = th_url_resolve(fallback, input);
-    if (result != NULL && base_has_forbidden_scheme(result)) {
+    PyObject *result =
+        base_url_missing_special_host(fallback, input) ? Py_NewRef(fallback) : th_url_resolve(fallback, input);
+    if (result == NULL) {
+        if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: allocation failure only */
+            Py_DECREF(input);                            /* GCOVR_EXCL_LINE */
+            return NULL;                                 /* GCOVR_EXCL_LINE */
+        }
+        PyErr_Clear();
+        result = Py_NewRef(fallback);
+    }
+    if (base_has_forbidden_scheme(result)) {
         Py_SETREF(result, Py_NewRef(fallback));
     }
     Py_DECREF(input);

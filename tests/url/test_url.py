@@ -127,6 +127,7 @@ def test_base_url_resolves_simple_web_path(href: str, expected: str) -> None:
         pytest.param(
             "\\x?q=\\", "https://example.org/dir/page", "https://example.org/x?q=\\", id="root-query-backslash"
         ),
+        pytest.param("\\?x", "https://example.org/dir/page", "https://example.org/?x", id="root-backslash-query"),
         pytest.param(
             "\\x#\\", "https://example.org/dir/page", "https://example.org/x#\\", id="root-fragment-backslash"
         ),
@@ -195,11 +196,11 @@ def test_base_url_percent_encodes(href: str, fallback: str, expected: str) -> No
         pytest.param("ws://example.org/x", "ws://example.org/x", id="ws-host"),
         pytest.param("wss://example.org/x", "wss://example.org/x", id="wss-host"),
         pytest.param("http://abc.def/", "http://abc.def/", id="hex-letter-host-ending"),
-        pytest.param("http://foo.0x/", "http://foo.0x/", id="incomplete-hex-host"),
+        pytest.param("http://foo.0x/", "https://base.test/dir/page", id="incomplete-hex-host"),
         pytest.param("http://0x/p", "http://0.0.0.0/p", id="hex-zero-host"),
         pytest.param("http://foo.ax/p", "http://foo.ax/p", id="nonhex-x-suffix"),
         pytest.param("http://a0x/p", "http://a0x/p", id="x-after-zero-in-label"),
-        pytest.param("http://foo.0xa/", "http://foo.0xa/", id="invalid-hex-host"),
+        pytest.param("http://foo.0xa/", "https://base.test/dir/page", id="invalid-hex-host"),
         pytest.param("http://foo.0xg/", "http://foo.0xg/", id="nonhex-host"),
         pytest.param("http://foo.-/", "http://foo.-/", id="hyphen-host-ending"),
         pytest.param("http://./", "http://./", id="single-dot-host"),
@@ -226,9 +227,27 @@ def test_base_url_canonical_authority(href: str, expected: str) -> None:
     assert parse(f'<base href="{href}">').base_url("https://base.test/dir/page") == expected
 
 
-def test_base_url_rejects_special_url_without_host() -> None:
-    with pytest.raises(ValueError, match="host contains a forbidden domain code point"):
-        parse('<base href="http: x">').base_url("https://example.org/dir/page")
+def test_base_url_uses_fallback_for_special_url_without_host() -> None:
+    assert parse('<base href="http: x">').base_url("https://example.org/dir/page") == "https://example.org/dir/page"
+
+
+@pytest.mark.parametrize(
+    ("fallback", "href"),
+    [
+        pytest.param("https://site.org/a?x#old", "//#new", id="empty-authority-fragment"),
+        pytest.param("https://site.org/a?x#old", "///?q", id="empty-authority-query"),
+        pytest.param("https://site.org/a?x#old", "\\\\?q", id="backslash-authority-query"),
+        pytest.param("https://site.org/a?x#old", "/\t/#new", id="stripped-tab-authority"),
+        pytest.param("https://site.org/a?x#old", "http:?q", id="foreign-missing-host"),
+        pytest.param("https://site.org/a?x#old", "http://[x]/", id="invalid-ipv6"),
+        pytest.param("file:///C:/a", "//[x]/", id="invalid-file-host"),
+        pytest.param("git://site.org/a", "//[x]/", id="invalid-opaque-ipv6-host"),
+        pytest.param("git://site.org/a", "//:x", id="missing-opaque-host-with-port"),
+        pytest.param("https://site.org/a?x#old", "//:x", id="missing-special-host-with-port"),
+    ],
+)
+def test_base_url_uses_fallback_for_invalid_special_authority(fallback: str, href: str) -> None:
+    assert parse(f'<base href="{href}">').base_url(fallback) == fallback
 
 
 def test_meta_refresh_canonical_authority() -> None:
@@ -324,9 +343,8 @@ def test_base_url_file_resolution(href: str, fallback: str, expected: str) -> No
         pytest.param("file://host:9/x", id="file-port"),
     ],
 )
-def test_base_url_rejects_invalid_file_authority(href: str) -> None:
-    with pytest.raises(ValueError, match="file URL cannot"):
-        parse(f'<base href="{href}">').base_url("https://example.org/")
+def test_base_url_uses_fallback_for_invalid_file_authority(href: str) -> None:
+    assert parse(f'<base href="{href}">').base_url("https://example.org/") == "https://example.org/"
 
 
 @pytest.mark.parametrize(
@@ -336,9 +354,8 @@ def test_base_url_rejects_invalid_file_authority(href: str) -> None:
         pytest.param("x", "file://[bad/", id="invalid-file-base"),
     ],
 )
-def test_base_url_rejects_unbalanced_file_authority(href: str, fallback: str) -> None:
-    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
-        parse(f'<base href="{href}">').base_url(fallback)
+def test_base_url_uses_fallback_for_unbalanced_file_authority(href: str, fallback: str) -> None:
+    assert parse(f'<base href="{href}">').base_url(fallback) == fallback
 
 
 @pytest.mark.parametrize(
@@ -431,6 +448,7 @@ def test_base_url_resolves_extra_special_slashes(href: str) -> None:
         pytest.param("//", "http://site.org/dir/page", id="empty-authority"),
         pytest.param("///", "http://site.org/dir/page", id="extra-slashes-without-host"),
         pytest.param("//example.com/p", "http://example.com/p", id="two-slashes"),
+        pytest.param("http:/?x", "http://site.org/?x", id="same-scheme-root-query"),
         pytest.param("/\\/example.com/p", "http://example.com/p", id="mixed-three-slashes"),
         pytest.param("/\\example.com/é", "http://example.com/%C3%A9", id="unicode-second-backslash"),
         pytest.param("//example.com/é", "http://example.com/%C3%A9", id="unicode-two-slashes"),
@@ -538,9 +556,8 @@ def test_base_url_preserves_long_non_dot_paths(href: str) -> None:
     assert parse(f'<base href="{href}">').base_url("https://example.org/dir/file") == href
 
 
-def test_base_url_rejects_unclosed_bracket_with_encoded_dot() -> None:
-    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
-        parse('<base href="https://[bad/%2e">').base_url("https://example.org/")
+def test_base_url_uses_fallback_for_unclosed_bracket_with_encoded_dot() -> None:
+    assert parse('<base href="https://[bad/%2e">').base_url("https://example.org/") == "https://example.org/"
 
 
 @pytest.mark.parametrize(
@@ -588,9 +605,8 @@ def test_base_url_encodes_userinfo_brackets(href: str, fallback: str, expected: 
     assert parse(f'<base href="{href}">').base_url(fallback) == expected
 
 
-def test_base_url_rejects_unclosed_host_bracket_after_userinfo() -> None:
-    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
-        parse('<base href="http://user]@[::1/x">').base_url("https://site.org/x")
+def test_base_url_uses_fallback_for_unclosed_host_bracket_after_userinfo() -> None:
+    assert parse('<base href="http://user]@[::1/x">').base_url("https://site.org/x") == "https://site.org/x"
 
 
 def test_meta_refresh_resolves_encoded_dot_segments() -> None:

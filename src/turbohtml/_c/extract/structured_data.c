@@ -1733,15 +1733,7 @@ static PyObject *resolve_base(PyObject *self, PyObject *base_url) {
         return NULL;
     }
     Py_DECREF(probe);
-    PyObject *base = th_document_base_url(self, base_url);
-    if (base == NULL) {
-        if (!PyErr_ExceptionMatches(PyExc_ValueError)) { /* GCOVR_EXCL_BR_LINE: only allocation past a validated base */
-            return NULL;                                 /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        PyErr_Clear(); /* a malformed <base href> falls back to base_url rather than failing */
-        return Py_NewRef(base_url);
-    }
-    return base;
+    return th_document_base_url(self, base_url);
 }
 
 /* Parse the optional base_url the opengraph/microdata/structured_data methods share, `spec` naming the method for the

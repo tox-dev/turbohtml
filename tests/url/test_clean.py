@@ -468,14 +468,12 @@ def test_an_unsplittable_relative_link_raises() -> None:
         extract_links('<a href="///[bad">x</a>', "https://a.com/")
 
 
-def test_a_base_element_that_cannot_resolve_raises() -> None:
-    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
-        extract_links('<base href="http://[::1"><a href="p">x</a>', "https://a.com/")
+def test_a_base_element_that_cannot_resolve_uses_fallback() -> None:
+    assert extract_links('<base href="http://[::1"><a href="p">x</a>', "https://a.com/") == {"https://a.com/p"}
 
 
-def test_a_relative_href_against_an_unsplittable_base_element_raises() -> None:
-    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
-        extract_links('<base href="http://[::1"><a href="p">x</a>')
+def test_a_relative_href_against_an_unsplittable_base_element_is_dropped() -> None:
+    assert extract_links('<base href="http://[::1"><a href="p">x</a>') == set()
 
 
 @pytest.mark.parametrize(
