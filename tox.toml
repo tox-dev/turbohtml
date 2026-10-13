@@ -867,9 +867,23 @@ commands = [
     "--no-cov",
     "--parallel-threads=auto",
     "--iterations=20",
-    "{tox_root}{/}tests{/}dom{/}test_tree_freethread.py",
-    "{tox_root}{/}tests{/}clean{/}test_linkify.py::test_linker_is_reusable_across_concurrent_callbacks",
-    "{tox_root}{/}tests{/}test_fuzz_dom_lifecycle.py::test_dom_lifecycle_race_matches_the_serial_run",
-    "{tox_root}{/}tests{/}test_fuzz_dom_lifecycle.py::test_dom_lifecycle_race_on_shared_trees_keeps_every_tree_intact",
+    # CI splits this run over two runners with TSAN_SHARD=heavy and TSAN_SHARD=rest; the two shards together select
+    # exactly the tests an unset TSAN_SHARD runs in one process, and a test added to the module lands in "rest"
+    { replace = "if", condition = "env.TSAN_SHARD != 'rest'", then = [
+      "{tox_root}{/}tests{/}dom{/}test_tree_freethread.py::test_concurrent_wraps_and_inserts_of_foreign_nodes_keep_the_tree_intact",
+      "{tox_root}{/}tests{/}dom{/}test_tree_freethread.py::test_concurrent_attrs_views_and_mutation_are_memory_safe",
+      "{tox_root}{/}tests{/}test_fuzz_dom_lifecycle.py::test_dom_lifecycle_race_matches_the_serial_run",
+      "{tox_root}{/}tests{/}test_fuzz_dom_lifecycle.py::test_dom_lifecycle_race_on_shared_trees_keeps_every_tree_intact",
+    ], else = [], extend = true },
+    { replace = "if", condition = "env.TSAN_SHARD != 'heavy'", then = [
+      "{tox_root}{/}tests{/}dom{/}test_tree_freethread.py",
+      "{tox_root}{/}tests{/}clean{/}test_linkify.py::test_linker_is_reusable_across_concurrent_callbacks",
+    ], else = [], extend = true },
+    { replace = "if", condition = "env.TSAN_SHARD == 'rest'", then = [
+      "--deselect",
+      "tests/dom/test_tree_freethread.py::test_concurrent_wraps_and_inserts_of_foreign_nodes_keep_the_tree_intact",
+      "--deselect",
+      "tests/dom/test_tree_freethread.py::test_concurrent_attrs_views_and_mutation_are_memory_safe",
+    ], else = [], extend = true },
   ],
 ]

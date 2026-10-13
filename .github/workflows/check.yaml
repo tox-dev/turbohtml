@@ -313,8 +313,15 @@ jobs:
         env:
           UV_PYTHON_PREFERENCE: only-managed
   tsan:
-    name: 🧵 ThreadSanitizer
+    name: 🧵 ThreadSanitizer (${{ matrix.shard }})
     runs-on: ubuntu-24.04
+    # Two shards trade one extra container job (~5 min of setup, build and collection per run) for wall time: TSan is
+    # the longest job, and its two slowest tests plus the lifecycle races take about half its test time. tox.toml's
+    # tsan env selects each shard from TSAN_SHARD; together they run exactly the tests one unsharded run does.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["heavy", "rest"]
     # Upstream tags its Python 3.15 TSan build as 3.15t-dev; pin the digest so nightly rebuilds cannot change the runtime.
     container:
       image: ghcr.io/nascheme/cpython-tsan:3.15t-dev@sha256:6ed3ed2ec59d84737c3b53ca113fc8a58ea5a5bb415d25f53bcb9800a495e2a1
@@ -337,3 +344,4 @@ jobs:
           TSAN_PYTHON=$(python3 -c 'import sys; print(sys.executable)') uvx --python-preference only-managed --python 3.15 --with tox-uv tox run -e tsan --skip-missing-interpreters false
         env:
           UV_PYTHON_PREFERENCE: only-system # use the container's TSan interpreter, not a uv-managed one
+          TSAN_SHARD: ${{ matrix.shard }}
