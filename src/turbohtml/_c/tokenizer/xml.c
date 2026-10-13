@@ -592,7 +592,7 @@ static int prefix_in_scope(xml_parser *parser, Py_ssize_t start, Py_ssize_t end,
 static int check_qname_prefix(xml_parser *parser, Py_ssize_t start, Py_ssize_t end) {
     for (Py_ssize_t index = start; index < end; index++) {
         if (cp(parser, index) == ':') {
-            if (index == start || index == end - 1) {
+            if (index == start || index == end - 1 || !is_name_start(cp(parser, index + 1))) {
                 record(parser, "xml-invalid-name", start);
                 return -1;
             }
