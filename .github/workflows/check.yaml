@@ -35,7 +35,8 @@ jobs:
       - name: ⬇️ Install test data
         id: test-data
         background: true
-        run: git submodule update --init --depth 1 tests/html5lib-tests tests/conformance/unicodetools
+        shell: bash
+        run: bash tools/ci_test_data.sh
       - name: 🟢 Install Node
         # zizmor: ignore[cache-poisoning] no cache: input is set, so setup-node writes no restorable cache
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -81,7 +82,8 @@ jobs:
       - name: ⬇️ Install test data
         id: test-data
         background: true
-        run: git submodule update --init --depth 1 tests/html5lib-tests tests/conformance/unicodetools
+        shell: bash
+        run: bash tools/ci_test_data.sh
       - name: 🟢 Install Node
         # zizmor: ignore[cache-poisoning] no cache: input is set, so setup-node writes no restorable cache
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -116,7 +118,8 @@ jobs:
       - name: ⬇️ Install test data
         id: test-data
         background: true
-        run: git submodule update --init --depth 1 tests/html5lib-tests tests/conformance/unicodetools
+        shell: bash
+        run: bash tools/ci_test_data.sh
       - name: 🟢 Install Node
         # zizmor: ignore[cache-poisoning] no cache: input is set, so setup-node writes no restorable cache
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
