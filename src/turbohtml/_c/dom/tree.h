@@ -120,6 +120,7 @@ struct th_node {
        sequences that depend only on the input, not on where the allocator placed the
        tree. */
     uint32_t seq;
+    uint8_t css_name_safety;
     th_node *parent;
     th_node *first_child;
     th_node *last_child;

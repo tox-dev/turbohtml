@@ -1,0 +1,2 @@
+Escape CSS punctuation in tag names returned by `Element.css_path()` so the path selects the element in HTML and XML
+trees.
