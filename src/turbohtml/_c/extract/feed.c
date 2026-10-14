@@ -850,6 +850,7 @@ enum {
     FEED_CONTENT,
     FEED_AUTHOR,
     FEED_CREATOR,
+    FEED_SOURCE,
     FEED_FIELD_COUNT
 };
 
@@ -868,7 +869,8 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields,
                                                     {"content:encoded", 15},
                                                     {"content", 7},
                                                     {"author", 6},
-                                                    {"dc:creator", 10}};
+                                                    {"dc:creator", 10},
+                                                    {"source", 6}};
     static const struct {
         const char *local;
         const char *uri;
@@ -896,7 +898,7 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields,
             field = FEED_TITLE;
             break;
         case 6:
-            field = FEED_AUTHOR;
+            field = lower_ascii(child->text[0]) == 's' ? FEED_SOURCE : FEED_AUTHOR;
             break;
         case 7:
             switch (lower_ascii(child->text[0])) {
@@ -1104,6 +1106,42 @@ static PyObject *extract_author(th_tree *tree, th_node *const *fields, const cha
     return Py_NewRef(Py_None);
 }
 
+static PyObject *entry_author(th_tree *tree, th_node *source, th_node *const *fields, const char *uri, int inherited,
+                              th_node *feed_author) {
+    PyObject *author = extract_author(tree, fields, uri, inherited);
+    if (author == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    if (author != Py_None || uri != ATOM_URI) {
+        return author;
+    }
+    Py_DECREF(author);
+    int error = 0;
+    if (source != NULL) {
+        int source_namespace = default_namespace_at_node(tree, source, ATOM_URI, inherited);
+        th_node *source_author = feed_child_named(tree, source, "author", 6, ATOM_URI, source_namespace, &error);
+        if (error) { /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+            return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (source_author != NULL) {
+            th_node *source_fields[2] = {source_author, NULL};
+            author = extract_author(tree, source_fields, ATOM_URI, source_namespace);
+            if (author == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return NULL;      /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            if (author != Py_None) {
+                return author;
+            }
+            Py_DECREF(author);
+        }
+    }
+    if (feed_author == NULL) {
+        return Py_NewRef(Py_None);
+    }
+    th_node *feed_fields[2] = {feed_author, NULL};
+    return extract_author(tree, feed_fields, ATOM_URI, 1);
+}
+
 /* The entry identifier: an RSS <guid> / Atom <id> element text, else the RDF item's rdf:about attribute, else None.
    NULL only on the excluded allocation-failure path. */
 static PyObject *extract_id(th_tree *tree, th_node *entry, th_node *const *fields, PyObject *resolved_about) {
@@ -1181,7 +1219,7 @@ static PyObject *entry_link(th_tree *tree, th_node *item, th_node *guid, const c
    or an RDF item, each field the first present value in its precedence order. NULL only on the excluded
    allocation-failure path. */
 static PyObject *build_entry(module_state *state, th_tree *tree, th_node *item, const char *uri, int inherited,
-                             PyObject *resolved_about) {
+                             PyObject *resolved_about, th_node *feed_author) {
     th_node *fields[FEED_FIELD_COUNT] = {0};
     if (collect_entry_fields(tree, item, fields, uri, inherited) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return NULL;                                                    /* GCOVR_EXCL_LINE: allocation failure */
@@ -1199,7 +1237,8 @@ static PyObject *build_entry(module_state *state, th_tree *tree, th_node *item, 
     failed |= record_set(record, 4, entry_field_text(tree, fields + FEED_PUBLISHED, 3, 0, 0));
     failed |= record_set(record, 5, entry_field_text(tree, fields + FEED_SUMMARY, 3, atom, 0));
     failed |= record_set(record, 6, entry_field_text(tree, fields + FEED_ENCODED, 2, atom, atom));
-    failed |= record_set(record, 7, extract_author(tree, fields + FEED_AUTHOR, uri, inherited));
+    failed |= record_set(record, 7,
+                         entry_author(tree, fields[FEED_SOURCE], fields + FEED_AUTHOR, uri, inherited, feed_author));
     if (failed != 0) {     /* GCOVR_EXCL_BR_LINE: a field build fails only on unforceable allocation */
         Py_DECREF(record); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;       /* GCOVR_EXCL_LINE */
@@ -1218,6 +1257,13 @@ static PyObject *build_entries(module_state *state, th_tree *tree, th_node *pare
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     if (parent != NULL) {
+        int error = 0;
+        th_node *feed_author = uri == ATOM_URI ? feed_child_named(tree, parent, "author", 6, ATOM_URI, inherited, &error)
+                                               : NULL;
+        if (error) {     /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+            Py_DECREF(list); /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL;     /* GCOVR_EXCL_LINE: allocation failure */
+        }
         for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
             if (child->type != TH_NODE_ELEMENT) {
                 continue;
@@ -1232,7 +1278,7 @@ static PyObject *build_entries(module_state *state, th_tree *tree, th_node *pare
             }
             int entry_namespace =
                 uri != NULL && th_tree_is_xml(tree) ? default_namespace_at_node(tree, child, uri, inherited) : 1;
-            PyObject *entry = build_entry(state, tree, child, uri, entry_namespace, NULL);
+            PyObject *entry = build_entry(state, tree, child, uri, entry_namespace, NULL, feed_author);
             if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: build_entry fails only on allocation */
                 Py_DECREF(list); /* GCOVR_EXCL_LINE: allocation-failure path */
                 return NULL;     /* GCOVR_EXCL_LINE */
@@ -1366,7 +1412,7 @@ static PyObject *build_rdf_entries(module_state *state, th_tree *tree, th_node *
             goto lookup;
         }
         int item_namespace = default_namespace_at_node(tree, item, RSS_URI, root_namespace);
-        PyObject *entry = build_entry(state, tree, item, RSS_URI, item_namespace, NULL);
+        PyObject *entry = build_entry(state, tree, item, RSS_URI, item_namespace, NULL, NULL);
         if (entry == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure */
             Py_DECREF(ordered); /* GCOVR_EXCL_LINE: allocation failure */
             return NULL;        /* GCOVR_EXCL_LINE: allocation failure */
@@ -1429,7 +1475,7 @@ lookup:
             goto error;    /* GCOVR_EXCL_LINE: allocation failure */
         }
         int item_namespace = default_namespace_at_node(tree, item, RSS_URI, root_namespace);
-        PyObject *entry = build_entry(state, tree, item, RSS_URI, item_namespace, key);
+        PyObject *entry = build_entry(state, tree, item, RSS_URI, item_namespace, key, NULL);
         if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             Py_DECREF(key);  /* GCOVR_EXCL_LINE: allocation failure */
             goto error;      /* GCOVR_EXCL_LINE: allocation failure */
