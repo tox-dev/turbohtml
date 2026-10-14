@@ -49,6 +49,12 @@ ATOM = """<feed xmlns="http://www.w3.org/2005/Atom">
 </entry>
 </feed>"""
 
+ATOM_PREFIXED: Final = """<a:feed xmlns:a="http://www.w3.org/2005/Atom">
+<a:title>Feed</a:title><a:link href="https://example.org/"/><a:subtitle>Subtitle</a:subtitle>
+<a:updated>2026-07-06</a:updated><a:entry><a:id>urn:entry</a:id><a:title>Entry</a:title>
+<a:link href="https://example.org/entry"/><a:summary>Summary</a:summary><a:content>Body</a:content>
+<a:author><a:name>Alice</a:name></a:author></a:entry></a:feed>"""
+
 RDF = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
 <channel rdf:about="http://example.com/">
 <title>RDF Title</title>
@@ -274,6 +280,69 @@ def test_feed_atom_shape() -> None:
             "Jane Roe",
         ),
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        ("title", "Feed"),
+        ("link", "https://example.org/"),
+        ("description", "Subtitle"),
+        ("updated", "2026-07-06"),
+    ],
+)
+def test_feed_atom_prefixed_feed_fields(field: str, expected: str) -> None:
+    assert getattr(parse_feed(ATOM_PREFIXED), field) == expected
+
+
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        ("id", "urn:entry"),
+        ("title", "Entry"),
+        ("link", "https://example.org/entry"),
+        ("summary", "Summary"),
+        ("content", "Body"),
+        ("author", "Alice"),
+    ],
+)
+def test_feed_atom_prefixed_entry_fields(field: str, expected: str) -> None:
+    assert getattr(parse_feed(ATOM_PREFIXED).entries[0], field) == expected
+
+
+def test_feed_atom_wrong_prefixed_root_namespace() -> None:
+    xml: Final = '<a:feed xmlns:a="urn:other"><a:title>wrong</a:title></a:feed>'
+    assert feed(xml) is None
+
+
+def test_feed_atom_unicode_prefix() -> None:
+    xml: Final = '<é:feed xmlns:é="http://www.w3.org/2005/Atom"><é:entry><é:title>Entry</é:title></é:entry></é:feed>'
+    assert parse_feed(xml).entries[0].title == "Entry"
+
+
+def test_feed_atom_entry_uses_other_prefix() -> None:
+    xml: Final = (
+        '<a:feed xmlns:a="http://www.w3.org/2005/Atom" xmlns:b="http://www.w3.org/2005/Atom">'
+        "<b:entry><b:title>Entry</b:title></b:entry></a:feed>"
+    )
+    assert parse_feed(xml).entries[0].title == "Entry"
+
+
+def test_feed_atom_wrong_prefixed_entry_namespace() -> None:
+    xml: Final = (
+        '<a:feed xmlns:a="http://www.w3.org/2005/Atom" xmlns:b="urn:other">'
+        "<b:entry><b:title>wrong</b:title></b:entry><a:entry><a:title>right</a:title></a:entry></a:feed>"
+    )
+    assert [entry.title for entry in parse_feed(xml).entries] == ["right"]
+
+
+def test_feed_atom_prefixed_author_name_namespace_shadowing() -> None:
+    xml: Final = (
+        '<a:feed xmlns:a="http://www.w3.org/2005/Atom"><a:entry><a:author>'
+        '<a:name xmlns:a="urn:other">wrong</a:name><a:name>right</a:name>'
+        "</a:author></a:entry></a:feed>"
+    )
+    assert parse_feed(xml).entries[0].author == "right"
 
 
 def test_feed_rdf_shape() -> None:
