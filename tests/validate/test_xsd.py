@@ -361,6 +361,21 @@ _STATES_ERROR: Final[str] = (
         pytest.param(
             r"\p{IxBasicLatin}", "schema pattern has an invalid category escape at offset 3", id="invalid-block-prefix"
         ),
+        pytest.param(
+            r"\p{IsHighSurrogates}",
+            "schema pattern has an invalid category escape at offset 3",
+            id="high-surrogates-block",
+        ),
+        pytest.param(
+            r"\p{IsLowSurrogates}",
+            "schema pattern has an invalid category escape at offset 3",
+            id="low-surrogates-block",
+        ),
+        pytest.param(
+            r"\p{IsHighPrivateUseSurrogates}",
+            "schema pattern has an invalid category escape at offset 3",
+            id="private-use-surrogates-block",
+        ),
         pytest.param("(a{5000}){5000}", _STATES_ERROR, id="repeat-product"),
         pytest.param("(a{0,3000}){0,3000}", _STATES_ERROR, id="optional-repeat-product"),
         pytest.param("a{999999999999}", _STATES_ERROR, id="huge-count"),

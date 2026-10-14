@@ -38,6 +38,7 @@ CATEGORIES: Final[tuple[str, ...]] = (
     "Zp",
     "Zs",
 )
+EXCLUDED_BLOCKS: Final[frozenset[str]] = frozenset({"HighSurrogates", "LowSurrogates", "HighPrivateUseSurrogates"})
 
 
 def main() -> None:
@@ -147,6 +148,8 @@ def _write_block_table(unicode_version: str) -> None:
                 continue
             extent, name = line.split(";", 1)
             block_name = "".join(name.split())
+            if block_name in EXCLUDED_BLOCKS:
+                continue
             if version == unicode_version:
                 modern_names.add(block_name)
             elif block_name in modern_names:
