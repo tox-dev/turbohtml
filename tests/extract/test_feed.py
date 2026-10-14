@@ -107,6 +107,11 @@ def test_feed_rss_inherited_default_module_namespace() -> None:
     assert parse_feed(xml).entries[0].published == "published"
 
 
+def test_feed_rss_channel_default_dc_date() -> None:
+    xml: Final = '<rss><channel><date xmlns="http://purl.org/dc/elements/1.1/">updated</date></channel></rss>'
+    assert parse_feed(xml).updated == "updated"
+
+
 def test_feed_rss_default_module_namespace_after_other_attribute() -> None:
     xml: Final = (
         '<rss><channel><item><date title="other" xmlns="http://purl.org/dc/elements/1.1/">'
