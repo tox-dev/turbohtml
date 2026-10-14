@@ -435,7 +435,9 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
     if (attrs != stack_attrs) {
         PyMem_Free(attrs);
     }
-    PyMem_Free(fixed_base);
+    if (fixed_base != NULL) {
+        PyMem_Free(fixed_base);
+    }
     if (namespaces != stack_namespaces) {
         PyMem_Free(namespaces);
     }
@@ -536,6 +538,7 @@ static void c14n_xml_document(sbuf *out, th_tree *tree, th_node *doc, const th_c
 Py_UCS4 *th_node_canonicalize_xml(th_tree *tree, th_node *node, const th_c14n_opts *opts, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
     if (node->type == TH_NODE_DOCUMENT) {
+        sbuf_reserve(&out, tree->length < 16384 ? tree->length : 16384);
         c14n_xml_document(&out, tree, node, opts);
     } else {
         c14n_xml_subtree(&out, tree, node, opts);

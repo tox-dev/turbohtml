@@ -348,7 +348,9 @@ static void c14n_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_node
     if (attrs != stack_attrs) {
         PyMem_Free(attrs);
     }
-    PyMem_Free(fixed_base);
+    if (fixed_base != NULL) {
+        PyMem_Free(fixed_base);
+    }
     sbuf_putc(out, '>');
 }
 
@@ -474,6 +476,7 @@ Py_UCS4 *th_node_canonicalize(th_tree *tree, th_node *node, const th_c14n_opts *
     }
     sbuf out = {NULL, 0, 0, 0};
     if (node->type == TH_NODE_DOCUMENT) {
+        sbuf_reserve(&out, tree->length < 16384 ? tree->length : 16384);
         c14n_document(&out, tree, node, opts);
     } else {
         c14n_subtree(&out, tree, node, opts);
