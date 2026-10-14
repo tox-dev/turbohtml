@@ -199,7 +199,8 @@ after the document is gone:
   :attr:`~turbohtml.StructuredData.dublin_core`.
 - RDFa ``property`` keys and ``typeof`` IRIs are expanded against the in-scope ``@vocab``/``@prefix`` (with the RDFa 1.1
   initial context seeding the common prefixes); an undeclared prefix or a bare term with no vocabulary in scope stays
-  verbatim. Pass ``base_url=`` to :meth:`~turbohtml.Document.rdfa` to absolutize the ``resource``/``href``/``src`` IRIs.
+  verbatim. Pass ``base_url=`` to :meth:`~turbohtml.Document.rdfa` to absolutize a relative ``@vocab`` and the
+  ``resource``/``href``/``src`` IRIs, including present empty references.
 - A JSON-LD block whose body is not valid JSON is skipped rather than raising, matching ``extruct``'s default error
   handling; ``extruct``'s ``errors="strict"`` mode has no turbohtml equivalent. Pass the raw ``<script>`` text to
   :mod:`json` yourself if you need to see the decode error. A block whose payload is a scalar or ``null`` is also

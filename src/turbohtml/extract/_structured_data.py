@@ -68,9 +68,11 @@ class RdfaItem:
     prefixes, so ``schema:``, ``dc:``, ``foaf:`` resolve without a page-level declaration); a token whose prefix is
     undeclared, or a bare term with no ``@vocab`` in scope, is kept verbatim.
 
-    :param vocab: the in-scope ``@vocab`` IRI, or ``None`` when no vocabulary is set.
+    :param vocab: the in-scope ``@vocab`` IRI, resolved against ``base_url`` when supplied, or ``None`` when no
+        vocabulary is set.
     :param type: the expanded ``@typeof`` IRIs in document order, an empty list for a valueless ``typeof``.
     :param resource: the resource subject (``@about``/``@resource``/``@href``/``@src``), or ``None`` for a blank node.
+        A present empty reference resolves to the document base when ``base_url`` is supplied.
     :param properties: each expanded ``property`` IRI mapped to its values in document order, a value being a literal or
         IRI ``str`` or a nested :class:`RdfaItem` for a property that is itself a ``typeof``.
     """

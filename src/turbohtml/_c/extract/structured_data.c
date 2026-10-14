@@ -21,6 +21,7 @@
 #include "core/vec.h"
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
 #include "dom/nodes.h"
+#include "url/url.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -148,6 +149,15 @@ static int resolve_in_place(PyObject *base, PyObject **value) {
     }
     Py_SETREF(*value, resolved);
     return 0;
+}
+
+/* An explicitly empty RDFa IRI names the current document; other extractors keep empty URL fields empty. */
+static int resolve_rdfa_in_place(PyObject *base, PyObject **value) {
+    if (PyUnicode_GET_LENGTH(*value) == 0) {
+        Py_SETREF(*value, Py_NewRef(base));
+        return 0;
+    }
+    return resolve_in_place(base, value);
 }
 
 /* A named attribute's value as a new str, the empty string when the attribute is absent or valueless (the way
@@ -1049,7 +1059,8 @@ static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize
 /* The child's in-scope @vocab: a new str for a non-empty @vocab, NULL (the vocabulary cleared) for an empty or
    valueless one, or the parent's borrowed value when the child declares none. *owned records whether *out is a new
    reference the caller must release. -1 only on the excluded allocation-failure path. */
-static int resolve_child_vocab(th_tree *tree, th_node *child, PyObject *parent, PyObject **out, int *owned) {
+static int resolve_child_vocab(th_tree *tree, th_node *child, PyObject *parent, PyObject *base, PyObject **out,
+                               int *owned) {
     Py_ssize_t index = th_node_attr_find(tree, child, "vocab", 5);
     if (index < 0) {
         *out = parent;
@@ -1065,6 +1076,12 @@ static int resolve_child_vocab(th_tree *tree, th_node *child, PyObject *parent, 
     PyObject *value = ucs4_to_str(attr->value, attr->value_len);
     if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (base != NULL && th_url_scheme_colon(attr->value, 0, attr->value_len) < 0) {
+        if (resolve_in_place(base, &value) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            Py_DECREF(value);                     /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;                            /* GCOVR_EXCL_LINE */
+        }
     }
     *out = value;
     *owned = 1;
@@ -1111,7 +1128,7 @@ static void release_child_ctx(rdfa_ctx *child_ctx, int vocab_owned, int prefixes
 static int resolve_child_ctx(th_tree *tree, th_node *child, rdfa_ctx parent, rdfa_ctx *child_ctx, int *vocab_owned,
                              int *prefixes_owned) {
     PyObject *vocab = NULL;
-    int vocab_rc = resolve_child_vocab(tree, child, parent.vocab, &vocab, vocab_owned);
+    int vocab_rc = resolve_child_vocab(tree, child, parent.vocab, parent.base, &vocab, vocab_owned);
     if (vocab_rc < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -1143,9 +1160,9 @@ static PyObject *rdfa_subject(th_tree *tree, th_node *element, PyObject *base) {
             return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         if (base != NULL) {
-            if (resolve_in_place(base, &iri) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-                Py_DECREF(iri);                     /* GCOVR_EXCL_LINE: allocation-failure path */
-                return NULL;                        /* GCOVR_EXCL_LINE */
+            if (resolve_rdfa_in_place(base, &iri) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                Py_DECREF(iri);                          /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;                             /* GCOVR_EXCL_LINE */
             }
         }
         return iri;
@@ -1220,9 +1237,9 @@ static PyObject *rdfa_value(th_tree *tree, module_state *state, th_node *element
             return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         if (ctx.base != NULL) {
-            if (resolve_in_place(ctx.base, &iri) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-                Py_DECREF(iri);                         /* GCOVR_EXCL_LINE: allocation-failure path */
-                return NULL;                            /* GCOVR_EXCL_LINE */
+            if (resolve_rdfa_in_place(ctx.base, &iri) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                Py_DECREF(iri);                              /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;                                 /* GCOVR_EXCL_LINE */
             }
         }
         return iri;
