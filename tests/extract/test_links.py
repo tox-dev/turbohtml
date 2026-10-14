@@ -379,10 +379,21 @@ def test_srcset_with_a_trailing_comma_and_varied_whitespace() -> None:
     assert [url for _, _, url in found] == ["a.png", "b.png"]
 
 
-def test_srcset_candidate_ending_directly_at_a_comma() -> None:
-    # no descriptor or space before the comma, so the URL run stops on the comma itself
-    found = _enumerated_urls('<img srcset="a.png,b.png 2x">')
-    assert [url for _, _, url in found] == ["a.png", "b.png"]
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("a.png,b.png 2x", ["a.png,b.png"], id="internal-comma"),
+        pytest.param(
+            "data:image/gif;base64,R0lGODlh 1x, b.png 2x", ["data:image/gif;base64,R0lGODlh", "b.png"], id="data-url"
+        ),
+        pytest.param("a.png, b.png 2x", ["a.png", "b.png"], id="trailing-comma"),
+        pytest.param("a.png,, b.png 2x", ["a.png", "b.png"], id="multiple-trailing-commas"),
+        pytest.param("a.png,b.png,", ["a.png,b.png"], id="internal-and-trailing-comma"),
+    ],
+)
+def test_srcset_url_boundaries(value: str, expected: list[str]) -> None:
+    found = _enumerated_urls(f'<img srcset="{value}">')
+    assert [url for _, _, url in found] == expected
 
 
 def test_placeholder_is_not_imagesrcset() -> None:
@@ -511,6 +522,11 @@ def test_href_resolution(markup: str, expected: str) -> None:
 def test_srcset_candidates_are_each_resolved() -> None:
     out = _resolved('<img srcset="a.png 1x, b.png 2x">')
     assert out == '<img srcset="https://example.com/dir/a.png 1x, https://example.com/dir/b.png 2x">'
+
+
+def test_srcset_url_with_comma_is_resolved_as_one_link() -> None:
+    out = _resolved('<img srcset="a,b 1x, c 2x">')
+    assert out == '<img srcset="https://example.com/dir/a,b 1x, https://example.com/dir/c 2x">'
 
 
 def test_ping_list_entries_are_each_resolved() -> None:
@@ -680,6 +696,11 @@ def test_returning_the_same_string_is_not_a_mutation() -> None:
 def test_only_some_candidates_change() -> None:
     out = _rewritten('<img srcset="a.png 1x, b.png 2x">', lambda url: "X" if url == "a.png" else None)
     assert out == '<img srcset="X 1x, b.png 2x">'
+
+
+def test_rewrite_srcset_url_with_comma() -> None:
+    out = _rewritten('<img srcset="a,b 1x, c 2x">', lambda url: "X" if url == "a,b" else None)
+    assert out == '<img srcset="X 1x, c 2x">'
 
 
 def test_a_shorter_replacement_shrinks_the_value() -> None:

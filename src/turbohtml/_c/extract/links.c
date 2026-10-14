@@ -79,22 +79,30 @@ static int scan_space_list(const Py_UCS4 *value, Py_ssize_t len, link_emit emit,
     return 0;
 }
 
-/* A srcset/imagesrcset candidate list: the leading URL of each comma-separated candidate (the same split PR #228 uses
-   to scheme-check candidates), with any trailing "1x"/"640w" descriptor skipped. */
+/* A comma inside a srcset URL belongs to the URL; only trailing URL commas and descriptor commas separate candidates.
+ */
 static int scan_srcset(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
     Py_ssize_t pos = 0;
     while (pos < len) {
         while (pos < len && (value[pos] == ',' || is_space(value[pos]))) {
             pos++;
         }
+        if (pos == len) {
+            break;
+        }
         Py_ssize_t start = pos;
-        while (pos < len && value[pos] != ',' && !is_space(value[pos])) {
+        while (pos < len && !is_space(value[pos])) {
             pos++;
         }
-        if (pos > start) {
-            if (emit(ctx, start, pos) < 0) { /* GCOVR_EXCL_BR_LINE: emit fails only on collect_span's realloc */
-                return -1;                   /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
+        Py_ssize_t end = pos;
+        while (value[end - 1] == ',') {
+            end--;
+        }
+        if (emit(ctx, start, end) < 0) { /* GCOVR_EXCL_BR_LINE: emit fails only on collect_span's realloc */
+            return -1;                   /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (end < pos) {
+            continue;
         }
         while (pos < len && value[pos] != ',') {
             pos++;

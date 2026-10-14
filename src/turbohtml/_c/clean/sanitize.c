@@ -378,28 +378,33 @@ static int scheme_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
     return s->allow_relative && authority_allowed(value, start, len) ? hidden_scheme_allowed(s, value, len) : 0;
 }
 
-/* srcset and imagesrcset hold a comma-separated list of "URL descriptor" candidates. Each candidate's leading URL is
-   scheme-checked; the whole attribute is rejected if any candidate carries a disallowed scheme. Splitting on commas
-   can over-segment a URL that contains one, but that only adds scheme checks of schemeless tails (read as relative),
-   so it never lets a disallowed scheme through. Returns 1 allow, 0 drop, -1 error. */
+/* Check each srcset URL using the browser's comma boundary: an internal comma belongs to the URL. */
 static int srcset_allowed(sanitizer *s, const Py_UCS4 *value, Py_ssize_t len) {
     Py_ssize_t pos = 0;
     while (pos < len) {
         while (pos < len && (value[pos] == ',' || is_space(value[pos]))) {
             pos++; /* skip separators before the candidate URL */
         }
-        Py_ssize_t start = pos;
-        while (pos < len && value[pos] != ',' && !is_space(value[pos])) {
-            pos++; /* the URL runs up to a descriptor (whitespace) or the next candidate (comma) */
+        if (pos == len) {
+            break;
         }
-        if (pos > start) {
-            int ok = scheme_allowed(s, value + start, pos - start);
-            if (ok < 0) {  /* GCOVR_EXCL_BR_LINE: scheme_allowed only fails on allocation failure */
-                return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-            if (!ok) {
-                return 0;
-            }
+        Py_ssize_t start = pos;
+        while (pos < len && !is_space(value[pos])) {
+            pos++;
+        }
+        Py_ssize_t end = pos;
+        while (value[end - 1] == ',') {
+            end--;
+        }
+        int ok = scheme_allowed(s, value + start, end - start);
+        if (ok < 0) {  /* GCOVR_EXCL_BR_LINE: scheme_allowed only fails on allocation failure */
+            return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (!ok) {
+            return 0;
+        }
+        if (end < pos) {
+            continue;
         }
         while (pos < len && value[pos] != ',') {
             pos++; /* skip the candidate's descriptor */

@@ -1094,6 +1094,8 @@ def test_every_url_attribute_is_scheme_checked(attr: str) -> None:
         pytest.param("a.jpg", True, id="single-no-descriptor"),
         pytest.param("", True, id="empty"),
         pytest.param("a.jpg,", True, id="trailing-comma"),
+        pytest.param("a.jpg 1x,", True, id="trailing-descriptor-comma"),
+        pytest.param("a.jpg,javascript:x 1x", True, id="internal-comma-is-url"),
         pytest.param("  ,  a.jpg 1x", True, id="leading-separators"),
         pytest.param("a.jpg\t1x,\nb.jpg\x0c2x", True, id="ascii-whitespace-separators"),
         pytest.param("javascript:alert(1) 1x", False, id="first-candidate-script"),
@@ -1106,6 +1108,18 @@ def test_srcset_candidate_schemes_are_checked(attr: str, value: str, kept: bool)
     # checked and the whole attribute is dropped if any candidate carries a disallowed scheme.
     out = sanitize(f'<img {attr}="{value}">', _allow_all({"img"}, {attr}))
     assert (attr in out) is kept
+
+
+def test_srcset_data_url_comma_is_not_a_candidate_separator() -> None:
+    policy = Policy(
+        tags=frozenset({"img"}),
+        attributes={"img": frozenset({"srcset"})},
+        url_schemes=frozenset({"data"}),
+        allow_relative_urls=False,
+    )
+    assert sanitize('<img srcset="data:image/gif;base64,R0lGODlh 1x">', policy) == (
+        '<img srcset="data:image/gif;base64,R0lGODlh 1x">'
+    )
 
 
 @pytest.mark.parametrize(
