@@ -29,6 +29,7 @@
 static const char DC_URI[] = "http://purl.org/dc/elements/1.1/";
 static const char CONTENT_URI[] = "http://purl.org/rss/1.0/modules/content/";
 static const char RDF_URI[] = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+static const char RSS_URI[] = "http://purl.org/rss/1.0/";
 
 /* One candidate element tag for a normalized field: the name and its length, tried in precedence order. */
 typedef struct {
@@ -143,10 +144,44 @@ static int qualified_tag_is(th_tree *tree, th_node *node, const char *local, con
                : 0;
 }
 
+static int rss_tag_is(th_tree *tree, th_node *node, const char *name, Py_ssize_t len, int rdf) {
+    if (!rdf) {
+        return tag_is(node, name, len);
+    }
+    if (tag_is(node, name, len)) {
+        return 1;
+    }
+    Py_ssize_t colon = node->text_len - len - 1;
+    return colon > 0 && node->text[colon] == ':' && th_tree_is_xml(tree) &&
+                   ucs4_eq_ascii(node->text + colon + 1, len, name)
+               ? namespace_is(tree, node, colon, RSS_URI)
+               : 0;
+}
+
 /* The first direct element child of `parent` whose tag equals [name, name + len), or NULL when it has none. */
 static th_node *child_named(th_node *parent, const char *name, Py_ssize_t len) {
     for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
         if (child->type == TH_NODE_ELEMENT && tag_is(child, name, len)) {
+            return child;
+        }
+    }
+    return NULL;
+}
+
+static th_node *rss_child_named(th_tree *tree, th_node *parent, const char *name, Py_ssize_t len, int rdf, int *error) {
+    if (!rdf) {
+        return child_named(parent, name, len);
+    }
+    for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        int match = rss_tag_is(tree, child, name, len, rdf);
+        if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+            *error = 1;  /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (match) {
             return child;
         }
     }
@@ -198,7 +233,7 @@ static PyObject *node_text_trimmed(th_tree *tree, th_node *node) {
 /* The first non-empty trimmed text among `parent`'s direct children named by the precedence-ordered `tags`, or None
    when none is present with a non-empty value (or when `parent` is NULL, a feed whose channel the parser dropped). NULL
    only on the excluded allocation-failure path. */
-static PyObject *field_text(th_tree *tree, th_node *parent, const feed_tag *tags, size_t count) {
+static PyObject *field_text(th_tree *tree, th_node *parent, const feed_tag *tags, size_t count, int rdf) {
     if (parent == NULL) {
         return Py_NewRef(Py_None);
     }
@@ -219,7 +254,11 @@ static PyObject *field_text(th_tree *tree, th_node *parent, const feed_tag *tags
                 }
             }
         } else {
-            child = child_named(parent, tags[index].name, tags[index].len);
+            int error = 0;
+            child = rss_child_named(tree, parent, tags[index].name, tags[index].len, rdf, &error);
+            if (error) {     /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+                return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+            }
         }
         if (child == NULL) {
             continue;
@@ -334,13 +373,21 @@ static PyObject *resolve_link_xml_base(th_tree *tree, th_node *link, PyObject *u
 /* The permalink URL of `parent`: the first Atom <link rel="alternate"> href, else the first RSS/RDF <link>'s text,
    else the first non-alternate Atom href as a fallback, else None. NULL only on the excluded allocation-failure
    path. */
-static PyObject *extract_link(th_tree *tree, th_node *parent) {
+static PyObject *extract_link(th_tree *tree, th_node *parent, int rdf) {
     if (parent == NULL) {
         return Py_NewRef(Py_None);
     }
     PyObject *fallback = NULL;
     for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type != TH_NODE_ELEMENT || !tag_is(child, "link", 4)) {
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        int match = rss_tag_is(tree, child, "link", 4, rdf);
+        if (match < 0) {          /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+            Py_XDECREF(fallback); /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL;          /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (!match) {
             continue;
         }
         PyObject *href = link_href(tree, child);
@@ -398,7 +445,7 @@ enum {
     FEED_FIELD_COUNT
 };
 
-static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields) {
+static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields, int rdf) {
     static const feed_tag tags[FEED_FIELD_COUNT] = {{"title", 5},
                                                     {"guid", 4},
                                                     {"id", 2},
@@ -507,6 +554,35 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields)
                 fields[field] = child;
             }
             continue;
+        }
+        if (rdf && xml) {
+            int found = 0;
+            for (Py_ssize_t colon = 1; colon < child->text_len; colon++) {
+                if (child->text[colon] != ':') {
+                    continue;
+                }
+                int match = namespace_is(tree, child, colon, RSS_URI);
+                if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+                    return -1;   /* GCOVR_EXCL_LINE: allocation failure */
+                }
+                if (match) {
+                    for (int index = 0; index < FEED_FIELD_COUNT; index++) {
+                        if (memchr(tags[index].name, ':', (size_t)tags[index].len) == NULL &&
+                            ucs4_ieq(child->text + colon + 1, child->text_len - colon - 1, tags[index].name,
+                                     tags[index].len)) {
+                            if (fields[index] == NULL) {
+                                fields[index] = child;
+                            }
+                            found = 1;
+                            break;
+                        }
+                    }
+                }
+                break;
+            }
+            if (found) {
+                continue;
+            }
         }
         if (xml) {
             for (size_t index = 0; index < sizeof(modules) / sizeof(modules[0]); index++) {
@@ -635,8 +711,8 @@ static int record_set(PyObject *record, Py_ssize_t index, PyObject *value) {
 
 /* The entry's link with the guid-permalink fallback applied, ready for record_set. NULL only on the excluded
    allocation-failure path. */
-static PyObject *entry_link(th_tree *tree, th_node *item, th_node *guid) {
-    PyObject *link = extract_link(tree, item);
+static PyObject *entry_link(th_tree *tree, th_node *item, th_node *guid, int rdf) {
+    PyObject *link = extract_link(tree, item, rdf);
     if (link == NULL) { /* GCOVR_EXCL_BR_LINE: extract_link fails only on allocation */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -650,10 +726,10 @@ static PyObject *entry_link(th_tree *tree, th_node *item, th_node *guid) {
 /* Build one Entry(title, link, id, updated, published, summary, content, author) from an RSS <item>, an Atom <entry>,
    or an RDF item, each field the first present value in its precedence order. NULL only on the excluded
    allocation-failure path. */
-static PyObject *build_entry(module_state *state, th_tree *tree, th_node *item) {
+static PyObject *build_entry(module_state *state, th_tree *tree, th_node *item, int rdf) {
     th_node *fields[FEED_FIELD_COUNT] = {0};
-    if (collect_entry_fields(tree, item, fields) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return NULL;                                    /* GCOVR_EXCL_LINE: allocation failure */
+    if (collect_entry_fields(tree, item, fields, rdf) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;                                         /* GCOVR_EXCL_LINE: allocation failure */
     }
     PyObject *record = PyTuple_New(8);
     if (record == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -661,7 +737,7 @@ static PyObject *build_entry(module_state *state, th_tree *tree, th_node *item) 
     }
     int failed = 0;
     failed |= record_set(record, 0, entry_field_text(tree, fields + FEED_TITLE, 1));
-    failed |= record_set(record, 1, entry_link(tree, item, fields[FEED_GUID]));
+    failed |= record_set(record, 1, entry_link(tree, item, fields[FEED_GUID], rdf));
     failed |= record_set(record, 2, extract_id(tree, item, fields + FEED_GUID));
     failed |= record_set(record, 3, entry_field_text(tree, fields + FEED_UPDATED, 2));
     failed |= record_set(record, 4, entry_field_text(tree, fields + FEED_PUBLISHED, 3));
@@ -679,17 +755,26 @@ static PyObject *build_entry(module_state *state, th_tree *tree, th_node *item) 
 
 /* The tuple of Entry records for every direct child of `parent` named [name, name + len) (item for RSS/RDF, entry for
    Atom), an empty tuple when `parent` is NULL. NULL only on the excluded allocation-failure path. */
-static PyObject *build_entries(module_state *state, th_tree *tree, th_node *parent, const char *name, Py_ssize_t len) {
+static PyObject *build_entries(module_state *state, th_tree *tree, th_node *parent, const char *name, Py_ssize_t len,
+                               int rdf) {
     PyObject *list = PyList_New(0);
     if (list == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     if (parent != NULL) {
         for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
-            if (child->type != TH_NODE_ELEMENT || !tag_is(child, name, len)) {
+            if (child->type != TH_NODE_ELEMENT) {
                 continue;
             }
-            PyObject *entry = build_entry(state, tree, child);
+            int match = rss_tag_is(tree, child, name, len, rdf);
+            if (match < 0) {     /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+                Py_DECREF(list); /* GCOVR_EXCL_LINE: allocation failure */
+                return NULL;     /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            if (!match) {
+                continue;
+            }
+            PyObject *entry = build_entry(state, tree, child, rdf);
             if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: build_entry fails only on allocation */
                 Py_DECREF(list); /* GCOVR_EXCL_LINE: allocation-failure path */
                 return NULL;     /* GCOVR_EXCL_LINE */
@@ -716,8 +801,13 @@ static PyObject *build_feed(module_state *state, th_tree *tree, th_node *root, c
     static const feed_tag DESCRIPTION[] = {{"description", 11}, {"subtitle", 8}, {"tagline", 7}};
     static const feed_tag UPDATED[] = {{"updated", 7}, {"lastbuilddate", 13}, {"pubdate", 7}, {"dc:date", 7}};
     int is_atom = strcmp(type, "atom") == 0;
-    th_node *meta = is_atom ? root : child_named(root, "channel", 7);
-    th_node *item_parent = is_atom ? root : (strcmp(type, "rdf") == 0 ? root : meta);
+    int rdf = strcmp(type, "rdf") == 0;
+    int error = 0;
+    th_node *meta = is_atom ? root : rss_child_named(tree, root, "channel", 7, rdf, &error);
+    if (error) {     /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+        return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    th_node *item_parent = is_atom || rdf ? root : meta;
     const char *item_name = is_atom ? "entry" : "item";
     Py_ssize_t item_len = is_atom ? 5 : 4;
     PyObject *record = PyTuple_New(6);
@@ -726,11 +816,11 @@ static PyObject *build_feed(module_state *state, th_tree *tree, th_node *root, c
     }
     int failed = 0;
     failed |= record_set(record, 0, PyUnicode_FromString(type));
-    failed |= record_set(record, 1, field_text(tree, meta, TITLE, 1));
-    failed |= record_set(record, 2, extract_link(tree, meta));
-    failed |= record_set(record, 3, field_text(tree, meta, DESCRIPTION, 3));
-    failed |= record_set(record, 4, field_text(tree, meta, UPDATED, 4));
-    failed |= record_set(record, 5, build_entries(state, tree, item_parent, item_name, item_len));
+    failed |= record_set(record, 1, field_text(tree, meta, TITLE, 1, rdf));
+    failed |= record_set(record, 2, extract_link(tree, meta, rdf));
+    failed |= record_set(record, 3, field_text(tree, meta, DESCRIPTION, 3, rdf));
+    failed |= record_set(record, 4, field_text(tree, meta, UPDATED, 4, rdf));
+    failed |= record_set(record, 5, build_entries(state, tree, item_parent, item_name, item_len, rdf));
     if (failed != 0) {     /* GCOVR_EXCL_BR_LINE: a field build fails only on unforceable allocation */
         Py_DECREF(record); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;       /* GCOVR_EXCL_LINE */

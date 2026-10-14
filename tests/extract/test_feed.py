@@ -65,6 +65,11 @@ RDF = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns=
 </item>
 </rdf:RDF>"""
 
+RDF_PREFIXED: Final = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:s="http://purl.org/rss/1.0/">
+<s:channel><s:title>Feed</s:title><s:link>https://example.org/</s:link><s:description>Summary</s:description></s:channel>
+<s:item rdf:about="https://example.org/item"><s:title>Item</s:title><s:link>https://example.org/item</s:link>
+<s:description>Entry summary</s:description></s:item></rdf:RDF>"""
+
 
 def parse_feed(xml: str) -> Feed:
     """Parse a feed the test knows is well-formed, narrowing the ``Feed | None`` return for the assertions."""
@@ -302,6 +307,89 @@ def test_feed_rdf_other_prefixed_attribute_before_about() -> None:
         '<item rdf:other="wrong" rdf:about="https://example.org/item" /></rdf:RDF>'
     )
     assert parse_feed(xml).entries[0].id == "https://example.org/item"
+
+
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        ("title", "Feed"),
+        ("link", "https://example.org/"),
+        ("description", "Summary"),
+    ],
+)
+def test_feed_rdf_prefixed_channel_fields(field: str, expected: str) -> None:
+    assert getattr(parse_feed(RDF_PREFIXED), field) == expected
+
+
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        ("title", "Item"),
+        ("link", "https://example.org/item"),
+        ("id", "https://example.org/item"),
+        ("summary", "Entry summary"),
+    ],
+)
+def test_feed_rdf_prefixed_item_fields(field: str, expected: str) -> None:
+    assert getattr(parse_feed(RDF_PREFIXED).entries[0], field) == expected
+
+
+def test_feed_rdf_prefixed_item_namespace_shadowing() -> None:
+    xml: Final = (
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:s="http://purl.org/rss/1.0/">'
+        '<s:item xmlns:s="urn:other"><s:title>wrong</s:title></s:item>'
+        "<s:item><s:title>right</s:title></s:item></rdf:RDF>"
+    )
+    assert tuple(entry.title for entry in parse_feed(xml).entries) == ("right",)
+
+
+def test_feed_rdf_prefixed_field_namespace_shadowing() -> None:
+    xml: Final = (
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:s="http://purl.org/rss/1.0/">'
+        '<s:item><s:title xmlns:s="urn:other">wrong</s:title><s:title>right</s:title></s:item></rdf:RDF>'
+    )
+    assert parse_feed(xml).entries[0].title == "right"
+
+
+def test_feed_rdf_first_prefixed_field_wins() -> None:
+    xml: Final = (
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:s="http://purl.org/rss/1.0/">'
+        "<s:item><s:title>first</s:title><s:title>second</s:title></s:item></rdf:RDF>"
+    )
+    assert parse_feed(xml).entries[0].title == "first"
+
+
+def test_feed_rdf_wrong_prefixed_local_name() -> None:
+    xml: Final = (
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:s="http://purl.org/rss/1.0/">'
+        "<s:iteX/><s:item><s:title>right</s:title></s:item></rdf:RDF>"
+    )
+    assert tuple(entry.title for entry in parse_feed(xml).entries) == ("right",)
+
+
+def test_feed_rdf_html_fallback_keeps_literal_names() -> None:
+    document: Final = parse("<rdf:rdf><s:item><s:title>wrong</s:title></s:item></rdf:rdf>")
+    result: Final = document.feed()
+    assert result is not None
+    assert result.entries == ()
+
+
+def test_feed_rdf_unicode_rss_prefix() -> None:
+    xml: Final = (
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:é="http://purl.org/rss/1.0/">'
+        "<é:channel><é:title>Feed</é:title></é:channel><é:item><é:title>Item</é:title></é:item></rdf:RDF>"
+    )
+    assert parse_feed(xml).entries[0].title == "Item"
+
+
+def test_feed_rdf_first_channel_across_rss_prefixes() -> None:
+    xml: Final = (
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
+        'xmlns:s="http://purl.org/rss/1.0/" xmlns="http://purl.org/rss/1.0/">'
+        "<s:channel><s:title>first</s:title></s:channel>"
+        "<channel><title>second</title></channel></rdf:RDF>"
+    )
+    assert parse_feed(xml).title == "first"
 
 
 @pytest.mark.parametrize(
