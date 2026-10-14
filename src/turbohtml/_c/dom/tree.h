@@ -556,6 +556,7 @@ typedef struct {
     int xml;   /* XML/XHTML syntax: self-close empty elements, XML escaping and namespace decls; drop the
                   characters, comment spellings, and attribute names XML cannot hold so the result reparses */
     int inner; /* omit the context root while retaining its serialization rules */
+    const th_node *xml_boundary;
 } th_serialize_opts;
 
 /* Serialize node and its subtree under opts. When indent is non-NULL it is the

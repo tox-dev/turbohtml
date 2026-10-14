@@ -1,0 +1,1 @@
+Keep inherited namespace bindings when serializing an XML subtree.

@@ -582,12 +582,122 @@ typedef struct {
     int default_ns;
 } xml_ns_emitted;
 
-/* Emit the namespace declarations an XML start tag needs to stay well-formed: the
-   default namespace on the root of a foreign (SVG/MathML) subtree -- an element
-   whose parent is in a different namespace -- and the xlink prefix on any element
-   carrying an `xlink:`-prefixed attribute (a redundant redeclaration on a nested
-   element is still well-formed, so no ancestor tracking is needed). */
-static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th_node *node) {
+static inline int ser_xml_ns_name(const char *name, Py_ssize_t len) {
+    return (len == 5 && memcmp(name, "xmlns", 5) == 0) || (len > 6 && memcmp(name, "xmlns:", 6) == 0);
+}
+
+static inline int ser_xml_ns_shadowed(th_tree *tree, const th_node *node, const th_node *ancestor, const char *name,
+                                      Py_ssize_t len) {
+    for (const th_node *cursor = node; cursor != ancestor; cursor = cursor->parent) {
+        for (Py_ssize_t position = 0; position < cursor->attr_count; position++) {
+            Py_ssize_t previous_len;
+            const char *previous = th_attr_name(tree, cursor->attrs[position].name_atom, &previous_len);
+            if (previous_len == len && memcmp(previous, name, (size_t)len) == 0) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static inline int ser_xml_qname_uses(const Py_UCS4 *name, Py_ssize_t name_len, const char *declaration,
+                                     Py_ssize_t declaration_len) {
+    if (declaration_len == 5) {
+        for (Py_ssize_t position = 0; position < name_len; position++) {
+            if (name[position] == ':') {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    Py_ssize_t name_position = 0;
+    for (Py_ssize_t position = 6; position < declaration_len;) {
+        unsigned char lead = (unsigned char)declaration[position++];
+        Py_UCS4 character = lead;
+        if (lead >= 0xF0) {
+            character = (Py_UCS4)(lead & 0x07) << 18 | ((unsigned char)declaration[position] & 0x3F) << 12 |
+                        ((unsigned char)declaration[position + 1] & 0x3F) << 6 |
+                        ((unsigned char)declaration[position + 2] & 0x3F);
+            position += 3;
+        } else if (lead >= 0xE0) {
+            character = (Py_UCS4)(lead & 0x0F) << 12 | ((unsigned char)declaration[position] & 0x3F) << 6 |
+                        ((unsigned char)declaration[position + 1] & 0x3F);
+            position += 2;
+        } else if (lead >= 0xC0) {
+            character = (Py_UCS4)(lead & 0x1F) << 6 | ((unsigned char)declaration[position] & 0x3F);
+            position++;
+        }
+        if (name_position == name_len || name[name_position] != character) {
+            return 0;
+        }
+        name_position++;
+    }
+    return name_position < name_len && name[name_position] == ':';
+}
+
+static inline int ser_xml_ns_used(th_tree *tree, const th_node *root, const char *declaration,
+                                  Py_ssize_t declaration_len) {
+    for (const th_node *node = root;;) {
+        if (node->type == TH_NODE_ELEMENT) {
+            int used = ser_xml_qname_uses(node->text, node->text_len, declaration, declaration_len);
+            if (!used && declaration_len != 5) {
+                Py_ssize_t prefix_len = declaration_len - 6;
+                for (Py_ssize_t position = 0; position < node->attr_count; position++) {
+                    Py_ssize_t name_len;
+                    const char *name = th_attr_name(tree, node->attrs[position].name_atom, &name_len);
+                    if (name_len > prefix_len && name[prefix_len] == ':' &&
+                        memcmp(name, declaration + 6, (size_t)prefix_len) == 0) {
+                        used = 1;
+                        break;
+                    }
+                }
+            }
+            if (used && !ser_xml_ns_shadowed(tree, node, root->parent, declaration, declaration_len)) {
+                return 1;
+            }
+        }
+        if (node->first_child != NULL) {
+            node = node->first_child;
+            continue;
+        }
+        while (node != root && node->next_sibling == NULL) {
+            node = node->parent;
+        }
+        if (node == root) {
+            break;
+        }
+        node = node->next_sibling;
+    }
+    return 0;
+}
+
+static inline void ser_xml_inherited_ns_decls(sbuf *out, th_tree *tree, const th_node *node, xml_ns_emitted emitted) {
+    for (const th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
+        if (ancestor->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        for (Py_ssize_t position = 0; position < ancestor->attr_count; position++) {
+            const th_node_attr *attr = &ancestor->attrs[position];
+            Py_ssize_t name_len;
+            const char *name = th_attr_name(tree, attr->name_atom, &name_len);
+            if (!ser_xml_ns_name(name, name_len) || (name_len == 5 && emitted.default_ns) ||
+                ser_xml_ns_shadowed(tree, node, ancestor, name, name_len) ||
+                !ser_xml_ns_used(tree, node, name, name_len)) {
+                continue;
+            }
+            sbuf_putc(out, ' ');
+            sbuf_put_utf8(out, name, name_len);
+            sbuf_puts(out, "=\"");
+            sbuf_put_xml_text(out, attr->value, attr->value_len, 1);
+            sbuf_putc(out, '"');
+        }
+    }
+}
+
+/* Emit the default namespace on a foreign subtree root and a missing xlink binding.
+   XML trees keep inherited xlink declarations; HTML trees need the built-in URI. */
+static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th_node *node,
+                                              const th_serialize_opts *opts) {
     xml_ns_emitted emitted = {0};
     if (node->parent == NULL ? node->ns != TH_NS_HTML : node->parent->ns != node->ns) {
         sbuf_puts(out, node->ns == TH_NS_HTML  ? " xmlns=\"\""
@@ -596,6 +706,9 @@ static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th
         emitted.default_ns = 1;
     }
     if (node->attr_count == 0) {
+        if (opts->xml_boundary != NULL && node->parent == opts->xml_boundary) {
+            ser_xml_inherited_ns_decls(out, tree, node, emitted);
+        }
         return emitted;
     }
     int has_xlink_attr = 0;
@@ -609,12 +722,27 @@ static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th
             has_xlink_attr = 1;
         }
     }
-    /* Inject the xlink binding only when the element does not already carry one: a stored
-       xmlns:xlink is emitted in attribute order instead, which keeps the declarations in
-       the same order whether the element came from an HTML parse (namespace injected) or
-       an XML parse (namespace stored), so serialize/parse_xml round-trips (#1031). */
+    if (has_xlink_attr && !has_xlink_decl && th_tree_is_xml(tree)) {
+        for (const th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
+            for (Py_ssize_t position = 0; position < ancestor->attr_count; position++) {
+                Py_ssize_t name_len;
+                const char *name = th_attr_name(tree, ancestor->attrs[position].name_atom, &name_len);
+                if (name_len == 11 && memcmp(name, "xmlns:xlink", 11) == 0) {
+                    has_xlink_decl = 1;
+                    break;
+                }
+            }
+            if (has_xlink_decl) {
+                break;
+            }
+        }
+    }
+    /* A local binding is written with attributes; an XML ancestor already binds the prefix. */
     if (has_xlink_attr && !has_xlink_decl) {
         sbuf_puts(out, " xmlns:xlink=\"http://www.w3.org/1999/xlink\"");
+    }
+    if (opts->xml_boundary != NULL && node->parent == opts->xml_boundary) {
+        ser_xml_inherited_ns_decls(out, tree, node, emitted);
     }
     return emitted;
 }
@@ -672,7 +800,7 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
     sbuf_put_ucs4(out, node->text, node->text_len);
     xml_ns_emitted emitted = {0};
     if (opts->xml) {
-        emitted = ser_xml_ns_decls(out, tree, node);
+        emitted = ser_xml_ns_decls(out, tree, node, opts);
     }
     Py_ssize_t stack_order[MAX_SORTED_ATTRS];
     Py_ssize_t *order = ser_attr_order(tree, node, opts->sort_attributes, stack_order);

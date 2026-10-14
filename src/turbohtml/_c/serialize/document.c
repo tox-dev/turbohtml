@@ -974,7 +974,7 @@ void th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf) {
 
 /* The WHATWG-conformant defaults the html/inner_html accessors serialize under:
    minimal escaping, source attribute order, no charset injection. */
-static const th_serialize_opts ser_default_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0};
+static const th_serialize_opts ser_default_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL};
 
 Py_UCS4 *th_node_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
@@ -1000,12 +1000,14 @@ Py_UCS4 *th_node_inner_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
 }
 
 /* The inner_html defaults with XML/XHTML syntax on, the same rules Node.serialize(Html(xml=True)) emits under. */
-static const th_serialize_opts ser_xml_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 1, 0};
+static const th_serialize_opts ser_xml_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 1, 0, NULL};
 
 Py_UCS4 *th_node_inner_xml(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
+    th_serialize_opts opts = ser_xml_opts;
+    opts.xml_boundary = th_tree_is_xml(tree) ? node : NULL;
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        serialize_compact(&out, tree, child, &ser_xml_opts);
+        serialize_compact(&out, tree, child, &opts);
     }
     return sbuf_finish(&out, out_len);
 }
@@ -1019,6 +1021,9 @@ static int inner_preserves_text(th_tree *tree, th_node *root, const th_serialize
 Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts *opts, const Py_UCS4 *indent,
                            Py_ssize_t indent_len, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
+    th_serialize_opts context = *opts;
+    context.xml_boundary = opts->xml && th_tree_is_xml(tree) ? (opts->inner ? node : node->parent) : NULL;
+    opts = &context;
     sbuf_presize_for_root(&out, tree, node);
     if (indent == NULL || inner_preserves_text(tree, node, opts)) {
         serialize_compact(&out, tree, node, opts);
@@ -1038,6 +1043,9 @@ Py_UCS4 *th_node_serialize(th_tree *tree, th_node *node, const th_serialize_opts
 Py_UCS4 *th_node_serialize_chunk(th_tree *tree, th_node *root, const th_serialize_opts *opts, const Py_UCS4 *indent,
                                  Py_ssize_t indent_len, th_ser_cursor *cursor, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
+    th_serialize_opts context = *opts;
+    context.xml_boundary = opts->xml && th_tree_is_xml(tree) ? (opts->inner ? root : root->parent) : NULL;
+    opts = &context;
     /* one chunk grows to about TH_SERIALIZE_CHUNK before it is handed off, so size the
        buffer to that up front rather than let the doubling reserve walk 256 -> 8192 on
        every chunk (a node straddling the limit still forces at most one more grow) */
