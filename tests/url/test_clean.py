@@ -545,7 +545,7 @@ def test_a_relative_href_against_an_unsplittable_base_element_is_dropped() -> No
         pytest.param("foo:a\x01b", "foo:a%01b", id="opaque-path-encodes-control"),
         pytest.param("foo:é", "foo:%C3%A9", id="opaque-path-encodes-non-ascii"),
         pytest.param("foo:", "foo:", id="empty-opaque-path"),
-        pytest.param("foo:hello ?", "foo:hello%20", id="empty-query-marker-keeps-path-encoding"),
+        pytest.param("foo:hello ?", "foo:hello%20?", id="empty-query-marker-keeps-path-encoding"),
         pytest.param("foo:/hello world", "foo:/hello%20world", id="hierarchical-path-encodes-space"),
         pytest.param("foo:/a/../b", "foo:/b", id="hostless-non-special-dot-segment"),
         pytest.param("foo:/a/%2e%2e/b?x=1#f", "foo:/b?x=1#f", id="hostless-escaped-dot-segment"),
@@ -556,6 +556,27 @@ def test_a_relative_href_against_an_unsplittable_base_element_is_dropped() -> No
 )
 def test_normalize_spec_behaviors(url: str, expected: str) -> None:
     assert normalize_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("HTTPS://EXAMPLE.ORG/a?", "https://example.org/a?", id="empty-query"),
+        pytest.param("HTTPS://EXAMPLE.ORG/a#", "https://example.org/a#", id="empty-fragment"),
+        pytest.param("HTTPS://EXAMPLE.ORG/a?#", "https://example.org/a?#", id="both-empty"),
+        pytest.param("HTTPS://EXAMPLE.ORG/a?x#", "https://example.org/a?x#", id="empty-fragment-after-query"),
+        pytest.param("HTTPS://EXAMPLE.ORG/a?#x", "https://example.org/a?#x", id="empty-query-before-fragment"),
+        pytest.param("page x.html?", "page%20x.html?", id="relative-query"),
+        pytest.param("page x.html#", "page%20x.html#", id="relative-fragment"),
+        pytest.param("foo:hé?", "foo:h%C3%A9?", id="opaque-query"),
+    ],
+)
+def test_normalize_keeps_explicit_empty_markers(url: str, expected: str) -> None:
+    assert normalize_url(url) == expected
+
+
+def test_normalize_strip_fragment_drops_empty_marker() -> None:
+    assert normalize_url("https://example.org/a?#", UrlCleaning(strip_fragment=True)) == "https://example.org/a?"
 
 
 @pytest.mark.parametrize(

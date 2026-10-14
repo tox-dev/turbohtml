@@ -138,6 +138,8 @@ typedef struct {
     PyObject *part[TH_URL_PART_COUNT];
     int has_authority;
     int has_port;
+    int has_query;
+    int has_fragment;
     int kind;
     int special;
     int opaque_host;

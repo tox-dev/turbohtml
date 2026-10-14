@@ -906,6 +906,8 @@ int th_url_split(PyObject *arg, th_url_parts *out, int host_brackets_only) {
     }
     out->has_authority = netloc_start > body || netloc_end > netloc_start;
     out->has_port = auth.has_port;
+    out->has_query = query_at >= 0;
+    out->has_fragment = hash >= 0;
     out->kind = auth.kind;
     out->special = special;
     out->opaque_host = scheme_end > 0 && !special;

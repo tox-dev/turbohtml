@@ -301,18 +301,15 @@ static int scheme_is_special(PyObject *scheme) {
     }
 }
 
-/* Preserve explicit empty authorities and the default marker for special schemes. An empty query or fragment loses its
-   delimiter; a path behind an authority already has its leading slash. */
 static PyObject *unsplit(PyObject *scheme, PyObject *netloc, PyObject *path, PyObject *query, PyObject *fragment,
-                         int has_netloc) {
+                         int has_netloc, int has_query, int has_fragment) {
     int has_scheme = PyUnicode_GET_LENGTH(scheme) > 0;
     if (!has_netloc && has_scheme && scheme_is_special(scheme)) {
         has_netloc = 1;
     }
     const char *marker = has_netloc ? "//" : str_has_prefix(path, "//") ? "/." : "";
     return th_str_format("%U%s%s%U%U%s%U%s%U", scheme, has_scheme ? ":" : "", marker, netloc, path,
-                         PyUnicode_GET_LENGTH(query) > 0 ? "?" : "", query,
-                         PyUnicode_GET_LENGTH(fragment) > 0 ? "#" : "", fragment);
+                         has_query ? "?" : "", query, has_fragment ? "#" : "", fragment);
 }
 
 /* The path with a trailing slash run trimmed (any path but the root, and only without a query), the fold of
@@ -611,7 +608,12 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
             }
         }
     }
-    result = unsplit(scheme, netloc, path, query, fragment, has_netloc || parts->has_authority);
+    result = unsplit(scheme, netloc, path, query, fragment, has_netloc || parts->has_authority,
+                     PyUnicode_GET_LENGTH(query) > 0 ||
+                         (!web_only && parts->has_query && PyUnicode_GET_LENGTH(parts->part[TH_URL_QUERY]) == 0),
+                     PyUnicode_GET_LENGTH(fragment) > 0 ||
+                         (!web_only && !options->strict && !options->strip_fragment && parts->has_fragment &&
+                          PyUnicode_GET_LENGTH(parts->part[TH_URL_FRAGMENT]) == 0));
 done:
     Py_XDECREF(netloc);
     Py_XDECREF(path);

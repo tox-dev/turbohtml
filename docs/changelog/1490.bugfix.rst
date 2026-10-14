@@ -1,0 +1,1 @@
+Preserve explicit empty query and fragment markers when normalizing URLs.

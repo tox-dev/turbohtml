@@ -2169,7 +2169,7 @@ if TYPE_CHECKING:
         pytest.param("//host/a?q=1#f", "//host/a?q=1#f", id="scheme-relative"),
         pytest.param("a/b?x=1#f", "a/b?x=1#f", id="relative"),
         pytest.param("mailto:a@b.test", "mailto:a@b.test", id="opaque"),
-        pytest.param("http://example.test/?#", "http://example.test/", id="empty-delimiters"),
+        pytest.param("http://example.test/?#", "http://example.test/?#", id="empty-delimiters"),
         pytest.param("https://example.test/#?", "https://example.test/#?", id="query-mark-in-fragment"),
     ],
 )
