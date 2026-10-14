@@ -173,6 +173,31 @@ def test_facets(facets: str, base: str, value: str, ok: bool) -> None:  # ruff:i
         pytest.param(r"[\w-[\d]]", "1", False, id="builtin-class-subtract-digit"),
         pytest.param(r"[\d-[0-9]]", "\u0660", True, id="unicode-digit-subtract-ascii"),
         pytest.param(r"[\d-[0-9]]", "1", False, id="ascii-digit-subtracted"),
+        pytest.param(r"\p{Lu}", "A", True, id="category-uppercase"),
+        pytest.param(r"\p{Lu}", "a", False, id="category-uppercase-rejects-lowercase"),
+        pytest.param(r"\P{Lu}", "a", True, id="complement-category-lowercase"),
+        pytest.param(r"\P{Lu}", "A", False, id="complement-category-uppercase"),
+        pytest.param(r"\p{L}", "中", True, id="category-all-letters"),
+        pytest.param(r"\p{M}", "\u0300", True, id="category-all-marks"),
+        pytest.param(r"\p{N}", "²", True, id="category-all-numbers"),
+        pytest.param(r"\p{P}", "_", True, id="category-all-punctuation"),
+        pytest.param(r"\p{Z}", " ", True, id="category-all-separators"),
+        pytest.param(r"\p{S}", "😀", True, id="category-all-symbols"),
+        pytest.param(r"\p{C}", "\ue000", True, id="category-all-other"),
+        pytest.param(r"\p{Cn}", "\u0378", True, id="category-unassigned"),
+        pytest.param(r"\p{Lu}", "\U0001d400", True, id="category-supplementary-uppercase"),
+        pytest.param(r"[\p{Lu}a]", "a", True, id="category-class-union-literal"),
+        pytest.param(r"[\p{Lu}a]", "A", True, id="category-class-union-property"),
+        pytest.param(r"[\p{Lu}a]", "b", False, id="category-class-union-outside"),
+        pytest.param(r"[\p{Lu}\d]", "1", True, id="category-class-union-builtin"),
+        pytest.param(r"[^\p{Lu}]", "A", False, id="category-negated-class"),
+        pytest.param(r"[^a\p{Lu}]", "b", True, id="category-negated-class-with-range"),
+        pytest.param(r"[^a\p{Lu}]", "a", False, id="category-negated-class-range-rejects"),
+        pytest.param(r"[^a\p{Lu}]", "A", False, id="category-negated-class-property-rejects"),
+        pytest.param(r"[\p{L}-[\p{Lu}]]", "a", True, id="category-subtract-uppercase"),
+        pytest.param(r"[\p{L}-[\p{Lu}]]", "A", False, id="category-subtract-uppercase-rejects"),
+        pytest.param(r"[\p{L}-[\p{Lu}]]", "1", False, id="category-subtract-outside-base"),
+        pytest.param(r"[\P{Lu}]", "a", True, id="complement-category-in-class"),
         pytest.param(r"\d\s\w", "1 a", True, id="builtin-classes"),
         pytest.param(r"\d", "\u0660", True, id="digit-class-arabic-indic"),
         pytest.param(r"\d", "\u0966", True, id="digit-class-devanagari"),
@@ -234,6 +259,44 @@ def test_regex_pattern(pattern: str, value: str, ok: bool) -> None:  # ruff:igno
     assert check(restricted(f'<xs:pattern value="{pattern}"/>'), f"<v>{value}</v>").valid is ok
 
 
+@pytest.mark.parametrize(
+    ("category", "value"),
+    [
+        pytest.param("Cc", "\t", id="control"),
+        pytest.param("Cf", "\u00ad", id="format"),
+        pytest.param("Cn", "\u0378", id="unassigned"),
+        pytest.param("Co", "\ue000", id="private-use"),
+        pytest.param("Ll", "a", id="lowercase"),
+        pytest.param("Lm", "\u02b0", id="modifier-letter"),
+        pytest.param("Lo", "\u00aa", id="other-letter"),
+        pytest.param("Lt", "\u01c5", id="titlecase"),
+        pytest.param("Lu", "A", id="uppercase"),
+        pytest.param("Mc", "\u0903", id="spacing-mark"),
+        pytest.param("Me", "\u0488", id="enclosing-mark"),
+        pytest.param("Mn", "\u0300", id="nonspacing-mark"),
+        pytest.param("Nd", "0", id="decimal-digit"),
+        pytest.param("Nl", "\u16ee", id="letter-number"),
+        pytest.param("No", "²", id="other-number"),
+        pytest.param("Pc", "_", id="connector-punctuation"),
+        pytest.param("Pd", "-", id="dash-punctuation"),
+        pytest.param("Pe", ")", id="close-punctuation"),
+        pytest.param("Pf", "»", id="final-punctuation"),
+        pytest.param("Pi", "«", id="initial-punctuation"),
+        pytest.param("Po", "!", id="other-punctuation"),
+        pytest.param("Ps", "(", id="open-punctuation"),
+        pytest.param("Sc", "$", id="currency-symbol"),
+        pytest.param("Sk", "^", id="modifier-symbol"),
+        pytest.param("Sm", "+", id="math-symbol"),
+        pytest.param("So", "¦", id="other-symbol"),
+        pytest.param("Zl", "\u2028", id="line-separator"),
+        pytest.param("Zp", "\u2029", id="paragraph-separator"),
+        pytest.param("Zs", " ", id="space-separator"),
+    ],
+)
+def test_regex_category_property(category: str, value: str) -> None:
+    assert check(restricted(f'<xs:pattern value="\\p{{{category}}}"/>'), f"<v>{value}</v>").valid
+
+
 _NESTING_ERROR: Final[str] = (
     "schema pattern nests groups deeper than 250 levels at offset 250; flatten the nested groups"
 )
@@ -252,6 +315,14 @@ _STATES_ERROR: Final[str] = (
             "schema pattern nests character classes deeper than 250 levels at offset 752; flatten the class",
             id="class-subtraction-nesting-one-past-cap",
         ),
+        pytest.param(r"\p{Bad}", "schema pattern has an invalid category escape at offset 3", id="invalid-category"),
+        pytest.param(r"\p{Cs}", "schema pattern has an invalid category escape at offset 3", id="surrogate-category"),
+        pytest.param(
+            r"[\p{Bad}]", "schema pattern has an invalid category escape at offset 4", id="invalid-category-in-class"
+        ),
+        pytest.param(r"\p{Lu", "schema pattern has an invalid category escape at offset 3", id="open-category"),
+        pytest.param(r"\p", "schema pattern has an invalid category escape at offset 2", id="bare-category"),
+        pytest.param(r"\pa", "schema pattern has an invalid category escape at offset 2", id="category-without-braces"),
         pytest.param("(a{5000}){5000}", _STATES_ERROR, id="repeat-product"),
         pytest.param("(a{0,3000}){0,3000}", _STATES_ERROR, id="optional-repeat-product"),
         pytest.param("a{999999999999}", _STATES_ERROR, id="huge-count"),
