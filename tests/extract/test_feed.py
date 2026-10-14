@@ -458,6 +458,54 @@ def test_feed_xml_document_method() -> None:
     assert parse_xml(XML_RSS).feed() == XML_RSS_FEED
 
 
+def test_feed_atom_nested_xml_bases_resolve_links() -> None:
+    xml = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xml:base="https://example.org/a/">'
+        '<link href="b"/><entry xml:base="../posts/"><link href="c#part"/></entry></feed>'
+    )
+    result = parse_feed(xml)
+    assert (result.link, result.entries[0].link) == ("https://example.org/a/b", "https://example.org/posts/c#part")
+
+
+def test_feed_atom_link_xml_base_overrides_parent() -> None:
+    xml = '<feed xml:base="https://example.org/a/"><link xml:base="https://cdn.example/b/" href="c"/></feed>'
+    assert parse_feed(xml).link == "https://cdn.example/b/c"
+
+
+def test_feed_rss_xml_base_resolves_link_text() -> None:
+    xml = '<rss xml:base="https://example.org/a/"><channel><link>b</link><item><link>c</link></item></channel></rss>'
+    result = parse_feed(xml)
+    assert (result.link, result.entries[0].link) == ("https://example.org/a/b", "https://example.org/a/c")
+
+
+def test_feed_rdf_xml_base_resolves_link_text() -> None:
+    xml = (
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xml:base="https://example.org/a/">'
+        "<channel><link>b</link></channel><item><link>c</link></item></rdf:RDF>"
+    )
+    result = parse_feed(xml)
+    assert (result.link, result.entries[0].link) == ("https://example.org/a/b", "https://example.org/a/c")
+
+
+def test_feed_atom_relative_xml_base_keeps_relative_link() -> None:
+    xml = '<feed xml:base="../a/"><link href="b"/></feed>'
+    assert parse_feed(xml).link == "a/b"
+
+
+@pytest.mark.parametrize(
+    ("href", "expected"),
+    [
+        pytest.param("/b", "https://example.org/b", id="absolute-path"),
+        pytest.param("v1:b", "v1:b", id="digit-in-scheme"),
+        pytest.param("a+b:c", "a+b:c", id="plus-in-scheme"),
+        pytest.param("a.b:c", "a.b:c", id="dot-in-scheme"),
+    ],
+)
+def test_feed_xml_base_respects_reference_schemes(href: str, expected: str) -> None:
+    xml = f'<feed xml:base="https://example.org/a/"><link href="{href}"/></feed>'
+    assert parse_feed(xml).link == expected
+
+
 def test_feed_xml_guid_permalink_false_is_not_a_link() -> None:
     xml = '<rss><channel><item><guid isPermaLink="false">urn:x</guid></item></channel></rss>'
     assert parse_xml(xml).feed() == Feed(

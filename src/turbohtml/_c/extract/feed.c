@@ -177,6 +177,52 @@ static PyObject *link_text(th_tree *tree, th_node *link) {
     return text;
 }
 
+static PyObject *resolve_link_xml_base(th_tree *tree, th_node *link, PyObject *url) {
+    if (!th_tree_is_xml(tree)) {
+        return url;
+    }
+    int kind = PyUnicode_KIND(url);
+    const void *data = PyUnicode_DATA(url);
+    if (is_ascii_alpha(PyUnicode_READ(kind, data, 0))) {
+        for (Py_ssize_t index = 1; index < PyUnicode_GET_LENGTH(url); index++) {
+            Py_UCS4 point = PyUnicode_READ(kind, data, index);
+            if (point == ':') {
+                return url;
+            }
+            if (!is_ascii_alpha(point) && !is_ascii_digit(point) && point != '+' && point != '-' && point != '.') {
+                break;
+            }
+        }
+    }
+    PyObject *base_uri = NULL;
+    for (th_node *node = link; node != NULL; node = node->parent) {
+        if (node->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        Py_ssize_t index = th_node_attr_find(tree, node, "xml:base", 8);
+        if (index < 0) {
+            continue;
+        }
+        th_node_attr *attr = &node->attrs[index];
+        PyObject *joined = base_uri == NULL
+                               ? PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attr->value, attr->value_len)
+                               : th_url_join_c14n_raw(attr->value, attr->value_len, base_uri);
+        Py_XDECREF(base_uri);
+        if (joined == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            Py_DECREF(url);   /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        base_uri = joined;
+    }
+    if (base_uri == NULL) {
+        return url;
+    }
+    PyObject *result = th_url_join(base_uri, url);
+    Py_DECREF(base_uri);
+    Py_DECREF(url);
+    return result;
+}
+
 /* The permalink URL of `parent`: the first Atom <link rel="alternate"> href, else the first RSS/RDF <link>'s text,
    else the first non-alternate Atom href as a fallback, else None. NULL only on the excluded allocation-failure
    path. */
@@ -191,6 +237,11 @@ static PyObject *extract_link(th_tree *tree, th_node *parent) {
         }
         PyObject *href = link_href(tree, child);
         if (href != NULL) {
+            href = resolve_link_xml_base(tree, child, href);
+            if (href == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation failure */
+                Py_XDECREF(fallback); /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
             if (link_is_alternate(tree, child)) {
                 Py_XDECREF(fallback);
                 return href;
@@ -209,7 +260,7 @@ static PyObject *extract_link(th_tree *tree, th_node *parent) {
         }
         if (PyUnicode_GET_LENGTH(text) > 0) {
             Py_XDECREF(fallback);
-            return text;
+            return resolve_link_xml_base(tree, child, text);
         }
         Py_DECREF(text);
     }

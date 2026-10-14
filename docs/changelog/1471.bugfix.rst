@@ -1,0 +1,1 @@
+Resolve feed links against nested `xml:base` values in XML feeds, including Atom and RSS links.
