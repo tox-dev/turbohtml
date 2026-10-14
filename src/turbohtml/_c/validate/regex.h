@@ -11,6 +11,7 @@
 #ifndef TURBOHTML_VALIDATE_REGEX_H
 #define TURBOHTML_VALIDATE_REGEX_H
 
+#include "data/xsd_digit_table.h"
 #include "data/xsd_word_table.h"
 
 /* Bounds that keep an adversarial pattern from exhausting the C stack or memory. The quantifier compiler is iterative,
@@ -509,6 +510,20 @@ static int rx_word_match(Py_UCS4 codepoint) {
     return (TH_WORD_MIXED_BITS[kind - 2][(codepoint / 64) % 4] & (UINT64_C(1) << (codepoint % 64))) != 0;
 }
 
+static int rx_digit_match(Py_UCS4 codepoint) {
+    if (is_digit(codepoint)) {
+        return 1;
+    }
+    if (codepoint < 128) {
+        return 0;
+    }
+    uint8_t kind = TH_DIGIT_PAGE_KIND[codepoint / 256];
+    if (kind == 0) {
+        return 0;
+    }
+    return (TH_DIGIT_MIXED_BITS[kind - 2][(codepoint / 64) % 4] & (UINT64_C(1) << (codepoint % 64))) != 0;
+}
+
 static int rx_class_match(const rclass *cls, Py_UCS4 codepoint) {
     int inside = 0;
     for (Py_ssize_t index = 0; index < cls->range_count; index++) {
@@ -516,7 +531,7 @@ static int rx_class_match(const rclass *cls, Py_UCS4 codepoint) {
             inside = 1;
         }
     }
-    int is_d = is_digit(codepoint);
+    int is_d = (cls->builtins & (RX_BD | RX_ND)) != 0 && rx_digit_match(codepoint);
     int is_w = (cls->builtins & (RX_BW | RX_NW)) != 0 && rx_word_match(codepoint);
     int is_s = is_xml_space(codepoint);
     int is_i = (cls->builtins & (RX_BI | RX_NI)) != 0 && is_name_start(codepoint);
@@ -564,9 +579,9 @@ static int rx_state_match(const rstate *state, Py_UCS4 codepoint) {
     if (state->mkind == RN_BUILTIN) {
         switch (state->ch) {
         case RX_BD:
-            return is_digit(codepoint);
+            return rx_digit_match(codepoint);
         case RX_ND:
-            return !is_digit(codepoint);
+            return !rx_digit_match(codepoint);
         case RX_BW:
             return rx_word_match(codepoint);
         case RX_NW:
