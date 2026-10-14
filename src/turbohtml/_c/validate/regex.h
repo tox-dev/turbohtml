@@ -11,6 +11,8 @@
 #ifndef TURBOHTML_VALIDATE_REGEX_H
 #define TURBOHTML_VALIDATE_REGEX_H
 
+#include "data/xsd_word_table.h"
+
 /* Bounds that keep an adversarial pattern from exhausting the C stack or memory. The quantifier compiler is iterative,
    so any repeat count is stack-safe and only the total NFA state count is bounded. Group nesting drives the recursive
    parser, so it takes the 250 levels PCRE2 (PARENS_NEST_LIMIT) and Rust's regex-syntax (nest_limit) allow for the
@@ -490,6 +492,17 @@ static rstate *rx_compile(rcompiler *compiler, rnode *node, rstate *out) {
     }
 }
 
+static int rx_word_match(Py_UCS4 codepoint) {
+    if (codepoint < 128) {
+        return (TH_WORD_ASCII_BITS[codepoint / 64] & (UINT64_C(1) << (codepoint % 64))) != 0;
+    }
+    uint8_t kind = TH_WORD_PAGE_KIND[codepoint / 256];
+    if (kind < 2) {
+        return kind;
+    }
+    return (TH_WORD_MIXED_BITS[kind - 2][(codepoint / 64) % 4] & (UINT64_C(1) << (codepoint % 64))) != 0;
+}
+
 static int rx_class_match(const rclass *cls, Py_UCS4 codepoint) {
     int inside = 0;
     for (Py_ssize_t index = 0; index < cls->range_count; index++) {
@@ -498,8 +511,7 @@ static int rx_class_match(const rclass *cls, Py_UCS4 codepoint) {
         }
     }
     int is_d = is_digit(codepoint);
-    /* Schema regex word characters include code points outside XML NameChar. */
-    int is_w = is_ascii_alpha(codepoint) || is_digit(codepoint) || codepoint == '_' || codepoint >= 0x80;
+    int is_w = (cls->builtins & (RX_BW | RX_NW)) != 0 && rx_word_match(codepoint);
     int is_s = is_xml_space(codepoint);
     if ((cls->builtins & RX_BD) && is_d) {
         inside = 1;

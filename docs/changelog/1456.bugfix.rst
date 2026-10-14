@@ -1,0 +1,2 @@
+Match XML Schema regex ``\w`` and ``\W`` using Unicode general categories instead of treating every non-ASCII character
+as a word character.
