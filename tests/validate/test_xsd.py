@@ -384,6 +384,7 @@ def test_regex_invalid_class_raises(pattern: str) -> None:
     [
         pytest.param(r"\q", 0, id="unknown-atom-escape"),
         pytest.param(r"a\q", 1, id="unknown-atom-escape-after-literal"),
+        pytest.param(r"(a\q)", 2, id="unknown-escape-in-group"),
         pytest.param(r"[a\q]", 2, id="unknown-class-escape"),
         pytest.param(r"\u0041", 0, id="nonstandard-unicode-escape"),
         pytest.param("\\Ā", 0, id="nonascii-escape"),
@@ -392,6 +393,23 @@ def test_regex_invalid_class_raises(pattern: str) -> None:
 )
 def test_regex_invalid_escape_raises(pattern: str, offset: int) -> None:
     with pytest.raises(ValueError, match=rf"^schema pattern has an invalid escape at offset {offset}$"):
+        XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
+
+
+@pytest.mark.parametrize(
+    ("pattern", "offset"),
+    [
+        pytest.param("(", 0, id="open-only"),
+        pytest.param("(ab", 0, id="unclosed"),
+        pytest.param("((ab)", 0, id="unclosed-outer"),
+        pytest.param(")", 0, id="close-only"),
+        pytest.param("a)", 1, id="unmatched-close"),
+        pytest.param("a)b", 1, id="discarded-suffix"),
+        pytest.param("(a))", 3, id="extra-close"),
+    ],
+)
+def test_regex_unmatched_parenthesis_raises(pattern: str, offset: int) -> None:
+    with pytest.raises(ValueError, match=rf"^schema pattern has an unmatched parenthesis at offset {offset}$"):
         XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
 
 
@@ -1221,7 +1239,6 @@ def test_datatype_name_boundaries(type_name: str, value: str, ok: bool) -> None:
     ("pattern", "value", "ok"),
     [
         pytest.param("[a-]", "-", True, id="dash-before-close"),
-        pytest.param("(ab", "ab", True, id="group-unterminated"),
         pytest.param(r"a\\", "a", False, id="backslash-at-end"),
         pytest.param("a{2}", "aa", True, id="bound-exact-close"),
         pytest.param("a{2,3}", "aaa", True, id="bound-comma-upper"),

@@ -31,7 +31,8 @@ enum {
     RX_FAIL_PROPERTY,
     RX_FAIL_RANGE,
     RX_FAIL_CLASS,
-    RX_FAIL_ESCAPE
+    RX_FAIL_ESCAPE,
+    RX_FAIL_GROUP
 };
 #define RX_MAX_STATES 2000000
 #define RX_CATEGORY_ALL ((UINT64_C(1) << 30) - 1)
@@ -381,6 +382,7 @@ static rnode *rx_builtin_node(rparser *parser, int flag) {
 static rnode *rx_parse_atom(rparser *parser) {
     Py_UCS4 current = parser->pattern[parser->pos];
     if (current == '(') {
+        Py_ssize_t start = parser->pos;
         if (parser->depth >= RX_MAX_GROUP_DEPTH) {
             parser->failed = RX_FAIL_NESTING;
             parser->fail_pos = parser->pos;
@@ -390,10 +392,15 @@ static rnode *rx_parse_atom(rparser *parser) {
         parser->depth++;
         rnode *inner = rx_parse_alt(parser);
         parser->depth--;
-        /* rx_parse_alt stops at ')' or end of input, so a remaining char here is the ')' */
-        if (parser->pos < parser->len) {
-            parser->pos++;
+        if (inner == NULL) {
+            return NULL;
         }
+        if (parser->pos >= parser->len) {
+            parser->failed = RX_FAIL_GROUP;
+            parser->fail_pos = start;
+            return NULL;
+        }
+        parser->pos++;
         return inner;
     }
     if (current == '[') {
@@ -828,6 +835,10 @@ static int regex_cache_add(th_schema *schema, const Py_UCS4 *text, Py_ssize_t le
     }
     rparser parser = {.pattern = text, .len = len, .mem = &schema->mem};
     rnode *ast = rx_parse_alt(&parser);
+    if (!parser.failed && parser.pos < len) {
+        parser.failed = RX_FAIL_GROUP;
+        parser.fail_pos = parser.pos;
+    }
     rcompiler compiler = {.mem = &schema->mem};
     rstate *start = parser.failed ? NULL : rx_compile(&compiler, ast, rx_state(&compiler, RS_ACCEPT));
     const int failed = parser.failed ? parser.failed : compiler.failed;
@@ -861,6 +872,10 @@ static int regex_cache_add(th_schema *schema, const Py_UCS4 *text, Py_ssize_t le
     }
     if (failed == RX_FAIL_ESCAPE) {
         PyErr_Format(PyExc_ValueError, "schema pattern has an invalid escape at offset %zd", parser.fail_pos);
+        return -1;
+    }
+    if (failed == RX_FAIL_GROUP) {
+        PyErr_Format(PyExc_ValueError, "schema pattern has an unmatched parenthesis at offset %zd", parser.fail_pos);
         return -1;
     }
     if (failed == RX_FAIL_BOUND) {
