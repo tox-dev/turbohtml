@@ -44,6 +44,62 @@ def test_parse_declarations_last_duplicate_wins() -> None:
     assert len(declaration) == 1
 
 
+@pytest.mark.parametrize("name", ["color", "COLOR", "CoLoR"])
+def test_declaration_standard_property_names_ignore_ascii_case(name: str) -> None:
+    declaration = StyleDeclaration.parse("COLOR: red !important; color: blue")
+    assert (declaration.get(name), declaration[name], declaration.important(name), name in declaration) == (
+        "red",
+        "red",
+        True,
+        True,
+    )
+
+
+def test_declaration_standard_property_name_is_lowercase() -> None:
+    declaration = StyleDeclaration.parse("COLOR: red")
+    assert (declaration.properties(), declaration.text) == (("color",), "color: red")
+
+
+def test_declaration_single_dash_property_name_is_lowercase() -> None:
+    declaration = StyleDeclaration.parse("-X: red")
+    assert declaration.properties() == ("-x",)
+
+
+def test_declaration_standard_property_name_folds_only_ascii() -> None:
+    declaration = StyleDeclaration.parse("ÉX: red")
+    assert (declaration.properties(), declaration.get("ÉX"), declaration.get("éx")) == (("Éx",), "red", None)
+
+
+def test_declaration_custom_property_names_keep_case() -> None:
+    declaration = StyleDeclaration.parse("--X: 1; --x: 2")
+    assert (declaration.properties(), declaration.get("--X"), declaration.get("--x")) == (("--X", "--x"), "1", "2")
+
+
+def test_declaration_custom_property_lookup_keeps_case() -> None:
+    declaration = StyleDeclaration.parse("--X: 1")
+    assert declaration.get("--x") is None
+
+
+def test_declaration_escaped_uppercase_name_keeps_priority() -> None:
+    declaration = StyleDeclaration.parse(r"\43 OLOR: red !important; color: blue")
+    assert (declaration.get("COLOR"), declaration.important("color")) == ("red", True)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("color: red !important; color: blue", "red", id="earlier-important"),
+        pytest.param("color: red; color: blue !important", "blue", id="later-important"),
+        pytest.param("color: red !important; color: blue !important", "blue", id="later-important-tie"),
+        pytest.param("color: red; color: blue; width: 1px !important", "blue", id="unrelated-important"),
+        pytest.param("--X: red !important; --X: blue", "red", id="custom-important"),
+    ],
+)
+def test_declaration_duplicate_priority(source: str, expected: str) -> None:
+    name = "--X" if source.startswith("--") else "color"
+    assert StyleDeclaration.parse(source)[name] == expected
+
+
 def test_declaration_missing_property() -> None:
     declaration = StyleDeclaration.parse("color: red")
     assert declaration.get("width") is None
@@ -576,9 +632,9 @@ def test_computed_style_ignores_unknown_property() -> None:
         pytest.param(r"\63: red", "c", id="hex-escape-at-name-end"),
         pytest.param(r"\63 1: red", "c1", id="hex-escape-consumes-one-space"),
         pytest.param(r"\0000631: red", "c1", id="hex-escape-stops-at-six-digits"),
-        pytest.param(r"\4A: red", "J", id="uppercase-hex-escape"),
+        pytest.param(r"\4A: red", "j", id="uppercase-hex-escape"),
         pytest.param("\\63\r\nolor: red", "color", id="hex-escape-consumes-crlf"),
-        pytest.param("\\63\rX: red", "cX", id="hex-escape-consumes-lone-cr"),
+        pytest.param("\\63\rX: red", "cx", id="hex-escape-consumes-lone-cr"),
         pytest.param("co\\\x00lor: red", "co\ufffdlor", id="escaped-null"),
         pytest.param(r"\ : red", " ", id="escaped-space-name"),
         pytest.param(r" \63 olor  : red", "color", id="surrounding-whitespace"),

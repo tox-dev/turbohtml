@@ -40,7 +40,7 @@ class StyleDeclaration:
     A read-only block of CSS declarations, the turbohtml spelling of CSSOM's ``CSSStyleDeclaration``.
 
     Each declaration keeps its property name, value, and ``!important`` flag in source order. A property may appear more
-    than once (a later duplicate wins, as the cascade would resolve it); :meth:`get` and indexing return the winning
+    than once (an important declaration wins, then the later duplicate); :meth:`get` and indexing return the winning
     value, while iteration and :meth:`properties` visit each distinct property once, in first-seen order.
     """
 
@@ -70,7 +70,7 @@ class StyleDeclaration:
         :returns: the property value, or ``default``.
         """
         index = self._last.get(name)
-        return default if index is None else self._items[index][1]
+        return self._items[index][1] if index is not None else self._fallback_value(name, default)
 
     def important(self, name: str) -> bool:
         """
@@ -80,7 +80,7 @@ class StyleDeclaration:
         :returns: whether the property is set and marked important.
         """
         index = self._last.get(name)
-        return index is not None and self._items[index][2]
+        return self._items[index][2] if index is not None else self._fallback_important(name)
 
     def properties(self) -> tuple[str, ...]:
         """
@@ -99,12 +99,33 @@ class StyleDeclaration:
         """Return a property's winning value, raising :class:`KeyError` when it is not set."""
         index = self._last.get(name)
         if index is None:
-            raise KeyError(name)
+            return self._missing_value(name)
         return self._items[index][1]
 
     def __contains__(self, name: str) -> bool:
         """Return whether a property is set."""
-        return name in self._last
+        return name in self._last or self._fallback_index(name) is not None
+
+    def _fallback_index(self, name: str) -> int | None:
+        if name.startswith("--"):
+            return None
+        if name.isascii():
+            return self._last.get(name.lower())
+        return self._last.get("".join(chr(ord(char) + 32) if "A" <= char <= "Z" else char for char in name))
+
+    def _fallback_value(self, name: str, default: str | None) -> str | None:
+        index = self._fallback_index(name)
+        return default if index is None else self._items[index][1]
+
+    def _fallback_important(self, name: str) -> bool:
+        index = self._fallback_index(name)
+        return index is not None and self._items[index][2]
+
+    def _missing_value(self, name: str) -> str:
+        index = self._fallback_index(name)
+        if index is None:
+            raise KeyError(name)
+        return self._items[index][1]
 
     def __iter__(self) -> Iterator[str]:
         """Iterate the distinct property names, in first-seen order."""

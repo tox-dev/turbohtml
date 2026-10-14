@@ -1,0 +1,2 @@
+Resolve CSS declaration names without ASCII case differences, while preserving custom-property case and ``!important``
+precedence over later normal declarations.
