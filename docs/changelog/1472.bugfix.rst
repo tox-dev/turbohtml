@@ -1,0 +1,2 @@
+Resolve CSS-wide keywords across every supported longhand of ``border``, ``border-*``, and ``outline``. Apply ``all`` to
+supported properties except ``direction``, while preserving cascade order and importance.

@@ -238,6 +238,22 @@ static int css_slice_ci_eq(const Py_UCS4 *data, Py_ssize_t len, const char *word
     return word[len] == '\0';
 }
 
+static int css_wide_keyword(const Py_UCS4 *value, Py_ssize_t len) {
+    if (len < 5) {
+        return 0;
+    }
+    switch (css_lower(value[0])) {
+    case 'i':
+        return css_slice_ci_eq(value, len, "inherit") || css_slice_ci_eq(value, len, "initial");
+    case 'u':
+        return css_slice_ci_eq(value, len, "unset");
+    case 'r':
+        return css_slice_ci_eq(value, len, "revert") || css_slice_ci_eq(value, len, "revert-layer");
+    default:
+        return 0;
+    }
+}
+
 /* Three-way ASCII case-insensitive compare of a code-point slice against a lowercase C
    string, ordering the lowercased slice lexicographically: <0, 0, or >0. */
 static int css_slice_ci_cmp(const Py_UCS4 *data, Py_ssize_t len, const char *word) {
@@ -990,6 +1006,13 @@ static int css_apply_distributive(css_slot slots[NUM_PROPS], const css_decl *dec
         if (part_count > shorthand->axes || pos < decl->value_len) {
             return 1;
         }
+        if (part_count > 1) {
+            for (int part = 0; part < part_count; part++) {
+                if (css_wide_keyword(parts[part], part_lens[part])) {
+                    return 1;
+                }
+            }
+        }
         for (int side = 0; side < shorthand->axes; side++) {
             /* the 1-to-4 rule: 1 value fills all, 2 splits opposite pairs, 3 sets the
                fourth from the second, 4 is verbatim; overflow's 2 axes mirror the same */
@@ -1020,11 +1043,20 @@ static int css_apply_box(css_slot slots[NUM_PROPS], const css_decl *decl, const 
         if (!css_slice_ci_eq(decl->name, decl->name_len, shorthand->name)) {
             continue;
         }
+        if (css_wide_keyword(decl->value, decl->value_len)) {
+            for (int target = 0; target < shorthand->target_count; target++) {
+                css_set_slot(slots, shorthand->targets[target].prop, decl->value, decl->value_len, rank);
+            }
+            return 1;
+        }
         css_span components[3] = {CSS_COMPONENT_INITIAL[0], CSS_COMPONENT_INITIAL[1], CSS_COMPONENT_INITIAL[2]};
         int seen[3] = {0, 0, 0};
         Py_ssize_t pos = 0;
         while (pos < decl->value_len) {
             Py_ssize_t stop = css_component_end(decl->value, pos, decl->value_len);
+            if (css_wide_keyword(decl->value + pos, stop - pos)) {
+                return 1;
+            }
             int kind = css_classify_component(decl->value + pos, stop - pos);
             if (seen[kind]) {
                 return 1;
@@ -1050,6 +1082,16 @@ static int css_apply_box(css_slot slots[NUM_PROPS], const css_decl *decl, const 
 static void css_apply_decl(css_slot slots[NUM_PROPS], const css_decl *decl, int inline_style, int spec_a, int spec_b,
                            int spec_c, long order) {
     css_slot rank = {NULL, 0, decl->important, inline_style, spec_a, spec_b, spec_c, order, 1};
+    if (decl->name_len == 3 && css_slice_ci_eq(decl->name, decl->name_len, "all")) {
+        if (css_wide_keyword(decl->value, decl->value_len)) {
+            for (int prop = 0; prop < NUM_PROPS; prop++) {
+                if (prop != PROP_DIRECTION) {
+                    css_set_slot(slots, prop, decl->value, decl->value_len, &rank);
+                }
+            }
+        }
+        return;
+    }
     int direct = css_prop_id(decl->name, decl->name_len);
     if (direct >= 0) {
         css_set_slot(slots, direct, decl->value, decl->value_len, &rank);
@@ -1108,8 +1150,9 @@ static int css_resolve(css_value *out, const css_slot *slot, const css_value *pa
         if (css_slice_ci_eq(value, len, "initial")) {
             return css_value_set_ascii(out, meta->initial, meta->initial_len);
         }
-        if (css_slice_ci_eq(value, len, "unset") || css_slice_ci_eq(value, len, "revert")) {
-            /* revert has no user/UA origin to fall back to here, so it collapses to unset */
+        if (css_slice_ci_eq(value, len, "unset") || css_slice_ci_eq(value, len, "revert") ||
+            css_slice_ci_eq(value, len, "revert-layer")) {
+            /* no user/UA origin or layers exist here, so both rollback keywords act as unset */
             if (meta->inherited && inherited != NULL) {
                 return css_value_set_slice(out, inherited->data, inherited->len);
             }

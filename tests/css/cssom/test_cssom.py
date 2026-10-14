@@ -573,6 +573,55 @@ def test_computed_style_shorthand_does_not_override_higher_priority_longhand() -
     assert style["margin-right"] == "5px"
 
 
+@pytest.mark.parametrize("keyword", ["inherit", "initial", "unset", "revert", "revert-layer"])
+def test_computed_style_border_css_wide_keyword_sets_every_longhand(keyword: str) -> None:
+    document = parse(f"<div style='border: 3px dashed blue'><p style='border: {keyword}'></p></div>")
+    paragraph = document.select_one("p")
+    assert isinstance(paragraph, Element)
+    style = computed_style(paragraph)
+    expected = ("3px", "dashed", "blue") if keyword == "inherit" else ("medium", "none", "currentcolor")
+    for side in ("top", "right", "bottom", "left"):
+        assert (style[f"border-{side}-width"], style[f"border-{side}-style"], style[f"border-{side}-color"]) == expected
+
+
+@pytest.mark.parametrize("shorthand", ["border", "border-top", "outline"])
+def test_computed_style_css_wide_keyword_cannot_mix_with_components(shorthand: str) -> None:
+    style = _style(f"<div style='{shorthand}: inherit solid'></div>")
+    assert style[f"{shorthand if shorthand != 'border' else 'border-top'}-style"] == "none"
+
+
+def test_computed_style_distributive_css_wide_keyword_cannot_mix_with_components() -> None:
+    style = _style("<div style='margin: inherit 2px'></div>")
+    assert (style["margin-top"], style["margin-right"]) == ("0", "0")
+
+
+def test_computed_style_all_resets_supported_properties_except_direction() -> None:
+    style = _style("<div style='color: red; margin: 9px; direction: rtl; all: initial'></div>")
+    assert (style["color"], style["margin-top"], style["direction"]) == ("canvastext", "0", "rtl")
+
+
+def test_computed_style_all_obeys_source_order_and_importance() -> None:
+    style = _style("<div style='color: red !important; all: initial; margin: 9px'></div>")
+    assert (style["color"], style["margin-top"]) == ("red", "9px")
+
+
+def test_computed_style_all_inherit_and_unset() -> None:
+    document = parse(
+        "<div style='color: red; margin: 9px'><p style='all: inherit'></p><b style='all: unset'></b></div>"
+    )
+    paragraph = document.select_one("p")
+    bold = document.select_one("b")
+    assert isinstance(paragraph, Element)
+    assert isinstance(bold, Element)
+    assert (computed_style(paragraph)["color"], computed_style(paragraph)["margin-top"]) == ("red", "9px")
+    assert (computed_style(bold)["color"], computed_style(bold)["margin-top"]) == ("red", "0")
+
+
+def test_computed_style_all_rejects_non_keyword_value() -> None:
+    style = _style("<div style='color: red; all: blue'></div>")
+    assert style["color"] == "red"
+
+
 def test_computed_style_important_keyword_is_a_value_when_not_flagged() -> None:
     assert _style("<div></div>", css="div { color: red important }")["color"] == "red important"
 

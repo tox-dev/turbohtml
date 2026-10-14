@@ -25,16 +25,17 @@ For each element the cascade gathers every declaration that could apply and pick
   the user-agent default.
 - **Resolution.** The winning value is then resolved against the element's parent: ``inherit`` (and an unset inherited
   property) takes the parent's computed value, ``initial`` takes the property's initial value, and ``unset`` and
-  ``revert`` collapse to one of those. Properties are inherited by walking the ancestor chain from the root down, so a
-  parent is always computed before its child.
+  ``revert`` and ``revert-layer`` collapse to one of those. Properties are inherited by walking the ancestor chain from
+  the root down, so a parent is always computed before its child.
 
 Shorthands are expanded before the sort. The distributive ones split by the 1-to-4 rule -- ``margin: 1px 2px`` becomes
 the four ``margin-*`` longhands, ``border-color`` splits across the four sides, and ``overflow`` fills ``overflow-x``
 and ``overflow-y``. The ``<line-width> || <line-style> || <color>`` shorthands (``border``, each ``border-<side>``, and
 ``outline``) classify their components by shape rather than position, so they accept any order and any omission, and
 they reset every longhand they cover -- an omitted component to that property's initial value, which is why a later
-``border`` overrides an earlier ``border-top-color`` it does not restate. A computed style therefore only ever exposes
-longhands, never a shorthand.
+``border`` overrides an earlier ``border-top-color`` it does not restate. A CSS-wide keyword on a shorthand applies to
+every longhand it covers. ``all`` applies such a keyword to every supported property except ``direction``. A computed
+style therefore only ever exposes longhands, never a shorthand.
 
 **********************************
  Computed values, not used values
