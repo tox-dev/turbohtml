@@ -1,0 +1,1 @@
+Match XML Schema regex Unicode block escapes, including complements and character classes.

@@ -335,8 +335,9 @@ builtin = "clear,usage,en-GB_to_en-US"
 # opps (the _minify_js PyArg_ParseTuple format "Opps"), fo/nd/te (ISO 639-1 codes in the URL language filter),
 # januar/februar/juni/juli/oktober/dezember (German month names in the date extractor's vocabulary),
 # shttp (a scheme in urllib's uses_relative list the URL join guard mirrors)
+# Tham and Vai (Unicode block names)
 ignore-words-list = """\
-  caf,notin,afe,hava,vave,grey,forin,opps,fo,nd,te,januar,februar,juni,juli,oktober,dezember,tha,shttp\
+  caf,notin,afe,hava,vave,grey,forin,opps,fo,nd,te,januar,februar,juni,juli,oktober,dezember,tha,shttp,tham,vai\
   """
 skip = """\
   */html_generation_tables.py,*/css_generation_tables.py,*/html_entities.h,*/tag_atom.h,*/entity_names.h,*/tld_table.h,\

@@ -13,6 +13,7 @@
 
 #include "data/xsd_digit_table.h"
 #include "data/xsd_category_table.h"
+#include "data/xsd_block_table.h"
 #include "data/xsd_word_table.h"
 
 /* Bounds that keep an adversarial pattern from exhausting the C stack or memory. The quantifier compiler is iterative,
@@ -195,6 +196,42 @@ static uint64_t rx_category_mask(const Py_UCS4 *name, Py_ssize_t len) {
     return mask;
 }
 
+static int rx_add_block(rparser *parser, rclass *cls, const Py_UCS4 *name, Py_ssize_t len, int complement) {
+    if (len < 3 || name[0] != 'I' || name[1] != 's') {
+        return 0;
+    }
+    uint32_t cursor = 0;
+    int found = 0;
+    for (size_t index = 0; index < sizeof(TH_XSD_BLOCKS) / sizeof(TH_XSD_BLOCKS[0]); index++) {
+        const th_xsd_block *block = &TH_XSD_BLOCKS[index];
+        const char *candidate = block->name;
+        Py_ssize_t offset = 2;
+        while (offset < len && candidate[offset - 2] != '\0' && name[offset] == (Py_UCS4)candidate[offset - 2]) {
+            offset++;
+        }
+        if (offset != len || candidate[offset - 2] != '\0') {
+            continue;
+        }
+        if (!complement) {
+            if (rx_range_push(parser, cls, block->lo, block->hi) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+                return -1;                                              /* GCOVR_EXCL_LINE */
+            }
+        } else if (cursor < block->lo) {
+            if (rx_range_push(parser, cls, cursor, block->lo - 1) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+                return -1;                                               /* GCOVR_EXCL_LINE */
+            }
+        }
+        cursor = block->hi + 1;
+        found = 1;
+    }
+    if (found && complement && cursor <= 0x10FFFF) {
+        if (rx_range_push(parser, cls, cursor, 0x10FFFF) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return -1;                                          /* GCOVR_EXCL_LINE */
+        }
+    }
+    return found;
+}
+
 static int rx_parse_property(rparser *parser, rclass *cls, Py_UCS4 letter) {
     Py_ssize_t start = parser->pos;
     if (start < parser->len && parser->pattern[start] == '{') {
@@ -209,6 +246,14 @@ static int rx_parse_property(rparser *parser, rclass *cls, Py_UCS4 letter) {
                 cls->category_mask |= letter == 'p' ? mask : RX_CATEGORY_ALL & ~mask;
                 parser->pos++;
                 parser->has_extended = 1;
+                return 0;
+            }
+            int block = rx_add_block(parser, cls, parser->pattern + start, parser->pos - start, letter == 'P');
+            if (block != 0) {
+                if (block < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+                    return -1;   /* GCOVR_EXCL_LINE */
+                }
+                parser->pos++;
                 return 0;
             }
         }
