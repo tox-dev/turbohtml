@@ -1,0 +1,1 @@
+Ignore Atom and RDF fields bound to a foreign default namespace when extracting feeds.
