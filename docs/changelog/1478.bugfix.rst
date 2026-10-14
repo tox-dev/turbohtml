@@ -1,0 +1,1 @@
+Recognize RDF feed roots and item IDs by XML namespace URI when feeds use alternate prefixes.

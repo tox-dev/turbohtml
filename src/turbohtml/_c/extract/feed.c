@@ -28,6 +28,7 @@
 
 static const char DC_URI[] = "http://purl.org/dc/elements/1.1/";
 static const char CONTENT_URI[] = "http://purl.org/rss/1.0/modules/content/";
+static const char RDF_URI[] = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 
 /* One candidate element tag for a normalized field: the name and its length, tried in precedence order. */
 typedef struct {
@@ -108,6 +109,25 @@ static int namespace_is(th_tree *tree, th_node *node, Py_ssize_t prefix_len, con
             }
             Py_DECREF(prefix);
             if (same) {
+                return ucs4_eq_ascii(attr->value, attr->value_len, uri);
+            }
+        }
+    }
+    return 0;
+}
+
+static int namespace_bytes_is(th_tree *tree, th_node *node, const char *prefix, Py_ssize_t prefix_len,
+                              const char *uri) {
+    for (th_node *ancestor = node; ancestor != NULL; ancestor = ancestor->parent) {
+        if (ancestor->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        for (Py_ssize_t index = 0; index < ancestor->attr_count; index++) {
+            th_node_attr *attr = &ancestor->attrs[index];
+            Py_ssize_t name_len;
+            const char *name = th_attr_name(tree, attr->name_atom, &name_len);
+            if (name_len == prefix_len + 6 && memcmp(name, "xmlns:", 6) == 0 &&
+                memcmp(name + 6, prefix, (size_t)prefix_len) == 0) {
                 return ucs4_eq_ascii(attr->value, attr->value_len, uri);
             }
         }
@@ -555,9 +575,22 @@ static PyObject *extract_id(th_tree *tree, th_node *entry, th_node *const *field
         return value;
     }
     Py_DECREF(value);
-    Py_ssize_t index = th_node_attr_find(tree, entry, "rdf:about", 9);
-    if (index >= 0 && entry->attrs[index].value != NULL) {
-        return ucs4_trimmed(entry->attrs[index].value, entry->attrs[index].value_len);
+    if (!th_tree_is_xml(tree)) {
+        Py_ssize_t index = th_node_attr_find(tree, entry, "rdf:about", 9);
+        if (index >= 0 && entry->attrs[index].value != NULL) {
+            return ucs4_trimmed(entry->attrs[index].value, entry->attrs[index].value_len);
+        }
+    } else {
+        for (Py_ssize_t index = 0; index < entry->attr_count; index++) {
+            const th_node_attr *attr = &entry->attrs[index];
+            Py_ssize_t name_len;
+            const char *name = th_attr_name(tree, attr->name_atom, &name_len);
+            if (attr->value != NULL && name_len > 6 && name[name_len - 6] == ':' &&
+                memcmp(name + name_len - 5, "about", 5) == 0 &&
+                namespace_bytes_is(tree, entry, name, name_len - 6, RDF_URI)) {
+                return ucs4_trimmed(attr->value, attr->value_len);
+            }
+        }
     }
     return Py_NewRef(Py_None);
 }
@@ -709,7 +742,7 @@ static PyObject *build_feed(module_state *state, th_tree *tree, th_node *root, c
 
 /* The feed root and its format: the first <feed> (atom), <rss> (rss), or <rdf:RDF> (rdf) element in document order, or
    NULL when the document is not a feed. */
-static th_node *find_feed_root(th_node *document, const char **type_out) {
+static th_node *find_feed_root(th_tree *tree, th_node *document, const char **type_out, int *error) {
     for (th_node *node = document->first_child; node != NULL; node = preorder_next(node, document)) {
         if (node->type != TH_NODE_ELEMENT) {
             continue;
@@ -722,7 +755,12 @@ static th_node *find_feed_root(th_node *document, const char **type_out) {
             *type_out = "rss";
             return node;
         }
-        if (tag_is(node, "rdf:rdf", 7)) {
+        int rdf = th_tree_is_xml(tree) ? qualified_tag_is(tree, node, "RDF", RDF_URI) : tag_is(node, "rdf:rdf", 7);
+        if (rdf < 0) {   /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+            *error = 1;  /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (rdf) {
             *type_out = "rdf";
             return node;
         }
@@ -740,12 +778,16 @@ TH_NODE_API(, PyObject *, turbohtml_document_feed, (PyObject * self, PyObject *i
     PyObject *result = NULL;
     th_node *root = NULL;
     const char *type = NULL;
+    int error = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    root = find_feed_root(document, &type);
+    root = find_feed_root(tree, document, &type, &error);
     if (root != NULL) {
         result = build_feed(state, tree, root, type);
     }
     Py_END_CRITICAL_SECTION();
+    if (error) {     /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+        return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+    }
     if (root == NULL) {
         Py_RETURN_NONE;
     }

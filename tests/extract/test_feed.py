@@ -232,6 +232,78 @@ def test_feed_rdf_shape() -> None:
     )
 
 
+def test_feed_rdf_namespace_aliases() -> None:
+    xml: Final = (
+        '<r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
+        'xmlns="http://purl.org/rss/1.0/"><channel><title>Feed</title></channel>'
+        '<item r:about="https://example.org/item"><title>Item</title></item></r:RDF>'
+    )
+    assert parse_feed(xml) == Feed(
+        "rdf",
+        "Feed",
+        None,
+        None,
+        None,
+        (Entry("Item", None, "https://example.org/item", None, None, None, None, None),),
+    )
+
+
+def test_feed_rdf_wrong_root_namespace() -> None:
+    xml: Final = '<rdf:RDF xmlns:rdf="urn:other"><channel><title>Feed</title></channel></rdf:RDF>'
+    assert feed(xml) is None
+
+
+def test_feed_rdf_wrong_about_namespace() -> None:
+    xml: Final = (
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
+        'xmlns:r="urn:other"><item r:about="wrong"><title>Item</title></item></rdf:RDF>'
+    )
+    assert parse_feed(xml).entries[0].id is None
+
+
+def test_feed_rdf_about_namespace_shadowing() -> None:
+    xml: Final = (
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        '<item xmlns:rdf="urn:other" rdf:about="wrong"><title>Item</title></item></rdf:RDF>'
+    )
+    assert parse_feed(xml).entries[0].id is None
+
+
+def test_feed_rdf_unicode_about_prefix() -> None:
+    xml: Final = (
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
+        'xmlns:é="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        '<item é:about="https://example.org/item"><title>Item</title></item></rdf:RDF>'
+    )
+    assert parse_feed(xml).entries[0].id == "https://example.org/item"
+
+
+def test_feed_rdf_removed_about_namespace() -> None:
+    document: Final = parse_xml(
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        '<item xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
+        'xmlns:q="urn:other" r:about="wrong" /></rdf:RDF>'
+    )
+    del document.select("item")[0].attrs["xmlns:r"]
+    assert cast("Feed", document.feed()).entries[0].id is None
+
+
+def test_feed_rdf_valueless_about() -> None:
+    document: Final = parse_xml(
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><item rdf:about="wrong" /></rdf:RDF>'
+    )
+    document.select("item")[0].attrs["rdf:about"] = None
+    assert cast("Feed", document.feed()).entries[0].id is None
+
+
+def test_feed_rdf_other_prefixed_attribute_before_about() -> None:
+    xml: Final = (
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        '<item rdf:other="wrong" rdf:about="https://example.org/item" /></rdf:RDF>'
+    )
+    assert parse_feed(xml).entries[0].id == "https://example.org/item"
+
+
 @pytest.mark.parametrize(
     ("xml", "expected"),
     [
