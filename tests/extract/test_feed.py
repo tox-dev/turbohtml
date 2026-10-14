@@ -86,6 +86,59 @@ def test_feed_rss_module_prefix_aliases() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("local", "uri", "field"),
+    [
+        ("date", "http://purl.org/dc/elements/1.1/", "published"),
+        ("description", "http://purl.org/dc/elements/1.1/", "summary"),
+        ("creator", "http://purl.org/dc/elements/1.1/", "author"),
+        ("encoded", "http://purl.org/rss/1.0/modules/content/", "content"),
+    ],
+)
+def test_feed_rss_default_module_namespace(local: str, uri: str, field: str) -> None:
+    xml: Final = f'<rss><channel><item><{local} xmlns="{uri}">value</{local}></item></channel></rss>'
+    assert getattr(parse_feed(xml).entries[0], field) == "value"
+
+
+def test_feed_rss_inherited_default_module_namespace() -> None:
+    xml: Final = (
+        '<rss><channel><item xmlns="http://purl.org/dc/elements/1.1/"><date>published</date></item></channel></rss>'
+    )
+    assert parse_feed(xml).entries[0].published == "published"
+
+
+def test_feed_rss_default_module_namespace_after_other_attribute() -> None:
+    xml: Final = (
+        '<rss><channel><item><date title="other" xmlns="http://purl.org/dc/elements/1.1/">'
+        "published</date></item></channel></rss>"
+    )
+    assert parse_feed(xml).entries[0].published == "published"
+
+
+def test_feed_rss_shadowed_default_module_namespace() -> None:
+    xml: Final = (
+        '<rss><channel><item xmlns="http://purl.org/dc/elements/1.1/">'
+        '<date xmlns="urn:other">wrong</date></item></channel></rss>'
+    )
+    assert parse_feed(xml).entries[0].published is None
+
+
+def test_feed_rss_default_dc_description_precedence() -> None:
+    xml: Final = (
+        '<rss><channel><item><description xmlns="http://purl.org/dc/elements/1.1/">dc</description>'
+        "<description>rss</description></item></channel></rss>"
+    )
+    assert parse_feed(xml).entries[0].summary == "rss"
+
+
+def test_feed_rss_first_default_dc_description_wins() -> None:
+    xml: Final = (
+        '<rss><channel><item><description xmlns="http://purl.org/dc/elements/1.1/">first</description>'
+        '<description xmlns="http://purl.org/dc/elements/1.1/">second</description></item></channel></rss>'
+    )
+    assert parse_feed(xml).entries[0].summary == "first"
+
+
 def test_feed_rss_module_prefix_shadowing() -> None:
     xml: Final = (
         '<rss xmlns:d="http://purl.org/dc/elements/1.1/"><channel><item '

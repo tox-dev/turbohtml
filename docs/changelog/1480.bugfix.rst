@@ -1,0 +1,1 @@
+Recognize Dublin Core and RSS content fields declared with a default XML namespace.

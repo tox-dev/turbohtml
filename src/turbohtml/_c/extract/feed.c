@@ -76,6 +76,12 @@ static int namespace_is(th_tree *tree, th_node *node, Py_ssize_t prefix_len, con
             th_node_attr *attr = &ancestor->attrs[index];
             Py_ssize_t name_len;
             const char *name = th_attr_name(tree, attr->name_atom, &name_len);
+            if (prefix_len == 0) {
+                if (name_len == 5 && memcmp(name, "xmlns", 5) == 0) {
+                    return ucs4_eq_ascii(attr->value, attr->value_len, uri);
+                }
+                continue;
+            }
             if (name_len < 7 || memcmp(name, "xmlns:", 6) != 0) {
                 continue;
             }
@@ -117,6 +123,9 @@ static int namespace_is(th_tree *tree, th_node *node, Py_ssize_t prefix_len, con
 
 static int qualified_tag_is(th_tree *tree, th_node *node, const char *local, const char *uri) {
     Py_ssize_t local_len = (Py_ssize_t)strlen(local);
+    if (node->text_len == local_len && ucs4_eq_ascii(node->text, local_len, local)) {
+        return namespace_is(tree, node, 0, uri);
+    }
     Py_ssize_t colon = node->text_len - local_len - 1;
     return colon > 0 && node->text[colon] == ':' && ucs4_eq_ascii(node->text + colon + 1, local_len, local)
                ? namespace_is(tree, node, colon, uri)
@@ -466,6 +475,18 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields)
             break;
         }
         if (field >= 0 && tag_is(child, tags[field].name, tags[field].len)) {
+            if (xml && field == FEED_DESCRIPTION) {
+                int match = qualified_tag_is(tree, child, "description", DC_URI);
+                if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+                    return -1;   /* GCOVR_EXCL_LINE: allocation failure */
+                }
+                if (match) {
+                    if (fields[FEED_DC_DESCRIPTION] == NULL) {
+                        fields[FEED_DC_DESCRIPTION] = child;
+                    }
+                    continue;
+                }
+            }
             if (xml && (field == FEED_DC_DATE || field == FEED_DC_DESCRIPTION || field == FEED_CREATOR ||
                         field == FEED_ENCODED)) {
                 int *cached = field == FEED_ENCODED ? &content_namespace : &dc_namespace;
