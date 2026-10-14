@@ -1,0 +1,1 @@
+Resolve relative RDFa vocabularies and empty resource references against the document base with ``base_url``.
