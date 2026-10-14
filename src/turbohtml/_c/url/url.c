@@ -971,15 +971,21 @@ static int parse_ref(PyObject *src, url_ref *out, int special_hint, int raw) {
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_ssize_t read = 0;
-    while (!raw && read < raw_len && input_char(kind, data, read) <= 0x20) {
-        read++;
-    }
     Py_ssize_t len = 0;
-    for (; read < raw_len; read++) {
-        Py_UCS4 ch = input_char(kind, data, read);
-        if (raw || !is_removed(ch)) {
-            buf[len++] = ch;
+    if (raw) {
+        for (Py_ssize_t index = 0; index < raw_len; index++) {
+            buf[len++] = input_char(kind, data, index);
+        }
+    } else {
+        Py_ssize_t read = 0;
+        while (read < raw_len && input_char(kind, data, read) <= 0x20) {
+            read++;
+        }
+        for (; read < raw_len; read++) {
+            Py_UCS4 ch = input_char(kind, data, read);
+            if (!is_removed(ch)) {
+                buf[len++] = ch;
+            }
         }
     }
     out->buf = buf;
@@ -991,8 +997,10 @@ static int parse_ref(PyObject *src, url_ref *out, int special_hint, int raw) {
     Py_ssize_t rest = 0;
     Py_ssize_t colon = th_url_scheme_colon(buf, 0, len);
     if (colon > 0) {
-        for (Py_ssize_t index = 0; index < colon && !raw; index++) {
-            buf[index] |= 0x20; /* scheme chars are ASCII; |0x20 lowercases a letter, identity on a digit or +-. */
+        if (!raw) {
+            for (Py_ssize_t index = 0; index < colon; index++) {
+                buf[index] |= 0x20; /* scheme chars are ASCII; |0x20 lowercases a letter, identity on a digit or +-. */
+            }
         }
         out->has_scheme = 1;
         out->scheme_start = 0;
