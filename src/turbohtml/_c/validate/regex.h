@@ -30,7 +30,8 @@ enum {
     RX_FAIL_STATES,
     RX_FAIL_PROPERTY,
     RX_FAIL_RANGE,
-    RX_FAIL_CLASS
+    RX_FAIL_CLASS,
+    RX_FAIL_ESCAPE
 };
 #define RX_MAX_STATES 2000000
 #define RX_CATEGORY_ALL ((UINT64_C(1) << 30) - 1)
@@ -326,6 +327,11 @@ static rnode *rx_parse_class(rparser *parser) {
                 cls->builtins |= flag;
                 continue;
             }
+            if (!rx_is_single_escape(letter)) {
+                parser->failed = RX_FAIL_ESCAPE;
+                parser->fail_pos = parser->pos - 2;
+                return NULL;
+            }
             current = rx_escape_literal(letter);
         }
         if (parser->pos + 1 < parser->len && parser->pattern[parser->pos] == '-' &&
@@ -398,7 +404,12 @@ static rnode *rx_parse_atom(rparser *parser) {
         parser->pos++;
         return rx_node(parser, RN_ANY);
     }
-    if (current == '\\' && parser->pos + 1 < parser->len) {
+    if (current == '\\') {
+        if (parser->pos + 1 >= parser->len) {
+            parser->failed = RX_FAIL_ESCAPE;
+            parser->fail_pos = parser->pos;
+            return NULL;
+        }
         Py_UCS4 letter = parser->pattern[parser->pos + 1];
         int flag = rx_builtin_flag(letter);
         parser->pos += 2;
@@ -414,6 +425,11 @@ static rnode *rx_parse_atom(rparser *parser) {
                 return NULL;
             }
             return property;
+        }
+        if (!rx_is_single_escape(letter)) {
+            parser->failed = RX_FAIL_ESCAPE;
+            parser->fail_pos = parser->pos - 2;
+            return NULL;
         }
         rnode *node = rx_node(parser, RN_CHAR);
         if (node != NULL) { /* GCOVR_EXCL_BR_LINE: node is NULL only on unforceable arena OOM */
@@ -841,6 +857,10 @@ static int regex_cache_add(th_schema *schema, const Py_UCS4 *text, Py_ssize_t le
     }
     if (failed == RX_FAIL_CLASS) {
         PyErr_Format(PyExc_ValueError, "schema pattern has an invalid character class at offset %zd", parser.fail_pos);
+        return -1;
+    }
+    if (failed == RX_FAIL_ESCAPE) {
+        PyErr_Format(PyExc_ValueError, "schema pattern has an invalid escape at offset %zd", parser.fail_pos);
         return -1;
     }
     if (failed == RX_FAIL_BOUND) {

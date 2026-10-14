@@ -1,0 +1,1 @@
+Reject unknown and incomplete XML Schema regex escapes instead of treating them as literals.

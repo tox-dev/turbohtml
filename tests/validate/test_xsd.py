@@ -379,6 +379,22 @@ def test_regex_invalid_class_raises(pattern: str) -> None:
         XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
 
 
+@pytest.mark.parametrize(
+    ("pattern", "offset"),
+    [
+        pytest.param(r"\q", 0, id="unknown-atom-escape"),
+        pytest.param(r"a\q", 1, id="unknown-atom-escape-after-literal"),
+        pytest.param(r"[a\q]", 2, id="unknown-class-escape"),
+        pytest.param(r"\u0041", 0, id="nonstandard-unicode-escape"),
+        pytest.param("\\Ā", 0, id="nonascii-escape"),
+        pytest.param("a\\", 1, id="trailing-backslash"),
+    ],
+)
+def test_regex_invalid_escape_raises(pattern: str, offset: int) -> None:
+    with pytest.raises(ValueError, match=rf"^schema pattern has an invalid escape at offset {offset}$"):
+        XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
+
+
 _NESTING_ERROR: Final[str] = (
     "schema pattern nests groups deeper than 250 levels at offset 250; flatten the nested groups"
 )
@@ -1464,7 +1480,6 @@ def test_group_with_annotation_before_model() -> None:
 @pytest.mark.parametrize(
     ("pattern", "value", "ok"),
     [
-        pytest.param("a\\", "a", False, id="atom-backslash-at-end"),
         pytest.param("a{2,x}", "a{2,x}", True, id="bound-nondigit-upper"),
         pytest.param("a{2x", "a{2x", True, id="bound-no-close-brace"),
         pytest.param("[\\s]", "x", False, id="class-space-vs-nonspace"),
