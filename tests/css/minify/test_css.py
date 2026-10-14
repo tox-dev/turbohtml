@@ -91,6 +91,11 @@ def test_minify_css_repeated_longhand_blocks_shorthand(source: str, expected: st
     assert minify_css(source) == expected
 
 
+@pytest.fixture
+def large_rule_prefix() -> str:
+    return ";".join(f"--x{index}:v" for index in range(33))
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
@@ -100,12 +105,22 @@ def test_minify_css_repeated_longhand_blocks_shorthand(source: str, expected: st
             id="margin",
         ),
         pytest.param("flex-direction:row;flex-wrap:wrap", "flex-flow:row wrap", id="flex-flow"),
-        pytest.param("outline-width:1px;outline-style:solid;outline-color:red", "outline:1px solid red", id="outline"),
     ],
 )
-def test_minify_css_large_rule_merges_unique_longhands(source: str, expected: str) -> None:
-    prefix: Final = ";".join(f"--x{index}:v" for index in range(33))
-    assert minify_css(f"a{{{prefix};{source}}}") == f"a{{{prefix};{expected}}}"
+def test_minify_css_large_rule_merges_unique_longhands(source: str, expected: str, large_rule_prefix: str) -> None:
+    assert minify_css(f"a{{{large_rule_prefix};{source}}}") == f"a{{{large_rule_prefix};{expected}}}"
+
+
+def test_minify_css_large_rules_keep_outline_fallback(large_rule_prefix: str) -> None:
+    source: Final = (
+        f"a{{{large_rule_prefix};outline-width:1px;outline-style:solid;outline-color:red}}"
+        f"b{{{large_rule_prefix};outline-width:0;outline-width:2px;outline-style:dashed;outline-color:blue}}"
+    )
+    expected: Final = (
+        f"a{{{large_rule_prefix};outline:1px solid red}}"
+        f"b{{{large_rule_prefix};outline-width:0;outline-width:2px;outline-style:dashed;outline-color:blue}}"
+    )
+    assert minify_css(source) == expected
 
 
 @pytest.mark.parametrize(

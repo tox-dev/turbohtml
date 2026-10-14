@@ -202,7 +202,7 @@ typedef struct {
     Py_ssize_t len;
     Py_ssize_t cap;
     int *oom;
-    int has_repeats;
+    int check_repeats;
 } decl_vec;
 
 static void decl_vec_push(decl_vec *vec, css_decl decl) {
@@ -511,7 +511,7 @@ static void css_dedup_pairwise(css_buf *pool, decl_vec *decls) {
             }
             int same_value = same_name && css_decl_value_eq(pool, prev, later);
             if (same_name && !same_value) {
-                decls->has_repeats = 1;
+                decls->check_repeats = 1;
             }
             if (prev->important != later->important) {
                 continue;
@@ -594,6 +594,7 @@ static void css_dedup(css_buf *pool, decl_vec *decls) {
         css_dedup_pairwise(pool, decls);
         return;
     }
+    decls->check_repeats = 1;
     Py_ssize_t cap = 64;
     while (cap < decls->len * 2) {
         cap *= 2;

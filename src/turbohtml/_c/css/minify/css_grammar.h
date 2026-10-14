@@ -106,7 +106,7 @@ static void css_merge_box(css_buf *pool, decl_vec *decls, const char *shorthand,
             return;
         }
     }
-    if (decls->has_repeats || decls->len > 32) {
+    if (decls->check_repeats) {
         for (int edge = 0; edge < 4; edge++) {
             if (css_has_repeated_active_decl(decls, pool, longhands[edge], idx[edge])) {
                 return;
@@ -219,8 +219,8 @@ static void css_merge_pair(css_buf *pool, decl_vec *decls, const char *shorthand
     if (idx0 < 0 || idx1 < 0) {
         return;
     }
-    if ((decls->has_repeats || decls->len > 32) && (css_has_repeated_active_decl(decls, pool, longhand0, idx0) ||
-                                                    css_has_repeated_active_decl(decls, pool, longhand1, idx1))) {
+    if (decls->check_repeats && (css_has_repeated_active_decl(decls, pool, longhand0, idx0) ||
+                                 css_has_repeated_active_decl(decls, pool, longhand1, idx1))) {
         return;
     }
     for (int sibling = 0; forbidden != NULL && forbidden[sibling] != NULL; sibling++) {
@@ -268,9 +268,9 @@ static void css_merge_triple(css_buf *pool, decl_vec *decls, const char *shortha
     if (idx[0] < 0 || idx[1] < 0 || idx[2] < 0) {
         return;
     }
-    if ((decls->has_repeats || decls->len > 32) && (css_has_repeated_active_decl(decls, pool, lh0, idx[0]) ||
-                                                    css_has_repeated_active_decl(decls, pool, lh1, idx[1]) ||
-                                                    css_has_repeated_active_decl(decls, pool, lh2, idx[2]))) {
+    if (decls->check_repeats && (css_has_repeated_active_decl(decls, pool, lh0, idx[0]) ||
+                                 css_has_repeated_active_decl(decls, pool, lh1, idx[1]) ||
+                                 css_has_repeated_active_decl(decls, pool, lh2, idx[2]))) {
         return;
     }
     int important = decls->items[idx[0]].important;
