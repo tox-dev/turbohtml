@@ -73,6 +73,107 @@ def parse_feed(xml: str) -> Feed:
     return result
 
 
+def test_feed_rss_module_prefix_aliases() -> None:
+    xml: Final = (
+        '<rss xmlns:x="http://purl.org/rss/1.0/modules/content/" '
+        'xmlns:d="http://purl.org/dc/elements/1.1/"><channel>'
+        '<d:date>updated</d:date><item id="entry"><d:date>published</d:date>'
+        "<d:description>summary</d:description><d:creator>author</d:creator>"
+        "<x:encoded>body</x:encoded></item></channel></rss>"
+    )
+    assert parse_feed(xml) == Feed(
+        "rss", None, None, None, "updated", (Entry(None, None, None, None, "published", "summary", "body", "author"),)
+    )
+
+
+def test_feed_rss_module_prefix_shadowing() -> None:
+    xml: Final = (
+        '<rss xmlns:d="http://purl.org/dc/elements/1.1/"><channel><item '
+        'xmlns:d="urn:other"><d:creator>wrong</d:creator></item></channel></rss>'
+    )
+    assert parse_feed(xml).entries[0].author is None
+
+
+def test_feed_rss_module_prefix_shadowing_after_cached_binding() -> None:
+    xml: Final = (
+        '<rss xmlns:dc="http://purl.org/dc/elements/1.1/"><channel><item>'
+        "<dc:date>published</dc:date>"
+        '<dc:creator xmlns:dc="urn:other">wrong</dc:creator>'
+        "</item></channel></rss>"
+    )
+    assert parse_feed(xml).entries[0].author is None
+
+
+def test_feed_rss_wrong_content_namespace() -> None:
+    xml: Final = (
+        '<rss xmlns:content="urn:other"><channel><item><content:encoded>wrong</content:encoded></item></channel></rss>'
+    )
+    assert parse_feed(xml).entries[0].content is None
+
+
+def test_feed_rss_namespace_uri_is_case_sensitive() -> None:
+    xml: Final = (
+        '<rss xmlns:d="HTTP://purl.org/dc/elements/1.1/"><channel><item>'
+        "<d:creator>wrong</d:creator></item></channel></rss>"
+    )
+    assert parse_feed(xml).entries[0].author is None
+
+
+def test_feed_rss_first_namespaced_field_wins() -> None:
+    xml: Final = (
+        '<rss xmlns:a="http://purl.org/dc/elements/1.1/" '
+        'xmlns:b="http://purl.org/dc/elements/1.1/"><channel><item>'
+        "<a:creator>first</a:creator><b:creator>second</b:creator></item></channel></rss>"
+    )
+    assert parse_feed(xml).entries[0].author == "first"
+
+
+def test_feed_rss_removed_namespace_declaration() -> None:
+    document: Final = parse_xml(
+        '<rss xmlns:d="http://purl.org/dc/elements/1.1/"><channel><item>'
+        "<d:creator>author</d:creator></item></channel></rss>"
+    )
+    del document.select("rss")[0].attrs["xmlns:d"]
+    assert cast("Feed", document.feed()).entries[0].author is None
+
+
+def test_feed_rss_valueless_namespace_declaration() -> None:
+    document: Final = parse_xml(
+        '<rss xmlns:d="http://purl.org/dc/elements/1.1/"><channel><item>'
+        "<d:creator>author</d:creator></item></channel></rss>"
+    )
+    document.select("rss")[0].attrs["xmlns:d"] = None
+    assert cast("Feed", document.feed()).entries[0].author is None
+
+
+def test_feed_rss_unicode_module_prefix() -> None:
+    xml: Final = (
+        '<rss xmlns:é="http://purl.org/rss/1.0/modules/content/"><channel><item>'
+        "<é:encoded>body</é:encoded></item></channel></rss>"
+    )
+    assert parse_feed(xml).entries[0].content == "body"
+
+
+def test_feed_rss_unicode_module_prefix_after_other_declarations() -> None:
+    xml: Final = (
+        '<rss xmlns:éé="urn:other" xmlns:é="urn:other" '
+        'xmlns:ø="http://purl.org/rss/1.0/modules/content/"><channel><item>'
+        "<ø:encoded>body</ø:encoded></item></channel></rss>"
+    )
+    assert parse_feed(xml).entries[0].content == "body"
+
+
+def test_feed_rss_canonical_module_names() -> None:
+    xml: Final = (
+        '<rss xmlns:dc="http://purl.org/dc/elements/1.1/" '
+        'xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><item>'
+        "<dc:date>published</dc:date><dc:description>summary</dc:description>"
+        "<dc:creator>author</dc:creator><content:encoded>body</content:encoded>"
+        "</item></channel></rss>"
+    )
+    assert parse_feed(xml).entries[0] == Entry(None, None, None, None, "published", "summary", "body", "author")
+
+
 def test_feed_rss_shape() -> None:
     result = parse_feed(RSS)
     assert result.type == "rss"

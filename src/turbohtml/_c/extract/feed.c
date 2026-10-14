@@ -26,6 +26,9 @@
 
 #include <string.h>
 
+static const char DC_URI[] = "http://purl.org/dc/elements/1.1/";
+static const char CONTENT_URI[] = "http://purl.org/rss/1.0/modules/content/";
+
 /* One candidate element tag for a normalized field: the name and its length, tried in precedence order. */
 typedef struct {
     const char *name;
@@ -50,6 +53,74 @@ static int ucs4_ieq(const Py_UCS4 *value, Py_ssize_t len, const char *lit, Py_ss
 /* Whether element `node`'s tag name equals the ASCII literal [name, name + len). */
 static int tag_is(const th_node *node, const char *name, Py_ssize_t len) {
     return ucs4_ieq(node->text, node->text_len, name, len);
+}
+
+static int ucs4_eq_ascii(const Py_UCS4 *value, Py_ssize_t len, const char *lit) {
+    if (value == NULL || len != (Py_ssize_t)strlen(lit)) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (value[index] != (Py_UCS4)(unsigned char)lit[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int namespace_is(th_tree *tree, th_node *node, Py_ssize_t prefix_len, const char *uri) {
+    for (th_node *ancestor = node; ancestor != NULL; ancestor = ancestor->parent) {
+        if (ancestor->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        for (Py_ssize_t index = 0; index < ancestor->attr_count; index++) {
+            th_node_attr *attr = &ancestor->attrs[index];
+            Py_ssize_t name_len;
+            const char *name = th_attr_name(tree, attr->name_atom, &name_len);
+            if (name_len < 7 || memcmp(name, "xmlns:", 6) != 0) {
+                continue;
+            }
+            int ascii = 1;
+            for (Py_ssize_t offset = 6; offset < name_len; offset++) {
+                if ((unsigned char)name[offset] >= 0x80) {
+                    ascii = 0;
+                    break;
+                }
+            }
+            if (ascii) {
+                if (name_len - 6 == prefix_len) {
+                    int same = 1;
+                    for (Py_ssize_t offset = 0; same && offset < prefix_len; offset++) {
+                        same = (unsigned char)name[offset + 6] == node->text[offset];
+                    }
+                    if (same) {
+                        return ucs4_eq_ascii(attr->value, attr->value_len, uri);
+                    }
+                }
+                continue;
+            }
+            PyObject *prefix = PyUnicode_DecodeUTF8(name + 6, name_len - 6, "strict");
+            if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: interned attribute names are valid UTF-8; allocation only */
+                return -1;        /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            int same = PyUnicode_GET_LENGTH(prefix) == prefix_len;
+            for (Py_ssize_t offset = 0; same && offset < prefix_len; offset++) {
+                same = PyUnicode_READ_CHAR(prefix, offset) == node->text[offset];
+            }
+            Py_DECREF(prefix);
+            if (same) {
+                return ucs4_eq_ascii(attr->value, attr->value_len, uri);
+            }
+        }
+    }
+    return 0;
+}
+
+static int qualified_tag_is(th_tree *tree, th_node *node, const char *local, const char *uri) {
+    Py_ssize_t local_len = (Py_ssize_t)strlen(local);
+    Py_ssize_t colon = node->text_len - local_len - 1;
+    return colon > 0 && node->text[colon] == ':' && ucs4_eq_ascii(node->text + colon + 1, local_len, local)
+               ? namespace_is(tree, node, colon, uri)
+               : 0;
 }
 
 /* The first direct element child of `parent` whose tag equals [name, name + len), or NULL when it has none. */
@@ -112,7 +183,24 @@ static PyObject *field_text(th_tree *tree, th_node *parent, const feed_tag *tags
         return Py_NewRef(Py_None);
     }
     for (size_t index = 0; index < count; index++) {
-        th_node *child = child_named(parent, tags[index].name, tags[index].len);
+        th_node *child = NULL;
+        if (th_tree_is_xml(tree) && tags[index].len == 7 && memcmp(tags[index].name, "dc:date", 7) == 0) {
+            for (th_node *candidate = parent->first_child; candidate != NULL; candidate = candidate->next_sibling) {
+                if (candidate->type != TH_NODE_ELEMENT) {
+                    continue;
+                }
+                int match = qualified_tag_is(tree, candidate, "date", DC_URI);
+                if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+                    return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+                }
+                if (match) {
+                    child = candidate;
+                    break;
+                }
+            }
+        } else {
+            child = child_named(parent, tags[index].name, tags[index].len);
+        }
         if (child == NULL) {
             continue;
         }
@@ -239,7 +327,7 @@ enum {
     FEED_FIELD_COUNT
 };
 
-static void collect_entry_fields(th_node *entry, th_node **fields) {
+static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields) {
     static const feed_tag tags[FEED_FIELD_COUNT] = {{"title", 5},
                                                     {"guid", 4},
                                                     {"id", 2},
@@ -255,11 +343,22 @@ static void collect_entry_fields(th_node *entry, th_node **fields) {
                                                     {"content", 7},
                                                     {"author", 6},
                                                     {"dc:creator", 10}};
+    static const struct {
+        const char *local;
+        const char *uri;
+        int field;
+    } modules[] = {{"date", DC_URI, FEED_DC_DATE},
+                   {"description", DC_URI, FEED_DC_DESCRIPTION},
+                   {"creator", DC_URI, FEED_CREATOR},
+                   {"encoded", CONTENT_URI, FEED_ENCODED}};
+    int xml = th_tree_is_xml(tree);
+    int dc_namespace = -2;
+    int content_namespace = -2;
     for (th_node *child = entry->first_child; child != NULL; child = child->next_sibling) {
         if (child->type != TH_NODE_ELEMENT) {
             continue;
         }
-        int field;
+        int field = -1;
         switch (child->text_len) {
         case 2:
             field = FEED_ID;
@@ -291,7 +390,7 @@ static void collect_entry_fields(th_node *entry, th_node **fields) {
                 field = FEED_CONTENT;
                 break;
             default:
-                continue;
+                break;
             }
             break;
         case 9:
@@ -313,12 +412,47 @@ static void collect_entry_fields(th_node *entry, th_node **fields) {
             field = FEED_ENCODED;
             break;
         default:
+            break;
+        }
+        if (field >= 0 && tag_is(child, tags[field].name, tags[field].len)) {
+            if (xml && (field == FEED_DC_DATE || field == FEED_DC_DESCRIPTION || field == FEED_CREATOR ||
+                        field == FEED_ENCODED)) {
+                int *cached = field == FEED_ENCODED ? &content_namespace : &dc_namespace;
+                int match = child->attr_count == 0 && *cached != -2
+                                ? *cached
+                                : namespace_is(tree, child, field == FEED_ENCODED ? 7 : 2,
+                                               field == FEED_ENCODED ? CONTENT_URI : DC_URI);
+                if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+                    return -1;   /* GCOVR_EXCL_LINE: allocation failure */
+                }
+                if (child->attr_count == 0) {
+                    *cached = match;
+                }
+                if (!match) {
+                    continue;
+                }
+            }
+            if (fields[field] == NULL) {
+                fields[field] = child;
+            }
             continue;
         }
-        if (fields[field] == NULL && tag_is(child, tags[field].name, tags[field].len)) {
-            fields[field] = child;
+        if (xml) {
+            for (size_t index = 0; index < sizeof(modules) / sizeof(modules[0]); index++) {
+                int match = qualified_tag_is(tree, child, modules[index].local, modules[index].uri);
+                if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+                    return -1;   /* GCOVR_EXCL_LINE: allocation failure */
+                }
+                if (match) {
+                    if (fields[modules[index].field] == NULL) {
+                        fields[modules[index].field] = child;
+                    }
+                    break;
+                }
+            }
         }
     }
+    return 0;
 }
 
 static PyObject *entry_field_text(th_tree *tree, th_node *const *fields, size_t count) {
@@ -434,7 +568,9 @@ static PyObject *entry_link(th_tree *tree, th_node *item, th_node *guid) {
    allocation-failure path. */
 static PyObject *build_entry(module_state *state, th_tree *tree, th_node *item) {
     th_node *fields[FEED_FIELD_COUNT] = {0};
-    collect_entry_fields(item, fields);
+    if (collect_entry_fields(tree, item, fields) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;                                    /* GCOVR_EXCL_LINE: allocation failure */
+    }
     PyObject *record = PyTuple_New(8);
     if (record == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */

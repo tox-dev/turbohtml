@@ -1,0 +1,1 @@
+Recognize RSS Content and Dublin Core fields by XML namespace URI when feeds use nonstandard prefixes.
