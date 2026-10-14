@@ -366,12 +366,35 @@ static int xhtml_void_tag(th_node *node) {
     return 0;
 }
 
+static int atom_xml_media_type(const Py_UCS4 *value, Py_ssize_t len) {
+    Py_ssize_t media_len = 0;
+    while (media_len < len && value[media_len] != ';') {
+        media_len++;
+    }
+    return media_len >= 4 && (value[media_len - 4] == '/' || value[media_len - 4] == '+') &&
+           (value[media_len - 3] | 0x20) == 'x' && (value[media_len - 2] | 0x20) == 'm' &&
+           (value[media_len - 1] | 0x20) == 'l';
+}
+
 static PyObject *atom_xhtml_text(th_tree *tree, th_node *node) {
     if (!th_tree_is_xml(tree) || node->attr_count == 0) {
         return node_text_trimmed(tree, node);
     }
     Py_ssize_t type = th_node_attr_find(tree, node, "type", 4);
-    if (type < 0 || !ucs4_eq_ascii(node->attrs[type].value, node->attrs[type].value_len, "xhtml")) {
+    if (type < 0) {
+        return node_text_trimmed(tree, node);
+    }
+    if (atom_xml_media_type(node->attrs[type].value, node->attrs[type].value_len)) {
+        Py_ssize_t len;
+        Py_UCS4 *value = th_node_inner_xml(tree, node, &len);
+        if (value == NULL) {         /* GCOVR_EXCL_BR_LINE: serialization fails only on allocation */
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        PyObject *result = ucs4_trimmed(value, len);
+        PyMem_Free(value);
+        return result;
+    }
+    if (!ucs4_eq_ascii(node->attrs[type].value, node->attrs[type].value_len, "xhtml")) {
         return node_text_trimmed(tree, node);
     }
     th_node *div = NULL;

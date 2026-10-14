@@ -1,0 +1,1 @@
+Preserve child XML markup in Atom content with an XML media type.
