@@ -158,6 +158,9 @@ def test_facets(facets: str, base: str, value: str, ok: bool) -> None:  # ruff:i
         pytest.param("[a-c]+", "abc", True, id="class-range"),
         pytest.param("[a-a]", "a", True, id="class-range-equal-endpoints"),
         pytest.param(r"[\t-\n]", "\t", True, id="class-range-escaped-endpoints"),
+        pytest.param("[-a]", "-", True, id="class-leading-hyphen"),
+        pytest.param(r"[\^a]", "^", True, id="class-escaped-caret"),
+        pytest.param(r"[\[a]", "[", True, id="class-escaped-opening-bracket"),
         pytest.param("[^0-9]+", "abc", True, id="class-negate"),
         pytest.param("[a-z-[aeiou]]", "b", True, id="class-subtract-consonant"),
         pytest.param("[a-z-[aeiou]]", "a", False, id="class-subtract-vowel"),
@@ -165,8 +168,6 @@ def test_facets(facets: str, base: str, value: str, ok: bool) -> None:  # ruff:i
         pytest.param("a[b-c-[c]]", "ab", True, id="class-subtract-with-literal-prefix"),
         pytest.param("a[b-c-[c]]", "ac", False, id="class-subtract-with-excluded-suffix"),
         pytest.param("a[b-c-[c]]", "xb", False, id="class-subtract-with-mismatched-prefix"),
-        pytest.param("[-[a]]", "-", False, id="class-subtract-without-base"),
-        pytest.param("[a-", "a", True, id="class-trailing-hyphen"),
         pytest.param("[^a-z-[0-9]]", "!", True, id="negated-class-subtract-punctuation"),
         pytest.param("[^a-z-[0-9]]", "1", False, id="negated-class-subtract-digit"),
         pytest.param("[a-z-[aeiou-[e]]]", "e", True, id="nested-class-subtract-restores-letter"),
@@ -349,6 +350,32 @@ def test_regex_category_property(category: str, value: str) -> None:
 )
 def test_regex_invalid_range_raises(pattern: str) -> None:
     with pytest.raises(ValueError, match=r"^schema pattern has an invalid character range at offset 1$"):
+        XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        pytest.param("[]", id="empty"),
+        pytest.param("[^]", id="negated-empty"),
+        pytest.param("[a", id="unclosed"),
+        pytest.param("[abc", id="unclosed-multiple-chars"),
+        pytest.param("[a\\", id="unclosed-backslash"),
+        pytest.param("[a[b]", id="unescaped-opening-bracket"),
+        pytest.param("[a^]", id="unescaped-caret"),
+        pytest.param("[a-b-c]", id="middle-hyphen"),
+        pytest.param(r"[\d-a]", id="middle-hyphen-after-builtin"),
+        pytest.param(r"[\p{Lu}-a]", id="middle-hyphen-after-category"),
+        pytest.param("[a-[b]c]", id="trailing-subtraction-content"),
+        pytest.param("[a-[b]", id="unclosed-subtraction"),
+        pytest.param("[-[a]]", id="subtraction-without-base"),
+        pytest.param("[a-", id="unclosed-trailing-hyphen"),
+        pytest.param("[", id="open-only"),
+        pytest.param(r"[a\]", id="escaped-close-without-terminator"),
+    ],
+)
+def test_regex_invalid_class_raises(pattern: str) -> None:
+    with pytest.raises(ValueError, match=r"^schema pattern has an invalid character class at offset \d+$"):
         XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
 
 
@@ -1177,8 +1204,6 @@ def test_datatype_name_boundaries(type_name: str, value: str, ok: bool) -> None:
 @pytest.mark.parametrize(
     ("pattern", "value", "ok"),
     [
-        pytest.param("[", "x", False, id="class-open-only"),
-        pytest.param("[abc", "a", True, id="class-unterminated"),
         pytest.param("[a-]", "-", True, id="dash-before-close"),
         pytest.param("(ab", "ab", True, id="group-unterminated"),
         pytest.param(r"a\\", "a", False, id="backslash-at-end"),
@@ -1240,7 +1265,6 @@ def test_datatype_all_subtypes_valid(type_name: str, value: str) -> None:
 @pytest.mark.parametrize(
     ("pattern", "value", "ok"),
     [
-        pytest.param(r"[a\]", "a", True, id="class-backslash-end"),
         pytest.param("a{2,3", "a{2,3", True, id="bound-no-close"),
         pytest.param(r"a\d", "a5", True, id="atom-escape-not-end"),
         pytest.param(r"[\s]x", " x", True, id="class-space-then"),
@@ -1440,7 +1464,6 @@ def test_group_with_annotation_before_model() -> None:
 @pytest.mark.parametrize(
     ("pattern", "value", "ok"),
     [
-        pytest.param("[a\\", "a", True, id="class-lone-backslash-at-end"),
         pytest.param("a\\", "a", False, id="atom-backslash-at-end"),
         pytest.param("a{2,x}", "a{2,x}", True, id="bound-nondigit-upper"),
         pytest.param("a{2x", "a{2x", True, id="bound-no-close-brace"),

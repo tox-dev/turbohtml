@@ -1,0 +1,1 @@
+Reject malformed XML Schema regex character classes instead of compiling them with altered matching behavior.

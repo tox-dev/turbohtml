@@ -4,9 +4,8 @@
    alternation, and the `? * + {m} {m,} {m,n}` quantifiers. It compiles to a Thompson
    NFA (Cox, "Regular Expression Matching Can Be Simple And Fast") and simulates it, so
    matching is linear in the input with no backtracking blow-up. Matching is anchored:
-   the whole value must be consumed, as a facet requires. The parser is total -- an
-   unrecognized metacharacter is taken as a literal -- so a schema never fails to
-   compile over its pattern. Included once into datatypes.h; every definition is static. */
+   the whole value must be consumed, as a facet requires. Included once into
+   datatypes.h; every definition is static. */
 
 #ifndef TURBOHTML_VALIDATE_REGEX_H
 #define TURBOHTML_VALIDATE_REGEX_H
@@ -30,7 +29,8 @@ enum {
     RX_FAIL_BOUND,
     RX_FAIL_STATES,
     RX_FAIL_PROPERTY,
-    RX_FAIL_RANGE
+    RX_FAIL_RANGE,
+    RX_FAIL_CLASS
 };
 #define RX_MAX_STATES 2000000
 #define RX_CATEGORY_ALL ((UINT64_C(1) << 30) - 1)
@@ -276,6 +276,7 @@ static int rx_parse_property(rparser *parser, rclass *cls, Py_UCS4 letter) {
 }
 
 static rnode *rx_parse_class(rparser *parser) {
+    Py_ssize_t start = parser->pos - 1;
     rnode *node = rx_new_class(parser);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return NULL;    /* GCOVR_EXCL_LINE */
@@ -304,6 +305,13 @@ static rnode *rx_parse_class(rparser *parser) {
             cls->subtract = excluded->cls;
             parser->has_extended = 1;
             break;
+        }
+        if (current == '[' || current == '^' ||
+            (current == '-' && parser->pos < parser->len && parser->pattern[parser->pos] != ']' &&
+             (cls->range_count > 0 || cls->builtins != 0 || cls->category_mask != 0))) {
+            parser->failed = RX_FAIL_CLASS;
+            parser->fail_pos = parser->pos - 1;
+            return NULL;
         }
         if (current == '\\' && parser->pos < parser->len) {
             Py_UCS4 letter = parser->pattern[parser->pos++];
@@ -345,9 +353,13 @@ static rnode *rx_parse_class(rparser *parser) {
             return NULL;                                               /* GCOVR_EXCL_LINE */
         }
     }
-    if (parser->pos < parser->len) { /* consume the closing ']' when present */
-        parser->pos++;
+    if (parser->pos >= parser->len || parser->pattern[parser->pos] != ']' ||
+        (cls->range_count == 0 && cls->builtins == 0 && cls->category_mask == 0)) {
+        parser->failed = RX_FAIL_CLASS;
+        parser->fail_pos = start;
+        return NULL;
     }
+    parser->pos++;
     return node;
 }
 
@@ -825,6 +837,10 @@ static int regex_cache_add(th_schema *schema, const Py_UCS4 *text, Py_ssize_t le
     }
     if (failed == RX_FAIL_RANGE) {
         PyErr_Format(PyExc_ValueError, "schema pattern has an invalid character range at offset %zd", parser.fail_pos);
+        return -1;
+    }
+    if (failed == RX_FAIL_CLASS) {
+        PyErr_Format(PyExc_ValueError, "schema pattern has an invalid character class at offset %zd", parser.fail_pos);
         return -1;
     }
     if (failed == RX_FAIL_BOUND) {
