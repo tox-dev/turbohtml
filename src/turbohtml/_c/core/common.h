@@ -156,7 +156,7 @@ PyObject *turbohtml_url_percent_decode(PyObject *module, PyObject *arg);
    _url_join(base, target) exposes it to the extract_links shim. Both arguments are borrowed str references; returns a
    new reference, NULL with a ValueError set when a component cannot be split (an unbalanced IPv6 bracket). */
 PyObject *th_url_join(PyObject *base, PyObject *target);
-PyObject *th_url_join_c14n(PyObject *base, PyObject *target);
+PyObject *th_url_join_c14n_raw(const Py_UCS4 *base, Py_ssize_t base_len, PyObject *target);
 PyObject *turbohtml_url_join(PyObject *module, PyObject *args);
 
 /* _url_is_tracker(key): whether a lowercased query-parameter name names a referral rather than content, so a

@@ -718,7 +718,7 @@ static PyObject *maybe_ipv4(PyObject *ascii) {
     if (!too_many && count > 1 && part_end[count - 1] == part_start[count - 1]) {
         count--; /* a single trailing dot, "1.2.3.4.", drops its empty final part */
     }
-    uint64_t numbers[4];
+    uint64_t numbers[4] = {0};
     int ok = !too_many && count <= 4;
     for (int part = 0; ok && part < count; part++) {
         ok = ipv4_number(cp, part_start[part], part_end[part], &numbers[part]);
@@ -1441,41 +1441,6 @@ PyObject *th_url_join(PyObject *base, PyObject *target) {
     return join_url(base, target, 0);
 }
 
-static int c14n_appendable_base(PyObject *base) {
-    if (!PyUnicode_IS_ASCII(base)) {
-        return 0;
-    }
-    Py_ssize_t length = PyUnicode_GET_LENGTH(base);
-    if (length == 0 || PyUnicode_1BYTE_DATA(base)[length - 1] != '/') {
-        return 0;
-    }
-    const unsigned char *data = PyUnicode_1BYTE_DATA(base);
-    Py_ssize_t start = 0;
-    int parent_prefix = 1;
-    for (Py_ssize_t index = 0; index < length; index++) {
-        unsigned char character = data[index];
-        if (character == ':' || character == '?' || character == '#') {
-            return 0;
-        }
-        if (character != '/') {
-            continue;
-        }
-        Py_ssize_t segment_length = index - start;
-        if (segment_length == 0 || (segment_length == 1 && data[start] == '.')) {
-            return 0;
-        }
-        if (segment_length == 2 && data[start] == '.' && data[start + 1] == '.') {
-            if (!parent_prefix) {
-                return 0;
-            }
-        } else {
-            parent_prefix = 0;
-        }
-        start = index + 1;
-    }
-    return 1;
-}
-
 static int c14n_appendable_target(PyObject *target) {
     if (!PyUnicode_IS_ASCII(target)) {
         return 0;
@@ -1498,10 +1463,7 @@ static int c14n_appendable_target(PyObject *target) {
     return 1;
 }
 
-PyObject *th_url_join_c14n(PyObject *base, PyObject *target) {
-    if (c14n_appendable_base(base) && c14n_appendable_target(target)) {
-        return PyUnicode_Concat(base, target);
-    }
+static PyObject *c14n_join_objects(PyObject *base, PyObject *target) {
     Py_ssize_t base_length = PyUnicode_GET_LENGTH(base);
     int base_kind = PyUnicode_KIND(base);
     const void *base_data = PyUnicode_DATA(base);
@@ -1551,6 +1513,62 @@ PyObject *th_url_join_c14n(PyObject *base, PyObject *target) {
     PyObject *joined = join_url(adjusted, reference, 2);
     Py_DECREF(adjusted);
     Py_DECREF(reference);
+    return joined;
+}
+
+static int c14n_appendable_base_raw(const Py_UCS4 *base, Py_ssize_t length) {
+    if (length == 0 || base[length - 1] != '/') {
+        return 0;
+    }
+    Py_ssize_t start = 0;
+    int parent_prefix = 1;
+    for (Py_ssize_t index = 0; index < length; index++) {
+        Py_UCS4 character = base[index];
+        if (character > 0x7F || character == ':' || character == '?' || character == '#') {
+            return 0;
+        }
+        if (character != '/') {
+            continue;
+        }
+        Py_ssize_t segment_length = index - start;
+        if (segment_length == 0 || (segment_length == 1 && base[start] == '.')) {
+            return 0;
+        }
+        if (segment_length == 2 && base[start] == '.' && base[start + 1] == '.') {
+            if (!parent_prefix) {
+                return 0;
+            }
+        } else {
+            parent_prefix = 0;
+        }
+        start = index + 1;
+    }
+    return 1;
+}
+
+PyObject *th_url_join_c14n_raw(const Py_UCS4 *base, Py_ssize_t base_len, PyObject *target) {
+    if (c14n_appendable_base_raw(base, base_len) && c14n_appendable_target(target)) {
+        Py_ssize_t target_len = PyUnicode_GET_LENGTH(target);
+        if (base_len > (Py_ssize_t)(SIZE_MAX >> 1) - target_len) { /* GCOVR_EXCL_BR_LINE: size overflow */
+            return PyErr_NoMemory();                               /* GCOVR_EXCL_LINE: size overflow */
+        }
+        PyObject *joined = PyUnicode_New(base_len + target_len, 0x7F);
+        if (joined == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        unsigned char *data = PyUnicode_1BYTE_DATA(joined);
+        for (Py_ssize_t index = 0; index < base_len; index++) {
+            data[index] = (unsigned char)base[index];
+        }
+        memcpy(data + base_len, PyUnicode_1BYTE_DATA(target), (size_t)target_len);
+        return joined;
+    }
+    PyObject *source = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, base, base_len);
+    if (source == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *joined = c14n_join_objects(source, target);
+    Py_DECREF(source);
     return joined;
 }
 

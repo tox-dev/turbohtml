@@ -29,13 +29,7 @@ static int c14n_base_fixup(th_tree *tree, const th_node *apex, Py_UCS4 **value, 
         if (base == NULL) {
             continue;
         }
-        PyObject *source = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, base->value, base->value_len);
-        if (source == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            Py_DECREF(current); /* GCOVR_EXCL_LINE: allocation-failure path */
-            return -1;          /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        PyObject *joined = th_url_join_c14n(source, current);
-        Py_DECREF(source);
+        PyObject *joined = th_url_join_c14n_raw(base->value, base->value_len, current);
         Py_DECREF(current);
         if (joined == NULL) {
             return -1;
