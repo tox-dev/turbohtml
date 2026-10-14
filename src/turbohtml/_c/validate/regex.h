@@ -21,7 +21,7 @@
 #define RX_MAX_GROUP_DEPTH TH_DEPTH_LIMIT(250)
 
 /* Why a pattern failed to compile; each maps to its own error in regex_cache_add. */
-enum { RX_FAIL_MEMORY = 1, RX_FAIL_NESTING, RX_FAIL_BOUND, RX_FAIL_STATES };
+enum { RX_FAIL_MEMORY = 1, RX_FAIL_NESTING, RX_FAIL_CLASS_NESTING, RX_FAIL_BOUND, RX_FAIL_STATES };
 #define RX_MAX_STATES 2000000
 
 enum {
@@ -41,11 +41,12 @@ typedef struct {
     Py_UCS4 lo, hi;
 } rrange;
 
-typedef struct {
+typedef struct rclass {
     rrange *ranges;
     Py_ssize_t range_count, range_cap;
     int builtins;
     int negate;
+    struct rclass *subtract;
 } rclass;
 
 enum { RN_EMPTY, RN_CHAR, RN_ANY, RN_CLASS, RN_BUILTIN, RN_CONCAT, RN_ALT, RN_QUEST, RN_STAR, RN_PLUS, RN_REPEAT };
@@ -58,7 +59,7 @@ typedef struct rnode {
     int rmin, rmax;
 } rnode;
 
-enum { RS_SPLIT, RS_MATCH, RS_ACCEPT };
+enum { RS_SPLIT, RS_MATCH, RS_ACCEPT, RS_SUB_MATCH };
 
 typedef struct rstate {
     int kind;
@@ -74,6 +75,7 @@ typedef struct {
     Py_ssize_t len, pos;
     arena *mem;
     int failed;
+    int has_subtraction;
     Py_ssize_t fail_pos, fail_end; /* the span a nesting or bound error points at */
     int depth;                     /* open groups on the recursion path, capped at RX_MAX_GROUP_DEPTH */
 } rparser;
@@ -178,6 +180,24 @@ static rnode *rx_parse_class(rparser *parser) {
     }
     while (parser->pos < parser->len && parser->pattern[parser->pos] != ']') {
         Py_UCS4 current = parser->pattern[parser->pos++];
+        if (current == '-' && parser->pos < parser->len && parser->pattern[parser->pos] == '[' &&
+            (cls->range_count > 0 || cls->builtins != 0)) {
+            if (parser->depth >= RX_MAX_GROUP_DEPTH) {
+                parser->failed = RX_FAIL_CLASS_NESTING;
+                parser->fail_pos = parser->pos - 1;
+                return NULL;
+            }
+            parser->pos++;
+            parser->depth++;
+            rnode *excluded = rx_parse_class(parser);
+            parser->depth--;
+            if (excluded == NULL) {
+                return NULL;
+            }
+            cls->subtract = excluded->cls;
+            parser->has_subtraction = 1;
+            break;
+        }
         if (current == '\\' && parser->pos < parser->len) {
             Py_UCS4 letter = parser->pattern[parser->pos++];
             int flag = rx_builtin_flag(letter);
@@ -188,7 +208,7 @@ static rnode *rx_parse_class(rparser *parser) {
             current = rx_escape_literal(letter);
         }
         if (parser->pos + 1 < parser->len && parser->pattern[parser->pos] == '-' &&
-            parser->pattern[parser->pos + 1] != ']') {
+            parser->pattern[parser->pos + 1] != ']' && parser->pattern[parser->pos + 1] != '[') {
             Py_UCS4 hi = parser->pattern[parser->pos + 1];
             parser->pos += 2;
             if (hi == '\\' && parser->pos < parser->len) {
@@ -441,7 +461,8 @@ static rstate *rx_compile(rcompiler *compiler, rnode *node, rstate *out) {
     case RN_ANY:
     case RN_CLASS:
     case RN_BUILTIN: {
-        rstate *state = rx_state(compiler, RS_MATCH);
+        rstate *state =
+            rx_state(compiler, node->type == RN_CLASS && node->cls->subtract != NULL ? RS_SUB_MATCH : RS_MATCH);
         state->mkind = node->type;
         state->ch = node->ch;
         state->cls = node->cls;
@@ -533,7 +554,7 @@ static int rx_class_match(const rclass *cls, Py_UCS4 codepoint) {
     }
     int is_d = (cls->builtins & (RX_BD | RX_ND)) != 0 && rx_digit_match(codepoint);
     int is_w = (cls->builtins & (RX_BW | RX_NW)) != 0 && rx_word_match(codepoint);
-    int is_s = is_xml_space(codepoint);
+    int is_s = (cls->builtins & (RX_BS | RX_NS)) != 0 && is_xml_space(codepoint);
     int is_i = (cls->builtins & (RX_BI | RX_NI)) != 0 && is_name_start(codepoint);
     int is_c = (cls->builtins & (RX_BC | RX_NC)) != 0 && is_name_char(codepoint);
     if ((cls->builtins & RX_BD) && is_d) {
@@ -567,6 +588,10 @@ static int rx_class_match(const rclass *cls, Py_UCS4 codepoint) {
         inside = 1;
     }
     return cls->negate ? !inside : inside;
+}
+
+static int rx_subtracted_match(const rclass *cls, Py_UCS4 codepoint) {
+    return rx_class_match(cls, codepoint) && (cls->subtract == NULL || !rx_subtracted_match(cls->subtract, codepoint));
 }
 
 static int rx_state_match(const rstate *state, Py_UCS4 codepoint) {
@@ -608,6 +633,7 @@ typedef struct rpattern {
     Py_ssize_t len;
     rstate *start;
     size_t count;
+    int has_subtraction;
     struct rpattern *next;
 } rpattern;
 
@@ -636,6 +662,12 @@ static int regex_cache_add(th_schema *schema, const Py_UCS4 *text, Py_ssize_t le
                      RX_MAX_GROUP_DEPTH, parser.fail_pos);
         return -1;
     }
+    if (failed == RX_FAIL_CLASS_NESTING) {
+        PyErr_Format(PyExc_ValueError,
+                     "schema pattern nests character classes deeper than %d levels at offset %zd; flatten the class",
+                     RX_MAX_GROUP_DEPTH, parser.fail_pos);
+        return -1;
+    }
     if (failed == RX_FAIL_BOUND) {
         PyObject *bound =
             PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, text + parser.fail_pos, parser.fail_end - parser.fail_pos);
@@ -657,6 +689,7 @@ static int regex_cache_add(th_schema *schema, const Py_UCS4 *text, Py_ssize_t le
     pattern->text = text;
     pattern->len = len;
     pattern->start = start;
+    pattern->has_subtraction = parser.has_subtraction;
     pattern->count = compiler.count;
     if (compiler.count > schema->regex_max_states) {
         schema->regex_max_states = compiler.count;
@@ -752,6 +785,44 @@ static void rx_add(rlist *list, const rstate *start, rscratch *scratch) {
     }
 }
 
+static Py_NO_INLINE rlist rx_match_subtracted(rscratch *scratch, rlist current, rlist next, const Py_UCS4 *value,
+                                              Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        scratch->gen++;
+        next.len = 0;
+        for (size_t state = 0; state < current.len; state++) {
+            const rstate *item = current.items[state];
+            if ((item->kind == RS_MATCH && rx_state_match(item, value[index])) ||
+                (item->kind == RS_SUB_MATCH && rx_class_match(item->cls, value[index]) &&
+                 !rx_subtracted_match(item->cls->subtract, value[index]))) {
+                rx_add(&next, item->out, scratch);
+            }
+        }
+        rlist swap = current;
+        current = next;
+        next = swap;
+    }
+    return current;
+}
+
+static Py_NO_INLINE rlist rx_match_regular(rscratch *scratch, rlist current, rlist next, const Py_UCS4 *value,
+                                           Py_ssize_t len) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        scratch->gen++;
+        next.len = 0;
+        for (size_t state = 0; state < current.len; state++) {
+            const rstate *item = current.items[state];
+            if (item->kind == RS_MATCH && rx_state_match(item, value[index])) {
+                rx_add(&next, item->out, scratch);
+            }
+        }
+        rlist swap = current;
+        current = next;
+        next = swap;
+    }
+    return current;
+}
+
 static int regex_full_match(th_schema *schema, const Py_UCS4 *text, Py_ssize_t text_len, const Py_UCS4 *value,
                             Py_ssize_t len) {
     const rpattern *pattern = schema->regex_patterns;
@@ -767,17 +838,10 @@ static int regex_full_match(th_schema *schema, const Py_UCS4 *text, Py_ssize_t t
     rlist next = {scratch->lists + schema->regex_max_states, 0};
     scratch->gen++;
     rx_add(&current, pattern->start, scratch);
-    for (Py_ssize_t index = 0; index < len; index++) {
-        scratch->gen++;
-        next.len = 0;
-        for (size_t state = 0; state < current.len; state++) {
-            if (current.items[state]->kind == RS_MATCH && rx_state_match(current.items[state], value[index])) {
-                rx_add(&next, current.items[state]->out, scratch);
-            }
-        }
-        rlist swap = current;
-        current = next;
-        next = swap;
+    if (pattern->has_subtraction) {
+        current = rx_match_subtracted(scratch, current, next, value, len);
+    } else {
+        current = rx_match_regular(scratch, current, next, value, len);
     }
     for (size_t state = 0; state < current.len; state++) {
         if (current.items[state]->kind == RS_ACCEPT) {
