@@ -1,0 +1,1 @@
+Keep CSS rules in cascade order when their selectors can match the same element or a nested descendant.

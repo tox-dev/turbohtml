@@ -262,8 +262,8 @@ def test_minify_css_large_rules_keep_outline_fallback(large_rule_prefix: str) ->
             id="merge-nonadjacent-same-selector",
         ),
         pytest.param(
-            ".a{color:red}.c{margin:0}.b{color:red}",
-            ".a,.b{color:red}.c{margin:0}",
+            "a{color:red}c{margin:0}b{color:red}",
+            "a,b{color:red}c{margin:0}",
             id="merge-nonadjacent-identical-body",
         ),
         pytest.param("a{color:red}a{margin:0}a{padding:0}", "a{color:red;margin:0;padding:0}", id="merge-triple-run"),
@@ -278,48 +278,48 @@ def test_minify_css_large_rules_keep_outline_fallback(large_rule_prefix: str) ->
             id="merge-nonadjacent-past-multi-declaration",
         ),
         pytest.param(
-            "a{color:red}b{color:blue}a{color:green}",
-            "a{color:red}b{color:blue}a{color:green}",
+            ".a{color:red}.b{color:blue}.a{color:green}",
+            ".a{color:red}.b{color:blue}.a{color:green}",
             id="no-merge-conflicting-property",
         ),
         pytest.param(
-            "a{color:red}b{margin:0}a{margin-top:1px}",
-            "a{color:red}b{margin:0}a{margin-top:1px}",
+            ".a{color:red}.b{margin:0}.a{margin-top:1px}",
+            ".a{color:red}.b{margin:0}.a{margin-top:1px}",
             id="no-merge-shorthand-blocks-longhand",
         ),
         pytest.param(
-            "a{color:red}b{margin-top:0}a{margin:1px}",
-            "a{color:red}b{margin-top:0}a{margin:1px}",
+            ".a{color:red}.b{margin-top:0}.a{margin:1px}",
+            ".a{color:red}.b{margin-top:0}.a{margin:1px}",
             id="no-merge-longhand-blocks-shorthand",
         ),
         pytest.param(
-            "a{margin:0}b{margin-top:1px}a{margin:2px}",
-            "a{margin:0}b{margin-top:1px}a{margin:2px}",
+            ".a{margin:0}.b{margin-top:1px}.a{margin:2px}",
+            ".a{margin:0}.b{margin-top:1px}.a{margin:2px}",
             id="no-merge-shorthand-vs-longhand-blocks",
         ),
         pytest.param(
-            "a{color:red}b{all:unset}a{font-size:2px}",
-            "a{color:red}b{all:unset}a{font-size:2px}",
+            ".a{color:red}.b{all:unset}.a{font-size:2px}",
+            ".a{color:red}.b{all:unset}.a{font-size:2px}",
             id="no-merge-across-all",
         ),
         pytest.param(
-            'a{color:red}x{content:"a;b"}a{font-size:2px}',
-            'a{color:red}x{content:"a;b"}a{font-size:2px}',
+            '.a{color:red}.x{content:"a;b"}.a{font-size:2px}',
+            '.a{color:red}.x{content:"a;b"}.a{font-size:2px}',
             id="no-merge-across-double-quoted-body",
         ),
         pytest.param(
-            "a{color:red}x{content:'a;b'}a{font-size:2px}",
-            "a{color:red}x{content:'a;b'}a{font-size:2px}",
+            ".a{color:red}.x{content:'a;b'}.a{font-size:2px}",
+            ".a{color:red}.x{content:'a;b'}.a{font-size:2px}",
             id="no-merge-across-single-quoted-body",
         ),
         pytest.param(
-            "a{color:red}b{c:d;& e{f:g}}a{margin:0}",
-            "a{color:red}b{c:d;& e{f:g}}a{margin:0}",
+            ".a{color:red}.b{c:d;& e{f:g}}.a{margin:0}",
+            ".a{color:red}.b{c:d;& e{f:g}}.a{margin:0}",
             id="no-merge-across-nested-rule",
         ),
         pytest.param(
-            'a{color:red}b{margin:0}a{content:"x;y"}',
-            'a{color:red}b{margin:0}a{content:"x;y"}',
+            '.a{color:red}.b{margin:0}.a{content:"x;y"}',
+            '.a{color:red}.b{margin:0}.a{content:"x;y"}',
             id="no-merge-when-moved-body-is-opaque",
         ),
         pytest.param(
@@ -421,15 +421,15 @@ def test_minify_css_many_unique_rules(count: int) -> None:
 
 
 def test_minify_css_many_rules_merge_same_selector() -> None:
-    middle = "".join(f".c{index}{{--p{index}:{index + 1}px}}" for index in range(40))
-    assert minify_css(f".target{{color:red}}{middle}.target{{background:blue}}") == (
-        f".target{{color:red;background:blue}}{middle}"
+    middle = "".join(f"c{index}{{--p{index}:{index + 1}px}}" for index in range(40))
+    assert minify_css(f"target{{color:red}}{middle}target{{background:blue}}") == (
+        f"target{{color:red;background:blue}}{middle}"
     )
 
 
 def test_minify_css_many_rules_merge_same_body() -> None:
-    middle = "".join(f".c{index}{{--p{index}:{index + 1}px}}" for index in range(40))
-    assert minify_css(f".first{{color:red}}{middle}.last{{color:red}}") == f".first,.last{{color:red}}{middle}"
+    middle = "".join(f"c{index}{{--p{index}:{index + 1}px}}" for index in range(40))
+    assert minify_css(f"first{{color:red}}{middle}last{{color:red}}") == f"first,last{{color:red}}{middle}"
 
 
 def test_minify_css_many_rules_keep_blocked_merge() -> None:
@@ -439,107 +439,133 @@ def test_minify_css_many_rules_keep_blocked_merge() -> None:
 
 
 @pytest.mark.parametrize(
-    "body",
+    ("outer", "first", "inner", "middle", "last"),
     [
-        pytest.param("[:;a", id="unclosed-bracket"),
-        pytest.param("c:d[;e]", id="semicolon-in-bracket"),
-        pytest.param("c:d\\;e", id="escaped-semicolon"),
+        pytest.param("border", "1px solid red", side, "2px solid blue", "3px dashed green", id=f"border-{side}")
+        for side in ("border-top", "border-right", "border-bottom", "border-left")
+    ]
+    + [
+        pytest.param(outer, first, side, "2px solid blue", last, id=f"{outer}-{side}")
+        for outer, first, last in (
+            ("border-width", "1px", "3px"),
+            ("border-style", "solid", "dashed"),
+            ("border-color", "red", "green"),
+        )
+        for side in ("border-top", "border-right", "border-bottom", "border-left")
+    ]
+    + [
+        pytest.param("grid", "auto/auto", "grid-template", "1px/1px", "none", id="grid-template"),
+        pytest.param("grid-area", "1/1/2/2", "grid-row", "2/3", "3/3/4/4", id="grid-row"),
+        pytest.param("grid-area", "1/1/2/2", "grid-column", "2/3", "3/3/4/4", id="grid-column"),
+        pytest.param("background", "red 10px 20px", "background-position-x", "30px", "blue 40px 50px"),
+        pytest.param("border", "1px solid red", "border-image-source", "url(a)", "3px solid green"),
+        pytest.param("font", "italic 12px Arial", "font-variant-caps", "small-caps", "16px Arial"),
+        pytest.param("text-decoration", "underline red", "text-decoration-style", "dotted", "underline blue"),
+        pytest.param("animation", "foo 1s", "animation-timeline", "scroll()", "foo 2s"),
+        pytest.param("transition", "opacity 1s", "transition-behavior", "allow-discrete", "opacity 2s"),
+        pytest.param("border-radius", "1px", "border-top-left-radius", "2px", "3px"),
+        pytest.param("background-position", "10px 20px", "background-position-x", "30px", "40px 50px"),
     ],
 )
-def test_minify_css_merge_scan_stays_in_body(filler_rules: str, body: str) -> None:
-    # the last body piece the merge scan splits off holds no ':'; reading on for one ran past the end of the body
-    assert minify_css(f"b{{g:h}}{filler_rules}b{{{body}") == f"b{{g:h;{body}}}{filler_rules}"
-
-
-@pytest.mark.parametrize(
-    "body",
-    [
-        pytest.param("c:d[;e];color:red", id="semicolon-in-bracket"),
-        pytest.param("c:d);color:red", id="stray-paren"),
-        pytest.param("c:d\\(;color:red", id="escaped-paren"),
-        pytest.param("c:url(x(y);color:red", id="paren-in-url"),
-        pytest.param("c:url(x;y);color:red", id="semicolon-in-url"),
-        pytest.param("c:url(x\\));color:red", id="escaped-paren-in-url"),
-        pytest.param("c:f(\\();color:red", id="escaped-paren-in-function"),
-        pytest.param("c:f(g(h);i);color:red", id="nested-functions"),
-        pytest.param("c\\:d:e;color:red", id="escaped-colon-in-name"),
-        pytest.param("--x:\\(;color:red", id="custom-property"),
-        pytest.param("c:d\\(!important;color:red", id="important-before"),
-        pytest.param("c:d\\(;color:red!important", id="important-conflict"),
-        pytest.param("c/*;(*/:d\\(;color:red", id="comment-in-name"),
-        pytest.param('c:"(;";color:red', id="string"),
-        pytest.param("c/*/;(*/:d\\(;color:red", id="comment-opening-with-slash"),
-        pytest.param("c/*\\([)]}:;/*/:d\\(;color:red", id="delimiters-in-comment"),
-        pytest.param("c:a/;color:red", id="slash"),
-        pytest.param("color:red;c:a/", id="slash-at-end"),
-        pytest.param("c:url(a[b);color:red", id="bracket-in-url"),
-        pytest.param("c:f(x});color:red", id="brace-closing-paren"),
-        pytest.param("c:a]b;color:red", id="stray-bracket"),
-        pytest.param("c:a:b;color:red", id="second-colon"),
-        pytest.param("c:xé;color:red", id="non-ascii"),
-        pytest.param("@x y;color:red", id="at-statement"),
-        pytest.param("color:red;@x y", id="at-statement-at-end"),
-        pytest.param("(a:b);color:red", id="paren-in-name"),
-        pytest.param("c:nil(x);color:red", id="function-ending-in-l"),
-        pytest.param(";".join(f"--p{index}:{index}" for index in range(40)) + ";color:red", id="many-properties"),
-    ],
-)
-def test_minify_css_merge_scan_sees_every_property(filler_rules: str, body: str) -> None:
-    # .u sets color, so folding the last .t back into the first would let .u's red win over green
-    source: Final = f".t{{color:blue}}{filler_rules}.u{{{body}}}.t{{color:green}}"
+def test_minify_css_keeps_overlapping_shorthands(outer: str, first: str, inner: str, middle: str, last: str) -> None:
+    source = f".a{{{outer}:{first}}}.b{{{inner}:{middle}}}.a{{{outer}:{last}}}"
     assert minify_css(source) == source
 
 
-def test_minify_css_merge_sees_property_after_comment(filler_rules: str) -> None:
-    source = f".t{{color:blue}}{filler_rules}.u{{c:d\\(/*;*/;color:red}}.t{{color:green}}"
-    assert minify_css(source) == f".t{{color:blue}}{filler_rules}.u{{c:d\\(;color:red}}.t{{color:green}}"
+def test_minify_css_many_rules_keep_overlapping_shorthands() -> None:
+    middle = "".join(f".c{index}{{--p{index}:{index}}}" for index in range(32))
+    source = f".a{{border-width:1px}}{middle}.b{{border-top:2px solid blue}}.a{{border-width:3px}}"
+    assert minify_css(source) == source
 
 
 @pytest.mark.parametrize(
-    "body",
+    ("first", "middle", "last", "expected"),
     [
-        pytest.param("c:d\\;color:red", id="escaped-semicolon"),
-        pytest.param("c:d[;color:red]", id="semicolon-in-bracket"),
-        pytest.param("c:url(x;color:red)", id="semicolon-in-url"),
-        pytest.param("c:f(\\;color:red)", id="escaped-semicolon-in-function"),
-        pytest.param("--color:red", id="custom-property"),
+        pytest.param("a", "b", "a", "a{x:1;y:2}b{z:3}", id="distinct-type"),
+        pytest.param("a.foo", "b.bar", "a.foo", "a.foo{x:1;y:2}b.bar{z:3}", id="qualified-type"),
+        pytest.param("a,b", "c", "a,b", "a,b{x:1;y:2}c{z:3}", id="selector-list"),
+        pytest.param("a", "A", "a", "a{x:1;z:3;y:2}", id="ascii-case"),
+        pytest.param("a", ".b", "a", "a{x:1}.b{z:3}a{y:2}", id="untyped-selector"),
+        pytest.param("a", "b:hover", "a", "a{x:1}b:hover{z:3}a{y:2}", id="pseudo-selector"),
+        pytest.param("a", "b c", "a", "a{x:1}b c{z:3}a{y:2}", id="compound-selector"),
+        pytest.param("a", "b[a]", "a", "a{x:1;y:2}b[a]{z:3}", id="attribute-presence"),
+        pytest.param("a", "B2", "a", "a{x:1;y:2}b2{z:3}", id="uppercase-and-digit-type"),
+        pytest.param("a", "b-x", "a", "a{x:1;y:2}b-x{z:3}", id="hyphenated-type"),
+        pytest.param("a", "b_x", "a", "a{x:1;y:2}b_x{z:3}", id="underscored-type"),
+        pytest.param("a", "b[a2]", "a", "a{x:1;y:2}b[a2]{z:3}", id="digit-in-attribute"),
+        pytest.param("a", "b#x", "a", "a{x:1;y:2}b#x{z:3}", id="id-qualifier"),
+        pytest.param("a", "b[a=x]", "a", "a{x:1}b[a=x]{z:3}a{y:2}", id="attribute-value"),
+        pytest.param("a", "b,c,a", "a", "a{x:1}b,c,a{z:3}a{y:2}", id="overlapping-list-arm"),
     ],
 )
-def test_minify_css_merge_passes_rule_without_property(filler_rules: str, body: str) -> None:
-    # `color:red` sits inside one declaration's value or custom property name, so .u leaves color alone
-    source = f".t{{color:blue}}{filler_rules}.u{{{body}}}.t{{color:green}}"
-    assert minify_css(source) == f".t{{color:blue;color:green}}{filler_rules}.u{{{body}}}"
+def test_minify_css_type_selector_merge(first: str, middle: str, last: str, expected: str) -> None:
+    assert minify_css(f"{first}{{x:1}}{middle}{{z:3}}{last}{{y:2}}") == expected
 
 
 @pytest.mark.parametrize(
-    ("first", "blocker", "decoded", "last"),
+    "source",
     [
-        pytest.param("color:blue", "colo\\r:red", "color:red", "color:green", id="escaped-letter"),
-        pytest.param("color:blue", "\\61ll:initial", "all:initial", "color:green", id="escaped-all"),
-        pytest.param("margin-top:1px", "marg\\in:0", "margin:0", "margin-top:2px", id="escaped-shorthand"),
-        pytest.param("margin:1px", "margin-t\\op:0", "margin-top:0", "margin:2px", id="escaped-longhand"),
-        pytest.param("--\u00e9:blue", "--\\e9:red", "--\u00e9:red", "--\u00e9:green", id="non-ascii-escape"),
+        pytest.param(
+            "a{:where(&) span{color:red}}span{color:blue}a{:where(&) span{color:green}}",
+            id="moved-nested-body",
+        ),
+        pytest.param(
+            "span{color:red}a{:where(&) span{color:blue}}span{color:green}",
+            id="crossed-nested-body",
+        ),
     ],
 )
-def test_minify_css_merge_reads_escaped_property_names(
-    filler_rules: str, first: str, blocker: str, decoded: str, last: str
-) -> None:
-    # .u sets the property .t sets, spelled through an escape, so the last .t cannot fold back past it
-    source: Final = f".t{{{first}}}{filler_rules}.u{{{blocker}}}.t{{{last}}}"
-    assert minify_css(source) == f".t{{{first}}}{filler_rules}.u{{{decoded}}}.t{{{last}}}"
+def test_minify_css_nested_rules_keep_cascade_order(source: str) -> None:
+    assert minify_css(source) == source
 
 
 @pytest.mark.parametrize(
-    ("body", "decoded"),
+    ("middle", "expected"),
     [
-        pytest.param("c\\olorr:red", "colorr:red", id="other-name"),
-        pytest.param("--\\e9:red", "--\u00e9:red", id="non-ascii-escape"),
-        pytest.param("\\31 color:red", "\\31 color:red", id="name-keeping-an-escape"),
+        pytest.param("--b:var(--a)", ".a{--a:1;--c:3}.b{--b:var(--a)}", id="distinct-names"),
+        pytest.param("--c:2", ".a{--a:1}.b{--c:2}.a{--c:3}", id="same-name"),
+        pytest.param("--A:2", ".a{--a:1;--c:3}.b{--A:2}", id="case-sensitive"),
+        pytest.param("--b2:2", ".a{--a:1;--c:3}.b{--b2:2}", id="digit-in-name"),
+        pytest.param("--b_x:2", ".a{--a:1;--c:3}.b{--b_x:2}", id="underscore-in-name"),
+        pytest.param("--b-x:2", ".a{--a:1;--c:3}.b{--b-x:2}", id="hyphen-in-name"),
+        pytest.param('--b:"x;y"', '.a{--a:1}.b{--b:"x;y"}.a{--c:3}', id="double-quoted-value"),
+        pytest.param("--\\63:2", ".a{--a:1}.b{--c:2}.a{--c:3}", id="escaped-name"),
+        pytest.param("color:red", ".a{--a:1}.b{color:red}.a{--c:3}", id="ordinary-property"),
+        pytest.param("--b:'x;y'", ".a{--a:1}.b{--b:'x;y'}.a{--c:3}", id="quoted-value"),
+        pytest.param("-x:2", ".a{--a:1}.b{-x:2}.a{--c:3}", id="vendor-property"),
     ],
 )
-def test_minify_css_merge_passes_escaped_property_name(filler_rules: str, body: str, decoded: str) -> None:
-    source: Final = f".t{{color:blue}}{filler_rules}.u{{{body}}}.t{{color:green}}"
-    assert minify_css(source) == f".t{{color:blue;color:green}}{filler_rules}.u{{{decoded}}}"
+def test_minify_css_custom_property_merge(middle: str, expected: str) -> None:
+    assert minify_css(f".a{{--a:1}}.b{{{middle}}}.a{{--c:3}}") == expected
+
+
+@pytest.mark.parametrize(
+    ("first", "middle"),
+    [
+        pytest.param("--sjiq8k", "--fq3dik", id="same-length-hash-collision"),
+        pytest.param("--lgyn6x", "--u04moxt3", id="different-length-hash-collision"),
+    ],
+)
+def test_minify_css_custom_property_hash_collision(first: str, middle: str) -> None:
+    assert minify_css(f".a{{{first}:1}}.b{{{middle}:2}}.a{{--last:3}}") == (f".a{{{first}:1;--last:3}}.b{{{middle}:2}}")
+
+
+def test_minify_css_many_custom_properties_merge() -> None:
+    first = ";".join(f"--a{index}:f(x)" for index in range(32))
+    middle = ";".join(f"--b{index}:f(y)" for index in range(32))
+    assert minify_css(f".a{{{first}}}.b{{{middle}}}.a{{--last:1}}") == (f".a{{{first};--last:1}}.b{{{middle}}}")
+
+
+def test_minify_css_custom_property_scan_is_bounded() -> None:
+    middle = ";".join(f"--b{index}:1" for index in range(65))
+    source = f".a{{--a:1}}.b{{{middle}}}.a{{--c:3}}"
+    assert minify_css(source) == source
+
+
+def test_minify_css_type_selector_scan_is_bounded() -> None:
+    middle = ",".join(f"b{index}" for index in range(33))
+    source = f"a{{x:1}}{middle}{{z:3}}a{{y:2}}"
+    assert minify_css(source) == source
 
 
 @pytest.mark.parametrize(
@@ -973,12 +999,6 @@ def test_minify_css_negative_after_number(source: str, expected: str) -> None:
 @pytest.mark.parametrize(("source", "expected"), _NEGATIVE_AFTER_NUMBER)
 def test_minify_css_negative_after_number_is_a_fixed_point(source: str, expected: str) -> None:
     assert minify_css(minify_css(source)) == expected
-
-
-# past 32 rules the merge pass finds repeated selectors and bodies through a hash table before scanning back
-@pytest.fixture(params=[pytest.param(1, id="short-list"), pytest.param(40, id="hashed-list")])
-def filler_rules(request: pytest.FixtureRequest) -> str:
-    return "".join(f".c{index}{{--p{index}:{index + 1}px}}" for index in range(request.param))
 
 
 @pytest.mark.parametrize(
@@ -2400,68 +2420,10 @@ def test_minify_css_merge_shared_inputs(case_index: int) -> None:
 @pytest.mark.parametrize(
     "case", [pytest.param(0, id="long-values"), pytest.param(1, id="short-values"), pytest.param(2, id="single-pair")]
 )
-def test_minify_css_disjoint_rule_benchmark(case: int) -> None:
+def test_minify_css_overlapping_rule_benchmark(case: int) -> None:
     source: Final = cast("str", INPUTS["minify-css-conflicts"]()[case][1])
     first_pair: Final = source[: source.index("}", source.index("}") + 1) + 1]
     assert minify_css(source) == first_pair
-
-
-@pytest.mark.parametrize(
-    ("source", "expected"),
-    [
-        pytest.param(
-            "a{color:red}b{margin:0}a{margin-left:1px}",
-            "a{color:red}b{margin:0}a{margin-left:1px}",
-            id="shorthand-barrier",
-        ),
-        pytest.param(
-            "a{color:red}b{margin-left:1px}a{margin:0}",
-            "a{color:red}b{margin-left:1px}a{margin:0}",
-            id="longhand-barrier",
-        ),
-        pytest.param(
-            "a{color:red}b{all:initial}a{width:1px}", "a{color:red}b{all:initial}a{width:1px}", id="all-barrier"
-        ),
-        pytest.param(
-            'a{color:red}b{content:";"}a{width:1px}', 'a{color:red}b{content:";"}a{width:1px}', id="string-barrier"
-        ),
-        pytest.param("a{--X:1}b{--x:2}a{height:3px}", "a{--X:1;height:3px}b{--x:2}", id="custom-case-sensitive"),
-        pytest.param(
-            'a{color:red}b{width:1px}a{content:";"}',
-            'a{color:red}b{width:1px}a{content:";"}',
-            id="incoming-string-barrier",
-        ),
-        pytest.param(
-            "a{color:red}b{width:1px}a{all:initial}", "a{color:red}b{width:1px}a{all:initial}", id="incoming-all"
-        ),
-        pytest.param(
-            "a{color:red}b{width:1px}a{width:2px}", "a{color:red}b{width:1px}a{width:2px}", id="same-property"
-        ),
-        pytest.param(
-            "a{color:red}b{margin:0}a{border-color:red}",
-            "a{color:red;border-color:red}b{margin:0}",
-            id="disjoint-shorthands",
-        ),
-        pytest.param(
-            "a{--first:1}b{--second:2}c{--third:3}a{--last:4}",
-            "a{--first:1;--last:4}b{--second:2}c{--third:3}",
-            id="reuse-across-two-barriers",
-        ),
-        pytest.param(
-            "a{--first:1}b{--other:url(data:image/png;base64,AAAA)}a{--mine:2}",
-            "a{--first:1;--mine:2}b{--other:url(data:image/png;base64,AAAA)}",
-            id="url-semicolon",
-        ),
-        pytest.param(
-            "a{color:red}b{width:1px}a{margin:0}",
-            "a{color:red;margin:0}b{width:1px}",
-            id="incoming-shorthand-unrelated-barrier",
-        ),
-    ],
-)
-def test_minify_css_large_rule_conflict_barriers(source: str, expected: str) -> None:
-    prefix: Final = "".join(f".pad{index}{{--pad{index}:{index}}}" for index in range(32))
-    assert minify_css(prefix + source) == prefix + expected
 
 
 @pytest.mark.oracle

@@ -594,8 +594,8 @@ def test_minify_css_baseline_bounds_output_syntax() -> None:
             id="style-body-at-rule",
         ),
         pytest.param(
-            "<style>a{color:blue}b{c:d\\(;color:red}a{color:green}</style>",
-            "<style>a{color:blue}b{c:d\\(;color:red}a{color:green}</style>",
+            "<style>.a{color:blue}.b{c:d\\(;color:red}.a{color:green}</style>",
+            "<style>.a{color:blue}.b{c:d\\(;color:red}.a{color:green}</style>",
             id="style-body-keeps-rule-order-past-property",
         ),
         pytest.param("<style></style>", "<style></style>", id="empty-style-element"),

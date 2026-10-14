@@ -1019,273 +1019,6 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
     cbuf_free(&combined);
 }
 
-/* A plain identifier byte: ASCII alnum, '-' or '_', the bytes css_ident_plain_run skips. */
-static inline int css_is_plain(css_char character) {
-    return character < 0x80 && character != '\\' && css_is_ident(character);
-}
-
-/* Advance *pos over one declaration of a rendered body [0,len), returning its property-name run [*start,*end): the
-   text before its first ':' delimiter, or all of it when it has none, which can only add a conflict. It ends a
-   declaration at a ';' outside ( [ blocks, as css_read_until splits the parser's tokens, and it steps over the token
-   contents css_tokenize keeps whole, so the `(` of an escaped `\(`, a ';' in a comment and the `(` inside `url(x(y)`
-   are not delimiters. A '(' after any `url` opens a url: reading one the tokenizer did not can only end a block early
-   and add a name. The callers have excluded a body with a string or a nested rule. Returns 0 at the end. */
-static int css_body_next_prop(const css_char *body, Py_ssize_t len, Py_ssize_t *pos, Py_ssize_t *start,
-                              Py_ssize_t *end) {
-    if (*pos >= len) {
-        return 0;
-    }
-    *start = *pos;
-    Py_ssize_t colon = -1;
-    int depth = 0;
-    enum { CSS_SCAN_TOKENS, CSS_SCAN_COMMENT, CSS_SCAN_URL } mode = CSS_SCAN_TOKENS;
-    Py_ssize_t comment = 0; /* where the open comment's text starts */
-    Py_ssize_t index = *pos;
-    for (; index < len; index++) {
-        switch (body[index]) {
-        case '\\':
-            if (mode != CSS_SCAN_COMMENT) {
-                index += index + 1 < len; /* skip the escaped byte, if the body has one */
-            }
-            break;
-        case '/':
-            if (mode == CSS_SCAN_COMMENT) {
-                if (index > comment && body[index - 1] == '*') {
-                    mode = CSS_SCAN_TOKENS;
-                }
-            } else if (mode == CSS_SCAN_TOKENS && index + 1 < len && body[index + 1] == '*') {
-                mode = CSS_SCAN_COMMENT;
-                index++;
-                comment = index + 1;
-            }
-            break;
-        case '(':
-            if (mode == CSS_SCAN_TOKENS) {
-                if (index - *start >= 3 && css_run_ieq(body + index - 3, 3, "url")) {
-                    mode = CSS_SCAN_URL;
-                } else {
-                    depth++;
-                }
-            }
-            break;
-        case ')':
-            if (mode == CSS_SCAN_URL) {
-                mode = CSS_SCAN_TOKENS;
-            } else if (mode == CSS_SCAN_TOKENS && depth > 0) {
-                depth--;
-            }
-            break;
-        case '[':
-            if (mode == CSS_SCAN_TOKENS) {
-                depth++;
-            }
-            break;
-        case ']':
-        case '}':
-            if (mode == CSS_SCAN_TOKENS && depth > 0) {
-                depth--;
-            }
-            break;
-        case ':':
-            if (mode == CSS_SCAN_TOKENS && colon < 0) {
-                colon = index;
-            }
-            break;
-        case ';':
-            if (mode == CSS_SCAN_TOKENS && depth == 0) {
-                *end = colon < 0 ? index : colon;
-                *pos = index + 1;
-                return 1;
-            }
-            break;
-        default:
-            /* a plain run holds no delimiter in any mode, so the SIMD scan skips it whole */
-            if (index + 1 < len && css_is_plain(body[index + 1])) {
-                index += css_ident_plain_run(body + index + 1, len - index - 1);
-            }
-            break;
-        }
-    }
-    *end = colon < 0 ? len : colon;
-    *pos = len;
-    return 1;
-}
-
-/* A body the flat property scan cannot analyze: it nests a rule (`{`) or carries a string (a quote), inside which a
-   ';' would be misread as a declaration boundary. Such a body is treated as conflicting, so it never moves. */
-static int css_body_is_opaque(const css_char *body, Py_ssize_t len) {
-    for (Py_ssize_t index = 0; index < len; index++) {
-        if (body[index] == '{' || body[index] == '"' || body[index] == '\'') {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-typedef struct {
-    Py_ssize_t start;
-    Py_ssize_t length;
-    const char *longhands;
-    int all;
-} css_property_summary;
-
-typedef struct {
-    Py_ssize_t offset;
-    Py_ssize_t length;
-    css_property_summary *properties;
-    Py_ssize_t count;
-    int opaque;
-} css_body_summary;
-
-/* Marks a property whose longhand list is not looked up yet: most checks settle on the name alone. */
-static const char css_longhands_unknown[] = "";
-
-static css_property_summary css_summarize_property(const css_char *body, Py_ssize_t start, Py_ssize_t length) {
-    return (css_property_summary){start, length, css_longhands_unknown, css_run_ieq(body + start, length, "all")};
-}
-
-static const char *css_property_longhands(const css_char *body, css_property_summary *property) {
-    if (property->longhands == css_longhands_unknown) {
-        property->longhands = css_longhand_list(body + property->start, property->length);
-    }
-    return property->longhands;
-}
-
-/* Two properties conflict when one could override the other on an element: the same name, a shorthand and one of its
-   longhands, or `all` (which resets every property). Conflict decides whether a declaration can be moved past another
-   rule without changing the cascade. */
-static int css_properties_conflict(const css_char *left_body, css_property_summary *left, const css_char *right_body,
-                                   css_property_summary *right) {
-    const css_char *left_name = left_body + left->start;
-    const css_char *right_name = right_body + right->start;
-    if (left->all || right->all ||
-        (left->length == right->length &&
-         memcmp(left_name, right_name, (size_t)left->length * sizeof(css_char)) == 0)) {
-        return 1;
-    }
-    const char *left_longhands = css_property_longhands(left_body, left);
-    if (left_longhands != NULL && css_prop_in_list(right_name, right->length, left_longhands)) {
-        return 1;
-    }
-    const char *right_longhands = css_property_longhands(right_body, right);
-    return right_longhands != NULL && css_prop_in_list(left_name, left->length, right_longhands);
-}
-
-/* Whether moving one rendered body past another could change the cascade: either is opaque, or they set a conflicting
-   property. The first body's names are summarized once as the scan reaches them and kept for every later name of the
-   second, so a body is rescanned only past the first CSS_NAME_CACHE names, and the usual check that fails on the first
-   pair reads one name of each. */
-#define CSS_NAME_CACHE 32
-static int css_bodies_conflict(const css_buf *pool, Py_ssize_t a_off, Py_ssize_t a_len, Py_ssize_t b_off,
-                               Py_ssize_t b_len) {
-    const css_char *a = pool->data + a_off;
-    const css_char *b = pool->data + b_off;
-    if (css_body_is_opaque(a, a_len) || css_body_is_opaque(b, b_len)) {
-        return 1;
-    }
-    css_property_summary cached[CSS_NAME_CACHE];
-    Py_ssize_t cached_count = 0;
-    Py_ssize_t after_cached = 0;
-    Py_ssize_t b_pos = 0;
-    Py_ssize_t start = 0;
-    Py_ssize_t end = 0;
-    while (css_body_next_prop(b, b_len, &b_pos, &start, &end)) {
-        css_property_summary right = css_summarize_property(b, start, end - start);
-        for (Py_ssize_t index = 0; index < cached_count; index++) {
-            if (css_properties_conflict(a, &cached[index], b, &right)) {
-                return 1;
-            }
-        }
-        Py_ssize_t a_pos = after_cached;
-        while (css_body_next_prop(a, a_len, &a_pos, &start, &end)) {
-            css_property_summary left = css_summarize_property(a, start, end - start);
-            css_property_summary *property = &left;
-            if (cached_count < CSS_NAME_CACHE) {
-                cached[cached_count] = left;
-                property = &cached[cached_count++];
-                after_cached = a_pos;
-            }
-            if (css_properties_conflict(a, property, b, &right)) {
-                return 1;
-            }
-        }
-    }
-    return 0;
-}
-
-static int css_summarize_body(const css_buf *pool, Py_ssize_t offset, Py_ssize_t length, css_body_summary *summary) {
-    if (summary->length == length && summary->offset == offset) {
-        return 1;
-    }
-    css_free(summary->properties);
-    *summary = (css_body_summary){0};
-    summary->opaque = css_body_is_opaque(pool->data + offset, length);
-    if (!summary->opaque) {
-        Py_ssize_t position = 0;
-        Py_ssize_t start = 0;
-        Py_ssize_t end = 0;
-        size_t capacity = 0;
-        while (css_body_next_prop(pool->data + offset, length, &position, &start, &end)) {
-            if ((size_t)summary->count == capacity) {
-                size_t bytes;
-                int grew = th_grow_cap(capacity + 1, capacity, 8, sizeof(*summary->properties), &capacity, &bytes);
-                if (!grew) {  /* GCOVR_EXCL_BR_LINE: capacity overflow cannot fit in memory */
-                    return 0; /* GCOVR_EXCL_LINE: capacity overflow */
-                }
-                css_property_summary *properties = css_realloc(summary->properties, bytes);
-                if (properties == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                    *pool->oom = 1;       /* GCOVR_EXCL_LINE: allocation failure */
-                    return 0;             /* GCOVR_EXCL_LINE: allocation failure */
-                }
-                summary->properties = properties;
-            }
-            const css_char *name = pool->data + offset + start;
-            summary->properties[summary->count++] = (css_property_summary){
-                start, end - start, css_longhand_list(name, end - start), css_run_ieq(name, end - start, "all")};
-        }
-    }
-    summary->offset = offset;
-    summary->length = length;
-    return 1;
-}
-
-static int css_summaries_conflict(const css_buf *pool, const rule_item *first, const rule_item *second,
-                                  css_body_summary *left, css_body_summary *right) {
-    /* GCOVR_EXCL_BR_START: allocation failure */
-    if (!css_summarize_body(pool, first->body_off, first->body_len, left) ||
-        !css_summarize_body(pool, second->body_off, second->body_len, right)) {
-        /* GCOVR_EXCL_BR_STOP */
-        /* GCOVR_EXCL_START: allocation failure fallback */
-        return css_bodies_conflict(pool, first->body_off, first->body_len, second->body_off, second->body_len);
-        /* GCOVR_EXCL_STOP */
-    }
-    if (left->opaque || right->opaque) {
-        return 1;
-    }
-    for (Py_ssize_t outer = 0; outer < left->count; outer++) {
-        const css_property_summary *left_property = &left->properties[outer];
-        const css_char *left_name = pool->data + first->body_off + left_property->start;
-        for (Py_ssize_t inner = 0; inner < right->count; inner++) {
-            const css_property_summary *right_property = &right->properties[inner];
-            const css_char *right_name = pool->data + second->body_off + right_property->start;
-            if (left_property->all || right_property->all ||
-                (left_property->length == right_property->length &&
-                 memcmp(left_name, right_name, (size_t)left_property->length * sizeof(css_char)) == 0)) {
-                return 1;
-            }
-            const int left_covers_right =
-                left_property->longhands != NULL &&
-                css_prop_in_list(right_name, right_property->length, left_property->longhands);
-            const int right_covers_left = right_property->longhands != NULL &&
-                                          css_prop_in_list(left_name, left_property->length, right_property->longhands);
-            if (left_covers_right || right_covers_left) {
-                return 1;
-            }
-        }
-    }
-    return 0;
-}
-
 /* Unbounded, n same-selector rules cost O(n^2) time and memory (~115 KiB of CSS reached ~1 GiB); past the cap rules
    stay unmerged, as tdewolff/minify and clean-css level 1 leave them. 256 is well above the longest merge reach in the
    bench corpora (normalize.css, pico). */
@@ -1510,12 +1243,165 @@ static int css_selector_merge_safe(const css_buf *pool, const rule_item *rule) {
     return arm && !combinator;
 }
 
-/* Merge qualified rules: same selector -> combine declaration bodies; identical body -> combine selectors into a list.
-   A rule may merge with an earlier one across intervening rules, but only while every rule between them sets no
-   property the moved body sets (so the cascade cannot change); an opaque node (a bang comment) or a conflicting rule
-   ends the reach. Consecutive @media blocks with an identical prelude fold into one wrapper. */
+typedef struct {
+    Py_ssize_t offset;
+    Py_ssize_t length;
+} css_type_arm;
+
+static int css_ascii_type_char(css_char character) {
+    return (character >= 'a' && character <= 'z') || /* GCOVR_EXCL_BR_LINE: normalized input */
+           (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '-' ||
+           character == '_';
+}
+
+static int css_type_arms(const css_char *selector, Py_ssize_t length, css_type_arm *arms) {
+    if (!length) { /* GCOVR_EXCL_BR_LINE: empty rules removed earlier */
+        return 0;  /* GCOVR_EXCL_LINE: empty rules removed earlier */
+    }
+    Py_ssize_t index = 0;
+    int count = 0;
+    while (index < length && count < 32) {
+        Py_ssize_t start = index;
+        if (!((selector[index] >= 'a' && selector[index] <= 'z') ||  /* GCOVR_EXCL_BR_LINE: lowercased */
+              (selector[index] >= 'A' && selector[index] <= 'Z'))) { /* GCOVR_EXCL_BR_LINE: lowercased */
+            return 0;
+        }
+        while (index < length && css_ascii_type_char(selector[index])) {
+            index++;
+        }
+        arms[count++] = (css_type_arm){start, index - start};
+        while (index < length && selector[index] != ',') {
+            if (selector[index] == '[') {
+                index++;
+                Py_ssize_t attribute = index;
+                while (index < length &&                       /* GCOVR_EXCL_BR_LINE: unclosed [ */
+                       css_ascii_type_char(selector[index])) { /* GCOVR_EXCL_BR_LINE: unclosed [ rejected earlier */
+                    index++;
+                }
+                if (index == attribute || index == length || /* GCOVR_EXCL_BR_LINE: unclosed [ */
+                    selector[index] != ']') {                /* GCOVR_EXCL_BR_LINE: unclosed [ rejected earlier */
+                    return 0;
+                }
+                index++;
+            } else if (selector[index] == '.' || selector[index] == '#') {
+                index++;
+                Py_ssize_t qualifier = index;
+                while (index < length && css_ascii_type_char(selector[index])) {
+                    index++;
+                }
+                if (index == qualifier) {
+                    return 0;
+                }
+            } else {
+                return 0;
+            }
+        }
+        if (index < length) {
+            index++;
+        }
+    }
+    return index == length && selector[length - 1] != ',' ? count : 0;
+}
+
+/* Distinct explicit type names cannot match one element, even when the declarations use unknown CSS shorthands. */
+static int css_type_lists_disjoint(const css_buf *pool, const rule_item *left, const rule_item *right) {
+    const css_char *left_selector = pool->data + left->sel_off;
+    const css_char *right_selector = pool->data + right->sel_off;
+    css_type_arm left_arms[32];
+    css_type_arm right_arms[32];
+    int left_count = css_type_arms(left_selector, left->sel_len, left_arms);
+    int right_count = css_type_arms(right_selector, right->sel_len, right_arms);
+    if (!left_count || !right_count) {
+        return 0;
+    }
+    for (int outer = 0; outer < left_count; outer++) {
+        for (int inner = 0; inner < right_count; inner++) {
+            if (left_arms[outer].length != right_arms[inner].length) {
+                continue;
+            }
+            Py_ssize_t position = 0;
+            while (position < left_arms[outer].length &&
+                   css_lower(left_selector[left_arms[outer].offset + position]) ==
+                       css_lower(right_selector[right_arms[inner].offset + position])) {
+                position++;
+            }
+            if (position == left_arms[outer].length) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+typedef struct {
+    Py_ssize_t offset;
+    Py_ssize_t length;
+    uint32_t hash;
+} css_custom_name;
+
+static int css_custom_names(const css_char *body, Py_ssize_t length, css_custom_name *names) {
+    Py_ssize_t index = 0;
+    int count = 0;
+    while (index < length && count < 64) {
+        Py_ssize_t start = index;
+        if (index + 2 >= length || body[index] != '-' || /* GCOVR_EXCL_BR_LINE: invalid decl removed earlier */
+            body[index + 1] != '-') {
+            return 0;
+        }
+        index += 2;
+        while (index < length &&                   /* GCOVR_EXCL_BR_LINE: invalid name */
+               css_ascii_type_char(body[index])) { /* GCOVR_EXCL_BR_LINE: invalid name removed earlier */
+            index++;
+        }
+        if (index == start + 2 || index == length || /* GCOVR_EXCL_BR_LINE: invalid decl removed earlier */
+            body[index] != ':') {                    /* GCOVR_EXCL_BR_LINE: invalid decl */
+            return 0;                                /* GCOVR_EXCL_LINE: invalid declaration removed earlier */
+        }
+        names[count++] = (css_custom_name){start, index - start, css_hash_run(body + start, index - start)};
+        index++;
+        while (index < length && body[index] != ';') {
+            if (body[index] == '\\' || body[index] == '\'' || /* GCOVR_EXCL_BR_LINE: complex value */
+                body[index] == '"' ||                         /* GCOVR_EXCL_BR_LINE: quoted value */
+                body[index] == '{' || body[index] == '}' ||   /* GCOVR_EXCL_BR_LINE: nested body rejected earlier */
+                (body[index] == '/' && index + 1 < length &&  /* GCOVR_EXCL_BR_LINE: comments removed */
+                 body[index + 1] == '*')) {                   /* GCOVR_EXCL_LINE: comments removed earlier */
+                return 0;
+            }
+            index++;
+        }
+        if (index < length) {
+            index++;
+        }
+    }
+    return index == length ? count : 0;
+}
+
+static int css_custom_bodies_disjoint(const css_buf *pool, const rule_item *left, const rule_item *right) {
+    const css_char *left_body = pool->data + left->body_off;
+    const css_char *right_body = pool->data + right->body_off;
+    css_custom_name left_names[64];
+    css_custom_name right_names[64];
+    int left_count = css_custom_names(left_body, left->body_len, left_names);
+    int right_count = css_custom_names(right_body, right->body_len, right_names);
+    if (!left_count || !right_count) {
+        return 0;
+    }
+    for (int outer = 0; outer < left_count; outer++) {
+        for (int inner = 0; inner < right_count; inner++) {
+            if (left_names[outer].hash == right_names[inner].hash &&
+                left_names[outer].length == right_names[inner].length &&
+                memcmp(left_body + left_names[outer].offset, right_body + right_names[inner].offset,
+                       (size_t)left_names[outer].length) == 0) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
+/* An incomplete shorthand table cannot prove declarations independent. Cross only distinct type selectors or
+   distinct custom-property names, which have no shorthand overlap. */
 CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baseline, int depth) {
-    css_body_summary *summaries = NULL;
     uint32_t *hashes = NULL;
     size_t hash_cap = 0;
     if (items->len > 32) {
@@ -1523,8 +1409,6 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
         while (hash_cap < (size_t)items->len * 4) {
             hash_cap *= 2;
         }
-        /* on the heap: css_parse_rules recurses per nested block, and a 4 KiB table inlined into its frame cost each
-           level that much stack */
         hashes = css_malloc(hash_cap * sizeof(uint32_t));
         if (hashes != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure falls back to the backward scan */
             memset(hashes, 0, hash_cap * sizeof(uint32_t));
@@ -1535,9 +1419,6 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
     for (Py_ssize_t index = 0; index < items->len; index++) {
         rule_item *it = &items->items[index];
         if (!it->is_rule) {
-            /* opaque node (at-rule, bang comment, stray text): kept as-is. Adjacent same-query @media blocks are
-               already folded together while parsing (css_media_continues, css_parse_rules), so there is nothing to
-               merge here. */
             continue;
         }
         uint32_t selector_hash = css_rule_hash(pool, it->sel_off, it->sel_len);
@@ -1548,13 +1429,14 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
             css_rule_hash_add(hashes, hash_cap - 1, body_hash);
             continue;
         }
-        /* Reach back for a rule to merge into, keeping the merged rule at the earlier position so this rule's body
-           moves back. Each intervening rule that sets a property this body sets ends the reach; an opaque node does
-           too. */
         rule_item *merged = NULL;
+        const int nested_body = memchr(pool->data + it->body_off, '{', (size_t)it->body_len) != NULL;
         Py_ssize_t reach = 0;
         for (Py_ssize_t back = index - 1; back >= 0; back--) {
             if (++reach > CSS_MAX_MERGE_REACH) {
+                break;
+            }
+            if (back < index - 1 && nested_body) {
                 break;
             }
             rule_item *target = &items->items[back];
@@ -1574,11 +1456,9 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
                 css_selector_merge_safe(pool, it) && css_selector_merge_safe(pool, target)) {
                 Py_ssize_t end = index + 1;
                 Py_ssize_t length = target->sel_len + 1 + it->sel_len;
-                /* An intervening live rule could claim a later selector before this target does. */
                 if (back == index - 1) {
                     while (end < items->len) {
                         rule_item *next = &items->items[end];
-                        /* A selector list might equal the growing target and take the body-merge path. */
                         if (!next->is_rule ||
                             !rule_run_eq(pool, target->body_off, target->body_len, next->body_off, next->body_len) ||
                             memchr(pool->data + next->sel_off, ',', (size_t)next->sel_len) != NULL ||
@@ -1601,23 +1481,12 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
                 target->sel_off = pool_run(pool, selector.data, selector.len);
                 target->sel_len = selector.len;
                 cbuf_free(&selector);
-                index = end - 1;
                 merged = target;
+                index = end - 1;
                 break;
             }
-            if (summaries == NULL && items->len >= 32) {
-                summaries = css_malloc((size_t)items->len * sizeof(*summaries));
-                if (summaries != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure uses the direct scan */
-                    memset(summaries, 0, (size_t)items->len * sizeof(*summaries));
-                } else {
-                    *pool->oom = 1; /* GCOVR_EXCL_LINE: the direct scan below still merges correctly */
-                } /* GCOVR_EXCL_LINE: llvm flags the OOM branch's closing brace */
-            }
-            const int conflict =
-                summaries == NULL
-                    ? css_bodies_conflict(pool, target->body_off, target->body_len, it->body_off, it->body_len)
-                    : css_summaries_conflict(pool, target, it, &summaries[back], &summaries[index]);
-            if (conflict) {
+            if (memchr(pool->data + target->body_off, '{', (size_t)target->body_len) != NULL ||
+                (!css_type_lists_disjoint(pool, it, target) && !css_custom_bodies_disjoint(pool, it, target))) {
                 break;
             }
         }
@@ -1629,12 +1498,6 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
             css_rule_hash_add(hashes, hash_cap - 1, selector_hash);
             css_rule_hash_add(hashes, hash_cap - 1, body_hash);
         }
-    }
-    if (summaries != NULL) {
-        for (Py_ssize_t index = 0; index < items->len; index++) {
-            css_free(summaries[index].properties);
-        }
-        css_free(summaries);
     }
     css_free(hashes);
 }
