@@ -1,0 +1,1 @@
+Reject unescaped closing brackets outside XML Schema regex character classes.

@@ -33,7 +33,8 @@ enum {
     RX_FAIL_CLASS,
     RX_FAIL_ESCAPE,
     RX_FAIL_GROUP,
-    RX_FAIL_QUANTIFIER
+    RX_FAIL_QUANTIFIER,
+    RX_FAIL_BRACKET
 };
 #define RX_MAX_STATES 2000000
 #define RX_CATEGORY_ALL ((UINT64_C(1) << 30) - 1)
@@ -447,6 +448,11 @@ static rnode *rx_parse_atom(rparser *parser) {
     }
     if (current == '?' || current == '*' || current == '+' || current == '{' || current == '}') {
         parser->failed = RX_FAIL_QUANTIFIER;
+        parser->fail_pos = parser->pos;
+        return NULL;
+    }
+    if (current == ']') {
+        parser->failed = RX_FAIL_BRACKET;
         parser->fail_pos = parser->pos;
         return NULL;
     }
@@ -886,6 +892,11 @@ static int regex_cache_add(th_schema *schema, const Py_UCS4 *text, Py_ssize_t le
     }
     if (failed == RX_FAIL_QUANTIFIER) {
         PyErr_Format(PyExc_ValueError, "schema pattern has an invalid quantifier at offset %zd", parser.fail_pos);
+        return -1;
+    }
+    if (failed == RX_FAIL_BRACKET) {
+        PyErr_Format(PyExc_ValueError, "schema pattern has an unmatched closing bracket at offset %zd",
+                     parser.fail_pos);
         return -1;
     }
     if (failed == RX_FAIL_BOUND) {

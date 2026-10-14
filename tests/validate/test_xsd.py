@@ -158,6 +158,7 @@ def test_facets(facets: str, base: str, value: str, ok: bool) -> None:  # ruff:i
         pytest.param("[a-c]+", "abc", True, id="class-range"),
         pytest.param(r"a\{2\}", "a{2}", True, id="escaped-braces"),
         pytest.param("[{}]", "{", True, id="braces-in-class"),
+        pytest.param(r"a\]", "a]", True, id="escaped-closing-bracket"),
         pytest.param("[a-a]", "a", True, id="class-range-equal-endpoints"),
         pytest.param(r"[\t-\n]", "\t", True, id="class-range-escaped-endpoints"),
         pytest.param("[-a]", "-", True, id="class-leading-hyphen"),
@@ -441,6 +442,19 @@ def test_regex_unmatched_parenthesis_raises(pattern: str, offset: int) -> None:
 )
 def test_regex_invalid_quantifier_raises(pattern: str, offset: int) -> None:
     with pytest.raises(ValueError, match=rf"^schema pattern has an invalid quantifier at offset {offset}$"):
+        XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
+
+
+@pytest.mark.parametrize(
+    ("pattern", "offset"),
+    [
+        pytest.param("]", 0, id="close-only"),
+        pytest.param("a]", 1, id="close-after-literal"),
+        pytest.param("a]b", 1, id="discarded-suffix"),
+    ],
+)
+def test_regex_unmatched_bracket_raises(pattern: str, offset: int) -> None:
+    with pytest.raises(ValueError, match=rf"^schema pattern has an unmatched closing bracket at offset {offset}$"):
         XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
 
 
