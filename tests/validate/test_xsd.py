@@ -158,6 +158,8 @@ def test_facets(facets: str, base: str, value: str, ok: bool) -> None:  # ruff:i
         pytest.param("[a-c]+", "abc", True, id="class-range"),
         pytest.param("[^0-9]+", "abc", True, id="class-negate"),
         pytest.param(r"\d\s\w", "1 a", True, id="builtin-classes"),
+        pytest.param(r"\w", "ª", True, id="word-class-non-name-letter"),
+        pytest.param(r"\w", "°", True, id="word-class-symbol"),
         pytest.param(r"[\d.]+", "3.14", True, id="class-with-builtin"),
         pytest.param(r"\D+", "abc", True, id="not-digit"),
         pytest.param("colou?r", "color", True, id="optional-u"),
@@ -714,12 +716,14 @@ def test_instance_comment_before_root() -> None:
     [
         pytest.param("xs:NMTOKEN", "", False, id="nmtoken-empty"),
         pytest.param("xs:NCName", "1abc", False, id="ncname-bad-start"),
+        pytest.param("xs:NCName", ":root", False, id="ncname-colon-start"),
         pytest.param("xs:Name", "a b", False, id="name-bad-middle"),
         pytest.param("xs:decimal", "12.50", True, id="decimal-both-parts"),
         pytest.param("xs:double", "1.5e3", True, id="double-frac-and-exp"),
         pytest.param("xs:time", "12:60:00", False, id="time-bad-minute"),
         pytest.param("xs:duration", "P", False, id="duration-nothing"),
         pytest.param("xs:language", "1", False, id="language-digit-start"),
+        pytest.param("xs:language", "~", False, id="language-punctuation-start"),
         pytest.param("xs:hexBinary", "0", False, id="hex-single"),
         pytest.param("xs:base64Binary", "$$$$", False, id="base64-bad-char"),
     ],
@@ -727,6 +731,39 @@ def test_instance_comment_before_root() -> None:
 def test_datatype_boundary_edges(type_name: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     schema = f'<xs:schema {XS}><xs:element name="v" type="{type_name}"/></xs:schema>'
     assert xsd_ok(schema, f"<v>{value}</v>") is ok
+
+
+@pytest.mark.parametrize("type_name", ["xs:Name", "xs:NCName", "xs:QName"])
+@pytest.mark.parametrize(
+    ("codepoint", "expected"),
+    [
+        pytest.param(0x80, False, id="below-first-range"),
+        pytest.param(0xC0, True, id="first-range"),
+        pytest.param(0x37E, False, id="greek-question-mark"),
+        pytest.param(0x37F, True, id="after-greek-gap"),
+        pytest.param(0xFDCF, True, id="before-noncharacter-gap"),
+        pytest.param(0xFDD0, False, id="noncharacter-gap"),
+        pytest.param(0xEFFFF, True, id="last-supplementary-name"),
+        pytest.param(0xF0000, False, id="above-last-range"),
+    ],
+)
+def test_datatype_name_start_ranges(*, type_name: str, codepoint: int, expected: bool) -> None:
+    assert XMLSchema(typed(type_name)).is_valid(parse_xml(f"<v>{chr(codepoint)}</v>")) is expected
+
+
+@pytest.mark.parametrize("type_name", ["xs:Name", "xs:NCName", "xs:NMTOKEN", "xs:QName"])
+@pytest.mark.parametrize(
+    ("codepoint", "expected"),
+    [
+        pytest.param(0xB7, True, id="middle-dot"),
+        pytest.param(0x300, True, id="combining-mark"),
+        pytest.param(0x203F, True, id="connector-punctuation"),
+        pytest.param(0x37E, False, id="greek-question-mark"),
+        pytest.param(0xF0000, False, id="above-last-range"),
+    ],
+)
+def test_datatype_name_char_ranges(*, type_name: str, codepoint: int, expected: bool) -> None:
+    assert XMLSchema(typed(type_name)).is_valid(parse_xml(f"<v>a{chr(codepoint)}</v>")) is expected
 
 
 @pytest.mark.parametrize(

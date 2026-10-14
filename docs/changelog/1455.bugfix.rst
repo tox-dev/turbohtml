@@ -1,0 +1,1 @@
+Validate XML Schema name datatypes against the XML 1.0 character ranges instead of accepting every non-ASCII character.

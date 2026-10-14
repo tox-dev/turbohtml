@@ -10,6 +10,8 @@
 #ifndef TURBOHTML_VALIDATE_DATATYPES_H
 #define TURBOHTML_VALIDATE_DATATYPES_H
 
+#include "tokenizer/xml_names.h"
+
 enum datatype {
     DT_STRING,
     DT_NORMALIZED_STRING,
@@ -160,31 +162,13 @@ static int is_ascii_alpha(Py_UCS4 codepoint) {
     return (codepoint >= 'a' && codepoint <= 'z') || (codepoint >= 'A' && codepoint <= 'Z');
 }
 
-/* An XML NameStartChar (ASCII letter / _ ; non-ASCII accepted wholesale). */
-static int is_name_start(Py_UCS4 codepoint) {
-    if (is_ascii_alpha(codepoint)) {
-        return 1;
-    }
-    if (codepoint == '_') {
-        return 1;
-    }
-    return codepoint >= 0x80;
-}
-
-static int is_name_char(Py_UCS4 codepoint) {
-    if (is_name_start(codepoint) || is_digit(codepoint)) {
-        return 1;
-    }
-    return codepoint == '-' || codepoint == '.';
-}
-
 /* NMTOKEN: one or more NameChars (a NameChar may be a colon). */
 static int lex_nmtoken(const Py_UCS4 *value, Py_ssize_t len) {
     if (len == 0) {
         return 0;
     }
     for (Py_ssize_t index = 0; index < len; index++) {
-        if (!is_name_char(value[index]) && value[index] != ':') {
+        if (!is_name_char(value[index])) {
             return 0;
         }
     }
@@ -193,11 +177,11 @@ static int lex_nmtoken(const Py_UCS4 *value, Py_ssize_t len) {
 
 /* NCName: a Name with no colon. */
 static int lex_ncname(const Py_UCS4 *value, Py_ssize_t len) {
-    if (len == 0 || !is_name_start(value[0])) {
+    if (len == 0 || value[0] == ':' || !is_name_start(value[0])) {
         return 0;
     }
     for (Py_ssize_t index = 1; index < len; index++) {
-        if (!is_name_char(value[index])) {
+        if (value[index] == ':' || !is_name_char(value[index])) {
             return 0;
         }
     }
@@ -205,11 +189,11 @@ static int lex_ncname(const Py_UCS4 *value, Py_ssize_t len) {
 }
 
 static int lex_name(const Py_UCS4 *value, Py_ssize_t len) {
-    if (len == 0 || (!is_name_start(value[0]) && value[0] != ':')) {
+    if (len == 0 || !is_name_start(value[0])) {
         return 0;
     }
     for (Py_ssize_t index = 1; index < len; index++) {
-        if (!is_name_char(value[index]) && value[index] != ':') {
+        if (!is_name_char(value[index])) {
             return 0;
         }
     }

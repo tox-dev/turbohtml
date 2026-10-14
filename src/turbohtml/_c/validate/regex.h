@@ -498,7 +498,8 @@ static int rx_class_match(const rclass *cls, Py_UCS4 codepoint) {
         }
     }
     int is_d = is_digit(codepoint);
-    int is_w = is_name_char(codepoint) && codepoint != '-' && codepoint != '.';
+    /* Schema regex word characters include code points outside XML NameChar. */
+    int is_w = is_ascii_alpha(codepoint) || is_digit(codepoint) || codepoint == '_' || codepoint >= 0x80;
     int is_s = is_xml_space(codepoint);
     if ((cls->builtins & RX_BD) && is_d) {
         inside = 1;
