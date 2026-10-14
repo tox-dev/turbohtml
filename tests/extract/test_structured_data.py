@@ -56,6 +56,11 @@ def test_fields_match_per_format_helpers(rich: Document) -> None:
     assert data.dublin_core == rich.dublin_core()
 
 
+def test_structured_data_includes_profiled_json_ld() -> None:
+    document = parse('<script type="application/ld+json;profile=http://example.org/p">{"@type":"Thing"}</script>')
+    assert document.structured_data().json_ld == [{"@type": "Thing"}]
+
+
 def test_record_is_read_only(rich: Document) -> None:
     data = rich.structured_data()
     field = "json_ld"
@@ -1385,10 +1390,32 @@ def test_json_ld_brackets_inside_a_string_do_not_count_toward_depth() -> None:
         pytest.param('<script type="APPLICATION/LD+JSON">{"ok": 1}</script>', [{"ok": 1}], id="type-uppercase"),
         pytest.param('<script type="  application/ld+json  ">{"ok": 1}</script>', [{"ok": 1}], id="type-whitespace"),
         pytest.param('<script type="Application/LD+Json">{"ok": 1}</script>', [{"ok": 1}], id="type-mixed-case"),
+        pytest.param(
+            '<script type="application/ld+json;profile=http://www.w3.org/ns/json-ld#expanded">{"ok": 1}</script>',
+            [{"ok": 1}],
+            id="type-profile-parameter",
+        ),
+        pytest.param(
+            "<script type=' APPLICATION/LD+JSON ; profile=\"http://www.w3.org/ns/json-ld#expanded\" '> "
+            '{"ok": 1}</script>',
+            [{"ok": 1}],
+            id="type-quoted-profile-and-whitespace",
+        ),
+        pytest.param(
+            '<script type="application/ld+json;charset=utf-8">{"ok": 1}</script>',
+            [{"ok": 1}],
+            id="type-unknown-parameter",
+        ),
         pytest.param('<script>{"ok": 1}</script>', [], id="no-type-attribute"),
         pytest.param('<script type>{"ok": 1}</script>', [], id="valueless-type-attribute"),
         pytest.param('<script type="text/javascript">{"ok": 1}</script>', [], id="other-type"),
         pytest.param('<script type="application/ld+jsox">{"ok": 1}</script>', [], id="same-length-mismatch"),
+        pytest.param('<script type="application/ld+jsox;profile=x">{"ok": 1}</script>', [], id="long-type-mismatch"),
+        pytest.param('<script type="application/ld+jsonx">{"ok": 1}</script>', [], id="single-character-suffix"),
+        pytest.param('<script type="application/ld+jsonx;profile=x">{"ok": 1}</script>', [], id="type-prefix-mismatch"),
+        pytest.param(
+            '<script type="application/ld+json profile=x">{"ok": 1}</script>', [], id="type-missing-semicolon"
+        ),
         pytest.param('<script type="   ">{"ok": 1}</script>', [], id="all-whitespace-type"),
         pytest.param("<p>no script at all</p>", [], id="no-script"),
         pytest.param(

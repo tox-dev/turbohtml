@@ -22,11 +22,11 @@ do not count toward that limit, and the flat metadata helpers remain iterative.
 C locates and assembles the values; Python parses JSON. Each per-format helper walks the document under its tree lock.
 :meth:`~turbohtml.Document.structured_data` copies the document once under that lock, then runs every format pass
 against the private copy. Each result comes from one document version even when another thread mutates the original.
-JSON-LD uses the same boundary: C gathers the verbatim text of each ``<script type="application/ld+json">`` block, then
-a thin facade parses the strings with :mod:`json` without touching the live tree. The facade skips a block that is not
-valid JSON or that nests arrays or objects more than 400 levels deep, so one bad block does not stop extraction.
-Microdata and RDFa use the same 400-level ceiling, which keeps JSON-LD decoding within the interpreter's recursion
-budget.
+JSON-LD uses the same boundary: C gathers the verbatim text of each ``<script type="application/ld+json">`` block,
+including types with media parameters such as ``profile``, then a thin facade parses the strings with :mod:`json`
+without touching the live tree. The facade skips a block that is not valid JSON or that nests arrays or objects more
+than 400 levels deep, so one bad block does not stop extraction. Microdata and RDFa use the same 400-level ceiling,
+which keeps JSON-LD decoding within the interpreter's recursion budget.
 
 *******************************
  Microdata, OpenGraph, Twitter

@@ -53,6 +53,27 @@ static int ucs4_ieq_trimmed(const Py_UCS4 *value, Py_ssize_t len, const char *li
     return 1;
 }
 
+static int json_ld_type_with_parameters(const Py_UCS4 *value, Py_ssize_t len) {
+    Py_ssize_t start = 0;
+    while (start < len && is_space(value[start])) {
+        start++;
+    }
+    Py_ssize_t type_len = (Py_ssize_t)sizeof(JSON_LD_TYPE) - 1;
+    if (len - start <= type_len) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < type_len; index++) {
+        if (lower_ascii(value[start + index]) != (Py_UCS4)(unsigned char)JSON_LD_TYPE[index]) {
+            return 0;
+        }
+    }
+    Py_ssize_t pos = start + type_len;
+    while (pos + 1 < len && is_space(value[pos])) {
+        pos++;
+    }
+    return value[pos] == ';';
+}
+
 /* Whether the UCS4 run begins with the ASCII literal `prefix`. */
 static int ucs4_has_prefix(const Py_UCS4 *value, Py_ssize_t len, const char *prefix, Py_ssize_t prefix_len) {
     if (len < prefix_len) {
@@ -724,7 +745,8 @@ static PyObject *gather_json_ld(PyObject *self) {
             continue;
         }
         if (!ucs4_ieq_trimmed(type_attr->value, type_attr->value_len, JSON_LD_TYPE,
-                              (Py_ssize_t)sizeof(JSON_LD_TYPE) - 1)) {
+                              (Py_ssize_t)sizeof(JSON_LD_TYPE) - 1) &&
+            !json_ld_type_with_parameters(type_attr->value, type_attr->value_len)) {
             continue;
         }
         PyObject *text = str_from_accessor(th_node_text, tree, node);
