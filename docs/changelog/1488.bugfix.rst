@@ -1,0 +1,1 @@
+Decode base64 Atom content with a binary media type to bytes.

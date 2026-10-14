@@ -30,7 +30,8 @@ class Entry(NamedTuple):
     :param updated: the last-modified timestamp (Atom ``<updated>``, RSS ``<lastBuildDate>``), verbatim.
     :param published: the publication timestamp (Atom ``<published>``, RSS ``<pubDate>``, RDF ``<dc:date>``), verbatim.
     :param summary: the short description (Atom ``<summary>``, RSS ``<description>``, ``<dc:description>``).
-    :param content: the full body (RSS ``<content:encoded>``, Atom ``<content>``), preferred over ``summary``.
+    :param content: the full body (RSS ``<content:encoded>``, Atom ``<content>``), preferred over ``summary``. Atom
+        content with a binary media type is decoded to bytes.
     :param author: the author display name (an Atom ``<author><name>``, an RSS ``<author>``, or a ``<dc:creator>``).
     """
 
@@ -40,7 +41,7 @@ class Entry(NamedTuple):
     updated: str | None
     published: str | None
     summary: str | None
-    content: str | None
+    content: str | bytes | None
     author: str | None
 
 
