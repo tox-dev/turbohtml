@@ -202,6 +202,7 @@ typedef struct {
     Py_ssize_t len;
     Py_ssize_t cap;
     int *oom;
+    int has_repeats;
 } decl_vec;
 
 static void decl_vec_push(decl_vec *vec, css_decl decl) {
@@ -500,7 +501,7 @@ static void css_dedup_pairwise(css_buf *pool, decl_vec *decls) {
         const char *list = css_dedup_longhand_list(pool, later);
         for (Py_ssize_t earlier = 0; earlier < index; earlier++) {
             css_decl *prev = &decls->items[earlier];
-            if (prev->dropped || prev->important != later->important) {
+            if (prev->dropped) {
                 continue;
             }
             const css_char *prior = pool->data + prev->prop_off;
@@ -508,8 +509,14 @@ static void css_dedup_pairwise(css_buf *pool, decl_vec *decls) {
             for (Py_ssize_t pos = 0; same_name && pos < prop_len; pos++) {
                 same_name = prop[pos] == prior[pos];
             }
-            int overrides = same_name ? css_decl_value_eq(pool, prev, later)
-                                      : (list != NULL && css_prop_in_list(prior, prev->prop_len, list));
+            int same_value = same_name && css_decl_value_eq(pool, prev, later);
+            if (same_name && !same_value) {
+                decls->has_repeats = 1;
+            }
+            if (prev->important != later->important) {
+                continue;
+            }
+            int overrides = same_name ? same_value : (list != NULL && css_prop_in_list(prior, prev->prop_len, list));
             if (overrides) {
                 prev->dropped = 1;
             }

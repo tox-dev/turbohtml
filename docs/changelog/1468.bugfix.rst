@@ -1,0 +1,1 @@
+Keep repeated CSS longhands when merging a shorthand would change which value wins.

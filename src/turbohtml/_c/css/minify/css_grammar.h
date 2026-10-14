@@ -38,6 +38,19 @@ static Py_ssize_t css_find_active_decl(const decl_vec *decls, const css_buf *poo
     return -1;
 }
 
+static int css_has_repeated_active_decl(const decl_vec *decls, const css_buf *pool, const char *name,
+                                        Py_ssize_t first) {
+    /* A later value may be unsupported, so both declarations must survive. */
+    for (Py_ssize_t index = first + 1; index < decls->len; index++) {
+        const css_decl *decl = &decls->items[index];
+        if (!decl->dropped && css_lower(pool->data[decl->prop_off]) == (css_char)(unsigned char)name[0] &&
+            css_run_ieq(pool->data + decl->prop_off, decl->prop_len, name)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int css_count_active_prefixed(const decl_vec *decls, const css_buf *pool, const char *prefix, Py_ssize_t len) {
     int count = 0;
     for (Py_ssize_t index = 0; index < decls->len; index++) {
@@ -91,6 +104,13 @@ static void css_merge_box(css_buf *pool, decl_vec *decls, const char *shorthand,
         idx[edge] = css_find_active_decl(decls, pool, longhands[edge]);
         if (idx[edge] < 0) {
             return;
+        }
+    }
+    if (decls->has_repeats || decls->len > 32) {
+        for (int edge = 0; edge < 4; edge++) {
+            if (css_has_repeated_active_decl(decls, pool, longhands[edge], idx[edge])) {
+                return;
+            }
         }
     }
     if (prefix != NULL && css_count_active_prefixed(decls, pool, prefix, (Py_ssize_t)strlen(prefix)) != 4) {
@@ -199,6 +219,10 @@ static void css_merge_pair(css_buf *pool, decl_vec *decls, const char *shorthand
     if (idx0 < 0 || idx1 < 0) {
         return;
     }
+    if ((decls->has_repeats || decls->len > 32) && (css_has_repeated_active_decl(decls, pool, longhand0, idx0) ||
+                                                    css_has_repeated_active_decl(decls, pool, longhand1, idx1))) {
+        return;
+    }
     for (int sibling = 0; forbidden != NULL && forbidden[sibling] != NULL; sibling++) {
         if (css_find_active_decl(decls, pool, forbidden[sibling]) >= 0) {
             return;
@@ -242,6 +266,11 @@ static void css_merge_triple(css_buf *pool, decl_vec *decls, const char *shortha
     Py_ssize_t idx[3] = {css_find_active_decl(decls, pool, lh0), css_find_active_decl(decls, pool, lh1),
                          css_find_active_decl(decls, pool, lh2)};
     if (idx[0] < 0 || idx[1] < 0 || idx[2] < 0) {
+        return;
+    }
+    if ((decls->has_repeats || decls->len > 32) && (css_has_repeated_active_decl(decls, pool, lh0, idx[0]) ||
+                                                    css_has_repeated_active_decl(decls, pool, lh1, idx[1]) ||
+                                                    css_has_repeated_active_decl(decls, pool, lh2, idx[2]))) {
         return;
     }
     int important = decls->items[idx[0]].important;
@@ -341,7 +370,7 @@ static void css_render_declarations(css_buf *pool, decl_vec *decls, int baseline
             continue;
         }
         if (index > start) {
-            decl_vec run = {decls->items + start, index - start, index - start, pool->oom};
+            decl_vec run = {decls->items + start, index - start, index - start, pool->oom, 0};
             css_dedup(pool, &run);
             css_merge_shorthands(pool, &run, baseline);
         }
@@ -633,7 +662,7 @@ static Py_ssize_t css_parse_at(css_buf *pool, cursor *cur, css_buf *out) {
             media_head = css_run_ieq(name, name_len, "@media") ? out->len : 0;
             css_parse_rules(pool, cur, 0, is_keyframes, media_head > 0, out);
         } else {
-            decl_vec decls = {NULL, 0, 0, pool->oom};
+            decl_vec decls = {NULL, 0, 0, pool->oom, 0};
             css_parse_declarations(pool, cur, &decls);
             css_render_declarations(pool, &decls, cur->baseline, out);
             css_free(decls.items);
@@ -747,7 +776,7 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls) 
             if (cur->vec->bad && css_skip_bad_nested_block(cur, segment_start, segment_end)) {
                 continue;
             }
-            decl_vec inner = {NULL, 0, 0, pool->oom};
+            decl_vec inner = {NULL, 0, 0, pool->oom, 0};
             css_parse_declarations(pool, cur, &inner);
             css_buf selector = {NULL, 0, 0, pool->oom};
             css_minify_selector(cur->vec, segment_start, segment_end, 0, &selector);
@@ -870,7 +899,7 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyfram
             css_skip_block(cur);
             return;
         }
-        decl_vec decls = {NULL, 0, 0, pool->oom};
+        decl_vec decls = {NULL, 0, 0, pool->oom, 0};
         css_parse_declarations(pool, cur, &decls);
         css_buf body = {NULL, 0, 0, pool->oom};
         css_render_declarations(pool, &decls, cur->baseline, &body);
@@ -977,7 +1006,7 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
     token_vec tokens = {.depth = depth, .oom = pool->oom};
     css_tokenize(combined.data, combined.len, &tokens);
     cursor inner = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, pool->oom}};
-    decl_vec decls = {NULL, 0, 0, pool->oom};
+    decl_vec decls = {NULL, 0, 0, pool->oom, 0};
     css_parse_declarations(pool, &inner, &decls);
     cbuf_free(&inner.media_next);
     css_buf body = {NULL, 0, 0, pool->oom};
