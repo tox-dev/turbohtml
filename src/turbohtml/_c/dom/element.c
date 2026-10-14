@@ -2022,11 +2022,13 @@ static void path_put_css_ident(path_buf *buf, const Py_UCS4 *text, Py_ssize_t le
         }
         if (hex_escape) {
             char digits[8];
-            int count = 0;
-            do {
+            int count = 1;
+            digits[0] = "0123456789abcdef"[code & 15];
+            code >>= 4;
+            while (code != 0) {
                 digits[count++] = "0123456789abcdef"[code & 15];
                 code >>= 4;
-            } while (code);
+            }
             path_reserve(buf, count + 2);
             if (!buf->failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 buf->data[buf->len++] = '\\';
