@@ -46,8 +46,8 @@ class StyleDeclaration:
 
     __slots__ = ("_items", "_last")
 
-    def __init__(self, items: tuple[tuple[str, str, bool], ...]) -> None:
-        """Wrap the ``(name, value, important)`` triples the C parser produced."""
+    def __init__(self, items: tuple[tuple[str, str, bool] | tuple[str, str, bool, str], ...]) -> None:
+        """Wrap the parsed declarations in source order."""
         self._items = items
         self._last = _css_declaration_index(items)
 

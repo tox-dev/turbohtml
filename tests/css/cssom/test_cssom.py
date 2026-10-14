@@ -567,6 +567,77 @@ def test_computed_style_ignores_unknown_property() -> None:
     assert style["margin-top"] == "0"
 
 
+@pytest.mark.parametrize(
+    ("source", "name"),
+    [
+        pytest.param(r"co\lor: red", "color", id="simple-escape"),
+        pytest.param(r"\63 olor: red", "color", id="hex-escape-with-space"),
+        pytest.param(r"\000063olor: red", "color", id="six-digit-hex-escape"),
+        pytest.param(r"\63: red", "c", id="hex-escape-at-name-end"),
+        pytest.param(r"\63 1: red", "c1", id="hex-escape-consumes-one-space"),
+        pytest.param(r"\0000631: red", "c1", id="hex-escape-stops-at-six-digits"),
+        pytest.param(r"\4A: red", "J", id="uppercase-hex-escape"),
+        pytest.param("\\63\r\nolor: red", "color", id="hex-escape-consumes-crlf"),
+        pytest.param("\\63\rX: red", "cX", id="hex-escape-consumes-lone-cr"),
+        pytest.param("co\\\x00lor: red", "co\ufffdlor", id="escaped-null"),
+        pytest.param(r"\ : red", " ", id="escaped-space-name"),
+        pytest.param(r" \63 olor  : red", "color", id="surrounding-whitespace"),
+        pytest.param(r"--a\ : red", "--a ", id="escaped-trailing-space"),
+        pytest.param(r"--a\  : red", "--a ", id="escaped-and-unescaped-trailing-space"),
+        pytest.param(r"--a\\  : red", "--a\\", id="paired-backslashes-before-space"),
+        pytest.param(r"\0x: red", "\ufffdx", id="null-escape"),
+        pytest.param(r"\d800x: red", "\ufffdx", id="surrogate-escape"),
+        pytest.param(r"\e000x: red", "\ue000x", id="non-surrogate-after-surrogate-range"),
+        pytest.param(r"\110000x: red", "\ufffdx", id="out-of-range-escape"),
+    ],
+)
+def test_parse_declarations_decodes_escaped_property_names(source: str, name: str) -> None:
+    declaration = StyleDeclaration.parse(source)
+    assert declaration.properties() == (name,)
+
+
+def test_parse_declarations_serializes_escaped_property_name() -> None:
+    declaration = StyleDeclaration.parse(r"--a\ : red")
+    assert declaration.text == r"--a\ : red"
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r", "\f"])
+def test_parse_declarations_rejects_invalid_escape_in_property_name(newline: str) -> None:
+    assert StyleDeclaration.parse(f"co\\{newline}lor: red").properties() == ()
+
+
+def test_parse_declarations_rejects_invalid_escape_after_an_escape() -> None:
+    assert StyleDeclaration.parse("co\\l\\\nor: red").properties() == ()
+
+
+def test_parse_declarations_rejects_escape_after_invalid_escape() -> None:
+    assert StyleDeclaration.parse("co\\\n\\lor: red").properties() == ()
+
+
+def test_parse_declarations_rejects_trailing_escape_without_colon() -> None:
+    assert StyleDeclaration.parse("co\\").properties() == ()
+
+
+def test_parse_declarations_escaped_property_name_important() -> None:
+    assert StyleDeclaration.parse(r"co\lor: red !important").important("color")
+
+
+def test_parse_declarations_escaped_and_plain_duplicates() -> None:
+    assert StyleDeclaration.parse(r"color: red; co\lor: blue").get("color") == "blue"
+
+
+def test_stylesheet_decodes_escaped_property_name() -> None:
+    assert StyleSheet(r"p { co\lor: red }").rules[0].style.get("color") == "red"
+
+
+def test_computed_style_decodes_escaped_property_name_in_rule() -> None:
+    assert _style("<div></div>", css=r"div { co\lor: red }")["color"] == "red"
+
+
+def test_computed_style_decodes_escaped_property_name_inline() -> None:
+    assert _style(r"<div style='co\lor: red'></div>")["color"] == "red"
+
+
 def test_computed_style_shorthand_does_not_override_higher_priority_longhand() -> None:
     style = _style("<div id='a' style='margin: 5px'></div>", css="#a { margin-top: 9px !important }")
     assert style["margin-top"] == "9px"
@@ -690,6 +761,7 @@ def test_the_text_of_nothing_is_empty() -> None:
         pytest.param((("color", "red"),), id="a-pair"),
         pytest.param(((1, "red", False),), id="a-non-str-name"),
         pytest.param((("color", 2, False),), id="a-non-str-value"),
+        pytest.param((("color", "red", False, 1),), id="a-non-str-raw-name"),
         pytest.param(("color",), id="a-bare-str"),
     ],
 )

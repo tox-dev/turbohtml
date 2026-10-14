@@ -36,6 +36,9 @@ they reset every longhand they cover -- an omitted component to that property's 
 ``border`` overrides an earlier ``border-top-color`` it does not restate. A computed style therefore only ever exposes
 longhands, never a shorthand.
 
+CSS escapes in property names are decoded before matching a property: ``co\\lor`` and ``color`` name the same property.
+The read-only declaration text retains the escaped spelling from the source.
+
 **********************************
  Computed values, not used values
 **********************************
