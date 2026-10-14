@@ -476,7 +476,7 @@ Py_UCS4 *th_node_canonicalize(th_tree *tree, th_node *node, const th_c14n_opts *
     }
     sbuf out = {NULL, 0, 0, 0};
     if (node->type == TH_NODE_DOCUMENT) {
-        sbuf_reserve(&out, tree->length < 16384 ? tree->length : 16384);
+        sbuf_presize_for_c14n(&out, tree);
         c14n_document(&out, tree, node, opts);
     } else {
         c14n_subtree(&out, tree, node, opts);

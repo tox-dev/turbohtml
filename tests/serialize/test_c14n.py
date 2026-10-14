@@ -156,6 +156,33 @@ def test_document_leading_comment_dropped_without_comments() -> None:
     assert parse("<!--top--><p>x").canonicalize() == b"<html><head></head><body><p>x</p></body></html>"
 
 
+@pytest.mark.parametrize(
+    ("xml", "comment_length"),
+    [
+        pytest.param(False, 8192, id="html-medium"),
+        pytest.param(False, 32768, id="html-large"),
+        pytest.param(True, 8192, id="xml-medium"),
+        pytest.param(True, 32768, id="xml-large"),
+    ],
+)
+def test_document_drops_large_comments(*, xml: bool, comment_length: int) -> None:
+    source = '<r xmlns="urn:x">x</r>' if xml else "<p>x</p>"
+    document = parse_xml if xml else parse
+    expected = b'<r xmlns="urn:x">x</r>' if xml else b"<html><head></head><body><p>x</p></body></html>"
+    assert document(source + "<!--" + "x" * comment_length + "-->").canonicalize() == expected
+
+
+@pytest.mark.parametrize("xml", [pytest.param(False, id="html"), pytest.param(True, id="xml")])
+def test_document_canonicalizes_many_elements(*, xml: bool) -> None:
+    if xml:
+        source = '<r xmlns="urn:x">' + "<a/>" * 1024 + "</r>"
+        expected = b'<r xmlns="urn:x">' + b"<a></a>" * 1024 + b"</r>"
+    else:
+        source = "<main>" + "<p>x</p>" * 512 + "</main>"
+        expected = b"<html><head></head><body><main>" + b"<p>x</p>" * 512 + b"</main></body></html>"
+    assert (parse_xml if xml else parse)(source).canonicalize() == expected
+
+
 def test_document_processing_instructions_bracket_the_root() -> None:
     doc = parse("<p>x")
     root = doc.select_one("html")

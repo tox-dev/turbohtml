@@ -821,6 +821,13 @@ static inline void sbuf_presize_for_root(sbuf *out, th_tree *tree, th_node *node
     }
 }
 
+static inline void sbuf_presize_for_c14n(sbuf *out, th_tree *tree) {
+    /* Sparse input may be mostly comments that canonicalization drops. */
+    if (tree->length >= 4096 && tree->length <= 16384 && tree->node_seq >= (uint32_t)(tree->length / 32)) {
+        sbuf_reserve(out, tree->length + 64);
+    }
+}
+
 /* True only for the foreign attribute names the spec puts in a namespace; those
    serialize with a space (prefix localname). Plain "xmlns" has no prefix in its
    stored name but still belongs to the xmlns namespace, so the renderer prepends
