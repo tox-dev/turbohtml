@@ -1,0 +1,1 @@
+Honor rowspans above 1000 rows, up to the HTML table model's limit of 65534.

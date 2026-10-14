@@ -188,6 +188,12 @@ def test_huge_colspan_is_clamped(rows: Callable[[str], list[list[str]]]) -> None
     assert grid[0][999] == "A"
 
 
+def test_rowspan_beyond_colspan_limit(rows: Callable[[str], list[list[str]]]) -> None:
+    body: Final = "<tr><td rowspan=1002>A</td><td>0</td></tr>" + "<tr><td>x</td></tr>" * 1001
+    grid: Final = rows(f"<table>{body}</table>")
+    assert grid == [["A", "0"], *[["A", "x"] for _ in range(1001)]]
+
+
 def _rehome_rows(destination: Element) -> None:
     # The parser always wraps rows in a tbody, so move real <tr> elements under `destination` to give a table
     # rows with no row-group ancestor: a rowspan=0 cell then has no group to stop at and grows to the last row.

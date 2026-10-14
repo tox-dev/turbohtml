@@ -20,9 +20,8 @@
 
 #include <string.h>
 
-/* Upper bound on a parsed rowspan/colspan. A hostile colspan="99999999" would otherwise size the grid by the attribute
-   alone; clamping keeps the allocation bounded while leaving every realistic span exact. */
-#define TABLE_SPAN_LIMIT 1000
+#define TABLE_COLSPAN_LIMIT 1000
+#define TABLE_ROWSPAN_LIMIT 65534
 
 typedef struct grid_text {
     Py_ssize_t len;
@@ -61,9 +60,9 @@ static void free_grid(table_grid *grid) {
     grid->row_count = 0;
 }
 
-/* The cell's span for name_atom (rowspan/colspan): the parsed non-negative integer (clamped to TABLE_SPAN_LIMIT), or -1
+/* The cell's span for name_atom (rowspan/colspan): the parsed non-negative integer (clamped to limit), or -1
    when the attribute is absent, valueless, or has no leading digits, so the caller can apply the per-span default. */
-static Py_ssize_t parse_span(th_node *cell, uint32_t name_atom) {
+static Py_ssize_t parse_span(th_node *cell, uint32_t name_atom, Py_ssize_t limit) {
     const th_node_attr *attr = NULL;
     for (Py_ssize_t index = 0; index < cell->attr_count; index++) {
         if (cell->attrs[index].name_atom == name_atom) {
@@ -84,8 +83,8 @@ static Py_ssize_t parse_span(th_node *cell, uint32_t name_atom) {
     int digits = 0;
     while (index < length && value[index] >= '0' && value[index] <= '9') {
         number = number * 10 + (value[index] - '0');
-        if (number > TABLE_SPAN_LIMIT) {
-            number = TABLE_SPAN_LIMIT;
+        if (number > limit) {
+            number = limit;
         }
         index++;
         digits = 1;
@@ -133,9 +132,9 @@ static int fill_row(th_tree *tree, table_grid *grid, Py_ssize_t row_index, th_no
         while (column < home->cap && home->cells[column] != NULL) {
             column++;
         }
-        Py_ssize_t colspan = parse_span(child, TH_ATTR_COLSPAN);
+        Py_ssize_t colspan = parse_span(child, TH_ATTR_COLSPAN, TABLE_COLSPAN_LIMIT);
         colspan = colspan <= 0 ? 1 : colspan; /* absent (-1) or a 0 span both mean one column */
-        Py_ssize_t rowspan = parse_span(child, TH_ATTR_ROWSPAN);
+        Py_ssize_t rowspan = parse_span(child, TH_ATTR_ROWSPAN, TABLE_ROWSPAN_LIMIT);
         if (rowspan < 0) {
             rowspan = 1; /* absent: a single row */
         } else if (rowspan == 0 || rowspan > group_remaining) {
