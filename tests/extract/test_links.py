@@ -328,24 +328,68 @@ def _enumerated_urls(html: str) -> list[tuple[str, str | None, str]]:
     return [(link.element.tag, link.attribute, link.url) for link in parse_fragment(html).links()]
 
 
-def test_anchor_href_is_enumerated() -> None:
-    assert _enumerated_urls('<a href="a/b.html">x</a>') == [("a", "href", "a/b.html")]
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param('<a href="a/b.html">x</a>', [("a", "href", "a/b.html")], id="anchor-href-is-enumerated"),
+        pytest.param(
+            '<a href="  a/b.html  ">x</a>',
+            [("a", "href", "a/b.html")],
+            id="value-is-reported-with-surrounding-whitespace-trimmed",
+        ),
+        # &#13; injects a real U+000D past the input preprocessor's CR->LF fold, and CR is
+        # HTML ASCII whitespace, so "strip leading/trailing ASCII whitespace" must drop it.
+        # 13;a/b.html&#13;">x</a>') == [("a", "href", "a/b.html")]
+        pytest.param(
+            '<a href="&#13;a/b.html&#13;">x</a>',
+            [("a", "href", "a/b.html")],
+            id="carriage-return-from-char-ref-is-trimmed",
+        ),
+        pytest.param('<a class="c" href="u">x</a>', [("a", "href", "u")], id="non-link-attribute-is-ignored"),
+        pytest.param(
+            '<a href="h" ping="  p1   p2 p3 ">x</a>',
+            [
+                ("a", "href", "h"),
+                ("a", "ping", "p1"),
+                ("a", "ping", "p2"),
+                ("a", "ping", "p3"),
+            ],
+            id="ping-is-a-whitespace-separated-list",
+        ),
+        pytest.param('<div archive="j1.jar j2.jar"></div>', [], id="archive-is-ignored-off-object-and-applet"),
+        pytest.param('<input placeholder="javascript:not-a-url">', [], id="placeholder-is-not-imagesrcset"),
+        pytest.param(
+            '<meta http-equiv="refresh" content="5; url=next.html">',
+            [("meta", "content", "next.html")],
+            id="meta-refresh-url-is-enumerated",
+        ),
+        pytest.param(
+            '<meta http-equiv="REFRESH" content="0;URL=&#39;n.html&#39;">',
+            [("meta", "content", "n.html")],
+            id="meta-refresh-url-is-case-insensitive-and-unquotes",
+        ),
+        pytest.param(
+            "<p style='background:url(\"bg.png\")'></p>",
+            [("p", "style", "bg.png")],
+            id="css-url-double-quoted-in-single-quoted-attribute",
+        ),
+        pytest.param("<style></style>", [], id="empty-style-element-has-no-link"),
+        pytest.param('<style>@import "a.css";</style>', [("style", None, "a.css")], id="css-import-double-quoted"),
+        pytest.param(
+            "<style>@import url(a.css);</style>",
+            [("style", None, "a.css")],
+            id="css-import-without-string-defers-to-url-form",
+        ),
+    ],
+)
+def test_enumerated_urls(markup: str, expected: list[tuple[str, str | None, str]]) -> None:
+    assert _enumerated_urls(markup) == expected
 
 
 def test_many_elements_grow_the_snapshot() -> None:
     # The pure-C element snapshot starts at 16 slots; >16 elements exercise its regrow.
     html = "".join(f'<a href="p{index}">{index}</a>' for index in range(40))
     assert _enumerated_urls(html) == [("a", "href", f"p{index}") for index in range(40)]
-
-
-def test_value_is_reported_with_surrounding_whitespace_trimmed() -> None:
-    assert _enumerated_urls('<a href="  a/b.html  ">x</a>') == [("a", "href", "a/b.html")]
-
-
-def test_carriage_return_from_char_ref_is_trimmed() -> None:
-    # &#13; injects a real U+000D past the input preprocessor's CR->LF fold, and CR is
-    # HTML ASCII whitespace, so "strip leading/trailing ASCII whitespace" must drop it.
-    assert _enumerated_urls('<a href="&#13;a/b.html&#13;">x</a>') == [("a", "href", "a/b.html")]
 
 
 @pytest.mark.parametrize(
@@ -357,10 +401,6 @@ def test_carriage_return_from_char_ref_is_trimmed() -> None:
 )
 def test_empty_url_attribute_is_skipped(markup: str) -> None:
     assert _enumerated_urls(markup) == []
-
-
-def test_non_link_attribute_is_ignored() -> None:
-    assert _enumerated_urls('<a class="c" href="u">x</a>') == [("a", "href", "u")]
 
 
 @pytest.mark.parametrize(
@@ -394,15 +434,6 @@ def test_same_length_non_url_attributes_are_ignored(attr: str) -> None:
     assert _enumerated_urls(f'<input {attr}="not-a-url">') == []
 
 
-def test_ping_is_a_whitespace_separated_list() -> None:
-    assert _enumerated_urls('<a href="h" ping="  p1   p2 p3 ">x</a>') == [
-        ("a", "href", "h"),
-        ("a", "ping", "p1"),
-        ("a", "ping", "p2"),
-        ("a", "ping", "p3"),
-    ]
-
-
 def test_ping_only_counts_on_anchor_and_area() -> None:
     assert _enumerated_urls('<div ping="p1 p2">x</div>') == []
     assert ("area", "ping", "p1") in _enumerated_urls('<map><area ping="p1 p2"></map>')
@@ -414,10 +445,6 @@ def test_archive_is_a_whitespace_list_on_object_and_applet() -> None:
         ("object", "archive", "j2.jar"),
     ]
     assert ("applet", "archive", "j1.jar") in _enumerated_urls('<applet archive="j1.jar"></applet>')
-
-
-def test_archive_is_ignored_off_object_and_applet() -> None:
-    assert _enumerated_urls('<div archive="j1.jar j2.jar"></div>') == []
 
 
 @pytest.mark.parametrize("attr", [pytest.param("srcset", id="srcset"), pytest.param("imagesrcset", id="imagesrcset")])
@@ -449,22 +476,6 @@ def test_srcset_url_boundaries(value: str, expected: list[str]) -> None:
     assert [url for _, _, url in found] == expected
 
 
-def test_placeholder_is_not_imagesrcset() -> None:
-    assert _enumerated_urls('<input placeholder="javascript:not-a-url">') == []
-
-
-def test_meta_refresh_url_is_enumerated() -> None:
-    assert _enumerated_urls('<meta http-equiv="refresh" content="5; url=next.html">') == [
-        ("meta", "content", "next.html")
-    ]
-
-
-def test_meta_refresh_url_is_case_insensitive_and_unquotes() -> None:
-    assert _enumerated_urls('<meta http-equiv="REFRESH" content="0;URL=&#39;n.html&#39;">') == [
-        ("meta", "content", "n.html")
-    ]
-
-
 @pytest.mark.parametrize(
     "markup",
     [
@@ -494,10 +505,6 @@ def test_css_url_in_style_attribute(style: str, expected: list[str]) -> None:
     assert [url for _, _, url in found] == expected
 
 
-def test_css_url_double_quoted_in_single_quoted_attribute() -> None:
-    assert _enumerated_urls("<p style='background:url(\"bg.png\")'></p>") == [("p", "style", "bg.png")]
-
-
 def test_style_element_text_is_scanned_as_css() -> None:
     found = _enumerated_urls("<style>a{background:url(bg.png)} @import 'theme.css'; @media x {}</style>")
     assert [(link[0], link[1], link[2]) for link in found] == [
@@ -506,24 +513,12 @@ def test_style_element_text_is_scanned_as_css() -> None:
     ]
 
 
-def test_empty_style_element_has_no_link() -> None:
-    assert _enumerated_urls("<style></style>") == []
-
-
 def test_style_with_a_non_text_child_skips_it() -> None:
     # a parsed <style> is always rawtext, but a programmatic tree can give it an element child to skip
     style = Element("style")
     style.append(Element("span"))
     style.append(Text("a{background:url(bg.png)}"))
     assert [link.url for link in style.links()] == ["bg.png"]
-
-
-def test_css_import_double_quoted() -> None:
-    assert _enumerated_urls('<style>@import "a.css";</style>') == [("style", None, "a.css")]
-
-
-def test_css_import_without_string_defers_to_url_form() -> None:
-    assert _enumerated_urls("<style>@import url(a.css);</style>") == [("style", None, "a.css")]
 
 
 def test_many_links_in_one_value_grow_the_span_buffer() -> None:

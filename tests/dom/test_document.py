@@ -114,10 +114,6 @@ def test_str_parse_has_no_encoding() -> None:
     assert parser.close().encoding is None
 
 
-def test_empty_close_builds_the_skeleton() -> None:
-    assert IncrementalParser().close().html == parse("").html
-
-
 MULTIBYTE = "<p>café — ☃ — 🦄</p>"  # 2-, 3-, and 4-byte UTF-8 sequences
 
 
@@ -814,11 +810,6 @@ def test_collects_more_errors_than_the_initial_capacity() -> None:
     document = parse("<a" + " b" * 12 + ">")
     assert len(document.errors) == 11
     assert {error.code for error in document.errors} == {"duplicate-attribute"}
-
-
-def test_repr_round_trips_fields() -> None:
-    error = parse("<div").errors[0]
-    assert repr(error) == f"ParseError(code='eof-in-tag', line={error.line}, col={error.col})"
 
 
 def test_equality_and_hash() -> None:

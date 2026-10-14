@@ -149,12 +149,22 @@ def test_linkify_each_unicode_space_ends_url(cp: int) -> None:
     assert out.startswith('<a href="http://x.com">http://x.com</a>')
 
 
-def test_linkify_default_callback_adds_nofollow() -> None:
-    assert linkify("see http://example.com") == 'see <a href="http://example.com" rel="nofollow">http://example.com</a>'
-
-
-def test_linkify_single_url() -> None:
-    assert linkify("x.com") == '<a href="http://x.com" rel="nofollow">x.com</a>'
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param(
+            "see http://example.com",
+            'see <a href="http://example.com" rel="nofollow">http://example.com</a>',
+            id="linkify-default-callback-adds-nofollow",
+        ),
+        pytest.param("x.com", '<a href="http://x.com" rel="nofollow">x.com</a>', id="linkify-single-url"),
+        pytest.param("reach bob@example.com now", "reach bob@example.com now", id="linkify-email-off-by-default"),
+        pytest.param("https:/nonsense.com", "https:/nonsense.com", id="declined-scheme-is-not-rewritten"),
+        pytest.param("mailto:a@b.com", "mailto:a@b.com", id="mailto-uri-stays-plain-without-email-detection"),
+    ],
+)
+def test_linkify_default_rewrites(text: str, expected: str) -> None:
+    assert linkify(text) == expected
 
 
 def test_linkify_leaves_existing_anchor_untouched() -> None:
@@ -241,10 +251,6 @@ def test_linkify_leaves_comment_nodes_untouched() -> None:
     html = "<!-- http://skip.com --> http://link.com"
     out = linkify(html, Linkify(callbacks=_no_callbacks()))
     assert out == '<!-- http://skip.com --> <a href="http://link.com">http://link.com</a>'
-
-
-def test_linkify_email_off_by_default() -> None:
-    assert linkify("reach bob@example.com now") == "reach bob@example.com now"
 
 
 def test_linkify_email_when_enabled() -> None:
@@ -1433,10 +1439,6 @@ def test_slashes_without_a_scheme_colon_still_link(text: str, matched: str) -> N
     assert [span.text for span in LinkDetector().find(text)] == [matched]
 
 
-def test_declined_scheme_is_not_rewritten() -> None:
-    assert linkify("https:/nonsense.com") == "https:/nonsense.com"
-
-
 @pytest.mark.parametrize(
     ("text", "matched"),
     [
@@ -1472,10 +1474,6 @@ def test_mailto_without_a_whole_address_is_not_a_scheme_link(text: str) -> None:
 
 def test_mailto_uri_rewrites_to_one_anchor() -> None:
     assert linkify("mailto:a@b.com", Linkify(parse_email=True)) == '<a href="mailto:a@b.com">mailto:a@b.com</a>'
-
-
-def test_mailto_uri_stays_plain_without_email_detection() -> None:
-    assert linkify("mailto:a@b.com") == "mailto:a@b.com"
 
 
 def test_bare_address_still_gets_the_mailto_prefix() -> None:

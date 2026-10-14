@@ -111,25 +111,34 @@ def test_no_main_content(html: str) -> None:
     assert not doc.main_text()
 
 
-def test_unlikely_subtree_rescued_by_maybe_hint() -> None:
-    assert main_tag(f"<div class='comment main'><p>{PROSE}</p></div>") == "div"
+@pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param(
+            f"<div class='comment main'><p>{PROSE}</p></div>", "div", id="unlikely-subtree-rescued-by-maybe-hint"
+        ),
+        pytest.param(f"<div class=ARTICLE><p>{PROSE}</p></div>", "div", id="uppercase-positive-class-matches"),
+        pytest.param(f"<div id=story><p>{PROSE}</p></div>", "div", id="match-by-id-when-no-class"),
+        pytest.param(f"<div class id=post><p>{PROSE}</p></div>", "div", id="valueless-class-attribute-is-ignored"),
+        pytest.param(
+            f"<article class=post><p>{SHORT_PROSE}</p><p>{SHORT_PROSE}</p></article>",
+            "article",
+            id="short-prose-scores-without-length-bonus",
+        ),
+        pytest.param(
+            f"<article class=post><p>{LONG_PROSE}</p></article>",
+            "article",
+            id="very-long-paragraph-saturates-the-length-bonus",
+        ),
+    ],
+)
+def test_main_tag_is_chosen(markup: str, expected: str) -> None:
+    assert main_tag(markup) == expected
 
 
 def test_negative_class_loses_to_neutral_container() -> None:
     html = f"<section><p>{PROSE}</p><p>{PROSE}</p></section><div class=widget><p>{PROSE}</p><p>{PROSE}</p></div>"
     assert main_tag(html) == "section"
-
-
-def test_uppercase_positive_class_matches() -> None:
-    assert main_tag(f"<div class=ARTICLE><p>{PROSE}</p></div>") == "div"
-
-
-def test_match_by_id_when_no_class() -> None:
-    assert main_tag(f"<div id=story><p>{PROSE}</p></div>") == "div"
-
-
-def test_valueless_class_attribute_is_ignored() -> None:
-    assert main_tag(f"<div class id=post><p>{PROSE}</p></div>") == "div"
 
 
 def test_grandparent_is_none_for_direct_paragraph_parent() -> None:
@@ -226,14 +235,6 @@ def test_short_paragraph_below_threshold_is_noise() -> None:
     found = parse(html).main_content()
     assert isinstance(found, Element)
     assert found.attrs["class"] == ["entry"]
-
-
-def test_short_prose_scores_without_length_bonus() -> None:
-    assert main_tag(f"<article class=post><p>{SHORT_PROSE}</p><p>{SHORT_PROSE}</p></article>") == "article"
-
-
-def test_very_long_paragraph_saturates_the_length_bonus() -> None:
-    assert main_tag(f"<article class=post><p>{LONG_PROSE}</p></article>") == "article"
 
 
 def test_many_candidates_grow_the_array() -> None:

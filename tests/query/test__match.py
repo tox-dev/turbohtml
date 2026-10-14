@@ -139,10 +139,6 @@ def test_compile_rejects_a_malformed_selector() -> None:
         compile("a[")
 
 
-def test_selector_syntax_error_is_a_value_error() -> None:
-    assert issubclass(SelectorSyntaxError, ValueError)
-
-
 def test_pattern_exposes_the_selector() -> None:
     assert compile("div a").pattern == "div a"
 

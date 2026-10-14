@@ -86,29 +86,26 @@ def test_big5_combination_pointers_decode_to_two_code_points(data: bytes, text: 
     assert _decode(data, "big5") == text
 
 
-def test_big5_astral_pointer_decodes_above_the_bmp() -> None:
-    assert _decode(b"\x98\x40", "big5") == "\U00026d26"
-
-
-def test_gb18030_four_byte_sequence_uses_the_range_index() -> None:
-    assert _decode(b"\x81\x30\x81\x30", "gb18030") == "\x80"
-
-
-def test_gb18030_four_byte_sequence_reaches_the_astral_planes() -> None:
-    assert _decode(b"\x90\x30\x81\x30", "gb18030") == "\U00010000"
-
-
-def test_iso_2022_jp_decodes_the_half_width_katakana_state() -> None:
-    # ESC ( I is a state CPython's iso2022_jp codec does not implement at all
-    assert _decode(b"\x1b(I\x21\x1b(B", "iso-2022-jp") == "｡"
-
-
-def test_iso_2022_jp_roman_state_replaces_backslash_and_tilde() -> None:
-    assert _decode(b"\x1b(J\x5c\x5d\x7e", "iso-2022-jp") == "¥]‾"
-
-
-def test_x_user_defined_maps_high_bytes_to_the_private_use_area() -> None:
-    assert _decode(b"a\x80\xff", "x-user-defined") == "a"
+@pytest.mark.parametrize(
+    ("data", "label", "text"),
+    [
+        pytest.param(b"\x98\x40", "big5", "\U00026d26", id="big5-astral-pointer-decodes-above-the-bmp"),
+        pytest.param(b"\x81\x30\x81\x30", "gb18030", "\x80", id="gb18030-four-byte-sequence-uses-the-range-index"),
+        pytest.param(
+            b"\x90\x30\x81\x30", "gb18030", "\U00010000", id="gb18030-four-byte-sequence-reaches-the-astral-planes"
+        ),
+        # ESC ( I is a state CPython's iso2022_jp codec does not implement at all
+        pytest.param(b"\x1b(I\x21\x1b(B", "iso-2022-jp", "｡", id="iso-2022-jp-decodes-the-half-width-katakana-state"),
+        pytest.param(
+            b"\x1b(J\x5c\x5d\x7e", "iso-2022-jp", "¥]‾", id="iso-2022-jp-roman-state-replaces-backslash-and-tilde"
+        ),
+        pytest.param(
+            b"a\x80\xff", "x-user-defined", "a", id="x-user-defined-maps-high-bytes-to-the-private-use-area"
+        ),
+    ],
+)
+def test_multibyte_and_special_states_decode(data: bytes, label: str, text: str) -> None:
+    assert _decode(data, label) == text
 
 
 @pytest.mark.parametrize(

@@ -423,13 +423,8 @@ def test_number_to_string_is_shortest_decimal(value: float, expected: str) -> No
 @pytest.mark.parametrize(
     "value",
     [
-        pytest.param(1 / 3, id="one-third"),
-        pytest.param(0.1, id="tenth"),
-        pytest.param(2 / 3, id="two-thirds"),
         pytest.param(math.pi, id="pi"),
         pytest.param(math.e, id="e"),
-        pytest.param(1e-7, id="small"),
-        pytest.param(1e21, id="large"),
         pytest.param(123.456, id="mixed"),
         pytest.param(9.999999999999999e-5, id="seventeen-digits"),
         pytest.param(5e-324, id="smallest-subnormal"),

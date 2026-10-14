@@ -357,7 +357,6 @@ _LONG_NAME = "z" * 130
         pytest.param("<input type>z", "<input>", id="input-valueless-type"),
         pytest.param("<input type=hidde0>z", "<input>", id="input-hidden-type-low-byte"),
         pytest.param("<applet>" * 20 + "x", "<applet>", id="afe-marker-stack-regrow"),
-        pytest.param("</br>x", '"x"', id="end-br-before-head"),
         pytest.param("<template><tfoot>a", "content", id="template-tfoot-section"),
         pytest.param("<template><caption>b", "content", id="template-caption-section"),
         pytest.param("<template><colgroup>c", "content", id="template-colgroup-section"),

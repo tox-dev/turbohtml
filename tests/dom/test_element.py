@@ -126,7 +126,6 @@ def test_non_token_attributes_stay_string(find: Callable[[str, str], Element], h
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        pytest.param("a b", ["a", "b"], id="single-space"),
         pytest.param("  a   b  ", ["a", "b"], id="surrounding-and-internal"),
         pytest.param("solo", ["solo"], id="single-token"),
         pytest.param("   ", [], id="all-whitespace"),

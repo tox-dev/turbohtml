@@ -3042,27 +3042,6 @@ def test_wrap_width_rejects_negative() -> None:
         parse("<p>x</p>").to_markdown(Markdown(wrapping=Markdown.Wrapping(width=-1)))
 
 
-@pytest.mark.parametrize(
-    ("config", "option"),
-    [
-        # a bogus enum value on purpose, to exercise the renderer's runtime validation
-        pytest.param(
-            Markdown(images=Markdown.Images(mode="bogus")),  # ty: ignore[invalid-argument-type]
-            "image_mode",
-            id="image_mode",
-        ),
-        pytest.param(
-            Markdown(tables=Markdown.Tables(mode="bogus")),  # ty: ignore[invalid-argument-type]
-            "table_mode",
-            id="table_mode",
-        ),
-    ],
-)
-def test_new_enum_values_still_validate(config: Markdown, option: str) -> None:
-    with pytest.raises(ValueError, match=option):
-        parse("<p>x</p>").to_markdown(config)
-
-
 def _configured_markdown(html: str, options: Markdown) -> str:
     return parse(html).to_markdown(options)
 

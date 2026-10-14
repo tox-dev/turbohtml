@@ -25,18 +25,36 @@ from turbohtml.detect import (
 _RUSSIAN_1251 = "Программирование помогает понять структуру вычислительных систем сегодня здесь.".encode("cp1251")
 
 
-def test_empty_input_has_no_encoding() -> None:
-    assert detect(b"") == EncodingMatch(None, 0.0, None)
-
-
-def test_pure_ascii_is_certain() -> None:
-    assert detect(b"<p>hello world</p>") == EncodingMatch("windows-1252", 1.0, None, codec="whatwg-windows-1252")
-
-
-def test_meta_prescan_is_certain_without_a_bom() -> None:
-    assert detect(b"<meta charset=iso-8859-2><p>x</p>") == EncodingMatch(
-        "ISO-8859-2", 1.0, None, bom=False, codec="whatwg-iso-8859-2"
-    )
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        pytest.param(b"", EncodingMatch(None, 0.0, None), id="empty-input-has-no-encoding"),
+        pytest.param(
+            b"<p>hello world</p>",
+            EncodingMatch("windows-1252", 1.0, None, codec="whatwg-windows-1252"),
+            id="pure-ascii-is-certain",
+        ),
+        pytest.param(
+            b"<meta charset=iso-8859-2><p>x</p>",
+            EncodingMatch("ISO-8859-2", 1.0, None, bom=False, codec="whatwg-iso-8859-2"),
+            id="meta-prescan-is-certain-without-a-bom",
+        ),
+        pytest.param(
+            "café résumé Москва 日本語".encode(),
+            EncodingMatch("UTF-8", 1.0, None, codec="whatwg-utf-8"),
+            id="valid-utf8-is-certain",
+        ),
+        # 0x81 followed by a newline disqualifies every candidate, so the WHATWG windows-1252 default
+        # is returned with confidence 0.0: there is no positive evidence for it
+        pytest.param(
+            b"\x81\n",
+            EncodingMatch("windows-1252", 0.0, None, codec="whatwg-windows-1252"),
+            id="undecodable-bytes-fall-back-to-windows-1252-with-no-confidence",
+        ),
+    ],
+)
+def test_detect_bytes(data: bytes, expected: EncodingMatch) -> None:
+    assert detect(data) == expected
 
 
 @pytest.mark.parametrize(
@@ -72,10 +90,6 @@ def test_utf_8_sig_is_the_only_bom_label_that_differs_from_parse() -> None:
 def test_detect_and_parse_agree_on_a_utf_32_bom(raw: bytes) -> None:
     # the WHATWG BOM sniff recognizes no UTF-32, so neither path may report a UTF-32 label
     assert detect(raw).encoding == parse(raw, detect_encoding=True).encoding
-
-
-def test_valid_utf8_is_certain() -> None:
-    assert detect("café résumé Москва 日本語".encode()) == EncodingMatch("UTF-8", 1.0, None, codec="whatwg-utf-8")
 
 
 def test_iso_2022_jp_is_certain() -> None:
@@ -206,12 +220,6 @@ def test_hebrew_visual_tiebreak_leads_the_ranking() -> None:
     assert matches[0].encoding == "ISO-8859-8"
     assert matches[1].encoding == "windows-1255"
     assert matches[0].confidence == matches[1].confidence
-
-
-def test_undecodable_bytes_fall_back_to_windows_1252_with_no_confidence() -> None:
-    # 0x81 followed by a newline disqualifies every candidate, so the WHATWG windows-1252 default
-    # is returned with confidence 0.0: there is no positive evidence for it
-    assert detect(b"\x81\n") == EncodingMatch("windows-1252", 0.0, None, codec="whatwg-windows-1252")
 
 
 def test_non_bytes_input_is_rejected() -> None:

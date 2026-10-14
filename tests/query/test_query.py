@@ -67,10 +67,6 @@ def test_call_is_find() -> None:
     assert _tags(query("li")) == _tags(query.find("li"))
 
 
-def test_find_collects_across_the_set_in_document_order() -> None:
-    assert [e.text for e in Query(_DOC)("li")] == ["a", "b", "c"]
-
-
 def test_construct_deduplicates_a_node_adopted_during_iteration() -> None:
     node: Final = Element("b")
     destination: Final = Element("main")

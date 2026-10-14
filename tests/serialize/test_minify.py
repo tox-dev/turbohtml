@@ -120,38 +120,40 @@ def test_encode_minify() -> None:
     assert parse("<p>a</p>").encode(options=Html(layout=Minify())) == b"<p>a"
 
 
-def test_collapse_runs_to_single_space() -> None:
-    assert frag("a   \t\n  b", omit_optional_tags=False) == "a b"
-
-
-def test_collapse_preserves_pre() -> None:
-    assert frag("<pre>  a   b  </pre>", omit_optional_tags=False) == "<pre>  a   b  </pre>"
-
-
-def test_collapse_preserves_textarea() -> None:
-    assert frag("<textarea>  a   b  </textarea>", omit_optional_tags=False) == "<textarea>  a   b  </textarea>"
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a   \t\n  b", "a b", id="collapse-runs-to-single-space"),
+        pytest.param("<pre>  a   b  </pre>", "<pre>  a   b  </pre>", id="collapse-preserves-pre"),
+        pytest.param(
+            "<textarea>  a   b  </textarea>", "<textarea>  a   b  </textarea>", id="collapse-preserves-textarea"
+        ),
+        pytest.param("a <!--x--> b", "a b", id="collapse-merges-across-stripped-comment"),
+        pytest.param("a <b>x</b> b", "a <b>x</b> b", id="collapse-keeps-space-around-element"),
+        # the fused collapse still escapes &, < and > between the folded whitespace runs
+        pytest.param(
+            "a &  b   <  c & d > e", "a &amp; b &lt; c &amp; d &gt; e", id="collapse-escapes-specials-in-text"
+        ),
+        # a non-break space is not ASCII whitespace, so WHATWG escapes it rather than folding
+        pytest.param("a\u00a0\u00a0b", "a&nbsp;&nbsp;b", id="collapse-escapes-nbsp-under-whatwg"),
+        pytest.param("<a href='x'>t</a>", "<a href=x>t</a>", id="unquote-safe-value"),
+        pytest.param("<a title='a b'>t</a>", '<a title="a b">t</a>', id="unquote-keeps-quotes-on-space"),
+        pytest.param('<input disabled="">', "<input disabled>", id="unquote-empty-value-becomes-bare-name"),
+        pytest.param("<p>a</p><!--c--><p>b</p>", "<p>a</p><p>b</p>", id="strip-comment"),
+        pytest.param("<p>a</p><p>b</p>", "<p>a</p><p>b</p>", id="omit-off-keeps-all-tags"),
+        # space, tab, line feed, form feed and carriage return all fold to one space
+        pytest.param("a\tb\nc\x0cd\re f", "a b c d e f", id="collapse-all-whitespace-characters"),
+        pytest.param("<p>a<br>b</p>", "<p>a<br>b</p>", id="void-element-minified"),
+        pytest.param("<div></div>", "<div></div>", id="empty-element-minified"),
+        pytest.param("<script>a  <  b</script>", "<script>a  <  b</script>", id="rawtext-script-preserved"),
+    ],
+)
+def test_minify_fragment(source: str, expected: str) -> None:
+    assert frag(source, omit_optional_tags=False) == expected
 
 
 def test_collapse_off_keeps_whitespace() -> None:
     assert frag("a   b", collapse_whitespace=False, omit_optional_tags=False) == "a   b"
-
-
-def test_collapse_merges_across_stripped_comment() -> None:
-    assert frag("a <!--x--> b", omit_optional_tags=False) == "a b"
-
-
-def test_collapse_keeps_space_around_element() -> None:
-    assert frag("a <b>x</b> b", omit_optional_tags=False) == "a <b>x</b> b"
-
-
-def test_collapse_escapes_specials_in_text() -> None:
-    # the fused collapse still escapes &, < and > between the folded whitespace runs
-    assert frag("a &  b   <  c & d > e", omit_optional_tags=False) == "a &amp; b &lt; c &amp; d &gt; e"
-
-
-def test_collapse_escapes_nbsp_under_whatwg() -> None:
-    # a non-break space is not ASCII whitespace, so WHATWG escapes it rather than folding
-    assert frag("a\u00a0\u00a0b", omit_optional_tags=False) == "a&nbsp;&nbsp;b"
 
 
 def test_collapse_minimal_formatter_keeps_nbsp_literal() -> None:
@@ -167,14 +169,6 @@ def test_collapse_named_formatter() -> None:
         Html(layout=Minify(omit_optional_tags=False), formatter=Formatter.NAMED_ENTITIES)
     )
     assert out == "<div>caf&eacute; &amp; th&eacute;</div>"
-
-
-def test_unquote_safe_value() -> None:
-    assert frag("<a href='x'>t</a>", omit_optional_tags=False) == "<a href=x>t</a>"
-
-
-def test_unquote_keeps_quotes_on_space() -> None:
-    assert frag("<a title='a b'>t</a>", omit_optional_tags=False) == '<a title="a b">t</a>'
 
 
 @pytest.mark.parametrize(
@@ -194,16 +188,8 @@ def test_unquote_keeps_quotes_on_unsafe(value: str, expected: str) -> None:
     assert out.startswith(expected)
 
 
-def test_unquote_empty_value_becomes_bare_name() -> None:
-    assert frag('<input disabled="">', omit_optional_tags=False) == "<input disabled>"
-
-
 def test_unquote_off_keeps_quotes() -> None:
     assert frag("<a href='x'>t</a>", unquote_attributes=False, omit_optional_tags=False) == '<a href="x">t</a>'
-
-
-def test_strip_comment() -> None:
-    assert frag("<p>a</p><!--c--><p>b</p>", omit_optional_tags=False) == "<p>a</p><p>b</p>"
 
 
 def test_keep_comment_when_off() -> None:
@@ -393,15 +379,6 @@ def test_omit_body_start_kept_before_whitespace() -> None:
     assert out.startswith("<body> x")
 
 
-def test_omit_off_keeps_all_tags() -> None:
-    assert frag("<p>a</p><p>b</p>", omit_optional_tags=False) == "<p>a</p><p>b</p>"
-
-
-def test_collapse_all_whitespace_characters() -> None:
-    # space, tab, line feed, form feed and carriage return all fold to one space
-    assert frag("a\tb\nc\x0cd\re f", omit_optional_tags=False) == "a b c d e f"
-
-
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
@@ -433,14 +410,6 @@ def test_head_start_omitted_when_empty() -> None:
 def test_body_start_kept_before_meta() -> None:
     out = parse("<body><meta charset='utf-8'>x</body>").serialize(Html(layout=Minify()))
     assert out.startswith("<body><meta")
-
-
-def test_void_element_minified() -> None:
-    assert frag("<p>a<br>b</p>", omit_optional_tags=False) == "<p>a<br>b</p>"
-
-
-def test_empty_element_minified() -> None:
-    assert frag("<div></div>", omit_optional_tags=False) == "<div></div>"
 
 
 def test_omit_in_template_content() -> None:
@@ -555,10 +524,6 @@ def test_foreign_end_tags_kept() -> None:
     out = frag("<svg><g><rect></rect></g></svg>", strip_comments=False)
     assert "</g>" in out
     assert "</svg>" in out
-
-
-def test_rawtext_script_preserved() -> None:
-    assert frag("<script>a  <  b</script>", omit_optional_tags=False) == "<script>a  <  b</script>"
 
 
 _CSS = CSSMinify()

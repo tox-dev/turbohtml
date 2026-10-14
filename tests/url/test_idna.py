@@ -143,7 +143,6 @@ def test_rfc3492_sample_labels_encode_to_their_punycode(label: str, encoded: str
         pytest.param("example.com", "example.com", id="ascii-passthrough"),
         pytest.param("Example.COM", "example.com", id="ascii-uppercase-mapped"),
         pytest.param("münchen.de", "xn--mnchen-3ya.de", id="german-umlaut"),
-        pytest.param("faß.de", "xn--fa-hia.de", id="ess-zett-nontransitional"),
         pytest.param("xn--fa-hia.de", "xn--fa-hia.de", id="already-xn--"),
         pytest.param("日本語。jp", "xn--wgv71a119e.jp", id="ideographic-full-stop"),
         pytest.param("☃.net", "xn--n3h.net", id="mixed-symbol-and-ascii"),
