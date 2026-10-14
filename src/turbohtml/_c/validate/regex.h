@@ -32,7 +32,8 @@ enum {
     RX_FAIL_RANGE,
     RX_FAIL_CLASS,
     RX_FAIL_ESCAPE,
-    RX_FAIL_GROUP
+    RX_FAIL_GROUP,
+    RX_FAIL_QUANTIFIER
 };
 #define RX_MAX_STATES 2000000
 #define RX_CATEGORY_ALL ((UINT64_C(1) << 30) - 1)
@@ -443,6 +444,11 @@ static rnode *rx_parse_atom(rparser *parser) {
             node->ch = rx_escape_literal(letter);
         }
         return node;
+    }
+    if (current == '?' || current == '*' || current == '+' || current == '{' || current == '}') {
+        parser->failed = RX_FAIL_QUANTIFIER;
+        parser->fail_pos = parser->pos;
+        return NULL;
     }
     parser->pos++;
     rnode *node = rx_node(parser, RN_CHAR);
@@ -876,6 +882,10 @@ static int regex_cache_add(th_schema *schema, const Py_UCS4 *text, Py_ssize_t le
     }
     if (failed == RX_FAIL_GROUP) {
         PyErr_Format(PyExc_ValueError, "schema pattern has an unmatched parenthesis at offset %zd", parser.fail_pos);
+        return -1;
+    }
+    if (failed == RX_FAIL_QUANTIFIER) {
+        PyErr_Format(PyExc_ValueError, "schema pattern has an invalid quantifier at offset %zd", parser.fail_pos);
         return -1;
     }
     if (failed == RX_FAIL_BOUND) {

@@ -156,6 +156,8 @@ def test_facets(facets: str, base: str, value: str, ok: bool) -> None:  # ruff:i
         pytest.param("a{2,}", "aaaaa", True, id="unbounded-lower"),
         pytest.param("a{3}", "aaa", True, id="exact"),
         pytest.param("[a-c]+", "abc", True, id="class-range"),
+        pytest.param(r"a\{2\}", "a{2}", True, id="escaped-braces"),
+        pytest.param("[{}]", "{", True, id="braces-in-class"),
         pytest.param("[a-a]", "a", True, id="class-range-equal-endpoints"),
         pytest.param(r"[\t-\n]", "\t", True, id="class-range-escaped-endpoints"),
         pytest.param("[-a]", "-", True, id="class-leading-hyphen"),
@@ -410,6 +412,35 @@ def test_regex_invalid_escape_raises(pattern: str, offset: int) -> None:
 )
 def test_regex_unmatched_parenthesis_raises(pattern: str, offset: int) -> None:
     with pytest.raises(ValueError, match=rf"^schema pattern has an unmatched parenthesis at offset {offset}$"):
+        XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
+
+
+@pytest.mark.parametrize(
+    ("pattern", "offset"),
+    [
+        pytest.param("?a", 0, id="leading-question"),
+        pytest.param("*a", 0, id="leading-star"),
+        pytest.param("+a", 0, id="leading-plus"),
+        pytest.param("a?+", 2, id="stacked-question-plus"),
+        pytest.param("a**", 2, id="stacked-stars"),
+        pytest.param("a++", 2, id="stacked-pluses"),
+        pytest.param("a{2", 1, id="unclosed-exact"),
+        pytest.param("a{2,3", 1, id="unclosed-range"),
+        pytest.param("a{2,", 1, id="unclosed-minimum"),
+        pytest.param("a{2,x}", 1, id="nondigit-upper"),
+        pytest.param("a{b", 1, id="nondigit-bound"),
+        pytest.param("a{2,!}", 1, id="punctuation-upper"),
+        pytest.param("a{2x", 1, id="missing-comma"),
+        pytest.param("a{,2}", 1, id="missing-lower"),
+        pytest.param("a{}", 1, id="empty-bound"),
+        pytest.param("{2}", 0, id="bare-bound"),
+        pytest.param("{x}", 0, id="bare-nondigit-bound"),
+        pytest.param("}", 0, id="bare-close"),
+        pytest.param("a}", 1, id="close-after-atom"),
+    ],
+)
+def test_regex_invalid_quantifier_raises(pattern: str, offset: int) -> None:
+    with pytest.raises(ValueError, match=rf"^schema pattern has an invalid quantifier at offset {offset}$"):
         XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
 
 
@@ -804,11 +835,8 @@ def test_datatype_edges(type_name: str, value: str, ok: bool) -> None:  # ruff:i
         pytest.param(r"a\tb", "a\tb", True, id="escaped-tab"),
         pytest.param(r"[\.]+", "...", True, id="class-literal-escape"),
         pytest.param("[abc]+", "cba", True, id="class-multichar"),
-        pytest.param("a{b", "a{b", True, id="brace-literal"),
-        pytest.param("{x}", "{x}", True, id="lone-brace"),
         pytest.param("a{0}b", "b", True, id="repeat-zero"),
         pytest.param("a{0,2}", "aa", True, id="repeat-zero-two"),
-        pytest.param("a{2,", "a{2,", True, id="unterminated-brace"),
         pytest.param("(a|)b", "b", True, id="empty-alternative"),
     ],
 )
@@ -1243,7 +1271,6 @@ def test_datatype_name_boundaries(type_name: str, value: str, ok: bool) -> None:
         pytest.param("a{2}", "aa", True, id="bound-exact-close"),
         pytest.param("a{2,3}", "aaa", True, id="bound-comma-upper"),
         pytest.param("a{2,}", "aaaa", True, id="bound-comma-open"),
-        pytest.param("a{2", "a{2", True, id="bound-unterminated"),
         pytest.param(r"[\d]+", "12", True, id="class-digit-builtin"),
         pytest.param(r"[\w]+", "ab$1", True, id="class-word-builtin"),
         pytest.param(r"[\s]+", " \t", True, id="class-space-builtin"),
@@ -1298,7 +1325,6 @@ def test_datatype_all_subtypes_valid(type_name: str, value: str) -> None:
 @pytest.mark.parametrize(
     ("pattern", "value", "ok"),
     [
-        pytest.param("a{2,3", "a{2,3", True, id="bound-no-close"),
         pytest.param(r"a\d", "a5", True, id="atom-escape-not-end"),
         pytest.param(r"[\s]x", " x", True, id="class-space-then"),
         pytest.param(r"[\D]", "5", False, id="class-not-digit-vs-digit"),
@@ -1497,8 +1523,6 @@ def test_group_with_annotation_before_model() -> None:
 @pytest.mark.parametrize(
     ("pattern", "value", "ok"),
     [
-        pytest.param("a{2,x}", "a{2,x}", True, id="bound-nondigit-upper"),
-        pytest.param("a{2x", "a{2x", True, id="bound-no-close-brace"),
         pytest.param("[\\s]", "x", False, id="class-space-vs-nonspace"),
     ],
 )
@@ -1520,17 +1544,6 @@ def test_schema_with_unnamespaced_sequence_is_not_recognized() -> None:
 def test_simple_typed_element_with_text_and_element_child() -> None:
     schema = f'<xs:schema {XS}><xs:element name="v" type="xs:string"/></xs:schema>'
     assert not xsd_ok(schema, "<v>text<child/>more</v>")
-
-
-@pytest.mark.parametrize(
-    ("pattern", "value"),
-    [
-        pytest.param("a{2,", "a{2,", id="bound-comma-then-end"),
-        pytest.param("a{2,!}", "a{2,!}", id="bound-nondigit-below-zero"),
-    ],
-)
-def test_regex_bound_upper_boundaries(pattern: str, value: str) -> None:
-    assert pattern_ok(pattern, value)  # not a valid quantifier, so the braces are literal
 
 
 def test_non_mixed_with_whitespace_element_and_comment() -> None:
