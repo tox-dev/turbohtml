@@ -540,18 +540,18 @@ def test_feed_rss_without_channel_is_empty() -> None:
     assert result == Feed("rss", None, None, None, None, ())
 
 
-def test_feed_atom_self_link_only_falls_back() -> None:
+def test_feed_atom_self_link_is_not_permalink() -> None:
     result = parse_feed('<feed><title>t</title><link href="http://example.com/self" rel="self"/></feed>')
-    assert result.link == "http://example.com/self"
+    assert result.link is None
 
 
-def test_feed_atom_two_secondary_links_no_alternate() -> None:
+def test_feed_atom_two_secondary_links_no_permalink() -> None:
     xml = (
         "<feed><title>t</title>"
         '<link href="http://example.com/a" rel="self"/>'
         '<link href="http://example.com/b" rel="edit"/></feed>'
     )
-    assert parse_feed(xml).link == "http://example.com/a"
+    assert parse_feed(xml).link is None
 
 
 def test_feed_atom_link_without_rel_is_alternate() -> None:
@@ -559,9 +559,30 @@ def test_feed_atom_link_without_rel_is_alternate() -> None:
     assert result.link == "http://example.com/x"
 
 
-def test_feed_atom_link_valueless_rel_is_alternate() -> None:
+def test_feed_atom_link_valueless_rel_is_not_alternate() -> None:
     result = parse_feed('<feed><title>t</title><link href="http://example.com/x" rel/></feed>')
-    assert result.link == "http://example.com/x"
+    assert result.link is None
+
+
+@pytest.mark.parametrize(
+    ("links", "expected"),
+    [
+        pytest.param('<link href="first"/>', "first", id="missing-rel"),
+        pytest.param('<link href="first" rel/>', "first", id="valueless-rel"),
+        pytest.param(
+            '<link rel="self" href="first"/><link rel="edit" href="second"/>',
+            "first",
+            id="first-secondary-fallback",
+        ),
+        pytest.param(
+            '<link rel="self" href="first"/><link rel="ALTERNATE" href="second"/>',
+            "second",
+            id="uppercase-alternate",
+        ),
+    ],
+)
+def test_feed_rss_link_href_relations(links: str, expected: str) -> None:
+    assert parse_feed(f"<rss><channel>{links}</channel></rss>").link == expected
 
 
 @pytest.mark.parametrize(

@@ -660,9 +660,7 @@ static PyObject *field_text(th_tree *tree, th_node *parent, const feed_tag *tags
     return Py_NewRef(Py_None);
 }
 
-/* A <link>'s trimmed href attribute (the Atom form), or NULL when it carries no non-empty href (the RSS/RDF form, whose
-   URL is the element's text instead). */
-static PyObject *link_href(th_tree *tree, th_node *link) {
+static PyObject *link_href(th_tree *tree, th_node *link, int atom) {
     Py_ssize_t index = th_node_attr_find(tree, link, "href", 4);
     if (index < 0 || link->attrs[index].value == NULL) {
         return NULL;
@@ -671,21 +669,34 @@ static PyObject *link_href(th_tree *tree, th_node *link) {
     if (href == NULL) { /* GCOVR_EXCL_BR_LINE: ucs4_trimmed fails only on allocation */
         return NULL;    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (PyUnicode_GET_LENGTH(href) == 0) {
+    if (PyUnicode_GET_LENGTH(href) == 0 && (!atom || link->attrs[index].value_len != 0)) {
         Py_DECREF(href);
         return NULL;
     }
     return href;
 }
 
-/* Whether an Atom <link>'s rel makes it the entry's primary link: an absent, valueless, or "alternate" rel. A rel of
-   self/enclosure/edit/replies is a secondary link the walk skips unless no alternate is found. */
 static int link_is_alternate(th_tree *tree, th_node *link) {
     Py_ssize_t index = th_node_attr_find(tree, link, "rel", 3);
     if (index < 0 || link->attrs[index].value == NULL) {
         return 1;
     }
     return ucs4_ieq(link->attrs[index].value, link->attrs[index].value_len, "alternate", 9);
+}
+
+/* Atom serialization compares relation types case-sensitively (RFC 8288 A.2). */
+static int atom_link_is_alternate(th_tree *tree, th_node *link) {
+    static const Py_UCS4 alternate_uri[] = U"http://www.iana.org/assignments/relation/alternate";
+    Py_ssize_t index = th_node_attr_find(tree, link, "rel", 3);
+    if (index < 0) {
+        return 1;
+    }
+    if (link->attrs[index].value == NULL) {
+        return 0;
+    }
+    return ucs4_eq_ascii(link->attrs[index].value, link->attrs[index].value_len, "alternate") ||
+           (link->attrs[index].value_len == (Py_ssize_t)(sizeof(alternate_uri) / sizeof(*alternate_uri) - 1) &&
+            memcmp(link->attrs[index].value, alternate_uri, sizeof(alternate_uri) - sizeof(*alternate_uri)) == 0);
 }
 
 /* The trimmed URL an RSS/RDF <link> without an href holds: its own text in an XML tree, the next text sibling in an
@@ -763,14 +774,12 @@ static PyObject *resolve_link_xml_base(th_tree *tree, th_node *link, PyObject *u
     return result;
 }
 
-/* The permalink URL of `parent`: the first Atom <link rel="alternate"> href, else the first RSS/RDF <link>'s text,
-   else the first non-alternate Atom href as a fallback, else None. NULL only on the excluded allocation-failure
-   path. */
 static PyObject *extract_link(th_tree *tree, th_node *parent, const char *uri, int inherited) {
     if (parent == NULL) {
         return Py_NewRef(Py_None);
     }
     PyObject *fallback = NULL;
+    int atom = uri == ATOM_URI;
     for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
         if (child->type != TH_NODE_ELEMENT) {
             continue;
@@ -783,14 +792,17 @@ static PyObject *extract_link(th_tree *tree, th_node *parent, const char *uri, i
         if (!match) {
             continue;
         }
-        PyObject *href = link_href(tree, child);
+        if (atom && !atom_link_is_alternate(tree, child)) {
+            continue;
+        }
+        PyObject *href = link_href(tree, child, atom);
         if (href != NULL) {
             href = resolve_link_xml_base(tree, child, href);
             if (href == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation failure */
                 Py_XDECREF(fallback); /* GCOVR_EXCL_LINE: allocation-failure path */
                 return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
             }
-            if (link_is_alternate(tree, child)) {
+            if (atom || link_is_alternate(tree, child)) {
                 Py_XDECREF(fallback);
                 return href;
             }
@@ -799,6 +811,9 @@ static PyObject *extract_link(th_tree *tree, th_node *parent, const char *uri, i
             } else {
                 Py_DECREF(href);
             }
+            continue;
+        }
+        if (atom) {
             continue;
         }
         PyObject *text = link_text(tree, child);
