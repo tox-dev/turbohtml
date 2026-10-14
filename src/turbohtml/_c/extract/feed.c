@@ -709,22 +709,30 @@ static PyObject *link_text(th_tree *tree, th_node *link) {
     return text;
 }
 
-static PyObject *resolve_link_xml_base(th_tree *tree, th_node *link, PyObject *url) {
-    if (!th_tree_is_xml(tree)) {
-        return url;
+static int absolute_url(PyObject *url) {
+    if (PyUnicode_GET_LENGTH(url) == 0) {
+        return 0;
     }
     int kind = PyUnicode_KIND(url);
     const void *data = PyUnicode_DATA(url);
-    if (is_ascii_alpha(PyUnicode_READ(kind, data, 0))) {
-        for (Py_ssize_t index = 1; index < PyUnicode_GET_LENGTH(url); index++) {
-            Py_UCS4 point = PyUnicode_READ(kind, data, index);
-            if (point == ':') {
-                return url;
-            }
-            if (!is_ascii_alpha(point) && !is_ascii_digit(point) && point != '+' && point != '-' && point != '.') {
-                break;
-            }
+    if (!is_ascii_alpha(PyUnicode_READ(kind, data, 0))) {
+        return 0;
+    }
+    for (Py_ssize_t index = 1; index < PyUnicode_GET_LENGTH(url); index++) {
+        Py_UCS4 point = PyUnicode_READ(kind, data, index);
+        if (point == ':') {
+            return 1;
         }
+        if (!is_ascii_alpha(point) && !is_ascii_digit(point) && point != '+' && point != '-' && point != '.') {
+            break;
+        }
+    }
+    return 0;
+}
+
+static PyObject *resolve_link_xml_base(th_tree *tree, th_node *link, PyObject *url) {
+    if (!th_tree_is_xml(tree) || absolute_url(url)) {
+        return url;
     }
     PyObject *base_uri = NULL;
     for (th_node *node = link; node != NULL; node = node->parent) {
@@ -1025,6 +1033,35 @@ static PyObject *entry_field_text(th_tree *tree, th_node *const *fields, size_t 
     return Py_NewRef(Py_None);
 }
 
+static const th_node_attr *rdf_reference_attr(th_tree *tree, th_node *node, const char *local, Py_ssize_t local_len,
+                                              int allow_unprefixed) {
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        const th_node_attr *attr = &node->attrs[index];
+        if (attr->value == NULL) {
+            continue;
+        }
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(tree, attr->name_atom, &name_len);
+        if ((allow_unprefixed && name_len == local_len && memcmp(name, local, (size_t)local_len) == 0) ||
+            (name_len > local_len + 1 && name[name_len - local_len - 1] == ':' &&
+             memcmp(name + name_len - local_len, local, (size_t)local_len) == 0 &&
+             (!th_tree_is_xml(tree) ? name_len == local_len + 4 && memcmp(name, "rdf:", 4) == 0
+                                    : namespace_bytes_is(tree, node, name, name_len - local_len - 1, RDF_URI)))) {
+            return attr;
+        }
+    }
+    return NULL;
+}
+
+static PyObject *rdf_reference(th_tree *tree, th_node *node, const char *local, Py_ssize_t local_len,
+                               int allow_unprefixed) {
+    const th_node_attr *attr = rdf_reference_attr(tree, node, local, local_len, allow_unprefixed);
+    if (attr != NULL) {
+        return ucs4_trimmed(attr->value, attr->value_len);
+    }
+    return Py_NewRef(Py_None);
+}
+
 /* The author display name of `parent`: an <author>'s nested <name> (the Atom form), else the <author>'s own text (an
    RSS email), else a <dc:creator>, else None. NULL only on the excluded allocation-failure path. */
 static PyObject *extract_author(th_tree *tree, th_node *const *fields, const char *uri, int inherited) {
@@ -1063,24 +1100,7 @@ static PyObject *extract_id(th_tree *tree, th_node *entry, th_node *const *field
         return value;
     }
     Py_DECREF(value);
-    if (!th_tree_is_xml(tree)) {
-        Py_ssize_t index = th_node_attr_find(tree, entry, "rdf:about", 9);
-        if (index >= 0 && entry->attrs[index].value != NULL) {
-            return ucs4_trimmed(entry->attrs[index].value, entry->attrs[index].value_len);
-        }
-    } else {
-        for (Py_ssize_t index = 0; index < entry->attr_count; index++) {
-            const th_node_attr *attr = &entry->attrs[index];
-            Py_ssize_t name_len;
-            const char *name = th_attr_name(tree, attr->name_atom, &name_len);
-            if (attr->value != NULL && name_len > 6 && name[name_len - 6] == ':' &&
-                memcmp(name + name_len - 5, "about", 5) == 0 &&
-                namespace_bytes_is(tree, entry, name, name_len - 6, RDF_URI)) {
-                return ucs4_trimmed(attr->value, attr->value_len);
-            }
-        }
-    }
-    return Py_NewRef(Py_None);
+    return rdf_reference(tree, entry, "about", 5, 0);
 }
 
 /* When an entry has no link element, an RSS <guid> that is a permalink (its isPermaLink is not "false") doubles as the
@@ -1207,6 +1227,245 @@ static PyObject *build_entries(module_state *state, th_tree *tree, th_node *pare
     return entries;
 }
 
+static int absolute_reference(const Py_UCS4 *value, Py_ssize_t len) {
+    if (len == 0 || !is_ascii_alpha(value[0])) {
+        return 0;
+    }
+    for (Py_ssize_t index = 1; index < len; index++) {
+        if (value[index] == ':') {
+            return 1;
+        }
+        if (!is_ascii_alpha(value[index]) && !is_ascii_digit(value[index]) && value[index] != '+' &&
+            value[index] != '-' && value[index] != '.') {
+            return 0;
+        }
+    }
+    return 0;
+}
+
+static PyObject *build_rdf_entries(module_state *state, th_tree *tree, th_node *root, th_node *channel,
+                                   int root_namespace, int channel_namespace) {
+    if (channel == NULL || !th_tree_is_xml(tree)) {
+        return build_entries(state, tree, root, "item", 4, RSS_URI, root_namespace);
+    }
+    int error = 0;
+    th_node *items = feed_child_named(tree, channel, "items", 5, RSS_URI, channel_namespace, &error);
+    if (error) {     /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+        return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    th_node *sequence = NULL;
+    if (items != NULL) {
+        for (th_node *child = items->first_child; child != NULL; child = child->next_sibling) {
+            if (child->type != TH_NODE_ELEMENT) {
+                continue;
+            }
+            int match = qualified_tag_is(tree, child, "Seq", RDF_URI);
+            if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+                return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            if (match) {
+                sequence = child;
+                break;
+            }
+        }
+    }
+    if (sequence == NULL) {
+        return build_entries(state, tree, root, "item", 4, RSS_URI, root_namespace);
+    }
+    int canonical = root_namespace && ucs4_eq_ascii(root->text, root->text_len, "rdf:RDF") &&
+                    ucs4_eq_ascii(sequence->text, sequence->text_len, "rdf:Seq");
+    PyObject *ordered = PyList_New(0);
+    if (ordered == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return NULL;       /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    th_node *item = root->first_child;
+    for (th_node *child = sequence->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        int match = canonical && child->attr_count == 1 && ucs4_eq_ascii(child->text, child->text_len, "rdf:li")
+                        ? 1
+                        : qualified_tag_is(tree, child, "li", RDF_URI);
+        if (match < 0) {        /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+            Py_DECREF(ordered); /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL;        /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (!match) {
+            continue;
+        }
+        while (item != NULL) {
+            if (item->type == TH_NODE_ELEMENT) {
+                match = canonical && item->attr_count == 1 && ucs4_eq_ascii(item->text, item->text_len, "item")
+                            ? 1
+                            : feed_tag_is(tree, item, "item", 4, RSS_URI, root_namespace);
+                if (match < 0) {        /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+                    Py_DECREF(ordered); /* GCOVR_EXCL_LINE: allocation failure */
+                    return NULL;        /* GCOVR_EXCL_LINE: allocation failure */
+                }
+                if (match) {
+                    break;
+                }
+            }
+            item = item->next_sibling;
+        }
+        if (item == NULL) {
+            goto lookup;
+        }
+        const th_node_attr *about = NULL;
+        if (canonical && item->attr_count == 1) {
+            Py_ssize_t name_len;
+            const char *name = th_attr_name(tree, item->attrs[0].name_atom, &name_len);
+            if (name_len == 9 && memcmp(name, "rdf:about", 9) == 0) {
+                if (item->attrs[0].value != NULL) { /* GCOVR_EXCL_BR_LINE: XML attributes have values */
+                    about = &item->attrs[0];
+                }
+            }
+        }
+        if (about == NULL) {
+            about = rdf_reference_attr(tree, item, "about", 5, 0);
+        }
+        const th_node_attr *resource = NULL;
+        if (canonical && child->attr_count == 1) {
+            Py_ssize_t name_len;
+            const char *name = th_attr_name(tree, child->attrs[0].name_atom, &name_len);
+            if (name_len == 12 && memcmp(name, "rdf:resource", 12) == 0) {
+                if (child->attrs[0].value != NULL) { /* GCOVR_EXCL_BR_LINE: XML attributes have values */
+                    resource = &child->attrs[0];
+                }
+            }
+        }
+        if (resource == NULL) {
+            resource = rdf_reference_attr(tree, child, "resource", 8, 1);
+        }
+        if (about == NULL || resource == NULL || !absolute_reference(about->value, about->value_len) ||
+            about->value_len != resource->value_len ||
+            memcmp(about->value, resource->value, (size_t)about->value_len * sizeof(Py_UCS4)) != 0) {
+            goto lookup;
+        }
+        int item_namespace = default_namespace_at_node(tree, item, RSS_URI, root_namespace);
+        PyObject *entry = build_entry(state, tree, item, RSS_URI, item_namespace);
+        if (entry == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure */
+            Py_DECREF(ordered); /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL;        /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        int failed = PyList_Append(ordered, entry) < 0;
+        Py_DECREF(entry);
+        if (failed) {           /* GCOVR_EXCL_BR_LINE: allocation failure */
+            Py_DECREF(ordered); /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL;        /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        item = item->next_sibling;
+    }
+    for (; item != NULL; item = item->next_sibling) {
+        if (item->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        int match = canonical && item->attr_count == 1 && ucs4_eq_ascii(item->text, item->text_len, "item")
+                        ? 1
+                        : feed_tag_is(tree, item, "item", 4, RSS_URI, root_namespace);
+        if (match < 0) {        /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+            Py_DECREF(ordered); /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL;        /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (match) {
+            goto lookup;
+        }
+    }
+    PyObject *result = PyList_AsTuple(ordered);
+    Py_DECREF(ordered);
+    return result;
+
+lookup:
+    Py_DECREF(ordered);
+    PyObject *by_uri = PyDict_New();
+    ordered = PyList_New(0);
+    if (by_uri == NULL || ordered == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        goto error;                          /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    for (th_node *item = root->first_child; item != NULL; item = item->next_sibling) {
+        if (item->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        int match = feed_tag_is(tree, item, "item", 4, RSS_URI, root_namespace);
+        if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+            goto error;  /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (!match) {
+            continue;
+        }
+        PyObject *key = rdf_reference(tree, item, "about", 5, 0);
+        if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            goto error;    /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (key == Py_None) {
+            Py_DECREF(key);
+            continue;
+        }
+        key = resolve_link_xml_base(tree, item, key);
+        if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            goto error;    /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        int item_namespace = default_namespace_at_node(tree, item, RSS_URI, root_namespace);
+        PyObject *entry = build_entry(state, tree, item, RSS_URI, item_namespace);
+        if (entry == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            Py_DECREF(key);  /* GCOVR_EXCL_LINE: allocation failure */
+            goto error;      /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        int failed = PyDict_SetItem(by_uri, key, entry) < 0;
+        Py_DECREF(entry);
+        Py_DECREF(key);
+        if (failed) {   /* GCOVR_EXCL_BR_LINE: allocation failure */
+            goto error; /* GCOVR_EXCL_LINE: allocation failure */
+        }
+    }
+    for (th_node *child = sequence->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type != TH_NODE_ELEMENT) {
+            continue;
+        }
+        int match = qualified_tag_is(tree, child, "li", RDF_URI);
+        if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+            goto error;  /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (!match) {
+            continue;
+        }
+        PyObject *key = rdf_reference(tree, child, "resource", 8, 1);
+        if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            goto error;    /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (key == Py_None) {
+            Py_DECREF(key);
+            continue;
+        }
+        key = resolve_link_xml_base(tree, child, key);
+        if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            goto error;    /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        PyObject *entry = PyDict_GetItemWithError(by_uri, key);
+        Py_DECREF(key);
+        if (entry == NULL) {
+            if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a str lookup cannot raise */
+                goto error;         /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            continue;
+        }
+        if (PyList_Append(ordered, entry) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            goto error;                          /* GCOVR_EXCL_LINE: allocation failure */
+        }
+    }
+    result = PyList_AsTuple(ordered);
+    Py_DECREF(ordered);
+    Py_DECREF(by_uri);
+    return result;
+
+/* GCOVR_EXCL_START: only allocation or namespace failure reaches cleanup */
+error:
+    Py_XDECREF(ordered);
+    Py_XDECREF(by_uri);
+    return NULL;
+    /* GCOVR_EXCL_STOP */
+}
+
 /* Build the Feed(type, title, link, description, updated, entries) record rooted at `root`. RSS and RDF read their feed
    metadata from the <channel> element (absent in a malformed feed, leaving the fields None); Atom reads it from the
    feed root itself. RSS nests its <item>s in the channel, RDF makes them siblings of the channel, Atom nests its
@@ -1240,8 +1499,9 @@ static PyObject *build_feed(module_state *state, th_tree *tree, th_node *root, c
     failed |= record_set(record, 3, field_text(tree, meta, DESCRIPTION, 3, uri, meta_namespace, is_atom));
     failed |= record_set(record, 4, field_text(tree, meta, UPDATED, 4, uri, meta_namespace, 0));
     failed |= record_set(record, 5,
-                         build_entries(state, tree, item_parent, item_name, item_len, uri,
-                                       is_atom || rdf ? root_namespace : meta_namespace));
+                         rdf ? build_rdf_entries(state, tree, root, meta, root_namespace, meta_namespace)
+                             : build_entries(state, tree, item_parent, item_name, item_len, uri,
+                                             is_atom ? root_namespace : meta_namespace));
     if (failed != 0) {     /* GCOVR_EXCL_BR_LINE: a field build fails only on unforceable allocation */
         Py_DECREF(record); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;       /* GCOVR_EXCL_LINE */

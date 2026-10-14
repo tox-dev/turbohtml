@@ -54,7 +54,7 @@ class Feed(NamedTuple):
     :param link: the feed's site link.
     :param description: the feed description (RSS ``<description>``, Atom ``<subtitle>``).
     :param updated: the feed's last-modified timestamp, verbatim.
-    :param entries: the feed's items in document order.
+    :param entries: the feed's items in document order, or the channel's RDF sequence order for RSS 1.0.
     """
 
     type: str
