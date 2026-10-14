@@ -7,7 +7,7 @@ from typing import Final, cast
 import pytest
 from bench.operations import INPUTS
 
-from turbohtml import parse, parse_xml
+from turbohtml import Text, parse, parse_xml
 from turbohtml.extract import Entry, Feed, feed
 
 RSS = """<?xml version="1.0"?>
@@ -906,6 +906,294 @@ def test_feed_atom_summary_cdata() -> None:
     assert feed(xml) == Feed(
         "atom", None, None, None, None, (Entry(None, None, None, None, None, "<b>s</b>", None, None),)
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "markup", "expected"),
+    [
+        pytest.param("title", "Hello <b>world</b>", "Hello <b>world</b>", id="title"),
+        pytest.param("summary", "A <p>summary</p>", "A <p>summary</p>", id="summary"),
+        pytest.param("content", "A <p>body</p>", "A <p>body</p>", id="content"),
+    ],
+)
+def test_feed_atom_xhtml_preserves_markup(field: str, markup: str, expected: str) -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><entry>'
+        f'<{field} type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">{markup}</div></{field}>'
+        "</entry></feed>"
+    )
+    assert getattr(parse_feed(xml).entries[0], field) == expected
+
+
+def test_feed_atom_xhtml_feed_title() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml">Hello <b>world</b></div></title></feed>'
+    )
+    assert parse_feed(xml).title == "Hello <b>world</b>"
+
+
+def test_feed_atom_xhtml_feed_subtitle() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><subtitle type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml">A <em>subtitle</em></div></subtitle></feed>'
+    )
+    assert parse_feed(xml).description == "A <em>subtitle</em>"
+
+
+def test_feed_atom_xhtml_prefixed_elements() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:xh="http://www.w3.org/1999/xhtml">'
+        '<title type="xhtml"><xh:div>Hi <xh:b class="x">B</xh:b></xh:div></title></feed>'
+    )
+    assert parse_feed(xml).title == 'Hi <b class="x">B</b>'
+
+
+def test_feed_atom_xhtml_with_prefixed_atom_fields() -> None:
+    xml: Final = (
+        '<a:feed xmlns:a="http://www.w3.org/2005/Atom" xmlns:xh="http://www.w3.org/1999/xhtml">'
+        '<a:title type="xhtml"><xh:div>Hi <xh:b>there</xh:b></xh:div></a:title>'
+        "</a:feed>"
+    )
+    assert parse_feed(xml).title == "Hi <b>there</b>"
+
+
+def test_feed_atom_xhtml_inherits_foreign_prefix() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:xh="http://www.w3.org/1999/xhtml" '
+        'xmlns:s="http://www.w3.org/2000/svg"><title type="xhtml"><xh:div>'
+        '<s:svg><s:circle r="2"/></s:svg></xh:div></title></feed>'
+    )
+    assert parse_feed(xml).title == (
+        '<s:svg xmlns:s="http://www.w3.org/2000/svg"><s:circle xmlns:s="http://www.w3.org/2000/svg" r="2"/></s:svg>'
+    )
+
+
+def test_feed_atom_xhtml_inherits_attribute_prefix() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:xlink="http://www.w3.org/1999/xlink">'
+        '<title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">'
+        '<a xlink:href="https://example.org/">link</a></div></title></feed>'
+    )
+    assert parse_feed(xml).title == (
+        '<a xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="https://example.org/">link</a>'
+    )
+
+
+def test_feed_atom_xhtml_inherits_prefix_from_div() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml" xmlns:s="urn:s"><s:box/></div></title></feed>'
+    )
+    assert parse_feed(xml).title == '<s:box xmlns:s="urn:s"/>'
+
+
+@pytest.mark.parametrize("binding", [None, ""], ids=["valueless", "empty"])
+def test_feed_atom_xhtml_invalid_foreign_binding_falls_back(binding: str | None) -> None:
+    document: Final = parse_xml(
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><s:box>text</s:box></div></title></feed>'
+    )
+    document.select("feed")[0].attrs["xmlns:s"] = binding
+    assert cast("Feed", document.feed()).title == "text"
+
+
+def test_feed_atom_xhtml_removed_foreign_binding_falls_back() -> None:
+    document: Final = parse_xml(
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><s:box>text</s:box></div></title></feed>'
+    )
+    del document.select("feed")[0].attrs["xmlns:s"]
+    assert cast("Feed", document.feed()).title == "text"
+
+
+def test_feed_atom_xhtml_unbound_attribute_prefix_falls_back() -> None:
+    document: Final = parse_xml(
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><p s:key="v">text</p></div></title></feed>'
+    )
+    del document.select("feed")[0].attrs["xmlns:s"]
+    assert cast("Feed", document.feed()).title == "text"
+
+
+def test_feed_atom_xhtml_escapes_markup_text_and_attributes() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><a title="a &amp; &quot;b&quot; &lt; &gt;">x &amp; y</a></div>'
+        "</title></feed>"
+    )
+    assert parse_feed(xml).title == '<a title="a &amp; &quot;b&quot; &lt; &gt;">x &amp; y</a>'
+
+
+def test_feed_atom_xhtml_empty_html_elements() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><p/><br/></div></title></feed>'
+    )
+    assert parse_feed(xml).title == "<p></p><br/>"
+
+
+def test_feed_atom_xhtml_attribute_whitespace() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><a title="a&#10;b&#9;c&#13;d">x</a></div>'
+        "</title></feed>"
+    )
+    assert parse_feed(xml).title == '<a title="a&#10;b&#9;c&#13;d">x</a>'
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        pytest.param("\x00", id="nul"),
+        pytest.param("\x01", id="control"),
+        pytest.param("\ud800", id="surrogate"),
+        pytest.param("\ufffe", id="noncharacter-fffe"),
+        pytest.param("\uffff", id="noncharacter-ffff"),
+    ],
+)
+def test_feed_atom_xhtml_drops_xml_forbidden_text(invalid: str) -> None:
+    document: Final = parse_xml(
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><p/></div></title></feed>'
+    )
+    document.select("p")[0].append(Text(f"a{invalid}b"))
+    assert cast("Feed", document.feed()).title == "<p>ab</p>"
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        pytest.param("\x00", id="nul"),
+        pytest.param("\x01", id="control"),
+        pytest.param("\ud800", id="surrogate"),
+        pytest.param("\ufffe", id="noncharacter-fffe"),
+        pytest.param("\uffff", id="noncharacter-ffff"),
+    ],
+)
+def test_feed_atom_xhtml_drops_xml_forbidden_attribute(invalid: str) -> None:
+    document: Final = parse_xml(
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><p title="ab"/></div></title></feed>'
+    )
+    document.select("p")[0].attrs["title"] = f"a{invalid}b"
+    assert cast("Feed", document.feed()).title == '<p title="ab"></p>'
+
+
+def test_feed_atom_xhtml_empty_div_is_missing() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"/></title></feed>'
+    )
+    assert parse_feed(xml).title is None
+
+
+def test_feed_atom_xhtml_without_div_keeps_text() -> None:
+    xml: Final = '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">plain</title></feed>'
+    assert parse_feed(xml).title == "plain"
+
+
+def test_feed_atom_xhtml_preserves_comments_and_pi() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><!--note--><?test value?><p>x</p></div></title></feed>'
+    )
+    assert parse_feed(xml).title == "<!--note--><?test value?><p>x</p>"
+
+
+def test_feed_atom_xhtml_preserves_cdata() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><![CDATA[<b>& text</b>]]></div></title></feed>'
+    )
+    assert parse_feed(xml).title == "&lt;b&gt;&amp; text&lt;/b&gt;"
+
+
+def test_feed_atom_xhtml_xml_prefix_is_implicit() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><p xml:lang="en">text</p></div></title></feed>'
+    )
+    assert parse_feed(xml).title == '<p xml:lang="en">text</p>'
+
+
+def test_feed_atom_xhtml_local_prefix_is_not_duplicated() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><s:svg xmlns:s="http://www.w3.org/2000/svg"/></div>'
+        "</title></feed>"
+    )
+    assert parse_feed(xml).title == '<s:svg xmlns:s="http://www.w3.org/2000/svg"/>'
+
+
+def test_feed_atom_xhtml_multiple_attributes_share_prefix() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:x="urn:x"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><a x:first="1" x:second="2">x</a></div></title></feed>'
+    )
+    assert parse_feed(xml).title == '<a xmlns:x="urn:x" x:first="1" x:second="2">x</a>'
+
+
+def test_feed_atom_xhtml_prefixed_tag_and_attribute_share_prefix() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s"><title type="xhtml">'
+        '<div xmlns="http://www.w3.org/1999/xhtml"><s:box s:key="v"/></div></title></feed>'
+    )
+    assert parse_feed(xml).title == '<s:box xmlns:s="urn:s" s:key="v"/>'
+
+
+def test_feed_atom_xhtml_prefixed_tag_and_other_attribute_prefix() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s" xmlns:t="urn:t">'
+        '<title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">'
+        '<s:box t:key="v"/></div></title></feed>'
+    )
+    assert parse_feed(xml).title == '<s:box xmlns:s="urn:s" xmlns:t="urn:t" t:key="v"/>'
+
+
+def test_feed_atom_xhtml_distinguishes_equal_length_prefixes() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s" xmlns:t="urn:t">'
+        '<title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">'
+        '<a s:one="1" t:two="2">x</a></div></title></feed>'
+    )
+    assert parse_feed(xml).title == '<a xmlns:s="urn:s" s:one="1" xmlns:t="urn:t" t:two="2">x</a>'
+
+
+def test_feed_atom_xhtml_attribute_name_before_prefix() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:abc="urn:abc">'
+        '<title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">'
+        '<a id="x" abc:key="v">x</a></div></title></feed>'
+    )
+    assert parse_feed(xml).title == '<a id="x" xmlns:abc="urn:abc" abc:key="v">x</a>'
+
+
+def test_feed_atom_xhtml_other_name_before_prefix() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:x="urn:x">'
+        '<title type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml">'
+        '<a class="x" x:key="v">x</a></div></title></feed>'
+    )
+    assert parse_feed(xml).title == '<a class="x" xmlns:x="urn:x" x:key="v">x</a>'
+
+
+def test_feed_atom_xhtml_type_absent_with_other_attribute() -> None:
+    xml: Final = '<feed xmlns="http://www.w3.org/2005/Atom"><title id="x">plain</title></feed>'
+    assert parse_feed(xml).title == "plain"
+
+
+def test_feed_atom_xhtml_requires_xhtml_div() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        '<div xmlns="urn:other"><b>plain</b></div></title></feed>'
+    )
+    assert parse_feed(xml).title == "plain"
+
+
+def test_feed_rss_xhtml_type_keeps_plain_text() -> None:
+    xml: Final = '<rss><channel><title type="xhtml"><div><b>plain</b></div></title></channel></rss>'
+    assert parse_feed(xml).title == "plain"
 
 
 def test_feed_malformed_xml_falls_back_to_html() -> None:

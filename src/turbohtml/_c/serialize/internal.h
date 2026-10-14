@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "serialize/buffer.h" /* the sbuf struct and its reserve/append hot path */
+#include "serialize/xml_text.h"
 
 /* The #document attribute sort works in fixed stack buffers: at most this many
    attributes are ordered, each rendered name capped at this many bytes. */
@@ -222,95 +223,6 @@ static inline void sbuf_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len,
         }
         sbuf_put_special(out, text[special], formatter);
         index = special + 1;
-    }
-}
-
-/* Whether an ASCII code point interrupts an XML text run: bit 0 marks the characters
-   that break a run in any context -- the structural `& < >`, the carriage return XML
-   escapes so a reparse cannot fold it to a newline, and every C0 control the Char
-   production forbids (dropped on emit) -- and bit 1 the two the attribute context adds,
-   the double quote and the tab/newline XML would otherwise normalize away. One table
-   lookup replaces the per-character comparison chain on the hot serialize path. */
-static const unsigned char XML_TEXT_STOP[128] = {
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-};
-
-/* Whether a code point cannot appear in XML 1.0 character data, so an XML
-   serialization drops it: the C0 controls other than tab/newline/carriage return,
-   the UTF-16 surrogate block, and the two noncharacters U+FFFE and U+FFFF. Written
-   as arithmetic and single comparisons, not a chained ||, so gcc's branch counting
-   matches clang's. */
-static inline int xml_char_invalid(Py_UCS4 character) {
-    if (character < 0x20) {
-        Py_UCS4 allowed = (1u << '\t') | (1u << '\n') | (1u << '\r');
-        return ((allowed >> character) & 1u) == 0;
-    }
-    if (character < 0xD800) {
-        return 0;
-    }
-    if (character <= 0xDFFF) {
-        return 1;
-    }
-    if (character == 0xFFFE) {
-        return 1;
-    }
-    return character == 0xFFFF;
-}
-
-/* Emit one flagged character's XML replacement. */
-static inline void sbuf_put_xml_special(sbuf *out, Py_UCS4 character) {
-    if (character == '&') {
-        sbuf_puts(out, "&amp;");
-    } else if (character == '<') {
-        sbuf_puts(out, "&lt;");
-    } else if (character == '>') {
-        sbuf_puts(out, "&gt;");
-    } else if (character == '"') {
-        sbuf_puts(out, "&quot;");
-    } else if (character == '\t') {
-        sbuf_puts(out, "&#9;");
-    } else if (character == '\n') {
-        sbuf_puts(out, "&#10;");
-    } else {
-        sbuf_puts(out, "&#13;"); /* the only remaining flagged character is U+000D */
-    }
-}
-
-/* Whether a code point interrupts a well-formed XML text run: an ASCII character is
-   one table lookup (the attribute context also stops on the bit-1 set), and only the
-   rare non-ASCII invalids reach the Char-production check. */
-static inline int xml_text_stop(Py_UCS4 character, int in_attr) {
-    if (character < 0x80) {
-        int mask = in_attr ? 0x3 : 0x1;
-        return (XML_TEXT_STOP[character] & mask) != 0;
-    }
-    return xml_char_invalid(character);
-}
-
-/* Append text under XML escaping, bulk-copying each run with nothing to escape and
-   rewriting only the specials between. Unlike the HTML formatter, no-break space is
-   left verbatim (XML predefines no &nbsp;) and `>` escapes in every context. A code
-   point XML cannot hold (a C0 control, a surrogate, a noncharacter) is dropped rather
-   than emitted, so the serialization always reparses. */
-static inline void sbuf_put_xml_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len, int in_attr) {
-    Py_ssize_t index = 0;
-    while (index < len) {
-        Py_ssize_t start = index;
-        while (index < len && !xml_text_stop(text[index], in_attr)) {
-            index++;
-        }
-        if (index > start) {
-            sbuf_put_run(out, &text[start], index - start);
-        }
-        if (index < len) {
-            if (!xml_char_invalid(text[index])) {
-                sbuf_put_xml_special(out, text[index]);
-            }
-            index++;
-        }
     }
 }
 

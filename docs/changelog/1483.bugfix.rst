@@ -1,0 +1,1 @@
+Preserve markup inside Atom ``type="xhtml"`` text constructs when extracting feeds.

@@ -8,8 +8,9 @@
 
    The facade parses a feed with parse_xml and falls back to the HTML tree builder when it is not well-formed, so the
    walk reads either tree. Tag names compare ASCII case-insensitively, which covers the XML tree's lastBuildDate and the
-   HTML tree's lowercased lastbuilddate alike. A field's value is its Text and CDATA character data. The one structural
-   difference is <link>: HTML makes it void, so an RSS/RDF <link>URL</link> leaves the URL as the void element's next
+   HTML tree's lowercased lastbuilddate alike. A field's value is its Text and CDATA character data, except an Atom
+   XHTML construct, which keeps the markup inside its XHTML div. HTML also makes <link> void, so an RSS/RDF
+   <link>URL</link> leaves the URL as the void element's next
    text sibling, where the XML tree keeps it as the element's own text.
 
    The walk runs under the per-tree critical section so a concurrent mutation cannot relink the tree mid-walk, and hands
@@ -22,7 +23,7 @@
 
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
 #include "dom/nodes.h"
-#include "serialize/buffer.h"
+#include "serialize/xml_text.h"
 
 #include <string.h>
 
@@ -31,6 +32,7 @@ static const char CONTENT_URI[] = "http://purl.org/rss/1.0/modules/content/";
 static const char RDF_URI[] = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 static const char RSS_URI[] = "http://purl.org/rss/1.0/";
 static const char ATOM_URI[] = "http://www.w3.org/2005/Atom";
+static const char XHTML_URI[] = "http://www.w3.org/1999/xhtml";
 
 /* One candidate element tag for a normalized field: the name and its length, tried in precedence order. */
 typedef struct {
@@ -240,10 +242,227 @@ static PyObject *node_text_trimmed(th_tree *tree, th_node *node) {
     return result;
 }
 
+static int xhtml_element(th_tree *tree, th_node *node, th_node *element) {
+    *element = *node;
+    for (Py_ssize_t index = 0; index < node->text_len; index++) {
+        if (node->text[index] != ':') {
+            continue;
+        }
+        int xhtml = namespace_is(tree, node, index, XHTML_URI);
+        if (xhtml < 0) { /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+            return -1;   /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (xhtml) {
+            element->text += index + 1;
+            element->text_len -= index + 1;
+        }
+        return xhtml;
+    }
+    return namespace_is(tree, node, 0, XHTML_URI);
+}
+
+static int xhtml_inherit_prefix(sbuf *out, th_tree *tree, th_node *node, const char *prefix, Py_ssize_t prefix_len) {
+    if (prefix_len == 3 && memcmp(prefix, "xml", 3) == 0) {
+        return 0;
+    }
+    for (th_node *ancestor = node; ancestor != NULL; ancestor = ancestor->parent) {
+        for (Py_ssize_t index = 0; index < ancestor->attr_count; index++) {
+            th_node_attr *attr = &ancestor->attrs[index];
+            Py_ssize_t len;
+            const char *name = th_attr_name(tree, attr->name_atom, &len);
+            if (len != prefix_len + 6 || memcmp(name, "xmlns:", 6) != 0 ||
+                memcmp(name + 6, prefix, (size_t)prefix_len) != 0) {
+                continue;
+            }
+            if (attr->value == NULL || attr->value_len == 0) {
+                return 1;
+            }
+            if (ancestor != node) {
+                sbuf_puts(out, " xmlns:");
+                sbuf_put_utf8(out, prefix, prefix_len);
+                sbuf_puts(out, "=\"");
+                sbuf_put_xml_text(out, attr->value, attr->value_len, 1);
+                sbuf_putc(out, '"');
+            }
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *element) {
+    sbuf_putc(out, '<');
+    sbuf_put_ucs4(out, element->text, element->text_len);
+    Py_ssize_t tag_prefix_len = 0;
+    const char *tag_prefix = NULL;
+    PyObject *tag_prefix_owner = NULL;
+    if (element->text == node->text) {
+        for (Py_ssize_t index = 0; index < element->text_len; index++) {
+            if (element->text[index] == ':') {
+                tag_prefix_owner = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, element->text, index);
+                if (tag_prefix_owner == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    return -1;                  /* GCOVR_EXCL_LINE: allocation failure */
+                }
+                tag_prefix = PyUnicode_AsUTF8AndSize(tag_prefix_owner, &tag_prefix_len);
+                if (tag_prefix == NULL) {        /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    Py_DECREF(tag_prefix_owner); /* GCOVR_EXCL_LINE: allocation failure */
+                    return -1;                   /* GCOVR_EXCL_LINE: allocation failure */
+                }
+                if (xhtml_inherit_prefix(out, tree, node, tag_prefix, tag_prefix_len)) {
+                    Py_DECREF(tag_prefix_owner);
+                    return 1;
+                }
+                break;
+            }
+        }
+    }
+    for (Py_ssize_t index = 0; index < element->attr_count; index++) {
+        th_node_attr *attr = &element->attrs[index];
+        Py_ssize_t name_len;
+        const char *name = th_attr_name(tree, attr->name_atom, &name_len);
+        const char *colon = memchr(name, ':', (size_t)name_len);
+        if (colon != NULL && !(name_len >= 6 && memcmp(name, "xmlns:", 6) == 0)) {
+            Py_ssize_t prefix_len = colon - name;
+            int already_bound = tag_prefix_len == prefix_len && memcmp(tag_prefix, name, (size_t)prefix_len) == 0;
+            for (Py_ssize_t previous = 0; !already_bound && previous < index; previous++) {
+                Py_ssize_t previous_len;
+                const char *previous_name = th_attr_name(tree, element->attrs[previous].name_atom, &previous_len);
+                already_bound = previous_len > prefix_len && previous_name[prefix_len] == ':' &&
+                                memcmp(previous_name, name, (size_t)prefix_len) == 0;
+            }
+            if (!already_bound) {
+                if (xhtml_inherit_prefix(out, tree, node, name, prefix_len)) {
+                    Py_XDECREF(tag_prefix_owner);
+                    return 1;
+                }
+            }
+        }
+        sbuf_putc(out, ' ');
+        sbuf_put_utf8(out, name, name_len);
+        sbuf_puts(out, "=\"");
+        sbuf_put_xml_text(out, attr->value, attr->value_len, 1);
+        sbuf_putc(out, '"');
+    }
+    Py_XDECREF(tag_prefix_owner);
+    return 0;
+}
+
+static void xhtml_close_tag(sbuf *out, th_node *element) {
+    sbuf_puts(out, "</");
+    sbuf_put_ucs4(out, element->text, element->text_len);
+    sbuf_putc(out, '>');
+}
+
+static int xhtml_void_tag(th_node *node) {
+    static const feed_tag VOID[] = {{"area", 4},   {"base", 4},  {"basefont", 8}, {"bgsound", 7}, {"br", 2},
+                                    {"col", 3},    {"embed", 5}, {"hr", 2},       {"img", 3},     {"input", 5},
+                                    {"keygen", 6}, {"link", 4},  {"meta", 4},     {"param", 5},   {"source", 6},
+                                    {"track", 5},  {"wbr", 3}};
+    for (size_t index = 0; index < sizeof(VOID) / sizeof(VOID[0]); index++) {
+        if (tag_is(node, VOID[index].name, VOID[index].len)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static PyObject *atom_xhtml_text(th_tree *tree, th_node *node) {
+    if (!th_tree_is_xml(tree) || node->attr_count == 0) {
+        return node_text_trimmed(tree, node);
+    }
+    Py_ssize_t type = th_node_attr_find(tree, node, "type", 4);
+    if (type < 0 || !ucs4_eq_ascii(node->attrs[type].value, node->attrs[type].value_len, "xhtml")) {
+        return node_text_trimmed(tree, node);
+    }
+    th_node *div = NULL;
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_ELEMENT) {
+            div = child;
+            break;
+        }
+    }
+    if (div == NULL) {
+        return node_text_trimmed(tree, node);
+    }
+    int valid = qualified_tag_is(tree, div, "div", XHTML_URI);
+    if (valid < 0) { /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+        return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    if (!valid) {
+        return node_text_trimmed(tree, node);
+    }
+    sbuf out = {NULL, 0, 0, 0};
+    th_serialize_opts opts = {0};
+    opts.xml = 1;
+    for (th_node *child = div->first_child; child != NULL;) {
+        if (child->type == TH_NODE_ELEMENT) {
+            th_node element;
+            int xhtml = xhtml_element(tree, child, &element);
+            if (xhtml < 0) {          /* GCOVR_EXCL_BR_LINE: allocation failure */
+                PyMem_Free(out.data); /* GCOVR_EXCL_LINE: allocation failure */
+                return NULL;          /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            int opened = xhtml_open_tag(&out, tree, child, &element);
+            if (opened != 0) {
+                PyMem_Free(out.data);
+                return opened < 0 ? NULL : node_text_trimmed(tree, node); /* GCOVR_EXCL_BR_LINE: allocation failure */
+            }
+            if (child->first_child != NULL) {
+                sbuf_putc(&out, '>');
+                child = child->first_child;
+                continue;
+            }
+            if (xhtml && !xhtml_void_tag(&element)) {
+                sbuf_putc(&out, '>');
+                xhtml_close_tag(&out, &element);
+            } else {
+                sbuf_puts(&out, "/>");
+            }
+        }
+        if (child->type == TH_NODE_TEXT || child->type == TH_NODE_CDATA) {
+            Py_ssize_t len;
+            Py_UCS4 *data = th_node_data(tree, child, &len);
+            if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: allocation failure */
+                PyMem_Free(out.data);    /* GCOVR_EXCL_LINE: allocation failure */
+                return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            sbuf_put_xml_text(&out, data, len, 0);
+            PyMem_Free(data);
+        } else if (child->type == TH_NODE_COMMENT || child->type == TH_NODE_PI) {
+            Py_ssize_t len;
+            Py_UCS4 *data = th_node_serialize(tree, child, &opts, NULL, 0, &len);
+            if (data == NULL) {          /* GCOVR_EXCL_BR_LINE: serialization fails only on allocation */
+                PyMem_Free(out.data);    /* GCOVR_EXCL_LINE: allocation failure */
+                return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            sbuf_put_ucs4(&out, data, len);
+            PyMem_Free(data);
+        }
+        while (child->next_sibling == NULL && child->parent != div) {
+            child = child->parent;
+            th_node element;
+            if (xhtml_element(tree, child, &element) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                PyMem_Free(out.data);                       /* GCOVR_EXCL_LINE: allocation failure */
+                return NULL;                                /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            xhtml_close_tag(&out, &element);
+        }
+        child = child->next_sibling;
+    }
+    if (out.failed) {            /* GCOVR_EXCL_BR_LINE: allocation failure */
+        PyMem_Free(out.data);    /* GCOVR_EXCL_LINE: allocation failure */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    PyObject *result = ucs4_trimmed(out.data, out.len);
+    PyMem_Free(out.data);
+    return result;
+}
+
 /* The first non-empty trimmed text among `parent`'s direct children named by the precedence-ordered `tags`, or None
    when none is present with a non-empty value (or when `parent` is NULL, a feed whose channel the parser dropped). NULL
    only on the excluded allocation-failure path. */
-static PyObject *field_text(th_tree *tree, th_node *parent, const feed_tag *tags, size_t count, const char *uri) {
+static PyObject *field_text(th_tree *tree, th_node *parent, const feed_tag *tags, size_t count, const char *uri,
+                            int xhtml) {
     if (parent == NULL) {
         return Py_NewRef(Py_None);
     }
@@ -273,7 +492,7 @@ static PyObject *field_text(th_tree *tree, th_node *parent, const feed_tag *tags
         if (child == NULL) {
             continue;
         }
-        PyObject *value = node_text_trimmed(tree, child);
+        PyObject *value = xhtml ? atom_xhtml_text(tree, child) : node_text_trimmed(tree, child);
         if (value == NULL) { /* GCOVR_EXCL_BR_LINE: node_text_trimmed fails only on allocation */
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -624,12 +843,12 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields,
     return 0;
 }
 
-static PyObject *entry_field_text(th_tree *tree, th_node *const *fields, size_t count) {
+static PyObject *entry_field_text(th_tree *tree, th_node *const *fields, size_t count, int atom) {
     for (size_t index = 0; index < count; index++) {
         if (fields[index] == NULL) {
             continue;
         }
-        PyObject *value = node_text_trimmed(tree, fields[index]);
+        PyObject *value = atom ? atom_xhtml_text(tree, fields[index]) : node_text_trimmed(tree, fields[index]);
         if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
             return NULL;     /* GCOVR_EXCL_LINE: allocation failure */
         }
@@ -669,7 +888,7 @@ static PyObject *extract_author(th_tree *tree, th_node *const *fields, const cha
 /* The entry identifier: an RSS <guid> / Atom <id> element text, else the RDF item's rdf:about attribute, else None.
    NULL only on the excluded allocation-failure path. */
 static PyObject *extract_id(th_tree *tree, th_node *entry, th_node *const *fields) {
-    PyObject *value = entry_field_text(tree, fields, 2);
+    PyObject *value = entry_field_text(tree, fields, 2, 0);
     if (value == NULL) { /* GCOVR_EXCL_BR_LINE: field_text fails only on allocation */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -762,13 +981,14 @@ static PyObject *build_entry(module_state *state, th_tree *tree, th_node *item, 
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     int failed = 0;
-    failed |= record_set(record, 0, entry_field_text(tree, fields + FEED_TITLE, 1));
+    int atom = uri == ATOM_URI;
+    failed |= record_set(record, 0, entry_field_text(tree, fields + FEED_TITLE, 1, atom));
     failed |= record_set(record, 1, entry_link(tree, item, fields[FEED_GUID], uri));
     failed |= record_set(record, 2, extract_id(tree, item, fields + FEED_GUID));
-    failed |= record_set(record, 3, entry_field_text(tree, fields + FEED_UPDATED, 2));
-    failed |= record_set(record, 4, entry_field_text(tree, fields + FEED_PUBLISHED, 3));
-    failed |= record_set(record, 5, entry_field_text(tree, fields + FEED_SUMMARY, 3));
-    failed |= record_set(record, 6, entry_field_text(tree, fields + FEED_ENCODED, 2));
+    failed |= record_set(record, 3, entry_field_text(tree, fields + FEED_UPDATED, 2, 0));
+    failed |= record_set(record, 4, entry_field_text(tree, fields + FEED_PUBLISHED, 3, 0));
+    failed |= record_set(record, 5, entry_field_text(tree, fields + FEED_SUMMARY, 3, atom));
+    failed |= record_set(record, 6, entry_field_text(tree, fields + FEED_ENCODED, 2, atom));
     failed |= record_set(record, 7, extract_author(tree, fields + FEED_AUTHOR, uri));
     if (failed != 0) {     /* GCOVR_EXCL_BR_LINE: a field build fails only on unforceable allocation */
         Py_DECREF(record); /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -843,10 +1063,10 @@ static PyObject *build_feed(module_state *state, th_tree *tree, th_node *root, c
     }
     int failed = 0;
     failed |= record_set(record, 0, PyUnicode_FromString(type));
-    failed |= record_set(record, 1, field_text(tree, meta, TITLE, 1, uri));
+    failed |= record_set(record, 1, field_text(tree, meta, TITLE, 1, uri, is_atom));
     failed |= record_set(record, 2, extract_link(tree, meta, uri));
-    failed |= record_set(record, 3, field_text(tree, meta, DESCRIPTION, 3, uri));
-    failed |= record_set(record, 4, field_text(tree, meta, UPDATED, 4, uri));
+    failed |= record_set(record, 3, field_text(tree, meta, DESCRIPTION, 3, uri, is_atom));
+    failed |= record_set(record, 4, field_text(tree, meta, UPDATED, 4, uri, 0));
     failed |= record_set(record, 5, build_entries(state, tree, item_parent, item_name, item_len, uri));
     if (failed != 0) {     /* GCOVR_EXCL_BR_LINE: a field build fails only on unforceable allocation */
         Py_DECREF(record); /* GCOVR_EXCL_LINE: allocation-failure path */
