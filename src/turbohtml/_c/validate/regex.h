@@ -23,7 +23,15 @@
 #define RX_MAX_GROUP_DEPTH TH_DEPTH_LIMIT(250)
 
 /* Why a pattern failed to compile; each maps to its own error in regex_cache_add. */
-enum { RX_FAIL_MEMORY = 1, RX_FAIL_NESTING, RX_FAIL_CLASS_NESTING, RX_FAIL_BOUND, RX_FAIL_STATES, RX_FAIL_PROPERTY };
+enum {
+    RX_FAIL_MEMORY = 1,
+    RX_FAIL_NESTING,
+    RX_FAIL_CLASS_NESTING,
+    RX_FAIL_BOUND,
+    RX_FAIL_STATES,
+    RX_FAIL_PROPERTY,
+    RX_FAIL_RANGE
+};
 #define RX_MAX_STATES 2000000
 #define RX_CATEGORY_ALL ((UINT64_C(1) << 30) - 1)
 
@@ -164,6 +172,10 @@ static Py_UCS4 rx_escape_literal(Py_UCS4 letter) {
     default:
         return letter;
     }
+}
+
+static int rx_is_single_escape(Py_UCS4 letter) {
+    return letter < 128 && strchr("nrt\\|.?*+(){}-[]^", (int)letter) != NULL;
 }
 
 static rnode *rx_new_class(rparser *parser) {
@@ -310,10 +322,21 @@ static rnode *rx_parse_class(rparser *parser) {
         }
         if (parser->pos + 1 < parser->len && parser->pattern[parser->pos] == '-' &&
             parser->pattern[parser->pos + 1] != ']' && parser->pattern[parser->pos + 1] != '[') {
+            Py_ssize_t range_pos = parser->pos - 1;
             Py_UCS4 hi = parser->pattern[parser->pos + 1];
             parser->pos += 2;
-            if (hi == '\\' && parser->pos < parser->len) {
+            if (hi == '\\') {
+                if (parser->pos >= parser->len || !rx_is_single_escape(parser->pattern[parser->pos])) {
+                    parser->failed = RX_FAIL_RANGE;
+                    parser->fail_pos = range_pos;
+                    return NULL;
+                }
                 hi = rx_escape_literal(parser->pattern[parser->pos++]);
+            }
+            if (hi < current) {
+                parser->failed = RX_FAIL_RANGE;
+                parser->fail_pos = range_pos;
+                return NULL;
             }
             if (rx_range_push(parser, cls, current, hi) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
                 return NULL;                                   /* GCOVR_EXCL_LINE */
@@ -798,6 +821,10 @@ static int regex_cache_add(th_schema *schema, const Py_UCS4 *text, Py_ssize_t le
     }
     if (failed == RX_FAIL_PROPERTY) {
         PyErr_Format(PyExc_ValueError, "schema pattern has an invalid category escape at offset %zd", parser.fail_pos);
+        return -1;
+    }
+    if (failed == RX_FAIL_RANGE) {
+        PyErr_Format(PyExc_ValueError, "schema pattern has an invalid character range at offset %zd", parser.fail_pos);
         return -1;
     }
     if (failed == RX_FAIL_BOUND) {

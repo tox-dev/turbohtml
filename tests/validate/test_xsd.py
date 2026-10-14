@@ -156,6 +156,8 @@ def test_facets(facets: str, base: str, value: str, ok: bool) -> None:  # ruff:i
         pytest.param("a{2,}", "aaaaa", True, id="unbounded-lower"),
         pytest.param("a{3}", "aaa", True, id="exact"),
         pytest.param("[a-c]+", "abc", True, id="class-range"),
+        pytest.param("[a-a]", "a", True, id="class-range-equal-endpoints"),
+        pytest.param(r"[\t-\n]", "\t", True, id="class-range-escaped-endpoints"),
         pytest.param("[^0-9]+", "abc", True, id="class-negate"),
         pytest.param("[a-z-[aeiou]]", "b", True, id="class-subtract-consonant"),
         pytest.param("[a-z-[aeiou]]", "a", False, id="class-subtract-vowel"),
@@ -329,6 +331,25 @@ def test_regex_pattern(pattern: str, value: str, ok: bool) -> None:  # ruff:igno
 )
 def test_regex_category_property(category: str, value: str) -> None:
     assert check(restricted(f'<xs:pattern value="\\p{{{category}}}"/>'), f"<v>{value}</v>").valid
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        pytest.param("[z-a]", id="reversed-ascii"),
+        pytest.param("[😀-A]", id="reversed-supplementary"),
+        pytest.param(r"[a-\n]", id="reversed-escaped-endpoint"),
+        pytest.param(r"[a-\d]", id="builtin-endpoint"),
+        pytest.param(r"[a-\p{Lu}]", id="category-endpoint"),
+        pytest.param(r"[a-\q]", id="unknown-escape-endpoint"),
+        pytest.param("[a-\\Ā]", id="nonascii-escape-endpoint"),
+        pytest.param(r"[a-\]", id="reversed-closing-bracket-endpoint"),
+        pytest.param("[a-\\", id="range-backslash-at-end"),
+    ],
+)
+def test_regex_invalid_range_raises(pattern: str) -> None:
+    with pytest.raises(ValueError, match=r"^schema pattern has an invalid character range at offset 1$"):
+        XMLSchema(restricted(f'<xs:pattern value="{pattern}"/>'))
 
 
 _NESTING_ERROR: Final[str] = (
@@ -1220,7 +1241,6 @@ def test_datatype_all_subtypes_valid(type_name: str, value: str) -> None:
     ("pattern", "value", "ok"),
     [
         pytest.param(r"[a\]", "a", True, id="class-backslash-end"),
-        pytest.param(r"[a-\]", "z", False, id="class-range-backslash-end"),
         pytest.param("a{2,3", "a{2,3", True, id="bound-no-close"),
         pytest.param(r"a\d", "a5", True, id="atom-escape-not-end"),
         pytest.param(r"[\s]x", " x", True, id="class-space-then"),
@@ -1421,7 +1441,6 @@ def test_group_with_annotation_before_model() -> None:
     ("pattern", "value", "ok"),
     [
         pytest.param("[a\\", "a", True, id="class-lone-backslash-at-end"),
-        pytest.param("[a-\\", "a", False, id="range-backslash-at-end"),
         pytest.param("a\\", "a", False, id="atom-backslash-at-end"),
         pytest.param("a{2,x}", "a{2,x}", True, id="bound-nondigit-upper"),
         pytest.param("a{2x", "a{2x", True, id="bound-no-close-brace"),
