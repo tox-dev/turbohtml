@@ -1,6 +1,6 @@
 /* A compact regular-expression matcher for the XSD `pattern` facet (and the RELAX NG
    equivalent). The pattern language is the XSD 1.0 regex subset: literals, `.`, escape
-   classes (\d \D \w \W \s \S), character classes with ranges and negation, grouping,
+   classes (\d \D \w \W \s \S \i \I \c \C), character classes with ranges and negation, grouping,
    alternation, and the `? * + {m} {m,} {m,n}` quantifiers. It compiles to a Thompson
    NFA (Cox, "Regular Expression Matching Can Be Simple And Fast") and simulates it, so
    matching is linear in the input with no backtracking blow-up. Matching is anchored:
@@ -24,12 +24,16 @@ enum { RX_FAIL_MEMORY = 1, RX_FAIL_NESTING, RX_FAIL_BOUND, RX_FAIL_STATES };
 #define RX_MAX_STATES 2000000
 
 enum {
-    RX_BD = 1,  /* \d */
-    RX_BW = 2,  /* \w */
-    RX_BS = 4,  /* \s */
-    RX_ND = 8,  /* \D */
-    RX_NW = 16, /* \W */
-    RX_NS = 32, /* \S */
+    RX_BD = 1,   /* \d */
+    RX_BW = 2,   /* \w */
+    RX_BS = 4,   /* \s */
+    RX_ND = 8,   /* \D */
+    RX_NW = 16,  /* \W */
+    RX_NS = 32,  /* \S */
+    RX_BI = 64,  /* \i */
+    RX_NI = 128, /* \I */
+    RX_BC = 256, /* \c */
+    RX_NC = 512, /* \C */
 };
 
 typedef struct {
@@ -43,7 +47,7 @@ typedef struct {
     int negate;
 } rclass;
 
-enum { RN_EMPTY, RN_CHAR, RN_ANY, RN_CLASS, RN_CONCAT, RN_ALT, RN_QUEST, RN_STAR, RN_PLUS, RN_REPEAT };
+enum { RN_EMPTY, RN_CHAR, RN_ANY, RN_CLASS, RN_BUILTIN, RN_CONCAT, RN_ALT, RN_QUEST, RN_STAR, RN_PLUS, RN_REPEAT };
 
 typedef struct rnode {
     int type;
@@ -57,7 +61,7 @@ enum { RS_SPLIT, RS_MATCH, RS_ACCEPT };
 
 typedef struct rstate {
     int kind;
-    int mkind; /* RN_CHAR / RN_ANY / RN_CLASS */
+    int mkind; /* RN_CHAR / RN_ANY / RN_CLASS / RN_BUILTIN */
     Py_UCS4 ch;
     rclass *cls;
     struct rstate *out, *out1;
@@ -128,6 +132,14 @@ static int rx_builtin_flag(Py_UCS4 letter) {
         return RX_NW;
     case 'S':
         return RX_NS;
+    case 'i':
+        return RX_BI;
+    case 'I':
+        return RX_NI;
+    case 'c':
+        return RX_BC;
+    case 'C':
+        return RX_NC;
     default:
         return 0;
     }
@@ -194,19 +206,12 @@ static rnode *rx_parse_class(rparser *parser) {
     return node;
 }
 
-static rnode *rx_class_from_builtin(rparser *parser, int flag) {
-    rnode *node = rx_node(parser, RN_CLASS);
+static rnode *rx_builtin_node(rparser *parser, int flag) {
+    rnode *node = rx_node(parser, RN_BUILTIN);
     if (node == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return NULL;    /* GCOVR_EXCL_LINE */
     }
-    rclass *cls = arena_alloc(parser->mem, sizeof(rclass));
-    if (cls == NULL) {      /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        parser->failed = 1; /* GCOVR_EXCL_LINE */
-        return NULL;        /* GCOVR_EXCL_LINE */
-    }
-    memset(cls, 0, sizeof(*cls));
-    cls->builtins = flag;
-    node->cls = cls;
+    node->ch = (Py_UCS4)flag;
     return node;
 }
 
@@ -241,7 +246,7 @@ static rnode *rx_parse_atom(rparser *parser) {
         int flag = rx_builtin_flag(letter);
         parser->pos += 2;
         if (flag != 0) {
-            return rx_class_from_builtin(parser, flag);
+            return rx_builtin_node(parser, flag);
         }
         rnode *node = rx_node(parser, RN_CHAR);
         if (node != NULL) { /* GCOVR_EXCL_BR_LINE: node is NULL only on unforceable arena OOM */
@@ -433,7 +438,8 @@ static rstate *rx_compile(rcompiler *compiler, rnode *node, rstate *out) {
         return out;
     case RN_CHAR:
     case RN_ANY:
-    case RN_CLASS: {
+    case RN_CLASS:
+    case RN_BUILTIN: {
         rstate *state = rx_state(compiler, RS_MATCH);
         state->mkind = node->type;
         state->ch = node->ch;
@@ -513,6 +519,8 @@ static int rx_class_match(const rclass *cls, Py_UCS4 codepoint) {
     int is_d = is_digit(codepoint);
     int is_w = (cls->builtins & (RX_BW | RX_NW)) != 0 && rx_word_match(codepoint);
     int is_s = is_xml_space(codepoint);
+    int is_i = (cls->builtins & (RX_BI | RX_NI)) != 0 && is_name_start(codepoint);
+    int is_c = (cls->builtins & (RX_BC | RX_NC)) != 0 && is_name_char(codepoint);
     if ((cls->builtins & RX_BD) && is_d) {
         inside = 1;
     }
@@ -531,6 +539,18 @@ static int rx_class_match(const rclass *cls, Py_UCS4 codepoint) {
     if ((cls->builtins & RX_NS) && !is_s) {
         inside = 1;
     }
+    if ((cls->builtins & RX_BI) && is_i) {
+        inside = 1;
+    }
+    if ((cls->builtins & RX_NI) && !is_i) {
+        inside = 1;
+    }
+    if ((cls->builtins & RX_BC) && is_c) {
+        inside = 1;
+    }
+    if ((cls->builtins & RX_NC) && !is_c) {
+        inside = 1;
+    }
     return cls->negate ? !inside : inside;
 }
 
@@ -540,6 +560,30 @@ static int rx_state_match(const rstate *state, Py_UCS4 codepoint) {
     }
     if (state->mkind == RN_ANY) {
         return codepoint != '\n' && codepoint != '\r';
+    }
+    if (state->mkind == RN_BUILTIN) {
+        switch (state->ch) {
+        case RX_BD:
+            return is_digit(codepoint);
+        case RX_ND:
+            return !is_digit(codepoint);
+        case RX_BW:
+            return rx_word_match(codepoint);
+        case RX_NW:
+            return !rx_word_match(codepoint);
+        case RX_BS:
+            return is_xml_space(codepoint);
+        case RX_NS:
+            return !is_xml_space(codepoint);
+        case RX_BI:
+            return is_name_start(codepoint);
+        case RX_NI:
+            return !is_name_start(codepoint);
+        case RX_BC:
+            return is_name_char(codepoint);
+        default:
+            return !is_name_char(codepoint);
+        }
     }
     return rx_class_match(state->cls, codepoint);
 }
