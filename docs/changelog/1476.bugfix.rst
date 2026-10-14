@@ -1,0 +1,1 @@
+Ignore URL-like text inside CSS comments and strings when extracting or rewriting links.

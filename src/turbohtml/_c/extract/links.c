@@ -24,7 +24,7 @@ typedef int (*scanner_fn)(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, 
 /* A CSS/identifier byte, used to reject url(/import/url= matches that are only the tail of a longer identifier (e.g.
    "blur(" must not match "url(", "curl" must not match the refresh keyword). */
 static int is_ident(Py_UCS4 c) {
-    return is_ascii_alpha(c) || is_ascii_digit(c) || c == '_' || c == '-';
+    return is_ascii_alpha(c) || is_ascii_digit(c) || c == '_' || c == '-' || c >= 0x80;
 }
 
 /* Case-insensitive (ASCII) match of the literal `lit` at offset `pos`; letters compare case-folded, every other byte
@@ -103,6 +103,19 @@ static int scan_srcset(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, voi
     return 0;
 }
 
+static Py_ssize_t css_string_end(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t pos, Py_UCS4 quote) {
+    while (pos < len && value[pos] != quote) {
+        if (value[pos] == '\\' && pos + 1 < len) {
+            pos += value[pos + 1] == '\r' && pos + 2 < len && value[pos + 2] == '\n' ? 3 : 2;
+        } else if (value[pos] == '\n' || value[pos] == '\r' || value[pos] == '\f') {
+            break;
+        } else {
+            pos++;
+        }
+    }
+    return pos;
+}
+
 /* The URL inside a url(...) function: skip whitespace and an optional quote after the '(', then read to the matching
    quote, or to the first whitespace or ')'. Emits the span between, or nothing for an empty url(). */
 static int css_url_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t open, link_emit emit, void *ctx,
@@ -116,10 +129,19 @@ static int css_url_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t open, l
         quote = value[pos++];
     }
     Py_ssize_t start = pos;
-    while (pos < len && value[pos] != ')' && (quote ? value[pos] != quote : !is_space(value[pos]))) {
-        pos++;
+    if (quote) {
+        pos = css_string_end(value, len, pos, quote);
+        if (pos < len && value[pos] != quote) {
+            *resume = pos;
+            return 0;
+        }
+        *resume = pos < len ? pos + 1 : pos;
+    } else {
+        while (pos < len && value[pos] != ')' && !is_space(value[pos])) {
+            pos++;
+        }
+        *resume = pos;
     }
-    *resume = pos;
     if (pos > start) {
         return emit(ctx, start, pos);
     }
@@ -137,10 +159,11 @@ static int css_import_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t afte
     if (pos < len && (value[pos] == '"' || value[pos] == '\'')) {
         Py_UCS4 quote = value[pos++];
         Py_ssize_t start = pos;
-        while (pos < len && value[pos] != quote) {
-            pos++;
+        pos = css_string_end(value, len, pos, quote);
+        *resume = pos < len && value[pos] == quote ? pos + 1 : pos;
+        if (pos < len && value[pos] != quote) {
+            return 0;
         }
-        *resume = pos;
         if (pos > start) {
             return emit(ctx, start, pos);
         }
@@ -152,22 +175,50 @@ static int css_import_span(const Py_UCS4 *value, Py_ssize_t len, Py_ssize_t afte
 static int scan_css(const Py_UCS4 *value, Py_ssize_t len, link_emit emit, void *ctx) {
     Py_ssize_t pos = 0;
     while (pos < len) {
-        int boundary = pos == 0 || !is_ident(value[pos - 1]);
-        if (boundary && imatch(value, len, pos, "url(", 4)) {
-            Py_ssize_t resume = pos + 4;
-            if (css_url_span(value, len, pos + 4, emit, ctx, &resume) < 0) { /* GCOVR_EXCL_BR_LINE: alloc only */
-                return -1;                                                   /* GCOVR_EXCL_LINE: alloc-failure path */
+        Py_UCS4 current = value[pos];
+        switch (current) {
+        case '/':
+            if (pos + 1 < len && value[pos + 1] == '*') {
+                pos += 2;
+                while (pos + 1 < len && (value[pos] != '*' || value[pos + 1] != '/')) {
+                    pos++;
+                }
+                pos = pos + 1 < len ? pos + 2 : len;
+                continue;
             }
-            pos = resume;
-        } else if (boundary && value[pos] == '@' && imatch(value, len, pos, "@import", 7)) {
-            Py_ssize_t resume = pos + 7;
-            if (css_import_span(value, len, pos + 7, emit, ctx, &resume) < 0) { /* GCOVR_EXCL_BR_LINE: alloc only */
-                return -1;                                                      /* GCOVR_EXCL_LINE: alloc-failure */
+            break;
+        case '"':
+        case '\'':
+            pos = css_string_end(value, len, pos + 1, current);
+            if (pos < len && value[pos] == current) {
+                pos++;
             }
-            pos = resume;
-        } else {
-            pos++;
+            continue;
+        case 'u':
+        case 'U':
+            if ((pos == 0 || !is_ident(value[pos - 1])) && imatch(value, len, pos, "url(", 4)) {
+                Py_ssize_t resume = pos + 4;
+                if (css_url_span(value, len, pos + 4, emit, ctx, &resume) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    return -1;                                                   /* GCOVR_EXCL_LINE: alloc-failure */
+                }
+                pos = resume;
+                continue;
+            }
+            break;
+        case '@':
+            if ((pos == 0 || !is_ident(value[pos - 1])) && imatch(value, len, pos, "@import", 7)) {
+                Py_ssize_t resume = pos + 7;
+                if (css_import_span(value, len, pos + 7, emit, ctx, &resume) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    return -1;                                                      /* GCOVR_EXCL_LINE: alloc-failure */
+                }
+                pos = resume;
+                continue;
+            }
+            break;
+        default:
+            break;
         }
+        pos++;
     }
     return 0;
 }

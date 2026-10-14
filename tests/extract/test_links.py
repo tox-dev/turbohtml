@@ -261,10 +261,63 @@ def test_meta_refresh_with_valueless_content_has_no_link() -> None:
         pytest.param("background:url('unclosed", ["unclosed"], id="unclosed-quote-runs-to-end"),
         pytest.param("background:url(", [], id="empty-url-at-end"),
         pytest.param("a-b_c:url(z.png)", ["z.png"], id="dash-and-underscore-are-identifier-bytes"),
+        pytest.param("/* url(hidden.png) */a{background:url(real.png)}", ["real.png"], id="comment"),
+        pytest.param("/* *x url(hidden.png) */url(real.png)", ["real.png"], id="comment-with-star"),
+        pytest.param("/**/url(real.png)", ["real.png"], id="empty-comment"),
+        pytest.param("/*", [], id="bare-unclosed-comment"),
+        pytest.param("/", [], id="trailing-slash"),
+        pytest.param("a/b", [], id="slash-without-comment"),
+        pytest.param("a{background:url(real.png)}/* url(hidden.png)", ["real.png"], id="unclosed-comment"),
+        pytest.param('a{content:"url(hidden.png)";background:url(real.png)}', ["real.png"], id="string"),
+        pytest.param(
+            'a{content:"url(hidden.png)\\\ncontinued";background:url(real.png)}', ["real.png"], id="escaped-newline"
+        ),
+        pytest.param(
+            'a{content:"url(hidden.png)\\\r\ncontinued";background:url(real.png)}', ["real.png"], id="escaped-crlf"
+        ),
+        pytest.param('a{content:"bad\nbackground:url(real.png)}', ["real.png"], id="bad-string-newline"),
+        pytest.param('a{content:"bad\rbackground:url(real.png)}', ["real.png"], id="bad-string-cr"),
+        pytest.param('a{content:"bad\fbackground:url(real.png)}', ["real.png"], id="bad-string-form-feed"),
+        pytest.param('a{content:"url(hidden.png)', [], id="unclosed-string"),
+        pytest.param('a{content:"url(hidden.png)\\', [], id="trailing-string-escape"),
+        pytest.param("'url(hidden.png)' url(real.png)", ["real.png"], id="single-quoted-string"),
+        pytest.param('url("bad\n) url(real.png)', ["real.png"], id="bad-url-string"),
+        pytest.param('@import "bad\nurl(real.png)', ["real.png"], id="bad-import-string"),
+        pytest.param("éurl(hidden.png) url(real.png)", ["real.png"], id="non-ascii-identifier-prefix"),
+        pytest.param("aurl(hidden.png) URL(real.png)", ["real.png"], id="ascii-identifier-prefix"),
+        pytest.param("a_url(hidden.png) a-url(hidden.png) url(real.png)", ["real.png"], id="identifier-punctuation"),
+        pytest.param("u @import 'a.css'", ["a.css"], id="short-ident-before-import"),
+        pytest.param("a@import 'hidden.css'", [], id="import-in-identifier"),
+        pytest.param(
+            'a{content:"skip \\" url(hidden.png)";background:url(real.png)}', ["real.png"], id="escaped-quote"
+        ),
+        pytest.param('@import "a.css";a{background:url(real.png)}', ["a.css", "real.png"], id="import-then-url"),
+        pytest.param(
+            'a{background:url("a)b.png");mask:url(real.png)}', ["a)b.png", "real.png"], id="url-with-parenthesis"
+        ),
+        pytest.param(
+            'a{background:url("a\\"b.png");mask:url(real.png)}', ['a\\"b.png', "real.png"], id="url-with-escaped-quote"
+        ),
     ],
 )
 def test_style_element_css_parsing(css: str, expected: list[str]) -> None:
     assert _urls(f"<style>{css}</style>") == expected
+
+
+@pytest.mark.parametrize(
+    ("css", "expected"),
+    [
+        pytest.param('a{content:"url(hidden)\\\r\ncontinued";background:url(real)}', ["real"], id="escaped-crlf"),
+        pytest.param('a{content:"url(hidden)\\\rcontinued";background:url(real)}', ["real"], id="escaped-cr"),
+        pytest.param('a{content:"url(hidden)\\\r', [], id="trailing-escaped-cr"),
+        pytest.param('a{content:"bad\rbackground:url(real)}', ["real"], id="bad-string-cr"),
+        pytest.param('a{content:"bad\fbackground:url(real)}', ["real"], id="bad-string-form-feed"),
+    ],
+)
+def test_style_text_css_boundaries(css: str, expected: list[str]) -> None:
+    style: Final = Element("style")
+    style.append(Text(css))
+    assert [link.url for link in style.links()] == expected
 
 
 def test_whitespace_only_space_list_yields_nothing() -> None:
@@ -528,6 +581,14 @@ def test_css_url_in_style_element_is_resolved() -> None:
     root.resolve_links(_RESOLVE_BASE)
     assert root.inner_html == (
         "<style>a{background:url(https://example.com/dir/bg.png)} @import 'https://example.com/dir/theme.css';</style>"
+    )
+
+
+def test_css_comments_and_strings_are_not_resolved() -> None:
+    html: Final = "<style>/* url(hidden.png) */a{content:'url(fake.png)';background:url(real.png)}</style>"
+    assert _resolved(html) == (
+        "<style>/* url(hidden.png) */a{content:'url(fake.png)';"
+        "background:url(https://example.com/dir/real.png)}</style>"
     )
 
 
