@@ -205,6 +205,14 @@ typedef struct {
     int check_repeats;
 } decl_vec;
 
+static int css_decl_is_wide_keyword(const css_buf *pool, const css_decl *decl) {
+    const css_char *value = pool->data + decl->val_off;
+    Py_ssize_t len = decl->val_len;
+    return css_run_ieq(value, len, "inherit") || css_run_ieq(value, len, "initial") ||
+           css_run_ieq(value, len, "unset") || css_run_ieq(value, len, "revert") ||
+           css_run_ieq(value, len, "revert-layer");
+}
+
 static void decl_vec_push(decl_vec *vec, css_decl decl) {
     if (vec->len == vec->cap) {
         size_t cap;
@@ -451,54 +459,15 @@ static int css_decl_value_eq(const css_buf *pool, const css_decl *left, const cs
                                                      (size_t)left->val_len * sizeof(css_char)) == 0;
 }
 
-static int css_background_ident_unknown(const css_buf *pool, const css_decl *decl) {
-    const css_char *value = pool->data + decl->val_off;
-    if (value[decl->val_len - 1] == ')' || !css_starts_ident(value, 0, decl->val_len)) {
-        return 0;
-    }
-    for (Py_ssize_t index = 1; index < decl->val_len; index++) {
-        if (!css_is_ident(value[index])) {
-            return 0;
-        }
-    }
-    if (decl->val_len < 3) {
-        return 1;
-    }
-    /* The color names at the end are absent from the shortening tables because their encodings are no shorter. */
-    static const char *const keywords[] = {
-        "red",          "blue",         "none",       "inherit",     "left",        "right",   "top",     "bottom",
-        "center",       "repeat",       "repeat-x",   "repeat-y",    "no-repeat",   "space",   "round",   "scroll",
-        "fixed",        "local",        "border-box", "padding-box", "content-box", "initial", "unset",   "revert",
-        "revert-layer", "currentcolor", "aqua",       "crimson",     "cyan",        "darkred", "dimgray", "dimgrey",
-        "grey",         "hotpink",      "lime",       "oldlace",     "skyblue",     "thistle"};
-    for (size_t index = 0; index < sizeof(keywords) / sizeof(keywords[0]); index++) {
-        if (css_run_ieq(value, decl->val_len, keywords[index])) {
-            return 0;
-        }
-    }
-    for (int index = 0; index < th_css_hex_count; index++) {
-        if (css_run_ieq(value, decl->val_len, th_css_hex_to_name[index].val)) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-static const char *css_dedup_longhand_list(const css_buf *pool, const css_decl *decl) {
-    const char *list = css_longhand_list(pool->data + decl->prop_off, decl->prop_len);
-    return list == CSS_BACKGROUND_LONGHANDS && css_background_ident_unknown(pool, decl) ? NULL : list;
-}
-
-/* The pairwise dedup, fine for the typical small rule. Per CSS Cascade last-wins only among declarations that parse:
-   a later same-name declaration with a *different* value may be a progressive-enhancement fallback a browser keeps
-   when it cannot parse the later value, so only an identical same-name duplicate is dropped. Unknown bare background
-   identifiers likewise cannot override earlier longhands. */
+/* A later shorthand only replaces a longhand if its value parses; CSS-wide keywords are the subset we know parse. */
 static void css_dedup_pairwise(css_buf *pool, decl_vec *decls) {
     for (Py_ssize_t index = 0; index < decls->len; index++) {
         css_decl *later = &decls->items[index];
         const css_char *prop = pool->data + later->prop_off;
         Py_ssize_t prop_len = later->prop_len;
-        const char *list = css_dedup_longhand_list(pool, later);
+        const char *list = css_decl_is_wide_keyword(pool, later)
+                               ? css_longhand_list(pool->data + later->prop_off, later->prop_len)
+                               : NULL;
         for (Py_ssize_t earlier = 0; earlier < index; earlier++) {
             css_decl *prev = &decls->items[earlier];
             if (prev->dropped) {
@@ -617,7 +586,9 @@ static void css_dedup(css_buf *pool, decl_vec *decls) {
         const css_char *prop = pool->data + later->prop_off;
         Py_ssize_t prop_len = later->prop_len;
         int important = later->important;
-        const char *list = css_dedup_longhand_list(pool, later);
+        const char *list = css_decl_is_wide_keyword(pool, later)
+                               ? css_longhand_list(pool->data + later->prop_off, later->prop_len)
+                               : NULL;
         if (list == NULL) {
             Py_ssize_t slot = dedup_slot_run(table, mask, pool, prop, prop_len, important);
             /* a same-name duplicate is dropped only when its value is identical (see css_dedup_pairwise) */
@@ -626,8 +597,7 @@ static void css_dedup(css_buf *pool, decl_vec *decls) {
                 decls->items[table[slot].index].dropped = 1;
             }
         } else {
-            /* every longhand list begins with the shorthand's own name; that first word is a same-name duplicate
-               (value-equality gated), the rest are strict-subset longhands the shorthand always resets */
+            /* The first word is the shorthand's own name; CSS-wide values reset every remaining longhand. */
             const char *cursor = list;
             int own_name = 1;
             while (*cursor) {

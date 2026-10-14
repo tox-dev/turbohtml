@@ -124,6 +124,53 @@ def test_minify_css_large_rules_keep_outline_fallback(large_rule_prefix: str) ->
 
 
 @pytest.mark.parametrize(
+    ("shorthand", "longhand", "value"),
+    [
+        pytest.param("background", "background-color", "red", id="background"),
+        pytest.param("font", "font-style", "italic", id="font"),
+        pytest.param("border", "border-top-color", "red", id="border"),
+        pytest.param("border-width", "border-top-width", "2px", id="border-width"),
+        pytest.param("border-style", "border-top-style", "solid", id="border-style"),
+        pytest.param("border-color", "border-top-color", "red", id="border-color"),
+        pytest.param("border-top", "border-top-color", "red", id="border-top"),
+        pytest.param("border-right", "border-right-color", "red", id="border-right"),
+        pytest.param("border-bottom", "border-bottom-color", "red", id="border-bottom"),
+        pytest.param("border-left", "border-left-color", "red", id="border-left"),
+        pytest.param("margin", "margin-left", "5px", id="margin"),
+        pytest.param("padding", "padding-left", "5px", id="padding"),
+        pytest.param("column-rule", "column-rule-color", "red", id="column-rule"),
+        pytest.param("animation", "animation-duration", "1s", id="animation"),
+        pytest.param("columns", "column-width", "5px", id="columns"),
+        pytest.param("flex", "flex-basis", "5px", id="flex"),
+        pytest.param("flex-flow", "flex-direction", "row", id="flex-flow"),
+        pytest.param("grid", "grid-template-columns", "1fr", id="grid"),
+        pytest.param("grid-area", "grid-row-start", "2", id="grid-area"),
+        pytest.param("grid-row", "grid-row-start", "2", id="grid-row"),
+        pytest.param("grid-column", "grid-column-start", "2", id="grid-column"),
+        pytest.param("grid-template", "grid-template-columns", "1fr", id="grid-template"),
+        pytest.param("list-style", "list-style-position", "inside", id="list-style"),
+        pytest.param("offset", "offset-distance", "5px", id="offset"),
+        pytest.param("outline", "outline-color", "red", id="outline"),
+        pytest.param("overflow", "overflow-x", "hidden", id="overflow"),
+        pytest.param("place-content", "align-content", "center", id="place-content"),
+        pytest.param("place-items", "align-items", "center", id="place-items"),
+        pytest.param("place-self", "align-self", "center", id="place-self"),
+        pytest.param("text-decoration", "text-decoration-color", "red", id="text-decoration"),
+        pytest.param("transition", "transition-duration", "1s", id="transition"),
+    ],
+)
+@pytest.mark.parametrize("prefix_length", [pytest.param(0, id="pairwise"), pytest.param(33, id="hash")])
+def test_minify_css_invalid_shorthand_keeps_longhand(
+    shorthand: str, longhand: str, value: str, prefix_length: int
+) -> None:
+    prefix = ";".join(f"--x{index}:v" for index in range(prefix_length))
+    if prefix:
+        prefix += ";"
+    source = f"a{{{prefix}{longhand}:{value};{shorthand}:bad stuff}}"
+    assert minify_css(source) == source
+
+
+@pytest.mark.parametrize(
     ("source", "expected"),
     [
         pytest.param("a{color:#ffffff}", "a{color:#fff}", id="hex-shorten-6-to-3"),
@@ -1232,8 +1279,8 @@ def _max_decls_per_rule(rule_count: int) -> int:
         pytest.param("a{background:red;background:red}", "a{background:red}", id="dedup-drops-identical-shorthand"),
         pytest.param(
             "a{background-color:red;background:url(a.svg)}",
-            "a{background:url(a.svg)}",
-            id="dedup-drops-covered-longhand",
+            "a{background-color:red;background:url(a.svg)}",
+            id="dedup-keeps-unvalidated-shorthand-longhand",
         ),
         pytest.param(
             "@media screen and/*x*/(min-width:0){a{b:1}}",
@@ -1280,7 +1327,9 @@ def _max_decls_per_rule(rule_count: int) -> int:
             id="grid-does-not-reset-grid-row-gap",
         ),
         pytest.param(
-            "a{grid-template-rows:1px;grid:auto/auto}", "a{grid:auto/auto}", id="grid-resets-grid-template-rows"
+            "a{grid-template-rows:1px;grid:auto/auto}",
+            "a{grid-template-rows:1px;grid:auto/auto}",
+            id="grid-keeps-longhand",
         ),
         pytest.param(
             "a{margin-top:1px;margin-top:1px;margin-right:2px;margin-bottom:3px;margin-left:4px}",
@@ -1856,13 +1905,44 @@ _HASH_FILLER = "".join(f"--v{index}:{index};" for index in range(40))
         ),
         pytest.param("background:red;background:red", "background:red", id="shorthand-identical-dropped"),
         pytest.param(
-            "background-color:red;background:url(a.svg)", "background:url(a.svg)", id="covered-longhand-dropped"
+            "background-color:red;background:url(a.svg)",
+            "background-color:red;background:url(a.svg)",
+            id="covered-longhand-kept",
+        ),
+        pytest.param("margin-left:5px;margin:initial", "margin:initial", id="wide-shorthand-drops-longhand"),
+        pytest.param("margin:1px;margin:initial", "margin:1px;margin:initial", id="wide-shorthand-keeps-fallback"),
+        pytest.param("margin:initial;margin:initial", "margin:initial", id="wide-shorthand-drops-identical"),
+        pytest.param("color:red;margin:initial", "color:red;margin:initial", id="wide-shorthand-keeps-unrelated"),
+        pytest.param(
+            "margin-left:5px;margin:initial;margin:initial",
+            "margin:initial",
+            id="wide-shorthand-skips-dropped-longhand",
+        ),
+        pytest.param("--0084:1;margin:initial", "--0084:1;margin:initial", id="wide-shorthand-hash-collision"),
+        pytest.param(
+            "margin:1px!important;margin:initial",
+            "margin:1px!important;margin:initial",
+            id="wide-shorthand-different-importance",
+        ),
+        pytest.param(
+            "margin-left:5px!important;margin:initial",
+            "margin-left:5px!important;margin:initial",
+            id="wide-shorthand-keeps-important-longhand",
+        ),
+        pytest.param(
+            "margin-left:5px;margin:initial;margin-left:5px",
+            "margin:initial;margin-left:5px",
+            id="longhand-after-wide-shorthand",
         ),
     ],
 )
 def test_minify_css_hash_dedup_is_value_safe(tail: str, kept: str) -> None:
     # more than 32 declarations force the hash-based dedup path, which must apply the same value-safety rule.
     assert minify_css(f"a{{{_HASH_FILLER}{tail}}}") == f"a{{{_HASH_FILLER}{kept}}}"
+
+
+def test_minify_css_wide_shorthand_keeps_unrelated_declaration() -> None:
+    assert minify_css("a{color:red;margin:initial}") == "a{color:red;margin:initial}"
 
 
 @pytest.mark.parametrize(
@@ -4326,13 +4406,29 @@ def test_empty_inline_declarations(source: str, expected: str) -> None:
             "p{background-color:red;background:unknown-ident}",
             id="hyphenated-ident",
         ),
-        pytest.param("p{background-color:red;background:red}", "p{background:red}", id="named-color"),
-        pytest.param("p{background-color:red;background:blue}", "p{background:blue}", id="equal-length-color"),
-        pytest.param("p{background-color:red;background:green}", "p{background:green}", id="shorter-color-name"),
-        pytest.param("p{background-color:red;background:black}", "p{background:#000}", id="shortened-color"),
-        pytest.param("p{background-color:red;background:none}", "p{background:0 0}", id="none"),
+        pytest.param(
+            "p{background-color:red;background:red}", "p{background-color:red;background:red}", id="named-color"
+        ),
+        pytest.param(
+            "p{background-color:red;background:blue}",
+            "p{background-color:red;background:blue}",
+            id="equal-length-color",
+        ),
+        pytest.param(
+            "p{background-color:red;background:green}",
+            "p{background-color:red;background:green}",
+            id="shorter-color-name",
+        ),
+        pytest.param(
+            "p{background-color:red;background:black}", "p{background-color:red;background:#000}", id="shortened-color"
+        ),
+        pytest.param("p{background-color:red;background:none}", "p{background-color:red;background:0 0}", id="none"),
         pytest.param("p{background-color:red;background:inherit}", "p{background:inherit}", id="css-wide"),
-        pytest.param("p{background-color:red;background:url(a)}", "p{background:url(a)}", id="image-function"),
+        pytest.param(
+            "p{background-color:red;background:url(a)}",
+            "p{background-color:red;background:url(a)}",
+            id="image-function",
+        ),
     ],
 )
 def test_background_dedup_respects_identifier_validity(source: str, expected: str) -> None:

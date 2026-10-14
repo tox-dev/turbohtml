@@ -1,14 +1,6 @@
 #ifndef TURBOHTML_CSS_GRAMMAR_H
 #define TURBOHTML_CSS_GRAMMAR_H
 
-static int css_decl_is_wide_keyword(const css_buf *pool, const css_decl *decl) {
-    const css_char *value = pool->data + decl->val_off;
-    Py_ssize_t len = decl->val_len;
-    return css_run_ieq(value, len, "inherit") || css_run_ieq(value, len, "initial") ||
-           css_run_ieq(value, len, "unset") || css_run_ieq(value, len, "revert") ||
-           css_run_ieq(value, len, "revert-layer");
-}
-
 /* A value carrying a custom-property substitution cannot be hoisted into a shorthand: var()/env() expand at the
    shorthand level, where a multi-token or guaranteed-invalid expansion would change which sub-properties are set. */
 static int css_decl_has_substitution(const css_buf *pool, const css_decl *decl) {
