@@ -1120,7 +1120,7 @@ static PyObject *entry_author(th_tree *tree, th_node *source, th_node *const *fi
     if (source != NULL) {
         int source_namespace = default_namespace_at_node(tree, source, ATOM_URI, inherited);
         th_node *source_author = feed_child_named(tree, source, "author", 6, ATOM_URI, source_namespace, &error);
-        if (error) { /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+        if (error) {     /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
             return NULL; /* GCOVR_EXCL_LINE: allocation failure */
         }
         if (source_author != NULL) {
@@ -1258,9 +1258,9 @@ static PyObject *build_entries(module_state *state, th_tree *tree, th_node *pare
     }
     if (parent != NULL) {
         int error = 0;
-        th_node *feed_author = uri == ATOM_URI ? feed_child_named(tree, parent, "author", 6, ATOM_URI, inherited, &error)
-                                               : NULL;
-        if (error) {     /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+        th_node *feed_author =
+            uri == ATOM_URI ? feed_child_named(tree, parent, "author", 6, ATOM_URI, inherited, &error) : NULL;
+        if (error) {         /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
             Py_DECREF(list); /* GCOVR_EXCL_LINE: allocation failure */
             return NULL;     /* GCOVR_EXCL_LINE: allocation failure */
         }
