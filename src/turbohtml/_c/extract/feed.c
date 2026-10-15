@@ -1615,6 +1615,18 @@ static PyObject *build_feed(module_state *state, th_tree *tree, th_node *root, c
     return feed;
 }
 
+static int rss_version_is_2(th_tree *tree, th_node *node) {
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        th_node_attr *attr = &node->attrs[index];
+        Py_ssize_t len;
+        const char *name = th_attr_name(tree, attr->name_atom, &len);
+        if (len == 7 && memcmp(name, "version", 7) == 0) {
+            return ucs4_eq_ascii(attr->value, attr->value_len, "2.0");
+        }
+    }
+    return 0;
+}
+
 static th_node *find_feed_root(th_tree *tree, th_node *document, const char **type_out, int *root_namespace,
                                int *error) {
     int is_xml = th_tree_is_xml(tree);
@@ -1633,7 +1645,10 @@ static th_node *find_feed_root(th_tree *tree, th_node *document, const char **ty
             *root_namespace = 1;
             return node;
         }
-        if (tag_is(node, "rss", 3) && (!th_tree_is_xml(tree) || empty_namespace_is_or_missing(tree, node))) {
+        if (tag_is(node, "rss", 3)) {
+            if (th_tree_is_xml(tree) && (!empty_namespace_is_or_missing(tree, node) || !rss_version_is_2(tree, node))) {
+                continue;
+            }
             *type_out = "rss";
             *root_namespace = 1;
             return node;

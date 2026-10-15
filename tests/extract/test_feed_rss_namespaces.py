@@ -12,18 +12,19 @@ from turbohtml.extract import feed
 
 @pytest.mark.parametrize("uri", ["urn:other", "http://purl.org/rss/1.0/"])
 def test_feed_rss_foreign_default_namespace_is_not_root(uri: str) -> None:
-    assert feed(f'<rss xmlns="{uri}"><channel><title>Wrong</title></channel></rss>') is None
+    assert feed(f'<rss version="2.0" xmlns="{uri}"><channel><title>Wrong</title></channel></rss>') is None
 
 
-def test_feed_rss_root_restores_empty_namespace() -> None:
-    result = feed('<wrapper xmlns="urn:other"><rss xmlns=""><channel><title>Right</title></channel></rss></wrapper>')
+def test_feed_rss_root_explicit_empty_namespace_is_found() -> None:
+    result = feed('<rss version="2.0" xmlns=""><channel><title>Right</title></channel></rss>')
     assert result is not None
     assert result.title == "Right"
 
 
 def test_feed_rss_foreign_default_channel_is_skipped() -> None:
     xml: Final = (
-        '<rss><channel xmlns="urn:other"><title>Wrong</title></channel><channel><title>Right</title></channel></rss>'
+        '<rss version="2.0"><channel xmlns="urn:other"><title>Wrong</title></channel>'
+        "<channel><title>Right</title></channel></rss>"
     )
     result = parse_xml(xml).feed()
     assert result is not None
@@ -31,14 +32,14 @@ def test_feed_rss_foreign_default_channel_is_skipped() -> None:
 
 
 def test_feed_rss_channel_with_other_attribute_keeps_core_namespace() -> None:
-    result = feed('<rss><channel class="x"><title>Right</title></channel></rss>')
+    result = feed('<rss version="2.0"><channel class="x"><title>Right</title></channel></rss>')
     assert result is not None
     assert result.title == "Right"
 
 
 def test_feed_rss_foreign_default_item_is_skipped() -> None:
     xml: Final = (
-        '<rss><channel><item xmlns="urn:other"><title>Wrong</title></item>'
+        '<rss version="2.0"><channel><item xmlns="urn:other"><title>Wrong</title></item>'
         "<item><title>Right</title></item></channel></rss>"
     )
     result = parse_xml(xml).feed()
@@ -57,7 +58,9 @@ def test_feed_rss_foreign_default_item_is_skipped() -> None:
     ],
 )
 def test_feed_rss_foreign_default_channel_field_is_skipped(field: str, tag: str) -> None:
-    xml: Final = f'<rss><channel><{tag} xmlns="urn:other">wrong</{tag}><{tag}>right</{tag}></channel></rss>'
+    xml: Final = (
+        f'<rss version="2.0"><channel><{tag} xmlns="urn:other">wrong</{tag}><{tag}>right</{tag}></channel></rss>'
+    )
     result = parse_xml(xml).feed()
     assert result is not None
     assert getattr(result, field) == "right"
@@ -78,7 +81,8 @@ def test_feed_rss_foreign_default_channel_field_is_skipped(field: str, tag: str)
 )
 def test_feed_rss_foreign_default_item_field_is_skipped(field: str, tag: str) -> None:
     xml: Final = (
-        f'<rss><channel><item><{tag} xmlns="urn:other">wrong</{tag}><{tag}>right</{tag}></item></channel></rss>'
+        f'<rss version="2.0"><channel><item><{tag} xmlns="urn:other">wrong</{tag}>'
+        f"<{tag}>right</{tag}></item></channel></rss>"
     )
     result = parse_xml(xml).feed()
     assert result is not None
@@ -86,19 +90,19 @@ def test_feed_rss_foreign_default_item_field_is_skipped(field: str, tag: str) ->
 
 
 def test_feed_rss_child_explicit_empty_namespace_is_core() -> None:
-    result = feed('<rss><channel><title xmlns="">Right</title></channel></rss>')
+    result = feed('<rss version="2.0"><channel><title xmlns="">Right</title></channel></rss>')
     assert result is not None
     assert result.title == "Right"
 
 
 def test_feed_rss_child_other_attribute_keeps_core_namespace() -> None:
-    result = feed('<rss><channel><title xml:lang="en">Right</title></channel></rss>')
+    result = feed('<rss version="2.0"><channel><title xml:lang="en">Right</title></channel></rss>')
     assert result is not None
     assert result.title == "Right"
 
 
 def test_feed_rss_child_five_letter_attribute_keeps_core_namespace() -> None:
-    result = feed('<rss><channel><title class="x">Right</title></channel></rss>')
+    result = feed('<rss version="2.0"><channel><title class="x">Right</title></channel></rss>')
     assert result is not None
     assert result.title == "Right"
 

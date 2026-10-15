@@ -341,7 +341,9 @@ def _extract(data: bytes) -> None:
     _equal(str(publication.date), "2020-01-02")
     feed: Final = cast(
         "extract.Feed",
-        extract.feed(f"<rss><channel><title>{text}</title><item><title>{text}</title></item></channel></rss>"),
+        extract.feed(
+            f"<rss version='2.0'><channel><title>{text}</title><item><title>{text}</title></item></channel></rss>"
+        ),
     )
     _equal(isinstance(feed, (extract.Feed, turbohtml.Feed)), expected=True)
     _equal((feed.title, feed.entries[0].title), (text, text))

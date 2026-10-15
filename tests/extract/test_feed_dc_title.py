@@ -121,6 +121,6 @@ def test_feed_html_rss_title_with_attribute() -> None:
 
 
 def test_feed_rss_description_with_attribute() -> None:
-    result = feed('<rss><channel><description data-x="1">Body</description></channel></rss>')
+    result = feed('<rss version="2.0"><channel><description data-x="1">Body</description></channel></rss>')
     assert result is not None
     assert result.description == "Body"

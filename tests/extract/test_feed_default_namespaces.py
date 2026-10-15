@@ -170,7 +170,8 @@ def test_feed_rdf_foreign_default_item_field_is_skipped() -> None:
 
 def test_feed_first_dublin_core_date_wins() -> None:
     xml: Final = (
-        f'<rss xmlns:dc="{DC}"><channel><item><dc:date>first</dc:date><dc:date>second</dc:date></item></channel></rss>'
+        f'<rss version="2.0" xmlns:dc="{DC}"><channel><item>'
+        "<dc:date>first</dc:date><dc:date>second</dc:date></item></channel></rss>"
     )
     result = parse_xml(xml).feed()
     assert result is not None

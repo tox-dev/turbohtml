@@ -86,7 +86,7 @@ def parse_feed(xml: str) -> Feed:
 
 def test_feed_rss_module_prefix_aliases() -> None:
     xml: Final = (
-        '<rss xmlns:x="http://purl.org/rss/1.0/modules/content/" '
+        '<rss version="2.0" xmlns:x="http://purl.org/rss/1.0/modules/content/" '
         'xmlns:d="http://purl.org/dc/elements/1.1/"><channel>'
         '<d:date>updated</d:date><item id="entry"><d:date>published</d:date>'
         "<d:description>summary</d:description><d:creator>author</d:creator>"
@@ -107,31 +107,33 @@ def test_feed_rss_module_prefix_aliases() -> None:
     ],
 )
 def test_feed_rss_default_module_namespace(local: str, uri: str, field: str) -> None:
-    xml: Final = f'<rss><channel><item><{local} xmlns="{uri}">value</{local}></item></channel></rss>'
+    xml: Final = f'<rss version="2.0"><channel><item><{local} xmlns="{uri}">value</{local}></item></channel></rss>'
     assert getattr(parse_feed(xml).entries[0], field) == "value"
 
 
 def test_feed_rss_channel_default_dc_date() -> None:
-    xml: Final = '<rss><channel><date xmlns="http://purl.org/dc/elements/1.1/">updated</date></channel></rss>'
+    xml: Final = (
+        '<rss version="2.0"><channel><date xmlns="http://purl.org/dc/elements/1.1/">updated</date></channel></rss>'
+    )
     assert parse_feed(xml).updated == "updated"
 
 
 def test_feed_rss_default_module_namespace_after_other_attribute() -> None:
     xml: Final = (
-        '<rss><channel><item><date title="other" xmlns="http://purl.org/dc/elements/1.1/">'
+        '<rss version="2.0"><channel><item><date title="other" xmlns="http://purl.org/dc/elements/1.1/">'
         "published</date></item></channel></rss>"
     )
     assert parse_feed(xml).entries[0].published == "published"
 
 
 def test_feed_rss_shadowed_default_module_namespace() -> None:
-    xml: Final = '<rss><channel><item><date xmlns="urn:other">wrong</date></item></channel></rss>'
+    xml: Final = '<rss version="2.0"><channel><item><date xmlns="urn:other">wrong</date></item></channel></rss>'
     assert parse_feed(xml).entries[0].published is None
 
 
 def test_feed_rss_default_dc_description_precedence() -> None:
     xml: Final = (
-        '<rss><channel><item><description xmlns="http://purl.org/dc/elements/1.1/">dc</description>'
+        '<rss version="2.0"><channel><item><description xmlns="http://purl.org/dc/elements/1.1/">dc</description>'
         "<description>rss</description></item></channel></rss>"
     )
     assert parse_feed(xml).entries[0].summary == "rss"
@@ -139,7 +141,7 @@ def test_feed_rss_default_dc_description_precedence() -> None:
 
 def test_feed_rss_first_default_dc_description_wins() -> None:
     xml: Final = (
-        '<rss><channel><item><description xmlns="http://purl.org/dc/elements/1.1/">first</description>'
+        '<rss version="2.0"><channel><item><description xmlns="http://purl.org/dc/elements/1.1/">first</description>'
         '<description xmlns="http://purl.org/dc/elements/1.1/">second</description></item></channel></rss>'
     )
     assert parse_feed(xml).entries[0].summary == "first"
@@ -147,7 +149,7 @@ def test_feed_rss_first_default_dc_description_wins() -> None:
 
 def test_feed_rss_module_prefix_shadowing() -> None:
     xml: Final = (
-        '<rss xmlns:d="http://purl.org/dc/elements/1.1/"><channel><item '
+        '<rss version="2.0" xmlns:d="http://purl.org/dc/elements/1.1/"><channel><item '
         'xmlns:d="urn:other"><d:creator>wrong</d:creator></item></channel></rss>'
     )
     assert parse_feed(xml).entries[0].author is None
@@ -155,7 +157,7 @@ def test_feed_rss_module_prefix_shadowing() -> None:
 
 def test_feed_rss_module_prefix_shadowing_after_cached_binding() -> None:
     xml: Final = (
-        '<rss xmlns:dc="http://purl.org/dc/elements/1.1/"><channel><item>'
+        '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel><item>'
         "<dc:date>published</dc:date>"
         '<dc:creator xmlns:dc="urn:other">wrong</dc:creator>'
         "</item></channel></rss>"
@@ -165,14 +167,15 @@ def test_feed_rss_module_prefix_shadowing_after_cached_binding() -> None:
 
 def test_feed_rss_wrong_content_namespace() -> None:
     xml: Final = (
-        '<rss xmlns:content="urn:other"><channel><item><content:encoded>wrong</content:encoded></item></channel></rss>'
+        '<rss version="2.0" xmlns:content="urn:other"><channel><item>'
+        "<content:encoded>wrong</content:encoded></item></channel></rss>"
     )
     assert parse_feed(xml).entries[0].content is None
 
 
 def test_feed_rss_namespace_uri_is_case_sensitive() -> None:
     xml: Final = (
-        '<rss xmlns:d="HTTP://purl.org/dc/elements/1.1/"><channel><item>'
+        '<rss version="2.0" xmlns:d="HTTP://purl.org/dc/elements/1.1/"><channel><item>'
         "<d:creator>wrong</d:creator></item></channel></rss>"
     )
     assert parse_feed(xml).entries[0].author is None
@@ -180,7 +183,7 @@ def test_feed_rss_namespace_uri_is_case_sensitive() -> None:
 
 def test_feed_rss_first_namespaced_field_wins() -> None:
     xml: Final = (
-        '<rss xmlns:a="http://purl.org/dc/elements/1.1/" '
+        '<rss version="2.0" xmlns:a="http://purl.org/dc/elements/1.1/" '
         'xmlns:b="http://purl.org/dc/elements/1.1/"><channel><item>'
         "<a:creator>first</a:creator><b:creator>second</b:creator></item></channel></rss>"
     )
@@ -189,7 +192,7 @@ def test_feed_rss_first_namespaced_field_wins() -> None:
 
 def test_feed_rss_removed_namespace_declaration() -> None:
     document: Final = parse_xml(
-        '<rss xmlns:d="http://purl.org/dc/elements/1.1/"><channel><item>'
+        '<rss version="2.0" xmlns:d="http://purl.org/dc/elements/1.1/"><channel><item>'
         "<d:creator>author</d:creator></item></channel></rss>"
     )
     del document.select("rss")[0].attrs["xmlns:d"]
@@ -198,7 +201,7 @@ def test_feed_rss_removed_namespace_declaration() -> None:
 
 def test_feed_rss_valueless_namespace_declaration() -> None:
     document: Final = parse_xml(
-        '<rss xmlns:d="http://purl.org/dc/elements/1.1/"><channel><item>'
+        '<rss version="2.0" xmlns:d="http://purl.org/dc/elements/1.1/"><channel><item>'
         "<d:creator>author</d:creator></item></channel></rss>"
     )
     document.select("rss")[0].attrs["xmlns:d"] = None
@@ -207,7 +210,7 @@ def test_feed_rss_valueless_namespace_declaration() -> None:
 
 def test_feed_rss_unicode_module_prefix() -> None:
     xml: Final = (
-        '<rss xmlns:é="http://purl.org/rss/1.0/modules/content/"><channel><item>'
+        '<rss version="2.0" xmlns:é="http://purl.org/rss/1.0/modules/content/"><channel><item>'
         "<é:encoded>body</é:encoded></item></channel></rss>"
     )
     assert parse_feed(xml).entries[0].content == "body"
@@ -215,7 +218,7 @@ def test_feed_rss_unicode_module_prefix() -> None:
 
 def test_feed_rss_unicode_module_prefix_after_other_declarations() -> None:
     xml: Final = (
-        '<rss xmlns:éé="urn:other" xmlns:é="urn:other" '
+        '<rss version="2.0" xmlns:éé="urn:other" xmlns:é="urn:other" '
         'xmlns:ø="http://purl.org/rss/1.0/modules/content/"><channel><item>'
         "<ø:encoded>body</ø:encoded></item></channel></rss>"
     )
@@ -224,7 +227,7 @@ def test_feed_rss_unicode_module_prefix_after_other_declarations() -> None:
 
 def test_feed_rss_canonical_module_names() -> None:
     xml: Final = (
-        '<rss xmlns:dc="http://purl.org/dc/elements/1.1/" '
+        '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" '
         'xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><item>'
         "<dc:date>published</dc:date><dc:description>summary</dc:description>"
         "<dc:creator>author</dc:creator><content:encoded>body</content:encoded>"
@@ -579,7 +582,7 @@ def test_feed_atom_link_valueless_rel_is_not_alternate() -> None:
     ],
 )
 def test_feed_rss_link_href_relations(links: str, expected: str) -> None:
-    assert parse_feed(f"<rss><channel>{links}</channel></rss>").link == expected
+    assert parse_feed(f"<rss version='2.0'><channel>{links}</channel></rss>").link == expected
 
 
 @pytest.mark.parametrize(
@@ -593,12 +596,12 @@ def test_feed_rss_link_href_relations(links: str, expected: str) -> None:
     ],
 )
 def test_feed_link_edge_cases(link_markup: str, expected: None) -> None:
-    result = parse_feed(f"<rss><channel>{link_markup}</channel></rss>")
+    result = parse_feed(f"<rss version='2.0'><channel>{link_markup}</channel></rss>")
     assert result.link is expected
 
 
 def test_feed_link_is_last_child() -> None:
-    result = parse_feed("<rss><channel><title>t</title><link></channel></rss>")
+    result = parse_feed("<rss version='2.0'><channel><title>t</title><link></channel></rss>")
     assert result.link is None
 
 
@@ -615,13 +618,13 @@ def test_feed_link_is_last_child() -> None:
     ],
 )
 def test_feed_guid_permalink_link_fallback(guid_markup: str, expected: str | None) -> None:
-    result = parse_feed(f"<rss><channel><item><title>t</title>{guid_markup}</item></channel></rss>")
+    result = parse_feed(f"<rss version='2.0'><channel><item><title>t</title>{guid_markup}</item></channel></rss>")
     assert result.entries[0].link == expected
 
 
 def test_feed_explicit_link_beats_guid_permalink() -> None:
     xml = (
-        "<rss><channel><item><title>t</title>"
+        "<rss version='2.0'><channel><item><title>t</title>"
         "<link>http://example.com/real</link>"
         "<guid>http://example.com/g</guid></item></channel></rss>"
     )
@@ -630,14 +633,14 @@ def test_feed_explicit_link_beats_guid_permalink() -> None:
 
 def test_feed_empty_field_falls_through_to_next_source() -> None:
     xml = (
-        "<rss><channel><item><title>t</title>"
+        "<rss version='2.0'><channel><item><title>t</title>"
         "<summary></summary><description>real summary</description></item></channel></rss>"
     )
     assert parse_feed(xml).entries[0].summary == "real summary"
 
 
 def test_feed_missing_field_is_none() -> None:
-    result = parse_feed("<rss><channel><item><title>only title</title></item></channel></rss>")
+    result = parse_feed("<rss version='2.0'><channel><item><title>only title</title></item></channel></rss>")
     entry = result.entries[0]
     assert (entry.summary, entry.content, entry.published, entry.updated, entry.author, entry.id) == (
         None,
@@ -651,14 +654,14 @@ def test_feed_missing_field_is_none() -> None:
 
 def test_feed_author_empty_falls_back_to_dc_creator() -> None:
     xml = (
-        "<rss><channel><item><title>t</title>"
+        "<rss version='2.0'><channel><item><title>t</title>"
         "<author></author><dc:creator>Fallback Author</dc:creator></item></channel></rss>"
     )
     assert parse_feed(xml).entries[0].author == "Fallback Author"
 
 
 def test_feed_rss_author_without_name_uses_own_text() -> None:
-    xml = "<rss><channel><item><title>t</title><author>plain@example.com</author></item></channel></rss>"
+    xml = "<rss version='2.0'><channel><item><title>t</title><author>plain@example.com</author></item></channel></rss>"
     assert parse_feed(xml).entries[0].author == "plain@example.com"
 
 
@@ -685,7 +688,10 @@ def test_feed_rdf_item_with_valueless_about_has_no_id() -> None:
 
 
 def test_feed_ignores_non_item_children() -> None:
-    xml = "<rss><channel><title>t</title><image>logo</image><item><title>real</title></item></channel></rss>"
+    xml = (
+        "<rss version='2.0'><channel><title>t</title><image>logo</image>"
+        "<item><title>real</title></item></channel></rss>"
+    )
     result = parse_feed(xml)
     assert [entry.title for entry in result.entries] == ["real"]
 
@@ -794,14 +800,14 @@ def test_feed_benchmark_output(case: int, expected: Feed) -> None:
     ],
 )
 def test_entry_field_precedence(fields: str, expected: tuple[str | None, ...]) -> None:
-    result: Final = feed(f"<rss><channel><item>{fields}</item></channel></rss>")
+    result: Final = feed(f"<rss version='2.0'><channel><item>{fields}</item></channel></rss>")
     assert result is not None
     assert result.entries == (expected,)
 
 
 def test_feed_empty_metadata_uses_fallback() -> None:
     assert feed(
-        "<rss><channel><title> </title><description> </description><subtitle>fallback</subtitle>"
+        "<rss version='2.0'><channel><title> </title><description> </description><subtitle>fallback</subtitle>"
         "<updated> </updated><lastbuilddate>date</lastbuilddate></channel></rss>"
     ) == ("rss", None, None, "fallback", "date", ())
 
@@ -886,7 +892,7 @@ def test_feed_atom_link_xml_base_overrides_parent() -> None:
 
 
 def test_feed_rss_xml_base_resolves_link_text() -> None:
-    xml = '<rss xml:base="https://example.org/a/"><channel><link>b</link><item><link>c</link></item></channel></rss>'
+    xml = '<rss version="2.0" xml:base="https://example.org/a/"><channel><link>b</link><item><link>c</link></item></channel></rss>'
     result = parse_feed(xml)
     assert (result.link, result.entries[0].link) == ("https://example.org/a/b", "https://example.org/a/c")
 
@@ -920,7 +926,7 @@ def test_feed_xml_base_respects_reference_schemes(href: str, expected: str) -> N
 
 
 def test_feed_xml_guid_permalink_false_is_not_a_link() -> None:
-    xml = '<rss><channel><item><guid isPermaLink="false">urn:x</guid></item></channel></rss>'
+    xml = '<rss version="2.0"><channel><item><guid isPermaLink="false">urn:x</guid></item></channel></rss>'
     assert parse_xml(xml).feed() == Feed(
         "rss", None, None, None, None, (Entry(None, None, "urn:x", None, None, None, None, None),)
     )
@@ -1217,7 +1223,7 @@ def test_feed_atom_xhtml_requires_xhtml_div() -> None:
 
 
 def test_feed_rss_xhtml_type_keeps_plain_text() -> None:
-    xml: Final = '<rss><channel><title type="xhtml"><div><b>plain</b></div></title></channel></rss>'
+    xml: Final = '<rss version="2.0"><channel><title type="xhtml"><div><b>plain</b></div></title></channel></rss>'
     assert parse_feed(xml).title == "plain"
 
 
@@ -1228,7 +1234,7 @@ def test_feed_malformed_xml_falls_back_to_html() -> None:
 
 
 def test_feed_field_text_spans_nested_elements() -> None:
-    xml = "<rss><channel><item><description>a <b>bold</b> c</description></item></channel></rss>"
+    xml = "<rss version='2.0'><channel><item><description>a <b>bold</b> c</description></item></channel></rss>"
     assert feed(xml) == Feed(
         "rss", None, None, None, None, (Entry(None, None, None, None, None, "a bold c", None, None),)
     )

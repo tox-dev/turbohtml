@@ -1,0 +1,1 @@
+Require ``version="2.0"`` on XML RSS 2.0 roots. HTML feed discovery remains unchanged.
