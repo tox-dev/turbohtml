@@ -1091,6 +1091,115 @@ def test_rdfa_rejects_unexpected_argument() -> None:
 
 
 @pytest.mark.parametrize(
+    ("about", "resource"),
+    [
+        pytest.param("ex:alice", "ex:bob", id="curie"),
+        pytest.param("[ex:alice]", "[ex:bob]", id="safe-curie"),
+        pytest.param("EX:alice", "EX:bob", id="case-insensitive-prefix"),
+    ],
+)
+def test_rdfa_resource_curie_subject_and_object(about: str, resource: str) -> None:
+    html = (
+        f'<div prefix="ex: https://example.test/" typeof="ex:Person" about="{about}">'
+        f'<span property="ex:knows" resource="{resource}"></span></div>'
+    )
+
+    assert parse(html).rdfa(base_url="https://base.test/doc") == [
+        RdfaItem(
+            vocab=None,
+            type=["https://example.test/Person"],
+            resource="https://example.test/alice",
+            properties={"https://example.test/knows": ["https://example.test/bob"]},
+        ),
+    ]
+
+
+@pytest.mark.parametrize("about", ["[]", "[unknown:alice]", "[bare]", "[ex://host]"])
+def test_rdfa_resource_invalid_safe_curie_falls_back_to_resource(about: str) -> None:
+    html = f'<div prefix="ex: https://example.test/" typeof="ex:Person" about="{about}" resource="ex:alice"></div>'
+
+    assert parse(html).rdfa(base_url="https://base.test/doc")[0].resource == "https://example.test/alice"
+
+
+def test_rdfa_resource_invalid_safe_curie_without_fallback_has_no_subject() -> None:
+    html = '<div prefix="ex: https://example.test/" typeof="ex:Person" about="[]"></div>'
+
+    assert parse(html).rdfa(base_url="https://base.test/doc")[0].resource is None
+
+
+def test_rdfa_resource_unclosed_safe_curie_is_ignored() -> None:
+    html = '<div typeof="schema:Person" about="[person"></div>'
+
+    assert parse(html).rdfa()[0].resource is None
+
+
+@pytest.mark.parametrize(
+    ("about", "expected"),
+    [
+        pytest.param("ex:a", "https://example.test/a", id="short-reference"),
+        pytest.param("ex:/a", "https://example.test//a", id="absolute-path-reference"),
+    ],
+)
+def test_rdfa_resource_curie_reference_syntax(about: str, expected: str) -> None:
+    html = f'<div prefix="ex: https://example.test/" typeof="ex:Person" about="{about}"></div>'
+
+    assert parse(html).rdfa()[0].resource == expected
+
+
+def test_rdfa_resource_invalid_safe_curie_falls_back_to_href() -> None:
+    html = '<div prefix="ex: https://example.test/" typeof="ex:Person" resource="[]" href="next"></div>'
+
+    assert parse(html).rdfa(base_url="https://base.test/doc")[0].resource == "https://base.test/next"
+
+
+def test_rdfa_property_invalid_safe_curie_falls_back_to_href() -> None:
+    html = (
+        '<div prefix="ex: https://example.test/" typeof="ex:Person">'
+        '<a property="ex:knows" resource="[]" href="next"></a></div>'
+    )
+
+    assert parse(html).rdfa(base_url="https://base.test/doc")[0].properties == {
+        "https://example.test/knows": ["https://base.test/next"],
+    }
+
+
+def test_rdfa_property_invalid_safe_curie_falls_back_to_text() -> None:
+    html = (
+        '<div prefix="ex: https://example.test/" typeof="ex:Person">'
+        '<span property="ex:name" resource="[]">Ada</span></div>'
+    )
+
+    assert parse(html).rdfa()[0].properties == {"https://example.test/name": ["Ada"]}
+
+
+def test_rdfa_resource_undeclared_curie_remains_iri() -> None:
+    html = (
+        '<div typeof="schema:Person" about="custom:alice"><a property="schema:knows" resource="custom:bob"></a></div>'
+    )
+
+    assert parse(html).rdfa()[0].resource == "custom:alice"
+    assert parse(html).rdfa()[0].properties == {"http://schema.org/knows": ["custom:bob"]}
+
+
+def test_rdfa_resource_relative_iri_uses_base() -> None:
+    html = '<div typeof="schema:Person" about="person"><a property="schema:knows" resource="friend"></a></div>'
+
+    assert parse(html).rdfa(base_url="https://base.test/doc")[0].resource == "https://base.test/person"
+    assert parse(html).rdfa(base_url="https://base.test/doc")[0].properties == {
+        "http://schema.org/knows": ["https://base.test/friend"],
+    }
+
+
+def test_rdfa_resource_empty_iri_uses_base() -> None:
+    html = '<div typeof="schema:Person" about=""><a property="schema:knows" resource=""></a></div>'
+
+    assert parse(html).rdfa(base_url="https://base.test/doc")[0].resource == "https://base.test/doc"
+    assert parse(html).rdfa(base_url="https://base.test/doc")[0].properties == {
+        "http://schema.org/knows": ["https://base.test/doc"],
+    }
+
+
+@pytest.mark.parametrize(
     ("html", "expected"),
     [
         pytest.param(
