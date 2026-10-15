@@ -157,14 +157,8 @@ static void css_minify_selector(token_vec *vec, Py_ssize_t start, Py_ssize_t end
             continue;
         }
         /* '#' before an ident always merges into a single HASH token, so the prior char is never a bare '#' here */
-        int after_combinator = out->len > 0 && (out->data[out->len - 1] == '.' || out->data[out->len - 1] == ':');
-        int is_custom = token->text_len >= 2 && token->text[0] == '-' && token->text[1] == '-';
         if (keyframe && token->kind == CSS_IDENT && css_run_ieq(token->text, token->text_len, "from")) {
             cbuf_puts(out, "0%"); /* CSS Animations 1: the keyframe selector "from" is equivalent to 0% (and shorter) */
-        } else if (token->kind == CSS_IDENT && attr_depth == 0 && !after_combinator && !is_custom) {
-            for (Py_ssize_t pos = 0; pos < token->text_len; pos++) {
-                cbuf_putc(out, css_lower(token->text[pos]));
-            }
         } else if (token->kind == CSS_STR && attr_depth > 0 && css_attribute_value_position(vec, index)) {
             /* Selectors 4 §6.1: an attribute-selector value is an <ident-token> or a <string>; the quotes drop only
                when the inner text is a valid <ident-token> (so [x="123"] keeps its quotes -- 123 is not an ident). */

@@ -624,12 +624,12 @@ def test_minify_css_many_rules_keep_overlapping_shorthands() -> None:
         pytest.param("a", "b", "a", "a{x:1;y:2}b{z:3}", id="distinct-type"),
         pytest.param("a.foo", "b.bar", "a.foo", "a.foo{x:1;y:2}b.bar{z:3}", id="qualified-type"),
         pytest.param("a,b", "c", "a,b", "a,b{x:1;y:2}c{z:3}", id="selector-list"),
-        pytest.param("a", "A", "a", "a{x:1;z:3;y:2}", id="ascii-case"),
+        pytest.param("a", "A", "a", "a{x:1}A{z:3}a{y:2}", id="ascii-case"),
         pytest.param("a", ".b", "a", "a{x:1}.b{z:3}a{y:2}", id="untyped-selector"),
         pytest.param("a", "b:hover", "a", "a{x:1}b:hover{z:3}a{y:2}", id="pseudo-selector"),
         pytest.param("a", "b c", "a", "a{x:1}b c{z:3}a{y:2}", id="compound-selector"),
         pytest.param("a", "b[a]", "a", "a{x:1;y:2}b[a]{z:3}", id="attribute-presence"),
-        pytest.param("a", "B2", "a", "a{x:1;y:2}b2{z:3}", id="uppercase-and-digit-type"),
+        pytest.param("a", "B2", "a", "a{x:1;y:2}B2{z:3}", id="uppercase-and-digit-type"),
         pytest.param("a", "b-x", "a", "a{x:1;y:2}b-x{z:3}", id="hyphenated-type"),
         pytest.param("a", "b_x", "a", "a{x:1;y:2}b_x{z:3}", id="underscored-type"),
         pytest.param("a", "b[a2]", "a", "a{x:1;y:2}b[a2]{z:3}", id="digit-in-attribute"),
@@ -857,7 +857,7 @@ _ESCAPED_NAME: Final[list[ParameterSet]] = [
     pytest.param("a{color:#\\66 00}", "a{color:red}", id="hash-color"),
     pytest.param(".\\61\\62{x:1}", ".ab{x:1}", id="class"),
     pytest.param("#\\66 00{x:1}", "#f00{x:1}", id="id"),
-    pytest.param("D\\49V{x:1}", "div{x:1}", id="type-selector"),
+    pytest.param("D\\49V{x:1}", "DIV{x:1}", id="type-selector"),
     pytest.param("[d\\61ta-x=\\61]{x:1}", "[data-x=a]{x:1}", id="attribute"),
     pytest.param("@m\\65 dia screen{a{x:1}}", "@media screen{a{x:1}}", id="at-keyword"),
     pytest.param("a{e:x !imp\\6frtant}", "a{e:x!important}", id="important"),
@@ -1634,6 +1634,23 @@ def test_minify_css_closes_nested_blocks_at_eof(source: str, expected: str) -> N
     ],
 )
 def test_minify_css_selector_roles(source: str, expected: str) -> None:
+    result: Final = minify_css(source)
+    assert (result, minify_css(result)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("linearGradient{color:red}", "linearGradient{color:red}", id="xml-type"),
+        pytest.param(":is(linearGradient){color:red}", ":is(linearGradient){color:red}", id="functional-type"),
+        pytest.param(
+            '@namespace SVG "http://www.w3.org/2000/svg";SVG|linearGradient{color:red}',
+            '@namespace SVG"http://www.w3.org/2000/svg";SVG|linearGradient{color:red}',
+            id="namespace-prefix-and-type",
+        ),
+    ],
+)
+def test_minify_css_selector_names_keep_case(source: str, expected: str) -> None:
     result: Final = minify_css(source)
     assert (result, minify_css(result)) == (expected, expected)
 

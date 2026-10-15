@@ -1,0 +1,1 @@
+Preserve case-sensitive CSS selector names in XML and namespace-qualified stylesheets.

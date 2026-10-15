@@ -1347,7 +1347,7 @@ typedef struct {
 } css_type_arm;
 
 static int css_ascii_type_char(css_char character) {
-    return (character >= 'a' && character <= 'z') || /* GCOVR_EXCL_BR_LINE: normalized input */
+    return (character >= 'a' && character <= 'z') || /* GCOVR_EXCL_BR_LINE: ASCII type proof */
            (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '-' ||
            character == '_';
 }
@@ -1360,8 +1360,8 @@ static int css_type_arms(const css_char *selector, Py_ssize_t length, css_type_a
     int count = 0;
     while (index < length && count < 32) {
         Py_ssize_t start = index;
-        if (!((selector[index] >= 'a' && selector[index] <= 'z') ||  /* GCOVR_EXCL_BR_LINE: lowercased */
-              (selector[index] >= 'A' && selector[index] <= 'Z'))) { /* GCOVR_EXCL_BR_LINE: lowercased */
+        if (!((selector[index] >= 'a' && selector[index] <= 'z') ||  /* GCOVR_EXCL_BR_LINE: ASCII type proof */
+              (selector[index] >= 'A' && selector[index] <= 'Z'))) { /* GCOVR_EXCL_BR_LINE: ASCII type proof */
             return 0;
         }
         while (index < length && css_ascii_type_char(selector[index])) {
