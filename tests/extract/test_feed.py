@@ -111,13 +111,6 @@ def test_feed_rss_default_module_namespace(local: str, uri: str, field: str) -> 
     assert getattr(parse_feed(xml).entries[0], field) == "value"
 
 
-def test_feed_rss_inherited_default_module_namespace() -> None:
-    xml: Final = (
-        '<rss><channel><item xmlns="http://purl.org/dc/elements/1.1/"><date>published</date></item></channel></rss>'
-    )
-    assert parse_feed(xml).entries[0].published == "published"
-
-
 def test_feed_rss_channel_default_dc_date() -> None:
     xml: Final = '<rss><channel><date xmlns="http://purl.org/dc/elements/1.1/">updated</date></channel></rss>'
     assert parse_feed(xml).updated == "updated"
@@ -132,10 +125,7 @@ def test_feed_rss_default_module_namespace_after_other_attribute() -> None:
 
 
 def test_feed_rss_shadowed_default_module_namespace() -> None:
-    xml: Final = (
-        '<rss><channel><item xmlns="http://purl.org/dc/elements/1.1/">'
-        '<date xmlns="urn:other">wrong</date></item></channel></rss>'
-    )
+    xml: Final = '<rss><channel><item><date xmlns="urn:other">wrong</date></item></channel></rss>'
     assert parse_feed(xml).entries[0].published is None
 
 

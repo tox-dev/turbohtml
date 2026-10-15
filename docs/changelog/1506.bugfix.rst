@@ -1,0 +1,1 @@
+Ignore foreign XML namespaces on RSS 2.0 roots, channels, items, and core fields.

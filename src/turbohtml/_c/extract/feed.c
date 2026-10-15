@@ -158,6 +158,30 @@ static int default_namespace_is_or_missing(th_tree *tree, th_node *node, const c
     return 1;
 }
 
+static int empty_namespace_at_node(th_tree *tree, th_node *node, int inherited) {
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        th_node_attr *attr = &node->attrs[index];
+        Py_ssize_t len;
+        const char *name = th_attr_name(tree, attr->name_atom, &len);
+        if (len == 5 && memcmp(name, "xmlns", 5) == 0) {
+            return attr->value_len == 0;
+        }
+    }
+    return inherited;
+}
+
+static int empty_namespace_is_or_missing(th_tree *tree, th_node *node) {
+    for (th_node *ancestor = node; ancestor != NULL; ancestor = ancestor->parent) {
+        if (ancestor->type == TH_NODE_ELEMENT) {
+            int match = empty_namespace_at_node(tree, ancestor, -1);
+            if (match >= 0) {
+                return match;
+            }
+        }
+    }
+    return 1;
+}
+
 static int namespace_bytes_is(th_tree *tree, th_node *node, const char *prefix, Py_ssize_t prefix_len,
                               const char *uri) {
     for (th_node *ancestor = node; ancestor != NULL; ancestor = ancestor->parent) {
@@ -190,8 +214,9 @@ static int qualified_tag_is(th_tree *tree, th_node *node, const char *local, con
 
 static int feed_tag_is(th_tree *tree, th_node *node, const char *name, Py_ssize_t len, const char *uri, int inherited) {
     if (tag_is(node, name, len)) {
-        return uri == NULL || !th_tree_is_xml(tree) || (inherited && node->attr_count == 0) ||
-               default_namespace_at_node(tree, node, uri, inherited);
+        return !th_tree_is_xml(tree) || (inherited && node->attr_count == 0) ||
+               (uri == NULL ? empty_namespace_at_node(tree, node, inherited)
+                            : default_namespace_at_node(tree, node, uri, inherited));
     }
     if (uri == NULL || node->text_len <= len + 1) {
         return 0;
@@ -202,10 +227,10 @@ static int feed_tag_is(th_tree *tree, th_node *node, const char *name, Py_ssize_
                : 0;
 }
 
-/* The first direct element child of `parent` whose tag equals [name, name + len), or NULL when it has none. */
-static th_node *child_named(th_node *parent, const char *name, Py_ssize_t len) {
+static th_node *child_named(th_tree *tree, th_node *parent, const char *name, Py_ssize_t len) {
     for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_ELEMENT && tag_is(child, name, len)) {
+        if (child->type == TH_NODE_ELEMENT && tag_is(child, name, len) &&
+            (!th_tree_is_xml(tree) || child->attr_count == 0 || empty_namespace_at_node(tree, child, 1))) {
             return child;
         }
     }
@@ -215,7 +240,7 @@ static th_node *child_named(th_node *parent, const char *name, Py_ssize_t len) {
 static th_node *feed_child_named(th_tree *tree, th_node *parent, const char *name, Py_ssize_t len, const char *uri,
                                  int inherited, int *error) {
     if (uri == NULL) {
-        return child_named(parent, name, len);
+        return child_named(tree, parent, name, len);
     }
     for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
         if (child->type != TH_NODE_ELEMENT) {
@@ -644,30 +669,6 @@ static PyObject *field_text(th_tree *tree, th_node *parent, const feed_tag *tags
             if (error) {     /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
                 return NULL; /* GCOVR_EXCL_LINE: allocation failure */
             }
-            if (child != NULL && child->attr_count != 0 && uri == NULL && th_tree_is_xml(tree) &&
-                tags[index].len == 5) {
-                int dc = qualified_tag_is(tree, child, "title", DC_URI);
-                if (dc < 0) {    /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
-                    return NULL; /* GCOVR_EXCL_LINE: allocation failure */
-                }
-                if (dc) {
-                    child = NULL;
-                    for (th_node *candidate = parent->first_child; candidate != NULL;
-                         candidate = candidate->next_sibling) {
-                        if (candidate->type != TH_NODE_ELEMENT || !tag_is(candidate, "title", 5)) {
-                            continue;
-                        }
-                        int match = qualified_tag_is(tree, candidate, "title", DC_URI);
-                        if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
-                            return NULL; /* GCOVR_EXCL_LINE: allocation failure */
-                        }
-                        if (!match) {
-                            child = candidate;
-                            break;
-                        }
-                    }
-                }
-            }
         }
         if (child == NULL) {
             continue;
@@ -1008,8 +1009,9 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields,
                 }
                 continue;
             }
-            if (xml && uri != NULL && (!inherited || child->attr_count != 0) &&
-                !default_namespace_at_node(tree, child, uri, inherited)) {
+            if (xml && (!inherited || child->attr_count != 0) &&
+                !(uri == NULL ? empty_namespace_at_node(tree, child, inherited)
+                              : default_namespace_at_node(tree, child, uri, inherited))) {
                 continue;
             }
             if (fields[field] == NULL) {
@@ -1626,7 +1628,7 @@ static th_node *find_feed_root(th_tree *tree, th_node *document, const char **ty
             *root_namespace = 1;
             return node;
         }
-        if (tag_is(node, "rss", 3)) {
+        if (tag_is(node, "rss", 3) && (!th_tree_is_xml(tree) || empty_namespace_is_or_missing(tree, node))) {
             *type_out = "rss";
             *root_namespace = 1;
             return node;
