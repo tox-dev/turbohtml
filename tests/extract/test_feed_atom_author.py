@@ -75,3 +75,32 @@ def test_feed_atom_entry_author_prefixed_source() -> None:
     result = feed(xml)
     assert result is not None
     assert result.entries[0].author == "Source"
+
+
+@pytest.mark.parametrize(
+    "entry_attributes",
+    [
+        pytest.param("", id="entry-inherits-foreign"),
+        pytest.param(' xmlns="http://www.w3.org/2005/Atom"', id="entry-restores-atom"),
+    ],
+)
+def test_feed_atom_entry_inherits_prefixed_feed_author_namespace(entry_attributes: str) -> None:
+    xml: Final = (
+        '<a:feed xmlns:a="http://www.w3.org/2005/Atom" xmlns="urn:other">'
+        "<a:author><name>Wrong</name><a:name>Right</a:name></a:author>"
+        f"<a:entry{entry_attributes}><a:title>Entry</a:title></a:entry></a:feed>"
+    )
+    result = feed(xml)
+    assert result is not None
+    assert result.entries[0].author == "Right"
+
+
+def test_feed_atom_entry_inherits_feed_author_restored_default_namespace() -> None:
+    xml: Final = (
+        '<a:feed xmlns:a="http://www.w3.org/2005/Atom" xmlns="urn:other">'
+        '<a:author xmlns="http://www.w3.org/2005/Atom"><name>Right</name></a:author>'
+        "<a:entry><a:title>Entry</a:title></a:entry></a:feed>"
+    )
+    result = feed(xml)
+    assert result is not None
+    assert result.entries[0].author == "Right"
