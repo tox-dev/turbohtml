@@ -493,7 +493,8 @@ static void css_render_declarations(css_buf *pool, decl_vec *decls, int baseline
 static int css_is_nested_rule_at(const css_char *name, Py_ssize_t len) {
     return css_run_ieq(name, len, "@media") || css_run_ieq(name, len, "@supports") ||
            css_run_ieq(name, len, "@document") || css_run_ieq(name, len, "@-moz-document") ||
-           css_run_ieq(name, len, "@container") || css_run_ieq(name, len, "@layer") || css_run_ieq(name, len, "@scope");
+           css_run_ieq(name, len, "@container") || css_run_ieq(name, len, "@layer") ||
+           css_run_ieq(name, len, "@scope") || css_run_ieq(name, len, "@starting-style");
 }
 
 static int css_is_font_feature_block_at(const css_char *name, Py_ssize_t len) {
@@ -716,7 +717,7 @@ CSS_NOINLINE static void css_close_prelude_blocks(const token_vec *vec, Py_ssize
 
 /* Render the at-rule at the cursor into out. Returns -1 for a statement at-rule, the length of an @media block's header
    (name, prelude and '{'), or 0 for another at-rule with a block. */
-static Py_ssize_t css_parse_at(css_buf *pool, cursor *cur, css_buf *out) {
+static Py_ssize_t css_parse_at(css_buf *pool, cursor *cur, css_buf *out, int in_declarations) {
     Py_ssize_t media_head = 0;
     if (cur->index == cur->media_at) {
         /* out is the caller's fresh piece buffer, so it can take over the prelude css_media_continues rendered */
@@ -747,7 +748,8 @@ static Py_ssize_t css_parse_at(css_buf *pool, cursor *cur, css_buf *out) {
         int is_keyframes =
             css_run_ieq(name, name_len, "@keyframes") || css_run_ieq(name, name_len, "@-webkit-keyframes") ||
             css_run_ieq(name, name_len, "@-moz-keyframes") || css_run_ieq(name, name_len, "@-o-keyframes");
-        if (is_keyframes || css_is_nested_rule_at(name, name_len)) {
+        if ((is_keyframes || css_is_nested_rule_at(name, name_len)) &&
+            (!in_declarations || !css_run_ieq(name, name_len, "@starting-style"))) {
             /* a @keyframes body is a rule list (its "selectors" are keyframe selectors), so parse it as rules -- not as
                a declaration list, which would wrongly join the keyframe blocks with ';'. For @media, out holds the
                rendered prelude, so the inner parse pulls in the rules of an immediately following same-query @media
@@ -849,7 +851,7 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, 
         }
         if (token->kind == CSS_AT) {
             css_buf nested = {NULL, 0, 0, pool->oom};
-            Py_ssize_t kind = css_parse_at(pool, cur, &nested);
+            Py_ssize_t kind = css_parse_at(pool, cur, &nested, 1);
             css_decl decl = {0};
             decl.prop_off = pool_run(pool, nested.data, nested.len);
             decl.prop_len = nested.len;
@@ -1734,7 +1736,7 @@ CSS_NOINLINE static void css_rejoin_media(css_buf *pool, cursor *cur, rule_vec *
     css_tokenize(run->text.data, run->text.len, &tokens);
     cursor inner = {&tokens, 0, cur->baseline, -1, 0, {NULL, 0, 0, pool->oom}};
     css_buf merged = {NULL, 0, 0, pool->oom};
-    css_parse_at(pool, &inner, &merged);
+    css_parse_at(pool, &inner, &merged, 0);
     cbuf_free(&inner.media_next);
     rule_item *block = &items->items[run->item];
     Py_ssize_t text_off = pool_run(pool, merged.data, merged.len);
@@ -1791,7 +1793,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
         }
         if (token->kind == CSS_AT) {
             css_buf piece = {NULL, 0, 0, pool->oom};
-            Py_ssize_t kind = css_parse_at(pool, cur, &piece);
+            Py_ssize_t kind = css_parse_at(pool, cur, &piece, 0);
             /* css_parse_at always emits at least the lowercased at-rule name, so piece is never empty */
             if (css_is_empty_conditional_atrule(piece.data, piece.len)) {
                 joinable_at = items.len;

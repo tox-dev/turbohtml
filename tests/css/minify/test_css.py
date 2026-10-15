@@ -4025,6 +4025,35 @@ def test_minify_css_font_feature_values(source: str, expected: str) -> None:
     assert minify_css(source) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "@starting-style { .a { color: red; } .b { color: blue; } }",
+            "@starting-style{.a{color:red}.b{color:blue}}",
+            id="top-level-rules",
+        ),
+        pytest.param(
+            "@media screen { @starting-style { .a { color: red; } .b { color: blue; } } }",
+            "@media screen{@starting-style{.a{color:red}.b{color:blue}}}",
+            id="nested-group-rules",
+        ),
+        pytest.param(
+            "a { @starting-style { opacity: 0; color: red; } }",
+            "a{@starting-style{opacity:0;color:red}}",
+            id="style-declarations",
+        ),
+        pytest.param(
+            "a { @starting-style { opacity: 0; & b { color: blue; } } }",
+            "a{@starting-style{opacity:0;& b{color:blue}}}",
+            id="style-declarations-and-rule",
+        ),
+    ],
+)
+def test_minify_css_starting_style_context(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
 _CASES: Final = [
     pytest.param(
         "@media screen { bad; .a { opacity: 0; } }",
