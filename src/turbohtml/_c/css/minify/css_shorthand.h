@@ -1205,7 +1205,7 @@ static void css_minify_value(css_buf *pool, token_vec *vec, Py_ssize_t start, Py
     }
     scratch->len = 0;
     int color_mode = css_prop_color_mode(name, name_len);
-    css_calc_context context = {name, name_len, whole_calc};
+    css_calc_context context = {name, name_len, whole_calc, 0};
     /* Flexbox 1 §7.1: a unitless zero not preceded by two flex factors is a flex factor, so flex keeps zero units */
     css_render_components(pool, vec, start, end, color_mode,
                           !is_integer_role && (name_len != 4 || !css_run_ieq(name, name_len, "flex")), &context,

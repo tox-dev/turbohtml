@@ -2001,6 +2001,40 @@ def test_minify_css_math_function_keeps_zero_unit(value: str) -> None:
     assert minify_css(f"a{{width:{value}}}") == f"a{{width:{value}}}"
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "a { width: calc(1px / sign(calc(-5 * 0))) }",
+            "a{width:calc(1px / sign(calc(-5 * 0)))}",
+            id="negative-zero-product",
+        ),
+        pytest.param(
+            "a { width: calc(1px / sign(calc(0 / -5))) }",
+            "a{width:calc(1px / sign(calc(0 / -5)))}",
+            id="negative-zero-quotient",
+        ),
+        pytest.param(
+            "a { width: calc(1px / sign(calc((1px - 2em) * 0))) }",
+            "a{width:calc(1px / sign(calc((1px - 2em) * 0)))}",
+            id="mixed-unit-zero-product",
+        ),
+        pytest.param(
+            "a{width:calc(1px / sign(calc(5 * 0)))}",
+            "a{width:calc(1px / sign(0))}",
+            id="positive-zero-product",
+        ),
+        pytest.param(
+            "a{width:calc(1px / sign(-0.0))}",
+            "a{width:calc(1px / sign(-0))}",
+            id="browser-signed-zero-literal",
+        ),
+    ],
+)
+def test_minify_css_math_preserves_signed_zero(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
 _HASH_FILLER = "".join(f"--v{index}:{index};" for index in range(40))
 
 
@@ -2345,7 +2379,7 @@ _NUMBER_BOUNDARY: Final[list[ParameterSet]] = [
     pytest.param("@x 0px.5;", "@x 0 .5;", id="at-prelude-zero-unit-before-fraction"),
     pytest.param("@x a.-0;", "@x a. 0;", id="at-prelude-dot-before-signed-zero"),
     pytest.param("@x (a)0px.5{b:c}", "@x(a)0 .5{b:c}", id="at-prelude-with-block"),
-    pytest.param("a{width:calc(0-0)}", "a{width:calc(0 0)}", id="calc-minus-zero"),
+    pytest.param("a{width:calc(0-0)}", "a{width:calc(0-0)}", id="calc-minus-zero"),
     pytest.param("a{width:calc(0+0)}", "a{width:calc(0 0)}", id="calc-plus-zero"),
     pytest.param("a{width:calc(1px+2px)}", "a{width:calc(1px 2px)}", id="calc-dim-plus-dim"),
     pytest.param("a{width:calc(5-.5)}", "a{width:calc(5-.5)}", id="calc-digit-before-neg-fraction"),

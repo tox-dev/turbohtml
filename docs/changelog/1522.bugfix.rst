@@ -1,0 +1,1 @@
+Preserve signed zero inside nested CSS math expressions.

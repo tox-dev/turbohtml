@@ -1032,7 +1032,7 @@ static void css_handle_filter(css_buf *pool, token_vec *vec, Py_ssize_t start, P
                     keep_ws_end = close_index;
                 }
                 if (token->text_len == 4 && css_run_ieq(token->text, token->text_len, "calc")) {
-                    css_calc_context context = {prop, prop_len, 0};
+                    css_calc_context context = {prop, prop_len, 0, 0};
                     Py_ssize_t off;
                     Py_ssize_t len;
                     css_compkind kind;
