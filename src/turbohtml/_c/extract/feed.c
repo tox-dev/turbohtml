@@ -890,33 +890,192 @@ enum {
     FEED_FIELD_COUNT
 };
 
+static const feed_tag ENTRY_TAGS[FEED_FIELD_COUNT] = {{"title", 5},
+                                                      {"dc:title", 8},
+                                                      {"guid", 4},
+                                                      {"id", 2},
+                                                      {"updated", 7},
+                                                      {"lastbuilddate", 13},
+                                                      {"published", 9},
+                                                      {"pubdate", 7},
+                                                      {"dc:date", 7},
+                                                      {"summary", 7},
+                                                      {"description", 11},
+                                                      {"dc:description", 14},
+                                                      {"content:encoded", 15},
+                                                      {"content", 7},
+                                                      {"author", 6},
+                                                      {"dc:creator", 10},
+                                                      {"source", 6}};
+
+/* Fields an RSS module namespace defines, matched by local name and namespace whatever the prefix. */
+static const struct {
+    const char *local;
+    const char *uri;
+    int field;
+} ENTRY_MODULES[] = {{"title", DC_URI, FEED_DC_TITLE},
+                     {"date", DC_URI, FEED_DC_DATE},
+                     {"description", DC_URI, FEED_DC_DESCRIPTION},
+                     {"creator", DC_URI, FEED_CREATOR},
+                     {"encoded", CONTENT_URI, FEED_ENCODED}};
+
+/* The only field a tag of this length can name, before the name itself is compared; -1 for none. */
+static int entry_field_by_length(const th_node *child) {
+    switch (child->text_len) {
+    case 2:
+        return FEED_ID;
+    case 4:
+        return FEED_GUID;
+    case 5:
+        return FEED_TITLE;
+    case 6:
+        return lower_ascii(child->text[0]) == 's' ? FEED_SOURCE : FEED_AUTHOR;
+    case 7:
+        switch (lower_ascii(child->text[0])) {
+        case 'u':
+            return FEED_UPDATED;
+        case 'p':
+            return FEED_PUBDATE;
+        case 'd':
+            return FEED_DC_DATE;
+        case 's':
+            return FEED_SUMMARY;
+        case 'c':
+            return FEED_CONTENT;
+        default:
+            return -1;
+        }
+    case 8:
+        return FEED_DC_TITLE;
+    case 9:
+        return FEED_PUBLISHED;
+    case 10:
+        return FEED_CREATOR;
+    case 11:
+        return FEED_DESCRIPTION;
+    case 13:
+        return FEED_LAST_BUILD;
+    case 14:
+        return FEED_DC_DESCRIPTION;
+    case 15:
+        return FEED_ENCODED;
+    default:
+        return -1;
+    }
+}
+
+/* A field's tag name; XML RSS spells the two compound names in camelCase. */
+static const char *entry_field_name(int field, int camel_case) {
+    if (camel_case && field == FEED_LAST_BUILD) {
+        return "lastBuildDate";
+    }
+    if (camel_case && field == FEED_PUBDATE) {
+        return "pubDate";
+    }
+    return ENTRY_TAGS[field].name;
+}
+
+/* The first matching element wins each field. */
+static void claim_field(th_node **fields, int field, th_node *child) {
+    if (fields[field] == NULL) {
+        fields[field] = child;
+    }
+}
+
+/* Claim the field a child's unprefixed (or dc:/content:-spelled) tag names, once its namespace checks out. Returns -1
+   on allocation failure. */
+static int claim_named_field(th_tree *tree, th_node *child, th_node **fields, int field, const char *uri, int inherited,
+                             int *dc_namespace, int *content_namespace) {
+    if (!th_tree_is_xml(tree)) {
+        claim_field(fields, field, child);
+        return 0;
+    }
+    if ((field == FEED_TITLE && uri != ATOM_URI && child->attr_count != 0) || field == FEED_DESCRIPTION) {
+        int match = qualified_tag_is(tree, child, field == FEED_TITLE ? "title" : "description", DC_URI);
+        if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+            return -1;   /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (match) {
+            claim_field(fields, field == FEED_TITLE ? FEED_DC_TITLE : FEED_DC_DESCRIPTION, child);
+            return 0;
+        }
+    }
+    if (field == FEED_DC_TITLE || field == FEED_DC_DATE || field == FEED_DC_DESCRIPTION || field == FEED_CREATOR ||
+        field == FEED_ENCODED) {
+        int *cached = field == FEED_ENCODED ? content_namespace : dc_namespace;
+        int match = child->attr_count == 0 && *cached != -2
+                        ? *cached
+                        : namespace_is(tree, child, field == FEED_ENCODED ? 7 : 2,
+                                       field == FEED_ENCODED ? CONTENT_URI : DC_URI);
+        if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+            return -1;   /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (child->attr_count == 0) {
+            *cached = match;
+        }
+        if (match) {
+            claim_field(fields, field, child);
+        }
+        return 0;
+    }
+    if ((!inherited || child->attr_count != 0) &&
+        !(uri == NULL ? empty_namespace_at_node(tree, child, inherited)
+                      : default_namespace_at_node(tree, child, uri, inherited))) {
+        return 0;
+    }
+    claim_field(fields, field, child);
+    return 0;
+}
+
+/* Claim the field a prefixed child names when its prefix binds the feed's own namespace (atom:title). Returns 1 when
+   it claimed one, 0 when not, -1 on allocation failure. */
+static int claim_prefixed_field(th_tree *tree, th_node *child, th_node **fields, const char *uri) {
+    Py_ssize_t colon = 1;
+    while (colon < child->text_len && child->text[colon] != ':') {
+        colon++;
+    }
+    if (colon >= child->text_len) {
+        return 0;
+    }
+    int match = namespace_is(tree, child, colon, uri);
+    if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+        return -1;   /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    if (!match) {
+        return 0;
+    }
+    const Py_UCS4 *local = child->text + colon + 1;
+    Py_ssize_t local_len = child->text_len - colon - 1;
+    for (int index = 0; index < FEED_FIELD_COUNT; index++) {
+        if (memchr(ENTRY_TAGS[index].name, ':', (size_t)ENTRY_TAGS[index].len) != NULL) {
+            continue;
+        }
+        if (uri == ATOM_URI ? ucs4_ieq(local, local_len, ENTRY_TAGS[index].name, ENTRY_TAGS[index].len)
+                            : ucs4_eq_ascii_len(local, local_len, entry_field_name(index, 1), ENTRY_TAGS[index].len)) {
+            claim_field(fields, index, child);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Claim the module field (dc:creator, content:encoded) a child names under any prefix. Returns -1 on allocation
+   failure. */
+static int claim_module_field(th_tree *tree, th_node *child, th_node **fields) {
+    for (size_t index = 0; index < sizeof(ENTRY_MODULES) / sizeof(ENTRY_MODULES[0]); index++) {
+        int match = qualified_tag_is(tree, child, ENTRY_MODULES[index].local, ENTRY_MODULES[index].uri);
+        if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
+            return -1;   /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        if (match) {
+            claim_field(fields, ENTRY_MODULES[index].field, child);
+            return 0;
+        }
+    }
+    return 0;
+}
+
 static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields, const char *uri, int inherited) {
-    static const feed_tag tags[FEED_FIELD_COUNT] = {{"title", 5},
-                                                    {"dc:title", 8},
-                                                    {"guid", 4},
-                                                    {"id", 2},
-                                                    {"updated", 7},
-                                                    {"lastbuilddate", 13},
-                                                    {"published", 9},
-                                                    {"pubdate", 7},
-                                                    {"dc:date", 7},
-                                                    {"summary", 7},
-                                                    {"description", 11},
-                                                    {"dc:description", 14},
-                                                    {"content:encoded", 15},
-                                                    {"content", 7},
-                                                    {"author", 6},
-                                                    {"dc:creator", 10},
-                                                    {"source", 6}};
-    static const struct {
-        const char *local;
-        const char *uri;
-        int field;
-    } modules[] = {{"title", DC_URI, FEED_DC_TITLE},
-                   {"date", DC_URI, FEED_DC_DATE},
-                   {"description", DC_URI, FEED_DC_DESCRIPTION},
-                   {"creator", DC_URI, FEED_CREATOR},
-                   {"encoded", CONTENT_URI, FEED_ENCODED}};
     int xml = th_tree_is_xml(tree);
     int dc_namespace = -2;
     int content_namespace = -2;
@@ -924,165 +1083,33 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields,
         if (child->type != TH_NODE_ELEMENT) {
             continue;
         }
-        int field = -1;
-        switch (child->text_len) {
-        case 2:
-            field = FEED_ID;
-            break;
-        case 4:
-            field = FEED_GUID;
-            break;
-        case 5:
-            field = FEED_TITLE;
-            break;
-        case 6:
-            field = lower_ascii(child->text[0]) == 's' ? FEED_SOURCE : FEED_AUTHOR;
-            break;
-        case 7:
-            switch (lower_ascii(child->text[0])) {
-            case 'u':
-                field = FEED_UPDATED;
-                break;
-            case 'p':
-                field = FEED_PUBDATE;
-                break;
-            case 'd':
-                field = FEED_DC_DATE;
-                break;
-            case 's':
-                field = FEED_SUMMARY;
-                break;
-            case 'c':
-                field = FEED_CONTENT;
-                break;
-            default:
-                break;
-            }
-            break;
-        case 8:
-            field = FEED_DC_TITLE;
-            break;
-        case 9:
-            field = FEED_PUBLISHED;
-            break;
-        case 10:
-            field = FEED_CREATOR;
-            break;
-        case 11:
-            field = FEED_DESCRIPTION;
-            break;
-        case 13:
-            field = FEED_LAST_BUILD;
-            break;
-        case 14:
-            field = FEED_DC_DESCRIPTION;
-            break;
-        case 15:
-            field = FEED_ENCODED;
-            break;
-        default:
-            break;
-        }
-        const char *name = tags[field >= 0 ? field : 0].name;
-        if (xml && uri != ATOM_URI && field == FEED_LAST_BUILD) {
-            name = "lastBuildDate";
-        } else if (xml && uri != ATOM_URI && field == FEED_PUBDATE) {
-            name = "pubDate";
-        }
-        if (field >= 0 && (xml ? ucs4_eq_ascii_len(child->text, child->text_len, name, tags[field].len)
-                               : tag_is(child, name, tags[field].len))) {
-            if (xml &&
-                ((field == FEED_TITLE && uri != ATOM_URI && child->attr_count != 0) || field == FEED_DESCRIPTION)) {
-                int match = qualified_tag_is(tree, child, field == FEED_TITLE ? "title" : "description", DC_URI);
-                if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
-                    return -1;   /* GCOVR_EXCL_LINE: allocation failure */
-                }
-                if (match) {
-                    int dc_field = field == FEED_TITLE ? FEED_DC_TITLE : FEED_DC_DESCRIPTION;
-                    if (fields[dc_field] == NULL) {
-                        fields[dc_field] = child;
-                    }
-                    continue;
-                }
-            }
-            if (xml && (field == FEED_DC_TITLE || field == FEED_DC_DATE || field == FEED_DC_DESCRIPTION ||
-                        field == FEED_CREATOR || field == FEED_ENCODED)) {
-                int *cached = field == FEED_ENCODED ? &content_namespace : &dc_namespace;
-                int match = child->attr_count == 0 && *cached != -2
-                                ? *cached
-                                : namespace_is(tree, child, field == FEED_ENCODED ? 7 : 2,
-                                               field == FEED_ENCODED ? CONTENT_URI : DC_URI);
-                if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
-                    return -1;   /* GCOVR_EXCL_LINE: allocation failure */
-                }
-                if (child->attr_count == 0) {
-                    *cached = match;
-                }
-                if (!match) {
-                    continue;
-                }
-                if (fields[field] == NULL) {
-                    fields[field] = child;
+        int field = entry_field_by_length(child);
+        if (field >= 0) {
+            const char *name = entry_field_name(field, xml && uri != ATOM_URI);
+            if (xml ? ucs4_eq_ascii_len(child->text, child->text_len, name, ENTRY_TAGS[field].len)
+                    : tag_is(child, name, ENTRY_TAGS[field].len)) {
+                int status =
+                    claim_named_field(tree, child, fields, field, uri, inherited, &dc_namespace, &content_namespace);
+                if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                    return -1;    /* GCOVR_EXCL_LINE */
                 }
                 continue;
             }
-            if (xml && (!inherited || child->attr_count != 0) &&
-                !(uri == NULL ? empty_namespace_at_node(tree, child, inherited)
-                              : default_namespace_at_node(tree, child, uri, inherited))) {
-                continue;
-            }
-            if (fields[field] == NULL) {
-                fields[field] = child;
-            }
+        }
+        if (!xml) {
             continue;
         }
-        if (uri != NULL && xml) {
-            int found = 0;
-            for (Py_ssize_t colon = 1; colon < child->text_len; colon++) {
-                if (child->text[colon] != ':') {
-                    continue;
-                }
-                int match = namespace_is(tree, child, colon, uri);
-                if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
-                    return -1;   /* GCOVR_EXCL_LINE: allocation failure */
-                }
-                if (match) {
-                    for (int index = 0; index < FEED_FIELD_COUNT; index++) {
-                        if (memchr(tags[index].name, ':', (size_t)tags[index].len) == NULL &&
-                            (uri == ATOM_URI ? ucs4_ieq(child->text + colon + 1, child->text_len - colon - 1,
-                                                        tags[index].name, tags[index].len)
-                                             : ucs4_eq_ascii_len(child->text + colon + 1, child->text_len - colon - 1,
-                                                                 index == FEED_LAST_BUILD ? "lastBuildDate"
-                                                                 : index == FEED_PUBDATE  ? "pubDate"
-                                                                                          : tags[index].name,
-                                                                 tags[index].len))) {
-                            if (fields[index] == NULL) {
-                                fields[index] = child;
-                            }
-                            found = 1;
-                            break;
-                        }
-                    }
-                }
-                break;
+        if (uri != NULL) {
+            int found = claim_prefixed_field(tree, child, fields, uri);
+            if (found < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;   /* GCOVR_EXCL_LINE */
             }
             if (found) {
                 continue;
             }
         }
-        if (xml) {
-            for (size_t index = 0; index < sizeof(modules) / sizeof(modules[0]); index++) {
-                int match = qualified_tag_is(tree, child, modules[index].local, modules[index].uri);
-                if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
-                    return -1;   /* GCOVR_EXCL_LINE: allocation failure */
-                }
-                if (match) {
-                    if (fields[modules[index].field] == NULL) {
-                        fields[modules[index].field] = child;
-                    }
-                    break;
-                }
-            }
+        if (claim_module_field(tree, child, fields) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                     /* GCOVR_EXCL_LINE */
         }
     }
     return 0;
