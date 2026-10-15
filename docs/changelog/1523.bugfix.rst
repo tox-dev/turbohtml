@@ -1,0 +1,1 @@
+Ignore XML RSS 2.0 roots declared in a foreign default namespace while preserving HTML feed extraction.

@@ -136,6 +136,9 @@ static int default_namespace_at_node(th_tree *tree, th_node *node, const char *u
         Py_ssize_t len;
         const char *name = th_attr_name(tree, attr->name_atom, &len);
         if (len == 5 && memcmp(name, "xmlns", 5) == 0) {
+            if (uri == NULL) {
+                return attr->value_len == 0;
+            }
             const Py_UCS4 *expected = uri == ATOM_URI ? ATOM_URI_UCS4 : RSS_URI_UCS4;
             Py_ssize_t expected_len = uri == ATOM_URI ? 27 : 24;
             return attr->value_len == expected_len &&
@@ -1626,7 +1629,7 @@ static th_node *find_feed_root(th_tree *tree, th_node *document, const char **ty
             *root_namespace = 1;
             return node;
         }
-        if (tag_is(node, "rss", 3)) {
+        if (tag_is(node, "rss", 3) && (!th_tree_is_xml(tree) || default_namespace_is_or_missing(tree, node, NULL))) {
             *type_out = "rss";
             *root_namespace = 1;
             return node;
