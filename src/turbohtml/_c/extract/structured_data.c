@@ -794,9 +794,9 @@ static const th_node_attr *social_meta_attr(th_tree *tree, th_node *node) {
     return NULL;
 }
 
-/* Map every <meta property=og:*> / <meta name=twitter:*> key to its content value (last occurrence wins). A URL-valued
-   key's content is absolutized against `base` when the caller passed one (base is NULL otherwise, leaving every value
-   verbatim). NULL only on the excluded allocation-failure path. */
+/* Map every <meta property=og:*> / <meta name=twitter:*> key to its content value (first og: and last twitter:
+   occurrence wins). A URL-valued key's content is absolutized against `base` when the caller passed one (base is NULL
+   otherwise, leaving every value verbatim). NULL only on the excluded allocation-failure path. */
 static PyObject *gather_opengraph(PyObject *self, PyObject *base, int strip_prefix) {
     PyObject *result = PyDict_New();
     if (result == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -834,7 +834,12 @@ static PyObject *gather_opengraph(PyObject *self, PyObject *base, int strip_pref
                 break;                                  /* GCOVR_EXCL_LINE */
             }
         }
-        int set_failed = PyDict_SetItem(result, key, content) < 0;
+        int set_failed;
+        if (strip_prefix || ucs4_has_prefix(key_attr->value, key_attr->value_len, "og:", 3)) {
+            set_failed = PyDict_SetDefault(result, key, content) == NULL;
+        } else {
+            set_failed = PyDict_SetItem(result, key, content) < 0;
+        }
         Py_DECREF(key);
         Py_DECREF(content);
         if (set_failed) { /* GCOVR_EXCL_BR_LINE: insert fails only on unforceable allocation */

@@ -1,0 +1,1 @@
+Prefer the first repeated Open Graph value, following the Open Graph protocol's array ordering.

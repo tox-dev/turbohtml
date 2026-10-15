@@ -37,7 +37,7 @@ Microdata follows the HTML value algorithm: a property's value is the nested ite
 ``datetime`` (or text) for a time element, and the element's text content elsewhere. Only top-level items -- an element
 with ``itemscope`` and no ``itemprop``, so it is not a property of another item -- become list entries; a nested item is
 reached through its parent's ``properties``. OpenGraph and Twitter share one mapping because pages mix the ``property``
-and ``name`` attributes freely; when a key repeats, the last occurrence wins.
+and ``name`` attributes freely; the first ``og:`` value wins when a key repeats, while the last ``twitter:`` value wins.
 
 *******************
  RDFa, Dublin Core

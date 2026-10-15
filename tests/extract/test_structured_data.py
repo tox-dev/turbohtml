@@ -568,7 +568,7 @@ def test_is_valid_false_when_required_missing(html: str) -> None:
 
 
 def test_is_valid_false_when_required_empty() -> None:
-    html = _FULL + '<meta property="og:url" content="">'
+    html = '<meta property="og:url" content="">' + _FULL
     assert opengraph(html).is_valid() is False
 
 
@@ -631,8 +631,8 @@ def test_opengraph_function_base_url_omitted_is_verbatim() -> None:
         ),
         pytest.param(
             '<meta property="og:title" content="first"><meta property="og:title" content="second">',
-            {"title": "second"},
-            id="last-occurrence-wins",
+            {"title": "first"},
+            id="first-occurrence-wins",
         ),
         pytest.param('<meta name="description" content="x">', {}, id="non-social-name"),
         pytest.param('<meta property="article:author" content="x">', {}, id="non-social-property"),
@@ -662,12 +662,12 @@ def test_opengraph_duplicate_preserves_insertion_order(*, combined: bool) -> Non
     )
     if combined:
         assert list(document.structured_data().opengraph.items()) == [
-            ("og:title", "last"),
+            ("og:title", "first"),
             ("twitter:card", "summary"),
             ("og:type", "article"),
         ]
     else:
-        assert list(document.opengraph().items()) == [("title", "last"), ("type", "article")]
+        assert list(document.opengraph().items()) == [("title", "first"), ("type", "article")]
 
 
 def test_opengraph_returns_record() -> None:
