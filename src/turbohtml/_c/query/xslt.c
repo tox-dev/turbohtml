@@ -3783,17 +3783,141 @@ TH_NOINLINE static int emit_out_of_range_value(engine *eng, th_node *instruction
     return rc;
 }
 
-static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
-    long values[64];
-    Py_ssize_t nvalues = 0;
-    Py_ssize_t value_len = 0;
-    const Py_UCS4 *value_expr = number_attr(eng, instruction, TH_ATTR_VALUE, "value", &value_len);
+/* Remember the current node's name for the default count pattern, so the level counts below compare against it
+   without re-deriving it per node. Returns -1 on allocation failure. */
+static int remember_number_node(engine *eng) {
+    eng->current_number_name = number_local_name(eng, eng->cur_node);
+    if (eng->cur_node->type == TH_NODE_ELEMENT) {
+        eng->current_number_name.ns = eng->cur_node->ns;
+        if (th_tree_is_xml(eng->src_tree) && (number_has_namespaces(eng) || eng->number_index.positions.count != 0 ||
+                                              eng->current_number_name.name != eng->cur_node->text)) {
+            if (number_index_extend(eng, eng->cur_node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                                     /* GCOVR_EXCL_LINE */
+            }
+            eng->current_number_name = number_name(eng, eng->cur_node);
+        }
+    }
+    eng->current_number_node = eng->cur_node;
+    return 0;
+}
+
+/* level="any": how many counted nodes precede the current one in document order, back to the nearest from match. */
+static int number_any(engine *eng, const match_set *count_matches, int have_count, const match_set *from_matches,
+                      int have_from, long *counter) {
+    if (!have_count && !have_from) {
+        return default_any_number(eng, counter);
+    }
+    if ((!have_count || count_matches == &eng->number_count_match.matched) &&
+        (!have_from || from_matches == &eng->number_from_match.matched)) {
+        return explicit_any_number(eng, have_count ? eng->number_count_match.source : NULL,
+                                   have_from ? eng->number_from_match.source : NULL, counter);
+    }
+    *counter = unindexed_any_number(eng, count_matches, have_count, from_matches, have_from);
+    return 0;
+}
+
+/* level="multiple": one number per counted ancestor-or-self, outermost first, bounded by the nearest from ancestor. */
+static void number_multiple(engine *eng, th_node *instruction, const match_set *count_matches, int have_count,
+                            const match_set *from_matches, int have_from, long *values, Py_ssize_t *nvalues) {
+    th_node *chain[64];
+    Py_ssize_t depth = 0;
+    for (th_node *node = eng->cur_node; node != NULL; node = node->parent) {
+        /* A count chain deeper than the fixed buffer cannot arise from a real document. */
+        if (depth == 64) { /* GCOVR_EXCL_BR_LINE: overflow guard for the chain buffer */
+            break;         /* GCOVR_EXCL_LINE */
+        }
+        if (have_from && match_set_has(from_matches, node, -1)) {
+            break;
+        }
+        if (number_counts(eng, count_matches, have_count, node)) {
+            chain[depth++] = node;
+        }
+    }
+    for (Py_ssize_t index = depth - 1; index >= 0; index--) {
+        values[(*nvalues)++] = level_number(eng, instruction, count_matches, have_count, chain[index]);
+    }
+}
+
+/* level="single" (the default): the nearest ancestor-or-self that matches count, bounded by the nearest from
+   ancestor, or NULL when there is none. */
+static th_node *number_single(engine *eng, const match_set *count_matches, int have_count,
+                              const match_set *from_matches, int have_from) {
+    for (th_node *node = eng->cur_node; node != NULL; node = node->parent) {
+        if (have_from && match_set_has(from_matches, node, -1)) {
+            return NULL;
+        }
+        if (number_counts(eng, count_matches, have_count, node)) {
+            return node;
+        }
+    }
+    return NULL;
+}
+
+/* The numbers xsl:number counts from the source tree when it has no value attribute, per its count, from and level
+   attributes. Appends to values and returns -1 on failure. */
+static int count_numbers(engine *eng, th_node *instruction, long *values, Py_ssize_t *nvalues) {
     match_set count_set = {0};
     match_set from_set = {0};
     const match_set *count_matches = &count_set;
     const match_set *from_matches = &from_set;
     int have_count = 0;
     int have_from = 0;
+    Py_ssize_t count_len = 0;
+    const Py_UCS4 *count = number_attr(eng, instruction, eng->number_attrs.count, "count", &count_len);
+    Py_ssize_t from_len = 0;
+    const Py_UCS4 *from = number_attr(eng, instruction, eng->number_attrs.from, "from", &from_len);
+    /* Compilation validates the count and from patterns before a run. */
+    if (count != NULL) {
+        have_count = 1;
+        if (get_number_matcher(eng, instruction, count, count_len, &eng->number_count_match, &count_set,
+                               &count_matches) < 0) {
+            match_set_free(&count_set);
+            return -1;
+        }
+    }
+    if (from != NULL) {
+        have_from = 1;
+        if (get_number_matcher(eng, instruction, from, from_len, &eng->number_from_match, &from_set, &from_matches) <
+            0) {
+            match_set_free(&count_set);
+            match_set_free(&from_set);
+            return -1;
+        }
+    }
+    if (!have_count && eng->current_number_node != eng->cur_node) {
+        if (remember_number_node(eng) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            match_set_free(&from_set);       /* GCOVR_EXCL_LINE */
+            PyErr_NoMemory();                /* GCOVR_EXCL_LINE */
+            return fail_py(eng);             /* GCOVR_EXCL_LINE */
+        }
+    }
+    Py_ssize_t level_len = 0;
+    const Py_UCS4 *level = number_attr(eng, instruction, eng->number_attrs.level, "level", &level_len);
+    if (level != NULL && ucs4_ascii_eq(level, level_len, "any")) {
+        long counter = 0;
+        int status = number_any(eng, count_matches, have_count, from_matches, have_from, &counter);
+        if (status < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;    /* GCOVR_EXCL_LINE */
+        }
+        values[(*nvalues)++] = counter;
+    } else if (level != NULL && ucs4_ascii_eq(level, level_len, "multiple")) {
+        number_multiple(eng, instruction, count_matches, have_count, from_matches, have_from, values, nvalues);
+    } else {
+        th_node *target = number_single(eng, count_matches, have_count, from_matches, have_from);
+        if (target != NULL) {
+            values[(*nvalues)++] = level_number(eng, instruction, count_matches, have_count, target);
+        }
+    }
+    match_set_free(&count_set);
+    match_set_free(&from_set);
+    return 0;
+}
+
+static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
+    long values[64];
+    Py_ssize_t nvalues = 0;
+    Py_ssize_t value_len = 0;
+    const Py_UCS4 *value_expr = number_attr(eng, instruction, TH_ATTR_VALUE, "value", &value_len);
     if (value_expr != NULL) {
         char errbuf[256];
         xp_program *prog = compile_expression(eng, value_expr, value_len, errbuf, sizeof(errbuf));
@@ -3818,103 +3942,9 @@ static int do_number(engine *eng, th_node *instruction, th_node *out_parent) {
         values[nvalues++] = (long)rounded;
     } else if (xp_is_attribute(eng->cur_attr)) {
         values[nvalues++] = 1;
-    } else {
-        Py_ssize_t count_len = 0;
-        const Py_UCS4 *count = number_attr(eng, instruction, eng->number_attrs.count, "count", &count_len);
-        Py_ssize_t from_len = 0;
-        const Py_UCS4 *from = number_attr(eng, instruction, eng->number_attrs.from, "from", &from_len);
-        /* Compilation validates the count and from patterns before a run. */
-        if (count != NULL) {
-            have_count = 1;
-            if (get_number_matcher(eng, instruction, count, count_len, &eng->number_count_match, &count_set,
-                                   &count_matches) < 0) {
-                match_set_free(&count_set);
-                return -1;
-            }
-        }
-        if (from != NULL) {
-            have_from = 1;
-            if (get_number_matcher(eng, instruction, from, from_len, &eng->number_from_match, &from_set,
-                                   &from_matches) < 0) {
-                match_set_free(&count_set);
-                match_set_free(&from_set);
-                return -1;
-            }
-        }
-        if (!have_count && eng->current_number_node != eng->cur_node) {
-            eng->current_number_name = number_local_name(eng, eng->cur_node);
-            if (eng->cur_node->type == TH_NODE_ELEMENT) {
-                eng->current_number_name.ns = eng->cur_node->ns;
-                if (th_tree_is_xml(eng->src_tree) &&
-                    (number_has_namespaces(eng) || eng->number_index.positions.count != 0 ||
-                     eng->current_number_name.name != eng->cur_node->text)) {
-                    if (number_index_extend(eng, eng->cur_node) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                        match_set_free(&from_set);                     /* GCOVR_EXCL_LINE */
-                        PyErr_NoMemory();                              /* GCOVR_EXCL_LINE */
-                        return fail_py(eng);                           /* GCOVR_EXCL_LINE */
-                    }
-                    eng->current_number_name = number_name(eng, eng->cur_node);
-                }
-            }
-            eng->current_number_node = eng->cur_node;
-        }
-        Py_ssize_t level_len = 0;
-        const Py_UCS4 *level = number_attr(eng, instruction, eng->number_attrs.level, "level", &level_len);
-        if (level != NULL && ucs4_ascii_eq(level, level_len, "any")) {
-            long counter = 0;
-            if (!have_count && !have_from) {
-                if (default_any_number(eng, &counter) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                    return -1;                               /* GCOVR_EXCL_LINE */
-                }
-            } else if ((!have_count || count_matches == &eng->number_count_match.matched) &&
-                       (!have_from || from_matches == &eng->number_from_match.matched)) {
-                int status = explicit_any_number(eng, have_count ? eng->number_count_match.source : NULL,
-                                                 have_from ? eng->number_from_match.source : NULL, &counter);
-                if (status < 0) { /* GCOVR_EXCL_BR_LINE: OOM */
-                    return -1;    /* GCOVR_EXCL_LINE */
-                }
-            } else {
-                counter = unindexed_any_number(eng, count_matches, have_count, from_matches, have_from);
-            }
-            values[nvalues++] = counter;
-        } else if (level != NULL && ucs4_ascii_eq(level, level_len, "multiple")) {
-            th_node *chain[64];
-            Py_ssize_t depth = 0;
-            for (th_node *node = eng->cur_node; node != NULL; node = node->parent) {
-                /* A count chain deeper than the fixed buffer cannot arise from a real document. */
-                if (depth == 64) { /* GCOVR_EXCL_BR_LINE: overflow guard for the chain buffer */
-                    break;         /* GCOVR_EXCL_LINE */
-                }
-                if (have_from && match_set_has(from_matches, node, -1)) {
-                    break;
-                }
-                if (number_counts(eng, count_matches, have_count, node)) {
-                    chain[depth++] = node;
-                }
-            }
-            for (Py_ssize_t index = depth - 1; index >= 0; index--) {
-                values[nvalues++] = level_number(eng, instruction, count_matches, have_count, chain[index]);
-            }
-        } else {
-            /* single (the default): the nearest ancestor-or-self that matches count, bounded by
-               the nearest from ancestor. */
-            th_node *target = NULL;
-            for (th_node *node = eng->cur_node; node != NULL; node = node->parent) {
-                if (have_from && match_set_has(from_matches, node, -1)) {
-                    break;
-                }
-                if (number_counts(eng, count_matches, have_count, node)) {
-                    target = node;
-                    break;
-                }
-            }
-            if (target != NULL) {
-                values[nvalues++] = level_number(eng, instruction, count_matches, have_count, target);
-            }
-        }
+    } else if (count_numbers(eng, instruction, values, &nvalues) < 0) {
+        return -1;
     }
-    match_set_free(&count_set);
-    match_set_free(&from_set);
     Py_ssize_t format_len = 0;
     const Py_UCS4 *format = number_attr(eng, instruction, eng->number_attrs.format, "format", &format_len);
     Py_ssize_t gsep_len = 0;
