@@ -3019,6 +3019,19 @@ _TYPE_CASES: Final[list[ParameterSet]] = [
     pytest.param("a{opacity:calc(1px - 1px)}", "a{opacity:calc(0px)}", id="length-zero-stays-length"),
     pytest.param("a{border-width:calc(1px + 0%)}", "a{border-width:calc(1px + 0%)}", id="zero-percent-keeps-type"),
     pytest.param("a{width:calc(1px + 0em)}", "a{width:calc(1px + 0em)}", id="mixed-length-zero-kept"),
+    pytest.param("a{rotate:calc(0 * 1deg)}", "a{rotate:0deg}", id="zero-times-angle"),
+    pytest.param("a{animation-duration:calc(1s * 0)}", "a{animation-duration:0s}", id="time-times-zero"),
+    pytest.param("a{font-stretch:calc(0 * 1%)}", "a{font-stretch:0%}", id="zero-times-percent"),
+    pytest.param("a{width:calc(0 * 1px)}", "a{width:calc(0px)}", id="zero-times-length"),
+    pytest.param("a{width:10px;width:calc(0 * 2)}", "a{width:10px;width:calc(0)}", id="number-zero-fallback"),
+    pytest.param("a{width:calc(0 * (1px + 1%))}", "a{width:calc(0 * (1px + 1%))}", id="zero-times-mixed"),
+    pytest.param("a{rotate:calc(0 * (1deg + 1s))}", "a{rotate:calc(0 * (1deg + 1s))}", id="zero-times-invalid"),
+    pytest.param("a{rotate:10deg;rotate:calc(0 * 1deg)}", "a{rotate:10deg;rotate:0deg}", id="angle-fallback"),
+    pytest.param(
+        "a{animation-duration:2s;animation-duration:calc(0 * 1s)}",
+        "a{animation-duration:2s;animation-duration:0s}",
+        id="time-fallback",
+    ),
     pytest.param("a{width:calc(2px + 1px)}", "a{width:3px}", id="nonzero-folds"),
 ]
 

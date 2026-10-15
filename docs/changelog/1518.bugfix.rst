@@ -1,0 +1,1 @@
+Keep CSS calculation units through multiplication by zero so angle and time declarations remain valid.

@@ -1836,8 +1836,8 @@
 ],
 [
 "a{width:calc((1px*0)*1em)}",
-"a{width:0}",
-"a{width:0}"
+"a{width:calc((1px*0)*1em)}",
+"a{width:calc((1px*0)*1em)}"
 ],
 [
 "a{width:calc(1px/(2*0))}",

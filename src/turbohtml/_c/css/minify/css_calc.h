@@ -141,13 +141,8 @@ static int csum_add_term(csum *sum, const cterm *term) {
     return 1;
 }
 
-/* A sum is a scalar when it is empty (zero) or a single unitless term. */
+/* A sum is a scalar when it has a single unitless term. */
 static int csum_as_scalar(const csum *sum, crat *out) {
-    if (sum->count == 0) {
-        out->num = 0;
-        out->den = 1;
-        return 1;
-    }
     if (sum->count == 1 && sum->terms[0].unit_len == 0) {
         *out = sum->terms[0].coeff;
         return 1;
@@ -157,7 +152,9 @@ static int csum_as_scalar(const csum *sum, crat *out) {
 
 static int csum_scale(csum *sum, crat factor) {
     if (factor.num == 0) {
-        sum->count = 0;
+        for (int index = 0; index < sum->count; index++) {
+            sum->terms[index].coeff = factor;
+        }
         return 1;
     }
     for (int index = 0; index < sum->count; index++) {
@@ -411,6 +408,19 @@ static int css_format_cterm(css_buf *out, const cterm *term) {
 }
 
 static int css_char_unit_droppable(const char *unit, int len) {
+    switch (unit[0]) {
+    case 'p':
+    case 'c':
+    case 'e':
+    case 'i':
+    case 'm':
+    case 'q':
+    case 'r':
+    case 'v':
+        break;
+    default:
+        return 0;
+    }
     css_char wide[CALC_MAX_UNIT];
     for (int index = 0; index < len; index++) {
         wide[index] = (css_char)(unsigned char)unit[index];
@@ -473,24 +483,32 @@ CSS_NOINLINE static int css_try_calc(css_buf *pool, token_vec *vec, Py_ssize_t s
     if (nonzero_count < sum.count && sum.count > 1) {
         return 0;
     }
-    css_buf result = {NULL, 0, 0, pool->oom};
-    int formatted = 1;
     if (nonzero_count == 0) {
-        if (sum.count == 1 && sum.terms[0].unit_len > 0 &&
-            !css_char_unit_droppable(sum.terms[0].unit, sum.terms[0].unit_len)) {
-            formatted = css_format_cterm(&result, &sum.terms[0]);
+        *out_off = pool->len;
+        if (sum.terms[0].unit_len > 0 && !css_char_unit_droppable(sum.terms[0].unit, sum.terms[0].unit_len)) {
+            cbuf_putc(pool, '0');
+            for (int index = 0; index < sum.terms[0].unit_len; index++) {
+                cbuf_putc(pool, (css_char)(unsigned char)sum.terms[0].unit[index]);
+            }
             *kind = CK_DIM;
-        } else if (sum.count == 1 && (sum.terms[0].unit_len > 0 || !context->bare_zero_allowed)) {
+        } else if (sum.terms[0].unit_len > 0 || !context->bare_zero_allowed) {
             /* Bare zero can have a different type from a zero-valued calc(). */
-            cbuf_puts(&result, "calc(");
-            formatted = css_format_cterm(&result, &sum.terms[0]);
-            cbuf_putc(&result, ')');
+            cbuf_puts(pool, "calc(0");
+            for (int index = 0; index < sum.terms[0].unit_len; index++) {
+                cbuf_putc(pool, (css_char)(unsigned char)sum.terms[0].unit[index]);
+            }
+            cbuf_putc(pool, ')');
             *kind = CK_FUNC;
         } else {
-            cbuf_putc(&result, '0');
+            cbuf_putc(pool, '0');
             *kind = CK_NUM;
         }
-    } else if (nonzero_count == 1) {
+        *out_len = pool->len - *out_off;
+        return 1;
+    }
+    css_buf result = {NULL, 0, 0, pool->oom};
+    int formatted = 1;
+    if (nonzero_count == 1) {
         /* Only a top-level negative literal can bypass calc()'s computed-value range clamp. */
         int preserve_calc =
             nonzero[0].coeff.num < 0 && !css_calc_negative_literal_allowed(context->prop, context->prop_len);
