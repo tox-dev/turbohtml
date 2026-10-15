@@ -760,7 +760,7 @@ def test_feed_benchmark_output(case: int, expected: Feed) -> None:
             "<dc:creator>creator</dc:creator><author>author</author><content>plain</content>"
             "<content:encoded>encoded</content:encoded><dc:description>dc</dc:description>"
             "<description>description</description><summary>summary</summary><dc:date>dc-date</dc:date>"
-            "<pubdate>pubdate</pubdate><published>published</published><lastbuilddate>last</lastbuilddate>"
+            "<pubDate>pubdate</pubDate><published>published</published><lastBuildDate>last</lastBuildDate>"
             '<updated>updated</updated><id>id</id><guid isPermaLink="false">guid</guid><title>title</title>',
             ("title", None, "guid", "updated", "published", "summary", "encoded", "author"),
             id="field-name-precedence",
@@ -808,7 +808,7 @@ def test_entry_field_precedence(fields: str, expected: tuple[str | None, ...]) -
 def test_feed_empty_metadata_uses_fallback() -> None:
     assert feed(
         "<rss version='2.0'><channel><title> </title><description> </description><subtitle>fallback</subtitle>"
-        "<updated> </updated><lastbuilddate>date</lastbuilddate></channel></rss>"
+        "<updated> </updated><lastBuildDate>date</lastBuildDate></channel></rss>"
     ) == ("rss", None, None, "fallback", "date", ())
 
 

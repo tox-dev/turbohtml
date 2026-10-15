@@ -213,8 +213,7 @@ static int qualified_tag_is(th_tree *tree, th_node *node, const char *local, con
 }
 
 static int feed_tag_is(th_tree *tree, th_node *node, const char *name, Py_ssize_t len, const char *uri, int inherited) {
-    int atom_xml = uri == ATOM_URI && th_tree_is_xml(tree);
-    if (atom_xml ? ucs4_eq_ascii_len(node->text, node->text_len, name, len) : tag_is(node, name, len)) {
+    if (th_tree_is_xml(tree) ? ucs4_eq_ascii_len(node->text, node->text_len, name, len) : tag_is(node, name, len)) {
         return !th_tree_is_xml(tree) || (inherited && node->attr_count == 0) ||
                (uri == NULL ? empty_namespace_at_node(tree, node, inherited)
                             : default_namespace_at_node(tree, node, uri, inherited));
@@ -230,7 +229,9 @@ static int feed_tag_is(th_tree *tree, th_node *node, const char *name, Py_ssize_
 
 static th_node *child_named(th_tree *tree, th_node *parent, const char *name, Py_ssize_t len) {
     for (th_node *child = parent->first_child; child != NULL; child = child->next_sibling) {
-        if (child->type == TH_NODE_ELEMENT && tag_is(child, name, len) &&
+        if (child->type == TH_NODE_ELEMENT &&
+            (th_tree_is_xml(tree) ? ucs4_eq_ascii_len(child->text, child->text_len, name, len)
+                                  : tag_is(child, name, len)) &&
             (!th_tree_is_xml(tree) || child->attr_count == 0 || empty_namespace_at_node(tree, child, 1))) {
             return child;
         }
@@ -666,7 +667,15 @@ static PyObject *field_text(th_tree *tree, th_node *parent, const feed_tag *tags
             }
         } else {
             int error = 0;
-            child = feed_child_named(tree, parent, tags[index].name, tags[index].len, uri, inherited, &error);
+            const char *name = tags[index].name;
+            if (th_tree_is_xml(tree) && uri != ATOM_URI) {
+                if (tags[index].len == 13) {
+                    name = "lastBuildDate";
+                } else if (tags[index].len == 7 && name[0] == 'p') {
+                    name = "pubDate";
+                }
+            }
+            child = feed_child_named(tree, parent, name, tags[index].len, uri, inherited, &error);
             if (error) {     /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
                 return NULL; /* GCOVR_EXCL_LINE: allocation failure */
             }
@@ -909,7 +918,6 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields,
                    {"creator", DC_URI, FEED_CREATOR},
                    {"encoded", CONTENT_URI, FEED_ENCODED}};
     int xml = th_tree_is_xml(tree);
-    int atom_xml = xml && uri == ATOM_URI;
     int dc_namespace = -2;
     int content_namespace = -2;
     for (th_node *child = entry->first_child; child != NULL; child = child->next_sibling) {
@@ -975,8 +983,14 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields,
         default:
             break;
         }
-        if (field >= 0 && (atom_xml ? ucs4_eq_ascii_len(child->text, child->text_len, tags[field].name, tags[field].len)
-                                    : tag_is(child, tags[field].name, tags[field].len))) {
+        const char *name = tags[field >= 0 ? field : 0].name;
+        if (xml && uri != ATOM_URI && field == FEED_LAST_BUILD) {
+            name = "lastBuildDate";
+        } else if (xml && uri != ATOM_URI && field == FEED_PUBDATE) {
+            name = "pubDate";
+        }
+        if (field >= 0 && (xml ? ucs4_eq_ascii_len(child->text, child->text_len, name, tags[field].len)
+                               : tag_is(child, name, tags[field].len))) {
             if (xml &&
                 ((field == FEED_TITLE && uri != ATOM_URI && child->attr_count != 0) || field == FEED_DESCRIPTION)) {
                 int match = qualified_tag_is(tree, child, field == FEED_TITLE ? "title" : "description", DC_URI);
@@ -1035,8 +1049,13 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields,
                 if (match) {
                     for (int index = 0; index < FEED_FIELD_COUNT; index++) {
                         if (memchr(tags[index].name, ':', (size_t)tags[index].len) == NULL &&
-                            ucs4_ieq(child->text + colon + 1, child->text_len - colon - 1, tags[index].name,
-                                     tags[index].len)) {
+                            (uri == ATOM_URI ? ucs4_ieq(child->text + colon + 1, child->text_len - colon - 1,
+                                                        tags[index].name, tags[index].len)
+                                             : ucs4_eq_ascii_len(child->text + colon + 1, child->text_len - colon - 1,
+                                                                 index == FEED_LAST_BUILD ? "lastBuildDate"
+                                                                 : index == FEED_PUBDATE  ? "pubDate"
+                                                                                          : tags[index].name,
+                                                                 tags[index].len))) {
                             if (fields[index] == NULL) {
                                 fields[index] = child;
                             }
@@ -1649,7 +1668,7 @@ static th_node *find_feed_root(th_tree *tree, th_node *document, const char **ty
             *root_namespace = 1;
             return node;
         }
-        if (tag_is(node, "rss", 3)) {
+        if (th_tree_is_xml(tree) ? ucs4_eq_ascii(node->text, node->text_len, "rss") : tag_is(node, "rss", 3)) {
             if (th_tree_is_xml(tree) && (!empty_namespace_is_or_missing(tree, node) || !rss_version_is_2(tree, node))) {
                 continue;
             }

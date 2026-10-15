@@ -1,0 +1,1 @@
+Match RSS 2.0 and RSS 1.0 element names case-sensitively in XML feeds.
