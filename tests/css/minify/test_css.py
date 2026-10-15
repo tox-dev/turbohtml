@@ -771,6 +771,20 @@ def test_minify_css_rgb_argument_shape(source: str, expected: str) -> None:
     assert minify_css(expected) == expected
 
 
+@pytest.mark.parametrize(
+    ("hue", "expected"),
+    [
+        pytest.param("1e20", "1e20", id="large-positive"),
+        pytest.param("-1e20", "-1e20", id="large-negative"),
+        pytest.param("+1e20", "1e20", id="large-plus-sign"),
+        pytest.param("1e309", "1e309", id="overflow-positive"),
+        pytest.param("-1e309", "-1e309", id="overflow-negative"),
+    ],
+)
+def test_minify_css_preserves_large_hsl_hue(hue: str, expected: str) -> None:
+    assert minify_css(f"a {{ color: hsl({hue} 100% 50%) }}") == f"a{{color:hsl({expected} 100% 50%)}}"
+
+
 @pytest.mark.parametrize("unit", ["px", "em", "deg"])
 def test_minify_css_invalid_rgb_zero_unit_stays_invalid(unit: str) -> None:
     source = f"a{{color:rgb(0,0,0{unit})}}"

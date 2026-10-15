@@ -895,6 +895,8 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
             alpha = values[3];
         }
     }
+    /* Browser float values lose degree precision for large hues, so leave normalization to the browser. */
+    int large_hue = is_hsl && (values[0] <= -16777216.0 || values[0] >= 16777216.0);
     /* alpha stays exactly 1.0 only on the paths that also clear has_alpha (count==3, or a fourth value of 1) */
     if (alpha == 1.0) {
         int bits[3];
@@ -905,7 +907,7 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
                     foldable = 0;
                 }
             }
-        } else if (!types[0] && types[1] && types[2]) {
+        } else if (!types[0] && types[1] && types[2] && !large_hue) {
             double hue = values[0] / 360.0;
             hue -= floor(hue); /* hue is modulo 360; saturation and lightness clamp to [0,1] (Color 4 §7) */
             double sat = values[1] < 0.0 ? 0.0 : (values[1] > 1.0 ? 1.0 : values[1]);
@@ -953,6 +955,10 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
             for (int pos = 0; pos < written; pos++) {
                 cbuf_putc(&result, (css_char)(unsigned char)buffer[pos]);
             }
+        } else if (index == 0 && large_hue) {
+            const css_token *raw = raws[index];
+            Py_ssize_t offset = raw->text[0] == '+';
+            cbuf_put_run(&result, raw->text + offset, raw->text_len - offset);
         } else {
             css_append_color_number(&result, raws[index], types[index]);
         }
