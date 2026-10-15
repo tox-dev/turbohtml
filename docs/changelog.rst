@@ -6,12 +6,13 @@
 
 .. towncrier release notes start
 
-*********************
+**********************
  v1.15.2 (2026-10-15)
-*********************
+**********************
 
 Bug fixes - 1.15.2
 ==================
+
 - Reject explicit ports in ``file:`` URLs passed to :func:`~turbohtml.extract.normalize_url`. (:issue:`1395`)
 - Reject malformed XML qualified names in element, attribute, and namespace declarations. (:issue:`1396`)
 - Restore the empty XML namespace for HTML elements nested under SVG or MathML. (:issue:`1397`)
@@ -27,48 +28,61 @@ Bug fixes - 1.15.2
 - Keep CSS borders with two widths invalid during minification. (:issue:`1407`)
 - Keep required spaces around math operators in CSS filters. (:issue:`1408`)
 - Keep CSS borders with two colors invalid during minification. (:issue:`1409`)
-- Normalize ``file:`` paths and web URLs with omitted authority slashes; reject hosts that map to an empty domain. (:issue:`1412`)
+- Normalize ``file:`` paths and web URLs with omitted authority slashes; reject hosts that map to an empty domain.
+  (:issue:`1412`)
 - Shorten constant CSS filter calculations, such as ``blur(calc(1px + 2px))`` to ``blur(3px)``. (:issue:`1414`)
 - Resolve links beginning with backslashes against HTTP(S) document URLs the way browsers do. (:issue:`1416`)
 - Resolve links with extra leading slashes to their target host, matching browser URL handling. (:issue:`1417`)
-- Resolve HTTP(S) links and document base URLs with backslash authority separators without adding a path slash. (:issue:`1418`)
+- Resolve HTTP(S) links and document base URLs with backslash authority separators without adding a path slash.
+  (:issue:`1418`)
 - Remove literal `.` and `..` path segments from absolute document base URLs. (:issue:`1419`)
 - Percent-encode brackets in URL userinfo when resolving document base URLs. (:issue:`1420`)
 - Resolve document base URLs with canonical hosts, file paths, and relative non-special schemes; reject malformed web
   hosts when cleaning URLs. (:issue:`1421`)
-- Raise ``MemoryError`` when XPath or XSLT runs out of memory instead of reporting malformed input or returning a result. (:issue:`1426`)
-- Keep CSS shorthand merges on one side of nested rules, and drop fallback fragments when resolving empty HTML base URLs. (:issue:`1434`)
+- Raise ``MemoryError`` when XPath or XSLT runs out of memory instead of reporting malformed input or returning a
+  result. (:issue:`1426`)
+- Keep CSS shorthand merges on one side of nested rules, and drop fallback fragments when resolving empty HTML base
+  URLs. (:issue:`1434`)
 - Preserve invalid background declarations and both background-size components during CSS minification. (:issue:`1435`)
-- Preserve token boundaries in CSS filter values, including before variable functions and inside unresolved functions. (:issue:`1436`)
+- Preserve token boundaries in CSS filter values, including before variable functions and inside unresolved functions.
+  (:issue:`1436`)
 - Reject qualified XML element and attribute names whose local part starts with an invalid character, and namespace
   declarations whose prefix starts with one. (:issue:`1437`)
-- Treat a backslash after a web URL's authority as one path separator and normalize following dot segments when resolving
-  document URLs. (:issue:`1438`)
+- Treat a backslash after a web URL's authority as one path separator and normalize following dot segments when
+  resolving document URLs. (:issue:`1438`)
 - Resolve literal and encoded parent segments in special URL references that omit the authority slashes, including
   same-scheme encoded dots and backslash path separators. (:issue:`1439`)
 - Resolve single-slash and single-backslash special URL references before removing path segments. (:issue:`1440`)
-- Use the document fallback URL when a base element's href cannot be parsed, including missing or malformed hosts. (:issue:`1441`)
+- Use the document fallback URL when a base element's href cannot be parsed, including missing or malformed hosts.
+  (:issue:`1441`)
 - Resolve or reject special URL hosts before shortening paths after extra authority slashes. (:issue:`1442`)
-- Resolve a same-scheme special URL ending in a backslash to the host root instead of adding a second slash. (:issue:`1446`)
+- Resolve a same-scheme special URL ending in a backslash to the host root instead of adding a second slash.
+  (:issue:`1446`)
 - Reject extra host text after a bracketed IPv6 address. (:issue:`1447`)
-- Reject URL ports containing characters outside 0–9 or values above 65535 during normalization and cleaning. (:issue:`1448`)
+- Reject URL ports containing characters outside 0–9 or values above 65535 during normalization and cleaning.
+  (:issue:`1448`)
 - Use the document URL when a relative base reference cannot resolve against an opaque-path URL. (:issue:`1449`)
 - Preserve a single-dot host when resolving a foreign special URL with one slash after its scheme. (:issue:`1450`)
-- Drop the fallback URL's fragment when resolving a reference that contains only the same special scheme. (:issue:`1451`)
+- Drop the fallback URL's fragment when resolving a reference that contains only the same special scheme.
+  (:issue:`1451`)
 - Omit ancestor ``xml:*`` attributes when exclusively canonicalizing XML or HTML subtrees. (:issue:`1452`)
 - Resolve ``xml:base`` values across omitted ancestors when Canonical XML 1.1 serializes a subtree. (:issue:`1453`)
 - Escape CSS punctuation and leading digits in tag names and ID anchors returned by ``Element.css_path()`` so the path
   selects the element in HTML and XML trees. (:issue:`1454`)
-- Validate XML Schema name datatypes against the XML 1.0 character ranges instead of accepting every non-ASCII character. (:issue:`1455`)
-- Match XML Schema regex ``\w`` and ``\W`` using Unicode general categories instead of treating every non-ASCII character
-  as a word character. (:issue:`1456`)
-- Match XML Schema regex name escapes ``\i``, ``\I``, ``\c``, and ``\C`` against the XML 1.0 name character ranges. (:issue:`1457`)
-- Match XML Schema regex ``\d`` and ``\D`` against Unicode decimal digits rather than ASCII digits alone. (:issue:`1458`)
+- Validate XML Schema name datatypes against the XML 1.0 character ranges instead of accepting every non-ASCII
+  character. (:issue:`1455`)
+- Match XML Schema regex ``\w`` and ``\W`` using Unicode general categories instead of treating every non-ASCII
+  character as a word character. (:issue:`1456`)
+- Match XML Schema regex name escapes ``\i``, ``\I``, ``\c``, and ``\C`` against the XML 1.0 name character ranges.
+  (:issue:`1457`)
+- Match XML Schema regex ``\d`` and ``\D`` against Unicode decimal digits rather than ASCII digits alone.
+  (:issue:`1458`)
 - Apply XML Schema regex character class subtraction, including nested and negated classes. (:issue:`1459`)
 - Match XML Schema regex Unicode general category escapes, including complements and character classes. (:issue:`1460`)
 - Match XML Schema regex Unicode block escapes, including complements and character classes. (:issue:`1461`)
 - Reject reversed XML Schema regex character ranges and multi-character range endpoints. (:issue:`1462`)
-- Reject malformed XML Schema regex character classes instead of compiling them with altered matching behavior. (:issue:`1463`)
+- Reject malformed XML Schema regex character classes instead of compiling them with altered matching behavior.
+  (:issue:`1463`)
 - Reject unknown and incomplete XML Schema regex escapes instead of treating them as literals. (:issue:`1464`)
 - Reject unmatched XML Schema regex parentheses instead of accepting partial patterns. (:issue:`1465`)
 - Reject malformed and misplaced XML Schema regex quantifiers, including unescaped braces. (:issue:`1466`)
@@ -76,11 +90,13 @@ Bug fixes - 1.15.2
 - Keep repeated CSS longhands when merging a shorthand would change which value wins. (:issue:`1468`)
 - Resolve CSS declaration names without ASCII case differences, while preserving custom-property case and ``!important``
   precedence over later normal declarations. (:issue:`1469`)
-- Keep commas inside `srcset` and `imagesrcset` URLs when finding, rewriting, and checking image candidates. (:issue:`1470`)
+- Keep commas inside `srcset` and `imagesrcset` URLs when finding, rewriting, and checking image candidates.
+  (:issue:`1470`)
 - Resolve feed links against nested `xml:base` values in XML feeds, including Atom and RSS links. (:issue:`1471`)
-- Resolve CSS-wide keywords across every supported longhand of ``border``, ``border-*``, and ``outline``. Apply ``all`` to
-  supported properties except ``direction``, while preserving cascade order and importance. (:issue:`1472`)
-- Recognize CSS-escaped property names in declarations and computed styles while retaining their source spelling. (:issue:`1473`)
+- Resolve CSS-wide keywords across every supported longhand of ``border``, ``border-*``, and ``outline``. Apply ``all``
+  to supported properties except ``direction``, while preserving cascade order and importance. (:issue:`1472`)
+- Recognize CSS-escaped property names in declarations and computed styles while retaining their source spelling.
+  (:issue:`1473`)
 - Extract JSON-LD scripts whose media type includes a ``profile`` or other parameter. (:issue:`1474`)
 - Honor rowspans above 1000 rows, up to the HTML table model's limit of 65534. (:issue:`1475`)
 - Ignore URL-like text inside CSS comments and strings when extracting or rewriting links. (:issue:`1476`)
@@ -98,25 +114,30 @@ Bug fixes - 1.15.2
 - Preserve explicit empty query and fragment markers when normalizing URLs. (:issue:`1490`)
 - Select Atom alternate links case-sensitively for feed and entry permalinks, and resolve empty ``href`` references
   against ``xml:base``. (:issue:`1491`)
-- Resolve relative RDFa vocabularies and empty resource references against the document base with ``base_url``. (:issue:`1492`)
-- Keep CSS rules in cascade order when their selectors can match the same element or a nested descendant. (:issue:`1493`)
+- Resolve relative RDFa vocabularies and empty resource references against the document base with ``base_url``.
+  (:issue:`1492`)
+- Keep CSS rules in cascade order when their selectors can match the same element or a nested descendant.
+  (:issue:`1493`)
 - Preserve valid CSS longhands when a later shorthand has an invalid value. (:issue:`1495`)
 - Inherit an Atom entry's author from its source or containing feed when the entry has no author. (:issue:`1496`)
 - Resolve an RSS 1.0 item's ``rdf:about`` against ``xml:base`` when populating its ID. (:issue:`1497`)
 - Preserve valid CSS longhands when another longhand cannot form a valid shorthand. (:issue:`1499`)
 - Expand RDFa CURIE prefixes without regard to case, including prefixes declared with ``@prefix``. (:issue:`1500`)
-- Ignore longhand declarations that mix CSS-wide keywords with other value tokens, preserving earlier valid values. (:issue:`1501`)
+- Ignore longhand declarations that mix CSS-wide keywords with other value tokens, preserving earlier valid values.
+  (:issue:`1501`)
 - Use Dublin Core ``dc:title`` as an RSS or RDF feed or item title when its core ``title`` is absent. (:issue:`1502`)
 - Preserve every rule in top-level CSS @starting-style blocks. (:issue:`1503`)
 - Prefer the first repeated Open Graph value, following the Open Graph protocol's array ordering. (:issue:`1504`)
 - Preserve case-sensitive aliases and every block in CSS @font-feature-values. (:issue:`1505`)
 - Ignore foreign XML namespaces on RSS 2.0 roots, channels, items, and core fields. (:issue:`1506`)
 - Resolve the full RDFa 1.1 initial-context prefixes and terms in RDFa items. (:issue:`1507`)
-- Decode escaped CSS-wide keywords in computed styles and reject declarations that mix them with other tokens. (:issue:`1508`)
+- Decode escaped CSS-wide keywords in computed styles and reject declarations that mix them with other tokens.
+  (:issue:`1508`)
 - Preserve case-sensitive CSS selector names in XML and namespace-qualified stylesheets. (:issue:`1509`)
 - Respect the feed's default namespace when inheriting an Atom author. (:issue:`1510`)
 - Preserve RGB channels in fully transparent hexadecimal CSS colors. (:issue:`1511`)
-- Ignore non-CSS ``<style>`` blocks when resolving computed styles, with case-sensitive type matching for SVG. (:issue:`1512`)
+- Ignore non-CSS ``<style>`` blocks when resolving computed styles, with case-sensitive type matching for SVG.
+  (:issue:`1512`)
 - Match Atom element names case-sensitively in XML feeds. (:issue:`1513`)
 - Expand RDFa ``:reference`` CURIEs with the fixed default prefix, ignoring attempts to redefine it. (:issue:`1514`)
 - Keep fractional RGB percentages precise and handle large channels without invalid output. (:issue:`1515`)
@@ -126,17 +147,18 @@ Bug fixes - 1.15.2
 - Require an RSS, Atom, or RDF feed to be the XML document root; keep embedded feed discovery for HTML. (:issue:`1520`)
 - Resolve RDFa CURIEs built from relative ``prefix`` IRIs against the document base. (:issue:`1521`)
 - Preserve signed zero inside nested CSS math expressions. (:issue:`1522`)
-- Require the Atom namespace on XML ``<feed>`` roots, including when no default namespace is declared. HTML feed discovery
-  remains unchanged. (:issue:`1524`)
+- Require the Atom namespace on XML ``<feed>`` roots, including when no default namespace is declared. HTML feed
+  discovery remains unchanged. (:issue:`1524`)
 - Preserve large HSL hues during CSS minification. (:issue:`1525`)
-- Require ``version="2.0"`` on XML RSS 2.0 roots. HTML feed discovery remains unchanged. Fold unitless zero in nested CSS
-  math without dropping units from typed zero. (:issue:`1526`)
+- Require ``version="2.0"`` on XML RSS 2.0 roots. HTML feed discovery remains unchanged. Fold unitless zero in nested
+  CSS math without dropping units from typed zero. (:issue:`1526`)
 - Preserve HSL colors with saturation above 100% when minifying CSS. (:issue:`1527`)
 - Match RSS 2.0 and RSS 1.0 element names case-sensitively in XML feeds. (:issue:`1528`)
 - Ignore malformed RDFa terms and bracketed SafeCURIEs in ``property`` and ``typeof``. (:issue:`1529`)
 
 Packaging updates - 1.15.2
 ==========================
+
 - Allow GCC 16 to build CSS path escaping with ``-Werror``. (:issue:`1494`)
 - Allow the dev environment to resolve Sphinx and Docutils together. (:issue:`1519`)
 
