@@ -494,6 +494,80 @@ static int opaque_path_needs_encoding(PyObject *path) {
     return 0;
 }
 
+/* An opaque path with its trailing space as %20, which the next parse would otherwise strip. Steals path. */
+static PyObject *escape_trailing_space(PyObject *path) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(path);
+    if (length == 0 || PyUnicode_READ_CHAR(path, length - 1) != ' ') {
+        return path;
+    }
+    PyObject *prefix = PyUnicode_Substring(path, 0, length - 1);
+    Py_DECREF(path);
+    if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: substring of an existing string only fails on allocation */
+        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *escaped = th_str_format("%U%%20", prefix);
+    Py_DECREF(prefix);
+    return escaped;
+}
+
+/* The path percent-encoded for the URL's shape: a file path after its drive-letter and backslash fixes, an opaque path
+   only when it holds something to escape, a special or other hierarchical path with its own set. Returns NULL with a
+   ValueError for a lone surrogate. */
+static PyObject *encode_path(const th_url_parts *parts, int is_file, int has_netloc) {
+    PyObject *raw = parts->part[TH_URL_PATH];
+    if (is_file) {
+        /* A literal backslash can become an authority delimiter on the next parse. */
+        PyObject *file_path = parts->has_authority ? normalize_file_path(raw) : normalize_hostless_file_path(raw);
+        if (file_path == NULL) { /* GCOVR_EXCL_BR_LINE: file-path rewriting only fails on allocation failure */
+            return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyObject *path = th_url_encode_component(file_path, TH_URL_SET_PATH);
+        Py_DECREF(file_path);
+        return path;
+    }
+    int opaque = !has_netloc && PyUnicode_GET_LENGTH(parts->part[TH_URL_SCHEME]) > 0 && !str_has_prefix(raw, "/") &&
+                 !parts->special;
+    if (!opaque) {
+        return parts->special ? th_url_encode_special_path(raw) : th_url_encode_component(raw, TH_URL_SET_PATH);
+    }
+    PyObject *path =
+        opaque_path_needs_encoding(raw) ? th_url_encode_component(raw, TH_URL_SET_OPAQUE_PATH) : Py_NewRef(raw);
+    if (path == NULL) {
+        return NULL;
+    }
+    return escape_trailing_space(path);
+}
+
+/* The schemes whose URL with a host never serializes an empty path. */
+static int has_root_path(PyObject *scheme) {
+    static const char *const ROOTED[] = {"http", "https", "ftp", "ws", "wss"};
+    for (size_t index = 0; index < sizeof(ROOTED) / sizeof(ROOTED[0]); index++) {
+        if (str_equals(scheme, ROOTED[index])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* The query's encode set: a non-special scheme keeps its own set unless the query holds an apostrophe. */
+static int query_encode_set(PyObject *scheme, PyObject *raw_query) {
+    if (PyUnicode_GET_LENGTH(raw_query) > 0 && !scheme_is_special(scheme) && str_holds(raw_query, '\'')) {
+        return TH_URL_SET_QUERY_NON_SPECIAL;
+    }
+    return TH_URL_SET_QUERY;
+}
+
+/* The path without the dangling "/&" suffix the scrub can leave once query and fragment cleanup empties both. Steals
+   path. */
+static PyObject *drop_dangling_ampersand(PyObject *path) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(path);
+    if (length < 2 || PyUnicode_READ_CHAR(path, length - 1) != '&' || PyUnicode_READ_CHAR(path, length - 2) != '/') {
+        return path;
+    }
+    Py_SETREF(path, PyUnicode_Substring(path, 0, length - 1));
+    return path;
+}
+
 /* Rebuild the URL from spec-normalized components plus the beyond-spec query/fragment canonicalization. Returns NULL
    with a ValueError when a component cannot be percent-encoded (a lone surrogate). */
 static PyObject *normalize_parts(const th_url_parts *parts, const clean_options *options, int web_only) {
@@ -531,35 +605,8 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
                 goto done;        /* GCOVR_EXCL_LINE: allocation-failure path */
             }
         }
-        /* A literal backslash can become an authority delimiter on the next parse. */
-        PyObject *file_path = parts->has_authority ? normalize_file_path(parts->part[TH_URL_PATH])
-                                                   : normalize_hostless_file_path(parts->part[TH_URL_PATH]);
-        if (file_path == NULL) { /* GCOVR_EXCL_BR_LINE: file-path rewriting only fails on allocation failure */
-            goto done;           /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
-        path = th_url_encode_component(file_path, TH_URL_SET_PATH);
-        Py_DECREF(file_path);
-    } else {
-        int opaque = !has_netloc && PyUnicode_GET_LENGTH(scheme) > 0 &&
-                     !str_has_prefix(parts->part[TH_URL_PATH], "/") && !parts->special;
-        if (opaque) {
-            path = opaque_path_needs_encoding(parts->part[TH_URL_PATH])
-                       ? th_url_encode_component(parts->part[TH_URL_PATH], TH_URL_SET_OPAQUE_PATH)
-                       : Py_NewRef(parts->part[TH_URL_PATH]);
-        } else {
-            path = parts->special ? th_url_encode_special_path(parts->part[TH_URL_PATH])
-                                  : th_url_encode_component(parts->part[TH_URL_PATH], TH_URL_SET_PATH);
-        }
-        if (opaque && path != NULL && PyUnicode_GET_LENGTH(path) > 0 &&
-            PyUnicode_READ_CHAR(path, PyUnicode_GET_LENGTH(path) - 1) == ' ') {
-            PyObject *prefix = PyUnicode_Substring(path, 0, PyUnicode_GET_LENGTH(path) - 1);
-            if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: substring of an existing string only fails on allocation */
-                goto done;        /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-            Py_SETREF(path, th_str_format("%U%%20", prefix));
-            Py_DECREF(prefix);
-        }
     }
+    path = encode_path(parts, is_file, has_netloc);
     if (path == NULL) {
         goto done;
     }
@@ -570,20 +617,12 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
             goto done;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
-    int query_set = TH_URL_SET_QUERY;
-    PyObject *raw_query = parts->part[TH_URL_QUERY];
-    if (PyUnicode_GET_LENGTH(raw_query) > 0 && !scheme_is_special(scheme) &&
-        PyUnicode_FindChar(raw_query, '\'', 0, PyUnicode_GET_LENGTH(raw_query), 1) >= 0) {
-        query_set = TH_URL_SET_QUERY_NON_SPECIAL;
-    }
-    query = normalize_query(raw_query, options, query_set);
+    query = normalize_query(parts->part[TH_URL_QUERY], options, query_encode_set(scheme, parts->part[TH_URL_QUERY]));
     if (query == NULL) {
         goto done;
     }
-    if (has_netloc && PyUnicode_GET_LENGTH(path) == 0 &&
-        (str_equals(scheme, "http") || str_equals(scheme, "https") || str_equals(scheme, "ftp") ||
-         str_equals(scheme, "ws") || str_equals(scheme, "wss"))) {
-        Py_SETREF(path, PyUnicode_FromString("/")); /* a special URL with a host never serializes an empty path */
+    if (has_netloc && PyUnicode_GET_LENGTH(path) == 0 && has_root_path(scheme)) {
+        Py_SETREF(path, PyUnicode_FromString("/"));
     }
     if (!options->trailing_slash && PyUnicode_GET_LENGTH(query) == 0 && PyUnicode_GET_LENGTH(path) > 1 &&
         PyUnicode_READ_CHAR(path, PyUnicode_GET_LENGTH(path) - 1) == '/') {
@@ -598,22 +637,17 @@ static PyObject *normalize_parts(const th_url_parts *parts, const clean_options 
         goto done;
     }
     if (web_only && PyUnicode_GET_LENGTH(query) == 0 && PyUnicode_GET_LENGTH(fragment) == 0) {
-        Py_ssize_t length = PyUnicode_GET_LENGTH(path);
-        if (length >= 2 && PyUnicode_READ_CHAR(path, length - 1) == '&' &&
-            PyUnicode_READ_CHAR(path, length - 2) == '/') {
-            /* Query/fragment cleanup can expose the scrub's dangling /& suffix. */
-            Py_SETREF(path, PyUnicode_Substring(path, 0, length - 1));
-            if (path == NULL) { /* GCOVR_EXCL_BR_LINE: substring only fails on allocation failure */
-                goto done;      /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
+        path = drop_dangling_ampersand(path);
+        if (path == NULL) { /* GCOVR_EXCL_BR_LINE: substring only fails on allocation failure */
+            goto done;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
     }
+    int keep_empty_query = !web_only && parts->has_query && PyUnicode_GET_LENGTH(parts->part[TH_URL_QUERY]) == 0;
+    int keep_empty_fragment = !web_only && !options->strict && !options->strip_fragment && parts->has_fragment &&
+                              PyUnicode_GET_LENGTH(parts->part[TH_URL_FRAGMENT]) == 0;
     result = unsplit(scheme, netloc, path, query, fragment, has_netloc || parts->has_authority,
-                     PyUnicode_GET_LENGTH(query) > 0 ||
-                         (!web_only && parts->has_query && PyUnicode_GET_LENGTH(parts->part[TH_URL_QUERY]) == 0),
-                     PyUnicode_GET_LENGTH(fragment) > 0 ||
-                         (!web_only && !options->strict && !options->strip_fragment && parts->has_fragment &&
-                          PyUnicode_GET_LENGTH(parts->part[TH_URL_FRAGMENT]) == 0));
+                     PyUnicode_GET_LENGTH(query) > 0 || keep_empty_query,
+                     PyUnicode_GET_LENGTH(fragment) > 0 || keep_empty_fragment);
 done:
     Py_XDECREF(netloc);
     Py_XDECREF(path);
