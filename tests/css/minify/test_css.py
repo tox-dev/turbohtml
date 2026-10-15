@@ -506,6 +506,28 @@ def test_minify_css_hash_color_context(source: str, expected: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{color:#ff000000}", "a{color:#f000}", id="transparent-red"),
+        pytest.param("a{color:#11223300}", "a{color:#1230}", id="four-digit-hex"),
+        pytest.param("a{color:#12345600}", "a{color:#12345600}", id="eight-digit-hex"),
+        pytest.param("a{color:#AABBCC00}", "a{color:#abc0}", id="uppercase-hex"),
+        pytest.param("a{color:#00000000}", "a{color:#0000}", id="transparent-black"),
+        pytest.param("a{color:#ff0000ff}", "a{color:red}", id="opaque-alpha"),
+        pytest.param("a{color:#ff0000f0}", "a{color:#ff0000f0}", id="nonopaque-alpha"),
+        pytest.param("a{background:#ff000000 url(x)}", "a{background:#f000 url(x)}", id="background"),
+        pytest.param("a{border-color:#ff000000}", "a{border-color:#f000}", id="border"),
+        pytest.param("a{outline-color:#ff000000}", "a{outline-color:#f000}", id="outline"),
+        pytest.param("a{box-shadow:0 0 #ff000000}", "a{box-shadow:0 0 #f000}", id="shadow"),
+        pytest.param("a{font-family:#ff000000}", "a{font-family:#ff000000}", id="non-color-hash"),
+    ],
+)
+def test_minify_css_transparent_hex_keeps_rgb(source: str, expected: str) -> None:
+    result: Final = minify_css(source)
+    assert (result, minify_css(result)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
     "property_name",
     [
         "accent-color",

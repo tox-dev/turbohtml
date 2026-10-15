@@ -547,7 +547,7 @@ static int css_color_keyword_or_hash(css_buf *pool, const css_token *token, int 
     if (token->kind == CSS_IDENT) {
         return css_name_to_hex(pool, token->text, token->text_len, out_off, out_len);
     }
-    /* a hash: lower-case it, fold #rrggbbaa with aa==ff/00, then map to a keyword or a 3/4-digit short form */
+    /* a hash: lower-case it, drop an opaque alpha, then map to a keyword or a 3/4-digit short form */
     css_char data[10];
     Py_ssize_t len = token->text_len;
     if (len > 9) {
@@ -556,14 +556,8 @@ static int css_color_keyword_or_hash(css_buf *pool, const css_token *token, int 
     for (Py_ssize_t index = 0; index < len; index++) {
         data[index] = css_lower(token->text[index]);
     }
-    if (len == 9 && data[7] == data[8]) {
-        if (data[7] == 'f') {
-            len = 7;
-        } else if (data[7] == '0') {
-            data[0] = '#';
-            data[1] = data[2] = data[3] = data[4] = '0';
-            len = 5;
-        }
+    if (len == 9 && data[7] == 'f' && data[8] == 'f') {
+        len = 7;
     }
     const th_css_color_entry *named = css_hex_to_name(data, len);
     if (named != NULL) {
