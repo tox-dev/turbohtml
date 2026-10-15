@@ -145,7 +145,7 @@ static int default_namespace_at_node(th_tree *tree, th_node *node, const char *u
     return inherited;
 }
 
-static int default_namespace_is_or_missing(th_tree *tree, th_node *node, const char *uri) {
+static int default_namespace_is(th_tree *tree, th_node *node, const char *uri, int missing_is_match) {
     for (th_node *ancestor = node; ancestor != NULL; ancestor = ancestor->parent) {
         if (ancestor->type != TH_NODE_ELEMENT) {
             continue;
@@ -155,7 +155,7 @@ static int default_namespace_is_or_missing(th_tree *tree, th_node *node, const c
             return match;
         }
     }
-    return 1;
+    return missing_is_match;
 }
 
 static int namespace_bytes_is(th_tree *tree, th_node *node, const char *prefix, Py_ssize_t prefix_len,
@@ -1620,8 +1620,7 @@ static th_node *find_feed_root(th_tree *tree, th_node *document, const char **ty
         if (node->type != TH_NODE_ELEMENT) {
             continue;
         }
-        if (tag_is(node, "feed", 4) &&
-            (!th_tree_is_xml(tree) || default_namespace_is_or_missing(tree, node, ATOM_URI))) {
+        if (tag_is(node, "feed", 4) && (!th_tree_is_xml(tree) || default_namespace_is(tree, node, ATOM_URI, 0))) {
             *type_out = "atom";
             *root_namespace = 1;
             return node;
@@ -1638,7 +1637,7 @@ static th_node *find_feed_root(th_tree *tree, th_node *document, const char **ty
         }
         if (rdf) {
             *type_out = "rdf";
-            *root_namespace = default_namespace_is_or_missing(tree, node, RSS_URI);
+            *root_namespace = default_namespace_is(tree, node, RSS_URI, 1);
             return node;
         }
         int atom = th_tree_is_xml(tree) ? qualified_tag_is(tree, node, "feed", ATOM_URI) : 0;
@@ -1648,7 +1647,7 @@ static th_node *find_feed_root(th_tree *tree, th_node *document, const char **ty
         }
         if (atom) {
             *type_out = "atom";
-            *root_namespace = default_namespace_is_or_missing(tree, node, ATOM_URI);
+            *root_namespace = default_namespace_is(tree, node, ATOM_URI, 1);
             return node;
         }
     }

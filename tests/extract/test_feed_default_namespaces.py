@@ -21,6 +21,25 @@ def test_feed_foreign_default_namespace_is_not_atom_root(uri: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "xml",
+    [
+        "<feed><title>Wrong</title></feed>",
+        '<feed xmlns=""><title>Wrong</title></feed>',
+        f'<feed xmlns:a="{ATOM}"><title>Wrong</title></feed>',
+    ],
+    ids=["missing-default", "empty-default", "unrelated-prefix"],
+)
+def test_feed_atom_root_requires_atom_namespace(xml: str) -> None:
+    assert feed(xml) is None
+
+
+def test_feed_prefixed_atom_root_is_recognized() -> None:
+    result = feed(f'<a:feed xmlns:a="{ATOM}"><a:title>Right</a:title></a:feed>')
+    assert result is not None
+    assert result.title == "Right"
+
+
+@pytest.mark.parametrize(
     ("field", "wrong", "right"),
     [
         ("title", '<title xmlns="urn:other">wrong</title>', "<title>right</title>"),
@@ -36,6 +55,15 @@ def test_feed_atom_foreign_default_field_is_skipped(field: str, wrong: str, righ
     assert getattr(result, field) == "right"
 
 
+def test_feed_atom_same_length_foreign_field_is_skipped() -> None:
+    xml: Final = (
+        f'<feed xmlns="{ATOM}"><title xmlns="http://www.w3.org/2005/Xtom">Wrong</title><title>Right</title></feed>'
+    )
+    result = parse_xml(xml).feed()
+    assert result is not None
+    assert result.title == "Right"
+
+
 def test_feed_atom_foreign_default_entry_is_skipped() -> None:
     xml: Final = (
         f'<feed xmlns="{ATOM}"><entry xmlns="urn:other"><title>Wrong</title></entry>'
@@ -48,7 +76,8 @@ def test_feed_atom_foreign_default_entry_is_skipped() -> None:
 
 def test_feed_atom_child_restores_default_namespace() -> None:
     xml: Final = (
-        f'<feed xmlns:a="{ATOM}"><a:entry xmlns="urn:other"><title xmlns="{ATOM}">Right</title></a:entry></feed>'
+        f'<feed xmlns="{ATOM}" xmlns:a="{ATOM}">'
+        f'<a:entry xmlns="urn:other"><title xmlns="{ATOM}">Right</title></a:entry></feed>'
     )
     result = parse_xml(xml).feed()
     assert result is not None

@@ -1,0 +1,2 @@
+Require the Atom namespace on XML ``<feed>`` roots, including when no default namespace is declared. HTML feed discovery
+remains unchanged.
