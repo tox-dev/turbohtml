@@ -1,2 +1,2 @@
-Split URL normalization's path encoding and suffix trimming out of one long function into helpers, without changing
-its output.
+Split URL normalization's path encoding and suffix trimming out of one long function into helpers, without changing its
+output.
