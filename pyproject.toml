@@ -85,7 +85,7 @@ dev = [
 ]
 test = [
   "covdefaults>=2.3",
-  "docutils>=0.23",            # render the docs bench-table directive in tests/test_bench_table_directive.py
+  "docutils>=0.22.4",          # render the docs bench-table directive in tests/test_bench_table_directive.py
   "elementpath>=5.1.4",        # the XPath 2.0 oracle the string-function differential test cross-checks against
   "html5lib>=1.1",             # compare HTML meaning before the native Markdown conversion
   "httpx2>=2.13.1",            # the benchmark corpora and the tools/generate_* scripts fetch pinned data over it
