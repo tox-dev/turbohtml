@@ -133,6 +133,22 @@ struct th_node {
     Py_ssize_t attr_count;
 };
 
+/* The next node of a pre-order walk bounded to root's subtree, or NULL once the walk is done. */
+static inline th_node *preorder_next(th_node *current, th_node *root) {
+    if (current->first_child != NULL) {
+        return current->first_child;
+    }
+    /* current can be NULL here if the cursor node was detached (extract()) mid-walk:
+       its parent chain no longer reaches root, so end the walk instead of dereferencing. */
+    while (current != NULL && current != root) {
+        if (current->next_sibling != NULL) {
+            return current->next_sibling;
+        }
+        current = current->parent;
+    }
+    return NULL;
+}
+
 /* Reject an unsafe recursive consumer before it allocates output, invokes callbacks, or mutates the tree. */
 static inline int th_node_check_max_depth(th_node *root, Py_ssize_t limit, const char *operation) {
     th_node *node = root;

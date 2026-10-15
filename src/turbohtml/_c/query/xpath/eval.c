@@ -341,16 +341,6 @@ static int node_test_matches(struct th_node *node, const xn *step, const step_ma
     }
 }
 
-static struct th_node *descendant_next(struct th_node *node, struct th_node *root) {
-    if (node->first_child != NULL) {
-        return node->first_child;
-    }
-    while (node != root && node->next_sibling == NULL) {
-        node = node->parent;
-    }
-    return node == root ? NULL : node->next_sibling;
-}
-
 /* Pre-order successor over the whole tree, or NULL past the last node. */
 struct th_node *document_next(struct th_node *node) {
     if (node->first_child != NULL) {
@@ -408,7 +398,7 @@ static int apply_descendant_step(xp_nodeset *out, struct th_node *root, const xn
         (*covered)++;
     }
     struct th_node *node = step->axis == AX_DESCENDANT_OR_SELF ? root : root->first_child;
-    for (; node != NULL; node = descendant_next(node, root)) {
+    for (; node != NULL; node = preorder_next(node, root)) {
         while (*covered < contexts->len && contexts->items[*covered].node == node) {
             (*covered)++;
         }
@@ -464,7 +454,7 @@ static int apply_step(xp_nodeset *out, struct th_node *ctx, enum xp_axis axis, c
         }
         TH_FALLTHROUGH; /* descendant-or-self is self plus the descendant walk */
     case AX_DESCENDANT:
-        for (struct th_node *node = ctx->first_child; node != NULL; node = descendant_next(node, ctx)) {
+        for (struct th_node *node = ctx->first_child; node != NULL; node = preorder_next(node, ctx)) {
             if (emit_if_match(out, node, step, match) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
                 return -1;                                   /* GCOVR_EXCL_LINE */
             }

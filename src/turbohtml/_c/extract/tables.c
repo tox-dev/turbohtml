@@ -420,18 +420,6 @@ static PyObject *grid_to_records(const table_grid *grid) {
     return result;
 }
 
-/* The next node in a full pre-order walk of root's subtree (descending into every element, tables included so nested
-   ones are found), or NULL at the end. */
-static th_node *next_in_subtree(th_node *current, th_node *root) {
-    if (current->first_child != NULL) {
-        return current->first_child;
-    }
-    while (current != root && current->next_sibling == NULL) {
-        current = current->parent;
-    }
-    return current == root ? NULL : current->next_sibling;
-}
-
 /* Element.rows() -> list[list[str]]. Snapshot the table under the per-tree lock, then materialize the grid. */
 PyObject *turbohtml_element_table_rows(PyObject *owner, th_tree *tree, th_node *table) {
     table_grid grid = {0};
@@ -470,7 +458,7 @@ PyObject *turbohtml_node_tables(PyObject *owner, th_tree *tree, th_node *root) {
     PyObject *handle = turbohtml_node_handle(owner);
     (void)handle;                      /* only the per-tree lock on free-threaded builds; a no-op argument otherwise */
     Py_BEGIN_CRITICAL_SECTION(handle); /* per-tree lock: no concurrent mutation mid-walk */
-    for (th_node *current = root->first_child; current != NULL; current = next_in_subtree(current, root)) {
+    for (th_node *current = root->first_child; current != NULL; current = preorder_next(current, root)) {
         if (current->type != TH_NODE_ELEMENT || current->atom != TH_TAG_TABLE) {
             continue;
         }

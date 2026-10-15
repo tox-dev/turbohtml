@@ -5504,19 +5504,9 @@ static int rule_order(const void *left_ptr, const void *right_ptr) {
 
 /* ---- output serialization ------------------------------------------------- */
 
-static th_node *xslt_preorder_next(th_node *root, th_node *node) {
-    if (node->first_child != NULL) {
-        return node->first_child;
-    }
-    while (node != root && node->next_sibling == NULL) {
-        node = node->parent;
-    }
-    return node == root ? NULL : node->next_sibling;
-}
-
 /* Append the text of every Text descendant of node, in document order. */
 static int collect_output_text(th_node *node, xb *buffer) {
-    for (th_node *child = node->first_child; child != NULL; child = xslt_preorder_next(node, child)) {
+    for (th_node *child = node->first_child; child != NULL; child = preorder_next(child, node)) {
         if (child->type == TH_NODE_TEXT && /* GCOVR_EXCL_BR_LINE: the second condition fails only on allocation */
             xb_add(buffer, child->text, child->text_len) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
             return -1;                                          /* GCOVR_EXCL_LINE */
@@ -5527,7 +5517,7 @@ static int collect_output_text(th_node *node, xb *buffer) {
 
 /* Retype direct text children of cdata-section-elements so the serializer wraps them in CDATA. */
 static void apply_cdata_sections(engine *eng, th_node *node) {
-    for (th_node *child = node->first_child; child != NULL; child = xslt_preorder_next(node, child)) {
+    for (th_node *child = node->first_child; child != NULL; child = preorder_next(child, node)) {
         if (child->type != TH_NODE_ELEMENT) {
             continue;
         }

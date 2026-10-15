@@ -873,18 +873,8 @@ int th_node_doctype_ids(th_node *node, const Py_UCS4 **public_id, Py_ssize_t *pu
     return 1;
 }
 
-static th_node *text_preorder_next(th_node *node, th_node *root) {
-    if (node->first_child != NULL) {
-        return node->first_child;
-    }
-    while (node != root && node->next_sibling == NULL) {
-        node = node->parent;
-    }
-    return node == root ? NULL : node->next_sibling;
-}
-
 static void collect_text(sbuf *out, th_tree *tree, th_node *root) {
-    for (th_node *node = root->first_child; node != NULL; node = text_preorder_next(node, root)) {
+    for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
         if (node->type == TH_NODE_TEXT) {
             sbuf_put_ucs4(out, need_text(tree, node), node->text_len);
         }
@@ -905,7 +895,7 @@ PyObject *th_node_text_string(th_tree *tree, th_node *root) {
     sbuf snapshot = {NULL, 0, 0, 0};
     Py_UCS4 bits = 0;
     th_node *first = root->type == TH_NODE_TEXT ? root : root->first_child;
-    for (th_node *node = first; node != NULL; node = text_preorder_next(node, root)) {
+    for (th_node *node = first; node != NULL; node = preorder_next(node, root)) {
         if (node->type != TH_NODE_TEXT || node->text_len == 0) {
             continue;
         }
@@ -960,7 +950,7 @@ PyObject *th_node_text_string(th_tree *tree, th_node *root) {
    built; a Text or Content child of a content fragment is descended like an element. */
 static void collect_text_into(th_tree *tree, th_node *root, Py_UCS4 *buf) {
     Py_ssize_t pos = 0;
-    for (th_node *node = root->first_child; node != NULL; node = text_preorder_next(node, root)) {
+    for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
         if (node->type == TH_NODE_TEXT) {
             memcpy(buf + pos, need_text(tree, node), (size_t)node->text_len * sizeof(Py_UCS4));
             pos += node->text_len;

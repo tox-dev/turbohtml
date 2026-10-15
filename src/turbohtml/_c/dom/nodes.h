@@ -516,21 +516,6 @@ static inline PyObject *node_wrap(module_state *state, PyObject *handle, th_node
     return result;
 }
 
-static inline th_node *preorder_next(th_node *current, th_node *root) {
-    if (current->first_child != NULL) {
-        return current->first_child;
-    }
-    /* current can be NULL here if the cursor node was detached (extract()) mid-walk:
-       its parent chain no longer reaches root, so end the walk instead of dereferencing. */
-    while (current != NULL && current != root) {
-        if (current->next_sibling != NULL) {
-            return current->next_sibling;
-        }
-        current = current->parent;
-    }
-    return NULL;
-}
-
 /* The node before this one in document order: the deepest last descendant of the
    previous sibling, else the parent. */
 static inline th_node *previous_element(th_node *node) {
