@@ -1120,7 +1120,7 @@ static PyObject *extract_id(th_tree *tree, th_node *entry, th_node *const *field
     Py_DECREF(value);
     value = rdf_reference(tree, entry, "about", 5, 0);
     if (value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     return value == Py_None ? value : resolve_link_xml_base(tree, entry, value);
 }
