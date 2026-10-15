@@ -997,6 +997,25 @@ static PyObject *rdfa_expand_term(PyObject *token, PyObject *vocab, PyObject *pr
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     PyObject *iri = PyDict_GetItemWithError(prefixes, prefix);
+    if (iri == NULL) {
+        if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: lookup fails only on an unforceable error */
+            Py_DECREF(prefix);  /* GCOVR_EXCL_LINE: error path */
+            return NULL;        /* GCOVR_EXCL_LINE */
+        }
+        for (Py_ssize_t index = 0; index < colon; index++) {
+            Py_UCS4 code = PyUnicode_READ_CHAR(prefix, index);
+            if (Py_UNICODE_TOLOWER(code) != code) {
+                PyObject *lower = PyObject_CallMethod(prefix, "lower", NULL);
+                if (lower == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                    Py_DECREF(prefix); /* GCOVR_EXCL_LINE: allocation-failure path */
+                    return NULL;       /* GCOVR_EXCL_LINE */
+                }
+                iri = PyDict_GetItemWithError(prefixes, lower);
+                Py_DECREF(lower);
+                break;
+            }
+        }
+    }
     Py_DECREF(prefix);
     if (iri == NULL) {
         if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: lookup fails only on an unforceable error */
@@ -1035,6 +1054,18 @@ static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize
                 pending = ucs4_to_str(&value[start], cursor - start - 1);
                 if (pending == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                     return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
+                }
+                for (Py_ssize_t index = start; index < cursor - 1; index++) {
+                    if (Py_UNICODE_TOLOWER(value[index]) == value[index]) {
+                        continue;
+                    }
+                    PyObject *lower = PyObject_CallMethod(pending, "lower", NULL);
+                    Py_DECREF(pending);
+                    pending = lower;
+                    if (pending == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                        return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
+                    }
+                    break;
                 }
             }
             continue;

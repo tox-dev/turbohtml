@@ -65,8 +65,8 @@ class RdfaItem:
 
     Mirrors :class:`MicrodataItem` with the RDFa vocabulary context added. ``property`` keys and the ``type`` IRIs are
     expanded against the in-scope ``@vocab`` and ``@prefix`` mappings (the RDFa 1.1 initial context seeds the common
-    prefixes, so ``schema:``, ``dc:``, ``foaf:`` resolve without a page-level declaration); a token whose prefix is
-    undeclared, or a bare term with no ``@vocab`` in scope, is kept verbatim.
+    prefixes, so ``schema:``, ``dc:``, ``foaf:`` resolve without a page-level declaration). Prefix matching ignores
+    case; a token whose prefix is undeclared, or a bare term with no ``@vocab`` in scope, is kept verbatim.
 
     :param vocab: the in-scope ``@vocab`` IRI, resolved against ``base_url`` when supplied, or ``None`` when no
         vocabulary is set.
