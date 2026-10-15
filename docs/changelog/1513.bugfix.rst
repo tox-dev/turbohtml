@@ -1,0 +1,1 @@
+Match Atom element names case-sensitively in XML feeds.

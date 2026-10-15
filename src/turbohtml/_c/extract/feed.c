@@ -7,8 +7,7 @@
    content:encoded/content/summary/description chain, guid-as-permalink link, the Atom rel="alternate" link selection).
 
    The facade parses a feed with parse_xml and falls back to the HTML tree builder when it is not well-formed, so the
-   walk reads either tree. Tag names compare ASCII case-insensitively, which covers the XML tree's lastBuildDate and the
-   HTML tree's lowercased lastbuilddate alike. A field's value is its Text and CDATA character data, except an Atom
+   walk reads either tree. A field's value is its Text and CDATA character data, except an Atom
    XHTML construct, which keeps the markup inside its XHTML div. HTML also makes <link> void, so an RSS/RDF
    <link>URL</link> leaves the URL as the void element's next
    text sibling, where the XML tree keeps it as the element's own text.
@@ -44,9 +43,6 @@ typedef struct {
     Py_ssize_t len;
 } feed_tag;
 
-/* Whether the UCS4 run equals the ASCII literal [lit, lit + lit_len) ignoring ASCII case. The parser lowercases tag and
-   attribute names, so an exact compare would do; folding keeps a hand-written test feed's mixed case (isPermaLink)
-   matching too. */
 static int ucs4_ieq(const Py_UCS4 *value, Py_ssize_t len, const char *lit, Py_ssize_t lit_len) {
     if (len != lit_len) {
         return 0;
@@ -64,8 +60,8 @@ static int tag_is(const th_node *node, const char *name, Py_ssize_t len) {
     return ucs4_ieq(node->text, node->text_len, name, len);
 }
 
-static int ucs4_eq_ascii(const Py_UCS4 *value, Py_ssize_t len, const char *lit) {
-    if (value == NULL || len != (Py_ssize_t)strlen(lit)) {
+static int ucs4_eq_ascii_len(const Py_UCS4 *value, Py_ssize_t len, const char *lit, Py_ssize_t lit_len) {
+    if (value == NULL || len != lit_len) {
         return 0;
     }
     for (Py_ssize_t index = 0; index < len; index++) {
@@ -74,6 +70,10 @@ static int ucs4_eq_ascii(const Py_UCS4 *value, Py_ssize_t len, const char *lit) 
         }
     }
     return 1;
+}
+
+static int ucs4_eq_ascii(const Py_UCS4 *value, Py_ssize_t len, const char *lit) {
+    return ucs4_eq_ascii_len(value, len, lit, (Py_ssize_t)strlen(lit));
 }
 
 static int namespace_is(th_tree *tree, th_node *node, Py_ssize_t prefix_len, const char *uri) {
@@ -213,7 +213,8 @@ static int qualified_tag_is(th_tree *tree, th_node *node, const char *local, con
 }
 
 static int feed_tag_is(th_tree *tree, th_node *node, const char *name, Py_ssize_t len, const char *uri, int inherited) {
-    if (tag_is(node, name, len)) {
+    int atom_xml = uri == ATOM_URI && th_tree_is_xml(tree);
+    if (atom_xml ? ucs4_eq_ascii_len(node->text, node->text_len, name, len) : tag_is(node, name, len)) {
         return !th_tree_is_xml(tree) || (inherited && node->attr_count == 0) ||
                (uri == NULL ? empty_namespace_at_node(tree, node, inherited)
                             : default_namespace_at_node(tree, node, uri, inherited));
@@ -222,7 +223,7 @@ static int feed_tag_is(th_tree *tree, th_node *node, const char *name, Py_ssize_
         return 0;
     }
     Py_ssize_t colon = node->text_len - len - 1;
-    return node->text[colon] == ':' && th_tree_is_xml(tree) && ucs4_eq_ascii(node->text + colon + 1, len, name)
+    return node->text[colon] == ':' && th_tree_is_xml(tree) && ucs4_eq_ascii_len(node->text + colon + 1, len, name, len)
                ? namespace_is(tree, node, colon, uri)
                : 0;
 }
@@ -908,6 +909,7 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields,
                    {"creator", DC_URI, FEED_CREATOR},
                    {"encoded", CONTENT_URI, FEED_ENCODED}};
     int xml = th_tree_is_xml(tree);
+    int atom_xml = xml && uri == ATOM_URI;
     int dc_namespace = -2;
     int content_namespace = -2;
     for (th_node *child = entry->first_child; child != NULL; child = child->next_sibling) {
@@ -973,7 +975,8 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields,
         default:
             break;
         }
-        if (field >= 0 && tag_is(child, tags[field].name, tags[field].len)) {
+        if (field >= 0 && (atom_xml ? ucs4_eq_ascii_len(child->text, child->text_len, tags[field].name, tags[field].len)
+                                    : tag_is(child, tags[field].name, tags[field].len))) {
             if (xml &&
                 ((field == FEED_TITLE && uri != ATOM_URI && child->attr_count != 0) || field == FEED_DESCRIPTION)) {
                 int match = qualified_tag_is(tree, child, field == FEED_TITLE ? "title" : "description", DC_URI);
@@ -1623,7 +1626,8 @@ static th_node *find_feed_root(th_tree *tree, th_node *document, const char **ty
         if (node->type != TH_NODE_ELEMENT) {
             continue;
         }
-        if (tag_is(node, "feed", 4) && (!th_tree_is_xml(tree) || default_namespace_is(tree, node, ATOM_URI, 0))) {
+        if ((th_tree_is_xml(tree) ? ucs4_eq_ascii(node->text, node->text_len, "feed") : tag_is(node, "feed", 4)) &&
+            (!th_tree_is_xml(tree) || default_namespace_is(tree, node, ATOM_URI, 0))) {
             *type_out = "atom";
             *root_namespace = 1;
             return node;
