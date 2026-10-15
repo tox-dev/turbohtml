@@ -139,8 +139,8 @@ static void css_merge_box(css_buf *pool, decl_vec *decls, const char *shorthand,
         }
         cbuf_put_run(&value, pool->data + decls->items[idx[0]].val_off, decls->items[idx[0]].val_len);
     } else {
-        for (int edge = 0; prefix != NULL && edge < 4; edge++) {
-            if (!css_box_edge_supported(pool, &decls->items[idx[edge]], shorthand[0] == 'p')) {
+        for (int edge = 0; edge < 4; edge++) {
+            if (!css_box_edge_supported(pool, &decls->items[idx[edge]], shorthand[0] == 'p' || shorthand[0] == 'b')) {
                 return;
             }
         }
@@ -199,6 +199,53 @@ CSS_NOINLINE static int css_box_edge_supported(const css_buf *pool, const css_de
            css_unit_zero_droppable(value + number_end, decl->val_len - number_end);
 }
 
+static int css_decl_keyword_in(const css_buf *pool, const css_decl *decl, const char *const *keywords) {
+    for (int index = 0; keywords[index] != NULL; index++) {
+        if (css_run_ieq(pool->data + decl->val_off, decl->val_len, keywords[index])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int css_pair_value_safe(const css_buf *pool, const css_decl *decl, const char *shorthand, int part) {
+    static const char *const flex_direction[] = {"row", "row-reverse", "column", "column-reverse", NULL};
+    static const char *const flex_wrap[] = {"nowrap", "wrap", "wrap-reverse", NULL};
+    static const char *const align_content[] = {"normal",       "stretch",      "center",   "start",
+                                                "end",          "flex-start",   "flex-end", "space-between",
+                                                "space-around", "space-evenly", "baseline", NULL};
+    static const char *const justify_content[] = {
+        "normal",        "stretch",      "center",       "start", "end",   "flex-start", "flex-end",
+        "space-between", "space-around", "space-evenly", "left",  "right", NULL};
+    static const char *const items[] = {"normal",   "stretch",    "center",   "start",    "end", "self-start",
+                                        "self-end", "flex-start", "flex-end", "baseline", NULL};
+    static const char *const self[] = {"auto",       "normal",   "stretch",    "center",   "start",    "end",
+                                       "self-start", "self-end", "flex-start", "flex-end", "baseline", NULL};
+    static const char *const overflow[] = {"visible", "hidden", "clip", "scroll", "auto", NULL};
+    if (strcmp(shorthand, "flex-flow") == 0) {
+        return css_decl_keyword_in(pool, decl, part == 0 ? flex_direction : flex_wrap);
+    }
+    if (strcmp(shorthand, "place-content") == 0) {
+        return css_decl_keyword_in(pool, decl, part == 0 ? align_content : justify_content);
+    }
+    if (strcmp(shorthand, "place-items") == 0 || strcmp(shorthand, "place-self") == 0) {
+        const char *const *keywords = strcmp(shorthand, "place-items") == 0 ? items : self;
+        return css_decl_keyword_in(pool, decl, keywords) ||
+               (part == 1 && (css_run_ieq(pool->data + decl->val_off, decl->val_len, "left") ||
+                              css_run_ieq(pool->data + decl->val_off, decl->val_len, "right") ||
+                              (strcmp(shorthand, "place-items") == 0 &&
+                               css_run_ieq(pool->data + decl->val_off, decl->val_len, "legacy"))));
+    }
+    if (strcmp(shorthand, "overflow") == 0) {
+        return css_decl_keyword_in(pool, decl, overflow);
+    }
+    if (strcmp(shorthand, "gap") == 0) {
+        return css_run_ieq(pool->data + decl->val_off, decl->val_len, "normal") ||
+               css_box_edge_supported(pool, decl, 1);
+    }
+    return css_box_edge_supported(pool, decl, shorthand[0] == 'p');
+}
+
 /* Merge two longhands into a two-value shorthand (longhand0 then longhand1, collapsing to one value when both are
    equal), under the same value-safety gates as css_merge_box: both present, same importance, no var()/env(), and any
    CSS-wide keyword the identical sole value for both. A non-NULL forbidden list names siblings whose presence blocks
@@ -230,6 +277,9 @@ static void css_merge_pair(css_buf *pool, decl_vec *decls, const char *shorthand
             !css_decl_value_eq(pool, &decls->items[idx0], &decls->items[idx1])) {
             return;
         }
+    } else if (!css_pair_value_safe(pool, &decls->items[idx0], shorthand, 0) ||
+               !css_pair_value_safe(pool, &decls->items[idx1], shorthand, 1)) {
+        return;
     }
     css_buf value = {NULL, 0, 0, pool->oom};
     cbuf_put_run(&value, pool->data + decls->items[idx0].val_off, decls->items[idx0].val_len);
@@ -247,6 +297,40 @@ static void css_merge_pair(css_buf *pool, decl_vec *decls, const char *shorthand
     decls->items[idx0 > idx1 ? idx1 : idx0].dropped = 1;
     cbuf_free(&value);
     css_dedup(pool, decls);
+}
+
+static int css_outline_color_safe(const css_buf *pool, const css_decl *decl) {
+    const css_char *value = pool->data + decl->val_off;
+    Py_ssize_t len = decl->val_len;
+    if (css_run_ieq(value, len, "currentcolor")) {
+        return 1;
+    }
+    if (value[0] == '#' && (len == 4 || len == 5 || len == 7 || len == 9)) {
+        for (Py_ssize_t index = 1; index < len; index++) {
+            if (!css_is_hex(value[index])) {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    for (int index = 0; index < th_css_hex_count; index++) {
+        const th_css_color_entry *entry = &th_css_hex_to_name[index];
+        if (entry->val_len == len && css_run_ieq(value, len, entry->val)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int css_outline_value_safe(const css_buf *pool, const css_decl *decl, int part) {
+    static const char *const widths[] = {"thin", "medium", "thick", NULL};
+    static const char *const styles[] = {"auto",   "none",  "dotted", "dashed", "solid", "double",
+                                         "groove", "ridge", "inset",  "outset", NULL};
+    if (part == 0) {
+        return css_decl_keyword_in(pool, decl, widths) ||
+               (pool->data[decl->val_off + decl->val_len - 1] != '%' && css_box_edge_supported(pool, decl, 1));
+    }
+    return part == 1 ? css_decl_keyword_in(pool, decl, styles) : css_outline_color_safe(pool, decl);
 }
 
 /* Merge three longhands into a space-joined shorthand (lh0 lh1 lh2, always three parts) under the same value-safety
@@ -285,6 +369,10 @@ static void css_merge_triple(css_buf *pool, decl_vec *decls, const char *shortha
         cbuf_put_run(&value, pool->data + decls->items[idx[0]].val_off, decls->items[idx[0]].val_len);
     } else {
         for (int part = 0; part < 3; part++) {
+            if (!css_outline_value_safe(pool, &decls->items[idx[part]], part)) {
+                cbuf_free(&value);
+                return;
+            }
             if (part > 0) {
                 cbuf_putc(&value, ' ');
             }

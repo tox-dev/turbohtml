@@ -28,6 +28,98 @@ _NEWLY = CSSMinify(baseline=2021)
 
 
 @pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        pytest.param("flex-direction:row", "flex-wrap:wrap", id="flex-flow"),
+        pytest.param("align-content:center", "justify-content:end", id="place-content"),
+        pytest.param("align-items:center", "justify-items:end", id="place-items"),
+        pytest.param("align-self:auto", "justify-self:stretch", id="place-self"),
+        pytest.param("overflow-x:hidden", "overflow-y:auto", id="overflow"),
+        pytest.param("row-gap:5px", "column-gap:6px", id="gap"),
+        pytest.param("margin-inline-start:5px", "margin-inline-end:6px", id="margin-inline"),
+        pytest.param("margin-block-start:5px", "margin-block-end:6px", id="margin-block"),
+        pytest.param("padding-inline-start:5px", "padding-inline-end:6px", id="padding-inline"),
+        pytest.param("padding-block-start:5px", "padding-block-end:6px", id="padding-block"),
+        pytest.param("inset-inline-start:5px", "inset-inline-end:6px", id="inset-inline"),
+        pytest.param("inset-block-start:5px", "inset-block-end:6px", id="inset-block"),
+    ],
+)
+@pytest.mark.parametrize("invalid_part", [pytest.param(0, id="first"), pytest.param(1, id="second")])
+def test_minify_css_invalid_longhand_blocks_pair_shorthand(first: str, second: str, invalid_part: int) -> None:
+    declarations = [first, second]
+    property_name = declarations[invalid_part].split(":", 1)[0]
+    declarations[invalid_part] = f"{property_name}:bad stuff"
+    source = f"a{{{';'.join(declarations)}}}"
+    assert minify_css(source, _NEWLY) == source
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("a{top:5px;right:bad stuff;bottom:5px;left:5px}", id="inset"),
+        pytest.param(
+            "a{border-top-left-radius:5px;border-top-right-radius:bad stuff;"
+            "border-bottom-right-radius:5px;border-bottom-left-radius:5px}",
+            id="border-radius",
+        ),
+        pytest.param("a{outline-width:2px;outline-style:solid;outline-color:bad stuff}", id="outline"),
+        pytest.param("a{outline-width:5%;outline-style:solid;outline-color:red}", id="outline-percentage"),
+        pytest.param("a{outline-width:2px;outline-style:hidden;outline-color:red}", id="outline-hidden"),
+        pytest.param("a{outline-width:2px;outline-style:solid;outline-color:#ggg}", id="outline-invalid-hex"),
+        pytest.param("a{outline-width:garbage;outline-style:solid;outline-color:red}", id="outline-invalid-width"),
+        pytest.param("a{outline-width:2px;outline-style:solid;outline-color:#12}", id="outline-short-hex"),
+        pytest.param("a{align-content:center;justify-content:baseline}", id="justify-content-baseline"),
+        pytest.param("a{align-self:center;justify-self:legacy}", id="justify-self-legacy"),
+    ],
+)
+def test_minify_css_invalid_longhand_blocks_box_or_outline_shorthand(source: str) -> None:
+    assert minify_css(source, _NEWLY) == source
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{row-gap:normal;column-gap:normal}", "a{gap:normal}", id="normal-gap"),
+        pytest.param("a{row-gap:normal;column-gap:5px}", "a{gap:normal 5px}", id="mixed-gap"),
+        pytest.param("a{align-items:center;justify-items:left}", "a{place-items:center left}", id="left-items"),
+        pytest.param("a{align-items:center;justify-items:right}", "a{place-items:center right}", id="right-items"),
+        pytest.param("a{align-items:center;justify-items:legacy}", "a{place-items:center legacy}", id="legacy-items"),
+        pytest.param(
+            "a{outline-width:thin;outline-style:solid;outline-color:red}",
+            "a{outline:thin solid red}",
+            id="thin-outline",
+        ),
+        pytest.param(
+            "a{outline-width:2px;outline-style:solid;outline-color:currentcolor}",
+            "a{outline:2px solid currentcolor}",
+            id="currentcolor-outline",
+        ),
+        pytest.param(
+            "a{outline-width:2px;outline-style:solid;outline-color:transparent}",
+            "a{outline:2px solid #0000}",
+            id="transparent-outline",
+        ),
+        pytest.param(
+            "a{outline-width:2px;outline-style:solid;outline-color:#123}", "a{outline:2px solid #123}", id="hex3"
+        ),
+        pytest.param(
+            "a{outline-width:2px;outline-style:solid;outline-color:#1234}", "a{outline:2px solid #1234}", id="hex4"
+        ),
+        pytest.param(
+            "a{outline-width:2px;outline-style:solid;outline-color:#123456}", "a{outline:2px solid #123456}", id="hex6"
+        ),
+        pytest.param(
+            "a{outline-width:2px;outline-style:solid;outline-color:#12345678}",
+            "a{outline:2px solid #12345678}",
+            id="hex8",
+        ),
+    ],
+)
+def test_minify_css_keeps_valid_shorthand_merges(source: str, expected: str) -> None:
+    assert minify_css(source, _NEWLY) == expected
+
+
+@pytest.mark.parametrize(
     ("source", "expected"),
     [
         pytest.param(
@@ -268,8 +360,9 @@ def test_minify_css_invalid_shorthand_keeps_longhand(
         pytest.param(
             "a{border-top-left-radius:calc(100% - 1px);border-top-right-radius:calc(100% - 1px);"
             "border-bottom-right-radius:calc(100% - 1px);border-bottom-left-radius:calc(100% - 1px)}",
-            "a{border-radius:calc(100% - 1px)}",
-            id="merge-border-radius-calc-corner",
+            "a{border-top-left-radius:calc(100% - 1px);border-top-right-radius:calc(100% - 1px);"
+            "border-bottom-right-radius:calc(100% - 1px);border-bottom-left-radius:calc(100% - 1px)}",
+            id="keep-unvalidated-border-radius-calc-corner",
         ),
         pytest.param(
             "a{border-top-left-radius:1px 2px;border-top-right-radius:1px 2px;border-bottom-right-radius:1px 2px;"
