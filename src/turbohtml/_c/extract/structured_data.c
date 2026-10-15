@@ -1074,7 +1074,7 @@ static PyObject *rdfa_resource_iri(PyObject *value, rdfa_ctx ctx) {
     if (expanded == NULL) {   /* GCOVR_EXCL_BR_LINE: expansion fails only on unforceable allocation */
         if (safe) {           /* GCOVR_EXCL_LINE: allocation-failure path */
             Py_DECREF(curie); /* GCOVR_EXCL_LINE */
-        }
+        } /* GCOVR_EXCL_LINE: allocation-failure path */
         Py_DECREF(value); /* GCOVR_EXCL_LINE */
         return NULL;      /* GCOVR_EXCL_LINE */
     }
