@@ -1073,19 +1073,44 @@ static PyObject *rdfa_expand_term(PyObject *token, PyObject *vocab, PyObject *pr
     if (iri == NULL && initial_iri == NULL) {
         return Py_NewRef(token);
     }
+    PyObject *base = NULL;
+    PyObject *mapping = iri;
+    if (PyTuple_CheckExact(mapping)) {
+        base = PyTuple_GET_ITEM(mapping, 2);
+        iri = PyTuple_GET_ITEM(mapping, 0);
+    }
     PyObject *reference = PyUnicode_Substring(token, colon + 1, length);
     if (reference == NULL) { /* GCOVR_EXCL_BR_LINE: substring fails only on unforceable allocation */
         return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
+    if (base != NULL && PyTuple_GET_ITEM(mapping, 1) != Py_None) {
+        int simple = 1;
+        for (Py_ssize_t index = 0; index < PyUnicode_GET_LENGTH(reference); index++) {
+            Py_UCS4 code = PyUnicode_READ_CHAR(reference, index);
+            if (!((code >= (Py_UCS4)'a' && code <= (Py_UCS4)'z') || (code >= (Py_UCS4)'A' && code <= (Py_UCS4)'Z') ||
+                  (code >= (Py_UCS4)'0' && code <= (Py_UCS4)'9') || code == (Py_UCS4)'_' || code == (Py_UCS4)'-')) {
+                simple = 0;
+                break;
+            }
+        }
+        if (simple) {
+            iri = PyTuple_GET_ITEM(mapping, 1);
+            base = NULL;
+        }
+    }
     PyObject *result = iri != NULL ? PyUnicode_Concat(iri, reference) : th_str_format("%s%U", initial_iri, reference);
     Py_DECREF(reference);
+    if (result != NULL && base != NULL && resolve_in_place(base, &result) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
+        Py_DECREF(result); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;       /* GCOVR_EXCL_LINE */
+    }
     return result;
 }
 
 /* Merge the whitespace-separated `prefix: iri` pairs of a @prefix attribute into `prefixes`. A `prefix:` token names a
    prefix (the trailing colon is dropped) and the next token is its IRI; a token that is neither is skipped, and a
    trailing `prefix:` with no IRI is dropped (RDFa 1.1 processing). -1 only on the excluded allocation-failure path. */
-static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize_t len) {
+static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize_t len, PyObject *base) {
     PyObject *pending = NULL;
     Py_ssize_t cursor = 0;
     while (cursor < len) {
@@ -1124,6 +1149,29 @@ static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize
         if (iri == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             Py_DECREF(pending); /* GCOVR_EXCL_LINE: allocation-failure path */
             return -1;          /* GCOVR_EXCL_LINE */
+        }
+        if (base != NULL && th_url_scheme_colon(value, start, cursor) < 0) {
+            PyObject *resolved = Py_NewRef(Py_None);
+            if (PyUnicode_READ_CHAR(iri, PyUnicode_GET_LENGTH(iri) - 1) == (Py_UCS4)'/') {
+                Py_SETREF(resolved, Py_NewRef(iri));
+                if (resolve_in_place(base, &resolved) < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                    Py_DECREF(pending);                      /* GCOVR_EXCL_LINE */
+                    Py_DECREF(iri);                          /* GCOVR_EXCL_LINE */
+                    Py_DECREF(resolved);                     /* GCOVR_EXCL_LINE */
+                    return -1;                               /* GCOVR_EXCL_LINE */
+                }
+                if (resolved == iri) {
+                    Py_SETREF(resolved, Py_NewRef(Py_None));
+                }
+            }
+            PyObject *relative = PyTuple_Pack(3, iri, resolved, base);
+            Py_DECREF(resolved);
+            if (relative == NULL) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                Py_DECREF(pending); /* GCOVR_EXCL_LINE */
+                Py_DECREF(iri);     /* GCOVR_EXCL_LINE */
+                return -1;          /* GCOVR_EXCL_LINE */
+            }
+            Py_SETREF(iri, relative);
         }
         int failed = PyDict_SetItem(prefixes, pending, iri) < 0;
         Py_DECREF(pending);
@@ -1172,7 +1220,8 @@ static int resolve_child_vocab(th_tree *tree, th_node *child, PyObject *parent, 
 /* The child's in-scope prefix map: a copy of the parent's updated with the child's @prefix declarations, or the
    parent's borrowed map when the child declares none. *owned records whether *out is a new reference to release. -1
    only on the excluded allocation-failure path. */
-static int resolve_child_prefixes(th_tree *tree, th_node *child, PyObject *parent, PyObject **out, int *owned) {
+static int resolve_child_prefixes(th_tree *tree, th_node *child, PyObject *parent, PyObject *base, PyObject **out,
+                                  int *owned) {
     Py_ssize_t index = th_node_attr_find(tree, child, "prefix", 6);
     if (index < 0 || child->attrs[index].value == NULL) {
         *out = parent;
@@ -1183,8 +1232,9 @@ static int resolve_child_prefixes(th_tree *tree, th_node *child, PyObject *paren
     if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (parse_prefix_decls(copy, child->attrs[index].value, child->attrs[index].value_len) < 0) { /* GCOVR_EXCL_BR_LINE:
-                                                                                 allocation-failure path */
+    if (parse_prefix_decls(copy, child->attrs[index].value, child->attrs[index].value_len, base) <
+        0) {             /* GCOVR_EXCL_BR_LINE:
+  allocation-failure path */
         Py_DECREF(copy); /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;       /* GCOVR_EXCL_LINE */
     }
@@ -1214,8 +1264,9 @@ static int resolve_child_ctx(th_tree *tree, th_node *child, rdfa_ctx parent, rdf
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     PyObject *prefixes = NULL;
-    if (resolve_child_prefixes(tree, child, parent.prefixes, &prefixes, prefixes_owned) < 0) { /* GCOVR_EXCL_BR_LINE:
-                                                                                        allocation-failure path */
+    if (resolve_child_prefixes(tree, child, parent.prefixes, parent.base, &prefixes, prefixes_owned) <
+        0) {                                                       /* GCOVR_EXCL_BR_LINE:
+                                               allocation-failure path */
         rdfa_ctx partial = {vocab, NULL, NULL, parent.item_depth}; /* GCOVR_EXCL_LINE: allocation-failure path */
         release_child_ctx(&partial, *vocab_owned, 0);              /* GCOVR_EXCL_LINE */
         return -1;                                                 /* GCOVR_EXCL_LINE */

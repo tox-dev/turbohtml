@@ -46,6 +46,58 @@ def test_rdfa_without_base_keeps_relative_vocab() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("prefix_iri", "reference", "expected"),
+    [
+        pytest.param("/terms/", "Person", "https://example.org/terms/Person", id="root-relative"),
+        pytest.param("/terms/", "A_1-B", "https://example.org/terms/A_1-B", id="simple-reference-chars"),
+        pytest.param("/terms/", "A~B", "https://example.org/terms/A~B", id="other-reference-char"),
+        pytest.param("/terms/", "", "https://example.org/terms/", id="empty-reference"),
+        pytest.param("../terms/", "Person", "https://example.org/terms/Person", id="parent-relative"),
+        pytest.param("../terms/", "../Person", "https://example.org/Person", id="dot-segment-reference"),
+        pytest.param("terms", "Person", "https://example.org/dir/termsPerson", id="no-trailing-slash"),
+        pytest.param("terms/.", "/Person", "https://example.org/dir/terms/Person", id="dot-segment-boundary"),
+        pytest.param("https://schema.org/", "Person", "https://schema.org/Person", id="absolute"),
+    ],
+)
+def test_rdfa_prefix_iri_with_base(prefix_iri: str, reference: str, expected: str) -> None:
+    html = f'<div prefix="ex: {prefix_iri}" typeof="ex:{reference}"><span property="ex:{reference}">Ada</span></div>'
+
+    assert parse(html).rdfa(base_url=_BASE) == [
+        RdfaItem(vocab=None, type=[expected], resource=None, properties={expected: ["Ada"]}),
+    ]
+
+
+def test_rdfa_relative_prefix_uses_html_base() -> None:
+    html = (
+        '<base href="https://cdn.example/dir/">'
+        '<div prefix="ex: ../terms/" typeof="ex:Person"><span property="ex:name">Ada</span></div>'
+    )
+
+    assert parse(html).rdfa(base_url=_BASE) == [
+        RdfaItem(
+            vocab=None,
+            type=["https://cdn.example/terms/Person"],
+            resource=None,
+            properties={"https://cdn.example/terms/name": ["Ada"]},
+        ),
+    ]
+
+
+def test_rdfa_invalid_relative_prefix_stays_verbatim() -> None:
+    html = '<div prefix="ex: //[bad/" typeof="ex:Person"></div>'
+
+    assert parse(html).rdfa(base_url=_BASE)[0].type == ["//[bad/Person"]
+
+
+def test_rdfa_without_base_keeps_relative_prefix() -> None:
+    html = '<div prefix="ex: /terms/" typeof="ex:Person"><span property="ex:name">Ada</span></div>'
+
+    assert parse(html).rdfa() == [
+        RdfaItem(vocab=None, type=["/terms/Person"], resource=None, properties={"/terms/name": ["Ada"]}),
+    ]
+
+
 @pytest.mark.parametrize("attribute", ["about", "resource", "href", "src"])
 @pytest.mark.parametrize("value", ['=""', ""], ids=["empty", "valueless"])
 def test_rdfa_present_empty_subject_resolves_to_base(attribute: str, value: str) -> None:

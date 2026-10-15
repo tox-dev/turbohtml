@@ -1,0 +1,1 @@
+Resolve RDFa CURIEs built from relative ``prefix`` IRIs against the document base.
