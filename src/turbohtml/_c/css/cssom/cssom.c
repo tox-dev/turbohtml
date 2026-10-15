@@ -1230,14 +1230,21 @@ static int css_mixed_wide_keyword(const Py_UCS4 *value, Py_ssize_t len) {
     if (len < 5) {
         return 0;
     }
-    int has_separator = 0;
-    for (Py_ssize_t pos = 0; pos < len; pos++) {
-        if (css_is_ws(value[pos]) || value[pos] == ',' || value[pos] == '/') {
-            has_separator = 1;
+    int candidate = 0;
+    for (Py_ssize_t pos = 0; pos + 2 < len; pos++) {
+        Py_UCS4 first = value[pos] | 32;
+        if (first != 'i' && first != 'r' && first != 'u') {
+            continue;
+        }
+        Py_UCS4 second = value[pos + 1] | 32;
+        Py_UCS4 third = value[pos + 2] | 32;
+        if ((first == 'i' && second == 'n' && (third == 'h' || third == 'i')) ||
+            (first == 'r' && second == 'e' && third == 'v') || (first == 'u' && second == 'n' && third == 's')) {
+            candidate = 1;
             break;
         }
     }
-    if (!has_separator) {
+    if (!candidate) {
         return 0;
     }
     Py_UCS4 quote = 0;
@@ -1280,11 +1287,12 @@ static int css_mixed_wide_keyword(const Py_UCS4 *value, Py_ssize_t len) {
         Py_ssize_t stop = pos + 1;
         while (stop < len &&
                ((value[stop] >= 'a' && value[stop] <= 'z') || (value[stop] >= 'A' && value[stop] <= 'Z') ||
-                (value[stop] >= '0' && value[stop] <= '9') || value[stop] == '-')) {
+                (value[stop] >= '0' && value[stop] <= '9') || value[stop] == '-' || value[stop] == '_' ||
+                value[stop] >= 128)) {
             stop++;
         }
         if (css_wide_keyword(value + pos, stop - pos)) {
-            return 1;
+            return pos != 0 || stop != len;
         }
         pos = stop - 1;
     }

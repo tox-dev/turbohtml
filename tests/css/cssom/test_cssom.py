@@ -723,7 +723,10 @@ def test_computed_style_distributive_css_wide_keyword_cannot_mix_with_components
 
 
 @pytest.mark.parametrize("keyword", ["inherit", "initial", "unset", "revert", "revert-layer"])
-@pytest.mark.parametrize("value", ["{keyword} blue", "blue {keyword}", "blue,{keyword}", "blue/{keyword}"])
+@pytest.mark.parametrize(
+    "value",
+    ["{keyword} blue", "blue {keyword}", "blue,{keyword}", "blue/{keyword}", "blue+{keyword}", "{keyword}(blue)"],
+)
 def test_computed_style_longhand_mixed_css_wide_keyword_does_not_override(keyword: str, value: str) -> None:
     style = _style("<p></p>", css=f"p {{ color: red; color: {value.format(keyword=keyword)} }}", tag="p")
     assert style["color"] == "red"
@@ -760,6 +763,11 @@ def test_computed_style_longhand_mixed_important_css_wide_keyword_keeps_valid_de
 )
 def test_computed_style_longhand_css_wide_keyword_token_boundaries(value: str) -> None:
     assert _style("<p></p>", css=f"p {{ color: red; color: {value} }}", tag="p")["color"] == "red"
+
+
+@pytest.mark.parametrize("value", ["inherit_foo", "inherité", "inherit-foo", "indigo", "unit", "unite"])
+def test_computed_style_longhand_css_wide_keyword_prefix_is_identifier(value: str) -> None:
+    assert _style("<p></p>", css=f"p {{ list-style-type: {value} }}", tag="p")["list-style-type"] == value
 
 
 def test_computed_style_longhand_css_wide_keyword_inside_function_remains_value() -> None:
