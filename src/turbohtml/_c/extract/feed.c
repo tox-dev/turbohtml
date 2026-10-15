@@ -624,12 +624,12 @@ static PyObject *field_text(th_tree *tree, th_node *parent, const feed_tag *tags
     }
     for (size_t index = 0; index < count; index++) {
         th_node *child = NULL;
-        if (th_tree_is_xml(tree) && tags[index].len == 7 && memcmp(tags[index].name, "dc:date", 7) == 0) {
+        if (th_tree_is_xml(tree) && tags[index].len >= 7 && memcmp(tags[index].name, "dc:", 3) == 0) {
             for (th_node *candidate = parent->first_child; candidate != NULL; candidate = candidate->next_sibling) {
-                if (candidate->type != TH_NODE_ELEMENT) {
+                if (candidate->type != TH_NODE_ELEMENT || candidate->text_len < tags[index].len - 3) {
                     continue;
                 }
-                int match = qualified_tag_is(tree, candidate, "date", DC_URI);
+                int match = qualified_tag_is(tree, candidate, tags[index].name + 3, DC_URI);
                 if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
                     return NULL; /* GCOVR_EXCL_LINE: allocation failure */
                 }
@@ -643,6 +643,30 @@ static PyObject *field_text(th_tree *tree, th_node *parent, const feed_tag *tags
             child = feed_child_named(tree, parent, tags[index].name, tags[index].len, uri, inherited, &error);
             if (error) {     /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
                 return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            if (child != NULL && child->attr_count != 0 && uri == NULL && th_tree_is_xml(tree) &&
+                tags[index].len == 5) {
+                int dc = qualified_tag_is(tree, child, "title", DC_URI);
+                if (dc < 0) {    /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+                    return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+                }
+                if (dc) {
+                    child = NULL;
+                    for (th_node *candidate = parent->first_child; candidate != NULL;
+                         candidate = candidate->next_sibling) {
+                        if (candidate->type != TH_NODE_ELEMENT || !tag_is(candidate, "title", 5)) {
+                            continue;
+                        }
+                        int match = qualified_tag_is(tree, candidate, "title", DC_URI);
+                        if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace lookup fails only on allocation */
+                            return NULL; /* GCOVR_EXCL_LINE: allocation failure */
+                        }
+                        if (!match) {
+                            child = candidate;
+                            break;
+                        }
+                    }
+                }
             }
         }
         if (child == NULL) {
@@ -836,6 +860,7 @@ static PyObject *extract_link(th_tree *tree, th_node *parent, const char *uri, i
 /* Adjacent fields follow fallback precedence. */
 enum {
     FEED_TITLE,
+    FEED_DC_TITLE,
     FEED_GUID,
     FEED_ID,
     FEED_UPDATED,
@@ -856,6 +881,7 @@ enum {
 
 static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields, const char *uri, int inherited) {
     static const feed_tag tags[FEED_FIELD_COUNT] = {{"title", 5},
+                                                    {"dc:title", 8},
                                                     {"guid", 4},
                                                     {"id", 2},
                                                     {"updated", 7},
@@ -875,7 +901,8 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields,
         const char *local;
         const char *uri;
         int field;
-    } modules[] = {{"date", DC_URI, FEED_DC_DATE},
+    } modules[] = {{"title", DC_URI, FEED_DC_TITLE},
+                   {"date", DC_URI, FEED_DC_DATE},
                    {"description", DC_URI, FEED_DC_DESCRIPTION},
                    {"creator", DC_URI, FEED_CREATOR},
                    {"encoded", CONTENT_URI, FEED_ENCODED}};
@@ -921,6 +948,9 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields,
                 break;
             }
             break;
+        case 8:
+            field = FEED_DC_TITLE;
+            break;
         case 9:
             field = FEED_PUBLISHED;
             break;
@@ -943,20 +973,22 @@ static int collect_entry_fields(th_tree *tree, th_node *entry, th_node **fields,
             break;
         }
         if (field >= 0 && tag_is(child, tags[field].name, tags[field].len)) {
-            if (xml && field == FEED_DESCRIPTION) {
-                int match = qualified_tag_is(tree, child, "description", DC_URI);
+            if (xml &&
+                ((field == FEED_TITLE && uri != ATOM_URI && child->attr_count != 0) || field == FEED_DESCRIPTION)) {
+                int match = qualified_tag_is(tree, child, field == FEED_TITLE ? "title" : "description", DC_URI);
                 if (match < 0) { /* GCOVR_EXCL_BR_LINE: namespace_is fails only on allocation */
                     return -1;   /* GCOVR_EXCL_LINE: allocation failure */
                 }
                 if (match) {
-                    if (fields[FEED_DC_DESCRIPTION] == NULL) {
-                        fields[FEED_DC_DESCRIPTION] = child;
+                    int dc_field = field == FEED_TITLE ? FEED_DC_TITLE : FEED_DC_DESCRIPTION;
+                    if (fields[dc_field] == NULL) {
+                        fields[dc_field] = child;
                     }
                     continue;
                 }
             }
-            if (xml && (field == FEED_DC_DATE || field == FEED_DC_DESCRIPTION || field == FEED_CREATOR ||
-                        field == FEED_ENCODED)) {
+            if (xml && (field == FEED_DC_TITLE || field == FEED_DC_DATE || field == FEED_DC_DESCRIPTION ||
+                        field == FEED_CREATOR || field == FEED_ENCODED)) {
                 int *cached = field == FEED_ENCODED ? &content_namespace : &dc_namespace;
                 int match = child->attr_count == 0 && *cached != -2
                                 ? *cached
@@ -1230,7 +1262,7 @@ static PyObject *build_entry(module_state *state, th_tree *tree, th_node *item, 
     }
     int failed = 0;
     int atom = uri == ATOM_URI;
-    failed |= record_set(record, 0, entry_field_text(tree, fields + FEED_TITLE, 1, atom, 0));
+    failed |= record_set(record, 0, entry_field_text(tree, fields + FEED_TITLE, atom ? 1 : 2, atom, 0));
     failed |= record_set(record, 1, entry_link(tree, item, fields[FEED_GUID], uri, inherited));
     failed |= record_set(record, 2, extract_id(tree, item, fields + FEED_GUID, resolved_about));
     failed |= record_set(record, 3, entry_field_text(tree, fields + FEED_UPDATED, 2, 0, 0));
@@ -1540,7 +1572,7 @@ error:
    feed root itself. RSS nests its <item>s in the channel, RDF makes them siblings of the channel, Atom nests its
    <entry>s in the root. NULL only on the excluded allocation-failure path. */
 static PyObject *build_feed(module_state *state, th_tree *tree, th_node *root, const char *type, int root_namespace) {
-    static const feed_tag TITLE[] = {{"title", 5}};
+    static const feed_tag TITLE[] = {{"title", 5}, {"dc:title", 8}};
     static const feed_tag DESCRIPTION[] = {{"description", 11}, {"subtitle", 8}, {"tagline", 7}};
     static const feed_tag UPDATED[] = {{"updated", 7}, {"lastbuilddate", 13}, {"pubdate", 7}, {"dc:date", 7}};
     int is_atom = strcmp(type, "atom") == 0;
@@ -1563,7 +1595,7 @@ static PyObject *build_feed(module_state *state, th_tree *tree, th_node *root, c
     }
     int failed = 0;
     failed |= record_set(record, 0, PyUnicode_FromString(type));
-    failed |= record_set(record, 1, field_text(tree, meta, TITLE, 1, uri, meta_namespace, is_atom));
+    failed |= record_set(record, 1, field_text(tree, meta, TITLE, is_atom ? 1 : 2, uri, meta_namespace, is_atom));
     failed |= record_set(record, 2, extract_link(tree, meta, uri, meta_namespace));
     failed |= record_set(record, 3, field_text(tree, meta, DESCRIPTION, 3, uri, meta_namespace, is_atom));
     failed |= record_set(record, 4, field_text(tree, meta, UPDATED, 4, uri, meta_namespace, 0));
