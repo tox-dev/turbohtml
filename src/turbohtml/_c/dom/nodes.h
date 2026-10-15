@@ -556,6 +556,19 @@ static inline th_node *subtree_next(th_node *node) {
     return NULL;
 }
 
+/* The next node after node's whole subtree in document order, bounded to root's
+   subtree (NULL once the walk leaves root). Like subtree_next but stopping at
+   root, so pruning one node's subtree never escapes into the rest of the tree. */
+static inline th_node *subtree_after(th_node *node, th_node *root) {
+    while (node != root) {
+        if (node->next_sibling != NULL) {
+            return node->next_sibling;
+        }
+        node = node->parent;
+    }
+    return NULL;
+}
+
 static inline int is_ancestor(th_node *candidate, th_node *node) {
     for (th_node *parent = node->parent; parent != NULL; parent = parent->parent) {
         if (parent == candidate) {

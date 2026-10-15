@@ -1243,16 +1243,6 @@ static int tag_in_tuple(const th_node *node, PyObject *tags) {
     return 0;
 }
 
-static th_node *after_subtree(th_node *node, th_node *root) {
-    while (node != root) {
-        if (node->next_sibling != NULL) {
-            return node->next_sibling;
-        }
-        node = node->parent;
-    }
-    return NULL;
-}
-
 static int append_target(PyObject *targets, PyObject *owner, th_node *node) {
     PyObject *wrapped = turbohtml_node_wrap_in(owner, node);
     if (wrapped == NULL || PyList_Append(targets, wrapped) < 0) { /* GCOVR_EXCL_BR_LINE: wrapper/list allocation */
@@ -1312,10 +1302,10 @@ TH_NODE_API(static, PyObject *, collect_targets,
                     break;                                     /* GCOVR_EXCL_LINE */
                 }
             }
-            node = after_subtree(node, root);
+            node = subtree_after(node, root);
             continue;
         }
-        node = node->first_child != NULL ? node->first_child : after_subtree(node, root);
+        node = node->first_child != NULL ? node->first_child : subtree_after(node, root);
     }
     Py_END_CRITICAL_SECTION();
     if (error) {            /* GCOVR_EXCL_BR_LINE: target wrapper/list allocation cannot be forced from a test */

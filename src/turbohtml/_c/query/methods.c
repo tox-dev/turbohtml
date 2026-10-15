@@ -2345,19 +2345,6 @@ static int prune_keep_match(prune_keep **buffer, Py_ssize_t *count, Py_ssize_t *
     return 0;
 }
 
-/* The next node after node's whole subtree in document order, bounded to root's
-   subtree (NULL once the walk leaves root). Like subtree_next but stopping at
-   root, so pruning one node's subtree never escapes into the rest of the tree. */
-static th_node *subtree_after(th_node *node, th_node *root) {
-    while (node != root) {
-        if (node->next_sibling != NULL) {
-            return node->next_sibling;
-        }
-        node = node->parent;
-    }
-    return NULL;
-}
-
 /* The query edits unlink under the tree lock with no Python call in between, so the iterator count holds for a whole
    pass; the callers pass it as a literal, so the compiler clones each pass and a tree with no live iterator unlinks
    without testing for one. */
