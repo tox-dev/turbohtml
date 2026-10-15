@@ -414,9 +414,12 @@ typedef struct {
     Py_ssize_t name_len;
     const Py_UCS4 *value;
     Py_ssize_t value_len;
-    int important;
-    int escaped_name;
+    unsigned char important;
+    unsigned char escaped_name;
+    unsigned char mixed_wide;
 } css_decl;
+
+static int css_mixed_wide_keyword(const Py_UCS4 *value, Py_ssize_t len);
 
 /* Trim leading and trailing whitespace from a slice in place. */
 static void css_trim(const Py_UCS4 **data, Py_ssize_t *len) {
@@ -632,7 +635,13 @@ static Py_ssize_t css_parse_block(Py_UCS4 *data, Py_ssize_t start, Py_ssize_t en
                     *out = bigger;
                     *capacity = grown;
                 }
-                (*out)[count++] = (css_decl){name, name_len, value, value_len, important, !decode_names && escaped};
+                (*out)[count++] = (css_decl){name,
+                                             name_len,
+                                             value,
+                                             value_len,
+                                             important,
+                                             !decode_names && escaped,
+                                             decode_names && css_mixed_wide_keyword(value, value_len)};
             }
         }
         pos = semi + 1;
@@ -1316,7 +1325,7 @@ static void css_apply_decl(css_slot slots[NUM_PROPS], const css_decl *decl, int 
     }
     int direct = css_prop_id(decl->name, decl->name_len);
     if (direct >= 0) {
-        if (css_mixed_wide_keyword(decl->value, decl->value_len)) {
+        if (decl->mixed_wide) {
             return;
         }
         css_set_slot(slots, direct, decl->value, decl->value_len, &rank);
