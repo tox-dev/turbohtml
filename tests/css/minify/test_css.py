@@ -3868,6 +3868,70 @@ def test_background_pairs(source: str, expected: str, *, repeat: bool) -> None:
     assert minify_css(minify_css(source) if repeat else source) == expected
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "@font-feature-values Foo { @styleset { nice: 12; } @stylistic { fancy: 1; } }",
+            "@font-feature-values Foo{@styleset{nice:12}@stylistic{fancy:1}}",
+            id="feature-blocks",
+        ),
+        pytest.param(
+            "@font-feature-values Foo { @styleset { Nice: 12; nice: 13; } }",
+            "@font-feature-values Foo{@styleset{Nice:12;nice:13}}",
+            id="case-sensitive-aliases",
+        ),
+        pytest.param(
+            "@font-feature-values Foo { @historical-forms { Name: 1; } }",
+            "@font-feature-values Foo{@historical-forms{Name:1}}",
+            id="historical-forms",
+        ),
+        pytest.param(
+            "@font-feature-values Foo { @character-variant { Name: 1 2; } }",
+            "@font-feature-values Foo{@character-variant{Name:1 2}}",
+            id="character-variant",
+        ),
+        pytest.param(
+            "@font-feature-values Foo { @swash { Name: 1; } }",
+            "@font-feature-values Foo{@swash{Name:1}}",
+            id="swash",
+        ),
+        pytest.param(
+            "@font-feature-values Foo { @ornaments { Name: 1; } }",
+            "@font-feature-values Foo{@ornaments{Name:1}}",
+            id="ornaments",
+        ),
+        pytest.param(
+            "@font-feature-values Foo { @annotation { Name: 1; } }",
+            "@font-feature-values Foo{@annotation{Name:1}}",
+            id="annotation",
+        ),
+        pytest.param(
+            "@font-feature-values Foo { @styleset { flex-direction: 1; flex-wrap: 2; } }",
+            "@font-feature-values Foo{@styleset{flex-direction:1;flex-wrap:2}}",
+            id="aliases-resembling-longhands",
+        ),
+        pytest.param(
+            "@font-feature-values Foo { font-display: swap; @styleset { nice: 12; } }",
+            "@font-feature-values Foo{font-display:swap;@styleset{nice:12}}",
+            id="descriptor-and-feature-block",
+        ),
+        pytest.param(
+            "@font-feature-values Foo { @styleset { nice: 12; } font-display: swap; }",
+            "@font-feature-values Foo{@styleset{nice:12}font-display:swap}",
+            id="feature-block-and-descriptor",
+        ),
+        pytest.param(
+            "@font-feature-values Foo { @unknown x; @styleset { nice: 12; } }",
+            "@font-feature-values Foo{@unknown x;@styleset{nice:12}}",
+            id="unknown-statement-then-feature-block",
+        ),
+    ],
+)
+def test_minify_css_font_feature_values(source: str, expected: str) -> None:
+    assert minify_css(source) == expected
+
+
 _CASES: Final = [
     pytest.param(
         "@media screen { bad; .a { opacity: 0; } }",

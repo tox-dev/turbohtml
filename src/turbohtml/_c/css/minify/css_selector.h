@@ -194,6 +194,7 @@ typedef struct {
     Py_ssize_t val_len;
     int important;
     int nested; /* a nested rule or at-rule kept verbatim (prop holds the whole text, val unused) */
+    int at_statement;
     int dropped;
 } css_decl;
 
@@ -241,7 +242,7 @@ static int css_name_is_custom(const css_char *name) {
 
 /* Build a declaration from a segment [start, end). Returns 1 if a declaration was produced. */
 static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, comp_vec *scratch,
-                                css_decl *decl) {
+                                css_decl *decl, int preserve_name) {
     if (vec->bad && css_holds_bad(vec, start, end)) {
         return 0;
     }
@@ -279,10 +280,8 @@ static int css_make_declaration(css_buf *pool, token_vec *vec, Py_ssize_t start,
                 cbuf_putc(pool, css_lower((token->text + token->text_len)[pos]));
             }
         } else if (token->kind != CSS_WS) {
-            /* custom-property names are case-sensitive (CSS Variables 1 §2: "--foo" and "--FOO" are distinct), so a
-               --* name is kept verbatim -- a bulk copy, which a framework :root of hundreds of them leans on; every
-               other property name is ASCII case-insensitive and lower-cased byte by byte. */
-            if (is_custom) {
+            /* custom-property names and font-feature aliases are case-sensitive, so preserve their spelling. */
+            if (is_custom || preserve_name) {
                 cbuf_put_run(pool, token->text, token->text_len);
             } else {
                 for (Py_ssize_t pos = 0; pos < token->text_len; pos++) {

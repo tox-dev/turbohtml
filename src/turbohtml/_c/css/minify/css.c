@@ -96,8 +96,8 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
         cbuf_reserve(&out, length)) {                            /* GCOVR_EXCL_BR_LINE: OOM only */
         if (inline_mode) {
             decl_vec decls = {NULL, 0, 0, &oom, 0};
-            css_parse_declarations(&pool, &cur, &decls);
-            css_render_declarations(&pool, &decls, baseline, &out);
+            css_parse_declarations(&pool, &cur, &decls, 0);
+            css_render_declarations(&pool, &decls, baseline, &out, CSS_DECL_NORMAL);
             css_free(decls.items);
         } else {
             css_parse_rules(&pool, &cur, 1, 0, 0, &out);

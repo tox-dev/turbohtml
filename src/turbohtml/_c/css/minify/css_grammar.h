@@ -351,22 +351,26 @@ static void css_merge_shorthands(css_buf *pool, decl_vec *decls, int baseline) {
     }
 }
 
-static void css_render_declarations(css_buf *pool, decl_vec *decls, int baseline, css_buf *out) {
+enum { CSS_DECL_NORMAL, CSS_DECL_FONT_VALUES, CSS_DECL_FONT_FEATURE };
+
+static void css_render_declarations(css_buf *pool, decl_vec *decls, int baseline, css_buf *out, int mode) {
     /* a declaration parsed after a failed growth may point at pool text that was never written */
     if (*pool->oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_ssize_t start = 0;
-    for (Py_ssize_t index = 0; index <= decls->len; index++) {
-        if (index < decls->len && !decls->items[index].nested) {
-            continue;
+    if (mode != CSS_DECL_FONT_FEATURE) {
+        Py_ssize_t start = 0;
+        for (Py_ssize_t index = 0; index <= decls->len; index++) {
+            if (index < decls->len && !decls->items[index].nested) {
+                continue;
+            }
+            if (index > start) {
+                decl_vec run = {decls->items + start, index - start, index - start, pool->oom, 0};
+                css_dedup(pool, &run);
+                css_merge_shorthands(pool, &run, baseline);
+            }
+            start = index + 1;
         }
-        if (index > start) {
-            decl_vec run = {decls->items + start, index - start, index - start, pool->oom, 0};
-            css_dedup(pool, &run);
-            css_merge_shorthands(pool, &run, baseline);
-        }
-        start = index + 1;
     }
     /* a shorthand merged after a failed growth points at the pool's start, which holds at least the longhands it
        replaced, so the merges read inside the pool; the render must not copy it */
@@ -374,15 +378,17 @@ static void css_render_declarations(css_buf *pool, decl_vec *decls, int baseline
         return;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     int first = 1;
+    int previous_block = 0;
     for (Py_ssize_t index = 0; index < decls->len; index++) {
         css_decl *decl = &decls->items[index];
         if (decl->dropped) {
             continue;
         }
-        if (!first) {
+        if (!first && (mode != CSS_DECL_FONT_VALUES || !previous_block)) {
             cbuf_putc(out, ';');
         }
         first = 0;
+        previous_block = decl->nested && !decl->at_statement;
         if (decl->nested) {
             cbuf_put_run(out, pool->data + decl->prop_off, decl->prop_len);
             continue;
@@ -402,7 +408,14 @@ static int css_is_nested_rule_at(const css_char *name, Py_ssize_t len) {
            css_run_ieq(name, len, "@container") || css_run_ieq(name, len, "@layer") || css_run_ieq(name, len, "@scope");
 }
 
-static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls);
+static int css_is_font_feature_block_at(const css_char *name, Py_ssize_t len) {
+    return css_run_ieq(name, len, "@stylistic") || css_run_ieq(name, len, "@historical-forms") ||
+           css_run_ieq(name, len, "@styleset") || css_run_ieq(name, len, "@character-variant") ||
+           css_run_ieq(name, len, "@swash") || css_run_ieq(name, len, "@ornaments") ||
+           css_run_ieq(name, len, "@annotation");
+}
+
+static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, int preserve_names);
 static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, int media, css_buf *out);
 
 /* Whether an @import/@namespace url() carries a <url-modifier> after its URL (CSS Values 4 §4.5.4): any content beyond
@@ -655,8 +668,12 @@ static Py_ssize_t css_parse_at(css_buf *pool, cursor *cur, css_buf *out) {
             css_parse_rules(pool, cur, 0, is_keyframes, media_head > 0, out);
         } else {
             decl_vec decls = {NULL, 0, 0, pool->oom, 0};
-            css_parse_declarations(pool, cur, &decls);
-            css_render_declarations(pool, &decls, cur->baseline, out);
+            int font_feature_block = css_is_font_feature_block_at(name, name_len);
+            css_parse_declarations(pool, cur, &decls, font_feature_block);
+            css_render_declarations(pool, &decls, cur->baseline, out,
+                                    font_feature_block                                    ? CSS_DECL_FONT_FEATURE
+                                    : css_run_ieq(name, name_len, "@font-feature-values") ? CSS_DECL_FONT_VALUES
+                                                                                          : CSS_DECL_NORMAL);
             css_free(decls.items);
         }
         cbuf_putc(out, '}');
@@ -725,7 +742,7 @@ static int css_starts_custom_property(const token_vec *vec, Py_ssize_t index) {
 }
 
 /* Parse a declaration list (between { }); appends declarations (and nested rules) to decls. */
-static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls) {
+static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, int preserve_names) {
     if (!css_nesting_enter(cur->vec)) {
         /* over-nested: drop this block's remaining declarations rather than recurse into a C stack overflow */
         css_skip_block(cur);
@@ -744,11 +761,12 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls) 
         }
         if (token->kind == CSS_AT) {
             css_buf nested = {NULL, 0, 0, pool->oom};
-            css_parse_at(pool, cur, &nested);
+            Py_ssize_t kind = css_parse_at(pool, cur, &nested);
             css_decl decl = {0};
             decl.prop_off = pool_run(pool, nested.data, nested.len);
             decl.prop_len = nested.len;
             decl.nested = 1;
+            decl.at_statement = kind < 0;
             cbuf_free(&nested);
             decl_vec_push(decls, decl);
             continue;
@@ -769,11 +787,11 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls) 
                 continue;
             }
             decl_vec inner = {NULL, 0, 0, pool->oom, 0};
-            css_parse_declarations(pool, cur, &inner);
+            css_parse_declarations(pool, cur, &inner, 0);
             css_buf selector = {NULL, 0, 0, pool->oom};
             css_minify_selector(cur->vec, segment_start, segment_end, 0, &selector);
             css_buf body = {NULL, 0, 0, pool->oom};
-            css_render_declarations(pool, &inner, cur->baseline, &body);
+            css_render_declarations(pool, &inner, cur->baseline, &body, CSS_DECL_NORMAL);
             css_decl decl = {0};
             decl.prop_off = pool->len;
             cbuf_put_run(pool, selector.data, selector.len);
@@ -794,7 +812,7 @@ static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls) 
             cur->index++;
         }
         css_decl decl = {0};
-        if (css_make_declaration(pool, cur->vec, segment_start, segment_end, &scratch, &decl)) {
+        if (css_make_declaration(pool, cur->vec, segment_start, segment_end, &scratch, &decl, preserve_names)) {
             decl_vec_push(decls, decl);
         }
         if (closed_brace) {
@@ -892,9 +910,9 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyfram
             return;
         }
         decl_vec decls = {NULL, 0, 0, pool->oom, 0};
-        css_parse_declarations(pool, cur, &decls);
+        css_parse_declarations(pool, cur, &decls, 0);
         css_buf body = {NULL, 0, 0, pool->oom};
-        css_render_declarations(pool, &decls, cur->baseline, &body);
+        css_render_declarations(pool, &decls, cur->baseline, &body, CSS_DECL_NORMAL);
         if (body.len > 0) {
             /* render the selector straight into the pool (it reads only the source tokens, never the pool scratch),
                which avoids a per-rule temporary buffer allocation; the body needs its own buffer because rendering it
@@ -999,10 +1017,10 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
     css_tokenize(combined.data, combined.len, &tokens);
     cursor inner = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, pool->oom}};
     decl_vec decls = {NULL, 0, 0, pool->oom, 0};
-    css_parse_declarations(pool, &inner, &decls);
+    css_parse_declarations(pool, &inner, &decls, 0);
     cbuf_free(&inner.media_next);
     css_buf body = {NULL, 0, 0, pool->oom};
-    css_render_declarations(pool, &decls, baseline, &body);
+    css_render_declarations(pool, &decls, baseline, &body, CSS_DECL_NORMAL);
     prev->body_off = pool_run(pool, body.data, body.len);
     prev->body_len = body.len;
     css_free(tokens.items);
