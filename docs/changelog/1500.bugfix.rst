@@ -1,0 +1,1 @@
+Expand RDFa CURIE prefixes without regard to case, including prefixes declared with ``@prefix``.
