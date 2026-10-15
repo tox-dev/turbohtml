@@ -929,11 +929,14 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
     cbuf_putc(&result, '(');
     const char *separator = has_slash ? " " : (has_comma ? "," : " ");
     int exact = is_rgb;
+    int bits[3];
     if (is_rgb) {
         for (int index = 0; index < 3; index++) {
             double scaled = values[index] * 5.0;
-            if (!types[index] || fabs(scaled - floor(scaled + 0.5)) >= 1e-3) {
+            if (!types[index] || scaled != floor(scaled + 0.5)) {
                 exact = 0;
+            } else {
+                bits[index] = scaled <= 0.0 ? 0 : (scaled >= 5.0 ? 255 : 51 * (int)scaled);
             }
         }
     }
@@ -943,7 +946,7 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
         }
         if (is_rgb && exact) {
             char buffer[8];
-            int written = snprintf(buffer, sizeof(buffer), "%d", (int)(values[index] * 255.0 + 0.5));
+            int written = snprintf(buffer, sizeof(buffer), "%d", bits[index]);
             for (int pos = 0; pos < written; pos++) {
                 cbuf_putc(&result, (css_char)(unsigned char)buffer[pos]);
             }

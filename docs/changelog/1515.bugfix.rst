@@ -1,0 +1,1 @@
+Keep fractional RGB percentages precise and handle large channels without invalid output.

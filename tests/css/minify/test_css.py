@@ -528,6 +528,27 @@ def test_minify_css_transparent_hex_keeps_rgb(source: str, expected: str) -> Non
 
 
 @pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("a{color:rgb(19.999% 0% 0% / .5)}", "a{color:rgb(19.999% 0% 0%/.5)}", id="fractional"),
+        pytest.param("a{color:rgb(20.01% 0% 0% / .5)}", "a{color:rgb(20.01% 0% 0%/.5)}", id="above-step"),
+        pytest.param("a{color:rgb(20% 0% 0% / .5)}", "a{color:rgb(51 0 0/.5)}", id="exact-step"),
+        pytest.param("a{color:rgb(1e20% 0% 0% / .5)}", "a{color:rgb(255 0 0/.5)}", id="large-channel"),
+        pytest.param("a{color:rgb(-1e20% 0% 0% / .5)}", "a{color:rgb(0 0 0/.5)}", id="negative-channel"),
+        pytest.param("a{color:rgba(19.999%,0%,0%,.5)}", "a{color:rgb(19.999%,0%,0%,.5)}", id="legacy"),
+        pytest.param(
+            "a{color:color-mix(in srgb, rgb(19.999% 0% 0% / .5) 99%, white)}",
+            "a{color:color-mix(in srgb,rgb(19.999% 0% 0%/.5) 99%,white)}",
+            id="nested-color-mix",
+        ),
+    ],
+)
+def test_minify_css_translucent_rgb_percentage_preserves_precision(source: str, expected: str) -> None:
+    result: Final = minify_css(source)
+    assert (result, minify_css(result)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
     "property_name",
     [
         "accent-color",
