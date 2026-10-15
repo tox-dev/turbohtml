@@ -247,6 +247,43 @@ def test_computed_style_later_source_order_wins_on_a_tie() -> None:
     assert _style("<p></p>", css="p { color: red } p { color: blue }", tag="p")["color"] == "blue"
 
 
+@pytest.mark.parametrize(
+    ("type_attribute", "expected"),
+    [
+        pytest.param("", "red", id="absent"),
+        pytest.param(" type", "red", id="valueless"),
+        pytest.param(' type=""', "red", id="empty"),
+        pytest.param(' data-source="test" type="text/css"', "red", id="other-attribute"),
+        pytest.param(' type="TEXT/CSS"', "red", id="ascii-case"),
+        pytest.param(' type="text/plain"', "blue", id="different-type"),
+        pytest.param(' type="text/css; charset=utf-8"', "blue", id="parameter"),
+        pytest.param(' type=" text/css"', "blue", id="leading-space"),
+        pytest.param(' type="text/csx"', "blue", id="same-length"),
+    ],
+)
+def test_computed_style_skips_non_css_style_type(type_attribute: str, expected: str) -> None:
+    document = parse(f"<style>div{{color:blue}}</style><style{type_attribute}>div{{color:red}}</style><div></div>")
+    element = document.select_one("div")
+    assert isinstance(element, Element)
+    assert computed_style(element)["color"] == expected
+
+
+@pytest.mark.parametrize(
+    ("style_type", "expected"),
+    [
+        pytest.param("text/css", "red", id="svg-exact-type"),
+        pytest.param("TEXT/CSS", "blue", id="svg-type-case"),
+    ],
+)
+def test_computed_style_svg_style_type_is_case_sensitive(style_type: str, expected: str) -> None:
+    document = parse(
+        f"<style>div{{color:blue}}</style><svg><style type='{style_type}'>div{{color:red}}</style></svg><div></div>"
+    )
+    element = document.select_one("div")
+    assert isinstance(element, Element)
+    assert computed_style(element)["color"] == expected
+
+
 def test_computed_style_important_beats_normal() -> None:
     style = _style("<p></p>", css="p { color: blue !important } p { color: red }", tag="p")
     assert style["color"] == "blue"

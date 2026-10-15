@@ -16,6 +16,7 @@
    the cascade resolution run under the caller's per-tree critical section. */
 
 #include "data/attr_atom.h"
+#include "core/ascii.h"
 #include "css/cssom/cssom.h"
 #include "dom/nodes.h"
 #include "css/select/selector.h"
@@ -1493,6 +1494,28 @@ static void css_prioritize_subject(sel_compiled *compiled) {
     }
 }
 
+static int css_style_type_supported(const th_node *node) {
+    for (Py_ssize_t index = 0; index < node->attr_count; index++) {
+        const th_node_attr *attr = &node->attrs[index];
+        if (attr->name_atom == TH_ATTR_TYPE) {
+            if (attr->value_len == 0) {
+                return 1;
+            }
+            if (attr->value_len != 8) {
+                return 0;
+            }
+            for (Py_ssize_t offset = 0; offset < 8; offset++) {
+                Py_UCS4 codepoint = attr->value[offset];
+                if ((node->ns == TH_NS_HTML ? lower_ascii(codepoint) : codepoint) != (Py_UCS4) "text/css"[offset]) {
+                    return 0;
+                }
+            }
+            return 1;
+        }
+    }
+    return 1;
+}
+
 /* Collect every <style> element's text under root (document order), parsing each
    into a sheet whose selectors are compiled against tree. A selector that fails to
    compile leaves compiled[rule] NULL so the rule matches nothing. Returns the sheet
@@ -1502,7 +1525,7 @@ static css_sheet *css_collect_sheets(module_state *state, th_tree *tree, th_node
     Py_ssize_t count = 0;
     Py_ssize_t capacity = 0;
     for (th_node *node = root; node != NULL; node = preorder_next(node, root)) {
-        if (node->type != TH_NODE_ELEMENT || node->atom != TH_TAG_STYLE) {
+        if (node->type != TH_NODE_ELEMENT || node->atom != TH_TAG_STYLE || !css_style_type_supported(node)) {
             continue;
         }
         Py_ssize_t text_len = 0;
