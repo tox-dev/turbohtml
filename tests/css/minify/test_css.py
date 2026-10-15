@@ -2078,6 +2078,11 @@ def test_minify_css_math_function_keeps_zero_unit(value: str) -> None:
             id="positive-zero-product",
         ),
         pytest.param(
+            "a{width:calc(1px / sign(calc(5px * 0)))}",
+            "a{width:calc(1px / sign(calc(0px)))}",
+            id="typed-zero-product",
+        ),
+        pytest.param(
             "a{width:calc(1px / sign(-0.0))}",
             "a{width:calc(1px / sign(-0))}",
             id="browser-signed-zero-literal",

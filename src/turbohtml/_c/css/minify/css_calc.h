@@ -513,7 +513,7 @@ CSS_NOINLINE static int css_try_calc(css_buf *pool, token_vec *vec, Py_ssize_t s
                 cbuf_putc(pool, (css_char)(unsigned char)sum.terms[0].unit[index]);
             }
             *kind = CK_DIM;
-        } else if (sum.terms[0].unit_len > 0 || !context->bare_zero_allowed) {
+        } else if (sum.terms[0].unit_len > 0 || (!context->bare_zero_allowed && !context->nested_math)) {
             /* Bare zero can have a different type from a zero-valued calc(). */
             cbuf_puts(pool, "calc(0");
             for (int index = 0; index < sum.terms[0].unit_len; index++) {

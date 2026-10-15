@@ -1,1 +1,2 @@
-Require ``version="2.0"`` on XML RSS 2.0 roots. HTML feed discovery remains unchanged.
+Require ``version="2.0"`` on XML RSS 2.0 roots. HTML feed discovery remains unchanged. Fold unitless zero in nested CSS
+math without dropping units from typed zero.
