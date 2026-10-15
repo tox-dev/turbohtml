@@ -1,0 +1,1 @@
+Resolve the full RDFa 1.1 initial-context prefixes and terms in RDFa items.

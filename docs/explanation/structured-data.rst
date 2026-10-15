@@ -47,14 +47,16 @@ RDFa reuses the Microdata item shape instead of emitting raw triples: a ``typeof
 :class:`~turbohtml.RdfaItem`, with ``typeof`` playing ``itemscope``'s role, ``property`` playing ``itemprop``'s,
 ``resource``/``about`` the subject, and a nested ``typeof`` the nested item. The RDFa-specific step is term expansion. A
 bare ``property``/``typeof`` token joins the in-scope ``@vocab``, and a ``prefix:reference`` token joins the prefix's
-IRI from the in-scope ``@prefix`` map, which starts from the RDFa 1.1 initial context so ``schema:``, ``dc:``, and
-``foaf:`` resolve without a page-level declaration. ``@vocab`` and ``@prefix`` thread down the tree and can be
-overridden per subtree (an empty ``@vocab`` clears it); a token whose prefix is undeclared, or a bare term with no
-vocabulary in scope, stays verbatim. The object of a property follows the RDFa rules: the ``content`` literal, else a
-nested item, else the ``resource``/``href``/``src`` IRI, else a ``<time>`` ``datetime``, else the text. turbohtml does
-not expand CURIEs embedded in arbitrary IRIs or surface the ``datatype`` type IRI, so typed literals come back as their
-lexical string. Dublin Core is a flat mapping like OpenGraph: the ``dc.*``/``dcterms.*`` ``<meta>`` names, lower-cased
-so ``DC.Title`` and ``dc.title`` key alike, last occurrence winning. Microformats2 remains a later phase.
+IRI from the in-scope ``@prefix`` map, which starts from the RDFa 1.1 initial context so ``schema:``, ``sosa:``, and
+``foaf:`` resolve without a page-level declaration. Without ``@vocab``, the initial-context terms ``describedby``,
+``license``, and ``role`` also resolve to their defined IRIs, regardless of ASCII letter case. ``@vocab`` and
+``@prefix`` thread down the tree and can be overridden per subtree (an empty ``@vocab`` clears it); a token whose prefix
+is undeclared, or an unknown bare term with no vocabulary in scope, stays verbatim. The object of a property follows the
+RDFa rules: the ``content`` literal, else a nested item, else the ``resource``/``href``/``src`` IRI, else a ``<time>``
+``datetime``, else the text. turbohtml does not expand CURIEs embedded in arbitrary IRIs or surface the ``datatype``
+type IRI, so typed literals come back as their lexical string. Dublin Core is a flat mapping like OpenGraph: the
+``dc.*``/``dcterms.*`` ``<meta>`` names, lower-cased so ``DC.Title`` and ``dc.title`` key alike, last occurrence
+winning. Microformats2 remains a later phase.
 
 *******************
  Syndication feeds

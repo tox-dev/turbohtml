@@ -895,9 +895,8 @@ static PyObject *gather_microdata(PyObject *self, PyObject *base) {
     return items;
 }
 
-/* The RDFa 1.1 initial context: the prefix -> IRI mappings a page inherits without declaring a @prefix, so schema:,
-   dc:, foaf:, and the other well-known vocabularies expand out of the box (W3C rdfa-1.1 context). A page @prefix
-   overrides an entry of the same name for its subtree. */
+/* The RDFa 1.1 initial-context prefixes a page inherits without @prefix, so schema:, sosa:, and other vocabularies
+   expand out of the box. A page @prefix overrides an entry of the same name for its subtree. */
 typedef struct {
     const char *prefix;
     const char *iri;
@@ -984,16 +983,59 @@ typedef struct {
     Py_ssize_t item_depth;
 } rdfa_ctx;
 
-/* Expand an RDFa TERMorCURIEorAbsIRI token to its IRI: a bare term (no colon) joins the in-scope @vocab, a prefixed
-   token prefix:reference joins the prefix's IRI when the prefix is declared, and anything else (an undeclared prefix,
-   an absolute IRI, or a bare term with no @vocab in scope) is kept verbatim. NULL only on the excluded
-   allocation-failure path. */
+static int rdfa_matches_term(PyObject *token, const char *term, Py_ssize_t len) {
+    int kind = PyUnicode_KIND(token);
+    void *data = PyUnicode_DATA(token);
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 codepoint = PyUnicode_READ(kind, data, index);
+        if ((unsigned int)(codepoint - 'A') < 26) {
+            codepoint += 'a' - 'A';
+        }
+        if (codepoint != (Py_UCS4)(unsigned char)term[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static const char *rdfa_initial_prefix_iri(PyObject *prefix) {
+    static const struct {
+        const char *prefix;
+        Py_ssize_t len;
+        const char *iri;
+    } additions[] = {
+        {"jsonld", 6, "http://www.w3.org/ns/json-ld#"}, {"odrl", 4, "http://www.w3.org/ns/odrl/2/"},
+        {"sosa", 4, "http://www.w3.org/ns/sosa/"},      {"ssn", 3, "http://www.w3.org/ns/ssn/"},
+        {"time", 4, "http://www.w3.org/2006/time#"},
+    };
+    Py_ssize_t len = PyUnicode_GET_LENGTH(prefix);
+    for (size_t index = 0; index < sizeof(additions) / sizeof(additions[0]); index++) {
+        if (len == additions[index].len && PyUnicode_CompareWithASCIIString(prefix, additions[index].prefix) == 0) {
+            return additions[index].iri;
+        }
+    }
+    return NULL;
+}
+
+/* Expand an RDFa TERMorCURIEorAbsIRI token to its IRI: a bare term (no colon) joins the in-scope @vocab or one of the
+   initial-context term IRIs, a prefixed token prefix:reference joins the prefix's IRI when the prefix is declared, and
+   anything else (an undeclared prefix, an absolute IRI, or an unknown bare term) is kept verbatim. NULL only on the
+   excluded allocation-failure path. */
 static PyObject *rdfa_expand_term(PyObject *token, PyObject *vocab, PyObject *prefixes) {
     Py_ssize_t length = PyUnicode_GET_LENGTH(token);
     Py_ssize_t colon = PyUnicode_FindChar(token, (Py_UCS4)':', 0, length, 1);
     if (colon < 0) {
         if (vocab != NULL) {
             return PyUnicode_Concat(vocab, token);
+        }
+        if (length == 4 && rdfa_matches_term(token, "role", 4)) {
+            return PyUnicode_FromString("http://www.w3.org/1999/xhtml/vocab#role");
+        }
+        if (length == 7 && rdfa_matches_term(token, "license", 7)) {
+            return PyUnicode_FromString("http://www.w3.org/1999/xhtml/vocab#license");
+        }
+        if (length == 11 && rdfa_matches_term(token, "describedby", 11)) {
+            return PyUnicode_FromString("http://www.w3.org/2007/05/powder-s#describedby");
         }
         return Py_NewRef(token);
     }
@@ -1005,7 +1047,7 @@ static PyObject *rdfa_expand_term(PyObject *token, PyObject *vocab, PyObject *pr
     if (iri == NULL) {
         if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: lookup fails only on an unforceable error */
             Py_DECREF(prefix);  /* GCOVR_EXCL_LINE: error path */
-            return NULL;        /* GCOVR_EXCL_LINE */
+            return NULL;        /* GCOVR_EXCL_LINE: error path */
         }
         for (Py_ssize_t index = 0; index < colon; index++) {
             Py_UCS4 code = PyUnicode_READ_CHAR(prefix, index);
@@ -1015,24 +1057,27 @@ static PyObject *rdfa_expand_term(PyObject *token, PyObject *vocab, PyObject *pr
                     Py_DECREF(prefix); /* GCOVR_EXCL_LINE: allocation-failure path */
                     return NULL;       /* GCOVR_EXCL_LINE */
                 }
-                iri = PyDict_GetItemWithError(prefixes, lower);
-                Py_DECREF(lower);
+                Py_DECREF(prefix);
+                prefix = lower;
+                iri = PyDict_GetItemWithError(prefixes, prefix);
                 break;
             }
         }
     }
+    if (iri == NULL && PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: lookup fails only on unforceable error */
+        Py_DECREF(prefix);                 /* GCOVR_EXCL_LINE: error path */
+        return NULL;                       /* GCOVR_EXCL_LINE */
+    }
+    const char *initial_iri = iri == NULL ? rdfa_initial_prefix_iri(prefix) : NULL;
     Py_DECREF(prefix);
-    if (iri == NULL) {
-        if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: lookup fails only on an unforceable error */
-            return NULL;        /* GCOVR_EXCL_LINE: error path */
-        }
+    if (iri == NULL && initial_iri == NULL) {
         return Py_NewRef(token);
     }
     PyObject *reference = PyUnicode_Substring(token, colon + 1, length);
     if (reference == NULL) { /* GCOVR_EXCL_BR_LINE: substring fails only on unforceable allocation */
         return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *result = PyUnicode_Concat(iri, reference);
+    PyObject *result = iri != NULL ? PyUnicode_Concat(iri, reference) : th_str_format("%s%U", initial_iri, reference);
     Py_DECREF(reference);
     return result;
 }
