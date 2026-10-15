@@ -682,10 +682,13 @@ def test_streaming_tokenizer_reclaims_consumed_input() -> None:
     tracemalloc.start()
     for _ in range(10_000):
         list(tokenizer.feed("<p>hello world</p>"))
-    peak = tracemalloc.get_traced_memory()[1]
+    retained = tracemalloc.get_traced_memory()[0]
+    for _ in range(10_000):
+        list(tokenizer.feed("<p>hello world</p>"))
+    growth = tracemalloc.get_traced_memory()[0] - retained
     tracemalloc.stop()
-    # without compaction the buffer grows to well over 100 KB across this run; with it, it stays tiny
-    assert peak < 100_000, f"streaming feed leaked the input buffer: {peak} bytes"
+    # without compaction the input buffer grows by about 180 KB in the second batch
+    assert growth < 100_000, f"streaming feed retained {growth} more bytes"
 
 
 def test_feed_keeps_input_while_a_token_is_queued() -> None:
