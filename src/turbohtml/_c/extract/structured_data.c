@@ -997,6 +997,15 @@ static PyObject *rdfa_expand_term(PyObject *token, PyObject *vocab, PyObject *pr
         }
         return Py_NewRef(token);
     }
+    if (colon == 0) {
+        PyObject *reference = PyUnicode_Substring(token, 1, length);
+        if (reference == NULL) { /* GCOVR_EXCL_BR_LINE: substring fails only on unforceable allocation */
+            return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyObject *result = th_str_format("http://www.w3.org/1999/xhtml/vocab#%U", reference);
+        Py_DECREF(reference);
+        return result;
+    }
     PyObject *prefix = PyUnicode_Substring(token, 0, colon);
     if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: substring fails only on unforceable allocation */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1055,7 +1064,7 @@ static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize
             break;
         }
         if (pending == NULL) {
-            if (value[cursor - 1] == (Py_UCS4)':') {
+            if (cursor - start > 1 && value[cursor - 1] == (Py_UCS4)':') {
                 pending = ucs4_to_str(&value[start], cursor - start - 1);
                 if (pending == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                     return -1;         /* GCOVR_EXCL_LINE: allocation-failure path */
