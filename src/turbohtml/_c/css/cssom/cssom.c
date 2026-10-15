@@ -238,19 +238,54 @@ static int css_slice_ci_eq(const Py_UCS4 *data, Py_ssize_t len, const char *word
     return word[len] == '\0';
 }
 
-static int css_wide_keyword(const Py_UCS4 *value, Py_ssize_t len) {
+static void css_unescape_name(Py_UCS4 *name, Py_ssize_t *length);
+
+typedef enum {
+    CSS_WIDE_NONE,
+    CSS_WIDE_INHERIT,
+    CSS_WIDE_INITIAL,
+    CSS_WIDE_UNSET,
+    CSS_WIDE_REVERT,
+    CSS_WIDE_REVERT_LAYER,
+} css_wide_value;
+
+static css_wide_value css_wide_keyword(const Py_UCS4 *value, Py_ssize_t len) {
     if (len < 5) {
-        return 0;
+        return CSS_WIDE_NONE;
+    }
+    Py_UCS4 first = css_lower(value[0]);
+    if (first != '\\' && first != 'i' && first != 'r' && first != 'u') {
+        return CSS_WIDE_NONE;
+    }
+    Py_UCS4 decoded[97];
+    for (Py_ssize_t pos = 0; pos < len; pos++) {
+        if (value[pos] != '\\') {
+            continue;
+        }
+        if (len > 96) {
+            return CSS_WIDE_NONE;
+        }
+        memcpy(decoded, value, (size_t)len * sizeof(Py_UCS4));
+        decoded[len] = 0;
+        css_unescape_name(decoded, &len);
+        value = decoded;
+        break;
     }
     switch (css_lower(value[0])) {
     case 'i':
-        return css_slice_ci_eq(value, len, "inherit") || css_slice_ci_eq(value, len, "initial");
+        if (css_slice_ci_eq(value, len, "inherit")) {
+            return CSS_WIDE_INHERIT;
+        }
+        return css_slice_ci_eq(value, len, "initial") ? CSS_WIDE_INITIAL : CSS_WIDE_NONE;
     case 'u':
-        return css_slice_ci_eq(value, len, "unset");
+        return css_slice_ci_eq(value, len, "unset") ? CSS_WIDE_UNSET : CSS_WIDE_NONE;
     case 'r':
-        return css_slice_ci_eq(value, len, "revert") || css_slice_ci_eq(value, len, "revert-layer");
+        if (css_slice_ci_eq(value, len, "revert")) {
+            return CSS_WIDE_REVERT;
+        }
+        return css_slice_ci_eq(value, len, "revert-layer") ? CSS_WIDE_REVERT_LAYER : CSS_WIDE_NONE;
     default:
-        return 0;
+        return CSS_WIDE_NONE;
     }
 }
 
@@ -1235,12 +1270,29 @@ static int css_apply_box(css_slot slots[NUM_PROPS], const css_decl *decl, const 
     return 0;
 }
 
+static Py_ssize_t css_escape_end(const Py_UCS4 *value, Py_ssize_t pos, Py_ssize_t len) {
+    pos++;
+    if (!is_ascii_hexdigit(value[pos])) {
+        return pos + 1;
+    }
+    int digits = 0;
+    do {
+        pos++;
+        digits++;
+    } while (digits < 6 && pos < len && is_ascii_hexdigit(value[pos]));
+    return pos < len && css_is_ws(value[pos]) ? pos + 1 : pos;
+}
+
 static int css_mixed_wide_keyword(const Py_UCS4 *value, Py_ssize_t len) {
     if (len < 5) {
         return 0;
     }
     int candidate = 0;
     for (Py_ssize_t pos = 0; pos + 2 < len; pos++) {
+        if (value[pos] == '\\') {
+            candidate = 1;
+            break;
+        }
         Py_UCS4 first = value[pos] | 32;
         if (first != 'i' && first != 'r' && first != 'u') {
             continue;
@@ -1258,52 +1310,63 @@ static int css_mixed_wide_keyword(const Py_UCS4 *value, Py_ssize_t len) {
     }
     Py_UCS4 quote = 0;
     int depth = 0;
-    for (Py_ssize_t pos = 0; pos < len; pos++) {
+    for (Py_ssize_t pos = 0; pos < len;) {
         Py_UCS4 ch = value[pos];
-        if (ch == '\\' && pos + 1 < len) { /* GCOVR_EXCL_BR_LINE: a terminal escape cannot precede a keyword */
-            pos++;
-            continue;
-        }
         if (quote != 0) {
+            if (ch == '\\' && pos + 1 < len) { /* GCOVR_EXCL_BR_LINE: a terminal escape cannot precede a keyword */
+                pos = css_escape_end(value, pos, len);
+                continue;
+            }
             if (ch == quote) {
                 quote = 0;
             }
+            pos++;
             continue;
         }
         if (ch == '"' || ch == '\'') {
             quote = ch;
+            pos++;
+            continue;
+        }
+        if (ch == '\\' && depth > 0 && pos + 1 < len) { /* GCOVR_EXCL_BR_LINE: terminal escape */
+            pos = css_escape_end(value, pos, len);
             continue;
         }
         if (ch == '(') {
             depth++;
+            pos++;
             continue;
         }
         if (ch == ')' && depth > 0) {
             depth--;
+            pos++;
             continue;
         }
-        Py_UCS4 first = css_lower(ch);
-        if (depth > 0 || (first != 'i' && first != 'r' && first != 'u')) {
+        if (depth > 0) {
+            pos++;
             continue;
         }
-        if (pos > 0) {
-            Py_UCS4 previous = value[pos - 1];
-            if ((previous >= 'a' && previous <= 'z') || (previous >= 'A' && previous <= 'Z') ||
-                (previous >= '0' && previous <= '9') || previous == '-' || previous == '_' || previous >= 128) {
-                continue;
+        if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' ||
+              ch == '_' || ch >= 128 || ch == '\\')) {
+            pos++;
+            continue;
+        }
+        Py_ssize_t stop = pos;
+        while (stop < len) {
+            Py_UCS4 part = value[stop];
+            if (part == '\\') {
+                stop = stop + 1 < len ? css_escape_end(value, stop, len) : stop + 1;
+            } else if ((part >= 'a' && part <= 'z') || (part >= 'A' && part <= 'Z') || (part >= '0' && part <= '9') ||
+                       part == '-' || part == '_' || part >= 128) {
+                stop++;
+            } else {
+                break;
             }
-        }
-        Py_ssize_t stop = pos + 1;
-        while (stop < len &&
-               ((value[stop] >= 'a' && value[stop] <= 'z') || (value[stop] >= 'A' && value[stop] <= 'Z') ||
-                (value[stop] >= '0' && value[stop] <= '9') || value[stop] == '-' || value[stop] == '_' ||
-                value[stop] >= 128)) {
-            stop++;
         }
         if (css_wide_keyword(value + pos, stop - pos)) {
             return pos != 0 || stop != len;
         }
-        pos = stop - 1;
+        pos = stop;
     }
     return 0;
 }
@@ -1377,15 +1440,15 @@ static int css_resolve(css_value *out, const css_slot *slot, const css_value *pa
     if (slot->set) {
         const Py_UCS4 *value = slot->value;
         Py_ssize_t len = slot->value_len;
-        if (css_slice_ci_eq(value, len, "inherit")) {
+        css_wide_value wide = css_wide_keyword(value, len);
+        if (wide == CSS_WIDE_INHERIT) {
             return inherited != NULL ? css_value_set_slice(out, inherited->data, inherited->len)
                                      : css_value_set_ascii(out, meta->initial, meta->initial_len);
         }
-        if (css_slice_ci_eq(value, len, "initial")) {
+        if (wide == CSS_WIDE_INITIAL) {
             return css_value_set_ascii(out, meta->initial, meta->initial_len);
         }
-        if (css_slice_ci_eq(value, len, "unset") || css_slice_ci_eq(value, len, "revert") ||
-            css_slice_ci_eq(value, len, "revert-layer")) {
+        if (wide != CSS_WIDE_NONE) {
             /* no user/UA origin or layers exist here, so both rollback keywords act as unset */
             if (meta->inherited && inherited != NULL) {
                 return css_value_set_slice(out, inherited->data, inherited->len);

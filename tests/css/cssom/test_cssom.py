@@ -790,6 +790,82 @@ def test_computed_style_longhand_css_wide_keyword_inside_escaped_string_remains_
     )
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(r"\initial", "canvastext", id="initial"),
+        pytest.param(r"\inherit", "blue", id="inherit"),
+        pytest.param(r"\unset", "blue", id="unset"),
+        pytest.param(r"\revert", "blue", id="revert"),
+        pytest.param(r"revert\-layer", "blue", id="revert-layer"),
+        pytest.param(r"in\69tial", "canvastext", id="hex-escape"),
+        pytest.param(r"\000069nitial", "canvastext", id="six-digit-escape"),
+        pytest.param(r"\69 nitial", "canvastext", id="escape-whitespace"),
+    ],
+)
+def test_computed_style_escaped_css_wide_keyword(value: str, expected: str) -> None:
+    style = _style(f'<div style="color:blue"><p style="color:red;color:{value}"></p></div>', tag="p")
+    assert style["color"] == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(r"blue \initial", id="space"),
+        pytest.param(r"blue,\initial", id="comma"),
+        pytest.param(r"blue/\initial", id="slash"),
+        pytest.param(r"blue+\initial", id="plus"),
+        pytest.param(r"blue \69nitial", id="hex-escape"),
+    ],
+)
+def test_computed_style_mixed_escaped_css_wide_keyword_keeps_earlier_value(value: str) -> None:
+    assert _style(f'<p style="color:red;color:{value}"></p>', tag="p")["color"] == "red"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(r"var(--color, \initial)", id="fallback"),
+        pytest.param(r"var(--color\), \initial)", id="escaped-paren"),
+    ],
+)
+def test_computed_style_escaped_css_wide_keyword_inside_function_remains_value(value: str) -> None:
+    assert _style(f'<p style="color:red;color:{value}"></p>', tag="p")["color"] == value
+
+
+def test_computed_style_escaped_css_wide_keyword_inside_string_remains_value() -> None:
+    value = r'"\initial"'
+    assert _style(f"<p style='list-style-type:{value}'></p>", tag="p")["list-style-type"] == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(r"\blue", id="other-ident"),
+        pytest.param(r"\000069", id="terminal-hex-escape"),
+        pytest.param(r"foo\69", id="terminal-short-hex-escape"),
+        pytest.param("foo\\69\\", id="terminal-backslash"),
+        pytest.param(r"\initial" + "x" * 100, id="long-ident"),
+    ],
+)
+def test_computed_style_escaped_nonwide_ident_remains_value(value: str) -> None:
+    assert _style(f'<p style="list-style-type:{value}"></p>', tag="p")["list-style-type"] == value
+
+
+@pytest.mark.parametrize(
+    ("declaration", "property_name", "expected"),
+    [
+        pytest.param(r"all:\initial", "color", "canvastext", id="all"),
+        pytest.param(r"margin:\initial", "margin-top", "0", id="distributive"),
+        pytest.param(r"border:\initial", "border-top-style", "none", id="box"),
+    ],
+)
+def test_computed_style_escaped_css_wide_keyword_in_shorthand(
+    declaration: str, property_name: str, expected: str
+) -> None:
+    assert _style(f'<p style="{declaration}"></p>', tag="p")[property_name] == expected
+
+
 def test_computed_style_all_resets_supported_properties_except_direction() -> None:
     style = _style("<div style='color: red; margin: 9px; direction: rtl; all: initial'></div>")
     assert (style["color"], style["margin-top"], style["direction"]) == ("canvastext", "0", "rtl")

@@ -1,0 +1,1 @@
+Decode escaped CSS-wide keywords in computed styles and reject declarations that mix them with other tokens.
