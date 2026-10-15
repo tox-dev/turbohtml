@@ -807,6 +807,27 @@ def test_minify_css_preserves_large_hsl_hue(hue: str, expected: str) -> None:
     assert minify_css(f"a {{ color: hsl({hue} 100% 50%) }}") == f"a{{color:hsl({expected} 100% 50%)}}"
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("hsl(0 120% 20%)", "hsl(0 120% 20%)", id="opaque-modern"),
+        pytest.param("hsl(0,120%,20%)", "hsl(0,120%,20%)", id="opaque-legacy"),
+        pytest.param("hsl(0 120% 20%/50%)", "hsl(0 120% 20%/50%)", id="percent-alpha"),
+        pytest.param("hsl(0 120% 20%/.5)", "hsl(0 120% 20%/.5)", id="number-alpha"),
+        pytest.param("hsl(0 120% 20%/100%)", "hsl(0 120% 20%/100%)", id="opaque-alpha"),
+        pytest.param("hsl(1e20 120% 20%/50%)", "hsl(1e20 120% 20%/50%)", id="large-hue"),
+        pytest.param("hsla(0 120% 20%/50%)", "hsl(0 120% 20%/50%)", id="hsla-modern"),
+        pytest.param("hsla(0,120%,20%,50%)", "hsl(0,120%,20%,50%)", id="hsla-legacy"),
+        pytest.param("hsl(0 100% 20%/50%)", "hsl(0 100% 20%/.5)", id="in-range-control"),
+        pytest.param("hsl(0 50% 150%)", "#fff", id="lightness-above-range"),
+        pytest.param("hsl(0 50% -50%)", "#000", id="lightness-below-range"),
+    ],
+)
+def test_minify_css_oversaturated_hsl(source: str, expected: str) -> None:
+    assert minify_css(f"a{{color:{source}}}") == f"a{{color:{expected}}}"
+    assert minify_css_inline(f"color:{source}") == f"color:{expected}"
+
+
 @pytest.mark.parametrize("unit", ["px", "em", "deg"])
 def test_minify_css_invalid_rgb_zero_unit_stays_invalid(unit: str) -> None:
     source = f"a{{color:rgb(0,0,0{unit})}}"

@@ -437,7 +437,7 @@
 [
 "color: hsla(400, 150%, 150%, 2);",
 "color: hsla(400, 150%, 150%, 2)",
-"color:#fff"
+"color:hsl(400,150%,150%,2)"
 ],
 [
 "background-color:transparent",

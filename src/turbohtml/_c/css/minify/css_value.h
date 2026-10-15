@@ -871,6 +871,8 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
     } else if (count != 3) {
         return 0;
     }
+    /* Keep alpha syntax when HSL saturation exceeds 100%: browser color paths disagree on clamping. */
+    int oversaturated = is_hsl && types[1] && values[1] > 1.0;
     double alpha = 1.0;
     int has_alpha = count == 4;
     if (has_alpha) {
@@ -882,7 +884,7 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
             *kind = CK_HASH;
             return 1;
         }
-        if (values[3] >= 1.0) { /* alpha clamps to [0,1] (Color 4 §17), so any alpha >= 1 is opaque and droppable */
+        if (values[3] >= 1.0 && !oversaturated) {
             has_alpha = 0;
             count = 3;
         } else {
@@ -892,7 +894,7 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
     /* Browser float values lose degree precision for large hues, so leave normalization to the browser. */
     int large_hue = is_hsl && (values[0] <= -16777216.0 || values[0] >= 16777216.0);
     /* alpha stays exactly 1.0 only on the paths that also clear has_alpha (count==3, or a fourth value of 1) */
-    if (alpha == 1.0) {
+    if (alpha == 1.0 && !oversaturated) {
         int bits[3];
         int foldable = 1;
         if (is_rgb) {
@@ -903,8 +905,8 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
             }
         } else if (!types[0] && types[1] && types[2] && !large_hue) {
             double hue = values[0] / 360.0;
-            hue -= floor(hue); /* hue is modulo 360; saturation and lightness clamp to [0,1] (Color 4 §7) */
-            double sat = values[1] < 0.0 ? 0.0 : (values[1] > 1.0 ? 1.0 : values[1]);
+            hue -= floor(hue);
+            double sat = values[1] < 0.0 ? 0.0 : values[1];
             double light = values[2] < 0.0 ? 0.0 : (values[2] > 1.0 ? 1.0 : values[2]);
             double channels[3];
             css_hsl_to_rgb(hue, sat, light, &channels[0], &channels[1], &channels[2]);
@@ -961,7 +963,11 @@ CSS_NOINLINE static int css_try_color_func(css_buf *pool, token_vec *vec, Py_ssi
         css_buf alpha_text = {NULL, 0, 0, pool->oom};
         css_append_color_number(&alpha_text, raws[3], types[3]);
         cbuf_puts(&result, has_slash ? "/" : ",");
-        css_append_num_pct(&result, alpha_text.data, alpha_text.len);
+        if (oversaturated) {
+            cbuf_put_run(&result, alpha_text.data, alpha_text.len);
+        } else {
+            css_append_num_pct(&result, alpha_text.data, alpha_text.len);
+        }
         cbuf_free(&alpha_text);
     }
     cbuf_putc(&result, ')');
