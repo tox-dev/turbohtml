@@ -1232,9 +1232,8 @@ static int resolve_child_prefixes(th_tree *tree, th_node *child, PyObject *paren
     if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    if (parse_prefix_decls(copy, child->attrs[index].value, child->attrs[index].value_len, base) <
-        0) {             /* GCOVR_EXCL_BR_LINE:
-  allocation-failure path */
+    int prefix_rc = parse_prefix_decls(copy, child->attrs[index].value, child->attrs[index].value_len, base);
+    if (prefix_rc < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         Py_DECREF(copy); /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;       /* GCOVR_EXCL_LINE */
     }
@@ -1264,9 +1263,8 @@ static int resolve_child_ctx(th_tree *tree, th_node *child, rdfa_ctx parent, rdf
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     PyObject *prefixes = NULL;
-    if (resolve_child_prefixes(tree, child, parent.prefixes, parent.base, &prefixes, prefixes_owned) <
-        0) {                                                       /* GCOVR_EXCL_BR_LINE:
-                                               allocation-failure path */
+    int prefixes_rc = resolve_child_prefixes(tree, child, parent.prefixes, parent.base, &prefixes, prefixes_owned);
+    if (prefixes_rc < 0) {                                         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         rdfa_ctx partial = {vocab, NULL, NULL, parent.item_depth}; /* GCOVR_EXCL_LINE: allocation-failure path */
         release_child_ctx(&partial, *vocab_owned, 0);              /* GCOVR_EXCL_LINE */
         return -1;                                                 /* GCOVR_EXCL_LINE */
