@@ -1612,11 +1612,16 @@ static PyObject *build_feed(module_state *state, th_tree *tree, th_node *root, c
     return feed;
 }
 
-/* The feed root and its format: the first <feed> (atom), <rss> (rss), or <rdf:RDF> (rdf) element in document order, or
-   NULL when the document is not a feed. */
 static th_node *find_feed_root(th_tree *tree, th_node *document, const char **type_out, int *root_namespace,
                                int *error) {
-    for (th_node *node = document->first_child; node != NULL; node = preorder_next(node, document)) {
+    int is_xml = th_tree_is_xml(tree);
+    th_node *first = document->first_child;
+    if (is_xml) {
+        while (first != NULL && first->type != TH_NODE_ELEMENT) {
+            first = first->next_sibling;
+        }
+    }
+    for (th_node *node = first; node != NULL; node = is_xml ? NULL : preorder_next(node, document)) {
         if (node->type != TH_NODE_ELEMENT) {
             continue;
         }

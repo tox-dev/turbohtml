@@ -1,0 +1,1 @@
+Require an RSS, Atom, or RDF feed to be the XML document root; keep embedded feed discovery for HTML.
