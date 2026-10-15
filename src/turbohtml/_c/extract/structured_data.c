@@ -1075,7 +1075,7 @@ static PyObject *rdfa_expand_term(PyObject *token, PyObject *vocab, PyObject *pr
     }
     PyObject *base = NULL;
     PyObject *mapping = iri;
-    if (PyTuple_CheckExact(mapping)) {
+    if (mapping != NULL && PyTuple_CheckExact(mapping)) {
         base = PyTuple_GET_ITEM(mapping, 2);
         iri = PyTuple_GET_ITEM(mapping, 0);
     }
