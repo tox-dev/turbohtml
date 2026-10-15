@@ -1226,6 +1226,71 @@ static int css_apply_box(css_slot slots[NUM_PROPS], const css_decl *decl, const 
     return 0;
 }
 
+static int css_mixed_wide_keyword(const Py_UCS4 *value, Py_ssize_t len) {
+    if (len < 5) {
+        return 0;
+    }
+    int has_separator = 0;
+    for (Py_ssize_t pos = 0; pos < len; pos++) {
+        if (css_is_ws(value[pos]) || value[pos] == ',' || value[pos] == '/') {
+            has_separator = 1;
+            break;
+        }
+    }
+    if (!has_separator) {
+        return 0;
+    }
+    Py_UCS4 quote = 0;
+    int depth = 0;
+    for (Py_ssize_t pos = 0; pos < len; pos++) {
+        Py_UCS4 ch = value[pos];
+        if (ch == '\\' && pos + 1 < len) { /* GCOVR_EXCL_BR_LINE: a terminal escape cannot precede a keyword */
+            pos++;
+            continue;
+        }
+        if (quote != 0) {
+            if (ch == quote) {
+                quote = 0;
+            }
+            continue;
+        }
+        if (ch == '"' || ch == '\'') {
+            quote = ch;
+            continue;
+        }
+        if (ch == '(') {
+            depth++;
+            continue;
+        }
+        if (ch == ')' && depth > 0) {
+            depth--;
+            continue;
+        }
+        Py_UCS4 first = css_lower(ch);
+        if (depth > 0 || (first != 'i' && first != 'r' && first != 'u')) {
+            continue;
+        }
+        if (pos > 0) {
+            Py_UCS4 previous = value[pos - 1];
+            if ((previous >= 'a' && previous <= 'z') || (previous >= 'A' && previous <= 'Z') ||
+                (previous >= '0' && previous <= '9') || previous == '-' || previous == '_' || previous >= 128) {
+                continue;
+            }
+        }
+        Py_ssize_t stop = pos + 1;
+        while (stop < len &&
+               ((value[stop] >= 'a' && value[stop] <= 'z') || (value[stop] >= 'A' && value[stop] <= 'Z') ||
+                (value[stop] >= '0' && value[stop] <= '9') || value[stop] == '-')) {
+            stop++;
+        }
+        if (css_wide_keyword(value + pos, stop - pos)) {
+            return 1;
+        }
+        pos = stop - 1;
+    }
+    return 0;
+}
+
 /* Feed one declaration into the cascade slots, expanding a shorthand across its
    longhands. Every candidate for one declaration shares an order stamp. */
 static void css_apply_decl(css_slot slots[NUM_PROPS], const css_decl *decl, int inline_style, int spec_a, int spec_b,
@@ -1243,6 +1308,9 @@ static void css_apply_decl(css_slot slots[NUM_PROPS], const css_decl *decl, int 
     }
     int direct = css_prop_id(decl->name, decl->name_len);
     if (direct >= 0) {
+        if (css_mixed_wide_keyword(decl->value, decl->value_len)) {
+            return;
+        }
         css_set_slot(slots, direct, decl->value, decl->value_len, &rank);
         return;
     }

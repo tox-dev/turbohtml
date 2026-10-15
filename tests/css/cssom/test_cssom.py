@@ -722,6 +722,66 @@ def test_computed_style_distributive_css_wide_keyword_cannot_mix_with_components
     assert (style["margin-top"], style["margin-right"]) == ("0", "0")
 
 
+@pytest.mark.parametrize("keyword", ["inherit", "initial", "unset", "revert", "revert-layer"])
+@pytest.mark.parametrize("value", ["{keyword} blue", "blue {keyword}", "blue,{keyword}", "blue/{keyword}"])
+def test_computed_style_longhand_mixed_css_wide_keyword_does_not_override(keyword: str, value: str) -> None:
+    style = _style("<p></p>", css=f"p {{ color: red; color: {value.format(keyword=keyword)} }}", tag="p")
+    assert style["color"] == "red"
+
+
+def test_computed_style_longhand_mixed_css_wide_keyword_keeps_earlier_declaration() -> None:
+    assert _style("<div style='position: relative; position: initial static'></div>")["position"] == "relative"
+
+
+def test_computed_style_longhand_mixed_important_css_wide_keyword_keeps_valid_declaration() -> None:
+    assert _style("<div style='position: relative; position: static revert !important'></div>")["position"] == (
+        "relative"
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "blue) initial",
+        "binherit initial",
+        "Binherit initial",
+        "1inherit initial",
+        "-inherit initial",
+        "_inherit initial",
+        "éinherit initial",
+        "inherita initial",
+        "inheriTa initial",
+        "inherit2 initial",
+        "iNITIAL blue",
+        "i~ initial",
+        "i_ initial",
+        "i: initial",
+    ],
+)
+def test_computed_style_longhand_css_wide_keyword_token_boundaries(value: str) -> None:
+    assert _style("<p></p>", css=f"p {{ color: red; color: {value} }}", tag="p")["color"] == "red"
+
+
+def test_computed_style_longhand_css_wide_keyword_inside_function_remains_value() -> None:
+    assert _style("<div style='background-image: var(--image, initial)'></div>")["background-image"] == (
+        "var(--image, initial)"
+    )
+
+
+@pytest.mark.parametrize("quote", ['"', "'"])
+def test_computed_style_longhand_css_wide_keyword_inside_string_remains_value(quote: str) -> None:
+    assert (
+        _style("<div></div>", css=f"div {{ list-style-type: {quote}red inherit blue{quote} }}")["list-style-type"]
+        == f"{quote}red inherit blue{quote}"
+    )
+
+
+def test_computed_style_longhand_css_wide_keyword_inside_escaped_string_remains_value() -> None:
+    assert _style("<div></div>", css=r'div { list-style-type: "red \" inherit blue" }')["list-style-type"] == (
+        '"red \\" inherit blue"'
+    )
+
+
 def test_computed_style_all_resets_supported_properties_except_direction() -> None:
     style = _style("<div style='color: red; margin: 9px; direction: rtl; all: initial'></div>")
     assert (style["color"], style["margin-top"], style["direction"]) == ("canvastext", "0", "rtl")
