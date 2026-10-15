@@ -20,6 +20,7 @@
 
 #include "core/vec.h"
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
+#include "tokenizer/xml_names.h"
 #include "dom/nodes.h"
 #include "url/url.h"
 
@@ -1017,14 +1018,21 @@ static const char *rdfa_initial_prefix_iri(PyObject *prefix) {
     return NULL;
 }
 
-/* Expand an RDFa TERMorCURIEorAbsIRI token to its IRI: a bare term (no colon) joins the in-scope @vocab or one of the
-   initial-context term IRIs, a prefixed token prefix:reference joins the prefix's IRI when the prefix is declared, and
-   anything else (an undeclared prefix, an absolute IRI, or an unknown bare term) is kept verbatim. NULL only on the
-   excluded allocation-failure path. */
+/* RDFa @property/@typeof permit terms, CURIEs, and absolute IRIs, but not SafeCURIEs; malformed terms are ignored.
+   Bare terms join @vocab or the initial context; unknown terms and undeclared prefixes are kept verbatim. */
 static PyObject *rdfa_expand_term(PyObject *token, PyObject *vocab, PyObject *prefixes) {
     Py_ssize_t length = PyUnicode_GET_LENGTH(token);
     Py_ssize_t colon = PyUnicode_FindChar(token, (Py_UCS4)':', 0, length, 1);
     if (colon < 0) {
+        if (!is_name_start(PyUnicode_READ_CHAR(token, 0))) {
+            return Py_NewRef(Py_None);
+        }
+        for (Py_ssize_t index = 1; index < length; index++) {
+            Py_UCS4 code = PyUnicode_READ_CHAR(token, index);
+            if (code != '/' && !is_name_char(code)) {
+                return Py_NewRef(Py_None);
+            }
+        }
         if (vocab != NULL) {
             return PyUnicode_Concat(vocab, token);
         }
@@ -1038,6 +1046,9 @@ static PyObject *rdfa_expand_term(PyObject *token, PyObject *vocab, PyObject *pr
             return PyUnicode_FromString("http://www.w3.org/2007/05/powder-s#describedby");
         }
         return Py_NewRef(token);
+    }
+    if (PyUnicode_READ_CHAR(token, 0) == '[') {
+        return Py_NewRef(Py_None);
     }
     if (colon == 0) {
         PyObject *reference = PyUnicode_Substring(token, 1, length);
@@ -1289,6 +1300,10 @@ static PyObject *expand_typeof(th_tree *tree, th_node *element, rdfa_ctx ctx) {
             Py_DECREF(result);  /* GCOVR_EXCL_LINE */
             return NULL;        /* GCOVR_EXCL_LINE */
         }
+        if (expanded == Py_None) {
+            Py_DECREF(expanded);
+            continue;
+        }
         int failed = PyList_Append(result, expanded) < 0;
         Py_DECREF(expanded);
         if (failed) {          /* GCOVR_EXCL_BR_LINE: append fails only on unforceable allocation */
@@ -1393,6 +1408,10 @@ static int rdfa_add_property(PyObject *properties, const Py_UCS4 *names, Py_ssiz
         PyObject *key = rdfa_expand_term(PyList_GET_ITEM(tokens, token), ctx.vocab, ctx.prefixes);
         if (key == NULL) { /* GCOVR_EXCL_BR_LINE: expansion fails only on unforceable allocation */
             goto done;     /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (key == Py_None) {
+            Py_DECREF(key);
+            continue;
         }
         PyObject *bucket = PyDict_GetItemWithError(properties, key);
         if (bucket != NULL) {

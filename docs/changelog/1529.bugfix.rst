@@ -1,0 +1,1 @@
+Ignore malformed RDFa terms and bracketed SafeCURIEs in ``property`` and ``typeof``.
