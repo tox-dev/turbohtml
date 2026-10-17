@@ -3247,6 +3247,10 @@ def test_minify_css_keeps_overlong_calculated_font_size_invalid() -> None:
     )
 
 
+def test_minify_css_quoted_hyphen_family_settles_in_one_pass() -> None:
+    assert minify_css("a{font:x -E}") == "a{font:x '-e'}"
+
+
 @pytest.mark.parametrize(
     "source",
     [

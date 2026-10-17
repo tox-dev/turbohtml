@@ -50,6 +50,7 @@ class Target:
     exports: tuple[str, ...]
     exceptions: tuple[type[Exception], ...] = ()
     chunked: Callable[[bytes, Header], None] | None = None
+    lossy_on_allocation_failure: bool = False
 
     def run(self, payload: bytes, header: Header) -> None:
         """Feed a target with an incremental API in the header's chunks instead of one piece."""

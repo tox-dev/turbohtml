@@ -508,18 +508,13 @@ static void input_append(th_tokenizer *self, int kind, const void *data, Py_ssiz
    tokenizer does not grow without bound. The only live offsets into the buffer
    are `pos` and, while a text run is open, `slice_start`; an emitted record still
    spanning the buffer (queue_len != 0) pins it, so skip until it has drained.
-   Captured locations are offsets into the whole source, which the tree keeps for
-   to_source(), so a locating tokenizer reclaims nothing. */
+   Captured locations and source depend on offsets into the full input, so those
+   tokenizers do not reclaim the buffer. */
 static void compact_input(th_tokenizer *self) {
-    if (self->queue_len != 0 || self->capture_locations) {
+    if (self->queue_len != 0 || self->capture_locations || self->capture_source) {
         return;
     }
     Py_ssize_t keep_from = self->slice_len > 0 ? self->slice_start : self->pos;
-    /* a markup token whose source is being captured spans from its opening '<'
-       (mark_pos) to a '>' not yet seen, so its prefix must survive the reclaim */
-    if (self->capture_source && self->building && self->mark_pos < keep_from) {
-        keep_from = self->mark_pos;
-    }
     if (keep_from <= 0) {
         return;
     }
@@ -536,11 +531,14 @@ static void compact_input(th_tokenizer *self) {
 }
 
 void th_tok_feed(th_tokenizer *self, int kind, const void *data, Py_ssize_t length) {
+    if (length == 0) {
+        return;
+    }
     if (self->pos > 0) { /* nothing is consumed yet on a one-shot or first feed, so skip the call */
         compact_input(self);
     }
     Py_ssize_t start = 0;
-    if (length > 0 && self->last_cr) {
+    if (self->last_cr) {
         self->last_cr = 0;
         if (PyUnicode_READ(kind, data, 0) == '\n') {
             start = 1; /* the CR was already appended as LF; drop the LF of CRLF */

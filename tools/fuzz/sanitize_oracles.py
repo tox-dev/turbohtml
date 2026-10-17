@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Final, TypeVar
 from urllib.parse import quote
 
 import html5lib
+import tinycss2
 from html5lib.constants import namespaces
 
 from turbohtml import Comment, Element, Namespace, Node, Text, parse_fragment
@@ -91,7 +92,6 @@ _URL_ATTRS: Final = frozenset({
     "ping",
     "longdesc",
 })
-_CSS_DANGER: Final = ("javascript:", "vbscript:", "expression(", "behavior:", "-moz-binding")
 # the code points sanitize.c is_url_ignorable skips besides C0, space and DEL
 _URL_IGNORABLE: Final = frozenset("\u00ad\u200b\u200c\u200d\u2060\ufeff")
 _FAILING_ORACLES: Final = frozenset({"mutation", "string-path", "policy", "url-unsafe", "decode"})
@@ -169,8 +169,22 @@ def _negative_controls() -> Iterator[tuple[str, bool]]:
         _url_verdict("java\u200bscript:x", kept=True, policy=relative) == "url-unsafe",
     )
     yield "css selector prelude is inert", not _css_danger("javascript:{}")
+    yield "css empty selector is inert", not _css_danger("{list-style-image:'javascript:';}")
+    yield "css string literal is inert", not _css_danger("E{list-style-image:'javascript:';}")
+    yield "css unknown URL lookalike is inert", not _css_danger("E{list-style-image:Burl('javascript:');}")
     yield "css import prelude is live", _css_danger("@import url(javascript:x);")
+    yield "css import string is live", _css_danger("@import 'javascript:x';")
     yield "css declaration is live", _css_danger("a{b:url(javascript:x)}")
+    yield "css quoted URL is live", _css_danger("a{b:url('javascript:x')}")
+    table = Policy(tags=frozenset({"table", "td"}))
+    yield (
+        "implied table wrappers are structural",
+        not _violations("<table><tbody><tr><td></td></tr></tbody></table>", table),
+    )
+    yield (
+        "attributed table wrapper is disallowed",
+        "element html:tbody not allowed" in _violations("<table><tbody id=x></tbody></table>", table),
+    )
 
 
 def _mutation_detail(tree: Node, serialized: str) -> str | None:
@@ -307,7 +321,15 @@ def _element_violations(element: DomElement, policy: Policy) -> list[str]:
     tag = element.nodeName
     gate = {"html": policy.allow_html, "svg": policy.allow_svg, "math": policy.allow_mathml}[namespace]
     found: list[str] = []
-    if tag not in policy.tags or not gate:
+    parent = element.parentNode
+    implied_table_wrapper = (
+        namespace == "html"
+        and not element.hasAttributes()
+        and parent is not None
+        and parent.nodeType == parent.ELEMENT_NODE
+        and (tag, parent.nodeName) in {("tbody", "table"), ("tr", "tbody"), ("colgroup", "table")}
+    )
+    if (tag not in policy.tags and not implied_table_wrapper) or not gate:
         found.append(f"element {namespace}:{tag} not allowed")
     if (namespace, tag) in _BASELINE_ELEMENTS:
         found.append(f"baseline element {namespace}:{tag}")
@@ -326,22 +348,73 @@ _BASELINE_ELEMENTS: Final = frozenset({
 
 
 def _css_danger(text: str) -> bool:
-    """
-    Whether CSS text still carries a script-capable construct once escapes and comments are resolved.
-
-    The tokens are the ones the DOMPurify conformance suite's ``_live_danger`` scans for; decoding escapes first covers
-    lxml_html_clean CVE-2026-28348, which hid ``@import`` behind CSS unicode escapes.
-    """
+    """Check CSS tokens for script-capable URLs, functions, and properties."""
     decoded = re.sub(
         r"\\([0-9a-fA-F]{1,6})[ \t\n\r\f]?|\\(.)",
         lambda match: chr(min(int(match[1], 16), 0x10FFFF) or 0xFFFD) if match[1] else match[2],
         text,
     )
-    flat = re.sub(r"\s+", "", re.sub(r"/\*.*?(?:\*/|$)", "", decoded, flags=re.DOTALL)).lower()
-    # a style rule's prelude is a selector, which matches nothing when invalid (Selectors 4 3.9) and runs no script, so
-    # only declarations and at-rule preludes such as @import url(...) can carry a live token
-    flat = re.sub(r"(^|[;{}])[^@;{}][^;{}]*(?=\{)", r"\1", flat)
-    return any(token in flat for token in _CSS_DANGER)
+    source = re.sub(r"/\*.*?(?:\*/|$)", "", decoded, flags=re.DOTALL)
+    return _css_declarations_danger(tinycss2.parse_declaration_list(source)) or _css_rules_danger(
+        tinycss2.parse_stylesheet(source)
+    )
+
+
+def _css_script_url(value: str) -> bool:
+    return value.strip(" \t\r\n\f\"'").lower().startswith(("javascript:", "vbscript:"))
+
+
+def _css_value_danger(tokens: list[object]) -> bool:
+    for token in tokens:
+        kind = getattr(token, "type", "")
+        if kind == "url" and _css_script_url(getattr(token, "value", "")):
+            return True
+        if kind == "function":
+            name = getattr(token, "lower_name", "")
+            arguments = getattr(token, "arguments", [])
+            if name == "expression" or (name == "url" and _css_script_url(tinycss2.serialize(arguments))):
+                return True
+            if _css_value_danger(arguments):
+                return True
+    return False
+
+
+def _css_declarations_danger(declarations: list[object]) -> bool:
+    return any(
+        getattr(declaration, "type", "") == "declaration"
+        and (
+            getattr(declaration, "lower_name", "") in {"behavior", "-moz-binding"}
+            or _css_value_danger(getattr(declaration, "value", []))
+        )
+        for declaration in declarations
+    )
+
+
+def _css_rules_danger(rules: list[object]) -> bool:
+    for rule in rules:
+        kind = getattr(rule, "type", "")
+        if kind == "qualified-rule":
+            prelude = getattr(rule, "prelude", [])
+            if not prelude or any(getattr(token, "type", "") == "string" for token in prelude):
+                continue
+            if _css_declarations_danger(tinycss2.parse_declaration_list(getattr(rule, "content", []))):
+                return True
+        elif kind == "at-rule":
+            prelude = getattr(rule, "prelude", [])
+            if getattr(rule, "lower_at_keyword", "") == "import" and (
+                _css_value_danger(prelude)
+                or any(
+                    getattr(token, "type", "") == "string" and _css_script_url(getattr(token, "value", ""))
+                    for token in prelude
+                )
+            ):
+                return True
+            if (content := getattr(rule, "content", None)) is not None and (
+                _css_declarations_danger(tinycss2.parse_declaration_list(content))
+                or _css_rules_danger(tinycss2.parse_rule_list(content))
+            ):
+                return True
+    return False
 
 
 def _attribute_violations(element: DomElement, policy: Policy) -> list[str]:

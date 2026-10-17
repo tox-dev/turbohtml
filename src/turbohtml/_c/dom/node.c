@@ -784,27 +784,38 @@ TH_NODE_API(static, PyObject *, node_get_source_location, (PyObject * self, void
     }
     module_state *state = state_of(self);
     PyObject *start_tag = make_source_span(state, &loc->start_tag);
+    if (start_tag == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     PyObject *end_tag = loc->has_end_tag ? make_source_span(state, &loc->end_tag) : Py_NewRef(Py_None);
+    if (end_tag == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(start_tag); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     PyObject *attrs = PyDict_New();
-    if (start_tag == NULL || end_tag == NULL || attrs == NULL) { /* GCOVR_EXCL_BR_LINE: alloc failure */
-        Py_XDECREF(start_tag);                                   /* GCOVR_EXCL_LINE: allocation-failure path */
-        Py_XDECREF(end_tag);                                     /* GCOVR_EXCL_LINE: allocation-failure path */
-        Py_XDECREF(attrs);                                       /* GCOVR_EXCL_LINE: allocation-failure path */
-        return NULL;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (attrs == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(start_tag); /* GCOVR_EXCL_LINE: allocation-failure path */
+        Py_DECREF(end_tag);   /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     for (Py_ssize_t index = 0; index < loc->attr_count; index++) {
         Py_ssize_t name_len;
         const char *bytes = th_attr_name(tree, loc->attrs[index].name_atom, &name_len);
         PyObject *name = PyUnicode_DecodeUTF8(bytes, name_len, "strict");
-        PyObject *span = make_source_span(state, &loc->attrs[index].span);
-        /* every branch here is an unreachable allocation failure */
-        if (name == NULL || span == NULL || PyDict_SetItem(attrs, name, span) < 0) { /* GCOVR_EXCL_BR_LINE */
-            Py_XDECREF(name);     /* GCOVR_EXCL_LINE: allocation-failure path */
-            Py_XDECREF(span);     /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (name == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             Py_DECREF(start_tag); /* GCOVR_EXCL_LINE: allocation-failure path */
             Py_DECREF(end_tag);   /* GCOVR_EXCL_LINE: allocation-failure path */
             Py_DECREF(attrs);     /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;          /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        PyObject *span = make_source_span(state, &loc->attrs[index].span);
+        if (span == NULL || PyDict_SetItem(attrs, name, span) < 0) { /* GCOVR_EXCL_BR_LINE: alloc failure */
+            Py_XDECREF(name);                                        /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_XDECREF(span);                                        /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_DECREF(start_tag);                                    /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_DECREF(end_tag);                                      /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_DECREF(attrs);                                        /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;                                             /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         Py_DECREF(name);
         Py_DECREF(span);

@@ -108,16 +108,18 @@ static PyObject *attrs_tuple(th_tree *tree, th_node *node) {
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, attrs[index].name_atom, &name_len);
         PyObject *name_obj = PyUnicode_FromStringAndSize(name, name_len);
+        if (name_obj == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(result);  /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
         PyObject *value_obj =
             attrs[index].value == NULL
                 ? Py_NewRef(Py_None)
                 : PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, attrs[index].value, attrs[index].value_len);
-        /* allocation failure cannot be forced from a test */
-        if (name_obj == NULL || value_obj == NULL) { /* GCOVR_EXCL_BR_LINE */
-            Py_XDECREF(name_obj);                    /* GCOVR_EXCL_LINE: allocation-failure path */
-            Py_XDECREF(value_obj);                   /* GCOVR_EXCL_LINE: allocation-failure path */
-            Py_DECREF(result);                       /* GCOVR_EXCL_LINE: allocation-failure path */
-            return NULL;                             /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (value_obj == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(name_obj); /* GCOVR_EXCL_LINE: allocation-failure path */
+            Py_DECREF(result);   /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         PyObject *pair = PyTuple_Pack(2, name_obj, value_obj);
         Py_DECREF(name_obj);
@@ -181,12 +183,14 @@ static PyObject *make_handle(th_tree *tree, th_node *node, builder *methods) {
     }
     case TH_NODE_PI: {
         PyObject *target = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, node->text, node->attr_count);
+        if (target == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
         PyObject *data = PyUnicode_FromKindAndData(PyUnicode_4BYTE_KIND, node->text + node->attr_count + 1,
                                                    node->text_len - node->attr_count - 1);
-        if (target == NULL || data == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            Py_XDECREF(target);               /* GCOVR_EXCL_LINE: allocation-failure path */
-            Py_XDECREF(data);                 /* GCOVR_EXCL_LINE: allocation-failure path */
-            return NULL;                      /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (data == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            Py_DECREF(target); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         PyObject *handle = PyObject_CallFunctionObjArgs(methods->slots[M_CREATE_PI], target, data, NULL);
         Py_DECREF(target);
@@ -243,12 +247,14 @@ static int spine_push(spine *stack, PyObject *handle) {
         size_t cap = 0;
         size_t bytes = 0;
         int grew = th_grow_cap(stack->len + 1, stack->cap, 16, sizeof(PyObject *), &cap, &bytes);
-        if (!grew) {   /* GCOVR_EXCL_BR_LINE: a spine that overflows size_t cannot be built in memory */
-            return -1; /* GCOVR_EXCL_LINE: overflow-guard path */
+        if (!grew) {          /* GCOVR_EXCL_BR_LINE: a spine that overflows size_t cannot be built in memory */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: overflow-guard path */
+            return -1;        /* GCOVR_EXCL_LINE: overflow-guard path */
         }
         PyObject **grown = PyMem_Realloc(stack->items, bytes);
-        if (grown == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (grown == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         stack->items = grown;
         stack->cap = cap;

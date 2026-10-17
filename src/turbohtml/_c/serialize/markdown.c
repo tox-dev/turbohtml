@@ -568,6 +568,14 @@ static TH_NOINLINE void md_emit_pending(md_ctx *ctx) {
     }
     for (Py_ssize_t index = first; index < ctx->marker_count; index++) {
         md_marker *marker = &ctx->markers[index];
+        /* An inner close next to its parent's star run otherwise merges into one run. */
+        if (marker->node != NULL && strcmp(marker->open, "*") == 0 && marker->node->next_sibling == NULL &&
+            marker->node->parent->ns == TH_NS_HTML &&
+            (marker->node->parent->atom == TH_TAG_EM || marker->node->parent->atom == TH_TAG_I) && ctx->out.len > 0 &&
+            md_edge(ctx->out.data[ctx->out.len - 1]) == MD_EDGE_PUNCT) {
+            marker->open = "_";
+            marker->close = "_";
+        }
         if (md_marker_html(ctx, index, first)) {
             marker->open = MD_HTML_TAGS[marker->html - 1][0];
             marker->close = MD_HTML_TAGS[marker->html - 1][1];
@@ -1344,6 +1352,8 @@ static void md_settle_run(md_ctx *ctx, Py_ssize_t index, th_node *node) {
         Py_UCS4 follow = '\n';
         if (moved) {
             follow = ctx->opt->line_break == TH_MD_BREAK_BACKSLASH ? '\\' : ' ';
+        } else if (ctx->space_pending) {
+            follow = ' ';
         } else if (node != NULL && (!star || md_edge(data[last]) != 0)) {
             /* after an ordinary character a star run closes whatever follows */
             follow = md_char_after(ctx, node);
@@ -1497,7 +1507,8 @@ static void md_wrap_flank(md_ctx *ctx, th_node *node, md_marker *marker) {
     }
     if (md_is_ascii_punct(text[end - 1])) {
         th_node *sibling = node->next_sibling;
-        Py_UCS4 next = sibling != NULL && sibling->type == TH_NODE_TEXT && sibling->text_len > 0
+        Py_UCS4 next = end < only->text_len ? ' '
+                       : sibling != NULL && sibling->type == TH_NODE_TEXT && sibling->text_len > 0
                            ? need_text(ctx->tree, sibling)[0]
                            : ' ';
         if (md_edge(next) == 0) {

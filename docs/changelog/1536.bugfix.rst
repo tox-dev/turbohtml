@@ -1,0 +1,2 @@
+Preserve XML names and visible content, Markdown whitespace and delimiters, and source text across chunked input. Raise
+``MemoryError`` for allocation failures in DOM, CSS, XPath, and extraction APIs.

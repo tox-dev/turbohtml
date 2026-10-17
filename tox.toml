@@ -150,10 +150,10 @@ report: Final = Path(r'{env_tmp_dir}/c_coverage.json')
 if sys.platform == 'darwin' and report.is_file():
     print(json.dumps([
         dict(file=source['file'], lines=[
-            line for line in source['lines'] if 521 <= line['line_number'] <= 524
+            line['line_number'] for line in source['lines'] if line['count'] == 0
         ])
         for source in json.loads(report.read_text())['files']
-        if source['file'].endswith('css/minify/css_grammar.h')
+        if any(line['count'] == 0 for line in source['lines'])
     ], indent=2))
     """,
   ],

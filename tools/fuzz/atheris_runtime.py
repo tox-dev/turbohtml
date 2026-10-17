@@ -102,13 +102,16 @@ def rejecting_callback(
     exceptions: tuple[type[Exception], ...],
     reject: Callable[[], None],
     inject: Callable[[int], tuple[int, bool]],
+    *,
+    lossy_on_allocation_failure: bool = False,
 ) -> Callable[[bytes], None]:
     """
     Fail the header's allocation, then reject only exceptions the selected public API documents.
 
-    An injected failure must surface as ``MemoryError`` and nothing else, and a ``MemoryError`` without one is a
-    finding. The ``finally`` block closes the window before any handler here allocates. libxml2 checks that each API
-    reports the failure it injected
+    A ``MemoryError`` without an injected failure and another exception after one are findings. Python can recover
+    from failed internal allocations, so a successful result remains valid. The ``finally`` block closes the window
+    before any handler here allocates. Mutation observers may drop records on allocation failure; only that target
+    accepts a resulting assertion. libxml2 checks that each API reports the failure it injected
     (https://github.com/GNOME/libxml2/blob/c43dc98d27ac315a48d93dbd399c6c22cf7125b1/fuzz/xml.c#L72-L83).
     """
 
@@ -124,15 +127,16 @@ def rejecting_callback(
             if not failed:
                 raise
             return
+        except AssertionError:
+            if not (failed and lossy_on_allocation_failure):
+                raise
+            return
         except exceptions as error:
             if failed:
                 message = f"{type(error).__name__} for an injected allocation failure"
                 raise AssertionError(message) from error
             reject()
             return
-        if failed:
-            message = "a result for an injected allocation failure"
-            raise AssertionError(message)
 
     return run
 

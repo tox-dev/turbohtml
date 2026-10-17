@@ -32,6 +32,14 @@ static void fail(parser *ps, const char *msg) {
     }
 }
 
+static int32_t new_node(parser *ps, enum xn_kind kind) {
+    int32_t node = xn_new(ps->prog, kind);
+    if (node < 0) {                /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+        fail(ps, "out of memory"); /* GCOVR_EXCL_LINE */
+    }
+    return node;
+}
+
 static int32_t parse_expr(parser *ps);
 static int32_t parse_union(parser *ps);
 
@@ -115,7 +123,7 @@ static int32_t parse_predicates(parser *ps) {
     int32_t tail = -1;
     while (ps->lx.kind == TK_LBRACK) {
         lex_next(&ps->lx);
-        int32_t pred = xn_new(ps->prog, XN_PRED);
+        int32_t pred = new_node(ps, XN_PRED);
         if (pred < 0) {                /* GCOVR_EXCL_BR_LINE: alloc */
             fail(ps, "out of memory"); /* GCOVR_EXCL_LINE */
             return head;               /* GCOVR_EXCL_LINE */
@@ -166,7 +174,7 @@ static int32_t parse_step(parser *ps) {
     lexer *lx = &ps->lx;
     if (lx->kind == TK_DOT) {
         lex_next(lx);
-        int32_t step = xn_new(ps->prog, XN_STEP);
+        int32_t step = new_node(ps, XN_STEP);
         if (step < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             return -1;  /* GCOVR_EXCL_LINE */
         }
@@ -176,7 +184,7 @@ static int32_t parse_step(parser *ps) {
     }
     if (lx->kind == TK_DOTDOT) {
         lex_next(lx);
-        int32_t step = xn_new(ps->prog, XN_STEP);
+        int32_t step = new_node(ps, XN_STEP);
         if (step < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             return -1;  /* GCOVR_EXCL_LINE */
         }
@@ -184,7 +192,7 @@ static int32_t parse_step(parser *ps) {
         ps->prog->nodes[step].test = NT_NODE;
         return step;
     }
-    int32_t step = xn_new(ps->prog, XN_STEP);
+    int32_t step = new_node(ps, XN_STEP);
     if (step < 0) {                /* GCOVR_EXCL_BR_LINE: alloc */
         fail(ps, "out of memory"); /* GCOVR_EXCL_LINE */
         return -1;                 /* GCOVR_EXCL_LINE */
@@ -224,7 +232,7 @@ static int starts_step(tok_kind kind) {
    Appends to *tail; inserts a synthetic descendant-or-self::node() for //. */
 static void parse_relative_tail(parser *ps, int32_t *head, int32_t *tail, int dslash) {
     if (dslash) {
-        int32_t ds = xn_new(ps->prog, XN_STEP);
+        int32_t ds = new_node(ps, XN_STEP);
         if (ds < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             return;   /* GCOVR_EXCL_LINE */
         }
@@ -251,7 +259,7 @@ static void parse_relative_tail(parser *ps, int32_t *head, int32_t *tail, int ds
 
 /* LocationPath / PathExpr without a leading FilterExpr. */
 static int32_t parse_location_path(parser *ps) {
-    int32_t path = xn_new(ps->prog, XN_PATH);
+    int32_t path = new_node(ps, XN_PATH);
     if (path < 0) {                /* GCOVR_EXCL_BR_LINE: alloc */
         fail(ps, "out of memory"); /* GCOVR_EXCL_LINE */
         return -1;                 /* GCOVR_EXCL_LINE */
@@ -291,7 +299,7 @@ static int32_t parse_primary(parser *ps) {
         return inner;
     }
     if (lx->kind == TK_LITERAL) {
-        int32_t lit = xn_new(ps->prog, XN_LIT);
+        int32_t lit = new_node(ps, XN_LIT);
         if (lit < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             return -1; /* GCOVR_EXCL_LINE */
         }
@@ -302,7 +310,7 @@ static int32_t parse_primary(parser *ps) {
         return lit;
     }
     if (lx->kind == TK_NUM) {
-        int32_t num = xn_new(ps->prog, XN_NUM);
+        int32_t num = new_node(ps, XN_NUM);
         if (num < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             return -1; /* GCOVR_EXCL_LINE */
         }
@@ -317,7 +325,7 @@ static int32_t parse_primary(parser *ps) {
             return -1;
         }
         ps->prog->has_variables = 1;
-        int32_t var = xn_new(ps->prog, XN_VAR);
+        int32_t var = new_node(ps, XN_VAR);
         if (var < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             return -1; /* GCOVR_EXCL_LINE */
         }
@@ -329,7 +337,7 @@ static int32_t parse_primary(parser *ps) {
     }
     /* The only remaining primary is a FunctionCall: starts_filter() guarantees a
        NAME here once '(', a literal, and a number have been ruled out above. */
-    int32_t fn = xn_new(ps->prog, XN_FUNC);
+    int32_t fn = new_node(ps, XN_FUNC);
     if (fn < 0) {                  /* GCOVR_EXCL_BR_LINE: alloc */
         fail(ps, "out of memory"); /* GCOVR_EXCL_LINE */
         return -1;                 /* GCOVR_EXCL_LINE */
@@ -394,7 +402,7 @@ static int32_t parse_filter_or_path(parser *ps) {
     int32_t preds = parse_predicates(ps);
     int32_t base = primary;
     if (preds >= 0) {
-        int32_t filter = xn_new(ps->prog, XN_FILTER);
+        int32_t filter = new_node(ps, XN_FILTER);
         if (filter < 0) {              /* GCOVR_EXCL_BR_LINE: alloc */
             fail(ps, "out of memory"); /* GCOVR_EXCL_LINE */
             return -1;                 /* GCOVR_EXCL_LINE */
@@ -406,7 +414,7 @@ static int32_t parse_filter_or_path(parser *ps) {
     if (ps->lx.kind != TK_SLASH && ps->lx.kind != TK_DSLASH) {
         return base;
     }
-    int32_t path = xn_new(ps->prog, XN_PATH);
+    int32_t path = new_node(ps, XN_PATH);
     if (path < 0) {                /* GCOVR_EXCL_BR_LINE: alloc */
         fail(ps, "out of memory"); /* GCOVR_EXCL_LINE */
         return -1;                 /* GCOVR_EXCL_LINE */
@@ -428,7 +436,7 @@ static int32_t parse_union(parser *ps) {
     while (ps->lx.kind == TK_PIPE) {
         lex_next(&ps->lx);
         int32_t right = parse_filter_or_path(ps);
-        int32_t union_node = xn_new(ps->prog, XN_UNION);
+        int32_t union_node = new_node(ps, XN_UNION);
         if (union_node < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             return -1;        /* GCOVR_EXCL_LINE */
         }
@@ -452,7 +460,7 @@ static int32_t parse_unary(parser *ps) {
     if (ps->lx.kind == TK_MINUS) {
         lex_next(&ps->lx);
         int32_t operand = parse_unary(ps);
-        int32_t neg = xn_new(ps->prog, XN_NEG);
+        int32_t neg = new_node(ps, XN_NEG);
         if (neg < 0) {   /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             ps->depth--; /* GCOVR_EXCL_LINE */
             return -1;   /* GCOVR_EXCL_LINE */
@@ -481,7 +489,7 @@ static int32_t parse_multiplicative(parser *ps) {
         }
         lex_next(&ps->lx);
         int32_t right = parse_unary(ps);
-        int32_t node = xn_new(ps->prog, op);
+        int32_t node = new_node(ps, op);
         if (node < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             return -1;  /* GCOVR_EXCL_LINE */
         }
@@ -505,7 +513,7 @@ static int32_t parse_additive(parser *ps) {
         }
         lex_next(&ps->lx);
         int32_t right = parse_multiplicative(ps);
-        int32_t node = xn_new(ps->prog, op);
+        int32_t node = new_node(ps, op);
         if (node < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             return -1;  /* GCOVR_EXCL_LINE */
         }
@@ -533,7 +541,7 @@ static int32_t parse_relational(parser *ps) {
         }
         lex_next(&ps->lx);
         int32_t right = parse_additive(ps);
-        int32_t node = xn_new(ps->prog, op);
+        int32_t node = new_node(ps, op);
         if (node < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             return -1;  /* GCOVR_EXCL_LINE */
         }
@@ -557,7 +565,7 @@ static int32_t parse_equality(parser *ps) {
         }
         lex_next(&ps->lx);
         int32_t right = parse_relational(ps);
-        int32_t node = xn_new(ps->prog, op);
+        int32_t node = new_node(ps, op);
         if (node < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             return -1;  /* GCOVR_EXCL_LINE */
         }
@@ -573,7 +581,7 @@ static int32_t parse_and(parser *ps) {
     while (ps->lx.kind == TK_AND) {
         lex_next(&ps->lx);
         int32_t right = parse_equality(ps);
-        int32_t node = xn_new(ps->prog, XN_AND);
+        int32_t node = new_node(ps, XN_AND);
         if (node < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             return -1;  /* GCOVR_EXCL_LINE */
         }
@@ -589,7 +597,7 @@ static int32_t parse_expr(parser *ps) {
     while (ps->lx.kind == TK_OR) {
         lex_next(&ps->lx);
         int32_t right = parse_and(ps);
-        int32_t node = xn_new(ps->prog, XN_OR);
+        int32_t node = new_node(ps, XN_OR);
         if (node < 0) { /* GCOVR_EXCL_BR_LINE: arena allocation failure cannot be forced */
             return -1;  /* GCOVR_EXCL_LINE */
         }

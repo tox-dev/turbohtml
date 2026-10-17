@@ -145,7 +145,7 @@ def _run_failing(
     outcome = "a result" if error is None else f"{type(error).__name__}: {error}"
     if failed:
         return (
-            None if isinstance(error, MemoryError) else f"{outcome} for an injected allocation failure"
+            None if error is None or isinstance(error, MemoryError) else f"{outcome} for an injected allocation failure"
         ), allocations
     if error is None or isinstance(error, _EXPECTED):
         return None, allocations

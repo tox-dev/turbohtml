@@ -907,7 +907,9 @@ static CSS_NOINLINE void css_quote_leading_hyphen_family(css_buf *pool, css_comp
     }
     css_buf quoted = {NULL, 0, 0, pool->oom};
     cbuf_putc(&quoted, '\'');
-    cbuf_put_run(&quoted, pool->data + comp->off, comp->len);
+    for (Py_ssize_t index = 0; index < comp->len; index++) {
+        cbuf_putc(&quoted, css_lower(pool->data[comp->off + index]));
+    }
     cbuf_putc(&quoted, '\'');
     comp->off = pool_run(pool, quoted.data, quoted.len);
     comp->len = quoted.len;

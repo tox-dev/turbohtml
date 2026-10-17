@@ -2253,6 +2253,10 @@ def test_inner_trailing_marker_space_is_trimmed() -> None:
     assert out == "[-]"
 
 
+def test_strikethrough_with_trailing_space_keeps_markdown_delimiters() -> None:
+    assert parse("<del>[ </del>p").to_markdown() == "~~\\[~~ p"
+
+
 def test_custom_element_with_attribute() -> None:
     html = "<p>play <video src='m.mp4'>fallback</video> here</p>"
     out = parse(html).to_markdown(Markdown(converters={"video": lambda el, _t: f"[{el.attrs['src']}]"}))

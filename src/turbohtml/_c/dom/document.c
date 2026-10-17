@@ -2031,11 +2031,14 @@ PyObject *turbohtml_detect_rank(PyObject *Py_UNUSED(module), PyObject *args) {
     PyObject *blocked = detect_folded_set(excluded);
     /* GCOVR_EXCL_BR_START: allocation cannot be forced to fail */
     if (shaped == NULL || out == NULL || PyErr_Occurred() != NULL) {
-        PyMem_Free(shaped);    /* GCOVR_EXCL_LINE */
-        Py_XDECREF(out);       /* GCOVR_EXCL_LINE */
-        Py_XDECREF(permitted); /* GCOVR_EXCL_LINE */
-        Py_XDECREF(blocked);   /* GCOVR_EXCL_LINE */
-        return NULL;           /* GCOVR_EXCL_LINE */
+        PyMem_Free(shaped);                        /* GCOVR_EXCL_LINE */
+        Py_XDECREF(out);                           /* GCOVR_EXCL_LINE */
+        Py_XDECREF(permitted);                     /* GCOVR_EXCL_LINE */
+        Py_XDECREF(blocked);                       /* GCOVR_EXCL_LINE */
+        if (shaped == NULL && !PyErr_Occurred()) { /* GCOVR_EXCL_LINE: allocation-failure path */
+            return PyErr_NoMemory();               /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        return NULL; /* GCOVR_EXCL_LINE */
     }
     /* GCOVR_EXCL_BR_STOP */
     PyObject *fallback = PyUnicode_FromString("windows-1252");

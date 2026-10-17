@@ -97,12 +97,21 @@ def markdown_html_check(markup: str, render: Callable[[Node], str] = Node.to_mar
     """Compare source meaning because a stable conversion can lose HTML semantics."""
     expected: Final = _html_meaning(markup)
     converted: Final = _READER.render(render(parse_fragment(markup)))
-    return None if _html_meaning(converted) == expected else "Markdown conversion changes meaning"
+    if _html_meaning(converted) == expected:
+        return None
+    if any(char in markup and char not in converted for char in "\x1c\x1d\x1e\x1f\x85"):
+        msg = "Markdown reader discards control whitespace at paragraph edges"
+        raise MarkdownProfileError(msg)
+    return "Markdown conversion changes meaning"
 
 
 def _html_meaning(markup: str) -> tuple[_Meaning, ...]:
     # read the tree to_markdown converts, so a parser that lags the WHATWG tree builder cannot pose as a lost meaning
-    return _flow(_children(_tree(parse_fragment(markup)), preserve=False))
+    root: Final = parse_fragment(markup)
+    if any(sum(1 for _ in element.ancestors) > 128 for element in root.iter_elements()):
+        msg = "HTML nesting exceeds the meaning model"
+        raise MarkdownProfileError(msg)
+    return _flow(_children(_tree(root), preserve=False))
 
 
 def _tree(node: Element) -> _TreeNode:

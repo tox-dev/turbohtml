@@ -774,9 +774,10 @@ static inline int xml_attr_name_writable(const char *name, Py_ssize_t name_len, 
     if (first >= 0x80) {
         return th_xml_attr_name_wellformed_utf8(name, name_len);
     }
-    if ((XML_NAME_FLAGS[first] & 0x1) == 0) {
+    if (first == ':' || (XML_NAME_FLAGS[first] & 0x1) == 0) {
         return 0;
     }
+    int colon = 0;
     for (Py_ssize_t index = 1; index < name_len; index++) {
         unsigned char character = (unsigned char)name[index];
         if (character >= 0x80) {
@@ -784,6 +785,12 @@ static inline int xml_attr_name_writable(const char *name, Py_ssize_t name_len, 
         }
         if ((XML_NAME_FLAGS[character] & 0x2) == 0) {
             return 0;
+        }
+        if (character == ':') {
+            if (index == name_len - 1 || colon) {
+                return 0;
+            }
+            colon = 1;
         }
     }
     return 1;

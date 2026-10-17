@@ -27,7 +27,15 @@ def fuzz(
     target: Final = {target.name: target for target in targets}[target_name]
     atheris: Final = import_module("atheris")
     instrument: Final = cast("Callable[[Callable[[bytes], None]], Callable[[bytes], None]]", atheris.instrument_func)
-    callback: Final = instrument(rejecting_callback(target.run, target.exceptions, rejection_hook(), failure_hook()))
+    callback: Final = instrument(
+        rejecting_callback(
+            target.run,
+            target.exceptions,
+            rejection_hook(),
+            failure_hook(),
+            lossy_on_allocation_failure=target.lossy_on_allocation_failure,
+        )
+    )
     cast("Callable[[], None]", atheris.instrument_all)()
     cast("_Setup", atheris.Setup)(list(argv), callback, custom_mutator=custom_mutator)
     cast("Callable[[], None]", atheris.Fuzz)()

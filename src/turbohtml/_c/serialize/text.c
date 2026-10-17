@@ -801,6 +801,7 @@ static int text_enter_cell(text_ctx *ctx, text_table *table) {
 static void text_leave_cell(text_ctx *ctx, text_table *table) {
     ctx->annotate_off--;
     sbuf rendered = ctx->out;
+    int failed = rendered.failed | ctx->prefix.failed;
     PyMem_Free(ctx->prefix.data);
     ctx->out = table->saved_out;
     ctx->prefix = table->saved_prefix;
@@ -813,6 +814,7 @@ static void text_leave_cell(text_ctx *ctx, text_table *table) {
     for (Py_ssize_t index = 0; index < rendered.len; index++) {
         sbuf_putc(dst, rendered.data[index] == '\n' ? ' ' : rendered.data[index]);
     }
+    ctx->out.failed |= failed | dst->failed;
     PyMem_Free(rendered.data);
     table->cells[slot] = table->cell;
     if (dst->len > table->widths[table->column]) {

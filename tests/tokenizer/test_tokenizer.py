@@ -702,6 +702,12 @@ def test_feed_keeps_input_while_a_token_is_queued() -> None:
     assert [_shape(token) for token in tokens] == [_shape(token) for token in tokenize("x<a>z")]
 
 
+def test_empty_feed_preserves_pending_text_after_malformed_tag() -> None:
+    tokenizer = Tokenizer(capture_source=True)
+    tokens = [*tokenizer.feed("<b/bod"), *tokenizer.feed("y></>\n"), *tokenizer.feed(""), *tokenizer.close()]
+    assert [_shape(token) for token in tokens] == [_shape(token) for token in tokenize("<b/body></>\n")]
+
+
 def test_concurrent_feed_on_shared_tokenizer_is_memory_safe() -> None:
     # the shared state machine, its record buffers, and its free list are guarded by a
     # per-tokenizer critical section, so concurrent feed()/iteration on the free-threaded

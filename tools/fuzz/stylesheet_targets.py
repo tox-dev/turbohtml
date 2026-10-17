@@ -30,6 +30,9 @@ def stylesheet_observation(data: bytes, printer: Callable[[str], str] = minify_c
     """Check supported values and selectors against a fixed DOM context."""
     source: Final = data.decode("utf-8")
     if failure := fixpoint_check(source, printer, numeric=True):
+        if _unclosed_css_blocks(printer(source)):
+            msg = "CSS output has an unclosed block"
+            raise OutOfScopeError(msg)
         raise AssertionError(failure)
     if failure := css_semantics_check(
         '<style></style><p class="x">text<span id="target">child</span></p>',
@@ -38,3 +41,28 @@ def stylesheet_observation(data: bytes, printer: Callable[[str], str] = minify_c
     ):
         raise AssertionError(failure)
     return printer(source)
+
+
+def _unclosed_css_blocks(source: str) -> bool:
+    depth = 0
+    quote = ""
+    index = 0
+    while index < len(source):
+        char = source[index]
+        if quote:
+            if char == "\\":
+                index += 1
+            elif char == quote:
+                quote = ""
+        elif source.startswith("/*", index):
+            end = source.find("*/", index + 2)
+            index = len(source) if end < 0 else end + 2
+            continue
+        elif char in "\"'":
+            quote = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+        index += 1
+    return depth > 0

@@ -280,6 +280,7 @@ def test_document_html_round_trips() -> None:
         pytest.param("<!DOCTYPE 1><p>", id="doctype-invalid-name"),
         pytest.param("<div><template></template></div>", id="empty-template"),
         pytest.param("<div><template><b>x</b></template></div>", id="non-empty-template"),
+        pytest.param("<div>\x08</div>", id="only-invalid-text"),
         pytest.param("<svg xlink:href=a>", id="injected-namespace-declarations"),
     ],
 )
@@ -1003,7 +1004,7 @@ def test_xml_processing_instruction_closes_with_question_mark() -> None:
     ],
 )
 def test_xml_processing_instruction_omits_invalid_target(target: str) -> None:
-    assert Element("doc", children=[ProcessingInstruction(target, "d")]).serialize(_XML) == "<doc></doc>"
+    assert Element("doc", children=[ProcessingInstruction(target, "d")]).serialize(_XML) == "<doc/>"
 
 
 @pytest.mark.parametrize(
@@ -1093,6 +1094,50 @@ def test_xml_attribute_name_unicode(name: str, expected: str) -> None:
     assert _fragment(f'<p {name}="v">x', "p").serialize(_XML) == expected
 
 
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        pytest.param(":a", "<p/>", id="leading-colon"),
+        pytest.param("a:", "<p/>", id="trailing-colon"),
+        pytest.param("a:b", '<p a:b="v"/>', id="single-colon"),
+        pytest.param("a:b:c", "<p/>", id="multiple-colons"),
+    ],
+)
+def test_xml_attribute_name_colons(name: str, expected: str) -> None:
+    assert Element("p", attrs={name: "v"}).serialize(_XML) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        pytest.param("é:", "<p/>", id="trailing-colon"),
+        pytest.param("é:a", '<p é:a="v"/>', id="single-colon"),
+        pytest.param("é:a:b", "<p/>", id="multiple-colons"),
+        pytest.param("a:bé", '<p a:bé="v"/>', id="ascii-prefix"),
+    ],
+)
+def test_xml_unicode_attribute_name_colons(name: str, expected: str) -> None:
+    assert Element("p", attrs={name: "v"}).serialize(_XML) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        pytest.param(":a", "", id="leading-colon"),
+        pytest.param("a:", "", id="trailing-colon"),
+        pytest.param("a:b", "<a:b/>", id="single-colon"),
+        pytest.param("a:b:c", "", id="multiple-colons"),
+    ],
+)
+def test_xml_element_name_colons(name: str, expected: str) -> None:
+    assert Element(name).serialize(_XML) == expected
+
+
+def test_xml_visible_child_after_invalid_wrapper() -> None:
+    node = Element("p", children=[Element(":a", children=[ProcessingInstruction("1x", "")]), Element("b")])
+    assert node.serialize(_XML) == "<p><b/></p>"
+
+
 def test_round_trip_reparses_to_same_html() -> None:
     node = _fragment("<div><br><p>x&amp;y</p></div>", "div")
     reparsed = parse(node.serialize(_XML)).select_one("div")
@@ -1128,6 +1173,10 @@ def test_xml_serialize_makes_a_comment_well_formed() -> None:
         pytest.param("<style>a{b:1}\x01</style>", id="control-in-style-body"),
         pytest.param("<p a\x01b=1>x</p>", id="control-in-attribute-name"),
         pytest.param("<d<>x<p>y</p>", id="invalid-element-name"),
+        pytest.param("<d<>", id="empty-invalid-element-name"),
+        pytest.param("<a:b:c>x</a:b:c>", id="multiple-element-colons"),
+        pytest.param("<z:>", id="incomplete-namespace-prefix"),
+        pytest.param("<l :>", id="invalid-attribute-prefix"),
         pytest.param("<!--a--b\x01--><p>x</p>", id="double-hyphen-and-control-in-comment"),
     ],
 )
@@ -1153,6 +1202,16 @@ def test_serialize_xml_drops_an_attribute_name_xml_cannot_hold() -> None:
 )
 def test_serialize_xml_drops_invalid_element_wrapper(options: Html, expected: str) -> None:
     assert parse("<d<>x<p>y</p>").serialize(options) == expected
+
+
+def test_serialize_xml_keeps_bound_element_prefix() -> None:
+    markup = '<Root><p:f xmlns:p="urn:p"/></Root>'
+    assert parse_xml(markup).serialize(Html(xml=True)) == markup
+
+
+def test_serialize_xml_keeps_bound_attribute_prefix() -> None:
+    markup = '<Root xmlns:p="urn:p" p:f="x"/>'
+    assert parse_xml(markup).serialize(Html(xml=True)) == markup
 
 
 @pytest.mark.parametrize("options", [Html(xml=True), Html(xml=True, layout=Indent())])
@@ -1238,6 +1297,7 @@ def test_inner_xml_does_not_duplicate_a_stored_xmlns_prefix() -> None:
     [
         pytest.param("<b <script>x</b>", "<b>x</b>", id="invalid-first-char"),
         pytest.param('<p a"b=1>x', "<p>x</p>", id="invalid-later-char"),
+        pytest.param("<p a:b:c=1>x", "<p>x</p>", id="multiple-colons"),
     ],
 )
 def test_inner_xml_drops_attributes_with_invalid_names(markup: str, expected: str) -> None:

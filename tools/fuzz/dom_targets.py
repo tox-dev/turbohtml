@@ -19,7 +19,14 @@ if TYPE_CHECKING:
 def dom_targets() -> tuple[Target, ...]:
     """Keep each corpus attached to the public operations it reaches."""
     return tuple(
-        Target(name, partial(_check, domain=name), exports, (UnicodeDecodeError,)) for name, exports in _OWNERS.items()
+        Target(
+            name,
+            partial(_check, domain=name),
+            exports,
+            (UnicodeDecodeError,),
+            lossy_on_allocation_failure=name == "dom-mutation",
+        )
+        for name, exports in _OWNERS.items()
     )
 
 
@@ -219,6 +226,7 @@ def _range(text: str) -> DomObservation:
     boundary.set_end(root, 1)
     snapshot: Final = dom.StaticRange(root, 0, root, 1)
     cloned: Final = boundary.clone_contents()
+    escaped: Final = escape(text, quote=False).replace("\xa0", "&nbsp;")
     return DomObservation(
         repr((
             cloned.html,
@@ -229,7 +237,7 @@ def _range(text: str) -> DomObservation:
             snapshot.collapsed,
             cloned.text,
         )),
-        repr((f"<p>{escape(text, quote=False)}</p>", 0, 1, 0, 1, False, text)),
+        repr((f"<p>{escaped}</p>", 0, 1, 0, 1, False, text)),
     )
 
 
@@ -320,7 +328,11 @@ def _sax(text: str) -> DomObservation:
         saxparse.EndElement("body"),
         saxparse.EndElement("html"),
     )
-    return DomObservation(repr((events, tuple(collector.events))), repr((expected, expected)))
+    observed: Final = (events, tuple(collector.events))
+    reference: Final = (expected, expected)
+    if observed == reference:
+        return DomObservation("matched", "matched")
+    return DomObservation(repr(observed), repr(reference))
 
 
 class _SaxCollector(saxparse.SaxHandler):

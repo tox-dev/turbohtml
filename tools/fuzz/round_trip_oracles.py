@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal
 from urllib.parse import urlsplit
 
+import tinycss2
 from fuzz.css_custom_oracles import (
     UnsupportedCssCustomCaseError,
     css_custom_check,
@@ -906,6 +907,12 @@ def xml_check(markup: str, serialize: Callable[[Node], str] = _xml) -> str | Non
     the tree comparison.
     """
     document = parse(markup)
+    if sum(isinstance(node, Element) for node in document.children) != 1 or any(
+        isinstance(node, Text) for node in document.children
+    ):
+        raise OutOfScopeError
+    if _xml_has_unbound_prefix(document):
+        raise OutOfScopeError
     try:
         reread = parse_xml(once := serialize(document))
     except (ValueError, HTMLParseError):
@@ -922,6 +929,22 @@ def xml_check(markup: str, serialize: Callable[[Node], str] = _xml) -> str | Non
     )
 
 
+def _xml_has_unbound_prefix(document: Document) -> bool:
+    for element in document.iter_elements():
+        for name in (element.tag, *element.attrs):
+            if ":" not in name or name.startswith((":", "xmlns:")) or name.endswith(":") or name.count(":") > 1:
+                continue
+            prefix = name.split(":", 1)[0]
+            if prefix == "xml" or (prefix == "xlink" and element.namespace is not Namespace.HTML):
+                continue
+            if not any(
+                isinstance(ancestor, Element) and ancestor.attrs.get(f"xmlns:{prefix}")
+                for ancestor in (element, *element.ancestors)
+            ):
+                return True
+    return False
+
+
 # XML 1.0 Char (https://www.w3.org/TR/xml/#NT-Char) and Name (https://www.w3.org/TR/xml/#NT-Name) productions
 _XML_CHAR: Final = re.compile(r"[^\t\n\r\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
 _NAME_START: Final = (
@@ -933,12 +956,23 @@ _XML_NAME: Final = re.compile(rf"[{_NAME_START}][{_NAME_START}\-.0-9\xb7\u0300-\
 
 def _xml_lossy(document: Document) -> bool:
     for node in document.descendants:
+        if isinstance(node, Doctype) and (
+            _XML_NAME.fullmatch(node.name) is None or (node.public_id is not None and node.system_id is None)
+        ):
+            return True
         if isinstance(node, (Text, CData, ProcessingInstruction)) and _XML_CHAR.search(node.data):
             return True
         if isinstance(node, Comment) and (_XML_CHAR.search(node.data) or "--" in node.data or node.data.endswith("-")):
             return True
+        if isinstance(node, Element) and (_XML_NAME.fullmatch(node.tag) is None or ":" in node.tag):
+            return True
         if isinstance(node, Element) and any(
-            _XML_NAME.fullmatch(name) is None or _XML_CHAR.search(_attr_text(value))
+            _XML_NAME.fullmatch(name) is None
+            or name.startswith(":")
+            or name.endswith(":")
+            or name.count(":") > 1
+            or (":" in name and not name.startswith("xmlns:"))
+            or _XML_CHAR.search(_attr_text(value))
             for name, value in node.attrs.items()
         ):
             return True
@@ -1045,6 +1079,23 @@ def markdown_check(markup: str, render: Callable[[Node], str] = Node.to_markdown
     if any(
         element.tag in _MARKDOWN_BLOCKS
         and any(getattr(ancestor, "tag", "") in _MARKDOWN_HOSTS for ancestor in element.ancestors)
+        for element in document.iter_elements()
+    ):
+        raise OutOfScopeError
+    if any(
+        element.tag == "br"
+        and isinstance(element.previous_sibling, Element)
+        and element.previous_sibling.tag == "br"
+        and any(getattr(ancestor, "tag", "") in _MARKDOWN_HOSTS for ancestor in element.ancestors)
+        for element in document.iter_elements()
+    ):
+        raise OutOfScopeError
+    if any(
+        element.tag == "br"
+        and any(getattr(ancestor, "tag", "") in {"td", "th"} for ancestor in element.ancestors)
+        and any(
+            getattr(ancestor, "tag", "") in {"em", "strong", "del", "s", "strike"} for ancestor in element.ancestors
+        )
         for element in document.iter_elements()
     ):
         raise OutOfScopeError
@@ -1569,6 +1620,37 @@ def _css_fixpoint(text: str, printer: Callable[[str], str] = minify_css) -> str 
     return fixpoint_check(text, printer, numeric=True)
 
 
+def _css_valid_fixpoint(text: str, printer: Callable[[str], str] = minify_css) -> str | None:
+    if not _css_valid_source(text):
+        raise OutOfScopeError
+    return _css_fixpoint(text, printer)
+
+
+def _css_valid_source(text: str) -> bool:
+    tokens = tinycss2.parse_component_value_list(text)
+    recovered = tinycss2.serialize(tokens)
+    return not (
+        _css_has_parse_error(tokens)
+        or (recovered.startswith(text) and recovered != text)
+        or any(
+            rule.type == "error"
+            or (
+                rule.type == "qualified-rule"
+                and any(item.type == "error" for item in tinycss2.parse_declaration_list(rule.content))
+            )
+            for rule in tinycss2.parse_stylesheet(text)
+        )
+    )
+
+
+def _css_has_parse_error(tokens: list[object]) -> bool:
+    return any(
+        getattr(token, "type", "") == "error"
+        or _css_has_parse_error(getattr(token, "content", getattr(token, "arguments", [])))
+        for token in tokens
+    )
+
+
 def _nesting(text: str) -> int:
     depth = deepest = 0
     for char in text:
@@ -1926,6 +2008,15 @@ def _generate_css(rng: random.Random) -> str:
     if rng.random() < 0.5:
         return _mutate(rng, rng.choice(_corpus().css), _CSS_TOKENS)
     return _mutate(rng, _stylesheet(rng), _CSS_TOKENS) if rng.random() < 0.3 else _stylesheet(rng)
+
+
+def _generate_css_fixpoint(rng: random.Random) -> str:
+    source = _generate_css(rng)
+    return source if _css_valid_source(source) else _stylesheet(rng)
+
+
+def _seeds_css_fixpoint() -> list[str]:
+    return [source for source in _seeds_css() if _css_valid_source(source)]
 
 
 def _generate_style(rng: random.Random) -> str:
@@ -2572,7 +2663,9 @@ ORACLES: Final[dict[str, Oracle]] = {
     "css-sheet-grammar": Oracle(
         _css_fixpoint, css_source_generate, css_source_seeds, _css_controls, Floor(6356, 1), syntax="css"
     ),
-    "css-fixpoint": Oracle(_css_fixpoint, _generate_css, _seeds_css, _css_controls, Floor(500, 0.95), syntax="css"),
+    "css-fixpoint": Oracle(
+        _css_valid_fixpoint, _generate_css_fixpoint, _seeds_css_fixpoint, _css_controls, Floor(500, 0.95), syntax="css"
+    ),
     "js-fixpoint": Oracle(_js_fixpoint, _generate_js, _seeds_js, _js_controls, Floor(300, 0.6), syntax="js"),
     "style-fixpoint": Oracle(
         style_check, _generate_style, _seeds_style, _style_controls, Floor(300, 0.95), syntax="css"
