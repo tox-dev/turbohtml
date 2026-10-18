@@ -167,8 +167,9 @@ static CSS_FORCEINLINE void css_render_components(css_buf *pool, token_vec *vec,
 }
 
 /* Assemble components into the value buffer: a single space between components, except after a function/url/separator,
-   before a parenthesised piece, around a bare delimiter, or between a unitless number and a negative one: a `-` before
-   a digit starts no unit, so `1-1` reads as the two numbers (CSS Syntax 3 §4.3.3). */
+   before a parenthesised piece, around a bare delimiter, or between a unitless number and a negative unitless one: a
+   `-` before a digit starts no unit, so `1-1` reads as two numbers (CSS Syntax 3 §4.3.3). A negative dimension still
+   needs a space because `0-1px` is not a valid space-separated CSS value. */
 static void css_assemble(css_buf *pool, comp_vec *comps, css_buf *out) {
     for (Py_ssize_t index = 0; index < comps->len; index++) {
         css_comp *comp = &comps->items[index];
@@ -180,8 +181,9 @@ static void css_assemble(css_buf *pool, comp_vec *comps, css_buf *out) {
             int opens_end_tag = pool->data[prev->off + prev->len - 1] == '<' && text[0] == '/';
             int glued = !opens_end_tag && (comp->isfunc == 2 || prev->isfunc == 1 || prev->isfunc == 2 ||
                                            starts_paren || comp->kind == CK_DELIM || prev->kind == CK_DELIM);
-            int negative_after_number = (prev->kind == CK_NUM || (prev->kind == CK_DIM && prev->len == 1)) &&
-                                        comp->len > 1 && text[0] == '-' && (css_is_digit(text[1]) || text[1] == '.');
+            int negative_after_number = comp->kind == CK_NUM &&
+                                        (prev->kind == CK_NUM || (prev->kind == CK_DIM && prev->len == 1)) &&
+                                        text[0] == '-';
             if (!negative_after_number &&
                 (!glued || css_would_merge(pool->data[prev->off + prev->len - 1], prev->kind == CK_IDENT,
                                            pool->data + comp->off, comp->len))) {
@@ -193,7 +195,16 @@ static void css_assemble(css_buf *pool, comp_vec *comps, css_buf *out) {
 }
 
 /* Property classification for the value pipeline. */
-#define CSS_COLOR_EQ(literal) (len == (Py_ssize_t)(sizeof(literal) - 1) && css_run_ieq(prop, len, literal))
+static int css_color_eq_exact_len(const css_char *prop, Py_ssize_t len, const char *name) {
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (css_lower(prop[index]) != (css_char)(unsigned char)name[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+#define CSS_COLOR_EQ(literal) (len == (Py_ssize_t)(sizeof(literal) - 1) && css_color_eq_exact_len(prop, len, literal))
 static int css_prop_color_mode(const css_char *prop, Py_ssize_t len) {
     switch (css_lower(prop[0])) {
     case 'a':
@@ -242,10 +253,16 @@ static int css_prop_color_mode(const css_char *prop, Py_ssize_t len) {
         if (CSS_COLOR_EQ("text-emphasis-color")) {
             return 1;
         }
-        if (CSS_COLOR_EQ("text-decoration") || CSS_COLOR_EQ("text-emphasis") || CSS_COLOR_EQ("text-shadow")) {
-            return 2;
+        switch (len) {
+        case sizeof("text-decoration") - 1:
+            return css_color_eq_exact_len(prop, len, "text-decoration") ? 2 : 0;
+        case sizeof("text-emphasis") - 1:
+            return css_color_eq_exact_len(prop, len, "text-emphasis") ? 2 : 0;
+        case sizeof("text-shadow") - 1:
+            return css_color_eq_exact_len(prop, len, "text-shadow") ? 2 : 0;
+        default:
+            return 0;
         }
-        return 0;
     default:
         return 0;
     }

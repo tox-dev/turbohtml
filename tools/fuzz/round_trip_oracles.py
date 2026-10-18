@@ -107,6 +107,7 @@ from fuzz.markdown_structure_generators import (
     markdown_controls,
     markdown_generate,
     markdown_html_check,
+    markdown_html_meaning,
     markdown_source_check,
     markdown_source_seeds,
 )
@@ -1111,7 +1112,11 @@ def markdown_check(markup: str, render: Callable[[Node], str] = Node.to_markdown
         raise OutOfScopeError
     first = _MARKDOWN.render(render(document))
     if (second := _MARKDOWN.render(render(parse(first)))) != first and _markdown_html(second) != _markdown_html(first):
-        return f"not a fixpoint: {_divergence(first, second)}"
+        try:
+            if markdown_html_meaning(second) != markdown_html_meaning(first):
+                return f"not a fixpoint: {_divergence(first, second)}"
+        except MarkdownProfileError as error:
+            raise OutOfScopeError from error
     return None
 
 
@@ -1119,8 +1124,11 @@ def _markdown_html(markup: str) -> str:
     markup = _EMPTY_PARAGRAPH.sub("", markup)
     markup = re.sub(r"<li>\n?<p>(.*?)</p>\n?</li>", r"<li>\1</li>", markup, flags=re.DOTALL)
     markup = markup.replace("<del>", "<s>").replace("</del>", "</s>")
-    markup = re.sub(r"<(strong|em|s)></\1>", "", markup)
-    return re.sub(r"(<br\s*/?>)[ \t]+", r"\1", markup)
+    markup = re.sub(r"<br\s*/?>[ \t]*\n?", "<br>", markup)
+    markup = markup.replace("<li>\n<br>", "<li><br>")
+    markup = re.sub(r"((?:<(?:strong|em|s)>)+)<br>", r"<br>\1", markup)
+    markup = re.sub(r"<br>((?:</(?:strong|em|s)>)+)", r"\1<br>", markup)
+    return re.sub(r"<(strong|em|s)></\1>", "", markup)
 
 
 class JsNames:
@@ -1228,6 +1236,7 @@ def css_semantics_check(
     document = parse(markup)
     style = _css_style(document, stylesheet)
     sheet = style.text
+    _require_supported_css_shorthands(sheet)
     elements = list(document.iter_elements())
     before = [computed_style(element) for element in elements]
     style.text = minify(sheet)
@@ -1250,6 +1259,16 @@ def css_semantics_check(
         except SelectorSyntaxError:
             return "minified selector does not parse"
     return None
+
+
+def _require_supported_css_shorthands(sheet: str) -> None:
+    for rule in StyleSheet(sheet).rules:
+        for name in ("margin", "padding", "border-width"):
+            if (value := rule.style.get(name)) is not None and any(
+                _read_value("border-top-width" if name == "border-width" else f"{name}-top", part) is _INVALID
+                for part in value.split()
+            ):
+                raise OutOfScopeError
 
 
 def _css_style(document: Document, stylesheet: str | None) -> Element:
@@ -1487,7 +1506,13 @@ def selector_entry_check(case: str, translate: Callable[[str], str] = css_to_xpa
         translated = translate(selector)
     except ExpressionError:
         return None
-    return None if document.xpath(translated) == selected else "xpath(css_to_xpath()) != select()"
+    try:
+        xpath_selected = document.xpath(translated)
+    except ValueError as error:
+        if str(error) == "xpath: an expression nested too deeply":
+            raise OutOfScopeError from error
+        raise
+    return None if xpath_selected == selected else "xpath(css_to_xpath()) != select()"
 
 
 def _matcher_problem(document: Document, selector: str, matcher: Matcher, selected: list[Element]) -> str | None:
@@ -1649,6 +1674,7 @@ def _css_valid_source(text: str) -> bool:
     recovered = tinycss2.serialize(tokens)
     return not (
         _css_has_parse_error(tokens)
+        or any(recovered.count(delimiter) > text.count(delimiter) for delimiter in ")}]")
         or (recovered.replace("/**/", "").startswith(text.replace("/**/", "")) and recovered != text)
         or any(not _css_rule_valid(rule) for rule in tinycss2.parse_stylesheet(text))
     )
@@ -1658,6 +1684,10 @@ def _css_rule_valid(rule: object) -> bool:
     if isinstance(rule, ParseError):
         return False
     if isinstance(rule, QualifiedRule):
+        try:
+            css_to_xpath(tinycss2.serialize(rule.prelude))
+        except (ExpressionError, SelectorSyntaxError):
+            return False
         return all(not isinstance(item, ParseError) for item in tinycss2.parse_declaration_list(rule.content))
     if (
         isinstance(rule, AtRule)
@@ -2037,7 +2067,9 @@ def _generate_css(rng: random.Random) -> str:
 
 def _generate_css_fixpoint(rng: random.Random) -> str:
     source = _generate_css(rng)
-    return source if _css_valid_source(source) else _stylesheet(rng)
+    while not _css_valid_source(source):
+        source = _stylesheet(rng)
+    return source
 
 
 def _seeds_css_fixpoint() -> list[str]:

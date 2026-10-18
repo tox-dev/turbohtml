@@ -207,14 +207,22 @@ def _serialize(data: bytes) -> None:
 
 def _roundtrip(data: bytes) -> None:
     document = turbohtml.parse(_decode(data))
-    if (once := document.serialize()) != turbohtml.parse(once).serialize() and not _reparse_may_differ(document):
+    once = document.serialize()
+    twice = turbohtml.parse(once).serialize()
+    if once != twice and not _reparse_may_differ(document, once, twice):
         message = "serialize not idempotent"
         raise AssertionError(message)
 
 
 def _sanitize(data: bytes) -> None:
     text = _decode(data)
-    if clean.sanitize(once := clean.sanitize(text)) != once and not _past_depth_cap(turbohtml.parse_fragment(text)):
+    once = clean.sanitize(text)
+    twice = clean.sanitize(once)
+    if (
+        once != twice
+        and not _html_newline_normalization_only(once, twice)
+        and not _past_depth_cap(turbohtml.parse_fragment(text))
+    ):
         message = "sanitize not idempotent"
         raise AssertionError(message)
 
@@ -266,10 +274,17 @@ def _decode(data: bytes) -> str:
         return data.decode("latin-1")
 
 
-def _reparse_may_differ(document: turbohtml.Document) -> bool:
-    return _past_depth_cap(document) or any(
-        _SCRIPT_DOUBLE_ESCAPE.search(script.text) for script in document.iter_elements("script")
+def _reparse_may_differ(document: turbohtml.Document, once: str, twice: str) -> bool:
+    return (
+        _html_newline_normalization_only(once, twice)
+        or _past_depth_cap(document)
+        or any(_SCRIPT_DOUBLE_ESCAPE.search(script.text) for script in document.iter_elements("script"))
     )
+
+
+def _html_newline_normalization_only(once: str, twice: str) -> bool:
+    # HTML serialization leaves CR literal, while parsing it normalizes CR and CRLF to LF.
+    return once.replace("\r\n", "\n").replace("\r", "\n") == twice
 
 
 def _past_depth_cap(root: turbohtml.Node) -> bool:

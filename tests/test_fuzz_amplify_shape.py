@@ -678,7 +678,9 @@ def test_markdown_unsupported_element() -> None:
         pytest.param("<em>d <p>e</p></em>", id="space-before-block-in-emphasis"),
         pytest.param('<i><a href="/t"><br></a></i>', id="emphasis-around-link-holding-break"),
         pytest.param('<p>x<a href="/t"><br></a></p>', id="break-in-empty-link-ends-block"),
+        pytest.param('<a href="a\nb">ok</a>', id="link-url-line-break"),
         pytest.param("<span>a</span>  <span>b</span>", id="spaces-between-inline-elements"),
+        pytest.param('<img src="a\nb" alt="ok">', id="plain-image-url-line-break"),
         pytest.param('<img src="a\nb" alt="ok" odd"="">', id="image-url-line-break"),
     ],
 )
@@ -747,6 +749,11 @@ def test_markdown_unicode_spacing_preserved(space: str) -> None:
 @pytest.mark.parametrize("space", ["\u00a0", "\u2007", "\u202f"], ids=["nbsp", "figure-space", "narrow-nbsp"])
 def test_markdown_unicode_spacing_loss_detected(space: str) -> None:
     assert markdown_html_check(f"<p>x{space}y</p>", lambda _node: "x y") == "Markdown conversion changes meaning"
+
+
+def test_markdown_reader_drops_control_whitespace_at_paragraph_edge() -> None:
+    with pytest.raises(MarkdownProfileError, match="Markdown reader discards control whitespace"):
+        markdown_html_check("<p>\x0bx</p>")
 
 
 _FUZZ_XML_STRUCTURE_GENERATION_CASES: Final = generation_sweep(xml_grammar(), budget=GenerationBudget(30, 120))

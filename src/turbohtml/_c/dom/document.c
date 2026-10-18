@@ -1734,6 +1734,10 @@ static PyObject *parse_bytes(module_state *state, PyObject *markup, const char *
                bytes, never the URL they came from, so no TLD is available to hint with. */
             th_detect_scores scores;
             entry = th_encoding_detect(bytes, len, TH_TLD_GENERIC, &scores);
+            if (PyErr_Occurred()) {      /* GCOVR_EXCL_BR_LINE: detection allocation failure */
+                PyBuffer_Release(&view); /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;             /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
         } else {
             /* The detector's first step on its own: UTF-8 validity is a structural proof,
                not a frequency guess, so it costs none of the opt-in model's candidate
@@ -2142,6 +2146,10 @@ PyObject *turbohtml_detect_encoding(PyObject *module, PyObject *args) {
     th_detect_scores scores = {.count = 0, .structural = 0};
     if (winner == NULL) {
         const th_encoding_entry *entry = th_encoding_detect(bytes, len, tld_argument(label), &scores);
+        if (PyErr_Occurred()) {      /* GCOVR_EXCL_BR_LINE: detection allocation failure */
+            PyBuffer_Release(&view); /* GCOVR_EXCL_LINE: allocation-failure path */
+            return NULL;             /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
         certain = scores.structural;
         winner = entry == NULL ? NULL : entry->canonical;
     }
@@ -2207,6 +2215,9 @@ static PyObject *detect_stream_feed(PyObject *self, PyObject *arg) {
     detector->prefix_len += take;
     th_detect_stream_feed(&detector->stream, view.buf, view.len, 0);
     PyBuffer_Release(&view);
+    if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: detection allocation failure */
+        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     /* a byte-order mark settles the stream whatever follows */
     return PyBool_FromLong(th_detect_bom(detector->prefix, detector->prefix_len) != NULL);
 }
@@ -2223,6 +2234,9 @@ static PyObject *detect_stream_close(PyObject *self, PyObject *Py_UNUSED(ignored
     }
     /* the scanners pass the chunk to memchr and memcpy, which take no NULL pointer even at length 0 */
     th_detect_stream_feed(&detector->stream, (const unsigned char *)"", 0, 1);
+    if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: detection allocation failure */
+        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
     int certain, bom;
     const char *winner = detect_declared(detector->prefix, detector->prefix_len, &certain, &bom);
     th_detect_scores scores = {.count = 0, .structural = 0};

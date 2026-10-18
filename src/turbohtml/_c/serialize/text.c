@@ -1074,7 +1074,7 @@ static void text_render_root(text_ctx *ctx, th_node *node) {
         PyMem_Free(ctx->frames);
     }
     text_flush_references(ctx);
-    ctx->out.failed |= ctx->failed | ctx->tree->failed;
+    ctx->out.failed |= ctx->failed | ctx->tree->failed | ctx->prefix.failed;
 }
 
 Py_UCS4 *th_node_layout_text(th_tree *tree, th_node *node, const text_opts *opt, Py_ssize_t *out_len) {

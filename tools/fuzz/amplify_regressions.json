@@ -797,5 +797,44 @@
       "kind": "repeat",
       "left": "<br>"
     }
+  },
+  {
+    "name": "1537-css-stray-prelude",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1537",
+    "targets": [
+      "minify_css"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "head": "grid-auto-columnstan",
+      "left": "space-evenly;l",
+      "tail": "atanhzcm"
+    }
+  },
+  {
+    "name": "1537-css-stray-tree",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1537",
+    "targets": [
+      "minify_css"
+    ],
+    "shape": {
+      "kind": "tree",
+      "left": "visited;",
+      "middle": "border-top-right-radiusz-indexbackground-positionmargin-inlinein-range",
+      "tail": "first-childflex-flow"
+    }
+  },
+  {
+    "name": "1537-sanitize-deep-list",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1537",
+    "targets": [
+      "parse",
+      "sanitize"
+    ],
+    "shape": {
+      "kind": "tree",
+      "left": "<li>\r",
+      "middle": "keyPoints<summary>-//IETF//DTD HTML 2.1E//<ul>START_TAG"
+    }
   }
 ]

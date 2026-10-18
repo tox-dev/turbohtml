@@ -907,8 +907,9 @@ static int set_textarea_value(PyObject *self, th_node *node, PyObject *value) {
         th_node_remove_observed(tree, node->first_child);
     }
     th_node *text = len > 0 ? th_tree_make_data_node(tree, TH_NODE_TEXT, points, len) : NULL;
-    /* GCOVR_EXCL_START: a make_data_node allocation failure cannot be forced from a test */
+    /* GCOVR_EXCL_START: covered by the fuzz build's allocation-failure sweep */
     if (len > 0 && text == NULL) {
+        PyErr_NoMemory();
         error = 1;
     }
     /* GCOVR_EXCL_STOP */
@@ -3826,8 +3827,9 @@ TH_NODE_API(static, int, element_set_text, (PyObject * self, PyObject *value, vo
         th_node_remove_observed(tree, node->first_child);
     }
     th_node *text = len > 0 ? th_tree_make_data_node(tree, TH_NODE_TEXT, points, len) : NULL;
-    /* GCOVR_EXCL_START: a make_data_node allocation failure cannot be forced from a test */
+    /* GCOVR_EXCL_START: covered by the fuzz build's allocation-failure sweep */
     if (len > 0 && text == NULL) {
+        PyErr_NoMemory();
         error = 1;
     }
     /* GCOVR_EXCL_STOP */

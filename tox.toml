@@ -835,7 +835,7 @@ commands_post = []  # drop the base env's C coverage report
 [env.tsan]
 # uv venv rejects the nightly interpreter's +dev version.
 runner = "virtualenv"
-description = "detect data races with ThreadSanitizer; run inside the digest-pinned cpython-tsan image"
+description = "detect data races with ThreadSanitizer; run inside the cpython-tsan image"
 # the no-GIL TSan interpreter is the container's own python, not a uv-managed one
 base_python = [ "{env:TSAN_PYTHON:python3.15t}" ]
 package = "skip"

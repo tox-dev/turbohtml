@@ -316,8 +316,16 @@ static void calc_parse_sum(calc_parser *parser, csum *out) {
            consumed its trailing whitespace, so check the raw token stream around the operator; if either side lacks a
            space the input is invalid (a conformant parser drops the declaration), so bail and keep the calc() verbatim
            rather than fold malformed input into a valid value. */
-        if (parser->vec->items[parser->pos - 1].kind != CSS_WS || parser->pos + 1 >= parser->end ||
-            parser->vec->items[parser->pos + 1].kind != CSS_WS) {
+        Py_ssize_t left = parser->pos - 1;
+        Py_ssize_t right = parser->pos + 1;
+        while (parser->vec->items[left].kind == CSS_COMMENT) {
+            left--;
+        }
+        while (right < parser->end && parser->vec->items[right].kind == CSS_COMMENT) {
+            right++;
+        }
+        if (parser->vec->items[left].kind != CSS_WS || right >= parser->end ||
+            parser->vec->items[right].kind != CSS_WS) {
             out->ok = 0;
             break;
         }

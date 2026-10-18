@@ -19,6 +19,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
+from zipfile import ZipFile
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -86,6 +87,8 @@ def _run(job: _Job) -> int:
     if status["build"] != 0:
         print(_public_build_log(build_log), file=sys.stderr)
     else:
+        if job.mode in {"batch", "coverage"}:
+            _add_seeds(workspace / "build-out", storage / "corpus")
         status[job.mode] = _docker(
             RUN_IMAGE,
             {**environment, "MODE": job.mode, "FUZZ_SECONDS": str(job.seconds), "OUTPUT_SARIF": "True"},
@@ -96,13 +99,24 @@ def _run(job: _Job) -> int:
     return max(status.values())
 
 
+def _add_seeds(build: Path, corpus: Path) -> None:
+    for archive_path in sorted(build.glob("fuzz_*_seed_corpus.zip")):
+        target = corpus / archive_path.name.removesuffix("_seed_corpus.zip")
+        target.mkdir(parents=True, exist_ok=True)
+        with ZipFile(archive_path) as archive:
+            for name in archive.namelist():
+                (target / Path(name).name).write_bytes(archive.read(name))
+
+
 def _docker(image: str, environment: dict[str, str], mounts: Sequence[Path], log: Path) -> int:
     # CFLite starts the builder and runner as sibling containers through the socket and hands them its own volumes, so
-    # each mount keeps its host path
+    # each mount keeps its host path; SELinux labels on the outer container block the nested builder's writes
     command: Final = [
         "docker",
         "run",
         "--rm",
+        "--security-opt",
+        "label=disable",
         "-v",
         "/var/run/docker.sock:/var/run/docker.sock",
         *(argument for mount in mounts for argument in ("-v", f"{mount}:{mount}")),

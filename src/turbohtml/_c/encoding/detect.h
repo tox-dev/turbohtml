@@ -1369,6 +1369,7 @@ static void th_cjk_feed(th_cjk_candidate *cand, const unsigned char *buf, Py_ssi
     if (cand->carry_len > 0) {
         spliced = PyMem_Malloc((size_t)cand->carry_len + (size_t)len + 1);
         if (spliced == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory();  /* GCOVR_EXCL_LINE: allocation-failure path */
             cand->alive = 0;   /* GCOVR_EXCL_LINE: allocation-failure path */
             return;            /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -1512,6 +1513,7 @@ static void th_jp_scan_feed(th_jp_scan *scan, const unsigned char *buf, Py_ssize
     if (scan->carry_len > 0) {
         spliced = PyMem_Malloc((size_t)scan->carry_len + (size_t)len + 1);
         if (spliced == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory();  /* GCOVR_EXCL_LINE: allocation-failure path */
             scan->alive = 0;   /* GCOVR_EXCL_LINE: allocation-failure path */
             return;            /* GCOVR_EXCL_LINE: allocation-failure path */
         }

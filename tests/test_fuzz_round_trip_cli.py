@@ -6,10 +6,13 @@ import hashlib
 import inspect
 import json
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, Final
+from zipfile import ZipFile
 
 import pytest
 from coverage import CoverageData
+from fuzz.atheris_header import SEED_HEADER
 from fuzz.atheris_targets import public_targets
 from fuzz.cflite import BUILD_IMAGE, RUN_IMAGE
 from fuzz.cflite import main as fuzz_cflite_main
@@ -26,7 +29,6 @@ from fuzz.round_trip_oracles import ORACLES, Floor, Oracle, OutOfScopeError, mai
 if TYPE_CHECKING:
     import random
     from collections.abc import Callable
-    from pathlib import Path
     from unittest.mock import MagicMock
 
     from pytest_mock import MockerFixture
@@ -188,7 +190,6 @@ def test_round_trip_cli_reports_an_escaping_exception(
 
 
 if TYPE_CHECKING:
-    from pathlib import Path
     from unittest.mock import MagicMock
 
     from pytest_mock import MockerFixture
@@ -212,7 +213,6 @@ def test_fuzz_alloc_sweeps_only_the_inprocess_targets(mocker: MockerFixture, tmp
 
 
 if TYPE_CHECKING:
-    from pathlib import Path
     from unittest.mock import MagicMock
 
     from pytest_mock import MockerFixture
@@ -254,7 +254,6 @@ def test_fuzz_cli_builds_every_standalone_harness_under_the_sanitizer(
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
     from typing import IO
     from unittest.mock import MagicMock
 
@@ -302,10 +301,12 @@ def test_cflite_runs_build_then_mode_on_standalone_filestore(docker: MagicMock, 
         (BUILD_IMAGE, _expected(tmp_path)),
         (RUN_IMAGE, {**_expected(tmp_path), "MODE": "batch", "FUZZ_SECONDS": "3600", "OUTPUT_SARIF": "True"}),
     ]
-    assert commands[0][:9] == [
+    assert commands[0][:11] == [
         "docker",
         "run",
         "--rm",
+        "--security-opt",
+        "label=disable",
         "-v",
         "/var/run/docker.sock:/var/run/docker.sock",
         "-v",
@@ -313,6 +314,25 @@ def test_cflite_runs_build_then_mode_on_standalone_filestore(docker: MagicMock, 
         "-v",
         f"{tmp_path / 'turbohtml'}:{tmp_path / 'turbohtml'}",
     ]
+
+
+def test_cflite_replays_build_seeds_with_stored_corpus(
+    docker: MagicMock, mocker: MockerFixture, tmp_path: Path
+) -> None:
+    build: Final = tmp_path / "workspace" / "build-out"
+
+    def run(*_: object, **__: object) -> MagicMock:
+        if docker.call_count == 1:
+            build.mkdir(parents=True)
+            with ZipFile(build / "fuzz_content_detect_seed_corpus.zip", "w") as archive:
+                archive.writestr("normal-input", SEED_HEADER + b"abc")
+        return mocker.MagicMock(returncode=0)
+
+    docker.side_effect = run
+    assert fuzz_cflite_main(_arguments(tmp_path)) == 0
+    assert (tmp_path / "workspace" / "storage" / "corpus" / "fuzz_content_detect" / "normal-input").read_bytes() == (
+        SEED_HEADER + b"abc"
+    )
 
 
 def test_cflite_writes_logs_not_console(docker: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -443,7 +463,6 @@ def _expected(tmp_path: Path) -> dict[str, str]:
 
 
 if TYPE_CHECKING:
-    from pathlib import Path
     from unittest.mock import MagicMock
 
 
@@ -478,8 +497,13 @@ def test_oss_fuzz_cli_prints_one_script_per_target(tmp_path: Path, capsys: pytes
     ]
 
 
+def test_oss_fuzz_cli_seeds_have_no_failure_header(tmp_path: Path) -> None:
+    assert fuzz_oss_fuzz_main(["seeds", "--output", str(tmp_path)]) == 0
+    source: Final = Path(__file__).resolve().parents[1] / "tools" / "fuzz" / "corpus" / "minify_css" / "basic.css"
+    assert (tmp_path / "tools_fuzz_corpus_minify_css_basic.css").read_bytes() == SEED_HEADER + source.read_bytes()
+
+
 if TYPE_CHECKING:
-    from pathlib import Path
     from unittest.mock import MagicMock
 
     from fuzz.atheris_registry import Target
@@ -494,6 +518,8 @@ _TARGETS: Final = {target.name: target for target in public_targets()}
         pytest.param("dom-construction", ["_check", "ElementMaker", "document"], id="partial-and-alias"),
         pytest.param("dom-rewrite", ["_check", "rewrite"], id="protocol-stubs"),
         pytest.param("dom-range", ["_check"], id="c-types"),
+        pytest.param("html-incremental", ["_incremental_chunks"], id="chunked-incremental"),
+        pytest.param("html-tokenizer", ["_token_chunks"], id="chunked-tokenizer"),
     ],
 )
 def test_reachability_target_functions_follow_registry(target: str, names: list[str]) -> None:
@@ -564,7 +590,6 @@ def _record(directory: Path, target: Target, missing: set[str]) -> None:
 
 
 if TYPE_CHECKING:
-    from pathlib import Path
     from unittest.mock import MagicMock
 
     from pytest_mock import MockerFixture

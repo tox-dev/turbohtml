@@ -133,6 +133,12 @@ def rejecting_callback(
             return
         except exceptions as error:
             if failed:
+                try:
+                    target(payload, header)
+                except exceptions as replay_error:
+                    if type(replay_error) is type(error) and str(replay_error) == str(error):
+                        reject()
+                        return
                 message = f"{type(error).__name__} for an injected allocation failure"
                 raise AssertionError(message) from error
             reject()

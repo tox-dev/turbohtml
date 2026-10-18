@@ -14,7 +14,7 @@ from .atheris_registry import Target
 from .markdown_structure_generators import MarkdownProfileError, markdown_html_check, markdown_source_check
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
     from xml.etree.ElementTree import Element
 
 
@@ -65,9 +65,22 @@ def encoding_observation(
 
 
 def _reference_text(element: Element) -> str:
-    return (element.text or "") + "".join(
-        (_reference_text(child) if isinstance(child.tag, str) else "") + (child.tail or "") for child in element
-    )
+    parts: list[str] = [element.text or ""]
+    stack: list[tuple[Element, Iterator[Element]]] = [(element, iter(element))]
+    while stack:
+        try:
+            child = next(stack[-1][1])
+        except StopIteration:
+            finished, _ = stack.pop()
+            if stack:
+                parts.append(finished.tail or "")
+            continue
+        if isinstance(child.tag, str):
+            parts.append(child.text or "")
+            stack.append((child, iter(child)))
+        else:
+            parts.append(child.tail or "")
+    return "".join(parts)
 
 
 __all__ = ["encoding_observation", "generation_targets"]

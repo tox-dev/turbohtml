@@ -204,6 +204,9 @@ def content_targets() -> tuple[Target, ...]:
 def _sanitize(data: bytes) -> None:
     sanitizer_check(data)
     text: Final = _text(data)
+    _equal(clean.Policy.strict().tags, frozenset())
+    _equal(clean.Policy.basic().tags, clean.DEFAULT_TAGS)
+    _equal("h1" in clean.Policy.relaxed().tags, expected=True)
     markup: Final = f'<b title="{text}" onclick="ignored">{text}</b><!--comment--><unknown>{text}</unknown>'
     options: Final = clean.Policy(
         tags=clean.DEFAULT_TAGS,

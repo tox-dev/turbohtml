@@ -263,6 +263,24 @@ def test_minify_css_invalid_shorthand_keeps_longhand(
 
 
 @pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("a{margin-right:1px;margin:2px;margin-top:3px;margin-bottom:4px;margin-left:5px}", id="box"),
+        pytest.param("a{flex-direction:row;flex-flow:column wrap;flex-wrap:nowrap}", id="pair"),
+        pytest.param("a{outline-width:1px;outline:2px solid red;outline-style:dashed;outline-color:blue}", id="triple"),
+    ],
+)
+def test_minify_css_interleaved_shorthand_keeps_longhands(source: str) -> None:
+    assert minify_css(source) == source
+
+
+def test_minify_css_interleaved_duplicate_shorthand_keeps_longhands() -> None:
+    source = "a{margin-top:1px;margin:0;margin:0;margin-right:2px;margin-bottom:3px;margin-left:4px}"
+    expected = "a{margin-top:1px;margin:0;margin-right:2px;margin-bottom:3px;margin-left:4px}"
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(
     ("source", "expected"),
     [
         pytest.param("a{color:#ffffff}", "a{color:#fff}", id="hex-shorten-6-to-3"),
@@ -383,7 +401,10 @@ def test_minify_css_invalid_shorthand_keeps_longhand(
         pytest.param("a{width:calc(10px / 2)}", "a{width:5px}", id="calc-divide"),
         pytest.param("a{width:calc(100% / 3)}", "a{width:calc(100% / 3)}", id="calc-non-terminating-kept"),
         pytest.param("a{width:calc(1px + 1px + 1px)}", "a{width:3px}", id="calc-chain"),
+        pytest.param("a{h:calc(1px -/**/ 1px)}", "a{h:calc(0px)}", id="calc-comment-after-operator"),
+        pytest.param("a{h:calc(1px/**/ - 1px)}", "a{h:calc(0px)}", id="calc-comment-before-operator"),
         pytest.param("a{transform:translate(1px,0)}", "a{transform:translate(1px)}", id="transform-drop-zero-arg"),
+        pytest.param(r"a{transform:translate(\,0)}", r"a{transform:translate(\,0)}", id="escaped-transform-comma"),
         pytest.param("a{transform:scale(2,2)}", "a{transform:scale(2)}", id="transform-collapse-equal-args"),
         pytest.param(
             "a{background:#ffffff url(x.png) no-repeat}",
@@ -1208,8 +1229,13 @@ _NEGATIVE_AFTER_NUMBER: Final[list[ParameterSet]] = [
     pytest.param("a{e:1e3 -1}", "a{e:1000-1}", id="after-exponent"),
     pytest.param("a{margin:0px -1}", "a{margin:0-1}", id="after-dropped-zero-unit"),
     pytest.param("a{margin:0em -.5}", "a{margin:0-.5}", id="fraction-after-dropped-zero-unit"),
-    pytest.param("a{margin:0px -1px}", "a{margin:0-1px}", id="dimension-after-dropped-zero-unit"),
-    pytest.param("a{margin:0 -1px}", "a{margin:0-1px}", id="dimension"),
+    pytest.param("a{margin:0px -1px}", "a{margin:0 -1px}", id="dimension-after-dropped-zero-unit"),
+    pytest.param("a{margin:0 -1px}", "a{margin:0 -1px}", id="dimension"),
+    pytest.param(
+        "a{margin-top:0;margin-right:0;margin-bottom:0;margin-left:-1ex}",
+        "a{margin:0 0 0 -1ex}",
+        id="negative-dimension-shorthand",
+    ),
     pytest.param("a{e:1px -1}", "a{e:1px -1}", id="after-dimension"),
     pytest.param("a{e:1% -1}", "a{e:1% -1}", id="after-percentage"),
     pytest.param("a{e:a -1}", "a{e:a -1}", id="after-ident"),

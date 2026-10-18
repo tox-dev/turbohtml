@@ -227,9 +227,10 @@ TH_NODE_API(, PyObject *, turbohtml_extract_boilerplate, (PyObject * module, PyO
         return NULL;   /* GCOVR_EXCL_LINE */
     }
     int walked = boilerplate_walk(tree, node, body, min_length, max_link_density, keep_headings, out);
-    if (walked < 0) {   /* GCOVR_EXCL_BR_LINE: allocation */
-        Py_DECREF(out); /* GCOVR_EXCL_LINE */
-        return NULL;    /* GCOVR_EXCL_LINE */
+    if (walked < 0) {     /* GCOVR_EXCL_BR_LINE: allocation */
+        Py_DECREF(out);   /* GCOVR_EXCL_LINE */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;      /* GCOVR_EXCL_LINE */
     }
     return out;
 }

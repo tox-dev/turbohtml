@@ -325,13 +325,95 @@ typedef struct {
     int escape_prose;           /* escape what a reader would parse in prose; off under Escaping(mode="none") */
     int amp_open;               /* the last text node ended in an `&` and name, which the next can finish */
     int deep_block_span;        /* nested inline tags crossed a block boundary */
-    th_node *trailing_br_next;  /* next adjacent break after a trailing break */
-    uint8_t escape_mask;        /* the MD_ASCII classes the options escape */
-    uint8_t run_stop;           /* the MD_ASCII classes that end a bulk-copied run */
-    Py_ssize_t break_start;     /* where the last hard break was written in out... */
-    Py_ssize_t break_end;       /* ...and where it ended, -1 before the first */
-    const Py_UCS4 *break_data;  /* the buffer it was written to */
+    int raw_emphasis;           /* HTML tags keep nested delimiters and breaks from changing on reparse */
+    int repeated_emphasis_breaks;
+    th_node *break_parent;
+    th_node *trailing_br_next; /* next adjacent break after a trailing break */
+    uint8_t escape_mask;       /* the MD_ASCII classes the options escape */
+    uint8_t run_stop;          /* the MD_ASCII classes that end a bulk-copied run */
+    Py_ssize_t break_start;    /* where the last hard break was written in out... */
+    Py_ssize_t break_end;      /* ...and where it ended, -1 before the first */
+    const Py_UCS4 *break_data; /* the buffer it was written to */
 } md_ctx;
+
+static int md_is_emphasis_node(const th_node *node) {
+    if (node == NULL || node->type != TH_NODE_ELEMENT || node->ns != TH_NS_HTML) {
+        return 0;
+    }
+    switch (node->atom) {
+    case TH_TAG_STRONG:
+    case TH_TAG_B:
+    case TH_TAG_EM:
+    case TH_TAG_I:
+    case TH_TAG_DEL:
+    case TH_TAG_S:
+    case TH_TAG_STRIKE:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int md_needs_raw_emphasis(th_tree *tree, th_node *root) {
+    th_node *previous = NULL;
+    Py_ssize_t open = 0;
+    for (th_node *current = root; current != NULL; current = preorder_next(current, root)) {
+        if (previous != NULL) {
+            for (th_node *ancestor = previous; ancestor != current->parent; ancestor = ancestor->parent) {
+                open -= md_is_emphasis_node(ancestor);
+            }
+        }
+        if (md_is_emphasis_node(current)) {
+            open++;
+            if (current->last_child != NULL && current->last_child->atom == TH_TAG_BR &&
+                ((current->first_child != current->last_child && current->first_child->atom == TH_TAG_BR) ||
+                 (current->prev_sibling != NULL && current->prev_sibling->atom == TH_TAG_BR))) {
+                return 1;
+            }
+        } else if (current->type == TH_NODE_TEXT && (open > 1 || md_is_emphasis_node(current->parent))) {
+            int source_span = text_is_span(current);
+            Py_ssize_t offset = source_span ? text_span_offset(current) : 0;
+            for (Py_ssize_t index = 0; index < current->text_len; index++) {
+                Py_UCS4 ch =
+                    source_span ? PyUnicode_READ(tree->kind, tree->data, offset + index) : current->text[index];
+                if (open > 1 && (ch >= 0x80 || ch == '&' || ch == '\\' || ch == '|')) {
+                    return 1;
+                }
+                if (ch >= 0x80 &&
+                    ((current->parent->prev_sibling != NULL && current->parent->prev_sibling->type == TH_NODE_TEXT &&
+                      current->parent->prev_sibling->text_len > 0) ||
+                     (current->parent->next_sibling != NULL && current->parent->next_sibling->type == TH_NODE_TEXT &&
+                      current->parent->next_sibling->text_len > 0))) {
+                    return 1;
+                }
+                if (ch == '\\') {
+                    if (md_is_emphasis_node(current->parent->prev_sibling) ||
+                        md_is_emphasis_node(current->parent->next_sibling)) {
+                        return 1;
+                    }
+                }
+            }
+        }
+        previous = current;
+    }
+    return 0;
+}
+
+static int md_repeated_br_in_emphasis(md_ctx *ctx, th_node *node) {
+    th_node *parent = node->parent;
+    if (!md_is_emphasis_node(parent)) {
+        return 0;
+    }
+    if (ctx->break_parent != parent) {
+        ctx->break_parent = parent;
+        int count = 0;
+        for (th_node *child = parent->first_child; child != NULL && count < 2; child = child->next_sibling) {
+            count += child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML && child->atom == TH_TAG_BR;
+        }
+        ctx->repeated_emphasis_breaks = count == 2;
+    }
+    return ctx->repeated_emphasis_breaks;
+}
 
 /* Emit a configured option string, which may hold non-ASCII (a typographic
    quote, a unicode bullet), decoding its UTF-8 to code points. */
@@ -953,7 +1035,7 @@ static void md_emit_text(md_ctx *ctx, th_node *node, const Py_UCS4 *text, Py_ssi
             if (index >= trailing_space_start && at_line_end < 0) {
                 at_line_end = node == NULL || md_br_trailing(ctx, node);
             }
-            if (!ctx->line_has_content || (index >= trailing_space_start && at_line_end)) {
+            if (ctx->in_heading || !ctx->line_has_content || (index >= trailing_space_start && at_line_end)) {
                 sbuf_puts(&ctx->out, "&#");
                 md_put_decimal(&ctx->out, (Py_ssize_t)ch);
                 sbuf_putc(&ctx->out, ';');
@@ -1570,6 +1652,10 @@ static void md_enter_emphasis(md_ctx *ctx, th_node *node, const char *delim, uin
     md_marker *marker = &ctx->markers[index];
     marker->node = node;
     marker->html = html;
+    if (ctx->raw_emphasis) {
+        marker->open = MD_HTML_TAGS[html - 1][0];
+        marker->close = MD_HTML_TAGS[html - 1][1];
+    }
     marker->flags = html >= MD_HTML_DEL ? MD_MARK_STRIKE : 0;
     md_wrap_flank(ctx, node, marker);
 }
@@ -2471,6 +2557,16 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
         if (md_br_trailing(ctx, node)) {
             /* a hard break at the end of a block does nothing (CommonMark 6.7); emitting
                it would leave a line of spaces that reads as a blank line */
+            return;
+        }
+        if (ctx->raw_emphasis && md_is_emphasis_node(node->parent)) {
+            sbuf_puts(&ctx->out, "<br>");
+            ctx->line_has_content = 1;
+            return;
+        }
+        if (md_repeated_br_in_emphasis(ctx, node)) {
+            sbuf_puts(&ctx->out, "<br>");
+            ctx->line_has_content = 1;
             return;
         }
         for (Py_ssize_t index = ctx->marker_base; index < ctx->marker_count; index++) {
@@ -3727,6 +3823,7 @@ static TH_NOINLINE int md_cell_has_span(th_node *cell) {
    while every pipe row holds at least one cell (GFM 4.10), so it is left out. */
 static Py_ssize_t md_collect_rows(th_node *table, th_node **rows, Py_ssize_t *count, int *has_spans) {
     Py_ssize_t columns = 0;
+    Py_ssize_t fewest = PY_SSIZE_T_MAX;
     th_node *node = table->first_child;
     while (node != NULL) {
         if (node->type == TH_NODE_ELEMENT) {
@@ -3745,6 +3842,9 @@ static Py_ssize_t md_collect_rows(th_node *table, th_node **rows, Py_ssize_t *co
                     }
                     if (cells > 0) {
                         rows[(*count)++] = node;
+                        if (cells < fewest) {
+                            fewest = cells;
+                        }
                     }
                     if (cells > columns) {
                         columns = cells;
@@ -3760,6 +3860,9 @@ static Py_ssize_t md_collect_rows(th_node *table, th_node **rows, Py_ssize_t *co
             node = node->parent;
         }
         node = node->next_sibling;
+    }
+    if (rows != NULL && fewest < columns) {
+        *has_spans = 1;
     }
     return columns;
 }
@@ -3960,9 +4063,6 @@ static int md_table_step(md_ctx *ctx, md_frame *frame) {
         th_node *cell = md_table_next_cell(table);
         if (cell == NULL) {
             if (table->phase == MD_TABLE_ROWS) {
-                for (; table->column < table->columns; table->column++) {
-                    sbuf_puts(&ctx->out, "  |");
-                }
                 ctx->line_has_content = 1;
                 if (table->has_header && table->row == 0) {
                     md_emit_separator_row(ctx, table->columns);
@@ -4604,6 +4704,7 @@ Py_UCS4 *th_node_markdown(th_tree *tree, th_node *node, const md_opts *opt, Py_s
     ctx.markers = ctx.inline_markers = inline_markers;
     ctx.marker_cap = MD_INLINE_MARKERS;
     ctx.break_end = -1;
+    ctx.raw_emphasis = opt->keep_emphasis && md_needs_raw_emphasis(tree, node);
     /* mode="none" leaves prose as written apart from the asterisk and underscore
        choices, keeping only the cell pipe escape a pipe table cannot do without */
     ctx.escape_prose = opt->escape_mode != TH_MD_ESCAPE_NONE;

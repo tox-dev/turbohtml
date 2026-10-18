@@ -459,6 +459,9 @@ static int stack_push(th_tree *tree, th_node *node) {
         tree->open_cap = (Py_ssize_t)cap;
     }
     tree->open[tree->open_len++] = node;
+    if (node != NULL && node->ns == TH_NS_HTML && node->atom == TH_TAG_P) {
+        tree->open_p_count++;
+    }
     tree->stack_version++;
     if (tree->open_len > tree->max_depth) {
         tree->max_depth = tree->open_len;
@@ -474,6 +477,9 @@ static void stack_pop(th_tree *tree) {
         tree->open_len--;
         tree->stack_version++;
         th_node *popped = tree->open[tree->open_len];
+        if (popped->ns == TH_NS_HTML && popped->atom == TH_TAG_P) {
+            tree->open_p_count--;
+        }
         /* record that an end tag named this element (as opposed to an implied or
            EOF close) so escape-mode sanitizing reproduces the author's `</tag>` */
         if (tree->closing_end_tag != NULL && name_matches(popped, tree->closing_end_tag, popped->ns != TH_NS_HTML)) {
@@ -2155,24 +2161,28 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
     return 1;
 }
 
-/* has_in_scope but with <button> also a scope boundary (the "button scope"). */
-static int has_in_button_scope(th_tree *tree, uint16_t atom) {
-    for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) {
+/* Has a p in button scope, with <button> also a scope boundary. */
+static int has_p_in_button_scope(th_tree *tree) {
+    if (tree->open_p_count == 0) {
+        return 0;
+    }
+    for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE: a p is on the stack */
         th_node *node = tree->open[index];
-        if (node->ns == TH_NS_HTML && node->atom == atom) {
+        if (node->ns == TH_NS_HTML && node->atom == TH_TAG_P) {
             return 1;
         }
-        if (is_scope_boundary(node) || (node->ns == TH_NS_HTML && node->atom == TH_TAG_BUTTON)) {
+        if (is_scope_boundary(node) || (node->ns == TH_NS_HTML && /* GCOVR_EXCL_BR_LINE: foreign uses its own mode */
+                                        node->atom == TH_TAG_BUTTON)) {
             return 0;
         }
     }
-    return 0;
+    return 0; /* GCOVR_EXCL_LINE: the stack contains a p or a nearer scope boundary */
 }
 
 /* The spec's "close a p element" step: when a p is in button scope, generate
    implied end tags (except p) and pop the stack through that p. */
 static void close_p_in_button_scope(th_tree *tree) {
-    if (has_in_button_scope(tree, TH_TAG_P)) {
+    if (has_p_in_button_scope(tree)) {
         generate_implied_end_tags(tree, TH_TAG_P);
         pop_until_atom(tree, TH_TAG_P);
     }
@@ -2182,7 +2192,7 @@ static void close_p_in_button_scope(th_tree *tree) {
    found its item instead). Closing the p can pop that element too; the output then closes it explicitly, so a re-parse
    scan runs past it to the list item this one now nests in. */
 static void close_p_before_list_item(th_tree *tree, Py_ssize_t barrier) {
-    if (has_in_button_scope(tree, TH_TAG_P)) {
+    if (has_p_in_button_scope(tree)) {
         generate_implied_end_tags(tree, TH_TAG_P);
         pop_until_atom(tree, TH_TAG_P);
         tree->reparse_hazard |= barrier >= tree->open_len;
@@ -3167,7 +3177,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_TABLE) {
-            if (!tree->quirks && has_in_button_scope(tree, TH_TAG_P)) {
+            if (!tree->quirks && has_p_in_button_scope(tree)) {
                 generate_implied_end_tags(tree, TH_TAG_P);
                 pop_until_atom(tree, TH_TAG_P);
             }
@@ -3177,6 +3187,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_SELECT) {
+            tree->reparse_hazard = 1; /* ignored tags inside select can become elements after serialization */
             /* select content is plain in-body content now; a nested
                select start closes the open one instead of nesting */
             if (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT) {
@@ -3263,6 +3274,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_OPTION || atom == TH_TAG_OPTGROUP) {
+            tree->reparse_hazard = 1; /* nested option markup can reopen as elements after serialization */
             if (has_in_scope(tree, TH_TAG_SELECT) || (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT)) {
                 /* inside a select (or a select-context fragment, where no select node
                    is on the stack), implied end tags close open option and (for an
@@ -3450,7 +3462,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_P) {
-            if (!has_in_button_scope(tree, TH_TAG_P)) {
+            if (!has_p_in_button_scope(tree)) {
                 /* an empty p that the stray </p> itself closes */
                 insert_implicit(tree, TH_TAG_P, TH_TAG_SPECIAL | TH_ELEM_CLOSED_BY_END_TAG);
             } else {
@@ -4195,12 +4207,12 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
            mode here, so a table-family start tag would nest inside the still-open select.
            Per the spec it pops the select, resets the insertion mode, and reprocesses, so
            the table element becomes a sibling of the closed select (#90). */
-        if (tok->kind == TH_START_TAG && has_in_scope(tree, TH_TAG_SELECT) &&
-            (dc->mode == M_IN_TABLE || dc->mode == M_IN_TABLE_BODY || dc->mode == M_IN_ROW || dc->mode == M_IN_CELL ||
-             dc->mode == M_IN_CAPTION)) {
+        if (tok->kind == TH_START_TAG && (dc->mode == M_IN_TABLE || dc->mode == M_IN_TABLE_BODY ||
+                                          dc->mode == M_IN_ROW || dc->mode == M_IN_CELL || dc->mode == M_IN_CAPTION)) {
             uint16_t atom = tok_atom(tok);
-            if (atom == TH_TAG_CAPTION || atom == TH_TAG_TABLE || atom == TH_TAG_TBODY || atom == TH_TAG_TFOOT ||
-                atom == TH_TAG_THEAD || atom == TH_TAG_TR || atom == TH_TAG_TD || atom == TH_TAG_TH) {
+            if ((atom == TH_TAG_CAPTION || atom == TH_TAG_TABLE || atom == TH_TAG_TBODY || atom == TH_TAG_TFOOT ||
+                 atom == TH_TAG_THEAD || atom == TH_TAG_TR || atom == TH_TAG_TD || atom == TH_TAG_TH) &&
+                has_in_scope(tree, TH_TAG_SELECT)) {
                 pop_until_atom(tree, TH_TAG_SELECT);
                 dc->mode = reset_insertion_mode(tree);
                 goto reprocess;

@@ -333,6 +333,19 @@ def test_markdown_check_passes_to_markdown() -> None:
         "<strong><b><<b>😀</b></b><b>*",
         "<em><code>\\</code></em><b><del>*<br></b>&",
         "<table><td>&nbsp </><br>]",
+        "<em><br>[<br>",
+        "d<b>😀=</b><del>;<strong>&gt",
+        "<b><b>\\ </b><strong>\\<g></b>~",
+        "><b><br> <br>",
+        "<strong><br>x<br></strong>[",
+        "><em><br><m><br><i>#<br></i>o",
+        "<ol><li><i><br></i><br><em><b>😀",
+        "<br><strong>><br></strong><",
+        "<ol><li><i><br></i><br>><b>😀",
+        ";<strong><b>d </b><b>\\<t",
+        "<strong><b></b></strong><p><i><br></i><br>é",
+        "<br><i>*<br></i> <",
+        "<del>[</del>\\<em><em>h|</em>>(<br><del><br><el",
     ],
 )
 def test_markdown_check_accepts_equivalent_html(markup: str) -> None:
@@ -350,6 +363,11 @@ def test_markdown_check_keeps_nested_closing_runs_separate() -> None:
 def test_markdown_check_skips_a_block_inside_an_inline() -> None:
     with pytest.raises(OutOfScopeError):
         markdown_check("<del><pre>x</pre></del>")
+
+
+def test_markdown_check_skips_reader_html_outside_the_meaning_model() -> None:
+    with pytest.raises(OutOfScopeError):
+        markdown_check('<ul><li><b><br></b><br><a href="a ">><em>😀')
 
 
 @pytest.mark.parametrize("markup", ["<em>_<br><br></em>)", "<del>y<br><br></del>>"])
@@ -373,6 +391,9 @@ def test_markdown_check_skips_break_inside_table_cell_formatting() -> None:
         "0;@a}t",
         "@supports(){(x+2",
         "a{h:calc(+c(x+2",
+        "a{t:''({",
+        ":::before{x:1}",
+        "[/\n**/f\"\"]{x:''}",
         "@media{a b{{}}a b{f:1}a b{{()}}}",
     ],
 )
@@ -387,6 +408,11 @@ def test_css_fixpoint_checks_balanced_quoted_braces() -> None:
 
 def test_css_semantics_check_passes_minify_css() -> None:
     markup = "<style>p{color:#ff0000;margin:0px 1px}p{margin-top:0}div>p{z-index:01}</style><div><p>x</p></div>"
+    assert css_semantics_check(markup) is None
+
+
+def test_css_semantics_check_preserves_interleaved_margin_shorthand() -> None:
+    markup = "<style>i{margin-right:0}i{margin:0 10px;margin-top:0;margin-bottom:0}i{margin-left:1.5px}</style><i></i>"
     assert css_semantics_check(markup) is None
 
 
@@ -438,6 +464,12 @@ def test_css_semantics_check_flags_a_broken_minifier(markup: str, minify: Callab
 def test_css_semantics_check_skips_a_document_without_style() -> None:
     with pytest.raises(OutOfScopeError):
         css_semantics_check("<p>x")
+
+
+def test_css_semantics_check_skips_invalid_distributive_shorthand() -> None:
+    markup = "<style>i{margin-right:0}i{margin:0 1px 1r;margin-top:0;margin-bottom:0px}</style><i></i>"
+    with pytest.raises(OutOfScopeError):
+        css_semantics_check(markup)
 
 
 @pytest.mark.parametrize(
@@ -659,6 +691,8 @@ def test_markdown_source_grammar_skips_lost_control_whitespace() -> None:
         pytest.param(b"\xff\xfe" + "<p>é</p>".encode("utf-16-le"), "UTF-8", True, "é", id="utf16-bom"),
         pytest.param(b"<meta charset=windows-1252><p>\xe9</p>", "UTF-8", True, "é", id="prescan"),
         pytest.param(b" " * 1025 + b"<meta charset=windows-1251><p>\xc0</p>", "UTF-8", True, "\u0410", id="late-meta"),
+        pytest.param(b"<p>a<!--c-->b<strong>c</strong>d</p>", "UTF-8", False, "abcd", id="comment-tails"),
+        pytest.param(("<div>" * 1200 + "x" + "</div>" * 1200).encode(), "UTF-8", False, "x", id="deep-tree"),
     ],
 )
 def test_encoding_mutation_context(data: bytes, encoding: str, expected: str, *, sniff: bool) -> None:
@@ -1831,7 +1865,12 @@ def test_atheris_reference_empty_css_records() -> None:
         pytest.param(b"color: (", (("color", "(", False),), id="open-block"),
         pytest.param(b'content: "x', (("content", '"x', False),), id="open-string"),
         pytest.param(b'content: "a\n/* x', (("content", '"a\n/* x', False),), id="open-comment-after-string"),
+        pytest.param(
+            b'x: "open\n; color: red } }', (("x", '"open\n; color: red } }', False),), id="bad-string-before-braces"
+        ),
         pytest.param(b"a: b}", (("a", "b}", False),), id="top-level-closer"),
+        pytest.param(b'{{}}"""\n":}5{', (('{{}}"""\n"', "}5{", False),), id="malformed-nested-rule-split"),
+        pytest.param(b'a: before"\n{ b: x:} 0', (("a", 'before"\n{ b: x:} 0', False),), id="open-block-in-bad-string"),
     ],
 )
 def test_atheris_reference_css_records_left_open_at_end(
@@ -1854,6 +1893,11 @@ def test_atheris_reference_css_block_records(data: bytes, expected: tuple[tuple[
 def test_atheris_reference_selector_specificity() -> None:
     expression, specificity = selector_observation(b"div#a > p.x")
     assert (bool(expression), specificity) == (True, ((1, 1, 2),))
+
+
+def test_atheris_reference_selector_uses_standards_mode() -> None:
+    expression, specificity = selector_observation(b"#A")
+    assert (bool(expression), specificity) == (True, ((1, 0, 0),))
 
 
 def test_atheris_reference_untranslatable_selector() -> None:
@@ -2261,8 +2305,12 @@ def test_atheris_callback_handles_injected_assertion(*, lossy: bool) -> None:
 def test_atheris_callback_reports_failure_mismatch(
     mocker: MockerFixture, raised: type[Exception] | None, error: type[Exception] | None, match: str, *, failed: bool
 ) -> None:
+    calls = 0
+
     def consume(_data: bytes, _header: Header) -> None:
-        if raised is not None:
+        nonlocal calls
+        calls += 1
+        if raised is not None and (not failed or calls == 1):
             raise raised
 
     reject = mocker.MagicMock()
@@ -2273,6 +2321,16 @@ def test_atheris_callback_reports_failure_mismatch(
         with pytest.raises(error, match=match):
             callback(SEED_HEADER)
     assert reject.call_count == 0
+
+
+def test_atheris_callback_rejects_documented_error_after_injection(mocker: MockerFixture) -> None:
+    def consume(_data: bytes, _header: Header) -> None:
+        msg = "invalid input"
+        raise UnicodeError(msg)
+
+    reject = mocker.MagicMock()
+    rejecting_callback(consume, (UnicodeError,), reject, lambda _position: (1, True))(SEED_HEADER)
+    reject.assert_called_once_with()
 
 
 def test_atheris_rejection_hook_propagates_loader_error(mocker: MockerFixture) -> None:

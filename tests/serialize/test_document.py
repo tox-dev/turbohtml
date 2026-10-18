@@ -243,6 +243,7 @@ def test_html_serialization(find: Callable[[str, str], Element], html: str, sele
         pytest.param("a&lt;b&gt;c", "a&lt;b&gt;c", id="angle-brackets"),
         pytest.param("a&amp;b", "a&amp;b", id="ampersand"),
         pytest.param("a&nbsp;b", "a&nbsp;b", id="nbsp"),
+        pytest.param("a&#13;b", "a\rb", id="carriage-return"),
     ],
 )
 def test_text_is_escaped_in_html(find: Callable[[str, str], Element], source: str, expected: str) -> None:

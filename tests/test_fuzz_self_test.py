@@ -87,6 +87,7 @@ _SANITIZER: Final = Sanitizer(Policy.strict())
 # Elements only: a text node would add a lazy text copy, which these tests do not target. The custom attribute names
 # make every copy intern them again in its own tree.
 _TREE: Final = "<b zq=1><i></i></b><x y=1></x>"
+_LONG_TEXT: Final = "a" * 8192
 # the input, the radio and the option carry enough attributes that adding value, checked or selected outgrows their
 # arena block
 _INPUT: Final = "<input a0=1 a1=1 a2=1>"
@@ -107,6 +108,11 @@ _SELECT: Final = "<select><option value=a a0=1 a1=1></option></select>"
         pytest.param(_INPUT, lambda fragment: setattr(fragment.children[0], "field_value", "v"), id="input-value"),
         pytest.param(_RADIO, lambda fragment: setattr(fragment.children[1], "checked", True), id="radio-checked"),
         pytest.param(_SELECT, lambda fragment: setattr(fragment.children[0], "field_value", "a"), id="select-value"),
+        pytest.param(
+            "<textarea></textarea>",
+            lambda fragment: setattr(fragment.children[0], "field_value", _LONG_TEXT),
+            id="textarea-value",
+        ),
     ],
 )
 def test_dom_construction_allocation_failure_raises_memory_error(
@@ -622,6 +628,28 @@ def test_structured_data_allocation_failure_raises_memory_error(alloc_sweep: Cal
 
 
 @pytest.mark.fuzz_build
+def test_microdata_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+    assert set(
+        alloc_sweep(
+            lambda document: cast("turbohtml.Document", document).microdata(),
+            lambda: parse('<div itemscope><span itemprop="name">x</span></div>'),
+        )
+    ) == {"MemoryError"}
+
+
+@pytest.mark.fuzz_build
+def test_feed_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+    assert set(
+        alloc_sweep(
+            lambda document: cast("turbohtml.Document", document).feed(),
+            lambda: parse_xml(
+                '<rss version="2.0"><channel><title>x</title><item><title>y</title></item></channel></rss>'
+            ),
+        )
+    ) == {"MemoryError"}
+
+
+@pytest.mark.fuzz_build
 @pytest.mark.parametrize("annotated", [False, True], ids=["plain", "annotated"])
 def test_text_table_allocation_failure_raises_memory_error(
     alloc_sweep: Callable[..., list[str]], *, annotated: bool
@@ -664,6 +692,16 @@ def test_text_access_allocation_failure_raises_memory_error(
     assert set(alloc_sweep(call, lambda: cast("turbohtml.Text", turbohtml.parse_fragment("a" * 8192).children[0]))) == {
         "MemoryError"
     }
+
+
+@pytest.mark.fuzz_build
+def test_element_text_assignment_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+    assert set(
+        alloc_sweep(
+            lambda node: setattr(node, "text", _LONG_TEXT),
+            lambda: cast("turbohtml.Element", turbohtml.parse("<style></style>").select_one("style")),
+        )
+    ) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build

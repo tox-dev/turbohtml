@@ -29,9 +29,7 @@ install -m 0644 "$WORK/atheris-runtime/libatheris_fuzzer.so" "$OUT/sanitizer_wit
 
 export LD_PRELOAD=$OUT/sanitizer_with_fuzzer.so ASAN_OPTIONS=detect_leaks=0
 mkdir -p "$WORK/seeds"
-for seed in tools/fuzz/corpus/*/* tests/fuzz_regressions/*; do
-    cp "$seed" "$WORK/seeds/${seed//\//_}"
-done
+python3 -m fuzz.oss_fuzz seeds --output "$WORK/seeds"
 for harness in $(python3 -m fuzz.oss_fuzz harnesses --output "$WORK/harnesses"); do
     # the driver imports atheris by name at run time, which PyInstaller's import scan does not follow
     compile_python_fuzzer "$harness" --paths "$SRC/turbohtml/tools" --collect-all turbohtml --hidden-import atheris

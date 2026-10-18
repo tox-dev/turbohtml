@@ -62,6 +62,17 @@ static int css_count_active_prefixed(const decl_vec *decls, const css_buf *pool,
     return count;
 }
 
+static int css_shorthand_between(const decl_vec *decls, const css_buf *pool, const char *name, Py_ssize_t first,
+                                 Py_ssize_t last) {
+    for (Py_ssize_t index = first + 1; index < last; index++) {
+        const css_decl *decl = &decls->items[index];
+        if (!decl->dropped && css_run_ieq(pool->data + decl->prop_off, decl->prop_len, name)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Whether a value carries a space outside any parentheses, which marks a multi-part value such as an elliptical
    border-radius corner (``1px 2px``); a space inside ``calc(...)`` is not one. The only caller passes a length value,
    which nests solely with parentheses, so it does not track brackets. */
@@ -104,6 +115,19 @@ static void css_merge_box(css_buf *pool, decl_vec *decls, const char *shorthand,
                 return;
             }
         }
+    }
+    Py_ssize_t first = idx[0];
+    Py_ssize_t last = idx[0];
+    for (int edge = 1; edge < 4; edge++) {
+        if (idx[edge] < first) {
+            first = idx[edge];
+        }
+        if (idx[edge] > last) {
+            last = idx[edge];
+        }
+    }
+    if (css_shorthand_between(decls, pool, shorthand, first, last)) {
+        return;
     }
     if (prefix != NULL && css_count_active_prefixed(decls, pool, prefix, (Py_ssize_t)strlen(prefix)) != 4) {
         return; /* a NULL prefix (inset) needs no logical-sibling guard: its four longhands share no prefix */
@@ -159,12 +183,6 @@ static void css_merge_box(css_buf *pool, decl_vec *decls, const char *shorthand,
                 cbuf_putc(&value, ' ');
             }
             cbuf_put_run(&value, pool->data + decls->items[idx[edge]].val_off, decls->items[idx[edge]].val_len);
-        }
-    }
-    Py_ssize_t last = idx[0];
-    for (int edge = 1; edge < 4; edge++) {
-        if (idx[edge] > last) {
-            last = idx[edge];
         }
     }
     css_decl *merged = &decls->items[last];
@@ -262,6 +280,9 @@ static void css_merge_pair(css_buf *pool, decl_vec *decls, const char *shorthand
                                  css_has_repeated_active_decl(decls, pool, longhand1, idx1))) {
         return;
     }
+    if (css_shorthand_between(decls, pool, shorthand, idx0 < idx1 ? idx0 : idx1, idx0 > idx1 ? idx0 : idx1)) {
+        return;
+    }
     for (int sibling = 0; forbidden != NULL && forbidden[sibling] != NULL; sibling++) {
         if (css_find_active_decl(decls, pool, forbidden[sibling]) >= 0) {
             return;
@@ -349,6 +370,17 @@ static void css_merge_triple(css_buf *pool, decl_vec *decls, const char *shortha
                                  css_has_repeated_active_decl(decls, pool, lh2, idx[2]))) {
         return;
     }
+    Py_ssize_t first = idx[0] < idx[1] ? idx[0] : idx[1];
+    Py_ssize_t last = idx[0] > idx[1] ? idx[0] : idx[1];
+    if (idx[2] < first) {
+        first = idx[2];
+    }
+    if (idx[2] > last) {
+        last = idx[2];
+    }
+    if (css_shorthand_between(decls, pool, shorthand, first, last)) {
+        return;
+    }
     int important = decls->items[idx[0]].important;
     int any_wide = 0;
     for (int part = 0; part < 3; part++) {
@@ -378,10 +410,6 @@ static void css_merge_triple(css_buf *pool, decl_vec *decls, const char *shortha
             }
             cbuf_put_run(&value, pool->data + decls->items[idx[part]].val_off, decls->items[idx[part]].val_len);
         }
-    }
-    Py_ssize_t last = idx[0] > idx[1] ? idx[0] : idx[1];
-    if (idx[2] > last) {
-        last = idx[2];
     }
     css_decl *merged = &decls->items[last];
     merged->prop_off = pool_cstr(pool, shorthand);
@@ -1032,12 +1060,13 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyfram
        the invalid rule is dropped with its block (CSS Syntax 3 §5.4.3), matching lightningcss 1.33.0 and csso 5.0.5.
        With no block it is stray recovery text kept verbatim, and a stray '}' is that text's terminator to consume. */
     if (top && token) {
-        Py_ssize_t block = css_find_top_block(cur->vec, prelude_end);
+        Py_ssize_t block = cur->no_top_block ? -1 : css_find_top_block(cur->vec, prelude_end);
         if (block >= 0) {
             cur->index = block + 1;
             css_skip_block(cur);
             return;
         }
+        cur->no_top_block = 1;
         if (token->delim == '}') {
             cur->index++;
         }
@@ -1105,7 +1134,7 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
     /* the merged body parses below the rule list that holds it, so it inherits that list's depth */
     token_vec tokens = {.depth = depth, .oom = pool->oom};
     css_tokenize(combined.data, combined.len, &tokens);
-    cursor inner = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, pool->oom}};
+    cursor inner = {&tokens, 0, baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0};
     decl_vec decls = {NULL, 0, 0, pool->oom, 0};
     css_parse_declarations(pool, &inner, &decls, 0);
     cbuf_free(&inner.media_next);
@@ -1734,7 +1763,7 @@ CSS_NOINLINE static void css_rejoin_media(css_buf *pool, cursor *cur, rule_vec *
     /* the block parses where the first one did, so it inherits the rule list's depth */
     token_vec tokens = {.depth = cur->vec->depth, .oom = pool->oom};
     css_tokenize(run->text.data, run->text.len, &tokens);
-    cursor inner = {&tokens, 0, cur->baseline, -1, 0, {NULL, 0, 0, pool->oom}};
+    cursor inner = {&tokens, 0, cur->baseline, -1, 0, {NULL, 0, 0, pool->oom}, 0};
     css_buf merged = {NULL, 0, 0, pool->oom};
     css_parse_at(pool, &inner, &merged, 0);
     cbuf_free(&inner.media_next);

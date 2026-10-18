@@ -1327,6 +1327,10 @@ static PyObject *build_entry(module_state *state, th_tree *tree, th_node *item, 
         Py_DECREF(record); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;       /* GCOVR_EXCL_LINE */
     }
+    if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a field may carry an allocation error with its fallback value */
+        Py_DECREF(record);  /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;        /* GCOVR_EXCL_LINE */
+    }
     PyObject *entry = PyObject_Call(state->entry_type, record, NULL);
     Py_DECREF(record);
     return entry;
@@ -1658,6 +1662,10 @@ static PyObject *build_feed(module_state *state, th_tree *tree, th_node *root, c
     if (failed != 0) {     /* GCOVR_EXCL_BR_LINE: a field build fails only on unforceable allocation */
         Py_DECREF(record); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;       /* GCOVR_EXCL_LINE */
+    }
+    if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: a field may carry an allocation error with its fallback value */
+        Py_DECREF(record);  /* GCOVR_EXCL_LINE: allocation-failure path */
+        return NULL;        /* GCOVR_EXCL_LINE */
     }
     PyObject *feed = PyObject_Call(state->feed_type, record, NULL);
     Py_DECREF(record);

@@ -3201,12 +3201,16 @@ static int sanitize_children(sanitizer *s, th_node *parent, int parent_kept) {
                 th_node *grandparent = frame.element->parent;
                 th_node *before = frame.element->prev_sibling;
                 /* GCOVR_EXCL_BR_START: unwrapping and settling only fail on allocation */
+                /* Bound repeated deep settles; the final pass balances their hoisted descendants once. */
+                int defer_balance = depth >= 32 && !balancer_fosters_from(grandparent);
                 if (unwrap_element(s, frame.element, frame.action) < 0 ||
-                    settle_hoisted(s, grandparent, before, frame.next, frame.element, plain_unwrap_pending, frames,
-                                   depth) < 0) {
+                    (defer_balance ? settle_range(s, grandparent, before, frame.next, 0, 0, 0, 0)
+                                   : settle_hoisted(s, grandparent, before, frame.next, frame.element,
+                                                    plain_unwrap_pending, frames, depth)) < 0) {
                     PyMem_Free(frames); /* GCOVR_EXCL_LINE: allocation-failure cleanup */
                     return -1;          /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
+                s->balance_edited |= defer_balance;
                 /* GCOVR_EXCL_BR_STOP */
             }
             parent_kept = frame.parent_kept;
@@ -3977,7 +3981,6 @@ static int balancer_structurally_unstable(const th_node *element) {
            balancer_formatting_reopens(element) || balancer_table_part_orphaned(element);
 }
 
-/* The whole-tree check for the node path: a namespace-confused node is as unstable as a structurally-misplaced one. */
 static int balancer_element_unstable(const th_node *element) {
     return !namespace_reachable(element) || balancer_structurally_unstable(element);
 }
@@ -4218,9 +4221,7 @@ static int balancer_normalize_table_children(sanitizer *s, th_node *container, t
    new ancestors, so a cascade (a form that exposes a namespace-confused child) settles in one pass. settle_hoisted
    calls this on each element a barrier's unwrap hoists, and a balanced walk whose root is a table part calls it once on
    the whole tree. Table text stays put unless `foster` is set. Returns 0, or -1 on error. */
-static int balance_subtree(sanitizer *s, th_node *root, int foster) {
-    /* root is itself an edited parent, so normalize its own table structure (a removed tbody/tr leaves orphan rows or
-       cells directly under it) */
+static int balance_subtree_scanning(sanitizer *s, th_node *root, int foster) {
     if (balancer_normalize_table_children(s, root, NULL, NULL) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
         return -1;                                                    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
@@ -4234,21 +4235,18 @@ static int balance_subtree(sanitizer *s, th_node *root, int foster) {
                 if (escape_element(s, node) < 0) { /* GCOVR_EXCL_BR_LINE: escape only fails on allocation */
                     return -1;                     /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
-                /* escaping leaves the element's start tag (or, for an element with no start tag, its hoisted children)
-                   in place, so the slot is never empty; revisit from there against the new ancestors */
                 node = before != NULL ? before->next_sibling : parent->first_child;
                 continue;
-            } else {
-                if (balancer_normalize_table_children(s, node, NULL, NULL) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                    return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
-                }
-                if (node->first_child != NULL) {
-                    node = node->first_child;
-                    continue;
-                }
+            }
+            if (balancer_normalize_table_children(s, node, NULL, NULL) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
+            if (node->first_child != NULL) {
+                node = node->first_child;
+                continue;
             }
         } else if (foster && node->type == TH_NODE_TEXT) {
-            th_node *after = node->next_sibling; /* fostering moves node before the table, so capture its place first */
+            th_node *after = node->next_sibling;
             int fostered = balancer_table_text_fostered(s, node);
             if (fostered < 0) { /* GCOVR_EXCL_BR_LINE: foster only fails on allocation */
                 return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -4258,7 +4256,7 @@ static int balance_subtree(sanitizer *s, th_node *root, int foster) {
                     node = after;
                     continue;
                 }
-                node = parent; /* the text was its context's last child: climb from the table context it left */
+                node = parent;
             }
         }
         while (node != root && node->next_sibling == NULL) {
@@ -4267,6 +4265,60 @@ static int balance_subtree(sanitizer *s, th_node *root, int foster) {
         node = node == root ? NULL : node->next_sibling;
     }
     return 0;
+}
+
+static int balancer_depth_exceeds(const th_node *root, int limit) {
+    const th_node *node = root->first_child;
+    int depth = 1;
+    while (node != NULL) {
+        if (depth > limit) {
+            return 1;
+        }
+        if (node->first_child != NULL) {
+            depth++;
+            node = node->first_child;
+            continue;
+        }
+        while (node != root && node->next_sibling == NULL) {
+            node = node->parent;
+            depth--;
+        }
+        node = node == root ? NULL : node->next_sibling;
+    }
+    return 0;
+}
+
+static int balance_subtree(sanitizer *s, th_node *root, int foster) {
+    if (!balancer_depth_exceeds(root, 32)) {
+        return balance_subtree_scanning(s, root, foster);
+    }
+    if (balancer_normalize_table_children(s, root, NULL, NULL) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
+        return -1;                                                    /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    const th_node **ancestors = NULL;
+    Py_ssize_t depth = 0;
+    Py_ssize_t capacity = 0;
+    for (const th_node *ancestor = root->parent; ancestor != NULL; ancestor = ancestor->parent) {
+        if (depth == capacity) {
+            const th_node **grown = grow_one(ancestors, &capacity, sizeof *ancestors);
+            if (grown == NULL) {       /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                PyMem_Free(ancestors); /* GCOVR_EXCL_LINE: allocation-failure path */
+                return -1;             /* GCOVR_EXCL_LINE */
+            }
+            ancestors = grown;
+        }
+        ancestors[depth++] = ancestor;
+    }
+    uint32_t bits = 0;
+    while (depth > 0) {
+        bits = balancer_child_bits(ancestors[--depth], bits);
+    }
+    PyMem_Free(ancestors);
+    bits = balancer_child_bits(root, bits);
+    if (!foster) {
+        bits &= ~(uint32_t)CONTEXT_FOSTERS;
+    }
+    return balance_range(s, root->first_child, NULL, (balance_context){root, bits});
 }
 
 /* A kept HTML table part leaves its subtree to balance_range at its post-order: a browser fosters table text and
@@ -4306,6 +4358,7 @@ static int balance_range(sanitizer *s, th_node *first, th_node *stop, balance_co
                 balancer_structurally_unstable_in(node, context, balancer_rule(node->atom))) {
                 th_node *parent = node->parent;
                 th_node *before = node->prev_sibling;
+                s->balance_edited = 1;
                 if (escape_element(s, node) < 0) { /* GCOVR_EXCL_BR_LINE: escape only fails on allocation */
                     PyMem_Free(frames);            /* GCOVR_EXCL_LINE: allocation-failure path */
                     return -1;                     /* GCOVR_EXCL_LINE */
@@ -4947,7 +5000,7 @@ TH_NODE_API(, PyObject *, turbohtml_sanitize, (PyObject * module, PyObject *args
         /* the fragment root is kept context */
         failed = (balance_in_walk ? sanitize_balanced_children(&s, root) : sanitize_children(&s, root, 1)) < 0;
     }
-    if (!failed && balance && !balance_in_walk) {
+    if (!failed && !s.xml && !balance_in_walk && (balance || s.balance_edited)) {
         failed = balance_subtree(&s, root, 1) < 0;
     }
     if (!failed && s.strip_templates) {

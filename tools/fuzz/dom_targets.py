@@ -163,7 +163,7 @@ def _traversal(text: str) -> DomObservation:
 def _query(text: str) -> DomObservation:
     root: Final = build.E.div({"id": "root"}, build.E.p({"id": "item", "class": "picked"}, text))
     child: Final = cast("dom.Element", root.find("p"))
-    matching: Final = query.Matching(namespaces={"h": "http://www.w3.org/1999/xhtml"}, flags=0)
+    matching: Final = query.Matching.soupsieve(namespaces={"h": "http://www.w3.org/1999/xhtml"}, flags=0)
     matcher: Final = query.Matcher("p", matching)
     compiled: Final = query.compile("p")
     smart: Final = cast("list[dom.XPathString]", dom.XPath("//@id", smart_strings=True)(root))

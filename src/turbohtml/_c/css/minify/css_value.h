@@ -993,6 +993,7 @@ typedef struct {
     Py_ssize_t media_at;
     Py_ssize_t media_body;
     css_buf media_next;
+    int no_top_block;
 } cursor;
 
 static css_token *cursor_peek(cursor *cur) {
@@ -1090,6 +1091,10 @@ static void css_collapse_transform_args(const css_char *name, Py_ssize_t name_le
     int depth = 0;
     for (Py_ssize_t index = 0; index < args->len; index++) {
         css_char character = args->data[index];
+        if (character == '\\') {
+            index++;
+            continue;
+        }
         if (character == '(') {
             depth++;
         } else if (character == ')') {

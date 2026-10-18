@@ -18,7 +18,7 @@ from .atheris_targets import public_targets
 from .oss_fuzz import atheris_target_names, fuzzer_name
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Sequence
+    from collections.abc import Iterator, Sequence
     from types import CodeType, FunctionType
 
     from .atheris_registry import Target
@@ -58,13 +58,15 @@ def unreached(target: Target, coverage_dir: Path) -> list[str]:
 
 
 def target_functions(target: Target) -> tuple[_Function, ...]:
-    """Read the callback and every Python-implemented public export it owns from the registry."""
-    callables: Final = [_unwrap(target.callback)] + [_resolve(export) for export in target.exports]
+    """Read the callback run by this target and every Python-implemented public export it owns."""
+    callables: Final = [_unwrap(target.chunked if target.chunked is not None else target.callback)] + [
+        _resolve(export) for export in target.exports
+    ]
     # an alias export repeats a function, and a Protocol's stub methods hold no line a harness could execute
     return tuple(dict.fromkeys(function for item in callables for function in _functions(item) if function.lines))
 
 
-def _unwrap(callback: Callable[[bytes], None]) -> object:
+def _unwrap(callback: object) -> object:
     return callback.func if isinstance(callback, functools.partial) else callback
 
 

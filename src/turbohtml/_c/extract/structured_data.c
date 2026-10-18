@@ -894,6 +894,9 @@ static PyObject *gather_microdata(PyObject *self, PyObject *base) {
     PyMem_Free(ctx.active_items.items);
     if (failed) {
         Py_DECREF(items);
+        if (!PyErr_Occurred()) {     /* GCOVR_EXCL_BR_LINE: raw node-stack allocation failure */
+            return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
         return NULL;
     }
     return items;
