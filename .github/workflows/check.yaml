@@ -5,6 +5,7 @@ on:
     branches: ["main"]
     tags-ignore: ["**"]
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   schedule:
     - cron: "0 8 * * *"
 concurrency:
@@ -43,7 +44,7 @@ jobs:
         with:
           node-version: "22"
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: "3.15"
           enable-cache: false
@@ -90,7 +91,7 @@ jobs:
         with:
           node-version: "22"
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: "3.15"
           enable-cache: false
@@ -126,7 +127,7 @@ jobs:
         with:
           node-version: "22"
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: "3.15"
           enable-cache: false
@@ -148,7 +149,7 @@ jobs:
       - name: 📦 Install unifdef
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends unifdef
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: "3.15"
           enable-cache: false
@@ -169,7 +170,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: "3.15"
           enable-cache: false
@@ -203,7 +204,7 @@ jobs:
             run: npm ci
             working-directory: tools/bench/node
           - name: 🔄 Install uv
-            uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+            uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
             with:
               python-version: "3.15"
               enable-cache: false
@@ -234,7 +235,7 @@ jobs:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: "3.15"
           enable-cache: false
@@ -264,7 +265,7 @@ jobs:
           persist-credentials: false
       - name: 🐍 Install arm64 dev Python (carries the .lib meson needs)
         if: matrix.arm
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         env:
           UV_VENV_SEED: "true"
         with:
@@ -277,7 +278,7 @@ jobs:
         with:
           arch: arm64
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: "3.15"
           enable-cache: false
@@ -304,7 +305,7 @@ jobs:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: "3.15"
           enable-cache: false
@@ -331,7 +332,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: "3.15"
           enable-cache: false
@@ -344,3 +345,39 @@ jobs:
         env:
           UV_PYTHON_PREFERENCE: only-system # use the container's TSan interpreter, not a uv-managed one
           TSAN_SHARD: ${{ matrix.shard }}
+  changelog:
+    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'skip news')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.15"
+          enable-cache: false
+      - run: |
+          for fragment in docs/changelog/*.rst; do
+            if [[ ! "$fragment" =~ ^docs/changelog/[0-9]+\.(breaking|feature|bugfix|doc|packaging)(\.[0-9]+)?\.rst$ ]]; then
+              echo "::error::unsupported news fragment: $fragment"
+              exit 1
+            fi
+          done
+          uvx towncrier check --compare-with "origin/${GITHUB_BASE_REF}"
+  gate:
+    name: Required checks pass
+    if: always()
+    needs: [test, pypy, scalar, preprocess-identity, check, conformance, warnings, warnings-msvc, clang-tidy, tsan, changelog]
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          jq -e '
+            all(
+              to_entries[];
+              .value.result == "success" or
+              (.key == "changelog" and .value.result == "skipped")
+            )
+          ' <<< "$NEEDS_JSON"

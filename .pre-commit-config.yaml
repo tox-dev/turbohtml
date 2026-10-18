@@ -79,8 +79,8 @@ repos:
       - id: changelogs-rst
         name: changelog filenames
         language: fail
-        entry: "changelog files must be named ####.(breaking|feature|bugfix|doc|packaging|misc)[.number].rst"
-        exclude: ^docs/changelog/(\d+\.(breaking|feature|bugfix|doc|packaging|misc)(\.\d+)?\.rst|template\.jinja2)$
+        entry: "changelog files must be named ####.(breaking|feature|bugfix|doc|packaging)[.number].rst"
+        exclude: ^docs/changelog/(\d+\.(breaking|feature|bugfix|doc|packaging)(\.\d+)?\.rst|template\.jinja2)$
         files: ^docs/changelog/
   - repo: https://github.com/LilSpazJoekp/docstrfmt
     rev: "v2.2.1" # v2.1.0

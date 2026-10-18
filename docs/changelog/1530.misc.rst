@@ -1,2 +1,0 @@
-Split the source-tree counting of ``xsl:number`` out of one long function into a helper per level mode, without changing
-its output.

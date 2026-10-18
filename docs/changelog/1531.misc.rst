@@ -1,1 +1,0 @@
-Split feed entry field matching out of one long function into a helper per matching step, without changing its output.

@@ -1,1 +1,0 @@
-Split the ThreadSanitizer CI run over two shards so it no longer sets the wall-clock time of the check workflow.
