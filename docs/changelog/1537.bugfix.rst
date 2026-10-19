@@ -1,6 +1,0 @@
-Keep sanitizer string and node outputs aligned for select and nested options. Preserve nested Markdown emphasis,
-punctuation, and breaks across CommonMark reparses. Preserve CSS margin values when a shorthand falls between longhands,
-and keep ragged Markdown tables as HTML. Report allocation failures during text rendering, element text and textarea
-value assignment, microdata and feed extraction, and encoding detection. Preserve escaped commas and spacing before
-negative dimensions in CSS, and fold valid ``calc()`` expressions with comments in one pass. Bound parsing and
-sanitizing time on deeply nested lists, and avoid rescanning stray CSS preludes without a block.

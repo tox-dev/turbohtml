@@ -7,6 +7,24 @@
 .. towncrier release notes start
 
 **********************
+ v1.15.3 (2026-10-19)
+**********************
+
+Bug fixes - 1.15.3
+==================
+
+- Preserve XML names and visible content, Markdown whitespace, delimiters, and image URLs, and source text across
+  chunked input. Keep CSS minification stable across repeated passes, align sanitizer handling of nested options, and
+  limit Markdown output growth for deeply nested inline markup. Raise ``MemoryError`` for allocation failures in DOM,
+  CSS, XPath, and extraction APIs. (:issue:`1536`)
+- Keep sanitizer string and node outputs aligned for select and nested options. Preserve nested Markdown emphasis,
+  punctuation, and breaks across CommonMark reparses. Preserve CSS margin values when a shorthand falls between
+  longhands, and keep ragged Markdown tables as HTML. Report allocation failures during text rendering, element text and
+  textarea value assignment, microdata and feed extraction, and encoding detection. Preserve escaped commas and spacing
+  before negative dimensions in CSS, and fold valid ``calc()`` expressions with comments in one pass. Bound parsing and
+  sanitizing time on deeply nested lists, and avoid rescanning stray CSS preludes without a block. (:issue:`1537`)
+
+**********************
  v1.15.2 (2026-10-15)
 **********************
 

@@ -1,4 +1,0 @@
-Preserve XML names and visible content, Markdown whitespace, delimiters, and image URLs, and source text across chunked
-input. Keep CSS minification stable across repeated passes, align sanitizer handling of nested options, and limit
-Markdown output growth for deeply nested inline markup. Raise ``MemoryError`` for allocation failures in DOM, CSS,
-XPath, and extraction APIs.
