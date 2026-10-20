@@ -8,6 +8,7 @@ requires = [
 
 [project]
 name = "turbohtml"
+import-names = [ "turbohtml" ]
 description = "A fast, fully typed HTML toolkit for Python, powered by a C-accelerated core."
 readme = "README.md"
 keywords = [
