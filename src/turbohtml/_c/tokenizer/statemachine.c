@@ -1719,37 +1719,31 @@ static TH_NOINLINE enum run_result run_pi(th_tokenizer *self) {
 /* Stamp the tokenizer core once per input storage width. */
 #define TH_NAME(name) name##_ucs1
 #define TH_CHAR Py_UCS1
-#define TH_KIND PyUnicode_1BYTE_KIND
 #define TH_UCS1 1
 #define TH_SCAN scan_stops_ucs1
 #include "tokenizer/statemachine_run.h"
 #undef TH_NAME
 #undef TH_CHAR
-#undef TH_KIND
 #undef TH_UCS1
 #undef TH_SCAN
 
 #define TH_NAME(name) name##_ucs2
 #define TH_CHAR Py_UCS2
-#define TH_KIND PyUnicode_2BYTE_KIND
 #define TH_UCS1 0
 #define TH_SCAN scan_stops_ucs2
 #include "tokenizer/statemachine_run.h"
 #undef TH_NAME
 #undef TH_CHAR
-#undef TH_KIND
 #undef TH_UCS1
 #undef TH_SCAN
 
 #define TH_NAME(name) name##_ucs4
 #define TH_CHAR Py_UCS4
-#define TH_KIND PyUnicode_4BYTE_KIND
 #define TH_UCS1 0
 #define TH_SCAN scan_stops_ucs4
 #include "tokenizer/statemachine_run.h"
 #undef TH_NAME
 #undef TH_CHAR
-#undef TH_KIND
 #undef TH_UCS1
 #undef TH_SCAN
 

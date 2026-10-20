@@ -17,7 +17,6 @@
 
 #define END_SYMBOL 10
 #define GENERAL_BIT 0x8000u
-#define PRIORITY_ACCEPT 0x8000u
 #define PRIORITY_FINAL 0x4000u
 #define MAX_LEAD_PUNCTUATION 4
 /* two lead groups, each a lead character and its punctuation */

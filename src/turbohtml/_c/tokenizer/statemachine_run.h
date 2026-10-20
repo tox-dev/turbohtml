@@ -1,5 +1,5 @@
 /* Kind-stamped tokenizer core. tokenizer/statemachine.c #includes this file three times,
-   once per PyUnicode storage width, with TH_NAME, TH_CHAR and TH_KIND defined,
+   once per PyUnicode storage width, with TH_NAME and TH_CHAR defined,
    the way CPython's stringlib specializes per kind. Every input read compiles
    to direct indexing, so the per-character paths and run scanners carry no
    width dispatch. gcov attributes all three instantiations to these lines, so
