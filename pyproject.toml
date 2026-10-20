@@ -210,6 +210,10 @@ release = [
   "towncrier>=26.9",
 ]
 
+[tool.uv]
+dependency-groups.dev = { requires-python = ">=3.12" }
+dependency-groups.docs = { requires-python = ">=3.12" }
+
 [tool.cibuildwheel]
 # abi3 is impossible here (the SWAR paths need the non-limited PyUnicode buffer
 # APIs), so we ship a wheel per interpreter; cibuildwheel automates the matrix.
