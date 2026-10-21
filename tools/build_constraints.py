@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Final
 
 _BUILD_PACKAGES: Final = frozenset(
-    {"httpx2", "meson", "meson-python", "ninja", "packaging", "pyproject-metadata", "tenacity"},
+    {"httpx2", "meson", "meson-python", "ninja", "packaging", "patchelf", "pyproject-metadata", "tenacity"},
 )
 
 

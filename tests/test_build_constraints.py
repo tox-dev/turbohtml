@@ -41,6 +41,9 @@ def test_build_constraints_render_all_required_packages(tmp_path: Path) -> None:
             name = "meson-python"
             version = "0.22.1"
             [[packages]]
+            name = "patchelf"
+            version = "0.17.2"
+            [[packages]]
             name = "pyproject-metadata"
             version = "0.12.1"
             [[packages]]
@@ -57,6 +60,7 @@ def test_build_constraints_render_all_required_packages(tmp_path: Path) -> None:
         meson-python==0.22.1
         ninja==1.13.2
         packaging==26.3
+        patchelf==0.17.2
         pyproject-metadata==0.12.1
         tenacity==9.2.1
         """,
