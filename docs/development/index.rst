@@ -280,16 +280,16 @@ built from literals in the C sources.
 the ``project.yaml``, ``Dockerfile`` and ``build.sh``. An OSS-Fuzz project reuses ``project.yaml`` and ``build.sh``; its
 ``Dockerfile`` clones the repository where this one copies the checkout. ``build.sh`` builds the fuzz-only mode and
 packages each Atheris target in the registry (``tools/fuzz/atheris_targets.py``) as its own fuzzer, plus the native
-IDNA, phone and JS minifier harnesses. The separate daily ``🧬 ClusterFuzzLite`` workflow fuzzes for 3,600 s per
-sanitizer, prunes the corpus and measures coverage, then fails when a target's callback or a Python-implemented export
-it owns executes no line (``tox r -e fuzz-reachability``).
+IDNA, phone and JS minifier harnesses. The daily ClusterFuzzLite run in the private corpus repository fuzzes for 3,600 s
+per sanitizer, prunes the corpus and measures coverage, then fails when a target's callback or a Python-implemented
+export it owns executes no line (``tox r -e fuzz-reachability``).
 
 ``tools/fuzz/cflite.py`` drives the ClusterFuzzLite images and writes their logs, crashes and corpus to files under its
-workspace instead of the console, because a crash report prints short inputs and this repository's logs are public.
-Every job keeps these files in the private repository named by the ``CFLITE_STORAGE_REPO`` variable, written with the
-``CFLITE_STORAGE_TOKEN`` secret in the main-only ``cflite-storage`` environment, and skips while the variable is unset.
-The ``🔒 fuzz`` workflow runs separately each day, with a longer run on Mondays. Both workflows can also be started
-manually; select ``main`` for ClusterFuzzLite so it can access the private corpus.
+workspace instead of the console, because a crash report prints short inputs and this repository's logs are public. The
+private workflow checks out this repository at one main commit, writes the corpus with its short-lived repository token,
+and sends four check results and SARIF to this repository through a GitHub App installed only here. The App key is
+available only to a separate main-only reporting job. The ``🔒 fuzz`` workflow runs separately each day, with a longer
+run on Mondays. Start the private ClusterFuzzLite workflow from its ``main`` branch for a manual run.
 
 Add a target by registering a ``bytes``-taking callable in ``_TARGETS`` (in-process) and dropping a representative
 benign seed under ``tools/fuzz/corpus/<target>/``; add a standalone harness by mirroring ``idna_harness.c`` for any C
