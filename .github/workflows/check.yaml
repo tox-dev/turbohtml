@@ -46,6 +46,7 @@ jobs:
       - name: 🔄 Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
       - wait: test-data
@@ -93,6 +94,7 @@ jobs:
       - name: 🔄 Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
       - wait: test-data
@@ -129,6 +131,7 @@ jobs:
       - name: 🔄 Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
       - wait: test-data
@@ -151,6 +154,7 @@ jobs:
       - name: 🔄 Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
       - name: ✅ Run preprocess-identity
@@ -172,6 +176,7 @@ jobs:
       - name: 🔄 Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
       - name: ✅ Run ${{ matrix.tox_env }}
@@ -206,6 +211,7 @@ jobs:
           - name: 🔄 Install uv
             uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
             with:
+              version: latest-known
               python-version: "3.15"
               enable-cache: false
       - name: ✅ Run the conformance suites
@@ -237,6 +243,7 @@ jobs:
       - name: 🔄 Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
       - name: ✅ Build with -Werror
@@ -269,6 +276,7 @@ jobs:
         env:
           UV_VENV_SEED: "true"
         with:
+          version: latest-known
           enable-cache: false
           activate-environment: true
           python-version: "3.15"
@@ -280,6 +288,7 @@ jobs:
       - name: 🔄 Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
       - name: ✅ Build with -Werror
@@ -307,6 +316,7 @@ jobs:
       - name: 🔄 Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
       - name: ✅ Run clang-tidy
@@ -334,6 +344,7 @@ jobs:
       - name: 🔄 Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
       - name: 🔍 Check the interpreter is free-threaded and TSan-instrumented
@@ -355,6 +366,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
       - name: Install locked release tools
@@ -363,7 +375,7 @@ jobs:
           uv venv --python 3.15 "$RUNNER_TEMP/release-tools"
           uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" --group release pylock.toml
           echo "$RUNNER_TEMP/release-tools/bin" >>"$GITHUB_PATH"
-      - uses: tox-dev/github-workflows/validate-news@296388849cced16665b3e8b4397a22265418d3dc
+      - uses: tox-dev/github-workflows/validate-news@3553fb1bb4ed1385f8b68571de1b5515edf2d339
   gate:
     name: Required checks pass
     if: always()
