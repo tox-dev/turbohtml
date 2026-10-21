@@ -285,9 +285,30 @@ jobs:
           path: ${{ steps.stage.outputs.manifest }}
           if-no-files-found: error
           retention-days: 1
+  github-draft:
+    needs: [pypi-stage, github-notes]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: github-release-notes
+          path: ${{ runner.temp }}/github-release-notes
+      - uses: tox-dev/github-workflows/publish-github-release@3553fb1bb4ed1385f8b68571de1b5515edf2d339
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          repository: ${{ github.repository }}
+          tag: ${{ github.ref_name }}
+          commit: ${{ github.sha }}
+          title: v${{ github.ref_name }}
+          notes-file: ${{ runner.temp }}/github-release-notes/release-notes.md
+          mode: stage
   publish:
     name: 🚀 Publish ${{ matrix.artifact }}
-    needs: pypi-stage
+    needs: [pypi-stage, github-draft]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     # one job per build artifact: signing every wheel in a single job exceeds the
@@ -344,7 +365,7 @@ jobs:
           packages-dir: upload
           skip-existing: true
   pypi-verify:
-    needs: publish
+    needs: [publish, github-draft]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-26.04
     permissions:
@@ -483,7 +504,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
   github-release:
-    needs: [pypi-verify, github-notes]
+    needs: [pypi-verify, github-draft, github-notes]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:
@@ -502,3 +523,4 @@ jobs:
           commit: ${{ github.sha }}
           title: v${{ github.ref_name }}
           notes-file: ${{ runner.temp }}/github-release-notes/release-notes.md
+          mode: publish
