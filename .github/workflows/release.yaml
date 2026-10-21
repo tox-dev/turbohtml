@@ -106,7 +106,7 @@ jobs:
           retention-days: 7
   source-install:
     name: Source install - Windows ARM64
-    needs: sdist
+    needs: [build-constraints, sdist]
     runs-on: windows-11-arm
     steps:
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
@@ -120,8 +120,15 @@ jobs:
         with:
           name: dist-sdist
           path: dist
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-constraints
+          path: ${{ runner.temp }}
       - name: Install source distribution
-        run: python -m pip install --verbose (Get-ChildItem dist/*.tar.gz).FullName
+        env:
+          UV_BUILD_CONSTRAINT: ${{ runner.temp }}/build-constraints-windows.txt
+          UV_REQUIRE_BUILD_HASHES: "true"
+        run: uv pip install --python "$env:VIRTUAL_ENV" --verbose (Get-ChildItem dist/*.tar.gz).FullName
       - name: Check installed extension
         run: python -c "from turbohtml import parse; assert parse('<p>ARM64</p>').select_one('p').text == 'ARM64'"
   wheels:
