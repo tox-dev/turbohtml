@@ -33,23 +33,71 @@ jobs:
         run: '"$RUNNER_TEMP/release-tools/bin/prek" run --all-files'
       - name: Check source remains clean
         run: test -z "$(git status --porcelain)"
+  build-constraints:
+    name: Build constraints
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.15"
+          enable-cache: false
+      - name: Install locked release tools
+        run: |
+          uv venv --python 3.15 "$RUNNER_TEMP/release-tools"
+          uv pip sync --preview-features pylock --python "$RUNNER_TEMP/release-tools/bin/python" --group release pylock.toml
+      - name: Derive Linux build constraints
+        run: |
+          "$RUNNER_TEMP/release-tools/bin/release-creator" build-constraints \
+            --lock pylock.toml --platform linux \
+            --python-version 3.11.0 --python-version 3.12.0 --python-version 3.13.0 \
+            --python-version 3.14.0 --python-version 3.15.0 \
+            --output "$RUNNER_TEMP/build-constraints-linux.txt"
+      - name: Derive macOS build constraints
+        run: |
+          "$RUNNER_TEMP/release-tools/bin/release-creator" build-constraints \
+            --lock pylock.toml --platform macos \
+            --python-version 3.11.0 --python-version 3.12.0 --python-version 3.13.0 \
+            --python-version 3.14.0 --python-version 3.15.0 \
+            --output "$RUNNER_TEMP/build-constraints-macos.txt"
+      - name: Derive Windows build constraints
+        run: |
+          "$RUNNER_TEMP/release-tools/bin/release-creator" build-constraints \
+            --lock pylock.toml --platform windows \
+            --python-version 3.11.0 --python-version 3.12.0 --python-version 3.13.0 \
+            --python-version 3.14.0 --python-version 3.15.0 \
+            --output "$RUNNER_TEMP/build-constraints-windows.txt"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-constraints
+          path: ${{ runner.temp }}/build-constraints-*.txt
+          if-no-files-found: error
+          retention-days: 1
   sdist:
     name: 📦 sdist
+    needs: build-constraints
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-constraints
+          path: ${{ runner.temp }}
       - name: 🔄 Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           python-version: "3.15"
           enable-cache: false
       - name: 📦 Build sdist
-        run: |
-          python tools/build_constraints.py pylock.toml "$RUNNER_TEMP/build-constraints.txt"
-          uv build --sdist --build-constraint "$RUNNER_TEMP/build-constraints.txt" --out-dir dist
+        env:
+          UV_BUILD_CONSTRAINT: ${{ runner.temp }}/build-constraints-linux.txt
+          UV_REQUIRE_BUILD_HASHES: "true"
+        run: uv build --sdist --out-dir dist
       - name: 📤 Upload sdist
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -78,17 +126,18 @@ jobs:
         run: python -c "from turbohtml import parse; assert parse('<p>ARM64</p>').select_one('p').text == 'ARM64'"
   wheels:
     name: 🎡 wheels - ${{ matrix.label }}
+    needs: build-constraints
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {os: "ubuntu-24.04", label: Linux manylinux, build: "*-manylinux*", artifact: linux-manylinux}
-          - {os: "ubuntu-24.04", label: Linux musllinux, build: "*-musllinux*", artifact: linux-musllinux}
-          - {os: "ubuntu-24.04-arm", label: Linux ARM manylinux, build: "*-manylinux*", artifact: linux-arm-manylinux}
-          - {os: "ubuntu-24.04-arm", label: Linux ARM musllinux, build: "*-musllinux*", artifact: linux-arm-musllinux}
-          - {os: "macos-15", label: macOS, build: "*", artifact: macos-15}
-          - {os: "windows-2025", label: Windows, build: "*", artifact: windows-2025}
+          - {os: "ubuntu-24.04", label: Linux manylinux, build: "*-manylinux*", artifact: linux-manylinux, constraints: linux}
+          - {os: "ubuntu-24.04", label: Linux musllinux, build: "*-musllinux*", artifact: linux-musllinux, constraints: linux}
+          - {os: "ubuntu-24.04-arm", label: Linux ARM manylinux, build: "*-manylinux*", artifact: linux-arm-manylinux, constraints: linux}
+          - {os: "ubuntu-24.04-arm", label: Linux ARM musllinux, build: "*-musllinux*", artifact: linux-arm-musllinux, constraints: linux}
+          - {os: "macos-15", label: macOS, build: "*", artifact: macos-15, constraints: macos}
+          - {os: "windows-2025", label: Windows, build: "*", artifact: windows-2025, constraints: windows}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -107,13 +156,15 @@ jobs:
         with:
           python-version: "3.15"
           enable-cache: false
-      - name: Derive locked build constraints
-        run: python tools/build_constraints.py pylock.toml build-constraints.txt
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: build-constraints
+          path: .
       - name: 🎡 Build wheels
         uses: pypa/cibuildwheel@b3395e271a35f73dad77f21802abe9b986dfe299 # v4.3.1
         env:
           CIBW_BUILD: ${{ matrix.build }}
-          CIBW_ENVIRONMENT: UV_BUILD_CONSTRAINT="$(pwd)/build-constraints.txt"
+          CIBW_ENVIRONMENT: UV_BUILD_CONSTRAINT=build-constraints-${{ matrix.constraints }}.txt UV_REQUIRE_BUILD_HASHES=true
       - name: 📤 Upload wheels
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -129,7 +180,9 @@ jobs:
       matrix:
         label: [Linux, Linux ARM]
     steps:
-      - run: test '${{ needs.wheels.result }}' = success
+      - env:
+          WHEELS_RESULT: ${{ needs.wheels.result }}
+        run: test "$WHEELS_RESULT" = success
   wheel-metadata:
     needs: [sdist, wheels]
     runs-on: ubuntu-26.04
@@ -180,7 +233,7 @@ jobs:
   release-gate:
     name: Release checks pass
     if: always()
-    needs: [source-check, sdist, source-install, wheels, wheels-gate, wheel-metadata]
+    needs: [source-check, build-constraints, sdist, source-install, wheels, wheels-gate, wheel-metadata]
     runs-on: ubuntu-26.04
     steps:
       - env:

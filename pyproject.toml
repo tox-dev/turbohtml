@@ -4,6 +4,7 @@ requires = [
   "meson>=1.12.1",
   "meson-python>=0.22.1",
   "ninja>=1.13.2",
+  "patchelf>=0.11; sys_platform=='linux'",
 ]
 
 [project]
@@ -192,7 +193,14 @@ bench = [
   "yattag>=1.16.1",
   { include-group = "test" },
 ]
-build = [
+coverage = [
+  "covdefaults>=2.3",
+  "coverage[toml]>=7.16.2",
+]
+fix = [
+  "pre-commit-uv>=4.3",
+]
+pgo = [
   "httpx2>=2.13.1",
   "meson>=1.12.1",
   "meson-python>=0.22.1",
@@ -201,13 +209,6 @@ build = [
   "tenacity>=9.1.4",
   "uv>=0.12.22",
 ]
-coverage = [
-  "covdefaults>=2.3",
-  "coverage[toml]>=7.16.2",
-]
-fix = [
-  "pre-commit-uv>=4.3",
-]
 pkg-meta = [
   "check-wheel-contents>=0.6.3",
   "twine>=7",
@@ -215,7 +216,7 @@ pkg-meta = [
 ]
 release = [
   "prek>=0.5",
-  "release-creator @ git+https://github.com/tox-dev/release-creator@5ab33234939cf2969d25a11ba477c31eb264067c",
+  "release-creator @ git+https://github.com/tox-dev/release-creator@80ecd0e952a0e0c50d08129ec89aaa8306ea0b05",
   "towncrier>=26.9",
 ]
 
@@ -238,7 +239,7 @@ test-command = "python -c \"import turbohtml; assert turbohtml.unescape(turbohtm
 # release does not need. See tools/pgo_build.py.
 linux.before-build = """\
   rm -rf /tmp/turbohtml-pgo && uv pip install --preview-features pylock --system --python python --requirements \
-  {project}/pylock.toml --group build && python {project}/tools/pgo_build.py --python python --system --project \
+  {project}/pylock.toml --group pgo && python {project}/tools/pgo_build.py --python python --system --project \
   {project} --build-dir /tmp/turbohtml-pgo --phase profile\
   """
 linux.config-settings.build-dir = "/tmp/turbohtml-pgo"
