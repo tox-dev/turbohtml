@@ -1,0 +1,121 @@
+name: 🧬 ClusterFuzzLite
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 1 * * *" # daily batch, then prune and coverage
+concurrency:
+  group: cflite-state
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  batch:
+    name: 🧬 batch fuzzing (${{ matrix.sanitizer }})
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: cflite-storage
+    permissions:
+      contents: write
+      security-events: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        sanitizer: ["address", "undefined"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 🔄 Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.15"
+          enable-cache: false
+      - name: 📥 Check out public fuzz state
+        run: bash tools/fuzz/cflite_storage.sh clone
+      - name: 🧬 Fuzz for 3600 s
+        run: >-
+          uv run --no-project --python 3.15 python tools/fuzz/cflite.py --mode batch --sanitizer "${SANITIZER}" --seconds 3600 --source "${GITHUB_WORKSPACE}" --workspace "${RUNNER_TEMP}/cflite"
+        env:
+          SANITIZER: ${{ matrix.sanitizer }}
+      - name: 📤 Store corpus, crashes and logs
+        if: success() || failure()
+        run: bash tools/fuzz/cflite_storage.sh push "batch ${SANITIZER}"
+        env:
+          STORAGE_TOKEN: ${{ github.token }}
+          SANITIZER: ${{ matrix.sanitizer }}
+      - name: Check for SARIF
+        id: sarif
+        if: success() || failure()
+        run: |
+          if compgen -G "${RUNNER_TEMP}/cflite/cifuzz-sarif/*.sarif" > /dev/null; then
+            echo 'present=true' >> "${GITHUB_OUTPUT}"
+          fi
+      - name: 🛡️ Upload SARIF
+        if: (success() || failure()) && steps.sarif.outputs.present == 'true'
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+        with:
+          sarif_file: ${{ runner.temp }}/cflite/cifuzz-sarif
+          category: cflite-${{ matrix.sanitizer }}
+  prune:
+    name: ✂️ corpus pruning
+    needs: batch
+    if: (success() || failure()) && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: cflite-storage
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 🔄 Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.15"
+          enable-cache: false
+      - name: 📥 Check out public fuzz state
+        run: bash tools/fuzz/cflite_storage.sh clone
+      - name: ✂️ Prune the corpus
+        run: >-
+          uv run --no-project --python 3.15 python tools/fuzz/cflite.py --mode prune --sanitizer address --seconds 11100 --source "${GITHUB_WORKSPACE}" --workspace "${RUNNER_TEMP}/cflite"
+      - name: 📤 Store the pruned corpus and logs
+        if: success() || failure()
+        run: bash tools/fuzz/cflite_storage.sh push "prune"
+        env:
+          STORAGE_TOKEN: ${{ github.token }}
+  coverage:
+    name: 📊 coverage and reachability floors
+    needs: prune
+    if: (success() || failure()) && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: cflite-storage
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 🔄 Install uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.15"
+          enable-cache: false
+      - name: 📥 Check out public fuzz state
+        run: bash tools/fuzz/cflite_storage.sh clone
+      - name: 📊 Measure coverage over the stored corpus
+        run: >-
+          uv run --no-project --python 3.15 python tools/fuzz/cflite.py --mode coverage --sanitizer coverage --seconds 600 --source "${GITHUB_WORKSPACE}" --workspace "${RUNNER_TEMP}/cflite"
+      - name: 🚧 Check reachability floors
+        # each Atheris target's callback and Python-implemented exports must execute at least one line
+        run: uvx --with tox-uv tox run -e fuzz-reachability -- --coverage-dir "${RUNNER_TEMP}/cflite/build-out"
+        env:
+          UV_PYTHON_PREFERENCE: only-managed
+      - name: 📤 Store the coverage logs
+        if: success() || failure()
+        run: bash tools/fuzz/cflite_storage.sh push "coverage"
+        env:
+          STORAGE_TOKEN: ${{ github.token }}
