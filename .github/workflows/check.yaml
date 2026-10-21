@@ -324,7 +324,7 @@ jobs:
       matrix:
         shard: ["heavy", "rest"]
     container:
-      image: ghcr.io/nascheme/cpython-tsan:3.15t-dev
+      image: ghcr.io/nascheme/cpython-tsan:3.15t-dev@sha256:d83ce086fa8586ef200e09a109a85628e3091128efb4bf6db2fbc07b5ba06ea7
       options: --shm-size=2g # TSan shadow memory needs the headroom
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
