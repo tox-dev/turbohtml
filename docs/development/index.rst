@@ -69,6 +69,30 @@ codspeed`` or ``pytest tests/benchmarks --codspeed``), so the ordinary test run 
   and a comment explaining why it cannot run.
 - Keep the C output byte for byte identical to the standard library where the two overlap.
 
+.. _news-fragments:
+
+News fragments
+==============
+
+Add one ``docs/changelog/+short-name.<category>.rst`` file for each user-facing change. A pull request may have several
+fragments, including more than one category. The release workflow takes the pull request number and human authors from
+the squash merge; do not write either in the fragment. Numbered fragment names remain supported.
+
+Use ``feature`` for new behavior and Python support additions or removals, ``change`` for changes to existing behavior,
+``bugfix`` for corrections, and ``doc`` for documentation users need to know about. Use ``breaking``, ``security``,
+``performance``, ``deprecation``, ``removal``, or ``packaging`` when one describes the user-facing effect more
+precisely. Empty categories do not appear in the release notes.
+
+For example, ``docs/changelog/+native-parsing.bugfix.rst`` could contain:
+
+.. code-block:: rst
+
+    Preserve an explicitly empty HTML attribute during native parsing.
+
+Apply ``skip news`` when a pull request changes only maintenance work. The news check runs again when the label changes.
+Bot PRs get the label automatically unless they provide a fragment, and bot accounts do not appear as release-note
+authors.
+
 ********************
  Conformance suites
 ********************

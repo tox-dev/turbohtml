@@ -192,6 +192,14 @@ bench = [
   "yattag>=1.16.1",
   { include-group = "test" },
 ]
+build = [
+  "httpx2>=2.13.1",
+  "meson>=1.12.1",
+  "meson-python>=0.22.1",
+  "ninja>=1.13.2",
+  "tenacity>=9.1.4",
+  "uv>=0.12.22",
+]
 coverage = [
   "covdefaults>=2.3",
   "coverage[toml]>=7.16.2",
@@ -205,15 +213,15 @@ pkg-meta = [
   "uv>=0.12.22",
 ]
 release = [
-  "gitpython>=3.2",
-  "packaging>=26.3",
-  "pre-commit>=4.6.2",
+  "prek>=0.5",
+  "release-creator @ git+https://github.com/tox-dev/release-creator@5ab33234939cf2969d25a11ba477c31eb264067c",
   "towncrier>=26.9",
 ]
 
 [tool.uv]
-dependency-groups.dev = { requires-python = ">=3.12" }
+dependency-groups.dev = { requires-python = ">=3.15" }
 dependency-groups.docs = { requires-python = ">=3.12" }
+dependency-groups.release = { requires-python = ">=3.15" }
 
 [tool.cibuildwheel]
 # abi3 is impossible here (the SWAR paths need the non-limited PyUnicode buffer
@@ -228,9 +236,9 @@ test-command = "python -c \"import turbohtml; assert turbohtml.unescape(turbohtm
 # hot paths. Scoped to Linux on purpose: the measured win is gcc's, and clang/MSVC add a profile-merge step the
 # release does not need. See tools/pgo_build.py.
 linux.before-build = """\
-  rm -rf /tmp/turbohtml-pgo && pip install uv meson-python meson ninja httpx2 tenacity && python \
-  {project}/tools/pgo_build.py --python python --system --project {project} --build-dir /tmp/turbohtml-pgo --phase \
-  profile\
+  rm -rf /tmp/turbohtml-pgo && uv pip install --preview-features pylock --system --python python --requirements \
+  {project}/pylock.toml --group build && python {project}/tools/pgo_build.py --python python --system --project \
+  {project} --build-dir /tmp/turbohtml-pgo --phase profile\
   """
 linux.config-settings.build-dir = "/tmp/turbohtml-pgo"
 # -Db_lto lands cross-TU inlining across the header splits the 1.0 rearchitecture introduced (spike #478): the hot
@@ -442,9 +450,14 @@ template = "docs/changelog/template.jinja2"
 title_format = false
 issue_format = ":issue:`{issue}`"
 type = [
-  { directory = "breaking", name = "Backward incompatible changes", showcontent = true },
-  { directory = "feature", name = "Features", showcontent = true },
-  { directory = "bugfix", name = "Bug fixes", showcontent = true },
-  { directory = "doc", name = "Improved documentation", showcontent = true },
-  { directory = "packaging", name = "Packaging updates", showcontent = true },
+  { directory = "feature", name = "Added", showcontent = true },
+  { directory = "change", name = "Changes", showcontent = true },
+  { directory = "bugfix", name = "Fixed", showcontent = true },
+  { directory = "doc", name = "Documentation", showcontent = true },
+  { directory = "breaking", name = "Breaking changes", showcontent = true },
+  { directory = "security", name = "Security", showcontent = true },
+  { directory = "performance", name = "Performance", showcontent = true },
+  { directory = "deprecation", name = "Deprecated", showcontent = true },
+  { directory = "removal", name = "Removed", showcontent = true },
+  { directory = "packaging", name = "Packaging", showcontent = true },
 ]

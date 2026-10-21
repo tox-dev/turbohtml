@@ -36,3 +36,4 @@ tests/conformance/oracles/*/target/
 # tools/fuzz/fuzz.py stores crashing inputs here; they stay off the public repository
 /.fuzz-crashes
 /uv.lock
+/build-constraints.txt
