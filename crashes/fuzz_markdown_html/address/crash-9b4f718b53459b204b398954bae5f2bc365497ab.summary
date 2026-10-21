@@ -1,0 +1,55 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f6f4a63f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3251120150
+INFO: Loaded 1 modules   (103106 inline 8-bit counters): 103106 [0x7b6f474614a8, 0x7b6f4747a76a), 
+INFO: Loaded 1 PC tables (103106 PCs): 103106 [0x7b6f4747a770,0x7b6f4760d390), 
+INFO:      570 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_markdown_html
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 14755 bytes
+INFO: seed corpus: files: 570 min: 4b max: 14755b total: 152688b rss: 174Mb
+#571	INITED cov: 3733 ft: 12187 corp: 558/148Kb exec/s: 571 rss: 202Mb
+#574	NEW    cov: 3733 ft: 12199 corp: 559/148Kb lim: 14755 exec/s: 574 rss: 202Mb L: 302/14755 MS: 6 CopyPart-Custom-CrossOver-Custom-CrossOver-Custom-
+
+ === Uncaught Python exception: ===
+AssertionError: Markdown conversion changes meaning
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/generation_targets.py", line 37, in markup
+AssertionError: Markdown conversion changes meaning
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7b6f457a2660>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==321== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f6f4a72edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7f6f4a67f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f6f4a662596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f6f4a662668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f6f4a662668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f6f4a4548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f6f4a454a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7b6f47bcc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7b6f47bcf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7b6f47bceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_markdown_html.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_markdown_html.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f6f4a432082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_markdown_html.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 2 ChangeByte-Custom-; base unit: 958e303f2b0a04c8f6cc2027aba5035b17d5cfce
+0x3c,0x62,0x69,0x76,0x3e,0x20,0x78,0x3c,0x73,0x70,0x61,0x6e,0x3e,0x61,0x3c,0x2f,0x73,0x70,0x61,0x6e,0x3e,0x20,0x20,0x3c,0x73,0x70,0x61,0x6e,0x3e,0x62,0x3c,0x2f,0x73,0x70,0x61,0x6e,0x3e,0x20,0x20,0x3c,0x73,0x70,0x61,0x6e,0x3e,0x62,0x3c,0x2f,0x73,0x70,0x71,0x6e,0x3e,0x20,0x20,0x3c,0x2f,0x64,0x69,0x76,0xa,0x3e,0x15,0x71,0x6e,0x3e,0x20,0x20,0x3c,0x2f,0x64,0x69,0x76,0x3e,0xa,0x15,0x74,0x6d,0x0,0x0,0x0,0x0,0x0,0x0,0x0,
+<biv> x<span>a</span>  <span>b</span>  <span>b</spqn>  </div\012>\025qn>  </div>\012\025tm\000\000\000\000\000\000\000
+artifact_prefix='/tmp/tmpm9oac5v9/'; Test unit written to /tmp/tmpm9oac5v9/crash-9b4f718b53459b204b398954bae5f2bc365497ab
+Base64: PGJpdj4geDxzcGFuPmE8L3NwYW4+ICA8c3Bhbj5iPC9zcGFuPiAgPHNwYW4+Yjwvc3Bxbj4gIDwvZGl2Cj4VcW4+ICA8L2Rpdj4KFXRtAAAAAAAAAA==
+stat::number_of_executed_units: 590
+stat::average_exec_per_sec:     590
+stat::new_units_added:          1
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              202

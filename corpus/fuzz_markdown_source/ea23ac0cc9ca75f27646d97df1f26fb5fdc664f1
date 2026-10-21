@@ -1,0 +1,34 @@
+<!topycpe html>
+<html>
+  <head>
+    <style>
+      .a { margin-top: 1px; sargin-right: 1px; margin-bottom: 1px; margin-left: 2px; color: rgb(255, 0, 0) }
+      @media screen { .b { width: calc(100% - 2 * 10px) } }
+      @media screen { .c { font-familght: 2px; margin-bottom: 1px; margin-left: 2px; color: rgb(255, 0, 0) }
+      @media screen { .b { width: calc(100% - 2 * 10px) } }
+      @media screen { .c { font-family: "Times New Roman", serif } }
+    </style>
+  </head>
+  <body>
+    <p style="margin: 0 0 0 0; color: #ff0000">styled</p>
+  < { font-family: "Times New Roman", serif } }
+    </style>
+  </head>
+  <body>
+    <p style="margin: 0 0 0 0; color: #ff0000">styled</p>
+ style="margin: 0 0 0 0; color: #ff0000">styled</p>
+  < { font-family: "Times New Roman", serif } }
+    </style>
+  </head>
+  <body>
+    <p style="margin: 0 0 0 0; color: #ff0000">styled</p>
+  </body>
+<//body>
+</h  </h  </body>
+<//body>
+</h  </head>
+  <body>
+    <p style="margin: 0 0 0 0; color: #ff0000">styled</p>
+  </body>
+<//body>
+</html>

@@ -1,0 +1,63 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f7f7183f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3659633758
+INFO: Loaded 1 modules   (103106 inline 8-bit counters): 103106 [0x7b7f6e5a44a8, 0x7b7f6e5bd76a), 
+INFO: Loaded 1 PC tables (103106 PCs): 103106 [0x7b7f6e5bd770,0x7b7f6e750390), 
+INFO:      150 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_elementtree
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 150 min: 4b max: 81921b total: 95165b rss: 173Mb
+#152	INITED cov: 2016 ft: 4976 corp: 147/92Kb exec/s: 0 rss: 176Mb
+#180	NEW    cov: 2016 ft: 4977 corp: 148/92Kb lim: 81921 exec/s: 0 rss: 176Mb L: 66/81921 MS: 6 CopyPart-Custom-CrossOver-Custom-ChangeByte-Custom-
+#232	NEW    cov: 2016 ft: 4978 corp: 149/92Kb lim: 81921 exec/s: 0 rss: 177Mb L: 28/81921 MS: 4 CrossOver-Custom-EraseBytes-Custom-
+#385	REDUCE cov: 2016 ft: 4978 corp: 149/92Kb lim: 81921 exec/s: 0 rss: 180Mb L: 56/81921 MS: 4 EraseBytes-Custom-EraseBytes-Custom-
+#651	NEW    cov: 2018 ft: 4997 corp: 150/92Kb lim: 81921 exec/s: 0 rss: 184Mb L: 66/81921 MS: 2 CopyPart-Custom-
+#677	NEW    cov: 2018 ft: 4998 corp: 151/92Kb lim: 81921 exec/s: 0 rss: 184Mb L: 14/81921 MS: 2 CrossOver-Custom-
+#705	NEW    cov: 2019 ft: 5000 corp: 152/92Kb lim: 81921 exec/s: 0 rss: 184Mb L: 17/81921 MS: 2 ChangeByte-Custom-
+#717	NEW    cov: 2019 ft: 5018 corp: 153/93Kb lim: 81921 exec/s: 0 rss: 184Mb L: 173/81921 MS: 4 InsertRepeatedBytes-Custom-CrossOver-Custom-
+
+ === Uncaught Python exception: ===
+ValueError: unexpected trailing tokens at offset 3 near 'span'
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/dom_targets.py", line 27, in _check
+  File "fuzz/dom_targets.py", line 32, in dom_observation
+  File "fuzz/dom_targets.py", line 70, in _elementtree
+ValueError: unexpected trailing tokens at offset 3 near 'span'
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7b7f6c8e6660>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==237== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f7f7192edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7f7f7187f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f7f71862596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f7f71862668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f7f71862668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f7f716548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f7f71654a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7b7f6edcc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7b7f6edcf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7b7f6edceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_elementtree.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_elementtree.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f7f71632082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_elementtree.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 10 InsertByte-Custom-CopyPart-Custom-ChangeBinInt-Custom-EraseBytes-Custom-CMP-Custom- DE: "%\000\000\000\000\000\000\000"-; base unit: ff1540cfb0dbeaef9fa48360dfebc78fe84a0ba9
+0x3c,0x70,0x3e,0x70,0x6c,0x61,0x69,0x6e,0x20,0x26,0x61,0x6d,0x70,0x69,0x74,0x79,0x41,0x20,0x26,0x23,0x38,0x33,0x36,0x34,0x3b,0x3b,0x74,0x65,0x25,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x78,0x74,0x6,0x3c,0x2f,0x70,0x3e,0xa,
+<p>plain &ampityA &#8364;;te%\000\000\000\000\000\000\000xt\006</p>\012
+artifact_prefix='/tmp/tmpjhgqv6_w/'; Test unit written to /tmp/tmpjhgqv6_w/crash-6e6a752eee5d81cc84fb4145e9acf29a791cf565
+Base64: PHA+cGxhaW4gJmFtcGl0eUEgJiM4MzY0Ozt0ZSUAAAAAAAAAeHQGPC9wPgo=
+stat::number_of_executed_units: 742
+stat::average_exec_per_sec:     0
+stat::new_units_added:          7
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              184

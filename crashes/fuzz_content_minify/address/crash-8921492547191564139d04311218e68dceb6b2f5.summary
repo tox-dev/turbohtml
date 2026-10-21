@@ -1,0 +1,53 @@
+INFO: Instrumenting 6824 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f8993c3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1222727173
+INFO: Loaded 1 modules   (90739 inline 8-bit counters): 90739 [0x7b8990940a38, 0x7b8990956cab), 
+INFO: Loaded 1 PC tables (90739 PCs): 90739 [0x7b8990956cb0,0x7b8990ab93e0), 
+INFO:       35 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_minify
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 35 min: 4b max: 81921b total: 192518b rss: 175Mb
+#36	INITED cov: 2177 ft: 4304 corp: 25/5343b exec/s: 0 rss: 177Mb
+#40	NEW    cov: 2177 ft: 4307 corp: 26/5469b lim: 81921 exec/s: 0 rss: 177Mb L: 126/2223 MS: 8 InsertRepeatedBytes-Custom-ShuffleBytes-Custom-ChangeBit-Custom-EraseBytes-Custom-
+
+ === Uncaught Python exception: ===
+AssertionError: a result for an injected allocation failure
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 135, in run
+AssertionError: a result for an injected allocation failure
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7b898ef798a0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==496== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f8993d2edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7f8993c7f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f8993c62596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f8993c62668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f8993c62668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f8993a548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f8993a54a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7b89913cbf98 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7b89913cf1b9 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7b89913cea55 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_content_minify.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_content_minify.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f8993a32082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_content_minify.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 4 ChangeByte-Custom-ChangeBit-Custom-; base unit: 4df1b1cf8545834135986048296c173212acf186
+0x71,0xcc,0x81,0xcc,0xa3,0x2e,0x67,0x78,0x61,0x6d,0x70,0x6c,0x65,0x20,0x61,0xcc,0x85,0xcc,0x81,0x2e,0x65,0x78,0x61,0x6d,0x70,0x6c,0x65,0x20,0x61,0xcc,0x8a,0xcc,0x81,0x2e,0x26,0x78,0x61,0x6d,0x70,0x6c,0x65,0x20,0x73,0xcc,0xa3,0xcc,0x81,0x2e,0x65,0x78,0x61,0x6d,0x70,0x6c,0x65,0x20,0x61,0xcc,0x96,0xcc,0x81,0x2e,0x65,0x78,0x61,0x6d,0x70,0x6c,0x65,0x20,0xe1,0x84,0x80,0xe1,0x85,0xa1,0x2e,0x65,0x78,0x61,0x6d,0x70,0x6c,0x65,0x20,0xe1,0x84,0x80,0xe1,0x85,0xa1,0xe1,0x86,0xa8,0x2e,0x65,0x78,0x61,0x6d,0x70,0x6c,0x65,0x20,0xea,0xb0,0x80,0xe1,0x86,0xa8,0x2e,0x65,0x78,0x61,0x6d,0x70,0x6c,0x65,0xa,
+q\314\201\314\243.gxample a\314\205\314\201.example a\314\212\314\201.&xample s\314\243\314\201.example a\314\226\314\201.example \341\204\200\341\205\241.example \341\204\200\341\205\241\341\206\250.example \352\260\200\341\206\250.example\012
+artifact_prefix='/tmp/tmpx9phi0q8/'; Test unit written to /tmp/tmpx9phi0q8/crash-8921492547191564139d04311218e68dceb6b2f5
+Base64: ccyBzKMuZ3hhbXBsZSBhzIXMgS5leGFtcGxlIGHMisyBLiZ4YW1wbGUgc8yjzIEuZXhhbXBsZSBhzJbMgS5leGFtcGxlIOGEgOGFoS5leGFtcGxlIOGEgOGFoeGGqC5leGFtcGxlIOqwgOGGqC5leGFtcGxlCg==
+stat::number_of_executed_units: 42
+stat::average_exec_per_sec:     0
+stat::new_units_added:          1
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              177

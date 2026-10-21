@@ -1,0 +1,59 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fda7de0c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 511609870
+INFO: Loaded 1 modules   (107626 inline 8-bit counters): 107626 [0x7fda7c6f5af8, 0x7fda7c70ff62), 
+INFO: Loaded 1 PC tables (107626 PCs): 107626 [0x7fda7c70ff68,0x7fda7c8b4608), 
+INFO:       23 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_traversal
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 23 min: 4b max: 81b total: 961b rss: 83Mb
+#24	INITED cov: 514 ft: 1093 corp: 18/737b exec/s: 0 rss: 83Mb
+#26	NEW    cov: 514 ft: 1094 corp: 19/745b lim: 4096 exec/s: 0 rss: 83Mb L: 8/81 MS: 4 ChangeBit-Custom-CopyPart-Custom-
+#42	NEW    cov: 517 ft: 1110 corp: 20/757b lim: 4096 exec/s: 0 rss: 83Mb L: 12/81 MS: 2 InsertRepeatedBytes-Custom-
+#49	NEW    cov: 519 ft: 1112 corp: 21/820b lim: 4096 exec/s: 0 rss: 83Mb L: 63/81 MS: 4 ChangeBit-Custom-ShuffleBytes-Custom-
+#55	NEW    cov: 519 ft: 1135 corp: 22/866b lim: 4096 exec/s: 0 rss: 83Mb L: 46/81 MS: 2 InsertRepeatedBytes-Custom-
+#86	NEW    cov: 519 ft: 1142 corp: 23/871b lim: 4096 exec/s: 0 rss: 83Mb L: 5/81 MS: 2 InsertByte-Custom-
+#88	NEW    cov: 519 ft: 1167 corp: 24/882b lim: 4096 exec/s: 0 rss: 83Mb L: 11/81 MS: 4 InsertByte-Custom-InsertRepeatedBytes-Custom-
+#92	NEW    cov: 521 ft: 1172 corp: 25/896b lim: 4096 exec/s: 0 rss: 83Mb L: 14/81 MS: 8 ChangeBinInt-Custom-EraseBytes-Custom-ChangeByte-Custom-ChangeByte-Custom-
+
+ === Uncaught Python exception: ===
+AssertionError: a result for an injected allocation failure
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 135, in run
+AssertionError: a result for an injected allocation failure
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7fda7ae1e5c0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==252== ERROR: libFuzzer: fuzz target exited
+    #0 0x7fda7de7a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7fda7de4c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7fda7de2f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7fda7de2f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7fda7de2f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7fda7dc158a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7fda7dc15a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7fda7cfcc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7fda7cfcf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7fda7cfceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_traversal.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_traversal.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7fda7dbf3082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_traversal.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 6 CMP-Custom-CMP-Custom-CopyPart-Custom- DE: "h\000\000\000"-"\377\000"-; base unit: db6d5defd44de855cadcc183fd67baf1dc5a8b8c
+0x74,0x2e,0x30,0x2e,0x68,0x0,0x0,0x0,0xff,0xff,0x0,
+t.0.h\000\000\000\377\377\000
+artifact_prefix='/tmp/tmp5t_ps4fk/'; Test unit written to /tmp/tmp5t_ps4fk/crash-32fa01cdfbbb5c38cd97a361d0e06286cba93701
+Base64: dC4wLmgAAAD//wA=
+stat::number_of_executed_units: 95
+stat::average_exec_per_sec:     0
+stat::new_units_added:          7
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              83

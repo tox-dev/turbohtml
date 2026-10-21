@@ -1,0 +1,71 @@
+INFO: Instrumenting 6841 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f7f7c60c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2081193020
+INFO: Loaded 1 modules   (108038 inline 8-bit counters): 108038 [0x7f7f7b0bbfa8, 0x7f7f7b0d65ae), 
+INFO: Loaded 1 PC tables (108038 PCs): 108038 [0x7f7f7b0d65b0,0x7f7f7b27c610), 
+INFO:      756 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_stylesheet
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81933 bytes
+INFO: seed corpus: files: 756 min: 1b max: 81933b total: 629819b rss: 83Mb
+#757	INITED cov: 4478 ft: 17183 corp: 643/365Kb exec/s: 757 rss: 89Mb
+#788	NEW    cov: 4478 ft: 17184 corp: 644/367Kb lim: 81933 exec/s: 788 rss: 89Mb L: 2293/81921 MS: 2 InsertRepeatedBytes-Custom-
+#844	NEW    cov: 4479 ft: 17185 corp: 645/368Kb lim: 81933 exec/s: 844 rss: 89Mb L: 464/81921 MS: 2 CopyPart-Custom-
+#857	NEW    cov: 4479 ft: 17187 corp: 646/368Kb lim: 81933 exec/s: 857 rss: 89Mb L: 262/81921 MS: 6 CrossOver-Custom-CopyPart-Custom-CrossOver-Custom-
+#863	NEW    cov: 4479 ft: 17192 corp: 647/368Kb lim: 81933 exec/s: 863 rss: 89Mb L: 164/81921 MS: 2 InsertRepeatedBytes-Custom-
+#866	NEW    cov: 4479 ft: 17194 corp: 648/368Kb lim: 81933 exec/s: 866 rss: 89Mb L: 136/81921 MS: 6 CrossOver-Custom-ChangeASCIIInt-Custom-ChangeBit-Custom-
+#877	NEW    cov: 4479 ft: 17203 corp: 649/369Kb lim: 81933 exec/s: 877 rss: 89Mb L: 1017/81921 MS: 2 ChangeByte-Custom-
+#888	NEW    cov: 4483 ft: 17207 corp: 650/370Kb lim: 81933 exec/s: 888 rss: 89Mb L: 121/81921 MS: 2 InsertByte-Custom-
+#916	NEW    cov: 4483 ft: 17214 corp: 651/370Kb lim: 81933 exec/s: 916 rss: 89Mb L: 97/81921 MS: 6 EraseBytes-Custom-ChangeBinInt-Custom-CopyPart-Custom-
+#935	NEW    cov: 4483 ft: 17225 corp: 652/372Kb lim: 81933 exec/s: 935 rss: 89Mb L: 2487/81921 MS: 8 CopyPart-Custom-CrossOver-Custom-ChangeBinInt-Custom-CopyPart-Custom-
+#947	NEW    cov: 4483 ft: 17226 corp: 653/373Kb lim: 81933 exec/s: 947 rss: 89Mb L: 605/81921 MS: 4 CopyPart-Custom-CrossOver-Custom-
+#1002	NEW    cov: 4483 ft: 17236 corp: 654/374Kb lim: 81933 exec/s: 1002 rss: 89Mb L: 1798/81921 MS: 10 CrossOver-Custom-ChangeByte-Custom-ChangeBit-Custom-InsertByte-Custom-CopyPart-Custom-
+#1083	REDUCE cov: 4483 ft: 17236 corp: 654/374Kb lim: 81933 exec/s: 1083 rss: 89Mb L: 111/81921 MS: 2 EraseBytes-Custom-
+#1100	NEW    cov: 4483 ft: 17237 corp: 655/374Kb lim: 81933 exec/s: 1100 rss: 89Mb L: 51/81921 MS: 4 ChangeByte-Custom-ChangeBit-Custom-
+#1132	NEW    cov: 4483 ft: 17251 corp: 656/375Kb lim: 81933 exec/s: 1132 rss: 89Mb L: 529/81921 MS: 4 ChangeBinInt-Custom-CrossOver-Custom-
+#1138	NEW    cov: 4483 ft: 17259 corp: 657/375Kb lim: 81933 exec/s: 1138 rss: 89Mb L: 93/81921 MS: 2 CrossOver-Custom-
+#1140	NEW    cov: 4483 ft: 17260 corp: 658/377Kb lim: 81933 exec/s: 1140 rss: 89Mb L: 1786/81921 MS: 4 InsertRepeatedBytes-Custom-EraseBytes-Custom-
+#1186	REDUCE cov: 4483 ft: 17260 corp: 658/377Kb lim: 81933 exec/s: 1186 rss: 89Mb L: 105/81921 MS: 2 EraseBytes-Custom-
+
+ === Uncaught Python exception: ===
+SystemError: error return without exception set
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 123, in run
+  File "fuzz/atheris_registry.py", line 58, in run
+  File "fuzz/stylesheet_targets.py", line 26, in _stylesheet
+  File "fuzz/stylesheet_targets.py", line 37, in stylesheet_observation
+  File "fuzz/round_trip_oracles.py", line 1229, in css_semantics_check
+  File "fuzz/round_trip_oracles.py", line 1259, in _css_style
+SystemError: error return without exception set
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7f7f79806fc0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==260== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f7f7c67a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7f7f7c64c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f7f7c62f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f7f7c62f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f7f7c62f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f7f7c4548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f7f7c454a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7f7f7b9cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7f7f7b9cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7f7f7b9ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_css_stylesheet.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_css_stylesheet.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f7f7c432082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_css_stylesheet.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 2 CrossOver-Custom-; base unit: 7276044bdea7aedf8f9bbb8b91ed3e8f339723ce
+artifact_prefix='/tmp/tmpk76kl2qu/'; Test unit written to /tmp/tmpk76kl2qu/crash-e3cef04229abb156cb930074644e1e3c60201dae
+stat::number_of_executed_units: 1207
+stat::average_exec_per_sec:     1207
+stat::new_units_added:          17
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              89

@@ -1,0 +1,58 @@
+INFO: Instrumenting 6824 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fbb8563f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2833165418
+INFO: Loaded 1 modules   (90739 inline 8-bit counters): 90739 [0x7bbb821dda38, 0x7bbb821f3cab), 
+INFO: Loaded 1 PC tables (90739 PCs): 90739 [0x7bbb821f3cb0,0x7bbb823563e0), 
+INFO:       35 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_mutation
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 35 min: 4b max: 81921b total: 192518b rss: 173Mb
+#36	INITED cov: 365 ft: 475 corp: 13/543b exec/s: 0 rss: 174Mb
+#42	NEW    cov: 365 ft: 476 corp: 14/660b lim: 81921 exec/s: 0 rss: 174Mb L: 117/118 MS: 2 InsertRepeatedBytes-Custom-
+#65	NEW    cov: 372 ft: 490 corp: 15/667b lim: 81921 exec/s: 0 rss: 174Mb L: 7/118 MS: 6 InsertByte-Custom-CopyPart-Custom-CMP-Custom- DE: "\377\000"-
+#94	NEW    cov: 372 ft: 508 corp: 16/683b lim: 81921 exec/s: 0 rss: 174Mb L: 16/118 MS: 8 CopyPart-Custom-ChangeBit-Custom-CMP-Custom-ChangeByte-Custom- DE: "\001\002"-
+
+ === Uncaught Python exception: ===
+AssertionError: ("([], [('childList', 'c../ima/slegogo.png?../ima/slegogo.png?vom=\\n3vom=\\n3\\n')], True)", "([('childList', 'c../ima/slegogo.png?../ima/slegogo.png?vom=\\n3vom=\\n3\\n')], [('childList', 'c../ima/slegogo.png?../ima/slegogo.png?vom=\\n3vom=\\n3\\n')], True)")
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/atheris_dom_targets.py", line 27, in _check
+  File "fuzz/atheris_dom_targets.py", line 358, in verify
+AssertionError: ("([], [('childList', 'c../ima/slegogo.png?../ima/slegogo.png?vom=\\n3vom=\\n3\\n')], True)", "([('childList', 'c../ima/slegogo.png?../ima/slegogo.png?vom=\\n3vom=\\n3\\n')], [('childList', 'c../ima/slegogo.png?../ima/slegogo.png?vom=\\n3vom=\\n3\\n')], True)")
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7bbb808118a0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==537== ERROR: libFuzzer: fuzz target exited
+    #0 0x7fbb8572edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7fbb8567f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7fbb85662596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7fbb85662668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7fbb85662668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7fbb854318a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7fbb85431a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7bbb82bcbf98 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7bbb82bcf1b9 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7bbb82bcea55 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_mutation.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_mutation.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7fbb8540f082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_mutation.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 10 CrossOver-Custom-ShuffleBytes-Custom-ShuffleBytes-Custom-CrossOver-Custom-CopyPart-Custom-; base unit: b2e6b3cf1af3417e10ea73ab781c1dc687ed0c4b
+0x77,0x77,0x77,0x2e,0x65,0x78,0x61,0x6d,0x70,0x6c,0x65,0x73,0x63,0x2e,0x2e,0x2f,0x69,0x6d,0x61,0x2f,0x73,0x6c,0x65,0x67,0x6f,0x67,0x6f,0x2e,0x70,0x6e,0x67,0x3f,0x2e,0x2e,0x2f,0x69,0x6d,0x61,0x2f,0x73,0x6c,0x65,0x67,0x6f,0x67,0x6f,0x2e,0x70,0x6e,0x67,0x3f,0x76,0x6f,0x6d,0x3d,0xa,0x33,0x76,0x6f,0x6d,0x3d,0xa,0x33,0xa,
+www.examplesc../ima/slegogo.png?../ima/slegogo.png?vom=\0123vom=\0123\012
+artifact_prefix='/tmp/tmpi6yb23i_/'; Test unit written to /tmp/tmpi6yb23i_/crash-203b64adfe9494aa2da1856be3b91f79948c416f
+Base64: d3d3LmV4YW1wbGVzYy4uL2ltYS9zbGVnb2dvLnBuZz8uLi9pbWEvc2xlZ29nby5wbmc/dm9tPQozdm9tPQozCg==
+stat::number_of_executed_units: 109
+stat::average_exec_per_sec:     0
+stat::new_units_added:          3
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              174

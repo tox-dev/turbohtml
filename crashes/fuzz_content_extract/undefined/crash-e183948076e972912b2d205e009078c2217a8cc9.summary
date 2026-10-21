@@ -1,0 +1,54 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fe3c340c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 942999375
+INFO: Loaded 1 modules   (107626 inline 8-bit counters): 107626 [0x7fe3c1d50af8, 0x7fe3c1d6af62), 
+INFO: Loaded 1 PC tables (107626 PCs): 107626 [0x7fe3c1d6af68,0x7fe3c1f0f608), 
+INFO:       41 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_extract
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 22894 bytes
+INFO: seed corpus: files: 41 min: 4b max: 22894b total: 31230b rss: 84Mb
+#42	INITED cov: 3122 ft: 6492 corp: 40/30Kb exec/s: 0 rss: 84Mb
+#47	NEW    cov: 3123 ft: 6507 corp: 41/30Kb lim: 22894 exec/s: 0 rss: 84Mb L: 18/22894 MS: 10 ChangeBit-Custom-CopyPart-Custom-InsertByte-Custom-ShuffleBytes-Custom-CopyPart-Custom-
+#50	NEW    cov: 3124 ft: 6508 corp: 42/30Kb lim: 22894 exec/s: 0 rss: 84Mb L: 82/22894 MS: 6 ChangeBit-Custom-CrossOver-Custom-CMP-Custom- DE: "\000\000\000\023"-
+
+ === Uncaught Python exception: ===
+AssertionError: a result for an injected allocation failure
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 135, in run
+AssertionError: a result for an injected allocation failure
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7fe3c046a5c0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==52== ERROR: libFuzzer: fuzz target exited
+    #0 0x7fe3c347a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7fe3c344c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7fe3c342f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7fe3c342f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7fe3c342f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7fe3c32548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7fe3c3254a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7fe3c25cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7fe3c25cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7fe3c25ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_content_extract.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_content_extract.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7fe3c3232082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_content_extract.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 4 EraseBytes-Custom-CrossOver-Custom-; base unit: 25dfd836219a608fe20913e8c1d620d5803a9ec9
+0x3c,0x64,0x69,0x76,0x85,0xa1,0x2e,0x65,0x78,0x20,0xe3,0x6c,0x61,0x73,0x73,0x3d,0x27,0x61,0x20,0x62,0x27,0x3e,0x3c,0x70,0x3e,0x74,0x65,0x78,0x74,0x3c,0x62,0x72,0x3e,0x6d,0x6f,0x72,0x65,0x3c,0x2f,0x70,0x3e,0x3c,0x21,0x2d,0x2d,0x20,0x63,0x20,0x2d,0x2d,0x3e,0x3c,0x2f,0x64,0x69,0x31,0x76,0x3e,0xa,
+<div\205\241.ex \343lass='a b'><p>text<br>more</p><!-- c --></di1v>\012
+artifact_prefix='/tmp/tmpo98qjkfh/'; Test unit written to /tmp/tmpo98qjkfh/crash-e183948076e972912b2d205e009078c2217a8cc9
+Base64: PGRpdoWhLmV4IONsYXNzPSdhIGInPjxwPnRleHQ8YnI+bW9yZTwvcD48IS0tIGMgLS0+PC9kaTF2Pgo=
+stat::number_of_executed_units: 52
+stat::average_exec_per_sec:     0
+stat::new_units_added:          2
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              85

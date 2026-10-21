@@ -1,0 +1,11 @@
+<!05ctype hlml>
+<html>
+  <head>
+    <style>
+      .a { margin-topx; margin-left: 2px; color: rgb(255, 0, 0) }
+      @media screen { .b { width: calc(100% - 2 * 10px) } }
+      @media screen { .c { font-family: "Times New Roman", </head>
+  <body>
+    <p style="margin: 0 0 0 0; colr:o# ff0000">styled</p>
+  </body>
+</html>

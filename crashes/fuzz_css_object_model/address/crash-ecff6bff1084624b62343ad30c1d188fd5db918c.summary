@@ -1,0 +1,126 @@
+INFO: Instrumenting 6841 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f31c743f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1321040934
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b31c42cb488, 0x7b31c42e496f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b31c42e4970,0x7b31c44797e0), 
+INFO:      128 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_object_model
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81933 bytes
+INFO: seed corpus: files: 128 min: 4b max: 81933b total: 368864b rss: 174Mb
+#129	INITED cov: 1190 ft: 2394 corp: 95/174Kb exec/s: 0 rss: 194Mb
+#152	NEW    cov: 1190 ft: 2396 corp: 96/174Kb lim: 81933 exec/s: 0 rss: 194Mb L: 19/81922 MS: 6 ChangeByte-Custom-ShuffleBytes-Custom-ChangeByte-Custom-
+#154	NEW    cov: 1192 ft: 2398 corp: 97/174Kb lim: 81933 exec/s: 0 rss: 194Mb L: 26/81922 MS: 4 CrossOver-Custom-CrossOver-Custom-
+	NEW_FUNC[1/1]: 0x7b31c39c1350 in html_traverse /src/turbohtml/.mesonpy-pfrhlkbe/../src/turbohtml/_c/core/module.c:339
+#158	NEW    cov: 1348 ft: 2554 corp: 98/174Kb lim: 81933 exec/s: 0 rss: 195Mb L: 39/81922 MS: 8 ChangeBit-Custom-ChangeBinInt-Custom-ChangeByte-Custom-CrossOver-Custom-
+#180	NEW    cov: 1348 ft: 2555 corp: 99/175Kb lim: 81933 exec/s: 0 rss: 195Mb L: 847/81922 MS: 4 ShuffleBytes-Custom-EraseBytes-Custom-
+#182	NEW    cov: 1348 ft: 2556 corp: 100/175Kb lim: 81933 exec/s: 0 rss: 195Mb L: 144/81922 MS: 4 CrossOver-Custom-ShuffleBytes-Custom-
+#196	NEW    cov: 1348 ft: 2557 corp: 101/175Kb lim: 81933 exec/s: 0 rss: 195Mb L: 50/81922 MS: 8 InsertRepeatedBytes-Custom-ShuffleBytes-Custom-ChangeBinInt-Custom-EraseBytes-Custom-
+#208	NEW    cov: 1348 ft: 2559 corp: 102/176Kb lim: 81933 exec/s: 0 rss: 195Mb L: 454/81922 MS: 4 ChangeByte-Custom-CopyPart-Custom-
+#262	NEW    cov: 1353 ft: 2570 corp: 103/176Kb lim: 81933 exec/s: 0 rss: 195Mb L: 67/81922 MS: 8 ChangeASCIIInt-Custom-ShuffleBytes-Custom-ChangeBit-Custom-CopyPart-Custom-
+#265	NEW    cov: 1353 ft: 2571 corp: 104/176Kb lim: 81933 exec/s: 0 rss: 195Mb L: 42/81922 MS: 6 ChangeBit-Custom-ChangeByte-Custom-CopyPart-Custom-
+#305	NEW    cov: 1353 ft: 2575 corp: 105/176Kb lim: 81933 exec/s: 0 rss: 195Mb L: 190/81922 MS: 10 ShuffleBytes-Custom-ChangeByte-Custom-CopyPart-Custom-CrossOver-Custom-ChangeBit-Custom-
+#308	NEW    cov: 1357 ft: 2584 corp: 106/176Kb lim: 81933 exec/s: 0 rss: 195Mb L: 100/81922 MS: 6 EraseBytes-Custom-ChangeByte-Custom-CopyPart-Custom-
+#324	NEW    cov: 1362 ft: 2589 corp: 107/176Kb lim: 81933 exec/s: 0 rss: 195Mb L: 39/81922 MS: 2 ChangeBinInt-Custom-
+#330	NEW    cov: 1362 ft: 2613 corp: 108/176Kb lim: 81933 exec/s: 0 rss: 195Mb L: 119/81922 MS: 2 CopyPart-Custom-
+#331	NEW    cov: 1362 ft: 2619 corp: 109/176Kb lim: 81933 exec/s: 0 rss: 195Mb L: 66/81922 MS: 2 ChangeByte-Custom-
+#335	NEW    cov: 1363 ft: 2622 corp: 110/176Kb lim: 81933 exec/s: 0 rss: 195Mb L: 44/81922 MS: 8 ShuffleBytes-Custom-EraseBytes-Custom-ChangeBit-Custom-EraseBytes-Custom-
+#349	NEW    cov: 1363 ft: 2623 corp: 111/176Kb lim: 81933 exec/s: 0 rss: 195Mb L: 50/81922 MS: 8 ChangeByte-Custom-EraseBytes-Custom-ChangeByte-Custom-CrossOver-Custom-
+#350	NEW    cov: 1363 ft: 2627 corp: 112/177Kb lim: 81933 exec/s: 0 rss: 195Mb L: 135/81922 MS: 2 InsertRepeatedBytes-Custom-
+#363	NEW    cov: 1363 ft: 2628 corp: 113/177Kb lim: 81933 exec/s: 0 rss: 195Mb L: 39/81922 MS: 6 ShuffleBytes-Custom-EraseBytes-Custom-InsertByte-Custom-
+#384	NEW    cov: 1363 ft: 2629 corp: 114/257Kb lim: 81933 exec/s: 0 rss: 195Mb L: 81921/81922 MS: 2 ChangeByte-Custom-
+#403	NEW    cov: 1363 ft: 2630 corp: 115/257Kb lim: 81933 exec/s: 0 rss: 195Mb L: 480/81922 MS: 8 CrossOver-Custom-EraseBytes-Custom-ChangeASCIIInt-Custom-EraseBytes-Custom-
+#424	NEW    cov: 1365 ft: 2644 corp: 116/258Kb lim: 81933 exec/s: 0 rss: 195Mb L: 760/81922 MS: 2 EraseBytes-Custom-
+#425	NEW    cov: 1365 ft: 2651 corp: 117/258Kb lim: 81933 exec/s: 0 rss: 195Mb L: 497/81922 MS: 2 CrossOver-Custom-
+#431	NEW    cov: 1365 ft: 2656 corp: 118/258Kb lim: 81933 exec/s: 0 rss: 195Mb L: 124/81922 MS: 2 CopyPart-Custom-
+#480	NEW    cov: 1365 ft: 2657 corp: 119/259Kb lim: 81933 exec/s: 0 rss: 195Mb L: 186/81922 MS: 8 ShuffleBytes-Custom-CMP-Custom-InsertRepeatedBytes-Custom-CopyPart-Custom- DE: "\000\000\000\015"-
+#486	NEW    cov: 1373 ft: 2675 corp: 120/259Kb lim: 81933 exec/s: 0 rss: 195Mb L: 60/81922 MS: 2 InsertRepeatedBytes-Custom-
+#504	REDUCE cov: 1373 ft: 2675 corp: 120/259Kb lim: 81933 exec/s: 0 rss: 195Mb L: 30/81922 MS: 6 EraseBytes-Custom-CopyPart-Custom-EraseBytes-Custom-
+#530	NEW    cov: 1374 ft: 2677 corp: 121/259Kb lim: 81933 exec/s: 0 rss: 195Mb L: 65/81922 MS: 2 ChangeBit-Custom-
+#557	NEW    cov: 1375 ft: 2680 corp: 122/259Kb lim: 81933 exec/s: 0 rss: 195Mb L: 82/81922 MS: 4 ChangeASCIIInt-Custom-CrossOver-Custom-
+#565	NEW    cov: 1375 ft: 2682 corp: 123/263Kb lim: 81933 exec/s: 0 rss: 195Mb L: 4174/81922 MS: 6 EraseBytes-Custom-EraseBytes-Custom-CopyPart-Custom-
+#575	NEW    cov: 1375 ft: 2694 corp: 124/263Kb lim: 81933 exec/s: 0 rss: 195Mb L: 393/81922 MS: 10 PersAutoDict-Custom-CrossOver-Custom-ChangeASCIIInt-Custom-ChangeBit-Custom-EraseBytes-Custom- DE: "\000\000\000\015"-
+#604	NEW    cov: 1389 ft: 2750 corp: 125/265Kb lim: 81933 exec/s: 0 rss: 195Mb L: 1413/81922 MS: 8 ShuffleBytes-Custom-ChangeASCIIInt-Custom-EraseBytes-Custom-CopyPart-Custom-
+#606	NEW    cov: 1389 ft: 2752 corp: 126/265Kb lim: 81933 exec/s: 0 rss: 195Mb L: 146/81922 MS: 4 CrossOver-Custom-EraseBytes-Custom-
+#634	NEW    cov: 1389 ft: 2753 corp: 127/265Kb lim: 81933 exec/s: 0 rss: 195Mb L: 198/81922 MS: 6 CopyPart-Custom-ChangeBit-Custom-CrossOver-Custom-
+#642	NEW    cov: 1389 ft: 2775 corp: 128/265Kb lim: 81933 exec/s: 0 rss: 195Mb L: 90/81922 MS: 6 ChangeBinInt-Custom-InsertByte-Custom-CrossOver-Custom-
+#654	NEW    cov: 1390 ft: 2785 corp: 129/265Kb lim: 81933 exec/s: 0 rss: 195Mb L: 27/81922 MS: 4 ChangeBinInt-Custom-EraseBytes-Custom-
+#662	NEW    cov: 1390 ft: 2787 corp: 130/265Kb lim: 81933 exec/s: 0 rss: 198Mb L: 191/81922 MS: 6 CMP-Custom-ChangeBit-Custom-InsertRepeatedBytes-Custom- DE: "5\000"-
+#683	NEW    cov: 1390 ft: 2792 corp: 131/265Kb lim: 81933 exec/s: 0 rss: 200Mb L: 90/81922 MS: 2 CopyPart-Custom-
+#695	NEW    cov: 1390 ft: 2794 corp: 132/266Kb lim: 81933 exec/s: 0 rss: 200Mb L: 181/81922 MS: 4 ChangeBit-Custom-CrossOver-Custom-
+#712	NEW    cov: 1390 ft: 2795 corp: 133/266Kb lim: 81933 exec/s: 0 rss: 200Mb L: 179/81922 MS: 4 ChangeBit-Custom-CrossOver-Custom-
+#723	NEW    cov: 1390 ft: 2798 corp: 134/266Kb lim: 81933 exec/s: 0 rss: 201Mb L: 67/81922 MS: 2 CrossOver-Custom-
+#741	NEW    cov: 1390 ft: 2800 corp: 135/266Kb lim: 81933 exec/s: 0 rss: 201Mb L: 164/81922 MS: 6 CrossOver-Custom-PersAutoDict-Custom-ShuffleBytes-Custom- DE: "5\000"-
+#748	NEW    cov: 1390 ft: 2801 corp: 136/266Kb lim: 81933 exec/s: 0 rss: 201Mb L: 114/81922 MS: 4 ChangeByte-Custom-CrossOver-Custom-
+#749	NEW    cov: 1390 ft: 2802 corp: 137/266Kb lim: 81933 exec/s: 0 rss: 201Mb L: 44/81922 MS: 2 CopyPart-Custom-
+#755	NEW    cov: 1391 ft: 2803 corp: 138/266Kb lim: 81933 exec/s: 0 rss: 201Mb L: 66/81922 MS: 2 CrossOver-Custom-
+#763	NEW    cov: 1392 ft: 2804 corp: 139/266Kb lim: 81933 exec/s: 0 rss: 201Mb L: 48/81922 MS: 6 ChangeBinInt-Custom-ChangeBit-Custom-InsertByte-Custom-
+#773	NEW    cov: 1392 ft: 2808 corp: 140/266Kb lim: 81933 exec/s: 0 rss: 201Mb L: 109/81922 MS: 10 ChangeByte-Custom-CMP-Custom-ChangeBit-Custom-CrossOver-Custom-CrossOver-Custom- DE: "v\000"-
+#790	NEW    cov: 1392 ft: 2809 corp: 141/267Kb lim: 81933 exec/s: 0 rss: 201Mb L: 302/81922 MS: 4 EraseBytes-Custom-PersAutoDict-Custom- DE: "v\000"-
+#798	NEW    cov: 1392 ft: 2813 corp: 142/267Kb lim: 81933 exec/s: 0 rss: 201Mb L: 110/81922 MS: 6 CopyPart-Custom-ChangeBit-Custom-CopyPart-Custom-
+#841	NEW    cov: 1392 ft: 2819 corp: 143/312Kb lim: 81933 exec/s: 841 rss: 211Mb L: 46588/81922 MS: 6 PersAutoDict-Custom-EraseBytes-Custom-CrossOver-Custom- DE: "\000\000\000\015"-
+#861	NEW    cov: 1392 ft: 2822 corp: 144/312Kb lim: 81933 exec/s: 861 rss: 211Mb L: 204/81922 MS: 10 EraseBytes-Custom-ChangeByte-Custom-ChangeASCIIInt-Custom-CopyPart-Custom-PersAutoDict-Custom- DE: "\000\000\000\015"-
+#869	NEW    cov: 1393 ft: 2823 corp: 145/312Kb lim: 81933 exec/s: 869 rss: 211Mb L: 17/81922 MS: 6 CopyPart-Custom-ChangeBinInt-Custom-ChangeByte-Custom-
+#873	NEW    cov: 1393 ft: 2824 corp: 146/313Kb lim: 81933 exec/s: 873 rss: 211Mb L: 67/81922 MS: 8 ChangeASCIIInt-Custom-ShuffleBytes-Custom-ShuffleBytes-Custom-PersAutoDict-Custom- DE: "\000\000\000\015"-
+#883	NEW    cov: 1394 ft: 2839 corp: 147/313Kb lim: 81933 exec/s: 883 rss: 211Mb L: 83/81922 MS: 10 ChangeByte-Custom-CopyPart-Custom-ShuffleBytes-Custom-EraseBytes-Custom-InsertByte-Custom-
+#900	NEW    cov: 1394 ft: 2845 corp: 148/313Kb lim: 81933 exec/s: 900 rss: 211Mb L: 107/81922 MS: 4 ShuffleBytes-Custom-EraseBytes-Custom-
+#930	REDUCE cov: 1394 ft: 2845 corp: 148/312Kb lim: 81933 exec/s: 930 rss: 212Mb L: 1784/81922 MS: 10 ChangeByte-Custom-ChangeBit-Custom-ChangeASCIIInt-Custom-CrossOver-Custom-EraseBytes-Custom-
+#977	NEW    cov: 1394 ft: 2846 corp: 149/312Kb lim: 81933 exec/s: 977 rss: 212Mb L: 91/81922 MS: 4 InsertRepeatedBytes-Custom-EraseBytes-Custom-
+#987	NEW    cov: 1394 ft: 2849 corp: 150/312Kb lim: 81933 exec/s: 987 rss: 212Mb L: 90/81922 MS: 10 CopyPart-Custom-PersAutoDict-Custom-ShuffleBytes-Custom-CopyPart-Custom-CMP-Custom- DE: "\000\000\000\015"-"\000\000\000\000\000\000\000\000"-
+#1011	NEW    cov: 1396 ft: 2855 corp: 151/313Kb lim: 81933 exec/s: 1011 rss: 212Mb L: 200/81922 MS: 8 PersAutoDict-Custom-CrossOver-Custom-ChangeBit-Custom-CrossOver-Custom- DE: "v\000"-
+#1019	NEW    cov: 1396 ft: 2856 corp: 152/313Kb lim: 81933 exec/s: 1019 rss: 212Mb L: 7/81922 MS: 6 InsertRepeatedBytes-Custom-ChangeByte-Custom-ShuffleBytes-Custom-
+#1020	NEW    cov: 1396 ft: 2862 corp: 153/314Kb lim: 81933 exec/s: 1020 rss: 212Mb L: 1108/81922 MS: 2 CopyPart-Custom-
+#1031	REDUCE cov: 1396 ft: 2862 corp: 153/313Kb lim: 81933 exec/s: 1031 rss: 212Mb L: 682/81922 MS: 2 EraseBytes-Custom-
+#1032	NEW    cov: 1396 ft: 2868 corp: 154/313Kb lim: 81933 exec/s: 1032 rss: 212Mb L: 146/81922 MS: 2 PersAutoDict-Custom- DE: "v\000"-
+#1033	NEW    cov: 1398 ft: 2877 corp: 155/314Kb lim: 81933 exec/s: 1033 rss: 212Mb L: 761/81922 MS: 2 InsertByte-Custom-
+#1040	REDUCE cov: 1398 ft: 2877 corp: 155/314Kb lim: 81933 exec/s: 1040 rss: 212Mb L: 39/81922 MS: 4 ChangeByte-Custom-EraseBytes-Custom-
+#1041	NEW    cov: 1398 ft: 2882 corp: 156/314Kb lim: 81933 exec/s: 1041 rss: 212Mb L: 66/81922 MS: 2 ChangeBinInt-Custom-
+#1075	NEW    cov: 1398 ft: 2883 corp: 157/314Kb lim: 81933 exec/s: 1075 rss: 214Mb L: 62/81922 MS: 8 ChangeBit-Custom-CrossOver-Custom-ChangeASCIIInt-Custom-ChangeByte-Custom-
+#1080	NEW    cov: 1399 ft: 2890 corp: 158/315Kb lim: 81933 exec/s: 1080 rss: 214Mb L: 164/81922 MS: 10 PersAutoDict-Custom-ChangeByte-Custom-EraseBytes-Custom-CrossOver-Custom-CrossOver-Custom- DE: "\000\000\000\015"-
+#1085	REDUCE cov: 1399 ft: 2897 corp: 159/315Kb lim: 81933 exec/s: 1085 rss: 214Mb L: 75/81922 MS: 10 EraseBytes-Custom-ChangeBinInt-Custom-CrossOver-Custom-ChangeBinInt-Custom-PersAutoDict-Custom- DE: "\000\000\000\015"-
+#1087	NEW    cov: 1399 ft: 2903 corp: 160/315Kb lim: 81933 exec/s: 1087 rss: 214Mb L: 207/81922 MS: 4 ChangeBinInt-Custom-EraseBytes-Custom-
+#1097	NEW    cov: 1399 ft: 2915 corp: 161/315Kb lim: 81933 exec/s: 1097 rss: 214Mb L: 27/81922 MS: 10 PersAutoDict-Custom-EraseBytes-Custom-ChangeBinInt-Custom-ChangeASCIIInt-Custom-EraseBytes-Custom- DE: "5\000"-
+#1150	NEW    cov: 1399 ft: 2916 corp: 162/315Kb lim: 81933 exec/s: 1150 rss: 215Mb L: 110/81922 MS: 6 CopyPart-Custom-CopyPart-Custom-InsertByte-Custom-
+#1183	NEW    cov: 1399 ft: 2917 corp: 163/315Kb lim: 81933 exec/s: 1183 rss: 215Mb L: 136/81922 MS: 6 InsertRepeatedBytes-Custom-CopyPart-Custom-InsertByte-Custom-
+
+ === Uncaught Python exception: ===
+SystemError: error return without exception set
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 123, in run
+  File "fuzz/atheris_registry.py", line 58, in run
+  File "fuzz/reference_targets.py", line 149, in _cssom
+  File "fuzz/reference_targets.py", line 262, in cssom_observation
+  File "fuzz/reference_targets.py", line 308, in computed_observation
+SystemError: error return without exception set
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7b31c261f060>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==293== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f31c752edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7f31c747f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f31c7462596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f31c7462668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f31c7462668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f31c72548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f31c7254a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7b31c4bcc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7b31c4bcf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7b31c4bceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_css_object_model.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_css_object_model.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f31c7232082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_css_object_model.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 2 CrossOver-Custom-; base unit: 698a8a74328beb6d35663352fe0c1373877d7f7a
+artifact_prefix='/tmp/tmpve0pecig/'; Test unit written to /tmp/tmpve0pecig/crash-ecff6bff1084624b62343ad30c1d188fd5db918c
+stat::number_of_executed_units: 1194
+stat::average_exec_per_sec:     1194
+stat::new_units_added:          72
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              215

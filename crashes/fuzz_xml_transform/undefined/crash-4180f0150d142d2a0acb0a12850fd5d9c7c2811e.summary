@@ -1,0 +1,64 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7ff52520c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3142623063
+INFO: Loaded 1 modules   (107626 inline 8-bit counters): 107626 [0x7ff523bacaf8, 0x7ff523bc6f62), 
+INFO: Loaded 1 PC tables (107626 PCs): 107626 [0x7ff523bc6f68,0x7ff523d6b608), 
+INFO:       55 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_xml_transform
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 55 min: 4b max: 2223b total: 5086b rss: 83Mb
+#56	INITED cov: 1262 ft: 2817 corp: 50/4762b exec/s: 0 rss: 83Mb
+#67	NEW    cov: 1262 ft: 2818 corp: 51/4767b lim: 4096 exec/s: 0 rss: 83Mb L: 5/2223 MS: 2 InsertByte-Custom-
+#69	NEW    cov: 1262 ft: 2820 corp: 52/4773b lim: 4096 exec/s: 0 rss: 83Mb L: 6/2223 MS: 4 ChangeASCIIInt-Custom-ChangeByte-Custom-
+#75	NEW    cov: 1264 ft: 2877 corp: 53/4779b lim: 4096 exec/s: 0 rss: 83Mb L: 6/2223 MS: 2 ChangeBinInt-Custom-
+#84	NEW    cov: 1266 ft: 2879 corp: 54/4812b lim: 4096 exec/s: 0 rss: 83Mb L: 33/2223 MS: 8 ChangeBit-Custom-ChangeBit-Custom-EraseBytes-Custom-EraseBytes-Custom-
+#100	NEW    cov: 1266 ft: 2880 corp: 55/4857b lim: 4096 exec/s: 0 rss: 83Mb L: 45/2223 MS: 2 EraseBytes-Custom-
+#110	NEW    cov: 1266 ft: 2895 corp: 56/4981b lim: 4096 exec/s: 0 rss: 83Mb L: 124/2223 MS: 10 CrossOver-Custom-ChangeByte-Custom-ChangeBinInt-Custom-ShuffleBytes-Custom-EraseBytes-Custom-
+
+ === Uncaught Python exception: ===
+ValueError: xslt: bad parameter expression: unexpected trailing tokens at offset 0 near ''td>a??><t>'
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/reference_targets.py", line 157, in _transform
+  File "fuzz/reference_targets.py", line 365, in transform_observation
+  File "turbohtml/transform.py", line 82, in __call__
+    return _xslt_transform(self._compiled, source, params or None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: xslt: bad parameter expression: unexpected trailing tokens at offset 0 near ''td>a??><t>'
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7ff5222d25c0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==302== ERROR: libFuzzer: fuzz target exited
+    #0 0x7ff52527a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7ff52524c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7ff52522f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7ff52522f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7ff52522f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7ff5250548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7ff525054a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7ff5243cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7ff5243cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7ff5243ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_transform.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_transform.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7ff525032082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_transform.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 10 ChangeByte-Custom-ChangeBit-Custom-ChangeBit-Custom-EraseBytes-Custom-CMP-Custom- DE: "\001\000\000\000\000\000\000\000"-; base unit: ea73aec5cb83fc8cfed7351537b14398cbee142a
+0x34,0x74,0x61,0x62,0x6c,0x65,0x3e,0x3c,0x74,0x72,0x82,0x3c,0x74,0x64,0x3e,0x61,0x3f,0x3f,0x3e,0x3c,0x74,0x3e,0x0,0x63,0x3c,0x74,0x64,0x64,0x3c,0x2f,0x62,0x74,0x61,0x6c,0x1,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x65,0x3e,0xa,
+4table><tr\202<td>a??><t>\000c<tdd</btal\001\000\000\000\000\000\000\000e>\012
+artifact_prefix='/tmp/tmpzunsebim/'; Test unit written to /tmp/tmpzunsebim/crash-4180f0150d142d2a0acb0a12850fd5d9c7c2811e
+Base64: NHRhYmxlPjx0coI8dGQ+YT8/Pjx0PgBjPHRkZDwvYnRhbAEAAAAAAAAAZT4K
+stat::number_of_executed_units: 120
+stat::average_exec_per_sec:     0
+stat::new_units_added:          6
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              84

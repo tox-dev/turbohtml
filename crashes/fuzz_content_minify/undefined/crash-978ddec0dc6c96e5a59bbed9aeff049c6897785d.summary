@@ -1,0 +1,58 @@
+INFO: Instrumenting 6827 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f54b420c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 412722556
+INFO: Loaded 1 modules   (104970 inline 8-bit counters): 104970 [0x7f54b2c7ab48, 0x7f54b2c94552), 
+INFO: Loaded 1 PC tables (104970 PCs): 104970 [0x7f54b2c94558,0x7f54b2e2e5f8), 
+INFO:       61 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_minify
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 61 min: 4b max: 2223b total: 8831b rss: 83Mb
+#62	INITED cov: 2298 ft: 4768 corp: 60/8708b exec/s: 0 rss: 83Mb
+#65	NEW    cov: 2298 ft: 4770 corp: 61/8747b lim: 4096 exec/s: 0 rss: 83Mb L: 39/2223 MS: 6 CrossOver-Custom-ChangeBinInt-Custom-ChangeBinInt-Custom-
+#101	NEW    cov: 2299 ft: 4771 corp: 62/8755b lim: 4096 exec/s: 0 rss: 83Mb L: 8/2223 MS: 2 ChangeByte-Custom-
+#102	NEW    cov: 2301 ft: 4773 corp: 63/8761b lim: 4096 exec/s: 0 rss: 83Mb L: 6/2223 MS: 2 ChangeBit-Custom-
+#109	NEW    cov: 2301 ft: 4774 corp: 64/8833b lim: 4096 exec/s: 0 rss: 83Mb L: 72/2223 MS: 4 CMP-Custom-InsertRepeatedBytes-Custom- DE: "\377["-
+#111	NEW    cov: 2303 ft: 4782 corp: 65/8839b lim: 4096 exec/s: 0 rss: 83Mb L: 6/2223 MS: 4 ChangeBit-Custom-InsertByte-Custom-
+#112	NEW    cov: 2303 ft: 4785 corp: 66/8860b lim: 4096 exec/s: 0 rss: 83Mb L: 21/2223 MS: 2 EraseBytes-Custom-
+
+ === Uncaught Python exception: ===
+AssertionError: a result for an injected allocation failure
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 135, in run
+AssertionError: a result for an injected allocation failure
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7f54b13c65c0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==557== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f54b427a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7f54b424c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f54b422f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f54b422f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f54b422f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f54b40548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f54b4054a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7f54b33cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7f54b33cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7f54b33ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_content_minify.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_content_minify.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f54b4032082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_content_minify.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 8 ChangeByte-Custom-EraseBytes-Custom-ChangeByte-Custom-CMP-Custom- DE: "\001\""-; base unit: 7959321da170ba9831b907e9fa50b152663eb709
+0x3c,0x21,0x64,0x77,0x63,0x1,0x22,0x70,0x65,0x20,0x68,0x74,0x6d,0x6c,0x3e,0x3c,0x68,0x74,0x6d,0x3e,0x3c,0x68,0x65,0x61,0x64,0x3e,0x3c,0x74,0x69,0x74,0x6c,0x65,0x3e,0x74,0x3c,0x2f,0x74,0x69,0x74,0x6c,0x65,0x3e,0x3c,0x2f,0x68,0x65,0x61,0x64,0x3e,0x3c,0x62,0x6f,0x64,0x79,0x3e,0x3c,0x70,0x3e,0x48,0x65,0x6c,0x6c,0x6f,0x20,0x3c,0x62,0x3e,0x77,0x6f,0x72,0x6c,0x64,0x3c,0x2f,0x62,0x3e,0x3c,0x2f,0x70,0x3e,0x3c,0x2f,0x62,0x6f,0x64,0x79,0x2f,0x3e,0x3c,0x2f,0x68,0x74,0x6d,0xe2,0x3e,0xa,
+<!dwc\001\"pe html><htm><head><title>t</title></head><body><p>Hello <b>world</b></p></body/></htm\342>\012
+artifact_prefix='/tmp/tmpm8aleh59/'; Test unit written to /tmp/tmpm8aleh59/crash-978ddec0dc6c96e5a59bbed9aeff049c6897785d
+Base64: PCFkd2MBInBlIGh0bWw+PGh0bT48aGVhZD48dGl0bGU+dDwvdGl0bGU+PC9oZWFkPjxib2R5PjxwPkhlbGxvIDxiPndvcmxkPC9iPjwvcD48L2JvZHkvPjwvaHRt4j4K
+stat::number_of_executed_units: 126
+stat::average_exec_per_sec:     0
+stat::new_units_added:          6
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              84

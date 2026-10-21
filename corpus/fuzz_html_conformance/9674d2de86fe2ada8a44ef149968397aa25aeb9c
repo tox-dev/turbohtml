@@ -1,0 +1,13 @@
+<<do[type html>
+<html>
+  <head>
+    <styl  
+   >e .a { margin-top: 1px; margin-right: 2px; margin-bottom: 1px; margin-left: 2px; color: rgb(255, 0, 0) }
+      @media screen { .b { widthn: 0 0 0 0; color: #ff0000">styled</p>
+  <ml>
+  <head>
+    <style>
+      .a { margin-top: 1px; margin-right: 2px; margin-bottom: 1px; margin-left: 2px; color: rgb(255, 0, 0) }
+      @media screen { .b { widthn: 5 0 0 0; color: #ff0000">styled</p>
+  </bo/body>
+</html>

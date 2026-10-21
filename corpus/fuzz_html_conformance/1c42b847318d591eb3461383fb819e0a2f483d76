@@ -1,0 +1,3 @@
+body {`margin: 0; padding: 0 }
+.a, .b { color: fffffff; <img src="httpsmple/a.png" alt: url(a.png="ok") >
+}

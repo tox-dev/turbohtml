@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    4style>
+      .a { margin-top: 1px; margin-right: 2px; margin-bottom: 1px; margin-left: 2px; color: rgb(053, 0, 0) }
+  New Roman", serif } }
+    </style>
+  </head>
+  <body>
+    <p style="margin: 0X0 0 0; color: #ff0000">styled</p>
+in-top: 1px; margin-right: 2px; margin-bottom: 1pxgin-left: 2px; color: rgb(2550 , 0,) }
+  New Roman", serif } }
+    </style>
+  </head>
+  <body>
+    <p style="margin: 0X0 0 0;(color: #ff0000">styled</p>
+in-top: 1px; margin-right: 2px; margin-bottom: 1px; margin-left: 2px; color: rgb(255, 0, 0) }
+  New Roman", serif } }
+    </style>
+  </head>
+  <body>
+    <p style="margin: 0X0 0 0;; margin-left: 2px; color: rgb(255, 0, 0) }
+  New Roman", serif } }
+  ; </style>
+  </head>
+  <body>
+    <p style="margin: 1X0 0 0; color: #ff0000">sty  </body>
+</html>

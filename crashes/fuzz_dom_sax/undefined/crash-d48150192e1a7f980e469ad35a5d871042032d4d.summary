@@ -1,0 +1,59 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f115600c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 584576995
+INFO: Loaded 1 modules   (107626 inline 8-bit counters): 107626 [0x7f11549d2af8, 0x7f11549ecf62), 
+INFO: Loaded 1 PC tables (107626 PCs): 107626 [0x7f11549ecf68,0x7f1154b91608), 
+INFO:       47 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_sax
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 47 min: 4b max: 81921b total: 86990b rss: 83Mb
+#48	INITED cov: 819 ft: 1736 corp: 45/84Kb exec/s: 0 rss: 83Mb
+#69	NEW    cov: 819 ft: 1738 corp: 46/84Kb lim: 81921 exec/s: 0 rss: 83Mb L: 74/81921 MS: 2 InsertByte-Custom-
+#76	NEW    cov: 819 ft: 1745 corp: 47/85Kb lim: 81921 exec/s: 0 rss: 83Mb L: 89/81921 MS: 4 ChangeByte-Custom-CMP-Custom- DE: "\001\000\000\000\000\000\000\002"-
+#77	NEW    cov: 819 ft: 1746 corp: 48/85Kb lim: 81921 exec/s: 0 rss: 83Mb L: 65/81921 MS: 2 CrossOver-Custom-
+#78	NEW    cov: 819 ft: 1747 corp: 49/85Kb lim: 81921 exec/s: 0 rss: 83Mb L: 38/81921 MS: 2 CrossOver-Custom-
+#81	NEW    cov: 819 ft: 1748 corp: 50/85Kb lim: 81921 exec/s: 0 rss: 83Mb L: 74/81921 MS: 6 CrossOver-Custom-CrossOver-Custom-CrossOver-Custom-
+#82	NEW    cov: 819 ft: 1768 corp: 51/85Kb lim: 81921 exec/s: 0 rss: 83Mb L: 118/81921 MS: 2 CopyPart-Custom-
+#85	NEW    cov: 821 ft: 1772 corp: 52/85Kb lim: 81921 exec/s: 0 rss: 83Mb L: 78/81921 MS: 6 InsertByte-Custom-ShuffleBytes-Custom-InsertRepeatedBytes-Custom-
+
+ === Uncaught Python exception: ===
+AssertionError: a result for an injected allocation failure
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 135, in run
+AssertionError: a result for an injected allocation failure
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7f11530fa5c0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==626== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f115607a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7f115604c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f115602f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f115602f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f115602f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f1155e548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f1155e54a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7f11551cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7f11551cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7f11551ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_sax.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_sax.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f1155e32082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_sax.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 4 ChangeBinInt-Custom-ChangeByte-Custom-; base unit: 31bede927353098a70902c97487d088dbc1bf970
+0x7b,0x2d,0x2d,0x78,0x99,
+{--x\231
+artifact_prefix='/tmp/tmpzahxbpxu/'; Test unit written to /tmp/tmpzahxbpxu/crash-d48150192e1a7f980e469ad35a5d871042032d4d
+Base64: ey0teJk=
+stat::number_of_executed_units: 87
+stat::average_exec_per_sec:     0
+stat::new_units_added:          7
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              83

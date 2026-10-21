@@ -1,0 +1,59 @@
+INFO: Instrumenting 6841 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fe857c0c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3865742972
+INFO: Loaded 1 modules   (108038 inline 8-bit counters): 108038 [0x7fe856630fa8, 0x7fe85664b5ae), 
+INFO: Loaded 1 PC tables (108038 PCs): 108038 [0x7fe85664b5b0,0x7fe8567f1610), 
+INFO:      293 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_object_model
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81933 bytes
+INFO: seed corpus: files: 293 min: 4b max: 81933b total: 638450b rss: 83Mb
+#294	INITED cov: 1527 ft: 3624 corp: 204/266Kb exec/s: 0 rss: 85Mb
+#301	REDUCE cov: 1527 ft: 3624 corp: 204/266Kb lim: 81933 exec/s: 0 rss: 85Mb L: 17/81926 MS: 4 EraseBytes-Custom-EraseBytes-Custom-
+#327	REDUCE cov: 1527 ft: 3624 corp: 204/266Kb lim: 81933 exec/s: 0 rss: 85Mb L: 100/81926 MS: 2 EraseBytes-Custom-
+#348	NEW    cov: 1527 ft: 3630 corp: 205/266Kb lim: 81933 exec/s: 0 rss: 85Mb L: 226/81926 MS: 2 EraseBytes-Custom-
+
+ === Uncaught Python exception: ===
+AssertionError: Sheet declaration differs
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 123, in run
+  File "fuzz/atheris_registry.py", line 58, in run
+  File "fuzz/reference_targets.py", line 149, in _cssom
+  File "fuzz/reference_targets.py", line 259, in cssom_observation
+  File "fuzz/reference_targets.py", line 389, in _require
+AssertionError: Sheet declaration differs
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7fe854d7efc0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==368== ERROR: libFuzzer: fuzz target exited
+    #0 0x7fe857c7a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7fe857c4c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7fe857c2f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7fe857c2f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7fe857c2f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7fe857a548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7fe857a54a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7fe856dcc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7fe856dcf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7fe856dceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_css_object_model.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_css_object_model.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7fe857a32082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_css_object_model.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 2 CrossOver-Custom-; base unit: 11ef40bd6275d5bf47891b50c74d2c750d935846
+0x62,0x6f,0x64,0x79,0x20,0x7b,0x20,0x6d,0x61,0x72,0x67,0x69,0x6e,0x3a,0x20,0x30,0x3b,0x20,0x70,0x61,0x64,0x20,0x52,0x6f,0x6d,0x61,0x6e,0x22,0x2c,0x20,0x73,0x65,0x72,0x69,0x66,0x20,0x7d,0x20,0x7d,0xa,0x20,0x20,0x20,0x20,0x3c,0x2f,0x73,0x74,0x79,0x6c,0x65,0x3e,0xa,0x20,0x20,0x3c,0x2f,0x68,0x65,0x61,0x64,0x3e,0xa,0x20,0x20,0x3c,0x62,0x6f,0x64,0x6d,0xc2,0xbc,0x6e,0x3b,0x68,0x65,0x6e,0x2e,0x79,0x3e,0x7b,0x2d,0x2d,0xa,0x20,0x20,0x20,0x20,0x3c,0x70,0x20,0x73,0x74,0x79,0x6c,0x65,0x3d,0x22,0x6d,0x61,0x72,0x67,0x69,0x6e,0x3a,0x20,0x30,0x20,0x30,0x78,0x3a,0xc,0x7d,0x20,0x30,0x20,0x30,0x3b,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x27,0x20,0x63,0x6f,0x6c,0x6f,0x72,0x3a,0x20,0x23,0x66,0x66,0x30,0x30,0x30,0x30,0x22,0x3e,0x6e,0x67,0x3a,0x20,0x30,0x20,0x7d,0xa,0x2e,0x61,0x2c,0x20,0x20,0x62,0x61,0x63,0x6b,0x67,0x72,0x6f,0x20,0x22,0x64,0x3a,0x20,0x75,0x72,0x6c,0x28,0x61,0x2e,0x70,0x20,0x62,0x61,0x63,0x6b,0x65,0x78,0x63,0x6c,0x65,0x45,0x32,0x38,0x3d,0x25,0x45,0x32,0x65,0x67,0x72,0x6f,0x20,0x22,0x64,0x3a,0x20,0x75,0x72,0x6c,0x28,0x61,0x2e,0x70,0x25,0x6e,0x67,0x39,0x29,0x20,0x7d,0xa,
+body { margin: 0; pad Roman\", serif } }\012    </style>\012  </head>\012  <bodm\302\274n;hen.y>{--\012    <p style=\"margin: 0 0x:\014} 0 0;''''''''''''''''''''''''' color: #ff0000\">ng: 0 }\012.a,  backgro \"d: url(a.p backexcleE28=%E2egro \"d: url(a.p%ng9) }\012
+artifact_prefix='/tmp/tmp7d_gryis/'; Test unit written to /tmp/tmp7d_gryis/crash-6e0f835d8999574287e1cc8c6368478afd4f294c
+Base64: Ym9keSB7IG1hcmdpbjogMDsgcGFkIFJvbWFuIiwgc2VyaWYgfSB9CiAgICA8L3N0eWxlPgogIDwvaGVhZD4KICA8Ym9kbcK8bjtoZW4ueT57LS0KICAgIDxwIHN0eWxlPSJtYXJnaW46IDAgMHg6DH0gMCAwOycnJycnJycnJycnJycnJycnJycnJycnJycgY29sb3I6ICNmZjAwMDAiPm5nOiAwIH0KLmEsICBiYWNrZ3JvICJkOiB1cmwoYS5wIGJhY2tleGNsZUUyOD0lRTJlZ3JvICJkOiB1cmwoYS5wJW5nOSkgfQo=
+stat::number_of_executed_units: 354
+stat::average_exec_per_sec:     0
+stat::new_units_added:          3
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              85

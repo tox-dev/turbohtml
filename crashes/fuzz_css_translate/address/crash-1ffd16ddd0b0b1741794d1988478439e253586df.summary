@@ -1,0 +1,75 @@
+INFO: Instrumenting 6826 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f158663f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3659162975
+INFO: Loaded 1 modules   (97026 inline 8-bit counters): 97026 [0x7b15832e6f78, 0x7b15832fea7a), 
+INFO: Loaded 1 PC tables (97026 PCs): 97026 [0x7b15832fea80,0x7b1583479aa0), 
+INFO:       58 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_translate
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 58 min: 4b max: 81921b total: 193141b rss: 173Mb
+#59	INITED cov: 1364 ft: 3117 corp: 29/867b exec/s: 0 rss: 179Mb
+#70	NEW    cov: 1364 ft: 3118 corp: 30/884b lim: 81921 exec/s: 0 rss: 179Mb L: 17/118 MS: 2 ShuffleBytes-Custom-
+#71	NEW    cov: 1369 ft: 3138 corp: 31/922b lim: 81921 exec/s: 0 rss: 179Mb L: 38/118 MS: 2 ChangeBit-Custom-
+#72	NEW    cov: 1369 ft: 3141 corp: 32/964b lim: 81921 exec/s: 0 rss: 179Mb L: 42/118 MS: 2 CMP-Custom- DE: "udio"-
+#73	NEW    cov: 1369 ft: 3142 corp: 33/1003b lim: 81921 exec/s: 0 rss: 179Mb L: 39/118 MS: 2 ChangeBinInt-Custom-
+	NEW_FUNC[1/1]: 0x7b1582e72bc0 in xp_decimal_value /src/turbohtml/.mesonpy-y13_dwdz/../src/turbohtml/_c/query/xpath/eval.c:798
+#76	NEW    cov: 1388 ft: 3214 corp: 34/1019b lim: 81921 exec/s: 0 rss: 180Mb L: 16/118 MS: 6 ShuffleBytes-Custom-ChangeByte-Custom-ShuffleBytes-Custom-
+#77	NEW    cov: 1389 ft: 3222 corp: 35/1039b lim: 81921 exec/s: 0 rss: 180Mb L: 20/118 MS: 2 CopyPart-Custom-
+#81	NEW    cov: 1391 ft: 3224 corp: 36/1047b lim: 81921 exec/s: 0 rss: 180Mb L: 8/118 MS: 8 ShuffleBytes-Custom-ShuffleBytes-Custom-ChangeBit-Custom-CrossOver-Custom-
+#83	NEW    cov: 1393 ft: 3251 corp: 37/1143b lim: 81921 exec/s: 0 rss: 180Mb L: 96/118 MS: 4 ShuffleBytes-Custom-InsertRepeatedBytes-Custom-
+#84	NEW    cov: 1393 ft: 3307 corp: 38/1186b lim: 81921 exec/s: 0 rss: 180Mb L: 43/118 MS: 2 PersAutoDict-Custom- DE: "udio"-
+#102	NEW    cov: 1393 ft: 3341 corp: 39/1235b lim: 81921 exec/s: 0 rss: 180Mb L: 49/118 MS: 6 ShuffleBytes-Custom-CopyPart-Custom-CopyPart-Custom-
+#111	NEW    cov: 1394 ft: 3354 corp: 40/1255b lim: 81921 exec/s: 0 rss: 180Mb L: 20/118 MS: 8 ChangeByte-Custom-ShuffleBytes-Custom-ChangeByte-Custom-CopyPart-Custom-
+#114	NEW    cov: 1394 ft: 3357 corp: 41/1262b lim: 81921 exec/s: 0 rss: 180Mb L: 7/118 MS: 6 PersAutoDict-Custom-ChangeBit-Custom-CopyPart-Custom- DE: "udio"-
+#120	NEW    cov: 1394 ft: 3358 corp: 42/1300b lim: 81921 exec/s: 0 rss: 180Mb L: 38/118 MS: 2 EraseBytes-Custom-
+#122	NEW    cov: 1394 ft: 3362 corp: 43/1396b lim: 81921 exec/s: 0 rss: 180Mb L: 96/118 MS: 4 ChangeBinInt-Custom-ChangeByte-Custom-
+#123	NEW    cov: 1394 ft: 3363 corp: 44/1445b lim: 81921 exec/s: 0 rss: 180Mb L: 49/118 MS: 2 PersAutoDict-Custom- DE: "udio"-
+#155	NEW    cov: 1395 ft: 3399 corp: 45/1465b lim: 81921 exec/s: 0 rss: 181Mb L: 20/118 MS: 4 ChangeBit-Custom-PersAutoDict-Custom- DE: "udio"-
+#172	NEW    cov: 1395 ft: 3406 corp: 46/1481b lim: 81921 exec/s: 0 rss: 181Mb L: 16/118 MS: 4 ChangeByte-Custom-EraseBytes-Custom-
+
+ === Uncaught Python exception: ===
+ValueError: out of memory at offset 57 near 'class'
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/atheris_reference_targets.py", line 145, in _selector
+  File "fuzz/atheris_reference_targets.py", line 218, in selector_observation
+  File "fuzz/atheris_invariants.py", line 17, in assert_invariant
+  File "fuzz/round_trip_oracles.py", line 1421, in selector_entry_check
+ValueError: out of memory at offset 57 near 'class'
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7b15818811c0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==313== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f158672edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7f158667f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f1586662596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f1586662668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f1586662668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f15864548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f1586454a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7b1583bcc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7b1583bcf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7b1583bceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_css_translate.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_css_translate.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f1586432082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_css_translate.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 2 ChangeBit-Custom-; base unit: 9bc011c48894b9cc953400eb2da02245257b8ea8
+0x6d,0xc3,0xbc,0x6e,0x63,0x68,0x45,0x6e,0x2e,0x65,0x78,0x61,0x6d,0x70,0x78,0x31,0x6e,0x2d,0x75,0x64,0x69,0x6f,0x6c,0x2d,0x6e,0x78,0x61,0x73,0x6d,0x71,0x36,0x62,0x30,0xa,0x2e,0x65,0x78,0x61,0x6d,0x70,0x6c,0x65,0xa,
+m\303\274nchEn.exampx1n-udiol-nxasmq6b0\012.example\012
+artifact_prefix='/tmp/tmpy6ba3g8p/'; Test unit written to /tmp/tmpy6ba3g8p/crash-1ffd16ddd0b0b1741794d1988478439e253586df
+Base64: bcO8bmNoRW4uZXhhbXB4MW4tdWRpb2wtbnhhc21xNmIwCi5leGFtcGxlCg==
+stat::number_of_executed_units: 173
+stat::average_exec_per_sec:     0
+stat::new_units_added:          17
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              181

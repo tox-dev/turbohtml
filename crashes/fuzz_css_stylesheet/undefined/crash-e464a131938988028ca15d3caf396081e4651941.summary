@@ -1,0 +1,52 @@
+INFO: Instrumenting 6827 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f1e91c0c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 701515467
+INFO: Loaded 1 modules   (104970 inline 8-bit counters): 104970 [0x7f1e90507b48, 0x7f1e90521552), 
+INFO: Loaded 1 PC tables (104970 PCs): 104970 [0x7f1e90521558,0x7f1e906bb5f8), 
+INFO:      376 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_stylesheet
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 376 min: 4b max: 81921b total: 224137b rss: 83Mb
+#377	INITED cov: 3716 ft: 11991 corp: 360/217Kb exec/s: 0 rss: 86Mb
+
+ === Uncaught Python exception: ===
+AssertionError: a result for an injected allocation failure
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 135, in run
+AssertionError: a result for an injected allocation failure
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7f1e8ec565c0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==476== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f1e91c7a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7f1e91c4c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f1e91c2f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f1e91c2f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f1e91c2f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f1e91a158a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f1e91a15a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7f1e90dcc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7f1e90dcf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7f1e90dceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_css_stylesheet.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_css_stylesheet.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f1e919f3082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_css_stylesheet.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 2 CopyPart-Custom-; base unit: d3807d2cbdfea9ee23084e36adc1fb27484e63be
+0x3c,0x69,0x6c,0x67,0x20,0x69,0x6e,0x63,0x3d,0x61,0x2e,0x3b,0x6e,0x67,0x20,0x12,0x61,0x6c,0x74,0x70,0x3e,0x2e,0x72,0x30,0x3c,0x69,0x7b,0x6e,0x67,0x20,0x12,0x61,0x6c,0x74,0x70,0x3e,0x2e,0x72,0x30,0x3c,0x69,0x7b,0x7b,0x7b,0x74,0x3e,0x20,0x12,0x61,0x6c,0x74,0x70,0x3e,0x7b,0x7b,0x74,0x3e,0x20,0x12,0x61,0x6c,0x74,0x70,0x3e,0x3c,0x20,0x12,0x61,0x6c,0xa,
+<ilg inc=a.;ng \022altp>.r0<i{ng \022altp>.r0<i{{{t> \022altp>{{t> \022altp>< \022al\012
+artifact_prefix='/tmp/tmpx2cq11y3/'; Test unit written to /tmp/tmpx2cq11y3/crash-e464a131938988028ca15d3caf396081e4651941
+Base64: PGlsZyBpbmM9YS47bmcgEmFsdHA+LnIwPGl7bmcgEmFsdHA+LnIwPGl7e3t0PiASYWx0cD57e3Q+IBJhbHRwPjwgEmFsCg==
+stat::number_of_executed_units: 378
+stat::average_exec_per_sec:     0
+stat::new_units_added:          0
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              87

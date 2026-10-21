@@ -1,0 +1,61 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f53f283f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 4258590591
+INFO: Loaded 1 modules   (103106 inline 8-bit counters): 103106 [0x7b53ef61e4a8, 0x7b53ef63776a), 
+INFO: Loaded 1 PC tables (103106 PCs): 103106 [0x7b53ef637770,0x7b53ef7ca390), 
+INFO:       52 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_xml_transform
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 52 min: 4b max: 2223b total: 4989b rss: 175Mb
+#53	INITED cov: 1198 ft: 2489 corp: 51/4912b exec/s: 0 rss: 176Mb
+#60	NEW    cov: 1201 ft: 2492 corp: 52/4951b lim: 4096 exec/s: 0 rss: 176Mb L: 39/2223 MS: 4 ChangeBit-Custom-ChangeByte-Custom-
+#64	NEW    cov: 1205 ft: 2497 corp: 53/4994b lim: 4096 exec/s: 0 rss: 176Mb L: 43/2223 MS: 8 ChangeBinInt-Custom-ChangeBit-Custom-ChangeByte-Custom-CMP-Custom- DE: "\000\000\000\000"-
+#66	NEW    cov: 1205 ft: 2503 corp: 54/5009b lim: 4096 exec/s: 0 rss: 176Mb L: 15/2223 MS: 4 EraseBytes-Custom-EraseBytes-Custom-
+
+ === Uncaught Python exception: ===
+ValueError: xslt: bad value-of select: unexpected trailing tokens at offset 1 near 'value'
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/reference_targets.py", line 157, in _transform
+  File "fuzz/reference_targets.py", line 365, in transform_observation
+  File "turbohtml/transform.py", line 65, in __init__
+    self._compiled = _xslt_compile(
+                     ^^^^^^^^^^^^^^
+ValueError: xslt: bad value-of select: unexpected trailing tokens at offset 1 near 'value'
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7b53ed95e660>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==251== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f53f292edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7f53f287f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f53f2862596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f53f2862668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f53f2862668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f53f26548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f53f2654a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7b53efdcc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7b53efdcf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7b53efdceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_transform.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_transform.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f53f2632082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_transform.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 2 InsertByte-Custom-; base unit: db6d5defd44de855cadcc183fd67baf1dc5a8b8c
+0x74,0x2e,0x30,0x2e,0x2c,
+t.0.,
+artifact_prefix='/tmp/tmppiqco8q7/'; Test unit written to /tmp/tmppiqco8q7/crash-b2ddfb478b7c24abcc9bfae2c9d38474b5a0abfe
+Base64: dC4wLiw=
+stat::number_of_executed_units: 77
+stat::average_exec_per_sec:     0
+stat::new_units_added:          3
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              176

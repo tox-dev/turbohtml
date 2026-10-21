@@ -1,0 +1,60 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fa0dde3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1264685100
+INFO: Loaded 1 modules   (103106 inline 8-bit counters): 103106 [0x7ba0dacf64a8, 0x7ba0dad0f76a), 
+INFO: Loaded 1 PC tables (103106 PCs): 103106 [0x7ba0dad0f770,0x7ba0daea2390), 
+INFO:       84 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_locations
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 84 min: 4b max: 779b total: 6054b rss: 173Mb
+#85	INITED cov: 683 ft: 1415 corp: 82/5970b exec/s: 0 rss: 174Mb
+#108	NEW    cov: 683 ft: 1416 corp: 83/5979b lim: 4096 exec/s: 0 rss: 174Mb L: 9/779 MS: 6 InsertRepeatedBytes-Custom-CopyPart-Custom-InsertByte-Custom-
+#112	REDUCE cov: 683 ft: 1416 corp: 83/5978b lim: 4096 exec/s: 0 rss: 174Mb L: 5/779 MS: 8 EraseBytes-Custom-CopyPart-Custom-EraseBytes-Custom-CrossOver-Custom-
+#158	NEW    cov: 683 ft: 1417 corp: 84/6193b lim: 4096 exec/s: 0 rss: 174Mb L: 215/779 MS: 2 CrossOver-Custom-
+
+ === Uncaught Python exception: ===
+SystemError: <built-in method __new__ of type object at 0x7ba0db8b2aa8> returned a result with an exception set
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/dom_targets.py", line 27, in _check
+  File "fuzz/dom_targets.py", line 32, in dom_observation
+  File "fuzz/dom_targets.py", line 256, in _locations
+  File "<string>", line 1, in <lambda>
+SystemError: <built-in method __new__ of type object at 0x7ba0db8b2aa8> returned a result with an exception set
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7ba0d9026660>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==554== ERROR: libFuzzer: fuzz target exited
+    #0 0x7fa0ddf2edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7fa0dde7f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7fa0dde62596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7fa0dde62668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7fa0dde62668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7fa0ddc548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7fa0ddc54a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7ba0db5cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7ba0db5cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7ba0db5ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_locations.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_locations.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7fa0ddc32082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_locations.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 10 ChangeByte-Custom-EraseBytes-Custom-EraseBytes-Custom-ChangeByte-Custom-InsertRepeatedBytes-Custom-; base unit: 24f27330dec7cd2019712c974b8b18bcfe70db23
+0x3c,0x76,0x67,0x0,0x3e,0x3c,0x72,0x65,0x63,0x74,0x2f,0x3e,0x24,0x2f,0x73,0x76,0x67,0x3e,0x3c,0x6d,0x61,0x74,0x65,0x65,0x65,0x65,0x65,0x65,0x65,0x74,0x68,0x1d,0xa,
+<vg\000><rect/>$/svg><mateeeeeeeth\035\012
+artifact_prefix='/tmp/tmpogf34x6l/'; Test unit written to /tmp/tmpogf34x6l/crash-83641e0922eca2f5678350f49d6a31de8494a4c3
+Base64: PHZnAD48cmVjdC8+JC9zdmc+PG1hdGVlZWVlZWV0aB0K
+stat::number_of_executed_units: 168
+stat::average_exec_per_sec:     0
+stat::new_units_added:          3
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              174

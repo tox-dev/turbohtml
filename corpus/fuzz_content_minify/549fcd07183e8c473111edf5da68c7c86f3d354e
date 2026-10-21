@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+  <heaœÃ
+    <script>
+      var long_name = 1;
+      function f(alpha, [beta, { gamma = 1, ...rest }], ...more) {       const unused = alpha;
+        if (alpha) { return true } else { return beta ? gamma : rest }
+      }
+      var g = (p, q) =>   const unused = alpha;
+      ssage }) :{ console.log(`t${message}u`) }
+    </script>
+  </head>
+  <body>
+    <script ty;e="module">let m = 0; m++</script>
+  </body>
+</html>

@@ -1,0 +1,115 @@
+Unable to find image 'gcr.io/oss-fuzz-base/clusterfuzzlite-run-fuzzers@sha256:35b5e685193f1f920f6627dd8f0bd9009fbb338eab795254d48bd073b45235cf' locally
+gcr.io/oss-fuzz-base/clusterfuzzlite-run-fuzzers@sha256:35b5e685193f1f920f6627dd8f0bd9009fbb338eab795254d48bd073b45235cf: Pulling from oss-fuzz-base/clusterfuzzlite-run-fuzzers
+b549f31133a9: Already exists
+3e6a07050bb3: Already exists
+19ff1a35ed6a: Already exists
+c3d17017e2a7: Already exists
+3bcd045fb74c: Already exists
+4848d6aab884: Already exists
+1b5ec8c8cc75: Already exists
+3ec9e5623d89: Already exists
+efbd8336ae59: Already exists
+a5a89487a671: Already exists
+84ff9b56aefd: Already exists
+63f05fc6718b: Already exists
+284813246ec6: Already exists
+9f4be028276f: Already exists
+fe4059acf1fc: Already exists
+60462313a486: Already exists
+adf9f8b8e0d5: Already exists
+798fadbf8bf5: Already exists
+215226950847: Already exists
+775ec59e7f01: Already exists
+0a8ef590efbe: Already exists
+cddd0255dff2: Already exists
+9289e4a0438e: Already exists
+7fbc26841dae: Already exists
+11976146586a: Already exists
+4f9858b90331: Already exists
+47a64818e375: Already exists
+19edb5d3d70c: Already exists
+7d9600459046: Already exists
+3bedb8035313: Already exists
+2bb0f3d1c0ed: Already exists
+43c5276a2bad: Already exists
+a4416a673d6b: Already exists
+0d515f2c5899: Pulling fs layer
+27b64ce8a2a1: Pulling fs layer
+27b64ce8a2a1: Download complete
+0d515f2c5899: Verifying Checksum
+0d515f2c5899: Download complete
+0d515f2c5899: Pull complete
+27b64ce8a2a1: Pull complete
+Digest: sha256:35b5e685193f1f920f6627dd8f0bd9009fbb338eab795254d48bd073b45235cf
+Status: Downloaded newer image for gcr.io/oss-fuzz-base/clusterfuzzlite-run-fuzzers@sha256:35b5e685193f1f920f6627dd8f0bd9009fbb338eab795254d48bd073b45235cf
+2026-10-14 09:44:35,194 - root - INFO - Deleting builder docker images to save disk space.
+2026-10-14 09:44:35,418 - root - INFO - ClusterFuzzDeployment: <clusterfuzz_deployment.ClusterFuzzLite object at 0x7fb169025190>.
+2026-10-14 09:44:35,418 - root - INFO - run fuzzers MODE is: coverage. Runner: <run_fuzzers.CoverageTargetRunner object at 0x7fb167fd8590>.
+2026-10-14 09:44:35,418 - root - INFO - Using coverage sanitizer.
+2026-10-14 09:44:35,421 - root - INFO - Fuzz targets: ['/home/runner/work/_temp/cflite/build-out/fuzz_content_extract', '/home/runner/work/_temp/cflite/build-out/fuzz_markdown_source', '/home/runner/work/_temp/cflite/build-out/fuzz_html_cli', '/home/runner/work/_temp/cflite/build-out/fuzz_xml_schema', '/home/runner/work/_temp/cflite/build-out/fuzz_html_conformance', '/home/runner/work/_temp/cflite/build-out/fuzz_content_sanitize', '/home/runner/work/_temp/cflite/build-out/fuzz_content_detect', '/home/runner/work/_temp/cflite/build-out/fuzz_content_links', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_elementtree', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_traversal', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_range', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_construction', '/home/runner/work/_temp/cflite/build-out/fuzz_content_stdlib', '/home/runner/work/_temp/cflite/build-out/fuzz_xml_transform', '/home/runner/work/_temp/cflite/build-out/fuzz_markdown_html', '/home/runner/work/_temp/cflite/build-out/fuzz_css_translate', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_query', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_rewrite', '/home/runner/work/_temp/cflite/build-out/fuzz_content_migration', '/home/runner/work/_temp/cflite/build-out/fuzz_html_fragment', '/home/runner/work/_temp/cflite/build-out/fuzz_css_stylesheet', '/home/runner/work/_temp/cflite/build-out/fuzz_html_tokenizer', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_shadow', '/home/runner/work/_temp/cflite/build-out/fuzz_encoding_bytes', '/home/runner/work/_temp/cflite/build-out/fuzz_html_incremental', '/home/runner/work/_temp/cflite/build-out/fuzz_content_minify', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_treebuild', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_mutation', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_locations', '/home/runner/work/_temp/cflite/build-out/fuzz_html_render', '/home/runner/work/_temp/cflite/build-out/fuzz_css_object_model', '/home/runner/work/_temp/cflite/build-out/fuzz_html_document', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_sax']
+2026-10-14 09:44:35,421 - root - INFO - Downloading corpus for fuzz_content_extract to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_extract.
+2026-10-14 09:44:35,424 - root - INFO - Done downloading corpus. Contains 26 elements.
+2026-10-14 09:44:35,424 - root - INFO - Downloading corpus for fuzz_markdown_source to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_markdown_source.
+2026-10-14 09:44:35,498 - root - INFO - Done downloading corpus. Contains 603 elements.
+2026-10-14 09:44:35,498 - root - INFO - Downloading corpus for fuzz_html_cli to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_html_cli.
+2026-10-14 09:44:35,593 - root - INFO - Done downloading corpus. Contains 734 elements.
+2026-10-14 09:44:35,593 - root - INFO - Downloading corpus for fuzz_xml_schema to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_xml_schema.
+2026-10-14 09:44:35,609 - root - INFO - Done downloading corpus. Contains 124 elements.
+2026-10-14 09:44:35,609 - root - INFO - Downloading corpus for fuzz_html_conformance to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_html_conformance.
+2026-10-14 09:44:35,868 - root - INFO - Done downloading corpus. Contains 2133 elements.
+2026-10-14 09:44:35,869 - root - INFO - Downloading corpus for fuzz_content_sanitize to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_sanitize.
+2026-10-14 09:44:35,882 - root - INFO - Done downloading corpus. Contains 109 elements.
+2026-10-14 09:44:35,882 - root - INFO - Downloading corpus for fuzz_content_detect to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_detect.
+2026-10-14 09:44:35,887 - root - INFO - Done downloading corpus. Contains 43 elements.
+2026-10-14 09:44:35,887 - root - INFO - Downloading corpus for fuzz_content_links to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_links.
+2026-10-14 09:44:35,907 - root - INFO - Done downloading corpus. Contains 165 elements.
+2026-10-14 09:44:35,907 - root - INFO - Downloading corpus for fuzz_dom_elementtree to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_elementtree.
+2026-10-14 09:44:35,916 - root - INFO - Done downloading corpus. Contains 75 elements.
+2026-10-14 09:44:35,916 - root - INFO - Downloading corpus for fuzz_dom_traversal to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_traversal.
+2026-10-14 09:44:35,918 - root - INFO - Done downloading corpus. Contains 14 elements.
+2026-10-14 09:44:35,918 - root - INFO - Downloading corpus for fuzz_dom_range to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_range.
+2026-10-14 09:44:35,935 - root - INFO - Done downloading corpus. Contains 140 elements.
+2026-10-14 09:44:35,935 - root - INFO - Downloading corpus for fuzz_dom_construction to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_construction.
+2026-10-14 09:44:35,945 - root - INFO - Done downloading corpus. Contains 85 elements.
+2026-10-14 09:44:35,945 - root - INFO - Downloading corpus for fuzz_content_stdlib to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_stdlib.
+2026-10-14 09:44:36,277 - root - INFO - Done downloading corpus. Contains 2672 elements.
+2026-10-14 09:44:36,277 - root - INFO - Downloading corpus for fuzz_xml_transform to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_xml_transform.
+2026-10-14 09:44:36,283 - root - INFO - Done downloading corpus. Contains 52 elements.
+2026-10-14 09:44:36,283 - root - INFO - Downloading corpus for fuzz_markdown_html to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_markdown_html.
+2026-10-14 09:44:36,336 - root - INFO - Done downloading corpus. Contains 443 elements.
+2026-10-14 09:44:36,336 - root - INFO - Downloading corpus for fuzz_css_translate to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_translate.
+2026-10-14 09:44:36,373 - root - INFO - Done downloading corpus. Contains 305 elements.
+2026-10-14 09:44:36,373 - root - INFO - Downloading corpus for fuzz_dom_query to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_query.
+2026-10-14 09:44:36,380 - root - INFO - Done downloading corpus. Contains 57 elements.
+2026-10-14 09:44:36,380 - root - INFO - Downloading corpus for fuzz_dom_rewrite to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_rewrite.
+2026-10-14 09:44:36,393 - root - INFO - Done downloading corpus. Contains 112 elements.
+2026-10-14 09:44:36,393 - root - INFO - Downloading corpus for fuzz_content_migration to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_migration.
+2026-10-14 09:44:36,400 - root - INFO - Done downloading corpus. Contains 57 elements.
+2026-10-14 09:44:36,400 - root - INFO - Downloading corpus for fuzz_html_fragment to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_html_fragment.
+2026-10-14 09:44:36,579 - root - INFO - Done downloading corpus. Contains 1465 elements.
+2026-10-14 09:44:36,579 - root - INFO - Downloading corpus for fuzz_css_stylesheet to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_stylesheet.
+2026-10-14 09:44:36,623 - root - INFO - Done downloading corpus. Contains 367 elements.
+2026-10-14 09:44:36,623 - root - INFO - Downloading corpus for fuzz_html_tokenizer to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_html_tokenizer.
+2026-10-14 09:44:36,941 - root - INFO - Done downloading corpus. Contains 2585 elements.
+2026-10-14 09:44:36,941 - root - INFO - Downloading corpus for fuzz_dom_shadow to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_shadow.
+2026-10-14 09:44:36,946 - root - INFO - Done downloading corpus. Contains 41 elements.
+2026-10-14 09:44:36,946 - root - INFO - Downloading corpus for fuzz_encoding_bytes to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_encoding_bytes.
+2026-10-14 09:44:36,952 - root - INFO - Done downloading corpus. Contains 53 elements.
+2026-10-14 09:44:36,953 - root - INFO - Downloading corpus for fuzz_html_incremental to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_html_incremental.
+2026-10-14 09:44:37,014 - root - INFO - Done downloading corpus. Contains 503 elements.
+2026-10-14 09:44:37,014 - root - INFO - Downloading corpus for fuzz_content_minify to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_minify.
+2026-10-14 09:44:37,021 - root - INFO - Done downloading corpus. Contains 62 elements.
+2026-10-14 09:44:37,022 - root - INFO - Downloading corpus for fuzz_dom_treebuild to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_treebuild.
+2026-10-14 09:44:37,032 - root - INFO - Done downloading corpus. Contains 87 elements.
+2026-10-14 09:44:37,032 - root - INFO - Downloading corpus for fuzz_dom_mutation to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_mutation.
+2026-10-14 09:44:37,036 - root - INFO - Done downloading corpus. Contains 35 elements.
+2026-10-14 09:44:37,036 - root - INFO - Downloading corpus for fuzz_dom_locations to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_locations.
+2026-10-14 09:44:37,046 - root - INFO - Done downloading corpus. Contains 84 elements.
+2026-10-14 09:44:37,047 - root - INFO - Downloading corpus for fuzz_html_render to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_html_render.
+2026-10-14 09:44:37,224 - root - INFO - Done downloading corpus. Contains 1451 elements.
+2026-10-14 09:44:37,224 - root - INFO - Downloading corpus for fuzz_css_object_model to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_object_model.
+2026-10-14 09:44:37,229 - root - INFO - Done downloading corpus. Contains 40 elements.
+2026-10-14 09:44:37,229 - root - INFO - Downloading corpus for fuzz_html_document to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_html_document.
+2026-10-14 09:44:37,269 - root - INFO - Done downloading corpus. Contains 332 elements.
+2026-10-14 09:44:37,269 - root - INFO - Downloading corpus for fuzz_dom_sax to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_sax.
+2026-10-14 09:44:37,273 - root - INFO - Done downloading corpus. Contains 32 elements.

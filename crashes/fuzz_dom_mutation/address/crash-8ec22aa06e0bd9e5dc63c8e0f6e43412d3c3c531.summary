@@ -1,0 +1,55 @@
+INFO: Instrumenting 6827 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f748363f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1899214100
+INFO: Loaded 1 modules   (98576 inline 8-bit counters): 98576 [0x7b748037bff8, 0x7b7480394108), 
+INFO: Loaded 1 PC tables (98576 PCs): 98576 [0x7b7480394108,0x7b7480515208), 
+INFO:       52 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_mutation
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 52 min: 4b max: 81921b total: 193232b rss: 175Mb
+#53	INITED cov: 389 ft: 574 corp: 27/1096b exec/s: 0 rss: 177Mb
+#70	REDUCE cov: 389 ft: 574 corp: 27/1088b lim: 81921 exec/s: 0 rss: 177Mb L: 73/207 MS: 4 ChangeByte-Custom-EraseBytes-Custom-
+#81	NEW    cov: 389 ft: 575 corp: 28/1101b lim: 81921 exec/s: 0 rss: 177Mb L: 13/207 MS: 2 EraseBytes-Custom-
+#87	NEW    cov: 393 ft: 583 corp: 29/1118b lim: 81921 exec/s: 0 rss: 177Mb L: 17/207 MS: 2 EraseBytes-Custom-
+
+ === Uncaught Python exception: ===
+AssertionError: a result for an injected allocation failure
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 135, in run
+AssertionError: a result for an injected allocation failure
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7b747e70a660>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==670== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f748372edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7f748367f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f7483662596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f7483662668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f7483662668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f74834318a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f7483431a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7b7480bcc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7b7480bcf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7b7480bceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_mutation.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_mutation.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f748340f082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_mutation.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 8 ChangeByte-Custom-InsertRepeatedBytes-Custom-ChangeByte-Custom-CopyPart-Custom-; base unit: b04ec3c8a8798d2836377311508af0785746986d
+0x3c,0x70,0x3f,0x41,0x20,0x3c,0x61,0x20,0x68,0x72,0x65,0x9a,0x3d,0x68,0x74,0x74,0x70,0x73,0x3a,0x74,0x74,0x70,0x73,0x3a,0x2f,0x2f,0x6f,0x6b,0x2e,0x65,0x78,0x61,0x6d,0x70,0x6c,0x65,0x3e,0x73,0x61,0x66,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x65,0x3c,0x2f,0x61,0x3e,0x20,0x70,0x61,0x72,0x61,0x67,0x2f,0x2f,0x6f,0x6b,0x2e,0x65,0x78,0x61,0x6d,0x70,0x6c,0x65,0x3e,0x73,0x61,0x66,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x65,0x3c,0x2f,0x61,0x3e,0x20,0x70,0x61,0x72,0x61,0x67,0x72,0x61,0x70,0x68,0x20,0x77,0x69,0x74,0x68,0x20,0x3c,0x62,0x3e,0x62,0x6f,0x6c,0x64,0x3c,0x2f,0x62,0x3e,0x2e,0x3c,0x2f,0x70,0x3e,0xa,
+<p?A <a hre\232=https:ttps://ok.example>saf\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003e</a> parag//ok.example>saf\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003\003e</a> paragraph with <b>bold</b>.</p>\012
+artifact_prefix='/tmp/tmp5_f5ownu/'; Test unit written to /tmp/tmp5_f5ownu/crash-8ec22aa06e0bd9e5dc63c8e0f6e43412d3c3c531
+Base64: PHA/QSA8YSBocmWaPWh0dHBzOnR0cHM6Ly9vay5leGFtcGxlPnNhZgMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA2U8L2E+IHBhcmFnLy9vay5leGFtcGxlPnNhZgMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA2U8L2E+IHBhcmFncmFwaCB3aXRoIDxiPmJvbGQ8L2I+LjwvcD4K
+stat::number_of_executed_units: 116
+stat::average_exec_per_sec:     0
+stat::new_units_added:          3
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              177
