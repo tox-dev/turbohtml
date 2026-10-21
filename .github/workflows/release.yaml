@@ -223,7 +223,9 @@ jobs:
       - name: Check distribution metadata
         run: twine check dist/*
       - name: Check wheel contents
-        run: check-wheel-contents --no-config dist
+        run: find dist -type f -name '*.whl' ! -name '*-pp*-win_amd64.whl' -exec check-wheel-contents --no-config {} +
+      - name: Check PyPy Windows bundled runtime
+        run: check-wheel-contents --no-config --toplevel turbohtml,turbohtml.libs --ignore W010 dist/*-pp*-win_amd64.whl
   verify-changelog:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
