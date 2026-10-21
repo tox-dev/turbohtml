@@ -287,8 +287,9 @@ it owns executes no line (``tox r -e fuzz-reachability``).
 ``tools/fuzz/cflite.py`` drives the ClusterFuzzLite images and writes their logs, crashes and corpus to files under its
 workspace instead of the console, because a crash report prints short inputs and this repository's logs are public.
 Every job keeps these files in the private repository named by the ``CFLITE_STORAGE_REPO`` variable, written with the
-``CFLITE_STORAGE_TOKEN`` secret, and skips while the variable is unset. The ``🔒 fuzz`` workflow runs separately each
-day, with a longer run on Mondays. Both workflows can also be started manually.
+``CFLITE_STORAGE_TOKEN`` secret in the main-only ``cflite-storage`` environment, and skips while the variable is unset.
+The ``🔒 fuzz`` workflow runs separately each day, with a longer run on Mondays. Both workflows can also be started
+manually; select ``main`` for ClusterFuzzLite so it can access the private corpus.
 
 Add a target by registering a ``bytes``-taking callable in ``_TARGETS`` (in-process) and dropping a representative
 benign seed under ``tools/fuzz/corpus/<target>/``; add a standalone harness by mirroring ``idna_harness.c`` for any C

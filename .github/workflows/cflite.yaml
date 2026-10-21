@@ -16,8 +16,9 @@ permissions:
 jobs:
   batch:
     name: 🧬 batch fuzzing (${{ matrix.sanitizer }})
-    if: vars.CFLITE_STORAGE_REPO != ''
+    if: github.ref == 'refs/heads/main' && vars.CFLITE_STORAGE_REPO != ''
     runs-on: ubuntu-24.04
+    environment: cflite-storage
     permissions:
       contents: read
       security-events: write # SARIF goes to code scanning, whose alert list needs write access to read
@@ -63,8 +64,9 @@ jobs:
   prune:
     name: ✂️ corpus pruning
     needs: batch
-    if: (success() || failure()) && vars.CFLITE_STORAGE_REPO != ''
+    if: (success() || failure()) && github.ref == 'refs/heads/main' && vars.CFLITE_STORAGE_REPO != ''
     runs-on: ubuntu-24.04
+    environment: cflite-storage
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -94,8 +96,9 @@ jobs:
   coverage:
     name: 📊 coverage and reachability floors
     needs: prune
-    if: (success() || failure()) && vars.CFLITE_STORAGE_REPO != ''
+    if: (success() || failure()) && github.ref == 'refs/heads/main' && vars.CFLITE_STORAGE_REPO != ''
     runs-on: ubuntu-24.04
+    environment: cflite-storage
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
