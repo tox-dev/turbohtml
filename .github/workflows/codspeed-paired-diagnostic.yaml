@@ -1,0 +1,144 @@
+name: Paired CodSpeed diagnostic
+on:
+  push:
+    branches: [codspeed-paired-diagnostic]
+permissions:
+  contents: read
+jobs:
+  pair:
+    if: github.repository == 'tox-dev/turbohtml'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      UV_PYTHON_INSTALL_DIR: /bench/python
+      BENCHMARK_COMMAND: |
+        keep=()
+        for name in PATH GLIBC_TUNABLES PYTHONHASHSEED PYTHONMALLOC PYTHON_PERF_JIT_SUPPORT \
+          CODSPEED_ENV CODSPEED_PROFILE_FOLDER CODSPEED_RUNNER_MODE; do
+          [[ -v $name ]] && keep+=("$name=${!name}")
+        done
+        exec env -i "${keep[@]}" .tox/codspeed/bin/python -m pytest tests/benchmarks --codspeed
+    steps:
+      - name: Install the archive glibc build
+        timeout-minutes: 10
+        run: |
+          sudo apt-get update -q -o Acquire::Retries=3 -o Acquire::http::Timeout=30
+          sudo apt-get install -y -q --no-install-recommends -o Acquire::Retries=3 -o Acquire::http::Timeout=30 libc6-dbg
+      - name: Mount the fixed-seed benchmark filesystem
+        run: |
+          sudo truncate -s 16G /bench.img
+          sudo mkfs.ext4 -q -U 6c1b5a8e-3f0a-4c2e-9d7b-1a2b3c4d5e6f -E hash_seed=0b5e2c7a-9d41-4f3e-8a6c-5d7e8f9a0b1c \
+            /bench.img
+          sudo mkdir /bench
+          sudo mount -o loop,noatime /bench.img /bench
+          sudo chown "$(id -u):$(id -g)" /bench
+          mkdir /bench/work /bench/python
+          sudo mount --bind /bench/work "$GITHUB_WORKSPACE"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: false
+          python-version: '3.15.0'
+      - name: Pin glibc's CPU-dependent paths
+        run: |
+          hwcaps=$(printf -- '-%s,' \
+            SSSE3 SSE4_1 SSE4_2 AVX AVX2 AVX512F AVX512VL AVX512BW AVX512DQ AVX512CD FMA FMA4 \
+            BMI1 BMI2 LZCNT POPCNT MOVBE ERMS RTM XSAVEC \
+            Fast_Unaligned_Load Fast_Unaligned_Copy Fast_Copy_Backward Fast_Rep_String Slow_BSF Slow_SSE4_2 \
+            Prefer_ERMS Prefer_FSRM Prefer_No_VZEROUPPER Prefer_No_AVX512)
+          tunables=$(printf '%s:' \
+            "glibc.cpu.hwcaps=${hwcaps%,}" \
+            glibc.cpu.x86_data_cache_size=32768 \
+            glibc.cpu.x86_shared_cache_size=1048576 \
+            glibc.cpu.x86_non_temporal_threshold=786432 \
+            glibc.cpu.x86_rep_movsb_threshold=2048 \
+            glibc.cpu.x86_rep_stosb_threshold=2048 \
+            glibc.malloc.arena_max=1)
+          echo "GLIBC_TUNABLES=${tunables%:}" >> "$GITHUB_ENV"
+      - name: Check out the exact main commit
+        run: |
+          git checkout --detach 7202bbc7c4f7adfeabe0dddaefb8e3c5fb5e690d
+          git tag --force 0.0.0
+          git submodule update --init --depth 1 tools/html5lib-python tools/bench-data/war-and-peace
+      - name: Build the main benchmark environment
+        env:
+          UV_PYTHON_PREFERENCE: only-managed
+        run: |
+          uvx --with tox-uv tox run -e codspeed --notest
+          uv pip install --python .tox/codspeed/bin/python --reinstall --no-deps --no-build-isolation --editable . \
+            --config-settings=build-dir=.tox/codspeed/cbuild \
+            --config-settings=setup-args=-Dbuildtype=release \
+            --config-settings=setup-args=-Db_lto=true
+      - name: Prefetch the main benchmark data
+        run: .tox/codspeed/bin/python -c 'import sys; sys.path.insert(0, "tools"); from bench.corpus import prefetch; prefetch()'
+      - name: Record the main environment
+        run: |
+          uv pip freeze --python .tox/codspeed/bin/python > /bench/main-dependencies.txt
+          .tox/codspeed/bin/python -c 'import turbohtml._html; print(turbohtml._html.__file__)' | xargs sha256sum
+          sha256sum /bench/main-dependencies.txt
+          lscpu | grep -E 'Architecture:|Model name:|CPU\(s\):'
+          echo "Runner image: $ImageOS $ImageVersion"
+          ldd --version | head -1
+          cc --version | head -1
+      - name: Install the pinned CodSpeed runner
+        run: |
+          curl -fsSL https://codspeed.io/v5.4.2/install.sh -o /bench/codspeed-install.sh
+          printf '%s  %s\n' 508a76940acb83b36a96051208023bac811583c771324f7b3af0c518e552d203 \
+            /bench/codspeed-install.sh | sha256sum -c -
+          bash /bench/codspeed-install.sh --quiet
+      - name: Measure main
+        id: main
+        env:
+          GH_MATRIX: '{"phase":"main"}'
+          GH_STRATEGY: '{}'
+          PYTHONHASHSEED: '0'
+        run: |
+          codspeed run --mode=simulation --exclude-allocations=true \
+            --working-directory="$GITHUB_WORKSPACE" -- "$BENCHMARK_COMMAND"
+      - name: Check out the exact PR commit
+        run: |
+          git clean -ffdx
+          git checkout --detach d614d7dbeea58a26e6ea0717113aeb562e95d778
+          git tag --force 0.0.0
+          git submodule update --init --force --depth 1 tools/html5lib-python tools/bench-data/war-and-peace
+      - name: Build the PR benchmark environment
+        env:
+          UV_PYTHON_PREFERENCE: only-managed
+        run: |
+          uvx --with tox-uv tox run -e codspeed --notest
+          uv pip install --python .tox/codspeed/bin/python --reinstall --no-deps --no-build-isolation --editable . \
+            --config-settings=build-dir=.tox/codspeed/cbuild \
+            --config-settings=setup-args=-Dbuildtype=release \
+            --config-settings=setup-args=-Db_lto=true
+      - name: Prefetch the PR benchmark data
+        run: .tox/codspeed/bin/python -c 'import sys; sys.path.insert(0, "tools"); from bench.corpus import prefetch; prefetch()'
+      - name: Record the PR environment
+        run: |
+          uv pip freeze --python .tox/codspeed/bin/python > /bench/pr-dependencies.txt
+          .tox/codspeed/bin/python -c 'import turbohtml._html; print(turbohtml._html.__file__)' | xargs sha256sum
+          sha256sum /bench/pr-dependencies.txt
+          lscpu | grep -E 'Architecture:|Model name:|CPU\(s\):'
+          echo "Runner image: $ImageOS $ImageVersion"
+          ldd --version | head -1
+          cc --version | head -1
+      - name: Measure PR
+        id: pr
+        env:
+          GH_MATRIX: '{"phase":"pr"}'
+          GH_STRATEGY: '{}'
+          PYTHONHASHSEED: '0'
+        run: |
+          codspeed run --mode=simulation --exclude-allocations=true \
+            --working-directory="$GITHUB_WORKSPACE" -- "$BENCHMARK_COMMAND"
+      - name: Record CodSpeed run IDs
+        env:
+          MAIN_RUN: ${{ steps.main.outputs.run-id }}
+          PR_RUN: ${{ steps.pr.outputs.run-id }}
+        run: |
+          echo "main: $MAIN_RUN"
+          echo "PR: $PR_RUN"
