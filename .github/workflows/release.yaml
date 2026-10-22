@@ -26,7 +26,7 @@ jobs:
           python-version: "3.15"
           enable-cache: false
       - name: Install locked release tools
-        uses: tox-dev/github-workflows/install-locked-tools@a040f8eb1c335676f3f97db2010a1a39a3cea1ac
+        uses: tox-dev/github-workflows/install-locked-tools@33db207c963ad07b8d2bff4099143593fd4100b2
         with:
           venv: ${{ runner.temp }}/release-tools
       - name: Check tagged source
@@ -46,7 +46,7 @@ jobs:
           python-version: "3.15"
           enable-cache: false
       - name: Install locked release tools
-        uses: tox-dev/github-workflows/install-locked-tools@a040f8eb1c335676f3f97db2010a1a39a3cea1ac
+        uses: tox-dev/github-workflows/install-locked-tools@33db207c963ad07b8d2bff4099143593fd4100b2
         with:
           venv: ${{ runner.temp }}/release-tools
       - name: Derive Linux build constraints
@@ -214,7 +214,7 @@ jobs:
           python-version: "3.15"
           enable-cache: false
       - name: Install locked package checks
-        uses: tox-dev/github-workflows/install-locked-tools@a040f8eb1c335676f3f97db2010a1a39a3cea1ac
+        uses: tox-dev/github-workflows/install-locked-tools@33db207c963ad07b8d2bff4099143593fd4100b2
         with:
           venv: ${{ runner.temp }}/package-checks
           groups: pkg-meta
@@ -275,7 +275,7 @@ jobs:
           path: dist
           merge-multiple: true
       - id: stage
-        uses: tox-dev/github-workflows/reconcile-pypi-artifacts@a040f8eb1c335676f3f97db2010a1a39a3cea1ac
+        uses: tox-dev/github-workflows/reconcile-pypi-artifacts@33db207c963ad07b8d2bff4099143593fd4100b2
         with:
           project: turbohtml
           version: ${{ github.ref_name }}
@@ -298,7 +298,7 @@ jobs:
         with:
           name: github-release-notes
           path: ${{ runner.temp }}/github-release-notes
-      - uses: tox-dev/github-workflows/publish-github-release@a040f8eb1c335676f3f97db2010a1a39a3cea1ac
+      - uses: tox-dev/github-workflows/publish-github-release@33db207c963ad07b8d2bff4099143593fd4100b2
         env:
           GH_TOKEN: ${{ github.token }}
         with:
@@ -343,7 +343,7 @@ jobs:
           name: pypi-missing-names
           path: ${{ runner.temp }}/pypi-missing-names
       - id: select
-        uses: tox-dev/github-workflows/select-pypi-artifacts@a040f8eb1c335676f3f97db2010a1a39a3cea1ac
+        uses: tox-dev/github-workflows/select-pypi-artifacts@33db207c963ad07b8d2bff4099143593fd4100b2
         with:
           dist: dist
           manifest: ${{ runner.temp }}/pypi-missing-names/pypi-missing-names.txt
@@ -395,12 +395,12 @@ jobs:
           pattern: pypi-selection-*
           path: partitions
           merge-multiple: true
-      - uses: tox-dev/github-workflows/verify-pypi-partitions@a040f8eb1c335676f3f97db2010a1a39a3cea1ac
+      - uses: tox-dev/github-workflows/verify-pypi-partitions@33db207c963ad07b8d2bff4099143593fd4100b2
         with:
           manifest: ${{ runner.temp }}/pypi-missing-names/pypi-missing-names.txt
           partitions-dir: partitions
           expected-partitions: "7"
-      - uses: tox-dev/github-workflows/reconcile-pypi-artifacts@a040f8eb1c335676f3f97db2010a1a39a3cea1ac
+      - uses: tox-dev/github-workflows/reconcile-pypi-artifacts@33db207c963ad07b8d2bff4099143593fd4100b2
         with:
           project: turbohtml
           version: ${{ github.ref_name }}
@@ -424,7 +424,7 @@ jobs:
           python-version: "3.15"
           enable-cache: false
       - name: Install locked release tools
-        uses: tox-dev/github-workflows/install-locked-tools@a040f8eb1c335676f3f97db2010a1a39a3cea1ac
+        uses: tox-dev/github-workflows/install-locked-tools@33db207c963ad07b8d2bff4099143593fd4100b2
         with:
           venv: ${{ runner.temp }}/release-tools
       - name: Add installed tools to PATH
@@ -481,7 +481,7 @@ jobs:
           python-version: "3.15"
           enable-cache: false
       - name: Install locked release tools
-        uses: tox-dev/github-workflows/install-locked-tools@a040f8eb1c335676f3f97db2010a1a39a3cea1ac
+        uses: tox-dev/github-workflows/install-locked-tools@33db207c963ad07b8d2bff4099143593fd4100b2
         with:
           venv: ${{ runner.temp }}/release-tools
       - name: Add installed tools to PATH
@@ -490,7 +490,7 @@ jobs:
         with:
           name: contributor-metadata
           path: ${{ runner.temp }}/contributor-metadata
-      - uses: tox-dev/github-workflows/render-release-notes@a040f8eb1c335676f3f97db2010a1a39a3cea1ac
+      - uses: tox-dev/github-workflows/render-release-notes@33db207c963ad07b8d2bff4099143593fd4100b2
         with:
           tag: ${{ github.ref_name }}
           changelog: docs/changelog.rst
@@ -516,7 +516,7 @@ jobs:
         with:
           name: github-release-notes
           path: ${{ runner.temp }}/github-release-notes
-      - uses: tox-dev/github-workflows/publish-github-release@a040f8eb1c335676f3f97db2010a1a39a3cea1ac
+      - uses: tox-dev/github-workflows/publish-github-release@33db207c963ad07b8d2bff4099143593fd4100b2
         env:
           GH_TOKEN: ${{ github.token }}
         with:
