@@ -219,11 +219,35 @@ release = [
   "release-creator>=0.5.1",
   "towncrier>=26.9",
 ]
+release-check = [
+  "prek>=0.5",
+]
+release-news = [
+  "release-creator>=0.5.1",
+  "towncrier>=26.9",
+]
+release-notes = [
+  "release-creator>=0.5.1",
+]
+release-prepare = [
+  "prek>=0.5",
+  "release-creator>=0.5.1",
+  "towncrier>=26.9",
+]
+release-validate = [
+  "prek>=0.5",
+  "release-creator>=0.5.1",
+]
 
 [tool.uv]
 dependency-groups.dev = { requires-python = ">=3.15" }
 dependency-groups.docs = { requires-python = ">=3.12" }
 dependency-groups.release = { requires-python = ">=3.15" }
+dependency-groups.release-check = { requires-python = ">=3.15" }
+dependency-groups.release-news = { requires-python = ">=3.15" }
+dependency-groups.release-notes = { requires-python = ">=3.15" }
+dependency-groups.release-prepare = { requires-python = ">=3.15" }
+dependency-groups.release-validate = { requires-python = ">=3.15" }
 
 [tool.cibuildwheel]
 # abi3 is impossible here (the SWAR paths need the non-limited PyUnicode buffer
