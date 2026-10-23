@@ -200,6 +200,7 @@ coverage = [
 fix = [
   "pre-commit-uv>=4.3",
 ]
+lock-tools = [ "nab==0.0.22" ]
 pgo = [
   "httpx2>=2.13.1",
   "meson>=1.12.1",
@@ -216,27 +217,27 @@ pkg-meta = [
 ]
 release = [
   "prek>=0.5",
-  "release-creator>=0.5.1",
+  "release-creator>=0.6",
   "towncrier>=26.9",
 ]
 release-check = [
   "prek>=0.5",
 ]
 release-news = [
-  "release-creator>=0.5.1",
+  "release-creator>=0.6",
   "towncrier>=26.9",
 ]
 release-notes = [
-  "release-creator>=0.5.1",
+  "release-creator>=0.6",
 ]
 release-prepare = [
   "prek>=0.5",
-  "release-creator>=0.5.1",
+  "release-creator>=0.6",
   "towncrier>=26.9",
 ]
 release-validate = [
   "prek>=0.5",
-  "release-creator>=0.5.1",
+  "release-creator>=0.6",
 ]
 
 [tool.uv]
@@ -262,9 +263,9 @@ test-command = "python -c \"import turbohtml; assert turbohtml.unescape(turbohtm
 # hot paths. Scoped to Linux on purpose: the measured win is gcc's, and clang/MSVC add a profile-merge step the
 # release does not need. See tools/pgo_build.py.
 linux.before-build = """\
-  rm -rf /tmp/turbohtml-pgo && uv pip install --preview-features pylock --system --python python --requirements \
-  {project}/pylock.toml --group pgo && python {project}/tools/pgo_build.py --python python --system --project \
-  {project} --build-dir /tmp/turbohtml-pgo --phase profile\
+  rm -rf /tmp/turbohtml-pgo && uv pip install --preview-features pylock --require-hashes --system --python python \
+  --requirements {project}/pylock.pgo.toml --group pgo && python {project}/tools/pgo_build.py --python python --system \
+  --project {project} --build-dir /tmp/turbohtml-pgo --phase profile\
   """
 linux.config-settings.build-dir = "/tmp/turbohtml-pgo"
 # -Db_lto lands cross-TU inlining across the header splits the 1.0 rearchitecture introduced (spike #478): the hot
@@ -487,3 +488,18 @@ type = [
   { directory = "removal", name = "Removed", showcontent = true },
   { directory = "packaging", name = "Packaging", showcontent = true },
 ]
+
+[tool.nab]
+mode = "universal"
+base-group = "project-runtime"
+build-group = "build"
+default-groups = []
+uploaded-prior-to = "P7D"
+decision-order = "stable"
+matrix.python = ">=3.15,<3.16"
+matrix.platforms = [ "linux_x86_64", "linux_aarch64", "macos_arm64", "windows_amd64" ]
+packages.release-creator.uploaded-prior-to = "2026-10-23T02:44:40Z"
+
+[[tool.nab.package-rules]]
+match = [ "nab", "nab-index", "nab-markersets", "nab-project", "nab-provider", "nab-resolver" ]
+uploaded-prior-to = "2026-10-19T00:00:00Z"
