@@ -552,11 +552,13 @@ sha256 = "b173413a5dc18437b2d28266a02be636f35ac7e97741773aed163ed2143abfaf"
 
 [tool.nab]
 nab-version = "0.0.22"
-created-at = 2026-10-22 23:40:39.270992+00:00
+created-at = 2026-10-23 20:06:47.923027+00:00
 command-line = [
     "nab",
     "lock",
     "pyproject.toml",
+    "--no-cache",
+    "--no-progress",
     "--groups",
     "pgo",
     "--project-matrix-python",
@@ -572,7 +574,7 @@ command-line = [
     "pypy",
     "--output",
     "pylock.pgo.toml",
-    "--no-progress",
+    "--upgrade",
 ]
 input-path = "pyproject.toml"
 mode = "universal"
