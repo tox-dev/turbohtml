@@ -26,7 +26,7 @@ jobs:
           python-version: "3.15"
           enable-cache: false
       - name: Install locked release tools
-        uses: tox-dev/github-workflows/install-locked-tools@1b7d58c3e744b505215e1cb11697a80737b0e94d
+        uses: tox-dev/github-workflows/install-locked-tools@74472c1a3602ca9b66db058ea31578865e1d208b
         with:
           groups: release-check
           venv: ${{ runner.temp }}/release-tools
@@ -48,7 +48,7 @@ jobs:
           enable-cache: false
       - name: Export Linux build requirements
         id: linux
-        uses: tox-dev/github-workflows/export-build-constraints@1b7d58c3e744b505215e1cb11697a80737b0e94d
+        uses: tox-dev/github-workflows/export-build-constraints@74472c1a3602ca9b66db058ea31578865e1d208b
         with:
           lock: pylock.pgo.toml
           target-platform: linux_x86_64
@@ -59,7 +59,7 @@ jobs:
         run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints-linux.txt"
       - name: Export Linux ARM build requirements
         id: linux_arm
-        uses: tox-dev/github-workflows/export-build-constraints@1b7d58c3e744b505215e1cb11697a80737b0e94d
+        uses: tox-dev/github-workflows/export-build-constraints@74472c1a3602ca9b66db058ea31578865e1d208b
         with:
           lock: pylock.pgo.toml
           target-platform: linux_aarch64
@@ -70,7 +70,7 @@ jobs:
         run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints-linux-arm.txt"
       - name: Export macOS build requirements
         id: macos
-        uses: tox-dev/github-workflows/export-build-constraints@1b7d58c3e744b505215e1cb11697a80737b0e94d
+        uses: tox-dev/github-workflows/export-build-constraints@74472c1a3602ca9b66db058ea31578865e1d208b
         with:
           lock: pylock.pgo.toml
           target-platform: macos_arm64
@@ -81,7 +81,7 @@ jobs:
         run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints-macos.txt"
       - name: Export Windows build requirements
         id: windows
-        uses: tox-dev/github-workflows/export-build-constraints@1b7d58c3e744b505215e1cb11697a80737b0e94d
+        uses: tox-dev/github-workflows/export-build-constraints@74472c1a3602ca9b66db058ea31578865e1d208b
         with:
           lock: pylock.pgo.toml
           target-platform: windows_amd64
@@ -92,7 +92,7 @@ jobs:
         run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints-windows.txt"
       - name: Export Windows ARM build requirements
         id: windows_arm
-        uses: tox-dev/github-workflows/export-build-constraints@1b7d58c3e744b505215e1cb11697a80737b0e94d
+        uses: tox-dev/github-workflows/export-build-constraints@74472c1a3602ca9b66db058ea31578865e1d208b
         with:
           lock: pylock.pgo.toml
           target-platform: windows_arm64
@@ -253,17 +253,16 @@ jobs:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: Install locked package checks
-        uses: tox-dev/github-workflows/install-locked-tools@1b7d58c3e744b505215e1cb11697a80737b0e94d
-        with:
-          venv: ${{ runner.temp }}/package-checks
-          groups: pkg-meta
+      - name: Create package-check environment
+        run: uv venv --python 3.15 "$RUNNER_TEMP/package-checks"
+      - name: Install current package checks
+        run: uv pip install --python "$RUNNER_TEMP/package-checks" --group pkg-meta
       - name: Check distribution metadata
-        run: twine check dist/*
+        run: '"$RUNNER_TEMP/package-checks/bin/twine" check dist/*'
       - name: Check wheel contents
-        run: find dist -type f -name '*.whl' ! -name '*-pp*-win_amd64.whl' -exec check-wheel-contents --no-config {} +
+        run: find dist -type f -name '*.whl' ! -name '*-pp*-win_amd64.whl' -exec "$RUNNER_TEMP/package-checks/bin/check-wheel-contents" --no-config {} +
       - name: Check PyPy Windows bundled runtime
-        run: check-wheel-contents --no-config --toplevel turbohtml,turbohtml.libs --ignore W010 dist/*-pp*-win_amd64.whl
+        run: '"$RUNNER_TEMP/package-checks/bin/check-wheel-contents" --no-config --toplevel turbohtml,turbohtml.libs --ignore W010 dist/*-pp*-win_amd64.whl'
   verify-changelog:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
@@ -306,7 +305,7 @@ jobs:
         with:
           name: github-release-notes
           path: ${{ runner.temp }}/github-release-notes
-      - uses: tox-dev/github-workflows/publish-github-release@1b7d58c3e744b505215e1cb11697a80737b0e94d
+      - uses: tox-dev/github-workflows/publish-github-release@74472c1a3602ca9b66db058ea31578865e1d208b
         env:
           GH_TOKEN: ${{ github.token }}
         with:
@@ -373,7 +372,7 @@ jobs:
           pattern: dist-*
           path: dist
           merge-multiple: true
-      - uses: tox-dev/github-workflows/reconcile-pypi-artifacts@1b7d58c3e744b505215e1cb11697a80737b0e94d
+      - uses: tox-dev/github-workflows/reconcile-pypi-artifacts@74472c1a3602ca9b66db058ea31578865e1d208b
         with:
           project: turbohtml
           version: ${{ github.ref_name }}
@@ -396,13 +395,13 @@ jobs:
           python-version: "3.15"
           enable-cache: false
       - name: Install locked release tools
-        uses: tox-dev/github-workflows/install-locked-tools@1b7d58c3e744b505215e1cb11697a80737b0e94d
+        uses: tox-dev/github-workflows/install-locked-tools@74472c1a3602ca9b66db058ea31578865e1d208b
         with:
           groups: release-notes
           venv: ${{ runner.temp }}/release-tools
       - name: Select previous tag
         id: previous
-        uses: tox-dev/github-workflows/select-previous-tag@1b7d58c3e744b505215e1cb11697a80737b0e94d
+        uses: tox-dev/github-workflows/select-previous-tag@74472c1a3602ca9b66db058ea31578865e1d208b
         with:
           tag: ${{ github.ref_name }}
   contributor-metadata:
@@ -450,7 +449,7 @@ jobs:
           python-version: "3.15"
           enable-cache: false
       - name: Install locked release tools
-        uses: tox-dev/github-workflows/install-locked-tools@1b7d58c3e744b505215e1cb11697a80737b0e94d
+        uses: tox-dev/github-workflows/install-locked-tools@74472c1a3602ca9b66db058ea31578865e1d208b
         with:
           groups: release-notes
           venv: ${{ runner.temp }}/release-tools
@@ -458,7 +457,7 @@ jobs:
         with:
           name: contributor-metadata
           path: ${{ runner.temp }}/contributor-metadata
-      - uses: tox-dev/github-workflows/render-release-notes@1b7d58c3e744b505215e1cb11697a80737b0e94d
+      - uses: tox-dev/github-workflows/render-release-notes@74472c1a3602ca9b66db058ea31578865e1d208b
         with:
           tag: ${{ github.ref_name }}
           previous: ${{ needs.previous-tag.outputs.tag }}
@@ -483,7 +482,7 @@ jobs:
         with:
           name: github-release-notes
           path: ${{ runner.temp }}/github-release-notes
-      - uses: tox-dev/github-workflows/publish-github-release@1b7d58c3e744b505215e1cb11697a80737b0e94d
+      - uses: tox-dev/github-workflows/publish-github-release@74472c1a3602ca9b66db058ea31578865e1d208b
         env:
           GH_TOKEN: ${{ github.token }}
         with:
