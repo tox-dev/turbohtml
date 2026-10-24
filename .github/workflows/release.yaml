@@ -51,6 +51,7 @@ jobs:
         uses: tox-dev/github-workflows/export-build-constraints@74472c1a3602ca9b66db058ea31578865e1d208b
         with:
           lock: pylock.pgo.toml
+          verify-groups: pgo
           target-platform: linux_x86_64
           targets: 3.11.0:cpython 3.12.0:cpython 3.13.0:cpython 3.14.0:cpython 3.15.0:cpython 3.11.0:pypy 3.12.0:pypy
       - name: Save Linux constraints
