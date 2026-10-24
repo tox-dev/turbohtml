@@ -552,13 +552,12 @@ sha256 = "b173413a5dc18437b2d28266a02be636f35ac7e97741773aed163ed2143abfaf"
 
 [tool.nab]
 nab-version = "0.0.22"
-created-at = 2026-10-23 20:06:47.923027+00:00
+created-at = 2026-10-24 06:24:40.446013+00:00
 command-line = [
     "nab",
     "lock",
-    "pyproject.toml",
     "--no-cache",
-    "--no-progress",
+    "pyproject.toml",
     "--groups",
     "pgo",
     "--project-matrix-python",
