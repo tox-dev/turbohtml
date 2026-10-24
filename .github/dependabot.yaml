@@ -15,3 +15,22 @@ updates:
           - "*"
     cooldown:
       default-days: 7
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    labels:
+      - dependencies
+      - skip news
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+    cooldown:
+      default-days: 7
+    allow:
+      - dependency-name: clang-tidy
+      - dependency-name: mdformat-frontmatter
+      - dependency-name: mdformat-gfm
+      - dependency-name: mdformat-ruff
+      - dependency-name: meson
+      - dependency-name: ninja
+      - dependency-name: ruff
+      - dependency-name: sphinx

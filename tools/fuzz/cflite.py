@@ -5,7 +5,7 @@ The stock GitHub actions print each crash report, which carries the crashing inp
 input as a workflow artifact anyone signed in can download. This driver runs the same pinned images on the standalone
 platform with a filesystem filestore instead: the build and run logs, crashes, corpus and coverage land in files under
 ``--workspace``, and the console gets only exit codes, crash hashes and, when the build fails, the build log. The
-workflow then commits the files to the private storage repository or encrypts them.
+workflow then commits the corpus, crashes and logs to a public state branch.
 """
 
 from __future__ import annotations

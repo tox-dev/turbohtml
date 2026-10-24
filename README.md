@@ -110,4 +110,4 @@ Full documentation — tutorials, how-to guides, migration guides, the API refer
 
 ## License
 
-`turbohtml` is released under the [MIT license](LICENSE).
+`turbohtml` is released under the [MIT license](https://github.com/tox-dev/turbohtml/blob/main/LICENSE).
