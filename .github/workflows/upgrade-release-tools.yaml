@@ -1,0 +1,31 @@
+name: 🔒 Upgrade release tools
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * 2"
+permissions: {}
+concurrency:
+  group: upgrade-release-tools
+  cancel-in-progress: false
+jobs:
+  upgrade:
+    name: 🔀 Upgrade release tools
+    uses: tox-dev/github-workflows/.github/workflows/upgrade-release-tools.yaml@259a3d3fb578d00517ffb73341fdd463259b0b2f # 6.0.1
+    permissions:
+      contents: read
+    secrets:
+      RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+    with:
+      additional-lock: pylock.pgo.toml
+      additional-lock-groups: pgo build
+      additional-matrix-python: ">=3.11,<3.16"
+      additional-matrix-platforms: linux_x86_64 linux_aarch64 macos_arm64 windows_amd64 windows_arm64
+      additional-matrix-implementations: cpython pypy
+      # temporary, delete after 2026-11-02
+      exclude-newer-package: |
+        nab=2026-10-26T01:50:50Z
+        nab-index=2026-10-26T01:50:50Z
+        nab-markersets=2026-10-26T01:50:50Z
+        nab-project=2026-10-26T01:50:50Z
+        nab-provider=2026-10-26T01:50:50Z
+        nab-resolver=2026-10-26T01:50:50Z

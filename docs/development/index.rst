@@ -69,6 +69,32 @@ codspeed`` or ``pytest tests/benchmarks --codspeed``), so the ordinary test run 
   and a comment explaining why it cannot run.
 - Keep the C output byte for byte identical to the standard library where the two overlap.
 
+.. _news-fragments:
+
+News fragments
+==============
+
+Add one ``docs/changelog/+short-name.<category>.rst`` file for each user-facing change. A pull request may have several
+fragments, including more than one category. Do not write the pull request number or credits in the fragment: the
+release tooling links the squash merge's pull request and credits its commit authors and co-authors, and the prepare
+workflow runs ``release-creator contributors`` to list first-time contributors. Numbered fragment names remain
+supported.
+
+Use ``feature`` for new behavior and Python support additions or removals, ``change`` for changes to existing behavior,
+``bugfix`` for corrections, and ``doc`` for documentation users need to know about. Use ``breaking``, ``security``,
+``performance``, ``deprecation``, ``removal``, or ``packaging`` when one describes the user-facing effect more
+precisely. Empty categories do not appear in the release notes.
+
+For example, ``docs/changelog/+native-parsing.bugfix.rst`` could contain:
+
+.. code-block:: rst
+
+    Preserve an explicitly empty HTML attribute during native parsing.
+
+Apply ``skip news`` when a pull request changes only maintenance work. The news check runs again when the label changes.
+Bot PRs get the label automatically unless they provide a fragment, and bot accounts do not appear as release-note
+authors.
+
 ********************
  Conformance suites
 ********************
@@ -256,15 +282,17 @@ built from literals in the C sources.
 the ``project.yaml``, ``Dockerfile`` and ``build.sh``. An OSS-Fuzz project reuses ``project.yaml`` and ``build.sh``; its
 ``Dockerfile`` clones the repository where this one copies the checkout. ``build.sh`` builds the fuzz-only mode and
 packages each Atheris target in the registry (``tools/fuzz/atheris_targets.py``) as its own fuzzer, plus the native
-IDNA, phone and JS minifier harnesses. The separate daily ``🧬 ClusterFuzzLite`` workflow fuzzes for 3,600 s per
+IDNA, phone and JS minifier harnesses. The daily ClusterFuzzLite run in this repository fuzzes for 3,600 s per
 sanitizer, prunes the corpus and measures coverage, then fails when a target's callback or a Python-implemented export
 it owns executes no line (``tox r -e fuzz-reachability``).
 
 ``tools/fuzz/cflite.py`` drives the ClusterFuzzLite images and writes their logs, crashes and corpus to files under its
-workspace instead of the console, because a crash report prints short inputs and this repository's logs are public.
-Every job keeps these files in the private repository named by the ``CFLITE_STORAGE_REPO`` variable, written with the
-``CFLITE_STORAGE_TOKEN`` secret, and skips while the variable is unset. The ``🔒 fuzz`` workflow runs separately each
-day, with a longer run on Mondays. Both workflows can also be started manually.
+workspace instead of the console. The scheduled workflow commits those files to the public ``cflite-state`` branch with
+the short-lived repository token. The branch is public and includes raw crash inputs and full fuzz logs. Each update
+replaces its single snapshot commit so its reachable history stays bounded. The jobs use the ``cflite-storage``
+environment, which allows only ``main``. The workflow uploads SARIF to Code Scanning and reports the address, undefined,
+prune and coverage jobs on ``main``. The ``🔒 fuzz`` workflow runs separately each day, with a longer run on Mondays.
+Start ClusterFuzzLite manually from this repository's ``main`` branch.
 
 Add a target by registering a ``bytes``-taking callable in ``_TARGETS`` (in-process) and dropping a representative
 benign seed under ``tools/fuzz/corpus/<target>/``; add a standalone harness by mirroring ``idna_harness.c`` for any C

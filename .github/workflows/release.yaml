@@ -11,66 +11,177 @@ concurrency:
 permissions:
   contents: read
 jobs:
-  sdist:
-    name: 📦 sdist
-    runs-on: ubuntu-24.04
+  build-constraints:
+    name: 🔒 Export build constraints
+    runs-on: ubuntu-26.04
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - name: 📦 Export Linux build requirements
+        id: linux
+        uses: tox-dev/github-workflows/export-build-constraints@259a3d3fb578d00517ffb73341fdd463259b0b2f # 6.0.1
+        with:
+          lock: pylock.pgo.toml
+          target-platform: linux_x86_64
+          targets: 3.11.0:cpython 3.12.0:cpython 3.13.0:cpython 3.14.0:cpython 3.15.0:cpython 3.11.0:pypy 3.12.0:pypy
+      - name: ⚙️ Save Linux constraints
+        env:
+          SOURCE: ${{ steps.linux.outputs.path }}
+        run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints-linux.txt"
+      - name: 📦 Export Linux ARM build requirements
+        id: linux_arm
+        uses: tox-dev/github-workflows/export-build-constraints@259a3d3fb578d00517ffb73341fdd463259b0b2f # 6.0.1
+        with:
+          lock: pylock.pgo.toml
+          target-platform: linux_aarch64
+          targets: 3.11.0:cpython 3.12.0:cpython 3.13.0:cpython 3.14.0:cpython 3.15.0:cpython 3.11.0:pypy 3.12.0:pypy
+      - name: ⚙️ Save Linux ARM constraints
+        env:
+          SOURCE: ${{ steps.linux_arm.outputs.path }}
+        run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints-linux-arm.txt"
+      - name: 📦 Export macOS build requirements
+        id: macos
+        uses: tox-dev/github-workflows/export-build-constraints@259a3d3fb578d00517ffb73341fdd463259b0b2f # 6.0.1
+        with:
+          lock: pylock.pgo.toml
+          target-platform: macos_arm64
+          targets: 3.11.0:cpython 3.12.0:cpython 3.13.0:cpython 3.14.0:cpython 3.15.0:cpython 3.11.0:pypy 3.12.0:pypy
+      - name: ⚙️ Save macOS constraints
+        env:
+          SOURCE: ${{ steps.macos.outputs.path }}
+        run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints-macos.txt"
+      - name: 📦 Export Windows build requirements
+        id: windows
+        uses: tox-dev/github-workflows/export-build-constraints@259a3d3fb578d00517ffb73341fdd463259b0b2f # 6.0.1
+        with:
+          lock: pylock.pgo.toml
+          target-platform: windows_amd64
+          targets: 3.11.0:cpython 3.12.0:cpython 3.13.0:cpython 3.14.0:cpython 3.15.0:cpython 3.11.0:pypy 3.12.0:pypy
+      - name: ⚙️ Save Windows constraints
+        env:
+          SOURCE: ${{ steps.windows.outputs.path }}
+        run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints-windows.txt"
+      - name: 📦 Export Windows ARM build requirements
+        id: windows_arm
+        uses: tox-dev/github-workflows/export-build-constraints@259a3d3fb578d00517ffb73341fdd463259b0b2f # 6.0.1
+        with:
+          lock: pylock.pgo.toml
+          target-platform: windows_arm64
+          targets: 3.15.0:cpython
+      - name: ⚙️ Save Windows ARM constraints
+        env:
+          SOURCE: ${{ steps.windows_arm.outputs.path }}
+        run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints-windows-arm.txt"
+      - name: 📤 Upload build constraints
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-constraints
+          path: ${{ runner.temp }}/build-constraints-*.txt
+          if-no-files-found: error
+          retention-days: 1
+  sdist:
+    name: 🏗️ sdist
+    needs: build-constraints
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 📩 Download build constraints
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          artifact-ids: ${{ needs.build-constraints.outputs.artifact-id }}
+          path: ${{ runner.temp }}
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: 📦 Build sdist
+      - name: ⚙️ Read source timestamp
+        id: timestamp
+        run: echo "epoch=$(git log -1 --pretty=%ct)" >>"$GITHUB_OUTPUT"
+      - name: 🏗️ Build sdist
+        env:
+          UV_BUILD_CONSTRAINT: ${{ runner.temp }}/build-constraints-linux.txt
+          UV_REQUIRE_BUILD_HASHES: "true"
+          SOURCE_DATE_EPOCH: ${{ steps.timestamp.outputs.epoch }}
         run: uv build --sdist --out-dir dist
       - name: 📤 Upload sdist
+        id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-sdist
           path: dist/*.tar.gz
           retention-days: 7
   source-install:
-    name: Source install - Windows ARM64
-    needs: sdist
+    name: 🧪 Source install - Windows ARM64
+    needs: [build-constraints, sdist]
     runs-on: windows-11-arm
     steps:
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         env:
           UV_VENV_SEED: "true"
         with:
+          version: latest-known
           enable-cache: false
           activate-environment: true
           python-version: "3.15"
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+          ignore-empty-workdir: true
+      - name: 📩 Download sdist
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: dist-sdist
+          artifact-ids: ${{ needs.sdist.outputs.artifact-id }}
           path: dist
-      - name: Install source distribution
-        run: python -m pip install --verbose (Get-ChildItem dist/*.tar.gz).FullName
-      - name: Check installed extension
+      - name: 📩 Download build constraints
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build-constraints.outputs.artifact-id }}
+          path: ${{ runner.temp }}
+      - name: 📦 Install source distribution
+        env:
+          UV_BUILD_CONSTRAINT: ${{ runner.temp }}/build-constraints-windows-arm.txt
+          UV_REQUIRE_BUILD_HASHES: "true"
+        run: uv pip install --python "$env:VIRTUAL_ENV" --verbose (Get-ChildItem dist/*.tar.gz).FullName
+      - name: 🧪 Check installed extension
         run: python -c "from turbohtml import parse; assert parse('<p>ARM64</p>').select_one('p').text == 'ARM64'"
   wheels:
-    name: 🎡 wheels - ${{ matrix.label }}
+    name: 🏗️ wheels - ${{ matrix.label }}
+    needs: build-constraints
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {os: "ubuntu-24.04", label: Linux manylinux, build: "*-manylinux*", artifact: linux-manylinux}
-          - {os: "ubuntu-24.04", label: Linux musllinux, build: "*-musllinux*", artifact: linux-musllinux}
-          - {os: "ubuntu-24.04-arm", label: Linux ARM manylinux, build: "*-manylinux*", artifact: linux-arm-manylinux}
-          - {os: "ubuntu-24.04-arm", label: Linux ARM musllinux, build: "*-musllinux*", artifact: linux-arm-musllinux}
-          - {os: "macos-15", label: macOS, build: "*", artifact: macos-15}
-          - {os: "windows-2025", label: Windows, build: "*", artifact: windows-2025}
+          - {os: "ubuntu-24.04", label: Linux manylinux, build: "*-manylinux*", artifact: linux-manylinux, constraints: linux}
+          - {os: "ubuntu-24.04", label: Linux musllinux, build: "*-musllinux*", artifact: linux-musllinux, constraints: linux}
+          - {os: "ubuntu-24.04-arm", label: Linux ARM manylinux, build: "*-manylinux*", artifact: linux-arm-manylinux, constraints: linux-arm}
+          - {os: "ubuntu-24.04-arm", label: Linux ARM musllinux, build: "*-musllinux*", artifact: linux-arm-musllinux, constraints: linux-arm}
+          - {os: "macos-15", label: macOS, build: "*", artifact: macos-15, constraints: macos}
+          - {os: "windows-2025", label: Windows, build: "*", artifact: windows-2025, constraints: windows}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: ⬇️ Install PGO corpora
+      - name: 📥 Install PGO corpora
         if: runner.os == 'Linux'
         run: |
           git submodule update --init --depth 1 \
@@ -78,15 +189,27 @@ jobs:
             tools/bench-data/war-and-peace tools/bench-data/readability \
             tools/bench-data/normalize.css tools/bench-data/pico \
             tools/bench-data/underscore tools/bench-data/backbone
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: 🎡 Build wheels
+      - name: 📩 Download build constraints
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build-constraints.outputs.artifact-id }}
+          path: .
+      - name: ⚙️ Read source timestamp
+        id: timestamp
+        shell: bash
+        run: echo "epoch=$(git log -1 --pretty=%ct)" >>"$GITHUB_OUTPUT"
+      - name: 🏗️ Build wheels
         uses: pypa/cibuildwheel@b3395e271a35f73dad77f21802abe9b986dfe299 # v4.3.1
         env:
           CIBW_BUILD: ${{ matrix.build }}
+          SOURCE_DATE_EPOCH: ${{ steps.timestamp.outputs.epoch }}
+          CIBW_ENVIRONMENT: UV_BUILD_CONSTRAINT=build-constraints-${{ matrix.constraints }}.txt UV_REQUIRE_BUILD_HASHES=true SOURCE_DATE_EPOCH=${{ steps.timestamp.outputs.epoch }}
       - name: 📤 Upload wheels
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -94,7 +217,7 @@ jobs:
           path: wheelhouse/*.whl
           retention-days: 7
   wheels-gate:
-    name: 🎡 wheels - ${{ matrix.label }}
+    name: 🏗️ wheels - ${{ matrix.label }}
     needs: wheels
     if: ${{ always() }}
     runs-on: ubuntu-24.04
@@ -102,29 +225,58 @@ jobs:
       matrix:
         label: [Linux, Linux ARM]
     steps:
-      - run: test '${{ needs.wheels.result }}' = success
-  verify-changelog:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-24.04
+      - name: 🚦 Require all wheel builds to succeed
+        env:
+          WHEELS_RESULT: ${{ needs.wheels.result }}
+        run: test "$WHEELS_RESULT" = success
+  wheel-metadata:
+    name: 🔍 Check wheel metadata
+    needs: [sdist, wheels]
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Require a changelog section for the tag
+      - name: 📩 Download distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - name: 🐍 Create package-check environment
+        run: uv venv --python 3.15 "$RUNNER_TEMP/package-checks"
+      - name: 📦 Install current package checks
+        run: uv pip install --python "$RUNNER_TEMP/package-checks" --group pkg-meta
+      - name: 🔍 Check distribution metadata
+        run: '"$RUNNER_TEMP/package-checks/bin/twine" check dist/*'
+      - name: 🔍 Check wheel contents
+        run: find dist -type f -name '*.whl' ! -name '*-pp*-win_amd64.whl' -exec "$RUNNER_TEMP/package-checks/bin/check-wheel-contents" --no-config {} +
+      - name: 🔍 Check PyPy Windows bundled runtime
+        run: '"$RUNNER_TEMP/package-checks/bin/check-wheel-contents" --no-config --toplevel turbohtml,turbohtml.libs --ignore W010 dist/*-pp*-win_amd64.whl'
+  release-gate:
+    name: 🚦 Release checks pass
+    if: always()
+    needs: [build-constraints, sdist, source-install, wheels, wheels-gate, wheel-metadata]
+    runs-on: ubuntu-26.04
+    steps:
+      - name: 🚦 Require all jobs to succeed
         env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::unexpected release tag $TAG"
-            exit 1
-          fi
-          if ! grep -qE "^ v${TAG//./\\.} \\(" docs/changelog.rst; then
-            echo "::error::docs/changelog.rst has no section for $TAG"
-            exit 1
-          fi
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: jq -e 'all(.[]; .result == "success")' <<<"$NEEDS_JSON"
   publish:
     name: 🚀 Publish ${{ matrix.artifact }}
-    needs: [sdist, source-install, wheels, wheels-gate, verify-changelog]
+    needs:
+      - release-gate
+      - github-notes
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     # one job per build artifact: signing every wheel in a single job exceeds the
@@ -147,58 +299,134 @@ jobs:
     permissions:
       id-token: write # trusted publishing, no API token stored
     steps:
-      - name: ⬇️ Download ${{ matrix.artifact }}
+      - name: 📩 Download ${{ matrix.artifact }}
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ matrix.artifact }}
           path: dist
-      - name: 🚀 Publish
+      - name: 🚀 Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
-          skip-existing: true
-          attestations: true
-  github-release:
+          packages-dir: dist
+  pypi-verify:
+    name: 🔍 Verify PyPI distributions
     needs: publish
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - name: 📩 Download distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - name: 🔍 Verify PyPI artifacts
+        uses: tox-dev/github-workflows/reconcile-pypi-artifacts@259a3d3fb578d00517ffb73341fdd463259b0b2f # 6.0.1
+        with:
+          project: turbohtml
+          version: ${{ github.ref_name }}
+          dist: dist
+  previous-tag:
+    name: 🏷️ Select previous tag
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.previous.outputs.previous }}
+    steps:
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - name: 📦 Install locked release tools
+        uses: tox-dev/github-workflows/install-locked-tools@259a3d3fb578d00517ffb73341fdd463259b0b2f # 6.0.1
+        with:
+          groups: release-notes
+          venv: ${{ runner.temp }}/release-tools
+      - name: 🏷️ Select previous tag
+        id: previous
+        uses: tox-dev/github-workflows/select-previous-tag@259a3d3fb578d00517ffb73341fdd463259b0b2f # 6.0.1
+        with:
+          tag: ${{ github.ref_name }}
+  github-notes:
+    name: 📝 Render GitHub Release notes
+    needs: previous-tag
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - name: 📦 Install locked release tools
+        uses: tox-dev/github-workflows/install-locked-tools@259a3d3fb578d00517ffb73341fdd463259b0b2f # 6.0.1
+        with:
+          groups: release-notes
+          venv: ${{ runner.temp }}/release-tools
+      - name: 📝 Render release notes
+        uses: tox-dev/github-workflows/render-release-notes@259a3d3fb578d00517ffb73341fdd463259b0b2f # 6.0.1
+        with:
+          tag: ${{ github.ref_name }}
+          previous: ${{ needs.previous-tag.outputs.tag }}
+          changelog: docs/changelog.rst
+          artifact-url: https://pypi.org/project/turbohtml/${{ github.ref_name }}/
+      - name: 📤 Upload release notes
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: github-release-notes
+          path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
+          retention-days: 1
+  github-release:
+    name: 🚀 Publish GitHub Release
+    needs: [pypi-verify, github-notes]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📩 Download release notes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Publish GitHub Release
+          artifact-ids: ${{ needs.github-notes.outputs.artifact-id }}
+          path: ${{ runner.temp }}/github-release-notes
+      - name: 🚀 Publish GitHub release
+        uses: tox-dev/github-workflows/publish-github-release@259a3d3fb578d00517ffb73341fdd463259b0b2f # 6.0.1
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          awk -v tag="$TAG" '
-            index($0, " v" tag " (") == 1 { found = 1; next }
-            found && /^ v[0-9]+\.[0-9]+\.[0-9]+ \(/ { exit }
-            found && $0 !~ /^\*+$/ { print }
-          ' docs/changelog.rst > "$RUNNER_TEMP/release-notes.md"
-          python3 - "$RUNNER_TEMP/release-notes.md" <<'PY'
-          import re
-          import sys
-          from pathlib import Path
-
-          path = Path(sys.argv[1])
-          body = path.read_text().strip()
-          if not body:
-              raise SystemExit("release notes are empty")
-          body = re.sub(r":user:`([^`]+)`", r"\1", body)
-          body = re.sub(r":(?:issue|pull):`(\d+)`", r"#\1", body)
-          body = re.sub(r":[a-z]+:`~?([^`]+)`", lambda match: f"`{match.group(1).split('.')[-1]}`", body)
-          path.write_text(body.replace("``", "`") + "\n")
-          PY
-          test -s "$RUNNER_TEMP/release-notes.md"
-          printf '\n[PyPI release](https://pypi.org/project/turbohtml/%s/)\n' "$TAG" >> "$RUNNER_TEMP/release-notes.md"
-          previous=$(git tag --list '[0-9]*' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | awk -v tag="$TAG" '$0 == tag { print previous; exit } { previous = $0 }')
-          if [[ -n "$previous" ]]; then
-            printf '\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' "$GITHUB_REPOSITORY" "$previous" "$TAG" >> "$RUNNER_TEMP/release-notes.md"
-          else
-            printf '\n**Full Changelog**: https://github.com/%s/commits/%s\n' "$GITHUB_REPOSITORY" "$TAG" >> "$RUNNER_TEMP/release-notes.md"
-          fi
-          gh release create "$TAG" --verify-tag --title "v$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+        with:
+          tag: ${{ github.ref_name }}
+          commit: ${{ github.sha }}
+          title: v${{ github.ref_name }}
+          notes-file: ${{ runner.temp }}/github-release-notes/release-notes.md

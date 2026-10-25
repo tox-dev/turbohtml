@@ -4,10 +4,12 @@ requires = [
   "meson>=1.12.1",
   "meson-python>=0.22.1",
   "ninja>=1.13.2",
+  "patchelf>=0.11; sys_platform=='linux'",
 ]
 
 [project]
 name = "turbohtml"
+import-names = [ "turbohtml" ]
 description = "A fast, fully typed HTML toolkit for Python, powered by a C-accelerated core."
 readme = "README.md"
 keywords = [
@@ -191,6 +193,14 @@ bench = [
   "yattag>=1.16.1",
   { include-group = "test" },
 ]
+build = [
+  "cython>=3",
+  "meson>=1.12.1",
+  "meson-python>=0.22.1",
+  "ninja>=1.13.2",
+  "patchelf>=0.11; sys_platform=='linux'",
+  "setuptools>=80",
+]
 coverage = [
   "covdefaults>=2.3",
   "coverage[toml]>=7.16.2",
@@ -198,17 +208,45 @@ coverage = [
 fix = [
   "pre-commit-uv>=4.3",
 ]
+pgo = [
+  "httpx2>=2.13.1",
+  "meson>=1.12.1",
+  "meson-python>=0.22.1",
+  "ninja>=1.13.2",
+  "patchelf>=0.11; sys_platform=='linux'",
+  "tenacity>=9.1.4",
+  "uv>=0.12.22",
+]
 pkg-meta = [
   "check-wheel-contents>=0.6.3",
   "twine>=7",
   "uv>=0.12.22",
 ]
 release = [
-  "gitpython>=3.2",
-  "packaging>=26.3",
-  "pre-commit>=4.6.2",
+  "prek>=0.5",
+  "release-creator>=4.1",
   "towncrier>=26.9",
 ]
+release-news = [
+  "release-creator>=4.1",
+  "towncrier>=26.9",
+]
+release-notes = [
+  "release-creator>=4.1",
+]
+release-prepare = [
+  "prek>=0.5",
+  "release-creator>=4.1",
+  "towncrier>=26.9",
+]
+
+[tool.uv]
+dependency-groups.dev = { requires-python = ">=3.15" }
+dependency-groups.docs = { requires-python = ">=3.12" }
+dependency-groups.release = { requires-python = ">=3.15" }
+dependency-groups.release-news = { requires-python = ">=3.15" }
+dependency-groups.release-notes = { requires-python = ">=3.15" }
+dependency-groups.release-prepare = { requires-python = ">=3.15" }
 
 [tool.cibuildwheel]
 # abi3 is impossible here (the SWAR paths need the non-limited PyUnicode buffer
@@ -223,9 +261,9 @@ test-command = "python -c \"import turbohtml; assert turbohtml.unescape(turbohtm
 # hot paths. Scoped to Linux on purpose: the measured win is gcc's, and clang/MSVC add a profile-merge step the
 # release does not need. See tools/pgo_build.py.
 linux.before-build = """\
-  rm -rf /tmp/turbohtml-pgo && pip install uv meson-python meson ninja httpx2 tenacity && python \
-  {project}/tools/pgo_build.py --python python --system --project {project} --build-dir /tmp/turbohtml-pgo --phase \
-  profile\
+  rm -rf /tmp/turbohtml-pgo && uv pip install --preview-features pylock --require-hashes --system --python python \
+  --requirements {project}/pylock.pgo.toml --group pgo && python {project}/tools/pgo_build.py --python python --system \
+  --project {project} --build-dir /tmp/turbohtml-pgo --phase profile\
   """
 linux.config-settings.build-dir = "/tmp/turbohtml-pgo"
 # -Db_lto lands cross-TU inlining across the header splits the 1.0 rearchitecture introduced (spike #478): the hot
@@ -292,13 +330,6 @@ lint.per-file-ignores."docs/conf.py" = [
 ]
 lint.per-file-ignores."src/turbohtml/{clean,extract,query}/__init__.py" = [
   "non-empty-init-module", # the public module's implementation lives in its package __init__, re-exported unchanged
-]
-lint.per-file-ignores."tasks/**/*.py" = [
-  "implicit-namespace-package",           # no implicit namespace
-  "print",                                # progress output to the console is intentional
-  "start-process-with-partial-path",      # git and gh are resolved from PATH
-  "subprocess-without-shell-equals-true", # the release script runs fixed git/gh subcommands, not external input
-  "suspicious-subprocess-import",         # subprocess is required to drive git, gh and towncrier
 ]
 lint.per-file-ignores."tests/**/*.py" = [
   "assert",                     # asserts allowed in tests
@@ -437,9 +468,96 @@ template = "docs/changelog/template.jinja2"
 title_format = false
 issue_format = ":issue:`{issue}`"
 type = [
-  { directory = "breaking", name = "Backward incompatible changes", showcontent = true },
-  { directory = "feature", name = "Features", showcontent = true },
-  { directory = "bugfix", name = "Bug fixes", showcontent = true },
-  { directory = "doc", name = "Improved documentation", showcontent = true },
-  { directory = "packaging", name = "Packaging updates", showcontent = true },
+  { directory = "feature", name = "Added", showcontent = true },
+  { directory = "change", name = "Changes", showcontent = true },
+  { directory = "bugfix", name = "Fixed", showcontent = true },
+  { directory = "doc", name = "Documentation", showcontent = true },
+  { directory = "breaking", name = "Breaking changes", showcontent = true },
+  { directory = "security", name = "Security", showcontent = true },
+  { directory = "performance", name = "Performance", showcontent = true },
+  { directory = "deprecation", name = "Deprecated", showcontent = true },
+  { directory = "removal", name = "Removed", showcontent = true },
+  { directory = "packaging", name = "Packaging", showcontent = true },
 ]
+
+[tool.nab]
+mode = "universal"
+base-group = "project-runtime"
+default-groups = []
+uploaded-prior-to = "P7D"
+decision-order = "stable"
+matrix.python = ">=3.15,<3.16"
+matrix.platforms = [ "linux_x86_64", "linux_aarch64", "macos_arm64", "windows_amd64" ]
+# temporary, delete after 2026-11-02
+packages.release-creator.uploaded-prior-to = 2026-10-26T18:24:46Z
+
+[[tool.nab.package-rules]]
+match = [ "csscompressor" ]
+assume-universal-deps = true
+build-policy = "build-remote"
+
+[[tool.nab.package-rules]]
+match = [ "cssmin" ]
+assume-universal-deps = true
+build-policy = "build-remote"
+
+[[tool.nab.package-rules]]
+match = [ "feedfinder2" ]
+assume-universal-deps = true
+build-policy = "build-remote"
+
+[[tool.nab.package-rules]]
+match = [ "htbuilder" ]
+assume-universal-deps = true
+build-policy = "build-remote"
+
+[[tool.nab.package-rules]]
+match = [ "html5validator" ]
+assume-universal-deps = true
+build-policy = "build-remote"
+
+[[tool.nab.package-rules]]
+match = [ "jsmin" ]
+assume-universal-deps = true
+build-policy = "build-remote"
+
+[[tool.nab.package-rules]]
+match = [ "jstyleson" ]
+assume-universal-deps = true
+build-policy = "build-remote"
+
+[[tool.nab.package-rules]]
+match = [ "langdetect" ]
+assume-universal-deps = true
+build-policy = "build-remote"
+
+[[tool.nab.package-rules]]
+match = [ "microdata" ]
+assume-universal-deps = true
+build-policy = "build-remote"
+
+[[tool.nab.package-rules]]
+match = [ "opengraph-py3" ]
+assume-universal-deps = true
+build-policy = "build-remote"
+
+[[tool.nab.package-rules]]
+match = [ "pyahocorasick" ]
+assume-universal-deps = true
+build-policy = "build-remote"
+
+[[tool.nab.package-rules]]
+match = [ "tinysegmenter" ]
+assume-universal-deps = true
+build-policy = "build-remote"
+
+[[tool.nab.package-rules]]
+match = [ "yattag" ]
+assume-universal-deps = true
+build-policy = "build-remote"
+
+[[tool.nab.package-rules]]
+match = [ "jieba3k" ]
+allow-zip-sdists = true
+assume-universal-deps = true
+build-policy = "build-remote"

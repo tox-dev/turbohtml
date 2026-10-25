@@ -1,4 +1,4 @@
-name: 🔒 fuzz
+name: 🧪 fuzz
 on:
   workflow_dispatch:
   schedule:
@@ -11,49 +11,54 @@ permissions:
   contents: read
 jobs:
   smoke:
-    name: 💨 ASan/UBSan smoke (benign corpus)
+    name: 🧪 Run ASan/UBSan smoke (benign corpus)
     runs-on: ubuntu-24.04
     # Build every harness under -fsanitize=address,undefined and replay the benign seed corpus before the deep hunt.
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: ✅ Run fuzz-smoke
+      - name: 🧪 Run fuzz-smoke
         run: uvx --with tox-uv tox run -e fuzz-smoke
         env:
           UV_PYTHON_PREFERENCE: only-managed
   msan:
-    name: 🧠 MemorySanitizer standalone harnesses
+    name: 🧪 Run MemorySanitizer standalone harnesses
     runs-on: ubuntu-24.04
     # the IDNA, phone, JS and CSS cores link no interpreter, so MemorySanitizer sees every byte they read and catches
     # the uninitialized reads AddressSanitizer misses
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: ✅ Run msan
+      - name: 🧪 Run msan
         run: uvx --with tox-uv tox run -e msan
         env:
           UV_PYTHON_PREFERENCE: only-managed
   oracle:
-    name: 🧪 sanitizer wrong-output oracles
+    name: 🧪 Run sanitizer wrong-output oracles
     runs-on: ubuntu-24.04
     # a sanitize bug usually returns unsafe markup without crashing, so this lane compares the sanitizer with an
     # independent re-parse (html5lib-python, parse5 to confirm), the random Policy it ran under, and the WHATWG URL
     # scheme. Scheduled and manual runs add MutaGen-style generation for a wall-clock budget.
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -65,12 +70,13 @@ jobs:
       - name: 📦 Install parse5 for the confirming re-parse
         run: npm ci
         working-directory: tools/bench/node
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: ✅ Run fuzz-oracle
+      - name: 🧪 Run fuzz-oracle
         # the seed regenerates every finding from the public code, so it stays out of the tox command line it echoes
         run: |
           FUZZ_RNG_SEED="$(uv run --no-project --python 3.15 python -c 'import secrets; print(secrets.randbits(32))')"
@@ -79,7 +85,7 @@ jobs:
         env:
           UV_PYTHON_PREFERENCE: only-managed
           MINUTES: ${{ github.event.schedule == '0 4 * * 1' && '20' || '8' }}
-      - name: 🔐 Encrypt findings
+      - name: 🛡️ Encrypt findings
         if: failure() && vars.FUZZ_AGE_RECIPIENT != ''
         run: |
           curl -sSfL -o "${RUNNER_TEMP}/age.tar.gz" \
@@ -105,13 +111,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
   round-trip:
-    name: 🔁 round-trip and consistency oracles
+    name: 🧪 Run round-trip and consistency oracles
     runs-on: ubuntu-24.04
     # a printer or minifier bug returns wrong text without crashing, so this lane checks print-and-reparse fixpoints,
     # minifier semantics, agreeing entry points and source spans. Findings need triage, and crashers leave the runner
     # only encrypted.
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -120,15 +127,16 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-      - name: 📦 Install acorn and eslint-scope for the JS identifier oracle
+      - name: 📦 Install parse5 for the confirming re-parse
         run: npm ci
         working-directory: tools/bench/node
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: ✅ Run fuzz-round-trip
+      - name: 🧪 Run fuzz-round-trip
         # the seed regenerates every finding from the public code, so it stays out of the tox command line it echoes
         run: |
           FUZZ_RNG_SEED="$(uv run --no-project --python 3.15 python -c 'import secrets; print(secrets.randbits(32))')"
@@ -137,7 +145,7 @@ jobs:
         env:
           UV_PYTHON_PREFERENCE: only-managed
           MINUTES: ${{ github.event.schedule == '0 4 * * 1' && '20' || '8' }}
-      - name: 🔐 Encrypt findings
+      - name: 🛡️ Encrypt findings
         if: failure() && vars.FUZZ_AGE_RECIPIENT != ''
         run: |
           curl -sSfL -o "${RUNNER_TEMP}/age.tar.gz" \
@@ -163,45 +171,49 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
   amplify:
-    name: 📈 super-linear regressions
+    name: 🧪 Run super-linear regressions
     runs-on: ubuntu-24.04
     # re-scores every past super-linear input as a growth ratio (time per doubling and an output bound), not against a
     # deadline, so a slower runner does not fail it; the shape search runs in the deep job below
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: ✅ Run fuzz-amplify
+      - name: 🧪 Run fuzz-amplify
         run: uvx --with tox-uv tox run -e fuzz-amplify
         env:
           UV_PYTHON_PREFERENCE: only-managed
   alloc:
-    name: 🧯 allocation-failure sweep
+    name: 🧪 Run allocation-failure sweep
     runs-on: ubuntu-24.04
     # fails each PyMem allocation of every seed in turn (libxml2's malloc-fail sweep) and requires MemoryError exactly
     # when the failure fires. Like the deep hunt it is not a PR gate: a finding needs triage, and it leaves the runner
     # only encrypted.
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: ✅ Run fuzz-alloc
+      - name: 🧪 Run fuzz-alloc
         run: uvx --with tox-uv tox run -e fuzz-alloc
         env:
           UV_PYTHON_PREFERENCE: only-managed
-      - name: 🔐 Encrypt findings
+      - name: 🛡️ Encrypt findings
         if: failure() && vars.FUZZ_AGE_RECIPIENT != ''
         run: |
           curl -sSfL -o "${RUNNER_TEMP}/age.tar.gz" \
@@ -227,20 +239,22 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
   deep:
-    name: 🕳️ ASan/UBSan deep (mutation + structural)
+    name: 🧪 Run ASan/UBSan deep (mutation + structural)
     runs-on: ubuntu-24.04
     # Mutation and escalating-depth probes run for a wall-clock budget per target. A maintainer triages new finds.
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: ✅ Run fuzz (deep)
+      - name: 🧪 Run fuzz (deep)
         # the Monday 04:00 slot runs each target longer; the daily 06:00 slot and manual dispatch use the shorter budget
         # The seed is secret: with the public code it regenerates every crasher, so it stays out of the command line
         # tox echoes and reaches fuzz.py only through the environment and the encrypted .replay files.
@@ -251,7 +265,7 @@ jobs:
         env:
           UV_PYTHON_PREFERENCE: only-managed
           MINUTES: ${{ github.event.schedule == '0 4 * * 1' && '20' || '8' }}
-      - name: 📈 Run fuzz-amplify (search)
+      - name: 🧪 Run fuzz-amplify (search)
         # runs even when the crash hunt above failed; its findings join the crashers that the steps below encrypt
         if: success() || failure()
         run: |
@@ -264,7 +278,7 @@ jobs:
       # A crasher of an unfixed bug is an undisclosed vulnerability, and artifacts on a public repository are readable
       # by anyone, so crashers leave the runner only encrypted to the maintainers' age key; without the key nothing
       # leaves.
-      - name: 🔐 Encrypt crashers
+      - name: 🛡️ Encrypt crashers
         if: failure() && vars.FUZZ_AGE_RECIPIENT != ''
         run: |
           curl -sSfL -o "${RUNNER_TEMP}/age.tar.gz" \

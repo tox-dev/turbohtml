@@ -6,5 +6,5 @@ https://turbohtml.readthedocs.io/en/latest/development.html -->
 - [ ] ran the linter to address style issues (`tox -e fix`)
 - [ ] wrote descriptive pull request text
 - [ ] ensured there are test(s) validating the fix, keeping coverage at 100%
-- [ ] added a news fragment in the `docs/changelog` folder
+- [ ] added a user-facing news fragment in `docs/changelog` or applied `skip news`
 - [ ] updated/extended the documentation
