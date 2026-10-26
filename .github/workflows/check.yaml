@@ -324,7 +324,9 @@ jobs:
       matrix:
         shard: ["heavy", "rest"]
     container:
-      image: ghcr.io/nascheme/cpython-tsan:3.15t-dev
+      # Upstream rebuilds 3.15t-dev twice a week and deletes untagged images every Sunday, so a pin to it breaks within
+      # days: https://github.com/nascheme/cpython_sanity/blob/fa9ffe622ce1c49de22d2c636d5966e93ad95df5/.github/workflows/clean_images.yml
+      image: ghcr.io/nascheme/cpython-tsan:3.15.2t@sha256:3db20a6fe0ae0f2544a5d0b20a6ebb23fd6c52d4850a993f72bfcf1fe421d2c0
       options: --shm-size=2g # TSan shadow memory needs the headroom
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
