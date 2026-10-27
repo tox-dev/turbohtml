@@ -83,7 +83,7 @@ repos:
       - id: docstrfmt
         args: ["--line-length=120", "--no-format-python-code-blocks"] # ruff-docs owns the Python snippets
         additional_dependencies:
-          - sphinx==9.1.0
+          - sphinx==9.1.1
         types_or: [rst]
         files: ^docs/.*\.rst$
   - repo: https://github.com/sphinx-contrib/sphinx-lint
