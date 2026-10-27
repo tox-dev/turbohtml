@@ -1,0 +1,60 @@
+name: 🛡️ CodeQL
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+  pull_request:
+  schedule:
+    - cron: "0 9 * * 2"
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+permissions: {}
+jobs:
+  analyze:
+    name: 🛡️ Analyze ${{ matrix.language }}
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read # check out the code to analyze
+      security-events: write # upload the analysis results to code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {language: actions, build-mode: none}
+          - {language: c-cpp, build-mode: manual}
+          - {language: python, build-mode: none}
+    steps:
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 🐍 Install uv
+        if: matrix.build-mode == 'manual'
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: latest-known
+          python-version: "3.15"
+          enable-cache: false
+      - name: 🛡️ Initialize CodeQL
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+          config: |
+            paths-ignore:
+              - tests
+              - tools/bench
+              - tools/fuzz
+      - name: 🏗️ Build C extension
+        if: matrix.build-mode == 'manual'
+        run: |
+          uvx --from meson==1.12.1 --with ninja==1.13.2 meson setup build
+          uvx --from meson==1.12.1 --with ninja==1.13.2 meson compile -C build
+        env:
+          UV_PYTHON_PREFERENCE: only-managed
+      - name: 🛡️ Analyze
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          category: "/language:${{ matrix.language }}"

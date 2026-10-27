@@ -1,4 +1,4 @@
-name: 👷 benchmark
+name: ⏱️ benchmark
 on:
   workflow_dispatch:
   push:
@@ -17,7 +17,7 @@ permissions:
   contents: read
 jobs:
   codspeed:
-    name: 🚀 CodSpeed
+    name: ⏱️ CodSpeed
     # OIDC only authenticates the repository registered with CodSpeed, so a fork's push runs fail with 401 Unauthorized
     if: github.repository == 'tox-dev/turbohtml'
     # The tox-dev org has no plan for CodSpeed's macro runners; the pins in the steps below hold the instruction
@@ -41,7 +41,7 @@ jobs:
       # returns entries in hash order under a per-filesystem seed that each runner image sets differently, so the
       # listing order, the allocation order behind it, and the heap addresses the benchmarks touch all followed the
       # image. A filesystem made with a fixed seed lists every directory in the same order on every runner.
-      - name: 💾 Mount a fixed-seed filesystem over the workspace
+      - name: ⚙️ Mount a fixed-seed filesystem over the workspace
         run: |
           sudo truncate -s 16G /bench.img
           sudo mkfs.ext4 -q -U 6c1b5a8e-3f0a-4c2e-9d7b-1a2b3c4d5e6f -E hash_seed=0b5e2c7a-9d41-4f3e-8a6c-5d7e8f9a0b1c \
@@ -51,7 +51,8 @@ jobs:
           sudo chown "$(id -u):$(id -g)" /bench
           mkdir /bench/work /bench/python
           sudo mount --bind /bench/work "$GITHUB_WORKSPACE"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # meson derives the package version from git, so a base run on a release tag reports 1.9.0 while the pull
@@ -59,12 +60,12 @@ jobs:
       # through the install metadata it reads at startup, and the extra bytes shift the heap addresses that follow,
       # moving the simulated cache misses of benchmarks the change does not touch. One tag on HEAD gives both one
       # version.
-      - name: 📌 Pin the package version
+      - name: 🏷️ Pin the package version
         run: git tag 0.0.0
-      - name: ⬇️ Install benchmark data
+      - name: 📥 Install benchmark data
         run: git submodule update --init --depth 1 tools/html5lib-python tools/bench-data/war-and-peace
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           enable-cache: false
           # CodSpeed diffs this run against the base commit's run, measured whenever that commit landed, so an
@@ -85,7 +86,7 @@ jobs:
       # The minifier and page benchmarks read corpora that bench.corpus downloads on first use. Fetched inside the
       # benchmark process, the TLS handshakes and response headers allocate differently on every run, so no two runs
       # shared a heap layout.
-      - name: ⬇️ Download the network corpora
+      - name: 📦 Download the network corpora
         run: .tox/codspeed/bin/python -c 'import sys; sys.path.insert(0, "tools"); from bench.corpus import prefetch; prefetch()'
       # Callgrind counts every instruction glibc runs, and glibc picks its memcpy, memset, str*, and lazy-binding code
       # per CPU. GitHub hands each run an Intel Xeon or an AMD EPYC whose feature and preference bits select different
@@ -93,7 +94,7 @@ jobs:
       # lands each runner on the same SSE2 baseline; the copy thresholds glibc derives from the runner's cache sizes
       # and the malloc arena count it derives from the core count are pinned for the same reason. The gate measures
       # instruction counts, so the slower baseline path costs nothing.
-      - name: 📌 Pin glibc's per-CPU code paths
+      - name: ⚙️ Pin glibc's per-CPU code paths
         run: |
           hwcaps=$(printf -- '-%s,' \
             SSSE3 SSE4_1 SSE4_2 AVX AVX2 AVX512F AVX512VL AVX512BW AVX512DQ AVX512CD FMA FMA4 \
@@ -109,7 +110,7 @@ jobs:
             glibc.cpu.x86_rep_stosb_threshold=2048 \
             glibc.malloc.arena_max=1)
           echo "GLIBC_TUNABLES=${tunables%:}" >> "$GITHUB_ENV"
-      - name: 🚀 Run benchmarks
+      - name: ⏱️ Run benchmarks
         uses: CodSpeedHQ/action@f842b9a3ffe213dbb81768fd7f7eeb4dfcf1c369 # v5.4.2
         env:
           # str hashes seed the dict and set probes the benchmarks walk; a fresh seed per run is a small run-to-run

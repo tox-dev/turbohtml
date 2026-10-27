@@ -1,11 +1,11 @@
-name: 🛠️ check
+name: 🧪 check
 on:
   workflow_dispatch:
   push:
     branches: ["main"]
     tags-ignore: ["**"]
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened]
   schedule:
     - cron: "0 8 * * *"
 concurrency:
@@ -29,11 +29,12 @@ jobs:
           - {os: "macos-15", label: macOS, cov: "xcrun llvm-cov gcov"}
           - {os: "windows-2025", label: Windows, cov: ""}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: ⬇️ Install test data
+      - name: 📥 Install test data
         id: test-data
         background: true
         shell: bash
@@ -43,18 +44,20 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - wait: test-data
-      - name: ✅ Run ${{ matrix.py }}
+      - name: ⏳ Wait for test data
+        wait: test-data
+      - name: 🧪 Run ${{ matrix.py }}
         run: uvx --with tox-uv tox run --skip-missing-interpreters false -e ${{ matrix.py }}
         env:
           UV_PYTHON_PREFERENCE: only-managed
           COV_GCOV: ${{ matrix.cov }}
-      - name: Report failed selector branches
+      - name: 📊 Report failed selector branches
         if: ${{ failure() && runner.os == 'macOS' && contains(fromJSON('["3.11","3.12","3.13","3.14"]'), matrix.py) }}
         run: |
           xcrun clang --version
@@ -76,11 +79,12 @@ jobs:
       matrix:
         py: ["pypy3.11"]
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: ⬇️ Install test data
+      - name: 📥 Install test data
         id: test-data
         background: true
         shell: bash
@@ -90,13 +94,15 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - wait: test-data
-      - name: ✅ Run ${{ matrix.py }}
+      - name: ⏳ Wait for test data
+        wait: test-data
+      - name: 🧪 Run ${{ matrix.py }}
         run: uvx --with tox-uv tox run --skip-missing-interpreters false -e ${{ matrix.py }}
         env:
           UV_PYTHON_PREFERENCE: only-managed
@@ -112,11 +118,12 @@ jobs:
           - {os: "ubuntu-24.04", arch: "x64"}
           - {os: "ubuntu-24.04-arm", arch: "arm64"}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: ⬇️ Install test data
+      - name: 📥 Install test data
         id: test-data
         background: true
         shell: bash
@@ -126,60 +133,66 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - wait: test-data
-      - name: ✅ Run scalar
+      - name: ⏳ Wait for test data
+        wait: test-data
+      - name: 🧪 Run scalar
         run: uvx --with tox-uv tox run --skip-missing-interpreters false -e scalar
         env:
           UV_PYTHON_PREFERENCE: only-managed
   preprocess-identity:
-    name: 🧬 production preprocessing identity
+    name: 🧪 production preprocessing identity
     runs-on: ubuntu-24.04
     # the fuzz-only build adds #ifdef branches to production sources and headers; a production token change would shift
     # LTO inlining and the CodSpeed gate, so this compares the production preprocessing with those branches stripped
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
       - name: 📦 Install unifdef
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends unifdef
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: ✅ Run preprocess-identity
+      - name: 🧪 Run preprocess-identity
         run: uvx --with tox-uv tox run -e preprocess-identity
         env:
           UV_PYTHON_PREFERENCE: only-managed
   check:
-    name: 🔎 ${{ matrix.tox_env }}
+    name: 🔍 ${{ matrix.tox_env }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         tox_env: ["type", "docs", "pkg_meta", "atheris"]
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: ✅ Run ${{ matrix.tox_env }}
+      - name: 🧪 Run ${{ matrix.tox_env }}
         run: uvx --with tox-uv tox run -e ${{ matrix.tox_env }}
         env:
           UV_PYTHON_PREFERENCE: only-managed
   conformance:
-    name: 🔬 conformance
+    name: 🧪 conformance
     runs-on: ubuntu-24.04
     # The tests/conformance/ suites validate each feature against a competitor's or standards body's OWN test suite,
     # vendored as pinned submodules under tests/conformance/<oracle> (libxml2, unicodetools, xml-conformance-suite,
@@ -189,7 +202,8 @@ jobs:
     # without the oracle. This is a pass/fail correctness gate, not a coverage gate -- the 100% line/branch gate stays
     # on the matrix (env_run_base), deliberately not bolted on here.
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           submodules: recursive # every conformance oracle plus the html5lib-tests data; shallow submodules init here too
@@ -203,17 +217,18 @@ jobs:
           - name: 📦 Install the Node oracle deps (jsdom, DOMPurify, parse5)
             run: npm ci
             working-directory: tools/bench/node
-          - name: 🔄 Install uv
-            uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+          - name: 🐍 Install uv
+            uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
             with:
+              version: latest-known
               python-version: "3.15"
               enable-cache: false
-      - name: ✅ Run the conformance suites
+      - name: 🧪 Run the conformance suites
         run: uvx --with tox-uv tox run -e conformance
         env:
           UV_PYTHON_PREFERENCE: only-managed
   warnings:
-    name: 🚨 -Werror (${{ matrix.label }})
+    name: 🏗️ -Werror (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     # compile the C extension with -Werror so any compiler warning fails the build. The
     # warning set differs per compiler (gcc flags fall-through clang does not) and the SIMD
@@ -230,22 +245,24 @@ jobs:
           - {os: "ubuntu-24.04-arm", cc: "gcc", label: "gcc · Linux arm64"}
           - {os: "macos-15", cc: "clang", label: "clang · macOS arm64"}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: ✅ Build with -Werror
+      - name: 🏗️ Build with -Werror
         run: uvx --with tox-uv tox run -e warnings
         env:
           UV_PYTHON_PREFERENCE: only-managed
           CC: ${{ matrix.cc }}
   warnings-msvc:
-    name: 🚨 -Werror (${{ matrix.label }})
+    name: 🏗️ -Werror (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     # MSVC is detected by meson without a CC override and maps -Werror to /WX; split from the matrix
     # above so an empty CC env never shadows the auto-detection. x64 builds the SSE2 branch; on
@@ -259,30 +276,33 @@ jobs:
           - {os: "windows-2025", label: "MSVC · Windows x64", arm: false}
           - {os: "windows-11-arm", label: "MSVC · Windows arm64", arm: true}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
       - name: 🐍 Install arm64 dev Python (carries the .lib meson needs)
         if: matrix.arm
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         env:
           UV_VENV_SEED: "true"
         with:
+          version: latest-known
           enable-cache: false
           activate-environment: true
           python-version: "3.15"
-      - name: 🧰 Activate native arm64 MSVC (so meson picks cl over MinGW gcc)
+      - name: 🪟 Activate native arm64 MSVC (so meson picks cl over MinGW gcc)
         if: matrix.arm
         uses: TheMrMilchmann/setup-msvc-dev@368ef7d1ee4d1171b31d4a7f67f4d954f903f5a9 # v4.1.0
         with:
           arch: arm64
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: ✅ Build with -Werror
+      - name: 🏗️ Build with -Werror
         run: uvx --with tox-uv tox run -e warnings
         env:
           UV_PYTHON_PREFERENCE: only-managed
@@ -300,21 +320,30 @@ jobs:
           - {os: "ubuntu-24.04", arch: "x64"}
           - {os: "ubuntu-24.04-arm", arch: "arm64"}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
-      - name: ✅ Run clang-tidy
-        run: uvx pre-commit run clang-tidy --all-files --show-diff-on-failure --color always
+      - name: 🧹 Run clang-tidy
         env:
           UV_PYTHON_PREFERENCE: only-managed
+          UV_EXCLUDE_NEWER: 7 days
+          UV_NO_CONFIG: "1"
+          UV_NO_SOURCES: "1"
+        run: |
+          unset UV_CONFIG_FILE UV_INDEX UV_INDEX_URL UV_DEFAULT_INDEX UV_EXTRA_INDEX_URL
+          unset UV_FIND_LINKS UV_EXCLUDE_NEWER_PACKAGE
+          unset UV_INSECURE_HOST UV_SYSTEM_CERTS SSL_CERT_FILE SSL_CERT_DIR
+          uvx pre-commit run clang-tidy --all-files --show-diff-on-failure --color always
   tsan:
-    name: 🧵 ThreadSanitizer (${{ matrix.shard }})
+    name: 🧪 ThreadSanitizer (${{ matrix.shard }})
     runs-on: ubuntu-24.04
     # Two shards trade one extra container job (~5 min of setup, build and collection per run) for wall time: TSan is
     # the longest job, and its two slowest tests plus the lifecycle races take about half its test time. tox.toml's
@@ -329,57 +358,43 @@ jobs:
       image: ghcr.io/nascheme/cpython-tsan:3.15.2t@sha256:3db20a6fe0ae0f2544a5d0b20a6ebb23fd6c52d4850a993f72bfcf1fe421d2c0
       options: --shm-size=2g # TSan shadow memory needs the headroom
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📥 Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: 🔄 Install uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: 🐍 Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
+          version: latest-known
           python-version: "3.15"
           enable-cache: false
       - name: 🔍 Check the interpreter is free-threaded and TSan-instrumented
         run: >-
           python3 -c "import sys, sysconfig; assert sys.version_info[:2] == (3, 15); assert sysconfig.get_config_var('Py_GIL_DISABLED') == 1; assert '--with-thread-sanitizer' in sysconfig.get_config_var('CONFIG_ARGS')"
-      - name: ✅ Run tsan
+      - name: 🧪 Run tsan
         run: >-
           TSAN_PYTHON=$(python3 -c 'import sys; print(sys.executable)') uvx --python-preference only-managed --python 3.15 --with tox-uv tox run -e tsan --skip-missing-interpreters false
         env:
           UV_PYTHON_PREFERENCE: only-system # use the container's TSan interpreter, not a uv-managed one
           TSAN_SHARD: ${{ matrix.shard }}
-  changelog:
-    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'skip news')
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          python-version: "3.15"
-          enable-cache: false
-      - run: |
-          for fragment in docs/changelog/*.rst; do
-            if [[ ! "$fragment" =~ ^docs/changelog/[0-9]+\.(breaking|feature|bugfix|doc|packaging)(\.[0-9]+)?\.rst$ ]]; then
-              echo "::error::unsupported news fragment: $fragment"
-              exit 1
-            fi
-          done
-          uvx towncrier check --compare-with "origin/${GITHUB_BASE_REF}"
   gate:
-    name: Required checks pass
-    if: always()
-    needs: [test, pypy, scalar, preprocess-identity, check, conformance, warnings, warnings-msvc, clang-tidy, tsan, changelog]
+    name: 🚦 ${{ github.event_name == 'pull_request' && 'Required checks pass' || 'Non-PR checks pass' }}
+    if: ${{ !cancelled() }} # codespell:ignore cancelled
+    needs:
+      - test
+      - pypy
+      - scalar
+      - preprocess-identity
+      - check
+      - conformance
+      - warnings
+      - warnings-msvc
+      - clang-tidy
+      - tsan
     runs-on: ubuntu-24.04
     steps:
-      - env:
+      - name: 🚦 Require all jobs to succeed
+        env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-        run: |
-          jq -e '
-            all(
-              to_entries[];
-              .value.result == "success" or
-              (.key == "changelog" and .value.result == "skipped")
-            )
-          ' <<< "$NEEDS_JSON"
+        run: jq -e 'all(.[]; .result == "success")' <<<"$NEEDS_JSON"

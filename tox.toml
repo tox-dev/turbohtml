@@ -791,14 +791,6 @@ commands = [
   ],
 ]
 
-[env.release]
-description = "cut a release; pass the version as a positional argument"
-skip_install = true
-dependency_groups = [ "release" ]
-pass_env = [ "GH_TOKEN" ]
-commands_pre = []
-commands = [ [ "python", "{tox_root}{/}tasks{/}release.py", "--version", "{posargs}" ] ]
-
 [env.scalar]
 description = "run the test suite against the portable SWAR scan loops that TH_FORCE_SCALAR selects over NEON and SSE2"
 base_python = [ "3.15" ]

@@ -48,9 +48,9 @@ Less:
   in them are in scope; wrong output that stays inert is a correctness bug;
 - the free-threaded build's data races, when reachable from untrusted input on objects the caller does not share.
 
-Out of scope: `tools/`, `tasks/`, `docs/`, `tests/`, and the submodules (html5lib-tests, html5lib-python, the
-conformance suites, the benchmark and fuzz corpora). The generators under `tools/generate_*.py` produce committed tables
-from pinned, checksummed sources; a bug in a generator that does not change a committed table is out of scope.
+Out of scope: `tools/`, `docs/`, `tests/`, and the submodules (html5lib-tests, html5lib-python, the conformance suites,
+the benchmark and fuzz corpora). The generators under `tools/generate_*.py` produce committed tables from pinned,
+checksummed sources; a bug in a generator that does not change a committed table is out of scope.
 
 ## How to exercise it
 
