@@ -6,6 +6,19 @@
 
 .. towncrier release notes start
 
+.. _release-1-15-4:
+
+**********************
+ v1.15.4 (2026-10-27)
+**********************
+
+.. _release-1-15-4-documentation:
+
+Documentation
+=============
+
+- Fix the license link in the PyPI project description (:pr:`1544`) by :user:`gaborbernat`.
+
 .. _release-1-15-3:
 
 **********************

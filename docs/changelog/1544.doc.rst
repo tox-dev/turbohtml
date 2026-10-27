@@ -1,1 +1,0 @@
-Fix the license link in the PyPI project description.
