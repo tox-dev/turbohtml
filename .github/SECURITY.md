@@ -40,7 +40,8 @@ Classify by who supplies the dangerous input, not by how bad the outcome sounds.
   write, use-after-free, type confusion, integer overflow. A crash counts without a proven exploit.
 - A tree-construction divergence that moves an element across a namespace boundary or hides it from the sanitizer's
   allowlist walk.
-- A small input that drives a hang, stack overflow or runaway allocation.
+- A small input that drives a hang, stack overflow or runaway allocation, and, rated Low, super-linear time or memory
+  that matters only for inputs far larger than an attack needs.
 - An XSLT `xsl:import` that reads a file outside `import_root`.
 
 **Out of scope**
@@ -49,7 +50,13 @@ Classify by who supplies the dangerous input, not by how bad the outcome sounds.
   that is a hardening matter.
 - A spec divergence that stays inert, such as a mis-nested `<table>`.
 - A Python exception on malformed input that the caller can catch.
-- A finding that reproduces only in a debug or instrumented build, or only from input the caller controls.
+- A finding that reproduces only in a sanitizer or `-Dfuzzing=true` build, for example by reaching its operation limit,
+  or only from input the caller controls.
+- `xsl:import` reading local files when the caller kept `allow_imports=True` without an `import_root`; set
+  `allow_imports=False` for untrusted stylesheets.
+- `escape` and `unescape` matching `html.escape` and `html.unescape`, and `Markup` from `migration.markupsafe` treating
+  its argument as safe markup; both are their contracts.
+- The 512-level tree depth cap flattening deeper nesting.
 - `tools/`, `docs/`, `tests/` and the vendored test suites and corpora.
 
 If you cannot tell which side a finding falls on, report it privately and we will decide.

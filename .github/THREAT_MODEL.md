@@ -50,12 +50,12 @@ An attacker who controls any of these already has what turbohtml could give them
 
 ## Untrusted inputs
 
-| Input                         | Comes from                                | What turbohtml guarantees                                                                    |
-| ----------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Bytes and strings to parse    | Any document or fragment                  | Parsed without memory-safety faults; malformed input yields a tree or a catchable exception. |
-| Markup to sanitize or linkify | Any user-generated content                | Under the default `Policy()`, output does not run script when a browser parses it.           |
-| CSS selectors, XPath, XSLT    | Query text the caller may take from users | Evaluated without memory-safety faults; `xsl:import` stays within `import_root`.             |
-| Encoding declarations         | BOM, `<meta charset>`, prescan            | Decoded through the WHATWG encoding tables only.                                             |
+| Input                         | Comes from                                | What turbohtml guarantees                                                                                                                  |
+| ----------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Bytes and strings to parse    | Any document or fragment                  | Parsed without memory-safety faults; malformed input yields a tree or a catchable exception.                                               |
+| Markup to sanitize or linkify | Any user-generated content                | Under the default `Policy()`, output does not run script when a browser parses it.                                                         |
+| CSS selectors, XPath, XSLT    | Query text the caller may take from users | Evaluated without memory-safety faults; with `import_root` set, `xsl:import` reads only files under it, and UNC paths are always rejected. |
+| Encoding declarations         | BOM, `<meta charset>`, prescan            | Decoded through the WHATWG encoding tables only.                                                                                           |
 
 ## Threats and controls
 
@@ -63,14 +63,14 @@ An attacker who controls any of these already has what turbohtml could give them
 | ---------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | Tampering              | Serialized output reparses into a different, executable tree (mutation XSS). | Sanitizer wrong-output oracles compare output against independent parses by html5lib and parse5. |
 | Information disclosure | An out-of-bounds read leaks process memory into returned output.             | ASan and UBSan fuzzing of parse, serialize, sanitize, URL and IDNA targets.                      |
-| Denial of service      | A short input causes super-linear time or expansion blowup.                  | Fuzzing with an operation limit; reported as a vulnerability when the input is small.            |
-| Elevation of privilege | Memory corruption in the C extension gives code execution.                   | Fuzzing, sanitizer builds and a test for every fixed crasher in `tests/fuzz_regressions/`.       |
+| Denial of service      | A short input causes super-linear time or expansion blowup.                  | Fuzzing with an operation limit; see the severity ratings below.                                 |
+| Elevation of privilege | Memory corruption in the C extension gives code execution.                   | Fuzzing in sanitizer builds, which replays past crashers from `tests/fuzz_regressions/`.         |
 
 ## Release chain
 
 Releases run on the shared [tox-dev/github-workflows](https://github.com/tox-dev/github-workflows) pipeline. A release
-App, not a person, pushes the release commit and tag; the build installs its tools hash-checked from `pylock.toml` with
-a seven-day upload cooldown; PyPI receives the files through
+App, not a person, pushes the release commit and tag; the build installs its tools from a hash-checked `pylock.toml`
+resolved with a seven-day upload cooldown by default; PyPI receives the files through
 [trusted publishing](https://docs.pypi.org/trusted-publishers/) with attestations, and the GitHub Release is immutable.
 Every workflow pins third-party actions to a commit SHA.
 
@@ -88,10 +88,21 @@ download does not match, so a poisoned source cannot land silently.
 | `parse()` raises `ValueError` on bad input                                  | Bug                 | Catchable exception, no corruption.            |
 | `<table>` nesting differs from browsers but stays inert                     | Bug                 | Divergence without security impact.            |
 
+## Severity
+
+- **Critical:** memory corruption in the C extension with attacker-controlled size or contents, reachable by parsing,
+  sanitizing or serializing untrusted input with default options.
+- **High:** a sanitizer or `linkify` bypass under the default `Policy()` that runs script in a current browser, any
+  other out-of-bounds write or use-after-free from untrusted input, an out-of-bounds read that leaks memory into the
+  output, or `xsl:import` reading outside `import_root`.
+- **Medium:** a crash with no demonstrated corruption, an out-of-bounds read that does not reach the output, or a small
+  input that hangs the process or blows up allocation.
+- **Low:** super-linear time or memory that matters only for inputs far larger than an attack needs.
+
 ## Accepted risks
 
 - Free-threaded data races on objects the caller shares across threads are the caller's to synchronize.
-- Very large inputs can take proportionally long; only blowup from small inputs is a vulnerability.
+- Inputs take time and memory in proportion to their size; only super-linear growth is in scope.
 
 ## Keeping this current
 
