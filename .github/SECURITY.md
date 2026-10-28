@@ -1,97 +1,67 @@
-# Security Policy
+# Security policy
 
-turbohtml parses untrusted bytes in a C extension and sanitizes untrusted markup, so its security surface is real. This
-policy says what we treat as a vulnerability, how to report one, and what we promise back.
-
-## Supported versions
-
-| Version        | Security fixes                    |
-| -------------- | --------------------------------- |
-| latest release | yes                               |
-| older releases | critical issues only, best effort |
-
-Fixes land on the latest release line. We patch an older line only for a critical issue, and only when the fix ports
-cleanly.
+turbohtml is a Python HTML toolkit whose C extension tokenizes, parses, queries, serializes and sanitizes untrusted
+markup. This policy says how to report a security problem and how we decide whether a report is one.
 
 ## Reporting a vulnerability
 
-Report privately through GitHub's [Report a vulnerability](https://github.com/tox-dev/turbohtml/security/advisories/new)
-flow. Do not open a public issue for a suspected vulnerability.
+**Do not open a public issue for a security problem.** Use
+[GitHub's private vulnerability reporting](https://github.com/tox-dev/turbohtml/security/advisories/new). If neither
+works for you, email [gaborjbernat@gmail.com](mailto:gaborjbernat@gmail.com).
 
-Include:
-
-- the affected version (`turbohtml.__version__`),
-- a minimal input that reproduces the problem,
-- the configuration you used (default, or the exact non-default options),
-- the impact you observed or expect.
-
-A reproducer we can run is worth more than a description. If you cannot reach GitHub, email
-[gaborjbernat@gmail.com](mailto:gaborjbernat@gmail.com).
-
-## What counts as a security issue
-
-turbohtml both parses bytes and sanitizes markup, so we classify by whether an attacker who controls the input can reach
-active content or corrupt memory.
-
-In scope:
-
-- **Sanitizer bypass under the default configuration.** Sanitized output still executes or can execute script. A
-  surviving `<script>`, an `on*` handler, a `javascript:` or `data:` URL that reaches an attribute, mutation-XSS where
-  the serialized output reparses into an executable tree, and namespace confusion across an SVG or MathML integration
-  point all qualify. This is the highest priority.
-- **Memory-safety fault in the C extension on untrusted input.** An out-of-bounds read or write, a use-after-free, a
-  type confusion, or an integer or buffer overflow reachable by parsing, serializing, or sanitizing untrusted bytes. A
-  crash counts even without a proven exploit; corrupting memory is enough.
-- **A parser or spec divergence that enables a sanitizer bypass.** A tree-construction quirk is a security issue when it
-  moves an element across a namespace boundary the sanitizer relies on, or when it hides an executable construct from
-  the allowlist walk. The bypass it enables is the harm, not the divergence itself.
-- **Unbounded resource use from a small input.** Algorithmic-complexity or expansion blowup that turns a short input
-  into a stack overflow, a hang, or a runaway allocation.
-
-Out of scope (report these as a normal [issue](https://github.com/tox-dev/turbohtml/issues)):
-
-- **A spec divergence with no security impact.** Output that differs from the WHATWG algorithm but stays inert, for
-  example a mis-nested `<table>` or an attribute serialized in a different but safe form. These are correctness bugs; we
-  want them, through the normal issue tracker.
-- **A bypass that needs a non-default, deliberately unsafe configuration.** If reaching active content requires a policy
-  the caller wrote to allow it, that is a hardening or documentation matter, not a vulnerability in the default.
-- **A clean exception on malformed input.** A raised Python error that the caller can catch is a bug report, not a
-  memory-safety issue.
-- **A finding that reproduces only under a debug or instrumented build,** or only from trusted, local input the caller
-  already controls.
-
-The two calls we make explicitly: a sanitizer bypass is a vulnerability only against the default configuration, and a
-parser crash is a vulnerability when it corrupts memory or drives a denial of service, not when it is a catchable
-exception or an inert divergence.
+Include what the attacker controls and what they gain, the steps or a proof of concept, and the versions and platform
+you tested. Write the report yourself; unreviewed tool or model output takes longer to triage.
 
 ## What to expect
 
-turbohtml is volunteer-maintained, so these are reasonable-effort targets, not a contractual SLA:
+Volunteers maintain turbohtml, with no on-call rotation. We aim to acknowledge a report within **5 working days** and
+assess it within **15 working days**. Fixes are developed in a private fork attached to the draft advisory, ship in a
+new release, and the advisory, with a CVE requested through GitHub, goes out with that release. The default embargo is
+**90 days** from the report; we agree any change with the reporter. We credit reporters in the advisory under the name
+they choose, or not at all. There is no bug bounty.
 
-- We acknowledge a report within five business days.
-- We aim to ship a fix or a documented mitigation within 90 days, and we coordinate the disclosure date with you.
-- For an accepted vulnerability we publish a GitHub Security Advisory and request a CVE through GitHub, which is a CVE
-  Numbering Authority.
-- We credit reporters by the name they choose, and name a reporter only with permission.
+## Supported versions
+
+The latest release receives fixes. An older line gets a fix only for a critical issue, best effort, and only when the
+fix ports cleanly.
+
+## Vulnerability or bug
+
+A report is a vulnerability when an attacker who controls only an input that the [threat model](THREAT_MODEL.md) lists
+as untrusted breaks a guarantee turbohtml makes. A report that first needs control of something the threat model trusts,
+such as a sanitizer `Policy` or options the caller wrote, is a bug: we fix it in the open and publish no advisory.
+Classify by who supplies the dangerous input, not by how bad the outcome sounds.
+
+**In scope**
+
+- A sanitizer or `linkify` bypass under the default `Policy()`: sanitized output that runs script once a browser parses
+  it, including mutation XSS and namespace confusion across SVG and MathML.
+- A memory-safety fault in the C extension reachable from untrusted input through the public API: out-of-bounds read or
+  write, use-after-free, type confusion, integer overflow. A crash counts without a proven exploit.
+- A tree-construction divergence that moves an element across a namespace boundary or hides it from the sanitizer's
+  allowlist walk.
+- A small input that drives a hang, stack overflow or runaway allocation, and, rated Low, super-linear time or memory
+  that matters only for inputs far larger than an attack needs.
+- An XSLT `xsl:import` that reads a file outside `import_root`.
+
+**Out of scope**
+
+- A bypass that needs a non-default `Policy` the caller wrote to allow the dangerous element, attribute or URL scheme;
+  that is a hardening matter.
+- A spec divergence that stays inert, such as a mis-nested `<table>`.
+- A Python exception on malformed input that the caller can catch.
+- A finding that reproduces only in a sanitizer or `-Dfuzzing=true` build, for example by reaching its operation limit,
+  or only from input the caller controls.
+- `xsl:import` reading local files when the caller kept `allow_imports=True` without an `import_root`; set
+  `allow_imports=False` for untrusted stylesheets.
+- `escape` and `unescape` matching `html.escape` and `html.unescape`, and `Markup` from `migration.markupsafe` treating
+  its argument as safe markup; both are their contracts.
+- The 512-level tree depth cap flattening deeper nesting.
+- `tools/`, `docs/`, `tests/` and the vendored test suites and corpora.
+
+If you cannot tell which side a finding falls on, report it privately and we will decide.
 
 ## Safe harbor
 
 We will not pursue good-faith research conducted under this policy. Touch only data you own, avoid disrupting others,
-and give us reasonable time to remediate before you disclose publicly.
-
-## Supply-chain provenance of generated tables
-
-Some `_c/data/` tables are generated from a pinned upstream source rather than written by hand. `tools/generate_tlds.py`
-fetches the IANA top-level-domain list from `data.iana.org`, `tools/generate_psl.py` fetches the Public Suffix List from
-GitHub, and `tools/generate_idna.py` fetches the UTS #46 mapping table and the Unicode Character Database files its NFC
-step needs from `unicode.org`. A poisoned or silently changed upstream table is a vulnerability that no review of the
-`.c` sources would catch, the class the xz-utils backdoor (CVE-2024-3094) exploited by hiding in a generated build
-artifact.
-
-To make a regeneration verifiable, each generator pins the SHA-256 of the exact upstream bytes the committed table was
-built from, on top of the version or commit it already names: `generate_tlds.py` pins `IANA_VERSION` and `IANA_SHA256`,
-`generate_psl.py` pins `PSL_COMMIT` and `PSL_SHA256`, and `generate_idna.py` pins `UNICODE_VERSION` and a SHA-256 for
-each of the three files it downloads. A rebuild recomputes the digest of the download and aborts when it does not match
-the pin, so a changed or poisoned source cannot land silently. A real upstream bump is deliberate: a maintainer reviews
-the new source, updates the version-or-commit pin and its checksum together, and regenerates, so both the changed pin
-and the table diff show up in code review.
+and give us reasonable time to fix the problem before you disclose it.
