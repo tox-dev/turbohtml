@@ -1,0 +1,75 @@
+INFO: Instrumenting 6824 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fe2db23f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1906928159
+INFO: Loaded 1 modules   (90739 inline 8-bit counters): 90739 [0x7be2d7dc4a38, 0x7be2d7ddacab), 
+INFO: Loaded 1 PC tables (90739 PCs): 90739 [0x7be2d7ddacb0,0x7be2d7f3d3e0), 
+INFO:       35 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_translate
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 35 min: 4b max: 81921b total: 192518b rss: 173Mb
+#36	INITED cov: 1224 ft: 1871 corp: 8/356b exec/s: 0 rss: 177Mb
+#42	NEW    cov: 1230 ft: 1982 corp: 9/362b lim: 81921 exec/s: 0 rss: 177Mb L: 6/118 MS: 2 EraseBytes-Custom-
+#49	NEW    cov: 1237 ft: 1989 corp: 10/451b lim: 81921 exec/s: 0 rss: 177Mb L: 89/118 MS: 4 CrossOver-Custom-CrossOver-Custom-
+	NEW_FUNC[1/1]: 0x7be2d78cbee0 in sel_raise /src/turbohtml/.mesonpy-q9fcs2b9/../src/turbohtml/_c/css/select/selector.c:1065
+#50	NEW    cov: 1250 ft: 2309 corp: 11/466b lim: 81921 exec/s: 0 rss: 178Mb L: 15/118 MS: 2 EraseBytes-Custom-
+	NEW_FUNC[1/1]: 0x7be2d796d4c0 in apply_predicates /src/turbohtml/.mesonpy-q9fcs2b9/../src/turbohtml/_c/query/xpath/eval.c:1018
+#60	NEW    cov: 1266 ft: 2516 corp: 12/489b lim: 81921 exec/s: 0 rss: 179Mb L: 23/118 MS: 10 CrossOver-Custom-ShuffleBytes-Custom-ChangeBit-Custom-ShuffleBytes-Custom-CrossOver-Custom-
+#61	NEW    cov: 1270 ft: 2529 corp: 13/506b lim: 81921 exec/s: 0 rss: 179Mb L: 17/118 MS: 2 ChangeByte-Custom-
+#62	NEW    cov: 1287 ft: 2609 corp: 14/579b lim: 81921 exec/s: 0 rss: 179Mb L: 73/118 MS: 2 CrossOver-Custom-
+#74	NEW    cov: 1289 ft: 2732 corp: 15/599b lim: 81921 exec/s: 0 rss: 179Mb L: 20/118 MS: 4 CrossOver-Custom-CopyPart-Custom-
+	NEW_FUNC[1/1]: 0x7be2d78cfd90 in contains_ws_token /src/turbohtml/.mesonpy-q9fcs2b9/../src/turbohtml/_c/css/select/selector.c:1155
+#75	NEW    cov: 1308 ft: 2793 corp: 16/637b lim: 81921 exec/s: 0 rss: 179Mb L: 38/118 MS: 2 CrossOver-Custom-
+#86	NEW    cov: 1309 ft: 2801 corp: 17/654b lim: 81921 exec/s: 0 rss: 179Mb L: 17/118 MS: 2 ChangeByte-Custom-
+#89	NEW    cov: 1309 ft: 2811 corp: 18/668b lim: 81921 exec/s: 0 rss: 179Mb L: 14/118 MS: 6 ChangeBinInt-Custom-ShuffleBytes-Custom-EraseBytes-Custom-
+#90	NEW    cov: 1312 ft: 2826 corp: 19/749b lim: 81921 exec/s: 0 rss: 179Mb L: 81/118 MS: 2 CopyPart-Custom-
+#91	NEW    cov: 1322 ft: 2869 corp: 20/772b lim: 81921 exec/s: 0 rss: 179Mb L: 23/118 MS: 2 ChangeByte-Custom-
+#104	NEW    cov: 1332 ft: 2895 corp: 21/791b lim: 81921 exec/s: 0 rss: 179Mb L: 19/118 MS: 6 ChangeBit-Custom-ChangeByte-Custom-CMP-Custom- DE: "\001["-
+#110	NEW    cov: 1332 ft: 2942 corp: 22/830b lim: 81921 exec/s: 0 rss: 179Mb L: 39/118 MS: 2 InsertRepeatedBytes-Custom-
+#113	NEW    cov: 1332 ft: 2945 corp: 23/838b lim: 81921 exec/s: 0 rss: 179Mb L: 8/118 MS: 6 CopyPart-Custom-CrossOver-Custom-CrossOver-Custom-
+
+ === Uncaught Python exception: ===
+ValueError: out of memory at offset 22 near '@'
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/atheris_reference_targets.py", line 145, in _selector
+  File "fuzz/atheris_reference_targets.py", line 218, in selector_observation
+  File "fuzz/atheris_invariants.py", line 17, in assert_invariant
+  File "fuzz/round_trip_oracles.py", line 1421, in selector_entry_check
+ValueError: out of memory at offset 22 near '@'
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7be2d63fd8a0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==307== ERROR: libFuzzer: fuzz target exited
+    #0 0x7fe2db32edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7fe2db27f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7fe2db262596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7fe2db262668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7fe2db262668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7fe2db0318a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7fe2db031a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7be2d87cbf98 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7be2d87cf1b9 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7be2d87cea55 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_css_translate.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_css_translate.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7fe2db00f082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_css_translate.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 2 CopyPart-Custom-; base unit: 98fba0d0c24424b004cf732ab65db4edb392b705
+0x78,0x6e,0x2d,0x2d,0x6e,0x78,0x78,0x61,0x6d,0x71,0x36,0x62,0x2e,0x65,0x78,0x61,0x6d,0x70,0x6c,0x65,0xa,
+xn--nxxamq6b.example\012
+artifact_prefix='/tmp/tmpktkxu5l2/'; Test unit written to /tmp/tmpktkxu5l2/crash-ac8ca02c83f4773e874be6335fac26899eec2204
+Base64: eG4tLW54eGFtcTZiLmV4YW1wbGUK
+stat::number_of_executed_units: 114
+stat::average_exec_per_sec:     0
+stat::new_units_added:          15
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              179

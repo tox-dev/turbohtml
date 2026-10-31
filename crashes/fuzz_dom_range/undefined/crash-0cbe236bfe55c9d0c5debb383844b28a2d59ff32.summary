@@ -1,0 +1,85 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f173060c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3224783456
+INFO: Loaded 1 modules   (107626 inline 8-bit counters): 107626 [0x7f172efd2af8, 0x7f172efecf62), 
+INFO: Loaded 1 PC tables (107626 PCs): 107626 [0x7f172efecf68,0x7f172f191608), 
+INFO:      155 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_range
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 155 min: 1b max: 77b total: 3858b rss: 82Mb
+#156	INITED cov: 614 ft: 1479 corp: 108/2426b exec/s: 0 rss: 83Mb
+#163	NEW    cov: 616 ft: 1481 corp: 109/2478b lim: 4096 exec/s: 0 rss: 83Mb L: 52/76 MS: 4 CMP-Custom-ChangeBinInt-Custom- DE: "\000\000\000\000\000\000\000\000"-
+#241	NEW    cov: 616 ft: 1482 corp: 110/2483b lim: 4096 exec/s: 0 rss: 83Mb L: 5/76 MS: 6 ShuffleBytes-Custom-ChangeBit-Custom-ChangeByte-Custom-
+#1187	NEW    cov: 616 ft: 1484 corp: 111/2520b lim: 4096 exec/s: 0 rss: 83Mb L: 37/76 MS: 2 PersAutoDict-Custom- DE: "\000\000\000\000\000\000\000\000"-
+#2893	REDUCE cov: 616 ft: 1484 corp: 111/2507b lim: 4096 exec/s: 0 rss: 83Mb L: 39/76 MS: 2 EraseBytes-Custom-
+#6854	NEW    cov: 616 ft: 1486 corp: 112/2520b lim: 4096 exec/s: 0 rss: 83Mb L: 13/76 MS: 2 CopyPart-Custom-
+#27227	REDUCE cov: 616 ft: 1486 corp: 112/2517b lim: 4096 exec/s: 27227 rss: 83Mb L: 38/76 MS: 6 ShuffleBytes-Custom-ChangeBinInt-Custom-EraseBytes-Custom-
+#48074	REDUCE cov: 616 ft: 1486 corp: 112/2505b lim: 4096 exec/s: 24037 rss: 83Mb L: 27/76 MS: 4 EraseBytes-Custom-ChangeBinInt-Custom-
+#76205	REDUCE cov: 616 ft: 1486 corp: 112/2503b lim: 4096 exec/s: 25401 rss: 84Mb L: 25/76 MS: 2 EraseBytes-Custom-
+#122076	REDUCE cov: 616 ft: 1486 corp: 112/2497b lim: 4096 exec/s: 24415 rss: 85Mb L: 19/76 MS: 2 EraseBytes-Custom-
+#131072	pulse  cov: 616 ft: 1486 corp: 112/2497b lim: 4096 exec/s: 21845 rss: 85Mb
+#182215	REDUCE cov: 616 ft: 1486 corp: 112/2493b lim: 4096 exec/s: 22776 rss: 86Mb L: 72/76 MS: 8 ShuffleBytes-Custom-ChangeASCIIInt-Custom-ChangeBinInt-Custom-EraseBytes-Custom-
+#199365	REDUCE cov: 616 ft: 1486 corp: 112/2491b lim: 4096 exec/s: 22151 rss: 86Mb L: 17/76 MS: 10 ShuffleBytes-Custom-CopyPart-Custom-ChangeBinInt-Custom-CopyPart-Custom-EraseBytes-Custom-
+#200764	REDUCE cov: 616 ft: 1486 corp: 112/2490b lim: 4096 exec/s: 22307 rss: 86Mb L: 16/76 MS: 8 ChangeBit-Custom-InsertByte-Custom-ChangeBit-Custom-EraseBytes-Custom-
+#231836	REDUCE cov: 616 ft: 1486 corp: 112/2480b lim: 4096 exec/s: 23183 rss: 86Mb L: 50/76 MS: 4 EraseBytes-Custom-InsertByte-Custom-
+#251168	REDUCE cov: 616 ft: 1486 corp: 112/2479b lim: 4096 exec/s: 22833 rss: 87Mb L: 15/76 MS: 4 CopyPart-Custom-EraseBytes-Custom-
+#262144	pulse  cov: 616 ft: 1486 corp: 112/2479b lim: 4096 exec/s: 21845 rss: 87Mb
+#321447	REDUCE cov: 616 ft: 1486 corp: 112/2478b lim: 4096 exec/s: 21429 rss: 88Mb L: 13/76 MS: 8 CrossOver-Custom-CopyPart-Custom-EraseBytes-Custom-ChangeBinInt-Custom-
+#348977	REDUCE cov: 616 ft: 1486 corp: 112/2477b lim: 4096 exec/s: 21811 rss: 88Mb L: 14/76 MS: 10 CopyPart-Custom-CrossOver-Custom-ChangeBinInt-Custom-ChangeBinInt-Custom-EraseBytes-Custom-
+#457978	REDUCE cov: 616 ft: 1486 corp: 112/2476b lim: 4096 exec/s: 21808 rss: 90Mb L: 13/76 MS: 2 EraseBytes-Custom-
+#679793	REDUCE cov: 616 ft: 1486 corp: 112/2475b lim: 4096 exec/s: 21928 rss: 94Mb L: 36/76 MS: 10 ShuffleBytes-Custom-ChangeBit-Custom-CopyPart-Custom-CMP-Custom-EraseBytes-Custom- DE: "u\000"-
+#727326	REDUCE cov: 616 ft: 1486 corp: 112/2471b lim: 4096 exec/s: 22040 rss: 94Mb L: 14/76 MS: 6 ChangeByte-Custom-EraseBytes-Custom-EraseBytes-Custom-
+#776434	REDUCE cov: 616 ft: 1486 corp: 112/2470b lim: 4096 exec/s: 21567 rss: 95Mb L: 26/76 MS: 6 EraseBytes-Custom-EraseBytes-Custom-CopyPart-Custom-
+#804073	REDUCE cov: 616 ft: 1486 corp: 112/2465b lim: 4096 exec/s: 21731 rss: 96Mb L: 31/76 MS: 8 EraseBytes-Custom-ShuffleBytes-Custom-CopyPart-Custom-ChangeBit-Custom-
+#815950	REDUCE cov: 616 ft: 1486 corp: 112/2462b lim: 4096 exec/s: 22052 rss: 96Mb L: 23/76 MS: 4 ShuffleBytes-Custom-EraseBytes-Custom-
+#882900	REDUCE cov: 616 ft: 1486 corp: 112/2458b lim: 4096 exec/s: 21534 rss: 97Mb L: 27/76 MS: 8 PersAutoDict-Custom-ChangeBinInt-Custom-ChangeBinInt-Custom-EraseBytes-Custom- DE: "u\000"-
+#1048576	pulse  cov: 616 ft: 1486 corp: 112/2458b lim: 4096 exec/s: 21845 rss: 99Mb
+#1458839	REDUCE cov: 616 ft: 1486 corp: 112/2457b lim: 4096 exec/s: 21773 rss: 106Mb L: 61/76 MS: 8 ChangeBinInt-Custom-EraseBytes-Custom-CopyPart-Custom-EraseBytes-Custom-
+#1502131	REDUCE cov: 616 ft: 1486 corp: 112/2455b lim: 4096 exec/s: 21770 rss: 106Mb L: 15/76 MS: 4 ChangeBit-Custom-EraseBytes-Custom-
+#1547028	REDUCE cov: 616 ft: 1486 corp: 112/2454b lim: 4096 exec/s: 21789 rss: 107Mb L: 14/76 MS: 4 EraseBytes-Custom-ChangeByte-Custom-
+#1639936	REDUCE cov: 616 ft: 1486 corp: 112/2450b lim: 4096 exec/s: 21578 rss: 108Mb L: 23/76 MS: 4 CrossOver-Custom-EraseBytes-Custom-
+
+ === Uncaught Python exception: ===
+AssertionError: ("('<p>=h&lt;tr&lt;da&lt;%tr&gt;bc&lt;tr&gt;tr&nbsp;t</p>', 0, 1, 0, 1, False, '=h<tr<da<%tr>bc<tr>tr\\xa0t')", "('<p>=h&lt;tr&lt;da&lt;%tr&gt;bc&lt;tr&gt;tr\\xa0t</p>', 0, 1, 0, 1, False, '=h<tr<da<%tr>bc<tr>tr\\xa0t')")
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/dom_targets.py", line 27, in _check
+  File "fuzz/dom_targets.py", line 419, in verify
+AssertionError: ("('<p>=h&lt;tr&lt;da&lt;%tr&gt;bc&lt;tr&gt;tr&nbsp;t</p>', 0, 1, 0, 1, False, '=h<tr<da<%tr>bc<tr>tr\\xa0t')", "('<p>=h&lt;tr&lt;da&lt;%tr&gt;bc&lt;tr&gt;tr\\xa0t</p>', 0, 1, 0, 1, False, '=h<tr<da<%tr>bc<tr>tr\\xa0t')")
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7f172d6fa5c0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==217== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f173067a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7f173064c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f173062f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f173062f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f173062f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f17304548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f1730454a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7f172f7cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7f172f7cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7f172f7ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_range.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_range.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f1730432082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_range.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 4 InsertByte-Custom-ChangeBinInt-Custom-; base unit: ac5664a6c7852ca7e1ea0bed5c2d21b84e8abe36
+0xff,0x2e,0xff,0x20,0x20,0x34,0x40,0x0,0x65,0x66,0x68,0x68,0x3d,0x68,0x3c,0x74,0x72,0x3c,0x64,0x61,0x3c,0x25,0x74,0x72,0x3e,0x62,0x63,0x3c,0x74,0x72,0x3e,0x74,0x72,0xc2,0xa0,0x74,
+\377.\377  4@\000efhh=h<tr<da<%tr>bc<tr>tr\302\240t
+artifact_prefix='/tmp/tmp_3xz38kg/'; Test unit written to /tmp/tmp_3xz38kg/crash-0cbe236bfe55c9d0c5debb383844b28a2d59ff32
+Base64: /y7/ICA0QABlZmhoPWg8dHI8ZGE8JXRyPmJjPHRyPnRywqB0
+stat::number_of_executed_units: 1802033
+stat::average_exec_per_sec:     21711
+stat::new_units_added:          27
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              111

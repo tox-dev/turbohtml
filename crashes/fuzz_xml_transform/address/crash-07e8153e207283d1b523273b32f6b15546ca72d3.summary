@@ -1,0 +1,69 @@
+INFO: Instrumenting 6827 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f05e743f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 805920941
+INFO: Loaded 1 modules   (100504 inline 8-bit counters): 100504 [0x7b05e416e1a8, 0x7b05e4186a40), 
+INFO: Loaded 1 PC tables (100504 PCs): 100504 [0x7b05e4186a40,0x7b05e430f3c0), 
+INFO:       37 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_xml_transform
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 37 min: 4b max: 2223b total: 4408b rss: 176Mb
+#38	INITED cov: 1164 ft: 2264 corp: 36/4331b exec/s: 0 rss: 177Mb
+#44	NEW    cov: 1166 ft: 2276 corp: 37/4365b lim: 4096 exec/s: 0 rss: 177Mb L: 34/2223 MS: 2 ChangeBinInt-Custom-
+#45	NEW    cov: 1167 ft: 2277 corp: 38/4370b lim: 4096 exec/s: 0 rss: 177Mb L: 5/2223 MS: 2 ChangeBit-Custom-
+#64	NEW    cov: 1171 ft: 2286 corp: 39/4375b lim: 4096 exec/s: 0 rss: 177Mb L: 5/2223 MS: 8 ChangeBit-Custom-ChangeBit-Custom-ChangeBinInt-Custom-ChangeBit-Custom-
+#66	NEW    cov: 1174 ft: 2292 corp: 40/4410b lim: 4096 exec/s: 0 rss: 177Mb L: 35/2223 MS: 4 ShuffleBytes-Custom-EraseBytes-Custom-
+#72	NEW    cov: 1175 ft: 2295 corp: 41/4585b lim: 4096 exec/s: 0 rss: 177Mb L: 175/2223 MS: 2 CopyPart-Custom-
+#74	NEW    cov: 1178 ft: 2306 corp: 42/4591b lim: 4096 exec/s: 0 rss: 177Mb L: 6/2223 MS: 4 ChangeBit-Custom-ChangeByte-Custom-
+#95	NEW    cov: 1181 ft: 2309 corp: 43/4596b lim: 4096 exec/s: 0 rss: 177Mb L: 5/2223 MS: 2 EraseBytes-Custom-
+#107	NEW    cov: 1183 ft: 2312 corp: 44/4616b lim: 4096 exec/s: 0 rss: 177Mb L: 20/2223 MS: 4 EraseBytes-Custom-EraseBytes-Custom-
+#109	NEW    cov: 1187 ft: 2316 corp: 45/4682b lim: 4096 exec/s: 0 rss: 177Mb L: 66/2223 MS: 4 ShuffleBytes-Custom-InsertByte-Custom-
+
+ === Uncaught Python exception: ===
+ValueError: xslt: bad parameter expression: unexpected trailing tokens at offset 0 near ''nap:0  ; #ffffff
+; backgruond:'
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/reference_targets.py", line 157, in _transform
+  File "fuzz/reference_targets.py", line 365, in transform_observation
+  File "turbohtml/transform.py", line 82, in __call__
+    return _xslt_transform(self._compiled, source, params or None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: xslt: bad parameter expression: unexpected trailing tokens at offset 0 near ''nap:0  ; #ffffff
+; backgruond:'
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7b05e24c6660>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==375== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f05e752edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7f05e747f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f05e7462596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f05e7462668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f05e7462668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f05e72548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f05e7254a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7b05e49cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7b05e49cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7b05e49ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_transform.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_transform.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f05e7232082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_transform.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 6 ShuffleBytes-Custom-ShuffleBytes-Custom-CrossOver-Custom-; base unit: 0c8d58b8e92cdd00209982dbaed9703e7bdf3368
+0x62,0x6f,0x64,0x79,0x20,0x3c,0x0,0x0,0x61,0x72,0x67,0x69,0x6e,0x61,0x70,0x3a,0x30,0x20,0x20,0x3b,0x20,0x23,0x66,0x66,0x66,0x66,0x66,0x66,0xd,0x3b,0x20,0x62,0x61,0x63,0x6b,0x67,0x72,0x75,0x6f,0x6e,0x64,0x3a,0x20,0x75,0x72,0x6c,0x28,0x61,0x2e,0x70,0x6e,0x67,0x29,0x20,0x7d,0xa,
+body <\000\000arginap:0  ; #ffffff\015; backgruond: url(a.png) }\012
+artifact_prefix='/tmp/tmpv58rmp8f/'; Test unit written to /tmp/tmpv58rmp8f/crash-07e8153e207283d1b523273b32f6b15546ca72d3
+Base64: Ym9keSA8AABhcmdpbmFwOjAgIDsgI2ZmZmZmZg07IGJhY2tncnVvbmQ6IHVybChhLnBuZykgfQo=
+stat::number_of_executed_units: 122
+stat::average_exec_per_sec:     0
+stat::new_units_added:          9
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              180

@@ -1,0 +1,59 @@
+INFO: Instrumenting 6827 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f5c2c23f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 632763179
+INFO: Loaded 1 modules   (98576 inline 8-bit counters): 98576 [0x7b5c2912aff8, 0x7b5c29143108), 
+INFO: Loaded 1 PC tables (98576 PCs): 98576 [0x7b5c29143108,0x7b5c292c4208), 
+INFO:       35 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_html_document
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 35 min: 4b max: 81921b total: 192518b rss: 174Mb
+
+ === Uncaught Python exception: ===
+SystemError: <built-in method __new__ of type object at 0x7b5c29cb2aa8> returned a result with an exception set
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/parser_targets.py", line 88, in _document
+  File "fuzz/parser_targets.py", line 122, in document_observation
+  File "fuzz/atheris_invariants.py", line 17, in assert_invariant
+  File "fuzz/round_trip_oracles.py", line 1459, in span_check
+  File "fuzz/round_trip_oracles.py", line 1459, in <listcomp>
+  File "fuzz/round_trip_oracles.py", line 1446, in <lambda>
+  File "<string>", line 1, in <lambda>
+SystemError: <built-in method __new__ of type object at 0x7b5c29cb2aa8> returned a result with an exception set
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7b5c274d2660>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==738== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f5c2c32edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7f5c2c27f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f5c2c262596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f5c2c262668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f5c2c262668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f5c2c0548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f5c2c054a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7b5c299cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7b5c299cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7b5c299ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_html_document.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_html_document.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f5c2c032082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_html_document.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 0 ; base unit: 0000000000000000000000000000000000000000
+0x3c,0x73,0x76,0x67,0x3e,0x3c,0x72,0x65,0x63,0x74,0x2f,0x3e,0x3c,0x2f,0x73,0x76,0x67,0x3e,0x3c,0x6d,0x61,0x74,0x68,0x3e,0x3c,0x6d,0x69,0x3e,0x78,0x3c,0x2f,0x6d,0x69,0x3e,0x3c,0x2f,0x6d,0x61,0x74,0x68,0x3e,0xa,
+<svg><rect/></svg><math><mi>x</mi></math>\012
+artifact_prefix='/tmp/tmplkejzbqf/'; Test unit written to /tmp/tmplkejzbqf/crash-5cdf0ca1be80ee33d85214222090d60de491b14c
+Base64: PHN2Zz48cmVjdC8+PC9zdmc+PG1hdGg+PG1pPng8L21pPjwvbWF0aD4K
+stat::number_of_executed_units: 11
+stat::average_exec_per_sec:     0
+stat::new_units_added:          0
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              174

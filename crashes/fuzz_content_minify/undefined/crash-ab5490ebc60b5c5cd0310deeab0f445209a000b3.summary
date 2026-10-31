@@ -1,0 +1,57 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f279240c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 4168627815
+INFO: Loaded 1 modules   (107626 inline 8-bit counters): 107626 [0x7f2790dd2af8, 0x7f2790decf62), 
+INFO: Loaded 1 PC tables (107626 PCs): 107626 [0x7f2790decf68,0x7f2790f91608), 
+INFO:       65 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_minify
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 65 min: 4b max: 2223b total: 8364b rss: 84Mb
+#66	INITED cov: 2312 ft: 4783 corp: 65/8364b exec/s: 0 rss: 84Mb
+#76	NEW    cov: 2312 ft: 4785 corp: 66/8374b lim: 4096 exec/s: 0 rss: 84Mb L: 10/2223 MS: 10 InsertRepeatedBytes-Custom-ShuffleBytes-Custom-CrossOver-Custom-ChangeBinInt-Custom-EraseBytes-Custom-
+#84	NEW    cov: 2312 ft: 4787 corp: 67/8754b lim: 4096 exec/s: 0 rss: 84Mb L: 380/2223 MS: 6 ShuffleBytes-Custom-EraseBytes-Custom-InsertByte-Custom-
+	NEW_FUNC[1/1]: 0x7f2790825240 in attr_alloc_failed /src/turbohtml/.mesonpy-4fnqtz2m/../src/turbohtml/_c/tokenizer/statemachine.c:737
+#96	NEW    cov: 2319 ft: 4794 corp: 68/8808b lim: 4096 exec/s: 0 rss: 85Mb L: 54/2223 MS: 4 CopyPart-Custom-CrossOver-Custom-
+#116	NEW    cov: 2319 ft: 4796 corp: 69/8927b lim: 4096 exec/s: 0 rss: 85Mb L: 119/2223 MS: 10 ChangeBit-Custom-InsertRepeatedBytes-Custom-ChangeByte-Custom-ChangeBinInt-Custom-EraseBytes-Custom-
+
+ === Uncaught Python exception: ===
+AssertionError: a result for an injected allocation failure
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 135, in run
+AssertionError: a result for an injected allocation failure
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7f278f4f65c0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==546== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f279247a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7f279244c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f279242f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f279242f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f279242f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f27922548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f2792254a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7f27915cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7f27915cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7f27915ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_content_minify.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_content_minify.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f2792232082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_content_minify.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 8 InsertByte-Custom-ChangeByte-Custom-ChangeBinInt-Custom-EraseBytes-Custom-; base unit: ad2486bdbafb0e02a08c5dc7e22a6b01745dcd56
+0x3c,0x64,0x69,0x76,0x20,0x69,0x64,0x3d,0x8e,0x20,0x63,0x6c,0x61,0x73,0x73,0x3d,0x27,0x61,0x20,0x62,0x27,0x3e,0x3c,0x90,0xc1,0x8b,0x9a,0x87,0x8b,0xc3,0x9d,0x72,0x3e,0x6d,0x6f,0x64,0x69,0x76,0x3e,0xa,0xfa,
+<div id=\216 class='a b'><\220\301\213\232\207\213\303\235r>modiv>\012\372
+artifact_prefix='/tmp/tmp3g3uu8fh/'; Test unit written to /tmp/tmp3g3uu8fh/crash-ab5490ebc60b5c5cd0310deeab0f445209a000b3
+Base64: PGRpdiBpZD2OIGNsYXNzPSdhIGInPjyQwYuah4vDnXI+bW9kaXY+Cvo=
+stat::number_of_executed_units: 130
+stat::average_exec_per_sec:     0
+stat::new_units_added:          4
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              85

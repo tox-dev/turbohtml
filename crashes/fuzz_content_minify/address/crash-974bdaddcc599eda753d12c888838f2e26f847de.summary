@@ -1,0 +1,55 @@
+INFO: Instrumenting 6827 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f4d2f03f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3946661680
+INFO: Loaded 1 modules   (100504 inline 8-bit counters): 100504 [0x7b4d2bd541a8, 0x7b4d2bd6ca40), 
+INFO: Loaded 1 PC tables (100504 PCs): 100504 [0x7b4d2bd6ca40,0x7b4d2bef53c0), 
+INFO:       58 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_minify
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 58 min: 4b max: 2223b total: 8680b rss: 177Mb
+#59	INITED cov: 2288 ft: 4684 corp: 58/8680b exec/s: 0 rss: 178Mb
+#65	NEW    cov: 2288 ft: 4685 corp: 59/8728b lim: 4096 exec/s: 0 rss: 178Mb L: 48/2223 MS: 2 InsertByte-Custom-
+#73	NEW    cov: 2295 ft: 4692 corp: 60/8805b lim: 4096 exec/s: 0 rss: 178Mb L: 77/2223 MS: 6 CopyPart-Custom-ChangeByte-Custom-InsertRepeatedBytes-Custom-
+#79	NEW    cov: 2295 ft: 4696 corp: 61/8831b lim: 4096 exec/s: 0 rss: 178Mb L: 26/2223 MS: 2 CrossOver-Custom-
+
+ === Uncaught Python exception: ===
+AssertionError: a result for an injected allocation failure
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 135, in run
+AssertionError: a result for an injected allocation failure
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7b4d2a0be660>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==612== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f4d2f12edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7f4d2f07f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f4d2f062596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f4d2f062668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f4d2f062668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f4d2ee158a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f4d2ee15a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7b4d2c5cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7b4d2c5cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7b4d2c5ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_content_minify.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_content_minify.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f4d2edf3082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_content_minify.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 4 CMP-Custom-CopyPart-Custom- DE: "style"-; base unit: 21076c5be0b0313fc52b24a47921cb736e083a4b
+0x3c,0x69,0x64,0x76,0x20,0x8d,0x9b,0x3d,0x78,0x20,0x63,0x6c,0x61,0x73,0x73,0x3d,0x27,0x61,0x20,0x62,0x27,0x3e,0x3c,0x70,0x3e,0x74,0x65,0x78,0x74,0x73,0x74,0x79,0x6c,0x65,0x3c,0x62,0x72,0x3e,0x6d,0x2d,0x74,0x79,0x6c,0x65,0x3c,0x62,0x72,0x3e,0x6d,0x2d,0x3e,0x3c,0x2f,0xe4,0x69,0x76,0x3e,0x3e,0x3c,0x2f,0xe4,0x69,0x76,0x3e,0xa,
+<idv \215\233=x class='a b'><p>textstyle<br>m-tyle<br>m-></\344iv>></\344iv>\012
+artifact_prefix='/tmp/tmplvxmenw4/'; Test unit written to /tmp/tmplvxmenw4/crash-974bdaddcc599eda753d12c888838f2e26f847de
+Base64: PGlkdiCNmz14IGNsYXNzPSdhIGInPjxwPnRleHRzdHlsZTxicj5tLXR5bGU8YnI+bS0+PC/kaXY+Pjwv5Gl2Pgo=
+stat::number_of_executed_units: 96
+stat::average_exec_per_sec:     0
+stat::new_units_added:          3
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              179

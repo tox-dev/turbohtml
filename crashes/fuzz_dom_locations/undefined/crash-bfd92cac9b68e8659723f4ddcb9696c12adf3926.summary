@@ -1,0 +1,57 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f6cefc0c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2822070434
+INFO: Loaded 1 modules   (107626 inline 8-bit counters): 107626 [0x7f6cee632af8, 0x7f6cee64cf62), 
+INFO: Loaded 1 PC tables (107626 PCs): 107626 [0x7f6cee64cf68,0x7f6cee7f1608), 
+INFO:       93 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_locations
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 93 min: 4b max: 779b total: 6723b rss: 83Mb
+#94	INITED cov: 729 ft: 1545 corp: 90/6463b exec/s: 0 rss: 83Mb
+
+ === Uncaught Python exception: ===
+SystemError: <built-in method __new__ of type object at 0x7f6cef0b2aa8> returned a result with an exception set
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/dom_targets.py", line 27, in _check
+  File "fuzz/dom_targets.py", line 32, in dom_observation
+  File "fuzz/dom_targets.py", line 256, in _locations
+  File "<string>", line 1, in <lambda>
+SystemError: <built-in method __new__ of type object at 0x7f6cef0b2aa8> returned a result with an exception set
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7f6cecd3a5c0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==558== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f6cefc7a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7f6cefc4c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f6cefc2f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f6cefc2f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f6cefc2f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f6cefa548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f6cefa54a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7f6ceedcc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7f6ceedcf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7f6ceedceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_locations.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_locations.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f6cefa32082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_locations.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 6 ChangeBit-Custom-ChangeBit-Custom-InsertRepeatedBytes-Custom-; base unit: efe5cc16116d4c4107a54977d25ba55a50859121
+0x3c,0x76,0x67,0x67,0x3e,0x3e,0x72,0x65,0x63,0x74,0x2f,0x3e,0x3c,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x66,0x3c,0x6d,0x69,0x26,0x3c,0x6d,0x61,0x0,0x74,0x68,0x68,0x3e,0xa,0x2f,0x73,0x76,0x67,0x7e,0x3c,0x2b,0x6d,0x61,0x54,0x68,0x6d,0x61,0x74,0x68,
+<vgg>>rect/><fffffffffffffffffffffffffffffffffffffffffffffffffffff<mi&<ma\000thh>\012/svg~<+maThmath
+artifact_prefix='/tmp/tmpsl7luvn7/'; Test unit written to /tmp/tmpsl7luvn7/crash-bfd92cac9b68e8659723f4ddcb9696c12adf3926
+Base64: PHZnZz4+cmVjdC8+PGZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmPG1pJjxtYQB0aGg+Ci9zdmd+PCttYVRobWF0aA==
+stat::number_of_executed_units: 117
+stat::average_exec_per_sec:     0
+stat::new_units_added:          0
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              83

@@ -1,0 +1,56 @@
+INFO: Instrumenting 6826 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fe6a6e0c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3010698689
+INFO: Loaded 1 modules   (101069 inline 8-bit counters): 101069 [0x7fe6a5638758, 0x7fe6a5651225), 
+INFO: Loaded 1 PC tables (101069 PCs): 101069 [0x7fe6a5651228,0x7fe6a57dbef8), 
+INFO:      114 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_xml_schema
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 114 min: 4b max: 81921b total: 1222829b rss: 82Mb
+#115	INITED cov: 1808 ft: 5039 corp: 85/1006Kb exec/s: 38 rss: 91Mb
+
+ === Uncaught Python exception: ===
+AssertionError: xml re-read tree differs: < vs <
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/atheris_reference_targets.py", line 153, in _schema
+  File "fuzz/atheris_reference_targets.py", line 327, in schema_observation
+  File "fuzz/atheris_invariants.py", line 18, in assert_invariant
+AssertionError: xml re-read tree differs: < vs <
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7fe6a3ff5120>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==156== ERROR: libFuzzer: fuzz target exited
+    #0 0x7fe6a6e7a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7fe6a6e4c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7fe6a6e2f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7fe6a6e2f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7fe6a6e2f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7fe6a6c548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7fe6a6c54a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7fe6a5fcc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7fe6a5fcf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7fe6a5fceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_schema.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_schema.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7fe6a6c32082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_schema.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 6 ChangeBit-Custom-CopyPart-Custom-EraseBytes-Custom-; base unit: 864e0388b7ca33bf526264e66c852468648052dd
+0x3c,0x66,0x6f,0x72,0x6d,0x20,0x61,0x63,0x74,0x69,0x6f,0x60,0x3d,0x2f,0x78,0x3e,0x3c,0x69,0x6e,0x61,0x6d,0x65,0x3d,0x71,0x20,0x76,0x61,0x6c,0x75,0x65,0x3d,0x68,0x69,0x3e,0x3c,0x73,0x65,0x6c,0x65,0x63,0x74,0x3e,0x3c,0x4f,0x70,0x74,0x69,0x6f,0x6e,0x3e,0x31,0x3c,0x2f,0x74,0x69,0x6c,0x65,0x63,0x74,0x3e,0x3c,0x2f,0x66,0x3e,0x3c,0x73,0x65,0xa,
+<form actio`=/x><iname=q value=hi><select><Option>1</tilect></f><se\012
+artifact_prefix='/tmp/tmpicneb62h/'; Test unit written to /tmp/tmpicneb62h/crash-0053feaacab5c67fa60a99aa77d01c0e032f35cc
+Base64: PGZvcm0gYWN0aW9gPS94PjxpbmFtZT1xIHZhbHVlPWhpPjxzZWxlY3Q+PE9wdGlvbj4xPC90aWxlY3Q+PC9mPjxzZQo=
+stat::number_of_executed_units: 123
+stat::average_exec_per_sec:     41
+stat::new_units_added:          0
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              91

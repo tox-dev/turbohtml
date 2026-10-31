@@ -1,0 +1,81 @@
+INFO: Instrumenting 6841 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f9aad60c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1633967446
+INFO: Loaded 1 modules   (108038 inline 8-bit counters): 108038 [0x7f9aabefffa8, 0x7f9aabf1a5ae), 
+INFO: Loaded 1 PC tables (108038 PCs): 108038 [0x7f9aabf1a5b0,0x7f9aac0c0610), 
+INFO:     1386 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_markdown_html
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81933 bytes
+INFO: seed corpus: files: 1386 min: 4b max: 81933b total: 790745b rss: 83Mb
+#1387	INITED cov: 5179 ft: 19187 corp: 1141/400Kb exec/s: 693 rss: 86Mb
+#1412	REDUCE cov: 5179 ft: 19187 corp: 1141/399Kb lim: 81933 exec/s: 706 rss: 86Mb L: 1399/17436 MS: 10 CrossOver-Custom-EraseBytes-Custom-ChangeByte-Custom-ChangeBinInt-Custom-InsertRepeatedBytes-Custom-
+#1489	NEW    cov: 5179 ft: 19189 corp: 1142/400Kb lim: 81933 exec/s: 744 rss: 86Mb L: 247/17436 MS: 4 InsertByte-Custom-CrossOver-Custom-
+#1533	NEW    cov: 5179 ft: 19193 corp: 1143/400Kb lim: 81933 exec/s: 766 rss: 86Mb L: 383/17436 MS: 8 ChangeBit-Custom-CMP-Custom-ShuffleBytes-Custom-CopyPart-Custom- DE: "\001\000\000\000\000\000\000\000"-
+#1551	NEW    cov: 5179 ft: 19194 corp: 1144/400Kb lim: 81933 exec/s: 775 rss: 86Mb L: 45/17436 MS: 6 ChangeBinInt-Custom-ChangeBit-Custom-CMP-Custom- DE: "table"-
+#1562	NEW    cov: 5179 ft: 19195 corp: 1145/401Kb lim: 81933 exec/s: 781 rss: 86Mb L: 414/17436 MS: 2 CopyPart-Custom-
+#1589	NEW    cov: 5181 ft: 19199 corp: 1146/402Kb lim: 81933 exec/s: 794 rss: 86Mb L: 1192/17436 MS: 4 ChangeBinInt-Custom-CrossOver-Custom-
+#1610	NEW    cov: 5181 ft: 19202 corp: 1147/402Kb lim: 81933 exec/s: 805 rss: 86Mb L: 146/17436 MS: 2 InsertByte-Custom-
+#1629	NEW    cov: 5181 ft: 19204 corp: 1148/402Kb lim: 81933 exec/s: 814 rss: 86Mb L: 388/17436 MS: 8 ChangeASCIIInt-Custom-ChangeByte-Custom-ChangeBit-Custom-CopyPart-Custom-
+#1715	NEW    cov: 5181 ft: 19205 corp: 1149/403Kb lim: 81933 exec/s: 857 rss: 86Mb L: 687/17436 MS: 2 CrossOver-Custom-
+#1736	NEW    cov: 5183 ft: 19207 corp: 1150/403Kb lim: 81933 exec/s: 868 rss: 86Mb L: 35/17436 MS: 2 ChangeByte-Custom-
+#1757	NEW    cov: 5183 ft: 19209 corp: 1151/403Kb lim: 81933 exec/s: 878 rss: 86Mb L: 214/17436 MS: 2 CrossOver-Custom-
+#1784	NEW    cov: 5183 ft: 19210 corp: 1152/404Kb lim: 81933 exec/s: 892 rss: 86Mb L: 477/17436 MS: 4 EraseBytes-Custom-CopyPart-Custom-
+#1810	NEW    cov: 5183 ft: 19211 corp: 1153/404Kb lim: 81933 exec/s: 905 rss: 86Mb L: 114/17436 MS: 2 CopyPart-Custom-
+#1822	NEW    cov: 5183 ft: 19213 corp: 1154/404Kb lim: 81933 exec/s: 911 rss: 86Mb L: 71/17436 MS: 4 ChangeBinInt-Custom-ChangeBinInt-Custom-
+#1833	NEW    cov: 5183 ft: 19218 corp: 1155/404Kb lim: 81933 exec/s: 916 rss: 86Mb L: 383/17436 MS: 2 ShuffleBytes-Custom-
+#1854	NEW    cov: 5183 ft: 19219 corp: 1156/406Kb lim: 81933 exec/s: 927 rss: 86Mb L: 1657/17436 MS: 2 EraseBytes-Custom-
+#1856	NEW    cov: 5183 ft: 19220 corp: 1157/406Kb lim: 81933 exec/s: 928 rss: 86Mb L: 71/17436 MS: 4 ChangeByte-Custom-CrossOver-Custom-
+#1887	NEW    cov: 5183 ft: 19221 corp: 1158/406Kb lim: 81933 exec/s: 943 rss: 86Mb L: 131/17436 MS: 2 EraseBytes-Custom-
+#1917	NEW    cov: 5183 ft: 19222 corp: 1159/406Kb lim: 81933 exec/s: 958 rss: 86Mb L: 127/17436 MS: 10 ShuffleBytes-Custom-ChangeByte-Custom-ChangeByte-Custom-ChangeBinInt-Custom-PersAutoDict-Custom- DE: "\001\000\000\000\000\000\000\000"-
+#1924	REDUCE cov: 5183 ft: 19222 corp: 1159/406Kb lim: 81933 exec/s: 962 rss: 86Mb L: 50/17436 MS: 4 EraseBytes-Custom-EraseBytes-Custom-
+	NEW_FUNC[1/3]: 0x7f9aab93c750 in run_ucs4 /src/turbohtml/.mesonpy-5xi0jzdt/../src/turbohtml/_c/tokenizer/statemachine_run.h:286
+	NEW_FUNC[2/3]: 0x7f9aab951910 in scan_stops_ucs4 /src/turbohtml/.mesonpy-5xi0jzdt/../src/turbohtml/_c/tokenizer/statemachine.c:1577
+#1943	NEW    cov: 5257 ft: 19296 corp: 1160/406Kb lim: 81933 exec/s: 971 rss: 86Mb L: 51/17436 MS: 8 CrossOver-Custom-ChangeBinInt-Custom-CrossOver-Custom-ChangeBit-Custom-
+#1961	NEW    cov: 5257 ft: 19319 corp: 1161/407Kb lim: 81933 exec/s: 980 rss: 86Mb L: 1140/17436 MS: 6 ShuffleBytes-Custom-CopyPart-Custom-CopyPart-Custom-
+#2000	NEW    cov: 5257 ft: 19320 corp: 1162/408Kb lim: 81933 exec/s: 1000 rss: 86Mb L: 465/17436 MS: 8 CopyPart-Custom-ChangeBit-Custom-InsertByte-Custom-CopyPart-Custom-
+#2018	NEW    cov: 5257 ft: 19323 corp: 1163/410Kb lim: 81933 exec/s: 1009 rss: 86Mb L: 2706/17436 MS: 6 InsertRepeatedBytes-Custom-ChangeBit-Custom-CrossOver-Custom-
+#2023	NEW    cov: 5257 ft: 19324 corp: 1164/410Kb lim: 81933 exec/s: 674 rss: 86Mb L: 152/17436 MS: 10 PersAutoDict-Custom-CopyPart-Custom-ChangeBit-Custom-ChangeByte-Custom-ShuffleBytes-Custom- DE: "table"-
+
+ === Uncaught Python exception: ===
+AssertionError: Markdown conversion changes meaning
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 123, in run
+  File "fuzz/atheris_registry.py", line 58, in run
+  File "fuzz/generation_targets.py", line 37, in markup
+AssertionError: Markdown conversion changes meaning
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7f9aaa64efc0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==193== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f9aad67a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7f9aad64c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f9aad62f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f9aad62f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f9aad62f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f9aad4158a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f9aad415a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7f9aac7cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7f9aac7cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7f9aac7ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_markdown_html.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_markdown_html.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f9aad3f3082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_markdown_html.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 4 ChangeByte-Custom-ChangeBit-Custom-; base unit: fdfd085068cddd6fb45d20fecee14353e2ffcb50
+0xa7,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x1,0x0,0x3c,0x74,0x61,0x62,0x6c,0x65,0x3e,0x3c,0x74,0x72,0x3e,0x3c,0x74,0x64,0x3e,0x61,0x3c,0x74,0x64,0x3e,0x62,0x3c,0x74,0x72,0x3e,0x3d,0x74,0x64,0x3e,0x63,0x3c,0x74,0x64,0x3e,0x64,0x3c,0x2f,0x74,0x61,0x62,0x6c,0x65,0x3e,0xa,
+\247\000\000\000\000\000\000\000\000\000\001\000<table><tr><td>a<td>b<tr>=td>c<td>d</table>\012
+artifact_prefix='/tmp/tmp9oyry6sd/'; Test unit written to /tmp/tmp9oyry6sd/crash-d5cf85abb230f30769dccc53bb40b44b1df8c80c
+Base64: pwAAAAAAAAAAAAEAPHRhYmxlPjx0cj48dGQ+YTx0ZD5iPHRyPj10ZD5jPHRkPmQ8L3RhYmxlPgo=
+stat::number_of_executed_units: 2055
+stat::average_exec_per_sec:     685
+stat::new_units_added:          25
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              86

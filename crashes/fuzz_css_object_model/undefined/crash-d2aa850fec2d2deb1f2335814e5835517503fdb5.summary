@@ -1,0 +1,60 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fab04c0c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2005409261
+INFO: Loaded 1 modules   (107626 inline 8-bit counters): 107626 [0x7fab03650af8, 0x7fab0366af62), 
+INFO: Loaded 1 PC tables (107626 PCs): 107626 [0x7fab0366af68,0x7fab0380f608), 
+INFO:       51 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_object_model
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 51 min: 4b max: 81921b total: 89258b rss: 83Mb
+#52	INITED cov: 1126 ft: 2138 corp: 50/87Kb exec/s: 0 rss: 84Mb
+#58	NEW    cov: 1129 ft: 2147 corp: 51/87Kb lim: 81921 exec/s: 0 rss: 84Mb L: 66/81921 MS: 2 InsertByte-Custom-
+#61	NEW    cov: 1129 ft: 2148 corp: 52/87Kb lim: 81921 exec/s: 0 rss: 84Mb L: 117/81921 MS: 6 EraseBytes-Custom-CMP-Custom-ChangeByte-Custom- DE: "\005\000\000\000\000\000\000\000"-
+
+ === Uncaught Python exception: ===
+SystemError: error return without exception set
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/reference_targets.py", line 149, in _cssom
+  File "fuzz/reference_targets.py", line 258, in cssom_observation
+  File "turbohtml/cssom.py", line 209, in __init__
+    tuple(StyleRule(selector, StyleDeclaration(decls)) for selector, decls in _css_parse_rules(text))
+                                                                              ^^^^^^^^^^^^^^^^^^^^^^
+SystemError: error return without exception set
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7fab01d725c0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==592== ERROR: libFuzzer: fuzz target exited
+    #0 0x7fab04c7a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7fab04c4c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7fab04c2f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7fab04c2f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7fab04c2f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7fab04a548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7fab04a54a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7fab03dcc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7fab03dcf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7fab03dceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_css_object_model.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_css_object_model.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7fab04a32082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_css_object_model.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 2 PersAutoDict-Custom- DE: "\005\000\000\000\000\000\000\000"-; base unit: 905f55e276645d7b2a8ba66f14fe2adc2b09f281
+0x43,0x61,0x6c,0x6c,0x20,0x36,0x35,0x30,0x2d,0x32,0x35,0x33,0x2d,0x30,0x30,0x30,0x30,0x20,0x6f,0x72,0x20,0x2b,0x34,0x34,0x20,0x32,0x30,0x20,0x37,0x39,0x34,0x36,0x20,0x30,0x39,0x35,0x38,0x20,0x78,0x31,0x32,0x33,0x2c,0x20,0x6d,0x61,0x69,0x6c,0x20,0x31,0x32,0x33,0x40,0x65,0x78,0x61,0x6d,0x70,0x6c,0x65,0x2e,0x63,0x6f,0x6d,0x2c,0x20,0x73,0x65,0x65,0x20,0x31,0x70,0x61,0x73,0x73,0x77,0x6f,0x72,0x64,0x2e,0x63,0x6f,0x6d,0x20,0x61,0x6e,0x64,0x5,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x20,0x36,0x35,0x30,0x2e,0x32,0x35,0x33,0x2e,0x30,0x30,0x30,0x30,0x2e,0x65,0x78,0x61,0x6d,0x70,0x6c,0x65,0x2e,0x63,0x6f,0x6d,0x3b,0x20,0x74,0x65,0x6c,0x3a,0x2b,0x31,0x36,0x35,0x30,0x32,0x35,0x33,0x30,0x30,0x30,0x30,0xa,
+Call 650-253-0000 or +44 20 7946 0958 x123, mail 123@example.com, see 1password.com and\005\000\000\000\000\000\000\000 650.253.0000.example.com; tel:+16502530000\012
+artifact_prefix='/tmp/tmpyo1iyswk/'; Test unit written to /tmp/tmpyo1iyswk/crash-d2aa850fec2d2deb1f2335814e5835517503fdb5
+Base64: Q2FsbCA2NTAtMjUzLTAwMDAgb3IgKzQ0IDIwIDc5NDYgMDk1OCB4MTIzLCBtYWlsIDEyM0BleGFtcGxlLmNvbSwgc2VlIDFwYXNzd29yZC5jb20gYW5kBQAAAAAAAAAgNjUwLjI1My4wMDAwLmV4YW1wbGUuY29tOyB0ZWw6KzE2NTAyNTMwMDAwCg==
+stat::number_of_executed_units: 62
+stat::average_exec_per_sec:     0
+stat::new_units_added:          2
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              85

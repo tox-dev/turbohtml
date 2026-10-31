@@ -1,0 +1,121 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fe65fa0c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2056674431
+INFO: Loaded 1 modules   (107626 inline 8-bit counters): 107626 [0x7fe65e388af8, 0x7fe65e3a2f62), 
+INFO: Loaded 1 PC tables (107626 PCs): 107626 [0x7fe65e3a2f68,0x7fe65e547608), 
+INFO:      347 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_html_document
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 347 min: 4b max: 81921b total: 514811b rss: 83Mb
+#348	INITED cov: 3579 ft: 12921 corp: 338/483Kb exec/s: 348 rss: 90Mb
+#351	NEW    cov: 3579 ft: 12923 corp: 339/483Kb lim: 81921 exec/s: 351 rss: 90Mb L: 64/81921 MS: 6 ChangeBinInt-Custom-ChangeByte-Custom-InsertByte-Custom-
+#363	NEW    cov: 3579 ft: 12924 corp: 340/483Kb lim: 81921 exec/s: 363 rss: 90Mb L: 79/81921 MS: 4 ChangeBit-Custom-CMP-Custom- DE: "\001\000\000\000\000\000\000\000"-
+#376	NEW    cov: 3579 ft: 12928 corp: 341/483Kb lim: 81921 exec/s: 376 rss: 90Mb L: 164/81921 MS: 6 EraseBytes-Custom-ChangeASCIIInt-Custom-PersAutoDict-Custom- DE: "\001\000\000\000\000\000\000\000"-
+#387	NEW    cov: 3579 ft: 12929 corp: 342/484Kb lim: 81921 exec/s: 387 rss: 90Mb L: 27/81921 MS: 2 ChangeBit-Custom-
+#391	NEW    cov: 3579 ft: 12930 corp: 343/484Kb lim: 81921 exec/s: 391 rss: 90Mb L: 96/81921 MS: 8 ChangeBit-Custom-ChangeByte-Custom-ChangeBit-Custom-ChangeBinInt-Custom-
+#402	NEW    cov: 3579 ft: 12934 corp: 344/484Kb lim: 81921 exec/s: 402 rss: 90Mb L: 69/81921 MS: 2 CopyPart-Custom-
+#404	NEW    cov: 3579 ft: 12935 corp: 345/484Kb lim: 81921 exec/s: 404 rss: 90Mb L: 40/81921 MS: 4 CopyPart-Custom-EraseBytes-Custom-
+#408	NEW    cov: 3579 ft: 12936 corp: 346/496Kb lim: 81921 exec/s: 408 rss: 90Mb L: 12479/81921 MS: 8 CopyPart-Custom-EraseBytes-Custom-EraseBytes-Custom-EraseBytes-Custom-
+#414	NEW    cov: 3582 ft: 12945 corp: 347/496Kb lim: 81921 exec/s: 414 rss: 90Mb L: 61/81921 MS: 2 PersAutoDict-Custom- DE: "\001\000\000\000\000\000\000\000"-
+#461	NEW    cov: 3583 ft: 12947 corp: 348/496Kb lim: 81921 exec/s: 461 rss: 90Mb L: 33/81921 MS: 4 ShuffleBytes-Custom-InsertByte-Custom-
+#468	NEW    cov: 3598 ft: 12976 corp: 349/496Kb lim: 81921 exec/s: 468 rss: 90Mb L: 25/81921 MS: 4 ChangeByte-Custom-ChangeBinInt-Custom-
+#486	NEW    cov: 3598 ft: 12978 corp: 350/496Kb lim: 81921 exec/s: 486 rss: 90Mb L: 41/81921 MS: 6 CMP-Custom-CopyPart-Custom-PersAutoDict-Custom- DE: "\001["-"\001\000\000\000\000\000\000\000"-
+#487	NEW    cov: 3598 ft: 12982 corp: 351/496Kb lim: 81921 exec/s: 487 rss: 90Mb L: 54/81921 MS: 2 CopyPart-Custom-
+#491	NEW    cov: 3603 ft: 13016 corp: 352/496Kb lim: 81921 exec/s: 491 rss: 90Mb L: 207/81921 MS: 8 EraseBytes-Custom-ChangeBinInt-Custom-PersAutoDict-Custom-CopyPart-Custom- DE: "\001["-
+UndefinedBehaviorSanitizer:DEADLYSIGNAL
+==652==ERROR: UndefinedBehaviorSanitizer: SEGV on unknown address 0x000000000004 (pc 0x7fe65f999997 bp 0x7fff5420c9e0 sp 0x7fff5420c9b8 T652)
+==652==The signal is caused by a READ memory access.
+==652==Hint: address points to the zero page.
+    #0 0x7fe65f999997  (/lib/x86_64-linux-gnu/libc.so.6+0x18b997) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #1 0x7fe65de6d95f in str_from_accessor /src/turbohtml/.mesonpy-4fnqtz2m/../src/turbohtml/_c/dom/nodes.h:428:20
+    #2 0x7fe65de6d95f in node_get_data /src/turbohtml/.mesonpy-4fnqtz2m/../src/turbohtml/_c/dom/leaf.c:160:12
+    #3 0x7fe65ec31b7a in _PyObject_GenericGetAttrWithDict /tmp/Python-3.11.13/Objects/object.c:1278:19
+    #4 0x7fe65ec31b7a in PyObject_GenericGetAttr /tmp/Python-3.11.13/Objects/object.c:1368:12
+    #5 0x7fe65ec3180f in PyObject_GetAttr /tmp/Python-3.11.13/Objects/object.c:916:18
+    #6 0x7fe65ec67c1d in _PyEval_EvalFrameDefault /tmp/Python-3.11.13/Python/ceval.c:3461:29
+    #7 0x7fe65ec104d3 in _PyEval_EvalFrame /tmp/Python-3.11.13/./Include/internal/pycore_ceval.h:73:16
+    #8 0x7fe65ec104d3 in gen_send_ex2 /tmp/Python-3.11.13/Objects/genobject.c:219:14
+    #9 0x7fe65ec104d3 in gen_iternext /tmp/Python-3.11.13/Objects/genobject.c:594:9
+    #10 0x7fe65ec616d5 in builtin_any /tmp/Python-3.11.13/Python/bltinmodule.c:372:16
+    #11 0x7fe65ec6d437 in _PyEval_EvalFrameDefault /tmp/Python-3.11.13/Python/ceval.c:5020:29
+    #12 0x7fe65ec628b8 in _PyEval_EvalFrame /tmp/Python-3.11.13/./Include/internal/pycore_ceval.h:73:16
+    #13 0x7fe65ec628b8 in _PyEval_Vector /tmp/Python-3.11.13/Python/ceval.c:6434:24
+    #14 0x7fe65c57342b in pybind11::detail::simple_collector<(pybind11::return_value_policy)1>::call(_object*) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2159:47
+    #15 0x7fe65c57342b in pybind11::object pybind11::detail::object_api<pybind11::handle>::operator()<(pybind11::return_value_policy)1, pybind11::bytes>(pybind11::bytes&&) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2329:95
+    #16 0x7fe65c57342b in pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>::operator()(pybind11::bytes) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/functional.h:54:23
+    #17 0x7fe65c57342b in void std::__invoke_impl<void, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes>(std::__invoke_other, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes&&) /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/invoke.h:60:36
+    #18 0x7fe65c57342b in std::enable_if<is_invocable_r_v<void, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes>, void>::type std::__invoke_r<void, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes>(pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes&&) /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/invoke.h:110:28
+    #19 0x7fe65c57342b in std::_Function_handler<void (pybind11::bytes), pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>>::_M_invoke(std::_Any_data const&, pybind11::bytes&&) /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/std_function.h:291:30
+    #20 0x7fe65c567605 in std::function<void (pybind11::bytes)>::operator()(pybind11::bytes) const /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/std_function.h:622:14
+    #21 0x7fe65c567605 in void pybind11::detail::argument_loader<pybind11::bytes>::call_impl<void, std::function<void (pybind11::bytes)>&, 0ul, pybind11::detail::void_type>(std::function<void (pybind11::bytes)>&, std::integer_sequence<unsigned long, 0ul>, pybind11::detail::void_type&&) && /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2137:37
+    #22 0x7fe65c567605 in _ZNO8pybind116detail15argument_loaderIJNS_5bytesEEE4callIvNS0_9void_typeERSt8functionIFvS2_EEEENSt9enable_ifIXsrSt7is_voidIT_E5valueES5_E4typeEOT1_ /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2111:65
+    #23 0x7fe65c567605 in void pybind11::cpp_function::initialize<std::function<void (pybind11::bytes)>&, void, pybind11::bytes, pybind11::return_value_policy>(std::function<void (pybind11::bytes)>&, void (*)(pybind11::bytes), pybind11::return_value_policy const&)::'lambda1'(pybind11::detail::function_call&)::operator()(pybind11::detail::function_call&) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:430:75
+    #24 0x7fe65c567605 in void pybind11::cpp_function::initialize<std::function<void (pybind11::bytes)>&, void, pybind11::bytes, pybind11::return_value_policy>(std::function<void (pybind11::bytes)>&, void (*)(pybind11::bytes), pybind11::return_value_policy const&)::'lambda1'(pybind11::detail::function_call&)::_FUN(pybind11::detail::function_call&) /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:400:21
+    #25 0x7fe65c57c861 in pybind11::cpp_function::dispatcher(_object*, _object*, _object*) /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:1063:35
+    #26 0x7fe65ec30758 in cfunction_call /tmp/Python-3.11.13/Objects/methodobject.c:542:18
+    #27 0x7fe65ecc1077 in _PyObject_Call /tmp/Python-3.11.13/Objects/call.c:343:18
+    #28 0x7fe65c0d3f5b in pybind11::detail::simple_collector<(pybind11::return_value_policy)1>::call(_object*) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2159:47
+    #29 0x7fe65c0d3f5b in pybind11::object pybind11::detail::object_api<pybind11::handle>::operator()<(pybind11::return_value_policy)1, pybind11::bytes>(pybind11::bytes&&) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2329:95
+    #30 0x7fe65c0d3f5b in pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>::operator()(pybind11::bytes) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/functional.h:54:23
+    #31 0x7fe65c0d3f5b in void std::__invoke_impl<void, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes>(std::__invoke_other, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes&&) /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/invoke.h:60:36
+    #32 0x7fe65c0d3f5b in std::enable_if<is_invocable_r_v<void, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes>, void>::type std::__invoke_r<void, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes>(pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes&&) /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/invoke.h:110:28
+    #33 0x7fe65c0d3f5b in std::_Function_handler<void (pybind11::bytes), pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>>::_M_invoke(std::_Any_data const&, pybind11::bytes&&) /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/std_function.h:291:30
+    #34 0x7fe65c0bb003 in std::function<void (pybind11::bytes)>::operator()(pybind11::bytes) const /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/std_function.h:622:14
+    #35 0x7fe65c0bb003 in atheris::TestOneInput(unsigned char const*, unsigned long) /atheris/src/native/core.cc:385:26
+    #36 0x7fe65fa0c179 in run_input atheris_bridge.c
+    #37 0x7fe65fa2fdd4 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:617:15
+    #38 0x7fe65fa32fe0 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:519:22
+    #39 0x7fe65fa34ad7 in fuzzer::Fuzzer::MutateAndTestOne() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:763:25
+    #40 0x7fe65fa36007 in fuzzer::Fuzzer::Loop(std::vector<fuzzer::SizedFile, std::allocator<fuzzer::SizedFile>>&) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:908:21
+    #41 0x7fe65fa1e3f6 in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:912:10
+    #42 0x7fe65fa0c138 in LLVMFuzzerRunDriver (/home/runner/work/_temp/cflite/build-out/sanitizer_with_fuzzer.so+0xc138)
+    #43 0x7fe65c0bcfaa in atheris::start_fuzzing(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&) /atheris/src/native/core.cc:465:15
+    #44 0x7fe65c0d3c17 in void pybind11::detail::argument_loader<std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&>::call_impl<void, void (*&)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), 0ul, 1ul, pybind11::detail::void_type>(void (*&)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), std::integer_sequence<unsigned long, 0ul, 1ul>, pybind11::detail::void_type&&) && /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2137:37
+    #45 0x7fe65c0d3c17 in _ZNO8pybind116detail15argument_loaderIJRKSt6vectorISsSaISsEERKSt8functionIFvNS_5bytesEEEEE4callIvNS0_9void_typeERPFvS6_SC_EEENSt9enable_ifIXsrSt7is_voidIT_E5valueESF_E4typeEOT1_ /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2111:65
+    #46 0x7fe65c0d3c17 in void pybind11::cpp_function::initialize<void (*&)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), void, std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&, pybind11::name, pybind11::scope, pybind11::sibling>(void (*&)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), void (*)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), pybind11::name const&, pybind11::scope const&, pybind11::sibling const&)::'lambda1'(pybind11::detail::function_call&)::operator()(pybind11::detail::function_call&) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:430:75
+    #47 0x7fe65c0d3c17 in void pybind11::cpp_function::initialize<void (*&)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), void, std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&, pybind11::name, pybind11::scope, pybind11::sibling>(void (*&)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), void (*)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), pybind11::name const&, pybind11::scope const&, pybind11::sibling const&)::'lambda1'(pybind11::detail::function_call&)::_FUN(pybind11::detail::function_call&) /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:400:21
+    #48 0x7fe65c0cf5ef in pybind11::cpp_function::dispatcher(_object*, _object*, _object*) /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:1063:35
+    #49 0x7fe65ec30758 in cfunction_call /tmp/Python-3.11.13/Objects/methodobject.c:542:18
+    #50 0x7fe65ecc1077 in _PyObject_Call /tmp/Python-3.11.13/Objects/call.c:343:18
+    #51 0x7fe65c570184 in pybind11::detail::simple_collector<(pybind11::return_value_policy)1>::call(_object*) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2159:47
+    #52 0x7fe65c5636f3 in pybind11::object pybind11::detail::object_api<pybind11::detail::accessor<pybind11::detail::accessor_policies::str_attr>>::operator()<(pybind11::return_value_policy)1, std::vector<std::string, std::allocator<std::string>>&, std::function<void (pybind11::bytes)>&>(std::vector<std::string, std::allocator<std::string>>&, std::function<void (pybind11::bytes)>&) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2329:95
+    #53 0x7fe65c5636f3 in atheris::Fuzz() /atheris/src/native/atheris.cc:276:64
+    #54 0x7fe65c566d4c in void pybind11::detail::argument_loader<>::call_impl<void, void (*&)(), pybind11::detail::void_type>(void (*&)(), std::integer_sequence<unsigned long>, pybind11::detail::void_type&&) && /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2137:37
+    #55 0x7fe65c566d4c in _ZNO8pybind116detail15argument_loaderIJEE4callIvNS0_9void_typeERPFvvEEENSt9enable_ifIXsrSt7is_voidIT_E5valueES4_E4typeEOT1_ /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2111:65
+    #56 0x7fe65c566d4c in void pybind11::cpp_function::initialize<void (*&)(), void, pybind11::name, pybind11::scope, pybind11::sibling>(void (*&)(), void (*)(), pybind11::name const&, pybind11::scope const&, pybind11::sibling const&)::'lambda1'(pybind11::detail::function_call&)::operator()(pybind11::detail::function_call&) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:430:75
+    #57 0x7fe65c566d4c in void pybind11::cpp_function::initialize<void (*&)(), void, pybind11::name, pybind11::scope, pybind11::sibling>(void (*&)(), void (*)(), pybind11::name const&, pybind11::scope const&, pybind11::sibling const&)::'lambda1'(pybind11::detail::function_call&)::_FUN(pybind11::detail::function_call&) /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:400:21
+    #58 0x7fe65c57c861 in pybind11::cpp_function::dispatcher(_object*, _object*, _object*) /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:1063:35
+    #59 0x7fe65ec30758 in cfunction_call /tmp/Python-3.11.13/Objects/methodobject.c:542:18
+    #60 0x7fe65ec0b471 in _PyObject_MakeTpCall /tmp/Python-3.11.13/Objects/call.c:214:18
+    #61 0x7fe65ec0b471 in _PyObject_VectorcallTstate /tmp/Python-3.11.13/./Include/internal/pycore_call.h:90:16
+    #62 0x7fe65ec0b471 in PyObject_Vectorcall /tmp/Python-3.11.13/Objects/call.c:299:12
+    #63 0x7fe65ec6bbaa in _PyEval_EvalFrameDefault /tmp/Python-3.11.13/Python/ceval.c
+    #64 0x7fe65ec628b8 in _PyEval_EvalFrame /tmp/Python-3.11.13/./Include/internal/pycore_ceval.h:73:16
+    #65 0x7fe65ec628b8 in _PyEval_Vector /tmp/Python-3.11.13/Python/ceval.c:6434:24
+    #66 0x7fe65ed1e240 in PyEval_EvalCode /tmp/Python-3.11.13/Python/ceval.c:1148:21
+    #67 0x000000403600  (/home/runner/work/_temp/cflite/build-out/fuzz_html_document.pkg+0x403600) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #68 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_html_document.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #69 0x7fe65f832082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #70 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_html_document.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: str_from_accessor--node_get_data
+==652==Register values:
+rax = 0x00007fe65f42bfb0  rbx = 0x00007fe65eef3f48  rcx = 0x0000000000000003  rdx = 0x000000000000000c  
+rdi = 0x00007fe65f42bfb0  rsi = 0x0000000000000000  rbp = 0x00007fff5420c9e0  rsp = 0x00007fff5420c9b8  
+ r8 = 0x0000000000000003   r9 = 0x0000000000000008  r10 = 0x0000000000000003  r11 = 0x00007fe65c62da60  
+r12 = 0x000000001473dc20  r13 = 0x00007fe65d95dbb2  r14 = 0x00007fe65bf1a5b0  r15 = 0x00007fe65e5cf200  
+UndefinedBehaviorSanitizer can not provide additional info.
+SUMMARY: UndefinedBehaviorSanitizer: SEGV (/lib/x86_64-linux-gnu/libc.so.6+0x18b997) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d) 
+==652==ABORTING
+MS: 6 ChangeBit-Custom-ChangeByte-Custom-EraseBytes-Custom-; base unit: bf3a08d5d9c0b9aa6af44f06d85803d16ed37701
+0x3c,0x21,0x64,0x6f,0x63,0x74,0x79,0x70,0x65,0x20,0x68,0x74,0x6d,0x6c,0x3e,0x3c,0x68,0x74,0x6d,0x6c,0x23,0x3c,0x68,0x65,0x61,0x64,0x3e,0x3c,0x74,0x69,0x74,0x6c,0x65,0x3e,0x74,0x3c,0x2f,0x74,0x69,0x74,0x6c,0x65,0x3e,0x3c,0x2f,0x68,0x65,0x65,0x64,0x3e,0x3c,0x62,0x6f,0x64,0x79,0x3e,0x3c,0x70,0x3e,0x48,0x70,0x3e,0x3c,0x2f,0x62,0x6f,0x64,0x79,0x2f,0x3c,0x3e,0x68,0x74,0x6d,0x6c,0x3e,0xa,
+<!doctype html><html#<head><title>t</title></heed><body><p>Hp></body/<>html>\012
+artifact_prefix='/tmp/tmpq9rg40qe/'; Test unit written to /tmp/tmpq9rg40qe/crash-2e4b2bc0322ac157bc383c30e484b20724fe7f4f
+Base64: PCFkb2N0eXBlIGh0bWw+PGh0bWwjPGhlYWQ+PHRpdGxlPnQ8L3RpdGxlPjwvaGVlZD48Ym9keT48cD5IcD48L2JvZHkvPD5odG1sPgo=
+stat::number_of_executed_units: 499
+stat::average_exec_per_sec:     499
+stat::new_units_added:          14
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              90

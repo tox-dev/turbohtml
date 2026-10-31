@@ -1,0 +1,68 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f828c23f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1677923184
+INFO: Loaded 1 modules   (103106 inline 8-bit counters): 103106 [0x7b828908a4a8, 0x7b82890a376a), 
+INFO: Loaded 1 PC tables (103106 PCs): 103106 [0x7b82890a3770,0x7b8289236390), 
+INFO:      133 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_xml_schema
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 133 min: 4b max: 81921b total: 1004331b rss: 175Mb
+#128	pulse  cov: 1942 ft: 5645 corp: 103/393Kb exec/s: 42 rss: 229Mb
+#134	INITED cov: 1999 ft: 5700 corp: 110/953Kb exec/s: 19 rss: 234Mb
+#135	NEW    cov: 2001 ft: 5715 corp: 111/953Kb lim: 81921 exec/s: 19 rss: 234Mb L: 42/81921 MS: 2 CrossOver-Custom-
+#151	NEW    cov: 2001 ft: 5716 corp: 112/953Kb lim: 81921 exec/s: 21 rss: 234Mb L: 28/81921 MS: 2 ShuffleBytes-Custom-
+#155	NEW    cov: 2002 ft: 5720 corp: 113/953Kb lim: 81921 exec/s: 22 rss: 234Mb L: 123/81921 MS: 8 ChangeBinInt-Custom-EraseBytes-Custom-ShuffleBytes-Custom-InsertRepeatedBytes-Custom-
+#156	NEW    cov: 2002 ft: 5735 corp: 114/953Kb lim: 81921 exec/s: 22 rss: 234Mb L: 102/81921 MS: 2 CrossOver-Custom-
+#172	NEW    cov: 2002 ft: 5748 corp: 115/953Kb lim: 81921 exec/s: 24 rss: 234Mb L: 127/81921 MS: 2 ChangeByte-Custom-
+#173	NEW    cov: 2002 ft: 5756 corp: 116/1024Kb lim: 81921 exec/s: 21 rss: 234Mb L: 72573/81921 MS: 2 EraseBytes-Custom-
+#175	NEW    cov: 2002 ft: 5771 corp: 117/1104Kb lim: 81921 exec/s: 19 rss: 237Mb L: 81921/81921 MS: 4 EraseBytes-Custom-ShuffleBytes-Custom-
+#186	NEW    cov: 2005 ft: 5774 corp: 118/1104Kb lim: 81921 exec/s: 20 rss: 237Mb L: 83/81921 MS: 2 ShuffleBytes-Custom-
+#203	NEW    cov: 2013 ft: 5785 corp: 119/1104Kb lim: 81921 exec/s: 22 rss: 237Mb L: 73/81921 MS: 4 CrossOver-Custom-ChangeByte-Custom-
+#207	NEW    cov: 2014 ft: 5790 corp: 120/1104Kb lim: 81921 exec/s: 23 rss: 237Mb L: 34/81921 MS: 8 CrossOver-Custom-InsertByte-Custom-ChangeBit-Custom-CrossOver-Custom-
+#219	NEW    cov: 2014 ft: 5791 corp: 121/1104Kb lim: 81921 exec/s: 24 rss: 237Mb L: 15/81921 MS: 4 InsertByte-Custom-ChangeBit-Custom-
+#225	NEW    cov: 2016 ft: 5809 corp: 122/1104Kb lim: 81921 exec/s: 25 rss: 237Mb L: 34/81921 MS: 2 ShuffleBytes-Custom-
+#232	NEW    cov: 2016 ft: 5812 corp: 123/1104Kb lim: 81921 exec/s: 25 rss: 237Mb L: 94/81921 MS: 4 ChangeASCIIInt-Custom-CopyPart-Custom-
+#268	NEW    cov: 2016 ft: 5814 corp: 124/1104Kb lim: 81921 exec/s: 29 rss: 237Mb L: 46/81921 MS: 2 InsertByte-Custom-
+#270	NEW    cov: 2016 ft: 5818 corp: 125/1184Kb lim: 81921 exec/s: 27 rss: 237Mb L: 81921/81921 MS: 4 ShuffleBytes-Custom-ChangeBinInt-Custom-
+
+ === Uncaught Python exception: ===
+AssertionError: HTMLParseError for an injected allocation failure
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 130, in run
+AssertionError: HTMLParseError for an injected allocation failure
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7b82873ba660>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==93== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f828c32edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7f828c27f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f828c262596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f828c262668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f828c262668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f828c0548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f828c054a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7b82897cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7b82897cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7b82897ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_schema.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_schema.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f828c032082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_schema.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 2 ChangeByte-Custom-; base unit: db54bc23a2761cda311311df70bf0b5fa781734b
+0x3c,0x66,0x6f,0x72,0x6d,0x20,0x61,0x63,0x74,0x69,0x6f,0x60,0x3d,0x2f,0x78,0x3e,0x3c,0x69,0x6e,0x70,0x75,0x74,0x20,0x6e,0x61,0x6d,0x65,0x3d,0x71,0x20,0x76,0x61,0x6c,0x75,0x65,0x3d,0x68,0x69,0x3e,0x3c,0x78,0x3e,0x3c,0x69,0x6e,0x70,0x75,0x74,0x20,0x6e,0x61,0x6d,0x65,0x3d,0x71,0x20,0x76,0x61,0x6c,0x75,0x65,0x3d,0x68,0x69,0x3e,0x3c,0x73,0x65,0x6c,0x65,0x73,0x65,0x6c,0x65,0x63,0x74,0x3e,0x3c,0x6f,0x70,0x74,0x69,0x6f,0x6e,0x3e,0x31,0x3c,0x2f,0x74,0x69,0x3e,0x3c,0x7e,0x63,0x2f,0x74,0x66,0x6c,0x3e,0x3c,0x73,0x65,0xa,
+<form actio`=/x><input name=q value=hi><x><input name=q value=hi><seleselect><option>1</ti><~c/tfl><se\012
+artifact_prefix='/tmp/tmpss3bq6ww/'; Test unit written to /tmp/tmpss3bq6ww/crash-3c8469a870e943f3e3997298e826e7e2846be4eb
+Base64: PGZvcm0gYWN0aW9gPS94PjxpbnB1dCBuYW1lPXEgdmFsdWU9aGk+PHg+PGlucHV0IG5hbWU9cSB2YWx1ZT1oaT48c2VsZXNlbGVjdD48b3B0aW9uPjE8L3RpPjx+Yy90Zmw+PHNlCg==
+stat::number_of_executed_units: 271
+stat::average_exec_per_sec:     27
+stat::new_units_added:          15
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              237

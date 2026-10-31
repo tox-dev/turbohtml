@@ -1,0 +1,61 @@
+INFO: Instrumenting 6827 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fda7a23f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2877181508
+INFO: Loaded 1 modules   (100504 inline 8-bit counters): 100504 [0x7bda770601a8, 0x7bda77078a40), 
+INFO: Loaded 1 PC tables (100504 PCs): 100504 [0x7bda77078a40,0x7bda772013c0), 
+INFO:      367 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_stylesheet
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 367 min: 4b max: 81921b total: 213656b rss: 176Mb
+#368	INITED cov: 4226 ft: 13205 corp: 362/207Kb exec/s: 0 rss: 188Mb
+#374	NEW    cov: 4228 ft: 13213 corp: 363/210Kb lim: 81921 exec/s: 0 rss: 188Mb L: 2224/81921 MS: 2 ShuffleBytes-Custom-
+#384	NEW    cov: 4228 ft: 13216 corp: 364/211Kb lim: 81921 exec/s: 0 rss: 188Mb L: 1156/81921 MS: 10 ShuffleBytes-Custom-ShuffleBytes-Custom-EraseBytes-Custom-ChangeByte-Custom-ChangeBit-Custom-
+#388	NEW    cov: 4228 ft: 13219 corp: 365/211Kb lim: 81921 exec/s: 0 rss: 188Mb L: 77/81921 MS: 8 ChangeASCIIInt-Custom-ChangeBit-Custom-CMP-Custom-CopyPart-Custom- DE: "g\000"-
+#420	NEW    cov: 4228 ft: 13223 corp: 366/211Kb lim: 81921 exec/s: 0 rss: 188Mb L: 13/81921 MS: 4 InsertByte-Custom-EraseBytes-Custom-
+#422	NEW    cov: 4230 ft: 13236 corp: 367/213Kb lim: 81921 exec/s: 0 rss: 188Mb L: 2224/81921 MS: 4 ChangeASCIIInt-Custom-ShuffleBytes-Custom-
+#434	NEW    cov: 4232 ft: 13238 corp: 368/213Kb lim: 81921 exec/s: 0 rss: 188Mb L: 44/81921 MS: 4 InsertByte-Custom-CopyPart-Custom-
+#446	NEW    cov: 4232 ft: 13240 corp: 369/215Kb lim: 81921 exec/s: 0 rss: 188Mb L: 2259/81921 MS: 4 ShuffleBytes-Custom-ChangeBit-Custom-
+#479	NEW    cov: 4232 ft: 13241 corp: 370/216Kb lim: 81921 exec/s: 0 rss: 188Mb L: 1181/81921 MS: 6 ChangeByte-Custom-CrossOver-Custom-PersAutoDict-Custom- DE: "g\000"-
+#481	NEW    cov: 4245 ft: 13372 corp: 371/218Kb lim: 81921 exec/s: 0 rss: 188Mb L: 1303/81921 MS: 4 InsertByte-Custom-CrossOver-Custom-
+
+ === Uncaught Python exception: ===
+AssertionError: not a fixpoint: end vs '}'
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/stylesheet_targets.py", line 26, in _stylesheet
+  File "fuzz/stylesheet_targets.py", line 33, in stylesheet_observation
+AssertionError: not a fixpoint: end vs '}'
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7bda753c2660>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==538== ERROR: libFuzzer: fuzz target exited
+    #0 0x7fda7a32edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7fda7a27f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7fda7a262596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7fda7a262668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7fda7a262668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7fda7a0548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7fda7a054a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7bda777cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7bda777cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7bda777ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_css_stylesheet.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_css_stylesheet.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7fda7a032082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_css_stylesheet.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 6 ShuffleBytes-Custom-EraseBytes-Custom-CopyPart-Custom-; base unit: a60d84d365f7214867071e08cdb69e8642cdec7f
+artifact_prefix='/tmp/tmppx_zwlpw/'; Test unit written to /tmp/tmppx_zwlpw/crash-091a37462828c55e4217fc82e9ac903272733cd3
+stat::number_of_executed_units: 534
+stat::average_exec_per_sec:     0
+stat::new_units_added:          9
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              188

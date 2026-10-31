@@ -1,0 +1,63 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7ff07043f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1779286100
+INFO: Loaded 1 modules   (103106 inline 8-bit counters): 103106 [0x7bf06d28a4a8, 0x7bf06d2a376a), 
+INFO: Loaded 1 PC tables (103106 PCs): 103106 [0x7bf06d2a3770,0x7bf06d436390), 
+INFO:       46 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_object_model
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 46 min: 4b max: 81921b total: 88575b rss: 175Mb
+#47	INITED cov: 1045 ft: 1930 corp: 45/86Kb exec/s: 0 rss: 179Mb
+#49	NEW    cov: 1048 ft: 1933 corp: 46/86Kb lim: 81921 exec/s: 0 rss: 179Mb L: 32/81921 MS: 4 InsertByte-Custom-ChangeBit-Custom-
+#53	NEW    cov: 1053 ft: 1938 corp: 47/86Kb lim: 81921 exec/s: 0 rss: 179Mb L: 137/81921 MS: 8 ChangeByte-Custom-ChangeBit-Custom-EraseBytes-Custom-CopyPart-Custom-
+#60	NEW    cov: 1053 ft: 1940 corp: 48/86Kb lim: 81921 exec/s: 0 rss: 179Mb L: 103/81921 MS: 4 InsertRepeatedBytes-Custom-ChangeBit-Custom-
+#69	NEW    cov: 1053 ft: 1941 corp: 49/87Kb lim: 81921 exec/s: 0 rss: 179Mb L: 391/81921 MS: 8 ChangeByte-Custom-ShuffleBytes-Custom-ChangeASCIIInt-Custom-InsertByte-Custom-
+#76	NEW    cov: 1055 ft: 1947 corp: 50/87Kb lim: 81921 exec/s: 0 rss: 179Mb L: 20/81921 MS: 4 ChangeBit-Custom-CopyPart-Custom-
+
+ === Uncaught Python exception: ===
+SystemError: error return without exception set
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/reference_targets.py", line 149, in _cssom
+  File "fuzz/reference_targets.py", line 241, in cssom_observation
+  File "turbohtml/cssom.py", line 62, in parse
+    return cls(_css_parse_declarations(text))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+SystemError: error return without exception set
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7bf06b5b6660>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==649== ERROR: libFuzzer: fuzz target exited
+    #0 0x7ff07052edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7ff07047f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7ff070462596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7ff070462668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7ff070462668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7ff0702548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7ff070254a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7bf06d9cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7bf06d9cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7bf06d9ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_css_object_model.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_css_object_model.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7ff070232082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_css_object_model.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 6 ChangeBit-Custom-ChangeByte-Custom-ChangeByte-Custom-; base unit: 57d3aed6cfaf1984265e040cdc7258216a774874
+0x7b,0x2d,0x2d,0x78,0xe7,0x1a,0x40,
+{--x\347\032@
+artifact_prefix='/tmp/tmpcm57i_ks/'; Test unit written to /tmp/tmpcm57i_ks/crash-83c3e664c864874c8a637032fd8a89f26a99f25d
+Base64: ey0teOcaQA==
+stat::number_of_executed_units: 79
+stat::average_exec_per_sec:     0
+stat::new_units_added:          5
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              179

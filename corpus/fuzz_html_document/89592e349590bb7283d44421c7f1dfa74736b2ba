@@ -1,0 +1,6 @@
+<tabe>l<tr><td>a<Stdtd>d</tabl {
+        const unused = alpha;
+        if (alpha) { return true } else { return beta ? gamma : rest }
+      }
+      var g = (p, q) => p + q, o = (a?.b).c;
+      class K { state>

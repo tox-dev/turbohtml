@@ -1,0 +1,1140 @@
+Unable to find image 'gcr.io/oss-fuzz-base/clusterfuzzlite-run-fuzzers@sha256:35b5e685193f1f920f6627dd8f0bd9009fbb338eab795254d48bd073b45235cf' locally
+gcr.io/oss-fuzz-base/clusterfuzzlite-run-fuzzers@sha256:35b5e685193f1f920f6627dd8f0bd9009fbb338eab795254d48bd073b45235cf: Pulling from oss-fuzz-base/clusterfuzzlite-run-fuzzers
+b549f31133a9: Already exists
+3e6a07050bb3: Already exists
+19ff1a35ed6a: Already exists
+c3d17017e2a7: Already exists
+3bcd045fb74c: Already exists
+4848d6aab884: Already exists
+1b5ec8c8cc75: Already exists
+3ec9e5623d89: Already exists
+efbd8336ae59: Already exists
+a5a89487a671: Already exists
+84ff9b56aefd: Already exists
+63f05fc6718b: Already exists
+284813246ec6: Already exists
+9f4be028276f: Already exists
+fe4059acf1fc: Already exists
+60462313a486: Already exists
+adf9f8b8e0d5: Already exists
+798fadbf8bf5: Already exists
+215226950847: Already exists
+775ec59e7f01: Already exists
+0a8ef590efbe: Already exists
+cddd0255dff2: Already exists
+9289e4a0438e: Already exists
+7fbc26841dae: Already exists
+11976146586a: Already exists
+4f9858b90331: Already exists
+47a64818e375: Already exists
+19edb5d3d70c: Already exists
+7d9600459046: Already exists
+3bedb8035313: Already exists
+2bb0f3d1c0ed: Already exists
+43c5276a2bad: Already exists
+a4416a673d6b: Already exists
+0d515f2c5899: Pulling fs layer
+27b64ce8a2a1: Pulling fs layer
+27b64ce8a2a1: Download complete
+0d515f2c5899: Verifying Checksum
+0d515f2c5899: Download complete
+0d515f2c5899: Pull complete
+27b64ce8a2a1: Pull complete
+Digest: sha256:35b5e685193f1f920f6627dd8f0bd9009fbb338eab795254d48bd073b45235cf
+Status: Downloaded newer image for gcr.io/oss-fuzz-base/clusterfuzzlite-run-fuzzers@sha256:35b5e685193f1f920f6627dd8f0bd9009fbb338eab795254d48bd073b45235cf
+2026-10-20 10:48:14,911 - root - INFO - Deleting builder docker images to save disk space.
+2026-10-20 10:48:15,152 - root - INFO - ClusterFuzzDeployment: <clusterfuzz_deployment.ClusterFuzzLite object at 0x7eff25e5c510>.
+2026-10-20 10:48:15,152 - root - INFO - run fuzzers MODE is: prune. Runner: <run_fuzzers.PruneTargetRunner object at 0x7eff247b7010>.
+2026-10-20 10:48:15,152 - root - INFO - Using address sanitizer.
+2026-10-20 10:48:15,156 - root - INFO - Fuzz targets: ['/home/runner/work/_temp/cflite/build-out/fuzz_content_extract', '/home/runner/work/_temp/cflite/build-out/fuzz_markdown_source', '/home/runner/work/_temp/cflite/build-out/fuzz_html_cli', '/home/runner/work/_temp/cflite/build-out/fuzz_xml_schema', '/home/runner/work/_temp/cflite/build-out/fuzz_html_conformance', '/home/runner/work/_temp/cflite/build-out/fuzz_content_sanitize', '/home/runner/work/_temp/cflite/build-out/fuzz_content_detect', '/home/runner/work/_temp/cflite/build-out/fuzz_content_links', '/home/runner/work/_temp/cflite/build-out/idna_fuzzer', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_elementtree', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_traversal', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_range', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_construction', '/home/runner/work/_temp/cflite/build-out/fuzz_content_stdlib', '/home/runner/work/_temp/cflite/build-out/fuzz_xml_transform', '/home/runner/work/_temp/cflite/build-out/fuzz_markdown_html', '/home/runner/work/_temp/cflite/build-out/fuzz_css_translate', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_query', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_rewrite', '/home/runner/work/_temp/cflite/build-out/fuzz_content_migration', '/home/runner/work/_temp/cflite/build-out/fuzz_html_fragment', '/home/runner/work/_temp/cflite/build-out/fuzz_css_stylesheet', '/home/runner/work/_temp/cflite/build-out/fuzz_html_tokenizer', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_shadow', '/home/runner/work/_temp/cflite/build-out/fuzz_encoding_bytes', '/home/runner/work/_temp/cflite/build-out/fuzz_html_incremental', '/home/runner/work/_temp/cflite/build-out/phone_fuzzer', '/home/runner/work/_temp/cflite/build-out/fuzz_content_minify', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_treebuild', '/home/runner/work/_temp/cflite/build-out/js_minify_fuzzer', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_mutation', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_locations', '/home/runner/work/_temp/cflite/build-out/fuzz_html_render', '/home/runner/work/_temp/cflite/build-out/fuzz_css_object_model', '/home/runner/work/_temp/cflite/build-out/fuzz_html_document', '/home/runner/work/_temp/cflite/build-out/fuzz_dom_sax']
+2026-10-20 10:48:15,156 - root - INFO - Downloading corpus for fuzz_content_extract to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_extract.
+2026-10-20 10:48:15,181 - root - INFO - Done downloading corpus. Contains 337 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f4baea3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3185633382
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b4bab887788, 0x7b4bab8a0c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b4bab8a0c70,0x7b4baba35ae0), 
+MERGE-OUTER: 337 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f600243f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3338781980
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b5fff1ef788, 0x7b5fff208c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b5fff208c70,0x7b5fff39dae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge50.txt'
+MERGE-INNER: 337 total files; 0 processed earlier; will process 337 files now
+#1	pulse  cov: 3144 ft: 3145 exec/s: 0 rss: 175Mb
+#2	pulse  cov: 3145 ft: 3148 exec/s: 0 rss: 175Mb
+#4	pulse  cov: 3157 ft: 3489 exec/s: 0 rss: 175Mb
+#8	pulse  cov: 3170 ft: 3972 exec/s: 0 rss: 175Mb
+#16	pulse  cov: 3178 ft: 4159 exec/s: 0 rss: 175Mb
+#32	pulse  cov: 3203 ft: 4307 exec/s: 0 rss: 176Mb
+#64	pulse  cov: 3377 ft: 4994 exec/s: 0 rss: 179Mb
+#128	pulse  cov: 3411 ft: 5742 exec/s: 0 rss: 186Mb
+#256	pulse  cov: 3608 ft: 7645 exec/s: 0 rss: 189Mb
+#337	DONE   cov: 3765 ft: 8260 exec/s: 0 rss: 189Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 123773 bytes
+MERGE-OUTER: consumed 0Mb (202Mb rss) to parse the control file
+MERGE-OUTER: 221 new files with 8260 new features added; 3765 new coverage edges
+
+2026-10-20 10:50:20,747 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_content_extract for fuzz_content_extract.
+2026-10-20 10:50:20,807 - root - INFO - Done uploading corpus.
+2026-10-20 10:50:20,807 - root - INFO - Deleting corpus and seed corpus of fuzz_content_extract to save disk.
+2026-10-20 10:50:20,852 - root - INFO - Deleting fuzz target: fuzz_content_extract.
+2026-10-20 10:50:20,852 - root - INFO - Done deleting.
+2026-10-20 10:50:20,852 - root - INFO - Fuzzer fuzz_content_extract finished running without reportable crashes.
+2026-10-20 10:50:20,853 - root - INFO - Downloading corpus for fuzz_markdown_source to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_markdown_source.
+2026-10-20 10:50:20,990 - root - INFO - Done downloading corpus. Contains 1882 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fb36a63f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1260995583
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7bb3673a1788, 0x7bb3673bac6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7bb3673bac70,0x7bb36754fae0), 
+MERGE-OUTER: 1882 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fb8c8a3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2817535702
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7bb8c581b788, 0x7bb8c5834c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7bb8c5834c70,0x7bb8c59c9ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge62.txt'
+MERGE-INNER: 1882 total files; 0 processed earlier; will process 1882 files now
+#1	pulse  cov: 373 ft: 374 exec/s: 0 rss: 173Mb
+#2	pulse  cov: 381 ft: 556 exec/s: 0 rss: 173Mb
+#4	pulse  cov: 390 ft: 747 exec/s: 0 rss: 173Mb
+#8	pulse  cov: 392 ft: 798 exec/s: 0 rss: 173Mb
+#16	pulse  cov: 1302 ft: 2291 exec/s: 0 rss: 174Mb
+#32	pulse  cov: 1581 ft: 3242 exec/s: 0 rss: 174Mb
+#64	pulse  cov: 2376 ft: 4955 exec/s: 0 rss: 178Mb
+#128	pulse  cov: 2819 ft: 6454 exec/s: 0 rss: 189Mb
+#256	pulse  cov: 3394 ft: 9228 exec/s: 0 rss: 205Mb
+#512	pulse  cov: 4971 ft: 14416 exec/s: 0 rss: 213Mb
+#1024	pulse  cov: 5952 ft: 19545 exec/s: 512 rss: 218Mb
+#1882	DONE   cov: 6533 ft: 26436 exec/s: 89 rss: 227Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 482514 bytes
+MERGE-OUTER: consumed 0Mb (186Mb rss) to parse the control file
+MERGE-OUTER: 1654 new files with 26436 new features added; 6533 new coverage edges
+
+2026-10-20 10:52:45,852 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_markdown_source for fuzz_markdown_source.
+2026-10-20 10:52:46,240 - root - INFO - Done uploading corpus.
+2026-10-20 10:52:46,240 - root - INFO - Deleting corpus and seed corpus of fuzz_markdown_source to save disk.
+2026-10-20 10:52:46,498 - root - INFO - Deleting fuzz target: fuzz_markdown_source.
+2026-10-20 10:52:46,498 - root - INFO - Done deleting.
+2026-10-20 10:52:46,498 - root - INFO - Fuzzer fuzz_markdown_source finished running without reportable crashes.
+2026-10-20 10:52:46,499 - root - INFO - Downloading corpus for fuzz_html_cli to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_html_cli.
+2026-10-20 10:52:46,628 - root - INFO - Done downloading corpus. Contains 1693 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7eff85c3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2664913857
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7aff829a1788, 0x7aff829bac6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7aff829bac70,0x7aff82b4fae0), 
+MERGE-OUTER: 1693 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f26c643f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2247098420
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b26c3287788, 0x7b26c32a0c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b26c32a0c70,0x7b26c3435ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge74.txt'
+MERGE-INNER: 1693 total files; 0 processed earlier; will process 1693 files now
+#1	pulse  cov: 1153 ft: 1154 exec/s: 0 rss: 175Mb
+#2	pulse  cov: 1153 ft: 1170 exec/s: 0 rss: 176Mb
+#4	pulse  cov: 1160 ft: 1420 exec/s: 0 rss: 176Mb
+#8	pulse  cov: 1163 ft: 1540 exec/s: 0 rss: 176Mb
+#16	pulse  cov: 1164 ft: 1866 exec/s: 0 rss: 176Mb
+#32	pulse  cov: 1427 ft: 2243 exec/s: 0 rss: 186Mb
+#64	pulse  cov: 1980 ft: 3353 exec/s: 0 rss: 200Mb
+#128	pulse  cov: 2604 ft: 4887 exec/s: 0 rss: 212Mb
+#256	pulse  cov: 3206 ft: 6692 exec/s: 256 rss: 213Mb
+#512	pulse  cov: 3800 ft: 11701 exec/s: 256 rss: 215Mb
+#1024	pulse  cov: 4354 ft: 15885 exec/s: 146 rss: 215Mb
+#1693	DONE   cov: 4635 ft: 19375 exec/s: 120 rss: 215Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 373429 bytes
+MERGE-OUTER: consumed 0Mb (174Mb rss) to parse the control file
+MERGE-OUTER: 1428 new files with 19375 new features added; 4635 new coverage edges
+
+2026-10-20 10:55:08,387 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_html_cli for fuzz_html_cli.
+2026-10-20 10:55:08,720 - root - INFO - Done uploading corpus.
+2026-10-20 10:55:08,720 - root - INFO - Deleting corpus and seed corpus of fuzz_html_cli to save disk.
+2026-10-20 10:55:08,981 - root - INFO - Deleting fuzz target: fuzz_html_cli.
+2026-10-20 10:55:08,981 - root - INFO - Done deleting.
+2026-10-20 10:55:08,981 - root - INFO - Fuzzer fuzz_html_cli finished running without reportable crashes.
+2026-10-20 10:55:08,981 - root - INFO - Downloading corpus for fuzz_xml_schema to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_xml_schema.
+2026-10-20 10:55:09,076 - root - INFO - Done downloading corpus. Contains 1319 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f0afb83f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 855812394
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b0af86a1788, 0x7b0af86bac6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b0af86bac70,0x7b0af884fae0), 
+MERGE-OUTER: 1319 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fbbbf23f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2399912752
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7bbbbbf87788, 0x7bbbbbfa0c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7bbbbbfa0c70,0x7bbbbc135ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge86.txt'
+MERGE-INNER: 1319 total files; 0 processed earlier; will process 1319 files now
+#1	pulse  cov: 508 ft: 509 exec/s: 0 rss: 175Mb
+#2	pulse  cov: 521 ft: 543 exec/s: 0 rss: 175Mb
+#4	pulse  cov: 536 ft: 701 exec/s: 0 rss: 175Mb
+#8	pulse  cov: 548 ft: 813 exec/s: 0 rss: 175Mb
+#16	pulse  cov: 771 ft: 1161 exec/s: 0 rss: 175Mb
+#32	pulse  cov: 872 ft: 1511 exec/s: 0 rss: 175Mb
+#64	pulse  cov: 2144 ft: 3549 exec/s: 0 rss: 176Mb
+#128	pulse  cov: 2617 ft: 4901 exec/s: 0 rss: 178Mb
+#256	pulse  cov: 3338 ft: 7486 exec/s: 0 rss: 183Mb
+#512	pulse  cov: 3734 ft: 10052 exec/s: 0 rss: 188Mb
+#1024	pulse  cov: 4356 ft: 13499 exec/s: 0 rss: 188Mb
+#1319	DONE   cov: 4496 ft: 15695 exec/s: 69 rss: 230Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 300580 bytes
+MERGE-OUTER: consumed 0Mb (175Mb rss) to parse the control file
+MERGE-OUTER: 1141 new files with 15695 new features added; 4496 new coverage edges
+
+2026-10-20 10:57:39,457 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_xml_schema for fuzz_xml_schema.
+2026-10-20 10:57:39,714 - root - INFO - Done uploading corpus.
+2026-10-20 10:57:39,714 - root - INFO - Deleting corpus and seed corpus of fuzz_xml_schema to save disk.
+2026-10-20 10:57:39,912 - root - INFO - Deleting fuzz target: fuzz_xml_schema.
+2026-10-20 10:57:39,913 - root - INFO - Done deleting.
+2026-10-20 10:57:39,913 - root - INFO - Fuzzer fuzz_xml_schema finished running without reportable crashes.
+2026-10-20 10:57:39,913 - root - INFO - Downloading corpus for fuzz_html_conformance to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_html_conformance.
+2026-10-20 10:57:40,361 - root - INFO - Done downloading corpus. Contains 5607 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fbbc3a3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3763293431
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7bbbc0887788, 0x7bbbc08a0c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7bbbc08a0c70,0x7bbbc0a35ae0), 
+MERGE-OUTER: 5607 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f802983f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1001558707
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b80266d4788, 0x7b80266edc6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b80266edc70,0x7b8026882ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge98.txt'
+MERGE-INNER: 5607 total files; 0 processed earlier; will process 5607 files now
+#1	pulse  cov: 215 ft: 216 exec/s: 0 rss: 174Mb
+#2	pulse  cov: 226 ft: 312 exec/s: 0 rss: 174Mb
+#4	pulse  cov: 231 ft: 521 exec/s: 0 rss: 174Mb
+#8	pulse  cov: 431 ft: 989 exec/s: 0 rss: 174Mb
+#16	pulse  cov: 484 ft: 1182 exec/s: 0 rss: 174Mb
+#32	pulse  cov: 563 ft: 1358 exec/s: 0 rss: 175Mb
+#64	pulse  cov: 943 ft: 2368 exec/s: 0 rss: 175Mb
+#128	pulse  cov: 1217 ft: 3421 exec/s: 0 rss: 177Mb
+#256	pulse  cov: 1715 ft: 5223 exec/s: 0 rss: 179Mb
+#512	pulse  cov: 2352 ft: 7796 exec/s: 0 rss: 188Mb
+#1024	pulse  cov: 3208 ft: 11760 exec/s: 0 rss: 191Mb
+#2048	pulse  cov: 4111 ft: 17874 exec/s: 0 rss: 191Mb
+#4096	pulse  cov: 4916 ft: 27077 exec/s: 2048 rss: 191Mb
+#5607	DONE   cov: 5073 ft: 31255 exec/s: 1121 rss: 191Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 1011662 bytes
+MERGE-OUTER: consumed 0Mb (178Mb rss) to parse the control file
+MERGE-OUTER: 4726 new files with 31255 new features added; 5073 new coverage edges
+
+2026-10-20 10:59:50,512 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_html_conformance for fuzz_html_conformance.
+2026-10-20 10:59:51,662 - root - INFO - Done uploading corpus.
+2026-10-20 10:59:51,662 - root - INFO - Deleting corpus and seed corpus of fuzz_html_conformance to save disk.
+2026-10-20 10:59:52,455 - root - INFO - Deleting fuzz target: fuzz_html_conformance.
+2026-10-20 10:59:52,456 - root - INFO - Done deleting.
+2026-10-20 10:59:52,456 - root - INFO - Fuzzer fuzz_html_conformance finished running without reportable crashes.
+2026-10-20 10:59:52,456 - root - INFO - Downloading corpus for fuzz_content_sanitize to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_sanitize.
+2026-10-20 10:59:52,470 - root - INFO - Done downloading corpus. Contains 192 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f4db323f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1384576959
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b4dafffa788, 0x7b4db0013c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b4db0013c70,0x7b4db01a8ae0), 
+MERGE-OUTER: 192 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f362d23f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1007545672
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b3629fa1788, 0x7b3629fbac6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b3629fbac70,0x7b362a14fae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge110.txt'
+MERGE-INNER: 192 total files; 0 processed earlier; will process 192 files now
+#1	pulse  cov: 1004 ft: 1005 exec/s: 0 rss: 174Mb
+#2	pulse  cov: 1004 ft: 1006 exec/s: 0 rss: 174Mb
+#4	pulse  cov: 1018 ft: 1170 exec/s: 0 rss: 174Mb
+#8	pulse  cov: 1033 ft: 2647 exec/s: 0 rss: 175Mb
+#16	pulse  cov: 1056 ft: 2798 exec/s: 0 rss: 175Mb
+#32	pulse  cov: 1089 ft: 2982 exec/s: 0 rss: 175Mb
+#64	pulse  cov: 1128 ft: 3339 exec/s: 0 rss: 176Mb
+#128	pulse  cov: 1196 ft: 3960 exec/s: 0 rss: 178Mb
+#192	DONE   cov: 1238 ft: 4980 exec/s: 0 rss: 186Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 65742 bytes
+MERGE-OUTER: consumed 0Mb (173Mb rss) to parse the control file
+MERGE-OUTER: 131 new files with 4980 new features added; 1238 new coverage edges
+
+2026-10-20 11:02:02,486 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_content_sanitize for fuzz_content_sanitize.
+2026-10-20 11:02:02,522 - root - INFO - Done uploading corpus.
+2026-10-20 11:02:02,522 - root - INFO - Deleting corpus and seed corpus of fuzz_content_sanitize to save disk.
+2026-10-20 11:02:02,548 - root - INFO - Deleting fuzz target: fuzz_content_sanitize.
+2026-10-20 11:02:02,548 - root - INFO - Done deleting.
+2026-10-20 11:02:02,548 - root - INFO - Fuzzer fuzz_content_sanitize finished running without reportable crashes.
+2026-10-20 11:02:02,548 - root - INFO - Downloading corpus for fuzz_content_detect to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_detect.
+2026-10-20 11:02:02,637 - root - INFO - Done downloading corpus. Contains 1183 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7feb1443f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 4186921604
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7beb11187788, 0x7beb111a0c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7beb111a0c70,0x7beb11335ae0), 
+MERGE-OUTER: 1183 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fd01183f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2347213384
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7bd00e650788, 0x7bd00e669c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7bd00e669c70,0x7bd00e7feae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge122.txt'
+MERGE-INNER: 1183 total files; 0 processed earlier; will process 1183 files now
+#1	pulse  cov: 1183 ft: 1184 exec/s: 0 rss: 174Mb
+#2	pulse  cov: 1187 ft: 1201 exec/s: 0 rss: 174Mb
+#4	pulse  cov: 1200 ft: 1357 exec/s: 0 rss: 174Mb
+#8	pulse  cov: 1225 ft: 1534 exec/s: 0 rss: 174Mb
+#16	pulse  cov: 1234 ft: 2453 exec/s: 0 rss: 174Mb
+#32	pulse  cov: 1497 ft: 3155 exec/s: 0 rss: 175Mb
+#64	pulse  cov: 1645 ft: 3761 exec/s: 0 rss: 178Mb
+#128	pulse  cov: 1767 ft: 4558 exec/s: 0 rss: 187Mb
+#256	pulse  cov: 1914 ft: 5475 exec/s: 0 rss: 201Mb
+#512	pulse  cov: 1973 ft: 6473 exec/s: 0 rss: 211Mb
+#1024	pulse  cov: 2014 ft: 7558 exec/s: 1024 rss: 214Mb
+#1183	DONE   cov: 2021 ft: 7811 exec/s: 394 rss: 214Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 228347 bytes
+MERGE-OUTER: consumed 0Mb (201Mb rss) to parse the control file
+MERGE-OUTER: 933 new files with 7811 new features added; 2021 new coverage edges
+
+2026-10-20 11:04:11,592 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_content_detect for fuzz_content_detect.
+2026-10-20 11:04:11,811 - root - INFO - Done uploading corpus.
+2026-10-20 11:04:11,811 - root - INFO - Deleting corpus and seed corpus of fuzz_content_detect to save disk.
+2026-10-20 11:04:11,980 - root - INFO - Deleting fuzz target: fuzz_content_detect.
+2026-10-20 11:04:11,980 - root - INFO - Done deleting.
+2026-10-20 11:04:11,980 - root - INFO - Fuzzer fuzz_content_detect finished running without reportable crashes.
+2026-10-20 11:04:11,981 - root - INFO - Downloading corpus for fuzz_content_links to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_links.
+2026-10-20 11:04:11,998 - root - INFO - Done downloading corpus. Contains 237 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f26f9c3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1991590124
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b26f6a50788, 0x7b26f6a69c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b26f6a69c70,0x7b26f6bfeae0), 
+MERGE-OUTER: 237 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fd5f423f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 4051692238
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7bd5f1087788, 0x7bd5f10a0c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7bd5f10a0c70,0x7bd5f1235ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge134.txt'
+MERGE-INNER: 237 total files; 0 processed earlier; will process 237 files now
+#1	pulse  cov: 1182 ft: 1183 exec/s: 0 rss: 174Mb
+#2	pulse  cov: 1182 ft: 1240 exec/s: 0 rss: 174Mb
+#4	pulse  cov: 1202 ft: 2084 exec/s: 0 rss: 174Mb
+#8	pulse  cov: 1232 ft: 2180 exec/s: 0 rss: 174Mb
+#16	pulse  cov: 1253 ft: 2773 exec/s: 0 rss: 174Mb
+#32	pulse  cov: 1344 ft: 3315 exec/s: 0 rss: 175Mb
+#64	pulse  cov: 1381 ft: 3588 exec/s: 0 rss: 176Mb
+#128	pulse  cov: 1439 ft: 4048 exec/s: 0 rss: 178Mb
+#237	DONE   cov: 1484 ft: 4518 exec/s: 0 rss: 184Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 71175 bytes
+MERGE-OUTER: consumed 0Mb (186Mb rss) to parse the control file
+MERGE-OUTER: 177 new files with 4518 new features added; 1484 new coverage edges
+
+2026-10-20 11:06:18,926 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_content_links for fuzz_content_links.
+2026-10-20 11:06:18,976 - root - INFO - Done uploading corpus.
+2026-10-20 11:06:18,976 - root - INFO - Deleting corpus and seed corpus of fuzz_content_links to save disk.
+2026-10-20 11:06:19,009 - root - INFO - Deleting fuzz target: fuzz_content_links.
+2026-10-20 11:06:19,010 - root - INFO - Done deleting.
+2026-10-20 11:06:19,010 - root - INFO - Fuzzer fuzz_content_links finished running without reportable crashes.
+2026-10-20 11:06:19,010 - root - INFO - Downloading corpus for idna_fuzzer to /home/runner/work/_temp/cflite/cifuzz-corpus/idna_fuzzer.
+2026-10-20 11:06:19,065 - root - INFO - Done downloading corpus. Contains 752 elements.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2662987317
+INFO: Loaded 1 modules   (337 inline 8-bit counters): 337 [0x5578dc212000, 0x5578dc212151), 
+INFO: Loaded 1 PC tables (337 PCs): 337 [0x5578dc212158,0x5578dc213668), 
+MERGE-OUTER: 752 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2663000613
+INFO: Loaded 1 modules   (337 inline 8-bit counters): 337 [0x564e29d7c000, 0x564e29d7c151), 
+INFO: Loaded 1 PC tables (337 PCs): 337 [0x564e29d7c158,0x564e29d7d668), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge141.txt'
+MERGE-INNER: 752 total files; 0 processed earlier; will process 752 files now
+#1	pulse  cov: 60 ft: 61 exec/s: 0 rss: 43Mb
+#2	pulse  cov: 157 ft: 184 exec/s: 0 rss: 43Mb
+#4	pulse  cov: 167 ft: 213 exec/s: 0 rss: 43Mb
+#8	pulse  cov: 193 ft: 267 exec/s: 0 rss: 43Mb
+#16	pulse  cov: 226 ft: 409 exec/s: 0 rss: 43Mb
+#32	pulse  cov: 238 ft: 586 exec/s: 0 rss: 43Mb
+#64	pulse  cov: 253 ft: 830 exec/s: 0 rss: 44Mb
+#128	pulse  cov: 286 ft: 1092 exec/s: 0 rss: 45Mb
+#256	pulse  cov: 291 ft: 1497 exec/s: 0 rss: 49Mb
+#512	pulse  cov: 291 ft: 1861 exec/s: 0 rss: 61Mb
+#752	DONE   cov: 291 ft: 1945 exec/s: 0 rss: 77Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 106324 bytes
+MERGE-OUTER: consumed 0Mb (87Mb rss) to parse the control file
+MERGE-OUTER: 418 new files with 1945 new features added; 291 new coverage edges
+
+2026-10-20 11:06:19,235 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/idna_fuzzer for idna_fuzzer.
+2026-10-20 11:06:19,363 - root - INFO - Done uploading corpus.
+2026-10-20 11:06:19,364 - root - INFO - Deleting corpus and seed corpus of idna_fuzzer to save disk.
+2026-10-20 11:06:19,381 - root - INFO - Deleting fuzz target: idna_fuzzer.
+2026-10-20 11:06:19,382 - root - INFO - Done deleting.
+2026-10-20 11:06:19,382 - root - INFO - Fuzzer idna_fuzzer finished running without reportable crashes.
+2026-10-20 11:06:19,382 - root - INFO - Downloading corpus for fuzz_dom_elementtree to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_elementtree.
+2026-10-20 11:06:19,421 - root - INFO - Done downloading corpus. Contains 531 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fdb2b03f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 4002547089
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7bdb27dca788, 0x7bdb27de3c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7bdb27de3c70,0x7bdb27f78ae0), 
+MERGE-OUTER: 531 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f355743f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 272281842
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b35542dc788, 0x7b35542f5c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b35542f5c70,0x7b355448aae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge158.txt'
+MERGE-INNER: 531 total files; 0 processed earlier; will process 531 files now
+#1	pulse  cov: 1445 ft: 1446 exec/s: 0 rss: 173Mb
+#2	pulse  cov: 1446 ft: 1450 exec/s: 0 rss: 174Mb
+#4	pulse  cov: 1453 ft: 1795 exec/s: 0 rss: 174Mb
+#8	pulse  cov: 1492 ft: 2146 exec/s: 0 rss: 174Mb
+#16	pulse  cov: 1578 ft: 2919 exec/s: 0 rss: 174Mb
+#32	pulse  cov: 1747 ft: 3309 exec/s: 0 rss: 175Mb
+#64	pulse  cov: 1845 ft: 3805 exec/s: 0 rss: 176Mb
+#128	pulse  cov: 1951 ft: 4292 exec/s: 0 rss: 181Mb
+#256	pulse  cov: 2036 ft: 5059 exec/s: 0 rss: 183Mb
+#512	pulse  cov: 2100 ft: 5892 exec/s: 0 rss: 189Mb
+#531	DONE   cov: 2100 ft: 5897 exec/s: 0 rss: 189Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 122248 bytes
+MERGE-OUTER: consumed 0Mb (186Mb rss) to parse the control file
+MERGE-OUTER: 331 new files with 5897 new features added; 2100 new coverage edges
+
+2026-10-20 11:08:28,481 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_dom_elementtree for fuzz_dom_elementtree.
+2026-10-20 11:08:28,577 - root - INFO - Done uploading corpus.
+2026-10-20 11:08:28,577 - root - INFO - Deleting corpus and seed corpus of fuzz_dom_elementtree to save disk.
+2026-10-20 11:08:28,656 - root - INFO - Deleting fuzz target: fuzz_dom_elementtree.
+2026-10-20 11:08:28,657 - root - INFO - Done deleting.
+2026-10-20 11:08:28,657 - root - INFO - Fuzzer fuzz_dom_elementtree finished running without reportable crashes.
+2026-10-20 11:08:28,657 - root - INFO - Downloading corpus for fuzz_dom_traversal to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_traversal.
+2026-10-20 11:08:28,663 - root - INFO - Done downloading corpus. Contains 87 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f463043f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3599794348
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b462d287788, 0x7b462d2a0c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b462d2a0c70,0x7b462d435ae0), 
+MERGE-OUTER: 87 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fbcc8e3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1258801757
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7bbcc5d1b788, 0x7bbcc5d34c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7bbcc5d34c70,0x7bbcc5ec9ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge170.txt'
+MERGE-INNER: 87 total files; 0 processed earlier; will process 87 files now
+#1	pulse  cov: 423 ft: 424 exec/s: 0 rss: 174Mb
+#2	pulse  cov: 446 ft: 512 exec/s: 0 rss: 174Mb
+#4	pulse  cov: 460 ft: 579 exec/s: 0 rss: 174Mb
+#8	pulse  cov: 465 ft: 658 exec/s: 0 rss: 174Mb
+#16	pulse  cov: 474 ft: 938 exec/s: 0 rss: 175Mb
+#32	pulse  cov: 489 ft: 1081 exec/s: 0 rss: 175Mb
+#64	pulse  cov: 503 ft: 1143 exec/s: 0 rss: 175Mb
+#87	DONE   cov: 507 ft: 1152 exec/s: 0 rss: 176Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 22175 bytes
+MERGE-OUTER: consumed 0Mb (184Mb rss) to parse the control file
+MERGE-OUTER: 41 new files with 1152 new features added; 507 new coverage edges
+
+2026-10-20 11:10:33,708 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_dom_traversal for fuzz_dom_traversal.
+2026-10-20 11:10:33,721 - root - INFO - Done uploading corpus.
+2026-10-20 11:10:33,721 - root - INFO - Deleting corpus and seed corpus of fuzz_dom_traversal to save disk.
+2026-10-20 11:10:33,733 - root - INFO - Deleting fuzz target: fuzz_dom_traversal.
+2026-10-20 11:10:33,733 - root - INFO - Done deleting.
+2026-10-20 11:10:33,733 - root - INFO - Fuzzer fuzz_dom_traversal finished running without reportable crashes.
+2026-10-20 11:10:33,733 - root - INFO - Downloading corpus for fuzz_dom_range to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_range.
+2026-10-20 11:10:33,748 - root - INFO - Done downloading corpus. Contains 218 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f24d543f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2314608416
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b24d221b788, 0x7b24d2234c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b24d2234c70,0x7b24d23c9ae0), 
+MERGE-OUTER: 218 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7feb9b03f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2880477098
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7beb97e1b788, 0x7beb97e34c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7beb97e34c70,0x7beb97fc9ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge182.txt'
+MERGE-INNER: 218 total files; 0 processed earlier; will process 218 files now
+#1	pulse  cov: 441 ft: 442 exec/s: 0 rss: 173Mb
+#2	pulse  cov: 442 ft: 448 exec/s: 0 rss: 173Mb
+#4	pulse  cov: 457 ft: 671 exec/s: 0 rss: 173Mb
+#8	pulse  cov: 474 ft: 801 exec/s: 0 rss: 173Mb
+#16	pulse  cov: 489 ft: 880 exec/s: 0 rss: 173Mb
+#32	pulse  cov: 569 ft: 1037 exec/s: 0 rss: 173Mb
+#64	pulse  cov: 622 ft: 1177 exec/s: 0 rss: 174Mb
+#128	pulse  cov: 637 ft: 1366 exec/s: 0 rss: 175Mb
+#218	DONE   cov: 643 ft: 1455 exec/s: 0 rss: 181Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 41890 bytes
+MERGE-OUTER: consumed 0Mb (185Mb rss) to parse the control file
+MERGE-OUTER: 156 new files with 1455 new features added; 643 new coverage edges
+
+2026-10-20 11:12:48,509 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_dom_range for fuzz_dom_range.
+2026-10-20 11:12:48,549 - root - INFO - Done uploading corpus.
+2026-10-20 11:12:48,549 - root - INFO - Deleting corpus and seed corpus of fuzz_dom_range to save disk.
+2026-10-20 11:12:48,584 - root - INFO - Deleting fuzz target: fuzz_dom_range.
+2026-10-20 11:12:48,584 - root - INFO - Done deleting.
+2026-10-20 11:12:48,584 - root - INFO - Fuzzer fuzz_dom_range finished running without reportable crashes.
+2026-10-20 11:12:48,584 - root - INFO - Downloading corpus for fuzz_dom_construction to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_construction.
+2026-10-20 11:12:48,598 - root - INFO - Done downloading corpus. Contains 188 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f013f23f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 602910082
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b013bffa788, 0x7b013c013c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b013c013c70,0x7b013c1a8ae0), 
+MERGE-OUTER: 188 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7faa3c83f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3896879784
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7baa3955e788, 0x7baa39577c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7baa39577c70,0x7baa3970cae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge194.txt'
+MERGE-INNER: 188 total files; 0 processed earlier; will process 188 files now
+#1	pulse  cov: 824 ft: 825 exec/s: 0 rss: 174Mb
+#2	pulse  cov: 824 ft: 831 exec/s: 0 rss: 174Mb
+#4	pulse  cov: 839 ft: 1022 exec/s: 0 rss: 174Mb
+#8	pulse  cov: 863 ft: 1092 exec/s: 0 rss: 174Mb
+#16	pulse  cov: 890 ft: 1482 exec/s: 0 rss: 175Mb
+#32	pulse  cov: 911 ft: 1720 exec/s: 0 rss: 175Mb
+#64	pulse  cov: 967 ft: 1880 exec/s: 0 rss: 176Mb
+#128	pulse  cov: 996 ft: 1997 exec/s: 0 rss: 181Mb
+#188	DONE   cov: 1005 ft: 2026 exec/s: 0 rss: 184Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 44848 bytes
+MERGE-OUTER: consumed 0Mb (185Mb rss) to parse the control file
+MERGE-OUTER: 107 new files with 2026 new features added; 1005 new coverage edges
+
+2026-10-20 11:15:06,974 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_dom_construction for fuzz_dom_construction.
+2026-10-20 11:15:07,013 - root - INFO - Done uploading corpus.
+2026-10-20 11:15:07,013 - root - INFO - Deleting corpus and seed corpus of fuzz_dom_construction to save disk.
+2026-10-20 11:15:07,039 - root - INFO - Deleting fuzz target: fuzz_dom_construction.
+2026-10-20 11:15:07,039 - root - INFO - Done deleting.
+2026-10-20 11:15:07,039 - root - INFO - Fuzzer fuzz_dom_construction finished running without reportable crashes.
+2026-10-20 11:15:07,039 - root - INFO - Downloading corpus for fuzz_content_stdlib to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_stdlib.
+2026-10-20 11:15:07,284 - root - INFO - Done downloading corpus. Contains 3272 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f629b83f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3930426992
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b62985ca788, 0x7b62985e3c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b62985e3c70,0x7b6298778ae0), 
+MERGE-OUTER: 3272 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7efd7463f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1050555252
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7afd714e3788, 0x7afd714fcc6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7afd714fcc70,0x7afd71691ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge206.txt'
+MERGE-INNER: 3272 total files; 0 processed earlier; will process 3272 files now
+#1	pulse  cov: 228 ft: 229 exec/s: 0 rss: 173Mb
+#2	pulse  cov: 235 ft: 251 exec/s: 0 rss: 173Mb
+#4	pulse  cov: 254 ft: 440 exec/s: 0 rss: 173Mb
+#8	pulse  cov: 279 ft: 536 exec/s: 0 rss: 173Mb
+#16	pulse  cov: 304 ft: 696 exec/s: 0 rss: 174Mb
+#32	pulse  cov: 413 ft: 901 exec/s: 0 rss: 174Mb
+#64	pulse  cov: 580 ft: 1324 exec/s: 0 rss: 175Mb
+#128	pulse  cov: 790 ft: 2032 exec/s: 0 rss: 179Mb
+#256	pulse  cov: 1112 ft: 3376 exec/s: 0 rss: 187Mb
+#512	pulse  cov: 1604 ft: 5561 exec/s: 0 rss: 200Mb
+#1024	pulse  cov: 2036 ft: 8679 exec/s: 0 rss: 207Mb
+#2048	pulse  cov: 2356 ft: 12874 exec/s: 2048 rss: 217Mb
+#3272	DONE   cov: 2722 ft: 16706 exec/s: 818 rss: 217Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 568545 bytes
+MERGE-OUTER: consumed 0Mb (187Mb rss) to parse the control file
+MERGE-OUTER: 2923 new files with 16706 new features added; 2722 new coverage edges
+
+2026-10-20 11:17:26,108 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_content_stdlib for fuzz_content_stdlib.
+2026-10-20 11:17:27,108 - root - INFO - Done uploading corpus.
+2026-10-20 11:17:27,108 - root - INFO - Deleting corpus and seed corpus of fuzz_content_stdlib to save disk.
+2026-10-20 11:17:27,689 - root - INFO - Deleting fuzz target: fuzz_content_stdlib.
+2026-10-20 11:17:27,690 - root - INFO - Done deleting.
+2026-10-20 11:17:27,690 - root - INFO - Fuzzer fuzz_content_stdlib finished running without reportable crashes.
+2026-10-20 11:17:27,690 - root - INFO - Downloading corpus for fuzz_xml_transform to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_xml_transform.
+2026-10-20 11:17:27,715 - root - INFO - Done downloading corpus. Contains 320 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f551003f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3000070567
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b550ce44788, 0x7b550ce5dc6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b550ce5dc70,0x7b550cff2ae0), 
+MERGE-OUTER: 320 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f51cda3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3788680623
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b51ca787788, 0x7b51ca7a0c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b51ca7a0c70,0x7b51ca935ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge218.txt'
+MERGE-INNER: 320 total files; 0 processed earlier; will process 320 files now
+#1	pulse  cov: 892 ft: 893 exec/s: 0 rss: 173Mb
+#2	pulse  cov: 892 ft: 894 exec/s: 0 rss: 173Mb
+#4	pulse  cov: 914 ft: 1423 exec/s: 0 rss: 173Mb
+#8	pulse  cov: 949 ft: 1833 exec/s: 0 rss: 173Mb
+#16	pulse  cov: 998 ft: 2045 exec/s: 0 rss: 174Mb
+#32	pulse  cov: 1069 ft: 2233 exec/s: 0 rss: 174Mb
+#64	pulse  cov: 1225 ft: 2663 exec/s: 0 rss: 175Mb
+#128	pulse  cov: 1274 ft: 3004 exec/s: 0 rss: 176Mb
+#256	pulse  cov: 1300 ft: 3212 exec/s: 0 rss: 183Mb
+#320	DONE   cov: 1302 ft: 3313 exec/s: 0 rss: 199Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 72579 bytes
+MERGE-OUTER: consumed 0Mb (185Mb rss) to parse the control file
+MERGE-OUTER: 166 new files with 3313 new features added; 1302 new coverage edges
+
+2026-10-20 11:19:28,947 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_xml_transform for fuzz_xml_transform.
+2026-10-20 11:19:29,005 - root - INFO - Done uploading corpus.
+2026-10-20 11:19:29,005 - root - INFO - Deleting corpus and seed corpus of fuzz_xml_transform to save disk.
+2026-10-20 11:19:29,045 - root - INFO - Deleting fuzz target: fuzz_xml_transform.
+2026-10-20 11:19:29,046 - root - INFO - Done deleting.
+2026-10-20 11:19:29,046 - root - INFO - Fuzzer fuzz_xml_transform finished running without reportable crashes.
+2026-10-20 11:19:29,046 - root - INFO - Downloading corpus for fuzz_markdown_html to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_markdown_html.
+2026-10-20 11:19:29,166 - root - INFO - Done downloading corpus. Contains 1750 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fb7d9e3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3247800585
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7bb7d6d0d788, 0x7bb7d6d26c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7bb7d6d26c70,0x7bb7d6ebbae0), 
+MERGE-OUTER: 1750 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7effde03f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3164444004
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7affdae50788, 0x7affdae69c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7affdae69c70,0x7affdaffeae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge230.txt'
+MERGE-INNER: 1750 total files; 0 processed earlier; will process 1750 files now
+#1	pulse  cov: 372 ft: 373 exec/s: 0 rss: 173Mb
+#2	pulse  cov: 380 ft: 596 exec/s: 0 rss: 173Mb
+#4	pulse  cov: 1153 ft: 1511 exec/s: 0 rss: 174Mb
+#8	pulse  cov: 1278 ft: 1718 exec/s: 0 rss: 174Mb
+#16	pulse  cov: 1322 ft: 2118 exec/s: 0 rss: 174Mb
+#32	pulse  cov: 1449 ft: 2562 exec/s: 0 rss: 175Mb
+#64	pulse  cov: 2046 ft: 4156 exec/s: 0 rss: 178Mb
+#128	pulse  cov: 2740 ft: 5919 exec/s: 0 rss: 182Mb
+#256	pulse  cov: 3510 ft: 8610 exec/s: 0 rss: 191Mb
+#512	pulse  cov: 4648 ft: 13000 exec/s: 0 rss: 203Mb
+#1024	pulse  cov: 5392 ft: 17433 exec/s: 1024 rss: 209Mb
+#1750	DONE   cov: 6252 ft: 24132 exec/s: 583 rss: 216Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 438386 bytes
+MERGE-OUTER: consumed 0Mb (189Mb rss) to parse the control file
+MERGE-OUTER: 1652 new files with 24132 new features added; 6252 new coverage edges
+
+2026-10-20 11:21:36,067 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_markdown_html for fuzz_markdown_html.
+2026-10-20 11:21:36,448 - root - INFO - Done uploading corpus.
+2026-10-20 11:21:36,448 - root - INFO - Deleting corpus and seed corpus of fuzz_markdown_html to save disk.
+2026-10-20 11:21:36,750 - root - INFO - Deleting fuzz target: fuzz_markdown_html.
+2026-10-20 11:21:36,750 - root - INFO - Done deleting.
+2026-10-20 11:21:36,750 - root - INFO - Fuzzer fuzz_markdown_html finished running without reportable crashes.
+2026-10-20 11:21:36,750 - root - INFO - Downloading corpus for fuzz_css_translate to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_translate.
+2026-10-20 11:21:36,849 - root - INFO - Done downloading corpus. Contains 1427 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fa38b43f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3724852982
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7ba38811b788, 0x7ba388134c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7ba388134c70,0x7ba3882c9ae0), 
+MERGE-OUTER: 1427 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f8b0603f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 4234671506
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b8b02dca788, 0x7b8b02de3c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b8b02de3c70,0x7b8b02f78ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge242.txt'
+MERGE-INNER: 1427 total files; 0 processed earlier; will process 1427 files now
+#1	pulse  cov: 524 ft: 525 exec/s: 0 rss: 176Mb
+#2	pulse  cov: 550 ft: 649 exec/s: 0 rss: 176Mb
+#4	pulse  cov: 553 ft: 682 exec/s: 0 rss: 176Mb
+#8	pulse  cov: 565 ft: 760 exec/s: 0 rss: 176Mb
+#16	pulse  cov: 1150 ft: 1989 exec/s: 0 rss: 176Mb
+#32	pulse  cov: 1692 ft: 3387 exec/s: 0 rss: 177Mb
+#64	pulse  cov: 1924 ft: 4803 exec/s: 0 rss: 178Mb
+#128	pulse  cov: 2213 ft: 6009 exec/s: 0 rss: 179Mb
+#256	pulse  cov: 2449 ft: 7452 exec/s: 0 rss: 180Mb
+#512	pulse  cov: 2644 ft: 9017 exec/s: 0 rss: 186Mb
+#1024	pulse  cov: 2858 ft: 11769 exec/s: 0 rss: 190Mb
+#1427	DONE   cov: 2898 ft: 13135 exec/s: 0 rss: 194Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 301680 bytes
+MERGE-OUTER: consumed 0Mb (197Mb rss) to parse the control file
+MERGE-OUTER: 1181 new files with 13135 new features added; 2898 new coverage edges
+
+2026-10-20 11:23:30,641 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_css_translate for fuzz_css_translate.
+2026-10-20 11:23:30,944 - root - INFO - Done uploading corpus.
+2026-10-20 11:23:30,944 - root - INFO - Deleting corpus and seed corpus of fuzz_css_translate to save disk.
+2026-10-20 11:23:31,160 - root - INFO - Deleting fuzz target: fuzz_css_translate.
+2026-10-20 11:23:31,160 - root - INFO - Done deleting.
+2026-10-20 11:23:31,160 - root - INFO - Fuzzer fuzz_css_translate finished running without reportable crashes.
+2026-10-20 11:23:31,160 - root - INFO - Downloading corpus for fuzz_dom_query to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_query.
+2026-10-20 11:23:31,170 - root - INFO - Done downloading corpus. Contains 142 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fd71b43f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1379735844
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7bd71811b788, 0x7bd718134c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7bd718134c70,0x7bd7182c9ae0), 
+MERGE-OUTER: 142 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fb076c3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1625037493
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7bb073a87788, 0x7bb073aa0c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7bb073aa0c70,0x7bb073c35ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge254.txt'
+MERGE-INNER: 142 total files; 0 processed earlier; will process 142 files now
+#1	pulse  cov: 808 ft: 809 exec/s: 0 rss: 175Mb
+#2	pulse  cov: 808 ft: 890 exec/s: 0 rss: 175Mb
+#4	pulse  cov: 822 ft: 1080 exec/s: 0 rss: 175Mb
+#8	pulse  cov: 829 ft: 1230 exec/s: 0 rss: 175Mb
+#16	pulse  cov: 871 ft: 1550 exec/s: 0 rss: 175Mb
+#32	pulse  cov: 937 ft: 1717 exec/s: 0 rss: 176Mb
+#64	pulse  cov: 975 ft: 1826 exec/s: 0 rss: 176Mb
+#128	pulse  cov: 1003 ft: 1877 exec/s: 0 rss: 177Mb
+#142	DONE   cov: 1003 ft: 1877 exec/s: 0 rss: 178Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 37060 bytes
+MERGE-OUTER: consumed 0Mb (199Mb rss) to parse the control file
+MERGE-OUTER: 76 new files with 1877 new features added; 1003 new coverage edges
+
+2026-10-20 11:25:23,166 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_dom_query for fuzz_dom_query.
+2026-10-20 11:25:23,193 - root - INFO - Done uploading corpus.
+2026-10-20 11:25:23,193 - root - INFO - Deleting corpus and seed corpus of fuzz_dom_query to save disk.
+2026-10-20 11:25:23,213 - root - INFO - Deleting fuzz target: fuzz_dom_query.
+2026-10-20 11:25:23,213 - root - INFO - Done deleting.
+2026-10-20 11:25:23,213 - root - INFO - Fuzzer fuzz_dom_query finished running without reportable crashes.
+2026-10-20 11:25:23,213 - root - INFO - Downloading corpus for fuzz_dom_rewrite to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_rewrite.
+2026-10-20 11:25:23,225 - root - INFO - Done downloading corpus. Contains 165 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fb57ca3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2958690307
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7bb579844788, 0x7bb57985dc6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7bb57985dc70,0x7bb5799f2ae0), 
+MERGE-OUTER: 165 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fefdf43f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2106518388
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7befdc1f3788, 0x7befdc20cc6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7befdc20cc70,0x7befdc3a1ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge266.txt'
+MERGE-INNER: 165 total files; 0 processed earlier; will process 165 files now
+#1	pulse  cov: 467 ft: 468 exec/s: 0 rss: 174Mb
+#2	pulse  cov: 484 ft: 500 exec/s: 0 rss: 174Mb
+#4	pulse  cov: 501 ft: 585 exec/s: 0 rss: 174Mb
+#8	pulse  cov: 531 ft: 661 exec/s: 0 rss: 174Mb
+#16	pulse  cov: 556 ft: 710 exec/s: 0 rss: 174Mb
+#32	pulse  cov: 580 ft: 767 exec/s: 0 rss: 175Mb
+#64	pulse  cov: 592 ft: 851 exec/s: 0 rss: 175Mb
+#128	pulse  cov: 592 ft: 942 exec/s: 0 rss: 176Mb
+#165	DONE   cov: 596 ft: 950 exec/s: 0 rss: 177Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 30233 bytes
+MERGE-OUTER: consumed 0Mb (195Mb rss) to parse the control file
+MERGE-OUTER: 109 new files with 950 new features added; 596 new coverage edges
+
+2026-10-20 11:27:19,594 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_dom_rewrite for fuzz_dom_rewrite.
+2026-10-20 11:27:19,622 - root - INFO - Done uploading corpus.
+2026-10-20 11:27:19,622 - root - INFO - Deleting corpus and seed corpus of fuzz_dom_rewrite to save disk.
+2026-10-20 11:27:19,644 - root - INFO - Deleting fuzz target: fuzz_dom_rewrite.
+2026-10-20 11:27:19,644 - root - INFO - Done deleting.
+2026-10-20 11:27:19,644 - root - INFO - Fuzzer fuzz_dom_rewrite finished running without reportable crashes.
+2026-10-20 11:27:19,644 - root - INFO - Downloading corpus for fuzz_content_migration to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_migration.
+2026-10-20 11:27:19,651 - root - INFO - Done downloading corpus. Contains 96 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f1cecc3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 626548065
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b1ce9b0d788, 0x7b1ce9b26c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b1ce9b26c70,0x7b1ce9cbbae0), 
+MERGE-OUTER: 96 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fe03d83f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1196040945
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7be03a5ca788, 0x7be03a5e3c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7be03a5e3c70,0x7be03a778ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge278.txt'
+MERGE-INNER: 96 total files; 0 processed earlier; will process 96 files now
+#1	pulse  cov: 729 ft: 730 exec/s: 0 rss: 175Mb
+#2	pulse  cov: 737 ft: 766 exec/s: 0 rss: 175Mb
+#4	pulse  cov: 744 ft: 844 exec/s: 0 rss: 175Mb
+#8	pulse  cov: 756 ft: 1092 exec/s: 0 rss: 175Mb
+#16	pulse  cov: 799 ft: 1211 exec/s: 0 rss: 175Mb
+#32	pulse  cov: 830 ft: 1335 exec/s: 0 rss: 175Mb
+#64	pulse  cov: 863 ft: 1447 exec/s: 0 rss: 176Mb
+#96	DONE   cov: 865 ft: 1456 exec/s: 0 rss: 177Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 27338 bytes
+MERGE-OUTER: consumed 0Mb (187Mb rss) to parse the control file
+MERGE-OUTER: 57 new files with 1456 new features added; 865 new coverage edges
+
+2026-10-20 11:29:23,239 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_content_migration for fuzz_content_migration.
+2026-10-20 11:29:23,256 - root - INFO - Done uploading corpus.
+2026-10-20 11:29:23,256 - root - INFO - Deleting corpus and seed corpus of fuzz_content_migration to save disk.
+2026-10-20 11:29:23,270 - root - INFO - Deleting fuzz target: fuzz_content_migration.
+2026-10-20 11:29:23,270 - root - INFO - Done deleting.
+2026-10-20 11:29:23,270 - root - INFO - Fuzzer fuzz_content_migration finished running without reportable crashes.
+2026-10-20 11:29:23,271 - root - INFO - Downloading corpus for fuzz_html_fragment to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_html_fragment.
+2026-10-20 11:29:23,504 - root - INFO - Done downloading corpus. Contains 3162 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f52bac3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2176719693
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b52b7aa1788, 0x7b52b7abac6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b52b7abac70,0x7b52b7c4fae0), 
+MERGE-OUTER: 3162 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f383f43f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1218355662
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b383c11b788, 0x7b383c134c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b383c134c70,0x7b383c2c9ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge290.txt'
+MERGE-INNER: 3162 total files; 0 processed earlier; will process 3162 files now
+#1	pulse  cov: 397 ft: 398 exec/s: 0 rss: 173Mb
+#2	pulse  cov: 415 ft: 435 exec/s: 0 rss: 174Mb
+#4	pulse  cov: 432 ft: 760 exec/s: 0 rss: 174Mb
+#8	pulse  cov: 437 ft: 951 exec/s: 0 rss: 174Mb
+#16	pulse  cov: 553 ft: 1197 exec/s: 0 rss: 174Mb
+#32	pulse  cov: 801 ft: 1767 exec/s: 0 rss: 175Mb
+#64	pulse  cov: 959 ft: 2201 exec/s: 0 rss: 178Mb
+#128	pulse  cov: 1417 ft: 3496 exec/s: 0 rss: 179Mb
+#256	pulse  cov: 2158 ft: 5718 exec/s: 0 rss: 179Mb
+#512	pulse  cov: 3041 ft: 8742 exec/s: 0 rss: 179Mb
+#1024	pulse  cov: 3758 ft: 12284 exec/s: 0 rss: 179Mb
+#2048	pulse  cov: 4638 ft: 18790 exec/s: 2048 rss: 179Mb
+#3162	DONE   cov: 5121 ft: 25891 exec/s: 243 rss: 334Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 628095 bytes
+MERGE-OUTER: consumed 0Mb (189Mb rss) to parse the control file
+MERGE-OUTER: 2816 new files with 25891 new features added; 5121 new coverage edges
+
+2026-10-20 11:31:45,503 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_html_fragment for fuzz_html_fragment.
+2026-10-20 11:31:46,142 - root - INFO - Done uploading corpus.
+2026-10-20 11:31:46,142 - root - INFO - Deleting corpus and seed corpus of fuzz_html_fragment to save disk.
+2026-10-20 11:31:46,578 - root - INFO - Deleting fuzz target: fuzz_html_fragment.
+2026-10-20 11:31:46,579 - root - INFO - Done deleting.
+2026-10-20 11:31:46,579 - root - INFO - Fuzzer fuzz_html_fragment finished running without reportable crashes.
+2026-10-20 11:31:46,579 - root - INFO - Downloading corpus for fuzz_css_stylesheet to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_stylesheet.
+2026-10-20 11:31:46,650 - root - INFO - Done downloading corpus. Contains 946 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fbfc003f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2947516123
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7bbfbcd1b788, 0x7bbfbcd34c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7bbfbcd34c70,0x7bbfbcec9ae0), 
+MERGE-OUTER: 946 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f2754a3f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1766860735
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b27517ca788, 0x7b27517e3c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b27517e3c70,0x7b2751978ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge302.txt'
+MERGE-INNER: 946 total files; 0 processed earlier; will process 946 files now
+#1	pulse  cov: 796 ft: 797 exec/s: 0 rss: 174Mb
+#2	pulse  cov: 798 ft: 799 exec/s: 0 rss: 174Mb
+#4	pulse  cov: 812 ft: 904 exec/s: 0 rss: 174Mb
+#8	pulse  cov: 840 ft: 1184 exec/s: 0 rss: 175Mb
+#16	pulse  cov: 871 ft: 1270 exec/s: 0 rss: 175Mb
+#32	pulse  cov: 1062 ft: 1655 exec/s: 0 rss: 175Mb
+#64	pulse  cov: 1324 ft: 2258 exec/s: 0 rss: 180Mb
+#128	pulse  cov: 2056 ft: 3677 exec/s: 0 rss: 188Mb
+#256	pulse  cov: 2964 ft: 6675 exec/s: 0 rss: 200Mb
+#512	pulse  cov: 4157 ft: 11511 exec/s: 0 rss: 209Mb
+#946	DONE   cov: 5679 ft: 22752 exec/s: 135 rss: 223Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 321923 bytes
+MERGE-OUTER: consumed 0Mb (175Mb rss) to parse the control file
+MERGE-OUTER: 862 new files with 22752 new features added; 5679 new coverage edges
+
+2026-10-20 11:34:06,255 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_css_stylesheet for fuzz_css_stylesheet.
+2026-10-20 11:34:06,450 - root - INFO - Done uploading corpus.
+2026-10-20 11:34:06,450 - root - INFO - Deleting corpus and seed corpus of fuzz_css_stylesheet to save disk.
+2026-10-20 11:34:06,575 - root - INFO - Deleting fuzz target: fuzz_css_stylesheet.
+2026-10-20 11:34:06,575 - root - INFO - Done deleting.
+2026-10-20 11:34:06,575 - root - INFO - Fuzzer fuzz_css_stylesheet finished running without reportable crashes.
+2026-10-20 11:34:06,575 - root - INFO - Downloading corpus for fuzz_html_tokenizer to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_html_tokenizer.
+2026-10-20 11:34:06,845 - root - INFO - Done downloading corpus. Contains 3703 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f582e63f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 909278900
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b582b3f3788, 0x7b582b40cc6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b582b40cc70,0x7b582b5a1ae0), 
+MERGE-OUTER: 3703 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7efc9183f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2116116780
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7afc8e644788, 0x7afc8e65dc6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7afc8e65dc70,0x7afc8e7f2ae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge314.txt'
+MERGE-INNER: 3703 total files; 0 processed earlier; will process 3703 files now
+#1	pulse  cov: 82 ft: 83 exec/s: 0 rss: 174Mb
+#2	pulse  cov: 82 ft: 83 exec/s: 0 rss: 174Mb
+#4	pulse  cov: 147 ft: 159 exec/s: 0 rss: 174Mb
+#8	pulse  cov: 168 ft: 217 exec/s: 0 rss: 174Mb
+#16	pulse  cov: 273 ft: 494 exec/s: 0 rss: 174Mb
+#32	pulse  cov: 456 ft: 813 exec/s: 0 rss: 174Mb
+#64	pulse  cov: 652 ft: 1491 exec/s: 0 rss: 175Mb
+#128	pulse  cov: 870 ft: 2468 exec/s: 0 rss: 176Mb
+#256	pulse  cov: 1070 ft: 3568 exec/s: 0 rss: 178Mb
+#512	pulse  cov: 1433 ft: 5402 exec/s: 0 rss: 185Mb
+#1024	pulse  cov: 1893 ft: 8031 exec/s: 0 rss: 189Mb
+#2048	pulse  cov: 2410 ft: 12883 exec/s: 0 rss: 205Mb
+#3703	DONE   cov: 2735 ft: 17326 exec/s: 411 rss: 242Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 631859 bytes
+MERGE-OUTER: consumed 0Mb (178Mb rss) to parse the control file
+MERGE-OUTER: 3249 new files with 17326 new features added; 2735 new coverage edges
+
+2026-10-20 11:36:26,630 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_html_tokenizer for fuzz_html_tokenizer.
+2026-10-20 11:36:27,380 - root - INFO - Done uploading corpus.
+2026-10-20 11:36:27,380 - root - INFO - Deleting corpus and seed corpus of fuzz_html_tokenizer to save disk.
+2026-10-20 11:36:27,902 - root - INFO - Deleting fuzz target: fuzz_html_tokenizer.
+2026-10-20 11:36:27,902 - root - INFO - Done deleting.
+2026-10-20 11:36:27,902 - root - INFO - Fuzzer fuzz_html_tokenizer finished running without reportable crashes.
+2026-10-20 11:36:27,902 - root - INFO - Downloading corpus for fuzz_dom_shadow to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_shadow.
+2026-10-20 11:36:27,909 - root - INFO - Done downloading corpus. Contains 85 elements.
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f5ad343f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 3249926899
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b5ad021b788, 0x7b5ad0234c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b5ad0234c70,0x7b5ad03c9ae0), 
+MERGE-OUTER: 85 files, 0 in the initial corpus, 0 processed earlier
+MERGE-OUTER: attempt 1
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f3fe103f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1749160841
+INFO: Loaded 1 modules   (103655 inline 8-bit counters): 103655 [0x7b3fddf0d788, 0x7b3fddf26c6f), 
+INFO: Loaded 1 PC tables (103655 PCs): 103655 [0x7b3fddf26c70,0x7b3fde0bbae0), 
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 1048576 bytes
+MERGE-INNER: using the control file '/tmp/temp-1/merge-workdir/libFuzzerTemp.Merge326.txt'
+MERGE-INNER: 85 total files; 0 processed earlier; will process 85 files now
+#1	pulse  cov: 394 ft: 395 exec/s: 0 rss: 173Mb
+#2	pulse  cov: 394 ft: 398 exec/s: 0 rss: 173Mb
+#4	pulse  cov: 417 ft: 576 exec/s: 0 rss: 173Mb
+#8	pulse  cov: 432 ft: 657 exec/s: 0 rss: 173Mb
+#16	pulse  cov: 460 ft: 707 exec/s: 0 rss: 173Mb
+#32	pulse  cov: 500 ft: 759 exec/s: 0 rss: 173Mb
+#64	pulse  cov: 512 ft: 798 exec/s: 0 rss: 174Mb
+#85	DONE   cov: 517 ft: 803 exec/s: 0 rss: 175Mb
+MERGE-OUTER: successful in 1 attempt(s)
+MERGE-OUTER: the control file has 19317 bytes
+MERGE-OUTER: consumed 0Mb (173Mb rss) to parse the control file
+MERGE-OUTER: 47 new files with 803 new features added; 517 new coverage edges
+
+2026-10-20 11:38:42,130 - root - INFO - Uploading corpus in /home/runner/work/_temp/cflite/cifuzz-pruned-corpus/fuzz_dom_shadow for fuzz_dom_shadow.
+2026-10-20 11:38:42,145 - root - INFO - Done uploading corpus.
+2026-10-20 11:38:42,145 - root - INFO - Deleting corpus and seed corpus of fuzz_dom_shadow to save disk.
+2026-10-20 11:38:42,188 - root - INFO - Deleting fuzz target: fuzz_dom_shadow.
+2026-10-20 11:38:42,188 - root - INFO - Done deleting.
+2026-10-20 11:38:42,188 - root - INFO - Fuzzer fuzz_dom_shadow finished running without reportable crashes.
+2026-10-20 11:38:42,188 - root - INFO - Downloading corpus for fuzz_encoding_bytes to /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_encoding_bytes.
+2026-10-20 11:38:42,195 - root - INFO - Done downloading corpus. Contains 92 elements.
+Traceback (most recent call last):
+  File "/opt/oss-fuzz/infra/cifuzz/run_fuzzers_entrypoint.py", line 106, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/opt/oss-fuzz/infra/cifuzz/run_fuzzers_entrypoint.py", line 102, in main
+    return run_fuzzers_entrypoint()
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/oss-fuzz/infra/cifuzz/run_fuzzers_entrypoint.py", line 72, in run_fuzzers_entrypoint
+    result = run_fuzzers.run_fuzzers(config)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/oss-fuzz/infra/cifuzz/run_fuzzers.py", line 316, in run_fuzzers
+    if not fuzz_target_runner.run_fuzz_targets():
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/oss-fuzz/infra/cifuzz/run_fuzzers.py", line 131, in run_fuzz_targets
+    result = self.run_fuzz_target(target)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/oss-fuzz/infra/cifuzz/run_fuzzers.py", line 175, in run_fuzz_target
+    result = fuzz_target_obj.prune()
+             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/oss-fuzz/infra/cifuzz/fuzz_target.py", line 158, in prune
+    result = engine_impl.minimize_corpus(self.target_path, [],
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/clusterfuzz/_internal/bot/fuzzers/libFuzzer/engine.py", line 524, in minimize_corpus
+    raise TimeoutError('Merging new testcases timed out.')
+TimeoutError: Merging new testcases timed out.

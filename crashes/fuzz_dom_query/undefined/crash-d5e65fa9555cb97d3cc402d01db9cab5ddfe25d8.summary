@@ -1,0 +1,54 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f328d20c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 2605616959
+INFO: Loaded 1 modules   (107626 inline 8-bit counters): 107626 [0x7f328bca5af8, 0x7f328bcbff62), 
+INFO: Loaded 1 PC tables (107626 PCs): 107626 [0x7f328bcbff68,0x7f328be64608), 
+INFO:       59 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_dom_query
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 4096 bytes
+INFO: seed corpus: files: 59 min: 4b max: 118b total: 2040b rss: 83Mb
+#60	INITED cov: 1029 ft: 1914 corp: 58/1963b exec/s: 0 rss: 83Mb
+#176	REDUCE cov: 1029 ft: 1914 corp: 58/1962b lim: 4096 exec/s: 0 rss: 83Mb L: 3/118 MS: 2 CrossOver-Custom-
+#184	NEW    cov: 1030 ft: 1924 corp: 59/1969b lim: 4096 exec/s: 0 rss: 83Mb L: 7/118 MS: 6 ChangeBit-Custom-ShuffleBytes-Custom-CrossOver-Custom-
+
+ === Uncaught Python exception: ===
+AssertionError: a result for an injected allocation failure
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 135, in run
+AssertionError: a result for an injected allocation failure
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7f328a3ca5c0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==372== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f328d27a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7f328d24c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f328d22f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f328d22f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f328d22f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f328d0548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f328d054a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7f328c5cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7f328c5cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7f328c5ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_query.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_query.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f328d032082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_dom_query.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 2 InsertByte-Custom-; base unit: 73d1a3df17dbb2cd8c8e31aaaedbc102b5647dd1
+0x74,0x2e,0x30,0x2e,0xad,0x0,0x26,0x2e,0x2b,0x2b,0x2b,0x2b,0x2d,
+t.0.\255\000&.++++-
+artifact_prefix='/tmp/tmprkk8tw8x/'; Test unit written to /tmp/tmprkk8tw8x/crash-d5e65fa9555cb97d3cc402d01db9cab5ddfe25d8
+Base64: dC4wLq0AJi4rKysrLQ==
+stat::number_of_executed_units: 200
+stat::average_exec_per_sec:     0
+stat::new_units_added:          2
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              83

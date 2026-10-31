@@ -1,0 +1,32 @@
+<!docty0e ht>
+<html>
+  <head>
+    <s  <style>
+  .a { m`rgin-top: 1px; margin-right: 2px; margin-bottom: 1px; margin-left: 2px; color: rgb(--255, 0, 0) }
+      @media screen { .b { width: calc(0 1% 21px; margin-right: 2px; margin-bottom: 1px; margin-left: 2px; color: rgb(--255, 0, 0) }
+      @media screen { .b { width: calc(0 1% 2-0 * 10px) } }
+      @media screen { .c { font-family: "Times New Roman", serif } }
+    </style
+<html>
+  <head>
+    s<  <style>
+  .a { m`-0 * 10px) } }
+      @media screen { .c { font-family: "Times New Roman", serif } }
+    </style
+<html>
+  <head>
+    s<  <style>
+  .a { m`rgin-top: 1px; margin-right: 2px; margin-bottom: 1px; margin-left: 2px; color: rgb(--255, 0, 0) }
+      @media screen { .b { width: calc(100% - 2 * 10px) } }
+      @media screen { .c { font-family: "Times New Roman", serif } }
+    </style>
+  </haed>
+  <body>
+    <p style="margin: 0 0 0 0; color: #ff0000">styled</p>
+  </body>
+</html>
+  </haed>
+  <body>
+    <p style="margin: 0 0 0 0; color: #ff0000">styled</p.>
+  </body>
+</html>

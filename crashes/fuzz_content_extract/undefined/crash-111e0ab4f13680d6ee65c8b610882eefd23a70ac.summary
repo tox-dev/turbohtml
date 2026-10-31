@@ -1,0 +1,79 @@
+INFO: Instrumenting 6841 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f721ee0c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1861810772
+INFO: Loaded 1 modules   (108038 inline 8-bit counters): 108038 [0x7f721d7f8fa8, 0x7f721d8135ae), 
+INFO: Loaded 1 PC tables (108038 PCs): 108038 [0x7f721d8135b0,0x7f721d9b9610), 
+INFO:      129 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_extract
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81933 bytes
+INFO: seed corpus: files: 129 min: 4b max: 81933b total: 260551b rss: 83Mb
+#130	INITED cov: 3364 ft: 7515 corp: 92/21Kb exec/s: 0 rss: 84Mb
+#138	NEW    cov: 3365 ft: 7520 corp: 93/21Kb lim: 81933 exec/s: 0 rss: 84Mb L: 18/11037 MS: 6 InsertByte-Custom-CopyPart-Custom-EraseBytes-Custom-
+#149	NEW    cov: 3371 ft: 7536 corp: 94/21Kb lim: 81933 exec/s: 0 rss: 84Mb L: 218/11037 MS: 2 ChangeByte-Custom-
+#163	NEW    cov: 3371 ft: 7538 corp: 95/21Kb lim: 81933 exec/s: 0 rss: 84Mb L: 15/11037 MS: 8 ShuffleBytes-Custom-EraseBytes-Custom-ChangeBinInt-Custom-EraseBytes-Custom-
+#171	NEW    cov: 3371 ft: 7539 corp: 96/22Kb lim: 81933 exec/s: 0 rss: 84Mb L: 500/11037 MS: 6 ChangeByte-Custom-EraseBytes-Custom-CopyPart-Custom-
+#172	NEW    cov: 3371 ft: 7541 corp: 97/22Kb lim: 81933 exec/s: 0 rss: 84Mb L: 219/11037 MS: 2 CrossOver-Custom-
+#173	NEW    cov: 3373 ft: 7552 corp: 98/22Kb lim: 81933 exec/s: 0 rss: 84Mb L: 38/11037 MS: 2 CopyPart-Custom-
+#212	NEW    cov: 3376 ft: 7559 corp: 99/22Kb lim: 81933 exec/s: 0 rss: 84Mb L: 212/11037 MS: 8 ChangeBit-Custom-EraseBytes-Custom-ShuffleBytes-Custom-EraseBytes-Custom-
+#213	NEW    cov: 3376 ft: 7563 corp: 100/22Kb lim: 81933 exec/s: 0 rss: 84Mb L: 56/11037 MS: 2 ShuffleBytes-Custom-
+#233	NEW    cov: 3376 ft: 7567 corp: 101/22Kb lim: 81933 exec/s: 0 rss: 85Mb L: 5/11037 MS: 10 ChangeByte-Custom-ChangeBinInt-Custom-ChangeBinInt-Custom-CrossOver-Custom-EraseBytes-Custom-
+#234	NEW    cov: 3378 ft: 7569 corp: 102/22Kb lim: 81933 exec/s: 0 rss: 85Mb L: 79/11037 MS: 2 ChangeBit-Custom-
+#241	NEW    cov: 3378 ft: 7570 corp: 103/22Kb lim: 81933 exec/s: 0 rss: 85Mb L: 105/11037 MS: 4 CopyPart-Custom-InsertRepeatedBytes-Custom-
+#269	NEW    cov: 3386 ft: 7584 corp: 104/22Kb lim: 81933 exec/s: 0 rss: 85Mb L: 131/11037 MS: 6 CrossOver-Custom-ChangeASCIIInt-Custom-ChangeByte-Custom-
+#272	NEW    cov: 3386 ft: 7592 corp: 105/23Kb lim: 81933 exec/s: 0 rss: 85Mb L: 5/11037 MS: 6 CrossOver-Custom-ChangeBit-Custom-EraseBytes-Custom-
+#282	NEW    cov: 3386 ft: 7595 corp: 106/23Kb lim: 81933 exec/s: 0 rss: 85Mb L: 96/11037 MS: 10 EraseBytes-Custom-ChangeBit-Custom-ChangeBit-Custom-CrossOver-Custom-CMP-Custom- DE: "d\000"-
+#310	NEW    cov: 3386 ft: 7596 corp: 107/23Kb lim: 81933 exec/s: 0 rss: 85Mb L: 17/11037 MS: 6 PersAutoDict-Custom-ChangeBinInt-Custom-InsertByte-Custom- DE: "d\000"-
+#331	REDUCE cov: 3386 ft: 7596 corp: 107/23Kb lim: 81933 exec/s: 0 rss: 85Mb L: 3/11037 MS: 2 EraseBytes-Custom-
+#334	NEW    cov: 3389 ft: 7599 corp: 108/23Kb lim: 81933 exec/s: 0 rss: 85Mb L: 392/11037 MS: 6 ChangeBit-Custom-ChangeBit-Custom-InsertByte-Custom-
+#342	NEW    cov: 3393 ft: 7611 corp: 109/23Kb lim: 81933 exec/s: 0 rss: 85Mb L: 225/11037 MS: 6 CrossOver-Custom-ShuffleBytes-Custom-CrossOver-Custom-
+#346	NEW    cov: 3393 ft: 7742 corp: 110/23Kb lim: 81933 exec/s: 0 rss: 85Mb L: 40/11037 MS: 8 ChangeByte-Custom-ChangeBinInt-Custom-ShuffleBytes-Custom-CMP-Custom- DE: "\377\377\377s"-
+#352	NEW    cov: 3394 ft: 7743 corp: 111/23Kb lim: 81933 exec/s: 0 rss: 85Mb L: 23/11037 MS: 2 CMP-Custom- DE: "\376\377\377\177\000\000\000\000"-
+#389	NEW    cov: 3394 ft: 7745 corp: 112/23Kb lim: 81933 exec/s: 0 rss: 85Mb L: 14/11037 MS: 4 CMP-Custom-EraseBytes-Custom- DE: "\001\000\000\""-
+#415	NEW    cov: 3395 ft: 7752 corp: 113/24Kb lim: 81933 exec/s: 0 rss: 85Mb L: 277/11037 MS: 2 InsertRepeatedBytes-Custom-
+#422	NEW    cov: 3395 ft: 7756 corp: 114/24Kb lim: 81933 exec/s: 0 rss: 85Mb L: 38/11037 MS: 4 EraseBytes-Custom-PersAutoDict-Custom- DE: "d\000"-
+#423	NEW    cov: 3402 ft: 7772 corp: 115/24Kb lim: 81933 exec/s: 0 rss: 85Mb L: 58/11037 MS: 2 ChangeByte-Custom-
+
+ === Uncaught Python exception: ===
+SystemError: <built-in method __new__ of type object at 0x7f721e2b2aa8> returned a result with an exception set
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 123, in run
+  File "fuzz/atheris_registry.py", line 58, in run
+  File "fuzz/content_targets.py", line 344, in _extract
+  File "turbohtml/extract/__init__.py", line 182, in feed
+    return document.feed()
+           ^^^^^^^^^^^^^^^
+  File "<string>", line 1, in <lambda>
+SystemError: <built-in method __new__ of type object at 0x7f721e2b2aa8> returned a result with an exception set
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7f721bf46fc0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==52== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f721ee7a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7f721ee4c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f721ee2f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f721ee2f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f721ee2f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f721ec548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f721ec54a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7f721dfcc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7f721dfcf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7f721dfceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_content_extract.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_content_extract.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f721ec32082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_content_extract.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 4 ChangeBit-Custom-ChangeASCIIInt-Custom-; base unit: fb0a3a3f7c8a18a58e7df84b7501c793713d12a8
+artifact_prefix='/tmp/tmpt0hfyrg4/'; Test unit written to /tmp/tmpt0hfyrg4/crash-111e0ab4f13680d6ee65c8b610882eefd23a70ac
+stat::number_of_executed_units: 485
+stat::average_exec_per_sec:     0
+stat::new_units_added:          24
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              86

@@ -1,0 +1,57 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fcbb280c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1885984163
+INFO: Loaded 1 modules   (107626 inline 8-bit counters): 107626 [0x7fcbb1101af8, 0x7fcbb111bf62), 
+INFO: Loaded 1 PC tables (107626 PCs): 107626 [0x7fcbb111bf68,0x7fcbb12c0608), 
+INFO:      133 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_xml_schema
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 133 min: 4b max: 81921b total: 1004355b rss: 83Mb
+#134	INITED cov: 1901 ft: 5773 corp: 106/952Kb exec/s: 44 rss: 92Mb
+#135	NEW    cov: 1902 ft: 5805 corp: 107/953Kb lim: 81921 exec/s: 45 rss: 92Mb L: 103/81921 MS: 2 ShuffleBytes-Custom-
+
+ === Uncaught Python exception: ===
+AssertionError: xml not a fixpoint: '>' vs '/'
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/reference_targets.py", line 153, in _schema
+  File "fuzz/reference_targets.py", line 327, in schema_observation
+  File "fuzz/atheris_invariants.py", line 18, in assert_invariant
+AssertionError: xml not a fixpoint: '>' vs '/'
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7fcbaf8265c0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==93== ERROR: libFuzzer: fuzz target exited
+    #0 0x7fcbb287a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7fcbb284c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7fcbb282f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7fcbb282f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7fcbb282f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7fcbb26158a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7fcbb2615a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7fcbb19cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7fcbb19cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7fcbb19ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_schema.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_schema.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7fcbb25f3082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_xml_schema.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 4 ChangeByte-Custom-EraseBytes-Custom-; base unit: e5f3708afd82c6add1046078dba471f5bb641934
+0x3c,0x75,0x6c,0x3e,0x3c,0x6c,0x21,0x3e,0x6f,0x6e,0x65,0x3c,0x2f,0x6c,0x69,0x3e,0x3c,0x6c,0x69,0x3e,0x74,0x65,0x3e,0x63,0x69,0x74,0x65,0x3c,0x62,0x6f,0x2f,0x63,0x6b,0x6c,0x71,0x75,0x6f,0x74,0x65,0x3e,0x8,
+<ul><l!>one</li><li>te>cite<bo/cklquote>\010
+artifact_prefix='/tmp/tmpu8lv897x/'; Test unit written to /tmp/tmpu8lv897x/crash-d8d3eb1cf04ec005da9c100423138e9e42892c7e
+Base64: PHVsPjxsIT5vbmU8L2xpPjxsaT50ZT5jaXRlPGJvL2NrbHF1b3RlPgg=
+stat::number_of_executed_units: 152
+stat::average_exec_per_sec:     50
+stat::new_units_added:          1
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              92

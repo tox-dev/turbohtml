@@ -1,0 +1,214 @@
+INFO: Instrumenting 6842 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f0c9920c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1006429037
+INFO: Loaded 1 modules   (108507 inline 8-bit counters): 108507 [0x7f0c97b835f8, 0x7f0c97b9ddd3), 
+INFO: Loaded 1 PC tables (108507 PCs): 108507 [0x7f0c97b9ddd8,0x7f0c97d45b88), 
+INFO:      912 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_css_stylesheet
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81933 bytes
+INFO: seed corpus: files: 912 min: 1b max: 81933b total: 896545b rss: 84Mb
+#913	INITED cov: 4881 ft: 19947 corp: 813/621Kb exec/s: 304 rss: 91Mb
+#966	NEW    cov: 4882 ft: 19991 corp: 814/624Kb lim: 81933 exec/s: 322 rss: 91Mb L: 3388/81921 MS: 6 CopyPart-Custom-ChangeByte-Custom-CrossOver-Custom-
+#972	NEW    cov: 4882 ft: 19999 corp: 815/624Kb lim: 81933 exec/s: 324 rss: 91Mb L: 64/81921 MS: 2 EraseBytes-Custom-
+#999	REDUCE cov: 4882 ft: 19999 corp: 815/624Kb lim: 81933 exec/s: 333 rss: 91Mb L: 79/81921 MS: 4 EraseBytes-Custom-EraseBytes-Custom-
+#1020	NEW    cov: 4882 ft: 20000 corp: 816/624Kb lim: 81933 exec/s: 340 rss: 91Mb L: 77/81921 MS: 2 CopyPart-Custom-
+#1053	NEW    cov: 4882 ft: 20002 corp: 817/625Kb lim: 81933 exec/s: 351 rss: 91Mb L: 1425/81921 MS: 6 ChangeByte-Custom-CrossOver-Custom-InsertByte-Custom-
+#1054	NEW    cov: 4882 ft: 20004 corp: 818/626Kb lim: 81933 exec/s: 351 rss: 91Mb L: 529/81921 MS: 2 InsertByte-Custom-
+#1094	NEW    cov: 4882 ft: 20005 corp: 819/626Kb lim: 81933 exec/s: 364 rss: 91Mb L: 539/81921 MS: 10 CopyPart-Custom-ShuffleBytes-Custom-InsertRepeatedBytes-Custom-ShuffleBytes-Custom-CrossOver-Custom-
+#1127	NEW    cov: 4882 ft: 20006 corp: 820/626Kb lim: 81933 exec/s: 375 rss: 91Mb L: 13/81921 MS: 6 ChangeBinInt-Custom-CopyPart-Custom-ChangeBinInt-Custom-
+#1138	REDUCE cov: 4882 ft: 20006 corp: 820/626Kb lim: 81933 exec/s: 284 rss: 91Mb L: 92/81921 MS: 2 EraseBytes-Custom-
+#1146	NEW    cov: 4883 ft: 20007 corp: 821/626Kb lim: 81933 exec/s: 286 rss: 91Mb L: 24/81921 MS: 6 InsertByte-Custom-CrossOver-Custom-ShuffleBytes-Custom-
+#1151	NEW    cov: 4883 ft: 20026 corp: 822/628Kb lim: 81933 exec/s: 287 rss: 91Mb L: 1424/81921 MS: 10 ChangeASCIIInt-Custom-ChangeASCIIInt-Custom-CrossOver-Custom-ChangeASCIIInt-Custom-CopyPart-Custom-
+#1201	REDUCE cov: 4883 ft: 20026 corp: 822/628Kb lim: 81933 exec/s: 300 rss: 91Mb L: 24/81921 MS: 10 EraseBytes-Custom-EraseBytes-Custom-ChangeByte-Custom-ChangeByte-Custom-EraseBytes-Custom-
+#1220	NEW    cov: 4883 ft: 20027 corp: 823/629Kb lim: 81933 exec/s: 305 rss: 91Mb L: 1398/81921 MS: 8 ChangeASCIIInt-Custom-ChangeBinInt-Custom-ChangeBit-Custom-CrossOver-Custom-
+#1226	NEW    cov: 4885 ft: 20029 corp: 824/630Kb lim: 81933 exec/s: 306 rss: 91Mb L: 596/81921 MS: 2 InsertRepeatedBytes-Custom-
+#1247	NEW    cov: 4885 ft: 20030 corp: 825/631Kb lim: 81933 exec/s: 311 rss: 91Mb L: 1757/81921 MS: 2 CrossOver-Custom-
+#1263	NEW    cov: 4885 ft: 20046 corp: 826/633Kb lim: 81933 exec/s: 315 rss: 91Mb L: 1509/81921 MS: 2 CopyPart-Custom-
+#1286	NEW    cov: 4885 ft: 20054 corp: 827/635Kb lim: 81933 exec/s: 321 rss: 91Mb L: 2560/81921 MS: 6 ChangeBit-Custom-EraseBytes-Custom-CrossOver-Custom-
+#1300	NEW    cov: 4885 ft: 20058 corp: 828/636Kb lim: 81933 exec/s: 325 rss: 91Mb L: 683/81921 MS: 8 CopyPart-Custom-ChangeBit-Custom-ChangeByte-Custom-CrossOver-Custom-
+#1331	REDUCE cov: 4885 ft: 20058 corp: 828/636Kb lim: 81933 exec/s: 332 rss: 91Mb L: 559/81921 MS: 2 EraseBytes-Custom-
+#1341	NEW    cov: 4885 ft: 20061 corp: 829/636Kb lim: 81933 exec/s: 335 rss: 91Mb L: 313/81921 MS: 10 InsertByte-Custom-CrossOver-Custom-ShuffleBytes-Custom-ChangeBit-Custom-CopyPart-Custom-
+#1365	NEW    cov: 4886 ft: 20062 corp: 830/637Kb lim: 81933 exec/s: 341 rss: 91Mb L: 125/81921 MS: 8 CrossOver-Custom-ShuffleBytes-Custom-ChangeBit-Custom-CMP-Custom- DE: "\001\000\000\000\000\000\0009"-
+#1386	NEW    cov: 4886 ft: 20076 corp: 831/637Kb lim: 81933 exec/s: 346 rss: 91Mb L: 392/81921 MS: 2 InsertByte-Custom-
+#1409	NEW    cov: 4886 ft: 20079 corp: 832/637Kb lim: 81933 exec/s: 352 rss: 91Mb L: 365/81921 MS: 6 ChangeASCIIInt-Custom-ChangeBit-Custom-EraseBytes-Custom-
+#1420	REDUCE cov: 4886 ft: 20079 corp: 832/637Kb lim: 81933 exec/s: 355 rss: 91Mb L: 365/81921 MS: 2 EraseBytes-Custom-
+#1466	NEW    cov: 4886 ft: 20081 corp: 833/637Kb lim: 81933 exec/s: 366 rss: 91Mb L: 144/81921 MS: 2 CrossOver-Custom-
+#1472	NEW    cov: 4886 ft: 20083 corp: 834/637Kb lim: 81933 exec/s: 368 rss: 91Mb L: 88/81921 MS: 2 CopyPart-Custom-
+#1474	NEW    cov: 4886 ft: 20093 corp: 835/638Kb lim: 81933 exec/s: 368 rss: 91Mb L: 266/81921 MS: 4 ChangeASCIIInt-Custom-PersAutoDict-Custom- DE: "\001\000\000\000\000\000\0009"-
+#1513	NEW    cov: 4886 ft: 20094 corp: 836/641Kb lim: 81933 exec/s: 378 rss: 91Mb L: 3179/81921 MS: 8 ChangeASCIIInt-Custom-InsertByte-Custom-ChangeBit-Custom-CopyPart-Custom-
+#1539	NEW    cov: 4886 ft: 20095 corp: 837/645Kb lim: 81933 exec/s: 384 rss: 91Mb L: 3957/81921 MS: 2 InsertRepeatedBytes-Custom-
+#1633	NEW    cov: 4886 ft: 20096 corp: 838/645Kb lim: 81933 exec/s: 408 rss: 91Mb L: 196/81921 MS: 8 EraseBytes-Custom-ShuffleBytes-Custom-ChangeBinInt-Custom-CrossOver-Custom-
+#1644	NEW    cov: 4886 ft: 20100 corp: 839/649Kb lim: 81933 exec/s: 411 rss: 91Mb L: 4325/81921 MS: 2 CopyPart-Custom-
+#1699	NEW    cov: 4886 ft: 20105 corp: 840/649Kb lim: 81933 exec/s: 424 rss: 91Mb L: 13/81921 MS: 10 ShuffleBytes-Custom-ChangeBit-Custom-CrossOver-Custom-ChangeBit-Custom-ChangeBit-Custom-
+#1720	REDUCE cov: 4886 ft: 20105 corp: 840/649Kb lim: 81933 exec/s: 430 rss: 91Mb L: 518/81921 MS: 2 EraseBytes-Custom-
+#1779	NEW    cov: 4886 ft: 20106 corp: 841/649Kb lim: 81933 exec/s: 444 rss: 91Mb L: 66/81921 MS: 8 CrossOver-Custom-CopyPart-Custom-EraseBytes-Custom-InsertByte-Custom-
+#1806	NEW    cov: 4886 ft: 20109 corp: 842/650Kb lim: 81933 exec/s: 451 rss: 91Mb L: 913/81921 MS: 4 CopyPart-Custom-CopyPart-Custom-
+#1815	NEW    cov: 4886 ft: 20110 corp: 843/652Kb lim: 81933 exec/s: 453 rss: 91Mb L: 2260/81921 MS: 8 ChangeByte-Custom-CopyPart-Custom-CrossOver-Custom-ChangeBit-Custom-
+#1828	NEW    cov: 4886 ft: 20111 corp: 844/654Kb lim: 81933 exec/s: 457 rss: 91Mb L: 1757/81921 MS: 6 ChangeASCIIInt-Custom-ShuffleBytes-Custom-PersAutoDict-Custom- DE: "\001\000\000\000\000\000\0009"-
+#1854	REDUCE cov: 4886 ft: 20111 corp: 844/654Kb lim: 81933 exec/s: 463 rss: 91Mb L: 905/81921 MS: 2 EraseBytes-Custom-
+#1857	NEW    cov: 4886 ft: 20138 corp: 845/654Kb lim: 81933 exec/s: 371 rss: 91Mb L: 624/81921 MS: 6 ShuffleBytes-Custom-ShuffleBytes-Custom-CopyPart-Custom-
+#1870	NEW    cov: 4895 ft: 20152 corp: 846/655Kb lim: 81933 exec/s: 374 rss: 91Mb L: 359/81921 MS: 6 CopyPart-Custom-InsertByte-Custom-CrossOver-Custom-
+#1876	NEW    cov: 4895 ft: 20153 corp: 847/655Kb lim: 81933 exec/s: 375 rss: 91Mb L: 126/81921 MS: 2 InsertByte-Custom-
+#1893	NEW    cov: 4895 ft: 20156 corp: 848/655Kb lim: 81933 exec/s: 378 rss: 91Mb L: 209/81921 MS: 4 CrossOver-Custom-EraseBytes-Custom-
+#1905	NEW    cov: 4895 ft: 20157 corp: 849/656Kb lim: 81933 exec/s: 381 rss: 91Mb L: 565/81921 MS: 4 ShuffleBytes-Custom-PersAutoDict-Custom- DE: "\001\000\000\000\000\000\0009"-
+#1911	REDUCE cov: 4895 ft: 20157 corp: 849/656Kb lim: 81933 exec/s: 382 rss: 91Mb L: 30/81921 MS: 2 EraseBytes-Custom-
+#1914	NEW    cov: 4895 ft: 20158 corp: 850/656Kb lim: 81933 exec/s: 382 rss: 91Mb L: 178/81921 MS: 6 InsertRepeatedBytes-Custom-ChangeByte-Custom-CrossOver-Custom-
+#1955	REDUCE cov: 4895 ft: 20158 corp: 850/656Kb lim: 81933 exec/s: 391 rss: 91Mb L: 132/81921 MS: 2 EraseBytes-Custom-
+#1960	NEW    cov: 4895 ft: 20162 corp: 851/657Kb lim: 81933 exec/s: 392 rss: 91Mb L: 1400/81921 MS: 10 EraseBytes-Custom-ChangeBit-Custom-ChangeByte-Custom-PersAutoDict-Custom-ChangeByte-Custom- DE: "\001\000\000\000\000\000\0009"-
+#1961	NEW    cov: 4895 ft: 20163 corp: 852/657Kb lim: 81933 exec/s: 392 rss: 91Mb L: 72/81921 MS: 2 ChangeByte-Custom-
+#1978	NEW    cov: 4895 ft: 20166 corp: 853/657Kb lim: 81933 exec/s: 395 rss: 91Mb L: 107/81921 MS: 4 ChangeBinInt-Custom-InsertRepeatedBytes-Custom-
+#1981	NEW    cov: 4895 ft: 20169 corp: 854/659Kb lim: 81933 exec/s: 396 rss: 91Mb L: 1682/81921 MS: 6 InsertByte-Custom-ChangeByte-Custom-CrossOver-Custom-
+#1988	NEW    cov: 4895 ft: 20171 corp: 855/659Kb lim: 81933 exec/s: 397 rss: 91Mb L: 171/81921 MS: 4 ShuffleBytes-Custom-InsertRepeatedBytes-Custom-
+#2005	NEW    cov: 4895 ft: 20172 corp: 856/659Kb lim: 81933 exec/s: 401 rss: 91Mb L: 100/81921 MS: 4 ChangeBinInt-Custom-InsertRepeatedBytes-Custom-
+#2014	NEW    cov: 4895 ft: 20173 corp: 857/662Kb lim: 81933 exec/s: 402 rss: 91Mb L: 2596/81921 MS: 8 ChangeASCIIInt-Custom-CrossOver-Custom-ChangeBit-Custom-ChangeBinInt-Custom-
+#2015	NEW    cov: 4895 ft: 20184 corp: 858/663Kb lim: 81933 exec/s: 403 rss: 91Mb L: 1372/81921 MS: 2 CopyPart-Custom-
+	NEW_FUNC[1/1]: 0x7f0c976edab0 in pool_put_int /src/turbohtml/.mesonpy-t9_36bd5/../src/turbohtml/_c/css/minify/css_value.h:105
+#2022	NEW    cov: 4908 ft: 20197 corp: 859/664Kb lim: 81933 exec/s: 404 rss: 91Mb L: 526/81921 MS: 4 PersAutoDict-Custom-CrossOver-Custom- DE: "\001\000\000\000\000\000\0009"-
+#2023	NEW    cov: 4908 ft: 20200 corp: 860/666Kb lim: 81933 exec/s: 404 rss: 91Mb L: 1990/81921 MS: 2 CopyPart-Custom-
+#2044	NEW    cov: 4908 ft: 20203 corp: 861/666Kb lim: 81933 exec/s: 408 rss: 91Mb L: 169/81921 MS: 2 CopyPart-Custom-
+#2048	pulse  cov: 4908 ft: 20203 corp: 861/666Kb lim: 81933 exec/s: 409 rss: 91Mb
+#2085	NEW    cov: 4908 ft: 20208 corp: 862/668Kb lim: 81933 exec/s: 417 rss: 91Mb L: 2221/81921 MS: 2 InsertRepeatedBytes-Custom-
+#2096	REDUCE cov: 4908 ft: 20208 corp: 862/668Kb lim: 81933 exec/s: 419 rss: 91Mb L: 39/81921 MS: 2 EraseBytes-Custom-
+#2102	NEW    cov: 4908 ft: 20231 corp: 863/670Kb lim: 81933 exec/s: 420 rss: 91Mb L: 1634/81921 MS: 2 CopyPart-Custom-
+#2115	REDUCE cov: 4908 ft: 20231 corp: 863/670Kb lim: 81933 exec/s: 423 rss: 91Mb L: 129/81921 MS: 6 CrossOver-Custom-ChangeBinInt-Custom-EraseBytes-Custom-
+#2138	NEW    cov: 4908 ft: 20232 corp: 864/670Kb lim: 81933 exec/s: 427 rss: 91Mb L: 41/81921 MS: 6 EraseBytes-Custom-CopyPart-Custom-InsertByte-Custom-
+#2141	NEW    cov: 4908 ft: 20233 corp: 865/670Kb lim: 81933 exec/s: 428 rss: 91Mb L: 399/81921 MS: 6 ChangeBit-Custom-ChangeBit-Custom-CrossOver-Custom-
+#2153	NEW    cov: 4908 ft: 20236 corp: 866/670Kb lim: 81933 exec/s: 430 rss: 91Mb L: 125/81921 MS: 4 ChangeBit-Custom-EraseBytes-Custom-
+#2167	NEW    cov: 4908 ft: 20237 corp: 867/673Kb lim: 81933 exec/s: 433 rss: 91Mb L: 3361/81921 MS: 8 CopyPart-Custom-CrossOver-Custom-ChangeBit-Custom-ChangeBit-Custom-
+#2193	NEW    cov: 4910 ft: 20241 corp: 868/676Kb lim: 81933 exec/s: 438 rss: 91Mb L: 2227/81921 MS: 2 ShuffleBytes-Custom-
+#2214	NEW    cov: 4910 ft: 20264 corp: 869/676Kb lim: 81933 exec/s: 442 rss: 91Mb L: 519/81921 MS: 2 PersAutoDict-Custom- DE: "\001\000\000\000\000\000\0009"-
+#2225	NEW    cov: 4910 ft: 20265 corp: 870/678Kb lim: 81933 exec/s: 445 rss: 91Mb L: 2126/81921 MS: 2 CopyPart-Custom-
+#2234	NEW    cov: 4911 ft: 20266 corp: 871/678Kb lim: 81933 exec/s: 446 rss: 91Mb L: 175/81921 MS: 8 ChangeByte-Custom-EraseBytes-Custom-CopyPart-Custom-CMP-Custom- DE: "\000\002"-
+#2235	NEW    cov: 4911 ft: 20268 corp: 872/679Kb lim: 81933 exec/s: 447 rss: 91Mb L: 584/81921 MS: 2 CrossOver-Custom-
+#2243	NEW    cov: 4913 ft: 20270 corp: 873/680Kb lim: 81933 exec/s: 448 rss: 91Mb L: 1682/81921 MS: 6 ChangeByte-Custom-ShuffleBytes-Custom-ChangeBinInt-Custom-
+#2260	NEW    cov: 4913 ft: 20272 corp: 874/681Kb lim: 81933 exec/s: 452 rss: 91Mb L: 683/81921 MS: 4 ChangeBinInt-Custom-CrossOver-Custom-
+#2278	NEW    cov: 4913 ft: 20274 corp: 875/682Kb lim: 81933 exec/s: 455 rss: 91Mb L: 429/81921 MS: 6 CopyPart-Custom-ShuffleBytes-Custom-CMP-Custom- DE: "A\000\000\000\000\000\000\000"-
+#2284	NEW    cov: 4913 ft: 20276 corp: 876/684Kb lim: 81933 exec/s: 456 rss: 91Mb L: 2223/81921 MS: 2 EraseBytes-Custom-
+#2295	NEW    cov: 4915 ft: 20286 corp: 877/685Kb lim: 81933 exec/s: 459 rss: 91Mb L: 1594/81921 MS: 2 ShuffleBytes-Custom-
+#2316	NEW    cov: 4915 ft: 20287 corp: 878/685Kb lim: 81933 exec/s: 463 rss: 91Mb L: 170/81921 MS: 2 PersAutoDict-Custom- DE: "\001\000\000\000\000\000\0009"-
+#2341	NEW    cov: 4915 ft: 20295 corp: 879/687Kb lim: 81933 exec/s: 468 rss: 91Mb L: 1836/81921 MS: 10 ChangeBit-Custom-CopyPart-Custom-ShuffleBytes-Custom-CrossOver-Custom-EraseBytes-Custom-
+#2393	NEW    cov: 4915 ft: 20300 corp: 880/690Kb lim: 81933 exec/s: 478 rss: 91Mb L: 2975/81921 MS: 4 CrossOver-Custom-CrossOver-Custom-
+#2415	REDUCE cov: 4915 ft: 20300 corp: 880/690Kb lim: 81933 exec/s: 483 rss: 91Mb L: 1101/81921 MS: 4 ChangeBit-Custom-EraseBytes-Custom-
+#2417	NEW    cov: 4915 ft: 20301 corp: 881/691Kb lim: 81933 exec/s: 483 rss: 91Mb L: 1507/81921 MS: 4 ChangeByte-Custom-EraseBytes-Custom-
+#2479	NEW    cov: 4915 ft: 20302 corp: 882/692Kb lim: 81933 exec/s: 413 rss: 91Mb L: 184/81921 MS: 4 ChangeBit-Custom-InsertRepeatedBytes-Custom-
+#2511	NEW    cov: 4915 ft: 20304 corp: 883/693Kb lim: 81933 exec/s: 418 rss: 91Mb L: 1783/81921 MS: 4 ChangeByte-Custom-CrossOver-Custom-
+#2515	NEW    cov: 4915 ft: 20309 corp: 884/693Kb lim: 81933 exec/s: 419 rss: 91Mb L: 133/81921 MS: 8 CrossOver-Custom-CopyPart-Custom-CopyPart-Custom-PersAutoDict-Custom- DE: "\000\002"-
+#2587	REDUCE cov: 4915 ft: 20309 corp: 884/693Kb lim: 81933 exec/s: 431 rss: 91Mb L: 165/81921 MS: 4 ChangeASCIIInt-Custom-EraseBytes-Custom-
+#2594	NEW    cov: 4915 ft: 20311 corp: 885/695Kb lim: 81933 exec/s: 432 rss: 91Mb L: 1990/81921 MS: 4 CopyPart-Custom-CrossOver-Custom-
+#2612	NEW    cov: 4915 ft: 20356 corp: 886/699Kb lim: 81933 exec/s: 435 rss: 91Mb L: 3869/81921 MS: 6 ChangeByte-Custom-CrossOver-Custom-CopyPart-Custom-
+#2614	NEW    cov: 4915 ft: 20367 corp: 887/701Kb lim: 81933 exec/s: 435 rss: 91Mb L: 1509/81921 MS: 4 PersAutoDict-Custom-ChangeBit-Custom- DE: "\000\002"-
+#2645	NEW    cov: 4915 ft: 20375 corp: 888/703Kb lim: 81933 exec/s: 440 rss: 91Mb L: 1990/81921 MS: 2 ChangeBit-Custom-
+#2646	NEW    cov: 4917 ft: 20391 corp: 889/703Kb lim: 81933 exec/s: 441 rss: 91Mb L: 506/81921 MS: 2 CrossOver-Custom-
+#2680	NEW    cov: 4917 ft: 20429 corp: 890/705Kb lim: 81933 exec/s: 446 rss: 91Mb L: 2407/81921 MS: 8 ChangeBinInt-Custom-PersAutoDict-Custom-ChangeASCIIInt-Custom-CrossOver-Custom- DE: "\001\000\000\000\000\000\0009"-
+#2681	NEW    cov: 4917 ft: 20430 corp: 891/706Kb lim: 81933 exec/s: 446 rss: 91Mb L: 78/81921 MS: 2 ChangeBinInt-Custom-
+#2683	NEW    cov: 4917 ft: 20432 corp: 892/706Kb lim: 81933 exec/s: 447 rss: 91Mb L: 64/81921 MS: 4 CrossOver-Custom-InsertRepeatedBytes-Custom-
+#2686	NEW    cov: 4917 ft: 20440 corp: 893/707Kb lim: 81933 exec/s: 447 rss: 91Mb L: 1587/81921 MS: 6 InsertRepeatedBytes-Custom-InsertByte-Custom-CrossOver-Custom-
+#2704	NEW    cov: 4917 ft: 20447 corp: 894/707Kb lim: 81933 exec/s: 450 rss: 91Mb L: 241/81921 MS: 6 InsertRepeatedBytes-Custom-ChangeBinInt-Custom-CrossOver-Custom-
+#2743	NEW    cov: 4917 ft: 20452 corp: 895/709Kb lim: 81933 exec/s: 457 rss: 91Mb L: 1493/81921 MS: 8 ShuffleBytes-Custom-PersAutoDict-Custom-ChangeBit-Custom-PersAutoDict-Custom- DE: "\001\000\000\000\000\000\0009"-"\000\002"-
+#2781	NEW    cov: 4917 ft: 20558 corp: 896/714Kb lim: 81933 exec/s: 463 rss: 91Mb L: 5233/81921 MS: 6 ShuffleBytes-Custom-ChangeByte-Custom-CrossOver-Custom-
+#2823	NEW    cov: 4917 ft: 20565 corp: 897/715Kb lim: 81933 exec/s: 470 rss: 91Mb L: 609/81921 MS: 4 PersAutoDict-Custom-CrossOver-Custom- DE: "\000\002"-
+#2854	NEW    cov: 4917 ft: 20566 corp: 898/717Kb lim: 81933 exec/s: 475 rss: 91Mb L: 2224/81921 MS: 2 ChangeBit-Custom-
+#2864	REDUCE cov: 4917 ft: 20566 corp: 898/717Kb lim: 81933 exec/s: 477 rss: 91Mb L: 45/81921 MS: 10 ChangeBit-Custom-ShuffleBytes-Custom-ChangeBit-Custom-EraseBytes-Custom-ChangeBinInt-Custom-
+#2876	NEW    cov: 4917 ft: 20572 corp: 899/719Kb lim: 81933 exec/s: 479 rss: 91Mb L: 1990/81921 MS: 4 ShuffleBytes-Custom-ChangeByte-Custom-
+#2878	NEW    cov: 4917 ft: 20576 corp: 900/720Kb lim: 81933 exec/s: 479 rss: 91Mb L: 1228/81921 MS: 4 ShuffleBytes-Custom-EraseBytes-Custom-
+#2885	NEW    cov: 4917 ft: 20577 corp: 901/720Kb lim: 81933 exec/s: 480 rss: 91Mb L: 399/81921 MS: 4 EraseBytes-Custom-PersAutoDict-Custom- DE: "\000\002"-
+#2887	NEW    cov: 4917 ft: 20585 corp: 902/723Kb lim: 81933 exec/s: 481 rss: 91Mb L: 2407/81921 MS: 4 ShuffleBytes-Custom-ChangeBinInt-Custom-
+#2910	NEW    cov: 4917 ft: 20586 corp: 903/724Kb lim: 81933 exec/s: 485 rss: 91Mb L: 1249/81921 MS: 6 ChangeByte-Custom-ShuffleBytes-Custom-ChangeByte-Custom-
+#2916	REDUCE cov: 4917 ft: 20586 corp: 903/724Kb lim: 81933 exec/s: 486 rss: 91Mb L: 59/81921 MS: 2 EraseBytes-Custom-
+#2923	NEW    cov: 4917 ft: 20588 corp: 904/724Kb lim: 81933 exec/s: 487 rss: 91Mb L: 71/81921 MS: 4 PersAutoDict-Custom-EraseBytes-Custom- DE: "A\000\000\000\000\000\000\000"-
+#2931	NEW    cov: 4917 ft: 20591 corp: 905/724Kb lim: 81933 exec/s: 488 rss: 91Mb L: 80/81921 MS: 6 ShuffleBytes-Custom-ChangeBit-Custom-PersAutoDict-Custom- DE: "\000\002"-
+#2963	NEW    cov: 4917 ft: 20593 corp: 906/725Kb lim: 81933 exec/s: 493 rss: 91Mb L: 1347/81921 MS: 4 CrossOver-Custom-CrossOver-Custom-
+#3013	NEW    cov: 4917 ft: 20594 corp: 907/725Kb lim: 81933 exec/s: 502 rss: 91Mb L: 18/81921 MS: 10 InsertByte-Custom-EraseBytes-Custom-CopyPart-Custom-EraseBytes-Custom-InsertByte-Custom-
+#3041	NEW    cov: 4924 ft: 20601 corp: 908/728Kb lim: 81933 exec/s: 506 rss: 91Mb L: 3251/81921 MS: 6 InsertRepeatedBytes-Custom-ChangeByte-Custom-ChangeASCIIInt-Custom-
+#3052	NEW    cov: 4933 ft: 20625 corp: 909/729Kb lim: 81933 exec/s: 508 rss: 91Mb L: 528/81921 MS: 2 ChangeASCIIInt-Custom-
+#3088	NEW    cov: 4933 ft: 20636 corp: 910/731Kb lim: 81933 exec/s: 514 rss: 91Mb L: 1969/81921 MS: 2 CrossOver-Custom-
+#3094	NEW    cov: 4933 ft: 20637 corp: 911/731Kb lim: 81933 exec/s: 515 rss: 91Mb L: 611/81921 MS: 2 InsertRepeatedBytes-Custom-
+#3101	NEW    cov: 4933 ft: 20638 corp: 912/733Kb lim: 81933 exec/s: 516 rss: 91Mb L: 1364/81921 MS: 4 ChangeBit-Custom-InsertByte-Custom-
+#3113	NEW    cov: 4933 ft: 20648 corp: 913/734Kb lim: 81933 exec/s: 518 rss: 91Mb L: 1034/81921 MS: 4 CrossOver-Custom-EraseBytes-Custom-
+#3134	NEW    cov: 4935 ft: 20650 corp: 914/735Kb lim: 81933 exec/s: 522 rss: 91Mb L: 1255/81921 MS: 2 ChangeByte-Custom-
+#3145	NEW    cov: 4935 ft: 20653 corp: 915/737Kb lim: 81933 exec/s: 449 rss: 91Mb L: 2293/81921 MS: 2 CopyPart-Custom-
+../src/turbohtml/_c/css/minify/css_selector.h:117:29: runtime error: load of misaligned address 0xffffffffffffffff for type 'css_char' (aka 'unsigned char'), which requires 2 byte alignment
+0xffffffffffffffff: note: pointer points here
+<memory cannot be printed>
+    #0 0x7f0c976e92c8 in css_minify_selector /src/turbohtml/.mesonpy-t9_36bd5/../src/turbohtml/_c/css/minify/css_selector.h:117:29
+    #1 0x7f0c976dba3f in css_parse_declarations /src/turbohtml/.mesonpy-t9_36bd5/../src/turbohtml/_c/css/minify/css_grammar.h:910:13
+    #2 0x7f0c976e29ad in css_parse_qualified /src/turbohtml/.mesonpy-t9_36bd5/../src/turbohtml/_c/css/minify/css_grammar.h:1031:9
+    #3 0x7f0c976e29ad in css_parse_rules /src/turbohtml/.mesonpy-t9_36bd5/../src/turbohtml/_c/css/minify/css_grammar.h:1843:13
+    #4 0x7f0c976d839d in th_minify_css_bytes /src/turbohtml/.mesonpy-t9_36bd5/../src/turbohtml/_c/css/minify/css.c:103:13
+    #5 0x7f0c976e4a98 in css_minify_entry /src/turbohtml/.mesonpy-t9_36bd5/../src/turbohtml/_c/css/minify/css.c:363:22
+    #6 0x7f0c98430776 in cfunction_call /tmp/Python-3.11.13/Objects/methodobject.c:553:18
+    #7 0x7f0c9840b471 in _PyObject_MakeTpCall /tmp/Python-3.11.13/Objects/call.c:214:18
+    #8 0x7f0c9840b471 in _PyObject_VectorcallTstate /tmp/Python-3.11.13/./Include/internal/pycore_call.h:90:16
+    #9 0x7f0c9840b471 in PyObject_Vectorcall /tmp/Python-3.11.13/Objects/call.c:299:12
+    #10 0x7f0c9846bbaa in _PyEval_EvalFrameDefault /tmp/Python-3.11.13/Python/ceval.c
+    #11 0x7f0c984628b8 in _PyEval_EvalFrame /tmp/Python-3.11.13/./Include/internal/pycore_ceval.h:73:16
+    #12 0x7f0c984628b8 in _PyEval_Vector /tmp/Python-3.11.13/Python/ceval.c:6434:24
+    #13 0x7f0c95d6142b in pybind11::detail::simple_collector<(pybind11::return_value_policy)1>::call(_object*) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2159:47
+    #14 0x7f0c95d6142b in pybind11::object pybind11::detail::object_api<pybind11::handle>::operator()<(pybind11::return_value_policy)1, pybind11::bytes>(pybind11::bytes&&) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2329:95
+    #15 0x7f0c95d6142b in pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>::operator()(pybind11::bytes) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/functional.h:54:23
+    #16 0x7f0c95d6142b in void std::__invoke_impl<void, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes>(std::__invoke_other, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes&&) /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/invoke.h:60:36
+    #17 0x7f0c95d6142b in std::enable_if<is_invocable_r_v<void, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes>, void>::type std::__invoke_r<void, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes>(pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes&&) /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/invoke.h:110:28
+    #18 0x7f0c95d6142b in std::_Function_handler<void (pybind11::bytes), pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>>::_M_invoke(std::_Any_data const&, pybind11::bytes&&) /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/std_function.h:291:30
+    #19 0x7f0c95d55605 in std::function<void (pybind11::bytes)>::operator()(pybind11::bytes) const /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/std_function.h:622:14
+    #20 0x7f0c95d55605 in void pybind11::detail::argument_loader<pybind11::bytes>::call_impl<void, std::function<void (pybind11::bytes)>&, 0ul, pybind11::detail::void_type>(std::function<void (pybind11::bytes)>&, std::integer_sequence<unsigned long, 0ul>, pybind11::detail::void_type&&) && /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2137:37
+    #21 0x7f0c95d55605 in _ZNO8pybind116detail15argument_loaderIJNS_5bytesEEE4callIvNS0_9void_typeERSt8functionIFvS2_EEEENSt9enable_ifIXsrSt7is_voidIT_E5valueES5_E4typeEOT1_ /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2111:65
+    #22 0x7f0c95d55605 in void pybind11::cpp_function::initialize<std::function<void (pybind11::bytes)>&, void, pybind11::bytes, pybind11::return_value_policy>(std::function<void (pybind11::bytes)>&, void (*)(pybind11::bytes), pybind11::return_value_policy const&)::'lambda1'(pybind11::detail::function_call&)::operator()(pybind11::detail::function_call&) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:430:75
+    #23 0x7f0c95d55605 in void pybind11::cpp_function::initialize<std::function<void (pybind11::bytes)>&, void, pybind11::bytes, pybind11::return_value_policy>(std::function<void (pybind11::bytes)>&, void (*)(pybind11::bytes), pybind11::return_value_policy const&)::'lambda1'(pybind11::detail::function_call&)::_FUN(pybind11::detail::function_call&) /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:400:21
+    #24 0x7f0c95d6a861 in pybind11::cpp_function::dispatcher(_object*, _object*, _object*) /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:1063:35
+    #25 0x7f0c98430758 in cfunction_call /tmp/Python-3.11.13/Objects/methodobject.c:542:18
+    #26 0x7f0c984c1077 in _PyObject_Call /tmp/Python-3.11.13/Objects/call.c:343:18
+    #27 0x7f0c958c1f5b in pybind11::detail::simple_collector<(pybind11::return_value_policy)1>::call(_object*) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2159:47
+    #28 0x7f0c958c1f5b in pybind11::object pybind11::detail::object_api<pybind11::handle>::operator()<(pybind11::return_value_policy)1, pybind11::bytes>(pybind11::bytes&&) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2329:95
+    #29 0x7f0c958c1f5b in pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>::operator()(pybind11::bytes) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/functional.h:54:23
+    #30 0x7f0c958c1f5b in void std::__invoke_impl<void, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes>(std::__invoke_other, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes&&) /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/invoke.h:60:36
+    #31 0x7f0c958c1f5b in std::enable_if<is_invocable_r_v<void, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes>, void>::type std::__invoke_r<void, pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes>(pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>&, pybind11::bytes&&) /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/invoke.h:110:28
+    #32 0x7f0c958c1f5b in std::_Function_handler<void (pybind11::bytes), pybind11::detail::type_caster_std_function_specializations::func_wrapper<void, pybind11::bytes>>::_M_invoke(std::_Any_data const&, pybind11::bytes&&) /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/std_function.h:291:30
+    #33 0x7f0c958a9003 in std::function<void (pybind11::bytes)>::operator()(pybind11::bytes) const /opt/rh/devtoolset-10/root/usr/include/c++/10/bits/std_function.h:622:14
+    #34 0x7f0c958a9003 in atheris::TestOneInput(unsigned char const*, unsigned long) /atheris/src/native/core.cc:385:26
+    #35 0x7f0c9920c179 in run_input atheris_bridge.c
+    #36 0x7f0c9922fdd4 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:617:15
+    #37 0x7f0c99232fe0 in fuzzer::Fuzzer::RunOne(unsigned char const*, unsigned long, bool, fuzzer::InputInfo*, bool, bool*) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:519:22
+    #38 0x7f0c99234ad7 in fuzzer::Fuzzer::MutateAndTestOne() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:763:25
+    #39 0x7f0c99236007 in fuzzer::Fuzzer::Loop(std::vector<fuzzer::SizedFile, std::allocator<fuzzer::SizedFile>>&) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:908:21
+    #40 0x7f0c9921e3f6 in fuzzer::FuzzerDriver(int*, char***, int (*)(unsigned char const*, unsigned long)) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerDriver.cpp:912:10
+    #41 0x7f0c9920c138 in LLVMFuzzerRunDriver (/home/runner/work/_temp/cflite/build-out/sanitizer_with_fuzzer.so+0xc138)
+    #42 0x7f0c958aafaa in atheris::start_fuzzing(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&) /atheris/src/native/core.cc:465:15
+    #43 0x7f0c958c1c17 in void pybind11::detail::argument_loader<std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&>::call_impl<void, void (*&)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), 0ul, 1ul, pybind11::detail::void_type>(void (*&)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), std::integer_sequence<unsigned long, 0ul, 1ul>, pybind11::detail::void_type&&) && /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2137:37
+    #44 0x7f0c958c1c17 in _ZNO8pybind116detail15argument_loaderIJRKSt6vectorISsSaISsEERKSt8functionIFvNS_5bytesEEEEE4callIvNS0_9void_typeERPFvS6_SC_EEENSt9enable_ifIXsrSt7is_voidIT_E5valueESF_E4typeEOT1_ /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2111:65
+    #45 0x7f0c958c1c17 in void pybind11::cpp_function::initialize<void (*&)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), void, std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&, pybind11::name, pybind11::scope, pybind11::sibling>(void (*&)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), void (*)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), pybind11::name const&, pybind11::scope const&, pybind11::sibling const&)::'lambda1'(pybind11::detail::function_call&)::operator()(pybind11::detail::function_call&) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:430:75
+    #46 0x7f0c958c1c17 in void pybind11::cpp_function::initialize<void (*&)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), void, std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&, pybind11::name, pybind11::scope, pybind11::sibling>(void (*&)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), void (*)(std::vector<std::string, std::allocator<std::string>> const&, std::function<void (pybind11::bytes)> const&), pybind11::name const&, pybind11::scope const&, pybind11::sibling const&)::'lambda1'(pybind11::detail::function_call&)::_FUN(pybind11::detail::function_call&) /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:400:21
+    #47 0x7f0c958bd5ef in pybind11::cpp_function::dispatcher(_object*, _object*, _object*) /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:1063:35
+    #48 0x7f0c98430758 in cfunction_call /tmp/Python-3.11.13/Objects/methodobject.c:542:18
+    #49 0x7f0c984c1077 in _PyObject_Call /tmp/Python-3.11.13/Objects/call.c:343:18
+    #50 0x7f0c95d5e184 in pybind11::detail::simple_collector<(pybind11::return_value_policy)1>::call(_object*) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2159:47
+    #51 0x7f0c95d516f3 in pybind11::object pybind11::detail::object_api<pybind11::detail::accessor<pybind11::detail::accessor_policies::str_attr>>::operator()<(pybind11::return_value_policy)1, std::vector<std::string, std::allocator<std::string>>&, std::function<void (pybind11::bytes)>&>(std::vector<std::string, std::allocator<std::string>>&, std::function<void (pybind11::bytes)>&) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2329:95
+    #52 0x7f0c95d516f3 in atheris::Fuzz() /atheris/src/native/atheris.cc:276:64
+    #53 0x7f0c95d54d4c in void pybind11::detail::argument_loader<>::call_impl<void, void (*&)(), pybind11::detail::void_type>(void (*&)(), std::integer_sequence<unsigned long>, pybind11::detail::void_type&&) && /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2137:37
+    #54 0x7f0c95d54d4c in _ZNO8pybind116detail15argument_loaderIJEE4callIvNS0_9void_typeERPFvvEEENSt9enable_ifIXsrSt7is_voidIT_E5valueES4_E4typeEOT1_ /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/cast.h:2111:65
+    #55 0x7f0c95d54d4c in void pybind11::cpp_function::initialize<void (*&)(), void, pybind11::name, pybind11::scope, pybind11::sibling>(void (*&)(), void (*)(), pybind11::name const&, pybind11::scope const&, pybind11::sibling const&)::'lambda1'(pybind11::detail::function_call&)::operator()(pybind11::detail::function_call&) const /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:430:75
+    #56 0x7f0c95d54d4c in void pybind11::cpp_function::initialize<void (*&)(), void, pybind11::name, pybind11::scope, pybind11::sibling>(void (*&)(), void (*)(), pybind11::name const&, pybind11::scope const&, pybind11::sibling const&)::'lambda1'(pybind11::detail::function_call&)::_FUN(pybind11::detail::function_call&) /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:400:21
+    #57 0x7f0c95d6a861 in pybind11::cpp_function::dispatcher(_object*, _object*, _object*) /atheris/.eggs/pybind11-3.0.1-py3.12.egg/pybind11/include/pybind11/pybind11.h:1063:35
+    #58 0x7f0c98430758 in cfunction_call /tmp/Python-3.11.13/Objects/methodobject.c:542:18
+    #59 0x7f0c9840b471 in _PyObject_MakeTpCall /tmp/Python-3.11.13/Objects/call.c:214:18
+    #60 0x7f0c9840b471 in _PyObject_VectorcallTstate /tmp/Python-3.11.13/./Include/internal/pycore_call.h:90:16
+    #61 0x7f0c9840b471 in PyObject_Vectorcall /tmp/Python-3.11.13/Objects/call.c:299:12
+    #62 0x7f0c9846bbaa in _PyEval_EvalFrameDefault /tmp/Python-3.11.13/Python/ceval.c
+    #63 0x7f0c984628b8 in _PyEval_EvalFrame /tmp/Python-3.11.13/./Include/internal/pycore_ceval.h:73:16
+    #64 0x7f0c984628b8 in _PyEval_Vector /tmp/Python-3.11.13/Python/ceval.c:6434:24
+    #65 0x7f0c9851e240 in PyEval_EvalCode /tmp/Python-3.11.13/Python/ceval.c:1148:21
+    #66 0x000000403600  (/home/runner/work/_temp/cflite/build-out/fuzz_css_stylesheet.pkg+0x403600) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #67 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_css_stylesheet.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #68 0x7f0c99032082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #69 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_css_stylesheet.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: css_minify_selector--css_parse_declarations--css_parse_qualified
+SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior ../src/turbohtml/_c/css/minify/css_selector.h:117:29 
+MS: 6 InsertRepeatedBytes-Custom-ShuffleBytes-Custom-CrossOver-Custom-; base unit: 245584b176501f3e5c541234d5d0ab63555f833a
+artifact_prefix='/tmp/tmphyux2yr9/'; Test unit written to /tmp/tmphyux2yr9/crash-8f878ab527846582441624569f075f7ad8015f92
+stat::number_of_executed_units: 3158
+stat::average_exec_per_sec:     451
+stat::new_units_added:          117
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              91

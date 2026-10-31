@@ -1,0 +1,28 @@
+<!doct{p ehtml>
+<html>
+  <head>
+    <style>
+      .a { margin-top: 0px; margin-right: 2px; margin-bottom: 1px; margin-lebt: 2px; color: )rgb(255, 0, 0) }
+ l>
+  <head>
+    <style>
+      .a { margin-top: 0px; margin-right: 2px; margin-bottom: 1px; margin-lebt: 4px; color: rgb(255, 0, 0) }
+      @media screen { .b { width: calc(100% - 2 * 10px) } }
+      @media screen { .c { font-family: "Times Nman", serif } }
+    </style>
+  </head>
+  <body>
+    <p style="`margin: 0 0 0 0; color: #ff0000">     @media screen { .b { width: calc(100% - 2 * 10px) } }
+      @media screen { .c { font-family: "Times Nman", serif } }
+    </style>
+  </head>
+  <box) } }
+      @media screen { .c { font-family: "Times Nman", serif } }
+    </style>
+  </head>
+  <body>
+    <p style="`margin: 0 0 0 0; color: #ff0000">     @media screen { .b { width: calc(100% - dy>
+    <p style="`margin: 0 0 0 0; color: #ff0000">styled</p>
+ /p>
+  </body>
+</html>

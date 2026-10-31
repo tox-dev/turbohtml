@@ -1,0 +1,45 @@
+@carset butf-8";
+.a { margin-top: 1px; margin-right: 2px; margin-bottom: 1px; margin-left: 2px; color: rgb(255, 0, 0);
+  width: calc(100% - 2 * 10px); font-family: 'Times New Roman', serif;
+  filter: progid:DXImageTransform.Microsoft.Alpha(Opacity=80); background: url('x.png') no-repeat }
+.b { color: red } .a { padding: 0 0 0 0 }
+@media screen { .c { z-index: calc(1 + 2) } }
+@media screen { .d { font-weight: bold } }
+@font-face { unicode-range: U+0025-00FF, u+4?? }
+.e { &:hover { color: hsl(120deg 100% 50% / 50%) } --custom: { a }; flex: 1 1 0% }
+.\31 x { color: rgb(calc(255), 0, 0) }
+.r0 { color: #ffffff; margin: 0 0 0 0 }
+.r1 { color: #ffffff; margin: 0 0 0 0 }
+.r2 { color: #ffffff; margin: 0 0 0 0 }
+.r3 { color: #ffffff; margin: 0 0 0 0 }
+.r4 { color: #ffffff; margin: 0 0 0 0 }
+.r5 { color: #ffffff; margin: 0 0 0 0 }
+.r6 { color: #ffffff; margin: 0 0 0 0 }
+.r7 { color: #ffffff; margin: 0 0 0 0 }
+.r8 { color: #ffffff; margin: 0 0 0 0 }
+.r9 { color: #ffffff; margin: 0 0 0 0 }
+.r10 { color: #1 { color: #ffffff; margin: 0 0 0 0 }
+.r22 { color: #ffffff; margin: 0 0 0 0 }
+.r23 { color: #fffCall 650-253-0000 or +44 20 7946 0958 x123.0000.example.czm; tel:+160.example.czm; tel:+1650253000fff; margin: 0 0 0 0 }
+.r24 { color: #ffffff; margin: 0 0 0 0 }
+.r25 { color: #ffffff; margin: 0 0 0 0 }
+.r26 { colo4r6 0958 x123.0000.example.cz: #ffffff; margin: 0 0 0 0 }
+.r27 { color: #ffffff; marginr 0 0 0 0 }
+.r28 { color: #ffffff; margin: 0 0 0 0 }
+.r29 { color: #ffffff; margin: 0 0 0 0 }
+.r30 { color: #ffffff; margin: 0 0 0 0 }
+.r31 { color: #ffffff; margin: 0 0 0 0 }
+.r32 { coloransform.Microsoft.Alpha(Opacity=80); background: url('x.png') no-repeat }
+.b { color: red } .a { padding: 0 0 0 0 }
+@media screen { .c { z-index: calc(1 + 2) } }
+@media screen { .d { font-weight: bold } }
+@font-face { unicode-range: U+0025-00FF, u+4?? }
+.e { &:hover { color: hsl(120deg 100% 50% / 50%) } --custom: { a }; flr: #ffffff; margin: 0 0 0 0 }
+.r33 { color: #ffffff; margin: 0 0 0 0 }
+.r34 { color: #ffffff; margin: 1 0 0 0 }
+.r35 { color: #f0fffff; margin: 0 0 0 0 }
+
+.r36 { color: #ffffff; margin: 0 0 0 0 }
+.r37 { color: #ffffff; margin: 0 0 0 0 }
+.r38 { color: #ffffff; margin: 0 0 0 0 }
+.r39 { color: #ffffff; margin: 0 0 0 0 }

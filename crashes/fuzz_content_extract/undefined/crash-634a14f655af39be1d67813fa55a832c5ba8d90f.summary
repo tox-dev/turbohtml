@@ -1,0 +1,62 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7f2b2b80c1b0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 71296823
+INFO: Loaded 1 modules   (107626 inline 8-bit counters): 107626 [0x7f2b2a1c4af8, 0x7f2b2a1def62), 
+INFO: Loaded 1 PC tables (107626 PCs): 107626 [0x7f2b2a1def68,0x7f2b2a383608), 
+INFO:       34 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_content_extract
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 22894 bytes
+INFO: seed corpus: files: 34 min: 4b max: 22894b total: 30853b rss: 83Mb
+#35	INITED cov: 3111 ft: 6315 corp: 34/30Kb exec/s: 0 rss: 83Mb
+#37	NEW    cov: 3113 ft: 6320 corp: 35/30Kb lim: 22894 exec/s: 0 rss: 83Mb L: 46/22894 MS: 4 ShuffleBytes-Custom-ChangeByte-Custom-
+#38	NEW    cov: 3115 ft: 6379 corp: 36/30Kb lim: 22894 exec/s: 0 rss: 83Mb L: 99/22894 MS: 2 CopyPart-Custom-
+#45	NEW    cov: 3116 ft: 6380 corp: 37/30Kb lim: 22894 exec/s: 0 rss: 83Mb L: 6/22894 MS: 4 ShuffleBytes-Custom-EraseBytes-Custom-
+#47	NEW    cov: 3124 ft: 6394 corp: 38/30Kb lim: 22894 exec/s: 0 rss: 83Mb L: 104/22894 MS: 4 ChangeByte-Custom-InsertRepeatedBytes-Custom-
+#48	NEW    cov: 3125 ft: 6450 corp: 39/30Kb lim: 22894 exec/s: 0 rss: 83Mb L: 18/22894 MS: 2 InsertByte-Custom-
+#49	NEW    cov: 3126 ft: 6490 corp: 40/30Kb lim: 22894 exec/s: 0 rss: 83Mb L: 82/22894 MS: 2 EraseBytes-Custom-
+#50	NEW    cov: 3130 ft: 6510 corp: 41/30Kb lim: 22894 exec/s: 0 rss: 84Mb L: 58/22894 MS: 2 ChangeBit-Custom-
+
+ === Uncaught Python exception: ===
+SystemError: <built-in method __new__ of type object at 0x7f2b2acb2aa8> returned a result with an exception set
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/content_targets.py", line 344, in _extract
+  File "turbohtml/extract/__init__.py", line 182, in feed
+    return document.feed()
+           ^^^^^^^^^^^^^^^
+  File "<string>", line 1, in <lambda>
+SystemError: <built-in method __new__ of type object at 0x7f2b2acb2aa8> returned a result with an exception set
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7f2b288e65c0>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==51== ERROR: libFuzzer: fuzz target exited
+    #0 0x7f2b2b87a0a4 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/ubsan/ubsan_diag_standalone.cpp:31:3
+    #1 0x7f2b2b84c019 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7f2b2b82f366 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7f2b2b82f438 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7f2b2b82f438 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7f2b2b6548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7f2b2b654a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7f2b2a9cc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7f2b2a9cf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7f2b2a9ceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_content_extract.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_content_extract.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7f2b2b632082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_content_extract.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 2 ShuffleBytes-Custom-; base unit: fb0a3a3f7c8a18a58e7df84b7501c793713d12a8
+artifact_prefix='/tmp/tmpvkxo4srf/'; Test unit written to /tmp/tmpvkxo4srf/crash-634a14f655af39be1d67813fa55a832c5ba8d90f
+stat::number_of_executed_units: 56
+stat::average_exec_per_sec:     0
+stat::new_units_added:          7
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              85

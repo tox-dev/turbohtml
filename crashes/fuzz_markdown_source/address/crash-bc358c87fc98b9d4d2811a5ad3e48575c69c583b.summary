@@ -1,0 +1,1221 @@
+INFO: Instrumenting 6831 functions...
+INFO: Using preloaded libfuzzer
+ATHERIS_REJECTION_BRIDGE=1
+INFO: found LLVMFuzzerCustomMutator (0x7fd96283f3e0). Disabling -len_control by default.
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1803723163
+INFO: Loaded 1 modules   (103106 inline 8-bit counters): 103106 [0x7bd95f6d74a8, 0x7bd95f6f076a), 
+INFO: Loaded 1 PC tables (103106 PCs): 103106 [0x7bd95f6f0770,0x7bd95f883390), 
+INFO:      655 files found in /home/runner/work/_temp/cflite/cifuzz-corpus/fuzz_markdown_source
+INFO: -max_len is not provided; libFuzzer will not generate inputs larger than 81921 bytes
+INFO: seed corpus: files: 655 min: 4b max: 81921b total: 575895b rss: 173Mb
+#512	pulse  cov: 4248 ft: 13038 corp: 501/63Kb exec/s: 256 rss: 210Mb
+#658	INITED cov: 4626 ft: 15431 corp: 647/561Kb exec/s: 54 rss: 291Mb
+#705	NEW    cov: 4626 ft: 15496 corp: 648/563Kb lim: 81921 exec/s: 58 rss: 291Mb L: 1408/81921 MS: 4 CMP-Custom-CopyPart-Custom- DE: "\001\000\000\000\000\000\000\017"-
+#711	NEW    cov: 4626 ft: 15507 corp: 649/563Kb lim: 81921 exec/s: 59 rss: 291Mb L: 721/81921 MS: 2 CopyPart-Custom-
+#713	NEW    cov: 4643 ft: 15552 corp: 650/563Kb lim: 81921 exec/s: 59 rss: 291Mb L: 16/81921 MS: 4 CopyPart-Custom-EraseBytes-Custom-
+#716	NEW    cov: 4644 ft: 15556 corp: 651/564Kb lim: 81921 exec/s: 59 rss: 291Mb L: 579/81921 MS: 6 ChangeBinInt-Custom-InsertRepeatedBytes-Custom-ChangeBit-Custom-
+#726	NEW    cov: 4644 ft: 15559 corp: 652/564Kb lim: 81921 exec/s: 60 rss: 291Mb L: 360/81921 MS: 10 ChangeBinInt-Custom-CopyPart-Custom-CrossOver-Custom-ChangeBit-Custom-CrossOver-Custom-
+#738	NEW    cov: 4644 ft: 15561 corp: 653/565Kb lim: 81921 exec/s: 61 rss: 291Mb L: 419/81921 MS: 4 CrossOver-Custom-EraseBytes-Custom-
+#839	NEW    cov: 4648 ft: 15565 corp: 654/565Kb lim: 81921 exec/s: 64 rss: 291Mb L: 79/81921 MS: 2 ShuffleBytes-Custom-
+#893	REDUCE cov: 4648 ft: 15565 corp: 654/565Kb lim: 81921 exec/s: 63 rss: 291Mb L: 76/81921 MS: 8 CMP-Custom-ChangeBinInt-Custom-InsertRepeatedBytes-Custom-EraseBytes-Custom- DE: "h;"-
+#915	NEW    cov: 4650 ft: 15568 corp: 655/566Kb lim: 81921 exec/s: 65 rss: 291Mb L: 1095/81921 MS: 4 InsertRepeatedBytes-Custom-CrossOver-Custom-
+#972	NEW    cov: 4650 ft: 15570 corp: 656/566Kb lim: 81921 exec/s: 64 rss: 291Mb L: 425/81921 MS: 4 ShuffleBytes-Custom-CopyPart-Custom-
+#1021	NEW    cov: 4661 ft: 15586 corp: 657/566Kb lim: 81921 exec/s: 68 rss: 291Mb L: 157/81921 MS: 8 PersAutoDict-Custom-CopyPart-Custom-EraseBytes-Custom-CMP-Custom- DE: "h;"-"f\000\000\000"-
+#1027	NEW    cov: 4663 ft: 15588 corp: 658/567Kb lim: 81921 exec/s: 68 rss: 291Mb L: 112/81921 MS: 2 ChangeBit-Custom-
+#1054	NEW    cov: 4663 ft: 15594 corp: 659/567Kb lim: 81921 exec/s: 70 rss: 291Mb L: 105/81921 MS: 4 ShuffleBytes-Custom-InsertRepeatedBytes-Custom-
+#1072	NEW    cov: 4663 ft: 15597 corp: 660/567Kb lim: 81921 exec/s: 71 rss: 291Mb L: 249/81921 MS: 6 CopyPart-Custom-ShuffleBytes-Custom-CMP-Custom- DE: "\377%"-
+#1083	NEW    cov: 4663 ft: 15600 corp: 661/567Kb lim: 81921 exec/s: 72 rss: 291Mb L: 87/81921 MS: 2 CopyPart-Custom-
+#1102	NEW    cov: 4664 ft: 15608 corp: 662/567Kb lim: 81921 exec/s: 73 rss: 291Mb L: 79/81921 MS: 8 ChangeBit-Custom-ChangeBit-Custom-ChangeBinInt-Custom-CopyPart-Custom-
+#1104	NEW    cov: 4665 ft: 15618 corp: 663/568Kb lim: 81921 exec/s: 73 rss: 291Mb L: 1021/81921 MS: 4 ChangeBit-Custom-CopyPart-Custom-
+#1108	NEW    cov: 4665 ft: 15621 corp: 664/568Kb lim: 81921 exec/s: 73 rss: 291Mb L: 60/81921 MS: 8 ChangeBit-Custom-ChangeBinInt-Custom-CrossOver-Custom-ChangeBit-Custom-
+#1147	NEW    cov: 4665 ft: 15627 corp: 665/568Kb lim: 81921 exec/s: 76 rss: 291Mb L: 118/81921 MS: 8 CMP-Custom-CMP-Custom-EraseBytes-Custom-CrossOver-Custom- DE: "\001["-"paragraph"-
+#1164	NEW    cov: 4665 ft: 15637 corp: 666/569Kb lim: 81921 exec/s: 77 rss: 291Mb L: 388/81921 MS: 4 ShuffleBytes-Custom-EraseBytes-Custom-
+#1205	NEW    cov: 4665 ft: 15638 corp: 667/569Kb lim: 81921 exec/s: 75 rss: 291Mb L: 197/81921 MS: 2 CopyPart-Custom-
+#1226	NEW    cov: 4668 ft: 15660 corp: 668/569Kb lim: 81921 exec/s: 76 rss: 291Mb L: 537/81921 MS: 2 CopyPart-Custom-
+#1232	NEW    cov: 4686 ft: 15687 corp: 669/570Kb lim: 81921 exec/s: 77 rss: 291Mb L: 463/81921 MS: 2 InsertRepeatedBytes-Custom-
+#1254	NEW    cov: 4687 ft: 15688 corp: 670/570Kb lim: 81921 exec/s: 78 rss: 291Mb L: 17/81921 MS: 4 CMP-Custom-CrossOver-Custom- DE: "\000\000\000\000"-
+#1270	NEW    cov: 4687 ft: 15690 corp: 671/570Kb lim: 81921 exec/s: 79 rss: 291Mb L: 212/81921 MS: 2 InsertRepeatedBytes-Custom-
+#1278	REDUCE cov: 4687 ft: 15690 corp: 671/570Kb lim: 81921 exec/s: 71 rss: 291Mb L: 1327/81921 MS: 6 EraseBytes-Custom-PersAutoDict-Custom-EraseBytes-Custom- DE: "h;"-
+#1294	NEW    cov: 4687 ft: 15692 corp: 672/574Kb lim: 81921 exec/s: 71 rss: 291Mb L: 3904/81921 MS: 2 CrossOver-Custom-
+#1322	NEW    cov: 4687 ft: 15693 corp: 673/575Kb lim: 81921 exec/s: 73 rss: 291Mb L: 968/81921 MS: 6 ChangeBit-Custom-ChangeASCIIInt-Custom-ChangeByte-Custom-
+#1330	NEW    cov: 4692 ft: 15702 corp: 674/575Kb lim: 81921 exec/s: 73 rss: 291Mb L: 86/81921 MS: 6 CopyPart-Custom-EraseBytes-Custom-InsertByte-Custom-
+#1344	NEW    cov: 4692 ft: 15710 corp: 675/575Kb lim: 81921 exec/s: 74 rss: 291Mb L: 34/81921 MS: 8 ChangeBinInt-Custom-CrossOver-Custom-ChangeBit-Custom-ShuffleBytes-Custom-
+#1409	NEW    cov: 4692 ft: 15716 corp: 676/575Kb lim: 81921 exec/s: 78 rss: 291Mb L: 304/81921 MS: 10 ChangeASCIIInt-Custom-ShuffleBytes-Custom-ShuffleBytes-Custom-ShuffleBytes-Custom-EraseBytes-Custom-
+#1411	NEW    cov: 4692 ft: 15717 corp: 677/576Kb lim: 81921 exec/s: 74 rss: 291Mb L: 1300/81921 MS: 4 ChangeByte-Custom-ChangeByte-Custom-
+#1482	NEW    cov: 4694 ft: 15720 corp: 678/577Kb lim: 81921 exec/s: 78 rss: 291Mb L: 639/81921 MS: 2 CopyPart-Custom-
+#1486	NEW    cov: 4694 ft: 15721 corp: 679/578Kb lim: 81921 exec/s: 78 rss: 291Mb L: 887/81921 MS: 8 CMP-Custom-ChangeBit-Custom-ChangeBinInt-Custom-PersAutoDict-Custom- DE: "no"-"h;"-
+#1519	NEW    cov: 4694 ft: 15722 corp: 680/578Kb lim: 81921 exec/s: 79 rss: 291Mb L: 47/81921 MS: 6 ChangeBinInt-Custom-EraseBytes-Custom-ShuffleBytes-Custom-
+#1547	NEW    cov: 4694 ft: 15726 corp: 681/578Kb lim: 81921 exec/s: 81 rss: 291Mb L: 219/81921 MS: 6 ChangeBit-Custom-CopyPart-Custom-InsertByte-Custom-
+#1607	NEW    cov: 4696 ft: 15730 corp: 682/578Kb lim: 81921 exec/s: 84 rss: 291Mb L: 16/81921 MS: 10 EraseBytes-Custom-CrossOver-Custom-ChangeByte-Custom-ShuffleBytes-Custom-CopyPart-Custom-
+#1614	NEW    cov: 4696 ft: 15736 corp: 683/579Kb lim: 81921 exec/s: 84 rss: 291Mb L: 1021/81921 MS: 4 ChangeBinInt-Custom-CrossOver-Custom-
+#1787	REDUCE cov: 4696 ft: 15736 corp: 683/579Kb lim: 81921 exec/s: 89 rss: 291Mb L: 16/81921 MS: 6 ChangeBinInt-Custom-ChangeBit-Custom-EraseBytes-Custom-
+#1828	NEW    cov: 4696 ft: 15738 corp: 684/580Kb lim: 81921 exec/s: 87 rss: 291Mb L: 445/81921 MS: 2 EraseBytes-Custom-
+#1900	NEW    cov: 4696 ft: 15739 corp: 685/580Kb lim: 81921 exec/s: 90 rss: 291Mb L: 291/81921 MS: 4 CrossOver-Custom-CrossOver-Custom-
+#1933	NEW    cov: 4696 ft: 15741 corp: 686/580Kb lim: 81921 exec/s: 92 rss: 291Mb L: 17/81921 MS: 6 ChangeByte-Custom-EraseBytes-Custom-EraseBytes-Custom-
+#1994	NEW    cov: 4696 ft: 15743 corp: 687/581Kb lim: 81921 exec/s: 94 rss: 291Mb L: 1444/81921 MS: 2 CrossOver-Custom-
+#2007	NEW    cov: 4696 ft: 15746 corp: 688/581Kb lim: 81921 exec/s: 91 rss: 291Mb L: 27/81921 MS: 6 EraseBytes-Custom-ChangeByte-Custom-ShuffleBytes-Custom-
+#2018	NEW    cov: 4697 ft: 15761 corp: 689/582Kb lim: 81921 exec/s: 91 rss: 291Mb L: 109/81921 MS: 2 InsertRepeatedBytes-Custom-
+#2048	pulse  cov: 4697 ft: 15766 corp: 689/582Kb lim: 81921 exec/s: 93 rss: 291Mb
+#2048	NEW    cov: 4697 ft: 15766 corp: 690/582Kb lim: 81921 exec/s: 93 rss: 291Mb L: 616/81921 MS: 10 ChangeByte-Custom-CMP-Custom-CMP-Custom-InsertByte-Custom-PersAutoDict-Custom- DE: "name"-"\377\003\000\000"-"\377%"-
+#2049	NEW    cov: 4700 ft: 15778 corp: 691/582Kb lim: 81921 exec/s: 93 rss: 291Mb L: 87/81921 MS: 2 CrossOver-Custom-
+	NEW_FUNC[1/1]: 0x7bd95edde420 in charref_find_invalid /src/turbohtml/.mesonpy-xo57pmjh/../src/turbohtml/_c/tokenizer/charref.c:72
+#2098	NEW    cov: 4730 ft: 15810 corp: 692/582Kb lim: 81921 exec/s: 95 rss: 291Mb L: 268/81921 MS: 8 CrossOver-Custom-ChangeBinInt-Custom-ChangeByte-Custom-CrossOver-Custom-
+#2145	REDUCE cov: 4730 ft: 15810 corp: 692/582Kb lim: 81921 exec/s: 97 rss: 291Mb L: 19/81921 MS: 4 CMP-Custom-EraseBytes-Custom- DE: "\000\000\000\000\000\000\002b"-
+#2147	NEW    cov: 4730 ft: 15813 corp: 693/584Kb lim: 81921 exec/s: 97 rss: 291Mb L: 1527/81921 MS: 4 ChangeASCIIInt-Custom-ChangeASCIIInt-Custom-
+#2156	NEW    cov: 4730 ft: 15816 corp: 694/585Kb lim: 81921 exec/s: 98 rss: 291Mb L: 1322/81921 MS: 8 ChangeByte-Custom-CrossOver-Custom-CopyPart-Custom-ChangeByte-Custom-
+#2162	NEW    cov: 4730 ft: 15818 corp: 695/587Kb lim: 81921 exec/s: 98 rss: 291Mb L: 1322/81921 MS: 2 CopyPart-Custom-
+#2192	NEW    cov: 4734 ft: 15837 corp: 696/589Kb lim: 81921 exec/s: 95 rss: 291Mb L: 2248/81921 MS: 10 EraseBytes-Custom-ChangeByte-Custom-CrossOver-Custom-PersAutoDict-Custom-CopyPart-Custom- DE: "h;"-
+#2204	NEW    cov: 4735 ft: 15838 corp: 697/589Kb lim: 81921 exec/s: 95 rss: 291Mb L: 13/81921 MS: 4 ShuffleBytes-Custom-CrossOver-Custom-
+#2212	NEW    cov: 4735 ft: 15841 corp: 698/589Kb lim: 81921 exec/s: 96 rss: 291Mb L: 33/81921 MS: 6 CMP-Custom-ChangeASCIIInt-Custom-InsertByte-Custom- DE: "\000\000\000\000\000\000\000'"-
+#2291	NEW    cov: 4736 ft: 15843 corp: 699/589Kb lim: 81921 exec/s: 95 rss: 291Mb L: 72/81921 MS: 8 ChangeByte-Custom-PersAutoDict-Custom-CopyPart-Custom-PersAutoDict-Custom- DE: "paragraph"-"name"-
+#2303	NEW    cov: 4736 ft: 15851 corp: 700/589Kb lim: 81921 exec/s: 95 rss: 291Mb L: 390/81921 MS: 4 ChangeBinInt-Custom-PersAutoDict-Custom- DE: "h;"-
+#2316	NEW    cov: 4736 ft: 15859 corp: 701/590Kb lim: 81921 exec/s: 96 rss: 291Mb L: 891/81921 MS: 6 ChangeBinInt-Custom-CMP-Custom-CopyPart-Custom- DE: "nVDa"-
+#2328	NEW    cov: 4736 ft: 15860 corp: 702/591Kb lim: 81921 exec/s: 97 rss: 291Mb L: 1131/81921 MS: 4 ShuffleBytes-Custom-CopyPart-Custom-
+#2354	NEW    cov: 4736 ft: 15979 corp: 703/592Kb lim: 81921 exec/s: 98 rss: 291Mb L: 1052/81921 MS: 2 CopyPart-Custom-
+#2360	NEW    cov: 4743 ft: 16005 corp: 704/592Kb lim: 81921 exec/s: 98 rss: 291Mb L: 209/81921 MS: 2 ShuffleBytes-Custom-
+#2366	NEW    cov: 4755 ft: 16032 corp: 705/593Kb lim: 81921 exec/s: 98 rss: 291Mb L: 121/81921 MS: 2 InsertRepeatedBytes-Custom-
+#2393	NEW    cov: 4755 ft: 16039 corp: 706/593Kb lim: 81921 exec/s: 99 rss: 291Mb L: 30/81921 MS: 4 PersAutoDict-Custom-CopyPart-Custom- DE: "\000\000\000\000"-
+#2395	NEW    cov: 4755 ft: 16042 corp: 707/593Kb lim: 81921 exec/s: 99 rss: 291Mb L: 462/81921 MS: 4 ChangeBit-Custom-CrossOver-Custom-
+#2428	NEW    cov: 4755 ft: 16046 corp: 708/594Kb lim: 81921 exec/s: 101 rss: 291Mb L: 676/81921 MS: 6 CrossOver-Custom-CopyPart-Custom-CrossOver-Custom-
+#2519	NEW    cov: 4759 ft: 16050 corp: 709/594Kb lim: 81921 exec/s: 100 rss: 291Mb L: 374/81921 MS: 2 ShuffleBytes-Custom-
+#2520	NEW    cov: 4759 ft: 16055 corp: 710/595Kb lim: 81921 exec/s: 100 rss: 291Mb L: 947/81921 MS: 2 InsertRepeatedBytes-Custom-
+#2538	NEW    cov: 4759 ft: 16058 corp: 711/595Kb lim: 81921 exec/s: 101 rss: 291Mb L: 509/81921 MS: 6 ChangeByte-Custom-ShuffleBytes-Custom-CrossOver-Custom-
+#2581	NEW    cov: 4759 ft: 16061 corp: 712/597Kb lim: 81921 exec/s: 103 rss: 291Mb L: 1317/81921 MS: 6 ChangeBit-Custom-ChangeBit-Custom-CopyPart-Custom-
+#2617	REDUCE cov: 4759 ft: 16061 corp: 712/597Kb lim: 81921 exec/s: 100 rss: 291Mb L: 164/81921 MS: 2 EraseBytes-Custom-
+#2684	REDUCE cov: 4759 ft: 16061 corp: 712/597Kb lim: 81921 exec/s: 103 rss: 291Mb L: 293/81921 MS: 4 ChangeByte-Custom-EraseBytes-Custom-
+#2742	NEW    cov: 4762 ft: 16067 corp: 713/597Kb lim: 81921 exec/s: 88 rss: 291Mb L: 39/81921 MS: 6 CrossOver-Custom-CrossOver-Custom-EraseBytes-Custom-
+#2763	NEW    cov: 4762 ft: 16068 corp: 714/598Kb lim: 81921 exec/s: 89 rss: 291Mb L: 1303/81921 MS: 2 CopyPart-Custom-
+#2774	REDUCE cov: 4762 ft: 16068 corp: 714/598Kb lim: 81921 exec/s: 89 rss: 291Mb L: 530/81921 MS: 2 EraseBytes-Custom-
+#2781	NEW    cov: 4762 ft: 16116 corp: 715/600Kb lim: 81921 exec/s: 89 rss: 291Mb L: 2551/81921 MS: 4 ShuffleBytes-Custom-CopyPart-Custom-
+#2834	NEW    cov: 4762 ft: 16129 corp: 716/602Kb lim: 81921 exec/s: 91 rss: 291Mb L: 1583/81921 MS: 6 ChangeASCIIInt-Custom-PersAutoDict-Custom-CrossOver-Custom- DE: "name"-
+#2865	NEW    cov: 4762 ft: 16130 corp: 717/602Kb lim: 81921 exec/s: 92 rss: 291Mb L: 335/81921 MS: 2 CMP-Custom- DE: "\001\000\000\000\000\000\000\014"-
+#2881	NEW    cov: 4762 ft: 16131 corp: 718/603Kb lim: 81921 exec/s: 92 rss: 291Mb L: 438/81921 MS: 2 ChangeBit-Custom-
+#2896	NEW    cov: 4762 ft: 16134 corp: 719/603Kb lim: 81921 exec/s: 93 rss: 291Mb L: 59/81921 MS: 10 CopyPart-Custom-CMP-Custom-ChangeByte-Custom-ShuffleBytes-Custom-ChangeBit-Custom- DE: "z\000\000\000\000\000\000\000"-
+#2945	REDUCE cov: 4762 ft: 16134 corp: 719/603Kb lim: 81921 exec/s: 92 rss: 291Mb L: 448/81921 MS: 8 PersAutoDict-Custom-EraseBytes-Custom-ChangeByte-Custom-ChangeBinInt-Custom- DE: "\000\000\000\000"-
+#2993	NEW    cov: 4762 ft: 16147 corp: 720/603Kb lim: 81921 exec/s: 93 rss: 291Mb L: 236/81921 MS: 6 PersAutoDict-Custom-CopyPart-Custom-InsertByte-Custom- DE: "name"-
+#3000	NEW    cov: 4762 ft: 16151 corp: 721/604Kb lim: 81921 exec/s: 90 rss: 291Mb L: 1216/81921 MS: 4 CMP-Custom-CopyPart-Custom- DE: "nV"-
+#3002	NEW    cov: 4769 ft: 16181 corp: 722/605Kb lim: 81921 exec/s: 90 rss: 291Mb L: 1548/81921 MS: 4 InsertRepeatedBytes-Custom-CopyPart-Custom-
+#3008	NEW    cov: 4769 ft: 16186 corp: 723/607Kb lim: 81921 exec/s: 91 rss: 291Mb L: 1583/81921 MS: 2 PersAutoDict-Custom- DE: "\000\000\000\000\000\000\002b"-
+#3011	REDUCE cov: 4769 ft: 16186 corp: 723/607Kb lim: 81921 exec/s: 91 rss: 291Mb L: 896/81921 MS: 6 InsertByte-Custom-ChangeBinInt-Custom-EraseBytes-Custom-
+#3014	NEW    cov: 4771 ft: 16192 corp: 724/607Kb lim: 81921 exec/s: 91 rss: 291Mb L: 429/81921 MS: 6 PersAutoDict-Custom-PersAutoDict-Custom-CrossOver-Custom- DE: "no"-"name"-
+#3030	NEW    cov: 4771 ft: 16194 corp: 725/607Kb lim: 81921 exec/s: 91 rss: 291Mb L: 16/81921 MS: 2 ShuffleBytes-Custom-
+#3032	NEW    cov: 4771 ft: 16197 corp: 726/607Kb lim: 81921 exec/s: 91 rss: 291Mb L: 88/81921 MS: 4 CMP-Custom-CrossOver-Custom- DE: "\013\000"-
+#3058	NEW    cov: 4775 ft: 16207 corp: 727/607Kb lim: 81921 exec/s: 92 rss: 291Mb L: 84/81921 MS: 2 CopyPart-Custom-
+#3069	NEW    cov: 4775 ft: 16213 corp: 728/609Kb lim: 81921 exec/s: 93 rss: 291Mb L: 1300/81921 MS: 2 CopyPart-Custom-
+#3103	NEW    cov: 4775 ft: 16217 corp: 729/609Kb lim: 81921 exec/s: 94 rss: 291Mb L: 401/81921 MS: 8 ChangeBinInt-Custom-CrossOver-Custom-CMP-Custom-EraseBytes-Custom- DE: "\001t"-
+#3126	NEW    cov: 4775 ft: 16218 corp: 730/609Kb lim: 81921 exec/s: 91 rss: 291Mb L: 30/81921 MS: 6 ChangeByte-Custom-ShuffleBytes-Custom-PersAutoDict-Custom- DE: "\001\000\000\000\000\000\000\014"-
+#3142	REDUCE cov: 4775 ft: 16218 corp: 730/609Kb lim: 81921 exec/s: 92 rss: 291Mb L: 1567/81921 MS: 2 EraseBytes-Custom-
+#3159	NEW    cov: 4775 ft: 16225 corp: 731/609Kb lim: 81921 exec/s: 92 rss: 291Mb L: 201/81921 MS: 4 CrossOver-Custom-PersAutoDict-Custom- DE: "\001["-
+#3187	NEW    cov: 4775 ft: 16226 corp: 732/610Kb lim: 81921 exec/s: 93 rss: 291Mb L: 517/81921 MS: 6 ChangeASCIIInt-Custom-ChangeBit-Custom-CopyPart-Custom-
+#3224	NEW    cov: 4775 ft: 16227 corp: 733/612Kb lim: 81921 exec/s: 94 rss: 291Mb L: 2209/81921 MS: 4 PersAutoDict-Custom-CopyPart-Custom- DE: "\000\000\000\000"-
+#3246	NEW    cov: 4775 ft: 16231 corp: 734/612Kb lim: 81921 exec/s: 95 rss: 291Mb L: 47/81921 MS: 4 CrossOver-Custom-PersAutoDict-Custom- DE: "\001\000\000\000\000\000\000\014"-
+#3251	NEW    cov: 4775 ft: 16247 corp: 735/613Kb lim: 81921 exec/s: 95 rss: 291Mb L: 805/81921 MS: 10 ChangeASCIIInt-Custom-CopyPart-Custom-ChangeBit-Custom-ShuffleBytes-Custom-EraseBytes-Custom-
+#3295	NEW    cov: 4776 ft: 16255 corp: 736/614Kb lim: 81921 exec/s: 94 rss: 291Mb L: 1016/81921 MS: 8 ChangeBinInt-Custom-ChangeASCIIInt-Custom-EraseBytes-Custom-ChangeByte-Custom-
+#3299	NEW    cov: 4776 ft: 16278 corp: 737/614Kb lim: 81921 exec/s: 94 rss: 291Mb L: 144/81921 MS: 8 CrossOver-Custom-PersAutoDict-Custom-InsertRepeatedBytes-Custom-CrossOver-Custom- DE: "z\000\000\000\000\000\000\000"-
+#3326	NEW    cov: 4779 ft: 16281 corp: 738/614Kb lim: 81921 exec/s: 95 rss: 291Mb L: 18/81921 MS: 4 CrossOver-Custom-CopyPart-Custom-
+#3329	REDUCE cov: 4779 ft: 16281 corp: 738/614Kb lim: 81921 exec/s: 95 rss: 291Mb L: 35/81921 MS: 6 ShuffleBytes-Custom-CopyPart-Custom-EraseBytes-Custom-
+#3374	NEW    cov: 4779 ft: 16282 corp: 739/623Kb lim: 81921 exec/s: 93 rss: 291Mb L: 9734/81921 MS: 10 ChangeByte-Custom-InsertRepeatedBytes-Custom-ChangeBit-Custom-ShuffleBytes-Custom-EraseBytes-Custom-
+#3385	NEW    cov: 4779 ft: 16290 corp: 740/623Kb lim: 81921 exec/s: 94 rss: 291Mb L: 42/81921 MS: 2 ShuffleBytes-Custom-
+#3406	NEW    cov: 4779 ft: 16311 corp: 741/625Kb lim: 81921 exec/s: 94 rss: 291Mb L: 1815/81921 MS: 2 CrossOver-Custom-
+#3416	NEW    cov: 4781 ft: 16314 corp: 742/626Kb lim: 81921 exec/s: 94 rss: 291Mb L: 626/81921 MS: 10 ChangeBit-Custom-ChangeByte-Custom-CopyPart-Custom-CrossOver-Custom-CrossOver-Custom-
+#3477	REDUCE cov: 4781 ft: 16314 corp: 742/626Kb lim: 81921 exec/s: 91 rss: 291Mb L: 233/81921 MS: 2 EraseBytes-Custom-
+#3494	NEW    cov: 4781 ft: 16321 corp: 743/626Kb lim: 81921 exec/s: 91 rss: 291Mb L: 209/81921 MS: 4 ShuffleBytes-Custom-ShuffleBytes-Custom-
+#3507	NEW    cov: 4781 ft: 16326 corp: 744/626Kb lim: 81921 exec/s: 92 rss: 291Mb L: 229/81921 MS: 6 ChangeBit-Custom-InsertRepeatedBytes-Custom-CopyPart-Custom-
+#3542	NEW    cov: 4781 ft: 16329 corp: 745/627Kb lim: 81921 exec/s: 93 rss: 291Mb L: 327/81921 MS: 10 ChangeByte-Custom-ChangeByte-Custom-ChangeByte-Custom-CrossOver-Custom-PersAutoDict-Custom- DE: "\013\000"-
+#3573	NEW    cov: 4781 ft: 16332 corp: 746/629Kb lim: 81921 exec/s: 94 rss: 291Mb L: 2551/81921 MS: 2 CopyPart-Custom-
+#3582	NEW    cov: 4785 ft: 16339 corp: 747/629Kb lim: 81921 exec/s: 94 rss: 291Mb L: 142/81921 MS: 8 CrossOver-Custom-PersAutoDict-Custom-CrossOver-Custom-CrossOver-Custom- DE: "\377%"-
+#3604	NEW    cov: 4786 ft: 16341 corp: 748/629Kb lim: 81921 exec/s: 94 rss: 291Mb L: 178/81921 MS: 4 ChangeASCIIInt-Custom-EraseBytes-Custom-
+#3622	NEW    cov: 4786 ft: 16344 corp: 749/652Kb lim: 81921 exec/s: 90 rss: 291Mb L: 22958/81921 MS: 6 ChangeASCIIInt-Custom-ChangeBinInt-Custom-InsertByte-Custom-
+#3633	NEW    cov: 4786 ft: 16364 corp: 750/652Kb lim: 81921 exec/s: 90 rss: 291Mb L: 142/81921 MS: 2 ChangeByte-Custom-
+#3660	NEW    cov: 4786 ft: 16365 corp: 751/652Kb lim: 81921 exec/s: 89 rss: 291Mb L: 218/81921 MS: 4 ChangeBinInt-Custom-PersAutoDict-Custom- DE: "paragraph"-
+#3666	NEW    cov: 4786 ft: 16366 corp: 752/652Kb lim: 81921 exec/s: 89 rss: 291Mb L: 28/81921 MS: 2 EraseBytes-Custom-
+#3708	NEW    cov: 4786 ft: 16370 corp: 753/654Kb lim: 81921 exec/s: 90 rss: 291Mb L: 2327/81921 MS: 4 ChangeByte-Custom-InsertRepeatedBytes-Custom-
+#3746	NEW    cov: 4786 ft: 16372 corp: 754/655Kb lim: 81921 exec/s: 87 rss: 291Mb L: 478/81921 MS: 6 CopyPart-Custom-CMP-Custom-CrossOver-Custom- DE: "qo"-
+#3769	NEW    cov: 4787 ft: 16375 corp: 755/655Kb lim: 81921 exec/s: 87 rss: 291Mb L: 304/81921 MS: 6 PersAutoDict-Custom-ShuffleBytes-Custom-ChangeBinInt-Custom- DE: "qo"-
+#3807	NEW    cov: 4787 ft: 16379 corp: 756/656Kb lim: 81921 exec/s: 88 rss: 291Mb L: 747/81921 MS: 6 InsertByte-Custom-ChangeByte-Custom-CrossOver-Custom-
+#3921	NEW    cov: 4787 ft: 16384 corp: 757/658Kb lim: 81921 exec/s: 89 rss: 291Mb L: 2551/81921 MS: 4 ChangeASCIIInt-Custom-ChangeBit-Custom-
+#3928	NEW    cov: 4787 ft: 16385 corp: 758/659Kb lim: 81921 exec/s: 89 rss: 291Mb L: 514/81921 MS: 4 EraseBytes-Custom-EraseBytes-Custom-
+#3999	REDUCE cov: 4787 ft: 16385 corp: 758/659Kb lim: 81921 exec/s: 90 rss: 291Mb L: 35/81921 MS: 2 EraseBytes-Custom-
+#4004	NEW    cov: 4787 ft: 16386 corp: 759/659Kb lim: 81921 exec/s: 91 rss: 291Mb L: 221/81921 MS: 10 CrossOver-Custom-ShuffleBytes-Custom-ShuffleBytes-Custom-PersAutoDict-Custom-InsertRepeatedBytes-Custom- DE: "paragraph"-
+#4042	NEW    cov: 4788 ft: 16387 corp: 760/659Kb lim: 81921 exec/s: 89 rss: 291Mb L: 352/81921 MS: 6 ChangeASCIIInt-Custom-InsertByte-Custom-EraseBytes-Custom-
+#4055	NEW    cov: 4788 ft: 16391 corp: 761/661Kb lim: 81921 exec/s: 90 rss: 291Mb L: 1322/81921 MS: 6 ChangeByte-Custom-ChangeBit-Custom-PersAutoDict-Custom- DE: "qo"-
+#4091	NEW    cov: 4788 ft: 16396 corp: 762/661Kb lim: 81921 exec/s: 90 rss: 291Mb L: 210/81921 MS: 2 InsertByte-Custom-
+#4096	pulse  cov: 4788 ft: 16396 corp: 762/661Kb lim: 81921 exec/s: 91 rss: 291Mb
+#4158	NEW    cov: 4790 ft: 16401 corp: 763/662Kb lim: 81921 exec/s: 90 rss: 291Mb L: 757/81921 MS: 4 InsertByte-Custom-EraseBytes-Custom-
+#4179	NEW    cov: 4790 ft: 16405 corp: 764/663Kb lim: 81921 exec/s: 90 rss: 291Mb L: 1238/81921 MS: 2 CrossOver-Custom-
+#4196	NEW    cov: 4794 ft: 16409 corp: 765/663Kb lim: 81921 exec/s: 91 rss: 291Mb L: 169/81921 MS: 4 CrossOver-Custom-ChangeBinInt-Custom-
+#4227	NEW    cov: 4794 ft: 16411 corp: 766/664Kb lim: 81921 exec/s: 91 rss: 291Mb L: 757/81921 MS: 2 ChangeBit-Custom-
+#4259	NEW    cov: 4794 ft: 16412 corp: 767/664Kb lim: 81921 exec/s: 92 rss: 291Mb L: 68/81921 MS: 4 CopyPart-Custom-InsertRepeatedBytes-Custom-
+#4276	NEW    cov: 4794 ft: 16413 corp: 768/664Kb lim: 81921 exec/s: 92 rss: 291Mb L: 47/81921 MS: 4 CrossOver-Custom-CopyPart-Custom-
+#4306	NEW    cov: 4796 ft: 16429 corp: 769/664Kb lim: 81921 exec/s: 91 rss: 291Mb L: 122/81921 MS: 10 CopyPart-Custom-ShuffleBytes-Custom-InsertByte-Custom-InsertByte-Custom-CrossOver-Custom-
+#4317	REDUCE cov: 4796 ft: 16429 corp: 769/664Kb lim: 81921 exec/s: 89 rss: 291Mb L: 77/81921 MS: 2 EraseBytes-Custom-
+#4333	NEW    cov: 4797 ft: 16438 corp: 770/664Kb lim: 81921 exec/s: 90 rss: 291Mb L: 134/81921 MS: 2 CopyPart-Custom-
+#4348	NEW    cov: 4797 ft: 16495 corp: 771/664Kb lim: 81921 exec/s: 90 rss: 291Mb L: 170/81921 MS: 10 ChangeByte-Custom-ChangeBit-Custom-ShuffleBytes-Custom-InsertRepeatedBytes-Custom-CrossOver-Custom-
+#4349	NEW    cov: 4801 ft: 16500 corp: 772/665Kb lim: 81921 exec/s: 90 rss: 291Mb L: 191/81921 MS: 2 CopyPart-Custom-
+#4365	NEW    cov: 4801 ft: 16506 corp: 773/665Kb lim: 81921 exec/s: 89 rss: 291Mb L: 13/81921 MS: 2 ChangeByte-Custom-
+#4432	NEW    cov: 4801 ft: 16507 corp: 774/665Kb lim: 81921 exec/s: 90 rss: 291Mb L: 290/81921 MS: 4 EraseBytes-Custom-CopyPart-Custom-
+#4435	NEW    cov: 4801 ft: 16518 corp: 775/669Kb lim: 81921 exec/s: 88 rss: 291Mb L: 4081/81921 MS: 6 InsertByte-Custom-ChangeASCIIInt-Custom-CopyPart-Custom-
+#4457	NEW    cov: 4801 ft: 16520 corp: 776/669Kb lim: 81921 exec/s: 89 rss: 291Mb L: 207/81921 MS: 4 ChangeByte-Custom-PersAutoDict-Custom- DE: "nV"-
+#4473	NEW    cov: 4801 ft: 16523 corp: 777/669Kb lim: 81921 exec/s: 89 rss: 291Mb L: 212/81921 MS: 2 PersAutoDict-Custom- DE: "qo"-
+#4503	NEW    cov: 4801 ft: 16525 corp: 778/670Kb lim: 81921 exec/s: 90 rss: 291Mb L: 887/81921 MS: 10 ChangeByte-Custom-CMP-Custom-ChangeBinInt-Custom-ChangeByte-Custom-CrossOver-Custom- DE: "td"-
+#4555	NEW    cov: 4801 ft: 16526 corp: 779/670Kb lim: 81921 exec/s: 91 rss: 291Mb L: 145/81921 MS: 4 CrossOver-Custom-CrossOver-Custom-
+#4570	NEW    cov: 4801 ft: 16527 corp: 780/671Kb lim: 81921 exec/s: 91 rss: 291Mb L: 864/81921 MS: 10 ChangeBit-Custom-PersAutoDict-Custom-ChangeByte-Custom-ChangeBinInt-Custom-EraseBytes-Custom- DE: "\001["-
+#4588	NEW    cov: 4801 ft: 16533 corp: 781/672Kb lim: 81921 exec/s: 89 rss: 291Mb L: 579/81921 MS: 6 ChangeBit-Custom-CopyPart-Custom-CrossOver-Custom-
+#4594	NEW    cov: 4801 ft: 16535 corp: 782/673Kb lim: 81921 exec/s: 90 rss: 291Mb L: 1269/81921 MS: 2 CrossOver-Custom-
+#4606	NEW    cov: 4802 ft: 16571 corp: 783/673Kb lim: 81921 exec/s: 90 rss: 291Mb L: 244/81921 MS: 4 ChangeASCIIInt-Custom-InsertRepeatedBytes-Custom-
+#4633	NEW    cov: 4802 ft: 16573 corp: 784/673Kb lim: 81921 exec/s: 90 rss: 291Mb L: 260/81921 MS: 4 CopyPart-Custom-PersAutoDict-Custom- DE: "\000\000\000\000\000\000\000'"-
+#4641	NEW    cov: 4802 ft: 16574 corp: 785/674Kb lim: 81921 exec/s: 91 rss: 291Mb L: 374/81921 MS: 6 EraseBytes-Custom-CopyPart-Custom-ShuffleBytes-Custom-
+#4657	NEW    cov: 4802 ft: 16576 corp: 786/674Kb lim: 81921 exec/s: 91 rss: 291Mb L: 352/81921 MS: 2 InsertRepeatedBytes-Custom-
+#4659	NEW    cov: 4803 ft: 16577 corp: 787/674Kb lim: 81921 exec/s: 91 rss: 291Mb L: 84/81921 MS: 4 InsertByte-Custom-CrossOver-Custom-
+#4728	NEW    cov: 4804 ft: 16578 corp: 788/675Kb lim: 81921 exec/s: 89 rss: 291Mb L: 678/81921 MS: 8 ChangeBit-Custom-PersAutoDict-Custom-InsertByte-Custom-CrossOver-Custom- DE: "\000\000\000\000"-
+#4774	NEW    cov: 4804 ft: 16579 corp: 789/675Kb lim: 81921 exec/s: 90 rss: 291Mb L: 79/81921 MS: 2 ShuffleBytes-Custom-
+#4781	NEW    cov: 4852 ft: 16706 corp: 790/684Kb lim: 81921 exec/s: 90 rss: 291Mb L: 9737/81921 MS: 4 ChangeByte-Custom-CrossOver-Custom-
+#4865	NEW    cov: 4852 ft: 16721 corp: 791/687Kb lim: 81921 exec/s: 90 rss: 291Mb L: 2542/81921 MS: 8 ChangeASCIIInt-Custom-ChangeByte-Custom-CMP-Custom-CopyPart-Custom- DE: "a314"-
+#4869	NEW    cov: 4852 ft: 16722 corp: 792/687Kb lim: 81921 exec/s: 90 rss: 291Mb L: 245/81921 MS: 8 CopyPart-Custom-ShuffleBytes-Custom-PersAutoDict-Custom-ChangeBinInt-Custom- DE: "\000\000\000\000"-
+#4966	NEW    cov: 4852 ft: 16724 corp: 793/688Kb lim: 81921 exec/s: 88 rss: 291Mb L: 511/81921 MS: 4 InsertByte-Custom-InsertByte-Custom-
+#5009	NEW    cov: 4852 ft: 16726 corp: 794/688Kb lim: 81921 exec/s: 89 rss: 291Mb L: 104/81921 MS: 6 EraseBytes-Custom-ChangeByte-Custom-EraseBytes-Custom-
+#5015	NEW    cov: 4853 ft: 16727 corp: 795/688Kb lim: 81921 exec/s: 89 rss: 291Mb L: 141/81921 MS: 2 CrossOver-Custom-
+#5126	NEW    cov: 4853 ft: 16732 corp: 796/688Kb lim: 81921 exec/s: 89 rss: 291Mb L: 68/81921 MS: 2 EraseBytes-Custom-
+#5144	REDUCE cov: 4853 ft: 16732 corp: 796/688Kb lim: 81921 exec/s: 90 rss: 291Mb L: 404/81921 MS: 6 InsertByte-Custom-ShuffleBytes-Custom-EraseBytes-Custom-
+#5192	NEW    cov: 4853 ft: 16748 corp: 797/689Kb lim: 81921 exec/s: 91 rss: 291Mb L: 1480/81921 MS: 6 ChangeBinInt-Custom-ChangeByte-Custom-CopyPart-Custom-
+#5213	NEW    cov: 4855 ft: 16767 corp: 798/689Kb lim: 81921 exec/s: 91 rss: 291Mb L: 88/81921 MS: 2 InsertByte-Custom-
+#5249	NEW    cov: 4855 ft: 16774 corp: 799/690Kb lim: 81921 exec/s: 92 rss: 291Mb L: 960/81921 MS: 2 CopyPart-Custom-
+#5260	NEW    cov: 4858 ft: 16791 corp: 800/691Kb lim: 81921 exec/s: 92 rss: 291Mb L: 494/81921 MS: 2 InsertRepeatedBytes-Custom-
+#5266	NEW    cov: 4858 ft: 16792 corp: 801/691Kb lim: 81921 exec/s: 92 rss: 291Mb L: 245/81921 MS: 2 ChangeByte-Custom-
+#5283	NEW    cov: 4858 ft: 16796 corp: 802/692Kb lim: 81921 exec/s: 92 rss: 291Mb L: 612/81921 MS: 4 ShuffleBytes-Custom-CrossOver-Custom-
+#5294	REDUCE cov: 4858 ft: 16796 corp: 802/692Kb lim: 81921 exec/s: 91 rss: 291Mb L: 67/81921 MS: 2 EraseBytes-Custom-
+#5355	NEW    cov: 4859 ft: 16797 corp: 803/692Kb lim: 81921 exec/s: 92 rss: 291Mb L: 352/81921 MS: 2 CrossOver-Custom-
+#5416	REDUCE cov: 4859 ft: 16797 corp: 803/692Kb lim: 81921 exec/s: 93 rss: 291Mb L: 144/81921 MS: 2 EraseBytes-Custom-
+#5417	NEW    cov: 4859 ft: 16799 corp: 804/692Kb lim: 81921 exec/s: 93 rss: 291Mb L: 34/81921 MS: 2 CrossOver-Custom-
+#5438	NEW    cov: 4859 ft: 16801 corp: 805/693Kb lim: 81921 exec/s: 93 rss: 291Mb L: 474/81921 MS: 2 CopyPart-Custom-
+
+ === Uncaught Python exception: ===
+RecursionError: maximum recursion depth exceeded in comparison
+Traceback (most recent call last):
+  File "fuzz/atheris_runtime.py", line 120, in run
+  File "fuzz/atheris_registry.py", line 57, in run
+  File "fuzz/generation_targets.py", line 32, in source
+  File "fuzz/markdown_structure_generators.py", line 93, in markdown_source_check
+  File "fuzz/markdown_structure_generators.py", line 98, in markdown_html_check
+  File "fuzz/markdown_structure_generators.py", line 105, in _html_meaning
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 240, in _element
+  File "fuzz/markdown_structure_generators.py", line 197, in _children
+  File "fuzz/markdown_structure_generators.py", line 239, in _element
+  File "fuzz/markdown_structure_generators.py", line 256, in _check_profile
+  File "fuzz/markdown_structure_generators.py", line 262, in _breaks_content_model
+RecursionError: maximum recursion depth exceeded in comparison
+
+INFO: Instrumentation complete.
+Exception ignored in: <function _removeHandlerRef at 0x7bd95d9e2660>
+Traceback (most recent call last):
+  File "logging/__init__.py", line 853, in _removeHandlerRef
+TypeError: 'NoneType' object is not callable
+==68== ERROR: libFuzzer: fuzz target exited
+    #0 0x7fd96292edf1 in __sanitizer_print_stack_trace /src/llvm-project/compiler-rt/lib/asan/asan_stack.cpp:87:3
+    #1 0x7fd96287f249 in fuzzer::PrintStackTrace() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerUtil.cpp:210:38
+    #2 0x7fd962862596 in fuzzer::Fuzzer::ExitCallback() (.part.0) /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:250:18
+    #3 0x7fd962862668 in fuzzer::Fuzzer::ExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:210:1
+    #4 0x7fd962862668 in fuzzer::Fuzzer::StaticExitCallback() /root/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:209:18
+    #5 0x7fd9626548a6  (/lib/x86_64-linux-gnu/libc.so.6+0x468a6) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #6 0x7fd962654a5f in exit (/lib/x86_64-linux-gnu/libc.so.6+0x46a5f) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #7 0x7bd95ffcc068 in Py_Exit /tmp/Python-3.11.13/Python/pylifecycle.c:2944:5
+    #8 0x7bd95ffcf289 in handle_system_exit /tmp/Python-3.11.13/Python/pythonrun.c:771:9
+    #9 0x7bd95ffceb25 in _PyErr_PrintEx /tmp/Python-3.11.13/Python/pythonrun.c:781:5
+    #10 0x00000040360f  (/home/runner/work/_temp/cflite/build-out/fuzz_markdown_source.pkg+0x40360f) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #11 0x000000403ef4  (/home/runner/work/_temp/cflite/build-out/fuzz_markdown_source.pkg+0x403ef4) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+    #12 0x7fd962632082 in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x24082) (BuildId: 5792732f783158c66fb4f3756458ca24e46e827d)
+    #13 0x00000040250e  (/home/runner/work/_temp/cflite/build-out/fuzz_markdown_source.pkg+0x40250e) (BuildId: 04804d3c31218f938502cbed5cdd1af09d59a8f0)
+
+DEDUP_TOKEN: __sanitizer_print_stack_trace--fuzzer::PrintStackTrace()--fuzzer::Fuzzer::ExitCallback() (.part.0)
+SUMMARY: libFuzzer: fuzz target exited
+MS: 8 ChangeByte-Custom-CrossOver-Custom-ChangeBit-Custom-PersAutoDict-Custom- DE: "\000\000\000\000"-; base unit: 596e5772edc55a290c31d2d83ec231103bde810f
+artifact_prefix='/tmp/tmpgypb0y5y/'; Test unit written to /tmp/tmpgypb0y5y/crash-bc358c87fc98b9d4d2811a5ad3e48575c69c583b
+stat::number_of_executed_units: 5462
+stat::average_exec_per_sec:     88
+stat::new_units_added:          175
+stat::slowest_unit_time_sec:    0
+stat::peak_rss_mb:              335
