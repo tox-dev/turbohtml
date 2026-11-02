@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import functools
-from typing import Final
+from typing import TYPE_CHECKING, Final
 from urllib.parse import urljoin
 
-from resiliparse.extract.html2text import (  # ty: ignore[unresolved-import]  # Cython extension, ships no type stubs
+from resiliparse.extract.html2text import (
     extract_plain_text,
 )
-from resiliparse.parse.encoding import (  # ty: ignore[unresolved-import]  # Cython extension, ships no type stubs
+from resiliparse.parse.encoding import (
     detect_encoding,
 )
-from resiliparse.parse.html import HTMLTree  # ty: ignore[unresolved-import]  # Cython extension, ships no type stubs
+from resiliparse.parse.html import HTMLTree
 
 from bench.timing import Mutating
+
+if TYPE_CHECKING:
+    from resiliparse.parse.html import DocumentNode
 
 REQUIREMENTS = ("resiliparse>=1.0.8",)
 
@@ -30,6 +33,14 @@ def parse(text: str) -> None:
 def _parsed(text: str) -> HTMLTree:
     """Return a document parsed once, cached so the read-path operations time only the query."""
     return HTMLTree.parse(text)
+
+
+def _document(tree: HTMLTree) -> DocumentNode:
+    # resiliparse types the document as optional, though a parsed tree always has one.
+    if (document := tree.document) is None:
+        msg: Final = "resiliparse parsed no document"
+        raise ValueError(msg)
+    return document
 
 
 def text_render(text: str) -> None:
@@ -50,19 +61,19 @@ def find(text: str) -> None:
 
 def select(text: str) -> None:
     """Run the CSS selector with resiliparse's query_selector_all."""
-    _parsed(text).document.query_selector_all("div a[href]")
+    _document(_parsed(text)).query_selector_all("div a[href]")
 
 
 def select_has(text: str) -> None:
     """Run the :has() relational selector with resiliparse's query_selector_all."""
-    _parsed(text).document.query_selector_all("div:has(a)")
+    _document(_parsed(text)).query_selector_all("div:has(a)")
 
 
 def _select_relative(case: tuple[str, str]) -> None:
     if case[0] == "section:has(+ section a)":
         msg: Final = "resiliparse returns no matches for section:has(+ section a)"
         raise NotImplementedError(msg)
-    _parsed(case[1]).document.query_selector_all(case[0])
+    _document(_parsed(case[1])).query_selector_all(case[0])
 
 
 def text_content(text: str) -> None:
@@ -74,7 +85,7 @@ def text_content(text: str) -> None:
 
 def serialize(text: str) -> None:
     """Serialize a parsed document back to HTML with resiliparse's document html property."""
-    _ = _parsed(text).document.html
+    _ = _document(_parsed(text)).html
 
 
 def navigate(text: str) -> None:
@@ -91,29 +102,29 @@ def encoding(data: bytes) -> None:
 
 def extract_attr(text: str) -> None:
     """Read every anchor's href by selecting once and reading the attribute off each node."""
-    _ = [anchor.getattr("href") for anchor in _parsed(text).document.query_selector_all("a")]
+    _ = [anchor.getattr("href") for anchor in _document(_parsed(text)).query_selector_all("a")]
 
 
 def extract_text(text: str) -> None:
     """Read every anchor's visible text by selecting once and reading text off each node."""
-    _ = [anchor.text for anchor in _parsed(text).document.query_selector_all("a")]
+    _ = [anchor.text for anchor in _document(_parsed(text)).query_selector_all("a")]
 
 
 def links_extract(text: str) -> None:
     """Collect every anchor's href with resiliparse, the shape a scraper reads links in."""
-    _ = [anchor.getattr("href") for anchor in _parsed(text).document.query_selector_all("a")]
+    _ = [anchor.getattr("href") for anchor in _document(_parsed(text)).query_selector_all("a")]
 
 
 def links_rewrite(text: str) -> None:
     """Rewrite every link with an identity map, idempotent so the cached tree stays reusable."""
-    for anchor in _parsed(text).document.query_selector_all("a"):
+    for anchor in _document(_parsed(text)).query_selector_all("a"):
         if (href := anchor.getattr("href")) is not None:
             anchor.setattr("href", href)
 
 
 def class_edit(text: str) -> None:
     """Add then drop a class token on every link, a net no-op so the cached tree stays valid across iterations."""
-    for anchor in _parsed(text).document.query_selector_all("a"):
+    for anchor in _document(_parsed(text)).query_selector_all("a"):
         original = anchor.getattr("class") or ""
         anchor.setattr("class", f"{original} seen".strip())
         anchor.setattr("class", original)
@@ -121,7 +132,7 @@ def class_edit(text: str) -> None:
 
 def socialcard(text: str) -> None:
     """Read every meta property and content off a freshly parsed tree, resiliparse's take on card extraction."""
-    for meta in HTMLTree.parse(text).document.query_selector_all("meta"):
+    for meta in _document(HTMLTree.parse(text)).query_selector_all("meta"):
         meta.getattr("property")
         meta.getattr("content")
 
@@ -129,7 +140,7 @@ def socialcard(text: str) -> None:
 def extract_url(case: tuple[str, str]) -> None:
     """Read a document's own URL hint by parsing the string: the base href or the meta-refresh target."""
     kind, text = case
-    document = HTMLTree.parse(text).document
+    document = _document(HTMLTree.parse(text))
     if kind == "base":
         if (base := document.query_selector("base")) is not None:
             base.getattr("href")
@@ -140,20 +151,20 @@ def extract_url(case: tuple[str, str]) -> None:
 def strip_remove(text: str) -> None:
     """Drop every code/a/q subtree with resiliparse's decompose on a fresh parse, then serialize."""
     tree = HTMLTree.parse(text)
-    for node in tree.document.query_selector_all("code, a, q"):
+    for node in _document(tree).query_selector_all("code, a, q"):
         node.decompose()
-    _ = tree.document.html
+    _ = _document(tree).html
 
 
 def edit(tree: HTMLTree) -> None:
     """Tag every link with rel=nofollow on a freshly parsed tree through resiliparse's setattr."""
-    for anchor in tree.document.query_selector_all("a"):
+    for anchor in _document(tree).query_selector_all("a"):
         anchor.setattr("rel", "nofollow")
 
 
 def links_absolutize(tree: HTMLTree) -> None:
     """Resolve every relative link on a freshly parsed tree against the base with resiliparse's setattr."""
-    for anchor in tree.document.query_selector_all("a"):
+    for anchor in _document(tree).query_selector_all("a"):
         if (href := anchor.getattr("href")) is not None:
             anchor.setattr("href", urljoin(_LINKS_BASE, href))
 
