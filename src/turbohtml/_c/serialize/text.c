@@ -535,6 +535,9 @@ static int text_leads_with_inline(text_ctx *ctx, th_node *node) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (child->type == TH_NODE_TEXT) {
             const Py_UCS4 *text = need_text(ctx->tree, child);
+            if (ctx->tree->failed) { /* GCOVR_EXCL_BR_LINE: lazy text allocation failure */
+                return 0;            /* GCOVR_EXCL_LINE: allocation failure */
+            }
             for (Py_ssize_t index = 0; index < child->text_len; index++) {
                 if (!is_space(text[index])) {
                     return 1;
@@ -680,6 +683,9 @@ static void text_list_child(text_ctx *ctx, text_frame *frame, th_node *child) {
     int saved_tight = ctx->tight;
     ctx->tight = 1;
     ctx->suppress_break = text_leads_with_inline(ctx, child);
+    if (ctx->tree->failed) { /* GCOVR_EXCL_BR_LINE: lazy text allocation failure */
+        return;              /* GCOVR_EXCL_LINE: allocation failure */
+    }
     text_frame *item = text_push(ctx, child, TEXT_WALK_BLOCK, TEXT_LEAVE_NONE, 0);
     if (item != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         item->prefix_base = base;
