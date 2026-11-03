@@ -564,6 +564,19 @@ def test_minify_css_large_dedup_remains_a_fixpoint() -> None:
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
+        pytest.param("sub{d:.}sub{d:.}sub{{}}", "sub{d:.;{}}", id="nested-after-duplicate"),
+        pytest.param("sub{d:.}" * 257 + "sub{{}}", "sub{d:.;{}}", id="nested-after-long-run"),
+        pytest.param("sub{d:.}" * 257 + "sub{e:.}", "sub{d:.;e:.}", id="declaration-after-long-run"),
+    ],
+)
+def test_minify_css_merges_after_dedup(source: str, expected: str) -> None:
+    result = minify_css(source)
+    assert (result, minify_css(result)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
         pytest.param("a{color:rgb(19.999% 0% 0% / .5)}", "a{color:rgb(19.999% 0% 0%/.5)}", id="fractional"),
         pytest.param("a{color:rgb(20.01% 0% 0% / .5)}", "a{color:rgb(20.01% 0% 0%/.5)}", id="above-step"),
         pytest.param("a{color:rgb(20% 0% 0% / .5)}", "a{color:rgb(51 0 0/.5)}", id="exact-step"),
@@ -1300,6 +1313,30 @@ def test_minify_css_same_selector_merge_is_bounded() -> None:
 def _max_decls_per_rule(rule_count: int) -> int:
     out: Final = minify_css("".join(f"a{{--p{index}:{index}}}" for index in range(rule_count)))
     return max(body.count(":") for body in re.findall(r"\{([^}]*)\}", out))
+
+
+def test_minify_css_same_body_merge_is_bounded_and_stable() -> None:
+    result = minify_css("".join(f"a{index}{{x:0}}" for index in range(4096)))
+    assert (1 < result.count("{") < 4096, minify_css(result)) == (True, result)
+
+
+def test_minify_css_cap_stays_a_fixpoint_after_shorthand_fold() -> None:
+    result = minify_css(f"a{{--pad:{'x' * 10200}}}a{{margin-top:0;margin-right:0;margin-bottom:0}}a{{margin-left:0}}")
+    assert (result.count("a{"), minify_css(result)) == (2, result)
+
+
+@pytest.mark.parametrize(
+    ("count", "first_rule", "last_rule"),
+    [
+        pytest.param(255, "a{--z:0;--w:0}", "", id="within-reach"),
+        pytest.param(256, "a{--z:0}", "a{--w:0}", id="past-reach"),
+    ],
+)
+def test_minify_css_live_rule_search_is_bounded(count: int, first_rule: str, last_rule: str) -> None:
+    middle = "".join(f"b{index}{{--p{index}:{index}}}" for index in range(count))
+    expected = f"{first_rule}{middle}{last_rule}"
+    result = minify_css(f"a{{--z:0}}{middle}a{{--w:0}}")
+    assert (result, minify_css(result)) == (expected, expected)
 
 
 @pytest.mark.parametrize(
