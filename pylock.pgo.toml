@@ -332,7 +332,7 @@ sha256 = "63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86"
 
 [[packages]]
 name = "httpcore2"
-version = "2.15.1"
+version = "2.16.0"
 marker = "\"pgo\" in dependency_groups"
 requires-python = ">=3.11"
 dependencies = [
@@ -342,26 +342,26 @@ dependencies = [
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "httpcore2-2.15.1.tar.gz"
-upload-time = 2026-10-19 20:14:23.824092+00:00
-url = "https://files.pythonhosted.org/packages/c2/a9/11bc39967bb9dfaab0981ab4d49f519818acbee662a7e76d06813319c838/httpcore2-2.15.1.tar.gz"
-size = 69859
+name = "httpcore2-2.16.0.tar.gz"
+upload-time = 2026-10-21 07:09:45.310470+00:00
+url = "https://files.pythonhosted.org/packages/c0/61/afa9d6b7452f9eca73f73d45324eb0bb52f098fd5e6049bf6b8263be9b4e/httpcore2-2.16.0.tar.gz"
+size = 69886
 
 [packages.sdist.hashes]
-sha256 = "a94b6b3e6260e1a3f035915408d3dcd7dc8e844c2b544b642e227cf98a747af0"
+sha256 = "c72cd0413563b17e1cd8354677dff887466f8ec2551679759e93126534428643"
 
 [[packages.wheels]]
-name = "httpcore2-2.15.1-py3-none-any.whl"
-upload-time = 2026-10-19 20:14:21.363595+00:00
-url = "https://files.pythonhosted.org/packages/0d/9b/e2b556e26fbc67716ab1dfc18832eb6fe196d88363f7094cb1da3d7c0d3e/httpcore2-2.15.1-py3-none-any.whl"
-size = 85055
+name = "httpcore2-2.16.0-py3-none-any.whl"
+upload-time = 2026-10-21 07:09:42.802531+00:00
+url = "https://files.pythonhosted.org/packages/af/c2/ce417c397afa5181f0e3c6ff01a4d01639414e1adef08730d97571297151/httpcore2-2.16.0-py3-none-any.whl"
+size = 85070
 
 [packages.wheels.hashes]
-sha256 = "730f603058c260a3288378217b464713350c23e3b8fe8bba753701054032d98a"
+sha256 = "5c4358319f2602d984ad93182c9fee5160f22e9da7babdda870a5e7c4e2dc34f"
 
 [[packages]]
 name = "httpx2"
-version = "2.15.1"
+version = "2.16.0"
 marker = "\"pgo\" in dependency_groups"
 requires-python = ">=3.11"
 dependencies = [
@@ -374,22 +374,22 @@ dependencies = [
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "httpx2-2.15.1.tar.gz"
-upload-time = 2026-10-19 20:14:24.587733+00:00
-url = "https://files.pythonhosted.org/packages/7f/85/07978f4afd168d6b408fa75c1dc13e3010653a81e182aa1b6d89ab94d9c6/httpx2-2.15.1.tar.gz"
-size = 101673
+name = "httpx2-2.16.0.tar.gz"
+upload-time = 2026-10-21 07:09:46.348194+00:00
+url = "https://files.pythonhosted.org/packages/43/73/5ca2cedf5e4e50423d1c258877865a6b62793633b561c58499f8aeb33b7e/httpx2-2.16.0.tar.gz"
+size = 103116
 
 [packages.sdist.hashes]
-sha256 = "ff75485308fbe441e75b1218546e4e78d884df41e1a9741c1f79335ed8fcfef7"
+sha256 = "0d54c98128e8f2ff7fbbde0fca8c359e5f032edeaaaac443cdb7f31f685bcd7f"
 
 [[packages.wheels]]
-name = "httpx2-2.15.1-py3-none-any.whl"
-upload-time = 2026-10-19 20:14:22.789198+00:00
-url = "https://files.pythonhosted.org/packages/7a/bf/56068f774620330c8330e4b4915fae889a5b2d4b52667b3b7c8f66c4a9ad/httpx2-2.15.1-py3-none-any.whl"
-size = 96411
+name = "httpx2-2.16.0-py3-none-any.whl"
+upload-time = 2026-10-21 07:09:44.010669+00:00
+url = "https://files.pythonhosted.org/packages/7b/3d/2e4bc4fd1ef9770871669adb348d612a6e4786b303a23f9935b81c48dd60/httpx2-2.16.0-py3-none-any.whl"
+size = 97880
 
 [packages.wheels.hashes]
-sha256 = "75841cd83d16b417f7d6da8f2089ce8120806efdbf96af37d46c5129c49015be"
+sha256 = "fd2c5d7909e8d86fe92d53020c310ca0e4e431b838c207c5754b9bbf0308d49a"
 
 [[packages]]
 name = "idna"
@@ -621,28 +621,28 @@ sha256 = "f7162d580a96386a8eb096da06215f981f547d1490f03055ef99e323bc2da427"
 
 [[packages]]
 name = "setuptools"
-version = "84.2.0"
+version = "84.2.1"
 marker = "\"build\" in dependency_groups"
 requires-python = ">=3.10"
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "setuptools-84.2.0.tar.gz"
-upload-time = 2026-10-19 20:38:03.407523+00:00
-url = "https://files.pythonhosted.org/packages/63/40/e2c41d00a4bfea5548c31420a74c6cf149cc0e7c36b45c4c82202ce867aa/setuptools-84.2.0.tar.gz"
-size = 1227656
+name = "setuptools-84.2.1.tar.gz"
+upload-time = 2026-10-20 19:01:37.742699+00:00
+url = "https://files.pythonhosted.org/packages/70/b3/c19426f783614d625699a4b247faf628ea9ab1db228674491767b417f9e1/setuptools-84.2.1.tar.gz"
+size = 1230289
 
 [packages.sdist.hashes]
-sha256 = "6f445ca2ce864605f81e223f262b4c94ffcb9a4a63473bae0ed7be5aab0291da"
+sha256 = "3ff8b3b5492a0aa66960f4419365a86b84e013070d4313e4d4a6894f5d64d6bc"
 
 [[packages.wheels]]
-name = "setuptools-84.2.0-py3-none-any.whl"
-upload-time = 2026-10-19 20:38:01.629093+00:00
-url = "https://files.pythonhosted.org/packages/dd/a2/2e1af99d56c8145aa69496026c7e5fd7b6ec759b500c3ad697e2062832dc/setuptools-84.2.0-py3-none-any.whl"
-size = 875816
+name = "setuptools-84.2.1-py3-none-any.whl"
+upload-time = 2026-10-20 19:01:35.678013+00:00
+url = "https://files.pythonhosted.org/packages/ef/55/6dc6d6bb953bdfc52519a0059592c52b6e3b8ad51cf8256dffceb55b0610/setuptools-84.2.1-py3-none-any.whl"
+size = 876263
 
 [packages.wheels.hashes]
-sha256 = "8cc107ac7a403105dc8d6477664171f36135fab26adf8b5e0edaebc313f39b21"
+sha256 = "ca140b45d5325a9478f880e351484f62fef15f336462e449ca0c03c873d589c2"
 
 [[packages]]
 name = "tenacity"
@@ -721,7 +721,7 @@ sha256 = "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8"
 
 [tool.nab]
 nab-version = "0.0.23"
-created-at = 2026-10-27 13:48:53.141937+00:00
+created-at = 2026-11-03 15:39:35.119876+00:00
 command-line = [
     "nab",
     "lock",
@@ -743,6 +743,7 @@ command-line = [
     "pypy",
     "--output",
     "pylock.pgo.toml",
+    "--upgrade",
 ]
 input-path = "pyproject.toml"
 mode = "universal"
