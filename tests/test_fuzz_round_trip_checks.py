@@ -539,8 +539,15 @@ def test_selector_entry_check_skips_an_invalid_selector() -> None:
         selector_entry_check(json.dumps({"html": "<p>x</p>", "css": "p["}))
 
 
-def test_span_check_passes_the_parser() -> None:
-    assert span_check("<!DOCTYPE html><div class=a\r\nid=b>x</div>\r\n<p>y<img src=x><b>z</b>") is None
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param("<!DOCTYPE html><div class=a\r\nid=b>x</div>\r\n<p>y<img src=x><b>z</b>", id="ordinary-tags"),
+        pytest.param("<Wİt>", id="unicode-tag-name"),
+    ],
+)
+def test_span_check_passes_the_parser(html: str) -> None:
+    assert span_check(html) is None
 
 
 def _late_start(location: SourceLocation) -> SourceLocation:

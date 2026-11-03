@@ -1589,9 +1589,10 @@ def _element_span_problem(
     # the tokenizer reads a NUL in a tag or attribute name as U+FFFD (WHATWG 13.2.5.8, 13.2.5.33)
     text = source[start.start_offset : start.end_offset].replace("\0", "\ufffd")
     # the tree builder renames an "image" start tag to "img" (WHATWG 13.2.6.4.7, in body)
-    names = {element.tag.lower(), "image"} if element.tag == "img" else {element.tag.lower()}
+    # HTML folds ASCII case only; Unicode lower() can expand a tag name such as U+0130.
+    names = {element.tag, "image"} if element.tag == "img" else {element.tag}
     if not text.endswith(">") or not any(
-        re.match(f"<{re.escape(name)}[\t\n\f />]", text, re.IGNORECASE) for name in names
+        re.match(f"<{re.escape(name)}[\t\n\f />]", text, re.IGNORECASE | re.ASCII) for name in names
     ):
         return "start tag span does not slice <name ...>"
     if (element.source_line, element.source_col) != (start.start_line, start.start_col):
