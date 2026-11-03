@@ -409,6 +409,17 @@ def test_markdown_allocation_failure_raises_memory_error(
     }
 
 
+@pytest.mark.fuzz_build
+def test_markdown_marker_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+    markup = (
+        "<ul>e>sa}ff; b<b>backgr .pic><br><<d</b>.</p>\n.png) }\n co\x00\x00\x00\x00uote><rl( }\n"
+        " co\x00\x00\x00\x00uote><><"
+    )
+    assert set(
+        alloc_sweep(lambda document: cast("turbohtml.Document", document).to_markdown(), lambda: parse(markup))
+    ) == {"MemoryError"}
+
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
