@@ -1,7 +1,7 @@
 # turbohtml built from source the way its tox environments build it (tox.toml), with the C extension compiled twice:
 # a production-equivalent debug build in /opt/venv and the ASan/UBSan fuzz build of `tox -e fuzz-smoke` in
 # /opt/venv-asan. The libFuzzer harnesses that .clusterfuzzlite/build.sh ships land in /opt/fuzzers.
-FROM python:3.14-bookworm
+FROM python:3.14-bookworm@sha256:a8cf203c684b61fd2676ec5a17159cf68ed38ad471481e1f4ebc4679825250bd
 ENV DEBIAN_FRONTEND=noninteractive \
     CC=clang \
     CXX=clang++ \
@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # The sanitizer oracles confirm a mutation with parse5, and the round-trip oracles use acorn; both need Node 20+.
-COPY --from=node:22-bookworm /usr/local/bin/node /usr/local/bin/node
-COPY --from=node:22-bookworm /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=node:22-bookworm@sha256:18a6d90fd60542269850c80ca03b29b1d9b14d6b221ac7ee8e35b0d33ef904bd /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:22-bookworm@sha256:18a6d90fd60542269850c80ca03b29b1d9b14d6b221ac7ee8e35b0d33ef904bd /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm
 
 # scanner contract: the checkout lives inside the image, at /src
@@ -31,8 +31,9 @@ RUN git submodule update --init --depth 1 tests/html5lib-tests tests/conformance
 # fault here is one the release build has too; meson-python finds meson and ninja on PATH.
 RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
-RUN pip install --group test \
-    && pip install --no-deps --no-build-isolation --editable . \
+# requirements.txt is the test dependency group plus requirements.in, compiled with hashes for Python 3.14.
+RUN pip install --require-hashes -r .oss-scanner/requirements.txt
+RUN pip install --no-deps --no-build-isolation --editable . \
       --config-settings=build-dir=/src/build/debug \
       --config-settings=setup-args=-Dbuildtype=debugoptimized \
       --config-settings=setup-args=-Db_ndebug=true \
@@ -41,8 +42,8 @@ RUN pip install --group test \
 # Same flags as tox -e fuzz-smoke: -Dfuzzing=true compiles the fuzz-only checks, and the operation limit caps XPath and
 # XSLT work. dharma, six and webencodings are what tox -e fuzz-oracle adds for the sanitizer oracles.
 RUN python -m venv /opt/venv-asan \
-    && /opt/venv-asan/bin/pip install --group test dharma six webencodings \
-    && PATH=/opt/venv-asan/bin:$PATH /opt/venv-asan/bin/pip install --no-deps --no-build-isolation --editable . \
+    && /opt/venv-asan/bin/pip install --require-hashes -r .oss-scanner/requirements.txt
+RUN PATH=/opt/venv-asan/bin:$PATH /opt/venv-asan/bin/pip install --no-deps --no-build-isolation --editable . \
       --config-settings=build-dir=/src/build/asan \
       --config-settings=setup-args=-Dbuildtype=debugoptimized \
       --config-settings=setup-args=-Dfuzzing=true \
