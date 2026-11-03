@@ -3929,10 +3929,10 @@ static enum th_drain drain_in_row(th_tree *tree, th_token *tok, th_insert *dc) {
         if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
             clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
             th_node *node = insert_element(tree, tok);
-            Py_ssize_t before = tree->open_len;
+            Py_ssize_t open_len_before = tree->open_len;
             stack_push(tree, node);
             /* A cell outside the depth-capped stack cannot be closed in cell mode. */
-            if (tree->open_len == before) {
+            if (tree->open_len == open_len_before) {
                 return TH_DRAIN_NEXT;
             }
             afe_push_marker(tree);
