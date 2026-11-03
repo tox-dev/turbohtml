@@ -704,8 +704,9 @@ TARGETS: Final[dict[str, Target]] = {
     "serialize": Target(_serialize, (*_HTML_SOURCES, "serialize/*"), _SERIALIZED),
     # a run of <h6> peaks at 2.25 and a table of empty cells at 3.00; corpora peak 1.00, offset 46
     "to_markdown": Target(_to_markdown, (*_HTML_SOURCES, "serialize/markdown*"), Bound(4.0, 256)),
+    # nested blockquotes indent lines by up to TH_MAX_INDENT_LEVELS steps of 4 spaces, peaking at 3.42;
     # corpora and repeated literals both peak at 1.00, offset 45
-    "to_text": Target(_to_text, (*_HTML_SOURCES, "serialize/text.c"), Bound(2.0, 64)),
+    "to_text": Target(_to_text, (*_HTML_SOURCES, "serialize/text.c"), Bound(4.0, 64)),
     "sanitize": Target(sanitize, (*_HTML_SOURCES, "clean/sanitize.c"), _SERIALIZED),
     # "a.co " becomes a 46-character nofollow anchor, 9.2 times its length; corpora peak 2.26, offset 191
     "linkify": Target(linkify, (*_HTML_SOURCES, "clean/linkify.c", "url/*"), Bound(10.0, 256)),
