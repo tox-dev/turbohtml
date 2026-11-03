@@ -1561,16 +1561,17 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
         rule_item *merged = NULL;
         const int nested_body = memchr(pool->data + it->body_off, '{', (size_t)it->body_len) != NULL;
         Py_ssize_t reach = 0;
+        int crossed_live = 0;
         for (Py_ssize_t back = index - 1; back >= 0; back--) {
             if (++reach > CSS_MAX_MERGE_REACH) {
-                break;
-            }
-            if (back < index - 1 && nested_body) {
                 break;
             }
             rule_item *target = &items->items[back];
             if (target->dropped) {
                 continue;
+            }
+            if (crossed_live && nested_body) {
+                break;
             }
             if (!target->is_rule) {
                 break;
@@ -1618,6 +1619,7 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
                 (!css_type_lists_disjoint(pool, it, target) && !css_custom_bodies_disjoint(pool, it, target))) {
                 break;
             }
+            crossed_live = 1;
         }
         if (hashes != NULL) {
             if (merged != NULL) {

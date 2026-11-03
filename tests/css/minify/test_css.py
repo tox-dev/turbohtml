@@ -561,6 +561,13 @@ def test_minify_css_large_dedup_remains_a_fixpoint() -> None:
     assert result.count("x:0") == 1
 
 
+def test_minify_css_merges_nested_rule_after_dedup() -> None:
+    source = "sub{d:.}sub{d:.}sub{{}}"
+    expected = "sub{d:.;{}}"
+    result = minify_css(source)
+    assert (result, minify_css(result)) == (expected, expected)
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
