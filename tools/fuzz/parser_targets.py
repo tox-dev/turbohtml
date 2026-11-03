@@ -147,7 +147,8 @@ def incremental_observation(data: bytes, header: Header = BYTEWISE) -> tuple[str
     else:
         feed_chunks(parser.feed, data, header.max_chunk)
     document: Final = parser.close()
-    expected: Final = parse(data, positions=positions, source_locations=locations)
+    # Byte parsing strips a BOM; text parsing keeps the already-decoded U+FEFF.
+    expected: Final = parse(source if header.opts & 1 else data, positions=positions, source_locations=locations)
     observed: Final = _serialization(document)
     _require("Incremental document differs", condition=observed == expected.serialize())
     placed: Final = _positions(document)

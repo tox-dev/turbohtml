@@ -1749,6 +1749,18 @@ def test_atheris_parser_incremental_output(header: Header, positions: tuple[obje
     )
 
 
+@pytest.mark.parametrize(
+    ("opts", "serialized"),
+    [
+        pytest.param(0, "<html><head></head><body></body></html>", id="bytes"),
+        pytest.param(1, "<html><head></head><body>\ufeff</body></html>", id="text"),
+    ],
+)
+def test_atheris_parser_incremental_bom_respects_input_type(opts: int, serialized: str) -> None:
+    observed, _ = incremental_observation(b"\xef\xbb\xbf", Header(opts, 0, 7))
+    assert observed == serialized
+
+
 def test_atheris_parser_fragment_output() -> None:
     assert fragment_observation(b"<p>x&amp;y</p>") == "<div><p>x&amp;y</p></div>"
 
