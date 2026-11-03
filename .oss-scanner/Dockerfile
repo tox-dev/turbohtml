@@ -1,7 +1,7 @@
 # turbohtml built from source the way its tox environments build it (tox.toml), with the C extension compiled twice:
 # a production-equivalent debug build in /opt/venv and the ASan/UBSan fuzz build of `tox -e fuzz-smoke` in
 # /opt/venv-asan. The libFuzzer harnesses that .clusterfuzzlite/build.sh ships land in /opt/fuzzers.
-FROM python:3.14-bookworm@sha256:a8cf203c684b61fd2676ec5a17159cf68ed38ad471481e1f4ebc4679825250bd
+FROM python:3.15-bookworm@sha256:b97b63f7b64698bebb0651b6a5842d33f4493a6902291d36acc5a768e383b950
 ENV DEBIAN_FRONTEND=noninteractive \
     CC=clang \
     CXX=clang++ \
@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates build-essential clang libclang-rt-14-dev git \
     && rm -rf /var/lib/apt/lists/*
 
-# uv installs the hash-pinned Python dependencies from pylock.pgo.toml.
+# uv installs the hash-pinned Python dependencies from pylock.toml, which locks CPython 3.15.
 COPY --from=ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 /uv /bin/
 
 # The sanitizer oracles confirm a mutation with parse5, and the round-trip oracles use acorn; both need Node 20+.
@@ -34,9 +34,9 @@ RUN git submodule update --init --depth 1 tests/html5lib-tests tests/conformance
 # fault here is one the release build has too; meson-python finds meson and ninja on PATH.
 RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
-# Hash-pinned from the release build's lock: the test group, plus the oracle extras for the ASan venv below.
+# Hash-pinned from pylock.toml: the test group, plus the oracle extras for the ASan venv below.
 RUN uv pip install --no-cache --preview-features pylock --require-hashes --python /opt/venv/bin/python \
-    --requirements pylock.pgo.toml --group test
+    --requirements pylock.toml --group test
 RUN pip install --no-deps --no-build-isolation --editable . \
       --config-settings=build-dir=/src/build/debug \
       --config-settings=setup-args=-Dbuildtype=debugoptimized \
@@ -47,7 +47,7 @@ RUN pip install --no-deps --no-build-isolation --editable . \
 # XSLT work. dharma, six and webencodings are what tox -e fuzz-oracle adds for the sanitizer oracles.
 RUN python -m venv /opt/venv-asan \
     && uv pip install --no-cache --preview-features pylock --require-hashes --python /opt/venv-asan/bin/python \
-      --requirements pylock.pgo.toml --group test --group fuzz-oracle
+      --requirements pylock.toml --group test --group fuzz-oracle
 RUN PATH=/opt/venv-asan/bin:$PATH /opt/venv-asan/bin/pip install --no-deps --no-build-isolation --editable . \
       --config-settings=build-dir=/src/build/asan \
       --config-settings=setup-args=-Dbuildtype=debugoptimized \

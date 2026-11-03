@@ -559,11 +559,6 @@ match = [ "opengraph-py3" ]
 assume-universal-deps = true
 build-policy = "build-remote"
 
-# psutil declares no dependencies outside extras, so its sdist-only targets share the wheels' metadata.
-[[tool.nab.package-rules]]
-match = [ "psutil" ]
-assume-universal-deps = true
-
 [[tool.nab.package-rules]]
 match = [ "pyahocorasick" ]
 assume-universal-deps = true
