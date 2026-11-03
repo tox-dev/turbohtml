@@ -420,10 +420,10 @@ static int name_in(const jm_node *name, const char *const *words) {
 
 static int name_is(const jm_node *name, const char *word) {
     Py_ssize_t index = 0;
-    while (word[index] != '\0' && index < name->str_len && name->str[index] == (Py_UCS4)(unsigned char)word[index]) {
+    while (index < name->str_len && word[index] != '\0' && name->str[index] == (Py_UCS4)(unsigned char)word[index]) {
         index++;
     }
-    return word[index] == '\0' && index == name->str_len;
+    return index == name->str_len && word[index] == '\0';
 }
 
 /* Whether a target parsed as an expression is a BindingIdentifier or a BindingPattern (ECMA-262 14.3.3). `[0]`,
