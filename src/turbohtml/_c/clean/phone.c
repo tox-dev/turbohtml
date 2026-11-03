@@ -1668,16 +1668,20 @@ typedef struct {
     size_t len;
 } candidate_text;
 
-static void normalize_candidate(th_phone_read read, const void *text, size_t start, size_t end, int collapse,
-                                candidate_text *candidate) {
+static int normalize_candidate(th_phone_read read, const void *text, size_t start, size_t end, int collapse,
+                               candidate_text *candidate) {
     candidate->len = 0;
     size_t position = start;
     while (position < end) {
+        if (candidate->len == CANDIDATE_CAPACITY) {
+            return 0;
+        }
         uint32_t code = read(text, position);
         int value = th_phone_digit_value(code);
         candidate->data[candidate->len++] = value >= 0 ? (uint32_t)('0' + value) : code;
         position = separator_end(read, text, position, end, code, collapse);
     }
+    return 1;
 }
 
 /* Callers keep `at + needle_len` inside the candidate: the search loop by its bound, the group checks by their
@@ -1856,7 +1860,9 @@ static int grouping_holds(th_phone_read read, const void *text, const th_phone_c
         return 1;
     }
     candidate_text candidate;
-    normalize_candidate(read, text, start, end, config->collapse_whitespace, &candidate);
+    if (!normalize_candidate(read, text, start, end, config->collapse_whitespace, &candidate)) {
+        return 0;
+    }
     if (more_than_one_slash(&candidate, result)) {
         return 0;
     }

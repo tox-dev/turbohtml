@@ -1301,6 +1301,18 @@ def test_collapse_whitespace_measures_a_run_as_it_renders() -> None:
     assert _found(_CH, text) == []
 
 
+def test_grouping_rejects_oversized_candidate() -> None:
+    text = "\uff10 \u0666\u0665   \u0662\u0665  \u0662\u0665\u0663" + " " * 389 + "x   \u0661\u0662"
+    phones = PhoneNumbers(
+        regions=("GB", "DE"),
+        require_valid=True,
+        require_separators=True,
+        grouping=PhoneGrouping.STRICT,
+        ignore_numbers_after=(),
+    )
+    assert LinkDetector(phones=phones).find(text) == []
+
+
 def test_collapse_whitespace_reads_a_broken_extension() -> None:
     assert _found(_US_COLLAPSED, "650-253-0000\next. 1234") == ["tel:+16502530000;ext=1234"]
     assert _found(_PHONE_WHITESPACE_US, "650-253-0000\next. 1234") == ["tel:+16502530000"]
