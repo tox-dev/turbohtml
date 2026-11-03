@@ -952,7 +952,10 @@ typedef struct {
     Py_ssize_t sel_len;
     Py_ssize_t body_off;
     Py_ssize_t body_len;
-    Py_ssize_t text_off;
+    union {
+        Py_ssize_t text_off;
+        Py_ssize_t prev_live;
+    };
     Py_ssize_t text_len;
     int at_statement;
     int dropped;
@@ -1148,10 +1151,11 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
     cbuf_free(&combined);
 }
 
-/* Unbounded, n same-selector rules cost O(n^2) time and memory (~115 KiB of CSS reached ~1 GiB); past the cap rules
-   stay unmerged, as tdewolff/minify and clean-css level 1 leave them. 256 is well above the longest merge reach in the
-   bench corpora (normalize.css, pico). */
+/* A physical-slot cap leaves dropped rules as invisible barriers on the next pass. Bound the live-rule search and each
+   merged run instead: an unbounded same-selector run costs O(n^2) time and memory (~115 KiB of CSS reached ~1 GiB).
+   The 10 KiB limit fits the existing 1,000-selector and long-value benchmark cases. */
 #define CSS_MAX_MERGE_REACH 256
+#define CSS_MAX_MERGED_RUN_LENGTH 10240
 
 static Py_ssize_t css_merge_attribute_end(const css_char *selector, Py_ssize_t len, Py_ssize_t open) {
     Py_ssize_t index = open + 1;
@@ -1545,38 +1549,41 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
             *pool->oom = 1; /* GCOVR_EXCL_LINE: the backward scan below still merges correctly */
         } /* GCOVR_EXCL_LINE: llvm flags the OOM branch's closing brace */
     }
+    Py_ssize_t last_live = -1;
     for (Py_ssize_t index = 0; index < items->len; index++) {
         rule_item *it = &items->items[index];
         if (!it->is_rule) {
+            last_live = index;
             continue;
         }
+        it->prev_live = last_live;
         uint32_t selector_hash = css_rule_hash(pool, it->sel_off, it->sel_len);
         uint32_t body_hash = css_rule_hash(pool, it->body_off, it->body_len);
         if (hashes != NULL && !css_rule_hash_seen(hashes, hash_cap - 1, selector_hash) &&
             !css_rule_hash_seen(hashes, hash_cap - 1, body_hash)) {
             css_rule_hash_add(hashes, hash_cap - 1, selector_hash);
             css_rule_hash_add(hashes, hash_cap - 1, body_hash);
+            last_live = index;
             continue;
         }
         rule_item *merged = NULL;
         const int nested_body = memchr(pool->data + it->body_off, '{', (size_t)it->body_len) != NULL;
         Py_ssize_t reach = 0;
-        int crossed_live = 0;
-        for (Py_ssize_t back = index - 1; back >= 0; back--) {
+        for (Py_ssize_t back = last_live; back >= 0; back = items->items[back].prev_live) {
             if (++reach > CSS_MAX_MERGE_REACH) {
                 break;
             }
             rule_item *target = &items->items[back];
-            if (target->dropped) {
-                continue;
-            }
-            if (crossed_live && nested_body) {
+            if (reach > 1 && nested_body) {
                 break;
             }
             if (!target->is_rule) {
                 break;
             }
             if (rule_run_eq(pool, target->sel_off, target->sel_len, it->sel_off, it->sel_len)) {
+                if (target->body_len + 1 + it->body_len > CSS_MAX_MERGED_RUN_LENGTH) {
+                    break;
+                }
                 css_merge_rule_bodies(pool, target, it, baseline, depth);
                 it->dropped = 1;
                 merged = target;
@@ -1586,6 +1593,9 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
                 css_selector_merge_safe(pool, it) && css_selector_merge_safe(pool, target)) {
                 Py_ssize_t end = index + 1;
                 Py_ssize_t length = target->sel_len + 1 + it->sel_len;
+                if (length > CSS_MAX_MERGED_RUN_LENGTH) {
+                    break;
+                }
                 if (back == index - 1) {
                     while (end < items->len) {
                         rule_item *next = &items->items[end];
@@ -1593,6 +1603,9 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
                             !rule_run_eq(pool, target->body_off, target->body_len, next->body_off, next->body_len) ||
                             memchr(pool->data + next->sel_off, ',', (size_t)next->sel_len) != NULL ||
                             !css_selector_merge_safe(pool, next)) {
+                            break;
+                        }
+                        if (length + 1 + next->sel_len > CSS_MAX_MERGED_RUN_LENGTH) {
                             break;
                         }
                         length += 1 + next->sel_len;
@@ -1619,7 +1632,6 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
                 (!css_type_lists_disjoint(pool, it, target) && !css_custom_bodies_disjoint(pool, it, target))) {
                 break;
             }
-            crossed_live = 1;
         }
         if (hashes != NULL) {
             if (merged != NULL) {
@@ -1628,6 +1640,9 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
             }
             css_rule_hash_add(hashes, hash_cap - 1, selector_hash);
             css_rule_hash_add(hashes, hash_cap - 1, body_hash);
+        }
+        if (!it->dropped) {
+            last_live = index;
         }
     }
     css_free(hashes);

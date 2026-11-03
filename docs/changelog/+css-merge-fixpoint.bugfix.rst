@@ -1,1 +1,1 @@
-Keep CSS minification stable across repeated passes when a nested rule follows deduplicated selectors.
+Keep CSS minification stable across repeated passes when a mergeable rule follows a run of duplicates.
