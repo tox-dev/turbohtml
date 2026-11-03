@@ -111,7 +111,7 @@ jobs:
             glibc.malloc.arena_max=1)
           echo "GLIBC_TUNABLES=${tunables%:}" >> "$GITHUB_ENV"
       - name: ⏱️ Run benchmarks
-        uses: CodSpeedHQ/action@821a40cd6c80e3cfe387caf55668287addd808da # v5.5.0
+        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5.6.0
         env:
           # str hashes seed the dict and set probes the benchmarks walk; a fresh seed per run is a small run-to-run
           # term the CPU pins above do not cover.

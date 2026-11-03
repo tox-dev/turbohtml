@@ -6192,7 +6192,7 @@ sha256 = "0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3"
 [[packages]]
 name = "uv"
 version = "0.13.3"
-marker = "\"dev\" in dependency_groups or \"fix\" in dependency_groups or \"pgo\" in dependency_groups or \"pkg-meta\" in dependency_groups"
+marker = "\"dev\" in dependency_groups or \"fix\" in dependency_groups or \"pkg-meta\" in dependency_groups"
 requires-python = ">=3.8"
 index = "https://pypi.org/simple/"
 

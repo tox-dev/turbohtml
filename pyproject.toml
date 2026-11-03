@@ -215,7 +215,6 @@ pgo = [
   "ninja>=1.13.2",
   "patchelf>=0.11; sys_platform=='linux'",
   "tenacity>=9.1.4",
-  "uv>=0.12.22",
 ]
 pkg-meta = [
   "check-wheel-contents>=0.6.3",
@@ -260,10 +259,15 @@ test-command = "python -c \"import turbohtml; assert turbohtml.unescape(turbohtm
 # directory; the wheel build below reuses that directory with -Db_pgo=use so the shipped object is laid out for the
 # hot paths. Scoped to Linux on purpose: the measured win is gcc's, and clang/MSVC add a profile-merge step the
 # release does not need. See tools/pgo_build.py.
+# Nab cannot distinguish glibc and musl targets; preinstall a hashed musllinux Ninja wheel.
 linux.before-build = """\
-  rm -rf /tmp/turbohtml-pgo && uv pip install --preview-features pylock --require-hashes --system --python python \
-  --requirements {project}/pylock.pgo.toml --group pgo && python {project}/tools/pgo_build.py --python python --system \
-  --project {project} --build-dir /tmp/turbohtml-pgo --phase profile\
+  if [ \"$(python -c 'import platform; print(platform.libc_ver()[0])')\" != glibc ]; then { printf 'ninja==1.13.2 '; \
+  printf '%s ' '--hash=sha256:0e083700470c02ca154a855ae6d692d03564f5064cae52e113896f9ccc078418'; printf '%s\\n' \
+  '--hash=sha256:915bd482c4be41c75120fd67a22e0bb3f0fbb3bbc5f95b89787deadd59e27ef2'; } | uv pip install \
+  --require-hashes --only-binary :all: --system --python python --requirements -; fi && rm -rf /tmp/turbohtml-pgo && \
+  uv pip install --preview-features pylock --require-hashes --system --python python --requirements \
+  {project}/pylock.pgo.toml --group pgo && python {project}/tools/pgo_build.py --python python --system --project \
+  {project} --build-dir /tmp/turbohtml-pgo --phase profile\
   """
 linux.config-settings.build-dir = "/tmp/turbohtml-pgo"
 # -Db_lto lands cross-TU inlining across the header splits the 1.0 rearchitecture introduced (spike #478): the hot
