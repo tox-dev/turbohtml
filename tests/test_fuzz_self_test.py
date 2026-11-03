@@ -667,6 +667,19 @@ def test_text_table_allocation_failure_raises_memory_error(
 
 
 @pytest.mark.fuzz_build
+def test_text_list_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+    assert set(
+        alloc_sweep(
+            lambda document: cast("turbohtml.Document", document).to_text(),
+            lambda: parse(
+                "<ul><li>one</li><li>two</li></ul><m\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00"
+                "</r/\x00\x10\x00\x00>cite</blockquote>\n"
+            ),
+        )
+    ) == {"MemoryError"}
+
+
+@pytest.mark.fuzz_build
 def test_foreign_attributes_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
     assert set(alloc_sweep(lambda _: parse("<svg viewbox='0 0 1 1' data-custom='x'></svg>"))) == {"MemoryError"}
 
