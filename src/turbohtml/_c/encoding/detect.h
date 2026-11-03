@@ -1527,6 +1527,7 @@ static void th_jp_scan_feed(th_jp_scan *scan, const unsigned char *buf, Py_ssize
     scan->dec.len = data_len;
     scan->dec.pos = 0;
     for (;;) {
+        th_decoder rewind = scan->dec;
         Py_ssize_t before = scan->dec.pos;
         Py_UCS4 point = 0;
         int status = th_decode_step(&scan->dec, &point);
@@ -1535,6 +1536,8 @@ static void th_jp_scan_feed(th_jp_scan *scan, const unsigned char *buf, Py_ssize
         }
         if (status == TH_DEC_ERROR) {
             if (scan->dec.error_at < 0 && !final) {
+                /* An incomplete escape changes the mode; replay its bytes from the earlier state. */
+                scan->dec = rewind;
                 scan->carry_len = (int)(data_len - before);
                 memcpy(scan->carry, data + before, (size_t)scan->carry_len);
             } else {
