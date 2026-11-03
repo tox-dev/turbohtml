@@ -6,6 +6,20 @@
 
 .. towncrier release notes start
 
+.. _release-1-15-6:
+
+**********************
+ v1.15.6 (2026-11-03)
+**********************
+
+.. _release-1-15-6-security:
+
+Security
+========
+
+- Limit plain-text list and quote indentation so deep nesting around little text cannot produce disproportionate output
+  (:pr:`1585`) by :user:`gaborbernat`.
+
 .. _release-1-15-5:
 
 **********************
