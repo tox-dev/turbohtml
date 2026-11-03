@@ -2045,7 +2045,7 @@ def test_sanitize_attribute_benchmark(case: int, expected: str) -> None:
         ),
         pytest.param(
             "<x-a>a</x-a><x-b>b</x-b>",
-            lambda tag: bool(re.compile(r"^x-a$").search(tag)),
+            lambda tag: bool(re.search(r"^x-a$", tag)),
             "<x-a>a</x-a>&lt;x-b&gt;b&lt;/x-b&gt;",
             id="regex-search-drives-the-predicate",
         ),
