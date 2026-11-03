@@ -836,5 +836,16 @@
       "left": "<li>\r",
       "middle": "keyPoints<summary>-//IETF//DTD HTML 2.1E//<ul>START_TAG"
     }
+  },
+  {
+    "name": "1585-text-indent-budget",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1585",
+    "targets": [
+      "to_text"
+    ],
+    "shape": {
+      "kind": "repeat",
+      "left": "<blockquote>a"
+    }
   }
 ]

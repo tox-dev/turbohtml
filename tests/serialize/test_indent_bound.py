@@ -10,6 +10,8 @@ from markdown_it import MarkdownIt
 from turbohtml import Markdown, parse
 
 _NESTED_ITEMS: Final = "<ul><li>" * 12 + "x"
+# plain-text indent spends a budget that source text funds, so cap tests lead with enough text to pay for it
+_FUNDING: Final = "w" * 1024
 
 
 def _capped_lines(marker: str) -> str:
@@ -21,31 +23,43 @@ def test_markdown_list_indent_stops_at_the_nesting_cap() -> None:
 
 
 def test_text_list_indent_stops_at_the_nesting_cap() -> None:
-    assert parse(_NESTED_ITEMS).to_text() == _capped_lines("* ")
+    assert parse(f"<p>{_FUNDING}</p>{_NESTED_ITEMS}").to_text() == f"{_FUNDING}\n\n{_capped_lines('* ')}"
 
 
-@pytest.mark.parametrize(
-    ("method", "expected"),
-    [
-        pytest.param("to_markdown", "> " * 17 + "x", id="markdown"),
-        pytest.param("to_text", " " * 68 + "x", id="text"),
-    ],
-)
-def test_blockquote_indent_stops_at_the_nesting_cap(method: str, expected: str) -> None:
-    assert getattr(parse("<blockquote>" * 22 + "x"), method)() == expected
+def test_markdown_blockquote_indent_stops_at_the_nesting_cap() -> None:
+    assert parse("<blockquote>" * 22 + "x").to_markdown() == "> " * 17 + "x"
+
+
+def test_text_blockquote_indent_stops_at_the_nesting_cap() -> None:
+    text = parse(f"<p>{_FUNDING}</p>" + "<blockquote>" * 22 + "x").to_text()
+    assert text.rsplit("\n", 1)[-1] == " " * 68 + "x"
 
 
 @pytest.mark.parametrize(
     ("source", "method", "expected"),
     [
         pytest.param("<ol><li>" * 8192, "to_markdown", 251_973, id="ordered-items-markdown"),
-        pytest.param("<ol><li>" * 8192, "to_text", 251_973, id="ordered-items-text"),
+        pytest.param("<ol><li>" * 8192, "to_text", 55_537, id="ordered-items-text"),
         pytest.param("<blockquote>x<br>" * 4096, "to_markdown", 529_989, id="quoted-lines-markdown"),
-        pytest.param("<blockquote>x<br>" * 4096, "to_text", 572_281, id="quoted-lines-text"),
+        pytest.param("<blockquote>x<br>" * 4096, "to_text", 20_540, id="quoted-lines-text"),
     ],
 )
 def test_deep_nesting_output_stays_linear(source: str, method: str, expected: int) -> None:
     assert len(getattr(parse(source), method)()) == expected
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("<blockquote>a" * 400, id="quotes"),
+        pytest.param("<ol><li>a" * 400, id="ordered"),
+        pytest.param("<ul><li>a" * 400, id="unordered"),
+        pytest.param("<blockquote>a" * 200 + "<ul><li>a" * 200, id="lists-in-quotes"),
+    ],
+)
+def test_text_indent_spends_the_padding_budget(source: str) -> None:
+    # the fuzz amplify lane's to_text bound
+    assert len(parse(source).to_text()) <= 2 * len(source) + 64
 
 
 def test_text_table_padding_stays_linear() -> None:

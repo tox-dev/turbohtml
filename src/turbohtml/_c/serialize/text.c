@@ -142,9 +142,12 @@ typedef struct {
     int failed;
 } text_ctx;
 
+/* The indent spends the padding budget too, so deep nesting around little text cannot multiply the output. */
 static void text_write_prefix(text_ctx *ctx) {
-    sbuf_put_run(&ctx->out, ctx->prefix.data, ctx->prefix.len);
-    ctx->column = (int)ctx->prefix.len;
+    Py_ssize_t len = ctx->prefix.len < ctx->padding_left ? ctx->prefix.len : ctx->padding_left;
+    sbuf_put_run(&ctx->out, ctx->prefix.data, len);
+    ctx->padding_left -= len;
+    ctx->column = (int)len;
 }
 
 /* Start a fresh prefixed line for the next block, collapsing the margin with the
