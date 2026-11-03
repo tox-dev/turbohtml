@@ -13,6 +13,8 @@ dependency-groups = [
     "dev",
     "docs",
     "fix",
+    "fuzz-build",
+    "fuzz-oracle",
     "pgo",
     "pkg-meta",
     "project-runtime",
@@ -1211,6 +1213,30 @@ size = 25604
 sha256 = "a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61"
 
 [[packages]]
+name = "dharma"
+version = "1.3.2"
+marker = "\"fuzz-oracle\" in dependency_groups"
+index = "https://pypi.org/simple/"
+
+[packages.sdist]
+name = "dharma-1.3.2.tar.gz"
+upload-time = 2020-06-12 20:51:23.775930+00:00
+url = "https://files.pythonhosted.org/packages/92/e4/99bcf9481773b9bee08792d9b8b07e73d1f30286eadec2a5df0ff89ddad7/dharma-1.3.2.tar.gz"
+size = 38082
+
+[packages.sdist.hashes]
+sha256 = "4a16cbe99e7cc685b82d0a77b9f14b51df8a981b0c3f1a2b961eaae089f102e4"
+
+[[packages.wheels]]
+name = "dharma-1.3.2-py3-none-any.whl"
+upload-time = 2020-06-12 20:51:22.846237+00:00
+url = "https://files.pythonhosted.org/packages/1c/e6/78d85e4b7e8bb0046f024226fc59d43510b04286b8d3ade161e1118dcf86/dharma-1.3.2-py3-none-any.whl"
+size = 45175
+
+[packages.wheels.hashes]
+sha256 = "119fde38f77f66082316f22ac48d99034bd123555a8ecb2a5e9c9b4b799aaab5"
+
+[[packages]]
 name = "distlib"
 version = "0.4.4"
 marker = "\"dev\" in dependency_groups or \"fix\" in dependency_groups"
@@ -1779,7 +1805,7 @@ sha256 = "8b32ed047a99c855c8a3c57d19df1fe8384dc16fc847b42847cbe202fd91cfde"
 [[packages]]
 name = "html5lib"
 version = "1.1"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = "!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,>=2.7"
 dependencies = [
     { name = "six" },
@@ -2587,7 +2613,7 @@ sha256 = "cc037270ba500a65e7235409dcddcae8ef37300f26dea826b61d917bf0236880"
 [[packages]]
 name = "markdown-it-py"
 version = "4.2.0"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"release\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"release\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.10"
 dependencies = [
     { name = "mdurl" },
@@ -2835,7 +2861,7 @@ sha256 = "214c82fb2ac524472ab6a5bcab1de80f73b50443e187f401bfd77efbc7c6481d"
 [[packages]]
 name = "mdurl"
 version = "0.1.2"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"release\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"release\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.7"
 index = "https://pypi.org/simple/"
 
@@ -2860,7 +2886,7 @@ sha256 = "84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8"
 [[packages]]
 name = "meson"
 version = "1.12.1"
-marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"pgo\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"pgo\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.10"
 index = "https://pypi.org/simple/"
 
@@ -2885,7 +2911,7 @@ sha256 = "930bc7542cbd9f57009e182fd014eba48cf1a0180a7b9006d2d32d8f168d8b02"
 [[packages]]
 name = "meson-python"
 version = "0.22.1"
-marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"pgo\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"pgo\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.10"
 dependencies = [
     { name = "meson" },
@@ -3095,7 +3121,7 @@ sha256 = "618e3059caf41ccdf5dcccb3fa9df4cf6e4efe23d1382a8bbfca272a8a4f8bfc"
 [[packages]]
 name = "ninja"
 version = "1.13.2"
-marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"pgo\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"pgo\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.8"
 index = "https://pypi.org/simple/"
 
@@ -3283,7 +3309,7 @@ sha256 = "4ae982cc02fceda9b47fa3e4e860aebc387210bc153c7328e76a1c85ccc94d1c"
 [[packages]]
 name = "packaging"
 version = "26.3"
-marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"fix\" in dependency_groups or \"pgo\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"release\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"fix\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"pgo\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"release\" in dependency_groups or \"release-news\" in dependency_groups or \"release-notes\" in dependency_groups or \"release-prepare\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.9"
 index = "https://pypi.org/simple/"
 
@@ -3960,7 +3986,7 @@ sha256 = "79196bc4a11e3c926dd4c6b14c80136c6b37f884fe913cbc57037f37636e9841"
 [[packages]]
 name = "pyproject-metadata"
 version = "0.12.1"
-marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"pgo\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"pgo\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.8"
 dependencies = [
     { name = "packaging" },
@@ -4991,7 +5017,7 @@ sha256 = "e01dd93714dd57fa906f7e939cad8fcff798740f846f0b142d5176a927a26a1d"
 [[packages]]
 name = "six"
 version = "1.17.0"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"fuzz-oracle\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = "!=3.0.*,!=3.1.*,!=3.2.*,>=2.7"
 index = "https://pypi.org/simple/"
 
@@ -5764,7 +5790,7 @@ sha256 = "9e56f17539296baab7beabb08b92f6ee3d7be92d8be72d763360677c2ad6580e"
 [[packages]]
 name = "tinycss2"
 version = "1.5.1"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.10"
 dependencies = [
     { name = "webencodings" },
@@ -6151,7 +6177,7 @@ sha256 = "86dc9b5a14665b24d5d7d061149c8c3f50355243df5ef285bf816c2e2cc093d5"
 [[packages]]
 name = "typing-extensions"
 version = "4.16.0"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"docs\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"pkg-meta\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.9"
 index = "https://pypi.org/simple/"
 
@@ -6516,7 +6542,7 @@ sha256 = "901eace6d2dd25ebb917d0ce5db18e5c537e1504c905cf32f0d006c12098b05d"
 [[packages]]
 name = "webencodings"
 version = "0.6.1"
-marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"fuzz-oracle\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.10"
 index = "https://pypi.org/simple/"
 
@@ -6587,7 +6613,6 @@ command-line = [
     "--all-groups",
     "--all-extras",
     "--no-cache",
-    "--upgrade",
 ]
 input-path = "pyproject.toml"
 mode = "universal"

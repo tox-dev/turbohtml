@@ -28,3 +28,15 @@ updates:
       - skip news
     cooldown:
       default-days: 7
+  - package-ecosystem: docker
+    directories:
+      - /.clusterfuzzlite
+      - /.oss-scanner
+    patterns:
+      - '*'
+    multi-ecosystem-group: dependencies
+    labels:
+      - dependencies
+      - skip news
+    cooldown:
+      default-days: 7

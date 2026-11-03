@@ -208,6 +208,20 @@ coverage = [
 fix = [
   "pre-commit-uv>=4.3",
 ]
+fuzz-build = [
+  "html5lib>=1.1",
+  "markdown-it-py>=4.2",
+  "meson>=1.12.1",
+  "meson-python>=0.22.1",
+  "ninja>=1.13.2",
+  "tinycss2>=1.5.1",
+  "typing-extensions>=4.16",
+]
+fuzz-oracle = [
+  "dharma>=1.3.2",
+  "six>=1.17",
+  "webencodings>=0.6.1",
+]
 pgo = [
   "httpx2>=2.13.1",
   "meson>=1.12.1",
