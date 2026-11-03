@@ -1522,6 +1522,12 @@ def test_deeply_nested_parse_keeps_every_element() -> None:
     assert len(doc.find_all("div")) == _PATHOLOGICAL  # capped elements survive as siblings
 
 
+def test_table_cell_rejected_at_depth_cap_keeps_html_root() -> None:
+    markup = "<!doctype html><html><body>" + "<div>" * 507 + "<table><tr><td>x</table><p>tail"
+    document = parse(markup)
+    assert [child.tag for child in document.children if isinstance(child, Element)] == ["html"]
+
+
 def test_capped_parse_round_trips_through_serialization() -> None:
     doc = parse("<div>" * _PATHOLOGICAL)
     assert doc.html.count("<div>") == _PATHOLOGICAL
