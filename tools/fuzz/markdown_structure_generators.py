@@ -490,14 +490,11 @@ class _FaithfulAltRenderer(RendererHTML):
     # markdown-it-py#445 drops escaped punctuation from image alt text.
     @override
     def renderInlineAsText(self, tokens: Sequence[Token] | None, options: OptionsDict, env: EnvType) -> str:
-        content: list[str] = []
+        content: Final[list[str]] = []
         for token in tokens or ():
-            if token.type in {"text", "text_special"}:
-                content.append(token.content)
-            elif token.type == "image" and token.children:
-                content.append(self.renderInlineAsText(token.children, options, env))
-            elif token.type == "softbreak":
-                content.append("\n")
+            content.append(
+                token.content if token.type == "text_special" else super().renderInlineAsText((token,), options, env)
+            )
         return "".join(content)
 
 
