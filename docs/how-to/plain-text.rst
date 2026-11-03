@@ -33,7 +33,8 @@ Extract rendered text with :meth:`~turbohtml.Node.to_text`, and get the same tex
     Pears   40
 
 Table alignment uses bounded padding. If one cell is much wider than the rest, later rows may stop aligning. Rows omit
-trailing cells that do not exist in the HTML table.
+trailing cells that do not exist in the HTML table. List and quote indentation draws on the same budget, which the
+document's text funds, so deeply nested lists or quotes with little text in them indent less than their depth.
 
 Links are hidden by default; pass a :class:`~turbohtml.PlainText` config to change that — ``PlainText(links="inline")``
 appends ``text (url)``, ``links="footnote"`` numbers the references, ``images=True`` shows alt text, and ``width``
