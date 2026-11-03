@@ -579,7 +579,8 @@ static PyObject *ipv6_serialize(const uint16_t pieces[8]) {
         }
     }
     int compress = best_len >= 2 ? best_start : -1;
-    char buf[48];
+    static const char hex[] = "0123456789abcdef";
+    char buf[8 * 5]; /* eight pieces of up to four hex digits, each followed by at most one ':' */
     int at = 0;
     int ignore_zeros = 0;
     for (int index = 0; index < 8; index++) {
@@ -595,7 +596,15 @@ static PyObject *ipv6_serialize(const uint16_t pieces[8]) {
             ignore_zeros = 1;
             continue;
         }
-        at += snprintf(buf + at, sizeof(buf) - (size_t)at, "%x", pieces[index]);
+        unsigned piece = pieces[index];
+        unsigned digits = 1;
+        while (digits < 4 && (piece >> (4U * digits)) != 0) {
+            digits++;
+        }
+        while (digits > 0) {
+            digits--;
+            buf[at++] = hex[(piece >> (4U * digits)) & 0xFU];
+        }
         if (index != 7) {
             buf[at++] = ':';
         }

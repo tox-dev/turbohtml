@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+from ipaddress import IPv6Address
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -931,6 +933,16 @@ def test_dot_segment_resolution(url: str, expected: str) -> None:
         pytest.param("http://[2001:db8:0:0:0:0:192.0.2.1]/", "http://[2001:db8::c000:201]/", id="full-ipv4-tail"),
         pytest.param("http://[::ffff:0.0.0.0]/", "http://[::ffff:0:0]/", id="zero-ipv4-tail"),
         pytest.param("http://[::ffff:255.255.255.255]/", "http://[::ffff:ffff:ffff]/", id="max-ipv4-tail"),
+        pytest.param(
+            "http://[FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:255.255.255.255]/",
+            "http://[ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff]/",
+            id="longest-serialization",
+        ),
+        pytest.param(
+            "http://[0001:0010:0100:1000:0fff:00ff:000f:ffff]/",
+            "http://[1:10:100:1000:fff:ff:f:ffff]/",
+            id="every-digit-width",
+        ),
         pytest.param("http://good%2eexample/", "http://good.example/", id="percent-dot"),
         pytest.param(
             "http://trusted.example%2eattacker.example/", "http://trusted.example.attacker.example/", id="split-label"
@@ -943,6 +955,18 @@ def test_normalize_url_canonicalizes_hosts(url: str, expected: str) -> None:
     # the WHATWG host parser percent-decodes the host, reads one ending in a number as IPv4 in any of its four
     # notations, and serializes IPv6 without leading zeros and with the first longest zero run compressed
     assert normalize_url(url) == expected
+
+
+def test_normalize_url_serializes_ipv6_like_ipaddress() -> None:
+    # ipaddress writes IPv4-mapped addresses in dotted form where WHATWG keeps hex, so those are left out
+    addresses = [
+        address
+        for pieces in itertools.product((0, 1, 0xFFFF), repeat=8)
+        if (address := IPv6Address(":".join(f"{piece:x}" for piece in pieces))).ipv4_mapped is None
+    ]
+    assert [normalize_url(f"http://[{address.exploded}]/") for address in addresses] == [
+        f"http://[{address.compressed}]/" for address in addresses
+    ]
 
 
 @pytest.mark.parametrize(
