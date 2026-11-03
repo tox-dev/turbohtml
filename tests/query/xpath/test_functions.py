@@ -584,6 +584,7 @@ def ids() -> turbohtml.Node:
         pytest.param("id('xx a')", ["p"], id="token-length-mismatch-then-hit"),
         pytest.param("id('missing')", [], id="no-such-id"),
         pytest.param("id('')", [], id="empty-string"),
+        pytest.param("id('   ')", [], id="whitespace-only"),
         pytest.param("id(//div/@id)", ["div"], id="nodeset-argument"),
         pytest.param("id(//div/@class)", [], id="nodeset-argument-no-match"),
         pytest.param("id(//p)", [], id="nodeset-string-values-are-text"),
