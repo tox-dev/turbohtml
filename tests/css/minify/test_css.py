@@ -1320,6 +1320,11 @@ def test_minify_css_same_body_merge_is_bounded_and_stable() -> None:
     assert (1 < result.count("{") < 4096, minify_css(result)) == (True, result)
 
 
+def test_minify_css_cap_stays_a_fixpoint_after_shorthand_fold() -> None:
+    result = minify_css(f"a{{--pad:{'x' * 10200}}}a{{margin-top:0;margin-right:0;margin-bottom:0}}a{{margin-left:0}}")
+    assert (result.count("a{"), minify_css(result)) == (2, result)
+
+
 @pytest.mark.parametrize(
     ("count", "first_rule", "last_rule"),
     [

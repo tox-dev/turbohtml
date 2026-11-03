@@ -1151,9 +1151,9 @@ static void css_merge_rule_bodies(css_buf *pool, rule_item *prev, const rule_ite
     cbuf_free(&combined);
 }
 
-/* A physical-slot cap leaves dropped rules as invisible barriers on the next pass. Bound the live-rule search and each
-   merged run instead: an unbounded same-selector run costs O(n^2) time and memory (~115 KiB of CSS reached ~1 GiB).
-   The 10 KiB limit fits the existing 1,000-selector and long-value benchmark cases. */
+/* A physical-slot cap leaves dropped rules as invisible barriers on the next pass. Bound the live-rule search and stop
+   growing a merged run once it reaches 10 KiB: an unbounded same-selector run costs O(n^2) time and memory (~115 KiB of
+   CSS reached ~1 GiB). One merge may cross the limit, which keeps later passes from merging a split run. */
 #define CSS_MAX_MERGE_REACH 256
 #define CSS_MAX_MERGED_RUN_LENGTH 10240
 
@@ -1581,7 +1581,7 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
                 break;
             }
             if (rule_run_eq(pool, target->sel_off, target->sel_len, it->sel_off, it->sel_len)) {
-                if (target->body_len + 1 + it->body_len > CSS_MAX_MERGED_RUN_LENGTH) {
+                if (target->body_len >= CSS_MAX_MERGED_RUN_LENGTH) {
                     break;
                 }
                 css_merge_rule_bodies(pool, target, it, baseline, depth);
@@ -1593,7 +1593,7 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
                 css_selector_merge_safe(pool, it) && css_selector_merge_safe(pool, target)) {
                 Py_ssize_t end = index + 1;
                 Py_ssize_t length = target->sel_len + 1 + it->sel_len;
-                if (length > CSS_MAX_MERGED_RUN_LENGTH) {
+                if (target->sel_len >= CSS_MAX_MERGED_RUN_LENGTH) {
                     break;
                 }
                 if (back == index - 1) {
@@ -1605,7 +1605,7 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
                             !css_selector_merge_safe(pool, next)) {
                             break;
                         }
-                        if (length + 1 + next->sel_len > CSS_MAX_MERGED_RUN_LENGTH) {
+                        if (length >= CSS_MAX_MERGED_RUN_LENGTH) {
                             break;
                         }
                         length += 1 + next->sel_len;
