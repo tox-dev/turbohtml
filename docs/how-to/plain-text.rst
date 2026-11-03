@@ -32,6 +32,9 @@ Extract rendered text with :meth:`~turbohtml.Node.to_text`, and get the same tex
     Apples  3
     Pears   40
 
+Table alignment uses bounded padding. If one cell is much wider than the rest, later rows may stop aligning. Rows omit
+trailing cells that do not exist in the HTML table.
+
 Links are hidden by default; pass a :class:`~turbohtml.PlainText` config to change that — ``PlainText(links="inline")``
 appends ``text (url)``, ``links="footnote"`` numbers the references, ``images=True`` shows alt text, and ``width``
 word-wraps:

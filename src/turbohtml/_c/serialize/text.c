@@ -56,16 +56,16 @@ enum text_leave {
     TEXT_LEAVE_TABLE, /* lay out the finished grid */
 };
 
-/* A table being laid out: its rows, the rendered cell texts with their column widths,
+/* A table being laid out: its rows, packed cell texts with their column widths,
    and the output state one cell's throwaway rendering set aside. */
 typedef struct {
     th_node **rows;
+    Py_ssize_t *offsets;
     sbuf *grid;
     Py_ssize_t *widths;
     th_node **cells;
     th_node *cell; /* the cell rendered last, NULL before the first */
     Py_ssize_t count;
-    Py_ssize_t columns;
     Py_ssize_t row;
     Py_ssize_t column;
     sbuf saved_out;
@@ -138,6 +138,7 @@ typedef struct {
     int tight;
     int list_depth;
     int indent_levels; /* list and quote nesting that indents the prefix, capped by TH_MAX_INDENT_LEVELS */
+    Py_ssize_t padding_left;
     int failed;
 } text_ctx;
 
@@ -197,6 +198,8 @@ static void text_emit_text(text_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len) {
         ctx->out.failed = 1;       /* GCOVR_EXCL_LINE: allocation failure */
         return;                    /* GCOVR_EXCL_LINE: allocation failure */
     }
+    /* Source text funds at most the same number of added padding characters. */
+    ctx->padding_left += len;
     Py_ssize_t pos = 0;
     while (pos < len) {
         if (is_space(text[pos])) {
@@ -694,10 +697,9 @@ static void text_list_child(text_ctx *ctx, text_frame *frame, th_node *child) {
     }
 }
 
-/* Collect the table's rows in document order across nested thead/tbody/tfoot wrappers
-   and return the widest row's column count. With rows NULL it only counts, so the
-   array is sized by the same walk that fills it. */
-static Py_ssize_t text_collect_rows(th_node *table, th_node **rows, Py_ssize_t *count) {
+/* Collect rows across thead/tbody/tfoot wrappers and return the widest row.
+   With rows NULL, only count rows; otherwise offsets pack the occupied cells. */
+static Py_ssize_t text_collect_rows(th_node *table, th_node **rows, Py_ssize_t *offsets, Py_ssize_t *count) {
     Py_ssize_t columns = 0;
     th_node *node = table->first_child;
     while (node != NULL) {
@@ -706,6 +708,7 @@ static Py_ssize_t text_collect_rows(th_node *table, th_node **rows, Py_ssize_t *
                 if (rows != NULL) {
                     rows[*count] = node;
                     Py_ssize_t cells = md_row_cells(node);
+                    offsets[*count + 1] = offsets[*count] + cells;
                     if (cells > columns) {
                         columns = cells;
                     }
@@ -727,23 +730,27 @@ static Py_ssize_t text_collect_rows(th_node *table, th_node **rows, Py_ssize_t *
 
 static void text_enter_table(text_ctx *ctx, th_node *node, Py_ssize_t opened) {
     Py_ssize_t cap = 0;
-    text_collect_rows(node, NULL, &cap);
+    text_collect_rows(node, NULL, NULL, &cap);
     th_node **rows = PyMem_Malloc((size_t)(cap > 0 ? cap : 1) * sizeof(th_node *));
-    if (rows == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-        return;              /* GCOVR_EXCL_LINE: allocation-failure path */
+    Py_ssize_t *offsets = PyMem_Calloc((size_t)(cap + 1), sizeof(Py_ssize_t));
+    if (rows == NULL || offsets == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyMem_Free(rows);                  /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(offsets);               /* GCOVR_EXCL_LINE: allocation-failure path */
+        ctx->out.failed = 1;               /* GCOVR_EXCL_LINE: allocation-failure path */
+        return;                            /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     Py_ssize_t count = 0;
-    Py_ssize_t columns = text_collect_rows(node, rows, &count);
+    Py_ssize_t columns = text_collect_rows(node, rows, offsets, &count);
     if (count == 0 || columns == 0) {
         PyMem_Free(rows);
+        PyMem_Free(offsets);
         text_close_annotations(ctx, opened);
         return;
     }
     text_table *table = PyMem_Calloc(1, sizeof(text_table));
-    sbuf *grid = PyMem_Calloc((size_t)(count * columns), sizeof(sbuf));
+    sbuf *grid = PyMem_Calloc((size_t)offsets[count], sizeof(sbuf));
     Py_ssize_t *widths = PyMem_Calloc((size_t)columns, sizeof(Py_ssize_t));
-    th_node **cells = PyMem_Calloc((size_t)(count * columns), sizeof(th_node *));
+    th_node **cells = PyMem_Calloc((size_t)offsets[count], sizeof(th_node *));
     text_frame *frame = NULL;
     if (table != NULL && grid != NULL && widths != NULL && cells != NULL) { /* GCOVR_EXCL_BR_LINE: out of memory */
         frame = text_push(ctx, node, TEXT_WALK_TABLE, TEXT_LEAVE_TABLE, opened);
@@ -754,11 +761,12 @@ static void text_enter_table(text_ctx *ctx, th_node *node, Py_ssize_t opened) {
         PyMem_Free(widths);  /* GCOVR_EXCL_LINE: allocation-failure path */
         PyMem_Free(cells);   /* GCOVR_EXCL_LINE: allocation-failure path */
         PyMem_Free(rows);    /* GCOVR_EXCL_LINE: allocation-failure path */
+        PyMem_Free(offsets); /* GCOVR_EXCL_LINE: allocation-failure path */
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
         return;              /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     *table =
-        (text_table){.rows = rows, .grid = grid, .widths = widths, .cells = cells, .count = count, .columns = columns};
+        (text_table){.rows = rows, .offsets = offsets, .grid = grid, .widths = widths, .cells = cells, .count = count};
     frame->table = table;
 }
 
@@ -815,7 +823,7 @@ static void text_leave_cell(text_ctx *ctx, text_table *table) {
     ctx->column = table->saved_column;
     ctx->space_pending = table->saved_space;
     ctx->started = table->saved_started;
-    Py_ssize_t slot = table->row * table->columns + table->column;
+    Py_ssize_t slot = table->offsets[table->row] + table->column;
     sbuf *dst = &table->grid[slot];
     for (Py_ssize_t index = 0; index < rendered.len; index++) {
         sbuf_putc(dst, rendered.data[index] == '\n' ? ' ' : rendered.data[index]);
@@ -830,38 +838,46 @@ static void text_leave_cell(text_ctx *ctx, text_table *table) {
 }
 
 static void text_leave_table(text_ctx *ctx, text_table *table) {
-    Py_ssize_t count = table->count, columns = table->columns;
+    Py_ssize_t count = table->count;
     text_block_line(ctx, 1);
     for (Py_ssize_t row_index = 0; row_index < count; row_index++) {
         if (row_index > 0) {
             text_newline(ctx);
         }
-        for (Py_ssize_t col_index = 0; col_index < columns; col_index++) {
+        Py_ssize_t row_start = table->offsets[row_index];
+        Py_ssize_t row_columns = table->offsets[row_index + 1] - row_start;
+        for (Py_ssize_t col_index = 0; col_index < row_columns; col_index++) {
             if (col_index > 0) {
                 text_emit_ascii(ctx, ctx->opt->cell_separator);
             }
-            sbuf *cell = &table->grid[row_index * columns + col_index];
-            th_node *cell_node = table->cells[row_index * columns + col_index];
+            sbuf *cell = &table->grid[row_start + col_index];
+            th_node *cell_node = table->cells[row_start + col_index];
             /* annotate the cell element over its placed (not throwaway) text */
-            Py_ssize_t opened = cell_node != NULL ? text_open_annotations(ctx, cell_node) : 0;
+            Py_ssize_t opened = text_open_annotations(ctx, cell_node);
             sbuf_put_run(&ctx->out, cell->data, cell->len);
             text_close_annotations(ctx, opened);
             /* the last column needs no padding: nothing follows it on the line */
-            if (col_index + 1 < columns) {
-                for (Py_ssize_t pad = cell->len; pad < table->widths[col_index]; pad++) {
+            if (col_index + 1 < row_columns) {
+                Py_ssize_t padding = table->widths[col_index] - cell->len;
+                if (padding > ctx->padding_left) {
+                    padding = ctx->padding_left;
+                }
+                for (Py_ssize_t pad = 0; pad < padding; pad++) {
                     sbuf_putc(&ctx->out, ' ');
                 }
+                ctx->padding_left -= padding;
             }
         }
         ctx->line_has_content = 1;
     }
-    for (Py_ssize_t cell_index = 0; cell_index < count * columns; cell_index++) {
+    for (Py_ssize_t cell_index = 0; cell_index < table->offsets[count]; cell_index++) {
         PyMem_Free(table->grid[cell_index].data);
     }
     PyMem_Free(table->grid);
     PyMem_Free(table->widths);
     PyMem_Free(table->cells);
     PyMem_Free(table->rows);
+    PyMem_Free(table->offsets);
     PyMem_Free(table);
 }
 
@@ -1063,6 +1079,8 @@ static void text_flush_references(text_ctx *ctx) {
 /* Walk node into ctx (the dispatch shared by the plain and annotated entries). */
 static void text_render_root(text_ctx *ctx, th_node *node) {
     text_frame inline_frames[TEXT_INLINE_FRAMES];
+    /* Let small tables align without granting each row a separate padding budget. */
+    ctx->padding_left = 64;
     ctx->frames = ctx->inline_frames = inline_frames;
     ctx->frame_cap = TEXT_INLINE_FRAMES;
     sbuf_presize_for_root(&ctx->out, ctx->tree, node);
