@@ -12,7 +12,7 @@ repos:
       - id: trailing-whitespace
         exclude: ^(tools/fuzz/corpus|tests/fuzz_regressions)/.*$ # byte-exact crash inputs
   - repo: https://github.com/python-jsonschema/check-jsonschema
-    rev: "0494aa7fa1314e98913a41227d8f0a515b2c1049" # frozen: 0.38.2
+    rev: "a76b92851fc9eede9f9bc4073eb55202f34eb0df" # frozen: 0.39.0
     hooks:
       - id: check-github-workflows
         args: ["--verbose"]
@@ -35,7 +35,7 @@ repos:
         files: ^src/turbohtml/.*\.(c|h)$
         exclude: ^src/turbohtml/_c/(data/(html_entities|entity_names|tld_table|psl_table|idna_table|normalize_table|encoding_tables|phone_table)|encoding/detect_data)\.h$ # generated tables
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: "38bfb07c0c64c304f47eb52090f8288150c77730" # frozen: v0.17.1
+    rev: "25bcf95026b96e2dd3c0aec3090c3d6ef6ca2e6c" # frozen: v0.17.3
     hooks:
       - id: ruff-format
       - id: ruff-check
@@ -83,7 +83,7 @@ repos:
       - id: docstrfmt
         args: ["--line-length=120", "--no-format-python-code-blocks"] # ruff-docs owns the Python snippets
         additional_dependencies:
-          - sphinx==9.1.1
+          - sphinx==9.2.0
         types_or: [rst]
         files: ^docs/.*\.rst$
   - repo: https://github.com/sphinx-contrib/sphinx-lint
