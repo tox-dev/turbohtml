@@ -6,6 +6,36 @@
 
 .. towncrier release notes start
 
+.. _release-1-15-5:
+
+**********************
+ v1.15.5 (2026-11-03)
+**********************
+
+.. _release-1-15-5-fixed:
+
+Fixed
+=====
+
+- Avoid a crash during list text rendering when memory allocation fails (:pr:`1576`) by :user:`gaborbernat`.
+- Keep CSS minification stable across repeated passes when a mergeable rule follows a run of duplicates (:pr:`1579`) by
+  :user:`gaborbernat`.
+- Keep ISO-2022-JP detection consistent across chunk boundaries when escape sequences occur back to back (:pr:`1575`) by
+  :user:`gaborbernat`.
+- Raise ``MemoryError`` when Markdown marker output allocation fails (:pr:`1582`) by :user:`gaborbernat`.
+- Raise ``MemoryError`` when conformance checking cannot materialize parsed text (:pr:`1581`) by :user:`gaborbernat`.
+
+.. _release-1-15-5-security:
+
+Security
+========
+
+- Keep the HTML document root when a table cell reaches the parser's nesting limit (:pr:`1578`) by :user:`gaborbernat`.
+- Limit plain-text table padding and omit absent cells to prevent disproportionate output and memory use (:pr:`1580`) by
+  :user:`gaborbernat`.
+- Prevent an out-of-bounds write while matching phone numbers with strict or exact grouping (:pr:`1571`) by
+  :user:`gaborbernat`.
+
 .. _release-1-15-4:
 
 **********************
