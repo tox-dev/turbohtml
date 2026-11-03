@@ -65,7 +65,12 @@ from fuzz.idna_nfc_oracles import (
     idna_nfc_generate,
     idna_nfc_seeds,
 )
-from fuzz.markdown_structure_generators import MarkdownProfileError, markdown_grammar
+from fuzz.markdown_structure_generators import (
+    MarkdownProfileError,
+    markdown_grammar,
+    markdown_html_check,
+    markdown_source_check,
+)
 from fuzz.parser_byte_oracles import (
     UnsupportedParserCaseError,
     parser_bytes_check,
@@ -648,6 +653,18 @@ def test_generation_public_consumers_accept_domain_bytes(name: str, data: bytes)
     target: Final = next(target for target in public_targets() if target.name == name)
     target.callback(data)
     assert (target.name, target.exports) == (name, ())
+
+
+@pytest.mark.parametrize(
+    ("check", "source"),
+    [
+        pytest.param(markdown_source_check, "<img src=x alt='op>A <a href=https://ok.example>safe</a>'>", id="source"),
+        pytest.param(markdown_html_check, "<img src=x alt='k</a'>", id="html"),
+        pytest.param(markdown_html_check, "<img src=x alt='a*b & c'>", id="punctuation-and-entity"),
+    ],
+)
+def test_markdown_oracle_keeps_image_alt_escapes(check: Callable[[str], str | None], source: str) -> None:
+    assert check(source) is None
 
 
 @pytest.mark.parametrize("name", ["markdown-source", "markdown-html"])
