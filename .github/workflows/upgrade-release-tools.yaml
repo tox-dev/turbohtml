@@ -17,7 +17,7 @@ jobs:
       RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
     with:
       additional-lock: pylock.pgo.toml
-      additional-lock-groups: pgo build
+      additional-lock-groups: pgo build fuzz-build fuzz-oracle test
       additional-matrix-python: ">=3.11,<3.16"
       additional-matrix-platforms: linux_x86_64 linux_aarch64 macos_arm64 windows_amd64 windows_arm64
       additional-matrix-implementations: cpython pypy

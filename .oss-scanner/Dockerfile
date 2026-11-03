@@ -11,6 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates build-essential clang libclang-rt-14-dev git \
     && rm -rf /var/lib/apt/lists/*
 
+# uv installs the hash-pinned Python dependencies from pylock.pgo.toml.
+COPY --from=ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 /uv /bin/
+
 # The sanitizer oracles confirm a mutation with parse5, and the round-trip oracles use acorn; both need Node 20+.
 COPY --from=node:22-bookworm@sha256:18a6d90fd60542269850c80ca03b29b1d9b14d6b221ac7ee8e35b0d33ef904bd /usr/local/bin/node /usr/local/bin/node
 COPY --from=node:22-bookworm@sha256:18a6d90fd60542269850c80ca03b29b1d9b14d6b221ac7ee8e35b0d33ef904bd /usr/local/lib/node_modules /usr/local/lib/node_modules
@@ -31,8 +34,9 @@ RUN git submodule update --init --depth 1 tests/html5lib-tests tests/conformance
 # fault here is one the release build has too; meson-python finds meson and ninja on PATH.
 RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
-# requirements.txt is the test dependency group plus requirements.in, compiled with hashes for Python 3.14.
-RUN pip install --require-hashes -r .oss-scanner/requirements.txt
+# Hash-pinned from the release build's lock: the test group, plus the oracle extras for the ASan venv below.
+RUN uv pip install --no-cache --preview-features pylock --require-hashes --python /opt/venv/bin/python \
+    --requirements pylock.pgo.toml --group test
 RUN pip install --no-deps --no-build-isolation --editable . \
       --config-settings=build-dir=/src/build/debug \
       --config-settings=setup-args=-Dbuildtype=debugoptimized \
@@ -42,7 +46,8 @@ RUN pip install --no-deps --no-build-isolation --editable . \
 # Same flags as tox -e fuzz-smoke: -Dfuzzing=true compiles the fuzz-only checks, and the operation limit caps XPath and
 # XSLT work. dharma, six and webencodings are what tox -e fuzz-oracle adds for the sanitizer oracles.
 RUN python -m venv /opt/venv-asan \
-    && /opt/venv-asan/bin/pip install --require-hashes -r .oss-scanner/requirements.txt
+    && uv pip install --no-cache --preview-features pylock --require-hashes --python /opt/venv-asan/bin/python \
+      --requirements pylock.pgo.toml --group test --group fuzz-oracle
 RUN PATH=/opt/venv-asan/bin:$PATH /opt/venv-asan/bin/pip install --no-deps --no-build-isolation --editable . \
       --config-settings=build-dir=/src/build/asan \
       --config-settings=setup-args=-Dbuildtype=debugoptimized \
