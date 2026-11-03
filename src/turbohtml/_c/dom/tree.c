@@ -340,6 +340,10 @@ Py_ssize_t th_tree_max_depth(const th_tree *tree) {
     return tree->max_depth;
 }
 
+int th_tree_failed(const th_tree *tree) {
+    return tree->failed;
+}
+
 /* Fold the preprocessing errors into the tokenizer's, once. They depend only on the input the
    tree still borrows, so finding them at the first read costs a parse that never reads errors
    nothing at all. */
@@ -363,6 +367,9 @@ const th_parse_error *th_tree_errors(const th_tree *tree, Py_ssize_t *out_count)
 
 int th_node_text_is_blank(th_tree *tree, th_node *node) {
     const Py_UCS4 *text = need_text(tree, node); /* realize a zero-copy span before scanning */
+    if (text == NULL) {                          /* GCOVR_EXCL_BR_LINE: lazy text allocation failure */
+        return 1;                                /* GCOVR_EXCL_LINE: tree records the failure */
+    }
     for (Py_ssize_t index = 0; index < node->text_len; index++) {
         if (!is_space(text[index])) {
             return 0;

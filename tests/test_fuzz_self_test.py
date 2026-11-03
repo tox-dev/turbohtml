@@ -35,6 +35,7 @@ from turbohtml.clean import (
     minify_css_inline,
     minify_js,
 )
+from turbohtml.conformance import check
 from turbohtml.cssom import StyleDeclaration, StyleSheet, computed_style
 from turbohtml.extract import normalize_url
 from turbohtml.migration.stdlib import HTMLParser
@@ -166,6 +167,11 @@ def test_treebuild_allocation_failure_raises_memory_error(alloc_sweep: Callable[
     assert set(
         alloc_sweep(lambda _: parse_into("<!doctype html><?target data><p a=x>text</p>", _AllocationTreeBuilder()))
     ) == {"MemoryError"}
+
+
+@pytest.mark.fuzz_build
+def test_conformance_lazy_text_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+    assert set(alloc_sweep(check, lambda: parse("<title>" + "a" * 8192 + "</title>"))) == {"MemoryError"}
 
 
 if TYPE_CHECKING:
