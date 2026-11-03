@@ -562,9 +562,8 @@ def test_minify_css_large_dedup_remains_a_fixpoint() -> None:
 
 
 def test_minify_css_merges_nested_rule_after_dedup() -> None:
-    source = "sub{d:.}sub{d:.}sub{{}}"
     expected = "sub{d:.;{}}"
-    result = minify_css(source)
+    result = minify_css("sub{d:.}sub{d:.}sub{{}}")
     assert (result, minify_css(result)) == (expected, expected)
 
 
