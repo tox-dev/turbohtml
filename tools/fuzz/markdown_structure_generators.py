@@ -24,6 +24,7 @@ from fuzz.structure_generators import (
     write_corpus,
 )
 from markdown_it import MarkdownIt
+from markdown_it.renderer import RendererHTML
 from markdown_it.tree import SyntaxTreeNode
 from typing_extensions import override
 
@@ -31,6 +32,9 @@ from turbohtml import Element, Namespace, Node, Text, parse_fragment
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
+
+    from markdown_it.token import Token
+    from markdown_it.utils import EnvType, OptionsDict
 
 MarkdownRecord = tuple[str, str, str, tuple[tuple[str, str], ...], int]
 _Meaning = tuple[str, tuple[tuple[str, str], ...], tuple["_Meaning", ...]]
@@ -482,6 +486,18 @@ class _FaithfulMarkdown(MarkdownIt):
         return True
 
 
+class _FaithfulAltRenderer(RendererHTML):
+    # markdown-it-py#445 drops escaped punctuation from image alt text.
+    @override
+    def renderInlineAsText(self, tokens: Sequence[Token] | None, options: OptionsDict, env: EnvType) -> str:
+        content: Final[list[str]] = []
+        for token in tokens or ():
+            content.append(
+                token.content if token.type == "text_special" else super().renderInlineAsText((token,), options, env)
+            )
+        return "".join(content)
+
+
 def _raw_grammar() -> Grammar:
     productions: Final = [
         Production("markdown:root", "root", (Reference("definition", 0), Reference("blocks", 1)), 1, _COMMONMARK),
@@ -746,7 +762,7 @@ _CONTENT_MODEL: Final[dict[str, frozenset[str]]] = {
     "tbody": frozenset({"tr", "script"}),
     "tr": frozenset({"td", "th", "script"}),
 }
-_READER: Final = _FaithfulMarkdown("gfm-like", {"linkify": False})
+_READER: Final = _FaithfulMarkdown("gfm-like", {"linkify": False}, renderer_cls=_FaithfulAltRenderer)
 _RAW_GRAMMAR: Final = _raw_grammar()
 _HTML_GRAMMAR: Final = _html_grammar()
 
