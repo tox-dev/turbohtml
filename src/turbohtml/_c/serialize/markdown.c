@@ -524,6 +524,9 @@ static void md_write_break(md_ctx *ctx) {
    break and the break is written again after it. The buffer check keeps a break written
    to output a converter or table set aside from matching. */
 static void md_put_close(md_ctx *ctx, const char *close) {
+    if (ctx->out.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return;            /* GCOVR_EXCL_LINE: allocation failure */
+    }
     if (ctx->out.len == ctx->break_end && ctx->out.data == ctx->break_data) {
         ctx->out.len = ctx->break_start;
         md_puts8(&ctx->out, close);
@@ -1498,6 +1501,9 @@ static void md_settle_run(md_ctx *ctx, Py_ssize_t index, th_node *node) {
    a block that starts inside an emphasis element closes every run written so far;
    md_before_visible reopens them at the next visible character, in the new block. */
 static void md_suspend_markers(md_ctx *ctx) {
+    if (ctx->out.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return;            /* GCOVR_EXCL_LINE: allocation failure */
+    }
     if (ctx->marker_count - ctx->marker_base > 8) {
         ctx->deep_block_span = 1;
     }
@@ -1508,9 +1514,15 @@ static void md_suspend_markers(md_ctx *ctx) {
         md_marker *marker = &ctx->markers[index - 1];
         if (marker->emitted && !marker->spanning) {
             md_settle_run(ctx, index - 1, NULL);
-            md_put_close(ctx, marker->close);
+            if (ctx->out.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return;            /* GCOVR_EXCL_LINE: allocation failure */
+            }
             marker->emitted = 0;
             ctx->open_markdown--;
+            md_put_close(ctx, marker->close);
+            if (ctx->out.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return;            /* GCOVR_EXCL_LINE: allocation failure */
+            }
         }
     }
 }
@@ -4605,7 +4617,7 @@ static void md_leave(md_ctx *ctx) {
    nesting depth. The next child is read only once the previous one is done, as a
    recursive walk would, so a converter that edits the tree sees the same walk. */
 static void md_run(md_ctx *ctx) {
-    while (ctx->frame_count > 0 && !ctx->tree->failed) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+    while (ctx->frame_count > 0 && !ctx->tree->failed && !ctx->out.failed) { /* GCOVR_EXCL_BR_LINE: OOM */
         md_frame *frame = &ctx->frames[ctx->frame_count - 1];
         th_node *child = NULL;
         if (frame->walk == MD_WALK_TABLE) {
