@@ -5,6 +5,8 @@
 [![Downloads](https://static.pepy.tech/badge/turbohtml/month)](https://pepy.tech/project/turbohtml)
 [![Documentation status](https://readthedocs.org/projects/turbohtml/badge/?version=latest)](https://turbohtml.readthedocs.io/en/latest/?badge=latest)
 [![check](https://github.com/tox-dev/turbohtml/actions/workflows/check.yaml/badge.svg)](https://github.com/tox-dev/turbohtml/actions/workflows/check.yaml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/tox-dev/turbohtml/badge)](https://scorecard.dev/viewer/?uri=github.com/tox-dev/turbohtml)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16266/badge)](https://www.bestpractices.dev/projects/16266)
 
 A fast, fully typed HTML toolkit for Python with a C-accelerated core: tokenize, parse, query, edit, serialize, and
 extract HTML several times faster than the pure-Python alternatives, with free-threading support. The hot path is C; a
