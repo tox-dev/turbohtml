@@ -285,11 +285,11 @@ static int xr_assert(int kind, const Py_UCS4 *text, Py_ssize_t len, Py_ssize_t p
     case XRA_END:
         return pos == len;
     case XRA_EOL:
-        return pos == len || (pos == len - 1 && text[pos] == '\n');
+        return pos >= len || (pos == len - 1 && text[pos] == '\n');
     case XRA_MBOL:
         return pos == 0 || text[pos - 1] == '\n';
     case XRA_MEOL:
-        return pos == len || text[pos] == '\n';
+        return pos >= len || text[pos] == '\n';
     default: {
         /* the empty string has no word boundary, so \B matches there (as in Python 3.14) */
         int boundary = len > 0 && (pos > 0 && xr_is_word(text[pos - 1])) != (pos < len && xr_is_word(text[pos]));

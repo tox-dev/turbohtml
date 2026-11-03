@@ -154,6 +154,12 @@ def doc() -> turbohtml.Node:
         pytest.param("matches('abcdef', '[0-9]+')", False, id="matches-miss"),
         pytest.param("matches('ABC', 'abc', 'i')", True, id="matches-flags"),
         pytest.param("matches('ABC', 'abc', 'iiiiimmmmmsssssxxxxx')", True, id="matches-repeated-flags"),
+        # a number's string is an exact-length buffer, so `$` must stop at its end without reading past it
+        pytest.param("matches(12, '2$')", True, id="matches-end-of-number"),
+        pytest.param("matches(12, '$', 'm')", True, id="matches-multiline-end-of-number"),
+        pytest.param("matches(11, '(.)\\1$')", True, id="matches-backref-end-of-number"),
+        pytest.param("matches('x\n', 'x$')", True, id="matches-end-before-final-newline"),
+        pytest.param("replace(12, '$', 'X', 'm')", "12X", id="replace-multiline-end-of-number"),
         pytest.param("replace('a1b2c3', '[0-9]', '#')", "a#b#c#", id="replace-all"),
         pytest.param("replace('2024-05-06', '(\\d+)-(\\d+)-(\\d+)', '$3/$2/$1')", "06/05/2024", id="replace-groups"),
         pytest.param("replace('a', '(a)', '$1z')", "az", id="replace-group-then-letter"),
