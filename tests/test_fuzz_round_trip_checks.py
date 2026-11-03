@@ -65,7 +65,12 @@ from fuzz.idna_nfc_oracles import (
     idna_nfc_generate,
     idna_nfc_seeds,
 )
-from fuzz.markdown_structure_generators import MarkdownProfileError, markdown_grammar
+from fuzz.markdown_structure_generators import (
+    MarkdownProfileError,
+    markdown_grammar,
+    markdown_html_check,
+    markdown_source_check,
+)
 from fuzz.parser_byte_oracles import (
     UnsupportedParserCaseError,
     parser_bytes_check,
@@ -539,8 +544,15 @@ def test_selector_entry_check_skips_an_invalid_selector() -> None:
         selector_entry_check(json.dumps({"html": "<p>x</p>", "css": "p["}))
 
 
-def test_span_check_passes_the_parser() -> None:
-    assert span_check("<!DOCTYPE html><div class=a\r\nid=b>x</div>\r\n<p>y<img src=x><b>z</b>") is None
+@pytest.mark.parametrize(
+    "html",
+    [
+        pytest.param("<!DOCTYPE html><div class=a\r\nid=b>x</div>\r\n<p>y<img src=x><b>z</b>", id="ordinary-tags"),
+        pytest.param("<Wİt>", id="unicode-tag-name"),
+    ],
+)
+def test_span_check_passes_the_parser(html: str) -> None:
+    assert span_check(html) is None
 
 
 def _late_start(location: SourceLocation) -> SourceLocation:
@@ -648,6 +660,18 @@ def test_generation_public_consumers_accept_domain_bytes(name: str, data: bytes)
     target: Final = next(target for target in public_targets() if target.name == name)
     target.callback(data)
     assert (target.name, target.exports) == (name, ())
+
+
+@pytest.mark.parametrize(
+    ("check", "source"),
+    [
+        pytest.param(markdown_source_check, "<img src=x alt='op>A <a href=https://ok.example>safe</a>'>", id="source"),
+        pytest.param(markdown_html_check, "<img src=x alt='k</a'>", id="html"),
+        pytest.param(markdown_html_check, "<img src=x alt='a*b & c'>", id="punctuation-and-entity"),
+    ],
+)
+def test_markdown_oracle_keeps_image_alt_escapes(check: Callable[[str], str | None], source: str) -> None:
+    assert check(source) is None
 
 
 @pytest.mark.parametrize("name", ["markdown-source", "markdown-html"])
@@ -1747,6 +1771,18 @@ def test_atheris_parser_incremental_output(header: Header, positions: tuple[obje
         "<html><head></head><body><p>水😀</p></body></html>",
         positions,
     )
+
+
+@pytest.mark.parametrize(
+    ("opts", "serialized"),
+    [
+        pytest.param(0, "<html><head></head><body></body></html>", id="bytes"),
+        pytest.param(1, "<html><head></head><body>\ufeff</body></html>", id="text"),
+    ],
+)
+def test_atheris_parser_incremental_bom_respects_input_type(opts: int, serialized: str) -> None:
+    observed, _ = incremental_observation(b"\xef\xbb\xbf", Header(opts, 0, 7))
+    assert observed == serialized
 
 
 def test_atheris_parser_fragment_output() -> None:

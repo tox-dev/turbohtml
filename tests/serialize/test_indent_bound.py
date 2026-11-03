@@ -48,6 +48,25 @@ def test_deep_nesting_output_stays_linear(source: str, method: str, expected: in
     assert len(getattr(parse(source), method)()) == expected
 
 
+def test_text_table_padding_stays_linear() -> None:
+    source = _uneven_table(256, 128)
+    assert len(parse(source).to_text()) <= 2 * len(source)
+
+
+def test_text_table_sparse_rows_stay_linear() -> None:
+    source = f"<table><tr>{'<td>x</td>' * 200}</tr>{'<tr><td>x</td></tr>' * 200}</table>"
+    assert len(parse(source).to_text()) <= 2 * len(source)
+
+
+def _uneven_table(width: int, rows: int) -> str:
+    return f"<table><tr><td>{'X' * width}</td><td>y</td></tr>{'<tr><td>x</td><td>y</td></tr>' * rows}</table>"
+
+
+def test_annotated_table_keeps_cell_spans_after_padding_limit() -> None:
+    text, spans = parse(_uneven_table(64, 16)).to_annotated_text({"td": ["cell"]})
+    assert [text[start:end] for start, end, _label in spans] == ["X" * 64, "y", *["x", "y"] * 16]
+
+
 def test_google_doc_margin_indent_stops_at_the_nesting_cap() -> None:
     document = parse("<ul><li style='margin-left:99999999999px'>x</li><li style='margin-left:72px'>y</li></ul>")
     assert document.to_markdown(Markdown.google_doc()) == "  " * 8 + "- x\n    - y"

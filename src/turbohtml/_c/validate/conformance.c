@@ -629,9 +629,9 @@ TH_NODE_API(, PyObject *, turbohtml_conformance_check, (PyObject * module, PyObj
         }
     }
     Py_END_CRITICAL_SECTION();
-    if (ctx.failed) {        /* GCOVR_EXCL_BR_LINE: only set on an unforceable allocation failure */
-        Py_DECREF(findings); /* GCOVR_EXCL_LINE */
-        return NULL;         /* GCOVR_EXCL_LINE */
+    if (ctx.failed || th_tree_failed(tree)) {              /* GCOVR_EXCL_BR_LINE: allocation failure */
+        Py_DECREF(findings);                               /* GCOVR_EXCL_LINE */
+        return PyErr_Occurred() ? NULL : PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
     }
     return Py_BuildValue("(NN)", PyBool_FromLong(ctx.errors == 0), findings);
 }

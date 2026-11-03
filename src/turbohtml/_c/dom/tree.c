@@ -340,6 +340,10 @@ Py_ssize_t th_tree_max_depth(const th_tree *tree) {
     return tree->max_depth;
 }
 
+int th_tree_failed(const th_tree *tree) {
+    return tree->failed;
+}
+
 /* Fold the preprocessing errors into the tokenizer's, once. They depend only on the input the
    tree still borrows, so finding them at the first read costs a parse that never reads errors
    nothing at all. */
@@ -363,6 +367,9 @@ const th_parse_error *th_tree_errors(const th_tree *tree, Py_ssize_t *out_count)
 
 int th_node_text_is_blank(th_tree *tree, th_node *node) {
     const Py_UCS4 *text = need_text(tree, node); /* realize a zero-copy span before scanning */
+    if (text == NULL) {                          /* GCOVR_EXCL_BR_LINE: lazy text allocation failure */
+        return 1;                                /* GCOVR_EXCL_LINE: tree records the failure */
+    }
     for (Py_ssize_t index = 0; index < node->text_len; index++) {
         if (!is_space(text[index])) {
             return 0;
@@ -3929,7 +3936,12 @@ static enum th_drain drain_in_row(th_tree *tree, th_token *tok, th_insert *dc) {
         if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
             clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
             th_node *node = insert_element(tree, tok);
+            Py_ssize_t open_len_before = tree->open_len;
             stack_push(tree, node);
+            /* A cell outside the depth-capped stack cannot be closed in cell mode. */
+            if (tree->open_len == open_len_before) {
+                return TH_DRAIN_NEXT;
+            }
             afe_push_marker(tree);
             dc->mode = M_IN_CELL;
             return TH_DRAIN_NEXT;

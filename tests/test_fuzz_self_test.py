@@ -35,6 +35,7 @@ from turbohtml.clean import (
     minify_css_inline,
     minify_js,
 )
+from turbohtml.conformance import check
 from turbohtml.cssom import StyleDeclaration, StyleSheet, computed_style
 from turbohtml.extract import normalize_url
 from turbohtml.migration.stdlib import HTMLParser
@@ -166,6 +167,11 @@ def test_treebuild_allocation_failure_raises_memory_error(alloc_sweep: Callable[
     assert set(
         alloc_sweep(lambda _: parse_into("<!doctype html><?target data><p a=x>text</p>", _AllocationTreeBuilder()))
     ) == {"MemoryError"}
+
+
+@pytest.mark.fuzz_build
+def test_conformance_lazy_text_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+    assert set(alloc_sweep(check, lambda: parse("<title>" + "a" * 8192 + "</title>"))) == {"MemoryError"}
 
 
 if TYPE_CHECKING:
@@ -401,6 +407,17 @@ def test_markdown_allocation_failure_raises_memory_error(
     assert set(alloc_sweep(lambda document: document.to_markdown(options), lambda: turbohtml.parse(markup))) == {
         "MemoryError"
     }
+
+
+@pytest.mark.fuzz_build
+def test_markdown_marker_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+    markup = (
+        "<ul>e>sa}ff; b<b>backgr .pic><br><<d</b>.</p>\n.png) }\n co\x00\x00\x00\x00uote><rl( }\n"
+        " co\x00\x00\x00\x00uote><><"
+    )
+    assert set(
+        alloc_sweep(lambda document: cast("turbohtml.Document", document).to_markdown(), lambda: parse(markup))
+    ) == {"MemoryError"}
 
 
 if TYPE_CHECKING:
@@ -662,6 +679,19 @@ def test_text_table_allocation_failure_raises_memory_error(
                 else cast("turbohtml.Document", document).to_text()
             ),
             lambda: parse("<table><tr><td>" + "word " * 100 + "</td></tr></table>"),
+        )
+    ) == {"MemoryError"}
+
+
+@pytest.mark.fuzz_build
+def test_text_list_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+    assert set(
+        alloc_sweep(
+            lambda document: cast("turbohtml.Document", document).to_text(),
+            lambda: parse(
+                "<ul><li>one</li><li>two</li></ul><m\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00"
+                "</r/\x00\x10\x00\x00>cite</blockquote>\n"
+            ),
         )
     ) == {"MemoryError"}
 
