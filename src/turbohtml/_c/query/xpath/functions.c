@@ -488,6 +488,10 @@ static int id_token_set_build(const Py_UCS4 *list, Py_ssize_t list_len, xp_id_to
         while (index < list_len && xp_is_space(list[index])) {
             index++;
         }
+        if (index == list_len) {
+            break;
+        }
+        /* start < list_len here, so the token holds at least one character */
         Py_ssize_t start = index;
         uint64_t hash = 14695981039346656037u;
         while (index < list_len && !xp_is_space(list[index])) {
@@ -495,9 +499,6 @@ static int id_token_set_build(const Py_UCS4 *list, Py_ssize_t list_len, xp_id_to
             hash *= 1099511628211u;
         }
         Py_ssize_t len = index - start;
-        if (len == 0) {
-            continue;
-        }
         size_t probe = hash & *mask;
         while ((*slots)[probe].value != NULL &&
                ((*slots)[probe].len != len ||
