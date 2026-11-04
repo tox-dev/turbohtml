@@ -1067,9 +1067,8 @@ static int regex_full_match(th_schema *schema, const Py_UCS4 *text, Py_ssize_t t
         pattern = pattern->next;
     }
     rscratch *scratch = rx_scratch(schema);
-    if (scratch == NULL) {           /* GCOVR_EXCL_BR_LINE: arena OOM */
-        schema->regex_no_memory = 1; /* GCOVR_EXCL_LINE: validate() raises the MemoryError */
-        return 0;                    /* GCOVR_EXCL_LINE: fail closed, the value does not match */
+    if (scratch == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM; validate() raises the MemoryError */
+        return 0;          /* GCOVR_EXCL_LINE: fail closed, the value does not match */
     }
     rlist current = {scratch->lists, 0};
     rlist next = {scratch->lists + schema->regex_max_states, 0};

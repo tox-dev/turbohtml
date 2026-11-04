@@ -45,7 +45,7 @@ from turbohtml.mutations import MutationObserver
 from turbohtml.rewrite import rewrite
 from turbohtml.transform import Transform, strparam
 from turbohtml.treebuild import parse_into
-from turbohtml.validate import XMLSchema
+from turbohtml.validate import RelaxNG, XMLSchema
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -592,6 +592,38 @@ def test_xslt_number_allocation_failure_raises_memory_error(alloc_sweep: Callabl
         "</xsl:stylesheet>"
     )
     assert set(alloc_sweep(Transform(stylesheet), lambda: parse_xml("<r><p/><p/></r>"))) == {"MemoryError"}
+
+
+# lazily built defines and every name class form, so both the compile and the validation derivatives allocate patterns
+_RELAXNG: Final = (
+    '<grammar xmlns="http://relaxng.org/ns/structure/1.0" '
+    'datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes"><start><ref name="doc"/></start>'
+    '<define name="doc"><element name="doc"><attribute name="id"><data type="int">'
+    '<param name="minInclusive">1</param></data></attribute><interleave><zeroOrMore><ref name="item"/></zeroOrMore>'
+    '<element name="x"><list><oneOrMore><value>a</value></oneOrMore></list></element></interleave></element></define>'
+    '<define name="item"><element><nsName ns=""><except><name>x</name></except></nsName><mixed><optional>'
+    '<element><anyName><except><choice><name>c</name><nsName ns="urn:p"/></choice></except></anyName><empty/>'
+    "</element></optional></mixed></element></define></grammar>"
+)
+_RELAXNG_SCHEMA: Final = RelaxNG(_RELAXNG)
+
+
+@pytest.mark.fuzz_build
+@pytest.mark.parametrize(
+    ("call", "setup"),
+    [
+        pytest.param(lambda _: RelaxNG(_RELAXNG), lambda: None, id="relaxng-compile"),
+        pytest.param(
+            _RELAXNG_SCHEMA.validate,
+            lambda: parse_xml('<doc id="2"><a>t<b/></a><x>a a</x><z/></doc>'),
+            id="relaxng-validate",
+        ),
+    ],
+)
+def test_relaxng_allocation_failure_raises_memory_error(
+    alloc_sweep: Callable[..., list[str]], call: Callable[[object], object], setup: Callable[[], object]
+) -> None:
+    assert set(alloc_sweep(call, setup)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
