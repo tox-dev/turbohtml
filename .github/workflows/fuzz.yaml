@@ -2,8 +2,8 @@ name: 🧪 fuzz
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *" # daily deep run, 06:00 UTC
-    - cron: "0 4 * * 1" # weekly extended run, Monday 04:00 UTC
+    - cron: "27 11 * * *" # daily deep run, 11:27 UTC
+    - cron: "35 11 * * 1" # weekly extended run, Monday 11:35 UTC
 concurrency:
   group: fuzz-${{ github.ref }}
   cancel-in-progress: true
@@ -84,7 +84,7 @@ jobs:
           uvx --with tox-uv tox run -e fuzz-oracle -- --minutes "${MINUTES}"
         env:
           UV_PYTHON_PREFERENCE: only-managed
-          MINUTES: ${{ github.event.schedule == '0 4 * * 1' && '20' || '8' }}
+          MINUTES: ${{ github.event.schedule == '35 11 * * 1' && '20' || '8' }}
       - name: 🛡️ Encrypt findings
         if: failure() && vars.FUZZ_AGE_RECIPIENT != ''
         run: |
@@ -144,7 +144,7 @@ jobs:
           uvx --with tox-uv tox run -e fuzz-round-trip -- --minutes "${MINUTES}"
         env:
           UV_PYTHON_PREFERENCE: only-managed
-          MINUTES: ${{ github.event.schedule == '0 4 * * 1' && '20' || '8' }}
+          MINUTES: ${{ github.event.schedule == '35 11 * * 1' && '20' || '8' }}
       - name: 🛡️ Encrypt findings
         if: failure() && vars.FUZZ_AGE_RECIPIENT != ''
         run: |
@@ -264,7 +264,7 @@ jobs:
           uvx --with tox-uv tox run -e fuzz -- --minutes "${MINUTES}"
         env:
           UV_PYTHON_PREFERENCE: only-managed
-          MINUTES: ${{ github.event.schedule == '0 4 * * 1' && '20' || '8' }}
+          MINUTES: ${{ github.event.schedule == '35 11 * * 1' && '20' || '8' }}
       - name: 🧪 Run fuzz-amplify (search)
         # runs even when the crash hunt above failed; its findings join the crashers that the steps below encrypt
         if: success() || failure()
@@ -274,7 +274,7 @@ jobs:
           uvx --with tox-uv tox run -e fuzz-amplify -- search --minutes "${MINUTES}"
         env:
           UV_PYTHON_PREFERENCE: only-managed
-          MINUTES: ${{ github.event.schedule == '0 4 * * 1' && '20' || '8' }}
+          MINUTES: ${{ github.event.schedule == '35 11 * * 1' && '20' || '8' }}
       # A crasher of an unfixed bug is an undisclosed vulnerability, and artifacts on a public repository are readable
       # by anyone, so crashers leave the runner only encrypted to the maintainers' age key; without the key nothing
       # leaves.
