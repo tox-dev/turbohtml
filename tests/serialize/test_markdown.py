@@ -3190,6 +3190,45 @@ def test_html_passthrough(html: str, config: Markdown, expected: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("html", "config", "selector"),
+    [
+        pytest.param("<table><td><tr><td><td>\n<head>\n    ", Markdown(), "table", id="ragged-table-indented-tail"),
+        pytest.param(
+            "<table><tr><td>a\n\n    b</td></tr></table>",
+            Markdown(tables=Markdown.Tables(mode="html")),
+            "table",
+            id="table-blank-line",
+        ),
+        pytest.param(
+            "<table><tr><td>a&#13;&#13;b</td></tr></table>",
+            Markdown(tables=Markdown.Tables(mode="html")),
+            "table",
+            id="table-carriage-returns",
+        ),
+        pytest.param(
+            "<blockquote><table><tr><td>a\n\nb</td></tr></table></blockquote>",
+            Markdown(tables=Markdown.Tables(mode="html")),
+            "blockquote > table",
+            id="quoted-table-blank-line",
+        ),
+        pytest.param(
+            "<ul><li>x<table><tr><td>a\n\nb</td></tr></table></li></ul>",
+            Markdown(tables=Markdown.Tables(mode="html")),
+            "li > table",
+            id="listed-table-blank-line",
+        ),
+        pytest.param(
+            '<p><img alt="a\n\n    b"></p>', Markdown(images=Markdown.Images(mode="html")), "img", id="image-blank-line"
+        ),
+    ],
+)
+def test_html_passthrough_stays_one_html_block(html: str, config: Markdown, selector: str) -> None:
+    # a blank line ends a raw-HTML block, and the rest reads as Markdown (here an indented code block)
+    rendered: Final = MarkdownIt("commonmark", {"html": True}).render(_mode_markdown(html, config))
+    assert parse_fragment(rendered).select(selector)[0].html == parse(html).select(selector)[0].html
+
+
+@pytest.mark.parametrize(
     ("html", "expected"),
     [
         pytest.param("<p>café naïve</p>", "cafe naive", id="accented-latin1"),
