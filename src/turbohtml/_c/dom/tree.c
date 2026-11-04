@@ -367,8 +367,8 @@ const th_parse_error *th_tree_errors(const th_tree *tree, Py_ssize_t *out_count)
 
 int th_node_text_is_blank(th_tree *tree, th_node *node) {
     const Py_UCS4 *text = need_text(tree, node); /* realize a zero-copy span before scanning */
-    if (text == NULL) {                          /* GCOVR_EXCL_BR_LINE: lazy text allocation failure */
-        return 1;                                /* GCOVR_EXCL_LINE: tree records the failure */
+    if (text == NULL && node->text_len > 0) {    /* GCOVR_EXCL_BR_LINE: lazy text allocation failure */
+        return -1;                               /* GCOVR_EXCL_LINE: allocation failure */
     }
     for (Py_ssize_t index = 0; index < node->text_len; index++) {
         if (!is_space(text[index])) {

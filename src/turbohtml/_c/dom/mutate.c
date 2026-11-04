@@ -369,9 +369,13 @@ int th_node_attr_append(th_tree *tree, th_node *node, const char *name, Py_ssize
 }
 
 /* Replace a node's character data with a copy of len code points (an empty buffer
-   is stored as none). Returns 0, or -1 on allocation failure. */
+   is stored as none). Returns 0, or -1 with MemoryError set on allocation failure. */
 int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize_t len) {
     const Py_UCS4 *old = node->text_len > 0 ? need_text(tree, node) : NULL;
+    if (old == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+        PyErr_NoMemory();                    /* GCOVR_EXCL_LINE: allocation failure */
+        return -1;                           /* GCOVR_EXCL_LINE: allocation failure */
+    }
     th_mo_char_data_changed(tree, node, old, node->text_len);
     if (len == 0) {
         node->text = (Py_UCS4 *)th_empty_text;
@@ -379,8 +383,9 @@ int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize
         return 0;
     }
     Py_UCS4 *owned = arena_alloc(tree, len * (Py_ssize_t)sizeof(Py_UCS4));
-    if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (owned == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     memcpy(owned, data, (size_t)len * sizeof(Py_UCS4));
     node->text = owned;
@@ -850,14 +855,21 @@ static int attrs_equal_indexed(th_tree *left_tree, th_node *left, th_tree *right
     return equal;
 }
 
-/* Whether two nodes' own character data match, realizing a borrowed text span first. */
+/* Whether two nodes' own character data match, realizing a borrowed text span first;
+   -1 when that realization fails. */
 static int data_equal(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right) {
     if (left->text_len != right->text_len) {
         return 0;
     }
+    if (left->text_len == 0) {
+        return 1;
+    }
     const Py_UCS4 *left_text = need_text(left_tree, left);
     const Py_UCS4 *right_text = need_text(right_tree, right);
-    return left->text_len == 0 || memcmp(left_text, right_text, (size_t)left->text_len * sizeof(Py_UCS4)) == 0;
+    if (left_text == NULL || right_text == NULL) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+        return -1;                                 /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    return memcmp(left_text, right_text, (size_t)left->text_len * sizeof(Py_UCS4)) == 0;
 }
 
 static int node_data_equals(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right) {
@@ -897,11 +909,8 @@ static int node_data_equals(th_tree *left_tree, th_node *left, th_tree *right_tr
         break;
     case TH_NODE_TEXT:
     case TH_NODE_COMMENT:
-    case TH_NODE_CDATA:
-        if (!data_equal(left_tree, left, right_tree, right)) {
-            return 0;
-        }
-        break;
+    case TH_NODE_CDATA: /* only character data borrows a span, so only it can fail */
+        return data_equal(left_tree, left, right_tree, right);
     case TH_NODE_DOCUMENT:
     case TH_NODE_CONTENT:
         break; /* a document / template-content fragment compares purely by its children */
@@ -915,8 +924,9 @@ int th_node_equals(th_tree *left_tree, th_node *left, th_tree *right_tree, th_no
     th_node *left_root = left;
     th_node *right_root = right;
     for (;;) {
-        if (!node_data_equals(left_tree, left, right_tree, right)) {
-            return 0;
+        int equal = node_data_equals(left_tree, left, right_tree, right);
+        if (equal <= 0) {
+            return equal;
         }
         if ((left->first_child == NULL) != (right->first_child == NULL)) {
             return 0;
@@ -1025,6 +1035,9 @@ th_node *th_tree_copy_node_shallow(th_tree *dest, th_tree *src, th_node *src_nod
     node->text = (Py_UCS4 *)th_empty_text;
     if (src_node->text_len > 0) {
         const Py_UCS4 *text = need_text(src, src_node);
+        if (text == NULL) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+            return NULL;    /* GCOVR_EXCL_LINE: allocation failure */
+        }
         Py_UCS4 *owned = arena_alloc(dest, src_node->text_len * (Py_ssize_t)sizeof(Py_UCS4));
         if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -1242,7 +1255,7 @@ static inline void normalize_unlink(th_tree *tree, th_node *child, int iterators
     }
 }
 
-static void normalize_children(th_tree *tree, th_node *root, int iterators) {
+static int normalize_children(th_tree *tree, th_node *root, int iterators) {
     for (th_node *child = root->first_child; child != NULL;) {
         th_node *next = child->next_sibling;
         if (child->type == TH_NODE_TEXT) {
@@ -1266,13 +1279,13 @@ static void normalize_children(th_tree *tree, th_node *root, int iterators) {
             if (merged_len > child->text_len) {
                 Py_UCS4 *merged = arena_alloc(tree, merged_len * (Py_ssize_t)sizeof(Py_UCS4));
                 if (merged == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-                    return;           /* GCOVR_EXCL_LINE: allocation-failure path */
+                    return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
                 Py_ssize_t offset = 0;
                 for (th_node *part = child; part != end; part = part->next_sibling) {
                     const Py_UCS4 *text = need_text(tree, part);
                     if (text == NULL) { /* GCOVR_EXCL_BR_LINE: text realization fails only on allocation failure */
-                        return;         /* GCOVR_EXCL_LINE: allocation-failure path */
+                        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
                     }
                     memcpy(merged + offset, text, (size_t)part->text_len * sizeof(Py_UCS4));
                     offset += part->text_len;
@@ -1288,25 +1301,27 @@ static void normalize_children(th_tree *tree, th_node *root, int iterators) {
         }
         child = next;
     }
+    return 0;
 }
 
-static void normalize_subtree(th_tree *tree, th_node *root, int iterators);
+static int normalize_subtree(th_tree *tree, th_node *root, int iterators);
 
 /* No Python code runs while normalize walks, so the iterator count cannot change mid-call: each literal below lets the
    compiler clone the walk, and a tree with no live iterator unlinks without testing for one. */
-void th_node_normalize(th_tree *tree, th_node *root) {
+int th_node_normalize(th_tree *tree, th_node *root) {
     if (th_tree_has_iterators(tree)) {
-        normalize_subtree(tree, root, 1);
-    } else {
-        normalize_subtree(tree, root, 0);
+        return normalize_subtree(tree, root, 1);
     }
+    return normalize_subtree(tree, root, 0);
 }
 
-static void normalize_subtree(th_tree *tree, th_node *root, int iterators) {
+static int normalize_subtree(th_tree *tree, th_node *root, int iterators) {
     th_node *node = root;
     for (;;) {
         if (node == root || node->type == TH_NODE_ELEMENT) {
-            normalize_children(tree, node, iterators);
+            if (normalize_children(tree, node, iterators) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;                                       /* GCOVR_EXCL_LINE: allocation failure */
+            }
         }
         if (node->first_child != NULL) {
             node = node->first_child;
@@ -1316,7 +1331,7 @@ static void normalize_subtree(th_tree *tree, th_node *root, int iterators) {
             node = node->parent;
         }
         if (node == root) {
-            return;
+            return 0;
         }
         node = node->next_sibling;
     }

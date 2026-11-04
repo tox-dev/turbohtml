@@ -3452,9 +3452,13 @@ TH_NODE_API(static, PyObject *, element_clear, (PyObject * self, PyObject *ignor
 
 TH_NODE_API(static, PyObject *, element_normalize, (PyObject * self, PyObject *ignored), (self, ignored),
             (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
+    int status;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
-    th_node_normalize(tree_of(self), ((NodeObject *)self)->node);
+    status = th_node_normalize(tree_of(self), ((NodeObject *)self)->node);
     Py_END_CRITICAL_SECTION();
+    if (status < 0) {            /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
+    }
     Py_RETURN_NONE;
 }
 

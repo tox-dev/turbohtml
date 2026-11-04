@@ -133,6 +133,9 @@ static int collapse_text(th_tree *tree, th_node *node, int *last_space) {
     if (text_is_span(node)) {
         kind = tree->kind;
         data = (const char *)tree->data + text_span_offset(node) * kind;
+    } else if (data == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: an earlier lazy text OOM */
+        PyErr_NoMemory();                            /* GCOVR_EXCL_LINE: allocation failure */
+        return -1;                                   /* GCOVR_EXCL_LINE: allocation failure */
     }
     Py_ssize_t length = 0;
     int previous = *last_space;
