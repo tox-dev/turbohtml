@@ -799,6 +799,18 @@ static inline int xml_attr_name_writable(const char *name, Py_ssize_t name_len, 
     return 1;
 }
 
+/* Whether CommonMark reads an attribute name inside raw HTML: an ASCII
+   [A-Za-z_:][A-Za-z0-9_.:-]* (spec 6.6), the same classes as an ASCII XML Name. */
+static inline int commonmark_attr_name_valid(const char *name, Py_ssize_t name_len) {
+    for (Py_ssize_t index = 0; index < name_len; index++) {
+        unsigned char character = (unsigned char)name[index];
+        if (character >= 0x80 || ((unsigned)XML_NAME_FLAGS[character] & (index == 0 ? 0x1U : 0x2U)) == 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Write an element's start tag up to but not including its closing delimiter,
    "<tag attrs...": attributes in source order, or in name order when opts asks;
    values double-quoted and escaped under the formatter (or the XML rules when
@@ -819,7 +831,8 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
         th_node_attr *attr = &node->attrs[order != NULL ? order[position] : position];
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, attr->name_atom, &name_len);
-        if (opts->xml && !xml_attr_name_writable(name, name_len, emitted)) {
+        if ((opts->xml && !xml_attr_name_writable(name, name_len, emitted)) ||
+            (opts->markdown && !commonmark_attr_name_valid(name, name_len))) {
             continue;
         }
         sbuf_putc(out, ' ');
