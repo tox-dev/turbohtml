@@ -14,6 +14,7 @@ construction (mirroring ``lxml.etree.XPath``).
 from __future__ import annotations
 
 import gc
+import subprocess  # ruff:ignore[suspicious-subprocess-import]
 import sys
 from functools import partial
 from operator import ge, gt, le, lt
@@ -885,6 +886,25 @@ def test_long_union_chain_evaluates(doc: turbohtml.Node, expr: str) -> None:
 def test_deep_union_operand_still_raises(doc: turbohtml.Node, expr: str) -> None:
     with pytest.raises(ValueError, match="nested too deeply"):
         doc.xpath(expr)
+
+
+def test_long_union_in_predicate_needs_no_c_stack() -> None:
+    # the //X collapse scans each predicate for position()/last(); a union spine there is as deep as it is long
+    code = (
+        "import threading, turbohtml\n"
+        "doc = turbohtml.parse('<p><a/></p><p></p>')\n"
+        "expr = '//p[' + ' | '.join(['a'] * 10000) + ']'\n"
+        "result = []\n"
+        "threading.stack_size(128 * 1024)\n"
+        "worker = threading.Thread(target=lambda: result.append(len(doc.xpath(expr))))\n"
+        "worker.start()\n"
+        "worker.join()\n"
+        "print(result[0])\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
+    )
+    assert (result.returncode, result.stdout) == (0, "1\n"), result.stderr
 
 
 def test_moderately_nested_expression_still_evaluates(doc: turbohtml.Node) -> None:
