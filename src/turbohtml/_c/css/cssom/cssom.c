@@ -472,13 +472,15 @@ static void css_trim(const Py_UCS4 **data, Py_ssize_t *len) {
     *len = stop - start;
 }
 
-static void css_trim_escaped_name(const Py_UCS4 **data, Py_ssize_t *len) {
+/* Trim like css_trim, but keep a trailing whitespace a `\` escapes: it ends the name or selector it belongs to (CSS
+   Syntax 3 §4.3.7). */
+static void css_trim_escaped(const Py_UCS4 **data, Py_ssize_t *len) {
     Py_ssize_t start = 0;
     Py_ssize_t stop = *len;
-    while (css_is_ws((*data)[start])) {
+    while (start < stop && css_is_ws((*data)[start])) {
         start++;
     }
-    while (css_is_ws((*data)[stop - 1])) {
+    while (stop > start && css_is_ws((*data)[stop - 1])) {
         Py_ssize_t backslashes = 0;
         while (stop - backslashes > start + 1 && (*data)[stop - backslashes - 2] == '\\') {
             backslashes++;
@@ -651,7 +653,7 @@ static Py_ssize_t css_parse_block(Py_UCS4 *data, Py_ssize_t start, Py_ssize_t en
             const Py_UCS4 *name = data + pos;
             Py_ssize_t name_len = colon - pos;
             if (escaped) {
-                css_trim_escaped_name(&name, &name_len);
+                css_trim_escaped(&name, &name_len);
             } else {
                 css_trim(&name, &name_len);
             }
@@ -1036,7 +1038,7 @@ static css_rule *css_parse_sheet(Py_UCS4 *data, Py_ssize_t len, Py_ssize_t *out_
         }
         const Py_UCS4 *selector = data + pos;
         Py_ssize_t selector_len = brace - pos;
-        css_trim(&selector, &selector_len);
+        css_trim_escaped(&selector, &selector_len);
         css_decl *decls = NULL;
         Py_ssize_t decl_cap = 0;
         Py_ssize_t decl_count = css_parse_block(data, brace + 1, close, &decls, &decl_cap, decode_names);
