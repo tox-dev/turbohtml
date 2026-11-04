@@ -2085,6 +2085,8 @@ _STRAY_TOP_TOKEN: Final[list[ParameterSet]] = [
     pytest.param("}", "", id="lone-brace"),
     pytest.param("a{x:1}}", "a{x:1}", id="trailing-brace"),
     pytest.param("a;", "a", id="stray-no-block-kept"),
+    pytest.param(")}@m}<", ")@m<", id="at-statement-between-strays"),
+    pytest.param('x;@import "a";@import "b"', 'x@import"a"@import"b"', id="at-statements-after-stray"),
 ]
 
 
