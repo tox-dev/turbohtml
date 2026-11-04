@@ -424,6 +424,20 @@ static nameclass *nc_new(th_schema *schema, int type) {
     return nc;
 }
 
+/* A choice or except name class over two parts; NULL when a part or the node itself could not be allocated. */
+static nameclass *nc_pair(th_schema *schema, int type, nameclass *left, nameclass *right) {
+    if (left == NULL || right == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+        return NULL;                     /* GCOVR_EXCL_LINE */
+    }
+    nameclass *nc = nc_new(schema, type);
+    if (nc == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+        return NULL;  /* GCOVR_EXCL_LINE */
+    }
+    nc->a = left;
+    nc->b = right;
+    return nc;
+}
+
 /* A name class for a QName carried by @name or a <name> element. */
 static nameclass *nc_from_qname(th_schema *schema, th_node *owner, const Py_UCS4 *name, Py_ssize_t name_len,
                                 int is_attr) {
@@ -466,13 +480,9 @@ static nameclass *rng_nameclass_choice_children(th_schema *schema, th_node *node
             continue;
         }
         nameclass *part = rng_build_nameclass(schema, child);
-        if (combined == NULL) {
-            combined = part;
-        } else {
-            nameclass *choice = nc_new(schema, NC_CHOICE);
-            choice->a = combined;
-            choice->b = part;
-            combined = choice;
+        combined = combined == NULL ? part : nc_pair(schema, NC_CHOICE, combined, part);
+        if (combined == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return NULL;        /* GCOVR_EXCL_LINE */
         }
     }
     return combined == NULL ? nc_new(schema, NC_ANY) : combined;
@@ -493,13 +503,13 @@ static nameclass *rng_build_nameclass(th_schema *schema, th_node *node) {
         if (except == NULL) {
             return nc_new(schema, NC_ANY);
         }
-        nameclass *nc = nc_new(schema, NC_EXCEPT);
-        nc->a = nc_new(schema, NC_ANY);
-        nc->b = rng_nameclass_choice_children(schema, except);
-        return nc;
+        return nc_pair(schema, NC_EXCEPT, nc_new(schema, NC_ANY), rng_nameclass_choice_children(schema, except));
     }
     if (is_schema_el(schema, node, RNG_NS, "nsName")) {
         nameclass *nc = nc_new(schema, NC_NS);
+        if (nc == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return NULL;  /* GCOVR_EXCL_LINE */
+        }
         const th_node_attr *ns = attr_exact(tree, node, "ns", 2);
         if (ns == NULL) {
             rng_scope_ns(tree, node, &nc->uri, &nc->uri_len);
@@ -511,10 +521,7 @@ static nameclass *rng_build_nameclass(th_schema *schema, th_node *node) {
         if (except == NULL) {
             return nc;
         }
-        nameclass *excepted = nc_new(schema, NC_EXCEPT);
-        excepted->a = nc;
-        excepted->b = rng_nameclass_choice_children(schema, except);
-        return excepted;
+        return nc_pair(schema, NC_EXCEPT, nc, rng_nameclass_choice_children(schema, except));
     }
     /* choice of name classes */
     return rng_nameclass_choice_children(schema, node);
@@ -606,6 +613,9 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
     }
     if (is_schema_el(schema, node, RNG_NS, "element")) {
         pattern *node_pat = pat_new(schema, P_ELEMENT);
+        if (node_pat == NULL) {          /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+        }
         const th_node_attr *name = attr_exact(tree, node, "name", 4);
         th_node *skip = NULL;
         if (name != NULL) {
@@ -615,11 +625,17 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
             node_pat->nc = rng_build_nameclass(schema, nc_child);
             skip = nc_child;
         }
+        if (node_pat->nc == NULL) {      /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+        }
         node_pat->p1 = rng_build_children(schema, node, skip);
         return node_pat;
     }
     if (is_schema_el(schema, node, RNG_NS, "attribute")) {
         pattern *node_pat = pat_new(schema, P_ATTRIBUTE);
+        if (node_pat == NULL) {          /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+        }
         const th_node_attr *name = attr_exact(tree, node, "name", 4);
         th_node *skip = NULL;
         if (name != NULL) {
@@ -628,6 +644,9 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
             th_node *nc_child = first_element_child(node);
             node_pat->nc = rng_build_nameclass(schema, nc_child);
             skip = nc_child;
+        }
+        if (node_pat->nc == NULL) {      /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return schema->p_notallowed; /* GCOVR_EXCL_LINE */
         }
         int has_content = 0;
         for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
@@ -672,11 +691,17 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
     }
     if (is_schema_el(schema, node, RNG_NS, "list")) {
         pattern *node_pat = pat_new(schema, P_LIST);
+        if (node_pat == NULL) {          /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+        }
         node_pat->p1 = rng_build_children(schema, node, NULL);
         return node_pat;
     }
     if (is_schema_el(schema, node, RNG_NS, "data")) {
         pattern *node_pat = pat_new(schema, P_DATA);
+        if (node_pat == NULL) {          /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+        }
         node_pat->datatype_id = rng_datatype_id(schema, node, DT_STRING);
         facetset *facets = arena_alloc(&schema->mem, sizeof(*facets));
         if (facets == NULL) {            /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
@@ -700,6 +725,9 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
     }
     if (is_schema_el(schema, node, RNG_NS, "value")) {
         pattern *node_pat = pat_new(schema, P_VALUE);
+        if (node_pat == NULL) {          /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+        }
         node_pat->datatype_id = rng_datatype_id(schema, node, DT_TOKEN);
         node_pat->value = element_text_raw(tree, node, &node_pat->value_len);
         node_pat->value_ws = dt_default_ws(node_pat->datatype_id);
@@ -714,6 +742,9 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
         Py_ssize_t index = def_find(&schema->defines, name->value, name->value_len);
         if (index >= 0) {
             pattern *node_pat = pat_new(schema, P_REF);
+            if (node_pat == NULL) {          /* GCOVR_EXCL_BR_LINE: arena OOM */
+                return schema->p_notallowed; /* GCOVR_EXCL_LINE */
+            }
             node_pat->def_index = (int)index;
             return node_pat;
         }
@@ -1088,6 +1119,7 @@ static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
     Py_ssize_t mark = ctx->path.len;
     if (path_push(&ctx->path, name.local, name.local_len) < 0) { /* GCOVR_EXCL_BR_LINE: path OOM is unforceable */
         ctx->failed = 1;                                         /* GCOVR_EXCL_LINE */
+        PyErr_NoMemory();                                        /* GCOVR_EXCL_LINE */
         return schema->p_notallowed;                             /* GCOVR_EXCL_LINE */
     }
     pattern *opened = rng_start_tag_open(schema, p, &name);
@@ -1159,6 +1191,12 @@ static int rng_compile(th_schema *schema, PyObject *base_url, PyObject *include_
     schema->p_empty = pat_new(schema, P_EMPTY);
     schema->p_notallowed = pat_new(schema, P_NOTALLOWED);
     schema->p_text = pat_new(schema, P_TEXT);
+    /* GCOVR_EXCL_BR_START: arena OOM */
+    if (schema->p_empty == NULL || schema->p_notallowed == NULL || schema->p_text == NULL) {
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return 0;         /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
     if (!rng_local_is(schema->root, "grammar")) {
         /* no defines, so no ref cycles; rng_build checks 4.10 and 7.4 inline instead of a second walk */
         schema->start = rng_build(schema, schema->root);
@@ -1431,6 +1469,9 @@ static nameclass *rng_pattern_nameclass(th_schema *schema, th_node *node, int is
 static int rng_branch_nameclasses(th_schema *schema, th_node *node, ncvec *out) {
     if (is_schema_el(schema, node, RNG_NS, "element")) {
         nameclass *nc = rng_pattern_nameclass(schema, node, 0);
+        if (nc == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return -1;    /* GCOVR_EXCL_LINE */
+        }
         return nc->type == NC_NAME ? ncvec_push(schema, out, nc) : 0;
     }
     if (is_schema_el(schema, node, RNG_NS, "text")) {
