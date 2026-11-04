@@ -1726,18 +1726,6 @@ static int css_media_continues(cursor *cur, css_buf *pool, css_buf *out) {
     return 0;
 }
 
-/* Whether stray text comes before a rule list's last item. Top-level stray text reads on through the bang comments and
-   at-statements after it when reparsed, and a block after it is dropped with it, so only those can follow it and a
-   last at-statement there is not an at-rule. Kept out of line: only a sheet ending in an at-statement reaches it. */
-CSS_NOINLINE static int css_follows_stray(const rule_vec *items) {
-    for (Py_ssize_t index = items->len - 2; index >= 0; index--) {
-        if (items->items[index].stray) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 /* Same-query @media blocks joined across dropped nodes: the index of the first block's item, and the blocks' text
    without the closing '}'. */
 typedef struct {
@@ -1880,12 +1868,16 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
     }
     css_merge_adjacent_rules(pool, &items, cur->baseline, cur->vec->depth);
     int prev_at_statement = 0;
+    /* Top-level stray text reads on through the bang comments and at-statements after it when reparsed, and a block
+       after it is dropped with it, so only those can follow it. The reparse consumes a `;` between them as stray text
+       and drops it, so writing one would change the output of the next pass. */
+    int after_stray = 0;
     for (Py_ssize_t index = 0; index < items.len; index++) {
         rule_item *item = &items.items[index];
         if (item->dropped) {
             continue;
         }
-        if (prev_at_statement) {
+        if (prev_at_statement && !after_stray) {
             cbuf_putc(out, ';');
         }
         if (item->is_rule) {
@@ -1897,9 +1889,12 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
         } else {
             cbuf_put_run(out, pool->data + item->text_off, item->text_len);
             prev_at_statement = item->at_statement;
+            if (top && item->stray) {
+                after_stray = 1;
+            }
         }
     }
-    if (prev_at_statement && top && !css_follows_stray(&items)) {
+    if (prev_at_statement && top && !after_stray) {
         /* a stylesheet ending in a statement at-rule keeps its `;`: once another sheet is appended, consume an at-rule
            (CSS Syntax 3 §5.5.2) would otherwise read on into the next rule and take its block */
         cbuf_putc(out, ';');
