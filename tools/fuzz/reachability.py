@@ -29,7 +29,7 @@ __all__ = ["main", "target_functions", "unreached"]
 def main(argv: Sequence[str] | None = None) -> int:
     """Report each target's unreached functions by name only; the corpus stays in private storage."""
     parser: Final = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--coverage-dir", type=Path, required=True, help="the build output holding coverage_d_*")
+    parser.add_argument("--coverage-dir", type=Path, required=True, help="the directory holding coverage_d_*")
     arguments: Final = parser.parse_args(argv)
     names: Final = set(atheris_target_names())
     report: Final = {
@@ -41,7 +41,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def unreached(target: Target, coverage_dir: Path) -> list[str]:
     """Name every target function the target's coverage data shows at 0%, or the data file when it is missing."""
-    # base-runner's coverage script copies each fuzzer's translated data here before combining consumes the originals
+    # base-runner's coverage script copies each fuzzer's translated data to build-out before combining consumes the
+    # originals, and cflite.py gathers those copies from the per-target runs into one directory
     data_file: Final = coverage_dir / f"coverage_d_{fuzzer_name(target.name)}"
     if not data_file.is_file():
         return [f"no coverage data at {data_file.name}"]
