@@ -53,7 +53,7 @@ static void lossless_put_text(sbuf *out, th_tree *tree, th_node *node) {
         sbuf_put_source(out, tree, offset, offset + node->text_len);
     } else if (node->text == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: an earlier lazy text OOM */
         out->failed = 1;                                   /* GCOVR_EXCL_LINE: allocation failure */
-    } else {
+    } else { /* GCOVR_EXCL_LINE: llvm-cov assigns this line to the allocation-failure edge */
         sbuf_put_text(out, node->text, node->text_len, 0, TH_FMT_WHATWG);
     }
 }
