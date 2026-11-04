@@ -1540,12 +1540,15 @@ static int css_custom_bodies_disjoint(const css_buf *pool, const rule_item *left
 
 /* Merge the rule at index into an earlier live rule: one with the same selector takes its declarations, one with the
    same body its selector. Given end, a run of rules right after index with that body joins the selector too, and *end
-   moves past it. Returns the index of the rule merged into, or -1. An incomplete shorthand table cannot prove
-   declarations independent, so the scan crosses only distinct type selectors or distinct custom-property names, which
-   have no shorthand overlap. A rule an earlier merge dropped is skipped: its content now sits in a rule before it. */
-static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t index, Py_ssize_t *end, int baseline,
-                                 int depth) {
+   moves past it. Returns the index of the rule merged into, or -1, and sets *rewritten when the merge changed that
+   rule's selector or body: a same-selector merge whose declarations were already there leaves it as it was. An
+   incomplete shorthand table cannot prove declarations independent, so the scan crosses only distinct type selectors or
+   distinct custom-property names, which have no shorthand overlap. A rule an earlier merge dropped is skipped: its
+   content now sits in a rule before it. */
+static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t index, Py_ssize_t *end, int *rewritten,
+                                 int baseline, int depth) {
     rule_item *it = &items->items[index];
+    *rewritten = 0;
     const int nested_body = memchr(pool->data + it->body_off, '{', (size_t)it->body_len) != NULL;
     Py_ssize_t reach = 0;
     for (Py_ssize_t back = it->prev_live; back >= 0; back = items->items[back].prev_live) {
@@ -1566,8 +1569,11 @@ static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t inde
             if (target->body_len >= CSS_MAX_MERGED_RUN_LENGTH) {
                 break;
             }
+            Py_ssize_t body_off = target->body_off;
+            Py_ssize_t body_len = target->body_len;
             css_merge_rule_bodies(pool, target, it, baseline, depth);
             it->dropped = 1;
+            *rewritten = !rule_run_eq(pool, body_off, body_len, target->body_off, target->body_len);
             return back;
         }
         if (rule_run_eq(pool, target->body_off, target->body_len, it->body_off, it->body_len) &&
@@ -1606,6 +1612,7 @@ static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t inde
             target->sel_off = pool_run(pool, selector.data, selector.len);
             target->sel_len = selector.len;
             cbuf_free(&selector);
+            *rewritten = 1;
             return back;
         }
         if (memchr(pool->data + target->body_off, '{', (size_t)target->body_len) != NULL ||
@@ -1649,12 +1656,16 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
             continue;
         }
         Py_ssize_t end = index + 1;
-        Py_ssize_t merged = css_merge_back(pool, items, index, &end, baseline, depth);
+        int rewritten = 0;
+        Py_ssize_t merged = css_merge_back(pool, items, index, &end, &rewritten, baseline, depth);
         index = end - 1;
-        /* the merge rewrote the target's selector or body, which can now match the rule before it, and the next pass
+        /* a merge that rewrote the target's selector or body can make it match the rule before it, and the next pass
            would merge those two */
-        for (Py_ssize_t again = merged; again >= 0; again = css_merge_back(pool, items, again, NULL, baseline, depth)) {
-            merged = again;
+        while (rewritten) {
+            Py_ssize_t again = css_merge_back(pool, items, merged, NULL, &rewritten, baseline, depth);
+            if (again >= 0) {
+                merged = again;
+            }
         }
         if (hashes != NULL) {
             if (merged >= 0) {
