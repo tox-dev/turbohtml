@@ -1093,6 +1093,10 @@ static void css_parse_qualified(css_buf *pool, cursor *cur, int top, int keyfram
             cbuf_put_run(&text, (piece->text + piece->text_len), piece->unit_len);
         }
     }
+    if (!top && prelude_end == cur->vec->len) {
+        /* the `}` written for the enclosing block follows, and a block the text leaves open would take it in */
+        css_close_raw_blocks(cur->vec, start, end, &text);
+    }
     item->text_off = pool_run(pool, text.data, text.len);
     item->text_len = text.len;
     item->stray = 1;

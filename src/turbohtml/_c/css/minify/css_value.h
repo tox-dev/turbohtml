@@ -1119,14 +1119,17 @@ static void css_collapse_transform_args(const css_char *name, Py_ssize_t name_le
     }
 }
 
-/* Argument minification uses the pool as scratch; buffer arguments separately to avoid interleaving output. */
+/* Argument minification uses the pool as scratch; buffer arguments separately to avoid interleaving output. A function
+   with no matching `)` ran to the end of its value, which css_read_until ends at a `}` that closed a block inside the
+   arguments; the arguments then close their own blocks before the function's `)`, which would otherwise close an inner
+   `(` on the next pass and leave the function open. */
 static void css_render_function(css_buf *pool, token_vec *vec, Py_ssize_t name_index, Py_ssize_t close_index,
                                 Py_ssize_t *out_off, Py_ssize_t *out_len) {
     css_token *name_token = &vec->items[name_index];
     css_buf args = {NULL, 0, 0, pool->oom};
     css_minify_func_args(pool, vec, name_index + 2, close_index, name_token->text, name_token->text_len, &args);
     css_collapse_transform_args(name_token->text, name_token->text_len, &args);
-    if (close_index == vec->len) {
+    if (close_index == vec->len || vec->items[close_index].delim != ')') {
         css_close_function_args(vec, name_index + 2, close_index, &args);
     }
     *out_off = pool->len;
