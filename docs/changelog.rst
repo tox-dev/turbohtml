@@ -6,6 +6,52 @@
 
 .. towncrier release notes start
 
+.. _release-1-15-7:
+
+**********************
+ v1.15.7 (2026-11-04)
+**********************
+
+.. _release-1-15-7-fixed:
+
+Fixed
+=====
+
+- Avoid an out-of-bounds read in ``minify_css`` when memory allocation fails while minifying a ``+`` operator in a math
+  function (:pr:`1613`) by :user:`gaborbernat`.
+- Avoid an out-of-bounds read in ``minify_css`` when memory allocation fails while minifying a nested selector
+  (:pr:`1598`) by :user:`gaborbernat`.
+- CSS selector lists and XPath unions with more than 1,024 alternatives no longer fail ``Node.xpath`` with ``an
+  expression nested too deeply`` (:pr:`1608`) by :user:`gaborbernat`.
+- Drop attribute names CommonMark cannot read from the raw HTML that Markdown output embeds for nested tables and
+  HTML-mode images, so the tag renders as HTML instead of literal text (:pr:`1596`) by :user:`gaborbernat`.
+- Keep CSS minification stable across repeated passes when a block, function or bad `url(` is left open at the end of
+  the input (:pr:`1602`) by :user:`gaborbernat`.
+- Keep CSS minification stable across repeated passes when an at-statement follows stray top-level text (:pr:`1604`) by
+  :user:`gaborbernat`.
+- Keep CSS minification stable across repeated passes when an unquoted `@import url(` holds a quote, a comment is left
+  open at the end of the input, merged rules match the rule before them, or stray top-level text runs into the next
+  node; `StyleRule.selector_text` also keeps a trailing escaped space (:pr:`1615`) by :user:`gaborbernat`.
+- Keep tables and images that ``to_markdown`` passes through as raw HTML in one HTML block when their content holds a
+  blank line, instead of reading the rest as Markdown (:pr:`1606`) by :user:`gaborbernat`.
+- Raise ``MemoryError`` instead of crashing or returning a wrong result when ``Text.data`` assignment,
+  ``Node.equals()``, ``copy.copy()``/``copy.deepcopy()``, ``Element.normalize()``, ``Range`` content operations,
+  ``main_text()``, ``article()``, ``collapse_whitespace_node()``, ``XMLSchema.validate()``, ``RelaxNG`` compilation or
+  an XSLT ``xsl:strip-space`` cannot materialize parsed text (:pr:`1617`) by :user:`gaborbernat`.
+- Raise ``MemoryError`` instead of crashing when canonicalization, pretty-printing, minification, Markdown rendering,
+  ``to_source()`` or a ``find(text=)`` regex scan cannot materialize parsed text (:pr:`1600`) by :user:`gaborbernat`.
+- Raise ``MemoryError`` instead of crashing, raising ``SystemError`` or returning a wrong verdict when ``RelaxNG``
+  compilation or ``RelaxNG.validate()`` cannot allocate; ``XMLSchema`` compilation and validation raise it too instead
+  of keeping a partial schema or a wrong verdict (:pr:`1620`) by :user:`gaborbernat`.
+
+.. _release-1-15-7-security:
+
+Security
+========
+
+- Compile XPath expressions whose predicates hold long operator chains without exhausting the C stack (:pr:`1611`) by
+  :user:`gaborbernat`.
+
 .. _release-1-15-6:
 
 **********************
