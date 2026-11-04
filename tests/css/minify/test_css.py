@@ -1752,6 +1752,8 @@ def test_minify_css_spec_fixes(source: str, expected: str) -> None:
         pytest.param('@media{url(}"\n")', '@media{url(}"\n")")}', id="bad-url-open-quote-after-newline"),
         pytest.param('a{b:"x\n', "", id="bad-string-at-eof"),
         pytest.param("a{b:'x\n", "", id="bad-single-quote-string-at-eof"),
+        pytest.param("@media{a/*x", "@media{a/*x*/}", id="open-comment-in-media"),
+        pytest.param("@media{a(/*x", "@media{a(/*x*/)}", id="open-comment-in-block-in-media"),
     ],
 )
 def test_minify_css_closes_nested_blocks_at_eof(source: str, expected: str) -> None:
@@ -1835,7 +1837,7 @@ _BACKSLASH_AT_EOF: Final[list[ParameterSet]] = [
     pytest.param("a{e:url('x\\", "a{e:url(x)}", id="single-quoted-url"),
     pytest.param('a{e:url( "x\\', "a{e:url(x)}", id="quoted-url-after-whitespace"),
     pytest.param('a{e:url("a"b\\', 'a{e:url("a"b\ufffd)}', id="url-string-then-ident"),
-    pytest.param("a{e:f}/*! c \\", "a{e:f}/*! c \\", id="comment"),
+    pytest.param("a{e:f}/*! c \\", "a{e:f}/*! c \\*/", id="comment"),
 ]
 
 
@@ -1864,6 +1866,10 @@ _OPEN_AT_EOF: Final[list[ParameterSet]] = [
     pytest.param('a{e:"x\\\\"', 'a{e:"x\\\\"}', id="string-escaped-backslash"),
     pytest.param('a{e:"', 'a{e:""}', id="lone-quote"),
     pytest.param('@import url(l("[', '@import url(l("[");', id="import-bad-url-quote"),
+    pytest.param("a/*", "a/**/", id="comment-opener"),
+    pytest.param("a/*x", "a/*x*/", id="comment"),
+    pytest.param("a/*xy", "a/*xy*/", id="comment-two-code-points"),
+    pytest.param("a/*x*", "a/*x**/", id="comment-ending-in-star"),
 ]
 
 

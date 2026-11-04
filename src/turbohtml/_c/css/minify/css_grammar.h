@@ -1685,7 +1685,7 @@ static int css_media_continues(cursor *cur, css_buf *pool, css_buf *out) {
             continue;
         }
         if (token->kind == CSS_COMMENT) {
-            if (token->text_len >= 3 && token->text[2] == '!') {
+            if (token->text[2] == '!') {
                 break; /* a bang comment is a barrier between rules, so the blocks do not merge */
             }
             cur->index++;
@@ -1809,8 +1809,9 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
     while (cur->index < cur->vec->len) {
         css_token *token = cursor_peek(cur);
         if (token->kind == CSS_WS || token->kind == CSS_COMMENT) {
-            /* a comment token's text always starts with the slash-star the tokenizer matched */
-            if (token->kind == CSS_COMMENT && token->text_len >= 3 && token->text[2] == '!') {
+            /* a comment token's text starts with the slash-star the tokenizer matched and runs to at least four code
+               points, since th_minify_css_bytes closes a comment the input leaves open */
+            if (token->kind == CSS_COMMENT && token->text[2] == '!') {
                 /* a bang comment is a license/copyright banner kept byte-exact: its body (SPDX text, newlines,
                    alignment) must survive verbatim, so copy the whole token unchanged */
                 rule_item item = {0};
