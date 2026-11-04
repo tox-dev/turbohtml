@@ -1538,8 +1538,84 @@ static int css_custom_bodies_disjoint(const css_buf *pool, const rule_item *left
     return 1;
 }
 
-/* An incomplete shorthand table cannot prove declarations independent. Cross only distinct type selectors or
-   distinct custom-property names, which have no shorthand overlap. */
+/* Merge the rule at index into an earlier live rule: one with the same selector takes its declarations, one with the
+   same body its selector. Given end, a run of rules right after index with that body joins the selector too, and *end
+   moves past it. Returns the index of the rule merged into, or -1. An incomplete shorthand table cannot prove
+   declarations independent, so the scan crosses only distinct type selectors or distinct custom-property names, which
+   have no shorthand overlap. A rule an earlier merge dropped is skipped: its content now sits in a rule before it. */
+static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t index, Py_ssize_t *end, int baseline,
+                                 int depth) {
+    rule_item *it = &items->items[index];
+    const int nested_body = memchr(pool->data + it->body_off, '{', (size_t)it->body_len) != NULL;
+    Py_ssize_t reach = 0;
+    for (Py_ssize_t back = it->prev_live; back >= 0; back = items->items[back].prev_live) {
+        rule_item *target = &items->items[back];
+        if (target->dropped) {
+            continue;
+        }
+        if (++reach > CSS_MAX_MERGE_REACH) {
+            break;
+        }
+        if (reach > 1 && nested_body) {
+            break;
+        }
+        if (!target->is_rule) {
+            break;
+        }
+        if (rule_run_eq(pool, target->sel_off, target->sel_len, it->sel_off, it->sel_len)) {
+            if (target->body_len >= CSS_MAX_MERGED_RUN_LENGTH) {
+                break;
+            }
+            css_merge_rule_bodies(pool, target, it, baseline, depth);
+            it->dropped = 1;
+            return back;
+        }
+        if (rule_run_eq(pool, target->body_off, target->body_len, it->body_off, it->body_len) &&
+            css_selector_merge_safe(pool, it) && css_selector_merge_safe(pool, target)) {
+            Py_ssize_t length = target->sel_len + 1 + it->sel_len;
+            if (target->sel_len >= CSS_MAX_MERGED_RUN_LENGTH) {
+                break;
+            }
+            Py_ssize_t stop = index + 1;
+            if (end != NULL && back == index - 1) {
+                while (stop < items->len) {
+                    rule_item *next = &items->items[stop];
+                    if (!next->is_rule ||
+                        !rule_run_eq(pool, target->body_off, target->body_len, next->body_off, next->body_len) ||
+                        memchr(pool->data + next->sel_off, ',', (size_t)next->sel_len) != NULL ||
+                        !css_selector_merge_safe(pool, next)) {
+                        break;
+                    }
+                    if (length >= CSS_MAX_MERGED_RUN_LENGTH) {
+                        break;
+                    }
+                    length += 1 + next->sel_len;
+                    stop++;
+                }
+                *end = stop;
+            }
+            css_buf selector = {NULL, 0, 0, pool->oom};
+            cbuf_reserve(&selector, length);
+            cbuf_put_run(&selector, pool->data + target->sel_off, target->sel_len);
+            for (Py_ssize_t next = index; next < stop; next++) {
+                rule_item *item = &items->items[next];
+                cbuf_putc(&selector, ',');
+                cbuf_put_run(&selector, pool->data + item->sel_off, item->sel_len);
+                item->dropped = 1;
+            }
+            target->sel_off = pool_run(pool, selector.data, selector.len);
+            target->sel_len = selector.len;
+            cbuf_free(&selector);
+            return back;
+        }
+        if (memchr(pool->data + target->body_off, '{', (size_t)target->body_len) != NULL ||
+            (!css_type_lists_disjoint(pool, it, target) && !css_custom_bodies_disjoint(pool, it, target))) {
+            break;
+        }
+    }
+    return -1;
+}
+
 CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baseline, int depth) {
     uint32_t *hashes = NULL;
     size_t hash_cap = 0;
@@ -1572,77 +1648,18 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
             last_live = index;
             continue;
         }
-        rule_item *merged = NULL;
-        const int nested_body = memchr(pool->data + it->body_off, '{', (size_t)it->body_len) != NULL;
-        Py_ssize_t reach = 0;
-        for (Py_ssize_t back = last_live; back >= 0; back = items->items[back].prev_live) {
-            if (++reach > CSS_MAX_MERGE_REACH) {
-                break;
-            }
-            rule_item *target = &items->items[back];
-            if (reach > 1 && nested_body) {
-                break;
-            }
-            if (!target->is_rule) {
-                break;
-            }
-            if (rule_run_eq(pool, target->sel_off, target->sel_len, it->sel_off, it->sel_len)) {
-                if (target->body_len >= CSS_MAX_MERGED_RUN_LENGTH) {
-                    break;
-                }
-                css_merge_rule_bodies(pool, target, it, baseline, depth);
-                it->dropped = 1;
-                merged = target;
-                break;
-            }
-            if (rule_run_eq(pool, target->body_off, target->body_len, it->body_off, it->body_len) &&
-                css_selector_merge_safe(pool, it) && css_selector_merge_safe(pool, target)) {
-                Py_ssize_t end = index + 1;
-                Py_ssize_t length = target->sel_len + 1 + it->sel_len;
-                if (target->sel_len >= CSS_MAX_MERGED_RUN_LENGTH) {
-                    break;
-                }
-                if (back == index - 1) {
-                    while (end < items->len) {
-                        rule_item *next = &items->items[end];
-                        if (!next->is_rule ||
-                            !rule_run_eq(pool, target->body_off, target->body_len, next->body_off, next->body_len) ||
-                            memchr(pool->data + next->sel_off, ',', (size_t)next->sel_len) != NULL ||
-                            !css_selector_merge_safe(pool, next)) {
-                            break;
-                        }
-                        if (length >= CSS_MAX_MERGED_RUN_LENGTH) {
-                            break;
-                        }
-                        length += 1 + next->sel_len;
-                        end++;
-                    }
-                }
-                css_buf selector = {NULL, 0, 0, pool->oom};
-                cbuf_reserve(&selector, length);
-                cbuf_put_run(&selector, pool->data + target->sel_off, target->sel_len);
-                for (Py_ssize_t next = index; next < end; next++) {
-                    rule_item *item = &items->items[next];
-                    cbuf_putc(&selector, ',');
-                    cbuf_put_run(&selector, pool->data + item->sel_off, item->sel_len);
-                    item->dropped = 1;
-                }
-                target->sel_off = pool_run(pool, selector.data, selector.len);
-                target->sel_len = selector.len;
-                cbuf_free(&selector);
-                merged = target;
-                index = end - 1;
-                break;
-            }
-            if (memchr(pool->data + target->body_off, '{', (size_t)target->body_len) != NULL ||
-                (!css_type_lists_disjoint(pool, it, target) && !css_custom_bodies_disjoint(pool, it, target))) {
-                break;
-            }
+        Py_ssize_t end = index + 1;
+        Py_ssize_t merged = css_merge_back(pool, items, index, &end, baseline, depth);
+        index = end - 1;
+        /* the merge rewrote the target's selector or body, which can now match the rule before it, and the next pass
+           would merge those two */
+        for (Py_ssize_t again = merged; again >= 0; again = css_merge_back(pool, items, again, NULL, baseline, depth)) {
+            merged = again;
         }
         if (hashes != NULL) {
-            if (merged != NULL) {
-                selector_hash = css_rule_hash(pool, merged->sel_off, merged->sel_len);
-                body_hash = css_rule_hash(pool, merged->body_off, merged->body_len);
+            if (merged >= 0) {
+                selector_hash = css_rule_hash(pool, items->items[merged].sel_off, items->items[merged].sel_len);
+                body_hash = css_rule_hash(pool, items->items[merged].body_off, items->items[merged].body_len);
             }
             css_rule_hash_add(hashes, hash_cap - 1, selector_hash);
             css_rule_hash_add(hashes, hash_cap - 1, body_hash);

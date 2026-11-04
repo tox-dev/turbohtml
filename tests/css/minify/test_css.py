@@ -567,6 +567,9 @@ def test_minify_css_large_dedup_remains_a_fixpoint() -> None:
         pytest.param("sub{d:.}sub{d:.}sub{{}}", "sub{d:.;{}}", id="nested-after-duplicate"),
         pytest.param("sub{d:.}" * 257 + "sub{{}}", "sub{d:.;{}}", id="nested-after-long-run"),
         pytest.param("sub{d:.}" * 257 + "sub{e:.}", "sub{d:.;e:.}", id="declaration-after-long-run"),
+        pytest.param("r{a:1;b:0}.r{a:1}.r{b:0}", "r,.r{a:1;b:0}", id="merged-body-matches-rule-before"),
+        pytest.param("r,.r{a:1}r{a:1;b:0}.r{a:1}.r{b:0}", "r,.r{a:1;b:0}", id="merges-chain-back"),
+        pytest.param("c{x:1;y:1}a{x:1}b{z:1}a{y:1}a{w:1}", "c,a{x:1;y:1}b{z:1}a{w:1}", id="skips-rule-merged-away"),
     ],
 )
 def test_minify_css_merges_after_dedup(source: str, expected: str) -> None:
