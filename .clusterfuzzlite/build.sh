@@ -11,6 +11,10 @@ fi
 # each fuzzer preloads. The OSS-Fuzz CFLAGS define FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION, whose branches call into
 # core/fuzzing.c, which meson compiles only with -Dfuzzing=true.
 export LDFLAGS=$CFLAGS
+# the log names the commit the fuzzers come from, and a build directory left in the checkout would hand its objects to
+# the install, so each build starts from none
+echo "building turbohtml at $(git -C "$SRC/turbohtml" rev-parse HEAD 2>/dev/null || echo 'unknown commit')"
+rm -rf "$SRC/turbohtml/build" "$SRC/turbohtml/".mesonpy-*
 python3 -m pip install --no-deps --no-build-isolation . --config-settings=setup-args=-Db_lundef=false \
     --config-settings=setup-args=-Dfuzzing=true
 

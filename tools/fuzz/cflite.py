@@ -5,10 +5,11 @@ The stock GitHub actions print each crash report, which carries the crashing inp
 input as a workflow artifact anyone signed in can download. This driver runs the same pinned images on the standalone
 platform with a filesystem filestore instead: the build and run logs, crashes, corpus and coverage land in files under
 ``--workspace``, and the console gets only exit codes, crash hashes and, when the build fails, the build log. The
-workflow then commits the corpus, crashes and logs to a public state branch.
+workflow then commits the corpus, crashes and logs to a private storage repository.
 
 Pruning and coverage run each fuzz target in its own CIFuzz run, ``--jobs`` at a time, all stopping at the deadline
-``--seconds`` sets; a target still running then is stopped and reported with exit code 124.
+``--seconds`` sets; a target still running then is stopped and reported with exit code 124, and so is a target that
+only reaches the deadline without a free job.
 """
 
 from __future__ import annotations

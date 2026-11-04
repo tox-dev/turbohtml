@@ -287,9 +287,9 @@ sanitizer, prunes the corpus and measures coverage, then fails when a target's c
 it owns executes no line (``tox r -e fuzz-reachability``).
 
 ``tools/fuzz/cflite.py`` drives the ClusterFuzzLite images and writes their logs, crashes and corpus to files under its
-workspace instead of the console. The scheduled workflow commits those files to the public ``cflite-state`` branch with
-the short-lived repository token. The branch is public and includes raw crash inputs and full fuzz logs. Each update
-replaces its single snapshot commit so its reachable history stays bounded. The jobs use the ``cflite-storage``
+workspace instead of the console. The scheduled workflow commits those files to the private repository named by the
+``CFLITE_STORAGE_REPO`` variable, written with the ``CFLITE_STORAGE_TOKEN`` secret, because the branch holds raw crash
+inputs and full fuzz logs. The jobs use the ``cflite-storage``
 environment, which allows only ``main``. The workflow uploads SARIF to Code Scanning and reports the address, undefined,
 prune and coverage jobs on ``main``. The ``🔒 fuzz`` workflow runs separately each day, with a longer run on Mondays.
 Start ClusterFuzzLite manually from this repository's ``main`` branch.

@@ -1,10 +1,15 @@
 #!/bin/bash
+# Clone the private storage repository into the ClusterFuzzLite filestore, or push what a run added to it.
+# usage: cflite_storage.sh clone | push <commit subject>
 set -euo pipefail
 storage=$RUNNER_TEMP/cflite/storage
+: "${STORAGE_REPO:?vars.CFLITE_STORAGE_REPO is not set}"
+: "${STORAGE_TOKEN:?secrets.CFLITE_STORAGE_TOKEN is not set}"
+# an extra header keeps the token out of the remote URL, which git prints in errors and stores in .git/config
+header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$STORAGE_TOKEN" | base64 -w0)"
 case $1 in
 clone)
-    git clone --quiet --branch cflite-state --single-branch --depth 1 \
-        "https://github.com/$GITHUB_REPOSITORY.git" "$storage"
+    git -c "http.https://github.com/.extraheader=$header" clone --quiet "https://github.com/$STORAGE_REPO.git" "$storage"
     ;;
 push)
     mkdir -p "$storage/logs/$GITHUB_RUN_ID"
@@ -14,11 +19,17 @@ push)
     if git diff --cached --quiet; then
         exit 0
     fi
-    snapshot=$(printf '%s\n' "$2 (run $GITHUB_RUN_ID)" | git -c user.name="turbohtml ClusterFuzzLite" \
-        -c user.email="cflite@users.noreply.github.com" commit-tree "$(git write-tree)")
-    header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$STORAGE_TOKEN" | base64 -w0)"
-    git -c "http.https://github.com/.extraheader=$header" push --quiet \
-        --force-with-lease="refs/heads/cflite-state:$(git rev-parse HEAD)" origin "$snapshot:refs/heads/cflite-state"
+    git -c user.name="turbohtml ClusterFuzzLite" -c user.email="cflite@users.noreply.github.com" commit --quiet \
+        -m "$2 (run $GITHUB_RUN_ID)"
+    # GitHub answers a push with a 5xx when its backend hiccups; a concurrent run's push also rejects this one, and
+    # rebasing onto it before the retry lets the commit land
+    for _ in 1 2 3; do
+        git -c "http.https://github.com/.extraheader=$header" push --quiet && exit 0
+        sleep 30
+        git -c user.name="turbohtml ClusterFuzzLite" -c user.email="cflite@users.noreply.github.com" \
+            -c "http.https://github.com/.extraheader=$header" pull --quiet --rebase
+    done
+    exit 1
     ;;
 *)
     echo 'usage: cflite_storage.sh clone | push <commit subject>' >&2
