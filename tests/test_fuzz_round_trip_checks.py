@@ -268,7 +268,7 @@ def test_xml_check_accepts_dropped_invalid_names(markup: str) -> None:
     assert xml_check(markup) is None
 
 
-@pytest.mark.parametrize("markup", ["<z:b>", "<l a:c>"])
+@pytest.mark.parametrize("markup", ["<z:b>", "<l a:c>", "<xmlns:m>"])
 def test_xml_check_skips_unbound_prefixes(markup: str) -> None:
     with pytest.raises(OutOfScopeError):
         xml_check(markup)
