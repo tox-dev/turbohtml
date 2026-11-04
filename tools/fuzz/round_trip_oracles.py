@@ -933,8 +933,9 @@ def xml_check(markup: str, serialize: Callable[[Node], str] = _xml) -> str | Non
 
 def _xml_has_unbound_prefix(document: Document) -> bool:
     for element in document.iter_elements():
-        for name in (element.tag, *element.attrs):
-            if ":" not in name or name.startswith((":", "xmlns:")) or name.endswith(":") or name.count(":") > 1:
+        # xmlns:* declares a prefix only as an attribute; as a tag it uses the unbindable xmlns prefix
+        for name in (element.tag, *(attr for attr in element.attrs if not attr.startswith("xmlns:"))):
+            if ":" not in name or name.startswith(":") or name.endswith(":") or name.count(":") > 1:
                 continue
             prefix = name.split(":", 1)[0]
             if prefix == "xml" or (prefix == "xlink" and element.namespace is not Namespace.HTML):
