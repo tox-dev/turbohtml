@@ -943,6 +943,9 @@ static int regex_cache_schema(th_schema *schema, th_node *node) {
         if (name != NULL && u_eq_ascii(name->value, name->value_len, "pattern")) {
             Py_ssize_t len = 0;
             const Py_UCS4 *text = element_text_raw(schema->tree, node, &len);
+            if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                return -1;          /* GCOVR_EXCL_LINE: allocation failure */
+            }
             if (regex_cache_add(schema, text, len) < 0) {
                 return -1;
             }

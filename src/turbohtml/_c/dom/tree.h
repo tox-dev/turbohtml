@@ -346,7 +346,7 @@ Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_
 int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len);
 
 /* Replace a node's character data with a copy of len code points. Returns 0, or -1
-   on allocation failure. */
+   with MemoryError set on allocation failure. */
 int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize_t len);
 
 /* Structural-edit primitives. remove detaches a node from its parent; append and
@@ -420,11 +420,13 @@ th_tree *th_tree_new_rooted(enum th_node_type type, int xml, int quirks);
    same namespace, tag name, and attribute set (names + values, order-independent) with
    the same ordered children; for a leaf the same character data.
    The two nodes may live in different trees. Pure structure -- it never touches node
-   identity (the `==` operator's domain). */
+   identity (the `==` operator's domain). Returns -1 when realizing a zero-copy text
+   span fails. */
 int th_node_equals(th_tree *left_tree, th_node *left, th_tree *right_tree, th_node *right);
 
-/* DOM normalize over a subtree: merge each run of adjacent Text children into one node and drop empty Text nodes. */
-void th_node_normalize(th_tree *tree, th_node *root);
+/* DOM normalize over a subtree: merge each run of adjacent Text children into one node and drop empty Text nodes.
+   Returns 0, or -1 on allocation failure. */
+int th_node_normalize(th_tree *tree, th_node *root);
 
 /* Parse an HTML fragment as if set as the innerHTML of the given context element
    (e.g. "td", or "svg path"). The returned tree serializes the context root's
@@ -529,7 +531,8 @@ int th_tree_failed(const th_tree *tree);
 
 /* Whether a text node holds only HTML ASCII whitespace (or nothing), realizing a
    zero-copy span on demand. The :empty selector uses it to ignore the document
-   white space Selectors-4 §13.2 permits inside an otherwise empty element. */
+   white space Selectors-4 §13.2 permits inside an otherwise empty element. Returns
+   -1 when realizing the span fails. */
 int th_node_text_is_blank(th_tree *tree, th_node *node);
 
 /* Materialize one text/comment/doctype node's own character data (realizing a
@@ -765,7 +768,9 @@ Py_UCS4 *th_node_layout_text(th_tree *tree, th_node *node, const text_opts *opt,
    heuristic (text length, comma count, tag and class/id weight, discounted by link
    density), or NULL when nothing scores as content. Pure C: the caller holds the
    per-tree critical section and wraps the node (or renders its text with
-   th_node_layout_text) afterwards. The engine for Node.main_content()/main_text(). */
+   th_node_layout_text) afterwards, after checking th_tree_failed: a text span that
+   cannot be realized only drops out of the scores. The engine for
+   Node.main_content()/main_text(). */
 th_node *th_node_main_content(th_tree *tree, th_node *root);
 
 /* One harvested tag/keyword: a freshly PyMem-allocated, whitespace-normalized

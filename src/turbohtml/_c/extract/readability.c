@@ -249,6 +249,9 @@ static void read_text_stats(th_tree *tree, th_node *node, int in_anchor, int str
             }
             if (current->text_len > 0) {
                 const Py_UCS4 *text = need_text(tree, current);
+                if (text == NULL) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                    return;         /* GCOVR_EXCL_LINE: the caller raises on the tree's failure */
+                }
                 for (Py_ssize_t index = 0; index < current->text_len; index++) {
                     if (text[index] == ',') {
                         stats->commas++;

@@ -1035,7 +1035,16 @@ static void xsd_validate_complex(valctx *ctx, th_node *instance, th_node *ctype)
     int mixed = xsd_is_mixed(schema, ctype);
     if (!mixed) {
         for (th_node *child = instance->first_child; child != NULL; child = child->next_sibling) {
-            if (is_chardata(child) && !th_node_text_is_blank(inst, child)) {
+            if (!is_chardata(child)) {
+                continue;
+            }
+            int blank = th_node_text_is_blank(inst, child);
+            if (blank < 0) {      /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                ctx->failed = 1;  /* GCOVR_EXCL_LINE: allocation failure */
+                PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
+                return;           /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            if (!blank) {
                 report(ctx, instance, "structure", "element must not contain character data");
                 break;
             }
@@ -1122,6 +1131,7 @@ static void xsd_validate_element(valctx *ctx, th_node *instance, th_node *decl) 
     Py_ssize_t mark = ctx->path.len;
     if (path_push(&ctx->path, name.local, name.local_len) < 0) { /* GCOVR_EXCL_BR_LINE: path OOM is unforceable */
         ctx->failed = 1;                                         /* GCOVR_EXCL_LINE */
+        PyErr_NoMemory();                                        /* GCOVR_EXCL_LINE */
         return;                                                  /* GCOVR_EXCL_LINE */
     }
 

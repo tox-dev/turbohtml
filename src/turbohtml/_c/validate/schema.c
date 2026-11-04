@@ -398,12 +398,19 @@ static const char *name_utf8(const Py_UCS4 *name, Py_ssize_t len, char *buf, siz
 }
 
 /* The first character-data child's text of a schema element (a name/value/param
-   literal), or the empty run. Used at compile time, without a validation context. */
+   literal), or the empty run. Used at compile time, without a validation context; a
+   text span that cannot be realized reads as the empty run with MemoryError set. */
 static const Py_UCS4 *element_text_raw(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (is_chardata(child)) {
+            const Py_UCS4 *text = child->text_len == 0 ? EMPTY_UCS4 : th_node_realize_text(tree, child);
+            if (text == NULL) {    /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                PyErr_NoMemory();  /* GCOVR_EXCL_LINE: the compile stops on the pending exception */
+                *out_len = 0;      /* GCOVR_EXCL_LINE: allocation failure */
+                return EMPTY_UCS4; /* GCOVR_EXCL_LINE: allocation failure */
+            }
             *out_len = child->text_len;
-            return child->text_len == 0 ? EMPTY_UCS4 : th_node_realize_text(tree, child);
+            return text;
         }
     } /* GCOVR_EXCL_LINE: llvm miscredits this loop-exit brace when the element has no text child */
     *out_len = 0;

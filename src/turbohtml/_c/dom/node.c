@@ -219,6 +219,9 @@ TH_NODE_API(static, PyObject *, node_equals, (PyObject * self, PyObject *other),
         Py_END_CRITICAL_SECTION();
     }
     Py_END_CRITICAL_SECTION();
+    if (equal < 0) {             /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+        return PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation failure */
+    }
     return PyBool_FromLong(equal);
 }
 
@@ -1559,6 +1562,9 @@ TH_NODE_API(static, PyObject *, node_main_content, (PyObject * self, PyObject *i
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     winner = th_node_main_content(tree_of(self), ((NodeObject *)self)->node);
     Py_END_CRITICAL_SECTION();
+    if (th_tree_failed(tree_of(self))) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+        return PyErr_NoMemory();         /* GCOVR_EXCL_LINE: allocation failure */
+    }
     if (winner == NULL) {
         Py_RETURN_NONE;
     }
@@ -1578,8 +1584,9 @@ TH_NODE_API(static, PyObject *, node_main_text, (PyObject * self, PyObject *igno
     int empty = 0;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     th_node *winner = th_node_main_content(tree_of(self), ((NodeObject *)self)->node);
-    if (winner == NULL) {
-        empty = 1;
+    int failed = th_tree_failed(tree_of(self));
+    if (winner == NULL || failed) { /* GCOVR_EXCL_BR_LINE: failed only on a lazy text OOM */
+        empty = !failed;            /* a failure leaves data NULL, which raises MemoryError */
     } else {
         data = th_node_layout_text(tree_of(self), winner, &opt, &out_len);
     }
@@ -1680,18 +1687,22 @@ TH_NODE_API(static, PyObject *, node_article, (PyObject * self, PyObject *ignore
     Py_UCS4 *text_data = NULL;
     Py_ssize_t text_len = 0;
     th_article_meta meta = {0};
+    int failed;
     Py_BEGIN_CRITICAL_SECTION(((NodeObject *)self)->handle);
     winner = th_node_main_content(tree, ((NodeObject *)self)->node);
-    if (winner != NULL) {
+    failed = th_tree_failed(tree);
+    if (winner != NULL && !failed) { /* GCOVR_EXCL_BR_LINE: failed only on a lazy text OOM */
         text_data = th_node_layout_text(tree, winner, &opt, &text_len);
     }
-    if (winner == NULL || text_data != NULL) { /* GCOVR_EXCL_BR_LINE: text_data is NULL only when out of memory */
+    /* GCOVR_EXCL_BR_START: failed or a NULL text_data only when out of memory */
+    if (!failed && (winner == NULL || text_data != NULL)) {
         th_article_metadata(tree, th_tree_document(tree), &meta);
     }
     Py_END_CRITICAL_SECTION();
-    if (winner != NULL && text_data == NULL) { /* GCOVR_EXCL_BR_LINE: text_data is NULL only when out of memory */
-        th_article_meta_clear(&meta);          /* GCOVR_EXCL_LINE: allocation-failure path */
-        return PyErr_NoMemory();               /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (failed || (winner != NULL && text_data == NULL)) {
+        /* GCOVR_EXCL_BR_STOP */
+        th_article_meta_clear(&meta); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return PyErr_NoMemory();      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
 
     PyObject *element = winner != NULL ? turbohtml_node_wrap_in(self, winner) : Py_NewRef(Py_None);

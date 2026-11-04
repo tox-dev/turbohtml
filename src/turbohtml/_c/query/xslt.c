@@ -6113,7 +6113,12 @@ static int strip_walk(engine *eng, th_node *element, int inherited_preserve) {
         th_node *child = frame->child;
         frame->child = child->next_sibling;
         if (child->type == TH_NODE_TEXT) {
-            if (frame->strips && th_node_text_is_blank(eng->src_tree, child)) {
+            int blank = frame->strips ? th_node_text_is_blank(eng->src_tree, child) : 0;
+            if (blank < 0) {                       /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                PyMem_Free(frames);                /* GCOVR_EXCL_LINE: allocation failure */
+                return fail(eng, "out of memory"); /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            if (blank) {
                 if (strip_record(eng, child, frame->element, frame->child) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
                     PyMem_Free(frames);                                           /* GCOVR_EXCL_LINE */
                     return -1;                                                    /* GCOVR_EXCL_LINE */
