@@ -676,6 +676,10 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
                 cbuf_putc(out, ' ');
             }
             cbuf_putc(out, token->delim);
+            /* if a failed growth dropped the operator, this space would land first and css_rtrim read before it */
+            if (*out->oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                return;      /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
             cbuf_putc(out, ' ');
             pending_ws = 0;
             index++;
