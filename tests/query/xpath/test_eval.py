@@ -862,6 +862,31 @@ def test_deep_operator_spine_raises_instead_of_overflowing(doc: turbohtml.Node, 
         doc.xpath(expr)
 
 
+@pytest.mark.parametrize(
+    "expr",
+    [
+        pytest.param(" | ".join(["//p"] * 5000), id="xpath-union"),
+        pytest.param(css_to_xpath(",".join(["p"] * 1100)), id="css-selector-list"),
+    ],
+)
+def test_long_union_chain_evaluates(doc: turbohtml.Node, expr: str) -> None:
+    # the evaluator walks a union spine instead of recursing per operand, so a long
+    # selector list does not hit the depth cap
+    assert doc.xpath(expr) == doc.xpath("//p")
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        pytest.param("(" + "+".join(["1"] * 5000) + ") | //p", id="first-operand"),
+        pytest.param("//p | (" + "+".join(["1"] * 5000) + ") | //p", id="middle-operand"),
+    ],
+)
+def test_deep_union_operand_still_raises(doc: turbohtml.Node, expr: str) -> None:
+    with pytest.raises(ValueError, match="nested too deeply"):
+        doc.xpath(expr)
+
+
 def test_moderately_nested_expression_still_evaluates(doc: turbohtml.Node) -> None:
     assert doc.xpath("(" * 100 + "1 + 1" + ")" * 100) == pytest.approx(2.0)
 

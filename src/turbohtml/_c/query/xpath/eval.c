@@ -1626,6 +1626,61 @@ static int copy_result(const xp_result *src, xp_result *dst) {
     return 0;
 }
 
+/* The parser builds `a | b | c` as a left-leaning spine of XN_UNION nodes. Walking that spine here, instead of
+   recursing into eval_expr once per operand, keeps a long selector list from counting against XP_MAX_DEPTH, while
+   the operands still evaluate left to right as before. */
+static int eval_union(const xp_program *prog, const xn *expr, xp_ctx *ctx, xp_result *out) {
+    size_t count = 1;
+    int32_t leftmost = expr->first;
+    while (prog->nodes[leftmost].kind == XN_UNION) {
+        leftmost = prog->nodes[leftmost].first;
+        count++;
+    }
+    int32_t *operands = PyMem_Malloc(count * sizeof(int32_t));
+    if (operands == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return -1;          /* GCOVR_EXCL_LINE */
+    }
+    const xn *node = expr;
+    for (size_t index = count; index > 0; index--) {
+        operands[index - 1] = node->second;
+        node = &prog->nodes[node->first];
+    }
+    xp_result left;
+    int rc = eval_expr(prog, leftmost, ctx, &left);
+    for (size_t index = 0; rc == 0 && index < count; index++) {
+        xp_result right;
+        xp_live_frame frame;
+        if (ctx->live != NULL) {
+            frame = (xp_live_frame){.results = &left, .result_count = 1};
+            xp_live_enter(ctx, &frame);
+        }
+        rc = eval_expr(prog, operands[index], ctx, &right);
+        xp_live_leave(ctx, &frame);
+        if (rc < 0) {
+            xp_result_free(&left);
+            break;
+        }
+        if (left.kind != XP_NODESET || right.kind != XP_NODESET) {
+            xp_result_free(&left);
+            xp_result_free(&right);
+            *ctx->feature = "a union of non-node-sets";
+            rc = -4;
+            break;
+        }
+        if (nodeset_union(&left.nodes, &right.nodes) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            xp_result_free(&left);                          /* GCOVR_EXCL_LINE */
+            xp_result_free(&right);                         /* GCOVR_EXCL_LINE: allocation failure */
+            rc = -1;                                        /* GCOVR_EXCL_LINE */
+            break;                                          /* GCOVR_EXCL_LINE */
+        }
+    }
+    PyMem_Free(operands);
+    if (rc == 0) {
+        *out = left;
+    }
+    return rc;
+}
+
 static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) {
     const xn *expr = &prog->nodes[idx];
     switch (expr->kind) {
@@ -1690,38 +1745,8 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
         *out = primary;
         return 0;
     }
-    case XN_UNION: {
-        xp_result left;
-        xp_result right;
-        int rc = eval_expr(prog, expr->first, ctx, &left);
-        if (rc < 0) {
-            return rc;
-        }
-        xp_live_frame frame;
-        if (ctx->live != NULL) {
-            frame = (xp_live_frame){.results = &left, .result_count = 1};
-            xp_live_enter(ctx, &frame);
-        }
-        rc = eval_expr(prog, expr->second, ctx, &right);
-        xp_live_leave(ctx, &frame);
-        if (rc < 0) {
-            xp_result_free(&left);
-            return rc;
-        }
-        if (left.kind != XP_NODESET || right.kind != XP_NODESET) {
-            xp_result_free(&left);
-            xp_result_free(&right);
-            *ctx->feature = "a union of non-node-sets";
-            return -4;
-        }
-        if (nodeset_union(&left.nodes, &right.nodes) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-            xp_result_free(&left);                          /* GCOVR_EXCL_LINE */
-            xp_result_free(&right);                         /* GCOVR_EXCL_LINE: allocation failure */
-            return -1;                                      /* GCOVR_EXCL_LINE */
-        }
-        *out = left;
-        return 0;
-    }
+    case XN_UNION:
+        return eval_union(prog, expr, ctx, out);
     case XN_OR:
     case XN_AND: {
         xp_result left;
