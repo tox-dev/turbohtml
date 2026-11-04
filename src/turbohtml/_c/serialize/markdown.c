@@ -2105,24 +2105,11 @@ static void md_leave_link(md_ctx *ctx, md_frame *frame) {
     }
 }
 
-static void md_emit_pre_text(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t end);
-
-/* Pass a node's outer HTML through verbatim (the image/table escape hatch),
-   restarting the continuation prefix at each newline so a list or blockquote
-   marker carries down every line of the embedded markup. */
+/* Pass a node's outer HTML through on one line (the image/table/list escape
+   hatch). A blank line, even one that is blank only after its continuation
+   prefix, ends a GFM raw-HTML block and leaves the rest to be read as Markdown,
+   so each line break goes out as its numeric reference. */
 static void md_emit_raw_html(md_ctx *ctx, th_node *node) {
-    Py_ssize_t len;
-    Py_UCS4 *html = th_node_html(ctx->tree, node, &len);
-    if (html == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
-        return;              /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    md_emit_pre_text(ctx, html, len);
-    ctx->line_has_content = 1;
-    PyMem_Free(html);
-}
-
-static void md_emit_raw_list(md_ctx *ctx, th_node *node) {
     Py_ssize_t len;
     Py_UCS4 *html = th_node_html(ctx->tree, node, &len);
     if (html == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -2132,13 +2119,12 @@ static void md_emit_raw_list(md_ctx *ctx, th_node *node) {
     Py_ssize_t run = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
         if (html[index] == '\n' || html[index] == '\r') {
-            /* A blank line ends a GFM raw-HTML block before its closing </ol>. */
-            sbuf_put_run(&ctx->out, html + run, index - run);
+            md_put_run(ctx, html + run, index - run);
             sbuf_puts(&ctx->out, html[index] == '\n' ? "&#10;" : "&#13;");
             run = index + 1;
         }
     }
-    sbuf_put_run(&ctx->out, html + run, len - run);
+    md_put_run(ctx, html + run, len - run);
     ctx->line_has_content = 1;
     PyMem_Free(html);
 }
@@ -3613,7 +3599,7 @@ static void md_enter_list(md_ctx *ctx, th_node *node) {
     }
     if (raw_html) {
         md_block_line(ctx, 1);
-        md_emit_raw_list(ctx, node);
+        md_emit_raw_html(ctx, node);
         return;
     }
     if (ctx->line_has_content && md_list_cannot_interrupt(ctx, node, ordered, number)) {
