@@ -714,7 +714,7 @@ static int view_xpath_traverse(PyObject *self, visitproc visit, void *arg) {
 static int view_xpath_clear(PyObject *self) {
     Py_CLEAR(((ViewXPath *)self)->path);     /* GCOVR_EXCL_BR_LINE: set on construction, cleared on destruction */
     Py_CLEAR(((ViewXPath *)self)->compiled); /* GCOVR_EXCL_BR_LINE: set on construction, cleared on destruction */
-    Py_CLEAR(((ViewXPath *)self)->relative);
+    Py_CLEAR(((ViewXPath *)self)->relative); /* GCOVR_EXCL_BR_LINE: NULL without a "//" rewrite; llvm-cov extra arc */
     return 0;
 }
 

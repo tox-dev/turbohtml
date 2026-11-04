@@ -16,29 +16,21 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: 🐍 Install uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: latest-known
           python-version: "3.15"
           enable-cache: false
       - name: 📦 Install locked release tools
-        uses: tox-dev/github-workflows/install-locked-tools@99024bcb5749b178c5514f86acfcf1e80c865e75 # 6.3.0
+        uses: tox-dev/github-workflows/install-locked-tools@2c1f5e4ceda37c41eb8367b5cbeaa741aa60a566 # 6.5.2
         with:
           groups: release-news
           venv: ${{ runner.temp }}/release-tools
       - name: 🔍 Validate news fragments
-        uses: tox-dev/github-workflows/validate-news@99024bcb5749b178c5514f86acfcf1e80c865e75 # 6.3.0
+        uses: tox-dev/github-workflows/validate-news@2c1f5e4ceda37c41eb8367b5cbeaa741aa60a566 # 6.5.2
         with:
           additional-lock: pylock.pgo.toml
           additional-lock-groups: pgo build fuzz-build
           additional-matrix-python: ">=3.11,<3.16"
           additional-matrix-platforms: linux_x86_64 linux_aarch64 macos_arm64 windows_amd64 windows_arm64
           additional-matrix-implementations: cpython pypy
-          # temporary, delete after 2026-11-02
-          exclude-newer-package: |
-            nab=2026-10-26T01:50:50Z
-            nab-index=2026-10-26T01:50:50Z
-            nab-markersets=2026-10-26T01:50:50Z
-            nab-project=2026-10-26T01:50:50Z
-            nab-provider=2026-10-26T01:50:50Z
-            nab-resolver=2026-10-26T01:50:50Z

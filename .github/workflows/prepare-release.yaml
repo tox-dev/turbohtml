@@ -16,7 +16,7 @@ permissions: {}
 jobs:
   prepare:
     name: 🏷️ Prepare Towncrier release
-    uses: tox-dev/github-workflows/.github/workflows/prepare-towncrier-release.yaml@57a765127aae73adf7d0e24a7fe0f067f2d3ea3e # 6.2.1
+    uses: tox-dev/github-workflows/.github/workflows/prepare-towncrier-release.yaml@2c1f5e4ceda37c41eb8367b5cbeaa741aa60a566 # 6.5.2
     permissions:
       contents: read
       pull-requests: read
@@ -25,11 +25,3 @@ jobs:
     with:
       bump: ${{ inputs.bump }}
       annotated: true
-      # temporary, delete after 2026-11-02
-      exclude-newer-package: |
-        nab=2026-10-26T01:50:50Z
-        nab-index=2026-10-26T01:50:50Z
-        nab-markersets=2026-10-26T01:50:50Z
-        nab-project=2026-10-26T01:50:50Z
-        nab-provider=2026-10-26T01:50:50Z
-        nab-resolver=2026-10-26T01:50:50Z

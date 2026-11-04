@@ -10,7 +10,7 @@ concurrency:
 jobs:
   upgrade:
     name: 🔀 Upgrade release tools
-    uses: tox-dev/github-workflows/.github/workflows/upgrade-release-tools.yaml@57a765127aae73adf7d0e24a7fe0f067f2d3ea3e # 6.2.1
+    uses: tox-dev/github-workflows/.github/workflows/upgrade-release-tools.yaml@2c1f5e4ceda37c41eb8367b5cbeaa741aa60a566 # 6.5.2
     permissions:
       contents: read
     secrets:
@@ -21,11 +21,3 @@ jobs:
       additional-matrix-python: ">=3.11,<3.16"
       additional-matrix-platforms: linux_x86_64 linux_aarch64 macos_arm64 windows_amd64 windows_arm64
       additional-matrix-implementations: cpython pypy
-      # temporary, delete after 2026-11-02
-      exclude-newer-package: |
-        nab=2026-10-26T01:50:50Z
-        nab-index=2026-10-26T01:50:50Z
-        nab-markersets=2026-10-26T01:50:50Z
-        nab-project=2026-10-26T01:50:50Z
-        nab-provider=2026-10-26T01:50:50Z
-        nab-resolver=2026-10-26T01:50:50Z

@@ -28,6 +28,18 @@ updates:
       - skip news
     cooldown:
       default-days: 7
+  - package-ecosystem: cargo
+    directories:
+      - /tests/conformance/oracles/decoder
+      - /tests/conformance/oracles/detector
+    patterns:
+      - '*'
+    multi-ecosystem-group: dependencies
+    labels:
+      - dependencies
+      - skip news
+    cooldown:
+      default-days: 7
   - package-ecosystem: docker
     directories:
       - /.clusterfuzzlite
