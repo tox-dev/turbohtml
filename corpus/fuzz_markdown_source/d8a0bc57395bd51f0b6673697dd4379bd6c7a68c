@@ -1,0 +1,12 @@
+<!doctype html>
+<html>
+  <head>
+    <script>
+      var long_name = 1;
+      function f(alpha, [beta, { gamma = 1, ...rest }], (long_name) } catch ({ message }) { console.log(`t${message}u`) }
+    </script>
+  </head>
+  <body>
+    <script type="module">let m = 1; m++</script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+<!tdple.e html>
+<html>
+  <head>
+    <sty~or: rgj(255, 0, 0) }
+      @medha screen { .b { width: calc(100% - 2 * 10px) } }
+   t   @media screen { Ȝ߄ font-familyle>
+  </head>
+  <body>
+    <p style="margin: 0 0 0 0; col.eft: 2px; co0">styled</p>
+  </body>
+</html>

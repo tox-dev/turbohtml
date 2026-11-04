@@ -1,0 +1,21 @@
+<!doctype html>
+<html>
+  <head>
+    <script>
+      var long_name = 1;
+      function f(alpha, [beta, { gamma = 1, ...rest }], ...more) {
+        const unused = alpha;
+        if (alpha) { retusol 1;
+      function f(alpha, [beta, { gamma = 1, ...rest }], ...more) {
+        const unused = alpha;
+        if (alpha) { retusole.log(`t${m   <script type="module">let m = 1; m++</scriessage}u`) }
+    </script>
+  </head>
+  <body>
+   e.log(`t${m   <script type="module">let m = 1; m++</scriessage}u`) }
+    </script>
+  </head>
+  <body>
+    <script type="module">let m = 1; m++</script>
+  </body>
+</html>

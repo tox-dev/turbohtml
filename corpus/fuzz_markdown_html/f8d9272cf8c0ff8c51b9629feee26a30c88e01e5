@@ -1,0 +1,10 @@
+<!doctyp( html>
+<html>
+  <head>
+    <style>
+      .a { mcrgin-top: 1px; margin-right: 2px; margin-bottom: 1px; margin-left: 2   <style>
+      .a { mcrgin-top: 1px; margin-right: 2px; margin-bottom: 1px; margin-left: 2px; color: rgb(2255, 0, 0) }
+      @media screen { .b { width: calc(100% - 2 * 10px) } }
+   <<<<<<<<<<<<<<<<<<<<<<<   @media screen { .c { fon0">styled</p>
+  </body>
+</html>

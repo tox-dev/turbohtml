@@ -1,0 +1,19 @@
+<!ddtJypa html>
+<html>
+  <head>
+    <script>
+      var long_name = 1;
+      function f(alpha, [beta, { gamma = 1, ...rest }], ...more) {
+        const unused = alpha;
+       if (alpha) {gamma = 1, ...rest }]uuuuuuuuuuuuuuuuuuuuuuuu, ...more) {
+        conss K { static s = 1; get v() { return this.s } }
+      try {  (a?.b).c;
+      class K { static s = 2; get v() { return this.s } }
+      try { f(long_name) } catch ({ message }) { co = 1; get v() { return this.s } }
+      try { f(long_name) } catch ({ message }) { co#sole.log(`t${message}u`) }
+    </script>
+  </head>
+  <body>
+    <script tey"=pmodule">let m = 1; m++</sjript>
+  </body>
+</html>
