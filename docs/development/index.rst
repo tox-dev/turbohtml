@@ -289,10 +289,10 @@ it owns executes no line (``tox r -e fuzz-reachability``).
 ``tools/fuzz/cflite.py`` drives the ClusterFuzzLite images and writes their logs, crashes and corpus to files under its
 workspace instead of the console. The scheduled workflow commits those files to the private repository named by the
 ``CFLITE_STORAGE_REPO`` variable, written with the ``CFLITE_STORAGE_TOKEN`` secret, because the branch holds raw crash
-inputs and full fuzz logs. The jobs use the ``cflite-storage``
-environment, which allows only ``main``. The workflow uploads SARIF to Code Scanning and reports the address, undefined,
-prune and coverage jobs on ``main``. The ``🔒 fuzz`` workflow runs separately each day, with a longer run on Mondays.
-Start ClusterFuzzLite manually from this repository's ``main`` branch.
+inputs and full fuzz logs. The jobs use the ``cflite-storage`` environment, which allows only ``main``. The workflow
+uploads SARIF to Code Scanning and reports the address, undefined, prune and coverage jobs on ``main``. The ``🔒 fuzz``
+workflow runs separately each day, with a longer run on Mondays. Start ClusterFuzzLite manually from this repository's
+``main`` branch.
 
 Add a target by registering a ``bytes``-taking callable in ``_TARGETS`` (in-process) and dropping a representative
 benign seed under ``tools/fuzz/corpus/<target>/``; add a standalone harness by mirroring ``idna_harness.c`` for any C
