@@ -635,17 +635,30 @@ static const char *const NUMERIC_FUNCS[] = {"last",  "position", "count", "sum",
                                             "floor", "ceiling",  "round", "number", NULL};
 static const char *const POSITION_FUNCS[] = {"position", "last", NULL};
 
-/* Whether an expression calls position() or last() anywhere within it. */
+/* Whether an expression calls position() or last() anywhere within it. A long operator chain parses iteratively
+   into a spine as deep as the chain is long, outside the parse depth cap, so this walks it with a heap stack rather
+   than the C stack. The AST is a tree, so each arena node is pushed at most once and prog->count slots suffice. An
+   allocation failure answers yes, which only keeps the //X collapse from running. */
 static int references_position(const xp_program *prog, int32_t index) {
-    if (index < 0) {
-        return 0;
+    int32_t *pending = PyMem_Malloc((size_t)prog->count * sizeof(int32_t));
+    if (pending == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return 1;          /* GCOVR_EXCL_LINE */
     }
-    const xn *node = &prog->nodes[index];
-    if (node->kind == XN_FUNC && func_name_in(node, POSITION_FUNCS)) {
-        return 1;
+    int found = 0;
+    Py_ssize_t top = 0;
+    pending[top++] = index;
+    while (top > 0 && !found) {
+        const xn *node = &prog->nodes[pending[--top]];
+        found = node->kind == XN_FUNC && func_name_in(node, POSITION_FUNCS);
+        const int32_t children[] = {node->next, node->second, node->first};
+        for (size_t child = 0; child < sizeof(children) / sizeof(children[0]); child++) {
+            if (children[child] >= 0) {
+                pending[top++] = children[child];
+            }
+        }
     }
-    return references_position(prog, node->first) || references_position(prog, node->second) ||
-           references_position(prog, node->next);
+    PyMem_Free(pending);
+    return found;
 }
 
 /* A predicate is positional (so its result depends on the axis it runs over) when it
