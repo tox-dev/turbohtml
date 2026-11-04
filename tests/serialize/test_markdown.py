@@ -2288,6 +2288,28 @@ def test_nested_table_survives_the_round_trip(depth: int) -> None:
     assert _render(md(_nested_tables(depth))).count("<table") == depth
 
 
+@pytest.mark.parametrize("name", ['"', 'a"b', "é"], ids=["quote", "inner-quote", "non-ascii"])
+@pytest.mark.parametrize(
+    ("html", "config", "selector", "expected"),
+    [
+        pytest.param("<table><td><table {}>", Markdown(), "table table", [{}], id="cell-table"),
+        pytest.param(
+            "<p>x <img {} src=a> y</p>",
+            Markdown(images=Markdown.Images(mode="html")),
+            "img",
+            [{"src": "a"}],
+            id="raw-image",
+        ),
+    ],
+)
+def test_raw_html_drops_attribute_names_commonmark_cannot_read(
+    name: str, html: str, config: Markdown, selector: str, expected: list[dict[str, str]]
+) -> None:
+    # one such name makes the reader escape the whole tag as text
+    rendered: Final = _render(parse_fragment(html.format(name)).to_markdown(config))
+    assert [dict(element.attrs) for element in parse_fragment(rendered).select(selector)] == expected
+
+
 def test_corpus_never_crashes_and_renders(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:
     inputs = [
         case["data"] for case in wpt_html_tree_corpus["cases"] if "�" not in case["data"] and len(case["data"]) < 200

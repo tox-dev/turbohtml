@@ -2125,7 +2125,7 @@ static void md_leave_link(md_ctx *ctx, md_frame *frame) {
    so each line break goes out as its numeric reference. */
 static void md_emit_raw_html(md_ctx *ctx, th_node *node) {
     Py_ssize_t len;
-    Py_UCS4 *html = th_node_html(ctx->tree, node, &len);
+    Py_UCS4 *html = th_node_markdown_html(ctx->tree, node, &len);
     if (html == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
         return;              /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2170,7 +2170,7 @@ static Py_ssize_t md_tbody_tag(const Py_UCS4 *text, Py_ssize_t len) {
    widens the column. The caller's whitespace collapse puts the rest on one line. */
 static void md_emit_cell_html(md_ctx *ctx, th_node *node) {
     Py_ssize_t len;
-    Py_UCS4 *html = th_node_html(ctx->tree, node, &len);
+    Py_UCS4 *html = th_node_markdown_html(ctx->tree, node, &len);
     if (html == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
         return;              /* GCOVR_EXCL_LINE: allocation-failure path */
