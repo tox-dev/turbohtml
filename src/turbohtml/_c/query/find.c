@@ -775,7 +775,9 @@ static int text_scan_matches(th_tree *tree, th_node *node, const query_t *query,
     if (scratch_ensure(scratch, cap, text_len) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
         return -1;                                    /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    th_node_collect_text(tree, node, *scratch);
+    if (th_node_collect_text(tree, node, *scratch) < 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+        return -1;                                        /* GCOVR_EXCL_LINE: allocation failure */
+    }
     return ucs4_contains(*scratch, text_len, query->text_needle, query->text_needle_len);
 }
 
@@ -813,9 +815,10 @@ static PyObject *find_with_text_scan(PyObject *self, const query_t *query, int w
             continue;
         }
         int passed = text_scan_matches(tree, node, query, &scratch, &scratch_cap);
-        if (passed < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            error = 1;    /* GCOVR_EXCL_LINE: allocation-failure path */
-            break;        /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (passed < 0) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            error = 1;        /* GCOVR_EXCL_LINE: allocation-failure path */
+            break;            /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         if (passed == 0) {
             continue;

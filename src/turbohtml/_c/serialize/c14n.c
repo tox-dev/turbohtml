@@ -393,7 +393,11 @@ static th_node *c14n_step(sbuf *out, th_tree *tree, th_node *node, const th_node
         break;
     case TH_NODE_TEXT:
     case TH_NODE_CDATA: /* a CDATA section canonicalizes as its escaped character data */
-        c14n_put_text(out, need_text(tree, node), node->text_len);
+        if (need_text(tree, node) == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+            out->failed = 1;                                       /* GCOVR_EXCL_LINE: allocation failure */
+            return NULL;                                           /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        c14n_put_text(out, node->text, node->text_len);
         break;
     case TH_NODE_COMMENT:
         if (opts->with_comments) {
