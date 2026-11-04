@@ -7,6 +7,7 @@ import importlib
 import importlib.util
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from subprocess import run  # ruff: ignore[suspicious-subprocess-import] - libFuzzer owns a separate interpreter.
@@ -17,7 +18,7 @@ from fuzz.atheris_header import HEADER_SIZE, SEED_HEADER, Header
 from fuzz.atheris_runtime import build_runtime
 
 import turbohtml
-from turbohtml import Html, Markdown, Minify, NodeIterator, _html, detect, parse, parse_xml
+from turbohtml import Html, Indent, Markdown, Minify, NodeIterator, _html, detect, parse, parse_xml
 from turbohtml._html import _tree_verify
 from turbohtml.clean import (
     CSSMinify,
@@ -782,6 +783,64 @@ def test_selector_allocation_failure_raises_memory_error(
     alloc_sweep: Callable[..., list[str]], call: Callable[[turbohtml.Document], object]
 ) -> None:
     assert set(alloc_sweep(call, _document)) == {"MemoryError"}
+
+
+_AB: Final = re.compile(r"ab")
+# more code points than the largest arena block holds, so realizing the span always allocates
+_BIG: Final = "a" * 70_000
+
+
+def _markdown(markup: str, name: str) -> object:
+    return pytest.param(lambda node: node.to_markdown(), lambda: parse(markup), id=f"markdown-{name}")
+
+
+@pytest.mark.fuzz_build
+@pytest.mark.parametrize(
+    ("call", "setup"),
+    [
+        pytest.param(lambda node: node.canonicalize(), lambda: parse(f"<p>{_BIG}</p>"), id="c14n"),
+        pytest.param(lambda node: node.canonicalize(), lambda: parse_xml(f"<r>{_BIG}</r>"), id="c14n-xml"),
+        pytest.param(
+            lambda node: node.serialize(Html(layout=Indent())),
+            lambda: parse(f"<div><p>a</p>{_BIG}<p>b</p></div>"),
+            id="indent",
+        ),
+        pytest.param(lambda node: node.serialize(), lambda: parse(f"<pre>{_BIG}</pre>"), id="pre-newline"),
+        pytest.param(lambda node: node.to_source(), lambda: parse(f"<pre>{_BIG}</pre>"), id="lossless"),
+        pytest.param(
+            lambda node: node.serialize(Html(layout=Minify(collapse_whitespace=True))),
+            lambda: parse(f"<p>{_BIG}</p>"),
+            id="minify",
+        ),
+        pytest.param(
+            lambda node: node.serialize(Html(layout=Minify(omit_optional_tags=True))),
+            lambda: parse(f"<body>{_BIG}</body>"),
+            id="minify-body",
+        ),
+        pytest.param(
+            lambda node: node.serialize(Html(layout=Minify(minify_js=JSMinify()))),
+            lambda: parse(f"<script>{_BIG}</script>"),
+            id="minify-js",
+        ),
+        pytest.param(
+            lambda node: node.serialize(Html(layout=Minify(minify_css=CSSMinify()))),
+            lambda: parse(f"<style>{_BIG}</style>"),
+            id="minify-css",
+        ),
+        pytest.param(lambda node: node.find("p", text=_AB), lambda: parse(f"<p>a<b>{_BIG}</b></p>"), id="find"),
+        _markdown(f"<p><em>{_BIG}.</em>b</p>", "flank"),
+        _markdown(f"<p><em>a.</em>{_BIG}</p>", "after"),
+        _markdown(f"<ul><li>{_BIG}</li></ul>", "item"),
+        _markdown(f"<ul><li> <p>{_BIG}</p></li></ul>", "item-lead"),
+        _markdown(f"<pre>{_BIG}</pre>", "pre"),
+        _markdown(f"<p>a<br>{_BIG}</p>", "break"),
+        _markdown(f"<p><b>{_BIG}</b></p>", "edge"),
+    ],
+)
+def test_lazy_text_allocation_failure_raises_memory_error(
+    alloc_sweep: Callable[..., list[str]], call: Callable[[turbohtml.Node], object], setup: Callable[[], object]
+) -> None:
+    assert set(alloc_sweep(call, setup)) == {"MemoryError"}
 
 
 if TYPE_CHECKING:

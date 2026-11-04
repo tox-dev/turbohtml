@@ -1288,6 +1288,13 @@ static int md_run_closes(Py_UCS4 before, Py_UCS4 after, int star) {
            (star || !md_left_flanking(before, after) || md_edge(after) == MD_EDGE_PUNCT);
 }
 
+/* The first character of a non-empty text node, or fallback when realizing its span
+   fails; md_run then stops on the tree's failure and the render raises MemoryError. */
+static Py_UCS4 md_text_first(md_ctx *ctx, th_node *node, Py_UCS4 fallback) {
+    const Py_UCS4 *text = need_text(ctx->tree, node);
+    return text == NULL ? fallback : text[0]; /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+}
+
 /* The character the output holds right after an inline element, read off the tree for
    the flanking test of its closing run: the next text's first character, a line end at
    a block or cell boundary or a break, the punctuation an enclosing run or a link closes
@@ -1330,7 +1337,7 @@ static Py_UCS4 md_char_after(md_ctx *ctx, th_node *node) {
         next = cursor->next_sibling;
         if (cursor->type == TH_NODE_TEXT) {
             if (cursor->text_len > 0) {
-                return punct_depth > 0 ? '*' : need_text(ctx->tree, cursor)[0];
+                return punct_depth > 0 ? '*' : md_text_first(ctx, cursor, '*');
             }
             continue;
         }
@@ -1570,7 +1577,7 @@ static int md_followed_by_break(md_ctx *ctx, th_node *node) {
     if (sibling->type != TH_NODE_TEXT || sibling->text_len == 0) {
         return 0;
     }
-    return md_edge(need_text(ctx->tree, sibling)[0]) != 0;
+    return md_edge(md_text_first(ctx, sibling, ' ')) != 0;
 }
 
 static const char *const MD_ALTERNATES[][2] = {{"*", "_"}, {"_", "*"}, {"**", "__"}, {"__", "**"}};
@@ -1606,6 +1613,9 @@ static void md_wrap_flank(md_ctx *ctx, th_node *node, md_marker *marker) {
         return;
     }
     const Py_UCS4 *text = need_text(ctx->tree, only);
+    if (text == NULL) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+        return;         /* GCOVR_EXCL_LINE: the walk reports the allocation failure */
+    }
     Py_ssize_t start = 0;
     Py_ssize_t end = only->text_len;
     Py_UCS4 first = text[start];
@@ -1629,7 +1639,7 @@ static void md_wrap_flank(md_ctx *ctx, th_node *node, md_marker *marker) {
         th_node *sibling = node->next_sibling;
         Py_UCS4 next = end < only->text_len ? ' '
                        : sibling != NULL && sibling->type == TH_NODE_TEXT && sibling->text_len > 0
-                           ? need_text(ctx->tree, sibling)[0]
+                           ? md_text_first(ctx, sibling, ' ')
                            : ' ';
         if (md_edge(next) == 0) {
             marker->flags |= MD_MARK_CLOSE_FAILS;
@@ -1755,6 +1765,10 @@ static void md_collect_code_text(th_tree *tree, th_node *root, sbuf *out, Py_UCS
         }
         if (child->type == TH_NODE_TEXT && child->text_len > 0) {
             const Py_UCS4 *text = need_text(tree, child);
+            if (text == NULL) {  /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                out->failed = 1; /* GCOVR_EXCL_LINE: allocation failure */
+                return;          /* GCOVR_EXCL_LINE: allocation failure */
+            }
             if (boundary) {
                 md_code_boundary(out, separator, text[0]);
             }
@@ -2465,6 +2479,9 @@ static int md_br_trailing(md_ctx *ctx, th_node *node) {
         next = cursor->next_sibling;
         if (cursor->type == TH_NODE_TEXT) {
             const Py_UCS4 *text = need_text(ctx->tree, cursor);
+            if (text == NULL && cursor->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                return 0;                               /* GCOVR_EXCL_LINE: the walk reports the failure */
+            }
             for (Py_ssize_t index = 0; index < cursor->text_len; index++) {
                 if (!is_space(text[index])) {
                     return 0;
@@ -2791,6 +2808,9 @@ static int md_leads_with_inline(md_ctx *ctx, th_node *root, int *task, int for_l
         }
         if (child->type == TH_NODE_TEXT) {
             const Py_UCS4 *text = need_text(ctx->tree, child);
+            if (text == NULL && child->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                return MD_LEAD_NOTHING;                /* GCOVR_EXCL_LINE: the walk reports the failure */
+            }
             for (Py_ssize_t index = 0; index < child->text_len; index++) {
                 if (!is_space(text[index])) {
                     /* leading visible text rides on the bullet line */
@@ -2909,6 +2929,9 @@ static int md_item_is_loose(md_ctx *ctx, th_node *node) {
             /* inside a run more text only extends it, so only a run's first text is read */
             if (!in_run) {
                 const Py_UCS4 *text = need_text(ctx->tree, child);
+                if (text == NULL && child->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                    return 0;                              /* GCOVR_EXCL_LINE: the walk reports the failure */
+                }
                 for (Py_ssize_t index = 0; index < child->text_len && !visible; index++) {
                     visible = !is_space(text[index]);
                 }
@@ -3111,6 +3134,9 @@ static int md_edge_space(md_ctx *ctx, th_node *root, int from_start) {
     while (node != NULL) {
         if (node->type == TH_NODE_TEXT && node->text_len > 0) {
             const Py_UCS4 *text = need_text(ctx->tree, node);
+            if (text == NULL) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                return 0;       /* GCOVR_EXCL_LINE: the walk reports the allocation failure */
+            }
             return is_space(text[from_start ? 0 : node->text_len - 1]);
         }
         if (node->type == TH_NODE_ELEMENT && !is_md_skipped(node)) {
@@ -3461,7 +3487,7 @@ static void md_render_item(md_ctx *ctx, th_node *child, md_list_state *state) {
     th_node *only = child->first_child;
     int task = 0;
     ctx->suppress_break = (only != NULL && only == child->last_child && only->type == TH_NODE_TEXT &&
-                           only->text_len > 0 && !is_space(need_text(ctx->tree, only)[0])) ||
+                           only->text_len > 0 && !is_space(md_text_first(ctx, only, ' '))) ||
                           md_leads_with_inline(ctx, child, &task, 0) > 0;
     if (task > 0) {
         sbuf_puts(&ctx->out, task == 2 ? "[x]" : "[ ]");
@@ -4171,6 +4197,9 @@ static th_node *md_pre_code(md_ctx *ctx, th_node *node) {
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (child->type == TH_NODE_TEXT) {
             const Py_UCS4 *text = need_text(ctx->tree, child);
+            if (text == NULL && child->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                return NULL;                           /* GCOVR_EXCL_LINE: the walk reports the failure */
+            }
             for (Py_ssize_t index = 0; index < child->text_len; index++) {
                 if (!is_space(text[index])) {
                     return NULL;
@@ -4300,6 +4329,10 @@ static int md_render_whitespace(md_ctx *ctx, th_node *node, int inherited) {
         }
         if (child->type == TH_NODE_TEXT && child->text_len > 0) {
             const Py_UCS4 *data = need_text(ctx->tree, child);
+            if (data == NULL) {  /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                text.failed = 1; /* GCOVR_EXCL_LINE: allocation failure */
+                goto done;       /* GCOVR_EXCL_LINE: allocation failure */
+            }
             if (boundary) {
                 md_code_boundary(&text, '\n', data[0]);
                 boundary = 0;

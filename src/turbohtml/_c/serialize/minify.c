@@ -380,7 +380,11 @@ static int mini_end_closes_child(const th_node *parent) {
 /* Whether a following sibling begins with ASCII whitespace (used by the head/
    body/caption "not followed by whitespace" omission tests). */
 static int mini_starts_with_ws(th_tree *tree, th_node *node) {
-    return node->type == TH_NODE_TEXT && node->text_len > 0 && is_space(need_text(tree, node)[0]);
+    if (node->type != TH_NODE_TEXT || node->text_len == 0) {
+        return 0;
+    }
+    const Py_UCS4 *text = need_text(tree, node);
+    return text != NULL && is_space(text[0]); /* GCOVR_EXCL_BR_LINE: NULL is a lazy text OOM the walk reports */
 }
 
 static int mini_is_comment_like(th_node *node) {
@@ -581,7 +585,13 @@ static int mini_emit_script_js(sbuf *out, th_tree *tree, th_node *node, const th
     }
     Py_ssize_t pos = 0;
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        memcpy(src + pos, need_text(tree, child), (size_t)child->text_len * sizeof(Py_UCS4));
+        const Py_UCS4 *text = need_text(tree, child);
+        if (text == NULL && child->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+            PyMem_Free(src);                       /* GCOVR_EXCL_LINE: allocation failure */
+            out->failed = 1;                       /* GCOVR_EXCL_LINE: allocation failure */
+            return 1;                              /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        memcpy(src + pos, text, (size_t)child->text_len * sizeof(Py_UCS4));
         pos += child->text_len;
     }
     Py_ssize_t out_len;
@@ -625,7 +635,13 @@ static TH_NOINLINE int mini_emit_style_css(sbuf *out, th_tree *tree, th_node *no
     }
     Py_ssize_t pos = 0;
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
-        memcpy(src + pos, need_text(tree, child), (size_t)child->text_len * sizeof(Py_UCS4));
+        const Py_UCS4 *text = need_text(tree, child);
+        if (text == NULL && child->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+            PyMem_Free(src);                       /* GCOVR_EXCL_LINE: allocation failure */
+            out->failed = 1;                       /* GCOVR_EXCL_LINE: allocation failure */
+            return 1;                              /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        memcpy(src + pos, text, (size_t)child->text_len * sizeof(Py_UCS4));
         pos += child->text_len;
     }
     Py_ssize_t css_len;
@@ -783,10 +799,14 @@ static void serialize_minify(sbuf *out, th_tree *tree, th_node *root, const th_m
             /* a CDATA section is a Text node, so its escaped text is the one HTML form that holds a ">" */
             TH_FALLTHROUGH;
         case TH_NODE_TEXT:
+            if (need_text(tree, node) == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                out->failed = 1;                                       /* GCOVR_EXCL_LINE: allocation failure */
+                return;                                                /* GCOVR_EXCL_LINE: allocation failure */
+            }
             if (opts->collapse_whitespace && preserve == 0) {
-                mini_put_collapsed_text(out, need_text(tree, node), node->text_len, st->formatter, &last_was_space);
+                mini_put_collapsed_text(out, node->text, node->text_len, st->formatter, &last_was_space);
             } else {
-                sbuf_put_text(out, need_text(tree, node), node->text_len, 0, st->formatter);
+                sbuf_put_text(out, node->text, node->text_len, 0, st->formatter);
                 last_was_space = 0;
             }
             break;

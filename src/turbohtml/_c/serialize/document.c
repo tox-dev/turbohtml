@@ -729,6 +729,9 @@ static int pretty_is_blank(th_tree *tree, th_node *node) {
         return 0;
     }
     const Py_UCS4 *text = need_text(tree, node);
+    if (text == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+        return 0;                             /* GCOVR_EXCL_LINE: the run that writes this node fails */
+    }
     for (Py_ssize_t index = 0; index < node->text_len; index++) {
         if (!is_space(text[index])) {
             return 0;
@@ -773,6 +776,10 @@ static th_node *pretty_emit_run(sbuf *out, th_tree *tree, th_node *start, const 
     for (th_node *node = start;; node = node->next_sibling) {
         if (node->type == TH_NODE_TEXT) {
             const Py_UCS4 *text = need_text(tree, node);
+            if (text == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                out->failed = 1;                      /* GCOVR_EXCL_LINE: allocation failure */
+                return last;                          /* GCOVR_EXCL_LINE: allocation failure */
+            }
             Py_ssize_t begin = 0;
             Py_ssize_t end = node->text_len;
             while (node == start && is_space(text[begin])) {
@@ -1019,18 +1026,23 @@ PyObject *th_node_text_string(th_tree *tree, th_node *root) {
    zero-copy spans on the way; the caller sizes buf to the subtree's text length.
    The find(text=) C scan reuses one buffer across candidates so no per-node str is
    built; a Text or Content child of a content fragment is descended like an element. */
-static void collect_text_into(th_tree *tree, th_node *root, Py_UCS4 *buf) {
+static int collect_text_into(th_tree *tree, th_node *root, Py_UCS4 *buf) {
     Py_ssize_t pos = 0;
     for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
         if (node->type == TH_NODE_TEXT) {
-            memcpy(buf + pos, need_text(tree, node), (size_t)node->text_len * sizeof(Py_UCS4));
+            const Py_UCS4 *text = need_text(tree, node);
+            if (text == NULL && node->text_len > 0) { /* GCOVR_EXCL_BR_LINE: lazy text OOM */
+                return -1;                            /* GCOVR_EXCL_LINE: allocation failure */
+            }
+            memcpy(buf + pos, text, (size_t)node->text_len * sizeof(Py_UCS4));
             pos += node->text_len;
         }
     }
+    return 0;
 }
 
-void th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf) {
-    collect_text_into(tree, node, buf);
+int th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf) {
+    return collect_text_into(tree, node, buf);
 }
 
 /* The WHATWG-conformant defaults the html/inner_html accessors serialize under:

@@ -388,7 +388,11 @@ static inline int ser_needs_leading_newline(th_tree *tree, th_node *node) {
         return 0;
     }
     th_node *first = node->first_child;
-    return first != NULL && first->type == TH_NODE_TEXT && first->text_len > 0 && need_text(tree, first)[0] == '\n';
+    if (first == NULL || first->type != TH_NODE_TEXT || first->text_len == 0) {
+        return 0;
+    }
+    const Py_UCS4 *text = need_text(tree, first);
+    return text != NULL && text[0] == '\n'; /* GCOVR_EXCL_BR_LINE: NULL is a lazy text OOM the walk reports */
 }
 
 /* ASCII case-insensitive compare of a UCS-4 attribute value against a lowercase
