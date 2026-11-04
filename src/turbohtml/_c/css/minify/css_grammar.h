@@ -535,11 +535,12 @@ static int css_is_font_feature_block_at(const css_char *name, Py_ssize_t len) {
 static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, int preserve_names);
 static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, int media, css_buf *out);
 
-/* Whether an @import/@namespace url() carries a <url-modifier> after its URL (CSS Values 4 §4.5.4): any content beyond
-   trailing whitespace past the quoted or bare URL. text[start, end) is the url()'s whitespace-trimmed interior. A url()
-   with a modifier keeps its function form, since the @import grammar (CSS Cascade 5 §3.1) reads a token moved outside
-   the url() as a media query, and @namespace reads it as the prefix. */
-static int css_url_has_modifier(const css_char *text, Py_ssize_t start, Py_ssize_t end) {
+/* Whether an @import/@namespace url() keeps its function form. text[start, end) is the url()'s whitespace-trimmed
+   interior. A url() with a <url-modifier> after its URL (CSS Values 4 §4.5.4), any content beyond trailing whitespace
+   past the quoted or bare URL, keeps it, since the @import grammar (CSS Cascade 5 §3.1) reads a token moved outside the
+   url() as a media query, and @namespace reads it as the prefix. So does a bare URL holding a quote or `(`: that makes
+   it a bad url (CSS Syntax 3 §4.3.6), which no string spells, and the quote would end the string wrapped around it. */
+static int css_url_keeps_function(const css_char *text, Py_ssize_t start, Py_ssize_t end) {
     if (start >= end) {
         return 0;
     }
@@ -550,7 +551,8 @@ static int css_url_has_modifier(const css_char *text, Py_ssize_t start, Py_ssize
         return text[end - 1] != first;
     }
     for (Py_ssize_t index = start; index < end; index++) {
-        if (css_is_ws(text[index])) {
+        css_char character = text[index];
+        if (css_is_ws(character) || character == '"' || character == '\'' || character == '(') {
             return 1;
         }
     }
@@ -558,7 +560,7 @@ static int css_url_has_modifier(const css_char *text, Py_ssize_t start, Py_ssize
 }
 
 /* Whether an @import/@namespace url() token prints as its quoted body, setting [*body_start, *body_end) to the body
-   with its whitespace trimmed: it does unless a <url-modifier> follows the URL. th_minify_css_bytes closed a url the
+   with its whitespace trimmed: it does unless the url() keeps its function form. th_minify_css_bytes closed a url the
    input left open, so the text ends in its `)`. */
 static int css_url_unwraps(const css_token *token, Py_ssize_t *body_start, Py_ssize_t *body_end) {
     *body_start = 4;
@@ -569,7 +571,7 @@ static int css_url_unwraps(const css_token *token, Py_ssize_t *body_start, Py_ss
     while (*body_end > *body_start && css_is_ws(token->text[*body_end - 1])) {
         (*body_end)--;
     }
-    return !css_url_has_modifier(token->text, *body_start, *body_end);
+    return !css_url_keeps_function(token->text, *body_start, *body_end);
 }
 
 /* Whether the space before prelude token index can go because a closed string sits on one side of it: a string ends at
@@ -1536,8 +1538,91 @@ static int css_custom_bodies_disjoint(const css_buf *pool, const rule_item *left
     return 1;
 }
 
-/* An incomplete shorthand table cannot prove declarations independent. Cross only distinct type selectors or
-   distinct custom-property names, which have no shorthand overlap. */
+/* Merge the rule at index into an earlier live rule: one with the same selector takes its declarations, one with the
+   same body its selector. Given end, a run of rules right after index with that body joins the selector too, and *end
+   moves past it. Returns the index of the rule merged into, or -1, and sets *rewritten when the merge changed that
+   rule's selector or body: a same-selector merge whose declarations were already there leaves it as it was. An
+   incomplete shorthand table cannot prove declarations independent, so the scan crosses only distinct type selectors or
+   distinct custom-property names, which have no shorthand overlap. A rule an earlier merge dropped is skipped: its
+   content now sits in a rule before it. */
+static Py_ssize_t css_merge_back(css_buf *pool, rule_vec *items, Py_ssize_t index, Py_ssize_t *end, int *rewritten,
+                                 int baseline, int depth) {
+    rule_item *it = &items->items[index];
+    *rewritten = 0;
+    const int nested_body = memchr(pool->data + it->body_off, '{', (size_t)it->body_len) != NULL;
+    Py_ssize_t reach = 0;
+    for (Py_ssize_t back = it->prev_live; back >= 0; back = items->items[back].prev_live) {
+        rule_item *target = &items->items[back];
+        if (target->dropped) {
+            continue;
+        }
+        if (++reach > CSS_MAX_MERGE_REACH) {
+            break;
+        }
+        if (reach > 1 && nested_body) {
+            break;
+        }
+        if (!target->is_rule) {
+            break;
+        }
+        if (rule_run_eq(pool, target->sel_off, target->sel_len, it->sel_off, it->sel_len)) {
+            if (target->body_len >= CSS_MAX_MERGED_RUN_LENGTH) {
+                break;
+            }
+            Py_ssize_t body_off = target->body_off;
+            Py_ssize_t body_len = target->body_len;
+            css_merge_rule_bodies(pool, target, it, baseline, depth);
+            it->dropped = 1;
+            *rewritten = !rule_run_eq(pool, body_off, body_len, target->body_off, target->body_len);
+            return back;
+        }
+        if (rule_run_eq(pool, target->body_off, target->body_len, it->body_off, it->body_len) &&
+            css_selector_merge_safe(pool, it) && css_selector_merge_safe(pool, target)) {
+            Py_ssize_t length = target->sel_len + 1 + it->sel_len;
+            if (target->sel_len >= CSS_MAX_MERGED_RUN_LENGTH) {
+                break;
+            }
+            Py_ssize_t stop = index + 1;
+            if (end != NULL && back == index - 1) {
+                while (stop < items->len) {
+                    rule_item *next = &items->items[stop];
+                    if (!next->is_rule ||
+                        !rule_run_eq(pool, target->body_off, target->body_len, next->body_off, next->body_len) ||
+                        memchr(pool->data + next->sel_off, ',', (size_t)next->sel_len) != NULL ||
+                        !css_selector_merge_safe(pool, next)) {
+                        break;
+                    }
+                    if (length >= CSS_MAX_MERGED_RUN_LENGTH) {
+                        break;
+                    }
+                    length += 1 + next->sel_len;
+                    stop++;
+                }
+                *end = stop;
+            }
+            css_buf selector = {NULL, 0, 0, pool->oom};
+            cbuf_reserve(&selector, length);
+            cbuf_put_run(&selector, pool->data + target->sel_off, target->sel_len);
+            for (Py_ssize_t next = index; next < stop; next++) {
+                rule_item *item = &items->items[next];
+                cbuf_putc(&selector, ',');
+                cbuf_put_run(&selector, pool->data + item->sel_off, item->sel_len);
+                item->dropped = 1;
+            }
+            target->sel_off = pool_run(pool, selector.data, selector.len);
+            target->sel_len = selector.len;
+            cbuf_free(&selector);
+            *rewritten = 1;
+            return back;
+        }
+        if (memchr(pool->data + target->body_off, '{', (size_t)target->body_len) != NULL ||
+            (!css_type_lists_disjoint(pool, it, target) && !css_custom_bodies_disjoint(pool, it, target))) {
+            break;
+        }
+    }
+    return -1;
+}
+
 CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items, int baseline, int depth) {
     uint32_t *hashes = NULL;
     size_t hash_cap = 0;
@@ -1570,77 +1655,22 @@ CSS_NOINLINE static void css_merge_adjacent_rules(css_buf *pool, rule_vec *items
             last_live = index;
             continue;
         }
-        rule_item *merged = NULL;
-        const int nested_body = memchr(pool->data + it->body_off, '{', (size_t)it->body_len) != NULL;
-        Py_ssize_t reach = 0;
-        for (Py_ssize_t back = last_live; back >= 0; back = items->items[back].prev_live) {
-            if (++reach > CSS_MAX_MERGE_REACH) {
-                break;
-            }
-            rule_item *target = &items->items[back];
-            if (reach > 1 && nested_body) {
-                break;
-            }
-            if (!target->is_rule) {
-                break;
-            }
-            if (rule_run_eq(pool, target->sel_off, target->sel_len, it->sel_off, it->sel_len)) {
-                if (target->body_len >= CSS_MAX_MERGED_RUN_LENGTH) {
-                    break;
-                }
-                css_merge_rule_bodies(pool, target, it, baseline, depth);
-                it->dropped = 1;
-                merged = target;
-                break;
-            }
-            if (rule_run_eq(pool, target->body_off, target->body_len, it->body_off, it->body_len) &&
-                css_selector_merge_safe(pool, it) && css_selector_merge_safe(pool, target)) {
-                Py_ssize_t end = index + 1;
-                Py_ssize_t length = target->sel_len + 1 + it->sel_len;
-                if (target->sel_len >= CSS_MAX_MERGED_RUN_LENGTH) {
-                    break;
-                }
-                if (back == index - 1) {
-                    while (end < items->len) {
-                        rule_item *next = &items->items[end];
-                        if (!next->is_rule ||
-                            !rule_run_eq(pool, target->body_off, target->body_len, next->body_off, next->body_len) ||
-                            memchr(pool->data + next->sel_off, ',', (size_t)next->sel_len) != NULL ||
-                            !css_selector_merge_safe(pool, next)) {
-                            break;
-                        }
-                        if (length >= CSS_MAX_MERGED_RUN_LENGTH) {
-                            break;
-                        }
-                        length += 1 + next->sel_len;
-                        end++;
-                    }
-                }
-                css_buf selector = {NULL, 0, 0, pool->oom};
-                cbuf_reserve(&selector, length);
-                cbuf_put_run(&selector, pool->data + target->sel_off, target->sel_len);
-                for (Py_ssize_t next = index; next < end; next++) {
-                    rule_item *item = &items->items[next];
-                    cbuf_putc(&selector, ',');
-                    cbuf_put_run(&selector, pool->data + item->sel_off, item->sel_len);
-                    item->dropped = 1;
-                }
-                target->sel_off = pool_run(pool, selector.data, selector.len);
-                target->sel_len = selector.len;
-                cbuf_free(&selector);
-                merged = target;
-                index = end - 1;
-                break;
-            }
-            if (memchr(pool->data + target->body_off, '{', (size_t)target->body_len) != NULL ||
-                (!css_type_lists_disjoint(pool, it, target) && !css_custom_bodies_disjoint(pool, it, target))) {
-                break;
+        Py_ssize_t end = index + 1;
+        int rewritten = 0;
+        Py_ssize_t merged = css_merge_back(pool, items, index, &end, &rewritten, baseline, depth);
+        index = end - 1;
+        /* a merge that rewrote the target's selector or body can make it match the rule before it, and the next pass
+           would merge those two */
+        while (rewritten) {
+            Py_ssize_t again = css_merge_back(pool, items, merged, NULL, &rewritten, baseline, depth);
+            if (again >= 0) {
+                merged = again;
             }
         }
         if (hashes != NULL) {
-            if (merged != NULL) {
-                selector_hash = css_rule_hash(pool, merged->sel_off, merged->sel_len);
-                body_hash = css_rule_hash(pool, merged->body_off, merged->body_len);
+            if (merged >= 0) {
+                selector_hash = css_rule_hash(pool, items->items[merged].sel_off, items->items[merged].sel_len);
+                body_hash = css_rule_hash(pool, items->items[merged].body_off, items->items[merged].body_len);
             }
             css_rule_hash_add(hashes, hash_cap - 1, selector_hash);
             css_rule_hash_add(hashes, hash_cap - 1, body_hash);
@@ -1683,7 +1713,7 @@ static int css_media_continues(cursor *cur, css_buf *pool, css_buf *out) {
             continue;
         }
         if (token->kind == CSS_COMMENT) {
-            if (token->text_len >= 3 && token->text[2] == '!') {
+            if (token->text[2] == '!') {
                 break; /* a bang comment is a barrier between rules, so the blocks do not merge */
             }
             cur->index++;
@@ -1788,6 +1818,21 @@ CSS_NOINLINE static void css_rejoin_media(css_buf *pool, cursor *cur, rule_vec *
     css_free(run);
 }
 
+/* Whether node text ends in a code point that css_would_merge cannot judge from its value: an escaped one (`\!`), which
+   leaves the last token a name, or whitespace. The text is trimmed, so whitespace there belongs to a token: an escape
+   (`\ `, or the whitespace closing a hex escape, CSS Syntax 3 §4.3.7) or a bad string, and a space after it keeps the
+   next node out of that token either way. */
+static int css_ends_in_name(const css_char *text, Py_ssize_t len) {
+    if (css_is_ws(text[len - 1])) {
+        return 1;
+    }
+    Py_ssize_t backslashes = 0;
+    while (backslashes < len - 1 && text[len - 2 - backslashes] == '\\') {
+        backslashes++;
+    }
+    return backslashes % 2 == 1;
+}
+
 /* Parse a rule list, collecting nodes so adjacent rules can be merged, then serialize. At the top level, declarations
    between rules are stray text; nested (inside an at-block) a '}' ends the list. */
 static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, int media, css_buf *out) {
@@ -1807,8 +1852,9 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
     while (cur->index < cur->vec->len) {
         css_token *token = cursor_peek(cur);
         if (token->kind == CSS_WS || token->kind == CSS_COMMENT) {
-            /* a comment token's text always starts with the slash-star the tokenizer matched */
-            if (token->kind == CSS_COMMENT && token->text_len >= 3 && token->text[2] == '!') {
+            /* a comment token's text starts with the slash-star the tokenizer matched and runs to at least four code
+               points, since th_minify_css_bytes closes a comment the input leaves open */
+            if (token->kind == CSS_COMMENT && token->text[2] == '!') {
                 /* a bang comment is a license/copyright banner kept byte-exact: its body (SPDX text, newlines,
                    alignment) must survive verbatim, so copy the whole token unchanged */
                 rule_item item = {0};
@@ -1872,6 +1918,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
        after it is dropped with it, so only those can follow it. The reparse consumes a `;` between them as stray text
        and drops it, so writing one would change the output of the next pass. */
     int after_stray = 0;
+    int prev_stray = 0;
     for (Py_ssize_t index = 0; index < items.len; index++) {
         rule_item *item = &items.items[index];
         if (item->dropped) {
@@ -1886,12 +1933,19 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
             cbuf_put_run(out, pool->data + item->body_off, item->body_len);
             cbuf_putc(out, '}');
             prev_at_statement = 0;
+            prev_stray = 0;
         } else {
-            cbuf_put_run(out, pool->data + item->text_off, item->text_len);
-            prev_at_statement = item->at_statement;
-            if (top && item->stray) {
-                after_stray = 1;
+            const css_char *text = pool->data + item->text_off;
+            if (prev_stray &&
+                css_would_merge(out->data[out->len - 1], css_ends_in_name(out->data, out->len), text, item->text_len)) {
+                /* nothing separates a node from the stray text before it, and the next pass reads the two as one
+                   stray text: a token the two would form there gets spelled as a whole */
+                cbuf_putc(out, ' ');
             }
+            cbuf_put_run(out, text, item->text_len);
+            prev_at_statement = item->at_statement;
+            prev_stray = top && item->stray;
+            after_stray = after_stray || prev_stray;
         }
     }
     if (prev_at_statement && top && !after_stray) {

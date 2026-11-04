@@ -76,7 +76,8 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
     css_tokenize(view, length, &tokens);
     if (tokens.len > 0 &&
         (view[length - 1] == '\\' || tokens.items[tokens.len - 1].kind == CSS_STR ||
-         tokens.items[tokens.len - 1].kind == CSS_URL || tokens.items[tokens.len - 1].kind == CSS_BAD)) {
+         tokens.items[tokens.len - 1].kind == CSS_URL || tokens.items[tokens.len - 1].kind == CSS_BAD ||
+         tokens.items[tokens.len - 1].kind == CSS_COMMENT)) {
         css_buf spelled = {NULL, 0, 0, &oom};
         if (css_spell_eof(&tokens.items[tokens.len - 1], view, length, &spelled)) {
             return css_minify_spelled(&tokens, &spelled, inline_mode, baseline, out_len);
@@ -127,7 +128,9 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
    Syntax 3 reads it (nothing inside a string, §4.3.5; U+FFFD elsewhere, §4.3.7), then the quote and `)` the open token
    needs: consuming a string or url (§4.3.5, §4.3.6) returns the token at the end of input. Returns whether it spelled
    anything. A url's quote state mirrors css_tokenize, which reads a quoted stretch inside any url and ends it at a
-   newline: the url then turns bad but still runs to the next `)`, so a bad url the input leaves open needs one too. */
+   newline: the url then turns bad but still runs to the next `)`, so a bad url the input leaves open needs one too. A
+   comment the input leaves open (§4.3.2 ends it at the end of input) gets its closing star and slash, or the closers
+   would land inside it. */
 static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t length, css_buf *spelled) {
     const css_char *text = last->text;
     Py_ssize_t len = last->text_len + last->unit_len; /* a dimension's unit follows its number */
@@ -137,6 +140,7 @@ static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t
     if (last->kind == CSS_STR && !css_string_closed(text, len)) {
         quote = text[0];
     }
+    int open_comment = last->kind == CSS_COMMENT && (len < 4 || text[len - 2] != '*' || text[len - 1] != '/');
     for (Py_ssize_t pos = 4; open_url && pos < len; pos++) {
         css_char character = text[pos];
         if (character == '\\') {
@@ -149,7 +153,7 @@ static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t
             open_url = character != ')';
         }
     }
-    if (!escape && quote == 0 && !open_url) {
+    if (!escape && quote == 0 && !open_url && !open_comment) {
         return 0;
     }
     cbuf_put_run(spelled, view, length - escape);
@@ -161,6 +165,9 @@ static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t
     }
     if (open_url) {
         cbuf_putc(spelled, ')');
+    }
+    if (open_comment) {
+        cbuf_puts(spelled, "*/");
     }
     return 1;
 }

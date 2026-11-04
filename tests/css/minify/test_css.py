@@ -567,6 +567,9 @@ def test_minify_css_large_dedup_remains_a_fixpoint() -> None:
         pytest.param("sub{d:.}sub{d:.}sub{{}}", "sub{d:.;{}}", id="nested-after-duplicate"),
         pytest.param("sub{d:.}" * 257 + "sub{{}}", "sub{d:.;{}}", id="nested-after-long-run"),
         pytest.param("sub{d:.}" * 257 + "sub{e:.}", "sub{d:.;e:.}", id="declaration-after-long-run"),
+        pytest.param("r{a:1;b:0}.r{a:1}.r{b:0}", "r,.r{a:1;b:0}", id="merged-body-matches-rule-before"),
+        pytest.param("r,.r{a:1}r{a:1;b:0}.r{a:1}.r{b:0}", "r,.r{a:1;b:0}", id="merges-chain-back"),
+        pytest.param("c{x:1;y:1}a{x:1}b{z:1}a{y:1}a{w:1}", "c,a{x:1;y:1}b{z:1}a{w:1}", id="skips-rule-merged-away"),
     ],
 )
 def test_minify_css_merges_after_dedup(source: str, expected: str) -> None:
@@ -1673,6 +1676,10 @@ def test_minify_css_live_rule_search_is_bounded(count: int, first_rule: str, las
         pytest.param('@import url("a.css");', '@import"a.css";', id="import-url-no-modifier-unwrapped"),
         pytest.param("@import url(a.css);", '@import"a.css";', id="import-bare-url-unwrapped"),
         pytest.param("@import url();", '@import"";', id="import-empty-url-unwrapped"),
+        # a bare URL holding a quote or `(` is a bad url (CSS Syntax 3 §4.3.6), and no string spells it
+        pytest.param('@import url(a"b");', '@import url(a"b");', id="import-bad-url-double-quote-kept"),
+        pytest.param("@import url(a'b');", "@import url(a'b');", id="import-bad-url-single-quote-kept"),
+        pytest.param("@namespace url(a(b);", "@namespace url(a(b);", id="namespace-bad-url-paren-kept"),
         # a `*` universal or a combinator before an attribute selector keeps its descendant-combinator space (#1034): a
         # `[` opens a fresh attribute, so a `*` before it is the universal selector, not the `*=` operator
         pytest.param("* [lang]{c:d}", "* [lang]{c:d}", id="universal-descendant-attribute"),
@@ -1748,6 +1755,8 @@ def test_minify_css_spec_fixes(source: str, expected: str) -> None:
         pytest.param('@media{url(}"\n")', '@media{url(}"\n")")}', id="bad-url-open-quote-after-newline"),
         pytest.param('a{b:"x\n', "", id="bad-string-at-eof"),
         pytest.param("a{b:'x\n", "", id="bad-single-quote-string-at-eof"),
+        pytest.param("@media{a/*x", "@media{a/*x*/}", id="open-comment-in-media"),
+        pytest.param("@media{a(/*x", "@media{a(/*x*/)}", id="open-comment-in-block-in-media"),
     ],
 )
 def test_minify_css_closes_nested_blocks_at_eof(source: str, expected: str) -> None:
@@ -1831,7 +1840,7 @@ _BACKSLASH_AT_EOF: Final[list[ParameterSet]] = [
     pytest.param("a{e:url('x\\", "a{e:url(x)}", id="single-quoted-url"),
     pytest.param('a{e:url( "x\\', "a{e:url(x)}", id="quoted-url-after-whitespace"),
     pytest.param('a{e:url("a"b\\', 'a{e:url("a"b\ufffd)}', id="url-string-then-ident"),
-    pytest.param("a{e:f}/*! c \\", "a{e:f}/*! c \\", id="comment"),
+    pytest.param("a{e:f}/*! c \\", "a{e:f}/*! c \\*/", id="comment"),
 ]
 
 
@@ -1859,6 +1868,11 @@ _OPEN_AT_EOF: Final[list[ParameterSet]] = [
     pytest.param('a{e:"x\\"', 'a{e:"x\\""}', id="string-escaped-quote"),
     pytest.param('a{e:"x\\\\"', 'a{e:"x\\\\"}', id="string-escaped-backslash"),
     pytest.param('a{e:"', 'a{e:""}', id="lone-quote"),
+    pytest.param('@import url(l("[', '@import url(l("[");', id="import-bad-url-quote"),
+    pytest.param("a/*", "a/**/", id="comment-opener"),
+    pytest.param("a/*x", "a/*x*/", id="comment"),
+    pytest.param("a/*xy", "a/*xy*/", id="comment-two-code-points"),
+    pytest.param("a/*x*", "a/*x**/", id="comment-ending-in-star"),
 ]
 
 
@@ -2096,6 +2110,14 @@ _STRAY_TOP_TOKEN: Final[list[ParameterSet]] = [
     pytest.param("a;", "a", id="stray-no-block-kept"),
     pytest.param(")}@m}<", ")@m<", id="at-statement-between-strays"),
     pytest.param('x;@import "a";@import "b"', 'x@import"a"@import"b"', id="at-statements-after-stray"),
+    pytest.param("a;h", "a h", id="names-kept-apart"),
+    pytest.param("\\1;h", "\\1  h", id="hex-escape-space-before-name"),
+    pytest.param("a;\\31 x", "a \\31x", id="name-before-leading-digit-escape"),
+    pytest.param("a\\!;b", "a\\! b", id="escaped-delimiter-before-name"),
+    pytest.param("\\\\;b", "\\\\ b", id="escaped-backslash-before-name"),
+    pytest.param("a\\\\\\!;b", "a\\\\\\! b", id="escaped-delimiter-after-escaped-backslash"),
+    pytest.param("/;*x", "/ *x", id="slash-before-star"),
+    pytest.param("a;/*!x*/", "a/*!x*/", id="name-before-bang-comment"),
 ]
 
 

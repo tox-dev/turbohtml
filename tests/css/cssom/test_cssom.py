@@ -178,6 +178,18 @@ def test_stylesheet_drops_empty_selector_and_unterminated_block() -> None:
     assert [rule.selector_text for rule in StyleSheet("{ color: red } p { color: blue").rules] == ["p"]
 
 
+@pytest.mark.parametrize(
+    ("css", "selector"),
+    [
+        pytest.param(r"\ {color:red}", r"\ ", id="escaped-space"),
+        pytest.param(r"a\  {color:red}", r"a\ ", id="escaped-and-unescaped-space"),
+        pytest.param(r"a\\ {color:red}", r"a\\", id="paired-backslashes-before-space"),
+    ],
+)
+def test_stylesheet_selector_keeps_escaped_trailing_space(css: str, selector: str) -> None:
+    assert [rule.selector_text for rule in StyleSheet(css).rules] == [selector]
+
+
 def test_stylesheet_grows_past_initial_capacity() -> None:
     css = " ".join(f".c{index} {{ color: red }}" for index in range(12))
     assert len(StyleSheet(css).rules) == 12
