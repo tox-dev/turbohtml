@@ -535,11 +535,12 @@ static int css_is_font_feature_block_at(const css_char *name, Py_ssize_t len) {
 static void css_parse_declarations(css_buf *pool, cursor *cur, decl_vec *decls, int preserve_names);
 static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, int media, css_buf *out);
 
-/* Whether an @import/@namespace url() carries a <url-modifier> after its URL (CSS Values 4 §4.5.4): any content beyond
-   trailing whitespace past the quoted or bare URL. text[start, end) is the url()'s whitespace-trimmed interior. A url()
-   with a modifier keeps its function form, since the @import grammar (CSS Cascade 5 §3.1) reads a token moved outside
-   the url() as a media query, and @namespace reads it as the prefix. */
-static int css_url_has_modifier(const css_char *text, Py_ssize_t start, Py_ssize_t end) {
+/* Whether an @import/@namespace url() keeps its function form. text[start, end) is the url()'s whitespace-trimmed
+   interior. A url() with a <url-modifier> after its URL (CSS Values 4 §4.5.4), any content beyond trailing whitespace
+   past the quoted or bare URL, keeps it, since the @import grammar (CSS Cascade 5 §3.1) reads a token moved outside the
+   url() as a media query, and @namespace reads it as the prefix. So does a bare URL holding a quote or `(`: that makes
+   it a bad url (CSS Syntax 3 §4.3.6), which no string spells, and the quote would end the string wrapped around it. */
+static int css_url_keeps_function(const css_char *text, Py_ssize_t start, Py_ssize_t end) {
     if (start >= end) {
         return 0;
     }
@@ -550,7 +551,8 @@ static int css_url_has_modifier(const css_char *text, Py_ssize_t start, Py_ssize
         return text[end - 1] != first;
     }
     for (Py_ssize_t index = start; index < end; index++) {
-        if (css_is_ws(text[index])) {
+        css_char character = text[index];
+        if (css_is_ws(character) || character == '"' || character == '\'' || character == '(') {
             return 1;
         }
     }
@@ -558,7 +560,7 @@ static int css_url_has_modifier(const css_char *text, Py_ssize_t start, Py_ssize
 }
 
 /* Whether an @import/@namespace url() token prints as its quoted body, setting [*body_start, *body_end) to the body
-   with its whitespace trimmed: it does unless a <url-modifier> follows the URL. th_minify_css_bytes closed a url the
+   with its whitespace trimmed: it does unless the url() keeps its function form. th_minify_css_bytes closed a url the
    input left open, so the text ends in its `)`. */
 static int css_url_unwraps(const css_token *token, Py_ssize_t *body_start, Py_ssize_t *body_end) {
     *body_start = 4;
@@ -569,7 +571,7 @@ static int css_url_unwraps(const css_token *token, Py_ssize_t *body_start, Py_ss
     while (*body_end > *body_start && css_is_ws(token->text[*body_end - 1])) {
         (*body_end)--;
     }
-    return !css_url_has_modifier(token->text, *body_start, *body_end);
+    return !css_url_keeps_function(token->text, *body_start, *body_end);
 }
 
 /* Whether the space before prelude token index can go because a closed string sits on one side of it: a string ends at

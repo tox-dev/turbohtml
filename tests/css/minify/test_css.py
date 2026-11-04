@@ -1673,6 +1673,10 @@ def test_minify_css_live_rule_search_is_bounded(count: int, first_rule: str, las
         pytest.param('@import url("a.css");', '@import"a.css";', id="import-url-no-modifier-unwrapped"),
         pytest.param("@import url(a.css);", '@import"a.css";', id="import-bare-url-unwrapped"),
         pytest.param("@import url();", '@import"";', id="import-empty-url-unwrapped"),
+        # a bare URL holding a quote or `(` is a bad url (CSS Syntax 3 §4.3.6), and no string spells it
+        pytest.param('@import url(a"b");', '@import url(a"b");', id="import-bad-url-double-quote-kept"),
+        pytest.param("@import url(a'b');", "@import url(a'b');", id="import-bad-url-single-quote-kept"),
+        pytest.param("@namespace url(a(b);", "@namespace url(a(b);", id="namespace-bad-url-paren-kept"),
         # a `*` universal or a combinator before an attribute selector keeps its descendant-combinator space (#1034): a
         # `[` opens a fresh attribute, so a `*` before it is the universal selector, not the `*=` operator
         pytest.param("* [lang]{c:d}", "* [lang]{c:d}", id="universal-descendant-attribute"),
@@ -1859,6 +1863,7 @@ _OPEN_AT_EOF: Final[list[ParameterSet]] = [
     pytest.param('a{e:"x\\"', 'a{e:"x\\""}', id="string-escaped-quote"),
     pytest.param('a{e:"x\\\\"', 'a{e:"x\\\\"}', id="string-escaped-backslash"),
     pytest.param('a{e:"', 'a{e:""}', id="lone-quote"),
+    pytest.param('@import url(l("[', '@import url(l("[");', id="import-bad-url-quote"),
 ]
 
 
