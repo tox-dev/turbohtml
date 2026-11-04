@@ -477,6 +477,8 @@ _MINIFY_CSS: Final[Html] = Html(layout=Minify(minify_css=CSSMinify()))
         pytest.param(lambda: minify_css_inline(_DECLARATIONS), id="inline"),
         pytest.param(lambda: minify_css(".\\31 x{color:red}.y{content:'open"), id="spelled"),
         pytest.param(lambda: minify_css(_MERGES), id="merges"),
+        # a nested selector whose first token fails to land, then whitespace and a comment ahead of the next token
+        pytest.param(lambda: minify_css(".a{b c{color:red}b/**/c{color:red}}"), id="nested-selector"),
     ],
 )
 def test_css_minify_allocation_failure_raises_memory_error(
