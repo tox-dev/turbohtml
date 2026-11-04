@@ -29,7 +29,7 @@ jobs:
           enable-cache: false
       - name: 📦 Export Linux build requirements
         id: linux
-        uses: tox-dev/github-workflows/export-build-constraints@bceb5c005e19823dc8835f536f53f172ae223927 # 6.5.0
+        uses: tox-dev/github-workflows/export-build-constraints@2c1f5e4ceda37c41eb8367b5cbeaa741aa60a566 # 6.5.2
         with:
           lock: pylock.pgo.toml
           target-platform: linux_x86_64
@@ -40,7 +40,7 @@ jobs:
         run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints-linux.txt"
       - name: 📦 Export Linux ARM build requirements
         id: linux_arm
-        uses: tox-dev/github-workflows/export-build-constraints@bceb5c005e19823dc8835f536f53f172ae223927 # 6.5.0
+        uses: tox-dev/github-workflows/export-build-constraints@2c1f5e4ceda37c41eb8367b5cbeaa741aa60a566 # 6.5.2
         with:
           lock: pylock.pgo.toml
           target-platform: linux_aarch64
@@ -51,7 +51,7 @@ jobs:
         run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints-linux-arm.txt"
       - name: 📦 Export macOS build requirements
         id: macos
-        uses: tox-dev/github-workflows/export-build-constraints@bceb5c005e19823dc8835f536f53f172ae223927 # 6.5.0
+        uses: tox-dev/github-workflows/export-build-constraints@2c1f5e4ceda37c41eb8367b5cbeaa741aa60a566 # 6.5.2
         with:
           lock: pylock.pgo.toml
           target-platform: macos_arm64
@@ -62,7 +62,7 @@ jobs:
         run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints-macos.txt"
       - name: 📦 Export Windows build requirements
         id: windows
-        uses: tox-dev/github-workflows/export-build-constraints@bceb5c005e19823dc8835f536f53f172ae223927 # 6.5.0
+        uses: tox-dev/github-workflows/export-build-constraints@2c1f5e4ceda37c41eb8367b5cbeaa741aa60a566 # 6.5.2
         with:
           lock: pylock.pgo.toml
           target-platform: windows_amd64
@@ -73,7 +73,7 @@ jobs:
         run: cp "$SOURCE" "$RUNNER_TEMP/build-constraints-windows.txt"
       - name: 📦 Export Windows ARM build requirements
         id: windows_arm
-        uses: tox-dev/github-workflows/export-build-constraints@bceb5c005e19823dc8835f536f53f172ae223927 # 6.5.0
+        uses: tox-dev/github-workflows/export-build-constraints@2c1f5e4ceda37c41eb8367b5cbeaa741aa60a566 # 6.5.2
         with:
           lock: pylock.pgo.toml
           target-platform: windows_arm64
@@ -311,7 +311,7 @@ jobs:
   github-notes:
     name: 📝 Render GitHub Release notes
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-    uses: tox-dev/github-workflows/.github/workflows/release-notes.yaml@bceb5c005e19823dc8835f536f53f172ae223927 # 6.5.0
+    uses: tox-dev/github-workflows/.github/workflows/release-notes.yaml@2c1f5e4ceda37c41eb8367b5cbeaa741aa60a566 # 6.5.2
     permissions:
       contents: read
     with:
@@ -322,7 +322,7 @@ jobs:
     name: 🚀 Publish GitHub Release
     needs: [publish, github-notes]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-    uses: tox-dev/github-workflows/.github/workflows/github-release.yaml@bceb5c005e19823dc8835f536f53f172ae223927 # 6.5.0
+    uses: tox-dev/github-workflows/.github/workflows/github-release.yaml@2c1f5e4ceda37c41eb8367b5cbeaa741aa60a566 # 6.5.2
     permissions:
       contents: write
     with:
