@@ -6,6 +6,9 @@ input as a workflow artifact anyone signed in can download. This driver runs the
 platform with a filesystem filestore instead: the build and run logs, crashes, corpus and coverage land in files under
 ``--workspace``, and the console gets only exit codes, crash hashes and, when the build fails, the build log. The
 workflow then commits the corpus, crashes and logs to a public state branch.
+
+Pruning and coverage run each fuzz target in its own CIFuzz run, ``--jobs`` at a time, all stopping at the deadline
+``--seconds`` sets; a target still running then is stopped and reported with exit code 124.
 """
 
 from __future__ import annotations
@@ -13,11 +16,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, Final
 from zipfile import ZipFile
 
@@ -33,6 +41,10 @@ RUN_IMAGE: Final = _IMAGES + "run-fuzzers@sha256:35b5e685193f1f920f6627dd8f0bd90
 _BUILD_CHECK: Final = "Build check: stdout:"
 _BUILD_CHECK_VERDICT: Final = re.compile(r"BAD BUILD: |\d{4}-\d\d-\d\d [\d:,]+ - \S+ - [A-Z]+ - ")
 _BUILD_LOG_LINES: Final = 200
+# a CIFuzz run uploads the corpus and its report after its own deadline, so it gets this much less than the time left
+_UPLOAD_SECONDS: Final = 120
+_TIMED_OUT: Final = 124
+_FUZZ_TARGET_MARKER: Final = b"LLVMFuzzerTestOneInput"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -45,6 +57,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--workspace", type=Path, required=True, help="holds storage/, logs/ and the CFLite outputs")
     parser.add_argument("--base-commit", help="the commit a code-change run diffs against and finds its base build at")
     parser.add_argument("--upload-build", action="store_true", help="keep this build as the next run's base build")
+    parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1, help="targets pruned or measured at once")
     arguments: Final = parser.parse_args(argv)
     return _run(
         _Job(
@@ -55,6 +68,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.workspace.resolve(),
             arguments.base_commit,
             arguments.upload_build,
+            arguments.jobs,
         )
     )
 
@@ -89,14 +103,90 @@ def _run(job: _Job) -> int:
     else:
         if job.mode in {"batch", "coverage"}:
             _add_seeds(workspace / "build-out", storage / "corpus")
-        status[job.mode] = _docker(
-            RUN_IMAGE,
-            {**environment, "MODE": job.mode, "FUZZ_SECONDS": str(job.seconds), "OUTPUT_SARIF": "True"},
-            (workspace, job.source),
-            logs / f"{job.mode}-{job.sanitizer}.log",
-        )
+        run_environment: Final = {**environment, "MODE": job.mode, "OUTPUT_SARIF": "True"}
+        if job.mode in {"prune", "coverage"}:
+            status.update(_run_targets(job, run_environment))
+        else:
+            status[job.mode] = _docker(
+                RUN_IMAGE,
+                {**run_environment, "FUZZ_SECONDS": str(job.seconds)},
+                (workspace, job.source),
+                logs / f"{job.mode}-{job.sanitizer}.log",
+            )
     print(json.dumps({"status": status, "crashes": _crashes(workspace)}, indent=2, sort_keys=True))
     return max(status.values())
+
+
+def _run_targets(job: _Job, environment: dict[str, str]) -> dict[str, int]:
+    # one CIFuzz run prunes its targets in series and gives each a share of FUZZ_SECONDS as its merge timeout; the
+    # first merge to time out raises out of the loop and leaves every later target unpruned. Its coverage mode never
+    # reads FUZZ_SECONDS, and base-runner's coverage script replays each Python target's whole corpus in series. So
+    # each target gets a run of its own, the largest corpus first, and all of them stop at the same deadline
+    deadline: Final = monotonic() + job.seconds
+    build: Final = job.workspace / "build-out"
+    corpus: Final = job.workspace / "storage" / "corpus"
+    targets: Final = sorted(
+        (path for path in build.iterdir() if _is_fuzz_target(path)),
+        key=lambda path: (-len(list((corpus / path.name).glob("*"))), path.name),
+    )
+    names: Final = frozenset(target.name for target in targets)
+    with ThreadPoolExecutor(max_workers=job.jobs) as pool:
+        codes: Final = list(
+            pool.map(lambda target: _run_target(job, environment, target, names - {target.name}, deadline), targets)
+        )
+    return {f"{job.mode} {target.name}": code for target, code in zip(targets, codes, strict=True)}
+
+
+def _is_fuzz_target(path: Path) -> bool:
+    # CIFuzz's own test (is_fuzz_target_local in infra/utils.py): an executable file with no extension that names the
+    # libFuzzer entry point; llvm-symbolizer is executable but carries no such name
+    return path.is_file() and not path.suffix and os.access(path, os.X_OK) and _FUZZ_TARGET_MARKER in path.read_bytes()
+
+
+def _run_target(job: _Job, environment: dict[str, str], target: Path, others: frozenset[str], deadline: float) -> int:
+    seconds: Final = int(deadline - monotonic()) - _UPLOAD_SECONDS
+    if seconds < 1:
+        return _TIMED_OUT
+    workspace: Final = job.workspace / "targets" / target.name
+    build: Final = workspace / "build-out"
+    build.mkdir(parents=True, exist_ok=True)
+    # CIFuzz runs every fuzz target it finds in build-out, and base-runner's coverage script finds them with
+    # find -type f, which skips links: the target is copied, everything else it needs is linked, and the files of
+    # the other targets stay out
+    for path in target.parent.iterdir():
+        if path.name.split(".")[0].removesuffix("_seed_corpus") not in others:
+            (build / path.name).unlink(missing_ok=True)
+            if path == target:
+                shutil.copy2(path, build / path.name)
+            else:
+                (build / path.name).symlink_to(path)
+    # the corpus and crashes stay in the shared filestore; the coverage report each run uploads stays in its own
+    storage: Final = workspace / "storage"
+    storage.mkdir(exist_ok=True)
+    for name in ("corpus", "crashes"):
+        (job.workspace / "storage" / name).mkdir(exist_ok=True)
+        (storage / name).unlink(missing_ok=True)
+        (storage / name).symlink_to(job.workspace / "storage" / name)
+    logs: Final = job.workspace / "logs" / f"{job.mode}-{job.sanitizer}"
+    logs.mkdir(exist_ok=True)
+    code: Final = _docker(
+        RUN_IMAGE,
+        {
+            **environment,
+            "WORKSPACE": str(workspace),
+            "FILESTORE_ROOT_DIR": str(storage),
+            "FUZZ_SECONDS": str(seconds),
+        },
+        (job.workspace, job.source),
+        logs / f"{target.name}.log",
+        seconds + _UPLOAD_SECONDS,
+    )
+    # the reachability check reads every target's coverage data from one directory
+    if (data := build / f"coverage_d_{target.name}").is_file():
+        collected = job.workspace / "coverage-data"
+        collected.mkdir(exist_ok=True)
+        shutil.copy2(data, collected / data.name)
+    return code
 
 
 def _add_seeds(build: Path, corpus: Path) -> None:
@@ -108,9 +198,12 @@ def _add_seeds(build: Path, corpus: Path) -> None:
                 (target / Path(name).name).write_bytes(archive.read(name))
 
 
-def _docker(image: str, environment: dict[str, str], mounts: Sequence[Path], log: Path) -> int:
+def _docker(
+    image: str, environment: dict[str, str], mounts: Sequence[Path], log: Path, seconds: int | None = None
+) -> int:
     # CFLite starts the builder and runner as sibling containers through the socket and hands them its own volumes, so
     # each mount keeps its host path; SELinux labels on the outer container block the nested builder's writes
+    name: Final = f"cflite-{uuid.uuid4().hex}"
     command: Final = [
         "docker",
         "run",
@@ -121,10 +214,18 @@ def _docker(image: str, environment: dict[str, str], mounts: Sequence[Path], log
         "/var/run/docker.sock:/var/run/docker.sock",
         *(argument for mount in mounts for argument in ("-v", f"{mount}:{mount}")),
         *(argument for key, value in environment.items() for argument in ("-e", f"{key}={value}")),
+        *(() if seconds is None else ("--name", name)),
         image,
     ]
     with log.open("ab") as output:
-        return subprocess.run(command, stdout=output, stderr=subprocess.STDOUT, check=False).returncode
+        try:
+            return subprocess.run(
+                command, stdout=output, stderr=subprocess.STDOUT, check=False, timeout=seconds
+            ).returncode
+        except subprocess.TimeoutExpired:
+            # killing the docker client leaves its container running
+            subprocess.run(["docker", "kill", name], stdout=output, stderr=subprocess.STDOUT, check=False)
+            return _TIMED_OUT
 
 
 def _public_build_log(log: Path) -> str:
@@ -140,13 +241,14 @@ def _crashes(workspace: Path) -> list[dict[str, str | int]]:
     # the hash names a crash for triage without exposing the input, as fuzz.py logs its crashers. CIFuzz saves each
     # input as out/artifacts/<target>/<sanitizer>/<input> next to an <input>.summary stack trace (_target_artifact_path
     # and _save_crash in infra/cifuzz/fuzz_target.py, google/oss-fuzz@868bfcbd1db0c8eb4dc6029598c90705d6c88e74)
-    artifacts: Final = workspace / "out" / "artifacts"
+    # and the per-target runs of pruning and coverage keep theirs under targets/<target>/
     return [
         {
             "fuzzer": path.relative_to(artifacts).parts[0],
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             "bytes": path.stat().st_size,
         }
+        for artifacts in (run / "out" / "artifacts" for run in (workspace, *sorted((workspace / "targets").glob("*"))))
         for path in sorted(artifacts.rglob("*"))
         if path.is_file() and path.suffix != ".summary"
     ]
@@ -163,6 +265,7 @@ class _Job:
     workspace: Path
     base_commit: str | None
     upload_build: bool
+    jobs: int
 
 
 if __name__ == "__main__":

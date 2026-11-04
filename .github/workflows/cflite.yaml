@@ -13,6 +13,8 @@ jobs:
     name: 🧪 Run batch fuzzing (${{ matrix.sanitizer }})
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    # the build takes up to 75 minutes, then fuzzing 60
+    timeout-minutes: 165
     environment: cflite-storage
     permissions:
       contents: write
@@ -64,6 +66,8 @@ jobs:
     needs: batch
     if: (success() || failure()) && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    # the build takes up to 75 minutes, then pruning 75
+    timeout-minutes: 180
     environment: cflite-storage
     permissions:
       contents: write
@@ -81,8 +85,9 @@ jobs:
       - name: 📥 Check out public fuzz state
         run: bash tools/fuzz/cflite_storage.sh clone
       - name: 🧪 Prune the corpus
+        # one merge per target, a core each; a target still merging at the deadline is stopped and fails the step
         run: >-
-          uv run --no-project --python 3.15 python tools/fuzz/cflite.py --mode prune --sanitizer address --seconds 11100 --source "${GITHUB_WORKSPACE}" --workspace "${RUNNER_TEMP}/cflite"
+          uv run --no-project --python 3.15 python tools/fuzz/cflite.py --mode prune --sanitizer address --seconds 4500 --source "${GITHUB_WORKSPACE}" --workspace "${RUNNER_TEMP}/cflite"
       - name: 📤 Store the pruned corpus and logs
         if: success() || failure()
         run: bash tools/fuzz/cflite_storage.sh push "prune"
@@ -93,6 +98,8 @@ jobs:
     needs: prune
     if: (success() || failure()) && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
+    # the build takes up to 30 minutes, then measuring 100
+    timeout-minutes: 145
     environment: cflite-storage
     permissions:
       contents: write
@@ -110,11 +117,12 @@ jobs:
       - name: 📥 Check out public fuzz state
         run: bash tools/fuzz/cflite_storage.sh clone
       - name: 📊 Measure coverage over the stored corpus
+        # each target starts in minutes under coverage tracing, then replays its whole corpus; a core each
         run: >-
-          uv run --no-project --python 3.15 python tools/fuzz/cflite.py --mode coverage --sanitizer coverage --seconds 600 --source "${GITHUB_WORKSPACE}" --workspace "${RUNNER_TEMP}/cflite"
+          uv run --no-project --python 3.15 python tools/fuzz/cflite.py --mode coverage --sanitizer coverage --seconds 6000 --source "${GITHUB_WORKSPACE}" --workspace "${RUNNER_TEMP}/cflite"
       - name: 📊 Check reachability floors
         # each Atheris target's callback and Python-implemented exports must execute at least one line
-        run: uvx --with tox-uv tox run -e fuzz-reachability -- --coverage-dir "${RUNNER_TEMP}/cflite/build-out"
+        run: uvx --with tox-uv tox run -e fuzz-reachability -- --coverage-dir "${RUNNER_TEMP}/cflite/coverage-data"
         env:
           UV_PYTHON_PREFERENCE: only-managed
       - name: 📤 Store the coverage logs

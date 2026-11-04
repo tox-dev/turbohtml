@@ -7,6 +7,7 @@ import inspect
 import json
 import sys
 from pathlib import Path
+from subprocess import TimeoutExpired  # ruff:ignore[suspicious-subprocess-import]  # stands in for a run outliving its deadline
 from typing import TYPE_CHECKING, Final
 from zipfile import ZipFile
 
@@ -442,6 +443,148 @@ def test_cflite_reports_crashes_by_hash(
         ],
         False,
     )
+
+
+@pytest.fixture
+def per_target(docker: MagicMock, mocker: MockerFixture, tmp_path: Path) -> MagicMock:
+    """Build two Atheris targets, a shared runtime and a non-target, with a larger stored corpus for the second."""
+    workspace: Final = tmp_path / "workspace"
+    mocker.patch("fuzz.cflite.monotonic", autospec=True, return_value=0.0)
+    for target, inputs in (("fuzz_dom_query", 1), ("fuzz_html_document", 3)):
+        for index in range(inputs):
+            (workspace / "storage" / "corpus" / target).mkdir(parents=True, exist_ok=True)
+            (workspace / "storage" / "corpus" / target / str(index)).write_bytes(b"x")
+
+    def run(command: list[str], **_: object) -> MagicMock:
+        if command[-1] == BUILD_IMAGE:
+            build = workspace / "build-out"
+            build.mkdir(parents=True)
+            for name, content, mode in (
+                ("fuzz_dom_query", b"# LLVMFuzzerTestOneInput", 0o755),
+                ("fuzz_dom_query.pkg", b"", 0o644),
+                ("fuzz_html_document", b"# LLVMFuzzerTestOneInput", 0o755),
+                ("fuzz_html_document.pkg", b"", 0o644),
+                ("sanitizer_with_fuzzer.so", b"", 0o644),
+                ("llvm-symbolizer", b"ELF", 0o755),
+            ):
+                (build / name).write_bytes(content)
+                (build / name).chmod(mode)
+            with ZipFile(build / "fuzz_dom_query_seed_corpus.zip", "w") as archive:
+                archive.writestr("seed", b"x")
+        elif _environment(command).get("MODE") == "coverage":
+            out = Path(_environment(command)["WORKSPACE"]) / "build-out"
+            (out / f"coverage_d_{out.parent.name}").write_bytes(out.parent.name.encode())
+        return mocker.MagicMock(returncode=0)
+
+    docker.side_effect = run
+    return docker
+
+
+@pytest.mark.parametrize("mode", ["prune", "coverage"])
+def test_cflite_runs_each_target_alone_largest_corpus_first(per_target: MagicMock, tmp_path: Path, mode: str) -> None:
+    workspace: Final = tmp_path / "workspace"
+    assert fuzz_cflite_main(_target_arguments(tmp_path, mode)) == 0
+    runs: Final = [call.args[0] for call in per_target.call_args_list[1:]]
+    assert [
+        (_environment(command), command[-3:-1], call.kwargs["timeout"])
+        for command, call in zip(runs, per_target.call_args_list[1:], strict=True)
+    ] == [
+        (
+            {
+                **_expected(tmp_path),
+                "MODE": mode,
+                "OUTPUT_SARIF": "True",
+                "WORKSPACE": str(workspace / "targets" / target),
+                "FILESTORE_ROOT_DIR": str(workspace / "targets" / target / "storage"),
+                "FUZZ_SECONDS": "3480",
+            },
+            ["--name", runs[index][-2]],
+            3600,
+        )
+        for index, target in enumerate(("fuzz_html_document", "fuzz_dom_query"))
+    ]
+
+
+@pytest.mark.usefixtures("per_target")
+def test_cflite_per_target_build_holds_only_its_target(tmp_path: Path) -> None:
+    fuzz_cflite_main(_target_arguments(tmp_path))
+    workspace: Final = tmp_path / "workspace"
+    target: Final = workspace / "targets" / "fuzz_dom_query"
+    links: Final = {
+        path.name: (path.is_symlink(), path.resolve() == workspace / "build-out" / path.name)
+        for path in (target / "build-out").iterdir()
+    }
+    storage: Final = {path.name: path.resolve() for path in (target / "storage").iterdir()}
+    assert (links, storage) == (
+        {
+            "fuzz_dom_query": (False, False),
+            "fuzz_dom_query.pkg": (True, True),
+            "fuzz_dom_query_seed_corpus.zip": (True, True),
+            "sanitizer_with_fuzzer.so": (True, True),
+            "llvm-symbolizer": (True, True),
+        },
+        {"corpus": workspace / "storage" / "corpus", "crashes": workspace / "storage" / "crashes"},
+    )
+
+
+@pytest.mark.usefixtures("per_target")
+def test_cflite_per_target_rerun_replaces_links(tmp_path: Path) -> None:
+    fuzz_cflite_main(_target_arguments(tmp_path))
+    (tmp_path / "workspace" / "build-out").rename(tmp_path / "first-build")
+    assert fuzz_cflite_main(_target_arguments(tmp_path)) == 0
+
+
+@pytest.mark.usefixtures("per_target")
+def test_cflite_collects_coverage_data_for_reachability(tmp_path: Path) -> None:
+    fuzz_cflite_main(_target_arguments(tmp_path, "coverage"))
+    collected: Final = tmp_path / "workspace" / "coverage-data"
+    assert {path.name: path.read_bytes() for path in collected.iterdir()} == {
+        "coverage_d_fuzz_dom_query": b"fuzz_dom_query",
+        "coverage_d_fuzz_html_document": b"fuzz_html_document",
+    }
+
+
+def test_cflite_stops_target_at_deadline(
+    per_target: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    build: Final = per_target.side_effect
+
+    def run(command: list[str], **kwargs: object) -> MagicMock:
+        if command[-1] == RUN_IMAGE:
+            raise TimeoutExpired(command, 3600)
+        return build(command, **kwargs)
+
+    per_target.side_effect = run
+    assert fuzz_cflite_main(_target_arguments(tmp_path)) == 124
+    kills: Final = [call.args[0] for call in per_target.call_args_list if call.args[0][:2] == ["docker", "kill"]]
+    names: Final = [call.args[0][-2] for call in per_target.call_args_list if call.args[0][-1] == RUN_IMAGE]
+    assert (kills, json.loads(capsys.readouterr().out)["status"]) == (
+        [["docker", "kill", name] for name in names],
+        {"build": 0, "prune fuzz_dom_query": 124, "prune fuzz_html_document": 124},
+    )
+
+
+def test_cflite_skips_targets_past_deadline(per_target: MagicMock, tmp_path: Path) -> None:
+    arguments: Final = _target_arguments(tmp_path)
+    arguments[5] = "120"
+    assert (fuzz_cflite_main(arguments), per_target.call_count) == (124, 1)
+
+
+@pytest.mark.usefixtures("per_target")
+def test_cflite_reports_per_target_crashes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    crash: Final = tmp_path / "workspace" / "targets" / "fuzz_dom_query" / "out" / "artifacts" / "fuzz_dom_query"
+    crash.mkdir(parents=True)
+    (crash / "crash-1").write_bytes(b"<x>")
+    fuzz_cflite_main(_target_arguments(tmp_path))
+    assert json.loads(capsys.readouterr().out)["crashes"] == [
+        {"bytes": 3, "fuzzer": "fuzz_dom_query", "sha256": hashlib.sha256(b"<x>").hexdigest()}
+    ]
+
+
+def _target_arguments(tmp_path: Path, mode: str = "prune") -> list[str]:
+    arguments: Final = _arguments(tmp_path, "--jobs", "1")
+    arguments[1] = mode
+    return arguments
 
 
 def _environment(command: list[str]) -> dict[str, str]:
