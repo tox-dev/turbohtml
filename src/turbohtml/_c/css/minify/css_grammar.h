@@ -1807,6 +1807,21 @@ CSS_NOINLINE static void css_rejoin_media(css_buf *pool, cursor *cur, rule_vec *
     css_free(run);
 }
 
+/* Whether node text ends in a code point that css_would_merge cannot judge from its value: an escaped one (`\!`), which
+   leaves the last token a name, or whitespace. The text is trimmed, so whitespace there belongs to a token: an escape
+   (`\ `, or the whitespace closing a hex escape, CSS Syntax 3 §4.3.7) or a bad string, and a space after it keeps the
+   next node out of that token either way. */
+static int css_ends_in_name(const css_char *text, Py_ssize_t len) {
+    if (css_is_ws(text[len - 1])) {
+        return 1;
+    }
+    Py_ssize_t backslashes = 0;
+    while (backslashes < len - 1 && text[len - 2 - backslashes] == '\\') {
+        backslashes++;
+    }
+    return backslashes % 2 == 1;
+}
+
 /* Parse a rule list, collecting nodes so adjacent rules can be merged, then serialize. At the top level, declarations
    between rules are stray text; nested (inside an at-block) a '}' ends the list. */
 static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, int media, css_buf *out) {
@@ -1892,6 +1907,7 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
        after it is dropped with it, so only those can follow it. The reparse consumes a `;` between them as stray text
        and drops it, so writing one would change the output of the next pass. */
     int after_stray = 0;
+    int prev_stray = 0;
     for (Py_ssize_t index = 0; index < items.len; index++) {
         rule_item *item = &items.items[index];
         if (item->dropped) {
@@ -1906,12 +1922,19 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
             cbuf_put_run(out, pool->data + item->body_off, item->body_len);
             cbuf_putc(out, '}');
             prev_at_statement = 0;
+            prev_stray = 0;
         } else {
-            cbuf_put_run(out, pool->data + item->text_off, item->text_len);
-            prev_at_statement = item->at_statement;
-            if (top && item->stray) {
-                after_stray = 1;
+            const css_char *text = pool->data + item->text_off;
+            if (prev_stray &&
+                css_would_merge(out->data[out->len - 1], css_ends_in_name(out->data, out->len), text, item->text_len)) {
+                /* nothing separates a node from the stray text before it, and the next pass reads the two as one
+                   stray text: a token the two would form there gets spelled as a whole */
+                cbuf_putc(out, ' ');
             }
+            cbuf_put_run(out, text, item->text_len);
+            prev_at_statement = item->at_statement;
+            prev_stray = top && item->stray;
+            after_stray = after_stray || prev_stray;
         }
     }
     if (prev_at_statement && top && !after_stray) {

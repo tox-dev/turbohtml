@@ -2110,6 +2110,14 @@ _STRAY_TOP_TOKEN: Final[list[ParameterSet]] = [
     pytest.param("a;", "a", id="stray-no-block-kept"),
     pytest.param(")}@m}<", ")@m<", id="at-statement-between-strays"),
     pytest.param('x;@import "a";@import "b"', 'x@import"a"@import"b"', id="at-statements-after-stray"),
+    pytest.param("a;h", "a h", id="names-kept-apart"),
+    pytest.param("\\1;h", "\\1  h", id="hex-escape-space-before-name"),
+    pytest.param("a;\\31 x", "a \\31x", id="name-before-leading-digit-escape"),
+    pytest.param("a\\!;b", "a\\! b", id="escaped-delimiter-before-name"),
+    pytest.param("\\\\;b", "\\\\ b", id="escaped-backslash-before-name"),
+    pytest.param("a\\\\\\!;b", "a\\\\\\! b", id="escaped-delimiter-after-escaped-backslash"),
+    pytest.param("/;*x", "/ *x", id="slash-before-star"),
+    pytest.param("a;/*!x*/", "a/*!x*/", id="name-before-bang-comment"),
 ]
 
 
