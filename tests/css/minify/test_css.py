@@ -1739,6 +1739,15 @@ def test_minify_css_spec_fixes(source: str, expected: str) -> None:
         pytest.param("a{h:c([", "a{h:c([])}", id="bracket-in-function"),
         pytest.param("a{-ms-filter:(", "a{-ms-filter:()}", id="filter-open-block"),
         pytest.param("a{-ms-filter:(}", "a{-ms-filter:(})}", id="filter-brace-in-block"),
+        pytest.param("r{r:l(}(}}", "r{r:l(}(}))}", id="function-args-block-closed-by-brace"),
+        pytest.param("a{b:c;l((:}", "a{b:c}", id="drop-declaration-with-colon-in-open-block"),
+        pytest.param("@media{(", "@media{()}", id="stray-paren-in-media"),
+        pytest.param("@media{{(}}[", "@media{[]}", id="stray-bracket-in-media"),
+        pytest.param('@media{url(}"\n', '@media{url(}"\n)}', id="bad-url-in-media"),
+        pytest.param("@media{url('x\n", "@media{url('x\n)}", id="bad-url-single-quote-in-media"),
+        pytest.param('@media{url(}"\n")', '@media{url(}"\n")")}', id="bad-url-open-quote-after-newline"),
+        pytest.param('a{b:"x\n', "", id="bad-string-at-eof"),
+        pytest.param("a{b:'x\n", "", id="bad-single-quote-string-at-eof"),
     ],
 )
 def test_minify_css_closes_nested_blocks_at_eof(source: str, expected: str) -> None:

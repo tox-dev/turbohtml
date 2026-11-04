@@ -74,8 +74,9 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
     }
     tokens.cap = token_guess;
     css_tokenize(view, length, &tokens);
-    if (tokens.len > 0 && (view[length - 1] == '\\' || tokens.items[tokens.len - 1].kind == CSS_STR ||
-                           tokens.items[tokens.len - 1].kind == CSS_URL)) {
+    if (tokens.len > 0 &&
+        (view[length - 1] == '\\' || tokens.items[tokens.len - 1].kind == CSS_STR ||
+         tokens.items[tokens.len - 1].kind == CSS_URL || tokens.items[tokens.len - 1].kind == CSS_BAD)) {
         css_buf spelled = {NULL, 0, 0, &oom};
         if (css_spell_eof(&tokens.items[tokens.len - 1], view, length, &spelled)) {
             return css_minify_spelled(&tokens, &spelled, inline_mode, baseline, out_len);
@@ -125,13 +126,14 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
    quote the output adds would land inside that token or be escaped. Spelled gets the input with that `\` read as CSS
    Syntax 3 reads it (nothing inside a string, §4.3.5; U+FFFD elsewhere, §4.3.7), then the quote and `)` the open token
    needs: consuming a string or url (§4.3.5, §4.3.6) returns the token at the end of input. Returns whether it spelled
-   anything. A url's quote state mirrors css_tokenize, which reads a quoted stretch inside any url. */
+   anything. A url's quote state mirrors css_tokenize, which reads a quoted stretch inside any url and ends it at a
+   newline: the url then turns bad but still runs to the next `)`, so a bad url the input leaves open needs one too. */
 static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t length, css_buf *spelled) {
     const css_char *text = last->text;
     Py_ssize_t len = last->text_len + last->unit_len; /* a dimension's unit follows its number */
     int escape = last->kind != CSS_COMMENT && css_escapes(text, len);
     css_char quote = 0;
-    int open_url = last->kind == CSS_URL;
+    int open_url = last->kind == CSS_URL || (last->kind == CSS_BAD && text[0] != '"' && text[0] != '\'');
     if (last->kind == CSS_STR && !css_string_closed(text, len)) {
         quote = text[0];
     }
@@ -140,7 +142,7 @@ static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t
         if (character == '\\') {
             pos++;
         } else if (quote != 0) {
-            quote = character == quote ? 0 : quote;
+            quote = character == quote || css_quoted_stop[character] == CSS_QUOTED_NEWLINE ? 0 : quote;
         } else if (character == '"' || character == '\'') {
             quote = character;
         } else {
