@@ -2,7 +2,7 @@ name: 🧪 ClusterFuzzLite
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 1 * * *" # daily batch, then prune and coverage
+    - cron: "43 11 * * *" # daily batch, then prune and coverage
 concurrency:
   group: cflite-state
   cancel-in-progress: false

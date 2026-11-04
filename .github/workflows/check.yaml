@@ -7,10 +7,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
   schedule:
-    - cron: "0 8 * * *"
+    - cron: "27 7 * * *"
+    - cron: "55 11 * * 1"
 concurrency:
   group: check-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -28,6 +29,8 @@ jobs:
           - {os: "ubuntu-24.04", label: Linux, cov: "gcov"}
           - {os: "macos-15", label: macOS, cov: "xcrun llvm-cov gcov"}
           - {os: "windows-2025", label: Windows, cov: ""}
+        # macOS keeps 3.15, 3.15t and 3.11 on every event; the other interpreters run in the weekly full matrix.
+        exclude: ${{ fromJSON(github.event.schedule == '55 11 * * 1' && '[]' || '[{"os":"macos-15","py":"3.14"},{"os":"macos-15","py":"3.14t"},{"os":"macos-15","py":"3.13"},{"os":"macos-15","py":"3.12"}]') }}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
