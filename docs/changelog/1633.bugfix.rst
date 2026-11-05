@@ -1,3 +1,4 @@
 Keep CSS minification stable across repeated passes when the input ends inside a function whose arguments hold an open
 ``[`` or ``{`` block with a ``)`` inside, or inside an invalid ``unicode-range`` value: a closer now ends only a block
-of its own kind, as CSS Syntax 3 reads it, so the closers written at the end of the input match what the next pass reads.
+of its own kind, as CSS Syntax 3 reads it, so the closers written at the end of the input match what the next pass
+reads.
