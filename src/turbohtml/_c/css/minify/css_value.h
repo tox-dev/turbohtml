@@ -1000,23 +1000,99 @@ static css_token *cursor_peek(cursor *cur) {
     return cur->index < cur->vec->len ? &cur->vec->items[cur->index] : NULL;
 }
 
-/* Advance the cursor over a run of component values up to a top-level stop delimiter, honoring (){}[] nesting, and
-   return the end index; the run is [start, end). */
+/* The simple blocks a run of delim tokens holds open, innermost last. Consuming a simple block ends only at the closer
+   of its own kind (CSS Syntax 3 §5.4.7), so a `)` inside `[` or a `}` inside `(` is a plain component value. The
+   first CSS_SHALLOW_BLOCKS openers live inline, so the common shallow run allocates nothing. */
+#define CSS_SHALLOW_BLOCKS 32
+
+typedef struct {
+    css_char shallow[CSS_SHALLOW_BLOCKS];
+    css_buf deep; /* the openers past the shallow ones */
+    Py_ssize_t len;
+} css_blocks;
+
+static inline css_char css_blocks_top(const css_blocks *blocks) {
+    return blocks->len <= CSS_SHALLOW_BLOCKS ? blocks->shallow[blocks->len - 1]
+                                             : blocks->deep.data[blocks->len - CSS_SHALLOW_BLOCKS - 1];
+}
+
+static inline void css_blocks_pop(css_blocks *blocks) {
+    blocks->len--;
+    if (blocks->len >= CSS_SHALLOW_BLOCKS) {
+        blocks->deep.len--;
+    }
+}
+
+static inline void css_blocks_step(css_blocks *blocks, css_char delim) {
+    if (delim == '(' || delim == '[' || delim == '{') {
+        if (blocks->len < CSS_SHALLOW_BLOCKS) {
+            blocks->shallow[blocks->len] = delim;
+        } else {
+            Py_ssize_t held = blocks->deep.len;
+            cbuf_putc(&blocks->deep, delim);
+            if (blocks->deep.len == held) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+                return;                     /* GCOVR_EXCL_LINE: the call's oom flag fails it as a whole */
+            }
+        }
+        blocks->len++;
+    } else if ((delim == ')' || delim == ']' || delim == '}') && blocks->len > 0 &&
+               css_blocks_top(blocks) == (delim == ')' ? '(' : delim - 2)) {
+        /* `[` and `{` sit two code points before their closers, `(` one */
+        css_blocks_pop(blocks);
+    }
+}
+
+/* Write the closer of each block still open, innermost first, and release the stack. */
+static void css_blocks_close(css_blocks *blocks, css_buf *out) {
+    while (blocks->len > 0) {
+        css_char opener = css_blocks_top(blocks);
+        cbuf_putc(out, opener == '(' ? ')' : opener + 2);
+        css_blocks_pop(blocks);
+    }
+    cbuf_free(&blocks->deep);
+}
+
+/* Scans that see only parentheses count them, since only a `)` closes one; the first `[` or `{` hands the scan to
+   css_scan_stacked. Starting at that opener, with parens_open `(` blocks around it, return the index of the first
+   delimiter in stops outside every block, or end. Kept out of line so the counting loops stay small. */
+CSS_NOINLINE static Py_ssize_t css_scan_stacked(token_vec *vec, Py_ssize_t index, Py_ssize_t end,
+                                                Py_ssize_t parens_open, const char *stops) {
+    css_blocks blocks = {.deep = {NULL, 0, 0, vec->oom}};
+    for (Py_ssize_t paren = 0; paren < parens_open; paren++) {
+        css_blocks_step(&blocks, '(');
+    }
+    for (; index < end; index++) {
+        if (vec->items[index].kind != CSS_DELIM) {
+            continue;
+        }
+        css_char delim = vec->items[index].delim;
+        if (blocks.len == 0 && delim != 0 && strchr(stops, (int)delim) != NULL) {
+            break;
+        }
+        css_blocks_step(&blocks, delim);
+    }
+    cbuf_free(&blocks.deep);
+    return index;
+}
+
+/* Advance the cursor over a run of component values up to a stop delimiter outside every block, and return the end
+   index; the run is [start, end). */
 static Py_ssize_t css_read_until(cursor *cur, const char *stops) {
-    int depth = 0;
+    Py_ssize_t parens_open = 0;
     while (cur->index < cur->vec->len) {
         css_token *token = &cur->vec->items[cur->index];
         if (token->kind == CSS_DELIM) {
             css_char delim = token->delim;
-            if (depth == 0 && strchr(stops, (int)delim) != NULL && delim != 0) {
+            if (parens_open == 0 && strchr(stops, (int)delim) != NULL && delim != 0) {
                 break;
             }
-            if (delim == '(' || delim == '[' || delim == '{') {
-                depth++;
-            } else if ((delim == ')' || delim == ']' || delim == '}') && depth > 0) {
-                /* a stray depth-0 ')' or ']' is consumed below; a depth-0 '}' always ends the run at the stop check
-                   above, since every caller includes '}' in its stop set */
-                depth--;
+            if (delim == '(') {
+                parens_open++;
+            } else if (delim == ')' && parens_open > 0) {
+                parens_open--;
+            } else if (delim == '[' || delim == '{') {
+                cur->index = css_scan_stacked(cur->vec, cur->index, cur->vec->len, parens_open, stops);
+                break;
             }
         }
         cur->index++;
@@ -1024,24 +1100,23 @@ static Py_ssize_t css_read_until(cursor *cur, const char *stops) {
     return cur->index;
 }
 
-/* Find the index of the ')' matching an opening '(' that sits at open_paren, scanning over delim tokens. */
+/* Find the index of the ')' matching an opening '(' that sits at open_paren, or end when the arguments run to it. */
 static Py_ssize_t css_match_paren(token_vec *vec, Py_ssize_t open_paren, Py_ssize_t end) {
-    int depth = 1;
-    Py_ssize_t index = open_paren + 1;
-    while (index < end) { /* depth is decremented to 0 only with an immediate break, so it is always >0 at the test */
-        if (vec->items[index].kind == CSS_DELIM) {
-            if (vec->items[index].delim == '(') {
-                depth++;
-            } else if (vec->items[index].delim == ')') {
-                depth--;
-                if (depth == 0) {
-                    break;
-                }
-            }
+    Py_ssize_t parens_open = 0;
+    for (Py_ssize_t index = open_paren + 1; index < end; index++) {
+        if (vec->items[index].kind != CSS_DELIM) {
+            continue;
         }
-        index++;
+        css_char delim = vec->items[index].delim;
+        if (delim == '(') {
+            parens_open++;
+        } else if (delim == ')' && parens_open-- == 0) {
+            return index;
+        } else if (delim == '[' || delim == '{') {
+            return css_scan_stacked(vec, index, end, parens_open, ")");
+        }
     }
-    return index;
+    return end;
 }
 
 /* The CSS Values 4 §10 math functions: their arguments are calculations, where a bare 0 is a <number> that no longer
@@ -1120,16 +1195,16 @@ static void css_collapse_transform_args(const css_char *name, Py_ssize_t name_le
 }
 
 /* Argument minification uses the pool as scratch; buffer arguments separately to avoid interleaving output. A function
-   with no matching `)` ran to the end of its value, which css_read_until ends at a `}` that closed a block inside the
-   arguments; the arguments then close their own blocks before the function's `)`, which would otherwise close an inner
-   `(` on the next pass and leave the function open. */
+   with no matching `)` runs to the end of the input, as css_read_until reads blocks the same way; the arguments then
+   close their own blocks before the function's `)`, which would otherwise close an inner `(` on the next pass and leave
+   the function open. */
 static void css_render_function(css_buf *pool, token_vec *vec, Py_ssize_t name_index, Py_ssize_t close_index,
                                 Py_ssize_t *out_off, Py_ssize_t *out_len) {
     css_token *name_token = &vec->items[name_index];
     css_buf args = {NULL, 0, 0, pool->oom};
     css_minify_func_args(pool, vec, name_index + 2, close_index, name_token->text, name_token->text_len, &args);
     css_collapse_transform_args(name_token->text, name_token->text_len, &args);
-    if (close_index == vec->len || vec->items[close_index].delim != ')') {
+    if (close_index == vec->len) {
         css_close_function_args(vec, name_index + 2, close_index, &args);
     }
     *out_off = pool->len;

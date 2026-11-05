@@ -1194,6 +1194,9 @@ static void css_minify_value(css_buf *pool, token_vec *vec, Py_ssize_t start, Py
         const css_token *last = &vec->items[end - 1];
         cbuf_put_run(out, vec->items[start].text,
                      last->text + last->text_len + last->unit_len - vec->items[start].text);
+        if (end == vec->len) {
+            css_close_raw_blocks(vec, start, end, out);
+        }
         return;
     }
     int is_integer_role = name_len == 7 && css_run_ieq(name, name_len, "z-index");
