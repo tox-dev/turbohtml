@@ -90,6 +90,49 @@ def test_blocks(html: str, opts: PlainText, expected: str) -> None:
             "1. a\n7. b\n8. c",
             id="li-value-restarts-run",
         ),
+        pytest.param("<ul><div>x</div><li>y</li></ul>", PlainText(), "x\n\n* y", id="content-before-first-item"),
+        pytest.param("<ul><li>b</li>tail</ul>", PlainText(), "* b\n  tail", id="text-after-item"),
+        pytest.param("<ul><li>a</li>tail<li>b</li></ul>", PlainText(), "* a\n  tail\n* b", id="text-between-items"),
+        pytest.param("<ol><li>b</li><div>c</div></ol>", PlainText(), "1. b\n   c", id="block-after-ordered-item"),
+        pytest.param("<ul><li>b</li><p>c</p></ul><p>e</p>", PlainText(), "* b\n  c\n\ne", id="block-after-closed-list"),
+        pytest.param(
+            "<p>a</p><ul><li>b</li><p>c</p><p>e</p>",
+            PlainText(),
+            "a\n\n* b\n  c\n  e",
+            id="unclosed-list-at-end-of-document",
+        ),
+        pytest.param(
+            "<ul><li>a<ul><li>b</li>tail</ul></li><li>c</li></ul>",
+            PlainText(),
+            "* a\n  * b\n    tail\n* c",
+            id="nested-list-content",
+        ),
+        pytest.param(
+            "<ul><li>a</li>x<ul><li>b</li></ul><li>c</li></ul>",
+            PlainText(),
+            "* a\n  x\n  * b\n* c",
+            id="content-then-nested-list-then-item",
+        ),
+        pytest.param("<ul><div><li>z</li></div></ul>", PlainText(), "* z", id="item-inside-wrapper"),
+        pytest.param("<ul><div><svg></svg><li>z</li></div></ul>", PlainText(), "* z", id="foreign-before-wrapped-item"),
+        pytest.param(
+            "<ol><div><li>a</li><li>b</li></div><li>c</li></ol>",
+            PlainText(),
+            "1. a\n2. b\n3. c",
+            id="wrapped-items-keep-numbering",
+        ),
+        pytest.param(
+            "<ul><li>a</li><div><li>b</li>tail</div><li>c</li></ul>",
+            PlainText(),
+            "* a\n* b\n  tail\n* c",
+            id="content-inside-wrapper",
+        ),
+        pytest.param(
+            "<ul><div><span>s</span></div><li>a</li></ul>",
+            PlainText(),
+            "s\n\n* a",
+            id="wrapper-without-items-is-content",
+        ),
     ],
 )
 def test_lists(html: str, opts: PlainText, expected: str) -> None:
@@ -579,3 +622,43 @@ def test_annotation_rule_grouping_preserves_order(
     unrelated: Final = ("h1", "h2", "h3", "h4", "h5", "h6", "aside", "nav")
     padded: Final = {**rules, **{tag: [tag] for tag in unrelated[: count - len(rules)]}}
     assert annotate(html, padded) == expected
+
+
+@pytest.mark.parametrize(
+    ("html", "rules", "expected_text", "expected_spans"),
+    [
+        pytest.param(
+            "<ul><li>b</li><p>c</p></ul><p>e</p>",
+            {"p": ["para"]},
+            "* b\n  c\n\ne",
+            [("para", "c"), ("para", "e")],
+            id="block-after-item",
+        ),
+        pytest.param(
+            "<p>a</p><ul><li>b</li><p>c</p><p>e</p>",
+            {"p": ["para"]},
+            "a\n\n* b\n  c\n  e",
+            [("para", "a"), ("para", "c"), ("para", "e")],
+            id="unclosed-list-at-end-of-document",
+        ),
+        pytest.param(
+            "<ul><div>x</div><li>y</li></ul>",
+            {"div": ["box"]},
+            "x\n\n* y",
+            [("box", "x")],
+            id="content-before-first-item",
+        ),
+        pytest.param(
+            "<ul><li>a<ul><li>b</li><p>c</p></ul></li></ul>",
+            {"ul": ["list"], "p": ["para"]},
+            "* a\n  * b\n    c",
+            [("para", "c"), ("list", "* b\n    c"), ("list", "* a\n  * b\n    c")],
+            id="nested-list-content",
+        ),
+    ],
+)
+def test_annotated_list_children(
+    html: str, rules: Rules, expected_text: str, expected_spans: list[tuple[str, str]]
+) -> None:
+    text, _ = annotate(html, rules)
+    assert (text, spans_text(html, rules)) == (expected_text, expected_spans)

@@ -52,6 +52,7 @@ enum text_leave {
     TEXT_LEAVE_LINK_INLINE,   /* the " (href)" after the link text */
     TEXT_LEAVE_LINK_FOOTNOTE, /* the "[n]" reference after the link text */
     TEXT_LEAVE_LIST,
+    TEXT_LEAVE_WRAPPER,
     TEXT_LEAVE_CELL,  /* flatten the cell into its grid slot */
     TEXT_LEAVE_TABLE, /* lay out the finished grid */
 };
@@ -88,7 +89,11 @@ typedef struct {
         struct {
             Py_ssize_t number;     /* the next ordinal */
             Py_ssize_t sub_indent; /* how far a bare nested list indents */
+            Py_ssize_t tail_base;  /* the prefix length to restore once content after an item ends, or -1 */
+            int tail_tight;        /* the tight flag that content restores */
+            int tail_levels;       /* the indent_levels that content restores */
             int ordered;
+            int item_seen; /* an item has opened, so content between items continues it */
         } list;
         struct {
             const Py_UCS4 *href;
@@ -641,15 +646,66 @@ static text_frame *text_enter_list(text_ctx *ctx, th_node *node, Py_ssize_t open
         text_ordinal_attr(ctx, node, "start", &frame->list.number);
     }
     frame->list.sub_indent = 2; /* how far a bare nested list indents: the last marker's width */
+    frame->list.tail_base = -1;
+    frame->list.item_seen = 0;
     ctx->list_depth++;
     return frame;
 }
 
+/* Stop indenting the content that followed an item, before the next item or the end of the list. */
+static void text_end_list_tail(text_ctx *ctx, text_frame *frame) {
+    if (frame->list.tail_base >= 0) {
+        ctx->tight = frame->list.tail_tight;
+        ctx->indent_levels = frame->list.tail_levels;
+        ctx->prefix.len = frame->list.tail_base;
+        frame->list.tail_base = -1;
+    }
+}
+
+/* Whether a list child wraps list items (`<ul><div><li>`), which the list looks through
+   so the items keep their markers and numbering, as to_markdown does. */
+static int text_is_item_wrapper(th_node *node) {
+    if (node->type != TH_NODE_ELEMENT || node->ns != TH_NS_HTML) {
+        return 0;
+    }
+    for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
+        if (child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML && child->atom == TH_TAG_LI) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Lay out one child of a list. Content that is neither an item nor a nested list is
+   still rendered, the way a browser shows it: before the first item it is a block of
+   its own, and after an item it continues that item, indented under its marker. */
 static void text_list_child(text_ctx *ctx, text_frame *frame, th_node *child) {
-    if (child->type != TH_NODE_ELEMENT || child->ns != TH_NS_HTML) {
+    int is_item = child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML && child->atom == TH_TAG_LI;
+    int is_list = child->type == TH_NODE_ELEMENT && child->ns == TH_NS_HTML &&
+                  (child->atom == TH_TAG_UL || child->atom == TH_TAG_OL || child->atom == TH_TAG_MENU);
+    if (!is_item && !is_list && text_is_item_wrapper(child)) {
+        /* the wrapper's frame continues the list's numbering and indentation, and hands them back on leave */
+        text_frame *wrapper =
+            text_push(ctx, child, TEXT_WALK_LIST, TEXT_LEAVE_WRAPPER, text_open_annotations(ctx, child));
+        if (wrapper != NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            frame = &ctx->frames[ctx->frame_count - 2];
+            wrapper->list = frame->list;
+        }
         return;
     }
-    if (child->atom == TH_TAG_UL || child->atom == TH_TAG_OL || child->atom == TH_TAG_MENU) {
+    if (!is_item && !is_list) {
+        if (frame->list.item_seen && frame->list.tail_base < 0) {
+            frame->list.tail_tight = ctx->tight;
+            frame->list.tail_levels = ctx->indent_levels;
+            frame->list.tail_base = text_indent(ctx, frame->list.sub_indent, 2);
+            ctx->tight = 1;
+        }
+        text_block_child(ctx, frame, child);
+        return;
+    }
+    text_end_list_tail(ctx, frame);
+    frame->in_run = 0;
+    if (is_list) {
         /* a list nested directly in a list (a sibling of the <li>s) belongs to
            the preceding item; the parser makes this shape and skipping it would
            drop every nested item's text */
@@ -665,9 +721,7 @@ static void text_list_child(text_ctx *ctx, text_frame *frame, th_node *child) {
         }
         return;
     }
-    if (child->atom != TH_TAG_LI) {
-        return;
-    }
+    frame->list.item_seen = 1;
     text_block_line(ctx, 0);
     Py_ssize_t width;
     if (frame->list.ordered) {
@@ -995,7 +1049,12 @@ static void text_leave(text_ctx *ctx) {
         break;
     }
     case TEXT_LEAVE_LIST:
+        text_end_list_tail(ctx, frame);
         ctx->list_depth--;
+        break;
+    case TEXT_LEAVE_WRAPPER:
+        ctx->frames[ctx->frame_count - 1].list = frame->list;
+        ctx->frames[ctx->frame_count - 1].in_run = 0;
         break;
     case TEXT_LEAVE_CELL:
         text_leave_cell(ctx, frame->table);
