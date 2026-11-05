@@ -756,6 +756,11 @@ def test_markdown_reader_drops_control_whitespace_at_paragraph_edge() -> None:
         markdown_html_check("<p>\x0bx</p>")
 
 
+def test_markdown_reader_drops_control_whitespace_beside_a_kept_copy() -> None:
+    with pytest.raises(MarkdownProfileError, match="Markdown reader discards control whitespace"):
+        markdown_html_check("<p>\x1fa\x1fb</p>")
+
+
 _FUZZ_XML_STRUCTURE_GENERATION_CASES: Final = generation_sweep(xml_grammar(), budget=GenerationBudget(30, 120))
 
 
