@@ -1,12 +1,12 @@
 #ifndef TURBOHTML_CSS_RENDER_H
 #define TURBOHTML_CSS_RENDER_H
 
-/* Collect into blocks the `(` and `[` a value's tokens [start, end) leave open, innermost last: consuming a simple
+/* Collect into blocks the blocks a value's or at-rule prelude's tokens [start, end) leave open: consuming a simple
    block returns it at the end of input (CSS Syntax 3 §5.4.7), so without its closer the `}` ending the rule would land
-   inside it. Only a matching `)` or `]` closes a block. With skip_functions, a function's arguments are skipped, as
-   css_render_components prints them through css_emit_function, which closes its own `(`. */
+   inside it. With skip_functions, a function's arguments are skipped, as css_render_components prints them through
+   css_emit_function, which closes its own blocks. */
 static void css_collect_open_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t end, int skip_functions,
-                                    css_buf *blocks) {
+                                    css_blocks *blocks) {
     Py_ssize_t index = start;
     while (index < end) {
         css_token *token = &vec->items[index];
@@ -15,55 +15,26 @@ static void css_collect_open_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t
             index = css_match_paren(vec, index + 1, end) + 1;
             continue;
         }
-        if (token->delim == '(' || token->delim == '[') {
-            cbuf_putc(blocks, token->delim);
-        } else if ((token->delim == ')' || token->delim == ']') && blocks->len > 0 &&
-                   blocks->data[blocks->len - 1] == (token->delim == ')' ? '(' : '[')) {
-            blocks->len--;
+        if (token->kind == CSS_DELIM) {
+            css_blocks_step(blocks, token->delim);
         }
         index++;
     }
 }
 
 CSS_NOINLINE static void css_close_function_args(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *args) {
-    css_buf blocks = {NULL, 0, 0, args->oom};
+    css_blocks blocks = {.deep = {NULL, 0, 0, args->oom}};
     css_collect_open_blocks(vec, start, end, 1, &blocks);
-    for (Py_ssize_t depth = blocks.len - 1; depth >= 0; depth--) {
-        cbuf_putc(args, blocks.data[depth] == '(' ? ')' : ']');
-    }
-    cbuf_free(&blocks);
-}
-
-/* Collect into blocks the blocks tokens [start, end) of a value or at-rule prelude leave open, innermost last, reading
-   functions as plain delimiters. Tokens holding a `{` are read as css_read_until reads them, each closer ending the
-   innermost block of any kind: a `}` at depth 0 ends the run, so a `}` written for a `{` that a `)` already closed
-   there would end it early. */
-static void css_collect_raw_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *blocks) {
-    Py_ssize_t first_brace = start;
-    while (first_brace < end && vec->items[first_brace].delim != '{') {
-        first_brace++;
-    }
-    if (first_brace == end) {
-        css_collect_open_blocks(vec, start, end, 0, blocks);
-        return;
-    }
-    for (Py_ssize_t index = start; index < end; index++) {
-        css_char delim = vec->items[index].delim;
-        if (delim == '(' || delim == '[' || delim == '{') {
-            cbuf_putc(blocks, delim);
-        } else if ((delim == ')' || delim == ']' || delim == '}') && blocks->len > 0) {
-            blocks->len--;
-        }
-    }
+    css_blocks_close(&blocks, args);
 }
 
 /* Whether a declaration's tokens [start, end) that run to the end of the input leave a block open. Kept out of line:
    only the last declaration of an unterminated stylesheet reaches it. */
 CSS_NOINLINE static int css_leaves_block_open(token_vec *vec, Py_ssize_t start, Py_ssize_t end) {
-    css_buf blocks = {NULL, 0, 0, vec->oom};
-    css_collect_raw_blocks(vec, start, end, &blocks);
+    css_blocks blocks = {.deep = {NULL, 0, 0, vec->oom}};
+    css_collect_open_blocks(vec, start, end, 0, &blocks);
     int open = blocks.len > 0;
-    cbuf_free(&blocks);
+    cbuf_free(&blocks.deep);
     return open;
 }
 
@@ -71,35 +42,31 @@ CSS_NOINLINE static int css_leaves_block_open(token_vec *vec, Py_ssize_t start, 
    to the end of the input reaches it. */
 CSS_NOINLINE static void css_close_bare_blocks(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end,
                                                comp_vec *comps) {
-    css_buf blocks = {NULL, 0, 0, pool->oom};
+    css_blocks blocks = {.deep = {NULL, 0, 0, pool->oom}};
     css_collect_open_blocks(vec, start, end, 1, &blocks);
-    for (Py_ssize_t depth = blocks.len - 1; depth >= 0; depth--) {
+    Py_ssize_t closers = pool->len;
+    css_blocks_close(&blocks, pool);
+    for (Py_ssize_t index = closers; index < pool->len; index++) {
         css_comp closer = {0};
-        css_char byte = blocks.data[depth] == '(' ? ')' : ']';
-        closer.off = pool_run(pool, &byte, 1);
+        closer.off = index;
         closer.len = 1;
         closer.kind = CK_DELIM;
         comp_vec_push(comps, closer);
     }
-    cbuf_free(&blocks);
 }
 
 /* Write a closer for each block a raw value leaves open, functions included: the raw path prints a function's `(` as a
    plain delimiter. Kept out of line: only a value that runs to the end of the input reaches it. */
 CSS_NOINLINE static void css_close_raw_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out) {
-    css_buf blocks = {NULL, 0, 0, vec->oom};
-    css_collect_raw_blocks(vec, start, end, &blocks);
-    for (Py_ssize_t depth = blocks.len - 1; depth >= 0; depth--) {
-        /* `]` and `}` sit two code points past their openers, `)` one */
-        cbuf_putc(out, blocks.data[depth] == '(' ? ')' : blocks.data[depth] + 2);
-    }
-    cbuf_free(&blocks);
+    css_blocks blocks = {.deep = {NULL, 0, 0, vec->oom}};
+    css_collect_open_blocks(vec, start, end, 0, &blocks);
+    css_blocks_close(&blocks, out);
 }
 
 /* Render a value's tokens [start, end) into components in the pool. A bare `(` or `[` (one not opened by a function)
    reaches the default branch below and prints without its closer, so a value that runs to the end of the input gets the
    closers from css_close_bare_blocks. A value that stops earlier has none open: css_read_until ends a declaration
-   before the end of the input only at a `;` or `}` outside every block its depth count tracks. */
+   before the end of the input only at a `;` or `}` outside every block. */
 static CSS_FORCEINLINE void css_render_components(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end,
                                                   int color_mode, int drop_zero_unit, const css_calc_context *context,
                                                   comp_vec *comps) {

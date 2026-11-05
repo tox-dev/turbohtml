@@ -717,32 +717,12 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
 }
 
 /* Write a closer for each block a statement at-rule's prelude leaves open at the end of input, where consuming a simple
-   block returns it (CSS Syntax 3 §5.5.9); the `;` ending the stylesheet would otherwise land inside the block. A closer
-   ends only a block of its kind, as css_collect_open_blocks matches them, unless the prelude holds a `{`: then each
-   closer ends the innermost block of any kind, as css_read_until nests them, since a `}` written for a `{` that a `)`
-   already closed would end the reparsed prelude early. Kept out of line: only an at-rule ending the input reaches it.
- */
-CSS_NOINLINE static void css_close_prelude_blocks(const token_vec *vec, Py_ssize_t start, Py_ssize_t end,
-                                                  css_buf *out) {
-    int braced = 0;
-    for (Py_ssize_t index = start; index < end; index++) {
-        braced |= vec->items[index].delim == '{';
-    }
-    css_buf blocks = {NULL, 0, 0, vec->oom};
-    for (Py_ssize_t index = start; index < end; index++) {
-        css_char delim = vec->items[index].delim;
-        if (delim == '(' || delim == '[' || delim == '{') {
-            cbuf_putc(&blocks, delim);
-        } else if ((delim == ')' || delim == ']' || delim == '}') && blocks.len > 0 &&
-                   (braced || blocks.data[blocks.len - 1] == (delim == ')' ? '(' : delim - 2))) {
-            /* `[` and `{` sit two code points before their closers, `(` one */
-            blocks.len--;
-        }
-    }
-    for (Py_ssize_t depth = blocks.len - 1; depth >= 0; depth--) {
-        cbuf_putc(out, blocks.data[depth] == '(' ? ')' : blocks.data[depth] + 2);
-    }
-    cbuf_free(&blocks);
+   block returns it (CSS Syntax 3 §5.5.9); the `;` ending the stylesheet would otherwise land inside the block. Kept out
+   of line: only an at-rule ending the input reaches it. */
+CSS_NOINLINE static void css_close_prelude_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out) {
+    css_blocks blocks = {.deep = {NULL, 0, 0, vec->oom}};
+    css_collect_open_blocks(vec, start, end, 0, &blocks);
+    css_blocks_close(&blocks, out);
 }
 
 /* Render the at-rule at the cursor into out. Returns -1 for a statement at-rule, the length of an @media block's header
@@ -995,24 +975,21 @@ static CSS_FORCEINLINE void rule_vec_push(rule_vec *vec, rule_item item) {
 /* Index of the first depth-0 '{' from `from`, or -1. At the top level a qualified rule's prelude runs to this '{'
    (CSS Syntax 3 §5.4.3 consume a qualified rule), so a ';' or '}' before it is a prelude component value, not a
    boundary. */
-static Py_ssize_t css_find_top_block(const token_vec *vec, Py_ssize_t from) {
-    int depth = 0;
-    for (Py_ssize_t index = from; index < vec->len; index++) {
+static Py_ssize_t css_find_top_block(token_vec *vec, Py_ssize_t from) {
+    css_blocks blocks = {.deep = {NULL, 0, 0, vec->oom}};
+    Py_ssize_t found = -1;
+    for (Py_ssize_t index = from; index < vec->len && found < 0; index++) {
         const css_token *token = &vec->items[index];
         if (token->kind != CSS_DELIM) {
             continue;
         }
-        css_char delim = token->delim;
-        if (depth == 0 && delim == '{') {
-            return index;
+        if (blocks.len == 0 && token->delim == '{') {
+            found = index;
         }
-        if (delim == '(' || delim == '[' || delim == '{') {
-            depth++;
-        } else if ((delim == ')' || delim == ']' || delim == '}') && depth > 0) {
-            depth--;
-        }
+        css_blocks_step(&blocks, token->delim);
     }
-    return -1;
+    cbuf_free(&blocks.deep);
+    return found;
 }
 
 /* Parse a qualified rule into item (selector + rendered body), or recover a stray segment as opaque text. */
