@@ -6,6 +6,37 @@
 
 .. towncrier release notes start
 
+.. _release-1-15-8:
+
+**********************
+ v1.15.8 (2026-11-05)
+**********************
+
+.. _release-1-15-8-fixed:
+
+Fixed
+=====
+
+- :meth:`~turbohtml.Node.to_text` and :meth:`~turbohtml.Node.to_annotated_text` keep a list's content that is not an
+  ``<li>``: text or a block before the first item renders on its own, and one after an item continues it, indented under
+  its marker, so an unclosed list no longer drops the rest of the document (:pr:`1625`) by :user:`gaborbernat`.
+  (:issue:`1621`)
+- Drop processing instructions and the text of ``<script>``, ``<style>`` and other raw-text elements from a nested table
+  or list written as HTML inside a table cell, so a ``<`` or backtick in a script no longer swallows the cell text after
+  it and a ``<?...>`` no longer shows as literal text when the Markdown is read back (:pr:`1632`) by
+  :user:`gaborbernat`. (:issue:`1630`)
+- Keep CSS minification stable across repeated passes when the input ends inside a function whose arguments hold an open
+  ``[`` or ``{`` block with a ``)`` inside, or inside an invalid ``unicode-range`` value: a closer now ends only a block
+  of its own kind, as CSS Syntax 3 reads it, so the closers written at the end of the input match what the next pass
+  reads (:pr:`1634`) by :user:`gaborbernat`. (:issue:`1633`)
+- Compound CSS selectors with more than 1,024 simple selectors, and XPath ``and``/``or`` chains with more than 1,024
+  operands, no longer fail ``Node.xpath`` with ``an expression nested too deeply`` (:pr:`1631`) by :user:`gaborbernat`.
+- Escape Markdown specials in the text of a nested table or list written as HTML inside a table cell, so a backtick or
+  asterisk there no longer turns into a code span or emphasis when the Markdown is read back (:pr:`1624`) by
+  :user:`gaborbernat`.
+- Stop CSS minification joining a same-query ``@media`` block onto one that ends in stray text, which fused the text
+  into the next rule's selector and made a second pass change the output (:pr:`1626`) by :user:`gaborbernat`.
+
 .. _release-1-15-7:
 
 **********************
