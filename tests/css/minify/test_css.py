@@ -1738,6 +1738,7 @@ def test_minify_css_live_rule_search_is_bounded(count: int, first_rule: str, las
         ),
         pytest.param("a{--d:[)", "a{--d:[)]}", id="custom-property-close-bracket-over-stray-paren"),
         pytest.param("a{--d:)}", "a{--d:)}", id="custom-property-keep-stray-close-paren"),
+        pytest.param("a{b:c([x)y])}", "a{b:c([x)y])}", id="paren-inside-bracket-in-function"),
         pytest.param("a{--d:]", "a{--d:]}", id="custom-property-keep-stray-close-bracket"),
         # a "!important" inside a block still open at the end of the input is block content (CSS Syntax 3 §5.4.4 reads
         # the last two component values, and the open block is one), so the closer goes after it
