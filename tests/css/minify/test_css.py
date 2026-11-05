@@ -1739,6 +1739,7 @@ def test_minify_css_live_rule_search_is_bounded(count: int, first_rule: str, las
         pytest.param("a{--d:[)", "a{--d:[)]}", id="custom-property-close-bracket-over-stray-paren"),
         pytest.param("a{--d:)}", "a{--d:)}", id="custom-property-keep-stray-close-paren"),
         pytest.param("a{b:c([x)y])}", "a{b:c([x)y])}", id="paren-inside-bracket-in-function"),
+        pytest.param("a{b:[]\x00;c:d}", "a{b:[]\x00;c:d}", id="null-after-closed-bracket"),
         pytest.param("a{--d:]", "a{--d:]}", id="custom-property-keep-stray-close-bracket"),
         # a "!important" inside a block still open at the end of the input is block content (CSS Syntax 3 §5.4.4 reads
         # the last two component values, and the open block is one), so the closer goes after it
@@ -2123,6 +2124,8 @@ _STRAY_TOP_TOKEN: Final[list[ParameterSet]] = [
     pytest.param("x;a(b){y:1}", "", id="paren-in-invalid-prelude"),
     pytest.param("x;a[b]{y:1}", "", id="bracket-in-invalid-prelude"),
     pytest.param("x;a({}){y:1}", "", id="braces-in-invalid-prelude"),
+    pytest.param("x;)a{y:1}", "", id="stray-close-paren-in-invalid-prelude"),
+    pytest.param("x;[a{y:1}", "x[a{y:1}", id="open-bracket-holds-block-after-stray"),
     pytest.param("x;p{color:red", "", id="invalid-prelude-unterminated-block"),
     pytest.param("}", "", id="lone-brace"),
     pytest.param("a{x:1}}", "a{x:1}", id="trailing-brace"),

@@ -1052,80 +1052,71 @@ static void css_blocks_close(css_blocks *blocks, css_buf *out) {
     cbuf_free(&blocks->deep);
 }
 
-/* A stack of parens_open `(` blocks, which a run holding only parentheses tracks as a count until a `[` or `{`
-   opens. */
-static void css_blocks_of_parens(css_blocks *blocks, Py_ssize_t parens_open) {
-    for (Py_ssize_t index = 0; index < parens_open; index++) {
-        css_blocks_step(blocks, '(');
+/* Scans that see only parentheses count them, since only a `)` closes one; the first `[` or `{` hands the scan to
+   css_scan_stacked. Starting at that opener, with parens_open `(` blocks around it, return the index of the first
+   delimiter in stops outside every block, or end. Kept out of line so the counting loops stay small. */
+CSS_NOINLINE static Py_ssize_t css_scan_stacked(token_vec *vec, Py_ssize_t index, Py_ssize_t end,
+                                                Py_ssize_t parens_open, const char *stops) {
+    css_blocks blocks = {.deep = {NULL, 0, 0, vec->oom}};
+    for (Py_ssize_t paren = 0; paren < parens_open; paren++) {
+        css_blocks_step(&blocks, '(');
     }
+    for (; index < end; index++) {
+        if (vec->items[index].kind != CSS_DELIM) {
+            continue;
+        }
+        css_char delim = vec->items[index].delim;
+        if (blocks.len == 0 && delim != 0 && strchr(stops, (int)delim) != NULL) {
+            break;
+        }
+        css_blocks_step(&blocks, delim);
+    }
+    cbuf_free(&blocks.deep);
+    return index;
 }
 
 /* Advance the cursor over a run of component values up to a stop delimiter outside every block, and return the end
-   index; the run is [start, end). While only parentheses are open a count stands in for the stack, since only a `)`
-   can close one; the first `[` or `{` moves the count onto the stack. */
+   index; the run is [start, end). */
 static Py_ssize_t css_read_until(cursor *cur, const char *stops) {
-    css_blocks blocks = {.deep = {NULL, 0, 0, cur->vec->oom}};
     Py_ssize_t parens_open = 0;
-    int stacked = 0;
     while (cur->index < cur->vec->len) {
         css_token *token = &cur->vec->items[cur->index];
         if (token->kind == CSS_DELIM) {
             css_char delim = token->delim;
-            if (parens_open == 0 && blocks.len == 0 && strchr(stops, (int)delim) != NULL && delim != 0) {
+            if (parens_open == 0 && strchr(stops, (int)delim) != NULL && delim != 0) {
                 break;
             }
-            if (stacked) {
-                css_blocks_step(&blocks, delim);
-            } else if (delim == '(') {
+            if (delim == '(') {
                 parens_open++;
             } else if (delim == ')' && parens_open > 0) {
                 parens_open--;
             } else if (delim == '[' || delim == '{') {
-                css_blocks_of_parens(&blocks, parens_open);
-                css_blocks_step(&blocks, delim);
-                parens_open = 0;
-                stacked = 1;
+                cur->index = css_scan_stacked(cur->vec, cur->index, cur->vec->len, parens_open, stops);
+                break;
             }
         }
         cur->index++;
     }
-    cbuf_free(&blocks.deep);
     return cur->index;
 }
 
-/* Find the index of the ')' matching an opening '(' that sits at open_paren, or end when the arguments run to it. Like
-   css_read_until, it counts parentheses until a `[` or `{` opens. */
+/* Find the index of the ')' matching an opening '(' that sits at open_paren, or end when the arguments run to it. */
 static Py_ssize_t css_match_paren(token_vec *vec, Py_ssize_t open_paren, Py_ssize_t end) {
-    Py_ssize_t parens_open = 1;
-    Py_ssize_t index = open_paren + 1;
-    for (; index < end; index++) {
+    Py_ssize_t parens_open = 0;
+    for (Py_ssize_t index = open_paren + 1; index < end; index++) {
         if (vec->items[index].kind != CSS_DELIM) {
             continue;
         }
         css_char delim = vec->items[index].delim;
         if (delim == '(') {
             parens_open++;
-        } else if (delim == ')' && --parens_open == 0) {
+        } else if (delim == ')' && parens_open-- == 0) {
             return index;
         } else if (delim == '[' || delim == '{') {
-            break;
+            return css_scan_stacked(vec, index, end, parens_open, ")");
         }
     }
-    if (index == end) {
-        return end;
-    }
-    css_blocks blocks = {.deep = {NULL, 0, 0, vec->oom}};
-    css_blocks_of_parens(&blocks, parens_open);
-    for (; index < end; index++) {
-        if (vec->items[index].kind == CSS_DELIM) {
-            css_blocks_step(&blocks, vec->items[index].delim);
-            if (blocks.len == 0) {
-                break;
-            }
-        }
-    }
-    cbuf_free(&blocks.deep);
-    return index;
+    return end;
 }
 
 /* The CSS Values 4 §10 math functions: their arguments are calculations, where a bare 0 is a <number> that no longer

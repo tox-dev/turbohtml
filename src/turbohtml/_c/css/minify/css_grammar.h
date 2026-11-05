@@ -976,20 +976,25 @@ static CSS_FORCEINLINE void rule_vec_push(rule_vec *vec, rule_item item) {
    (CSS Syntax 3 §5.4.3 consume a qualified rule), so a ';' or '}' before it is a prelude component value, not a
    boundary. */
 static Py_ssize_t css_find_top_block(token_vec *vec, Py_ssize_t from) {
-    css_blocks blocks = {.deep = {NULL, 0, 0, vec->oom}};
-    Py_ssize_t found = -1;
-    for (Py_ssize_t index = from; index < vec->len && found < 0; index++) {
-        const css_token *token = &vec->items[index];
-        if (token->kind != CSS_DELIM) {
+    Py_ssize_t parens_open = 0;
+    for (Py_ssize_t index = from; index < vec->len; index++) {
+        if (vec->items[index].kind != CSS_DELIM) {
             continue;
         }
-        if (blocks.len == 0 && token->delim == '{') {
-            found = index;
+        css_char delim = vec->items[index].delim;
+        if (parens_open == 0 && delim == '{') {
+            return index;
         }
-        css_blocks_step(&blocks, token->delim);
+        if (delim == '(') {
+            parens_open++;
+        } else if (delim == ')' && parens_open > 0) {
+            parens_open--;
+        } else if (delim == '[' || delim == '{') {
+            Py_ssize_t found = css_scan_stacked(vec, index, vec->len, parens_open, "{");
+            return found < vec->len ? found : -1;
+        }
     }
-    cbuf_free(&blocks.deep);
-    return found;
+    return -1;
 }
 
 /* Parse a qualified rule into item (selector + rendered body), or recover a stray segment as opaque text. */
