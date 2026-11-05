@@ -17,6 +17,7 @@ from pathlib import Path
 from subprocess import run  # ruff: ignore[suspicious-subprocess-import] - startup resolution needs a fresh interpreter.
 from typing import TYPE_CHECKING, Final
 
+import html5lib
 import pytest
 from fuzz.atheris_corpora import CorpusProfile, write_corpora
 from fuzz.atheris_corpora import main as corpus_main
@@ -56,7 +57,7 @@ from fuzz.css_custom_oracles import (
 )
 from fuzz.dom_targets import DomObservation, dom_observation, dom_targets
 from fuzz.encoding_structure_generators import encoding_grammar
-from fuzz.generation_targets import encoding_observation, generation_targets
+from fuzz.generation_targets import _ORACLE_MAX_NESTING, encoding_observation, generation_targets
 from fuzz.html_structure_generators import html_grammar_complete
 from fuzz.idna_nfc_oracles import (
     UnsupportedIdnaNfcCaseError,
@@ -825,6 +826,18 @@ def test_generation_first_conversion_loss(name: str, data: bytes) -> None:
 def test_generation_changed_decoder_text() -> None:
     with pytest.raises(AssertionError, match="Encoded parser text differs"):
         encoding_observation(b"<p>kept</p>", decode=lambda _data, _codec: "<p>wrong</p>")
+
+
+@pytest.mark.parametrize(
+    ("nesting", "oracle_calls"),
+    [pytest.param(_ORACLE_MAX_NESTING, 1, id="at-limit"), pytest.param(_ORACLE_MAX_NESTING + 1, 0, id="past-limit")],
+)
+def test_encoding_oracle_skips_markup_past_the_nesting_limit(
+    nesting: int, oracle_calls: int, mocker: MockerFixture
+) -> None:
+    parse_reference: Final = mocker.patch("fuzz.generation_targets.html5lib.parse", wraps=html5lib.parse)
+    assert encoding_observation(("<div>" * nesting + "kept").encode()) == "kept"
+    assert parse_reference.call_count == oracle_calls
 
 
 @pytest.mark.parametrize(
