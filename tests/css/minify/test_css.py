@@ -1329,6 +1329,19 @@ def test_minify_css_cap_stays_a_fixpoint_after_shorthand_fold() -> None:
 
 
 @pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "@media screen{, )}@media screen{b{h:-}}", "@media screen{, )}@media screen{b{h:-}}", id="stray-then-rule"
+        ),
+        pytest.param("@media screen{x;}@media screen{b{h:-}}", "@media screen{x;b{h:-}}", id="statement-still-joins"),
+    ],
+)
+def test_minify_css_media_keeps_stray_text_apart(source: str, expected: str) -> None:
+    assert (minify_css(source), minify_css(expected)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
     ("count", "first_rule", "last_rule"),
     [
         pytest.param(255, "a{--z:0;--w:0}", "", id="within-reach"),
