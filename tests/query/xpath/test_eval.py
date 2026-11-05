@@ -852,7 +852,7 @@ def test_attribute_axis_of_a_text_node_is_empty() -> None:
 @pytest.mark.parametrize(
     "expr",
     [
-        pytest.param(" or ".join(["1=1"] * 5000), id="or-spine"),
+        pytest.param("=".join(["1"] * 5000), id="equality-spine"),
         pytest.param("+".join(["1"] * 5000), id="additive-spine"),
     ],
 )
@@ -886,6 +886,32 @@ def test_long_union_chain_evaluates(doc: turbohtml.Node, expr: str) -> None:
 def test_deep_union_operand_still_raises(doc: turbohtml.Node, expr: str) -> None:
     with pytest.raises(ValueError, match="nested too deeply"):
         doc.xpath(expr)
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        pytest.param(" or ".join(["1=0"] * 5000), False, id="or-all-false"),
+        pytest.param(" or ".join(["1=0"] * 5000) + " or 1=1", True, id="or-last-true"),
+        pytest.param(" and ".join(["1=1"] * 5000), True, id="and-all-true"),
+        pytest.param(" and ".join(["1=1"] * 5000) + " and 1=0", False, id="and-last-false"),
+        pytest.param("1=0 and (" + "+".join(["1"] * 5000) + ") and 1=1", False, id="and-stops-before-deep"),
+        pytest.param("1=1 or (" + "+".join(["1"] * 5000) + ") or 1=0", True, id="or-stops-before-deep"),
+    ],
+)
+def test_long_boolean_chain_evaluates(doc: turbohtml.Node, expr: str, *, expected: bool) -> None:
+    assert doc.xpath(expr) is expected
+
+
+def test_long_compound_selector_evaluates() -> None:
+    doc = turbohtml.parse('<p class="a">x</p><p>y</p>')
+    selector = "p" + ".a" * 1100
+    assert doc.xpath(css_to_xpath(selector)) == doc.select(selector)
+
+
+def test_deep_boolean_chain_operand_still_raises(doc: turbohtml.Node) -> None:
+    with pytest.raises(ValueError, match="nested too deeply"):
+        doc.xpath("1=1 and (" + "+".join(["1"] * 5000) + ") and 1=1")
 
 
 def test_long_union_in_predicate_needs_no_c_stack() -> None:
