@@ -1868,8 +1868,11 @@ static void css_parse_rules(css_buf *pool, cursor *cur, int top, int keyframe, i
         if (token->kind == CSS_DELIM && token->delim == '}' && !top) {
             cur->index++;
             /* a same-query @media right after this block's '}' is pulled into this rule list so its rules merge
-               with ours now, not on the next call (#1065) */
-            if (media && css_media_continues(cur, pool, out)) {
+               with ours now, not on the next call (#1065). Stray text that ends this list would become the prelude of
+               the first joined rule, so a list that ends in some keeps the next block apart. */
+            const rule_item *last = items.len > 0 ? &items.items[items.len - 1] : NULL;
+            int ends_in_stray = last != NULL && last->stray && !last->at_statement;
+            if (media && !ends_in_stray && css_media_continues(cur, pool, out)) {
                 joinable_at = items.len;
                 continue;
             }
