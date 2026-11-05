@@ -1681,6 +1681,50 @@ static int eval_union(const xp_program *prog, const xn *expr, xp_ctx *ctx, xp_re
     return rc;
 }
 
+/* The parser builds `a and b and c`, and likewise `or`, as a left-leaning spine of one operator, as it does a union.
+   Walking that spine instead of recursing once per operator keeps a long chain, such as the one css_to_xpath writes
+   for a compound selector, from counting against XP_MAX_DEPTH. The operands still evaluate left to right and stop at
+   the first one that decides the result. */
+static int eval_logical(const xp_program *prog, const xn *expr, xp_ctx *ctx, xp_result *out) {
+    size_t count = 1;
+    int32_t leftmost = expr->first;
+    while (prog->nodes[leftmost].kind == expr->kind) {
+        leftmost = prog->nodes[leftmost].first;
+        count++;
+    }
+    int32_t *operands = PyMem_Malloc((count + 1) * sizeof(int32_t));
+    if (operands == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
+        return -1;          /* GCOVR_EXCL_LINE */
+    }
+    operands[0] = leftmost;
+    const xn *node = expr;
+    for (size_t index = count; index > 0; index--) {
+        operands[index] = node->second;
+        node = &prog->nodes[node->first];
+    }
+    int decisive = expr->kind == XN_OR;
+    int value = !decisive;
+    int rc = 0;
+    for (size_t index = 0; index <= count; index++) {
+        xp_result operand;
+        rc = eval_expr(prog, operands[index], ctx, &operand);
+        if (rc < 0) {
+            break;
+        }
+        int truth = to_boolean(ctx->tree, &operand);
+        xp_result_free(&operand);
+        if (truth == decisive) {
+            value = decisive;
+            break;
+        }
+    }
+    PyMem_Free(operands);
+    if (rc == 0) {
+        result_bool(out, value);
+    }
+    return rc;
+}
+
 static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) {
     const xn *expr = &prog->nodes[idx];
     switch (expr->kind) {
@@ -1748,27 +1792,8 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
     case XN_UNION:
         return eval_union(prog, expr, ctx, out);
     case XN_OR:
-    case XN_AND: {
-        xp_result left;
-        int rc = eval_expr(prog, expr->first, ctx, &left);
-        if (rc < 0) {
-            return rc;
-        }
-        int la = to_boolean(ctx->tree, &left);
-        xp_result_free(&left);
-        if (expr->kind == XN_OR ? la : !la) {
-            result_bool(out, expr->kind == XN_OR);
-            return 0;
-        }
-        xp_result right;
-        rc = eval_expr(prog, expr->second, ctx, &right);
-        if (rc < 0) {
-            return rc;
-        }
-        result_bool(out, to_boolean(ctx->tree, &right));
-        xp_result_free(&right);
-        return 0;
-    }
+    case XN_AND:
+        return eval_logical(prog, expr, ctx, out);
     case XN_NEG: {
         xp_result left;
         int rc = eval_expr(prog, expr->first, ctx, &left);
