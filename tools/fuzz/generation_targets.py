@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import codecs
+import re
 from importlib import import_module
 from typing import TYPE_CHECKING, Final
 
@@ -20,6 +21,11 @@ if TYPE_CHECKING:
 
 # Standalone adapters cannot depend on registry import order for codec registration.
 import_module("turbohtml.detect")
+
+# html5lib scans its open-element stack on every insertion, so its time is quadratic in nesting depth: about 100 ms at
+# 2500 nested divs. turbohtml caps its own tree depth and parses the same input in milliseconds.
+_ORACLE_MAX_NESTING: Final = 2500
+_TAG: Final = re.compile(r"<(/?)[a-zA-Z]")
 
 
 def generation_targets(
@@ -57,11 +63,21 @@ def encoding_observation(
     document: Final = parse(data, detect_encoding=True) if sniff else parse(data, encoding=encoding)
     # BOMs override explicit codecs; late declarations can restart sniffed parsing.
     decoded: Final = decode(data, f"whatwg-{document.encoding}").removeprefix("\ufeff")
-    expected: Final = _reference_text(html5lib.parse(decoded, namespaceHTMLElements=False))
-    if (document.text, parse(decoded).text) != (expected, expected):
-        msg = f"Encoded parser text differs: {document.text!r} != {expected!r}"
-        raise AssertionError(msg)
+    if _nesting(decoded) <= _ORACLE_MAX_NESTING:
+        expected: Final = _reference_text(html5lib.parse(decoded, namespaceHTMLElements=False))
+        if (document.text, parse(decoded).text) != (expected, expected):
+            msg = f"Encoded parser text differs: {document.text!r} != {expected!r}"
+            raise AssertionError(msg)
     return document.text
+
+
+def _nesting(markup: str) -> int:
+    """Most start tags left open at once; implied end tags and void elements make it an upper bound."""
+    deepest = depth = 0
+    for match in _TAG.finditer(markup):
+        depth = max(depth - 1, 0) if match[1] else depth + 1
+        deepest = max(deepest, depth)
+    return deepest
 
 
 def _reference_text(element: Element) -> str:
