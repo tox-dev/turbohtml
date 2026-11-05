@@ -2125,7 +2125,7 @@ static void md_leave_link(md_ctx *ctx, md_frame *frame) {
    so each line break goes out as its numeric reference. */
 static void md_emit_raw_html(md_ctx *ctx, th_node *node) {
     Py_ssize_t len;
-    Py_UCS4 *html = th_node_markdown_html(ctx->tree, node, &len);
+    Py_UCS4 *html = th_node_markdown_html(ctx->tree, node, TH_MARKDOWN_HTML_BLOCK, &len);
     if (html == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
         return;              /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -2164,8 +2164,9 @@ static Py_ssize_t md_tbody_tag(const Py_UCS4 *text, Py_ssize_t len) {
 }
 
 /* The length of the tag or comment at the head of text, which starts at its `<`. Text never holds a bare `<` and an
-   attribute value never holds a `>`, since the serializer writes them as `&lt;` and `&gt;`. A `<!` here is always a
-   comment, whose data may hold `>`, so only `-->` ends it. */
+   attribute value never holds a `>`, since the serializer writes them as `&lt;` and `&gt;`; inline HTML has no raw text
+   or processing instruction, which would. A `<!` here is always a comment, whose data may hold `>`, so only `-->` ends
+   it. */
 static Py_ssize_t md_markup_length(const Py_UCS4 *text, Py_ssize_t len) {
     int comment = text[1] == '!';
     /* the serializer closes every tag and comment, so the scan always ends on its closing `>` */
@@ -2186,7 +2187,7 @@ static Py_ssize_t md_markup_length(const Py_UCS4 *text, Py_ssize_t len) {
    whitespace collapse puts the rest on one line. */
 static void md_emit_cell_html(md_ctx *ctx, th_node *node) {
     Py_ssize_t len;
-    Py_UCS4 *html = th_node_markdown_html(ctx->tree, node, &len);
+    Py_UCS4 *html = th_node_markdown_html(ctx->tree, node, TH_MARKDOWN_HTML_INLINE, &len);
     if (html == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
         return;              /* GCOVR_EXCL_LINE: allocation-failure path */

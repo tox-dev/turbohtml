@@ -2321,6 +2321,31 @@ def test_nested_block_text_in_a_cell_is_not_escaped_without_prose_escaping() -> 
     )
 
 
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            "<table><td><table><td><script><`</script>`t`",
+            "| <table><tr><td><script></script>\\`t\\`</td></tr></table> |\n| --- |",
+            id="script",
+        ),
+        pytest.param(
+            "<table><td><ul><li><style>a<b`</style>*t*",
+            "| <ul><li><style></style>\\*t\\*</li></ul> |\n| --- |",
+            id="style",
+        ),
+        pytest.param("<table><td><table><?l>", "| <table></table> |\n| --- |", id="processing-instruction"),
+    ],
+)
+def test_nested_block_in_a_cell_drops_what_inline_markdown_cannot_hold(html: str, expected: str) -> None:
+    assert md(html) == expected
+
+
+def test_nested_block_raw_text_in_a_cell_keeps_the_text_after_it() -> None:
+    html = "<table><tr><td><table><tr><td><script><`</script>`t`</td></tr></table></td></tr></table>"
+    assert _tokens(_render(md(html))) == _tokens(html)
+
+
 @pytest.mark.parametrize("depth", [1, 2], ids=lambda depth: f"depth-{depth}")
 def test_nested_block_code_span_survives_the_round_trip(depth: int) -> None:
     html = "<table><tr><td>`t`</td></tr></table>"

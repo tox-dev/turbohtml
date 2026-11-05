@@ -1,0 +1,3 @@
+Drop processing instructions and the text of ``<script>``, ``<style>`` and other raw-text elements from a nested table
+or list written as HTML inside a table cell, so a ``<`` or backtick in a script no longer swallows the cell text after
+it and a ``<?...>`` no longer shows as literal text when the Markdown is read back.
