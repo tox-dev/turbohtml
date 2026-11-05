@@ -2288,6 +2288,47 @@ def test_nested_table_survives_the_round_trip(depth: int) -> None:
     assert _render(md(_nested_tables(depth))).count("<table") == depth
 
 
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            "<table><td><table><td>`é`", "| <table><tr><td>\\`é\\`</td></tr></table> |\n| --- |", id="code-span"
+        ),
+        pytest.param(
+            "<table><td><ul><li>*a*<li>[b]", "| <ul><li>\\*a\\*</li><li>\\[b\\]</li></ul> |\n| --- |", id="list"
+        ),
+        pytest.param(
+            "<table><td><table><td title='x&quot;>`'>`t`",
+            '| <table><tr><td title="x&quot;&gt;`">\\`t\\`</td></tr></table> |\n| --- |',
+            id="attribute-kept",
+        ),
+        pytest.param(
+            "<table><td><table><td><!-- it's `x` -- a > b -> c -->`t`",
+            "| <table><tr><td><!-- it's `x` -- a > b -> c -->\\`t\\`</td></tr></table> |\n| --- |",
+            id="comment-kept",
+        ),
+    ],
+)
+def test_nested_block_text_in_a_cell_is_escaped(html: str, expected: str) -> None:
+    assert md(html) == expected
+
+
+def test_nested_block_text_in_a_cell_is_not_escaped_without_prose_escaping() -> None:
+    config = Markdown(escaping=Markdown.Escaping(mode="none"))
+    assert (
+        parse_fragment("<table><td><table><td>`t`").to_markdown(config)
+        == "| <table><tr><td>`t`</td></tr></table> |\n| --- |"
+    )
+
+
+@pytest.mark.parametrize("depth", [1, 2], ids=lambda depth: f"depth-{depth}")
+def test_nested_block_code_span_survives_the_round_trip(depth: int) -> None:
+    html = "<table><tr><td>`t`</td></tr></table>"
+    for _ in range(depth - 1):
+        html = f"<table><tr><td>{html}</td></tr></table>"
+    assert _tokens(_render(md(html))) == _tokens(html)
+
+
 @pytest.mark.parametrize("name", ['"', 'a"b', "é"], ids=["quote", "inner-quote", "non-ascii"])
 @pytest.mark.parametrize(
     ("html", "config", "selector", "expected"),

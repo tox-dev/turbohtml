@@ -2163,11 +2163,27 @@ static Py_ssize_t md_tbody_tag(const Py_UCS4 *text, Py_ssize_t len) {
     return 0;
 }
 
+/* The length of the tag or comment at the head of text, which starts at its `<`. Text never holds a bare `<` and an
+   attribute value never holds a `>`, since the serializer writes them as `&lt;` and `&gt;`. A `<!` here is always a
+   comment, whose data may hold `>`, so only `-->` ends it. */
+static Py_ssize_t md_markup_length(const Py_UCS4 *text, Py_ssize_t len) {
+    int comment = text[1] == '!';
+    /* the serializer closes every tag and comment, so the scan always ends on its closing `>` */
+    for (Py_ssize_t index = comment ? 6 : 1; index < len; index++) { /* GCOVR_EXCL_BR_LINE */
+        if (text[index] == '>' && (!comment || (text[index - 1] == '-' && text[index - 2] == '-'))) {
+            return index + 1;
+        }
+    }
+    return len; /* GCOVR_EXCL_LINE */
+}
+
 /* Write a block a pipe-table cell cannot hold -- a nested table or list -- as its
    source HTML, which is inline content and so legal in a cell (and renders as the
    real thing wherever embedded HTML is allowed). The `<tbody>` the parser inserts
    around every row group is dropped on the way out: it reparses back in and only
-   widens the column. The caller's whitespace collapse puts the rest on one line. */
+   widens the column. The text between the tags is still read as inline Markdown,
+   unlike inside a raw HTML block, so it is escaped as running text is. The caller's
+   whitespace collapse puts the rest on one line. */
 static void md_emit_cell_html(md_ctx *ctx, th_node *node) {
     Py_ssize_t len;
     Py_UCS4 *html = th_node_markdown_html(ctx->tree, node, &len);
@@ -2178,11 +2194,20 @@ static void md_emit_cell_html(md_ctx *ctx, th_node *node) {
     md_before_visible(ctx);
     Py_ssize_t start = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
-        Py_ssize_t tag = md_tbody_tag(&html[index], len - index);
-        if (tag > 0) {
+        Py_UCS4 ch = html[index];
+        if (ch == '<') {
+            Py_ssize_t tag = md_tbody_tag(&html[index], len - index);
+            if (tag > 0) {
+                md_put_run(ctx, &html[start], index - start);
+                index += tag - 1;
+                start = index + 1;
+            } else {
+                index += md_markup_length(&html[index], len - index) - 1;
+            }
+        } else if (ch < 0x80 && (MD_ASCII[ch] & ctx->escape_mask)) {
             md_put_run(ctx, &html[start], index - start);
-            index += tag - 1;
-            start = index + 1;
+            sbuf_putc(&ctx->out, '\\');
+            start = index;
         }
     }
     md_put_run(ctx, &html[start], len - start);
