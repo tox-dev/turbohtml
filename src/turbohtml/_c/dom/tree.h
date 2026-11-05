@@ -555,9 +555,16 @@ int th_node_collect_text(th_tree *tree, th_node *node, Py_UCS4 *buf);
    *out_len receives the length. NULL on failure. */
 Py_UCS4 *th_node_html(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 
+/* Where Markdown embeds the HTML: a raw HTML block passes it through untouched, while inline content around it is
+   still read as Markdown. */
+typedef enum { TH_MARKDOWN_HTML_BLOCK = 1, TH_MARKDOWN_HTML_INLINE } th_markdown_html;
+
 /* th_node_html for Markdown's raw-HTML passages: an attribute name CommonMark cannot
-   read turns the whole tag into literal text, so such names are dropped. */
-Py_UCS4 *th_node_markdown_html(th_tree *tree, th_node *node, Py_ssize_t *out_len);
+   read turns the whole tag into literal text, so such names are dropped. Inline, a
+   processing instruction and the text of a raw-text element are dropped too: CommonMark
+   has no inline form of the `<?x>` spelling, and raw text holds a bare `<` the reader
+   would take for the start of markup. */
+Py_UCS4 *th_node_markdown_html(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *out_len);
 
 /* Serialize only node's children (its inner HTML), WHATWG-conformant and
    compact. PyMem-allocated; *out_len receives the length. NULL on failure. */
@@ -582,7 +589,7 @@ typedef struct {
                   characters, comment spellings, and attribute names XML cannot hold so the result reparses */
     int inner; /* omit the context root while retaining its serialization rules */
     const th_node *xml_boundary;
-    int markdown; /* drop the attribute names CommonMark raw HTML cannot hold */
+    int markdown; /* a th_markdown_html context, or 0 outside Markdown */
 } th_serialize_opts;
 
 /* Serialize node and its subtree under opts. When indent is non-NULL it is the

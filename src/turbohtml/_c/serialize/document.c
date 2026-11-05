@@ -435,7 +435,9 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
             sbuf_putc(out, '\n');
         }
         if (is_rawtext_element(node, tree->scripting)) {
-            ser_put_rawtext(out, tree, node, opts);
+            if (opts->markdown != TH_MARKDOWN_HTML_INLINE) {
+                ser_put_rawtext(out, tree, node, opts);
+            }
             ser_close_tag(out, node);
             break;
         }
@@ -490,6 +492,9 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         sbuf_putc(out, '>');
         break;
     case TH_NODE_PI:
+        if (opts->markdown == TH_MARKDOWN_HTML_INLINE) {
+            break;
+        }
         /* XML closes a PI with "?>"; the HTML serialization has no PI syntax and ends the bogus-comment form at ">". */
         if (opts->xml) {
             if (node->tag_flags & TH_PI_XML_INVALID) { /* GCOVR_EXCL_BR_LINE: invalid PIs are filtered above */
@@ -1057,11 +1062,10 @@ Py_UCS4 *th_node_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
 }
 
 /* The html accessor defaults with the CommonMark attribute-name filter, for the HTML Markdown embeds raw. */
-static const th_serialize_opts ser_markdown_opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, 1};
-
-Py_UCS4 *th_node_markdown_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
+Py_UCS4 *th_node_markdown_html(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
-    serialize_compact(&out, tree, node, &ser_markdown_opts);
+    const th_serialize_opts opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, (int)context};
+    serialize_compact(&out, tree, node, &opts);
     return sbuf_finish(&out, out_len);
 }
 
