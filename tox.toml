@@ -159,9 +159,12 @@ if sys.platform == 'darwin' and report.is_file():
     """,
   ],
 ]
+# distro interpreters often ship without headers, which the C build needs; CI uses only-managed too
+uv_python_preference = "only-managed"
 
 [env_pkg_base]
 default_base_python = [ "3.15" ]
+uv_python_preference = "only-managed"
 
 [env."pypy3.11"]
 description = "run the test suite under PyPy 3.11 through cpyext"
