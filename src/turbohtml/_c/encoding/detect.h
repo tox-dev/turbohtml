@@ -403,9 +403,9 @@ static void th_sb_ordinal(th_sb_candidate *cand, unsigned char byte, unsigned ch
 
 /* Feed the whole input to one single-byte candidate, accumulating its score or
    disqualifying it on the first unmapped byte. Ports the per-kind feed methods. */
-static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t len) {
-    /* The Hebrew tiebreak still reads punctuation from a disqualified logical candidate. */
-    if (!cand->alive && cand->kind != TH_SB_LOGICAL) {
+static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize_t len, int track_logical_punctuation) {
+    /* A viable visual candidate still needs punctuation from a disqualified logical candidate. */
+    if (!cand->alive && !track_logical_punctuation) {
         return;
     }
     const th_detect_single_byte *data = cand->data;
@@ -415,13 +415,22 @@ static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize
         unsigned char cls = th_detect_classify(data, byte);
         if (cls == 255) {
             cand->alive = 0;
-            if (cand->kind == TH_SB_LOGICAL) {
+            if (track_logical_punctuation) {
                 continue;
             }
             return;
         }
         unsigned char caseless = cls & 0x7F;
         int ascii = byte < 0x80;
+        if (!cand->alive) {
+            if (!(cand->prev_ascii && ascii) && caseless == 0 && th_detect_is_non_latin(data, cand->prev, 0) &&
+                th_detect_is_ascii_punct(byte)) {
+                cand->plausible_punctuation++;
+            }
+            cand->prev_ascii = ascii;
+            cand->prev = caseless;
+            continue;
+        }
         int non_latin = th_detect_is_non_latin(data, caseless, windows_1256);
 
         if (cand->kind == TH_SB_LATIN || cand->kind == TH_SB_ARABIC_FRENCH) {
@@ -560,8 +569,8 @@ static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize
 /* chardetng feeds one space to every single-byte candidate once the stream ends, so a word or an ordinal or a
    copyright sign that runs up against EOF still reaches the word-boundary arms of its scorer. Without it a Cyrillic
    word loses its capitalization bonus and windows-1251 loses to GBK on the bare word "Привет". */
-static void th_sb_feed_eof(th_sb_candidate *cand) {
-    th_sb_feed(cand, (const unsigned char *)" ", 1);
+static void th_sb_feed_eof(th_sb_candidate *cand, int track_logical_punctuation) {
+    th_sb_feed(cand, (const unsigned char *)" ", 1, track_logical_punctuation);
 }
 
 /* The single-byte candidate set, in chardetng's index order so ties resolve the
@@ -1654,15 +1663,15 @@ static void th_detect_candidates_feed(th_detect_stream *stream, const unsigned c
     for (int slot = 0; slot < 5; slot++) {
         th_cjk_feed(&stream->cjk[slot], buf, len, final);
     }
+    th_sb_feed(&stream->visual, buf, len, 0);
     for (int slot = 0; slot < TH_SB_COUNT; slot++) {
-        th_sb_feed(&stream->sb[slot], buf, len);
+        th_sb_feed(&stream->sb[slot], buf, len, slot == TH_SB_LOGICAL_SLOT && stream->visual.alive);
     }
-    th_sb_feed(&stream->visual, buf, len);
     if (final) {
         for (int slot = 0; slot < TH_SB_COUNT; slot++) {
-            th_sb_feed_eof(&stream->sb[slot]);
+            th_sb_feed_eof(&stream->sb[slot], slot == TH_SB_LOGICAL_SLOT && stream->visual.alive);
         }
-        th_sb_feed_eof(&stream->visual);
+        th_sb_feed_eof(&stream->visual, 0);
     }
 }
 
