@@ -520,7 +520,16 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
                 break;                                 /* GCOVR_EXCL_LINE */
             }
             sbuf_puts(out, "<?");
-            sbuf_put_xml_pi_data(out, node->text, node->text_len);
+            sbuf_put_ucs4(out, node->text, node->attr_count + 1);
+            Py_ssize_t data_start = node->attr_count + 1;
+            while (data_start < node->text_len) {
+                Py_UCS4 ch = node->text[data_start];
+                if (!xml_char_invalid(ch) && ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r') {
+                    break;
+                }
+                data_start++;
+            }
+            sbuf_put_xml_pi_data(out, node->text + data_start, node->text_len - data_start);
             sbuf_puts(out, "?>");
         } else {
             sbuf_put_html_pi(out, node->text, node->text_len);
