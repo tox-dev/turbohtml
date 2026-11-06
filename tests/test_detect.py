@@ -665,6 +665,16 @@ def test_chunked_feeds_equal_a_one_shot_detect() -> None:
     assert detector.done
 
 
+def test_disqualified_hebrew_candidate_matches_chunked_detection() -> None:
+    data = b"\xfa\xfaodbo\xdfd%{ m\xfa\xfa:\xfa"
+    detector = EncodingDetector()
+    detector.feed(data[:13])
+    detector.feed(data[13:])
+    match = detect(data)
+    assert match.encoding == "windows-1252"
+    assert detector.close() == match
+
+
 @pytest.mark.parametrize(
     ("chunk", "confidence"),
     [
