@@ -2361,7 +2361,7 @@ static void md_emit_alt(md_ctx *ctx, const Py_UCS4 *alt, Py_ssize_t alt_len, int
     ctx->line_has_content = 1;
 }
 
-static void md_emit_html_attribute(sbuf *out, const Py_UCS4 *value, Py_ssize_t len) {
+static void md_emit_html_attribute(sbuf *out, const Py_UCS4 *value, Py_ssize_t len, int in_cell) {
     for (Py_ssize_t index = 0; index < len; index++) {
         switch (value[index]) {
         case '&':
@@ -2385,11 +2385,27 @@ static void md_emit_html_attribute(sbuf *out, const Py_UCS4 *value, Py_ssize_t l
         case '\f':
             sbuf_puts(out, "&#12;");
             break;
+        case ' ':
+            if (in_cell) {
+                sbuf_puts(out, "&#32;");
+            } else {
+                sbuf_putc(out, ' ');
+            }
+            break;
         default:
             sbuf_putc(out, value[index]);
             break;
         }
     }
+}
+
+static int md_attr_has_space_run(const Py_UCS4 *value, Py_ssize_t len) {
+    for (Py_ssize_t index = 1; index < len; index++) {
+        if (value[index - 1] == ' ' && value[index] == ' ') {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static void md_emit_image(md_ctx *ctx, th_node *node) {
@@ -2410,26 +2426,34 @@ static void md_emit_image(md_ctx *ctx, th_node *node) {
     }
     Py_ssize_t src_len;
     const Py_UCS4 *src = md_attr(ctx->tree, node, "src", &src_len);
+    Py_ssize_t title_len;
+    const Py_UCS4 *title = md_attr(ctx->tree, node, "title", &title_len);
+    int use_html = ctx->in_cell && (md_attr_has_space_run(alt, alt_len) || md_attr_has_space_run(src, src_len) ||
+                                    md_attr_has_space_run(title, title_len));
     if (src != NULL) {
         for (Py_ssize_t index = 0; index < src_len; index++) {
             if (src[index] == '\n' || src[index] == '\r' || src[index] == '\t' || src[index] == '\f') {
-                sbuf_puts(&ctx->out, "<img src=\"");
-                md_emit_html_attribute(&ctx->out, src, src_len);
-                sbuf_puts(&ctx->out, "\" alt=\"");
-                if (alt != NULL) {
-                    md_emit_html_attribute(&ctx->out, alt, alt_len);
-                }
-                Py_ssize_t raw_title_len;
-                const Py_UCS4 *raw_title = md_attr(ctx->tree, node, "title", &raw_title_len);
-                if (raw_title != NULL) {
-                    sbuf_puts(&ctx->out, "\" title=\"");
-                    md_emit_html_attribute(&ctx->out, raw_title, raw_title_len);
-                }
-                sbuf_puts(&ctx->out, "\">");
-                ctx->line_has_content = 1;
-                return;
+                use_html = 1;
+                break;
             }
         }
+    }
+    if (use_html) {
+        sbuf_puts(&ctx->out, "<img src=\"");
+        if (src != NULL) {
+            md_emit_html_attribute(&ctx->out, src, src_len, ctx->in_cell);
+        }
+        sbuf_puts(&ctx->out, "\" alt=\"");
+        if (alt != NULL) {
+            md_emit_html_attribute(&ctx->out, alt, alt_len, ctx->in_cell);
+        }
+        if (title != NULL) {
+            sbuf_puts(&ctx->out, "\" title=\"");
+            md_emit_html_attribute(&ctx->out, title, title_len, ctx->in_cell);
+        }
+        sbuf_puts(&ctx->out, "\">");
+        ctx->line_has_content = 1;
+        return;
     }
     sbuf_puts(&ctx->out, "![");
     md_emit_alt(ctx, alt, alt_len, 1);
@@ -2440,8 +2464,6 @@ static void md_emit_image(md_ctx *ctx, th_node *node) {
     } else {
         sbuf_puts(&ctx->out, "<>"); /* a missing src is an empty destination */
     }
-    Py_ssize_t title_len;
-    const Py_UCS4 *title = md_attr(ctx->tree, node, "title", &title_len);
     if (title != NULL) {
         sbuf_puts(&ctx->out, " \"");
         md_emit_title(ctx, title, title_len);

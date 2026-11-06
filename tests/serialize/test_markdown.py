@@ -1810,6 +1810,26 @@ def test_trailing_break_at_an_inline_root_is_dropped() -> None:
             "| [x](/t) |\n| --- |",
             id="table-list-in-link-in-cell-flattens",
         ),
+        pytest.param(
+            '<table><tr><td><img alt="  "></td></tr></table>',
+            '| <img src="" alt="&#32;&#32;"> |\n| --- |',
+            id="table-image-alt-spaces",
+        ),
+        pytest.param(
+            '<table><tr><td><img src="a  b" alt="x"></td></tr></table>',
+            '| <img src="a&#32;&#32;b" alt="x"> |\n| --- |',
+            id="table-image-src-spaces",
+        ),
+        pytest.param(
+            '<table><tr><td><img src="x" alt="a b" title="c  d"></td></tr></table>',
+            '| <img src="x" alt="a&#32;b" title="c&#32;&#32;d"> |\n| --- |',
+            id="table-image-title-spaces",
+        ),
+        pytest.param(
+            '<table><tr><td><img src="x" alt="a b"></td></tr></table>',
+            "| ![a b](x) |\n| --- |",
+            id="table-image-single-alt-space",
+        ),
     ],
 )
 def test_tables(html: str, expected: str) -> None:
@@ -2006,6 +2026,9 @@ def test_escaping_none(html: str, options: Markdown, expected: str) -> None:
         pytest.param('<a href="a\nb">x</a>', "[x](ab)", id="newline-dropped"),
         pytest.param('<a href="a\tb">x</a>', "[x](ab)", id="tab-dropped"),
         pytest.param('<img src="i&#13;e">', '<img src="i&#13;e" alt="">', id="image-carriage-return-preserved"),
+        pytest.param(
+            '<img src="a &#13;b" alt="x y">', '<img src="a &#13;b" alt="x y">', id="image-raw-attribute-space"
+        ),
         pytest.param('<a href="é\nx">t</a>', "[t](éx)", id="newline-dropped-after-non-ascii"),
         pytest.param('<a href="\n&lt;">x</a>', "[x](<\\<>)", id="leading-angle-after-dropped-newline"),
         pytest.param('<a href="a\x01b">x</a>', "[x](<a\x01b>)", id="control-takes-angle-form"),
