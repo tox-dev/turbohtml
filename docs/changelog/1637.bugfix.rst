@@ -1,0 +1,2 @@
+Keep one-shot and streaming encoding detection consistent when an unmapped byte disqualifies the logical Hebrew
+candidate. Both now use the same punctuation tiebreak to select the encoding.

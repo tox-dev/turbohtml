@@ -415,6 +415,9 @@ static void th_sb_feed(th_sb_candidate *cand, const unsigned char *buf, Py_ssize
         unsigned char cls = th_detect_classify(data, byte);
         if (cls == 255) {
             cand->alive = 0;
+            if (cand->kind == TH_SB_LOGICAL) {
+                continue;
+            }
             return;
         }
         unsigned char caseless = cls & 0x7F;
