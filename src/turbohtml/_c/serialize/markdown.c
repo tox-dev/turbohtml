@@ -1712,20 +1712,18 @@ static Py_ssize_t md_max_backtick_run(const Py_UCS4 *text, Py_ssize_t len) {
 enum { MD_CODE_INLINE, MD_CODE_LINE, MD_CODE_BREAK, MD_CODE_SKIPPED };
 
 /* How code text treats an element: a block, or a table row or cell that the table
-   model sets apart from its neighbors, lays out on lines of its own; a script or style
-   holds no text, and a template's content is never drawn (is_md_skipped; a <head>
-   cannot sit in code); anything else runs inline. One switch answers all three. */
+   model sets apart from its neighbors, lays out on lines of its own; hidden subtrees
+   contribute no text, and anything else runs inline. */
 static int md_code_kind(const th_node *node) {
+    if (is_md_skipped(node)) {
+        return MD_CODE_SKIPPED;
+    }
     if (node->ns != TH_NS_HTML) {
         return MD_CODE_INLINE;
     }
     switch (node->atom) {
     case TH_TAG_BR:
         return MD_CODE_BREAK;
-    case TH_TAG_SCRIPT:
-    case TH_TAG_STYLE:
-    case TH_TAG_TEMPLATE:
-        return MD_CODE_SKIPPED;
     case TH_TAG_TR:
     case TH_TAG_TD:
     case TH_TAG_TH:

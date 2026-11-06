@@ -675,6 +675,10 @@ def test_markdown_oracle_keeps_image_alt_escapes(check: Callable[[str], str | No
     assert check(source) is None
 
 
+def test_markdown_source_omits_hidden_title_in_pre() -> None:
+    assert markdown_source_check("<pre/><title>") is None
+
+
 @pytest.mark.parametrize("name", ["markdown-source", "markdown-html"])
 def test_generation_public_consumers_reject_non_utf8(name: str) -> None:
     target: Final = next(target for target in public_targets() if target.name == name)
