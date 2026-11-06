@@ -15,10 +15,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from itertools import pairwise, starmap
 from re import (
-    _constants as sre_constants,  # ruff: ignore[import-private-name] # ty: ignore[unresolved-import] # no public regex token API
+    _constants as sre_constants,  # ruff: ignore[import-private-name] # ty: ignore[import-not-found] # no public regex token API
 )
 from re import (
-    _parser as sre_parse,  # ruff: ignore[import-private-name] # ty: ignore[unresolved-import] # no public regex token API
+    _parser as sre_parse,  # ruff: ignore[import-private-name] # ty: ignore[import-not-found] # no public regex token API
 )
 from typing import TYPE_CHECKING, Final, TypeAlias, cast
 
