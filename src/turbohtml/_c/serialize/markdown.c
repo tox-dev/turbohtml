@@ -2117,10 +2117,20 @@ static void md_leave_link(md_ctx *ctx, md_frame *frame) {
     }
 }
 
-/* Pass a node's outer HTML through on one line (the image/table/list escape
-   hatch). A blank line, even one that is blank only after its continuation
-   prefix, ends a GFM raw-HTML block and leaves the rest to be read as Markdown,
-   so each line break goes out as its numeric reference. */
+/* Pipe cells collapse LF but preserve CR, while raw HTML blocks must encode both. */
+static void md_put_html_run(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len, int encode_lf) {
+    Py_ssize_t run = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (text[index] == '\r' || (encode_lf && text[index] == '\n')) {
+            md_put_run(ctx, text + run, index - run);
+            sbuf_puts(&ctx->out, text[index] == '\n' ? "&#10;" : "&#13;");
+            run = index + 1;
+        }
+    }
+    md_put_run(ctx, text + run, len - run);
+}
+
+/* Pass a node's outer HTML through on one line (the image/table/list escape hatch). */
 static void md_emit_raw_html(md_ctx *ctx, th_node *node) {
     sbuf cell_open = {0};
     sbuf cell_close = {0};
@@ -2154,15 +2164,7 @@ static void md_emit_raw_html(md_ctx *ctx, th_node *node) {
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
         return;              /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    Py_ssize_t run = 0;
-    for (Py_ssize_t index = 0; index < len; index++) {
-        if (html[index] == '\n' || html[index] == '\r') {
-            md_put_run(ctx, html + run, index - run);
-            sbuf_puts(&ctx->out, html[index] == '\n' ? "&#10;" : "&#13;");
-            run = index + 1;
-        }
-    }
-    md_put_run(ctx, html + run, len - run);
+    md_put_html_run(ctx, html, len, 1);
     ctx->line_has_content = 1;
     PyMem_Free(html);
 }
@@ -2223,19 +2225,19 @@ static void md_emit_cell_html(md_ctx *ctx, th_node *node) {
         if (ch == '<') {
             Py_ssize_t tag = md_tbody_tag(&html[index], len - index);
             if (tag > 0) {
-                md_put_run(ctx, &html[start], index - start);
+                md_put_html_run(ctx, &html[start], index - start, 0);
                 index += tag - 1;
                 start = index + 1;
             } else {
                 index += md_markup_length(&html[index], len - index) - 1;
             }
         } else if (ch < 0x80 && (MD_ASCII[ch] & ctx->escape_mask)) {
-            md_put_run(ctx, &html[start], index - start);
+            md_put_html_run(ctx, &html[start], index - start, 0);
             sbuf_putc(&ctx->out, '\\');
             start = index;
         }
     }
-    md_put_run(ctx, &html[start], len - start);
+    md_put_html_run(ctx, &html[start], len - start, 0);
     ctx->line_has_content = 1;
     PyMem_Free(html);
 }
