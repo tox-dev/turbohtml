@@ -927,8 +927,16 @@ PyObject *turbohtml_css_declaration_text(PyObject *Py_UNUSED(module), PyObject *
             Py_DECREF(parts);
             return NULL;
         }
-        PyObject *part = th_str_format("%U: %U%s", PyTuple_GET_ITEM(triple, PyTuple_GET_SIZE(triple) == 4 ? 3 : 0),
-                                       PyTuple_GET_ITEM(triple, 1), important ? " !important" : "");
+        PyObject *value = PyTuple_GET_ITEM(triple, 1);
+        Py_ssize_t value_len = PyUnicode_GET_LENGTH(value);
+        Py_ssize_t slash_start = value_len;
+        while (slash_start > 0 && PyUnicode_READ_CHAR(value, slash_start - 1) == '\\') {
+            slash_start--;
+        }
+        /* A trailing escape would consume the semicolon between declarations. */
+        const char *line_break = index + 1 < count && !important && (value_len - slash_start) % 2 ? "\n" : "";
+        PyObject *part = th_str_format("%U: %U%s%s", PyTuple_GET_ITEM(triple, PyTuple_GET_SIZE(triple) == 4 ? 3 : 0),
+                                       value, line_break, important ? " !important" : "");
         if (part == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             Py_DECREF(parts); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;      /* GCOVR_EXCL_LINE */
