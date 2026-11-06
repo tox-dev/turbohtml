@@ -268,6 +268,10 @@ def test_xml_check_drops_invalid_namespace_declaration() -> None:
     assert xml_check("<p xmlns:foo>") is None
 
 
+def test_xml_check_normalizes_processing_instruction_space_after_invalid_character() -> None:
+    assert xml_check("<p><?foo \x00\tbar?></p>") is None
+
+
 @pytest.mark.parametrize("markup", ["<!DOCTYPE", "<d<>", "<z:>", "<l :>"])
 def test_xml_check_accepts_dropped_invalid_names(markup: str) -> None:
     assert xml_check(markup) is None

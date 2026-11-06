@@ -1000,6 +1000,23 @@ def test_xml_processing_instruction_drops_forbidden_characters(invalid: str) -> 
 
 
 @pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        pytest.param("\tbar", "bar", id="tab"),
+        pytest.param("\rbar", "bar", id="carriage-return"),
+        pytest.param("\x00\tbar", "bar", id="invalid-before-tab"),
+        pytest.param(" \nbar", "bar", id="multiple-spaces"),
+        pytest.param("\x00\t", "", id="empty-after-filtering"),
+        pytest.param("a\tbar", "a\tbar", id="internal-tab"),
+    ],
+)
+def test_xml_processing_instruction_normalizes_leading_data_space(data: str, expected: str) -> None:
+    output = Element("doc", children=[ProcessingInstruction("t", data)]).serialize(_XML)
+    assert output == f"<doc><?t {expected}?></doc>"
+    assert parse_xml(output).serialize(_XML) == output
+
+
+@pytest.mark.parametrize(
     "target",
     [
         pytest.param("xml", id="reserved-lowercase"),
