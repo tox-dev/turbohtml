@@ -1725,6 +1725,16 @@ def test_trailing_break_at_an_inline_root_is_dropped() -> None:
             id="table-pipe-inside-nested-escaped-once",
         ),
         pytest.param(
+            "<table><tr><td><table><tr><td>&#13;</td></tr></table></td></tr></table>",
+            "| <table><tr><td>&#13;</td></tr></table> |\n| --- |",
+            id="table-nested-carriage-return",
+        ),
+        pytest.param(
+            "<table><tr><td><ul><li>&#13;</li></ul></td></tr></table>",
+            "| <ul><li>&#13;</li></ul> |\n| --- |",
+            id="table-list-carriage-return",
+        ),
+        pytest.param(
             "<table><tr><td><code>a|b</code></td></tr><tr><td>c</td></tr></table>",
             "| `a\\|b` |\n| --- |\n| c |",
             id="table-pipe-in-code-span-escaped",
