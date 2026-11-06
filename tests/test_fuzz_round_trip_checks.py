@@ -717,6 +717,8 @@ def test_markdown_source_grammar_skips_lost_control_whitespace() -> None:
         pytest.param(b"<meta charset=windows-1252><p>\xe9</p>", "UTF-8", True, "é", id="prescan"),
         pytest.param(b" " * 1025 + b"<meta charset=windows-1251><p>\xc0</p>", "UTF-8", True, "\u0410", id="late-meta"),
         pytest.param(b"<p>a<!--c-->b<strong>c</strong>d</p>", "UTF-8", False, "abcd", id="comment-tails"),
+        pytest.param(b"<select><style>\x00", "UTF-8", False, "\ufffd", id="select-style-nul"),
+        pytest.param(b"<select><title>\x00", "UTF-8", False, "\ufffd", id="select-title-nul"),
         pytest.param(("<div>" * 1200 + "x" + "</div>" * 1200).encode(), "UTF-8", False, "x", id="deep-tree"),
     ],
 )
@@ -823,9 +825,12 @@ def test_generation_first_conversion_loss(name: str, data: bytes) -> None:
         target.callback(data)
 
 
-def test_generation_changed_decoder_text() -> None:
+@pytest.mark.parametrize(
+    "data", [pytest.param(b"<p>kept</p>", id="ordinary"), pytest.param(b"<select><style>\x00", id="select-style")]
+)
+def test_generation_changed_decoder_text(data: bytes) -> None:
     with pytest.raises(AssertionError, match="Encoded parser text differs"):
-        encoding_observation(b"<p>kept</p>", decode=lambda _data, _codec: "<p>wrong</p>")
+        encoding_observation(data, decode=lambda _data, _codec: "<p>wrong</p>")
 
 
 @pytest.mark.parametrize(

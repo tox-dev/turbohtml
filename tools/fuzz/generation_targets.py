@@ -64,8 +64,13 @@ def encoding_observation(
     # BOMs override explicit codecs; late declarations can restart sniffed parsing.
     decoded: Final = decode(data, f"whatwg-{document.encoding}").removeprefix("\ufeff")
     if _nesting(decoded) <= _ORACLE_MAX_NESTING:
+        unicode_text: Final = parse(decoded).text
+        if document.text != unicode_text:
+            msg = f"Encoded parser text differs: {document.text!r} != {unicode_text!r}"
+            raise AssertionError(msg)
         expected: Final = _reference_text(html5lib.parse(decoded, namespaceHTMLElements=False))
-        if (document.text, parse(decoded).text) != (expected, expected):
+        # html5lib's former in-select rules ignore style and title content that the current HTML parser keeps.
+        if unicode_text != expected and not document.select("select style, select title"):
             msg = f"Encoded parser text differs: {document.text!r} != {expected!r}"
             raise AssertionError(msg)
     return document.text
