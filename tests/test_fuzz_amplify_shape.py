@@ -673,6 +673,8 @@ def test_markdown_unsupported_element() -> None:
         pytest.param('<h3><a href="/t">t<br>a</a></h3>', id="heading-link-break"),
         pytest.param("<table><tr><td>a<p>b</p></td></tr></table>", id="cell-paragraph"),
         pytest.param("<table><tr><td><p></p></td></tr></table>", id="cell-empty-paragraph"),
+        pytest.param("<b><table><td><td><tr><td><", id="bold-irregular-table"),
+        pytest.param("<b><table><td><table><td>x</table><td>y</table>", id="bold-nested-table"),
         pytest.param("<h1><pre><code>x</code></pre></h1>", id="heading-code-block"),
         pytest.param("<strong><p></p></strong> i", id="text-after-emphasis-around-block"),
         pytest.param("<em>d <p>e</p></em>", id="space-before-block-in-emphasis"),

@@ -566,6 +566,16 @@ typedef enum { TH_MARKDOWN_HTML_BLOCK = 1, TH_MARKDOWN_HTML_INLINE } th_markdown
    would take for the start of markup. */
 Py_UCS4 *th_node_markdown_html(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *out_len);
 
+typedef struct {
+    const Py_UCS4 *open;
+    Py_ssize_t open_len;
+    const Py_UCS4 *close;
+    Py_ssize_t close_len;
+} th_cell_wrap;
+
+/* An enclosing inline marker would otherwise vanish at the raw table block boundary. */
+Py_UCS4 *th_node_markdown_table_html(th_tree *tree, th_node *node, const th_cell_wrap *wrap, Py_ssize_t *out_len);
+
 /* Serialize only node's children (its inner HTML), WHATWG-conformant and
    compact. PyMem-allocated; *out_len receives the length. NULL on failure. */
 Py_UCS4 *th_node_inner_html(th_tree *tree, th_node *node, Py_ssize_t *out_len);

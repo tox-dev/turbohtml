@@ -2124,8 +2124,34 @@ static void md_leave_link(md_ctx *ctx, md_frame *frame) {
    prefix, ends a GFM raw-HTML block and leaves the rest to be read as Markdown,
    so each line break goes out as its numeric reference. */
 static void md_emit_raw_html(md_ctx *ctx, th_node *node) {
+    sbuf cell_open = {0};
+    sbuf cell_close = {0};
+    if (node->atom == TH_TAG_TABLE) {
+        for (Py_ssize_t index = ctx->marker_base; index < ctx->marker_count; index++) {
+            uint8_t marker_html = ctx->markers[index].html;
+            if (marker_html != MD_HTML_NONE) {
+                sbuf_puts(&cell_open, MD_HTML_TAGS[marker_html - 1][0]);
+            }
+        }
+        for (Py_ssize_t index = ctx->marker_count; index > ctx->marker_base; index--) {
+            uint8_t marker_html = ctx->markers[index - 1].html;
+            if (marker_html != MD_HTML_NONE) {
+                sbuf_puts(&cell_close, MD_HTML_TAGS[marker_html - 1][1]);
+            }
+        }
+    }
+    if (cell_open.failed || cell_close.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        ctx->out.failed = 1;                     /* GCOVR_EXCL_LINE: allocation failure */
+        PyMem_Free(cell_open.data);              /* GCOVR_EXCL_LINE: allocation failure */
+        PyMem_Free(cell_close.data);             /* GCOVR_EXCL_LINE: allocation failure */
+        return;                                  /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    const th_cell_wrap wrap = {cell_open.data, cell_open.len, cell_close.data, cell_close.len};
     Py_ssize_t len;
-    Py_UCS4 *html = th_node_markdown_html(ctx->tree, node, TH_MARKDOWN_HTML_BLOCK, &len);
+    Py_UCS4 *html = cell_open.len > 0 ? th_node_markdown_table_html(ctx->tree, node, &wrap, &len)
+                                      : th_node_markdown_html(ctx->tree, node, TH_MARKDOWN_HTML_BLOCK, &len);
+    PyMem_Free(cell_open.data);
+    PyMem_Free(cell_close.data);
     if (html == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
         return;              /* GCOVR_EXCL_LINE: allocation-failure path */
