@@ -1145,7 +1145,7 @@ static void css_rtrim(css_buf *buffer) {
 }
 
 static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, const css_char *name,
-                                 Py_ssize_t name_len, css_buf *out);
+                                 Py_ssize_t name_len, css_buf *out, int *raw_fallback);
 static int css_is_ident_string(const css_char *text, Py_ssize_t len);
 CSS_NOINLINE static void css_close_function_args(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *args);
 CSS_NOINLINE static void css_close_raw_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out);
@@ -1203,10 +1203,17 @@ static void css_render_function(css_buf *pool, token_vec *vec, Py_ssize_t name_i
                                 Py_ssize_t *out_off, Py_ssize_t *out_len) {
     css_token *name_token = &vec->items[name_index];
     css_buf args = {NULL, 0, 0, pool->oom};
-    css_minify_func_args(pool, vec, name_index + 2, close_index, name_token->text, name_token->text_len, &args);
+    int raw_fallback = 0;
+    css_minify_func_args(pool, vec, name_index + 2, close_index, name_token->text, name_token->text_len, &args,
+                         &raw_fallback);
     css_collapse_transform_args(name_token->text, name_token->text_len, &args);
     if (close_index == vec->len) {
-        css_close_function_args(vec, name_index + 2, close_index, &args);
+        if (raw_fallback) {
+            /* Raw arguments still contain nested functions, so their blocks must be counted too. */
+            css_close_raw_blocks(vec, name_index + 2, close_index, &args);
+        } else {
+            css_close_function_args(vec, name_index + 2, close_index, &args);
+        }
     }
     *out_off = pool->len;
     cbuf_put_run(pool, name_token->text, name_token->text_len);
