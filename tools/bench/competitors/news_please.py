@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 # not a bench group dependency: its newspaper4k requirement clobbers newspaper3k's newspaper module
-from newsplease import NewsPlease  # ty: ignore[unresolved-import]
+from newsplease import NewsPlease  # ty: ignore[import-not-found]
 
 REQUIREMENTS = ("news-please>=1.6",)
 

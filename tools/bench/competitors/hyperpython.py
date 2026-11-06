@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import functools
 
-from hyperpython import li, ul  # ty: ignore[unresolved-import]  # undeclared: pins an older markupsafe
+from hyperpython import li, ul  # ty: ignore[import-not-found]  # undeclared: pins an older markupsafe
 
 REQUIREMENTS = ("hyperpython>=1.1.1", "sidekick<0.7")
 

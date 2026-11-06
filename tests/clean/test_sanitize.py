@@ -4549,7 +4549,7 @@ def test_document_node_return_types(*, method: bool) -> None:
     document: Final = parse("<p onclick='x'>hi</p>")
     policy: Final = Policy(tags=frozenset({"html", "head", "body", "p"}))
     sanitizer: Final = Sanitizer(policy)
-    cleaned: Final = assert_type(sanitizer.sanitize_node(document), Document)
+    cleaned: Final[Document] = assert_type(sanitizer.sanitize_node(document), Document)
     result: Final = assert_type(
         sanitizer.sanitize_report_node(document) if method else sanitize_report_node(document, policy),
         tuple[Document, list[Removed]],

@@ -154,7 +154,7 @@ def test_transform_native_mutator() -> None:
 
 def test_transform_copy_before_mutating() -> None:
     root: Final = parse_fragment("<b>  a  </b><!--x-->")
-    result: Final = assert_type(transform_node(root, sanitize_node, collapse_whitespace_node), Element)
+    result: Final[Element] = assert_type(transform_node(root, sanitize_node, collapse_whitespace_node), Element)
     assert (root.inner_html, result.inner_xml) == ("<b>  a  </b><!--x-->", "<b> a </b>")
 
 
@@ -167,7 +167,9 @@ def test_transform_replaces_node_type() -> None:
     def replace(node: Node) -> Document:
         return parse(node.serialize())
 
-    result: Final = assert_type(transform_node(Element("p"), replace, strip_comments_node), Element | Document)
+    result: Final[Element | Document] = assert_type(
+        transform_node(Element("p"), replace, strip_comments_node), Element | Document
+    )
     assert isinstance(result, Document)
     assert result.serialize() == "<html><head></head><body><p></p></body></html>"
 
