@@ -2141,15 +2141,15 @@ static void md_emit_raw_html(md_ctx *ctx, th_node *node) {
         }
     }
     if (cell_open.failed || cell_close.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-        ctx->out.failed = 1;                    /* GCOVR_EXCL_LINE: allocation failure */
-        PyMem_Free(cell_open.data);             /* GCOVR_EXCL_LINE: allocation failure */
-        PyMem_Free(cell_close.data);            /* GCOVR_EXCL_LINE: allocation failure */
-        return;                                 /* GCOVR_EXCL_LINE: allocation failure */
+        ctx->out.failed = 1;                     /* GCOVR_EXCL_LINE: allocation failure */
+        PyMem_Free(cell_open.data);              /* GCOVR_EXCL_LINE: allocation failure */
+        PyMem_Free(cell_close.data);             /* GCOVR_EXCL_LINE: allocation failure */
+        return;                                  /* GCOVR_EXCL_LINE: allocation failure */
     }
     const th_cell_wrap wrap = {cell_open.data, cell_open.len, cell_close.data, cell_close.len};
     Py_ssize_t len;
     Py_UCS4 *html = cell_open.len > 0 ? th_node_markdown_table_html(ctx->tree, node, &wrap, &len)
-                                       : th_node_markdown_html(ctx->tree, node, TH_MARKDOWN_HTML_BLOCK, &len);
+                                      : th_node_markdown_html(ctx->tree, node, TH_MARKDOWN_HTML_BLOCK, &len);
     PyMem_Free(cell_open.data);
     PyMem_Free(cell_close.data);
     if (html == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
