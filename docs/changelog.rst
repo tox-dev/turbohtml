@@ -6,6 +6,39 @@
 
 .. towncrier release notes start
 
+.. _release-1-15-9:
+
+**********************
+ v1.15.9 (2026-11-06)
+**********************
+
+.. _release-1-15-9-fixed:
+
+Fixed
+=====
+
+- Keep one-shot and streaming encoding detection consistent when an unmapped byte disqualifies the logical Hebrew
+  candidate. Both now use the same punctuation tiebreak to select the encoding (:pr:`1637`) by :user:`gaborbernat`.
+- Avoid a ``MemoryError`` and emit balanced CSS when an unterminated function reaches the nesting limit (:pr:`1641`) by
+  :user:`gaborbernat`.
+- Keep XML comments well formed when invalid characters follow or separate hyphens (:pr:`1649`) by :user:`gaborbernat`.
+- Keep malformed CSS math functions stable when their raw fallback ends inside a nested function (:pr:`1645`) by
+  :user:`gaborbernat`.
+- Keep the encoded-text fuzz check aligned with current HTML select parsing when style or title content appears inside
+  select (:pr:`1640`) by :user:`gaborbernat`.
+- Normalize leading whitespace in XML processing instruction data so the serialized output remains stable when reparsed
+  (:pr:`1648`) by :user:`gaborbernat`.
+- Omit hidden elements from Markdown code blocks and spans (:pr:`1644`) by :user:`gaborbernat`.
+- Omit invalid namespace declarations when serializing HTML as XML, so the output parses as XML (:pr:`1643`) by
+  :user:`gaborbernat`.
+- Preserve carriage returns in HTML nested inside Markdown table cells (:pr:`1652`) by :user:`gaborbernat`.
+- Preserve declaration boundaries when a CSS value ends in an unpaired backslash (:pr:`1647`) by :user:`gaborbernat`.
+- Preserve emphasis on the cells of irregular tables exported as raw HTML in Markdown (:pr:`1638`) by
+  :user:`gaborbernat`.
+- Preserve repeated spaces in image attributes when rendering Markdown tables (:pr:`1646`) by :user:`gaborbernat`.
+- Preserve token separators after hex escapes in CSS function arguments (:pr:`1651`) by :user:`gaborbernat`.
+- Recognize character references for control whitespace in Markdown fuzz checks (:pr:`1650`) by :user:`gaborbernat`.
+
 .. _release-1-15-8:
 
 **********************
