@@ -103,7 +103,10 @@ def _run(job: _Job) -> int:
         print(_public_build_log(build_log), file=sys.stderr)
     else:
         if job.mode in {"batch", "coverage"}:
-            _add_seeds(workspace / "build-out", storage / "corpus")
+            _add_seeds(
+                workspace / "build-out",
+                workspace / "coverage-corpus" if job.mode == "coverage" else storage / "corpus",
+            )
         run_environment: Final = {**environment, "MODE": job.mode, "OUTPUT_SARIF": "True"}
         if job.mode in {"prune", "coverage"}:
             status.update(_run_targets(job, run_environment))
@@ -125,7 +128,9 @@ def _run_targets(job: _Job, environment: dict[str, str]) -> dict[str, int]:
     # each target gets a run of its own, the largest corpus first, and all of them stop at the same deadline
     deadline: Final = monotonic() + job.seconds
     build: Final = job.workspace / "build-out"
-    corpus: Final = job.workspace / "storage" / "corpus"
+    corpus: Final = (
+        job.workspace / "coverage-corpus" if job.mode == "coverage" else job.workspace / "storage" / "corpus"
+    )
     targets: Final = sorted(
         (path for path in build.iterdir() if _is_fuzz_target(path)),
         key=lambda path: (-len(list((corpus / path.name).glob("*"))), path.name),
@@ -161,13 +166,19 @@ def _run_target(job: _Job, environment: dict[str, str], target: Path, others: fr
                 shutil.copy2(path, build / path.name)
             else:
                 (build / path.name).symlink_to(path)
-    # the corpus and crashes stay in the shared filestore; the coverage report each run uploads stays in its own
+    # The build seeds reach every public function; replaying the full fuzz corpus exceeds the coverage deadline.
+    # Crashes stay in the shared filestore, while each coverage report stays in its own workspace.
     storage: Final = workspace / "storage"
     storage.mkdir(exist_ok=True)
     for name in ("corpus", "crashes"):
-        (job.workspace / "storage" / name).mkdir(exist_ok=True)
+        shared = (
+            job.workspace / "coverage-corpus"
+            if job.mode == "coverage" and name == "corpus"
+            else job.workspace / "storage" / name
+        )
+        shared.mkdir(exist_ok=True)
         (storage / name).unlink(missing_ok=True)
-        (storage / name).symlink_to(job.workspace / "storage" / name)
+        (storage / name).symlink_to(shared)
     logs: Final = job.workspace / "logs" / f"{job.mode}-{job.sanitizer}"
     logs.mkdir(exist_ok=True)
     code: Final = _docker(
