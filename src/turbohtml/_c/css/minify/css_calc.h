@@ -706,8 +706,11 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
                 cbuf_put_run(out, pool->data + off, len);
             } else {
                 /* past the nesting cap the nested call goes out as its source text, which reparses to the same value */
-                const css_token *close = &vec->items[close_index];
-                cbuf_put_run(out, token->text, close->text + close->text_len - token->text);
+                const css_token *close = &vec->items[close_index < vec->len ? close_index : vec->len - 1];
+                cbuf_put_run(out, token->text, close->text + close->text_len + close->unit_len - token->text);
+                if (close_index == vec->len) {
+                    css_close_raw_blocks(vec, index + 1, close_index, out);
+                }
             }
             index = close_index + 1;
             continue;

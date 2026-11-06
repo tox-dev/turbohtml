@@ -1148,6 +1148,7 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
                                  Py_ssize_t name_len, css_buf *out);
 static int css_is_ident_string(const css_char *text, Py_ssize_t len);
 CSS_NOINLINE static void css_close_function_args(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *args);
+CSS_NOINLINE static void css_close_raw_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out);
 
 static int css_arg_is_zero(const css_char *text, Py_ssize_t len) {
     return (len == 1 && text[0] == '0') || (len == 2 && text[0] == '0' && text[1] == '%');

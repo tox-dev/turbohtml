@@ -914,6 +914,13 @@ def test_minify_css_unclosed_invalid_rgb_stays_invalid() -> None:
     assert minify_css(expected) == expected
 
 
+def test_minify_css_unclosed_function_at_nesting_limit() -> None:
+    source = "a{n:" + "x(" * 101 + "1px"
+    expected = source + ")" * 101 + "}"
+    assert minify_css(source) == expected
+    assert minify_css(expected) == expected
+
+
 @pytest.mark.parametrize(
     ("zeroes", "expected"),
     [
