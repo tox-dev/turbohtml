@@ -264,6 +264,10 @@ def test_xml_check_passes_the_serializer() -> None:
     assert xml_check("<p a=1>x<svg><circle r=1></circle></svg>") is None
 
 
+def test_xml_check_drops_invalid_namespace_declaration() -> None:
+    assert xml_check("<p xmlns:foo>") is None
+
+
 @pytest.mark.parametrize("markup", ["<!DOCTYPE", "<d<>", "<z:>", "<l :>"])
 def test_xml_check_accepts_dropped_invalid_names(markup: str) -> None:
     assert xml_check(markup) is None
