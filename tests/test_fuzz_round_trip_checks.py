@@ -669,6 +669,9 @@ def test_generation_public_consumers_accept_domain_bytes(name: str, data: bytes)
         pytest.param(markdown_source_check, "<img src=x alt='op>A <a href=https://ok.example>safe</a>'>", id="source"),
         pytest.param(markdown_html_check, "<img src=x alt='k</a'>", id="html"),
         pytest.param(markdown_html_check, "<img src=x alt='a*b & c'>", id="punctuation-and-entity"),
+        pytest.param(markdown_html_check, '<table><td><img alt="  ">', id="table-alt-spaces"),
+        pytest.param(markdown_html_check, '<table><td><img src="a  b" alt="x">', id="table-src-spaces"),
+        pytest.param(markdown_html_check, '<table><td><img src="x" title="c  d">', id="table-title-spaces"),
     ],
 )
 def test_markdown_oracle_keeps_image_alt_escapes(check: Callable[[str], str | None], source: str) -> None:
