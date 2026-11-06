@@ -103,8 +103,10 @@ def markdown_html_check(markup: str, render: Callable[[Node], str] = Node.to_mar
     converted: Final = _READER.render(render(parse_fragment(markup)))
     if markdown_html_meaning(converted) == expected:
         return None
-    # counted, not tested for presence: the reader strips the edge copy of a character the text also holds inside
-    if any(converted.count(char) < markup.count(char) for char in "\x0b\x1c\x1d\x1e\x1f\x85"):
+    # Count decoded text: an HTML character reference can carry the control the reader drops.
+    source_text = parse_fragment(markup).text
+    converted_text = parse_fragment(converted).text
+    if any(converted_text.count(char) < source_text.count(char) for char in "\x0b\x1c\x1d\x1e\x1f\x85"):
         msg = "Markdown reader discards control whitespace at paragraph edges"
         raise MarkdownProfileError(msg)
     return "Markdown conversion changes meaning"

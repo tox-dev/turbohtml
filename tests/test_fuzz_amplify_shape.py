@@ -753,9 +753,12 @@ def test_markdown_unicode_spacing_loss_detected(space: str) -> None:
     assert markdown_html_check(f"<p>x{space}y</p>", lambda _node: "x y") == "Markdown conversion changes meaning"
 
 
-def test_markdown_reader_drops_control_whitespace_at_paragraph_edge() -> None:
+@pytest.mark.parametrize(
+    "markup", [pytest.param("<p>\x0bx</p>", id="literal"), pytest.param("<p>&#11;x</p>", id="entity")]
+)
+def test_markdown_reader_drops_control_whitespace_at_paragraph_edge(markup: str) -> None:
     with pytest.raises(MarkdownProfileError, match="Markdown reader discards control whitespace"):
-        markdown_html_check("<p>\x0bx</p>")
+        markdown_html_check(markup)
 
 
 def test_markdown_reader_drops_control_whitespace_beside_a_kept_copy() -> None:
