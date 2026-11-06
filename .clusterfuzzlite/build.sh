@@ -37,6 +37,8 @@ python3 -m fuzz.oss_fuzz seeds --output "$WORK/seeds"
 for harness in $(python3 -m fuzz.oss_fuzz harnesses --output "$WORK/harnesses"); do
     # the driver imports atheris by name at run time, which PyInstaller's import scan does not follow
     compile_python_fuzzer "$harness" --paths "$SRC/turbohtml/tools" --collect-all turbohtml --hidden-import atheris
+    # the runner times out the launcher, so replace the shell to signal PyInstaller
+    sed -i 's/^LD_PRELOAD=/exec env LD_PRELOAD=/' "$OUT/$(basename "$harness" .py)"
     zip -jq "$OUT/$(basename "$harness" .py)_seed_corpus.zip" "$WORK/seeds/"*
 done
 unset LD_PRELOAD
