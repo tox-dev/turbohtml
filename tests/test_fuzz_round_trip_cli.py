@@ -480,8 +480,16 @@ def per_target(docker: MagicMock, mocker: MockerFixture, tmp_path: Path) -> Magi
     return docker
 
 
-@pytest.mark.parametrize("mode", ["prune", "coverage"])
-def test_cflite_runs_each_target_alone_largest_corpus_first(per_target: MagicMock, tmp_path: Path, mode: str) -> None:
+@pytest.mark.parametrize(
+    ("mode", "ordered"),
+    [
+        pytest.param("prune", ("fuzz_html_document", "fuzz_dom_query"), id="stored-corpus"),
+        pytest.param("coverage", ("fuzz_dom_query", "fuzz_html_document"), id="build-seeds"),
+    ],
+)
+def test_cflite_runs_each_target_alone_largest_corpus_first(
+    per_target: MagicMock, tmp_path: Path, mode: str, ordered: tuple[str, str]
+) -> None:
     workspace: Final = tmp_path / "workspace"
     assert fuzz_cflite_main(_target_arguments(tmp_path, mode)) == 0
     runs: Final = [call.args[0] for call in per_target.call_args_list[1:]]
@@ -501,7 +509,7 @@ def test_cflite_runs_each_target_alone_largest_corpus_first(per_target: MagicMoc
             ["--name", runs[index][-2]],
             3600,
         )
-        for index, target in enumerate(("fuzz_html_document", "fuzz_dom_query"))
+        for index, target in enumerate(ordered)
     ]
 
 
@@ -542,6 +550,17 @@ def test_cflite_collects_coverage_data_for_reachability(tmp_path: Path) -> None:
         "coverage_d_fuzz_dom_query": b"fuzz_dom_query",
         "coverage_d_fuzz_html_document": b"fuzz_html_document",
     }
+
+
+@pytest.mark.usefixtures("per_target")
+def test_cflite_coverage_uses_build_seeds_without_changing_stored_corpus(tmp_path: Path) -> None:
+    fuzz_cflite_main(_target_arguments(tmp_path, "coverage"))
+    workspace: Final = tmp_path / "workspace"
+    assert (
+        (workspace / "targets" / "fuzz_dom_query" / "storage" / "corpus").resolve(),
+        (workspace / "coverage-corpus" / "fuzz_dom_query" / "seed").read_bytes(),
+        {path.name for path in (workspace / "storage" / "corpus" / "fuzz_dom_query").iterdir()},
+    ) == (workspace / "coverage-corpus", b"x", {"0"})
 
 
 def test_cflite_stops_target_at_deadline(

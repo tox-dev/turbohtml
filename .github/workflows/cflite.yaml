@@ -129,11 +129,10 @@ jobs:
         env:
           STORAGE_REPO: ${{ vars.CFLITE_STORAGE_REPO }}
           STORAGE_TOKEN: ${{ secrets.CFLITE_STORAGE_TOKEN }}
-      - name: 📊 Measure coverage over the stored corpus
-        # every target runs at once: with one job per core, the targets queued behind the first wave reached the deadline
-        # before they started and were reported as timed out without running
+      - name: 📊 Measure coverage over build seeds
+        # the reachability gate replays the build seeds with one coverage container per runner core
         run: >-
-          uv run --no-project --python 3.15 python tools/fuzz/cflite.py --mode coverage --sanitizer coverage --seconds 7200 --jobs 64 --source "${GITHUB_WORKSPACE}" --workspace "${RUNNER_TEMP}/cflite"
+          uv run --no-project --python 3.15 python tools/fuzz/cflite.py --mode coverage --sanitizer coverage --seconds 7200 --source "${GITHUB_WORKSPACE}" --workspace "${RUNNER_TEMP}/cflite"
       - name: 📊 Check reachability floors
         # each Atheris target's callback and Python-implemented exports must execute at least one line
         run: uvx --with tox-uv tox run -e fuzz-reachability -- --coverage-dir "${RUNNER_TEMP}/cflite/coverage-data"
