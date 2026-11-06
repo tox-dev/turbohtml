@@ -1186,6 +1186,8 @@ def test_xml_serialize_makes_a_comment_well_formed() -> None:
         pytest.param("<z:>", id="incomplete-namespace-prefix"),
         pytest.param("<l :>", id="invalid-attribute-prefix"),
         pytest.param("<!--a--b\x01--><p>x</p>", id="double-hyphen-and-control-in-comment"),
+        pytest.param("<!--end-\x01--><p>x</p>", id="trailing-hyphen-after-control"),
+        pytest.param("<!--a-\x01-b--><p>x</p>", id="double-hyphen-across-control"),
     ],
 )
 def test_serialize_xml_output_reparses_as_xml(markup: str) -> None:
@@ -1248,6 +1250,9 @@ def test_serialize_xml_checks_unicode_element_names(name: str, expected: str) ->
         pytest.param("a--b", "<!--a- -b-->", id="double-hyphen-split"),
         pytest.param("a---b", "<!--a- - -b-->", id="triple-hyphen-split"),
         pytest.param("end-", "<!--end- -->", id="trailing-hyphen-spaced"),
+        pytest.param("end-\x01", "<!--end- -->", id="trailing-hyphen-after-control"),
+        pytest.param("a-\x01-b", "<!--a- -b-->", id="double-hyphen-across-control"),
+        pytest.param("a-\x01b", "<!--a-b-->", id="hyphen-before-dropped-control"),
         pytest.param("--", "<!--- - -->", id="only-hyphens"),
         pytest.param("a\x0cb", "<!--ab-->", id="control-char-dropped"),
     ],

@@ -260,8 +260,16 @@ def test_html_check_skips_trees_the_standard_does_not_round_trip(markup: str) ->
         html_check(markup)
 
 
-def test_xml_check_passes_the_serializer() -> None:
-    assert xml_check("<p a=1>x<svg><circle r=1></circle></svg>") is None
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("<p a=1>x<svg><circle r=1></circle></svg>", id="nested-content"),
+        pytest.param("<p><!--end-\x01--></p>", id="comment-trailing-hyphen-after-control"),
+        pytest.param("<p><!--a-\x01-b--></p>", id="comment-double-hyphen-across-control"),
+    ],
+)
+def test_xml_check_passes_the_serializer(markup: str) -> None:
+    assert xml_check(markup) is None
 
 
 def test_xml_check_drops_invalid_namespace_declaration() -> None:

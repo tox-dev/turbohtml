@@ -228,19 +228,20 @@ static inline void sbuf_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len,
 
 /* XML 1.0 §2.5 forbids `--` and a trailing `-` in a comment; spacing them changes no parsed XML comment. */
 static inline void sbuf_put_xml_comment(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
+    int previous_hyphen = 0;
     for (Py_ssize_t index = 0; index < len; index++) {
         Py_UCS4 character = text[index];
         if (xml_char_invalid(character)) {
             continue;
         }
-        sbuf_putc(out, character);
-        if (character != '-') {
-            continue;
-        }
-        int at_end = index + 1 == len;
-        if (at_end || text[index + 1] == '-') {
+        if (previous_hyphen && character == '-') {
             sbuf_putc(out, ' ');
         }
+        sbuf_putc(out, character);
+        previous_hyphen = character == '-';
+    }
+    if (previous_hyphen) {
+        sbuf_putc(out, ' ');
     }
 }
 
