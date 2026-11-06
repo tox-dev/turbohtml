@@ -108,7 +108,7 @@ test = [
   "typing-extensions>=4.16",
 ]
 type = [
-  "ty>=0.0.84",
+  "ty>=0.0.99",
   "types-lxml>=2026.2.16",
   { include-group = "bench" }, # type-check the bench competitor modules in tools/bench/competitors
 ]
@@ -508,6 +508,9 @@ matrix.python = ">=3.15,<3.16"
 matrix.platforms = [ "linux_x86_64", "linux_aarch64", "macos_arm64", "windows_amd64" ]
 # release-creator 4.4.0 needs a seven-day cutoff exception through 2026-11-09.
 packages.release-creator.uploaded-prior-to = 2026-11-02T21:45:00Z
+# ty 0.0.99, which renamed unresolved-import to import-not-found, needs one through 2026-11-13.
+# expires 2026-11-13
+packages.ty.uploaded-prior-to = 2026-11-06T10:14:00Z
 
 [[tool.nab.package-rules]]
 match = [ "csscompressor" ]

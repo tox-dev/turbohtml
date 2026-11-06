@@ -6040,55 +6040,55 @@ sha256 = "b854164df26db268af05f49aa5c0344b10e27a494343ff05b1e0bad3b135f5a7"
 
 [[packages]]
 name = "ty"
-version = "0.0.92"
+version = "0.0.99"
 marker = "\"dev\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.8"
 index = "https://pypi.org/simple/"
 
 [packages.sdist]
-name = "ty-0.0.92.tar.gz"
-upload-time = 2026-10-26 03:13:58.999066+00:00
-url = "https://files.pythonhosted.org/packages/45/f8/2629d3533019eec56b0008d93198b2cb1575795e017c52759d6ddbdad353/ty-0.0.92.tar.gz"
-size = 8071788
+name = "ty-0.0.99.tar.gz"
+upload-time = 2026-11-06 10:12:11.882390+00:00
+url = "https://files.pythonhosted.org/packages/3a/cd/6a98a3aaaff380637dd7f0c38e065d8857dd2f9cd871fca7385e5002a8f5/ty-0.0.99.tar.gz"
+size = 8222583
 
 [packages.sdist.hashes]
-sha256 = "d08ff5d89bb63780e30837446ea08ddae3db73ae0b872a441a5b514d37726459"
+sha256 = "6a08d4f220e750a8c14c897c39145c5aeff385df456f837b233c35897ff5ea2e"
 
 [[packages.wheels]]
-name = "ty-0.0.92-py3-none-macosx_11_0_arm64.whl"
-upload-time = 2026-10-26 03:13:14.029471+00:00
-url = "https://files.pythonhosted.org/packages/18/6c/01c6680ea6d02e3b0a6a444dafbf549419fe4971cf7e139ea9c3f087a3c1/ty-0.0.92-py3-none-macosx_11_0_arm64.whl"
-size = 13064190
+name = "ty-0.0.99-py3-none-macosx_11_0_arm64.whl"
+upload-time = 2026-11-06 10:11:26.945502+00:00
+url = "https://files.pythonhosted.org/packages/e7/5f/856ecab2d9a6f59512cf6c2f8c55a69aace0fa79f91e035431faff88cbb2/ty-0.0.99-py3-none-macosx_11_0_arm64.whl"
+size = 13417256
 
 [packages.wheels.hashes]
-sha256 = "b1753fdfa241af570c1dbd3fbfae9ff600d2c479ba60efe528bbb47ca15860b0"
+sha256 = "7cb88d3e7513dbf9d68c1e212999b7deb867fa3ac90efa8647c626e987f4cc26"
 
 [[packages.wheels]]
-name = "ty-0.0.92-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
-upload-time = 2026-10-26 03:13:17.019412+00:00
-url = "https://files.pythonhosted.org/packages/4e/f2/79faf9b5ee7defd6df4fc97ff693502d21d34762e16b9031e1cbb4b3f51c/ty-0.0.92-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
-size = 13852740
+name = "ty-0.0.99-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
+upload-time = 2026-11-06 10:11:29.847678+00:00
+url = "https://files.pythonhosted.org/packages/99/c1/8443d935355cb43e1dac2fe348633978402181667d19cbda6780d3b47e2f/ty-0.0.99-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
+size = 14271405
 
 [packages.wheels.hashes]
-sha256 = "cfaa6f4825144d0e873654d7223c72dda2ec8f9db6b1049e6897efbfb0a78680"
+sha256 = "8480617183adff4381c63d5fcfa9318aa9adc39ba3dd5d243374f2ae1e5534e1"
 
 [[packages.wheels]]
-name = "ty-0.0.92-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
-upload-time = 2026-10-26 03:13:31.851841+00:00
-url = "https://files.pythonhosted.org/packages/26/77/6fd2ec1fd78eb783e93b89f1e1aee7fce9095b32dc5f6cc0fc831bd903f4/ty-0.0.92-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
-size = 14700747
+name = "ty-0.0.99-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+upload-time = 2026-11-06 10:11:44.491890+00:00
+url = "https://files.pythonhosted.org/packages/9a/da/be073b201d788ebf49095f8c4be8755cdfc21be8c854814089802c93fd9d/ty-0.0.99-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+size = 16672215
 
 [packages.wheels.hashes]
-sha256 = "a9b6b40225ddd0c049b299e0a655ce04d4de594c6cac3fb9c1e020b113494924"
+sha256 = "a95383fa343765ddbb1a2bc79038d89c9cfb12fdf3b829b69f7d95d47d8d9f1c"
 
 [[packages.wheels]]
-name = "ty-0.0.92-py3-none-win_amd64.whl"
-upload-time = 2026-10-26 03:13:53.170991+00:00
-url = "https://files.pythonhosted.org/packages/77/b1/f455ba90564e00fbef1e58ea8b29bfebaad6c67ea050a3386fba32db55ef/ty-0.0.92-py3-none-win_amd64.whl"
-size = 13942099
+name = "ty-0.0.99-py3-none-win_amd64.whl"
+upload-time = 2026-11-06 10:12:06.188926+00:00
+url = "https://files.pythonhosted.org/packages/c7/58/0a0c01cfde5c1c4ed28f430fc7b689fa280d899b6affd8e6be93fff55bc7/ty-0.0.99-py3-none-win_amd64.whl"
+size = 14384759
 
 [packages.wheels.hashes]
-sha256 = "646bed75c51c7ca3ae4cba015c699f384241bc873d6ad775e0c0d66629532312"
+sha256 = "af3964132653c4612b077da5937e4c49b6977e7619a9d0e5c4df635abd9cd0d4"
 
 [[packages]]
 name = "types-html5lib"
@@ -6613,6 +6613,7 @@ command-line = [
     "--all-groups",
     "--all-extras",
     "--no-cache",
+    "-q",
 ]
 input-path = "pyproject.toml"
 mode = "universal"
