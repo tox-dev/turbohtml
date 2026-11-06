@@ -2112,6 +2112,13 @@ def test_edge_cases(html: str, expected: str) -> None:
     assert md(html) == expected
 
 
+@pytest.mark.parametrize(("container", "expected"), [("pre", "```\nshown\n```"), ("code", "`shown`")])
+@pytest.mark.parametrize("hidden", ["title", "datalist"])
+def test_code_omits_hidden_descendants(container: str, expected: str, hidden: str) -> None:
+    fragment: Final = parse_fragment(f"<{container}><{hidden}>secret</{hidden}>shown</{container}>")
+    assert fragment.to_markdown() == expected
+
+
 @pytest.mark.parametrize(
     ("html", "expected"),
     [
