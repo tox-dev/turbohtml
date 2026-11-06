@@ -4763,6 +4763,7 @@ _MATH_CASES: Final[list[ParameterSet]] = [
         "a { width:calc(1px+ </**//style) }", "a{width:calc(1px+ </**//style)}", id="synthetic-space-inside-span"
     ),
     pytest.param("a { width:calc(1px+ 2em", "a{width:calc(1px+ 2em)}", id="eof-numeric-unit"),
+    pytest.param('a{width:calc({+""fn([}}', 'a{width:calc({+""fn([}}])})}', id="eof-raw-nested-function"),
     pytest.param("a { width:calc(1px+ 2", "a{width:calc(1px+ 2)}", id="eof-number"),
     pytest.param("a { width:max(1px+ 2em,3px) }", "a{width:max(1px+ 2em,3px)}", id="maximum-missing-space"),
     pytest.param("a { width:clamp(0px,1px+ 2em,3px) }", "a{width:clamp(0px,1px+ 2em,3px)}", id="clamp-missing-space"),

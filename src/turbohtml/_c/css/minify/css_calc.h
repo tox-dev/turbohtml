@@ -628,7 +628,7 @@ static void css_emit_function(css_buf *pool, token_vec *vec, Py_ssize_t name_ind
 /* Minify a function's argument list into out, recursing for nested functions. var()
    keeps its raw fallback; calc/min/max/clamp keep their spaced operators. */
 static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, const css_char *name,
-                                 Py_ssize_t name_len, css_buf *out) {
+                                 Py_ssize_t name_len, css_buf *out, int *raw_fallback) {
     int is_var = css_run_ieq(name, name_len, "var");
     int keep_ws = css_is_math_func(name, name_len);
     int is_color = css_run_ieq(name, name_len, "rgb") || css_run_ieq(name, name_len, "rgba") ||
@@ -667,6 +667,7 @@ static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start
                 const css_token *last = &vec->items[end - 1];
                 out->len = 0;
                 cbuf_put_run(out, source, last->text + last->text_len + last->unit_len - source);
+                *raw_fallback = 1;
                 return;
             }
         }
