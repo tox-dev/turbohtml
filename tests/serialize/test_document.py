@@ -1315,6 +1315,41 @@ def test_inner_xml_drops_attributes_with_invalid_names(markup: str, expected: st
 
 
 @pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param("<p xmlns:p>", "<p/>", id="empty-prefix-uri"),
+        pytest.param('<p xmlns:xml="urn:x">', "<p/>", id="rebound-xml-prefix"),
+        pytest.param('<p xmlns:xmlns="urn:x">', "<p/>", id="xmlns-prefix"),
+        pytest.param('<p xmlns:p="http://www.w3.org/XML/1998/namespace">', "<p/>", id="reserved-xml-uri"),
+        pytest.param('<p xmlns:p="http://www.w3.org/2000/xmlns/">', "<p/>", id="reserved-xmlns-uri"),
+        pytest.param('<p xmlns="http://www.w3.org/XML/1998/namespace">', "<p/>", id="default-xml-uri"),
+        pytest.param('<p xmlns="http://www.w3.org/2000/xmlns/">', "<p/>", id="default-xmlns-uri"),
+        pytest.param('<p xmlns:1="urn:x">', "<p/>", id="invalid-prefix-name"),
+        pytest.param('<p xmlns:p="urn:x\x01">', "<p/>", id="invalid-prefix-uri-character"),
+        pytest.param('<p xmlns:p="urn:p">', '<p xmlns:p="urn:p"/>', id="valid-prefix-uri"),
+        pytest.param(
+            '<p xmlns:xml="http://www.w3.org/XML/1998/namespace">',
+            '<p xmlns:xml="http://www.w3.org/XML/1998/namespace"/>',
+            id="valid-xml-prefix",
+        ),
+        pytest.param('<p xmlns="">', '<p xmlns=""/>', id="empty-default-uri"),
+    ],
+)
+def test_inner_xml_namespace_declaration_bindings(markup: str, expected: str) -> None:
+    output = _parsed_inner_xml(markup)
+    assert output == expected
+    parse_xml(output)
+
+
+def test_inner_xml_rebinds_invalid_xlink_declaration() -> None:
+    output = _parsed_inner_xml('<svg xmlns:xlink="" xlink:href="x"></svg>')
+    assert output == (
+        '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="x"/>'
+    )
+    parse_xml(output)
+
+
+@pytest.mark.parametrize(
     ("attributes", "expected"),
     [
         pytest.param({"ü": "1"}, '<p ü="1"/>', id="non-ascii-start"),

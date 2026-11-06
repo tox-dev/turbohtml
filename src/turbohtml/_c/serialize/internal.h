@@ -593,6 +593,47 @@ static inline int ser_xml_ns_name(const char *name, Py_ssize_t len) {
     return (len == 5 && memcmp(name, "xmlns", 5) == 0) || (len > 6 && memcmp(name, "xmlns:", 6) == 0);
 }
 
+int th_xml_attr_name_wellformed_utf8(const char *name, Py_ssize_t name_len);
+
+static inline int ser_xml_ns_uri_equals(const Py_UCS4 *value, Py_ssize_t len, const char *uri) {
+    Py_ssize_t uri_len = (Py_ssize_t)strlen(uri);
+    if (len != uri_len) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < len; index++) {
+        if (value[index] != (Py_UCS4)uri[index]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* XML Namespaces 1.0 forbids empty prefixed bindings and reserves the xml and xmlns URIs. */
+static inline int ser_xml_ns_binding_valid(const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
+                                           Py_ssize_t value_len) {
+    int is_default = name_len == 5;
+    if (!is_default && (value_len == 0 || !th_xml_attr_name_wellformed_utf8(name + 6, name_len - 6))) {
+        return 0;
+    }
+    for (Py_ssize_t index = 0; index < value_len; index++) {
+        if (xml_char_invalid(value[index])) {
+            return 0;
+        }
+    }
+    int xml_uri = ser_xml_ns_uri_equals(value, value_len, "http://www.w3.org/XML/1998/namespace");
+    int xmlns_uri = ser_xml_ns_uri_equals(value, value_len, "http://www.w3.org/2000/xmlns/");
+    if (is_default) {
+        return !xml_uri && !xmlns_uri;
+    }
+    if (xmlns_uri || (name_len == 11 && memcmp(name + 6, "xmlns", 5) == 0)) {
+        return 0;
+    }
+    if (name_len == 9 && memcmp(name + 6, "xml", 3) == 0) {
+        return xml_uri;
+    }
+    return !xml_uri;
+}
+
 static inline int ser_xml_ns_shadowed(th_tree *tree, const th_node *node, const th_node *ancestor, const char *name,
                                       Py_ssize_t len) {
     for (const th_node *cursor = node; cursor != ancestor; cursor = cursor->parent) {
@@ -723,7 +764,8 @@ static inline xml_ns_emitted ser_xml_ns_decls(sbuf *out, th_tree *tree, const th
     for (Py_ssize_t position = 0; position < node->attr_count; position++) {
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, node->attrs[position].name_atom, &name_len);
-        if (name_len == 11 && memcmp(name, "xmlns:xlink", 11) == 0) {
+        if (name_len == 11 && memcmp(name, "xmlns:xlink", 11) == 0 &&
+            ser_xml_ns_binding_valid(name, name_len, node->attrs[position].value, node->attrs[position].value_len)) {
             has_xlink_decl = 1;
         } else if (name_len >= 6 && memcmp(name, "xlink:", 6) == 0) {
             has_xlink_attr = 1;
@@ -770,8 +812,6 @@ static const unsigned char XML_NAME_FLAGS[128] = {
    caller declared is kept), and a name carrying a character XML forbids in a Name --
    the tag-soup `=`, `/`, `<`, quotes and spaces the HTML parser keeps but XML cannot
    -- is dropped so the tag stays well-formed. */
-int th_xml_attr_name_wellformed_utf8(const char *name, Py_ssize_t name_len);
-
 static inline int xml_attr_name_writable(const char *name, Py_ssize_t name_len, xml_ns_emitted emitted) {
     int is_default_decl = name_len == 5 && memcmp(name, "xmlns", 5) == 0;
     if (is_default_decl && emitted.default_ns) {
@@ -835,7 +875,9 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
         th_node_attr *attr = &node->attrs[order != NULL ? order[position] : position];
         Py_ssize_t name_len;
         const char *name = th_attr_name(tree, attr->name_atom, &name_len);
-        if ((opts->xml && !xml_attr_name_writable(name, name_len, emitted)) ||
+        if ((opts->xml && (!xml_attr_name_writable(name, name_len, emitted) ||
+                           (ser_xml_ns_name(name, name_len) &&
+                            !ser_xml_ns_binding_valid(name, name_len, attr->value, attr->value_len)))) ||
             (opts->markdown && !commonmark_attr_name_valid(name, name_len))) {
             continue;
         }
