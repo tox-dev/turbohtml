@@ -381,10 +381,19 @@ jobs:
         env:
           UV_PYTHON_PREFERENCE: only-system # use the container's TSan interpreter, not a uv-managed one
           TSAN_SHARD: ${{ matrix.shard }}
+  release:
+    name: 🏷️ Release dry run
+    uses: $/.github/workflows/prepare-release.yaml
+    permissions:
+      contents: read
+      pull-requests: read
+    with:
+      dry-run: true
   gate:
     name: 🚦 ${{ github.event_name == 'pull_request' && 'Required checks pass' || 'Non-PR checks pass' }}
     if: ${{ !cancelled() }} # codespell:ignore cancelled
     needs:
+      - release
       - test
       - pypy
       - scalar
