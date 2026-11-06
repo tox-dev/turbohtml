@@ -1,14 +1,14 @@
 # turbohtml built from source the way its tox environments build it (tox.toml), with the C extension compiled twice:
 # a production-equivalent debug build in /opt/venv and the ASan/UBSan fuzz build of `tox -e fuzz-smoke` in
 # /opt/venv-asan. The libFuzzer harnesses that .clusterfuzzlite/build.sh ships land in /opt/fuzzers.
-FROM python:3.15-bookworm@sha256:b97b63f7b64698bebb0651b6a5842d33f4493a6902291d36acc5a768e383b950
+FROM python:3.15-trixie@sha256:ce323fb792e0c3c6de88daab1a714542c6be2d4b14177aae410d0294c50b3d90
 ENV DEBIAN_FRONTEND=noninteractive \
     CC=clang \
     CXX=clang++ \
     PYTHONHASHSEED=0
-# libclang-rt-14-dev carries the ASan, UBSan and libFuzzer runtimes the fuzz build and harnesses link against.
+# libclang-rt-19-dev carries the ASan, UBSan and libFuzzer runtimes the fuzz build and harnesses link against.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates build-essential clang libclang-rt-14-dev git \
+      ca-certificates build-essential clang libclang-rt-19-dev git \
     && rm -rf /var/lib/apt/lists/*
 
 # uv installs the hash-pinned Python dependencies from pylock.toml, which locks CPython 3.15.
