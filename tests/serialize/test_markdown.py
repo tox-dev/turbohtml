@@ -1756,6 +1756,24 @@ def test_trailing_break_at_an_inline_root_is_dropped() -> None:
             "<table><tbody><tr><td>a</td></tr><tr><td>b</td><td>c</td></tr></tbody></table>",
             id="table-short-row-keeps-html",
         ),
+        pytest.param(
+            "<b><table><tr><th>a</th></tr><tr><td>b</td><td>c</td></tr></table></b>",
+            "<table><tbody><tr><th><strong>a</strong></th></tr><tr><td><strong>b</strong></td>"
+            "<td><strong>c</strong></td></tr></tbody></table>",
+            id="table-raw-keeps-strong-in-each-cell",
+        ),
+        pytest.param(
+            "<b><table><tr><td><table><tr><td>a</td></tr></table></td></tr><tr><td>b</td><td>c</td></tr></table></b>",
+            "<table><tbody><tr><td><strong><table><tbody><tr><td>a</td></tr></tbody></table></strong></td>"
+            "</tr><tr><td><strong>b</strong></td><td><strong>c</strong></td></tr></tbody></table>",
+            id="table-raw-wraps-outer-cells-only",
+        ),
+        pytest.param(
+            "<b><table><tr><td><svg><text>x</text></svg></td></tr><tr><td>y</td><td>z</td></tr></table></b>",
+            "<table><tbody><tr><td><strong><svg><text>x</text></svg></strong></td></tr>"
+            "<tr><td><strong>y</strong></td><td><strong>z</strong></td></tr></tbody></table>",
+            id="table-raw-keeps-foreign-cell-content",
+        ),
         pytest.param("<em><table><tr><th>a</th></tr></table></em>", "| *a* |\n| --- |", id="table-in-emphasis"),
         pytest.param(
             "<strong><table><tr><td>a</td><td>b</td></tr></table></strong>",
@@ -1796,6 +1814,13 @@ def test_trailing_break_at_an_inline_root_is_dropped() -> None:
 )
 def test_tables(html: str, expected: str) -> None:
     assert md(html) == expected
+
+
+def test_raw_table_respects_ignored_emphasis() -> None:
+    options: Final = Markdown(inline=Markdown.Inline(ignore_emphasis=True))
+    assert parse("<b><table><tr><td>a</td></tr><tr><td>b</td><td>c</td></tr></table></b>").to_markdown(options) == (
+        "<table><tbody><tr><td>a</td></tr><tr><td>b</td><td>c</td></tr></tbody></table>"
+    )
 
 
 @pytest.mark.parametrize(

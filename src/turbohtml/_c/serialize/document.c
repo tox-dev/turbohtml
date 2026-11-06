@@ -378,6 +378,18 @@ static int xml_has_visible_child(th_tree *tree, th_node *parent) {
     return 0;
 }
 
+static int table_cell_needs_wrap(th_node *node, th_node *root) {
+    if (node->ns != TH_NS_HTML || (node->atom != TH_TAG_TD && node->atom != TH_TAG_TH)) {
+        return 0;
+    }
+    for (th_node *parent = node->parent; parent != root; parent = parent->parent) {
+        if (parent->atom == TH_TAG_TABLE) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Emit one node under the compact (WHATWG fragment) layout and return the next node
    the walk rooted at root visits, or NULL once the subtree is fully written. Split
    out of serialize_compact so serialize_iter can resume the walk one node at a time
@@ -386,7 +398,7 @@ static int xml_has_visible_child(th_tree *tree, th_node *parent) {
    walk is iterative -- descending through first_child, ascending through parent
    pointers -- so a tree of any depth serializes without one C stack frame per level. */
 static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, th_node *root,
-                                       const th_serialize_opts *opts) {
+                                       const th_serialize_opts *opts, const th_cell_wrap *cell_wrap) {
     th_node *descend = NULL;
     if (opts->inner && node == root) {
         if (!opts->xml && node->type == TH_NODE_ELEMENT) {
@@ -428,6 +440,10 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         }
         sbuf_putc(out, '>');
         ser_inject_head_meta(out, tree, node, opts);
+        int wrapped_cell = cell_wrap != NULL && table_cell_needs_wrap(node, root);
+        if (wrapped_cell) {
+            sbuf_put_run(out, cell_wrap->open, cell_wrap->open_len);
+        }
         if (node->ns == TH_NS_HTML && is_serialize_void_atom(node->atom)) {
             break; /* void elements have no children or end tag */
         }
@@ -444,6 +460,9 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
         if (node->first_child != NULL) {
             descend = node->first_child;
         } else {
+            if (wrapped_cell) {
+                sbuf_put_run(out, cell_wrap->close, cell_wrap->close_len);
+            }
             ser_close_tag(out, node); /* an empty element still takes an end tag */
         }
         break;
@@ -525,6 +544,9 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
             if (node->atom == TH_TAG_UNKNOWN && opts->xml && !xml_element_name_wellformed(node->text, node->text_len)) {
                 continue;
             }
+            if (cell_wrap != NULL && table_cell_needs_wrap(node, root)) {
+                sbuf_put_run(out, cell_wrap->close, cell_wrap->close_len);
+            }
             ser_close_tag(out, node);
         }
     }
@@ -534,7 +556,7 @@ static th_node *serialize_compact_step(sbuf *out, th_tree *tree, th_node *node, 
 static void serialize_compact(sbuf *out, th_tree *tree, th_node *root, const th_serialize_opts *opts) {
     th_node *node = root;
     while (node != NULL) {
-        node = serialize_compact_step(out, tree, node, root, opts);
+        node = serialize_compact_step(out, tree, node, root, opts, NULL);
     }
 }
 
@@ -574,7 +596,7 @@ SER_NOINLINE void ser_put_rawtext_markup(sbuf *out, th_tree *tree, th_node *elem
             sbuf_putc(out, '>');
             node = node->first_child;
         } else {
-            node = serialize_compact_step(out, tree, node, element, &content);
+            node = serialize_compact_step(out, tree, node, element, &content, NULL);
         }
     }
 }
@@ -1069,6 +1091,16 @@ Py_UCS4 *th_node_markdown_html(th_tree *tree, th_node *node, th_markdown_html co
     return sbuf_finish(&out, out_len);
 }
 
+Py_UCS4 *th_node_markdown_table_html(th_tree *tree, th_node *node, const th_cell_wrap *wrap, Py_ssize_t *out_len) {
+    sbuf out = {NULL, 0, 0, 0};
+    const th_serialize_opts opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, TH_MARKDOWN_HTML_BLOCK};
+    th_node *current = node;
+    while (current != NULL) {
+        current = serialize_compact_step(&out, tree, current, node, &opts, wrap);
+    }
+    return sbuf_finish(&out, out_len);
+}
+
 Py_UCS4 *th_node_inner_html(th_tree *tree, th_node *node, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
     if (node->type == TH_NODE_ELEMENT && node->ns == TH_NS_HTML && is_serialize_void_atom(node->atom)) {
@@ -1138,7 +1170,7 @@ Py_UCS4 *th_node_serialize_chunk(th_tree *tree, th_node *root, const th_serializ
     sbuf_reserve(&out, TH_SERIALIZE_CHUNK);
     if (indent == NULL || inner_preserves_text(tree, root, opts)) {
         while (cursor->node != NULL && out.len < TH_SERIALIZE_CHUNK) {
-            cursor->node = serialize_compact_step(&out, tree, cursor->node, root, opts);
+            cursor->node = serialize_compact_step(&out, tree, cursor->node, root, opts, NULL);
         }
     } else {
         ser_opts pretty = {opts, indent, indent_len};
