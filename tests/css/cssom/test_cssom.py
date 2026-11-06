@@ -989,6 +989,26 @@ def test_comment_and_escape_edge_cases() -> None:
     assert StyleSheet("a { /* x * y */ b: c }").rules[0].style.get("b") == "c"
 
 
+@pytest.mark.parametrize(
+    ("value", "important", "line_break"),
+    [
+        pytest.param("url\\", "", "\n", id="one-backslash"),
+        pytest.param("url\\\\", "", "", id="two-backslashes"),
+        pytest.param("url\\\\\\", "", "\n", id="three-backslashes"),
+        pytest.param("url\\", " !important", "", id="important"),
+    ],
+)
+def test_declaration_text_preserves_trailing_escape_before_separator(
+    value: str, important: str, line_break: str
+) -> None:
+    first = StyleDeclaration.parse(f"background: {value}\n{important}; color: red")
+    assert first.text == f"background: {value}{line_break}{important}; color: red"
+    second = StyleDeclaration.parse(first.text)
+    assert second.get("background") == value
+    assert second.get("color") == "red"
+    assert second.text == first.text
+
+
 def test_at_rule_block_ignores_braces_inside_selectors_and_strings() -> None:
     css = "@media x { a[t='}'] { color: red } b[u=\"\\}\"] { color: red } } p { color: blue }"
     assert [rule.selector_text for rule in StyleSheet(css).rules] == ["p"]
@@ -1033,6 +1053,10 @@ def test_the_index_of_nothing_is_empty() -> None:
 
 def test_the_text_serializes_in_source_order_with_the_flag() -> None:
     assert _css_declaration_text(_ITEMS) == "color: red; margin: 0 !important; color: blue"
+
+
+def test_the_text_keeps_an_empty_constructed_value() -> None:
+    assert StyleDeclaration((("a", "", False), ("b", "2", False))).text == "a: ; b: 2"
 
 
 class _Undecided:
