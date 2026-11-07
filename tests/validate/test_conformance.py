@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess  # ruff: ignore[suspicious-subprocess-import] - the conformance oracle runs the installed vnu.jar
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Final, NamedTuple, cast
 
@@ -381,6 +382,8 @@ def valid_doc(inner: str) -> str:
     return f"<!DOCTYPE html><html lang=en><head><title>Doc</title></head><body>{inner}</body></html>"
 
 
+_VNUJAR_SPEC: Final = find_spec("vnujar")
+_VNU_JAR: Final = Path(_VNUJAR_SPEC.origin).with_name("vnu.jar") if _VNUJAR_SPEC and _VNUJAR_SPEC.origin else None
 _VNU_CASES: Final = [
     pytest.param(valid_doc("<h1>Heading</h1><p>text</p>"), id="conforming"),
     pytest.param(valid_doc('<img src="x" alt="a cat">'), id="img-with-alt-conforming"),
@@ -395,12 +398,14 @@ _VNU_CASES: Final = [
 
 @pytest.mark.parametrize("markup", _VNU_CASES)
 @pytest.mark.oracle
-@pytest.mark.skipif(shutil.which("java") is None, reason="a JRE is required")
+@pytest.mark.skipif(
+    shutil.which("java") is None or _VNU_JAR is None or not _VNU_JAR.is_file(),
+    reason="a JRE and vnu.jar are required",
+)
 def test_conformance_verdict_matches_vnu(markup: str) -> None:
-    jar: Final = Path(pytest.importorskip("vnujar").__file__).parent / "vnu.jar"
     java: Final = cast("str", shutil.which("java"))
     completed: Final = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed Java arguments and in-repository markup
-        [java, "-jar", str(jar), "--format", "json", "--stdin", "-"],
+        [java, "-jar", str(_VNU_JAR), "--format", "json", "--stdin", "-"],
         input=markup.encode(),
         capture_output=True,
         check=False,
