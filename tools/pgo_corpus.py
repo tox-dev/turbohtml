@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # the bench package si
 
 from bench import corpus
 from bench.core import OPERATIONS
+from bench.corpus import CORPUS_FILES, corpus_text
 from bench.operations import INPUTS
 from wpt_tree_corpus import load_wpt_html_tree
 
@@ -53,7 +54,7 @@ def _safe(load: Callable[[], list[object]]) -> list[object]:
 @cache
 def _clean_documents() -> tuple[str, ...]:
     # Return the vendored clean markup: the wpt size ladder (0.6 to 92 kB, one Big5) and the whatwg spec (235 kB).
-    return tuple(corpus.corpus_text(relative, encoding) for _name, relative, encoding in corpus.CORPUS_FILES)
+    return tuple(corpus_text(relative, encoding) for _name, relative, encoding in CORPUS_FILES)
 
 
 @cache
