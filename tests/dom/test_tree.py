@@ -409,6 +409,9 @@ _LONG_NAME = "z" * 130
         # a duplicate <head> start tag is an ignored parse error, not a mode change
         pytest.param("<head><head><meta>", "<head>\n|     <meta>", id="duplicate-head-keeps-meta"),
         pytest.param("<head><head><title>t", "<head>\n|     <title>", id="duplicate-head-keeps-title"),
+        pytest.param("</head> <head><title>t", "<head>\n|     <title>", id="duplicate-head-after-head"),
+        pytest.param("</head> <html><title>t", "<head>\n|     <title>", id="redundant-html-after-head"),
+        pytest.param("</head><html lang=x><title>t", 'lang="x"', id="redundant-html-attributes-after-head"),
     ],
 )
 def test_document_paths(html: str, needle: str) -> None:

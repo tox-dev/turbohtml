@@ -760,6 +760,8 @@ def test_markdown_source_grammar_skips_lost_control_whitespace() -> None:
         pytest.param(b"<select><style>\x00", "UTF-8", False, "\ufffd", id="select-style-nul"),
         pytest.param(b"<select><title>\x00", "UTF-8", False, "\ufffd", id="select-title-nul"),
         pytest.param(("<div>" * 1200 + "x" + "</div>" * 1200).encode(), "UTF-8", False, "x", id="deep-tree"),
+        pytest.param(b"</head> <head><title>t", "UTF-8", False, "t ", id="duplicate-head-after-head"),
+        pytest.param(b"</head> <html><title>t", "UTF-8", False, "t ", id="redundant-html-after-head"),
     ],
 )
 def test_encoding_mutation_context(data: bytes, encoding: str, expected: str, *, sniff: bool) -> None:
