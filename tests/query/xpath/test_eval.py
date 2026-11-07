@@ -565,21 +565,18 @@ def union_doc() -> turbohtml.Node:
 
 
 @pytest.mark.parametrize(
-    ("expr", "expected"),
+    "expr",
     [
-        pytest.param("count(//a[@x='1'] | //b[@y='2'])", 2.0, id="union-in-count"),
-        pytest.param("count(//b[@y='2'] | //a[@x='1'])", 2.0, id="union-in-count-swapped"),
-        pytest.param("//a[@x='1'] | //b[@y='2']", None, id="union-root"),
+        pytest.param("count(//a[@x='1'] | //b[@y='2'])", id="union-in-count"),
+        pytest.param("count(//b[@y='2'] | //a[@x='1'])", id="union-in-count-swapped"),
     ],
 )
-def test_predicate_survives_in_compound_expression(
-    union_doc: turbohtml.Node, expr: str, expected: float | None
-) -> None:
-    result = union_doc.xpath(expr)
-    if expected is None:
-        assert len(node_list(result)) == 2
-    else:
-        assert result == pytest.approx(expected)
+def test_predicate_survives_in_compound_expression(union_doc: turbohtml.Node, expr: str) -> None:
+    assert union_doc.xpath(expr) == pytest.approx(2.0)
+
+
+def test_predicate_survives_union_root(union_doc: turbohtml.Node) -> None:
+    assert len(node_list(union_doc.xpath("//a[@x='1'] | //b[@y='2']"))) == 2
 
 
 # Namespace-prefixed name tests bound through the ``namespaces=`` keyword (issue #263).
@@ -1002,18 +999,16 @@ def test_sets_share_a_later_node() -> None:
 
 
 @pytest.mark.parametrize(
-    "expression",
+    ("expression", "selector"),
     [
-        pytest.param("unordered(//li) | //ul", id="left-extension"),
-        pytest.param("//ul | unordered(//li)", id="right-extension"),
-        pytest.param("unordered(//li) | unordered(//li)", id="both-extensions"),
+        pytest.param("unordered(//li) | //ul", "ul, li", id="left-extension"),
+        pytest.param("//ul | unordered(//li)", "ul, li", id="right-extension"),
+        pytest.param("unordered(//li) | unordered(//li)", "li", id="both-extensions"),
     ],
 )
-def test_union_orders_extension_results(expression: str) -> None:
+def test_union_orders_extension_results(expression: str, selector: str) -> None:
     document: Final[Document] = parse("<ul>" + "".join(f"<li>{index}</li>" for index in range(100)) + "</ul>")
-    assert document.xpath(expression, extensions={(None, "unordered"): _unordered}) == document.select(
-        "ul, li" if "//ul" in expression else "li"
-    )
+    assert document.xpath(expression, extensions={(None, "unordered"): _unordered}) == document.select(selector)
 
 
 def _unordered(_context: SimpleNamespace, nodes: list[Element]) -> list[Element]:
@@ -1505,7 +1500,7 @@ def test_xpath_callback_attribute_membership(size: int, operation: str) -> None:
         return []
 
     result: Final = source.xpath(f"{operation}(@* | mutate(), @*)", extensions={(None, "mutate"): mutate})
-    assert result == ([str(index) for index in range(size)] if operation == "set:intersection" else [])
+    assert result == [str(index) for index in range(size)] * (operation == "set:intersection")
 
 
 def test_xpath_callback_preserves_adopted_context() -> None:
@@ -1624,9 +1619,8 @@ def test_xpath_callback_adopts_variable_node() -> None:
 
 def test_xpath_callback_sparse_attribute_union() -> None:
     source: Final = Element("section", {f"data-item-{index}": str(index) for index in range(48)})
-    for index in range(48):
-        if index % 16:
-            del source.attrs[f"data-item-{index}"]
+    for index in [*range(1, 16), *range(17, 32), *range(33, 48)]:
+        del source.attrs[f"data-item-{index}"]
 
     def mutate(_context: SimpleNamespace) -> list[Element]:
         for name in source.attrs:
@@ -1673,12 +1667,12 @@ def test_xpath_callback_mixed_attribute_namespace() -> None:
 @pytest.mark.parametrize(
     ("expression", "expected", "moved"),
     [
-        pytest.param("@id[self::node()[move()]]", ["old"], True, id="attribute-self"),
-        pytest.param("@id[parent::section[move()]]", ["old"], True, id="attribute-parent"),
-        pytest.param("@id[child::node()[move()]]", [], False, id="empty-first-step"),
+        pytest.param("@id[self::node()[move()]]", ["old"], 1, id="attribute-self"),
+        pytest.param("@id[parent::section[move()]]", ["old"], 1, id="attribute-parent"),
+        pytest.param("@id[child::node()[move()]]", [], 0, id="empty-first-step"),
     ],
 )
-def test_xpath_callback_initial_attribute_context(expression: str, expected: list[str], *, moved: bool) -> None:
+def test_xpath_callback_initial_attribute_context(expression: str, expected: list[str], moved: int) -> None:
     source: Final = Element("section", {"id": "old"})
     target: Final = Element("main")
 
@@ -1688,11 +1682,17 @@ def test_xpath_callback_initial_attribute_context(expression: str, expected: lis
         return True
 
     result: Final = source.xpath(expression, extensions={(None, "move"): move})
-    assert (result, tuple(target.children)) == (expected, (source,) if moved else ())
+    assert (result, tuple(target.children)) == (expected, (source,)[:moved])
 
 
-@pytest.mark.parametrize("compiled", [False, True], ids=["method", "compiled"])
-def test_xpath_extension_keeps_source_arena(*, compiled: bool) -> None:
+_XPATH_EVALUATORS: Final = [
+    pytest.param(lambda node, expression, extensions: node.xpath(expression, extensions=extensions), id="method"),
+    pytest.param(lambda node, expression, extensions: XPath(expression, extensions=extensions)(node), id="compiled"),
+]
+
+
+@pytest.mark.parametrize("evaluate", _XPATH_EVALUATORS)
+def test_xpath_extension_keeps_source_arena(evaluate: Callable[..., object]) -> None:
     source: Final = Element("section")
     target: Final = Element("main")
 
@@ -1703,11 +1703,7 @@ def test_xpath_extension_keeps_source_arena(*, compiled: bool) -> None:
     extensions: Final[dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]]] = {
         (None, "adopt"): adopt
     }
-    result: Final = (
-        XPath("adopt() + count(.)", extensions=extensions)(source)
-        if compiled
-        else source.xpath("adopt() + count(.)", extensions=extensions)
-    )
+    result: Final = evaluate(source, "adopt() + count(.)", extensions)
     assert (result, target.children) == (42.0, (source,))
 
 
@@ -1722,8 +1718,8 @@ def test_xpath_extension_keeps_cached_program() -> None:
     assert source.xpath("evict() + 1", extensions={(None, "evict"): evict}) == pytest.approx(42.0)
 
 
-@pytest.mark.parametrize("compiled", [False, True], ids=["method", "compiled"])
-def test_xpath_extension_keeps_removed_callable(*, compiled: bool) -> None:
+@pytest.mark.parametrize("evaluate", _XPATH_EVALUATORS)
+def test_xpath_extension_keeps_removed_callable(evaluate: Callable[..., object]) -> None:
     source: Final = Element("section")
     extensions: Final[
         dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]]
@@ -1735,17 +1731,13 @@ def test_xpath_extension_keeps_removed_callable(*, compiled: bool) -> None:
 
     extensions[None, "remove"] = partial(remove)
     function: Final = ref(extensions[None, "remove"])
-    result: Final = (
-        XPath("remove()", extensions=extensions)(source)
-        if compiled
-        else source.xpath("remove()", extensions=extensions)
-    )
+    result: Final = evaluate(source, "remove()", extensions)
     gc.collect()
     assert (result, function()) == (True, None)
 
 
-@pytest.mark.parametrize("compiled", [False, True], ids=["method", "compiled"])
-def test_xpath_extension_validates_yielded_owner(*, compiled: bool) -> None:
+@pytest.mark.parametrize("evaluate", _XPATH_EVALUATORS)
+def test_xpath_extension_validates_yielded_owner(evaluate: Callable[..., object]) -> None:
     source: Final = Element("section", children=[Element("b")])
     child: Final = source.children[0]
     target: Final = Element("main")
@@ -1758,13 +1750,8 @@ def test_xpath_extension_validates_yielded_owner(*, compiled: bool) -> None:
     extensions: Final[dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]]] = {
         (None, "move"): move_after_yield
     }
-    invoke: Final = (
-        partial(XPath("move()", extensions=extensions), source)
-        if compiled
-        else partial(source.xpath, "move()", extensions=extensions)
-    )
     with pytest.raises(ValueError, match="different document"):
-        invoke()
+        evaluate(source, "move()", extensions)
     assert target.children == (child,)
 
 
@@ -1772,7 +1759,6 @@ def test_xpath_extension_validates_yielded_owner(*, compiled: bool) -> None:
 @pytest.mark.parametrize("offset", [0, 1, 2, 4, 32])
 def test_xpath_extension_snapshots_arguments(offset: int) -> None:
     thresholds: Final = gc.get_threshold()
-    restore_gc: Final = gc.enable if gc.isenabled() else gc.disable
     gc.disable()
     gc.collect()
     source: Final = Element("section", children=[Element("a", {"id": "old"}), Element("b")])
@@ -1806,7 +1792,7 @@ def test_xpath_extension_snapshots_arguments(offset: int) -> None:
         gc.disable()
         gc.callbacks.remove(adopt)
         gc.set_threshold(*thresholds)
-        restore_gc()
+        gc.enable()
         reserve.clear()
     assert (changed, result, target.children) == (True, True, (source,))
 
@@ -1993,7 +1979,6 @@ def test_xpath_positional_last_arity() -> None:
 @pytest.mark.parametrize("offset", [0, 1, 2, 4])
 def test_xpath_snapshot_during_collection(offset: int, *, smart_strings: bool, mixed: bool) -> None:
     thresholds: Final = gc.get_threshold()
-    restore_gc: Final = gc.enable if gc.isenabled() else gc.disable
     gc.disable()
     gc.collect()
     document: Final = parse('<section><a id="old">first</a><b>second</b></section>')
@@ -2023,7 +2008,7 @@ def test_xpath_snapshot_during_collection(offset: int, *, smart_strings: bool, m
         gc.disable()
         gc.callbacks.remove(adopt)
         gc.set_threshold(*thresholds)
-        restore_gc()
+        gc.enable()
         reserve.clear()
     assert (changed, result, target.select("b"), document.select("b")) == (
         True,

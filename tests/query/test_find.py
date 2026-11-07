@@ -289,29 +289,28 @@ def test_indexed_tag_filter_error_propagates(query: Callable[[Document], object]
         query(document)
 
 
-@pytest.mark.parametrize(
-    ("target", "expected"),
-    [pytest.param("target", "target", id="match"), pytest.param("missing", None, id="miss")],
-)
-def test_find_filtered_on_warm_tree(target: str, expected: str | None) -> None:
+def test_find_filtered_on_warm_tree() -> None:
     document = parse("<p id='first'/><p id='target'/>")
     document.find_all("p")
-    match = document.find("p", id=target)
-    assert (match.attrs["id"] if match is not None else None) == expected
+    assert _el(document.find("p", id="target")).attrs["id"] == "target"
 
 
-@pytest.mark.parametrize(
-    ("markup", "tag", "expected"),
-    [
-        pytest.param("<custom id='target'/>", "custom", "target", id="unknown-tag"),
-        pytest.param("<div/>", "p", None, id="empty-known-tag-bucket"),
-    ],
-)
-def test_find_without_warm_index_bucket(markup: str, tag: str, expected: str | None) -> None:
-    document = parse(markup)
+def test_find_filtered_on_warm_tree_miss() -> None:
+    document = parse("<p id='first'/><p id='target'/>")
+    document.find_all("p")
+    assert document.find("p", id="missing") is None
+
+
+def test_find_without_warm_index_bucket() -> None:
+    document = parse("<custom id='target'/>")
     document.find_all("div")
-    match = document.find(tag)
-    assert (match.attrs["id"] if match is not None else None) == expected
+    assert _el(document.find("custom")).attrs["id"] == "target"
+
+
+def test_find_without_warm_index_empty_bucket() -> None:
+    document = parse("<div/>")
+    document.find_all("div")
+    assert document.find("p") is None
 
 
 def test_find_on_warm_subtree() -> None:
@@ -724,8 +723,7 @@ def xml_case_document() -> Document:
     return parse_xml("<Root><div/><DIV/><custom/><Custom/></Root>")
 
 
-@pytest.mark.parametrize("present", [True, False], ids=["present", "absent"])
-@pytest.mark.parametrize("keyword", [True, False], ids=["keyword", "attrs"])
+@pytest.mark.parametrize(("present", "text"), [(True, "present"), (False, "absent")], ids=["present", "absent"])
 @pytest.mark.parametrize(
     "attribute",
     [
@@ -735,12 +733,26 @@ def xml_case_document() -> Document:
         pytest.param(f'custom="{"x" * 4096}"', id="long"),
     ],
 )
-def test_attribute_presence_ignores_value(attribute: str, *, present: bool, keyword: bool) -> None:
+def test_attribute_presence_ignores_value(attribute: str, *, present: bool, text: str) -> None:
     document: Final = parse(f"<p {attribute}>present</p><p>absent</p>")
-    matches: Final = (
-        document.find_all("p", custom=present) if keyword else document.find_all("p", attrs={"custom": present})
-    )
-    assert [node.text for node in matches] == ["present" if present else "absent"]
+    matches: Final = document.find_all("p", attrs={"custom": present})
+    assert [node.text for node in matches] == [text]
+
+
+@pytest.mark.parametrize(("present", "text"), [(True, "present"), (False, "absent")], ids=["present", "absent"])
+@pytest.mark.parametrize(
+    "attribute",
+    [
+        pytest.param("custom", id="valueless"),
+        pytest.param('custom=""', id="empty"),
+        pytest.param('custom="café😀"', id="unicode"),
+        pytest.param(f'custom="{"x" * 4096}"', id="long"),
+    ],
+)
+def test_attribute_presence_ignores_value_keyword(attribute: str, *, present: bool, text: str) -> None:
+    document: Final = parse(f"<p {attribute}>present</p><p>absent</p>")
+    matches: Final = document.find_all("p", custom=present)
+    assert [node.text for node in matches] == [text]
 
 
 @pytest.mark.parametrize(
@@ -782,11 +794,29 @@ def test_text_exact_with_empty_text_node() -> None:
         pytest.param(40, id="above-count"),
     ],
 )
-@pytest.mark.parametrize("warm", [pytest.param(False, id="cold"), pytest.param(True, id="warm")])
-def test_find_all_result_order(count: int, limit: int | None, *, warm: bool) -> None:
+def test_find_all_result_order(count: int, limit: int | None) -> None:
     document: Final = parse("".join(f"<section><p id='{index}'></p><span></span></section>" for index in range(count)))
-    if warm:
-        document.find_all("span")
+    assert [element.attrs["id"] for element in document.find_all("p", limit=limit)] == [
+        str(index) for index in range(count)
+    ][:limit]
+
+
+@pytest.mark.parametrize("count", [pytest.param(0, id="empty"), pytest.param(1, id="one"), pytest.param(33, id="many")])
+@pytest.mark.parametrize(
+    "limit",
+    [
+        pytest.param(None, id="unlimited"),
+        pytest.param(0, id="zero"),
+        pytest.param(1, id="first"),
+        pytest.param(8, id="eight"),
+        pytest.param(9, id="nine"),
+        pytest.param(33, id="exact"),
+        pytest.param(40, id="above-count"),
+    ],
+)
+def test_find_all_result_order_warm(count: int, limit: int | None) -> None:
+    document: Final = parse("".join(f"<section><p id='{index}'></p><span></span></section>" for index in range(count)))
+    document.find_all("span")
     assert [element.attrs["id"] for element in document.find_all("p", limit=limit)] == [
         str(index) for index in range(count)
     ][:limit]
@@ -804,16 +834,24 @@ def test_find_all_results_after_mutation() -> None:
 
 
 @pytest.mark.parametrize("limit", [0, 1, 2, 9])
-@pytest.mark.parametrize("present", [True, False], ids=["present", "absent"])
-@pytest.mark.parametrize("indexed", [True, False], ids=["indexed", "subtree"])
-def test_find_all_filtered_result_limit(limit: int, *, present: bool, indexed: bool) -> None:
+@pytest.mark.parametrize(("present", "expected"), [(True, ["a", "c"]), (False, ["b", "d"])], ids=["present", "absent"])
+def test_find_all_filtered_result_limit(limit: int, *, present: bool, expected: list[str]) -> None:
     document: Final = parse("<section><p id='a' data-x></p><p id='b'></p><p id='c' data-x></p><p id='d'></p></section>")
     document.find_all("span")
-    origin: Final = document if indexed else document.find("section")
-    assert origin is not None
-    assert [element.attrs["id"] for element in origin.find_all("p", attrs={"data-x": present}, limit=limit)] == (
-        ["a", "c"] if present else ["b", "d"]
-    )[:limit]
+    assert [element.attrs["id"] for element in document.find_all("p", attrs={"data-x": present}, limit=limit)] == (
+        expected[:limit]
+    )
+
+
+@pytest.mark.parametrize("limit", [0, 1, 2, 9])
+@pytest.mark.parametrize(("present", "expected"), [(True, ["a", "c"]), (False, ["b", "d"])], ids=["present", "absent"])
+def test_find_all_filtered_result_limit_subtree(limit: int, *, present: bool, expected: list[str]) -> None:
+    document: Final = parse("<section><p id='a' data-x></p><p id='b'></p><p id='c' data-x></p><p id='d'></p></section>")
+    document.find_all("span")
+    section: Final = _el(document.find("section"))
+    assert [element.attrs["id"] for element in section.find_all("p", attrs={"data-x": present}, limit=limit)] == (
+        expected[:limit]
+    )
 
 
 def test_find_all_filtered_result_after_attribute_mutation() -> None:
@@ -830,33 +868,70 @@ def test_find_all_filtered_result_after_attribute_mutation() -> None:
     [
         pytest.param("hot", {"data-x": True}, id="plain-class"),
         pytest.param(re.compile(r"hot"), {"data-x": True}, id="regex-class"),
-        pytest.param(None, {"data-x": "two"}, id="attribute-value"),
-        pytest.param(None, {"data-x": True, "data-y": True}, id="two-attributes"),
     ],
 )
-def test_find_all_indexed_filtered_limit(
-    class_filter: str | re.Pattern[str] | None, attrs: dict[str, str | bool]
-) -> None:
+def test_find_all_indexed_filtered_limit(class_filter: str | re.Pattern[str], attrs: dict[str, str | bool]) -> None:
     document: Final = parse(
         "<p id='a' class='cold' data-x='one'></p>"
         "<p id='b' class='hot' data-x='two' data-y></p>"
         "<p id='c' class='hot' data-x='two' data-y></p>"
     )
     document.find_all("p")
-    matches: Final = (
-        document.find_all("p", attrs=attrs, limit=1)
-        if class_filter is None
-        else document.find_all("p", class_=class_filter, attrs=attrs, limit=1)
+    matches: Final = document.find_all("p", class_=class_filter, attrs=attrs, limit=1)
+    assert [element.attrs["id"] for element in matches] == ["b"]
+
+
+@pytest.mark.parametrize(
+    "attrs",
+    [
+        pytest.param({"data-x": "two"}, id="attribute-value"),
+        pytest.param({"data-x": True, "data-y": True}, id="two-attributes"),
+    ],
+)
+def test_find_all_indexed_attribute_filtered_limit(attrs: dict[str, str | bool]) -> None:
+    document: Final = parse(
+        "<p id='a' class='cold' data-x='one'></p>"
+        "<p id='b' class='hot' data-x='two' data-y></p>"
+        "<p id='c' class='hot' data-x='two' data-y></p>"
     )
+    document.find_all("p")
+    matches: Final = document.find_all("p", attrs=attrs, limit=1)
     assert [element.attrs["id"] for element in matches] == ["b"]
 
 
 @pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
 @pytest.mark.parametrize("offset", [0, 1, 2])
-@pytest.mark.parametrize("count", [pytest.param(0, id="clear"), pytest.param(33, id="replace")])
-def test_find_all_results_during_collection(offset: int, count: int) -> None:
+@pytest.mark.parametrize(
+    ("count", "expected"),
+    [
+        pytest.param(
+            0,
+            [],
+            id="clear",
+            marks=pytest.mark.skipif(sys.version_info >= (3, 12), reason="CPython 3.12 keeps results"),
+        ),
+        pytest.param(
+            0,
+            ["old"] * 32,
+            id="clear-3.12",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="CPython before 3.12 reads cleared results"),
+        ),
+        pytest.param(
+            33,
+            ["new"] * 32,
+            id="replace",
+            marks=pytest.mark.skipif(sys.version_info >= (3, 12), reason="CPython 3.12 keeps results"),
+        ),
+        pytest.param(
+            33,
+            ["old"] * 32,
+            id="replace-3.12",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="CPython before 3.12 reads cleared results"),
+        ),
+    ],
+)
+def test_find_all_results_during_collection(offset: int, count: int, expected: list[str]) -> None:
     thresholds: Final = gc.get_threshold()
-    restore_gc: Final = gc.enable if gc.isenabled() else gc.disable
     gc.disable()
     gc.collect()
     document: Final = parse("<main>" + "<p id='old'>x</p>" * 33 + "</main>")
@@ -884,9 +959,8 @@ def test_find_all_results_during_collection(offset: int, count: int) -> None:
         gc.disable()
         gc.callbacks.remove(clear)
         gc.set_threshold(*thresholds)
-        restore_gc()
+        gc.enable()
         reserve.clear()
-    expected: Final = ["new"] * min(count, 32) if sys.version_info < (3, 12) else ["old"] * 32
     assert (changed, [element.attrs["id"] for element in result], main.inner_html) == (
         True,
         expected,
@@ -898,17 +972,32 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-@pytest.mark.parametrize("all_matches", [pytest.param(False, id="find"), pytest.param(True, id="find-all")])
+def test_find_all_attribute_filters_survive_mapping_changes() -> None:
+    document: Final = parse('<p data-a="a" data-b="b">keep</p><p data-a="c" data-b="d">keep</p>')
+    calls: Final[list[str | None]] = []
+    attrs: Final[dict[str, Callable[[str | None], bool]]] = {}
+
+    def first(value: str | None) -> bool:
+        calls.append(value)
+        attrs.clear()
+        return True
+
+    attrs.update({"data-a": first, "data-b": lambda value: calls.append(value) or True})
+    finalize(attrs["data-b"], calls.append, "released")
+    matches = document.find_all("p", attrs=attrs)
+    gc.collect()
+    assert ([node.text for node in matches], calls) == (["keep"] * 2, ["a", "b", "c", "d", "released"])
+
+
 @pytest.mark.parametrize(
-    "text",
+    ("text", "expected_calls"),
     [
-        pytest.param(None, id="attributes"),
-        pytest.param("keep", id="literal-text"),
-        pytest.param(lambda value: value == "keep", id="callable-text"),
+        pytest.param("keep", ["a", "b", "c", "d"], id="literal-text"),
+        pytest.param(lambda value: value == "keep", ["a", "b", "c", "d"], id="callable-text"),
     ],
 )
-def test_attribute_filters_survive_mapping_changes(
-    text: str | Callable[[str | None], bool] | None, *, all_matches: bool
+def test_find_all_text_filter_survives_mapping_changes(
+    text: str | Callable[[str | None], bool], expected_calls: list[str]
 ) -> None:
     document: Final = parse('<p data-a="a" data-b="b">keep</p><p data-a="c" data-b="d">keep</p>')
     calls: Final[list[str | None]] = []
@@ -921,39 +1010,74 @@ def test_attribute_filters_survive_mapping_changes(
 
     attrs.update({"data-a": first, "data-b": lambda value: calls.append(value) or True})
     finalize(attrs["data-b"], calls.append, "released")
-    if all_matches:
-        matches = (
-            document.find_all("p", attrs=attrs, text=text) if text is not None else document.find_all("p", attrs=attrs)
-        )
-    else:
-        found: Final = (
-            document.find("p", attrs=attrs, text=text) if text is not None else document.find("p", attrs=attrs)
-        )
-        assert found is not None
-        matches = [found]
+    matches = document.find_all("p", attrs=attrs, text=text)
     gc.collect()
-    assert ([node.text for node in matches], calls) == (
-        ["keep"] * (2 if all_matches else 1),
-        (["a", "b", "c", "d"] if all_matches or callable(text) else ["a", "b"]) + ["released"],
-    )
+    assert ([node.text for node in matches], calls) == (["keep"] * 2, [*expected_calls, "released"])
 
 
-@pytest.mark.parametrize("all_matches", [pytest.param(False, id="find"), pytest.param(True, id="find-all")])
-def test_filter_cleanup_preserves_result_storage(*, all_matches: bool) -> None:
-    root: Final = parse('<main><p data-x="yes">original</p></main>').find("main")
-    assert root is not None
+def test_find_attribute_filters_survive_mapping_changes() -> None:
+    document: Final = parse('<p data-a="a" data-b="b">keep</p><p data-a="c" data-b="d">keep</p>')
+    calls: Final[list[str | None]] = []
+    attrs: Final[dict[str, Callable[[str | None], bool]]] = {}
+
+    def first(value: str | None) -> bool:
+        calls.append(value)
+        attrs.clear()
+        return True
+
+    attrs.update({"data-a": first, "data-b": lambda value: calls.append(value) or True})
+    finalize(attrs["data-b"], calls.append, "released")
+    found: Final = _el(document.find("p", attrs=attrs))
+    gc.collect()
+    assert (found.text, calls) == ("keep", ["a", "b", "released"])
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_calls"),
+    [
+        pytest.param("keep", ["a", "b"], id="literal-text"),
+        pytest.param(lambda value: value == "keep", ["a", "b", "c", "d"], id="callable-text"),
+    ],
+)
+def test_find_text_filter_survives_mapping_changes(
+    text: str | Callable[[str | None], bool], expected_calls: list[str]
+) -> None:
+    document: Final = parse('<p data-a="a" data-b="b">keep</p><p data-a="c" data-b="d">keep</p>')
+    calls: Final[list[str | None]] = []
+    attrs: Final[dict[str, Callable[[str | None], bool]]] = {}
+
+    def first(value: str | None) -> bool:
+        calls.append(value)
+        attrs.clear()
+        return True
+
+    attrs.update({"data-a": first, "data-b": lambda value: calls.append(value) or True})
+    finalize(attrs["data-b"], calls.append, "released")
+    found: Final = _el(document.find("p", attrs=attrs, text=text))
+    gc.collect()
+    assert (found.text, calls) == ("keep", [*expected_calls, "released"])
+
+
+def test_find_all_filter_cleanup_preserves_result_storage() -> None:
+    root: Final = _el(parse('<main><p data-x="yes">original</p></main>').find("main"))
     target: Final = Element("article")
     attrs: Final[dict[str, Callable[[str | None], bool]]] = {}
     attrs["data-x"] = lambda _: attrs.clear() or True
     finalize(attrs["data-x"], target.append, root)
-    if all_matches:
-        matches = root.find_all("p", attrs=attrs)
-    else:
-        found: Final = root.find("p", attrs=attrs)
-        assert found is not None
-        matches = [found]
+    matches = root.find_all("p", attrs=attrs)
     gc.collect()
     assert ([node.text for node in matches], target.text) == (["original"], "original")
+
+
+def test_find_filter_cleanup_preserves_result_storage() -> None:
+    root: Final = _el(parse('<main><p data-x="yes">original</p></main>').find("main"))
+    target: Final = Element("article")
+    attrs: Final[dict[str, Callable[[str | None], bool]]] = {}
+    attrs["data-x"] = lambda _: attrs.clear() or True
+    finalize(attrs["data-x"], target.append, root)
+    found: Final = _el(root.find("p", attrs=attrs))
+    gc.collect()
+    assert (found.text, target.text) == ("original", "original")
 
 
 def test_attribute_filter_snapshot_releases_on_error() -> None:

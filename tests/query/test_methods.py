@@ -398,35 +398,35 @@ def test_rejects_an_invalid_selector() -> None:
     [
         pytest.param(
             "<main><article>text<b>bold</b></article><p>keep</p></main>",
-            None,
+            "body",
             "article",
             "<body><main><p>keep</p></main></body>",
             id="single-match-and-its-subtree",
         ),
         pytest.param(
             "<ul><li class=off>a</li><li>b</li><li class=off>c</li></ul>",
-            None,
+            "body",
             "li.off",
             "<body><ul><li>b</li></ul></body>",
             id="each-of-several-matches",
         ),
         pytest.param(
             "<main>loose<!--c--><aside>drop</aside>more</main>",
-            None,
+            "body",
             "aside",
             "<body><main>loose<!--c-->more</main></body>",
             id="keeps-unrelated-siblings-and-text",
         ),
         pytest.param(
             "<main><section><article>in</article></section><article>out</article></main>",
-            None,
+            "body",
             "section article",
             "<body><main><section></section><article>out</article></main></body>",
             id="descendant-combinator-uses-the-full-matcher",
         ),
         pytest.param(
             "<div class=drop><span class=drop>x</span><i>y</i></div><p>stay</p>",
-            None,
+            "body",
             ".drop",
             "<body><p>stay</p></body>",
             id="nested-match-inside-a-removed-match-drops-harmlessly",
@@ -440,9 +440,9 @@ def test_rejects_an_invalid_selector() -> None:
         ),
     ],
 )
-def test_remove_drops_each_matching_subtree(markup: str, where: str | None, selector: str, expected: str) -> None:
+def test_remove_drops_each_matching_subtree(markup: str, where: str, selector: str, expected: str) -> None:
     document = parse(markup)
-    target = _body(document) if where is None else _node(document, where)
+    target = _node(document, where)
     assert assert_type(target.remove(selector), Element) is target
     assert target.serialize() == expected
 
@@ -459,42 +459,42 @@ def _node(document: Document, selector: str) -> Element:
     [
         pytest.param(
             "<p>a <b>bold</b> z</p>",
-            None,
+            "body",
             "b",
             "<body><p>a bold z</p></body>",
             id="single-match-keeping-its-children",
         ),
         pytest.param(
             "<p><span>one</span> and <span>two</span></p>",
-            None,
+            "body",
             "span",
             "<body><p>one and two</p></body>",
             id="each-of-several-matches",
         ),
         pytest.param(
             "<div class=wrap><p>x</p><p>y</p></div>",
-            None,
+            "body",
             ".wrap",
             "<body><p>x</p><p>y</p></body>",
             id="a-match-with-element-children",
         ),
         pytest.param(
             "<p>a<span></span>b</p>",
-            None,
+            "body",
             "span",
             "<body><p>ab</p></body>",
             id="empty-match-is-just-dropped",
         ),
         pytest.param(
             "<p><b><i>x</i></b></p>",
-            None,
+            "body",
             "b, i",
             "<body><p>x</p></body>",
             id="nested-matches-collapse-to-the-inner-content",
         ),
         pytest.param(
             "<main><section><b>in</b></section><b>out</b></main>",
-            None,
+            "body",
             "section b",
             "<body><main><section>in</section><b>out</b></main></body>",
             id="descendant-combinator-uses-the-full-matcher",
@@ -508,9 +508,9 @@ def _node(document: Document, selector: str) -> Element:
         ),
     ],
 )
-def test_strip_tags_unwraps_each_matching_element(markup: str, where: str | None, selector: str, expected: str) -> None:
+def test_strip_tags_unwraps_each_matching_element(markup: str, where: str, selector: str, expected: str) -> None:
     document = parse(markup)
-    target = _body(document) if where is None else _node(document, where)
+    target = _node(document, where)
     assert assert_type(target.strip_tags(selector), Element) is target
     assert target.serialize() == expected
 
@@ -584,13 +584,14 @@ def test_strip_tags_is_the_bulk_form_of_unwrap() -> None:
     assert _body(single).serialize() == "<body><p>x</p></body>"
 
 
-@pytest.mark.parametrize("method", [pytest.param("remove", id="remove"), pytest.param("strip_tags", id="strip_tags")])
-def test_bulk_edit_returns_the_node_for_chaining(method: str) -> None:
+def test_remove_returns_the_node_for_chaining() -> None:
     document = parse("<main><article><b>a</b></article></main>")
-    assert (
-        assert_type(document.remove("article") if method == "remove" else document.strip_tags("article"), Document)
-        is document
-    )
+    assert assert_type(document.remove("article"), Document) is document
+
+
+def test_strip_tags_returns_the_node_for_chaining() -> None:
+    document = parse("<main><article><b>a</b></article></main>")
+    assert assert_type(document.strip_tags("article"), Document) is document
 
 
 @pytest.mark.parametrize("method", [pytest.param("remove", id="remove"), pytest.param("strip_tags", id="strip_tags")])
@@ -607,13 +608,19 @@ def test_bulk_edit_rejects_an_invalid_selector(method: str) -> None:
 
 
 @pytest.mark.parametrize("depth", [pytest.param(1, id="shallow"), pytest.param(100, id="deep")])
-@pytest.mark.parametrize("selector", [pytest.param("b", id="leaves"), pytest.param("section, b", id="overlap")])
-def test_prune_shared_ancestors(depth: int, selector: str) -> None:
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
+        pytest.param("b", ["A", "B"], id="leaves"),
+        pytest.param("section, b", ["A", "drop", "B"], id="overlap"),
+    ],
+)
+def test_prune_shared_ancestors(depth: int, selector: str, expected: list[str]) -> None:
     document: Final = parse(
         f"<main>{'<section>' * depth}<b>A</b><i>drop</i><b>B</b>{'</section>' * depth}<i>outside</i></main>"
     )
     document.prune(selector)
-    assert document.xpath("//main//text()") == (["A", "drop", "B"] if selector == "section, b" else ["A", "B"])
+    assert document.xpath("//main//text()") == expected
 
 
 def test_prune_keeps_matching_subtree() -> None:
@@ -704,11 +711,20 @@ def test_selector_eviction_refreshes_owner_returned_to_original_tree() -> None:
 @pytest.mark.parametrize(
     "limit", [pytest.param(0, id="all"), pytest.param(1, id="first"), pytest.param(40, id="above")]
 )
-@pytest.mark.parametrize("warm", [pytest.param(False, id="cold"), pytest.param(True, id="warm")])
-def test_select_indexed_order(count: int, limit: int, *, warm: bool) -> None:
+def test_select_indexed_order(count: int, limit: int) -> None:
     document: Final = parse("".join(f"<section><input id='{index}'><span></span></section>" for index in range(count)))
-    if warm:
-        document.select("span")
+    assert [element.attrs["id"] for element in select("input", document, limit=limit)] == [
+        str(index) for index in range(count)
+    ][: limit or None]
+
+
+@pytest.mark.parametrize("count", [pytest.param(0, id="empty"), pytest.param(1, id="one"), pytest.param(33, id="many")])
+@pytest.mark.parametrize(
+    "limit", [pytest.param(0, id="all"), pytest.param(1, id="first"), pytest.param(40, id="above")]
+)
+def test_select_indexed_order_warm(count: int, limit: int) -> None:
+    document: Final = parse("".join(f"<section><input id='{index}'><span></span></section>" for index in range(count)))
+    document.select("span")
     assert [element.attrs["id"] for element in select("input", document, limit=limit)] == [
         str(index) for index in range(count)
     ][: limit or None]
@@ -743,7 +759,6 @@ def test_select_indexed_xml_case() -> None:
 @pytest.mark.parametrize("count", [pytest.param(7, id="shrink"), pytest.param(67, id="grow")])
 def test_select_indexed_collection(offset: int, count: int) -> None:
     thresholds: Final = gc.get_threshold()
-    restore_gc: Final = gc.enable if gc.isenabled() else gc.disable
     gc.disable()
     gc.collect()
     document: Final = parse("<main>" + "<input id='old'>" * 33 + "</main>")
@@ -771,7 +786,7 @@ def test_select_indexed_collection(offset: int, count: int) -> None:
         gc.disable()
         gc.callbacks.remove(clear)
         gc.set_threshold(*thresholds)
-        restore_gc()
+        gc.enable()
         reserve.clear()
     assert (changed, tuple(element.attrs["id"] for element in result), main.inner_html) in {
         (True, ("old",) * 33, '<input id="new">' * count),
@@ -1141,24 +1156,26 @@ def big_doc() -> turbohtml.Node:
 
 
 @pytest.mark.parametrize(
-    ("fixture", "expression", "expected"),
+    ("expression", "expected"),
     [
-        pytest.param("doc", "first_node(//a)", ["one"], id="single-element-is-a-node-set"),
-        pytest.param("doc", "first_two(//a)", ["one", "two"], id="list-of-elements-is-a-node-set"),
-        pytest.param("doc", "each(//a)", ["one", "two"], id="generator-of-elements-is-a-node-set"),
-        pytest.param("doc", "empty(//a)", [], id="empty-iterable-is-an-empty-node-set"),
-        pytest.param("doc", "first_node(//a)/text()", ["one"], id="node-set-feeds-a-later-path-step"),
-        pytest.param("doc", "first_two(//a)[2]", ["two"], id="node-set-feeds-a-predicate"),
-        pytest.param(
-            "big_doc", "all_nodes(//li)", [str(index) for index in range(12)], id="many-elements-grow-the-node-set"
-        ),
+        pytest.param("first_node(//a)", ["one"], id="single-element-is-a-node-set"),
+        pytest.param("first_two(//a)", ["one", "two"], id="list-of-elements-is-a-node-set"),
+        pytest.param("each(//a)", ["one", "two"], id="generator-of-elements-is-a-node-set"),
+        pytest.param("empty(//a)", [], id="empty-iterable-is-an-empty-node-set"),
+        pytest.param("first_node(//a)/text()", ["one"], id="node-set-feeds-a-later-path-step"),
+        pytest.param("first_two(//a)[2]", ["two"], id="node-set-feeds-a-predicate"),
     ],
 )
 def test_extension_result_becomes_a_node_set(
-    extension_doc: turbohtml.Node, big_doc: turbohtml.Node, *, fixture: str, expression: str, expected: list[str]
+    extension_doc: turbohtml.Node, expression: str, expected: list[str]
 ) -> None:
-    page: Final = big_doc if fixture == "big_doc" else extension_doc
-    assert _texts(page.xpath(expression, extensions=_NODESET_EXTENSIONS)) == expected
+    assert _texts(extension_doc.xpath(expression, extensions=_NODESET_EXTENSIONS)) == expected
+
+
+def test_extension_result_grows_the_node_set(big_doc: turbohtml.Node) -> None:
+    assert _texts(big_doc.xpath("all_nodes(//li)", extensions=_NODESET_EXTENSIONS)) == [
+        str(index) for index in range(12)
+    ]
 
 
 def _texts(result: object) -> list[str]:
@@ -1232,32 +1249,40 @@ def test_extension_result_marshaling_is_rejected(
         pytest.param(19, "text<!--gap-->", 2, id="sparse"),
     ],
 )
-@pytest.mark.parametrize("order", ["sorted", "reversed", "shuffled"])
-def test_find_sibling_root_order(count: int, stride: int, gap: str, padding: int, order: str) -> None:
+@pytest.mark.parametrize(
+    "order",
+    [
+        pytest.param(lambda roots: roots, id="sorted"),
+        pytest.param(lambda roots: list(reversed(roots)), id="reversed"),
+        pytest.param(lambda roots: roots[::2] + roots[1::2], id="shuffled"),
+    ],
+)
+def test_find_sibling_root_order(
+    count: int, stride: int, gap: str, padding: int, order: Callable[[list[Element]], list[Element]]
+) -> None:
     document: Final = parse(
         "<main>" + "".join(f"<div><i>{index}</i></div>{gap}" for index in range(count * stride + padding)) + "</main>"
     )
     start: Final = padding // 2
-    roots = document.select("div")[start : start + count * stride : stride]
-    if order == "reversed":
-        roots.reverse()
-    elif order == "shuffled":
-        roots = roots[::2] + roots[1::2]
+    roots = order(document.select("div")[start : start + count * stride : stride])
     assert [node.text for node in Query([*roots, *roots]).find("i")] == [
         str(start + index * stride) for index in range(count)
     ]
 
 
-@pytest.mark.parametrize("order", ["sorted", "reversed", "shuffled"])
-def test_find_mixed_parent_root_order(order: str) -> None:
+@pytest.mark.parametrize(
+    "order",
+    [
+        pytest.param(lambda roots: roots, id="sorted"),
+        pytest.param(lambda roots: list(reversed(roots)), id="reversed"),
+        pytest.param(lambda roots: roots[::2] + roots[1::2], id="shuffled"),
+    ],
+)
+def test_find_mixed_parent_root_order(order: Callable[[list[Element]], list[Element]]) -> None:
     document: Final = parse(
         "<main>" + "".join(f"<section><div><i>{index}</i></div></section>" for index in range(40)) + "</main>"
     )
-    roots = document.select("div")
-    if order == "reversed":
-        roots.reverse()
-    elif order == "shuffled":
-        roots = roots[::2] + roots[1::2]
+    roots = order(document.select("div"))
     assert [node.text for node in Query(roots).find("i")] == [str(index) for index in range(40)]
 
 

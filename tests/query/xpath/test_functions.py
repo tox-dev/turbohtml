@@ -1224,13 +1224,17 @@ def test_regex_dynamic_patterns(function: str) -> None:
     assert document.xpath(f"count(//n[{function}(., @pattern)])") == 160
 
 
-@pytest.mark.parametrize("flags", [pytest.param("", id="case-sensitive"), pytest.param("i", id="ignore-case")])
-def test_regex_evaluations_keep_flags_separate(flags: str) -> None:
+@pytest.mark.parametrize(
+    ("flags", "expected"),
+    [
+        pytest.param("", [1, 1, 1], id="case-sensitive"),
+        pytest.param("i", [2, 1, 2], id="ignore-case"),
+    ],
+)
+def test_regex_evaluations_keep_flags_separate(flags: str, expected: list[int]) -> None:
     expression: Final = XPath("count(//n[re:test(., $pattern, $flags)])")
     document: Final = parse_xml("<root><n>CAFÉ</n><n>café</n><n>tea</n></root>")
-    assert [expression(document, pattern=pattern, flags=flags) for pattern in ("café", "tea", "café")] == (
-        [2, 1, 2] if flags else [1, 1, 1]
-    )
+    assert [expression(document, pattern=pattern, flags=flags) for pattern in ("café", "tea", "café")] == expected
 
 
 def test_regex_dynamic_flags_keep_patterns_separate() -> None:
@@ -1842,9 +1846,12 @@ def test_regex_flags_ignore_unknown_letters() -> None:
     ],
 )
 def test_alternation_start(pattern: str, text: str, repetitions: int, *, expected: bool) -> None:
-    assert parse_xml(f"<r>{'<item/>' * repetitions}</r>").xpath(
-        "count(//item[re:test($text, $pattern)])", text=text, pattern=pattern
-    ) == (repetitions if expected else 0)
+    assert (
+        parse_xml(f"<r>{'<item/>' * repetitions}</r>").xpath(
+            "count(//item[re:test($text, $pattern)])", text=text, pattern=pattern
+        )
+        == repetitions * expected
+    )
 
 
 @pytest.mark.parametrize(

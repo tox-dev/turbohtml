@@ -61,7 +61,6 @@ def test_parent_many_distinct_nodes(count: int) -> None:
 @pytest.mark.parametrize("count", [pytest.param(1, id="one"), pytest.param(17, id="many")])
 def test_parent_collection_preserves_wrappers(offset: int, count: int) -> None:
     thresholds: Final = gc.get_threshold()
-    restore_gc: Final = gc.enable if gc.isenabled() else gc.disable
     gc.disable()
     gc.collect()
     children: Final = [Element("i") for _ in range(count)]
@@ -89,7 +88,7 @@ def test_parent_collection_preserves_wrappers(offset: int, count: int) -> None:
         gc.disable()
         gc.callbacks.remove(adopt)
         gc.set_threshold(*thresholds)
-        restore_gc()
+        gc.enable()
         reserve.clear()
     assert (changed, tuple(result), tuple(child.parent for child in children)) in {
         (True, tuple(parents), (target,) * count),

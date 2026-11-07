@@ -653,18 +653,22 @@ def test_paths_after_sibling_append(kind: str) -> None:
     [
         pytest.param(0, "new", "#new", id="replace-anchor"),
         pytest.param(1, "first", "html > body > p:nth-of-type(1)", id="duplicate-anchor"),
-        pytest.param(0, None, "html > body > p:nth-of-type(1)", id="delete-anchor"),
     ],
 )
-def test_css_path_after_id_change(target: int, value: str | None, expected: str) -> None:
+def test_css_path_after_id_change(target: int, value: str, expected: str) -> None:
     document: Final[Document] = parse('<p id="first">one</p><p id="second">two</p>')
     nodes: Final[list[Element]] = document.select("p")
     before: Final[str] = nodes[0].css_path()
-    if value is None:
-        del nodes[target].attrs["id"]
-    else:
-        nodes[target].attrs["id"] = value
+    nodes[target].attrs["id"] = value
     assert (before, nodes[0].css_path()) == ("#first", expected)
+
+
+def test_css_path_after_id_deletion() -> None:
+    document: Final[Document] = parse('<p id="first">one</p><p id="second">two</p>')
+    nodes: Final[list[Element]] = document.select("p")
+    before: Final[str] = nodes[0].css_path()
+    del nodes[0].attrs["id"]
+    assert (before, nodes[0].css_path()) == ("#first", "html > body > p:nth-of-type(1)")
 
 
 def test_css_path_of_detached_element_ignores_the_same_id_in_the_document() -> None:
@@ -696,16 +700,21 @@ def test_css_path_of_detached_element_with_id_absent_from_document() -> None:
 
 
 @pytest.mark.parametrize("count", [4, 32, 512], ids=["small", "threshold", "large"])
-@pytest.mark.parametrize("order", ["sorted", "reversed", "shuffled"])
+@pytest.mark.parametrize(
+    "order",
+    [
+        pytest.param(lambda nodes: nodes, id="sorted"),
+        pytest.param(lambda nodes: list(reversed(nodes)), id="reversed"),
+        pytest.param(lambda nodes: nodes[::2] + nodes[1::2], id="shuffled"),
+    ],
+)
 @pytest.mark.parametrize("selector", ["i", ":scope > i"], ids=["descendant", "scoped"])
-def test_find_root_document_order(count: int, order: str, selector: str) -> None:
-    nodes = parse("<main>" + "".join(f'<div><i id="{index}"></i></div>' for index in range(count)) + "</main>").select(
-        "div"
+def test_find_root_document_order(count: int, order: Callable[[list[Element]], list[Element]], selector: str) -> None:
+    nodes = order(
+        parse("<main>" + "".join(f'<div><i id="{index}"></i></div>' for index in range(count)) + "</main>").select(
+            "div"
+        )
     )
-    if order == "reversed":
-        nodes.reverse()
-    elif order == "shuffled":
-        nodes = nodes[::2] + nodes[1::2]
     assert [node.attrs["id"] for node in Query(nodes).find(selector)] == [str(index) for index in range(count)]
 
 
@@ -737,8 +746,14 @@ def test_query_root_groups_shared_inputs(case_index: int) -> None:
     assert [node.text for node in operation(case)] == [str(index) for index in range(case[1])]
 
 
-@pytest.mark.parametrize("selector", ["p", "missing"], ids=["matches", "empty"])
-def test_query_root_groups_interleave_handles_and_nested_roots(selector: str) -> None:
+@pytest.mark.parametrize(
+    ("selector", "expected"),
+    [
+        pytest.param("p", ["a", "b", "c", "d", "e"], id="matches"),
+        pytest.param("missing", [], id="empty"),
+    ],
+)
+def test_query_root_groups_interleave_handles_and_nested_roots(selector: str, expected: list[str]) -> None:
     left, right = parse(
         "<main><section><p>a</p></section><section><p>b</p></section></main>"
         "<main><section><p>d</p></section><section><p>e</p></section></main>"
@@ -747,7 +762,7 @@ def test_query_root_groups_interleave_handles_and_nested_roots(selector: str) ->
     right.extract()
     middle: Final = parse("<main><p>c</p></main>").select("main")[0]
     roots: Final = [left.select("section")[1], middle, right.select("section")[1], left, right]
-    assert [node.text for node in Query(roots).find(selector)] == (["a", "b", "c", "d", "e"] if selector == "p" else [])
+    assert [node.text for node in Query(roots).find(selector)] == expected
 
 
 @pytest.mark.parametrize("empty_group", [0, 1, 2], ids=["first", "middle", "last"])
@@ -785,13 +800,19 @@ def test_query_root_groups_refresh_after_cross_document_adoption() -> None:
 @pytest.mark.skipif(
     sys.implementation.name != "cpython", reason="requires immediate CPython reference-count finalization"
 )
-@pytest.mark.parametrize("adopt", [False, True], ids=["same-tree", "cross-document"])
-def test_query_root_groups_follow_selector_eviction_mutation(*, adopt: bool) -> None:
+@pytest.mark.parametrize(
+    ("destination_index", "expected"),
+    [
+        pytest.param(0, ["a", "c", "b"], id="same-tree"),
+        pytest.param(1, ["a", "b", "c"], id="cross-document"),
+    ],
+)
+def test_query_root_groups_follow_selector_eviction_mutation(destination_index: int, expected: list[str]) -> None:
     first, last = parse("<main><p>a</p></main><main><p>c</p></main>").select("main")
     middle: Final = parse("<main><p>b</p></main>").select("main")[0]
     first.extract()
     last.extract()
-    destination: Final = middle if adopt else first
+    destination: Final = (first, middle)[destination_index]
     extra: Final = [parse("<main><p>d</p></main>").select("main")[0] for _ in range(31)]
 
     class MovingSelector(str):  # ruff:ignore[subclass-builtin]  # native selectors require a real str
@@ -803,10 +824,7 @@ def test_query_root_groups_follow_selector_eviction_mutation(*, adopt: bool) -> 
     first.select(MovingSelector("unmatched"))
     for index in range(15):
         first.select(f"unused{index}")
-    assert [node.text for node in Query([first, middle, last, *extra]).find("p")] == [
-        *(["a", "b", "c"] if adopt else ["a", "c", "b"]),
-        *(["d"] * 31),
-    ]
+    assert [node.text for node in Query([first, middle, last, *extra]).find("p")] == [*expected, *(["d"] * 31)]
 
 
 def test_query_root_groups_keep_later_documents_after_reordering() -> None:
@@ -839,22 +857,28 @@ def test_query_root_groups_many_documents_reject_invalid_selector() -> None:
         Query(roots).find("[")
 
 
+@pytest.mark.oracle
+def test_pyquery_join_shared_benchmark_output() -> None:
+    pyquery: Final = pytest.importorskip("bench.competitors.pyquery", exc_type=ImportError)
+    case: Final = cast("tuple[int, bool]", INPUTS["query-parents"]()[0][1])
+    count, _ = case
+    assert [(node.tag, "".join(node.itertext())) for node in pyquery.OPERATIONS["query-parents"][0](case)] == [
+        ("main", "x" * count)
+    ]
+
+
 @pytest.mark.parametrize(
-    ("operation", "index"),
-    [
-        pytest.param("query-parents", 0, id="shared-parent"),
-        pytest.param("query-parents", 1, id="distinct-parents"),
-        pytest.param("query-closest", 1, id="distinct-ancestors"),
-    ],
+    "operation",
+    [pytest.param("query-parents", id="distinct-parents"), pytest.param("query-closest", id="distinct-ancestors")],
 )
 @pytest.mark.oracle
-def test_pyquery_join_benchmark_output(operation: str, index: int) -> None:
+def test_pyquery_join_distinct_benchmark_output(operation: str) -> None:
     pyquery: Final = pytest.importorskip("bench.competitors.pyquery", exc_type=ImportError)
-    case: Final = cast("tuple[int, bool]", INPUTS[operation]()[index][1])
-    count, shared = case
-    assert [(node.tag, "".join(node.itertext())) for node in pyquery.OPERATIONS[operation][0](case)] == (
-        [("main", "x" * count)] if shared else [("main", "x")] * count
-    )
+    case: Final = cast("tuple[int, bool]", INPUTS[operation]()[1][1])
+    count, _ = case
+    assert [(node.tag, "".join(node.itertext())) for node in pyquery.OPERATIONS[operation][0](case)] == [
+        ("main", "x")
+    ] * count
 
 
 @pytest.mark.oracle
