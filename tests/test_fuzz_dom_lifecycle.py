@@ -486,25 +486,21 @@ if TYPE_CHECKING:
 )
 def test_html_table_literal_trees(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
     root: Final = parse_fragment(source)
+    nodes: Final = [root, *root.descendants]
     assert (
-        _literal_rows(root),
+        [
+            (
+                node.tag if isinstance(node, Element) else "#text",
+                cast("str", node.attrs.get("id", "")) if isinstance(node, Element) else cast("Text", node).data,
+                nodes.index(cast("Element", node.parent)),
+            )
+            for node in nodes[1:]
+        ],
         {node.namespace.value for node in root.iter_elements()},
         html_table_check(case),
         html_table_check(case, lambda _node: source),
         html_table_check(case, lambda _node: ""),
     ) == (expected, {"html"}, None, None, "serialized table tree differs from literals")
-
-
-def _literal_rows(root: Node) -> list[tuple[str, str, int]]:
-    nodes: Final = [root, *root.descendants]
-    return [
-        (
-            node.tag if isinstance(node, Element) else "#text",
-            cast("str", node.attrs.get("id", "")) if isinstance(node, Element) else cast("Text", node).data,
-            nodes.index(cast("Element", node.parent)),
-        )
-        for node in nodes[1:]
-    ]
 
 
 def test_html_table_checks_first_parse() -> None:
@@ -733,8 +729,16 @@ if TYPE_CHECKING:
 )
 def test_html_list_literal_trees(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
     root: Final = parse_fragment(source)
+    nodes: Final = [root, *root.descendants]
     assert (
-        _literal_rows(root),
+        [
+            (
+                node.tag if isinstance(node, Element) else "#text",
+                node.attrs["id"] if isinstance(node, Element) else cast("Text", node).data,
+                nodes.index(cast("Element", node.parent)),
+            )
+            for node in nodes[1:]
+        ],
         {node.namespace.value for node in root.iter_elements()},
         html_list_check(case),
         html_list_check(case, lambda _node: source),
