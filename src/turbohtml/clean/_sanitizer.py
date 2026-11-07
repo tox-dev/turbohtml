@@ -147,9 +147,6 @@ class Policy:
     :param on_disallowed_tag: how to treat a tag not in ``tags`` (:class:`OnDisallowed`: escape, strip, or remove).
     :param strip_comments: drop HTML comments from the output.
     :param add_link_rel: ``rel`` tokens forced onto every kept ``<a href>`` (e.g. ``noopener``).
-    :param attribute_predicate: an optional predicate called once per attribute before allowlist and safety checks,
-        in source order, including transform-added attributes. False drops an attribute; True cannot bypass safety.
-        Attributes added by ``set_attributes`` do not pass through this predicate.
     :param attribute_filter: an optional rewrite for each surviving attribute, returning a replacement value or
         ``None`` to drop it. The replacement passes through the safety checks before serialization.
     :param set_attributes: attribute values forced onto every kept instance of a tag (added if absent, overwritten if
@@ -168,12 +165,11 @@ class Policy:
     :param attribute_values: restrict a kept attribute to literal values, keyed ``{tag: {attribute: allowed_values}}``;
         a surviving attribute whose value is outside its set is dropped. This narrows an attribute ``attributes``
         already admits and cannot admit a new one.
-    :param transform_tags: rename rules applied before the allowlist, keyed by source tag (sanitize-html's
-        ``transformTags``). A value that is a plain string renames the element to it; a :class:`Transform` renames it
-        and adds attributes. The rename runs first, then the renamed element is re-checked from scratch, so a transform
-        decides an element's *name* but never its safety: the allowlist still governs the target tag (mapping to
-        ``script`` still drops it), and any added attributes are scrubbed like the element's own. Only HTML elements are
-        transformed, matched by tag name. Empty (the default) renames nothing.
+    :param media_hosts: allowed hosts for an embedded-media ``src`` (``audio``, ``video``, ``source``, ``track``); a
+        ``src`` whose URL host is not one of these lowercase entries is dropped. Empty means no host restriction.
+    :param strip_template_markers: collapse template-engine expressions (``{{ }}``, ``${ }``, ``<% %>``) in kept text
+        and attribute values to a single space, so sanitized output cannot re-inject when a template engine (Angular,
+        Vue, Mustache, EJS, ERB) later renders it. DOMPurify's ``SAFE_FOR_TEMPLATES``; off by default.
     :param allowed_styles: a per-property value allowlist for the ``style`` attribute, keyed
         ``{tag: {property: [pattern, ...]}}`` with ``"*"`` as a tag matching every element (sanitize-html's
         ``allowedStyles``). A declaration survives only when its property is listed for the element's tag or ``"*"``
@@ -182,11 +178,12 @@ class Policy:
         non-configurable dangerous-value baseline: a property this admits is still dropped unless ``css_properties``
         lists it too, and ``expression()`` or a ``url()`` with a disallowed scheme is dropped even if a pattern would
         match it. Empty (the default) leaves ``css_properties`` as the only ``style`` filter.
-    :param media_hosts: allowed hosts for an embedded-media ``src`` (``audio``, ``video``, ``source``, ``track``); a
-        ``src`` whose URL host is not one of these lowercase entries is dropped. Empty means no host restriction.
-    :param strip_template_markers: collapse template-engine expressions (``{{ }}``, ``${ }``, ``<% %>``) in kept text
-        and attribute values to a single space, so sanitized output cannot re-inject when a template engine (Angular,
-        Vue, Mustache, EJS, ERB) later renders it. DOMPurify's ``SAFE_FOR_TEMPLATES``; off by default.
+    :param transform_tags: rename rules applied before the allowlist, keyed by source tag (sanitize-html's
+        ``transformTags``). A value that is a plain string renames the element to it; a :class:`Transform` renames it
+        and adds attributes. The rename runs first, then the renamed element is re-checked from scratch, so a transform
+        decides an element's *name* but never its safety: the allowlist still governs the target tag (mapping to
+        ``script`` still drops it), and any added attributes are scrubbed like the element's own. Only HTML elements are
+        transformed, matched by tag name. Empty (the default) renames nothing.
     :param isolate_named_props: prefix every kept ``id`` and ``name`` value with ``user-content-`` so it cannot shadow
         a built-in ``document`` or form property through named access (DOM clobbering: ``<input name="attributes">``
         makes ``form.attributes`` resolve to the input, ``<img name="body">`` hides ``document.body``). The prefix is
@@ -220,6 +217,9 @@ class Policy:
         stray control character is neutralized so the result reparses through :func:`turbohtml.parse_xml`. Use it to
         clean an XHTML dialect (Reportlab's RML, ePub content) whose consumer rejects HTML's bare ``<br>``. Off (the
         default) keeps the HTML serialization.
+    :param attribute_predicate: an optional predicate called once per attribute before allowlist and safety checks,
+        in source order, including transform-added attributes. False drops an attribute; True cannot bypass safety.
+        Attributes added by ``set_attributes`` do not pass through this predicate.
     """
 
     tags: frozenset[str] = DEFAULT_TAGS
