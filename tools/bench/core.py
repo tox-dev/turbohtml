@@ -982,22 +982,22 @@ class _NodeBuilder:
     def create_document(self) -> _Node:  # ruff:ignore[no-self-use]
         return _Node("#document")
 
-    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]
+    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]  # the callback signature is fixed by the protocol; this argument is unused
         return _Node("#doctype")
 
-    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]
+    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]  # the callback signature is fixed by the protocol; this argument is unused
         return _Node(name)
 
-    def create_text(self, data: str) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]
+    def create_text(self, data: str) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]  # the callback signature is fixed by the protocol; this argument is unused
         return _Node("#text")
 
-    def create_comment(self, data: str) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]
+    def create_comment(self, data: str) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]  # the callback signature is fixed by the protocol; this argument is unused
         return _Node("#comment")
 
-    def create_pi(self, target: str, data: str) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]
+    def create_pi(self, target: str, data: str) -> _Node:  # ruff:ignore[unused-method-argument, no-self-use]  # the callback signature is fixed by the protocol; this argument is unused
         return _Node("#pi")
 
-    def append(self, parent: _Node, child: _Node) -> None:  # ruff:ignore[no-self-use]
+    def append(self, parent: _Node, child: _Node) -> None:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         parent.children.append(child)
 
 

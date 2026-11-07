@@ -5,7 +5,7 @@ from __future__ import annotations
 # not a bench group dependency: its newspaper4k requirement clobbers newspaper3k's newspaper module
 from typing import Final
 
-from newsplease import NewsPlease  # ty: ignore[import-not-found]
+from newsplease import NewsPlease  # ty: ignore[import-not-found]  # optional competitor package, absent from the lint environment
 
 REQUIREMENTS: Final[tuple[str, ...]] = ("news-please>=1.6",)
 
