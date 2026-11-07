@@ -18,6 +18,8 @@ from turbohtml.validate import RelaxNG, SchemaValidationError, ValidationResult,
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from turbohtml import Document
+
 
 XS: Final[str] = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
 
@@ -992,12 +994,12 @@ def test_occurs_multi_digit_and_bounds() -> None:
     assert not xsd_ok(schema, "<r><a>1</a><a>2</a><a>3</a><a>4</a></r>")
 
 
-@pytest.mark.parametrize("verdict_only", [pytest.param(False, id="report"), pytest.param(True, id="verdict")])
-def test_validate_rejects_non_node(*, verdict_only: bool) -> None:
+@pytest.mark.parametrize("method", [pytest.param("validate", id="report"), pytest.param("is_valid", id="verdict")])
+def test_validate_rejects_non_node(*, method: str) -> None:
     schema = XMLSchema(f'<xs:schema {XS}><xs:element name="v" type="xs:int"/></xs:schema>')
-    validate = schema.is_valid if verdict_only else schema.validate
+    validate = getattr(schema, method)
     with pytest.raises(TypeError):
-        validate("not a node")  # ty: ignore[invalid-argument-type]  # exercises the runtime type guard
+        validate("not a node")
 
 
 @pytest.mark.parametrize("name", ["café", "中文", "𝔸bc"], ids=["two-byte", "three-byte", "four-byte"])  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
@@ -1667,27 +1669,51 @@ def test_compiled_facet_type_lookup(facet_schema: Callable[[str], XMLSchema], co
 
 
 @pytest.mark.parametrize("count", [40, 41, 42], ids=["before-cutoff", "last-builtin", "after-cutoff"])
-@pytest.mark.parametrize("location", ["element", "attribute"])
-def test_compiled_facet_inheritance_cutoff(facet_schema: Callable[[str], XMLSchema], count: int, location: str) -> None:
+@pytest.mark.parametrize(
+    ("declaration", "markup"),
+    [
+        pytest.param('<xs:element name="value" type="type0"/>', "<value>abc</value>", id="element"),
+        pytest.param(
+            '<xs:element name="value"><xs:complexType><xs:attribute name="number" type="type0"/>'
+            "</xs:complexType></xs:element>",
+            '<value number="abc"/>',
+            id="attribute",
+        ),
+    ],
+)
+def test_compiled_facet_inheritance_cutoff(
+    facet_schema: Callable[[str], XMLSchema], count: int, declaration: str, markup: str
+) -> None:
+    bases: Final = [f"type{index + 1}" for index in range(count - 1)] + ["xs:int"]
     types: Final = "".join(
-        f'<xs:simpleType name="type{index}"><xs:restriction base="'
-        + (f"type{index + 1}" if index + 1 < count else "xs:int")
-        + '"/></xs:simpleType>'
-        for index in range(count)
-    )
-    declaration: Final = (
-        '<xs:element name="value" type="type0"/>'
-        if location == "element"
-        else '<xs:element name="value"><xs:complexType><xs:attribute name="number" type="type0"/>'
-        "</xs:complexType></xs:element>"
+        f'<xs:simpleType name="type{index}"><xs:restriction base="{base}"/></xs:simpleType>'
+        for index, base in enumerate(bases)
     )
     schema: Final = facet_schema(types + declaration)
-    document: Final = parse_xml("<value>abc</value>" if location == "element" else '<value number="abc"/>')
-    assert schema.validate(document).valid is (count == 42)
+    assert schema.validate(parse_xml(markup)).valid is (count == 42)
 
 
-@pytest.mark.parametrize("concurrent", [False, True], ids=["sequential", "concurrent"])
-def test_compiled_facet_enumeration_reuse(facet_schema: Callable[[str], XMLSchema], *, concurrent: bool) -> None:
+def _validate_sequentially(
+    validate: Callable[[Document], ValidationResult], documents: list[Document]
+) -> list[ValidationResult]:
+    return [validate(document) for document in documents]
+
+
+def _validate_concurrently(
+    validate: Callable[[Document], ValidationResult], documents: list[Document]
+) -> list[ValidationResult]:
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        return list(executor.map(validate, documents))
+
+
+@pytest.mark.parametrize(
+    "run",
+    [pytest.param(_validate_sequentially, id="sequential"), pytest.param(_validate_concurrently, id="concurrent")],
+)
+def test_compiled_facet_enumeration_reuse(
+    facet_schema: Callable[[str], XMLSchema],
+    run: Callable[[Callable[[Document], ValidationResult], list[Document]], list[ValidationResult]],
+) -> None:
     schema: Final = facet_schema(
         '<xs:simpleType name="base"><xs:restriction base="xs:token">'
         '<xs:enumeration value="abc"/></xs:restriction></xs:simpleType>'
@@ -1696,12 +1722,7 @@ def test_compiled_facet_enumeration_reuse(facet_schema: Callable[[str], XMLSchem
         '<xs:element name="value" type="derived"/>'
     )
     documents: Final = [parse_xml(f"<value>{value}</value>") for value in (" abc ", "def", "ghi", "ab") * 8]
-    if concurrent:
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            results = list(executor.map(schema.validate, documents))
-    else:
-        results = [schema.validate(document) for document in documents]
-    assert [result.valid for result in results] == [True, True, False, False] * 8
+    assert [result.valid for result in run(schema.validate, documents)] == [True, True, False, False] * 8
 
 
 def test_compiled_facet_cyclic_inheritance(facet_schema: Callable[[str], XMLSchema]) -> None:
@@ -1774,47 +1795,90 @@ def pattern_schema() -> Callable[[str, str], XMLSchema | RelaxNG]:
     return make
 
 
-@pytest.mark.parametrize("kind", ["inline", "inherited", "rng"])
-@pytest.mark.parametrize("concurrent", [False, True], ids=["sequential", "concurrent"])
+@pytest.mark.parametrize(
+    "form",
+    [
+        pytest.param(
+            ("inline", '<xs:pattern value="[a-z]+[0-9]+"/><xs:pattern value="abc[0-9]+"/>'),
+            id="inline",
+        ),
+        pytest.param(
+            ("inherited", '<xs:pattern value="[a-z]+[0-9]+"/><xs:pattern value="abc[0-9]+"/>'), id="inherited"
+        ),
+        pytest.param(
+            ("rng", '<param name="pattern">[a-z]+[0-9]+</param><param name="pattern">abc[0-9]+</param>'),
+            id="rng",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "run",
+    [pytest.param(_validate_sequentially, id="sequential"), pytest.param(_validate_concurrently, id="concurrent")],
+)
 def test_compiled_patterns_reuse(
-    pattern_schema: Callable[[str, str], XMLSchema | RelaxNG], kind: str, *, concurrent: bool
+    pattern_schema: Callable[[str, str], XMLSchema | RelaxNG],
+    form: tuple[str, str],
+    run: Callable[[Callable[[Document], ValidationResult], list[Document]], list[ValidationResult]],
 ) -> None:
-    facets: Final = (
-        '<param name="pattern">[a-z]+[0-9]+</param><param name="pattern">abc[0-9]+</param>'
-        if kind == "rng"
-        else '<xs:pattern value="[a-z]+[0-9]+"/><xs:pattern value="abc[0-9]+"/>'
-    )
+    kind, facets = form
     schema: Final = pattern_schema(kind, facets)
     documents: Final = [parse_xml(f"<value>{value}</value>") for value in (" abc123 ", "abc", "def123", "abc0") * 8]
-    if concurrent:
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            results = list(executor.map(schema.validate, documents))
-    else:
-        results = [schema.validate(document) for document in documents]
-    assert [result.valid for result in results] == [True, False, False, True] * 8
+    assert [result.valid for result in run(schema.validate, documents)] == [True, False, False, True] * 8
 
 
 @pytest.mark.parametrize(
-    ("kind", "pattern", "values", "expected"),
+    ("form", "pattern", "values", "expected"),
     [
-        pytest.param("inline", "", ("", "a", ""), [True, False, True], id="xsd-empty"),
-        pytest.param("inline", "(a?)*b", ("aaab", "aaa", "b"), [True, False, True], id="epsilon-revisit"),
-        pytest.param("rng", "", ("", "a", ""), [True, False, True], id="rng-empty"),
-        pytest.param("inline", "(ab|cd)*", ("abcd", "abc", ""), [True, False, True], id="xsd-epsilon-cycle"),
-        pytest.param("rng", "(ab|cd)*", ("abcd", "abc", ""), [True, False, True], id="rng-epsilon-cycle"),
-        pytest.param("inline", "é+[0-9]?", ("éé1", "ee1", "é"), [True, False, True], id="xsd-unicode"),
-        pytest.param("rng", "é+[0-9]?", ("éé1", "ee1", "é"), [True, False, True], id="rng-unicode"),
+        pytest.param(("inline", '<xs:pattern value="{}"/>'), "", ("", "a", ""), [True, False, True], id="xsd-empty"),
+        pytest.param(
+            ("inline", '<xs:pattern value="{}"/>'),
+            "(a?)*b",
+            ("aaab", "aaa", "b"),
+            [True, False, True],
+            id="epsilon-revisit",
+        ),
+        pytest.param(
+            ("rng", '<param name="pattern">{}</param>'), "", ("", "a", ""), [True, False, True], id="rng-empty"
+        ),
+        pytest.param(
+            ("inline", '<xs:pattern value="{}"/>'),
+            "(ab|cd)*",
+            ("abcd", "abc", ""),
+            [True, False, True],
+            id="xsd-epsilon-cycle",
+        ),
+        pytest.param(
+            ("rng", '<param name="pattern">{}</param>'),
+            "(ab|cd)*",
+            ("abcd", "abc", ""),
+            [True, False, True],
+            id="rng-epsilon-cycle",
+        ),
+        pytest.param(
+            ("inline", '<xs:pattern value="{}"/>'),
+            "é+[0-9]?",
+            ("éé1", "ee1", "é"),
+            [True, False, True],
+            id="xsd-unicode",
+        ),
+        pytest.param(
+            ("rng", '<param name="pattern">{}</param>'),
+            "é+[0-9]?",
+            ("éé1", "ee1", "é"),
+            [True, False, True],
+            id="rng-unicode",
+        ),
     ],
 )
 def test_compiled_pattern_outputs(
     pattern_schema: Callable[[str, str], XMLSchema | RelaxNG],
-    kind: str,
+    form: tuple[str, str],
     pattern: str,
     values: tuple[str, str, str],
     expected: list[bool],
 ) -> None:
-    facet: Final = f'<param name="pattern">{pattern}</param>' if kind == "rng" else f'<xs:pattern value="{pattern}"/>'
-    schema: Final = pattern_schema(kind, facet)
+    kind, template = form
+    schema: Final = pattern_schema(kind, template.format(pattern))
     assert [schema.validate(parse_xml(f"<value>{value}</value>")).valid for value in values] == expected
 
 
@@ -1844,32 +1908,44 @@ def test_compiled_pattern_ignores_inapplicable_facets(
     assert [schema.validate(parse_xml(f"<value>{value}</value>")).valid for value in ("abc", "123")] == [True, False]
 
 
-@pytest.mark.parametrize("kind", [pytest.param("xsd", id="xsd"), pytest.param("rng", id="relax-ng")])
-@pytest.mark.parametrize("negated", [pytest.param(False, id="positive"), pytest.param(True, id="negated")])
 @pytest.mark.parametrize(
-    ("codepoint", "inside"),
+    "make_schema",
     [
-        pytest.param(0x400, True, id="first"),
-        pytest.param(0x47F, True, id="last"),
-        pytest.param(0x480, False, id="outside"),
+        pytest.param(
+            lambda pattern: XMLSchema(
+                '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="value"><xs:simpleType>'
+                f'<xs:restriction base="xs:string"><xs:pattern value="{pattern}"/></xs:restriction>'
+                "</xs:simpleType></xs:element></xs:schema>"
+            ),
+            id="xsd",
+        ),
+        pytest.param(
+            lambda pattern: RelaxNG(
+                '<element xmlns="http://relaxng.org/ns/structure/1.0" name="value" '
+                'datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes"><data type="string">'
+                f'<param name="pattern">{pattern}</param></data></element>'
+            ),
+            id="relax-ng",
+        ),
     ],
 )
-def test_growing_pattern_class(kind: str, *, negated: bool, codepoint: int, inside: bool) -> None:
-    pattern: Final[str] = f"[{'^' if negated else ''}{''.join(chr(index) for index in range(0x400, 0x480))}]"
-    schema: Final[XMLSchema | RelaxNG]
-    if kind == "xsd":
-        schema = XMLSchema(
-            '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="value"><xs:simpleType>'
-            f'<xs:restriction base="xs:string"><xs:pattern value="{pattern}"/></xs:restriction>'
-            "</xs:simpleType></xs:element></xs:schema>"
-        )
-    else:
-        schema = RelaxNG(
-            '<element xmlns="http://relaxng.org/ns/structure/1.0" name="value" '
-            'datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes"><data type="string">'
-            f'<param name="pattern">{pattern}</param></data></element>'
-        )
-    assert schema.validate(parse_xml(f"<value>{chr(codepoint)}</value>")).valid is (inside != negated)
+@pytest.mark.parametrize(
+    ("prefix", "codepoint", "valid"),
+    [
+        pytest.param("", 0x400, True, id="positive-first"),
+        pytest.param("", 0x47F, True, id="positive-last"),
+        pytest.param("", 0x480, False, id="positive-outside"),
+        pytest.param("^", 0x400, False, id="negated-first"),
+        pytest.param("^", 0x47F, False, id="negated-last"),
+        pytest.param("^", 0x480, True, id="negated-outside"),
+    ],
+)
+def test_growing_pattern_class(
+    make_schema: Callable[[str], XMLSchema | RelaxNG], *, prefix: str, codepoint: int, valid: bool
+) -> None:
+    pattern: Final[str] = f"[{prefix}{''.join(chr(index) for index in range(0x400, 0x480))}]"
+    schema: Final = make_schema(pattern)
+    assert schema.validate(parse_xml(f"<value>{chr(codepoint)}</value>")).valid is valid
 
 
 @pytest.mark.parametrize(
@@ -2050,27 +2126,33 @@ def test_xsd_matches_lxml(schema: str, doc: str) -> None:
 
 @pytest.mark.oracle
 @pytest.mark.parametrize(
-    ("operation", "index", "expected"),
+    ("index", "expected"),
     [
-        pytest.param("validate-facets", 0, [True, False], id="derived-type"),
-        pytest.param("validate-facets", 1, [True, True], id="builtin-type"),
-        pytest.param("compile-facets", 0, [True, False], id="compile"),
-        pytest.param("validate-facets", 2, [True, False], id="named-attributes"),
-        pytest.param("validate-facets", 3, [True, False], id="small-named-type"),
+        pytest.param(0, [True, False], id="derived-type"),
+        pytest.param(1, [True, True], id="builtin-type"),
+        pytest.param(2, [True, False], id="named-attributes"),
+        pytest.param(3, [True, False], id="small-named-type"),
     ],
 )
-def test_lxml_facet_benchmark_output(operation: str, index: int, expected: list[bool]) -> None:
+def test_lxml_facet_validate_benchmark_output(index: int, expected: list[bool]) -> None:
+    source, document = cast("tuple[str, str]", INPUTS["validate-facets"]()[index][1])
+    assert _lxml_compiled_facets(source, document, "ab") == expected
+
+
+@pytest.mark.oracle
+def test_lxml_facet_compile_benchmark_output() -> None:
+    source = cast("str", INPUTS["compile-facets"]()[0][1])
+    assert _lxml_compiled_facets(source, "<root><value>abc123</value></root>", "ab") == [True, False]
+
+
+def _lxml_compiled_facets(source: str, document: str, mutated_value: str) -> list[bool]:
     module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
     etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
-    if operation == "compile-facets":
-        source = cast("str", INPUTS[operation]()[index][1])
-        document = "<root><value>abc123</value></root>"
-    else:
-        source, document = cast("tuple[str, str]", INPUTS[operation]()[index][1])
     schema: Final = module.OPERATIONS["compile-facets"][0](source)
-    assert [
-        schema.validate(etree.fromstring(text.encode())) for text in (document, document.replace("abc123", "ab"))
-    ] == expected
+    return [
+        schema.validate(etree.fromstring(text.encode()))
+        for text in (document, document.replace("abc123", mutated_value))
+    ]
 
 
 @pytest.mark.oracle
@@ -2079,22 +2161,29 @@ def test_lxml_facet_benchmark_output(operation: str, index: int, expected: list[
     [
         pytest.param("validate-pattern-reuse", [True, False], id="two-patterns"),
         pytest.param("validate-pattern-plain", [True, True], id="no-patterns"),
-        pytest.param("compile-pattern", [True, False], id="compile"),
     ],
 )
 def test_lxml_pattern_benchmark_output(name: str, expected: list[bool]) -> None:
+    _, _, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == name)
+    source, document = cast("tuple[str, str]", load())
+    assert _lxml_compiled_patterns(source, document, "abc") == expected
+
+
+@pytest.mark.oracle
+def test_lxml_pattern_compile_benchmark_output() -> None:
+    _, _, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == "compile-pattern")
+    source = cast("str", load())
+    assert _lxml_compiled_patterns(source, "<root><value>abc123</value></root>", "abc") == [True, False]
+
+
+def _lxml_compiled_patterns(source: str, document: str, mutated_value: str) -> list[bool]:
     module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
     etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
-    _, _, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == name)
-    if name == "compile-pattern":
-        source = cast("str", load())
-        document = "<root><value>abc123</value></root>"
-    else:
-        source, document = cast("tuple[str, str]", load())
     schema: Final = module.OPERATIONS["compile-pattern"][0](source)
-    assert [
-        schema.validate(etree.fromstring(text.encode())) for text in (document, document.replace("abc123", "abc"))
-    ] == expected
+    return [
+        schema.validate(etree.fromstring(text.encode()))
+        for text in (document, document.replace("abc123", mutated_value))
+    ]
 
 
 @pytest.mark.oracle

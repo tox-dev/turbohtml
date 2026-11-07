@@ -11,6 +11,8 @@ from turbohtml.validate import RelaxNG, XMLSchema
 if TYPE_CHECKING:
     from types import ModuleType
 
+    from turbohtml import Document
+
 
 _XS: Final[str] = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
 
@@ -37,9 +39,9 @@ R: Final[str] = "http://relaxng.org/ns/structure/1.0"
         ),
     ],
 )
-@pytest.mark.parametrize("verdict_only", [pytest.param(False, id="report"), pytest.param(True, id="verdict")])
-def test_deep_nesting_is_rejected_before_validation(schema: XMLSchema | RelaxNG, *, verdict_only: bool) -> None:
-    validate = schema.is_valid if verdict_only else schema.validate
+@pytest.mark.parametrize("method", [pytest.param("validate", id="report"), pytest.param("is_valid", id="verdict")])
+def test_deep_nesting_is_rejected_before_validation(schema: XMLSchema | RelaxNG, *, method: str) -> None:
+    validate = getattr(schema, method)
     assert bool(validate(parse_xml("<a>" * 20 + "</a>" * 20)))
     with pytest.raises(RecursionError, match="schema validation"):
         validate(parse_xml("<a>" * 1200 + "</a>" * 1200))
@@ -92,6 +94,41 @@ def xsd_ok(schema: str, xml: str) -> bool:
 
 
 @pytest.mark.parametrize(
+    ("schema_type", "source", "valid_markup"),
+    [
+        pytest.param(
+            XMLSchema,
+            '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="value"><xs:simpleType>'
+            '<xs:restriction base="xs:string"><xs:pattern value="[a-z]+"/></xs:restriction>'
+            "</xs:simpleType></xs:element></xs:schema>",
+            "<value>text</value>",
+            id="xsd-pattern",
+        ),
+        pytest.param(
+            RelaxNG,
+            '<element xmlns="http://relaxng.org/ns/structure/1.0" name="value" '
+            'datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">'
+            '<data type="string"><param name="pattern">[a-z]+</param></data></element>',
+            "<value>text</value>",
+            id="rng-pattern",
+        ),
+        pytest.param(
+            RelaxNG,
+            '<grammar xmlns="http://relaxng.org/ns/structure/1.0"><start><ref name="root"/></start>'
+            '<define name="root"><element name="value"><oneOrMore><element name="item"><text/>'
+            "</element></oneOrMore></element></define></grammar>",
+            "<value><item>text</item></value>",
+            id="rng-definition",
+        ),
+    ],
+)
+def test_schema_releases_validation_buffers_for_valid_documents(
+    schema_type: type[XMLSchema | RelaxNG], source: str, valid_markup: str
+) -> None:
+    _assert_validation_buffers_released(schema_type(source), parse_xml(valid_markup), valid=True)
+
+
+@pytest.mark.parametrize(
     ("schema_type", "source"),
     [
         pytest.param(
@@ -117,18 +154,15 @@ def xsd_ok(schema: str, xml: str) -> bool:
         ),
     ],
 )
-@pytest.mark.parametrize("valid", [pytest.param(True, id="valid"), pytest.param(False, id="invalid")])
-def test_schema_releases_validation_buffers(
-    schema_type: type[XMLSchema | RelaxNG], source: str, *, valid: bool
+def test_schema_releases_validation_buffers_for_invalid_documents(
+    schema_type: type[XMLSchema | RelaxNG], source: str
 ) -> None:
+    _assert_validation_buffers_released(schema_type(source), parse_xml("<value>123</value>"), valid=False)
+
+
+def _assert_validation_buffers_released(schema: XMLSchema | RelaxNG, document: Document, *, valid: bool) -> None:
     # PyPy has no tracemalloc; its collector also uses a different reclamation schedule.
     tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
-    schema: Final = schema_type(source)
-    document: Final = parse_xml(
-        ("<value><item>text</item></value>" if "oneOrMore" in source else "<value>text</value>")
-        if valid
-        else "<value>123</value>"
-    )
     tracing.start()
     try:
         for _ in range(10):

@@ -4,7 +4,7 @@ import json
 import shutil
 import subprocess  # ruff: ignore[suspicious-subprocess-import] - the conformance oracle runs the installed vnu.jar
 from pathlib import Path
-from typing import Final, NamedTuple
+from typing import Final, NamedTuple, cast
 
 import pytest
 
@@ -83,22 +83,30 @@ def test_conformance_check_on_a_subtree_skips_document_rules() -> None:
     ("inner", "expected"),
     [
         pytest.param("<img src=x>", "img-missing-alt", id="img-no-alt"),
-        pytest.param('<img src=x alt="a photo">', None, id="img-with-alt"),
         pytest.param('<area href="x">', "area-missing-alt", id="area-href-no-alt"),
-        pytest.param('<area href="x" alt="a">', None, id="area-href-with-alt"),
-        pytest.param("<area>", None, id="area-without-href"),
         pytest.param('<input type="image">', "input-image-missing-alt", id="input-image-no-alt"),
-        pytest.param('<input type="image" alt="a">', None, id="input-image-with-alt"),
-        pytest.param('<input type="text">', None, id="input-not-image"),
-        pytest.param("<input>", None, id="input-no-type"),
-        pytest.param("<input type>", None, id="input-type-valueless"),
     ],
 )
-def test_conformance_alt_text_rules(inner: str, expected: str | None) -> None:
+def test_conformance_alt_text_flags_violation(inner: str, expected: str) -> None:
     found = [message.code for message in check_html(body(inner)).messages]
-    assert (expected in found) is (expected is not None)
-    if expected is None:
-        assert found == []
+    assert expected in found
+
+
+@pytest.mark.parametrize(
+    "inner",
+    [
+        pytest.param('<img src=x alt="a photo">', id="img-with-alt"),
+        pytest.param('<area href="x" alt="a">', id="area-href-with-alt"),
+        pytest.param("<area>", id="area-without-href"),
+        pytest.param('<input type="image" alt="a">', id="input-image-with-alt"),
+        pytest.param('<input type="text">', id="input-not-image"),
+        pytest.param("<input>", id="input-no-type"),
+        pytest.param("<input type>", id="input-type-valueless"),
+    ],
+)
+def test_conformance_alt_text_accepts(inner: str) -> None:
+    found = [message.code for message in check_html(body(inner)).messages]
+    assert found == []
 
 
 @pytest.mark.parametrize(
@@ -187,24 +195,31 @@ def test_conformance_obsolete_attributes(tag: str, attr: str, *, flagged: bool) 
         pytest.param('<div role="bogus">x</div>', "aria-invalid-role", id="invalid-role"),
         pytest.param('<div role="regionx">x</div>', "aria-invalid-role", id="invalid-role-extends-a-valid-name"),
         pytest.param('<div role="widget">x</div>', "aria-invalid-role", id="abstract-role-invalid"),
-        pytest.param('<div role="note">x</div>', None, id="valid-role-no-implicit"),
         pytest.param("<nav role=navigation>x</nav>", "aria-redundant-role", id="redundant-landmark"),
         pytest.param('<a href="x" role="link">y</a>', "aria-redundant-role", id="redundant-link-on-anchor"),
-        pytest.param('<a role="link">y</a>', None, id="anchor-without-href-not-redundant"),
-        pytest.param('<div role="button">x</div>', None, id="role-not-matching-element"),
-        pytest.param('<nav role="note">x</nav>', None, id="valid-role-differs-from-implicit"),
-        pytest.param('<div role="note alert">x</div>', None, id="role-token-list-uses-first"),
-        pytest.param('<div role="  ">x</div>', None, id="whitespace-only-role"),
-        pytest.param("<div role>x</div>", None, id="valueless-role"),
     ],
 )
-def test_conformance_aria_role_rules(inner: str, expected: str | None) -> None:
+def test_conformance_aria_role_flags(inner: str, expected: str) -> None:
     found = codes(body(inner))
-    if expected is None:
-        assert "aria-invalid-role" not in found
-        assert "aria-redundant-role" not in found
-    else:
-        assert expected in found
+    assert expected in found
+
+
+@pytest.mark.parametrize(
+    "inner",
+    [
+        pytest.param('<div role="note">x</div>', id="valid-role-no-implicit"),
+        pytest.param('<a role="link">y</a>', id="anchor-without-href-not-redundant"),
+        pytest.param('<div role="button">x</div>', id="role-not-matching-element"),
+        pytest.param('<nav role="note">x</nav>', id="valid-role-differs-from-implicit"),
+        pytest.param('<div role="note alert">x</div>', id="role-token-list-uses-first"),
+        pytest.param('<div role="  ">x</div>', id="whitespace-only-role"),
+        pytest.param("<div role>x</div>", id="valueless-role"),
+    ],
+)
+def test_conformance_aria_role_accepts(inner: str) -> None:
+    found = codes(body(inner))
+    assert "aria-invalid-role" not in found
+    assert "aria-redundant-role" not in found
 
 
 def codes(markup: str) -> list[str]:
@@ -380,10 +395,10 @@ _VNU_CASES: Final = [
 
 @pytest.mark.parametrize("markup", _VNU_CASES)
 @pytest.mark.oracle
+@pytest.mark.skipif(shutil.which("java") is None, reason="a JRE is required")
 def test_conformance_verdict_matches_vnu(markup: str) -> None:
     jar: Final = Path(pytest.importorskip("vnujar").__file__).parent / "vnu.jar"
-    if (java := shutil.which("java")) is None or not jar.is_file():
-        pytest.skip("a JRE and vnu.jar are required")
+    java: Final = cast("str", shutil.which("java"))
     completed: Final = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed Java arguments and in-repository markup
         [java, "-jar", str(jar), "--format", "json", "--stdin", "-"],
         input=markup.encode(),
@@ -398,12 +413,15 @@ def test_conformance_verdict_matches_vnu(markup: str) -> None:
 @pytest.mark.parametrize(
     "depth", [pytest.param(1, id="single"), pytest.param(64, id="nested-64"), pytest.param(256, id="nested-256")]
 )
-@pytest.mark.parametrize("heading", [pytest.param(False, id="heading-free"), pytest.param(True, id="heading")])
-def test_conformance_nested_section_headings(depth: int, *, heading: bool) -> None:
-    content: Final = "<h2>Title</h2>" if heading else "<p>Text</p>"
-    assert codes(body("<section>" * depth + content + "</section>" * depth)) == (
-        [] if heading else ["section-no-heading"] * depth
-    )
+def test_conformance_nested_section_headings_with_heading(depth: int) -> None:
+    assert codes(body("<section>" * depth + "<h2>Title</h2>" + "</section>" * depth)) == []
+
+
+@pytest.mark.parametrize(
+    "depth", [pytest.param(1, id="single"), pytest.param(64, id="nested-64"), pytest.param(256, id="nested-256")]
+)
+def test_conformance_nested_section_headings_without_heading(depth: int) -> None:
+    assert codes(body("<section>" * depth + "<p>Text</p>" + "</section>" * depth)) == ["section-no-heading"] * depth
 
 
 @pytest.mark.parametrize(

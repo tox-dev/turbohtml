@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Final, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 from bench.operations import INPUTS
 
 from turbohtml import parse_xml
 from turbohtml.validate import RelaxNG, SchemaValidationError, ValidationResult
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from turbohtml import Document
 
 R: Final[str] = "http://relaxng.org/ns/structure/1.0"
 _DT: Final[str] = "http://www.w3.org/2001/XMLSchema-datatypes"
@@ -878,13 +883,11 @@ def test_shared_schema_validates_distinct_documents(name: str) -> None:
         f'<define name="node"><element><name>{name}</name><zeroOrMore><ref name="node"/></zeroOrMore>'
         "</element></define></grammar>"
     )
-    documents: Final = [
-        parse_xml(f"<{name}><{name}/></{name}>" if index % 2 == 0 else f"<{name}><other/></{name}>")
-        for index in range(32)
-    ]
+    children: Final = (name, "other") * 16
+    documents: Final = [parse_xml(f"<{name}><{child}/></{name}>") for child in children]
     with ThreadPoolExecutor(max_workers=4) as executor:
         results: Final = list(executor.map(schema.validate, documents))
-    assert [result.valid for result in results] == [index % 2 == 0 for index in range(32)]
+    assert [result.valid for result in results] == [child == name for child in children]
 
 
 @pytest.mark.parametrize("index", range(4), ids=["optional-group", "optional-interleave", "small-group", "recursive"])
@@ -1048,7 +1051,10 @@ def test_validation_verdict_benchmark(index: int, *, expected: bool) -> None:
 _RNG: Final[str] = "http://relaxng.org/ns/structure/1.0"
 
 
-@pytest.mark.parametrize("as_node", [False, True], ids=["text", "node"])
+@pytest.mark.parametrize(
+    "make_source",
+    [pytest.param(lambda schema: schema, id="text"), pytest.param(parse_xml, id="node")],
+)
 @pytest.mark.parametrize(
     "schema",
     [
@@ -1088,8 +1094,8 @@ _RNG: Final[str] = "http://relaxng.org/ns/structure/1.0"
         ),
     ],
 )
-def test_relaxng_missing_href_rejects_compilation(schema: str, *, as_node: bool) -> None:
-    source: Final = parse_xml(schema) if as_node else schema
+def test_relaxng_missing_href_rejects_compilation(schema: str, *, make_source: Callable[[str], str | Document]) -> None:
+    source: Final = make_source(schema)
     for _ in range(2):
         with pytest.raises(ValueError, match="required href attribute"):
             RelaxNG(source)
@@ -1290,7 +1296,13 @@ def test_rng_empty_content_controls(pattern: str, content: str, *, expected: boo
 _XSD: Final[str] = "http://www.w3.org/2001/XMLSchema-datatypes"
 
 
-@pytest.mark.parametrize("attribute", [pytest.param(False, id="text"), pytest.param(True, id="attribute")])
+@pytest.mark.parametrize(
+    "form",
+    [
+        pytest.param(("{}", "<doc>{}</doc>"), id="text"),
+        pytest.param(('<attribute name="content">{}</attribute>', '<doc content="{}"/>'), id="attribute"),
+    ],
+)
 @pytest.mark.parametrize(
     ("attributes", "literal", "content", "expected"),
     [
@@ -1314,13 +1326,14 @@ _XSD: Final[str] = "http://www.w3.org/2001/XMLSchema-datatypes"
     ],
 )
 def test_relaxng_value_default_token(
-    *, attribute: bool, attributes: tuple[str, str], literal: str, content: str, expected: bool
+    *, form: tuple[str, str], attributes: tuple[str, str], literal: str, content: str, expected: bool
 ) -> None:
+    wrap, document_template = form
     value: Final = f"<value {attributes[0]}>{literal}</value>"
-    pattern: Final = f'<attribute name="content">{value}</attribute>' if attribute else value
+    pattern: Final = wrap.format(value)
     value_ns = "http://relaxng.org/ns/structure/1.0"
     validator: Final = RelaxNG(f'<element xmlns="{value_ns}" name="doc" {attributes[1]}>{pattern}</element>')
-    document: Final = f'<doc content="{content}"/>' if attribute else f"<doc>{content}</doc>"
+    document: Final = document_template.format(content)
     assert tuple(validator.validate(parse_xml(document)).valid for _ in range(2)) == (expected, expected)
 
 
@@ -1382,7 +1395,13 @@ def test_relaxng_structure_root_preserves_validation(schema: str) -> None:
 _RELAXNG_DATA_EXCEPT_XSD: Final[str] = "http://www.w3.org/2001/XMLSchema-datatypes"
 
 
-@pytest.mark.parametrize("attribute", [pytest.param(False, id="text"), pytest.param(True, id="attribute")])
+@pytest.mark.parametrize(
+    "form",
+    [
+        pytest.param(("{}", "<doc>{}</doc>"), id="text"),
+        pytest.param(('<attribute name="content">{}</attribute>', '<doc content="{}"/>'), id="attribute"),
+    ],
+)
 @pytest.mark.parametrize(
     ("pattern", "content", "expected"),
     [
@@ -1547,10 +1566,11 @@ _RELAXNG_DATA_EXCEPT_XSD: Final[str] = "http://www.w3.org/2001/XMLSchema-datatyp
         ),
     ],
 )
-def test_relaxng_data_except(*, attribute: bool, pattern: str, content: str, expected: bool) -> None:
-    body: Final = f'<attribute name="content">{pattern}</attribute>' if attribute else pattern
+def test_relaxng_data_except(*, form: tuple[str, str], pattern: str, content: str, expected: bool) -> None:
+    wrap, document_template = form
+    body: Final = wrap.format(pattern)
     validator: Final = RelaxNG(f'<element xmlns="{"http://relaxng.org/ns/structure/1.0"}" name="doc">{body}</element>')
-    document: Final = f'<doc content="{content}"/>' if attribute else f"<doc>{content}</doc>"
+    document: Final = document_template.format(content)
     assert tuple(validator.validate(parse_xml(document)).valid for _ in range(2)) == (expected, expected)
 
 
@@ -1559,7 +1579,13 @@ _LIBRARY: Final[str] = "http://www.w3.org/2001/XMLSchema-datatypes"
 
 
 @pytest.mark.parametrize("datatype", ["integer", "decimal", "double"])
-@pytest.mark.parametrize("attribute", [pytest.param(False, id="text"), pytest.param(True, id="attribute")])
+@pytest.mark.parametrize(
+    "form",
+    [
+        pytest.param(("{}", "<doc>{}</doc>"), id="text"),
+        pytest.param(('<attribute name="value">{}</attribute>', '<doc value="{}"/>'), id="attribute"),
+    ],
+)
 @pytest.mark.parametrize(
     ("facet", "value", "expected"),
     [
@@ -1578,14 +1604,15 @@ _LIBRARY: Final[str] = "http://www.w3.org/2001/XMLSchema-datatypes"
         pytest.param("minInclusive", "invalid", False, id="invalid-lexical"),
     ],
 )
-def test_rng_numeric_bound(datatype: str, facet: str, value: str, *, attribute: bool, expected: bool) -> None:
+def test_rng_numeric_bound(datatype: str, facet: str, value: str, *, form: tuple[str, str], expected: bool) -> None:
+    wrap, document_template = form
     pattern: Final = f'<data type="{datatype}"><param name="{facet}">1</param></data>'
     validator: Final = RelaxNG(
         f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
-        + (f'<attribute name="value">{pattern}</attribute>' if attribute else pattern)
+        + wrap.format(pattern)
         + "</element>"
     )
-    document: Final = f'<doc value="{value}"/>' if attribute else f"<doc>{value}</doc>"
+    document: Final = document_template.format(value)
     assert tuple(validator.validate(parse_xml(document)).valid for _ in range(2)) == (expected, expected)
 
 
