@@ -1100,9 +1100,17 @@ Py_UCS4 *th_node_markdown_html(th_tree *tree, th_node *node, th_markdown_html co
     return sbuf_finish(&out, out_len);
 }
 
+Py_UCS4 *th_node_markdown_open_tag(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *out_len) {
+    sbuf out = {NULL, 0, 0, 0};
+    const th_serialize_opts opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, (int)context};
+    ser_open_tag(&out, tree, node, &opts);
+    sbuf_putc(&out, '>');
+    return sbuf_finish(&out, out_len);
+}
+
 Py_UCS4 *th_node_markdown_table_html(th_tree *tree, th_node *node, const th_cell_wrap *wrap, Py_ssize_t *out_len) {
     sbuf out = {NULL, 0, 0, 0};
-    const th_serialize_opts opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, TH_MARKDOWN_HTML_BLOCK};
+    const th_serialize_opts opts = {TH_FMT_WHATWG, 0, 0, NULL, 0, 0, 0, NULL, TH_MARKDOWN_HTML_CELL};
     th_node *current = node;
     while (current != NULL) {
         current = serialize_compact_step(&out, tree, current, node, &opts, wrap);

@@ -156,6 +156,7 @@ enum md_leave {
     MD_LEAVE_WRAP,  /* close the emphasis marker, if it opened */
     MD_LEAVE_QUOTE, /* the closing <q> wrapper */
     MD_LEAVE_LINK,  /* the "](url)" or "][n]" after the link text */
+    MD_LEAVE_RAW_LINK,
     MD_LEAVE_NO_WRAP,
     MD_LEAVE_GOOGLE, /* close the CSS-derived markers and restore the inherited style */
     MD_LEAVE_SETEXT,
@@ -1859,6 +1860,9 @@ static void md_emit_code_span(md_ctx *ctx, th_node *node, int block) {
 }
 
 static void md_emit_url_without_breaks(md_ctx *ctx, const char *base, const Py_UCS4 *url, Py_ssize_t len);
+static int md_attr_has_space_run(const Py_UCS4 *value, Py_ssize_t len);
+static void md_emit_raw_html(md_ctx *ctx, th_node *node);
+static void md_put_html_run(md_ctx *ctx, const Py_UCS4 *text, Py_ssize_t len, int encode_lf);
 
 /* What a destination character means to md_emit_url, so one table load per character
    answers every test the layout pass makes. */
@@ -2022,10 +2026,6 @@ static Py_ssize_t md_add_reference(md_ctx *ctx, const Py_UCS4 *url, Py_ssize_t u
 
 static void md_enter_link(md_ctx *ctx, th_node *node) {
     const md_opts *opt = ctx->opt;
-    /* wrap_links off keeps the whole [text](url) construct on one line */
-    if (!opt->wrap_links) {
-        ctx->no_wrap++;
-    }
     Py_ssize_t href_len;
     const Py_UCS4 *href = md_attr(ctx->tree, node, "href", &href_len);
     if (href == NULL && th_node_attr_find(ctx->tree, node, "href", 4) >= 0) {
@@ -2033,6 +2033,29 @@ static void md_enter_link(md_ctx *ctx, th_node *node) {
            leaves a placeholder */
         static const Py_UCS4 empty_href[1] = {0};
         href = empty_href;
+    }
+    if (ctx->in_cell && md_attr_has_space_run(href, href_len) && !opt->ignore_links &&
+        !(opt->skip_internal_links && md_href_internal(href)) && opt->link_style != TH_MD_LINK_REFERENCE &&
+        !opt->link_title && (*opt->base_url == '\0' || md_href_absolute(href, href_len) || md_href_internal(href))) {
+        Py_ssize_t len;
+        Py_UCS4 *opening = th_node_markdown_open_tag(ctx->tree, node, TH_MARKDOWN_HTML_CELL, &len);
+        if (opening == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            ctx->out.failed = 1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;              /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        md_before_visible(ctx);
+        md_put_html_run(ctx, opening, len, 1);
+        PyMem_Free(opening);
+        ctx->line_has_content = 1;
+        if (md_push(ctx, node, MD_WALK_INLINE, MD_LEAVE_RAW_LINK) == NULL) { /* GCOVR_EXCL_BR_LINE */
+            return; /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        ctx->inline_only++;
+        return;
+    }
+    /* wrap_links off keeps the whole [text](url) construct on one line */
+    if (!opt->wrap_links) {
+        ctx->no_wrap++;
     }
     if (href == NULL || opt->ignore_links || (opt->skip_internal_links && md_href_internal(href))) {
         md_push(ctx, node, MD_WALK_INLINE, opt->wrap_links ? MD_LEAVE_NONE : MD_LEAVE_NO_WRAP);
@@ -2157,8 +2180,10 @@ static void md_emit_raw_html(md_ctx *ctx, th_node *node) {
     }
     const th_cell_wrap wrap = {cell_open.data, cell_open.len, cell_close.data, cell_close.len};
     Py_ssize_t len;
-    Py_UCS4 *html = cell_open.len > 0 ? th_node_markdown_table_html(ctx->tree, node, &wrap, &len)
-                                      : th_node_markdown_html(ctx->tree, node, TH_MARKDOWN_HTML_BLOCK, &len);
+    Py_UCS4 *html = cell_open.len > 0
+                        ? th_node_markdown_table_html(ctx->tree, node, &wrap, &len)
+                        : th_node_markdown_html(ctx->tree, node,
+                                                ctx->in_cell ? TH_MARKDOWN_HTML_CELL : TH_MARKDOWN_HTML_BLOCK, &len);
     PyMem_Free(cell_open.data);
     PyMem_Free(cell_close.data);
     if (html == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -4668,6 +4693,11 @@ static void md_leave(md_ctx *ctx) {
         break;
     case MD_LEAVE_LINK:
         md_leave_link(ctx, frame);
+        break;
+    case MD_LEAVE_RAW_LINK:
+        sbuf_puts(&ctx->out, "</a>");
+        ctx->line_has_content = 1;
+        ctx->inline_only--;
         break;
     case MD_LEAVE_NO_WRAP:
         ctx->no_wrap--;
