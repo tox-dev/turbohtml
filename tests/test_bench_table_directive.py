@@ -13,7 +13,7 @@ from docutils.parsers.rst import directives
 _ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "docs" / "_ext"))
 
-from bench_table import BenchTable  # ruff:ignore[module-import-not-at-top-of-file]
+from bench_table import BenchTable  # ruff:ignore[module-import-not-at-top-of-file]  # imports after the sys.path insert that makes the docs extension importable
 
 directives.register_directive("bench-table", BenchTable)
 

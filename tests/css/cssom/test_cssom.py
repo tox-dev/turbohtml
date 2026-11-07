@@ -1046,7 +1046,7 @@ def test_the_text_keeps_an_empty_constructed_value() -> None:
 
 def test_the_text_propagates_a_flag_whose_truth_test_raises() -> None:
     with pytest.raises(RuntimeError, match="undecided"):
-        _css_declaration_text((("color", "red", _Undecided()),))  # ty: ignore[invalid-argument-type]
+        _css_declaration_text((("color", "red", _Undecided()),))  # ty: ignore[invalid-argument-type]  # passes a flag whose truth test raises, on purpose
 
 
 class _Undecided:

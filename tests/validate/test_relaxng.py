@@ -370,7 +370,7 @@ def test_rng_mixed_choice_end_tag() -> None:
     assert rng_ok(schema, "<doc><b/></doc>")
 
 
-@pytest.mark.parametrize("name", ["café", "中文", "𝔸bc"], ids=["two-byte", "three-byte", "four-byte"])  # ruff:ignore[ambiguous-unicode-character-string]
+@pytest.mark.parametrize("name", ["café", "中文", "𝔸bc"], ids=["two-byte", "three-byte", "four-byte"])  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
 def test_rng_non_ascii_attribute_name(name: str) -> None:
     schema = rwrap(f'<attribute name="{name}"><text/></attribute><text/>')
     assert rng_ok(schema, f'<doc {name}="1">x</doc>')

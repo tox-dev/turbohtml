@@ -119,7 +119,7 @@ def test_truncated_sequence_at_eof_is_not_utf8() -> None:
             id="russian-koi8",
         ),
         pytest.param(
-            "Η ελληνική γλώσσα είναι μία από τις αρχαιότερες γλώσσες στον κόσμο σήμερα εδώ.",  # ruff:ignore[ambiguous-unicode-character-string]
+            "Η ελληνική γλώσσα είναι μία από τις αρχαιότερες γλώσσες στον κόσμο σήμερα εδώ.",  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
             "cp1253",
             "windows-1253",
             id="greek-1253",
@@ -137,7 +137,7 @@ def test_truncated_sequence_at_eof_is_not_utf8() -> None:
             id="czech-iso2",
         ),
         pytest.param(
-            "Çok güzel bir gün bugün İstanbul şehrinde yağmur yağıyor ve sıcaklık çok düşük.",  # ruff:ignore[ambiguous-unicode-character-string]
+            "Çok güzel bir gün bugün İstanbul şehrinde yağmur yağıyor ve sıcaklık çok düşük.",  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
             "cp1254",
             "windows-1254",
             id="turkish-1254",

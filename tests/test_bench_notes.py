@@ -9,9 +9,9 @@ import pytest
 _ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "tools"))
 
-from bench.migration import discover_labels  # ruff:ignore[module-import-not-at-top-of-file]
-from bench.notes import NOTES  # ruff:ignore[module-import-not-at-top-of-file]
-from bench.operations import OPERATIONS  # ruff:ignore[module-import-not-at-top-of-file]
+from bench.migration import discover_labels  # ruff:ignore[module-import-not-at-top-of-file]  # imports after the sys.path insert that makes the bench package importable
+from bench.notes import NOTES  # ruff:ignore[module-import-not-at-top-of-file]  # imports after the sys.path insert that makes the bench package importable
+from bench.operations import OPERATIONS  # ruff:ignore[module-import-not-at-top-of-file]  # imports after the sys.path insert that makes the bench package importable
 
 _COMPETITORS: Final[Path] = _ROOT / "tools" / "bench" / "competitors"
 _PAIRS: Final[list[tuple[str, str]]] = [(operation, party) for operation, parties in NOTES.items() for party in parties]

@@ -783,7 +783,7 @@ def test_a_group_over_twenty_digits_at_the_end() -> None:
         pytest.param("+a650-253-0000", [2], False, id="letter-after-the-lead"),
     ],
 )
-def test_lead_groups(text: str, starts: list[int], valid: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
+def test_lead_groups(text: str, starts: list[int], valid: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # the parametrized flag selects the expected outcome
     assert [
         span.start for span in LinkDetector(phones=PhoneNumbers(regions=("US",), require_valid=valid)).find(text)
     ] == starts

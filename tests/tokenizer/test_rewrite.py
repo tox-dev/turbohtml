@@ -24,7 +24,7 @@ def test_rewrite_empty_input() -> None:
 
 def test_rewrite_rejects_non_str() -> None:
     with pytest.raises(TypeError):
-        rewrite(b"<p>")  # ty: ignore[invalid-argument-type]
+        rewrite(b"<p>")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 @pytest.mark.parametrize(
@@ -151,7 +151,7 @@ def test_rewrite_set_attribute_rejects_name_the_dom_rejects(name: str) -> None:
 
 def test_rewrite_set_attribute_non_str_name_raises() -> None:
     def handler(element: Element) -> None:
-        element.set_attribute(1, "v")  # ty: ignore[invalid-argument-type]
+        element.set_attribute(1, "v")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
     with pytest.raises(TypeError):
         rewrite("<p>x</p>", elements=[("p", handler)])
@@ -635,7 +635,7 @@ def test_rewrite_handle_raises_after_handler_returns() -> None:
 def test_rewrite_get_requires_a_name_argument() -> None:
     def handler(element: Element) -> None:
         with pytest.raises(TypeError):
-            element.get()  # ty: ignore[missing-argument]
+            element.get()  # ty: ignore[missing-argument]  # omits a required argument on purpose to check the error
 
     rewrite("<p>x</p>", elements=[("p", handler)])
 
@@ -669,7 +669,7 @@ def test_rewrite_wrong_kind_method_raises() -> None:
 def test_rewrite_set_text_rejects_non_str() -> None:
     def handler(text: Element) -> None:
         with pytest.raises(TypeError):
-            text.set_text(1)  # ty: ignore[invalid-argument-type]
+            text.set_text(1)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
     rewrite("<p>hi</p>", text=handler)
 
@@ -849,13 +849,13 @@ def test_rewrite_content_method_non_str_raises(method: Callable[[Element], objec
 def test_rewrite_attribute_methods_non_str_argument_raise() -> None:
     def handler(element: Element) -> None:
         with pytest.raises(TypeError):
-            element.get(123)  # ty: ignore[invalid-argument-type]
+            element.get(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
         with pytest.raises(TypeError):
-            element.has_attribute(123)  # ty: ignore[invalid-argument-type]
+            element.has_attribute(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
         with pytest.raises(TypeError):
-            element.remove_attribute(123)  # ty: ignore[invalid-argument-type]
+            element.remove_attribute(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
         with pytest.raises(TypeError):
-            element.set_attribute("ok", 123)  # ty: ignore[invalid-argument-type]
+            element.set_attribute("ok", 123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
     rewrite("<p>x</p>", elements=[("p", handler)])
 
@@ -887,7 +887,7 @@ def test_rewrite_leaf_handler_exception_propagates(kwargs: dict[str, None]) -> N
     key = next(iter(kwargs))
     source = {"text": "<p>t</p>", "comments": "<!--c-->", "doctype": "<!DOCTYPE html>x"}[key]
     with pytest.raises(ValueError, match="leaf-boom"):
-        rewrite(source, **{key: boom})  # ty: ignore[invalid-argument-type]
+        rewrite(source, **{key: boom})  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_rewrite_handler_exception_frees_open_ancestors() -> None:

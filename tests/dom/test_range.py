@@ -56,7 +56,7 @@ def test_construct_defaults_offset_to_zero() -> None:
 
 def test_construct_rejects_non_node() -> None:
     with pytest.raises(TypeError, match="container must be a node"):
-        Range("nope")  # ty: ignore[invalid-argument-type]
+        Range("nope")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_construct_rejects_doctype_boundary() -> None:
@@ -145,7 +145,7 @@ def test_set_start_across_roots_same_tree_collapses() -> None:
 def test_set_start_rejects_non_node() -> None:
     boundary = Range(Element("div"))
     with pytest.raises(TypeError, match="expected a node"):
-        boundary.set_start("x", 0)  # ty: ignore[invalid-argument-type]
+        boundary.set_start("x", 0)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 @pytest.mark.parametrize(
@@ -253,7 +253,7 @@ def test_compare_boundary_points_rejects_foreign_range() -> None:
 def test_compare_boundary_points_rejects_non_range() -> None:
     boundary = Range(Element("div"))
     with pytest.raises(TypeError):
-        boundary.compare_boundary_points(0, object())  # ty: ignore[invalid-argument-type]
+        boundary.compare_boundary_points(0, object())  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 @pytest.mark.parametrize(
@@ -615,7 +615,7 @@ def test_insert_node_rejects_ancestor_cycle() -> None:
 def test_insert_node_rejects_non_node() -> None:
     boundary = Range(Element("div"))
     with pytest.raises(TypeError, match="expected a node"):
-        boundary.insert_node("x")  # ty: ignore[invalid-argument-type]
+        boundary.insert_node("x")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_surround_contents_wraps_text_slice() -> None:
@@ -689,7 +689,7 @@ def test_surround_contents_rejects_fragment_wrapper() -> None:
 def test_surround_contents_rejects_non_node() -> None:
     boundary = Range(Element("div"))
     with pytest.raises(TypeError, match="expected a node"):
-        boundary.surround_contents("x")  # ty: ignore[invalid-argument-type]
+        boundary.surround_contents("x")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_clone_range_is_independent() -> None:
@@ -752,7 +752,7 @@ def test_static_range_rejects_doctype() -> None:
 
 def test_static_range_rejects_non_node() -> None:
     with pytest.raises(TypeError, match="must be nodes"):
-        StaticRange("x", 0, Element("b"), 0)  # ty: ignore[invalid-argument-type]
+        StaticRange("x", 0, Element("b"), 0)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_static_range_is_immutable() -> None:
@@ -761,54 +761,54 @@ def test_static_range_is_immutable() -> None:
 
 def test_construct_requires_a_container() -> None:
     with pytest.raises(TypeError):
-        Range()  # ty: ignore[missing-argument]
+        Range()  # ty: ignore[missing-argument]  # omits a required argument on purpose to check the error
 
 
 def test_set_start_requires_integer_offset() -> None:
     div = Element("div")
     with pytest.raises(TypeError):
-        Range(div).set_start(div, "x")  # ty: ignore[invalid-argument-type]
+        Range(div).set_start(div, "x")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_set_start_before_rejects_non_node() -> None:
     with pytest.raises(TypeError, match="expected a node"):
-        Range(Element("div")).set_start_before("x")  # ty: ignore[invalid-argument-type]
+        Range(Element("div")).set_start_before("x")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_select_node_contents_rejects_non_node() -> None:
     with pytest.raises(TypeError, match="expected a node"):
-        Range(Element("div")).select_node_contents("x")  # ty: ignore[invalid-argument-type]
+        Range(Element("div")).select_node_contents("x")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_collapse_rejects_extra_arguments() -> None:
     with pytest.raises(TypeError):
-        Range(Element("div")).collapse(True, True)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[too-many-positional-arguments]
+        Range(Element("div")).collapse(True, True)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[too-many-positional-arguments]  # positional booleans pass the private helper's real signature
 
 
 def test_compare_point_requires_integer_offset() -> None:
     div = Element("div")
     with pytest.raises(TypeError):
-        Range(div).compare_point(div)  # ty: ignore[missing-argument]
+        Range(div).compare_point(div)  # ty: ignore[missing-argument]  # omits a required argument on purpose to check the error
 
 
 def test_compare_point_rejects_non_node() -> None:
     with pytest.raises(TypeError, match="expected a node"):
-        Range(Element("div")).compare_point("x", 0)  # ty: ignore[invalid-argument-type]
+        Range(Element("div")).compare_point("x", 0)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_is_point_in_range_rejects_non_node() -> None:
     with pytest.raises(TypeError, match="expected a node"):
-        Range(Element("div")).is_point_in_range("x", 0)  # ty: ignore[invalid-argument-type]
+        Range(Element("div")).is_point_in_range("x", 0)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_intersects_node_rejects_non_node() -> None:
     with pytest.raises(TypeError, match="expected a node"):
-        Range(Element("div")).intersects_node("x")  # ty: ignore[invalid-argument-type]
+        Range(Element("div")).intersects_node("x")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_static_range_requires_all_arguments() -> None:
     with pytest.raises(TypeError):
-        StaticRange(Element("div"), 0)  # ty: ignore[missing-argument]
+        StaticRange(Element("div"), 0)  # ty: ignore[missing-argument]  # omits a required argument on purpose to check the error
 
 
 def test_extract_contents_rejects_contained_doctype() -> None:
@@ -897,7 +897,7 @@ def test_insert_node_leaves_non_collapsed_range() -> None:
 
 def test_static_range_rejects_non_node_end() -> None:
     with pytest.raises(TypeError, match="must be nodes"):
-        StaticRange(Element("a"), 0, "x", 0)  # ty: ignore[invalid-argument-type]
+        StaticRange(Element("a"), 0, "x", 0)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_static_range_rejects_doctype_end() -> None:

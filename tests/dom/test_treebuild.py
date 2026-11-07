@@ -48,22 +48,22 @@ class Recorder:
     def create_document(self) -> Built:  # ruff:ignore[no-self-use]
         return Built(kind="document", payload=())
 
-    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> Built:  # ruff:ignore[no-self-use]
+    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> Built:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         return Built(kind="doctype", payload=(name, public_id, system_id))
 
-    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> Built:  # ruff:ignore[no-self-use]
+    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> Built:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         return Built(kind="element", payload=(name, namespace, attrs))
 
-    def create_text(self, data: str) -> Built:  # ruff:ignore[no-self-use]
+    def create_text(self, data: str) -> Built:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         return Built(kind="text", payload=(data,))
 
-    def create_comment(self, data: str) -> Built:  # ruff:ignore[no-self-use]
+    def create_comment(self, data: str) -> Built:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         return Built(kind="comment", payload=(data,))
 
-    def create_pi(self, target: str, data: str) -> Built:  # ruff:ignore[no-self-use]
+    def create_pi(self, target: str, data: str) -> Built:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         return Built(kind="pi", payload=(target, data))
 
-    def append(self, parent: Built, child: Built) -> None:  # ruff:ignore[no-self-use]
+    def append(self, parent: Built, child: Built) -> None:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         parent.children.append(child)
 
 
@@ -420,16 +420,16 @@ class _LxmlBuilder:
     def create_document(self) -> object:
         return self.etree.Element("document")
 
-    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> object:  # ruff:ignore[unused-method-argument, no-self-use]
+    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> object:  # ruff:ignore[unused-method-argument, no-self-use]  # the callback signature is fixed by the protocol; this argument is unused
         return ("doctype",)
 
-    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> object:  # ruff:ignore[unused-method-argument]
+    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> object:  # ruff:ignore[unused-method-argument]  # the callback signature is fixed by the protocol; this argument is unused
         node: Final = self.etree.Element(name)
         for attr_name, value in attrs:
             node.set(attr_name, value or "")
         return node
 
-    def create_text(self, data: str) -> object:  # ruff:ignore[no-self-use]
+    def create_text(self, data: str) -> object:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         return ("text", data)
 
     def create_comment(self, data: str) -> object:
@@ -438,7 +438,7 @@ class _LxmlBuilder:
     def create_pi(self, target: str, data: str) -> object:
         return self.etree.Comment(f"?{target}{f' {data}' if data else ''}?")
 
-    def append(self, parent: object, child: object) -> None:  # ruff:ignore[no-self-use]
+    def append(self, parent: object, child: object) -> None:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         node: Final = cast("_LxmlNode", parent)
         if isinstance(child, tuple):
             if child[0] == "text":

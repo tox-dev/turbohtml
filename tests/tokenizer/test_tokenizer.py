@@ -172,9 +172,9 @@ def test_attr_name_must_be_str() -> None:
     # a str-typed name rejects bytes (no silent latin-1 match) and other wrong types, naming str
     (tag,) = list(tokenize("<a href=x>"))
     with pytest.raises(TypeError):
-        tag.attr(b"href")  # ty: ignore[invalid-argument-type]
+        tag.attr(b"href")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
     with pytest.raises(TypeError):
-        tag.attr(123)  # ty: ignore[invalid-argument-type]
+        tag.attr(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
     with pytest.raises(UnicodeEncodeError):
         tag.attr("\udfff")  # a lone surrogate has no UTF-8 form
 
@@ -205,9 +205,9 @@ def test_token_cannot_be_instantiated() -> None:
 def test_tokenizer_takes_no_arguments() -> None:
     # a streaming tokenizer starts empty; a constructor argument is an error, not a silent no-op
     with pytest.raises(TypeError):
-        Tokenizer("<p>")  # ty: ignore[too-many-positional-arguments]
+        Tokenizer("<p>")  # ty: ignore[too-many-positional-arguments]  # passes an extra positional argument on purpose to check the rejection
     with pytest.raises(TypeError):
-        Tokenizer(source="<p>")  # ty: ignore[unknown-argument]
+        Tokenizer(source="<p>")  # ty: ignore[unknown-argument]  # passes an unknown keyword on purpose to check the rejection
 
 
 def test_tokens_stay_valid_after_iteration() -> None:
@@ -589,16 +589,16 @@ def test_positions_match_html_parser() -> None:
             super().__init__(convert_charrefs=True)
             self.positions: list[tuple[int, int]] = []
 
-        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # ruff:ignore[unused-method-argument]
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # ruff:ignore[unused-method-argument]  # the callback signature is fixed by the protocol; this argument is unused
             self.positions.append(self.getpos())
 
-        def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # ruff:ignore[unused-method-argument]
+        def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # ruff:ignore[unused-method-argument]  # the callback signature is fixed by the protocol; this argument is unused
             self.positions.append(self.getpos())
 
-        def handle_data(self, data: str) -> None:  # ruff:ignore[unused-method-argument]
+        def handle_data(self, data: str) -> None:  # ruff:ignore[unused-method-argument]  # the callback signature is fixed by the protocol; this argument is unused
             self.positions.append(self.getpos())
 
-        def handle_comment(self, data: str) -> None:  # ruff:ignore[unused-method-argument]
+        def handle_comment(self, data: str) -> None:  # ruff:ignore[unused-method-argument]  # the callback signature is fixed by the protocol; this argument is unused
             self.positions.append(self.getpos())
 
     recorder = Recorder()

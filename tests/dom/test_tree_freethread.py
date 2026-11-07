@@ -50,7 +50,7 @@ def test_concurrent_transform_import_resolution_and_mutation_is_memory_safe(tmp_
 
 
 def _run(*targets: object) -> None:
-    threads = [threading.Thread(target=target) for target in targets]  # ty: ignore[invalid-argument-type]
+    threads = [threading.Thread(target=target) for target in targets]  # ty: ignore[invalid-argument-type]  # targets are typed object by the race harness; Thread needs a callable
     for thread in threads:
         thread.start()
     for thread in threads:

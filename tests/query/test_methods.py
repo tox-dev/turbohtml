@@ -226,7 +226,7 @@ def test_re_over_valueless_attribute_is_empty() -> None:
 
 def test_re_bad_pattern_type() -> None:
     with pytest.raises(TypeError, match=r"pattern must be a str or a compiled re\.Pattern"):
-        first("<p>x</p>", "p").re(123)  # ty: ignore[invalid-argument-type]
+        first("<p>x</p>", "p").re(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_re_invalid_regex_propagates() -> None:
@@ -236,7 +236,7 @@ def test_re_invalid_regex_propagates() -> None:
 
 def test_re_attr_name_must_be_str() -> None:
     with pytest.raises(TypeError, match="attribute name must be a str"):
-        first("<p>x</p>", "p").re(r"\d+", attr=123)  # ty: ignore[invalid-argument-type]
+        first("<p>x</p>", "p").re(r"\d+", attr=123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_re_first_returns_first_whole_match() -> None:
@@ -278,22 +278,22 @@ def test_re_first_over_valueless_attribute_uses_default() -> None:
 
 def test_re_first_bad_pattern_type() -> None:
     with pytest.raises(TypeError, match=r"pattern must be a str or a compiled re\.Pattern"):
-        first("<p>x</p>", "p").re_first(123)  # ty: ignore[invalid-argument-type]
+        first("<p>x</p>", "p").re_first(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_re_first_attr_name_must_be_str() -> None:
     with pytest.raises(TypeError, match="attribute name must be a str"):
-        first("<p>x</p>", "p").re_first(r"\d+", attr=123)  # ty: ignore[invalid-argument-type]
+        first("<p>x</p>", "p").re_first(r"\d+", attr=123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_re_requires_a_pattern() -> None:
     with pytest.raises(TypeError):
-        first("<p>x</p>", "p").re()  # ty: ignore[missing-argument]
+        first("<p>x</p>", "p").re()  # ty: ignore[missing-argument]  # omits a required argument on purpose to check the error
 
 
 def test_re_first_requires_a_pattern() -> None:
     with pytest.raises(TypeError):
-        first("<p>x</p>", "p").re_first()  # ty: ignore[missing-argument]
+        first("<p>x</p>", "p").re_first()  # ty: ignore[missing-argument]  # omits a required argument on purpose to check the error
 
 
 def test_keeps_match_and_drops_unrelated_siblings() -> None:

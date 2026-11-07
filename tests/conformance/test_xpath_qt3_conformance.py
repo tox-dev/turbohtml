@@ -25,7 +25,7 @@ if not _CATALOG.exists():
         "submodule tests/conformance/qt3tests not checked out; "
         "run: git submodule update --init tests/conformance/qt3tests"
     )
-    raise RuntimeError(_MSG)  # pragma: no cover
+    raise RuntimeError(_MSG)  # pragma: no cover  # raises only without the vendored QT3 suite
 
 _RAW_MARKERS = (
     (re.compile(r"collation"), "collation URI (XPath 2.0 collations)"),

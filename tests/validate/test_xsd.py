@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess  # ruff:ignore[suspicious-subprocess-import]
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Final, cast
@@ -558,7 +558,7 @@ def test_regex_large_pattern_compiles_and_matches(pattern: str, value: str) -> N
         "worker = threading.Thread(target=run)\n"
         "worker.start()\nworker.join()\n"
     )
-    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
         [sys.executable, "-c", code],
         input=json.dumps({"schema": restricted(f'<xs:pattern value="{pattern}"/>'), "xml": f"<v>{value}</v>"}),
         capture_output=True,
@@ -1000,7 +1000,7 @@ def test_validate_rejects_non_node(*, verdict_only: bool) -> None:
         validate("not a node")  # ty: ignore[invalid-argument-type]  # exercises the runtime type guard
 
 
-@pytest.mark.parametrize("name", ["café", "中文", "𝔸bc"], ids=["two-byte", "three-byte", "four-byte"])  # ruff:ignore[ambiguous-unicode-character-string]
+@pytest.mark.parametrize("name", ["café", "中文", "𝔸bc"], ids=["two-byte", "three-byte", "four-byte"])  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
 def test_error_path_non_ascii_names(name: str) -> None:
     schema = f'<xs:schema {XS}><xs:element name="{name}" type="xs:int"/></xs:schema>'
     result = XMLSchema(schema).validate(parse_xml(f"<{name}>bad</{name}>"))
@@ -1086,7 +1086,7 @@ def test_datatype_name_char_ranges(*, type_name: str, codepoint: int, expected: 
     [
         pytest.param("xs:int", "café", id="int-two-byte-value"),
         pytest.param("xs:int", "中文", id="int-three-byte-value"),
-        pytest.param("xs:int", "𝔸", id="int-four-byte-value"),  # ruff:ignore[ambiguous-unicode-character-string]
+        pytest.param("xs:int", "𝔸", id="int-four-byte-value"),  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
     ],
 )
 def test_datatype_error_message_non_ascii_value(type_name: str, value: str) -> None:

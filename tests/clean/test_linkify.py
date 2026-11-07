@@ -271,7 +271,7 @@ def test_linkify_email_keeps_non_ascii_local_part() -> None:
 
 
 def test_linkify_veto_callback_keeps_plain_text() -> None:
-    assert linkify("http://x.com", Linkify(callbacks=[lambda link: None])) == "http://x.com"  # ruff:ignore[unused-lambda-argument]
+    assert linkify("http://x.com", Linkify(callbacks=[lambda link: None])) == "http://x.com"  # ruff:ignore[unused-lambda-argument]  # the callback receives the link and ignores it
 
 
 def test_linkify_callback_can_change_text() -> None:
@@ -562,17 +562,17 @@ def test_scanner_rejects_non_str_text() -> None:
 
 def test_scanner_rejects_non_tuple_url_schemes() -> None:
     with pytest.raises(TypeError):
-        _linkify_scan("http://x.com", False, False, (), ["http"])  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]
+        _linkify_scan("http://x.com", False, False, (), ["http"])  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional booleans pass the private helper's real signature
 
 
 def test_find_rejects_non_str_text() -> None:
     with pytest.raises(TypeError):
-        _linkify_find(123, True, True, (), (), ("http",), None, False)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]
+        _linkify_find(123, True, True, (), (), ("http",), None, False)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional booleans pass the private helper's real signature
 
 
 def test_find_rejects_non_tuple_tlds() -> None:
     with pytest.raises(TypeError):
-        _linkify_find("text", True, True, ["corp"], (), ("http",), None, False)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]
+        _linkify_find("text", True, True, ["corp"], (), ("http",), None, False)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional booleans pass the private helper's real signature
 
 
 @pytest.mark.parametrize(
@@ -965,8 +965,8 @@ class _UrlOnly:
 @pytest.mark.parametrize(
     "link",
     [
-        pytest.param(LinkCandidate(1, "text", {}), id="url-is-not-a-string"),  # ty: ignore[invalid-argument-type]
-        pytest.param(LinkCandidate("http://x.com", "text", "attrs"), id="attrs-is-not-a-dict"),  # ty: ignore[invalid-argument-type]
+        pytest.param(LinkCandidate(1, "text", {}), id="url-is-not-a-string"),  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
+        pytest.param(LinkCandidate("http://x.com", "text", "attrs"), id="attrs-is-not-a-dict"),  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
         pytest.param(_UrlOnly(), id="no-attrs-at-all"),
     ],
 )

@@ -61,12 +61,12 @@ def test_attr_present_ignores_default() -> None:
 
 def test_attr_name_must_be_str() -> None:
     with pytest.raises(TypeError, match="attribute name must be a str"):
-        first('<a href="/x">', "a").attr(123)  # ty: ignore[invalid-argument-type]
+        first('<a href="/x">', "a").attr(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_attr_requires_a_name() -> None:
     with pytest.raises(TypeError):
-        first('<a href="/x">', "a").attr()  # ty: ignore[missing-argument]
+        first('<a href="/x">', "a").attr()  # ty: ignore[missing-argument]  # omits a required argument on purpose to check the error
 
 
 def test_attr_getall_over_a_selection_is_a_comprehension() -> None:
@@ -589,7 +589,7 @@ def test_button_field_value() -> None:
 
 
 def test_button_field_value_defaults_empty() -> None:
-    assert _tree_field_value_control("<button>Go</button>", "button").field_value == ""  # ruff:ignore[compare-to-empty-string]
+    assert _tree_field_value_control("<button>Go</button>", "button").field_value == ""  # ruff:ignore[compare-to-empty-string]  # the field value is a string by contract; the test checks the empty default
 
 
 @pytest.mark.parametrize(
@@ -698,7 +698,7 @@ def test_set_textarea_value_replaces_text() -> None:
 def test_set_textarea_value_to_none_clears_it() -> None:
     field = _tree_field_value_control("<textarea>old</textarea>", "textarea")
     field.field_value = None
-    assert field.field_value == ""  # ruff:ignore[compare-to-empty-string]
+    assert field.field_value == ""  # ruff:ignore[compare-to-empty-string]  # the field value is a string by contract; the test checks the empty default
     assert field.html == "<textarea></textarea>"
 
 
@@ -772,7 +772,7 @@ def test_set_field_value_on_non_control_raises() -> None:
 
 def test_option_value_strips_whitespace_only_text() -> None:
     select = _tree_field_value_control("<select><option selected>   </option></select>", "select")
-    assert select.field_value == ""  # ruff:ignore[compare-to-empty-string]
+    assert select.field_value == ""  # ruff:ignore[compare-to-empty-string]  # the field value is a string by contract; the test checks the empty default
 
 
 def test_select_skips_an_optgroup_wrapper() -> None:
@@ -2504,13 +2504,13 @@ def test_attrs_pop_removes_the_attribute() -> None:
 
 @pytest.mark.parametrize("key", [pytest.param("missing", id="absent-name"), pytest.param(3, id="non-str")])
 def test_attrs_pop_missing_returns_the_default(key: object) -> None:
-    assert _anchor().attrs.pop(key, "fallback") == "fallback"  # ty: ignore[no-matching-overload]
+    assert _anchor().attrs.pop(key, "fallback") == "fallback"  # ty: ignore[no-matching-overload]  # passes arguments no overload accepts on purpose to check the error
 
 
 @pytest.mark.parametrize("key", [pytest.param("missing", id="absent-name"), pytest.param(3, id="non-str")])
 def test_attrs_pop_missing_without_default_raises(key: object) -> None:
     with pytest.raises(KeyError):
-        _anchor().attrs.pop(key)  # ty: ignore[invalid-argument-type]
+        _anchor().attrs.pop(key)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 @pytest.mark.parametrize(
@@ -2560,7 +2560,7 @@ def test_attrs_setdefault_stores_a_missing_value() -> None:
 )
 def test_attrs_setdefault_rejects_invalid_input(key: object, value: object, error: type[Exception]) -> None:
     with pytest.raises(error):
-        _anchor().attrs.setdefault(key, value)  # ty: ignore[no-matching-overload]
+        _anchor().attrs.setdefault(key, value)  # ty: ignore[no-matching-overload]  # passes arguments no overload accepts on purpose to check the error
 
 
 @pytest.mark.parametrize(
@@ -2587,18 +2587,18 @@ def test_attrs_update_without_arguments_changes_nothing() -> None:
 def test_attrs_update_with_malformed_pairs_changes_nothing() -> None:
     element = _anchor()
     with pytest.raises(ValueError, match=r"length|pairs"):  # CPython and PyPy word the error differently
-        element.attrs.update([("title", "t"), ("bad",)])  # ty: ignore[no-matching-overload]
+        element.attrs.update([("title", "t"), ("bad",)])  # ty: ignore[no-matching-overload]  # passes arguments no overload accepts on purpose to check the error
     assert element.html == '<a id="x" class="c1 c2" href="h"></a>'
 
 
 def test_attrs_update_takes_at_most_one_positional_argument() -> None:
     with pytest.raises(TypeError, match="update"):
-        _anchor().attrs.update({}, {})  # ty: ignore[no-matching-overload]
+        _anchor().attrs.update({}, {})  # ty: ignore[no-matching-overload]  # passes arguments no overload accepts on purpose to check the error
 
 
 def test_attrs_update_with_a_bad_value_raises() -> None:
     with pytest.raises(TypeError, match="attribute value"):
-        _anchor().attrs.update({"title": 3})  # ty: ignore[no-matching-overload]
+        _anchor().attrs.update({"title": 3})  # ty: ignore[no-matching-overload]  # passes arguments no overload accepts on purpose to check the error
 
 
 @pytest.mark.parametrize(
@@ -2621,7 +2621,7 @@ def test_attrs_inequality_with_a_dict() -> None:
 
 def test_attrs_ordering_is_unsupported() -> None:
     with pytest.raises(TypeError):
-        _ = _anchor().attrs < {}  # ty: ignore[unsupported-operator]
+        _ = _anchor().attrs < {}  # ty: ignore[unsupported-operator]  # applies an operator the mapping rejects on purpose to check the error
 
 
 def test_attrs_equality_with_a_broken_mapping_raises() -> None:
@@ -2691,13 +2691,13 @@ def test_attrs_inplace_or_updates_the_element() -> None:
 def test_attrs_inplace_or_non_mapping_is_unsupported() -> None:
     attrs = _anchor().attrs
     with pytest.raises(TypeError):
-        attrs |= 3  # ty: ignore[unsupported-operator]
+        attrs |= 3  # ty: ignore[unsupported-operator]  # applies an operator the mapping rejects on purpose to check the error
 
 
 def test_attrs_inplace_or_with_a_bad_value_raises() -> None:
     attrs = _anchor().attrs
     with pytest.raises(TypeError, match="attribute value"):
-        attrs |= {"title": 3}  # ty: ignore[unsupported-operator]
+        attrs |= {"title": 3}  # ty: ignore[unsupported-operator]  # applies an operator the mapping rejects on purpose to check the error
 
 
 def test_rename_keeps_attributes_and_children() -> None:

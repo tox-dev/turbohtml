@@ -2733,7 +2733,7 @@ def test_non_callable_value_raises() -> None:
     with pytest.raises(TypeError):
         # a non-callable value on purpose, to exercise the runtime call failure
         parse("<p><b>x</b></p>").to_markdown(
-            Markdown(converters={"b": "not callable"}),  # ty: ignore[invalid-argument-type]
+            Markdown(converters={"b": "not callable"}),  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
         )
 
 

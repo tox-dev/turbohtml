@@ -19,7 +19,7 @@ _VECTORS: Final[Path] = (
     / "dev"
     / "IdnaTestV2.txt"
 )
-if not _VECTORS.exists():  # pragma: no cover
+if not _VECTORS.exists():  # pragma: no cover  # the skip runs only without the vendored IDNA vectors
     _HINT = (
         "submodule tests/conformance/unicodetools not checked out; "
         "run: git submodule update --init tests/conformance/unicodetools"

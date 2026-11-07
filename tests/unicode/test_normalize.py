@@ -178,7 +178,7 @@ def test_non_string_text_raises_type_error() -> None:
     unicodedata.unidata_version != "16.0.0", reason="runtime unicodedata differs from the pinned Unicode 16.0.0 tables"
 )
 @pytest.mark.parametrize("form", _FORMS)
-def test_matches_runtime_unicodedata(form: NormalizationForm) -> None:  # pragma: no cover
+def test_matches_runtime_unicodedata(form: NormalizationForm) -> None:  # pragma: no cover  # only off Unicode 16.0.0
     mismatches = [
         cp
         for cp in _CODEPOINTS

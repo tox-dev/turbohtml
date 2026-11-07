@@ -646,7 +646,7 @@ def test_nothing_to_resolve_is_a_no_op(html: str) -> None:
 
 def test_resolve_links_requires_a_string_base() -> None:
     with pytest.raises(TypeError, match="base URL string"):
-        parse_fragment('<a href="a">x</a>').resolve_links(None)  # ty: ignore[invalid-argument-type]
+        parse_fragment('<a href="a">x</a>').resolve_links(None)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def _resolved_href(href: str, base: str) -> str:
@@ -731,7 +731,7 @@ def test_replacement_string_is_substituted() -> None:
 
 def _rewritten(html: str, replace: object) -> str:
     root = parse_fragment(html)
-    root.rewrite_links(replace)  # ty: ignore[invalid-argument-type]
+    root.rewrite_links(replace)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
     return root.inner_html
 
 
@@ -806,7 +806,7 @@ def test_an_exception_on_the_first_of_several_style_texts_stops_the_walk() -> No
 
 def test_rewrite_links_requires_a_callable() -> None:
     with pytest.raises(TypeError, match="expected a callable"):
-        parse_fragment("<a href=a>x</a>").rewrite_links("not callable")  # ty: ignore[invalid-argument-type]
+        parse_fragment("<a href=a>x</a>").rewrite_links("not callable")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 @pytest.mark.parametrize("depth", [0, 16, 128], ids=["ordinary", "nested", "beyond-dns-length"])

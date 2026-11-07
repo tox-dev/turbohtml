@@ -300,12 +300,12 @@ def test_double_close_raises() -> None:
 def test_feed_rejects_other_types() -> None:
     parser = IncrementalParser()
     with pytest.raises(TypeError, match="str or a bytes-like object"):
-        parser.feed(123)  # ty: ignore[invalid-argument-type]
+        parser.feed(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_encoding_must_be_str() -> None:
     with pytest.raises(TypeError):
-        IncrementalParser(encoding=b"utf-8")  # ty: ignore[invalid-argument-type]
+        IncrementalParser(encoding=b"utf-8")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_context_manager_closes_inside_block() -> None:
@@ -834,7 +834,7 @@ def test_ordering_is_unsupported() -> None:
 
 def test_cannot_instantiate_parse_error() -> None:
     with pytest.raises(TypeError):
-        ParseError()  # type: ignore[call-arg]
+        ParseError()  # type: ignore[call-arg]  # instantiates ParseError without its arguments on purpose; the test expects the TypeError
 
 
 def test_strict_raises_on_first_error() -> None:
@@ -1073,7 +1073,7 @@ class _Unbooleanable:
 
 def test_reconstruct_rejects_a_non_node_child() -> None:
     with pytest.raises(TypeError, match="must be a node"):
-        _reconstruct(_kind(Element("div")), ("div", {}), ["x"])  # ty: ignore[invalid-argument-type]
+        _reconstruct(_kind(Element("div")), ("div", {}), ["x"])  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_reconstruct_rejects_a_document_child() -> None:

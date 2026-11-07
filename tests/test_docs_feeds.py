@@ -10,8 +10,8 @@ import pytest
 _ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "tools"))
 
-from bench.docs_feeds import TABLES, Combined  # ruff:ignore[module-import-not-at-top-of-file]
-from bench.operations import OPERATIONS  # ruff:ignore[module-import-not-at-top-of-file]
+from bench.docs_feeds import TABLES, Combined  # ruff:ignore[module-import-not-at-top-of-file]  # imports after the sys.path insert that makes the bench package importable
+from bench.operations import OPERATIONS  # ruff:ignore[module-import-not-at-top-of-file]  # imports after the sys.path insert that makes the bench package importable
 
 _GUIDE: Final[Path] = _ROOT / "docs" / "development" / "performance.rst"
 _REFERENCED = sorted(set(re.findall(r"bench/([\w-]+)\.json", _GUIDE.read_text(encoding="utf-8"))))

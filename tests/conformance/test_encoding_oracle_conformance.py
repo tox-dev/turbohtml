@@ -129,7 +129,7 @@ def _oracle(name: str) -> Path:
     if not (crate.parent.parent / ("encoding_rs" if name == "decoder" else "chardetng") / "Cargo.toml").exists():
         msg = f"submodule tests/conformance/{'encoding_rs' if name == 'decoder' else 'chardetng'} not checked out"
         raise RuntimeError(msg)
-    subprocess.run(["cargo", "build", "--release", "--quiet"], cwd=crate, check=True)  # ruff:ignore[start-process-with-partial-path]
+    subprocess.run(["cargo", "build", "--release", "--quiet"], cwd=crate, check=True)  # ruff:ignore[start-process-with-partial-path]  # cargo is resolved from PATH by design for the local oracle build
     return crate / "target" / "release" / f"{name}-oracle"
 
 
@@ -180,7 +180,7 @@ def _decode_cases() -> Iterator[tuple[str, bytes]]:
 
 def _run(binary: Path, stdin: str, count: int) -> list[str]:
     """Feed *stdin* to *binary* and return its lines, one per case."""
-    result = subprocess.run([binary], input=stdin, capture_output=True, text=True, check=True)  # ruff:ignore[subprocess-without-shell-equals-true]
+    result = subprocess.run([binary], input=stdin, capture_output=True, text=True, check=True)  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
     lines = result.stdout.splitlines()
     assert len(lines) == count, f"{binary.name} answered {len(lines)} of {count} cases"
     return lines

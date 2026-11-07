@@ -1509,7 +1509,7 @@ def test_language_matches_cases(markers: tuple[str, str, str, str], *, strict: b
 def test_language_matches_rejects_missing_arguments() -> None:
     lax = False
     with pytest.raises(TypeError):
-        _url_language_matches("", "/x", "h.org", "en", lax)  # ty: ignore[missing-argument]
+        _url_language_matches("", "/x", "h.org", "en", lax)  # ty: ignore[missing-argument]  # omits a required argument on purpose to check the error
 
 
 _CONTENT: Final[frozenset[str]] = frozenset({"id", "page", "post", "article_id"})
@@ -1621,13 +1621,13 @@ def test_normalize_query_surrogate_value_raises() -> None:
 def test_normalize_query_rejects_non_str_query() -> None:
     lax = False
     with pytest.raises(TypeError):
-        _url_normalize_query(123, None, frozenset(), lax, _CONTENT, _LANGUAGE)  # ty: ignore[invalid-argument-type]
+        _url_normalize_query(123, None, frozenset(), lax, _CONTENT, _LANGUAGE)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_normalize_query_rejects_missing_arguments() -> None:
     lax = False
     with pytest.raises(TypeError):
-        _url_normalize_query("a=1", None, frozenset(), lax)  # ty: ignore[missing-argument]
+        _url_normalize_query("a=1", None, frozenset(), lax)  # ty: ignore[missing-argument]  # omits a required argument on purpose to check the error
 
 
 _PATH, _QUERY, _FRAGMENT = 0, 1, 2

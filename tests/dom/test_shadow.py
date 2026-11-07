@@ -95,7 +95,7 @@ def test_attach_shadow_rejects_unknown_mode() -> None:
 
 def test_attach_shadow_rejects_non_str_mode() -> None:
     with pytest.raises(TypeError):
-        Element("div").attach_shadow(123)  # ty: ignore[invalid-argument-type]
+        Element("div").attach_shadow(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_shadow_root_not_instantiable() -> None:
@@ -215,7 +215,7 @@ def test_find_slot_skips_foreign_elements() -> None:
 
 def test_assigned_nodes_rejects_extra_positional() -> None:
     with pytest.raises(TypeError):
-        Element("slot").assigned_nodes(1, 2)  # ty: ignore[too-many-positional-arguments]
+        Element("slot").assigned_nodes(1, 2)  # ty: ignore[too-many-positional-arguments]  # passes an extra positional argument on purpose to check the rejection
 
 
 def test_unassigned_child_has_no_slot() -> None:
@@ -379,7 +379,7 @@ def test_iter_elements_survives_set_inner_html_clearing_siblings() -> None:
 def test_set_inner_html_requires_str() -> None:
     root = Element("div").attach_shadow("open")
     with pytest.raises(TypeError, match="html must be a str"):
-        root.set_inner_html(123)  # ty: ignore[invalid-argument-type]
+        root.set_inner_html(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_shadow_root_append_moves_a_same_tree_node() -> None:
@@ -425,7 +425,7 @@ def test_range_insert_node_rejects_the_shadow_host() -> None:
 def test_shadow_root_append_rejects_non_node() -> None:
     root = Element("div").attach_shadow("open")
     with pytest.raises(TypeError, match="must be a node"):
-        root.append("nope")  # ty: ignore[invalid-argument-type]
+        root.append("nope")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_multiple_shadow_hosts_in_one_tree() -> None:
@@ -927,7 +927,7 @@ def test_document_fragment_starts_empty() -> None:
 
 def test_document_fragment_takes_no_arguments() -> None:
     with pytest.raises(TypeError):
-        DocumentFragment("x")  # ty: ignore[too-many-positional-arguments]
+        DocumentFragment("x")  # ty: ignore[too-many-positional-arguments]  # passes an extra positional argument on purpose to check the rejection
 
 
 def test_document_fragment_adoption_preserves_descendants() -> None:
@@ -1106,5 +1106,5 @@ def test_sibling_insert_rejects_a_bad_argument_before_moving_anything(argument: 
     _, target = _host_page()
     first = Element("b")
     with pytest.raises(TypeError, match=message):
-        target.children[0].insert_before(first, argument)  # ty: ignore[invalid-argument-type]
+        target.children[0].insert_before(first, argument)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
     assert target.html == '<div id="a"><i></i></div>'

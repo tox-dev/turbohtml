@@ -24,7 +24,7 @@ _INVARIANTS: Final[dict[NormalizationForm, tuple[tuple[int, tuple[int, ...]], ..
 _ORACLE: Final[Path] = (
     Path(__file__).parent / "unicodetools" / "unicodetools" / "data" / "ucd" / "dev" / "NormalizationTest.txt"
 )
-if not _ORACLE.exists():  # pragma: no cover
+if not _ORACLE.exists():  # pragma: no cover  # the skip runs only without the oracle submodule
     _HINT = (
         "submodule tests/conformance/unicodetools not checked out; "
         "run: git submodule update --init tests/conformance/unicodetools"

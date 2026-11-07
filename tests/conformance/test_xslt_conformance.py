@@ -11,7 +11,7 @@ from turbohtml.transform import transform
 
 _CORPUS: Final[Path] = Path(__file__).parent / "libxslt" / "tests"
 
-if not _CORPUS.exists():  # pragma: no cover
+if not _CORPUS.exists():  # pragma: no cover  # the skip runs only without the vendored XSLT corpus
     _MSG = (
         "submodule tests/conformance/libxslt not checked out; "
         "run: git submodule update --init tests/conformance/libxslt"

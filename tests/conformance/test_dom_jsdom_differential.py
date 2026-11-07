@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess  # ruff:ignore[suspicious-subprocess-import]
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
@@ -1309,7 +1309,7 @@ _ALL_DIFF_CASES = _RANGE_CASES + _TRAVERSAL_CASES + _SHADOW_CASES
 def jsdom_results() -> dict[str, dict[str, Any]]:
     assert _NODE is not None
     payload = json.dumps(_ALL_DIFF_CASES)
-    completed = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+    completed = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
         [_NODE, str(_RUNNER)], input=payload, capture_output=True, text=True, timeout=120, check=True
     )
     return {entry["id"]: entry for entry in json.loads(completed.stdout)}

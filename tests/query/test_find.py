@@ -671,7 +671,7 @@ def test_text_scan_skips_non_text_children() -> None:
 def test_text_bytes_pattern_raises() -> None:
     # a bytes pattern cannot search a str value; this matches the pre-existing behavior
     with pytest.raises(TypeError):
-        parse("<p>test</p>").find_all(text=re.compile(rb"test"))  # ty: ignore[invalid-argument-type]
+        parse("<p>test</p>").find_all(text=re.compile(rb"test"))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_text_empty_string_matches_textless_element() -> None:

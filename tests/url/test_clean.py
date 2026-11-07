@@ -268,7 +268,7 @@ def test_the_entry_points_reject_bad_arguments(entry: Callable[..., object], arg
 
 def test_extract_links_rejects_a_parameter_name_that_is_not_a_str() -> None:
     with pytest.raises(TypeError, match="query parameter names must be str"):
-        extract_links("", "https://a.com/", UrlCleaning(query_deny=frozenset({1})))  # ty: ignore[invalid-argument-type]
+        extract_links("", "https://a.com/", UrlCleaning(query_deny=frozenset({1})))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_the_document_entry_point_rejects_too_few_arguments() -> None:

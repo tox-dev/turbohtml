@@ -657,7 +657,7 @@ def test_style_double_quoted_css_string() -> None:
         pytest.param("cursor: url('https://example.com/\fpath')", False, id="form-feed-in-quoted-url"),
     ],
 )
-def test_style_value_rejects_expression_and_bad_url_scheme(style: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
+def test_style_value_rejects_expression_and_bad_url_scheme(style: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # the parametrized flag selects the expected outcome
     # a kept property still has its value scrubbed: expression() and url(disallowed-scheme) drop the whole declaration
     out = sanitize(f'<p style="{style}">x</p>', _style_policy())
     assert ("style=" in out) is kept
@@ -1127,7 +1127,7 @@ def test_every_url_attribute_is_scheme_checked(attr: str) -> None:
         pytest.param("https://ok/a.jpg 1x, vbscript:msgbox(1) 2x", False, id="later-candidate-vbscript"),
     ],
 )
-def test_srcset_candidate_schemes_are_checked(attr: str, value: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
+def test_srcset_candidate_schemes_are_checked(attr: str, value: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # the parametrized flag selects the expected outcome
     # a srcset is a comma-separated list of "URL descriptor" candidates; every candidate's scheme is
     # checked and the whole attribute is dropped if any candidate carries a disallowed scheme.
     out = sanitize(f'<img {attr}="{value}">', _allow_all({"img"}, {attr}))
@@ -1174,7 +1174,7 @@ def test_srcset_data_url_comma_is_not_a_candidate_separator() -> None:
         pytest.param("0x;url=javascript:x", True, id="bad-separator-no-refresh"),
     ],
 )
-def test_meta_refresh_url_is_scheme_checked(content: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
+def test_meta_refresh_url_is_scheme_checked(content: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # the parametrized flag selects the expected outcome
     html = f'<meta http-equiv="Refresh" content="{content}">'
     out = sanitize(html, _allow_all({"meta"}, {"http-equiv", "content"}))
     assert out == (html if kept else '<meta http-equiv="Refresh">')
@@ -1730,7 +1730,7 @@ def test_attribute_prefix_non_string_raises_typeerror() -> None:
     ("value", "kept"),
     [pytest.param("_blank", True, id="allowed"), pytest.param("_top", False, id="disallowed")],
 )
-def test_attribute_value_allowlist_restricts_target(value: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
+def test_attribute_value_allowlist_restricts_target(value: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # the parametrized flag selects the expected outcome
     out = sanitize(f'<a href="http://x" target="{value}">y</a>', _value_policy())
     assert (f'target="{value}"' in out) is kept
 
@@ -1800,7 +1800,7 @@ def _media_policy(hosts: frozenset[str], *, extra_attrs: frozenset[str] = frozen
         pytest.param("https:/x", False, id="allowed-scheme-one-slash"),
     ],
 )
-def test_media_host_allowlist_gates_src(src: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
+def test_media_host_allowlist_gates_src(src: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # the parametrized flag selects the expected outcome
     out = sanitize(f'<video src="{src}">', _media_policy(frozenset({"youtube.com"})))
     assert ("src=" in out) is kept
 
@@ -1856,7 +1856,7 @@ def test_media_host_default_policy_leaves_src_unrestricted() -> None:
         pytest.param("https://user@[dead::beef]/x", False, id="ipv6-with-userinfo-blocked"),
     ],
 )
-def test_media_host_allowlist_host_confusion(src: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
+def test_media_host_allowlist_host_confusion(src: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # the parametrized flag selects the expected outcome
     # host-confusion parity: userinfo tricks resolve to the real host (the last '@' wins), a suffixed or
     # whitespace-obfuscated host never masquerades as the listed one, and an IPv6 literal is always rejected
     out = sanitize(f'<video src="{src}">', _media_policy(frozenset({"youtube.com", "youtube.com."})))
@@ -2964,22 +2964,22 @@ def test_the_compiler_rejects_a_non_mapping() -> None:
 
 def test_the_compiler_rejects_a_non_mapping_nest() -> None:
     with pytest.raises(AttributeError, match="items"):
-        _sanitize_policy({}, frozenset(), {"a": 5}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]
+        _sanitize_policy({}, frozenset(), {"a": 5}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_the_compiler_rejects_a_non_mapping_table() -> None:
     with pytest.raises(AttributeError, match="items"):
-        _sanitize_policy({}, frozenset(), 5, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]
+        _sanitize_policy({}, frozenset(), 5, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_the_compiler_rejects_a_non_iterable_rel() -> None:
     with pytest.raises(TypeError):
-        _sanitize_policy({}, 5, {}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]
+        _sanitize_policy({}, 5, {}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_rel_tokens_of_mixed_types_cannot_be_sorted() -> None:
     with pytest.raises(TypeError):
-        _sanitize_policy({}, {"a", 1}, {}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]
+        _sanitize_policy({}, {"a", 1}, {}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_a_style_pattern_list_must_be_iterable() -> None:
@@ -2994,7 +2994,7 @@ def test_a_style_property_must_be_a_str() -> None:
 
 def test_a_transform_table_must_be_a_mapping() -> None:
     with pytest.raises(AttributeError, match="items"):
-        _sanitize_policy({}, frozenset(), {}, {}, {}, 5, Transform)  # ty: ignore[invalid-argument-type]
+        _sanitize_policy({}, frozenset(), {}, {}, {}, 5, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 class _TagOnly:
@@ -3013,12 +3013,12 @@ class _Bare:
 )
 def test_a_transform_type_must_carry_both_fields(target: object, missing: str) -> None:
     with pytest.raises(AttributeError, match=missing):
-        _sanitize_policy({}, frozenset(), {}, {}, {}, {"i": target}, type(target))  # ty: ignore[invalid-argument-type]
+        _sanitize_policy({}, frozenset(), {}, {}, {}, {"i": target}, type(target))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_a_transform_tag_that_is_not_a_str_is_rejected() -> None:
     with pytest.raises(ValueError, match="target tag must be a non-empty string"):
-        Sanitizer(Policy(transform_tags={"i": Transform(5)}))  # ty: ignore[invalid-argument-type]
+        Sanitizer(Policy(transform_tags={"i": Transform(5)}))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_the_compiler_rejects_too_few_arguments() -> None:
@@ -3938,7 +3938,7 @@ def test_javascript_scheme_dropped_from_style_element_even_when_allowlisted() ->
 
 
 @pytest.mark.parametrize(("url", "kept"), _SCHEME_PARITY)
-def test_scheme_allowlist_parity(url: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
+def test_scheme_allowlist_parity(url: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # the parametrized flag selects the expected outcome
     assert ("href=" in sanitize(f'<a href="{url}">x</a>', Policy())) is kept
 
 
@@ -4189,7 +4189,7 @@ def test_transform_skips_foreign_elements() -> None:
 )
 def test_transform_rejects_bad_rule(target: Transform | str | int, error: type[Exception], message: str) -> None:
     with pytest.raises(error, match=message):
-        Sanitizer(Policy(transform_tags={"b": target}))  # ty: ignore[invalid-argument-type]
+        Sanitizer(Policy(transform_tags={"b": target}))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 _XML: Final[Policy] = Policy(

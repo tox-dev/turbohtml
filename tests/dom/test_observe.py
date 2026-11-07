@@ -570,7 +570,7 @@ def test_observer_is_garbage_collected() -> None:
 
 def test_target_must_be_a_node() -> None:
     with pytest.raises(TypeError):
-        MutationObserver().observe("not a node", child_list=True)  # ty: ignore[invalid-argument-type]
+        MutationObserver().observe("not a node", child_list=True)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_observe_requires_an_option() -> None:
@@ -589,17 +589,17 @@ def test_cross_tree_target_is_rejected() -> None:
 
 def test_non_callable_callback_is_rejected() -> None:
     with pytest.raises(TypeError, match="callable"):
-        MutationObserver(42)  # ty: ignore[invalid-argument-type]
+        MutationObserver(42)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_too_many_constructor_arguments() -> None:
     with pytest.raises(TypeError):
-        MutationObserver(None, None)  # ty: ignore[too-many-positional-arguments]
+        MutationObserver(None, None)  # ty: ignore[too-many-positional-arguments]  # passes an extra positional argument on purpose to check the rejection
 
 
 def test_observe_rejects_unknown_keyword() -> None:
     with pytest.raises(TypeError):
-        MutationObserver().observe(_div(), child_list=True, bogus=1)  # ty: ignore[unknown-argument]
+        MutationObserver().observe(_div(), child_list=True, bogus=1)  # ty: ignore[unknown-argument]  # passes an unknown keyword on purpose to check the rejection
 
 
 @pytest.mark.parametrize(
@@ -608,12 +608,12 @@ def test_observe_rejects_unknown_keyword() -> None:
 )
 def test_non_str_attribute_filter_is_rejected(attribute_filter: list[object]) -> None:
     with pytest.raises(TypeError):
-        MutationObserver().observe(_div(), attributes=True, attribute_filter=attribute_filter)  # ty: ignore[invalid-argument-type]
+        MutationObserver().observe(_div(), attributes=True, attribute_filter=attribute_filter)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_non_iterable_attribute_filter_is_rejected() -> None:
     with pytest.raises(TypeError):
-        MutationObserver().observe(_div(), attributes=True, attribute_filter=5)  # ty: ignore[invalid-argument-type]
+        MutationObserver().observe(_div(), attributes=True, attribute_filter=5)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 @pytest.mark.parametrize("attributes", [False, True], ids=["wrong-kind", "unrelated"])

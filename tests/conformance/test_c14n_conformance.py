@@ -12,7 +12,7 @@ _ROOT: Final[Path] = Path(__file__).parent / "libxml2"
 _CORPUS: Final[Path] = _ROOT / "test" / "c14n"
 _RESULTS: Final[Path] = _ROOT / "result" / "c14n"
 
-if not _CORPUS.is_dir():  # pragma: no cover
+if not _CORPUS.is_dir():  # pragma: no cover  # the skip runs only without the libxml2 submodule
     _MSG = (
         "submodule tests/conformance/libxml2 not checked out; "
         "run: git submodule update --init tests/conformance/libxml2"

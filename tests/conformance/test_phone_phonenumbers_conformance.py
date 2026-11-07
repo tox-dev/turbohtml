@@ -16,13 +16,13 @@ if TYPE_CHECKING:
 
 if not (
     Path(__file__).parent / "python-phonenumbers" / "python" / "phonenumbers" / "__init__.py"
-).exists():  # pragma: no cover
+).exists():  # pragma: no cover  # the skip runs only without the vendored phonenumbers oracle
     _HINT = (
         "submodule tests/conformance/python-phonenumbers not checked out; "
         "run: git submodule update --init tests/conformance/python-phonenumbers"
     )
     raise RuntimeError(_HINT)
-if phonenumbers.__version__ != LIBPHONENUMBER_TAG.removeprefix("v"):  # pragma: no cover
+if phonenumbers.__version__ != LIBPHONENUMBER_TAG.removeprefix("v"):  # pragma: no cover  # only on a pin mismatch
     _MISMATCH = (
         f"phonenumbers {phonenumbers.__version__} is installed, the tables pin {LIBPHONENUMBER_TAG}; "
         "install the vendored checkout (tox -e conformance) or bump both pins together"

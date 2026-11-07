@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import gc
-import subprocess  # ruff:ignore[suspicious-subprocess-import]
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
 from functools import partial
 from operator import ge, gt, le, lt
@@ -913,7 +913,7 @@ def test_long_union_in_predicate_needs_no_c_stack() -> None:
         "worker.join()\n"
         "print(result[0])\n"
     )
-    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
         [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
     )
     assert (result.returncode, result.stdout) == (0, "1\n"), result.stderr

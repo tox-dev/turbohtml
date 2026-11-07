@@ -573,7 +573,7 @@ def test_filter_raising_iterator_iteration(root: Element) -> None:
 
 def test_filter_non_int_verdict(root: Element) -> None:
     with pytest.raises(TypeError):
-        TreeWalker(root, SHOW_ELEMENT, lambda _node: "yes").first_child()  # ty: ignore[invalid-argument-type]
+        TreeWalker(root, SHOW_ELEMENT, lambda _node: "yes").first_child()  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_filter_overflowing_verdict(root: Element) -> None:
@@ -587,7 +587,7 @@ def test_filter_negative_verdict_reads_as_skip(root: Element) -> None:
 
 
 def test_filter_reentrancy_rejected(root: Element) -> None:
-    walker: TreeWalker = None  # ty: ignore[invalid-assignment]
+    walker: TreeWalker = None  # ty: ignore[invalid-assignment]  # the closure reads the walker before it is assigned, so the name is None first
 
     def reenter(_node: Node) -> int:
         return int(walker.next_node() is None)  # re-enters the walker; the active-filter guard raises here
@@ -598,7 +598,7 @@ def test_filter_reentrancy_rejected(root: Element) -> None:
 
 
 def test_iterator_filter_reentrancy_rejected(root: Element) -> None:
-    it: NodeIterator = None  # ty: ignore[invalid-assignment]
+    it: NodeIterator = None  # ty: ignore[invalid-assignment]  # the closure reads the iterator before it is assigned, so the name is None first
 
     def reenter(_node: Node) -> int:
         return int(it.next_node() is None)  # re-enters the iterator; the active-filter guard raises here
@@ -610,7 +610,7 @@ def test_iterator_filter_reentrancy_rejected(root: Element) -> None:
 
 def test_iterator_reentry_error_caught_inside_filter_keeps_the_outer_step(root: Element) -> None:
     errors: Final[list[str]] = []
-    it: NodeIterator = None  # ty: ignore[invalid-assignment]
+    it: NodeIterator = None  # ty: ignore[invalid-assignment]  # the closure reads the iterator before it is assigned, so the name is None first
 
     def reenter(_node: Node) -> int:
         try:
@@ -625,7 +625,7 @@ def test_iterator_reentry_error_caught_inside_filter_keeps_the_outer_step(root: 
 
 @pytest.mark.parametrize("kind", [pytest.param(TreeWalker, id="walker"), pytest.param(NodeIterator, id="iterator")])
 def test_filter_verdict_conversion_cannot_reenter(root: Element, kind: type[TreeWalker | NodeIterator]) -> None:
-    traverser: TreeWalker | NodeIterator = None  # ty: ignore[invalid-assignment]
+    traverser: TreeWalker | NodeIterator = None  # ty: ignore[invalid-assignment]  # the verdict closure reads the traverser before it is assigned
 
     class Verdict:
         def __index__(self) -> int:
@@ -645,13 +645,13 @@ def test_current_node_assignable(root: Element) -> None:
 def test_current_node_cannot_delete(root: Element) -> None:
     walker = TreeWalker(root)
     with pytest.raises(TypeError, match="cannot delete"):
-        del walker.current_node  # ty: ignore[invalid-assignment]
+        del walker.current_node  # ty: ignore[invalid-assignment]  # deletes the read-only current_node on purpose to check the TypeError
 
 
 def test_current_node_must_be_node(root: Element) -> None:
     walker = TreeWalker(root)
     with pytest.raises(TypeError, match="current_node must be a Node"):
-        walker.current_node = "x"  # ty: ignore[invalid-assignment]
+        walker.current_node = "x"  # ty: ignore[invalid-assignment]  # assigns a non-Node on purpose to check the TypeError
 
 
 def test_current_node_must_share_tree(root: Element) -> None:

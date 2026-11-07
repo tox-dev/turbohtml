@@ -9,7 +9,7 @@ import pytest
 _ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "tools"))
 
-from bench.stats import (  # ruff:ignore[module-import-not-at-top-of-file]
+from bench.stats import (  # ruff:ignore[module-import-not-at-top-of-file]  # imports after the sys.path insert that makes the bench package importable
     NOISY_CV,
     Summary,
     geometric_mean,

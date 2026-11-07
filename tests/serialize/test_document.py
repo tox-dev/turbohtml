@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 import re
-import subprocess  # ruff:ignore[suspicious-subprocess-import]
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
 import textwrap
 from dataclasses import dataclass
@@ -435,7 +435,7 @@ for edit_name, edit in EDITS.items():
             except RuntimeError as exc:
                 print(edit_name, layout_name, exc)
 """
-    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
         [sys.executable, "-c", iter_mutation], capture_output=True, text=True, timeout=120, check=False
     )
     iter_edits = ("extract", "decompose", "clear", "set-inner-html", "reparent-outside", "replace-with", "set-text")
@@ -461,7 +461,7 @@ def test_serialize_iter_raises_when_a_versionless_edit_detaches_the_cursor() -> 
         except RuntimeError as exc:
             print(exc)
     """)
-    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
         [sys.executable, "-c", script], capture_output=True, text=True, timeout=120, check=False
     )
     assert (result.returncode, result.stdout) == (0, f"{_ITER_CHANGED}\n"), result.stderr

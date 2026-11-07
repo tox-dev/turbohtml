@@ -86,7 +86,7 @@ def _clean(text: str) -> str:
 
 def _catalog_tests(catalog: str) -> list[tuple[dict[str, str], Path]]:
     path = _DATA / catalog
-    root = ET.fromstring(f"<WRAP>{_clean(path.read_text(encoding='utf-8', errors='replace'))}</WRAP>")  # ruff:ignore[suspicious-xml-element-tree-usage]
+    root = ET.fromstring(f"<WRAP>{_clean(path.read_text(encoding='utf-8', errors='replace'))}</WRAP>")  # ruff:ignore[suspicious-xml-element-tree-usage]  # parses fixed markup from the test corpus, not untrusted input
     out: list[tuple[dict[str, str], Path]] = []
     xmlns: str = "{http://www.w3.org/XML/1998/namespace}base"
     for test in root.iter("TEST"):

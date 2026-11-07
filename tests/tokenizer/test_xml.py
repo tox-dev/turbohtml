@@ -610,7 +610,7 @@ def test_attributes_with_distinct_expanded_names_are_allowed(markup: str) -> Non
 
 def test_non_str_raises_type_error() -> None:
     with pytest.raises(TypeError):
-        parse_xml(b"<root/>")  # ty: ignore[invalid-argument-type]
+        parse_xml(b"<root/>")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 @pytest.mark.parametrize("count", [pytest.param(1, id="single"), pytest.param(1000, id="many")])

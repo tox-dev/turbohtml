@@ -10,7 +10,7 @@ from turbohtml import Element, parse_fragment, parse_xml
 from turbohtml.clean import Policy, sanitize
 
 _FIXTURE: Final[Path] = Path(__file__).parent / "DOMPurify" / "test" / "fixtures" / "expect.mjs"
-if not _FIXTURE.exists():  # pragma: no cover
+if not _FIXTURE.exists():  # pragma: no cover  # the skip runs only without the vendored fixture checkout
     _MSG = (
         "submodule tests/conformance/DOMPurify not checked out; "
         "run: git submodule update --init tests/conformance/DOMPurify"

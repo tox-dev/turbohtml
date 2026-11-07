@@ -128,7 +128,7 @@ def test_iso_2022_jp_is_certain() -> None:
             id="russian-koi8",
         ),
         pytest.param(
-            "Η ελληνική γλώσσα είναι μία από τις αρχαιότερες γλώσσες στον κόσμο σήμερα εδώ.",  # ruff:ignore[ambiguous-unicode-character-string]
+            "Η ελληνική γλώσσα είναι μία από τις αρχαιότερες γλώσσες στον κόσμο σήμερα εδώ.",  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
             "cp1253",
             "windows-1253",
             "Greek",
@@ -247,8 +247,8 @@ _LANGUAGE_CASES: Final[list[tuple[str, str, str]]] = [
     ("Programmering hjælper med at forstå strukturen af moderne beregningssystemer i dag.", "dan", "Latin"),
     ("Programmering hjelper oss med å forstå strukturen til beregningssystemer bedre nå.", "nob", "Latin"),
     ("Программирование помогает понять структуру вычислительных систем сегодня здесь.", "rus", "Cyrillic"),
-    ("Та нічого, все нормально. А в тебе як справи сьогодні зранку, дорогий друже мій?", "ukr", "Cyrillic"),  # ruff:ignore[ambiguous-unicode-character-string]
-    ("Η γλώσσα μας είναι πολύ όμορφη και έχει πλούσια και μεγάλη ιστορία στον κόσμο.", "ell", "Greek"),  # ruff:ignore[ambiguous-unicode-character-string]
+    ("Та нічого, все нормально. А в тебе як справи сьогодні зранку, дорогий друже мій?", "ukr", "Cyrillic"),  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
+    ("Η γλώσσα μας είναι πολύ όμορφη και έχει πλούσια και μεγάλη ιστορία στον κόσμο.", "ell", "Greek"),  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
     ("האקדמיה ללשון העברית היא המוסד העליון למדע הלשון העברית שנמצא היום בירושלים.", "heb", "Hebrew"),
     ("ككل حوالي ومعظم الناس يتحدثون هذه اللغة الجميلة في جميع أنحاء العالم اليوم بسعادة.", "ara", "Arabic"),
     ("हिमालयी वन में रहने वाली यह चिड़िया बहुत सुंदर होती है और यहाँ बहुत आम पाई जाती है।", "hin", "Devanagari"),

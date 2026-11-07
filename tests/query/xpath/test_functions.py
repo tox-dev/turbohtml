@@ -3,11 +3,11 @@ from __future__ import annotations
 import math
 import re
 import string
-import subprocess  # ruff:ignore[suspicious-subprocess-import]
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
 from string import ascii_lowercase, ascii_uppercase
 from typing import TYPE_CHECKING, Final, cast
-from xml.etree import ElementTree as ET  # ruff:ignore[suspicious-xml-etree-import]
+from xml.etree import ElementTree as ET  # ruff:ignore[suspicious-xml-etree-import]  # parses fixed markup from the test corpus, not untrusted input
 
 import pytest
 from bench.ci import benchmarks
@@ -470,7 +470,7 @@ def test_number_to_string_round_trips(value: float) -> None:
 def test_string_functions_agree_with_elementpath(expr: str) -> None:
     elementpath = pytest.importorskip("elementpath")
     markup = "<div><p>One</p><p>Two</p><p>Three</p></div>"
-    root = ET.fromstring(markup)  # ruff:ignore[suspicious-xml-element-tree-usage]
+    root = ET.fromstring(markup)  # ruff:ignore[suspicious-xml-element-tree-usage]  # parses fixed markup from the test corpus, not untrusted input
     want = elementpath.select(root, expr, parser=elementpath.XPath2Parser)
     assert turbohtml.parse(markup).xpath(expr) == want
 
@@ -1288,7 +1288,7 @@ def _forbid_python_re(mocker: MockerFixture) -> None:
 def test_regex_catastrophic_pattern_finishes_quickly(expression: str, expected: str) -> None:
     # run in a subprocess: a backtracking engine would hang on this input
     code = f"import turbohtml\nprint(turbohtml.parse('<p>' + 'a' * 5000 + '!</p>').xpath({expression!r}))"
-    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
         [sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False
     )
     assert (result.returncode, result.stdout) == (0, f"{expected}\n"), result.stderr
@@ -1300,7 +1300,7 @@ def test_regex_backreference_backtracking_is_bounded() -> None:
         "    turbohtml.parse('<p>' + 'a' * 60 + '!</p>').xpath(\"re:test(//p, '^(a|a)+\\\\1$')\")\n"
         "except ValueError as error:\n    print(error)\n"
     )
-    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
         [sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False
     )
     expected: Final = (
@@ -1336,7 +1336,7 @@ def test_regex_nesting_needs_no_c_stack(shape: str, expected: str) -> None:
         "worker.join()\n"
         "print(result[0])\n"
     )
-    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
         [sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
     )
     assert (result.returncode, result.stdout) == (0, f"{expected}\n"), result.stderr

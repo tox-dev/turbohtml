@@ -337,7 +337,7 @@ def test_the_filter_keeps_only_the_named_severity_in_order() -> None:
 
 
 def test_the_filter_skips_a_message_whose_severity_is_not_a_str() -> None:
-    assert _conformance_filter((_Unlabelled(1), _ERROR), "error") == (_ERROR,)  # ty: ignore[invalid-argument-type]
+    assert _conformance_filter((_Unlabelled(1), _ERROR), "error") == (_ERROR,)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 class _Unlabelled(NamedTuple):
