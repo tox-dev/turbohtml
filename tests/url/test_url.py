@@ -397,7 +397,9 @@ def test_base_url_classifies_non_ascii_opaque_fallback(fallback: str, expected: 
     assert parse('<base href="x">').base_url(fallback) == expected
 
 
-@pytest.mark.parametrize("separator", ["\t", "\n", "\r"])
+@pytest.mark.parametrize(
+    "separator", [pytest.param("\t", id="tab"), pytest.param("\n", id="lf"), pytest.param("\r", id="cr")]
+)
 def test_base_url_recognizes_scheme_with_ascii_whitespace(separator: str) -> None:
     assert parse(f'<base href="a{separator}:b">').base_url("mailto:x@y") == "a:b"
 

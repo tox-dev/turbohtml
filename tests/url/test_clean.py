@@ -606,7 +606,9 @@ def test_normalize_rejects_unclosed_host_bracket_after_userinfo() -> None:
         normalize_url("http://]u@[::1/x")
 
 
-@pytest.mark.parametrize("url", ["http://[::1]x/", "git://[::1]\\.."])
+@pytest.mark.parametrize(
+    "url", [pytest.param("http://[::1]x/", id="http-trailing-text"), pytest.param("git://[::1]\\..", id="git-dots")]
+)
 def test_normalize_rejects_ipv6_host_tail(url: str) -> None:
     with pytest.raises(ValueError, match="Invalid IPv6 URL"):
         normalize_url(url)
