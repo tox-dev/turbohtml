@@ -125,8 +125,12 @@ def test_accepted_lengths_reports_the_lengths_with_their_labels() -> None:
 def test_priority_match_end_is_javas_leftmost_first_end(pattern: str) -> None:
     dfa = compile_priority_dfa(compile_program(pattern))
     for digits in _strings("015678", 6):
-        matched = re.match(pattern, digits)
-        assert match_end(dfa, [int(char) for char in digits]) == (matched.end() if matched else -1), digits
+        assert match_end(dfa, [int(char) for char in digits]) == _re_match_end(pattern, digits), digits
+
+
+def _re_match_end(pattern: str, digits: str) -> int:
+    matched = re.match(pattern, digits)
+    return matched.end() if matched else -1
 
 
 def test_priority_bounds() -> None:

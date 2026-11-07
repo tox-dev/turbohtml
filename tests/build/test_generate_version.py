@@ -50,11 +50,13 @@ def test_generate_version_written_value_round_trips(version_project: Path) -> No
     assert _version_cli(version_project) == "1.2.3.dev4+gabc\n"
 
 
-@pytest.mark.parametrize(("editable", "expected"), [(False, "1.2.3"), (True, "9.8.7")], ids=["wheel", "editable"])
-def test_generate_version_import_matches_layout(version_project: Path, *, editable: bool, expected: str) -> None:
+@pytest.mark.parametrize(
+    ("generated_dir", "expected"), [("sample", "1.2.3"), ("generated", "9.8.7")], ids=["wheel", "editable"]
+)
+def test_generate_version_import_matches_layout(version_project: Path, *, generated_dir: str, expected: str) -> None:
     package: Final = version_project / "sample"
     package.mkdir()
-    generated: Final = version_project / "generated" if editable else package
+    generated: Final = version_project / generated_dir
     _version_cli(version_project, "--write", str(generated / "_version.py"), "--version", "1.2.3")
     package.joinpath("__init__.py").write_text(
         f"__path__.append({str(generated)!r})\nfrom ._version import __version__\n", encoding="utf-8"
@@ -119,21 +121,27 @@ def test_generate_version_sdist_ignores_enclosing_repository(version_repository:
     assert _version_cli(dist) == "1.2.3\n"
 
 
-@pytest.mark.parametrize("worktree", [False, True], ids=["git-directory", "git-file"])
-def test_generate_version_uses_own_repository(version_repository: Path, *, worktree: bool) -> None:
-    project: Final = version_repository / "checkout" if worktree else version_repository
-    if worktree:
-        git: Final = shutil.which("git")
-        assert git is not None
-        subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # local fixture repository
-            [git, "-C", str(version_repository), "worktree", "add", "--detach", str(project)],
-            check=True,
-            capture_output=True,
-        )
-        project.joinpath("tools").mkdir()
-        shutil.copyfile(version_repository / "tools/generate_version.py", project / "tools/generate_version.py")
+def test_generate_version_uses_own_repository(version_repository: Path) -> None:
+    _assert_own_version(version_repository)
+
+
+def _assert_own_version(project: Path) -> None:
     _version_cli(project, "--write", "src/turbohtml/_version.py", "--version", "1.2.3")
     assert _version_cli(project) == "2.0.0\n"
+
+
+def test_generate_version_uses_worktree_checkout(version_repository: Path) -> None:
+    project: Final = version_repository / "checkout"
+    git: Final = shutil.which("git")
+    assert git is not None
+    subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # local fixture repository
+        [git, "-C", str(version_repository), "worktree", "add", "--detach", str(project)],
+        check=True,
+        capture_output=True,
+    )
+    project.joinpath("tools").mkdir()
+    shutil.copyfile(version_repository / "tools/generate_version.py", project / "tools/generate_version.py")
+    _assert_own_version(project)
 
 
 @pytest.fixture
