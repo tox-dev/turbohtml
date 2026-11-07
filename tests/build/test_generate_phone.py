@@ -112,25 +112,33 @@ def test_accepted_lengths_reports_the_lengths_with_their_labels() -> None:
 
 
 @pytest.mark.parametrize(
-    "pattern",
+    ("pattern", "digits", "expected"),
     [
-        pytest.param(r"0(8(?:[1-46-8]|5\d\d))?", id="optional-group-with-lag"),
-        pytest.param(r"0|80?", id="shorter-alternative-first"),
-        pytest.param(r"([457]\d{6})$|1", id="end-anchored-alternative"),
-        pytest.param(r"0(?:1|22)3|0", id="longer-alternative-first"),
-        pytest.param(r"0(?:0|11)", id="shared-prefix"),
-        pytest.param(r"1(?:5|6)?", id="optional-suffix"),
+        pytest.param(r"0(8(?:[1-46-8]|5\d\d))?", "", -1, id="optional-group-with-lag-no-match"),
+        pytest.param(r"0(8(?:[1-46-8]|5\d\d))?", "1", -1, id="optional-group-with-lag-other-digit"),
+        pytest.param(r"0(8(?:[1-46-8]|5\d\d))?", "0", 1, id="optional-group-with-lag-prefix-only"),
+        pytest.param(r"0(8(?:[1-46-8]|5\d\d))?", "081", 3, id="optional-group-with-lag-short-group"),
+        pytest.param(r"0(8(?:[1-46-8]|5\d\d))?", "08500", 5, id="optional-group-with-lag-long-group"),
+        pytest.param(r"0|80?", "", -1, id="shorter-alternative-first-no-match"),
+        pytest.param(r"0|80?", "0", 1, id="shorter-alternative-first-short"),
+        pytest.param(r"0|80?", "80", 2, id="shorter-alternative-first-long"),
+        pytest.param(r"([457]\d{6})$|1", "", -1, id="end-anchored-alternative-no-match"),
+        pytest.param(r"([457]\d{6})$|1", "1", 1, id="end-anchored-alternative-short"),
+        pytest.param(r"([457]\d{6})$|1", "4601234", 7, id="end-anchored-alternative-long"),
+        pytest.param(r"0(?:1|22)3|0", "", -1, id="longer-alternative-first-no-match"),
+        pytest.param(r"0(?:1|22)3|0", "0", 1, id="longer-alternative-first-short"),
+        pytest.param(r"0(?:1|22)3|0", "013", 3, id="longer-alternative-first-long"),
+        pytest.param(r"0(?:0|11)", "", -1, id="shared-prefix-no-match"),
+        pytest.param(r"0(?:0|11)", "00", 2, id="shared-prefix-short"),
+        pytest.param(r"0(?:0|11)", "011", 3, id="shared-prefix-long"),
+        pytest.param(r"1(?:5|6)?", "", -1, id="optional-suffix-no-match"),
+        pytest.param(r"1(?:5|6)?", "1", 1, id="optional-suffix-short"),
+        pytest.param(r"1(?:5|6)?", "15", 2, id="optional-suffix-long"),
     ],
 )
-def test_priority_match_end_is_javas_leftmost_first_end(pattern: str) -> None:
+def test_priority_match_end_is_javas_leftmost_first_end(pattern: str, digits: str, expected: int) -> None:
     dfa = compile_priority_dfa(compile_program(pattern))
-    for digits in _strings("015678", 6):
-        assert match_end(dfa, [int(char) for char in digits]) == _re_match_end(pattern, digits), digits
-
-
-def _re_match_end(pattern: str, digits: str) -> int:
-    matched = re.match(pattern, digits)
-    return matched.end() if matched else -1
+    assert match_end(dfa, [int(char) for char in digits]) == expected
 
 
 def test_priority_bounds() -> None:
