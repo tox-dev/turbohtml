@@ -3439,8 +3439,8 @@ def test_minify_css_keeps_later_adjacent_quoted_font_family_invalid() -> None:
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        ("1.2 20px / normal 20px normal", "1.2 20px/normal 20px normal"),
-        ("16px/normal 20px serif", "16px/normal 20px serif"),
+        pytest.param("1.2 20px / normal 20px normal", "1.2 20px/normal 20px normal", id="spaced-slash"),
+        pytest.param("16px/normal 20px serif", "16px/normal 20px serif", id="unspaced-slash"),
     ],
 )
 def test_minify_css_keeps_misplaced_normal_after_font_slash(value: str, expected: str) -> None:

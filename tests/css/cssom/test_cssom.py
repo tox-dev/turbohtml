@@ -699,7 +699,10 @@ def test_parse_declarations_serializes_escaped_property_name() -> None:
     assert declaration.text == r"--a\ : red"
 
 
-@pytest.mark.parametrize("newline", ["\n", "\r", "\f"])
+@pytest.mark.parametrize(
+    "newline",
+    [pytest.param("\n", id="lf"), pytest.param("\r", id="cr"), pytest.param("\f", id="ff")],
+)
 def test_parse_declarations_rejects_invalid_escape_in_property_name(newline: str) -> None:
     assert StyleDeclaration.parse(f"co\\{newline}lor: red").properties() == ()
 
@@ -800,27 +803,37 @@ def test_computed_style_longhand_mixed_important_css_wide_keyword_keeps_valid_de
 @pytest.mark.parametrize(
     "value",
     [
-        "blue) initial",
-        "binherit initial",
-        "Binherit initial",
-        "1inherit initial",
-        "-inherit initial",
-        "_inherit initial",
-        "éinherit initial",
-        "inherita initial",
-        "inheriTa initial",
-        "inherit2 initial",
-        "iNITIAL blue",
-        "i~ initial",
-        "i_ initial",
-        "i: initial",
+        pytest.param("blue) initial", id="closing-paren-before"),
+        pytest.param("binherit initial", id="letter-before"),
+        pytest.param("Binherit initial", id="uppercase-before"),
+        pytest.param("1inherit initial", id="digit-before"),
+        pytest.param("-inherit initial", id="hyphen-before"),
+        pytest.param("_inherit initial", id="underscore-before"),
+        pytest.param("éinherit initial", id="non-ascii-before"),
+        pytest.param("inherita initial", id="letter-after"),
+        pytest.param("inheriTa initial", id="uppercase-after"),
+        pytest.param("inherit2 initial", id="digit-after"),
+        pytest.param("iNITIAL blue", id="uppercase-keyword"),
+        pytest.param("i~ initial", id="tilde-after"),
+        pytest.param("i_ initial", id="underscore-after"),
+        pytest.param("i: initial", id="colon-after"),
     ],
 )
 def test_computed_style_longhand_css_wide_keyword_token_boundaries(value: str) -> None:
     assert _style("<p></p>", css=f"p {{ color: red; color: {value} }}", tag="p")["color"] == "red"
 
 
-@pytest.mark.parametrize("value", ["inherit_foo", "inherité", "inherit-foo", "indigo", "unit", "unite"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("inherit_foo", id="underscore-suffix"),
+        pytest.param("inherité", id="non-ascii-suffix"),
+        pytest.param("inherit-foo", id="hyphen-suffix"),
+        pytest.param("indigo", id="unrelated-word"),
+        pytest.param("unit", id="unit"),
+        pytest.param("unite", id="unite"),
+    ],
+)
 def test_computed_style_longhand_css_wide_keyword_prefix_is_identifier(value: str) -> None:
     assert _style("<p></p>", css=f"p {{ list-style-type: {value} }}", tag="p")["list-style-type"] == value
 
