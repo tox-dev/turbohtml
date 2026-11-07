@@ -122,7 +122,7 @@ def _attribute(value: str) -> str:
     return value.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@dataclass(frozen=True)
 class Attempt:
     # One escape technique with a token no other file on disk holds.
     seed: int
