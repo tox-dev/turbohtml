@@ -13,7 +13,7 @@ from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from subprocess import run  # ruff: ignore[suspicious-subprocess-import] - startup resolution needs a fresh interpreter.
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, cast
 
 import html5lib
 import pytest
@@ -812,16 +812,17 @@ def test_generation_corpus_rejects_changed_encoding_literal(tmp_path: Path) -> N
 
 @pytest.mark.parametrize("profile", ["markdown-source", "markdown-html", "encoding"])
 def test_generation_cli_sweeps_domain_productions(tmp_path: Path, profile: str) -> None:
+    grammars: Final = {
+        "encoding": encoding_grammar(),
+        "markdown-source": markdown_grammar(html=False),
+        "markdown-html": markdown_grammar(html=True),
+    }
     assert (
         corpus_main(("--output", str(tmp_path), "--profile", profile, "--count", "0", "--sweep", "--budget", "64")) == 0
     )
     manifest: Final = json.loads((tmp_path / "manifest.json").read_text())
     assert (len(manifest["entries"]), manifest["rejected"]) == (
-        len(
-            (
-                encoding_grammar() if profile == "encoding" else markdown_grammar(html=profile == "markdown-html")
-            ).productions
-        ),
+        len(grammars[profile].productions),
         [],
     )
 
@@ -1012,25 +1013,32 @@ def test_javascript_cli_initializes_reader_and_routes_corpus(tmp_path: Path, moc
 @pytest.mark.parametrize(
     ("source", "error"),
     [
-        pytest.param(b'consume("kept",external);', None, id="valid"),
         pytest.param(b"(", "OutOfScopeError", id="syntax"),
         pytest.param(b"\xff", "UnicodeDecodeError", id="utf8"),
     ],
 )
-def test_javascript_corpus_admission(tmp_path: Path, source: bytes, error: str | None) -> None:
+def test_javascript_corpus_rejects(tmp_path: Path, source: bytes, error: str) -> None:
     grammar: Final = compile_grammar(
         (Production(name="script", symbol="root", parts=(source,), nodes=1, origin="fixture:1"),), "root"
     )
     manifest: Final = write_corpora((generate(grammar, random.SystemRandom()),), grammar, tmp_path, "javascript")
-    if error is not None:
-        assert (manifest.entries, tuple(entry.exception for entry in manifest.rejected)) == ((), (error,))
-    else:
-        assert (
-            tuple(entry.target for entry in manifest.entries),
-            tuple((tmp_path / entry.file).read_bytes() for entry in manifest.entries),
-            tuple(entry.productions for entry in manifest.entries),
-            manifest.rejected,
-        ) == (("javascript",), (SEED_HEADER + source,), ((("script", "fixture:1"),),), ())
+    assert (manifest.entries, tuple(entry.exception for entry in manifest.rejected)) == ((), (error,))
+
+
+@_JS_READER_REQUIRED
+@pytest.mark.oracle
+def test_javascript_corpus_admits_valid_source(tmp_path: Path) -> None:
+    source: Final = b'consume("kept",external);'
+    grammar: Final = compile_grammar(
+        (Production(name="script", symbol="root", parts=(source,), nodes=1, origin="fixture:1"),), "root"
+    )
+    manifest: Final = write_corpora((generate(grammar, random.SystemRandom()),), grammar, tmp_path, "javascript")
+    assert (
+        tuple(entry.target for entry in manifest.entries),
+        tuple((tmp_path / entry.file).read_bytes() for entry in manifest.entries),
+        tuple(entry.productions for entry in manifest.entries),
+        manifest.rejected,
+    ) == (("javascript",), (SEED_HEADER + source,), ((("script", "fixture:1"),),), ())
 
 
 @_JS_READER_REQUIRED
@@ -1377,19 +1385,18 @@ def engines() -> tuple[ModuleType, ModuleType, ModuleType, ModuleType, ModuleTyp
     ("index", "count"),
     [pytest.param(1, 10, id="xslt"), pytest.param(2, 6, id="xsd"), pytest.param(3, 6, id="rng")],
 )
-@pytest.mark.parametrize("broken", [False, True], ids=["repaired", "broken"])
+@pytest.mark.parametrize(
+    "extra",
+    [pytest.param([], id="repaired"), pytest.param(["--broken-references"], id="broken")],
+)
 def test_schema_mutation_registered_cli(
     engines: tuple[ModuleType, ModuleType, ModuleType, ModuleType, ModuleType],
     capsys: pytest.CaptureFixture[str],
     index: int,
     count: int,
-    *,
-    broken: bool,
+    extra: list[str],
 ) -> None:
-    arguments = ["--cases", str(count), "--mutate"]
-    if broken:
-        arguments.append("--broken-references")
-    assert engines[index].main(arguments) == 0
+    assert engines[index].main(["--cases", str(count), "--mutate", *extra]) == 0
     assert '"findings": 0' in capsys.readouterr().out
 
 
@@ -1497,11 +1504,12 @@ def test_schema_mutation_binds_dictionary_prefixes(
 ) -> None:
     mutated: Final = engines[0].mutate(source, (source,), 0)
     reference: Final = engines[4].fromstring(mutated.encode())
-    if index == 1:
-        assert str(engines[4].XSLT(reference)(engines[4].fromstring(b"<root/>"))) == "word"
-    else:
-        validator: Final = engines[4].XMLSchema(reference) if index == 2 else engines[4].RelaxNG(reference)
-        assert validator.validate(engines[4].fromstring(b"<v/>"))
+    checks: Final = {
+        1: lambda: str(engines[4].XSLT(reference)(engines[4].fromstring(b"<root/>"))) == "word",
+        2: lambda: engines[4].XMLSchema(reference).validate(engines[4].fromstring(b"<v/>")),
+        3: lambda: engines[4].RelaxNG(reference).validate(engines[4].fromstring(b"<v/>")),
+    }
+    assert checks[index]()
 
 
 @pytest.mark.oracle
@@ -1535,7 +1543,7 @@ def test_xslt_inline_generated_phase_labels(fuzz_xslt_inline_engines: tuple[Modu
     assert [(row.engine, row.phase, row.actual == row.expected) for row in rows] == [
         (name, phase, True)
         for name in ("turbohtml", "libxslt")
-        for phase in (("compilation", "application", "result") if case.applies else ("compilation", "application"))
+        for phase in ("compilation", "application", "result")[: 2 + int(case.applies)]
     ]
 
 
@@ -1602,26 +1610,42 @@ def test_xslt_inline_malformed_stylesheet_retains_unavailable_application(
 @pytest.mark.parametrize(
     ("arguments", "expected"),
     [
-        pytest.param([], (0, 0, 20), id="labelled-families"),
-        pytest.param(["--negative-control"], (1, 10, 20), id="wrong-result"),
-        pytest.param(["--mutate"], (0, 0, 24), id="repaired-subtrees"),
-        pytest.param(["--mutate", "--broken-references"], (0, 0, 0), id="broken-references"),
+        pytest.param(
+            [],
+            (0, 0, {"compilation": 24, "application": 24, "result": 20}),
+            id="labelled-families",
+        ),
+        pytest.param(
+            ["--negative-control"],
+            (1, 10, {"compilation": 24, "application": 24, "result": 20}),
+            id="wrong-result",
+        ),
+        pytest.param(
+            ["--mutate"],
+            (0, 0, {"compilation": 24, "application": 24, "result": 24}),
+            id="repaired-subtrees",
+        ),
+        pytest.param(
+            ["--mutate", "--broken-references"],
+            (0, 0, {"compilation": 24, "application": 24}),
+            id="broken-references",
+        ),
     ],
 )
 def test_xslt_inline_cli_outcome_counts(
     fuzz_xslt_inline_engines: tuple[ModuleType, ModuleType],
     capsys: pytest.CaptureFixture[str],
     arguments: list[str],
-    expected: tuple[int, int, int],
+    expected: tuple[int, int, dict[str, int]],
 ) -> None:
-    exit_status, findings, results = expected
+    exit_status, findings, phases = expected
     assert fuzz_xslt_inline_engines[0].main(arguments) == exit_status
     rows: Final = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert rows[-1] == {
         "summary": {
             "cases": 12,
             "findings": findings,
-            "phases": {"compilation": 24, "application": 24, **({"result": results} if results else {})},
+            "phases": phases,
         },
     }
 
@@ -1690,13 +1714,21 @@ def test_content_sanitizer_rejects_wrong_renderer_result() -> None:
         sanitizer_check(b"wrong", render)
 
 
-@pytest.mark.parametrize("kind", ["css-semantics", "css-fixpoint", "js-fixpoint"])
-def test_content_minifier_rejects_wrong_output(kind: str) -> None:
-    def wrong(source: str) -> str:
-        return "q{color:blue}" if kind == "css-semantics" else f"{source}x"
-
+@pytest.mark.parametrize(
+    "wrong",
+    [
+        pytest.param(lambda _source: "q{color:blue}", id="css-semantics"),
+        pytest.param(lambda source: f"{source}x", id="css-fixpoint"),
+    ],
+)
+def test_content_minifier_rejects_wrong_css_output(wrong: Callable[[str], str]) -> None:
     with pytest.raises(AssertionError, match="Content API mismatch"):
-        minifier_check(b"x", js=wrong) if kind == "js-fixpoint" else minifier_check(b"x", css=wrong)
+        minifier_check(b"x", css=wrong)
+
+
+def test_content_minifier_rejects_wrong_js_fixpoint() -> None:
+    with pytest.raises(AssertionError, match="Content API mismatch"):
+        minifier_check(b"x", js=lambda source: f"{source}x")
 
 
 def test_content_url_rejects_stable_wrong_host() -> None:
@@ -2271,10 +2303,12 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-@pytest.mark.parametrize("instrumented", [pytest.param(False, id="release"), pytest.param(True, id="coverage")])
-@pytest.mark.parametrize("via_cli", [pytest.param(False, id="build"), pytest.param(True, id="cli")])
+@pytest.mark.parametrize(
+    ("coverage", "flags"),
+    [pytest.param(False, [], id="release"), pytest.param(True, ["--coverage"], id="coverage")],
+)
 def test_atheris_runtime_build_keeps_archive(
-    mocker: MockerFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, via_cli: bool, instrumented: bool
+    mocker: MockerFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: list[str], *, coverage: bool
 ) -> None:
     archive = tmp_path / "wheel-runtime.a"
     archive.write_bytes(b"original archive")
@@ -2282,20 +2316,25 @@ def test_atheris_runtime_build_keeps_archive(
         monkeypatch.delenv(name, raising=False)
     output = tmp_path / "built"
     run = mocker.patch("subprocess.run", autospec=True, return_value=None)
-    if via_cli:
-        assert (
-            fuzz_atheris_runtime_main([
-                "--archive",
-                str(archive),
-                "--output",
-                str(output),
-                *(["--coverage"] if instrumented else []),
-            ])
-            == 0
-        )
-    else:
-        assert build_runtime(archive, output, coverage=instrumented) == output / "libatheris_fuzzer.so"
-    commands = [call.args[0] for call in run.call_args_list]
+    assert build_runtime(archive, output, coverage=coverage) == output / "libatheris_fuzzer.so"
+    _assert_runtime_archive_kept(archive, output, [call.args[0] for call in run.call_args_list], flags)
+
+
+@pytest.mark.parametrize("flags", [[], ["--coverage"]], ids=["release", "coverage"])
+def test_atheris_runtime_cli_keeps_archive(
+    mocker: MockerFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: list[str]
+) -> None:
+    archive = tmp_path / "wheel-runtime.a"
+    archive.write_bytes(b"original archive")
+    for name in ("CC", "CXX", "OBJCOPY"):
+        monkeypatch.delenv(name, raising=False)
+    output = tmp_path / "built"
+    run = mocker.patch("subprocess.run", autospec=True, return_value=None)
+    assert fuzz_atheris_runtime_main(["--archive", str(archive), "--output", str(output), *flags]) == 0
+    _assert_runtime_archive_kept(archive, output, [call.args[0] for call in run.call_args_list], flags)
+
+
+def _assert_runtime_archive_kept(archive: Path, output: Path, commands: list[list[str]], flags: list[str]) -> None:
     assert (archive.read_bytes(), (output / "runtime.a").read_bytes(), len(commands), commands[0], commands[2]) == (
         b"original archive",
         b"original archive",
@@ -2317,7 +2356,7 @@ def test_atheris_runtime_build_keeps_archive(
             "-Wl,--no-whole-archive",
             "-ldl",
             "-pthread",
-            *(["--coverage"] if instrumented else []),
+            *flags,
         ],
     )
 
@@ -2326,11 +2365,11 @@ def test_atheris_runtime_build_keeps_archive(
     ("members", "deleted"),
     [
         pytest.param("asan_rtl.cpp.o\nasan_preinit.cpp.o\n", ["asan_preinit.cpp.o"], id="preinit"),
-        pytest.param("ubsan_handlers.cpp.o\n", None, id="no-preinit"),
+        pytest.param("ubsan_handlers.cpp.o\n", [], id="no-preinit"),
     ],
 )
 def test_atheris_runtime_merges_sanitizer_without_preinit(
-    mocker: MockerFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, members: str, deleted: list[str] | None
+    mocker: MockerFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, members: str, deleted: list[str]
 ) -> None:
     archive = tmp_path / "wheel-runtime.a"
     archive.write_bytes(b"original archive")
@@ -2348,7 +2387,7 @@ def test_atheris_runtime_merges_sanitizer_without_preinit(
     assert (sanitizer.read_bytes(), (output / "sanitizer.a").read_bytes(), commands[2:-1], commands[-1][6:9]) == (
         b"sanitizer archive",
         b"sanitizer archive",
-        [["ar", "t", merged], *([] if deleted is None else [["ar", "d", merged, *deleted]])],
+        [["ar", "t", merged], ["ar", "d", merged, *deleted]][: 1 + bool(deleted)],
         [str(output / "runtime.a"), merged, "-Wl,--no-whole-archive"],
     )
 
@@ -2410,32 +2449,36 @@ def test_atheris_callback_keeps_injected_memory_error(mocker: MockerFixture) -> 
     assert reject.call_count == 0
 
 
-@pytest.mark.parametrize("lossy", [False, True], ids=["strict", "lossy"])
-def test_atheris_callback_handles_injected_assertion(*, lossy: bool) -> None:
+def test_atheris_callback_handles_injected_assertion_strict() -> None:
+    def consume(_data: bytes, _header: Header) -> None:
+        msg = "record lost"
+        raise AssertionError(msg)
+
+    callback = rejecting_callback(consume, (), lambda: None, lambda _position: (1, True))
+    with pytest.raises(AssertionError, match="record lost"):
+        callback(SEED_HEADER)
+
+
+def test_atheris_callback_handles_injected_assertion_lossy() -> None:
     def consume(_data: bytes, _header: Header) -> None:
         msg = "record lost"
         raise AssertionError(msg)
 
     callback = rejecting_callback(
-        consume, (), lambda: None, lambda _position: (1, True), lossy_on_allocation_failure=lossy
+        consume, (), lambda: None, lambda _position: (1, True), lossy_on_allocation_failure=True
     )
-    if lossy:
-        callback(SEED_HEADER)
-    else:
-        with pytest.raises(AssertionError, match="record lost"):
-            callback(SEED_HEADER)
+    callback(SEED_HEADER)
 
 
 @pytest.mark.parametrize(
     ("raised", "failed", "error", "match"),
     [
         pytest.param(MemoryError, False, MemoryError, "^$", id="uninjected-memory-error"),
-        pytest.param(None, True, None, "", id="recovered-allocation"),
         pytest.param(UnicodeError, True, AssertionError, "^UnicodeError for an injected", id="injected-documented"),
     ],
 )
 def test_atheris_callback_reports_failure_mismatch(
-    mocker: MockerFixture, raised: type[Exception] | None, error: type[Exception] | None, match: str, *, failed: bool
+    mocker: MockerFixture, raised: type[Exception], error: type[Exception], match: str, *, failed: bool
 ) -> None:
     calls = 0
 
@@ -2447,11 +2490,15 @@ def test_atheris_callback_reports_failure_mismatch(
 
     reject = mocker.MagicMock()
     callback = rejecting_callback(consume, (UnicodeError,), reject, lambda _position: (1, failed))
-    if error is None:
+    with pytest.raises(error, match=match):
         callback(SEED_HEADER)
-    else:
-        with pytest.raises(error, match=match):
-            callback(SEED_HEADER)
+    assert reject.call_count == 0
+
+
+def test_atheris_callback_recovers_from_injected_allocation(mocker: MockerFixture) -> None:
+    reject = mocker.MagicMock()
+    callback = rejecting_callback(lambda _data, _header: None, (UnicodeError,), reject, lambda _position: (1, True))
+    callback(SEED_HEADER)
     assert reject.call_count == 0
 
 
@@ -3566,6 +3613,14 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
+def _island_value(node: Node) -> str:
+    return node.tag if isinstance(node, Element) else cast("Text", node).data
+
+
+def _island_parent(node: Node) -> str:
+    return node.parent.tag if isinstance(node.parent, Element) else "Document"
+
+
 @pytest.mark.parametrize(
     ("case", "source", "expected"),
     [
@@ -3622,11 +3677,7 @@ if TYPE_CHECKING:
 def test_xml_island_literal_nodes(case: str, source: str, expected: list[tuple[str, str, str]]) -> None:
     assert (
         [
-            (
-                type(node).__name__,
-                node.tag if isinstance(node, Element) else node.data,
-                parent.tag if isinstance(parent := node.parent, Element) else "Document",
-            )
+            (type(node).__name__, _island_value(node), _island_parent(node))
             for node in parse_xml(source).descendants
             if isinstance(node, (Element, Comment, CData, Text))
         ],
@@ -3776,7 +3827,7 @@ if TYPE_CHECKING:
     ],
 )
 def test_css_custom_literals_require_conservation_and_shortening(case: str, text: str, expected: str) -> None:
-    printer: Final = minify_css if case.startswith("sheet:") else minify_css_inline
+    printer: Final = {"sheet": minify_css, "inline": minify_css_inline}[case.split(":", maxsplit=1)[0]]
     assert (
         printer(text),
         printer(expected),
@@ -3990,14 +4041,16 @@ def test_xpath_anchored_generation_is_deterministic_and_bounded(anchored: Module
 
 @pytest.mark.oracle
 @pytest.mark.parametrize(
-    ("control", "expected_status", "findings"),
-    [pytest.param(False, 0, 0, id="agreement"), pytest.param(True, 1, 2, id="actual-engine-control")],
+    ("extra", "expected_status", "findings"),
+    [
+        pytest.param([], 0, 0, id="agreement"),
+        pytest.param(["--negative-control"], 1, 2, id="actual-engine-control"),
+    ],
 )
 def test_xpath_anchored_cli_summary(
-    anchored: ModuleType, capsys: pytest.CaptureFixture[str], *, control: bool, expected_status: int, findings: int
+    anchored: ModuleType, capsys: pytest.CaptureFixture[str], extra: list[str], expected_status: int, findings: int
 ) -> None:
-    arguments: Final = ["--seed", "0", "--cases", "2"] + (["--negative-control"] if control else [])
-    status: Final = anchored.main(arguments)
+    status: Final = anchored.main(["--seed", "0", "--cases", "2", *extra])
     assert (status, json.loads(capsys.readouterr().out.splitlines()[-1])) == (
         expected_status,
         {"summary": {"cases": 2, "rows": 12, "findings": findings}},
@@ -4485,7 +4538,6 @@ def test_rng_labels_rejects_unsupported_extraction(
             (1, {"findings": 2, "unavailable": 2}),
             id="compilation-rejection",
         ),
-        pytest.param("", (2, {}), id="empty-corpus"),
     ],
 )
 def test_rng_labels_cli(
@@ -4496,11 +4548,23 @@ def test_rng_labels_cli(
     expected: tuple[int, dict[str, int]],
 ) -> None:
     corpus: Final = tmp_path / "suite.xml"
-    corpus.write_text(f"<testSuite><testCase>{case}</testCase></testSuite>" if case else "<testSuite/>")
+    corpus.write_text(f"<testSuite><testCase>{case}</testCase></testSuite>")
     assert (
         fuzz_rng_labels_engines[0].main(["--corpus", str(corpus)]),
         json.loads(capsys.readouterr().out.splitlines()[-1]),
     ) == (expected[0], {"summary": expected[1]})
+
+
+@pytest.mark.oracle
+def test_rng_labels_cli_empty_corpus(
+    fuzz_rng_labels_engines: tuple[ModuleType, ModuleType], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    corpus: Final = tmp_path / "suite.xml"
+    corpus.write_text("<testSuite/>")
+    assert (
+        fuzz_rng_labels_engines[0].main(["--corpus", str(corpus)]),
+        json.loads(capsys.readouterr().out.splitlines()[-1]),
+    ) == (2, {"summary": {}})
 
 
 @pytest.mark.oracle
@@ -4620,17 +4684,15 @@ def test_url_invariants_count_initial_rejection_as_out_of_scope(
             "rejects its own output",
             id="error-after-success",
         ),
-        pytest.param(lambda _text: _fuzz_url_invariants_reject(), None, id="error-on-input"),
     ],
 )
-def test_clean_url_invariant_discriminates_failures(
-    transform: Callable[[str], str | None], expected: str | None
-) -> None:
-    if expected is None:
-        with pytest.raises(OutOfScopeError):
-            clean_url_check("raw", transform)
-    else:
-        assert clean_url_check("raw", transform) == expected
+def test_clean_url_invariant_discriminates_failures(transform: Callable[[str], str | None], expected: str) -> None:
+    assert clean_url_check("raw", transform) == expected
+
+
+def test_clean_url_invariant_rejects_error_on_input() -> None:
+    with pytest.raises(OutOfScopeError):
+        clean_url_check("raw", lambda _text: _fuzz_url_invariants_reject())
 
 
 def _fuzz_url_invariants_reject() -> str:

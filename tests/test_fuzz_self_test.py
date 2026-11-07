@@ -10,7 +10,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from subprocess import run  # ruff: ignore[suspicious-subprocess-import] - libFuzzer owns a separate interpreter.
+from subprocess import CompletedProcess, run  # ruff: ignore[suspicious-subprocess-import] - libFuzzer owns a separate interpreter.
 from typing import TYPE_CHECKING, Final, cast
 
 import pytest
@@ -1112,11 +1112,20 @@ print(json.dumps({"owners": len(owner_inventory()), "targets": [target.name for 
 """
 
 
+_GENERATION_COUNTS: Final = {"encoding": ["--count", "0", "--sweep"]}
+_FALLBACK_PAYLOADS: Final = {"css-translate": b"p.x", "javascript": b'consume("kept",external);'}
+
+
+_NATIVE_ATHERIS_SKIP: Final = pytest.mark.skipif(
+    sys.platform != "linux" or importlib.util.find_spec("atheris") is None,
+    reason="Atheris's native runtime requires its optional Linux wheel",
+)
+
+
 @pytest.mark.atheris_native
 @pytest.mark.oracle
+@_NATIVE_ATHERIS_SKIP
 def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> None:
-    if sys.platform != "linux" or importlib.util.find_spec("atheris") is None:
-        pytest.skip("Atheris's native runtime requires its optional Linux wheel")
     runtime: Final = cast("_Runtime", importlib.import_module("atheris"))
     library: Final = build_runtime(Path(runtime.path()) / "libclang_rt.fuzzer_no_main.a", tmp_path / "runtime")
     environment: Final = {
@@ -1144,7 +1153,7 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
                 "fuzz.atheris_corpora",
                 "--profile",
                 profile,
-                *(["--count", "0", "--sweep"] if profile == "encoding" else ["--count", "1"]),
+                *_GENERATION_COUNTS.get(profile, ["--count", "1"]),
                 "--budget",
                 "512",
                 "--output",
@@ -1157,11 +1166,11 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
         generated_manifest: Final = json.loads((generated / "manifest.json").read_text())
         assert generated_manifest["entries"]
         assert not generated_manifest["rejected"]
-        for generated_entry in generated_manifest["entries"]:
-            if generated_entry["encoding"] is None or (
-                generated_entry["encoding"] == "UTF-8" and not generated_entry["sniff"]
-            ):
-                generated_seeds[generated_entry["target"]] = (generated / generated_entry["file"]).read_bytes()
+        generated_seeds.update({
+            entry["target"]: (generated / entry["file"]).read_bytes()
+            for entry in generated_manifest["entries"]
+            if entry["encoding"] is None or (entry["encoding"] == "UTF-8" and not entry["sniff"])
+        })
     assert {
         "html-tokenizer",
         "xml-schema",
@@ -1177,17 +1186,7 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
     for target in targets["targets"]:
         corpus: Final = tmp_path / target
         corpus.mkdir()
-        seed: Final = generated_seeds.get(
-            target,
-            SEED_HEADER
-            + (
-                b"p.x"
-                if target == "css-translate"
-                else b'consume("kept",external);'
-                if target == "javascript"
-                else "水😀".encode()
-            ),
-        )
+        seed: Final = generated_seeds.get(target, SEED_HEADER + _FALLBACK_PAYLOADS.get(target, "水😀".encode()))
         (corpus / "utf8").write_bytes(seed)
         counters: Final = tmp_path / f"{target}-gcda"
         run(  # ruff: ignore[subprocess-without-shell-equals-true] - public callback and private native counters.
@@ -1240,9 +1239,8 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
 
 @pytest.mark.atheris_native
 @pytest.mark.oracle
+@_NATIVE_ATHERIS_SKIP
 def test_atheris_failure_header_reaches_allocator_hook(tmp_path: Path) -> None:
-    if sys.platform != "linux" or importlib.util.find_spec("atheris") is None:
-        pytest.skip("Atheris's native runtime requires its optional Linux wheel")
     runtime: Final = cast("_Runtime", importlib.import_module("atheris"))
     library: Final = build_runtime(Path(runtime.path()) / "libclang_rt.fuzzer_no_main.a", tmp_path / "runtime")
     # the header fails the first PyMem allocation, and the callback must answer with MemoryError
@@ -1324,11 +1322,7 @@ fuzz(
 """
 
 
-@pytest.mark.atheris_native
-@pytest.mark.oracle
-def test_atheris_native_corpus_rejection(tmp_path: Path) -> None:
-    if sys.platform != "linux" or importlib.util.find_spec("atheris") is None:
-        pytest.skip("Atheris's released runtime requires Linux and its optional wheel")
+def _run_native_child(tmp_path: Path, mode: str) -> tuple[CompletedProcess[bytes], Path]:
     archive = Path(cast("_Runtime", importlib.import_module("atheris")).path()) / "libclang_rt.fuzzer_no_main.a"
     library = build_runtime(archive, tmp_path / "build", coverage=True)
     (tmp_path / "capability_target.py").write_text(_TARGET, encoding="utf-8")
@@ -1343,27 +1337,57 @@ def test_atheris_native_corpus_rejection(tmp_path: Path) -> None:
     seeds = tmp_path / "seeds"
     seeds.mkdir()
     (seeds / "seed").write_bytes(SEED_HEADER + b"SEED")
-    corpora: dict[str, list[str]] = {}
-    for mode in ("accept", "reject", "mixed", "reset", "default", "unexpected"):
-        corpus = tmp_path / f"{mode}-corpus"
-        corpus.mkdir()
-        result = run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed interpreter and local control.
-            [sys.executable, str(child), str(corpus), mode, str(seeds)],
-            env={**environment, "ATHERIS_CONTROL_MODE": mode},
-            capture_output=True,
-            check=False,
-        )
-        (tmp_path / f"{mode}.log").write_bytes(result.stdout + result.stderr)
-        assert b"ATHERIS_REJECTION_BRIDGE=1" in result.stderr
-        assert b"Coverage symbols are being provided by a library other than libFuzzer" not in result.stderr
-        if mode == "unexpected":
-            assert result.returncode != 0
-            assert b"RuntimeError: unexpected control" in result.stdout + result.stderr
-        else:
-            assert result.returncode == 0
-            assert b"Done 64" in result.stderr
-            if mode != "default":
-                assert b"ATHERIS_CUSTOM_MUTATOR_BRIDGE=1" in result.stderr
-                corpora[mode] = sorted({path.read_bytes()[HEADER_SIZE:].decode("ascii") for path in corpus.iterdir()})
-    (tmp_path / "corpora.json").write_text(json.dumps(corpora), encoding="utf-8")
-    assert corpora == {"accept": ["BENIGN_A", "BENIGN_B"], "reject": [], "mixed": ["BENIGN_B"], "reset": ["BENIGN_B"]}
+    corpus = tmp_path / f"{mode}-corpus"
+    corpus.mkdir()
+    result = run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed interpreter and local control.
+        [sys.executable, str(child), str(corpus), mode, str(seeds)],
+        env={**environment, "ATHERIS_CONTROL_MODE": mode},
+        capture_output=True,
+        check=False,
+    )
+    (tmp_path / f"{mode}.log").write_bytes(result.stdout + result.stderr)
+    return result, corpus
+
+
+@_NATIVE_ATHERIS_SKIP
+@pytest.mark.atheris_native
+@pytest.mark.oracle
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        pytest.param("accept", ["BENIGN_A", "BENIGN_B"], id="accept"),
+        pytest.param("reject", [], id="reject"),
+        pytest.param("mixed", ["BENIGN_B"], id="mixed"),
+        pytest.param("reset", ["BENIGN_B"], id="reset"),
+    ],
+)
+def test_atheris_native_corpus_rejection(tmp_path: Path, mode: str, expected: list[str]) -> None:
+    result, corpus = _run_native_child(tmp_path, mode)
+    assert result.returncode == 0
+    assert b"ATHERIS_REJECTION_BRIDGE=1" in result.stderr
+    assert b"Coverage symbols are being provided by a library other than libFuzzer" not in result.stderr
+    assert b"Done 64" in result.stderr
+    assert b"ATHERIS_CUSTOM_MUTATOR_BRIDGE=1" in result.stderr
+    assert sorted({path.read_bytes()[HEADER_SIZE:].decode("ascii") for path in corpus.iterdir()}) == expected
+
+
+@_NATIVE_ATHERIS_SKIP
+@pytest.mark.atheris_native
+@pytest.mark.oracle
+def test_atheris_native_default_mutator_runs(tmp_path: Path) -> None:
+    result, _corpus = _run_native_child(tmp_path, "default")
+    assert result.returncode == 0
+    assert b"ATHERIS_REJECTION_BRIDGE=1" in result.stderr
+    assert b"Coverage symbols are being provided by a library other than libFuzzer" not in result.stderr
+    assert b"Done 64" in result.stderr
+
+
+@_NATIVE_ATHERIS_SKIP
+@pytest.mark.atheris_native
+@pytest.mark.oracle
+def test_atheris_native_unexpected_control_fails(tmp_path: Path) -> None:
+    result, _corpus = _run_native_child(tmp_path, "unexpected")
+    assert result.returncode != 0
+    assert b"ATHERIS_REJECTION_BRIDGE=1" in result.stderr
+    assert b"Coverage symbols are being provided by a library other than libFuzzer" not in result.stderr
+    assert b"RuntimeError: unexpected control" in result.stdout + result.stderr

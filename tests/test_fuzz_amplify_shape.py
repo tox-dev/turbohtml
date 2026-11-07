@@ -181,14 +181,23 @@ def test_encoding_structure_literals(case: Generated) -> None:
     assert encoding_check(case) is None
 
 
-@pytest.mark.parametrize("case", _CASES, ids=_NAMES)
-def test_encoding_structure_materialized_budget(case: Generated) -> None:
-    profile: Final = encoding_profile(case)
-    document: Final = (
-        parse(case.data, detect_encoding=True) if profile.sniff else parse(case.data, encoding=profile.encoding)
-    )
+_SNIFFED_CASES: Final[tuple[Generated, ...]] = tuple(case for case in _CASES if encoding_profile(case).sniff)
+_DECLARED_CASES: Final[tuple[Generated, ...]] = tuple(case for case in _CASES if not encoding_profile(case).sniff)
+
+
+def _assert_materialized_budget(case: Generated, document: Node) -> None:
     nodes: Final = (document, *document.descendants)
     assert (len(nodes), max(len(tuple(node.ancestors)) for node in nodes)) == (case.nodes, case.depth)
+
+
+@pytest.mark.parametrize("case", _SNIFFED_CASES, ids=[case.productions[0] for case in _SNIFFED_CASES])
+def test_encoding_structure_materialized_budget_sniffed(case: Generated) -> None:
+    _assert_materialized_budget(case, parse(case.data, detect_encoding=True))
+
+
+@pytest.mark.parametrize("case", _DECLARED_CASES, ids=[case.productions[0] for case in _DECLARED_CASES])
+def test_encoding_structure_materialized_budget_declared(case: Generated) -> None:
+    _assert_materialized_budget(case, parse(case.data, encoding=encoding_profile(case).encoding))
 
 
 def test_encoding_structure_inventory() -> None:
@@ -306,11 +315,16 @@ def test_encoding_structure_manifest_context() -> None:
     }
 
 
-@pytest.mark.parametrize("count", [0, 1], ids=["forced-sweep", "random"])
-def test_encoding_structure_materialized_corpus(tmp_path: Path, count: int) -> None:
+@pytest.mark.parametrize(
+    ("count", "cases"),
+    [
+        pytest.param(0, _CASES, id="forced-sweep"),
+        pytest.param(1, (encoding_generate(random.Random(0)),), id="random"),
+    ],
+)
+def test_encoding_structure_materialized_corpus(tmp_path: Path, count: int, cases: tuple[Generated, ...]) -> None:
     main(["--output", str(tmp_path), "--count", str(count)])
     manifest: Final = cast("list[EncodingSeed]", json.loads((tmp_path / "manifest.json").read_text()))
-    cases: Final = (encoding_generate(random.Random(0)),) if count else _CASES
     assert (
         manifest,
         {path.name: path.read_bytes() for path in tmp_path.iterdir() if path.name != "manifest.json"},
@@ -402,19 +416,23 @@ def test_css_complete_reserves_sibling_steps(literal_grammar: Grammar) -> None:
 
 
 @pytest.mark.parametrize(
-    ("name", "body"),
+    ("name", "expected"),
     [
-        pytest.param("css:domato:css.txt:107", b"a{color:var(--y)}", id="second-variable"),
-        pytest.param("css:domato:cssproperties.txt:1080", b"a{border-image-outset:0 0px}", id="orphan-border"),
-        pytest.param("css:domato:cssproperties.txt:1998", b"a{font-weight:0 0}", id="orphan-weight"),
-        pytest.param("css:blink:959", b'@charset "UTF-8";', id="leading-charset"),
-        pytest.param("css:blink:960", b"@import url(data:,x);", id="leading-import"),
-        pytest.param("css:blink:961", b'@namespace svg "http://www.w3.org/2000/svg";', id="leading-namespace"),
+        pytest.param("css:domato:css.txt:107", _PREFIX + b"a{color:var(--y)}", id="second-variable"),
+        pytest.param(
+            "css:domato:cssproperties.txt:1080", _PREFIX + b"a{border-image-outset:0 0px}", id="orphan-border"
+        ),
+        pytest.param("css:domato:cssproperties.txt:1998", _PREFIX + b"a{font-weight:0 0}", id="orphan-weight"),
+        pytest.param("css:blink:959", b'@charset "UTF-8";' + _PREFIX, id="leading-charset"),
+        pytest.param("css:blink:960", b"@import url(data:,x);" + _PREFIX, id="leading-import"),
+        pytest.param(
+            "css:blink:961", b'@namespace svg "http://www.w3.org/2000/svg";' + _PREFIX, id="leading-namespace"
+        ),
     ],
 )
-def test_css_complete_literal_table_materialization(name: str, body: bytes) -> None:
+def test_css_complete_literal_table_materialization(name: str, expected: bytes) -> None:
     case: Final = generate(_GRAMMAR, random.Random(0), GenerationBudget(nodes=512, steps=128), force=name)
-    assert case.data == (body + _PREFIX if name.startswith("css:blink:") else _PREFIX + body)
+    assert case.data == expected
 
 
 def test_css_complete_custom_properties_bind_to_root() -> None:
@@ -577,10 +595,12 @@ def test_markdown_random_budget(seed: int, *, html: bool) -> None:
     )
 
 
-@pytest.mark.parametrize("html", [False, True], ids=["raw", "html"])
-def test_markdown_production_floor(*, html: bool) -> None:
+@pytest.mark.parametrize(
+    ("html", "cases"),
+    [pytest.param(False, _RAW_CASES, id="raw"), pytest.param(True, _HTML_CASES, id="html")],
+)
+def test_markdown_production_floor(*, html: bool, cases: tuple[Generated, ...]) -> None:
     grammar: Final = markdown_grammar(html=html)
-    cases: Final = _HTML_CASES if html else _RAW_CASES
     name: Final = grammar.productions[-1].name
     with pytest.raises(ProductionFloorError, match="production floors missed"):
         assert_production_floors(
@@ -589,15 +609,20 @@ def test_markdown_production_floor(*, html: bool) -> None:
         )
 
 
-@pytest.mark.parametrize("html", [False, True], ids=["raw", "html"])
-def test_markdown_materialized_corpus(tmp_path: Path, *, html: bool) -> None:
-    cases: Final = _HTML_CASES if html else _RAW_CASES
-    assert fuzz_markdown_structure_generation_main(["--output", str(tmp_path), *(["--html"] if html else [])]) == 0
+@pytest.mark.parametrize(
+    ("arguments", "cases"),
+    [pytest.param([], _RAW_CASES, id="raw"), pytest.param(["--html"], _HTML_CASES, id="html")],
+)
+def test_markdown_materialized_corpus(tmp_path: Path, arguments: list[str], cases: tuple[Generated, ...]) -> None:
+    assert fuzz_markdown_structure_generation_main(["--output", str(tmp_path), *arguments]) == 0
     assert {path.read_bytes() for path in tmp_path.iterdir()} == {case.data for case in cases}
 
 
-@pytest.mark.parametrize("html", [False, True], ids=["raw", "html"])
-def test_markdown_random_corpus(tmp_path: Path, *, html: bool) -> None:
+@pytest.mark.parametrize(
+    ("arguments", "html"),
+    [pytest.param([], False, id="raw"), pytest.param(["--html"], True, id="html")],
+)
+def test_markdown_random_corpus(tmp_path: Path, arguments: list[str], *, html: bool) -> None:
     assert (
         fuzz_markdown_structure_generation_main([
             "--output",
@@ -606,7 +631,7 @@ def test_markdown_random_corpus(tmp_path: Path, *, html: bool) -> None:
             "1",
             "--seed",
             "4",
-            *(["--html"] if html else []),
+            *arguments,
         ])
         == 0
     )
@@ -876,10 +901,15 @@ def test_xml_structure_raw_rejection(case: Generated) -> None:
         parse_xml(case.data.decode("utf-8"))
 
 
-@pytest.mark.parametrize("raw", [False, True], ids=["valid", "raw"])
-def test_xml_structure_materialized_corpus(tmp_path: Path, *, raw: bool) -> None:
-    cases: Final = xml_raw_inputs() if raw else _FUZZ_XML_STRUCTURE_GENERATION_CASES
-    assert fuzz_xml_structure_generation_main(["--output", str(tmp_path), *(["--raw"] if raw else [])]) == 0
+@pytest.mark.parametrize(
+    ("arguments", "cases"),
+    [
+        pytest.param([], _FUZZ_XML_STRUCTURE_GENERATION_CASES, id="valid"),
+        pytest.param(["--raw"], xml_raw_inputs(), id="raw"),
+    ],
+)
+def test_xml_structure_materialized_corpus(tmp_path: Path, arguments: list[str], cases: tuple[Generated, ...]) -> None:
+    assert fuzz_xml_structure_generation_main(["--output", str(tmp_path), *arguments]) == 0
     assert {path.read_bytes() for path in tmp_path.iterdir()} == {case.data for case in cases}
 
 
@@ -1109,9 +1139,9 @@ def test_reduce_js_reports_premature_exit(mocker: MockerFixture) -> None:
         minimize("keep();", lambda _source: True, "js")
 
 
-@pytest.mark.parametrize("missing", [pytest.param("node", id="node"), pytest.param("package", id="package")])
-def test_reduce_js_reports_missing_backend(mocker: MockerFixture, missing: str) -> None:
-    mocker.patch("fuzz.reduce.shutil.which", return_value=None if missing == "node" else "node")
+@pytest.mark.parametrize("which", [pytest.param(None, id="node"), pytest.param("node", id="package")])
+def test_reduce_js_reports_missing_backend(mocker: MockerFixture, which: str | None) -> None:
+    mocker.patch("fuzz.reduce.shutil.which", return_value=which)
     mocker.patch("fuzz.reduce.Path.is_dir", return_value=False)
     with pytest.raises(FileNotFoundError, match="required for JS reduction"):
         minimize("keep();", lambda _source: True, "js")
@@ -1343,13 +1373,17 @@ def test_triage_cli_groups_reports(tmp_path: Path, capsys: pytest.CaptureFixture
     assert capsys.readouterr().out == "triage: 3 reports, 2 groups\n"
 
 
-@pytest.mark.parametrize(
-    "missing", [pytest.param("input", id="missing-input"), pytest.param("output", id="output-parent")]
-)
-def test_triage_cli_reports_file_errors(tmp_path: Path, missing: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_triage_cli_reports_missing_input(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     source = tmp_path / "source.log"
-    if missing == "output":
-        source.write_text("error", encoding="utf-8")
+    output = tmp_path / "absent" / "triage.json"
+    with pytest.raises(SystemExit, match="2"):
+        fuzz_triage_main([str(source), "--output", str(output)])
+    assert capsys.readouterr().err.startswith("triage: ")
+
+
+def test_triage_cli_reports_missing_output_parent(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    source = tmp_path / "source.log"
+    source.write_text("error", encoding="utf-8")
     output = tmp_path / "absent" / "triage.json"
     with pytest.raises(SystemExit, match="2"):
         fuzz_triage_main([str(source), "--output", str(output)])
@@ -1465,24 +1499,46 @@ def test_html_complete_value_alternatives(line: int, attribute: str, expected: s
 
 
 @pytest.mark.parametrize(
-    ("tag", "expected"),
+    ("force", "parse_markup", "expected"),
     [
-        pytest.param("frame", ["html", "head", "frameset", "frame"], id="frame-document"),
-        pytest.param("frameset", ["html", "head", "frameset", "frame"], id="frameset-document"),
-        pytest.param("html", ["html", "head", "title", "body", "a"], id="html-document"),
-        pytest.param("head", ["html", "head", "title", "body", "a"], id="head-document"),
-        pytest.param("body", ["html", "head", "title", "body", "a"], id="body-document"),
-        pytest.param("plaintext", ["div", "a", "plaintext"], id="plaintext-last"),
+        pytest.param(
+            "html:document:html:domato:tag:frame",
+            parse,
+            ["html", "head", "frameset", "frame"],
+            id="frame-document",
+        ),
+        pytest.param(
+            "html:document:html:domato:tag:frameset",
+            parse,
+            ["html", "head", "frameset", "frame"],
+            id="frameset-document",
+        ),
+        pytest.param(
+            "html:document:html:domato:tag:html",
+            parse,
+            ["html", "head", "title", "body", "a"],
+            id="html-document",
+        ),
+        pytest.param(
+            "html:document:html:domato:tag:head",
+            parse,
+            ["html", "head", "title", "body", "a"],
+            id="head-document",
+        ),
+        pytest.param(
+            "html:document:html:domato:tag:body",
+            parse,
+            ["html", "head", "title", "body", "a"],
+            id="body-document",
+        ),
+        pytest.param("html:domato:tag:plaintext", parse_fragment, ["div", "a", "plaintext"], id="plaintext-last"),
     ],
 )
-def test_html_complete_special_tag_materialization(tag: str, expected: list[str]) -> None:
-    name: Final = f"html:domato:tag:{tag}"
-    case: Final = generate(
-        _FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR,
-        random.Random(0),
-        force=name if tag == "plaintext" else f"html:document:{name}",
-    )
-    root: Final = parse(case.data.decode("utf-8")) if html_document(case) else parse_fragment(case.data.decode("utf-8"))
+def test_html_complete_special_tag_materialization(
+    force: str, parse_markup: Callable[[str], Node], expected: list[str]
+) -> None:
+    case: Final = generate(_FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR, random.Random(0), force=force)
+    root: Final = parse_markup(case.data.decode("utf-8"))
     assert [node.tag for node in root.descendants if isinstance(node, Element)] == expected
 
 
