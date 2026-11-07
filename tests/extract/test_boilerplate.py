@@ -275,12 +275,15 @@ def test_the_public_entry_point_still_answers_paragraphs() -> None:
 
 
 @pytest.mark.parametrize(
-    "wrapper", [pytest.param("", id="direct"), pytest.param("span", id="span"), pytest.param("b", id="bold")]
+    "content",
+    [
+        pytest.param('<a href="/comet">comet</a>', id="direct"),
+        pytest.param('<span><a href="/comet">comet</a></span>', id="span"),
+        pytest.param('<b><a href="/comet">comet</a></b>', id="bold"),
+    ],
 )
-def test_boilerplate_keeps_text_after_snapshot_release(wrapper: str) -> None:
+def test_boilerplate_keeps_text_after_snapshot_release(content: str) -> None:
     prose: Final = "A comet passes near the Sun, warms up and releases gas, forming a glowing coma around it."
-    linked: Final = '<a href="/comet">comet</a>'
-    content: Final = f"<{wrapper}>{linked}</{wrapper}>" if wrapper else linked
     page: Final = f"<article><p>{prose}</p><p>Read about this {content} today.</p></article>"
     assert [paragraph.text for paragraph in boilerplate(page)] == [prose, "Read about this comet today."]
 

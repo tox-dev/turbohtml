@@ -650,20 +650,24 @@ def test_opengraph_document_method(html: str, expected: dict[str, str]) -> None:
     assert parse(html).opengraph() == expected
 
 
-@pytest.mark.parametrize("combined", [pytest.param(False, id="standalone"), pytest.param(True, id="combined")])
-def test_opengraph_duplicate_preserves_insertion_order(*, combined: bool) -> None:
+def test_opengraph_duplicate_preserves_insertion_order() -> None:
     document: Final = parse(
         '<meta property="og:title" content="first"><meta name="twitter:card" content="summary">'
         '<meta property="og:type" content="article"><meta property="og:title" content="last">'
     )
-    if combined:
-        assert list(document.structured_data().opengraph.items()) == [
-            ("og:title", "first"),
-            ("twitter:card", "summary"),
-            ("og:type", "article"),
-        ]
-    else:
-        assert list(document.opengraph().items()) == [("title", "first"), ("type", "article")]
+    assert list(document.opengraph().items()) == [("title", "first"), ("type", "article")]
+
+
+def test_structured_data_opengraph_keeps_the_insertion_order() -> None:
+    document: Final = parse(
+        '<meta property="og:title" content="first"><meta name="twitter:card" content="summary">'
+        '<meta property="og:type" content="article"><meta property="og:title" content="last">'
+    )
+    assert list(document.structured_data().opengraph.items()) == [
+        ("og:title", "first"),
+        ("twitter:card", "summary"),
+        ("og:type", "article"),
+    ]
 
 
 def test_opengraph_returns_record() -> None:

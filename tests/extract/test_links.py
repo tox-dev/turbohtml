@@ -99,25 +99,35 @@ def test_external_only_keeps_other_sites() -> None:
 
 
 @pytest.mark.parametrize(
-    ("base", "href", "external"),
+    ("base", "href"),
     [
-        pytest.param("https://www.test.com/", "https://test.com/x", False, id="same-host"),
-        pytest.param("https://www.test.com/", "https://www.test.com/x", False, id="www-twin"),
-        pytest.param("https://www.test.com/", "https://blog.test.com/x", False, id="subdomain"),
-        pytest.param("https://a.test.com/", "https://b.test.com/x", False, id="sibling-subdomains-share-etld1"),
-        pytest.param("https://www.test.com/", "https://test.com.evil.example/x", True, id="host-suffix-attack"),
-        pytest.param("https://www.test.com/", "https://other.net/x", True, id="other-host"),
-        pytest.param("https://spam.example.co.uk/", "https://example.co.uk/x", False, id="multi-suffix-same-site"),
-        pytest.param("https://a.co.uk/", "https://b.co.uk/x", True, id="multi-suffix-distinct-registrants"),
-        pytest.param("https://foo.github.io/", "https://bar.github.io/x", True, id="private-suffix-github-io"),
-        pytest.param("https://sub.tv.com/", "https://other.tv.com/x", False, id="tld-like-label-is-not-a-suffix"),
-        pytest.param("https://www.ck/", "https://other.ck/x", True, id="wildcard-and-exception-suffix"),
-        pytest.param("http://192.0.2.1/", "http://198.51.100.2/x", True, id="ip-hosts-compare-whole"),
+        pytest.param("https://www.test.com/", "https://test.com/x", id="same-host"),
+        pytest.param("https://www.test.com/", "https://www.test.com/x", id="www-twin"),
+        pytest.param("https://www.test.com/", "https://blog.test.com/x", id="subdomain"),
+        pytest.param("https://a.test.com/", "https://b.test.com/x", id="sibling-subdomains-share-etld1"),
+        pytest.param("https://spam.example.co.uk/", "https://example.co.uk/x", id="multi-suffix-same-site"),
+        pytest.param("https://sub.tv.com/", "https://other.tv.com/x", id="tld-like-label-is-not-a-suffix"),
     ],
 )
-def test_external_boundary_is_the_registrable_domain(base: str, href: str, *, external: bool) -> None:
+def test_external_boundary_drops_the_href(base: str, href: str) -> None:
     links = extract_links(f'<a href="{href}">x</a>', base, external_only=True)
-    assert links == ({href} if external else set())
+    assert links == set()
+
+
+@pytest.mark.parametrize(
+    ("base", "href"),
+    [
+        pytest.param("https://www.test.com/", "https://test.com.evil.example/x", id="host-suffix-attack"),
+        pytest.param("https://www.test.com/", "https://other.net/x", id="other-host"),
+        pytest.param("https://a.co.uk/", "https://b.co.uk/x", id="multi-suffix-distinct-registrants"),
+        pytest.param("https://foo.github.io/", "https://bar.github.io/x", id="private-suffix-github-io"),
+        pytest.param("https://www.ck/", "https://other.ck/x", id="wildcard-and-exception-suffix"),
+        pytest.param("http://192.0.2.1/", "http://198.51.100.2/x", id="ip-hosts-compare-whole"),
+    ],
+)
+def test_external_boundary_keeps_the_href(base: str, href: str) -> None:
+    links = extract_links(f'<a href="{href}">x</a>', base, external_only=True)
+    assert links == {href}
 
 
 @pytest.mark.parametrize(
@@ -163,19 +173,30 @@ def test_external_only_requires_a_base() -> None:
 
 
 @pytest.mark.parametrize(
-    ("hreflang", "language", "kept"),
+    ("hreflang", "language"),
     [
-        pytest.param("de-DE", "de", True, id="regioned-match"),
-        pytest.param("de-DE", "en", False, id="regioned-mismatch"),
-        pytest.param("DE", "de", True, id="case-insensitive"),
-        pytest.param("x-default", "en", True, id="x-default-always-passes"),
-        pytest.param("", "en", True, id="empty-hreflang-passes"),
+        pytest.param("de-DE", "en", id="regioned-mismatch"),
     ],
 )
-def test_hreflang_gates_anchors_under_a_language_filter(hreflang: str, language: str, *, kept: bool) -> None:
+def test_hreflang_drops_the_anchor(hreflang: str, language: str) -> None:
     html = f'<a href="https://test.com/example" hreflang="{hreflang}">x</a>'
     links = extract_links(html, _BASE, UrlCleaning(language=language))
-    assert links == ({"https://test.com/example"} if kept else set())
+    assert links == set()
+
+
+@pytest.mark.parametrize(
+    ("hreflang", "language"),
+    [
+        pytest.param("de-DE", "de", id="regioned-match"),
+        pytest.param("DE", "de", id="case-insensitive"),
+        pytest.param("x-default", "en", id="x-default-always-passes"),
+        pytest.param("", "en", id="empty-hreflang-passes"),
+    ],
+)
+def test_hreflang_keeps_the_anchor(hreflang: str, language: str) -> None:
+    html = f'<a href="https://test.com/example" hreflang="{hreflang}">x</a>'
+    links = extract_links(html, _BASE, UrlCleaning(language=language))
+    assert links == {"https://test.com/example"}
 
 
 def test_language_filter_still_screens_the_urls_themselves() -> None:
@@ -811,25 +832,33 @@ def test_rewrite_links_requires_a_callable() -> None:
 
 @pytest.mark.parametrize("depth", [0, 16, 128], ids=["ordinary", "nested", "beyond-dns-length"])
 @pytest.mark.parametrize(
-    ("base", "host", "external"),
+    ("base", "host"),
     [
-        pytest.param("example.co.uk", "example.co.uk", False, id="normal-shared"),
-        pytest.param("example.co.uk", "other.co.uk", True, id="normal-distinct"),
-        pytest.param("a.github.io", "b.github.io", True, id="private-distinct"),
-        pytest.param("www.ck", "www.ck", False, id="exception-shared"),
-        pytest.param("a.ck", "b.ck", True, id="wildcard-distinct"),
-        pytest.param("example.invalid", "s.example.invalid", True, id="unknown-host-compared-whole"),
-        pytest.param("münchen.de", "xn--mnchen-3ya.de", False, id="idna-shared"),
+        pytest.param("example.co.uk", "example.co.uk", id="normal-shared"),
+        pytest.param("www.ck", "www.ck", id="exception-shared"),
+        pytest.param("münchen.de", "xn--mnchen-3ya.de", id="idna-shared"),
+    ],
+)
+def test_external_links_drop_the_public_suffix_boundary(base: str, host: str, *, depth: int) -> None:
+    href: Final = f"https://{'s.' * depth}{host}/x"
+    assert extract_links(f'<a href="{href}">x</a>', f"https://{base}/", external_only=True) == set()
+
+
+@pytest.mark.parametrize("depth", [0, 16, 128], ids=["ordinary", "nested", "beyond-dns-length"])
+@pytest.mark.parametrize(
+    ("base", "host"),
+    [
+        pytest.param("example.co.uk", "other.co.uk", id="normal-distinct"),
+        pytest.param("a.github.io", "b.github.io", id="private-distinct"),
+        pytest.param("a.ck", "b.ck", id="wildcard-distinct"),
+        pytest.param("example.invalid", "s.example.invalid", id="unknown-host-compared-whole"),
         pytest.param(
             "a.foo.001.test.code-builder-stg.platform.salesforce.com",
             "b.foo.001.test.code-builder-stg.platform.salesforce.com",
-            True,
             id="deepest-wildcard-distinct",
         ),
     ],
 )
-def test_external_links_keep_public_suffix_boundary(base: str, host: str, *, depth: int, external: bool) -> None:
+def test_external_links_keep_the_public_suffix_boundary(base: str, host: str, *, depth: int) -> None:
     href: Final = f"https://{'s.' * depth}{host}/x"
-    assert extract_links(f'<a href="{href}">x</a>', f"https://{base}/", external_only=True) == (
-        {href} if external else set()
-    )
+    assert extract_links(f'<a href="{href}">x</a>', f"https://{base}/", external_only=True) == {href}

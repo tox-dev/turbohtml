@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 import pytest
 
@@ -685,12 +688,19 @@ def test_article_document_and_element_agree_on_metadata() -> None:
     assert doc.article().lang == body.article().lang == "en"
 
 
-@pytest.mark.parametrize("element_root", [pytest.param(False, id="document"), pytest.param(True, id="element")])
-def test_nested_candidates_keep_link_density(*, element_root: bool) -> None:
+@pytest.mark.parametrize(
+    "read_root",
+    [
+        pytest.param(lambda document: document, id="document"),
+        pytest.param(lambda document: document.select("#candidate-0")[0], id="element"),
+    ],
+)
+def test_nested_candidates_keep_link_density(read_root: Callable[[Document], Element]) -> None:
+    classes: Final = {32: "article"}
     document: Final = parse(
         "<main>"
         + "".join(
-            f'<div id="candidate-{index}" class="{"article" if index == 32 else ""}">'
+            f'<div id="candidate-{index}" class="{classes.get(index, "")}">'
             '<p>A sentence with enough prose, and a clause, to score. <a href="/">linked words</a></p>'
             "<!--gap--><img><script>ignored</script><svg><text>ignored</text></svg>"
             for index in range(64)
@@ -698,9 +708,7 @@ def test_nested_candidates_keep_link_density(*, element_root: bool) -> None:
         + "</div>" * 64
         + "</main>"
     )
-    assert (document.select("#candidate-0")[0] if element_root else document).main_content() == document.select(
-        "#candidate-32"
-    )[0]
+    assert read_root(document).main_content() == document.select("#candidate-32")[0]
 
 
 def test_many_link_only_candidates_have_no_main_content() -> None:

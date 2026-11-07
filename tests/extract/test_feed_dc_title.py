@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Any, Final
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 import pytest
 
@@ -89,15 +92,21 @@ def test_feed_rss_channel_dc_title(channel_fields: str, expected: str) -> None:
     assert result.title == expected
 
 
-@pytest.mark.parametrize("field", ["title", "entry_title"])
-def test_feed_atom_title_does_not_use_dublin_core_fallback(field: str) -> None:
+@pytest.mark.parametrize(
+    "read_title",
+    [
+        pytest.param(lambda result: result.title, id="title"),
+        pytest.param(lambda result: result.entries[0].title, id="entry_title"),
+    ],
+)
+def test_feed_atom_title_does_not_use_dublin_core_fallback(read_title: Callable[[Any], str | None]) -> None:
     xml: Final = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">'
         "<dc:title>DC title</dc:title><entry><dc:title>Entry title</dc:title></entry></feed>"
     )
     result = feed(xml)
     assert result is not None
-    assert (result.title if field == "title" else result.entries[0].title) is None
+    assert read_title(result) is None
 
 
 def test_feed_rdf_item_dc_title() -> None:

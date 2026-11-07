@@ -304,12 +304,18 @@ def test_title_attribute_dates_a_marked_element() -> None:
 
 
 @pytest.mark.parametrize("count", [1, 17, 1000], ids=["single", "growth", "collisions"])
-@pytest.mark.parametrize("original", [True, False], ids=["published", "modified"])
-def test_date_tally_ties(count: int, *, original: bool) -> None:
+def test_date_tally_ties_keeps_the_original(count: int) -> None:
     start: Final = date(2000, 1, 1)
     source: Final = f"<p>{' '.join((start + timedelta(days=index)).isoformat() for index in range(count))}</p>"
-    expected: Final = start if original else start + timedelta(days=count - 1)
-    assert dates(source, DateExtraction(original=original)) == PublicationDate(expected.isoformat(), "text")
+    assert dates(source, DateExtraction(original=True)) == PublicationDate(start.isoformat(), "text")
+
+
+@pytest.mark.parametrize("count", [1, 17, 1000], ids=["single", "growth", "collisions"])
+def test_date_tally_ties_keeps_the_last_modified(count: int) -> None:
+    start: Final = date(2000, 1, 1)
+    source: Final = f"<p>{' '.join((start + timedelta(days=index)).isoformat() for index in range(count))}</p>"
+    expected: Final = start + timedelta(days=count - 1)
+    assert dates(source, DateExtraction(original=False)) == PublicationDate(expected.isoformat(), "text")
 
 
 @pytest.mark.parametrize("original", [True, False], ids=["published", "modified"])
@@ -380,7 +386,7 @@ def test_a_deeply_nested_json_ld_block_is_skipped_not_raised() -> None:
 )
 def test_the_url_stage_reads_only_a_canonical_or_og_url(html: str, expected: str | None) -> None:
     found = dates(html, DateExtraction(extensive_search=False))
-    assert (found.date if found else None) == expected
+    assert (found and found.date) == expected
 
 
 @pytest.mark.parametrize(
@@ -400,7 +406,7 @@ def test_the_url_stage_reads_only_a_canonical_or_og_url(html: str, expected: str
 )
 def test_the_json_ld_stage_walks_the_decoded_blocks(block: str, expected: str | None) -> None:
     found = dates(f'<script type="application/ld+json">{block}</script>', DateExtraction(extensive_search=False))
-    assert (found.date if found else None) == expected
+    assert (found and found.date) == expected
 
 
 @pytest.mark.parametrize(
@@ -581,7 +587,7 @@ def test_a_modification_meta_is_the_reserve_when_a_publication_is_wanted() -> No
 )
 def test_window_boundary_is_inclusive(content: str, min_date: date, max_date: date, expected: str | None) -> None:
     result = dates(f'<meta name="date" content="{content}">', DateExtraction(min_date=min_date, max_date=max_date))
-    assert result == (None if expected is None else PublicationDate(expected, "meta"))
+    assert result == (expected and PublicationDate(expected, "meta"))
 
 
 _YEAR: Final[int] = 2026

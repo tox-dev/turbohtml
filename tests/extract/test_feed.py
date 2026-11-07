@@ -810,9 +810,16 @@ def test_feed_empty_metadata_uses_fallback() -> None:
     ) == ("rss", None, None, "fallback", "date", ())
 
 
-@pytest.mark.parametrize("case", [0, 1, 2], ids=["rss", "rss-extensions", "atom"])
+@pytest.mark.parametrize(
+    ("case", "kind"),
+    [
+        pytest.param(0, "rss", id="rss"),
+        pytest.param(1, "rss", id="rss-extensions"),
+        pytest.param(2, "atom", id="atom"),
+    ],
+)
 @pytest.mark.oracle
-def test_feed_benchmark_entry_values(case: int) -> None:
+def test_feed_benchmark_entry_values(case: int, kind: str) -> None:
     feedparser: Final = pytest.importorskip("feedparser")
     source: Final = cast("str", INPUTS["syndication"]()[case][1])
     oracle: Final = feedparser.parse(source)
@@ -831,7 +838,7 @@ def test_feed_benchmark_entry_values(case: int) -> None:
     )
     header: Final = dict(oracle.feed)
     assert feed(source) == Feed(
-        "atom" if oracle.version.startswith("atom") else "rss",
+        kind,
         cast("str | None", header.get("title")),
         cast("str | None", header.get("link")),
         cast("str | None", header.get("subtitle")),
