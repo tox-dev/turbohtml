@@ -16,7 +16,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from bench import orchestrator, report
+from bench import report
+from bench.orchestrator import run
 
 
 def main() -> None:
@@ -36,7 +37,7 @@ def main() -> None:
             "[pyperf options...]"
         )
         raise SystemExit(msg)
-    orchestrator.run(arguments[0], tuple(arguments[1:]), pgo=pgo)
+    run(arguments[0], tuple(arguments[1:]), pgo=pgo)
 
 
 if __name__ == "__main__":

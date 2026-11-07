@@ -19,11 +19,24 @@ import turbohtml
 from turbohtml import Markdown as _Markdown
 from turbohtml import Range as _Range
 from turbohtml import clean as _clean
-from turbohtml import query as _query
 from turbohtml.build import E
 from turbohtml.clean import LinkDetector as _LinkDetector
+from turbohtml.clean import Linker as _Linker
+from turbohtml.clean import Linkify as _Linkify
+from turbohtml.clean import OnDisallowed as _OnDisallowed
+from turbohtml.clean import PhoneFormat as _PhoneFormat
+from turbohtml.clean import PhoneNumber as _PhoneNumber
+from turbohtml.clean import PhoneNumbers as _PhoneNumbers
+from turbohtml.clean import Policy as _Policy
+from turbohtml.clean import Sanitizer as _Sanitizer
+from turbohtml.clean import Transform as _CleanTransform
+from turbohtml.clean import collapse_whitespace_node as _collapse_whitespace_node
 from turbohtml.clean import linkify as _linkify
 from turbohtml.clean import minify as _minify
+from turbohtml.clean import nofollow as _nofollow
+from turbohtml.clean import strip_comments_node as _strip_comments_node
+from turbohtml.clean import target_blank as _target_blank
+from turbohtml.clean import transform_node as _transform_node
 from turbohtml.conformance import check as _check_conformance
 from turbohtml.convert import css_specificity as _css_specificity
 from turbohtml.convert import css_to_xpath as _css_to_xpath
@@ -41,6 +54,7 @@ from turbohtml.migration.markupsafe import Markup as _Markup
 from turbohtml.migration.markupsafe import escape as _markup_escape
 from turbohtml.migration.stdlib import HTMLParser as _TurboHTMLParser
 from turbohtml.query import Query as _Query
+from turbohtml.query import compile as _compile
 from turbohtml.query import escape_identifier as _escape_identifier
 from turbohtml.rewrite import Element as _RewriteElement
 from turbohtml.rewrite import rewrite as _rewrite
@@ -59,18 +73,16 @@ if TYPE_CHECKING:
 
     from turbohtml import Node
 
-_SANITIZER = _clean.Sanitizer(_clean.Policy.relaxed())
-_DISALLOWED_SANITIZERS: Final[dict[str, _clean.Sanitizer]] = {
-    mode.name.lower(): _clean.Sanitizer(_clean.Policy(tags=frozenset(), on_disallowed_tag=mode))
-    for mode in (_clean.OnDisallowed.ESCAPE, _clean.OnDisallowed.STRIP)
+_SANITIZER = _Sanitizer(_Policy.relaxed())
+_DISALLOWED_SANITIZERS: Final[dict[str, _Sanitizer]] = {
+    mode.name.lower(): _Sanitizer(_Policy(tags=frozenset(), on_disallowed_tag=mode))
+    for mode in (_OnDisallowed.ESCAPE, _OnDisallowed.STRIP)
 }
-_SANITIZER_ATTRIBUTES: Final = _clean.Sanitizer(
-    _clean.Policy(tags=frozenset({"p"}), attribute_prefixes=frozenset({"data-"}))
-)
-_SANITIZER_TEMPLATES = _clean.Sanitizer(replace(_clean.Policy.relaxed(), strip_template_markers=True))
-_SANITIZER_STYLES = _clean.Sanitizer(
+_SANITIZER_ATTRIBUTES: Final = _Sanitizer(_Policy(tags=frozenset({"p"}), attribute_prefixes=frozenset({"data-"})))
+_SANITIZER_TEMPLATES = _Sanitizer(replace(_Policy.relaxed(), strip_template_markers=True))
+_SANITIZER_STYLES = _Sanitizer(
     replace(
-        _clean.Policy.relaxed(),
+        _Policy.relaxed(),
         attributes={"*": frozenset({"style", "title", "lang", "dir"})},
         css_properties=frozenset({"color", "text-align", "font-size"}),
         allowed_styles={"*": {"color": [r"^#[0-9a-f]{3,6}$", r"^rgb\("], "text-align": [r"^left$|^center$|^right$"]}},
@@ -78,8 +90,8 @@ _SANITIZER_STYLES = _clean.Sanitizer(
 )
 # rename the deprecated presentational tags a real feed still carries to their modern equivalents in the same walk,
 # sanitize-html's transformTags; the added class exercises the attribute-injection path alongside the rename
-_RELAXED = _clean.Policy.relaxed()
-_SANITIZER_TRANSFORM = _clean.Sanitizer(
+_RELAXED = _Policy.relaxed()
+_SANITIZER_TRANSFORM = _Sanitizer(
     replace(
         _RELAXED,
         attributes={**_RELAXED.attributes, "div": frozenset({"class"})},
@@ -90,13 +102,13 @@ _SANITIZER_TRANSFORM = _clean.Sanitizer(
             "tt": "code",
             "strike": "s",
             "font": "span",
-            "center": _clean.Transform("div", {"class": "center"}),
+            "center": _CleanTransform("div", {"class": "center"}),
         },
     )
 )
 # allow id/name broadly and keep the form controls that carry the clobbering-prone values, so isolation prefixes most
 # attributes rather than skipping a value it never touches
-_SANITIZER_NAMED_PROPS = _clean.Sanitizer(
+_SANITIZER_NAMED_PROPS = _Sanitizer(
     replace(
         _RELAXED,
         attributes={**_RELAXED.attributes, "*": frozenset({"id", "name", "title", "lang", "dir"})},
@@ -106,14 +118,14 @@ _SANITIZER_NAMED_PROPS = _clean.Sanitizer(
 )
 # keep an app's own x-* custom elements and their data-* attributes by predicate, DOMPurify's CUSTOM_ELEMENT_HANDLING,
 # so the walk runs the tag and attribute matchers on most elements rather than escaping every unlisted one
-_SANITIZER_CUSTOM = _clean.Sanitizer(
+_SANITIZER_CUSTOM = _Sanitizer(
     replace(
         _RELAXED,
         custom_element_check=re.compile(r"^x-").search,
         custom_attribute_check=lambda _tag, name: name.startswith("data-"),
     )
 )
-_SANITIZER_XML = _clean.Sanitizer(replace(_clean.Policy.relaxed(), xml=True))
+_SANITIZER_XML = _Sanitizer(replace(_Policy.relaxed(), xml=True))
 _LINKS_BASE: Final[str] = "https://example.com/base/"
 _FIND_TEXT_PATTERN = re.compile(r"test")  # ubiquitous in the wpt corpus, so the predicate does real work
 _FIND_TEXT_OVERLAP_PATTERN: Final[re.Pattern[str]] = re.compile(f"{'a' * 4096}b")
@@ -122,17 +134,15 @@ _HAS: Final[str] = "div:has(a)"  # the :has() relational pseudo-class
 _STRIP: Final[str] = "code, a, q"  # a bulk set of tags to drop or unwrap
 _DETECTOR: Final[_LinkDetector] = _LinkDetector()
 _PHONE_DETECTORS: Final[dict[str, _LinkDetector]] = {
-    "valid": _LinkDetector(phones=_clean.PhoneNumbers(regions=("US",))),
-    "possible": _LinkDetector(phones=_clean.PhoneNumbers(regions=("US",), require_valid=False)),
-    "regions-8": _LinkDetector(phones=_clean.PhoneNumbers(regions=("US", "GB", "DE", "IN", "BR", "JP", "FR", "AU"))),
+    "valid": _LinkDetector(phones=_PhoneNumbers(regions=("US",))),
+    "possible": _LinkDetector(phones=_PhoneNumbers(regions=("US",), require_valid=False)),
+    "regions-8": _LinkDetector(phones=_PhoneNumbers(regions=("US", "GB", "DE", "IN", "BR", "JP", "FR", "AU"))),
 }
-_PHONE_STYLES: Final[dict[str, _clean.PhoneFormat]] = {style.value: style for style in _clean.PhoneFormat}
-_PHONE_PARSED: Final[dict[tuple[str, str], _clean.PhoneNumber]] = {}  # exclude parsing from formatting and construction
-_LINKER: Final[_clean.Linker] = _clean.Linker()
-_LINKER_SKIP: Final[_clean.Linker] = _clean.Linker(_clean.Linkify(skip_tags=("code",)))
-_LINKER_CALLBACKS: Final[_clean.Linker] = _clean.Linker(
-    _clean.Linkify(callbacks=(_clean.nofollow, _clean.target_blank), process_existing=True)
-)
+_PHONE_STYLES: Final[dict[str, _PhoneFormat]] = {style.value: style for style in _PhoneFormat}
+_PHONE_PARSED: Final[dict[tuple[str, str], _PhoneNumber]] = {}  # exclude parsing from formatting and construction
+_LINKER: Final[_Linker] = _Linker()
+_LINKER_SKIP: Final[_Linker] = _Linker(_Linkify(skip_tags=("code",)))
+_LINKER_CALLBACKS: Final[_Linker] = _Linker(_Linkify(callbacks=(_nofollow, _target_blank), process_existing=True))
 _INNER_INDENT: Final = turbohtml.Html(layout=turbohtml.Indent())
 _INNER_MINIFY: Final = turbohtml.Html(layout=turbohtml.Minify())
 _XML = turbohtml.Html(xml=True)  # the XML/XHTML serialization config, reused across the timed calls
@@ -415,7 +425,7 @@ def _computed_style_first(text: str) -> None:
 
 def match(text: str) -> None:
     # Test every anchor against a selector with the soupsieve-shaped turbohtml.query matcher.
-    matcher = _query.compile(_CSS)
+    matcher = _compile(_CSS)
     for anchor in _parsed(text).find_all("a"):
         matcher.match(anchor)
 
@@ -504,7 +514,7 @@ def _transform_dispatch(count: int) -> None:
 
 @functools.cache
 def _dispatch_pipeline(count: int) -> Callable[[], turbohtml.Node]:
-    return functools.partial(_clean.transform_node, turbohtml.parse_fragment("<p>x</p>"), *(_identity_node,) * count)
+    return functools.partial(_transform_node, turbohtml.parse_fragment("<p>x</p>"), *(_identity_node,) * count)
 
 
 def _identity_node(node: turbohtml.Node) -> turbohtml.Node:
@@ -517,12 +527,12 @@ def _parsed_body(text: str) -> turbohtml.Element:
 
 
 def _whitespace_roundtrip(document: turbohtml.Document) -> str:
-    _clean.collapse_whitespace_node(document)
+    _collapse_whitespace_node(document)
     return document.serialize()
 
 
 def _transform_tree(document: turbohtml.Document) -> None:
-    _clean.transform_node(document, _clean.strip_comments_node, _clean.collapse_whitespace_node)
+    _transform_node(document, _strip_comments_node, _collapse_whitespace_node)
 
 
 def conformance(text: str) -> None:
@@ -792,15 +802,15 @@ def _phone_parse(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
     # Read each held string as one number with turbohtml's PhoneNumber.parse, at the case's leniency.
     mode, held = case
     for region, text in held:
-        _clean.PhoneNumber.parse(text, regions=(region,), require_valid=mode == "valid")
+        _PhoneNumber.parse(text, regions=(region,), require_valid=mode == "valid")
 
 
 def _phone_construct(held: tuple[tuple[str, str], ...]) -> None:
     # Construct validated numbers from held public fields, excluding parsing.
     for region, text in held:
         if (number := _PHONE_PARSED.get((region, text))) is None:
-            number = _PHONE_PARSED[region, text] = _clean.PhoneNumber.parse(text, regions=(region,))
-        _clean.PhoneNumber(number.country_code, number.national_number, number.extension, number.region, number.type)
+            number = _PHONE_PARSED[region, text] = _PhoneNumber.parse(text, regions=(region,))
+        _PhoneNumber(number.country_code, number.national_number, number.extension, number.region, number.type)
 
 
 def _phone_format(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
@@ -808,7 +818,7 @@ def _phone_format(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
     style, held = case
     for region, text in held:
         if (number := _PHONE_PARSED.get((region, text))) is None:
-            number = _PHONE_PARSED[region, text] = _clean.PhoneNumber.parse(text, regions=(region,))
+            number = _PHONE_PARSED[region, text] = _PhoneNumber.parse(text, regions=(region,))
         number.format(_PHONE_STYLES[style])
 
 
@@ -1625,8 +1635,8 @@ OPERATIONS: Final[dict[str, tuple[object, str]]] = {
     "iterate-inner": (_iterate_inner, "turbohtml"),
     "iterate-inner-indent": (_iterate_inner_indent, "turbohtml"),
     "transform-dispatch": (_transform_dispatch, "turbohtml"),
-    "collapse-whitespace": (Mutating(setup=turbohtml.parse, run=_clean.collapse_whitespace_node), "turbohtml"),
-    "strip-comments": (Mutating(setup=turbohtml.parse, run=_clean.strip_comments_node), "turbohtml"),
+    "collapse-whitespace": (Mutating(setup=turbohtml.parse, run=_collapse_whitespace_node), "turbohtml"),
+    "strip-comments": (Mutating(setup=turbohtml.parse, run=_strip_comments_node), "turbohtml"),
     "whitespace-roundtrip": (Mutating(setup=turbohtml.parse, run=_whitespace_roundtrip), "turbohtml"),
     "transform-tree": (Mutating(setup=turbohtml.parse, run=_transform_tree), "turbohtml"),
     "conformance": (conformance, "turbohtml"),

@@ -18,7 +18,8 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
-from . import operations, orchestrator
+from . import operations
+from .orchestrator import REPO_ROOT, run_worker, venv_python
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -64,11 +65,9 @@ def _measure(workdir: Path, pyperf_args: tuple[str, ...]) -> dict[str, dict[str,
     measured: dict[str, dict[str, dict[str, float | str]]] = {operation: {} for operation in OPERATIONS}
     for party, interpreter in _INTERPRETERS:
         # the working tree, not the built wheel: a wheel carries one interpreter's ABI tag and cannot install elsewhere
-        python = orchestrator.venv_python(
-            workdir, interpreter.replace(".", "-"), (str(orchestrator.REPO_ROOT),), interpreter=interpreter
-        )
+        python = venv_python(workdir, interpreter.replace(".", "-"), (str(REPO_ROOT),), interpreter=interpreter)
         for operation in OPERATIONS:
-            for key, entry in orchestrator.run_worker(python, "core", operation, workdir, pyperf_args).items():
+            for key, entry in run_worker(python, "core", operation, workdir, pyperf_args).items():
                 case = key.split("|")[1]
                 measured[operation].setdefault(case, {})[party] = entry.get(
                     "mean", entry.get("error", "no measurement")

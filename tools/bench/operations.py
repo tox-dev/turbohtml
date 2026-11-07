@@ -19,6 +19,17 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Final
 
 from . import corpus
+from .corpus import (
+    CORPUS_FILES,
+    JS_FILES,
+    LARGE_FILES,
+    REAL_PAGES,
+    STYLESHEETS,
+    corpus_text,
+    escape_cases,
+    large_text,
+    unescape_cases,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -552,7 +563,7 @@ def _sax_record_cases() -> tuple[tuple[str, object], ...]:
 def _parse_cases() -> tuple[tuple[str, object], ...]:
     # Return the corpus documents the parse suite runs over (loaded from the html5lib-python submodule).
     return (
-        *((name, corpus.corpus_text(relative, encoding)) for name, relative, encoding in corpus.CORPUS_FILES),
+        *((name, corpus_text(relative, encoding)) for name, relative, encoding in CORPUS_FILES),
         ("common tags (13 kB)", "<div><span>x</span></div>" * 500),
     )
 
@@ -576,9 +587,9 @@ def _readpath_cases() -> tuple[tuple[str, object], ...]:
     # The wpt fixtures they replace are CSS layout tests with no nested ``div``/``a`` or links, so ``div a[href]``,
     # ``div:has(a)``, and the link/edit/chain/extract operations matched nothing and timed empty walks; these carry the
     # real structure those operations exist to traverse.
-    pages = [(name, corpus.large_text(filename, url)) for name, filename, url in corpus.REAL_PAGES]
-    label, relative, encoding = corpus.CORPUS_FILES[5]  # whatwg spec (235 kB), the large content page
-    pages.append((label, corpus.corpus_text(relative, encoding)))
+    pages = [(name, large_text(filename, url)) for name, filename, url in REAL_PAGES]
+    label, relative, encoding = CORPUS_FILES[5]  # whatwg spec (235 kB), the large content page
+    pages.append((label, corpus_text(relative, encoding)))
     return tuple(pages)
 
 
@@ -1052,8 +1063,8 @@ def _annotation_rule_cases() -> tuple[tuple[str, object], ...]:
 
 def _xpath_cases() -> tuple[tuple[str, object], ...]:
     # Return one (label, (kind, text)) pair per XPath feature over the 9.6 kB page; the namespaced row carries SVG.
-    _name, relative, encoding = corpus.CORPUS_FILES[2]
-    text = corpus.corpus_text(relative, encoding)
+    _name, relative, encoding = CORPUS_FILES[2]
+    text = corpus_text(relative, encoding)
     xpath_features = (
         "//div",
         "//a[@href]",
@@ -1480,10 +1491,8 @@ def _token_attribute_cases() -> tuple[tuple[str, object], ...]:
 
 def _tokenize_cases() -> tuple[tuple[str, object], ...]:
     # Return synthetic and corpus documents for the tokenization table.
-    corpus_cases = tuple(
-        (name, corpus.corpus_text(relative, encoding)) for name, relative, encoding in corpus.CORPUS_FILES
-    )
-    large_cases = tuple((name, corpus.large_text(filename, url)) for name, filename, url in corpus.LARGE_FILES)
+    corpus_cases = tuple((name, corpus_text(relative, encoding)) for name, relative, encoding in CORPUS_FILES)
+    large_cases = tuple((name, large_text(filename, url)) for name, filename, url in LARGE_FILES)
     return (
         ("typical markup", '<div class="row"><p>Tom &amp; Jerry said "hi" to <b>O\'Brien</b>!</p><br/></div>\n' * 60),
         ("text-heavy prose", f"<p>{'the quick brown fox jumps over the lazy dog ' * 100}</p>"),
@@ -1501,7 +1510,7 @@ def _tokenize_cases() -> tuple[tuple[str, object], ...]:
 
 def _minify_cases() -> tuple[tuple[str, object], ...]:
     return (
-        *((name, corpus.large_text(filename, url)) for name, filename, url in corpus.STYLESHEETS),
+        *((name, large_text(filename, url)) for name, filename, url in STYLESHEETS),
         *(
             (
                 f"{count} {'reversed' if reverse else 'sorted'} Unicode ranges",
@@ -1542,7 +1551,7 @@ def _minify_cases() -> tuple[tuple[str, object], ...]:
 
 def _minify_js_cases() -> tuple[tuple[str, object], ...]:
     # Return the real-world JavaScript libraries the minify operation shrinks, a size ladder.
-    return tuple((name, corpus.large_text(filename, url)) for name, filename, url in corpus.JS_FILES)
+    return tuple((name, large_text(filename, url)) for name, filename, url in JS_FILES)
 
 
 _URL_SHAPES: Final[tuple[str, ...]] = (
@@ -1601,14 +1610,14 @@ def _encoding_cases() -> tuple[tuple[str, object], ...]:
     #
     # Natural-language prose re-encoded into the legacy encodings the detectors compete on, plus pure ASCII (the
     # short-circuit every detector special-cases) and a real saved page (the whole-document workload).
-    _name, filename, url = corpus.REAL_PAGES[2]  # the mozilla blog, 95 kB of real UTF-8 markup
+    _name, filename, url = REAL_PAGES[2]  # the mozilla blog, 95 kB of real UTF-8 markup
     return (
         ("ascii (1 kB)", (_ENCODING_ASCII * 13).encode()),
         ("utf-8 russian (4 kB)", (_ENCODING_RUSSIAN * 27).encode()),
         ("windows-1251 russian (4 kB)", (_ENCODING_RUSSIAN * 50).encode("cp1251")),
         ("windows-1252 french (4 kB)", (_ENCODING_FRENCH * 50).encode("cp1252")),
         ("shift_jis japanese (4 kB)", (_ENCODING_JAPANESE * 70).encode("shift_jis")),
-        ("utf-8 page (95 kB)", corpus.large_text(filename, url).encode()),
+        ("utf-8 page (95 kB)", large_text(filename, url).encode()),
     )
 
 
@@ -1643,13 +1652,13 @@ def _normalize_cases() -> tuple[tuple[str, object], ...]:
     #
     # The ASCII book matches the CodSpeed case. Already-NFC prose and a real page exercise the quick-check path, while
     # the NFD-decomposed French forces the full decompose/reorder/compose pipeline.
-    _name, filename, url = corpus.REAL_PAGES[2]  # the mozilla blog, 95 kB of real UTF-8 markup
+    _name, filename, url = REAL_PAGES[2]  # the mozilla blog, 95 kB of real UTF-8 markup
     french = _ENCODING_FRENCH * 50
     return (
         ("ascii book (64 KiB)", corpus.corpus("war-and-peace/2600.txt", 1 << 16)),
         ("nfc french (4 kB)", french),
         ("nfd french (4 kB)", unicodedata.normalize("NFD", french)),
-        ("utf-8 page (95 kB)", corpus.large_text(filename, url)),
+        ("utf-8 page (95 kB)", large_text(filename, url)),
         ("32 KiB ASCII prefix, composable suffix", f"{'abc ' * 8192}e\u0301"),
         ("small ASCII prefix, composable suffix", "abc e\u0301"),
         ("4,096 composable combining pairs", "e\u0301" * 4096),
@@ -2000,8 +2009,8 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     "parse-locations": _readpath_cases,  # real attribute-dense pages exercise the per-attribute span stamping
     "parse-shadow": lambda: (("component gallery", _SHADOW_DOC),),
     "fragment": lambda: (("table-row fragment (2 kB)", _FRAGMENT_HTML),),
-    "escape": corpus.escape_cases,
-    "unescape": corpus.unescape_cases,
+    "escape": escape_cases,
+    "unescape": unescape_cases,
     "tokenize": _tokenize_cases,
     "html-options": lambda: (("reused defaults", ("html", True)), ("no options", ("html", False))),
     "text-options": lambda: (("reused defaults", ("text", True)), ("no options", ("text", False))),

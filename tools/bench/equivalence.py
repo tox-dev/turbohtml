@@ -28,7 +28,7 @@ import tempfile
 from pathlib import Path
 from typing import Final
 
-from bench import corpus
+from bench.corpus import REAL_PAGES, large_text, prefetch
 from bench.orchestrator import baseline_python, venv_python
 
 # each probe body calls emit() with the counts for the page it is handed; the selectors are the ones core.py
@@ -163,11 +163,11 @@ def _counts(name: str, requirements: tuple[str, ...], body: str, page: Path, wor
 
 def disagreements(workdir: Path) -> list[str]:
     # Run every probe over every corpus page and return one line per party answering a different question.
-    corpus.prefetch()
+    prefetch()
     found: list[str] = []
-    for label, filename, url in corpus.REAL_PAGES:
+    for label, filename, url in REAL_PAGES:
         page = workdir / filename
-        page.write_text(corpus.large_text(filename, url), encoding="utf-8")
+        page.write_text(large_text(filename, url), encoding="utf-8")
         results = {name: _counts(name, reqs, body, page, workdir) for name, (reqs, body) in _PROBES.items()}
         width = max(len(name) for name in results)
         probes = sorted({probe for row in results.values() for probe in row})

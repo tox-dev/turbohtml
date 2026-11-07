@@ -21,7 +21,9 @@ from typing import Final
 
 import pgo_build
 
-from . import corpus, operations, report
+from .corpus import prefetch
+from .operations import OPERATIONS
+from .report import render
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _TOOLS_DIR: Final[Path] = Path(__file__).resolve().parents[1]
@@ -74,7 +76,7 @@ def run(command: str, pyperf_args: tuple[str, ...], *, pgo: bool) -> None:
         "pyperf options like --rigorous or --affinity=<cpu> after the command to control sampling and CPU pinning.",
         file=sys.stderr,
     )
-    corpus.prefetch()  # the worker venvs carry no HTTP client; fill the download cache here, where one is installed
+    prefetch()  # the worker venvs carry no HTTP client; fill the download cache here, where one is installed
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
         if command in _COMPETITORS:
@@ -89,12 +91,12 @@ def run(command: str, pyperf_args: tuple[str, ...], *, pgo: bool) -> None:
             interpreters.build(workdir, pyperf_args)
         elif command == "all":
             core_python = baseline_python(workdir, pgo=pgo)
-            for operation in operations.OPERATIONS:
+            for operation in OPERATIONS:
                 _report_operation(operation, pyperf_args, workdir=workdir, core_python=core_python)
-        elif command in operations.OPERATIONS:
+        elif command in OPERATIONS:
             _report_operation(command, pyperf_args, workdir=workdir, core_python=baseline_python(workdir, pgo=pgo))
         else:
-            choices = ", ".join(["core", "all", "interpreters", *operations.OPERATIONS, *_COMPETITORS])
+            choices = ", ".join(["core", "all", "interpreters", *OPERATIONS, *_COMPETITORS])
             msg = f"unknown command {command!r}; choose one of: {choices}"
             raise SystemExit(msg)
 
@@ -106,7 +108,7 @@ def _report_package(competitor: str, pyperf_args: tuple[str, ...], *, workdir: P
     for operation in operation_names:
         stats = run_worker(core_python, "core", operation, workdir, pyperf_args)
         stats.update(run_worker(competitor_python, competitor, operation, workdir, pyperf_args))
-        report.render(operation, stats)
+        render(operation, stats)
 
 
 def venv_python(
@@ -195,8 +197,8 @@ def _build_wheel(workdir: Path) -> Path:
 
 def _report_core(pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:
     # Render turbohtml's own baseline for every operation in a turbohtml-only venv.
-    for operation in operations.OPERATIONS:
-        report.render(operation, run_worker(core_python, "core", operation, workdir, pyperf_args))
+    for operation in OPERATIONS:
+        render(operation, run_worker(core_python, "core", operation, workdir, pyperf_args))
 
 
 def _report_operation(operation: str, pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:
@@ -204,7 +206,7 @@ def _report_operation(operation: str, pyperf_args: tuple[str, ...], *, workdir: 
     stats = run_worker(core_python, "core", operation, workdir, pyperf_args)
     for competitor in _packages_for(operation):
         stats.update(_try_competitor(workdir, competitor, operation, pyperf_args))
-    report.render(operation, stats)
+    render(operation, stats)
 
 
 def _packages_for(operation: str) -> list[str]:

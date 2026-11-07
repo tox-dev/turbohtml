@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Final
 
 from . import corpus
 from .core import OPERATIONS
+from .corpus import CORPUS_FILES, JS_FILES, REAL_PAGES, STYLESHEETS, corpus_text, large_text
 from .operations import INPUTS
 
 if TYPE_CHECKING:
@@ -33,8 +34,8 @@ _TEXT_BYTES: Final[int] = (
 @cache
 def _spec() -> str:
     # Return the vendored whatwg HTML spec (235 kB): the read-path operations' shared real document.
-    _name, relative, encoding = corpus.CORPUS_FILES[5]
-    return corpus.corpus_text(relative, encoding)
+    _name, relative, encoding = CORPUS_FILES[5]
+    return corpus_text(relative, encoding)
 
 
 def _xpath_case() -> tuple[str, str]:
@@ -105,11 +106,9 @@ _LOADERS["escape"] = partial(corpus.corpus, "war-and-peace/2600.txt", _TEXT_BYTE
 _LOADERS["unescape"] = partial(corpus.corpus, "war-and-peace/2600-h/2600-h.htm", _TEXT_BYTES)
 _LOADERS["encoding"] = lambda: corpus.corpus("war-and-peace/2600.txt", _TEXT_BYTES).encode("cp1252")
 _LOADERS["normalize"] = partial(corpus.corpus, "war-and-peace/2600.txt", _TEXT_BYTES)
-_LOADERS["minify-css"] = partial(corpus.large_text, *corpus.STYLESHEETS[1][1:])  # pico.css (90 kB)
-_LOADERS["minify-js"] = partial(corpus.large_text, *corpus.JS_FILES[0][1:])  # underscore (67 kB)
-_LOADERS["parse-scripting"] = partial(
-    corpus.large_text, *corpus.REAL_PAGES[2][1:]
-)  # mozilla blog (95 kB), carries <noscript>
+_LOADERS["minify-css"] = partial(large_text, *STYLESHEETS[1][1:])  # pico.css (90 kB)
+_LOADERS["minify-js"] = partial(large_text, *JS_FILES[0][1:])  # underscore (67 kB)
+_LOADERS["parse-scripting"] = partial(large_text, *REAL_PAGES[2][1:])  # mozilla blog (95 kB), carries <noscript>
 _LOADERS["parse-locations"] = _spec  # the whatwg spec: many tags and attributes to stamp spans for
 _LOADERS["computed-style"] = lambda: INPUTS["computed-style"]()[0][1]
 
@@ -377,9 +376,9 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "translate-id-literals": ("translate", 19),
     "translate-long-literals": ("translate", 21),
     "translate-class-literals": ("translate", 24),
-    "minify-css-unicode-ranges-small": ("minify-css", len(corpus.STYLESHEETS)),
-    "minify-css-unicode-ranges-sorted": ("minify-css", len(corpus.STYLESHEETS) + 1),
-    "minify-css-unicode-ranges-reversed": ("minify-css", len(corpus.STYLESHEETS) + 2),
+    "minify-css-unicode-ranges-small": ("minify-css", len(STYLESHEETS)),
+    "minify-css-unicode-ranges-sorted": ("minify-css", len(STYLESHEETS) + 1),
+    "minify-css-unicode-ranges-reversed": ("minify-css", len(STYLESHEETS) + 2),
     "urls-clean-undotted-path": ("urls-clean", 4),
     "urls-clean-short-path": ("urls-clean", 5),
     "urls-clean-parent-path": ("urls-clean", 6),
@@ -392,11 +391,11 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "is-valid-rng": ("is-valid-rng", 0),
     "is-valid-rng-valid": ("is-valid-rng", 1),
     "is-valid-rng-one-error": ("is-valid-rng", 2),
-    "conformance-sections-small": ("conformance", len(corpus.REAL_PAGES) + 1),
-    "conformance-sections-medium": ("conformance", len(corpus.REAL_PAGES) + 2),
-    "conformance-sections-large": ("conformance", len(corpus.REAL_PAGES) + 3),
-    "conformance-sections-shallow": ("conformance", len(corpus.REAL_PAGES) + 4),
-    "conformance-sections-heading": ("conformance", len(corpus.REAL_PAGES) + 5),
+    "conformance-sections-small": ("conformance", len(REAL_PAGES) + 1),
+    "conformance-sections-medium": ("conformance", len(REAL_PAGES) + 2),
+    "conformance-sections-large": ("conformance", len(REAL_PAGES) + 3),
+    "conformance-sections-shallow": ("conformance", len(REAL_PAGES) + 4),
+    "conformance-sections-heading": ("conformance", len(REAL_PAGES) + 5),
     "serialize-named": ("serialize-named", 0),
     "serialize-named-ascii": ("serialize-named", 1),
     "serialize-named-unnamed": ("serialize-named", 2),
@@ -413,13 +412,13 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "transform-text-literal-small": ("transform-text", 3),
     "transform-text-explicit": ("transform-text", 4),
     "transform-text-explicit-small": ("transform-text", 5),
-    "minify-css-zero-exponent-single": ("minify-css", len(corpus.STYLESHEETS) + 3),
-    "minify-css-zero-exponent-many": ("minify-css", len(corpus.STYLESHEETS) + 4),
-    "minify-css-zero-exponent-small": ("minify-css", len(corpus.STYLESHEETS) + 5),
-    "minify-css-number-arithmetic": ("minify-css", len(corpus.STYLESHEETS) + 6),
-    "minify-css-negative-exponent": ("minify-css", len(corpus.STYLESHEETS) + 7),
-    "minify-css-dimension-exponent": ("minify-css", len(corpus.STYLESHEETS) + 8),
-    "minify-css-unitless-exponent": ("minify-css", len(corpus.STYLESHEETS) + 9),
+    "minify-css-zero-exponent-single": ("minify-css", len(STYLESHEETS) + 3),
+    "minify-css-zero-exponent-many": ("minify-css", len(STYLESHEETS) + 4),
+    "minify-css-zero-exponent-small": ("minify-css", len(STYLESHEETS) + 5),
+    "minify-css-number-arithmetic": ("minify-css", len(STYLESHEETS) + 6),
+    "minify-css-negative-exponent": ("minify-css", len(STYLESHEETS) + 7),
+    "minify-css-dimension-exponent": ("minify-css", len(STYLESHEETS) + 8),
+    "minify-css-unitless-exponent": ("minify-css", len(STYLESHEETS) + 9),
     "transform-sort-integer-small": ("transform-sort", 2),
     "transform-sort-integer-large": ("transform-sort", 3),
     "transform-sort-string-small": ("transform-sort", 4),
@@ -509,24 +508,24 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "date-temporal-small": ("date", 6),
     "date-temporal-numeric": ("date", 7),
     "date-temporal-written": ("date", 8),
-    "text-content-short-descendants": ("text-content", len(corpus.REAL_PAGES) + 1),
-    "text-content-large-descendant": ("text-content", len(corpus.REAL_PAGES) + 2),
-    "text-content-tiny-descendant": ("text-content", len(corpus.REAL_PAGES) + 3),
-    "text-content-latin1-descendant": ("text-content", len(corpus.REAL_PAGES) + 4),
-    "text-content-bmp-descendant": ("text-content", len(corpus.REAL_PAGES) + 5),
-    "text-content-astral-descendant": ("text-content", len(corpus.REAL_PAGES) + 6),
-    "treebuild-data": ("treebuild", len(corpus.REAL_PAGES) + 1),
-    "treebuild-data-comments": ("treebuild", len(corpus.REAL_PAGES) + 2),
-    "treebuild-data-latin1": ("treebuild", len(corpus.REAL_PAGES) + 3),
-    "treebuild-data-bmp": ("treebuild", len(corpus.REAL_PAGES) + 4),
-    "treebuild-data-astral": ("treebuild", len(corpus.REAL_PAGES) + 5),
-    "treebuild-data-normalized": ("treebuild", len(corpus.REAL_PAGES) + 6),
-    "treebuild-data-entities": ("treebuild", len(corpus.REAL_PAGES) + 7),
-    "treebuild-data-small": ("treebuild", len(corpus.REAL_PAGES) + 8),
-    "treebuild-elements": ("treebuild", len(corpus.REAL_PAGES) + 9),
-    "treebuild-tiny": ("treebuild", len(corpus.REAL_PAGES) + 10),
-    "treebuild-foreign": ("treebuild", len(corpus.REAL_PAGES) + 11),
-    "treebuild-callbacks": ("treebuild", len(corpus.REAL_PAGES) + 12),
+    "text-content-short-descendants": ("text-content", len(REAL_PAGES) + 1),
+    "text-content-large-descendant": ("text-content", len(REAL_PAGES) + 2),
+    "text-content-tiny-descendant": ("text-content", len(REAL_PAGES) + 3),
+    "text-content-latin1-descendant": ("text-content", len(REAL_PAGES) + 4),
+    "text-content-bmp-descendant": ("text-content", len(REAL_PAGES) + 5),
+    "text-content-astral-descendant": ("text-content", len(REAL_PAGES) + 6),
+    "treebuild-data": ("treebuild", len(REAL_PAGES) + 1),
+    "treebuild-data-comments": ("treebuild", len(REAL_PAGES) + 2),
+    "treebuild-data-latin1": ("treebuild", len(REAL_PAGES) + 3),
+    "treebuild-data-bmp": ("treebuild", len(REAL_PAGES) + 4),
+    "treebuild-data-astral": ("treebuild", len(REAL_PAGES) + 5),
+    "treebuild-data-normalized": ("treebuild", len(REAL_PAGES) + 6),
+    "treebuild-data-entities": ("treebuild", len(REAL_PAGES) + 7),
+    "treebuild-data-small": ("treebuild", len(REAL_PAGES) + 8),
+    "treebuild-elements": ("treebuild", len(REAL_PAGES) + 9),
+    "treebuild-tiny": ("treebuild", len(REAL_PAGES) + 10),
+    "treebuild-foreign": ("treebuild", len(REAL_PAGES) + 11),
+    "treebuild-callbacks": ("treebuild", len(REAL_PAGES) + 12),
 }
 
 
