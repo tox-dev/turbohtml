@@ -260,12 +260,18 @@ def test_element_tree_lxml_copy_preserves_existing_lxml_identity() -> None:
 
 
 @pytest.mark.oracle
-@pytest.mark.parametrize("child", [pytest.param(False, id="root"), pytest.param(True, id="child")])
-def test_element_tree_lxml_copy_rejects_unrepresentable_name(*, child: bool) -> None:
+def test_element_tree_lxml_copy_rejects_unrepresentable_root_name() -> None:
     pytest.importorskip("lxml.etree")
-    tree: Final = etree.Element("p" if child else "a²")
-    if child:
-        SubElement(tree, "a²")
+    tree: Final = etree.Element("a²")
+    with pytest.raises(ValueError, match="Invalid tag name"):
+        to_lxml(tree)
+
+
+@pytest.mark.oracle
+def test_element_tree_lxml_copy_rejects_unrepresentable_child_name() -> None:
+    pytest.importorskip("lxml.etree")
+    tree: Final = etree.Element("p")
+    SubElement(tree, "a²")
     with pytest.raises(ValueError, match="Invalid tag name"):
         to_lxml(tree)
 

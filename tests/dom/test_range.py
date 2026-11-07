@@ -966,21 +966,21 @@ def test_compare_descendant_with_ancestor_boundary(offset: int, expected: int) -
     assert Range(child, 1).compare_boundary_points(Range.START_TO_START, Range(parent, offset)) == expected
 
 
-@pytest.mark.parametrize("extract", [False, True], ids=["clone", "extract"])
-def test_range_contained_interval(*, extract: bool) -> None:
+@pytest.mark.parametrize("method", ["clone_contents", "extract_contents"], ids=["clone", "extract"])
+def test_range_contained_interval(method: str) -> None:
     root: Final = Element("div")
     root.set_inner_html("".join(f"<i>{index}</i>" for index in range(100)))
     boundary: Final = Range(root, 10)
     boundary.set_end(root, 90)
-    result: Final = boundary.extract_contents() if extract else boundary.clone_contents()
+    result: Final = getattr(boundary, method)()
     assert result.html == "".join(f"<i>{index}</i>" for index in range(10, 90))
 
 
-@pytest.mark.parametrize("extract", [False, True], ids=["clone", "extract"])
-def test_range_partial_excludes_siblings(*, extract: bool) -> None:
+@pytest.mark.parametrize("method", ["clone_contents", "extract_contents"], ids=["clone", "extract"])
+def test_range_partial_excludes_siblings(method: str) -> None:
     root: Final = Element("div")
     root.set_inner_html(f'<section data-x="é水😀">abcdef{"<i></i>" * 100}</section>tail')
     boundary: Final = Range(root)
     boundary.set_end(root.children[0].children[0], 3)
-    result: Final = boundary.extract_contents() if extract else boundary.clone_contents()
+    result: Final = getattr(boundary, method)()
     assert result.html == '<section data-x="é水😀">abc</section>'

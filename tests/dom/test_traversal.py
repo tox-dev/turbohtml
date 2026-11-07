@@ -359,29 +359,33 @@ def test_previous_node_skips_parent_then_continues() -> None:
     assert _tags(walker.previous_node()) == "a"
 
 
-@pytest.mark.parametrize("direction", ["next", "previous"], ids=["next", "previous"])
-def test_sibling_reject_skips_to_next(direction: str) -> None:
+@pytest.mark.parametrize(
+    ("start", "move", "expected"),
+    [
+        pytest.param("a", "next_sibling", "c", id="next"),
+        pytest.param("c", "previous_sibling", "a", id="previous"),
+    ],
+)
+def test_sibling_reject_skips_to_next(start: str, move: str, expected: str) -> None:
     tree = _el(parse("<div id=r><a>1</a><section><b>2</b></section><c>3</c></div>").select_one("#r"))
     walker = TreeWalker(tree, SHOW_ELEMENT, _verdict_on("section", _REJECT))
-    if direction == "next":
-        walker.current_node = _el(tree.select_one("a"))
-        # section is rejected, so the search does not descend into <b> and lands on <c>
-        assert _tags(walker.next_sibling()) == "c"
-    else:
-        walker.current_node = _el(tree.select_one("c"))
-        assert _tags(walker.previous_sibling()) == "a"
+    walker.current_node = _el(tree.select_one(start))
+    # section is rejected, so the search does not descend into <b> and lands on <c>
+    assert _tags(getattr(walker, move)()) == expected
 
 
-@pytest.mark.parametrize("direction", ["next", "previous"], ids=["next", "previous"])
-def test_sibling_skip_leaf_moves_past(direction: str) -> None:
+@pytest.mark.parametrize(
+    ("start", "move", "expected"),
+    [
+        pytest.param("a", "next_sibling", "c", id="next"),
+        pytest.param("c", "previous_sibling", "a", id="previous"),
+    ],
+)
+def test_sibling_skip_leaf_moves_past(start: str, move: str, expected: str) -> None:
     tree = _el(parse("<div id=r><a>1</a><br><c>3</c></div>").select_one("#r"))
     walker = TreeWalker(tree, SHOW_ELEMENT, _verdict_on("br", _SKIP))
-    if direction == "next":
-        walker.current_node = _el(tree.select_one("a"))
-        assert _tags(walker.next_sibling()) == "c"  # <br> is a skipped leaf, stepped over
-    else:
-        walker.current_node = _el(tree.select_one("c"))
-        assert _tags(walker.previous_sibling()) == "a"
+    walker.current_node = _el(tree.select_one(start))
+    assert _tags(getattr(walker, move)()) == expected  # <br> is a skipped leaf, stepped over
 
 
 def test_iterator_forward(root: Element) -> None:
@@ -706,11 +710,10 @@ def _walk_to(iterator: NodeIterator, forward: int, back: int = 0) -> None:
 
 def test_iterator_continues_after_removing_the_reference_ancestor() -> None:
     removal_doc = _removal_doc()
-    visited: list[Node] = []
-    for node in NodeIterator(_el(removal_doc.select_one("#r"))):
-        visited.append(node)
-        if _named(node, "b"):
-            _el(removal_doc.select_one("#p0")).decompose()
+    iterator = NodeIterator(_el(removal_doc.select_one("#r")))
+    visited: list[Node] = [next(iterator) for _ in range(3)]
+    _el(removal_doc.select_one("#p0")).decompose()
+    visited.extend(iterator)
     assert _ids(visited) == ["r", "p0", "b", "p1", "p2"]
 
 
@@ -780,15 +783,18 @@ def test_iterator_adjusts_the_candidate_when_the_filter_removes_nodes() -> None:
     ],
 )
 @pytest.mark.parametrize(
-    ("before", "expected"),
-    [pytest.param(False, ("r", False), id="after"), pytest.param(True, ("p1", True), id="before")],
+    ("forward", "back", "expected"),
+    [
+        pytest.param(3, 0, ("r", False), id="after"),
+        pytest.param(4, 2, ("p1", True), id="before"),
+    ],
 )
 def test_iterator_follows_removals_outside_the_node_api(
-    remove: Callable[[Document], object], *, before: bool, expected: tuple[str, bool]
+    remove: Callable[[Document], object], *, forward: int, back: int, expected: tuple[str, bool]
 ) -> None:
     removal_doc = _removal_doc()
     iterator = NodeIterator(_el(removal_doc.select_one("#r")))
-    _walk_to(iterator, 4 if before else 3, back=2 if before else 0)  # reference: b, pointer before or after
+    _walk_to(iterator, forward, back=back)  # reference: b, pointer before or after
     remove(removal_doc)
     assert (_ids([iterator.reference_node])[0], iterator.pointer_before_reference_node) == expected
 

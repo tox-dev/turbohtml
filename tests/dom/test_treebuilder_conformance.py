@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from itertools import chain
 from typing import TYPE_CHECKING, Final, cast
 
 import turbohtml
@@ -151,14 +152,12 @@ def test_corpus_exercises_sanitizer_relevant_nodes(wpt_html_tree_corpus: WptHtml
             return True
         return any(is_relevant(child) for child in node.children)
 
+    cases: Final = [case for case in wpt_html_tree_corpus["cases"] if case["scripting"] is not True]
     relevant: Final = sum(
-        1
-        for case in wpt_html_tree_corpus["cases"]
-        if case["scripting"] is not True
-        if is_relevant(
-            turbohtml.parse_fragment(case["data"], context)
-            if (context := case["context"]) is not None
-            else turbohtml.parse(case["data"])
+        is_relevant(parsed)
+        for parsed in chain(
+            (turbohtml.parse_fragment(case["data"], case["context"]) for case in cases if case["context"] is not None),
+            (turbohtml.parse(case["data"]) for case in cases if case["context"] is None),
         )
     )
     assert relevant >= 400

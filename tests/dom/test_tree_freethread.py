@@ -678,7 +678,6 @@ def test_concurrent_adoption_preserves_descendant_aliases() -> None:
         pytest.param(lambda node: check(node).valid, True, id="validate"),
         pytest.param(lambda node: len(list(node.descendants)), 2, id="descendants"),
         pytest.param(lambda node: node.attrs.copy(), {"live": "yes"}, id="attributes"),
-        pytest.param(hash, None, id="hash"),
         pytest.param(lambda node: len(node.find_all(text=lambda text: text == "text")), 1, id="callback"),
     ],
 )
@@ -686,14 +685,35 @@ def test_concurrent_adoption_and_reads(read: Callable[[turbohtml.Element], objec
     source: Final = turbohtml.Element(
         "section", {"live": "yes"}, children=[turbohtml.Element("b", children=[turbohtml.Text("text")])]
     )
-    expected_value: Final = hash(source) if expected is None else expected
     destinations: Final = [turbohtml.Element("main"), turbohtml.Element("aside")]
     start: Final = threading.Barrier(2)
 
     def reader() -> None:
         start.wait()
         for _ in range(1_000):
-            assert read(source) == expected_value
+            assert read(source) == expected
+
+    def mover() -> None:
+        start.wait()
+        for index in range(1_000):
+            destinations[index % 2].append(source)
+
+    _run(reader, mover)
+    assert destinations[1].text == "text"
+
+
+def test_concurrent_adoption_keeps_hash_stable() -> None:
+    source: Final = turbohtml.Element(
+        "section", {"live": "yes"}, children=[turbohtml.Element("b", children=[turbohtml.Text("text")])]
+    )
+    expected_hash: Final = hash(source)
+    destinations: Final = [turbohtml.Element("main"), turbohtml.Element("aside")]
+    start: Final = threading.Barrier(2)
+
+    def reader() -> None:
+        start.wait()
+        for _ in range(1_000):
+            assert hash(source) == expected_hash
 
     def mover() -> None:
         start.wait()

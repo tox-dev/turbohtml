@@ -19,6 +19,7 @@ from turbohtml.mutations import MutationObserver
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
+    from _pytest.mark.structures import ParameterSet
     from bench.timing import Mutating
 
 
@@ -2110,15 +2111,21 @@ def test_normalize_preserves_separate_runs() -> None:
     assert [(type(child), child.html) for child in root] == [(Text, "ab"), (Comment, "<!--boundary-->"), (Text, "cd")]
 
 
-@pytest.mark.parametrize("existing", [False, True], ids=["new", "replacement"])
-def test_attribute_benchmark_rebuilds_input(*, existing: bool) -> None:
+@pytest.mark.parametrize(
+    ("existing", "expected_untouched"),
+    [
+        pytest.param(False, {}, id="new"),
+        pytest.param(True, {f"data-{index}": "before" for index in range(3)}, id="replacement"),
+    ],
+)
+def test_attribute_benchmark_rebuilds_input(*, existing: bool, expected_untouched: dict[str, str]) -> None:
     operation: Final = cast("Mutating", OPERATIONS["attribute-grow"][0])
     case: Final = cast("tuple[Element, tuple[str, ...]]", operation.setup((3, existing)))
     untouched: Final = cast("tuple[Element, tuple[str, ...]]", operation.setup((3, existing)))
     operation.run(case)
     assert (dict(case[0].attrs), dict(untouched[0].attrs)) == (
         {f"data-{index}": "after" for index in range(3)},
-        {f"data-{index}": "before" for index in range(3)} if existing else {},
+        expected_untouched,
     )
 
 
@@ -2199,35 +2206,41 @@ def test_form_data_fieldset_boundaries(markup: str, expected: list[tuple[str, st
     assert form.form_data() == [*expected, ("tail", "ok")]
 
 
-@pytest.mark.parametrize("case_index", [0, 1, 2, 3], ids=["disabled", "legend", "enabled", "plain"])
-def test_form_data_fieldset_shared_inputs(case_index: int) -> None:
+@pytest.mark.parametrize(
+    ("case_index", "expected"),
+    [
+        pytest.param(0, [], id="disabled"),
+        pytest.param(1, [("allowed", "yes")], id="legend"),
+        pytest.param(2, [(f"n{index}", f"v{index}") for index in range(2_048)], id="enabled"),
+        pytest.param(3, [(f"n{index}", f"v{index}") for index in range(4)], id="plain"),
+    ],
+)
+def test_form_data_fieldset_shared_inputs(case_index: int, expected: list[tuple[str, str]]) -> None:
     source: Final = cast("str", INPUTS["form-data-fieldsets"]()[case_index][1])
     operation: Final = cast("Callable[[str], list[tuple[str, str]]]", OPERATIONS["form-data-fieldsets"][0])
-    expected: Final = (
-        []
-        if case_index == 0
-        else [("allowed", "yes")]
-        if case_index == 1
-        else [(f"n{index}", f"v{index}") for index in range(2_048 if case_index == 2 else 4)]
-    )
     assert operation(source) == [*expected, ("tail", "ok")]
 
 
 @pytest.mark.parametrize("count", [0, 1, 15, 16, 17, 32, 33, 2_049])
-@pytest.mark.parametrize("control", ["input", "option"])
-def test_form_data_preserves_many_values_after_detaching_controls(count: int, control: str) -> None:
+def test_form_data_preserves_many_values_after_detaching_inputs(count: int) -> None:
     expected: Final = [("field", f"é水😀{index}") for index in range(count)]
     markup: Final = "".join(
-        f'<input name="field" value="{value}"><input disabled name="skip">'
-        if control == "input"
-        else f'<option selected value="{value}"></option><option selected disabled value="skip"></option>'
+        f'<input name="field" value="{value}"><input disabled name="skip">' for _, value in expected
+    )
+    form: Final = parse(f"<form>{markup}</form>").select("form")[0]
+    result: Final = form.form_data()
+    form.clear()
+    assert result == expected
+
+
+@pytest.mark.parametrize("count", [0, 1, 15, 16, 17, 32, 33, 2_049])
+def test_form_data_preserves_many_values_after_detaching_options(count: int) -> None:
+    expected: Final = [("field", f"é水😀{index}") for index in range(count)]
+    markup: Final = "".join(
+        f'<option selected value="{value}"></option><option selected disabled value="skip"></option>'
         for _, value in expected
     )
-    form: Final = parse(
-        f"<form>{markup}</form>"
-        if control == "input"
-        else f'<form><select multiple name="field">{markup}</select></form>'
-    ).select("form")[0]
+    form: Final = parse(f'<form><select multiple name="field">{markup}</select></form>').select("form")[0]
     result: Final = form.form_data()
     form.clear()
     assert result == expected
@@ -2243,21 +2256,81 @@ def test_form_data_fieldset_refreshes_after_enabling() -> None:
 
 
 @pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
-@pytest.mark.parametrize("mutation", ["detach", "remove", "replace"])
-def test_form_data_handles_legend_changes_during_collection(mutation: str) -> None:
+@pytest.mark.parametrize(
+    ("mutation", "markup", "suffix", "counts", "replaced"),
+    [
+        pytest.param(
+            "detach",
+            '<form><fieldset disabled><legend>{controls}</legend><input name="blocked"></fieldset>'
+            '<input name="tail" value="ok"></form>',
+            [],
+            range(1, 256),
+            False,
+            id="detach-before-3.12",
+            marks=pytest.mark.skipif(sys.version_info >= (3, 12), reason="Python 3.12 collects the full run"),
+        ),
+        pytest.param(
+            "detach",
+            '<form><fieldset disabled><legend>{controls}</legend><input name="blocked"></fieldset>'
+            '<input name="tail" value="ok"></form>',
+            [("tail", "ok")],
+            range(256, 257),
+            False,
+            id="detach-3.12",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="Python 3.12 collects the full run"),
+        ),
+        pytest.param(
+            "remove",
+            '<form><fieldset><legend></legend><div>{controls}</div><input name="blocked"></fieldset>'
+            '<input name="tail" value="ok"></form>',
+            [("tail", "ok")],
+            range(1, 256),
+            False,
+            id="remove-before-3.12",
+            marks=pytest.mark.skipif(sys.version_info >= (3, 12), reason="Python 3.12 collects the full run"),
+        ),
+        pytest.param(
+            "remove",
+            '<form><fieldset><legend></legend><div>{controls}</div><input name="blocked"></fieldset>'
+            '<input name="tail" value="ok"></form>',
+            [("blocked", ""), ("tail", "ok")],
+            range(256, 257),
+            False,
+            id="remove-3.12",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="Python 3.12 collects the full run"),
+        ),
+        pytest.param(
+            "replace",
+            '<form><fieldset disabled><legend>{controls}</legend><input name="blocked"></fieldset>'
+            '<input name="tail" value="ok"></form>',
+            [("tail", "ok")],
+            range(1, 256),
+            True,
+            id="replace-before-3.12",
+            marks=pytest.mark.skipif(sys.version_info >= (3, 12), reason="Python 3.12 collects the full run"),
+        ),
+        pytest.param(
+            "replace",
+            '<form><fieldset disabled><legend>{controls}</legend><input name="blocked"></fieldset>'
+            '<input name="tail" value="ok"></form>',
+            [("tail", "ok")],
+            range(256, 257),
+            True,
+            id="replace-3.12",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="Python 3.12 collects the full run"),
+        ),
+    ],
+)
+def test_form_data_handles_legend_changes_during_collection(
+    mutation: str, markup: str, suffix: list[tuple[str, str]], counts: range, *, replaced: bool
+) -> None:
     controls: Final = "".join(f'<input name="n{index}" value="v{index}">' for index in range(256))
-    content: Final = (
-        f"<legend></legend><div>{controls}</div>" if mutation == "remove" else f"<legend>{controls}</legend>"
-    )
-    disabled: Final = "" if mutation == "remove" else " disabled"
-    form: Final = parse(
-        f'<form><fieldset{disabled}>{content}<input name="blocked"></fieldset><input name="tail" value="ok"></form>'
-    ).select("form")[0]
+    form: Final = parse(markup.format(controls=controls)).select("form")[0]
     fieldset: Final = form.select("fieldset")[0]
     legend: Final = form.select("legend")[0]
     collect: Final = form.form_data
     thresholds: Final = gc.get_threshold()
-    restore_gc: Final = gc.enable if gc.isenabled() else gc.disable
+    assert gc.isenabled()
     changed = False
 
     def change_legend(phase: str, _info: dict[str, int]) -> None:
@@ -2283,40 +2356,74 @@ def test_form_data_handles_legend_changes_during_collection(mutation: str) -> No
         gc.disable()
         gc.callbacks.remove(change_legend)
         gc.set_threshold(*thresholds)
-        restore_gc()
+        gc.enable()
     count: Final = sum(name.startswith("n") for name, _value in pairs)
     expected: Final = [(f"n{index}", f"v{index}") for index in range(count)]
-    tail: Final = [] if sys.version_info < (3, 12) and mutation == "detach" else [("tail", "ok")]
-    blocked: Final = [("blocked", "")] if sys.version_info >= (3, 12) and mutation == "remove" else []
-    assert count == 256 if sys.version_info >= (3, 12) else 0 < count < 256
-    assert (changed, legend.parent, pairs) == (
-        True,
-        fieldset if mutation == "replace" else None,
-        [*expected, *blocked, *tail],
-    )
+    assert count in counts
+    assert (changed, legend.parent is fieldset, legend.parent is None) == (True, replaced, not replaced)
+    assert pairs == [*expected, *suffix]
 
 
-@pytest.mark.parametrize("edit", ["none", "rename", "type", "append", "detach"])
-def test_radio_group_index_tracks_scope_and_edits(edit: str) -> None:
-    document: Final = parse(
+@pytest.fixture
+def radio_scope_document() -> Document:
+    return parse(
         '<form><input type=radio name="é水😀" checked><input type=radio name="é水😀"></form>'
         '<form><input type=radio name="é水😀" checked></form>'
     )
-    form: Final = document.select("form")[0]
-    first, selected, outside = document.select("input")
-    if edit == "rename":
-        first.attrs["name"] = "other"
-    elif edit == "type":
-        first.attrs["type"] = "checkbox"
-    elif edit == "append":
-        form.append(Element("input", {"type": "radio", "name": "é水😀", "checked": ""}))
-        document.select("input")
-    elif edit == "detach":
-        form.extract()
-        document.select("input")
+
+
+def test_radio_group_index_keeps_unedited_scope(radio_scope_document: Document) -> None:
+    form: Final = radio_scope_document.select("form")[0]
+    _first, selected, outside = radio_scope_document.select("input")
     selected.checked = True
     assert ([node.checked for node in form.children if isinstance(node, Element)], outside.checked) == (
-        [edit in {"rename", "type"}, True, *([False] if edit == "append" else [])],
+        [False, True],
+        True,
+    )
+
+
+def test_radio_group_index_follows_renamed_radio(radio_scope_document: Document) -> None:
+    form: Final = radio_scope_document.select("form")[0]
+    first, selected, outside = radio_scope_document.select("input")
+    first.attrs["name"] = "other"
+    selected.checked = True
+    assert ([node.checked for node in form.children if isinstance(node, Element)], outside.checked) == (
+        [True, True],
+        True,
+    )
+
+
+def test_radio_group_index_follows_retyped_radio(radio_scope_document: Document) -> None:
+    form: Final = radio_scope_document.select("form")[0]
+    first, selected, outside = radio_scope_document.select("input")
+    first.attrs["type"] = "checkbox"
+    selected.checked = True
+    assert ([node.checked for node in form.children if isinstance(node, Element)], outside.checked) == (
+        [True, True],
+        True,
+    )
+
+
+def test_radio_group_index_follows_appended_radio(radio_scope_document: Document) -> None:
+    form: Final = radio_scope_document.select("form")[0]
+    _first, selected, outside = radio_scope_document.select("input")
+    form.append(Element("input", {"type": "radio", "name": "é水😀", "checked": ""}))
+    radio_scope_document.select("input")
+    selected.checked = True
+    assert ([node.checked for node in form.children if isinstance(node, Element)], outside.checked) == (
+        [False, True, False],
+        True,
+    )
+
+
+def test_radio_group_index_follows_detached_form(radio_scope_document: Document) -> None:
+    form: Final = radio_scope_document.select("form")[0]
+    _first, selected, outside = radio_scope_document.select("input")
+    form.extract()
+    radio_scope_document.select("input")
+    selected.checked = True
+    assert ([node.checked for node in form.children if isinstance(node, Element)], outside.checked) == (
+        [False, True],
         True,
     )
 
@@ -2349,15 +2456,27 @@ def test_radio_group_benchmark_output(case: int, selected: int) -> None:
     assert operation.run(operation.setup(data)) == tuple(index == selected for index in range(16))
 
 
-@pytest.mark.parametrize("indexed", [pytest.param(False, id="unindexed"), pytest.param(True, id="indexed")])
-def test_radio_group_document_scope_keeps_other_names_and_types(*, indexed: bool) -> None:
-    document: Final = parse(
+@pytest.fixture
+def document_scope_radios() -> Document:
+    return parse(
         '<input type=radio name="é水😀" checked><input type=radio name="é水😀">'
         '<input type=radio name=other checked><input type=checkbox name="é水😀" checked>'
     )
-    radios: Final = [node for node in document.children[0].children[-1].children if isinstance(node, Element)]
-    if indexed:
-        document.select("input")
+
+
+def test_radio_group_document_scope_keeps_other_names_and_types(document_scope_radios: Document) -> None:
+    radios: Final = [
+        node for node in document_scope_radios.children[0].children[-1].children if isinstance(node, Element)
+    ]
+    radios[1].checked = True
+    assert [node.checked for node in radios] == [False, True, True, True]
+
+
+def test_radio_group_document_scope_after_index_keeps_other_names_and_types(document_scope_radios: Document) -> None:
+    radios: Final = [
+        node for node in document_scope_radios.children[0].children[-1].children if isinstance(node, Element)
+    ]
+    document_scope_radios.select("input")
     radios[1].checked = True
     assert [node.checked for node in radios] == [False, True, True, True]
 
@@ -2378,7 +2497,7 @@ def test_attrs_snapshot_during_collection(
     offset: int,
 ) -> None:
     thresholds: Final = gc.get_threshold()
-    restore_gc: Final = gc.enable if gc.isenabled() else gc.disable
+    assert gc.isenabled()
     gc.disable()
     gc.collect()
     attrs: Final = Element("a", {"id": "old", "class": "before value", "title": "tail"}).attrs
@@ -2406,7 +2525,7 @@ def test_attrs_snapshot_during_collection(
         gc.disable()
         gc.callbacks.remove(replace_values)
         gc.set_threshold(*thresholds)
-        restore_gc()
+        gc.enable()
         lists.clear()
         tuples.clear()
     assert (changed, result, attrs.copy()) == (
@@ -2416,25 +2535,42 @@ def test_attrs_snapshot_during_collection(
     )
 
 
-@pytest.mark.parametrize("method", ["keys", "values", "items", "copy"])
-def test_attrs_empty_snapshot(method: str) -> None:
+@pytest.mark.parametrize(
+    ("method", "expected"),
+    [
+        pytest.param("keys", [], id="keys"),
+        pytest.param("values", [], id="values"),
+        pytest.param("items", [], id="items"),
+        pytest.param("copy", {}, id="copy"),
+    ],
+)
+def test_attrs_empty_snapshot(method: str, expected: list[object] | dict[str, str]) -> None:
     attrs: Final = Element("div").attrs
-    assert getattr(attrs, method)() == ({} if method == "copy" else [])
+    assert getattr(attrs, method)() == expected
 
 
-@pytest.mark.parametrize("method", ["iter", "keys"])
-def test_attrs_names_snapshot(method: str) -> None:
+def test_attrs_names_iterator_snapshot() -> None:
     attrs: Final = Element("div", {"id": "first", "data-name": "second"}).attrs
-    snapshot: Final = iter(attrs) if method == "iter" else attrs.keys()
+    snapshot: Final = iter(attrs)
+    attrs["later"] = "third"
+    assert list(snapshot) == ["id", "data-name"]
+
+
+def test_attrs_names_keys_snapshot() -> None:
+    attrs: Final = Element("div", {"id": "first", "data-name": "second"}).attrs
+    snapshot: Final = attrs.keys()
     attrs["later"] = "third"
     assert list(snapshot) == ["id", "data-name"]
 
 
 @pytest.mark.parametrize("threaded", [pytest.param(False, id="same-thread"), pytest.param(True, id="other-thread")])
-@pytest.mark.parametrize("checked", [pytest.param(False, id="uncheck"), pytest.param(True, id="check")])
+@pytest.mark.parametrize(
+    ("checked", "source_checked"),
+    [pytest.param(False, "checked", id="uncheck"), pytest.param(True, "", id="check")],
+)
 @pytest.mark.parametrize("kind", [pytest.param("radio", id="radio"), pytest.param("checkbox", id="checkbox")])
-def test_checked_truth_callback_adopts_input(kind: str, *, checked: bool, threaded: bool) -> None:
-    source = parse(f'<form><input type="{kind}" name="group" {"" if checked else "checked"}></form>')
+def test_checked_truth_callback_adopts_input(kind: str, *, checked: bool, source_checked: str, threaded: bool) -> None:
+    source = parse(f'<form><input type="{kind}" name="group" {source_checked}></form>')
     destination = parse(f'<form><input type="{kind}" name="group" checked></form>')
     field = source.select("input")[0]
     form = destination.select("form")[0]
@@ -2808,90 +2944,113 @@ def test_tag_cannot_be_deleted() -> None:
         del element.tag  # ty: ignore[invalid-assignment]  # deleting the tag tests the runtime check
 
 
-@pytest.mark.parametrize(
-    ("markup", "same_owner"),
-    [
-        pytest.param("<form><input></form><input>", False, id="outside-form"),
-        pytest.param(
-            "<form><svg><form><foreignObject><input></foreignObject></form></svg><input></form>",
-            True,
-            id="foreign-form-descendant",
-        ),
-        pytest.param("<form><input></form><form><input></form>", False, id="separate-forms"),
-        pytest.param("<form id=f><input></form><input form=f>", True, id="external-owner"),
-        pytest.param("<form id=f><input></form><input form=F>", False, id="case-sensitive-owner"),
-        pytest.param("<form id=é水😀><input></form><input form=é水😀>", True, id="unicode-owner"),
-        pytest.param("<form id=f></form><input form=f><input form=f>", True, id="external-pair"),
-        pytest.param("<form id=f></form><form id=g></form><input form=f><input form=g>", False, id="external-forms"),
-        pytest.param("<form id=f></form><input form=f><input form=missing>", False, id="external-missing"),
-        pytest.param('<form id=f></form><input form=f><input form="">', False, id="external-empty"),
-        pytest.param("<form id=f><input><input form=missing></form>", False, id="missing-owner"),
-        pytest.param('<form id=f><input><input form=""></form>', False, id="empty-owner"),
-        pytest.param("<form id=f><input><input form></form>", False, id="boolean-owner"),
-        pytest.param("<input><form><input form=missing></form>", True, id="both-ownerless"),
-        pytest.param("<form id=f><input></form><form><input form=f></form>", True, id="owner-overrides-ancestor"),
-        pytest.param("<div id=f></div><form id=f><input></form><input form=f>", False, id="nonform-id-first"),
-        pytest.param("<form id=f><input></form><div id=f></div><input form=f>", True, id="form-id-first"),
-        pytest.param("<svg><g id=f></g></svg><form id=f><input></form><input form=f>", False, id="foreign-id-first"),
-        pytest.param(
-            "<div id=a></div><div id=i></div><form id=q><input></form><input form=q>", True, id="id-collision"
-        ),
-        pytest.param(
-            '<b id=""></b><div id=a></div><div id=i></div><form id=q><input form=y></form><input>',
-            True,
-            id="missing-collision",
-        ),
-        pytest.param("text<!--c--><i id></i><form id=f><input></form><input form=f>", True, id="id-walk"),
-    ],
-)
+_RADIO_FORM_OWNER_CASES: Final[list[ParameterSet]] = [
+    pytest.param("<form><input></form><input>", False, id="outside-form"),
+    pytest.param(
+        "<form><svg><form><foreignObject><input></foreignObject></form></svg><input></form>",
+        True,
+        id="foreign-form-descendant",
+    ),
+    pytest.param("<form><input></form><form><input></form>", False, id="separate-forms"),
+    pytest.param("<form id=f><input></form><input form=f>", True, id="external-owner"),
+    pytest.param("<form id=f><input></form><input form=F>", False, id="case-sensitive-owner"),
+    pytest.param("<form id=é水😀><input></form><input form=é水😀>", True, id="unicode-owner"),
+    pytest.param("<form id=f></form><input form=f><input form=f>", True, id="external-pair"),
+    pytest.param("<form id=f></form><form id=g></form><input form=f><input form=g>", False, id="external-forms"),
+    pytest.param("<form id=f></form><input form=f><input form=missing>", False, id="external-missing"),
+    pytest.param('<form id=f></form><input form=f><input form="">', False, id="external-empty"),
+    pytest.param("<form id=f><input><input form=missing></form>", False, id="missing-owner"),
+    pytest.param('<form id=f><input><input form=""></form>', False, id="empty-owner"),
+    pytest.param("<form id=f><input><input form></form>", False, id="boolean-owner"),
+    pytest.param("<input><form><input form=missing></form>", True, id="both-ownerless"),
+    pytest.param("<form id=f><input></form><form><input form=f></form>", True, id="owner-overrides-ancestor"),
+    pytest.param("<div id=f></div><form id=f><input></form><input form=f>", False, id="nonform-id-first"),
+    pytest.param("<form id=f><input></form><div id=f></div><input form=f>", True, id="form-id-first"),
+    pytest.param("<svg><g id=f></g></svg><form id=f><input></form><input form=f>", False, id="foreign-id-first"),
+    pytest.param("<div id=a></div><div id=i></div><form id=q><input></form><input form=q>", True, id="id-collision"),
+    pytest.param(
+        '<b id=""></b><div id=a></div><div id=i></div><form id=q><input form=y></form><input>',
+        True,
+        id="missing-collision",
+    ),
+    pytest.param("text<!--c--><i id></i><form id=f><input></form><input form=f>", True, id="id-walk"),
+]
+
+
+@pytest.mark.parametrize(("markup", "same_owner"), _RADIO_FORM_OWNER_CASES)
 @pytest.mark.parametrize("selected", [pytest.param(0, id="first"), pytest.param(1, id="second")])
-@pytest.mark.parametrize("indexed", [pytest.param(False, id="walk"), pytest.param(True, id="index")])
-def test_radio_group_form_owner(markup: str, selected: int, *, same_owner: bool, indexed: bool) -> None:
+def test_radio_group_form_owner_walks_descendants(markup: str, selected: int, *, same_owner: bool) -> None:
     document: Final = parse(markup)
     radios: Final = [node for node in document.descendants if isinstance(node, Element) and node.tag == "input"]
     for radio in radios:
         radio.attrs.update(type="radio", name="group", checked="")
-    if indexed:
-        document.select("input")
+    radios[selected].checked = True
+    assert [radio.checked for radio in radios] == [index == selected or not same_owner for index in range(2)]
+
+
+@pytest.mark.parametrize(("markup", "same_owner"), _RADIO_FORM_OWNER_CASES)
+@pytest.mark.parametrize("selected", [pytest.param(0, id="first"), pytest.param(1, id="second")])
+def test_radio_group_form_owner_uses_index(markup: str, selected: int, *, same_owner: bool) -> None:
+    document: Final = parse(markup)
+    radios: Final = [node for node in document.descendants if isinstance(node, Element) and node.tag == "input"]
+    for radio in radios:
+        radio.attrs.update(type="radio", name="group", checked="")
+    document.select("input")
     radios[selected].checked = True
     assert [radio.checked for radio in radios] == [index == selected or not same_owner for index in range(2)]
 
 
 @pytest.mark.parametrize("selected", [pytest.param(0, id="outer"), pytest.param(1, id="inner")])
-@pytest.mark.parametrize("trailing", [pytest.param(False, id="last"), pytest.param(True, id="followed")])
-def test_radio_group_nested_forms(selected: int, *, trailing: bool) -> None:
+def test_radio_group_nested_forms(selected: int) -> None:
     outer: Final = Element("form")
     inner: Final = Element("form")
     outer.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
     inner.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
     outer.append(Element("div", children=[inner]))
-    if trailing:
-        outer.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
     radios: Final = list(outer.find_all("input"))
     radios[selected].checked = True
-    assert [radio.checked for radio in radios] == [True, True, *([selected == 1] if trailing else [])]
+    assert [radio.checked for radio in radios] == [True, True]
 
 
-@pytest.mark.parametrize("connected", [pytest.param(False, id="detached"), pytest.param(True, id="connected")])
+@pytest.mark.parametrize("selected", [pytest.param(0, id="outer"), pytest.param(1, id="inner")])
+def test_radio_group_nested_forms_followed(selected: int) -> None:
+    outer: Final = Element("form")
+    inner: Final = Element("form")
+    outer.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
+    inner.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
+    outer.append(Element("div", children=[inner]))
+    outer.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
+    radios: Final = list(outer.find_all("input"))
+    radios[selected].checked = True
+    assert [radio.checked for radio in radios] == [True, True, selected == 1]
+
+
 @pytest.mark.parametrize("selected", [pytest.param(0, id="first"), pytest.param(1, id="second")])
-def test_radio_group_explicit_owner_requires_connection(selected: int, *, connected: bool) -> None:
+def test_radio_group_explicit_owner_detached(selected: int) -> None:
     document: Final = parse(
         "<form><input type=radio name=x checked><input type=radio name=x form=missing checked></form>"
     )
     form: Final = document.select("form")[0]
     radios: Final = list(form.find_all("input"))
-    if not connected:
-        form.extract()
+    form.extract()
     radios[selected].checked = True
-    assert [radio.checked for radio in radios] == [index == selected or connected for index in range(2)]
+    assert [radio.checked for radio in radios] == [index == selected for index in range(2)]
 
 
-@pytest.mark.parametrize("connected", [pytest.param(False, id="detached"), pytest.param(True, id="connected")])
-def test_radio_group_shadow_form_owner(*, connected: bool) -> None:
+@pytest.mark.parametrize("selected", [pytest.param(0, id="first"), pytest.param(1, id="second")])
+def test_radio_group_explicit_owner_connected(selected: int) -> None:
+    document: Final = parse(
+        "<form><input type=radio name=x checked><input type=radio name=x form=missing checked></form>"
+    )
+    radios: Final = list(document.select("form")[0].find_all("input"))
+    radios[selected].checked = True
+    assert [radio.checked for radio in radios] == [True, True]
+
+
+def test_radio_group_shadow_form_owner_detached() -> None:
     document: Final = parse("<form id=f><input type=radio name=x checked></form><div></div>")
     host: Final = document.select("div")[0]
-    if not connected:
-        host.extract()
+    host.extract()
     shadow: Final = host.attach_shadow()
     form: Final = Element("form", {"id": "f"})
     form.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
@@ -2899,7 +3058,20 @@ def test_radio_group_shadow_form_owner(*, connected: bool) -> None:
     shadow.append(Element("input", {"type": "radio", "name": "x", "form": "f"}))
     first, selected = shadow.find_all("input")
     selected.checked = True
-    assert (document.select("input")[0].checked, first.checked, selected.checked) == (True, not connected, True)
+    assert (document.select("input")[0].checked, first.checked, selected.checked) == (True, True, True)
+
+
+def test_radio_group_shadow_form_owner_connected() -> None:
+    document: Final = parse("<form id=f><input type=radio name=x checked></form><div></div>")
+    host: Final = document.select("div")[0]
+    shadow: Final = host.attach_shadow()
+    form: Final = Element("form", {"id": "f"})
+    form.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
+    shadow.append(form)
+    shadow.append(Element("input", {"type": "radio", "name": "x", "form": "f"}))
+    first, selected = shadow.find_all("input")
+    selected.checked = True
+    assert (document.select("input")[0].checked, first.checked, selected.checked) == (True, False, True)
 
 
 @pytest.mark.parametrize("selected", [pytest.param(0, id="inside"), pytest.param(1, id="outside")])
@@ -2922,9 +3094,16 @@ def test_radio_group_includes_radio_root() -> None:
     assert (root.checked, child.checked) == (False, True)
 
 
-@pytest.mark.parametrize("count", [pytest.param(1, id="small"), pytest.param(64, id="wide")])
-@pytest.mark.parametrize("external", [pytest.param(False, id="inside"), pytest.param(True, id="outside")])
-def test_radio_group_many_explicit_owners(count: int, *, external: bool) -> None:
+@pytest.mark.parametrize(
+    ("count", "selected_index"),
+    [
+        pytest.param(1, 0, id="small-inside"),
+        pytest.param(1, 2, id="small-outside"),
+        pytest.param(64, 0, id="wide-inside"),
+        pytest.param(64, 65, id="wide-outside"),
+    ],
+)
+def test_radio_group_many_explicit_owners(count: int, selected_index: int) -> None:
     document: Final = parse(
         "<div></div>" * count
         + '<form id="target"><input type=radio name=x checked></form>'
@@ -2932,39 +3111,42 @@ def test_radio_group_many_explicit_owners(count: int, *, external: bool) -> None
         + "<input type=radio name=x form=target>"
     )
     radios: Final = list(document.find_all("input"))
-    selected: Final = len(radios) - 1 if external else 0
-    radios[selected].checked = True
-    assert [radio.checked for radio in radios] == [index == selected for index in range(len(radios))]
+    radios[selected_index].checked = True
+    assert [radio.checked for radio in radios] == [index == selected_index for index in range(len(radios))]
 
 
-@pytest.mark.parametrize("owned", [pytest.param(False, id="ownerless"), pytest.param(True, id="form")])
-@pytest.mark.parametrize("inside", [pytest.param(False, id="outside"), pytest.param(True, id="inside")])
-def test_radio_group_deep_ancestor_ownership(*, owned: bool, inside: bool) -> None:
-    container: Final = "form" if owned else "section"
-    selected_html: Final = "<input type=radio name=x>"
+@pytest.mark.parametrize(
+    ("container", "inside", "outside", "checked"),
+    [
+        pytest.param("form", "", "<input type=radio name=x>", True, id="form-outside"),
+        pytest.param("form", "<input type=radio name=x>", "", False, id="form-inside"),
+        pytest.param("section", "", "<input type=radio name=x>", False, id="ownerless-outside"),
+        pytest.param("section", "<input type=radio name=x>", "", False, id="ownerless-inside"),
+    ],
+)
+def test_radio_group_deep_ancestor_ownership(container: str, inside: str, outside: str, *, checked: bool) -> None:
     document: Final = parse(
         f"<{container}>"
         + "<div>" * 32
         + "<input type=radio name=x checked><span><input type=radio name=x checked></span>"
         + "</div>" * 32
-        + (selected_html if inside else "")
+        + inside
         + f"</{container}>"
-        + ("" if inside else selected_html)
+        + outside
     )
     first, second, selected = document.find_all("input")
     selected.checked = True
-    assert (first.checked, second.checked, selected.checked) == (owned and not inside, owned and not inside, True)
+    assert (first.checked, second.checked, selected.checked) == (checked, checked, True)
 
 
 @pytest.mark.parametrize(
-    ("attr", "value"),
+    ("markup", "attr", "value"),
     [
-        pytest.param("checked", "", id="valueless"),
-        pytest.param("type", "text", id="valued"),
+        pytest.param("checked", "checked", "", id="valueless"),
+        pytest.param("type=text", "type", "text", id="valued"),
     ],
 )
-def test_attrs_mapping(find: Callable[[str, str], Element], attr: str, value: str) -> None:
-    markup = f"{attr}={value}" if value else attr
+def test_attrs_mapping(find: Callable[[str, str], Element], markup: str, attr: str, value: str) -> None:
     assert find(f"<input {markup}>", "input").attrs[attr] == value
 
 

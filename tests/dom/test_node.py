@@ -288,40 +288,50 @@ def test_identity_survives_alias_release_and_adoption(released: int) -> None:
 @pytest.mark.parametrize(
     "count", [pytest.param(1, id="one"), pytest.param(12, id="inline"), pytest.param(32, id="expanded")]
 )
-@pytest.mark.parametrize("keep", [pytest.param(False, id="released"), pytest.param(True, id="retained")])
-def test_adoption_preserves_descendants_after_alias_release(count: int, *, keep: bool) -> None:
+def test_adoption_preserves_descendants_after_alias_release(count: int) -> None:
     source: Final = Element("section")
     source.set_inner_html("<span>text</span>" * count)
     aliases: Final = source.select("span")
-    retained: Final = aliases[-1:] if keep else []
     aliases.clear()
     target: Final = Element("main")
     target.append(source)
-    if retained:
-        retained[0].attrs["live"] = "yes"
-    assert target.inner_html == "<section>" + "<span>text</span>" * (count - 1) + (
-        '<span live="yes">text</span></section>' if keep else "<span>text</span></section>"
+    assert target.inner_html == "<section>" + "<span>text</span>" * count + "</section>"
+
+
+@pytest.mark.parametrize(
+    "count", [pytest.param(1, id="one"), pytest.param(12, id="inline"), pytest.param(32, id="expanded")]
+)
+def test_adoption_keeps_retained_alias_attributes(count: int) -> None:
+    source: Final = Element("section")
+    source.set_inner_html("<span>text</span>" * count)
+    aliases: Final = source.select("span")
+    retained: Final = aliases[-1]
+    aliases.clear()
+    target: Final = Element("main")
+    target.append(source)
+    retained.attrs["live"] = "yes"
+    assert (
+        target.inner_html == "<section>" + "<span>text</span>" * (count - 1) + '<span live="yes">text</span></section>'
     )
 
 
-@pytest.mark.parametrize("operation", ["find", "indexed", "css", "xpath", "parent"])
-def test_element_result_types_after_adoption(operation: str) -> None:
+@pytest.mark.parametrize(
+    "find_result",
+    [
+        pytest.param(lambda target: target.find_all(attrs={"data-x": True}), id="find"),
+        pytest.param(lambda target: target.find_all("a"), id="indexed"),
+        pytest.param(lambda target: target.select("a"), id="css"),
+        pytest.param(lambda target: cast("list[Element]", target.xpath("//a")), id="xpath"),
+        pytest.param(lambda target: list(Query(target.select("b")).parent()), id="parent"),
+    ],
+)
+def test_element_result_types_after_adoption(find_result: Callable[[Document], Iterable[Node]]) -> None:
     source: Final = parse('<section><a data-x="yes"><b></b></a><a data-x="yes"><b></b></a></section>')
     section: Final = source.select("section")[0]
     expected: Final = section.select("a")
     target: Final = parse("<main></main>")
     target.select("main")[0].append(section)
-    if operation == "find":
-        result = target.find_all(attrs={"data-x": True})
-    elif operation == "indexed":
-        result = target.find_all("a")
-    elif operation == "css":
-        result = target.select("a")
-    elif operation == "xpath":
-        result = cast("list[Element]", target.xpath("//a"))
-    else:
-        result = list(Query(target.select("b")).parent())
-    assert [(type(node), node) for node in result] == [(Element, node) for node in expected]
+    assert [(type(node), node) for node in find_result(target)] == [(Element, node) for node in expected]
 
 
 def test_hash_survives_release_of_all_adopted_aliases() -> None:
@@ -566,14 +576,19 @@ def test_node_is_truthy_regardless_of_children(
 
 
 @pytest.mark.parametrize("count", [1, 29, 30, 100], ids=["small", "below-index", "index", "large"])
-@pytest.mark.parametrize("position", ["first", "last"])
-def test_duplicate_normalized_attributes_keep_the_first(count: int, position: str) -> None:
+def test_duplicate_normalized_attributes_keep_the_first(count: int) -> None:
     ordinary: Final = {f"data-{index}": "é水😀" for index in range(count)}
     duplicates: Final = {"A": "x", "a": "y"}
     kept: Final = {"a": "x"}
-    attributes: Final = duplicates | ordinary if position == "first" else ordinary | duplicates
-    expected: Final = kept | ordinary if position == "first" else ordinary | kept
-    assert Element("div", attributes).equals(Element("div", expected))
+    assert Element("div", duplicates | ordinary).equals(Element("div", kept | ordinary))
+
+
+@pytest.mark.parametrize("count", [1, 29, 30, 100], ids=["small", "below-index", "index", "large"])
+def test_duplicate_normalized_attributes_keep_the_first_after_ordinary(count: int) -> None:
+    ordinary: Final = {f"data-{index}": "é水😀" for index in range(count)}
+    duplicates: Final = {"A": "x", "a": "y"}
+    kept: Final = {"a": "x"}
+    assert Element("div", ordinary | duplicates).equals(Element("div", ordinary | kept))
 
 
 @pytest.mark.parametrize("prefix", ["data-", "é", "水", "𐐀"], ids=["ascii", "latin1", "ucs2", "ucs4"])
@@ -626,8 +641,11 @@ def test_duplicate_attributes_reach_index_threshold_at_last_name() -> None:
     assert left.equals(right)
 
 
-@pytest.mark.parametrize("different", [False, True], ids=["equal", "different"])
-def test_many_duplicate_attributes_preserve_first_value(*, different: bool) -> None:
+@pytest.mark.parametrize(
+    ("override", "equal"),
+    [pytest.param({}, True, id="equal"), pytest.param({"abcdefghij": "different"}, False, id="different")],
+)
+def test_many_duplicate_attributes_preserve_first_value(override: dict[str, str], *, equal: bool) -> None:
     names: Final = [
         "".join(letter.upper() if variant & (1 << index) else letter for index, letter in enumerate("abcdefghij"))
         for variant in range(1000)
@@ -635,10 +653,8 @@ def test_many_duplicate_attributes_preserve_first_value(*, different: bool) -> N
     duplicates: Final = dict.fromkeys(names, "same")
     anchors: Final = {"first": "1", "second": "2", "third": "3"}
     left: Final = Element("div", anchors | duplicates)
-    right: Final = Element("div", duplicates | anchors)
-    if different:
-        right.attrs[names[0]] = "different"
-    assert left.equals(right) is not different
+    right: Final = Element("div", duplicates | anchors | override)
+    assert left.equals(right) is equal
 
 
 def test_start_tag_span_covers_open_angle_through_close_angle() -> None:
@@ -1148,11 +1164,9 @@ def test_text_concatenates_descendant_character_data(
         pytest.param("a\x00b", id="embedded-nul"),
     ],
 )
-@pytest.mark.parametrize("wrapped", [False, True], ids=["text-root", "element-root"])
-def test_text_preserves_unicode(text: str, *, wrapped: bool) -> None:
+def test_text_preserves_unicode(text: str) -> None:
     child: Final = Text(text)
-    root: Final = Element("p", children=[child]) if wrapped else child
-    assert root.text == text
+    assert (child.text, Element("p", children=[child]).text) == (text, text)
 
 
 @pytest.mark.parametrize(

@@ -13,6 +13,7 @@ from turbohtml import (
     Document,
     DocumentFragment,
     Element,
+    Node,
     Range,
     ShadowRoot,
     Text,
@@ -22,9 +23,9 @@ from turbohtml import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Sequence
 
-    from turbohtml import Node
+    from _pytest.mark.structures import ParameterSet
 
 
 @pytest.fixture
@@ -792,28 +793,34 @@ def test_shadow_adoption_preserves_aliases(mode: str, depth: int) -> None:
     assert host.children == children
     for owner, root, child, saved_hash in roots:
         assert (root.host, root.children, hash(root)) == (owner, (child,), saved_hash)
-        assert owner.shadow_root == (root if mode == "open" else None)
+        assert (owner.shadow_root is None, owner.shadow_root is root) == (mode != "open", mode == "open")
 
 
-@pytest.mark.parametrize("method", ["assigned_nodes", "assigned_elements", "flattened_children"])
-def test_shadow_results_during_adoption(method: str) -> None:
+_SLOT_READS: Final[list[ParameterSet]] = [
+    pytest.param(lambda slot: slot.assigned_nodes(), Node, id="assigned_nodes"),
+    pytest.param(lambda slot: slot.assigned_elements(), Element, id="assigned_elements"),
+    pytest.param(lambda slot: slot.flattened_children, Node, id="flattened_children"),
+]
+
+
+@pytest.mark.parametrize(("read_result", "kind"), _SLOT_READS)
+def test_shadow_results_during_adoption(read_result: Callable[[Element], Sequence[Node]], kind: type[Node]) -> None:
     host: Final = Element("div")
     for index in range(32):
         host.append(Element("span", children=[Text(str(index))]))
         host.append(Text(" "))
-    expected: Final = [node for node in host.children if method != "assigned_elements" or isinstance(node, Element)]
+    expected: Final = [node for node in host.children if isinstance(node, kind)]
     root: Final = host.attach_shadow()
     root.set_inner_html("<slot></slot>")
     slot: Final = root.find("slot")
     assert slot is not None
     targets: Final = (Element("main"), Element("section"))
     start: Final = Barrier(2)
-    collect: Final = slot.assigned_elements if method == "assigned_elements" else slot.assigned_nodes
 
     def read() -> None:
         start.wait()
         for _ in range(200):
-            assert (slot.flattened_children if method == "flattened_children" else collect()) == expected
+            assert read_result(slot) == expected
 
     with ThreadPoolExecutor(max_workers=1) as pool:
         reader: Final = pool.submit(read)
@@ -825,21 +832,33 @@ def test_shadow_results_during_adoption(method: str) -> None:
 
 
 @pytest.mark.parametrize("markup", ["", "<i>one</i><b>two</b>"])
-@pytest.mark.parametrize("xml", [False, True])
-def test_shadow_adoption_preserves_content(markup: str, *, xml: bool) -> None:
+@pytest.mark.parametrize(
+    "make_target",
+    [
+        pytest.param(lambda: Element("main"), id="html"),
+        pytest.param(lambda: parse_xml("<main/>").find("main"), id="xml"),
+    ],
+)
+def test_shadow_adoption_preserves_content(markup: str, make_target: Callable[[], Element | None]) -> None:
     host: Final = Element("div")
     root: Final = host.attach_shadow()
     root.set_inner_html(markup)
     children: Final = root.children
-    target: Final = parse_xml("<main/>").find("main") if xml else Element("main")
+    target: Final = make_target()
     assert target is not None
     target.append(host)
     assert (root.inner_html, root.children, root.host) == (markup, children, host)
 
 
-@pytest.mark.parametrize("shadow", [False, True])
-def test_fragment_adopts_shadow_hosts(*, shadow: bool) -> None:
-    fragment: Final = Element("section").attach_shadow() if shadow else DocumentFragment()
+@pytest.mark.parametrize(
+    "make_fragment",
+    [
+        pytest.param(DocumentFragment, id="fragment"),
+        pytest.param(lambda: Element("section").attach_shadow(), id="shadow"),
+    ],
+)
+def test_fragment_adopts_shadow_hosts(make_fragment: Callable[[], DocumentFragment]) -> None:
+    fragment: Final = make_fragment()
     host: Final = Element("div", children=[Element("span")])
     fragment.append(host)
     root: Final = host.attach_shadow()
@@ -865,17 +884,19 @@ def test_shadow_adoption_preserves_declarative_flags() -> None:
 
 
 @pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
-@pytest.mark.parametrize("method", ["assigned_nodes", "assigned_elements", "flattened_children"])
+@pytest.mark.parametrize(("read_result", "kind"), _SLOT_READS)
 @pytest.mark.parametrize("offset", [-1, 0, 1])
-def test_shadow_results_survive_collection_adoption(method: str, offset: int) -> None:
+def test_shadow_results_survive_collection_adoption(
+    read_result: Callable[[Element], Sequence[Node]], kind: type[Node], offset: int
+) -> None:
     thresholds: Final = gc.get_threshold()
-    restore_gc: Final = gc.enable if gc.isenabled() else gc.disable
+    assert gc.isenabled()
     gc.disable()
     gc.collect()
     document: Final = parse("<div>text<span>hello</span></div>")
     host: Final = document.find("div")
     assert host is not None
-    expected: Final = [child for child in host.children if method != "assigned_elements" or isinstance(child, Element)]
+    expected: Final = [child for child in host.children if isinstance(child, kind)]
     root: Final = host.attach_shadow()
     root.set_inner_html("<slot></slot>")
     slot: Final = root.find("slot")
@@ -889,20 +910,19 @@ def test_shadow_results_survive_collection_adoption(method: str, offset: int) ->
             changed = True
             target.append(host)
 
-    collect: Final = slot.assigned_elements if method == "assigned_elements" else slot.assigned_nodes
     # Retained empty lists exhaust the freelist so result allocation can trigger collection.
     reserve: Final[list[list[None]]] = [[] for _ in range(512)]
     gc.callbacks.append(adopt)
     try:
         gc.set_threshold(gc.get_count()[0] + offset, thresholds[1], thresholds[2])
         gc.enable()
-        result: Final = slot.flattened_children if method == "flattened_children" else collect()
+        result: Final = read_result(slot)
         gc.collect()
     finally:
         gc.disable()
         gc.callbacks.remove(adopt)
         gc.set_threshold(*thresholds)
-        restore_gc()
+        gc.enable()
         reserve.clear()
     assert (changed, result, host.parent) == (True, expected, target)
 
@@ -954,12 +974,12 @@ def test_shadow_root_is_a_document_fragment() -> None:
     assert (isinstance(root, DocumentFragment), repr(root)) == (True, "ShadowRoot()")
 
 
-@pytest.mark.parametrize("extract", [pytest.param(False, id="clone"), pytest.param(True, id="extract")])
-def test_range_contents_are_a_document_fragment(*, extract: bool) -> None:
+@pytest.mark.parametrize("method", ["clone_contents", "extract_contents"], ids=["clone", "extract"])
+def test_range_contents_are_a_document_fragment(method: str) -> None:
     _, target = _host_page()
     boundary = Range(target, 0)
     boundary.set_end(target, 1)
-    contents = boundary.extract_contents() if extract else boundary.clone_contents()
+    contents = getattr(boundary, method)()
     assert (type(contents), contents.html) == (DocumentFragment, "<i></i>")
 
 

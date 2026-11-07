@@ -378,12 +378,17 @@ def test_parse_into_rebuilds_the_tree_in_lxml(markup: str) -> None:
 
 
 @pytest.mark.oracle
-@pytest.mark.parametrize("data", ["", "echo 1"], ids=["empty", "body"])
-def test_lxml_builder_preserves_processing_instruction(data: str) -> None:
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        pytest.param("", "<html><head/><body><!--?php?--></body></html>", id="empty"),
+        pytest.param("echo 1", "<html><head/><body><!--?php echo 1?--></body></html>", id="body"),
+    ],
+)
+def test_lxml_builder_preserves_processing_instruction(data: str, expected: str) -> None:
     lxml_etree: Final = pytest.importorskip("lxml.etree")
     built: Final = cast("_LxmlNode", parse_into(f"<body><?php {data}?></body>", _LxmlBuilder(lxml_etree)))
-    expected: Final = f"<html><head/><body><!--?php{f' {data}' if data else ''}?--></body></html>".encode()
-    assert lxml_etree.tostring(built[0]) == expected
+    assert lxml_etree.tostring(built[0]) == expected.encode()
 
 
 _LxmlEvent = tuple[object, ...]

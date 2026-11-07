@@ -42,26 +42,30 @@ def test_element_tree_concurrent_wrapping_preserves_identity() -> None:
     assert (len(set(views)), views[0].node) == (1, node)
 
 
-@pytest.mark.parametrize(
-    "kind",
-    [pytest.param("tree", id="tree"), pytest.param("iterator", id="iterator"), pytest.param("context", id="context")],
-)
-def test_element_tree_internal_types_require_factories(kind: str) -> None:
+def test_element_tree_tree_type_requires_factory() -> None:
     tree: Final = fromstring("<p>text</p>")
-    instance: Final = (
-        tree.getroottree() if kind == "tree" else iter(tree) if kind == "iterator" else document_context(lambda: None)
-    )
     with pytest.raises(TypeError, match="cannot create"):
-        type(instance)()
+        type(tree.getroottree())()
+
+
+def test_element_tree_iterator_type_requires_factory() -> None:
+    tree: Final = fromstring("<p>text</p>")
+    with pytest.raises(TypeError, match="cannot create"):
+        type(iter(tree))()
+
+
+def test_element_tree_context_type_requires_factory() -> None:
+    with pytest.raises(TypeError, match="cannot create"):
+        type(document_context(lambda: None))()
 
 
 @pytest.mark.parametrize(
-    "axis",
-    [pytest.param("children", id="children"), pytest.param("descendants", id="descendants")],
+    ("method", "args"),
+    [pytest.param("iterchildren", (), id="children"), pytest.param("iter", ("p",), id="descendants")],
 )
-def test_element_tree_shared_iterator_visits_each_element_once(axis: str) -> None:
+def test_element_tree_shared_iterator_visits_each_element_once(method: str, args: tuple[str, ...]) -> None:
     tree: Final = fromstring("<div>" + "".join(f'<p id="{index}"></p>' for index in range(1000)) + "</div>")
-    iterator: Final = tree.iterchildren() if axis == "children" else tree.iter("p")
+    iterator: Final = getattr(tree, method)(*args)
     start: Final = Barrier(4)
 
     def consume(_: int) -> list[str]:

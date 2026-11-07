@@ -30,6 +30,8 @@ from turbohtml.clean import Policy, sanitize
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from turbohtml import DocumentFragment, Node
+
 
 def _doc(html: str) -> str:
     return _html._parse_tree(html).rstrip("\n")
@@ -1062,32 +1064,30 @@ def _processing_instruction(markup: str) -> ProcessingInstruction:
 
 
 @pytest.mark.parametrize(
-    ("markup", "parent_tag"),
+    ("markup", "parent_type", "parent_tag"),
     [
-        pytest.param("<?pi><!doctype html>", None, id="initial"),
-        pytest.param("<!doctype html><?pi><html>", None, id="before-html"),
-        pytest.param("<html><?pi><head>", "html", id="before-head"),
-        pytest.param("<head><?pi></head>", "head", id="in-head"),
-        pytest.param("<head><noscript><?pi></noscript>", "noscript", id="in-head-noscript"),
-        pytest.param("</head><?pi><body>", "html", id="after-head"),
-        pytest.param("<frameset><?pi>", "frameset", id="in-frameset"),
-        pytest.param("<frameset></frameset><?pi>", "html", id="after-frameset"),
-        pytest.param("<body><?pi>", "body", id="in-body"),
-        pytest.param("<table><?pi></table>", "table", id="in-table"),
-        pytest.param("<table><colgroup><?pi></colgroup></table>", "colgroup", id="in-column-group"),
-        pytest.param("<body></body><?pi>", "html", id="after-body"),
-        pytest.param("<body></body></html><?pi>", None, id="after-after-body"),
-        pytest.param("<frameset></frameset></html><?pi>", None, id="after-after-frameset"),
-        pytest.param("<svg><?pi></svg>", "svg", id="foreign-content"),
+        pytest.param("<?pi><!doctype html>", Document, "", id="initial"),
+        pytest.param("<!doctype html><?pi><html>", Document, "", id="before-html"),
+        pytest.param("<html><?pi><head>", Element, "html", id="before-head"),
+        pytest.param("<head><?pi></head>", Element, "head", id="in-head"),
+        pytest.param("<head><noscript><?pi></noscript>", Element, "noscript", id="in-head-noscript"),
+        pytest.param("</head><?pi><body>", Element, "html", id="after-head"),
+        pytest.param("<frameset><?pi>", Element, "frameset", id="in-frameset"),
+        pytest.param("<frameset></frameset><?pi>", Element, "html", id="after-frameset"),
+        pytest.param("<body><?pi>", Element, "body", id="in-body"),
+        pytest.param("<table><?pi></table>", Element, "table", id="in-table"),
+        pytest.param("<table><colgroup><?pi></colgroup></table>", Element, "colgroup", id="in-column-group"),
+        pytest.param("<body></body><?pi>", Element, "html", id="after-body"),
+        pytest.param("<body></body></html><?pi>", Document, "", id="after-after-body"),
+        pytest.param("<frameset></frameset></html><?pi>", Document, "", id="after-after-frameset"),
+        pytest.param("<svg><?pi></svg>", Element, "svg", id="foreign-content"),
     ],
 )
-def test_processing_instruction_uses_comment_insertion_location(markup: str, parent_tag: str | None) -> None:
+def test_processing_instruction_uses_comment_insertion_location(
+    markup: str, parent_type: type[Node], parent_tag: str
+) -> None:
     parent = _processing_instruction(markup).parent
-    if parent_tag is None:
-        assert isinstance(parent, Document)
-    else:
-        assert isinstance(parent, Element)
-        assert parent.tag == parent_tag
+    assert (type(parent), getattr(parent, "tag", "")) == (parent_type, parent_tag)
 
 
 @pytest.mark.parametrize("target", [pytest.param("xml", id="xml"), pytest.param("XmL-StYlEsHeEt", id="stylesheet")])
@@ -1209,22 +1209,32 @@ def cloned_elements(request: pytest.FixtureRequest) -> list[Element]:
     return parse_fragment(request.param).select("b")
 
 
-@pytest.mark.parametrize("changed", [pytest.param(0, id="first"), pytest.param(1, id="second")])
-def test_cloned_attribute_update_is_independent(cloned_elements: list[Element], changed: int) -> None:
+@pytest.mark.parametrize(
+    ("changed", "expected"),
+    [
+        pytest.param(0, ["new", "old"], id="first"),
+        pytest.param(1, ["old", "new"], id="second"),
+    ],
+)
+def test_cloned_attribute_update_is_independent(
+    cloned_elements: list[Element], changed: int, expected: list[str]
+) -> None:
     cloned_elements[changed].attrs["title"] = "new"
-    assert [element.attr("title") for element in cloned_elements] == (
-        ["new", "old"] if changed == 0 else ["old", "new"]
-    )
+    assert [element.attr("title") for element in cloned_elements] == expected
 
 
-@pytest.mark.parametrize("changed", [pytest.param(0, id="first"), pytest.param(1, id="second")])
-def test_cloned_attribute_removal_is_independent(cloned_elements: list[Element], changed: int) -> None:
+@pytest.mark.parametrize(
+    ("changed", "expected"),
+    [
+        pytest.param(0, [{"lang": "en"}, {"title": "old", "lang": "en"}], id="first"),
+        pytest.param(1, [{"title": "old", "lang": "en"}, {"lang": "en"}], id="second"),
+    ],
+)
+def test_cloned_attribute_removal_is_independent(
+    cloned_elements: list[Element], changed: int, expected: list[dict[str, str]]
+) -> None:
     del cloned_elements[changed].attrs["title"]
-    assert [element.attrs.copy() for element in cloned_elements] == (
-        [{"lang": "en"}, {"title": "old", "lang": "en"}]
-        if changed == 0
-        else [{"title": "old", "lang": "en"}, {"lang": "en"}]
-    )
+    assert [element.attrs.copy() for element in cloned_elements] == expected
 
 
 @pytest.mark.parametrize("count", [pytest.param(1, id="small"), pytest.param(32, id="bulk")])
@@ -1248,14 +1258,24 @@ def test_sanitizing_reconstructed_attributes_keeps_unique_names(count: int) -> N
         pytest.param("😀", id="ucs4"),
     ],
 )
-@pytest.mark.parametrize("fragment", [pytest.param(False, id="document"), pytest.param(True, id="fragment")])
+@pytest.mark.parametrize(
+    "make",
+    [
+        pytest.param(
+            lambda markup, locations: parse(markup, source_locations=locations),
+            id="document",
+        ),
+        pytest.param(
+            lambda markup, locations: parse_fragment(markup, "div", source_locations=locations),
+            id="fragment",
+        ),
+    ],
+)
 @pytest.mark.parametrize("locations", [pytest.param(False, id="no-locations"), pytest.param(True, id="locations")])
-def test_normalized_text_survives_temporary_input_and_detachment(text: str, *, fragment: bool, locations: bool) -> None:
-    paragraph: Final = (
-        parse_fragment(f"<p>{text}\r\n{text}\r{text}</p><p>\0</p>", "div", source_locations=locations)
-        if fragment
-        else parse(f"<p>{text}\r\n{text}\r{text}</p><p>\0</p>", source_locations=locations)
-    ).find("p")
+def test_normalized_text_survives_temporary_input_and_detachment(
+    text: str, make: Callable[[str, bool], Document | DocumentFragment], *, locations: bool
+) -> None:
+    paragraph: Final = make(f"<p>{text}\r\n{text}\r{text}</p><p>\0</p>", locations).find("p")
     assert paragraph is not None
     paragraph.extract()
     assert (paragraph.parent, paragraph.text, paragraph.html) == (
@@ -1281,8 +1301,16 @@ def test_normalized_text_keeps_raw_text_newlines(tag: str) -> None:
         pytest.param("😀", id="ucs4"),
     ],
 )
-@pytest.mark.parametrize("locations", [pytest.param(False, id="no-locations"), pytest.param(True, id="locations")])
-def test_nul_text_preserves_clean_runs_and_source_positions(text: str, *, locations: bool) -> None:
+@pytest.mark.parametrize(
+    ("locations", "position"),
+    [
+        pytest.param(False, None, id="no-locations"),
+        pytest.param(True, (2, 0), id="locations"),
+    ],
+)
+def test_nul_text_preserves_clean_runs_and_source_positions(
+    text: str, *, locations: bool, position: tuple[int, int] | None
+) -> None:
     clean: Final = text * 80
     source: Final = (
         f"<p>first\0{text}</p>\n<p>{clean}</p><script>{clean}</script>"
@@ -1296,7 +1324,7 @@ def test_nul_text_preserves_clean_runs_and_source_positions(text: str, *, locati
         ("textarea", clean),
         ("svg", f"{text}\ufffd{text}"),
     ]
-    assert document.find_all("p")[1].position == ((2, 0) if locations else None)
+    assert document.find_all("p")[1].position == position
 
 
 @pytest.mark.parametrize("tag", ["script", "style", "textarea"])
@@ -1548,16 +1576,21 @@ def test_nesting_below_the_cap_is_left_untouched(levels: int) -> None:
     assert _max_element_depth(doc) == levels + 2  # html + body + every div, fully nested
 
 
-@pytest.mark.parametrize("source", [pytest.param("xml", id="parsed-xml"), pytest.param("mutation", id="mutation")])
-def test_deep_text_and_serialization_are_complete(source: str) -> None:
-    root = (
-        parse_xml(f"{'<x>' * _DEEP}bottom{'</x>' * _DEEP}").root if source == "xml" else _nested("x", _DEEP, "bottom")
-    )
+def test_deep_parsed_xml_text_and_serialization_are_complete() -> None:
+    root = parse_xml(f"{'<x>' * _DEEP}bottom{'</x>' * _DEEP}").root
     assert isinstance(root, Element)
-    expected_open_count = _DEEP if source == "xml" else _DEEP + 1
     assert (root.text, root.html.count("<x>"), "bottom" in root.serialize(Html(layout=Indent(1)))) == (
         "bottom",
-        expected_open_count,
+        _DEEP,
+        True,
+    )
+
+
+def test_deep_mutated_text_and_serialization_are_complete() -> None:
+    root = _nested("x", _DEEP, "bottom")
+    assert (root.text, root.html.count("<x>"), "bottom" in root.serialize(Html(layout=Indent(1)))) == (
+        "bottom",
+        _DEEP + 1,
         True,
     )
 
@@ -1664,25 +1697,29 @@ def test_readability_renders_a_deep_programmatic_tree() -> None:
 
 
 @pytest.mark.parametrize("method", ["clone_contents", "extract_contents", "delete_contents"])
-@pytest.mark.parametrize("deep_boundary", [pytest.param("start", id="deep-start"), pytest.param("end", id="deep-end")])
-def test_range_rejects_a_deep_partial_boundary_before_mutation(method: str, deep_boundary: str) -> None:
+def test_range_rejects_a_deep_start_boundary_before_mutation(method: str) -> None:
     root, deepest = _nested_with_deepest("x", _DEEP, None)
     text_node = Text("bottom")
     deepest.append(text_node)
-    if deep_boundary == "start":
-        selection = Range(text_node, 0)
-        selection.set_end(root, 1)
-    else:
-        selection = Range(root, 0)
-        selection.set_end(text_node, 0)
+    selection = Range(text_node, 0)
+    selection.set_end(root, 1)
     before = root.html
     with pytest.raises(RecursionError, match=rf"{method}\(\).*400"):
         getattr(selection, method)()
-    assert (root.html, selection.start_container, selection.end_container) == (
-        before,
-        text_node if deep_boundary == "start" else root,
-        root if deep_boundary == "start" else text_node,
-    )
+    assert (root.html, selection.start_container, selection.end_container) == (before, text_node, root)
+
+
+@pytest.mark.parametrize("method", ["clone_contents", "extract_contents", "delete_contents"])
+def test_range_rejects_a_deep_end_boundary_before_mutation(method: str) -> None:
+    root, deepest = _nested_with_deepest("x", _DEEP, None)
+    text_node = Text("bottom")
+    deepest.append(text_node)
+    selection = Range(root, 0)
+    selection.set_end(text_node, 0)
+    before = root.html
+    with pytest.raises(RecursionError, match=rf"{method}\(\).*400"):
+        getattr(selection, method)()
+    assert (root.html, selection.start_container, selection.end_container) == (before, root, text_node)
 
 
 def test_structured_data_methods_accept_deep_dom_with_shallow_records() -> None:
