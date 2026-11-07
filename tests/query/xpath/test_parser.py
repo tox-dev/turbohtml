@@ -6,7 +6,7 @@ import pytest
 
 from turbohtml import _html
 
-parse = _html._xpath_parse
+PARSE = _html._xpath_parse
 
 
 @pytest.mark.parametrize(
@@ -256,16 +256,16 @@ parse = _html._xpath_parse
     ],
 )
 def test_parses(expr: str, ast: str) -> None:
-    assert parse(expr) == ast
+    assert PARSE(expr) == ast
 
 
 def test_whitespace_between_tokens_is_ignored() -> None:
-    assert parse("1\t+\r\n2") == parse("1 + 2")
+    assert PARSE("1\t+\r\n2") == PARSE("1 + 2")
 
 
 def test_large_expression_grows_the_arena() -> None:
     expr = "/".join(f"e{i}" for i in range(40))
-    assert parse(expr).count("step child name") == 40
+    assert PARSE(expr).count("step child name") == 40
 
 
 @pytest.mark.parametrize(
@@ -298,12 +298,12 @@ def test_large_expression_grows_the_arena() -> None:
 )
 def test_rejects(expr: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
-        parse(expr)
+        PARSE(expr)
 
 
 def test_non_string_argument() -> None:
     with pytest.raises(TypeError, match="must be a str"):
-        parse(123)  # ty: ignore[invalid-argument-type]  # non-str exercises the TypeError path
+        PARSE(123)  # ty: ignore[invalid-argument-type]  # non-str exercises the TypeError path
 
 
 @pytest.mark.parametrize(
@@ -317,12 +317,12 @@ def test_non_string_argument() -> None:
 )
 def test_parse_error_names_position_and_token(expr: str, fragment: str) -> None:
     with pytest.raises(ValueError, match=re.escape(fragment)):
-        parse(expr)
+        PARSE(expr)
 
 
 def test_parse_error_clamps_a_long_offending_token() -> None:
     with pytest.raises(ValueError, match="offset") as excinfo:
-        parse(f"1 {'z' * 60}")
+        PARSE(f"1 {'z' * 60}")
     assert "z" * 31 in str(excinfo.value)
     assert "z" * 32 not in str(excinfo.value)
 
@@ -338,4 +338,4 @@ def test_deeply_nested_expression_is_rejected(expr: str) -> None:
     # nested groups and a chain of unary minus both recurse in the parser; the depth cap
     # raises before the C stack overflows (issue #421)
     with pytest.raises(ValueError, match="nested too deeply"):
-        parse(expr)
+        PARSE(expr)
