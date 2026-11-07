@@ -890,6 +890,16 @@ static inline void ser_open_tag(sbuf *out, th_tree *tree, th_node *node, const t
         sbuf_puts(out, "=\"");
         if (opts->xml) {
             sbuf_put_xml_text(out, attr->value, attr->value_len, 1);
+        } else if ((opts->markdown == TH_MARKDOWN_HTML_CELL || opts->markdown == TH_MARKDOWN_HTML_INLINE) &&
+                   attr->value_len > 1) {
+            for (Py_ssize_t index = 0; index < attr->value_len; index++) {
+                if (attr->value[index] == ' ' && ((index > 0 && attr->value[index - 1] == ' ') ||
+                                                  (index + 1 < attr->value_len && attr->value[index + 1] == ' '))) {
+                    sbuf_puts(out, "&#32;");
+                } else {
+                    sbuf_put_text(out, attr->value + index, 1, 1, opts->formatter);
+                }
+            }
         } else {
             sbuf_put_text(out, attr->value, attr->value_len, 1, opts->formatter);
         }

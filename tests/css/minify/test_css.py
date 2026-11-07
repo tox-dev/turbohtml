@@ -1534,6 +1534,8 @@ def test_minify_css_live_rule_search_is_bounded(count: int, first_rule: str, las
         pytest.param("/*a*b*/x{y:1}", "x{y:1}", id="comment-with-lone-star"),
         pytest.param("a{x:1}/* unterminated", "a{x:1}", id="unterminated-comment"),
         pytest.param("@a\\", "@a\ufffd;", id="escaped-at-keyword-backslash-at-eof"),
+        pytest.param(r"0}@d\b", "0@d\\b ", id="stray-before-escaped-at-keyword"),
+        pytest.param("0}@d\0\\b", "0@d \0\\b ", id="stray-escaped-at-prelude"),
         pytest.param("x{}#a\\", "#a\ufffd", id="escaped-hash-backslash-at-eof"),
         pytest.param("a{x:1!important/*c*/}", "a{x:1!important}", id="important-trailing-comment"),
         pytest.param("a{x:1 !/*c*/important}", "a{x:1!important}", id="important-comment-between-bang"),

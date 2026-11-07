@@ -705,6 +705,8 @@ def test_generation_public_consumers_accept_domain_bytes(name: str, data: bytes)
         pytest.param(markdown_html_check, '<table><td><img alt="  ">', id="table-alt-spaces"),
         pytest.param(markdown_html_check, '<table><td><img src="a  b" alt="x">', id="table-src-spaces"),
         pytest.param(markdown_html_check, '<table><td><img src="x" title="c  d">', id="table-title-spaces"),
+        pytest.param(markdown_source_check, '<table><td><a href="  ">', id="table-link-destination-spaces"),
+        pytest.param(markdown_source_check, '<table><td><table><td><a href="  ">', id="nested-table-link-spaces"),
     ],
 )
 def test_markdown_oracle_keeps_image_alt_escapes(check: Callable[[str], str | None], source: str) -> None:
@@ -760,6 +762,8 @@ def test_markdown_source_grammar_skips_lost_control_whitespace() -> None:
         pytest.param(b"<select><style>\x00", "UTF-8", False, "\ufffd", id="select-style-nul"),
         pytest.param(b"<select><title>\x00", "UTF-8", False, "\ufffd", id="select-title-nul"),
         pytest.param(("<div>" * 1200 + "x" + "</div>" * 1200).encode(), "UTF-8", False, "x", id="deep-tree"),
+        pytest.param(b"</head> <head><title>t", "UTF-8", False, "t ", id="duplicate-head-after-head"),
+        pytest.param(b"</head> <html><title>t", "UTF-8", False, "t ", id="redundant-html-after-head"),
     ],
 )
 def test_encoding_mutation_context(data: bytes, encoding: str, expected: str, *, sniff: bool) -> None:
@@ -1150,6 +1154,8 @@ def test_corpus_preserves_generated_bindings(tmp_path: Path) -> None:
         pytest.param('p { content: "水😀"; }'.encode(), 'p{content:"水😀"}', id="unicode"),
         pytest.param(b'p { content: "</style>"; color: red; }', 'p{content:"</style>";color:red}', id="html-boundary"),
         pytest.param(b"p{e:c(\\3  x)}", "p{e:c(\\3  x)}", id="function-hex-escape"),
+        pytest.param(b"0}@d\\b", "0@d\\b ", id="stray-escaped-at-keyword"),
+        pytest.param(b"0}@d\0\\b", "0@d \0\\b ", id="stray-escaped-at-prelude"),
     ],
 )
 def test_stylesheet_consumer_exact_source(source: bytes, expected: str) -> None:

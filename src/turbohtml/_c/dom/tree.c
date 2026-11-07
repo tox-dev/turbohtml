@@ -2853,6 +2853,10 @@ static enum th_drain drain_after_head(th_tree *tree, th_token *tok, th_insert *d
         insert_comment_or_pi(tree, tok, NULL);
         return TH_DRAIN_NEXT;
     }
+    if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_HTML) {
+        merge_attrs(tree, tree->open[0], tok);
+        return TH_DRAIN_NEXT;
+    }
     if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_BODY) {
         th_node *body = insert_element(tree, tok);
         stack_push(tree, body);
@@ -2864,6 +2868,9 @@ static enum th_drain drain_after_head(th_tree *tree, th_token *tok, th_insert *d
         th_node *fs = insert_element(tree, tok);
         stack_push(tree, fs);
         dc->mode = M_IN_FRAMESET;
+        return TH_DRAIN_NEXT;
+    }
+    if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_HEAD) {
         return TH_DRAIN_NEXT;
     }
     if (tok->kind == TH_START_TAG) {

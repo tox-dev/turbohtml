@@ -557,7 +557,7 @@ Py_UCS4 *th_node_html(th_tree *tree, th_node *node, Py_ssize_t *out_len);
 
 /* Where Markdown embeds the HTML: a raw HTML block passes it through untouched, while inline content around it is
    still read as Markdown. */
-typedef enum { TH_MARKDOWN_HTML_BLOCK = 1, TH_MARKDOWN_HTML_INLINE } th_markdown_html;
+typedef enum { TH_MARKDOWN_HTML_BLOCK = 1, TH_MARKDOWN_HTML_INLINE, TH_MARKDOWN_HTML_CELL } th_markdown_html;
 
 /* th_node_html for Markdown's raw-HTML passages: an attribute name CommonMark cannot
    read turns the whole tag into literal text, so such names are dropped. Inline, a
@@ -565,6 +565,7 @@ typedef enum { TH_MARKDOWN_HTML_BLOCK = 1, TH_MARKDOWN_HTML_INLINE } th_markdown
    has no inline form of the `<?x>` spelling, and raw text holds a bare `<` the reader
    would take for the start of markup. */
 Py_UCS4 *th_node_markdown_html(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *out_len);
+Py_UCS4 *th_node_markdown_open_tag(th_tree *tree, th_node *node, th_markdown_html context, Py_ssize_t *out_len);
 
 typedef struct {
     const Py_UCS4 *open;

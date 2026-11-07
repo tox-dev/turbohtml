@@ -691,7 +691,6 @@ static void css_at_prelude(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_s
         pending_ws = 0;
         cbuf_put_run(out, next_text, next_len);
     }
-    css_rtrim(out);
     if (out->len <= mark) {
         return;
     }
