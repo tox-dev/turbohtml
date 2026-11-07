@@ -2034,8 +2034,8 @@ static void md_enter_link(md_ctx *ctx, th_node *node) {
         static const Py_UCS4 empty_href[1] = {0};
         href = empty_href;
     }
-    if (ctx->in_cell && md_attr_has_space_run(href, href_len) && !opt->ignore_links &&
-        !(opt->skip_internal_links && md_href_internal(href)) && opt->link_style != TH_MD_LINK_REFERENCE &&
+    int ignored = href == NULL || opt->ignore_links || (opt->skip_internal_links && md_href_internal(href));
+    if (ctx->in_cell && !ignored && md_attr_has_space_run(href, href_len) && opt->link_style != TH_MD_LINK_REFERENCE &&
         !opt->link_title && (*opt->base_url == '\0' || md_href_absolute(href, href_len) || md_href_internal(href))) {
         Py_ssize_t len;
         Py_UCS4 *opening = th_node_markdown_open_tag(ctx->tree, node, TH_MARKDOWN_HTML_CELL, &len);
@@ -2057,7 +2057,7 @@ static void md_enter_link(md_ctx *ctx, th_node *node) {
     if (!opt->wrap_links) {
         ctx->no_wrap++;
     }
-    if (href == NULL || opt->ignore_links || (opt->skip_internal_links && md_href_internal(href))) {
+    if (ignored) {
         md_push(ctx, node, MD_WALK_INLINE, opt->wrap_links ? MD_LEAVE_NONE : MD_LEAVE_NO_WRAP);
         return;
     }
