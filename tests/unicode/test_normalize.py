@@ -102,7 +102,7 @@ def test_is_normalized_equals_the_unchanged_test_over_the_whole_range(form: Norm
 
 @pytest.mark.parametrize(
     ("compose", "decompose"),
-    [("NFC", "NFD"), ("NFKC", "NFKD")],
+    [pytest.param("NFC", "NFD", id="canonical"), pytest.param("NFKC", "NFKD", id="compatibility")],
 )
 def test_compose_equals_composing_the_decomposition_over_the_whole_range(
     compose: NormalizationForm, decompose: NormalizationForm
