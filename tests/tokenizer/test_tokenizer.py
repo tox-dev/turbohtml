@@ -1057,10 +1057,6 @@ _TokenPart: TypeAlias = str | bool | dict[str, str] | None
 _ExpectedToken: TypeAlias = list[_TokenPart]
 _ParseError: TypeAlias = tuple[str, int, int]
 _TokenizerCase: TypeAlias = tuple[str, str, str | None, list[_ExpectedToken], list[_ParseError], str]
-_PI_TOKEN_OVERRIDES: Final[dict[str, list[_ExpectedToken]]] = {
-    "<?namespace>": [["ProcessingInstruction", "namespace", ""]],
-    "<?foo-->": [["ProcessingInstruction", "foo--", ""]],
-}
 
 
 def _decode_double(text: str) -> str:
@@ -1078,9 +1074,13 @@ def _living_pi_expectation(
         return expected, errors
     if not (first := text[2:3]):
         return [], [("eof-in-processing-instruction", 1, 3)]
+    pi_token_overrides: dict[str, list[_ExpectedToken]] = {
+        "<?namespace>": [["ProcessingInstruction", "namespace", ""]],
+        "<?foo-->": [["ProcessingInstruction", "foo--", ""]],
+    }
     if first.isascii() and (first.isalpha() or first == "_"):
         if text.endswith(">"):
-            return _PI_TOKEN_OVERRIDES.get(text, expected), []
+            return pi_token_overrides.get(text, expected), []
         return [], [("eof-in-processing-instruction", 1, len(text) + 1)]
     retained = [
         error
