@@ -144,14 +144,15 @@ def test_stub_signature_matches_runtime(name: str) -> None:
     for stub_param, live_param in zip(stub.positional, live.positional, strict=True):
         _assert_default(stub_param.default, live_param.default)
         # a positional-only name is synthesized by C; pin it only where both sides make it keyword-addressable
-        if stub_param.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD is live_param.kind:
-            assert stub_param.name == live_param.name, "a keyword-addressable positional was renamed"
+        keyword_addressable: Final = stub_param.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD is live_param.kind
+        assert not keyword_addressable or stub_param.name == live_param.name, (
+            "a keyword-addressable positional was renamed"
+        )
 
     assert stub.var_positional == live.var_positional, "*args presence drifted"
     assert stub.var_keyword == live.var_keyword, "**kwargs presence drifted"
     assert set(live.keyword) <= set(stub.keyword), "the runtime exposes a keyword the stub omits"
-    if not live.var_keyword:
-        assert set(stub.keyword) == set(live.keyword), "the stub declares a keyword the runtime lacks"
+    assert live.var_keyword or set(stub.keyword) == set(live.keyword), "the stub declares a keyword the runtime lacks"
     for keyword, live_default in live.keyword.items():
         _assert_default(stub.keyword[keyword], live_default)
 

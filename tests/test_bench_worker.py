@@ -69,9 +69,15 @@ def test_worker_explicit_case_registered_once(name: str) -> None:
     ]
 
 
-@pytest.mark.parametrize("mutating", [False, True], ids=["plain", "mutating"])
+@pytest.mark.parametrize(
+    "operation",
+    [
+        pytest.param("read_file", id="plain"),
+        pytest.param("Mutating(setup=read_file, run=str.upper)", id="mutating"),
+    ],
+)
 @pytest.mark.parametrize("error_index", [0, 1], ids=["error-first", "error-middle"])
-def test_worker_skips_unselected_inputs(tmp_path: Path, error_index: int, *, mutating: bool) -> None:
+def test_worker_skips_unselected_inputs(tmp_path: Path, error_index: int, *, operation: str) -> None:
     first: Final = tmp_path / "first.txt"
     first.write_text("first input", encoding="utf-8")
     second: Final = tmp_path / "second.txt"
@@ -80,7 +86,7 @@ def test_worker_skips_unselected_inputs(tmp_path: Path, error_index: int, *, mut
     cases.insert(error_index, str(tmp_path / "missing.txt"))
     script: Final = tmp_path / "worker_case.py"
     script.write_text(
-        _SCRIPT.format(cases=cases, operation="Mutating(setup=read_file, run=str.upper)" if mutating else "read_file"),
+        _SCRIPT.format(cases=cases, operation=operation),
         encoding="utf-8",
     )
     output: Final = tmp_path / "stats.json"

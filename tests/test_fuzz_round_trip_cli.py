@@ -733,22 +733,19 @@ def test_reachability_missing_data_file(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("unrecorded", "status"),
     [
-        pytest.param(None, 0, id="every-floor-met"),
-        pytest.param("html-document", 1, id="one-target-without-data"),
+        pytest.param((), 0, id="every-floor-met"),
+        pytest.param(("html-document",), 1, id="one-target-without-data"),
     ],
 )
 def test_reachability_cli(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], unrecorded: str | None, status: int
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], unrecorded: tuple[str, ...], status: int
 ) -> None:
-    for name in atheris_target_names():
-        if name != unrecorded:
-            _record(tmp_path, _TARGETS[name], set())
+    for name in set(atheris_target_names()) - set(unrecorded):
+        _record(tmp_path, _TARGETS[name], set())
     assert (fuzz_reachability_main(["--coverage-dir", str(tmp_path)]), json.loads(capsys.readouterr().out)) == (
         status,
-        {
-            name: [f"no coverage data at coverage_d_{fuzzer_name(name)}"] if name == unrecorded else []
-            for name in atheris_target_names()
-        },
+        {name: [] for name in atheris_target_names()}
+        | {name: [f"no coverage data at coverage_d_{fuzzer_name(name)}"] for name in unrecorded},
     )
 
 
@@ -758,29 +755,71 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
+_URL_SPARSE_CHECKOUT: Final[list[list[str]]] = [
+    [
+        "git",
+        "-C",
+        "tools/fuzz-data/wpt",
+        "sparse-checkout",
+        "set",
+        "--no-cone",
+        "/sanitizer-api/",
+        "/url/resources/urltestdata.json",
+        "/LICENSE.md",
+    ]
+]
+
+
 @pytest.mark.parametrize(
     "scenario",
     [
-        pytest.param(("round-trip", "none", "clean-url-fixpoint", True), id="first-checkout"),
-        pytest.param(("round-trip", "sanitizer", "normalize-url-fixpoint", True), id="extend-old-checkout"),
-        pytest.param(("round-trip", "both", "clean-url-fixpoint", False), id="reuse-complete-checkout"),
-        pytest.param(("release-diff", "none", "html", False), id="release-does-not-fetch"),
-        pytest.param(("round-trip", "none", "html-fixpoint", False), id="unrelated-oracle"),
-        pytest.param(("round-trip", "none", None, True), id="all-oracles"),
-        pytest.param(("round-trip", "none", "--oracle=normalize-url-fixpoint", True), id="equals-selection"),
+        pytest.param(
+            ("round-trip", (), ["--oracle", "clean-url-fixpoint"], _URL_SPARSE_CHECKOUT, "fuzz.round_trip_oracles"),
+            id="first-checkout",
+        ),
+        pytest.param(
+            (
+                "round-trip",
+                ("sanitizer-api/README.md",),
+                ["--oracle", "normalize-url-fixpoint"],
+                _URL_SPARSE_CHECKOUT,
+                "fuzz.round_trip_oracles",
+            ),
+            id="extend-old-checkout",
+        ),
+        pytest.param(
+            (
+                "round-trip",
+                ("sanitizer-api/README.md", "url/resources/urltestdata.json"),
+                ["--oracle", "clean-url-fixpoint"],
+                [],
+                "fuzz.round_trip_oracles",
+            ),
+            id="reuse-complete-checkout",
+        ),
+        pytest.param(
+            ("release-diff", (), ["--oracle", "html"], [], "fuzz.release_diff"),
+            id="release-does-not-fetch",
+        ),
+        pytest.param(
+            ("round-trip", (), ["--oracle", "html-fixpoint"], [], "fuzz.round_trip_oracles"),
+            id="unrelated-oracle",
+        ),
+        pytest.param(("round-trip", (), [], _URL_SPARSE_CHECKOUT, "fuzz.round_trip_oracles"), id="all-oracles"),
+        pytest.param(
+            ("round-trip", (), ["--oracle=normalize-url-fixpoint"], _URL_SPARSE_CHECKOUT, "fuzz.round_trip_oracles"),
+            id="equals-selection",
+        ),
     ],
 )
 def test_fuzz_cli_prepares_url_seeds(
-    mocker: MockerFixture, tmp_path: Path, scenario: tuple[str, str, str | None, bool]
+    mocker: MockerFixture, tmp_path: Path, scenario: tuple[str, tuple[str, ...], list[str], list[list[str]], str]
 ) -> None:
-    mode, prepared, oracle, fetch = scenario
-    if prepared != "none":
-        (tmp_path / "tools/fuzz-data/wpt/sanitizer-api").mkdir(parents=True)
-    if prepared == "both":
-        urls = tmp_path / "tools/fuzz-data/wpt/url/resources/urltestdata.json"
-        urls.parent.mkdir(parents=True)
-        urls.write_text("[]", encoding="utf-8")
-    selection = [] if oracle is None else [oracle] if oracle.startswith("--oracle=") else ["--oracle", oracle]
+    mode, prepared, selection, sparse, module = scenario
+    for relative in prepared:
+        seed: Final = tmp_path / "tools/fuzz-data/wpt" / relative
+        seed.parent.mkdir(parents=True, exist_ok=True)
+        seed.write_text("[]", encoding="utf-8")
     mocker.patch("fuzz.fuzz._ROOT", tmp_path)
     mocker.patch.object(
         sys,
@@ -803,26 +842,11 @@ def test_fuzz_cli_prepares_url_seeds(
     )
     status = fuzz_url_cli_main()
     commands = [call.args[0] for call in run.call_args_list]
-    sparse = [command for command in commands if "sparse-checkout" in command]
     child = commands[-1]
-    assert (status, sparse, child[1:3], child[7:]) == (
+    assert (status, [command for command in commands if "sparse-checkout" in command], child[1:3], child[7:]) == (
         2,
-        [
-            [
-                "git",
-                "-C",
-                "tools/fuzz-data/wpt",
-                "sparse-checkout",
-                "set",
-                "--no-cone",
-                "/sanitizer-api/",
-                "/url/resources/urltestdata.json",
-                "/LICENSE.md",
-            ]
-        ]
-        if fetch
-        else [],
-        ["-m", "fuzz.round_trip_oracles" if mode == "round-trip" else "fuzz.release_diff"],
+        sparse,
+        ["-m", module],
         selection,
     )
 

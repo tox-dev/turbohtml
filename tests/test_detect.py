@@ -409,10 +409,10 @@ def test_a_long_passage_stays_confident() -> None:
         pytest.param(4096, LanguageMatch(language="cym", confidence=1.0, script="Latin", name="Welsh"), id="many-ties"),
     ],
 )
-@pytest.mark.parametrize("reverse", [False, True], ids=["forward", "reverse"])
-def test_language_trigram_ties_ignore_word_order(word_count: int, expected: LanguageMatch, *, reverse: bool) -> None:
+@pytest.mark.parametrize("step", [1, -1], ids=["forward", "reverse"])
+def test_language_trigram_ties_ignore_word_order(word_count: int, expected: LanguageMatch, *, step: int) -> None:
     words: Final = tuple("".join(word) for word in islice(product(string.ascii_lowercase, repeat=3), word_count))
-    assert detect_language("  ".join(reversed(words) if reverse else words)) == expected
+    assert detect_language("  ".join(words[::step])) == expected
 
 
 @pytest.mark.parametrize(
@@ -1294,64 +1294,122 @@ def test_detect_first_record_matches_ranked_and_streamed(data: bytes, options: D
     assert detect(data, options) == detector.close() == expected
 
 
+_ENCODING_RESULTS: Final[list[tuple[int, str, str]]] = [
+    (0, "déjà vu, bientôt à Paris", "legacy"),
+    (1, "A short plain message", "ascii"),
+    (2, "hello", "bom"),
+]
+_MISDECODED_XFAIL: Final[pytest.MarkDecorator] = pytest.mark.xfail(
+    strict=True, reason="Detector misdecodes the CP1252 fixture instead of preserving its accented text"
+)
+
+
 @pytest.mark.oracle
 @pytest.mark.parametrize(
-    ("module", "streamed", "case", "expected"),
+    ("case", "expected"),
+    [pytest.param(case, expected, id=f"turbohtml-detect-{label}") for case, expected, label in _ENCODING_RESULTS],
+)
+def test_encoding_result_turbohtml_detect_preserves_decoded_text(case: int, expected: str) -> None:
+    library: Final = pytest.importorskip("turbohtml.detect")
+    data: Final = cast("bytes", INPUTS["encoding-result"]()[case][1])
+    assert data.decode(library.detect(data).codec).removeprefix("﻿") == expected
+
+
+@pytest.mark.oracle
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [pytest.param(case, expected, id=f"turbohtml-stream-{label}") for case, expected, label in _ENCODING_RESULTS],
+)
+def test_encoding_result_turbohtml_stream_preserves_decoded_text(case: int, expected: str) -> None:
+    library: Final = pytest.importorskip("turbohtml.detect")
+    data: Final = cast("bytes", INPUTS["encoding-result"]()[case][1])
+    detector: Final = library.EncodingDetector()
+    detector.feed(data)
+    assert data.decode(detector.close().codec).removeprefix("﻿") == expected
+
+
+@pytest.mark.oracle
+@pytest.mark.parametrize(
+    ("module", "case", "expected"),
     [
         pytest.param(
             module,
-            streamed,
             case,
             expected,
-            id=f"{module}-{'stream' if streamed else 'detect'}-{label}",
-            marks=(
-                pytest.mark.xfail(
-                    strict=True,
-                    reason="Detector misdecodes the CP1252 fixture instead of preserving its accented text",
-                )
-                if case == 0 and module in {"chardet", "charset_normalizer"}
-                else ()
-            ),
+            id=f"{module}-detect-{label}",
+            marks=_MISDECODED_XFAIL if module == "chardet" and case == 0 else (),
         )
-        for module, streamed in (
-            ("turbohtml.detect", False),
-            ("chardet", False),
-            ("cchardet", False),
-            ("charset_normalizer", False),
-            ("bs4", False),
-            ("resiliparse.parse.encoding", False),
-            ("turbohtml.detect", True),
-            ("chardet", True),
-            ("cchardet", True),
-        )
-        for case, expected, label in (
-            (0, "déjà vu, bientôt à Paris", "legacy"),
-            (1, "A short plain message", "ascii"),
-            (2, "hello", "bom"),
-        )
+        for module in ("chardet", "cchardet")
+        for case, expected, label in _ENCODING_RESULTS
     ],
 )
-def test_encoding_result_benchmark_preserves_decoded_text(
-    module: str, case: int, expected: str, *, streamed: bool
-) -> None:
+def test_encoding_result_chardet_detect_preserves_decoded_text(module: str, case: int, expected: str) -> None:
     library: Final = pytest.importorskip(module)
     data: Final = cast("bytes", INPUTS["encoding-result"]()[case][1])
-    if streamed:
-        detector: Final = library.EncodingDetector() if module == "turbohtml.detect" else library.UniversalDetector()
-        detector.feed(data)
-        result: Final = detector.close()
-        encoding = result.codec if module == "turbohtml.detect" else detector.result["encoding"]
-    elif module == "turbohtml.detect":
-        encoding = library.detect(data).codec
-    elif module in {"chardet", "cchardet"}:
-        encoding = library.detect(data)["encoding"]
-    elif module == "charset_normalizer":
-        match: Final = library.from_bytes(data).best()
-        assert match is not None
-        encoding = match.encoding
-    elif module == "bs4":
-        encoding = library.UnicodeDammit(data).original_encoding
-    else:
-        encoding = library.detect_encoding(data)
+    assert data.decode(library.detect(data)["encoding"]).removeprefix("﻿") == expected
+
+
+@pytest.mark.oracle
+@pytest.mark.parametrize(
+    ("module", "case", "expected"),
+    [
+        pytest.param(
+            module,
+            case,
+            expected,
+            id=f"{module}-stream-{label}",
+            marks=_MISDECODED_XFAIL if module == "chardet" and case == 0 else (),
+        )
+        for module in ("chardet", "cchardet")
+        for case, expected, label in _ENCODING_RESULTS
+    ],
+)
+def test_encoding_result_chardet_stream_preserves_decoded_text(module: str, case: int, expected: str) -> None:
+    library: Final = pytest.importorskip(module)
+    data: Final = cast("bytes", INPUTS["encoding-result"]()[case][1])
+    detector: Final = library.UniversalDetector()
+    detector.feed(data)
+    detector.close()
+    assert data.decode(detector.result["encoding"]).removeprefix("﻿") == expected
+
+
+@pytest.mark.oracle
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        pytest.param(case, expected, id=f"charset_normalizer-{label}", marks=_MISDECODED_XFAIL if case == 0 else ())
+        for case, expected, label in _ENCODING_RESULTS
+    ],
+)
+def test_encoding_result_charset_normalizer_preserves_decoded_text(case: int, expected: str) -> None:
+    library: Final = pytest.importorskip("charset_normalizer")
+    data: Final = cast("bytes", INPUTS["encoding-result"]()[case][1])
+    match: Final = library.from_bytes(data).best()
+    assert match is not None
+    assert data.decode(match.encoding).removeprefix("﻿") == expected
+
+
+@pytest.mark.oracle
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [pytest.param(case, expected, id=f"bs4-{label}") for case, expected, label in _ENCODING_RESULTS],
+)
+def test_encoding_result_bs4_preserves_decoded_text(case: int, expected: str) -> None:
+    library: Final = pytest.importorskip("bs4")
+    data: Final = cast("bytes", INPUTS["encoding-result"]()[case][1])
+    encoding: Final = library.UnicodeDammit(data).original_encoding
     assert encoding is not None
-    assert data.decode(encoding).removeprefix("\ufeff") == expected
+    assert data.decode(encoding).removeprefix("﻿") == expected
+
+
+@pytest.mark.oracle
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [pytest.param(case, expected, id=f"resiliparse-{label}") for case, expected, label in _ENCODING_RESULTS],
+)
+def test_encoding_result_resiliparse_preserves_decoded_text(case: int, expected: str) -> None:
+    library: Final = pytest.importorskip("resiliparse.parse.encoding")
+    data: Final = cast("bytes", INPUTS["encoding-result"]()[case][1])
+    encoding: Final = library.detect_encoding(data)
+    assert encoding is not None
+    assert data.decode(encoding).removeprefix("﻿") == expected
