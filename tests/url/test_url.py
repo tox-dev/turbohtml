@@ -1280,9 +1280,9 @@ def _unsplit(scheme: str | None, netloc: str | None, path: str, query: str | Non
     if netloc is not None:
         if path and path[:1] != "/":
             path = f"/{path}"
-        path = "//" + netloc + path
+        path = f"//{netloc}{path}"
     prefix = f"{scheme}:" if scheme else ""
-    suffix = ("?" + query if query is not None else "") + ("#" + fragment if fragment is not None else "")
+    suffix = (f"?{query}" if query is not None else "") + (f"#{fragment}" if fragment is not None else "")
     return f"{prefix}{path}{suffix}"
 
 

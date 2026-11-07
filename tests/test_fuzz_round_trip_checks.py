@@ -795,7 +795,7 @@ def test_generation_corpus_preserves_context(
         entry.encoding,
         entry.sniff,
         entry.sha256,
-        len(tuple(tmp_path.glob("**/" + entry.sha256))),
+        len(tuple(tmp_path.glob(f"**/{entry.sha256}"))),
         manifest.entries[0] == manifest.entries[1],
         manifest.rejected,
     ) == (SEED_HEADER + case.data, *context, hashlib.sha256(SEED_HEADER + case.data).hexdigest(), 1, True, ())
@@ -966,7 +966,7 @@ def test_javascript_rejects_independent_invalid_input_first(
     source: bytes, error: type[Exception], message: str | None
 ) -> None:
     def unstable(source: str, _options: JSMinify) -> str:
-        return source + ";"
+        return f"{source};"
 
     with pytest.raises(error, match=message):
         javascript_observation(source, unstable)
@@ -1185,7 +1185,7 @@ def test_stylesheet_owns_public_minifier() -> None:
 @pytest.mark.parametrize("kind", ["fixpoint", "selector"])
 def test_stylesheet_consumer_rejects_wrong_output(kind: str) -> None:
     def wrong(source: str) -> str:
-        return source + "x" if kind == "fixpoint" else "q{color:red}"
+        return f"{source}x" if kind == "fixpoint" else "q{color:red}"
 
     with pytest.raises(AssertionError):
         stylesheet_observation(b"p { color: red; }", wrong)
@@ -1207,7 +1207,7 @@ def test_stylesheet_consumer_skips_unclosed_css_blocks(source: bytes) -> None:
 )
 def test_stylesheet_consumer_keeps_balanced_css_findings(source: bytes) -> None:
     with pytest.raises(AssertionError):
-        stylesheet_observation(source, lambda text: text + "x")
+        stylesheet_observation(source, lambda text: f"{text}x")
 
 
 if TYPE_CHECKING:
@@ -1693,7 +1693,7 @@ def test_content_sanitizer_rejects_wrong_renderer_result() -> None:
 @pytest.mark.parametrize("kind", ["css-semantics", "css-fixpoint", "js-fixpoint"])
 def test_content_minifier_rejects_wrong_output(kind: str) -> None:
     def wrong(source: str) -> str:
-        return "q{color:blue}" if kind == "css-semantics" else source + "x"
+        return "q{color:blue}" if kind == "css-semantics" else f"{source}x"
 
     with pytest.raises(AssertionError, match="Content API mismatch"):
         minifier_check(b"x", js=wrong) if kind == "js-fixpoint" else minifier_check(b"x", css=wrong)
@@ -1741,7 +1741,7 @@ def test_content_chunks_reject_dropped_chunk(
 
 def test_content_url_rejects_unstable_reparse() -> None:
     with pytest.raises(AssertionError, match="reparse changes normalized URL"):
-        url_check(b"x", lambda source: source + "/")
+        url_check(b"x", lambda source: f"{source}/")
 
 
 if TYPE_CHECKING:
@@ -2882,7 +2882,7 @@ def test_idna_nfc_rejects_unsupported_grammar(case: str) -> None:
             id="output-rejection",
         ),
         pytest.param(
-            lambda text: text + "x" if text.isascii() else normalize_url(text),
+            lambda text: f"{text}x" if text.isascii() else normalize_url(text),
             "canonical host changes on repeat",
             id="changed-repeat",
         ),
@@ -3176,7 +3176,7 @@ def test_idna_invariant_counts_unsupported_cases(case: str) -> None:
             id="output-rejection",
         ),
         pytest.param(
-            lambda text: text + "a" if text.isascii() else normalize_url(text),
+            lambda text: f"{text}a" if text.isascii() else normalize_url(text),
             "IDNA output is not a fixpoint",
             id="unstable-output",
         ),
@@ -3285,7 +3285,7 @@ def _wrong_target(node: Node, _base: str) -> None:
 
 def _changed_repeat(node: Node, base: str) -> None:
     if node.links()[0].url.startswith("http:"):
-        node.select("a")[0].attrs["href"] = node.links()[0].url + "a"
+        node.select("a")[0].attrs["href"] = f"{node.links()[0].url}a"
     else:
         node.resolve_links(base)
 
@@ -3800,7 +3800,7 @@ def test_css_custom_accepts_either_string_quote(quote: str) -> None:
 
 def test_css_custom_repeated_output_is_checked() -> None:
     expected: Final = "--Foo:MiXeD"
-    assert css_custom_check("inline:ident:1:0", lambda text: expected if text != expected else expected + " ") == (
+    assert css_custom_check("inline:ident:1:0", lambda text: expected if text != expected else f"{expected} ") == (
         "custom-property output changes on repeat"
     )
 
@@ -4613,7 +4613,7 @@ def test_url_invariants_count_initial_rejection_as_out_of_scope(
 @pytest.mark.parametrize(
     ("transform", "expected"),
     [
-        pytest.param(lambda text: text + "a", "not a fixpoint: end vs letter", id="changed-output"),
+        pytest.param(lambda text: f"{text}a", "not a fixpoint: end vs letter", id="changed-output"),
         pytest.param(lambda text: "ok" if text == "raw" else None, "rejects its own output", id="none-after-success"),
         pytest.param(
             lambda text: _fuzz_url_invariants_reject() if text == "ok" else "ok",

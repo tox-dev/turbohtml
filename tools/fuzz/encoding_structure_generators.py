@@ -134,7 +134,7 @@ def _body(case: Generated) -> _Shape:
             _Shape(
                 kind="element",
                 name="a",
-                attrs=(("href", "#" + anchor),),
+                attrs=(("href", f"#{anchor}"),),
                 children=(_Shape(kind="text", data="x"),),
             ),
         ),
@@ -258,8 +258,8 @@ def _encode(data: bytes, encoding: str) -> bytes:
 
 def _profiles() -> dict[str, EncodingProfile]:
     profiles: Final = {
-        "encoding:codec:" + name.lower(): EncodingProfile(
-            name="encoding:codec:" + name.lower(), encoding=name, origin=origin
+        f"encoding:codec:{name.lower()}": EncodingProfile(
+            name=f"encoding:codec:{name.lower()}", encoding=name, origin=origin
         )
         for name, (_data, _point, origin) in _SAMPLES.items()
     }
@@ -1421,8 +1421,8 @@ def _profiles() -> dict[str, EncodingProfile]:
             if name == "x-user-defined"
             else name
         )
-        profiles["encoding:meta:" + label] = EncodingProfile(
-            name="encoding:meta:" + label,
+        profiles[f"encoding:meta:{label}"] = EncodingProfile(
+            name=f"encoding:meta:{label}",
             encoding=encoding,
             origin=origin,
             declared=label,
@@ -1430,8 +1430,8 @@ def _profiles() -> dict[str, EncodingProfile]:
             sniff=True,
         )
     for bom_encoding, bom in (("UTF-8-SIG", b"\xef\xbb\xbf"), ("UTF-16BE", b"\xfe\xff"), ("UTF-16LE", b"\xff\xfe")):
-        profiles["encoding:bom:" + bom_encoding.lower()] = EncodingProfile(
-            name="encoding:bom:" + bom_encoding.lower(),
+        profiles[f"encoding:bom:{bom_encoding.lower()}"] = EncodingProfile(
+            name=f"encoding:bom:{bom_encoding.lower()}",
             encoding=bom_encoding,
             origin=f"{_SPEC}#bom-sniff",
             bom=bom,
@@ -1477,26 +1477,26 @@ def _productions() -> tuple[Production, ...]:
     html = "https://html.spec.whatwg.org/multipage/text-level-semantics.html#the-span-element"
     for name, (_data, point, origin) in _SAMPLES.items():
         if name != "replacement":
-            symbol: Final = "content:" + name
+            symbol: Final = f"content:{name}"
             productions.extend((
                 Production(
-                    name=symbol + ":sample", symbol=symbol, parts=(chr(point).encode(),), nodes=1, origin=origin
+                    name=f"{symbol}:sample", symbol=symbol, parts=(chr(point).encode(),), nodes=1, origin=origin
                 ),
                 Production(
-                    name=symbol + ":ascii", symbol=symbol, parts=(b"ordinary",), nodes=1, origin=f"{_SPEC}#ascii"
+                    name=f"{symbol}:ascii", symbol=symbol, parts=(b"ordinary",), nodes=1, origin=f"{_SPEC}#ascii"
                 ),
                 Production(
-                    name=symbol + ":empty", symbol=symbol, parts=(), nodes=0, origin=f"{_SPEC}#concept-stream-end"
+                    name=f"{symbol}:empty", symbol=symbol, parts=(), nodes=0, origin=f"{_SPEC}#concept-stream-end"
                 ),
                 Production(
-                    name=symbol + ":nested",
+                    name=f"{symbol}:nested",
                     symbol=symbol,
                     parts=(b"<span>", Reference(symbol=symbol), b"</span>"),
                     nodes=1,
                     origin=html,
                 ),
                 Production(
-                    name=symbol + ":siblings",
+                    name=f"{symbol}:siblings",
                     symbol=symbol,
                     parts=(b"<span>", Reference(symbol=symbol), b"</span><span>", Reference(symbol=symbol), b"</span>"),
                     nodes=2,

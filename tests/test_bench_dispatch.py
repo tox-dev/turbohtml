@@ -37,7 +37,7 @@ def test_dispatch_stages(dispatch: Callable[..., Node], kind: str) -> None:
         cast("Text", node).data = node.text.upper()
 
     def replace(node: Node) -> Node:
-        return Text(node.text + "  end  ")
+        return Text(f"{node.text}  end  ")
 
     stage: Final = {"function": uppercase, "partial": partial(uppercase), "bound-method": partial(uppercase).__call__}[
         kind

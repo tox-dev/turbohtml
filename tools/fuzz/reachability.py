@@ -51,7 +51,7 @@ def unreached(target: Target, coverage_dir: Path) -> list[str]:
         function.name
         for function in target_functions(target)
         if not any(
-            function.lines & set(data.lines(path) or ()) for path in measured if path.endswith("/" + function.path)
+            function.lines & set(data.lines(path) or ()) for path in measured if path.endswith(f"/{function.path}")
         )
     ]
 

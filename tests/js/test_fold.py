@@ -1435,7 +1435,7 @@ def test_declaration_reads_preserve_behavior(source: str, expected: str) -> None
 def test_single_use_initializers_preserve_call_order(case: int, count: int) -> None:
     source: Final = INPUTS["minify-js-single-use"]()[case][1]
     assert isinstance(source, str)
-    program: Final = source + ";const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
+    program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
     expected: Final = list(range(count))
     assert _run(minify_js(program)) == json.dumps([expected, expected], separators=(",", ":")) + "\n"
 
@@ -1445,7 +1445,7 @@ def test_single_use_initializers_preserve_call_order(case: int, count: int) -> N
 def test_propagation_unlink_preserves_call_order(case: int, count: int) -> None:
     source: Final = INPUTS["minify-js-unlink"]()[case][1]
     assert isinstance(source, str)
-    program: Final = source + ";const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
+    program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
     expected: Final = (
         json.dumps(
             [[value for index in range(count) for value in (index, index % 10, index % 10)], list(range(count))],
@@ -1468,7 +1468,7 @@ def test_propagation_unlink_preserves_call_order(case: int, count: int) -> None:
 def test_var_initialization_benchmark_order(case: int, count: int, *, early: bool) -> None:
     source: Final = INPUTS["minify-js-var-initialization"]()[case][1]
     assert isinstance(source, str)
-    program: Final = source + ";const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
+    program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
     expected: Final = (
         json.dumps(
             [[None] * count, [None] * count]
@@ -1486,7 +1486,7 @@ def test_var_initialization_benchmark_order(case: int, count: int, *, early: boo
 def test_unused_declarators_preserve_call_order(case: int, count: int) -> None:
     source: Final = INPUTS["minify-js-unused-declarations"]()[case][1]
     assert isinstance(source, str)
-    program: Final = source + ";const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
+    program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
     expected: Final = json.dumps([[], list(range(count))], separators=(",", ":")) + "\n"
     assert (_run(program), _run(minify_js(program))) == (expected, expected)
 

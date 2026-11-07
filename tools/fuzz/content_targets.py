@@ -486,7 +486,7 @@ def sanitizer_check(
 
 
 def _text(data: bytes) -> str:
-    return "value" + data[:32].hex()
+    return f"value{data[:32].hex()}"
 
 
 def _equal(actual: object, expected: object) -> None:

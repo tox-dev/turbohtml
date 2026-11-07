@@ -1890,7 +1890,7 @@ def _compound(rng: random.Random, depth: int) -> str:
         if (draw := rng.random()) < 0.25:
             out += "." + rng.choice(("a", "b", "c", "\\61", "A"))
         elif draw < 0.35:
-            out += "#" + rng.choice(_IDS)
+            out += f"#{rng.choice(_IDS)}"
         elif draw < 0.6:
             name = rng.choice(("title", "data-x", "lang", "class", "id", "href", "TITLE"))
             operator = rng.choice(("", "=", "~=", "|=", "^=", "$=", "*="))
@@ -2097,7 +2097,7 @@ def _path(rng: random.Random) -> str:
         step = (
             rng.choice(("..", ".", "@*", "@id", "@class"))
             if (draw := rng.random()) < 0.15
-            else (rng.choice(_AXES) + "::" if draw < 0.55 else "") + rng.choice(_NODE_TESTS)
+            else (f"{rng.choice(_AXES)}::" if draw < 0.55 else "") + rng.choice(_NODE_TESTS)
         )
         steps.append(step + "".join(f"[{rng.choice(_PREDICATES)}]" for _ in range(rng.choice((0, 0, 1, 2)))))
     separators = [rng.choice(("/", "//")) for _ in steps]
@@ -2314,7 +2314,7 @@ def _resolve_wrong_target(node: Node, _base: str) -> None:
 
 def _resolve_changed_repeat(node: Node, base: str) -> None:
     if node.links()[0].url.startswith("http:"):
-        node.select("a")[0].attrs["href"] = node.links()[0].url + "a"
+        node.select("a")[0].attrs["href"] = f"{node.links()[0].url}a"
     else:
         node.resolve_links(base)
 
@@ -2363,7 +2363,7 @@ def _idna_host_controls() -> dict[str, bool]:
         "wrong mapping": idna_host_check("umlaut\n", lambda _text: "https://wrong.example/") is not None,
         "non-NFC label": idna_host_check("umlaut\n", lambda _text: "https://xn--u-ccb.example/") is not None,
         "changed canonical output": idna_host_check(
-            "umlaut\n", lambda text: normalize_url(text) if not text.isascii() else text + "a"
+            "umlaut\n", lambda text: normalize_url(text) if not text.isascii() else f"{text}a"
         )
         is not None,
     }
@@ -2371,7 +2371,7 @@ def _idna_host_controls() -> dict[str, bool]:
 
 def _normalize_url_controls() -> dict[str, bool]:
     return {
-        "growing output": normalize_url_check("https://example.org/", lambda text: text + "a") is not None,
+        "growing output": normalize_url_check("https://example.org/", lambda text: f"{text}a") is not None,
         "rejects normalized output": normalize_url_check("raw", _reject_url_output) is not None,
     }
 
@@ -2396,7 +2396,7 @@ def _reject_url_output(text: str) -> str:
 
 def _clean_url_controls() -> dict[str, bool]:
     return {
-        "growing output": clean_url_check("https://example.org/", lambda text: text + "a") is not None,
+        "growing output": clean_url_check("https://example.org/", lambda text: f"{text}a") is not None,
         "drops cleaned output": clean_url_check("raw", lambda text: "https://example.org/" if text == "raw" else None)
         is not None,
         "rejects cleaned output": clean_url_check("raw", _reject_url_output) is not None,
@@ -2439,7 +2439,7 @@ def _xml_controls() -> dict[str, bool]:
 
 def _css_controls() -> dict[str, bool]:
     return {
-        "growing output": _css_fixpoint("a{color:red}", lambda css: minify_css(css) + "/*!x*/") is not None,
+        "growing output": _css_fixpoint("a{color:red}", lambda css: f"{minify_css(css)}/*!x*/") is not None,
         "late non-numeric convergence": fixpoint_check("aa", lambda text: text.replace("a", "b", 1), numeric=True)
         is not None,
     }
@@ -2454,7 +2454,7 @@ def _js_controls() -> dict[str, bool]:
 
 def _style_controls() -> dict[str, bool]:
     return {
-        "growing output": style_check("a:b", lambda text: StyleDeclaration.parse(text + ";z:1")) is not None,
+        "growing output": style_check("a:b", lambda text: StyleDeclaration.parse(f"{text};z:1")) is not None,
         "changed value": style_check("a:b", lambda text: StyleDeclaration.parse(text.replace(": ", ":x", 1)))
         is not None,
     }
@@ -2469,14 +2469,14 @@ def _js_names_controls() -> dict[str, bool]:
         return lambda source, options: edit(minify_js(source, options))
 
     return {
-        "invented free identifier": js_names_check("x", _JS_NAMES, broken(lambda out: out + ";zz")) is not None,
+        "invented free identifier": js_names_check("x", _JS_NAMES, broken(lambda out: f"{out};zz")) is not None,
         "lost string": js_names_check("f('q')", _JS_NAMES, broken(lambda out: re.sub(r"['\"]q['\"]", "0", out)))
         is not None,
         "captured free identifier": js_names_check(
             "function f(a){return b}", _JS_NAMES, lambda _source, _options: "function f(b){return b}"
         )
         is not None,
-        "output not JavaScript": js_names_check("x", _JS_NAMES, broken(lambda out: out + "(")) is not None,
+        "output not JavaScript": js_names_check("x", _JS_NAMES, broken(lambda out: f"{out}(")) is not None,
     }
 
 

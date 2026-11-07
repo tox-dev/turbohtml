@@ -761,11 +761,11 @@ _LINKIFY_TRAVERSAL_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
 
 _FIND_COLD_BODY: Final[str] = "<span>x</span>" * 10_000
 _FIND_COLD_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
-    ("find early hit", ("find", "<a>x</a>" + _FIND_COLD_BODY)),
-    ("find late hit", ("find", _FIND_COLD_BODY + "<a>x</a>")),
+    ("find early hit", ("find", f"<a>x</a>{_FIND_COLD_BODY}")),
+    ("find late hit", ("find", f"{_FIND_COLD_BODY}<a>x</a>")),
     ("find miss", ("find", _FIND_COLD_BODY)),
-    ("find_all", ("all", "<a>x</a>" + _FIND_COLD_BODY)),
-    ("find_all limit=1", ("limit", "<a>x</a>" + _FIND_COLD_BODY)),
+    ("find_all", ("all", f"<a>x</a>{_FIND_COLD_BODY}")),
+    ("find_all limit=1", ("limit", f"<a>x</a>{_FIND_COLD_BODY}")),
 )
 
 _MARKDOWN_ARTICLE = "<h2>Heading</h2><p>A <b>bold</b> <a href='/x'>link</a> and <code>code</code>.</p>" * 18
@@ -1109,7 +1109,7 @@ def _transform_text_cases() -> tuple[tuple[str, object], ...]:
                 body = "<xsl:apply-templates/>"
                 source = "<r>" + ("<p>" + payload + "</p>") * count + "</r>"
             else:
-                body = (payload + "<!--gap-->" if kind == "literal" else "<xsl:text>" + payload + "</xsl:text>") * count
+                body = (f"{payload}<!--gap-->" if kind == "literal" else f"<xsl:text>{payload}</xsl:text>") * count
                 source = "<r/>"
             sheet = (
                 '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
@@ -2937,7 +2937,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
             for kind, key in (("plain", "key"), ("escaped", "%6Bey"))
         ),
         *tuple(
-            (f"normalize 100 URLs, {name}", ("normalize", ("https://example.org/" + path,) * 100))
+            (f"normalize 100 URLs, {name}", ("normalize", (f"https://example.org/{path}",) * 100))
             for name, path in (
                 ("8 KiB undotted paths", "a" * 8192),
                 ("short undotted paths", "products/item"),
@@ -2947,7 +2947,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
             )
         ),
         *tuple(
-            (f"normalize 100 URLs, {name}", ("normalize", ("https://" + host + "/",) * 100))
+            (f"normalize 100 URLs, {name}", ("normalize", (f"https://{host}/",) * 100))
             for name, host in (
                 ("253-character ASCII hosts", ".".join(("A" * 63, "B" * 63, "C" * 63, "D" * 49, "example", "org"))),
                 ("short ASCII hosts", "EXAMPLE.ORG"),
@@ -2984,7 +2984,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     "is-valid": lambda: _validation_verdict_cases(_VALIDATE_XSD),
     "is-valid-rng": lambda: _validation_verdict_cases(_VALIDATE_RNG),
     "serialize-named": lambda: tuple(
-        (label, "<html><head></head><body><p>" + text + "</p></body></html>")
+        (label, f"<html><head></head><body><p>{text}</p></body></html>")
         for label, text in (
             ("48k named characters", "é©\u03b1Ω∑€" * 8192),
             ("48k ASCII characters", "abcxyz" * 8192),

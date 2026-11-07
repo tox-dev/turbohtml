@@ -1710,9 +1710,9 @@ def test_href_is_the_international_number(text: str, regions: tuple[str, ...], h
     assert linkify(text, Linkify(phones=PhoneNumbers(regions=regions))) == f'<a href="{href}">{text}</a>'
     span = LinkDetector(phones=PhoneNumbers(regions=regions)).find(text)[0]
     assert span.phone is not None
-    expected = "tel:" + span.phone.international_number
+    expected = f"tel:{span.phone.international_number}"
     if span.phone.extension is not None:
-        expected += ";ext=" + span.phone.extension
+        expected += f";ext={span.phone.extension}"
     assert href == expected
 
 
@@ -1743,7 +1743,7 @@ def _collect(seen: list[LinkCandidate]) -> Callable[[LinkCandidate], LinkCandida
 def test_callback_can_route_mobiles_to_sms() -> None:
     def sms(link: LinkCandidate) -> LinkCandidate:
         if link.phone is not None and link.phone.type in {PhoneType.MOBILE, PhoneType.FIXED_LINE_OR_MOBILE}:
-            link.url = "sms:" + link.phone.international_number
+            link.url = f"sms:{link.phone.international_number}"
         return link
 
     assert linkify(

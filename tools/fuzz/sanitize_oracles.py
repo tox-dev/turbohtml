@@ -278,7 +278,7 @@ def _dump_html5lib(fragment: DomFragment) -> str:
     # html5lib/tests/tree_construction.py; continuation lines of a multi-line text node carry no bar and stay as they
     # are.
     lines = _DOM_BUILDER(namespaceHTMLElements=False).testSerializer(fragment).split("\n")[1:]
-    return "\n".join("| " + line[3:] if line.startswith("|") else line for line in lines)
+    return "\n".join(f"| {line[3:]}" if line.startswith("|") else line for line in lines)
 
 
 def _shape(line: str | None) -> str:

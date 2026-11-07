@@ -713,7 +713,7 @@ def _canon_num(lexeme: str) -> str:
         fend -= 1
     out = digits[istart:dot]
     if fend > dot + 1:
-        out += "." + digits[dot + 1 : fend]
+        out += f".{digits[dot + 1 : fend]}"
     return out or "0"
 
 

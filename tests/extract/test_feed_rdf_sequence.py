@@ -56,7 +56,7 @@ _ITEM_B: Final[str] = '<item rdf:about="https://example.org/b"><title>B</title><
         ),
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
-            _ITEM_A + "<item><title>No ID</title></item>" + _ITEM_B,
+            f"{_ITEM_A}<item><title>No ID</title></item>{_ITEM_B}",
             ("A", "B"),
         ),
         (

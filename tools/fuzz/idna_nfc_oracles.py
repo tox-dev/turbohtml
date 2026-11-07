@@ -28,7 +28,7 @@ def idna_nfc_controls() -> dict[str, bool]:
     return {
         "unchanged Unicode": idna_nfc_check("reorder:", lambda text: text) is not None,
         "stable wrong target": idna_nfc_check("reorder:", lambda _text: "https://wrong.example/") is not None,
-        "changed repeat": idna_nfc_check("reorder:", lambda text: text + "x" if text.isascii() else normalize_url(text))
+        "changed repeat": idna_nfc_check("reorder:", lambda text: f"{text}x" if text.isascii() else normalize_url(text))
         is not None,
     }
 
