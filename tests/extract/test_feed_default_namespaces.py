@@ -40,10 +40,15 @@ def test_feed_prefixed_atom_root_is_recognized() -> None:
 @pytest.mark.parametrize(
     ("field", "wrong", "right"),
     [
-        ("title", '<title xmlns="urn:other">wrong</title>', "<title>right</title>"),
-        ("description", '<subtitle xmlns="urn:other">wrong</subtitle>', "<subtitle>right</subtitle>"),
-        ("updated", '<updated xmlns="urn:other">wrong</updated>', "<updated>right</updated>"),
-        ("link", '<link xmlns="urn:other" href="wrong"/>', '<link href="right"/>'),
+        pytest.param("title", '<title xmlns="urn:other">wrong</title>', "<title>right</title>", id="title"),
+        pytest.param(
+            "description",
+            '<subtitle xmlns="urn:other">wrong</subtitle>',
+            "<subtitle>right</subtitle>",
+            id="description",
+        ),
+        pytest.param("updated", '<updated xmlns="urn:other">wrong</updated>', "<updated>right</updated>", id="updated"),
+        pytest.param("link", '<link xmlns="urn:other" href="wrong"/>', '<link href="right"/>', id="link"),
     ],
 )
 def test_feed_atom_foreign_default_field_is_skipped(field: str, wrong: str, right: str) -> None:
@@ -94,12 +99,12 @@ def test_feed_atom_field_restores_default_namespace() -> None:
 @pytest.mark.parametrize(
     ("field", "tag"),
     [
-        ("title", "title"),
-        ("summary", "summary"),
-        ("content", "content"),
-        ("updated", "updated"),
-        ("published", "published"),
-        ("id", "id"),
+        pytest.param("title", "title", id="title"),
+        pytest.param("summary", "summary", id="summary"),
+        pytest.param("content", "content", id="content"),
+        pytest.param("updated", "updated", id="updated"),
+        pytest.param("published", "published", id="published"),
+        pytest.param("id", "id", id="id"),
     ],
 )
 def test_feed_atom_foreign_default_entry_field_is_skipped(field: str, tag: str) -> None:

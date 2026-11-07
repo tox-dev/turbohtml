@@ -82,10 +82,10 @@ def parse_feed(xml: str) -> Feed:
 @pytest.mark.parametrize(
     ("local", "uri", "field"),
     [
-        ("date", "http://purl.org/dc/elements/1.1/", "published"),
-        ("description", "http://purl.org/dc/elements/1.1/", "summary"),
-        ("creator", "http://purl.org/dc/elements/1.1/", "author"),
-        ("encoded", "http://purl.org/rss/1.0/modules/content/", "content"),
+        pytest.param("date", "http://purl.org/dc/elements/1.1/", "published", id="date"),
+        pytest.param("description", "http://purl.org/dc/elements/1.1/", "summary", id="description"),
+        pytest.param("creator", "http://purl.org/dc/elements/1.1/", "author", id="creator"),
+        pytest.param("encoded", "http://purl.org/rss/1.0/modules/content/", "content", id="encoded"),
     ],
 )
 def test_feed_rss_default_module_namespace(local: str, uri: str, field: str) -> None:
@@ -277,10 +277,10 @@ def test_feed_atom_shape() -> None:
 @pytest.mark.parametrize(
     ("field", "expected"),
     [
-        ("title", "Feed"),
-        ("link", "https://example.org/"),
-        ("description", "Subtitle"),
-        ("updated", "2026-07-06"),
+        pytest.param("title", "Feed", id="title"),
+        pytest.param("link", "https://example.org/", id="link"),
+        pytest.param("description", "Subtitle", id="description"),
+        pytest.param("updated", "2026-07-06", id="updated"),
     ],
 )
 def test_feed_atom_prefixed_feed_fields(field: str, expected: str) -> None:
@@ -290,12 +290,12 @@ def test_feed_atom_prefixed_feed_fields(field: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("field", "expected"),
     [
-        ("id", "urn:entry"),
-        ("title", "Entry"),
-        ("link", "https://example.org/entry"),
-        ("summary", "Summary"),
-        ("content", "Body"),
-        ("author", "Alice"),
+        pytest.param("id", "urn:entry", id="id"),
+        pytest.param("title", "Entry", id="title"),
+        pytest.param("link", "https://example.org/entry", id="link"),
+        pytest.param("summary", "Summary", id="summary"),
+        pytest.param("content", "Body", id="content"),
+        pytest.param("author", "Alice", id="author"),
     ],
 )
 def test_feed_atom_prefixed_entry_fields(field: str, expected: str) -> None:
@@ -431,9 +431,9 @@ def test_feed_rdf_other_prefixed_attribute_before_about() -> None:
 @pytest.mark.parametrize(
     ("field", "expected"),
     [
-        ("title", "Feed"),
-        ("link", "https://example.org/"),
-        ("description", "Summary"),
+        pytest.param("title", "Feed", id="title"),
+        pytest.param("link", "https://example.org/", id="link"),
+        pytest.param("description", "Summary", id="description"),
     ],
 )
 def test_feed_rdf_prefixed_channel_fields(field: str, expected: str) -> None:
@@ -443,10 +443,10 @@ def test_feed_rdf_prefixed_channel_fields(field: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("field", "expected"),
     [
-        ("title", "Item"),
-        ("link", "https://example.org/item"),
-        ("id", "https://example.org/item"),
-        ("summary", "Entry summary"),
+        pytest.param("title", "Item", id="title"),
+        pytest.param("link", "https://example.org/item", id="link"),
+        pytest.param("id", "https://example.org/item", id="id"),
+        pytest.param("summary", "Entry summary", id="summary"),
     ],
 )
 def test_feed_rdf_prefixed_item_fields(field: str, expected: str) -> None:

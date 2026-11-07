@@ -48,11 +48,11 @@ def test_feed_rss_foreign_default_item_is_skipped() -> None:
 @pytest.mark.parametrize(
     ("field", "tag"),
     [
-        ("title", "title"),
-        ("link", "link"),
-        ("description", "description"),
-        ("updated", "pubDate"),
-        ("updated", "lastBuildDate"),
+        pytest.param("title", "title", id="title"),
+        pytest.param("link", "link", id="link"),
+        pytest.param("description", "description", id="description"),
+        pytest.param("updated", "pubDate", id="updated-pub-date"),
+        pytest.param("updated", "lastBuildDate", id="updated-last-build-date"),
     ],
 )
 def test_feed_rss_foreign_default_channel_field_is_skipped(field: str, tag: str) -> None:
@@ -67,14 +67,14 @@ def test_feed_rss_foreign_default_channel_field_is_skipped(field: str, tag: str)
 @pytest.mark.parametrize(
     ("field", "tag"),
     [
-        ("title", "title"),
-        ("link", "link"),
-        ("id", "guid"),
-        ("updated", "updated"),
-        ("published", "pubDate"),
-        ("summary", "description"),
-        ("content", "content"),
-        ("author", "author"),
+        pytest.param("title", "title", id="title"),
+        pytest.param("link", "link", id="link"),
+        pytest.param("id", "guid", id="id"),
+        pytest.param("updated", "updated", id="updated"),
+        pytest.param("published", "pubDate", id="published"),
+        pytest.param("summary", "description", id="summary"),
+        pytest.param("content", "content", id="content"),
+        pytest.param("author", "author", id="author"),
     ],
 )
 def test_feed_rss_foreign_default_item_field_is_skipped(field: str, tag: str) -> None:
