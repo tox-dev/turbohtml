@@ -2253,6 +2253,17 @@ static int md_is_cell_block(uint16_t atom) {
     return atom == TH_TAG_TABLE || atom == TH_TAG_UL || atom == TH_TAG_OL || atom == TH_TAG_MENU;
 }
 
+static int md_in_cell_quote(const th_node *node) {
+    /* Called only while rendering a td/th descendant. */
+    for (const th_node *ancestor = node; ancestor->atom != TH_TAG_TD && ancestor->atom != TH_TAG_TH;
+         ancestor = ancestor->parent) {
+        if (ancestor->atom == TH_TAG_BLOCKQUOTE) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Collapsed block boundaries need spaces to keep adjacent words apart. */
 static int md_is_cell_scaffold(uint16_t atom) {
     switch (atom) {
@@ -2707,8 +2718,8 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
            blank line would split the CommonMark link, a heading is one line, and a GFM
            cell holds inline content, 4.10), so it flattens to inline; its boundary still
            reads as a space so adjacent words never fuse */
-        if (ctx->in_cell && !ctx->inline_only) {
-            /* Flattened blocks still split emphasis into separate inline runs. */
+        if (ctx->in_cell && !ctx->inline_only && md_in_cell_quote(node)) {
+            /* A quote has its own flow of inline runs inside a flattened cell. */
             md_suspend_markers(ctx);
         }
         ctx->space_pending = 1;
