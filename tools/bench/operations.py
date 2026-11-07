@@ -544,7 +544,7 @@ OPERATIONS: Final[dict[str, Operation]] = {
 
 def _sax_record_cases() -> tuple[tuple[str, object], ...]:
     return (
-        ("4,096 small elements", "<!DOCTYPE html>" + "<p>x</p>" * 4096),
+        ("4,096 small elements", f"<!DOCTYPE html>{'<p>x</p>' * 4096}"),
         ("one small element", "<p>x</p>"),
     )
 
@@ -564,8 +564,8 @@ def _dispatch_cases() -> tuple[tuple[str, object], ...]:
 def _collapse_cases() -> tuple[tuple[str, object], ...]:
     return (
         *_readpath_cases(),
-        ("unchanged text (1 MiB)", "<p>" + "x" * 1_048_576 + "</p>"),
-        ("whitespace runs (1 MiB)", "<p>" + "x  " * 349_525 + "</p>"),
+        ("unchanged text (1 MiB)", f"<p>{'x' * 1_048_576}</p>"),
+        ("whitespace runs (1 MiB)", f"<p>{'x  ' * 349_525}</p>"),
     )
 
 
@@ -583,7 +583,7 @@ def _readpath_cases() -> tuple[tuple[str, object], ...]:
 
 
 def _stream_cases() -> tuple[tuple[str, object], ...]:
-    wide_paragraph: Final = "<p>" + "名" * 4089 + "</p>"
+    wide_paragraph: Final = f"<p>{'名' * 4089}</p>"
     wide_body: Final = wide_paragraph * 64
     prefix: Final = "<html><head></head><body>"
     suffix: Final = "</body></html>"
@@ -594,8 +594,8 @@ def _stream_cases() -> tuple[tuple[str, object], ...]:
         ("one BMP paragraph, early NUL", prefix + nul_element + wide_paragraph + suffix),
         ("64 BMP paragraphs, late NUL", prefix + wide_body + nul_element + suffix),
         ("64 BMP paragraphs, no NUL", prefix + wide_body + suffix),
-        ("64 ASCII paragraphs, early NUL", prefix + nul_element + ("<p>" + "a" * 4089 + "</p>") * 64 + suffix),
-        ("64 supplementary paragraphs, early NUL", prefix + nul_element + ("<p>" + "😀" * 4089 + "</p>") * 64 + suffix),
+        ("64 ASCII paragraphs, early NUL", prefix + nul_element + (f"<p>{'a' * 4089}</p>") * 64 + suffix),
+        ("64 supplementary paragraphs, early NUL", prefix + nul_element + (f"<p>{'😀' * 4089}</p>") * 64 + suffix),
     )
 
 
@@ -701,7 +701,7 @@ _PHONE_MIXED: Final[str] = (
     "Call 650-253-0000 or (650) 253-0001, fax 011 44 20 7946 0958, mobile 07400 123456, Berlin 030 12345678, "
     "Mumbai 022 2345 6789, +55 11 96123-4567, +81 3-1234-5678, order 98211 shipped 3/10/2011; not 123-456-7890. "
 )
-_PHONE_ADVERSARIAL = " ".join(["1234"] * 21) + " " + "1" * 21 + " " + ".".join(["12"] * 21) + " "
+_PHONE_ADVERSARIAL = f"{' '.join(['1234'] * 21)} {'1' * 21} {'.'.join(['12'] * 21)} "
 _PHONE_FULLWIDTH: Final[str] = (
     "\uff0b\uff14\uff14 \uff12\uff10 \uff17\uff19\uff14\uff16 \uff10\uff19\uff15\uff18 or "
     "\uff16\uff15\uff10-\uff12\uff15\uff13-\uff10\uff10\uff10\uff10, then prose. "
@@ -748,15 +748,15 @@ _PHONE_HELD: Final[tuple[tuple[str, str], ...]] = (
     ("SG", "6123 4567"),
 )
 _LINKIFY_TRAVERSAL_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
-    ("text-heavy tree", ("default", "<article><p>" + "plain prose " * 8_000 + "https://example.com</p></article>")),
-    ("2,000 small text nodes", ("default", "<div>" + "<span>plain</span>" * 2_000 + "</div>")),
+    ("text-heavy tree", ("default", f"<article><p>{'plain prose ' * 8_000}https://example.com</p></article>")),
+    ("2,000 small text nodes", ("default", f"<div>{'<span>plain</span>' * 2_000}</div>")),
     ("2,000 skipped nodes", ("skip", "<code><span>https://example.com</span></code>" * 2_000)),
     (
         "400 callback links",
         ("callbacks", '<a href="https://kept.example">kept</a> https://example.com ' * 200),
     ),
     ("2,000 nodes without text", ("default", "<div></div>" * 2_000)),
-    ("wide text, two callbacks", ("callbacks", "<p>" + "😀 " * 32_768 + "https://example.com</p>")),
+    ("wide text, two callbacks", ("callbacks", f"<p>{'😀 ' * 32_768}https://example.com</p>")),
 )
 
 _FIND_COLD_BODY: Final[str] = "<span>x</span>" * 10_000
@@ -1031,14 +1031,14 @@ def _annotation_rule_cases() -> tuple[tuple[str, object], ...]:
     attributes = " ".join(f'data-{index}="yes"' for index in range(49))
     broad = f"<p>{f'<span {attributes}>x</span>' * 1_000}</p>"
     return (
-        ("49 mostly irrelevant rules, 1,000 spans", ("<p>" + "<span>x</span>" * 1_000 + "</p>", unrelated)),
+        ("49 mostly irrelevant rules, 1,000 spans", (f"<p>{'<span>x</span>' * 1_000}</p>", unrelated)),
         ("49 wildcard rules, 1,000 spans", (broad, tuple((f"#data-{index}", (str(index),)) for index in range(49)))),
         (
             "49 matching tag rules, 1,000 spans",
             (broad, tuple((f"span#data-{index}", (str(index),)) for index in range(49))),
         ),
         ("49 mostly irrelevant rules, one span", ("<p><span>x</span></p>", unrelated)),
-        ("three rules, 1,000 spans", ("<p>" + "<span>x</span>" * 1_000 + "</p>", unrelated[-3:])),
+        ("three rules, 1,000 spans", (f"<p>{'<span>x</span>' * 1_000}</p>", unrelated[-3:])),
         (
             "interleaved wildcard rules, alternating tags",
             (
@@ -1109,7 +1109,7 @@ def _transform_text_cases() -> tuple[tuple[str, object], ...]:
         for count in (4096, 4):
             if kind == "builtin":
                 body = "<xsl:apply-templates/>"
-                source = "<r>" + ("<p>" + payload + "</p>") * count + "</r>"
+                source = f"<r>{('<p>' + payload + '</p>') * count}</r>"
             else:
                 body = (f"{payload}<!--gap-->" if kind == "literal" else f"<xsl:text>{payload}</xsl:text>") * count
                 source = "<r/>"
@@ -1132,7 +1132,7 @@ def _transform_key_cases() -> tuple[tuple[str, object], ...]:
                     f'<xsl:template match="/"><xsl:value-of select="count(key(&quot;k&quot;,&quot;{wanted}&quot;))"/>'
                     "</xsl:template></xsl:stylesheet>"
                 ),
-                "<r>" + "".join(item.format(index=index) for index in range(count)) + "</r>",
+                f"<r>{''.join(item.format(index=index) for index in range(count))}</r>",
             ),
         )
         for label, use, wanted, item, count in (
@@ -1186,7 +1186,7 @@ def _transform_namespace_cases() -> tuple[tuple[str, object], ...]:
             + "</xsl:if>" * depth
             + "</xsl:for-each></out></xsl:template></xsl:stylesheet>"
         )
-        cases.append((f"{label} ({depth} ancestors, {count} rows)", (sheet, "<r>" + "<n/>" * count + "</r>")))
+        cases.append((f"{label} ({depth} ancestors, {count} rows)", (sheet, f"<r>{'<n/>' * count}</r>")))
     return tuple(cases)
 
 
@@ -1486,7 +1486,7 @@ def _tokenize_cases() -> tuple[tuple[str, object], ...]:
     large_cases = tuple((name, corpus.large_text(filename, url)) for name, filename, url in corpus.LARGE_FILES)
     return (
         ("typical markup", '<div class="row"><p>Tom &amp; Jerry said "hi" to <b>O\'Brien</b>!</p><br/></div>\n' * 60),
-        ("text-heavy prose", "<p>" + "the quick brown fox jumps over the lazy dog " * 100 + "</p>"),
+        ("text-heavy prose", f"<p>{'the quick brown fox jumps over the lazy dog ' * 100}</p>"),
         (
             "attribute-heavy",
             '<a href="https://example.com/path?q=1" title="example" rel="noopener" target="_blank" data-x=y>link</a>\n'
@@ -1529,7 +1529,7 @@ def _minify_cases() -> tuple[tuple[str, object], ...]:
         *(
             (
                 f"{depth} nested variable fallbacks",
-                "a{width:" + "var(--x," * depth + "1px" + ")" * depth + "}",
+                f"a{{width:{'var(--x,' * depth}1px{')' * depth}}}",
             )
             for depth in (64, 4)
         ),
@@ -1650,12 +1650,12 @@ def _normalize_cases() -> tuple[tuple[str, object], ...]:
         ("nfc french (4 kB)", french),
         ("nfd french (4 kB)", unicodedata.normalize("NFD", french)),
         ("utf-8 page (95 kB)", corpus.large_text(filename, url)),
-        ("32 KiB ASCII prefix, composable suffix", "abc " * 8192 + "e\u0301"),
+        ("32 KiB ASCII prefix, composable suffix", f"{'abc ' * 8192}e\u0301"),
         ("small ASCII prefix, composable suffix", "abc e\u0301"),
         ("4,096 composable combining pairs", "e\u0301" * 4096),
         ("4,096 Hangul jamo triples", "\u1100\u1161\u11a8" * 4096),
         ("10,000 Hebrew combining marks", "\u05d0" + "\u05b1" * 5000 + "\u05b0" * 5000),
-        ("4,096 supplementary characters, composable suffix", "😀" * 4096 + "e\u0301"),
+        ("4,096 supplementary characters, composable suffix", f"{'😀' * 4096}e\u0301"),
     )
 
 
@@ -1686,7 +1686,7 @@ def _validate_rng_reuse_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
                     + '<element name="value"><text/></element>'
                     + f"</{kind}>"
                     + "</element></oneOrMore></element>",
-                    "<root>" + "<row><value>text</value></row>" * rows + "</root>",
+                    f"<root>{'<row><value>text</value></row>' * rows}</root>",
                 ),
             )
             for kind, width, rows in (("group", 128, 64), ("interleave", 32, 64), ("group", 4, 4))
@@ -1717,7 +1717,7 @@ def _validate_numeric_facet_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
                     f'<xs:restriction base="xs:{kind}">{facets}</xs:restriction>'
                     "</xs:simpleType></xs:element></xs:sequence></xs:complexType></xs:element></xs:schema>"
                 ),
-                "<root>" + "<value>1234567890.1234567890123456789012</value>" * count + "</root>",
+                f"<root>{'<value>1234567890.1234567890123456789012</value>' * count}</root>",
             ),
         )
         for label, kind, count, facets in (
@@ -1760,7 +1760,7 @@ def _validate_pattern_reuse_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
                 + '</xs:restriction></xs:simpleType><xs:element name="root"><xs:complexType><xs:sequence>'
                 '<xs:element name="value" type="item" maxOccurs="unbounded"/>'
                 "</xs:sequence></xs:complexType></xs:element></xs:schema>",
-                "<root>" + "<value>abc123</value>" * 1000 + "</root>",
+                f"<root>{'<value>abc123</value>' * 1000}</root>",
             ),
         )
         for label, facets in (
@@ -1780,7 +1780,7 @@ def _validate_facet_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
                 + '<xs:element name="root"><xs:complexType><xs:sequence>'
                 f'<xs:element name="value" type="{type_name}" maxOccurs="unbounded"/>'
                 "</xs:sequence></xs:complexType></xs:element></xs:schema>",
-                "<root>" + "<value>abc123</value>" * 1000 + "</root>",
+                f"<root>{'<value>abc123</value>' * 1000}</root>",
             ),
         )
         for label, type_name, declarations in (
@@ -1852,12 +1852,12 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
         ("tiny UTF-16LE", ("utf-16le", "<p>café</p>".encode("utf-16le"))),
         ("tiny UTF-16BE", ("utf-16be", "<p>café</p>".encode("utf-16be"))),
         ("tiny UTF-8", ("utf-8", "<p>café</p>".encode())),
-        ("16 KiB UTF-16LE", ("utf-16le", ("<p>" + "café" * 2048 + "</p>").encode("utf-16le"))),
+        ("16 KiB UTF-16LE", ("utf-16le", (f"<p>{'café' * 2048}</p>").encode("utf-16le"))),
     ),
     "parse-foster": lambda: tuple(
         (
             f"{count:,} table rows / fostered text runs",
-            "<div><table>" + "a<tr><td>cell</td></tr>" * count + "</table></div>",
+            f"<div><table>{'a<tr><td>cell</td></tr>' * count}</table></div>",
         )
         for count in (1024, 1)
     ),
@@ -1887,13 +1887,13 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     "parse-scope": lambda: (
         (
             "256 spans / 1,000 ignored address end tags",
-            "<div>" + "<span>" * 256 + "a" + "</address>" * 1000 + "a" + "</span>" * 256 + "</div>",
+            f"<div>{'<span>' * 256}a{'</address>' * 1000}a{'</span>' * 256}</div>",
         ),
     ),
     "parse-formatting": lambda: tuple(
         (
             f"{depth} spans / 1,000 samp elements",
-            "<b>" + "<span>" * depth + "<samp>a</samp>" * 1000 + "</span>" * depth + "</b>",
+            f"<b>{'<span>' * depth}{'<samp>a</samp>' * 1000}{'</span>' * depth}</b>",
         )
         for depth in (256, 0)
     ),
@@ -1908,13 +1908,13 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
         for count, label in ((1_000, "1,000 attributes"), (1, "1 attribute"))
     ),
     "parse-xml-values": lambda: (
-        ("64 KiB clean value", '<root value="' + "a" * 65536 + '"/>'),
-        ("64 KiB reference-rich source", '<root value="' + "a&amp;b " * 8192 + '"/>'),
+        ("64 KiB clean value", f'<root value="{"a" * 65536}"/>'),
+        ("64 KiB reference-rich source", f'<root value="{"a&amp;b " * 8192}"/>'),
         ("five value characters", '<root value="hello"/>'),
     ),
     "parse-xml-text": lambda: (
-        ("64 KiB clean text", "<root>" + "a" * 65536 + "</root>"),
-        ("64 KiB reference-rich source", "<root>" + "a&amp;b " * 8192 + "</root>"),
+        ("64 KiB clean text", f"<root>{'a' * 65536}</root>"),
+        ("64 KiB reference-rich source", f"<root>{'a&amp;b ' * 8192}</root>"),
         ("five text characters", "<root>hello</root>"),
     ),
     "parse-xml-prefixes": lambda: tuple(
@@ -2063,7 +2063,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
         *tuple(
             (
                 f"{size} nested elements, {relative}",
-                (f"div:has({relative})", "<div>" * size + "<a></a>" + "</div>" * size),
+                (f"div:has({relative})", f"{'<div>' * size}<a></a>{'</div>' * size}"),
             )
             for size in (8, 100)
             for relative in ("> a", "+ a", "~ a", "a")
@@ -2073,7 +2073,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
                 f"64 siblings with {depth} descendants, {relative}",
                 (
                     f"section:has({relative})",
-                    ("<section>" + "<div>" * depth + "<a></a>" + "</div>" * depth + "</section>") * 64,
+                    (f"<section>{'<div>' * depth}<a></a>{'</div>' * depth}</section>") * 64,
                 ),
             )
             for depth in (0, 64)
@@ -2086,7 +2086,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
                 f"{forms} forms, {prefix} spans, {buttons} buttons, {selector}",
                 (
                     selector,
-                    ("<form>" + "<span>x</span>" * prefix + "<button>go</button>" * buttons + "</form>") * forms,
+                    (f"<form>{'<span>x</span>' * prefix}{'<button>go</button>' * buttons}</form>") * forms,
                 ),
             )
             for forms, prefix, buttons, selector in (
@@ -2101,7 +2101,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
             "1 form, 4096 spans, 128 explicit submit buttons",
             (
                 ":default",
-                "<form>" + "<span>x</span>" * 4096 + "<button type=submit>go</button>" * 128 + "</form>",
+                f"<form>{'<span>x</span>' * 4096}{'<button type=submit>go</button>' * 128}</form>",
             ),
         ),
     ),
@@ -2121,7 +2121,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
             for size in (100, 1_000, 10_000)
         ),
         *(
-            (f".//div//a ({size:,} levels)", (".//div//a", "<div>" * size + "<a>x</a>" + "</div>" * size))
+            (f".//div//a ({size:,} levels)", (".//div//a", f"{'<div>' * size}<a>x</a>{'</div>' * size}"))
             for size in (100, 1_000, 10_000)
         ),
     ),
@@ -2159,11 +2159,11 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
         + tuple(
             (
                 f"scalar equality, {size:,} characters",
-                ("string(//li) = string(//b)", "<ul><li>" + "a" * size + "</li></ul><b>" + "a" * size + "</b>"),
+                ("string(//li) = string(//b)", f"<ul><li>{'a' * size}</li></ul><b>{'a' * size}</b>"),
             )
             for size in (32, 32_768)
         )
-        + (("first-node equality, 1,000 nodes", ("//li = //li", "<ul>" + "<li>a</li>" * 1_000 + "</ul>")),)
+        + (("first-node equality, 1,000 nodes", ("//li = //li", f"<ul>{'<li>a</li>' * 1_000}</ul>")),)
     ),
     "xpath-order": lambda: ((
         *tuple(
@@ -2183,7 +2183,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
         ),
         (
             "first-pair match, 1,000 nodes",
-            ("//li < //b", "<ul>" + "<li>1</li>" * 1000 + "</ul><section>" + "<b>2</b>" * 1000 + "</section>"),
+            ("//li < //b", f"<ul>{'<li>1</li>' * 1000}</ul><section>{'<b>2</b>' * 1000}</section>"),
         ),
     )),
     "node-equals": lambda: tuple(
@@ -2222,7 +2222,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     "xpath-replace": lambda: (
         (
             "KMP sparse matches",
-            (("a" * 4096 + "b" + "a" * 64 + "x") * 8, "a" * 64 + "b" + "a" * 64, "X", ("a" * 4032 + "Xx") * 8),
+            ((f"{'a' * 4096}b{'a' * 64}x") * 8, f"{'a' * 64}b{'a' * 64}", "X", (f"{'a' * 4032}Xx") * 8),
         ),
         ("short ASCII", ("A short paragraph", "a", "A", "A short pArAgrAph")),
     ),
@@ -2230,13 +2230,13 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
         *tuple(
             (
                 f"{count:,} nodes, {length} characters",
-                ("str:concat(//i)", "<main>" + ("<i>" + "a" * length + "</i>") * count + "</main>"),
+                ("str:concat(//i)", f"<main>{('<i>' + 'a' * length + '</i>') * count}</main>"),
             )
             for count, length in ((10000, 32), (10, 32768), (10, 32))
         ),
         (
             "10 nested nodes, 32768 characters",
-            ("str:concat(//i)", "<main>" + ("<i><b>" + "a" * 32768 + "</b></i>") * 10 + "</main>"),
+            ("str:concat(//i)", f"<main>{('<i><b>' + 'a' * 32768 + '</b></i>') * 10}</main>"),
         ),
         (
             "mixed nodes and attributes",
@@ -2251,8 +2251,8 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
             (
                 f"{size:,} map characters, 32 KiB text",
                 (
-                    "translate(string(//p), '" + "".join(chr(256 + index) for index in range(size)) + "', '')",
-                    "<p>" + "z" * 32768 + "</p>",
+                    f"translate(string(//p), '{''.join(chr(256 + index) for index in range(size))}', '')",
+                    f"<p>{'z' * 32768}</p>",
                 ),
             )
             for size in (32, 128, 512)
@@ -2290,7 +2290,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
                 f"{operation}, {size:,} nodes per set",
                 (
                     f"set:{operation}(//li, //b)",
-                    "<main><ul>" + "<li></li>" * size + "</ul><section>" + "<b></b>" * size + "</section></main>",
+                    f"<main><ul>{'<li></li>' * size}</ul><section>{'<b></b>' * size}</section></main>",
                 ),
             )
             for operation in ("intersection", "difference", "has-same-node")
@@ -2299,7 +2299,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
         + tuple(
             (
                 f"first-node overlap, {size:,} nodes",
-                ("set:has-same-node(//li, //li)", "<ul>" + "<li></li>" * size + "</ul>"),
+                ("set:has-same-node(//li, //li)", f"<ul>{'<li></li>' * size}</ul>"),
             )
             for size in (10, 100, 1_000, 10_000)
         )
@@ -2316,7 +2316,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     "path-xpath-one-cold": _wide_path_cases,
     "path-class-edit": _wide_path_cases,
     "microdata-wide": lambda: tuple(
-        (f"{size:,} properties", "<div itemscope>" + "<span itemprop=name>x</span>" * size + "</div>")
+        (f"{size:,} properties", f"<div itemscope>{'<span itemprop=name>x</span>' * size}</div>")
         for size in (100, 1_000, 10_000)
     ),
     "microdata-empty-scope": lambda: tuple(
@@ -2328,17 +2328,14 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     "article-wide": lambda: tuple(
         (
             f"{size:,} candidates",
-            "<div>"
-            + ("<section><p>" + "A sentence with enough text to score. " * 3 + "</p></section>") * size
-            + "</div>",
+            f"<div>{('<section><p>' + 'A sentence with enough text to score. ' * 3 + '</p></section>') * size}</div>",
         )
         for size in (100, 1_000, 10_000)
     ),
     "article-deep": lambda: tuple(
         (
             f"{depth} nested candidates",
-            ("<div><p>" + "A sentence with enough prose, and a clause, to score. " * 3 + "</p>") * depth
-            + "</div>" * depth,
+            (f"<div><p>{'A sentence with enough prose, and a clause, to score. ' * 3}</p>") * depth + "</div>" * depth,
         )
         for depth in (10, 100, 500)
     ),
@@ -2354,11 +2351,11 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     "find-text": _readpath_cases,
     "find-text-exact": lambda: (
         ("flat matches", ("<div>needle</div>" * 1_000, "needle")),
-        ("nested matches", ("<div>" * 100 + "needle" + "</div>" * 100, "needle")),
+        ("nested matches", (f"{'<div>' * 100}needle{'</div>' * 100}", "needle")),
         ("nested short expectation", ("<div>" * 100 + "x" * 10_000 + "</div>" * 100, "needle")),
-        ("wide early mismatch", ("<div>x" + "<b>needle</b>" * 1_000 + "</div>", "y" + "needle" * 1_000)),
-        ("wide match", ("<div>" + "<b>needle</b>" * 1_000 + "</div>", "needle" * 1_000)),
-        ("wide late mismatch", ("<div>" + "<b>needle</b>" * 1_000 + "</div>", "needle" * 999 + "needlx")),
+        ("wide early mismatch", (f"<div>x{'<b>needle</b>' * 1_000}</div>", f"y{'needle' * 1_000}")),
+        ("wide match", (f"<div>{'<b>needle</b>' * 1_000}</div>", "needle" * 1_000)),
+        ("wide late mismatch", (f"<div>{'<b>needle</b>' * 1_000}</div>", f"{'needle' * 999}needlx")),
     ),
     "find-attr-presence": lambda: tuple(
         (
@@ -2371,12 +2368,12 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     "find-text-overlap": lambda: (("100 KiB overlapping miss", f"<p>{'a' * 100_000}</p>"),),
     "text-content": lambda: (
         *_readpath_cases(),
-        ("4,096 short Text descendants", "<main>" + "<span>a</span>" * 4096 + "</main>"),
-        ("one Text descendant (256 KiB)", "<main>" + "a" * (256 << 10) + "</main>"),
+        ("4,096 short Text descendants", f"<main>{'<span>a</span>' * 4096}</main>"),
+        ("one Text descendant (256 KiB)", f"<main>{'a' * (256 << 10)}</main>"),
         ("tiny Text descendant", "<p>text</p>"),
-        ("Latin-1 Text descendant (16 Ki chars)", "<p>" + "é" * 16_384 + "</p>"),
-        ("BMP Text descendant (16 Ki chars)", "<p>" + "雪" * 16_384 + "</p>"),
-        ("astral Text descendant (16 Ki chars)", "<p>" + "😀" * 16_384 + "</p>"),
+        ("Latin-1 Text descendant (16 Ki chars)", f"<p>{'é' * 16_384}</p>"),
+        ("BMP Text descendant (16 Ki chars)", f"<p>{'雪' * 16_384}</p>"),
+        ("astral Text descendant (16 Ki chars)", f"<p>{'😀' * 16_384}</p>"),
     ),
     "serialize": _readpath_cases,
     "parse-inner": _readpath_cases,
@@ -2397,17 +2394,17 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     "conformance": lambda: (
         *_readpath_cases(),
         *(
-            (name, '<!doctype html><html lang="en"><title>Sections</title><body>' + content + "</body></html>")
+            (name, f'<!doctype html><html lang="en"><title>Sections</title><body>{content}</body></html>')
             for name, content in (
                 *(
                     (
                         f"{count} heading-free nested sections",
-                        "<section>" * count + "<p>Text</p>" + "</section>" * count,
+                        f"{'<section>' * count}<p>Text</p>{'</section>' * count}",
                     )
                     for count in (8, 64, 512)
                 ),
                 ("512 heading-free sibling sections", "<section><p>Text</p></section>" * 512),
-                ("512 nested sections with heading", "<section>" * 512 + "<h2>Title</h2>" + "</section>" * 512),
+                ("512 nested sections with heading", f"{'<section>' * 512}<h2>Title</h2>{'</section>' * 512}"),
             )
         ),
     ),
@@ -2475,7 +2472,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
         ("rss 30 items", _FEED_XML),
         (
             "rss 30 items / 128 extensions each",
-            _FEED_XML.replace("<item>", "<item>" + "<extension>x</extension>" * 128),
+            _FEED_XML.replace("<item>", f"<item>{'<extension>x</extension>' * 128}"),
         ),
         (
             "atom 30 entries",
@@ -2503,9 +2500,9 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     ),
     "sanitize-templates": lambda: (
         ("templated 4 KiB", _SANITIZE_TEMPLATES * 20),
-        ("plain 64 KiB text", "<p>" + "Plain text " * 6_000 + "</p>"),
-        ("plain 64 KiB attribute", '<a title="' + "Plain text " * 6_000 + '">label</a>'),
-        ("late template in 64 KiB text", "<p>" + "Plain text " * 6_000 + "{{value}}</p>"),
+        ("plain 64 KiB text", f"<p>{'Plain text ' * 6_000}</p>"),
+        ("plain 64 KiB attribute", f'<a title="{"Plain text " * 6_000}">label</a>'),
+        ("late template in 64 KiB text", f"<p>{'Plain text ' * 6_000}{{{{value}}}}</p>"),
     ),
     "sanitize-named-props": lambda: (("clobbering 4 KiB", _SANITIZE_NAMED * 11),),
     "sanitize-report": lambda: (("post 4 KiB", _SANITIZE_POST * 20),),
@@ -2530,10 +2527,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     "linkify": lambda: _LINKIFY_CASES,
     "linkify-node": lambda: (
         ("markup (4 KiB)", _LINKIFY_CASES[2][1]),
-        ("wide text, one link", "<p>" + "😀 " * 32_768 + "https://example.com</p>"),
-        ("ASCII text, one link", "<p>" + "a " * 32_768 + "https://example.com</p>"),
-        ("wide text, no links", "<p>" + "😀 " * 32_768 + "</p>"),
-        ("1024 wide-text links", "<p>" + "😀 https://example.com " * 1_024 + "</p>"),
+        ("wide text, one link", f"<p>{'😀 ' * 32_768}https://example.com</p>"),
+        ("ASCII text, one link", f"<p>{'a ' * 32_768}https://example.com</p>"),
+        ("wide text, no links", f"<p>{'😀 ' * 32_768}</p>"),
+        ("1024 wide-text links", f"<p>{'😀 https://example.com ' * 1_024}</p>"),
     ),
     "linkify-traversal": lambda: _LINKIFY_TRAVERSAL_CASES,
     "detect": lambda: (
@@ -2541,7 +2538,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
         ("find prose (1 KiB)", ("find", _LINKIFY_CASES[1][1])),
         ("has_link comment", ("has", _LINKIFY_CASES[0][1])),
         ("has_link prose (1 KiB)", ("has", _LINKIFY_CASES[1][1])),
-        ("has_link early (220 KiB tail)", ("has", "https://example.com " + "tail " * 45_000)),
+        ("has_link early (220 KiB tail)", ("has", f"https://example.com {'tail ' * 45_000}")),
         ("find numeric prose, phones off (1 KiB)", ("find", _PHONE_MIXED * 5)),
         ("find ucs2 prose, phones off (100 KiB)", ("find", _PHONE_CASES[9][1][1])),
         ("find ucs4 prose, phones off (100 KiB)", ("find", _PHONE_CASES[10][1][1])),
@@ -2603,8 +2600,8 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
         ("list (4 KiB)", ("default", _MARKDOWN_LIST)),
         ("table (4 KiB)", ("default", _MARKDOWN_TABLE)),
         ("configured (4 KiB)", ("configured", _MARKDOWN_CONFIGURED)),
-        ("8192 asterisks", ("escaped", "<p>" + "*" * 8192 + "</p>")),
-        ("8192 letters", ("escaped", "<p>" + "a" * 8192 + "</p>")),
+        ("8192 asterisks", ("escaped", f"<p>{'*' * 8192}</p>")),
+        ("8192 letters", ("escaped", f"<p>{'a' * 8192}</p>")),
         (
             "100 blocks with inline emphasis",
             (
@@ -2614,8 +2611,8 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
         ),
     ),
     "markdown-wrap": lambda: (
-        ("10000 words, width8192", (8192, "<p>" + "aa " * 10_000 + "</p>")),
-        ("10000 words, width80", (80, "<p>" + "aa " * 10_000 + "</p>")),
+        ("10000 words, width8192", (8192, f"<p>{'aa ' * 10_000}</p>")),
+        ("10000 words, width80", (80, f"<p>{'aa ' * 10_000}</p>")),
     ),
     "markdown-google": lambda: (("google_doc (4 KiB)", _MARKDOWN_GOOGLE),),
     "tables": lambda: (
@@ -2642,26 +2639,26 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
         )
         for kind, span, size in (("rows", 128, 4096), ("rows", 1, 16), ("records", 128, 4096))
     ),
-    "tables-wide": lambda: (("10k columns", ("rows", "<table><tr>" + "<td>x</td>" * 10_000 + "</tr></table>")),),
+    "tables-wide": lambda: (("10k columns", ("rows", f"<table><tr>{'<td>x</td>' * 10_000}</tr></table>")),),
     "article": lambda: (("post (4 KiB)", _article_page(16)), ("longform (16 KiB)", _article_page(72))),
     "boilerplate": lambda: (("post (4 KiB)", _article_page(16)), ("longform (16 KiB)", _article_page(72))),
     "date-tally": lambda: (
         (
             "1000 distinct visible dates",
-            "<p>" + " ".join((date(2000, 1, 1) + timedelta(days=index)).isoformat() for index in range(1000)) + "</p>",
+            f"<p>{' '.join((date(2000, 1, 1) + timedelta(days=index)).isoformat() for index in range(1000))}</p>",
         ),
-        ("1000 repeated visible dates", "<p>" + "2000-01-01 " * 1000 + "</p>"),
+        ("1000 repeated visible dates", f"<p>{'2000-01-01 ' * 1000}</p>"),
     ),
     "date": lambda: (
         ("post (4 KiB)", _article_page(16)),
         ("longform (16 KiB)", _article_page(72)),
-        ("100 meta candidates", "<head>" + "<meta name=date content=2024-05-06>" * 100 + "</head>"),
-        ("early temporal ISO date, 36 KiB text", "<time>2024-05-06 " + "ordinary " * 4096 + "</time>"),
-        ("late temporal ISO date, 36 KiB text", "<time>" + "ordinary " * 4096 + "2024-05-06</time>"),
-        ("temporal text without dates, 36 KiB", "<time>" + "ordinary " * 4096 + "</time>"),
+        ("100 meta candidates", f"<head>{'<meta name=date content=2024-05-06>' * 100}</head>"),
+        ("early temporal ISO date, 36 KiB text", f"<time>2024-05-06 {'ordinary ' * 4096}</time>"),
+        ("late temporal ISO date, 36 KiB text", f"<time>{'ordinary ' * 4096}2024-05-06</time>"),
+        ("temporal text without dates, 36 KiB", f"<time>{'ordinary ' * 4096}</time>"),
         ("single temporal ISO date", "<time>2024-05-06</time>"),
-        ("early temporal numeric date, 36 KiB text", "<time>06/05/2024 " + "ordinary " * 4096 + "</time>"),
-        ("early temporal written date, 36 KiB text", "<time>May 6, 2024 " + "ordinary " * 4096 + "</time>"),
+        ("early temporal numeric date, 36 KiB text", f"<time>06/05/2024 {'ordinary ' * 4096}</time>"),
+        ("early temporal written date, 36 KiB text", f"<time>May 6, 2024 {'ordinary ' * 4096}</time>"),
     ),
     "text-render": lambda: (("article (2 KiB)", _TEXT_ARTICLE), ("table (4 KiB)", _TEXT_TABLE)),
     "text-collapsed": lambda: (("collapsed (2 KiB)", _TEXT_ARTICLE),),
@@ -2680,16 +2677,16 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     "sax-records-callback": _sax_record_cases,
     "treebuild": lambda: (
         *_readpath_cases(),
-        ("32 ASCII text nodes, 32 KiB each", "<main>" + ("<p>" + "a" * 32768 + "</p>") * 32 + "</main>"),
-        ("32 comments, 2 KiB each", "<body>" + ("<!--" + "a" * 2048 + "-->") * 32 + "</body>"),
+        ("32 ASCII text nodes, 32 KiB each", f"<main>{('<p>' + 'a' * 32768 + '</p>') * 32}</main>"),
+        ("32 comments, 2 KiB each", f"<body>{('<!--' + 'a' * 2048 + '-->') * 32}</body>"),
         *(
-            (f"{label} text, 65,536 characters", "<p>" + character * 65536 + "</p>")
+            (f"{label} text, 65,536 characters", f"<p>{character * 65536}</p>")
             for label, character in (("Latin-1", "é"), ("BMP", "水"), ("astral", "😀"))
         ),
         ("normalized newlines, 64 KiB", "<p>" + "a\r\n" * 21845 + "</p>"),
-        ("entity text, 64 KiB", "<p>" + "a&amp;" * 10922 + "</p>"),
+        ("entity text, 64 KiB", f"<p>{'a&amp;' * 10922}</p>"),
         ("small text and empty comment", "<p>x</p><!---->"),
-        ("10,000 empty elements", "<main>" + "<i></i>" * 10_000 + "</main>"),
+        ("10,000 empty elements", f"<main>{'<i></i>' * 10_000}</main>"),
         ("tiny custom tree", "<p>x</p>"),
         (
             "mixed foreign namespaces",
@@ -2714,7 +2711,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
             for kind, selector in (
                 ("ID", "#identifier"),
                 ("equality", '[data-x="value"]'),
-                ("long equality", '[data-x="' + "value" * 32 + '"]'),
+                ("long equality", f'[data-x="{"value" * 32}"]'),
                 ("mixed quotes", r'[data-x="it\27 s\22 x"]'),
                 ("case folded", '[data-x="VALUE" i]'),
                 ("class token", ".identifier"),
@@ -2775,7 +2772,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     "minify-js-integers": lambda: tuple(
         (
             f"{count} integers / {label}",
-            "x=[" + ",".join(str((index + 1) * scale + offset) for index in range(count)) + "]",
+            f"x=[{','.join(str((index + 1) * scale + offset) for index in range(count))}]",
         )
         for count, scale, offset, label in (
             (4096, 10, 1, "no trailing zeros"),
@@ -2943,9 +2940,9 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
             for name, path in (
                 ("8 KiB undotted paths", "a" * 8192),
                 ("short undotted paths", "products/item"),
-                ("8 KiB paths with parent segments", "a" * 8192 + "/../item"),
-                ("8 KiB paths with encoded parent segments", "a" * 8192 + "/%2e%2e/item"),
-                ("8 KiB paths with file extensions", "a" * 8192 + ".html"),
+                ("8 KiB paths with parent segments", f"{'a' * 8192}/../item"),
+                ("8 KiB paths with encoded parent segments", f"{'a' * 8192}/%2e%2e/item"),
+                ("8 KiB paths with file extensions", f"{'a' * 8192}.html"),
             )
         ),
         *tuple(
@@ -2961,7 +2958,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     "links-filter": _readpath_cases,
     "links-external": lambda: (
         ("900 mixed-site links", _EXTERNAL_LINKS_HTML),
-        ("900 mixed-site links / 64 subdomains", _EXTERNAL_LINKS_HTML.replace("https://", "https://" + "s." * 64)),
+        ("900 mixed-site links / 64 subdomains", _EXTERNAL_LINKS_HTML.replace("https://", f"https://{'s.' * 64}")),
     ),
     "serialize-attributes": lambda: tuple(
         (

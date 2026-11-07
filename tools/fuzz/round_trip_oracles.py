@@ -363,7 +363,7 @@ class _Run:
             digest = hashlib.sha256(data).hexdigest()
             (self.crash_dir / f"crash-{digest}").write_bytes(data)
             sidecar = {"oracle": found.oracle, "detail": found.detail, "hits": found.hits, "rng_seed": rng_seed}
-            (self.crash_dir / f"crash-{digest}.json").write_text(json.dumps(sidecar, indent=2) + "\n", encoding="utf-8")
+            (self.crash_dir / f"crash-{digest}.json").write_text(f"{json.dumps(sidecar, indent=2)}\n", encoding="utf-8")
             # only the oracle and a hash reach the log: the input may be an unreported bug (DESIGN-v2 decision D5)
             print(f"FINDING {found.oracle} sha256={digest}", file=sys.stderr, flush=True)
         return len(self.found)
@@ -1113,7 +1113,7 @@ class JsNames:
         process = self._start()
         assert process.stdin is not None  # ruff: ignore[assert]  # Popen with stdin=PIPE always sets it
         assert process.stdout is not None  # ruff: ignore[assert]  # Popen with stdout=PIPE always sets it
-        process.stdin.write(json.dumps(source) + "\n")
+        process.stdin.write(f"{json.dumps(source)}\n")
         process.stdin.flush()
         if (answer := json.loads(process.stdout.readline())) is None:
             return None
@@ -2168,7 +2168,7 @@ def _statement(script: _Script, depth: int, *, in_function: bool) -> str:
 
     def block(*, function: bool = in_function) -> str:
         statements = "".join(_statement(script, depth + 1, in_function=function) for _ in range(rng.randint(0, 3)))
-        return "{" + statements + "}"
+        return f"{{{statements}}}"
 
     def expression() -> str:
         return _expression(script, depth)
@@ -2466,7 +2466,7 @@ def _css_controls() -> dict[str, bool]:
 
 def _js_controls() -> dict[str, bool]:
     return {
-        "growing output": fixpoint_check("x", lambda source: minify_js(source, _JS_OFF) + "\n0", numeric=True)
+        "growing output": fixpoint_check("x", lambda source: f"{minify_js(source, _JS_OFF)}\n0", numeric=True)
         is not None
     }
 

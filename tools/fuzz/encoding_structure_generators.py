@@ -1464,7 +1464,7 @@ def _productions() -> tuple[Production, ...]:
                         b'<div id="',
                         Identifier(name="anchor", definition=True),
                         b'"><p>' + chr(_SAMPLES[profile.encoding.removesuffix("-SIG")][1]).encode() + b"</p>",
-                        Reference(symbol="content:" + profile.encoding.removesuffix("-SIG"), depth=4),
+                        Reference(symbol=f"content:{profile.encoding.removesuffix('-SIG')}", depth=4),
                         b'<a href="#',
                         Identifier(name="anchor", definition=False),
                         b'">x</a></div>',

@@ -61,7 +61,7 @@ def css_custom_check(case: str, minify: Callable[[str], str] | None = None) -> s
         + (f"(?:'{re.escape(value)}'|\"{re.escape(value)}\")" if kind == "string" else re.escape(value))
         for name, value in declarations
     )
-    pattern: Final = r"a\{" + expected + r"\}" if mode == "sheet" else expected
+    pattern: Final = f"a\\{{{expected}\\}}" if mode == "sheet" else expected
     if re.fullmatch(pattern, output) is None:
         return "custom-property tokens differ from literals"
     return None if printer(output) == output else "custom-property output changes on repeat"

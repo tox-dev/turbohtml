@@ -74,7 +74,7 @@ def parse_detector_data(source: str) -> dict[str, list[int]]:
     tables: dict[str, list[int]] = {}
     # the trailing newline lets the last field (whose closing "]," abuts the struct
     # close) match the same "]," + newline pattern as every earlier field
-    for name, content in re.findall(r"(\w+):\s*\[(.*?)\],\s*\n", body.group(1) + "\n", re.DOTALL):
+    for name, content in re.findall(r"(\w+):\s*\[(.*?)\],\s*\n", f"{body.group(1)}\n", re.DOTALL):
         tables[name] = parse_numbers(content)
     return tables
 
@@ -153,7 +153,7 @@ def emit_single_byte(rows: list[tuple[str, ...]], consts: dict[str, int]) -> lis
 
 def parse_block(source: str, header: str) -> str:
     # Return the body of the ``static`` array whose declaration starts with *header*.
-    block = re.search(re.escape(header) + r"(.*?)\n\];", source, re.DOTALL)
+    block = re.search(f"{re.escape(header)}(.*?)\\n\\];", source, re.DOTALL)
     if block is None:
         msg = f"{header!r} not found; chardetng's tld.rs layout changed"
         raise SystemExit(msg)
@@ -171,7 +171,7 @@ def tld_variants(source: str) -> list[str]:
 
 def snake(variant: str) -> str:
     # Render a Rust ``Tld`` variant as its C enumerator name (``CentralWindows`` -> ``TH_TLD_CENTRAL_WINDOWS``).
-    return "TH_TLD_" + re.sub(r"(?<!^)(?=[A-Z])", "_", variant).upper()
+    return f"TH_TLD_{re.sub(r'(?<!^)(?=[A-Z])', '_', variant).upper()}"
 
 
 def emit_tld(source: str, variants: list[str]) -> list[str]:

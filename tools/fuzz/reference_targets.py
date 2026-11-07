@@ -234,7 +234,7 @@ def cssom_observation(
     rules: Final = RuleList((rule,))
     _require("Rule wrapper differs", condition=tuple(rules) == (rules[0],) and rules[0].style is declaration)
     if _rule_close(declaration.text) == " }":
-        sheet: Final = StyleSheet("p { " + declaration.text + " }")
+        sheet: Final = StyleSheet(f"p {{ {declaration.text} }}")
         if len(sheet.rules) == 1 and sheet.rules[0].selector_text == "p":
             _require("Sheet declaration differs", condition=sheet.rules[0].style.text == declaration.text)
     computed_observation(data)
@@ -281,7 +281,7 @@ def computed_observation(data: bytes) -> str:
     # Attach the declarations to the element whose cascade consumes them.
     declaration: Final = StyleDeclaration.parse(data.decode("utf-8"))
     document: Final = turbohtml.parse("<style></style><p>x</p>")
-    document.select("style")[0].set_text("p { color: black; " + declaration.text + " }")
+    document.select("style")[0].set_text(f"p {{ color: black; {declaration.text} }}")
     computed: Final = computed_style(document.select("p")[0])
     _require("Computed result type", condition=isinstance(computed, ComputedStyle))
     _require(

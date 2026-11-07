@@ -295,7 +295,7 @@ def _shape(line: str | None) -> str:
         return "#text"  # a line without the bar continues a multi-line text node
     if body.startswith("<!--"):
         return "#comment"
-    return body.split(">", 1)[0] + ">" if body.startswith("<") else "@" + body.split("=", 1)[0]
+    return f"{body.split('>', 1)[0]}>" if body.startswith("<") else f"@{body.split('=', 1)[0]}"
 
 
 def _violations(serialized: str, policy: Policy) -> list[str]:

@@ -212,7 +212,7 @@ def _query_parents(case: tuple[int, bool]) -> PyQuery:
 @functools.cache
 def _query_parents_case(case: tuple[int, bool]) -> PyQuery:
     count, shared = case
-    text: Final = "<main>" + "<p>x</p>" * count + "</main>" if shared else "<main><p>x</p></main>" * count
+    text: Final = f"<main>{'<p>x</p>' * count}</main>" if shared else "<main><p>x</p></main>" * count
     return PyQuery(text, parser="html")("p")
 
 
@@ -226,7 +226,7 @@ def _query_siblings_case(case: tuple[int, bool]) -> PyQuery:
     if all_selected:
         unsupported: Final = "Pyquery siblings retains duplicates and uses a different result order for multiple roots"
         raise NotImplementedError(unsupported)
-    return PyQuery("<main>" + "<p>x</p>" * count + "</main>", parser="html")("p").eq(0)
+    return PyQuery(f"<main>{'<p>x</p>' * count}</main>", parser="html")("p").eq(0)
 
 
 OPERATIONS = {

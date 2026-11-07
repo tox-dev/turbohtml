@@ -100,7 +100,7 @@ def _rows(values: Iterable[int], per_row: int = 16) -> str:
 
 def _slot_name(name: str) -> str:
     # Return the C constant naming *name*'s row in th_sb_index: ``x-mac-cyrillic`` -> ``TH_SB_X_MAC_CYRILLIC``.
-    return "TH_SB_" + name.upper().replace("-", "_")
+    return f"TH_SB_{name.upper().replace('-', '_')}"
 
 
 def _single_byte_tables(indexes: dict[str, list[int | None]]) -> tuple[str, str]:

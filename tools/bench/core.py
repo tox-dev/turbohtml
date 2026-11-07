@@ -1379,7 +1379,7 @@ def _range_contained_setup(case: tuple[int, str]) -> Callable[[], None]:
 def _range_partial_setup(case: tuple[int, str]) -> Callable[[], None]:
     count, variant = case
     root: Final = turbohtml.Element("div")
-    root.set_inner_html("<section>abcdef" + "<i></i>" * count + "</section>tail")
+    root.set_inner_html(f"<section>abcdef{'<i></i>' * count}</section>tail")
     selected: Final = root.children[0].children[0]
     boundary: Final = _Range(root)
     boundary.set_start(root, 0)
@@ -1397,7 +1397,7 @@ def _range_partial_setup(case: tuple[int, str]) -> Callable[[], None]:
 def _observe_registrations_setup(case: tuple[int, str]) -> Callable[[], None]:
     count, variant = case
     root: Final = turbohtml.Element("div")
-    root.set_inner_html("<div>" * 100 + "target" + "</div>" * 100 + "<span></span>" * count)
+    root.set_inner_html(f"{'<div>' * 100}target{'</div>' * 100}{'<span></span>' * count}")
     target: Final = root.select("div")[-1]
     observer: Final = turbohtml.MutationObserver()
     for watched in root.select("span"):
@@ -1415,7 +1415,7 @@ def _observe_registrations_setup(case: tuple[int, str]) -> Callable[[], None]:
 def _shadow_fallback_setup(case: tuple[int, str]) -> Callable[[], None]:
     host: Final = turbohtml.Element("div")
     shadow: Final = host.attach_shadow("open")
-    shadow.set_inner_html("<slot>" + "<slot>fallback</slot>" * case[0] + "</slot>")
+    shadow.set_inner_html(f"<slot>{'<slot>fallback</slot>' * case[0]}</slot>")
     first: Final = shadow.select("slot")[0]
 
     def run() -> None:
@@ -1454,7 +1454,7 @@ def _query_roots(case: tuple[int, str]) -> None:
 @functools.cache
 def _query_root_case(case: tuple[int, str]) -> _Query:
     count, order = case
-    nodes = turbohtml.parse("<main>" + "<div><i>x</i></div>" * count + "</main>").select("div")
+    nodes = turbohtml.parse(f"<main>{'<div><i>x</i></div>' * count}</main>").select("div")
     if order == "reversed":
         nodes.reverse()
     elif order == "shuffled":
@@ -1477,7 +1477,7 @@ def _query_parents(case: tuple[int, bool]) -> None:
 @functools.cache
 def _query_parents_case(case: tuple[int, bool]) -> _Query:
     count, shared = case
-    text: Final = "<main>" + "<p>x</p>" * count + "</main>" if shared else "<main><p>x</p></main>" * count
+    text: Final = f"<main>{'<p>x</p>' * count}</main>" if shared else "<main><p>x</p></main>" * count
     return _Query(text)("p")
 
 
@@ -1488,7 +1488,7 @@ def _query_siblings(case: tuple[int, bool]) -> None:
 @functools.cache
 def _query_siblings_case(case: tuple[int, bool]) -> _Query:
     count, all_selected = case
-    selected: Final = _Query("<main>" + "<p>x</p>" * count + "</main>")("p")
+    selected: Final = _Query(f"<main>{'<p>x</p>' * count}</main>")("p")
     return selected if all_selected else selected.eq(0)
 
 

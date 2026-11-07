@@ -96,7 +96,7 @@ def _write_table(kind: str, description: str, pages: list[int], mixed: list[list
         raise RuntimeError(message)
 
     page_rows = [
-        "    " + ", ".join(str(page) for page in pages[index : index + 32]) + "," for index in range(0, len(pages), 32)
+        f"    {', '.join(str(page) for page in pages[index : index + 32])}," for index in range(0, len(pages), 32)
     ]
     mixed_rows = ["    {" + ", ".join(f"0x{word:016X}u" for word in bits) + "}," for bits in mixed]
     ascii_bits = (
@@ -121,7 +121,7 @@ def _write_table(kind: str, description: str, pages: list[int], mixed: list[list
 
 def _write_category_table(pages: list[int], mixed: list[list[int]], unicode_version: str) -> None:
     page_rows = [
-        "    " + ", ".join(str(page) for page in pages[index : index + 32]) + "," for index in range(0, len(pages), 32)
+        f"    {', '.join(str(page) for page in pages[index : index + 32])}," for index in range(0, len(pages), 32)
     ]
     mixed_rows = [f"    {{{', '.join(str(category) for category in values)}}}," for values in mixed]
     (Path(__file__).resolve().parents[1] / "src/turbohtml/_c/data/xsd_category_table.h").write_text(

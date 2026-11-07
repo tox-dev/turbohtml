@@ -28,7 +28,7 @@ ESCAPES: Final[dict[str, Callable[[Path, str], tuple[str, str]]]] = {
     "nested-parent": lambda _canary, name: (f"sub/../../outside/{name}", ""),
     "absolute": lambda canary, _name: (str(canary), ""),
     "file-url": lambda canary, _name: (canary.as_uri(), ""),
-    "localhost-url": lambda canary, _name: ("file://localhost" + canary.as_uri().removeprefix("file://"), ""),
+    "localhost-url": lambda canary, _name: (f"file://localhost{canary.as_uri().removeprefix('file://')}", ""),
     "encoded-parent": lambda _canary, name: (f"%2e%2e/outside/{name}", ""),
     "backslash": lambda _canary, name: (f"..\\outside\\{name}", ""),
     "symlink": lambda _canary, name: (f"link-{name}", ""),

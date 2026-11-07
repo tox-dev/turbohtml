@@ -178,7 +178,7 @@ def _tree(node: lxml.etree._Element) -> ResultTree:
     return ResultTree(
         name=node.tag
         if isinstance(node.tag, str)
-        else "#" + lxml.etree.tostring(node, encoding="unicode", with_tail=False),
+        else f"#{lxml.etree.tostring(node, encoding='unicode', with_tail=False)}",
         attributes=tuple(sorted(node.attrib.items())),
         text=node.text or "",
         tail=node.tail or "",

@@ -289,7 +289,7 @@ def _rewrite(text: str) -> DomObservation:
             comments=comment_handler,
             doctype=doctype_handler,
         ),
-        '&lt;!--before--&gt;<!doctype html><!--new--><p id="item">' + escape(text, quote=False) + "</p>",
+        f'&lt;!--before--&gt;<!doctype html><!--new--><p id="item">{escape(text, quote=False)}</p>',
     )
 
 

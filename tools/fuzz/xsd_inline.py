@@ -76,7 +76,7 @@ def compare(case: Case, *, negative_control: bool = False, reference_labels: boo
         actual=reference is not None,
     )
     for document, expected in case.documents:
-        document_hash: Final = hashlib.sha256((case.schema + "\\0" + document).encode()).hexdigest()
+        document_hash: Final = hashlib.sha256((f"{case.schema}\\0{document}").encode()).hexdigest()
         actual: Final = None if ours is None else ours.is_valid(parse_xml(document))
         reference_actual: Final = (
             None if reference is None else reference.validate(lxml.etree.fromstring(document.encode(), _parser()))
