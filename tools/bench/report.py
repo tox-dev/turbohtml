@@ -31,6 +31,9 @@ if TYPE_CHECKING:
 _Stat = dict[str, float | str]
 
 
+TABLE_JSON_DIR: Path | None = None
+
+
 def render(operation: str, stats: dict[str, _Stat]) -> None:
     # Print the table for one operation: turbohtml against each competitor with its slowdown factor.
     meta = OPERATIONS[operation]
@@ -64,9 +67,8 @@ def render(operation: str, stats: dict[str, _Stat]) -> None:
     if noisy := _noisy_cells(operation, stats):
         # a run whose cells are mostly marked measured the machine, so say so once rather than per row
         print(f"  noise: {len(noisy)} cell(s) past {NOISY_CV:.0%} spread, not a basis for comparison: {noisy}")
-    table_json_dir: Path | None = None
-    if table_json_dir is not None:
-        _emit_table_json(operation, stats, table_json_dir)
+    if TABLE_JSON_DIR is not None:
+        _emit_table_json(operation, stats, TABLE_JSON_DIR)
 
 
 def _labels(operation: str, stats: dict[str, _Stat]) -> list[str]:
