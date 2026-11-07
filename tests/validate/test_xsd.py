@@ -2135,24 +2135,25 @@ def test_xsd_matches_lxml(schema: str, doc: str) -> None:
     ],
 )
 def test_lxml_facet_validate_benchmark_output(index: int, expected: list[bool]) -> None:
+    module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
+    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
     source, document = cast("tuple[str, str]", INPUTS["validate-facets"]()[index][1])
-    assert _lxml_compiled_facets(source, document, "ab") == expected
+    schema: Final = module.OPERATIONS["compile-facets"][0](source)
+    assert [
+        schema.validate(etree.fromstring(text.encode())) for text in (document, document.replace("abc123", "ab"))
+    ] == expected
 
 
 @pytest.mark.oracle
 def test_lxml_facet_compile_benchmark_output() -> None:
-    source = cast("str", INPUTS["compile-facets"]()[0][1])
-    assert _lxml_compiled_facets(source, "<root><value>abc123</value></root>", "ab") == [True, False]
-
-
-def _lxml_compiled_facets(source: str, document: str, mutated_value: str) -> list[bool]:
     module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
     etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    source = cast("str", INPUTS["compile-facets"]()[0][1])
     schema: Final = module.OPERATIONS["compile-facets"][0](source)
-    return [
+    assert [
         schema.validate(etree.fromstring(text.encode()))
-        for text in (document, document.replace("abc123", mutated_value))
-    ]
+        for text in ("<root><value>abc123</value></root>", "<root><value>ab</value></root>")
+    ] == [True, False]
 
 
 @pytest.mark.oracle
@@ -2164,26 +2165,27 @@ def _lxml_compiled_facets(source: str, document: str, mutated_value: str) -> lis
     ],
 )
 def test_lxml_pattern_benchmark_output(name: str, expected: list[bool]) -> None:
+    module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
+    etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
     _, _, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == name)
     source, document = cast("tuple[str, str]", load())
-    assert _lxml_compiled_patterns(source, document, "abc") == expected
+    schema: Final = module.OPERATIONS["compile-pattern"][0](source)
+    assert [
+        schema.validate(etree.fromstring(text.encode())) for text in (document, document.replace("abc123", "abc"))
+    ] == expected
 
 
 @pytest.mark.oracle
 def test_lxml_pattern_compile_benchmark_output() -> None:
-    _, _, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == "compile-pattern")
-    source = cast("str", load())
-    assert _lxml_compiled_patterns(source, "<root><value>abc123</value></root>", "abc") == [True, False]
-
-
-def _lxml_compiled_patterns(source: str, document: str, mutated_value: str) -> list[bool]:
     module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
     etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
+    _, _, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == "compile-pattern")
+    source = cast("str", load())
     schema: Final = module.OPERATIONS["compile-pattern"][0](source)
-    return [
+    assert [
         schema.validate(etree.fromstring(text.encode()))
-        for text in (document, document.replace("abc123", mutated_value))
-    ]
+        for text in ("<root><value>abc123</value></root>", "<root><value>abc</value></root>")
+    ] == [True, False]
 
 
 @pytest.mark.oracle
