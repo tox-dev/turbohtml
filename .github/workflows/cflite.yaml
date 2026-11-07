@@ -1,6 +1,12 @@
 name: 🧪 ClusterFuzzLite
 on:
   workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: Fuzz duration per sanitizer (build time extra)
+        type: choice
+        options: ["3600", "7200"]
+        default: "3600"
   schedule:
     - cron: "43 11 * * *" # daily batch, then prune and coverage
 concurrency:
@@ -15,8 +21,8 @@ jobs:
     name: 🧪 Run batch fuzzing (${{ matrix.sanitizer }})
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    # the build takes up to 75 minutes, then fuzzing 60
-    timeout-minutes: 165
+    # the build takes up to 75 minutes, then fuzzing up to 120
+    timeout-minutes: 225
     environment: cflite-storage
     permissions:
       contents: read
@@ -42,11 +48,12 @@ jobs:
         env:
           STORAGE_REPO: ${{ vars.CFLITE_STORAGE_REPO }}
           STORAGE_TOKEN: ${{ secrets.CFLITE_STORAGE_TOKEN }}
-      - name: 🧪 Fuzz for 3600 s
+      - name: 🧪 Fuzz for ${{ inputs.fuzz_seconds || '3600' }} s
         run: >-
-          uv run --no-project --python 3.15 python tools/fuzz/cflite.py --mode batch --sanitizer "${SANITIZER}" --seconds 3600 --source "${GITHUB_WORKSPACE}" --workspace "${RUNNER_TEMP}/cflite"
+          uv run --no-project --python 3.15 python tools/fuzz/cflite.py --mode batch --sanitizer "${SANITIZER}" --seconds "${FUZZ_SECONDS}" --source "${GITHUB_WORKSPACE}" --workspace "${RUNNER_TEMP}/cflite"
         env:
           SANITIZER: ${{ matrix.sanitizer }}
+          FUZZ_SECONDS: ${{ inputs.fuzz_seconds || '3600' }}
       - name: 📤 Store corpus, crashes and logs
         if: success() || failure()
         run: bash tools/fuzz/cflite_storage.sh push "batch ${SANITIZER}"
