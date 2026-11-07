@@ -2707,6 +2707,10 @@ static void md_render_inline_tag(md_ctx *ctx, th_node *node) {
            blank line would split the CommonMark link, a heading is one line, and a GFM
            cell holds inline content, 4.10), so it flattens to inline; its boundary still
            reads as a space so adjacent words never fuse */
+        if (ctx->in_cell && !ctx->inline_only) {
+            /* Flattened blocks still split emphasis into separate inline runs. */
+            md_suspend_markers(ctx);
+        }
         ctx->space_pending = 1;
         if (atom == TH_TAG_PRE) {
             md_emit_code_span(ctx, node, 1); /* a code span is the inline form of a code block (CommonMark 6.1) */

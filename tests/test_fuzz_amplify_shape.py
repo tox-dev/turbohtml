@@ -674,6 +674,10 @@ def test_markdown_unsupported_element() -> None:
         pytest.param("<table><tr><td>a<p>b</p></td></tr></table>", id="cell-paragraph"),
         pytest.param("<table><tr><td><p></p></td></tr></table>", id="cell-empty-paragraph"),
         pytest.param(
+            "<table><tr><td><blockquote><em>alpha<p>beta</p></em></blockquote></td></tr></table>",
+            id="cell-block-splits-emphasis",
+        ),
+        pytest.param(
             "<table><tr><td><table><tr><td>&#13;</td></tr></table></td></tr></table>",
             id="nested-table-carriage-return",
         ),
