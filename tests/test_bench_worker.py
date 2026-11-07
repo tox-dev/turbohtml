@@ -80,7 +80,7 @@ def test_worker_skips_unselected_inputs(tmp_path: Path, error_index: int, *, mut
     cases.insert(error_index, str(tmp_path / "missing.txt"))
     script: Final = tmp_path / "worker_case.py"
     script.write_text(
-        _SCRIPT.format(cases=cases, operation="Mutating(read_file, str.upper)" if mutating else "read_file"),
+        _SCRIPT.format(cases=cases, operation="Mutating(setup=read_file, run=str.upper)" if mutating else "read_file"),
         encoding="utf-8",
     )
     output: Final = tmp_path / "stats.json"
