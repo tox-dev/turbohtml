@@ -1,5 +1,3 @@
-"""The WHATWG decoders: the byte-to-code-point tables, and the spec's error handling."""
-
 # ruff:file-ignore[ambiguous-unicode-character-string]  # the expected text is deliberately fullwidth or Cyrillic; that is what these bytes decode to
 
 from __future__ import annotations

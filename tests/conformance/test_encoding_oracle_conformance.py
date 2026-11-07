@@ -1,24 +1,22 @@
-"""
-turbohtml's WHATWG decoders and encoding detector, differentially validated against the Rust originals.
-
-``encoding_rs`` is the Encoding Standard implementation Firefox ships, and ``chardetng`` is the detector turbohtml's
-``_c/encoding/detect.h`` is a C port of. Both are vendored as pinned, shallow submodules
-(``tests/conformance/encoding_rs``, ``tests/conformance/chardetng``) and driven through the small Rust binaries in
-``tests/conformance/oracles``. The chardetng submodule is pinned to the same revision ``detect_data.h``'s banner names,
-so a regenerated detector table that came from a different revision fails here.
-
-Reading a spec and reading a codec's tables both go wrong quietly, and this branch's history is the argument: CPython's
-``koi8_u`` is not the spec's, and a hand-written expectation is only as good as whoever wrote it. Differential testing
-against the implementation the web actually renders with does not have that failure mode.
-
-The cases are generated rather than stored: every one- and two-byte sequence of each legacy encoding, plus seeded
-pseudo-random sequences shaped like the four-byte gb18030 and escape-driven ISO-2022-JP forms. The oracle computes the
-expected output, so nothing here can drift out of date.
-
-This is a vendored-oracle suite: an absent submodule or a missing Rust toolchain raises rather than skips, since a
-conformance suite that silently no-ops is worse than none. Check the oracles out with
-``git submodule update --init tests/conformance/encoding_rs tests/conformance/chardetng``.
-"""
+# turbohtml's WHATWG decoders and encoding detector, differentially validated against the Rust originals.
+#
+# ``encoding_rs`` is the Encoding Standard implementation Firefox ships, and ``chardetng`` is the detector turbohtml's
+# ``_c/encoding/detect.h`` is a C port of. Both are vendored as pinned, shallow submodules
+# (``tests/conformance/encoding_rs``, ``tests/conformance/chardetng``) and driven through the small Rust binaries in
+# ``tests/conformance/oracles``. The chardetng submodule is pinned to the same revision ``detect_data.h``'s banner
+# names, so a regenerated detector table that came from a different revision fails here.
+#
+# Reading a spec and reading a codec's tables both go wrong quietly, and this branch's history is the argument:
+# CPython's ``koi8_u`` is not the spec's, and a hand-written expectation is only as good as whoever wrote it.
+# Differential testing against the implementation the web actually renders with does not have that failure mode.
+#
+# The cases are generated rather than stored: every one- and two-byte sequence of each legacy encoding, plus seeded
+# pseudo-random sequences shaped like the four-byte gb18030 and escape-driven ISO-2022-JP forms. The oracle computes the
+# expected output, so nothing here can drift out of date.
+#
+# This is a vendored-oracle suite: an absent submodule or a missing Rust toolchain raises rather than skips, since a
+# conformance suite that silently no-ops is worse than none. Check the oracles out with ``git submodule update --init
+# tests/conformance/encoding_rs tests/conformance/chardetng``.
 
 # ruff:file-ignore[ambiguous-unicode-character-string]  # the sample text is deliberately Greek, Cyrillic and Turkish; that is the point
 
