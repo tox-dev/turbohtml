@@ -71,7 +71,7 @@ def test_phone_is_none_for_the_other_kinds() -> None:
 
 def test_written_tel_uri_carries_its_number_through_tel_authority_form() -> None:
     assert [
-        (span.text, span.url, span.phone.e164 if span.phone else None)
+        (span.text, span.url, span.phone and span.phone.e164)
         for span in LinkDetector(phones=_US).find("tel://+16502530000")
     ] == [("tel://+16502530000", "tel:+16502530000", "+16502530000")]
 

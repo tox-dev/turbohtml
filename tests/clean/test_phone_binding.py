@@ -493,16 +493,14 @@ def test_parse_rejects_bad_arguments(args: tuple[object, ...], message: str) -> 
         _phone_parse(*(_phone_config_compile(_SPEC) if item is _CONFIG else item for item in args))  # ty: ignore[invalid-argument-type]  # the wrong shapes are the point
 
 
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        pytest.param("no digits here", None, id="none"),
-        pytest.param("650-253-0000", "+16502530000", id="number"),
-    ],
-)
-def test_parse_returns_the_number_or_none(text: str, expected: str | None) -> None:
-    number = _phone_parse(_phone_config_compile(_SPEC), text)
-    assert (None if number is None else number.international_number) == expected
+def test_parse_returns_none_without_digits() -> None:
+    assert _phone_parse(_phone_config_compile(_SPEC), "no digits here") is None
+
+
+def test_parse_returns_the_international_number() -> None:
+    number = _phone_parse(_phone_config_compile(_SPEC), "650-253-0000")
+    assert number is not None
+    assert number.international_number == "+16502530000"
 
 
 class _Codes:

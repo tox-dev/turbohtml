@@ -823,16 +823,15 @@ def test_single_letter_last_label_is_not_a_tld() -> None:
 
 
 @pytest.mark.parametrize(
-    ("tlds", "text"),
+    ("tlds", "text", "expected"),
     [
-        pytest.param(["xyz", "corp"], "foo.corp", id="length-mismatch-then-hit"),
-        pytest.param(["corq"], "foo.corp", id="same-length-near-miss"),
+        pytest.param(["xyz", "corp"], "foo.corp", ["foo.corp"], id="length-mismatch-then-hit"),
+        pytest.param(["corq"], "foo.corp", [], id="same-length-near-miss"),
     ],
 )
-def test_custom_tld_candidate_scanning(tlds: list[str], text: str) -> None:
+def test_custom_tld_candidate_scanning(tlds: list[str], text: str, expected: list[str]) -> None:
     spans = LinkDetector(tlds=tlds).find(text)
-    matched = [span.text for span in spans]
-    assert matched == (["foo.corp"] if "corp" in tlds else [])
+    assert [span.text for span in spans] == expected
 
 
 @pytest.mark.parametrize(
@@ -1476,7 +1475,11 @@ def test_bare_address_still_gets_the_mailto_prefix() -> None:
 _US_DETECTOR: Final[LinkDetector] = LinkDetector(phones=PhoneNumbers(regions=("US",)))
 
 
-@pytest.mark.parametrize("lane", [pytest.param(lane, id=f"lane-{lane}") for lane in range(16)])
+@pytest.mark.parametrize(
+    ("lead", "lane"),
+    [pytest.param("", 0, id="lane-0")]
+    + [pytest.param(f"{'p' * (lane - 1)} ", lane, id=f"lane-{lane}") for lane in range(1, 16)],
+)
 @pytest.mark.parametrize(
     ("token", "url"),
     [
@@ -1486,11 +1489,8 @@ _US_DETECTOR: Final[LinkDetector] = LinkDetector(phones=PhoneNumbers(regions=("U
         pytest.param("650-253-0000", "tel:+16502530000", id="phone"),
     ],
 )
-def test_trigger_at_every_lane(lane: int, token: str, url: str) -> None:
-    assert [
-        (span.start, span.url)
-        for span in _US_DETECTOR.find((f"{'p' * (lane - 1)} " if lane else "") + token + " q" * 5)
-    ] == [(lane, url)]
+def test_trigger_at_every_lane(lead: str, lane: int, token: str, url: str) -> None:
+    assert [(span.start, span.url) for span in _US_DETECTOR.find(lead + token + " q" * 5)] == [(lane, url)]
 
 
 @pytest.mark.parametrize(
@@ -1528,9 +1528,12 @@ def test_a_digit_in_the_last_lane_of_a_block() -> None:
     assert [span.start for span in _US_DETECTOR.find(f"{'p' * 14} 650-253-0000")] == [15]
 
 
-@pytest.mark.parametrize("kind", [pytest.param("ucs2", id="ucs2"), pytest.param("ucs4", id="ucs4")])
-def test_wide_text_without_digits_scans_clean(kind: str) -> None:
-    text = ("\u4e2d\u6587" if kind == "ucs2" else "\U0001f600\u4e2d") * 50_000 + " 650-253-0000"
+@pytest.mark.parametrize(
+    "filler",
+    [pytest.param("\u4e2d\u6587", id="ucs2"), pytest.param("\U0001f600\u4e2d", id="ucs4")],
+)
+def test_wide_text_without_digits_scans_clean(filler: str) -> None:
+    text = filler * 50_000 + " 650-253-0000"
     assert [span.url for span in _US_DETECTOR.find(text)] == ["tel:+16502530000"]
     assert LinkDetector().find(text) == []
 
@@ -1708,20 +1711,21 @@ def test_a_reused_linker_and_one_without_phones() -> None:
 )
 def test_href_is_the_international_number(text: str, regions: tuple[str, ...], href: str) -> None:
     assert linkify(text, Linkify(phones=PhoneNumbers(regions=regions))) == f'<a href="{href}">{text}</a>'
-    span = LinkDetector(phones=PhoneNumbers(regions=regions)).find(text)[0]
-    assert span.phone is not None
-    expected = f"tel:{span.phone.international_number}"
-    if span.phone.extension is not None:
-        expected += f";ext={span.phone.extension}"
-    assert href == expected
+    assert LinkDetector(phones=PhoneNumbers(regions=regions)).find(text)[0].url == href
 
 
-@pytest.mark.parametrize("entry", [pytest.param("function", id="linkify"), pytest.param("linker", id="Linker")])
-def test_callback_sees_the_phone(entry: str) -> None:
+@pytest.mark.parametrize(
+    "render",
+    [
+        pytest.param(linkify, id="linkify"),
+        pytest.param(lambda text, config: Linker(config).linkify(text), id="Linker"),
+    ],
+)
+def test_callback_sees_the_phone(render: Callable[[str, Linkify], str]) -> None:
     seen: list[LinkCandidate] = []
     config = Linkify(callbacks=[_collect(seen)], phones=_US, parse_email=True)
     text = "mail a@b.com, see example.com, call 650-253-0000"
-    assert (linkify(text, config) if entry == "function" else Linker(config).linkify(text)) == (
+    assert render(text, config) == (
         'mail <a href="mailto:a@b.com">a@b.com</a>, see <a href="http://example.com">example.com</a>, '
         'call <a href="tel:+16502530000">650-253-0000</a>'
     )

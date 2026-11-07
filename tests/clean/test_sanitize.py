@@ -466,10 +466,24 @@ def test_style_dropped_when_not_allowed() -> None:
 
 
 @pytest.mark.parametrize(
+    "style",
+    [
+        pytest.param("position: fixed", id="drop-disallowed"),
+        pytest.param("no-colon-declaration", id="declaration-without-colon"),
+        pytest.param("", id="empty-value"),
+        pytest.param("position: fixed; z-index: 9", id="all-dropped-removes-attribute"),
+        pytest.param("é: red", id="non-ascii-property-name"),
+    ],
+)
+def test_style_scrubbing_drops_the_attribute(style: str) -> None:
+    out = sanitize(f'<p style="{style}">x</p>', _style_policy())
+    assert "style=" not in out
+
+
+@pytest.mark.parametrize(
     ("style", "expected"),
     [
         pytest.param("color: red", 'style="color: red"', id="keep-allowed"),
-        pytest.param("position: fixed", None, id="drop-disallowed"),
         pytest.param("COLOR: red", 'style="COLOR: red"', id="uppercase-name"),
         pytest.param("color: red; width: 5px", 'style="color: red; width: 5px"', id="two-kept-joined"),
         pytest.param("color: red; position: fixed", 'style="color: red"', id="keep-one-drop-one"),
@@ -482,13 +496,9 @@ def test_style_dropped_when_not_allowed() -> None:
         pytest.param("color: red)", 'style="color: red)"', id="stray-close-paren"),
         pytest.param("color:", 'style="color:"', id="empty-value"),
         pytest.param("color: a:b", 'style="color: a:b"', id="value-has-second-colon"),
-        pytest.param("no-colon-declaration", None, id="declaration-without-colon"),
         pytest.param(": red; color: blue", 'style="color: blue"', id="empty-property-name"),
-        pytest.param("", None, id="empty-value"),
         pytest.param(";;; color: red ;;;", 'style="color: red"', id="extra-semicolons"),
-        pytest.param("position: fixed; z-index: 9", None, id="all-dropped-removes-attribute"),
         pytest.param(f"{'a' * 70}: red; color: blue", 'style="color: blue"', id="property-name-too-long"),
-        pytest.param("é: red", None, id="non-ascii-property-name"),
         # outside a string a CSS escape joins the next code point to an identifier, so it opens no string and ends no
         # declaration; the declarations a browser applies after it are scrubbed like any other
         pytest.param("color:red\\';position:fixed", 'style="color:red\\\'"', id="escaped-single-quote"),
@@ -536,12 +546,9 @@ def test_style_dropped_when_not_allowed() -> None:
         ),
     ],
 )
-def test_style_scrubbing(style: str, expected: str | None) -> None:
+def test_style_scrubbing_keeps_the_declarations(style: str, expected: str) -> None:
     out = sanitize(f'<p style="{style}">x</p>', _style_policy())
-    if expected is None:
-        assert "style=" not in out
-    else:
-        assert expected in out
+    assert expected in out
 
 
 def _style_policy(
@@ -775,28 +782,40 @@ def test_style_double_quoted_url_scheme_is_stripped() -> None:
 
 
 @pytest.mark.parametrize(
-    ("style", "expected"),
+    "style",
     [
-        pytest.param("color: #fff", 'style="color: #fff"', id="value-matches-pattern"),
-        pytest.param("color: red", None, id="value-fails-every-pattern"),
-        pytest.param("text-align: center", 'style="text-align: center"', id="second-property-matches"),
-        pytest.param("width: 5px", None, id="property-not-listed-dropped"),
-        pytest.param("color: #fff; width: 5px", 'style="color: #fff"', id="listed-kept-unlisted-dropped"),
-        pytest.param("color: rgb(1,2,3)", 'style="color: rgb(1,2,3)"', id="second-pattern-of-a-property"),
-        pytest.param("color:", None, id="empty-value-no-pattern-matches"),
+        pytest.param("color: red", id="value-fails-every-pattern"),
+        pytest.param("width: 5px", id="property-not-listed-dropped"),
+        pytest.param("color:", id="empty-value-no-pattern-matches"),
     ],
 )
-def test_allowed_styles_narrows_by_value(style: str, expected: str | None) -> None:
+def test_allowed_styles_drops_the_attribute(style: str) -> None:
     out = sanitize(
         f'<p style="{style}">x</p>',
         _allowed_styles_policy({
             "*": {"color": [r"^#[0-9a-f]{3,6}$", r"^rgb\("], "text-align": [r"^left$|^right$|^center$"]}
         }),
     )
-    if expected is None:
-        assert "style=" not in out
-    else:
-        assert expected in out
+    assert "style=" not in out
+
+
+@pytest.mark.parametrize(
+    ("style", "expected"),
+    [
+        pytest.param("color: #fff", 'style="color: #fff"', id="value-matches-pattern"),
+        pytest.param("text-align: center", 'style="text-align: center"', id="second-property-matches"),
+        pytest.param("color: #fff; width: 5px", 'style="color: #fff"', id="listed-kept-unlisted-dropped"),
+        pytest.param("color: rgb(1,2,3)", 'style="color: rgb(1,2,3)"', id="second-pattern-of-a-property"),
+    ],
+)
+def test_allowed_styles_keeps_the_declarations(style: str, expected: str) -> None:
+    out = sanitize(
+        f'<p style="{style}">x</p>',
+        _allowed_styles_policy({
+            "*": {"color": [r"^#[0-9a-f]{3,6}$", r"^rgb\("], "text-align": [r"^left$|^right$|^center$"]}
+        }),
+    )
+    assert expected in out
 
 
 def _allowed_styles_policy(
@@ -1147,37 +1166,48 @@ def test_srcset_data_url_comma_is_not_a_candidate_separator() -> None:
 
 
 @pytest.mark.parametrize(
-    ("content", "kept"),
+    "content",
     [
-        pytest.param("0;url=javascript:alert(1)", False, id="script-url"),
-        pytest.param("0; URL = 'javascript:alert(1)'", False, id="quoted-uppercase-prefix"),
-        pytest.param("0,javascript:alert(1)", False, id="comma-bare-url"),
-        pytest.param("0 javascript:alert(1)", False, id="space-bare-url"),
-        pytest.param(".5;url=data:text/html,x", False, id="fractional-time-data-url"),
-        pytest.param("0;url:alert(1)", False, id="url-word-without-equals-is-the-url"),
-        pytest.param("0 ;url=javascript:alert(1)", False, id="space-before-separator"),
-        pytest.param("0;url=&quot;javascript:alert(1)&quot;", False, id="double-quoted-url"),
-        pytest.param("0;url='javascript:alert(1)", False, id="unterminated-quote"),
-        pytest.param("0;url=https://example.org/", True, id="allowed-scheme"),
-        pytest.param("0;url=/local", True, id="relative"),
-        pytest.param("5", True, id="time-only"),
-        pytest.param("5 ", True, id="time-trailing-space"),
-        pytest.param("", True, id="empty"),
-        pytest.param("0;url", True, id="url-word-alone"),
-        pytest.param("0;u", True, id="short-u"),
-        pytest.param("0;urx=javascript:x", True, id="u-prefix-not-url"),
-        pytest.param("0;uxl=javascript:x", True, id="u-then-not-r"),
-        pytest.param("0;url=", True, id="empty-url"),
-        pytest.param("0;url=''", True, id="empty-quoted-url"),
-        pytest.param("0;url='java'script:x", True, id="quote-ends-url"),
-        pytest.param("x;url=javascript:x", True, id="no-time-no-refresh"),
-        pytest.param("0x;url=javascript:x", True, id="bad-separator-no-refresh"),
+        pytest.param("0;url=javascript:alert(1)", id="script-url"),
+        pytest.param("0; URL = 'javascript:alert(1)'", id="quoted-uppercase-prefix"),
+        pytest.param("0,javascript:alert(1)", id="comma-bare-url"),
+        pytest.param("0 javascript:alert(1)", id="space-bare-url"),
+        pytest.param(".5;url=data:text/html,x", id="fractional-time-data-url"),
+        pytest.param("0;url:alert(1)", id="url-word-without-equals-is-the-url"),
+        pytest.param("0 ;url=javascript:alert(1)", id="space-before-separator"),
+        pytest.param("0;url=&quot;javascript:alert(1)&quot;", id="double-quoted-url"),
+        pytest.param("0;url='javascript:alert(1)", id="unterminated-quote"),
     ],
 )
-def test_meta_refresh_url_is_scheme_checked(content: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # the parametrized flag selects the expected outcome
+def test_meta_refresh_drops_the_url(content: str) -> None:
     html = f'<meta http-equiv="Refresh" content="{content}">'
     out = sanitize(html, _allow_all({"meta"}, {"http-equiv", "content"}))
-    assert out == (html if kept else '<meta http-equiv="Refresh">')
+    assert out == '<meta http-equiv="Refresh">'
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param("0;url=https://example.org/", id="allowed-scheme"),
+        pytest.param("0;url=/local", id="relative"),
+        pytest.param("5", id="time-only"),
+        pytest.param("5 ", id="time-trailing-space"),
+        pytest.param("", id="empty"),
+        pytest.param("0;url", id="url-word-alone"),
+        pytest.param("0;u", id="short-u"),
+        pytest.param("0;urx=javascript:x", id="u-prefix-not-url"),
+        pytest.param("0;uxl=javascript:x", id="u-then-not-r"),
+        pytest.param("0;url=", id="empty-url"),
+        pytest.param("0;url=''", id="empty-quoted-url"),
+        pytest.param("0;url='java'script:x", id="quote-ends-url"),
+        pytest.param("x;url=javascript:x", id="no-time-no-refresh"),
+        pytest.param("0x;url=javascript:x", id="bad-separator-no-refresh"),
+    ],
+)
+def test_meta_refresh_keeps_the_url(content: str) -> None:
+    html = f'<meta http-equiv="Refresh" content="{content}">'
+    out = sanitize(html, _allow_all({"meta"}, {"http-equiv", "content"}))
+    assert out == html
 
 
 @pytest.mark.parametrize(
@@ -1928,12 +1958,15 @@ def policy() -> Policy:
 
 
 @pytest.mark.parametrize("count", [0, 31, 32, 1_024])
-@pytest.mark.parametrize("prefix", ["bad-", "data-"], ids=["rejected", "allowed"])
-def test_attribute_compaction_count(policy: Policy, count: int, prefix: str) -> None:
-    attributes: Final = "".join(f' {prefix}{index}="x"' for index in range(count))
-    assert Sanitizer(policy).sanitize(f"<a{attributes}>x</a>") == (
-        f"<a{attributes}>x</a>" if prefix == "data-" else "<a>x</a>"
-    )
+def test_attribute_compaction_rejected_count(policy: Policy, count: int) -> None:
+    attributes: Final = "".join(f' bad-{index}="x"' for index in range(count))
+    assert Sanitizer(policy).sanitize(f"<a{attributes}>x</a>") == "<a>x</a>"
+
+
+@pytest.mark.parametrize("count", [0, 31, 32, 1_024])
+def test_attribute_compaction_allowed_count(policy: Policy, count: int) -> None:
+    attributes: Final = "".join(f' data-{index}="x"' for index in range(count))
+    assert Sanitizer(policy).sanitize(f"<a{attributes}>x</a>") == f"<a{attributes}>x</a>"
 
 
 @pytest.mark.parametrize(
@@ -1976,14 +2009,22 @@ def test_attribute_compaction_filter_order(policy: Policy) -> None:
     assert names == [f"data-{index}" for index in range(32)]
 
 
-@pytest.mark.parametrize("prefix", ["bad-", "data-"], ids=["custom-attributes", "custom-element"])
-def test_attribute_compaction_custom_checks(policy: Policy, prefix: str) -> None:
+@pytest.mark.parametrize(
+    ("prefix", "custom_attribute_check"),
+    [
+        pytest.param("bad-", lambda _tag, name: name.startswith("bad-"), id="custom-attributes"),
+        pytest.param("data-", None, id="custom-element"),
+    ],
+)
+def test_attribute_compaction_custom_checks(
+    policy: Policy, prefix: str, custom_attribute_check: Callable[[str, str], bool] | None
+) -> None:
     attributes: Final = "".join(f' {prefix}{index}="x"' for index in range(32))
     sanitizer: Final = Sanitizer(
         replace(
             policy,
             custom_element_check=lambda tag: tag == "x-card",
-            custom_attribute_check=(lambda _tag, name: name.startswith("bad-")) if prefix == "bad-" else None,
+            custom_attribute_check=custom_attribute_check,
         )
     )
     assert sanitizer.sanitize(f"<x-card{attributes}>x</x-card>") == f"<x-card{attributes}>x</x-card>"
@@ -4542,13 +4583,18 @@ def test_live_danger_labels_every_executable_construct(html: str, survived: list
 @pytest.mark.parametrize(
     "count", [pytest.param(0, id="empty"), pytest.param(1, id="single"), pytest.param(1024, id="wide")]
 )
-@pytest.mark.parametrize(
-    "mode", [pytest.param(OnDisallowed.ESCAPE, id="escape"), pytest.param(OnDisallowed.STRIP, id="strip")]
-)
-def test_escaped_opening_attribute_width(count: int, mode: OnDisallowed) -> None:
+def test_escaped_opening_attribute_width(count: int) -> None:
     attributes: Final = "".join(f' a{index}="{index}"' for index in range(count))
-    expected: Final = f"&lt;x{attributes}&gt;text&lt;/x&gt;" if mode is OnDisallowed.ESCAPE else "text"
-    assert sanitize(f"<x{attributes}>text</x>", Policy(on_disallowed_tag=mode)) == expected
+    expected: Final = f"&lt;x{attributes}&gt;text&lt;/x&gt;"
+    assert sanitize(f"<x{attributes}>text</x>", Policy(on_disallowed_tag=OnDisallowed.ESCAPE)) == expected
+
+
+@pytest.mark.parametrize(
+    "count", [pytest.param(0, id="empty"), pytest.param(1, id="single"), pytest.param(1024, id="wide")]
+)
+def test_stripped_opening_attribute_width(count: int) -> None:
+    attributes: Final = "".join(f' a{index}="{index}"' for index in range(count))
+    assert sanitize(f"<x{attributes}>text</x>", Policy(on_disallowed_tag=OnDisallowed.STRIP)) == "text"
 
 
 @pytest.mark.parametrize(
@@ -4571,16 +4617,21 @@ def test_escaped_opening_surrogate_attribute_name(name: str) -> None:
         sanitize(f'<x valid="v" {name}="v">text</x>')
 
 
-@pytest.mark.parametrize("method", [False, True], ids=["function", "sanitizer"])
-def test_document_node_return_types(*, method: bool) -> None:
+@pytest.mark.parametrize(
+    "report",
+    [
+        pytest.param(lambda sanitizer, document, _policy: sanitizer.sanitize_report_node(document), id="sanitizer"),
+        pytest.param(lambda _sanitizer, document, policy: sanitize_report_node(document, policy), id="function"),
+    ],
+)
+def test_document_node_return_types(
+    report: Callable[[Sanitizer, Document, Policy], tuple[Document, list[Removed]]],
+) -> None:
     document: Final = parse("<p onclick='x'>hi</p>")
     policy: Final = Policy(tags=frozenset({"html", "head", "body", "p"}))
     sanitizer: Final = Sanitizer(policy)
     cleaned: Final[Document] = assert_type(sanitizer.sanitize_node(document), Document)
-    result: Final = assert_type(
-        sanitizer.sanitize_report_node(document) if method else sanitize_report_node(document, policy),
-        tuple[Document, list[Removed]],
-    )
+    result: Final = assert_type(report(sanitizer, document, policy), tuple[Document, list[Removed]])
     assert (cleaned.serialize(), result[0].serialize(), result[1]) == (
         "<html><head></head><body><p>hi</p></body></html>",
         "<html><head></head><body><p>hi</p></body></html>",
@@ -4632,23 +4683,33 @@ def test_attribute_name_allowlist_mutation_from_callback() -> None:
 
 
 @pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("http://[", id="open"),
+        pytest.param("http://host]", id="close"),
+        pytest.param("https://[host/path", id="before-path"),
+        pytest.param("http://[host?query]", id="query-cannot-close"),
+        pytest.param("http://[host#fragment]", id="fragment-cannot-close"),
+        pytest.param("http://[host/path]", id="path-cannot-close"),
+        pytest.param("//[", id="relative-authority-open"),
+        pytest.param("//host]", id="relative-authority-close"),
+        pytest.param("http://user[@host", id="userinfo-open"),
+        pytest.param("http://user]@host", id="userinfo-close"),
+        pytest.param(" \t\r\nHTTP://[", id="leading-whitespace"),
+        pytest.param("\x01\x1fhttp://[", id="leading-controls"),
+        pytest.param("h\tt\nt\rp://[", id="scheme-controls"),
+        pytest.param("http:\t/\n/[", id="authority-controls"),
+        pytest.param(" \t//[", id="relative-leading-whitespace"),
+    ],
+)
+def test_clean_url_authority_drops_the_href(value: str) -> None:
+    result: Final = clean(f'<a href="{escape(value, quote=True)}">x</a>')
+    assert dict(parse_fragment(result).select("a")[0].attrs) == {}
+
+
+@pytest.mark.parametrize(
     ("value", "expected"),
     [
-        pytest.param("http://[", None, id="open"),
-        pytest.param("http://host]", None, id="close"),
-        pytest.param("https://[host/path", None, id="before-path"),
-        pytest.param("http://[host?query]", None, id="query-cannot-close"),
-        pytest.param("http://[host#fragment]", None, id="fragment-cannot-close"),
-        pytest.param("http://[host/path]", None, id="path-cannot-close"),
-        pytest.param("//[", None, id="relative-authority-open"),
-        pytest.param("//host]", None, id="relative-authority-close"),
-        pytest.param("http://user[@host", None, id="userinfo-open"),
-        pytest.param("http://user]@host", None, id="userinfo-close"),
-        pytest.param(" \t\r\nHTTP://[", None, id="leading-whitespace"),
-        pytest.param("\x01\x1fhttp://[", None, id="leading-controls"),
-        pytest.param("h\tt\nt\rp://[", None, id="scheme-controls"),
-        pytest.param("http:\t/\n/[", None, id="authority-controls"),
-        pytest.param(" \t//[", None, id="relative-leading-whitespace"),
         pytest.param("http://[]", "http://[]", id="empty-literal"),
         pytest.param("http://[bad]", "http://[bad]", id="hostname-literal"),
         pytest.param("http://[::1]", "http://[::1]", id="ipv6"),
@@ -4671,23 +4732,48 @@ def test_attribute_name_allowlist_mutation_from_callback() -> None:
         pytest.param("mailto:user[", "mailto:user[", id="opaque"),
     ],
 )
-def test_clean_url_authority(value: str, expected: str | None) -> None:
+def test_clean_url_authority_keeps_the_href(value: str, expected: str) -> None:
     result: Final = clean(f'<a href="{escape(value, quote=True)}">x</a>')
-    assert dict(parse_fragment(result).select("a")[0].attrs) == ({} if expected is None else {"href": expected})
+    assert dict(parse_fragment(result).select("a")[0].attrs) == {"href": expected}
 
 
-@pytest.mark.parametrize("attribute", ["href", "src", "srcset", "imagesrcset"])
-@pytest.mark.parametrize("source", ["input", "rewrite", "forced"])
-def test_sanitize_url_authority_after_attribute_changes(attribute: str, source: str) -> None:
-    value: Final = "safe.png 1x, http://[ 2x" if attribute.endswith("srcset") else "http://["
+_URL_AUTHORITY_VALUES: Final = [
+    pytest.param(attribute, value, id=attribute)
+    for attribute, value in (
+        ("href", "http://["),
+        ("src", "http://["),
+        ("srcset", "safe.png 1x, http://[ 2x"),
+        ("imagesrcset", "safe.png 1x, http://[ 2x"),
+    )
+]
+
+
+@pytest.mark.parametrize(("attribute", "value"), _URL_AUTHORITY_VALUES)
+def test_sanitize_url_authority_after_input(attribute: str, value: str) -> None:
+    policy: Final = Policy(tags=frozenset({"x"}), attributes={"x": frozenset({attribute})})
+    result: Final = sanitize(f'<x {attribute}="{value}"></x>', policy)
+    assert dict(parse_fragment(result).select("x")[0].attrs) == {}
+
+
+@pytest.mark.parametrize(("attribute", "value"), _URL_AUTHORITY_VALUES)
+def test_sanitize_url_authority_after_rewrite(attribute: str, value: str) -> None:
     policy: Final = Policy(
         tags=frozenset({"x"}),
         attributes={"x": frozenset({attribute})},
-        attribute_filter=(lambda _tag, _name, _value: value) if source == "rewrite" else None,
-        set_attributes={"x": {attribute: value}} if source == "forced" else {},
+        attribute_filter=lambda _tag, _name, _value: value,
     )
-    original: Final = value if source == "input" else "https://safe.example/"
-    result: Final = sanitize(f'<x {attribute}="{original}"></x>', policy)
+    result: Final = sanitize(f'<x {attribute}="https://safe.example/"></x>', policy)
+    assert dict(parse_fragment(result).select("x")[0].attrs) == {}
+
+
+@pytest.mark.parametrize(("attribute", "value"), _URL_AUTHORITY_VALUES)
+def test_sanitize_url_authority_after_forced_value(attribute: str, value: str) -> None:
+    policy: Final = Policy(
+        tags=frozenset({"x"}),
+        attributes={"x": frozenset({attribute})},
+        set_attributes={"x": {attribute: value}},
+    )
+    result: Final = sanitize(f'<x {attribute}="https://safe.example/"></x>', policy)
     assert dict(parse_fragment(result).select("x")[0].attrs) == {}
 
 
@@ -4700,11 +4786,17 @@ def test_sanitize_data_url_brackets() -> None:
     assert dict(parse_fragment(result).select("a")[0].attrs) == {"href": value}
 
 
-@pytest.mark.parametrize("keep", [pytest.param(False, id="reject"), pytest.param(True, id="keep")])
-def test_predicate_selects_attributes(*, keep: bool) -> None:
-    policy: Final = Policy(attribute_predicate=lambda _tag, name, _value: keep or name != "title")
+def test_predicate_keeps_every_attribute() -> None:
+    policy: Final = Policy(attribute_predicate=lambda _tag, _name, _value: True)
     assert sanitize('<a title="first" href="https://example.com">x</a>', policy) == (
-        '<a title="first" href="https://example.com">x</a>' if keep else '<a href="https://example.com">x</a>'
+        '<a title="first" href="https://example.com">x</a>'
+    )
+
+
+def test_predicate_rejects_the_title() -> None:
+    policy: Final = Policy(attribute_predicate=lambda _tag, name, _value: name != "title")
+    assert sanitize('<a title="first" href="https://example.com">x</a>', policy) == (
+        '<a href="https://example.com">x</a>'
     )
 
 
@@ -4772,8 +4864,7 @@ def test_predicate_truth_exception_propagates() -> None:
         sanitize('<a title="x">x</a>', Policy(attribute_predicate=lambda *_: cast("bool", verdict)))
 
 
-@pytest.mark.parametrize("keep", [pytest.param(False, id="reject"), pytest.param(True, id="keep")])
-def test_predicate_controls_which_attributes_reach_rewrite_filter(*, keep: bool) -> None:
+def test_predicate_keeps_the_attribute_for_the_rewrite_filter() -> None:
     seen: Final[list[str]] = []
 
     def rewrite(_tag: str, name: str, value: str) -> str:
@@ -4781,9 +4872,17 @@ def test_predicate_controls_which_attributes_reach_rewrite_filter(*, keep: bool)
         return value
 
     assert (
-        sanitize('<a title="x">x</a>', Policy(attribute_predicate=lambda *_: keep, attribute_filter=rewrite)),
+        sanitize('<a title="x">x</a>', Policy(attribute_predicate=lambda *_: True, attribute_filter=rewrite)),
         seen,
-    ) == (('<a title="x">x</a>', ["title"]) if keep else ("<a>x</a>", []))
+    ) == ('<a title="x">x</a>', ["title"])
+
+
+def test_predicate_rejects_the_attribute_before_the_rewrite_filter() -> None:
+    seen: Final[list[str]] = []
+    policy: Final = Policy(
+        attribute_predicate=lambda *_: False, attribute_filter=lambda _tag, name, value: seen.append(name) or value
+    )
+    assert (sanitize('<a title="x">x</a>', policy), seen) == ("<a>x</a>", [])
 
 
 def test_rewrite_filter_still_receives_scrubbed_values() -> None:
