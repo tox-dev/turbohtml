@@ -249,9 +249,7 @@ def test_minify_css_large_rules_keep_outline_fallback(large_rule_prefix: str) ->
 def test_minify_css_invalid_shorthand_keeps_longhand(
     shorthand: str, longhand: str, value: str, prefix_length: int
 ) -> None:
-    prefix = ";".join(f"--x{index}:v" for index in range(prefix_length))
-    if prefix:
-        prefix += ";"
+    prefix = "".join(f"--x{index}:v;" for index in range(prefix_length))
     source = f"a{{{prefix}{longhand}:{value};{shorthand}:bad stuff}}"
     assert minify_css(source) == source
 
@@ -592,53 +590,56 @@ def test_minify_css_translucent_rgb_percentage_preserves_precision(source: str, 
     assert (result, minify_css(result)) == (expected, expected)
 
 
-@pytest.mark.parametrize(
-    "property_name",
-    [
-        "accent-color",
-        "background",
-        "background-color",
-        "border",
-        "border-color",
-        "border-top-color",
-        "border-right-color",
-        "border-bottom-color",
-        "border-left-color",
-        "border-top",
-        "border-right",
-        "border-bottom",
-        "border-left",
-        "border-block",
-        "border-inline",
-        "border-block-start",
-        "border-block-end",
-        "border-inline-start",
-        "border-inline-end",
-        "box-shadow",
-        "color",
-        "caret-color",
-        "column-rule-color",
-        "column-rule",
-        "fill",
-        "flood-color",
-        "lighting-color",
-        "outline-color",
-        "outline",
-        "stroke",
-        "stop-color",
-        "scrollbar-color",
-        "text-decoration-color",
-        "text-emphasis-color",
-        "text-decoration",
-        "text-emphasis",
-        "text-shadow",
-    ],
-)
-@pytest.mark.parametrize("near_match", [False, True], ids=["color-property", "same-length-other-property"])
-def test_minify_css_color_property_hash(property_name: str, *, near_match: bool) -> None:
-    name = f"{property_name[:-1]}x" if near_match else property_name
-    expected = "#ff0000" if near_match else "red"
-    assert minify_css(f"p{{{name}:#ff0000}}") == f"p{{{name}:{expected}}}"
+_COLOR_HASH_PROPERTIES: Final[list[str]] = [
+    "accent-color",
+    "background",
+    "background-color",
+    "border",
+    "border-color",
+    "border-top-color",
+    "border-right-color",
+    "border-bottom-color",
+    "border-left-color",
+    "border-top",
+    "border-right",
+    "border-bottom",
+    "border-left",
+    "border-block",
+    "border-inline",
+    "border-block-start",
+    "border-block-end",
+    "border-inline-start",
+    "border-inline-end",
+    "box-shadow",
+    "color",
+    "caret-color",
+    "column-rule-color",
+    "column-rule",
+    "fill",
+    "flood-color",
+    "lighting-color",
+    "outline-color",
+    "outline",
+    "stroke",
+    "stop-color",
+    "scrollbar-color",
+    "text-decoration-color",
+    "text-emphasis-color",
+    "text-decoration",
+    "text-emphasis",
+    "text-shadow",
+]
+
+
+@pytest.mark.parametrize("property_name", _COLOR_HASH_PROPERTIES)
+def test_minify_css_color_property_hash(property_name: str) -> None:
+    assert minify_css(f"p{{{property_name}:#ff0000}}") == f"p{{{property_name}:red}}"
+
+
+@pytest.mark.parametrize("property_name", _COLOR_HASH_PROPERTIES)
+def test_minify_css_same_length_property_keeps_hex(property_name: str) -> None:
+    name = f"{property_name[:-1]}x"
+    assert minify_css(f"p{{{name}:#ff0000}}") == f"p{{{name}:#ff0000}}"
 
 
 @pytest.mark.parametrize("count", [pytest.param(40, id="stack"), pytest.param(300, id="heap")])
@@ -2835,28 +2836,33 @@ def test_minify_css_merged_media_is_a_fixed_point(source: str, expected: str) ->
 
 @pytest.mark.parametrize(
     "case_index",
-    [
-        pytest.param(0, id="media10"),
-        pytest.param(1, id="media100"),
-        pytest.param(2, id="media1000"),
-        pytest.param(3, id="selectors10"),
-        pytest.param(4, id="selectors100"),
-        pytest.param(5, id="selectors1000"),
-        pytest.param(6, id="different-media"),
-        pytest.param(7, id="comments"),
-    ],
+    [pytest.param(0, id="media10"), pytest.param(1, id="media100"), pytest.param(2, id="media1000")],
 )
-def test_minify_css_merge_shared_inputs(case_index: int) -> None:
+def test_minify_css_merge_shared_inputs_media(case_index: int) -> None:
+    source: Final = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
+    count: Final = (10, 100, 1_000)[case_index]
+    expected: Final = "@media screen{" + ",".join(f".a{index}" for index in range(count)) + "{color:red}}"
+    assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(
+    "case_index",
+    [pytest.param(3, id="selectors10"), pytest.param(4, id="selectors100"), pytest.param(5, id="selectors1000")],
+)
+def test_minify_css_merge_shared_inputs_selectors(case_index: int) -> None:
     source: Final = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
     count: Final = (10, 100, 1_000)[case_index % 3]
-    expected: Final = (
-        "@media screen{" + ",".join(f".a{index}" for index in range(count)) + "{color:red}}"
-        if case_index < 3
-        else ",".join(f".a{index}" for index in range(count)) + "{color:red}"
-        if case_index < 6
-        else source
-    )
+    expected: Final = ",".join(f".a{index}" for index in range(count)) + "{color:red}"
     assert minify_css(source) == expected
+
+
+@pytest.mark.parametrize(
+    "case_index",
+    [pytest.param(6, id="different-media"), pytest.param(7, id="comments")],
+)
+def test_minify_css_merge_shared_inputs_unchanged(case_index: int) -> None:
+    source: Final = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
+    assert minify_css(source) == source
 
 
 @pytest.mark.parametrize(
@@ -2868,50 +2874,71 @@ def test_minify_css_overlapping_rule_benchmark(case: int) -> None:
     assert minify_css(source) == first_pair
 
 
-@pytest.mark.oracle
+_BENCHMARK_MINIFIERS: Final[list[ParameterSet]] = [
+    pytest.param("bench.core", id="turbohtml"),
+    pytest.param("bench.competitors.rcssmin", id="rcssmin"),
+    pytest.param("bench.competitors.cssmin", id="cssmin"),
+    pytest.param("bench.competitors.csscompressor", id="csscompressor"),
+    pytest.param("bench.competitors.css_html_js_minify", id="css-html-js-minify"),
+    pytest.param("bench.competitors.lightningcss", id="lightningcss"),
+    pytest.param(
+        "bench.competitors.esbuild",
+        id="esbuild",
+        marks=pytest.mark.skipif(shutil.which("esbuild") is None, reason="esbuild not available"),
+    ),
+    pytest.param(
+        "bench.competitors.tdewolff",
+        id="tdewolff",
+        marks=pytest.mark.skipif(shutil.which("minify") is None, reason="minify not available"),
+    ),
+]
+
+
+@pytest.mark.parametrize("module", _BENCHMARK_MINIFIERS)
 @pytest.mark.parametrize(
-    ("operation", "case"),
+    ("case", "media"),
     [
-        pytest.param(operation, case, id=f"{operation}-{case}")
-        for operation, cases in (("minify-css-merges", (0, 2, 3, 5, 6, 7)), ("minify-css-conflicts", (0, 1, 2)))
-        for case in cases
+        pytest.param(0, "screen", id="media10"),
+        pytest.param(2, "screen", id="media1000"),
+        pytest.param(3, "all", id="selectors10"),
+        pytest.param(5, "all", id="selectors1000"),
+        pytest.param(7, "all", id="comments"),
     ],
 )
-@pytest.mark.parametrize(
-    ("module", "executable"),
-    [
-        pytest.param("bench.core", None, id="turbohtml"),
-        pytest.param("bench.competitors.rcssmin", None, id="rcssmin"),
-        pytest.param("bench.competitors.cssmin", None, id="cssmin"),
-        pytest.param("bench.competitors.csscompressor", None, id="csscompressor"),
-        pytest.param("bench.competitors.css_html_js_minify", None, id="css-html-js-minify"),
-        pytest.param("bench.competitors.lightningcss", None, id="lightningcss"),
-        pytest.param("bench.competitors.esbuild", "esbuild", id="esbuild"),
-        pytest.param("bench.competitors.tdewolff", "minify", id="tdewolff"),
-    ],
-)
-def test_merge_benchmark_preserves_fixture_cascade(
-    operation: str, case: int, module: str, executable: str | None
-) -> None:
-    if executable is not None and shutil.which(executable) is None:
-        pytest.skip(f"{executable} not available")
+def test_merge_benchmark_preserves_fixture_cascade(module: str, case: int, media: str) -> None:
     minimize: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
-    source: Final = cast("str", INPUTS[operation]()[case][1])
-    expected: Final[dict[tuple[str, str], dict[str, str]]]
-    if operation == "minify-css-merges":
-        count: Final = (10, 100, 1_000, 10, 100, 1_000, 100, 100)[case]
-        expected = {
-            (("screen" if index % 2 else "print") if case == 6 else "screen" if case < 3 else "all", f".a{index}"): {
-                "color": "red"
-            }
-            for index in range(count)
-        }
-    else:
-        properties, value_length = ((32, 128), (32, 1), (2, 1))[case]
-        expected = {
-            ("all", f".{name}"): {f"--{name}{index}": f"f({value * value_length})" for index in range(properties)}
-            for name, value in (("a", "x"), ("b", "y"))
-        }
+    source: Final = cast("str", INPUTS["minify-css-merges"]()[case][1])
+    count: Final = (10, 100, 1_000, 10, 100, 1_000, 100, 100)[case]
+    expected: Final = {(media, f".a{index}"): {"color": "red"} for index in range(count)}
+    assert _merge_fixture_cascade(minimize(source)) == expected
+
+
+@pytest.mark.parametrize("module", _BENCHMARK_MINIFIERS)
+def test_merge_benchmark_preserves_alternating_media(module: str) -> None:
+    minimize: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
+    source: Final = cast("str", INPUTS["minify-css-merges"]()[6][1])
+    expected: Final = {(("print", "screen")[index % 2], f".a{index}"): {"color": "red"} for index in range(100)}
+    assert _merge_fixture_cascade(minimize(source)) == expected
+
+
+@pytest.mark.parametrize("module", _BENCHMARK_MINIFIERS)
+@pytest.mark.parametrize(
+    ("case", "properties", "value_length"),
+    [
+        pytest.param(0, 32, 128, id="long-values"),
+        pytest.param(1, 32, 1, id="short-values"),
+        pytest.param(2, 2, 1, id="single-pair"),
+    ],
+)
+def test_merge_benchmark_preserves_conflicting_declarations(
+    module: str, case: int, properties: int, value_length: int
+) -> None:
+    minimize: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
+    source: Final = cast("str", INPUTS["minify-css-conflicts"]()[case][1])
+    expected: Final = {
+        ("all", f".{name}"): {f"--{name}{index}": f"f({value * value_length})" for index in range(properties)}
+        for name, value in (("a", "x"), ("b", "y"))
+    }
     assert _merge_fixture_cascade(minimize(source)) == expected
 
 
@@ -2954,10 +2981,12 @@ def _merge_fixture_cascade(source: str, media: str = "all") -> dict[tuple[str, s
 
 
 @pytest.mark.parametrize("count", [8, 64, 65, 1024])
-@pytest.mark.parametrize("reverse", [False, True], ids=["sorted", "reversed"])
-def test_minify_css_unicode_range_order(count: int, *, reverse: bool) -> None:
+@pytest.mark.parametrize(
+    "order", [pytest.param(slice(None), id="sorted"), pytest.param(slice(None, None, -1), id="reversed")]
+)
+def test_minify_css_unicode_range_order(count: int, *, order: slice) -> None:
     ranges: Final = [f"U+{index * 2:X}" for index in range(count)]
-    source: Final = ",".join(reversed(ranges) if reverse else ranges)
+    source: Final = ",".join(ranges[order])
     assert minify_css(f"@font-face{{unicode-range:{source}}}") == (f"@font-face{{unicode-range:{','.join(ranges)}}}")
 
 
@@ -4134,7 +4163,11 @@ def test_position_substitutions(source: str, expected: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "namespace", [pytest.param("", id="fragment"), pytest.param('@namespace url("urn:svg");', id="default-namespace")]
+    ("namespace", "prefix"),
+    [
+        pytest.param("", "", id="fragment"),
+        pytest.param('@namespace url("urn:svg");', '@namespace"urn:svg";', id="default-namespace"),
+    ],
 )
 @pytest.mark.parametrize(
     ("selector", "expected"),
@@ -4160,9 +4193,8 @@ def test_position_substitutions(source: str, expected: str) -> None:
         pytest.param(") *.a", ") .a", id="unmatched-close"),
     ],
 )
-def test_functional_universal_roles(namespace: str, selector: str, expected: str) -> None:
+def test_functional_universal_roles(namespace: str, prefix: str, selector: str, expected: str) -> None:
     source: Final = f"{namespace} {selector} {{ color : red }}"
-    prefix: Final = '@namespace"urn:svg";' if namespace else ""
     first: Final = minify_css(source)
     assert (first, minify_css(first)) == (f"{prefix}{expected}{{color:red}}",) * 2
 
@@ -4240,9 +4272,8 @@ def test_functional_universal_roles(namespace: str, selector: str, expected: str
         ),
     ],
 )
-@pytest.mark.parametrize("repeat", [pytest.param(False, id="first"), pytest.param(True, id="second")])
-def test_background_pairs(source: str, expected: str, *, repeat: bool) -> None:
-    assert minify_css(minify_css(source) if repeat else source) == expected
+def test_background_pairs(source: str, expected: str) -> None:
+    assert (minify_css(source), minify_css(minify_css(source))) == (expected, expected)
 
 
 @pytest.mark.parametrize(
@@ -4462,9 +4493,8 @@ def test_group_recovery_repeat(source: str, expected: str) -> None:
         ),
     ],
 )
-@pytest.mark.parametrize("repeat", [pytest.param(False, id="first"), pytest.param(True, id="second")])
-def test_box_substitution(source: str, expected: str, *, repeat: bool) -> None:
-    assert minify_css(minify_css(source) if repeat else source) == expected
+def test_box_substitution(source: str, expected: str) -> None:
+    assert (minify_css(source), minify_css(minify_css(source))) == (expected, expected)
 
 
 if TYPE_CHECKING:
@@ -4653,9 +4683,8 @@ def test_minify_css_integer_roles_are_a_fixed_point(source: str, expected: str) 
         ),
     ],
 )
-@pytest.mark.parametrize("repeat", [pytest.param(False, id="first"), pytest.param(True, id="second")])
-def test_background_substitution(source: str, expected: str, *, repeat: bool) -> None:
-    assert minify_css(minify_css(source) if repeat else source) == expected
+def test_background_substitution(source: str, expected: str) -> None:
+    assert (minify_css(source), minify_css(minify_css(source))) == (expected, expected)
 
 
 if TYPE_CHECKING:

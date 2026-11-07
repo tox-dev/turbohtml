@@ -10,6 +10,8 @@ from turbohtml.query import compile  # ruff:ignore[builtin-import-shadowing]  # 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from _pytest.mark.structures import ParameterSet
+
 
 def _siblings(*runs: tuple[str, int], filled: Iterable[int] = ()) -> str:
     # runs past 32 siblings reach the sibling memo, and past 48 stored answers the memo grows; the element eN at a
@@ -360,25 +362,35 @@ def test_select_nth_sibling_skips_nonmatching_elements() -> None:
     assert _ids(document.select("i:nth-child(odd of .x)")) == ["a", "c"]
 
 
-@pytest.mark.parametrize("selection_first", [False, True], ids=["match-first", "select-first"])
-@pytest.mark.parametrize(
-    ("selector", "expected"),
-    [
-        pytest.param("a ~ b", ["hit"], id="indexed"),
-        pytest.param(".x ~ .y", ["hit", "tail"], id="classes"),
-        pytest.param("a ~ b, a ~ p", ["hit", "tail"], id="different-subjects"),
-        pytest.param("q ~ b", [], id="missing-known-left"),
-        pytest.param("widget ~ b", [], id="unknown-left"),
-    ],
-)
-def test_select_sibling_mixed_api_cache(selector: str, expected: list[str], *, selection_first: bool) -> None:
+_SIBLING_CACHE_CASES: Final[list[ParameterSet]] = [
+    pytest.param("a ~ b", ["hit"], "hit", id="indexed"),
+    pytest.param(".x ~ .y", ["hit", "tail"], "hit", id="classes"),
+    pytest.param("a ~ b, a ~ p", ["hit", "tail"], "hit", id="different-subjects"),
+    pytest.param("q ~ b", [], None, id="missing-known-left"),
+    pytest.param("widget ~ b", [], None, id="unknown-left"),
+]
+
+
+@pytest.mark.parametrize(("selector", "expected", "first"), _SIBLING_CACHE_CASES)
+def test_select_sibling_mixed_api_cache(selector: str, expected: list[str], first: str | None) -> None:
     document: Final = parse("<div><a class=x></a><b class=y id=hit></b><p class=y id=tail></p></div>")
     target: Final = document.select("#hit")[0]
-    if selection_first:
-        document.select(selector)
     assert (
         target.matches(selector),
         _ids(document.select(selector)),
         _ids([document.select_one(selector)]),
         _ids([target.closest(selector)]),
-    ) == (bool(expected), expected, [expected[0] if expected else None], ["hit" if expected else None])
+    ) == (bool(expected), expected, [first], [first])
+
+
+@pytest.mark.parametrize(("selector", "expected", "first"), _SIBLING_CACHE_CASES)
+def test_select_sibling_mixed_api_cache_after_selection(selector: str, expected: list[str], first: str | None) -> None:
+    document: Final = parse("<div><a class=x></a><b class=y id=hit></b><p class=y id=tail></p></div>")
+    target: Final = document.select("#hit")[0]
+    document.select(selector)
+    assert (
+        target.matches(selector),
+        _ids(document.select(selector)),
+        _ids([document.select_one(selector)]),
+        _ids([target.closest(selector)]),
+    ) == (bool(expected), expected, [first], [first])

@@ -766,7 +766,8 @@ def test_has_memo_deep_relative_shapes(selector: str, count: int) -> None:
 def test_has_memo_deep_select_one_returns_outermost() -> None:
     # select_one walks in document order, so the outermost div (the first anchor) wins
     found = parse(_nested_divs(40)).select_one("div:has(a)")
-    parent = found.parent if found is not None else None
+    assert found is not None
+    parent = found.parent
     assert isinstance(parent, Element)
     assert parent.tag == "body"
 
@@ -1256,16 +1257,16 @@ def doc() -> Document:
         pytest.param("p", {}, "1", id="first-in-document-order"),
         pytest.param("span", {}, None, id="descends-into-subtrees"),
         pytest.param("p", {"id": "3"}, "3", id="by-attribute"),
-        pytest.param("table", {}, "__missing__", id="no-match-is-none"),
     ],
 )
 def test_find(doc: Document, tag: str, attrs: dict[str, str], first_id: str | None) -> None:
     match = doc.find(tag, attrs=attrs)
-    if first_id == "__missing__":
-        assert match is None
-    else:
-        assert match is not None
-        assert match.attrs.get("id") == first_id
+    assert match is not None
+    assert match.attrs.get("id") == first_id
+
+
+def test_find_no_match_is_none(doc: Document) -> None:
+    assert doc.find("table", attrs={}) is None
 
 
 @pytest.mark.parametrize(
@@ -2064,7 +2065,10 @@ def test_default_individual_matches_submit_controls() -> None:
     assert [node.matches(":default") for node in document.select("button")] == [True, False]
 
 
-@pytest.mark.parametrize("xml", [pytest.param(False, id="html"), pytest.param(True, id="xml")])
+@pytest.mark.parametrize(
+    "make_document",
+    [pytest.param(parse, id="html"), pytest.param(parse_xml, id="xml")],
+)
 @pytest.mark.parametrize(
     ("selector", "expected"),
     [
@@ -2082,12 +2086,14 @@ def test_default_individual_matches_submit_controls() -> None:
         pytest.param("section:has(> svg)", ["parent"], id="foreign"),
     ],
 )
-def test_relative_type_selectors(selector: str, expected: list[str], *, xml: bool) -> None:
+def test_relative_type_selectors(
+    selector: str, expected: list[str], *, make_document: Callable[[str], Document]
+) -> None:
     markup: Final = (
         '<main><section id="parent"><a class="hit"></a><x-widget></x-widget><svg></svg></section>'
         'text<p id="next"></p><!--gap--><a></a></main>'
     )
-    document: Final = parse_xml(markup) if xml else parse(markup)
+    document: Final = make_document(markup)
     assert [element.attrs["id"] for element in document.select(selector)] == expected
 
 
