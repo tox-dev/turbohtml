@@ -39,6 +39,7 @@ from turbohtml.clean import (
 )
 from turbohtml.conformance import check
 from turbohtml.cssom import StyleDeclaration, StyleSheet, computed_style
+from turbohtml.detect import Detection, EncodingDetector, EncodingMatch, detect_all
 from turbohtml.extract import normalize_url
 from turbohtml.migration.stdlib import HTMLParser
 from turbohtml.mutations import MutationObserver
@@ -645,11 +646,11 @@ def test_cssom_allocation_failure_raises_memory_error(
 
 @pytest.mark.fuzz_build
 def test_detect_rank_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    options: Final = detect.Detection()
-    expected: Final = detect.detect_all(b"\xef\xbb\xbftext", options)
+    options: Final = Detection()
+    expected: Final = detect_all(b"\xef\xbb\xbftext", options)
     outcomes: Final = set(
         alloc_sweep(
-            lambda _: detect.detect_all(b"\xef\xbb\xbftext", options),
+            lambda _: detect_all(b"\xef\xbb\xbftext", options),
             valid=lambda result: result == expected,
         )
     )
@@ -664,8 +665,8 @@ def test_detect_allocation_failure_raises_memory_error(alloc_sweep: Callable[...
 
 @pytest.mark.fuzz_build
 def test_detect_stream_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    def detect_stream(_: object) -> detect.EncodingMatch:
-        detector = detect.EncodingDetector()
+    def detect_stream(_: object) -> EncodingMatch:
+        detector = EncodingDetector()
         detector.feed(b"\xef\xbb\xbftext")
         return detector.close()
 

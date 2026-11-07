@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from turbohtml import etree
+from turbohtml.etree import document_fromstring, fragment_fromstring, fromstring, tostring
 
 
 @pytest.mark.parametrize(
@@ -71,7 +71,7 @@ from turbohtml import etree
     ],
 )
 def test_element_tree_document_parsing(markup: str | bytes, expected: str) -> None:
-    assert etree.tostring(etree.document_fromstring(markup), encoding="unicode") == expected
+    assert tostring(document_fromstring(markup), encoding="unicode") == expected
 
 
 @pytest.mark.parametrize(
@@ -100,7 +100,7 @@ def test_element_tree_document_parsing(markup: str | bytes, expected: str) -> No
     ],
 )
 def test_element_tree_snippet_parsing(markup: str | bytes, expected: str) -> None:
-    assert etree.tostring(etree.fromstring(markup), encoding="unicode") == expected
+    assert tostring(fromstring(markup), encoding="unicode") == expected
 
 
 @pytest.mark.parametrize(
@@ -112,7 +112,7 @@ def test_element_tree_snippet_parsing(markup: str | bytes, expected: str) -> Non
     ],
 )
 def test_element_tree_fragment_parsing(markup: str, expected: str, *, parent: str | bool) -> None:
-    assert etree.tostring(etree.fragment_fromstring(markup, create_parent=parent), encoding="unicode") == expected
+    assert tostring(fragment_fromstring(markup, create_parent=parent), encoding="unicode") == expected
 
 
 @pytest.mark.parametrize(
@@ -124,4 +124,4 @@ def test_element_tree_fragment_parsing(markup: str, expected: str, *, parent: st
 )
 def test_element_tree_fragment_requires_one_element(markup: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
-        etree.fragment_fromstring(markup)
+        fragment_fromstring(markup)
