@@ -138,8 +138,7 @@ def linkcode_resolve(domain: str, info: dict[str, str]) -> str | None:
     except (TypeError, OSError, ValueError):
         return None
     ref = os.environ.get("READTHEDOCS_GIT_IDENTIFIER", "main")
-    github_blob = "https://github.com/tox-dev/turbohtml/blob"
-    return f"{github_blob}/{ref}/{relative.as_posix()}#L{start}-L{start + len(lines) - 1}"
+    return f"https://github.com/tox-dev/turbohtml/blob/{ref}/{relative.as_posix()}#L{start}-L{start + len(lines) - 1}"
 
 
 intersphinx_mapping = {
