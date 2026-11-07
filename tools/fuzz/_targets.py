@@ -40,6 +40,20 @@ from turbohtml._html import (  # ruff:ignore[import-private-name]
     _url_split,
     _url_to_ascii,
 )
+from turbohtml.clean import (
+    CSSMinify,
+    JSMinify,
+    LinkDetector,
+    Linker,
+    Linkify,
+    PhoneFormat,
+    PhoneGrouping,
+    PhoneNumber,
+    PhoneNumbers,
+    linkify,
+    minify,
+    sanitize,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -165,22 +179,20 @@ def _run_one(func: Callable[[bytes], None], data: bytes, repro: Path) -> str | N
 
 
 # the default leaves <script>, <style> and style="" verbatim; the minifier's JS and CSS paths run only when enabled
-_MINIFY: Final = turbohtml.Minify(minify_js=clean.JSMinify(), minify_css=clean.CSSMinify())
-_PHONES: Final = clean.PhoneNumbers(regions=("US", "GB", "DE", "IN"))
-_PHONE_DETECTOR: Final = clean.LinkDetector(phones=_PHONES)
-_PHONE_LINKER: Final = clean.Linker(clean.Linkify(phones=_PHONES, parse_email=True))
-_PHONE_POSSIBLE: Final = clean.LinkDetector(phones=clean.PhoneNumbers(regions=("US",), require_valid=False))
-_PHONE_EXACT: Final = clean.LinkDetector(
-    phones=clean.PhoneNumbers(regions=("US", "DE"), grouping=clean.PhoneGrouping.EXACT)
-)
+_MINIFY: Final = turbohtml.Minify(minify_js=JSMinify(), minify_css=CSSMinify())
+_PHONES: Final = PhoneNumbers(regions=("US", "GB", "DE", "IN"))
+_PHONE_DETECTOR: Final = LinkDetector(phones=_PHONES)
+_PHONE_LINKER: Final = Linker(Linkify(phones=_PHONES, parse_email=True))
+_PHONE_POSSIBLE: Final = LinkDetector(phones=PhoneNumbers(regions=("US",), require_valid=False))
+_PHONE_EXACT: Final = LinkDetector(phones=PhoneNumbers(regions=("US", "DE"), grouping=PhoneGrouping.EXACT))
 
 
 def _phone(data: bytes) -> None:
     text = _decode(data)
     for span in _PHONE_DETECTOR.find(text):
         if span.phone is not None:
-            clean.PhoneNumber(*dataclasses.astuple(span.phone))
-            for style in clean.PhoneFormat:
+            PhoneNumber(*dataclasses.astuple(span.phone))
+            for style in PhoneFormat:
                 span.phone.format(style)
     _PHONE_POSSIBLE.find(text)
     _PHONE_EXACT.find(text)
@@ -188,7 +200,7 @@ def _phone(data: bytes) -> None:
     for held in (text, f"tel:{text}"):
         for require_valid in (True, False):
             with contextlib.suppress(ValueError):
-                clean.PhoneNumber.parse(held, regions=("US", "DE"), require_valid=require_valid)
+                PhoneNumber.parse(held, regions=("US", "DE"), require_valid=require_valid)
 
 
 def _parse(data: bytes) -> None:
@@ -211,8 +223,8 @@ def _roundtrip(data: bytes) -> None:
 
 def _sanitize(data: bytes) -> None:
     text = _decode(data)
-    once = clean.sanitize(text)
-    twice = clean.sanitize(once)
+    once = sanitize(text)
+    twice = sanitize(once)
     if (
         once != twice
         and not _html_newline_normalization_only(once, twice)
@@ -230,7 +242,7 @@ def _url(data: bytes) -> None:
         _url_percent_encode(text, set_id)
     _url_join("https://a.example/b/c?d#e", text)
     _url_join(text, "https://a.example/b/c?d#e")
-    clean.linkify(text)
+    linkify(text)
 
 
 def _idna(data: bytes) -> None:
@@ -242,7 +254,7 @@ def _minify_css(data: bytes) -> None:
 
 
 def _minify_html(data: bytes) -> None:
-    clean.minify(_decode(data), _MINIFY)
+    minify(_decode(data), _MINIFY)
 
 
 _TARGETS: Final[dict[str, Callable[[bytes], None]]] = {
