@@ -17,3 +17,8 @@ OPERATIONS = {
     "normalize": (normalize, "unicodedata"),
     "normalize-marks": (normalize, "unicodedata"),
 }
+
+
+__all__ = [
+    "normalize",
+]

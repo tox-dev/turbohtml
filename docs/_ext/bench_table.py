@@ -447,3 +447,8 @@ def _mark_entry(ordinal: int) -> nodes.entry:
     paragraph += superscript
     entry += paragraph
     return entry
+
+
+__all__ = [
+    "BenchTable",
+]

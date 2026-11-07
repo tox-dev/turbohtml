@@ -144,3 +144,8 @@ OPERATIONS = {
     "navigate": (navigate, "html5lib"),
     "serialize-attributes": (_serialize_attributes, "html5lib"),
 }
+
+
+__all__ = [
+    "parse",
+]
