@@ -6,6 +6,25 @@
 
 .. towncrier release notes start
 
+.. _release-1-15-10:
+
+***********************
+ v1.15.10 (2026-11-07)
+***********************
+
+.. _release-1-15-10-fixed:
+
+Fixed
+=====
+
+- Avoid false encoding fuzz failures when html5lib keeps an unmatched paragraph end tag inside foreign content
+  (:pr:`1659`) by :user:`gaborbernat`.
+- Keep emphasis continuous across paragraphs flattened into a Markdown table cell (:pr:`1663`) by :user:`gaborbernat`.
+- Keep emphasis runs separate across blocks flattened into Markdown table cells (:pr:`1658`) by :user:`gaborbernat`.
+- Preserve line breaks in HTML attribute values inside Markdown table cells (:pr:`1661`) by :user:`gaborbernat`.
+- Preserve nested emphasis across block boundaries in HTML-to-Markdown conversion (:pr:`1660`) by :user:`gaborbernat`.
+- Skip unsupported CSS shorthand values in the stylesheet fuzz oracle (:pr:`1657`) by :user:`gaborbernat`.
+
 .. _release-1-15-9:
 
 **********************
