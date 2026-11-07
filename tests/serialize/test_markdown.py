@@ -3885,6 +3885,12 @@ def test_images(html: str, opts: Markdown, expected: str) -> None:
             id="cell-pipe-escaped-in-preformatted-text",
         ),
         pytest.param(
+            "<table><tr><td><b>a<p>x</p></b></td></tr></table>",
+            Markdown(),
+            "| **a x** |\n| --- |",
+            id="cell-paragraph-keeps-emphasis",
+        ),
+        pytest.param(
             "<table><tr><td><span><p>x</p></span></td></tr></table>",
             Markdown(converters={"span": lambda _element, content: content}),
             "| x |\n| --- |",
