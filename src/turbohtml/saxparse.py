@@ -128,7 +128,7 @@ def iter_events(html: str) -> Iterator[SaxEvent]:
     Parse ``html`` and yield its SAX events as typed records, one at a time, without building a document.
 
     :param html: the markup to parse.
-    :returns: an iterator of :class:`StartElement`/:class:`EndElement`/:class:`Characters`/:class:`Comment`/
+    :yields: an iterator of :class:`StartElement`/:class:`EndElement`/:class:`Characters`/:class:`Comment`/
         :class:`Doctype`/:class:`ProcessingInstruction` records in document order.
     :raises TypeError: if ``html`` is not a str.
     """

@@ -190,7 +190,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         """
         Iterate the wrapped elements, each as its own single-element query.
 
-        :returns: an iterator of single-element queries.
+        :yields: an iterator of single-element queries.
         """
         for node in self._nodes:
             yield Query([node])

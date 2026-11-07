@@ -165,7 +165,7 @@ class Matcher:
 
         :param node: the element or document whose descendants are searched.
         :param limit: the most matches to yield, or ``0`` for all.
-        :returns: an iterator over the matching descendants.
+        :yields: an iterator over the matching descendants.
         """
         yield from self.select(node, limit)
 
