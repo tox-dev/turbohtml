@@ -691,7 +691,8 @@ def test_feed_keeps_input_while_a_token_is_queued() -> None:
     # a completed token not yet pulled from the iterator still spans the input buffer, so the
     # next feed must skip compaction; the full stream stays correct either way.
     tokenizer = Tokenizer()
-    first = next(tokenizer.feed("x<a>"))  # drives the state machine, leaving a record queued behind the one returned
+    stream = tokenizer.feed("x<a>")
+    first = next(stream)  # drives the state machine, leaving a record queued behind the one returned
     tokenizer.feed("z")
     tokens = [first, *tokenizer, *tokenizer.close()]
     assert [_shape(token) for token in tokens] == [_shape(token) for token in tokenize("x<a>z")]
@@ -1036,7 +1037,8 @@ def test_split_reference_survives_a_queued_feed() -> None:
     # a reference token left queued behind a flushed text run must keep a valid source
     # across the next feed's compaction
     tokenizer = Tokenizer(resolve_references=False)
-    first = next(tokenizer.feed("x&amp;"))
+    stream = tokenizer.feed("x&amp;")
+    first = next(stream)
     tokenizer.feed("y")
     tokens = [first, *tokenizer, *tokenizer.close()]
     assert _refs(tokens) == [("&", "&amp;")]
