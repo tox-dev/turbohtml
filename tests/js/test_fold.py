@@ -1457,28 +1457,23 @@ def test_propagation_unlink_preserves_call_order(case: int, count: int) -> None:
 
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
-def _var_initialization_output(count: int, *, early: bool) -> str:
-    rows = (
-        [[None] * count, [None] * count]
-        if early
-        else [[value for index in range(count) for value in (index, index % 10)], list(range(count))]
-    )
-    return f"{json.dumps(rows, separators=(',', ':'))}\n"
-
-
 @pytest.mark.parametrize(
-    ("case", "count", "early"),
+    ("case", "rows"),
     [
-        pytest.param(0, 256, False, id="many"),
-        pytest.param(1, 1, False, id="one"),
-        pytest.param(2, 256, True, id="early"),
+        pytest.param(
+            0,
+            [[value for index in range(256) for value in (index, index % 10)], list(range(256))],
+            id="many",
+        ),
+        pytest.param(1, [[0, 0], [0]], id="one"),
+        pytest.param(2, [[None] * 256, [None] * 256], id="early"),
     ],
 )
-def test_var_initialization_benchmark_order(case: int, count: int, *, early: bool) -> None:
+def test_var_initialization_benchmark_order(case: int, rows: list[list[int | None]]) -> None:
     source: Final = INPUTS["minify-js-var-initialization"]()[case][1]
     assert isinstance(source, str)
     program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
-    expected: Final = _var_initialization_output(count, early=early)
+    expected: Final = f"{json.dumps(rows, separators=(',', ':'))}\n"
     assert (_run(program), _run(minify_js(program))) == (expected, expected)
 
 
