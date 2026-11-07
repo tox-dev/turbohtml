@@ -1518,39 +1518,54 @@ _CONTENT: Final[frozenset[str]] = frozenset({"id", "page", "post", "article_id"}
 _LANGUAGE: Final[frozenset[str]] = frozenset({"lang", "language"})
 
 
-def test_normalize_query_matches_oracle_over_corpus() -> None:
-    normalized_queries = (
-        "",
-        "a=1",
-        "ok=1&bad=\udcff",  # a lone surrogate cannot percent-encode, so both sides must fail identically
-        "a=1&b=2",
-        "b=2&a=1",
-        "id=1&utm_source=x",
-        "utm_campaign=z&fbclid=y&keep=1",
-        "a=1&a=2&a=3",
-        "=empty&x=",
-        "café=1&CAFÉ=2",
-        "%41=%42&ref=1",
-        "lang=de&page=3",
-        "session=1&content=2",
-        "aff_id=1&article_id=9",
-        "x=%ZZ&y=1",
-        "a=1&&b=2&",
-        "utm_medium=e&Id=7",
-        "A=1&a=2&B=3",
-        "a&b&c",
-    )
-    allows = (None, frozenset({"id", "page"}), frozenset({"UTM_SOURCE"}), frozenset())
-    denys = (frozenset(), frozenset({"id"}), frozenset({"a", "b"}))
-    combinations = [
-        combination
-        for combination in itertools.product(normalized_queries, allows, denys, (False, True))
-        if not (combination[3] and combination[1] is not None)
-    ]
-    for query, allow, deny, strict in combinations:
-        got = _outcome(partial(_url_normalize_query, query, allow, deny, strict, _CONTENT, _LANGUAGE))
-        want = _outcome(partial(_query_oracle, query, allow, deny, strict=strict))
-        assert got == want, (query, allow, deny, strict)
+_NORMALIZED_QUERIES: Final[tuple[str, ...]] = (
+    "",
+    "a=1",
+    "ok=1&bad=\udcff",  # a lone surrogate cannot percent-encode, so both sides must fail identically
+    "a=1&b=2",
+    "b=2&a=1",
+    "id=1&utm_source=x",
+    "utm_campaign=z&fbclid=y&keep=1",
+    "a=1&a=2&a=3",
+    "=empty&x=",
+    "café=1&CAFÉ=2",
+    "%41=%42&ref=1",
+    "lang=de&page=3",
+    "session=1&content=2",
+    "aff_id=1&article_id=9",
+    "x=%ZZ&y=1",
+    "a=1&&b=2&",
+    "utm_medium=e&Id=7",
+    "A=1&a=2&B=3",
+    "a&b&c",
+)
+
+
+@pytest.mark.parametrize("query", _NORMALIZED_QUERIES)
+@pytest.mark.parametrize(
+    "deny",
+    [
+        pytest.param(frozenset(), id="no-deny"),
+        pytest.param(frozenset({"id"}), id="deny-id"),
+        pytest.param(frozenset({"a", "b"}), id="deny-a-b"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("allow", "strict"),
+    [
+        pytest.param(None, False, id="any-key"),
+        pytest.param(None, True, id="strict-any-key"),
+        pytest.param(frozenset({"id", "page"}), False, id="allow-id-page"),
+        pytest.param(frozenset({"UTM_SOURCE"}), False, id="allow-utm-source"),
+        pytest.param(frozenset(), False, id="allow-nothing"),
+    ],
+)
+def test_normalize_query_matches_oracle_over_corpus(
+    query: str, deny: frozenset[str], allow: frozenset[str] | None, *, strict: bool
+) -> None:
+    got = _outcome(partial(_url_normalize_query, query, allow, deny, strict, _CONTENT, _LANGUAGE))
+    want = _outcome(partial(_query_oracle, query, allow, deny, strict=strict))
+    assert got == want
 
 
 def _outcome(call: Callable[[], str]) -> tuple[object, ...]:
@@ -1910,20 +1925,6 @@ _REGNAME, _IPV4, _IPV6 = 0, 1, 2
 _FRAGMENTS: Final[tuple[str, ...]] = ("", "#f")
 
 
-def test_url_split_matches_urllib_after_input_trim() -> None:
-    for url in [url for url in _split_corpus() if not _lacks_required_authority(url)]:
-        reference = urlsplit(url.rstrip(_C0_OR_SPACE))
-        scheme, netloc, path, query, fragment, _userinfo, host, *_rest = _url_split(url)
-        assert (scheme, netloc, path, query, fragment) == (
-            reference.scheme,
-            reference.netloc,
-            reference.path,
-            reference.query,
-            reference.fragment,
-        ), url
-        assert host.lower() == (reference.hostname or ""), url
-
-
 def _split_corpus() -> list[str]:
     schemes = ("http", "https", "ftp", "HTTP", "mailto", "", "javascript", "ws", "wss", "file")
     authorities = (
@@ -1968,6 +1969,39 @@ def _split_corpus() -> list[str]:
 def _lacks_required_authority(url: str) -> bool:
     reference = urlsplit(url.rstrip(_C0_OR_SPACE))
     return reference.scheme in {"ftp", "http", "https", "ws", "wss"} and not reference.netloc
+
+
+_SPLIT_CORPUS: Final[tuple[str, ...]] = tuple(url for url in _split_corpus() if not _lacks_required_authority(url))
+
+
+@pytest.mark.parametrize("url", _SPLIT_CORPUS)
+def test_url_split_matches_urllib_after_input_trim(url: str) -> None:
+    reference = urlsplit(url.rstrip(_C0_OR_SPACE))
+    scheme, netloc, path, query, fragment, _userinfo, host, *_rest = _url_split(url)
+    assert (scheme, netloc, path, query, fragment) == (
+        reference.scheme,
+        reference.netloc,
+        reference.path,
+        reference.query,
+        reference.fragment,
+    )
+    assert host.lower() == (reference.hostname or "")
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        pytest.param("http:/a/b", ("http", "a", "/b", "", "", "a"), id="http-single-slash-reads-host"),
+        pytest.param("https:/x.org/p?q=1#f", ("https", "x.org", "/p", "q=1", "f", "x.org"), id="https-with-query"),
+        pytest.param("ws:/h/p", ("ws", "h", "/p", "", "", "h"), id="ws-single-slash"),
+        pytest.param("ftp:/host/x", ("ftp", "host", "/x", "", "", "host"), id="ftp-single-slash"),
+        pytest.param("wss:/h:8/?k", ("wss", "h:8", "/", "k", "", "h"), id="wss-port-and-empty-path"),
+        pytest.param("http:/a/../b#f", ("http", "a", "/../b", "", "f", "a"), id="http-dot-segments-kept-raw"),
+    ],
+)
+def test_url_split_reads_the_host_after_one_slash(url: str, expected: tuple[str, ...]) -> None:
+    scheme, netloc, path, query, fragment, _userinfo, host, *_rest = _url_split(url)
+    assert (scheme, netloc, path, query, fragment, host) == expected
 
 
 @pytest.mark.parametrize(
