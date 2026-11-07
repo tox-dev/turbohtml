@@ -410,97 +410,108 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-@pytest.mark.parametrize(
-    ("case", "source", "expected"),
-    [
-        pytest.param(
-            "td:implied:1:plain",
-            '<table id="z"><tr id="x"><td id="x">MiXeD</td><td id="y">MiXeD</td></tr></table>',
-            [
-                ("table", "z", 0),
-                ("tbody", "", 1),
-                ("tr", "x", 2),
-                ("td", "x", 3),
-                ("#text", "MiXeD", 4),
-                ("td", "y", 3),
-                ("#text", "MiXeD", 6),
-            ],
-            id="inserted-row-group",
-        ),
-        pytest.param(
-            "th:explicit:1:numeric",
-            '<table id="z"><tbody><tr id="x"><th id="x">&#65;&#x42;&#67;</th>'
-            '<th id="y">&#65;&#x42;&#67;</th></tr></tbody></table>',
-            [
-                ("table", "z", 0),
-                ("tbody", "", 1),
-                ("tr", "x", 2),
-                ("th", "x", 3),
-                ("#text", "ABC", 4),
-                ("th", "y", 3),
-                ("#text", "ABC", 6),
-            ],
-            id="explicit-numeric-cells",
-        ),
-        pytest.param(
-            "td:explicit:2:named",
-            '<table id="z"><tbody><tr id="x"><td id="x">&amp;&lt;&gt;</td><td id="y">&amp;&lt;&gt;</td></tr>'
-            '<tr id="y"><td id="x">&amp;&lt;&gt;</td><td id="y">&amp;&lt;&gt;</td></tr></tbody></table>',
-            [
-                ("table", "z", 0),
-                ("tbody", "", 1),
-                ("tr", "x", 2),
-                ("td", "x", 3),
-                ("#text", "&<>", 4),
-                ("td", "y", 3),
-                ("#text", "&<>", 6),
-                ("tr", "y", 2),
-                ("td", "x", 8),
-                ("#text", "&<>", 9),
-                ("td", "y", 8),
-                ("#text", "&<>", 11),
-            ],
-            id="explicit-two-rows-named",
-        ),
-        pytest.param(
-            "th:implied:2:plain",
-            '<table id="z"><tr id="x"><th id="x">MiXeD</th><th id="y">MiXeD</th></tr>'
-            '<tr id="y"><th id="x">MiXeD</th><th id="y">MiXeD</th></tr></table>',
-            [
-                ("table", "z", 0),
-                ("tbody", "", 1),
-                ("tr", "x", 2),
-                ("th", "x", 3),
-                ("#text", "MiXeD", 4),
-                ("th", "y", 3),
-                ("#text", "MiXeD", 6),
-                ("tr", "y", 2),
-                ("th", "x", 8),
-                ("#text", "MiXeD", 9),
-                ("th", "y", 8),
-                ("#text", "MiXeD", 11),
-            ],
-            id="inserted-group-two-rows",
-        ),
-    ],
-)
-def test_html_table_literal_trees(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
+_TABLE_CASES: Final = [
+    pytest.param(
+        "td:implied:1:plain",
+        '<table id="z"><tr id="x"><td id="x">MiXeD</td><td id="y">MiXeD</td></tr></table>',
+        [
+            ("table", "z", 0),
+            ("tbody", "", 1),
+            ("tr", "x", 2),
+            ("td", "x", 3),
+            ("#text", "MiXeD", 4),
+            ("td", "y", 3),
+            ("#text", "MiXeD", 6),
+        ],
+        id="inserted-row-group",
+    ),
+    pytest.param(
+        "th:explicit:1:numeric",
+        '<table id="z"><tbody><tr id="x"><th id="x">&#65;&#x42;&#67;</th>'
+        '<th id="y">&#65;&#x42;&#67;</th></tr></tbody></table>',
+        [
+            ("table", "z", 0),
+            ("tbody", "", 1),
+            ("tr", "x", 2),
+            ("th", "x", 3),
+            ("#text", "ABC", 4),
+            ("th", "y", 3),
+            ("#text", "ABC", 6),
+        ],
+        id="explicit-numeric-cells",
+    ),
+    pytest.param(
+        "td:explicit:2:named",
+        '<table id="z"><tbody><tr id="x"><td id="x">&amp;&lt;&gt;</td><td id="y">&amp;&lt;&gt;</td></tr>'
+        '<tr id="y"><td id="x">&amp;&lt;&gt;</td><td id="y">&amp;&lt;&gt;</td></tr></tbody></table>',
+        [
+            ("table", "z", 0),
+            ("tbody", "", 1),
+            ("tr", "x", 2),
+            ("td", "x", 3),
+            ("#text", "&<>", 4),
+            ("td", "y", 3),
+            ("#text", "&<>", 6),
+            ("tr", "y", 2),
+            ("td", "x", 8),
+            ("#text", "&<>", 9),
+            ("td", "y", 8),
+            ("#text", "&<>", 11),
+        ],
+        id="explicit-two-rows-named",
+    ),
+    pytest.param(
+        "th:implied:2:plain",
+        '<table id="z"><tr id="x"><th id="x">MiXeD</th><th id="y">MiXeD</th></tr>'
+        '<tr id="y"><th id="x">MiXeD</th><th id="y">MiXeD</th></tr></table>',
+        [
+            ("table", "z", 0),
+            ("tbody", "", 1),
+            ("tr", "x", 2),
+            ("th", "x", 3),
+            ("#text", "MiXeD", 4),
+            ("th", "y", 3),
+            ("#text", "MiXeD", 6),
+            ("tr", "y", 2),
+            ("th", "x", 8),
+            ("#text", "MiXeD", 9),
+            ("th", "y", 8),
+            ("#text", "MiXeD", 11),
+        ],
+        id="inserted-group-two-rows",
+    ),
+]
+
+
+@pytest.mark.parametrize(("case", "source", "expected"), _TABLE_CASES)
+def test_html_table_literal_elements(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
     root: Final = parse_fragment(source)
     nodes: Final = [root, *root.descendants]
     assert (
         [
-            (
-                node.tag if isinstance(node, Element) else "#text",
-                cast("str", node.attrs.get("id", "")) if isinstance(node, Element) else cast("Text", node).data,
-                nodes.index(cast("Element", node.parent)),
-            )
-            for node in nodes[1:]
+            (node.tag, cast("str", node.attrs.get("id", "")), nodes.index(cast("Element", node.parent)))
+            for node in root.iter_elements()
         ],
         {node.namespace.value for node in root.iter_elements()},
         html_table_check(case),
         html_table_check(case, lambda _node: source),
         html_table_check(case, lambda _node: ""),
-    ) == (expected, {"html"}, None, None, "serialized table tree differs from literals")
+    ) == (
+        [row for row in expected if row[0] != "#text"],
+        {"html"},
+        None,
+        None,
+        "serialized table tree differs from literals",
+    )
+
+
+@pytest.mark.parametrize(("case", "source", "expected"), _TABLE_CASES)
+def test_html_table_literal_texts(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
+    root: Final = parse_fragment(source)
+    nodes: Final = [root, *root.descendants]
+    assert [(node.data, nodes.index(cast("Element", node.parent))) for node in nodes[1:] if isinstance(node, Text)] == [
+        (data, parent) for tag, data, parent in expected if tag == "#text"
+    ], case
 
 
 def test_html_table_checks_first_parse() -> None:
@@ -675,75 +686,83 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-@pytest.mark.parametrize(
-    ("case", "source", "expected"),
-    [
-        pytest.param(
-            "ul:flat:explicit:plain",
-            '<ul id="z"><li id="x">MiXeD</li><li id="y">MiXeD</li></ul>',
-            [("ul", "z", 0), ("li", "x", 1), ("#text", "MiXeD", 2), ("li", "y", 1), ("#text", "MiXeD", 4)],
-            id="flat-explicit",
-        ),
-        pytest.param(
-            "ol:flat:implied:numeric",
-            '<ol id="z"><li id="x">&#65;&#x42;&#67;<li id="y">&#65;&#x42;&#67;</ol>',
-            [("ol", "z", 0), ("li", "x", 1), ("#text", "ABC", 2), ("li", "y", 1), ("#text", "ABC", 4)],
-            id="flat-implied-numeric",
-        ),
-        pytest.param(
-            "ul:nested:explicit:named",
-            '<ul id="z"><li id="x">&amp;&lt;&gt;<ul id="z"><li id="x">&amp;&lt;&gt;</li>'
-            '<li id="y">&amp;&lt;&gt;</li></ul></li><li id="y">&amp;&lt;&gt;</li></ul>',
-            [
-                ("ul", "z", 0),
-                ("li", "x", 1),
-                ("#text", "&<>", 2),
-                ("ul", "z", 2),
-                ("li", "x", 4),
-                ("#text", "&<>", 5),
-                ("li", "y", 4),
-                ("#text", "&<>", 7),
-                ("li", "y", 1),
-                ("#text", "&<>", 9),
-            ],
-            id="nested-explicit-named",
-        ),
-        pytest.param(
-            "ol:nested:implied:plain",
-            '<ol id="z"><li id="x">MiXeD<ol id="z"><li id="x">MiXeD<li id="y">MiXeD</ol><li id="y">MiXeD</ol>',
-            [
-                ("ol", "z", 0),
-                ("li", "x", 1),
-                ("#text", "MiXeD", 2),
-                ("ol", "z", 2),
-                ("li", "x", 4),
-                ("#text", "MiXeD", 5),
-                ("li", "y", 4),
-                ("#text", "MiXeD", 7),
-                ("li", "y", 1),
-                ("#text", "MiXeD", 9),
-            ],
-            id="nested-implied",
-        ),
-    ],
-)
-def test_html_list_literal_trees(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
+_LIST_CASES: Final = [
+    pytest.param(
+        "ul:flat:explicit:plain",
+        '<ul id="z"><li id="x">MiXeD</li><li id="y">MiXeD</li></ul>',
+        [("ul", "z", 0), ("li", "x", 1), ("#text", "MiXeD", 2), ("li", "y", 1), ("#text", "MiXeD", 4)],
+        id="flat-explicit",
+    ),
+    pytest.param(
+        "ol:flat:implied:numeric",
+        '<ol id="z"><li id="x">&#65;&#x42;&#67;<li id="y">&#65;&#x42;&#67;</ol>',
+        [("ol", "z", 0), ("li", "x", 1), ("#text", "ABC", 2), ("li", "y", 1), ("#text", "ABC", 4)],
+        id="flat-implied-numeric",
+    ),
+    pytest.param(
+        "ul:nested:explicit:named",
+        '<ul id="z"><li id="x">&amp;&lt;&gt;<ul id="z"><li id="x">&amp;&lt;&gt;</li>'
+        '<li id="y">&amp;&lt;&gt;</li></ul></li><li id="y">&amp;&lt;&gt;</li></ul>',
+        [
+            ("ul", "z", 0),
+            ("li", "x", 1),
+            ("#text", "&<>", 2),
+            ("ul", "z", 2),
+            ("li", "x", 4),
+            ("#text", "&<>", 5),
+            ("li", "y", 4),
+            ("#text", "&<>", 7),
+            ("li", "y", 1),
+            ("#text", "&<>", 9),
+        ],
+        id="nested-explicit-named",
+    ),
+    pytest.param(
+        "ol:nested:implied:plain",
+        '<ol id="z"><li id="x">MiXeD<ol id="z"><li id="x">MiXeD<li id="y">MiXeD</ol><li id="y">MiXeD</ol>',
+        [
+            ("ol", "z", 0),
+            ("li", "x", 1),
+            ("#text", "MiXeD", 2),
+            ("ol", "z", 2),
+            ("li", "x", 4),
+            ("#text", "MiXeD", 5),
+            ("li", "y", 4),
+            ("#text", "MiXeD", 7),
+            ("li", "y", 1),
+            ("#text", "MiXeD", 9),
+        ],
+        id="nested-implied",
+    ),
+]
+
+
+@pytest.mark.parametrize(("case", "source", "expected"), _LIST_CASES)
+def test_html_list_literal_elements(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
     root: Final = parse_fragment(source)
     nodes: Final = [root, *root.descendants]
     assert (
-        [
-            (
-                node.tag if isinstance(node, Element) else "#text",
-                node.attrs["id"] if isinstance(node, Element) else cast("Text", node).data,
-                nodes.index(cast("Element", node.parent)),
-            )
-            for node in nodes[1:]
-        ],
+        [(node.tag, node.attrs["id"], nodes.index(cast("Element", node.parent))) for node in root.iter_elements()],
         {node.namespace.value for node in root.iter_elements()},
         html_list_check(case),
         html_list_check(case, lambda _node: source),
         html_list_check(case, lambda _node: ""),
-    ) == (expected, {"html"}, None, None, "serialized list tree differs from literals")
+    ) == (
+        [row for row in expected if row[0] != "#text"],
+        {"html"},
+        None,
+        None,
+        "serialized list tree differs from literals",
+    )
+
+
+@pytest.mark.parametrize(("case", "source", "expected"), _LIST_CASES)
+def test_html_list_literal_texts(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
+    root: Final = parse_fragment(source)
+    nodes: Final = [root, *root.descendants]
+    assert [(node.data, nodes.index(cast("Element", node.parent))) for node in nodes[1:] if isinstance(node, Text)] == [
+        (data, parent) for tag, data, parent in expected if tag == "#text"
+    ], case
 
 
 def test_html_list_checks_first_parse() -> None:
