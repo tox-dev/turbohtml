@@ -594,7 +594,14 @@ def test_encode_unicode(text: str, encoding: str, options: Html, *, inner: bool)
     assert root.encode(encoding, options, inner=inner) == root.serialize(options, inner=inner).encode(encoding)
 
 
-@pytest.mark.parametrize("text", ["\ud800", "a\udfff", "é😀\ud800\udfff"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("\ud800", id="lone-high"),
+        pytest.param("a\udfff", id="lone-low"),
+        pytest.param("é😀\ud800\udfff", id="mixed"),
+    ],
+)
 @pytest.mark.parametrize("inner", [False, True], ids=["outer", "inner"])
 def test_encode_surrogate_error(text: str, *, inner: bool) -> None:
     root: Final = Element("p", children=[Text(text)])
@@ -663,21 +670,44 @@ def test_inner_compact(source: str, expected: str) -> None:
     assert root.serialize(inner=True) == expected
 
 
-@pytest.mark.parametrize("layout", [None, Indent(), Minify()])
-@pytest.mark.parametrize("node", [Text("x"), Comment("x"), Element("p")])
+_LAYOUTS: Final = [
+    pytest.param(None, id="none"),
+    pytest.param(Indent(), id="indent"),
+    pytest.param(Minify(), id="minify"),
+]
+
+
+@pytest.mark.parametrize("layout", _LAYOUTS)
+@pytest.mark.parametrize(
+    "node",
+    [
+        pytest.param(Text("x"), id="text"),
+        pytest.param(Comment("x"), id="comment"),
+        pytest.param(Element("p"), id="element"),
+    ],
+)
 def test_inner_empty(layout: Indent | Minify | None, node: Node) -> None:
     assert not node.serialize(Html(layout=layout), inner=True)
 
 
-@pytest.mark.parametrize("layout", [None, Indent(), Minify()])
+@pytest.mark.parametrize("layout", _LAYOUTS)
 def test_inner_document(layout: Indent | Minify | None) -> None:
     root: Final = parse("<p>a</p>")
     options: Final = Html(layout=layout)
     assert root.serialize(options, inner=True) == root.serialize(options)
 
 
-@pytest.mark.parametrize("tag", ["pre", "textarea", "listing", "script", "style"])
-@pytest.mark.parametrize("layout", [Indent(), Minify()])
+@pytest.mark.parametrize(
+    "tag",
+    [
+        pytest.param("pre", id="pre"),
+        pytest.param("textarea", id="textarea"),
+        pytest.param("listing", id="listing"),
+        pytest.param("script", id="script"),
+        pytest.param("style", id="style"),
+    ],
+)
+@pytest.mark.parametrize("layout", [pytest.param(Indent(), id="indent"), pytest.param(Minify(), id="minify")])
 def test_inner_preserve(tag: str, layout: Indent | Minify) -> None:
     root: Final = Element(tag, children=[Text("  a\n b  ")])
     assert root.serialize(Html(layout=layout), inner=True) == "  a\n b  "
@@ -698,8 +728,16 @@ def test_inner_xml() -> None:
     assert root.serialize(Html(xml=True), inner=True) == "a<br/>b"
 
 
-@pytest.mark.parametrize("layout", [None, Indent()])
-@pytest.mark.parametrize("source", ["<p>a<b>b</b>c</p>", "<script>a < b</script>", "<pre> a\n b</pre>", "<br>"])
+@pytest.mark.parametrize("layout", [pytest.param(None, id="none"), pytest.param(Indent(), id="indent")])
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("<p>a<b>b</b>c</p>", id="inline-formatting"),
+        pytest.param("<script>a < b</script>", id="script-text"),
+        pytest.param("<pre> a\n b</pre>", id="pre-newline"),
+        pytest.param("<br>", id="void-element"),
+    ],
+)
 def test_inner_iterator(layout: Indent | None, source: str) -> None:
     root: Final = parse_fragment(source).children[0]
     options: Final = Html(layout=layout)
@@ -739,7 +777,11 @@ def test_inner_indent_nested_preserve() -> None:
 
 @pytest.mark.parametrize(
     ("method", "arguments"),
-    [("serialize", (None, True)), ("serialize_iter", (None, True)), ("encode", ("utf-8", None, True))],
+    [
+        pytest.param("serialize", (None, True), id="serialize"),
+        pytest.param("serialize_iter", (None, True), id="serialize-iter"),
+        pytest.param("encode", ("utf-8", None, True), id="encode"),
+    ],
 )
 def test_inner_keyword_only(method: str, arguments: tuple[object, ...]) -> None:
     with pytest.raises(TypeError):
@@ -753,7 +795,7 @@ def frame_with_child() -> Element:
     return frame
 
 
-@pytest.mark.parametrize("layout", [None, Indent(), Minify()])
+@pytest.mark.parametrize("layout", _LAYOUTS)
 def test_inner_frame_ignores_children(frame_with_child: Element, layout: Indent | Minify | None) -> None:
     assert not frame_with_child.serialize(Html(layout=layout), inner=True)
 
@@ -779,8 +821,15 @@ def _one(html: str, selector: str) -> Node:
     return node
 
 
-@pytest.mark.parametrize("layout", [None, Indent(), Minify()])
-@pytest.mark.parametrize("content", ["", "<title>x</title>", '<meta charset="utf-8">'])
+@pytest.mark.parametrize("layout", _LAYOUTS)
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param("", id="empty"),
+        pytest.param("<title>x</title>", id="title"),
+        pytest.param('<meta charset="utf-8">', id="meta"),
+    ],
+)
 def test_inner_meta_charset(layout: Indent | Minify | None, content: str) -> None:
     root: Final = parse(f"<head>{content}</head>").find_all("head")[0]
     result: Final = root.serialize(Html(layout=layout, meta_charset=True), inner=True)
@@ -797,7 +846,7 @@ def test_inner_xml_indent() -> None:
     )
 
 
-@pytest.mark.parametrize("layout", [None, Indent(), Minify()])
+@pytest.mark.parametrize("layout", _LAYOUTS)
 def test_inner_foreign_context(layout: Indent | Minify | None) -> None:
     root: Final = parse_fragment("<svg><g></g></svg>").children[0]
     assert root.serialize(Html(layout=layout), inner=True) == "<g></g>"
@@ -820,7 +869,7 @@ def test_inner_shadow_root() -> None:
     assert shadow.serialize(Html(layout=Minify()), inner=True) == "<b> x </b>"
 
 
-@pytest.mark.parametrize("layout", [None, Indent()])
+@pytest.mark.parametrize("layout", [pytest.param(None, id="none"), pytest.param(Indent(), id="indent")])
 def test_inner_raw_context_only_applies_to_direct_text(layout: Indent | None) -> None:
     root: Final = Element("script", children=[Element("b", children=[Text("<&")])])
     assert root.serialize(Html(layout=layout), inner=True) == "<b>&lt;&amp;</b>"
@@ -1004,7 +1053,10 @@ def test_xml_processing_instruction_closes_with_question_mark() -> None:
     assert node.serialize(Html(xml=True, layout=Indent(2))) == "<doc><?t d?></doc>"
 
 
-@pytest.mark.parametrize("invalid", ["\x00", "\x0c", "\uffff"])
+@pytest.mark.parametrize(
+    "invalid",
+    [pytest.param("\x00", id="nul"), pytest.param("\x0c", id="form-feed"), pytest.param("\uffff", id="noncharacter")],
+)
 def test_xml_processing_instruction_drops_forbidden_characters(invalid: str) -> None:
     output: Final = Element("doc", children=[ProcessingInstruction("t", f"a{invalid}b")]).serialize(_XML)
     assert output == "<doc><?t ab?></doc>"
@@ -1241,7 +1293,10 @@ def test_serialize_xml_keeps_bound_attribute_prefix() -> None:
     assert parse_xml(markup).serialize(Html(xml=True)) == markup
 
 
-@pytest.mark.parametrize("options", [Html(xml=True), Html(xml=True, layout=Indent())])
+@pytest.mark.parametrize(
+    "options",
+    [pytest.param(Html(xml=True), id="plain"), pytest.param(Html(xml=True, layout=Indent()), id="indent")],
+)
 def test_serialize_iter_xml_drops_invalid_element_wrapper(options: Html) -> None:
     document: Final = parse("<d<>x<p>y</p>")
     assert "".join(document.serialize_iter(options)) == document.serialize(options)

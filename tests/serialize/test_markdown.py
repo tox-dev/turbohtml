@@ -75,8 +75,18 @@ def test_many_trailing_breaks_keep_visible_text() -> None:
     assert md(f"x{'<br>' * 128}") == "x"
 
 
-@pytest.mark.parametrize("separator", ["\n", "\r", "\t", "\f"])
-@pytest.mark.parametrize("attribute", ["src", "alt", "title"])
+@pytest.mark.parametrize(
+    "separator",
+    [
+        pytest.param("\n", id="lf"),
+        pytest.param("\r", id="cr"),
+        pytest.param("\t", id="tab"),
+        pytest.param("\f", id="form-feed"),
+    ],
+)
+@pytest.mark.parametrize(
+    "attribute", [pytest.param("src", id="src"), pytest.param("alt", id="alt"), pytest.param("title", id="title")]
+)
 def test_image_url_whitespace_survives_markdown(separator: str, attribute: str) -> None:
     fragment: Final = parse_fragment("<img>")
     image: Final = fragment.select("img")[0]
@@ -198,12 +208,23 @@ def test_nonbreaking_space_emphasis(html: str, expected: str) -> None:
     assert md(html) == expected
 
 
-@pytest.mark.parametrize("space", ["\u00a0", "\u1680", "\u2000", "\u200a", "\u202f", "\u205f", "\u3000"])
+_UNICODE_SPACES: Final = [
+    pytest.param("\u00a0", id="nbsp"),
+    pytest.param("\u1680", id="ogham"),
+    pytest.param("\u2000", id="en-quad"),
+    pytest.param("\u200a", id="hair"),
+    pytest.param("\u202f", id="narrow-nbsp"),
+    pytest.param("\u205f", id="medium-math"),
+    pytest.param("\u3000", id="ideographic"),
+]
+
+
+@pytest.mark.parametrize("space", _UNICODE_SPACES)
 def test_unicode_space_emphasis(space: str) -> None:
     assert md(f"<p><b>{space}</b></p>") == f"<strong>{space}</strong>"
 
 
-@pytest.mark.parametrize("space", ["\u00a0", "\u1680", "\u2000", "\u200a", "\u202f", "\u205f", "\u3000"])
+@pytest.mark.parametrize("space", _UNICODE_SPACES)
 def test_unicode_space_between_letters_round_trip(space: str) -> None:
     output: Final = md(f"<p>x{space}y</p>")
     paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
@@ -211,7 +232,7 @@ def test_unicode_space_between_letters_round_trip(space: str) -> None:
     assert (output, paragraph.text) == (f"x{space}y", f"x{space}y")
 
 
-@pytest.mark.parametrize("space", ["\u00a0", "\u1680", "\u2000", "\u200a", "\u202f", "\u205f", "\u3000"])
+@pytest.mark.parametrize("space", _UNICODE_SPACES)
 @pytest.mark.parametrize(
     ("before", "after"),
     [pytest.param("", "x", id="leading"), pytest.param("x", "", id="trailing")],
@@ -223,7 +244,9 @@ def test_unicode_space_at_a_prose_edge_is_a_reference(space: str, before: str, a
     assert (output, paragraph.text) == (f"{before}&#{ord(space)};{after}", f"{before}{space}{after}")
 
 
-@pytest.mark.parametrize("suffix", ["", " ", "\n"])
+@pytest.mark.parametrize(
+    "suffix", [pytest.param("", id="none"), pytest.param(" ", id="space"), pytest.param("\n", id="newline")]
+)
 def test_multiple_unicode_spaces_at_prose_end(suffix: str) -> None:
     output: Final = md(f"<p>x&nbsp;&nbsp;{suffix}</p>")
     paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
@@ -2139,8 +2162,11 @@ def test_edge_cases(html: str, expected: str) -> None:
     assert md(html) == expected
 
 
-@pytest.mark.parametrize(("container", "expected"), [("pre", "```\nshown\n```"), ("code", "`shown`")])
-@pytest.mark.parametrize("hidden", ["title", "datalist"])
+@pytest.mark.parametrize(
+    ("container", "expected"),
+    [pytest.param("pre", "```\nshown\n```", id="pre"), pytest.param("code", "`shown`", id="code")],
+)
+@pytest.mark.parametrize("hidden", [pytest.param("title", id="title"), pytest.param("datalist", id="datalist")])
 def test_code_omits_hidden_descendants(container: str, expected: str, hidden: str) -> None:
     fragment: Final = parse_fragment(f"<{container}><{hidden}>secret</{hidden}>shown</{container}>")
     assert fragment.to_markdown() == expected

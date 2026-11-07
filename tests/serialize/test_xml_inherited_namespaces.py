@@ -8,48 +8,81 @@ from turbohtml import Html, Indent, parse, parse_xml
 @pytest.mark.parametrize(
     ("xml", "expected"),
     [
-        ('<root xmlns="urn:a"><child/></root>', '<child xmlns="urn:a"/>'),
-        ('<root xmlns:p="urn:p"><p:child/></root>', '<p:child xmlns:p="urn:p"/>'),
-        ('<root xmlns:p="urn:p"><child p:attr="v"/></root>', '<child xmlns:p="urn:p" p:attr="v"/>'),
-        ('<root xmlns:p="urn:old"><wrap xmlns:p="urn:new"><p:child/></wrap></root>', '<p:child xmlns:p="urn:new"/>'),
-        ('<root xmlns:p="urn:old"><p:child xmlns:p="urn:local"/></root>', '<p:child xmlns:p="urn:local"/>'),
-        ('<root xmlns="urn:a"><child xmlns=""/></root>', '<child xmlns=""/>'),
-        (
+        pytest.param('<root xmlns="urn:a"><child/></root>', '<child xmlns="urn:a"/>', id="default-namespace"),
+        pytest.param('<root xmlns:p="urn:p"><p:child/></root>', '<p:child xmlns:p="urn:p"/>', id="prefixed-element"),
+        pytest.param(
+            '<root xmlns:p="urn:p"><child p:attr="v"/></root>',
+            '<child xmlns:p="urn:p" p:attr="v"/>',
+            id="prefixed-attribute",
+        ),
+        pytest.param(
+            '<root xmlns:p="urn:old"><wrap xmlns:p="urn:new"><p:child/></wrap></root>',
+            '<p:child xmlns:p="urn:new"/>',
+            id="rebound-by-ancestor",
+        ),
+        pytest.param(
+            '<root xmlns:p="urn:old"><p:child xmlns:p="urn:local"/></root>',
+            '<p:child xmlns:p="urn:local"/>',
+            id="rebound-on-element",
+        ),
+        pytest.param('<root xmlns="urn:a"><child xmlns=""/></root>', '<child xmlns=""/>', id="default-reset"),
+        pytest.param(
             '<root xmlns="urn:a" xmlns:p="urn:p"><child p:attr="v"/></root>',
             '<child xmlns="urn:a" xmlns:p="urn:p" p:attr="v"/>',
+            id="default-and-prefixed",
         ),
-        (
+        pytest.param(
             '<root xmlns:xlink="urn:custom"><child xlink:href="v"/></root>',
             '<child xmlns:xlink="urn:custom" xlink:href="v"/>',
+            id="custom-xlink-prefix",
         ),
-        (
+        pytest.param(
             '<root xmlns="urn:a" abcde="x" abcdef="y" abcdefg="z"><child title="v"/></root>',
             '<child xmlns="urn:a" title="v"/>',
+            id="plain-attributes-of-varied-length",
         ),
-        (
+        pytest.param(
             (
                 '<root xmlns:xlink="urn:x"><outer><wrap id="x" placeholder="x">'
                 '<child xlink:href="v"/></wrap></outer></root>'
             ),
             '<child xmlns:xlink="urn:x" xlink:href="v"/>',
+            id="through-intermediate-elements",
         ),
-        ('<root xmlns:u="urn:unused"><child/></root>', "<child/>"),
-        ('<root xmlns="urn:a"><p:child xmlns:p="urn:p"/></root>', '<p:child xmlns:p="urn:p"/>'),
-        ('<root xmlns:π="urn:pi"><π:child/></root>', '<π:child xmlns:π="urn:pi"/>'),
-        ('<root xmlns:中="urn:han"><中:child/></root>', '<中:child xmlns:中="urn:han"/>'),
-        ('<root xmlns:𐐀="urn:astral"><𐐀:child/></root>', '<𐐀:child xmlns:𐐀="urn:astral"/>'),
-        ('<root xmlns:π="urn:unused"><child/></root>', "<child/>"),
-        ('<root xmlns:long="urn:unused"><x/></root>', "<x/>"),
-        ('<root xmlns:long="urn:unused"><l/></root>', "<l/>"),
-        ('<root xmlns:p="urn:unused"><p/></root>', "<p/>"),
-        ('<root xmlns:p="urn:unused"><pchild/></root>', "<pchild/>"),
-        ('<root xmlns:p="urn:p"><child q="v"/></root>', '<child q="v"/>'),
-        ('<root xmlns:p="urn:unused"><child long="v"/></root>', '<child long="v"/>'),
-        (
+        pytest.param('<root xmlns:u="urn:unused"><child/></root>', "<child/>", id="unused-prefix"),
+        pytest.param(
+            '<root xmlns="urn:a"><p:child xmlns:p="urn:p"/></root>',
+            '<p:child xmlns:p="urn:p"/>',
+            id="prefix-declared-on-element",
+        ),
+        pytest.param('<root xmlns:π="urn:pi"><π:child/></root>', '<π:child xmlns:π="urn:pi"/>', id="greek-prefix"),
+        pytest.param('<root xmlns:中="urn:han"><中:child/></root>', '<中:child xmlns:中="urn:han"/>', id="han-prefix"),
+        pytest.param(
+            '<root xmlns:𐐀="urn:astral"><𐐀:child/></root>', '<𐐀:child xmlns:𐐀="urn:astral"/>', id="astral-prefix"
+        ),
+        pytest.param('<root xmlns:π="urn:unused"><child/></root>', "<child/>", id="unused-greek-prefix"),
+        pytest.param('<root xmlns:long="urn:unused"><x/></root>', "<x/>", id="unused-long-prefix-short-element"),
+        pytest.param('<root xmlns:long="urn:unused"><l/></root>', "<l/>", id="unused-long-prefix-one-letter-element"),
+        pytest.param('<root xmlns:p="urn:unused"><p/></root>', "<p/>", id="unused-prefix-same-element-name"),
+        pytest.param(
+            '<root xmlns:p="urn:unused"><pchild/></root>', "<pchild/>", id="unused-prefix-element-starts-with-it"
+        ),
+        pytest.param('<root xmlns:p="urn:p"><child q="v"/></root>', '<child q="v"/>', id="unrelated-attribute"),
+        pytest.param(
+            '<root xmlns:p="urn:unused"><child long="v"/></root>',
+            '<child long="v"/>',
+            id="unused-prefix-long-attribute",
+        ),
+        pytest.param(
             '<root xmlns:p="urn:unused" xmlns:q="urn:q"><child q:attr="v"/></root>',
             '<child xmlns:q="urn:q" q:attr="v"/>',
+            id="used-prefix-next-to-unused",
         ),
-        ('<root xmlns:p="urn:p"><child a="v" p:b="v"/></root>', '<child xmlns:p="urn:p" a="v" p:b="v"/>'),
+        pytest.param(
+            '<root xmlns:p="urn:p"><child a="v" p:b="v"/></root>',
+            '<child xmlns:p="urn:p" a="v" p:b="v"/>',
+            id="plain-and-prefixed-attributes",
+        ),
     ],
 )
 def test_xml_subtree_inherits_namespace_bindings(xml: str, expected: str) -> None:
@@ -60,19 +93,30 @@ def test_xml_subtree_inherits_namespace_bindings(xml: str, expected: str) -> Non
 @pytest.mark.parametrize(
     ("xml", "expected"),
     [
-        (
+        pytest.param(
             '<root xmlns="urn:a" xmlns:p="urn:p"><p:child><nested/></p:child></root>',
             '<p:child xmlns="urn:a" xmlns:p="urn:p"><nested/></p:child>',
+            id="prefixed-element-with-default",
         ),
-        ('<root xmlns:p="urn:p"><child><p:nested/></child></root>', '<child xmlns:p="urn:p"><p:nested/></child>'),
-        (
+        pytest.param(
+            '<root xmlns:p="urn:p"><child><p:nested/></child></root>',
+            '<child xmlns:p="urn:p"><p:nested/></child>',
+            id="prefixed-descendant",
+        ),
+        pytest.param(
             '<root xmlns="urn:a"><p:child xmlns:p="urn:p">text<nested/></p:child></root>',
             '<p:child xmlns="urn:a" xmlns:p="urn:p">text<nested/></p:child>',
+            id="prefix-declared-on-root-child",
         ),
-        ('<root xmlns:u="urn:unused"><child><a/><b/></child></root>', "<child><a/><b/></child>"),
-        (
+        pytest.param(
+            '<root xmlns:u="urn:unused"><child><a/><b/></child></root>',
+            "<child><a/><b/></child>",
+            id="unused-prefix",
+        ),
+        pytest.param(
             '<root xmlns:p="urn:old"><child><p:nested xmlns:p="urn:new"/></child></root>',
             '<child><p:nested xmlns:p="urn:new"/></child>',
+            id="rebound-on-descendant",
         ),
     ],
 )
