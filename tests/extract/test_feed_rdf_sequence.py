@@ -61,7 +61,7 @@ _ITEM_B: Final[str] = '<item rdf:about="https://example.org/b"><title>B</title><
         ),
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
-            _ITEM_A + _ITEM_B + '<x:item xmlns:x="urn:other"><x:title>Wrong</x:title></x:item>',
+            f'{_ITEM_A}{_ITEM_B}<x:item xmlns:x="urn:other"><x:title>Wrong</x:title></x:item>',
             ("A", "B"),
         ),
         (
@@ -99,20 +99,17 @@ _ITEM_B: Final[str] = '<item rdf:about="https://example.org/b"><title>B</title><
         ),
         (
             '<rdf:Seq><rdf:li/><rdf:li rdf:resource=""/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
-            _ITEM_A + '<item rdf:about=""><title>Empty ID</title></item>' + _ITEM_B,
+            f'{_ITEM_A}<item rdf:about=""><title>Empty ID</title></item>{_ITEM_B}',
             ("Empty ID", "B"),
         ),
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/b"/><rdf:li rdf:resource="https://example.org/a"/></rdf:Seq>',
-            _ITEM_A + '<x:item xmlns:x="urn:other"><x:title>Wrong</x:title></x:item>' + _ITEM_B,
+            f'{_ITEM_A}<x:item xmlns:x="urn:other"><x:title>Wrong</x:title></x:item>{_ITEM_B}',
             ("B", "A"),
         ),
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/b"/><rdf:li rdf:resource="https://example.org/a"/></rdf:Seq>',
-            _ITEM_A
-            + '<item rdf:about=""><title>Empty ID</title></item>'
-            + "<item><title>No ID</title></item>"
-            + _ITEM_B,
+            f'{_ITEM_A}<item rdf:about=""><title>Empty ID</title></item><item><title>No ID</title></item>{_ITEM_B}',
             ("B", "A"),
         ),
         (

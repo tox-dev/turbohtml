@@ -879,7 +879,7 @@ def test_computed_style_escaped_css_wide_keyword_inside_string_remains_value() -
         pytest.param(r"\000069", id="terminal-hex-escape"),
         pytest.param(r"foo\69", id="terminal-short-hex-escape"),
         pytest.param("foo\\69\\", id="terminal-backslash"),
-        pytest.param(r"\initial" + "x" * 100, id="long-ident"),
+        pytest.param(f"\\initial{'x' * 100}", id="long-ident"),
     ],
 )
 def test_computed_style_escaped_nonwide_ident_remains_value(value: str) -> None:
@@ -1271,7 +1271,7 @@ def test_computed_style_selector_shared_inputs(case_index: int, expected: tuple[
 def test_computed_style_repeated_missing_has_bounds_retained_memory() -> None:
     tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
     document: Final = parse(
-        "<style>div{color:blue}div:has(.absent){color:red}</style>" + "<div>" * 64 + "<span></span>" + "</div>" * 64
+        f"<style>div{{color:blue}}div:has(.absent){{color:red}}</style>{'<div>' * 64}<span></span>{'</div>' * 64}"
     )
     nodes: Final = tuple(document.select("div"))[:3]
     tracing.start()

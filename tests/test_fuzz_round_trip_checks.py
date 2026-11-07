@@ -737,7 +737,7 @@ def test_generation_public_consumers_reject_undeclared_profile(name: str, source
 
 def test_markdown_html_grammar_skips_trees_beyond_meaning_depth() -> None:
     with pytest.raises(OutOfScopeError):
-        ORACLES["markdown-html-grammar"].check("<div>" * 130 + "x" + "</div>" * 130)
+        ORACLES["markdown-html-grammar"].check(f"{'<div>' * 130}x{'</div>' * 130}")
 
 
 def test_markdown_source_grammar_skips_lost_control_whitespace() -> None:
@@ -759,7 +759,7 @@ def test_markdown_source_grammar_skips_lost_control_whitespace() -> None:
         pytest.param(b"<p>a<!--c-->b<strong>c</strong>d</p>", "UTF-8", False, "abcd", id="comment-tails"),
         pytest.param(b"<select><style>\x00", "UTF-8", False, "\ufffd", id="select-style-nul"),
         pytest.param(b"<select><title>\x00", "UTF-8", False, "\ufffd", id="select-title-nul"),
-        pytest.param(("<div>" * 1200 + "x" + "</div>" * 1200).encode(), "UTF-8", False, "x", id="deep-tree"),
+        pytest.param((f"{'<div>' * 1200}x{'</div>' * 1200}").encode(), "UTF-8", False, "x", id="deep-tree"),
         pytest.param(b"</head> <head><title>t", "UTF-8", False, "t ", id="duplicate-head-after-head"),
         pytest.param(b"</head> <html><title>t", "UTF-8", False, "t ", id="redundant-html-after-head"),
     ],
@@ -898,7 +898,7 @@ def test_encoding_oracle_skips_markup_past_the_nesting_limit(
     nesting: int, oracle_calls: int, mocker: MockerFixture
 ) -> None:
     parse_reference: Final = mocker.patch("fuzz.generation_targets.html5lib.parse", wraps=html5lib.parse)
-    assert encoding_observation(("<div>" * nesting + "kept").encode()) == "kept"
+    assert encoding_observation((f"{'<div>' * nesting}kept").encode()) == "kept"
     assert parse_reference.call_count == oracle_calls
 
 
@@ -2996,7 +2996,7 @@ def test_parser_byte_oracle_pins_text_and_canonical_label(
         pytest.param("utf8:", id="empty-prefix"),
         pytest.param("utf8:é", id="non-ascii-prefix"),
         pytest.param("utf8:g<p>", id="markup-prefix"),
-        pytest.param("utf8:g" + "1" * 16, id="overlong-prefix"),
+        pytest.param(f"utf8:g{'1' * 16}", id="overlong-prefix"),
     ],
 )
 def test_parser_byte_oracle_rejects_unsupported_grammar(source: str) -> None:
@@ -3271,7 +3271,7 @@ def test_resolve_links_oracle_pins_first_and_repeated_targets(case: str, referen
         pytest.param("parent:", id="empty-leaf"),
         pytest.param("parent:g/path", id="path-in-leaf"),
         pytest.param("parent:é", id="unicode-leaf"),
-        pytest.param("parent:g" + "1" * 16, id="overlong-leaf"),
+        pytest.param(f"parent:g{'1' * 16}", id="overlong-leaf"),
     ],
 )
 def test_resolve_links_oracle_counts_unsupported_grammar(source: str) -> None:
@@ -3582,7 +3582,7 @@ if TYPE_CHECKING:
         ),
         pytest.param(
             "outside:plain:plain:2",
-            "<!--lead &amp;--><Root>" + "<!--note--><![CDATA[Value]]>&lt;&amp;" * 2 + "</Root><!--tail-->",
+            f"<!--lead &amp;--><Root>{'<!--note--><![CDATA[Value]]>&lt;&amp;' * 2}</Root><!--tail-->",
             [("Comment", "lead &amp;", "Document"), ("Element", "Root", "Document")]
             + [("Comment", "note", "Root"), ("CData", "Value", "Root"), ("Text", "<&", "Root")] * 2
             + [("Comment", "tail", "Document")],
@@ -3612,7 +3612,7 @@ if TYPE_CHECKING:
         ),
         pytest.param(
             "inside:plain:markup:3",
-            "<Root>" + "<!--note--><![CDATA[<x>&amp;]]>&lt;&amp;" * 3 + "</Root>",
+            f"<Root>{'<!--note--><![CDATA[<x>&amp;]]>&lt;&amp;' * 3}</Root>",
             [("Element", "Root", "Document")]
             + [("Comment", "note", "Root"), ("CData", "<x>&amp;", "Root"), ("Text", "<&", "Root")] * 3,
             id="three-lexical-groups",
@@ -4138,7 +4138,7 @@ def test_encoding_invariants_pin_public_outputs(case: str, data: bytes, label: s
         pytest.param("utf-8-bom", id="missing-separator"),
         pytest.param("unknown\ntext", id="unknown-fixture"),
         pytest.param("empty\ntext", id="nonempty-sentinel"),
-        pytest.param("utf-8-meta\n" + "a" * 257, id="bounded-size"),
+        pytest.param(f"utf-8-meta\n{'a' * 257}", id="bounded-size"),
         pytest.param("utf-8-meta\n\x00", id="html-nul-preprocessing"),
         pytest.param("utf-8-meta\n<p>", id="markup"),
         pytest.param("utf-8-meta\n&copy;", id="entity"),

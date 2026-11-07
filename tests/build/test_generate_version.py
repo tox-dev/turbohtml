@@ -96,7 +96,7 @@ def test_generate_version_installed_source_in_wheel_layout(version_project: Path
     sys.path.insert(0, str(version_project))
     try:
         spec.loader.exec_module(module)
-        assert module.__version__ + "\n" == _version_cli(version_project)
+        assert f"{module.__version__}\n" == _version_cli(version_project)
     finally:
         sys.path.remove(str(version_project))
         sys.modules.pop(f"{spec.name}._version", None)

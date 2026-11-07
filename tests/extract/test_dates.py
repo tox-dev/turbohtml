@@ -483,7 +483,7 @@ def test_a_text_tie_breaks_the_same_way_whichever_date_comes_first() -> None:
 
 def test_the_text_stage_tallies_more_dates_than_its_first_allocation() -> None:
     days = [date(2016, 1, day).isoformat() for day in range(1, 21)]
-    html = "<body>" + " ".join(days) + " " + days[7] + "</body>"
+    html = f"<body>{' '.join(days)} {days[7]}</body>"
     assert dates(html) == PublicationDate("2016-01-08", "text")
 
 

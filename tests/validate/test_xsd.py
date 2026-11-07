@@ -471,10 +471,10 @@ _STATES_ERROR: Final[str] = (
 @pytest.mark.parametrize(
     ("pattern", "message"),
     [
-        pytest.param("(" * 50000 + "a" + ")" * 50000, _NESTING_ERROR, id="nested-groups"),
-        pytest.param("(" * 251 + "a" + ")" * 251, _NESTING_ERROR, id="nesting-one-past-cap"),
+        pytest.param(f"{'(' * 50000}a{')' * 50000}", _NESTING_ERROR, id="nested-groups"),
+        pytest.param(f"{'(' * 251}a{')' * 251}", _NESTING_ERROR, id="nesting-one-past-cap"),
         pytest.param(
-            "[" + "a-[" * 251 + "b" + "]" * 252,
+            f"[{'a-[' * 251}b{']' * 252}",
             "schema pattern nests character classes deeper than 250 levels at offset 752; flatten the class",
             id="class-subtraction-nesting-one-past-cap",
         ),
@@ -543,8 +543,8 @@ def test_regex_patterns_of_different_sizes_share_the_match_buffers() -> None:
     [
         pytest.param("a{150000}", "a" * 150000, id="large-repeat"),
         pytest.param("a" * 200000, "a" * 200000, id="long-literal"),
-        pytest.param("a" + "|a" * 100000, "a", id="long-alternation"),
-        pytest.param("(" * 250 + "a" + ")" * 250, "a", id="nesting-at-cap"),
+        pytest.param(f"a{'|a' * 100000}", "a", id="long-alternation"),
+        pytest.param(f"{'(' * 250}a{')' * 250}", "a", id="nesting-at-cap"),
     ],
 )
 def test_regex_large_pattern_compiles_and_matches(pattern: str, value: str) -> None:
@@ -1470,7 +1470,7 @@ def test_long_numeric_value_for_digit_facet() -> None:
         '<xs:restriction base="xs:decimal"><xs:totalDigits value="5"/></xs:restriction>'
         "</xs:simpleType></xs:element></xs:schema>"
     )
-    assert not xsd_ok(schema, "<v>" + "1" * 70 + "</v>")
+    assert not xsd_ok(schema, f"<v>{'1' * 70}</v>")
 
 
 @pytest.mark.parametrize(
@@ -1840,7 +1840,7 @@ def test_compiled_pattern_diagnostic(pattern_schema: Callable[[str, str], XMLSch
 def test_compiled_pattern_ignores_inapplicable_facets(
     pattern_schema: Callable[[str, str], XMLSchema | RelaxNG], extra: str
 ) -> None:
-    schema: Final = pattern_schema("inline", extra + '<xs:pattern value="[a-z]+"/>')
+    schema: Final = pattern_schema("inline", f'{extra}<xs:pattern value="[a-z]+"/>')
     assert [schema.validate(parse_xml(f"<value>{value}</value>")).valid for value in ("abc", "123")] == [True, False]
 
 
@@ -1855,7 +1855,7 @@ def test_compiled_pattern_ignores_inapplicable_facets(
     ],
 )
 def test_growing_pattern_class(kind: str, *, negated: bool, codepoint: int, inside: bool) -> None:
-    pattern: Final[str] = "[" + ("^" if negated else "") + "".join(chr(index) for index in range(0x400, 0x480)) + "]"
+    pattern: Final[str] = f"[{'^' if negated else ''}{''.join(chr(index) for index in range(0x400, 0x480))}]"
     schema: Final[XMLSchema | RelaxNG]
     if kind == "xsd":
         schema = XMLSchema(
@@ -2142,7 +2142,7 @@ def test_named_facet_probe_benchmark_output(index: int) -> None:
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        pytest.param("1." + "0" * 80, True, id="long-fraction-in-bound"),
+        pytest.param(f"1.{'0' * 80}", True, id="long-fraction-in-bound"),
         pytest.param("9" * 80, False, id="long-integer-out-of-bound"),
     ],
 )

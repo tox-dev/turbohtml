@@ -350,7 +350,7 @@ def test_transform_identity_copy() -> None:
     body = (
         '<xsl:template match="@*|node()"><xsl:copy><xsl:apply-templates select="@*|node()"/></xsl:copy></xsl:template>'
     )
-    sheet = _sheet('<xsl:output method="xml" omit-xml-declaration="yes"/>' + body, method="")
+    sheet = _sheet(f'<xsl:output method="xml" omit-xml-declaration="yes"/>{body}', method="")
     source = '<a x="1"><b>t</b><!--c--></a>'
     assert transform(sheet, turbohtml.parse_xml(source)) == source
 
@@ -370,7 +370,7 @@ def test_transform_xsl_copy_of_root_context() -> None:
         '<xsl:template match="/"><xsl:copy><xsl:apply-templates/></xsl:copy>'
         '</xsl:template><xsl:template match="v"><xsl:value-of select="."/></xsl:template>'
     )
-    sheet = _sheet('<xsl:output method="xml" omit-xml-declaration="yes"/>' + body, method="")
+    sheet = _sheet(f'<xsl:output method="xml" omit-xml-declaration="yes"/>{body}', method="")
     assert transform(sheet, turbohtml.parse_xml("<r><v>x</v></r>")) == "x"
 
 
@@ -1002,7 +1002,7 @@ def test_transform_deep_recursive_named_template_raises_cleanly() -> None:
 )
 def test_transform_deep_apply_templates_recursion_raises_cleanly(body: str, message: str) -> None:
     with pytest.raises(RecursionError, match=message):
-        _run("<r>" + "<n>" * 600 + "x" + "</n>" * 600 + "</r>", body)
+        _run(f"<r>{'<n>' * 600}x{'</n>' * 600}</r>", body)
 
 
 def test_transform_anchored_patterns() -> None:
@@ -4152,7 +4152,7 @@ def explicit_prefix_transform() -> Callable[[str, tuple[int, ...]], Transform]:
             "<root/>",
             "/|root",
             '<xsl:number count="root" from="/"/>' * 24,
-            "|" + "1" * 24 + "|",
+            f"|{'1' * 24}|",
             id="single-document-boundary-separate-instructions",
         ),
         pytest.param(
@@ -4363,7 +4363,7 @@ def test_number_matcher_document_pattern_reuse(
     instructions: str, expected: list[str], matcher_transform: Callable[[str, str, str], Transform]
 ) -> None:
     transform: Final = matcher_transform("root/p", instructions, "")
-    documents: Final = [parse_xml("<root>" + "<p/>" * count + "</root>") for count in (2, 1, 3)]
+    documents: Final = [parse_xml(f"<root>{'<p/>' * count}</root>") for count in (2, 1, 3)]
     assert [transform(document) for document in (*documents, documents[0])] == expected
 
 
@@ -4410,17 +4410,17 @@ def matcher_transform() -> Callable[[str, str, str], Transform]:
     [
         pytest.param(
             ('count="p"',) * 8,
-            "1," * 8 + "|" + "2," * 8 + "|" + "3," * 8 + "|",
+            f"{'1,' * 8}|{'2,' * 8}|{'3,' * 8}|",
             id="eight-equal-counts",
         ),
         pytest.param(
             ('count="p" from="section"',) * 8,
-            "1," * 8 + "|" + "2," * 8 + "|" + "1," * 8 + "|",
+            f"{'1,' * 8}|{'2,' * 8}|{'1,' * 8}|",
             id="eight-equal-counts-and-froms",
         ),
         pytest.param(
             ('from="section"',) * 8,
-            "1," * 8 + "|" + "2," * 8 + "|" + "1," * 8 + "|",
+            f"{'1,' * 8}|{'2,' * 8}|{'1,' * 8}|",
             id="eight-equal-froms",
         ),
         pytest.param(
@@ -4519,7 +4519,7 @@ _PAIR: Final[str] = "<xsl:number/><xsl:text>:</xsl:text><xsl:number/>"
         pytest.param(
             '<r><n id="1"/><n id="2"/><n id="3"/></r>',
             "r/n",
-            '<xsl:sort select="@id" data-type="number" order="descending"/>' + _PAIR,
+            f'<xsl:sort select="@id" data-type="number" order="descending"/>{_PAIR}',
             "3:3|2:2|1:1|",
             id="reverse-siblings",
         ),
@@ -5300,7 +5300,7 @@ def indexed_transform() -> Callable[[int, str, str], Transform]:
             id="many-named-and-default-modes",
         ),
         pytest.param(
-            "<root>" + "<p/>" * 40 + "</root>",
+            f"<root>{'<p/>' * 40}</root>",
             '<xsl:apply-templates select="root/p"/>' * 2,
             '<xsl:template match="p">X</xsl:template>',
             "X" * 80,
@@ -5469,7 +5469,7 @@ def test_codspeed_number_benchmark_output(name: str, instructions: int, rows: in
         pytest.param(10, "1024:|", id="any-last-only"),
         pytest.param(11, "".join(f"{ordinal}:|" * 2 for ordinal in range(1, 513)), id="any-alternating"),
         pytest.param(12, "".join(f"{ordinal}:|" for ordinal in range(1, 1_025)), id="any-mixed-nodes"),
-        pytest.param(13, "1:" * 8 + "|", id="any-repeated"),
+        pytest.param(13, f"{'1:' * 8}|", id="any-repeated"),
         pytest.param(14, "".join(f"{ordinal}:|" for ordinal in range(1, 1_025)), id="any-explicit-count"),
         pytest.param(15, "1:|2:|", id="any-two-nodes"),
         pytest.param(16, "".join(f"{ordinal}:|" for ordinal in range(1, 9)), id="any-eight-nodes"),
@@ -5766,7 +5766,7 @@ def test_transform_result_fragment_text_survives_output_growth() -> None:
         '<xsl:copy-of select="$fragment"/><xsl:copy-of select="$fragment"/></xsl:template>'
     )
     payload: Final = "é😀payload " * 64
-    source: Final = "<r>" + ("<p>" + payload + "</p>") * 128 + "</r>"
+    source: Final = f"<r>{('<p>' + payload + '</p>') * 128}</r>"
     assert _run(source, body) == payload * 256
 
 

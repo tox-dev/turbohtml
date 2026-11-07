@@ -74,13 +74,13 @@ def test_default_keeps_allowlisted() -> None:
 
 
 def test_deep_input_is_sanitized_without_using_the_c_stack() -> None:
-    output = sanitize("<div>" * 1_200 + "bottom" + "</div>" * 1_200, Policy(tags=frozenset({"div"})))
+    output = sanitize(f"{'<div>' * 1_200}bottom{'</div>' * 1_200}", Policy(tags=frozenset({"div"})))
     assert (output.count("<div>"), "bottom" in output) == (1_200, True)
 
 
 def test_deep_unwrap_preserves_kept_ancestors() -> None:
-    source: Final = "<div>" * 40 + "<summary>x</summary>" + "</div>" * 40
-    expected: Final = "<div>" * 40 + "&lt;summary&gt;x&lt;/summary&gt;" + "</div>" * 40
+    source: Final = f"{'<div>' * 40}<summary>x</summary>{'</div>' * 40}"
+    expected: Final = f"{'<div>' * 40}&lt;summary&gt;x&lt;/summary&gt;{'</div>' * 40}"
     assert sanitize(source, Policy(tags=frozenset({"div"}))) == expected
 
 
@@ -107,7 +107,7 @@ def test_deep_table_unwrap_keeps_nested_content_in_order() -> None:
     ],
 )
 def test_deep_disallowed_input_completes_postorder_actions(mode: OnDisallowed, expected_open_count: int) -> None:
-    output = sanitize("<x>" * 1_200 + "bottom" + "</x>" * 1_200, Policy(on_disallowed_tag=mode))
+    output = sanitize(f"{'<x>' * 1_200}bottom{'</x>' * 1_200}", Policy(on_disallowed_tag=mode))
     assert (output.count("&lt;x&gt;"), "bottom" in output) == (expected_open_count, True)
 
 
@@ -487,7 +487,7 @@ def test_style_dropped_when_not_allowed() -> None:
         pytest.param("", None, id="empty-value"),
         pytest.param(";;; color: red ;;;", 'style="color: red"', id="extra-semicolons"),
         pytest.param("position: fixed; z-index: 9", None, id="all-dropped-removes-attribute"),
-        pytest.param(("a" * 70) + ": red; color: blue", 'style="color: blue"', id="property-name-too-long"),
+        pytest.param(f"{'a' * 70}: red; color: blue", 'style="color: blue"', id="property-name-too-long"),
         pytest.param("é: red", None, id="non-ascii-property-name"),
         # outside a string a CSS escape joins the next code point to an identifier, so it opens no string and ends no
         # declaration; the declarations a browser applies after it are scrubbed like any other
@@ -1812,7 +1812,7 @@ def test_media_host_allowlist_matches_host_case_insensitively() -> None:
 
 
 def test_media_host_allowlist_rejects_overlong_host() -> None:
-    host = "a" * 300 + ".com"
+    host = f"{'a' * 300}.com"
     assert "src=" not in sanitize(f'<video src="https://{host}/x">', _media_policy(frozenset({"youtube.com"})))
 
 
@@ -4009,7 +4009,7 @@ _SANITIZER_TEMPLATES_ON: Final[Policy] = Policy(
         pytest.param("<p>😀 &lt;%x%&gt; fin</p>", "<p>😀   fin</p>", id="astral-marker"),
         pytest.param("<p>東京 {x} 😀 $x</p>", "<p>東京 {x} 😀 $x</p>", id="wide-false-openers"),
         pytest.param("<p>{{t}}{x} $x &lt;x</p>", "<p> {x} $x &lt;x</p>", id="false-openers-after-marker"),
-        pytest.param("<p>" + "plain " * 100 + "{{x}}</p>", "<p>" + "plain " * 100 + " </p>", id="late-marker"),
+        pytest.param(f"<p>{'plain ' * 100}{{{{x}}}}</p>", f"<p>{'plain ' * 100} </p>", id="late-marker"),
     ],
 )
 def test_templates_text_run_collapses(fragment: str, expected: str) -> None:
@@ -4692,7 +4692,7 @@ def test_sanitize_url_authority_after_attribute_changes(attribute: str, source: 
 
 
 def test_sanitize_data_url_brackets() -> None:
-    value: Final = "data:text/plain," + "[" * 100_000
+    value: Final = f"data:text/plain,{'[' * 100_000}"
     policy: Final = Policy(
         tags=frozenset({"a"}), attributes={"a": frozenset({"href"})}, url_schemes=frozenset({"data"})
     )

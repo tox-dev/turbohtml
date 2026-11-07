@@ -1437,7 +1437,7 @@ def test_single_use_initializers_preserve_call_order(case: int, count: int) -> N
     assert isinstance(source, str)
     program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
     expected: Final = list(range(count))
-    assert _run(minify_js(program)) == json.dumps([expected, expected], separators=(",", ":")) + "\n"
+    assert _run(minify_js(program)) == f"{json.dumps([expected, expected], separators=(',', ':'))}\n"
 
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
@@ -1487,7 +1487,7 @@ def test_unused_declarators_preserve_call_order(case: int, count: int) -> None:
     source: Final = INPUTS["minify-js-unused-declarations"]()[case][1]
     assert isinstance(source, str)
     program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
-    expected: Final = json.dumps([[], list(range(count))], separators=(",", ":")) + "\n"
+    expected: Final = f"{json.dumps([[], list(range(count))], separators=(',', ':'))}\n"
     assert (_run(program), _run(minify_js(program))) == (expected, expected)
 
 

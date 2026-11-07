@@ -1495,7 +1495,7 @@ def test_append_preserves_descendant_references() -> None:
 
 @pytest.mark.parametrize("count", [pytest.param(32, id="small"), pytest.param(65_570, id="large")])
 def test_append_preserves_many_descendant_views(count: int) -> None:
-    source: Final = _found(parse("<section>" + "<b>x</b>" * count + "</section>"), "section")
+    source: Final = _found(parse(f"<section>{'<b>x</b>' * count}</section>"), "section")
     held: Final = source.select("b")
     destination: Final = Element("main")
     destination.append(source)
@@ -1505,7 +1505,7 @@ def test_append_preserves_many_descendant_views(count: int) -> None:
 
 
 def test_append_preserves_views_after_partial_release() -> None:
-    source: Final = _found(parse("<section>" + "<b>x</b>" * 65_570 + "</section>"), "section")
+    source: Final = _found(parse(f"<section>{'<b>x</b>' * 65_570}</section>"), "section")
     held: Final = source.select("b")
     del held[65_530:]
     held.extend(source.select("b")[65_530:])

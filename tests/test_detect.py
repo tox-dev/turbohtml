@@ -724,7 +724,7 @@ def test_close_scores_the_end_of_stream(chunk: bytes, confidence: float) -> None
 def test_streamed_hebrew_keeps_its_punctuation_tiebreak(prefix: bytes, expected: EncodingMatch) -> None:
     detector: Final = EncodingDetector()
     detector.feed(prefix)
-    detector.feed(("שלום! " * 16 + "!שלום").encode("iso-8859-8"))
+    detector.feed((f"{'שלום! ' * 16}!שלום").encode("iso-8859-8"))
     assert detector.close() == expected
 
 

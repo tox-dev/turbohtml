@@ -205,7 +205,7 @@ def test_inline_script_with_unparsable_declaration_stays_verbatim() -> None:
         pytest.param(f"{'(' * 4000}1{')' * 4000}", id="nested-parens-expression"),
         pytest.param("[" * 4000 + "]" * 4000, id="nested-arrays"),
         pytest.param("{" * 4000 + "}" * 4000, id="nested-blocks"),
-        pytest.param("!" * 4000 + "x", id="prefix-unary-chain"),
+        pytest.param(f"{'!' * 4000}x", id="prefix-unary-chain"),
         pytest.param(f"{'new ' * 4000}x", id="new-callee-chain"),
         pytest.param("+".join(["1"] * 4000), id="binary-operator-spine"),
         pytest.param(f"a{'.a' * 4000}", id="member-access-chain"),

@@ -45,7 +45,7 @@ worker.main()
 """
 
 
-@pytest.mark.parametrize(("case", "expected"), [(0, __version__ + "\n"), (1, "<p>a b")], ids=["import", "cli"])
+@pytest.mark.parametrize(("case", "expected"), [(0, f"{__version__}\n"), (1, "<p>a b")], ids=["import", "cli"])
 def test_worker_startup_public_output(case: int, expected: str) -> None:
     operation: Final = cast("Callable[[object], str]", OPERATIONS["startup"][0])
     assert operation(INPUTS["startup"]()[case][1]) == expected

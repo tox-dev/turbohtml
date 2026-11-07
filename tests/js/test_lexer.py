@@ -270,7 +270,7 @@ def test_parse_dump_reports_parse_error() -> None:
 def test_token_dump_grows_buffer() -> None:
     # a long source drives the token dump buffer past its initial capacity (doubling loop);
     # every one of the 400 statements must still tokenize correctly, not just produce output
-    assert _TOKENS("a;" * 400) == " ".join(["IDENT:a SEMI"] * 400) + " EOF"
+    assert _TOKENS("a;" * 400) == f"{' '.join(['IDENT:a SEMI'] * 400)} EOF"
 
 
 def test_token_dump_deep_template_nesting() -> None:
