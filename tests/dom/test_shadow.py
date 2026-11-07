@@ -906,7 +906,7 @@ def test_shadow_results_survive_collection_adoption(
 
     def adopt(phase: str, _info: dict[str, int]) -> None:
         nonlocal changed
-        if phase == "start" and not changed:
+        if phase == "start":
             changed = True
             target.append(host)
 
