@@ -24,3 +24,8 @@ OPERATIONS = {
     "minify-js": (minify_js, "calmjs.parse"),
     "minify-js-names": (minify_js, "calmjs.parse"),
 }
+
+
+__all__ = [
+    "minify_js",
+]
