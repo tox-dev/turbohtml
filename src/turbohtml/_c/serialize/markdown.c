@@ -2229,7 +2229,12 @@ static void md_emit_cell_html(md_ctx *ctx, th_node *node) {
                 index += tag - 1;
                 start = index + 1;
             } else {
-                index += md_markup_length(&html[index], len - index) - 1;
+                Py_ssize_t markup = md_markup_length(&html[index], len - index);
+                md_put_html_run(ctx, &html[start], index - start, 0);
+                /* Cell whitespace collapse must not change an attribute value. */
+                md_put_html_run(ctx, &html[index], markup, html[index + 1] != '!');
+                index += markup - 1;
+                start = index + 1;
             }
         } else if (ch < 0x80 && (MD_ASCII[ch] & ctx->escape_mask)) {
             md_put_html_run(ctx, &html[start], index - start, 0);

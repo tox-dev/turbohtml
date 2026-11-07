@@ -748,6 +748,17 @@ def _materialized_shape(case: Generated, *, html: bool) -> tuple[int, int]:
     return len(records), max(depths)
 
 
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param('<table><td><table><td><img src="a\nb">', id="nested-table"),
+        pytest.param('<table><td><ul><li><img src="a\nb"></li></ul>', id="nested-list"),
+    ],
+)
+def test_markdown_cell_html_preserves_attribute_line_break(markup: str) -> None:
+    assert markdown_html_check(markup) is None
+
+
 @pytest.mark.parametrize("space", ["\u00a0", "\u2007", "\u202f"], ids=["nbsp", "figure-space", "narrow-nbsp"])
 def test_markdown_unicode_spacing_preserved(space: str) -> None:
     assert markdown_html_check(f"<p>x{space}y</p>") is None
