@@ -41,7 +41,22 @@ if TYPE_CHECKING:
     from turbohtml._html import _PhoneConfig, _PhoneSpec
 
 
-_SPEC: Final = cast(
+_SPEC: Final[
+    tuple[
+        tuple[str, ...],
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        int,
+        frozenset[PhoneType] | None,
+        tuple[str, ...],
+        type[PhoneNumber],
+        tuple[PhoneType, ...],
+        bool,
+    ]
+] = cast(
     "_PhoneSpec",
     (("US",), True, False, True, True, False, 0, None, ("order", "ref"), PhoneNumber, _PHONE_TYPES, False),
 )
@@ -462,7 +477,7 @@ def test_number_format_writes_each_style() -> None:
     ]
 
 
-_CONFIG: Final = object()  # stands for the compiled configuration in a parametrized argument list
+_CONFIG: Final[object] = object()  # stands for the compiled configuration in a parametrized argument list
 
 
 @pytest.mark.parametrize(

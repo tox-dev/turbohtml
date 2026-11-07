@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
     from _pytest.mark import ParameterSet
 
-_CORPUS: Final = Path(__file__).parent / "data" / "wpt_encoding.json"
+_CORPUS: Final[Path] = Path(__file__).parent / "data" / "wpt_encoding.json"
 
 # The corpus ships with the source tree, so an absent one is a packaging bug rather than a missing oracle.
 if not _CORPUS.is_file():

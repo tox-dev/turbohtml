@@ -40,14 +40,14 @@ if TYPE_CHECKING:
 # frame and frameset are absent: the parser drops them outside a frameset document, so a fragment never contains one.
 # style is absent too: unlike the others, allowlisting it keeps the element with its CSS scrubbed (see the style-body
 # tests), rather than neutralizing it.
-_UNSAFE_TAGS = [
+_UNSAFE_TAGS: Final[list[str]] = [
     "script", "iframe", "embed", "object", "noscript",
     "noembed", "noframes", "base", "basefont", "title", "xmp", "template",
 ]  # fmt: skip
 
 
 # (tag, markup that yields it) -- col and area need a table/map context to parse as an element.
-_VOID_CASES = [
+_VOID_CASES: Final[list[tuple[str, str]]] = [
     ("area", "<map><area></map>"), ("base", "<base>"), ("basefont", "<basefont>"), ("br", "<br>"),
     ("col", "<table><col></table>"), ("embed", "<embed>"), ("hr", "<hr>"), ("img", "<img>"),
     ("input", "<input>"), ("keygen", "<keygen>"), ("link", "<link>"), ("meta", "<meta>"),
@@ -55,7 +55,7 @@ _VOID_CASES = [
 ]  # fmt: skip
 
 
-_URL_ATTRS = [
+_URL_ATTRS: Final[list[str]] = [
     "href", "src", "cite", "data", "ping", "action", "poster", "longdesc", "formaction", "background", "xlink:href",
 ]  # fmt: skip
 
@@ -2214,7 +2214,7 @@ def test_a_custom_matcher_never_keeps_an_unsafe_tag() -> None:
 _PROFILE_HTML: Final[str] = "<b>h</b><svg><circle></circle></svg><math><mi>m</mi></math>"
 
 
-_PROFILE_TAGS = frozenset({"b", "svg", "circle", "math", "mi"})
+_PROFILE_TAGS: Final[frozenset[str]] = frozenset({"b", "svg", "circle", "math", "mi"})
 
 
 @pytest.mark.parametrize(
@@ -2290,7 +2290,7 @@ def test_a_raising_is_matcher_propagates() -> None:
         sanitize('<button is="custom-name">x</button>', policy)
 
 
-_ALLOW = {
+_ALLOW: Final[dict[str, frozenset[str]]] = {
     "a": frozenset({"id", "href", "hx"}),
     "form": frozenset({"name"}),
     "input": frozenset({"name", "id"}),
@@ -2299,13 +2299,13 @@ _ALLOW = {
 }
 
 
-_TAGS = frozenset({"a", "form", "input", "img", "p"})
+_TAGS: Final[frozenset[str]] = frozenset({"a", "form", "input", "img", "p"})
 
 
-_ON = Policy(tags=_TAGS, attributes=_ALLOW, isolate_named_props=True)
+_ON: Final[Policy] = Policy(tags=_TAGS, attributes=_ALLOW, isolate_named_props=True)
 
 
-_OFF = Policy(tags=_TAGS, attributes=_ALLOW)
+_OFF: Final[Policy] = Policy(tags=_TAGS, attributes=_ALLOW)
 
 
 @pytest.mark.parametrize(
@@ -2380,10 +2380,20 @@ def test_isolate_named_props_keeps_safety_baseline() -> None:
 
 
 # The set of tags the reachability check reasons over, allowed together so only the namespace relationship can drop one.
-_FOREIGN_TAGS = frozenset({"svg", "math", "foreignObject", "annotation-xml", "mtext", "circle", "p", "b", "i"})
+_FOREIGN_TAGS: Final[frozenset[str]] = frozenset({
+    "svg",
+    "math",
+    "foreignObject",
+    "annotation-xml",
+    "mtext",
+    "circle",
+    "p",
+    "b",
+    "i",
+})
 
 
-_FOREIGN_POLICY = Policy(tags=_FOREIGN_TAGS, attributes={"annotation-xml": frozenset({"encoding"})})
+_FOREIGN_POLICY: Final[Policy] = Policy(tags=_FOREIGN_TAGS, attributes={"annotation-xml": frozenset({"encoding"})})
 
 
 def _find(root: Element, tag: str, namespace: str | None = None) -> Element:
@@ -2497,7 +2507,7 @@ def test_namespace_confusion_is_dropped(
     assert marker not in _sanitize_tree(root, tags)  # confused by the move: the reachability check drops it
 
 
-_ANNOTATION_TAGS: Final = frozenset({"math", "annotation-xml", "style", "b"})
+_ANNOTATION_TAGS: Final[frozenset[str]] = frozenset({"math", "annotation-xml", "style", "b"})
 
 
 @pytest.mark.parametrize(
@@ -3899,7 +3909,7 @@ _SCHEME_PARITY = [
 ]
 
 
-_SCRIPT_SCHEME_POLICY: Final = Policy(
+_SCRIPT_SCHEME_POLICY: Final[Policy] = Policy(
     tags=frozenset({"a", "img", "p"}),
     attributes={"a": frozenset({"href"}), "img": frozenset({"srcset"}), "p": frozenset({"style"})},
     url_schemes=frozenset({"javascript", "http", "x-callback"}),
@@ -3969,7 +3979,7 @@ def test_allowlisted_plaintext_is_neutralized(payload: str) -> None:
     assert sanitize(out, policy) == out, "sanitizing is not idempotent"
 
 
-_SANITIZER_TEMPLATES_ON = Policy(
+_SANITIZER_TEMPLATES_ON: Final[Policy] = Policy(
     tags=frozenset({"p", "a", "input"}),
     attributes={"a": frozenset({"href", "title"}), "input": frozenset({"disabled"})},
     strip_template_markers=True,
@@ -4182,7 +4192,7 @@ def test_transform_rejects_bad_rule(target: Transform | str | int, error: type[E
         Sanitizer(Policy(transform_tags={"b": target}))  # ty: ignore[invalid-argument-type]
 
 
-_XML = Policy(
+_XML: Final[Policy] = Policy(
     tags=frozenset({"p", "br", "a", "strong", "em", "img", "svg", "rect", "math", "mi"}),
     attributes={"a": frozenset({"href"}), "img": frozenset({"src"})},
     xml=True,
@@ -4259,7 +4269,7 @@ def test_sanitizer_instance_reuses_xml_policy() -> None:
     assert cleaner.sanitize("<img src=x>") == '<img src="x"/>'
 
 
-_XML_ORACLE_POLICY: Final = Policy(
+_XML_ORACLE_POLICY: Final[Policy] = Policy(
     tags=frozenset({"p", "br", "a", "strong", "em", "img", "ul", "li", "svg", "rect", "circle", "math", "mi"}),
     attributes={"a": frozenset({"href"}), "img": frozenset({"src", "alt"})},
     strip_comments=False,
@@ -4293,7 +4303,7 @@ def test_output_parses_under_lxml(html: str, tags: list[str], text: str) -> None
     assert ([lxml_etree.QName(child).localname for child in root], root.xpath("string(.)")) == (tags, text)
 
 
-_DOMPURIFY_FIXTURE = Path(__file__).parent / "data" / "dompurify_expect.mjs"
+_DOMPURIFY_FIXTURE: Final[Path] = Path(__file__).parent / "data" / "dompurify_expect.mjs"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -4320,8 +4330,8 @@ def _load_cases() -> list[_DompurifyCase]:
         cases.append(_DompurifyCase(payload=entry["payload"], accepted=accepted, title=entry.get("title", "")))
 
 
-_DOMPURIFY_CASES = _load_cases()
-_DOMPURIFY_IDS = [
+_DOMPURIFY_CASES: Final[list[_DompurifyCase]] = _load_cases()
+_DOMPURIFY_IDS: Final[list[str]] = [
     f"{position:03d}-{re.sub(r'[^a-z0-9]+', '-', case.title.lower()).strip('-')[:48] or 'untitled'}"
     for position, case in enumerate(_DOMPURIFY_CASES)
 ]
@@ -4330,7 +4340,7 @@ _DOMPURIFY_IDS = [
 # only thing removing danger is the non-configurable C baseline (unsafe tags, on* handlers, non-allowlisted schemes,
 # CSS scrubbing). This is the strongest bypass surface -- a restrictive policy would escape most payloads to inert text
 # and never exercise a kept, attack-capable element.
-_DOMPURIFY_PERMISSIVE_TAGS = frozenset({
+_DOMPURIFY_PERMISSIVE_TAGS: Final[frozenset[str]] = frozenset({
     "a", "abbr", "b", "blockquote", "br", "button", "caption", "cite", "code", "col", "colgroup", "dd", "del", "div",
     "dl", "dt", "em", "figcaption", "figure", "form", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "i", "img", "input",
     "ins", "label", "li", "mark", "ol", "option", "p", "pre", "q", "s", "script", "select", "small", "span",
@@ -4340,7 +4350,7 @@ _DOMPURIFY_PERMISSIVE_TAGS = frozenset({
     "foreignobject", "text", "use", "animate", "animateColor", "animateMotion", "animateTransform", "set",
     "math", "mi", "mo", "mn", "ms", "mtext", "mrow", "mglyph", "annotation-xml",
 })  # fmt: skip
-_DOMPURIFY_PERMISSIVE = Policy(
+_DOMPURIFY_PERMISSIVE: Final[Policy] = Policy(
     tags=_DOMPURIFY_PERMISSIVE_TAGS,
     attributes=MappingProxyType({"*": frozenset({"*"})}),
     url_schemes=DEFAULT_SCHEMES,
@@ -4353,8 +4363,17 @@ _DOMPURIFY_POLICIES = [
 ]
 
 # Scriptable elements that execute or load code if they survive in the HTML namespace; scheme prefixes that run script.
-_DOMPURIFY_DANGER_TAGS = frozenset({"script", "iframe", "object", "embed", "frame", "style", "noscript", "base"})
-_DOMPURIFY_URL_ATTRS = frozenset({
+_DOMPURIFY_DANGER_TAGS: Final[frozenset[str]] = frozenset({
+    "script",
+    "iframe",
+    "object",
+    "embed",
+    "frame",
+    "style",
+    "noscript",
+    "base",
+})
+_DOMPURIFY_URL_ATTRS: Final[frozenset[str]] = frozenset({
     "href",
     "src",
     "action",

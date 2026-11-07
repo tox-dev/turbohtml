@@ -18,7 +18,7 @@ from turbohtml.clean import JSMinify, minify_js
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_NODE: Final = shutil.which("node")
+_NODE: Final[str | None] = shutil.which("node")
 
 
 @pytest.mark.parametrize(

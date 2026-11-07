@@ -361,7 +361,7 @@ def test_namespace_values() -> None:
 
 # find_all()/select()/iteration recycle their node wrappers on a freelist; the count
 # exceeds the pool cap so dropping a result also frees past the pool's limit.
-_WIDE = "<ul>" + "".join(f'<li class="row">item {index}</li>' for index in range(1200)) + "</ul>"
+_WIDE: Final[str] = "<ul>" + "".join(f'<li class="row">item {index}</li>' for index in range(1200)) + "</ul>"
 
 
 def test_recycled_wrapper_does_not_alias_a_held_node() -> None:

@@ -22,7 +22,7 @@ from turbohtml.clean import (
     linkify,
 )
 
-_US: Final = PhoneNumbers(regions=("US",))
+_US: Final[PhoneNumbers] = PhoneNumbers(regions=("US",))
 _WORKERS: Final[int] = 8
 
 
@@ -383,7 +383,7 @@ def test_possible_mode_accepts_local_only_lengths() -> None:
     assert LinkDetector(phones=_US).find("253-0000") == []
 
 
-_PHONE_EXTENSIONS_US: Final = PhoneNumbers(regions=("US",))
+_PHONE_EXTENSIONS_US: Final[PhoneNumbers] = PhoneNumbers(regions=("US",))
 
 
 def _find(text: str, phones: PhoneNumbers = _PHONE_EXTENSIONS_US) -> list[tuple[str, str | None]]:
@@ -484,10 +484,10 @@ def test_extension_digits_are_folded_in_the_href() -> None:
     )
 
 
-_ALL: Final = (PhoneGrouping.ANY, PhoneGrouping.STRICT, PhoneGrouping.EXACT)
-_LOOSE: Final = (PhoneGrouping.ANY, PhoneGrouping.STRICT)
-_NONE: Final = (PhoneGrouping.ANY,)
-_UNBROKEN: Final = (PhoneGrouping.ANY, PhoneGrouping.EXACT)
+_ALL: Final[tuple[PhoneGrouping, ...]] = (PhoneGrouping.ANY, PhoneGrouping.STRICT, PhoneGrouping.EXACT)
+_LOOSE: Final[tuple[PhoneGrouping, ...]] = (PhoneGrouping.ANY, PhoneGrouping.STRICT)
+_NONE: Final[tuple[PhoneGrouping, ...]] = (PhoneGrouping.ANY,)
+_UNBROKEN: Final[tuple[PhoneGrouping, ...]] = (PhoneGrouping.ANY, PhoneGrouping.EXACT)
 
 
 @pytest.mark.parametrize(
@@ -841,10 +841,10 @@ def test_value_check_rejects_a_char_below_zero() -> None:
         PhoneNumber(1, "650-530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE)
 
 
-_PHONE_RUNS_US: Final = PhoneNumbers(regions=("US",))
+_PHONE_RUNS_US: Final[PhoneNumbers] = PhoneNumbers(regions=("US",))
 
 
-_US_POSSIBLE: Final = PhoneNumbers(regions=("US",), require_valid=False)
+_US_POSSIBLE: Final[PhoneNumbers] = PhoneNumbers(regions=("US",), require_valid=False)
 
 
 @pytest.mark.parametrize(
@@ -1152,7 +1152,7 @@ def test_other_schemes_keep_their_payloads() -> None:
     ] == [("bitcoin:1abc", "bitcoin:1abc"), ("sms:123", "sms:123")]
 
 
-_PHONE_UNICODE_US: Final = PhoneNumbers(regions=("US",))
+_PHONE_UNICODE_US: Final[PhoneNumbers] = PhoneNumbers(regions=("US",))
 
 
 def _phone_unicode_urls(text: str, phones: PhoneNumbers = _PHONE_UNICODE_US) -> list[str]:
@@ -1239,16 +1239,16 @@ def test_offsets_count_code_points_not_bytes() -> None:
     assert (span.start, span.end) == (3, 15)
 
 
-_CH: Final = PhoneNumbers(regions=("CH",))
+_CH: Final[PhoneNumbers] = PhoneNumbers(regions=("CH",))
 
 
-_CH_COLLAPSED: Final = PhoneNumbers(regions=("CH",), collapse_whitespace=True)
+_CH_COLLAPSED: Final[PhoneNumbers] = PhoneNumbers(regions=("CH",), collapse_whitespace=True)
 
 
-_PHONE_WHITESPACE_US: Final = PhoneNumbers(regions=("US",))
+_PHONE_WHITESPACE_US: Final[PhoneNumbers] = PhoneNumbers(regions=("US",))
 
 
-_US_COLLAPSED: Final = PhoneNumbers(regions=("US",), collapse_whitespace=True)
+_US_COLLAPSED: Final[PhoneNumbers] = PhoneNumbers(regions=("US",), collapse_whitespace=True)
 
 
 @pytest.mark.parametrize(
@@ -1355,7 +1355,7 @@ def test_collapse_whitespace_survives_a_pickle_and_a_copy() -> None:
 
 
 # numbers, dates, an address, an extension and prose, the pieces a run of whitespace can end up gluing together
-_PIECES: Final = (
+_PIECES: Final[tuple[str, ...]] = (
     "+41", "79434", "3254", "079", "434", "32", "54", "650", "253", "0000", "(650)", "-", ".", "/", "x12", "Order",
     "Tel:", "abc", "+1", "20250901", "10:30", "4111", "1111", "pages", "1-5", "(3", "pages)", "2001:db8::8888", "020",
     "7946", "0958", "#", ",", "]", "ext.", "~", "[", "\u00a0", "\u3000",

@@ -10,7 +10,7 @@ from bench.operations import INPUTS
 
 from turbohtml.clean import JSMinify, minify_js
 
-_NODE = shutil.which("node")
+_NODE: Final[str | None] = shutil.which("node")
 
 
 @pytest.mark.parametrize(
@@ -1096,11 +1096,11 @@ def test_folding_preserves_behavior(snippet: str) -> None:
     assert _run(snippet) == _run(minify_js(snippet))
 
 
-_BS = chr(0x5C)  # backslash, kept out of the literals so every escape is unambiguous
-_CR = chr(0x0D)
-_LF = chr(0x0A)
-_LS = chr(0x2028)
-_PS = chr(0x2029)
+_BS: Final[str] = chr(0x5C)  # backslash, kept out of the literals so every escape is unambiguous
+_CR: Final[str] = chr(0x0D)
+_LF: Final[str] = chr(0x0A)
+_LS: Final[str] = chr(0x2028)
+_PS: Final[str] = chr(0x2029)
 
 
 @pytest.mark.parametrize(

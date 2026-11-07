@@ -18,8 +18,8 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
     from selectolax.lexbor import LexborHTMLParser
 
-_MUTATORS: Final = ("lxml", "beautifulsoup4", "beautifulsoup4_lxml", "selectolax")
-_OUTPUTS: Final = (*_MUTATORS, "html5lib", "pyquery", "parsel")
+_MUTATORS: Final[tuple[str, ...]] = ("lxml", "beautifulsoup4", "beautifulsoup4_lxml", "selectolax")
+_OUTPUTS: Final[tuple[str, ...]] = (*_MUTATORS, "html5lib", "pyquery", "parsel")
 _CASES: Final = (
     pytest.param("<p>a  <!--note--> b <b>c  d</b> e</p>", id="comment-tail"),
     pytest.param("<p> café\t \u03b1\n😀 &amp; &lt; &gt; \u00a0 x </p>", id="unicode-escaping"),

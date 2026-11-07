@@ -62,7 +62,7 @@ def _fired() -> dict[str, bool]:
     return {"control": True}
 
 
-_ONE_CASE: Final = Floor(count=1, ratio=0.5)
+_ONE_CASE: Final[Floor] = Floor(count=1, ratio=0.5)
 
 
 def _probe(

@@ -9,7 +9,7 @@ from turbohtml import CData, Comment, Element, Html, Indent, Minify, Text, parse
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_RAW_TEXT_TAGS: Final = ("script", "style", "xmp", "iframe", "noembed", "noframes", "plaintext")
+_RAW_TEXT_TAGS: Final[tuple[str, ...]] = ("script", "style", "xmp", "iframe", "noembed", "noframes", "plaintext")
 
 _INNER_KEEPING_COMMENTS: Final = [
     pytest.param(lambda node: node.inner_html, id="inner_html"),

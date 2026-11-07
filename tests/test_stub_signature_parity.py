@@ -4,7 +4,7 @@ import ast
 import inspect
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 import pytest
 
@@ -15,9 +15,9 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
-_STUB_DIR = Path(__file__).parents[1] / "src" / "turbohtml" / "_stubs"
-_NO_DEFAULT = object()
-_ANY_DEFAULT = object()
+_STUB_DIR: Final[Path] = Path(__file__).parents[1] / "src" / "turbohtml" / "_stubs"
+_NO_DEFAULT: Final[object] = object()
+_ANY_DEFAULT: Final[object] = object()
 _POSITIONAL = frozenset({inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD})
 
 
@@ -127,7 +127,7 @@ def _is_dunder(name: str) -> bool:
 
 
 _ENTRIES = {name: (node, drop_self) for name, node, drop_self in _stub_entries()}
-_COMPARABLE = sorted(
+_COMPARABLE: Final[list[str]] = sorted(
     name for name in _ENTRIES if not _is_dunder(name) and _runtime_signature(_resolve(name)) is not None
 )
 

@@ -10,7 +10,7 @@ from docutils import nodes
 from docutils.core import publish_doctree
 from docutils.parsers.rst import directives
 
-_ROOT = Path(__file__).resolve().parents[1]
+_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "docs" / "_ext"))
 
 from bench_table import BenchTable  # ruff:ignore[module-import-not-at-top-of-file]

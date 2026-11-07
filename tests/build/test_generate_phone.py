@@ -56,7 +56,7 @@ if TYPE_CHECKING:
     from phone_dfa import Dfa
     from pytest_mock import MockerFixture
 
-_DIGITS: Final = string.digits
+_DIGITS: Final[str] = string.digits
 
 
 @pytest.mark.parametrize(
@@ -454,7 +454,7 @@ def _digit_rows(zero: int, name: str) -> list[str]:
     return [f"{zero + value:04X};{name} DIGIT {value};Nd;0;EN;;{value};{value};{value};N;;;;;" for value in range(10)]
 
 
-_UNICODE_DATA = "\n".join([
+_UNICODE_DATA: Final[str] = "\n".join([
     "0025;PERCENT SIGN;Po;0;ET;;;;;N;;;;;",
     *_digit_rows(0x30, "DIGIT"),
     "0041;LATIN CAPITAL LETTER A;Lu;0;L;;;;;N;;;;0061;",

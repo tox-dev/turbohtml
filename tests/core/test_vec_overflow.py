@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from typing import Final
+
 import pytest
 
 from turbohtml import _html
 
-_SIZE_MAX = (1 << 64) - 1
+_SIZE_MAX: Final[int] = (1 << 64) - 1
 
 
 @pytest.mark.parametrize(

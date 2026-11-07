@@ -1020,7 +1020,11 @@ def test_computed_style_alternative_with_lower_id_specificity_loses() -> None:
     assert style["color"] == "teal"
 
 
-_ITEMS = (("color", "red", False), ("margin", "0", True), ("color", "blue", False))
+_ITEMS: Final[tuple[tuple[str, str, bool], ...]] = (
+    ("color", "red", False),
+    ("margin", "0", True),
+    ("color", "blue", False),
+)
 
 
 def test_the_index_keeps_first_seen_order_and_the_last_value() -> None:

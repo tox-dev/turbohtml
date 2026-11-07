@@ -9,7 +9,7 @@ from turbohtml import Markdown, parse
 
 _NESTED_ITEMS: Final[str] = f"{'<ul><li>' * 12}x"
 # plain-text indent spends a budget that source text funds, so cap tests lead with enough text to pay for it
-_FUNDING: Final = "w" * 1024
+_FUNDING: Final[str] = "w" * 1024
 
 
 def test_markdown_list_indent_stops_at_the_nesting_cap() -> None:

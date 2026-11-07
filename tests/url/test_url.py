@@ -1104,8 +1104,8 @@ def test_remove_dot_segments_rejects_non_str() -> None:
         _url_remove_dot_segments(123)  # ty: ignore[invalid-argument-type]  # a non-str exercises the TypeError guard
 
 
-_C0_OR_SPACE = "".join(map(chr, range(0x21)))
-_USES_RELATIVE = frozenset({
+_C0_OR_SPACE: Final[str] = "".join(map(chr, range(0x21)))
+_USES_RELATIVE: Final[frozenset[str]] = frozenset({
     *("", "ftp", "http", "gopher", "nntp", "imap", "wais", "file", "https", "shttp"),
     *("mms", "prospero", "rtsp", "rtsps", "rtspu", "sftp", "svn", "svn+ssh", "ws", "wss"),
 })
@@ -1408,10 +1408,10 @@ def test_url_join_preprocesses_operands(base: str, reference: str, expected: str
     assert _url_join(base, reference) == expected
 
 
-_LANGUAGE_PARAMS = frozenset({"lang", "language"})
+_LANGUAGE_PARAMS: Final[frozenset[str]] = frozenset({"lang", "language"})
 
 
-_ISO = frozenset({"de", "en", "fr", "es", "ru", "nl"})
+_ISO: Final[frozenset[str]] = frozenset({"de", "en", "fr", "es", "ru", "nl"})
 
 
 _SEGMENT = re.compile(r"([a-z]{2})(?:[-_][a-z]{2,3})?$")
@@ -1512,10 +1512,10 @@ def test_language_matches_rejects_missing_arguments() -> None:
         _url_language_matches("", "/x", "h.org", "en", lax)  # ty: ignore[missing-argument]
 
 
-_CONTENT = frozenset({"id", "page", "post", "article_id"})
+_CONTENT: Final[frozenset[str]] = frozenset({"id", "page", "post", "article_id"})
 
 
-_LANGUAGE = frozenset({"lang", "language"})
+_LANGUAGE: Final[frozenset[str]] = frozenset({"lang", "language"})
 
 
 def test_normalize_query_matches_oracle_over_corpus() -> None:
@@ -1756,7 +1756,7 @@ def test_percent_encode_rejects_non_str_text() -> None:
         _url_percent_encode(123, _PATH)  # ty: ignore[invalid-argument-type]  # text must be a str
 
 
-_C0_AND_SPACE = "".join(map(chr, range(0x21)))
+_C0_AND_SPACE: Final[str] = "".join(map(chr, range(0x21)))
 
 
 _MARKUP_DELIMITER = re.compile(r'[<>"]')
@@ -1764,7 +1764,7 @@ _MARKUP_DELIMITER = re.compile(r'[<>"]')
 
 # CPython's str whitespace (Py_UNICODE_ISSPACE), pinned because PyPy's str.split() disagrees on the C0 separators
 # 0x1C-0x1F, and the C scrub follows CPython's predicate on every interpreter
-_PY_WHITESPACE = frozenset(
+_PY_WHITESPACE: Final[frozenset[str]] = frozenset(
     map(
         chr,
         (
@@ -1786,7 +1786,7 @@ _PY_WHITESPACE = frozenset(
 
 # Pieces that reach every scrub branch: whitespace str.split() removes but the edge C0 strip alone would not (NBSP, NEL,
 # a separator), a non-whitespace C0 control that survives in the middle, and the CDATA, markup, and escape shapes.
-_PIECES = (
+_PIECES: Final[tuple[str, ...]] = (
     "https://x.example/p",
     " ",
     "\t",
@@ -1904,7 +1904,7 @@ def test_scrub_rejects_non_str() -> None:
 _REGNAME, _IPV4, _IPV6 = 0, 1, 2
 
 
-_FRAGMENTS = ("", "#f")
+_FRAGMENTS: Final[tuple[str, ...]] = ("", "#f")
 
 
 def test_url_split_matches_urllib_after_input_trim() -> None:
@@ -2077,7 +2077,7 @@ def test_url_split_ipv6_open_without_close_keeps_tail_as_host() -> None:
     assert _url_split("http://]@[foo/p")[6] == "foo"
 
 
-_TRACKER_NAMES = frozenset({
+_TRACKER_NAMES: Final[frozenset[str]] = frozenset({
     "clickid",
     "dclid",
     "efid",
@@ -2104,7 +2104,20 @@ _TRACKER_NAMES = frozenset({
 })
 
 
-_TRACKER_PREFIXES = ("ad_", "ads_", "ga_", "gs_", "hsa_", "itm_", "mc_", "mtm_", "oly_", "pk_", "utm_", "vero_")
+_TRACKER_PREFIXES: Final[tuple[str, ...]] = (
+    "ad_",
+    "ads_",
+    "ga_",
+    "gs_",
+    "hsa_",
+    "itm_",
+    "mc_",
+    "mtm_",
+    "oly_",
+    "pk_",
+    "utm_",
+    "vero_",
+)
 
 
 _TRACKER_WORDS = re.compile(

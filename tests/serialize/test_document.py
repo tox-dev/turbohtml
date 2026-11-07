@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
     from wpt_tree_corpus import WptHtmlTreeCorpus
 
-_PRETTY: Final = Html(layout=Indent())
+_PRETTY: Final[Html] = Html(layout=Indent())
 
 
 @pytest.mark.parametrize(
@@ -814,7 +814,7 @@ def test_inner_raw_context_only_applies_to_direct_text(layout: Indent | None) ->
     assert root.serialize(Html(layout=layout), inner=True) == "<b>&lt;&amp;</b>"
 
 
-_XML = Html(xml=True)
+_XML: Final[Html] = Html(xml=True)
 
 
 @pytest.mark.parametrize(

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]
+from typing import Final
 
 import pytest
 
 from turbohtml.clean import JSMinify, minify_js
 
-_NODE = shutil.which("node")
+_NODE: Final[str | None] = shutil.which("node")
 
 
 @pytest.mark.parametrize(
@@ -461,7 +462,7 @@ def test_kept_names_preserve_behavior(snippet: str, options: JSMinify) -> None:
     assert _run(snippet) == _run(minify_js(snippet, options))
 
 
-_BS = chr(0x5C)  # backslash, kept out of the literals so the \u escapes are unambiguous
+_BS: Final[str] = chr(0x5C)  # backslash, kept out of the literals so the \u escapes are unambiguous
 
 
 @pytest.mark.parametrize(

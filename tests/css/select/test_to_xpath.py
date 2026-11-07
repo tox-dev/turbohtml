@@ -255,9 +255,9 @@ _LANG_DOC: Final[str] = """<!doctype html>
 <math id="math-fr" lang="fr"><mi id="mi-fr">x</mi></math></div>
 """
 
-_DOCS = {"ids": _IDS_DOC, "forms": _FORMS_DOC, "lang": _LANG_DOC}
+_DOCS: Final[dict[str, str]] = {"ids": _IDS_DOC, "forms": _FORMS_DOC, "lang": _LANG_DOC}
 
-_SELECTORS = (
+_SELECTORS: Final[tuple[str, ...]] = (
     # type, universal, and (ignored) namespace prefixes
     "div",
     "DIV",
@@ -588,7 +588,7 @@ cde"><span id="foobar-span"></span></div>
 </body></html>
 """
 
-_ORACLE_SELECTORS: Final = (
+_ORACLE_SELECTORS: Final[tuple[str, ...]] = (
     "*",
     "div",
     "div div",

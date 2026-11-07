@@ -55,9 +55,9 @@ _TEXT: Final[str] = (
     "Call +1 650-253-0000 or (650) 253-0000 ext. 123, London +44 20 7946 0958, Berlin 030 123456, "
     "mail a@example.com or see https://example.com/x"
 )
-_PHONES: Final = PhoneNumbers(regions=("US", "GB", "DE"))
-_LINKER: Final = Linker(Linkify(phones=_PHONES, parse_email=True))
-_DETECTOR: Final = LinkDetector(phones=_PHONES)
+_PHONES: Final[PhoneNumbers] = PhoneNumbers(regions=("US", "GB", "DE"))
+_LINKER: Final[Linker] = Linker(Linkify(phones=_PHONES, parse_email=True))
+_DETECTOR: Final[LinkDetector] = LinkDetector(phones=_PHONES)
 _NUMBER: Final = PhoneNumber.parse("+44 20 7946 0958")
 
 
@@ -88,7 +88,7 @@ def test_phone_allocation_failure_raises_memory_error(
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_SANITIZER: Final = Sanitizer(Policy.strict())
+_SANITIZER: Final[Sanitizer] = Sanitizer(Policy.strict())
 # Elements only: a text node would add a lazy text copy, which these tests do not target. The custom attribute names
 # make every copy intern them again in its own tree.
 _TREE: Final[str] = "<b zq=1><i></i></b><x y=1></x>"
@@ -187,7 +187,7 @@ if TYPE_CHECKING:
 # and a noncharacter for the preprocessing scan (in a wide and a one-byte str, which it reads on separate paths), a
 # duplicate attribute and a NUL reference for the tokenizer, and a second doctype and a self-closed div for the tree
 # builder.
-_SEEDS: Final = {
+_SEEDS: Final[dict[str, str]] = {
     "control-wide": "\x01\ufdd0<!DOCTYPE html>",
     "control-one-byte": "\x01\xa0<!DOCTYPE html>",
     "duplicate-attribute": "<!DOCTYPE html><p a=1 a=2>",
@@ -603,7 +603,7 @@ _RELAXNG: Final[str] = (
     '<element><anyName><except><choice><name>c</name><nsName ns="urn:p"/></choice></except></anyName><empty/>'
     "</element></optional></mixed></element></define></grammar>"
 )
-_RELAXNG_SCHEMA: Final = RelaxNG(_RELAXNG)
+_RELAXNG_SCHEMA: Final[RelaxNG] = RelaxNG(_RELAXNG)
 
 
 @pytest.mark.fuzz_build
@@ -929,7 +929,7 @@ def test_lazy_text_allocation_failure_raises_memory_error(
 
 
 _ARTICLE: Final[str] = f"<html><body><article><p>{_BIG},</p></article></body></html>"
-_EMPTY_CONTENT: Final = XMLSchema(
+_EMPTY_CONTENT: Final[XMLSchema] = XMLSchema(
     '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
     '<xs:element name="r"><xs:complexType><xs:sequence/></xs:complexType></xs:element>'
     "</xs:schema>"

@@ -1184,8 +1184,8 @@ def raise_partway(_context: SimpleNamespace, nodes: list[Element]) -> Iterator[E
     raise RuntimeError(msg)
 
 
-_OTHER_DOCUMENT = turbohtml.parse("<p>elsewhere</p>")
-_STRANGER = next(node for node in _OTHER_DOCUMENT.xpath_iter("//p") if isinstance(node, Element))
+_OTHER_DOCUMENT: Final[Document] = turbohtml.parse("<p>elsewhere</p>")
+_STRANGER: Final[Element] = next(node for node in _OTHER_DOCUMENT.xpath_iter("//p") if isinstance(node, Element))
 
 
 def steal(_context: SimpleNamespace) -> Element:

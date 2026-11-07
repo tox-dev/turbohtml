@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import sysconfig
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Final, TypeVar
 
 import pytest
 
@@ -18,8 +18,8 @@ if TYPE_CHECKING:
 
 _N = TypeVar("_N", bound=Node)
 
-_FREE_THREADED = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
-_GIL_ENABLED_AT_START = sys._is_gil_enabled() if _FREE_THREADED else True
+_FREE_THREADED: Final[bool] = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+_GIL_ENABLED_AT_START: Final[bool] = sys._is_gil_enabled() if _FREE_THREADED else True
 
 
 @pytest.fixture(scope="session")

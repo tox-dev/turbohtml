@@ -14,11 +14,11 @@ import pytest
 from turbohtml import Element, parse_fragment
 from turbohtml.clean import DEFAULT_CSS_PROPERTIES, DEFAULT_SCHEMES, OnDisallowed, Policy, sanitize
 
-_SUBMODULE = Path(__file__).parent / "DOMPurify"
-_FIXTURE = _SUBMODULE / "test" / "fixtures" / "expect.mjs"
-_NODE_DIR = Path(__file__).parents[2] / "tools" / "bench" / "node"
-_RUNNER = _NODE_DIR / "dompurify_conformance_runner.js"
-_NODE = shutil.which("node")
+_SUBMODULE: Final[Path] = Path(__file__).parent / "DOMPurify"
+_FIXTURE: Final[Path] = _SUBMODULE / "test" / "fixtures" / "expect.mjs"
+_NODE_DIR: Final[Path] = Path(__file__).parents[2] / "tools" / "bench" / "node"
+_RUNNER: Final[Path] = _NODE_DIR / "dompurify_conformance_runner.js"
+_NODE: Final[str | None] = shutil.which("node")
 
 # The oracle is mixed, so the two halves guard differently. The DOMPurify corpus is a vendored data submodule: the
 # dedicated "conformance" CI job checks it out, so its absence is a setup error, not a reason to skip (a silent skip
@@ -51,9 +51,9 @@ def _load_payloads() -> list[str]:
         payloads.append(entry["payload"])
 
 
-_PAYLOADS = _load_payloads()
-_CASES = list(enumerate(_PAYLOADS))
-_IDS = [f"{position:03d}" for position in range(len(_PAYLOADS))]
+_PAYLOADS: Final[list[str]] = _load_payloads()
+_CASES: Final[list[tuple[int, str]]] = list(enumerate(_PAYLOADS))
+_IDS: Final[list[str]] = [f"{position:03d}" for position in range(len(_PAYLOADS))]
 
 
 @cache
@@ -85,13 +85,13 @@ def _dompurify_one(mode: str, html: str) -> str:
     return json.loads(result.stdout)[0]
 
 
-_PERMISSIVE_ATTRS = MappingProxyType({"*": frozenset({"*"})})
+_PERMISSIVE_ATTRS: Final[MappingProxyType[str, frozenset[str]]] = MappingProxyType({"*": frozenset({"*"})})
 # DOMPurify removes these elements together with their contents; turbohtml matches with remove_with_content so the two
 # agree on script/style bodies rather than turbohtml leaking the body as inert text under a STRIP policy.
-_REMOVE_WITH_CONTENT = frozenset({
+_REMOVE_WITH_CONTENT: Final[frozenset[str]] = frozenset({
     "script", "style", "noscript", "template", "noembed", "noframes", "iframe", "object", "embed",
 })  # fmt: skip
-_STRUCTURAL_TAGS = frozenset(Policy.relaxed().tags | {
+_STRUCTURAL_TAGS: Final[frozenset[str]] = frozenset(Policy.relaxed().tags | {
     "form", "input", "select", "button", "script", "svg", "circle", "rect", "g", "path", "defs", "filter", "image",
     "text",
     "animate", "animateColor", "animateMotion", "animateTransform", "set",
@@ -101,7 +101,7 @@ _STRUCTURAL_TAGS = frozenset(Policy.relaxed().tags | {
 
 # A max-permissive base allowlist so only the config feature under test and the C safety baseline shape the output; each
 # mode is that base with one DOMPurify-equivalent feature turned on. The profiles reuse the shared allowlist.
-_BASE = Policy(
+_BASE: Final[Policy] = Policy(
     tags=_STRUCTURAL_TAGS,
     attributes=_PERMISSIVE_ATTRS,
     url_schemes=DEFAULT_SCHEMES,
@@ -122,7 +122,17 @@ _MODES: Final[dict[str, Policy]] = {
     "profile-mathml": replace(_BASE, allow_html=False, allow_svg=False),
 }
 
-_URL_ATTRS = frozenset({"href", "src", "action", "xlink:href", "formaction", "poster", "background", "cite", "ping"})
+_URL_ATTRS: Final[frozenset[str]] = frozenset({
+    "href",
+    "src",
+    "action",
+    "xlink:href",
+    "formaction",
+    "poster",
+    "background",
+    "cite",
+    "ping",
+})
 _CSS_DANGER = ("javascript:", "vbscript:", "expression(", "@import", "behavior:", "-moz-binding")
 
 

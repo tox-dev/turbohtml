@@ -26,9 +26,9 @@ if TYPE_CHECKING:
 
     from turbohtml import Node
 
-_NODE = shutil.which("node")
-_RUNNER = Path(__file__).parents[2] / "tools" / "bench" / "node" / "dom_differential_runner.js"
-_JSDOM = (_RUNNER.parent / "node_modules" / "jsdom").is_dir()
+_NODE: Final[str | None] = shutil.which("node")
+_RUNNER: Final[Path] = Path(__file__).parents[2] / "tools" / "bench" / "node" / "dom_differential_runner.js"
+_JSDOM: Final[bool] = (_RUNNER.parent / "node_modules" / "jsdom").is_dir()
 
 pytestmark = pytest.mark.skipif(_NODE is None or not _JSDOM, reason="node with jsdom (tools/bench/node) not installed")
 
@@ -269,17 +269,17 @@ _SPLIT: Final[str] = "<div><p>onetwo</p><p>threefour</p></div>"
 _MIXED: Final[str] = "<div id=root><h2>t</h2><p>a<b>bb</b>c</p><nav><a>x</a></nav><span>s</span></div>"
 _SECT: Final[str] = "<section id=s><p>x</p><article><p>y</p><span>z</span></article></section>"
 
-_UL_PATH = [1, 0]
-_UL_A = [1, 0, 0]
-_P_TEXT = [1, 0, 0]
-_SPLIT_DIV = [1, 0]
-_SPLIT_T1 = [1, 0, 0, 0]
-_SPLIT_T2 = [1, 0, 1, 0]
+_UL_PATH: Final[list[int]] = [1, 0]
+_UL_A: Final[list[int]] = [1, 0, 0]
+_P_TEXT: Final[list[int]] = [1, 0, 0]
+_SPLIT_DIV: Final[list[int]] = [1, 0]
+_SPLIT_T1: Final[list[int]] = [1, 0, 0, 0]
+_SPLIT_T2: Final[list[int]] = [1, 0, 1, 0]
 
-_SHOW_ELEMENT = NodeFilter.SHOW_ELEMENT
-_SHOW_ALL = NodeFilter.SHOW_ALL
-_SHOW_TEXT = NodeFilter.SHOW_TEXT
-_SHOW_COMMENT = NodeFilter.SHOW_COMMENT
+_SHOW_ELEMENT: Final[int] = NodeFilter.SHOW_ELEMENT
+_SHOW_ALL: Final[int] = NodeFilter.SHOW_ALL
+_SHOW_TEXT: Final[int] = NodeFilter.SHOW_TEXT
+_SHOW_COMMENT: Final[int] = NodeFilter.SHOW_COMMENT
 
 _RANGE_CASES: list[dict[str, Any]] = [
     {
@@ -579,8 +579,8 @@ _RANGE_CASES: list[dict[str, Any]] = [
     },
 ]
 
-_TRAV_ROOT = [0]
-_SECT_ROOT = [0]
+_TRAV_ROOT: Final[list[int]] = [0]
+_SECT_ROOT: Final[list[int]] = [0]
 
 _TRAVERSAL_CASES: list[dict[str, Any]] = [
     {
@@ -867,19 +867,19 @@ _DECLARATIVE_CASES: Final[list[dict[str, Any]]] = [
 ]
 
 _CROSS: Final[str] = "<div><p>aa<b>bb</b>cc</p><p>dd<i>ii</i>ee</p></div>"
-_CROSS_T_AA = [1, 0, 0, 0]
-_CROSS_T_CC = [1, 0, 0, 2]
-_CROSS_T_BB = [1, 0, 0, 1, 0]
-_CROSS_T_DD = [1, 0, 1, 0]
-_CROSS_T_EE = [1, 0, 1, 2]
+_CROSS_T_AA: Final[list[int]] = [1, 0, 0, 0]
+_CROSS_T_CC: Final[list[int]] = [1, 0, 0, 2]
+_CROSS_T_BB: Final[list[int]] = [1, 0, 0, 1, 0]
+_CROSS_T_DD: Final[list[int]] = [1, 0, 1, 0]
+_CROSS_T_EE: Final[list[int]] = [1, 0, 1, 2]
 _CMT: Final[str] = "<div><p>a</p><!--note--><span>b</span><p>c</p></div>"
-_CMT_DIV = [1, 0]
+_CMT_DIV: Final[list[int]] = [1, 0]
 _DEEP: Final[str] = (
     "<div id=a><p id=p1>x<b id=b1>y</b>z</p>"
     "<ul id=u><li id=l1>1</li><li id=l2>2<em id=e>e</em></li></ul>"
     "<span id=sp>s</span></div>"
 )
-_DEEP_ROOT = [1, 0]
+_DEEP_ROOT: Final[list[int]] = [1, 0]
 
 _RANGE_CASES += [
     {

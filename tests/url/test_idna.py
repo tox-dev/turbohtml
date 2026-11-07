@@ -9,7 +9,7 @@ import pytest
 from turbohtml._html import _url_to_ascii
 from turbohtml.extract import normalize_url
 
-_VECTORS = (
+_VECTORS: Final[Path] = (
     Path(__file__).parents[1]
     / "conformance"
     / "unicodetools"
@@ -102,12 +102,12 @@ def _conforms(row: tuple[str, str, bool]) -> bool:
 # The URL Standard runs ToASCII with VerifyDnsLength, CheckHyphens, and UseSTD3ASCIIRules off, so the vectors' status
 # codes for those flags (A4_1/A4_2, V2/V3, U1) are not errors here; a row with any other code is one the WHATWG host
 # parser rejects.
-_IGNORED_STATUS: Final = frozenset({"A4_1", "A4_2", "V2", "V3", "U1"})
+_IGNORED_STATUS: Final[frozenset[str]] = frozenset({"A4_1", "A4_2", "V2", "V3", "U1"})
 
 
 # RFC 3492 section 7.1 sample strings whose label is all lowercase (ToASCII lowercases first, so the mixed-case samples
 # would encode a different label); each pins the punycode of a real script against the encoder.
-_RFC_SAMPLES = {
+_RFC_SAMPLES: Final[dict[str, str]] = {
     "ليهمابتكلموشعربي؟": "xn--egbpdaj6bu4bxfgehfvwxn",
     "他们为什么不说中文": "xn--ihqwcrb4cv8a8dqg056pqjye",
     "hello": "hello",

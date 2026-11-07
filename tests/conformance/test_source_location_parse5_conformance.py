@@ -5,7 +5,7 @@ import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # drives the committed parse5 Node runner over a fixed argv, not external input
 from operator import itemgetter
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Final, TypedDict
 
 import pytest
 
@@ -16,10 +16,10 @@ if TYPE_CHECKING:
 
     from turbohtml._internal._locations import SourceSpan
 
-_SUBMODULE = Path(__file__).parent / "parse5"
-_DATA = _SUBMODULE / "test" / "data" / "location-info"
-_RUNNER = Path(__file__).parents[2] / "tools" / "bench" / "node" / "parse5_location_runner.js"
-_CORPORA = ("cern", "dx", "github-parse5", "whatwg-html", "wiki-42")
+_SUBMODULE: Final[Path] = Path(__file__).parent / "parse5"
+_DATA: Final[Path] = _SUBMODULE / "test" / "data" / "location-info"
+_RUNNER: Final[Path] = Path(__file__).parents[2] / "tools" / "bench" / "node" / "parse5_location_runner.js"
+_CORPORA: Final[tuple[str, ...]] = ("cern", "dx", "github-parse5", "whatwg-html", "wiki-42")
 
 Span = tuple[int, int, int, int, int, int]
 

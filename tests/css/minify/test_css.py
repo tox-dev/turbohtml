@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     from _pytest.mark.structures import ParameterSet
 
-_NEWLY = CSSMinify(baseline=2021)
+_NEWLY: Final[CSSMinify] = CSSMinify(baseline=2021)
 
 
 @pytest.mark.parametrize(
@@ -2270,7 +2270,7 @@ def test_minify_css_math_preserves_signed_zero(source: str, expected: str) -> No
     assert minify_css(source) == expected
 
 
-_HASH_FILLER = "".join(f"--v{index}:{index};" for index in range(40))
+_HASH_FILLER: Final[str] = "".join(f"--v{index}:{index};" for index in range(40))
 
 
 @pytest.mark.parametrize(

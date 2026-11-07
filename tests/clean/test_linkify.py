@@ -1473,7 +1473,7 @@ def test_bare_address_still_gets_the_mailto_prefix() -> None:
     assert (span.text, span.url) == ("a@b.com", "mailto:a@b.com")
 
 
-_US_DETECTOR: Final = LinkDetector(phones=PhoneNumbers(regions=("US",)))
+_US_DETECTOR: Final[LinkDetector] = LinkDetector(phones=PhoneNumbers(regions=("US",)))
 
 
 @pytest.mark.parametrize("lane", [pytest.param(lane, id=f"lane-{lane}") for lane in range(16)])
@@ -1666,7 +1666,7 @@ def test_unique_on_text_without_links_is_empty() -> None:
     assert LinkDetector().find("nothing here", unique=True) == []
 
 
-_US: Final = PhoneNumbers(regions=("US",))
+_US: Final[PhoneNumbers] = PhoneNumbers(regions=("US",))
 
 
 def test_acceptance_case() -> None:

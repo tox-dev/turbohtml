@@ -7,7 +7,7 @@ from typing import Any, Final
 
 import pytest
 
-_ROOT = Path(__file__).resolve().parents[1]
+_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "tools"))
 
 from bench.migration import emit_migration_feeds  # ruff:ignore[module-import-not-at-top-of-file]

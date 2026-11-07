@@ -8,7 +8,7 @@ import pytest
 from turbohtml import CData, Comment, Element, Html, Indent, Minify, Text, parse, parse_fragment
 from turbohtml.clean import CSSMinify, JSMinify
 
-_RAW_TEXT_TAGS: Final = ("script", "style", "xmp", "iframe", "noembed", "noframes", "plaintext")
+_RAW_TEXT_TAGS: Final[tuple[str, ...]] = ("script", "style", "xmp", "iframe", "noembed", "noframes", "plaintext")
 
 
 @pytest.mark.parametrize("tag", _RAW_TEXT_TAGS)

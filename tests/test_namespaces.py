@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from typing import Final
+
 import pytest
 
 import turbohtml
 from turbohtml import clean, extract, query
 
-_EXTRACT_RECORDS = ("Article", "Link", "MicrodataItem", "RdfaItem", "StructuredData")
-_QUERY_SURFACE = (
+_EXTRACT_RECORDS: Final[tuple[str, ...]] = ("Article", "Link", "MicrodataItem", "RdfaItem", "StructuredData")
+_QUERY_SURFACE: Final[tuple[str, ...]] = (
     "DEBUG",
     "Matcher",
     "Matching",
@@ -22,7 +24,7 @@ _QUERY_SURFACE = (
     "select",
     "select_one",
 )
-_CLEAN_SANITIZE = (
+_CLEAN_SANITIZE: Final[tuple[str, ...]] = (
     "DEFAULT_ATTRIBUTES",
     "DEFAULT_SCHEMES",
     "DEFAULT_TAGS",
@@ -31,7 +33,7 @@ _CLEAN_SANITIZE = (
     "Sanitizer",
     "sanitize",
 )
-_CLEAN_LINKIFY = (
+_CLEAN_LINKIFY: Final[tuple[str, ...]] = (
     "DEFAULT_PHONE_LABELS",
     "LinkCandidate",
     "LinkDetector",

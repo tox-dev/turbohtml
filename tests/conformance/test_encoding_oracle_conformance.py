@@ -35,7 +35,7 @@ from turbohtml.detect import Detection, EncodingDetector, detect
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-_ORACLES: Final = Path(__file__).parent / "oracles"
+_ORACLES: Final[Path] = Path(__file__).parent / "oracles"
 
 # The sweeps below are deterministic; pinning their size keeps a refactor from quietly narrowing the differential.
 _DECODE_CASES: Final[int] = 442176

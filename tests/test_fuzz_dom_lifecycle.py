@@ -80,7 +80,7 @@ if TYPE_CHECKING:
 
     from turbohtml import Node
 
-_BROKEN: Final = ((LifecycleStep(0, "element", "ok", (0, 0, 1, 0)),), ())
+_BROKEN: Final[tuple[tuple[LifecycleStep], tuple[()]]] = ((LifecycleStep(0, "element", "ok", (0, 0, 1, 0)),), ())
 
 
 @pytest.mark.parametrize(
@@ -264,7 +264,7 @@ def test_tree_verify_rejects_a_non_node() -> None:
         _tree_verify(object())  # ty: ignore[invalid-argument-type] - the hook validates its argument at runtime
 
 
-_SEEDS: Final = dom_lifecycle_seeds()[::8]  # the seeds run each opcode over 8 slots
+_SEEDS: Final[list[str]] = dom_lifecycle_seeds()[::8]  # the seeds run each opcode over 8 slots
 
 
 def test_dom_lifecycle_race_matches_the_serial_run() -> None:

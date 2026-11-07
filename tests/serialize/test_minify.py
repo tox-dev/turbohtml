@@ -300,7 +300,7 @@ def test_omit_keeps_end_tag_outside_required_ancestor(source: str, expected: str
     assert parse(once).serialize(Html(layout=Minify())) == once
 
 
-_PHRASING_PARENTS: Final = ["span", "label", "q", "sup", "ruby", "option", "slot", "picture", "my-el", "del"]
+_PHRASING_PARENTS: Final[list[str]] = ["span", "label", "q", "sup", "ruby", "option", "slot", "picture", "my-el", "del"]
 
 
 @pytest.mark.parametrize("child", ["p", "li", "dd"])
@@ -518,7 +518,7 @@ def test_foreign_end_tags_kept() -> None:
     assert "</svg>" in out
 
 
-_CSS = CSSMinify()
+_CSS: Final[CSSMinify] = CSSMinify()
 
 
 def css_frag(source: str, *, minify_css: CSSMinify | None = _CSS, unquote_attributes: bool = True) -> str:

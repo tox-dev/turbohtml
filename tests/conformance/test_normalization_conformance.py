@@ -21,7 +21,9 @@ _INVARIANTS: Final[dict[NormalizationForm, tuple[tuple[int, tuple[int, ...]], ..
     "NFKD": ((4, (0, 1, 2, 3, 4)),),
 }
 
-_ORACLE = Path(__file__).parent / "unicodetools" / "unicodetools" / "data" / "ucd" / "dev" / "NormalizationTest.txt"
+_ORACLE: Final[Path] = (
+    Path(__file__).parent / "unicodetools" / "unicodetools" / "data" / "ucd" / "dev" / "NormalizationTest.txt"
+)
 if not _ORACLE.exists():  # pragma: no cover
     _HINT = (
         "submodule tests/conformance/unicodetools not checked out; "

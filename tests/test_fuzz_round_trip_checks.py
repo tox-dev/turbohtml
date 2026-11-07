@@ -1648,7 +1648,7 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
-_TARGETS: Final = content_targets()
+_TARGETS: Final[tuple[Target, ...]] = content_targets()
 
 
 @pytest.mark.parametrize("target", _TARGETS, ids=lambda target: target.name)
@@ -1747,7 +1747,7 @@ def test_content_url_rejects_unstable_reparse() -> None:
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
-_DOMAINS: Final = (
+_DOMAINS: Final[tuple[str, ...]] = (
     "dom-construction",
     "dom-elementtree",
     "dom-traversal",
@@ -1834,7 +1834,7 @@ def test_dom_elementtree_without_lxml(mocker: MockerFixture) -> None:
     ))
 
 
-_UNPLACED: Final = ((None, None, None),) * 3
+_UNPLACED: Final[tuple[tuple[None, None, None], ...]] = ((None, None, None),) * 3
 
 
 def test_atheris_parser_document_output() -> None:

@@ -3,16 +3,17 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from typing import Final
 
 import pytest
 
-_ROOT = Path(__file__).resolve().parents[1]
+_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "tools"))
 
 from bench.docs_feeds import TABLES, Combined  # ruff:ignore[module-import-not-at-top-of-file]
 from bench.operations import OPERATIONS  # ruff:ignore[module-import-not-at-top-of-file]
 
-_GUIDE = _ROOT / "docs" / "development" / "performance.rst"
+_GUIDE: Final[Path] = _ROOT / "docs" / "development" / "performance.rst"
 _REFERENCED = sorted(set(re.findall(r"bench/([\w-]+)\.json", _GUIDE.read_text(encoding="utf-8"))))
 
 

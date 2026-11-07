@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Final
 
 import pytest
 
-_ROOT = Path(__file__).resolve().parents[1]
+_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "tools"))
 
 from bench.stats import (  # ruff:ignore[module-import-not-at-top-of-file]

@@ -8,8 +8,8 @@ import pytest
 
 from turbohtml.clean import LinkDetector
 
-_SUBMODULE: Final = Path(__file__).parent / "linkify-it"
-_FIXTURES: Final = _SUBMODULE / "test" / "fixtures"
+_SUBMODULE: Final[Path] = Path(__file__).parent / "linkify-it"
+_FIXTURES: Final[Path] = _SUBMODULE / "test" / "fixtures"
 
 # The corpus is a vendored data submodule: the dedicated "conformance" CI job checks it out, so its absence is a setup
 # error, not a reason to skip -- a silent skip would let the whole suite vanish.
@@ -22,7 +22,7 @@ if not _FIXTURES.exists():  # pragma: no cover
 
 # Where turbohtml deliberately answers differently, keyed by the fixture line, valued as (turbohtml's first match or
 # None, why). Each reason is a documented design boundary, not an unfixed defect.
-_DEVIATIONS: Final = {
+_DEVIATIONS: Final[dict[str, tuple[None, str] | tuple[str, str]]] = {
     "//localhost": (None, "a dotless authority needs its scheme written"),
     "//test.123": (None, "a numeric top-level label needs its scheme written"),
     "//[2001:db8:0:0:0:0:2:1]/abc": (None, "an IP literal needs its scheme written"),
@@ -88,8 +88,8 @@ def _first(text: str) -> str | None:
     return spans[0].text if spans else None
 
 
-_LINKS: Final = _link_cases()
-_NOT_LINKS: Final = [line for line in _lines("not_links.txt") if line.strip()]
+_LINKS: Final[list[tuple[str, str]]] = _link_cases()
+_NOT_LINKS: Final[list[str]] = [line for line in _lines("not_links.txt") if line.strip()]
 
 
 @pytest.mark.parametrize(("text", "expected"), [pytest.param(*case, id=case[0]) for case in _LINKS])

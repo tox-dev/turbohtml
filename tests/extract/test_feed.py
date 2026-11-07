@@ -694,7 +694,7 @@ def test_feed_ignores_non_item_children() -> None:
     assert [entry.title for entry in result.entries] == ["real"]
 
 
-_RSS: Final = Feed(
+_RSS: Final[Feed] = Feed(
     "rss",
     "Example Engineering Blog",
     "https://blog.example/",
@@ -854,7 +854,7 @@ _XML_RSS: Final[str] = """<?xml version="1.0"?>
 </item>
 </channel></rss>"""
 
-_XML_RSS_FEED: Final = Feed(
+_XML_RSS_FEED: Final[Feed] = Feed(
     "rss",
     "Feed title",
     "https://example.com/",

@@ -25,11 +25,11 @@ if TYPE_CHECKING:
 
     from turbohtml import Node
 
-SHOW_ELEMENT = NodeFilter.SHOW_ELEMENT
-SHOW_TEXT = NodeFilter.SHOW_TEXT
-_ACCEPT = NodeFilter.FILTER_ACCEPT
-_REJECT = NodeFilter.FILTER_REJECT
-_SKIP = NodeFilter.FILTER_SKIP
+SHOW_ELEMENT: Final[int] = NodeFilter.SHOW_ELEMENT
+SHOW_TEXT: Final[int] = NodeFilter.SHOW_TEXT
+_ACCEPT: Final[int] = NodeFilter.FILTER_ACCEPT
+_REJECT: Final[int] = NodeFilter.FILTER_REJECT
+_SKIP: Final[int] = NodeFilter.FILTER_SKIP
 
 
 @pytest.fixture

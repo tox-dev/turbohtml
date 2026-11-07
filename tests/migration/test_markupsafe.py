@@ -405,7 +405,7 @@ def test_escape_formatter_is_public_and_subclassable() -> None:
     assert seen == ["<x>"]
 
 
-_MIGRATION_SCRIPT = dedent(
+_MIGRATION_SCRIPT: Final[str] = dedent(
     """
     import sys, types
     import turbohtml.migration.markupsafe as tm

@@ -29,7 +29,7 @@ if phonenumbers.__version__ != LIBPHONENUMBER_TAG.removeprefix("v"):  # pragma: 
     )
     raise RuntimeError(_MISMATCH)
 
-_TYPES: Final = {
+_TYPES: Final[dict[int, PhoneType]] = {
     PhoneNumberType.FIXED_LINE: PhoneType.FIXED_LINE,
     PhoneNumberType.MOBILE: PhoneType.MOBILE,
     PhoneNumberType.FIXED_LINE_OR_MOBILE: PhoneType.FIXED_LINE_OR_MOBILE,
@@ -151,7 +151,7 @@ def test_non_geographic_entities_are_found_without_a_region(country_code: int) -
     ] == [(phonenumbers.format_number(number, PhoneNumberFormat.E164), "001")]
 
 
-_STYLES: Final = {
+_STYLES: Final[dict[PhoneFormat, int]] = {
     PhoneFormat.E164: PhoneNumberFormat.E164,
     PhoneFormat.INTERNATIONAL: PhoneNumberFormat.INTERNATIONAL,
     PhoneFormat.NATIONAL: PhoneNumberFormat.NATIONAL,

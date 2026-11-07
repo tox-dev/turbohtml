@@ -799,7 +799,7 @@ _PATH_DOC: Final[str] = (
     "</body></html>"
 )
 
-_PATH_DOCUMENT = turbohtml.parse(_PATH_DOC)
+_PATH_DOCUMENT: Final[Document] = turbohtml.parse(_PATH_DOC)
 
 
 def _every_element(document: Document) -> list[Element]:
@@ -1305,7 +1305,7 @@ def test_node_set_variable_rejects_unsupported_values(
         variable_doc.xpath("$items", items=make_items(variable_doc))  # ty: ignore[invalid-argument-type]  # deliberately wrong value type
 
 
-_LXML_DOCS: Final = {
+_LXML_DOCS: Final[dict[str, str]] = {
     "article": (
         "<!doctype html><html><head><title>T</title></head><body>"
         '<main><article id="a1"><h2>One</h2><p>p1</p><p class="lead">p2</p></article>'
@@ -1321,7 +1321,7 @@ _LXML_DOCS: Final = {
     ),
 }
 
-_LXML_EXPRS: Final = [
+_LXML_EXPRS: Final[list[str]] = [
     "//p",
     "//a",
     "//a/@href",

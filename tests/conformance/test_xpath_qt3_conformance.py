@@ -17,8 +17,8 @@ if TYPE_CHECKING:
     from _pytest.mark.structures import ParameterSet
 
 _QT3: Final[str] = "{http://www.w3.org/2010/09/qt-fots-catalog}"
-_ROOT = Path(__file__).parent / "qt3tests"
-_CATALOG = _ROOT / "catalog.xml"
+_ROOT: Final[Path] = Path(__file__).parent / "qt3tests"
+_CATALOG: Final[Path] = _ROOT / "catalog.xml"
 
 if not _CATALOG.exists():
     _MSG = (
@@ -59,7 +59,7 @@ _GRAMMAR_MARKERS = (
 
 # fn:matches / fn:replace take Python's re syntax, so XSD-only constructs and counted repeats too large to compile are
 # out of scope.
-_RUNTIME_REGEX_ERRORS = (
+_RUNTIME_REGEX_ERRORS: Final[tuple[str, ...]] = (
     "bad escape",
     "bad character range",
     "invalid group reference",
@@ -151,7 +151,7 @@ def load_environments() -> dict[str, Environment]:
     return environments
 
 
-_ENVIRONMENTS = load_environments()
+_ENVIRONMENTS: Final[dict[str, Environment]] = load_environments()
 
 
 def dependency_reason(case: ET.Element) -> str | None:

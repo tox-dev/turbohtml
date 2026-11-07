@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 _NS: Final[str] = 'xmlns="http://relaxng.org/ns/structure/1.0"'
 _ELEMENT: Final[str] = f'<element {_NS} name="foo"><empty/></element>'
-_LONG: Final = "p" * 260
+_LONG: Final[str] = "p" * 260
 _START_FOO: Final[str] = f'<grammar {_NS}><start><element name="foo"><empty/></element></start></grammar>'
 
 

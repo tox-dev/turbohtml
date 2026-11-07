@@ -18,7 +18,7 @@ _DOC: Final[str] = (
     '<my-widget data-k="v" lang="en-US">w</my-widget>'
     "</section>"
 )
-_NON_OVERLAPPING_NEEDLE: Final = "".join(chr(0x100 + index) for index in range(70))
+_NON_OVERLAPPING_NEEDLE: Final[str] = "".join(chr(0x100 + index) for index in range(70))
 
 
 def _sel(html: str, selector: str) -> list[str]:
@@ -1131,7 +1131,7 @@ _CSS_PATH_DOC: Final[str] = (
 )
 
 
-_CSS_PATH_DOCUMENT = parse(_CSS_PATH_DOC)
+_CSS_PATH_DOCUMENT: Final[Document] = parse(_CSS_PATH_DOC)
 
 
 def _every_element(document: Document) -> list[Element]:

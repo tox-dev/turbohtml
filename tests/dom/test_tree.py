@@ -59,7 +59,7 @@ def test_hooks_reject_non_str(call: Callable[[], object]) -> None:
 # rarer operand value (a non-newline after <pre>, a hidden-input type with a low-ASCII
 # byte, an annotation-xml encoding that is not "text/html", an attribute name long
 # enough to fill the 128-byte serialization sort buffer, ...).
-_LONG_NAME = "z" * 130
+_LONG_NAME: Final[str] = "z" * 130
 
 
 @pytest.mark.parametrize(

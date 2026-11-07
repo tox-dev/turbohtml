@@ -3,10 +3,11 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Final
 
 import pytest
 
-_HERE = Path(__file__).resolve().parent
+_HERE: Final[Path] = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parents[1] / "tools"))
 
 

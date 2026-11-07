@@ -13,7 +13,7 @@ from turbohtml import Node, XPath
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_STUBS: Final = Path(__file__).parents[3] / "src" / "turbohtml" / "_stubs"
+_STUBS: Final[Path] = Path(__file__).parents[3] / "src" / "turbohtml" / "_stubs"
 _NAMES: Final[dict[str, type]] = {"Node": Node, "str": str, "float": float, "bool": bool}
 _DOCUMENT: Final = turbohtml.parse("<p>a</p><!--c--><p>b</p><?pi x?>")
 _EXPRESSIONS: Final = [

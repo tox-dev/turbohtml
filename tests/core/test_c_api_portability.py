@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Final
 
 import pytest
 
-_C_ROOT = Path(__file__).parents[2] / "src" / "turbohtml" / "_c"
-_COMPAT_HEADER = _C_ROOT / "core" / "pycompat.h"
+_C_ROOT: Final[Path] = Path(__file__).parents[2] / "src" / "turbohtml" / "_c"
+_COMPAT_HEADER: Final[Path] = _C_ROOT / "core" / "pycompat.h"
 
 # the wrapper each guarded spelling must be reached through, and the pattern finding a direct use
 _WRAPPERS = {

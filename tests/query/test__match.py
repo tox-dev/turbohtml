@@ -249,7 +249,7 @@ def test_closest_walks_up() -> None:
     assert found.tag == "div"
 
 
-_ORACLE_DOCS: Final = {
+_ORACLE_DOCS: Final[dict[str, str]] = {
     "article": (
         '<!doctype html><html lang="en"><head><title>T</title></head><body>'
         '<div id="div" class="foo bar">'
@@ -287,7 +287,7 @@ _ORACLE_DOCS: Final = {
     ),
 }
 
-_ORACLE_SELECTORS: Final = (
+_ORACLE_SELECTORS: Final[tuple[str, ...]] = (
     "a:active",
     ".foo",
     "a.bar",

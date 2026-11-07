@@ -170,8 +170,10 @@ def test_shape_accepts_a_piece_of_exactly_128_bytes() -> None:
     assert Shape(kind="repeat", left="a" * 128).render(256) == "a" * 256
 
 
-_CASES: Final = generation_sweep(encoding_grammar(), budget=GenerationBudget(nodes=32, steps=128))
-_NAMES: Final = [production.name for production in encoding_grammar().productions]
+_CASES: Final[tuple[Generated, ...]] = generation_sweep(
+    encoding_grammar(), budget=GenerationBudget(nodes=32, steps=128)
+)
+_NAMES: Final[list[str]] = [production.name for production in encoding_grammar().productions]
 
 
 @pytest.mark.parametrize("case", _CASES, ids=_NAMES)
@@ -329,8 +331,8 @@ def test_encoding_structure_cli_errors(tmp_path: Path, arguments: list[str]) -> 
     assert error.value.code == 2
 
 
-_GRAMMAR: Final = css_grammar()
-_SWEEP: Final = generation_sweep(_GRAMMAR, budget=GenerationBudget(nodes=512, steps=128))
+_GRAMMAR: Final[Grammar] = css_grammar()
+_SWEEP: Final[tuple[Generated, ...]] = generation_sweep(_GRAMMAR, budget=GenerationBudget(nodes=512, steps=128))
 _PREFIX: Final[bytes] = b":root{--x:red;--y:red;--z:red;--u:red;}@keyframes v{from{opacity:0}}"
 
 
@@ -489,8 +491,12 @@ def test_css_complete_disabled_alternative_fails_floor() -> None:
         assert_production_floors((case for case in _SWEEP if name not in case.productions), (name,))
 
 
-_RAW_CASES: Final = generation_sweep(markdown_grammar(), budget=GenerationBudget(nodes=64, steps=256))
-_HTML_CASES: Final = generation_sweep(markdown_grammar(html=True), budget=GenerationBudget(nodes=64, steps=256))
+_RAW_CASES: Final[tuple[Generated, ...]] = generation_sweep(
+    markdown_grammar(), budget=GenerationBudget(nodes=64, steps=256)
+)
+_HTML_CASES: Final[tuple[Generated, ...]] = generation_sweep(
+    markdown_grammar(html=True), budget=GenerationBudget(nodes=64, steps=256)
+)
 
 
 @pytest.mark.parametrize("case", _RAW_CASES, ids=[production.name for production in markdown_grammar().productions])
@@ -809,7 +815,7 @@ def test_markdown_reader_drops_control_whitespace_beside_a_kept_copy() -> None:
         markdown_html_check("<p>\x1fa\x1fb</p>")
 
 
-_FUZZ_XML_STRUCTURE_GENERATION_CASES: Final = generation_sweep(
+_FUZZ_XML_STRUCTURE_GENERATION_CASES: Final[tuple[Generated, ...]] = generation_sweep(
     xml_grammar(), budget=GenerationBudget(nodes=30, steps=120)
 )
 
@@ -1370,13 +1376,15 @@ def test_triage_runner_keeps_release_dispatch(mocker: MockerFixture, tmp_path: P
     assert fuzz_main(["--mode", "release-diff", "--minutes", "0", "--crash-dir", str(tmp_path)]) == 0
 
 
-_FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR: Final = html_grammar_complete()
-_FUZZ_HTML_STRUCTURE_GENERATION_SWEEP: Final = generation_sweep(_FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR)
-_FUZZ_HTML_STRUCTURE_GENERATION_CASES: Final = (
+_FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR: Final[Grammar] = html_grammar_complete()
+_FUZZ_HTML_STRUCTURE_GENERATION_SWEEP: Final[tuple[Generated, ...]] = generation_sweep(
+    _FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR
+)
+_FUZZ_HTML_STRUCTURE_GENERATION_CASES: Final[tuple[Generated, ...]] = (
     *_FUZZ_HTML_STRUCTURE_GENERATION_SWEEP,
     *(html_generate(random.Random(seed)) for seed in range(64)),
 )
-_CASE_IDS: Final = [f"production-{index}" for index in range(len(_FUZZ_HTML_STRUCTURE_GENERATION_CASES))]
+_CASE_IDS: Final[list[str]] = [f"production-{index}" for index in range(len(_FUZZ_HTML_STRUCTURE_GENERATION_CASES))]
 
 
 @pytest.fixture
@@ -2055,8 +2063,8 @@ def test_generation_raw_bytes_survive_export(tmp_path: Path) -> None:
     assert (tmp_path / hashlib.sha256(b"\xff").hexdigest()).read_bytes() == b"\xff"
 
 
-_FUZZ_STRUCTURE_GENERATION_HTML_CASES: Final = generation_sweep(html_grammar())
-_HTML_INPUTS: Final = (
+_FUZZ_STRUCTURE_GENERATION_HTML_CASES: Final[tuple[Generated, ...]] = generation_sweep(html_grammar())
+_HTML_INPUTS: Final[tuple[Generated, ...]] = (
     *_FUZZ_STRUCTURE_GENERATION_HTML_CASES,
     *(fuzz_structure_generation_html_generate(random.Random(seed)) for seed in range(128)),
 )

@@ -2,18 +2,19 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Final
 
 import pytest
 
-_ROOT = Path(__file__).resolve().parents[1]
+_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "tools"))
 
 from bench.migration import discover_labels  # ruff:ignore[module-import-not-at-top-of-file]
 from bench.notes import NOTES  # ruff:ignore[module-import-not-at-top-of-file]
 from bench.operations import OPERATIONS  # ruff:ignore[module-import-not-at-top-of-file]
 
-_COMPETITORS = _ROOT / "tools" / "bench" / "competitors"
-_PAIRS = [(operation, party) for operation, parties in NOTES.items() for party in parties]
+_COMPETITORS: Final[Path] = _ROOT / "tools" / "bench" / "competitors"
+_PAIRS: Final[list[tuple[str, str]]] = [(operation, party) for operation, parties in NOTES.items() for party in parties]
 
 
 @pytest.mark.parametrize("operation", sorted(NOTES), ids=sorted(NOTES))

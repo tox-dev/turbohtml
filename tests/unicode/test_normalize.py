@@ -19,7 +19,7 @@ _FORMS: Final[tuple[NormalizationForm, ...]] = ("NFC", "NFD", "NFKC", "NFKD")
 # (ligatures, superscript, fraction, Roman numeral, math bold, halfwidth katakana), a composition-excluded precomposed
 # character (U+0958, U+0344), cross-class mark reordering, and every Hangul shape (L/V/T jamo, LV and LVT syllables, an
 # LVT that gains no trailer, an LV that gains no vowel), plus an astral start and a code point past every table range.
-_VECTORS = [
+_VECTORS: Final[list[tuple[str, str, str, str, str]]] = [
     ("abc", "abc", "abc", "abc", "abc"),
     ("caf\u00e9", "caf\u00e9", "cafe\u0301", "caf\u00e9", "cafe\u0301"),
     ("\u00e9", "\u00e9", "e\u0301", "\u00e9", "e\u0301"),
@@ -59,10 +59,20 @@ _VECTORS = [
 # Combining sequences whose exact output shifts across Unicode versions but whose invariants do not, so they validate
 # the engine's reordering, composition, and blocking on every interpreter. The empty prefix yields mark-leading
 # sequences, so a lower-class mark can bubble to the front during reordering.
-_STARTERS = ("", "a", "e", "\u00c5", "\u1100", "\uac00", "\u2126", "\ufb01", "o")
-_MARKS = ("\u0301", "\u0316", "\u0323", "\u0308", "\u1161", "\u11a8", "\u0f71", "\u093c", "\u0344")
+_STARTERS: Final[tuple[str, ...]] = ("", "a", "e", "\u00c5", "\u1100", "\uac00", "\u2126", "\ufb01", "o")
+_MARKS: Final[tuple[str, ...]] = (
+    "\u0301",
+    "\u0316",
+    "\u0323",
+    "\u0308",
+    "\u1161",
+    "\u11a8",
+    "\u0f71",
+    "\u093c",
+    "\u0344",
+)
 
-_CODEPOINTS = [cp for cp in range(0x110000) if not 0xD800 <= cp <= 0xDFFF]
+_CODEPOINTS: Final[list[int]] = [cp for cp in range(0x110000) if not 0xD800 <= cp <= 0xDFFF]
 
 
 @pytest.mark.parametrize(

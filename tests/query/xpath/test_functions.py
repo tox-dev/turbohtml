@@ -33,7 +33,7 @@ HTML: Final[str] = (
 _LONG_NEEDLE: Final[str] = f"{'a' * 65}ba"
 
 
-_LATE_HAY: Final = "a" * 200 + _LONG_NEEDLE
+_LATE_HAY: Final[str] = "a" * 200 + _LONG_NEEDLE
 
 
 @pytest.fixture
@@ -1252,13 +1252,13 @@ def test_regex_coerces_arguments(expression: str, *, expected: bool) -> None:
     assert parse_xml("<root/>").xpath(expression) is expected
 
 
-_REGEX_TEST: Final = XPath("re:test($text, $pattern, $flags)")
+_REGEX_TEST: Final[XPath] = XPath("re:test($text, $pattern, $flags)")
 
 
-_REGEX_REPLACE: Final = XPath("re:replace($text, $pattern, $flags, $replacement)")
+_REGEX_REPLACE: Final[XPath] = XPath("re:replace($text, $pattern, $flags, $replacement)")
 
 
-_FN_REPLACE: Final = XPath("replace($text, $pattern, $replacement)")
+_FN_REPLACE: Final[XPath] = XPath("replace($text, $pattern, $replacement)")
 
 
 _PYTHON_FLAGS: Final = {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL, "x": re.VERBOSE}
@@ -1526,7 +1526,7 @@ def _python_regex(pattern: str, flags: str) -> re.Pattern[str]:
     return re.compile(pattern, python_flags)
 
 
-_FOLD_TEXTS: Final = tuple(
+_FOLD_TEXTS: Final[tuple[str, ...]] = tuple(
     map(
         chr,
         (

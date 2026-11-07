@@ -7,7 +7,7 @@ from typing import Final
 import pytest
 from fuzz.amplify import TARGETS, Regression, Shape, alphabet, load_regressions
 
-_COMMITTED: Final = Path(__file__).parents[1] / "tools" / "fuzz" / "amplify_regressions.json"
+_COMMITTED: Final[Path] = Path(__file__).parents[1] / "tools" / "fuzz" / "amplify_regressions.json"
 
 
 def test_committed_regressions_name_each_target_once() -> None:

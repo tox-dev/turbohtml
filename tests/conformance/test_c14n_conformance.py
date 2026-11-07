@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Final
 
 import pytest
 
 from turbohtml import Canonical, parse_xml
 
-_ROOT = Path(__file__).parent / "libxml2"
-_CORPUS = _ROOT / "test" / "c14n"
-_RESULTS = _ROOT / "result" / "c14n"
+_ROOT: Final[Path] = Path(__file__).parent / "libxml2"
+_CORPUS: Final[Path] = _ROOT / "test" / "c14n"
+_RESULTS: Final[Path] = _ROOT / "result" / "c14n"
 
 if not _CORPUS.is_dir():  # pragma: no cover
     _MSG = (
@@ -18,7 +19,7 @@ if not _CORPUS.is_dir():  # pragma: no cover
     )
     raise RuntimeError(_MSG)
 
-_MODES = {
+_MODES: Final[dict[str, Canonical]] = {
     "without-comments": Canonical(),
     "with-comments": Canonical(with_comments=True),
     "exc-without-comments": Canonical(exclusive=True),

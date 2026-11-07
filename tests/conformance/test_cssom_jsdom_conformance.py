@@ -17,7 +17,7 @@ from turbohtml import parse
 from turbohtml.cssom import computed_style
 from turbohtml.query import select_one
 
-_RUNNER = Path(__file__).resolve().parents[2] / "tools" / "bench" / "node" / "cssom_jsdom_runner.js"
+_RUNNER: Final[Path] = Path(__file__).resolve().parents[2] / "tools" / "bench" / "node" / "cssom_jsdom_runner.js"
 
 
 class Check(NamedTuple):
@@ -496,8 +496,8 @@ def test_cssom_curated_shorthand_boundary(case_id: str, check: Check) -> None:
 
 
 _GRAMMAR: Final = css_grammar()
-_SWEEP: Final = generation_sweep(_GRAMMAR, budget=GenerationBudget(nodes=512, steps=128))
-_CASES: Final = (
+_SWEEP: Final[tuple[Generated, ...]] = generation_sweep(_GRAMMAR, budget=GenerationBudget(nodes=512, steps=128))
+_CASES: Final[tuple[Generated, ...]] = (
     *_SWEEP,
     *(css_generate(random.Random(seed)) for seed in range(64)),
     *(css_generate(random.Random(seed), 64, steps=12) for seed in range(32)),
@@ -514,7 +514,7 @@ _CASES: Final = (
     ),
 )
 _NODE: Final = shutil.which("node") or "node"
-_AST: Final = Path(__file__).resolve().parents[2] / "tools" / "bench" / "node" / "node_modules" / "css-tree"
+_AST: Final[Path] = Path(__file__).resolve().parents[2] / "tools" / "bench" / "node" / "node_modules" / "css-tree"
 
 
 @pytest.fixture(scope="module")

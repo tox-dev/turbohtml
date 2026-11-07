@@ -20,7 +20,9 @@ from turbohtml.detect import (
     detect_language,
 )
 
-_RUSSIAN_1251 = "Программирование помогает понять структуру вычислительных систем сегодня здесь.".encode("cp1251")
+_RUSSIAN_1251: Final[bytes] = "Программирование помогает понять структуру вычислительных систем сегодня здесь.".encode(
+    "cp1251"
+)
 
 
 @pytest.mark.parametrize(
@@ -658,7 +660,9 @@ def test_pure_ascii_agrees_with_the_parser() -> None:
     assert parse(b"plain ascii", detect_encoding=True).encoding == "windows-1252"
 
 
-_DETECTOR_RUSSIAN = "Программирование помогает понять структуру вычислительных систем сегодня здесь.".encode("cp1251")
+_DETECTOR_RUSSIAN: Final[bytes] = (
+    "Программирование помогает понять структуру вычислительных систем сегодня здесь.".encode("cp1251")
+)
 
 
 def test_chunked_feeds_equal_a_one_shot_detect() -> None:
@@ -909,8 +913,8 @@ def test_a_shift_code_before_the_escape_rules_out_iso_2022_jp(shift: int) -> Non
     assert detector.close() == detect(raw)
 
 
-_EMPTY_ENCODING_MATCH = EncodingMatch(encoding=None, confidence=0.0, language=None)
-_OPTIONS_RUSSIAN = "Привет мир, как дела".encode("cp1251")
+_EMPTY_ENCODING_MATCH: Final[EncodingMatch] = EncodingMatch(encoding=None, confidence=0.0, language=None)
+_OPTIONS_RUSSIAN: Final[bytes] = "Привет мир, как дела".encode("cp1251")
 
 
 @pytest.mark.parametrize(
@@ -979,8 +983,13 @@ def test_language_hint_without_positive_evidence_changes_nothing() -> None:
 
 
 # One detector result: (winner, certain, [(name, score)], had_bom). The ranker shapes and filters it.
-_SCORED = ("windows-1251", False, [("windows-1251", 60), ("koi8-r", 40)], False)
-_LANGUAGES = {"windows-1251": "ru", "koi8-r": "ru", "windows-1252": "en"}
+_SCORED: Final[tuple[str, bool, list[tuple[str, int]], bool]] = (
+    "windows-1251",
+    False,
+    [("windows-1251", 60), ("koi8-r", 40)],
+    False,
+)
+_LANGUAGES: Final[dict[str, str]] = {"windows-1251": "ru", "koi8-r": "ru", "windows-1252": "en"}
 
 
 def test_a_certain_result_is_one_candidate() -> None:

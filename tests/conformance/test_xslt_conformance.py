@@ -9,7 +9,7 @@ import pytest
 import turbohtml
 from turbohtml.transform import transform
 
-_CORPUS = Path(__file__).parent / "libxslt" / "tests"
+_CORPUS: Final[Path] = Path(__file__).parent / "libxslt" / "tests"
 
 if not _CORPUS.exists():  # pragma: no cover
     _MSG = (
@@ -37,7 +37,7 @@ def _iter_cases() -> list[tuple[str, Path]]:
     ]
 
 
-_CASES = _iter_cases()
+_CASES: Final[list[tuple[str, Path]]] = _iter_cases()
 
 
 def _output_method(stylesheet: str) -> str:

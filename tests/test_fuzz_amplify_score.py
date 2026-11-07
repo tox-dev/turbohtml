@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
-_SHAPE: Final = Shape(kind="repeat", left="ab")
+_SHAPE: Final[Shape] = Shape(kind="repeat", left="ab")
 _MILLISECOND: Final[float] = 0.001
 
 

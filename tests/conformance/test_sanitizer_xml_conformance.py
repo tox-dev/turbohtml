@@ -9,7 +9,7 @@ import pytest
 from turbohtml import Element, parse_fragment, parse_xml
 from turbohtml.clean import Policy, sanitize
 
-_FIXTURE = Path(__file__).parent / "DOMPurify" / "test" / "fixtures" / "expect.mjs"
+_FIXTURE: Final[Path] = Path(__file__).parent / "DOMPurify" / "test" / "fixtures" / "expect.mjs"
 if not _FIXTURE.exists():  # pragma: no cover
     _MSG = (
         "submodule tests/conformance/DOMPurify not checked out; "
@@ -33,12 +33,12 @@ def _load_payloads() -> list[str]:
         payloads.append(entry["payload"])
 
 
-_PAYLOADS = _load_payloads()
-_IDS = [f"{position:03d}" for position in range(len(_PAYLOADS))]
+_PAYLOADS: Final[list[str]] = _load_payloads()
+_IDS: Final[list[str]] = [f"{position:03d}" for position in range(len(_PAYLOADS))]
 
 # A permissive allowlist so most of each vector flows through to the serializer: the non-configurable safety baseline,
 # not a narrow tag set, is what must keep the output inert, and svg/math are kept so foreign vectors are exercised too.
-_XML = Policy(
+_XML: Final[Policy] = Policy(
     tags=frozenset({
         "a", "b", "i", "em", "strong", "p", "div", "span", "br", "img", "ul", "ol", "li", "table", "tr", "td",
         "svg", "rect", "circle", "g", "use", "math", "mi", "mo", "mtext", "annotation-xml", "foreignObject",
@@ -52,7 +52,7 @@ _XML = Policy(
 # then trims: only after both does a scheme resolve, so a leading U+00A0/U+2028 (neither) leaves a URL relative, hence
 # safe. Mirroring that trim is what keeps the check from flagging the exact vectors DOMPurify and turbohtml both keep.
 _URL_STRIP_ANY: Final[str] = "\t\n\r"
-_URL_TRIM_LEADING = "".join(chr(code) for code in range(0x21))
+_URL_TRIM_LEADING: Final[str] = "".join(chr(code) for code in range(0x21))
 
 
 def _attr_value(raw: object) -> str:

@@ -326,10 +326,10 @@ def test_check_is_valid_with_only_a_warning() -> None:
     assert (valid, [finding[1] for finding in findings]) == (True, ["warning"])
 
 
-_ERROR = ConformanceMessage("img-missing-alt", "error", "m", 1, 0)
+_ERROR: Final[ConformanceMessage] = ConformanceMessage("img-missing-alt", "error", "m", 1, 0)
 
 
-_WARNING = ConformanceMessage("missing-lang", "warning", "m", 1, 0)
+_WARNING: Final[ConformanceMessage] = ConformanceMessage("missing-lang", "warning", "m", 1, 0)
 
 
 def test_the_filter_keeps_only_the_named_severity_in_order() -> None:

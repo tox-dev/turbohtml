@@ -11,11 +11,11 @@ import pytest
 
 from turbohtml import HTMLParseError, parse_xml
 
-_DATA = Path(__file__).parent / "xml-conformance-suite" / "packages" / "test-data" / "xmlconf"
+_DATA: Final[Path] = Path(__file__).parent / "xml-conformance-suite" / "packages" / "test-data" / "xmlconf"
 
 # The leaf catalogs the top-level xmlconf.xml pulls in as external-entity includes. Listing
 # them directly sidesteps resolving those entities, and the set is stable under the pin.
-_CATALOGS = (
+_CATALOGS: Final[tuple[str, ...]] = (
     "xmltest/xmltest.xml",
     "japanese/japanese.xml",
     "sun/sun-valid.xml",
@@ -51,7 +51,7 @@ _NS_COLON: Final[str] = (
 
 # Cases that exercise a documented parse_xml limitation rather than a bug. Every entry is a
 # deliberate spec deviation argued in the reason; all other in-scope cases are hard assertions.
-_DEVIATIONS = {
+_DEVIATIONS: Final[dict[str, str]] = {
     "not-wf-sa-170": _ENCODING,
     "rmt-e2e-61": _ENCODING,
     "hst-lhs-007": _ENCODING,
@@ -161,7 +161,7 @@ def _load() -> list[object]:
     return params
 
 
-_CASES = _load()
+_CASES: Final[list[object]] = _load()
 
 
 @pytest.mark.parametrize(("source", "expect_raise"), _CASES)
