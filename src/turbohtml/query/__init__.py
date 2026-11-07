@@ -205,7 +205,7 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         """
         Get an attribute from the first element, or set it on every element.
 
-        :param name: the attribute name.
+        :param name: the attribute to read, or to set on every element.
         :param value: the value to set; omit to read instead.
         :returns: the attribute value when reading, or the query when setting.
         """
