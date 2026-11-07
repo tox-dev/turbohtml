@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _NS: Final[str] = 'xmlns="http://relaxng.org/ns/structure/1.0"'
-_FOO: Final[str] = f'<element {_NS} name="foo"><empty/></element>'
+_ELEMENT: Final[str] = f'<element {_NS} name="foo"><empty/></element>'
 _LONG: Final = "p" * 260
 _START_FOO: Final[str] = f'<grammar {_NS}><start><element name="foo"><empty/></element></start></grammar>'
 
@@ -31,7 +31,7 @@ def _verdicts(schema: RelaxNG, *documents: str) -> list[bool]:
     ("files", "documents", "expected"),
     [
         pytest.param(
-            {"main.rng": f'<externalRef {_NS} href="sub/x"/>', "sub/x": _FOO},
+            {"main.rng": f'<externalRef {_NS} href="sub/x"/>', "sub/x": _ELEMENT},
             ("<foo/>", "<bar/>"),
             [True, False],
             id="external-root",
@@ -39,7 +39,7 @@ def _verdicts(schema: RelaxNG, *documents: str) -> list[bool]:
         pytest.param(
             {
                 "main.rng": f'<element {_NS} name="r"><externalRef xml:base="sub/y" href="x"/></element>',
-                "sub/x": _FOO,
+                "sub/x": _ELEMENT,
             },
             ("<r><foo/></r>", "<r><bar/></r>"),
             [True, False],
@@ -51,20 +51,20 @@ def _verdicts(schema: RelaxNG, *documents: str) -> list[bool]:
                 '<externalRef href="x"/></group></group></group>',
                 "x": f'<element {_NS} name="bar"><empty/></element>',
                 "sub1/x": f'<element {_NS} name="bar"><empty/></element>',
-                "sub1/sub3/x": _FOO,
+                "sub1/sub3/x": _ELEMENT,
             },
             ("<foo/>", "<bar/>"),
             [True, False],
             id="xml-base-composed",
         ),
         pytest.param(
-            {"main.rng": f'<externalRef {_NS} href="x" ns="urn:example"/>', "x": _FOO},
+            {"main.rng": f'<externalRef {_NS} href="x" ns="urn:example"/>', "x": _ELEMENT},
             ('<foo xmlns="urn:example"/>', "<foo/>"),
             [True, False],
             id="external-ns-transferred",
         ),
         pytest.param(
-            {"main.rng": f'<group {_NS} ns="urn:example"><externalRef href="x"/></group>', "x": _FOO},
+            {"main.rng": f'<group {_NS} ns="urn:example"><externalRef href="x"/></group>', "x": _ELEMENT},
             ('<foo xmlns="urn:example"/>', "<foo/>"),
             [True, False],
             id="external-ns-inherited",
@@ -82,7 +82,7 @@ def _verdicts(schema: RelaxNG, *documents: str) -> list[bool]:
             {
                 "main.rng": f'<externalRef {_NS} href="sub/x"/>',
                 "sub/x": f'<externalRef {_NS} href="sub/x"/>',
-                "sub/sub/x": _FOO,
+                "sub/sub/x": _ELEMENT,
             },
             ("<foo/>", "<bar/>"),
             [True, False],
@@ -97,7 +97,7 @@ def _verdicts(schema: RelaxNG, *documents: str) -> list[bool]:
         pytest.param(
             {
                 "main.rng": f'<choice {_NS}><externalRef href="x"/><externalRef href="y"/></choice>',
-                "x": _FOO,
+                "x": _ELEMENT,
                 "y": f'<element {_NS} name="bar"><empty/></element>',
             },
             ("<foo/>", "<bar/>", "<baz/>"),
@@ -216,19 +216,19 @@ def test_relaxng_resources_accept(
             id="malformed-href",
         ),
         pytest.param(
-            {"main.rng": f'<grammar {_NS}><include/><start><externalRef href="x"/></start></grammar>', "x": _FOO},
+            {"main.rng": f'<grammar {_NS}><include/><start><externalRef href="x"/></start></grammar>', "x": _ELEMENT},
             ValueError,
             "missing the required href attribute",
             id="include-without-href-beside-reference",
         ),
         pytest.param(
-            {"main.rng": f'<choice {_NS}><externalRef/><externalRef href="x"/></choice>', "x": _FOO},
+            {"main.rng": f'<choice {_NS}><externalRef/><externalRef href="x"/></choice>', "x": _ELEMENT},
             ValueError,
             "missing the required href attribute",
             id="external-without-href-beside-reference",
         ),
         pytest.param(
-            {"main.rng": f'<externalRef {_NS} href="x#foo"/>', "x": _FOO},
+            {"main.rng": f'<externalRef {_NS} href="x#foo"/>', "x": _ELEMENT},
             ValueError,
             "must not contain a fragment identifier",
             id="fragment",
@@ -250,7 +250,7 @@ def test_relaxng_resources_accept(
             id="include-loop",
         ),
         pytest.param(
-            {"main.rng": f'<externalRef {_NS} href="x"/>', "x": f"<start {_NS}>{_FOO}</start>"},
+            {"main.rng": f'<externalRef {_NS} href="x"/>', "x": f"<start {_NS}>{_ELEMENT}</start>"},
             ValueError,
             "externalRef target is not a pattern",
             id="external-not-pattern",
@@ -262,7 +262,7 @@ def test_relaxng_resources_accept(
             id="external-foreign-root",
         ),
         pytest.param(
-            {"main.rng": f'<grammar {_NS}><include href="x"/></grammar>', "x": _FOO},
+            {"main.rng": f'<grammar {_NS}><include href="x"/></grammar>', "x": _ELEMENT},
             ValueError,
             "include target is not a grammar",
             id="include-not-grammar",
@@ -270,7 +270,7 @@ def test_relaxng_resources_accept(
         pytest.param(
             {
                 "main.rng": f'<grammar {_NS}><include href="x"><start><ref name="foo"/></start></include></grammar>',
-                "x": f'<grammar {_NS}><define name="foo">{_FOO}</define></grammar>',
+                "x": f'<grammar {_NS}><define name="foo">{_ELEMENT}</define></grammar>',
             },
             ValueError,
             "overrides start, which the included grammar does not define",
@@ -279,8 +279,8 @@ def test_relaxng_resources_accept(
         pytest.param(
             {
                 "main.rng": f'<grammar {_NS}><start><ref name="foo"/></start><include href="x"><div>'
-                f'<define name="foo">{_FOO}</define></div></include></grammar>',
-                "x": f'<grammar {_NS}><start>{_FOO}</start><define name="bar">{_FOO}</define></grammar>',
+                f'<define name="foo">{_ELEMENT}</define></div></include></grammar>',
+                "x": f'<grammar {_NS}><start>{_ELEMENT}</start><define name="bar">{_ELEMENT}</define></grammar>',
             },
             ValueError,
             "overrides define 'foo', which the included grammar does not define",
@@ -299,7 +299,7 @@ def test_relaxng_resources_accept(
             id="remote-href",
         ),
         pytest.param(
-            {"main.rng": f'<externalRef {_NS} href="sub"/>', "sub/x": _FOO},
+            {"main.rng": f'<externalRef {_NS} href="sub"/>', "sub/x": _ELEMENT},
             ValueError,
             "RELAX NG target is not a regular file",
             id="directory-target",
@@ -347,21 +347,21 @@ def test_relaxng_resources_need_base_url() -> None:
 def test_relaxng_resources_symlink_escape(tmp_path: Path) -> None:
     root: Final = tmp_path / "root"
     root.mkdir()
-    (tmp_path / "outside.rng").write_text(_FOO)
+    (tmp_path / "outside.rng").write_text(_ELEMENT)
     (root / "link.rng").symlink_to(tmp_path / "outside.rng")
     with pytest.raises(ValueError, match="RELAX NG path escapes include_root"):
         RelaxNG(f'<externalRef {_NS} href="link.rng"/>', base_url=str(root / "main.rng"), include_root=root)
 
 
 def test_relaxng_resources_without_root_follow_symlinks(tmp_path: Path) -> None:
-    (tmp_path / "x").write_text(_FOO)
+    (tmp_path / "x").write_text(_ELEMENT)
     (tmp_path / "link.rng").symlink_to(tmp_path / "x")
     schema: Final = RelaxNG(f'<externalRef {_NS} href="link.rng"/>', base_url=str(tmp_path / "main.rng"))
     assert _verdicts(schema, "<foo/>", "<bar/>") == [True, False]
 
 
 def test_relaxng_resources_file_urls(tmp_path: Path) -> None:
-    (tmp_path / "x y").write_text(_FOO)
+    (tmp_path / "x y").write_text(_ELEMENT)
     schema: Final = RelaxNG(
         parse_xml(f'<externalRef {_NS} href="{(tmp_path / "x y").as_uri()}"/>'),
         base_url=(tmp_path / "main.rng").as_uri(),
