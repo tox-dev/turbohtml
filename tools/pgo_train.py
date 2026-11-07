@@ -64,7 +64,7 @@ def _iterations(operation: object, case: object, budget: float) -> int:
     return min(_MAX_ITERATIONS, max(_MIN_ITERATIONS, round(budget / per_call)))
 
 
-def train() -> tuple[int, int]:
+def _train() -> tuple[int, int]:
     # Exercise every operation over its input set for an equal time slice; return the trained and skipped counts.
     trained = skipped = 0
     for _name, operation, load in training_corpus():
@@ -86,7 +86,7 @@ def train() -> tuple[int, int]:
 
 def main() -> None:
     # Run the training workload and report the coverage so a bare-checkout build's thin profile is visible.
-    trained, skipped = train()
+    trained, skipped = _train()
     print(f"pgo training: exercised {trained} operations, skipped {skipped} for a missing corpus")
 
 
