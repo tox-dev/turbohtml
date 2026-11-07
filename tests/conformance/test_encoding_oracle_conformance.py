@@ -22,6 +22,7 @@
 
 from __future__ import annotations
 
+import itertools
 import random
 import re
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the oracles are two vendored Rust binaries this suite builds and drives
@@ -277,12 +278,11 @@ def test_the_streaming_detector_matches_the_one_shot() -> None:
     # above runs on, so what chardetng proves about the one-shot answer this carries to the chunked path. Half the
     # sweep carries a TLD, whose scoring runs at close() over state that every feed contributed to.
     rng = random.Random(_STREAM_SEED)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a chunking seed, not a security decision
-    labels = _tld_labels()
-    divergent = []
+    options_cycle = itertools.cycle(option for label in _tld_labels() for option in (Detection(), Detection(tld=label)))
+    runs = []
     swept = 0
-    for raw in _detect_cases():
+    for raw, options in zip(_detect_cases(), options_cycle, strict=False):
         swept += 1
-        options = Detection(tld=labels[swept % len(labels)]) if swept % 2 else Detection()
         expected = detect(raw, options)
         for _ in range(2):
             detector = EncodingDetector(options)
@@ -291,8 +291,7 @@ def test_the_streaming_detector_matches_the_one_shot() -> None:
                 step = rng.randint(1, 6)
                 detector.feed(raw[position : position + step])
                 position += step
-            if detector.close() != expected:
-                divergent.append(raw.hex())
-                break
+            runs.append((raw.hex(), expected, detector.close()))
     assert swept > _DETECT_CASES, "the corpus shrank; a sweep that stops covering an input proves nothing"
-    assert not divergent, f"{len(divergent)} inputs detect differently when fed in chunks, first: {divergent[0]}"
+    divergent = [(raw_hex, want, got) for raw_hex, want, got in runs if got != want]
+    assert not divergent, f"{len(divergent)} inputs detect differently when fed in chunks, first: {divergent[0][0]}"

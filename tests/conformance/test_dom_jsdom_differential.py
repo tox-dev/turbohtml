@@ -1322,15 +1322,25 @@ def test_dom_matches_jsdom(kase: dict[str, Any], jsdom_results: dict[str, dict[s
     assert _run_turbo(kase) == oracle["result"]
 
 
-@pytest.mark.parametrize("kase", [pytest.param(case, id=case["id"]) for case in _DECLARATIVE_CASES])
+@pytest.mark.parametrize(
+    "kase", [pytest.param(case, id=case["id"]) for case in _DECLARATIVE_CASES if case["mode"] == "closed"]
+)
+def test_declarative_closed_shadow_is_unreachable(kase: dict[str, Any]) -> None:
+    # a closed root is created but unreachable through Element.shadow_root, by spec
+    host = parse(kase["html"], allow_declarative_shadow_roots=True).find(id=kase["host_id"])
+    assert host is not None
+    assert host.inner_html == kase["light_html"]
+    assert host.shadow_root is None
+
+
+@pytest.mark.parametrize(
+    "kase", [pytest.param(case, id=case["id"]) for case in _DECLARATIVE_CASES if case["mode"] == "open"]
+)
 def test_declarative_shadow_matches_spec(kase: dict[str, Any]) -> None:
     # jsdom 29 cannot parse declarative shadow roots, so the oracle is the WHATWG DSD algorithm's expected tree.
     host = parse(kase["html"], allow_declarative_shadow_roots=True).find(id=kase["host_id"])
     assert host is not None
     assert host.inner_html == kase["light_html"]
-    if kase["mode"] == "closed":  # a closed root is created but unreachable through Element.shadow_root, by spec
-        assert host.shadow_root is None
-        return
     shadow = host.shadow_root
     assert shadow is not None
     assert shadow.mode == kase["mode"]

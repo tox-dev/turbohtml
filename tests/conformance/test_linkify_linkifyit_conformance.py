@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from itertools import starmap
 from pathlib import Path
 from typing import Final
 
@@ -88,27 +89,30 @@ def _first(text: str) -> str | None:
     return spans[0].text if spans else None
 
 
-_LINKS: Final[list[tuple[str, str]]] = _link_cases()
-_NOT_LINKS: Final[list[str]] = [line for line in _lines("not_links.txt") if line.strip()]
+def _with_deviation(text: str, expected: str | None) -> tuple[str, str | None, str]:
+    if text in _DEVIATIONS:
+        deviated, reason = _DEVIATIONS[text]
+        return text, deviated, reason
+    return text, expected, "linkify-it finds the same match"
 
 
-@pytest.mark.parametrize(("text", "expected"), [pytest.param(*case, id=case[0]) for case in _LINKS])
-def test_linkifyit_links_fixture(text: str, expected: str) -> None:
-    if (deviation := _DEVIATIONS.get(text)) is not None:
-        assert _first(text) == deviation[0], deviation[1]
-        return
-    assert _first(text) == expected
+_LINKS: Final[list[tuple[str, str | None, str]]] = list(starmap(_with_deviation, _link_cases()))
+_NOT_LINKS: Final[list[tuple[str, str | None, str]]] = [
+    _with_deviation(line, None) for line in _lines("not_links.txt") if line.strip()
+]
 
 
-@pytest.mark.parametrize("text", [pytest.param(line, id=line) for line in _NOT_LINKS])
-def test_linkifyit_not_links_fixture(text: str) -> None:
-    if (deviation := _DEVIATIONS.get(text)) is not None:
-        assert _first(text) == deviation[0], deviation[1]
-        return
-    assert _first(text) is None
+@pytest.mark.parametrize(("text", "expected", "reason"), [pytest.param(*case, id=case[0]) for case in _LINKS])
+def test_linkifyit_links_fixture(text: str, expected: str | None, reason: str) -> None:
+    assert _first(text) == expected, reason
+
+
+@pytest.mark.parametrize(("text", "expected", "reason"), [pytest.param(*case, id=case[0]) for case in _NOT_LINKS])
+def test_linkifyit_not_links_fixture(text: str, expected: str | None, reason: str) -> None:
+    assert _first(text) == expected, reason
 
 
 def test_every_deviation_is_still_a_deviation() -> None:
     # a listed case that upstream no longer covers is a stale entry the corpus bump should have removed
-    covered = {text for text, _ in _LINKS} | set(_NOT_LINKS)
+    covered = {text for text, _, _ in [*_LINKS, *_NOT_LINKS]}
     assert set(_DEVIATIONS) <= covered

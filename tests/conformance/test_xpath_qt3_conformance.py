@@ -423,13 +423,23 @@ def collect() -> Iterator[ParameterSet]:
                 yield pytest.param(case, id=case_id)
 
 
-@pytest.mark.parametrize("case", list(collect()))
+_QT3_CASES: Final = list(collect())
+
+
+def _expects_error(param: ParameterSet) -> bool:
+    return cast("Case", param.values[0]).expected[0] == "error"
+
+
+@pytest.mark.parametrize("case", [case for case in _QT3_CASES if _expects_error(case)])
+def test_qt3_error_raises(case: Case) -> None:
+    context = context_for(case.environment)
+    with pytest.raises(Exception):  # ruff:ignore[assert-raises-exception, pytest-raises-too-broad]  # QT3 asserts an error code; turbohtml maps all to exceptions
+        context.xpath(case.query)
+
+
+@pytest.mark.parametrize("case", [case for case in _QT3_CASES if not _expects_error(case)])
 def test_qt3_fn(case: Case) -> None:
     context = context_for(case.environment)
-    if case.expected[0] == "error":
-        with pytest.raises(Exception):  # ruff:ignore[assert-raises-exception, pytest-raises-too-broad]  # QT3 asserts an error code; turbohtml maps all to exceptions
-            context.xpath(case.query)
-        return
     try:
         result = context.xpath(case.query)
     except Exception as error:  # dispatch known XPath-1.0/Python-re-dialect deviations, re-raise the rest

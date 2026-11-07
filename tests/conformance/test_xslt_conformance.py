@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
 import turbohtml
 from turbohtml.transform import transform
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _CORPUS: Final[Path] = Path(__file__).parent / "libxslt" / "tests"
 
@@ -50,10 +53,19 @@ def _canonical(text: str) -> str:
     return re.sub(r">\s+<", "><", text.strip())
 
 
-@pytest.mark.parametrize(("case_id", "xsl"), [pytest.param(cid, path, id=cid) for cid, path in _CASES])
-def test_xslt_conformance(case_id: str, xsl: Path, request: pytest.FixtureRequest) -> None:
-    if case_id in _XFAIL:
-        request.node.add_marker(pytest.mark.xfail(reason=_XFAIL[case_id], strict=True))
+@pytest.mark.parametrize(
+    ("xsl", "normalize"),
+    [
+        pytest.param(
+            path,
+            str if _output_method(path.read_text(encoding="utf-8", errors="replace")) == "text" else _canonical,
+            id=cid,
+            marks=pytest.mark.xfail(reason=_XFAIL[cid], strict=True) if cid in _XFAIL else (),
+        )
+        for cid, path in _CASES
+    ],
+)
+def test_xslt_conformance(xsl: Path, normalize: Callable[[str], str]) -> None:
     stylesheet = xsl.read_text(encoding="utf-8", errors="replace")
     source = xsl.with_suffix(".xml").read_text(encoding="utf-8", errors="replace")
     expected = xsl.with_suffix(".out").read_text(encoding="utf-8", errors="replace")
@@ -64,7 +76,4 @@ def test_xslt_conformance(case_id: str, xsl: Path, request: pytest.FixtureReques
         test="'passed_value'",
         test2="'passed_value2'",
     )
-    if _output_method(stylesheet) == "text":
-        assert result == expected
-    else:
-        assert _canonical(result) == _canonical(expected)
+    assert normalize(result) == normalize(expected)

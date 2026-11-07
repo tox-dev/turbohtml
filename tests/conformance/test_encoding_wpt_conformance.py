@@ -26,13 +26,13 @@ _DATA: Final = json.loads(_CORPUS.read_text(encoding="utf-8"))
 def _cases() -> Iterator[ParameterSet]:
     for case in _DATA["cases"]:
         label, raw = case["encoding"], case["bytes"]
-        yield pytest.param(label, raw, case["text"], id=f"{label}-{case.get('arm') or raw}")
+        # wpt spells an unmapped single-byte slot as null, which the spec's decode entry point reports as U+FFFD
+        expected = "�" if case["text"] is None else case["text"]
+        yield pytest.param(label, raw, expected, id=f"{label}-{case.get('arm') or raw}")
 
 
-@pytest.mark.parametrize(("label", "raw", "text"), list(_cases()))
-def test_a_wpt_case_decodes_the_way_the_browsers_suite_says(label: str, raw: str, text: str | None) -> None:
-    # wpt spells an unmapped single-byte slot as null, which the spec's decode entry point reports as U+FFFD
-    expected = "�" if text is None else text
+@pytest.mark.parametrize(("label", "raw", "expected"), list(_cases()))
+def test_a_wpt_case_decodes_the_way_the_browsers_suite_says(label: str, raw: str, expected: str) -> None:
     assert bytes.fromhex(raw).decode(f"whatwg-{label.casefold()}") == expected
 
 

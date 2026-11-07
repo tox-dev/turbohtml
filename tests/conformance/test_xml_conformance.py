@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import re
+from contextlib import nullcontext
+from functools import partial
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # the catalogs are trusted, pinned vendored fixtures
     ElementTree as ET,
 )
@@ -10,6 +12,10 @@ from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # the catal
 import pytest
 
 from turbohtml import HTMLParseError, parse_xml
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from contextlib import AbstractContextManager
 
 _DATA: Final[Path] = Path(__file__).parent / "xml-conformance-suite" / "packages" / "test-data" / "xmlconf"
 
@@ -153,7 +159,8 @@ def _load() -> list[object]:
             if reason is not None:
                 marks.append(pytest.mark.xfail(reason=reason, strict=False))
             counts["skip" if skip else "xfail" if reason else "assert"] += 1
-            params.append(pytest.param(source, expect_raise, id=attrib["ID"], marks=marks))
+            outcome = partial(pytest.raises, HTMLParseError) if expect_raise else nullcontext
+            params.append(pytest.param(source, outcome, id=attrib["ID"], marks=marks))
     print(  # ruff:ignore[print] -- surface the breakdown in the test log
         f"\nxmlconf: {len(params)} cases -- {counts['assert']} hard assertions, "
         f"{counts['xfail']} xfail (documented deviations), {counts['skip']} skipped (optional)"
@@ -164,10 +171,7 @@ def _load() -> list[object]:
 _CASES: Final[list[object]] = _load()
 
 
-@pytest.mark.parametrize(("source", "expect_raise"), _CASES)
-def test_xml_conformance(source: str, *, expect_raise: bool) -> None:
-    if expect_raise:
-        with pytest.raises(HTMLParseError):
-            parse_xml(source)
-    else:
+@pytest.mark.parametrize(("source", "outcome"), _CASES)
+def test_xml_conformance(source: str, outcome: Callable[[], AbstractContextManager[object]]) -> None:
+    with outcome():
         parse_xml(source)  # a well-formed document must parse without a well-formedness error

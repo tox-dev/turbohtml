@@ -453,7 +453,7 @@ _ORACLE_PARAMS = [
     pytest.param(case.id, check, id=f"{case.id}-{check.prop}")
     for case in _CORPUS
     for check in case.checks
-    if check.oracle
+    if check.oracle and _jsdom_available() and _jsdom_results()[case.id][check.selector].get(check.prop, "")
 ]
 _BOUNDARY_PARAMS = [
     pytest.param(case.id, check, id=f"{case.id}-{check.prop}")
@@ -472,9 +472,7 @@ def test_cssom_matches_spec(html: str, check: Check) -> None:
 @pytest.mark.skipif(not _jsdom_available(), reason="node with jsdom is not installed")
 @pytest.mark.parametrize(("case_id", "check"), _ORACLE_PARAMS)
 def test_cssom_matches_jsdom(case_id: str, check: Check) -> None:
-    reference = _jsdom_results()[case_id][check.selector].get(check.prop, "")
-    if not reference:  # jsdom's getComputedStyle has no value for this property; nothing to diff
-        pytest.skip(f"jsdom reports no computed {check.prop}")
+    reference = _jsdom_results()[case_id][check.selector][check.prop]
     got = _turbo(next(entry for entry in _CORPUS if entry.id == case_id).html, check.selector, check.prop)
     assert got is not None
     assert _norm(check.prop, got) == _norm(check.prop, reference)

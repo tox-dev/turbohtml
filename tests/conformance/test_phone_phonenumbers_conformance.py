@@ -107,7 +107,7 @@ def test_detection_matches_the_matcher(
     check: Callable[[phonenumbers.PhoneNumber], bool],
 ) -> None:
     detector = LinkDetector(phones=settings(region))
-    unexplained: list[tuple[str, str, list[tuple[int, int, str, str]], list[tuple[int, int, str, str]]]] = []
+    classified: list[tuple[str, str, list[tuple[int, int, str, str]], list[tuple[int, int, str, str]]]] = []
     explained = frozenset({
         "agree",
         "poisoned date",
@@ -123,8 +123,8 @@ def test_detection_matches_the_matcher(
                 for found in parsed:
                     assert check(found), text
                 theirs = oracle_matches(text, region, leniency)
-                if (category := classify(text, ours, theirs)) not in explained:
-                    unexplained.append((category, text, sorted(ours), sorted(theirs)))
+                classified.append((classify(text, ours, theirs), text, sorted(ours), sorted(theirs)))
+    unexplained = [row for row in classified if row[0] not in explained]
     assert unexplained == []
 
 
