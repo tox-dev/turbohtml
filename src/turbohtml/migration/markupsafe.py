@@ -148,32 +148,15 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         return self.__class__(str.join(self, map(self.escape, iterable)))
 
     def split(self, sep: str | None = None, maxsplit: SupportsIndex = -1) -> list[str]:
-        """
-        Split into parts that stay safe; the list type is str since list is invariant, but each part is a Markup.
-
-        :param sep:
-        :param maxsplit:
-        :returns:
-        """
+        """Split into parts that stay safe; the list type is str since list is invariant, but each part is a Markup."""
         return [self.__class__(part) for part in str.split(self, sep, maxsplit)]
 
     def rsplit(self, sep: str | None = None, maxsplit: SupportsIndex = -1) -> list[str]:
-        """
-        Split from the right into parts that each stay a Markup.
-
-        :param sep:
-        :param maxsplit:
-        :returns:
-        """
+        """Split from the right into parts that each stay a Markup."""
         return [self.__class__(part) for part in str.rsplit(self, sep, maxsplit)]
 
     def splitlines(self, keepends: bool = False) -> list[str]:  # ruff:ignore[boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # keepends is str's own flag
-        """
-        Split into lines that each stay a Markup.
-
-        :param keepends:
-        :returns:
-        """
+        """Split into lines that each stay a Markup."""
         return [self.__class__(line) for line in str.splitlines(self, keepends)]
 
     def unescape(self) -> str:
@@ -196,183 +179,84 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         return _collapse_whitespace(parse_fragment(str(self)).text)
 
     def capitalize(self) -> Markup:
-        """
-        Capitalize, keeping the result a Markup so autoescaping does not re-escape it.
-
-        :returns:
-        """
+        """Capitalize, keeping the result a Markup so autoescaping does not re-escape it."""
         return self.__class__(str.capitalize(self))
 
     def title(self) -> Markup:
-        """
-        Title-case, keeping the result a Markup.
-
-        :returns:
-        """
+        """Title-case, keeping the result a Markup."""
         return self.__class__(str.title(self))
 
     def lower(self) -> Markup:
-        """
-        Lowercase, keeping the result a Markup.
-
-        :returns:
-        """
+        """Lowercase, keeping the result a Markup."""
         return self.__class__(str.lower(self))
 
     def upper(self) -> Markup:
-        """
-        Uppercase, keeping the result a Markup.
-
-        :returns:
-        """
+        """Uppercase, keeping the result a Markup."""
         return self.__class__(str.upper(self))
 
     def swapcase(self) -> Markup:
-        """
-        Swap case, keeping the result a Markup.
-
-        :returns:
-        """
+        """Swap case, keeping the result a Markup."""
         return self.__class__(str.swapcase(self))
 
     def casefold(self) -> Markup:
-        """
-        Casefold, keeping the result a Markup.
-
-        :returns:
-        """
+        """Casefold, keeping the result a Markup."""
         return self.__class__(str.casefold(self))
 
     def replace(self, old: str, new: str, /, count: SupportsIndex = -1) -> Markup:
-        """
-        Replace occurrences, escaping ``new`` so substituted text stays safe.
-
-        :param old:
-        :param new:
-        :param count:
-        :returns:
-        """
+        """Replace occurrences, escaping ``new`` so substituted text stays safe."""
         return self.__class__(str.replace(self, old, self.escape(new), count))
 
     def ljust(self, width: SupportsIndex, fillchar: str = " ", /) -> Markup:
-        """
-        Left-justify, escaping the fill character so padding stays safe.
-
-        :param width:
-        :param fillchar:
-        :returns:
-        """
+        """Left-justify, escaping the fill character so padding stays safe."""
         return self.__class__(str.ljust(self, width, self.escape(fillchar)))
 
     def rjust(self, width: SupportsIndex, fillchar: str = " ", /) -> Markup:
-        """
-        Right-justify, escaping the fill character so padding stays safe.
-
-        :param width:
-        :param fillchar:
-        :returns:
-        """
+        """Right-justify, escaping the fill character so padding stays safe."""
         return self.__class__(str.rjust(self, width, self.escape(fillchar)))
 
     def center(self, width: SupportsIndex, fillchar: str = " ", /) -> Markup:
-        """
-        Center, escaping the fill character so padding stays safe.
-
-        :param width:
-        :param fillchar:
-        :returns:
-        """
+        """Center, escaping the fill character so padding stays safe."""
         return self.__class__(str.center(self, width, self.escape(fillchar)))
 
     def strip(self, chars: str | None = None, /) -> Markup:
-        """
-        Strip surrounding characters, keeping the result a Markup.
-
-        :param chars:
-        :returns:
-        """
+        """Strip surrounding characters, keeping the result a Markup."""
         return self.__class__(str.strip(self, chars))
 
     def lstrip(self, chars: str | None = None, /) -> Markup:
-        """
-        Strip leading characters, keeping the result a Markup.
-
-        :param chars:
-        :returns:
-        """
+        """Strip leading characters, keeping the result a Markup."""
         return self.__class__(str.lstrip(self, chars))
 
     def rstrip(self, chars: str | None = None, /) -> Markup:
-        """
-        Strip trailing characters, keeping the result a Markup.
-
-        :param chars:
-        :returns:
-        """
+        """Strip trailing characters, keeping the result a Markup."""
         return self.__class__(str.rstrip(self, chars))
 
     def removeprefix(self, prefix: str, /) -> Markup:
-        """
-        Remove a prefix, keeping the result a Markup.
-
-        :param prefix:
-        :returns:
-        """
+        """Remove a prefix, keeping the result a Markup."""
         return self.__class__(str.removeprefix(self, prefix))
 
     def removesuffix(self, suffix: str) -> Markup:
-        """
-        Remove a suffix, keeping the result a Markup.
-
-        :param suffix:
-        :returns:
-        """
+        """Remove a suffix, keeping the result a Markup."""
         return self.__class__(str.removesuffix(self, suffix))
 
     def expandtabs(self, tabsize: SupportsIndex = 8) -> Markup:
-        """
-        Expand tabs, keeping the result a Markup.
-
-        :param tabsize:
-        :returns:
-        """
+        """Expand tabs, keeping the result a Markup."""
         return self.__class__(str.expandtabs(self, tabsize))
 
     def zfill(self, width: SupportsIndex, /) -> Markup:
-        """
-        Zero-fill, keeping the result a Markup.
-
-        :param width:
-        :returns:
-        """
+        """Zero-fill, keeping the result a Markup."""
         return self.__class__(str.zfill(self, width))
 
     def translate(self, table: _SupportsIntGetItem, /) -> Markup:
-        """
-        Translate through a table, keeping the result a Markup; the caller's table values are trusted.
-
-        :param table:
-        :returns:
-        """
+        """Translate through a table, keeping the result a Markup; the caller's table values are trusted."""
         return self.__class__(str.translate(self, table))
 
     def partition(self, sep: str, /) -> tuple[Markup, Markup, Markup]:
-        """
-        Partition into three parts that each stay a Markup.
-
-        :param sep:
-        :returns:
-        """
+        """Partition into three parts that each stay a Markup."""
         left, middle, right = str.partition(self, sep)
         return self.__class__(left), self.__class__(middle), self.__class__(right)
 
     def rpartition(self, sep: str, /) -> tuple[Markup, Markup, Markup]:
-        """
-        Partition from the right into three parts that each stay a Markup.
-
-        :param sep:
-        :returns:
-        """
+        """Partition from the right into three parts that each stay a Markup."""
         left, middle, right = str.rpartition(self, sep)
         return self.__class__(left), self.__class__(middle), self.__class__(right)
 
@@ -387,12 +271,7 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         return self.__class__(EscapeFormatter(self.escape).vformat(self, args, kwargs))
 
     def format_map(self, mapping: _SupportsStrGetItem, /) -> Markup:
-        """
-        Format from a mapping, escaping each field the way :meth:`format` does.
-
-        :param mapping:
-        :returns:
-        """
+        """Format from a mapping, escaping each field the way :meth:`format` does."""
         return self.__class__(EscapeFormatter(self.escape).vformat(self, (), cast("Mapping[str, object]", mapping)))
 
 
@@ -422,7 +301,6 @@ class EscapeFormatter(string.Formatter):
         :param value: the field value to render.
         :param format_spec: the field's format specification.
         :returns: the rendered, escaped field text.
-        :raises ValueError:
         """
         if hasattr(value, "__html_format__"):
             rendered = cast("_HasHtmlFormat", value).__html_format__(format_spec)

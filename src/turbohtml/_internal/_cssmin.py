@@ -35,8 +35,6 @@ class CSSMinify:
     emits only long-interoperable syntax; ``2021`` additionally merges the shorthands that reached Baseline that year
     (``inset``, the flex ``gap``, the two-value ``overflow``). Every year is value-safe -- the year bounds only how new
     the output syntax may be, never the cascade it parses to.
-
-    :param baseline:
     """
 
     baseline: int | None = None

@@ -40,8 +40,6 @@ class StyleDeclaration:
     Each declaration keeps its property name, value, and ``!important`` flag in source order. A property may appear more
     than once (an important declaration wins, then the later duplicate); :meth:`get` and indexing return the winning
     value, while iteration and :meth:`properties` visit each distinct property once, in first-seen order.
-
-    :param items:
     """
 
     __slots__ = ("_items", "_last")
@@ -142,12 +140,7 @@ class StyleDeclaration:
 
 @final
 class StyleRule:
-    """
-    One CSS style rule, the turbohtml spelling of CSSOM's ``CSSStyleRule``: a selector and its declarations.
-
-    :param selector_text:
-    :param style:
-    """
+    """One CSS style rule, the turbohtml spelling of CSSOM's ``CSSStyleRule``: a selector and its declarations."""
 
     __slots__ = ("_style", "selector_text")
 
@@ -171,11 +164,7 @@ class StyleRule:
 
 @final
 class RuleList:
-    """
-    A read-only sequence of :class:`StyleRule`, the turbohtml spelling of CSSOM's ``CSSRuleList``.
-
-    :param rules:
-    """
+    """A read-only sequence of :class:`StyleRule`, the turbohtml spelling of CSSOM's ``CSSRuleList``."""
 
     __slots__ = ("_rules",)
 
@@ -250,8 +239,6 @@ class ComputedStyle:
     It exposes one value per supported longhand property (never a shorthand), each already resolved through the cascade,
     inheritance, and initial values. Missing properties fall back to their initial value, so :meth:`get` never returns
     ``None`` for a supported property.
-
-    :param values:
     """
 
     __slots__ = ("_values",)

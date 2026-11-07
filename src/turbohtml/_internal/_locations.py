@@ -22,13 +22,6 @@ class SourceSpan(NamedTuple):
     ``\\r\\n`` counts once), the same convention as :attr:`~turbohtml.Node.source_line` and
     :attr:`~turbohtml.Node.source_col`. The half-open ``[start_offset, end_offset)`` slices the construct out of the
     source.
-
-    :param start_line:
-    :param start_col:
-    :param start_offset:
-    :param end_line:
-    :param end_col:
-    :param end_offset:
     """
 
     start_line: int
@@ -53,10 +46,6 @@ class SourceLocation(NamedTuple):
     the element (a void, self-closed, or implicitly/EOF-closed one). ``attrs`` maps each attribute's name to the span
     covering its ``name="value"`` (the name alone for a valueless attribute), keyed by the same lowercased name
     :attr:`~turbohtml.Element.attrs` uses, first occurrence winning on a duplicate.
-
-    :param start_tag:
-    :param end_tag:
-    :param attrs:
     """
 
     start_tag: SourceSpan

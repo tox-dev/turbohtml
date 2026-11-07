@@ -46,9 +46,6 @@ class ValidationResult(NamedTuple):
 
     The result is truthy exactly when the document is valid, so ``if schema.validate(doc):``
     reads naturally.
-
-    :param valid:
-    :param errors:
     """
 
     valid: bool
@@ -60,11 +57,7 @@ class ValidationResult(NamedTuple):
 
 
 class SchemaValidationError(Exception):
-    """
-    Raised by :meth:`XMLSchema.assert_valid` / :meth:`RelaxNG.assert_valid` when a document is invalid.
-
-    :param errors:
-    """
+    """Raised by :meth:`XMLSchema.assert_valid` / :meth:`RelaxNG.assert_valid` when a document is invalid."""
 
     def __init__(self, errors: tuple[ValidationError, ...]) -> None:
         """Carry the ``errors`` the failed validation produced, the first of which becomes the message."""
@@ -78,17 +71,17 @@ class _Schema:
         self._compiled: Final = compiled
 
     def is_valid(self, document: Document | Node) -> bool:
-        # Whether the document satisfies the schema.
+        """Whether the document satisfies the schema."""
         return _schema_validate(self._compiled, document, collect_errors=False)[0]
 
     def assert_valid(self, document: Document | Node) -> None:
-        # Validate the document, raising :class:`SchemaValidationError` with the errors when it is invalid.
+        """Validate the document, raising :class:`SchemaValidationError` with the errors when it is invalid."""
         result = self.validate(document)
         if not result.valid:
             raise SchemaValidationError(result.errors)
 
     def validate(self, document: Document | Node) -> ValidationResult:
-        # Validate a parsed document (or element), returning the full :class:`ValidationResult`.
+        """Validate a parsed document (or element), returning the full :class:`ValidationResult`."""
         valid, errors = _schema_validate(self._compiled, document)
         return ValidationResult(valid, tuple(starmap(ValidationError, errors)))
 

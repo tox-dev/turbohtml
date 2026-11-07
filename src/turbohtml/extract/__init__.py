@@ -74,11 +74,7 @@ class Extraction:
 
     @classmethod
     def justext(cls) -> Extraction:
-        """
-        Justext's defaults: its 70-character ``length_low`` floor and 0.2 ``max_link_density``.
-
-        :returns:
-        """
+        """Justext's defaults: its 70-character ``length_low`` floor and 0.2 ``max_link_density``."""
         return cls(min_length=70, max_link_density=0.2)
 
 
@@ -180,10 +176,6 @@ class Paragraph(NamedTuple):
     ``is_boilerplate`` is ``True`` for navigation, footers, sidebars, and any in-content unit that fails the
     :class:`Extraction` thresholds; the ``False`` entries concatenate to the article. ``is_heading`` marks
     ``<h1>``-``<h6>`` units whatever their classification.
-
-    :param text:
-    :param is_boilerplate:
-    :param is_heading:
     """
 
     text: str

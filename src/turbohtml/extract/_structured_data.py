@@ -45,30 +45,16 @@ class MicrodataItem:
     """each ``itemprop`` name mapped to its values in document order."""
 
     def get(self, name: str) -> str | MicrodataItem | None:
-        """
-        Return the property's first value, or ``None`` when the item lacks it (``microdata.Item.get``).
-
-        :param name:
-        :returns:
-        """
+        """Return the property's first value, or ``None`` when the item lacks it (``microdata.Item.get``)."""
         values = self.properties.get(name)
         return values[0] if values else None
 
     def get_all(self, name: str) -> list[str | MicrodataItem]:
-        """
-        Return the property's values in document order, an empty list when absent (``microdata.Item.get_all``).
-
-        :param name:
-        :returns:
-        """
+        """Return the property's values in document order, an empty list when absent (``microdata.Item.get_all``)."""
         return self.properties.get(name, [])
 
     def json(self) -> str:
-        """
-        Serialize as ``microdata.Item.json`` does: a two-space-indented JSON object of the tree below the item.
-
-        :returns:
-        """
+        """Serialize as ``microdata.Item.json`` does: a two-space-indented JSON object of the tree below the item."""
         return json.dumps(_microdata_as_dict(self), indent=2)
 
 
@@ -101,22 +87,12 @@ class RdfaItem:
     """each expanded ``property`` IRI mapped to its values in document order."""
 
     def get(self, name: str) -> str | RdfaItem | None:
-        """
-        Return the property's first value, or ``None`` when the item lacks it.
-
-        :param name:
-        :returns:
-        """
+        """Return the property's first value, or ``None`` when the item lacks it."""
         values = self.properties.get(name)
         return values[0] if values else None
 
     def get_all(self, name: str) -> list[str | RdfaItem]:
-        """
-        Return the property's values in document order, an empty list when absent.
-
-        :param name:
-        :returns:
-        """
+        """Return the property's values in document order, an empty list when absent."""
         return self.properties.get(name, [])
 
 
@@ -158,8 +134,6 @@ class OpenGraph(Mapping[str, str]):
     ``opengraph`` library's ``OpenGraph`` dict. The mapping supports the full read surface -- ``og["title"]``,
     ``"title" in og``, ``og.get("title")``, iteration, and equality against a plain ``dict`` -- and adds
     :meth:`is_valid`.
-
-    :param properties:
     """
 
     __slots__ = ("_properties",)
@@ -191,8 +165,6 @@ class OpenGraph(Mapping[str, str]):
         Mirrors the ``opengraph`` library's ``is_valid``: every one of ``og:title``, ``og:type``, ``og:image``, and
         ``og:url`` is present with a non-empty value. The ``opengraph_py3`` fork also demands ``og:description``; the
         `Open Graph protocol <https://ogp.me/>`_ does not, so it is not required here.
-
-        :returns:
         """
         og_required = ("title", "type", "image", "url")
         return all(self._properties.get(name) for name in og_required)

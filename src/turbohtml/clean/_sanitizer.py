@@ -69,10 +69,6 @@ class OnDisallowed(Enum):
 
     ``ESCAPE`` renders the tag as visible text (``<x>`` becomes ``&lt;x&gt;``), the safe bleach default that keeps the
     content readable; ``STRIP`` drops the tag but keeps its children; ``REMOVE`` drops the tag and its whole subtree.
-
-    :cvar ESCAPE:
-    :cvar STRIP:
-    :cvar REMOVE:
     """
 
     ESCAPE = 0
@@ -293,7 +289,6 @@ class Sanitizer:
     A reusable sanitizer; build it once from a :class:`Policy` and call :meth:`sanitize` from any thread.
 
     :param options: the policy to enforce; None uses bleach's default allowlist.
-    :ivar policy:
     """
 
     def __init__(self, options: Policy | None = None) -> None:

@@ -42,59 +42,26 @@ class SaxHandler:
     """
 
     def start_element(self, tag: str, attrs: tuple[tuple[str, str | None], ...]) -> None:
-        """
-        Handle a start tag ``tag`` with its ``attrs`` (each a ``(name, value)`` pair, value None if valueless).
-
-        :param tag:
-        :param attrs:
-        """
+        """Handle a start tag ``tag`` with its ``attrs`` (each a ``(name, value)`` pair, value None if valueless)."""
 
     def end_element(self, tag: str) -> None:
-        """
-        Handle the end of element ``tag`` (fired for every element, including empty and void ones).
-
-        :param tag:
-        """
+        """Handle the end of element ``tag`` (fired for every element, including empty and void ones)."""
 
     def characters(self, data: str) -> None:
-        """
-        Handle a run of character data ``data``.
-
-        :param data:
-        """
+        """Handle a run of character data ``data``."""
 
     def comment(self, data: str) -> None:
-        """
-        Handle a comment with body ``data``.
-
-        :param data:
-        """
+        """Handle a comment with body ``data``."""
 
     def doctype(self, name: str, public_id: str | None, system_id: str | None) -> None:
-        """
-        Handle the document type declaration; ``public_id``/``system_id`` are None when the source omits them.
-
-        :param name:
-        :param public_id:
-        :param system_id:
-        """
+        """Handle the document type declaration; ``public_id``/``system_id`` are None when the source omits them."""
 
     def processing_instruction(self, target: str, data: str) -> None:
-        """
-        Receive non-reserved instructions after the parser separates their target and data.
-
-        :param target:
-        :param data:
-        """
+        """Receive non-reserved instructions after the parser separates their target and data."""
 
 
 class StartElement(NamedTuple):
-    """
-    A start-tag event.
-
-    :param tag:
-    :param attrs:
-    """
+    """A start-tag event."""
 
     tag: str
     """the element's tag name."""
@@ -103,46 +70,28 @@ class StartElement(NamedTuple):
 
 
 class EndElement(NamedTuple):
-    """
-    An end-tag event, fired for every element the parser closes.
-
-    :param tag:
-    """
+    """An end-tag event, fired for every element the parser closes."""
 
     tag: str
     """the element's tag name."""
 
 
 class Characters(NamedTuple):
-    """
-    A run of character data.
-
-    :param data:
-    """
+    """A run of character data."""
 
     data: str
     """the text."""
 
 
 class Comment(NamedTuple):
-    """
-    A comment event.
-
-    :param data:
-    """
+    """A comment event."""
 
     data: str
     """the comment body, between ``<!--`` and ``-->``."""
 
 
 class Doctype(NamedTuple):
-    """
-    A document type declaration event.
-
-    :param name:
-    :param public_id:
-    :param system_id:
-    """
+    """A document type declaration event."""
 
     name: str
     """the document type name, e.g. ``html``."""
@@ -153,12 +102,7 @@ class Doctype(NamedTuple):
 
 
 class ProcessingInstruction(NamedTuple):
-    """
-    An HTML instruction whose target is not reserved for XML.
-
-    :param target:
-    :param data:
-    """
+    """An HTML instruction whose target is not reserved for XML."""
 
     target: str
     """the ASCII target, preserving source case."""
@@ -184,7 +128,7 @@ def iter_events(html: str) -> Iterator[SaxEvent]:
     Parse ``html`` and yield its SAX events as typed records, one at a time, without building a document.
 
     :param html: the markup to parse.
-    :yields: an iterator of :class:`StartElement`/:class:`EndElement`/:class:`Characters`/:class:`Comment`/
+    :returns: an iterator of :class:`StartElement`/:class:`EndElement`/:class:`Characters`/:class:`Comment`/
         :class:`Doctype`/:class:`ProcessingInstruction` records in document order.
     :raises TypeError: if ``html`` is not a str.
     """

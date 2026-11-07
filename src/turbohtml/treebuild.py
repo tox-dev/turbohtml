@@ -39,64 +39,25 @@ class TreeBuilder(Protocol[H]):
     """
 
     def create_document(self) -> H:
-        """
-        Create the document root and return its handle; :func:`parse_into` returns this handle.
-
-        :returns:
-        """
+        """Create the document root and return its handle; :func:`parse_into` returns this handle."""
 
     def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> H:
-        """
-        Create a doctype node; ``public_id``/``system_id`` are None when the source omits them.
-
-        :param name:
-        :param public_id:
-        :param system_id:
-        :returns:
-        """
+        """Create a doctype node; ``public_id``/``system_id`` are None when the source omits them."""
 
     def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> H:
-        """
-        Create an element ``name`` in ``namespace`` (a URI) with ``attrs`` (each a ``(name, value)`` pair).
-
-        :param name:
-        :param namespace:
-        :param attrs:
-        :returns:
-        """
+        """Create an element ``name`` in ``namespace`` (a URI) with ``attrs`` (each a ``(name, value)`` pair)."""
 
     def create_text(self, data: str) -> H:
-        """
-        Create a text node holding ``data``.
-
-        :param data:
-        :returns:
-        """
+        """Create a text node holding ``data``."""
 
     def create_comment(self, data: str) -> H:
-        """
-        Create a comment node holding ``data``.
-
-        :param data:
-        :returns:
-        """
+        """Create a comment node holding ``data``."""
 
     def create_pi(self, target: str, data: str) -> H:
-        """
-        Create a node for an HTML instruction whose target is not reserved for XML.
-
-        :param target:
-        :param data:
-        :returns:
-        """
+        """Create a node for an HTML instruction whose target is not reserved for XML."""
 
     def append(self, parent: H, child: H) -> None:
-        """
-        Append the ``child`` handle under the ``parent`` handle, in document order.
-
-        :param parent:
-        :param child:
-        """
+        """Append the ``child`` handle under the ``parent`` handle, in document order."""
 
 
 def parse_into(html: str, builder: TreeBuilder[H]) -> H:

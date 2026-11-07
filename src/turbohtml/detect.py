@@ -114,12 +114,6 @@ class EncodingMatch:
     ...); it is ``None`` for UTF-8 and the Latin encodings whose model spans several languages. ``bom`` is true only
     when a byte-order mark decided the result, telling a caller the decoded text still carries the mark unless the
     codec strips it.
-
-    :param encoding:
-    :param confidence:
-    :param language:
-    :param bom:
-    :param codec:
     """
 
     encoding: str | None
@@ -173,11 +167,7 @@ class Detection:
 
     @classmethod
     def chardet(cls) -> Detection:
-        """
-        Chardet's ``UniversalDetector`` mode: report ``None`` under its 0.2 minimum confidence.
-
-        :returns:
-        """
+        """Chardet's ``UniversalDetector`` mode: report ``None`` under its 0.2 minimum confidence."""
         return cls(threshold=0.2)
 
 
@@ -258,11 +248,7 @@ class EncodingDetector:
         self.done = self._stream.feed(data)
 
     def close(self) -> EncodingMatch:
-        """
-        Read the detector's answer, cache it, and return it.
-
-        :returns:
-        """
+        """Read the detector's answer, cache it, and return it."""
         if self._result is None:
             self._result = EncodingMatch(*_rank(self._stream.close(), self._options)[0])
             self.done = True
@@ -370,11 +356,6 @@ class LanguageMatch:
     to separate them. ``script`` is the Unicode script name the text is written in (``"Latin"``, ``"Cyrillic"``,
     ``"Han"`` reported as ``"Mandarin"``, ...), or ``None`` with a ``None`` language. ``name`` is the English name of
     the language (``"English"``, ``"German"``, ``"Mandarin"``, ...), or ``None`` with a ``None`` language.
-
-    :param language:
-    :param confidence:
-    :param script:
-    :param name:
     """
 
     language: str | None

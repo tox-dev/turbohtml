@@ -48,22 +48,7 @@ _DEFAULT_URL_SCHEMES: Final = ("ftp", "http", "https")
 
 
 class PhoneType(Enum):
-    """
-    The line type a numbering plan assigns a number; ``UNKNOWN`` appears only in possible mode.
-
-    :cvar FIXED_LINE:
-    :cvar MOBILE:
-    :cvar FIXED_LINE_OR_MOBILE:
-    :cvar TOLL_FREE:
-    :cvar PREMIUM_RATE:
-    :cvar SHARED_COST:
-    :cvar VOIP:
-    :cvar PERSONAL_NUMBER:
-    :cvar PAGER:
-    :cvar UAN:
-    :cvar VOICEMAIL:
-    :cvar UNKNOWN:
-    """
+    """The line type a numbering plan assigns a number; ``UNKNOWN`` appears only in possible mode."""
 
     FIXED_LINE = "fixed_line"
     MOBILE = "mobile"
@@ -343,7 +328,6 @@ class PhoneNumber:
         :param require_valid: the number must be one the plan assigns; False accepts any possible length.
         :returns: the number.
         :raises ValueError: when the text does not hold one such number.
-        :raises TypeError:
         """
         if not isinstance(text, str):
             msg = "text must be str"
@@ -391,7 +375,6 @@ class PhoneNumber:
 
         :param style: the layout to write.
         :returns: the formatted number, ASCII.
-        :raises TypeError:
         """
         if not isinstance(style, PhoneFormat):
             msg = "style must be a PhoneFormat"
@@ -511,13 +494,6 @@ class Linker:
     A reusable linkifier; build it once from a :class:`Linkify` configuration and call :meth:`linkify` per document.
 
     :param options: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
-    :ivar callbacks:
-    :ivar skip_tags:
-    :ivar parse_email:
-    :ivar process_existing:
-    :ivar extra_tlds:
-    :ivar url_schemes:
-    :ivar phones:
     """
 
     def __init__(self, options: Linkify | None = None) -> None:
