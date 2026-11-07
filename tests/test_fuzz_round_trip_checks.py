@@ -857,6 +857,19 @@ def test_generation_changed_decoder_text(data: bytes) -> None:
 
 
 @pytest.mark.parametrize(
+    ("markup", "expected"),
+    [
+        pytest.param("<svg></p>\0", "", id="svg-unmatched-p"),
+        pytest.param("<math><mrow></p>\0", "", id="math-unmatched-p"),
+        pytest.param("<svg>\0", "\ufffd", id="svg-null"),
+        pytest.param("<svg></p>\0<svg>\0", "\ufffd", id="following-svg-null"),
+    ],
+)
+def test_generation_foreign_unmatched_p_null(markup: str, expected: str) -> None:
+    assert encoding_observation(markup.encode()) == expected
+
+
+@pytest.mark.parametrize(
     ("nesting", "oracle_calls"),
     [pytest.param(_ORACLE_MAX_NESTING, 1, id="at-limit"), pytest.param(_ORACLE_MAX_NESTING + 1, 0, id="past-limit")],
 )
