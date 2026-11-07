@@ -75,12 +75,7 @@ def test_clean_scrubs_markup_damage(url: str, expected: str) -> None:
     ],
 )
 def test_clean_dangling_amp_after_query_cleanup(url: str, expected: str) -> None:
-    assert (clean_url(url), _clean_fixpoint(url)) == (expected, expected)
-
-
-def _clean_fixpoint(url: str) -> str | None:
-    cleaned = clean_url(url)
-    return None if cleaned is None else clean_url(cleaned)
+    assert (clean_url(url), clean_url(expected)) == (expected, expected)
 
 
 @pytest.mark.parametrize(
@@ -128,14 +123,7 @@ def test_clean_rejects_invalid_ipv6_hosts(url: str) -> None:
 @pytest.mark.parametrize(
     ("url", "expected"),
     [
-        pytest.param("HTTP://LOCALHOST:/x", None, id="dotless-empty-port"),
-        pytest.param("HTTP://LOCALHOST:80/x", None, id="dotless-http-default"),
-        pytest.param("HTTPS://LOCALHOST:443/x", None, id="dotless-https-default"),
-        pytest.param("HTTP://LOCALHOST:0080/x", None, id="dotless-padded-default"),
-        pytest.param("HTTP://user.name@LOCALHOST:/x", None, id="userinfo-dot-is-not-host-dot"),
-        pytest.param("HTTP://\u00ad:8000/x", None, id="mapped-empty-host"),
         pytest.param("HTTP://LOCALHOST:08000/a/../x", "http://localhost:8000/x", id="nondefault-port"),
-        pytest.param("HTTP://LOCALHOST:80x/a/../x", None, id="invalid-port"),
         pytest.param("HTTP://[0:0:0:0:0:0:0:1]:80/a/../x", "http://[::1]/x", id="ipv6-default-port"),
         pytest.param("HTTP://[::1]:/a/../x", "http://[::1]/x", id="ipv6-empty-port"),
         pytest.param("HTTP://EXAMPLE.ORG:80/a/../x", "http://example.org/x", id="dotted-default-port"),
@@ -147,27 +135,43 @@ def test_clean_rejects_invalid_ipv6_hosts(url: str) -> None:
         pytest.param("HTTP://user:pw@LOCALHOST:80/a/../x", "http://user:pw@localhost/x", id="userinfo-colon-kept"),
         pytest.param("HTTP://m\xfcnchen.de:80/a/../x", "http://xn--mnchen-3ya.de/x", id="latin1-host"),
         pytest.param("HTTP://\xe9:pw@LOCALHOST:80/a/../x", "http://%C3%A9:pw@localhost/x", id="latin1-userinfo-colon"),
-        pytest.param("HTTP://\xe9@LOCALHOST:80/a/../x", None, id="latin1-userinfo-no-colon"),
         pytest.param("HTTP://\u0100:pw@LOCALHOST:80/a/../x", "http://%C4%80:pw@localhost/x", id="bmp-userinfo-colon"),
-        pytest.param("HTTP://\u0100@LOCALHOST:80/a/../x", None, id="bmp-userinfo-no-colon"),
         pytest.param(
             "HTTP://\U00010000:pw@LOCALHOST:80/a/../x", "http://%F0%90%80%80:pw@localhost/x", id="astral-userinfo-colon"
         ),
-        pytest.param("HTTP://\U00010000@LOCALHOST:80/a/../x", None, id="astral-userinfo-no-colon"),
-        pytest.param("HTTP://a\u202eb/a/../x", None, id="bmp-host-low-byte-dot"),
-        pytest.param("HTTP://a\U0001002eb/a/../x", None, id="astral-host-low-byte-dot"),
-        pytest.param("HTTP://\u203a@LOCALHOST:80/a/../x", None, id="bmp-userinfo-low-byte-colon"),
-        pytest.param("HTTP://\U0001003a@LOCALHOST:80/a/../x", None, id="astral-userinfo-low-byte-colon"),
-        pytest.param("HTTP://a\ufffeb.EXAMPLE:80/a/../x", None, id="wide-host-dot"),
         pytest.param(
             "HTTP://u\x00:pw@LOCALHOST:80/a/../x", "http://u%00:pw@localhost/x", id="nul-before-userinfo-colon"
         ),
-        pytest.param("HTTP://a\x00b.EXAMPLE:80/a/../x", None, id="nul-before-host-dot"),
-        pytest.param("HTTP://:8000/a/../x", None, id="empty-host"),
     ],
 )
-def test_clean_canonical_host_shape(url: str, expected: str | None) -> None:
-    assert (clean_url(url), _clean_fixpoint(url)) == (expected, expected)
+def test_clean_canonical_host_shape(url: str, expected: str) -> None:
+    assert (clean_url(url), clean_url(expected)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("HTTP://LOCALHOST:/x", id="dotless-empty-port"),
+        pytest.param("HTTP://LOCALHOST:80/x", id="dotless-http-default"),
+        pytest.param("HTTPS://LOCALHOST:443/x", id="dotless-https-default"),
+        pytest.param("HTTP://LOCALHOST:0080/x", id="dotless-padded-default"),
+        pytest.param("HTTP://user.name@LOCALHOST:/x", id="userinfo-dot-is-not-host-dot"),
+        pytest.param("HTTP://\u00ad:8000/x", id="mapped-empty-host"),
+        pytest.param("HTTP://LOCALHOST:80x/a/../x", id="invalid-port"),
+        pytest.param("HTTP://\xe9@LOCALHOST:80/a/../x", id="latin1-userinfo-no-colon"),
+        pytest.param("HTTP://\u0100@LOCALHOST:80/a/../x", id="bmp-userinfo-no-colon"),
+        pytest.param("HTTP://\U00010000@LOCALHOST:80/a/../x", id="astral-userinfo-no-colon"),
+        pytest.param("HTTP://a\u202eb/a/../x", id="bmp-host-low-byte-dot"),
+        pytest.param("HTTP://a\U0001002eb/a/../x", id="astral-host-low-byte-dot"),
+        pytest.param("HTTP://\u203a@LOCALHOST:80/a/../x", id="bmp-userinfo-low-byte-colon"),
+        pytest.param("HTTP://\U0001003a@LOCALHOST:80/a/../x", id="astral-userinfo-low-byte-colon"),
+        pytest.param("HTTP://a\ufffeb.EXAMPLE:80/a/../x", id="wide-host-dot"),
+        pytest.param("HTTP://a\x00b.EXAMPLE:80/a/../x", id="nul-before-host-dot"),
+        pytest.param("HTTP://:8000/a/../x", id="empty-host"),
+    ],
+)
+def test_clean_rejects_non_canonical_hosts(url: str) -> None:
+    assert clean_url(url) is None
 
 
 @pytest.mark.parametrize(
