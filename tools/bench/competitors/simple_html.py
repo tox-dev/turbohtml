@@ -10,25 +10,24 @@ REQUIREMENTS = ("simple-html>=3.1.1",)
 
 
 def build_e(count: int) -> None:
-    """Build a ``<ul>`` of rows with simple-html's attribute-dict-first calls and render it."""
-    rows = [li({"class": "item", "data-i": str(index)}, f"item {index}") for index in range(count)]
-    _ = render(ul(*rows))
+    # Build a ``<ul>`` of rows with simple-html's attribute-dict-first calls and render it.
+    _ = render(ul(*[li({"class": "item", "data-i": str(index)}, f"item {index}") for index in range(count)]))
 
 
 def construct(count: int) -> None:
-    """Construct ``count`` simple-html elements with attributes and text, in isolation from rendering."""
+    # Construct ``count`` simple-html elements with attributes and text, in isolation from rendering.
     for index in range(count):
         li({"class": "item", "data-i": str(index)}, f"item {index}")
 
 
 @functools.cache
 def _tree(count: int) -> Node:
-    """Return a built ``<ul>`` of ``count`` rows, cached so ``render`` times only the emit step."""
+    # Return a built ``<ul>`` of ``count`` rows, cached so ``render`` times only the emit step.
     return ul(*[li({"class": "item", "data-i": str(index)}, f"item {index}") for index in range(count)])
 
 
 def emit(count: int) -> None:
-    """Render a pre-built ``count``-row tree, in isolation from construction."""
+    # Render a pre-built ``count``-row tree, in isolation from construction.
     _ = render(_tree(count))
 
 

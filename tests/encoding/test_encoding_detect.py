@@ -1,21 +1,8 @@
-"""Content-based encoding detection (issue #182), the opt-in detect_encoding step.
-
-Detection is strictly subordinate to the WHATWG sniffing path: a BOM, the encoding
-argument, and a ``<meta>`` charset always win. UTF-8 is resolved by structural
-validation, which is a proof rather than a guess and so runs unconditionally; the
-frequency-scored single-byte and CJK candidates are what ``detect_encoding=True``
-adds.
-"""
-
 from __future__ import annotations
 
 import pytest
 
 from turbohtml import parse
-
-
-def detected(raw: bytes) -> str | None:
-    return parse(raw, detect_encoding=True).encoding
 
 
 def test_utf8_is_resolved_without_the_opt_in() -> None:
@@ -26,6 +13,10 @@ def test_utf8_is_resolved_without_the_opt_in() -> None:
     paragraph = parse(raw).find("p")
     assert paragraph is not None
     assert paragraph.text == "café résumé Москва 日本語"
+
+
+def detected(raw: bytes) -> str | None:
+    return parse(raw, detect_encoding=True).encoding
 
 
 def test_the_frequency_model_still_needs_the_opt_in() -> None:
@@ -229,6 +220,24 @@ def test_iso_2022_jp_detected() -> None:
     assert detected(raw) == "ISO-2022-JP"
 
 
+@pytest.mark.parametrize(
+    ("codec", "expected"),
+    [
+        pytest.param("gb18030", "windows-1252", id="gb18030-sweep-scores-nothing-falls-back"),
+        pytest.param("big5", "Big5", id="big5-sweep-detected"),
+        pytest.param("shift_jis", "windows-1252", id="shift-jis-sweep-scores-nothing-falls-back"),
+        pytest.param("euc_jp", "GBK", id="euc-jp-sweep-scores-gbk-higher"),
+        pytest.param("euc_kr", "Big5", id="euc-kr-sweep-scores-big5-higher"),
+    ],
+)
+def test_cjk_two_byte_branches(codec: str, expected: str) -> None:
+    # Drives the kana, kanji/hanzi/hangul, punctuation, PUA, adjacency, pending, and long-word
+    # branches of one CJK scorer. An exhaustive pair sweep carries no natural structure, so only
+    # the big5 sweep clears its own threshold; the others lose to the fallback or a rival scorer
+    # (the euc-kr sweep's Hanja-after-Hangul penalties sink it below Big5).
+    assert _detected(_two_byte_corpus(codec)) == expected
+
+
 def _detected(raw: bytes) -> str | None:
     return parse(raw, detect_encoding=True).encoding
 
@@ -246,24 +255,6 @@ def _two_byte_corpus(codec: str) -> bytes:
                 continue
             out += pair
     return bytes(out)
-
-
-@pytest.mark.parametrize(
-    ("codec", "expected"),
-    [
-        pytest.param("gb18030", "windows-1252", id="gb18030-sweep-scores-nothing-falls-back"),
-        pytest.param("big5", "Big5", id="big5-sweep-detected"),
-        pytest.param("shift_jis", "windows-1252", id="shift-jis-sweep-scores-nothing-falls-back"),
-        pytest.param("euc_jp", "GBK", id="euc-jp-sweep-scores-gbk-higher"),
-        pytest.param("euc_kr", "Big5", id="euc-kr-sweep-scores-big5-higher"),
-    ],
-)
-def test_cjk_two_byte_branches(codec: str, expected: str) -> None:
-    # Drives the kana, kanji/hanzi/hangul, punctuation, PUA, adjacency, pending, and long-word
-    # branches of one CJK scorer. An exhaustive pair sweep carries no natural structure, so only
-    # the big5 sweep clears its own threshold; the others lose to the fallback or a rival scorer
-    # (the euc-kr sweep's Hanja-after-Hangul penalties sink it below Big5).
-    assert _detected(_two_byte_corpus(codec)) == expected
 
 
 def test_gb18030_four_byte_branches() -> None:
@@ -378,7 +369,7 @@ def test_arabic_zwnj_and_ascii_run() -> None:
     arabic = "العربية"
     # a digit on each side of the ZWNJ puts an above-boundary class next to it, so both
     # the current==ZWNJ and previous==ZWNJ arms of the pair score are taken
-    raw = (arabic + " 1‌2 " + arabic + "  " + arabic + " hello world " + arabic).encode("cp1256")
+    raw = (f"{arabic} 1‌2 {arabic}  {arabic} hello world {arabic}").encode("cp1256")
     assert _detected(raw) == "windows-1256"
 
 
@@ -434,7 +425,7 @@ def test_windows_1252_ordinal_state_machine() -> None:
         "ªx",  # bare feminine ordinal then letter
         "z",  # a plain other letter
     ]
-    raw = (" " + "  ".join(segments) + " ").encode("cp1252")
+    raw = (f" {'  '.join(segments)} ").encode("cp1252")
     assert _detected(raw) == "windows-1252"
 
 

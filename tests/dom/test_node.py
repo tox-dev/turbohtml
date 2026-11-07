@@ -65,8 +65,7 @@ def test_repr(html: str, expected: str) -> None:
 
 
 def test_template_content_is_a_document_fragment(find: Callable[[str, str], Element]) -> None:
-    template = find("<template>inner</template>", "template")
-    (content,) = template.children
+    (content,) = find("<template>inner</template>", "template").children
     assert (type(content), repr(content), content.text) == (DocumentFragment, "DocumentFragment()", "inner")
 
 
@@ -157,8 +156,9 @@ def test_equals_is_structural_while_eq_stays_identity() -> None:
 
 
 def test_equals_within_one_tree_ignores_attribute_order() -> None:
-    doc = parse("<ul><li id=x class=a>t</li><li class=a id=x>t</li></ul>")
-    first, second = doc.find_all("li")  # two nodes sharing one tree and handle
+    first, second = parse("<ul><li id=x class=a>t</li><li class=a id=x>t</li></ul>").find_all(
+        "li"
+    )  # two nodes sharing one tree and handle
     assert first.equals(second)
 
 
@@ -394,17 +394,7 @@ def test_transient_iteration_reads_every_node() -> None:
     assert li_count == 1200
 
 
-_DOC = "<section><h2>T</h2><p>one</p><ul><li>a</li><li>b</li></ul></section><footer>f</footer>"
-
-
-def _tags(nodes: Iterable[Node]) -> list[str]:
-    return [node.tag for node in nodes if isinstance(node, Element)]
-
-
-def _find(html: str, tag: str) -> Element:
-    element = parse(html).find(tag)
-    assert element is not None
-    return element
+_DOC: Final[str] = "<section><h2>T</h2><p>one</p><ul><li>a</li><li>b</li></ul></section><footer>f</footer>"
 
 
 @pytest.mark.parametrize(
@@ -418,6 +408,16 @@ def _find(html: str, tag: str) -> Element:
 )
 def test_sibling_axes(tag: str, axis: str, expected: list[str]) -> None:
     assert _tags(getattr(_find(_DOC, tag), axis)) == expected
+
+
+def _tags(nodes: Iterable[Node]) -> list[str]:
+    return [node.tag for node in nodes if isinstance(node, Element)]
+
+
+def _find(html: str, tag: str) -> Element:
+    element = parse(html).find(tag)
+    assert element is not None
+    return element
 
 
 def test_following_excludes_own_subtree() -> None:
@@ -455,12 +455,9 @@ def test_text_iterators(axis: str, expected: list[str]) -> None:
     assert list(getattr(div, axis)) == expected
 
 
-_SAMPLE = "<body><p id=a>one<b>bold</b></p><p id=b>two</p></body>"
-
-
 @pytest.fixture
 def body(find: Callable[[str, str], Element]) -> Element:
-    return find(_SAMPLE, "body")
+    return find("<body><p id=a>one<b>bold</b></p><p id=b>two</p></body>", "body")
 
 
 def test_parent_chain(body: Element) -> None:
@@ -644,30 +641,18 @@ def test_many_duplicate_attributes_preserve_first_value(*, different: bool) -> N
     assert left.equals(right) is not different
 
 
-def child(root: Node, tag: str) -> Element:
-    """Find a descendant by tag, narrowing the Element | None result for the checker."""
-    found = root.find(tag)
-    assert found is not None
-    return found
+def test_start_tag_span_covers_open_angle_through_close_angle() -> None:
+    # 1-based line, 0-based column, code-point offset, at both endpoints
+    assert location("<div>x</div>", "div").start_tag == SourceSpan(1, 0, 0, 1, 5, 5)
 
 
 def location(html: str, tag: str) -> SourceLocation:
-    """Parse with source locations and return the first matching element's record."""
+    # Parse with source locations and return the first matching element's record.
     element = parse(html, source_locations=True).find(tag)
     assert element is not None
     loc = element.source_location
     assert loc is not None
     return loc
-
-
-def offsets(span: SourceSpan) -> tuple[int, int]:
-    """The half-open code-point range a span covers."""
-    return span.start_offset, span.end_offset
-
-
-def test_start_tag_span_covers_open_angle_through_close_angle() -> None:
-    # 1-based line, 0-based column, code-point offset, at both endpoints
-    assert location("<div>x</div>", "div").start_tag == SourceSpan(1, 0, 0, 1, 5, 5)
 
 
 def test_end_tag_span_covers_the_close_tag() -> None:
@@ -676,12 +661,16 @@ def test_end_tag_span_covers_the_close_tag() -> None:
     assert offsets(loc.end_tag) == (6, 12)
 
 
+def offsets(span: SourceSpan) -> tuple[int, int]:
+    # The half-open code-point range a span covers.
+    return span.start_offset, span.end_offset
+
+
 def test_attribute_span_slices_the_source() -> None:
     html = '<div id=x class="a b">y</div>'
     loc = location(html, "div")
     assert {name: offsets(span) for name, span in loc.attrs.items()} == {"id": (5, 9), "class": (10, 21)}
-    assert html[5:9] == "id=x"
-    assert html[10:21] == 'class="a b"'
+    assert (html[5:9], html[10:21]) == ("id=x", 'class="a b"')
 
 
 @pytest.mark.parametrize(
@@ -765,6 +754,13 @@ def test_source_locations_imply_positions() -> None:
     element = child(parse("<div>x</div>", source_locations=True), "div")
     assert element.position == (1, 0)
     assert element.source_location is not None
+
+
+def child(root: Node, tag: str) -> Element:
+    # Find a descendant by tag, narrowing the Element | None result for the checker.
+    found = root.find(tag)
+    assert found is not None
+    return found
 
 
 def test_off_by_default_reports_none() -> None:
@@ -876,8 +872,7 @@ def test_constructed_element_has_no_location() -> None:
 
 def test_fragment_locations_are_relative_to_the_fragment() -> None:
     html = '<div id="a">x</div>'
-    root = parse_fragment(html, "body", source_locations=True)
-    loc = child(root, "div").source_location
+    loc = child(parse_fragment(html, "body", source_locations=True), "div").source_location
     assert loc is not None
     assert offsets(loc.start_tag) == (0, 12)
     assert html[5:11] == 'id="a"'
@@ -893,8 +888,7 @@ def test_incremental_parser_tracks_locations_across_feeds() -> None:
     parser = IncrementalParser(source_locations=True)
     parser.feed("<ul>\n  <li>a</li>\n")
     parser.feed('  <li id="x">b</li>\n</ul>')
-    items = parser.close().find_all("li")
-    second = items[1].source_location
+    second = parser.close().find_all("li")[1].source_location
     assert second is not None
     assert second.start_tag.start_line == 3
     assert "id" in second.attrs
@@ -929,13 +923,6 @@ def test_span_is_a_named_tuple() -> None:
     assert span == (1, 0, 0, 1, 5, 5)
 
 
-def _source_position_child(root: Node, tag: str) -> Element:
-    """Find a descendant by tag, narrowing the Element | None result for the checker."""
-    found = root.find(tag)
-    assert found is not None
-    return found
-
-
 @pytest.mark.parametrize(
     ("html", "tag", "expected"),
     [
@@ -960,6 +947,13 @@ def test_nested_elements_each_carry_their_own_position() -> None:
     assert _source_position_child(doc, "section").position == (1, 0)
     assert _source_position_child(doc, "article").position == (2, 2)
     assert _source_position_child(doc, "p").position == (3, 4)
+
+
+def _source_position_child(root: Node, tag: str) -> Element:
+    # Find a descendant by tag, narrowing the Element | None result for the checker.
+    found = root.find(tag)
+    assert found is not None
+    return found
 
 
 @pytest.mark.parametrize(
@@ -1040,15 +1034,13 @@ def test_fragment_positions_false_drops_them() -> None:
 def test_adoption_agency_clone_keeps_the_original_line() -> None:
     # </i> closes across the block <p>, so the adoption agency clones <i> into <p>;
     # the clone stands in for the same source tag, so both <i> nodes report line 1
-    doc = parse("<i><p>x</i>y</p>")
-    italics = doc.find_all("i")
+    italics = parse("<i><p>x</i>y</p>").find_all("i")
     assert len(italics) == 2
     assert [i.source_line for i in italics] == [1, 1]
 
 
 def test_adoption_agency_without_positions_is_unaffected() -> None:
-    doc = parse("<i><p>x</i>y</p>", positions=False)
-    italics = doc.find_all("i")
+    italics = parse("<i><p>x</i>y</p>", positions=False).find_all("i")
     assert len(italics) == 2
     assert all(i.source_line is None for i in italics)
 

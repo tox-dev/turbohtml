@@ -1,9 +1,3 @@
-"""The inner serialization of a raw-text element writes its Text and CDATA children literally, as the outer form does.
-
-The WHATWG fragment serialization runs on the element itself, so a Text child whose parent is a raw-text element is
-appended as is, whichever accessor asks for the element's content.
-"""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final

@@ -1,5 +1,3 @@
-"""Behavioral tests for the DOM-less streaming rewriter (turbohtml.rewrite)."""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -13,13 +11,6 @@ from turbohtml.rewrite import Element, rewrite
 if TYPE_CHECKING:
     from collections.abc import Callable
 from typing import Final
-
-
-def _set(name: str, value: str) -> Callable[[Element], None]:
-    def handler(element: Element) -> None:
-        element.set_attribute(name, value)
-
-    return handler
 
 
 def test_rewrite_noop_returns_input_unchanged() -> None:
@@ -78,6 +69,13 @@ def test_rewrite_rejects_non_str() -> None:
 )
 def test_rewrite_streamable_selectors_match(source: str, selector: str, expected: str) -> None:
     assert rewrite(source, elements=[(selector, _set("k", "v"))]) == expected
+
+
+def _set(name: str, value: str) -> Callable[[Element], None]:
+    def handler(element: Element) -> None:
+        element.set_attribute(name, value)
+
+    return handler
 
 
 @pytest.mark.parametrize(
@@ -354,8 +352,7 @@ def test_rewrite_set_content_ancestor_suppresses() -> None:
 
 def test_rewrite_deeply_nested_beyond_depth_guard_is_safe() -> None:
     depth = 9000
-    source = "<div>" * depth + "x" + "</div>" * depth
-    result = rewrite(source, elements=[("div", _set("k", "1"))])
+    result = rewrite(f"{'<div>' * depth}x{'</div>' * depth}", elements=[("div", _set("k", "1"))])
     assert result.count('<div k="1">') >= 1
     assert "x" in result
 
@@ -403,13 +400,6 @@ def test_rewrite_text_handler_escapes_set_text() -> None:
     assert rewrite("<p>a</p>", text=handler) == "<p>&lt;x&gt;</p>"
 
 
-def _set_text(value: str) -> Callable[[Element], None]:
-    def handler(text: Element) -> None:
-        text.set_text(value)
-
-    return handler
-
-
 @pytest.mark.parametrize(
     ("html", "value", "expected"),
     [
@@ -427,6 +417,13 @@ def _set_text(value: str) -> Callable[[Element], None]:
 )
 def test_rewrite_set_text_in_raw_text_is_literal(html: str, value: str, expected: str) -> None:
     assert rewrite(html, text=_set_text(value)) == expected
+
+
+def _set_text(value: str) -> Callable[[Element], None]:
+    def handler(text: Element) -> None:
+        text.set_text(value)
+
+    return handler
 
 
 def test_rewrite_text_node_insertions_in_raw_text_are_literal() -> None:
@@ -524,8 +521,7 @@ def test_rewrite_text_replace() -> None:
 
 def test_rewrite_comment_handler() -> None:
     def handler(comment: Element) -> None:
-        assert comment.kind == "comment"
-        assert comment.text == " keep "
+        assert (comment.kind, comment.text) == ("comment", " keep ")
         comment.set_text(" edited ")
 
     assert rewrite("<p>a<!-- keep -->b</p>", comments=handler) == "<p>a<!-- edited -->b</p>"
@@ -704,22 +700,20 @@ def test_rewrite_noop_equals_full_parse_serialize(source: str) -> None:
 
 
 def test_rewrite_streaming_matches_dom_edit() -> None:
-    source = "<div><a href=/1>one</a><a href=/2>two</a></div>"
 
     def add_rel(element: Element) -> None:
         element.set_attribute("rel", "noopener")
 
+    source = "<div><a href=/1>one</a><a href=/2>two</a></div>"
     streamed = rewrite(source, elements=[("a[href]", add_rel)])
 
-    tree = parse(source)
-    for anchor in tree.select("a[href]"):
+    for anchor in parse(source).select("a[href]"):
         anchor.attrs["rel"] = "noopener"
     assert streamed == '<div><a href="/1" rel="noopener">one</a><a href="/2" rel="noopener">two</a></div>'
 
 
 def test_rewrite_wide_document_is_bounded() -> None:
-    wide = "<ul>" + "<li>x</li>" * 20000 + "</ul>"
-    result = rewrite(wide, elements=[("li", _set("k", "1"))])
+    result = rewrite(f"<ul>{'<li>x</li>' * 20000}</ul>", elements=[("li", _set("k", "1"))])
     assert result.count('<li k="1">x</li>') == 20000
 
 

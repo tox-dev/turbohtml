@@ -1,6 +1,3 @@
-"""The Indent layout adds whitespace only where the default CSS renders none, so the
-reparsed page reads the same and indenting the output again reproduces it."""
-
 from __future__ import annotations
 
 import io
@@ -41,12 +38,6 @@ if TYPE_CHECKING:
     from wpt_tree_corpus import WptHtmlTreeCorpus
 
 _PRETTY: Final = Html(layout=Indent())
-
-
-def _pretty(html: str, selector: str) -> str:
-    node = parse(html).select_one(selector)
-    assert node is not None
-    return node.serialize(_PRETTY)
 
 
 @pytest.mark.parametrize(
@@ -108,6 +99,12 @@ def test_indent_layout(html: str, selector: str, expected: str) -> None:
     assert _pretty(html, selector) == expected
 
 
+def _pretty(html: str, selector: str) -> str:
+    node = parse(html).select_one(selector)
+    assert node is not None
+    return node.serialize(_PRETTY)
+
+
 @pytest.mark.parametrize(
     ("html", "selector"),
     [
@@ -137,16 +134,6 @@ def test_indent_body_with_only_inline_content() -> None:
     )
 
 
-def _compact_roundtrips(source: str) -> bool:
-    compact = parse(source).serialize()
-    return parse(compact).serialize() == compact
-
-
-def _pretty_is_fixpoint(source: str) -> bool:
-    pretty = parse(source).serialize(_PRETTY)
-    return parse(pretty).serialize(_PRETTY) == pretty
-
-
 def test_indent_reindent_is_fixpoint(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:
     # only markup the compact serializer round-trips can be asked to reindent stably
     unstable: Final = [
@@ -155,6 +142,16 @@ def test_indent_reindent_is_fixpoint(wpt_html_tree_corpus: WptHtmlTreeCorpus) ->
         if _compact_roundtrips(case["data"]) and not _pretty_is_fixpoint(case["data"])
     ]
     assert unstable == []
+
+
+def _compact_roundtrips(source: str) -> bool:
+    compact = parse(source).serialize()
+    return parse(compact).serialize() == compact
+
+
+def _pretty_is_fixpoint(source: str) -> bool:
+    pretty = parse(source).serialize(_PRETTY)
+    return parse(pretty).serialize(_PRETTY) == pretty
 
 
 def test_indent_drops_empty_and_blank_text_nodes() -> None:
@@ -312,7 +309,7 @@ def test_xml_serialization_keeps_doctype_external_ids(source: str, expected: str
 )
 def test_xml_serialization_omits_invalid_public_id(source: str, expected: str) -> None:
     serialized: Final = parse(source).serialize(Html(xml=True))
-    assert parse_xml(serialized).serialize(Html(xml=True)) == expected + "<html><head/><body><r/></body></html>"
+    assert parse_xml(serialized).serialize(Html(xml=True)) == f"{expected}<html><head/><body><r/></body></html>"
 
 
 @pytest.mark.parametrize("invalid", [pytest.param("\x01", id="control"), pytest.param("\uffff", id="noncharacter")])
@@ -337,8 +334,7 @@ def test_document_text_skips_comments_and_doctype() -> None:
 
 def test_template_content_serializes_and_collects_text(find: Callable[[str, str], Element]) -> None:
     template = find("<template>inner</template>", "template")
-    assert template.html == "<template>inner</template>"
-    assert template.text == "inner"
+    assert (template.html, template.text) == ("<template>inner</template>", "inner")
 
 
 # the chunk stream must join back to exactly the one-shot output, for every document
@@ -395,8 +391,7 @@ def test_serialize_iter_empty_subtree_yields_no_chunks() -> None:
 def test_serialize_iter_bounds_each_chunk_and_joins(layout: Indent | None) -> None:
     # a document past the ~8 KiB chunk size must split into several bounded chunks
     # that still reconstruct the one-shot output exactly, under either walk
-    source = "".join(f"<section id='s{index}'><p>row {index} &amp; more</p></section>" for index in range(400))
-    root = parse(source)
+    root = parse("".join(f"<section id='s{index}'><p>row {index} &amp; more</p></section>" for index in range(400)))
     options = Html(layout=layout)
     chunks = list(root.serialize_iter(options))
     assert len(chunks) > 1
@@ -404,12 +399,15 @@ def test_serialize_iter_bounds_each_chunk_and_joins(layout: Indent | None) -> No
     assert "".join(chunks) == root.serialize(options)
 
 
-_ITER_CHANGED: Final = (
+_ITER_CHANGED: Final[str] = (
     "the tree changed while serialize_iter was streaming it; finish or discard the iterator before editing the tree"
 )
-_ITER_EDITS: Final = ("extract", "decompose", "clear", "set-inner-html", "reparent-outside", "replace-with", "set-text")
-_ITER_LAYOUTS: Final = ("compact", "indent", "xml")
-_ITER_MUTATION: Final = """
+
+
+def test_serialize_iter_raises_after_a_mid_stream_edit() -> None:
+    # each edit detaches the resume node and a regression climbs through its NULL parent and kills the interpreter, so
+    # the edits run in one child; the second next() checks that the error sticks
+    iter_mutation = """
 import turbohtml
 from turbohtml import Html, Indent
 
@@ -437,16 +435,13 @@ for edit_name, edit in EDITS.items():
             except RuntimeError as exc:
                 print(edit_name, layout_name, exc)
 """
-
-
-def test_serialize_iter_raises_after_a_mid_stream_edit() -> None:
-    # each edit detaches the resume node and a regression climbs through its NULL parent and kills the interpreter, so
-    # the edits run in one child; the second next() checks that the error sticks
     result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
-        [sys.executable, "-c", _ITER_MUTATION], capture_output=True, text=True, timeout=120, check=False
+        [sys.executable, "-c", iter_mutation], capture_output=True, text=True, timeout=120, check=False
     )
+    iter_edits = ("extract", "decompose", "clear", "set-inner-html", "reparent-outside", "replace-with", "set-text")
+    iter_layouts = ("compact", "indent", "xml")
     expected = "".join(
-        f"{edit} {layout} {_ITER_CHANGED}\n" for edit in _ITER_EDITS for layout in _ITER_LAYOUTS for _ in range(2)
+        f"{edit} {layout} {_ITER_CHANGED}\n" for edit in iter_edits for layout in iter_layouts for _ in range(2)
     )
     assert (result.returncode, result.stdout) == (0, expected), result.stderr
 
@@ -483,8 +478,7 @@ def test_serialize_iter_raises_after_a_move_within_the_subtree(moved: Callable[[
     root = parse("<div>" + "".join(f"<p>par{index:04d}</p>" for index in range(4000)) + "</div>").select_one("div")
     assert root is not None
     walk = root.serialize_iter()
-    first = next(walk)
-    root.append(root.select("p")[moved(first)])
+    root.append(root.select("p")[moved(next(walk))])
     with pytest.raises(RuntimeError, match=f"^{re.escape(_ITER_CHANGED)}$"):
         next(walk)
 
@@ -701,7 +695,7 @@ def test_inner_iterator(layout: Indent | None, source: str) -> None:
 
 
 def test_inner_iterator_chunks() -> None:
-    root: Final = parse_fragment("<div>" + "<p>abcdefgh</p>" * 3000 + "</div>").children[0]
+    root: Final = parse_fragment(f"<div>{'<p>abcdefgh</p>' * 3000}</div>").children[0]
     chunks: Final = tuple(root.serialize_iter(inner=True))
     assert (len(chunks) > 1, "".join(chunks)) == (True, "<p>abcdefgh</p>" * 3000)
 
@@ -767,6 +761,12 @@ def test_inner_html_foreign_frame_keeps_children(markup: str) -> None:
     assert _one(markup, "frame").inner_html == "x"
 
 
+def _one(html: str, selector: str) -> Node:
+    node = parse(html).select_one(selector)
+    assert node is not None
+    return node
+
+
 @pytest.mark.parametrize("layout", [None, Indent(), Minify()])
 @pytest.mark.parametrize("content", ["", "<title>x</title>", '<meta charset="utf-8">'])
 def test_inner_meta_charset(layout: Indent | Minify | None, content: str) -> None:
@@ -817,12 +817,6 @@ def test_inner_raw_context_only_applies_to_direct_text(layout: Indent | None) ->
 _XML = Html(xml=True)
 
 
-def _fragment(markup: str, selector: str) -> Element:
-    node = parse(markup).select_one(selector)
-    assert node is not None
-    return node
-
-
 @pytest.mark.parametrize(
     ("markup", "selector", "expected"),
     [
@@ -836,6 +830,12 @@ def _fragment(markup: str, selector: str) -> Element:
 )
 def test_empty_elements_self_close(markup: str, selector: str, expected: str) -> None:
     assert _fragment(markup, selector).serialize(_XML) == expected
+
+
+def _fragment(markup: str, selector: str) -> Element:
+    node = parse(markup).select_one(selector)
+    assert node is not None
+    return node
 
 
 @pytest.mark.parametrize(
@@ -1045,7 +1045,7 @@ def test_xml_processing_instruction_keeps_valid_target(target: str) -> None:
     assert Element("doc", children=[ProcessingInstruction(target, "d")]).serialize(_XML) == f"<doc><?{target} d?></doc>"
 
 
-_XML_ONLY_NODES: Final = "<r><![CDATA[a><b>c</b>]]><![CDATA[x < y]]><?pi a><i>p</i>--?><?ok x y?></r>"
+_XML_ONLY_NODES: Final[str] = "<r><![CDATA[a><b>c</b>]]><![CDATA[x < y]]><?pi a><i>p</i>--?><?ok x y?></r>"
 
 
 def test_xml_only_nodes_holding_gt_change_form_in_html() -> None:
@@ -1170,18 +1170,6 @@ def test_round_trip_reparses_to_same_html() -> None:
     assert reparsed.serialize() == node.serialize()
 
 
-def _inner_xml(node: Node) -> str:
-    """Serialize one node through the inner_xml path, which emits the same well-formed XML Node.serialize(xml) does."""
-    return Element("root", children=[node]).inner_xml
-
-
-def _parsed_inner_xml(markup: str) -> str:
-    """Serialize parsed markup through inner_xml, for nodes (foreign, tag-soup names) the constructor rejects."""
-    node = parse(f"<div>{markup}</div>").select_one("div")
-    assert node is not None
-    return node.inner_xml
-
-
 def test_xml_serialize_makes_a_comment_well_formed() -> None:
     # XML forbids `--` inside a comment and holds no C0 control, so serialize(xml) spaces the one and drops the other
     assert Element("doc", children=[Comment("a--b\x01")]).serialize(_XML) == "<doc><!--a- -b--></doc>"
@@ -1284,6 +1272,11 @@ def test_inner_xml_comment_is_made_well_formed(body: str, expected: str) -> None
     ET.fromstring(f"<doc>{out}</doc>")  # ruff:ignore[suspicious-xml-element-tree-usage]  # our own output, parsed to assert the neutralized comment reparses
 
 
+def _inner_xml(node: Node) -> str:
+    # Serialize one node through the inner_xml path, which emits the same well-formed XML Node.serialize(xml) does.
+    return Element("root", children=[node]).inner_xml
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
@@ -1306,14 +1299,20 @@ def test_inner_xml_drops_invalid_characters_in_attribute_values() -> None:
 
 def test_inner_xml_serializes_children_only() -> None:
     node = _fragment("<div><br><p>x&amp;y</p></div>", "div")
-    assert node.inner_xml == "<br/><p>x&amp;y</p>"
-    assert node.inner_html == "<br><p>x&amp;y</p>"
+    assert (node.inner_xml, node.inner_html) == ("<br/><p>x&amp;y</p>", "<br><p>x&amp;y</p>")
 
 
 def test_inner_xml_does_not_duplicate_a_stored_xmlns() -> None:
     out = _parsed_inner_xml('<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>')
     assert out.count("xmlns=") == 1
     assert out == '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>'
+
+
+def _parsed_inner_xml(markup: str) -> str:
+    # Serialize parsed markup through inner_xml, for nodes (foreign, tag-soup names) the constructor rejects.
+    node = parse(f"<div>{markup}</div>").select_one("div")
+    assert node is not None
+    return node.inner_xml
 
 
 def test_inner_xml_does_not_duplicate_a_stored_xmlns_prefix() -> None:
@@ -1386,12 +1385,6 @@ def test_inner_xml_keeps_valid_attribute_names(attributes: dict[str, str], expec
     assert _inner_xml(Element("p", attributes)) == expected
 
 
-def _one(html: str, selector: str) -> Node:
-    node = parse(html).select_one(selector)
-    assert node is not None
-    return node
-
-
 @pytest.mark.parametrize(
     ("html", "selector", "inner", "outer"),
     [
@@ -1408,8 +1401,7 @@ def _one(html: str, selector: str) -> Node:
 )
 def test_inner_html(html: str, selector: str, inner: str, outer: str) -> None:
     node = _one(html, selector)
-    assert node.inner_html == inner
-    assert node.html == outer
+    assert (node.inner_html, node.html) == (inner, outer)
 
 
 def test_whatwg_attribute_escapes_angles() -> None:
@@ -1506,7 +1498,7 @@ def test_formatter_serialize(html: str, selector: str, formatter: Formatter, exp
     assert _one(html, selector).serialize(Html(formatter=formatter)) == expected
 
 
-_QUOTED_TITLE_LINK: Final = '<a title="x&quot; data-y=&quot;1" href="/">hi</a>'
+_QUOTED_TITLE_LINK: Final[str] = '<a title="x&quot; data-y=&quot;1" href="/">hi</a>'
 
 
 @pytest.mark.parametrize(
@@ -1525,7 +1517,7 @@ def test_minimal_formatter_stream_escapes_quote_in_attribute() -> None:
 
 
 def test_named_entities_reparse_to_the_same_text() -> None:
-    text: Final = "".join(chr(codepoint) for codepoint in sorted(codepoint2name)) + "⟨⟩"
+    text: Final = f"{''.join(chr(codepoint) for codepoint in sorted(codepoint2name))}⟨⟩"
     node: Final = Element("p", children=[Text(text)])
     reparsed: Final = parse(node.serialize(Html(formatter=Formatter.NAMED_ENTITIES))).select("p")
     assert [paragraph.text for paragraph in reparsed] == [text]
@@ -2005,32 +1997,32 @@ def test_serialize_rejects_another_renderers_config() -> None:
         parse("<p>x</p>").serialize(Markdown())  # ty: ignore[invalid-argument-type]  # the wrong config class is rejected
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _SortedHtml(Html):
     sort_attributes: bool = True
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _ImageText(PlainText):
     images: bool = True
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _CommentedCanonical(Canonical):
     with_comments: bool = True
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _ExtendedHtml(_SortedHtml):
     extra: str = "value"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _ExtendedText(_ImageText):
     extra: str = "value"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _ExtendedCanonical(_CommentedCanonical):
     extra: str = "value"
 

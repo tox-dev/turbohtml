@@ -10,7 +10,7 @@ REQUIREMENTS = ("faust-cchardet>=2.1.19",)
 
 
 def encoding(data: bytes) -> None:
-    """Detect a byte stream's character encoding with cchardet's uchardet engine."""
+    # Detect a byte stream's character encoding with cchardet's uchardet engine.
     cchardet.detect(data)
 
 

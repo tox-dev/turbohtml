@@ -49,64 +49,44 @@ from turbohtml.validate import RelaxNG, XMLSchema
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
 
-__all__ = [
-    "KINDS",
-    "TARGETS",
-    "Bound",
-    "Regression",
-    "Score",
-    "Shape",
-    "Target",
-    "alphabet",
-    "load_regressions",
-    "main",
-    "measure",
-    "score",
-]
-
 _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _C_SOURCES: Final[Path] = _ROOT / "src" / "turbohtml" / "_c"
 _REGRESSIONS: Final[Path] = Path(__file__).with_name("amplify_regressions.json")
-_INFLIGHT: Final = "inflight.json"
-KINDS: Final = ("repeat", "sandwich", "tree")
-_COUNTER: Final = "{n}"
+_INFLIGHT: Final[str] = "inflight.json"
+_KINDS: Final = ("repeat", "sandwich", "tree")
+_COUNTER: Final[str] = "{n}"
 # comrak quadratic.rs and pulldown-cmark's dos-fuzzer both cap each pattern string at 128 bytes
-_MAX_PIECE: Final = 128
-_BASE_BYTES: Final = 1024
+_MAX_PIECE: Final[int] = 128
+_BASE_BYTES: Final[int] = 1024
 # The C code caps work that would otherwise grow quadratically: TH_MAX_TREE_DEPTH open elements (512), TH_IDNA_MAX_INPUT
 # code points (16,384), CSS_MAX_MERGE_REACH merged rules (256). A 1 KiB to 8 KiB run can sit inside such a cap, so a
 # search hit is re-scored from 128 KiB, past 512 pieces of 128 bytes and 16,384 code points of 4 bytes; a slope gone
 # by then is a cap, counted but not reported.
 _PAST_CAPS: Final = 128 * 1024
-_DOUBLINGS: Final = 3
 # Doubling the input of a linear target doubles its time (growth 2) and of a quadratic one quadruples it (4). comrak
 # (https://github.com/kivikakk/comrak/blob/c8a2589fd3c085017724600c4e264639300ae905/fuzz/fuzz_targets/quadratic.rs#L322-L337)
 # applies its 2.5 to the time per byte, where a quadratic scores 2 and passes, so the 2.5 here applies to the time.
-_MIN_GROWTH: Final = 2.5
-_BEST_OF: Final = 3
+_MIN_GROWTH: Final[float] = 2.5
 # pulldown-cmark's TEST_COUNT: a hit has to survive five measurements
 # (https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/main.rs#L374-L398)
-_RETESTS: Final = 5
+_RETESTS: Final[int] = 5
 # Under a load average of 45 on 10 cores, ten measurements each of the quadratic and linear controls with interleaved
 # 10 ms samples kept every doubling of the quadratic at 3.21 or more and of the linear at 2.31 or less; with 5 ms
 # samples the quadratic fell to 2.09 and the linear rose to 3.66.
-_MIN_SAMPLE_SECONDS: Final = 0.010
+_MIN_SAMPLE_SECONDS: Final[float] = 0.010
 # pulldown-cmark's MAX_MILLIS: a call this slow ends the measurement, its time standing as the last size's sample. Its
 # watchdog fires at ten times that; a size here runs up to four such calls and the watchdog counts wall time, which a
 # loaded runner stretches, so it waits 30 s.
-_TOO_LONG_SECONDS: Final = 0.5
-_HANG_SECONDS: Final = 30.0
+_TOO_LONG_SECONDS: Final[float] = 0.5
 # RecursionError is how the tree consumers refuse nesting past their depth limit (dom/tree.h th_node_check_max_depth);
 # depth is the structural probes' concern in _targets.py, and the time spent refusing is still measured here
 _EXPECTED: Final = (ValueError, HTMLParseError, RecursionError)
 # the descriptor, not sys.stderr: pytest and the search worker both swap the object, the watchdog needs the file
-_STDERR: Final = 2
-_MAX_LITERAL: Final = 32
-_PHRASE_LITERALS: Final = 6
+_STDERR: Final[int] = 2
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Return 0 when every scored shape grows linearly within its output bound, 1 on a finding, 2 on a blind run."""
+    # Return 0 when every scored shape grows linearly within its output bound, 1 on a finding, 2 on a blind run.
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     modes = parser.add_subparsers(dest="mode", required=True)
     regressions = modes.add_parser("regressions", help="re-score the committed super-linear regression list")
@@ -132,7 +112,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _control_failure() -> str | None:
-    control = Shape("repeat", "ab")
+    control = Shape(kind="repeat", left="ab")
     # score() pools retests to drop a slope that noise faked; the quadratic control pools them to recover one that
     # noise hid, so only a runner that hides it five times running counts as blind
     quadratic = measure(_quadratic_control, control)
@@ -159,17 +139,14 @@ def _growth_text(result: Score) -> str:
     return " ".join(f"{value:.2f}" for value in result.growth)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Shape:
-    """
-    One input family, rendered at any size.
-
-    ``repeat`` is ``head + left*N + tail``; ``sandwich`` is ``head + left*N + middle + right*N + tail``; ``tree`` is
-    ``head + middle + left + middle + left*2 + middle ... + tail``. With ``counter`` every ``{n}`` in a repeated piece
-    becomes its repetition index, zero-padded to six digits, so a run of attributes or rules carries distinct names of
-    one length.
-    """
-
+    # One input family, rendered at any size.
+    #
+    # ``repeat`` is ``head + left*N + tail``; ``sandwich`` is ``head + left*N + middle + right*N + tail``; ``tree`` is
+    # ``head + middle + left + middle + left*2 + middle ... + tail``. With ``counter`` every ``{n}`` in a repeated piece
+    # becomes its repetition index, zero-padded to six digits, so a run of attributes or rules carries distinct names of
+    # one length.
     kind: str
     left: str
     middle: str = ""
@@ -179,9 +156,9 @@ class Shape:
     counter: bool = False
 
     def __post_init__(self) -> None:
-        """Reject a shape that cannot grow or whose pieces pass 128 bytes."""
-        if self.kind not in KINDS:
-            msg = f"shape kind {self.kind!r} is not one of {', '.join(KINDS)}"
+        # Reject a shape that cannot grow or whose pieces pass 128 bytes.
+        if self.kind not in _KINDS:
+            msg = f"shape kind {self.kind!r} is not one of {', '.join(_KINDS)}"
             raise ValueError(msg)
         if not self.left:
             msg = "a shape needs a non-empty left piece to grow"
@@ -198,7 +175,7 @@ class Shape:
             raise ValueError(msg)
 
     def render(self, size: int) -> str:
-        """Repeat the growing pieces as often as ``size`` UTF-8 bytes allow."""
+        # Repeat the growing pieces as often as ``size`` UTF-8 bytes allow.
         middle = self.middle if self.kind == "sandwich" else ""
         budget = size - _width(self.head + middle + self.tail)
         lefts: list[str] = []
@@ -225,10 +202,9 @@ def _width(text: str) -> int:
     return len(text.encode())
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Score:
-    """The best thread CPU seconds per call at each size, and the output size at each; ``too_long`` cut it short."""
-
+    # The best thread CPU seconds per call at each size, and the output size at each; ``too_long`` cut it short.
     sizes: tuple[int, ...]
     seconds: tuple[float, ...]
     characters: tuple[int, ...]
@@ -236,54 +212,52 @@ class Score:
     too_long: bool = False
 
     @property
+    def super_linear(self) -> bool:
+        # Time growing at least 2.5x at every measured doubling, or a call past the limit at the first size.
+        return all(growth >= _MIN_GROWTH for growth in self.growth)
+
+    @property
     def growth(self) -> tuple[float, ...]:
-        """Time growth per doubling, normalized to an exact doubling: 2 for linear work, 4 for quadratic."""
+        # Time growth per doubling, normalized to an exact doubling: 2 for linear work, 4 for quadratic.
         steps = zip(self.sizes, self.sizes[1:], self.seconds, self.seconds[1:], strict=False)
         return tuple(2 * (after / before) * (small / large) for small, large, before, after in steps)
 
-    @property
-    def super_linear(self) -> bool:
-        """Time growing at least 2.5x at every measured doubling, or a call past the limit at the first size."""
-        return all(growth >= _MIN_GROWTH for growth in self.growth)
-
     def within(self, bound: Bound | None) -> bool:
-        """Whether every measured output fits ``bound``; a target without a bound always fits."""
+        # Whether every measured output fits ``bound``; a target without a bound always fits.
         return bound is None or all(map(bound.holds, self.characters, self.outputs))
 
     def pooled(self, other: Score) -> Score:
-        """Keep the faster sample at each size: noise only ever adds time, so the minimum converges on the cost."""
+        # Keep the faster sample at each size: noise only ever adds time, so the minimum converges on the cost.
         seconds = tuple(map(min, self.seconds, other.seconds))
-        return Score(self.sizes, seconds, self.characters, self.outputs, too_long=other.too_long)
+        return Score(
+            sizes=self.sizes, seconds=seconds, characters=self.characters, outputs=self.outputs, too_long=other.too_long
+        )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Bound:
-    """``len(out) <= slope * len(in) + offset``, both lengths in characters."""
-
+    # ``len(out) <= slope * len(in) + offset``, both lengths in characters.
     slope: float
     offset: int
 
     def holds(self, characters: int, output: int | None) -> bool:
-        """Whether an output of ``output`` characters (``None`` when the call raised) fits ``characters`` of input."""
+        # Whether an output of ``output`` characters (``None`` when the call raised) fits ``characters`` of input.
         return output is None or output <= self.slope * characters + self.offset
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Target:
-    """A public entry point, the C sources its alphabet comes from, and its output bound when it emits text."""
-
+    # A public entry point, the C sources its alphabet comes from, and its output bound when it emits text.
     run: Callable[[str], str | None]
     sources: tuple[str, ...]
     bound: Bound | None = None
 
 
 def score(run: Callable[[str], str | None], shape: Shape, base: int = _BASE_BYTES) -> Score:
-    """
-    Measure, and while the verdict is super-linear pool up to four more measurements into it.
-
-    A scheduler stall inflates a sample at one size and can fake a slope; pooling keeps the fastest sample per size, so
-    a fake slope fades as samples accumulate while a real one stays. A measurement a slow call cut short is final.
-    """
+    # Measure, and while the verdict is super-linear pool up to four more measurements into it.
+    #
+    # A scheduler stall inflates a sample at one size and can fake a slope; pooling keeps the fastest sample per size,
+    # so a fake slope fades as samples accumulate while a real one stays. A measurement a slow call cut short is final.
     result = measure(run, shape, base)
     for _ in range(_RETESTS - 1):
         if result.too_long or not result.super_linear:
@@ -293,20 +267,20 @@ def score(run: Callable[[str], str | None], shape: Shape, base: int = _BASE_BYTE
 
 
 def measure(run: Callable[[str], str | None], shape: Shape, base: int = _BASE_BYTES) -> Score:
-    """
-    Render ``shape`` at ``base`` bytes and three doublings, timing ``run`` on each.
-
-    The samples of all sizes interleave, round by round, so a slow stretch of the runner lands on every size alike
-    instead of on one.
-    """
+    # Render ``shape`` at ``base`` bytes and three doublings, timing ``run`` on each.
+    #
+    # The samples of all sizes interleave, round by round, so a slow stretch of the runner lands on every size alike
+    # instead of on one.
     sizes: list[int] = []
     characters: list[int] = []
     outputs: list[int | None] = []
     texts: list[str] = []
     batches: list[int] = []
     best: list[float] = []
+    best_of: int = 3
+    doublings = 3
     with _gc_paused():
-        for step in range(_DOUBLINGS + 1):
+        for step in range(doublings + 1):
             texts.append(text := shape.render(base << step))
             with _watchdog():
                 start = time.thread_time()
@@ -316,15 +290,21 @@ def measure(run: Callable[[str], str | None], shape: Shape, base: int = _BASE_BY
                 outputs.append(None if output is None else len(output))
                 if (first := time.thread_time() - start) > _TOO_LONG_SECONDS:
                     seconds = (*best, first)
-                    return Score(tuple(sizes), seconds, tuple(characters), tuple(outputs), too_long=True)
+                    return Score(
+                        sizes=tuple(sizes),
+                        seconds=seconds,
+                        characters=tuple(characters),
+                        outputs=tuple(outputs),
+                        too_long=True,
+                    )
                 loops, elapsed = _calibrate(run, text)
             batches.append(loops)
             best.append(elapsed / loops)
-        for _ in range(_BEST_OF - 1):
+        for _ in range(best_of - 1):
             for index, (text, loops) in enumerate(zip(texts, batches, strict=True)):
                 with _watchdog():
                     best[index] = min(best[index], _batch(run, text, loops) / loops)
-    return Score(tuple(sizes), tuple(best), tuple(characters), tuple(outputs))
+    return Score(sizes=tuple(sizes), seconds=tuple(best), characters=tuple(characters), outputs=tuple(outputs))
 
 
 @contextmanager
@@ -342,7 +322,7 @@ def _gc_paused() -> Generator[None, None, None]:
 @contextmanager
 def _watchdog() -> Generator[None, None, None]:
     # a hung call never returns to Python, so a C-level watchdog dumps the stack and exits the process instead
-    faulthandler.dump_traceback_later(_HANG_SECONDS, exit=True, file=_STDERR)
+    faulthandler.dump_traceback_later(30.0, exit=True, file=_STDERR)
     try:
         yield
     finally:
@@ -357,7 +337,7 @@ def _call(run: Callable[[str], str | None], text: str) -> str | None:
 
 
 def _calibrate(run: Callable[[str], str | None], text: str) -> tuple[int, float]:
-    """Double the calls per sample until one sample passes the minimum; return that count and the sample."""
+    # Double the calls per sample until one sample passes the minimum; return that count and the sample.
     loops = 1
     while (elapsed := _batch(run, text, loops)) < _MIN_SAMPLE_SECONDS:
         loops *= 2
@@ -371,10 +351,9 @@ def _batch(run: Callable[[str], str | None], text: str, loops: int) -> float:
     return time.thread_time() - start
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Regression:
-    """A super-linear input fixed on main, re-scored on every pull request."""
-
+    # A super-linear input fixed on main, re-scored on every pull request.
     name: str
     target: str
     shape: Shape
@@ -383,7 +362,7 @@ class Regression:
 
 
 def load_regressions(path: Path) -> list[Regression]:
-    """Read the regression list, one row per target a committed shape runs through."""
+    # Read the regression list, one row per target a committed shape runs through.
     rows = []
     for entry in json.loads(path.read_text(encoding="utf-8")):
         if unknown := sorted(set(entry["targets"]) - TARGETS.keys()):
@@ -391,7 +370,10 @@ def load_regressions(path: Path) -> list[Regression]:
             raise ValueError(msg)
         shape = Shape(**entry["shape"])
         base = entry.get("base", _BASE_BYTES)
-        rows.extend(Regression(entry["name"], target, shape, entry["source"], base) for target in entry["targets"])
+        rows.extend(
+            Regression(name=entry["name"], target=target, shape=shape, source=entry["source"], base=base)
+            for target in entry["targets"]
+        )
     return rows
 
 
@@ -415,13 +397,11 @@ def _rescore(rows: list[Regression], targets: Sequence[str] | None) -> int:
 
 
 def _search(targets: Sequence[str], minutes: float, rng_seed: int, crash_dir: Path) -> int:
-    """
-    Run the hunt in worker processes until the budget is spent.
-
-    The worker writes each shape to ``inflight.json`` before scoring it, so when the hang watchdog or a crash kills
-    the worker, the shape it died on is still on disk; a fresh worker with its own seed stream takes the rest of the
-    budget.
-    """
+    # Run the hunt in worker processes until the budget is spent.
+    #
+    # The worker writes each shape to ``inflight.json`` before scoring it, so when the hang watchdog or a crash kills
+    # the worker, the shape it died on is still on disk; a fresh worker with its own seed stream takes the rest of the
+    # budget.
     crash_dir.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + minutes * 60
     inflight = crash_dir / _INFLIGHT
@@ -478,7 +458,7 @@ def _hunt(targets: Sequence[str], seconds: float, seed: str, crash_dir: Path) ->
 
 
 def _draw(rng: random.Random, literals: Sequence[str]) -> Shape:
-    kind = rng.choice(KINDS)
+    kind = rng.choice(_KINDS)
     left = _phrase(rng, literals)
     if counter := rng.random() < 0.25:
         at = rng.randint(0, len(left))
@@ -496,7 +476,7 @@ def _draw(rng: random.Random, literals: Sequence[str]) -> Shape:
 
 def _phrase(rng: random.Random, literals: Sequence[str]) -> str:
     # pulldown-cmark's COMBINATIONS: a pattern concatenates up to six random literals
-    return _fit("".join(rng.choices(literals, k=rng.randint(1, _PHRASE_LITERALS))))
+    return _fit("".join(rng.choices(literals, k=rng.randint(1, 6))))
 
 
 def _fit(text: str) -> str:
@@ -519,8 +499,7 @@ def _measurements(result: Score) -> dict[str, object]:
 def _record(crash_dir: Path, target: str, shape: dict[str, object], details: dict[str, object]) -> None:
     identity = {"target": target, "shape": shape}
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
-    report = json.dumps(identity | details, indent=2) + "\n"
-    (crash_dir / f"crash-{digest}.json").write_text(report, encoding="utf-8")
+    (crash_dir / f"crash-{digest}.json").write_text(f"{json.dumps(identity | details, indent=2)}\n", encoding="utf-8")
     print(f"FINDING [{target}] {shape['kind']} sha256={digest}", flush=True)
 
 
@@ -528,7 +507,7 @@ def _record(crash_dir: Path, target: str, shape: dict[str, object], details: dic
 # (https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/literals.rs#L8-L15);
 # the C equivalents are case labels, string arguments of comparison helpers, and static keyword tables
 _COMMENT_OR_LITERAL: Final = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'|/\*.*?\*/|//[^\n]*', re.DOTALL)
-_CHAR: Final = r"'((?:[^'\\\n]|\\[^\n]){1,8})'"
+_CHAR: Final[str] = r"'((?:[^'\\\n]|\\[^\n]){1,8})'"
 _COMPARED_CHAR: Final = re.compile(rf"\bcase\s+{_CHAR}\s*:|[=!]=\s*{_CHAR}|{_CHAR}\s*[=!]=")
 _CASE_CODE_POINT: Final = re.compile(r"\bcase\s+0[xX]([0-9A-Fa-f]+)[uU]?\s*:")
 _STATEMENT_END: Final = re.compile(r"[;{}]")
@@ -537,20 +516,20 @@ _COMPARISON: Final = re.compile(r"(?:cmp|eq|match|starts_with|ends_with|_kw|look
 _TABLE: Final = re.compile(r"static\s+const\s[^=;{}]*\[[^\]]*\]\s*=\s*\{(.*?)\};", re.DOTALL)
 _STRING: Final = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
 _ESCAPE: Final = re.compile(rb"\\(x[0-9A-Fa-f]{1,2}|[0-7]{1,3}|.)")
-_SIMPLE_ESCAPES: Final = {b"n": b"\n", b"t": b"\t", b"r": b"\r", b"f": b"\f", b"v": b"\v", b"a": b"\a", b"b": b"\b"}
 # the tag atom table holds bare element names; the tree builder branches on them as start and end tags
-_TAG_TABLE: Final = "data/tag_atom.h"
+_TAG_TABLE: Final[str] = "data/tag_atom.h"
 
 
 def alphabet(sources: tuple[str, ...]) -> tuple[str, ...]:
-    """Harvest the literals the C code under ``sources`` (globs relative to ``src/turbohtml/_c``) branches on."""
+    # Harvest the literals the C code under ``sources`` (globs relative to ``src/turbohtml/_c``) branches on.
     literals = set().union(*(_harvest(path) for pattern in sources for path in _C_SOURCES.glob(pattern)))
     # like pulldown-cmark, drop multi-character literals with a newline: those are messages, not syntax
+    max_literal = 32
     return tuple(
         sorted(
             literal
             for literal in literals
-            if literal and len(literal) <= _MAX_LITERAL and ("\n" not in literal or len(literal) == 1)
+            if literal and len(literal) <= max_literal and ("\n" not in literal or len(literal) == 1)
         )
     )
 
@@ -576,12 +555,14 @@ def _drop_comment(match: re.Match[str]) -> str:
 
 
 def _unescape(literal: str) -> str:
+    simple_escapes = {b"n": b"\n", b"t": b"\t", b"r": b"\r", b"f": b"\f", b"v": b"\v", b"a": b"\a", b"b": b"\b"}
+
     def replace(match: re.Match[bytes]) -> bytes:
         if (code := match[1]).startswith(b"x"):
             return bytes([int(code[1:], 16)])
         if code[:1].isdigit() and code[:1] < b"8":
             return bytes([int(code, 8) & 0xFF])
-        return _SIMPLE_ESCAPES.get(code, code)
+        return simple_escapes.get(code, code)
 
     return _ESCAPE.sub(replace, literal.encode()).decode(errors="replace")
 
@@ -697,37 +678,60 @@ _STYLESHEET: Final = Transform(
 # pages and tools/fuzz/corpus for the HTML targets (plus the linkify-it fixtures for linkify), normalize.css and pico
 # for CSS, underscore, backbone and tests/js/_corpus for JS, the libxslt test documents for XSLT and XPath, and every
 # harvested literal repeated to 8 KiB. The offsets cover the largest output of an input of at most 64 characters.
-_SERIALIZED: Final = Bound(6.0, 256)  # &quot; and &nbsp; turn one character into six; corpora peak 2.20, offset 230
+_SERIALIZED: Final = Bound(
+    slope=6.0, offset=256
+)  # &quot; and &nbsp; turn one character into six; corpora peak 2.20, offset 230
 TARGETS: Final[dict[str, Target]] = {
-    "tokenize": Target(_drain, _HTML_SOURCES),
-    "parse": Target(_parse, _HTML_SOURCES),
-    "serialize": Target(_serialize, (*_HTML_SOURCES, "serialize/*"), _SERIALIZED),
+    "tokenize": Target(run=_drain, sources=_HTML_SOURCES),
+    "parse": Target(run=_parse, sources=_HTML_SOURCES),
+    "serialize": Target(run=_serialize, sources=(*_HTML_SOURCES, "serialize/*"), bound=_SERIALIZED),
     # a run of <h6> peaks at 2.25 and a table of empty cells at 3.00; corpora peak 1.00, offset 46
-    "to_markdown": Target(_to_markdown, (*_HTML_SOURCES, "serialize/markdown*"), Bound(4.0, 256)),
+    "to_markdown": Target(
+        run=_to_markdown, sources=(*_HTML_SOURCES, "serialize/markdown*"), bound=Bound(slope=4.0, offset=256)
+    ),
     # nested blockquotes indent lines by up to TH_MAX_INDENT_LEVELS steps of 4 spaces, peaking at 3.42;
     # corpora and repeated literals both peak at 1.00, offset 45
-    "to_text": Target(_to_text, (*_HTML_SOURCES, "serialize/text.c"), Bound(4.0, 64)),
-    "sanitize": Target(sanitize, (*_HTML_SOURCES, "clean/sanitize.c"), _SERIALIZED),
+    "to_text": Target(run=_to_text, sources=(*_HTML_SOURCES, "serialize/text.c"), bound=Bound(slope=4.0, offset=64)),
+    "sanitize": Target(run=sanitize, sources=(*_HTML_SOURCES, "clean/sanitize.c"), bound=_SERIALIZED),
     # "a.co " becomes a 46-character nofollow anchor, 9.2 times its length; corpora peak 2.26, offset 191
-    "linkify": Target(linkify, (*_HTML_SOURCES, "clean/linkify.c", "url/*"), Bound(10.0, 256)),
+    "linkify": Target(
+        run=linkify, sources=(*_HTML_SOURCES, "clean/linkify.c", "url/*"), bound=Bound(slope=10.0, offset=256)
+    ),
     # corpora and repeated literals both peak at 1.00
-    "minify_css": Target(minify_css, ("css/minify/*",), Bound(2.0, 64)),
+    "minify_css": Target(run=minify_css, sources=("css/minify/*",), bound=Bound(slope=2.0, offset=64)),
     # a run of "#" peaks at 2.00; corpora peak 0.98, offset 61
-    "minify_js": Target(minify_js, ("js/*",), Bound(3.0, 64)),
-    "selector": Target(_select_input, ("css/select/*",)),
-    "select_tree": Target(_select_tree, _HTML_SOURCES),
-    "xpath": Target(_xpath_input, ("query/xpath/*",)),
+    "minify_js": Target(run=minify_js, sources=("js/*",), bound=Bound(slope=3.0, offset=64)),
+    "selector": Target(run=_select_input, sources=("css/select/*",)),
+    "select_tree": Target(run=_select_tree, sources=_HTML_SOURCES),
+    "xpath": Target(run=_xpath_input, sources=("query/xpath/*",)),
     # string(/) never outgrows the document; str:padding stops at 100,000 characters (#957), the counts are short
-    "xpath_tree": Target(_xpath_tree, (*_XML_SOURCES, "query/xpath/*"), Bound(1.0, 100_064)),
-    "url": Target(_url, ("url/*",)),
-    "idna": Target(_idna, ("url/idna.c", "url/url.c")),
-    "parse_xml": Target(_parse_xml, _XML_SOURCES),
-    "relaxng": Target(_relaxng, (*_XML_SOURCES, "validate/relaxng.h", "validate/schema.c")),
-    "relaxng_validate": Target(_relaxng_validate, _XML_SOURCES),
-    "xsd": Target(_xsd, (*_XML_SOURCES, "validate/xsd.h", "validate/datatypes.h", "validate/schema.c")),
+    "xpath_tree": Target(
+        run=_xpath_tree, sources=(*_XML_SOURCES, "query/xpath/*"), bound=Bound(slope=1.0, offset=100_064)
+    ),
+    "url": Target(run=_url, sources=("url/*",)),
+    "idna": Target(run=_idna, sources=("url/idna.c", "url/url.c")),
+    "parse_xml": Target(run=_parse_xml, sources=_XML_SOURCES),
+    "relaxng": Target(run=_relaxng, sources=(*_XML_SOURCES, "validate/relaxng.h", "validate/schema.c")),
+    "relaxng_validate": Target(run=_relaxng_validate, sources=_XML_SOURCES),
+    "xsd": Target(run=_xsd, sources=(*_XML_SOURCES, "validate/xsd.h", "validate/datatypes.h", "validate/schema.c")),
     # the copy plus one <n>name</n> per element: a run of <a/> peaks at 3.00; corpora peak 1.71, offset 134
-    "xslt": Target(_xslt, _XML_SOURCES, Bound(4.0, 256)),
+    "xslt": Target(run=_xslt, sources=_XML_SOURCES, bound=Bound(slope=4.0, offset=256)),
 }
+
+
+__all__ = [
+    "TARGETS",
+    "Bound",
+    "Regression",
+    "Score",
+    "Shape",
+    "Target",
+    "alphabet",
+    "load_regressions",
+    "main",
+    "measure",
+    "score",
+]
 
 
 if __name__ == "__main__":

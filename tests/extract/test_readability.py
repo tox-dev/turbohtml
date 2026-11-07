@@ -1,16 +1,3 @@
-"""Main-content extraction and article harvesting via the readability heuristic.
-
-``Node.main_content()``/``main_text()`` play the resiliparse role; ``Node.article()``
-builds on the same content scoring and adds the trafilatura / newspaper3k metadata
-record. The readability content-density heuristic is pure C in
-``treebuilder_readability.h``. These cases drive every scoring branch with
-article-shaped fixtures (tag and class/id weighting, boilerplate prunings,
-link-density discounting, candidate-array regrow, empty-result guards) and every
-metadata field beside it (title, byline, date, description, lang, canonical,
-site_name, tags and image, each in its present, absent, and
-multiple-source-precedence form).
-"""
-
 from __future__ import annotations
 
 from typing import Final
@@ -21,22 +8,22 @@ from turbohtml import Article, Document, Element, Text, parse, parse_fragment
 
 # A prose paragraph: >100 chars so the length bonus saturates, with commas that
 # each add a clause point, the signal that marks it as real content.
-PROSE = (
+_PROSE: Final[str] = (
     "A comet is an icy small body that, when it passes close to the Sun, warms up, "
     "begins to release gases, and forms a glowing coma, a thin atmosphere, around it."
 )
 # A shorter prose paragraph (>25 chars, <100) so the length bonus stays below the cap.
-SHORT_PROSE = "The tail points away from the Sun."
+_SHORT_PROSE: Final[str] = "The tail points away from the Sun."
 
 # A very long paragraph (>300 chars) so the length bonus saturates at the cap.
-LONG_PROSE = PROSE + " " + PROSE + " " + PROSE
+_LONG_PROSE: Final[str] = f"{_PROSE} {_PROSE} {_PROSE}"
 
 # A div/list-structured body that holds no <p>/<td>/<pre> to score: the visible text
 # lives in <li>, the shape the semantic-container fallback has to rescue.
-LIST_ITEM = "<li><strong>Elf Modelle sind empfehlenswert in punkto Sicherheit.</strong></li>"
+_LIST_ITEM: Final[str] = "<li><strong>Elf Modelle sind empfehlenswert in punkto Sicherheit.</strong></li>"
 
 # The minimal content body the article() metadata cases hang their head/body fixtures off.
-BODY = f"<article class=post><p>{PROSE}</p></article>"
+_BODY: Final[str] = f"<article class=post><p>{_PROSE}</p></article>"
 
 
 def main_tag(html: str) -> str | None:
@@ -44,26 +31,22 @@ def main_tag(html: str) -> str | None:
     return None if found is None else found.tag
 
 
-def list_body(items: int) -> str:
-    return f"<div class=text><ul>{LIST_ITEM * items}</ul></div>"
-
-
 @pytest.mark.parametrize(
     ("html", "expected"),
     [
         pytest.param(
-            f"<nav><a href='/'>Home</a></nav><article class=post><p>{PROSE}</p></article>"
+            f"<nav><a href='/'>Home</a></nav><article class=post><p>{_PROSE}</p></article>"
             f"<footer><p>Copyright notice, all rights reserved here.</p></footer>",
             "article",
             id="article-beats-nav-and-footer",
         ),
         pytest.param(
-            f"<div id=main-content><p>{PROSE}</p><p>{PROSE}</p></div><div class=sidebar><p>{PROSE}</p></div>",
+            f"<div id=main-content><p>{_PROSE}</p><p>{_PROSE}</p></div><div class=sidebar><p>{_PROSE}</p></div>",
             "div",
             id="content-id-beats-sidebar-class",
         ),
         pytest.param(
-            f"<main><div class=entry><p>{PROSE}</p></div></main>",
+            f"<main><div class=entry><p>{_PROSE}</p></div></main>",
             "div",
             id="positive-inner-div-wins",
         ),
@@ -74,14 +57,14 @@ def test_main_content_selects_article(html: str, expected: str) -> None:
 
 
 def test_main_content_returns_element() -> None:
-    found = parse(f"<article class=post><p>{PROSE}</p></article>").main_content()
+    found = parse(f"<article class=post><p>{_PROSE}</p></article>").main_content()
     assert isinstance(found, Element)
     assert found.attrs["class"] == ["post"]
 
 
 def test_main_text_renders_the_winner() -> None:
     text = parse(
-        f"<nav><a href='/'>Home</a></nav><article class=post><h1>Comets</h1><p>{PROSE}</p></article>"
+        f"<nav><a href='/'>Home</a></nav><article class=post><h1>Comets</h1><p>{_PROSE}</p></article>"
     ).main_text()
     assert text.startswith("Comets")
     assert "A comet is an icy" in text
@@ -91,7 +74,7 @@ def test_main_text_renders_the_winner() -> None:
 def test_main_text_collapses_carriage_return_runs() -> None:
     # &#13; injects a real U+000D past the CR->LF preprocessor fold; CR is HTML
     # whitespace, so read_normalize must fold it into a single space, not keep it.
-    text = parse(f"<article class=post><p>{PROSE}&#13;&#13;tail of the article body here.</p></article>").main_text()
+    text = parse(f"<article class=post><p>{_PROSE}&#13;&#13;tail of the article body here.</p></article>").main_text()
     assert "\r" not in text
     assert "around it. tail of the article body here." in text
 
@@ -102,7 +85,7 @@ def test_main_text_collapses_carriage_return_runs() -> None:
         pytest.param("", id="empty"),
         pytest.param("<nav><a href='/'>Home</a></nav>", id="navigation-only"),
         pytest.param("<p>Too short.</p><p>Also brief.</p>", id="only-short-paragraphs"),
-        pytest.param(f"<div class=comment><p>{PROSE}</p></div>", id="unlikely-subtree-skipped"),
+        pytest.param(f"<div class=comment><p>{_PROSE}</p></div>", id="unlikely-subtree-skipped"),
     ],
 )
 def test_no_main_content(html: str) -> None:
@@ -115,18 +98,18 @@ def test_no_main_content(html: str) -> None:
     ("markup", "expected"),
     [
         pytest.param(
-            f"<div class='comment main'><p>{PROSE}</p></div>", "div", id="unlikely-subtree-rescued-by-maybe-hint"
+            f"<div class='comment main'><p>{_PROSE}</p></div>", "div", id="unlikely-subtree-rescued-by-maybe-hint"
         ),
-        pytest.param(f"<div class=ARTICLE><p>{PROSE}</p></div>", "div", id="uppercase-positive-class-matches"),
-        pytest.param(f"<div id=story><p>{PROSE}</p></div>", "div", id="match-by-id-when-no-class"),
-        pytest.param(f"<div class id=post><p>{PROSE}</p></div>", "div", id="valueless-class-attribute-is-ignored"),
+        pytest.param(f"<div class=ARTICLE><p>{_PROSE}</p></div>", "div", id="uppercase-positive-class-matches"),
+        pytest.param(f"<div id=story><p>{_PROSE}</p></div>", "div", id="match-by-id-when-no-class"),
+        pytest.param(f"<div class id=post><p>{_PROSE}</p></div>", "div", id="valueless-class-attribute-is-ignored"),
         pytest.param(
-            f"<article class=post><p>{SHORT_PROSE}</p><p>{SHORT_PROSE}</p></article>",
+            f"<article class=post><p>{_SHORT_PROSE}</p><p>{_SHORT_PROSE}</p></article>",
             "article",
             id="short-prose-scores-without-length-bonus",
         ),
         pytest.param(
-            f"<article class=post><p>{LONG_PROSE}</p></article>",
+            f"<article class=post><p>{_LONG_PROSE}</p></article>",
             "article",
             id="very-long-paragraph-saturates-the-length-bonus",
         ),
@@ -137,12 +120,12 @@ def test_main_tag_is_chosen(markup: str, expected: str) -> None:
 
 
 def test_negative_class_loses_to_neutral_container() -> None:
-    html = f"<section><p>{PROSE}</p><p>{PROSE}</p></section><div class=widget><p>{PROSE}</p><p>{PROSE}</p></div>"
+    html = f"<section><p>{_PROSE}</p><p>{_PROSE}</p></section><div class=widget><p>{_PROSE}</p><p>{_PROSE}</p></div>"
     assert main_tag(html) == "section"
 
 
 def test_grandparent_is_none_for_direct_paragraph_parent() -> None:
-    div = parse(f"<div><p>{PROSE}</p></div>").find("div")
+    div = parse(f"<div><p>{_PROSE}</p></div>").find("div")
     assert isinstance(div, Element)
     found = div.main_content()
     assert isinstance(found, Element)
@@ -150,7 +133,7 @@ def test_grandparent_is_none_for_direct_paragraph_parent() -> None:
 
 
 def test_score_propagates_to_grandparent() -> None:
-    found = parse(f"<main><article><p>{PROSE}</p></article></main>").main_content()
+    found = parse(f"<main><article><p>{_PROSE}</p></article></main>").main_content()
     assert isinstance(found, Element)
     assert found.tag == "article"
 
@@ -164,19 +147,19 @@ def test_score_propagates_to_grandparent() -> None:
     ],
 )
 def test_tag_weight_containers_still_win_with_strong_prose(wrapper: str) -> None:
-    html = f"<{wrapper}><p>{PROSE}</p><p>{PROSE}</p></{wrapper}>"
+    html = f"<{wrapper}><p>{_PROSE}</p><p>{_PROSE}</p></{wrapper}>"
     assert main_tag(html) == wrapper
 
 
 def test_table_cell_paragraph_scores() -> None:
     # A <td> is itself a paragraph tag, so its combined text rolls up to the <tr>,
     # which outscores the cell; the cell is still seeded as a candidate (tag weight +3).
-    html = f"<table><tr><td><p>{PROSE}</p><p>{PROSE}</p></td></tr></table>"
+    html = f"<table><tr><td><p>{_PROSE}</p><p>{_PROSE}</p></td></tr></table>"
     assert main_tag(html) == "tr"
 
 
 def test_heading_cell_negative_weight_can_still_win() -> None:
-    html = f"<table><tr><th><p>{PROSE}</p><p>{PROSE}</p></th></tr></table>"
+    html = f"<table><tr><th><p>{_PROSE}</p><p>{_PROSE}</p></th></tr></table>"
     assert main_tag(html) == "th"
 
 
@@ -186,14 +169,14 @@ def test_high_link_density_candidate_is_discounted_to_nothing() -> None:
 
 
 def test_link_text_lowers_but_does_not_eliminate_prose() -> None:
-    html = f"<article class=post><p>{PROSE} <a href='/u'>see more</a></p><p>{PROSE}</p></article>"
+    html = f"<article class=post><p>{_PROSE} <a href='/u'>see more</a></p><p>{_PROSE}</p></article>"
     assert main_tag(html) == "article"
 
 
 def test_foreign_namespace_subtree_is_skipped() -> None:
     html = (
         "<svg><text>vector caption text goes here in the drawing</text></svg>"
-        f"<article class=post><p>{PROSE}</p></article>"
+        f"<article class=post><p>{_PROSE}</p></article>"
     )
     assert main_tag(html) == "article"
 
@@ -210,8 +193,8 @@ def test_embedded_skip_tags_do_not_count_as_text() -> None:
 
 def test_comment_and_nested_anchor_markup_inside_prose() -> None:
     html = (
-        f"<article class=post><p>{PROSE}<!--editor note--> and a link "
-        f"<a href='/u'>to the <b>full</b> report here, with details</a></p><p>{PROSE}</p></article>"
+        f"<article class=post><p>{_PROSE}<!--editor note--> and a link "
+        f"<a href='/u'>to the <b>full</b> report here, with details</a></p><p>{_PROSE}</p></article>"
     )
     found = parse(html).main_content()
     assert isinstance(found, Element)
@@ -222,7 +205,7 @@ def test_comment_and_nested_anchor_markup_inside_prose() -> None:
 def test_empty_text_node_counts_as_zero_length() -> None:
     article = Element("article", {"class": "post"})
     paragraph = Element("p")
-    paragraph.append(Text(PROSE))
+    paragraph.append(Text(_PROSE))
     paragraph.append(Text(""))
     article.append(paragraph)
     found = article.main_content()
@@ -231,21 +214,21 @@ def test_empty_text_node_counts_as_zero_length() -> None:
 
 
 def test_short_paragraph_below_threshold_is_noise() -> None:
-    html = f"<div class=post><p>tiny</p></div><div class=entry><p>{PROSE}</p><p>{PROSE}</p></div>"
+    html = f"<div class=post><p>tiny</p></div><div class=entry><p>{_PROSE}</p><p>{_PROSE}</p></div>"
     found = parse(html).main_content()
     assert isinstance(found, Element)
     assert found.attrs["class"] == ["entry"]
 
 
 def test_many_candidates_grow_the_array() -> None:
-    sections = "".join(f"<section><div class=entry><p>{PROSE}</p></div></section>" for _ in range(8))
+    sections = "".join(f"<section><div class=entry><p>{_PROSE}</p></div></section>" for _ in range(8))
     found = parse(f"<body>{sections}</body>").main_content()
     assert isinstance(found, Element)
     assert found.tag in {"div", "section"}
 
 
 def test_methods_exist_on_document_and_element() -> None:
-    doc = parse(f"<article class=post><p>{PROSE}</p></article>")
+    doc = parse(f"<article class=post><p>{_PROSE}</p></article>")
     assert isinstance(doc, Document)
     body = doc.find("body")
     assert isinstance(body, Element)
@@ -254,7 +237,7 @@ def test_methods_exist_on_document_and_element() -> None:
 
 def test_shadow_paragraph_scores_its_element_parent() -> None:
     root = Element("div").attach_shadow()
-    root.set_inner_html(f"<section><p>{PROSE}</p></section>")
+    root.set_inner_html(f"<section><p>{_PROSE}</p></section>")
     found = root.main_content()
     assert isinstance(found, Element)
     assert found.tag == "section"
@@ -268,6 +251,10 @@ def test_div_list_body_without_paragraphs_falls_back_to_article() -> None:
     assert isinstance(found, Element)
     assert found.tag == "article"
     assert "empfehlenswert" in found.text
+
+
+def list_body(items: int) -> str:
+    return f"<div class=text><ul>{_LIST_ITEM * items}</ul></div>"
 
 
 def test_semantic_fallback_ignores_a_thin_container() -> None:
@@ -284,8 +271,7 @@ def test_semantic_fallback_uses_main_when_no_article() -> None:
 def test_semantic_fallback_prefers_the_richest_article() -> None:
     # Two paragraph-less articles both clear the floor; the one with more text wins,
     # and <article> is preferred over the enclosing structure.
-    html = f"<body><article>{list_body(12)}</article><article>{list_body(5)}</article></body>"
-    found = parse(html).main_content()
+    found = parse(f"<body><article>{list_body(12)}</article><article>{list_body(5)}</article></body>").main_content()
     assert isinstance(found, Element)
     assert len(found.find_all("li")) == 12
 
@@ -293,7 +279,7 @@ def test_semantic_fallback_prefers_the_richest_article() -> None:
 def test_body_class_with_unlikely_substring_is_not_stripped() -> None:
     # #399: a body-level state class carrying an unlikely substring (has-localnav)
     # must not zero the whole page; the multi-paragraph body still extracts.
-    body = f'<div class="content__article-body">{f"<p>{PROSE}</p>" * 4}</div>'
+    body = f'<div class="content__article-body">{f"<p>{_PROSE}</p>" * 4}</div>'
     found = parse(f'<html><body class="has-localnav">{body}</body></html>').main_content()
     assert isinstance(found, Element)
     assert found.tag == "div"
@@ -303,7 +289,7 @@ def test_body_class_with_unlikely_substring_is_not_stripped() -> None:
 def test_landmark_only_body_is_rescued_on_retry() -> None:
     # #411: a body living solely inside a <footer> must not be discarded; the retry
     # keeps landmarks so the footer's paragraphs score.
-    found = parse(f"<body><footer class=content>{f'<p>{PROSE}</p>' * 4}</footer></body>").main_content()
+    found = parse(f"<body><footer class=content>{f'<p>{_PROSE}</p>' * 4}</footer></body>").main_content()
     assert isinstance(found, Element)
     assert found.tag == "footer"
     assert "A comet is an icy" in found.text
@@ -316,7 +302,7 @@ def test_landmark_only_body_is_rescued_on_retry() -> None:
 
 
 def test_article_returns_article_record() -> None:
-    art = parse(f"<html lang=en><body>{BODY}</body></html>").article()
+    art = parse(f"<html lang=en><body>{_BODY}</body></html>").article()
     assert isinstance(art, Article)
     assert isinstance(art.element, Element)
     assert art.element.tag == "article"
@@ -334,12 +320,11 @@ def test_article_no_content_yields_none_element_and_empty_text() -> None:
 def test_article_metadata_present_without_content() -> None:
     art = parse("<html lang=fr><head><title>Solo</title></head><body><p>brief</p></body></html>").article()
     assert art.element is None
-    assert art.title == "Solo"
-    assert art.lang == "fr"
+    assert (art.title, art.lang) == ("Solo", "fr")
 
 
 def test_article_all_fields_absent_are_none() -> None:
-    art = parse(f"<body>{BODY}</body>").article()
+    art = parse(f"<body>{_BODY}</body>").article()
     assert art.title is None
     assert art.byline is None
     assert art.date is None
@@ -351,7 +336,7 @@ def test_article_all_fields_absent_are_none() -> None:
 
 
 def test_article_available_on_element() -> None:
-    body = parse(f"<html lang=en><body>{BODY}</body></html>").find("body")
+    body = parse(f"<html lang=en><body>{_BODY}</body></html>").find("body")
     assert isinstance(body, Element)
     art = body.article()
     assert isinstance(art.element, Element)
@@ -393,7 +378,7 @@ def test_article_programmatic_element_without_html_has_no_lang() -> None:
     ],
 )
 def test_article_title_precedence(head: str, body: str, expected: str) -> None:
-    art = parse(f"<html><head>{head}</head><body>{body}{BODY}</body></html>").article()
+    art = parse(f"<html><head>{head}</head><body>{body}{_BODY}</body></html>").article()
     assert art.title == expected
 
 
@@ -421,28 +406,28 @@ def test_article_title_precedence(head: str, body: str, expected: str) -> None:
     ],
 )
 def test_article_byline_precedence(head: str, body: str, expected: str) -> None:
-    art = parse(f"<html><head>{head}</head><body>{body}{BODY}</body></html>").article()
+    art = parse(f"<html><head>{head}</head><body>{body}{_BODY}</body></html>").article()
     assert art.byline == expected
 
 
 def test_article_byline_ignores_non_author_rel() -> None:
-    art = parse(f"<body><a rel='nofollow noopener ' href='/x'>Nope</a>{BODY}</body>").article()
+    art = parse(f"<body><a rel='nofollow noopener ' href='/x'>Nope</a>{_BODY}</body>").article()
     assert art.byline is None
 
 
 def test_article_rel_author_with_leading_whitespace_matches() -> None:
-    art = parse(f"<body><a rel=' author' href='/u'>Padded</a>{BODY}</body>").article()
+    art = parse(f"<body><a rel=' author' href='/u'>Padded</a>{_BODY}</body>").article()
     assert art.byline == "Padded"
 
 
 def test_article_byline_skips_anchor_without_rel() -> None:
-    art = parse(f"<head><meta name=author content='Meta'></head><body><a href='/x'>Plain</a>{BODY}</body>").article()
+    art = parse(f"<head><meta name=author content='Meta'></head><body><a href='/x'>Plain</a>{_BODY}</body>").article()
     assert art.byline == "Meta"
 
 
 def test_article_empty_rel_author_link_falls_through_to_meta() -> None:
     art = parse(
-        f"<head><meta name=author content='Meta'></head><body><a rel=author href='/u'></a>{BODY}</body>"
+        f"<head><meta name=author content='Meta'></head><body><a rel=author href='/u'></a>{_BODY}</body>"
     ).article()
     assert art.byline == "Meta"
 
@@ -469,18 +454,18 @@ def test_article_empty_rel_author_link_falls_through_to_meta() -> None:
     ],
 )
 def test_article_date_precedence(head: str, body: str, expected: str) -> None:
-    art = parse(f"<html><head>{head}</head><body>{body}{BODY}</body></html>").article()
+    art = parse(f"<html><head>{head}</head><body>{body}{_BODY}</body></html>").article()
     assert art.date == expected
 
 
 def test_article_valueless_datetime_falls_back_to_time_text() -> None:
-    art = parse(f"<body><time datetime>April 2024</time>{BODY}</body>").article()
+    art = parse(f"<body><time datetime>April 2024</time>{_BODY}</body>").article()
     assert art.date == "April 2024"
 
 
 def test_article_date_empty_time_falls_through_to_meta() -> None:
     html = (
-        f"<html><head><meta name=date content='2016-01-01'></head><body><time datetime=''> </time>{BODY}</body></html>"
+        f"<html><head><meta name=date content='2016-01-01'></head><body><time datetime=''> </time>{_BODY}</body></html>"
     )
     assert parse(html).article().date == "2016-01-01"
 
@@ -497,12 +482,12 @@ def test_article_date_empty_time_falls_through_to_meta() -> None:
     ],
 )
 def test_article_description_precedence(head: str, expected: str) -> None:
-    art = parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article()
+    art = parse(f"<html><head>{head}</head><body>{_BODY}</body></html>").article()
     assert art.description == expected
 
 
 def test_article_lang_present() -> None:
-    assert parse(f"<html lang='en-US'><body>{BODY}</body></html>").article().lang == "en-US"
+    assert parse(f"<html lang='en-US'><body>{_BODY}</body></html>").article().lang == "en-US"
 
 
 @pytest.mark.parametrize(
@@ -513,18 +498,17 @@ def test_article_lang_present() -> None:
     ],
 )
 def test_article_without_language(html_tag: str) -> None:
-    assert parse(f"{html_tag}<body>{BODY}</body></html>").article().lang is None
+    assert parse(f"{html_tag}<body>{_BODY}</body></html>").article().lang is None
 
 
 def test_article_fragment_without_html_element_has_no_lang() -> None:
-    fragment = parse_fragment(f"<article class=post><p>{PROSE}</p></article>", "div")
-    art = fragment.article()
+    art = parse_fragment(f"<article class=post><p>{_PROSE}</p></article>", "div").article()
     assert isinstance(art.element, Element)
     assert art.lang is None
 
 
 def test_article_whitespace_is_collapsed_and_trimmed() -> None:
-    art = parse(f"<body><h1>\n  Comets\t and\f  Tails  \n</h1>{BODY}</body>").article()
+    art = parse(f"<body><h1>\n  Comets\t and\f  Tails  \n</h1>{_BODY}</body>").article()
     assert art.title == "Comets and Tails"
 
 
@@ -533,27 +517,25 @@ def test_article_foreign_elements_and_valueless_meta_are_skipped() -> None:
         "<html lang=en><head><meta name>"
         "<meta property=og:title content='Real'>"
         "<meta property=og:description content='Desc'></head>"
-        f"<body><svg><title>vector</title><a>link</a></svg>{BODY}</body></html>"
+        f"<body><svg><title>vector</title><a>link</a></svg>{_BODY}</body></html>"
     )
     art = parse(html).article()
-    assert art.title == "Real"
-    assert art.description == "Desc"
+    assert (art.title, art.description) == ("Real", "Desc")
     assert art.byline is None
 
 
 def test_article_metadata_keys_match_case_insensitively() -> None:
     html = (
         "<head><meta property='OG:TITLE' content='Cased'></head>"
-        f"<body><a rel='AUTHOR' href='/u'>Cased Author</a>{BODY}</body>"
+        f"<body><a rel='AUTHOR' href='/u'>Cased Author</a>{_BODY}</body>"
     )
     art = parse(html).article()
-    assert art.title == "Cased"
-    assert art.byline == "Cased Author"
+    assert (art.title, art.byline) == ("Cased", "Cased Author")
 
 
 def test_article_meta_property_and_name_both_match() -> None:
-    by_property = parse(f"<head><meta property=description content='via property'></head><body>{BODY}</body>")
-    by_name = parse(f"<head><meta name=description content='via name'></head><body>{BODY}</body>")
+    by_property = parse(f"<head><meta property=description content='via property'></head><body>{_BODY}</body>")
+    by_name = parse(f"<head><meta name=description content='via name'></head><body>{_BODY}</body>")
     assert by_property.article().description == "via property"
     assert by_name.article().description == "via name"
 
@@ -566,7 +548,7 @@ def test_article_meta_property_and_name_both_match() -> None:
     ],
 )
 def test_article_meta_without_content_is_skipped(meta: str, expected: str) -> None:
-    html = f"<html><head>{meta}<title>{expected}</title></head><body>{BODY}</body></html>"
+    html = f"<html><head>{meta}<title>{expected}</title></head><body>{_BODY}</body></html>"
     assert parse(html).article().title == expected
 
 
@@ -597,7 +579,7 @@ def test_article_meta_without_content_is_skipped(meta: str, expected: str) -> No
     ],
 )
 def test_article_canonical_precedence(head: str, expected: str) -> None:
-    art = parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article()
+    art = parse(f"<html><head>{head}</head><body>{_BODY}</body></html>").article()
     assert art.canonical == expected
 
 
@@ -613,7 +595,7 @@ def test_article_canonical_precedence(head: str, expected: str) -> None:
     ],
 )
 def test_article_site_name_precedence(head: str, expected: str) -> None:
-    art = parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article()
+    art = parse(f"<html><head>{head}</head><body>{_BODY}</body></html>").article()
     assert art.site_name == expected
 
 
@@ -634,7 +616,7 @@ def test_article_site_name_precedence(head: str, expected: str) -> None:
     ],
 )
 def test_article_image_precedence(head: str, expected: str) -> None:
-    art = parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article()
+    art = parse(f"<html><head>{head}</head><body>{_BODY}</body></html>").article()
     assert art.image == expected
 
 
@@ -645,40 +627,40 @@ def test_article_tags_split_keywords_and_collect_article_tags() -> None:
         "<meta property=article:tag content='science'>"
     )
     # keywords are comma-split and each article:tag appended, all in document order.
-    art = parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article()
+    art = parse(f"<html><head>{head}</head><body>{_BODY}</body></html>").article()
     assert art.tags == ("space", "comets", "tails", "astronomy", "science")
 
 
 def test_article_tags_skip_blank_keyword_segments() -> None:
     # empty segments (leading/trailing comma, whitespace-only) leave no tag behind.
-    art = parse(f"<head><meta name=keywords content=' , solo ,, '></head><body>{BODY}</body>").article()
+    art = parse(f"<head><meta name=keywords content=' , solo ,, '></head><body>{_BODY}</body>").article()
     assert art.tags == ("solo",)
 
 
 def test_article_tags_ignore_valueless_content() -> None:
     head = "<meta name=keywords><meta property=article:tag>"
-    assert parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article().tags == ()
+    assert parse(f"<html><head>{head}</head><body>{_BODY}</body></html>").article().tags == ()
 
 
 def test_article_tags_grow_past_initial_capacity() -> None:
     keywords = ",".join(f"t{index}" for index in range(9))
-    art = parse(f"<head><meta name=keywords content='{keywords}'></head><body>{BODY}</body>").article()
+    art = parse(f"<head><meta name=keywords content='{keywords}'></head><body>{_BODY}</body>").article()
     assert art.tags == tuple(f"t{index}" for index in range(9))
 
 
 def test_article_first_of_duplicate_social_meta_wins() -> None:
     # the single head walk keeps the first non-blank source, so a repeated key does not win.
     head = "<meta property=og:site_name content='First'><meta property=og:site_name content='Second'>"
-    assert parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article().site_name == "First"
+    assert parse(f"<html><head>{head}</head><body>{_BODY}</body></html>").article().site_name == "First"
 
 
 def test_article_canonical_keeps_first_link_over_later_ones() -> None:
     head = "<link rel=canonical href='https://ex.com/a'><link rel=canonical href='https://ex.com/b'>"
-    assert parse(f"<html><head>{head}</head><body>{BODY}</body></html>").article().canonical == "https://ex.com/a"
+    assert parse(f"<html><head>{head}</head><body>{_BODY}</body></html>").article().canonical == "https://ex.com/a"
 
 
 def test_article_fields_unpack_in_order() -> None:
-    art = parse(f"<html lang=en><body>{BODY}</body></html>").article()
+    art = parse(f"<html lang=en><body>{_BODY}</body></html>").article()
     element, text, title, byline, date, description, lang, canonical, site_name, tags, image = art
     assert element is art.element
     assert text is art.text
@@ -696,7 +678,7 @@ def test_article_fields_unpack_in_order() -> None:
 
 
 def test_article_document_and_element_agree_on_metadata() -> None:
-    doc = parse(f"<html lang=en><head><title>T</title></head><body>{BODY}</body></html>")
+    doc = parse(f"<html lang=en><head><title>T</title></head><body>{_BODY}</body></html>")
     assert isinstance(doc, Document)
     body = doc.find("body")
     assert isinstance(body, Element)

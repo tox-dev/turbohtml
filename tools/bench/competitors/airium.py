@@ -8,7 +8,7 @@ REQUIREMENTS = ("airium>=0.2.7",)
 
 
 def build_e(count: int) -> None:
-    """Build a ``<ul>`` of rows with airium's context-manager tags and stringify it."""
+    # Build a ``<ul>`` of rows with airium's context-manager tags and stringify it.
     air = Airium()
     with air.ul():
         for index in range(count):

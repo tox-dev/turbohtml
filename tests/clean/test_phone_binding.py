@@ -48,7 +48,7 @@ _SPEC: Final = cast(
 
 
 def _spec(**overrides: object) -> _PhoneSpec:
-    """Overrides stay unvalidated, so the binding's own checks are what a test exercises."""
+    # Overrides stay unvalidated, so the binding's own checks are what a test exercises.
     return cast(
         "_PhoneSpec",
         tuple(
@@ -205,8 +205,7 @@ def test_compile_accepts_the_bounds() -> None:
 
 
 def test_phone_parse_handles_a_native_candidate() -> None:
-    config = _phone_config_compile(_SPEC)
-    found = _phone_parse(config, "Call 650-253-0000")
+    found = _phone_parse(_phone_config_compile(_SPEC), "Call 650-253-0000")
     assert found is not None
     assert (found.country_code, found.national_number, found.region, found.type) == (
         1,
@@ -255,6 +254,12 @@ def test_config_cycle_through_a_class_attribute_is_collectable() -> None:
     assert class_ref() is None
 
 
+def test_factory_exception_propagates_from_find() -> None:
+    config = _phone_config_compile(_spec(number_type=_Raising))
+    with pytest.raises(RuntimeError, match="refused 1"):
+        _linkify_find("650-253-0000", False, False, (), (), ("http",), config, False)  # ruff:ignore[boolean-positional-value-in-call]
+
+
 class _Raising(PhoneNumber):
     __slots__ = ()
 
@@ -264,24 +269,18 @@ class _Raising(PhoneNumber):
         raise RuntimeError(msg)
 
 
+def test_factory_returning_another_type_is_a_type_error() -> None:
+    config = _phone_config_compile(_spec(number_type=_Foreign))
+    with pytest.raises(TypeError, match="_from_native must return"):
+        _linkify_find("650-253-0000", False, False, (), (), ("http",), config, False)  # ruff:ignore[boolean-positional-value-in-call]
+
+
 class _Foreign(PhoneNumber):
     __slots__ = ()
 
     @classmethod
     def _from_native(cls, *_fields: object) -> PhoneNumber:
         return object()  # ty: ignore[invalid-return-type]  # the wrong type is the point
-
-
-def test_factory_exception_propagates_from_find() -> None:
-    config = _phone_config_compile(_spec(number_type=_Raising))
-    with pytest.raises(RuntimeError, match="refused 1"):
-        _linkify_find("650-253-0000", False, False, (), (), ("http",), config, False)  # ruff:ignore[boolean-positional-value-in-call]
-
-
-def test_factory_returning_another_type_is_a_type_error() -> None:
-    config = _phone_config_compile(_spec(number_type=_Foreign))
-    with pytest.raises(TypeError, match="_from_native must return"):
-        _linkify_find("650-253-0000", False, False, (), (), ("http",), config, False)  # ruff:ignore[boolean-positional-value-in-call]
 
 
 def test_factory_exception_propagates_from_apply() -> None:
@@ -319,6 +318,12 @@ def test_entry_points_need_the_phones_argument() -> None:
         _linkify_has("x", False, False, (), (), ("http",))  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[missing-argument]
 
 
+def test_apply_reports_a_candidate_type_without_a_phone_slot() -> None:
+    root = parse_fragment("call 650-253-0000")
+    with pytest.raises(AttributeError, match="phone"):
+        _linkify_apply(root, (), False, (), ("http",), False, (), _NoPhoneSlot, _phone_config_compile(_SPEC))  # ruff:ignore[boolean-positional-value-in-call]
+
+
 class _NoPhoneSlot:
     __slots__ = ("attrs", "existing", "text", "url")
 
@@ -327,6 +332,12 @@ class _NoPhoneSlot:
         self.text = text
         self.attrs = attrs if attrs is not None else {}
         self.existing = False
+
+
+def test_apply_reports_a_candidate_type_without_an_existing_slot() -> None:
+    root = parse_fragment('<a href="/x">link</a>')
+    with pytest.raises(AttributeError, match="existing"):
+        _linkify_apply(root, (), False, (), ("http",), True, (), _NoExistingSlot, None)  # ruff:ignore[boolean-positional-value-in-call]
 
 
 class _NoExistingSlot:
@@ -339,27 +350,15 @@ class _NoExistingSlot:
         self.phone = None
 
 
+def test_apply_propagates_a_refusing_candidate_constructor() -> None:
+    with pytest.raises(RuntimeError, match=r"no candidate for http://example\.com"):
+        _linkify_apply(parse_fragment("see example.com"), (), False, (), ("http",), False, (), _Refusing, None)  # ruff:ignore[boolean-positional-value-in-call]
+
+
 class _Refusing:
     def __init__(self, url: str, *_fields: object) -> None:
         msg = f"no candidate for {url}"
         raise RuntimeError(msg)
-
-
-def test_apply_reports_a_candidate_type_without_a_phone_slot() -> None:
-    root = parse_fragment("call 650-253-0000")
-    with pytest.raises(AttributeError, match="phone"):
-        _linkify_apply(root, (), False, (), ("http",), False, (), _NoPhoneSlot, _phone_config_compile(_SPEC))  # ruff:ignore[boolean-positional-value-in-call]
-
-
-def test_apply_reports_a_candidate_type_without_an_existing_slot() -> None:
-    root = parse_fragment('<a href="/x">link</a>')
-    with pytest.raises(AttributeError, match="existing"):
-        _linkify_apply(root, (), False, (), ("http",), True, (), _NoExistingSlot, None)  # ruff:ignore[boolean-positional-value-in-call]
-
-
-def test_apply_propagates_a_refusing_candidate_constructor() -> None:
-    with pytest.raises(RuntimeError, match=r"no candidate for http://example\.com"):
-        _linkify_apply(parse_fragment("see example.com"), (), False, (), ("http",), False, (), _Refusing, None)  # ruff:ignore[boolean-positional-value-in-call]
 
 
 def test_find_span_shape_for_a_phone() -> None:
@@ -492,19 +491,12 @@ def test_parse_returns_the_number_or_none(text: str, expected: str | None) -> No
 
 
 class _Codes:
-    """A caller's own iterable: neither a sequence nor a set."""
-
+    # A caller's own iterable: neither a sequence nor a set.
     def __init__(self, *codes: str) -> None:
         self._codes = codes
 
     def __iter__(self) -> Iterator[str]:
         yield from self._codes
-
-
-def _failing_codes() -> Iterator[str]:
-    yield "US"
-    msg = "boom"
-    raise RuntimeError(msg)
 
 
 def test_defaults() -> None:
@@ -580,6 +572,12 @@ def test_regions_reject_unordered_or_non_str(regions: object) -> None:
 def test_regions_generator_failure_propagates() -> None:
     with pytest.raises(RuntimeError, match="boom"):
         PhoneNumbers(regions=_failing_codes())
+
+
+def _failing_codes() -> Iterator[str]:
+    yield "US"
+    msg = "boom"
+    raise RuntimeError(msg)
 
 
 @pytest.mark.parametrize(
@@ -867,13 +865,6 @@ def test_settings_convert_to_a_dict_and_a_tuple() -> None:
     assert dataclasses.astuple(phones)[0] == ("US",)
 
 
-def _detected(text: str, region: str) -> PhoneNumber:
-    spans = LinkDetector(phones=PhoneNumbers(regions=(region,))).find(text)
-    assert len(spans) == 1
-    assert spans[0].phone is not None
-    return spans[0].phone
-
-
 @pytest.mark.parametrize(
     ("text", "region", "expected"),
     [
@@ -935,6 +926,13 @@ def _detected(text: str, region: str) -> PhoneNumber:
 )
 def test_styles_write_each_layout(text: str, region: str, expected: tuple[str, str, str, str]) -> None:
     assert tuple(_detected(text, region).format(style) for style in PhoneFormat) == expected
+
+
+def _detected(text: str, region: str) -> PhoneNumber:
+    spans = LinkDetector(phones=PhoneNumbers(regions=(region,))).find(text)
+    assert len(spans) == 1
+    assert spans[0].phone is not None
+    return spans[0].phone
 
 
 def test_default_style_is_international() -> None:
@@ -999,7 +997,8 @@ def test_style_must_be_a_phone_format() -> None:
 
 
 class _Code(int):
-    """An int subclass: not the exact type the value takes."""
+    # An int subclass: not the exact type the value takes.
+    ...
 
 
 def test_fields_and_derived_strings() -> None:
@@ -1010,8 +1009,7 @@ def test_fields_and_derived_strings() -> None:
         None,
         "US",
     )
-    assert number.international_number == "+16502530000"
-    assert number.e164 == "+16502530000"
+    assert (number.international_number, number.e164) == ("+16502530000", "+16502530000")
 
 
 @pytest.mark.parametrize(
@@ -1028,8 +1026,7 @@ def test_lone_surrogates_do_not_encode(fields: tuple[int, str, str | None, str, 
 
 def test_extension_is_not_part_of_the_international_number() -> None:
     number = PhoneNumber(44, "2079460958", "123", "GB", PhoneType.FIXED_LINE)
-    assert number.international_number == "+442079460958"
-    assert number.extension == "123"
+    assert (number.international_number, number.extension) == ("+442079460958", "123")
 
 
 def test_value_is_frozen_and_hashable() -> None:
@@ -1539,7 +1536,7 @@ def test_parse_reads_one_number(
         pytest.param("+1 +650 253 0000", ("US",), id="plus-after-the-code"),
         pytest.param("+1 650 253 0000 x 1234 #", ("US",), id="hash-after-a-space"),
         pytest.param("Tel:2530000;phone-context=+1650", ("US",), id="uppercase-scheme-with-a-context"),
-        pytest.param("650-253-0000" + " " * 239, ("US",), id="over-250-characters"),
+        pytest.param(f"650-253-0000{' ' * 239}", ("US",), id="over-250-characters"),
         pytest.param("tel:2530000;phone-context=", ("US",), id="empty-context"),
         pytest.param("tel:2530000;phone-context=+", ("US",), id="context-without-digits"),
         pytest.param("tel:2530000;phone-context=+1 650!", ("US",), id="context-with-a-stray-character"),
@@ -1550,8 +1547,8 @@ def test_parse_reads_one_number(
         pytest.param("tel:2530000;phone-context=.example.com", ("US",), id="domain-starting-with-a-dot"),
         pytest.param("tel:2530000;phone-context=1", ("US",), id="top-label-starting-with-a-digit"),
         pytest.param("tel:2530000;phone-context=a.b_c", ("US",), id="domain-with-an-underscore"),
-        pytest.param("tel:1;phone-context=+" + "1" * 500, ("US",), id="context-past-any-number"),
-        pytest.param("tel:1;phone-context=+" + "1" * 25, ("US",), id="context-past-a-calling-code-and-a-number"),
+        pytest.param(f"tel:1;phone-context=+{'1' * 500}", ("US",), id="context-past-any-number"),
+        pytest.param(f"tel:1;phone-context=+{'1' * 25}", ("US",), id="context-past-a-calling-code-and-a-number"),
         pytest.param("tel:+1-650-253-0000;phone-context=+1", ("US",), id="global-number-with-a-global-context"),
         pytest.param("tel:2530000;phone-contex", ("US",), id="truncated-parameter-name"),
         pytest.param("tel:2530000;phone-context=+1\u00e9650", ("US",), id="context-with-a-non-ascii-mark"),
@@ -1559,7 +1556,7 @@ def test_parse_reads_one_number(
             "tel:2530000;phone-context=ex\u00e4mple.com", ("US",), id="domain-context-with-a-non-ascii-letter"
         ),
         pytest.param(";phone-context=+1650", ("US",), id="context-without-a-number"),
-        pytest.param("tel:" + "1 " * 300 + ";phone-context=+1", ("US",), id="number-part-past-the-buffer"),
+        pytest.param(f"tel:{'1 ' * 300};phone-context=+1", ("US",), id="number-part-past-the-buffer"),
     ],
 )
 def test_parse_refuses_text_that_is_not_one_number(text: str, regions: tuple[str, ...]) -> None:
@@ -1610,7 +1607,7 @@ def test_possible_mode_reads_a_slash_date_unlike_detection() -> None:
 
 
 def test_parse_reads_exactly_250_characters() -> None:
-    assert PhoneNumber.parse("650-253-0000" + " " * 238, regions=("US",)).national_number == "6502530000"
+    assert PhoneNumber.parse(f"650-253-0000{' ' * 238}", regions=("US",)).national_number == "6502530000"
 
 
 def test_parsed_number_formats() -> None:

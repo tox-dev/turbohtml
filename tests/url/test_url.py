@@ -972,32 +972,32 @@ def test_base_url_trims_trailing_c0(href: str, fallback: str, expected: str) -> 
     assert parse(f'<base href="{href}">').base_url(fallback) == expected
 
 
-_SITE = "http://s.com/"
+_SITE: Final[str] = "http://s.com/"
 
 
 @pytest.mark.parametrize(
     ("content", "expected"),
     [
-        pytest.param("5; url=next", (5.0, _SITE + "next"), id="delay-and-url"),
+        pytest.param("5; url=next", (5.0, f"{_SITE}next"), id="delay-and-url"),
         pytest.param("10", (10.0, _SITE), id="delay-only"),
-        pytest.param("2.5;url=x", (2.5, _SITE + "x"), id="float-delay"),
+        pytest.param("2.5;url=x", (2.5, f"{_SITE}x"), id="float-delay"),
         pytest.param("2.5", (2.5, _SITE), id="float-delay-only"),
         pytest.param("5;url=", (5.0, _SITE), id="url-prefix-empty-value"),
-        pytest.param("5;url=£x", (5.0, _SITE + "%C2%A3x"), id="two-byte-utf8-encoded"),
-        pytest.param("5;url=€page", (5.0, _SITE + "%E2%82%ACpage"), id="three-byte-utf8-encoded"),
-        pytest.param("5;url=\U0001f389", (5.0, _SITE + "%F0%9F%8E%89"), id="four-byte-utf8-encoded"),
-        pytest.param("  7 ; url = y ", (7.0, _SITE + "y"), id="surrounding-whitespace"),
-        pytest.param("3;url='q'", (3.0, _SITE + "q"), id="single-quoted-url"),
-        pytest.param("8, z", (8.0, _SITE + "z"), id="comma-separator-no-prefix"),
-        pytest.param("9;next", (9.0, _SITE + "next"), id="no-url-prefix"),
-        pytest.param("1;urlx", (1.0, _SITE + "urlx"), id="url-prefix-without-equals"),
-        pytest.param("5;uxxx", (5.0, _SITE + "uxxx"), id="u-without-rl-prefix"),
-        pytest.param("5;urxx", (5.0, _SITE + "urxx"), id="ur-without-l-prefix"),
-        pytest.param("5;url", (5.0, _SITE + "url"), id="bare-url-keyword-no-equals"),
-        pytest.param("5;url='", (5.0, _SITE + "'"), id="lone-quote-after-url"),
+        pytest.param("5;url=£x", (5.0, f"{_SITE}%C2%A3x"), id="two-byte-utf8-encoded"),
+        pytest.param("5;url=€page", (5.0, f"{_SITE}%E2%82%ACpage"), id="three-byte-utf8-encoded"),
+        pytest.param("5;url=\U0001f389", (5.0, f"{_SITE}%F0%9F%8E%89"), id="four-byte-utf8-encoded"),
+        pytest.param("  7 ; url = y ", (7.0, f"{_SITE}y"), id="surrounding-whitespace"),
+        pytest.param("3;url='q'", (3.0, f"{_SITE}q"), id="single-quoted-url"),
+        pytest.param("8, z", (8.0, f"{_SITE}z"), id="comma-separator-no-prefix"),
+        pytest.param("9;next", (9.0, f"{_SITE}next"), id="no-url-prefix"),
+        pytest.param("1;urlx", (1.0, f"{_SITE}urlx"), id="url-prefix-without-equals"),
+        pytest.param("5;uxxx", (5.0, f"{_SITE}uxxx"), id="u-without-rl-prefix"),
+        pytest.param("5;urxx", (5.0, f"{_SITE}urxx"), id="ur-without-l-prefix"),
+        pytest.param("5;url", (5.0, f"{_SITE}url"), id="bare-url-keyword-no-equals"),
+        pytest.param("5;url='", (5.0, f"{_SITE}'"), id="lone-quote-after-url"),
         pytest.param("6;", (6.0, _SITE), id="separator-without-url"),
-        pytest.param("2;ab", (2.0, _SITE + "ab"), id="short-url-after-separator"),
-        pytest.param("0;url='unbalanced", (0.0, _SITE + "'unbalanced"), id="unbalanced-quote-kept"),
+        pytest.param("2;ab", (2.0, f"{_SITE}ab"), id="short-url-after-separator"),
+        pytest.param("0;url='unbalanced", (0.0, f"{_SITE}'unbalanced"), id="unbalanced-quote-kept"),
         pytest.param("0;url=a:b", (0.0, "a:b"), id="opaque-scheme-no-authority"),
         pytest.param("5;url=\x01", (5.0, _SITE), id="control-only-url"),
     ],
@@ -1019,7 +1019,7 @@ def test_meta_refresh_rejects_non_str_fallback() -> None:
 def test_meta_refresh_double_quoted_url() -> None:
     # a single-quoted attribute lets the url use double quotes
     html = "<meta http-equiv=refresh content='4;url=\"d\"'>"
-    assert parse(html).meta_refresh(_SITE) == (4.0, _SITE + "d")
+    assert parse(html).meta_refresh(_SITE) == (4.0, f"{_SITE}d")
 
 
 def test_meta_refresh_unresolvable_url_raises() -> None:
@@ -1104,7 +1104,6 @@ def test_remove_dot_segments_rejects_non_str() -> None:
         _url_remove_dot_segments(123)  # ty: ignore[invalid-argument-type]  # a non-str exercises the TypeError guard
 
 
-_SCHEME_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-.")
 _C0_OR_SPACE = "".join(map(chr, range(0x21)))
 _USES_RELATIVE = frozenset({
     *("", "ftp", "http", "gopher", "nntp", "imap", "wais", "file", "https", "shttp"),
@@ -1112,62 +1111,129 @@ _USES_RELATIVE = frozenset({
 })
 
 
-def _split5(url: str) -> tuple[str | None, str | None, str, str | None, str | None]:
-    """CPython 3.14's ``_urlsplit`` reduced to a ``str``: leading strip, scheme, authority, query, and fragment."""
-    url = url.lstrip(_C0_OR_SPACE)
-    for unsafe in "\t\r\n":
-        url = url.replace(unsafe, "")
-    scheme = netloc = query = fragment = None
-    colon = url.find(":")
-    if colon > 0 and url[0].isascii() and url[0].isalpha() and all(char in _SCHEME_CHARS for char in url[:colon]):
-        scheme, url = url[:colon].lower(), url[colon + 1 :]
-    if url[:2] == "//":
-        delimiter = min([len(url), *(offset for char in "/?#" if (offset := url.find(char, 2)) >= 0)])
-        netloc, url = url[2:delimiter], url[delimiter:]
-        if ("[" in netloc) != ("]" in netloc):
-            message = "Invalid IPv6 URL"
-            raise ValueError(message)
-    if "#" in url:
-        url, fragment = url.split("#", 1)
-    if "?" in url:
-        url, query = url.split("?", 1)
-    return scheme, netloc, url, query, fragment
+def test_url_join_matches_reference_over_corpus() -> None:
+    for base, reference in _corpus():
+        assert _join(base, reference) == _oracle(base, reference), (base, reference)
 
 
-def _unsplit(scheme: str | None, netloc: str | None, path: str, query: str | None, fragment: str | None) -> str:
-    if netloc is not None:
-        if path and path[:1] != "/":
-            path = "/" + path
-        path = "//" + netloc + path
-    prefix = f"{scheme}:" if scheme else ""
-    suffix = ("?" + query if query is not None else "") + ("#" + fragment if fragment is not None else "")
-    return f"{prefix}{path}{suffix}"
+def _corpus() -> list[tuple[str, str]]:
+    bases = (
+        "http://a/b/c/d;p?q",
+        "http://a/b/c/d",
+        "http://a/b/c/",
+        "http://a/b",
+        "http://a/",
+        "http://a",
+        "https://h.com/dir/page.html?x=1#frag",
+        "http://user:pass@h:8080/p/q?a=b#c",
+        "http://a//b//c",
+        "https://ex.com",
+        "http://[::1]/p",
+        "ftp://f/x/y",
+        "file:///a/b",
+        "//host/a",
+        "http:opaque",
+        "mailto:x@y",
+        "tel:123",
+        "HTTP://Up.Case/Dir/",
+        "",
+    )
+    references = (
+        "g",
+        "./g",
+        "g/",
+        "/g",
+        "//g",
+        "?y",
+        "g?y",
+        "#s",
+        "g#s",
+        "g?y#s",
+        ";x",
+        "g;x",
+        "",
+        ".",
+        "./",
+        "..",
+        "../",
+        "../g",
+        "../..",
+        "../../",
+        "../../g",
+        "../../../../g",
+        "/./g",
+        "/../g",
+        "g.",
+        ".g",
+        "g..",
+        "..g",
+        "./../g",
+        "./g/.",
+        "g/./h",
+        "g/../h",
+        "g;x=1/./y",
+        "g;x=1/../y",
+        "g?y/./x",
+        "g#s/../x",
+        "http:g",
+        "http://other/x",
+        "mailto:a@b",
+        "javascript:void(0)",
+        "//h2/p",
+        "?",
+        "#",
+        "a//b",
+        "c//d",
+        "/a//b",
+        "a/b/",
+        "../a//b",
+        "x/..",
+        "x/../",
+        "x/../y",
+        " ",
+        "   ",
+        "a/b/c/../../d",
+        "//",
+        "///x",
+        "/a/b/../../../c",
+        "?q=1&r=2",
+        "#a#b",
+        "/",
+        ".//g",
+        "a\tb",
+        "a\nb\rc",
+        "~a:b",
+        "_a:b",
+        "1a:b",
+        "@a:b",
+    )
+    pairs = [(base, reference) for base in bases for reference in references]
+    alphabet = "abc/.?#=&%:@;+"
+    generator = random.Random(20260704)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # fuzz corpus, not for security
+    for _ in range(3000):
+        reference = "".join(generator.choice(alphabet) for _ in range(generator.randint(0, 10)))
+        pairs.append((generator.choice(bases), reference))
+    pairs += [("http://[bad", "g"), ("http://a/b", "//[bad")]  # both sides must agree the split fails
+    return pairs
 
 
-def _merge(bpath: str, path: str) -> str:
-    """The RFC 3986 5.2.3 merge and 5.2.4 dot removal, in urljoin's segment-list form; ``path`` is never empty here."""
-    base_parts = bpath.split("/")
-    if base_parts[-1]:
-        del base_parts[-1]  # the base's last segment is a file, so the reference replaces it
-    if path[:1] == "/":
-        segments = path.split("/")
-    else:
-        segments = base_parts + path.split("/")
-        segments[1:-1] = filter(None, segments[1:-1])  # drop the empty interior segments a splice would rejoin
-    resolved: list[str] = []
-    for segment in segments:
-        if segment == "..":
-            if resolved:
-                resolved.pop()
-        elif segment != ".":
-            resolved.append(segment)
-    if segments[-1] in {".", ".."}:
-        resolved.append("")
-    return "/".join(resolved) or "/"
+def _join(base: str, reference: str) -> tuple[str | None, bool]:
+    # The joined URL, or ``(None, True)`` when the join raised, so the oracle and C agree on the failure too.
+    try:
+        return _url_join(base, reference), False
+    except ValueError:
+        return None, True
+
+
+def _oracle(base: str, reference: str) -> tuple[str | None, bool]:
+    try:
+        return _reference_join(base, reference), False
+    except ValueError:
+        return None, True
 
 
 def _reference_join(base: str, url: str) -> str:
-    """CPython 3.14's ``urljoin`` frozen against a ``str`` pair, the version-stable oracle the corpus differs from."""
+    # CPython 3.14's ``urljoin`` frozen against a ``str`` pair, the version-stable oracle the corpus differs from.
     if not base or not url:
         return url or base
     bscheme, bnetloc, bpath, bquery, bfragment = _split5(base)
@@ -1187,127 +1253,59 @@ def _reference_join(base: str, url: str) -> str:
     return _unsplit(scheme, bnetloc, _merge(bpath, path), query, fragment)
 
 
-_BASES = (
-    "http://a/b/c/d;p?q",
-    "http://a/b/c/d",
-    "http://a/b/c/",
-    "http://a/b",
-    "http://a/",
-    "http://a",
-    "https://h.com/dir/page.html?x=1#frag",
-    "http://user:pass@h:8080/p/q?a=b#c",
-    "http://a//b//c",
-    "https://ex.com",
-    "http://[::1]/p",
-    "ftp://f/x/y",
-    "file:///a/b",
-    "//host/a",
-    "http:opaque",
-    "mailto:x@y",
-    "tel:123",
-    "HTTP://Up.Case/Dir/",
-    "",
-)
-_REFERENCES = (
-    "g",
-    "./g",
-    "g/",
-    "/g",
-    "//g",
-    "?y",
-    "g?y",
-    "#s",
-    "g#s",
-    "g?y#s",
-    ";x",
-    "g;x",
-    "",
-    ".",
-    "./",
-    "..",
-    "../",
-    "../g",
-    "../..",
-    "../../",
-    "../../g",
-    "../../../../g",
-    "/./g",
-    "/../g",
-    "g.",
-    ".g",
-    "g..",
-    "..g",
-    "./../g",
-    "./g/.",
-    "g/./h",
-    "g/../h",
-    "g;x=1/./y",
-    "g;x=1/../y",
-    "g?y/./x",
-    "g#s/../x",
-    "http:g",
-    "http://other/x",
-    "mailto:a@b",
-    "javascript:void(0)",
-    "//h2/p",
-    "?",
-    "#",
-    "a//b",
-    "c//d",
-    "/a//b",
-    "a/b/",
-    "../a//b",
-    "x/..",
-    "x/../",
-    "x/../y",
-    " ",
-    "   ",
-    "a/b/c/../../d",
-    "//",
-    "///x",
-    "/a/b/../../../c",
-    "?q=1&r=2",
-    "#a#b",
-    "/",
-    ".//g",
-    "a\tb",
-    "a\nb\rc",
-    "~a:b",
-    "_a:b",
-    "1a:b",
-    "@a:b",
-)
+def _split5(url: str) -> tuple[str | None, str | None, str, str | None, str | None]:
+    # CPython 3.14's ``_urlsplit`` reduced to a ``str``: leading strip, scheme, authority, query, and fragment.
+    url = url.lstrip(_C0_OR_SPACE)
+    for unsafe in "\t\r\n":
+        url = url.replace(unsafe, "")
+    scheme = netloc = query = fragment = None
+    colon = url.find(":")
+    scheme_chars = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-.")
+    if colon > 0 and url[0].isascii() and url[0].isalpha() and all(char in scheme_chars for char in url[:colon]):
+        scheme, url = url[:colon].lower(), url[colon + 1 :]
+    if url[:2] == "//":
+        delimiter = min([len(url), *(offset for char in "/?#" if (offset := url.find(char, 2)) >= 0)])
+        netloc, url = url[2:delimiter], url[delimiter:]
+        if ("[" in netloc) != ("]" in netloc):
+            message = "Invalid IPv6 URL"
+            raise ValueError(message)
+    if "#" in url:
+        url, fragment = url.split("#", 1)
+    if "?" in url:
+        url, query = url.split("?", 1)
+    return scheme, netloc, url, query, fragment
 
 
-def _corpus() -> list[tuple[str, str]]:
-    pairs = [(base, reference) for base in _BASES for reference in _REFERENCES]
-    alphabet = "abc/.?#=&%:@;+"
-    generator = random.Random(20260704)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # fuzz corpus, not for security
-    for _ in range(3000):
-        reference = "".join(generator.choice(alphabet) for _ in range(generator.randint(0, 10)))
-        pairs.append((generator.choice(_BASES), reference))
-    pairs += [("http://[bad", "g"), ("http://a/b", "//[bad")]  # both sides must agree the split fails
-    return pairs
+def _unsplit(scheme: str | None, netloc: str | None, path: str, query: str | None, fragment: str | None) -> str:
+    if netloc is not None:
+        if path and path[:1] != "/":
+            path = f"/{path}"
+        path = "//" + netloc + path
+    prefix = f"{scheme}:" if scheme else ""
+    suffix = ("?" + query if query is not None else "") + ("#" + fragment if fragment is not None else "")
+    return f"{prefix}{path}{suffix}"
 
 
-def _join(base: str, reference: str) -> tuple[str | None, bool]:
-    """The joined URL, or ``(None, True)`` when the join raised, so the oracle and C agree on the failure too."""
-    try:
-        return _url_join(base, reference), False
-    except ValueError:
-        return None, True
-
-
-def _oracle(base: str, reference: str) -> tuple[str | None, bool]:
-    try:
-        return _reference_join(base, reference), False
-    except ValueError:
-        return None, True
-
-
-def test_url_join_matches_reference_over_corpus() -> None:
-    for base, reference in _corpus():
-        assert _join(base, reference) == _oracle(base, reference), (base, reference)
+def _merge(bpath: str, path: str) -> str:
+    # The RFC 3986 5.2.3 merge and 5.2.4 dot removal, in urljoin's segment-list form; ``path`` is never empty here.
+    base_parts = bpath.split("/")
+    if base_parts[-1]:
+        del base_parts[-1]  # the base's last segment is a file, so the reference replaces it
+    if path[:1] == "/":
+        segments = path.split("/")
+    else:
+        segments = base_parts + path.split("/")
+        segments[1:-1] = filter(None, segments[1:-1])  # drop the empty interior segments a splice would rejoin
+    resolved: list[str] = []
+    for segment in segments:
+        if segment == "..":
+            if resolved:
+                resolved.pop()
+        elif segment != ".":
+            resolved.append(segment)
+    if segments[-1] in {".", ".."}:
+        resolved.append("")
+    return "/".join(resolved) or "/"
 
 
 @pytest.mark.parametrize(
@@ -1411,17 +1409,67 @@ def test_url_join_preprocesses_operands(base: str, reference: str, expected: str
 
 
 _LANGUAGE_PARAMS = frozenset({"lang", "language"})
+
+
 _ISO = frozenset({"de", "en", "fr", "es", "ru", "nl"})
+
+
 _SEGMENT = re.compile(r"([a-z]{2})(?:[-_][a-z]{2,3})?$")
+
+
+def test_language_matches_matches_oracle_over_corpus() -> None:
+    paths = (
+        "",
+        "/",
+        "/de/beitrag",
+        "/en-us/page",
+        "/en_us/page",
+        "/fr-fra/x",
+        "/de",
+        "//de//x",
+        "de/x",
+        "/DE/UPPER",
+        "/e1/x",
+        "/abc/x",
+        "/abcd/x",
+        "/en-u1/x",
+        "/en-u/x",
+        "/xy-ab/x",
+        "/ru/y",
+        "/zz/y",
+        "/en-abcd/x",
+        "/%64%65/x",
+        "/enxab/x",
+        "/z{/x",
+    )
+    queries = (
+        "",
+        "x=1",
+        "lang=de",
+        "language=fr",
+        "lang=en-US",
+        "lang=",
+        "lang=de&language=en",
+        "LANG=fr",
+        "%6c%61%6e%67=de",
+    )
+    hosts = ("example.org", "de.example.org", "en.example.org", "zz.example.org", "e.org", "fr.a.b", "de", "localhost")
+    for path, query, host, lang, strict in itertools.product(paths, queries, hosts, ("de", "en", "fr"), (False, True)):
+        got = _url_language_matches(query, path, host, lang, strict, _LANGUAGE_PARAMS, _ISO)
+        want = _language_oracle(query, path, host, lang, strict=strict)
+        assert got is want, (query, path, host, lang, strict)
 
 
 def _language_oracle(query: str, path: str, hostname: str, language: str, *, strict: bool) -> bool:
     for pair in query.split("&"):
         key, separator, value = pair.partition("=")
-        if separator and _url_percent_decode(key).lower() in _LANGUAGE_PARAMS:
-            code = _url_percent_decode(value).lower()
-            if code and not code.startswith(language):
-                return False
+        if (
+            separator
+            and _url_percent_decode(key).lower() in _LANGUAGE_PARAMS
+            and (code := _url_percent_decode(value).lower())
+            and not code.startswith(language)
+        ):
+            return False
     leading = next((segment for segment in path.lower().split("/") if segment), "")
     if (match := _SEGMENT.fullmatch(leading)) and match[1] in _ISO and match[1] != language:
         return False
@@ -1430,52 +1478,6 @@ def _language_oracle(query: str, path: str, hostname: str, language: str, *, str
         if len(label) == 2 and label in _ISO and label != language:
             return False
     return True
-
-
-_PATHS = (
-    "",
-    "/",
-    "/de/beitrag",
-    "/en-us/page",
-    "/en_us/page",
-    "/fr-fra/x",
-    "/de",
-    "//de//x",
-    "de/x",
-    "/DE/UPPER",
-    "/e1/x",
-    "/abc/x",
-    "/abcd/x",
-    "/en-u1/x",
-    "/en-u/x",
-    "/xy-ab/x",
-    "/ru/y",
-    "/zz/y",
-    "/en-abcd/x",
-    "/%64%65/x",
-    "/enxab/x",
-    "/z{/x",
-)
-_QUERIES = (
-    "",
-    "x=1",
-    "lang=de",
-    "language=fr",
-    "lang=en-US",
-    "lang=",
-    "lang=de&language=en",
-    "LANG=fr",
-    "%6c%61%6e%67=de",
-)
-_HOSTS = ("example.org", "de.example.org", "en.example.org", "zz.example.org", "e.org", "fr.a.b", "de", "localhost")
-_LANGS = ("de", "en", "fr")
-
-
-def test_language_matches_matches_oracle_over_corpus() -> None:
-    for path, query, host, lang, strict in itertools.product(_PATHS, _QUERIES, _HOSTS, _LANGS, (False, True)):
-        got = _url_language_matches(query, path, host, lang, strict, _LANGUAGE_PARAMS, _ISO)
-        want = _language_oracle(query, path, host, lang, strict=strict)
-        assert got is want, (query, path, host, lang, strict)
 
 
 @pytest.mark.parametrize(
@@ -1510,13 +1512,54 @@ def test_language_matches_rejects_missing_arguments() -> None:
         _url_language_matches("", "/x", "h.org", "en", lax)  # ty: ignore[missing-argument]
 
 
-_QUERY_SET = 1
 _CONTENT = frozenset({"id", "page", "post", "article_id"})
+
+
 _LANGUAGE = frozenset({"lang", "language"})
+
+
+def test_normalize_query_matches_oracle_over_corpus() -> None:
+    normalized_queries = (
+        "",
+        "a=1",
+        "ok=1&bad=\udcff",  # a lone surrogate cannot percent-encode, so both sides must fail identically
+        "a=1&b=2",
+        "b=2&a=1",
+        "id=1&utm_source=x",
+        "utm_campaign=z&fbclid=y&keep=1",
+        "a=1&a=2&a=3",
+        "=empty&x=",
+        "café=1&CAFÉ=2",
+        "%41=%42&ref=1",
+        "lang=de&page=3",
+        "session=1&content=2",
+        "aff_id=1&article_id=9",
+        "x=%ZZ&y=1",
+        "a=1&&b=2&",
+        "utm_medium=e&Id=7",
+        "A=1&a=2&B=3",
+        "a&b&c",
+    )
+    allows = (None, frozenset({"id", "page"}), frozenset({"UTM_SOURCE"}), frozenset())
+    denys = (frozenset(), frozenset({"id"}), frozenset({"a", "b"}))
+    for query, allow, deny, strict in itertools.product(normalized_queries, allows, denys, (False, True)):
+        if strict and allow is not None:
+            continue
+        got = _outcome(partial(_url_normalize_query, query, allow, deny, strict, _CONTENT, _LANGUAGE))
+        want = _outcome(partial(_query_oracle, query, allow, deny, strict=strict))
+        assert got == want, (query, allow, deny, strict)
+
+
+def _outcome(call: Callable[[], str]) -> tuple[object, ...]:
+    try:
+        return ("ok", call())
+    except ValueError as exc:  # UnicodeEncodeError subclasses ValueError, so a lone-surrogate failure lands here too
+        return ("err", type(exc).__name__, str(exc))
 
 
 def _query_oracle(query: str, allow: frozenset[str] | None, deny: frozenset[str], *, strict: bool) -> str:
     kept: list[tuple[str, str]] = []
+    query_set = 1
     for pair in query.split("&"):
         if not pair:
             continue
@@ -1532,54 +1575,13 @@ def _query_oracle(query: str, allow: frozenset[str] | None, deny: frozenset[str]
         if dropped:
             continue
         try:
-            encoded = _url_percent_encode(pair, _QUERY_SET)
+            encoded = _url_percent_encode(pair, query_set)
         except UnicodeEncodeError as exc:
             # the retired shim converted the encoder's failure to the public ValueError; the C does the same inline
             msg = f"URL component {pair!r} has a character that cannot be percent-encoded: {exc.reason}"
             raise ValueError(msg) from exc
         kept.append((key, encoded))
     return "&".join(pair for _key, pair in sorted(kept))
-
-
-def _outcome(call: Callable[[], str]) -> tuple[object, ...]:
-    try:
-        return ("ok", call())
-    except ValueError as exc:  # UnicodeEncodeError subclasses ValueError, so a lone-surrogate failure lands here too
-        return ("err", type(exc).__name__, str(exc))
-
-
-_NORMALIZED_QUERIES = (
-    "",
-    "a=1",
-    "ok=1&bad=\udcff",  # a lone surrogate cannot percent-encode, so both sides must fail identically
-    "a=1&b=2",
-    "b=2&a=1",
-    "id=1&utm_source=x",
-    "utm_campaign=z&fbclid=y&keep=1",
-    "a=1&a=2&a=3",
-    "=empty&x=",
-    "café=1&CAFÉ=2",
-    "%41=%42&ref=1",
-    "lang=de&page=3",
-    "session=1&content=2",
-    "aff_id=1&article_id=9",
-    "x=%ZZ&y=1",
-    "a=1&&b=2&",
-    "utm_medium=e&Id=7",
-    "A=1&a=2&B=3",
-    "a&b&c",
-)
-_ALLOWS = (None, frozenset({"id", "page"}), frozenset({"UTM_SOURCE"}), frozenset())
-_DENYS = (frozenset(), frozenset({"id"}), frozenset({"a", "b"}))
-
-
-def test_normalize_query_matches_oracle_over_corpus() -> None:
-    for query, allow, deny, strict in itertools.product(_NORMALIZED_QUERIES, _ALLOWS, _DENYS, (False, True)):
-        if strict and allow is not None:
-            continue
-        got = _outcome(partial(_url_normalize_query, query, allow, deny, strict, _CONTENT, _LANGUAGE))
-        want = _outcome(partial(_query_oracle, query, allow, deny, strict=strict))
-        assert got == want, (query, allow, deny, strict)
 
 
 @pytest.mark.parametrize(
@@ -1630,19 +1632,21 @@ def test_normalize_query_rejects_missing_arguments() -> None:
 
 _PATH, _QUERY, _FRAGMENT = 0, 1, 2
 
+
 # The safe run each set keeps raw, mirroring URL_PATH_KEEP / URL_QUERY_KEEP / URL_FRAGMENT_KEEP in _c/url/url.c; the
 # unreserved characters quote() always keeps are implicit, so only the set-specific additions are listed.
-_SAFE: dict[int, str] = {
+_SAFE: Final[dict[int, str]] = {
     _PATH: "!$%&'()*+,-./:;=@[\\]_|~",
     _QUERY: "!$%&()*+,-./:;=?@[\\]^`{|}~",
     _FRAGMENT: "!#$%&'()*+,-./:;=?@[\\]^_{|}~",
 }
+
+
 _ESCAPE = re.compile(r"%[0-9a-fA-F]{2}")
 
 
 def _oracle_encode(text: str, url_set: int) -> str:
-    uppercased = _ESCAPE.sub(lambda match: match[0].upper(), text) if "%" in text else text
-    return quote(uppercased, safe=_SAFE[url_set])
+    return quote(_ESCAPE.sub(lambda match: match[0].upper(), text) if "%" in text else text, safe=_SAFE[url_set])
 
 
 # A spread that reaches every encode/decode branch: kept and out-of-set bytes, lowercase and already-uppercase escapes,
@@ -1753,6 +1757,8 @@ def test_percent_encode_rejects_non_str_text() -> None:
 
 
 _C0_AND_SPACE = "".join(map(chr, range(0x21)))
+
+
 _MARKUP_DELIMITER = re.compile(r'[<>"]')
 
 
@@ -1776,21 +1782,6 @@ _PY_WHITESPACE = frozenset(
         ),
     )
 )
-
-
-def _oracle_scrub(url: str) -> str:
-    remainder = "".join(char for char in url.strip(_C0_AND_SPACE) if char not in _PY_WHITESPACE)
-    if remainder.startswith("<![CDATA["):
-        remainder = remainder.removeprefix("<![CDATA[").removesuffix("]]>")
-    remainder = _MARKUP_DELIMITER.split(remainder, maxsplit=1)[0].replace("&amp;", "&")
-    trimmed: Final = remainder.rstrip(_C0_AND_SPACE)
-    if trimmed != remainder:
-        remainder = trimmed
-        if remainder.endswith("/&?#"):
-            remainder = remainder[:-2]
-        elif remainder.endswith(("/&?", "/&#")):
-            remainder = remainder[:-1]
-    return remainder.removesuffix("&") if remainder.endswith("/&") else remainder
 
 
 # Pieces that reach every scrub branch: whitespace str.split() removes but the edge C0 strip alone would not (NBSP, NEL,
@@ -1817,46 +1808,60 @@ _PIECES = (
     "?q=1",
     "#f",
 )
-_EDGE_CASES = (
-    "",
-    " ",
-    "  https://x.example/p  ",
-    "\t\nhttps://x.example/p\r\n",
-    "\x01\x02https://x.example/p\x03",
-    "a\xa0b\x85c",
-    "a\x1cb\x1fc",
-    "line break",
-    "mid\x01control",
-    "<![CDATA[https://x.example/p]]>",
-    "<![CDATA[https://x.example/p",
-    "<![CDATA[a>b",
-    "<![CDATA[]]>",
-    "<![CDAT",
-    "https://x.example/a<script>",
-    "https://x.example/a>b",
-    'https://x.example/p"junk',
-    "https://x.example/a&amp;b&amp;c",
-    "https://x.example/path/&amp;",
-    "https://x.example/path/&",
-    "https://x.example/&amp;",
-    "https://x.example/&\x01>",
-    "https://x.example/&?\x01>",
-    "https://x.example/&#\x01>",
-    "https://x.example/&?#\x01>",
-    "trailing&",
-)
-
-
-def _scrub_corpus() -> list[str]:
-    seen = set(_EDGE_CASES)
-    for length in range(4):
-        seen.update("".join(combo) for combo in itertools.product(_PIECES, repeat=length))
-    return sorted(seen)
 
 
 def test_scrub_matches_oracle_over_corpus() -> None:
     for url in _scrub_corpus():
         assert _url_scrub(url) == _oracle_scrub(url), repr(url)
+
+
+def _scrub_corpus() -> list[str]:
+    seen = {
+        "",
+        " ",
+        "  https://x.example/p  ",
+        "\t\nhttps://x.example/p\r\n",
+        "\x01\x02https://x.example/p\x03",
+        "a\xa0b\x85c",
+        "a\x1cb\x1fc",
+        "line break",
+        "mid\x01control",
+        "<![CDATA[https://x.example/p]]>",
+        "<![CDATA[https://x.example/p",
+        "<![CDATA[a>b",
+        "<![CDATA[]]>",
+        "<![CDAT",
+        "https://x.example/a<script>",
+        "https://x.example/a>b",
+        'https://x.example/p"junk',
+        "https://x.example/a&amp;b&amp;c",
+        "https://x.example/path/&amp;",
+        "https://x.example/path/&",
+        "https://x.example/&amp;",
+        "https://x.example/&\x01>",
+        "https://x.example/&?\x01>",
+        "https://x.example/&#\x01>",
+        "https://x.example/&?#\x01>",
+        "trailing&",
+    }
+    for length in range(4):
+        seen.update("".join(combo) for combo in itertools.product(_PIECES, repeat=length))
+    return sorted(seen)
+
+
+def _oracle_scrub(url: str) -> str:
+    remainder = "".join(char for char in url.strip(_C0_AND_SPACE) if char not in _PY_WHITESPACE)
+    if remainder.startswith("<![CDATA["):
+        remainder = remainder.removeprefix("<![CDATA[").removesuffix("]]>")
+    remainder = _MARKUP_DELIMITER.split(remainder, maxsplit=1)[0].replace("&amp;", "&")
+    trimmed: Final = remainder.rstrip(_C0_AND_SPACE)
+    if trimmed != remainder:
+        remainder = trimmed
+        if remainder.endswith("/&?#"):
+            remainder = remainder[:-2]
+        elif remainder.endswith(("/&?", "/&#")):
+            remainder = remainder[:-1]
+    return remainder.removesuffix("&") if remainder.endswith("/&") else remainder
 
 
 @pytest.mark.parametrize(
@@ -1898,48 +1903,8 @@ def test_scrub_rejects_non_str() -> None:
 
 _REGNAME, _IPV4, _IPV6 = 0, 1, 2
 
-_SCHEMES = ("http", "https", "ftp", "HTTP", "mailto", "", "javascript", "ws", "wss", "file")
-_AUTHORITIES = (
-    "",
-    "example.com",
-    "Example.COM",
-    "user@host",
-    "user:pass@host",
-    "host:8080",
-    "host:",
-    "host:080",
-    "host:abc",
-    "1.2.3.4",
-    "1.2.3.4:9",
-    "[::1]",
-    "[::1]:443",
-    "[::1]:",
-    "[2001:db8::1]:8080",
-    "user@[::1]:80",
-    "münchen.de",
-    "sub.example.co.uk",
-    "a",
-    "a:b:c",
-    "@host",
-    "user@@host",
-)
-_SPLIT_PATHS = ("", "/", "/a/b", "/a/../b")
-_SPLIT_QUERIES = ("", "?a=1", "?a=1&b=2")
+
 _FRAGMENTS = ("", "#f")
-
-
-def _split_corpus() -> list[str]:
-    urls = [
-        f"{scheme}:" * bool(scheme) + (f"//{auth}" * bool(auth or path.startswith("//"))) + path + query + fragment
-        for scheme in _SCHEMES
-        for auth in _AUTHORITIES
-        for path in _SPLIT_PATHS
-        for query in _SPLIT_QUERIES
-        for fragment in _FRAGMENTS
-    ]
-    urls += ["  http://x.com/y  ", "http://h\tost/p", "\x01\x02http://a.com", "HTTP://X", "//netonly/p", "a\nb\rc://x"]
-    urls += [f"http://h.com/x{query}{fragment}" for query in ("", "?", "?a=1") for fragment in ("", "#", "#a=1")]
-    return sorted(set(urls))
 
 
 def test_url_split_matches_urllib_after_input_trim() -> None:
@@ -1956,6 +1921,47 @@ def test_url_split_matches_urllib_after_input_trim() -> None:
             reference.fragment,
         ), url
         assert host.lower() == (reference.hostname or ""), url
+
+
+def _split_corpus() -> list[str]:
+    schemes = ("http", "https", "ftp", "HTTP", "mailto", "", "javascript", "ws", "wss", "file")
+    authorities = (
+        "",
+        "example.com",
+        "Example.COM",
+        "user@host",
+        "user:pass@host",
+        "host:8080",
+        "host:",
+        "host:080",
+        "host:abc",
+        "1.2.3.4",
+        "1.2.3.4:9",
+        "[::1]",
+        "[::1]:443",
+        "[::1]:",
+        "[2001:db8::1]:8080",
+        "user@[::1]:80",
+        "münchen.de",
+        "sub.example.co.uk",
+        "a",
+        "a:b:c",
+        "@host",
+        "user@@host",
+    )
+    split_paths = ("", "/", "/a/b", "/a/../b")
+    split_queries = ("", "?a=1", "?a=1&b=2")
+    urls = [
+        f"{scheme}:" * bool(scheme) + (f"//{auth}" * bool(auth or path.startswith("//"))) + path + query + fragment
+        for scheme in schemes
+        for auth in authorities
+        for path in split_paths
+        for query in split_queries
+        for fragment in _FRAGMENTS
+    ]
+    urls += ["  http://x.com/y  ", "http://h\tost/p", "\x01\x02http://a.com", "HTTP://X", "//netonly/p", "a\nb\rc://x"]
+    urls += [f"http://h.com/x{query}{fragment}" for query in ("", "?", "?a=1") for fragment in ("", "#", "#a=1")]
+    return sorted(set(urls))
 
 
 @pytest.mark.parametrize(
@@ -2096,19 +2102,19 @@ _TRACKER_NAMES = frozenset({
     "yclid",
     "ysclid",
 })
+
+
 _TRACKER_PREFIXES = ("ad_", "ads_", "ga_", "gs_", "hsa_", "itm_", "mc_", "mtm_", "oly_", "pk_", "utm_", "vero_")
+
+
 _TRACKER_WORDS = re.compile(
     r"(?:^|_)(?:aff(?:i(?:liate)?)?|campaign|cl?id|keyword|kwd|medium|refer(?:r?er)?|ref|session|source|uid|xtor)(?:_|$)"
 )
 
 
-def _tracker_oracle(key: str) -> bool:
-    return (
-        key in _TRACKER_NAMES
-        or key.startswith(_TRACKER_PREFIXES)
-        or key.endswith("clid")
-        or _TRACKER_WORDS.search(key) is not None
-    )
+def test_is_tracker_matches_oracle_over_corpus() -> None:
+    for key in _tracker_corpus():
+        assert _url_is_tracker(key) == _tracker_oracle(key), repr(key)
 
 
 def _tracker_corpus() -> list[str]:
@@ -2145,9 +2151,13 @@ def _tracker_corpus() -> list[str]:
     return sorted(seen)
 
 
-def test_is_tracker_matches_oracle_over_corpus() -> None:
-    for key in _tracker_corpus():
-        assert _url_is_tracker(key) == _tracker_oracle(key), repr(key)
+def _tracker_oracle(key: str) -> bool:
+    return (
+        key in _TRACKER_NAMES
+        or key.startswith(_TRACKER_PREFIXES)
+        or key.endswith("clid")
+        or _TRACKER_WORDS.search(key) is not None
+    )
 
 
 @pytest.mark.parametrize(
@@ -2178,37 +2188,35 @@ def test_is_tracker_lone_surrogate_raises() -> None:
         _url_is_tracker("\ud800clid")
 
 
-def _oracle_variant(url: str) -> str:
-    remainder = url.partition("://")[2]
-    return remainder if "?" in remainder or "#" in remainder else remainder.rstrip("/")
-
-
-_VARIANT_SCHEMES = ("https://", "http://", "ftp://", "", "://", "a://b://")
-_TAILS = (
-    "",
-    "/",
-    "//",
-    "x.example/p",
-    "x.example/p/",
-    "x.example/p//",
-    "x.example/p?q=1",
-    "x.example/p/#f",
-    "x.example/a/b/",
-    "x.example/?only",
-    "x.example/#only",
-    "mailto:x@y",
-    "a:/b/c/",
-)
-
-
-def _variant_corpus() -> list[str]:
-    combined = {"".join(combo) for combo in itertools.product(_VARIANT_SCHEMES, _TAILS)}
-    return sorted(combined | {"", "no-scheme-path/", "://leading/", "a://b://c/d/"})
-
-
 def test_variant_key_matches_oracle_over_corpus() -> None:
     for url in _variant_corpus():
         assert _url_variant_key(url) == _oracle_variant(url), repr(url)
+
+
+def _variant_corpus() -> list[str]:
+    variant_schemes = ("https://", "http://", "ftp://", "", "://", "a://b://")
+    tails = (
+        "",
+        "/",
+        "//",
+        "x.example/p",
+        "x.example/p/",
+        "x.example/p//",
+        "x.example/p?q=1",
+        "x.example/p/#f",
+        "x.example/a/b/",
+        "x.example/?only",
+        "x.example/#only",
+        "mailto:x@y",
+        "a:/b/c/",
+    )
+    combined = {"".join(combo) for combo in itertools.product(variant_schemes, tails)}
+    return sorted(combined | {"", "no-scheme-path/", "://leading/", "a://b://c/d/"})
+
+
+def _oracle_variant(url: str) -> str:
+    remainder = url.partition("://")[2]
+    return remainder if "?" in remainder or "#" in remainder else remainder.rstrip("/")
 
 
 @pytest.mark.parametrize(

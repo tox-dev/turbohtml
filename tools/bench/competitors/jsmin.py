@@ -8,7 +8,7 @@ REQUIREMENTS = ("jsmin>=3.0",)
 
 
 def minify_js(source: str) -> str:
-    """Minify JavaScript with jsmin's Crockford-style character state machine."""
+    # Minify JavaScript with jsmin's Crockford-style character state machine.
     return jsmin(source)
 
 

@@ -1,13 +1,3 @@
-"""GitHub-Flavored-Markdown export via Node.to_markdown().
-
-Two layers of validation: hand-written golden cases pin the exact output for
-every mapping and edge case, and a round-trip differential renders the output
-back to HTML with the markdown-it-py reference engine and asserts no visible
-text token was lost — the same property the competitor suites (markdownify,
-html2text) check by hand. The adversarial inputs are sampled from the committed
-WPT tree-construction corpus, so to_markdown() is exercised on malformed markup too.
-"""
-
 from __future__ import annotations
 
 import re
@@ -47,7 +37,7 @@ def md(html: str) -> str:
 
 @pytest.mark.parametrize("depth", [16, 32, 64])
 def test_deep_inline_wrappers_spanning_blocks_have_linear_output(depth: int) -> None:
-    source: Final = "<i><div>" * depth + "x" + "</div>" * depth
+    source: Final = f"{'<i><div>' * depth}x{'</div>' * depth}"
     result: Final = md(source)
     assert len(result) <= len(source) * 2
     assert result.count("<em>") == depth
@@ -57,24 +47,24 @@ def test_deep_inline_wrappers_spanning_blocks_have_linear_output(depth: int) -> 
 
 @pytest.mark.parametrize("depth", [16, 32])
 def test_deep_emphasis_before_block_has_linear_output(depth: int) -> None:
-    source: Final = "<i>y" * depth + "<div>x</div>" + "</i>" * depth
+    source: Final = f"{'<i>y' * depth}<div>x</div>{'</i>' * depth}"
     result: Final = md(source)
     assert "x" in result
     assert len(result) <= len(source) * 4
 
 
 def test_pending_emphasis_after_deep_block_keeps_text() -> None:
-    source: Final = "<i>y" * 8 + "<i><div>x</div>" + "</i>" * 9
+    source: Final = f"{'<i>y' * 8}<i><div>x</div>{'</i>' * 9}"
     assert "x" in md(source)
 
 
 def test_link_inside_deep_block_keeps_destination() -> None:
-    source: Final = "<i>" * 9 + "<div>x</div><a href=/t>y</a>" + "</i>" * 9
+    source: Final = f"{'<i>' * 9}<div>x</div><a href=/t>y</a>{'</i>' * 9}"
     assert "[y](/t)" in md(source)
 
 
 def test_google_style_inside_deep_block_keeps_both_blocks() -> None:
-    source: Final = '<span style="font-weight:bold">B' + "<i>" * 9 + "<div>x</div><div>z</div>" + "</i>" * 9
+    source: Final = f'<span style="font-weight:bold">B{"<i>" * 9}<div>x</div><div>z</div>{"</i>" * 9}'
     result: Final = parse(source).to_markdown(Markdown(google=Markdown.GoogleDoc(enabled=True)))
     assert "x" in result
     assert "z" in result
@@ -82,7 +72,7 @@ def test_google_style_inside_deep_block_keeps_both_blocks() -> None:
 
 
 def test_many_trailing_breaks_keep_visible_text() -> None:
-    assert md("x" + "<br>" * 128) == "x"
+    assert md(f"x{'<br>' * 128}") == "x"
 
 
 @pytest.mark.parametrize("separator", ["\n", "\r", "\t", "\f"])
@@ -1926,17 +1916,15 @@ _COMMONMARK_TEXT_CASES: Final = [
     pytest.param("<p>&amp;#<span>65;</span></p>", "\\&#65;", id="amp-number-split-across-nodes"),
     pytest.param("<p>&amp;#1<span>2;</span></p>", "\\&#12;", id="amp-digits-split-across-nodes"),
     pytest.param("<p>&amp;am<code>x</code>p;</p>", "&am`x`p;", id="amp-split-by-code-span"),
+    pytest.param(f"<p>&amp;{'a' * 40}<span>b;</span></p>", f"&{'a' * 40}b;", id="amp-name-past-longest-entity"),
     pytest.param(
-        "<p>&amp;" + "a" * 40 + "<span>b;</span></p>", "&" + "a" * 40 + "b;", id="amp-name-past-longest-entity"
-    ),
-    pytest.param(
-        "<p>&amp;" + "a" * 20 + "<span>" + "b" * 30 + ";</span></p>",
-        "&" + "a" * 20 + "b" * 30 + ";",
+        f"<p>&amp;{'a' * 20}<span>{'b' * 30};</span></p>",
+        f"&{'a' * 20}{'b' * 30};",
         id="amp-split-shape-capped",
     ),
     pytest.param("<p>&amp;am<b>p;</b></p>", "&am**p;**", id="amp-split-by-emphasis"),
     pytest.param("<p><b>&amp;am<span>p;</span></b></p>", "**\\&amp;**", id="amp-split-inside-emphasis"),
-    pytest.param("<p>" + "a" * 40 + "<span>b;</span></p>", "a" * 40 + "b;", id="long-word-before-node"),
+    pytest.param(f"<p>{'a' * 40}<span>b;</span></p>", f"{'a' * 40}b;", id="long-word-before-node"),
     pytest.param("<h1>a # b #</h1>", "# a # b \\#", id="heading-trailing-hash"),
     pytest.param("<h2>x ##</h2>", "## x \\##", id="heading-trailing-hash-run"),
     pytest.param("<h1>#</h1>", "# \\#", id="heading-only-hash"),
@@ -2300,12 +2288,6 @@ def test_kitchen_sink() -> None:
 _WORD = re.compile(r"[0-9a-z]+")
 
 
-def _tokens(html: str) -> list[str]:
-    """Visible-text word tokens, with block boundaries kept apart so packed and
-    re-rendered markup tokenize the same way."""
-    return _WORD.findall(" ".join(parse(html).stripped_strings).lower())
-
-
 def _render(markdown: str) -> str:
 
     return MarkdownIt("gfm-like", {"linkify": False}).render(markdown)
@@ -2336,12 +2318,10 @@ def test_roundtrip_preserves_text(html: str) -> None:
     assert _tokens(rendered) == _tokens(html)
 
 
-def _nested_tables(depth: int) -> str:
-    """`depth` tables, each the only cell of the one above it, around a pipe in text."""
-    html = "a|b"
-    for _ in range(depth):
-        html = f"<table><tr><td>{html}</td></tr></table>"
-    return html
+def _tokens(html: str) -> list[str]:
+    # Visible-text word tokens, with block boundaries kept apart so packed and
+    # re-rendered markup tokenize the same way.
+    return _WORD.findall(" ".join(parse(html).stripped_strings).lower())
 
 
 @pytest.mark.parametrize("depth", [1, 2, 3, 5], ids=lambda depth: f"depth-{depth}")
@@ -2349,6 +2329,14 @@ def test_nested_table_pipe_escape_never_compounds(depth: int) -> None:
     # `\\|` reads as an escaped backslash followed by a live cell break, and escaping
     # an already-escaped cell once per nesting level is how it used to arrive
     assert "\\\\|" not in md(_nested_tables(depth))
+
+
+def _nested_tables(depth: int) -> str:
+    # `depth` tables, each the only cell of the one above it, around a pipe in text.
+    html = "a|b"
+    for _ in range(depth):
+        html = f"<table><tr><td>{html}</td></tr></table>"
+    return html
 
 
 @pytest.mark.parametrize("depth", [2, 3, 5], ids=lambda depth: f"depth-{depth}")
@@ -2480,10 +2468,7 @@ def test_markdown_many_words_wrap_at_requested_width(width: int) -> None:
     words: Final = ["aa"] * 10_000
     per_line: Final = (width + 1) // 3
     expected: Final = "\n".join(" ".join(words[start : start + per_line]) for start in range(0, len(words), per_line))
-    assert (
-        parse("<p>" + " ".join(words) + "</p>").to_markdown(Markdown(wrapping=Markdown.Wrapping(width=width)))
-        == expected
-    )
+    assert parse(f"<p>{' '.join(words)}</p>").to_markdown(Markdown(wrapping=Markdown.Wrapping(width=width))) == expected
 
 
 @pytest.mark.parametrize(
@@ -2511,7 +2496,7 @@ def _keep_content(_element: Element, content: str) -> str:
 
 
 def wrap(marker: str) -> Converter:
-    """A converter that surrounds the rendered child Markdown with a marker."""
+    # A converter that surrounds the rendered child Markdown with a marker.
     return lambda _element, content: f"{marker}{content}{marker}"
 
 
@@ -2922,10 +2907,6 @@ def test_iterator_error_propagates() -> None:
         parse("<p><b>x</b></p>").to_markdown(Markdown(strip=tags()))
 
 
-def _google_markdown(html: str, config: Markdown) -> str:
-    return parse(html).to_markdown(config)
-
-
 @pytest.mark.parametrize(
     ("html", "config", "expected"),
     [
@@ -3205,6 +3186,10 @@ def test_google_doc(html: str, config: Markdown, expected: str) -> None:
     assert _google_markdown(html, config) == expected
 
 
+def _google_markdown(html: str, config: Markdown) -> str:
+    return parse(html).to_markdown(config)
+
+
 def test_google_list_indent_must_be_positive() -> None:
     with pytest.raises(ValueError, match="google_list_indent"):
         parse("<p>x</p>").to_markdown(Markdown(google=Markdown.GoogleDoc(list_indent=0)))
@@ -3216,10 +3201,6 @@ def test_google_doc_preset_enables_styling_and_drops_struck_text() -> None:
     assert preset.inline.hide_strikethrough
     html = '<p><span style="font-weight:700">keep</span> <span style="text-decoration:line-through">gone</span></p>'
     assert parse(html).to_markdown(preset) == "**keep**"
-
-
-def _mode_markdown(html: str, config: Markdown) -> str:
-    return parse(html).to_markdown(config)
 
 
 @pytest.mark.parametrize(
@@ -3253,6 +3234,10 @@ def _mode_markdown(html: str, config: Markdown) -> str:
 )
 def test_wrap_width(html: str, config: Markdown, expected: str) -> None:
     assert _mode_markdown(html, config) == expected
+
+
+def _mode_markdown(html: str, config: Markdown) -> str:
+    return parse(html).to_markdown(config)
 
 
 @pytest.mark.parametrize(
@@ -3408,18 +3393,14 @@ def test_transliterate_leaves_code_verbatim() -> None:
 
 def test_wrap_and_transliterate_compose() -> None:
     html = "<p>The “quick” brown fox — jumps over the lazy dog today.</p>"
-    expected = 'The "quick" brown fox -- jumps\nover the lazy dog today.'
     config = Markdown(wrapping=Markdown.Wrapping(width=30), document=Markdown.Document(transliterate=True))
+    expected = 'The "quick" brown fox -- jumps\nover the lazy dog today.'
     assert _mode_markdown(html, config) == expected
 
 
 def test_wrap_width_rejects_negative() -> None:
     with pytest.raises(ValueError, match="wrap_width"):
         parse("<p>x</p>").to_markdown(Markdown(wrapping=Markdown.Wrapping(width=-1)))
-
-
-def _configured_markdown(html: str, options: Markdown) -> str:
-    return parse(html).to_markdown(options)
 
 
 @pytest.mark.parametrize(
@@ -3468,6 +3449,10 @@ def _configured_markdown(html: str, options: Markdown) -> str:
 )
 def test_heading_style(html: str, opts: Markdown, expected: str) -> None:
     assert _configured_markdown(html, opts) == expected
+
+
+def _configured_markdown(html: str, options: Markdown) -> str:
+    return parse(html).to_markdown(options)
 
 
 @pytest.mark.parametrize(

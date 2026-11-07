@@ -38,13 +38,12 @@ _CARD: Final = re.compile(r"4111 1111 1111 1111")
 _SLASH_DATE: Final = re.compile(r"(?:[0-3]?\d/[01]?\d|[01]?\d/[0-3]?\d)/(?:[12]\d)?\d{2}")
 _FULLWIDTH: Final = str.maketrans(string.digits, "".join(chr(0xFF10 + value) for value in range(10)))
 _ARABIC_INDIC: Final = str.maketrans(string.digits, "".join(chr(0x660 + value) for value in range(10)))
-_CARD_SHAPES: Final = ([4, 4, 4, 4], [4, 4, 4, 4, 3], [4, 6, 5], [4, 6, 4])
 
 Found: TypeAlias = set[tuple[int, int, str, str]]
 
 
 def renderings(number: phonenumbers.PhoneNumber, region: str) -> list[tuple[str, str]]:
-    """Return the written forms of one number: national with and without prefix, international, IDD, digit scripts."""
+    # Return the written forms of one number: national with and without prefix, international, IDD, digit scripts.
     national = phonenumbers.format_number(number, PhoneNumberFormat.NATIONAL)
     international = phonenumbers.format_number(number, PhoneNumberFormat.INTERNATIONAL)
     nsn = phonenumbers.national_significant_number(number)
@@ -71,7 +70,7 @@ def renderings(number: phonenumbers.PhoneNumber, region: str) -> list[tuple[str,
 
 
 def oracle_matches(text: str, region: str | None, leniency: int) -> Found:
-    """Return the matcher's spans as ``(start, end, E.164, extension)``."""
+    # Return the matcher's spans as ``(start, end, E.164, extension)``.
     found: Found = set()
     for match in PhoneNumberMatcher(text, region, leniency=leniency):
         number = match.number
@@ -85,7 +84,7 @@ def oracle_matches(text: str, region: str | None, leniency: int) -> Found:
 
 
 def classify(text: str, ours: Found, theirs: Found) -> str:  # ruff:ignore[too-many-return-statements]  # one per category
-    """Name the difference between the recognizer's matches and the matcher's, ``agree`` when there is none."""
+    # Name the difference between the recognizer's matches and the matcher's, ``agree`` when there is none.
     if ours == theirs:
         return "agree"
     if not theirs and ours and _SLASH_DATE.search(text):
@@ -105,7 +104,7 @@ def classify(text: str, ours: Found, theirs: Found) -> str:  # ruff:ignore[too-m
 
 
 def _is_card_shape(text: str, ours: Found, theirs: Found) -> bool:
-    """Check whether the difference is the card-shape rule: a Luhn-valid card number the recognizer rejects."""
+    # Check whether the difference is the card-shape rule: a Luhn-valid card number the recognizer rejects.
     card = _CARD.search(text)
     if (
         card
@@ -118,10 +117,12 @@ def _is_card_shape(text: str, ours: Found, theirs: Found) -> bool:
 
 
 def _is_luhn_card(text: str) -> bool:
-    """Check whether the text's digit run has a Luhn-valid card shape, the shape the recognizer rejects."""
+    # Check whether the text's digit run has a Luhn-valid card shape, the shape the recognizer rejects.
     runs = re.findall(r"[0-9]+", "".join(str(unicodedata.digit(char)) if char.isdigit() else char for char in text))
     lengths = [len(run) for run in runs]
-    if lengths not in _CARD_SHAPES and not (len(lengths) == 1 and 13 <= lengths[0] <= 19):
+    if lengths not in ([4, 4, 4, 4], [4, 4, 4, 4, 3], [4, 6, 5], [4, 6, 4]) and not (
+        len(lengths) == 1 and 13 <= lengths[0] <= 19
+    ):
         return False
     total = 0
     for position, char in enumerate(reversed("".join(runs))):
@@ -133,7 +134,7 @@ def _is_luhn_card(text: str) -> bool:
 
 
 def _has_letters(candidate: str) -> bool:
-    """Report whether the matcher's candidate holds letters it read as digits, the vanity rule the recognizer omits."""
+    # Report whether the matcher's candidate holds letters it read as digits, the vanity rule the recognizer omits.
     return any(char.isalpha() for char in candidate)
 
 

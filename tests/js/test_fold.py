@@ -1,12 +1,3 @@
-"""Peephole folding: exact rewrites plus a behavior differential under Node.
-
-The folds run on the full-minify path (``minify_js``). They rewrite value-position
-boolean and undefined literals into their shorter equivalents as real AST nodes, so
-the printer re-parenthesises by precedence; property names, object keys and shadowed
-bindings are left alone. ``test_folding_preserves_behavior`` executes each snippet and
-its minified form under Node and asserts identical output.
-"""
-
 from __future__ import annotations
 
 import json
@@ -289,7 +280,7 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         # more folded literals than the program's initial owned-buffer capacity, forcing it to grow
         pytest.param(
             "x=[" + ",".join(f"{index}+1" for index in range(18)) + "]",
-            "x=[" + ",".join(str(index + 1) for index in range(18)) + "]",
+            f"x=[{','.join(str(index + 1) for index in range(18))}]",
             id="many-folded-literals",
         ),
         # a single-use local const with a literal initializer inlines and the declaration drops; a
@@ -1128,8 +1119,8 @@ _PS = chr(0x2029)
         # a non-octal code point right after an octal escape ends it: a char above '7' and one below '0'
         pytest.param(r'"\1a"+"z"', r'"\x01az"', id="octal-then-high-char"),
         pytest.param(r'"\1!"+"z"', r'"\x01!z"', id="octal-then-low-char"),
-        pytest.param('"' + _BS + 'u0041"+"z"', r'"Az"', id="unicode-escape"),
-        pytest.param('"' + _BS + 'u{1F600}"+"!"', '"\U0001f600!"', id="unicode-braced-astral"),
+        pytest.param(f'"{_BS}u0041"+"z"', r'"Az"', id="unicode-escape"),
+        pytest.param(f'"{_BS}u{{1F600}}"+"!"', '"\U0001f600!"', id="unicode-braced-astral"),
         pytest.param(r'"\n"+"a"', r'"\na"', id="newline"),
         pytest.param(r'"\r"+"a"', r'"\ra"', id="carriage-return"),
         pytest.param(r'"\t"+"a"', r'"\ta"', id="tab"),
@@ -1139,15 +1130,15 @@ _PS = chr(0x2029)
         pytest.param(r'"a\\b"+"c"', r'"a\\bc"', id="backslash"),
         pytest.param(r'"x"+"a\"b"', r'"xa\"b"', id="escaped-quote-reescaped"),
         pytest.param(r'"\q"+"z"', r'"qz"', id="unknown-escape-is-literal"),
-        pytest.param('"' + _BS + 'u2028"+"a"', '"' + _BS + 'u2028a"', id="line-separator-value"),
-        pytest.param('"' + _BS + 'u2029"+"a"', '"' + _BS + 'u2029a"', id="paragraph-separator-value"),
+        pytest.param(f'"{_BS}u2028"+"a"', f'"{_BS}u2028a"', id="line-separator-value"),
+        pytest.param(f'"{_BS}u2029"+"a"', f'"{_BS}u2029a"', id="paragraph-separator-value"),
         # a LineContinuation contributes nothing to the value
-        pytest.param('"a' + _BS + _LF + 'b"+"c"', r'"abc"', id="lf-continuation"),
-        pytest.param('"a' + _BS + _CR + 'b"+"c"', r'"abc"', id="cr-continuation"),
-        pytest.param('"a' + _BS + _CR + '"+"z"', r'"az"', id="cr-continuation-at-end"),
-        pytest.param('"a' + _BS + _CR + _LF + 'b"+"c"', r'"abc"', id="crlf-continuation"),
-        pytest.param('"a' + _BS + _LS + 'b"+"c"', r'"abc"', id="ls-continuation"),
-        pytest.param('"a' + _BS + _PS + 'b"+"c"', r'"abc"', id="ps-continuation"),
+        pytest.param(f'"a{_BS}{_LF}b"+"c"', r'"abc"', id="lf-continuation"),
+        pytest.param(f'"a{_BS}{_CR}b"+"c"', r'"abc"', id="cr-continuation"),
+        pytest.param(f'"a{_BS}{_CR}"+"z"', r'"az"', id="cr-continuation-at-end"),
+        pytest.param(f'"a{_BS}{_CR}{_LF}b"+"c"', r'"abc"', id="crlf-continuation"),
+        pytest.param(f'"a{_BS}{_LS}b"+"c"', r'"abc"', id="ls-continuation"),
+        pytest.param(f'"a{_BS}{_PS}b"+"c"', r'"abc"', id="ps-continuation"),
         pytest.param(r'"ab"+"cd"', r'"abcd"', id="plain"),
         # the joined value may not spell a `</script` or `<!--` the HTML parser would act on inside <script>
         pytest.param(r'"</scr"+"ipt>"', r'"\x3c/script>"', id="script-end-tag"),
@@ -1165,16 +1156,16 @@ def test_concat_reencodes_by_value(source: str, expected: str) -> None:
     ("source", "expected"),
     [
         # truthiness reads the decoded value, so a line-continuation-only string (value "") is falsy (#436)
-        pytest.param('"' + _BS + _LF + '"?1:2', "2", id="lf-only-empty-falsy"),
-        pytest.param('"' + _BS + _CR + '"?1:2', "2", id="cr-only-empty-falsy"),
-        pytest.param('"' + _BS + _CR + _LF + '"?1:2', "2", id="crlf-only-empty-falsy"),
-        pytest.param('"' + _BS + _LS + '"?1:2', "2", id="ls-only-empty-falsy"),
-        pytest.param('"' + _BS + _PS + '"?1:2', "2", id="ps-only-empty-falsy"),
+        pytest.param(f'"{_BS}{_LF}"?1:2', "2", id="lf-only-empty-falsy"),
+        pytest.param(f'"{_BS}{_CR}"?1:2', "2", id="cr-only-empty-falsy"),
+        pytest.param(f'"{_BS}{_CR}{_LF}"?1:2', "2", id="crlf-only-empty-falsy"),
+        pytest.param(f'"{_BS}{_LS}"?1:2', "2", id="ls-only-empty-falsy"),
+        pytest.param(f'"{_BS}{_PS}"?1:2', "2", id="ps-only-empty-falsy"),
         pytest.param('""?1:2', "2", id="empty-literal-falsy"),
         pytest.param(r'"a"?1:2', "1", id="nonempty-truthy"),
         pytest.param(r'"\n"?1:2', "1", id="escape-value-truthy"),
-        pytest.param('"a' + _BS + _LF + '"?1:2', "1", id="continuation-plus-content-truthy"),
-        pytest.param('"' + _BS + _CR + 'x"?1:2', "1", id="cr-continuation-then-content-truthy"),
+        pytest.param(f'"a{_BS}{_LF}"?1:2', "1", id="continuation-plus-content-truthy"),
+        pytest.param(f'"{_BS}{_CR}x"?1:2', "1", id="cr-continuation-then-content-truthy"),
     ],
 )
 def test_string_truthiness_reads_value(source: str, expected: str) -> None:
@@ -1225,8 +1216,8 @@ def test_undefined_kept_without_mangling_when_shadowed() -> None:
         pytest.param(r'"\12"+"3"', id="octal-two-then-digit"),
         pytest.param(r'"\101"+"1"', id="octal-max-then-digit"),
         pytest.param(r'"\x0a"+"b"', id="hex-then-letter"),
-        pytest.param('"' + _BS + 'u0041"+"1"', id="unicode-then-digit"),
-        pytest.param('"a' + _BS + _CR + _LF + 'b"+"3"', id="crlf-then-digit"),
+        pytest.param(f'"{_BS}u0041"+"1"', id="unicode-then-digit"),
+        pytest.param(f'"a{_BS}{_CR}{_LF}b"+"3"', id="crlf-then-digit"),
         pytest.param(r'"</scr"+"ipt><!-"+"-"', id="script-end-tag-and-comment-open"),
     ],
 )
@@ -1237,7 +1228,7 @@ def test_concat_matches_node(source: str) -> None:
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
 def test_raw_line_separators_in_strings_match_node() -> None:
-    snippet: Final = "var s='a" + _LS + "b'+'" + _PS + "';console.log(s.length,s.charCodeAt(1),s.charCodeAt(3))"
+    snippet: Final = f"var s='a{_LS}b'+'{_PS}';console.log(s.length,s.charCodeAt(1),s.charCodeAt(3))"
     assert _run(snippet) == _run(minify_js(snippet))
 
 

@@ -8,7 +8,7 @@ REQUIREMENTS = ("charset-normalizer>=3.4",)
 
 
 def encoding(data: bytes) -> None:
-    """Detect a byte stream's character encoding with charset-normalizer's best match."""
+    # Detect a byte stream's character encoding with charset-normalizer's best match.
     from_bytes(data).best()
 
 

@@ -181,14 +181,14 @@ _TRANSPARENT_HASH: Final[str] = "#0000"
 
 
 def _shortest_hash(rgb: str) -> str:
-    """Collapse a six-digit sRGB value to ``#rgb`` when each channel is a doubled nibble, else keep ``#rrggbb``."""
+    # Collapse a six-digit sRGB value to ``#rgb`` when each channel is a doubled nibble, else keep ``#rrggbb``.
     if rgb[0] == rgb[1] and rgb[2] == rgb[3] and rgb[4] == rgb[5]:
         return f"#{rgb[0]}{rgb[2]}{rgb[4]}"
     return f"#{rgb}"
 
 
 def _build_maps() -> tuple[dict[str, str], dict[str, str]]:
-    """Return (keyword -> shorter hash, hash -> shorter keyword), derived from the named-color table."""
+    # Return (keyword -> shorter hash, hash -> shorter keyword), derived from the named-color table.
     name_to_hex: dict[str, str] = {"transparent": _TRANSPARENT_HASH}
     hex_to_name: dict[str, str] = {}
     for name, rgb in _NAMED_COLORS.items():
@@ -223,7 +223,7 @@ def _first_byte_index(keys: list[str]) -> str:
 
 
 def generate(out_path: Path) -> None:
-    """Write the generated CSS-color-table C header to *out_path*."""
+    # Write the generated CSS-color-table C header to *out_path*.
     name_to_hex, hex_to_name = _build_maps()
     by_name = sorted(name_to_hex.items())
     by_hex = sorted(hex_to_name.items())
@@ -262,6 +262,6 @@ def generate(out_path: Path) -> None:
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        msg = "usage: generate_css_colors.py OUTPUT_HEADER"
-        raise SystemExit(msg)
+        _MSG = "usage: generate_css_colors.py OUTPUT_HEADER"
+        raise SystemExit(_MSG)
     generate(Path(sys.argv[1]))

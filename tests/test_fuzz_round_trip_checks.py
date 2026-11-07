@@ -1,5 +1,3 @@
-"""Each round-trip oracle passes turbohtml's output and flags a deliberately broken printer, reader or entry point."""
-
 from __future__ import annotations
 
 import hashlib
@@ -182,20 +180,6 @@ def _xml(node: Node) -> str:
     return node.serialize(Html(xml=True))
 
 
-def _settles_on_numbers(text: str) -> str:
-    # the first pass tags the text, the second shortens its number and changes nothing else
-    return text.replace("1.50", "1.5") if text.startswith("#") else f"#{text} 1.50"
-
-
-def _reject(_text: str) -> str:
-    msg = "rejected"
-    raise ValueError(msg)
-
-
-def _reject_own_output(text: str) -> str:
-    return _reject(text) if text.startswith("#") else f"#{text}"
-
-
 @pytest.mark.parametrize(
     "name",
     [pytest.param(name, id=name) for name in sorted(ORACLES) if name != "js-names"],
@@ -216,6 +200,11 @@ def test_fixpoint_numeric_exception(*, numeric: bool, expected: str | None) -> N
     assert fixpoint_check("w", _settles_on_numbers, numeric=numeric) == expected
 
 
+def _settles_on_numbers(text: str) -> str:
+    # the first pass tags the text, the second shortens its number and changes nothing else
+    return text.replace("1.50", "1.5") if text.startswith("#") else f"#{text} 1.50"
+
+
 def test_fixpoint_holds_for_minify_css() -> None:
     assert fixpoint_check("a{color:#ff0000;margin:0px 0px}", minify_css, numeric=True) is None
 
@@ -225,8 +214,17 @@ def test_fixpoint_skips_an_input_the_printer_rejects() -> None:
         fixpoint_check("w", _reject, numeric=True)
 
 
+def _reject(_text: str) -> str:
+    msg = "rejected"
+    raise ValueError(msg)
+
+
 def test_fixpoint_flags_a_printer_rejecting_its_own_output() -> None:
     assert fixpoint_check("w", _reject_own_output, numeric=True) == "rejects its own output"
+
+
+def _reject_own_output(text: str) -> str:
+    return _reject(text) if text.startswith("#") else f"#{text}"
 
 
 @pytest.mark.parametrize(
@@ -789,7 +787,7 @@ def test_generation_unknown_execution_codec() -> None:
 def test_generation_corpus_preserves_context(
     tmp_path: Path, profile: CorpusProfile, grammar: Grammar, production: str, context: tuple[str | None, bool]
 ) -> None:
-    case: Final = generate(grammar, random.SystemRandom(), GenerationBudget(64, 256), force=production)
+    case: Final = generate(grammar, random.SystemRandom(), GenerationBudget(nodes=64, steps=256), force=production)
     manifest: Final = write_corpora((case, case), grammar, tmp_path, profile)
     entry: Final = manifest.entries[0]
     assert (
@@ -805,7 +803,9 @@ def test_generation_corpus_preserves_context(
 
 def test_generation_corpus_rejects_changed_encoding_literal(tmp_path: Path) -> None:
     grammar: Final = encoding_grammar()
-    case: Final = generate(grammar, random.SystemRandom(), GenerationBudget(64, 256), force="encoding:codec:utf-8")
+    case: Final = generate(
+        grammar, random.SystemRandom(), GenerationBudget(nodes=64, steps=256), force="encoding:codec:utf-8"
+    )
     with pytest.raises(AssertionError, match="production literals"):
         write_corpora((replace(case, data=b"<p>wrong</p>"),), grammar, tmp_path, "encoding")
 
@@ -1018,7 +1018,9 @@ def test_javascript_cli_initializes_reader_and_routes_corpus(tmp_path: Path, moc
     ],
 )
 def test_javascript_corpus_admission(tmp_path: Path, source: bytes, error: str | None) -> None:
-    grammar: Final = compile_grammar((Production("script", "root", (source,), 1, "fixture:1"),), "root")
+    grammar: Final = compile_grammar(
+        (Production(name="script", symbol="root", parts=(source,), nodes=1, origin="fixture:1"),), "root"
+    )
     manifest: Final = write_corpora((generate(grammar, random.SystemRandom()),), grammar, tmp_path, "javascript")
     if error is not None:
         assert (manifest.entries, tuple(entry.exception for entry in manifest.rejected)) == ((), (error,))
@@ -1070,7 +1072,9 @@ def test_javascript_cli_dependency_failure_precedes_corpus_creation(tmp_path: Pa
 def test_corpus_routes_exact_bytes(
     tmp_path: Path, profile: CorpusProfile, production: str, source: bytes, targets: tuple[str, ...]
 ) -> None:
-    grammar: Final = compile_grammar((Production(production, "root", (source,), 1, "fixture:1"),), "root")
+    grammar: Final = compile_grammar(
+        (Production(name=production, symbol="root", parts=(source,), nodes=1, origin="fixture:1"),), "root"
+    )
     case: Final = generate(grammar, random.SystemRandom())
     manifest: Final = write_corpora((case,), grammar, tmp_path, profile)
     assert (
@@ -1088,8 +1092,8 @@ def test_corpus_routes_exact_bytes(
 def test_corpus_deduplicates_bytes_preserves_traces(tmp_path: Path) -> None:
     grammar: Final = compile_grammar(
         (
-            Production("first", "root", (b"<p>x</p>",), 1, "fixture:1"),
-            Production("second", "root", (b"<p>x</p>",), 1, "fixture:2"),
+            Production(name="first", symbol="root", parts=(b"<p>x</p>",), nodes=1, origin="fixture:1"),
+            Production(name="second", symbol="root", parts=(b"<p>x</p>",), nodes=1, origin="fixture:2"),
         ),
         "root",
     )
@@ -1102,7 +1106,9 @@ def test_corpus_deduplicates_bytes_preserves_traces(tmp_path: Path) -> None:
 
 
 def test_corpus_rejects_invalid_input_before_writing(tmp_path: Path) -> None:
-    grammar: Final = compile_grammar((Production("invalid", "root", (b"\xff",), 1, "fixture:1"),), "root")
+    grammar: Final = compile_grammar(
+        (Production(name="invalid", symbol="root", parts=(b"\xff",), nodes=1, origin="fixture:1"),), "root"
+    )
     manifest: Final = write_corpora((generate(grammar, random.SystemRandom()),), grammar, tmp_path, "css-stylesheet")
     assert (
         manifest.entries,
@@ -1135,7 +1141,11 @@ def test_corpus_preserves_generated_bindings(tmp_path: Path) -> None:
     grammar: Final = compile_grammar(
         (
             Production(
-                "bound", "root", (b'<p id="', Identifier("element", definition=True), b'">text</p>'), 1, "fixture:1"
+                name="bound",
+                symbol="root",
+                parts=(b'<p id="', Identifier(name="element", definition=True), b'">text</p>'),
+                nodes=1,
+                origin="fixture:1",
             ),
         ),
         "root",
@@ -2160,7 +2170,7 @@ def test_atheris_driver_connects_exception_boundary(mocker: MockerFixture) -> No
             raise UnicodeError(message)
         accepted.append(data)
 
-    target = Target("cli", consume, ("turbohtml.__main__.main",), (UnicodeError,))
+    target = Target(name="cli", callback=consume, exports=("turbohtml.__main__.main",), exceptions=(UnicodeError,))
     runtime = mocker.MagicMock(spec=["Setup", "Fuzz", "instrument_func", "instrument_all"])
     runtime.instrument_func.side_effect = lambda callback: callback
     mocker.patch("fuzz.atheris_driver.import_module", autospec=True, return_value=runtime)
@@ -2199,8 +2209,9 @@ def test_atheris_registry_executes_qualified_owner(mocker: MockerFixture, capsys
         mocker.patch.object(sys, "stdin", io.StringIO(data.decode()))
         assert fuzz_atheris_registry_main(["minify-css"]) == 0
 
-    target = Target("cli-css", minify, ("turbohtml.__main__.main",))
-    owners = validate_owners([target], ["turbohtml.__main__"])
+    owners = validate_owners(
+        [Target(name="cli-css", callback=minify, exports=("turbohtml.__main__.main",))], ["turbohtml.__main__"]
+    )
     owners["turbohtml.__main__.main"].callback(b"a { color: red }")
     assert capsys.readouterr().out == "a{color:red}"
 
@@ -2217,35 +2228,42 @@ def test_atheris_registry_executes_qualified_owner(mocker: MockerFixture, capsys
     ],
 )
 def test_atheris_registry_rejects_ownership_gap(exports: tuple[str, ...], expected: str) -> None:
-    target = Target("unassigned", print, exports)
+    target = Target(name="unassigned", callback=print, exports=exports)
     with pytest.raises(ValueError, match="Export ownership mismatch") as raised:
         validate_owners([target], ["turbohtml.__main__"])
     assert str(raised.value) == f"Export ownership mismatch: {expected}"
 
 
 def test_atheris_registry_rejects_duplicate_qualified_owner() -> None:
-    target = Target("duplicate", print, ("turbohtml.__main__.main",))
+    target = Target(name="duplicate", callback=print, exports=("turbohtml.__main__.main",))
     with pytest.raises(ValueError, match=r"Duplicate export owners: turbohtml\.__main__\.main"):
         validate_owners([target, target], ["turbohtml.__main__"])
 
 
 def test_atheris_registry_rejects_duplicate_target_name() -> None:
-    targets = [Target("same", print, ("first.export",)), Target("same", print, ("second.export",))]
+    targets = [
+        Target(name="same", callback=print, exports=("first.export",)),
+        Target(name="same", callback=print, exports=("second.export",)),
+    ]
     with pytest.raises(ValueError, match="Duplicate target names"):
         validate_owners(targets, [])
 
 
 def test_atheris_registry_runs_whole_payload_without_chunked_consumer() -> None:
     seen: list[bytes] = []
-    Target("whole", seen.append, ()).run(b"payload", Header(1, 2, 3))
+    Target(name="whole", callback=seen.append, exports=()).run(b"payload", Header(1, 2, 3))
     assert seen == [b"payload"]
 
 
 def test_atheris_registry_runs_chunked_consumer_with_header() -> None:
     seen: list[tuple[bytes, Header]] = []
-    Target("chunked", print, (), (), lambda payload, header: seen.append((payload, header))).run(
-        b"payload", Header(1, 2, 3)
-    )
+    Target(
+        name="chunked",
+        callback=print,
+        exports=(),
+        exceptions=(),
+        chunked=lambda payload, header: seen.append((payload, header)),
+    ).run(b"payload", Header(1, 2, 3))
     assert seen == [(b"payload", Header(1, 2, 3))]
 
 
@@ -2693,17 +2711,23 @@ def test_encoding_aliases_preserve_public_text(declared: str) -> None:
     ("check", "expected"),
     [
         pytest.param(
-            lambda case: encoding_stream_check(case, one_shot=lambda _data: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_stream_check(
+                case, one_shot=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "one-shot detection differs from expected match",
             id="wrong-one-shot",
         ),
         pytest.param(
-            lambda case: encoding_stream_check(case, stream=lambda _data, _width: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_stream_check(
+                case, stream=lambda _data, _width: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "chunked detection differs from expected match",
             id="wrong-stream",
         ),
         pytest.param(
-            lambda case: encoding_decode_check(case, detect_bytes=lambda _data: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_decode_check(
+                case, detect_bytes=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "detection differs from expected match",
             id="wrong-detection",
         ),
@@ -2760,17 +2784,23 @@ def test_encoding_meta_remap_preserves_public_text(declared: str) -> None:
     ("check", "expected"),
     [
         pytest.param(
-            lambda case: encoding_stream_check(case, one_shot=lambda _data: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_stream_check(
+                case, one_shot=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "one-shot detection differs from expected match",
             id="wrong-one-shot",
         ),
         pytest.param(
-            lambda case: encoding_stream_check(case, stream=lambda _data, _width: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_stream_check(
+                case, stream=lambda _data, _width: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "chunked detection differs from expected match",
             id="wrong-stream",
         ),
         pytest.param(
-            lambda case: encoding_decode_check(case, detect_bytes=lambda _data: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_decode_check(
+                case, detect_bytes=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "detection differs from expected match",
             id="wrong-detection",
         ),
@@ -2874,7 +2904,7 @@ def test_idna_nfc_registry_controls_and_seed_floor() -> None:
         len(seeds),
         all(ORACLES["idna-nfc"].check(case) is None for case in seeds),
         ORACLES["idna-nfc"].floor,
-    ) == (True, 160, True, Floor(100, 1))
+    ) == (True, 160, True, Floor(count=100, ratio=1))
 
 
 def test_idna_nfc_generated_cases_compare() -> None:
@@ -2892,7 +2922,7 @@ def test_idna_nfc_cli_detects_stable_wrong_mapping(mocker: MockerFixture, tmp_pa
         ORACLES["idna-nfc"],
         check=partial(idna_nfc_check, normalize=lambda _text: "https://wrong.example/"),
         seeds=lambda: ["reorder:"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"idna-nfc": oracle}, clear=True)
     assert (
@@ -3057,7 +3087,7 @@ def test_parser_byte_cli_reports_valid_fixture_rejection(mocker: MockerFixture, 
         ORACLES["parser-bytes"],
         check=partial(parser_bytes_check, one_shot=_reject_fixture),
         seeds=lambda: ["utf8:g"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"parser-bytes": oracle}, clear=True)
     status: Final = fuzz_parser_byte_invariants_main([
@@ -3081,7 +3111,7 @@ def _reject_fixture(_data: bytes, _label: str) -> tuple[str, str | None]:
 def test_parser_byte_cli_rejects_vacuous_run(mocker: MockerFixture, tmp_path: Path) -> None:
     mocker.patch.dict(
         ORACLES,
-        {"parser-bytes": replace(ORACLES["parser-bytes"], seeds=lambda: ["unknown:g"], floor=Floor(1, 1))},
+        {"parser-bytes": replace(ORACLES["parser-bytes"], seeds=lambda: ["unknown:g"], floor=Floor(count=1, ratio=1))},
         clear=True,
     )
     assert (
@@ -3173,7 +3203,7 @@ def test_idna_registry_has_discriminating_controls_and_seed_floor() -> None:
         True,
         160,
         True,
-        Floor(100, 0.95),
+        Floor(count=100, ratio=0.95),
     )
 
 
@@ -3182,7 +3212,7 @@ def test_idna_cli_writes_mapping_failure(mocker: MockerFixture, tmp_path: Path) 
         ORACLES["idna-host"],
         check=partial(idna_host_check, normalize=lambda text: text),
         seeds=lambda: ["umlaut\n"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"idna-host": oracle}, clear=True)
     status: Final = fuzz_idna_invariants_main(["--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -3208,7 +3238,7 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-_BASE: Final = "http://example.test/b/c/d;p?q"
+_BASE: Final[str] = "http://example.test/b/c/d;p?q"
 
 
 @pytest.mark.parametrize(
@@ -3305,7 +3335,7 @@ def test_resolve_links_cli_writes_wrong_target_finding(mocker: MockerFixture, tm
         ORACLES["resolve-links"],
         check=partial(resolve_links_check, resolve=_wrong_target),
         seeds=lambda: ["parent:g"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"resolve-links": oracle}, clear=True)
     result: Final = fuzz_resolve_links_invariants_main([
@@ -3330,7 +3360,7 @@ def test_resolve_links_cli_writes_wrong_target_finding(mocker: MockerFixture, tm
 def test_resolve_links_cli_rejects_vacuous_run(mocker: MockerFixture, tmp_path: Path) -> None:
     mocker.patch.dict(
         ORACLES,
-        {"resolve-links": replace(ORACLES["resolve-links"], seeds=lambda: ["parent"], floor=Floor(1, 1))},
+        {"resolve-links": replace(ORACLES["resolve-links"], seeds=lambda: ["parent"], floor=Floor(count=1, ratio=1))},
         clear=True,
     )
     assert (
@@ -3495,7 +3525,7 @@ def test_xml_literal_cli_emits_changed_declaration(mocker: MockerFixture, tmp_pa
             serialize=lambda _node: '<Root xmlns:p="urn:wrong"><p:Leaf p:Key="Value" Key="Other">MiXeD</p:Leaf></Root>',
         ),
         seeds=lambda: ["p:Leaf:double:1:plain"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"xml-literal-grammar": oracle}, clear=True)
     status: Final = fuzz_xml_literal_invariants_main([
@@ -3519,7 +3549,7 @@ def test_xml_literal_cli_emits_changed_declaration(mocker: MockerFixture, tmp_pa
 def test_xml_literal_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["xml-literal-grammar"], seeds=lambda: ["invalid"], floor=Floor(1, 1))
+    oracle: Final = replace(ORACLES["xml-literal-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
     mocker.patch.dict(ORACLES, {"xml-literal-grammar": oracle}, clear=True)
     status: Final = fuzz_xml_literal_invariants_main([
         "--oracle",
@@ -3688,7 +3718,7 @@ def test_xml_island_cli_emits_kind_loss(mocker: MockerFixture, tmp_path: Path) -
         ORACLES["xml-island-grammar"],
         check=partial(xml_island_check, serialize=lambda _node: "<Root><!--note-->Value&lt;&amp;</Root>"),
         seeds=lambda: ["inside:plain:plain:1"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"xml-island-grammar": oracle}, clear=True)
     status: Final = fuzz_xml_island_invariants_main([
@@ -3712,7 +3742,7 @@ def test_xml_island_cli_emits_kind_loss(mocker: MockerFixture, tmp_path: Path) -
 def test_xml_island_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["xml-island-grammar"], seeds=lambda: ["invalid"], floor=Floor(1, 1))
+    oracle: Final = replace(ORACLES["xml-island-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
     mocker.patch.dict(ORACLES, {"xml-island-grammar": oracle}, clear=True)
     status: Final = fuzz_xml_island_invariants_main([
         "--oracle",
@@ -3830,7 +3860,7 @@ def test_css_custom_cli_emits_token_loss(mocker: MockerFixture, tmp_path: Path) 
         ORACLES["css-custom-tokens"],
         check=partial(css_custom_check, minify=lambda _text: ""),
         seeds=lambda: ["inline:ident:1:0"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"css-custom-tokens": oracle}, clear=True)
     status: Final = fuzz_css_custom_invariants_main([
@@ -3854,7 +3884,7 @@ def test_css_custom_cli_emits_token_loss(mocker: MockerFixture, tmp_path: Path) 
 def test_css_custom_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["css-custom-tokens"], seeds=lambda: ["invalid"], floor=Floor(1, 1))
+    oracle: Final = replace(ORACLES["css-custom-tokens"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
     mocker.patch.dict(ORACLES, {"css-custom-tokens": oracle}, clear=True)
     status: Final = fuzz_css_custom_invariants_main([
         "--oracle",
@@ -3872,7 +3902,7 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
-_XML: Final = '<root id="n0"><item id="n1" score="2">alpha</item><item id="n2" score="5">beta</item></root>'
+_XML: Final[str] = '<root id="n0"><item id="n1" score="2">alpha</item><item id="n2" score="5">beta</item></root>'
 
 
 @pytest.fixture
@@ -4124,8 +4154,8 @@ def test_encoding_stream_empty_sentinel() -> None:
     detector: Final = EncodingDetector()
     detector.feed(b"")
     assert (detect(b""), detector.close(), encoding_stream_check("empty\n")) == (
-        EncodingMatch(None, 0.0, None),
-        EncodingMatch(None, 0.0, None),
+        EncodingMatch(encoding=None, confidence=0.0, language=None),
+        EncodingMatch(encoding=None, confidence=0.0, language=None),
         None,
     )
 
@@ -4139,17 +4169,23 @@ def test_encoding_decode_empty_sentinel_is_out_of_scope() -> None:
     ("check", "expected"),
     [
         pytest.param(
-            lambda case: encoding_stream_check(case, one_shot=lambda _data: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_stream_check(
+                case, one_shot=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "one-shot detection differs from expected match",
             id="wrong-one-shot",
         ),
         pytest.param(
-            lambda case: encoding_stream_check(case, stream=lambda _data, _width: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_stream_check(
+                case, stream=lambda _data, _width: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "chunked detection differs from expected match",
             id="wrong-stream",
         ),
         pytest.param(
-            lambda case: encoding_decode_check(case, detect_bytes=lambda _data: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_decode_check(
+                case, detect_bytes=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "detection differs from expected match",
             id="wrong-detection",
         ),
@@ -4216,9 +4252,11 @@ def test_encoding_cli_replays_seed_floor(tmp_path: Path) -> None:
 def test_encoding_cli_emits_wrong_detection(mocker: MockerFixture, tmp_path: Path) -> None:
     oracle: Final = replace(
         ORACLES["encoding-stream"],
-        check=partial(encoding_stream_check, one_shot=lambda _data: EncodingMatch(None, 0.0, None)),
+        check=partial(
+            encoding_stream_check, one_shot=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
+        ),
         seeds=lambda: ["utf-8-meta\ncafé"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"encoding-stream": oracle}, clear=True)
     status: Final = fuzz_encoding_invariants_main([
@@ -4245,7 +4283,7 @@ def test_encoding_cli_emits_wrong_detection(mocker: MockerFixture, tmp_path: Pat
 if TYPE_CHECKING:
     from types import ModuleType
 
-_RNG: Final = "http://relaxng.org/ns/structure/1.0"
+_RNG: Final[str] = "http://relaxng.org/ns/structure/1.0"
 
 
 @pytest.fixture
@@ -4634,7 +4672,7 @@ def test_url_cli_emits_successful_cleaning_rejection(mocker: MockerFixture, tmp_
         ORACLES["clean-url-fixpoint"],
         check=partial(clean_url_check, clean=_drop_cleaned_url),
         seeds=lambda: [source],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"clean-url-fixpoint": oracle}, clear=True)
     status = fuzz_url_invariants_main(["--minutes", "0", "--crash-dir", str(tmp_path)])

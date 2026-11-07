@@ -26,14 +26,6 @@ from ._html import _conformance_check, _conformance_filter, parse
 if TYPE_CHECKING:
     from ._html import Document, Node
 
-__all__ = [
-    "ConformanceMessage",
-    "ConformanceReport",
-    "Severity",
-    "check",
-    "check_html",
-]
-
 Severity = Literal["error", "warning", "info"]
 """The three severities a :class:`ConformanceMessage` carries, ordered most to least serious."""
 
@@ -63,6 +55,9 @@ class ConformanceReport(NamedTuple):
 
     The report is truthy exactly when the document is valid (no message is an error), so
     ``if check(doc):`` reads naturally. Warnings and info messages never affect the verdict.
+
+    :param valid:
+    :param messages:
     """
 
     valid: bool
@@ -88,6 +83,16 @@ class ConformanceReport(NamedTuple):
         return _conformance_filter(self.messages, "info")
 
 
+def check_html(markup: str) -> ConformanceReport:
+    """
+    Parse a markup string with :func:`turbohtml.parse` and check the resulting document.
+
+    :param markup: the HTML to parse and check.
+    :returns: the :class:`ConformanceReport` for the parsed document.
+    """
+    return check(parse(markup))
+
+
 def check(document: Document | Node) -> ConformanceReport:
     """
     Check a parsed document (or any subtree) against the HTML5 authoring rules.
@@ -102,11 +107,10 @@ def check(document: Document | Node) -> ConformanceReport:
     return ConformanceReport(valid, tuple(starmap(ConformanceMessage, findings)))
 
 
-def check_html(markup: str) -> ConformanceReport:
-    """
-    Parse a markup string with :func:`turbohtml.parse` and check the resulting document.
-
-    :param markup: the HTML to parse and check.
-    :returns: the :class:`ConformanceReport` for the parsed document.
-    """
-    return check(parse(markup))
+__all__ = [
+    "ConformanceMessage",
+    "ConformanceReport",
+    "Severity",
+    "check",
+    "check_html",
+]

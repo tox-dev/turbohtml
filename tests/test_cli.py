@@ -1,5 +1,3 @@
-"""End-to-end tests for the ``python -m turbohtml`` command-line interface."""
-
 from __future__ import annotations
 
 import io

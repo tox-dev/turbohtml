@@ -1,16 +1,3 @@
-"""Concurrent access to one shared tree must stay memory-safe under free-threading.
-
-The ``_html`` extension declares ``Py_MOD_GIL_NOT_USED``, so it owns the thread
-safety of its mutable tree. A reader and a mutator sharing a tree may produce a
-stale result, but must never segfault (issue #84). Under the GIL build the
-threads serialize; under a free-threaded build they run truly in parallel, so
-these exercise the per-tree critical sections the operations take.
-
-The free-threaded tox envs and the ThreadSanitizer job re-run this module under
-``pytest --parallel-threads=auto --iterations=N`` (pytest-run-parallel), which
-runs each test in one thread per core at once, multiplying the contention.
-"""
-
 from __future__ import annotations
 
 import contextlib
@@ -30,19 +17,6 @@ from turbohtml.transform import Transform
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
-
-
-def _doc(divs: int) -> turbohtml.Document:
-    body = "".join(f"<div><p>x{index}</p><span>s{index}</span></div>" for index in range(divs))
-    return turbohtml.parse(f"<html><body>{body}</body></html>")
-
-
-def _run(*targets: object) -> None:
-    threads = [threading.Thread(target=target) for target in targets]  # ty: ignore[invalid-argument-type]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
 
 
 def test_concurrent_transform_import_resolution_and_mutation_is_memory_safe(tmp_path: Path) -> None:
@@ -75,6 +49,14 @@ def test_concurrent_transform_import_resolution_and_mutation_is_memory_safe(tmp_
     assert result in {"base", "other"}
 
 
+def _run(*targets: object) -> None:
+    threads = [threading.Thread(target=target) for target in targets]  # ty: ignore[invalid-argument-type]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+
 def test_concurrent_find_all_and_extract_is_memory_safe() -> None:
     doc = _doc(400)
     body = doc.find("body")
@@ -94,6 +76,11 @@ def test_concurrent_find_all_and_extract_is_memory_safe() -> None:
 
     _run(reader, mutator)
     assert doc.find_all("p") == []  # every <div> was extracted, so no <p> remains
+
+
+def _doc(divs: int) -> turbohtml.Document:
+    body = "".join(f"<div><p>x{index}</p><span>s{index}</span></div>" for index in range(divs))
+    return turbohtml.parse(f"<html><body>{body}</body></html>")
 
 
 def test_concurrent_find_by_text_and_extract_is_memory_safe() -> None:
@@ -171,8 +158,7 @@ def test_concurrent_multi_root_query_is_one_tree_snapshot() -> None:
 
 
 def test_concurrent_lazy_node_iterators_and_extract_is_memory_safe() -> None:
-    doc = _doc(400)
-    body = doc.find("body")
+    body = _doc(400).find("body")
     assert body is not None
     children = list(body.children)
     start = threading.Barrier(3)
@@ -199,8 +185,7 @@ def test_concurrent_lazy_node_iterators_and_extract_is_memory_safe() -> None:
 
 
 def test_concurrent_attrs_views_and_mutation_are_memory_safe() -> None:
-    doc = _doc(300)
-    body = doc.find("body")
+    body = _doc(300).find("body")
     assert body is not None
     divs = body.find_all("div")
     start = threading.Barrier(2)
@@ -764,7 +749,7 @@ def test_concurrent_extends_with_one_moving_foreign_node_keep_both_trees_intact(
 
 
 def test_concurrent_wraps_and_inserts_of_foreign_nodes_keep_the_tree_intact() -> None:
-    markup = "<div>" + "<p><b>x</b></p>" * 200 + "</div>"
+    markup = f"<div>{'<p><b>x</b></p>' * 200}</div>"
     root = turbohtml.parse(markup).find("div")
     assert root is not None
     paragraphs = root.find_all("p")

@@ -10,12 +10,12 @@ _EXTRACTOR = extractors.ArticleExtractor(raise_on_failure=False)
 
 
 def boilerplate(text: str) -> None:
-    """Classify every text block content or boilerplate with boilerpy3's ArticleExtractor."""
+    # Classify every text block content or boilerplate with boilerpy3's ArticleExtractor.
     _EXTRACTOR.get_doc(text)
 
 
 def text_main(text: str) -> None:
-    """Extract the boilerplate-removed main text with boilerpy3's ArticleExtractor."""
+    # Extract the boilerplate-removed main text with boilerpy3's ArticleExtractor.
     _EXTRACTOR.get_content(text)
 
 

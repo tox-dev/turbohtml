@@ -1,12 +1,3 @@
-"""Per-rule output tests for the JavaScript minifier's structural transforms.
-
-Each case pins the exact output of one transform: whitespace and comment removal,
-semicolon insertion between statements, precedence-driven parenthesisation, and the
-adjacency guard that keeps tokens from merging. These run on the *un-mangled* output
-so identifier names stay stable; mangling has its own tests in ``test_mangle.py``.
-The corpus cases also check semantic equivalence.
-"""
-
 from __future__ import annotations
 
 import json
@@ -28,11 +19,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 _NODE: Final = shutil.which("node")
-
-
-def minify(source: str) -> str:
-    # the structural tests pin un-mangled output, so names stay stable
-    return minify_js(source, JSMinify(mangle=False, fold=False))
 
 
 @pytest.mark.parametrize(
@@ -79,6 +65,11 @@ def minify(source: str) -> str:
 )
 def test_whitespace_and_precedence(source: str, expected: str) -> None:
     assert minify(source) == expected
+
+
+def minify(source: str) -> str:
+    # the structural tests pin un-mangled output, so names stay stable
+    return minify_js(source, JSMinify(mangle=False, fold=False))
 
 
 @pytest.mark.parametrize(
@@ -148,11 +139,11 @@ def test_dropped_function_in_inline_script_leaves_no_binding_behind() -> None:
         # ECMA-262 §12.3 LineContinuation: a backslash then a LineTerminatorSequence (LF, CR, or the CR-LF
         # pair) is consumed as one unit and drops from the value, so a CRLF-authored source lexes instead
         # of the lexer rejecting the trailing LF as an unterminated string (#407)
-        pytest.param("a" + chr(0x5C) + chr(0x0A) + "b", "ab", id="lf"),
-        pytest.param("a" + chr(0x5C) + chr(0x0D) + "b", "ab", id="cr"),
-        pytest.param("a" + chr(0x5C) + chr(0x0D) + chr(0x0A) + "b", "ab", id="crlf"),
+        pytest.param(f"a{chr(0x5C)}{chr(0x0A)}b", "ab", id="lf"),
+        pytest.param(f"a{chr(0x5C)}{chr(0x0D)}b", "ab", id="cr"),
+        pytest.param(f"a{chr(0x5C)}{chr(0x0D)}{chr(0x0A)}b", "ab", id="crlf"),
         pytest.param(
-            "a" + chr(0x5C) + chr(0x0D) + chr(0x0A) + "b" + chr(0x5C) + chr(0x0D) + chr(0x0A) + "c",
+            f"a{chr(0x5C)}{chr(0x0D)}{chr(0x0A)}b{chr(0x5C)}{chr(0x0D)}{chr(0x0A)}c",
             "abc",
             id="multi-segment-crlf",
         ),
@@ -290,12 +281,12 @@ def test_speculative_backtrack_does_not_leak_error(source: str, expected: str) -
         pytest.param("x = 1000", "x=1e3", id="round-integer-exponent"),
         pytest.param("x = 100", "x=100", id="exponent-not-shorter"),
         pytest.param("x = 0", "x=0", id="zero-integer"),
-        pytest.param("x = " + "1" + "0" * 63, "x=1e63", id="long-integer-exponent"),
+        pytest.param(f"x = 1{'0' * 63}", "x=1e63", id="long-integer-exponent"),
         pytest.param("x = 0xFF", "x=0xFF", id="hex-kept"),
         pytest.param("x = 007", "x=007", id="legacy-octal-kept"),
         pytest.param("x = 0.0", "x=0", id="zero-point-zero"),
         # a literal too long for the stack buffer takes the heap path; separators still go
-        pytest.param("x = " + "1" + "_000" * 23, "x=" + "1" + "000" * 23, id="overflow-strips-separators"),
+        pytest.param(f"x = 1{'_000' * 23}", f"x=1{'000' * 23}", id="overflow-strips-separators"),
         # BigInt has no dot or exponent, so separator removal is its only safe shortening
         pytest.param("x = 1_000n", "x=1000n", id="bigint-strips-separators"),
         pytest.param("x = 0x1_0n", "x=0x10n", id="bigint-hex-strips-separators"),
@@ -480,7 +471,7 @@ def test_minify_js_long_statement_list_keeps_arena_valid() -> None:
     assert (result.returncode, result.stdout) == (0, "ok"), result.stderr
 
 
-_SOURCE = "function f(){var longName=true;return longName}"
+_SOURCE: Final[str] = "function f(){var longName=true;return longName}"
 
 
 @pytest.mark.parametrize(
@@ -535,14 +526,14 @@ def test_low_level_binding_requires_all_arguments() -> None:
         _html._minify_js("x")  # ty: ignore[missing-argument]  # too few args on purpose
 
 
-def _serialize_script(html: str) -> str:
-    return turbohtml.parse(html).serialize(Html(layout=Minify(minify_js=JSMinify())))
-
-
 def test_inline_script_keeps_bang_comment() -> None:
     # the license header survives minification of an inline <script>, as it does for the standalone call
     out = _serialize_script("<script>/*! lib v1 */\nfunction plus(a,b){return a+b}</script>")
     assert out == "<script>/*! lib v1 */function plus(b,a){return b+a}</script>"
+
+
+def _serialize_script(html: str) -> str:
+    return turbohtml.parse(html).serialize(Html(layout=Minify(minify_js=JSMinify())))
 
 
 def test_inline_script_unparsable_falls_back_verbatim() -> None:
@@ -697,8 +688,8 @@ _CASES = [pytest.param(row["input"], id=f"L{row['line']}") for row in _CORPUS]
 
 
 def _canon_num(lexeme: str) -> str:
-    """Canonicalise a numeric lexeme exactly as the printer does, so the value-preserving
-    number minification (1.0 -> 1, 1000 -> 1e3) does not read as an AST difference."""
+    # Canonicalise a numeric lexeme exactly as the printer does, so the value-preserving
+    # number minification (1.0 -> 1, 1000 -> 1e3) does not read as an AST difference.
     digits = lexeme.replace("_", "")
     has_e = "e" in digits or "E" in digits
     dot = digits.find(".")
@@ -730,7 +721,7 @@ _SEXPR_TOKEN = re.compile(r"\(|\)|'[^']*'|[^\s()']+")
 
 
 def _parse_sexpr(tokens: list[str], pos: int) -> tuple[_SExpr, int]:
-    """Parse one node of the AST dump (a `(head child...)` s-expression) into a nested list."""
+    # Parse one node of the AST dump (a `(head child...)` s-expression) into a nested list.
     if tokens[pos] != "(":
         return tokens[pos], pos + 1
     node: list[_SExpr] = []
@@ -742,10 +733,10 @@ def _parse_sexpr(tokens: list[str], pos: int) -> tuple[_SExpr, int]:
 
 
 def _unwrap_single_blocks(node: _SExpr) -> _SExpr:
-    """Canonicalize a block that holds a single statement to that statement, so the minifier dropping a
-    loop body's braces (`for(;;){g()}` -> `for(;;)g()`) does not read as a difference. Applied uniformly
-    to both sides of the comparison; the minifier only ever drops braces around a scope-free statement,
-    and that it keeps a let/const/class/function block is pinned in test_minify."""
+    # Canonicalize a block that holds a single statement to that statement, so the minifier dropping a
+    # loop body's braces (`for(;;){g()}` -> `for(;;)g()`) does not read as a difference. Applied uniformly
+    # to both sides of the comparison; the minifier only ever drops braces around a scope-free statement,
+    # and that it keeps a let/const/class/function block is pinned in test_minify.
     if not isinstance(node, list):
         return node
     node = [_unwrap_single_blocks(child) for child in node]
@@ -758,14 +749,14 @@ def _unwrap_single_blocks(node: _SExpr) -> _SExpr:
 
 def _dump_sexpr(node: _SExpr) -> str:
     if isinstance(node, list):
-        return "(" + " ".join(_dump_sexpr(child) for child in node) + ")"
+        return f"({' '.join(_dump_sexpr(child) for child in node)})"
     return node
 
 
 def _norm(dump: str) -> str:
-    """Normalize an AST dump: drop empty statements and empty blocks (minified out, or printed as
-    `;`) and canonicalize numeric and BigInt literals (value-preserving number minification, BigInt
-    separator stripping) so equivalent ASTs match."""
+    # Normalize an AST dump: drop empty statements and empty blocks (minified out, or printed as
+    # `;`) and canonicalize numeric and BigInt literals (value-preserving number minification, BigInt
+    # separator stripping) so equivalent ASTs match.
     dump = re.sub(r"\(empty\)", "", dump)
     while (stripped := re.sub(r"\(block\s*\(body\s*\)\)", "", dump)) != dump:
         dump = stripped
@@ -787,7 +778,7 @@ def _norm(dump: str) -> str:
 
 
 def _ast(source: str) -> str:
-    """Return the parser's S-expression AST dump, raising ValueError if it does not parse."""
+    # Return the parser's S-expression AST dump, raising ValueError if it does not parse.
     return _html._minify_js_parse(source)
 
 

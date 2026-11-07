@@ -1,9 +1,6 @@
-"""The DOM pre-insertion validity rules: a doctype lives only in a Document, which holds no Text, one element, and one
-doctype placed before that element. Every insertion path rejects a violation before it moves anything."""
-
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
@@ -12,7 +9,7 @@ from turbohtml import Comment, Doctype, Document, Element, Range, Text, parse
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_PAGE = "<!DOCTYPE html><html><head></head><body><p>x</p></body></html>"
+_PAGE: Final[str] = "<!DOCTYPE html><html><head></head><body><p>x</p></body></html>"
 
 
 def _page() -> Document:

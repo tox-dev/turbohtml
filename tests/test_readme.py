@@ -1,11 +1,3 @@
-"""The README's Python examples must run, so the quickstart never goes stale.
-
-The reStructuredText docs validate their output through Sphinx's doctest builder
-(``tox -e docs``); the README is Markdown, so its ``python`` blocks are executed
-here in one shared namespace, top to bottom, exactly as a reader following along
-would run them.
-"""
-
 from __future__ import annotations
 
 import re

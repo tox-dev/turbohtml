@@ -8,7 +8,7 @@ REQUIREMENTS = ("readabilipy>=0.3",)
 
 
 def article(text: str) -> None:
-    """Extract title, byline, date, and text blocks with readabilipy's Python mode (html5lib on BeautifulSoup)."""
+    # Extract title, byline, date, and text blocks with readabilipy's Python mode (html5lib on BeautifulSoup).
     simple_json_from_html_string(text, use_readability=False)
 
 

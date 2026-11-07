@@ -1,5 +1,3 @@
-"""Sibling and descendant combinator walks over long sibling runs and deep chains: exact results on every API."""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
@@ -31,12 +29,6 @@ def _ids(nodes: Iterable[Element | None]) -> list[str | None]:
 
 def _expected(*spans: range) -> list[str | None]:
     return [f"e{index}" for span in spans for index in span]
-
-
-def _element(html: str, element_id: str) -> Element:
-    found = parse(html).select_one(f"#{element_id}")
-    assert found is not None
-    return found
 
 
 @pytest.mark.parametrize(
@@ -203,7 +195,7 @@ def test_select_sibling_runs_in_separate_parents() -> None:
 
 def test_select_sibling_runs_nested_in_each_sibling() -> None:
     # preorder leaves each run for its children's runs and comes back, so answers for many parents interleave
-    run = "<b>" + "<i></i>" * 40 + "</b>"
+    run = f"<b>{'<i></i>' * 40}</b>"
     document = parse(f"<div>{run * 40}<a></a>{run * 40}</div>")
     assert [len(document.select(selector)) for selector in ("a ~ b > i", "b > i:first-child ~ i")] == [1600, 3120]
 
@@ -227,6 +219,12 @@ def test_prune_after_long_run() -> None:
 def test_scope_select_from_container() -> None:
     container = _element(_siblings(("b", 40), ("a", 1), ("b", 40)), "p")
     assert _ids(container.select(":scope > a ~ b")) == _expected(range(41, 81))
+
+
+def _element(html: str, element_id: str) -> Element:
+    found = parse(html).select_one(f"#{element_id}")
+    assert found is not None
+    return found
 
 
 @pytest.mark.parametrize(
@@ -288,7 +286,7 @@ def test_closest_long_run() -> None:
     assert _ids([inner.closest("a ~ b")]) == ["e60"]
 
 
-_DEEP = "<div>" * 300 + "<p id=leaf></p>"
+_DEEP: Final[str] = f"{'<div>' * 300}<p id=leaf></p>"
 
 
 @pytest.mark.parametrize(
@@ -308,7 +306,7 @@ def test_select_deep_descendant_chain(selector: str, expected: list[str | None])
     ("selector", "html"),
     [
         # the nearest ancestor fails on its siblings, a higher one does not
-        pytest.param("a ~ div p", "<div><a></a><div>" + "<div>" * 40 + "<p id=leaf></p>", id="general-sibling"),
+        pytest.param("a ~ div p", f"<div><a></a><div>{'<div>' * 40}<p id=leaf></p>", id="general-sibling"),
         pytest.param(
             "section > b ~ span em",
             "<section><b></b><span><div><b></b><span><em id=leaf></em></span></div></span></section>",

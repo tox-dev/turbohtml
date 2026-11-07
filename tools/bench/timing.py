@@ -18,9 +18,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Mutating:
-    """A mutating operation: ``setup(case)`` builds a fresh tree (untimed), ``run(tree)`` mutates it (timed)."""
-
+    # A mutating operation: ``setup(case)`` builds a fresh tree (untimed), ``run(tree)`` mutates it (timed).
     setup: Callable[..., object]
     run: Callable[..., object]
+
+
+__all__ = [
+    "Mutating",
+]

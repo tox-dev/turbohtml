@@ -8,8 +8,7 @@ from typing import TypedDict, cast
 
 
 class WptHtmlTreeError(TypedDict):
-    """One expected parse error and its source span."""
-
+    # One expected parse error and its source span.
     code: str
     line: int
     col: int
@@ -18,8 +17,7 @@ class WptHtmlTreeError(TypedDict):
 
 
 class WptHtmlTreeInput(TypedDict):
-    """Fields identifying one WPT tree-construction input."""
-
+    # Fields identifying one WPT tree-construction input.
     file: str
     data: str
     context: str | None
@@ -27,30 +25,25 @@ class WptHtmlTreeInput(TypedDict):
 
 
 class WptHtmlTreeCase(WptHtmlTreeInput):
-    """One pinned WPT tree-construction case."""
-
     document: str
     errors: list[WptHtmlTreeError] | None
     spec_errors: list[WptHtmlTreeError] | None
 
 
 class WptHtmlTreeDecision(WptHtmlTreeInput):
-    """A corpus adjustment backed by fixture and specification links."""
-
+    # A corpus adjustment backed by fixture and specification links.
     reason: str
     spec: str
     fixture: str
 
 
 class WptHtmlTreeExclusion(WptHtmlTreeDecision):
-    """One input excluded because it requires script execution."""
-
+    # One input excluded because it requires script execution.
     document: str
 
 
 class WptHtmlTreeCorpus(TypedDict):
-    """The pinned cases, provenance, and reviewed adjustments."""
-
+    # The pinned cases, provenance, and reviewed adjustments.
     source: str
     revision: str
     files: list[str]
@@ -62,7 +55,7 @@ class WptHtmlTreeCorpus(TypedDict):
 
 
 def load_wpt_html_tree() -> WptHtmlTreeCorpus:
-    """Load the pinned tree-construction cases and provenance."""
+    # Load the pinned tree-construction cases and provenance.
     path = Path(__file__).parents[1] / "tests" / "conformance" / "data" / "wpt_html_tree.json"
     return cast("WptHtmlTreeCorpus", json.loads(path.read_text(encoding="utf-8")))
 
@@ -70,6 +63,7 @@ def load_wpt_html_tree() -> WptHtmlTreeCorpus:
 __all__ = [
     "WptHtmlTreeCase",
     "WptHtmlTreeCorpus",
+    "WptHtmlTreeDecision",
     "WptHtmlTreeError",
     "WptHtmlTreeExclusion",
     "WptHtmlTreeInput",

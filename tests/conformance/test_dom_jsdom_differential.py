@@ -1,36 +1,10 @@
-"""Differential validation of turbohtml's browser-JS DOM APIs against jsdom.
-
-The authoritative suites for Range/StaticRange (#552), TreeWalker/NodeIterator (#550), and the Shadow DOM tree model
-(#553/#549) are the WPT ``dom/ranges``, ``dom/traversal``, and ``shadow-dom`` directories -- testharness.js browser
-tests that assert against a live DOM and cannot run against a Python library. jsdom passes almost all of those WPT
-suites, so it is the cross-language reference: the same operation sequence is replayed through jsdom (the Node runner
-``tools/bench/node/dom_differential_runner.js``) and through turbohtml, and the two results must agree byte- and
-structure-exact. The op vocabulary is authored once and mirrored line-for-line on both sides; a divergence is a real
-disagreement, never a runner asymmetry. Node addressing is a child-index path from ``documentElement`` -- both parsers
-build the same WHATWG tree (the premise ``test_treebuilder_differential`` already pins), so the paths line up.
-
-Two boundaries on what jsdom can oracle, documented rather than silently skipped:
-
-- Declarative Shadow DOM (``<template shadowrootmode>``, #549) is unsupported by jsdom 29: it exposes neither
-  ``Document.parseHTMLUnsafe`` nor ``Element.setHTMLUnsafe``, and ``new JSDOM`` leaves the ``<template>`` in the light
-  tree. jsdom is the non-conformant party here (it predates the DOM Parsing spec's DSD algorithm), so those cases are
-  validated against a spec-literal oracle derived from the WHATWG "attach a shadow root" steps, not against jsdom.
-- The full WPT trees are ~1.5 GB checked out; vendoring them as a submodule would blow the ``git submodule update``
-  scope the coverage/CI gates depend on staying fast (see the datasets-as-submodule note). The corpus below instead
-  encodes the concrete input shapes and operation sequences those WPT tests exercise, diffed against the same oracle
-  jsdom that passes them.
-
-``MutationObserver`` (#554, "synchronous mutation-callback tables") is still open and exposes no public API, so there
-is nothing to diff; it is out of scope here.
-"""
-
 from __future__ import annotations
 
 import json
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
 import pytest
 
@@ -98,7 +72,7 @@ def _reject_section_skip_p(node: Node) -> int:
     return NodeFilter.FILTER_ACCEPT
 
 
-_FILTERS: dict[str, Callable[[Node], int]] = {
+_FILTERS: Final[dict[str, Callable[[Node], int]]] = {
     "reject_nav": lambda node: _tag_verdict(node, "nav", NodeFilter.FILTER_REJECT),
     "skip_nav": lambda node: _tag_verdict(node, "nav", NodeFilter.FILTER_SKIP),
     "reject_div": lambda node: _tag_verdict(node, "div", NodeFilter.FILTER_REJECT),
@@ -147,8 +121,7 @@ def _probe_clone(call: _RangeCall) -> dict[str, Any]:
 
 
 def _probe_extract(call: _RangeCall) -> dict[str, Any]:
-    frag = _frag_html(call.live.extract_contents())
-    return {"frag": frag, "doc": call.root.html, "collapsed": call.live.collapsed}
+    return {"frag": _frag_html(call.live.extract_contents()), "doc": call.root.html, "collapsed": call.live.collapsed}
 
 
 def _probe_delete(call: _RangeCall) -> dict[str, Any]:
@@ -196,7 +169,7 @@ def _probe_select_node_contents(call: _RangeCall) -> dict[str, Any]:
     return _boundaries(target)
 
 
-_RANGE_PROBES: dict[str, Callable[[_RangeCall], dict[str, Any]]] = {
+_RANGE_PROBES: Final[dict[str, Callable[[_RangeCall], dict[str, Any]]]] = {
     "boundaries": _probe_boundaries,
     "clone": _probe_clone,
     "extract": _probe_extract,
@@ -213,8 +186,7 @@ _RANGE_PROBES: dict[str, Callable[[_RangeCall], dict[str, Any]]] = {
 
 
 def _run_range(kase: dict[str, Any]) -> dict[str, Any]:
-    document = parse(kase["html"])
-    root = document.root
+    root = parse(kase["html"]).root
     assert root is not None
     live = Range(_node_at(root, kase["start"][0]), kase["start"][1])
     live.set_end(_node_at(root, kase["end"][0]), kase["end"][1])
@@ -227,10 +199,8 @@ def _run_traversal(kase: dict[str, Any]) -> dict[str, Any]:
     root = _node_at(document.root, kase["root"])
     node_filter = _FILTERS[kase["filter"]] if kase.get("filter") else None
     if kase["kind"] == "walker":
-        walker = TreeWalker(root, kase["what"], node_filter)
-        return {"nodes": _run_walker(walker, kase["probe"])}
-    iterator = NodeIterator(root, kase["what"], node_filter)
-    return {"nodes": _run_iterator(iterator, kase["probe"])}
+        return {"nodes": _run_walker(TreeWalker(root, kase["what"], node_filter), kase["probe"])}
+    return {"nodes": _run_iterator(NodeIterator(root, kase["what"], node_filter), kase["probe"])}
 
 
 def _run_walker(walker: TreeWalker, probe: str) -> list[str]:
@@ -293,11 +263,11 @@ def _run_turbo(kase: dict[str, Any]) -> dict[str, Any]:
     return _run_shadow(kase)
 
 
-_UL = "<ul><li>a</li><li>b</li><li>c</li></ul>"
-_P = "<p>Hello brave World</p>"
-_SPLIT = "<div><p>onetwo</p><p>threefour</p></div>"
-_MIXED = "<div id=root><h2>t</h2><p>a<b>bb</b>c</p><nav><a>x</a></nav><span>s</span></div>"
-_SECT = "<section id=s><p>x</p><article><p>y</p><span>z</span></article></section>"
+_UL: Final[str] = "<ul><li>a</li><li>b</li><li>c</li></ul>"
+_P: Final[str] = "<p>Hello brave World</p>"
+_SPLIT: Final[str] = "<div><p>onetwo</p><p>threefour</p></div>"
+_MIXED: Final[str] = "<div id=root><h2>t</h2><p>a<b>bb</b>c</p><nav><a>x</a></nav><span>s</span></div>"
+_SECT: Final[str] = "<section id=s><p>x</p><article><p>y</p><span>z</span></article></section>"
 
 _UL_PATH = [1, 0]
 _UL_A = [1, 0, 0]
@@ -311,7 +281,7 @@ _SHOW_ALL = NodeFilter.SHOW_ALL
 _SHOW_TEXT = NodeFilter.SHOW_TEXT
 _SHOW_COMMENT = NodeFilter.SHOW_COMMENT
 
-RANGE_CASES: list[dict[str, Any]] = [
+_RANGE_CASES: list[dict[str, Any]] = [
     {
         "id": "range-boundaries-ul",
         "feature": "range",
@@ -612,7 +582,7 @@ RANGE_CASES: list[dict[str, Any]] = [
 _TRAV_ROOT = [0]
 _SECT_ROOT = [0]
 
-TRAVERSAL_CASES: list[dict[str, Any]] = [
+_TRAVERSAL_CASES: list[dict[str, Any]] = [
     {
         "id": "walker-elements",
         "feature": "traversal",
@@ -824,12 +794,12 @@ TRAVERSAL_CASES: list[dict[str, Any]] = [
     },
 ]
 
-_HOST_SLOTS = '<my-card><h2 slot="title">Head</h2><p>body</p>loose<span slot="title">More</span></my-card>'
-_SHADOW_SLOTS = '<header><slot name="title"></slot></header><main><slot></slot></main>'
-_HOST_FALLBACK = '<my-el><span slot="a">A</span></my-el>'
-_SHADOW_FALLBACK = '<slot name="a"></slot><slot><em>fb</em></slot>'
+_HOST_SLOTS: Final[str] = '<my-card><h2 slot="title">Head</h2><p>body</p>loose<span slot="title">More</span></my-card>'
+_SHADOW_SLOTS: Final[str] = '<header><slot name="title"></slot></header><main><slot></slot></main>'
+_HOST_FALLBACK: Final[str] = '<my-el><span slot="a">A</span></my-el>'
+_SHADOW_FALLBACK: Final[str] = '<slot name="a"></slot><slot><em>fb</em></slot>'
 
-SHADOW_CASES: list[dict[str, Any]] = [
+_SHADOW_CASES: Final[list[dict[str, Any]]] = [
     {
         "id": "shadow-attach-open",
         "feature": "shadow",
@@ -866,7 +836,7 @@ SHADOW_CASES: list[dict[str, Any]] = [
     },
 ]
 
-_DSD_OPEN = (
+_DSD_OPEN: Final[str] = (
     "<article id=post>"
     '<template shadowrootmode="open" shadowrootclonable>'
     "<h1><slot name=title></slot></h1><slot></slot>"
@@ -874,9 +844,9 @@ _DSD_OPEN = (
     '<span slot="title">Hello</span><p>World</p>'
     "</article>"
 )
-_DSD_CLOSED = "<div id=host><template shadowrootmode=closed><b>secret</b></template><p>light</p></div>"
+_DSD_CLOSED: Final[str] = "<div id=host><template shadowrootmode=closed><b>secret</b></template><p>light</p></div>"
 
-DECLARATIVE_CASES: list[dict[str, Any]] = [
+_DECLARATIVE_CASES: Final[list[dict[str, Any]]] = [
     {
         "id": "dsd-open-clonable",
         "html": _DSD_OPEN,
@@ -896,22 +866,22 @@ DECLARATIVE_CASES: list[dict[str, Any]] = [
     },
 ]
 
-_CROSS = "<div><p>aa<b>bb</b>cc</p><p>dd<i>ii</i>ee</p></div>"
+_CROSS: Final[str] = "<div><p>aa<b>bb</b>cc</p><p>dd<i>ii</i>ee</p></div>"
 _CROSS_T_AA = [1, 0, 0, 0]
 _CROSS_T_CC = [1, 0, 0, 2]
 _CROSS_T_BB = [1, 0, 0, 1, 0]
 _CROSS_T_DD = [1, 0, 1, 0]
 _CROSS_T_EE = [1, 0, 1, 2]
-_CMT = "<div><p>a</p><!--note--><span>b</span><p>c</p></div>"
+_CMT: Final[str] = "<div><p>a</p><!--note--><span>b</span><p>c</p></div>"
 _CMT_DIV = [1, 0]
-_DEEP = (
+_DEEP: Final[str] = (
     "<div id=a><p id=p1>x<b id=b1>y</b>z</p>"
     "<ul id=u><li id=l1>1</li><li id=l2>2<em id=e>e</em></li></ul>"
     "<span id=sp>s</span></div>"
 )
 _DEEP_ROOT = [1, 0]
 
-RANGE_CASES += [
+_RANGE_CASES += [
     {
         "id": "range-clone-cross-two-paragraphs",
         "feature": "range",
@@ -1121,7 +1091,7 @@ RANGE_CASES += [
     },
 ]
 
-TRAVERSAL_CASES += [
+_TRAVERSAL_CASES += [
     {
         "id": "walker-deep-elements",
         "feature": "traversal",
@@ -1255,7 +1225,7 @@ TRAVERSAL_CASES += [
     },
 ]
 
-RANGE_CASES += [
+_RANGE_CASES += [
     {
         "id": "range-clone-collapsed",
         "feature": "range",
@@ -1332,7 +1302,7 @@ RANGE_CASES += [
     },
 ]
 
-_ALL_DIFF_CASES = RANGE_CASES + TRAVERSAL_CASES + SHADOW_CASES
+_ALL_DIFF_CASES = _RANGE_CASES + _TRAVERSAL_CASES + _SHADOW_CASES
 
 
 @pytest.fixture(scope="session")
@@ -1352,11 +1322,10 @@ def test_dom_matches_jsdom(kase: dict[str, Any], jsdom_results: dict[str, dict[s
     assert _run_turbo(kase) == oracle["result"]
 
 
-@pytest.mark.parametrize("kase", [pytest.param(case, id=case["id"]) for case in DECLARATIVE_CASES])
+@pytest.mark.parametrize("kase", [pytest.param(case, id=case["id"]) for case in _DECLARATIVE_CASES])
 def test_declarative_shadow_matches_spec(kase: dict[str, Any]) -> None:
-    """jsdom 29 cannot parse declarative shadow roots, so the oracle is the WHATWG DSD algorithm's expected tree."""
-    document = parse(kase["html"], allow_declarative_shadow_roots=True)
-    host = document.find(id=kase["host_id"])
+    # jsdom 29 cannot parse declarative shadow roots, so the oracle is the WHATWG DSD algorithm's expected tree.
+    host = parse(kase["html"], allow_declarative_shadow_roots=True).find(id=kase["host_id"])
     assert host is not None
     assert host.inner_html == kase["light_html"]
     if kase["mode"] == "closed":  # a closed root is created but unreachable through Element.shadow_root, by spec

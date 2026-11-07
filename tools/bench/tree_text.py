@@ -22,4 +22,7 @@ PRESERVE_TAGS: Final = frozenset({
 })
 SPACE_RUN: Final = re.compile(r"[ \t\n\f\r]+")
 
-__all__ = ["PRESERVE_TAGS", "SPACE_RUN"]
+__all__ = [
+    "PRESERVE_TAGS",
+    "SPACE_RUN",
+]

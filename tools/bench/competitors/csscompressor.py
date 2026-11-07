@@ -8,7 +8,7 @@ REQUIREMENTS = ("csscompressor>=0.9",)
 
 
 def minify_css(css: str) -> str:
-    """Minify a stylesheet with csscompressor's YUI-style compress."""
+    # Minify a stylesheet with csscompressor's YUI-style compress.
     return csscompressor.compress(css)
 
 

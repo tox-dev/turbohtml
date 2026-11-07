@@ -21,7 +21,7 @@ from phone_dfa import Dfa, match_end, pike_spans
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-_MAX_LEAD_PUNCTUATION: Final = 4
+_MAX_LEAD_PUNCTUATION: Final[int] = 4
 _TYPE_UNKNOWN: Final = len(TYPES) + 1
 
 # libphonenumber's VALID_PUNCTUATION, the characters that may sit between digit groups, and its lead characters.
@@ -31,11 +31,10 @@ _PUNCTUATION: Final = frozenset(
 )
 _PLUS: Final = frozenset("+\uff0b")
 _OPENERS: Final = frozenset("([\uff08\uff3b")
-_CLOSERS: Final = frozenset(")]\uff09\uff3d")
 _EXTENSION_MARKERS: Final = frozenset("xX\uff58#\uff03~\uff5e")
 
 # Java's \p{Z}: the space separators plus the line and paragraph separators.
-_SPACES: Final = "\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"
+_SPACES: Final[str] = "\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"
 
 # PhoneNumberMatcher.INNER_MATCHES: after the whole candidate fails, the splits parseAndVerify is retried on, in this
 # order: the part after a slash, each bracketed part, the parts around a spaced hyphen, a wide hyphen, a dot, a space.
@@ -64,10 +63,9 @@ _TYPE_PRECEDENCE: Final = (
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Config:
-    """The recognizer's settings; ``regions`` is ordered, empty means ``+`` numbers only."""
-
+    # The recognizer's settings; ``regions`` is ordered, empty means ``+`` numbers only.
     regions: tuple[str, ...] = ()
     require_valid: bool = True
     require_separators: bool = False
@@ -77,10 +75,9 @@ class Config:
     labels: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Match:
-    """One recognized phone number: its text span, parsed value, and classification."""
-
+    # One recognized phone number: its text span, parsed value, and classification.
     start: int
     end: int
     country_code: int
@@ -91,11 +88,11 @@ class Match:
 
     @property
     def international_number(self) -> str:
-        """The number as ``+<country_code><nsn>``, ignoring formatting."""
+        # The number as ``+<country_code><nsn>``, ignoring formatting.
         return f"+{self.country_code}{self.nsn}"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Group:
     digits: str
     separator: str
@@ -103,7 +100,7 @@ class _Group:
     end: int
 
 
-@dataclass
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Run:
     start: int
     end: int
@@ -115,7 +112,7 @@ class _Run:
     second_number_cut: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Reading:
     country_code: int
     nsn: str
@@ -125,10 +122,9 @@ class _Reading:
 
 
 class Recognizer:
-    """The recognizer over one table set and one configuration."""
-
+    # The recognizer over one table set and one configuration.
     def __init__(self, tables: Tables, config: Config) -> None:
-        """Build region indices and validity floors from ``tables`` for ``config``."""
+        # Build region indices and validity floors from ``tables`` for ``config``.
         self.tables = tables
         self.config = config
         self.region_index = {region.region.code: index for index, region in enumerate(tables.regions)}
@@ -144,7 +140,7 @@ class Recognizer:
         self.national_floor = min(floors) if floors else 0
 
     def find_all(self, text: str) -> list[Match]:
-        """Scan ``text`` the way the digit arm of the link scanner would, one match per emitted run."""
+        # Scan ``text`` the way the digit arm of the link scanner would, one match per emitted run.
         matches: list[Match] = []
         position = 0
         left_bound = 0
@@ -160,7 +156,7 @@ class Recognizer:
         return matches
 
     def find(self, text: str, digit_pos: int, left_bound: int) -> tuple[Match | None, int]:
-        """Recognize the number whose run contains the digit at ``digit_pos``; return it and the retry cursor."""
+        # Recognize the number whose run contains the digit at ``digit_pos``; return it and the retry cursor.
         run = self._segment(text, digit_pos, left_bound)
         if run is None:
             return None, self._digit_run_end(text, digit_pos)
@@ -177,23 +173,178 @@ class Recognizer:
                 reading, chunk_end, extension = found
                 return (
                     Match(
-                        start,
-                        chunk_end,
-                        reading.country_code,
-                        reading.nsn,
-                        extension,
-                        self.tables.regions[reading.region_index].region.code
+                        start=start,
+                        end=chunk_end,
+                        country_code=reading.country_code,
+                        nsn=reading.nsn,
+                        extension=extension,
+                        region=self.tables.regions[reading.region_index].region.code
                         if reading.region_index is not None
                         else None,
-                        reading.type,
+                        type=reading.type,
                     ),
                     max(chunk_end, run.second_number_cut),
                 )
         return None, retry
 
+    def _segment(self, text: str, digit_pos: int, left_bound: int) -> _Run | None:
+        # a probe starts a run where the scanner or the matcher's resume put it, even inside a digit group
+        digits_start = digit_pos
+        groups: list[_Group] = []
+        position = digits_start
+        second_number_cut = 0
+        separator = ""
+        while position < len(text) and len(groups) < 21 and position - digit_pos <= 250:
+            group_start = position
+            digits: list[str] = []
+            while position < len(text) and (value := _digit_value(self.tables, text[position])) >= 0:
+                digits.append(chr(0x30 + value))
+                position += 1
+            if not digits or len(digits) > 20:
+                break
+            groups.append(_Group(digits="".join(digits), separator=separator, start=group_start, end=position))
+            probe = position
+            punctuation = 0
+            while probe < len(text) and text[probe] in _PUNCTUATION and punctuation < _MAX_LEAD_PUNCTUATION:
+                if text[probe] == "/" and _second_number_start(text, probe):
+                    second_number_cut = self._second_number_end(text, probe)
+                    break
+                probe += 1
+                punctuation += 1
+            if second_number_cut:
+                break
+            if probe < len(text) and _digit_value(self.tables, text[probe]) >= 0 and probe > position:
+                separator = text[position:probe]
+                position = probe
+            else:
+                break
+        if not groups:
+            return None
+        end = groups[-1].end
+        start = self._lead_start(text, digits_start, left_bound)
+        extension, extension_end = self._extension(text, groups, end)
+        return _Run(
+            start=start,
+            end=end,
+            plus=any(char in _PLUS for char in text[start:digits_start]),
+            groups=groups,
+            extension=extension,
+            extension_end=extension_end,
+            poison=set(),
+            second_number_cut=second_number_cut,
+        )
+
+    def _second_number_end(self, text: str, slash: int) -> int:
+        position = slash + 1
+        while position < len(text) and text[position] == " ":
+            position += 1
+        position += 1
+        while position < len(text) and _digit_value(self.tables, text[position]) >= 0:
+            position += 1
+        return position
+
+    @staticmethod
+    def _lead_start(text: str, digits_start: int, left_bound: int) -> int:
+        # Find the leftmost start of ``(?:[lead][punct]{0,4}){0,2}`` ending at the digits; brackets are per chunk.
+        for candidate in range(max(left_bound, digits_start - 2 * (_MAX_LEAD_PUNCTUATION + 1)), digits_start + 1):
+            if _lead_groups_match(text[candidate:digits_start]):
+                return candidate
+        return digits_start
+
+    def _extension(self, text: str, groups: list[_Group], end: int) -> tuple[str | None, int]:
+        # Try the four extension forms from the last separator (in-run ``x``/``~`` forms) and from the run end.
+        candidates = [end]
+        if len(groups) > 1 and any(char in _EXTENSION_MARKERS for char in groups[-1].separator):
+            candidates.append(groups[-2].end)
+        for tail_start in candidates:
+            consumed = self._walk_extension(text, tail_start)
+            if consumed is None:
+                continue
+            tail_end, digits = consumed
+            if tail_start == end and tail_end > end and digits:
+                return digits, tail_end
+            if tail_start != end and tail_end >= end and digits:
+                # PATTERN reads `x1234` as a punctuation-separated digit block, so a `#` after it stays outside
+                groups.pop()
+                return digits, end
+        return None, end
+
+    def _walk_extension(self, text: str, tail_start: int) -> tuple[int, str] | None:
+        extension = self.tables.extension
+        state = 1
+        digits: list[str] = []
+        last_accept: tuple[int, str] | None = None
+        position = tail_start
+        while position < len(text):
+            char = text[position]
+            value = _digit_value(self.tables, char)
+            state = extension.dfa.next[state][1 if value >= 0 else extension.symbol_of.get(ord(char), 0)]
+            if state == 0:
+                break
+            if value >= 0:
+                digits.append(chr(0x30 + value))
+            elif digits and char != "#":
+                digits = []
+            position += 1
+            if extension.dfa.accepts[state]:
+                last_accept = (position, "".join(digits))
+        return last_accept
+
+    def _digit_run_end(self, text: str, position: int) -> int:
+        while position < len(text) and _digit_value(self.tables, text[position]) >= 0:
+            position += 1
+        return position
+
+    def _poison(self, text: str, run: _Run) -> None:
+        groups = run.groups
+        for index in range(len(groups) - 2):
+            second, third = groups[index + 1], groups[index + 2]
+            if second.separator == "/" and third.separator == "/" and _is_slash_date(second.digits, third.digits):
+                run.poison.update(id(group) for group in groups[index : index + 3])
+        if spanned := _timestamp_groups(text, run):
+            run.poison.update(id(group) for group in groups[-spanned:])
+        if not run.plus:
+            self._poison_ipv4(run)
+            if self.config.skip_card_numbers:
+                self._poison_cards(run)
+        if self.config.labels and (word := _word_before(self.tables, text, run.start)) and word in self.config.labels:
+            # the label reaches over hyphens and dots, not over the whitespace that starts a new token
+            for index, group in enumerate(groups):
+                if index > 0 and any(char in " \xa0\u3000" for char in group.separator):
+                    break
+                run.poison.add(id(group))
+
+    @staticmethod
+    def _poison_ipv4(run: _Run) -> None:
+        # Poison the four groups of each IPv4 address in the run, wherever it sits, and nothing around it.
+        groups = run.groups
+        for index in range(len(groups) - 3):
+            window = groups[index : index + 4]
+            bounded = (index == 0 or groups[index].separator != ".") and (
+                index + 4 == len(groups) or groups[index + 4].separator != "."
+            )
+            if (
+                bounded
+                and all(group.separator == "." for group in window[1:])
+                and all(len(group.digits) <= 3 and int(group.digits) <= 255 for group in window)
+            ):
+                run.poison.update(id(group) for group in window)
+
+    @staticmethod
+    def _poison_cards(run: _Run) -> None:
+        # Poison a run that is one Luhn-valid card shape, and any unbroken Luhn-valid group of 13 to 19 digits.
+        groups = run.groups
+        for group in groups:
+            if 13 <= len(group.digits) <= 19 and _luhn(group.digits):
+                run.poison.add(id(group))
+        if [len(group.digits) for group in groups] in ([4, 4, 4, 4], [4, 4, 4, 4, 3], [4, 6, 5], [4, 6, 4]) and _luhn(
+            "".join(group.digits for group in groups)
+        ):
+            run.poison.update(id(group) for group in groups)
+
     @staticmethod
     def _segments(run: _Run) -> list[tuple[int, int]]:
-        """List the run's clean candidate segments; a poisoned group ends one the way a letter would."""
+        # List the run's clean candidate segments; a poisoned group ends one the way a letter would.
         segments: list[tuple[int, int]] = []
         first: int | None = None
         for index, group in enumerate(run.groups):
@@ -211,7 +362,7 @@ class Recognizer:
 
     @staticmethod
     def _chunks(text: str, start: int, end: int) -> list[tuple[int, int]]:
-        """List the text ranges parseAndVerify sees: the whole candidate, then extractInnerMatch's splits in order."""
+        # List the text ranges parseAndVerify sees: the whole candidate, then extractInnerMatch's splits in order.
         candidate = text[start:end]
         ranges = [(start, end)]
         for pattern in _INNER_MATCHES:
@@ -222,7 +373,7 @@ class Recognizer:
         return ranges
 
     def _read_chunk(self, text: str, run: _Run, start: int, end: int) -> tuple[_Reading, int, str | None] | None:
-        """ParseAndVerify on one chunk: its groups, the brackets and neighbor rules, then the readings in order."""
+        # ParseAndVerify on one chunk: its groups, the brackets and neighbor rules, then the readings in order.
         inside = [index for index, group in enumerate(run.groups) if group.start >= start and group.end <= end]
         if not inside:
             return None
@@ -280,182 +431,16 @@ class Recognizer:
             return True
         return bool(after) and (_is_latin_letter(self.tables, after) or _is_invalid_punctuation(self.tables, after))
 
-    def _accepted_x_rules(self, text: str, start: int, end: int, reading: _Reading, extension: str | None) -> bool:
-        """ContainsOnlyValidXChars at VALID: ``xx`` precedes a carrier code, a lone ``x`` precedes the extension."""
-        if not self.config.require_valid:
-            return True
-        candidate = text[start:end]
-        for position, char in enumerate(candidate[:-1]):
-            if char not in "xX":
-                continue
-            if position > 0 and candidate[position - 1] in "xX":
-                continue  # the second `x` of a carrier-code pair is no extension marker
-            digits_from = position + 2 if candidate[position + 1] in "xX" else position + 1
-            # after a carrier code the digits are the number's, read the way isNumberMatch reads them: with the
-            # extension's own digits behind them
-            if "".join(
-                chr(0x30 + value)
-                for value in (_digit_value(self.tables, ch) for ch in candidate[digits_from:])
-                if value >= 0
-            ) != (reading.nsn + (extension or "") if digits_from == position + 2 else extension):
-                return False
-        return True
-
-    def _digit_run_end(self, text: str, position: int) -> int:
-        while position < len(text) and _digit_value(self.tables, text[position]) >= 0:
-            position += 1
-        return position
-
-    def _segment(self, text: str, digit_pos: int, left_bound: int) -> _Run | None:
-        # a probe starts a run where the scanner or the matcher's resume put it, even inside a digit group
-        digits_start = digit_pos
-        groups: list[_Group] = []
-        position = digits_start
-        second_number_cut = 0
-        separator = ""
-        while position < len(text) and len(groups) < 21 and position - digit_pos <= 250:
-            group_start = position
-            digits: list[str] = []
-            while position < len(text) and (value := _digit_value(self.tables, text[position])) >= 0:
-                digits.append(chr(0x30 + value))
-                position += 1
-            if not digits or len(digits) > 20:
-                break
-            groups.append(_Group("".join(digits), separator, group_start, position))
-            probe = position
-            punctuation = 0
-            while probe < len(text) and text[probe] in _PUNCTUATION and punctuation < _MAX_LEAD_PUNCTUATION:
-                if text[probe] == "/" and _second_number_start(text, probe):
-                    second_number_cut = self._second_number_end(text, probe)
-                    break
-                probe += 1
-                punctuation += 1
-            if second_number_cut:
-                break
-            if probe < len(text) and _digit_value(self.tables, text[probe]) >= 0 and probe > position:
-                separator = text[position:probe]
-                position = probe
-            else:
-                break
-        if not groups:
-            return None
-        end = groups[-1].end
-        start = self._lead_start(text, digits_start, left_bound)
-        extension, extension_end = self._extension(text, groups, end)
-        return _Run(
-            start,
-            end,
-            any(char in _PLUS for char in text[start:digits_start]),
-            groups,
-            extension,
-            extension_end,
-            set(),
-            second_number_cut,
-        )
-
-    @staticmethod
-    def _lead_start(text: str, digits_start: int, left_bound: int) -> int:
-        """Find the leftmost start of ``(?:[lead][punct]{0,4}){0,2}`` ending at the digits; brackets are per chunk."""
-        for candidate in range(max(left_bound, digits_start - 2 * (_MAX_LEAD_PUNCTUATION + 1)), digits_start + 1):
-            if _lead_groups_match(text[candidate:digits_start]):
-                return candidate
-        return digits_start
-
-    def _second_number_end(self, text: str, slash: int) -> int:
-        position = slash + 1
-        while position < len(text) and text[position] == " ":
-            position += 1
-        position += 1
-        while position < len(text) and _digit_value(self.tables, text[position]) >= 0:
-            position += 1
-        return position
-
-    def _extension(self, text: str, groups: list[_Group], end: int) -> tuple[str | None, int]:
-        """Try the four extension forms from the last separator (in-run ``x``/``~`` forms) and from the run end."""
-        candidates = [end]
-        if len(groups) > 1 and any(char in _EXTENSION_MARKERS for char in groups[-1].separator):
-            candidates.append(groups[-2].end)
-        for tail_start in candidates:
-            consumed = self._walk_extension(text, tail_start)
-            if consumed is None:
-                continue
-            tail_end, digits = consumed
-            if tail_start == end and tail_end > end and digits:
-                return digits, tail_end
-            if tail_start != end and tail_end >= end and digits:
-                # PATTERN reads `x1234` as a punctuation-separated digit block, so a `#` after it stays outside
-                groups.pop()
-                return digits, end
-        return None, end
-
-    def _walk_extension(self, text: str, tail_start: int) -> tuple[int, str] | None:
-        extension = self.tables.extension
-        state = 1
-        digits: list[str] = []
-        last_accept: tuple[int, str] | None = None
-        position = tail_start
-        while position < len(text):
-            char = text[position]
-            value = _digit_value(self.tables, char)
-            state = extension.dfa.next[state][1 if value >= 0 else extension.symbol_of.get(ord(char), 0)]
-            if state == 0:
-                break
-            if value >= 0:
-                digits.append(chr(0x30 + value))
-            elif digits and char != "#":
-                digits = []
-            position += 1
-            if extension.dfa.accepts[state]:
-                last_accept = (position, "".join(digits))
-        return last_accept
-
-    def _poison(self, text: str, run: _Run) -> None:
-        groups = run.groups
-        for index in range(len(groups) - 2):
-            second, third = groups[index + 1], groups[index + 2]
-            if second.separator == "/" and third.separator == "/" and _is_slash_date(second.digits, third.digits):
-                run.poison.update(id(group) for group in groups[index : index + 3])
-        if spanned := _timestamp_groups(text, run):
-            run.poison.update(id(group) for group in groups[-spanned:])
-        if not run.plus:
-            self._poison_ipv4(run)
-            if self.config.skip_card_numbers:
-                self._poison_cards(run)
-        if self.config.labels and (word := _word_before(self.tables, text, run.start)) and word in self.config.labels:
-            # the label reaches over hyphens and dots, not over the whitespace that starts a new token
-            for index, group in enumerate(groups):
-                if index > 0 and any(char in " \xa0\u3000" for char in group.separator):
-                    break
-                run.poison.add(id(group))
-
-    @staticmethod
-    def _poison_cards(run: _Run) -> None:
-        """Poison a run that is one Luhn-valid card shape, and any unbroken Luhn-valid group of 13 to 19 digits."""
-        groups = run.groups
-        for group in groups:
-            if 13 <= len(group.digits) <= 19 and _luhn(group.digits):
-                run.poison.add(id(group))
-        if [len(group.digits) for group in groups] in _CARD_SHAPES and _luhn("".join(group.digits for group in groups)):
-            run.poison.update(id(group) for group in groups)
-
-    @staticmethod
-    def _poison_ipv4(run: _Run) -> None:
-        """Poison the four groups of each IPv4 address in the run, wherever it sits, and nothing around it."""
-        groups = run.groups
-        for index in range(len(groups) - 3):
-            window = groups[index : index + 4]
-            bounded = (index == 0 or groups[index].separator != ".") and (
-                index + 4 == len(groups) or groups[index + 4].separator != "."
-            )
-            if (
-                bounded
-                and all(group.separator == "." for group in window[1:])
-                and all(len(group.digits) <= 3 and int(group.digits) <= 255 for group in window)
-            ):
-                run.poison.update(id(group) for group in window)
+    def _country_code(self, digits: str) -> tuple[int | None, int]:
+        if digits.startswith("0"):
+            return None, 0
+        for length in (1, 2, 3):
+            if len(digits) >= length and (index := self.tables.group_of_code.get(int(digits[:length]))) is not None:
+                return index, length
+        return None, 0
 
     def _international(self, digits: str, parse_region: int | None) -> _Reading | None:
-        """Build a ``+`` reading: country code by the 1-2-3 digit index, the main region's prefix rule, then routing."""
+        # Build a ``+`` reading: country code by the 1-2-3 digit index, the main region's prefix rule, then routing.
         if len(digits) <= MIN_NSN:
             return None
         group_index, code_length = self._country_code(digits)
@@ -469,16 +454,112 @@ class Recognizer:
             nsn = self._strip_prefix(self.tables.regions[group.main], nsn, adopt=True)
         return self._validate(group, nsn)
 
-    def _country_code(self, digits: str) -> tuple[int | None, int]:
-        if digits.startswith("0"):
-            return None, 0
-        for length in (1, 2, 3):
-            if len(digits) >= length and (index := self.tables.group_of_code.get(int(digits[:length]))) is not None:
-                return index, length
+    def _strip_prefix(self, tables: RegionTables, digits: str, *, adopt: bool) -> str:
+        # maybeStripNationalPrefixAndCarrierCode, with parseHelper's length adoption when ``adopt``.
+        transformed = self._strip(tables, digits)
+        if transformed is None:
+            return digits
+        if adopt and self._length_result(tables, transformed) in {"TOO_SHORT", "LOCAL_ONLY", "INVALID_LENGTH"}:
+            return digits
+        return transformed
+
+    def _strip(self, tables: RegionTables, digits: str) -> str | None:
+        # Return the prefix rule's rewrite of ``digits``, or None when it fails to match or generalDesc vetoes it.
+        if tables.prefix is None or tables.tag is None or tables.prefix_program is None:
+            return None
+        symbols = [ord(char) - 0x30 for char in digits]
+        end = match_end(tables.prefix, symbols)
+        if end < 0:
+            return None
+        tag = tables.tag
+        transformed = digits[end:]
+        if tag.group and (span := (pike_spans(tables.prefix_program, symbols[:end]) or {}).get(tag.group)) is not None:
+            transformed = tag.literal + digits[span[0] : span[1]] + digits[end:]
+        if self._general(tables, digits) and not self._general(tables, transformed):
+            return None
+        return transformed
+
+    def _general(self, tables: RegionTables, digits: str) -> bool:
+        return bool(self._plan_accept(tables, digits) & GENERAL_BIT)
+
+    @staticmethod
+    def _plan_accept(tables: RegionTables, digits: str) -> int:
+        state = 1
+        for char in digits:
+            state = tables.plan.next[state][ord(char) - 0x30]
+            if state == 0:
+                return 0
+        return tables.plan.accepts[state]
+
+    @staticmethod
+    def _length_result(tables: RegionTables, digits: str) -> str:
+        region = tables.region
+        length = len(digits)
+        if length in region.possible_local_only:
+            return "LOCAL_ONLY"
+        national = sorted(region.possible_national)
+        if not national:
+            return "INVALID_LENGTH"
+        if length < national[0]:
+            return "TOO_SHORT"
+        if length > national[-1]:
+            return "TOO_LONG"
+        return "POSSIBLE" if length in region.possible_national else "INVALID_LENGTH"
+
+    def _validate(self, group: Group, nsn: str) -> _Reading | None:
+        # getRegionCodeForNumber, then isValidNumberForRegion or isPossibleNumber depending on the mode.
+        if not MIN_NSN <= len(nsn) <= MAX_NSN:
+            return None
+        region_index, accept = self._route(group, nsn)
+        if self.config.require_valid:
+            if region_index is None or not accept & GENERAL_BIT:
+                return None
+            resolved = _resolve_type(accept)
+            if resolved == _TYPE_UNKNOWN or not self.config.type_mask >> resolved & 1:
+                return None
+            return _Reading(
+                country_code=group.country_code,
+                nsn=_cap_zeros(nsn),
+                region_index=region_index,
+                type=resolved,
+                general=True,
+            )
+        main = self.tables.regions[group.main]
+        if len(nsn) not in main.region.possible_national | main.region.possible_local_only:
+            return None
+        return _Reading(
+            country_code=group.country_code,
+            nsn=_cap_zeros(nsn),
+            region_index=region_index,
+            type=_TYPE_UNKNOWN,
+            general=bool(accept & GENERAL_BIT) if region_index is not None else False,
+        )
+
+    def _route(self, group: Group, nsn: str) -> tuple[int | None, int]:
+        # Return the first region in group order that claims the number, and its plan accept.
+        if len(group.members) == 1:
+            index = group.members[0]
+            return index, self._plan_accept(self.tables.regions[index], nsn)
+        routed_set = 0
+        if group.router is not None:
+            state = 1
+            for char in nsn:
+                state = group.router.next[state][ord(char) - 0x30]
+                if state == 0:
+                    break
+            routed_set = group.router.accepts[state] if state else 0
+        for position, index in enumerate(group.members):
+            accept = self._plan_accept(self.tables.regions[index], nsn)
+            if group.routed[position]:
+                if routed_set >> position & 1:
+                    return index, accept
+                continue
+            if accept & GENERAL_BIT and _resolve_type(accept) != _TYPE_UNKNOWN:
+                return index, accept
         return None, 0
 
-    def _national(self, region_index: int, digits: str, *, mode: str = "any") -> _Reading | None:
-        """ParseHelper with a default region: IDD first, then the region's own country code, then a national read."""
+    def _national(self, region_index: int, digits: str, *, mode: str) -> _Reading | None:
+        # ParseHelper with a default region: IDD first, then the region's own country code, then a national read.
         tables = self.tables.regions[region_index]
         region = tables.region
         if tables.idd is not None:
@@ -513,8 +594,13 @@ class Recognizer:
             reading if self._prefix_present_if_required(self.tables.regions[group.main], digits, reading.nsn) else None
         )
 
+    @staticmethod
+    def _max_possible(tables: RegionTables) -> int:
+        lengths = tables.region.possible_national | tables.region.possible_local_only
+        return max(lengths) if lengths else 0
+
     def _prefix_present_if_required(self, main: RegionTables, raw_digits: str, nsn: str) -> bool:
-        """Leniency.VALID's isNationalPrefixPresentIfRequired: the chosen format's rule, else the raw digits' prefix."""
+        # Leniency.VALID's isNationalPrefixPresentIfRequired: the chosen format's rule, else the raw digits' prefix.
         symbols = [ord(char) - 0x30 for char in nsn]
         for item in main.formats:
             if not _looking_at(item.leading, symbols):
@@ -530,109 +616,26 @@ class Recognizer:
             return self._strip(main, raw_digits) is not None
         return True
 
-    def _strip_prefix(self, tables: RegionTables, digits: str, *, adopt: bool) -> str:
-        """maybeStripNationalPrefixAndCarrierCode, with parseHelper's length adoption when ``adopt``."""
-        transformed = self._strip(tables, digits)
-        if transformed is None:
-            return digits
-        if adopt and self._length_result(tables, transformed) in {"TOO_SHORT", "LOCAL_ONLY", "INVALID_LENGTH"}:
-            return digits
-        return transformed
-
-    def _strip(self, tables: RegionTables, digits: str) -> str | None:
-        """Return the prefix rule's rewrite of ``digits``, or None when it fails to match or generalDesc vetoes it."""
-        if tables.prefix is None or tables.tag is None or tables.prefix_program is None:
-            return None
-        symbols = [ord(char) - 0x30 for char in digits]
-        end = match_end(tables.prefix, symbols)
-        if end < 0:
-            return None
-        tag = tables.tag
-        transformed = digits[end:]
-        if tag.group and (span := (pike_spans(tables.prefix_program, symbols[:end]) or {}).get(tag.group)) is not None:
-            transformed = tag.literal + digits[span[0] : span[1]] + digits[end:]
-        if self._general(tables, digits) and not self._general(tables, transformed):
-            return None
-        return transformed
-
-    @staticmethod
-    def _plan_accept(tables: RegionTables, digits: str) -> int:
-        state = 1
-        for char in digits:
-            state = tables.plan.next[state][ord(char) - 0x30]
-            if state == 0:
-                return 0
-        return tables.plan.accepts[state]
-
-    def _general(self, tables: RegionTables, digits: str) -> bool:
-        return bool(self._plan_accept(tables, digits) & GENERAL_BIT)
-
-    @staticmethod
-    def _max_possible(tables: RegionTables) -> int:
-        lengths = tables.region.possible_national | tables.region.possible_local_only
-        return max(lengths) if lengths else 0
-
-    @staticmethod
-    def _length_result(tables: RegionTables, digits: str) -> str:
-        """TestNumberLength against the general lengths."""
-        region = tables.region
-        length = len(digits)
-        if length in region.possible_local_only:
-            return "LOCAL_ONLY"
-        national = sorted(region.possible_national)
-        if not national:
-            return "INVALID_LENGTH"
-        if length < national[0]:
-            return "TOO_SHORT"
-        if length > national[-1]:
-            return "TOO_LONG"
-        return "POSSIBLE" if length in region.possible_national else "INVALID_LENGTH"
-
-    def _validate(self, group: Group, nsn: str) -> _Reading | None:
-        """getRegionCodeForNumber, then isValidNumberForRegion or isPossibleNumber depending on the mode."""
-        if not MIN_NSN <= len(nsn) <= MAX_NSN:
-            return None
-        region_index, accept = self._route(group, nsn)
-        if self.config.require_valid:
-            if region_index is None or not accept & GENERAL_BIT:
-                return None
-            resolved = _resolve_type(accept)
-            if resolved == _TYPE_UNKNOWN or not self.config.type_mask >> resolved & 1:
-                return None
-            return _Reading(group.country_code, _cap_zeros(nsn), region_index, resolved, general=True)
-        main = self.tables.regions[group.main]
-        if len(nsn) not in main.region.possible_national | main.region.possible_local_only:
-            return None
-        return _Reading(
-            group.country_code,
-            _cap_zeros(nsn),
-            region_index,
-            _TYPE_UNKNOWN,
-            general=bool(accept & GENERAL_BIT) if region_index is not None else False,
-        )
-
-    def _route(self, group: Group, nsn: str) -> tuple[int | None, int]:
-        """Return the first region in group order that claims the number, and its plan accept."""
-        if len(group.members) == 1:
-            index = group.members[0]
-            return index, self._plan_accept(self.tables.regions[index], nsn)
-        routed_set = 0
-        if group.router is not None:
-            state = 1
-            for char in nsn:
-                state = group.router.next[state][ord(char) - 0x30]
-                if state == 0:
-                    break
-            routed_set = group.router.accepts[state] if state else 0
-        for position, index in enumerate(group.members):
-            accept = self._plan_accept(self.tables.regions[index], nsn)
-            if group.routed[position]:
-                if routed_set >> position & 1:
-                    return index, accept
+    def _accepted_x_rules(self, text: str, start: int, end: int, reading: _Reading, extension: str | None) -> bool:
+        # ContainsOnlyValidXChars at VALID: ``xx`` precedes a carrier code, a lone ``x`` precedes the extension.
+        if not self.config.require_valid:
+            return True
+        candidate = text[start:end]
+        for position, char in enumerate(candidate[:-1]):
+            if char not in "xX":
                 continue
-            if accept & GENERAL_BIT and _resolve_type(accept) != _TYPE_UNKNOWN:
-                return index, accept
-        return None, 0
+            if position > 0 and candidate[position - 1] in "xX":
+                continue  # the second `x` of a carrier-code pair is no extension marker
+            digits_from = position + 2 if candidate[position + 1] in "xX" else position + 1
+            # after a carrier code the digits are the number's, read the way isNumberMatch reads them: with the
+            # extension's own digits behind them
+            if "".join(
+                chr(0x30 + value)
+                for value in (_digit_value(self.tables, ch) for ch in candidate[digits_from:])
+                if value >= 0
+            ) != (reading.nsn + (extension or "") if digits_from == position + 2 else extension):
+                return False
+        return True
 
 
 def _digit_value(tables: Tables, char: str) -> int:
@@ -649,12 +652,12 @@ def _digit_value(tables: Tables, char: str) -> int:
 
 
 def _is_latin_letter(tables: Tables, char: str) -> bool:
-    """PhoneNumberMatcher.isLatinLetter: a letter or nonspacing mark inside the six Latin blocks."""
+    # PhoneNumberMatcher.isLatinLetter: a letter or nonspacing mark inside the six Latin blocks.
     return _in_ranges(ord(char), tables.unicode.latin_ranges)
 
 
 def _is_invalid_punctuation(tables: Tables, char: str) -> bool:
-    """PhoneNumberMatcher.isInvalidPunctuationSymbol: ``%`` or a currency symbol."""
+    # PhoneNumberMatcher.isInvalidPunctuationSymbol: ``%`` or a currency symbol.
     return char == "%" or _in_ranges(ord(char), tables.unicode.currency_ranges)
 
 
@@ -663,7 +666,7 @@ def _in_ranges(code: int, ranges: Sequence[tuple[int, int]]) -> bool:
 
 
 def _looking_at(dfa: Dfa, symbols: list[int]) -> bool:
-    """Java's lookingAt: some prefix of ``symbols`` is in the language."""
+    # Java's lookingAt: some prefix of ``symbols`` is in the language.
     state = 1
     for symbol in symbols:
         state = dfa.next[state][symbol]
@@ -696,7 +699,7 @@ def _cap_zeros(nsn: str) -> str:
 
 
 def _lead_groups_match(segment: str) -> bool:
-    """Check whether ``segment`` is at most two lead groups, each a plus or opener plus up to four punctuation marks."""
+    # Check whether ``segment`` is at most two lead groups, each a plus or opener plus up to four punctuation marks.
     if not segment:
         return True
     if segment[0] not in _PLUS and segment[0] not in _OPENERS:
@@ -729,21 +732,17 @@ def _second_number_start(text: str, slash: int) -> bool:
 
 
 def _is_slash_date(second: str, third: str) -> bool:
-    """
-    SLASH_SEPARATED_DATES: the middle part is one or two digits of at most 39, the year part has at least two.
-
-    The regex is unanchored, so its first part is satisfied by the last digit of whatever group precedes the slash.
-    """
+    # SLASH_SEPARATED_DATES: the middle part is one or two digits of at most 39, the year part has at least two.
+    #
+    # The regex is unanchored, so its first part is satisfied by the last digit of whatever group precedes the slash.
     return len(second) <= 2 and len(third) >= 2 and (len(second) == 1 or second[0] <= "3")
 
 
 def _timestamp_groups(text: str, run: _Run) -> int:
-    """
-    Count the groups TIME_STAMPS spans at the run's end when TIME_STAMPS_SUFFIX follows, 0 when it does not.
-
-    Eight digits shaped ``[12]ddd[01]d[0-3]d``, split only after the year and after the month and only by a single
-    ``-`` or ``/``, then spaces, a two-digit hour starting 0-2, and ``:MM`` right after the run.
-    """
+    # Count the groups TIME_STAMPS spans at the run's end when TIME_STAMPS_SUFFIX follows, 0 when it does not.
+    #
+    # Eight digits shaped ``[12]ddd[01]d[0-3]d``, split only after the year and after the month and only by a single
+    # ``-`` or ``/``, then spaces, a two-digit hour starting 0-2, and ``:MM`` right after the run.
     groups = run.groups
     hour = groups[-1]
     if len(groups) < 2 or len(hour.digits) != 2 or hour.digits[0] > "2":
@@ -774,7 +773,7 @@ def _timestamp_groups(text: str, run: _Run) -> int:
 
 
 def _word_before(tables: Tables, text: str, start: int) -> str:
-    """Return the ASCII word right before the digits, or "" when a Latin letter glued to it makes a longer word."""
+    # Return the ASCII word right before the digits, or "" when a Latin letter glued to it makes a longer word.
     position = start
     while position > 0 and text[position - 1] in " \xa0\u3000\t\n\r.:#-":
         position -= 1
@@ -792,28 +791,24 @@ _MATCHING_BRACKETS: Final = re.compile(r"\(?(?:x+\))?x+(?:\(x+\)){0,3}x*")
 
 
 def _brackets_match(candidate: str) -> bool:
-    """
-    MATCHING_BRACKETS folded to ``(``/``)``/``x``: the shape the upstream regex tests.
-
-    An optional leading opener, an optional leading "text then closer", then at most three balanced pairs and
-    no other bracket.
-    """
+    # MATCHING_BRACKETS folded to ``(``/``)``/``x``: the shape the upstream regex tests.
+    #
+    # An optional leading opener, an optional leading "text then closer", then at most three balanced pairs and
+    # no other bracket.
+    closers = frozenset(")]\uff09\uff3d")
     return (
         _MATCHING_BRACKETS.fullmatch(
-            "".join("(" if char in _OPENERS else ")" if char in _CLOSERS else "x" for char in candidate)
+            "".join("(" if char in _OPENERS else ")" if char in closers else "x" for char in candidate)
         )
         is not None
     )
 
 
-_CARD_SHAPES: Final = ([4, 4, 4, 4], [4, 4, 4, 4, 3], [4, 6, 5], [4, 6, 4])
-_ADDRESS_CHAIN: Final = frozenset("0123456789abcdefABCDEF:[]")
 _HEX_DIGITS: Final = frozenset(string.hexdigits)
-_MAX_ADDRESS_CHARS: Final = 48
 
 
 def _is_ipv6_literal(chain: str) -> bool:
-    """RFC 4291's text form without an IPv4 tail, bare or bracketed with a port."""
+    # RFC 4291's text form without an IPv4 tail, bare or bracketed with a port.
     address = chain
     if chain.startswith("["):
         address, closer, port = chain[1:].partition("]")
@@ -834,17 +829,19 @@ def _is_ipv6_literal(chain: str) -> bool:
 
 
 def _in_address_chain(text: str, start: int, end: int) -> bool:
-    """Whether the candidate sits inside an IPv6 literal; a chain past any literal's length is prose."""
-    if end - start > _MAX_ADDRESS_CHARS:
+    # Whether the candidate sits inside an IPv6 literal; a chain past any literal's length is prose.
+    max_address_chars = 48
+    if end - start > max_address_chars:
         return False
     left = start
-    while left > 0 and start - left < _MAX_ADDRESS_CHARS and text[left - 1] in _ADDRESS_CHAIN:
+    address_chain = frozenset("0123456789abcdefABCDEF:[]")
+    while left > 0 and start - left < max_address_chars and text[left - 1] in address_chain:
         left -= 1
     right = end
-    while right < len(text) and right - end < _MAX_ADDRESS_CHARS and text[right] in _ADDRESS_CHAIN:
+    while right < len(text) and right - end < max_address_chars and text[right] in address_chain:
         right += 1
     return (
-        not ((left > 0 and text[left - 1] in _ADDRESS_CHAIN) or (right < len(text) and text[right] in _ADDRESS_CHAIN))
+        not ((left > 0 and text[left - 1] in address_chain) or (right < len(text) and text[right] in address_chain))
         and right - left > end - start
         and _is_ipv6_literal(text[left:right])
     )

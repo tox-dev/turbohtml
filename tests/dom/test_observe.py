@@ -12,23 +12,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
 
 
-def _element(node: Node | None) -> Element:
-    assert isinstance(node, Element)
-    return node
-
-
-def _tags(nodes: Iterable[Node]) -> list[str]:
-    return [_element(node).tag for node in nodes]
-
-
-def _div(markup: str = "<div id=a></div>") -> Element:
-    return _element(parse(markup).find(id="a"))
-
-
-def _first_child(markup: str) -> Node:
-    return _element(parse(markup).find("div")).children[0]
-
-
 def test_child_list_append_record_shape() -> None:
     div = _div("<div id=a><span></span></div>")
     observer = MutationObserver()
@@ -37,14 +20,20 @@ def test_child_list_append_record_shape() -> None:
     div.append(added)
     (record,) = observer.take_records()
     assert isinstance(record, MutationRecord)
-    assert record.type == "childList"
-    assert record.target == div
-    assert record.added_nodes == (added,)
-    assert record.removed_nodes == ()
+    assert (record.type, record.target, record.added_nodes, record.removed_nodes) == ("childList", div, (added,), ())
     assert _element(record.previous_sibling).tag == "span"
     assert record.next_sibling is None
     assert record.attribute_name is None
     assert record.old_value is None
+
+
+def _div(markup: str = "<div id=a></div>") -> Element:
+    return _element(parse(markup).find(id="a"))
+
+
+def _element(node: Node | None) -> Element:
+    assert isinstance(node, Element)
+    return node
 
 
 def test_take_records_drains_the_queue() -> None:
@@ -75,6 +64,10 @@ def test_insert_after_and_index_insert_record() -> None:
     span.insert_after(Element("b"))
     div.insert(0, Element("i"))
     assert [_tags(record.added_nodes) for record in observer.take_records()] == [["b"], ["i"]]
+
+
+def _tags(nodes: Iterable[Node]) -> list[str]:
+    return [_element(node).tag for node in nodes]
 
 
 def test_extend_records_one_per_child() -> None:
@@ -176,8 +169,7 @@ def test_attribute_added_reports_no_old_value() -> None:
     observer.observe(div, attributes=True, attribute_old_value=True)
     div.attrs["data-x"] = "1"
     (record,) = observer.take_records()
-    assert record.type == "attributes"
-    assert record.attribute_name == "data-x"
+    assert (record.type, record.attribute_name) == ("attributes", "data-x")
     assert record.old_value is None
 
 
@@ -215,8 +207,7 @@ def test_attribute_delete_records_old_value() -> None:
     observer.observe(div, attributes=True, attribute_old_value=True)
     del div.attrs["data-x"]
     (record,) = observer.take_records()
-    assert record.attribute_name == "data-x"
-    assert record.old_value == "gone"
+    assert (record.attribute_name, record.old_value) == ("data-x", "gone")
 
 
 def test_attribute_filter_limits_names() -> None:
@@ -262,6 +253,10 @@ def test_character_data_old_value_implies_character_data() -> None:
     assert len(observer.take_records()) == 1
 
 
+def _first_child(markup: str) -> Node:
+    return _element(parse(markup).find("div")).children[0]
+
+
 def test_character_data_records_old_value() -> None:
     text = _first_child("<div>hello</div>")
     assert isinstance(text, Text)
@@ -269,8 +264,7 @@ def test_character_data_records_old_value() -> None:
     observer.observe(text, character_data=True, character_data_old_value=True)
     text.data = "world"
     (record,) = observer.take_records()
-    assert record.type == "characterData"
-    assert record.old_value == "hello"
+    assert (record.type, record.old_value) == ("characterData", "hello")
 
 
 def test_character_data_without_flag_reports_none() -> None:
@@ -625,7 +619,7 @@ def test_non_iterable_attribute_filter_is_rejected() -> None:
 @pytest.mark.parametrize("attributes", [False, True], ids=["wrong-kind", "unrelated"])
 def test_observer_overlap_keeps_old_value(*, attributes: bool) -> None:
     root: Final = Element("div")
-    root.set_inner_html('<section><p data-x="before"></p></section>' + "<span></span>" * 100)
+    root.set_inner_html(f'<section><p data-x="before"></p></section>{"<span></span>" * 100}')
     observer: Final = MutationObserver()
     for node in root.select("span"):
         observer.observe(node, child_list=not attributes, attributes=attributes, subtree=True)

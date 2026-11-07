@@ -24,6 +24,18 @@ class Article(NamedTuple):
     whitespace-normalized or ``None`` when the source is absent. ``tags`` collects every ``<meta name=keywords>`` value
     (comma-split) and ``article:tag`` in document order, an empty tuple when none appear. This makes
     :meth:`~turbohtml.Node.article` a one-call replacement for trafilatura and newspaper3k.
+
+    :param element:
+    :param text:
+    :param title:
+    :param byline:
+    :param date:
+    :param description:
+    :param lang:
+    :param canonical:
+    :param site_name:
+    :param tags:
+    :param image:
     """
 
     element: Element | None
@@ -40,3 +52,8 @@ class Article(NamedTuple):
 
 
 _register_article(Article)
+
+
+__all__ = [
+    "Article",
+]

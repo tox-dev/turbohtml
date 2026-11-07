@@ -1,10 +1,3 @@
-"""The XPath entry points return what their stubs declare, for every XPath 1.0 result kind.
-
-A static checker trusts the ``.pyi`` return annotation, so each runtime result is checked against
-the annotation parsed from the stub itself: a stub that narrows the union (drops ``float`` for
-``count()``, or ``Node`` for a comment node) fails here.
-"""
-
 from __future__ import annotations
 
 import ast

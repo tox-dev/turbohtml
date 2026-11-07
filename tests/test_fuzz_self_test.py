@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 # numbers from three regions, an extension, an email and a URL, so a linkify walk splits the run into many nodes
-_TEXT: Final = (
+_TEXT: Final[str] = (
     "Call +1 650-253-0000 or (650) 253-0000 ext. 123, London +44 20 7946 0958, Berlin 030 123456, "
     "mail a@example.com or see https://example.com/x"
 )
@@ -91,13 +91,13 @@ if TYPE_CHECKING:
 _SANITIZER: Final = Sanitizer(Policy.strict())
 # Elements only: a text node would add a lazy text copy, which these tests do not target. The custom attribute names
 # make every copy intern them again in its own tree.
-_TREE: Final = "<b zq=1><i></i></b><x y=1></x>"
+_TREE: Final[str] = "<b zq=1><i></i></b><x y=1></x>"
 _LONG_TEXT: Final = "a" * 8192
 # the input, the radio and the option carry enough attributes that adding value, checked or selected outgrows their
 # arena block
-_INPUT: Final = "<input a0=1 a1=1 a2=1>"
-_RADIO: Final = "<form id=f></form><input type=radio name=r form=f a=1 b=2 c=3 d=4 e=5 f=6 g=7>"
-_SELECT: Final = "<select><option value=a a0=1 a1=1></option></select>"
+_INPUT: Final[str] = "<input a0=1 a1=1 a2=1>"
+_RADIO: Final[str] = "<form id=f></form><input type=radio name=r form=f a=1 b=2 c=3 d=4 e=5 f=6 g=7>"
+_SELECT: Final[str] = "<select><option value=a a0=1 a1=1></option></select>"
 
 
 @pytest.mark.fuzz_build
@@ -136,6 +136,13 @@ def test_source_location_allocation_failure_raises_memory_error(alloc_sweep: Cal
     ) == {"MemoryError"}
 
 
+@pytest.mark.fuzz_build
+def test_treebuild_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+    assert set(
+        alloc_sweep(lambda _: parse_into("<!doctype html><?target data><p a=x>text</p>", _AllocationTreeBuilder()))
+    ) == {"MemoryError"}
+
+
 class _AllocationTreeBuilder:
     @staticmethod
     def create_document() -> list[object]:
@@ -167,15 +174,8 @@ class _AllocationTreeBuilder:
 
 
 @pytest.mark.fuzz_build
-def test_treebuild_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    assert set(
-        alloc_sweep(lambda _: parse_into("<!doctype html><?target data><p a=x>text</p>", _AllocationTreeBuilder()))
-    ) == {"MemoryError"}
-
-
-@pytest.mark.fuzz_build
 def test_conformance_lazy_text_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    assert set(alloc_sweep(check, lambda: parse("<title>" + "a" * 8192 + "</title>"))) == {"MemoryError"}
+    assert set(alloc_sweep(check, lambda: parse(f"<title>{'a' * 8192}</title>"))) == {"MemoryError"}
 
 
 if TYPE_CHECKING:
@@ -263,15 +263,15 @@ if TYPE_CHECKING:
 
 # duplicate and dynamic attribute names, a non-ASCII name, leading text and a misnested formatting run reach the
 # attribute sink, the dynamic name table, the text copy and the open-element stack
-_SEED: Final = "  x<p zq=1 zq=2 \u00e9t\u00e9=3>t</p><b><i>u</b>v<table><td>w"
+_SEED: Final[str] = "  x<p zq=1 zq=2 \u00e9t\u00e9=3>t</p><b><i>u</b>v<table><td>w"
 # a selected option fills the select's selectedcontent cache, which the parse allocates on first use
-_ALLOC_TREE_BUILDER_SELECT: Final = (
+_ALLOC_TREE_BUILDER_SELECT: Final[str] = (
     "<select><button><selectedcontent></selectedcontent></button><option selected>a</option></select>"
 )
 # text that opens no element: the implied html, head and body and the text run allocate in one token
-_UNCLOSED: Final = "d>\n (min-width: 600px) { .grid {"
+_UNCLOSED: Final[str] = "d>\n (min-width: 600px) { .grid {"
 # namespaced and plain attribute names the XML parser interns into the tree's dynamic table
-_STYLESHEET: Final = (
+_STYLESHEET: Final[str] = (
     '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
     '<xsl:param name="value"/><xsl:template match="/"><xsl:value-of select="$value"/></xsl:template></xsl:stylesheet>'
 )
@@ -513,15 +513,13 @@ _HOOKS: Final = vars(importlib.import_module("turbohtml._html"))
 
 @pytest.fixture
 def alloc_sweep() -> Callable[..., list[str]]:
-    """
-    Fail each PyMem allocation of a call in turn and name what each failure produced.
-
-    A count-only run (position 0) measures the call's allocations, then runs 1..N each fail one of them, the failure
-    libxml2's fuzzers inject at one chosen position (``xmlFuzzInjectFailure`` in its ``fuzz/fuzz.c``). Each entry is
-    the escaping exception's name or ``result``, with a suffix when the injected failure never fired. ``setup`` builds
-    a fresh argument for each run outside the injection window, so a cache the first run fills cannot shift later
-    positions.
-    """
+    # Fail each PyMem allocation of a call in turn and name what each failure produced.
+    #
+    # A count-only run (position 0) measures the call's allocations, then runs 1..N each fail one of them, the failure
+    # libxml2's fuzzers inject at one chosen position (``xmlFuzzInjectFailure`` in its ``fuzz/fuzz.c``). Each entry is
+    # the escaping exception's name or ``result``, with a suffix when the injected failure never fired. ``setup`` builds
+    # a fresh argument for each run outside the injection window, so a cache the first run fills cannot shift later
+    # positions.
     if "_fuzz_inject_failure" not in _HOOKS:
         pytest.fail("fuzz-build tests need the fuzz-only build: meson setup -Dfuzzing=true")
     inject: Final[Callable[[int], tuple[int, bool]]] = _HOOKS["_fuzz_inject_failure"]
@@ -595,7 +593,7 @@ def test_xslt_number_allocation_failure_raises_memory_error(alloc_sweep: Callabl
 
 
 # lazily built defines and every name class form, so both the compile and the validation derivatives allocate patterns
-_RELAXNG: Final = (
+_RELAXNG: Final[str] = (
     '<grammar xmlns="http://relaxng.org/ns/structure/1.0" '
     'datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes"><start><ref name="doc"/></start>'
     '<define name="doc"><element name="doc"><attribute name="id"><data type="int">'
@@ -718,7 +716,7 @@ def test_text_table_allocation_failure_raises_memory_error(
                 if annotated
                 else cast("turbohtml.Document", document).to_text()
             ),
-            lambda: parse("<table><tr><td>" + "word " * 100 + "</td></tr></table>"),
+            lambda: parse(f"<table><tr><td>{'word ' * 100}</td></tr></table>"),
         )
     ) == {"MemoryError"}
 
@@ -798,7 +796,7 @@ if TYPE_CHECKING:
 
 # three compounds, two arms, a forgiving :is() list and a relative :has() argument grow every parser buffer; the
 # tag-subject selectors build the document's element index
-_SELECTOR: Final = "main > p[zq] a, :is(b, i, [zq]) :has(> a)"
+_SELECTOR: Final[str] = "main > p[zq] a, :is(b, i, [zq]) :has(> a)"
 
 
 def _document() -> turbohtml.Document:
@@ -930,7 +928,7 @@ def test_lazy_text_allocation_failure_raises_memory_error(
     assert set(alloc_sweep(call, setup)) == {"MemoryError"}
 
 
-_ARTICLE: Final = f"<html><body><article><p>{_BIG},</p></article></body></html>"
+_ARTICLE: Final[str] = f"<html><body><article><p>{_BIG},</p></article></body></html>"
 _EMPTY_CONTENT: Final = XMLSchema(
     '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
     '<xs:element name="r"><xs:complexType><xs:sequence/></xs:complexType></xs:element>'
@@ -988,8 +986,8 @@ if TYPE_CHECKING:
 
     from turbohtml import Document
 
-_SIBLINGS: Final = parse_xml("<r>" + "<a/>" * 100 + "</r>")
-_NESTED: Final = "count(//a[count(//a[count(//a) > 0]) > 0])"
+_SIBLINGS: Final = parse_xml(f"<r>{'<a/>' * 100}</r>")
+_NESTED: Final[str] = "count(//a[count(//a[count(//a) > 0]) > 0])"
 _DOUBLING: Final = parse_xml(
     '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
     '<xsl:output method="text"/><xsl:param name="depth"/>'
@@ -1067,7 +1065,7 @@ if TYPE_CHECKING:
         def path(self) -> str: ...
 
 
-_CONSUME: Final = """
+_CONSUME: Final[str] = """
 import sys
 from pathlib import Path
 from typing import Final
@@ -1079,7 +1077,7 @@ _TARGET.run(payload, header)
 """
 
 # the window results go to preallocated slots, since an append would allocate inside the window and take the failure
-_FAIL: Final = """
+_FAIL: Final[str] = """
 import sys
 from pathlib import Path
 from fuzz.atheris_runtime import failure_hook, rejecting_callback
@@ -1101,7 +1099,7 @@ assert windows[1][1], windows
 """
 
 
-_LIST: Final = """
+_LIST: Final[str] = """
 import json
 from fuzz.generation_targets import encoding_observation, generation_targets
 assert encoding_observation(b"<p>\\xe9</p>", "windows-1252") == "é"
@@ -1137,7 +1135,7 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
     assert (targets["owners"], len(targets["targets"])) == (223, 34)
     generated_seeds: Final[dict[str, bytes]] = {}
     for profile in ("html", "xml", "css-stylesheet", "markdown-source", "markdown-html", "encoding"):
-        generated: Final = tmp_path / ("generated-" + profile)
+        generated: Final = tmp_path / (f"generated-{profile}")
         run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed interpreter and finite production sweep.
             [
                 sys.executable,
@@ -1151,7 +1149,7 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
                 "--output",
                 str(generated),
             ],
-            env={**environment, "GCOV_PREFIX": str(tmp_path / (profile + "-generation-gcda"))},
+            env={**environment, "GCOV_PREFIX": str(tmp_path / (f"{profile}-generation-gcda"))},
             capture_output=True,
             check=True,
         )
@@ -1236,7 +1234,7 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
             "corpus": str(corpus),
             "native_counter_files": len(native_counters),
         }
-    (tmp_path / "public-targets.json").write_text(json.dumps(outcomes, indent=2) + "\n", encoding="utf-8")
+    (tmp_path / "public-targets.json").write_text(f"{json.dumps(outcomes, indent=2)}\n", encoding="utf-8")
 
 
 @pytest.mark.atheris_native
@@ -1262,7 +1260,7 @@ def test_atheris_failure_header_reaches_allocator_hook(tmp_path: Path) -> None:
     )
 
 
-_TARGET: Final = """
+_TARGET: Final[str] = """
 from __future__ import annotations
 
 import ctypes
@@ -1290,7 +1288,7 @@ def consume(data: bytes) -> None:
         raise UnicodeError("documented control")
 """
 
-_CHILD: Final = """
+_CHILD: Final[str] = """
 from __future__ import annotations
 
 import sys
@@ -1330,8 +1328,7 @@ fuzz(
 def test_atheris_native_corpus_rejection(tmp_path: Path) -> None:
     if sys.platform != "linux" or importlib.util.find_spec("atheris") is None:
         pytest.skip("Atheris's released runtime requires Linux and its optional wheel")
-    runtime = cast("_Runtime", importlib.import_module("atheris"))
-    archive = Path(runtime.path()) / "libclang_rt.fuzzer_no_main.a"
+    archive = Path(cast("_Runtime", importlib.import_module("atheris")).path()) / "libclang_rt.fuzzer_no_main.a"
     library = build_runtime(archive, tmp_path / "build", coverage=True)
     (tmp_path / "capability_target.py").write_text(_TARGET, encoding="utf-8")
     child = tmp_path / "child.py"

@@ -1,13 +1,3 @@
-"""Identifier mangling: exact renames plus a behavior differential under Node.
-
-The string cases pin specific renames (parameters, locals, closures, block scope,
-shorthand) and the safety rules (``with`` / ``eval`` poison a scope, globals and
-property names are never renamed). ``test_mangling_preserves_behavior`` is the real
-correctness gate: it runs each snippet and its minified form under Node and asserts
-identical output, so any capture or mis-resolution is caught. It is skipped when Node
-is unavailable (e.g. the CI unit environment) - the string cases still run there.
-"""
-
 from __future__ import annotations
 
 import shutil
@@ -480,25 +470,25 @@ _BS = chr(0x5C)  # backslash, kept out of the literals so the \u escapes are una
         # a Unicode-escaped IdentifierName is the same binding as its plain spelling (ECMA-262 §12.7), so
         # the declaration and the use link and rename together instead of the use being dropped as free (#438)
         pytest.param(
-            "function f(){var " + _BS + "u0061bc=1;return abc+abc}",
+            f"function f(){{var {_BS}u0061bc=1;return abc+abc}}",
             "function f(){return 2}",
             id="escaped-declaration-plain-use",
         ),
         pytest.param(
-            "function f(){var abc=1;return " + _BS + "u0061bc+abc}",
+            f"function f(){{var abc=1;return {_BS}u0061bc+abc}}",
             "function f(){return 2}",
             id="plain-declaration-escaped-use",
         ),
         # a braced \u{...} escape in an identifier decodes to the same StringValue
         pytest.param(
-            "function f(){var " + _BS + "u{61}bc=1;return abc+abc}",
+            f"function f(){{var {_BS}u{{61}}bc=1;return abc+abc}}",
             "function f(){return 2}",
             id="braced-escape-declaration",
         ),
         # a local shadow of `undefined` spelled with an escape still shadows, so `undefined` is not the
         # global and must not fold to `void 0`
         pytest.param(
-            "function f(){var " + _BS + "u0075ndefined=1;return undefined}",
+            f"function f(){{var {_BS}u0075ndefined=1;return undefined}}",
             "function f(){return 1}",
             id="escaped-undefined-shadow-kept",
         ),
@@ -513,11 +503,11 @@ def test_escaped_identifier_binds_as_stringvalue(source: str, expected: str) -> 
     "snippet",
     [
         pytest.param(
-            "(function(){var " + _BS + "u0061bc=5;return abc})()",
+            f"(function(){{var {_BS}u0061bc=5;return abc}})()",
             id="escaped-declaration",
         ),
         pytest.param(
-            "(function(){var abc=5;return " + _BS + "u0061bc})()",
+            f"(function(){{var abc=5;return {_BS}u0061bc}})()",
             id="escaped-use",
         ),
     ],

@@ -37,7 +37,7 @@ Profiles = dict[str, list[tuple[str, list[tuple[int, int, int]]]]]
 
 
 def require(match: re.Match[str] | None, what: str) -> re.Match[str]:
-    """Return the match, or abort with a clear message when whatlang's layout has drifted."""
+    # Return the match, or abort with a clear message when whatlang's layout has drifted.
     if match is None:
         msg = f"{what} not found; whatlang layout changed"
         raise SystemExit(msg)
@@ -45,7 +45,7 @@ def require(match: re.Match[str] | None, what: str) -> re.Match[str]:
 
 
 def parse_char_literal(token: str) -> int:
-    r"""Return the code point of a Rust char literal: ``'a'`` or ``'\u{1D2B}'``."""
+    # Return the code point of a Rust char literal: ``'a'`` or ``'\u{1D2B}'``.
     token = token.strip()
     inner = token[1:-1]
     if inner.startswith("\\u{"):
@@ -56,7 +56,7 @@ def parse_char_literal(token: str) -> int:
 
 
 def parse_script_ranges(chars_src: str) -> dict[str, list[tuple[int, int]]]:
-    """Parse each ``is_<name>`` matches! body into a list of inclusive code-point ranges."""
+    # Parse each ``is_<name>`` matches! body into a list of inclusive code-point ranges.
     ranges: dict[str, list[tuple[int, int]]] = {}
     for name, body in re.findall(
         r"fn is_(\w+)\(ch: char\) -> bool \{\s*matches!\(ch,\s*(.*?)\)\s*\}", chars_src, re.DOTALL
@@ -77,7 +77,7 @@ def parse_script_ranges(chars_src: str) -> dict[str, list[tuple[int, int]]]:
 
 
 def parse_script_order(detect_src: str) -> list[tuple[str, str]]:
-    """Parse the ``script_counters`` array into ordered (Script, is_<fn>) pairs; the index is the script id."""
+    # Parse the ``script_counters`` array into ordered (Script, is_<fn>) pairs; the index is the script id.
     block = re.search(r"let mut script_counters: \[ScriptCounter; 25\] = \[(.*?)\n    \];", detect_src, re.DOTALL)
     if block is None:
         msg = "script_counters array not found; whatlang layout changed"
@@ -90,7 +90,7 @@ def parse_script_order(detect_src: str) -> list[tuple[str, str]]:
 
 
 def parse_lang_groups(grouping_src: str) -> dict[str, tuple[str, str]]:
-    """Parse ``to_lang_group`` into Script -> (kind, payload): ('multi', mls) | ('one', lang) | ('mandarin', '')."""
+    # Parse ``to_lang_group`` into Script -> (kind, payload): ('multi', mls) | ('one', lang) | ('mandarin', '').
     block = re.search(r"fn to_lang_group.*?match self \{(.*?)\n        \}", grouping_src, re.DOTALL)
     if block is None:
         msg = "to_lang_group match not found; whatlang layout changed"
@@ -98,8 +98,7 @@ def parse_lang_groups(grouping_src: str) -> dict[str, tuple[str, str]]:
     groups: dict[str, tuple[str, str]] = {}
     for scripts, raw_arm in re.findall(r"((?:Script::\w+(?:\s*\|\s*)?)+)\s*=>\s*([^,]+),", block.group(1)):
         names = re.findall(r"Script::(\w+)", scripts)
-        arm = raw_arm.strip()
-        if arm == "Mandarin":
+        if (arm := raw_arm.strip()) == "Mandarin":
             target = ("mandarin", "")
         elif (multi := re.fullmatch(r"Multi\(MLS::(\w+)\)", arm)) is not None:
             target = ("multi", multi.group(1))
@@ -111,7 +110,7 @@ def parse_lang_groups(grouping_src: str) -> dict[str, tuple[str, str]]:
 
 
 def parse_lang_table(lang_src: str) -> tuple[list[str], dict[str, str], dict[str, str]]:
-    """Parse the Lang enum order plus lang_to_code and lang_to_eng_name maps, keyed by the Lang variant."""
+    # Parse the Lang enum order plus lang_to_code and lang_to_eng_name maps, keyed by the Lang variant.
     values = require(re.search(r"const VALUES: \[Lang; 70\] = \[(.*?)\];", lang_src, re.DOTALL), "VALUES array")
     order = re.findall(r"Lang::(\w+)", values.group(1))
     code_fn = require(re.search(r"fn lang_to_code.*?\n\}", lang_src, re.DOTALL), "lang_to_code").group()
@@ -125,7 +124,7 @@ def parse_lang_table(lang_src: str) -> tuple[list[str], dict[str, str], dict[str
 
 
 def parse_profiles(profiles_src: str) -> Profiles:
-    """Parse each ``*_LANGS`` static into an ordered list of (Lang, [trigram code-point triples])."""
+    # Parse each ``*_LANGS`` static into an ordered list of (Lang, [trigram code-point triples]).
     out: Profiles = {}
     for static in _PROFILE_STATICS:
         block = re.search(rf"pub static {static}: LangProfileList = &\[(.*?)\n\];", profiles_src, re.DOTALL)
@@ -143,14 +142,12 @@ def parse_profiles(profiles_src: str) -> Profiles:
 def flatten_ranges(
     order: list[tuple[str, str]], ranges: dict[str, list[tuple[int, int]]]
 ) -> list[tuple[int, int, int]]:
-    """
-    Merge every script's ranges into one disjoint (low, high, script_id) list, sorted by low.
-
-    A handful of whatlang ranges overlap (e.g. U+1D2B sits in both the Latin Phonetic Extensions
-    block and is separately claimed by Cyrillic). whatlang resolves such a code point by first match
-    in its initial script order, so the earlier-listed script wins; the table gives that script
-    priority and subtracts the overlap from the later one, keeping the ranges disjoint for a lookup.
-    """
+    # Merge every script's ranges into one disjoint (low, high, script_id) list, sorted by low.
+    #
+    # A handful of whatlang ranges overlap (e.g. U+1D2B sits in both the Latin Phonetic Extensions
+    # block and is separately claimed by Cyrillic). whatlang resolves such a code point by first match
+    # in its initial script order, so the earlier-listed script wins; the table gives that script
+    # priority and subtracts the overlap from the later one, keeping the ranges disjoint for a lookup.
     claimed: list[tuple[int, int]] = []
     merged: list[tuple[int, int, int]] = []
     for script_id, (_script, fn_name) in enumerate(order):
@@ -163,7 +160,7 @@ def flatten_ranges(
 
 
 def subtract_claimed(low: int, high: int, claimed: list[tuple[int, int]]) -> list[tuple[int, int]]:
-    """Return the parts of [low, high] not already covered by a claimed interval."""
+    # Return the parts of [low, high] not already covered by a claimed interval.
     pieces = [(low, high)]
     for claim_low, claim_high in claimed:
         pieces = [seg for piece in pieces for seg in cut(piece, claim_low, claim_high)]
@@ -171,7 +168,7 @@ def subtract_claimed(low: int, high: int, claimed: list[tuple[int, int]]) -> lis
 
 
 def cut(piece: tuple[int, int], claim_low: int, claim_high: int) -> list[tuple[int, int]]:
-    """Remove [claim_low, claim_high] from one [low, high] segment, yielding the surviving sub-segments."""
+    # Remove [claim_low, claim_high] from one [low, high] segment, yielding the surviving sub-segments.
     low, high = piece
     if claim_high < low or claim_low > high:
         return [piece]
@@ -184,7 +181,7 @@ def cut(piece: tuple[int, int], claim_low: int, claim_high: int) -> list[tuple[i
 
 
 def union_interval(claimed: list[tuple[int, int]], low: int, high: int) -> list[tuple[int, int]]:
-    """Add [low, high] to a set of intervals, merging any that now touch or overlap."""
+    # Add [low, high] to a set of intervals, merging any that now touch or overlap.
     merged = sorted([*claimed, (low, high)])
     out: list[tuple[int, int]] = []
     for start, stop in merged:
@@ -196,7 +193,7 @@ def union_interval(claimed: list[tuple[int, int]], low: int, high: int) -> list[
 
 
 def emit_banner(revision: str) -> list[str]:
-    """Build the header comment recording provenance and the one include the tables need."""
+    # Build the header comment recording provenance and the one include the tables need.
     return [
         "/* Generated by tools/generate_language_detector.py from whatlang",
         "   (https://github.com/greyblake/whatlang-rs, MIT, Copyright Sergey Potapov) at",
@@ -213,7 +210,7 @@ def emit_banner(revision: str) -> list[str]:
 
 
 def emit_scripts(order: list[tuple[str, str]], lang_id: dict[str, int]) -> list[str]:
-    """Build the script id enum, the script-name table, and the two language-id defines the detector needs."""
+    # Build the script id enum, the script-name table, and the two language-id defines the detector needs.
     return [
         "enum {",
         *(f"    TH_LANG_SCRIPT_{script.upper()} = {index}," for index, (script, _fn) in enumerate(order)),
@@ -231,7 +228,7 @@ def emit_scripts(order: list[tuple[str, str]], lang_id: dict[str, int]) -> list[
 
 
 def emit_ranges(merged_ranges: list[tuple[int, int, int]]) -> list[str]:
-    """Render the sorted, disjoint code-point range table the script lookup scans."""
+    # Render the sorted, disjoint code-point range table the script lookup scans.
     return [
         "typedef struct {",
         "    uint32_t low;",
@@ -247,7 +244,7 @@ def emit_ranges(merged_ranges: list[tuple[int, int, int]]) -> list[str]:
 
 
 def emit_meta(lang_order: list[str], lang_code: dict[str, str], lang_eng: dict[str, str]) -> list[str]:
-    """Render the per-language ISO 639-3 code and English name, indexed by language id."""
+    # Render the per-language ISO 639-3 code and English name, indexed by language id.
     return [
         "typedef struct {",
         "    const char *code;",
@@ -262,7 +259,7 @@ def emit_meta(lang_order: list[str], lang_code: dict[str, str], lang_eng: dict[s
 
 
 def emit_groups(order: list[tuple[str, str]], groups: dict[str, tuple[str, str]], lang_id: dict[str, int]) -> list[str]:
-    """Render the per-script classification: single language, multi-language script, or Mandarin."""
+    # Render the per-script classification: single language, multi-language script, or Mandarin.
     multi_index = {name: index for index, name in enumerate(_MULTI_SCRIPTS)}
     rows: list[str] = []
     for script, _fn in order:
@@ -290,7 +287,7 @@ def emit_groups(order: list[tuple[str, str]], groups: dict[str, tuple[str, str]]
 
 
 def emit_trigram_arrays(profiles: Profiles, lang_code: dict[str, str]) -> list[str]:
-    """Render key-sorted trigram and source-rank arrays for each language."""
+    # Render key-sorted trigram and source-rank arrays for each language.
     lines: list[str] = []
     for static in _PROFILE_STATICS:
         for lang, trigrams in profiles[static]:
@@ -310,7 +307,7 @@ def emit_trigram_arrays(profiles: Profiles, lang_code: dict[str, str]) -> list[s
 
 
 def emit_profile_lists(profiles: Profiles, lang_code: dict[str, str], lang_id: dict[str, int]) -> list[str]:
-    """Render each script's language-to-trigram-array table and the script-indexed list of those tables."""
+    # Render each script's language-to-trigram-array table and the script-indexed list of those tables.
     lines = [
         "",
         "typedef struct {",
@@ -347,7 +344,7 @@ def emit_profile_lists(profiles: Profiles, lang_code: dict[str, str], lang_id: d
 
 
 def emit(whatlang: Path) -> str:
-    """Return the full generated C header for a whatlang checkout."""
+    # Return the full generated C header for a whatlang checkout.
     src = whatlang / "src"
     order = parse_script_order((src / "scripts" / "detect.rs").read_text(encoding="utf-8"))
     ranges = parse_script_ranges((src / "scripts" / "chars.rs").read_text(encoding="utf-8"))
@@ -371,7 +368,7 @@ def emit(whatlang: Path) -> str:
 
 
 def main() -> None:
-    """Write the generated header to the path in argv[2]."""
+    # Write the generated header to the path in argv[2].
     if len(sys.argv) != 3:
         msg = "usage: generate_language_detector.py <whatlang-rs-checkout> <output.h>"
         raise SystemExit(msg)

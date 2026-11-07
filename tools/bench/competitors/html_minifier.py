@@ -13,7 +13,7 @@ REQUIREMENTS = ()
 
 
 def minify(text: str) -> str:
-    """Minify HTML by piping through html-minifier-terser with turbohtml's conservative fold flags over stdin."""
+    # Minify HTML by piping through html-minifier-terser with turbohtml's conservative fold flags over stdin.
     return subprocess.run(
         ["html-minifier-terser", "--collapse-whitespace", "--remove-comments", "--remove-attribute-quotes"],
         input=text,

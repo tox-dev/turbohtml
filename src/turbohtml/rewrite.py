@@ -27,15 +27,6 @@ from ._html import _rewrite, _RewriteHandle
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-__all__ = [
-    "CommentHandler",
-    "DoctypeHandler",
-    "Element",
-    "ElementHandler",
-    "TextHandler",
-    "rewrite",
-]
-
 Element = _RewriteHandle
 """The node handle a rewrite handler receives.
 
@@ -115,3 +106,13 @@ def rewrite(
         combinator, a positional or structural pseudo-class, or ``:has()``).
     """
     return _rewrite(html, tuple(elements), text, comments, doctype)
+
+
+__all__ = [
+    "CommentHandler",
+    "DoctypeHandler",
+    "Element",
+    "ElementHandler",
+    "TextHandler",
+    "rewrite",
+]

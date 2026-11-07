@@ -48984,4 +48984,8 @@ CSS_ROWS: Final[tuple[CssRow, ...]] = (
     ("blink-css.dict", 1512, "dictionary", "0", "a{--probe:0}", 38, 7, 9, 5, 0, False),
 )
 
-__all__ = ["CSS_ROWS", "SOURCE_URLS", "CssRow"]
+__all__ = [
+    "CSS_ROWS",
+    "SOURCE_URLS",
+    "CssRow",
+]

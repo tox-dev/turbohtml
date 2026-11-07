@@ -1,13 +1,3 @@
-"""Behavioral tests for the pluggable tree builder (turbohtml.treebuild).
-
-The builder is driven two ways: against explicit expectations for the tricky
-tree-construction cases (implied tags, foreign namespaces, template content, the
-processing-instruction and doctype-identifier variants), and against turbohtml's own
-DOM-less SAX walk of the same markup, which shares the tree builder and the same PI
-distinction, so flattening the builder tree back to an event stream must reproduce it
-across a corpus.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -37,44 +27,41 @@ from turbohtml.saxparse import (
 )
 from turbohtml.treebuild import parse_into
 
-HTML_NS = "http://www.w3.org/1999/xhtml"
-SVG_NS = "http://www.w3.org/2000/svg"
-MATHML_NS = "http://www.w3.org/1998/Math/MathML"
+_HTML_NS: Final[str] = "http://www.w3.org/1999/xhtml"
+_SVG_NS: Final[str] = "http://www.w3.org/2000/svg"
+_MATHML_NS: Final[str] = "http://www.w3.org/1998/Math/MathML"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Built:
-    """A captured builder node: the method that made it and the payload it carried."""
-
+    # A captured builder node: the method that made it and the payload it carried.
     kind: str
     payload: tuple[Any, ...]
     children: list[Built] = field(default_factory=list)
 
 
 class Recorder:
-    """A :class:`turbohtml.treebuild.TreeBuilder` that records every call into a plain tree.
-
-    Every method is an instance method because :func:`~turbohtml.treebuild.parse_into` resolves the builder's methods
-    off the instance, so ``self`` is never referenced -- hence the per-method PLR6301 waivers.
-    """
-
+    # A :class:`turbohtml.treebuild.TreeBuilder` that records every call into a plain tree.
+    #
+    # Every method is an instance method because :func:`~turbohtml.treebuild.parse_into` resolves the builder's methods
+    # off the instance, so ``self`` is never referenced -- hence the per-method PLR6301 waivers.
     def create_document(self) -> Built:  # ruff:ignore[no-self-use]
-        return Built("document", ())
+        return Built(kind="document", payload=())
 
     def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> Built:  # ruff:ignore[no-self-use]
-        return Built("doctype", (name, public_id, system_id))
+        return Built(kind="doctype", payload=(name, public_id, system_id))
 
     def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> Built:  # ruff:ignore[no-self-use]
-        return Built("element", (name, namespace, attrs))
+        return Built(kind="element", payload=(name, namespace, attrs))
 
     def create_text(self, data: str) -> Built:  # ruff:ignore[no-self-use]
-        return Built("text", (data,))
+        return Built(kind="text", payload=(data,))
 
     def create_comment(self, data: str) -> Built:  # ruff:ignore[no-self-use]
-        return Built("comment", (data,))
+        return Built(kind="comment", payload=(data,))
 
     def create_pi(self, target: str, data: str) -> Built:  # ruff:ignore[no-self-use]
-        return Built("pi", (target, data))
+        return Built(kind="pi", payload=(target, data))
 
     def append(self, parent: Built, child: Built) -> None:  # ruff:ignore[no-self-use]
         parent.children.append(child)
@@ -90,17 +77,14 @@ def test_returns_the_document_root_the_builder_made() -> None:
 
 
 def test_implied_html_head_body_are_emitted() -> None:
-    root = build("<p>hi</p>")
-    html = root.children[0]
+    html = build("<p>hi</p>").children[0]
     assert (html.kind, html.payload[0]) == ("element", "html")
     assert [child.payload[0] for child in html.children] == ["head", "body"]
 
 
 def test_element_carries_html_namespace_and_attribute_pairs() -> None:
-    body = build("<p class=x disabled>hi</p>").children[0].children[1]
-    paragraph = body.children[0]
-    assert paragraph.kind == "element"
-    assert paragraph.payload == ("p", HTML_NS, (("class", "x"), ("disabled", None)))
+    paragraph = build("<p class=x disabled>hi</p>").children[0].children[1].children[0]
+    assert (paragraph.kind, paragraph.payload) == ("element", ("p", _HTML_NS, (("class", "x"), ("disabled", None))))
 
 
 @pytest.mark.parametrize(
@@ -118,34 +102,29 @@ def test_element_carries_html_namespace_and_attribute_pairs() -> None:
     ],
 )
 def test_text_node_payload(data: str) -> None:
-    body = build(f"<p>{data.replace('&', '&amp;')}</p>").children[0].children[1]
-    text = body.children[0].children[0]
-    assert text.kind == "text"
-    assert text.payload == (data,)
+    text = build(f"<p>{data.replace('&', '&amp;')}</p>").children[0].children[1].children[0].children[0]
+    assert (text.kind, text.payload) == ("text", (data,))
 
 
 @pytest.mark.parametrize("data", ["note", "", "café", "水", "😀"], ids=["ascii", "empty", "latin1", "bmp", "astral"])
 def test_comment_node_payload(data: str) -> None:
     body = build(f"<body><!--{data}--></body>").children[0].children[1]
-    assert body.children[0].kind == "comment"
-    assert body.children[0].payload == (data,)
+    assert (body.children[0].kind, body.children[0].payload) == ("comment", (data,))
 
 
 def test_processing_instruction_is_distinct_from_comment() -> None:
-    body = build("<body><?php echo 1?></body>").children[0].children[1]
-    node = body.children[0]
-    assert node.kind == "pi"
-    assert node.payload == ("php", "echo 1")
+    node = build("<body><?php echo 1?></body>").children[0].children[1].children[0]
+    assert (node.kind, node.payload) == ("pi", ("php", "echo 1"))
 
 
 def test_svg_and_mathml_carry_their_foreign_namespace() -> None:
     body = build("<svg><circle/></svg><math><mi>x</mi></math>").children[0].children[1]
     svg = body.children[0]
     math = body.children[1]
-    assert svg.payload[1] == SVG_NS
-    assert svg.children[0].payload[1] == SVG_NS
-    assert math.payload[1] == MATHML_NS
-    assert math.children[0].payload[1] == MATHML_NS
+    assert svg.payload[1] == _SVG_NS
+    assert svg.children[0].payload[1] == _SVG_NS
+    assert math.payload[1] == _MATHML_NS
+    assert math.children[0].payload[1] == _MATHML_NS
 
 
 def test_namespace_values_survive_builder_reentry() -> None:
@@ -161,7 +140,7 @@ def test_namespace_values_survive_builder_reentry() -> None:
         svg.children[1].payload[1],
         math.payload[1],
         math.children[0].payload[1],
-    ) == (SVG_NS, SVG_NS, HTML_NS, SVG_NS, MATHML_NS, MATHML_NS)
+    ) == (_SVG_NS, _SVG_NS, _HTML_NS, _SVG_NS, _MATHML_NS, _MATHML_NS)
 
 
 class _NamespaceRecorder(Recorder):
@@ -175,8 +154,7 @@ class _NamespaceRecorder(Recorder):
 
 
 def test_template_content_is_appended_under_the_template() -> None:
-    body = build("<body><template><b>t</b></template></body>").children[0].children[1]
-    template = body.children[0]
+    template = build("<body><template><b>t</b></template></body>").children[0].children[1].children[0]
     assert template.payload[0] == "template"
     assert [(child.kind, child.payload[0]) for child in template.children] == [("element", "b")]
 
@@ -201,8 +179,7 @@ def test_empty_template_has_no_children() -> None:
 )
 def test_doctype_identifier_variants(markup: str, expected: tuple[str, str | None, str | None]) -> None:
     doctype = build(markup).children[0]
-    assert doctype.kind == "doctype"
-    assert doctype.payload == expected
+    assert (doctype.kind, doctype.payload) == ("doctype", expected)
 
 
 def test_foster_parenting_is_reflected() -> None:
@@ -254,6 +231,28 @@ def test_formatting_run_past_depth_cap_does_not_amplify(entry: Callable[[str], i
     assert entry("".join(f"<b c{index}>" for index in range(count)) + "x") == count
 
 
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("<!DOCTYPE html><title>t</title><p id=a>hi<b>x</b></p>", id="basic"),
+        pytest.param("<ul><li>a<li>b</ul>", id="implied-li-close"),
+        pytest.param("<table><tr><td>c</td></tr></table>", id="table"),
+        pytest.param("<p><b><i>abc</p>def", id="adoption-agency"),
+        pytest.param("<div><svg><g><rect/></g></svg><math><mi>y</mi></math></div>", id="foreign"),
+        pytest.param("<body><!--c--><?pi?>text</body>", id="comment-pi-text"),
+        pytest.param("<template><tr><td>x</td></tr></template>", id="template"),
+    ],
+)
+def test_builder_stream_matches_the_sax_walk(markup: str) -> None:
+    assert _events(markup) == list(iter_events(markup))
+
+
+def _events(markup: str) -> list[SaxEvent]:
+    out: list[SaxEvent] = []
+    _flatten(build(markup), out)
+    return out
+
+
 def _flatten(node: Built, out: list[SaxEvent]) -> None:
     if node.kind == "text":
         out.append(Characters(node.payload[0]))
@@ -277,40 +276,18 @@ def _flatten(node: Built, out: list[SaxEvent]) -> None:
         out.append(EndElement(tag))
 
 
-def _events(markup: str) -> list[SaxEvent]:
-    out: list[SaxEvent] = []
-    _flatten(build(markup), out)
-    return out
-
-
-@pytest.mark.parametrize(
-    "markup",
-    [
-        pytest.param("<!DOCTYPE html><title>t</title><p id=a>hi<b>x</b></p>", id="basic"),
-        pytest.param("<ul><li>a<li>b</ul>", id="implied-li-close"),
-        pytest.param("<table><tr><td>c</td></tr></table>", id="table"),
-        pytest.param("<p><b><i>abc</p>def", id="adoption-agency"),
-        pytest.param("<div><svg><g><rect/></g></svg><math><mi>y</mi></math></div>", id="foreign"),
-        pytest.param("<body><!--c--><?pi?>text</body>", id="comment-pi-text"),
-        pytest.param("<template><tr><td>x</td></tr></template>", id="template"),
-    ],
-)
-def test_builder_stream_matches_the_sax_walk(markup: str) -> None:
-    assert _events(markup) == list(iter_events(markup))
-
-
 class _RaisingBuilder(Recorder):
     def __init__(self, at: str) -> None:
         self._at = at
+
+    def create_document(self) -> Built:
+        return self._maybe("create_document", super().create_document())
 
     def _maybe(self, method: str, value: Built) -> Built:
         if method == self._at:
             message = f"boom in {method}"
             raise ValueError(message)
         return value
-
-    def create_document(self) -> Built:
-        return self._maybe("create_document", super().create_document())
 
     def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> Built:
         return self._maybe("create_doctype", super().create_doctype(name, public_id, system_id))
@@ -359,8 +336,7 @@ def test_a_builder_method_that_raises_propagates(method: str, markup: str) -> No
 
 
 class _NoAppend:
-    """Every create_* method, but no ``append``: the bind resolves six methods then fails on the last."""
-
+    # Every create_* method, but no ``append``: the bind resolves six methods then fails on the last.
     create_document = Recorder.create_document
     create_doctype = Recorder.create_doctype
     create_element = Recorder.create_element
@@ -415,20 +391,25 @@ _LxmlEvent = tuple[object, ...]
 
 @pytest.mark.oracle
 class _LxmlNode(Protocol):
-    """lxml provides no stubs for the builder protocol."""
-
+    # lxml provides no stubs for the builder protocol.
     text: str | None
     tail: str | None
 
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, index: int) -> _LxmlNode: ...
+
+    def __iter__(self) -> Iterator[_LxmlNode]: ...
+
     @property
     def tag(self) -> object: ...
+
     @property
     def attrib(self) -> Mapping[str, str]: ...
+
     def set(self, key: str, value: str) -> None: ...
+
     def append(self, child: object) -> None: ...
-    def __len__(self) -> int: ...
-    def __getitem__(self, index: int) -> _LxmlNode: ...
-    def __iter__(self) -> Iterator[_LxmlNode]: ...
 
 
 @pytest.mark.oracle

@@ -18,9 +18,9 @@ from __future__ import annotations
 from functools import cache, partial
 from typing import TYPE_CHECKING, Final
 
-from bench import corpus
-from bench.core import OPERATIONS
-from bench.operations import INPUTS
+from . import corpus
+from .core import OPERATIONS
+from .operations import INPUTS
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -30,13 +30,13 @@ _TEXT_BYTES = 1 << 16  # a 64 kB slice of the book: representative work without 
 
 @cache
 def _spec() -> str:
-    """Return the vendored whatwg HTML spec (235 kB): the read-path operations' shared real document."""
+    # Return the vendored whatwg HTML spec (235 kB): the read-path operations' shared real document.
     _name, relative, encoding = corpus.CORPUS_FILES[5]
     return corpus.corpus_text(relative, encoding)
 
 
 def _xpath_case() -> tuple[str, str]:
-    """Return the ``(kind, document)`` pair the xpath operation expects, over the spec."""
+    # Return the ``(kind, document)`` pair the xpath operation expects, over the spec.
     return "//a[@href]", _spec()
 
 
@@ -97,7 +97,7 @@ _DOCUMENT_OPS = (
     "links-filter",
 )
 
-_LOADERS: dict[str, Callable[[], object]] = dict.fromkeys(_DOCUMENT_OPS, _spec)
+_LOADERS: Final[dict[str, Callable[[], object]]] = dict.fromkeys(_DOCUMENT_OPS, _spec)
 _LOADERS["xpath"] = _xpath_case
 _LOADERS["escape"] = partial(corpus.corpus, "war-and-peace/2600.txt", _TEXT_BYTES)
 _LOADERS["unescape"] = partial(corpus.corpus, "war-and-peace/2600-h/2600-h.htm", _TEXT_BYTES)
@@ -113,17 +113,17 @@ _LOADERS["computed-style"] = lambda: INPUTS["computed-style"]()[0][1]
 
 
 def _spec_case(kind: str) -> tuple[str, str]:
-    """Wrap the spec in the ``(kind, document)`` pair a tuple-shaped operation expects."""
+    # Wrap the spec in the ``(kind, document)`` pair a tuple-shaped operation expects.
     return kind, _spec()
 
 
 def _book_text() -> str:
-    """Return a War-and-Peace plain-text slice: the string operations' large real input."""
+    # Return a War-and-Peace plain-text slice: the string operations' large real input.
     return corpus.corpus("war-and-peace/2600.txt", _TEXT_BYTES)
 
 
 def _book_html() -> str:
-    """Return a War-and-Peace HTML slice: the markup operations' large real input."""
+    # Return a War-and-Peace HTML slice: the markup operations' large real input.
     return corpus.corpus("war-and-peace/2600-h/2600-h.htm", _TEXT_BYTES)
 
 
@@ -138,7 +138,7 @@ def _book_html() -> str:
 # less work, so the old identity retires and the new one gates from its own baseline.
 # ``structured_data()`` likewise has a new identity now that each call copies one immutable tree snapshot before
 # extraction; its old baseline measured six independent reads without the snapshot guarantee.
-_RESIZED: dict[str, tuple[str, Callable[[], object]]] = {
+_RESIZED: Final[dict[str, tuple[str, Callable[[], object]]]] = {
     "socialcard": ("socialcard-spec", _spec),
     "structured": ("structured-snapshot-spec", _spec),
     "sanitize": ("sanitize-spec", _spec),
@@ -529,7 +529,7 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
 
 
 def _inline(operation: str, case_index: int = 0) -> object:
-    """Return one case the bench already defines inline for ``operation`` (no corpus needed)."""
+    # Return one case the bench already defines inline for ``operation`` (no corpus needed).
     return INPUTS[operation]()[case_index][1]
 
 
@@ -586,30 +586,27 @@ _LOADERS.update({
 })
 
 
-def loader_for(operation: str) -> Callable[[], object]:
-    """Return the lazy loader for ``operation``: a resized real corpus, the spec, or the bench's own inline case."""
+def benchmarks() -> Iterator[tuple[str, object, Callable[[], object]]]:
+    # Yield ``(name, callable, load)`` for every turbohtml operation, in registry order.
+    #
+    # A noise-prone inline operation is surfaced under its corpus-qualified id (see :data:`_RESIZED`) so CodSpeed
+    # retires the flaky small-input benchmark and gates the large-input one as a fresh identity.
+    for name, (run, _owner) in OPERATIONS.items():
+        if name == "startup" or name in _ADDITIONAL_CASES:
+            continue  # Explicit cases retain their configured position; startup needs a fresh interpreter.
+        identity = _RESIZED[name][0] if name in _RESIZED else name
+        yield identity, run, _loader_for(name)
+    for identity, (name, case_index) in _ADDITIONAL_CASES.items():
+        yield identity, OPERATIONS[name][0], partial(_inline, name, case_index)
+
+
+def _loader_for(operation: str) -> Callable[[], object]:
+    # Return the lazy loader for ``operation``: a resized real corpus, the spec, or the bench's own inline case.
     if operation in _RESIZED:
         return _RESIZED[operation][1]
     return _LOADERS.get(operation, partial(_inline, operation))
 
 
-def benchmarks() -> Iterator[tuple[str, object, Callable[[], object]]]:
-    """
-    Yield ``(name, callable, load)`` for every turbohtml operation, in registry order.
-
-    A noise-prone inline operation is surfaced under its corpus-qualified id (see :data:`_RESIZED`) so CodSpeed
-    retires the flaky small-input benchmark and gates the large-input one as a fresh identity.
-    """
-    for name, (run, _owner) in OPERATIONS.items():
-        if name == "startup" or name in _ADDITIONAL_CASES:
-            continue  # Explicit cases retain their configured position; startup needs a fresh interpreter.
-        identity = _RESIZED[name][0] if name in _RESIZED else name
-        yield identity, run, loader_for(name)
-    for identity, (name, case_index) in _ADDITIONAL_CASES.items():
-        yield identity, OPERATIONS[name][0], partial(_inline, name, case_index)
-
-
 __all__ = [
     "benchmarks",
-    "loader_for",
 ]

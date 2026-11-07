@@ -29,4 +29,4 @@ OPERATIONS = {
     "detect-language-long": (_detect_language, "langdetect"),
 }
 
-__all__ = ["OPERATIONS", "REQUIREMENTS"]
+__all__ = []

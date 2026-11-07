@@ -16,25 +16,24 @@ REQUIREMENTS = ("hyperpython>=1.1.1", "sidekick<0.7")
 
 
 def build_e(count: int) -> None:
-    """Build a ``<ul>`` of rows with hyperpython's subscript-children syntax and stringify it."""
-    rows = [li(class_="item", data_i=str(index))[f"item {index}"] for index in range(count)]
-    _ = str(ul(rows))
+    # Build a ``<ul>`` of rows with hyperpython's subscript-children syntax and stringify it.
+    _ = str(ul([li(class_="item", data_i=str(index))[f"item {index}"] for index in range(count)]))
 
 
 def construct(count: int) -> None:
-    """Construct ``count`` hyperpython elements with attributes and children, in isolation from stringification."""
+    # Construct ``count`` hyperpython elements with attributes and children, in isolation from stringification.
     for index in range(count):
         li(class_="item", data_i=str(index))[f"item {index}"]
 
 
 @functools.cache
 def _tree(count: int) -> object:
-    """Return a built ``<ul>`` of ``count`` rows, cached so ``str`` times only the emit step."""
+    # Return a built ``<ul>`` of ``count`` rows, cached so ``str`` times only the emit step.
     return ul([li(class_="item", data_i=str(index))[f"item {index}"] for index in range(count)])
 
 
 def emit(count: int) -> None:
-    """Stringify a pre-built ``count``-row tree, in isolation from construction."""
+    # Stringify a pre-built ``count``-row tree, in isolation from construction.
     _ = str(_tree(count))
 
 

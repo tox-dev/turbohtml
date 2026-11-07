@@ -10,7 +10,7 @@ _EXTRACTOR = URLExtract(extract_email=True)
 
 
 def detect(case: tuple[str, str]) -> None:
-    """Scan plain text for URLs with urlextract: find_urls for the list, has_urls for the presence test."""
+    # Scan plain text for URLs with urlextract: find_urls for the list, has_urls for the presence test.
     kind, text = case
     if kind == "find":
         _EXTRACTOR.find_urls(text)

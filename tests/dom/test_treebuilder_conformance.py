@@ -1,10 +1,3 @@
-"""Verify the tree builder against the WPT tree-construction suite.
-
-The committed corpus pins WPT's living ``html/syntax/parsing/resources`` data so
-upstream changes cannot alter CI without a reviewed diff. Every case TurboHTML
-can execute must match its ``#document`` tree.
-"""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final, cast
@@ -14,12 +7,6 @@ from turbohtml import Comment, Doctype, Document, Element, Namespace, Node, Proc
 
 if TYPE_CHECKING:
     from wpt_tree_corpus import WptHtmlTreeCase, WptHtmlTreeCorpus
-
-
-def _build(case: WptHtmlTreeCase) -> str:
-    if (context := case["context"]) is not None:
-        return _html._parse_fragment(case["data"], context, bool(case["scripting"])).rstrip("\n")
-    return _html._parse_tree(case["data"], bool(case["scripting"])).rstrip("\n")
 
 
 def test_tree_construction(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:
@@ -40,18 +27,10 @@ def test_tree_construction(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:
     assert not failures, f"{len(failures)}/{len(cases)} failing\n\n" + "\n\n".join(failures[:5])
 
 
-_NAMESPACED_ATTRS: Final = frozenset({
-    "xlink:actuate",
-    "xlink:arcrole",
-    "xlink:href",
-    "xlink:role",
-    "xlink:show",
-    "xlink:title",
-    "xlink:type",
-    "xml:lang",
-    "xml:space",
-    "xmlns:xlink",
-})
+def _build(case: WptHtmlTreeCase) -> str:
+    if (context := case["context"]) is not None:
+        return _html._parse_fragment(case["data"], context, bool(case["scripting"])).rstrip("\n")
+    return _html._parse_tree(case["data"], bool(case["scripting"])).rstrip("\n")
 
 
 # The .dat format loses embedded doctype quotes; compare these cases with the native dump (issue #478).
@@ -91,19 +70,19 @@ def _public_dump(data: str, context: str | None) -> str:
 
 
 def _dump_node(node: Node, depth: int, out: list[str]) -> None:
-    pad: Final = "| " + "  " * depth
+    pad: Final = f"| {'  ' * depth}"
     if isinstance(node, Element):
         foreign: Final = node.namespace is not Namespace.HTML
         prefix: Final = f"{node.namespace.value} " if foreign else ""
         out.append(f"{pad}<{prefix}{node.tag}>")
         out.extend(
             sorted(
-                "| " + "  " * (depth + 1) + _attr_line(name, value or "", foreign=foreign)
+                f"| {'  ' * (depth + 1)}{_attr_line(name, value or '', foreign=foreign)}"
                 for name, value in (node.attrs or {}).items()
             )
         )
         if not foreign and node.tag == "template":
-            out.append("| " + "  " * (depth + 1) + "content")
+            out.append(f"| {'  ' * (depth + 1)}content")
             for child in node.children[0].children:
                 _dump_node(child, depth + 2, out)
             return
@@ -125,7 +104,18 @@ def _dump_node(node: Node, depth: int, out: list[str]) -> None:
 
 
 def _attr_line(name: str, value: str | list[str], *, foreign: bool) -> str:
-    if foreign and name in _NAMESPACED_ATTRS:
+    if foreign and name in frozenset({
+        "xlink:actuate",
+        "xlink:arcrole",
+        "xlink:href",
+        "xlink:role",
+        "xlink:show",
+        "xlink:title",
+        "xlink:type",
+        "xml:lang",
+        "xml:space",
+        "xmlns:xlink",
+    }):
         name = name.replace(":", " ")
     if isinstance(value, list):
         value = " ".join(value)

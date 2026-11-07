@@ -1,5 +1,3 @@
-"""The super-linear lane's inputs: the committed regression list and the literals harvested from the C sources."""
-
 from __future__ import annotations
 
 import json
@@ -12,11 +10,6 @@ from fuzz.amplify import TARGETS, Regression, Shape, alphabet, load_regressions
 _COMMITTED: Final = Path(__file__).parents[1] / "tools" / "fuzz" / "amplify_regressions.json"
 
 
-def _write(tmp_path: Path, rows: object) -> Path:
-    (path := tmp_path / "rows.json").write_text(json.dumps(rows), encoding="utf-8")
-    return path
-
-
 def test_committed_regressions_name_each_target_once() -> None:
     rows = load_regressions(_COMMITTED)
     assert len({(row.name, row.target) for row in rows}) == len(rows)
@@ -25,8 +18,16 @@ def test_committed_regressions_name_each_target_once() -> None:
 def test_load_regressions_expands_one_row_per_target(tmp_path: Path) -> None:
     shape = {"kind": "repeat", "left": "a<?"}
     path = _write(tmp_path, [{"name": "pi", "source": "s", "targets": ["parse", "tokenize"], "shape": shape}])
-    expected = [Regression("pi", target, Shape("repeat", "a<?"), "s", 1024) for target in ("parse", "tokenize")]
+    expected = [
+        Regression(name="pi", target=target, shape=Shape(kind="repeat", left="a<?"), source="s", base=1024)
+        for target in ("parse", "tokenize")
+    ]
     assert load_regressions(path) == expected
+
+
+def _write(tmp_path: Path, rows: object) -> Path:
+    (path := tmp_path / "rows.json").write_text(json.dumps(rows), encoding="utf-8")
+    return path
 
 
 def test_load_regressions_keeps_a_row_base(tmp_path: Path) -> None:

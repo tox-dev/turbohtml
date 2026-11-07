@@ -23,7 +23,7 @@ def _pipeline(count: int) -> partial[Node]:
 
 
 def transform_node(node: Node, /, *steps: Callable[[Node], Node | None]) -> Node:
-    """Mirror root replacement and error handling without native dispatch."""
+    # Mirror root replacement and error handling without native dispatch.
     if not isinstance(node, Node):
         message: Final = "node must be a Node"
         raise TypeError(message)
@@ -43,4 +43,7 @@ def _identity(node: Node) -> Node:
 
 OPERATIONS = {"transform-dispatch": (_dispatch, "Python (validated)")}
 
-__all__ = ["OPERATIONS", "REQUIREMENTS", "transform_node"]
+__all__ = [
+    "OPERATIONS",
+    "transform_node",
+]

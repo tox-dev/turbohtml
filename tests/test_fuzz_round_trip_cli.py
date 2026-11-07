@@ -1,5 +1,3 @@
-"""The round-trip oracle driver end to end: findings on disk, the log it keeps clean, and the runs it refuses."""
-
 from __future__ import annotations
 
 import hashlib
@@ -35,10 +33,6 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-def _flag_x(text: str) -> str | None:
-    return "broken" if "x" in text else None
-
-
 def _out_of_scope(text: str) -> str | None:
     raise OutOfScopeError(text)
 
@@ -68,11 +62,7 @@ def _fired() -> dict[str, bool]:
     return {"control": True}
 
 
-def _silent() -> dict[str, bool]:
-    return {"control": False}
-
-
-_ONE_CASE: Final = Floor(1, 0.5)
+_ONE_CASE: Final = Floor(count=1, ratio=0.5)
 
 
 def _probe(
@@ -80,7 +70,7 @@ def _probe(
     controls: Callable[[], dict[str, bool]] = _fired,
     floor: Floor = _ONE_CASE,
 ) -> dict[str, Oracle]:
-    return {"probe": Oracle(check, _generate, _seeds, controls, floor)}
+    return {"probe": Oracle(check=check, generate=_generate, seeds=_seeds, controls=controls, floor=floor)}
 
 
 @pytest.fixture
@@ -101,6 +91,10 @@ def test_round_trip_cli_writes_a_minimized_finding(
         {"oracle": "probe", "detail": "broken", "hits": 1, "rng_seed": 0},
         f"FINDING probe sha256={digest}\n",
     )
+
+
+def _flag_x(text: str) -> str | None:
+    return "broken" if "x" in text else None
 
 
 def test_round_trip_cli_keeps_the_input_and_seed_out_of_the_log(
@@ -149,6 +143,10 @@ def test_round_trip_cli_fails_a_blind_oracle(
     )
 
 
+def _silent() -> dict[str, bool]:
+    return {"control": False}
+
+
 @pytest.mark.parametrize(
     "check",
     [
@@ -168,7 +166,9 @@ def test_round_trip_cli_fails_below_the_ratio_floor(
     mocker: MockerFixture, crash_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     mocker.patch.dict(
-        ORACLES, _probe(lambda text: None if "x" in text else _out_of_scope(text), floor=Floor(1, 0.6)), clear=True
+        ORACLES,
+        _probe(lambda text: None if "x" in text else _out_of_scope(text), floor=Floor(count=1, ratio=0.6)),
+        clear=True,
     )
     code = main(["--minutes", "0", "--oracle", "probe", "--crash-dir", str(crash_dir)])
     assert (code, capsys.readouterr().err) == (2, "VACUOUS RUN: probe compared below the floor\n")
@@ -278,22 +278,6 @@ def build_log(docker: MagicMock, mocker: MockerFixture) -> Callable[[str, int], 
     return write
 
 
-def _arguments(tmp_path: Path, *extra: str) -> list[str]:
-    return [
-        "--mode",
-        "batch",
-        "--sanitizer",
-        "address",
-        "--seconds",
-        "3600",
-        "--source",
-        str(tmp_path / "turbohtml"),
-        "--workspace",
-        str(tmp_path / "workspace"),
-        *extra,
-    ]
-
-
 def test_cflite_runs_build_then_mode_on_standalone_filestore(docker: MagicMock, tmp_path: Path) -> None:
     assert fuzz_cflite_main(_arguments(tmp_path)) == 0
     workspace: Final = tmp_path / "workspace"
@@ -315,6 +299,40 @@ def test_cflite_runs_build_then_mode_on_standalone_filestore(docker: MagicMock, 
         "-v",
         f"{tmp_path / 'turbohtml'}:{tmp_path / 'turbohtml'}",
     ]
+
+
+def _arguments(tmp_path: Path, *extra: str) -> list[str]:
+    return [
+        "--mode",
+        "batch",
+        "--sanitizer",
+        "address",
+        "--seconds",
+        "3600",
+        "--source",
+        str(tmp_path / "turbohtml"),
+        "--workspace",
+        str(tmp_path / "workspace"),
+        *extra,
+    ]
+
+
+def _environment(command: list[str]) -> dict[str, str]:
+    return dict(command[index + 1].split("=", 1) for index, argument in enumerate(command) if argument == "-e")
+
+
+def _expected(tmp_path: Path) -> dict[str, str]:
+    return {
+        "CFL_PLATFORM": "standalone",
+        "WORKSPACE": str(tmp_path / "workspace"),
+        "PROJECT_SRC_PATH": str(tmp_path / "turbohtml"),
+        "REPOSITORY": "turbohtml",
+        "FILESTORE": "filesystem",
+        "FILESTORE_ROOT_DIR": str(tmp_path / "workspace" / "storage"),
+        "LANGUAGE": "python",
+        "SANITIZER": "address",
+        "LOW_DISK_SPACE": "True",
+    }
 
 
 def test_cflite_replays_build_seeds_with_stored_corpus(
@@ -447,7 +465,7 @@ def test_cflite_reports_crashes_by_hash(
 
 @pytest.fixture
 def per_target(docker: MagicMock, mocker: MockerFixture, tmp_path: Path) -> MagicMock:
-    """Build two Atheris targets, a shared runtime and a non-target, with a larger stored corpus for the second."""
+    # Build two Atheris targets, a shared runtime and a non-target, with a larger stored corpus for the second.
     workspace: Final = tmp_path / "workspace"
     mocker.patch("fuzz.cflite.monotonic", autospec=True, return_value=0.0)
     for target, inputs in (("fuzz_dom_query", 1), ("fuzz_html_document", 3)):
@@ -511,6 +529,12 @@ def test_cflite_runs_each_target_alone_largest_corpus_first(
         )
         for index, target in enumerate(ordered)
     ]
+
+
+def _target_arguments(tmp_path: Path, mode: str = "prune") -> list[str]:
+    arguments: Final = _arguments(tmp_path, "--jobs", "1")
+    arguments[1] = mode
+    return arguments
 
 
 @pytest.mark.usefixtures("per_target")
@@ -600,30 +624,6 @@ def test_cflite_reports_per_target_crashes(tmp_path: Path, capsys: pytest.Captur
     ]
 
 
-def _target_arguments(tmp_path: Path, mode: str = "prune") -> list[str]:
-    arguments: Final = _arguments(tmp_path, "--jobs", "1")
-    arguments[1] = mode
-    return arguments
-
-
-def _environment(command: list[str]) -> dict[str, str]:
-    return dict(command[index + 1].split("=", 1) for index, argument in enumerate(command) if argument == "-e")
-
-
-def _expected(tmp_path: Path) -> dict[str, str]:
-    return {
-        "CFL_PLATFORM": "standalone",
-        "WORKSPACE": str(tmp_path / "workspace"),
-        "PROJECT_SRC_PATH": str(tmp_path / "turbohtml"),
-        "REPOSITORY": "turbohtml",
-        "FILESTORE": "filesystem",
-        "FILESTORE_ROOT_DIR": str(tmp_path / "workspace" / "storage"),
-        "LANGUAGE": "python",
-        "SANITIZER": "address",
-        "LOW_DISK_SPACE": "True",
-    }
-
-
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
@@ -670,6 +670,7 @@ if TYPE_CHECKING:
 
     from fuzz.atheris_registry import Target
 
+
 _TARGETS: Final = {target.name: target for target in public_targets()}
 
 
@@ -707,6 +708,16 @@ def test_reachability_unreached_names_zero_coverage(tmp_path: Path, missing: set
     assert unreached(target, tmp_path) == expected
 
 
+def _record(directory: Path, target: Target, missing: set[str]) -> None:
+    data: Final = CoverageData(basename=str(directory / f"coverage_d_{fuzzer_name(target.name)}"))
+    executed: dict[str, set[int]] = {}
+    for function in target_functions(target):
+        if function.name not in missing:
+            executed.setdefault(f"/pythoncovmergedfiles/medio/{function.path}", set()).update(function.lines)
+    data.add_lines({path: sorted(lines) for path, lines in executed.items()})
+    data.write()
+
+
 def test_reachability_matches_path_suffix_only(tmp_path: Path) -> None:
     target: Final = _TARGETS["xml-transform"]
     data: Final = CoverageData(basename=str(tmp_path / f"coverage_d_{fuzzer_name(target.name)}"))
@@ -739,16 +750,6 @@ def test_reachability_cli(
             for name in atheris_target_names()
         },
     )
-
-
-def _record(directory: Path, target: Target, missing: set[str]) -> None:
-    data: Final = CoverageData(basename=str(directory / f"coverage_d_{fuzzer_name(target.name)}"))
-    executed: dict[str, set[int]] = {}
-    for function in target_functions(target):
-        if function.name not in missing:
-            executed.setdefault(f"/pythoncovmergedfiles/medio/{function.path}", set()).update(function.lines)
-    data.add_lines({path: sorted(lines) for path, lines in executed.items()})
-    data.write()
 
 
 if TYPE_CHECKING:
@@ -826,26 +827,6 @@ def test_fuzz_cli_prepares_url_seeds(
     )
 
 
-_HEAP_REPORTS: Final = {"heap-buffer-overflow", "heap-use-after-free"}
-
-
-def _runner(mocker: MockerFixture, crash: tuple[int, str | None], injection: int) -> Callable[..., MagicMock]:
-    """Fake the children: a ``None`` crash report gives each kind the ASan report it expects."""
-    code, stderr = crash
-
-    def run(command: list[str], **_: object) -> MagicMock:
-        script = command[2] if command[1:2] == ["-c"] else ""
-        if "_fuzz_crash" in script:
-            kind = command[3]
-            report = f"ERROR: AddressSanitizer: {kind if kind in _HEAP_REPORTS else 'use-after-poison'} on address"
-            return mocker.MagicMock(returncode=code, stdout="", stderr=report if stderr is None else stderr)
-        if "_fuzz_inject_failure" in script:
-            return mocker.MagicMock(returncode=injection, stdout="", stderr="")
-        return mocker.MagicMock(returncode=0, stdout="runtime", stderr="")
-
-    return run
-
-
 @pytest.mark.parametrize(
     ("crash", "injection", "expected"),
     [
@@ -860,6 +841,25 @@ def test_fuzz_smoke_self_test_gates_the_run(
 ) -> None:
     mocker.patch("fuzz.fuzz.subprocess.run", autospec=True, side_effect=_runner(mocker, crash, injection))
     assert fuzz_smoke_main(["--mode", "smoke", "--crash-dir", str(tmp_path)]) == expected
+
+
+def _runner(mocker: MockerFixture, crash: tuple[int, str | None], injection: int) -> Callable[..., MagicMock]:
+    # Fake the children: a ``None`` crash report gives each kind the ASan report it expects.
+    code, stderr = crash
+
+    heap_reports = {"heap-buffer-overflow", "heap-use-after-free"}
+
+    def run(command: list[str], **_: object) -> MagicMock:
+        script = command[2] if command[1:2] == ["-c"] else ""
+        if "_fuzz_crash" in script:
+            kind = command[3]
+            report = f"ERROR: AddressSanitizer: {kind if kind in heap_reports else 'use-after-poison'} on address"
+            return mocker.MagicMock(returncode=code, stdout="", stderr=report if stderr is None else stderr)
+        if "_fuzz_inject_failure" in script:
+            return mocker.MagicMock(returncode=injection, stdout="", stderr="")
+        return mocker.MagicMock(returncode=0, stdout="runtime", stderr="")
+
+    return run
 
 
 def test_fuzz_smoke_self_test_skipped_without_inprocess(mocker: MockerFixture, tmp_path: Path) -> None:

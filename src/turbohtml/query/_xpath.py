@@ -53,8 +53,17 @@ class XPathString(str):  # ruff:ignore[subclass-builtin]
         return self
 
     def getparent(self) -> Element:
-        """Return the element this attribute or text value was selected from."""
+        """
+        Return the element this attribute or text value was selected from.
+
+        :returns:
+        """
         return self._parent
 
 
 _register_xpath_string(XPathString)
+
+
+__all__ = [
+    "XPathString",
+]

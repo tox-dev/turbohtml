@@ -8,7 +8,7 @@ REQUIREMENTS = ("rcssmin>=1.2",)
 
 
 def minify_css(css: str) -> str:
-    """Minify a stylesheet with rcssmin's non-destructive cssmin."""
+    # Minify a stylesheet with rcssmin's non-destructive cssmin.
     return rcssmin.cssmin(css)
 
 

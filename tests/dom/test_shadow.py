@@ -27,24 +27,9 @@ if TYPE_CHECKING:
     from turbohtml import Node
 
 
-def _tags(nodes: Iterable[Node]) -> list[str]:
-    """The tag of each node, asserting every one is an element (so a stray text node fails the test)."""
-    tags = []
-    for node in nodes:
-        assert isinstance(node, Element)
-        tags.append(node.tag)
-    return tags
-
-
-def _element(node: Node | None) -> Element:
-    """Narrow a find/select_one result to a non-None Element."""
-    assert isinstance(node, Element)
-    return node
-
-
 @pytest.fixture
 def slotted() -> tuple[Element, ShadowRoot]:
-    """A host of light children attached to a shadow root exposing a named and a default slot."""
+    # A host of light children attached to a shadow root exposing a named and a default slot.
     host = Element("div")
     host.append(Element("span", {"slot": "title"}, [Text("Hello")]))
     host.append(Element("p", None, [Text("body")]))
@@ -127,6 +112,21 @@ def test_named_slot_collects_matching_children(slotted: tuple[Element, ShadowRoo
     _host, root = slotted
     title = _element(root.select_one('slot[name="title"]'))
     assert _tags(title.assigned_nodes()) == ["span", "em"]
+
+
+def _element(node: Node | None) -> Element:
+    # Narrow a find/select_one result to a non-None Element.
+    assert isinstance(node, Element)
+    return node
+
+
+def _tags(nodes: Iterable[Node]) -> list[str]:
+    # The tag of each node, asserting every one is an element (so a stray text node fails the test).
+    tags = []
+    for node in nodes:
+        assert isinstance(node, Element)
+        tags.append(node.tag)
+    return tags
 
 
 def test_default_slot_collects_unnamed_children(slotted: tuple[Element, ShadowRoot]) -> None:
@@ -267,8 +267,7 @@ def test_slot_in_a_plain_fragment_assigns_nothing() -> None:
 
 
 def test_flatten_falls_back_to_slot_children() -> None:
-    host = Element("div")
-    root = host.attach_shadow("open")
+    root = Element("div").attach_shadow("open")
     root.set_inner_html('<slot name="x">fallback<b>bold</b></slot>')
     slot = _element(root.select_one("slot"))
     assert slot.assigned_nodes() == []
@@ -276,8 +275,7 @@ def test_flatten_falls_back_to_slot_children() -> None:
 
 
 def test_flatten_expands_nested_fallback_slot() -> None:
-    host = Element("div")
-    root = host.attach_shadow("open")
+    root = Element("div").attach_shadow("open")
     root.set_inner_html('<slot name="outer"><slot name="inner">deep</slot></slot>')
     outer = _element(root.select_one('slot[name="outer"]'))
     assert [type(node).__name__ for node in outer.assigned_nodes(flatten=True)] == ["Text"]
@@ -298,8 +296,7 @@ def test_flatten_expands_deep_fallback_slots_iteratively() -> None:
 
 
 def test_flatten_fallback_skips_non_slottable_content() -> None:
-    host = Element("div")
-    root = host.attach_shadow("open")
+    root = Element("div").attach_shadow("open")
     root.set_inner_html("<slot name='x'>text<!--comment--></slot>")
     slot = _element(root.select_one("slot"))
     assert [type(node).__name__ for node in slot.assigned_nodes(flatten=True)] == ["Text"]
@@ -318,8 +315,7 @@ def test_flattened_children_of_host_expand_top_level_slots() -> None:
     host = Element("div")
     host.append(Element("a", None, [Text("x")]))
     host.append(Element("b", {"slot": "n"}, [Text("y")]))
-    root = host.attach_shadow("open")
-    root.set_inner_html('<slot name="n"></slot><slot></slot>')
+    host.attach_shadow("open").set_inner_html('<slot name="n"></slot><slot></slot>')
     assert _tags(host.flattened_children) == ["b", "a"]
 
 
@@ -452,25 +448,24 @@ def test_attach_shadow_on_a_parsed_element() -> None:
     assert app.shadow_root == root
 
 
-def _declarative_shadow_element(node: object) -> Element:
-    """Narrow a find result to a non-None Element."""
-    assert isinstance(node, Element)
-    return node
-
-
-def _shadow(node: object) -> ShadowRoot:
-    """Narrow a shadow_root result to a non-None ShadowRoot."""
-    assert isinstance(node, ShadowRoot)
-    return node
-
-
 def test_open_shadowrootmode_attaches_a_shadow_root() -> None:
     host = _declarative_shadow_element(
         parse("<div id=h><template shadowrootmode=open><p>shadow</p></template></div>").find(id="h")
     )
     root = _shadow(host.shadow_root)
-    assert root.mode == "open"
-    assert root.html == "<p>shadow</p>"
+    assert (root.mode, root.html) == ("open", "<p>shadow</p>")
+
+
+def _declarative_shadow_element(node: object) -> Element:
+    # Narrow a find result to a non-None Element.
+    assert isinstance(node, Element)
+    return node
+
+
+def _shadow(node: object) -> ShadowRoot:
+    # Narrow a shadow_root result to a non-None ShadowRoot.
+    assert isinstance(node, ShadowRoot)
+    return node
 
 
 def test_declarative_template_is_off_the_light_tree() -> None:
@@ -1094,8 +1089,7 @@ def test_a_fragment_cannot_go_into_itself(insert: Callable[[DocumentFragment], o
 
 
 def test_a_fragment_holding_two_elements_cannot_become_a_document_s_root() -> None:
-    document = parse("<!DOCTYPE html><html></html>")
-    root = document.root
+    root = parse("<!DOCTYPE html><html></html>").root
     assert root is not None
     with pytest.raises(ValueError, match="only one element"):
         root.replace_with(_fragment("a", "b"))

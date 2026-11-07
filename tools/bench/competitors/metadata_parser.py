@@ -13,7 +13,7 @@ REQUIREMENTS = ("metadata-parser>=1", "legacy-cgi; python_version>='3.13'")
 
 
 def socialcard(text: str) -> None:
-    """Read the social-card tags with metadata_parser, which parses then maps the meta block."""
+    # Read the social-card tags with metadata_parser, which parses then maps the meta block.
     MetadataParser(html=text)
 
 

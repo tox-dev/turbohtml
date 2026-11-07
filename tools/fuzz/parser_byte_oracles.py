@@ -12,53 +12,18 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-def parser_bytes_check(
-    case: str,
-    one_shot: Callable[[bytes, str], tuple[str, str | None]] | None = None,
-    stream: Callable[[bytes, str, int], tuple[str, str | None]] | None = None,
-) -> str | None:
-    """Check literal text and labels because two parsers can agree on a wrong decoding."""
-    variant, separator, leaf = case.partition(":")
-    if not separator or variant not in _FIXTURES or re.fullmatch(r"[a-z][a-z0-9]{0,15}", leaf) is None:
-        raise UnsupportedParserCaseError(case)
-    label, encoding, prefix, payload, text, framing = _FIXTURES[variant]
-    data: Final = prefix + f"<p>{leaf}:".encode(framing) + payload + "</p>".encode(framing)
-    expected: Final = (f"{leaf}:{text}", encoding)
-    if (one_shot or _parse_bytes)(data, label) != expected:
-        return "one-shot parser differs from fixed text or label"
-    for width in (1, 2, 3, 4, 5, len(data)):
-        if (stream or _stream_bytes)(data, label, width) != expected:
-            return "streaming parser differs from fixed text or label"
-    return None
-
-
-def _parse_bytes(data: bytes, label: str) -> tuple[str, str | None]:
-    document: Final = parse(data, encoding=label)
-    return document.text, document.encoding
-
-
-def _stream_bytes(data: bytes, label: str, width: int) -> tuple[str, str | None]:
-    parser: Final = IncrementalParser(encoding=label)
-    parser.feed(b"")
-    for start in range(0, len(data), width):
-        parser.feed(data[start : start + width])
-        parser.feed(b"")
-    document: Final = parser.close()
-    return document.text, document.encoding
-
-
 def parser_bytes_generate(rng: random.Random) -> str:
-    """Keep generated prefixes inside the fixed byte fixtures' encoding domain."""
+    # Keep generated prefixes inside the fixed byte fixtures' encoding domain.
     return f"{rng.choice(tuple(_FIXTURES))}:g{rng.randrange(10000)}"
 
 
 def parser_bytes_seeds() -> list[str]:
-    """Cover each codec and BOM override before random generation."""
+    # Cover each codec and BOM override before random generation.
     return [f"{variant}:g{index}" for variant in _FIXTURES for index in range(30)]
 
 
 def parser_bytes_controls() -> dict[str, bool]:
-    """Detect wrong labels and shared wrong text before trusting chunk agreement."""
+    # Detect wrong labels and shared wrong text before trusting chunk agreement.
     return {
         "wrong one-shot text": parser_bytes_check("utf8:g", lambda _data, _label: ("", "UTF-8")) is not None,
         "wrong one-shot label": parser_bytes_check("utf8:g", lambda _data, _label: ("g:café 日本😀", None)) is not None,
@@ -75,8 +40,44 @@ def parser_bytes_controls() -> dict[str, bool]:
     }
 
 
+def parser_bytes_check(
+    case: str,
+    one_shot: Callable[[bytes, str], tuple[str, str | None]] | None = None,
+    stream: Callable[[bytes, str, int], tuple[str, str | None]] | None = None,
+) -> str | None:
+    # Check literal text and labels because two parsers can agree on a wrong decoding.
+    variant, separator, leaf = case.partition(":")
+    if not separator or variant not in _FIXTURES or re.fullmatch(r"[a-z][a-z0-9]{0,15}", leaf) is None:
+        raise UnsupportedParserCaseError(case)
+    label, encoding, prefix, payload, text, framing = _FIXTURES[variant]
+    data: Final = prefix + f"<p>{leaf}:".encode(framing) + payload + "</p>".encode(framing)
+    expected: Final = (f"{leaf}:{text}", encoding)
+    if (one_shot or _parse_bytes)(data, label) != expected:
+        return "one-shot parser differs from fixed text or label"
+    for width in (1, 2, 3, 4, 5, len(data)):
+        if (stream or _stream_bytes)(data, label, width) != expected:
+            return "streaming parser differs from fixed text or label"
+    return None
+
+
 class UnsupportedParserCaseError(ValueError):
-    """Keep invalid fixture grammar distinct from parser rejection of valid bytes."""
+    # Keep invalid fixture grammar distinct from parser rejection of valid bytes.
+    ...
+
+
+def _parse_bytes(data: bytes, label: str) -> tuple[str, str | None]:
+    document: Final = parse(data, encoding=label)
+    return document.text, document.encoding
+
+
+def _stream_bytes(data: bytes, label: str, width: int) -> tuple[str, str | None]:
+    parser: Final = IncrementalParser(encoding=label)
+    parser.feed(b"")
+    for start in range(0, len(data), width):
+        parser.feed(data[start : start + width])
+        parser.feed(b"")
+    document: Final = parser.close()
+    return document.text, document.encoding
 
 
 _FIXTURES: Final[dict[str, tuple[str, str, bytes, bytes, str, str]]] = {

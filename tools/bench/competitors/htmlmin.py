@@ -8,7 +8,7 @@ REQUIREMENTS = ("htmlmin2>=0.1.13",)
 
 
 def minify(text: str) -> str:
-    """Minify with the folds htmlmin shares with turbohtml's Minify: collapse whitespace, drop comments and quotes."""
+    # Minify with the folds htmlmin shares with turbohtml's Minify: collapse whitespace, drop comments and quotes.
     return htmlmin.minify(text, remove_comments=True, remove_optional_attribute_quotes=True)
 
 

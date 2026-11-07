@@ -12,29 +12,25 @@ from turbohtml import Element, parse
 from turbohtml._html import _conformance_check, _conformance_filter
 from turbohtml.conformance import ConformanceMessage, ConformanceReport, check, check_html
 
-CLEAN = '<html lang="en"><head><title>Doc</title></head><body><h1>Hi</h1></body></html>'
-
-
-def codes(markup: str) -> list[str]:
-    return [message.code for message in check_html(markup).messages]
-
-
-def body(inner: str) -> str:
-    return f'<html lang="en"><head><title>Doc</title></head><body>{inner}</body></html>'
+_CLEAN: Final[str] = '<html lang="en"><head><title>Doc</title></head><body><h1>Hi</h1></body></html>'
 
 
 def test_conformance_clean_document_is_valid() -> None:
-    report = check_html(CLEAN)
+    report = check_html(_CLEAN)
     assert report.valid is True
     assert report.messages == ()
 
 
 def test_conformance_report_is_truthy_when_valid() -> None:
-    assert bool(check_html(CLEAN)) is True
+    assert bool(check_html(_CLEAN)) is True
 
 
 def test_conformance_report_is_falsy_with_an_error() -> None:
     assert bool(check_html(body("<img src=x>"))) is False
+
+
+def body(inner: str) -> str:
+    return f'<html lang="en"><head><title>Doc</title></head><body>{inner}</body></html>'
 
 
 def test_conformance_error_makes_document_invalid() -> None:
@@ -74,7 +70,7 @@ def test_conformance_message_carries_code_severity_and_position() -> None:
 
 
 def test_conformance_check_accepts_a_parsed_document() -> None:
-    assert check(parse(CLEAN)).valid is True
+    assert check(parse(_CLEAN)).valid is True
 
 
 def test_conformance_check_on_a_subtree_skips_document_rules() -> None:
@@ -211,6 +207,10 @@ def test_conformance_aria_role_rules(inner: str, expected: str | None) -> None:
         assert expected in found
 
 
+def codes(markup: str) -> list[str]:
+    return [message.code for message in check_html(markup).messages]
+
+
 @pytest.mark.parametrize(
     ("inner", "flagged"),
     [
@@ -311,7 +311,7 @@ def test_conformance_rejects_a_non_node() -> None:
 
 
 def test_conformance_report_type_is_named_tuple() -> None:
-    report = check_html(CLEAN)
+    report = check_html(_CLEAN)
     assert isinstance(report, ConformanceReport)
     assert report == (True, ())
 
@@ -327,6 +327,8 @@ def test_check_is_valid_with_only_a_warning() -> None:
 
 
 _ERROR = ConformanceMessage("img-missing-alt", "error", "m", 1, 0)
+
+
 _WARNING = ConformanceMessage("missing-lang", "warning", "m", 1, 0)
 
 
@@ -334,14 +336,13 @@ def test_the_filter_keeps_only_the_named_severity_in_order() -> None:
     assert _conformance_filter((_WARNING, _ERROR, _WARNING), "warning") == (_WARNING, _WARNING)
 
 
-class _Unlabelled(NamedTuple):
-    """A record whose severity is not a string, so it can never equal one."""
-
-    severity: int
-
-
 def test_the_filter_skips_a_message_whose_severity_is_not_a_str() -> None:
     assert _conformance_filter((_Unlabelled(1), _ERROR), "error") == (_ERROR,)  # ty: ignore[invalid-argument-type]
+
+
+class _Unlabelled(NamedTuple):
+    # A record whose severity is not a string, so it can never equal one.
+    severity: int
 
 
 def test_the_filter_needs_a_severity_on_every_message() -> None:

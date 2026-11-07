@@ -10,12 +10,12 @@ _TRANSLATOR = HTMLTranslator()
 
 
 def translate(selector: str) -> None:
-    """Translate one CSS selector to XPath 1.0 with cssselect's HTML translator."""
+    # Translate one CSS selector to XPath 1.0 with cssselect's HTML translator.
     _TRANSLATOR.css_to_xpath(selector)
 
 
 def specificity(selector: str) -> None:
-    """Weigh each selector in a list with cssselect, the (a, b, c) triple per parsed arm."""
+    # Weigh each selector in a list with cssselect, the (a, b, c) triple per parsed arm.
     [parsed.specificity() for parsed in parse(selector)]
 
 

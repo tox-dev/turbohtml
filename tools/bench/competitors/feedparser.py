@@ -8,7 +8,7 @@ REQUIREMENTS = ("feedparser>=6.0",)
 
 
 def syndication(text: str) -> None:
-    """Parse the feed with feedparser, which runs its own SAX-based scanner and normalizes every item."""
+    # Parse the feed with feedparser, which runs its own SAX-based scanner and normalizes every item.
     feedparser.parse(text)
 
 

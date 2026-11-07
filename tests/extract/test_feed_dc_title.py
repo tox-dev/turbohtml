@@ -1,5 +1,3 @@
-"""Dublin Core title fallbacks in RSS feeds."""
-
 from __future__ import annotations
 
 from typing import Final

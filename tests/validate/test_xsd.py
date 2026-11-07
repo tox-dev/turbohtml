@@ -19,15 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-XS = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
-
-
-def check(schema: str, xml: str) -> ValidationResult:
-    return XMLSchema(schema).validate(parse_xml(xml))
-
-
-def typed(type_name: str) -> str:
-    return f'<xs:schema {XS}><xs:element name="v" type="{type_name}"/></xs:schema>'
+XS: Final[str] = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
 
 
 def restricted(facets: str, base: str = "xs:string") -> str:
@@ -81,6 +73,14 @@ def restricted(facets: str, base: str = "xs:string") -> str:
 )
 def test_builtin_datatype_valid(type_name: str, value: str) -> None:
     assert check(typed(type_name), f"<v>{value}</v>").valid
+
+
+def check(schema: str, xml: str) -> ValidationResult:
+    return XMLSchema(schema).validate(parse_xml(xml))
+
+
+def typed(type_name: str) -> str:
+    return f'<xs:schema {XS}><xs:element name="v" type="{type_name}"/></xs:schema>'
 
 
 @pytest.mark.parametrize(
@@ -461,6 +461,8 @@ def test_regex_unmatched_bracket_raises(pattern: str, offset: int) -> None:
 _NESTING_ERROR: Final[str] = (
     "schema pattern nests groups deeper than 250 levels at offset 250; flatten the nested groups"
 )
+
+
 _STATES_ERROR: Final[str] = (
     "schema pattern needs more than 2000000 NFA states; lower its repeat counts or split it into several patterns"
 )
@@ -771,30 +773,17 @@ def test_error_location_path() -> None:
 
 
 def test_schema_from_parsed_document() -> None:
-    schema_doc = parse_xml(typed("xs:int"))
-    validator = XMLSchema(schema_doc)
+    validator = XMLSchema(parse_xml(typed("xs:int")))
     assert validator.is_valid(parse_xml("<v>7</v>"))
 
 
 def test_validate_element_directly() -> None:
-    document = parse_xml("<wrap><v>7</v></wrap>")
-    element = document.children[0].children[0]
+    element = parse_xml("<wrap><v>7</v></wrap>").children[0].children[0]
     assert XMLSchema(typed("xs:int")).is_valid(element)
 
 
 def xsd_ok(schema: str, xml: str) -> bool:
     return XMLSchema(schema).validate(parse_xml(xml)).valid
-
-
-def edge_restricted(facets: str, base: str = "xs:string") -> str:
-    return (
-        f'<xs:schema {XS}><xs:element name="v"><xs:simpleType>'
-        f'<xs:restriction base="{base}">{facets}</xs:restriction></xs:simpleType></xs:element></xs:schema>'
-    )
-
-
-def pattern_ok(pattern: str, value: str) -> bool:
-    return xsd_ok(edge_restricted(f'<xs:pattern value="{pattern}"/>'), f"<v>{value}</v>")
 
 
 @pytest.mark.parametrize(
@@ -856,6 +845,17 @@ def test_datatype_edges(type_name: str, value: str, ok: bool) -> None:  # ruff:i
 )
 def test_regex_edges(pattern: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     assert pattern_ok(pattern, value) is ok
+
+
+def pattern_ok(pattern: str, value: str) -> bool:
+    return xsd_ok(edge_restricted(f'<xs:pattern value="{pattern}"/>'), f"<v>{value}</v>")
+
+
+def edge_restricted(facets: str, base: str = "xs:string") -> str:
+    return (
+        f'<xs:schema {XS}><xs:element name="v"><xs:simpleType>'
+        f'<xs:restriction base="{base}">{facets}</xs:restriction></xs:simpleType></xs:element></xs:schema>'
+    )
 
 
 def test_enumeration_numeric_and_growth() -> None:
@@ -2321,12 +2321,12 @@ def test_schema_rejected_at_compile(schema: str, message: str) -> None:
         XMLSchema(schema)
 
 
-_ANY_TYPE_EXTENSION: Final = (
+_ANY_TYPE_EXTENSION: Final[str] = (
     f'<xs:schema {XS}><xs:element name="r"><xs:complexType><xs:complexContent>'
     '<xs:extension base="xs:anyType"><xs:sequence><xs:element name="a" type="xs:string"/></xs:sequence>'
     "</xs:extension></xs:complexContent></xs:complexType></xs:element></xs:schema>"
 )
-_SIMPLE_TYPE_BASE: Final = (
+_SIMPLE_TYPE_BASE: Final[str] = (
     f"<xs:schema {XS}>"
     '<xs:simpleType name="code"><xs:restriction base="xs:string"><xs:maxLength value="4"/></xs:restriction>'
     "</xs:simpleType>"
@@ -2334,7 +2334,7 @@ _SIMPLE_TYPE_BASE: Final = (
     '<xs:attribute name="a" type="xs:string"/></xs:extension></xs:simpleContent></xs:complexType>'
     '<xs:element name="r" type="t"/></xs:schema>'
 )
-_EMPTY_COMPLEX_CONTENT: Final = (
+_EMPTY_COMPLEX_CONTENT: Final[str] = (
     f'<xs:schema {XS}><xs:complexType name="t"><xs:complexContent></xs:complexContent></xs:complexType>'
     '<xs:element name="r" type="t"/></xs:schema>'
 )
@@ -2405,7 +2405,7 @@ def test_schema_compiles_and_validates(schema: str, xml: str, *, valid: bool) ->
 if TYPE_CHECKING:
     from _pytest.mark import ParameterSet
 
-_XS: Final = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
+_XS: Final[str] = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
 _INVALID: Final[list[ParameterSet]] = [
     pytest.param('<xs:element name="v" type="xs:notAType"/>', "does not resolve", id="unknown-global-type"),
     pytest.param('<xs:element name="v" type="xs:weirdUnknownType"/>', "does not resolve", id="old-string-fallback"),

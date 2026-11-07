@@ -39,29 +39,8 @@ def _by_id(root: Element | Document, value: str) -> Element:
     return node
 
 
-def _tags(nodes: Iterable[Node]) -> list[str]:
-    """The tag names of a run of nodes, asserting each is an element."""
-    names = []
-    for node in nodes:
-        assert isinstance(node, Element)
-        names.append(node.tag)
-    return names
-
-
-def _data(node: Node) -> str:
-    """The character data of a node, asserting it is a Text node."""
-    assert isinstance(node, Text)
-    return node.data
-
-
-def _first_child_datas(nodes: Iterable[Node]) -> list[str]:
-    """The character data of each node's first child."""
-    return [_data(node.children[0]) for node in nodes]
-
-
 def test_construct_collapsed_at_container() -> None:
-    doc = parse("<div id=a><p>x</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>x</p></div>"), "a")
     boundary = Range(div, 0)
     assert boundary.collapsed
     assert boundary.start_container == div
@@ -110,26 +89,21 @@ def test_common_ancestor_container() -> None:
 
 
 def test_set_start_after_end_drags_end() -> None:
-    doc = parse("<div id=a><p>a</p><p>b</p><p>c</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p><p>b</p><p>c</p></div>"), "a")
     boundary = Range(div, 1)
     boundary.set_start(div, 2)  # new start lands past the collapsed end, so the end follows it
-    assert boundary.start_offset == 2
-    assert boundary.end_offset == 2
+    assert (boundary.start_offset, boundary.end_offset) == (2, 2)
 
 
 def test_set_end_before_start_drags_start() -> None:
-    doc = parse("<div id=a><p>a</p><p>b</p><p>c</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p><p>b</p><p>c</p></div>"), "a")
     boundary = Range(div, 2)
     boundary.set_end(div, 1)
-    assert boundary.start_offset == 1
-    assert boundary.end_offset == 1
+    assert (boundary.start_offset, boundary.end_offset) == (1, 1)
 
 
 def test_set_boundary_keeps_order_when_valid() -> None:
-    doc = parse("<div id=a><p>a</p><p>b</p><p>c</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p><p>b</p><p>c</p></div>"), "a")
     boundary = Range(div, 0)
     boundary.set_end(div, 2)
     boundary.set_start(div, 1)
@@ -137,8 +111,7 @@ def test_set_boundary_keeps_order_when_valid() -> None:
 
 
 def test_set_start_across_trees_collapses() -> None:
-    doc = parse("<div id=a><p>x</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>x</p></div>"), "a")
     other = Element("section")
     boundary = Range(div, 0)
     boundary.set_end(div, 1)
@@ -148,8 +121,7 @@ def test_set_start_across_trees_collapses() -> None:
 
 
 def test_set_end_across_trees_collapses() -> None:
-    doc = parse("<div id=a><p>x</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>x</p></div>"), "a")
     other = Element("section")
     boundary = Range(div, 0)
     boundary.set_end(other, 0)
@@ -158,8 +130,7 @@ def test_set_end_across_trees_collapses() -> None:
 
 
 def test_set_start_across_roots_same_tree_collapses() -> None:
-    doc = parse("<div id=a><p>x</p><p>y</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>x</p><p>y</p></div>"), "a")
     snapshot = Range(div, 0)
     snapshot.set_end(div, 2)
     fragment = snapshot.clone_contents()  # lives in the same tree but on its own root
@@ -188,27 +159,32 @@ def test_reference_setters_reject_parentless(setter: str) -> None:
 
 
 def test_set_start_after_and_end_before_bracket_a_node() -> None:
-    doc = parse("<div id=a><p>a</p><b>bold</b><p>c</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p><b>bold</b><p>c</p></div>"), "a")
     boundary = Range(div, 0)
     boundary.set_start_after(div.children[0])
     boundary.set_end_before(div.children[2])
-    assert boundary.start_offset == 1
-    assert boundary.end_offset == 2
+    assert (boundary.start_offset, boundary.end_offset) == (1, 2)
     assert _tags(boundary.clone_contents().children)[0] == "b"
+
+
+def _tags(nodes: Iterable[Node]) -> list[str]:
+    # The tag names of a run of nodes, asserting each is an element.
+    names = []
+    for node in nodes:
+        assert isinstance(node, Element)
+        names.append(node.tag)
+    return names
 
 
 def test_select_node_wraps_the_node() -> None:
     doc = parse("<div id=a><p>a</p><b>bold</b><p>c</p></div>")
-    div = _by_id(doc, "a")
-    boundary = Range(div, 0)
+    boundary = Range(_by_id(doc, "a"), 0)
     boundary.select_node(_found(doc, "b"))
     assert (boundary.start_offset, boundary.end_offset) == (1, 2)
 
 
 def test_select_node_contents_spans_children() -> None:
-    doc = parse("<div id=a><p>a</p><p>b</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p><p>b</p></div>"), "a")
     boundary = Range(div, 1)
     boundary.select_node_contents(div)
     assert (boundary.start_offset, boundary.end_offset) == (0, 2)
@@ -227,8 +203,7 @@ def test_select_node_contents_rejects_doctype() -> None:
     [pytest.param(True, (0, 0), id="to-start"), pytest.param(False, (2, 2), id="to-end")],
 )
 def test_collapse(to_start: bool, expected: tuple[int, int]) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # pytest case, not a flag
-    doc = parse("<div id=a><p>a</p><p>b</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p><p>b</p></div>"), "a")
     boundary = Range(div, 0)
     boundary.set_end(div, 2)
     boundary.collapse(to_start)
@@ -236,8 +211,7 @@ def test_collapse(to_start: bool, expected: tuple[int, int]) -> None:  # ruff:ig
 
 
 def test_collapse_defaults_to_end() -> None:
-    doc = parse("<div id=a><p>a</p><p>b</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p><p>b</p></div>"), "a")
     boundary = Range(div, 0)
     boundary.set_end(div, 2)
     boundary.collapse()
@@ -255,8 +229,7 @@ def test_collapse_defaults_to_end() -> None:
     ],
 )
 def test_compare_boundary_points(how: int, expected: int) -> None:
-    doc = parse("<div id=a><p>a</p><p>b</p><p>c</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p><p>b</p><p>c</p></div>"), "a")
     left = Range(div, 0)
     left.set_end(div, 1)
     right = Range(div, 0)
@@ -265,8 +238,7 @@ def test_compare_boundary_points(how: int, expected: int) -> None:
 
 
 def test_compare_boundary_points_rejects_bad_how() -> None:
-    div = Element("div")
-    boundary = Range(div, 0)
+    boundary = Range(Element("div"), 0)
     with pytest.raises(ValueError, match="how must be"):
         boundary.compare_boundary_points(7, boundary)
 
@@ -289,8 +261,7 @@ def test_compare_boundary_points_rejects_non_range() -> None:
     [pytest.param(0, -1, id="before"), pytest.param(1, 0, id="inside"), pytest.param(3, 1, id="after")],
 )
 def test_compare_point(offset: int, expected: int) -> None:
-    doc = parse("<div id=a><p>a</p><p>b</p><p>c</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p><p>b</p><p>c</p></div>"), "a")
     boundary = Range(div, 1)
     boundary.set_end(div, 2)
     assert boundary.compare_point(div, offset) == expected
@@ -314,8 +285,7 @@ def test_compare_point_rejects_bad_offset() -> None:
     [pytest.param(0, False, id="before"), pytest.param(1, True, id="inside"), pytest.param(3, False, id="after")],
 )
 def test_is_point_in_range(offset: int, expected: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # pytest expectation, not a flag
-    doc = parse("<div id=a><p>a</p><p>b</p><p>c</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p><p>b</p><p>c</p></div>"), "a")
     boundary = Range(div, 1)
     boundary.set_end(div, 2)
     assert boundary.is_point_in_range(div, offset) is expected
@@ -334,24 +304,21 @@ def test_is_point_in_range_rejects_bad_offset() -> None:
 
 
 def test_intersects_node_overlapping() -> None:
-    doc = parse("<div id=a><p>a</p><p>b</p><p>c</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p><p>b</p><p>c</p></div>"), "a")
     boundary = Range(div, 1)
     boundary.set_end(div, 2)
     assert boundary.intersects_node(div.children[1]) is True
 
 
 def test_intersects_node_disjoint() -> None:
-    doc = parse("<div id=a><p>a</p><p>b</p><p>c</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p><p>b</p><p>c</p></div>"), "a")
     boundary = Range(div, 1)
     boundary.set_end(div, 2)
     assert boundary.intersects_node(div.children[2]) is False
 
 
 def test_intersects_node_root_has_no_parent() -> None:
-    doc = parse("<div id=a><p>a</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p></div>"), "a")
     boundary = Range(div, 0)
     boundary.set_end(div, 1)
     root = div
@@ -366,8 +333,7 @@ def test_intersects_node_outside_tree_is_false() -> None:
 
 
 def test_clone_contents_copies_children_without_moving() -> None:
-    doc = parse("<div id=a><p>x</p><p>y</p><span>z</span></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>x</p><p>y</p><span>z</span></div>"), "a")
     boundary = Range(div, 0)
     boundary.set_end(div, 2)
     fragment = boundary.clone_contents()
@@ -376,14 +342,12 @@ def test_clone_contents_copies_children_without_moving() -> None:
 
 
 def test_clone_contents_of_collapsed_range_is_empty() -> None:
-    div = Element("div")
-    fragment = Range(div, 0).clone_contents()
+    fragment = Range(Element("div"), 0).clone_contents()
     assert list(fragment.children) == []
 
 
 def test_clone_contents_within_one_text_node() -> None:
-    doc = parse("<p>Hello World</p>")
-    text = _found(doc, "p").children[0]
+    text = _found(parse("<p>Hello World</p>"), "p").children[0]
     boundary = Range(text, 0)
     boundary.set_end(text, 5)
     fragment = boundary.clone_contents()
@@ -391,9 +355,14 @@ def test_clone_contents_within_one_text_node() -> None:
     assert _data(text) == "Hello World"
 
 
+def _data(node: Node) -> str:
+    # The character data of a node, asserting it is a Text node.
+    assert isinstance(node, Text)
+    return node.data
+
+
 def test_clone_contents_partial_text_boundaries() -> None:
-    doc = parse("<div id=a><p>Hello</p><p>World</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>Hello</p><p>World</p></div>"), "a")
     first_text = div.children[0].children[0]
     last_text = div.children[1].children[0]
     boundary = Range(first_text, 2)
@@ -401,6 +370,11 @@ def test_clone_contents_partial_text_boundaries() -> None:
     fragment = boundary.clone_contents()
     assert _first_child_datas(fragment.children) == ["llo", "Wor"]
     assert _data(first_text) == "Hello"
+
+
+def _first_child_datas(nodes: Iterable[Node]) -> list[str]:
+    # The character data of each node's first child.
+    return [_data(node.children[0]) for node in nodes]
 
 
 def test_clone_contents_nested_element_recursion() -> None:
@@ -423,8 +397,7 @@ def test_clone_contents_rejects_contained_doctype() -> None:
 
 
 def test_extract_contents_moves_children() -> None:
-    doc = parse("<div id=a><p>x</p><p>y</p><span>z</span></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>x</p><p>y</p><span>z</span></div>"), "a")
     kept = div.children[0]
     boundary = Range(div, 0)
     boundary.set_end(div, 2)
@@ -437,20 +410,17 @@ def test_extract_contents_moves_children() -> None:
 
 
 def test_extract_contents_collapse_point_when_start_is_ancestor() -> None:
-    doc = parse("<div id=a><section><p>x</p><p>y</p></section></div>")
-    section = _found(doc, "section")
+    section = _found(parse("<div id=a><section><p>x</p><p>y</p></section></div>"), "section")
     inner = section.children[1].children[0]
     boundary = Range(section, 0)
     boundary.set_start(section, 0)
     boundary.set_end(inner, 1)
     boundary.extract_contents()
-    assert boundary.start_container == section
-    assert boundary.start_offset == 0
+    assert (boundary.start_container, boundary.start_offset) == (section, 0)
 
 
 def test_extract_contents_within_one_text_node() -> None:
-    doc = parse("<p>Hello World</p>")
-    text = _found(doc, "p").children[0]
+    text = _found(parse("<p>Hello World</p>"), "p").children[0]
     boundary = Range(text, 0)
     boundary.set_end(text, 6)
     fragment = boundary.extract_contents()
@@ -459,8 +429,7 @@ def test_extract_contents_within_one_text_node() -> None:
 
 
 def test_extract_contents_partial_text_boundaries() -> None:
-    doc = parse("<div id=a><p>Hello</p><p>World</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>Hello</p><p>World</p></div>"), "a")
     first_text = div.children[0].children[0]
     last_text = div.children[1].children[0]
     boundary = Range(first_text, 2)
@@ -472,14 +441,12 @@ def test_extract_contents_partial_text_boundaries() -> None:
 
 
 def test_extract_contents_of_collapsed_range_is_empty() -> None:
-    div = Element("div")
-    fragment = Range(div, 0).extract_contents()
+    fragment = Range(Element("div"), 0).extract_contents()
     assert list(fragment.children) == []
 
 
 def test_delete_contents_removes_without_returning() -> None:
-    doc = parse("<div id=a><p>x</p><p>y</p><span>z</span></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>x</p><p>y</p><span>z</span></div>"), "a")
     boundary = Range(div, 0)
     boundary.set_end(div, 2)
     assert boundary.delete_contents() is None
@@ -488,8 +455,7 @@ def test_delete_contents_removes_without_returning() -> None:
 
 
 def test_delete_contents_within_one_text_node() -> None:
-    doc = parse("<p>Hello World</p>")
-    text = _found(doc, "p").children[0]
+    text = _found(parse("<p>Hello World</p>"), "p").children[0]
     boundary = Range(text, 0)
     boundary.set_end(text, 6)
     boundary.delete_contents()
@@ -497,10 +463,8 @@ def test_delete_contents_within_one_text_node() -> None:
 
 
 def test_insert_node_into_element() -> None:
-    doc = parse("<div id=a><p>x</p><p>y</p></div>")
-    div = _by_id(doc, "a")
-    boundary = Range(div, 1)
-    boundary.insert_node(Element("b"))
+    div = _by_id(parse("<div id=a><p>x</p><p>y</p></div>"), "a")
+    Range(div, 1).insert_node(Element("b"))
     assert _tags(div.children) == ["p", "b", "p"]
 
 
@@ -525,26 +489,20 @@ def test_insert_node_preserves_hash_across_trees() -> None:
 
 def test_insert_node_splits_text() -> None:
     doc = parse("<p>HelloWorld</p>")
-    text = _found(doc, "p").children[0]
-    boundary = Range(text, 5)
-    boundary.insert_node(Element("b"))
+    Range(_found(doc, "p").children[0], 5).insert_node(Element("b"))
     assert _found(doc, "p").html == "<p>Hello<b></b>World</p>"
 
 
 def test_insert_node_extends_collapsed_range() -> None:
-    doc = parse("<div id=a><p>x</p></div>")
-    div = _by_id(doc, "a")
-    boundary = Range(div, 1)
+    boundary = Range(_by_id(parse("<div id=a><p>x</p></div>"), "a"), 1)
     boundary.insert_node(Element("b"))
     assert not boundary.collapsed
     assert boundary.end_offset == 2
 
 
 def test_insert_fragment_extends_by_its_length() -> None:
-    doc = parse("<div id=a><p>x</p></div>")
-    div = _by_id(doc, "a")
-    donor = parse("<div id=b><i>i</i><u>u</u></div>")
-    donor_div = _by_id(donor, "b")
+    div = _by_id(parse("<div id=a><p>x</p></div>"), "a")
+    donor_div = _by_id(parse("<div id=b><i>i</i><u>u</u></div>"), "b")
     fragment = Range(donor_div, 0)
     fragment.set_end(donor_div, 2)
     piece = fragment.extract_contents()
@@ -556,18 +514,13 @@ def test_insert_fragment_extends_by_its_length() -> None:
 def test_insert_node_moves_within_same_tree() -> None:
     doc = parse("<div id=a><p>x</p><span>y</span></div>")
     div = _by_id(doc, "a")
-    span = _found(doc, "span")
-    boundary = Range(div, 0)
-    boundary.insert_node(span)
+    Range(div, 0).insert_node(_found(doc, "span"))
     assert _tags(div.children) == ["span", "p"]
 
 
 def test_insert_node_before_reference_that_is_the_node() -> None:
-    doc = parse("<div id=a><p>x</p><span>y</span></div>")
-    div = _by_id(doc, "a")
-    first = div.children[0]
-    boundary = Range(div, 0)
-    boundary.insert_node(first)  # the node already sits at the reference position
+    div = _by_id(parse("<div id=a><p>x</p><span>y</span></div>"), "a")
+    Range(div, 0).insert_node(div.children[0])  # the node already sits at the reference position
     assert _tags(div.children) == ["p", "span"]
 
 
@@ -596,8 +549,7 @@ _STALE_OPERATIONS: Final = [
 
 
 def test_insert_node_at_stale_offset_past_children() -> None:
-    doc = parse("<div id=a><p>a</p><i>b</i><u>c</u></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p><i>b</i><u>c</u></div>"), "a")
     boundary = Range(div, 3)  # a valid end offset when the range is made
     div.remove("u")  # ...then the tree shrinks under it, so the walk runs off the end
     boundary.insert_node(Element("x"))
@@ -639,8 +591,7 @@ def test_boundaries_reordered_by_edit_raise(operation: Callable[[Range], object]
 
 
 def test_insert_node_rejects_self() -> None:
-    doc = parse("<div id=a><p>x</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>x</p></div>"), "a")
     boundary = Range(div, 0)
     with pytest.raises(ValueError, match="cannot insert"):
         boundary.insert_node(div)
@@ -648,8 +599,7 @@ def test_insert_node_rejects_self() -> None:
 
 def test_insert_node_rejects_document() -> None:
     doc = parse("<div id=a><p>x</p></div>")
-    div = _by_id(doc, "a")
-    boundary = Range(div, 0)
+    boundary = Range(_by_id(doc, "a"), 0)
     with pytest.raises(ValueError, match="Document"):
         boundary.insert_node(doc)
 
@@ -657,8 +607,7 @@ def test_insert_node_rejects_document() -> None:
 def test_insert_node_rejects_ancestor_cycle() -> None:
     doc = parse("<div id=a><p>x</p></div>")
     div = _by_id(doc, "a")
-    inner = _found(doc, "p")
-    boundary = Range(inner, 0)
+    boundary = Range(_found(doc, "p"), 0)
     with pytest.raises(ValueError, match="own subtree"):
         boundary.insert_node(div)
 
@@ -679,8 +628,7 @@ def test_surround_contents_wraps_text_slice() -> None:
 
 
 def test_surround_contents_selects_the_wrapper() -> None:
-    doc = parse("<div id=a><p>x</p><p>y</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>x</p><p>y</p></div>"), "a")
     boundary = Range(div, 0)
     boundary.set_end(div, 1)
     wrapper = assert_type(boundary.surround_contents(Element("section")), Element)
@@ -691,10 +639,8 @@ def test_surround_contents_selects_the_wrapper() -> None:
 
 
 def test_surround_contents_rejects_partial_non_text() -> None:
-    doc = parse("<div id=a><p>one</p><p>two</p></div>")
-    div = _by_id(doc, "a")
-    first = div.children[0].children[0]
-    boundary = Range(first, 1)
+    div = _by_id(parse("<div id=a><p>one</p><p>two</p></div>"), "a")
+    boundary = Range(div.children[0].children[0], 1)
     boundary.set_end(div, 2)
     with pytest.raises(ValueError, match="partially contains"):
         boundary.surround_contents(Element("em"))
@@ -721,8 +667,7 @@ def test_surround_contents_rejects_bad_wrapper_type(wrapper: Callable[[Document]
 
 
 def test_surround_contents_rejecting_a_text_wrapper_keeps_the_contents() -> None:
-    doc = parse("<p id=a>one<b>two</b>three</p>")
-    paragraph = _by_id(doc, "a")
+    paragraph = _by_id(parse("<p id=a>one<b>two</b>three</p>"), "a")
     boundary = Range(paragraph, 1)
     boundary.set_end(paragraph, 3)
     with pytest.raises(ValueError, match="must be an element"):
@@ -731,8 +676,7 @@ def test_surround_contents_rejecting_a_text_wrapper_keeps_the_contents() -> None
 
 
 def test_surround_contents_rejects_fragment_wrapper() -> None:
-    doc = parse("<div id=a><p>x</p><p>y</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>x</p><p>y</p></div>"), "a")
     snapshot = Range(div, 0)
     snapshot.set_end(div, 2)
     fragment = snapshot.clone_contents()
@@ -749,8 +693,7 @@ def test_surround_contents_rejects_non_node() -> None:
 
 
 def test_clone_range_is_independent() -> None:
-    doc = parse("<div id=a><p>x</p><p>y</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>x</p><p>y</p></div>"), "a")
     boundary = Range(div, 0)
     boundary.set_end(div, 1)
     twin = boundary.clone_range()
@@ -761,9 +704,7 @@ def test_clone_range_is_independent() -> None:
 
 
 def test_repr() -> None:
-    doc = parse("<div id=a><p>x</p></div>")
-    div = _by_id(doc, "a")
-    boundary = Range(div, 0)
+    boundary = Range(_by_id(parse("<div id=a><p>x</p></div>"), "a"), 0)
     assert repr(boundary) == "<Range start=(Element('div'), 0) end=(Element('div'), 0)>"
 
 
@@ -773,8 +714,7 @@ def test_char_data_length_covers_comment_and_cdata() -> None:
 
 
 def test_static_range_stores_boundaries() -> None:
-    doc = parse("<div id=a><p>x</p><p>y</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>x</p><p>y</p></div>"), "a")
     snapshot = StaticRange(div, 0, div, 2)
     assert snapshot.start_container == div
     assert snapshot.start_offset == 0
@@ -880,8 +820,7 @@ def test_extract_contents_rejects_contained_doctype() -> None:
 
 
 def test_clone_contents_skips_non_partial_edge_children() -> None:
-    doc = parse("<div id=a><span>s</span><p>Hello</p><p>World</p><em>e</em></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><span>s</span><p>Hello</p><p>World</p><em>e</em></div>"), "a")
     first_text = div.children[1].children[0]
     last_text = div.children[2].children[0]
     boundary = Range(first_text, 2)
@@ -891,8 +830,7 @@ def test_clone_contents_skips_non_partial_edge_children() -> None:
 
 
 def test_surround_contents_empties_the_wrapper_first() -> None:
-    doc = parse("<div id=a><p>x</p><p>y</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>x</p><p>y</p></div>"), "a")
     wrapper = Element("section")
     wrapper.append(Element("old"))
     boundary = Range(div, 0)
@@ -902,10 +840,8 @@ def test_surround_contents_empties_the_wrapper_first() -> None:
 
 
 def test_surround_contents_of_collapsed_range_inserts_empty_wrapper() -> None:
-    doc = parse("<div id=a><p>x</p></div>")
-    div = _by_id(doc, "a")
-    boundary = Range(div, 1)
-    boundary.surround_contents(Element("span"))
+    div = _by_id(parse("<div id=a><p>x</p></div>"), "a")
+    Range(div, 1).surround_contents(Element("span"))
     assert div.html == '<div id="a"><p>x</p><span></span></div>'
 
 
@@ -932,15 +868,13 @@ def test_set_start_rejects_out_of_range_offset() -> None:
 
 
 def test_compare_boundary_points_rejects_negative_how() -> None:
-    div = Element("div")
-    boundary = Range(div, 0)
+    boundary = Range(Element("div"), 0)
     with pytest.raises(ValueError, match="how must be"):
         boundary.compare_boundary_points(-1, boundary)
 
 
 def test_intersects_node_before_range_is_false() -> None:
-    doc = parse("<div id=a><p>a</p><p>b</p><p>c</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>a</p><p>b</p><p>c</p></div>"), "a")
     boundary = Range(div, 1)
     boundary.set_end(div, 2)
     assert boundary.intersects_node(div.children[0]) is False
@@ -953,8 +887,7 @@ def test_insert_node_rejects_processing_instruction_container() -> None:
 
 
 def test_insert_node_leaves_non_collapsed_range() -> None:
-    doc = parse("<div id=a><p>x</p><p>y</p></div>")
-    div = _by_id(doc, "a")
+    div = _by_id(parse("<div id=a><p>x</p><p>y</p></div>"), "a")
     boundary = Range(div, 0)
     boundary.set_end(div, 2)
     boundary.insert_node(Element("b"))  # a non-collapsed range keeps its end untouched
@@ -1046,7 +979,7 @@ def test_range_contained_interval(*, extract: bool) -> None:
 @pytest.mark.parametrize("extract", [False, True], ids=["clone", "extract"])
 def test_range_partial_excludes_siblings(*, extract: bool) -> None:
     root: Final = Element("div")
-    root.set_inner_html('<section data-x="é水😀">abcdef' + "<i></i>" * 100 + "</section>tail")
+    root.set_inner_html(f'<section data-x="é水😀">abcdef{"<i></i>" * 100}</section>tail')
     boundary: Final = Range(root)
     boundary.set_end(root.children[0].children[0], 3)
     result: Final = boundary.extract_contents() if extract else boundary.clone_contents()

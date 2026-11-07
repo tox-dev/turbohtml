@@ -18,15 +18,13 @@ from turbohtml._html import _collapse_whitespace
 
 
 class Renderable:
-    """Renders itself as already-safe HTML through the __html__ protocol."""
-
+    # Renders itself as already-safe HTML through the __html__ protocol.
     def __html__(self) -> str:
         return "<raw & unescaped>"
 
 
 class HtmlBoom:
-    """__html__ raises, to exercise escape's error-propagation path."""
-
+    # __html__ raises, to exercise escape's error-propagation path.
     def __html__(self) -> str:
         raise ValueError
 
@@ -39,15 +37,13 @@ class HtmlLookupError:
 
 
 class Unstringable:
-    """Conversion to text raises, to exercise escape's stringification error path."""
-
+    # Conversion to text raises, to exercise escape's stringification error path.
     def __str__(self) -> str:
         raise ValueError
 
 
 class HtmlReturnsUnstringable:
-    """__html__ returns a value whose own str() raises, exercising the nested error path."""
-
+    # __html__ returns a value whose own str() raises, exercising the nested error path.
     def __html__(self) -> object:
         return Unstringable()
 
@@ -143,7 +139,8 @@ def test_escape_silent_delegates_for_values() -> None:
 
 def test_escape_classmethod_returns_the_calling_subclass() -> None:
     class Sub(Markup):
-        """A Markup subclass, to check Markup.escape returns the called class."""
+        # A Markup subclass, to check Markup.escape returns the called class.
+        ...
 
     result = Sub.escape("<b>")
     assert type(result) is Sub
@@ -397,8 +394,7 @@ def test_escape_formatter_is_public_and_subclassable() -> None:
     seen: list[object] = []
 
     class Recording(EscapeFormatter):
-        """Record each field, to show EscapeFormatter cooperates with subclassing the way Jinja2 needs."""
-
+        # Record each field, to show EscapeFormatter cooperates with subclassing the way Jinja2 needs.
         def format_field(self, value: object, format_spec: str) -> str:
             seen.append(value)
             return super().format_field(value, format_spec)
@@ -467,7 +463,7 @@ def test_jinja2_migrates_to_turbohtml_markup() -> None:
 )
 def test_escape_adjacent_byte_lanes(pair: str, escaped: str, offset: int) -> None:
     prefix: Final = "x" * offset
-    assert str(escape(prefix + pair * 8 + "tail")) == prefix + escaped * 8 + "tail"
+    assert str(escape(f"{prefix}{pair * 8}tail")) == f"{prefix}{escaped * 8}tail"
 
 
 @pytest.mark.parametrize(

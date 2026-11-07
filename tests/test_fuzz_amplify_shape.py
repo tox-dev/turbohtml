@@ -1,5 +1,3 @@
-"""How the super-linear lane expands a shape: each kind, the counter, the byte budget, and the shapes it refuses."""
-
 from __future__ import annotations
 
 import hashlib
@@ -115,12 +113,14 @@ if TYPE_CHECKING:
 @pytest.mark.parametrize(
     ("shape", "size", "expected"),
     [
-        pytest.param(Shape("repeat", "ab", head="<", tail=">"), 8, "<ababab>", id="repeat"),
-        pytest.param(Shape("repeat", "ab"), 7, "ababab", id="repeat-never-splits-a-piece"),
-        pytest.param(Shape("sandwich", "[", middle="x", right="]"), 7, "[[[x]]]", id="sandwich"),
-        pytest.param(Shape("sandwich", "(", right="))"), 9, "(((" + "))" * 3, id="sandwich-uneven-sides"),
-        pytest.param(Shape("tree", "-", middle="a"), 10, "a-a--a---a", id="tree-interleaves-growing-prefixes"),
-        pytest.param(Shape("repeat", "é"), 5, "éé", id="budget-counts-utf8-bytes"),
+        pytest.param(Shape(kind="repeat", left="ab", head="<", tail=">"), 8, "<ababab>", id="repeat"),
+        pytest.param(Shape(kind="repeat", left="ab"), 7, "ababab", id="repeat-never-splits-a-piece"),
+        pytest.param(Shape(kind="sandwich", left="[", middle="x", right="]"), 7, "[[[x]]]", id="sandwich"),
+        pytest.param(Shape(kind="sandwich", left="(", right="))"), 9, f"((({'))' * 3}", id="sandwich-uneven-sides"),
+        pytest.param(
+            Shape(kind="tree", left="-", middle="a"), 10, "a-a--a---a", id="tree-interleaves-growing-prefixes"
+        ),
+        pytest.param(Shape(kind="repeat", left="é"), 5, "éé", id="budget-counts-utf8-bytes"),
     ],
 )
 def test_shape_render(shape: Shape, size: int, expected: str) -> None:
@@ -130,15 +130,15 @@ def test_shape_render(shape: Shape, size: int, expected: str) -> None:
 @pytest.mark.parametrize(
     ("shape", "size", "expected"),
     [
-        pytest.param(Shape("repeat", "<b c{n}>", counter=True), 30, "<b c000000><b c000001>", id="repeat"),
+        pytest.param(Shape(kind="repeat", left="<b c{n}>", counter=True), 30, "<b c000000><b c000001>", id="repeat"),
         pytest.param(
-            Shape("sandwich", "<i{n}>", right="</i{n}>", counter=True),
+            Shape(kind="sandwich", left="<i{n}>", right="</i{n}>", counter=True),
             40,
             "<i000000><i000001></i000001></i000000>",
             id="sandwich-closes-in-reverse",
         ),
-        pytest.param(Shape("tree", "-", middle="{n};", counter=True), 20, "000000;-000001;", id="tree"),
-        pytest.param(Shape("repeat", "{n}"), 9, "{n}{n}{n}", id="placeholder-kept-without-counter"),
+        pytest.param(Shape(kind="tree", left="-", middle="{n};", counter=True), 20, "000000;-000001;", id="tree"),
+        pytest.param(Shape(kind="repeat", left="{n}"), 9, "{n}{n}{n}", id="placeholder-kept-without-counter"),
     ],
 )
 def test_shape_render_numbers_each_repetition(shape: Shape, size: int, expected: str) -> None:
@@ -148,13 +148,17 @@ def test_shape_render_numbers_each_repetition(shape: Shape, size: int, expected:
 @pytest.mark.parametrize(
     ("build", "message"),
     [
-        pytest.param(lambda: Shape("spiral", "a"), "shape kind 'spiral' is not one of", id="unknown-kind"),
-        pytest.param(lambda: Shape("repeat", ""), "non-empty left piece", id="empty-left"),
-        pytest.param(lambda: Shape("repeat", "a", right="b"), "repeat shape has no right", id="repeat-right"),
-        pytest.param(lambda: Shape("tree", "a", right="b"), "tree shape has no right", id="tree-right"),
-        pytest.param(lambda: Shape("repeat", "a", middle="b"), "repeat shape has no middle", id="repeat-middle"),
-        pytest.param(lambda: Shape("repeat", "a" * 129), "left exceed 128 bytes", id="long-left"),
-        pytest.param(lambda: Shape("repeat", "a", tail="é" * 65), "tail exceed 128 bytes", id="long-tail-bytes"),
+        pytest.param(lambda: Shape(kind="spiral", left="a"), "shape kind 'spiral' is not one of", id="unknown-kind"),
+        pytest.param(lambda: Shape(kind="repeat", left=""), "non-empty left piece", id="empty-left"),
+        pytest.param(lambda: Shape(kind="repeat", left="a", right="b"), "repeat shape has no right", id="repeat-right"),
+        pytest.param(lambda: Shape(kind="tree", left="a", right="b"), "tree shape has no right", id="tree-right"),
+        pytest.param(
+            lambda: Shape(kind="repeat", left="a", middle="b"), "repeat shape has no middle", id="repeat-middle"
+        ),
+        pytest.param(lambda: Shape(kind="repeat", left="a" * 129), "left exceed 128 bytes", id="long-left"),
+        pytest.param(
+            lambda: Shape(kind="repeat", left="a", tail="é" * 65), "tail exceed 128 bytes", id="long-tail-bytes"
+        ),
     ],
 )
 def test_shape_rejects(build: Callable[[], Shape], message: str) -> None:
@@ -163,10 +167,10 @@ def test_shape_rejects(build: Callable[[], Shape], message: str) -> None:
 
 
 def test_shape_accepts_a_piece_of_exactly_128_bytes() -> None:
-    assert Shape("repeat", "a" * 128).render(256) == "a" * 256
+    assert Shape(kind="repeat", left="a" * 128).render(256) == "a" * 256
 
 
-_CASES: Final = generation_sweep(encoding_grammar(), budget=GenerationBudget(32, 128))
+_CASES: Final = generation_sweep(encoding_grammar(), budget=GenerationBudget(nodes=32, steps=128))
 _NAMES: Final = [production.name for production in encoding_grammar().productions]
 
 
@@ -207,7 +211,7 @@ def test_encoding_structure_inventory() -> None:
     ],
 )
 def test_encoding_structure_forced_specimen(name: str, encoding: str, codec: str, text: str) -> None:
-    case: Final = generate(encoding_grammar(), random.Random(0), GenerationBudget(32, 128), force=name)
+    case: Final = generate(encoding_grammar(), random.Random(0), GenerationBudget(nodes=32, steps=128), force=name)
     profile: Final = encoding_profile(case)
     assert (
         profile.encoding,
@@ -265,7 +269,9 @@ def test_encoding_structure_random_budget(seed: int) -> None:
     assert (encoding_check(case), case.nodes <= 16, len(case.productions) <= 32) == (None, True, True)
 
 
-@pytest.mark.parametrize("budget", [GenerationBudget(3, 128), GenerationBudget(32, 0)], ids=["nodes", "steps"])
+@pytest.mark.parametrize(
+    "budget", [GenerationBudget(nodes=3, steps=128), GenerationBudget(nodes=32, steps=0)], ids=["nodes", "steps"]
+)
 def test_encoding_structure_insufficient_budget(budget: GenerationBudget) -> None:
     with pytest.raises(BudgetError, match="cannot complete"):
         generate(encoding_grammar(), random.Random(0), budget)
@@ -324,9 +330,8 @@ def test_encoding_structure_cli_errors(tmp_path: Path, arguments: list[str]) -> 
 
 
 _GRAMMAR: Final = css_grammar()
-_SWEEP: Final = generation_sweep(_GRAMMAR, budget=GenerationBudget(512, 128))
-_PREFIX: Final = b":root{--x:red;--y:red;--z:red;--u:red;}@keyframes v{from{opacity:0}}"
-_BINDINGS: Final = (("anim", "v"), ("cssvara", "x"), ("cssvarb", "y"), ("cssvarc", "z"), ("cssvard", "u"))
+_SWEEP: Final = generation_sweep(_GRAMMAR, budget=GenerationBudget(nodes=512, steps=128))
+_PREFIX: Final[bytes] = b":root{--x:red;--y:red;--z:red;--u:red;}@keyframes v{from{opacity:0}}"
 
 
 @pytest.fixture
@@ -368,15 +373,20 @@ def test_css_complete_unknown_production_fails_floor() -> None:
     ],
 )
 def test_css_complete_literal_shapes(literal_grammar: Grammar, name: str, body: bytes, nodes: int) -> None:
-    case: Final = generate(literal_grammar, random.Random(0), GenerationBudget(128, 64), force=name)
-    assert (case.data, case.nodes, case.depth, case.bindings) == (_PREFIX + body, nodes, 7, _BINDINGS)
+    case: Final = generate(literal_grammar, random.Random(0), GenerationBudget(nodes=128, steps=64), force=name)
+    assert (case.data, case.nodes, case.depth, case.bindings) == (
+        _PREFIX + body,
+        nodes,
+        7,
+        (("anim", "v"), ("cssvara", "x"), ("cssvarb", "y"), ("cssvarc", "z"), ("cssvard", "u")),
+    )
 
 
 @pytest.mark.parametrize(
     "budget",
     [
-        pytest.param(GenerationBudget(37, 64), id="nodes"),
-        pytest.param(GenerationBudget(128, 1), id="steps"),
+        pytest.param(GenerationBudget(nodes=37, steps=64), id="nodes"),
+        pytest.param(GenerationBudget(nodes=128, steps=1), id="steps"),
     ],
 )
 def test_css_complete_rejects_short_root_budget(literal_grammar: Grammar, budget: GenerationBudget) -> None:
@@ -386,7 +396,7 @@ def test_css_complete_rejects_short_root_budget(literal_grammar: Grammar, budget
 
 def test_css_complete_reserves_sibling_steps(literal_grammar: Grammar) -> None:
     with pytest.raises(BudgetError, match="cannot complete"):
-        generate(literal_grammar, random.Random(0), GenerationBudget(128, 3), force="css:siblings")
+        generate(literal_grammar, random.Random(0), GenerationBudget(nodes=128, steps=3), force="css:siblings")
 
 
 @pytest.mark.parametrize(
@@ -401,12 +411,14 @@ def test_css_complete_reserves_sibling_steps(literal_grammar: Grammar) -> None:
     ],
 )
 def test_css_complete_literal_table_materialization(name: str, body: bytes) -> None:
-    case: Final = generate(_GRAMMAR, random.Random(0), GenerationBudget(512, 128), force=name)
+    case: Final = generate(_GRAMMAR, random.Random(0), GenerationBudget(nodes=512, steps=128), force=name)
     assert case.data == (body + _PREFIX if name.startswith("css:blink:") else _PREFIX + body)
 
 
 def test_css_complete_custom_properties_bind_to_root() -> None:
-    case: Final = generate(_GRAMMAR, random.Random(0), GenerationBudget(512, 128), force="css:domato:css.txt:107")
+    case: Final = generate(
+        _GRAMMAR, random.Random(0), GenerationBudget(nodes=512, steps=128), force="css:domato:css.txt:107"
+    )
     rules: Final = StyleSheet(case.data.decode("utf-8")).rules
     assert (rules[0].selector_text, rules[0].style.get("--y"), rules[1].style.get("color")) == (
         ":root",
@@ -477,8 +489,8 @@ def test_css_complete_disabled_alternative_fails_floor() -> None:
         assert_production_floors((case for case in _SWEEP if name not in case.productions), (name,))
 
 
-_RAW_CASES: Final = generation_sweep(markdown_grammar(), budget=GenerationBudget(64, 256))
-_HTML_CASES: Final = generation_sweep(markdown_grammar(html=True), budget=GenerationBudget(64, 256))
+_RAW_CASES: Final = generation_sweep(markdown_grammar(), budget=GenerationBudget(nodes=64, steps=256))
+_HTML_CASES: Final = generation_sweep(markdown_grammar(html=True), budget=GenerationBudget(nodes=64, steps=256))
 
 
 @pytest.mark.parametrize("case", _RAW_CASES, ids=[production.name for production in markdown_grammar().productions])
@@ -519,13 +531,18 @@ def test_markdown_reader_html_block_literal() -> None:
 
 
 def test_markdown_reference_binding() -> None:
-    case: Final = generate(markdown_grammar(), random.Random(0), GenerationBudget(5, 4), force="markdown:reference")
+    case: Final = generate(
+        markdown_grammar(), random.Random(0), GenerationBudget(nodes=5, steps=4), force="markdown:reference"
+    )
     assert (case.data, case.bindings) == (b"[x]: /target\n\n[x]\n", (("reference", "x"),))
 
 
 def test_markdown_html_binding() -> None:
     case: Final = generate(
-        markdown_grammar(html=True), random.Random(0), GenerationBudget(6, 3), force="markdown-html:thematic"
+        markdown_grammar(html=True),
+        random.Random(0),
+        GenerationBudget(nodes=6, steps=3),
+        force="markdown-html:thematic",
     )
     root: Final = parse_fragment(case.data.decode())
     assert [(node.tag, dict(node.attrs)) for node in root.select("#x, a")] == [
@@ -695,8 +712,8 @@ def test_markdown_unsupported_element() -> None:
         pytest.param("<span>a</span>  <span>b</span>", id="spaces-between-inline-elements"),
         pytest.param('<img src="a\nb" alt="ok">', id="plain-image-url-line-break"),
         pytest.param('<img src="a\nb" alt="ok" odd"="">', id="image-url-line-break"),
-        pytest.param("<strong>" * 9 + "<p>alpha</p><p>beta</p>" + "</strong>" * 9, id="deep-emphasis-paragraphs"),
-        pytest.param("<strong>" * 9 + "<p>alpha</p>beta" + "</strong>" * 9, id="deep-emphasis-trailing-text"),
+        pytest.param(f"{'<strong>' * 9}<p>alpha</p><p>beta</p>{'</strong>' * 9}", id="deep-emphasis-paragraphs"),
+        pytest.param(f"{'<strong>' * 9}<p>alpha</p>beta{'</strong>' * 9}", id="deep-emphasis-trailing-text"),
     ],
 )
 def test_markdown_supported_html_meaning(markup: str) -> None:
@@ -717,7 +734,9 @@ def test_markdown_content_model_violation(markup: str, container: str) -> None:
         markdown_html_check(markup)
 
 
-@pytest.mark.parametrize("budget", [GenerationBudget(0, 20), GenerationBudget(20, 0)], ids=["nodes", "steps"])
+@pytest.mark.parametrize(
+    "budget", [GenerationBudget(nodes=0, steps=20), GenerationBudget(nodes=20, steps=0)], ids=["nodes", "steps"]
+)
 def test_markdown_insufficient_budget(budget: GenerationBudget) -> None:
     with pytest.raises(BudgetError, match="cannot complete"):
         generate(markdown_grammar(), random.Random(0), budget)
@@ -790,7 +809,9 @@ def test_markdown_reader_drops_control_whitespace_beside_a_kept_copy() -> None:
         markdown_html_check("<p>\x1fa\x1fb</p>")
 
 
-_FUZZ_XML_STRUCTURE_GENERATION_CASES: Final = generation_sweep(xml_grammar(), budget=GenerationBudget(30, 120))
+_FUZZ_XML_STRUCTURE_GENERATION_CASES: Final = generation_sweep(
+    xml_grammar(), budget=GenerationBudget(nodes=30, steps=120)
+)
 
 
 @pytest.mark.parametrize(
@@ -810,7 +831,7 @@ def test_xml_structure_materialized_budget(case: Generated) -> None:
 
 
 def test_xml_structure_independent_parent_literals() -> None:
-    case: Final = generate(xml_grammar(), random.Random(0), GenerationBudget(4, 6), force="xml:leaf:0")
+    case: Final = generate(xml_grammar(), random.Random(0), GenerationBudget(nodes=4, steps=6), force="xml:leaf:0")
     assert xml_expected(case) == (
         ("document", "", "", (), -1),
         ("element:html", "Root", "", (("id", "x"),), 0),
@@ -859,41 +880,61 @@ def test_xml_structure_materialized_corpus(tmp_path: Path, *, raw: bool) -> None
 def test_generation_zero_node_forced_path() -> None:
     grammar: Final = compile_grammar(
         (
-            Production("root", "root", (b"<x", Reference("attribute", 0), b"/>"), 1, "test"),
-            Production("empty", "attribute", (b"",), 0, "test"),
-            Production("attribute", "attribute", (b' a="x"',), 0, "test"),
+            Production(
+                name="root",
+                symbol="root",
+                parts=(b"<x", Reference(symbol="attribute", depth=0), b"/>"),
+                nodes=1,
+                origin="test",
+            ),
+            Production(name="empty", symbol="attribute", parts=(b"",), nodes=0, origin="test"),
+            Production(name="attribute", symbol="attribute", parts=(b' a="x"',), nodes=0, origin="test"),
         ),
         "root",
     )
-    assert generate(grammar, random.Random(0), GenerationBudget(1, 2), force="attribute").data == b'<x a="x"/>'
+    assert (
+        generate(grammar, random.Random(0), GenerationBudget(nodes=1, steps=2), force="attribute").data == b'<x a="x"/>'
+    )
 
 
 def test_generation_zero_node_cycle_terminates() -> None:
     grammar: Final = compile_grammar(
         (
-            Production("cycle", "root", (b"x", Reference("root", 0)), 0, "test"),
-            Production("leaf", "root", (b"z",), 0, "test"),
+            Production(
+                name="cycle", symbol="root", parts=(b"x", Reference(symbol="root", depth=0)), nodes=0, origin="test"
+            ),
+            Production(name="leaf", symbol="root", parts=(b"z",), nodes=0, origin="test"),
         ),
         "root",
     )
-    case: Final = generate(grammar, random.Random(0), GenerationBudget(0, 2), force="cycle")
+    case: Final = generate(grammar, random.Random(0), GenerationBudget(nodes=0, steps=2), force="cycle")
     assert (case.data, case.nodes, case.productions) == (b"xz", 0, ("cycle", "leaf"))
 
 
 def test_generation_step_reservation_for_siblings() -> None:
     grammar: Final = compile_grammar(
         (
-            Production("root", "root", (Reference("child", 0), Reference("child", 0)), 1, "test"),
-            Production("cycle", "child", (b"x", Reference("child", 0)), 0, "test"),
-            Production("leaf", "child", (b"z",), 0, "test"),
+            Production(
+                name="root",
+                symbol="root",
+                parts=(Reference(symbol="child", depth=0), Reference(symbol="child", depth=0)),
+                nodes=1,
+                origin="test",
+            ),
+            Production(
+                name="cycle", symbol="child", parts=(b"x", Reference(symbol="child", depth=0)), nodes=0, origin="test"
+            ),
+            Production(name="leaf", symbol="child", parts=(b"z",), nodes=0, origin="test"),
         ),
         "root",
     )
-    case: Final = generate(grammar, random.Random(0), GenerationBudget(1, 4), force="cycle")
+    case: Final = generate(grammar, random.Random(0), GenerationBudget(nodes=1, steps=4), force="cycle")
     assert (case.data, case.nodes, len(case.productions)) == (b"xzz", 1, 4)
 
 
-@pytest.mark.parametrize("budget", [GenerationBudget(3, 120), GenerationBudget(30, 5)], ids=["nodes", "steps"])
+@pytest.mark.parametrize(
+    "budget", [GenerationBudget(nodes=3, steps=120), GenerationBudget(nodes=30, steps=5)], ids=["nodes", "steps"]
+)
 def test_xml_structure_insufficient_budget(budget: GenerationBudget) -> None:
     with pytest.raises(BudgetError, match="cannot complete"):
         generate(xml_grammar(), random.Random(0), budget)
@@ -955,7 +996,9 @@ def test_xml_structure_disabled_production() -> None:
 
 
 def test_xml_raw_generate_literal() -> None:
-    assert xml_raw_generate(random.Random(0), 4) == Generated(bytes.fromhex("4c09c2"), 0, 0, ("xml:raw:bytes",), ())
+    assert xml_raw_generate(random.Random(0), 4) == Generated(
+        data=bytes.fromhex("4c09c2"), nodes=0, depth=0, productions=("xml:raw:bytes",), bindings=()
+    )
 
 
 def test_xml_raw_generate_empty_budget() -> None:
@@ -985,12 +1028,12 @@ if TYPE_CHECKING:
 
 
 def test_reduce_html_removes_subtrees_and_attributes() -> None:
-    source = '<section><p id="keep" title="noise">x</p><aside>discard</aside></section>'
 
     def reproduces(text: str) -> bool:
         root = parse_fragment(text)
         return any(node.attrs.get("id") == "keep" and node.text == "x" for node in root.iter_elements())
 
+    source = '<section><p id="keep" title="noise">x</p><aside>discard</aside></section>'
     assert minimize(source, reproduces, "html") == '<section><p id="keep">x</p></section>'
 
 
@@ -1025,11 +1068,11 @@ def test_reduce_budget_stops_predicate_calls() -> None:
 
 
 def test_reduce_keeps_original_finding_class() -> None:
-    source = "p{color:red;margin:1px}"
 
     def finding(text: str) -> str | None:
         return "original" if "color:red" in text and "margin:1px" in text else "different"
 
+    source = "p{color:red;margin:1px}"
     assert minimize(source, lambda candidate: finding(candidate) == "original", "css") == source
 
 
@@ -1132,7 +1175,12 @@ def test_reduce_cli_saves_structural_finding(
         ORACLES,
         {
             "probe": Oracle(
-                check, lambda _rng: source, lambda: [source], lambda: {"control": True}, Floor(1, 1), syntax=syntax
+                check=check,
+                generate=lambda _rng: source,
+                seeds=lambda: [source],
+                controls=lambda: {"control": True},
+                floor=Floor(count=1, ratio=1),
+                syntax=syntax,
             )
         },
         clear=True,
@@ -1164,11 +1212,11 @@ def test_reduce_cli_preserves_json_fields(mocker: MockerFixture, tmp_path: Path)
         ORACLES,
         {
             "probe": Oracle(
-                check,
-                lambda _rng: source,
-                lambda: [source],
-                lambda: {"control": True},
-                Floor(1, 1),
+                check=check,
+                generate=lambda _rng: source,
+                seeds=lambda: [source],
+                controls=lambda: {"control": True},
+                floor=Floor(count=1, ratio=1),
                 fields=("html", "css"),
                 syntax="css",
             )
@@ -1191,7 +1239,15 @@ def test_reduce_cli_caps_comparison_calls(mocker: MockerFixture, tmp_path: Path)
 
     mocker.patch.dict(
         ORACLES,
-        {"probe": Oracle(check, lambda _rng: source, lambda: [source], lambda: {"control": True}, Floor(1, 1))},
+        {
+            "probe": Oracle(
+                check=check,
+                generate=lambda _rng: source,
+                seeds=lambda: [source],
+                controls=lambda: {"control": True},
+                floor=Floor(count=1, ratio=1),
+            )
+        },
         clear=True,
     )
     code = fuzz_reduce_cli_main(["--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -1229,7 +1285,7 @@ def test_triage_hashes_five_frames_without_addresses_or_build_paths() -> None:
     finding = classify(first)
     assert (finding.frames, finding.digest) == (
         tuple(f"call{index} input.c:{index + 1}" for index in range(5)),
-        classify(second + "\n    #5 0x567 in changed elsewhere.c:1").digest,
+        classify(f"{second}\n    #5 0x567 in changed elsewhere.c:1").digest,
     )
 
 
@@ -1416,7 +1472,7 @@ def test_html_complete_special_tag_materialization(tag: str, expected: list[str]
     case: Final = generate(
         _FUZZ_HTML_STRUCTURE_GENERATION_GRAMMAR,
         random.Random(0),
-        force=name if tag == "plaintext" else "html:document:" + name,
+        force=name if tag == "plaintext" else f"html:document:{name}",
     )
     root: Final = parse(case.data.decode("utf-8")) if html_document(case) else parse_fragment(case.data.decode("utf-8"))
     assert [node.tag for node in root.descendants if isinstance(node, Element)] == expected
@@ -1521,20 +1577,27 @@ def test_html_complete_exports_input_bytes(tmp_path: Path) -> None:
     ("vocabulary", "message"),
     [
         pytest.param(
-            HtmlVocabulary(("span",), (), ((1, "missing", "x"),), ()), "no emitting attribute", id="unused-value"
+            HtmlVocabulary(tags=("span",), html=(), values=((1, "missing", "x"),), tag_attributes=()),
+            "no emitting attribute",
+            id="unused-value",
         ),
         pytest.param(
-            HtmlVocabulary(("span",), ((1, "attribute_x", 'x="<missing>"'),), (), ()),
+            HtmlVocabulary(tags=("span",), html=((1, "attribute_x", 'x="<missing>"'),), values=(), tag_attributes=()),
             "unproductive value",
             id="unknown-value",
         ),
         pytest.param(
-            HtmlVocabulary(("span",), (), (), ((1, "unknown_attribute", "x"),)),
+            HtmlVocabulary(tags=("span",), html=(), values=(), tag_attributes=((1, "unknown_attribute", "x"),)),
             "no tag materialization",
             id="unknown-tag",
         ),
         pytest.param(
-            HtmlVocabulary(("span",), ((1, "attribute_x", 'x="<import from=missing symbol=x>"'),), (), ()),
+            HtmlVocabulary(
+                tags=("span",),
+                html=((1, "attribute_x", 'x="<import from=missing symbol=x>"'),),
+                values=(),
+                tag_attributes=(),
+            ),
             "unsupported grammar import",
             id="unknown-import",
         ),
@@ -1548,10 +1611,10 @@ def test_html_complete_rejects_incomplete_tables(vocabulary: HtmlVocabulary, mes
 def test_html_complete_productive_value_cycle_terminates() -> None:
     grammar: Final = html_grammar_complete(
         HtmlVocabulary(
-            ("span",),
-            ((1, "attribute_x", 'x="<value>"'),),
-            ((1, "value", "<helper>"), (2, "helper", "<value>"), (3, "helper", "done")),
-            (),
+            tags=("span",),
+            html=((1, "attribute_x", 'x="<value>"'),),
+            values=((1, "value", "<helper>"), (2, "helper", "<value>"), (3, "helper", "done")),
+            tag_attributes=(),
         )
     )
     case: Final = generate(grammar, random.Random(0), force="html:domato:value:2")
@@ -1561,10 +1624,10 @@ def test_html_complete_productive_value_cycle_terminates() -> None:
 def test_html_complete_escapes_attribute_literal() -> None:
     grammar: Final = html_grammar_complete(
         HtmlVocabulary(
-            ("span",),
-            ((1, "attribute_x", 'x="<value>"'),),
-            ((1, "value", "<char min=34>&<lt><gt>"),),
-            (),
+            tags=("span",),
+            html=((1, "attribute_x", 'x="<value>"'),),
+            values=((1, "value", "<char min=34>&<lt><gt>"),),
+            tag_attributes=(),
         )
     )
     case: Final = generate(grammar, random.Random(0), force="html:domato:value:1")
@@ -1588,10 +1651,10 @@ def test_html_complete_escapes_attribute_literal() -> None:
 def test_html_complete_bounded_primitive_values(source: str, expected: bytes) -> None:
     grammar: Final = html_grammar_complete(
         HtmlVocabulary(
-            ("span",),
-            ((1, "attribute_x", 'x="<value>"'),),
-            ((1, "value", source),),
-            (),
+            tags=("span",),
+            html=((1, "attribute_x", 'x="<value>"'),),
+            values=((1, "value", source),),
+            tag_attributes=(),
         )
     )
     case: Final = generate(grammar, random.Random(0), force="html:domato:value:1")
@@ -1627,9 +1690,18 @@ def test_html_complete_cli_sweep_has_hostile_inputs(tmp_path: Path) -> None:
 def grammar() -> Grammar:
     return compile_grammar(
         (
-            Production("root", "root", (b"<div>", Reference("item", 2), Reference("item", 2), b"</div>"), 2, "test", 1),
-            Production("leaf", "item", (b"<b>x</b>",), 2, "test", 1),
-            Production("nested", "item", (b"<i>", Reference("item"), b"</i>"), 1, "test"),
+            Production(
+                name="root",
+                symbol="root",
+                parts=(b"<div>", Reference(symbol="item", depth=2), Reference(symbol="item", depth=2), b"</div>"),
+                nodes=2,
+                origin="test",
+                height=1,
+            ),
+            Production(name="leaf", symbol="item", parts=(b"<b>x</b>",), nodes=2, origin="test", height=1),
+            Production(
+                name="nested", symbol="item", parts=(b"<i>", Reference(symbol="item"), b"</i>"), nodes=1, origin="test"
+            ),
         ),
         "root",
     )
@@ -1637,34 +1709,54 @@ def grammar() -> Grammar:
 
 def test_generation_reserves_siblings(grammar: Grammar) -> None:
     assert generate(grammar, random.Random(0), 6) == Generated(
-        b"<div><b>x</b><b>x</b></div>", 6, 3, ("root", "leaf", "leaf"), ()
+        data=b"<div><b>x</b><b>x</b></div>", nodes=6, depth=3, productions=("root", "leaf", "leaf"), bindings=()
     )
 
 
 def test_generation_leaf_uses_minimum(grammar: Grammar) -> None:
     assert generate(grammar, random.Random(1), 100, leaf=True) == Generated(
-        b"<div><b>x</b><b>x</b></div>", 6, 3, ("root", "leaf", "leaf"), ()
+        data=b"<div><b>x</b><b>x</b></div>", nodes=6, depth=3, productions=("root", "leaf", "leaf"), bindings=()
     )
 
 
 def test_generation_forces_nested(grammar: Grammar) -> None:
     assert generate(grammar, random.Random(2), 7, force="nested") == Generated(
-        b"<div><i><b>x</b></i><b>x</b></div>", 7, 4, ("root", "nested", "leaf", "leaf"), ()
+        data=b"<div><i><b>x</b></i><b>x</b></div>",
+        nodes=7,
+        depth=4,
+        productions=("root", "nested", "leaf", "leaf"),
+        bindings=(),
     )
 
 
 def test_generation_forced_path_uses_minimum() -> None:
     compiled: Final = compile_grammar(
         (
-            Production("heavy", "root", (b"<div><span></span><i>", Reference("item", 3), b"</i></div>"), 4, "test", 2),
-            Production("small", "root", (b"<div>", Reference("item", 2), b"</div>"), 2, "test", 1),
-            Production("leaf", "item", (b"<b>x</b>",), 2, "test", 1),
-            Production("nested", "item", (b"<i>", Reference("item"), b"</i>"), 1, "test"),
+            Production(
+                name="heavy",
+                symbol="root",
+                parts=(b"<div><span></span><i>", Reference(symbol="item", depth=3), b"</i></div>"),
+                nodes=4,
+                origin="test",
+                height=2,
+            ),
+            Production(
+                name="small",
+                symbol="root",
+                parts=(b"<div>", Reference(symbol="item", depth=2), b"</div>"),
+                nodes=2,
+                origin="test",
+                height=1,
+            ),
+            Production(name="leaf", symbol="item", parts=(b"<b>x</b>",), nodes=2, origin="test", height=1),
+            Production(
+                name="nested", symbol="item", parts=(b"<i>", Reference(symbol="item"), b"</i>"), nodes=1, origin="test"
+            ),
         ),
         "root",
     )
     assert generate(compiled, random.Random(0), 5, force="nested") == Generated(
-        b"<div><i><b>x</b></i></div>", 5, 4, ("small", "nested", "leaf"), ()
+        data=b"<div><i><b>x</b></i></div>", nodes=5, depth=4, productions=("small", "nested", "leaf"), bindings=()
     )
 
 
@@ -1685,39 +1777,63 @@ def test_generation_rejects_unknown_production(grammar: Grammar) -> None:
     ("productions", "root", "message"),
     [
         pytest.param(
-            (Production("same", "root", (b"x",), 1, "test"), Production("same", "root", (b"y",), 1, "test")),
+            (
+                Production(name="same", symbol="root", parts=(b"x",), nodes=1, origin="test"),
+                Production(name="same", symbol="root", parts=(b"y",), nodes=1, origin="test"),
+            ),
             "root",
             "unique",
             id="duplicate-name",
         ),
-        pytest.param((Production("negative", "root", (b"x",), -1, "test"),), "root", "nonnegative", id="negative-cost"),
         pytest.param(
-            (Production("negative-height", "root", (b"x",), 1, "test", -1),),
+            (Production(name="negative", symbol="root", parts=(b"x",), nodes=-1, origin="test"),),
+            "root",
+            "nonnegative",
+            id="negative-cost",
+        ),
+        pytest.param(
+            (Production(name="negative-height", symbol="root", parts=(b"x",), nodes=1, origin="test", height=-1),),
             "root",
             "nonnegative",
             id="negative-height",
         ),
         pytest.param(
-            (Production("negative-depth", "root", (Reference("root", -1),), 1, "test"),),
+            (
+                Production(
+                    name="negative-depth",
+                    symbol="root",
+                    parts=(Reference(symbol="root", depth=-1),),
+                    nodes=1,
+                    origin="test",
+                ),
+            ),
             "root",
             "nonnegative",
             id="negative-reference-depth",
         ),
-        pytest.param((Production("root", "root", (b"x",), 1, "test"),), "missing", "unknown root", id="unknown-root"),
         pytest.param(
-            (Production("root", "root", (Reference("missing"),), 1, "test"),),
+            (Production(name="root", symbol="root", parts=(b"x",), nodes=1, origin="test"),),
+            "missing",
+            "unknown root",
+            id="unknown-root",
+        ),
+        pytest.param(
+            (Production(name="root", symbol="root", parts=(Reference(symbol="missing"),), nodes=1, origin="test"),),
             "root",
             "unknown symbols",
             id="unknown-symbol",
         ),
         pytest.param(
-            (Production("root", "root", (b"x",), 1, "test"), Production("unused", "unused", (b"y",), 1, "test")),
+            (
+                Production(name="root", symbol="root", parts=(b"x",), nodes=1, origin="test"),
+                Production(name="unused", symbol="unused", parts=(b"y",), nodes=1, origin="test"),
+            ),
             "root",
             "unreachable",
             id="unreachable",
         ),
         pytest.param(
-            (Production("root", "root", (Reference("root"),), 1, "test"),),
+            (Production(name="root", symbol="root", parts=(Reference(symbol="root"),), nodes=1, origin="test"),),
             "root",
             "nonproductive",
             id="nonproductive-cycle",
@@ -1756,31 +1872,31 @@ def test_generation_identifiers_are_unique() -> None:
     compiled: Final = compile_grammar(
         (
             Production(
-                "ids",
-                "root",
-                (
+                name="ids",
+                symbol="root",
+                parts=(
                     b'<div id="',
-                    Identifier("first", definition=True),
+                    Identifier(name="first", definition=True),
                     b'"></div><div id="',
-                    Identifier("second", definition=True),
+                    Identifier(name="second", definition=True),
                     b'"></div><div id="',
-                    Identifier("third", definition=True),
+                    Identifier(name="third", definition=True),
                     b'"></div>',
                 ),
-                4,
-                "test",
-                1,
+                nodes=4,
+                origin="test",
+                height=1,
             ),
         ),
         "root",
     )
     case: Final = generate(compiled, random.Random(0))
     assert case == Generated(
-        b'<div id="x"></div><div id="y"></div><div id="z"></div>',
-        4,
-        1,
-        ("ids",),
-        (("first", "x"), ("second", "y"), ("third", "z")),
+        data=b'<div id="x"></div><div id="y"></div><div id="z"></div>',
+        nodes=4,
+        depth=1,
+        productions=("ids",),
+        bindings=(("first", "x"), ("second", "y"), ("third", "z")),
     )
 
 
@@ -1788,24 +1904,28 @@ def test_generation_reference_before_definition() -> None:
     compiled: Final = compile_grammar(
         (
             Production(
-                "before",
-                "root",
-                (
+                name="before",
+                symbol="root",
+                parts=(
                     b'<a href="#',
-                    Identifier("target", definition=False),
+                    Identifier(name="target", definition=False),
                     b'">x</a><div id="',
-                    Identifier("target", definition=True),
+                    Identifier(name="target", definition=True),
                     b'"></div>',
                 ),
-                4,
-                "test",
-                2,
+                nodes=4,
+                origin="test",
+                height=2,
             ),
         ),
         "root",
     )
     assert generate(compiled, random.Random(0)) == Generated(
-        b'<a href="#x">x</a><div id="x"></div>', 4, 2, ("before",), (("target", "x"),)
+        data=b'<a href="#x">x</a><div id="x"></div>',
+        nodes=4,
+        depth=2,
+        productions=("before",),
+        bindings=(("target", "x"),),
     )
 
 
@@ -1813,20 +1933,24 @@ def test_generation_reference_before_definition() -> None:
     ("parts", "message"),
     [
         pytest.param(
-            tuple(Identifier(name, definition=True) for name in ("first", "second", "third", "fourth")),
+            tuple(Identifier(name=name, definition=True) for name in ("first", "second", "third", "fourth")),
             "exhausted",
             id="pool-exhausted",
         ),
         pytest.param(
-            (Identifier("first", definition=True), Identifier("first", definition=True)),
+            (Identifier(name="first", definition=True), Identifier(name="first", definition=True)),
             "duplicate identifier",
             id="duplicate-definition",
         ),
-        pytest.param((Identifier("missing", definition=False),), "undefined identifiers", id="undefined-reference"),
+        pytest.param(
+            (Identifier(name="missing", definition=False),), "undefined identifiers", id="undefined-reference"
+        ),
     ],
 )
 def test_generation_rejects_invalid_identifiers(parts: tuple[Identifier, ...], message: str) -> None:
-    compiled: Final = compile_grammar((Production("ids", "root", parts, 1, "test"),), "root")
+    compiled: Final = compile_grammar(
+        (Production(name="ids", symbol="root", parts=parts, nodes=1, origin="test"),), "root"
+    )
     with pytest.raises(GrammarError, match=message):
         generate(compiled, random.Random(0))
 
@@ -1834,11 +1958,22 @@ def test_generation_rejects_invalid_identifiers(parts: tuple[Identifier, ...], m
 @pytest.mark.parametrize(
     ("budget", "force", "expected"),
     [
-        pytest.param(3, None, Generated(b"<div>x</div>", 3, 2, ("root", "leaf"), ()), id="minimum"),
+        pytest.param(
+            3,
+            None,
+            Generated(data=b"<div>x</div>", nodes=3, depth=2, productions=("root", "leaf"), bindings=()),
+            id="minimum",
+        ),
         pytest.param(
             6,
             "cycle",
-            Generated(b"<div><i><div>x</div></i></div>", 6, 5, ("root", "cycle", "root", "leaf"), ()),
+            Generated(
+                data=b"<div><i><div>x</div></i></div>",
+                nodes=6,
+                depth=5,
+                productions=("root", "cycle", "root", "leaf"),
+                bindings=(),
+            ),
             id="forced-cycle",
         ),
     ],
@@ -1846,9 +1981,18 @@ def test_generation_rejects_invalid_identifiers(parts: tuple[Identifier, ...], m
 def test_generation_productive_cycle_terminates(budget: int, force: str | None, expected: Generated) -> None:
     compiled: Final = compile_grammar(
         (
-            Production("root", "root", (b"<div>", Reference("item", 2), b"</div>"), 2, "test", 1),
-            Production("cycle", "item", (b"<i>", Reference("root"), b"</i>"), 1, "test"),
-            Production("leaf", "item", (b"x",), 1, "test"),
+            Production(
+                name="root",
+                symbol="root",
+                parts=(b"<div>", Reference(symbol="item", depth=2), b"</div>"),
+                nodes=2,
+                origin="test",
+                height=1,
+            ),
+            Production(
+                name="cycle", symbol="item", parts=(b"<i>", Reference(symbol="root"), b"</i>"), nodes=1, origin="test"
+            ),
+            Production(name="leaf", symbol="item", parts=(b"x",), nodes=1, origin="test"),
         ),
         "root",
     )
@@ -1861,15 +2005,21 @@ def depth_grammars() -> tuple[Grammar, ...]:
         compile_grammar(
             (
                 Production(
-                    "root",
-                    "root",
-                    (b"<div>" * level, Reference("item", level + 1), b"</div>" * level),
-                    level + 1,
-                    "test",
-                    level,
+                    name="root",
+                    symbol="root",
+                    parts=(b"<div>" * level, Reference(symbol="item", depth=level + 1), b"</div>" * level),
+                    nodes=level + 1,
+                    origin="test",
+                    height=level,
                 ),
-                Production("leaf", "item", (b"<b>x</b>",), 2, "test", 1),
-                Production("nested", "item", (b"<i>", Reference("item"), b"</i>"), 1, "test"),
+                Production(name="leaf", symbol="item", parts=(b"<b>x</b>",), nodes=2, origin="test", height=1),
+                Production(
+                    name="nested",
+                    symbol="item",
+                    parts=(b"<i>", Reference(symbol="item"), b"</i>"),
+                    nodes=1,
+                    origin="test",
+                ),
             ),
             "root",
         )
@@ -1897,7 +2047,9 @@ def test_generation_corpus_contains_materialized_bytes(grammar: Grammar, tmp_pat
 
 
 def test_generation_raw_bytes_survive_export(tmp_path: Path) -> None:
-    compiled: Final = compile_grammar((Production("raw", "root", (b"\xff",), 1, "test"),), "root")
+    compiled: Final = compile_grammar(
+        (Production(name="raw", symbol="root", parts=(b"\xff",), nodes=1, origin="test"),), "root"
+    )
     case: Final = generate(compiled, random.Random(0))
     write_corpus((case,), tmp_path)
     assert (tmp_path / hashlib.sha256(b"\xff").hexdigest()).read_bytes() == b"\xff"
@@ -1955,11 +2107,11 @@ def test_generation_html_small_identifier_pool(case: Generated) -> None:
 
 def test_generation_html_minimum() -> None:
     assert fuzz_structure_generation_html_generate(random.Random(0), 5) == Generated(
-        b'<div id="x">x<a href="#x">x</a></div>',
-        5,
-        3,
-        ("html:root", "html:text:0"),
-        (("target", "x"),),
+        data=b'<div id="x">x<a href="#x">x</a></div>',
+        nodes=5,
+        depth=3,
+        productions=("html:root", "html:text:0"),
+        bindings=(("target", "x"),),
     )
 
 
@@ -2045,36 +2197,42 @@ def test_generation_cli_rejects_invalid_bounds(
 )
 def test_generation_rejects_invalid_identifier_pool(pool: tuple[str, ...]) -> None:
     with pytest.raises(GrammarError, match="1 to 64 distinct ASCII identifiers"):
-        compile_grammar((Production("root", "root", (b"x",), 1, "test"),), "root", identifiers=pool)
+        compile_grammar(
+            (Production(name="root", symbol="root", parts=(b"x",), nodes=1, origin="test"),), "root", identifiers=pool
+        )
 
 
 def test_generation_uses_distinct_supplied_identifiers() -> None:
     grammar: Final = compile_grammar(
         (
             Production(
-                "root",
-                "root",
-                (
-                    *(part for name in ("a", "b", "c", "d", "e") for part in (Identifier(name, definition=True), b" ")),
+                name="root",
+                symbol="root",
+                parts=(
+                    *(
+                        part
+                        for name in ("a", "b", "c", "d", "e")
+                        for part in (Identifier(name=name, definition=True), b" ")
+                    ),
                     *(
                         part
                         for name in ("e", "d", "c", "b", "a")
-                        for part in (Identifier(name, definition=False), b" ")
+                        for part in (Identifier(name=name, definition=False), b" ")
                     ),
                 ),
-                1,
-                "test",
+                nodes=1,
+                origin="test",
             ),
         ),
         "root",
         identifiers=("first", "second", "third", "fourth", "fifth"),
     )
     assert generate(grammar, random.Random(0), 1) == Generated(
-        b"first second third fourth fifth fifth fourth third second first ",
-        1,
-        0,
-        ("root",),
-        (("a", "first"), ("b", "second"), ("c", "third"), ("d", "fourth"), ("e", "fifth")),
+        data=b"first second third fourth fifth fifth fourth third second first ",
+        nodes=1,
+        depth=0,
+        productions=("root",),
+        bindings=(("a", "first"), ("b", "second"), ("c", "third"), ("d", "fourth"), ("e", "fifth")),
     )
 
 
@@ -2082,11 +2240,11 @@ def test_generation_rejects_supplied_pool_exhaustion() -> None:
     grammar: Final = compile_grammar(
         (
             Production(
-                "root",
-                "root",
-                (Identifier("a", definition=True), Identifier("b", definition=True)),
-                1,
-                "test",
+                name="root",
+                symbol="root",
+                parts=(Identifier(name="a", definition=True), Identifier(name="b", definition=True)),
+                nodes=1,
+                origin="test",
             ),
         ),
         "root",

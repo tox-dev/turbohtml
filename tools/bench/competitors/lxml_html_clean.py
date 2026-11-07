@@ -18,12 +18,11 @@ _CLEANER = lxml_html_clean.Cleaner()
 
 
 def sanitize(text: str) -> None:
-    """Sanitize with lxml-html-clean's blocklist Cleaner."""
     _CLEANER.clean_html(text)
 
 
 def linkify(text: str) -> None:
-    """Auto-link URLs in HTML with lxml-html-clean's autolink_html, on an lxml tree."""
+    # Auto-link URLs in HTML with lxml-html-clean's autolink_html, on an lxml tree.
     lxml_html_clean.autolink_html(text)
 
 
@@ -41,8 +40,8 @@ def _linkify_node(node: HtmlElement) -> HtmlElement:
 
 
 OPERATIONS = {
-    "sanitize-node": (Mutating(_fresh, _sanitize_node), "lxml-html-clean"),
-    "linkify-node": (Mutating(_fresh, _linkify_node), "lxml-html-clean"),
+    "sanitize-node": (Mutating(setup=_fresh, run=_sanitize_node), "lxml-html-clean"),
+    "linkify-node": (Mutating(setup=_fresh, run=_linkify_node), "lxml-html-clean"),
     "sanitize": (sanitize, "lxml-html-clean"),
     "linkify": (linkify, "lxml-html-clean"),
 }

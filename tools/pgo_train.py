@@ -46,7 +46,7 @@ _CALIBRATION_CALLS: Final[int] = 4  # average a few warm calls so timer jitter c
 
 
 def _invoke(operation: object, case: object) -> None:
-    """Run one operation over its case, rebuilding a fresh tree first for a mutating operation."""
+    # Run one operation over its case, rebuilding a fresh tree first for a mutating operation.
     if isinstance(operation, Mutating):
         operation.run(operation.setup(case))
     else:
@@ -54,7 +54,7 @@ def _invoke(operation: object, case: object) -> None:
 
 
 def _iterations(operation: object, case: object, budget: float) -> int:
-    """Time a few warm calls and return how many repetitions fill ``budget`` seconds, clamped to the bounds."""
+    # Time a few warm calls and return how many repetitions fill ``budget`` seconds, clamped to the bounds.
     start = perf_counter()
     for _ in range(_CALIBRATION_CALLS):
         _invoke(operation, case)
@@ -65,7 +65,7 @@ def _iterations(operation: object, case: object, budget: float) -> int:
 
 
 def train() -> tuple[int, int]:
-    """Exercise every operation over its input set for an equal time slice; return the trained and skipped counts."""
+    # Exercise every operation over its input set for an equal time slice; return the trained and skipped counts.
     trained = skipped = 0
     for _name, operation, load in training_corpus():
         try:
@@ -85,7 +85,7 @@ def train() -> tuple[int, int]:
 
 
 def main() -> None:
-    """Run the training workload and report the coverage so a bare-checkout build's thin profile is visible."""
+    # Run the training workload and report the coverage so a bare-checkout build's thin profile is visible.
     trained, skipped = train()
     print(f"pgo training: exercised {trained} operations, skipped {skipped} for a missing corpus")
 
@@ -94,6 +94,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = [
-    "train",
-]
+__all__ = []

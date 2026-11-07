@@ -29,11 +29,11 @@ from pathlib import Path
 from typing import Final
 
 from bench import corpus
-from bench import orchestrator as orch
+from bench.orchestrator import baseline_python, venv_python
 
 # each probe body calls emit() with the counts for the page it is handed; the selectors are the ones core.py
 # benchmarks, so a disagreement here is a disagreement in a published table
-PROBES: Final[dict[str, tuple[tuple[str, ...], str]]] = {
+_PROBES: Final[dict[str, tuple[tuple[str, ...], str]]] = {
     "turbohtml": (
         (),
         """
@@ -133,7 +133,7 @@ emit(
 # text reports twice: raw length and length after collapsing whitespace runs. A party that merely joins nodes without
 # separators differs on the first and agrees on the second, which tells a formatting difference apart from content the
 # parser never produced.
-_PREAMBLE: Final = """\
+_PREAMBLE: Final[str] = """\
 import json, sys
 TEXT = open(sys.argv[1], encoding='utf-8').read()
 def emit(*, elements, anchors, css, text):
@@ -145,17 +145,13 @@ def emit(*, elements, anchors, css, text):
 
 # a party at zero, or off the median by more than this, is answering a different question rather than differing on
 # whether a comment counts as a node
-_TOLERANCE: Final = 4.0
+_TOLERANCE: Final[float] = 4.0
 
 
 def _counts(name: str, requirements: tuple[str, ...], body: str, page: Path, workdir: Path) -> dict[str, int]:
-    """Run one party's probe over one page in that party's own venv; an unbuildable party reports nothing."""
+    # Run one party's probe over one page in that party's own venv; an unbuildable party reports nothing.
     slug = "".join(char if char.isalnum() else "-" for char in name)
-    python = (
-        orch.baseline_python(workdir, pgo=False)
-        if name == "turbohtml"
-        else orch.venv_python(workdir, slug, requirements)
-    )
+    python = baseline_python(workdir, pgo=False) if name == "turbohtml" else venv_python(workdir, slug, requirements)
     script = workdir / f"probe-{slug}.py"
     script.write_text(_PREAMBLE + body, "utf-8")
     done = subprocess.run([str(python), str(script), str(page)], capture_output=True, text=True, check=False)
@@ -166,13 +162,13 @@ def _counts(name: str, requirements: tuple[str, ...], body: str, page: Path, wor
 
 
 def disagreements(workdir: Path) -> list[str]:
-    """Run every probe over every corpus page and return one line per party answering a different question."""
+    # Run every probe over every corpus page and return one line per party answering a different question.
     corpus.prefetch()
     found: list[str] = []
     for label, filename, url in corpus.REAL_PAGES:
         page = workdir / filename
         page.write_text(corpus.large_text(filename, url), encoding="utf-8")
-        results = {name: _counts(name, reqs, body, page, workdir) for name, (reqs, body) in PROBES.items()}
+        results = {name: _counts(name, reqs, body, page, workdir) for name, (reqs, body) in _PROBES.items()}
         width = max(len(name) for name in results)
         probes = sorted({probe for row in results.values() for probe in row})
         print(f"\n===== {label} =====")
@@ -199,7 +195,7 @@ def disagreements(workdir: Path) -> list[str]:
 
 
 def main() -> None:
-    """Report every disagreement; exit non-zero so a run can gate on the result."""
+    # Report every disagreement; exit non-zero so a run can gate on the result.
     workdir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.gettempdir()) / "bench-equivalence"
     workdir.mkdir(parents=True, exist_ok=True)
     found = disagreements(workdir)
@@ -213,4 +209,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["PROBES", "disagreements"]
+__all__ = []

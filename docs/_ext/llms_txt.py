@@ -55,7 +55,7 @@ _START_HERE: Final[tuple[tuple[str, str], ...]] = (
     ("migration/index", "Migration guides"),
 )
 
-_DIATAXIS_NOTE: Final = (
+_DIATAXIS_NOTE: Final[str] = (
     "The documentation follows the Diátaxis framework: tutorials to learn, how-to guides for tasks, a reference for "
     "the API, and explanation for the design, plus migration guides from the libraries turbohtml replaces. Each index "
     "is grouped by namespace -- parse/DOM, detect, query, clean, convert, extract, build, serialize."
@@ -63,13 +63,13 @@ _DIATAXIS_NOTE: Final = (
 
 
 def setup(app: Sphinx) -> dict[str, Any]:
-    """Register the build-finished hook that writes the two llms map files."""
+    # Register the build-finished hook that writes the two llms map files.
     app.connect("build-finished", _emit_llms_txt)
     return {"parallel_read_safe": True, "parallel_write_safe": True}
 
 
 def _emit_llms_txt(app: Sphinx, exception: Exception | None) -> None:
-    """Write llms.txt and llms-full.txt into the HTML output root once the build succeeds."""
+    # Write llms.txt and llms-full.txt into the HTML output root once the build succeeds.
     if exception is not None or app.builder.name != "html":
         return
     env = app.env
@@ -85,8 +85,7 @@ def _emit_llms_txt(app: Sphinx, exception: Exception | None) -> None:
     grouped: dict[str, list[str]] = {key: [] for key, _ in _SECTIONS}
     index_pages = set(_SECTION_INDEX.values())
     for docname in order:
-        section = _section_of(docname)
-        if section in grouped and docname not in index_pages:
+        if (section := _section_of(docname)) in grouped and docname not in index_pages:
             grouped[section].append(docname)
 
     project_summary = summaries.get(root, "")
@@ -96,7 +95,7 @@ def _emit_llms_txt(app: Sphinx, exception: Exception | None) -> None:
 
 
 def _ordered_docnames(env: BuildEnvironment, root: str) -> list[str]:
-    """Return every docname reachable from ``root`` in navigation order, each once."""
+    # Return every docname reachable from ``root`` in navigation order, each once.
     seen = {root}
     order: list[str] = []
     stack = list(reversed(env.toctree_includes.get(root, [])))
@@ -111,7 +110,7 @@ def _ordered_docnames(env: BuildEnvironment, root: str) -> list[str]:
 
 
 def _summary(env: BuildEnvironment, docname: str) -> str:
-    """Return the page's first paragraph, whitespace collapsed onto one line."""
+    # Return the page's first paragraph, whitespace collapsed onto one line.
     for paragraph in env.get_doctree(docname).findall(nodes.paragraph):
         if text := " ".join(paragraph.astext().split()):
             return text

@@ -24,7 +24,7 @@ _BUILD: Final = _ROOT / "build" / "preprocess-identity"
 
 
 def main() -> int:
-    """Return 0 when every translation unit preprocesses identically with the fuzz-only branches stripped."""
+    # Return 0 when every translation unit preprocesses identically with the fuzz-only branches stripped.
     if not (_BUILD / "compile_commands.json").is_file():
         subprocess.run(["meson", "setup", str(_BUILD), "--buildtype=release", "-Db_lto=true"], cwd=_ROOT, check=True)
     entries = json.loads((_BUILD / "compile_commands.json").read_text(encoding="utf-8"))
@@ -44,7 +44,7 @@ def main() -> int:
 
 
 def _strip(mirror: Path) -> None:
-    """Mirror ``src`` with the fuzz-only branches blanked and the build directory's include paths created."""
+    # Mirror ``src`` with the fuzz-only branches blanked and the build directory's include paths created.
     for source in sorted((_ROOT / "src").rglob("*")):
         target = mirror / source.relative_to(_ROOT)
         if source.is_dir():

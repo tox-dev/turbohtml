@@ -13,12 +13,54 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
+def html_foreign_generate(rng: random.Random) -> str:
+    # Finite productions cap tree depth and size.
+    return (
+        f"{rng.choice(_BOUNDARIES)}:{rng.choice(_IDENTIFIERS)}:"
+        f"{rng.choice(tuple(_QUOTES))}:{rng.choice(tuple(_LEAVES))}"
+    )
+
+
+def html_foreign_seeds() -> list[str]:
+    # Cover finite productions without relying on random draws.
+    return [
+        f"{boundary}:{identifier}:{quote}:{leaf}"
+        for boundary in _BOUNDARIES
+        for identifier in _IDENTIFIERS
+        for quote in _QUOTES
+        for leaf in _LEAVES
+    ]
+
+
+def html_foreign_controls() -> dict[str, bool]:
+    # Expose matching errors in namespace, attachment and content.
+    return {
+        "HTML child became SVG": html_foreign_check(
+            "foreignObject:x:double:plain", lambda node: node.serialize().replace("foreignObject", "g")
+        )
+        is not None,
+        "SVG sibling moved inside integration point": html_foreign_check(
+            "desc:x:double:plain",
+            lambda _node: '<svg><desc><a id="x">MiXeD</a><g id="y"></g></desc></svg>',
+        )
+        is not None,
+        "changed identifier": html_foreign_check(
+            "title:x:double:plain", lambda node: node.serialize().replace('id="x"', 'id="y"')
+        )
+        is not None,
+        "encoded text": html_foreign_check(
+            "foreignObject:x:double:named", lambda node: node.serialize().replace("&amp;", "&amp;amp;")
+        )
+        is not None,
+    }
+
+
 def html_foreign_check(
     case: str,
     serialize: Callable[[Node], str] = Node.serialize,
     read: Callable[[str], Element] = parse_fragment,
 ) -> str | None:
-    """Keep expected namespaces independent of parsing."""
+    # Keep expected namespaces independent of parsing.
     if (match := _CASE.fullmatch(case)) is None:
         raise UnsupportedHtmlForeignCaseError(case)
     boundary, identifier, quote, leaf = match.groups()
@@ -50,6 +92,11 @@ def html_foreign_check(
     )
 
 
+class UnsupportedHtmlForeignCaseError(ValueError):
+    # Separate invalid programs from failures of generated trees.
+    ...
+
+
 def _snapshot(root: Element) -> str:
     records: Final[list[tuple[str, str, str, tuple[tuple[str, str | list[str] | None], ...], str, str]]] = []
     for node in root.descendants:
@@ -68,52 +115,6 @@ def _snapshot(root: Element) -> str:
         else:
             records.append(("other", "", type(node).__name__, (), parent.namespace.value, parent.tag))
     return json.dumps(records)
-
-
-def html_foreign_generate(rng: random.Random) -> str:
-    """Finite productions cap tree depth and size."""
-    return (
-        f"{rng.choice(_BOUNDARIES)}:{rng.choice(_IDENTIFIERS)}:"
-        f"{rng.choice(tuple(_QUOTES))}:{rng.choice(tuple(_LEAVES))}"
-    )
-
-
-def html_foreign_seeds() -> list[str]:
-    """Cover finite productions without relying on random draws."""
-    return [
-        f"{boundary}:{identifier}:{quote}:{leaf}"
-        for boundary in _BOUNDARIES
-        for identifier in _IDENTIFIERS
-        for quote in _QUOTES
-        for leaf in _LEAVES
-    ]
-
-
-def html_foreign_controls() -> dict[str, bool]:
-    """Expose matching errors in namespace, attachment and content."""
-    return {
-        "HTML child became SVG": html_foreign_check(
-            "foreignObject:x:double:plain", lambda node: node.serialize().replace("foreignObject", "g")
-        )
-        is not None,
-        "SVG sibling moved inside integration point": html_foreign_check(
-            "desc:x:double:plain",
-            lambda _node: '<svg><desc><a id="x">MiXeD</a><g id="y"></g></desc></svg>',
-        )
-        is not None,
-        "changed identifier": html_foreign_check(
-            "title:x:double:plain", lambda node: node.serialize().replace('id="x"', 'id="y"')
-        )
-        is not None,
-        "encoded text": html_foreign_check(
-            "foreignObject:x:double:named", lambda node: node.serialize().replace("&amp;", "&amp;amp;")
-        )
-        is not None,
-    }
-
-
-class UnsupportedHtmlForeignCaseError(ValueError):
-    """Separate invalid programs from failures of generated trees."""
 
 
 _CASE: Final = re.compile(r"(foreignObject|desc|title):(x|y):(single|double):(plain|named|numeric)")

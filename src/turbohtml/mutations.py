@@ -21,7 +21,18 @@ from ._html import Node, _register_mutation_record
 
 
 class MutationRecord(NamedTuple):
-    """One change delivered to an observer, mirroring the DOM MutationRecord."""
+    """
+    One change delivered to an observer, mirroring the DOM MutationRecord.
+
+    :param type:
+    :param target:
+    :param added_nodes:
+    :param removed_nodes:
+    :param previous_sibling:
+    :param next_sibling:
+    :param attribute_name:
+    :param old_value:
+    """
 
     type: str
     """``"childList"``, ``"attributes"``, or ``"characterData"``."""

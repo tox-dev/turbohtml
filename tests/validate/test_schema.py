@@ -12,22 +12,10 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
-XS = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
+_XS: Final[str] = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
 
 
-R = "http://relaxng.org/ns/structure/1.0"
-
-
-def xsd_ok(schema: str, xml: str) -> bool:
-    return XMLSchema(schema).validate(parse_xml(xml)).valid
-
-
-def rng_ok(schema: str, xml: str) -> bool:
-    return RelaxNG(schema).validate(parse_xml(xml)).valid
-
-
-def rwrap(body: str) -> str:
-    return f'<element name="doc" xmlns="{R}">{body}</element>'
+R: Final[str] = "http://relaxng.org/ns/structure/1.0"
 
 
 @pytest.mark.parametrize(
@@ -35,7 +23,7 @@ def rwrap(body: str) -> str:
     [
         pytest.param(
             XMLSchema(
-                f'<xs:schema {XS}><xs:element name="a"><xs:complexType><xs:sequence>'
+                f'<xs:schema {_XS}><xs:element name="a"><xs:complexType><xs:sequence>'
                 '<xs:element ref="a" minOccurs="0"/></xs:sequence></xs:complexType></xs:element></xs:schema>'
             ),
             id="xsd",
@@ -62,7 +50,7 @@ def test_deep_nesting_is_rejected_before_validation(schema: XMLSchema | RelaxNG,
     [
         pytest.param(
             XMLSchema,
-            f'<xs:schema {XS}><xs:element name="a"><xs:complexType>'
+            f'<xs:schema {_XS}><xs:element name="a"><xs:complexType>'
             + "<xs:sequence>" * 1200
             + '<xs:element name="b"/>'
             + "</xs:sequence>" * 1200
@@ -71,11 +59,7 @@ def test_deep_nesting_is_rejected_before_validation(schema: XMLSchema | RelaxNG,
         ),
         pytest.param(
             RelaxNG,
-            f'<grammar xmlns="{R}"><start>'
-            + "<optional>" * 1200
-            + "<empty/>"
-            + "</optional>" * 1200
-            + "</start></grammar>",
+            f'<grammar xmlns="{R}"><start>{"<optional>" * 1200}<empty/>{"</optional>" * 1200}</start></grammar>',
             id="relax-ng",
         ),
     ],
@@ -91,8 +75,20 @@ def test_long_names_and_values_hit_buffer_bounds() -> None:
     rng_schema = rwrap(f'<attribute name="{long_attr}"><text/></attribute><text/>')
     assert rng_ok(rng_schema, f'<doc {long_attr}="1">body</doc>')
     # a >128-char value truncates in the datatype error message buffer
-    xsd_schema = f'<xs:schema {XS}><xs:element name="v" type="xs:int"/></xs:schema>'
-    assert not xsd_ok(xsd_schema, "<v>" + "9" * 200 + "z</v>")
+    xsd_schema = f'<xs:schema {_XS}><xs:element name="v" type="xs:int"/></xs:schema>'
+    assert not xsd_ok(xsd_schema, f"<v>{'9' * 200}z</v>")
+
+
+def rwrap(body: str) -> str:
+    return f'<element name="doc" xmlns="{R}">{body}</element>'
+
+
+def rng_ok(schema: str, xml: str) -> bool:
+    return RelaxNG(schema).validate(parse_xml(xml)).valid
+
+
+def xsd_ok(schema: str, xml: str) -> bool:
+    return XMLSchema(schema).validate(parse_xml(xml)).valid
 
 
 @pytest.mark.parametrize(

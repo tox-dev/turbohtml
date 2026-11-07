@@ -59,19 +59,6 @@ if TYPE_CHECKING:
 _DIGITS: Final = string.digits
 
 
-def _accepts(dfa: Dfa, digits: str) -> int:
-    state = 1
-    for char in digits:
-        state = dfa.next[state][int(char)]
-        if state == 0:
-            return 0
-    return dfa.accepts[state]
-
-
-def _strings(alphabet: str, longest: int) -> list[str]:
-    return ["".join(item) for length in range(longest + 1) for item in itertools.product(alphabet, repeat=length)]
-
-
 @pytest.mark.parametrize(
     "pattern",
     [
@@ -89,6 +76,19 @@ def test_dfa_agrees_with_re_on_every_short_string(pattern: str) -> None:
     assert {digits for digits in _strings(_DIGITS, 5) if _accepts(dfa, digits)} == {
         digits for digits in _strings(_DIGITS, 5) if re.fullmatch(pattern, digits)
     }
+
+
+def _strings(alphabet: str, longest: int) -> list[str]:
+    return ["".join(item) for length in range(longest + 1) for item in itertools.product(alphabet, repeat=length)]
+
+
+def _accepts(dfa: Dfa, digits: str) -> int:
+    state = 1
+    for char in digits:
+        state = dfa.next[state][int(char)]
+        if state == 0:
+            return 0
+    return dfa.accepts[state]
 
 
 def test_union_keeps_each_program_label() -> None:
@@ -172,7 +172,7 @@ def test_unbounded_repeat_is_allowed_only_on_request() -> None:
     assert (_accepts(dfa, "1"), _accepts(dfa, "12"), _accepts(dfa, "1234567")) == (0, 1, 1)
 
 
-_METADATA = b"""<?xml version="1.0" encoding="UTF-8"?>
+_METADATA: Final[bytes] = b"""<?xml version="1.0" encoding="UTF-8"?>
 <phoneNumberMetadata>
   <territories>
     <territory id="XA" countryCode="1" mainCountryForCode="true" internationalPrefix="011" nationalPrefix="1"
@@ -232,12 +232,31 @@ def test_parse_formats_resolves_the_prefix_rules_and_templates() -> None:
     main, _routed, german = parse_metadata(_METADATA)
     assert main.formats == [
         Format(
-            "[2-9]", r"(\d{3})(\d{3})(\d{4})", ((3, 3), (3, 3), (4, 4)), "$1 $2 $3", "$1 $2 $3", requires_prefix=False
+            leading="[2-9]",
+            pattern=r"(\d{3})(\d{3})(\d{4})",
+            groups=((3, 3), (3, 3), (4, 4)),
+            national="$1 $2 $3",
+            intl="$1 $2 $3",
+            requires_prefix=False,
         ),
     ]
     assert german.formats == [
-        Format("3[02]|40|[68]9", r"(\d{2})(\d{3,11})", ((2, 2), (3, 11)), "0$1 $2", "$1-$2", requires_prefix=True),
-        Format(None, r"(\d{3})(\d{5,8})", ((3, 3), (5, 8)), "($1) $2", None, requires_prefix=False),
+        Format(
+            leading="3[02]|40|[68]9",
+            pattern=r"(\d{2})(\d{3,11})",
+            groups=((2, 2), (3, 11)),
+            national="0$1 $2",
+            intl="$1-$2",
+            requires_prefix=True,
+        ),
+        Format(
+            leading=None,
+            pattern=r"(\d{3})(\d{5,8})",
+            groups=((3, 3), (5, 8)),
+            national="($1) $2",
+            intl=None,
+            requires_prefix=False,
+        ),
     ]
     assert (main.ext_prefix, german.ext_prefix) == (None, " Anexo ")
 
@@ -327,7 +346,7 @@ def test_parse_template_refuses_bad_templates(text: str | None, message: str) ->
         parse_template("XA", text, 2)
 
 
-_ALTERNATE_FORMATS = b"""<?xml version="1.0" encoding="UTF-8"?>
+_ALTERNATE_FORMATS: Final[bytes] = b"""<?xml version="1.0" encoding="UTF-8"?>
 <phoneNumberMetadata>
   <territories>
     <territory countryCode="49">
@@ -345,8 +364,22 @@ _ALTERNATE_FORMATS = b"""<?xml version="1.0" encoding="UTF-8"?>
 def test_parse_alternate_formats_reads_each_calling_code() -> None:
     assert parse_alternate_formats(_ALTERNATE_FORMATS) == {
         49: [
-            Format("[3-9]", r"(\d{3})(\d{5,9})", ((3, 3), (5, 9)), "$1 $2", "$1 $2", requires_prefix=False),
-            Format(None, r"(\d{4})(\d{4,8})", ((4, 4), (4, 8)), "$1 $2", "$1 $2", requires_prefix=False),
+            Format(
+                leading="[3-9]",
+                pattern=r"(\d{3})(\d{5,9})",
+                groups=((3, 3), (5, 9)),
+                national="$1 $2",
+                intl="$1 $2",
+                requires_prefix=False,
+            ),
+            Format(
+                leading=None,
+                pattern=r"(\d{4})(\d{4,8})",
+                groups=((4, 4), (4, 8)),
+                national="$1 $2",
+                intl="$1 $2",
+                requires_prefix=False,
+            ),
         ]
     }
 
@@ -439,7 +472,7 @@ _UNICODE_DATA = "\n".join([
     "9FFF;<CJK Ideograph, Last>;Lo;0;L;;;;;N;;;;;",
     *_digit_rows(0x1D7CE, "MATHEMATICAL BOLD"),
 ])
-_BLOCKS = (
+_BLOCKS: Final[str] = (
     "# Blocks-16.0.0.txt\n"
     "0000..007F; Basic Latin\n"
     "0080..00FF; Latin-1 Supplement\n"
@@ -524,7 +557,7 @@ def test_compile_region_and_groups_on_the_fixture() -> None:
 
 def test_compile_region_refuses_a_type_pattern_longer_than_its_lengths() -> None:
     region = parse_metadata(_METADATA)[0]
-    region.types["mobile"] = TypeDesc(r"[2-9]\d{9,10}", frozenset({10}), frozenset())
+    region.types["mobile"] = TypeDesc(pattern=r"[2-9]\d{9,10}", national=frozenset({10}), local_only=frozenset())
     with pytest.raises(GenerationError, match="XA/mobile: the pattern accepts lengths \\[11\\]"):
         compile_region(region, [], random.Random(1))  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # sampler
 

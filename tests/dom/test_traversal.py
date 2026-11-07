@@ -1,5 +1,3 @@
-"""TreeWalker and NodeIterator: the DOM traversal objects with NodeFilter."""
-
 from __future__ import annotations
 
 import gc
@@ -27,21 +25,19 @@ if TYPE_CHECKING:
 
     from turbohtml import Node
 
-_SAMPLE = (
-    "<!DOCTYPE html><html><head><title>T</title></head>"
-    "<body><div id=r><p>a<b>x</b></p><span>y</span><!--c--></div></body></html>"
-)
-
 SHOW_ELEMENT = NodeFilter.SHOW_ELEMENT
 SHOW_TEXT = NodeFilter.SHOW_TEXT
-ACCEPT = NodeFilter.FILTER_ACCEPT
-REJECT = NodeFilter.FILTER_REJECT
-SKIP = NodeFilter.FILTER_SKIP
+_ACCEPT = NodeFilter.FILTER_ACCEPT
+_REJECT = NodeFilter.FILTER_REJECT
+_SKIP = NodeFilter.FILTER_SKIP
 
 
 @pytest.fixture
 def doc() -> Document:
-    return parse(_SAMPLE)
+    return parse(
+        "<!DOCTYPE html><html><head><title>T</title></head>"
+        "<body><div id=r><p>a<b>x</b></p><span>y</span><!--c--></div></body></html>"
+    )
 
 
 @pytest.fixture
@@ -50,7 +46,7 @@ def root(doc: Document) -> Element:
 
 
 def _el(node: Node | None) -> Element:
-    """Narrow a select_one/find result to the Element it is known to be at the call site."""
+    # Narrow a select_one/find result to the Element it is known to be at the call site.
     assert isinstance(node, Element)
     return node
 
@@ -63,15 +59,15 @@ def _named(node: Node, tag: str) -> bool:
     return isinstance(node, Element) and node.tag == tag
 
 
-def _verdict_on(tag: str, hit: int, miss: int = ACCEPT) -> Callable[[Node], int]:
-    """A filter returning ``hit`` for elements named ``tag`` and ``miss`` otherwise."""
+def _verdict_on(tag: str, hit: int, miss: int = _ACCEPT) -> Callable[[Node], int]:
+    # A filter returning ``hit`` for elements named ``tag`` and ``miss`` otherwise.
     return lambda node: hit if _named(node, tag) else miss
 
 
 def test_node_filter_constants() -> None:
     assert NodeFilter.SHOW_ALL == 0xFFFFFFFF
     assert (SHOW_ELEMENT, SHOW_TEXT, NodeFilter.SHOW_COMMENT) == (0x1, 0x4, 0x80)
-    assert (ACCEPT, REJECT, SKIP) == (1, 2, 3)
+    assert (_ACCEPT, _REJECT, _SKIP) == (1, 2, 3)
 
 
 def test_defaults(root: Element) -> None:
@@ -111,8 +107,8 @@ def test_what_to_show_must_be_int(kind: type, root: Element) -> None:
 
 def test_walker_elements_only(root: Element) -> None:
     walker = TreeWalker(root, SHOW_ELEMENT)
-    tags = []
     node = walker.first_child()
+    tags = []
     while node is not None:
         tags.append(_tags(node))
         node = walker.next_node()
@@ -121,7 +117,7 @@ def test_walker_elements_only(root: Element) -> None:
 
 def test_walker_reject_prunes_subtree() -> None:
     tree = _el(parse("<div id=r><p>a<b>x</b></p><span>y</span><i>z</i></div>").select_one("#r"))
-    walker = TreeWalker(tree, SHOW_ELEMENT, _verdict_on("p", REJECT))
+    walker = TreeWalker(tree, SHOW_ELEMENT, _verdict_on("p", _REJECT))
     tags = [_tags(walker.first_child())]
     while (node := walker.next_node()) is not None:
         tags.append(_tags(node))
@@ -129,7 +125,7 @@ def test_walker_reject_prunes_subtree() -> None:
 
 
 def test_walker_skip_keeps_subtree(root: Element) -> None:
-    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("p", SKIP))
+    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("p", _SKIP))
     tags = [_tags(walker.first_child())]
     while (node := walker.next_node()) is not None:
         tags.append(_tags(node))
@@ -149,18 +145,18 @@ def test_first_child_all_filtered() -> None:
 
 
 def test_first_child_descends_into_skipped(root: Element) -> None:
-    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("p", SKIP))
+    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("p", _SKIP))
     assert _tags(walker.first_child()) == "b"
 
 
 def test_first_child_reject_moves_to_sibling(root: Element) -> None:
-    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("p", REJECT))
+    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("p", _REJECT))
     assert _tags(walker.first_child()) == "span"
 
 
 def test_first_child_climbs_back_to_origin(root: Element) -> None:
     # descend into <p> (skip), exhaust its <b> subtree (skip), climb back to the origin -> nothing accepted
-    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("span", ACCEPT, SKIP))
+    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("span", _ACCEPT, _SKIP))
     walker.current_node = _el(root.select_one("p"))  # a <p>-only origin, so span is not a sibling to fall onto
     assert walker.first_child() is None
 
@@ -171,7 +167,7 @@ def test_last_child(root: Element) -> None:
 
 
 def test_last_child_descends_into_skipped(root: Element) -> None:
-    walker = TreeWalker(_el(root.select_one("p")), SHOW_ELEMENT, _verdict_on("b", SKIP))
+    walker = TreeWalker(_el(root.select_one("p")), SHOW_ELEMENT, _verdict_on("b", _SKIP))
     # <p>'s only element child is <b>; skipping it descends but finds nothing
     assert walker.last_child() is None
 
@@ -179,15 +175,15 @@ def test_last_child_descends_into_skipped(root: Element) -> None:
 @pytest.mark.parametrize(
     ("walk", "detach", "verdict"),
     [
-        pytest.param(TreeWalker.first_child, Element.extract, REJECT, id="first-child-reject-extract"),
-        pytest.param(TreeWalker.first_child, Element.extract, SKIP, id="first-child-skip-extract"),
+        pytest.param(TreeWalker.first_child, Element.extract, _REJECT, id="first-child-reject-extract"),
+        pytest.param(TreeWalker.first_child, Element.extract, _SKIP, id="first-child-skip-extract"),
         pytest.param(
             TreeWalker.first_child,
             lambda element: _el(element.parent).set_text("z"),
-            REJECT,
+            _REJECT,
             id="first-child-reject-parent-set-text",
         ),
-        pytest.param(TreeWalker.last_child, Element.extract, REJECT, id="last-child-reject-extract"),
+        pytest.param(TreeWalker.last_child, Element.extract, _REJECT, id="last-child-reject-extract"),
     ],
 )
 def test_traverse_children_survives_filter_detaching_node(
@@ -216,7 +212,7 @@ def test_parent_node_climbs(root: Element) -> None:
 
 
 def test_parent_node_skips_then_accepts(root: Element) -> None:
-    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("p", SKIP))
+    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("p", _SKIP))
     walker.current_node = _el(root.select_one("b"))
     assert _tags(walker.parent_node()) == "div"  # p skipped, div accepted
 
@@ -239,14 +235,14 @@ def test_next_sibling_none_at_root(root: Element) -> None:
 
 def test_next_sibling_skip_with_children() -> None:
     tree = _el(parse("<div id=r><a></a><section><b>x</b></section></div>").select_one("#r"))
-    walker = TreeWalker(tree, SHOW_ELEMENT, _verdict_on("section", SKIP))
+    walker = TreeWalker(tree, SHOW_ELEMENT, _verdict_on("section", _SKIP))
     walker.current_node = _el(tree.select_one("a"))
     # a's next sibling <section> is skipped, so the search descends into it and accepts <b>
     assert _tags(walker.next_sibling()) == "b"
 
 
 def test_next_sibling_all_skip_climbs_to_root(doc: Document) -> None:
-    walker = TreeWalker(_el(doc.select_one("body")), SHOW_ELEMENT, lambda _node: SKIP)
+    walker = TreeWalker(_el(doc.select_one("body")), SHOW_ELEMENT, lambda _node: _SKIP)
     walker.current_node = _el(doc.select_one("b"))  # every node skips, so the search climbs to the root and yields None
     assert walker.next_sibling() is None
 
@@ -270,7 +266,7 @@ def test_previous_sibling(root: Element) -> None:
 
 
 def test_previous_sibling_skip_with_children(root: Element) -> None:
-    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("p", SKIP))
+    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("p", _SKIP))
     walker.current_node = _el(root.select_one("span"))
     # previous sibling p is skipped; descend to its last child b
     assert _tags(walker.previous_sibling()) == "b"
@@ -285,7 +281,7 @@ def test_next_node_none_walks_to_end(root: Element) -> None:
 
 
 def test_next_node_reject_skips_descent(root: Element) -> None:
-    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("p", REJECT))
+    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("p", _REJECT))
     # rejecting p means next_node does not descend into b
     assert _tags(walker.next_node()) == "span"
 
@@ -326,7 +322,7 @@ def test_previous_node_climbs_to_parent(root: Element) -> None:
 
 
 def test_previous_node_reject_stops_descent(root: Element) -> None:
-    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("p", REJECT))
+    walker = TreeWalker(root, SHOW_ELEMENT, _verdict_on("p", _REJECT))
     walker.current_node = _el(root.select_one("span"))
     # p is rejected: previous_node does not descend into it, and p is not accepted -> climbs to div
     assert _tags(walker.previous_node()) == "div"
@@ -334,8 +330,7 @@ def test_previous_node_reject_stops_descent(root: Element) -> None:
 
 def test_previous_node_reaches_root_sibling() -> None:
     tree = parse("<div><a id=start></a><b id=cur>x</b></div>")
-    start = _el(tree.select_one("#start"))
-    walker = TreeWalker(start, SHOW_ELEMENT, _verdict_on("a", SKIP))
+    walker = TreeWalker(_el(tree.select_one("#start")), SHOW_ELEMENT, _verdict_on("a", _SKIP))
     walker.current_node = _el(
         tree.select_one("#cur")
     )  # start (the root) is current's previous sibling; skip lands there
@@ -358,7 +353,7 @@ def test_previous_node_descends_to_accepted_child() -> None:
 
 def test_previous_node_skips_parent_then_continues() -> None:
     tree = _el(parse("<div id=r><a></a><wrap><b></b></wrap></div>").select_one("#r"))
-    walker = TreeWalker(tree, SHOW_ELEMENT, _verdict_on("wrap", SKIP))
+    walker = TreeWalker(tree, SHOW_ELEMENT, _verdict_on("wrap", _SKIP))
     walker.current_node = _el(tree.select_one("b"))
     # b has no previous sibling; its parent <wrap> is skipped, so previous_node keeps going to <a>
     assert _tags(walker.previous_node()) == "a"
@@ -367,7 +362,7 @@ def test_previous_node_skips_parent_then_continues() -> None:
 @pytest.mark.parametrize("direction", ["next", "previous"], ids=["next", "previous"])
 def test_sibling_reject_skips_to_next(direction: str) -> None:
     tree = _el(parse("<div id=r><a>1</a><section><b>2</b></section><c>3</c></div>").select_one("#r"))
-    walker = TreeWalker(tree, SHOW_ELEMENT, _verdict_on("section", REJECT))
+    walker = TreeWalker(tree, SHOW_ELEMENT, _verdict_on("section", _REJECT))
     if direction == "next":
         walker.current_node = _el(tree.select_one("a"))
         # section is rejected, so the search does not descend into <b> and lands on <c>
@@ -380,7 +375,7 @@ def test_sibling_reject_skips_to_next(direction: str) -> None:
 @pytest.mark.parametrize("direction", ["next", "previous"], ids=["next", "previous"])
 def test_sibling_skip_leaf_moves_past(direction: str) -> None:
     tree = _el(parse("<div id=r><a>1</a><br><c>3</c></div>").select_one("#r"))
-    walker = TreeWalker(tree, SHOW_ELEMENT, _verdict_on("br", SKIP))
+    walker = TreeWalker(tree, SHOW_ELEMENT, _verdict_on("br", _SKIP))
     if direction == "next":
         walker.current_node = _el(tree.select_one("a"))
         assert _tags(walker.next_sibling()) == "c"  # <br> is a skipped leaf, stepped over
@@ -396,8 +391,8 @@ def test_iterator_forward(root: Element) -> None:
 
 def test_iterator_reject_is_skip(root: Element) -> None:
     # a flat view has no subtree: REJECT and SKIP behave identically, so <b> under a rejected <p> still appears
-    reject = NodeIterator(root, SHOW_ELEMENT, _verdict_on("p", REJECT))
-    skip = NodeIterator(root, SHOW_ELEMENT, _verdict_on("p", SKIP))
+    reject = NodeIterator(root, SHOW_ELEMENT, _verdict_on("p", _REJECT))
+    skip = NodeIterator(root, SHOW_ELEMENT, _verdict_on("p", _SKIP))
     forward_reject = [_tags(node) for node in iter(reject.next_node, None)]
     forward_skip = [_tags(node) for node in iter(skip.next_node, None)]
     assert forward_reject == forward_skip == ["div", "b", "span"]
@@ -476,11 +471,16 @@ def test_filter_receives_node(root: Element) -> None:
 
     def record(node: Node) -> int:
         seen.append(_tags(node))
-        return ACCEPT if isinstance(node, Element) else SKIP
+        return _ACCEPT if isinstance(node, Element) else _SKIP
 
     list(NodeIterator(root, NodeFilter.SHOW_ALL, record))
     assert "div" in seen
     assert "Text" in seen
+
+
+def test_filter_raising_first_child(root: Element) -> None:
+    with pytest.raises(RuntimeError, match="boom"):
+        TreeWalker(root, SHOW_ELEMENT, _raise_on("p")).first_child()
 
 
 def _raise_on(tag: str) -> Callable[[Node], int]:
@@ -488,14 +488,9 @@ def _raise_on(tag: str) -> Callable[[Node], int]:
         if _named(node, tag):
             msg = "boom"
             raise RuntimeError(msg)
-        return ACCEPT
+        return _ACCEPT
 
     return node_filter
-
-
-def test_filter_raising_first_child(root: Element) -> None:
-    with pytest.raises(RuntimeError, match="boom"):
-        TreeWalker(root, SHOW_ELEMENT, _raise_on("p")).first_child()
 
 
 def test_filter_raising_parent_node(root: Element) -> None:
@@ -561,7 +556,7 @@ def test_filter_raising_iterator_previous(root: Element) -> None:
         if armed[0] and _named(node, "b"):
             msg = "boom"
             raise RuntimeError(msg)
-        return ACCEPT
+        return _ACCEPT
 
     it = NodeIterator(root, SHOW_ELEMENT, node_filter)
     for _ in range(3):
@@ -622,7 +617,7 @@ def test_iterator_reentry_error_caught_inside_filter_keeps_the_outer_step(root: 
             it.next_node()
         except ValueError as error:
             errors.append(str(error))
-        return ACCEPT
+        return _ACCEPT
 
     it = NodeIterator(root, SHOW_ELEMENT, reenter)
     assert ([_tags(it.next_node()), _tags(it.next_node())], len(errors)) == (["div", "p"], 2)
@@ -666,7 +661,7 @@ def test_current_node_must_share_tree(root: Element) -> None:
 
 
 def test_filter_getter_returns_callable(root: Element) -> None:
-    keep = _verdict_on("x", ACCEPT)
+    keep = _verdict_on("x", _ACCEPT)
     assert TreeWalker(root, SHOW_ELEMENT, keep).filter is keep
     assert NodeIterator(root, SHOW_ELEMENT, keep).filter is keep
 
@@ -678,7 +673,7 @@ def test_standalone_leaf_nodes_wrap() -> None:
         assert first.equals(node)
 
 
-@pytest.mark.parametrize("node_filter", [_verdict_on("x", ACCEPT), None], ids=["filtered", "plain"])
+@pytest.mark.parametrize("node_filter", [_verdict_on("x", _ACCEPT), None], ids=["filtered", "plain"])
 def test_gc_survives_collection(root: Element, node_filter: Callable[[Node], int] | None) -> None:
     walker = TreeWalker(root, SHOW_ELEMENT, node_filter)
     iterator = NodeIterator(root, SHOW_ELEMENT, node_filter)
@@ -693,12 +688,9 @@ def test_iterate_module_exports() -> None:
     assert turbohtml.NodeFilter is NodeFilter
 
 
-_REMOVAL_SAMPLE = "<div id=r><p id=p0><b></b></p><p id=p1></p><p id=p2></p></div>"
-
-
 def _removal_doc() -> Document:
-    """A fresh tree per test: these tests mutate it, and parallel runs must not share it."""
-    return parse(_REMOVAL_SAMPLE)
+    # A fresh tree per test: these tests mutate it, and parallel runs must not share it.
+    return parse("<div id=r><p id=p0><b></b></p><p id=p1></p><p id=p2></p></div>")
 
 
 def _ids(nodes: list[Node]) -> list[str]:
@@ -764,8 +756,8 @@ def test_iterator_adjusts_the_candidate_when_the_filter_removes_nodes() -> None:
     def drop_first_paragraph(node: Node) -> int:
         if _named(node, "b"):
             _el(removal_doc.select_one("#p0")).decompose()
-            return SKIP
-        return ACCEPT
+            return _SKIP
+        return _ACCEPT
 
     visited = list(NodeIterator(_el(removal_doc.select_one("#r")), filter=drop_first_paragraph))
     assert _ids(visited) == ["r", "p0", "p1", "p2"]

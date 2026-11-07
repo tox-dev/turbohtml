@@ -1,10 +1,3 @@
-"""Unit tests for the serialize(layout=Minify(...)) transforms and the Minify options object.
-
-Each transform is round-trip safe: the minified output reparses to the same tree.
-The exhaustive corpus check of that property lives in test_minify_roundtrip.py; here
-every individual rule and option is pinned with an explicit expected string.
-"""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
@@ -18,31 +11,6 @@ if TYPE_CHECKING:
     from wpt_tree_corpus import WptHtmlTreeCorpus
 from turbohtml.clean import JSMinify
 from turbohtml.clean import Minify as CleanMinify
-
-
-def frag(
-    source: str,
-    *,
-    collapse_whitespace: bool = True,
-    omit_optional_tags: bool = True,
-    unquote_attributes: bool = True,
-    strip_comments: bool = True,
-) -> str:
-    """Minify source parsed in a <div> fragment context, returning the inner markup.
-
-    A <div> is never an optional tag and carries no attributes, so it survives every
-    transform unchanged and strips cleanly, leaving just the minified content.
-    """
-    layout = Minify(
-        collapse_whitespace=collapse_whitespace,
-        omit_optional_tags=omit_optional_tags,
-        unquote_attributes=unquote_attributes,
-        strip_comments=strip_comments,
-    )
-    out = parse_fragment(source, "div").serialize(Html(layout=layout))
-    assert out.startswith("<div>")
-    assert out.endswith("</div>")
-    return out[len("<div>") : -len("</div>")]
 
 
 def test_minify_defaults_all_on() -> None:
@@ -150,6 +118,30 @@ def test_encode_minify() -> None:
 )
 def test_minify_fragment(source: str, expected: str) -> None:
     assert frag(source, omit_optional_tags=False) == expected
+
+
+def frag(
+    source: str,
+    *,
+    collapse_whitespace: bool = True,
+    omit_optional_tags: bool = True,
+    unquote_attributes: bool = True,
+    strip_comments: bool = True,
+) -> str:
+    # Minify source parsed in a <div> fragment context, returning the inner markup.
+    #
+    # A <div> is never an optional tag and carries no attributes, so it survives every
+    # transform unchanged and strips cleanly, leaving just the minified content.
+    layout = Minify(
+        collapse_whitespace=collapse_whitespace,
+        omit_optional_tags=omit_optional_tags,
+        unquote_attributes=unquote_attributes,
+        strip_comments=strip_comments,
+    )
+    out = parse_fragment(source, "div").serialize(Html(layout=layout))
+    assert out.startswith("<div>")
+    assert out.endswith("</div>")
+    return out[len("<div>") : -len("</div>")]
 
 
 def test_collapse_off_keeps_whitespace() -> None:
@@ -530,7 +522,7 @@ _CSS = CSSMinify()
 
 
 def css_frag(source: str, *, minify_css: CSSMinify | None = _CSS, unquote_attributes: bool = True) -> str:
-    """Minify source in a <div> fragment with the CSS pass, returning the inner markup."""
+    # Minify source in a <div> fragment with the CSS pass, returning the inner markup.
     layout = Minify(minify_css=minify_css, unquote_attributes=unquote_attributes)
     out = parse_fragment(source, "div").serialize(Html(layout=layout))
     assert out.startswith("<div>")
@@ -701,16 +693,6 @@ def test_minify_css_is_idempotent_and_reparse_safe(source: str) -> None:
     assert parse(once).serialize(Html(layout=layout)) == once
 
 
-def _plain_roundtrips(source: str) -> bool:
-    once = parse(source).serialize()
-    return once == parse(once).serialize()
-
-
-def _minify_idempotent(source: str, layout: Minify) -> bool:
-    once = parse(source).serialize(Html(layout=layout))
-    return once == parse(once).serialize(Html(layout=layout))
-
-
 @pytest.mark.parametrize(
     "layout",
     [pytest.param(Minify(), id="default"), pytest.param(Minify(minify_css=CSSMinify()), id="minify-css")],
@@ -727,6 +709,16 @@ def test_minify_idempotent_over_tree_construction(wpt_html_tree_corpus: WptHtmlT
         if _plain_roundtrips(data) and not _minify_idempotent(data, layout)
     ]
     assert not failures, f"{len(failures)} non-idempotent\n\n" + "\n\n".join(failures[:5])
+
+
+def _plain_roundtrips(source: str) -> bool:
+    once = parse(source).serialize()
+    return once == parse(once).serialize()
+
+
+def _minify_idempotent(source: str, layout: Minify) -> bool:
+    once = parse(source).serialize(Html(layout=layout))
+    return once == parse(once).serialize(Html(layout=layout))
 
 
 def test_minify_idempotent_over_large_document() -> None:
@@ -753,21 +745,21 @@ def test_minify_idempotent_over_large_document() -> None:
     assert len(once) < len(parse(big).serialize())  # minification actually shrinks the document
 
 
-_SCRIPT = "function f(){ var longName = 1 + 2 ; return longName }"
-
-
-def script(source: str, minify_js: JSMinify | None = None) -> str:
-    """Serialize source as the single child of a <script> under Minify(minify_js=...),
-    returning just the script element so the assertion is the minified (or verbatim) body."""
-    out = parse_fragment(f"<script>{source}</script>", "div").serialize(Html(layout=Minify(minify_js=minify_js)))
-    assert out.startswith("<div><script>")
-    assert out.endswith("</script></div>")
-    return out[len("<div>") : -len("</div>")]
+_SCRIPT: Final[str] = "function f(){ var longName = 1 + 2 ; return longName }"
 
 
 def test_scripts_untouched_without_minify_js() -> None:
     # the default Minify leaves JavaScript exactly as written
     assert script(_SCRIPT) == f"<script>{_SCRIPT}</script>"
+
+
+def script(source: str, minify_js: JSMinify | None = None) -> str:
+    # Serialize source as the single child of a <script> under Minify(minify_js=...),
+    # returning just the script element so the assertion is the minified (or verbatim) body.
+    out = parse_fragment(f"<script>{source}</script>", "div").serialize(Html(layout=Minify(minify_js=minify_js)))
+    assert out.startswith("<div><script>")
+    assert out.endswith("</script></div>")
+    return out[len("<div>") : -len("</div>")]
 
 
 @pytest.mark.parametrize(
@@ -948,7 +940,9 @@ def test_minify_js_rejects_non_jsminify() -> None:
         Minify(minify_js=123)  # ty: ignore[invalid-argument-type]  # wrong type on purpose, to test the guard
 
 
-_DOC = "<html><head><title>Hi</title></head><body><p class='lead'>one</p>  <p>two</p><!--note--></body></html>"
+_DOC: Final[str] = (
+    "<html><head><title>Hi</title></head><body><p class='lead'>one</p>  <p>two</p><!--note--></body></html>"
+)
 
 
 def test_minify_collapses_whitespace_and_omits_tags() -> None:
@@ -1044,7 +1038,7 @@ def test_minify_plaintext_root_omits_end_tag() -> None:
     assert root.serialize(Html(layout=Minify())) == "<plaintext>x"
 
 
-_TRANSITIONAL: Final = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">'
+_TRANSITIONAL: Final[str] = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">'
 
 
 @pytest.mark.parametrize(
@@ -1109,12 +1103,6 @@ def test_minify_quirks_document_reparses_same(source: str) -> None:
     assert (parse(once).html, minify(once)) == (parse(source).html, once)
 
 
-def _doctype(source: str) -> Doctype:
-    node = parse(source).children[0]
-    assert isinstance(node, Doctype)
-    return node
-
-
 def test_minify_document_without_doctype_keeps_end_tag() -> None:
     document: Final = parse("<!DOCTYPE html><p>x</p><table></table>")
     _ = document.children[0].extract()
@@ -1125,6 +1113,12 @@ def test_minify_document_with_adopted_quirky_doctype_keeps_end_tag() -> None:
     document: Final = parse("<!DOCTYPE html><p>x</p><table></table>")
     document.children[0].replace_with(_doctype("<!DOCTYPE foo>"))
     assert "x</p><table>" in document.serialize(Html(layout=Minify()))
+
+
+def _doctype(source: str) -> Doctype:
+    node = parse(source).children[0]
+    assert isinstance(node, Doctype)
+    return node
 
 
 def test_minify_element_in_no_quirks_tree_omits_end_tag() -> None:

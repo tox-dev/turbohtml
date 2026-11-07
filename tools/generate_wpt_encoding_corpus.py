@@ -40,7 +40,7 @@ _ISO_2022_JP_CASE: Final = re.compile(r'decode\(\[([^\]]*)\],\s*("(?:[^"\\]|\\.)
 
 
 def _revision(checkout: Path) -> str:
-    """Return the commit the corpus is taken from, so a stale corpus names the wpt it came from."""
+    # Return the commit the corpus is taken from, so a stale corpus names the wpt it came from.
     result = subprocess.run(
         ["git", "-C", str(checkout), "rev-parse", "HEAD"],
         capture_output=True,
@@ -51,7 +51,7 @@ def _revision(checkout: Path) -> str:
 
 
 def _single_byte(checkout: Path) -> list[dict[str, object]]:
-    """One case per (encoding, high byte): the code point wpt says it decodes to, or null for an error."""
+    # One case per (encoding, high byte): the code point wpt says it decodes to, or null for an error.
     source = (checkout / "encoding" / "resources" / "single-byte-decoder.js").read_text(encoding="utf-8")
     cases: list[dict[str, object]] = []
     for name, body in _SINGLE_BYTE_TABLE.findall(source):
@@ -69,7 +69,7 @@ def _single_byte(checkout: Path) -> list[dict[str, object]]:
 
 
 def _iso_2022_jp(checkout: Path) -> list[dict[str, object]]:
-    """One case per decode() call in wpt's ISO-2022-JP suite, with its expected string and the arm it names."""
+    # One case per decode() call in wpt's ISO-2022-JP suite, with its expected string and the arm it names.
     source = (checkout / "encoding" / "iso-2022-jp-decoder.any.js").read_text(encoding="utf-8")
     cases = [
         {
@@ -87,7 +87,7 @@ def _iso_2022_jp(checkout: Path) -> list[dict[str, object]]:
 
 
 def generate(checkout: Path, out_path: Path) -> None:
-    """Write the corpus, recording the wpt revision it came from."""
+    # Write the corpus, recording the wpt revision it came from.
     cases = [*_single_byte(checkout), *_iso_2022_jp(checkout)]
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(

@@ -23,11 +23,9 @@ if TYPE_CHECKING:
 
     from .atheris_registry import Target
 
-__all__ = ["main", "target_functions", "unreached"]
-
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Report each target's unreached functions by name only; the corpus stays in private storage."""
+    # Report each target's unreached functions by name only; the corpus stays in private storage.
     parser: Final = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--coverage-dir", type=Path, required=True, help="the directory holding coverage_d_*")
     arguments: Final = parser.parse_args(argv)
@@ -40,7 +38,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def unreached(target: Target, coverage_dir: Path) -> list[str]:
-    """Name every target function the target's coverage data shows at 0%, or the data file when it is missing."""
+    # Name every target function the target's coverage data shows at 0%, or the data file when it is missing.
     # base-runner's coverage script copies each fuzzer's translated data to build-out before combining consumes the
     # originals, and cflite.py gathers those copies from the per-target runs into one directory
     data_file: Final = coverage_dir / f"coverage_d_{fuzzer_name(target.name)}"
@@ -59,7 +57,7 @@ def unreached(target: Target, coverage_dir: Path) -> list[str]:
 
 
 def target_functions(target: Target) -> tuple[_Function, ...]:
-    """Read the callback run by this target and every Python-implemented public export it owns."""
+    # Read the callback run by this target and every Python-implemented public export it owns.
     callables: Final = [_unwrap(target.chunked if target.chunked is not None else target.callback)] + [
         _resolve(export) for export in target.exports
     ]
@@ -78,10 +76,10 @@ def _resolve(export: str) -> object:
 
 def _functions(item: object) -> Iterator[_Function]:
     if inspect.isfunction(item):
-        yield _Function(item.__qualname__, _module_path(item.__module__), _lines(item.__code__))
+        yield _Function(name=item.__qualname__, path=_module_path(item.__module__), lines=_lines(item.__code__))
     elif inspect.isclass(item) and (methods := list(_methods(item))):
         lines = frozenset(line for method in methods for line in _lines(method.__code__))
-        yield _Function(item.__qualname__, _module_path(item.__module__), lines)
+        yield _Function(name=item.__qualname__, path=_module_path(item.__module__), lines=lines)
 
 
 def _methods(cls: type) -> Iterator[FunctionType]:
@@ -105,13 +103,19 @@ def _lines(code: CodeType) -> frozenset[int]:
     return frozenset(line for _, _, line in code.co_lines() if line is not None and line != code.co_firstlineno)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class _Function:
-    """One target function: where coverage records it and which of its lines can execute."""
-
+    # One target function: where coverage records it and which of its lines can execute.
     name: str
     path: str
     lines: frozenset[int]
+
+
+__all__ = [
+    "main",
+    "target_functions",
+    "unreached",
+]
 
 
 if __name__ == "__main__":

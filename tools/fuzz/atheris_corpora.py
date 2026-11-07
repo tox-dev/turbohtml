@@ -25,8 +25,6 @@ if TYPE_CHECKING:
 
     from .structure_generators import Generated, Grammar
 
-__all__ = ["CorpusEntry", "CorpusManifest", "CorpusProfile", "RejectedEntry", "main", "write_corpora"]
-
 CorpusProfile = Literal[
     "html",
     "xml",
@@ -41,7 +39,7 @@ CorpusProfile = Literal[
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Admit domain bytes through the same callbacks used by coverage-guided consumers."""
+    # Admit domain bytes through the same callbacks used by coverage-guided consumers.
     parser: Final = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--count", type=int, default=1)
@@ -67,7 +65,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else markdown_grammar(html=arguments.profile == "markdown-html")
     )
     generator: Final = random.Random(arguments.seed)
-    budget: Final = GenerationBudget(arguments.budget, arguments.steps)
+    budget: Final = GenerationBudget(nodes=arguments.budget, steps=arguments.steps)
     cases: Final = (
         *(generation_sweep(grammar, budget=budget) if arguments.sweep else ()),
         *(generate(grammar, generator, budget) for _ in range(arguments.count)),
@@ -79,7 +77,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def write_corpora(
     cases: Iterable[Generated], grammar: Grammar, directory: Path, profile: CorpusProfile
 ) -> CorpusManifest:
-    """Preflight the executable consumer before admitting exact bytes to its corpus."""
+    # Preflight the executable consumer before admitting exact bytes to its corpus.
     targets: Final = {target.name: target for target in public_targets()}
     origins: Final = {production.name: production.origin for production in grammar.productions}
     entries: Final[list[CorpusEntry]] = []
@@ -101,7 +99,7 @@ def write_corpora(
             try:
                 target.run(case.data, split_header(seed)[0])
             except target.exceptions as error:
-                rejected.append(RejectedEntry(name, digest, type(error).__name__))
+                rejected.append(RejectedEntry(target=name, sha256=digest, exception=type(error).__name__))
                 continue
             subdirectory: Final = (
                 f"{name}/{context.encoding}-{'sniff' if context.sniff else 'fixed'}" if context else name
@@ -113,21 +111,21 @@ def write_corpora(
                 admitted.add((subdirectory, digest))
             entries.append(
                 CorpusEntry(
-                    name,
-                    target.exports,
-                    f"{target.callback.__module__}.{cast('FunctionType', target.callback).__qualname__}",
-                    str(destination.relative_to(directory)),
-                    digest,
-                    case.nodes,
-                    case.depth,
-                    tuple((production, origins[production]) for production in case.productions),
-                    case.bindings,
-                    context.encoding if context else None,
-                    context.sniff if context else False,
+                    target=name,
+                    exports=target.exports,
+                    callback=f"{target.callback.__module__}.{cast('FunctionType', target.callback).__qualname__}",
+                    file=str(destination.relative_to(directory)),
+                    sha256=digest,
+                    generation_nodes=case.nodes,
+                    generation_depth=case.depth,
+                    productions=tuple((production, origins[production]) for production in case.productions),
+                    bindings=case.bindings,
+                    encoding=context.encoding if context else None,
+                    sniff=context.sniff if context else False,
                 )
             )
-    manifest: Final = CorpusManifest(tuple(entries), tuple(rejected))
-    (directory / "manifest.json").write_text(json.dumps(asdict(manifest), indent=2) + "\n", encoding="utf-8")
+    manifest: Final = CorpusManifest(entries=tuple(entries), rejected=tuple(rejected))
+    (directory / "manifest.json").write_text(f"{json.dumps(asdict(manifest), indent=2)}\n", encoding="utf-8")
     return manifest
 
 
@@ -150,10 +148,9 @@ def _routes(case: Generated, profile: CorpusProfile) -> tuple[str, ...]:
     }[profile]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class CorpusEntry:
-    """Link exact corpus bytes to their generating trace and executable owner."""
-
+    # Link exact corpus bytes to their generating trace and executable owner.
     target: str
     exports: tuple[str, ...]
     callback: str
@@ -167,21 +164,29 @@ class CorpusEntry:
     sniff: bool = False
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class RejectedEntry:
-    """Retain documented input rejection outside accepted target directories."""
-
+    # Retain documented input rejection outside accepted target directories.
     target: str
     sha256: str
     exception: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class CorpusManifest:
-    """Keep accepted provenance and rejected-input evidence beside the corpus."""
-
+    # Keep accepted provenance and rejected-input evidence beside the corpus.
     entries: tuple[CorpusEntry, ...]
     rejected: tuple[RejectedEntry, ...]
+
+
+__all__ = [
+    "CorpusEntry",
+    "CorpusManifest",
+    "CorpusProfile",
+    "RejectedEntry",
+    "main",
+    "write_corpora",
+]
 
 
 if __name__ == "__main__":

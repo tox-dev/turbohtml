@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from turbohtml._html import Element
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Markdown:
     """
     How :meth:`Node.to_markdown` renders a subtree as Markdown.
@@ -54,7 +54,7 @@ class Markdown:
     :raises ValueError: if both ``strip`` and ``convert`` are given, since they are mutually exclusive.
     """
 
-    @dataclass(frozen=True)
+    @dataclass(frozen=True, slots=True)
     class Headings:
         """
         How headings are written.
@@ -64,7 +64,7 @@ class Markdown:
 
         style: Literal["atx", "atx_closed", "setext"] = "atx"
 
-    @dataclass(frozen=True)
+    @dataclass(frozen=True, slots=True)
     class Lists:
         """
         How unordered lists are marked.
@@ -74,7 +74,7 @@ class Markdown:
 
         bullets: str = "-"
 
-    @dataclass(frozen=True)
+    @dataclass(frozen=True, slots=True)
     class Inline:
         """
         Inline text formatting: emphasis, sub/sup, and quote wrappers.
@@ -100,7 +100,7 @@ class Markdown:
         quote_open: str = '"'
         quote_close: str = '"'
 
-    @dataclass(frozen=True)
+    @dataclass(frozen=True, slots=True)
     class Code:
         """
         How code blocks are rendered.
@@ -114,7 +114,7 @@ class Markdown:
         language: str = ""
         mark: bool = False
 
-    @dataclass(frozen=True)
+    @dataclass(frozen=True, slots=True)
     class Links:
         """
         Link style and which links are kept.
@@ -134,7 +134,7 @@ class Markdown:
         skip_internal: bool = False
         base_url: str = ""
 
-    @dataclass(frozen=True)
+    @dataclass(frozen=True, slots=True)
     class Images:
         """
         How images are rendered.
@@ -146,7 +146,7 @@ class Markdown:
         mode: Literal["markdown", "alt", "ignore", "html"] = "markdown"
         default_alt: str = ""
 
-    @dataclass(frozen=True)
+    @dataclass(frozen=True, slots=True)
     class Tables:
         """
         How tables are rendered.
@@ -164,7 +164,7 @@ class Markdown:
         cell_blocks: Literal["html", "text"] = "html"
         pad: bool = False
 
-    @dataclass(frozen=True)
+    @dataclass(frozen=True, slots=True)
     class Escaping:
         """
         Which Markdown-significant characters are escaped.
@@ -180,7 +180,7 @@ class Markdown:
         asterisks: bool = True
         underscores: bool = True
 
-    @dataclass(frozen=True)
+    @dataclass(frozen=True, slots=True)
     class Wrapping:
         """
         Word-wrapping of prose and constructs.
@@ -194,7 +194,7 @@ class Markdown:
         list_items: bool = False
         links: bool = True
 
-    @dataclass(frozen=True)
+    @dataclass(frozen=True, slots=True)
     class Document:
         """
         Document-level layout: line breaks, block spacing, trimming, and transliteration.
@@ -210,7 +210,7 @@ class Markdown:
         trim: Literal["strip", "lstrip", "rstrip", "none"] = "strip"
         transliterate: bool = False
 
-    @dataclass(frozen=True)
+    @dataclass(frozen=True, slots=True)
     class GoogleDoc:
         """
         Reading inline-CSS styling the way a Google Docs export encodes it.
@@ -256,7 +256,7 @@ class Markdown:
         )
 
     def _unpack(self) -> dict[str, object]:
-        """Flatten to the renderer's keyword names, emitting only values that differ from its defaults."""
+        # Flatten to the renderer's keyword names, emitting only values that differ from its defaults.
         default = _MARKDOWN_DEFAULT
         flat = {
             "heading_style": (self.headings.style, default.headings.style),
@@ -313,7 +313,7 @@ class Markdown:
 _MARKDOWN_DEFAULT: Final = Markdown()
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class PlainText:
     """
     How :meth:`Node.to_text` and :meth:`Node.to_annotated_text` render a subtree as layout-aware plain text.
@@ -337,7 +337,7 @@ class PlainText:
     bullet: str = "* "
 
     def _unpack(self) -> dict[str, object]:
-        """Flatten to the renderer's keyword names, emitting only values that differ from its defaults."""
+        # Flatten to the renderer's keyword names, emitting only values that differ from its defaults.
         default = _PLAINTEXT_DEFAULT
         return {
             field_.name: value
@@ -350,7 +350,7 @@ _PLAINTEXT_DEFAULT: Final = PlainText()
 _PLAINTEXT_FIELDS: Final = fields(PlainText)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Html:
     """
     How :meth:`Node.serialize` and :meth:`Node.encode` render a subtree as HTML.
@@ -376,7 +376,7 @@ class Html:
     xml: bool = False
 
     def _unpack(self) -> dict[str, object]:
-        """Flatten to the renderer's keyword names, emitting only values that differ from its defaults."""
+        # Flatten to the renderer's keyword names, emitting only values that differ from its defaults.
         default = _HTML_DEFAULT
         return {
             field_.name: value
@@ -389,7 +389,7 @@ _HTML_DEFAULT: Final = Html()
 _HTML_FIELDS: Final = fields(Html)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Canonical:
     """
     How :meth:`Node.canonicalize` renders a subtree as Canonical XML (c14n).
@@ -425,7 +425,7 @@ class Canonical:
             raise ValueError(msg)
 
     def _unpack(self) -> dict[str, object]:
-        """Flatten to the renderer's keyword names, emitting only values that differ from its defaults."""
+        # Flatten to the renderer's keyword names, emitting only values that differ from its defaults.
         default = _CANONICAL_DEFAULT
         return {
             field_.name: value

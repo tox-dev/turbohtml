@@ -28,17 +28,16 @@ if TYPE_CHECKING:
     from generate_phone import Region
 
 
-@dataclass
+@dataclass(slots=True, kw_only=True)
 class _RunState:
-    """The counts and printed-example budget threaded through every region's cases."""
-
+    # The counts and printed-example budget threaded through every region's cases.
     counts: Counter[str] = field(default_factory=Counter)
     shown: int = 0
     cases: int = 0
 
 
 def main() -> None:
-    """Compare every region's example numbers against the phonenumbers oracle and print the disagreement summary."""
+    # Compare every region's example numbers against the phonenumbers oracle and print the disagreement summary.
     arguments = _parse_args()
     tables = compile_tables(fetch_sources(arguments.sources))
     leniency = Leniency.VALID if arguments.mode == "valid" else Leniency.POSSIBLE
@@ -101,7 +100,7 @@ def _check_region(
 
 
 def _model_matches(matches: list[Match]) -> Found:
-    """Reduce ``matches`` to the comparable shape ``oracle_matches`` also produces."""
+    # Reduce ``matches`` to the comparable shape ``oracle_matches`` also produces.
     return {(match.start, match.end, match.international_number, match.extension or "") for match in matches}
 
 

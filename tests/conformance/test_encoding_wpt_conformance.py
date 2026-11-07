@@ -1,17 +1,3 @@
-"""
-turbohtml's WHATWG decoders validated against the browsers' own encoding suite, web-platform-tests.
-
-wpt's git history runs to 2.6 GB, so rather than vendor it as a submodule the way ``encoding_rs`` and ``chardetng`` are,
-``tools/generate_wpt_encoding_corpus.py`` extracts its two machine-readable decoder oracles into
-``data/wpt_encoding.json`` and records the revision it took them from. Rerun that script against a fresh checkout to
-track wpt HEAD.
-
-The corpus covers the 128 high bytes of every legacy single-byte encoding and every state and error arm of the stateful
-ISO-2022-JP decoder. It is narrower than the ``encoding_rs`` differential next door, which sweeps every one- and
-two-byte sequence, and it is worth running anyway: these are expectations a standards body wrote down, not another
-implementation's output, so the two suites fail independently.
-"""
-
 from __future__ import annotations
 
 import json
@@ -40,8 +26,7 @@ _DATA: Final = json.loads(_CORPUS.read_text(encoding="utf-8"))
 def _cases() -> Iterator[ParameterSet]:
     for case in _DATA["cases"]:
         label, raw = case["encoding"], case["bytes"]
-        arm = case.get("arm")
-        yield pytest.param(label, raw, case["text"], id=f"{label}-{arm or raw}")
+        yield pytest.param(label, raw, case["text"], id=f"{label}-{case.get('arm') or raw}")
 
 
 @pytest.mark.parametrize(("label", "raw", "text"), list(_cases()))

@@ -1,5 +1,3 @@
-"""detect()/detect_all() (issue #315): the standalone surface over the same C sniff parse() runs on bytes."""
-
 from __future__ import annotations
 
 import string
@@ -28,27 +26,29 @@ _RUSSIAN_1251 = "Программирование помогает понять 
 @pytest.mark.parametrize(
     ("data", "expected"),
     [
-        pytest.param(b"", EncodingMatch(None, 0.0, None), id="empty-input-has-no-encoding"),
+        pytest.param(
+            b"", EncodingMatch(encoding=None, confidence=0.0, language=None), id="empty-input-has-no-encoding"
+        ),
         pytest.param(
             b"<p>hello world</p>",
-            EncodingMatch("windows-1252", 1.0, None, codec="whatwg-windows-1252"),
+            EncodingMatch(encoding="windows-1252", confidence=1.0, language=None, codec="whatwg-windows-1252"),
             id="pure-ascii-is-certain",
         ),
         pytest.param(
             b"<meta charset=iso-8859-2><p>x</p>",
-            EncodingMatch("ISO-8859-2", 1.0, None, bom=False, codec="whatwg-iso-8859-2"),
+            EncodingMatch(encoding="ISO-8859-2", confidence=1.0, language=None, bom=False, codec="whatwg-iso-8859-2"),
             id="meta-prescan-is-certain-without-a-bom",
         ),
         pytest.param(
             "café résumé Москва 日本語".encode(),
-            EncodingMatch("UTF-8", 1.0, None, codec="whatwg-utf-8"),
+            EncodingMatch(encoding="UTF-8", confidence=1.0, language=None, codec="whatwg-utf-8"),
             id="valid-utf8-is-certain",
         ),
         # 0x81 followed by a newline disqualifies every candidate, so the WHATWG windows-1252 default
         # is returned with confidence 0.0: there is no positive evidence for it
         pytest.param(
             b"\x81\n",
-            EncodingMatch("windows-1252", 0.0, None, codec="whatwg-windows-1252"),
+            EncodingMatch(encoding="windows-1252", confidence=0.0, language=None, codec="whatwg-windows-1252"),
             id="undecodable-bytes-fall-back-to-windows-1252-with-no-confidence",
         ),
     ],
@@ -71,7 +71,9 @@ def test_detect_bytes(data: bytes, expected: EncodingMatch) -> None:
 def test_byte_order_mark_reports_its_label_and_flag(raw: bytes, encoding: str) -> None:
     # a mark identifies the encoding unambiguously: UTF-8 reports UTF-8-SIG so a caller can strip it,
     # and the UTF-16 marks report their exact label; every marked result carries bom=True
-    assert detect(raw) == EncodingMatch(encoding, 1.0, None, bom=True, codec=f"whatwg-{encoding.casefold()}")
+    assert detect(raw) == EncodingMatch(
+        encoding=encoding, confidence=1.0, language=None, bom=True, codec=f"whatwg-{encoding.casefold()}"
+    )
 
 
 def test_utf_8_sig_is_the_only_bom_label_that_differs_from_parse() -> None:
@@ -94,7 +96,9 @@ def test_detect_and_parse_agree_on_a_utf_32_bom(raw: bytes) -> None:
 
 def test_iso_2022_jp_is_certain() -> None:
     raw = "こんにちは世界".encode("iso-2022-jp")
-    assert detect(raw) == EncodingMatch("ISO-2022-JP", 1.0, "Japanese", codec="whatwg-iso-2022-jp")
+    assert detect(raw) == EncodingMatch(
+        encoding="ISO-2022-JP", confidence=1.0, language="Japanese", codec="whatwg-iso-2022-jp"
+    )
 
 
 @pytest.mark.parametrize(
@@ -160,8 +164,7 @@ def test_iso_2022_jp_is_certain() -> None:
 )
 def test_scored_detection_recovers_encoding_and_language(text: str, source: str, encoding: str, language: str) -> None:
     match = detect(text.encode(source))
-    assert match.encoding == encoding
-    assert match.language == language
+    assert (match.encoding, match.language) == (encoding, language)
     assert 0.0 < match.confidence <= 1.0
 
 
@@ -181,7 +184,7 @@ def test_agrees_with_parse_detect_encoding(raw: bytes) -> None:
 def test_detect_all_on_a_bom_is_a_single_marked_match() -> None:
     # a mark is certain, so it collapses the ranking to one entry that carries the bom flag
     assert detect_all(b"\xef\xbb\xbfhello") == [
-        EncodingMatch("UTF-8-SIG", 1.0, None, bom=True, codec="whatwg-utf-8-sig")
+        EncodingMatch(encoding="UTF-8-SIG", confidence=1.0, language=None, bom=True, codec="whatwg-utf-8-sig")
     ]
 
 
@@ -215,8 +218,7 @@ def test_detect_all_reports_each_encoding_once() -> None:
 def test_hebrew_visual_tiebreak_leads_the_ranking() -> None:
     # right-to-left (visual-order) Hebrew ties windows-1255 on score; the engine's punctuation tiebreak
     # picks ISO-8859-8 and the ranking keeps that winner first even though the tie sorts windows-1255 earlier
-    visual = "שלום לכולם זהו משפט בעברית עם סימני פיסוק רבים, נקודות. ועוד!"[::-1].encode("iso-8859-8")
-    matches = detect_all(visual)
+    matches = detect_all("שלום לכולם זהו משפט בעברית עם סימני פיסוק רבים, נקודות. ועוד!"[::-1].encode("iso-8859-8"))
     assert matches[0].encoding == "ISO-8859-8"
     assert matches[1].encoding == "windows-1255"
     assert matches[0].confidence == matches[1].confidence
@@ -230,7 +232,7 @@ def test_non_bytes_input_is_rejected() -> None:
 # Content-based language detection (roadmap #459) scores a character-trigram rank model: the samples below detect their
 # language exactly, and the detector is validated bit-for-bit against whatlang's own Method::Trigram on all 69 entries
 # of its example corpus, confidence to 1e-6 included.
-_LANGUAGE_CASES: list[tuple[str, str, str]] = [
+_LANGUAGE_CASES: Final[list[tuple[str, str, str]]] = [
     ("There is no reason not to learn a new language every single year of your life.", "eng", "Latin"),
     ("Die Ordnung muss für immer in diesem Codebase bleiben und zuverlässig funktionieren.", "deu", "Latin"),
     ("Además de todo lo anteriormente dicho, también encontramos que resulta muy útil.", "spa", "Latin"),
@@ -280,7 +282,7 @@ def test_detect_language_reports_the_english_name() -> None:
 )
 def test_text_without_a_script_has_no_language(text: str) -> None:
     # nothing that carries a script survives, so there is no language and no script to report
-    assert detect_language(text) == LanguageMatch(None, 0.0, None)
+    assert detect_language(text) == LanguageMatch(language=None, confidence=0.0, script=None)
 
 
 def test_short_input_is_low_confidence() -> None:
@@ -291,7 +293,9 @@ def test_short_input_is_low_confidence() -> None:
 
 
 def test_threshold_drops_a_low_confidence_result() -> None:
-    assert detect_language("por que", LanguageDetection(threshold=0.5)) == LanguageMatch(None, 0.0, None)
+    assert detect_language("por que", LanguageDetection(threshold=0.5)) == LanguageMatch(
+        language=None, confidence=0.0, script=None
+    )
 
 
 def test_threshold_keeps_a_confident_result() -> None:
@@ -307,7 +311,7 @@ def test_allowed_constrains_the_candidates() -> None:
 def test_allowed_with_a_single_candidate_is_certain() -> None:
     # one surviving candidate has no runner-up to compare against, so its confidence is 1.0
     match = detect_language("Mi ne scias hodiaŭ!", LanguageDetection(allowed=frozenset({"epo"})))
-    assert match == LanguageMatch("epo", 1.0, "Latin", "Esperanto")
+    assert match == LanguageMatch(language="epo", confidence=1.0, script="Latin", name="Esperanto")
 
 
 def test_excluded_removes_a_language() -> None:
@@ -341,8 +345,7 @@ def test_excluded_applies_to_a_single_language_script() -> None:
     ],
 )
 def test_han_text_splits_between_chinese_and_japanese_by_kana(suffix: str, language: str, confidence: float) -> None:
-    han = "北京是中国首都也是政治文化中心历史悠久发展迅速人口众多经济繁荣科技教育"
-    match = detect_language(han + suffix)
+    match = detect_language(f"北京是中国首都也是政治文化中心历史悠久发展迅速人口众多经济繁荣科技教育{suffix}")
     assert (match.language, match.confidence) == (language, pytest.approx(confidence))
 
 
@@ -389,15 +392,19 @@ def test_a_long_passage_stays_confident() -> None:
         "Today a wristwatch outperforms the machines that once guided astronauts safely toward the distant moon, "
         "and tomorrow's designs promise capabilities their earnest inventors can scarcely begin to describe aloud."
     )
-    assert detect_language(passage) == LanguageMatch("eng", 1.0, "Latin", "English")
+    assert detect_language(passage) == LanguageMatch(language="eng", confidence=1.0, script="Latin", name="English")
 
 
 @pytest.mark.parametrize(
     ("word_count", "expected"),
     [
-        pytest.param(128, LanguageMatch("cym", 1.0, "Latin", "Welsh"), id="below-cap"),
-        pytest.param(1024, LanguageMatch("aka", 0.1691861256901001, "Latin", "Akan"), id="above-cap"),
-        pytest.param(4096, LanguageMatch("cym", 1.0, "Latin", "Welsh"), id="many-ties"),
+        pytest.param(128, LanguageMatch(language="cym", confidence=1.0, script="Latin", name="Welsh"), id="below-cap"),
+        pytest.param(
+            1024,
+            LanguageMatch(language="aka", confidence=0.1691861256901001, script="Latin", name="Akan"),
+            id="above-cap",
+        ),
+        pytest.param(4096, LanguageMatch(language="cym", confidence=1.0, script="Latin", name="Welsh"), id="many-ties"),
     ],
 )
 @pytest.mark.parametrize("reverse", [False, True], ids=["forward", "reverse"])
@@ -411,17 +418,17 @@ def test_language_trigram_ties_ignore_word_order(word_count: int, expected: Lang
     [
         pytest.param(
             "  ".join("".join(word) for word in product(string.ascii_lowercase, repeat=3)),
-            LanguageMatch("sna", 0.1332846056280532, "Latin", "Shona"),
+            LanguageMatch(language="sna", confidence=0.1332846056280532, script="Latin", name="Shona"),
             id="distinct-trigrams",
         ),
         pytest.param(
             "  ".join("".join(word) for word in product("abcde", repeat=3)),
-            LanguageMatch("cym", 1.0, "Latin", "Welsh"),
+            LanguageMatch(language="cym", confidence=1.0, script="Latin", name="Welsh"),
             id="few-trigrams",
         ),
         pytest.param(
             "the quick brown fox jumps over the lazy dog. " * 2048,
-            LanguageMatch("eng", 1.0, "Latin", "English"),
+            LanguageMatch(language="eng", confidence=1.0, script="Latin", name="English"),
             id="repeated-trigrams",
         ),
     ],
@@ -436,7 +443,7 @@ def test_distance_saturates_on_an_adversarial_text() -> None:
     # 90000 ceiling and exercises the saturation clamp; the detector still returns a Latin verdict without error
     filler = " ".join("".join(word) for word in islice(product("bcdfghjklmnpqrstvwxz", repeat=4), 300))
     tail = "Đây là một đoạn văn bản tiếng Việt với nhiều dấu thanh khác nhau được viết ra hôm nay"
-    match = detect_language(f"{(filler + ' ') * 6}{tail}")
+    match = detect_language(f"{(f'{filler} ') * 6}{tail}")
     assert match.script == "Latin"
 
 
@@ -485,7 +492,7 @@ def test_prescan_dispatch_edges(payload: bytes) -> None:
         pytest.param("whatwg-nonsense", None, id="an-unknown-label"),
         pytest.param("utf-8", None, id="no-prefix"),
         pytest.param("whatwg_", None, id="the-bare-prefix"),
-        pytest.param("whatwg-" + "x" * 80, None, id="longer-than-any-label"),
+        pytest.param(f"whatwg-{'x' * 80}", None, id="longer-than-any-label"),
     ],
 )
 def test_codec_label(name: str, expected: tuple[bool, str] | None) -> None:
@@ -569,8 +576,7 @@ def test_the_language_entry_needs_a_threshold() -> None:
 )
 def test_codec_names_a_registered_decoder(data: bytes, encoding: str, codec: str) -> None:
     match = detect(data)
-    assert match.encoding == encoding
-    assert match.codec == codec
+    assert (match.encoding, match.codec) == (encoding, codec)
 
 
 @pytest.mark.parametrize(
@@ -666,8 +672,8 @@ def test_chunked_feeds_equal_a_one_shot_detect() -> None:
 
 
 def test_disqualified_hebrew_candidate_matches_chunked_detection() -> None:
-    data = b"\xfa\xfaodbo\xdfd%{ m\xfa\xfa:\xfa"
     detector = EncodingDetector()
+    data = b"\xfa\xfaodbo\xdfd%{ m\xfa\xfa:\xfa"
     detector.feed(data[:13])
     detector.feed(data[13:])
     match = detect(data)
@@ -687,7 +693,9 @@ def test_close_scores_the_end_of_stream(chunk: bytes, confidence: float) -> None
     # close() feeds an empty final chunk, which the scanners hand to memchr and memcpy
     detector: Final = EncodingDetector()
     detector.feed(chunk)
-    assert detector.close() == EncodingMatch("windows-1252", confidence, None, codec="whatwg-windows-1252")
+    assert detector.close() == EncodingMatch(
+        encoding="windows-1252", confidence=confidence, language=None, codec="whatwg-windows-1252"
+    )
 
 
 @pytest.mark.parametrize(
@@ -695,12 +703,16 @@ def test_close_scores_the_end_of_stream(chunk: bytes, confidence: float) -> None
     [
         pytest.param(
             b"\xdf",
-            EncodingMatch("windows-1251", 0.2236681958618107, "Russian", codec="whatwg-windows-1251"),
+            EncodingMatch(
+                encoding="windows-1251", confidence=0.2236681958618107, language="Russian", codec="whatwg-windows-1251"
+            ),
             id="disqualified-logical-hebrew",
         ),
         pytest.param(
             b" ",
-            EncodingMatch("windows-1255", 0.2454175152749491, "Hebrew", codec="whatwg-windows-1255"),
+            EncodingMatch(
+                encoding="windows-1255", confidence=0.2454175152749491, language="Hebrew", codec="whatwg-windows-1255"
+            ),
             id="surviving-logical-hebrew",
         ),
     ],
@@ -717,7 +729,9 @@ def test_a_leading_bom_finishes_the_stream_early() -> None:
     detector.feed(b"\xef\xbb\xbf")
     assert detector.done
     detector.feed("Ω".encode("cp1253"))  # ignored: the mark already decided the stream
-    assert detector.close() == EncodingMatch("UTF-8-SIG", 1.0, None, bom=True, codec="whatwg-utf-8-sig")
+    assert detector.close() == EncodingMatch(
+        encoding="UTF-8-SIG", confidence=1.0, language=None, bom=True, codec="whatwg-utf-8-sig"
+    )
 
 
 def test_a_bom_split_across_feeds_still_finishes_early() -> None:
@@ -750,18 +764,22 @@ def test_a_resolved_mark_finishes_early(chunk: bytes, encoding: str) -> None:
     detector: Final = EncodingDetector()
     detector.feed(chunk)
     assert detector.done
-    assert detector.close() == EncodingMatch(encoding, 1.0, None, bom=True, codec=f"whatwg-{encoding.casefold()}")
+    assert detector.close() == EncodingMatch(
+        encoding=encoding, confidence=1.0, language=None, bom=True, codec=f"whatwg-{encoding.casefold()}"
+    )
 
 
 def test_close_caches_its_result() -> None:
     detector = EncodingDetector()
     detector.feed(b"plain ascii")
     assert detector.close() is detector.close()
-    assert detector.result == EncodingMatch("windows-1252", 1.0, None, codec="whatwg-windows-1252")
+    assert detector.result == EncodingMatch(
+        encoding="windows-1252", confidence=1.0, language=None, codec="whatwg-windows-1252"
+    )
 
 
 def test_close_without_a_feed_reports_no_encoding() -> None:
-    assert EncodingDetector().close() == EncodingMatch(None, 0.0, None)
+    assert EncodingDetector().close() == EncodingMatch(encoding=None, confidence=0.0, language=None)
 
 
 def test_reset_starts_a_fresh_stream() -> None:
@@ -778,7 +796,7 @@ def test_reset_starts_a_fresh_stream() -> None:
 def test_detector_honors_its_options() -> None:
     detector = EncodingDetector(Detection.chardet())
     detector.feed(b"\x81\n")
-    assert detector.close() == EncodingMatch(None, 0.0, None)
+    assert detector.close() == EncodingMatch(encoding=None, confidence=0.0, language=None)
 
 
 # The samples exercise every structural answer the stream can reach: an escape-driven
@@ -872,8 +890,8 @@ def test_a_stream_ending_mid_escape_is_not_iso_2022_jp(raw: bytes) -> None:
 
 
 def test_repeated_iso_2022_jp_escapes_match_bytewise_detection() -> None:
-    raw = b"\x1b(J\x1b(J"
     detector = EncodingDetector()
+    raw = b"\x1b(J\x1b(J"
     for byte in raw:
         detector.feed(bytes((byte,)))
     assert detector.close() == detect(raw)
@@ -891,7 +909,7 @@ def test_a_shift_code_before_the_escape_rules_out_iso_2022_jp(shift: int) -> Non
     assert detector.close() == detect(raw)
 
 
-_EMPTY_ENCODING_MATCH = EncodingMatch(None, 0.0, None)
+_EMPTY_ENCODING_MATCH = EncodingMatch(encoding=None, confidence=0.0, language=None)
 _OPTIONS_RUSSIAN = "Привет мир, как дела".encode("cp1251")
 
 
@@ -953,8 +971,7 @@ def test_excluding_a_certain_result_yields_no_match() -> None:
 
 def test_language_hint_prefers_the_matching_model() -> None:
     match = detect(_OPTIONS_RUSSIAN, Detection(language="Hebrew"))
-    assert match.encoding == "windows-1255"
-    assert match.language == "Hebrew"
+    assert (match.encoding, match.language) == ("windows-1255", "Hebrew")
 
 
 def test_language_hint_without_positive_evidence_changes_nothing() -> None:
@@ -987,8 +1004,7 @@ def test_the_winner_leads_even_when_it_scored_lower() -> None:
 
 
 def test_a_winner_that_never_scored_leads_at_zero() -> None:
-    result = ("windows-1252", False, [("windows-1251", 60)], False)
-    rows = _detect_rank(result, None, (), None, 0.0, _LANGUAGES)
+    rows = _detect_rank(("windows-1252", False, [("windows-1251", 60)], False), None, (), None, 0.0, _LANGUAGES)
     assert [(row[0], row[1]) for row in rows] == [("windows-1252", 0.0), ("windows-1251", 1.0)]
 
 
@@ -1079,29 +1095,24 @@ def test_the_ranker_rejects_bad_arguments(args: tuple[object, ...]) -> None:
 
 # Czech in ISO-8859-2. The hint decides on text like this, where the Central European encodings score alike and the
 # Cyrillic and Western TLDs disagree about whether ISO-8859-2 or windows-1252 should read it.
-_CZECH: bytes = "Příliš žluťoučký kůň úpěl ďábelské ódy".encode("iso-8859-2")
+_CZECH: Final[bytes] = "Příliš žluťoučký kůň úpěl ďábelské ódy".encode("iso-8859-2")
 
 # The same text, short enough that no candidate scores well and the TLD's own encoding is left to answer.
-_CZECH_SHORT: bytes = "Příliš žluťoučký kůň úpěl".encode("iso-8859-2")
+_CZECH_SHORT: Final[bytes] = "Příliš žluťoučký kůň úpěl".encode("iso-8859-2")
 
 # The two Chinese scripts, which nothing but a TLD separates at this length.
-_TRADITIONAL: bytes = "繁體中文字元測試內容".encode("big5")
-_SIMPLIFIED: bytes = "天地玄黄宇宙洪荒日月盈昃".encode("gb18030")
+_TRADITIONAL: Final[bytes] = "繁體中文字元測試內容".encode("big5")
+_SIMPLIFIED: Final[bytes] = "天地玄黄宇宙洪荒日月盈昃".encode("gb18030")
 
 # Byte soup that kills one candidate of a sibling pair and leaves the other scoring, so the TLD falls back on its
 # sibling script. Big5 dies on the first, ISO-8859-2 on the second; chardetng answers as asserted below.
-_NO_TRADITIONAL: bytes = bytes.fromhex("e098bcf194a9")
-_NO_CENTRAL_ISO: bytes = bytes.fromhex("a699dd")
+_NO_TRADITIONAL: Final[bytes] = bytes.fromhex("e098bcf194a9")
+_NO_CENTRAL_ISO: Final[bytes] = bytes.fromhex("a699dd")
 
 # Byte soup too short to hold a two-letter word in either script. ISO-8859-6 is native to .sa and windows-1256 to
 # .my without being what either domain expects, so each one scores there and nowhere else.
-_SHORT_ARABIC_ISO: bytes = bytes.fromhex("bfed")
-_SHORT_ARABIC_WINDOWS: bytes = bytes.fromhex("d6a59ebd")
-
-
-def _ranked(raw: bytes, tld: str | None = None) -> set[str | None]:
-    """The encodings that scored, which is not every encoding ``detect_all`` reports: the winner leads it either way."""
-    return {match.encoding for match in detect_all(raw, Detection(tld=tld))[1:]}
+_SHORT_ARABIC_ISO: Final[bytes] = bytes.fromhex("bfed")
+_SHORT_ARABIC_WINDOWS: Final[bytes] = bytes.fromhex("d6a59ebd")
 
 
 @pytest.mark.parametrize(
@@ -1168,6 +1179,11 @@ def test_a_caseless_candidate_survives_the_word_gate_on_its_native_tld() -> None
     # native. .sa expects windows-1256, so nothing injects ISO-8859-6 as that domain's default.
     assert "ISO-8859-6" in _ranked(_SHORT_ARABIC_ISO, "sa")
     assert "ISO-8859-6" not in _ranked(_SHORT_ARABIC_ISO)
+
+
+def _ranked(raw: bytes, tld: str | None = None) -> set[str | None]:
+    # The encodings that scored, which is not every encoding ``detect_all`` reports: the winner leads it either way.
+    return {match.encoding for match in detect_all(raw, Detection(tld=tld))[1:]}
 
 
 def test_an_arabic_french_candidate_survives_the_word_gate_on_its_native_tld() -> None:
@@ -1241,7 +1257,7 @@ def test_a_malformed_tld_is_rejected(tld: str) -> None:
 def test_language_detection_of_repeated_prose(repeats: int) -> None:
     assert detect_language(
         "There is no reason not to learn a new language every single year of your life. " * repeats
-    ) == LanguageMatch("eng", 1.0, "Latin", "English")
+    ) == LanguageMatch(language="eng", confidence=1.0, script="Latin", name="English")
 
 
 @pytest.mark.parametrize(

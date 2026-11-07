@@ -39,33 +39,28 @@ if TYPE_CHECKING:
 # Unicode 16.0.0, the version CPython 3.14's unicodedata ships, so the C NFC step and the interpreter agree. The IDNA
 # files live under /Public/idna/<version>/ and the core UCD under /Public/<version>/ucd/; pin the version, review the
 # idna_table.h diff on a bump. CPython's own Unicode version is unicodedata.unidata_version.
-UNICODE_VERSION = "16.0.0"
-_IDNA_BASE = f"https://www.unicode.org/Public/idna/{UNICODE_VERSION}"
-_UCD_BASE = f"https://www.unicode.org/Public/{UNICODE_VERSION}/ucd"
+UNICODE_VERSION: Final[str] = "16.0.0"
+_IDNA_BASE: Final[str] = f"https://www.unicode.org/Public/idna/{UNICODE_VERSION}"
+_UCD_BASE: Final[str] = f"https://www.unicode.org/Public/{UNICODE_VERSION}/ucd"
 
 # Pin the SHA-256 of the exact bytes of each fetched file, not just the version: a version pin fixes which release the
 # rebuild targets, but a poisoned or silently rewritten mirror could still serve altered content under that version's
 # stable URL, and no review of idna.c would catch a bad table. A rebuild recomputes each digest and aborts on a
 # mismatch. Bump a digest deliberately alongside UNICODE_VERSION and review the idna_table.h diff. All match the
 # committed table at Unicode 16.0.0.
-_IDNA_MAPPING_SHA256 = "6db2ef4ed35f3b3de74ebc2e00404a9607f76d499f576b8d4043cf14f1ed175c"
-_UNICODE_DATA_SHA256 = "ff58e5823bd095166564a006e47d111130813dcf8bf234ef79fa51a870edb48f"
-_DERIVED_NORM_SHA256 = "4d4c03892dea9146d674b686e495df2d55a28d071ac474041d73518f887abddc"
+_IDNA_MAPPING_SHA256: Final[str] = "6db2ef4ed35f3b3de74ebc2e00404a9607f76d499f576b8d4043cf14f1ed175c"
 
-_KEEP = 0
-_MAPPED = 1
-_IGNORED = 2
-_DISALLOWED: Final = 3
+_KEEP: Final[int] = 0
 
-_HANGUL_SBASE = 0xAC00
-_HANGUL_LCOUNT = 19
-_HANGUL_VCOUNT = 21
-_HANGUL_TCOUNT = 28
+_HANGUL_SBASE: Final[int] = 0xAC00
+_HANGUL_LCOUNT: Final[int] = 19
+_HANGUL_VCOUNT: Final[int] = 21
+_HANGUL_TCOUNT: Final[int] = 28
 _HANGUL_SCOUNT = _HANGUL_LCOUNT * _HANGUL_VCOUNT * _HANGUL_TCOUNT
 
 
 def _fetch(url: str, expected_sha256: str) -> str:
-    """Return the decoded body of a pinned Unicode data file, aborting if its SHA-256 is not *expected_sha256*."""
+    # Return the decoded body of a pinned Unicode data file, aborting if its SHA-256 is not *expected_sha256*.
     raw = fetch_bytes(url)
     if (digest := hashlib.sha256(raw).hexdigest()) != expected_sha256:
         msg = f"Unicode source {url} has sha256 {digest}, not the pinned {expected_sha256}; review, then bump the pin"
@@ -74,9 +69,12 @@ def _fetch(url: str, expected_sha256: str) -> str:
 
 
 def _mapping_ranges(text: str) -> tuple[list[tuple[int, int, int, int, int]], list[int]]:
-    """Return the ``(first, last, status, offset, length)`` mapping rows and the flat replacement-code-point pool."""
+    # Return the ``(first, last, status, offset, length)`` mapping rows and the flat replacement-code-point pool.
     rows: list[tuple[int, int, int, int, int]] = []
     pool: list[int] = []
+    mapped = 1
+    ignored: int = 2
+    disallowed: int = 3
     for raw in text.splitlines():
         line = raw.split("#", 1)[0].strip()
         if not line:
@@ -85,15 +83,14 @@ def _mapping_ranges(text: str) -> tuple[list[tuple[int, int, int, int, int]], li
         first, _, last = fields[0].partition("..")
         start = int(first, 16)
         end = int(last, 16) if last else start
-        status = fields[1]
-        if status == "mapped":
+        if (status := fields[1]) == "mapped":
             replacement = [int(cp, 16) for cp in fields[2].split()] if len(fields) > 2 and fields[2] else []
-            rows.append((start, end, _MAPPED, len(pool), len(replacement)))
+            rows.append((start, end, mapped, len(pool), len(replacement)))
             pool.extend(replacement)
         elif status == "ignored":
-            rows.append((start, end, _IGNORED, 0, 0))
+            rows.append((start, end, ignored, 0, 0))
         elif status == "disallowed":  # UTS #46 forbids it in a host: idna.c rejects rather than encode it
-            rows.append((start, end, _DISALLOWED, 0, 0))
+            rows.append((start, end, disallowed, 0, 0))
         else:  # valid and deviation (non-transitional keeps it) leave the code point verbatim
             rows.append((start, end, _KEEP, 0, 0))
     rows.sort()
@@ -101,7 +98,7 @@ def _mapping_ranges(text: str) -> tuple[list[tuple[int, int, int, int, int]], li
 
 
 def _merge_keep_runs(rows: list[tuple[int, int, int, int, int]]) -> list[tuple[int, int, int, int, int]]:
-    """Fuse adjacent keep rows so the binary-searched table stays compact."""
+    # Fuse adjacent keep rows so the binary-searched table stays compact.
     merged: list[tuple[int, int, int, int, int]] = []
     for row in rows:
         if merged and row[2] == _KEEP and merged[-1][2] == _KEEP and row[0] == merged[-1][1] + 1:
@@ -113,7 +110,7 @@ def _merge_keep_runs(rows: list[tuple[int, int, int, int, int]]) -> list[tuple[i
 
 
 def _combining_and_decomposition(text: str) -> tuple[dict[int, int], dict[int, list[int]]]:
-    """Return the canonical combining class per code point and the raw (one-step) canonical decompositions."""
+    # Return the canonical combining class per code point and the raw (one-step) canonical decompositions.
     combining: dict[int, int] = {}
     decomposition: dict[int, list[int]] = {}
     for raw in text.splitlines():
@@ -121,15 +118,13 @@ def _combining_and_decomposition(text: str) -> tuple[dict[int, int], dict[int, l
         code = int(fields[0], 16)
         if (klass := int(fields[3])) != 0:
             combining[code] = klass
-        mapping = fields[5]
-        if mapping and not mapping.startswith("<"):
+        if (mapping := fields[5]) and not mapping.startswith("<"):
             decomposition[code] = [int(cp, 16) for cp in mapping.split()]
     return combining, decomposition
 
 
 def _full_decomposition(decomposition: dict[int, list[int]]) -> dict[int, list[int]]:
-    """Expand each canonical decomposition recursively to its non-decomposable code points."""
-
+    # Expand each canonical decomposition recursively to its non-decomposable code points.
     def expand(code: int) -> list[int]:
         if code not in decomposition:
             return [code]
@@ -139,20 +134,19 @@ def _full_decomposition(decomposition: dict[int, list[int]]) -> dict[int, list[i
 
 
 def _composition_exclusions(text: str) -> set[int]:
-    """Return the Full_Composition_Exclusion code points, the canonical decompositions that never recompose."""
+    # Return the Full_Composition_Exclusion code points, the canonical decompositions that never recompose.
     excluded: set[int] = set()
     for raw in text.splitlines():
         line = raw.split("#", 1)[0].strip()
         if not line or "Full_Composition_Exclusion" not in line:
             continue
-        code_range = line.split(";")[0].strip()
-        first, _, last = code_range.partition("..")
+        first, _, last = line.split(";")[0].strip().partition("..")
         excluded.update(range(int(first, 16), (int(last, 16) if last else int(first, 16)) + 1))
     return excluded
 
 
 def _nfc_quick_check(text: str) -> list[tuple[int, int, int]]:
-    """Return sorted ``(first, last, value)`` NFC quick-check No/Maybe ranges; absent code points are Yes."""
+    # Return sorted ``(first, last, value)`` NFC quick-check No/Maybe ranges; absent code points are Yes.
     ranges: list[tuple[int, int, int]] = []
     for raw in text.splitlines():
         fields = [field.strip() for field in raw.split("#", 1)[0].split(";")]
@@ -171,7 +165,7 @@ def _nfc_quick_check(text: str) -> list[tuple[int, int, int]]:
 
 
 def _composition_pairs(decomposition: dict[int, list[int]], excluded: set[int]) -> list[tuple[int, int, int]]:
-    """Return the sorted ``(first, second, composed)`` canonical compositions, dropping the excluded targets."""
+    # Return the sorted ``(first, second, composed)`` canonical compositions, dropping the excluded targets.
     pairs = [
         (mapping[0], mapping[1], code)
         for code, mapping in decomposition.items()
@@ -182,18 +176,17 @@ def _composition_pairs(decomposition: dict[int, list[int]], excluded: set[int]) 
 
 
 def _hangul_decompose(code: int) -> list[int]:
-    """Return the canonical decomposition of a Hangul syllable into leading, vowel, and optional trailing jamo."""
+    # Return the canonical decomposition of a Hangul syllable into leading, vowel, and optional trailing jamo.
     index = code - _HANGUL_SBASE
     leading = 0x1100 + index // (_HANGUL_VCOUNT * _HANGUL_TCOUNT)
-    vowel = 0x1161 + index % (_HANGUL_VCOUNT * _HANGUL_TCOUNT) // _HANGUL_TCOUNT
-    jamo = [leading, vowel]
+    jamo = [leading, (0x1161 + index % (_HANGUL_VCOUNT * _HANGUL_TCOUNT) // _HANGUL_TCOUNT)]
     if index % _HANGUL_TCOUNT:
         jamo.append(0x11A7 + index % _HANGUL_TCOUNT)
     return jamo
 
 
 def _decompose(text: str, full: dict[int, list[int]]) -> list[int]:
-    """Fully canonically decompose *text* (Hangul arithmetically, the rest through the table)."""
+    # Fully canonically decompose *text* (Hangul arithmetically, the rest through the table).
     out: list[int] = []
     for char in text:
         code = ord(char)
@@ -205,7 +198,7 @@ def _decompose(text: str, full: dict[int, list[int]]) -> list[int]:
 
 
 def _reorder(seq: list[int], combining: dict[int, int]) -> None:
-    """Put each maximal combining-mark run of *seq* into canonical order (a stable sort by combining class)."""
+    # Put each maximal combining-mark run of *seq* into canonical order (a stable sort by combining class).
     start = 0
     while start < len(seq):
         if combining.get(seq[start], 0) == 0:
@@ -219,7 +212,7 @@ def _reorder(seq: list[int], combining: dict[int, int]) -> None:
 
 
 def _compose_pair(first: int, second: int, compose: dict[tuple[int, int], int]) -> int:
-    """Return the canonical composition of a pair (Hangul arithmetically, the rest tabled), -1 when they do not."""
+    # Return the canonical composition of a pair (Hangul arithmetically, the rest tabled), -1 when they do not.
     lindex = first - 0x1100
     if 0 <= lindex < _HANGUL_LCOUNT and 0x1161 <= second <= 0x1175:
         return _HANGUL_SBASE + (lindex * _HANGUL_VCOUNT + second - 0x1161) * _HANGUL_TCOUNT
@@ -230,7 +223,7 @@ def _compose_pair(first: int, second: int, compose: dict[tuple[int, int], int]) 
 
 
 def _nfc(text: str, combining: dict[int, int], full: dict[int, list[int]], pairs: list[tuple[int, int, int]]) -> str:
-    """Normalize *text* to NFC using only the generated tables, the reference the C port must match."""
+    # Normalize *text* to NFC using only the generated tables, the reference the C port must match.
     decomposed = _decompose(text, full)
     _reorder(decomposed, combining)
     compose = {(first, second): composed for first, second, composed in pairs}
@@ -252,7 +245,7 @@ def _nfc(text: str, combining: dict[int, int], full: dict[int, list[int]], pairs
 
 
 def _self_check(combining: dict[int, int], full: dict[int, list[int]], pairs: list[tuple[int, int, int]]) -> None:
-    """Fail the build if the table-driven NFC disagrees with the interpreter over the decomposable code points."""
+    # Fail the build if the table-driven NFC disagrees with the interpreter over the decomposable code points.
     samples = [chr(code) for code in {*full, *combining, *range(0x1100, 0x1113), *range(0xAC00, 0xAC00 + 40)}]
     samples += [chr(base) + chr(mark) for base in (0x0061, 0x1112) for mark in (0x0300, 0x0301, 0x0323, 0x11A8)]
     mismatched = [text for text in samples if _nfc(text, combining, full, pairs) != unicodedata.normalize("NFC", text)]
@@ -268,7 +261,7 @@ def _emit(
     full: dict[int, list[int]],
     normalization: tuple[list[tuple[int, int, int]], list[tuple[int, int, int]]],
 ) -> str:
-    """Render the generated C header from the mapping and normalization tables."""
+    # Render the generated C header from the mapping and normalization tables.
     pairs, quick = normalization
     map_rows = "\n".join(
         f"    {{0x{first:X}, 0x{last:X}, {status}, {offset}, {length}}},"
@@ -350,7 +343,7 @@ def _emit(
 
 
 def _wrap(items: Iterable[str]) -> str:
-    """Return the items as brace-initializer rows wrapped near 116 columns, each line indented four spaces."""
+    # Return the items as brace-initializer rows wrapped near 116 columns, each line indented four spaces.
     lines: list[str] = []
     current = "   "
     for item in items:
@@ -364,15 +357,16 @@ def _wrap(items: Iterable[str]) -> str:
 
 
 def generate(out_path: Path) -> None:
-    """Write the generated IDNA/NFC C header to *out_path*."""
+    # Write the generated IDNA/NFC C header to *out_path*.
     ranges, pool = _mapping_ranges(_fetch(f"{_IDNA_BASE}/IdnaMappingTable.txt", _IDNA_MAPPING_SHA256))
     combining, raw_decomposition = _combining_and_decomposition(
-        _fetch(f"{_UCD_BASE}/UnicodeData.txt", _UNICODE_DATA_SHA256)
+        _fetch(f"{_UCD_BASE}/UnicodeData.txt", "ff58e5823bd095166564a006e47d111130813dcf8bf234ef79fa51a870edb48f")
     )
     full = _full_decomposition(raw_decomposition)
-    derived = _fetch(f"{_UCD_BASE}/DerivedNormalizationProps.txt", _DERIVED_NORM_SHA256)
-    excluded = _composition_exclusions(derived)
-    pairs = _composition_pairs(raw_decomposition, excluded)
+    derived = _fetch(
+        f"{_UCD_BASE}/DerivedNormalizationProps.txt", "4d4c03892dea9146d674b686e495df2d55a28d071ac474041d73518f887abddc"
+    )
+    pairs = _composition_pairs(raw_decomposition, _composition_exclusions(derived))
     quick = _nfc_quick_check(derived)
     _self_check(combining, full, pairs)
     out_path.write_text(_emit(ranges, pool, combining, full, (pairs, quick)), encoding="utf-8")

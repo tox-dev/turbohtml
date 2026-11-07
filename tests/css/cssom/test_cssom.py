@@ -1,5 +1,3 @@
-"""``turbohtml.cssom``: the CSS Object Model cascade and computed style (issue #546)."""
-
 from __future__ import annotations
 
 import gc
@@ -19,14 +17,6 @@ if TYPE_CHECKING:
     from _pytest.mark.structures import ParameterSet
 
     from turbohtml import Document
-
-
-def _style(element_html: str, *, css: str = "", tag: str = "div") -> ComputedStyle:
-    """Compute the style of the first matching element in a document carrying one stylesheet."""
-    document = parse(f"<html><head><style>{css}</style></head><body>{element_html}</body></html>")
-    element = document.select_one(tag)
-    assert isinstance(element, Element)
-    return computed_style(element)
 
 
 def test_parse_declarations_keeps_source_order_value_and_important() -> None:
@@ -139,8 +129,7 @@ def test_parse_declarations_skips_empty_and_colonless_pieces() -> None:
 
 
 def test_parse_declarations_grows_past_initial_capacity() -> None:
-    text = ";".join(f"--v{index}: {index}" for index in range(20))
-    declaration = StyleDeclaration.parse(text)
+    declaration = StyleDeclaration.parse(";".join(f"--v{index}: {index}" for index in range(20)))
     assert len(declaration) == 20
 
 
@@ -150,8 +139,7 @@ def test_parse_declarations_rejects_non_str() -> None:
 
 
 def test_comment_stripping_across_selector_value_and_string() -> None:
-    sheet = StyleSheet('di/**/v { colo/**/r: red; content: "/*keep*/" }')
-    rule = sheet.rules[0]
+    rule = StyleSheet('di/**/v { colo/**/r: red; content: "/*keep*/" }').rules[0]
     assert rule.selector_text == "di v"
     assert rule.style.get("colo r") == "red"
     assert rule.style.get("content") == '"/*keep*/"'
@@ -163,8 +151,7 @@ def test_comment_stripping_tolerates_unterminated_comment_and_string() -> None:
 
 
 def test_stylesheet_skips_at_rules() -> None:
-    css = '@charset "utf-8"; @import url(x.css); @media screen { p { color: red } } q { color: blue }'
-    sheet = StyleSheet(css)
+    sheet = StyleSheet('@charset "utf-8"; @import url(x.css); @media screen { p { color: red } } q { color: blue }')
     assert [rule.selector_text for rule in sheet.rules] == ["q"]
 
 
@@ -224,6 +211,13 @@ def test_computed_style_specificity_orders_id_over_class_over_type() -> None:
         css="div { color: red } .x { color: green } #a { color: blue }",
     )
     assert style["color"] == "blue"
+
+
+def _style(element_html: str, *, css: str = "", tag: str = "div") -> ComputedStyle:
+    # Compute the style of the first matching element in a document carrying one stylesheet.
+    element = parse(f"<html><head><style>{css}</style></head><body>{element_html}</body></html>").select_one(tag)
+    assert isinstance(element, Element)
+    return computed_style(element)
 
 
 def test_computed_style_specificity_class_beats_type() -> None:
@@ -420,8 +414,7 @@ def test_computed_style_outline_shorthand_classifies_components(
 
 def test_computed_style_border_longhand_after_shorthand_wins() -> None:
     style = _style("<div></div>", css="div { border: 2px solid green; border-top-color: navy }")
-    assert style["border-top-color"] == "navy"
-    assert style["border-right-color"] == "green"
+    assert (style["border-top-color"], style["border-right-color"]) == ("navy", "green")
 
 
 def test_computed_style_border_shorthand_after_longhand_resets_it() -> None:
@@ -433,15 +426,16 @@ def test_computed_style_border_shorthand_after_longhand_resets_it() -> None:
 
 def test_computed_style_border_shorthand_higher_priority_longhand_survives() -> None:
     style = _style("<div id='a' style='border: 5px solid red'></div>", css="#a { border-top-width: 9px !important }")
-    assert style["border-top-width"] == "9px"
-    assert style["border-right-width"] == "5px"
+    assert (style["border-top-width"], style["border-right-width"]) == ("9px", "5px")
 
 
 def test_computed_style_border_shorthand_repeated_component_is_invalid() -> None:
     # two style keywords cannot both bind: the whole declaration is invalid and sets nothing
     style = _style("<div></div>", css="div { border-top-color: lime; border-top: solid dashed }")
-    assert style["border-top-style"] == "none"
-    assert style["border-top-color"] == "lime"  # the earlier longhand survives the dropped shorthand
+    assert (style["border-top-style"], style["border-top-color"]) == (
+        "none",
+        "lime",
+    )  # the earlier longhand survives the dropped shorthand
 
 
 def test_computed_style_shorthand_with_whitespace_separators() -> None:
@@ -451,8 +445,7 @@ def test_computed_style_shorthand_with_whitespace_separators() -> None:
 
 def test_computed_style_shorthand_keeps_parenthesised_group_whole() -> None:
     style = _style("<div></div>", css="div { padding: calc(1px + 2px) 3px }")
-    assert style["padding-top"] == "calc(1px + 2px)"
-    assert style["padding-right"] == "3px"
+    assert (style["padding-top"], style["padding-right"]) == ("calc(1px + 2px)", "3px")
 
 
 def test_computed_style_shorthand_tolerates_stray_close_paren() -> None:
@@ -499,8 +492,7 @@ def test_computed_style_unset_on_non_inherited_property_is_initial() -> None:
 
 
 def test_computed_style_inherit_at_root_falls_back_to_initial() -> None:
-    document = parse("<html><head><style>html { color: inherit }</style></head><body></body></html>")
-    root = document.root
+    root = parse("<html><head><style>html { color: inherit }</style></head><body></body></html>").root
     assert isinstance(root, Element)
     assert computed_style(root)["color"] == "canvastext"
 
@@ -524,8 +516,7 @@ def test_computed_style_reads_multiple_style_sheets_in_document_order() -> None:
 
 
 def test_computed_style_repeated_call_keeps_value() -> None:
-    document = parse("<style>p { color: red }</style><p></p>")
-    paragraph = document.select_one("p")
+    paragraph = parse("<style>p { color: red }</style><p></p>").select_one("p")
     assert isinstance(paragraph, Element)
     assert computed_style(paragraph)["color"] == computed_style(paragraph)["color"] == "red"
 
@@ -555,8 +546,7 @@ def test_computed_style_tracks_stylesheet_insertion() -> None:
 
 
 def test_computed_style_recompiles_after_new_attribute_name() -> None:
-    document = parse("<style>p[data-late] { color: red }</style><p></p>")
-    paragraph = document.select_one("p")
+    paragraph = parse("<style>p[data-late] { color: red }</style><p></p>").select_one("p")
     assert isinstance(paragraph, Element)
     assert computed_style(paragraph)["color"] == "canvastext"
     paragraph.attrs["data-late"] = "yes"
@@ -582,8 +572,7 @@ def test_computed_style_surface() -> None:
 
 
 def test_computed_style_rejects_non_element() -> None:
-    document = parse("<p>hi</p>")
-    paragraph = document.select_one("p")
+    paragraph = parse("<p>hi</p>").select_one("p")
     assert isinstance(paragraph, Element)
     with pytest.raises(TypeError):
         computed_style(paragraph.children[0])  # ty: ignore[invalid-argument-type]  # a text node is not an Element
@@ -592,8 +581,7 @@ def test_computed_style_rejects_non_element() -> None:
 
 
 def test_computed_style_with_no_stylesheet_is_all_initial() -> None:
-    document = parse("<div></div>")
-    div = document.select_one("div")
+    div = parse("<div></div>").select_one("div")
     assert isinstance(div, Element)
     assert computed_style(div)["visibility"] == "visible"
 
@@ -668,8 +656,7 @@ def test_declaration_property_names_are_case_insensitive() -> None:
 def test_computed_style_ignores_unknown_property() -> None:
     # "font" and "margink" are neither tracked longhands nor shorthands: both are dropped
     style = _style("<div></div>", css="div { font: 12px serif; margink: 9px; color: red }")
-    assert style["color"] == "red"
-    assert style["margin-top"] == "0"
+    assert (style["color"], style["margin-top"]) == ("red", "0")
 
 
 @pytest.mark.parametrize(
@@ -745,14 +732,12 @@ def test_computed_style_decodes_escaped_property_name_inline() -> None:
 
 def test_computed_style_shorthand_does_not_override_higher_priority_longhand() -> None:
     style = _style("<div id='a' style='margin: 5px'></div>", css="#a { margin-top: 9px !important }")
-    assert style["margin-top"] == "9px"
-    assert style["margin-right"] == "5px"
+    assert (style["margin-top"], style["margin-right"]) == ("9px", "5px")
 
 
 @pytest.mark.parametrize("keyword", ["inherit", "initial", "unset", "revert", "revert-layer"])
 def test_computed_style_border_css_wide_keyword_sets_every_longhand(keyword: str) -> None:
-    document = parse(f"<div style='border: 3px dashed blue'><p style='border: {keyword}'></p></div>")
-    paragraph = document.select_one("p")
+    paragraph = parse(f"<div style='border: 3px dashed blue'><p style='border: {keyword}'></p></div>").select_one("p")
     assert isinstance(paragraph, Element)
     style = computed_style(paragraph)
     expected = ("3px", "dashed", "blue") if keyword == "inherit" else ("medium", "none", "currentcolor")
@@ -948,17 +933,14 @@ def test_computed_style_important_keyword_is_a_value_when_not_flagged() -> None:
 
 def test_computed_style_reads_five_style_sheets() -> None:
     sheets = "".join(f"<style>p {{ color: c{index} }}</style>" for index in range(5))
-    document = parse(f"<html><head>{sheets}</head><body><p></p></body></html>")
-    paragraph = document.select_one("p")
+    paragraph = parse(f"<html><head>{sheets}</head><body><p></p></body></html>").select_one("p")
     assert isinstance(paragraph, Element)
     assert computed_style(paragraph)["color"] == "c4"
 
 
 def test_computed_style_on_detached_element_uses_inline_and_initials() -> None:
-    element = E("div", {"style": "color: red"})
-    style = computed_style(element)
-    assert style["color"] == "red"
-    assert style["display"] == "inline"
+    style = computed_style(E("div", {"style": "color: red"}))
+    assert (style["color"], style["display"]) == ("red", "inline")
 
 
 _ESCAPED_COMMENT_STARTS: Final[list[ParameterSet]] = [
@@ -1027,8 +1009,7 @@ def test_single_quoted_strings_and_semicolon_in_parentheses() -> None:
 
 
 def test_computed_style_unset_inherited_property_at_root_is_initial() -> None:
-    document = parse("<html><head><style>html { color: unset }</style></head><body></body></html>")
-    root = document.root
+    root = parse("<html><head><style>html { color: unset }</style></head><body></body></html>").root
     assert isinstance(root, Element)
     assert computed_style(root)["color"] == "canvastext"
 
@@ -1059,17 +1040,16 @@ def test_the_text_keeps_an_empty_constructed_value() -> None:
     assert StyleDeclaration((("a", "", False), ("b", "2", False))).text == "a: ; b: 2"
 
 
-class _Undecided:
-    """A flag whose truth test raises, the way a lazy proxy might."""
-
-    def __bool__(self) -> bool:
-        msg = "undecided"
-        raise RuntimeError(msg)
-
-
 def test_the_text_propagates_a_flag_whose_truth_test_raises() -> None:
     with pytest.raises(RuntimeError, match="undecided"):
         _css_declaration_text((("color", "red", _Undecided()),))  # ty: ignore[invalid-argument-type]
+
+
+class _Undecided:
+    # A flag whose truth test raises, the way a lazy proxy might.
+    def __bool__(self) -> bool:
+        msg = "undecided"
+        raise RuntimeError(msg)
 
 
 def test_the_text_of_nothing_is_empty() -> None:

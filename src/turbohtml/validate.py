@@ -23,14 +23,6 @@ if TYPE_CHECKING:
 
     from ._html import Document, Node
 
-__all__ = [
-    "RelaxNG",
-    "SchemaValidationError",
-    "ValidationError",
-    "ValidationResult",
-    "XMLSchema",
-]
-
 
 class ValidationError(NamedTuple):
     """
@@ -54,6 +46,9 @@ class ValidationResult(NamedTuple):
 
     The result is truthy exactly when the document is valid, so ``if schema.validate(doc):``
     reads naturally.
+
+    :param valid:
+    :param errors:
     """
 
     valid: bool
@@ -65,7 +60,11 @@ class ValidationResult(NamedTuple):
 
 
 class SchemaValidationError(Exception):
-    """Raised by :meth:`XMLSchema.assert_valid` / :meth:`RelaxNG.assert_valid` when a document is invalid."""
+    """
+    Raised by :meth:`XMLSchema.assert_valid` / :meth:`RelaxNG.assert_valid` when a document is invalid.
+
+    :param errors:
+    """
 
     def __init__(self, errors: tuple[ValidationError, ...]) -> None:
         """Carry the ``errors`` the failed validation produced, the first of which becomes the message."""
@@ -74,25 +73,24 @@ class SchemaValidationError(Exception):
 
 
 class _Schema:
-    """Shared machinery for the two schema languages; not instantiated directly."""
-
+    # Shared machinery for the two schema languages; not instantiated directly.
     def __init__(self, compiled: object) -> None:
         self._compiled: Final = compiled
 
-    def validate(self, document: Document | Node) -> ValidationResult:
-        """Validate a parsed document (or element), returning the full :class:`ValidationResult`."""
-        valid, errors = _schema_validate(self._compiled, document)
-        return ValidationResult(valid, tuple(starmap(ValidationError, errors)))
-
     def is_valid(self, document: Document | Node) -> bool:
-        """Whether the document satisfies the schema."""
+        # Whether the document satisfies the schema.
         return _schema_validate(self._compiled, document, collect_errors=False)[0]
 
     def assert_valid(self, document: Document | Node) -> None:
-        """Validate the document, raising :class:`SchemaValidationError` with the errors when it is invalid."""
+        # Validate the document, raising :class:`SchemaValidationError` with the errors when it is invalid.
         result = self.validate(document)
         if not result.valid:
             raise SchemaValidationError(result.errors)
+
+    def validate(self, document: Document | Node) -> ValidationResult:
+        # Validate a parsed document (or element), returning the full :class:`ValidationResult`.
+        valid, errors = _schema_validate(self._compiled, document)
+        return ValidationResult(valid, tuple(starmap(ValidationError, errors)))
 
 
 class XMLSchema(_Schema):
@@ -134,3 +132,12 @@ class RelaxNG(_Schema):
 
 def _text(source: str | Node) -> str:
     return source if isinstance(source, str) else source.serialize()
+
+
+__all__ = [
+    "RelaxNG",
+    "SchemaValidationError",
+    "ValidationError",
+    "ValidationResult",
+    "XMLSchema",
+]

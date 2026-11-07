@@ -1,5 +1,3 @@
-"""The turbohtml.build.E builder: construction sugar over Element() plus serialize(), and the factory mechanics."""
-
 from __future__ import annotations
 
 import copy
@@ -21,7 +19,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def maker() -> ElementMaker:
-    """A private builder, independent of the shared ``E`` singleton."""
+    # A private builder, independent of the shared ``E`` singleton.
     return ElementMaker()
 
 
@@ -281,8 +279,7 @@ def test_build_element_rejects_a_shape_test_that_is_not_a_type() -> None:
 
 
 class _Picky(type):
-    """A metaclass whose instance check raises for one value, the way a broken ABC hook might."""
-
+    # A metaclass whose instance check raises for one value, the way a broken ABC hook might.
     def __instancecheck__(cls, instance: object) -> bool:
         if instance == 5:
             msg = "cannot judge 5"
@@ -291,7 +288,8 @@ class _Picky(type):
 
 
 class _Shape(metaclass=_Picky):
-    """The shape test handed to the builder in place of Mapping."""
+    # The shape test handed to the builder in place of Mapping.
+    ...
 
 
 def test_build_element_propagates_a_late_shape_test_error() -> None:

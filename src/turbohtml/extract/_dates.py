@@ -19,30 +19,11 @@ from typing import Final, Literal, NamedTuple
 
 from turbohtml._html import parse
 
-__all__ = [
-    "DateExtraction",
-    "PublicationDate",
-    "dates",
-]
-
 Signal = Literal["url", "meta", "json-ld", "time", "text"]
 """Which engine a :class:`PublicationDate` came from, in htmldate's stage-priority order."""
 
 _EARLIEST: Final = date(1995, 1, 1)
 """The default lower bound, htmldate's ``MIN_DATE``: the web's date metadata does not predate it."""
-
-
-class PublicationDate(NamedTuple):
-    """
-    A date :func:`dates` recovered and the signal it read it from.
-
-    ``date`` is the formatted string (``output_format``, ISO ``YYYY-MM-DD`` by default). ``signal`` names the engine:
-    ``"meta"`` a publication/modification ``<meta>`` tag, ``"json-ld"`` a JSON-LD ``datePublished``/``dateModified``,
-    ``"time"`` a ``<time>`` element, ``"url"`` a date pattern in the canonical URL, ``"text"`` visible page text.
-    """
-
-    date: str
-    signal: Signal
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,5 +95,29 @@ def dates(html: str, options: DateExtraction | None = None, /) -> PublicationDat
 
 
 def _today() -> date:
-    """Today's date in UTC, the default upper bound so a stray future stamp never wins."""
+    # Today's date in UTC, the default upper bound so a stray future stamp never wins.
     return datetime.now(UTC).date()
+
+
+class PublicationDate(NamedTuple):
+    """
+    A date :func:`dates` recovered and the signal it read it from.
+
+    ``date`` is the formatted string (``output_format``, ISO ``YYYY-MM-DD`` by default). ``signal`` names the engine:
+    ``"meta"`` a publication/modification ``<meta>`` tag, ``"json-ld"`` a JSON-LD ``datePublished``/``dateModified``,
+    ``"time"`` a ``<time>`` element, ``"url"`` a date pattern in the canonical URL, ``"text"`` visible page text.
+
+    :param date:
+    :param signal:
+    """
+
+    date: str
+    signal: Signal
+
+
+__all__ = [
+    "DateExtraction",
+    "PublicationDate",
+    "Signal",
+    "dates",
+]

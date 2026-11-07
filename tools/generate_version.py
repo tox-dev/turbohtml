@@ -22,7 +22,7 @@ from typing import Final
 _ROOT = Path(__file__).resolve().parent.parent
 _VERSION_FILE = Path("src/turbohtml/_version.py")
 # Used only before the first release tag exists, so dev builds still get a PEP 440 version.
-_FALLBACK = "0.0.0"
+_FALLBACK: Final[str] = "0.0.0"
 
 
 def _git(*args: str) -> str | None:
@@ -49,8 +49,7 @@ def _version_from_git() -> str | None:
         return f"{tag}.dev{distance}+{commit}"  # commit already carries the leading "g"
     if (commit := _git("rev-parse", "--short", "HEAD")) is None:
         return None  # not a git checkout at all
-    count = _git("rev-list", "--count", "HEAD") or "0"
-    return f"{_FALLBACK}.dev{count}+g{commit}"
+    return f"{_FALLBACK}.dev{(_git('rev-list', '--count', 'HEAD') or '0')}+g{commit}"
 
 
 def _version_from_file() -> str | None:
@@ -62,12 +61,12 @@ def _version_from_file() -> str | None:
 
 
 def resolve() -> str:
-    """Return the version from git, then a frozen sdist file, then the fallback."""
+    # Return the version from git, then a frozen sdist file, then the fallback.
     return _version_from_git() or _version_from_file() or _FALLBACK
 
 
 def main() -> None:
-    """Print the resolved version, or freeze it into a file for the sdist."""
+    # Print the resolved version, or freeze it into a file for the sdist.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", type=Path, help="write __version__ to this file instead of printing it")
     parser.add_argument("--meson-dist", action="store_true", help="resolve --write against MESON_DIST_ROOT")

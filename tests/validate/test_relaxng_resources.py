@@ -10,10 +10,10 @@ from turbohtml.validate import RelaxNG
 if TYPE_CHECKING:
     from pathlib import Path
 
-_NS: Final = 'xmlns="http://relaxng.org/ns/structure/1.0"'
-_FOO: Final = f'<element {_NS} name="foo"><empty/></element>'
+_NS: Final[str] = 'xmlns="http://relaxng.org/ns/structure/1.0"'
+_FOO: Final[str] = f'<element {_NS} name="foo"><empty/></element>'
 _LONG: Final = "p" * 260
-_START_FOO: Final = f'<grammar {_NS}><start><element name="foo"><empty/></element></start></grammar>'
+_START_FOO: Final[str] = f'<grammar {_NS}><start><element name="foo"><empty/></element></start></grammar>'
 
 
 def _compile(directory: Path, files: dict[str, str], **options: str | Path) -> RelaxNG:
@@ -317,15 +317,15 @@ def test_relaxng_resources_accept(
             id="malformed-target",
         ),
         pytest.param(
-            {"main.rng": f'<externalRef {_NS} href="x"/>', "x": f"<group {_NS}>" + "<group>" * 400 + "</group>" * 401},
+            {"main.rng": f'<externalRef {_NS} href="x"/>', "x": f"<group {_NS}>{'<group>' * 400}{'</group>' * 401}"},
             RecursionError,
             "schema compilation does not support trees nested 400 levels",
             id="deep-target",
         ),
         pytest.param(
             {
-                "main.rng": f"<group {_NS}>" + "<group>" * 200 + '<externalRef href="x"/>' + "</group>" * 201,
-                "x": f"<group {_NS}>" + "<group>" * 200 + "<empty/>" + "</group>" * 201,
+                "main.rng": f'<group {_NS}>{"<group>" * 200}<externalRef href="x"/>{"</group>" * 201}',
+                "x": f"<group {_NS}>{'<group>' * 200}<empty/>{'</group>' * 201}",
             },
             RecursionError,
             "schema compilation does not support trees nested 400 levels",

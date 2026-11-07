@@ -11,7 +11,7 @@ PIP_OPTIONS = ("--no-binary", "lxml")
 
 
 def parse(text: str) -> None:
-    """Parse a whole document with html5-parser (gumbo, into an lxml tree)."""
+    # Parse a whole document with html5-parser (gumbo, into an lxml tree).
     html5_parser.parse(text)
 
 

@@ -18,47 +18,46 @@ REQUIREMENTS = ("beautifulsoup4>=4.15", "lxml>=5.2", "soupsieve>=2.5")
 # Only the operations whose cost depends on the tree builder appear here. Building a tree through ``new_tag`` and
 # sniffing bytes through UnicodeDammit run the same code on either backend, so measuring them twice would add a
 # duplicate column to those tables without telling a reader anything.
-_BACKEND = "lxml"
+_BACKEND: Final[str] = "lxml"
 _FIND_TEXT_PATTERN = re.compile(r"test")
-_SET_HTML = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
-_SET_TEXT = "Replacement text, escaped & verbatim."
+_SET_HTML: Final[str] = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
 _STRIP = ("code", "a", "q")
-_LINKS_BASE = "https://example.com/base/"
+_LINKS_BASE: Final[str] = "https://example.com/base/"
 
 
 def parse(text: str) -> None:
-    """Parse a whole document with BeautifulSoup over the lxml backend."""
+    # Parse a whole document with BeautifulSoup over the lxml backend.
     BeautifulSoup(text, _BACKEND)
 
 
 def _fresh(text: str) -> BeautifulSoup:
-    """Parse a fresh document for the mutating operations, which each iteration must run on an unmodified tree."""
+    # Parse a fresh document for the mutating operations, which each iteration must run on an unmodified tree.
     return BeautifulSoup(text, _BACKEND)
 
 
 @functools.cache
 def _parsed(text: str) -> BeautifulSoup:
-    """Return a document parsed once, cached so the read-path operations time only the query."""
+    # Return a document parsed once, cached so the read-path operations time only the query.
     return BeautifulSoup(text, _BACKEND)
 
 
 def find(text: str) -> None:
-    """Collect every anchor with BeautifulSoup's find_all."""
+    # Collect every anchor with BeautifulSoup's find_all.
     _parsed(text).find_all("a")
 
 
 def select(text: str) -> None:
-    """Run the CSS selector with BeautifulSoup's soupsieve select."""
+    # Run the CSS selector with BeautifulSoup's soupsieve select.
     _parsed(text).select("div a[href]")
 
 
 def select_has(text: str) -> None:
-    """Run the :has() relational selector with BeautifulSoup's soupsieve."""
+    # Run the :has() relational selector with BeautifulSoup's soupsieve.
     _parsed(text).select("div:has(a)")
 
 
 def find_text(text: str) -> None:
-    """Collect every matching string with BeautifulSoup's find_all(string=...)."""
+    # Collect every matching string with BeautifulSoup's find_all(string=...).
     _parsed(text).find_all(string=_FIND_TEXT_PATTERN)
 
 
@@ -86,7 +85,7 @@ def _select_relative(case: tuple[str, str]) -> None:
 
 
 def text_content(text: str) -> None:
-    """Collect the document's visible text with BeautifulSoup's get_text()."""
+    # Collect the document's visible text with BeautifulSoup's get_text().
     _parsed(text).get_text()
 
 
@@ -95,12 +94,12 @@ def _serialize_named(text: str) -> str:
 
 
 def serialize(text: str) -> None:
-    """Serialize a parsed document back to HTML with BeautifulSoup's decode."""
+    # Serialize a parsed document back to HTML with BeautifulSoup's decode.
     _parsed(text).decode()
 
 
 def class_edit(text: str) -> None:
-    """Add then drop a class token on every link through BeautifulSoup's multi-valued class list (a net no-op)."""
+    # Add then drop a class token on every link through BeautifulSoup's multi-valued class list (a net no-op).
     for anchor in _parsed(text).find_all("a"):
         tokens = anchor.get_attribute_list("class")
         anchor["class"] = AttributeValueList([*tokens, "seen"])
@@ -108,19 +107,19 @@ def class_edit(text: str) -> None:
 
 
 def extract_attr(text: str) -> None:
-    """Read every anchor's href by selecting once and reading the attribute off each node."""
+    # Read every anchor's href by selecting once and reading the attribute off each node.
     for anchor in _parsed(text).select("a"):
         anchor.get("href")
 
 
 def extract_text(text: str) -> None:
-    """Read every anchor's visible text by selecting once and reading get_text off each node."""
+    # Read every anchor's visible text by selecting once and reading get_text off each node.
     for anchor in _parsed(text).select("a"):
         anchor.get_text()
 
 
 def strip_remove(text: str) -> None:
-    """Drop every code/a/q subtree with BeautifulSoup's decompose on a fresh parse, then serialize."""
+    # Drop every code/a/q subtree with BeautifulSoup's decompose on a fresh parse, then serialize.
     soup = _fresh(text)
     for tag in list(soup.find_all(_STRIP)):
         tag.decompose()
@@ -128,7 +127,7 @@ def strip_remove(text: str) -> None:
 
 
 def strip_tags(text: str) -> None:
-    """Unwrap every code/a/q element keeping its content with BeautifulSoup's unwrap on a fresh parse, then emit."""
+    # Unwrap every code/a/q element keeping its content with BeautifulSoup's unwrap on a fresh parse, then emit.
     soup = _fresh(text)
     for tag in list(soup.find_all(_STRIP)):
         tag.unwrap()
@@ -136,7 +135,7 @@ def strip_tags(text: str) -> None:
 
 
 def rewrite(text: str) -> None:
-    """Full parse, mutate, serialize -- the DOM round-trip the streamer skips: rel=nofollow, lazy img, drop comments."""
+    # Full parse, mutate, serialize -- the DOM round-trip the streamer skips: rel=nofollow, lazy img, drop comments.
     soup = BeautifulSoup(text, _BACKEND)
     for anchor in soup.select("a[href]"):
         anchor["rel"] = "nofollow"
@@ -148,13 +147,13 @@ def rewrite(text: str) -> None:
 
 
 def edit(soup: BeautifulSoup) -> None:
-    """Tag every link with rel=nofollow on a freshly parsed tree through BeautifulSoup's item assignment."""
+    # Tag every link with rel=nofollow on a freshly parsed tree through BeautifulSoup's item assignment.
     for anchor in soup.find_all("a"):
         anchor["rel"] = "nofollow"
 
 
 def set_html(soup: BeautifulSoup) -> None:
-    """Clear a freshly parsed body and append a reparsed fragment, BeautifulSoup's inner-HTML shape."""
+    # Clear a freshly parsed body and append a reparsed fragment, BeautifulSoup's inner-HTML shape.
     body = soup.find_all("body")[0]
     body.clear()
     for node in list(BeautifulSoup(_SET_HTML, _BACKEND).children):
@@ -162,36 +161,36 @@ def set_html(soup: BeautifulSoup) -> None:
 
 
 def set_text(soup: BeautifulSoup) -> None:
-    """Replace a freshly parsed body's children with one verbatim text node through BeautifulSoup's .string."""
-    soup.find_all("body")[0].string = _SET_TEXT
+    # Replace a freshly parsed body's children with one verbatim text node through BeautifulSoup's .string.
+    soup.find_all("body")[0].string = "Replacement text, escaped & verbatim."
 
 
 def navigate(text: str) -> None:
-    """Walk every descendant with BeautifulSoup's descendants iterator."""
+    # Walk every descendant with BeautifulSoup's descendants iterator.
     for _node in _parsed(text).descendants:
         pass
 
 
 def match(text: str) -> None:
-    """Test every anchor against a selector with BeautifulSoup's soupsieve-backed css.match."""
+    # Test every anchor against a selector with BeautifulSoup's soupsieve-backed css.match.
     for anchor in _parsed(text).find_all("a"):
         anchor.css.match("div a[href]")
 
 
 def links_extract(text: str) -> None:
-    """Collect every anchor's href with BeautifulSoup, the shape a scraper reads links in."""
+    # Collect every anchor's href with BeautifulSoup, the shape a scraper reads links in.
     _ = [anchor.get("href") for anchor in _parsed(text).find_all("a")]
 
 
 def links_rewrite(text: str) -> None:
-    """Rewrite every link with an identity map, idempotent so the cached tree stays reusable."""
+    # Rewrite every link with an identity map, idempotent so the cached tree stays reusable.
     for anchor in _parsed(text).find_all("a"):
         if (href := anchor.get("href")) is not None:
             anchor["href"] = href
 
 
 def links_filter(text: str) -> None:
-    """Collect the cleaned, absolutized, deduplicated page links, the work turbohtml's extract_links does."""
+    # Collect the cleaned, absolutized, deduplicated page links, the work turbohtml's extract_links does.
     seen: dict[str, None] = {}
     for anchor in BeautifulSoup(text, _BACKEND).find_all("a"):
         if href := anchor.get("href"):
@@ -200,14 +199,14 @@ def links_filter(text: str) -> None:
 
 
 def socialcard(text: str) -> None:
-    """Read every meta property and content off a freshly parsed tree, BeautifulSoup's take on card extraction."""
+    # Read every meta property and content off a freshly parsed tree, BeautifulSoup's take on card extraction.
     for meta in _fresh(text).find_all("meta"):
         meta.get("property")
         meta.get("content")
 
 
 def extract_url(case: tuple[str, str]) -> None:
-    """Read a freshly parsed document's own URL hint with BeautifulSoup: the base href or the meta refresh."""
+    # Read a freshly parsed document's own URL hint with BeautifulSoup: the base href or the meta refresh.
     kind, text = case
     soup = _fresh(text)
     if kind == "base":
@@ -218,7 +217,7 @@ def extract_url(case: tuple[str, str]) -> None:
 
 
 def links_absolutize(soup: BeautifulSoup) -> None:
-    """Resolve every relative link on a freshly parsed tree against a base with BeautifulSoup's item assignment."""
+    # Resolve every relative link on a freshly parsed tree against a base with BeautifulSoup's item assignment.
     for anchor in soup.find_all("a"):
         if isinstance(href := anchor.get("href"), str):
             anchor["href"] = urljoin(_LINKS_BASE, href)
@@ -270,13 +269,13 @@ def _strip_comments(soup: BeautifulSoup) -> None:
 
 
 OPERATIONS = {
-    "collapse-whitespace": (Mutating(_fresh, _collapse_whitespace), "BeautifulSoup (lxml)"),
-    "transform-tree": (Mutating(_fresh, _transform_tree), "BeautifulSoup (lxml)"),
+    "collapse-whitespace": (Mutating(setup=_fresh, run=_collapse_whitespace), "BeautifulSoup (lxml)"),
+    "transform-tree": (Mutating(setup=_fresh, run=_transform_tree), "BeautifulSoup (lxml)"),
     "serialize-inner": (_serialize_inner, "BeautifulSoup (lxml)"),
     "encode-inner": (_encode_inner, "BeautifulSoup (lxml)"),
     "serialize-inner-indent": (_serialize_inner_indent, "BeautifulSoup (lxml)"),
     "encode-inner-indent": (_encode_inner_indent, "BeautifulSoup (lxml)"),
-    "strip-comments": (Mutating(_fresh, _strip_comments), "BeautifulSoup (lxml)"),
+    "strip-comments": (Mutating(setup=_fresh, run=_strip_comments), "BeautifulSoup (lxml)"),
     "parse": (parse, "BeautifulSoup (lxml)"),
     "parse-formatting": (parse, "BeautifulSoup (lxml)"),
     "parse-foster": (parse, "BeautifulSoup (lxml)"),
@@ -301,9 +300,9 @@ OPERATIONS = {
     "strip-remove": (strip_remove, "BeautifulSoup (lxml)"),
     "strip-tags": (strip_tags, "BeautifulSoup (lxml)"),
     "rewrite": (rewrite, "BeautifulSoup (lxml)"),
-    "edit": (Mutating(_fresh, edit), "BeautifulSoup (lxml)"),
-    "set-html": (Mutating(_fresh, set_html), "BeautifulSoup (lxml)"),
-    "set-text": (Mutating(_fresh, set_text), "BeautifulSoup (lxml)"),
+    "edit": (Mutating(setup=_fresh, run=edit), "BeautifulSoup (lxml)"),
+    "set-html": (Mutating(setup=_fresh, run=set_html), "BeautifulSoup (lxml)"),
+    "set-text": (Mutating(setup=_fresh, run=set_text), "BeautifulSoup (lxml)"),
     "navigate": (navigate, "BeautifulSoup (lxml)"),
     "match": (match, "BeautifulSoup (lxml)"),
     "links-extract": (links_extract, "BeautifulSoup (lxml)"),
@@ -311,6 +310,6 @@ OPERATIONS = {
     "links-filter": (links_filter, "BeautifulSoup (lxml)"),
     "socialcard": (socialcard, "BeautifulSoup (lxml)"),
     "extract-url": (extract_url, "BeautifulSoup (lxml)"),
-    "links-absolutize": (Mutating(_fresh, links_absolutize), "BeautifulSoup (lxml)"),
+    "links-absolutize": (Mutating(setup=_fresh, run=links_absolutize), "BeautifulSoup (lxml)"),
     "serialize-named": (_serialize_named, "BeautifulSoup (lxml)"),
 }

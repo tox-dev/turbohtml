@@ -14,12 +14,12 @@ import importlib
 import os
 import sys
 
-from bench import operations
+from bench.operations import INPUTS
 from bench.timing import Mutating
 
 
 def _peak_bytes() -> int:
-    """Return this process's peak resident set size in bytes; ``ru_maxrss`` reports bytes on macOS, KiB on Linux."""
+    # Return this process's peak resident set size in bytes; ``ru_maxrss`` reports bytes on macOS, KiB on Linux.
     import resource  # ruff:ignore[import-outside-top-level]  # POSIX-only; imported here so a Windows import of the module stays clean
 
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -27,13 +27,13 @@ def _peak_bytes() -> int:
 
 
 def main() -> None:
-    """Run one case of the operation once for the target, then print the process's peak resident memory in bytes."""
+    # Run one case of the operation once for the target, then print the process's peak resident memory in bytes.
     target = os.environ["BENCH_TARGET"]
     operation = os.environ["BENCH_OPERATION"]
     case_index = int(os.environ["BENCH_CASE"])
     module = importlib.import_module("bench.core" if target == "core" else f"bench.competitors.{target}")
     func = module.OPERATIONS[operation][0]
-    _case_name, arg = operations.INPUTS[operation]()[case_index]
+    _case_name, arg = INPUTS[operation]()[case_index]
     func.run(func.setup(arg)) if isinstance(func, Mutating) else func(arg)
     print(_peak_bytes())
 

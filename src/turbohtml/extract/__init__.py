@@ -44,48 +44,8 @@ from ._links import Link
 from ._structured_data import MicrodataItem, OpenGraph, RdfaItem, StructuredData
 from ._urls import UrlCleaning, clean_url, extract_links, normalize_url
 
-__all__ = [
-    "Article",
-    "DateExtraction",
-    "Element",
-    "Entry",
-    "Extraction",
-    "Feed",
-    "Link",
-    "MicrodataItem",
-    "OpenGraph",
-    "Paragraph",
-    "PublicationDate",
-    "RdfaItem",
-    "StructuredData",
-    "UrlCleaning",
-    "boilerplate",
-    "clean_url",
-    "dates",
-    "extract_links",
-    "feed",
-    "microdata",
-    "normalize_url",
-    "opengraph",
-]
 
-
-class Paragraph(NamedTuple):
-    """
-    One paragraph unit of a page and its classification, the record :func:`boilerplate` returns.
-
-    ``text`` is the unit's whitespace-normalized visible text (never empty; a blank unit is not reported).
-    ``is_boilerplate`` is ``True`` for navigation, footers, sidebars, and any in-content unit that fails the
-    :class:`Extraction` thresholds; the ``False`` entries concatenate to the article. ``is_heading`` marks
-    ``<h1>``-``<h6>`` units whatever their classification.
-    """
-
-    text: str
-    is_boilerplate: bool
-    is_heading: bool
-
-
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Extraction:
     """
     Options for :func:`boilerplate`: the per-paragraph thresholds refining the main-content scoring.
@@ -114,7 +74,11 @@ class Extraction:
 
     @classmethod
     def justext(cls) -> Extraction:
-        """Justext's defaults: its 70-character ``length_low`` floor and 0.2 ``max_link_density``."""
+        """
+        Justext's defaults: its 70-character ``length_low`` floor and 0.2 ``max_link_density``.
+
+        :returns:
+        """
         return cls(min_length=70, max_link_density=0.2)
 
 
@@ -206,3 +170,48 @@ def boilerplate(html: str, options: Extraction | None = None, /) -> list[Paragra
         thresholds.keep_headings,
     )
     return list(starmap(Paragraph, rows))
+
+
+class Paragraph(NamedTuple):
+    """
+    One paragraph unit of a page and its classification, the record :func:`boilerplate` returns.
+
+    ``text`` is the unit's whitespace-normalized visible text (never empty; a blank unit is not reported).
+    ``is_boilerplate`` is ``True`` for navigation, footers, sidebars, and any in-content unit that fails the
+    :class:`Extraction` thresholds; the ``False`` entries concatenate to the article. ``is_heading`` marks
+    ``<h1>``-``<h6>`` units whatever their classification.
+
+    :param text:
+    :param is_boilerplate:
+    :param is_heading:
+    """
+
+    text: str
+    is_boilerplate: bool
+    is_heading: bool
+
+
+__all__ = [
+    "Article",
+    "DateExtraction",
+    "Element",
+    "Entry",
+    "Extraction",
+    "Feed",
+    "Link",
+    "MicrodataItem",
+    "OpenGraph",
+    "Paragraph",
+    "PublicationDate",
+    "RdfaItem",
+    "StructuredData",
+    "UrlCleaning",
+    "boilerplate",
+    "clean_url",
+    "dates",
+    "extract_links",
+    "feed",
+    "microdata",
+    "normalize_url",
+    "opengraph",
+]

@@ -25,15 +25,12 @@ if TYPE_CHECKING:
 
     from turbohtml import Node
 
-_NS = 'xmlns:xsl="http://www.w3.org/1999/XSL/Transform"'
-
 
 def _sheet(body: str, *, method: str = "text", declare: str = "", prefix: str = "xsl") -> turbohtml.Document:
-    """Wrap a template body in a stylesheet parsed as XML, with the given output method.
-
-    The ``xml`` method suppresses the XML declaration so content comparisons stay clean; one test builds its own sheet
-    to check the declaration is emitted by default.
-    """
+    # Wrap a template body in a stylesheet parsed as XML, with the given output method.
+    #
+    # The ``xml`` method suppresses the XML declaration so content comparisons stay clean; one test builds its own sheet
+    # to check the declaration is emitted by default.
     if method == "xml":
         output = f'<{prefix}:output method="xml" omit-xml-declaration="yes"/>'
     elif method:
@@ -48,17 +45,17 @@ def _sheet(body: str, *, method: str = "text", declare: str = "", prefix: str = 
 
 
 def _run(source: str, body: str, *, method: str = "text", prefix: str = "xsl", **params: str) -> str:
-    """Parse a source document and body stylesheet and return the transform result."""
+    # Parse a source document and body stylesheet and return the transform result.
     return Transform(_sheet(body, method=method, prefix=prefix))(turbohtml.parse_xml(source), **params)
 
 
 def _collapse(text: str) -> str:
-    """Drop whitespace between tags so content compares without a serializer's layout."""
+    # Drop whitespace between tags so content compares without a serializer's layout.
     return re.sub(r">\s+<", "><", text.strip())
 
 
 def _canon(text: str) -> str:
-    """Drop the XML declaration and inter-tag whitespace, as the conformance harness compares."""
+    # Drop the XML declaration and inter-tag whitespace, as the conformance harness compares.
     return _collapse(re.sub(r"^<\?xml\s[^>]*\?>\s*", "", text))
 
 
@@ -583,12 +580,12 @@ def test_transform_sort_static_attribute(source: str, expected: str) -> None:
 
 
 def test_transform_sort_static_attribute_tracks_mutation() -> None:
+    document = parse_xml('<r><n id="a" key="b"/><n id="b" key="a"/></r>')
     body = (
         '<xsl:template match="/"><xsl:for-each select="r/n">'
         '<xsl:sort select="@key"/><xsl:value-of select="@id"/>'
         "</xsl:for-each></xsl:template>"
     )
-    document = parse_xml('<r><n id="a" key="b"/><n id="b" key="a"/></r>')
     convert = Transform(_sheet(body))
     assert convert(document) == "ba"
     document.select("n")[0].attrs["key"] = "0"
@@ -943,8 +940,7 @@ def test_transform_stylesheet_without_root_element_raises() -> None:
 
 
 def test_transform_too_many_union_alternatives_raises() -> None:
-    match = "|".join(f"e{index}" for index in range(70))
-    body = f'<xsl:template match="{match}">x</xsl:template>'
+    body = f'<xsl:template match="{"|".join(f"e{index}" for index in range(70))}">x</xsl:template>'
     with pytest.raises(ValueError, match="too many alternatives"):
         _run("<r/>", body)
 
@@ -1332,8 +1328,8 @@ def test_transform_number_without_format_attribute() -> None:
 
 def test_transform_many_templates_grow_rule_array() -> None:
     templates = "".join(f'<xsl:template match="e{index}">{index},</xsl:template>' for index in range(20))
-    apply = '<xsl:template match="/"><xsl:apply-templates select="r/*"/></xsl:template>'
     elements = "".join(f"<e{index}/>" for index in range(20))
+    apply = '<xsl:template match="/"><xsl:apply-templates select="r/*"/></xsl:template>'
     assert _run(f"<r>{elements}</r>", apply + templates) == "".join(f"{index}," for index in range(20))
 
 
@@ -1707,8 +1703,7 @@ def test_transform_apply_templates_to_attribute_children_are_empty() -> None:
 
 
 def test_transform_literal_element_default_namespace_declaration() -> None:
-    body = '<xsl:template match="/"><out xmlns="urn:x"><in/></out></xsl:template>'
-    result = _run("<r/>", body, method="xml")
+    result = _run("<r/>", '<xsl:template match="/"><out xmlns="urn:x"><in/></out></xsl:template>', method="xml")
     # XSLT 1.0 section 7.1.1: the default-namespace node is copied to the output element and the
     # child inherits it (declared once), as libxslt/lxml emit it.
     assert '<out xmlns="urn:x"><in/></out>' in result
@@ -1938,14 +1933,12 @@ def test_transform_element_with_empty_name() -> None:
 
 
 def _run_computed_name(instruction: str, name: str) -> str:
-    body = f'<xsl:template match="/"><r>{instruction}</r></xsl:template>'
-    return _run(f"<n>{name}</n>", body, method="xml")
+    return _run(f"<n>{name}</n>", f'<xsl:template match="/"><r>{instruction}</r></xsl:template>', method="xml")
 
 
-_COMPUTED_ELEMENT: Final = '<xsl:element name="{/n}"><xsl:attribute name="a">1</xsl:attribute>e</xsl:element>'
-_COMPUTED_ATTRIBUTE: Final = '<xsl:attribute name="{/n}">v</xsl:attribute>'
-_COMPUTED_NAMESPACED_ATTRIBUTE: Final = '<xsl:attribute name="{/n}" namespace="urn:x">v</xsl:attribute>'
-_COMPUTED_PI: Final = '<xsl:processing-instruction name="{/n}">d</xsl:processing-instruction>'
+_COMPUTED_ELEMENT: Final[str] = '<xsl:element name="{/n}"><xsl:attribute name="a">1</xsl:attribute>e</xsl:element>'
+_COMPUTED_ATTRIBUTE: Final[str] = '<xsl:attribute name="{/n}">v</xsl:attribute>'
+_COMPUTED_NAMESPACED_ATTRIBUTE: Final[str] = '<xsl:attribute name="{/n}" namespace="urn:x">v</xsl:attribute>'
 
 
 @pytest.mark.parametrize(
@@ -2013,7 +2006,9 @@ def test_transform_computed_attribute_name(instruction: str, name: str, expected
 )
 def test_transform_computed_pi_target(name: str, expected: str) -> None:
     # XSLT 1.0 7.3 recovery: ignore an instruction whose name is not a PITarget
-    assert _run_computed_name(_COMPUTED_PI, name) == expected
+    assert (
+        _run_computed_name('<xsl:processing-instruction name="{/n}">d</xsl:processing-instruction>', name) == expected
+    )
 
 
 def test_transform_invalid_element_name_still_runs_its_content() -> None:
@@ -2647,8 +2642,8 @@ def test_transform_strip_space_leaves_source_tree_unchanged() -> None:
     source = turbohtml.parse_xml("<r><p>  <b>x</b>  </p></r>")
     root = source.root
     assert root is not None
-    body = '<xsl:strip-space elements="p"/><xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
     before = len(root.children[0].children)
+    body = '<xsl:strip-space elements="p"/><xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
     transform(_sheet(body), source)
     assert len(root.children[0].children) == before
 
@@ -2739,7 +2734,7 @@ def _attribute_set_chain(length: int, *, reverse: bool = False) -> str:
     return "".join(reversed(sets) if reverse else sets)
 
 
-_CYCLE_HINT: Final = "; remove one of these use-attribute-sets references"
+_CYCLE_HINT: Final[str] = "; remove one of these use-attribute-sets references"
 
 
 @pytest.mark.parametrize(
@@ -2774,12 +2769,12 @@ _CYCLE_HINT: Final = "; remove one of these use-attribute-sets references"
 )
 def test_transform_attribute_set_chain_ends_cleanly(sets: str, expected: str) -> None:
     # a regression overflows the C stack or never finishes, so a subprocess turns it into a failed assertion
+    stylesheet = _oracle_sheet(f'{sets}<xsl:template match="/"><out xsl:use-attribute-sets="s"/></xsl:template>')
     code = (
         "import sys\nfrom turbohtml import parse_xml\nfrom turbohtml.transform import transform\n"
         "try:\n    print(transform(parse_xml(sys.stdin.read()), parse_xml('<r/>')))\n"
         "except ValueError as exc:\n    print(f'ValueError: {exc}')\n"
     )
-    stylesheet = _oracle_sheet(f'{sets}<xsl:template match="/"><out xsl:use-attribute-sets="s"/></xsl:template>')
     result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed interpreter and script
         [sys.executable, "-c", code], input=stylesheet, capture_output=True, text=True, timeout=60, check=False
     )
@@ -3647,9 +3642,6 @@ def test_transform_attribute_set_two_names_with_trailing_space() -> None:
     assert _collapse(_run("<r/>", body, method="xml")) == '<out a="1" b="2"/>'
 
 
-_POISON: Final = '<xsl:attribute-set name="bad"><xsl:attribute name="{$undef}">v</xsl:attribute></xsl:attribute-set>'
-
-
 @pytest.mark.parametrize(
     "body",
     [
@@ -3671,8 +3663,9 @@ _POISON: Final = '<xsl:attribute-set name="bad"><xsl:attribute name="{$undef}">v
     ],
 )
 def test_transform_attribute_set_error_propagates(body: str) -> None:
+    poison = '<xsl:attribute-set name="bad"><xsl:attribute name="{$undef}">v</xsl:attribute></xsl:attribute-set>'
     with pytest.raises(ValueError, match="unbound"):
-        _run("<r/>", f"{_POISON}{body}", method="xml")
+        _run("<r/>", f"{poison}{body}", method="xml")
 
 
 def test_transform_attribute_with_prefixed_name_and_namespace() -> None:
@@ -4506,7 +4499,7 @@ def content_transform() -> Callable[[tuple[str, ...]], Transform]:
     return compile_patterns
 
 
-_PAIR: Final = "<xsl:number/><xsl:text>:</xsl:text><xsl:number/>"
+_PAIR: Final[str] = "<xsl:number/><xsl:text>:</xsl:text><xsl:number/>"
 
 
 @pytest.mark.parametrize(
@@ -5023,12 +5016,6 @@ def static_pattern_transform() -> Callable[[str, str, str], Transform]:
 _XSLT_NS: Final[str] = "http://www.w3.org/1999/XSL/Transform"
 
 
-def _stylesheet(body: str) -> turbohtml.Document:
-    return turbohtml.parse_xml(
-        f'<xsl:stylesheet version="1.0" xmlns:xsl="{_XSLT_NS}"><xsl:output method="text"/>{body}</xsl:stylesheet>'
-    )
-
-
 @pytest.mark.parametrize(
     ("body", "message"),
     [
@@ -5055,6 +5042,12 @@ def _stylesheet(body: str) -> turbohtml.Document:
 def test_transform_compile_rejects_invalid_stylesheet(body: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         Transform(_stylesheet(body))
+
+
+def _stylesheet(body: str) -> turbohtml.Document:
+    return turbohtml.parse_xml(
+        f'<xsl:stylesheet version="1.0" xmlns:xsl="{_XSLT_NS}"><xsl:output method="text"/>{body}</xsl:stylesheet>'
+    )
 
 
 def test_transform_compile_rejects_non_node_stylesheet() -> None:
@@ -5143,8 +5136,7 @@ def test_transform_compile_is_thread_safe() -> None:
     assert results == ["0-0", "1-1", "2-2", "3-3"]
 
 
-_LEVELS: Final = 1_200
-_XSLT: Final = "http://www.w3.org/1999/XSL/Transform"
+_XSLT: Final[str] = "http://www.w3.org/1999/XSL/Transform"
 
 
 def test_transform_text_output_collects_deep_descendants() -> None:
@@ -5155,6 +5147,11 @@ def test_transform_text_output_collects_deep_descendants() -> None:
     )
 
     assert Transform(stylesheet)(source) == "bottom"
+
+
+def _nested_xml(inner: str) -> str:
+    levels = 1_200
+    return "<x>" * levels + inner + "</x>" * levels
 
 
 def test_transform_cdata_conversion_reaches_deep_descendants() -> None:
@@ -5179,10 +5176,6 @@ def test_transform_strip_space_reaches_deep_descendants_and_restores_source() ->
 
     assert Transform(stylesheet)(source) == "bottom"
     assert source.html == before
-
-
-def _nested_xml(inner: str) -> str:
-    return "<x>" * _LEVELS + inner + "</x>" * _LEVELS
 
 
 @pytest.mark.parametrize("padding", [pytest.param(1, id="small"), pytest.param(16, id="indexed")])
@@ -5542,10 +5535,11 @@ def test_rule_benchmark_output(library: str, name: str, passes: int) -> None:
 
 
 def _oracle_sheet(body: str, *, method: str = "xml") -> str:
-    return f'<xsl:stylesheet version="1.0" {_NS}><xsl:output method="{method}"/>{body}</xsl:stylesheet>'
+    ns = 'xmlns:xsl="http://www.w3.org/1999/XSL/Transform"'
+    return f'<xsl:stylesheet version="1.0" {ns}><xsl:output method="{method}"/>{body}</xsl:stylesheet>'
 
 
-_ORACLE_CATALOG: Final = (
+_ORACLE_CATALOG: Final[str] = (
     '<catalog><book id="b1" cat="fiction"><title>Dune</title><price>9.99</price></book>'
     '<book id="b2" cat="science"><title>Cosmos</title><price>12.50</price></book>'
     '<book id="b3" cat="fiction"><title>1984</title><price>8.00</price></book></catalog>'

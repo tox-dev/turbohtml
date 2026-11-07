@@ -48,7 +48,22 @@ _DEFAULT_URL_SCHEMES: Final = ("ftp", "http", "https")
 
 
 class PhoneType(Enum):
-    """The line type a numbering plan assigns a number; ``UNKNOWN`` appears only in possible mode."""
+    """
+    The line type a numbering plan assigns a number; ``UNKNOWN`` appears only in possible mode.
+
+    :cvar FIXED_LINE:
+    :cvar MOBILE:
+    :cvar FIXED_LINE_OR_MOBILE:
+    :cvar TOLL_FREE:
+    :cvar PREMIUM_RATE:
+    :cvar SHARED_COST:
+    :cvar VOIP:
+    :cvar PERSONAL_NUMBER:
+    :cvar PAGER:
+    :cvar UAN:
+    :cvar VOICEMAIL:
+    :cvar UNKNOWN:
+    """
 
     FIXED_LINE = "fixed_line"
     MOBILE = "mobile"
@@ -251,7 +266,7 @@ class PhoneNumbers:
 
 
 def _ordered_strings(values: Iterable[str], name: str) -> tuple[str, ...]:
-    """Reject a bare string, a set or a mapping: it has no order to preserve."""
+    # Reject a bare string, a set or a mapping: it has no order to preserve.
     if isinstance(values, (str, bytes, AbstractSet, Mapping)):
         msg = f"{name} must be an ordered iterable of str, not {type(values).__name__}"
         raise TypeError(msg)
@@ -328,6 +343,7 @@ class PhoneNumber:
         :param require_valid: the number must be one the plan assigns; False accepts any possible length.
         :returns: the number.
         :raises ValueError: when the text does not hold one such number.
+        :raises TypeError:
         """
         if not isinstance(text, str):
             msg = "text must be str"
@@ -375,6 +391,7 @@ class PhoneNumber:
 
         :param style: the layout to write.
         :returns: the formatted number, ASCII.
+        :raises TypeError:
         """
         if not isinstance(style, PhoneFormat):
             msg = "style must be a PhoneFormat"
@@ -417,6 +434,155 @@ def _compile_settings(phones: PhoneNumbers, number_type: type[PhoneNumber], *, p
     ))
 
 
+# A callback receives the generated :class:`LinkCandidate` and returns it to keep the link, or ``None`` to leave the
+# text bare.
+Callback: TypeAlias = "Callable[[LinkCandidate], LinkCandidate | None]"
+
+
+#: The callbacks linkify applies when a caller passes none, matching bleach's default.
+def nofollow(link: LinkCandidate) -> LinkCandidate:
+    """
+    Add ``rel="nofollow"`` to a web link so search engines skip it, leaving ``mailto:`` and other links alone.
+
+    :param link: the link to adjust.
+    :returns: the link, with ``nofollow`` added when it is a web link; never ``None``.
+    """
+    return _linkify_nofollow(link)
+
+
+def target_blank(link: LinkCandidate) -> LinkCandidate:
+    """
+    Open a web link in a new tab, stripping a stale ``target`` from a non-web link so it cannot leak through.
+
+    :param link: the link to adjust.
+    :returns: the link, with ``target`` set on a web link or cleared on a non-web link; never ``None``.
+    """
+    return _linkify_target_blank(link)
+
+
+DEFAULT_CALLBACKS: Final = (nofollow,)
+
+
+@dataclass(frozen=True, slots=True)
+class Linkify:
+    """
+    An immutable, thread-safe description of how :func:`linkify` and :class:`Linker` find and rewrite links.
+
+    Build one and reuse it across threads.
+
+    :param callbacks: callables run on each detected link to adjust or veto it (defaults to ``DEFAULT_CALLBACKS``).
+    :param skip_tags: tags whose text is left untouched, such as ``pre`` and ``code``.
+    :param parse_email: also autolink email addresses as ``mailto:`` links, bare or already written as a
+        ``mailto:`` URI.
+    :param process_existing: run the callbacks over ``<a>`` tags already present, not only freshly detected links.
+    :param extra_tlds: top-level domains that make a bare domain a link, on top of the built-in IANA table.
+    :param schemes: the exact set of ``scheme://`` URL schemes that autolink; ``None`` keeps the built-in
+        ``http``/``https``/``ftp`` default, so a typo scheme or a ``javascript://`` payload stays plain text. A bare
+        domain is always treated as ``http`` and is governed by the TLD table, not ``schemes``.
+    :param phones: also link phone numbers as ``tel:`` links, per these :class:`PhoneNumbers` settings; ``None``
+        leaves digits alone. A ``tel:`` URI already written in the text links as itself.
+    """
+
+    callbacks: Iterable[Callback] = DEFAULT_CALLBACKS
+    skip_tags: Iterable[str] | None = None
+    parse_email: bool = False
+    process_existing: bool = False
+    extra_tlds: Iterable[str] | None = None
+    schemes: Iterable[str] | None = None
+    phones: PhoneNumbers | None = None
+
+
+def linkify(text: str | Node, options: Linkify | None = None) -> str:
+    """
+    Find URLs, email addresses and phone numbers in HTML and wrap them in ``<a>`` links.
+
+    Existing markup is left untouched.
+
+    :param text: the HTML to linkify, or an already parsed node (see :func:`linkify_node`), which skips the parse and
+        links a copy so the node is left as it was.
+    :param options: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
+    :returns: the linkified HTML.
+    """
+    return Linker(options).linkify(text)
+
+
+class Linker:
+    """
+    A reusable linkifier; build it once from a :class:`Linkify` configuration and call :meth:`linkify` per document.
+
+    :param options: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
+    :ivar callbacks:
+    :ivar skip_tags:
+    :ivar parse_email:
+    :ivar process_existing:
+    :ivar extra_tlds:
+    :ivar url_schemes:
+    :ivar phones:
+    """
+
+    def __init__(self, options: Linkify | None = None) -> None:
+        """Compile a configuration into the form the walk consumes."""
+        config = options if options is not None else Linkify()
+        self.callbacks = tuple(config.callbacks)
+        self.skip_tags = _linkify_fold(config.skip_tags, "skip_tags", 0) if config.skip_tags is not None else ()
+        self.parse_email = config.parse_email
+        self.process_existing = config.process_existing
+        self.extra_tlds = _linkify_fold(config.extra_tlds, "extra_tlds", 0) if config.extra_tlds else ()
+        self.url_schemes = (
+            _linkify_fold(config.schemes, "schemes", 0) if config.schemes is not None else _DEFAULT_URL_SCHEMES
+        )
+        self.phones = config.phones
+        self._phone_config = _compile_phones(config.phones)
+
+    def linkify(self, text: str | Node) -> str:
+        """
+        Linkify HTML, leaving everything but eligible text runs untouched.
+
+        :param text: the HTML to linkify, or an already parsed node (see :meth:`linkify_node`), which skips the parse
+            and links a copy so the node is left as it was.
+        :returns: the linkified HTML.
+        """
+        return self.linkify_node(parse_fragment(text) if isinstance(text, str) else copy.deepcopy(text)).inner_html
+
+    def linkify_node(self, node: _NODE_T) -> _NODE_T:
+        """
+        Linkify an already parsed subtree in place and return the node, so it chains.
+
+        This is the tree form for a pipeline that parses once, runs several transforms, and serializes once. The
+        walk is the one :meth:`linkify` runs after parsing: it links only in text the reader sees, never inside an
+        existing ``<a>``, a raw-text element, or a tag in ``Linkify.skip_tags``, and it rewrites the tree under the
+        document's lock on the free-threaded build.
+
+        :param node: the element or document whose text runs to link.
+        :returns: the same node, now holding the links.
+        :raises TypeError: if ``node`` is not a node.
+        """
+        if isinstance(node, str):
+            msg = "linkify_node takes a parsed node; pass a str to linkify instead"
+            raise TypeError(msg)
+        _linkify_apply(
+            node,
+            self.callbacks,
+            self.parse_email,
+            self.extra_tlds,
+            self.url_schemes,
+            self.process_existing,
+            self.skip_tags,
+            LinkCandidate,
+            self._phone_config,
+        )
+        return node
+
+
+def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:
+    if phones is None:
+        return None
+    if not isinstance(phones, PhoneNumbers):
+        msg = "phones must be PhoneNumbers or None"
+        raise TypeError(msg)
+    return phones._config  # ruff:ignore[private-member-access]  # the settings compiled themselves
+
+
 class LinkCandidate:
     """
     A link handed to each callback to mutate or veto.
@@ -451,140 +617,6 @@ class LinkCandidate:
         self.phone = phone
 
 
-# A callback receives the generated :class:`LinkCandidate` and returns it to keep the link, or ``None`` to leave the
-# text bare.
-Callback: TypeAlias = "Callable[[LinkCandidate], LinkCandidate | None]"
-
-
-#: The callbacks linkify applies when a caller passes none, matching bleach's default.
-def nofollow(link: LinkCandidate) -> LinkCandidate:
-    """
-    Add ``rel="nofollow"`` to a web link so search engines skip it, leaving ``mailto:`` and other links alone.
-
-    :param link: the link to adjust.
-    :returns: the link, with ``nofollow`` added when it is a web link; never ``None``.
-    """
-    return _linkify_nofollow(link)
-
-
-def target_blank(link: LinkCandidate) -> LinkCandidate:
-    """
-    Open a web link in a new tab, stripping a stale ``target`` from a non-web link so it cannot leak through.
-
-    :param link: the link to adjust.
-    :returns: the link, with ``target`` set on a web link or cleared on a non-web link; never ``None``.
-    """
-    return _linkify_target_blank(link)
-
-
-DEFAULT_CALLBACKS: Final = (nofollow,)
-
-
-@dataclass(frozen=True)
-class Linkify:
-    """
-    An immutable, thread-safe description of how :func:`linkify` and :class:`Linker` find and rewrite links.
-
-    Build one and reuse it across threads.
-
-    :param callbacks: callables run on each detected link to adjust or veto it (defaults to ``DEFAULT_CALLBACKS``).
-    :param skip_tags: tags whose text is left untouched, such as ``pre`` and ``code``.
-    :param parse_email: also autolink email addresses as ``mailto:`` links, bare or already written as a
-        ``mailto:`` URI.
-    :param process_existing: run the callbacks over ``<a>`` tags already present, not only freshly detected links.
-    :param extra_tlds: top-level domains that make a bare domain a link, on top of the built-in IANA table.
-    :param schemes: the exact set of ``scheme://`` URL schemes that autolink; ``None`` keeps the built-in
-        ``http``/``https``/``ftp`` default, so a typo scheme or a ``javascript://`` payload stays plain text. A bare
-        domain is always treated as ``http`` and is governed by the TLD table, not ``schemes``.
-    :param phones: also link phone numbers as ``tel:`` links, per these :class:`PhoneNumbers` settings; ``None``
-        leaves digits alone. A ``tel:`` URI already written in the text links as itself.
-    """
-
-    callbacks: Iterable[Callback] = DEFAULT_CALLBACKS
-    skip_tags: Iterable[str] | None = None
-    parse_email: bool = False
-    process_existing: bool = False
-    extra_tlds: Iterable[str] | None = None
-    schemes: Iterable[str] | None = None
-    phones: PhoneNumbers | None = None
-
-
-class Linker:
-    """
-    A reusable linkifier; build it once from a :class:`Linkify` configuration and call :meth:`linkify` per document.
-
-    :param options: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
-    """
-
-    def __init__(self, options: Linkify | None = None) -> None:
-        """Compile a configuration into the form the walk consumes."""
-        config = options if options is not None else Linkify()
-        self.callbacks = tuple(config.callbacks)
-        self.skip_tags = _linkify_fold(config.skip_tags, "skip_tags", 0) if config.skip_tags is not None else ()
-        self.parse_email = config.parse_email
-        self.process_existing = config.process_existing
-        self.extra_tlds = _linkify_fold(config.extra_tlds, "extra_tlds", 0) if config.extra_tlds else ()
-        self.url_schemes = (
-            _linkify_fold(config.schemes, "schemes", 0) if config.schemes is not None else _DEFAULT_URL_SCHEMES
-        )
-        self.phones = config.phones
-        self._phone_config = _compile_phones(config.phones)
-
-    def linkify(self, text: str | Node) -> str:
-        """
-        Linkify HTML, leaving everything but eligible text runs untouched.
-
-        :param text: the HTML to linkify, or an already parsed node (see :meth:`linkify_node`), which skips the parse
-            and links a copy so the node is left as it was.
-        :returns: the linkified HTML.
-        """
-        root = parse_fragment(text) if isinstance(text, str) else copy.deepcopy(text)
-        return self.linkify_node(root).inner_html
-
-    def linkify_node(self, node: _NODE_T) -> _NODE_T:
-        """
-        Linkify an already parsed subtree in place and return the node, so it chains.
-
-        This is the tree form for a pipeline that parses once, runs several transforms, and serializes once. The
-        walk is the one :meth:`linkify` runs after parsing: it links only in text the reader sees, never inside an
-        existing ``<a>``, a raw-text element, or a tag in ``Linkify.skip_tags``, and it rewrites the tree under the
-        document's lock on the free-threaded build.
-
-        :param node: the element or document whose text runs to link.
-        :returns: the same node, now holding the links.
-        :raises TypeError: if ``node`` is not a node.
-        """
-        if isinstance(node, str):
-            msg = "linkify_node takes a parsed node; pass a str to linkify instead"
-            raise TypeError(msg)
-        _linkify_apply(
-            node,
-            self.callbacks,
-            self.parse_email,
-            self.extra_tlds,
-            self.url_schemes,
-            self.process_existing,
-            self.skip_tags,
-            LinkCandidate,
-            self._phone_config,
-        )
-        return node
-
-
-def linkify(text: str | Node, options: Linkify | None = None) -> str:
-    """
-    Find URLs, email addresses and phone numbers in HTML and wrap them in ``<a>`` links.
-
-    Existing markup is left untouched.
-
-    :param text: the HTML to linkify, or an already parsed node (see :func:`linkify_node`), which skips the parse and
-        links a copy so the node is left as it was.
-    :param options: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
-    :returns: the linkified HTML.
-    """
-    return Linker(options).linkify(text)
-
-
 def linkify_node(node: _NODE_T, options: Linkify | None = None) -> _NODE_T:
     """
     Find URLs, email addresses and phone numbers in an already parsed subtree and wrap them in ``<a>`` links, in place.
@@ -597,66 +629,6 @@ def linkify_node(node: _NODE_T, options: Linkify | None = None) -> _NODE_T:
     :raises TypeError: if ``node`` is not a node.
     """
     return Linker(options).linkify_node(node)
-
-
-class LinkSpan:
-    """
-    One URL, email address or phone number found in a run of plain text.
-
-    :param start: the half-open start offset of the match in the scanned text.
-    :param end: the half-open end offset of the match in the scanned text.
-    :param text: the matched substring exactly as it appeared.
-    :param url: the normalized ``href`` (``mailto:`` for an email, ``http://`` for a bare domain, the number's own
-        ``tel:`` URI for a phone number and for a written ``tel:`` URI, the text itself for a ``scheme://`` or
-        registered scheme-less URL).
-    :param is_email: whether the match is an email address.
-    :param phone: the detected number when the match is a phone number, else ``None``.
-    """
-
-    __slots__ = ("end", "is_email", "phone", "start", "text", "url")
-
-    def __init__(  # ruff:ignore[too-many-arguments]  # the five fields are the span's positional contract
-        self,
-        start: int,
-        end: int,
-        text: str,
-        url: str,
-        is_email: bool,  # ruff:ignore[boolean-type-hint-positional-argument]  # the pre-existing positional contract
-        *,
-        phone: PhoneNumber | None = None,
-    ) -> None:
-        """Create a link span."""
-        self.start = start
-        self.end = end
-        self.text = text
-        self.url = url
-        self.is_email = is_email
-        self.phone = phone
-
-    def __repr__(self) -> str:
-        """Render the span with its offsets and url, the way a debugger or a failing test wants to see it."""
-        phone = f", phone={self.phone!r}" if self.phone is not None else ""
-        return f"LinkSpan(start={self.start}, end={self.end}, text={self.text!r}, url={self.url!r}{phone})"
-
-    def __eq__(self, other: object) -> bool:
-        """Two spans are equal when every field matches; comparing to a non-span defers to the other operand."""
-        if not isinstance(other, LinkSpan):
-            return NotImplemented
-        return (self.start, self.end, self.text, self.url, self.is_email, self.phone) == (
-            other.start,
-            other.end,
-            other.text,
-            other.url,
-            other.is_email,
-            other.phone,
-        )
-
-    __hash__ = None  # a span carries offsets into one specific string, so it is not a stable dict key
-
-
-def _span_from_match(text: str, span: tuple[int, int, int, str, PhoneNumber | None, bool]) -> LinkSpan:
-    start, end, _kind, url, phone, is_email = span
-    return LinkSpan(start, end, text[start:end], url, is_email, phone=phone)
 
 
 class LinkDetector:
@@ -744,13 +716,64 @@ class LinkDetector:
         )
 
 
-def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:
-    if phones is None:
-        return None
-    if not isinstance(phones, PhoneNumbers):
-        msg = "phones must be PhoneNumbers or None"
-        raise TypeError(msg)
-    return phones._config  # ruff:ignore[private-member-access]  # the settings compiled themselves
+def _span_from_match(text: str, span: tuple[int, int, int, str, PhoneNumber | None, bool]) -> LinkSpan:
+    start, end, _kind, url, phone, is_email = span
+    return LinkSpan(start, end, text[start:end], url, is_email, phone=phone)
+
+
+class LinkSpan:
+    """
+    One URL, email address or phone number found in a run of plain text.
+
+    :param start: the half-open start offset of the match in the scanned text.
+    :param end: the half-open end offset of the match in the scanned text.
+    :param text: the matched substring exactly as it appeared.
+    :param url: the normalized ``href`` (``mailto:`` for an email, ``http://`` for a bare domain, the number's own
+        ``tel:`` URI for a phone number and for a written ``tel:`` URI, the text itself for a ``scheme://`` or
+        registered scheme-less URL).
+    :param is_email: whether the match is an email address.
+    :param phone: the detected number when the match is a phone number, else ``None``.
+    """
+
+    __slots__ = ("end", "is_email", "phone", "start", "text", "url")
+
+    def __init__(  # ruff:ignore[too-many-arguments]  # the five fields are the span's positional contract
+        self,
+        start: int,
+        end: int,
+        text: str,
+        url: str,
+        is_email: bool,  # ruff:ignore[boolean-type-hint-positional-argument]  # the pre-existing positional contract
+        *,
+        phone: PhoneNumber | None = None,
+    ) -> None:
+        """Create a link span."""
+        self.start = start
+        self.end = end
+        self.text = text
+        self.url = url
+        self.is_email = is_email
+        self.phone = phone
+
+    def __repr__(self) -> str:
+        """Render the span with its offsets and url, the way a debugger or a failing test wants to see it."""
+        phone = f", phone={self.phone!r}" if self.phone is not None else ""
+        return f"LinkSpan(start={self.start}, end={self.end}, text={self.text!r}, url={self.url!r}{phone})"
+
+    def __eq__(self, other: object) -> bool:
+        """Two spans are equal when every field matches; comparing to a non-span defers to the other operand."""
+        if not isinstance(other, LinkSpan):
+            return NotImplemented
+        return (self.start, self.end, self.text, self.url, self.is_email, self.phone) == (
+            other.start,
+            other.end,
+            other.text,
+            other.url,
+            other.is_email,
+            other.phone,
+        )
+
+    __hash__ = None  # a span carries offsets into one specific string, so it is not a stable dict key
 
 
 __all__ = [

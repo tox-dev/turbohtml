@@ -6,11 +6,9 @@ import courlan
 
 REQUIREMENTS = ("courlan>=1.4",)
 
-_LINKS_BASE = "https://example.com/base/"
-
 
 def urls_clean(case: tuple[str, tuple[str, ...]]) -> None:
-    """Run courlan's scrub-and-normalize (or bare normalize) over the shared URL batch, by case kind."""
+    # Run courlan's scrub-and-normalize (or bare normalize) over the shared URL batch, by case kind.
     kind, batch = case
     transform = courlan.clean_url if kind == "clean" else courlan.normalize_url
     for url in batch:
@@ -18,8 +16,8 @@ def urls_clean(case: tuple[str, tuple[str, ...]]) -> None:
 
 
 def links_filter(text: str) -> None:
-    """Collect the checked, deduplicated page links with courlan's regex-scanning extract_links."""
-    courlan.extract_links(text, url=_LINKS_BASE)
+    # Collect the checked, deduplicated page links with courlan's regex-scanning extract_links.
+    courlan.extract_links(text, url="https://example.com/base/")
 
 
 OPERATIONS = {

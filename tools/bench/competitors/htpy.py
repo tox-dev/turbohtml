@@ -10,25 +10,24 @@ REQUIREMENTS = ("htpy>=26.5.1",)
 
 
 def build_e(count: int) -> None:
-    """Build a ``<ul>`` of rows with htpy's subscript-children syntax and stringify it."""
-    rows = [htpy.li(class_="item", data_i=str(index))[f"item {index}"] for index in range(count)]
-    _ = str(htpy.ul[rows])
+    # Build a ``<ul>`` of rows with htpy's subscript-children syntax and stringify it.
+    _ = str(htpy.ul[[htpy.li(class_="item", data_i=str(index))[f"item {index}"] for index in range(count)]])
 
 
 def construct(count: int) -> None:
-    """Construct ``count`` htpy elements with attributes and children, in isolation from stringification."""
+    # Construct ``count`` htpy elements with attributes and children, in isolation from stringification.
     for index in range(count):
         htpy.li(class_="item", data_i=str(index))[f"item {index}"]
 
 
 @functools.cache
 def _tree(count: int) -> htpy.Element:
-    """Return a built ``<ul>`` of ``count`` rows, cached so ``str`` times only the emit step."""
+    # Return a built ``<ul>`` of ``count`` rows, cached so ``str`` times only the emit step.
     return htpy.ul[[htpy.li(class_="item", data_i=str(index))[f"item {index}"] for index in range(count)]]
 
 
 def emit(count: int) -> None:
-    """Stringify a pre-built ``count``-row tree, in isolation from construction."""
+    # Stringify a pre-built ``count``-row tree, in isolation from construction.
     _ = str(_tree(count))
 
 

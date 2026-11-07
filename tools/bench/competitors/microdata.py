@@ -8,7 +8,7 @@ REQUIREMENTS = ("microdata>=0.8",)
 
 
 def microdata_items(text: str) -> None:
-    """Pull the page's Microdata items, which builds an html5lib tree and walks its itemscope elements."""
+    # Pull the page's Microdata items, which builds an html5lib tree and walks its itemscope elements.
     microdata.get_items(text)
 
 

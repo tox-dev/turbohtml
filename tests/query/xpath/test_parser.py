@@ -1,9 +1,3 @@
-"""XPath front-end (lexer + parser) conformance via the ``_xpath_parse`` hook.
-
-The hook compiles an expression and returns a canonical S-expression of the AST, so
-these assert the parse shape without an evaluator. Evaluation lands in a later phase.
-"""
-
 from __future__ import annotations
 
 import re
@@ -328,7 +322,7 @@ def test_parse_error_names_position_and_token(expr: str, fragment: str) -> None:
 
 def test_parse_error_clamps_a_long_offending_token() -> None:
     with pytest.raises(ValueError, match="offset") as excinfo:
-        parse("1 " + "z" * 60)
+        parse(f"1 {'z' * 60}")
     assert "z" * 31 in str(excinfo.value)
     assert "z" * 32 not in str(excinfo.value)
 
@@ -336,8 +330,8 @@ def test_parse_error_clamps_a_long_offending_token() -> None:
 @pytest.mark.parametrize(
     "expr",
     [
-        pytest.param("(" * 5000 + "1" + ")" * 5000, id="nested-groups"),
-        pytest.param("-" * 5000 + "1", id="unary-minus-chain"),
+        pytest.param(f"{'(' * 5000}1{')' * 5000}", id="nested-groups"),
+        pytest.param(f"{'-' * 5000}1", id="unary-minus-chain"),
     ],
 )
 def test_deeply_nested_expression_is_rejected(expr: str) -> None:

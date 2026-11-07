@@ -19,7 +19,7 @@ _RUNNER = str(Path(__file__).resolve().parent.parent / "node" / "parse5_runner.j
 
 
 def parse_locations(text: str) -> str:
-    """Parse a document with parse5's sourceCodeLocationInfo on, piping it through the Node runner."""
+    # Parse a document with parse5's sourceCodeLocationInfo on, piping it through the Node runner.
     return subprocess.run(["node", _RUNNER], input=text, capture_output=True, text=True, check=True).stdout
 
 

@@ -18,28 +18,11 @@ if TYPE_CHECKING:
 
     from lxml.etree import _Element as LxmlElement
 
-__all__: Final = ["Case", "Verdict", "compare", "generate", "main"]
-
-_PREDICATES: Final = (
-    "@score < 3",
-    "@score >= 5",
-    "@missing",
-    "count(child::*)",
-    "count(ancestor::*) > 2",
-    "position() = 1",
-    "position() = last()",
-    "contains(string(.), 'alpha')",
-    "string-length(@id) = 2",
-    "preceding-sibling::*",
-    "following-sibling::*",
-    "@score < 4 and child::*",
-    "@score > 4 or parent::item",
-)
 _Value: TypeAlias = tuple[str, ...] | float | bool | str
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Keep automated batches finite and findings distinct from agreement."""
+    # Keep automated batches finite and findings distinct from agreement.
     parser: Final = argparse.ArgumentParser(description="Compare bounded anchored XPath queries with libxml2.")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cases", type=int, default=32)
@@ -59,17 +42,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def compare(case: Case, *, negative_control: bool = False) -> Iterator[Verdict]:
-    """Rectify against the complete selection to retain position and size context."""
+    # Rectify against the complete selection to retain position and size context.
     reference: Final = lxml.etree.fromstring(
         case.xml.encode(), lxml.etree.XMLParser(resolve_entities=False, no_network=True)
     )
     query: Final = _rectify(reference, case)
     ours: Final = parse_xml(case.xml)
-    case_hash: Final = hashlib.sha256((case.xml + "\0" + case.target + "\0" + case.predicate).encode()).hexdigest()
+    case_hash: Final = hashlib.sha256((f"{case.xml}\0{case.target}\0{case.predicate}").encode()).hexdigest()
     for expression in (
         query,
-        query + "/@id",
-        query + "/text()",
+        f"{query}/@id",
+        f"{query}/text()",
         f"count({query})",
         f"boolean({query})",
         f"string({query})",
@@ -78,12 +61,12 @@ def compare(case: Case, *, negative_control: bool = False) -> Iterator[Verdict]:
             f"not({expression})" if negative_control and expression.startswith("boolean(") else expression
         )
         yield Verdict(
-            case.seed,
-            case_hash,
-            case.target,
-            expression,
-            _evaluate(ours, ours_expression),
-            _evaluate(reference, expression),
+            seed=case.seed,
+            sha256=case_hash,
+            target=case.target,
+            expression=expression,
+            ours=_evaluate(ours, ours_expression),
+            reference=_evaluate(reference, expression),
         )
 
 
@@ -121,7 +104,7 @@ def _evaluate(document: Node | lxml.etree._Element, expression: str) -> tuple[st
 
 
 def generate(seed: int) -> Case:
-    """Restrict parent choices to existing nodes to bound depth and avoid cycles."""
+    # Restrict parent choices to existing nodes to bound depth and avoid cycles.
     generator: Final = random.Random(seed)
     elements: Final = [lxml.etree.Element("root", id="n0", score="0")]
     for position in range(1, generator.randint(8, 16)):
@@ -136,31 +119,46 @@ def generate(seed: int) -> Case:
     return Case(
         lxml.etree.tostring(elements[0], encoding="unicode"),
         generator.choice(elements).attrib["id"],
-        generator.choice(_PREDICATES),
+        generator.choice((
+            "@score < 3",
+            "@score >= 5",
+            "@missing",
+            "count(child::*)",
+            "count(ancestor::*) > 2",
+            "position() = 1",
+            "position() = last()",
+            "contains(string(.), 'alpha')",
+            "string-length(@id) = 2",
+            "preceding-sibling::*",
+            "following-sibling::*",
+            "@score < 4 and child::*",
+            "@score > 4 or parent::item",
+        )),
         seed,
     )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Case:
-    """Keep replay inputs independent of engine-owned nodes."""
-
+    # Keep replay inputs independent of engine-owned nodes.
     xml: str
     target: str
     predicate: str
     seed: int | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Verdict:
-    """Retain both answers instead of treating the reference as infallible."""
-
+    # Retain both answers instead of treating the reference as infallible.
     seed: int | None
     sha256: str
     target: str
     expression: str
     ours: tuple[str, _Value]
     reference: tuple[str, _Value]
+
+
+__all__: Final = []
 
 
 if __name__ == "__main__":

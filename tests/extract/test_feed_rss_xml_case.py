@@ -7,8 +7,8 @@ import pytest
 from turbohtml import parse, parse_xml
 from turbohtml.extract import feed
 
-RDF: Final = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-RSS: Final = "http://purl.org/rss/1.0/"
+RDF: Final[str] = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+RSS: Final[str] = "http://purl.org/rss/1.0/"
 
 
 def test_feed_rss_xml_root_case() -> None:

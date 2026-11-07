@@ -17,22 +17,22 @@ _ANCHOR = soupsieve.compile("a")
 
 @functools.cache
 def _parsed(text: str) -> BeautifulSoup:
-    """Return a document parsed once, cached so the read-path operations time only the query."""
+    # Return a document parsed once, cached so the read-path operations time only the query.
     return BeautifulSoup(text, "html.parser")
 
 
 def find(text: str) -> None:
-    """Collect every anchor with a compiled soupsieve type selector over the document."""
+    # Collect every anchor with a compiled soupsieve type selector over the document.
     _ANCHOR.select(_parsed(text))
 
 
 def select(text: str) -> None:
-    """Collect every match of a compiled soupsieve selector over the document."""
+    # Collect every match of a compiled soupsieve selector over the document.
     _SELECT.select(_parsed(text))
 
 
 def select_has(text: str) -> None:
-    """Collect every match of a compiled soupsieve :has() relational selector over the document."""
+    # Collect every match of a compiled soupsieve :has() relational selector over the document.
     _HAS.select(_parsed(text))
 
 
@@ -48,13 +48,13 @@ def _select_relative(case: tuple[str, str]) -> None:
 
 
 def match(text: str) -> None:
-    """Test every anchor against a compiled soupsieve selector with its per-element match."""
+    # Test every anchor against a compiled soupsieve selector with its per-element match.
     for anchor in _parsed(text).find_all("a"):
         _SELECT.match(anchor)
 
 
 def escape_identifier(idents: tuple[str, ...]) -> None:
-    """Escape each raw identifier with soupsieve's escape."""
+    # Escape each raw identifier with soupsieve's escape.
     for ident in idents:
         soupsieve.escape(ident)
 

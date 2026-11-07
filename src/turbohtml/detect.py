@@ -50,40 +50,24 @@ from ._html import (
     _normalize,
 )
 
-__all__ = [
-    "Detection",
-    "EncodingDetector",
-    "EncodingMatch",
-    "LanguageDetection",
-    "LanguageMatch",
-    "NormalizationForm",
-    "detect",
-    "detect_all",
-    "detect_language",
-    "is_normalized",
-    "normalize",
-]
-
 NormalizationForm = Literal["NFC", "NFD", "NFKC", "NFKD"]
 
 _FORMS: Final[dict[str, int]] = {"NFC": 0, "NFD": 1, "NFKC": 2, "NFKD": 3}
 
 
 def _refuse_encode(text: str, errors: str = "strict", /) -> tuple[bytes, int]:  # ruff:ignore[unused-function-argument]
-    """Refuse to encode: the generated tables are decode-side only, and the spec's encoders are a separate algorithm."""
+    # Refuse to encode: the generated tables are decode-side only, and the spec's encoders are a separate algorithm.
     msg = "a whatwg-* codec decodes only; encode with the CPython codec of your choice"
     raise UnicodeError(msg)
 
 
 def _search(name: str) -> codecs.CodecInfo | None:
-    """
-    Resolve a ``whatwg-*`` codec name.
-
-    These codecs exist because no safe name already does: ``bytes.decode("big5")`` reaches CPython's Big5, a strict
-    subset of the spec's, ``koi8-u`` reaches KOI8-U where the spec means KOI8-RU, and ``x-mac-cyrillic`` reaches no
-    codec at all. Which label a name resolves to is decided in C, which knows every spec alias and the byte-order-mark
-    names that delegate to CPython's own decoders.
-    """
+    # Resolve a ``whatwg-*`` codec name.
+    #
+    # These codecs exist because no safe name already does: ``bytes.decode("big5")`` reaches CPython's Big5, a strict
+    # subset of the spec's, ``koi8-u`` reaches KOI8-U where the spec means KOI8-RU, and ``x-mac-cyrillic`` reaches no
+    # codec at all. Which label a name resolves to is decided in C, which knows every spec alias and the byte-order-mark
+    # names that delegate to CPython's own decoders.
     if (found := _codec_label(name)) is None:
         return None
     delegate, label = found
@@ -102,27 +86,6 @@ def _search(name: str) -> codecs.CodecInfo | None:
 codecs.register(_search)
 
 
-_LANGUAGES: Final[dict[str, str]] = {
-    "big5": "Chinese",
-    "euc-jp": "Japanese",
-    "euc-kr": "Korean",
-    "gbk": "Chinese",
-    "ibm866": "Russian",
-    "iso-2022-jp": "Japanese",
-    "iso-8859-5": "Russian",
-    "iso-8859-6": "Arabic",
-    "iso-8859-7": "Greek",
-    "iso-8859-8": "Hebrew",
-    "koi8-u": "Russian",
-    "shift_jis": "Japanese",
-    "windows-1251": "Russian",
-    "windows-1253": "Greek",
-    "windows-1254": "Turkish",
-    "windows-1255": "Hebrew",
-    "windows-1256": "Arabic",
-    "windows-1258": "Vietnamese",
-    "windows-874": "Thai",
-}
 """The language each frequency-scored candidate models; multi-language Latin encodings stay unmapped."""
 
 
@@ -151,6 +114,12 @@ class EncodingMatch:
     ...); it is ``None`` for UTF-8 and the Latin encodings whose model spans several languages. ``bom`` is true only
     when a byte-order mark decided the result, telling a caller the decoded text still carries the mark unless the
     codec strips it.
+
+    :param encoding:
+    :param confidence:
+    :param language:
+    :param bom:
+    :param codec:
     """
 
     encoding: str | None
@@ -161,10 +130,10 @@ class EncodingMatch:
 
 
 # Every character a DNS label may hold once it is lower-cased and Punycode-encoded (RFC 1123, plus RFC 3492's "xn--").
-_TLD_ALPHABET: Final[frozenset[str]] = frozenset(string.ascii_lowercase + string.digits + "-")
+_TLD_ALPHABET: Final[frozenset[str]] = frozenset(f"{string.ascii_lowercase}{string.digits}-")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Detection:
     """
     Options for :func:`detect`, :func:`detect_all`, and :class:`EncodingDetector`.
@@ -204,7 +173,11 @@ class Detection:
 
     @classmethod
     def chardet(cls) -> Detection:
-        """Chardet's ``UniversalDetector`` mode: report ``None`` under its 0.2 minimum confidence."""
+        """
+        Chardet's ``UniversalDetector`` mode: report ``None`` under its 0.2 minimum confidence.
+
+        :returns:
+        """
         return cls(threshold=0.2)
 
 
@@ -238,6 +211,10 @@ def detect_all(data: bytes, options: Detection | None = None, /) -> list[Encodin
     :raises TypeError: when ``data`` is not a bytes-like object.
     """
     return _matches(data, options or _DEFAULT)
+
+
+def _matches(data: bytes, options: Detection) -> list[EncodingMatch]:
+    return list(starmap(EncodingMatch, _rank(_detect(data, options.tld), options)))
 
 
 class EncodingDetector:
@@ -281,7 +258,11 @@ class EncodingDetector:
         self.done = self._stream.feed(data)
 
     def close(self) -> EncodingMatch:
-        """Read the detector's answer, cache it, and return it."""
+        """
+        Read the detector's answer, cache it, and return it.
+
+        :returns:
+        """
         if self._result is None:
             self._result = EncodingMatch(*_rank(self._stream.close(), self._options)[0])
             self.done = True
@@ -294,39 +275,40 @@ class EncodingDetector:
         self.done = False
 
 
-def _matches(data: bytes, options: Detection) -> list[EncodingMatch]:
-    return list(starmap(EncodingMatch, _rank(_detect(data, options.tld), options)))
-
-
 def _rank(
     result: tuple[str | None, bool, list[tuple[str, int]], bool] | None, options: Detection
 ) -> list[tuple[str | None, float, str | None, bool, str | None]]:
-    return _detect_rank(result, options.allowed, options.excluded, options.language, options.threshold, _LANGUAGES)
+    return _detect_rank(
+        result,
+        options.allowed,
+        options.excluded,
+        options.language,
+        options.threshold,
+        {
+            "big5": "Chinese",
+            "euc-jp": "Japanese",
+            "euc-kr": "Korean",
+            "gbk": "Chinese",
+            "ibm866": "Russian",
+            "iso-2022-jp": "Japanese",
+            "iso-8859-5": "Russian",
+            "iso-8859-6": "Arabic",
+            "iso-8859-7": "Greek",
+            "iso-8859-8": "Hebrew",
+            "koi8-u": "Russian",
+            "shift_jis": "Japanese",
+            "windows-1251": "Russian",
+            "windows-1253": "Greek",
+            "windows-1254": "Turkish",
+            "windows-1255": "Hebrew",
+            "windows-1256": "Arabic",
+            "windows-1258": "Vietnamese",
+            "windows-874": "Thai",
+        },
+    )
 
 
-@dataclass(frozen=True, slots=True)
-class LanguageMatch:
-    """
-    One language-detection result: the ISO 639-3 code, a confidence, the Unicode script, and an English name.
-
-    ``language`` is the `ISO 639-3 <https://en.wikipedia.org/wiki/ISO_639-3>`__ code the text was written in
-    (``"eng"``, ``"deu"``, ``"cmn"``, ...), or ``None`` when the text carries no script the detector models (it is
-    empty, or all punctuation, digits, emoji, or symbols) or every candidate for its script was ruled out by
-    :class:`LanguageDetection`. ``confidence`` runs 0.0 to 1.0: it is 1.0 for a script only one modeled language uses
-    (Greek, Georgian, Korean, ...) and for a clear trigram winner, and drops toward 0.0 as the top two candidates for a
-    shared script (Latin, Cyrillic, Arabic, Devanagari, Hebrew) converge -- the usual signal that the text is too short
-    to separate them. ``script`` is the Unicode script name the text is written in (``"Latin"``, ``"Cyrillic"``,
-    ``"Han"`` reported as ``"Mandarin"``, ...), or ``None`` with a ``None`` language. ``name`` is the English name of
-    the language (``"English"``, ``"German"``, ``"Mandarin"``, ...), or ``None`` with a ``None`` language.
-    """
-
-    language: str | None
-    confidence: float
-    script: str | None
-    name: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class LanguageDetection:
     """
     Options for :func:`detect_language`.
@@ -374,6 +356,33 @@ def detect_language(text: str, options: LanguageDetection | None = None, /) -> L
     return LanguageMatch(*_detect_language(text, settings.allowed, settings.excluded, settings.threshold))
 
 
+@dataclass(frozen=True, slots=True)
+class LanguageMatch:
+    """
+    One language-detection result: the ISO 639-3 code, a confidence, the Unicode script, and an English name.
+
+    ``language`` is the `ISO 639-3 <https://en.wikipedia.org/wiki/ISO_639-3>`__ code the text was written in
+    (``"eng"``, ``"deu"``, ``"cmn"``, ...), or ``None`` when the text carries no script the detector models (it is
+    empty, or all punctuation, digits, emoji, or symbols) or every candidate for its script was ruled out by
+    :class:`LanguageDetection`. ``confidence`` runs 0.0 to 1.0: it is 1.0 for a script only one modeled language uses
+    (Greek, Georgian, Korean, ...) and for a clear trigram winner, and drops toward 0.0 as the top two candidates for a
+    shared script (Latin, Cyrillic, Arabic, Devanagari, Hebrew) converge -- the usual signal that the text is too short
+    to separate them. ``script`` is the Unicode script name the text is written in (``"Latin"``, ``"Cyrillic"``,
+    ``"Han"`` reported as ``"Mandarin"``, ...), or ``None`` with a ``None`` language. ``name`` is the English name of
+    the language (``"English"``, ``"German"``, ``"Mandarin"``, ...), or ``None`` with a ``None`` language.
+
+    :param language:
+    :param confidence:
+    :param script:
+    :param name:
+    """
+
+    language: str | None
+    confidence: float
+    script: str | None
+    name: str | None = None
+
+
 def normalize(form: NormalizationForm, text: str, /) -> str:
     """
     Return *text* in a Unicode normalization form (UAX #15), the C successor to :func:`unicodedata.normalize`.
@@ -418,3 +427,18 @@ def is_normalized(form: NormalizationForm, text: str, /) -> bool:
         msg = f"invalid normalization form {form!r}"
         raise ValueError(msg) from None
     return _is_normalized(code, text)
+
+
+__all__ = [
+    "Detection",
+    "EncodingDetector",
+    "EncodingMatch",
+    "LanguageDetection",
+    "LanguageMatch",
+    "NormalizationForm",
+    "detect",
+    "detect_all",
+    "detect_language",
+    "is_normalized",
+    "normalize",
+]

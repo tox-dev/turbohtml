@@ -50,8 +50,6 @@ class _Exclusion(_Decision):
 
 
 _Key = tuple[str, str, str | None, bool | None]
-_PI_SPEC: Final[str] = "https://html.spec.whatwg.org/multipage/parsing.html#processing-instruction-open-state"
-_SCRIPT_SPEC: Final[str] = "https://html.spec.whatwg.org/multipage/scripting.html#script-processing-model"
 _WPT_BASE: Final[str] = (
     "https://github.com/web-platform-tests/wpt/blob/4830edb033cb486fd0cd6f85b5e937cfc718704d/"
     "html/syntax/parsing/resources"
@@ -189,7 +187,7 @@ _ERROR_OVERRIDES: Final[dict[_Key, tuple[list[_Error], str]]] = {
 
 
 def generate(checkout: Path, out_path: Path) -> None:
-    """Pin WPT data so upstream changes cannot alter CI without a reviewed diff."""
+    # Pin WPT data so upstream changes cannot alter CI without a reviewed diff.
     resources = checkout / "html" / "syntax" / "parsing" / "resources"
     files = sorted(resources.glob("*.dat"))
     if not files:
@@ -298,6 +296,7 @@ def _revision(checkout: Path) -> str:
 
 
 def _decisions() -> tuple[list[_Exclusion], list[_Decision]]:
+    script_spec: str = "https://html.spec.whatwg.org/multipage/scripting.html#script-processing-model"
     exclusion_reason = "The expected tree requires JavaScript execution; turbohtml has no JavaScript runtime."
     exclusions: list[_Exclusion] = [
         {
@@ -306,12 +305,13 @@ def _decisions() -> tuple[list[_Exclusion], list[_Decision]]:
             "context": context,
             "scripting": scripting,
             "reason": exclusion_reason,
-            "spec": _SCRIPT_SPEC,
+            "spec": script_spec,
             "fixture": fixture,
             "document": document,
         }
         for (file, data, context, scripting), (document, fixture) in _SCRIPT_EXECUTION_EXCLUSIONS.items()
     ]
+    pi_spec: str = "https://html.spec.whatwg.org/multipage/parsing.html#processing-instruction-open-state"
     error_reason = "These fixtures retain parse errors from the bogus-comment rules that preceded HTML instructions."
     error_adjustments: list[_Decision] = [
         {
@@ -320,7 +320,7 @@ def _decisions() -> tuple[list[_Exclusion], list[_Decision]]:
             "context": context,
             "scripting": scripting,
             "reason": error_reason,
-            "spec": _PI_SPEC,
+            "spec": pi_spec,
             "fixture": fixture,
         }
         for (file, data, context, scripting), (_, fixture) in _ERROR_OVERRIDES.items()
@@ -404,7 +404,7 @@ def _errors_match(expected: list[_Error], actual: list[_Error]) -> bool:
     return True
 
 
-__all__ = ["generate"]
+__all__ = []
 
 
 if __name__ == "__main__":

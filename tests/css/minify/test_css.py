@@ -1,8 +1,3 @@
-"""CSS minification with pinned tdewolff/minify and native regression cases.
-
-Malformed corpus inputs retain exact-output checks but can lack stable round-trip results.
-"""
-
 from __future__ import annotations
 
 import json
@@ -47,8 +42,7 @@ _NEWLY = CSSMinify(baseline=2021)
 @pytest.mark.parametrize("invalid_part", [pytest.param(0, id="first"), pytest.param(1, id="second")])
 def test_minify_css_invalid_longhand_blocks_pair_shorthand(first: str, second: str, invalid_part: int) -> None:
     declarations = [first, second]
-    property_name = declarations[invalid_part].split(":", 1)[0]
-    declarations[invalid_part] = f"{property_name}:bad stuff"
+    declarations[invalid_part] = f"{declarations[invalid_part].split(':', 1)[0]}:bad stuff"
     source = f"a{{{';'.join(declarations)}}}"
     assert minify_css(source, _NEWLY) == source
 
@@ -790,14 +784,12 @@ def test_minify_css_many_custom_properties_merge() -> None:
 
 
 def test_minify_css_custom_property_scan_is_bounded() -> None:
-    middle = ";".join(f"--b{index}:1" for index in range(65))
-    source = f".a{{--a:1}}.b{{{middle}}}.a{{--c:3}}"
+    source = f".a{{--a:1}}.b{{{';'.join(f'--b{index}:1' for index in range(65))}}}.a{{--c:3}}"
     assert minify_css(source) == source
 
 
 def test_minify_css_type_selector_scan_is_bounded() -> None:
-    middle = ",".join(f"b{index}" for index in range(33))
-    source = f"a{{x:1}}{middle}{{z:3}}a{{y:2}}"
+    source = f"a{{x:1}}{','.join(f'b{index}' for index in range(33))}{{z:3}}a{{y:2}}"
     assert minify_css(source) == source
 
 
@@ -915,8 +907,8 @@ def test_minify_css_unclosed_invalid_rgb_stays_invalid() -> None:
 
 
 def test_minify_css_unclosed_function_at_nesting_limit() -> None:
-    source = "a{n:" + "x(" * 101 + "1px"
-    expected = source + ")" * 101 + "}"
+    source = f"a{{n:{'x(' * 101}1px"
+    expected = f"{source}{')' * 101}}}"
     assert minify_css(source) == expected
     assert minify_css(expected) == expected
 
@@ -929,7 +921,7 @@ def test_minify_css_unclosed_function_at_nesting_limit() -> None:
     ],
 )
 def test_minify_css_long_rgb_channel_value(zeroes: int, expected: str) -> None:
-    assert minify_css("a{color:rgb(" + "0" * zeroes + "1,0,0)}") == expected
+    assert minify_css(f"a{{color:rgb({'0' * zeroes}1,0,0)}}") == expected
 
 
 @pytest.mark.parametrize(
@@ -1223,10 +1215,10 @@ def test_minify_css_position_order_controls(source: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("percentage", "expected"),
     [
-        pytest.param("0" * 128 + "1%", "right " + "0" * 128 + "1% top 10px", id="nonzero-offset"),
-        pytest.param("0" * 129 + "%", "100% 10px", id="zero-offset"),
-        pytest.param("0" * 129 + "e1%", "100% 10px", id="zero-lowercase-exponent"),
-        pytest.param("0" * 129 + "E1%", "100% 10px", id="zero-uppercase-exponent"),
+        pytest.param(f"{'0' * 128}1%", f"right {'0' * 128}1% top 10px", id="nonzero-offset"),
+        pytest.param(f"{'0' * 129}%", "100% 10px", id="zero-offset"),
+        pytest.param(f"{'0' * 129}e1%", "100% 10px", id="zero-lowercase-exponent"),
+        pytest.param(f"{'0' * 129}E1%", "100% 10px", id="zero-uppercase-exponent"),
     ],
 )
 def test_minify_css_background_position_long_percentage(percentage: str, expected: str) -> None:
@@ -1741,11 +1733,11 @@ def test_minify_css_live_rule_search_is_bounded(count: int, first_rule: str, las
         pytest.param("a{--d:(]", "a{--d:(])}", id="custom-property-close-paren-over-stray-bracket"),
         pytest.param("a{--d:([)]", "a{--d:([)])}", id="custom-property-close-paren-after-mismatched-close"),
         pytest.param(
-            "a{--d:" + "(" * 65, "a{--d:" + "(" * 65 + ")" * 65 + "}", id="custom-property-close-past-mask-depth"
+            f"a{{--d:{'(' * 65}", f"a{{--d:{'(' * 65}{')' * 65}}}", id="custom-property-close-past-mask-depth"
         ),
         pytest.param(
-            "a{--d:" + "[" * 65,
-            "a{--d:" + "[" * 65 + "]" * 65 + "}",
+            f"a{{--d:{'[' * 65}",
+            f"a{{--d:{'[' * 65}{']' * 65}}}",
             id="custom-property-close-brackets-past-mask-depth",
         ),
         pytest.param("a{--d:[)", "a{--d:[)]}", id="custom-property-close-bracket-over-stray-paren"),
@@ -2447,7 +2439,7 @@ def test_minify_css_inline_takes_baseline() -> None:
 
 # each shape nests one bracket kind, paired with the deepest count the minifier still descends into; the unterminated
 # shapes never close, so the bail reaches end-of-input with no matching brace to consume
-_NESTING_SHAPES: Final = """
+_NESTING_SHAPES: Final[str] = """
 import sys
 import threading
 
@@ -2477,15 +2469,6 @@ else:
     for name, (build, deepest) in SHAPES.items():
         print(name, results[name] == minify_css(build(deepest)))
 """
-_SHAPE_NAMES: Final = (
-    "blocks",
-    "declarations",
-    "functions",
-    "calc",
-    "nested-calc",
-    "blocks-unterminated",
-    "declarations-unterminated",
-)
 
 
 @pytest.mark.parametrize(
@@ -2502,7 +2485,16 @@ def test_minify_css_survives_deep_nesting(mode: str) -> None:
     result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]
         [sys.executable, "-c", _NESTING_SHAPES, mode], capture_output=True, text=True, timeout=120, check=False
     )
-    assert (result.returncode, result.stdout) == (0, "".join(f"{name} True\n" for name in _SHAPE_NAMES)), result.stderr
+    shape_names = (
+        "blocks",
+        "declarations",
+        "functions",
+        "calc",
+        "nested-calc",
+        "blocks-unterminated",
+        "declarations-unterminated",
+    )
+    assert (result.returncode, result.stdout) == (0, "".join(f"{name} True\n" for name in shape_names)), result.stderr
 
 
 @pytest.mark.parametrize(
@@ -2523,25 +2515,25 @@ def test_minify_css_survives_deep_nesting(mode: str) -> None:
             "a{" + "&{" * 99 + "color:red" + "}" * 99 + "}", "a{" + "&{" * 99 + "}" * 100, id="declarations-past-cap"
         ),
         pytest.param(
-            "a{b:" + "f(" * 99 + "1.0px" + ")" * 99 + "}",
-            "a{b:" + "f(" * 99 + "1px" + ")" * 99 + "}",
+            f"a{{b:{'f(' * 99}1.0px{')' * 99}}}",
+            f"a{{b:{'f(' * 99}1px{')' * 99}}}",
             id="functions-at-cap",
         ),
         pytest.param(
-            "a{b:" + "f(" * 100 + "1.0px" + ")" * 100 + "}",
-            "a{b:" + "f(" * 100 + "1.0px" + ")" * 100 + "}",
+            f"a{{b:{'f(' * 100}1.0px{')' * 100}}}",
+            f"a{{b:{'f(' * 100}1.0px{')' * 100}}}",
             id="functions-past-cap",
         ),
-        pytest.param("a{b:calc(" + "(" * 98 + "1px" + ")" * 98 + ")}", "a{b:1px}", id="calc-at-cap"),
+        pytest.param(f"a{{b:calc({'(' * 98}1px{')' * 98})}}", "a{b:1px}", id="calc-at-cap"),
         pytest.param(
-            "a{b:calc(" + "(" * 99 + "1px" + ")" * 99 + ")}",
-            "a{b:calc(" + "(" * 99 + "1px" + ")" * 99 + ")}",
+            f"a{{b:calc({'(' * 99}1px{')' * 99})}}",
+            f"a{{b:calc({'(' * 99}1px{')' * 99})}}",
             id="calc-past-cap",
         ),
-        pytest.param("a{b:" + "calc(" * 99 + "1px" + ")" * 99 + "}", "a{b:1px}", id="nested-calc-at-cap"),
+        pytest.param(f"a{{b:{'calc(' * 99}1px{')' * 99}}}", "a{b:1px}", id="nested-calc-at-cap"),
         pytest.param(
-            "a{b:" + "calc(" * 100 + "1px" + ")" * 100 + "}",
-            "a{b:" + "calc(" * 100 + "1px" + ")" * 100 + "}",
+            f"a{{b:{'calc(' * 100}1px{')' * 100}}}",
+            f"a{{b:{'calc(' * 100}1px{')' * 100}}}",
             id="nested-calc-past-cap",
         ),
     ],
@@ -2966,9 +2958,7 @@ def _merge_fixture_cascade(source: str, media: str = "all") -> dict[tuple[str, s
 def test_minify_css_unicode_range_order(count: int, *, reverse: bool) -> None:
     ranges: Final = [f"U+{index * 2:X}" for index in range(count)]
     source: Final = ",".join(reversed(ranges) if reverse else ranges)
-    assert minify_css("@font-face{unicode-range:" + source + "}") == (
-        "@font-face{unicode-range:" + ",".join(ranges) + "}"
-    )
+    assert minify_css(f"@font-face{{unicode-range:{source}}}") == (f"@font-face{{unicode-range:{','.join(ranges)}}}")
 
 
 @pytest.mark.parametrize(
@@ -2980,8 +2970,8 @@ def test_minify_css_unicode_range_order(count: int, *, reverse: bool) -> None:
     ],
 )
 def test_minify_css_unicode_range_union(ranges: tuple[str, ...], expected: str) -> None:
-    assert minify_css("@font-face{unicode-range:" + ",".join(ranges * 40) + "}") == (
-        "@font-face{unicode-range:" + expected + "}"
+    assert minify_css(f"@font-face{{unicode-range:{','.join(ranges * 40)}}}") == (
+        f"@font-face{{unicode-range:{expected}}}"
     )
 
 
@@ -3012,9 +3002,9 @@ def test_minify_css_unicode_range_keeps_split_tokens(value: str) -> None:
         pytest.param("width:calc(1e18px + 1px)", "width:1000000000000000001px", id="maximum-rational-integer-power"),
         pytest.param("width:calc(1e-18px)", "width:1e-18px", id="maximum-rational-fraction-power"),
         pytest.param("z-index:1e4", "z-index:1e4", id="integer-role-exponent"),
-        pytest.param("x:1e127", "x:1" + "0" * 127, id="maximum-integer-expansion"),
-        pytest.param("x:1e-127", "x:." + "0" * 126 + "1", id="maximum-fraction-expansion"),
-        pytest.param("x:" + "0" * 127 + "1", "x:1", id="maximum-mantissa"),
+        pytest.param("x:1e127", f"x:1{'0' * 127}", id="maximum-integer-expansion"),
+        pytest.param("x:1e-127", f"x:.{'0' * 126}1", id="maximum-fraction-expansion"),
+        pytest.param(f"x:{'0' * 127}1", "x:1", id="maximum-mantissa"),
     ],
 )
 def test_number_exponent_bounds(source: str, expected: str) -> None:
@@ -3035,8 +3025,8 @@ def test_number_exponent_bounds(source: str, expected: str) -> None:
         pytest.param("1e2147483648px", id="exponent-int-upper-bound"),
         pytest.param("1e-2147483648px", id="exponent-int-lower-bound"),
         pytest.param("1" * 129, id="long-mantissa"),
-        pytest.param("0" * 128 + "1", id="nonzero-after-buffer-boundary"),
-        pytest.param("." + "0" * 128 + "1", id="long-fraction"),
+        pytest.param(f"{'0' * 128}1", id="nonzero-after-buffer-boundary"),
+        pytest.param(f".{'0' * 128}1", id="long-fraction"),
         pytest.param("calc(1e19px + 1px)", id="rational-power-upper-bound"),
         pytest.param("calc(99e17px + 1px)", id="rational-numerator-overflow"),
         pytest.param("calc(1e-19px + 1px)", id="rational-power-lower-bound"),
@@ -3050,8 +3040,8 @@ def test_number_outside_formatter_bounds_keeps_whole_token(value: str) -> None:
 
 @pytest.mark.parametrize("depth", [pytest.param(4, id="small"), pytest.param(64, id="deep")])
 def test_nested_function_spacing(depth: int) -> None:
-    argument: Final = "var(--x, " * depth + "1px" + ")" * depth
-    expected: Final = "width:" + "var(--x," * depth + "1px" + ")" * depth
+    argument: Final = f"{'var(--x, ' * depth}1px{')' * depth}"
+    expected: Final = f"width:{'var(--x,' * depth}1px{')' * depth}"
     assert (minify_css(f"a {{ width: {argument}; }}"), minify_css_inline(f" width: {argument}; ")) == (
         f"a{{{expected}}}",
         expected,
@@ -4787,7 +4777,7 @@ def test_minify_css_math_operator_whitespace_fixed_point(source: str, expected: 
     assert minify_css(minify_css(source)) == expected
 
 
-_OVERFLOW_EXPONENT: Final = "999999999999999999999"
+_OVERFLOW_EXPONENT: Final[str] = "999999999999999999999"
 
 
 @pytest.mark.parametrize(

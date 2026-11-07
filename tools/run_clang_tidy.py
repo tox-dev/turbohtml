@@ -15,14 +15,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-BUILD = ROOT / "build" / "clang-tidy"
+_ROOT = Path(__file__).resolve().parent.parent
+BUILD = _ROOT / "build" / "clang-tidy"
 # meson compiles these units only with -Dfuzzing=true, so only that build's compile database lists them
-FUZZING_SOURCES = frozenset({"src/turbohtml/_c/core/fuzzing.c"})
+_FUZZING_SOURCES = frozenset({"src/turbohtml/_c/core/fuzzing.c"})
 
 
 def main(argv: list[str]) -> int:
-    """Run clang-tidy over the ``.c`` paths in ``argv``; return nonzero when any run fails."""
+    # Run clang-tidy over the ``.c`` paths in ``argv``; return nonzero when any run fails.
     sources = [arg for arg in argv if arg.endswith(".c")]
     if not sources:
         return 0
@@ -34,23 +34,23 @@ def main(argv: list[str]) -> int:
         command += ["--extra-arg=-isysroot", f"--extra-arg={sdk.stdout.strip()}"]
     status = 0
     for build, options, selected in (
-        (BUILD, [], [source for source in sources if source not in FUZZING_SOURCES]),
+        (BUILD, [], [source for source in sources if source not in _FUZZING_SOURCES]),
         (
-            ROOT / "build" / "clang-tidy-fuzzing",
+            _ROOT / "build" / "clang-tidy-fuzzing",
             ["-Dfuzzing=true"],
-            [source for source in sources if source in FUZZING_SOURCES],
+            [source for source in sources if source in _FUZZING_SOURCES],
         ),
     ):
         if selected:
             database = f"-p={compile_database(build, options)}"
-            status = subprocess.run([*command, database, *selected], cwd=ROOT, check=False).returncode or status
+            status = subprocess.run([*command, database, *selected], cwd=_ROOT, check=False).returncode or status
     return status
 
 
 def compile_database(build: Path, options: list[str]) -> Path:
-    """Configure the Meson build directory once and return it."""
+    # Configure the Meson build directory once and return it.
     if not (build / "compile_commands.json").exists():
-        subprocess.run(["meson", "setup", str(build), "--buildtype=plain", *options], cwd=ROOT, check=True)
+        subprocess.run(["meson", "setup", str(build), "--buildtype=plain", *options], cwd=_ROOT, check=True)
     return build
 
 

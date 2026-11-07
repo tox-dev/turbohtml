@@ -1,5 +1,3 @@
-"""The pyquery-style fluent chaining query wrapper."""
-
 from __future__ import annotations
 
 import sys
@@ -34,15 +32,17 @@ if TYPE_CHECKING:
     from turbohtml import Document
 
 
-_DOC = "<ul id=list><li class=item>a</li><li class='item on'>b</li><li class=item>c</li></ul><p id=p>after</p>"
-
-
-def _tags(query: Query) -> list[str]:
-    return [element.tag for element in query]
+_DOC: Final[str] = (
+    "<ul id=list><li class=item>a</li><li class='item on'>b</li><li class=item>c</li></ul><p id=p>after</p>"
+)
 
 
 def test_construct_from_html_wraps_the_root() -> None:
     assert _tags(Query("<div></div>")) == ["html"]
+
+
+def _tags(query: Query) -> list[str]:
+    return [element.tag for element in query]
 
 
 def test_construct_from_document() -> None:
@@ -56,8 +56,7 @@ def test_construct_from_element() -> None:
 
 
 def test_construct_from_iterable_deduplicates() -> None:
-    doc = parse(_DOC)
-    items = doc.select("li")
+    items = parse(_DOC).select("li")
     # the same element passed twice collapses to one, in first-seen order
     assert len(Query([*items, items[0]])) == 3
 
@@ -81,8 +80,7 @@ def test_construct_deduplicates_a_node_adopted_during_iteration() -> None:
 
 def test_find_across_multiple_nodes_deduplicates() -> None:
     # an outer and an inner div both reach the same <a>, which must appear once
-    doc = parse("<div id=outer><div id=inner><a>x</a></div></div>")
-    divs = Query(doc.select("div"))
+    divs = Query(parse("<div id=outer><div id=inner><a>x</a></div></div>").select("div"))
     assert len(divs) == 2
     assert _tags(divs.find("a")) == ["a"]
 
@@ -389,8 +387,7 @@ def test_query_sibling_detached_root() -> None:
 
 
 def test_unique_keeps_the_first_of_each_node() -> None:
-    document = turbohtml.parse("<p>a</p><p>b</p>")
-    first, second = document.find_all("p")
+    first, second = turbohtml.parse("<p>a</p><p>b</p>").find_all("p")
     assert _query_unique([first, second, first]) == [first, second]
 
 
@@ -419,8 +416,7 @@ def test_unique_propagates_what_the_iterable_raises() -> None:
 
 
 def test_siblings_skips_the_element_itself() -> None:
-    document = turbohtml.parse("<ul><li id=a>a</li><li id=b>b</li>text<li id=c>c</li></ul>")
-    first = document.select_one("#a")
+    first = turbohtml.parse("<ul><li id=a>a</li><li id=b>b</li>text<li id=c>c</li></ul>").select_one("#a")
     assert first is not None
     assert [node.attrs["id"] for node in _query_siblings([first])] == ["b", "c"]
 
@@ -430,15 +426,13 @@ def test_siblings_of_a_detached_element_is_empty() -> None:
 
 
 def test_siblings_of_the_root_is_empty() -> None:
-    document = turbohtml.parse("<p>a</p>")
-    root = document.root
+    root = turbohtml.parse("<p>a</p>").root
     assert root is not None
     assert _query_siblings([root]) == []
 
 
 def test_siblings_deduplicates_across_the_set() -> None:
-    document = turbohtml.parse("<ul><li id=a>a</li><li id=b>b</li></ul>")
-    both = document.find_all("li")
+    both = turbohtml.parse("<ul><li id=a>a</li><li id=b>b</li></ul>").find_all("li")
     assert [node.attrs["id"] for node in _query_siblings(both)] == ["b", "a"]
 
 
@@ -532,8 +526,7 @@ def test_has_class_answers_false_when_absent() -> None:
 )
 def test_a_class_edit(markup: str, edit: object, expected: list[str]) -> None:
     document = turbohtml.parse(markup)
-    elements = document.find_all("p")
-    edit(elements, "new")  # ty: ignore[call-non-callable]  # the parametrized binding
+    edit(document.find_all("p"), "new")  # ty: ignore[call-non-callable]  # the parametrized binding
     kept = document.select_one("p")
     assert kept is not None
     assert kept.attrs.get("class", []) == expected
@@ -573,8 +566,7 @@ def test_children_of_a_document_is_its_root() -> None:
 
 
 def test_closest_deduplicates_a_shared_ancestor_and_drops_a_miss() -> None:
-    document = turbohtml.parse("<div class=box><p>a</p><p>b</p></div><p>c</p>")
-    paragraphs = document.find_all("p")
+    paragraphs = turbohtml.parse("<div class=box><p>a</p><p>b</p></div><p>c</p>").find_all("p")
     assert _query_closest(paragraphs, ".box") == [paragraphs[0].parent]
 
 
@@ -625,7 +617,7 @@ def test_the_entries_reject_a_non_node(entry: Callable[..., object], args: tuple
     "size", [pytest.param(1, id="single"), pytest.param(2, id="pair"), pytest.param(100, id="wide")]
 )
 def test_paths_after_sibling_removal(kind: str, size: int) -> None:
-    document: Final[Document] = parse("<ul>" + "<li>x</li><span>y</span>" * size + "</ul>")
+    document: Final[Document] = parse(f"<ul>{'<li>x</li><span>y</span>' * size}</ul>")
     nodes: Final[list[Element]] = document.select("li")
     before: Final[list[str]] = [_path(node, kind) for node in nodes]
     document.remove("li:first-of-type")
@@ -633,6 +625,16 @@ def test_paths_after_sibling_removal(kind: str, size: int) -> None:
         [_expected(kind, index, size) for index in range(1, size + 1)],
         [_expected(kind, index, size - 1) for index in range(1, size)],
     )
+
+
+def _path(node: Element, kind: str) -> str:
+    return node.css_path() if kind == "css" else node.xpath_path()
+
+
+def _expected(kind: str, index: int, size: int) -> str:
+    if kind == "css":
+        return "html > body > ul > li" + (f":nth-of-type({index})" if size > 1 else "")
+    return "/html/body/ul/li" + (f"[{index}]" if size > 1 else "")
 
 
 @pytest.mark.parametrize("kind", [pytest.param("css", id="css"), pytest.param("xpath", id="xpath")])
@@ -691,16 +693,6 @@ def test_css_path_of_detached_element_with_id_absent_from_document() -> None:
     element.extract()
     element.attrs["id"] = "gone"
     assert element.css_path() == "p"
-
-
-def _path(node: Element, kind: str) -> str:
-    return node.css_path() if kind == "css" else node.xpath_path()
-
-
-def _expected(kind: str, index: int, size: int) -> str:
-    if kind == "css":
-        return "html > body > ul > li" + (f":nth-of-type({index})" if size > 1 else "")
-    return "/html/body/ul/li" + (f"[{index}]" if size > 1 else "")
 
 
 @pytest.mark.parametrize("count", [4, 32, 512], ids=["small", "threshold", "large"])

@@ -1,19 +1,3 @@
-"""Phone-number detection against the ``phonenumbers`` port of libphonenumber, at the pinned release.
-
-Oracle: the vendored ``python-phonenumbers`` checkout at ``tests/conformance/python-phonenumbers``, the tag whose
-version equals the metadata tag the tables were generated from (``generate_phone.LIBPHONENUMBER_TAG``), installed by the
-``conformance`` tox env. For every region and every example number its metadata carries, the number is rendered the ways
-people write it (national, international, E.164, spaced, dotted, IDD, fullwidth, Arabic-Indic, with each extension form)
-and embedded in prose, and ``LinkDetector`` is compared with ``PhoneNumberMatcher`` at the same leniency on the span,
-the E.164 number and the extension. A difference must fall into one of the categories the design chose
-(``phone_oracle.classify``): a number after a slash date, which the matcher throws away with the date; a payment-card
-shape that passes Luhn, which the recognizer rejects; the matcher reading a rendering's extension digits as a number of
-their own once its dot rule fires first; and, in possible mode, the matcher reading letters as digits (``10123 ext`` as
-a vanity number), which the recognizer never does. Every number the recognizer reports must also be valid (possible, in
-possible mode) by the oracle, with the region and type the oracle resolves. A missing submodule or a version other than
-the pin is a setup error, never a skip.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -59,13 +43,6 @@ _TYPES: Final = {
     PhoneNumberType.VOICEMAIL: PhoneType.VOICEMAIL,
     PhoneNumberType.UNKNOWN: PhoneType.UNKNOWN,
 }
-_EXPLAINED: Final = frozenset({
-    "agree",
-    "poisoned date",
-    "card shape",
-    "extension digits read as a number",
-    "alpha number",
-})
 _REGION_PARAMS: Final = [pytest.param(region, id=region) for region in sorted(phonenumbers.SUPPORTED_REGIONS)]
 _NON_GEO_PARAMS: Final = [
     pytest.param(code, id=str(code)) for code in sorted(phonenumbers.COUNTRY_CODES_FOR_NON_GEO_REGIONS)
@@ -81,7 +58,7 @@ def _examples(region: str) -> list[phonenumbers.PhoneNumber]:
 
 
 def _ours(detector: LinkDetector, region: str, text: str) -> tuple[Found, list[phonenumbers.PhoneNumber]]:
-    """The recognizer's spans, each re-parsed by the oracle from its text the way the matcher parses a candidate."""
+    # The recognizer's spans, each re-parsed by the oracle from its text the way the matcher parses a candidate.
     found: Found = set()
     parsed: list[phonenumbers.PhoneNumber] = []
     for span in detector.find(text):
@@ -131,6 +108,13 @@ def test_detection_matches_the_matcher(
 ) -> None:
     detector = LinkDetector(phones=settings(region))
     unexplained: list[tuple[str, str, list[tuple[int, int, str, str]], list[tuple[int, int, str, str]]]] = []
+    explained = frozenset({
+        "agree",
+        "poisoned date",
+        "card shape",
+        "extension digits read as a number",
+        "alpha number",
+    })
     for number in _examples(region):
         for _form, rendered in renderings(number, region):
             for context in CONTEXTS:
@@ -139,7 +123,7 @@ def test_detection_matches_the_matcher(
                 for found in parsed:
                     assert check(found), text
                 theirs = oracle_matches(text, region, leniency)
-                if (category := classify(text, ours, theirs)) not in _EXPLAINED:
+                if (category := classify(text, ours, theirs)) not in explained:
                     unexplained.append((category, text, sorted(ours), sorted(theirs)))
     assert unexplained == []
 
@@ -297,9 +281,9 @@ def test_parse_reads_every_rendering_as_the_oracle(region: str) -> None:
             "+1 650 253 0000 anexo 12",
             "+1 650 253 0000 int 12",
             "011 44 20 7946 0958",
-            "650-253-0000" + " " * 238,
-            "650-253-0000" + " " * 239,
-            "+1 650 253 0000 x" + "1" * 21,
+            f"650-253-0000{' ' * 238}",
+            f"650-253-0000{' ' * 239}",
+            f"+1 650 253 0000 x{'1' * 21}",
         ])
     ],
 )

@@ -23,7 +23,7 @@ from pathlib import Path
 # Attributes the HTML standard defines as space-separated token lists; these
 # surface in Element.attrs as a list[str]. Kept as a set so the generated header
 # can mark them and tree_type.c can switch on the atom instead of memcmp.
-TOKEN_LIST = frozenset([
+_TOKEN_LIST = frozenset([
     "accept-charset",
     "accesskey",
     "archive",
@@ -39,7 +39,7 @@ TOKEN_LIST = frozenset([
 # Common attribute names worth a stable compile-time atom: the token-list set
 # plus the names that drive selectors and real markup. Open-ended families
 # (data-*, aria-*) are left to the per-tree dynamic table.
-COMMON = TOKEN_LIST | frozenset([
+_COMMON = _TOKEN_LIST | frozenset([
     "action",
     "align",
     "alink",
@@ -149,16 +149,15 @@ COMMON = TOKEN_LIST | frozenset([
 
 
 def generate(out_path: Path) -> None:
-    """Write the generated attribute-atom C header to *out_path*."""
-    names = sorted(COMMON)
+    # Write the generated attribute-atom C header to *out_path*.
+    names = sorted(_COMMON)
     atoms = [f"TH_ATTR_{name.upper().replace('-', '_')}" for name in names]
 
     enum_lines = "\n".join(f"    {atom}," for atom in atoms)
 
     table_lines = []
     for name, atom in zip(names, atoms, strict=True):
-        token = "1" if name in TOKEN_LIST else "0"
-        table_lines.append(f'    {{"{name}", {len(name)}u, {atom}, {token}}},')
+        table_lines.append(f'    {{"{name}", {len(name)}u, {atom}, {("1" if name in _TOKEN_LIST else "0")}}},')
 
     # Names are sorted, so entries sharing a first byte are contiguous;
     # first_index[b] is the offset of the first entry whose name starts with a

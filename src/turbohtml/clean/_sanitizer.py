@@ -69,6 +69,10 @@ class OnDisallowed(Enum):
 
     ``ESCAPE`` renders the tag as visible text (``<x>`` becomes ``&lt;x&gt;``), the safe bleach default that keeps the
     content readable; ``STRIP`` drops the tag but keeps its children; ``REMOVE`` drops the tag and its whole subtree.
+
+    :cvar ESCAPE:
+    :cvar STRIP:
+    :cvar REMOVE:
     """
 
     ESCAPE = 0
@@ -128,7 +132,7 @@ _RELAXED_ATTRIBUTES: Final[Mapping[str, frozenset[str]]] = MappingProxyType({
 })
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Policy:
     r"""
     An immutable, thread-safe description of what sanitizing keeps.
@@ -289,6 +293,7 @@ class Sanitizer:
     A reusable sanitizer; build it once from a :class:`Policy` and call :meth:`sanitize` from any thread.
 
     :param options: the policy to enforce; None uses bleach's default allowlist.
+    :ivar policy:
     """
 
     def __init__(self, options: Policy | None = None) -> None:
@@ -325,59 +330,8 @@ class Sanitizer:
         """
         return self._render(self._filter(html, None))
 
-    def sanitize_report(self, html: str | Node) -> tuple[str, list[Removed]]:
-        """
-        Sanitize a fragment and report what the policy dropped, the way DOMPurify populates ``DOMPurify.removed``.
-
-        Every disallowed element (removed, stripped, or escaped) and every stripped attribute becomes one
-        :class:`Removed` record, in the order the walk reached it, so a caller can log or tune a policy against
-        evidence instead of guessing.
-
-        :param html: the untrusted HTML fragment, or an already parsed node (see :meth:`sanitize_node`).
-        :returns: the sanitized HTML paired with the list of dropped items.
-        :raises TypeError: like :meth:`sanitize`, on a mistyped set-valued policy field.
-        :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
-        """
-        removed: list[tuple[str, str | None]] = []
-        html_out = self._render(self._filter(html, removed))
-        return html_out, list(starmap(Removed, removed))
-
-    def sanitize_node(self, node: _NODE_T) -> _NODE_T:
-        """
-        Sanitize an already parsed subtree and return the sanitized copy as a tree.
-
-        This is the tree-to-tree form for a pipeline that parses once, runs several transforms, and serializes once,
-        the way DOMPurify's ``RETURN_DOM`` hands back a DOM instead of a string. The node itself is the kept context,
-        like the fragment root of :meth:`sanitize`: the policy applies to its descendants, never to the node. So pass
-        the ``body`` of a document to clean what it holds, or a ``Document`` to have the policy judge the ``html``
-        element itself (a ``bleach``-style allowlist then needs ``html``, ``head`` and ``body`` listed). The copy lives
-        in its own tree and inherits the source's XML flag; the source is left untouched.
-
-        :param node: the element or document whose subtree to sanitize.
-        :returns: a new node of the same kind holding the sanitized subtree.
-        :raises TypeError: if ``node`` is not a node, or on a mistyped set-valued policy field.
-        :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
-        """
-        return self._filter(_node_only(node), None)
-
-    def sanitize_report_node(self, node: _NODE_T) -> tuple[_NODE_T, list[Removed]]:
-        """
-        Sanitize an already parsed subtree and report what the policy dropped.
-
-        :meth:`sanitize_node` and :meth:`sanitize_report` combined: the copy comes back as a tree, the drops as
-        records.
-
-        :param node: the element or document whose subtree to sanitize.
-        :returns: the sanitized copy paired with one :class:`Removed` record per dropped element or attribute.
-        :raises TypeError: if ``node`` is not a node, or on a mistyped set-valued policy field.
-        :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
-        """
-        removed: list[tuple[str, str | None]] = []
-        copy = self._filter(_node_only(node), removed)
-        return copy, list(starmap(Removed, removed))
-
     def _render(self, root: Node) -> str:
-        """Serialize the sanitized root's children as XML when the policy asks, else as HTML."""
+        # Serialize the sanitized root's children as XML when the policy asks, else as HTML.
         return root.inner_xml if self.policy.xml else root.inner_html
 
     @overload
@@ -387,7 +341,7 @@ class Sanitizer:
     def _filter(self, html: str, removed: list[tuple[str, str | None]] | None) -> Node: ...
 
     def _filter(self, html: str | Node, removed: list[tuple[str, str | None]] | None) -> Node:
-        """Run the C walk over a freshly parsed fragment or a copy of a node, appending drops to ``removed``."""
+        # Run the C walk over a freshly parsed fragment or a copy of a node, appending drops to ``removed``.
         policy = self.policy
         return _sanitize(
             html,
@@ -422,9 +376,58 @@ class Sanitizer:
             policy.xml,  # the XML serializer round-trips through parse_xml, so the HTML parse-stability pass is skipped
         )
 
+    def sanitize_report(self, html: str | Node) -> tuple[str, list[Removed]]:
+        """
+        Sanitize a fragment and report what the policy dropped, the way DOMPurify populates ``DOMPurify.removed``.
+
+        Every disallowed element (removed, stripped, or escaped) and every stripped attribute becomes one
+        :class:`Removed` record, in the order the walk reached it, so a caller can log or tune a policy against
+        evidence instead of guessing.
+
+        :param html: the untrusted HTML fragment, or an already parsed node (see :meth:`sanitize_node`).
+        :returns: the sanitized HTML paired with the list of dropped items.
+        :raises TypeError: like :meth:`sanitize`, on a mistyped set-valued policy field.
+        :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
+        """
+        removed: list[tuple[str, str | None]] = []
+        return self._render(self._filter(html, removed)), list(starmap(Removed, removed))
+
+    def sanitize_node(self, node: _NODE_T) -> _NODE_T:
+        """
+        Sanitize an already parsed subtree and return the sanitized copy as a tree.
+
+        This is the tree-to-tree form for a pipeline that parses once, runs several transforms, and serializes once,
+        the way DOMPurify's ``RETURN_DOM`` hands back a DOM instead of a string. The node itself is the kept context,
+        like the fragment root of :meth:`sanitize`: the policy applies to its descendants, never to the node. So pass
+        the ``body`` of a document to clean what it holds, or a ``Document`` to have the policy judge the ``html``
+        element itself (a ``bleach``-style allowlist then needs ``html``, ``head`` and ``body`` listed). The copy lives
+        in its own tree and inherits the source's XML flag; the source is left untouched.
+
+        :param node: the element or document whose subtree to sanitize.
+        :returns: a new node of the same kind holding the sanitized subtree.
+        :raises TypeError: if ``node`` is not a node, or on a mistyped set-valued policy field.
+        :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
+        """
+        return self._filter(_node_only(node), None)
+
+    def sanitize_report_node(self, node: _NODE_T) -> tuple[_NODE_T, list[Removed]]:
+        """
+        Sanitize an already parsed subtree and report what the policy dropped.
+
+        :meth:`sanitize_node` and :meth:`sanitize_report` combined: the copy comes back as a tree, the drops as
+        records.
+
+        :param node: the element or document whose subtree to sanitize.
+        :returns: the sanitized copy paired with one :class:`Removed` record per dropped element or attribute.
+        :raises TypeError: if ``node`` is not a node, or on a mistyped set-valued policy field.
+        :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
+        """
+        removed: list[tuple[str, str | None]] = []
+        return self._filter(_node_only(node), removed), list(starmap(Removed, removed))
+
 
 def _node_only(node: _NODE_T) -> _NODE_T:
-    """Reject a str where a parsed node is required, so a caller who meant the string form gets told which one."""
+    # Reject a str where a parsed node is required, so a caller who meant the string form gets told which one.
     if isinstance(node, str):
         msg = "sanitize_node takes a parsed node; pass a str to sanitize instead"
         raise TypeError(msg)

@@ -26,4 +26,4 @@ OPERATIONS = {
     "parse-inner-encode": (_parse_inner_encode, "jsdom"),
 }
 
-__all__ = ["OPERATIONS", "REQUIREMENTS"]
+__all__ = []

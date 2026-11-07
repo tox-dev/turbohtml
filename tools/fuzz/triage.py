@@ -24,14 +24,14 @@ _ADDRESS: Final = re.compile(r"0x[0-9a-f]+", re.IGNORECASE)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Write private group metadata; print counts without source frames."""
+    # Write private group metadata; print counts without source frames.
     parser = argparse.ArgumentParser(description="Group saved fuzz reports without replaying inputs.")
     parser.add_argument("reports", nargs="+", type=Path)
     parser.add_argument("--output", required=True, type=Path, help="private JSON report")
     args = parser.parse_args(argv)
     try:
         groups = _groups(args.reports)
-        args.output.write_text(json.dumps(groups, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        args.output.write_text(f"{json.dumps(groups, indent=2, sort_keys=True)}\n", encoding="utf-8")
     except OSError as error:
         parser.exit(2, f"triage: {error}\n")
     print(f"triage: {len(args.reports)} reports, {len(groups)} groups")
@@ -49,14 +49,14 @@ def _groups(paths: Sequence[Path]) -> dict[str, _Group]:
 
 
 def classify(report: str) -> Finding:
-    """Use five frames, falling back to report text when no stack is present."""
+    # Use five frames, falling back to report text when no stack is present.
     if match := _KIND.search(report):
         kind: Literal["crash", "timeout", "oom"] = "timeout" if "timeout" in match.group().lower() else "oom"
     else:
         kind = "crash"
     frames = _frames(report)
     identity = json.dumps((kind, frames or (_ADDRESS.sub("<address>", report.strip()),)), separators=(",", ":"))
-    return Finding(kind, frames, hashlib.sha256(identity.encode()).hexdigest())
+    return Finding(kind=kind, frames=frames, digest=hashlib.sha256(identity.encode()).hexdigest())
 
 
 def _frames(report: str) -> tuple[str, ...]:
@@ -76,10 +76,9 @@ def _frames(report: str) -> tuple[str, ...]:
     return tuple(native or list(reversed(python))[:5])
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Finding:
-    """The report signature is independent of a crashing input digest."""
-
+    # The report signature is independent of a crashing input digest.
     kind: Literal["crash", "timeout", "oom"]
     frames: tuple[str, ...]
     digest: str
@@ -91,7 +90,11 @@ class _Group(TypedDict):
     reports: list[str]
 
 
-__all__ = ["Finding", "classify", "main"]
+__all__ = [
+    "Finding",
+    "classify",
+    "main",
+]
 
 
 if __name__ == "__main__":

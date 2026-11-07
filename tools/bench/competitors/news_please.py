@@ -3,25 +3,27 @@
 from __future__ import annotations
 
 # not a bench group dependency: its newspaper4k requirement clobbers newspaper3k's newspaper module
+from typing import Final
+
 from newsplease import NewsPlease  # ty: ignore[import-not-found]
 
 REQUIREMENTS = ("news-please>=1.6",)
 
-_URL = "https://example.com/article"
+_URL: Final[str] = "https://example.com/article"
 
 
 def article(text: str) -> None:
-    """Extract title, main text, and metadata with news-please's extractor ensemble."""
+    # Extract title, main text, and metadata with news-please's extractor ensemble.
     NewsPlease.from_html(text, url=_URL)
 
 
 def text_main(text: str) -> None:
-    """Read the main text off news-please's result, its only path is the full ensemble."""
+    # Read the main text off news-please's result, its only path is the full ensemble.
     _ = NewsPlease.from_html(text, url=_URL).maintext
 
 
 def date(text: str) -> None:
-    """Read the publish date off news-please's result, its only path is the full ensemble."""
+    # Read the publish date off news-please's result, its only path is the full ensemble.
     _ = NewsPlease.from_html(text, url=_URL).date_publish
 
 

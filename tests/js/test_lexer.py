@@ -1,13 +1,3 @@
-"""JavaScript lexer conformance via the ``_minify_js_tokens`` hook.
-
-The hook renders the token stream as a canonical dump: _TOKENS space-separated, a
-value-bearing token as ``KIND:lexeme`` and a punctuator as ``KIND``, with a ``*``
-prefix on any token a line terminator preceded (the automatic-semicolon-insertion
-signal). The dump drives the lexer through a minimal operand/operator position
-tracker, so it also covers the regex- and template-rescan paths the real parser
-will trigger. Phase 1 lands the lexer only; the parser and printer follow.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -66,10 +56,8 @@ def test_numbers(source: str, dump: str) -> None:
         pytest.param(r"'a\'b'", r"STRING:'a\'b' EOF", id="escaped-quote"),
         pytest.param("'a\\\nb'", "STRING:'a\\\nb' EOF", id="line-continuation"),
         pytest.param('""', 'STRING:"" EOF', id="empty-string"),
-        pytest.param("'a" + chr(0x2028) + "b'", "STRING:'a" + chr(0x2028) + "b' EOF", id="line-separator-in-string"),
-        pytest.param(
-            '"a' + chr(0x2029) + 'b"', 'STRING:"a' + chr(0x2029) + 'b" EOF', id="paragraph-separator-in-string"
-        ),
+        pytest.param(f"'a{chr(0x2028)}b'", f"STRING:'a{chr(0x2028)}b' EOF", id="line-separator-in-string"),
+        pytest.param(f'"a{chr(0x2029)}b"', f'STRING:"a{chr(0x2029)}b" EOF', id="paragraph-separator-in-string"),
     ],
 )
 def test_strings(source: str, dump: str) -> None:
@@ -176,12 +164,12 @@ def test_punctuators(source: str, dump: str) -> None:
         pytest.param("a /* x\ny */ b", "IDENT:a *IDENT:b EOF", id="block-comment-newline"),
         pytest.param("a\nb", "IDENT:a *IDENT:b EOF", id="newline-flag"),
         pytest.param("a\r\nb", "IDENT:a *IDENT:b EOF", id="crlf"),
-        pytest.param("a" + chr(0x2029) + "b", "IDENT:a *IDENT:b EOF", id="paragraph-separator"),
-        pytest.param("a" + chr(0x0B) + "b", "IDENT:a IDENT:b EOF", id="vertical-tab-ws"),
-        pytest.param("a" + chr(0x0C) + "b", "IDENT:a IDENT:b EOF", id="form-feed-ws"),
-        pytest.param("a" + chr(0xA0) + "b", "IDENT:a IDENT:b EOF", id="no-break-space-ws"),
-        pytest.param(chr(0xFEFF) + "x", "IDENT:x EOF", id="byte-order-mark"),
-        pytest.param("a" + chr(0x2028) + "b", "IDENT:a *IDENT:b EOF", id="line-separator"),
+        pytest.param(f"a{chr(0x2029)}b", "IDENT:a *IDENT:b EOF", id="paragraph-separator"),
+        pytest.param(f"a{chr(0x0B)}b", "IDENT:a IDENT:b EOF", id="vertical-tab-ws"),
+        pytest.param(f"a{chr(0x0C)}b", "IDENT:a IDENT:b EOF", id="form-feed-ws"),
+        pytest.param(f"a{chr(0xA0)}b", "IDENT:a IDENT:b EOF", id="no-break-space-ws"),
+        pytest.param(f"{chr(0xFEFF)}x", "IDENT:x EOF", id="byte-order-mark"),
+        pytest.param(f"a{chr(0x2028)}b", "IDENT:a *IDENT:b EOF", id="line-separator"),
         pytest.param("#!/usr/bin/env node\nx", "*IDENT:x EOF", id="hashbang"),
         pytest.param("a<!--b\nc", "IDENT:a *IDENT:c EOF", id="html-open-comment"),
         pytest.param("a\n-->b\nc", "IDENT:a *IDENT:c EOF", id="html-close-comment"),
@@ -223,12 +211,12 @@ def test_errors(source: str, dump: str) -> None:
     [
         # every Unicode Space_Separator the lexer treats as token-separating white space (U+00A0 is in
         # test_trivia_and_newlines)
-        pytest.param("a" + chr(0xFEFF) + "b", "IDENT:a IDENT:b EOF", id="ws-byte-order-mark"),
-        pytest.param("a" + chr(0x1680) + "b", "IDENT:a IDENT:b EOF", id="ws-ogham"),
-        pytest.param("a" + chr(0x2000) + "b", "IDENT:a IDENT:b EOF", id="ws-en-quad"),
-        pytest.param("a" + chr(0x202F) + "b", "IDENT:a IDENT:b EOF", id="ws-narrow-no-break"),
-        pytest.param("a" + chr(0x205F) + "b", "IDENT:a IDENT:b EOF", id="ws-medium-math"),
-        pytest.param("a" + chr(0x3000) + "b", "IDENT:a IDENT:b EOF", id="ws-ideographic"),
+        pytest.param(f"a{chr(0xFEFF)}b", "IDENT:a IDENT:b EOF", id="ws-byte-order-mark"),
+        pytest.param(f"a{chr(0x1680)}b", "IDENT:a IDENT:b EOF", id="ws-ogham"),
+        pytest.param(f"a{chr(0x2000)}b", "IDENT:a IDENT:b EOF", id="ws-en-quad"),
+        pytest.param(f"a{chr(0x202F)}b", "IDENT:a IDENT:b EOF", id="ws-narrow-no-break"),
+        pytest.param(f"a{chr(0x205F)}b", "IDENT:a IDENT:b EOF", id="ws-medium-math"),
+        pytest.param(f"a{chr(0x3000)}b", "IDENT:a IDENT:b EOF", id="ws-ideographic"),
         pytest.param("/* a * b */x", "IDENT:x EOF", id="block-comment-inner-star"),
         pytest.param("#!/usr/bin/node\nx", "*IDENT:x EOF", id="hashbang"),
         pytest.param("1e+5", "NUM:1e+5 EOF", id="exponent-plus"),

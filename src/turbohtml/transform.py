@@ -37,7 +37,39 @@ if TYPE_CHECKING:
 
     from ._html import Node
 
-__all__ = ["Transform", "strparam", "transform"]
+
+def transform(
+    stylesheet: Node,
+    source: Node,
+    /,
+    *,
+    base_url: str | None = None,
+    allow_imports: bool = True,
+    import_root: str | Path | None = None,
+    **params: str,
+) -> str:
+    """
+    Apply an XSLT 1.0 stylesheet to a source document in one call.
+
+    Equivalent to constructing and calling :class:`Transform`; retain a :class:`Transform` when one stylesheet applies
+    to many documents so it is compiled once.
+
+    :param stylesheet: the stylesheet, a tree parsed with :func:`turbohtml.parse_xml`.
+    :param source: the document to transform, a parsed tree.
+    :param base_url: the stylesheet's path or file URL, against which ``xsl:import`` hrefs resolve; required only when
+        the stylesheet imports.
+    :param allow_imports: set to :data:`False` when a stylesheet must not read other files.
+    :param import_root: when set, imported files must resolve inside this directory, including through nested imports.
+    :param params: top-level ``xsl:param`` values, each an XPath expression string; pass text through
+        :func:`strparam`.
+    :returns: the transformed document serialized under the stylesheet's ``xsl:output`` method.
+    """
+    return Transform(
+        stylesheet,
+        base_url=base_url,
+        allow_imports=allow_imports,
+        import_root=import_root,
+    )(source, **params)
 
 
 class Transform:
@@ -82,40 +114,6 @@ class Transform:
         return _xslt_transform(self._compiled, source, params or None)
 
 
-def transform(
-    stylesheet: Node,
-    source: Node,
-    /,
-    *,
-    base_url: str | None = None,
-    allow_imports: bool = True,
-    import_root: str | Path | None = None,
-    **params: str,
-) -> str:
-    """
-    Apply an XSLT 1.0 stylesheet to a source document in one call.
-
-    Equivalent to constructing and calling :class:`Transform`; retain a :class:`Transform` when one stylesheet applies
-    to many documents so it is compiled once.
-
-    :param stylesheet: the stylesheet, a tree parsed with :func:`turbohtml.parse_xml`.
-    :param source: the document to transform, a parsed tree.
-    :param base_url: the stylesheet's path or file URL, against which ``xsl:import`` hrefs resolve; required only when
-        the stylesheet imports.
-    :param allow_imports: set to :data:`False` when a stylesheet must not read other files.
-    :param import_root: when set, imported files must resolve inside this directory, including through nested imports.
-    :param params: top-level ``xsl:param`` values, each an XPath expression string; pass text through
-        :func:`strparam`.
-    :returns: the transformed document serialized under the stylesheet's ``xsl:output`` method.
-    """
-    return Transform(
-        stylesheet,
-        base_url=base_url,
-        allow_imports=allow_imports,
-        import_root=import_root,
-    )(source, **params)
-
-
 def strparam(value: str, /) -> str:
     """
     Quote a string as an XPath string literal, for passing text as an ``xsl:param`` value.
@@ -128,3 +126,10 @@ def strparam(value: str, /) -> str:
     :returns: an XPath expression that evaluates to ``value``.
     """
     return _xpath_literal(value)
+
+
+__all__ = [
+    "Transform",
+    "strparam",
+    "transform",
+]

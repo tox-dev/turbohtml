@@ -18,7 +18,7 @@ _RUNNER = str(Path(__file__).resolve().parent.parent / "node" / "sanitize_html_r
 
 
 def sanitize_transform(text: str) -> str:
-    """Sanitize a document while renaming deprecated presentational tags, piping it through the Node runner."""
+    # Sanitize a document while renaming deprecated presentational tags, piping it through the Node runner.
     return subprocess.run(["node", _RUNNER], input=text, capture_output=True, text=True, check=True).stdout
 
 

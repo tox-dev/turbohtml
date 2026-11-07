@@ -12,12 +12,46 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
+def xml_island_generate(rng: random.Random) -> str:
+    return f"{rng.choice(_MODES)}:{rng.choice(tuple(_COMMENTS))}:{rng.choice(tuple(_CDATA))}:{rng.randint(1, 3)}"
+
+
+def xml_island_seeds() -> list[str]:
+    # Cover the finite productions without sampling gaps.
+    return [
+        f"{mode}:{comment}:{cdata}:{count}"
+        for mode in _MODES
+        for comment in _COMMENTS
+        for cdata in _CDATA
+        for count in range(1, 4)
+    ]
+
+
+def xml_island_controls() -> dict[str, bool]:
+    # Reject content-preserving kind loss and changed comment attachment.
+    return {
+        "CDATA converted to Text": xml_island_check(
+            "inside:plain:plain:1", lambda _node: "<Root><!--note-->Value&lt;&amp;</Root>"
+        )
+        is not None,
+        "comment moved into Root": xml_island_check(
+            "outside:plain:plain:1",
+            lambda _node: "<!--lead &amp;--><Root><!--note--><![CDATA[Value]]>&lt;&amp;<!--tail--></Root>",
+        )
+        is not None,
+        "CDATA reference decoded": xml_island_check(
+            "inside:plain:markup:1", lambda node: node.serialize(Html(xml=True)).replace("&amp;]]>", "&]]>")
+        )
+        is not None,
+    }
+
+
 def xml_island_check(
     case: str,
     serialize: Callable[[Node], str] | None = None,
     read: Callable[[str], Document] = parse_xml,
 ) -> str | None:
-    """Keep literal node kinds independent of round-trip agreement."""
+    # Keep literal node kinds independent of round-trip agreement.
     if (match := _CASE.fullmatch(case)) is None:
         raise UnsupportedXmlIslandCaseError(case)
     source, expected = _document(*match.groups())
@@ -31,13 +65,18 @@ def xml_island_check(
     return None if _serialize(reparsed, serialize) == printed else "XML island serialization changes on repeat"
 
 
+class UnsupportedXmlIslandCaseError(ValueError):
+    # Separate malformed programs from failures of generated XML.
+    ...
+
+
 def _document(mode: str, comment: str, cdata: str, count: str) -> tuple[str, tuple[tuple[str, str, str], ...]]:
     encoded_comment, decoded_comment = _COMMENTS[comment]
     encoded_cdata, decoded_cdata = _CDATA[cdata]
     group: Final = f"<!--{encoded_comment}--><![CDATA[{encoded_cdata}]]>&lt;&amp;"
     prefix: Final = "<!--lead &amp;-->" if mode == "outside" else ""
     suffix: Final = "<!--tail-->" if mode == "outside" else ""
-    return prefix + "<Root>" + group * int(count) + "</Root>" + suffix, (
+    return f"{prefix}<Root>{group * int(count)}</Root>{suffix}", (
         *([("Comment", "lead &amp;", "Document")] if mode == "outside" else []),
         ("Element", "Root", "Document"),
         *[
@@ -69,45 +108,6 @@ def _snapshot(root: Document) -> tuple[tuple[str, str, str], ...]:
 
 def _serialize(root: Node, serialize: Callable[[Node], str] | None) -> str:
     return root.serialize(Html(xml=True)) if serialize is None else serialize(root)
-
-
-def xml_island_generate(rng: random.Random) -> str:
-    """Bound lexical groups before parsing."""
-    return f"{rng.choice(_MODES)}:{rng.choice(tuple(_COMMENTS))}:{rng.choice(tuple(_CDATA))}:{rng.randint(1, 3)}"
-
-
-def xml_island_seeds() -> list[str]:
-    """Cover the finite productions without sampling gaps."""
-    return [
-        f"{mode}:{comment}:{cdata}:{count}"
-        for mode in _MODES
-        for comment in _COMMENTS
-        for cdata in _CDATA
-        for count in range(1, 4)
-    ]
-
-
-def xml_island_controls() -> dict[str, bool]:
-    """Reject content-preserving kind loss and changed comment attachment."""
-    return {
-        "CDATA converted to Text": xml_island_check(
-            "inside:plain:plain:1", lambda _node: "<Root><!--note-->Value&lt;&amp;</Root>"
-        )
-        is not None,
-        "comment moved into Root": xml_island_check(
-            "outside:plain:plain:1",
-            lambda _node: "<!--lead &amp;--><Root><!--note--><![CDATA[Value]]>&lt;&amp;<!--tail--></Root>",
-        )
-        is not None,
-        "CDATA reference decoded": xml_island_check(
-            "inside:plain:markup:1", lambda node: node.serialize(Html(xml=True)).replace("&amp;]]>", "&]]>")
-        )
-        is not None,
-    }
-
-
-class UnsupportedXmlIslandCaseError(ValueError):
-    """Separate malformed programs from failures of generated XML."""
 
 
 _CASE: Final = re.compile(r"(inside|outside):(plain|markup|lines):(plain|markup|lines):([1-3])")

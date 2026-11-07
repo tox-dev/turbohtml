@@ -32,19 +32,6 @@ from ._html import _sax_dispatch, _sax_events
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-__all__ = [
-    "Characters",
-    "Comment",
-    "Doctype",
-    "EndElement",
-    "ProcessingInstruction",
-    "SaxEvent",
-    "SaxHandler",
-    "StartElement",
-    "iter_events",
-    "sax_parse",
-]
-
 
 class SaxHandler:
     """
@@ -55,26 +42,59 @@ class SaxHandler:
     """
 
     def start_element(self, tag: str, attrs: tuple[tuple[str, str | None], ...]) -> None:
-        """Handle a start tag ``tag`` with its ``attrs`` (each a ``(name, value)`` pair, value None if valueless)."""
+        """
+        Handle a start tag ``tag`` with its ``attrs`` (each a ``(name, value)`` pair, value None if valueless).
+
+        :param tag:
+        :param attrs:
+        """
 
     def end_element(self, tag: str) -> None:
-        """Handle the end of element ``tag`` (fired for every element, including empty and void ones)."""
+        """
+        Handle the end of element ``tag`` (fired for every element, including empty and void ones).
+
+        :param tag:
+        """
 
     def characters(self, data: str) -> None:
-        """Handle a run of character data ``data``."""
+        """
+        Handle a run of character data ``data``.
+
+        :param data:
+        """
 
     def comment(self, data: str) -> None:
-        """Handle a comment with body ``data``."""
+        """
+        Handle a comment with body ``data``.
+
+        :param data:
+        """
 
     def doctype(self, name: str, public_id: str | None, system_id: str | None) -> None:
-        """Handle the document type declaration; ``public_id``/``system_id`` are None when the source omits them."""
+        """
+        Handle the document type declaration; ``public_id``/``system_id`` are None when the source omits them.
+
+        :param name:
+        :param public_id:
+        :param system_id:
+        """
 
     def processing_instruction(self, target: str, data: str) -> None:
-        """Receive non-reserved instructions after the parser separates their target and data."""
+        """
+        Receive non-reserved instructions after the parser separates their target and data.
+
+        :param target:
+        :param data:
+        """
 
 
 class StartElement(NamedTuple):
-    """A start-tag event."""
+    """
+    A start-tag event.
+
+    :param tag:
+    :param attrs:
+    """
 
     tag: str
     """the element's tag name."""
@@ -83,28 +103,46 @@ class StartElement(NamedTuple):
 
 
 class EndElement(NamedTuple):
-    """An end-tag event, fired for every element the parser closes."""
+    """
+    An end-tag event, fired for every element the parser closes.
+
+    :param tag:
+    """
 
     tag: str
     """the element's tag name."""
 
 
 class Characters(NamedTuple):
-    """A run of character data."""
+    """
+    A run of character data.
+
+    :param data:
+    """
 
     data: str
     """the text."""
 
 
 class Comment(NamedTuple):
-    """A comment event."""
+    """
+    A comment event.
+
+    :param data:
+    """
 
     data: str
     """the comment body, between ``<!--`` and ``-->``."""
 
 
 class Doctype(NamedTuple):
-    """A document type declaration event."""
+    """
+    A document type declaration event.
+
+    :param name:
+    :param public_id:
+    :param system_id:
+    """
 
     name: str
     """the document type name, e.g. ``html``."""
@@ -115,7 +153,12 @@ class Doctype(NamedTuple):
 
 
 class ProcessingInstruction(NamedTuple):
-    """An HTML instruction whose target is not reserved for XML."""
+    """
+    An HTML instruction whose target is not reserved for XML.
+
+    :param target:
+    :param data:
+    """
 
     target: str
     """the ASCII target, preserving source case."""
@@ -141,7 +184,7 @@ def iter_events(html: str) -> Iterator[SaxEvent]:
     Parse ``html`` and yield its SAX events as typed records, one at a time, without building a document.
 
     :param html: the markup to parse.
-    :returns: an iterator of :class:`StartElement`/:class:`EndElement`/:class:`Characters`/:class:`Comment`/
+    :yields: an iterator of :class:`StartElement`/:class:`EndElement`/:class:`Characters`/:class:`Comment`/
         :class:`Doctype`/:class:`ProcessingInstruction` records in document order.
     :raises TypeError: if ``html`` is not a str.
     """
@@ -158,3 +201,17 @@ def sax_parse(html: str, handler: SaxHandler) -> None:
     :raises TypeError: if ``html`` is not a str.
     """
     _sax_dispatch(html, handler)
+
+
+__all__ = [
+    "Characters",
+    "Comment",
+    "Doctype",
+    "EndElement",
+    "ProcessingInstruction",
+    "SaxEvent",
+    "SaxHandler",
+    "StartElement",
+    "iter_events",
+    "sax_parse",
+]

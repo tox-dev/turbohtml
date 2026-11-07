@@ -8,7 +8,7 @@ REQUIREMENTS = ("readability-lxml>=0.8.1",)
 
 
 def article(text: str) -> None:
-    """Extract the content body and title with readability-lxml."""
+    # Extract the content body and title with readability-lxml.
     document = Document(text)
     document.summary()
     document.short_title()

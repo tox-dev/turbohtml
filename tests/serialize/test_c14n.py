@@ -1,5 +1,3 @@
-"""Canonical XML (c14n) serialization: ``Node.canonicalize`` and the ``Canonical`` config."""
-
 from __future__ import annotations
 
 import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping this test's own bytes
@@ -12,16 +10,16 @@ from bench.operations import INPUTS
 from turbohtml import Canonical, CData, Element, Html, ProcessingInstruction, Text, parse, parse_xml
 
 
-def _one(markup: str, selector: str) -> Element:
-    node = parse(markup).select_one(selector)
-    assert node is not None
-    return node
-
-
 def test_returns_utf8_bytes() -> None:
     out = _one("<p>x</p>", "p").canonicalize()
     assert isinstance(out, bytes)
     assert out == b"<p>x</p>"
+
+
+def _one(markup: str, selector: str) -> Element:
+    node = parse(markup).select_one(selector)
+    assert node is not None
+    return node
 
 
 def test_default_options_are_1_0_without_comments() -> None:
@@ -169,16 +167,16 @@ def test_document_drops_large_comments(*, xml: bool, comment_length: int) -> Non
     source = '<r xmlns="urn:x">x</r>' if xml else "<p>x</p>"
     document = parse_xml if xml else parse
     expected = b'<r xmlns="urn:x">x</r>' if xml else b"<html><head></head><body><p>x</p></body></html>"
-    assert document(source + "<!--" + "x" * comment_length + "-->").canonicalize() == expected
+    assert document(f"{source}<!--{'x' * comment_length}-->").canonicalize() == expected
 
 
 @pytest.mark.parametrize("xml", [pytest.param(False, id="html"), pytest.param(True, id="xml")])
 def test_document_canonicalizes_many_elements(*, xml: bool) -> None:
     if xml:
-        source = '<r xmlns="urn:x">' + "<a/>" * 1024 + "</r>"
+        source = f'<r xmlns="urn:x">{"<a/>" * 1024}</r>'
         expected = b'<r xmlns="urn:x">' + b"<a></a>" * 1024 + b"</r>"
     else:
-        source = "<main>" + "<p>x</p>" * 512 + "</main>"
+        source = f"<main>{'<p>x</p>' * 512}</main>"
         expected = b"<html><head></head><body><main>" + b"<p>x</p>" * 512 + b"</main></body></html>"
     assert (parse_xml if xml else parse)(source).canonicalize() == expected
 
@@ -253,8 +251,7 @@ def test_inclusive_ns_prefixes_matches_within_a_longer_list() -> None:
 
 
 def test_exclusive_nested_use_renders_prefix_once() -> None:
-    node = _one("<svg xlink:href=a><g xlink:href=b><rect/></g></svg>", "svg")
-    out = node.canonicalize(Canonical(exclusive=True))
+    out = _one("<svg xlink:href=a><g xlink:href=b><rect/></g></svg>", "svg").canonicalize(Canonical(exclusive=True))
     assert out.count(b"xmlns:xlink") == 1
 
 
@@ -411,8 +408,7 @@ def test_xml_c14n_apex_inherits_namespace_axis() -> None:
 
 
 def test_xml_c14n_pickle_preserves_namespace_axis() -> None:
-    document = parse_xml('<r xmlns:p="urn:p"><p:a/></r>')
-    restored = pickle.loads(pickle.dumps(document))  # ruff:ignore[suspicious-pickle-usage]  # this test's own bytes
+    restored = pickle.loads(pickle.dumps(parse_xml('<r xmlns:p="urn:p"><p:a/></r>')))  # ruff:ignore[suspicious-pickle-usage]  # this test's own bytes
     assert restored.canonicalize() == b'<r xmlns:p="urn:p"><p:a></p:a></r>'
 
 
@@ -918,8 +914,7 @@ def test_xml_c14n_1_1_keeps_only_named_inherited_attributes() -> None:
     ],
 )
 def test_xml_c14n_1_1_fixes_ancestor_base(source: str, selector: str, expected: bytes) -> None:
-    document = parse_xml(source)
-    node = document.select_one(selector)
+    node = parse_xml(source).select_one(selector)
     assert node is not None
     assert node.canonicalize(Canonical(version="1.1")) == expected
 
@@ -1114,16 +1109,14 @@ def test_inclusive_ns_prefixes_requires_exclusive() -> None:
 
 
 def test_deep_subtree_does_not_overflow() -> None:
-    node = _one("<div>" + "<span>" * 200 + "x" + "</span>" * 200 + "</div>", "div")
-    out = node.canonicalize()
+    out = _one(f"<div>{'<span>' * 200}x{'</span>' * 200}</div>", "div").canonicalize()
     assert out.startswith(b"<div>" + b"<span>" * 200)
     assert out.endswith(b"</span>" * 200 + b"</div>")
 
 
 def test_many_attributes_beyond_stack_buffer_sort() -> None:
     names = [f"a{index:02d}" for index in range(40)]
-    node = Element("p", dict.fromkeys(reversed(names), "1"))
-    out = node.canonicalize().decode()
+    out = Element("p", dict.fromkeys(reversed(names), "1")).canonicalize().decode()
     positions = [out.index(f'{name}="1"') for name in names]
     assert positions == sorted(positions)
 
@@ -1161,8 +1154,8 @@ def test_canonicalize_orders_many_attributes(size: int) -> None:
     )
 
 
-_XLINK: Final = ' xmlns:xlink="http://www.w3.org/1999/xlink"'
-_SVG: Final = ' xmlns="http://www.w3.org/2000/svg"'
+_XLINK: Final[str] = ' xmlns:xlink="http://www.w3.org/1999/xlink"'
+_SVG: Final[str] = ' xmlns="http://www.w3.org/2000/svg"'
 
 
 @pytest.mark.parametrize("exclusive", [False, True], ids=["inclusive", "exclusive"])

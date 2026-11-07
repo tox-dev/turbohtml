@@ -19,10 +19,8 @@ from turbohtml.validate import RelaxNG
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
-__all__: Final = ["ESCAPES", "Attempt", "Verdict", "compare", "generate", "main"]
-
-_XSL: Final = 'xmlns:xsl="http://www.w3.org/1999/XSL/Transform"'
-_RNG: Final = 'xmlns="http://relaxng.org/ns/structure/1.0"'
+_XSL: Final[str] = 'xmlns:xsl="http://www.w3.org/1999/XSL/Transform"'
+_RNG: Final[str] = 'xmlns="http://relaxng.org/ns/structure/1.0"'
 # each entry turns the canary's location into an href that leaves the root one way: traversal, absolute paths, file
 # URLs, percent-encoding, backslashes, a symlink placed inside the root, and an xml:base pointing outside
 ESCAPES: Final[dict[str, Callable[[Path, str], tuple[str, str]]]] = {
@@ -40,7 +38,7 @@ ESCAPES: Final[dict[str, Callable[[Path, str], tuple[str, str]]]] = {
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Exit nonzero when any attempt exposes the canary."""
+    # Exit nonzero when any attempt exposes the canary.
     parser: Final = argparse.ArgumentParser(description="Probe resource-root containment with an outside canary.")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cases", type=int, default=len(ESCAPES))
@@ -58,13 +56,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def generate(seed: int) -> Attempt:
-    """Draw an escape technique and a fresh canary token for one attempt."""
+    # Draw an escape technique and a fresh canary token for one attempt.
     rng: Final = random.Random(seed)
-    return Attempt(seed, rng.choice(sorted(ESCAPES)), f"canary{rng.getrandbits(64):016x}")
+    return Attempt(seed=seed, escape=rng.choice(sorted(ESCAPES)), token=f"canary{rng.getrandbits(64):016x}")
 
 
 def compare(attempt: Attempt, *, negative_control: bool = False) -> Iterator[Verdict]:
-    """Run the escape against both resolvers; a verdict leaks when the token shows up anywhere observable."""
+    # Run the escape against both resolvers; a verdict leaks when the token shows up anywhere observable.
     with tempfile.TemporaryDirectory(prefix="resource-canary-") as scratch:
         root: Final = Path(scratch, "root")
         outside: Final = root if negative_control else Path(scratch, "outside")
@@ -82,11 +80,11 @@ def compare(attempt: Attempt, *, negative_control: bool = False) -> Iterator[Ver
                 href, base = name, ""
             observed = run(root, href, base, attempt.token)
             yield Verdict(
-                attempt.seed,
-                attempt.escape,
-                engine,
-                hashlib.sha256(href.encode()).hexdigest(),
-                attempt.token in observed,
+                seed=attempt.seed,
+                escape=attempt.escape,
+                engine=engine,
+                href_sha256=hashlib.sha256(href.encode()).hexdigest(),
+                leaked=attempt.token in observed,
             )
 
 
@@ -124,24 +122,32 @@ def _attribute(value: str) -> str:
     return value.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Attempt:
-    """One escape technique with a token no other file on disk holds."""
-
+    # One escape technique with a token no other file on disk holds.
     seed: int
     escape: str
     token: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Verdict:
-    """Log the href only by hash: an escaping path may name private locations."""
-
+    # Log the href only by hash: an escaping path may name private locations.
     seed: int
     escape: str
     engine: str
     href_sha256: str
     leaked: bool
+
+
+__all__: Final = [
+    "ESCAPES",
+    "Attempt",
+    "Verdict",
+    "compare",
+    "generate",
+    "main",
+]
 
 
 if __name__ == "__main__":

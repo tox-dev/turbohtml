@@ -1,9 +1,3 @@
-"""turbohtml.annotation_surface(): group the annotated substrings by label.
-
-The inscriptis surface-form extractor over the (text, spans) pair
-Node.to_annotated_text() returns, as a pure transform.
-"""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -73,16 +67,16 @@ def test_round_trips_to_annotated_text() -> None:
     assert annotation_surface(text, spans) == {"heading": ["Q3"], "metric": ["12%"]}
 
 
-def call_with(exporter: Callable[..., object], *args: object) -> object:
-    """Invoke an exporter with arguments its static signature rejects, to drive the
-    runtime validation; the exporter arrives signature-erased on purpose."""
-    return exporter(*args)
-
-
 @pytest.mark.parametrize("exporter", [annotation_surface, annotation_tags], ids=["surface", "tags"])
 def test_text_must_be_str(exporter: Callable[..., object]) -> None:
     with pytest.raises(TypeError, match="str"):
         call_with(exporter, 5, [])
+
+
+def call_with(exporter: Callable[..., object], *args: object) -> object:
+    # Invoke an exporter with arguments its static signature rejects, to drive the
+    # runtime validation; the exporter arrives signature-erased on purpose.
+    return exporter(*args)
 
 
 @pytest.mark.parametrize("exporter", [annotation_surface, annotation_tags], ids=["surface", "tags"])

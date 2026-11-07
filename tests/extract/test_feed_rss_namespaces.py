@@ -1,5 +1,3 @@
-"""Namespace boundaries in RSS 2.0 feed extraction."""
-
 from __future__ import annotations
 
 from typing import Final

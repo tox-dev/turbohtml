@@ -20,7 +20,7 @@ from bench import orchestrator, report
 
 
 def main() -> None:
-    """Parse the command argument plus any pyperf passthrough options and run the matching report."""
+    # Parse the command argument plus any pyperf passthrough options and run the matching report.
     arguments = sys.argv[1:]
     if "--table-json" in arguments:
         # also write each rendered table as the docs' bench-table JSON feed into the named directory

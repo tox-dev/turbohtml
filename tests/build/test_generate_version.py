@@ -15,7 +15,22 @@ from turbohtml import _version
 
 @pytest.mark.parametrize("version", ["1.2.3", "1.2.3.dev4+gabc"], ids=["release", "development"])
 def test_generate_version_configured_value(version_project: Path, version: str) -> None:
-    assert _version_cli(version_project, "--version", version) == version + "\n"
+    assert _version_cli(version_project, "--version", version) == f"{version}\n"
+
+
+def _version_cli(project: Path, *args: str) -> str:
+    return subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed Python executable and CLI
+        [sys.executable, str(project / "tools/generate_version.py"), *args],
+        cwd=project,
+        env={
+            **os.environ,
+            "GIT_CEILING_DIRECTORIES": str(project.parent.parent),
+            "MESON_DIST_ROOT": str(project / "sdist"),
+        },
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
 
 
 @pytest.mark.parametrize(
@@ -26,7 +41,7 @@ def test_generate_version_configured_value(version_project: Path, version: str) 
 def test_generate_version_reads_frozen_value(version_project: Path, declaration: str) -> None:
     target: Final = version_project / "src/turbohtml/_version.py"
     target.parent.mkdir(parents=True)
-    target.write_text(declaration + "\n", encoding="utf-8")
+    target.write_text(f"{declaration}\n", encoding="utf-8")
     assert _version_cli(version_project) == "1.2.3\n"
 
 
@@ -56,7 +71,7 @@ def test_generate_version_import_matches_layout(version_project: Path, *, editab
         text=True,
         check=True,
     )
-    assert result.stdout == expected + "\n"
+    assert result.stdout == f"{expected}\n"
 
 
 def test_generate_version_installed_source_in_wheel_layout(version_project: Path) -> None:
@@ -155,18 +170,3 @@ def version_repository(version_project: Path) -> Path:
             capture_output=True,
         )
     return version_project
-
-
-def _version_cli(project: Path, *args: str) -> str:
-    return subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed Python executable and CLI
-        [sys.executable, str(project / "tools/generate_version.py"), *args],
-        cwd=project,
-        env={
-            **os.environ,
-            "GIT_CEILING_DIRECTORIES": str(project.parent.parent),
-            "MESON_DIST_ROOT": str(project / "sdist"),
-        },
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout

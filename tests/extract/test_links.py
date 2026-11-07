@@ -1,5 +1,3 @@
-"""extract_links: anchors from the parsed DOM, base resolution, filters, and variant deduplication."""
-
 from __future__ import annotations
 
 from html import escape
@@ -12,7 +10,7 @@ from turbohtml import Element, Link, Text, parse, parse_fragment
 from turbohtml._html import _registrable_domain
 from turbohtml.extract import UrlCleaning, extract_links
 
-_BASE = "https://test.com/dir/"
+_BASE: Final[str] = "https://test.com/dir/"
 
 
 def test_relative_links_resolve_against_the_base() -> None:
@@ -199,10 +197,6 @@ def test_empty_document_yields_no_links() -> None:
     assert extract_links("", _BASE) == set()
 
 
-def _urls(html: str) -> list[str]:
-    return [link.url for link in parse_fragment(html).links()]
-
-
 @pytest.mark.parametrize(
     "attr",
     [
@@ -214,6 +208,10 @@ def _urls(html: str) -> list[str]:
 )
 def test_non_url_attributes_of_varied_length_are_ignored(attr: str) -> None:
     assert _urls(f'<span {attr}="not-a-url">t</span>') == []
+
+
+def _urls(html: str) -> list[str]:
+    return [link.url for link in parse_fragment(html).links()]
 
 
 @pytest.mark.parametrize(
@@ -324,10 +322,6 @@ def test_whitespace_only_space_list_yields_nothing() -> None:
     assert _urls('<object archive="    "></object>') == []
 
 
-def _enumerated_urls(html: str) -> list[tuple[str, str | None, str]]:
-    return [(link.element.tag, link.attribute, link.url) for link in parse_fragment(html).links()]
-
-
 @pytest.mark.parametrize(
     ("markup", "expected"),
     [
@@ -384,6 +378,10 @@ def _enumerated_urls(html: str) -> list[tuple[str, str | None, str]]:
 )
 def test_enumerated_urls(markup: str, expected: list[tuple[str, str | None, str]]) -> None:
     assert _enumerated_urls(markup) == expected
+
+
+def _enumerated_urls(html: str) -> list[tuple[str, str | None, str]]:
+    return [(link.element.tag, link.attribute, link.url) for link in parse_fragment(html).links()]
 
 
 def test_many_elements_grow_the_snapshot() -> None:
@@ -522,8 +520,7 @@ def test_style_with_a_non_text_child_skips_it() -> None:
 
 
 def test_many_links_in_one_value_grow_the_span_buffer() -> None:
-    candidates = ", ".join(f"img{index}.png {index}x" for index in range(1, 13))
-    found = _enumerated_urls(f'<img srcset="{candidates}">')
+    found = _enumerated_urls(f'<img srcset="{", ".join(f"img{index}.png {index}x" for index in range(1, 13))}">')
     assert [url for _, _, url in found] == [f"img{index}.png" for index in range(1, 13)]
 
 
@@ -544,8 +541,10 @@ def test_link_is_a_named_tuple() -> None:
     assert link.element.attrs["href"] == "u"
 
 
-_RESOLVE_BASE = "https://example.com/dir/page.html"
-_HTTPS = "https://example.com/dir/"
+_RESOLVE_BASE: Final[str] = "https://example.com/dir/page.html"
+
+
+_HTTPS: Final[str] = "https://example.com/dir/"
 
 
 def _resolved(html: str, base: str = _RESOLVE_BASE) -> str:
@@ -726,19 +725,14 @@ def test_same_scheme_absolute_with_internal_control_char_is_rejoined(reference: 
     assert link.url == urljoin(_HTTPS, f"https://host/a{char}b")
 
 
-def _boom(url: str) -> str:
-    msg = f"nope: {url}"
-    raise ValueError(msg)
+def test_replacement_string_is_substituted() -> None:
+    assert _rewritten('<a href="a">x</a>', lambda url: url.upper()) == '<a href="A">x</a>'
 
 
 def _rewritten(html: str, replace: object) -> str:
     root = parse_fragment(html)
     root.rewrite_links(replace)  # ty: ignore[invalid-argument-type]
     return root.inner_html
-
-
-def test_replacement_string_is_substituted() -> None:
-    assert _rewritten('<a href="a">x</a>', lambda url: url.upper()) == '<a href="A">x</a>'
 
 
 def test_returning_none_leaves_the_link_unchanged() -> None:
@@ -781,6 +775,11 @@ def test_a_non_string_non_none_result_is_a_type_error() -> None:
 def test_an_exception_from_replace_propagates() -> None:
     with pytest.raises(ValueError, match="nope"):
         _rewritten('<a href="a">x</a>', _boom)
+
+
+def _boom(url: str) -> str:
+    msg = f"nope: {url}"
+    raise ValueError(msg)
 
 
 def test_an_exception_during_a_meta_refresh_rewrite_stops_the_walk() -> None:

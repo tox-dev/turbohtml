@@ -1,34 +1,3 @@
-"""Validate turbohtml's sanitizer head-to-head against DOMPurify's own test corpus and a live DOMPurify Node build.
-
-DOMPurify (https://github.com/cure53/DOMPurify) is the reference HTML sanitizer. It is vendored as a pinned shallow
-submodule at ``tests/conformance/DOMPurify``; the corpus is its ``test/fixtures/expect.mjs``, ~219 ``{payload}`` XSS
-vectors and config cases. The oracle is DOMPurify's *actual* output: the Node runner
-``tools/bench/node/dompurify_conformance_runner.js`` runs each payload through ``isomorphic-dompurify`` under the config
-that mirrors the Policy feature being validated, so the comparison is head-to-head, not against a frozen string.
-
-Two questions are asked, at two rigor levels:
-
-1. *Security is absolute.* For every payload, under every config, turbohtml's output must be inert -- no scriptable
-   element in the HTML namespace, no ``on*`` handler, no ``javascript:``/``data:``/``vbscript:`` URL, no dangerous CSS.
-   And turbohtml must never be *less* safe than DOMPurify: any executable construct it keeps DOMPurify must keep too.
-   ``_live_danger`` reparses the sanitized string as a browser would on ``innerHTML`` assignment and lists what
-   survived; the list must be empty (and a subset of DOMPurify's). A single non-empty result is a real bypass.
-
-2. *Config features match, on curated inputs.* DOMPurify keeps nearly all of HTML by default while turbohtml's Policy is
-   an explicit allowlist, so byte-parity over the whole corpus is dominated by allowlist scope, not by the feature under
-   test -- that is a documented architectural difference, not a bug. So each feature (``SAFE_FOR_TEMPLATES`` ->
-   ``strip_template_markers``, ``SANITIZE_NAMED_PROPS`` -> ``isolate_named_props``, ``CUSTOM_ELEMENT_HANDLING`` ->
-   ``custom_element_check``/``custom_attribute_check``, ``USE_PROFILES`` -> the ``allow_html``/``allow_svg``/
-   ``allow_mathml`` gates) is validated on a curated corpus whose tags both allowlists share, where the only variable is
-   the config feature. There the canonical (namespace-, attribute-order-normalized) forms must be identical.
-
-Two deviations are documented and xfailed rather than hidden -- both cases where turbohtml is *stricter*, never less
-safe. The template stripper collapses only marker runs that can *open* a template evaluation (``{{``/``${``/``<%``),
-leaving a bare unmatched close delimiter as literal text since it cannot start one, while DOMPurify's greedy regex also
-eats the text before a bare close; and stripping a disallowed HTML wrapper drops a foreign (SVG/MathML) child subtree
-instead of hoisting it, so a profile keeps less than DOMPurify when foreign content is nested inside disallowed HTML.
-"""
-
 from __future__ import annotations
 
 import json
@@ -38,6 +7,7 @@ from dataclasses import replace
 from functools import cache
 from pathlib import Path
 from types import MappingProxyType
+from typing import Final
 
 import pytest
 
@@ -55,11 +25,11 @@ _NODE = shutil.which("node")
 # would let the whole suite vanish). Node with isomorphic-dompurify is a runtime toolchain a bare dev checkout may lack,
 # so its absence is a legitimate skip -- the conformance job installs it, other envs need not.
 if not _FIXTURE.exists():  # pragma: no cover
-    msg = (
+    _MSG = (
         "submodule tests/conformance/DOMPurify not checked out; "
         "run: git submodule update --init tests/conformance/DOMPurify"
     )
-    raise RuntimeError(msg)
+    raise RuntimeError(_MSG)
 if _NODE is None or not (_NODE_DIR / "node_modules" / "isomorphic-dompurify").exists():
     pytest.skip("node or isomorphic-dompurify absent (run `npm install` in tools/bench/node)", allow_module_level=True)
 
@@ -67,7 +37,7 @@ _NODE_BIN = _NODE or "node"  # the skip above guarantees a real path here; the f
 
 
 def _load_payloads() -> list[str]:
-    """Extract every ``payload`` string from the ESM fixture by decoding each object with the JSON reader."""
+    # Extract every ``payload`` string from the ESM fixture by decoding each object with the JSON reader.
     body = _FIXTURE.read_text(encoding="utf-8").split("export default", 1)[1]
     decoder = json.JSONDecoder()
     index = body.index("[") + 1
@@ -88,7 +58,7 @@ _IDS = [f"{position:03d}" for position in range(len(_PAYLOADS))]
 
 @cache
 def _dompurify(mode: str) -> tuple[str, ...]:
-    """DOMPurify's output for the whole corpus under ``mode``, one Node process per mode (cached for the session)."""
+    # DOMPurify's output for the whole corpus under ``mode``, one Node process per mode (cached for the session).
     request = json.dumps({"mode": mode, "inputs": _PAYLOADS})
     result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, node is the absolute path from shutil.which
         [_NODE_BIN, str(_RUNNER)],
@@ -102,7 +72,7 @@ def _dompurify(mode: str) -> tuple[str, ...]:
 
 
 def _dompurify_one(mode: str, html: str) -> str:
-    """DOMPurify's output for a single ad-hoc input (curated corpora that are not part of the fixture)."""
+    # DOMPurify's output for a single ad-hoc input (curated corpora that are not part of the fixture).
     request = json.dumps({"mode": mode, "inputs": [html]})
     result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, node is the absolute path from shutil.which
         [_NODE_BIN, str(_RUNNER)],
@@ -139,7 +109,7 @@ _BASE = Policy(
     on_disallowed_tag=OnDisallowed.STRIP,
     remove_with_content=_REMOVE_WITH_CONTENT,
 )
-_MODES: dict[str, Policy] = {
+_MODES: Final[dict[str, Policy]] = {
     "templates": replace(_BASE, strip_template_markers=True),
     "named-props": replace(_BASE, isolate_named_props=True),
     "custom-elements": replace(
@@ -152,28 +122,24 @@ _MODES: dict[str, Policy] = {
     "profile-mathml": replace(_BASE, allow_html=False, allow_svg=False),
 }
 
-_DANGER_TAGS = frozenset({"script", "iframe", "object", "embed", "frame", "style", "noscript", "base"})
-_DANGER_SCHEMES = ("javascript:", "data:", "vbscript:")
 _URL_ATTRS = frozenset({"href", "src", "action", "xlink:href", "formaction", "poster", "background", "cite", "ping"})
-_SVG_ANIMATION_TAGS = frozenset({"animate", "animateColor", "animateMotion", "animateTransform", "set"})
 _CSS_DANGER = ("javascript:", "vbscript:", "expression(", "@import", "behavior:", "-moz-binding")
-_TEMPLATE_OPENERS = ("{{", "${", "<%")
 
 
 def _attr_value(raw: str | list[str] | None) -> str:
-    """The lowercased attribute value, joining a duplicate-attribute list and reading a boolean attr as empty."""
+    # The lowercased attribute value, joining a duplicate-attribute list and reading a boolean attr as empty.
     if raw is None:
         return ""
     return (" ".join(raw) if isinstance(raw, list) else raw).lower()
 
 
 def _bad_scheme(value: str) -> bool:
-    """Whether a URL value resolves to a script-capable scheme once control/whitespace obfuscation is stripped."""
-    return "".join(char for char in value if ord(char) > 0x20).startswith(_DANGER_SCHEMES)
+    # Whether a URL value resolves to a script-capable scheme once control/whitespace obfuscation is stripped.
+    return "".join(char for char in value if ord(char) > 0x20).startswith(("javascript:", "data:", "vbscript:"))
 
 
 def _dangerous_attribute(name: str, value: str) -> str | None:
-    """A label for an executable attribute: an ``on*`` handler, dangerous CSS on ``style``, or a scriptable URL."""
+    # A label for an executable attribute: an ``on*`` handler, dangerous CSS on ``style``, or a scriptable URL.
     if name.startswith("on"):
         return f"@{name}"
     if name == "style":
@@ -182,14 +148,16 @@ def _dangerous_attribute(name: str, value: str) -> str | None:
 
 
 def _live_danger(html: str) -> list[str]:
-    """Reparse sanitized HTML and list every executable construct that survived; an empty list means inert."""
+    # Reparse sanitized HTML and list every executable construct that survived; an empty list means inert.
     survived: list[str] = []
     stack = list(parse_fragment(html).children)
+    danger_tags = frozenset({"script", "iframe", "object", "embed", "frame", "style", "noscript", "base"})
+    svg_animation_tags = frozenset({"animate", "animateColor", "animateMotion", "animateTransform", "set"})
     while stack:
         node = stack.pop()
         if isinstance(node, Element):
             namespace = node.namespace.value
-            if namespace == "svg" and node.tag in _SVG_ANIMATION_TAGS:
+            if namespace == "svg" and node.tag in svg_animation_tags:
                 attrs = {name.lower(): _attr_value(value) for name, value in node.attrs.items()}
                 target = attrs.get("attributename", "")
                 if target.startswith("on") or (
@@ -207,7 +175,7 @@ def _live_danger(html: str) -> list[str]:
                 body = "".join(getattr(child, "data", "") for child in node.children).lower()
                 if any(token in body for token in _CSS_DANGER):
                     survived.append("style-body")
-            elif node.tag in _DANGER_TAGS and namespace == "html":
+            elif node.tag in danger_tags and namespace == "html":
                 survived.append(f"<{node.tag}>")
             survived.extend(
                 hit
@@ -219,8 +187,7 @@ def _live_danger(html: str) -> list[str]:
 
 
 def _canonical(html: str) -> str:
-    """A serialization-independent form: reparse, then emit namespace-tagged tags with attributes in sorted order."""
-
+    # A serialization-independent form: reparse, then emit namespace-tagged tags with attributes in sorted order.
     def walk(node: Element | object) -> str:
         if isinstance(node, Element):
             attrs = sorted((k, _attr_value(v)) for k, v in node.attrs.items())
@@ -233,7 +200,7 @@ def _canonical(html: str) -> str:
 
 
 def _text_and_attrs(html: str) -> str:
-    """Every text node and attribute value concatenated, for scanning surviving template markers."""
+    # Every text node and attribute value concatenated, for scanning surviving template markers.
     parts: list[str] = []
     stack = list(parse_fragment(html).children)
     while stack:
@@ -265,8 +232,9 @@ def test_templates_strip_every_opening_marker(index: int, payload: str) -> None:
     # cross-check). A bare unmatched close delimiter is inert and is covered by the documented deviation below.
     ours = _text_and_attrs(sanitize(payload, _MODES["templates"]))
     theirs = _text_and_attrs(_dompurify("templates")[index])
-    assert not any(marker in ours for marker in _TEMPLATE_OPENERS), f"opening marker survived: {ours!r}"
-    assert not any(marker in theirs for marker in _TEMPLATE_OPENERS), f"DOMPurify left an opener: {theirs!r}"
+    template_openers = ("{{", "${", "<%")
+    assert not any(marker in ours for marker in template_openers), f"opening marker survived: {ours!r}"
+    assert not any(marker in theirs for marker in template_openers), f"DOMPurify left an opener: {theirs!r}"
 
 
 _TEMPLATE_DEVIATIONS = [

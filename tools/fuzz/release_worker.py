@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 
 
 def main() -> int:
-    """Answer requests until stdin closes."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--perturb", default=None, help="append a marker to this operation's result (negative control)")
     args = parser.parse_args()

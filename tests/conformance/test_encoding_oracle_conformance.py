@@ -40,11 +40,11 @@ if TYPE_CHECKING:
 _ORACLES: Final = Path(__file__).parent / "oracles"
 
 # The sweeps below are deterministic; pinning their size keeps a refactor from quietly narrowing the differential.
-_DECODE_CASES: Final = 442176
-_DETECT_CASES: Final = 39932
+_DECODE_CASES: Final[int] = 442176
+_DETECT_CASES: Final[int] = 39932
 
 # The chunk boundaries the streaming detector is driven at; a seed keeps the sweep reproducible.
-_STREAM_SEED: Final = 20260709
+_STREAM_SEED: Final[int] = 20260709
 
 # Labels chardetng's tables do not carry, which classify by shape alone: two generic three-letter domains, the three
 # read as Western, an unlisted country code (Western), and three shapes that fall through to generic.
@@ -120,6 +120,11 @@ _SINGLE_BYTE: Final[tuple[str, ...]] = (
 )
 
 
+@pytest.fixture(scope="session")
+def decoder_oracle() -> Path:
+    return _oracle("decoder")
+
+
 def _oracle(name: str) -> Path:
     """Build the Rust oracle named *name* and return its binary, raising when the submodule or toolchain is absent."""
     crate = _ORACLES / name
@@ -130,22 +135,21 @@ def _oracle(name: str) -> Path:
     return crate / "target" / "release" / f"{name}-oracle"
 
 
-def _run(binary: Path, stdin: str, count: int) -> list[str]:
-    """Feed *stdin* to *binary* and return its lines, one per case."""
-    result = subprocess.run([binary], input=stdin, capture_output=True, text=True, check=True)  # ruff:ignore[subprocess-without-shell-equals-true]
-    lines = result.stdout.splitlines()
-    assert len(lines) == count, f"{binary.name} answered {len(lines)} of {count} cases"
-    return lines
-
-
-@pytest.fixture(scope="session")
-def decoder_oracle() -> Path:
-    return _oracle("decoder")
-
-
 @pytest.fixture(scope="session")
 def detector_oracle() -> Path:
     return _oracle("detector")
+
+
+def test_every_decoder_agrees_with_encoding_rs(decoder_oracle: Path) -> None:
+    cases = list(_decode_cases())
+    assert len(cases) == _DECODE_CASES, "the sweep shrank; a differential that stops covering a sequence proves nothing"
+    expected = _run(decoder_oracle, "".join(f"{label}\t{raw.hex()}\n" for label, raw in cases), len(cases))
+    divergent = [
+        (label, raw.hex(), raw.decode(f"whatwg-{label}"), bytes.fromhex(want).decode())
+        for (label, raw), want in zip(cases, expected, strict=True)
+        if raw.decode(f"whatwg-{label}") != bytes.fromhex(want).decode()
+    ]
+    assert not divergent, f"{len(divergent)} of {len(cases)} sequences decode differently, first: {divergent[0]}"
 
 
 def _decode_cases() -> Iterator[tuple[str, bytes]]:
@@ -176,17 +180,31 @@ def _decode_cases() -> Iterator[tuple[str, bytes]]:
         )
 
 
-def test_every_decoder_agrees_with_encoding_rs(decoder_oracle: Path) -> None:
-    cases = list(_decode_cases())
-    assert len(cases) == _DECODE_CASES, "the sweep shrank; a differential that stops covering a sequence proves nothing"
-    stdin = "".join(f"{label}\t{raw.hex()}\n" for label, raw in cases)
-    expected = _run(decoder_oracle, stdin, len(cases))
+def _run(binary: Path, stdin: str, count: int) -> list[str]:
+    """Feed *stdin* to *binary* and return its lines, one per case."""
+    result = subprocess.run([binary], input=stdin, capture_output=True, text=True, check=True)  # ruff:ignore[subprocess-without-shell-equals-true]
+    lines = result.stdout.splitlines()
+    assert len(lines) == count, f"{binary.name} answered {len(lines)} of {count} cases"
+    return lines
+
+
+def test_the_detector_agrees_with_chardetng(detector_oracle: Path) -> None:
+    # chardetng does content detection only; a byte-order mark or a pure-ASCII stream is turbohtml's own documented
+    # divergence (it honors the mark, and takes the spec's windows-1252 fallback where chardetng answers UTF-8)
+    cases = _content_cases()
+    assert len(cases) == _DETECT_CASES, "the corpus shrank; a differential that stops covering an input proves nothing"
+    expected = _run(detector_oracle, "".join(f"{raw.hex()}\n" for raw in cases), len(cases))
     divergent = [
-        (label, raw.hex(), raw.decode(f"whatwg-{label}"), bytes.fromhex(want).decode())
-        for (label, raw), want in zip(cases, expected, strict=True)
-        if raw.decode(f"whatwg-{label}") != bytes.fromhex(want).decode()
+        (raw.hex(), detect(raw).encoding, want)
+        for raw, want in zip(cases, expected, strict=True)
+        if (detect(raw).encoding or "").casefold() != want.casefold()
     ]
-    assert not divergent, f"{len(divergent)} of {len(cases)} sequences decode differently, first: {divergent[0]}"
+    assert not divergent, f"{len(divergent)} of {len(cases)} inputs detect differently, first: {divergent[0]}"
+
+
+def _content_cases() -> list[bytes]:
+    """The corpus chardetng and turbohtml must agree on: a byte-order mark or a pure-ASCII stream is not one."""
+    return [raw for raw in _detect_cases() if any(byte >= 0x80 for byte in raw) and not raw.startswith(_BOMS)]
 
 
 def _detect_cases() -> Iterator[bytes]:
@@ -204,23 +222,22 @@ def _detect_cases() -> Iterator[bytes]:
         yield bytes(rng.randrange(256) for _ in range(rng.randrange(2, 40)))
 
 
-def _content_cases() -> list[bytes]:
-    """The corpus chardetng and turbohtml must agree on: a byte-order mark or a pure-ASCII stream is not one."""
-    return [raw for raw in _detect_cases() if any(byte >= 0x80 for byte in raw) and not raw.startswith(_BOMS)]
+def test_the_tld_hint_agrees_with_chardetng(detector_oracle: Path) -> None:
+    # every label the classifier knows, against text in each encoding it models. The hint reaches three places in
+    # chardetng's scoring: the TLD's own encoding, the encodings native to it, and the penalty the rest pay. A label
+    # that classifies one script too far moves the answer without failing anything on its own.
+    _assert_agrees_under_tlds(detector_oracle, [(raw, tld) for tld in _tld_labels() for raw in _tld_samples()])
 
 
-def test_the_detector_agrees_with_chardetng(detector_oracle: Path) -> None:
-    # chardetng does content detection only; a byte-order mark or a pure-ASCII stream is turbohtml's own documented
-    # divergence (it honors the mark, and takes the spec's windows-1252 fallback where chardetng answers UTF-8)
-    cases = _content_cases()
-    assert len(cases) == _DETECT_CASES, "the corpus shrank; a differential that stops covering an input proves nothing"
-    expected = _run(detector_oracle, "".join(f"{raw.hex()}\n" for raw in cases), len(cases))
+def _assert_agrees_under_tlds(detector_oracle: Path, cases: list[tuple[bytes, str]]) -> None:
+    """Drive both implementations over (bytes, label) pairs and report every pair whose answers differ."""
+    expected = _run(detector_oracle, "".join(f"{raw.hex()}\t{tld}\n" for raw, tld in cases), len(cases))
     divergent = [
-        (raw.hex(), detect(raw).encoding, want)
-        for raw, want in zip(cases, expected, strict=True)
-        if (detect(raw).encoding or "").casefold() != want.casefold()
+        (raw.hex(), tld, got, want)
+        for (raw, tld), want in zip(cases, expected, strict=True)
+        if ((got := detect(raw, Detection(tld=tld)).encoding) or "").casefold() != want.casefold()
     ]
-    assert not divergent, f"{len(divergent)} of {len(cases)} inputs detect differently, first: {divergent[0]}"
+    assert not divergent, f"{len(divergent)} of {len(cases)} (bytes, tld) pairs detect differently: {divergent[:3]}"
 
 
 def _tld_labels() -> list[str]:
@@ -245,24 +262,6 @@ def _tld_labels() -> list[str]:
 def _tld_samples() -> list[bytes]:
     """Text in each modeled encoding, which is what a TLD hint discriminates; byte soup is swept separately below."""
     return [(text + pad).encode(codec) for codec, text in _SAMPLES.items() for pad in ("", " abc")]
-
-
-def _assert_agrees_under_tlds(detector_oracle: Path, cases: list[tuple[bytes, str]]) -> None:
-    """Drive both implementations over (bytes, label) pairs and report every pair whose answers differ."""
-    expected = _run(detector_oracle, "".join(f"{raw.hex()}\t{tld}\n" for raw, tld in cases), len(cases))
-    divergent = [
-        (raw.hex(), tld, got, want)
-        for (raw, tld), want in zip(cases, expected, strict=True)
-        if ((got := detect(raw, Detection(tld=tld)).encoding) or "").casefold() != want.casefold()
-    ]
-    assert not divergent, f"{len(divergent)} of {len(cases)} (bytes, tld) pairs detect differently: {divergent[:3]}"
-
-
-def test_the_tld_hint_agrees_with_chardetng(detector_oracle: Path) -> None:
-    # every label the classifier knows, against text in each encoding it models. The hint reaches three places in
-    # chardetng's scoring: the TLD's own encoding, the encodings native to it, and the penalty the rest pay. A label
-    # that classifies one script too far moves the answer without failing anything on its own.
-    _assert_agrees_under_tlds(detector_oracle, [(raw, tld) for tld in _tld_labels() for raw in _tld_samples()])
 
 
 def test_the_tld_hint_agrees_with_chardetng_on_byte_soup(detector_oracle: Path) -> None:

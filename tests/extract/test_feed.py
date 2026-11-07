@@ -1,5 +1,3 @@
-"""feed: extract.feed() normalizes RSS 2.0, Atom 1.0, and RDF/RSS-1.0 documents into one Feed of Entry records."""
-
 from __future__ import annotations
 
 from typing import Final, cast
@@ -10,7 +8,7 @@ from bench.operations import INPUTS
 from turbohtml import Text, parse, parse_xml
 from turbohtml.extract import Entry, Feed, feed
 
-RSS = """<?xml version="1.0"?>
+RSS: Final[str] = """<?xml version="1.0"?>
 <rss version="2.0"><channel>
 <title>RSS Title</title>
 <link>http://example.com/</link>
@@ -31,31 +29,13 @@ RSS = """<?xml version="1.0"?>
 </item>
 </channel></rss>"""
 
-ATOM = """<feed xmlns="http://www.w3.org/2005/Atom">
-<title>Atom Title</title>
-<link href="http://example.com/self" rel="self"/>
-<link href="http://example.com/" rel="alternate"/>
-<subtitle>Atom subtitle</subtitle>
-<updated>2026-07-06T00:00:00Z</updated>
-<entry>
-  <title>Entry One</title>
-  <link href="http://example.com/e1" rel="alternate" type="text/html"/>
-  <id>urn:e1</id>
-  <updated>2026-07-06T01:00:00Z</updated>
-  <published>2026-07-05T01:00:00Z</published>
-  <summary>Entry summary</summary>
-  <content type="html">&lt;p&gt;body&lt;/p&gt;</content>
-  <author><name>Jane Roe</name><email>jane@example.com</email></author>
-</entry>
-</feed>"""
-
-ATOM_PREFIXED: Final = """<a:feed xmlns:a="http://www.w3.org/2005/Atom">
+_ATOM_PREFIXED: Final[str] = """<a:feed xmlns:a="http://www.w3.org/2005/Atom">
 <a:title>Feed</a:title><a:link href="https://example.org/"/><a:subtitle>Subtitle</a:subtitle>
 <a:updated>2026-07-06</a:updated><a:entry><a:id>urn:entry</a:id><a:title>Entry</a:title>
 <a:link href="https://example.org/entry"/><a:summary>Summary</a:summary><a:content>Body</a:content>
 <a:author><a:name>Alice</a:name></a:author></a:entry></a:feed>"""
 
-RDF = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
+RDF: Final[str] = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
 <channel rdf:about="http://example.com/">
 <title>RDF Title</title>
 <link>http://example.com/</link>
@@ -71,17 +51,12 @@ RDF = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns=
 </item>
 </rdf:RDF>"""
 
-RDF_PREFIXED: Final = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:s="http://purl.org/rss/1.0/">
+_RDF_PREFIXED: Final[
+    str
+] = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:s="http://purl.org/rss/1.0/">
 <s:channel><s:title>Feed</s:title><s:link>https://example.org/</s:link><s:description>Summary</s:description></s:channel>
 <s:item rdf:about="https://example.org/item"><s:title>Item</s:title><s:link>https://example.org/item</s:link>
 <s:description>Entry summary</s:description></s:item></rdf:RDF>"""
-
-
-def parse_feed(xml: str) -> Feed:
-    """Parse a feed the test knows is well-formed, narrowing the ``Feed | None`` return for the assertions."""
-    result = feed(xml)
-    assert result is not None
-    return result
 
 
 def test_feed_rss_module_prefix_aliases() -> None:
@@ -95,6 +70,13 @@ def test_feed_rss_module_prefix_aliases() -> None:
     assert parse_feed(xml) == Feed(
         "rss", None, None, None, "updated", (Entry(None, None, None, None, "published", "summary", "body", "author"),)
     )
+
+
+def parse_feed(xml: str) -> Feed:
+    # Parse a feed the test knows is well-formed, narrowing the ``Feed | None`` return for the assertions.
+    result = feed(xml)
+    assert result is not None
+    return result
 
 
 @pytest.mark.parametrize(
@@ -257,7 +239,24 @@ def test_feed_rss_shape() -> None:
 
 
 def test_feed_atom_shape() -> None:
-    result = parse_feed(ATOM)
+    atom = """<feed xmlns="http://www.w3.org/2005/Atom">
+<title>Atom Title</title>
+<link href="http://example.com/self" rel="self"/>
+<link href="http://example.com/" rel="alternate"/>
+<subtitle>Atom subtitle</subtitle>
+<updated>2026-07-06T00:00:00Z</updated>
+<entry>
+  <title>Entry One</title>
+  <link href="http://example.com/e1" rel="alternate" type="text/html"/>
+  <id>urn:e1</id>
+  <updated>2026-07-06T01:00:00Z</updated>
+  <published>2026-07-05T01:00:00Z</published>
+  <summary>Entry summary</summary>
+  <content type="html">&lt;p&gt;body&lt;/p&gt;</content>
+  <author><name>Jane Roe</name><email>jane@example.com</email></author>
+</entry>
+</feed>"""
+    result = parse_feed(atom)
     assert result.type == "atom"
     assert (result.title, result.link, result.description) == ("Atom Title", "http://example.com/", "Atom subtitle")
     assert result.updated == "2026-07-06T00:00:00Z"
@@ -285,7 +284,7 @@ def test_feed_atom_shape() -> None:
     ],
 )
 def test_feed_atom_prefixed_feed_fields(field: str, expected: str) -> None:
-    assert getattr(parse_feed(ATOM_PREFIXED), field) == expected
+    assert getattr(parse_feed(_ATOM_PREFIXED), field) == expected
 
 
 @pytest.mark.parametrize(
@@ -300,7 +299,7 @@ def test_feed_atom_prefixed_feed_fields(field: str, expected: str) -> None:
     ],
 )
 def test_feed_atom_prefixed_entry_fields(field: str, expected: str) -> None:
-    assert getattr(parse_feed(ATOM_PREFIXED).entries[0], field) == expected
+    assert getattr(parse_feed(_ATOM_PREFIXED).entries[0], field) == expected
 
 
 def test_feed_atom_wrong_prefixed_root_namespace() -> None:
@@ -438,7 +437,7 @@ def test_feed_rdf_other_prefixed_attribute_before_about() -> None:
     ],
 )
 def test_feed_rdf_prefixed_channel_fields(field: str, expected: str) -> None:
-    assert getattr(parse_feed(RDF_PREFIXED), field) == expected
+    assert getattr(parse_feed(_RDF_PREFIXED), field) == expected
 
 
 @pytest.mark.parametrize(
@@ -451,7 +450,7 @@ def test_feed_rdf_prefixed_channel_fields(field: str, expected: str) -> None:
     ],
 )
 def test_feed_rdf_prefixed_item_fields(field: str, expected: str) -> None:
-    assert getattr(parse_feed(RDF_PREFIXED).entries[0], field) == expected
+    assert getattr(parse_feed(_RDF_PREFIXED).entries[0], field) == expected
 
 
 def test_feed_rdf_prefixed_item_namespace_shadowing() -> None:
@@ -640,8 +639,7 @@ def test_feed_empty_field_falls_through_to_next_source() -> None:
 
 
 def test_feed_missing_field_is_none() -> None:
-    result = parse_feed("<rss version='2.0'><channel><item><title>only title</title></item></channel></rss>")
-    entry = result.entries[0]
+    entry = parse_feed("<rss version='2.0'><channel><item><title>only title</title></item></channel></rss>").entries[0]
     assert (entry.summary, entry.content, entry.published, entry.updated, entry.author, entry.id) == (
         None,
         None,
@@ -842,7 +840,7 @@ def test_feed_benchmark_entry_values(case: int) -> None:
     )
 
 
-XML_RSS: Final = """<?xml version="1.0"?>
+_XML_RSS: Final[str] = """<?xml version="1.0"?>
 <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>
 <image><title>Logo title</title><url>https://example.com/logo.png</url><link>https://example.com/logo</link></image>
 <title>Feed title</title>
@@ -856,7 +854,7 @@ XML_RSS: Final = """<?xml version="1.0"?>
 </item>
 </channel></rss>"""
 
-XML_RSS_FEED: Final = Feed(
+_XML_RSS_FEED: Final = Feed(
     "rss",
     "Feed title",
     "https://example.com/",
@@ -867,11 +865,11 @@ XML_RSS_FEED: Final = Feed(
 
 
 def test_feed_well_formed_rss_parses_as_xml() -> None:
-    assert feed(XML_RSS) == XML_RSS_FEED
+    assert feed(_XML_RSS) == _XML_RSS_FEED
 
 
 def test_feed_xml_document_method() -> None:
-    assert parse_xml(XML_RSS).feed() == XML_RSS_FEED
+    assert parse_xml(_XML_RSS).feed() == _XML_RSS_FEED
 
 
 def test_feed_atom_nested_xml_bases_resolve_links() -> None:

@@ -39,24 +39,19 @@ _Form = Literal["NFC", "NFD", "NFKC", "NFKD"]
 # The Unicode version the committed table is pinned to. It must equal the interpreter's own unicodedata version so the
 # tables generated from unicodedata match what the C engine is validated against; bump both together and review the
 # normalize_table.h diff. Unicode 16.0.0 is what CPython 3.14 ships and what idna_table.h already pins.
-UNICODE_VERSION = "16.0.0"
-_UCD_BASE = f"https://www.unicode.org/Public/{UNICODE_VERSION}/ucd"
+UNICODE_VERSION: Final[str] = "16.0.0"
+_UCD_BASE: Final[str] = f"https://www.unicode.org/Public/{UNICODE_VERSION}/ucd"
 
 # SHA-256 of DerivedNormalizationProps.txt at Unicode 16.0.0 (the same file idna_table.h pins), the only download this
 # generator needs: unicodedata supplies everything except the quick-check property.
-_DERIVED_NORM_SHA256 = "4d4c03892dea9146d674b686e495df2d55a28d071ac474041d73518f887abddc"
+_DERIVED_NORM_SHA256: Final[str] = "4d4c03892dea9146d674b686e495df2d55a28d071ac474041d73518f887abddc"
 
-_HANGUL_SBASE = 0xAC00
-_HANGUL_SCOUNT = 11172
-_SURROGATE_LO = 0xD800
-_SURROGATE_HI = 0xDFFF
-
-_QC_NO = 1
-_QC_MAYBE = 2
+_HANGUL_SBASE: Final[int] = 0xAC00
+_HANGUL_SCOUNT: Final[int] = 11172
 
 
 def _fetch(url: str, expected_sha256: str) -> str:
-    """Return the decoded body of a pinned Unicode data file, aborting if its SHA-256 is not *expected_sha256*."""
+    # Return the decoded body of a pinned Unicode data file, aborting if its SHA-256 is not *expected_sha256*.
     raw = fetch_bytes(url)
     if (digest := hashlib.sha256(raw).hexdigest()) != expected_sha256:
         msg = f"Unicode source {url} has sha256 {digest}, not the pinned {expected_sha256}; review, then bump the pin"
@@ -65,21 +60,22 @@ def _fetch(url: str, expected_sha256: str) -> str:
 
 
 def _code_points() -> Iterable[int]:
-    """Every assignable scalar value: the whole space minus the surrogate block, which no string can hold."""
+    # Every assignable scalar value: the whole space minus the surrogate block, which no string can hold.
+    surrogate_hi: int = 0xDFFF
+    surrogate_lo = 0xD800
     for code in range(0x110000):
-        if _SURROGATE_LO <= code <= _SURROGATE_HI:
+        if surrogate_lo <= code <= surrogate_hi:
             continue
         yield code
 
 
 def _character_tables() -> tuple[dict[int, list[int]], dict[int, list[int]], dict[int, int]]:
-    """
-    Collect combining classes during the decomposition scan to avoid another scalar pass.
-
-    ``unicodedata.normalize`` on a single character yields its fully-resolved, canonically-ordered decomposition, so the
-    C engine never recurses. The compatibility table stores only the code points whose NFKD differs from their NFD; the
-    engine falls back to the canonical table for the rest, halving the compatibility rows.
-    """
+    # Collect combining classes during the decomposition scan to avoid another scalar pass.
+    #
+    # ``unicodedata.normalize`` on a single character yields its fully-resolved, canonically-ordered decomposition, so
+    # the
+    # C engine never recurses. The compatibility table stores only the code points whose NFKD differs from their NFD;
+    # the engine falls back to the canonical table for the rest, halving the compatibility rows.
     combining: Final[dict[int, int]] = {}
     canonical: Final[dict[int, list[int]]] = {}
     compatibility: Final[dict[int, list[int]]] = {}
@@ -97,13 +93,11 @@ def _character_tables() -> tuple[dict[int, list[int]], dict[int, list[int]], dic
 
 
 def _composition_pairs(canonical: dict[int, list[int]]) -> list[tuple[int, int, int]]:
-    """
-    Return the canonical recomposition pairs ``(first, second, composed)``, sorted.
-
-    A code point is a primary composite iff its canonical decomposition is exactly two code points that NFC recomposes
-    back to it; that single test folds in every exclusion (composition exclusions, singletons, and non-starter
-    decompositions all fail to recompose), so it is the authoritative source unicodedata already carries.
-    """
+    # Return the canonical recomposition pairs ``(first, second, composed)``, sorted.
+    #
+    # A code point is a primary composite iff its canonical decomposition is exactly two code points that NFC recomposes
+    # back to it; that single test folds in every exclusion (composition exclusions, singletons, and non-starter
+    # decompositions all fail to recompose), so it is the authoritative source unicodedata already carries.
     pairs: list[tuple[int, int, int]] = []
     for code in canonical:
         parts = unicodedata.decomposition(chr(code)).split()
@@ -117,14 +111,15 @@ def _composition_pairs(canonical: dict[int, list[int]]) -> list[tuple[int, int, 
 
 
 def _quick_check(text: str) -> list[tuple[int, int, int, int]]:
-    """
-    Parse the NFC_QC/NFKC_QC property into ``(first, last, nfc, nfkc)`` ranges, sorted, coalescing equal neighbors.
-
-    The decompose forms (NFD/NFKD) need no quick-check table: a code point is NFD_QC=No exactly when it has a canonical
-    decomposition, which the engine already reads from the decomposition tables (Hangul arithmetically). Only the
-    compose forms carry a Maybe value (a mark that may fold into a preceding starter), so they are tabled here.
-    """
+    # Parse the NFC_QC/NFKC_QC property into ``(first, last, nfc, nfkc)`` ranges, sorted, coalescing equal neighbors.
+    #
+    # The decompose forms (NFD/NFKD) need no quick-check table: a code point is NFD_QC=No exactly when it has a
+    # canonical decomposition, which the engine already reads from the decomposition tables (Hangul arithmetically).
+    # Only the compose forms carry a Maybe value (a mark that may fold into a preceding starter), so they are tabled
+    # here.
     values: dict[int, list[int]] = {}
+    qc_maybe: int = 2
+    qc_no = 1
     for line in text.splitlines():
         payload = line.split("#", 1)[0]
         fields = [field.strip() for field in payload.split(";")]
@@ -133,7 +128,7 @@ def _quick_check(text: str) -> list[tuple[int, int, int, int]]:
         lo_hi = fields[0].split("..")
         low = int(lo_hi[0], 16)
         high = int(lo_hi[-1], 16)
-        value = _QC_NO if fields[2] == "N" else _QC_MAYBE
+        value = qc_no if fields[2] == "N" else qc_maybe
         column = 0 if fields[1] == "NFC_QC" else 1
         for code in range(low, high + 1):
             values.setdefault(code, [0, 0])[column] = value
@@ -149,7 +144,7 @@ def _quick_check(text: str) -> list[tuple[int, int, int, int]]:
 
 
 def _reference_decompose(text: str, decomp_map: dict[int, list[int]]) -> list[int]:
-    """Decompose *text* through *decomp_map* (Hangul arithmetically), the Python mirror of the C decompose step."""
+    # Decompose *text* through *decomp_map* (Hangul arithmetically), the Python mirror of the C decompose step.
     out: list[int] = []
     for char in text:
         code = ord(char)
@@ -167,7 +162,7 @@ def _reference_decompose(text: str, decomp_map: dict[int, list[int]]) -> list[in
 
 
 def _reference_reorder(seq: list[int], combining: dict[int, int]) -> None:
-    """Sort each combining-mark run of *seq* into canonical order in place (a stable insertion sort by class)."""
+    # Sort each combining-mark run of *seq* into canonical order in place (a stable insertion sort by class).
     for index in range(1, len(seq)):
         code = seq[index]
         if not (klass := combining.get(code, 0)):
@@ -180,7 +175,7 @@ def _reference_reorder(seq: list[int], combining: dict[int, int]) -> None:
 
 
 def _reference_compose(seq: list[int], combining: dict[int, int], compose: dict[tuple[int, int], int]) -> list[int]:
-    """Recompose the ordered *seq*, folding each unblocked mark into its starter, the mirror of the C compose step."""
+    # Recompose the ordered *seq*, folding each unblocked mark into its starter, the mirror of the C compose step.
     out: list[int] = []
     starter_at = -1
     last_class = 0
@@ -203,7 +198,7 @@ def _self_check(
     combining: dict[int, int],
     pairs: list[tuple[int, int, int]],
 ) -> None:
-    """Reconstruct all four forms from the generated tables and confirm they match unicodedata for every code point."""
+    # Reconstruct all four forms from the generated tables and confirm they match unicodedata for every code point.
     compose = {(first, second): composed for first, second, composed in pairs}
     nfkd = {**canonical, **compatibility}
     for code in _code_points():
@@ -227,7 +222,7 @@ def _self_check(
 
 
 def _compose_pair(first: int, second: int, compose: dict[tuple[int, int], int]) -> int:
-    """Return the canonical composition of the pair: Hangul arithmetically, everything else from the table, else 0."""
+    # Return the canonical composition of the pair: Hangul arithmetically, everything else from the table, else 0.
     lindex = first - 0x1100
     vindex = second - 0x1161
     if 0 <= lindex < 19 and 0 <= vindex < 21:
@@ -240,7 +235,7 @@ def _compose_pair(first: int, second: int, compose: dict[tuple[int, int], int]) 
 
 
 def _wrap(items: Iterable[str]) -> str:
-    """Return the items as brace-initializer rows wrapped near 116 columns, each line indented four spaces."""
+    # Return the items as brace-initializer rows wrapped near 116 columns, each line indented four spaces.
     lines: list[str] = []
     current = "   "
     for item in items:
@@ -254,7 +249,7 @@ def _wrap(items: Iterable[str]) -> str:
 
 
 def _decomp_block(name: str, table: dict[int, list[int]]) -> str:
-    """Render a decomposition row array and its shared pool for *table*."""
+    # Render a decomposition row array and its shared pool for *table*.
     offsets: dict[int, tuple[int, int]] = {}
     pool: list[int] = []
     for code in sorted(table):
@@ -277,7 +272,7 @@ def _emit(
     pairs: list[tuple[int, int, int]],
     quick: list[tuple[int, int, int, int]],
 ) -> str:
-    """Render the generated C header from the combining-class, decomposition, composition, and quick-check tables."""
+    # Render the generated C header from the combining-class, decomposition, composition, and quick-check tables.
     ccc_items = sorted(combining.items())
     ccc_rows = _wrap(f"{{0x{code:X}, {klass}}}" for code, klass in ccc_items)
     comp_rows = _wrap(f"{{0x{first:X}, 0x{second:X}, 0x{composed:X}}}" for first, second, composed in pairs)
@@ -337,7 +332,7 @@ def _emit(
 
 
 def generate(out_path: Path) -> None:
-    """Write the generated normalization C header to *out_path*."""
+    # Write the generated normalization C header to *out_path*.
     if unicodedata.unidata_version != UNICODE_VERSION:
         msg = (
             f"interpreter unicodedata is Unicode {unicodedata.unidata_version}, not the pinned {UNICODE_VERSION}; "

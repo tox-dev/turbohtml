@@ -21,20 +21,20 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
-from bench import operations
 from bench.notes import NOTES
+from bench.operations import OPERATIONS, SIZE_OPS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-_SIZE_OPS: Final = operations.SIZE_OPS
+_SIZE_OPS: Final = SIZE_OPS
 # a memory op leads with peak resident bytes, so its rows are two cells wide like a size op's
 _MEMORY_OPS: Final = frozenset({"find-cold", "parse-dense", "rewrite"})
 _WIDE_OPS: Final = _SIZE_OPS | _MEMORY_OPS
 
 # Why a variant repeats the sibling's figure when the library is measured in more than one configuration: the
 # operation runs the same code whichever one is chosen, so benchmarking it twice would publish a duplicate column.
-_SHARED_WITH_OTHER_VARIANT: Final = "same in both configurations, so measured once"
+_SHARED_WITH_OTHER_VARIANT: Final[str] = "same in both configurations, so measured once"
 
 # A competitor module's stem maps to its migration page's slug by turning ``_`` into ``-``; these libraries
 # name the two differently, so the map pins them. A stem with no ``docs/migration/<slug>.rst`` is skipped, so
@@ -49,19 +49,19 @@ _SLUG_OVERRIDES: Final = {
 
 
 def _merge_caveat(note: str | None, *, shared: bool) -> str | None:
-    """Join an operation note with the measured-once caveat when a row repeats one figure across configurations."""
+    # Join an operation note with the measured-once caveat when a row repeats one figure across configurations.
     if not shared:
         return note
     return _SHARED_WITH_OTHER_VARIANT if note is None else f"{note}; {_SHARED_WITH_OTHER_VARIANT}"
 
 
 def _slug(stem: str) -> str:
-    """Return the migration page slug for a competitor module stem."""
+    # Return the migration page slug for a competitor module stem.
     return _SLUG_OVERRIDES.get(stem, stem.replace("_", "-"))
 
 
 def discover_labels(competitor_dir: Path) -> dict[str, dict[str, str]]:
-    """Read every competitor module's ``{op_key: party label}`` from source without importing the library."""
+    # Read every competitor module's ``{op_key: party label}`` from source without importing the library.
     found: dict[str, dict[str, str]] = {}
     for path in sorted(competitor_dir.glob("*.py")):
         if path.stem == "__init__":
@@ -83,7 +83,7 @@ def discover_labels(competitor_dir: Path) -> dict[str, dict[str, str]]:
 
 
 def _case_names(operation: str, stats: dict[str, dict[str, float]]) -> list[str]:
-    """Return the operation's case names in run order, recovered from the turbohtml baseline keys."""
+    # Return the operation's case names in run order, recovered from the turbohtml baseline keys.
     names: list[str] = []
     for key in stats:  # a case name can itself contain "|" (the XPath union operator), so split off the ends
         operation_name, rest = key.split("|", 1)
@@ -96,13 +96,11 @@ def _case_names(operation: str, stats: dict[str, dict[str, float]]) -> list[str]
 def _rows(
     variants: list[dict[str, str]], stats: dict[str, dict[str, float]]
 ) -> tuple[list[list[str | float]], list[list[float | None]], list[str | None]]:
-    """
-    Build a library's rows and their spread across every shared operation-case, prefixing labels that span ops.
-
-    ``variants`` holds one ``{op: label}`` per competitor module sharing this page, so a library benchmarked in more
-    than one configuration (BeautifulSoup over each of its tree builders) columns them side by side. A variant that
-    does not measure an operation shows the sibling's shared figure rather than dropping the row for the ones that do.
-    """
+    # Build a library's rows and their spread across every shared operation-case, prefixing labels that span ops.
+    #
+    # ``variants`` holds one ``{op: label}`` per competitor module sharing this page, so a library benchmarked in more
+    # than one configuration (BeautifulSoup over each of its tree builders) columns them side by side. A variant that
+    # does not measure an operation shows the sibling's shared figure rather than dropping the row for the ones that do.
     covered = {operation for variant in variants for operation in variant}
     # a leading metric only makes sense when every shared operation carries one; a library that spans a memory
     # operation and timing-only ones would otherwise emit rows of two different widths into one table
@@ -110,7 +108,7 @@ def _rows(
     rows: list[list[str | float]] = []
     spread: list[list[float | None]] = []
     caveats: list[str | None] = []
-    for operation, meta in ((op, operations.OPERATIONS[op]) for op in operations.OPERATIONS if op in covered):
+    for operation, meta in ((op, OPERATIONS[op]) for op in OPERATIONS if op in covered):
         for case in _case_names(operation, stats):
             turbo = stats.get(f"{operation}|{case}|turbohtml")
             others = [
@@ -162,7 +160,7 @@ def _rows(
 
 
 def _leading_metric(ops: Iterable[str]) -> list[str]:
-    """Name the metric column a library's table leads with, empty when every shared operation is timing only."""
+    # Name the metric column a library's table leads with, empty when every shared operation is timing only.
     names = set(ops)
     if names <= _SIZE_OPS:
         return ["size", "time"]
@@ -172,19 +170,17 @@ def _leading_metric(ops: Iterable[str]) -> list[str]:
 
 
 def _caption(path: Path) -> str:
-    """Reuse a committed feed's caption (``stylesheet``, ``JavaScript library``, ...); default to ``operation``."""
+    # Reuse a committed feed's caption (``stylesheet``, ``JavaScript library``, ...); default to ``operation``.
     return json.loads(path.read_text(encoding="utf-8")).get("label", "operation") if path.exists() else "operation"
 
 
 def emit_migration_feeds(
     stats: dict[str, dict[str, float]], competitor_dir: Path, directory: Path, docs_root: Path
 ) -> list[str]:
-    """
-    Write one ``docs/migration/bench/<slug>.json`` per library with a migration page; return the slugs skipped.
-
-    ``stats`` is the merged ``{"op|case|label": {"mean", "size"?}}`` across every operation. A library whose page
-    is absent, or that produced no shared measurement, is skipped and reported.
-    """
+    # Write one ``docs/migration/bench/<slug>.json`` per library with a migration page; return the slugs skipped.
+    #
+    # ``stats`` is the merged ``{"op|case|label": {"mean", "size"?}}`` across every operation. A library whose page
+    # is absent, or that produced no shared measurement, is skipped and reported.
     skipped: list[str] = []
     by_slug: dict[str, list[dict[str, str]]] = {}
     for stem, op_labels in discover_labels(competitor_dir).items():
@@ -207,12 +203,12 @@ def emit_migration_feeds(
             # of them would otherwise read as covering every row the library appears in
             "row_notes": {str(index): note for index, note in enumerate(caveats) if note is not None},
         }
-        (directory / f"{slug}.json").write_text(json.dumps(feed, indent=2, ensure_ascii=False) + "\n", "utf-8")
+        (directory / f"{slug}.json").write_text(f"{json.dumps(feed, indent=2, ensure_ascii=False)}\n", "utf-8")
     return skipped
 
 
-def stats_from_feeds(feeds_dir: Path) -> dict[str, dict[str, float]]:
-    """Reconstruct ``{"op|case|party": {"mean", "size"?}}`` from a directory of per-operation ``report`` feeds."""
+def _stats_from_feeds(feeds_dir: Path) -> dict[str, dict[str, float]]:
+    # Reconstruct ``{"op|case|party": {"mean", "size"?}}`` from a directory of per-operation ``report`` feeds.
     stats: dict[str, dict[str, float]] = {}
     for path in feeds_dir.glob("*.json"):
         feed = json.loads(path.read_text(encoding="utf-8"))
@@ -235,15 +231,18 @@ def stats_from_feeds(feeds_dir: Path) -> dict[str, dict[str, float]]:
 
 
 def main() -> None:
-    """Regenerate migration feeds from per-operation feeds. Args: FEEDS_DIR OUT_DIR DOCS_ROOT COMPETITOR_DIR."""
+    # Regenerate migration feeds from per-operation feeds. Args: FEEDS_DIR OUT_DIR DOCS_ROOT COMPETITOR_DIR.
     feeds_dir, out_dir, docs_root, competitor_dir = (Path(argument) for argument in sys.argv[1:5])
-    if skipped := emit_migration_feeds(stats_from_feeds(feeds_dir), competitor_dir, out_dir, docs_root):
+    if skipped := emit_migration_feeds(_stats_from_feeds(feeds_dir), competitor_dir, out_dir, docs_root):
         # to stderr so a redirected sweep still surfaces it: a page silently losing its table is the failure to catch
         message = f"migration: {len(skipped)} page(s) with no shared measurement, left as committed: {skipped}"
         print(message, file=sys.stderr)
 
 
-__all__ = ["discover_labels", "emit_migration_feeds", "stats_from_feeds"]
+__all__ = [
+    "discover_labels",
+    "emit_migration_feeds",
+]
 
 
 if __name__ == "__main__":

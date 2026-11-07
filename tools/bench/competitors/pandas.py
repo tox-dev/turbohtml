@@ -10,7 +10,7 @@ REQUIREMENTS = ("pandas>=2.2", "lxml>=6.1.1")
 
 
 def tables(case: tuple[str, str]) -> None:
-    """Extract table grids with pandas.read_html: every table as rows, or the first table keyed by its header."""
+    # Extract table grids with pandas.read_html: every table as rows, or the first table keyed by its header.
     kind, text = case
     if kind == "rows":
         for frame in pd.read_html(io.StringIO(text)):

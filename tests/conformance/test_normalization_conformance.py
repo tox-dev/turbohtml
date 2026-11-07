@@ -1,29 +1,20 @@
-"""UAX #15 conformance: turbohtml.normalize against the Unicode Consortium's own NormalizationTest.txt.
-
-Oracle: NormalizationTest.txt for Unicode 16.0.0, the exact version turbohtml's tables pin, taken from the
-``unicodetools`` submodule pinned to tag ``final-16.0-20240912`` where the 16.0 release data lives under the ``dev``
-directory. Every non-comment row is ``c1;c2;c3;c4;c5; # comment`` whose columns are source, NFC, NFD, NFKC, NFKD as
-space-separated hex code points. The file header fixes the invariants asserted here for all ~20000 rows, plus the rule
-that every code point absent from Part 1 is left unchanged by all four forms. A missing submodule is a setup error, not
-a skip: loading the module raises so a dev running without the checkout is told to init it (CI inits submodules).
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Final
 
 import pytest
 
 from turbohtml.detect import NormalizationForm, is_normalized, normalize
 
-_FORMS: tuple[NormalizationForm, ...] = ("NFC", "NFD", "NFKC", "NFKD")
+_FORMS: Final[tuple[NormalizationForm, ...]] = ("NFC", "NFD", "NFKC", "NFKD")
 
 # Each form maps a canonical column to the input columns that must normalize into it, transcribed from the file header:
 #   NFC   c2 == toNFC(c1..c3)         c4 == toNFC(c4..c5)
 #   NFD   c3 == toNFD(c1..c3)         c5 == toNFD(c4..c5)
 #   NFKC  c4 == toNFKC(c1..c5)
 #   NFKD  c5 == toNFKD(c1..c5)
-_INVARIANTS: dict[NormalizationForm, tuple[tuple[int, tuple[int, ...]], ...]] = {
+_INVARIANTS: Final[dict[NormalizationForm, tuple[tuple[int, tuple[int, ...]], ...]]] = {
     "NFC": ((1, (0, 1, 2)), (3, (3, 4))),
     "NFD": ((2, (0, 1, 2)), (4, (3, 4))),
     "NFKC": ((3, (0, 1, 2, 3, 4)),),

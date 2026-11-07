@@ -31,3 +31,8 @@ class Link(NamedTuple):
 
 
 _register_links(Link)
+
+
+__all__ = [
+    "Link",
+]

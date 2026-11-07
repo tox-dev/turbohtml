@@ -6,7 +6,7 @@ import pytest
 
 from turbohtml import RdfaItem, parse
 
-_BASE: Final = "https://example.org/dir/page"
+_BASE: Final[str] = "https://example.org/dir/page"
 
 
 @pytest.mark.parametrize(

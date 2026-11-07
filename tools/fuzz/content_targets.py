@@ -29,26 +29,14 @@ from .round_trip_oracles import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-__all__ = [
-    "content_targets",
-    "detector_check",
-    "minifier_check",
-    "minifier_observation",
-    "sanitizer_check",
-    "sanitizer_observation",
-    "stdlib_check",
-    "stdlib_observation",
-    "url_check",
-]
-
 
 def content_targets() -> tuple[Target, ...]:
-    """Keep each qualified content export attached to an executable contract."""
+    # Keep each qualified content export attached to an executable contract.
     return (
         Target(
-            "content-sanitize",
-            _sanitize,
-            tuple(
+            name="content-sanitize",
+            callback=_sanitize,
+            exports=tuple(
                 f"turbohtml.clean.{name}"
                 for name in (
                     "DEFAULT_ATTRIBUTES",
@@ -71,9 +59,9 @@ def content_targets() -> tuple[Target, ...]:
             ),
         ),
         Target(
-            "content-links",
-            _links,
-            tuple(
+            name="content-links",
+            callback=_links,
+            exports=tuple(
                 f"turbohtml.clean.{name}"
                 for name in (
                     "DEFAULT_CALLBACKS",
@@ -97,9 +85,9 @@ def content_targets() -> tuple[Target, ...]:
             ),
         ),
         Target(
-            "content-minify",
-            _minify,
-            tuple(
+            name="content-minify",
+            callback=_minify,
+            exports=tuple(
                 f"turbohtml.clean.{name}"
                 for name in (
                     "CSSMinify",
@@ -111,9 +99,9 @@ def content_targets() -> tuple[Target, ...]:
             ),
         ),
         Target(
-            "content-detect",
-            _detect,
-            tuple(
+            name="content-detect",
+            callback=_detect,
+            exports=tuple(
                 f"turbohtml.detect.{name}"
                 for name in (
                     "Detection",
@@ -132,9 +120,9 @@ def content_targets() -> tuple[Target, ...]:
             chunked=_detect_chunks,
         ),
         Target(
-            "content-extract",
-            _extract,
-            (
+            name="content-extract",
+            callback=_extract,
+            exports=(
                 *(
                     f"turbohtml.extract.{name}"
                     for name in (
@@ -178,9 +166,9 @@ def content_targets() -> tuple[Target, ...]:
             ),
         ),
         Target(
-            "content-migration",
-            _migration,
-            (
+            name="content-migration",
+            callback=_migration,
+            exports=(
                 *(
                     f"turbohtml.migration.bleach.{name}"
                     for name in ("ALLOWED_ATTRIBUTES", "ALLOWED_PROTOCOLS", "ALLOWED_TAGS", "attribute_policy", "clean")
@@ -192,11 +180,11 @@ def content_targets() -> tuple[Target, ...]:
             ),
         ),
         Target(
-            "content-stdlib",
-            _stdlib,
-            ("turbohtml.migration.stdlib.HTMLParser",),
-            (UnicodeDecodeError,),
-            _stdlib_chunks,
+            name="content-stdlib",
+            callback=_stdlib,
+            exports=("turbohtml.migration.stdlib.HTMLParser",),
+            exceptions=(UnicodeDecodeError,),
+            chunked=_stdlib_chunks,
         ),
     )
 
@@ -275,6 +263,37 @@ def _minify(data: bytes) -> None:
     )
 
 
+def minifier_check(
+    data: bytes,
+    css: Callable[[str], str] = clean.minify_css,
+    js: Callable[[str], str] | None = None,
+) -> None:
+    # Stable minifier output must also preserve the stylesheet meaning.
+    text: Final = _text(data)
+    sheet: Final = f".{text} {{ color: #ff0000; margin: 0px 0px }}"
+    _equal(fixpoint_check(sheet, css, numeric=True), None)
+    _equal(css_semantics_check(f'<style>{sheet}</style><p class="{text}">x</p>', css), None)
+    _equal(
+        fixpoint_check(
+            f'const value = "{text}";',
+            js or partial(clean.minify_js, options=clean.JSMinify(fold=False, mangle=False)),
+            numeric=False,
+        ),
+        None,
+    )
+
+
+def minifier_observation(data: bytes) -> tuple[str, str, str, str]:
+    # Keep printer results available for independent behavioral controls.
+    text: Final = _text(data)
+    return (
+        clean.minify(f"<p><!--comment-->{text}</p>", clean.Minify(omit_optional_tags=False)),
+        clean.minify_css(f".{text} {{ color: red; }}", clean.CSSMinify()),
+        clean.minify_css_inline("color: red;", clean.CSSMinify()),
+        clean.minify_js(f'const value = "{text}";', clean.JSMinify()),
+    )
+
+
 def _detect(data: bytes) -> None:
     text: Final = _text(data)
     _equal(encoding_stream_check(f"utf-8-bom\n{text}"), None)
@@ -282,7 +301,10 @@ def _detect(data: bytes) -> None:
     encoded: Final = b"\xef\xbb\xbf" + text.encode()
     options: Final = detect.Detection()
     match: Final = detect.detect(encoded, options)
-    _equal(match, detect.EncodingMatch("UTF-8-SIG", 1.0, None, bom=True, codec="whatwg-utf-8-sig"))
+    _equal(
+        match,
+        detect.EncodingMatch(encoding="UTF-8-SIG", confidence=1.0, language=None, bom=True, codec="whatwg-utf-8-sig"),
+    )
     _equal(detect.detect_all(encoded, options)[0], match)
     stream: Final = detect.EncodingDetector(options)
     stream.feed(b"")
@@ -290,7 +312,7 @@ def _detect(data: bytes) -> None:
         stream.feed(bytes((chunk,)))
     _equal(stream.close(), match)
     language: Final = detect.detect_language(str(len(data)), detect.LanguageDetection(allowed=frozenset({"eng"})))
-    _equal(language, detect.LanguageMatch(None, 0.0, None))
+    _equal(language, detect.LanguageMatch(language=None, confidence=0.0, script=None))
     for form in cast("tuple[detect.NormalizationForm, ...]", ("NFC", "NFD", "NFKC", "NFKD")):
         normalized: Final = detect.normalize(form, f"{text}e\u0301")
         _equal(normalized, unicodedata.normalize(form, f"{text}e\u0301"))
@@ -300,6 +322,14 @@ def _detect(data: bytes) -> None:
 def _detect_chunks(data: bytes, header: Header) -> None:
     _detect(data)
     detector_check(data, header)
+
+
+def detector_check(data: bytes, header: Header = BYTEWISE) -> None:
+    # Require the fuzz bytes fed in chunks, empty ones included, to reach the answer one ``detect`` call gives.
+    options: Final = detect.Detection()
+    stream: Final = detect.EncodingDetector(options)
+    feed_chunks(stream.feed, data, header.max_chunk)
+    _equal(stream.close(), detect.detect(data, options))
 
 
 def _extract(data: bytes) -> None:
@@ -353,6 +383,17 @@ def _extract(data: bytes) -> None:
     _equal(isinstance(feed.entries[0], (extract.Entry, turbohtml.Entry)), expected=True)
 
 
+def url_check(data: bytes, normalize: Callable[[str], str] = extract.normalize_url) -> None:
+    # Known-valid Unicode families distinguish stable wrong hosts from valid normalization.
+    url: Final = f"https://example.com/{_text(data)}"
+    _equal(url_reparse_check(url, normalize), None)
+    affix: Final = data[:4].hex()
+    _equal(idna_host_check(f"acute-decomposed\n{affix}", normalize), None)
+    _equal(idna_nfc_check(f"reorder:{affix}", normalize), None)
+    _equal(normalize_url_check(url, normalize), None)
+    _equal(clean_url_check(url), None)
+
+
 def _migration(data: bytes) -> None:
     text: Final = _text(data)
     _equal(
@@ -391,21 +432,31 @@ def _stdlib(data: bytes) -> None:
     _equal(parser.getpos(), (1, 0))
 
 
+class _TextParser(stdlib.HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.text: Final[list[str]] = []
+
+    def handle_data(self, data: str) -> None:
+        self.text.append(data)
+
+
+def stdlib_observation(data: bytes) -> str:
+    # Chunked callbacks must retain decoded text rather than just complete parsing.
+    parser: Final = _TextParser()
+    for char in f"<b>{_text(data)}&amp;</b>":
+        parser.feed(char)
+    parser.close()
+    return "".join(parser.text)
+
+
 def _stdlib_chunks(data: bytes, header: Header) -> None:
     _stdlib(data)
     stdlib_check(data, header)
 
 
-def detector_check(data: bytes, header: Header = BYTEWISE) -> None:
-    """Require the fuzz bytes fed in chunks, empty ones included, to reach the answer one ``detect`` call gives."""
-    options: Final = detect.Detection()
-    stream: Final = detect.EncodingDetector(options)
-    feed_chunks(stream.feed, data, header.max_chunk)
-    _equal(stream.close(), detect.detect(data, options))
-
-
 def stdlib_check(data: bytes, header: Header = BYTEWISE) -> None:
-    """Require the decoded fuzz text fed in chunks to reach the handlers as one ``feed`` call does."""
+    # Require the decoded fuzz text fed in chunks to reach the handlers as one ``feed`` call does.
     source: Final = data.decode("utf-8")
     chunked: Final = _TextParser()
     feed_chunks(chunked.feed, source, header.max_chunk)
@@ -416,39 +467,8 @@ def stdlib_check(data: bytes, header: Header = BYTEWISE) -> None:
     _equal("".join(chunked.text), "".join(whole.text))
 
 
-def minifier_check(
-    data: bytes,
-    css: Callable[[str], str] = clean.minify_css,
-    js: Callable[[str], str] | None = None,
-) -> None:
-    """Stable minifier output must also preserve the stylesheet meaning."""
-    text: Final = _text(data)
-    sheet: Final = f".{text} {{ color: #ff0000; margin: 0px 0px }}"
-    _equal(fixpoint_check(sheet, css, numeric=True), None)
-    _equal(css_semantics_check(f'<style>{sheet}</style><p class="{text}">x</p>', css), None)
-    _equal(
-        fixpoint_check(
-            f'const value = "{text}";',
-            js or partial(clean.minify_js, options=clean.JSMinify(fold=False, mangle=False)),
-            numeric=False,
-        ),
-        None,
-    )
-
-
-def url_check(data: bytes, normalize: Callable[[str], str] = extract.normalize_url) -> None:
-    """Known-valid Unicode families distinguish stable wrong hosts from valid normalization."""
-    url: Final = f"https://example.com/{_text(data)}"
-    _equal(url_reparse_check(url, normalize), None)
-    affix: Final = data[:4].hex()
-    _equal(idna_host_check(f"acute-decomposed\n{affix}", normalize), None)
-    _equal(idna_nfc_check(f"reorder:{affix}", normalize), None)
-    _equal(normalize_url_check(url, normalize), None)
-    _equal(clean_url_check(url), None)
-
-
 def sanitizer_observation(data: bytes) -> tuple[str, list[clean.Removed]]:
-    """Distinguish stripping from a no-op sanitizer with an explicit envelope."""
+    # Distinguish stripping from a no-op sanitizer with an explicit envelope.
     text: Final = _text(data)
     return clean.sanitize_report(
         f'<b title="{text}" onclick="ignored">{text}</b><!--comment--><unknown>{text}</unknown>',
@@ -460,29 +480,9 @@ def sanitizer_check(
     data: bytes,
     render: Callable[[bytes], tuple[str, list[clean.Removed]]] = sanitizer_observation,
 ) -> None:
-    """Reject wrong renderer results before treating an input as a valid oracle case."""
+    # Reject wrong renderer results before treating an input as a valid oracle case.
     text: Final = _text(data)
     _equal(render(data), (f"<b>{text}</b><b>{text}</b>", [clean.Removed("b", "title"), clean.Removed("b", "onclick")]))
-
-
-def minifier_observation(data: bytes) -> tuple[str, str, str, str]:
-    """Keep printer results available for independent behavioral controls."""
-    text: Final = _text(data)
-    return (
-        clean.minify(f"<p><!--comment-->{text}</p>", clean.Minify(omit_optional_tags=False)),
-        clean.minify_css(f".{text} {{ color: red; }}", clean.CSSMinify()),
-        clean.minify_css_inline("color: red;", clean.CSSMinify()),
-        clean.minify_js(f'const value = "{text}";', clean.JSMinify()),
-    )
-
-
-def stdlib_observation(data: bytes) -> str:
-    """Chunked callbacks must retain decoded text rather than just complete parsing."""
-    parser: Final = _TextParser()
-    for char in f"<b>{_text(data)}&amp;</b>":
-        parser.feed(char)
-    parser.close()
-    return "".join(parser.text)
 
 
 def _text(data: bytes) -> str:
@@ -495,10 +495,14 @@ def _equal(actual: object, expected: object) -> None:
         raise AssertionError(msg)
 
 
-class _TextParser(stdlib.HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.text: Final[list[str]] = []
-
-    def handle_data(self, data: str) -> None:
-        self.text.append(data)
+__all__ = [
+    "content_targets",
+    "detector_check",
+    "minifier_check",
+    "minifier_observation",
+    "sanitizer_check",
+    "sanitizer_observation",
+    "stdlib_check",
+    "stdlib_observation",
+    "url_check",
+]

@@ -30,29 +30,14 @@ from .round_trip_oracles import OutOfScopeError, selector_entry_check, style_che
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-__all__ = [
-    "cli_observation",
-    "computed_observation",
-    "conformance_observation",
-    "cssom_observation",
-    "reference_targets",
-    "render_observation",
-    "schema_observation",
-    "selector_observation",
-    "transform_observation",
-]
-
-
-_SELECTOR_DOCUMENT: Final = '<!doctype html><div id="a"><p class="x">one</p><p>two</p></div>'
-
 
 def reference_targets() -> tuple[Target, ...]:
-    """Keep each grammar and its documented rejection set independent."""
+    # Keep each grammar and its documented rejection set independent.
     return (
         Target(
-            "html-render",
-            _render,
-            (
+            name="html-render",
+            callback=_render,
+            exports=(
                 "turbohtml.Canonical",
                 "turbohtml.Markdown",
                 "turbohtml.PlainText",
@@ -62,12 +47,12 @@ def reference_targets() -> tuple[Target, ...]:
                 "turbohtml.unescape",
                 "turbohtml.__version__",
             ),
-            (UnicodeDecodeError,),
+            exceptions=(UnicodeDecodeError,),
         ),
         Target(
-            "html-conformance",
-            _conformance,
-            (
+            name="html-conformance",
+            callback=_conformance,
+            exports=(
                 "turbohtml.conformance.ConformanceMessage",
                 "turbohtml.conformance.ConformanceReport",
                 "turbohtml.conformance.Severity",
@@ -76,12 +61,12 @@ def reference_targets() -> tuple[Target, ...]:
                 "turbohtml.HTMLParseError",
                 "turbohtml.ParseError",
             ),
-            (UnicodeDecodeError,),
+            exceptions=(UnicodeDecodeError,),
         ),
         Target(
-            "css-translate",
-            _selector,
-            (
+            name="css-translate",
+            callback=_selector,
+            exports=(
                 "turbohtml.convert.ExpressionError",
                 "turbohtml.convert.GenericTranslator",
                 "turbohtml.convert.HTMLTranslator",
@@ -91,12 +76,12 @@ def reference_targets() -> tuple[Target, ...]:
                 "turbohtml.convert.css_to_xpath",
                 "turbohtml.SelectorSyntaxError",
             ),
-            (UnicodeDecodeError, turbohtml.SelectorSyntaxError, ExpressionError, OutOfScopeError),
+            exceptions=(UnicodeDecodeError, turbohtml.SelectorSyntaxError, ExpressionError, OutOfScopeError),
         ),
         Target(
-            "css-object-model",
-            _cssom,
-            (
+            name="css-object-model",
+            callback=_cssom,
+            exports=(
                 "turbohtml.cssom.ComputedStyle",
                 "turbohtml.cssom.RuleList",
                 "turbohtml.cssom.StyleDeclaration",
@@ -104,12 +89,12 @@ def reference_targets() -> tuple[Target, ...]:
                 "turbohtml.cssom.StyleSheet",
                 "turbohtml.cssom.computed_style",
             ),
-            (UnicodeDecodeError,),
+            exceptions=(UnicodeDecodeError,),
         ),
         Target(
-            "xml-schema",
-            _schema,
-            (
+            name="xml-schema",
+            callback=_schema,
+            exports=(
                 "turbohtml.parse_xml",
                 "turbohtml.validate.RelaxNG",
                 "turbohtml.validate.SchemaValidationError",
@@ -117,19 +102,19 @@ def reference_targets() -> tuple[Target, ...]:
                 "turbohtml.validate.ValidationResult",
                 "turbohtml.validate.XMLSchema",
             ),
-            (UnicodeDecodeError, HTMLParseError),
+            exceptions=(UnicodeDecodeError, HTMLParseError),
         ),
         Target(
-            "xml-transform",
-            _transform,
-            (
+            name="xml-transform",
+            callback=_transform,
+            exports=(
                 "turbohtml.transform.Transform",
                 "turbohtml.transform.strparam",
                 "turbohtml.transform.transform",
             ),
-            (UnicodeDecodeError,),
+            exceptions=(UnicodeDecodeError,),
         ),
-        Target("html-cli", _cli, ("turbohtml.__main__.main",), (UnicodeDecodeError,)),
+        Target(name="html-cli", callback=_cli, exports=("turbohtml.__main__.main",), exceptions=(UnicodeDecodeError,)),
     )
 
 
@@ -137,32 +122,8 @@ def _render(data: bytes) -> None:
     render_observation(data)
 
 
-def _conformance(data: bytes) -> None:
-    conformance_observation(data)
-
-
-def _selector(data: bytes) -> None:
-    selector_observation(data)
-
-
-def _cssom(data: bytes) -> None:
-    cssom_observation(data)
-
-
-def _schema(data: bytes) -> None:
-    schema_observation(data)
-
-
-def _transform(data: bytes) -> None:
-    transform_observation(data)
-
-
-def _cli(data: bytes) -> None:
-    cli_observation(data)
-
-
 def render_observation(data: bytes) -> tuple[str, str, str, bytes]:
-    """Escaping text must preserve it through a parsed element."""
+    # Escaping text must preserve it through a parsed element.
     source: Final = data.decode("utf-8")
     document: Final = turbohtml.parse(source)
     _require("Escape round trip differs", condition=turbohtml.unescape(turbohtml.escape(source)) == source)
@@ -182,8 +143,17 @@ def render_observation(data: bytes) -> tuple[str, str, str, bytes]:
     )
 
 
+def _require(message: str, *, condition: bool) -> None:
+    if not condition:
+        raise AssertionError(message)
+
+
+def _conformance(data: bytes) -> None:
+    conformance_observation(data)
+
+
 def conformance_observation(data: bytes) -> tuple[bool, tuple[str, ...], tuple[str, int, int] | None]:
-    """Strict parse diagnostics and conformance reports use separate records."""
+    # Strict parse diagnostics and conformance reports use separate records.
     source: Final = data.decode("utf-8")
     report: Final = check(turbohtml.parse(source))
     _require("Conformance entry points differ", condition=report == check_html(source))
@@ -210,12 +180,17 @@ def conformance_observation(data: bytes) -> tuple[bool, tuple[str, ...], tuple[s
     return report.valid, tuple(message.code for message in report.messages), diagnostic
 
 
+def _selector(data: bytes) -> None:
+    selector_observation(data)
+
+
 def selector_observation(
     data: bytes, entries: Callable[[str], str | None] = selector_entry_check
 ) -> tuple[str, tuple[tuple[int, int, int], ...]]:
-    """Both translator wrappers must retain selector specificity and node selection."""
+    # Both translator wrappers must retain selector specificity and node selection.
     selector: Final = data.decode("utf-8")
-    assert_invariant(entries, json.dumps({"html": _SELECTOR_DOCUMENT, "css": selector}))
+    selector_document: str = '<!doctype html><div id="a"><p class="x">one</p><p>two</p></div>'
+    assert_invariant(entries, json.dumps({"html": selector_document, "css": selector}))
     try:
         expression: Final = css_to_xpath(selector)
     except ExpressionError as error:
@@ -223,7 +198,7 @@ def selector_observation(
         raise
     _require("Generic translator differs", condition=GenericTranslator().css_to_xpath(selector) == expression)
     _require("HTML translator differs", condition=HTMLTranslator().css_to_xpath(selector) == expression)
-    document: Final = turbohtml.parse(_SELECTOR_DOCUMENT)
+    document: Final = turbohtml.parse(selector_document)
     _require(
         "Selector translation differs",
         condition=tuple(node.serialize() for node in document.select(selector))
@@ -232,10 +207,14 @@ def selector_observation(
     return expression, tuple(css_specificity(selector))
 
 
+def _cssom(data: bytes) -> None:
+    cssom_observation(data)
+
+
 def cssom_observation(
     data: bytes, style: Callable[[str], str | None] = style_check
 ) -> tuple[tuple[str, str, bool], ...]:
-    """Preserve declaration records through rule attachment and a ``StyleDeclaration.text`` re-read."""
+    # Preserve declaration records through rule attachment and a ``StyleDeclaration.text`` re-read.
     source: Final = data.decode("utf-8")
     assert_invariant(style, source)
     declaration: Final = StyleDeclaration.parse(source)
@@ -263,18 +242,16 @@ def cssom_observation(
 
 
 def _rule_close(text: str) -> str | None:
-    """
-    Return what closes ``p { <text>`` so the rule body holds text as written, or None when no closer can.
-
-    A rule body reads its declarations nested, so a top-level ``}`` ends the rule where a style attribute keeps it as a
-    value (CSS Syntax 3 §5.5.7). A block, string, comment or escape still open at the end of text runs to the end of
-    input (§5.5.8, §4.3.5, §4.3.2, §4.3.7) and would swallow a written ``}``, so the rule ends at end of input as well.
-    """
+    # Return what closes ``p { <text>`` so the rule body holds text as written, or None when no closer can.
+    #
+    # A rule body reads its declarations nested, so a top-level ``}`` ends the rule where a style attribute keeps it as
+    # a value (CSS Syntax 3 §5.5.7). A block, string, comment or escape still open at the end of text runs to the end of
+    # input (§5.5.8, §4.3.5, §4.3.2, §4.3.7) and would swallow a written ``}``, so the rule ends at end of input as
+    # well.
     closers: list[str] = []
     pos = 0
     while pos < len(text):
-        char = text[pos]
-        if char in "([{":
+        if (char := text[pos]) in "([{":
             closers.append(")]}"["([{".index(char)])
         elif closers and char == closers[-1]:
             closers.pop()
@@ -287,7 +264,7 @@ def _rule_close(text: str) -> str | None:
 
 
 def _opaque_end(text: str, pos: int) -> int:
-    """Return the last offset of the escape, comment or string at pos, pos for any other code point, or -1 if open."""
+    # Return the last offset of the escape, comment or string at pos, pos for any other code point, or -1 if open.
     if text[pos] == "\\":
         return pos + 1 if pos + 1 < len(text) else -1
     if text.startswith("/*", pos):
@@ -301,7 +278,7 @@ def _opaque_end(text: str, pos: int) -> int:
 
 
 def computed_observation(data: bytes) -> str:
-    """Attach the declarations to the element whose cascade consumes them."""
+    # Attach the declarations to the element whose cascade consumes them.
     declaration: Final = StyleDeclaration.parse(data.decode("utf-8"))
     document: Final = turbohtml.parse("<style></style><p>x</p>")
     document.select("style")[0].set_text("p { color: black; " + declaration.text + " }")
@@ -320,8 +297,12 @@ def computed_observation(data: bytes) -> str:
     return computed["color"]
 
 
+def _schema(data: bytes) -> None:
+    schema_observation(data)
+
+
 def schema_observation(data: bytes, xml: Callable[[str], str | None] = xml_check) -> tuple[bool, bool]:
-    """Compiled schema verdicts and assertion errors must describe the same instance, and XML output must re-read."""
+    # Compiled schema verdicts and assertion errors must describe the same instance, and XML output must re-read.
     source: Final = data.decode("utf-8")
     assert_invariant(xml, source)
     document: Final = turbohtml.parse_xml(source)
@@ -351,8 +332,12 @@ def schema_observation(data: bytes, xml: Callable[[str], str | None] = xml_check
     return verdicts[0], verdicts[1]
 
 
+def _transform(data: bytes) -> None:
+    transform_observation(data)
+
+
 def transform_observation(data: bytes) -> str:
-    """Parameters must remain string values even when they contain XPath quotes."""
+    # Parameters must remain string values even when they contain XPath quotes.
     source: Final = data.decode("utf-8")
     stylesheet: Final = turbohtml.parse_xml(
         '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
@@ -370,8 +355,12 @@ def transform_observation(data: bytes) -> str:
     return observed
 
 
+def _cli(data: bytes) -> None:
+    cli_observation(data)
+
+
 def cli_observation(data: bytes) -> str:
-    """File-based CLI output must match the library conversion."""
+    # File-based CLI output must match the library conversion.
     source: Final = data.decode("utf-8")
     with TemporaryDirectory(prefix="turbohtml-atheris-") as directory:
         input_file: Final = Path(directory) / "input.html"
@@ -383,6 +372,14 @@ def cli_observation(data: bytes) -> str:
     return observed
 
 
-def _require(message: str, *, condition: bool) -> None:
-    if not condition:
-        raise AssertionError(message)
+__all__ = [
+    "cli_observation",
+    "computed_observation",
+    "conformance_observation",
+    "cssom_observation",
+    "reference_targets",
+    "render_observation",
+    "schema_observation",
+    "selector_observation",
+    "transform_observation",
+]

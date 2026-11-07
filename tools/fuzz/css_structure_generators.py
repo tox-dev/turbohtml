@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Preserve source bytes for the coverage-guided corpus."""
+    # Preserve source bytes for the coverage-guided corpus.
     parser: Final = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--budget", type=int, default=512)
@@ -47,7 +47,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for index in range(args.count)
             )
             if args.count
-            else generation_sweep(_GRAMMAR, budget=GenerationBudget(args.budget, args.steps))
+            else generation_sweep(_GRAMMAR, budget=GenerationBudget(nodes=args.budget, steps=args.steps))
         )
     except (BudgetError, GrammarError, ProductionFloorError) as error:
         parser.error(str(error))
@@ -56,25 +56,39 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def css_generate(rng: random.Random, budget: int = 96, *, steps: int = 64) -> Generated:
-    """Reserve node and expansion budgets across nested at-rules and sibling sheets."""
-    return generate(_GRAMMAR, rng, GenerationBudget(budget, steps))
+    # Reserve node and expansion budgets across nested at-rules and sibling sheets.
+    return generate(_GRAMMAR, rng, GenerationBudget(nodes=budget, steps=steps))
 
 
 def css_grammar(rows: Sequence[CssRow] = CSS_ROWS) -> Grammar:
-    """Retain source alternatives as distinct productions for forced coverage."""
+    # Retain source alternatives as distinct productions for forced coverage.
+    standard: str = "https://www.w3.org/TR/2021/CRD-css-syntax-3-20211224/"
     return compile_grammar(
         (
-            Production("css:sheet", "root", (*_PREFIX, Reference("body")), 30, _STANDARD, 7),
-            Production("css:leaf", "body", (b"a{color:red}",), 8, _STANDARD, 4),
-            Production("css:siblings", "body", (Reference("body", 0), Reference("body", 0)), 0, _STANDARD),
+            Production(
+                name="css:sheet",
+                symbol="root",
+                parts=(*_PREFIX, Reference(symbol="body")),
+                nodes=30,
+                origin=standard,
+                height=7,
+            ),
+            Production(name="css:leaf", symbol="body", parts=(b"a{color:red}",), nodes=8, origin=standard, height=4),
+            Production(
+                name="css:siblings",
+                symbol="body",
+                parts=(Reference(symbol="body", depth=0), Reference(symbol="body", depth=0)),
+                nodes=0,
+                origin=standard,
+            ),
             *(
                 Production(
-                    f"css:nested:{name}",
-                    "body",
-                    (prefix, Reference("body", 2), b"}"),
-                    nodes,
-                    _STANDARD,
-                    height,
+                    name=f"css:nested:{name}",
+                    symbol="body",
+                    parts=(prefix, Reference(symbol="body", depth=2), b"}"),
+                    nodes=nodes,
+                    origin=standard,
+                    height=height,
                 )
                 for name, prefix, nodes, height in (
                     ("media", b"@media all{", 5, 3),
@@ -96,14 +110,14 @@ def _production(row: CssRow) -> Production:
     parts: Final = _references(row[4])
     if row[9] or row[10]:
         return Production(
-            name,
-            "root",
-            (*parts, *_PREFIX) if row[10] else (*_PREFIX, *parts),
-            row[5],
-            origin,
-            row[6],
+            name=name,
+            symbol="root",
+            parts=(*parts, *_PREFIX) if row[10] else (*_PREFIX, *parts),
+            nodes=row[5],
+            origin=origin,
+            height=row[6],
         )
-    return Production(name, "body", parts, row[7] - 1, origin, row[8] - 1)
+    return Production(name=name, symbol="body", parts=parts, nodes=row[7] - 1, origin=origin, height=row[8] - 1)
 
 
 def _references(source: str) -> Parts:
@@ -113,39 +127,46 @@ def _references(source: str) -> Parts:
         parts.append(source[position : token.start()].encode("utf-8"))
         if token[0].startswith("--"):
             parts.append(b"--")
-        parts.append(Identifier(token[0].removeprefix("--"), definition=False))
+        parts.append(Identifier(name=token[0].removeprefix("--"), definition=False))
         position = token.end()
     parts.append(source[position:].encode("utf-8"))
     return tuple(parts)
 
 
 def css_source_generate(rng: random.Random) -> str:
-    """Use whole sheets so at-rules reach minification."""
+    # Use whole sheets so at-rules reach minification.
     return css_generate(rng).data.decode("utf-8")
 
 
 def css_source_seeds() -> list[str]:
-    """Force pinned alternatives through their shortest emitting root paths."""
-    return [case.data.decode("utf-8") for case in generation_sweep(_GRAMMAR, budget=GenerationBudget(512, 128))]
+    # Force pinned alternatives through their shortest emitting root paths.
+    return [
+        case.data.decode("utf-8") for case in generation_sweep(_GRAMMAR, budget=GenerationBudget(nodes=512, steps=128))
+    ]
 
 
 Parts: TypeAlias = tuple[bytes | Identifier, ...]
-_STANDARD: Final = "https://www.w3.org/TR/2021/CRD-css-syntax-3-20211224/"
 _BINDING: Final = re.compile(r"(?<![a-zA-Z0-9_-])(?:--cssvar[a-d]|anim)(?![a-zA-Z0-9_-])")
 _PREFIX: Final[Parts] = (
     b":root{",
     *(
         part
         for name in ("cssvara", "cssvarb", "cssvarc", "cssvard")
-        for part in (b"--", Identifier(name, definition=True), b":red;")
+        for part in (b"--", Identifier(name=name, definition=True), b":red;")
     ),
     b"}@keyframes ",
-    Identifier("anim", definition=True),
+    Identifier(name="anim", definition=True),
     b"{from{opacity:0}}",
 )
 _GRAMMAR: Final = css_grammar()
 
-__all__ = ["css_generate", "css_grammar", "css_source_generate", "css_source_seeds", "main"]
+__all__ = [
+    "css_generate",
+    "css_grammar",
+    "css_source_generate",
+    "css_source_seeds",
+    "main",
+]
 
 if __name__ == "__main__":
     raise SystemExit(main())

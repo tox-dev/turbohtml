@@ -1,9 +1,3 @@
-"""XPath functions, operators, and value coercions evaluated through ``Node.xpath``.
-
-A node-set expression returns a list; the three scalar-typed expressions return the
-matching ``float`` / ``str`` / ``bool``, the same as lxml.
-"""
-
 from __future__ import annotations
 
 import math
@@ -29,18 +23,16 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-def number(node: turbohtml.Node, expr: str) -> float:
-    result = node.xpath(expr)
-    assert isinstance(result, float)
-    return result
-
-
-HTML = (
+HTML: Final[str] = (
     "<html><body><div class='a b'><p>one</p><p class='x'>two</p><p>three</p></div>"
     "<ul><li>1</li><li>2</li><li>3</li></ul>"
     "<a href='/y'>L</a><input disabled><!--note--></body></html>"
 )
-_LONG_NEEDLE: Final = "a" * 65 + "ba"
+
+
+_LONG_NEEDLE: Final[str] = f"{'a' * 65}ba"
+
+
 _LATE_HAY: Final = "a" * 200 + _LONG_NEEDLE
 
 
@@ -229,7 +221,7 @@ def test_scalar_and_boolean(doc: turbohtml.Node, expr: str, expected: object) ->
 @pytest.mark.parametrize(
     ("expression", "hay", "needle", "expected"),
     [
-        pytest.param("contains($hay, $needle)", "a" * 400, "a" * 65 + "b", False, id="prefilter-miss"),
+        pytest.param("contains($hay, $needle)", "a" * 400, f"{'a' * 65}b", False, id="prefilter-miss"),
         pytest.param(
             "contains($hay, $needle)",
             _LATE_HAY,
@@ -237,7 +229,7 @@ def test_scalar_and_boolean(doc: turbohtml.Node, expr: str, expected: object) ->
             True,
             id="late-match",
         ),
-        pytest.param("contains($hay, $needle)", "a" * 200 + "c" + "a" * 199, _LONG_NEEDLE, False, id="kmp-miss"),
+        pytest.param("contains($hay, $needle)", f"{'a' * 200}c{'a' * 199}", _LONG_NEEDLE, False, id="kmp-miss"),
         pytest.param(
             "substring-before($hay, $needle)",
             _LATE_HAY,
@@ -247,14 +239,14 @@ def test_scalar_and_boolean(doc: turbohtml.Node, expr: str, expected: object) ->
         ),
         pytest.param(
             "substring-after($hay, $needle)",
-            _LATE_HAY + "z",
+            f"{_LATE_HAY}z",
             _LONG_NEEDLE,
             "z",
             id="substring-after",
         ),
         pytest.param("contains($hay, $needle)", "a" * 65, _LONG_NEEDLE, False, id="needle-longer"),
         pytest.param("contains($hay, $needle)", _LONG_NEEDLE, _LONG_NEEDLE, True, id="short-hay"),
-        pytest.param("contains($hay, $needle)", "x" + "a" * 65 + "ca", _LONG_NEEDLE, False, id="short-hay-miss"),
+        pytest.param("contains($hay, $needle)", f"x{'a' * 65}ca", _LONG_NEEDLE, False, id="short-hay-miss"),
     ],
 )
 def test_long_string_search(doc: turbohtml.Node, expression: str, hay: str, needle: str, expected: object) -> None:
@@ -265,6 +257,12 @@ def test_number_parse_edge_cases(doc: turbohtml.Node) -> None:
     assert math.isnan(number(doc, "number('1.2.3')"))
     assert math.isnan(number(doc, "number('12x')"))
     assert math.isnan(number(doc, "number('.')"))
+
+
+def number(node: turbohtml.Node, expr: str) -> float:
+    result = node.xpath(expr)
+    assert isinstance(result, float)
+    return result
 
 
 def test_number_of_non_numeric_string_is_nan(doc: turbohtml.Node) -> None:
@@ -284,6 +282,16 @@ def test_scalar_through_xpath_iter(doc: turbohtml.Node) -> None:
 def test_filter_base_node_set_continues_as_path(doc: turbohtml.Node) -> None:
     # a parenthesised node-set followed by a step
     assert tags(doc.xpath("(//div)/p")) == ["p", "p", "p"]
+
+
+def tags(result: object) -> list[str]:
+    return [node.tag if isinstance(node, Element) else str(node) for node in node_list(result)]
+
+
+def node_list(result: object) -> list[turbohtml.Node | str]:
+    # The node-set list an expression is expected to return.
+    assert isinstance(result, list)
+    return result
 
 
 # An unknown function name is a static error (XPath 1.0 §3.2); nested inside any
@@ -437,8 +445,7 @@ def test_number_to_string_is_shortest_decimal(value: float, expected: str) -> No
     ],
 )
 def test_number_to_string_round_trips(value: float) -> None:
-    doc = turbohtml.parse("<r/>")
-    rendered = doc.xpath("string($v)", v=value)
+    rendered = turbohtml.parse("<r/>").xpath("string($v)", v=value)
     assert isinstance(rendered, str)
     # the rendered decimal parses back to the bit-identical double it came from
     assert float(rendered).hex() == float(value).hex()
@@ -476,12 +483,12 @@ def test_string_functions_agree_with_elementpath(expr: str) -> None:
         pytest.param("a" * 64, "a" * 65536, "X", "X" * 64, id="duplicate-first-entry"),
         pytest.param("a" * 64, "a" * 65536, "", "", id="duplicate-first-removal"),
         pytest.param(
-            "yz" * 64 + "a", "abcdefghijklmnopaa", "ABCDEFGHIJKLMNOPXY", "yz" * 64 + "A", id="duplicate-after-index"
+            f"{'yz' * 64}a", "abcdefghijklmnopaa", "ABCDEFGHIJKLMNOPXY", f"{'yz' * 64}A", id="duplicate-after-index"
         ),
         pytest.param(
-            "yz" * 64 + "界😀", "abcdefghijklmnop界😀", "ABCDEFGHIJKLMNOPé", "yz" * 64 + "é", id="unicode-after-index"
+            f"{'yz' * 64}界😀", "abcdefghijklmnop界😀", "ABCDEFGHIJKLMNOPé", f"{'yz' * 64}é", id="unicode-after-index"
         ),
-        pytest.param("a" * 128 + "z", ascii_lowercase, "A", "A" * 128, id="late-removal"),
+        pytest.param(f"{'a' * 128}z", ascii_lowercase, "A", "A" * 128, id="late-removal"),
         pytest.param("yz" * 64, "", "X", "yz" * 64, id="empty-map"),
         pytest.param("", ascii_lowercase, "A", "", id="empty-input"),
     ],
@@ -496,11 +503,11 @@ def test_translate_nul_mapping() -> None:
     assert (
         document.xpath(
             "translate($text, $source, $target)",
-            text="yz" * 64 + "\x00a",
+            text=f"{'yz' * 64}\x00a",
             source="abcdefghijklmnop\x00",
             target="ABCDEFGHIJKLMNOP!",
         )
-        == "yz" * 64 + "!A"
+        == f"{'yz' * 64}!A"
     )
 
 
@@ -544,35 +551,12 @@ def test_translate_character_map(source: str, target: str, text: str, expected: 
     assert document.xpath(f"translate(string(/root), '{source}', '{target}')") == expected
 
 
-ID_HTML = (
-    "<html><body><p id='a'>one</p><p id='b'>two</p><div class='x' id='c'>three</div>"
-    "<span>no id</span><i id=''>empty</i><!--note--></body></html>"
-)
-
-NS_HTML = "<html><body><p id='p'>html</p><svg id='s'><circle/></svg><math><mi>x</mi></math></body></html>"
-
-LANG_HTML = (
-    "<html><body><p id='nolang'>x</p>"
-    "<div lang='en-US'><p id='inherit'>a</p></div>"
-    "<div lang='en'><p id='outer'>o</p>"
-    "<div lang='FR'><span><p id='inner'>i</p></span></div></div>"
-    "</body></html>"
-)
-
-
-def node_list(result: object) -> list[turbohtml.Node | str]:
-    """The node-set list an expression is expected to return."""
-    assert isinstance(result, list)
-    return result
-
-
-def tags(result: object) -> list[str]:
-    return [node.tag if isinstance(node, Element) else str(node) for node in node_list(result)]
-
-
 @pytest.fixture
 def ids() -> turbohtml.Node:
-    return turbohtml.parse(ID_HTML)
+    return turbohtml.parse(
+        "<html><body><p id='a'>one</p><p id='b'>two</p><div class='x' id='c'>three</div>"
+        "<span>no id</span><i id=''>empty</i><!--note--></body></html>"
+    )
 
 
 @pytest.mark.parametrize(
@@ -606,7 +590,9 @@ def test_id_hash_collisions_keep_document_order() -> None:
 
 @pytest.fixture
 def foreign() -> turbohtml.Node:
-    return turbohtml.parse(NS_HTML)
+    return turbohtml.parse(
+        "<html><body><p id='p'>html</p><svg id='s'><circle/></svg><math><mi>x</mi></math></body></html>"
+    )
 
 
 @pytest.mark.parametrize(
@@ -632,7 +618,13 @@ def test_namespace_uri_context_node_counts_svg_subtree(foreign: turbohtml.Node) 
 
 @pytest.fixture
 def langs() -> turbohtml.Node:
-    return turbohtml.parse(LANG_HTML)
+    return turbohtml.parse(
+        "<html><body><p id='nolang'>x</p>"
+        "<div lang='en-US'><p id='inherit'>a</p></div>"
+        "<div lang='en'><p id='outer'>o</p>"
+        "<div lang='FR'><span><p id='inner'>i</p></span></div></div>"
+        "</body></html>"
+    )
 
 
 @pytest.mark.parametrize(
@@ -703,7 +695,7 @@ def test_lang_is_false_with_no_lang_bearing_ancestor() -> None:
 @pytest.mark.parametrize("count", [pytest.param(1, id="one"), pytest.param(1000, id="many")])
 def test_id_node_values_preserve_order(count: int) -> None:
     document: Final = parse(
-        '<main><b id="first"></b><b id="second"></b>' + "<i> second  first second </i>" * count + "</main>"
+        f'<main><b id="first"></b><b id="second"></b>{"<i> second  first second </i>" * count}</main>'
     )
     assert document.xpath("id(//i)/@id") == ["first", "second"]
 
@@ -760,41 +752,17 @@ def test_codspeed_translate_result(name: str, expected: str) -> None:
     assert parse(source).xpath(expression) == expected
 
 
-EXSLT_HTML = (
-    "<html><body>"
-    "<a href='/path/123'>a</a><a href='HTTP://x'>b</a><a href='/y'>c</a>"
-    "<ul><li id='a' class='x'>1</li><li id='b' class='y'>2</li>"
-    "<li id='c' class='x'>3</li><li id='d'>1</li></ul>"
-    "<div id='nums'><n>3</n><n>1</n><n>5</n><n>5</n></div>"
-    "<div id='mixed'><m>3</m><m>nope</m></div>"
-    "</body></html>"
-)
-
-
 @pytest.fixture
 def exslt_doc() -> turbohtml.Node:
-    return turbohtml.parse(EXSLT_HTML)
-
-
-def exslt_tags(result: object) -> list[str]:
-    assert isinstance(result, list)
-    return [node.tag if isinstance(node, Element) else node for node in result]
-
-
-def exslt_ids(result: object) -> list[str]:
-    assert isinstance(result, list)
-    collected: list[str] = []
-    for node in result:
-        assert isinstance(node, Element)
-        value = node.attrs["id"]
-        assert isinstance(value, str)
-        collected.append(value)
-    return collected
-
-
-def exslt_texts(result: object) -> list[str]:
-    assert isinstance(result, list)
-    return [node.text for node in result if isinstance(node, Element)]
+    return turbohtml.parse(
+        "<html><body>"
+        "<a href='/path/123'>a</a><a href='HTTP://x'>b</a><a href='/y'>c</a>"
+        "<ul><li id='a' class='x'>1</li><li id='b' class='y'>2</li>"
+        "<li id='c' class='x'>3</li><li id='d'>1</li></ul>"
+        "<div id='nums'><n>3</n><n>1</n><n>5</n><n>5</n></div>"
+        "<div id='mixed'><m>3</m><m>nope</m></div>"
+        "</body></html>"
+    )
 
 
 @pytest.mark.parametrize(
@@ -809,6 +777,11 @@ def exslt_texts(result: object) -> list[str]:
 )
 def test_re_test(exslt_doc: turbohtml.Node, expr: str, expected: list[str]) -> None:
     assert exslt_tags(exslt_doc.xpath(expr)) == expected
+
+
+def exslt_tags(result: object) -> list[str]:
+    assert isinstance(result, list)
+    return [node.tag if isinstance(node, Element) else node for node in result]
 
 
 @pytest.mark.parametrize(
@@ -856,6 +829,17 @@ def test_re_replace_malformed_pattern_propagates_python_error(exslt_doc: turboht
 )
 def test_set_nodeset_results(exslt_doc: turbohtml.Node, expr: str, expected: list[str]) -> None:
     assert exslt_ids(exslt_doc.xpath(expr)) == expected
+
+
+def exslt_ids(result: object) -> list[str]:
+    assert isinstance(result, list)
+    collected: list[str] = []
+    for node in result:
+        assert isinstance(node, Element)
+        value = node.attrs["id"]
+        assert isinstance(value, str)
+        collected.append(value)
+    return collected
 
 
 @pytest.mark.parametrize(
@@ -1022,6 +1006,11 @@ def test_math_select(exslt_doc: turbohtml.Node, expr: str, expected: list[str]) 
     assert exslt_texts(exslt_doc.xpath(expr)) == expected
 
 
+def exslt_texts(result: object) -> list[str]:
+    assert isinstance(result, list)
+    return [node.text for node in result if isinstance(node, Element)]
+
+
 @pytest.mark.parametrize(
     "expr",
     [
@@ -1171,12 +1160,12 @@ def test_concat_item_string_values(markup: str, expression: str, expected: str) 
 @pytest.mark.parametrize(
     ("text", "search", "replacement", "expected"),
     [
-        pytest.param("a" * 32768, "a" * 64 + "b" + "a" * 64, "X", "a" * 32768, id="kmp-miss"),
+        pytest.param("a" * 32768, f"{'a' * 64}b{'a' * 64}", "X", "a" * 32768, id="kmp-miss"),
         pytest.param(
-            ("a" * 4096 + "b" + "a" * 64 + "x") * 8,
-            "a" * 64 + "b" + "a" * 64,
+            (f"{'a' * 4096}b{'a' * 64}x") * 8,
+            f"{'a' * 64}b{'a' * 64}",
             "X",
-            ("a" * 4032 + "Xx") * 8,
+            (f"{'a' * 4032}Xx") * 8,
             id="kmp-sparse",
         ),
         pytest.param("a" * 32768, "a", "bb", "bb" * 32768, id="dense-one-character"),
@@ -1264,51 +1253,26 @@ def test_regex_coerces_arguments(expression: str, *, expected: bool) -> None:
 
 
 _REGEX_TEST: Final = XPath("re:test($text, $pattern, $flags)")
+
+
 _REGEX_REPLACE: Final = XPath("re:replace($text, $pattern, $flags, $replacement)")
+
+
 _FN_REPLACE: Final = XPath("replace($text, $pattern, $replacement)")
-_REGEX_TEXTS: Final = (
-    "",
-    "abc",
-    "aab",
-    "abcd",
-    "foo bar foo baz",
-    "Hello hello HELLO",
-    "2024-05-06 / 1999-12-31",
-    "a\nb\nc\n",
-    "  spaced\t out \n",
-    "Café CAFÉ café ÉÉ",
-    "mail me@example.com or see https://x.org/p",
-    "x xx xxx xxxx",
-    "x² ½",
-    "A]b[c-d.e,f",
-    "\x07\t\n\x0b\x0c\r\b",
-    ".*+?{}()[]|^$\\",
-    "ABC\x00",
-    "\U0001f600 é A",
-    "ooooo",
-    "a{b} a{} {",
-    "the the quick quick fox",
-    "12,345.67 and 8",
-)
+
+
 _PYTHON_FLAGS: Final = {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL, "x": re.VERBOSE}
 
 
-def _python_regex(pattern: str, flags: str) -> re.Pattern[str]:
-    python_flags = 0
-    for letter in flags:
-        python_flags |= _PYTHON_FLAGS[letter]
-    return re.compile(pattern, python_flags)
+@pytest.fixture
+def native_regex(mocker: MockerFixture) -> None:
+    _forbid_python_re(mocker)
 
 
 def _forbid_python_re(mocker: MockerFixture) -> None:
     # the regex functions must never hand a pattern to Python's backtracking re engine
     mocker.patch.object(re, "compile", autospec=True, side_effect=AssertionError("re.compile called"))
     mocker.patch.object(re, "sub", autospec=True, side_effect=AssertionError("re.sub called"))
-
-
-@pytest.fixture
-def native_regex(mocker: MockerFixture) -> None:
-    _forbid_python_re(mocker)
 
 
 @pytest.mark.parametrize(
@@ -1519,7 +1483,31 @@ def test_regex_backreference_backtracking_limit_raises(
 def test_regex_matches_like_python_re(mocker: MockerFixture, pattern: str, flags: str) -> None:
     compiled: Final = _python_regex(pattern, flags)
     template: Final = "<" + "".join(f"\\g<{index}>|" for index in range(1, compiled.groups + 1)) + "\\g<0>>"
-    expected: Final = [(compiled.search(text) is not None, compiled.sub(template, text)) for text in _REGEX_TEXTS]
+    regex_texts = (
+        "",
+        "abc",
+        "aab",
+        "abcd",
+        "foo bar foo baz",
+        "Hello hello HELLO",
+        "2024-05-06 / 1999-12-31",
+        "a\nb\nc\n",
+        "  spaced\t out \n",
+        "Café CAFÉ café ÉÉ",
+        "mail me@example.com or see https://x.org/p",
+        "x xx xxx xxxx",
+        "x² ½",
+        "A]b[c-d.e,f",
+        "\x07\t\n\x0b\x0c\r\b",
+        ".*+?{}()[]|^$\\",
+        "ABC\x00",
+        "\U0001f600 é A",
+        "ooooo",
+        "a{b} a{} {",
+        "the the quick quick fox",
+        "12,345.67 and 8",
+    )
+    expected: Final = [(compiled.search(text) is not None, compiled.sub(template, text)) for text in regex_texts]
     _forbid_python_re(mocker)
     document: Final = parse_xml("<r/>")
     assert [
@@ -1527,8 +1515,15 @@ def test_regex_matches_like_python_re(mocker: MockerFixture, pattern: str, flags
             _REGEX_TEST(document, text=text, pattern=pattern, flags=flags),
             _REGEX_REPLACE(document, text=text, pattern=pattern, flags=f"{flags}g", replacement=template),
         )
-        for text in _REGEX_TEXTS
+        for text in regex_texts
     ] == expected
+
+
+def _python_regex(pattern: str, flags: str) -> re.Pattern[str]:
+    python_flags = 0
+    for letter in flags:
+        python_flags |= _PYTHON_FLAGS[letter]
+    return re.compile(pattern, python_flags)
 
 
 _FOLD_TEXTS: Final = tuple(
@@ -1842,12 +1837,12 @@ def test_regex_flags_ignore_unknown_letters() -> None:
         pytest.param("(?:a|b)*z", "abz", True, id="loop-before-literal"),
         pytest.param("(?:a|b)*z", "abc", False, id="loop-miss"),
         pytest.param("(a|b)\\1", "bb", True, id="backreference"),
-        pytest.param("(?:a?)?c", "x" * 64 + "c", True, id="shared-optional-exit"),
+        pytest.param("(?:a?)?c", f"{'x' * 64}c", True, id="shared-optional-exit"),
         pytest.param("(?:a?)?c", "x" * 64, False, id="long-miss"),
     ],
 )
 def test_alternation_start(pattern: str, text: str, repetitions: int, *, expected: bool) -> None:
-    assert parse_xml("<r>" + "<item/>" * repetitions + "</r>").xpath(
+    assert parse_xml(f"<r>{'<item/>' * repetitions}</r>").xpath(
         "count(//item[re:test($text, $pattern)])", text=text, pattern=pattern
     ) == (repetitions if expected else 0)
 

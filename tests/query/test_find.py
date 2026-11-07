@@ -1,5 +1,3 @@
-"""find()/find_all(): the filter grammar (str/regex/bool/callable/list), class_, text, axes, and limit."""
-
 from __future__ import annotations
 
 import gc
@@ -21,8 +19,10 @@ if TYPE_CHECKING:
 
 
 # document order of elements: html, head, body, section, h2, p, p, a
-_DOC = '<section><h2 id="t">T</h2><p class="lead big">one</p><p class="big">two</p><a href="/x">l</a></section>'
-_LONG_NEEDLE: Final[str] = "a" * 65 + "ba"
+_DOC: Final[str] = (
+    '<section><h2 id="t">T</h2><p class="lead big">one</p><p class="big">two</p><a href="/x">l</a></section>'
+)
+_LONG_NEEDLE: Final[str] = f"{'a' * 65}ba"
 
 
 def _tags(elements: list[Element]) -> list[str]:
@@ -374,7 +374,7 @@ def test_type_errors(call: Callable[[], object]) -> None:
 # and -- because a regex/callable runs Python mid-walk -- the C side snapshots candidates
 # and their text under the per-tree lock before running the predicate.
 
-_TEXT_DOC = (
+_TEXT_DOC: Final[str] = (
     "<section>"
     '<button class="buy">Add to cart</button>'
     "<p>Price: $19</p>"
@@ -597,8 +597,7 @@ def test_text_attribute_is_reserved_for_the_predicate() -> None:
 
 
 def test_text_on_children_axis() -> None:
-    doc = parse("<section><p>go</p><div><span>x</span></div></section>")
-    section = _el(doc.find("section"))
+    section = _el(parse("<section><p>go</p><div><span>x</span></div></section>").find("section"))
     assert _tags(section.find_all(text="go", axis=Axis.CHILDREN)) == ["p"]  # the <div> child collects "x"
     assert _tags(section.find_all(text="x")) == ["div", "span"]  # <div> and its <span> both collect "x"
 
@@ -639,8 +638,8 @@ def test_text_callable_error_propagates(query: Callable[[Document], object]) -> 
         pytest.param("a" * 400, _LONG_NEEDLE, 0, id="overlapping-miss"),
         pytest.param("a" * 10 + _LONG_NEEDLE + "c" * 200, _LONG_NEEDLE, 1, id="direct-late-match"),
         pytest.param("a" * 200 + _LONG_NEEDLE, _LONG_NEEDLE, 1, id="fallback-late-match"),
-        pytest.param("a" * 200 + "c" + "a" * 199, _LONG_NEEDLE, 0, id="late-miss"),
-        pytest.param("a" * 400, "a" * 65 + "b", 0, id="prefilter-miss"),
+        pytest.param(f"{'a' * 200}c{'a' * 199}", _LONG_NEEDLE, 0, id="late-miss"),
+        pytest.param("a" * 400, f"{'a' * 65}b", 0, id="prefilter-miss"),
         pytest.param("a" * 100, _LONG_NEEDLE, 0, id="short-hay-miss"),
         pytest.param("a" * 65, _LONG_NEEDLE, 0, id="needle-longer"),
         pytest.param(_LONG_NEEDLE, _LONG_NEEDLE, 1, id="exact-match"),

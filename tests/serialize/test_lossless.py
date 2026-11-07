@@ -1,12 +1,12 @@
-"""Lossless byte-preserving serialization: ``Node.to_source``."""
-
 from __future__ import annotations
+
+from typing import Final
 
 import pytest
 
 from turbohtml import CData, Element, IncrementalParser, ProcessingInstruction, Text, parse, parse_fragment, parse_xml
 
-DOC = "<!DOCTYPE html><html><head></head><body>{}</body></html>"
+DOC: Final[str] = "<!DOCTYPE html><html><head></head><body>{}</body></html>"
 
 
 def _doc(body: str) -> str:
@@ -51,8 +51,7 @@ def test_carriage_returns_use_retained_normalized_source() -> None:
 
 
 def test_changing_an_attribute_rewrites_only_that_start_tag() -> None:
-    markup = _doc('<p id="a">one</p><p id="b">two</p>')
-    doc = parse(markup, source_locations=True)
+    doc = parse(_doc('<p id="a">one</p><p id="b">two</p>'), source_locations=True)
     node = doc.select_one("#a")
     assert node is not None
     node.attrs["id"] = "CHANGED"
@@ -77,8 +76,7 @@ def test_deleting_an_attribute_rebuilds_the_start_tag() -> None:
 
 def test_editing_text_re_escapes_only_that_run() -> None:
     doc = parse(_doc("<p>keep</p><p>edit</p>"), source_locations=True)
-    node = doc.select("p")[1]
-    node.text = "a < b & c"
+    doc.select("p")[1].text = "a < b & c"
     assert doc.to_source() == _doc("<p>keep</p><p>a &lt; b &amp; c</p>")
 
 
@@ -102,8 +100,7 @@ def test_inserting_an_element_serializes_it_canonically() -> None:
     doc = parse(_doc("<p>x</p>"), source_locations=True)
     body = doc.select_one("body")
     assert body is not None
-    section = Element("section", children=[Text("new")])
-    body.append(section)
+    body.append(Element("section", children=[Text("new")]))
     assert doc.to_source() == _doc("<p>x</p><section>new</section>")
 
 
@@ -140,8 +137,7 @@ def test_attribute_edit_on_a_synthetic_element_reserializes_it() -> None:
 
 
 def test_to_source_on_a_subtree_root() -> None:
-    doc = parse(_doc('<p id="a">deep &amp; verbatim</p>'), source_locations=True)
-    node = doc.select_one("#a")
+    node = parse(_doc('<p id="a">deep &amp; verbatim</p>'), source_locations=True).select_one("#a")
     assert node is not None
     assert node.to_source() == '<p id="a">deep &amp; verbatim</p>'
 

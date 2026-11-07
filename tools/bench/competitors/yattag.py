@@ -13,7 +13,7 @@ REQUIREMENTS = ("yattag>=1.16.1",)
 
 
 def build_e(count: int) -> None:
-    """Build a ``<ul>`` of rows with yattag's context-manager tags and read the string back."""
+    # Build a ``<ul>`` of rows with yattag's context-manager tags and read the string back.
     doc, tag, text = Doc().tagtext()
     with tag("ul"):
         for index in range(count):

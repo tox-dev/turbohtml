@@ -1,5 +1,3 @@
-"""normalize()/is_normalized() (issue #543): the four Unicode normalization forms in C, pinned to Unicode 16.0.0."""
-
 from __future__ import annotations
 
 import unicodedata
@@ -13,7 +11,7 @@ from turbohtml.detect import NormalizationForm, is_normalized, normalize
 # slash, bare combining marks); driving those exact characters is the whole point of the suite.
 
 
-_FORMS: tuple[NormalizationForm, ...] = ("NFC", "NFD", "NFKC", "NFKD")
+_FORMS: Final[tuple[NormalizationForm, ...]] = ("NFC", "NFD", "NFKC", "NFKD")
 
 # Fixed (source, NFC, NFD, NFKC, NFKD) vectors at Unicode 16.0.0, the version turbohtml's tables pin. They hold on every
 # interpreter regardless of its own Unicode version, and drive every arm of the C engine: canonical decomposition and
@@ -113,7 +111,7 @@ def test_two_mark_sequences_hold_the_invariants(form: NormalizationForm) -> None
 
 @pytest.mark.parametrize("form", _FORMS)
 def test_three_mark_sequences_are_idempotent(form: NormalizationForm) -> None:
-    corpus = ["a" + "".join(combo) for combo in product(_MARKS, repeat=3)]
+    corpus = [f"a{''.join(combo)}" for combo in product(_MARKS, repeat=3)]
     unstable = [text for text in corpus if (once := normalize(form, text)) != normalize(form, once)]
     assert unstable == []
 
@@ -128,7 +126,7 @@ def test_already_normalized_returns_the_same_object() -> None:
     [
         pytest.param("NFC", "\u0301", id="maybe-lone-mark"),
         pytest.param("NFC", "abc", id="yes-ascii"),
-        pytest.param("NFC", "x" * 40 + "q\u0301", id="maybe-after-settled-prefix"),
+        pytest.param("NFC", f"{'x' * 40}q\u0301", id="maybe-after-settled-prefix"),
     ],
 )
 def test_normalized_inputs_report_true(form: NormalizationForm, text: str) -> None:
@@ -139,7 +137,7 @@ def test_normalized_inputs_report_true(form: NormalizationForm, text: str) -> No
     ("form", "text"),
     [
         pytest.param("NFC", "e\u0301", id="maybe-decomposed"),
-        pytest.param("NFC", "x" * 40 + "e\u0301", id="maybe-decomposed-after-prefix"),
+        pytest.param("NFC", f"{'x' * 40}e\u0301", id="maybe-decomposed-after-prefix"),
         pytest.param("NFD", "\u00e9", id="no-precomposed"),
         pytest.param("NFD", "a\u0301\u0316", id="out-of-order"),
     ],
@@ -184,17 +182,17 @@ def test_matches_runtime_unicodedata(form: NormalizationForm) -> None:  # pragma
     "text",
     [
         pytest.param("abcé", id="short-settled-prefix"),
-        pytest.param("x" * 40 + "é" + "tail", id="long-settled-prefix"),
+        pytest.param(f"{'x' * 40}étail", id="long-settled-prefix"),
         pytest.param("éabc", id="no-settled-prefix"),
         pytest.param("가abcé", id="hangul-before-the-prefix"),
-        pytest.param("x" * 40 + "\u00c5\u0323", id="composed-starter-at-boundary"),
-        pytest.param("x" * 40 + "\u09c7\u09be", id="spacing-mark-composition"),
-        pytest.param("x" * 40 + "\u1100\u1161\u11a8", id="hangul-at-boundary"),
-        pytest.param("x" * 40 + "\u00a8", id="compatibility-expansion-at-boundary"),
+        pytest.param(f"{'x' * 40}\u00c5\u0323", id="composed-starter-at-boundary"),
+        pytest.param(f"{'x' * 40}\u09c7\u09be", id="spacing-mark-composition"),
+        pytest.param(f"{'x' * 40}\u1100\u1161\u11a8", id="hangul-at-boundary"),
+        pytest.param(f"{'x' * 40}\u00a8", id="compatibility-expansion-at-boundary"),
         pytest.param("\u0315\u0300abc", id="leading-unordered-marks"),
-        pytest.param("x" * 40 + "\U0001d400", id="result-narrows-after-suffix-change"),
-        pytest.param("😀" * 40 + "e\u0301", id="supplementary-prefix"),
-        pytest.param("q\u0301" + "x" * 40 + "\u212b", id="maybe-before-no"),
+        pytest.param(f"{'x' * 40}\U0001d400", id="result-narrows-after-suffix-change"),
+        pytest.param(f"{'😀' * 40}e\u0301", id="supplementary-prefix"),
+        pytest.param(f"q\u0301{'x' * 40}\u212b", id="maybe-before-no"),
     ],
 )
 @pytest.mark.parametrize("form", _FORMS)

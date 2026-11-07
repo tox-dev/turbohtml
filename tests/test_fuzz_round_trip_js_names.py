@@ -1,9 +1,7 @@
-"""The JS identifier and string-set oracle over a stubbed acorn reader, and the reader's Node protocol."""
-
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import pytest
 from fuzz.round_trip_oracles import JsNames, OutOfScopeError, js_names_check
@@ -17,13 +15,12 @@ if TYPE_CHECKING:
     from turbohtml.clean import JSMinify
 
 _Names = tuple[frozenset[str], frozenset[str]]
-_INPUT: _Names = (frozenset({"x", "f"}), frozenset({"s"}))
+_INPUT: Final[_Names] = (frozenset({"x", "f"}), frozenset({"s"}))
 
 
 @pytest.fixture
 def reader(mocker: MockerFixture) -> Callable[[Callable[[str], _Names | None]], JsNames]:
-    """Build a reader that answers through ``read``, standing in for the acorn process."""
-
+    # Build a reader that answers through ``read``, standing in for the acorn process.
     def build(read: Callable[[str], _Names | None]) -> JsNames:
         names = mocker.create_autospec(JsNames, instance=True)
         # PyPy's create_autospec drops a "read.side_effect" keyword, so the method gets it after creation
@@ -35,10 +32,6 @@ def reader(mocker: MockerFixture) -> Callable[[Callable[[str], _Names | None]], 
 
 def _source_or(output: _Names | None) -> Callable[[str], _Names | None]:
     return lambda source: _INPUT if source == "source" else output
-
-
-def _fold_only(text: str) -> Callable[[str, JSMinify], str]:
-    return lambda _source, options: text if options.fold else "plain"
 
 
 @pytest.mark.parametrize(
@@ -84,6 +77,10 @@ def test_js_names_check_lets_fold_drop_but_not_invent(
     assert verdicts == [None, "mangle=False fold=True: free identifier invented"]
 
 
+def _fold_only(text: str) -> Callable[[str, JSMinify], str]:
+    return lambda _source, options: text if options.fold else "plain"
+
+
 def test_js_names_check_skips_a_source_acorn_rejects(
     reader: Callable[[Callable[[str], _Names | None]], JsNames],
 ) -> None:
@@ -120,7 +117,7 @@ def test_js_names_reader_speaks_json_lines(
 ) -> None:
     (tmp_path / "node_modules" / "eslint-scope").mkdir(parents=True)
     mocker.patch("fuzz.round_trip_oracles.shutil.which", return_value="node")
-    process = mocker.MagicMock(**{"stdout.readline.return_value": json.dumps(answer) + "\n"})
+    process = mocker.MagicMock(**{"stdout.readline.return_value": f"{json.dumps(answer)}\n"})
     mocker.patch("fuzz.round_trip_oracles.subprocess.Popen", return_value=process)
     result = JsNames(tmp_path).read("a.b\n")
     assert (result, process.stdin.write.call_args.args) == (expected, ('"a.b\\n"\n',))

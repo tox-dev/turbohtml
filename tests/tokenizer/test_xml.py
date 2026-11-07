@@ -19,21 +19,6 @@ from turbohtml import (
 )
 
 
-def elements(node: Element) -> list[Element]:
-    return [child for child in node if isinstance(child, Element)]
-
-
-def root_of(doc: Document) -> Element:
-    root = doc.children[0]
-    assert isinstance(root, Element)
-    return root
-
-
-def data_of(node: Node) -> str:
-    assert isinstance(node, (Text, CData, Comment))
-    return node.data
-
-
 def test_returns_document_with_single_root() -> None:
     doc = parse_xml("<root><child>hi</child></root>")
     assert isinstance(doc, Document)
@@ -43,17 +28,25 @@ def test_returns_document_with_single_root() -> None:
     assert [child.tag for child in elements(root)] == ["child"]
 
 
+def elements(node: Element) -> list[Element]:
+    return [child for child in node if isinstance(child, Element)]
+
+
 def test_underscore_and_punctuation_in_names() -> None:
-    doc = parse_xml('<_root x.y-z="1"><a.b-c/></_root>')
-    root = root_of(doc)
+    root = root_of(parse_xml('<_root x.y-z="1"><a.b-c/></_root>'))
     assert root.tag == "_root"
     assert dict(root.attrs) == {"x.y-z": "1"}
     assert elements(root)[0].tag == "a.b-c"
 
 
+def root_of(doc: Document) -> Element:
+    root = doc.children[0]
+    assert isinstance(root, Element)
+    return root
+
+
 def test_case_sensitive_tag_names() -> None:
-    doc = parse_xml("<Root><Root/></Root>")
-    outer = root_of(doc)
+    outer = root_of(parse_xml("<Root><Root/></Root>"))
     assert outer.tag == "Root"
     assert elements(outer)[0].tag == "Root"
 
@@ -65,17 +58,20 @@ def test_case_sensitive_end_tag_mismatch() -> None:
 
 
 def test_self_closing_any_element() -> None:
-    doc = parse_xml("<root><br/><input/><custom/></root>")
-    root = root_of(doc)
+    root = root_of(parse_xml("<root><br/><input/><custom/></root>"))
     assert [child.tag for child in elements(root)] == ["br", "input", "custom"]
     assert all(len(child.children) == 0 for child in elements(root))
 
 
 def test_void_like_name_is_not_special() -> None:
-    doc = parse_xml("<img>text</img>")
-    root = root_of(doc)
+    root = root_of(parse_xml("<img>text</img>"))
     assert root.tag == "img"
     assert data_of(root.children[0]) == "text"
+
+
+def data_of(node: Node) -> str:
+    assert isinstance(node, (Text, CData, Comment))
+    return node.data
 
 
 def test_xml_declaration_is_not_a_node() -> None:
@@ -116,14 +112,11 @@ def test_non_reserved_pi_targets_parse(target: str) -> None:
 
 
 def test_comment_and_processing_instruction() -> None:
-    doc = parse_xml("<root><!-- note --><?target the data?></root>")
-    root = doc.children[0]
-    comment, pi = root.children
+    comment, pi = parse_xml("<root><!-- note --><?target the data?></root>").children[0].children
     assert isinstance(comment, Comment)
     assert comment.data == " note "
     assert isinstance(pi, ProcessingInstruction)
-    assert pi.target == "target"
-    assert pi.data == "the data"
+    assert (pi.target, pi.data) == ("target", "the data")
 
 
 @pytest.mark.parametrize(
@@ -141,8 +134,7 @@ def test_empty_prolog_and_content_constructs_parse(source: str) -> None:
 
 
 def test_cdata_section_is_its_own_node() -> None:
-    doc = parse_xml("<root><![CDATA[<not> & parsed]]></root>")
-    cdata = doc.children[0].children[0]
+    cdata = parse_xml("<root><![CDATA[<not> & parsed]]></root>").children[0].children[0]
     assert isinstance(cdata, CData)
     assert cdata.data == "<not> & parsed"
 
@@ -153,8 +145,7 @@ def test_top_level_comment_and_pi_attach_to_document() -> None:
 
 
 def test_doctype_becomes_a_node() -> None:
-    doc = parse_xml('<!DOCTYPE root SYSTEM "root.dtd"><root/>')
-    doctype = doc.children[0]
+    doctype = parse_xml('<!DOCTYPE root SYSTEM "root.dtd"><root/>').children[0]
     assert isinstance(doctype, Doctype)
     assert doctype.name == "root"
 
@@ -220,8 +211,7 @@ def test_whitespace_variants_separate_markup() -> None:
 
 
 def test_processing_instruction_without_data() -> None:
-    doc = parse_xml("<root><?bare?></root>")
-    pi = root_of(doc).children[0]
+    pi = root_of(parse_xml("<root><?bare?></root>")).children[0]
     assert isinstance(pi, ProcessingInstruction)
     assert (pi.target, pi.data) == ("bare", "")
 
@@ -270,8 +260,7 @@ def test_processing_instruction_normalizes_line_endings() -> None:
 
 
 def test_namespace_prefix_and_declaration_preserved() -> None:
-    doc = parse_xml('<root xmlns:h="urn:h" xmlns="urn:d"><h:a h:k="v" id="1"/></root>')
-    root = root_of(doc)
+    root = root_of(parse_xml('<root xmlns:h="urn:h" xmlns="urn:d"><h:a h:k="v" id="1"/></root>'))
     assert dict(root.attrs) == {"xmlns:h": "urn:h", "xmlns": "urn:d"}
     child = elements(root)[0]
     assert child.tag == "h:a"
@@ -301,8 +290,7 @@ def test_non_ascii_attribute_names_encode() -> None:
 
 def test_attribute_name_lookup_is_case_sensitive() -> None:
     root = root_of(parse_xml('<test x="a" Y="b">t</test>'))
-    assert root.attrs["Y"] == "b"
-    assert root.attrs["x"] == "a"
+    assert (root.attrs["Y"], root.attrs["x"]) == ("b", "a")
     with pytest.raises(KeyError):
         root.attrs["y"]
     with pytest.raises(KeyError):
@@ -326,8 +314,7 @@ def test_attr_method_is_case_sensitive() -> None:
 
 def test_attributes_differing_only_in_case_are_distinct() -> None:
     root = root_of(parse_xml('<test a="lower" A="upper"/>'))
-    assert root.attrs["a"] == "lower"
-    assert root.attrs["A"] == "upper"
+    assert (root.attrs["a"], root.attrs["A"]) == ("lower", "upper")
 
 
 def test_attribute_set_preserves_case_and_stays_distinct() -> None:
@@ -365,8 +352,7 @@ def test_start_tag_after_closed_root() -> None:
 def test_deeply_nested_document_grows_buffers() -> None:
     depth = 25
     opens = "".join(f'<n{i} xmlns:p{i}="urn:{i}">' for i in range(depth))
-    closes = "".join(f"</n{i}>" for i in reversed(range(depth)))
-    node = root_of(parse_xml(opens + closes))
+    node = root_of(parse_xml(opens + "".join(f"</n{i}>" for i in reversed(range(depth)))))
     for _ in range(depth - 1):
         node = elements(node)[0]
     assert node.tag == f"n{depth - 1}"
@@ -379,8 +365,8 @@ def test_many_attributes_grow_buffers() -> None:
 
 
 def test_long_reference_run_grows_scratch() -> None:
-    body = "a" * 100 + "&amp;" + "b" * 100
-    assert data_of(root_of(parse_xml(f"<r>{body}</r>")).children[0]) == "a" * 100 + "&" + "b" * 100
+    body = f"{'a' * 100}&amp;{'b' * 100}"
+    assert data_of(root_of(parse_xml(f"<r>{body}</r>")).children[0]) == f"{'a' * 100}&{'b' * 100}"
 
 
 @pytest.mark.parametrize(
@@ -587,9 +573,7 @@ def test_error_carries_line_and_column() -> None:
     with pytest.raises(HTMLParseError) as info:
         parse_xml("<root>\n</bad>")
     error = info.value.error
-    assert error.code == "xml-mismatched-tag"
-    assert error.line == 2
-    assert error.col == 2
+    assert (error.code, error.line, error.col) == ("xml-mismatched-tag", 2, 2)
 
 
 def test_combining_mark_is_a_name_char_but_not_a_name_start() -> None:
@@ -673,9 +657,9 @@ def test_xml_attribute_run_value(quote: str, character: str, length: int) -> Non
 
 @pytest.mark.parametrize("quote", ['"', "'"], ids=["double", "single"])
 def test_xml_attribute_run_normalization(quote: str) -> None:
-    root: Final = parse_xml(f"<root value={quote}" + "a" * 80 + f"&amp;b\t&#9;\r\n{quote}/>").find("root")
+    root: Final = parse_xml(f"<root value={quote}{'a' * 80}&amp;b\t&#9;\r\n{quote}/>").find("root")
     assert root is not None
-    assert root.attrs["value"] == "a" * 80 + "&b \t "
+    assert root.attrs["value"] == f"{'a' * 80}&b \t "
 
 
 def test_xml_attribute_run_scratch_reuse() -> None:
@@ -695,7 +679,7 @@ def test_xml_attribute_run_scratch_reuse() -> None:
 )
 def test_xml_attribute_run_error_position(tail: str, code: str) -> None:
     with pytest.raises(HTMLParseError) as error:
-        parse_xml('<root a="' + "a" * 80 + tail + '"/>')
+        parse_xml(f'<root a="{"a" * 80}{tail}"/>')
     assert (error.value.error.code, error.value.error.line, error.value.error.col) == (code, 1, 89)
 
 
@@ -758,16 +742,16 @@ def test_xml_many_distinct_namespaced_attributes_parse(count: int) -> None:
     assert list(root.attrs.keys()) == ["xmlns:p"] + [f"p:a{index}" for index in range(count)]
 
 
+def _namespaced_distinct(count: int) -> str:
+    return "<r xmlns:p='u' " + " ".join(f"p:a{index}='x'" for index in range(count)) + "/>"
+
+
 @pytest.mark.parametrize("count", [pytest.param(2000, id="interned-second-element")])
 def test_xml_repeated_plain_names_across_elements_parse(count: int) -> None:
     root: Final = parse_xml(_plain_repeated(count)).find("r")
     assert root is not None
     expected: Final = [(f"a{index}", "x") for index in range(count)]
     assert [list(child.attrs.items()) for child in elements(root)] == [expected, expected]
-
-
-def _namespaced_distinct(count: int) -> str:
-    return "<r xmlns:p='u' " + " ".join(f"p:a{index}='x'" for index in range(count)) + "/>"
 
 
 def _plain_repeated(count: int) -> str:
@@ -805,14 +789,14 @@ def test_xml_duplicate_found_after_many_distinct(source: str) -> None:
     ],
 )
 def test_xml_text_block_boundary(length: int, tail: str, expected: str) -> None:
-    root: Final = parse_xml("<root>" + "a" * length + tail + "</root>").find("root")
+    root: Final = parse_xml(f"<root>{'a' * length}{tail}</root>").find("root")
     assert root is not None
     assert root.text == "a" * length + expected
 
 
 @pytest.mark.parametrize("text", ["a", "é", "λ", "𐀀"], ids=["ascii", "latin1", "ucs2", "ucs4"])
 def test_xml_text_block_width(text: str) -> None:
-    root: Final = parse_xml("<root>" + text * 65536 + "</root>").find("root")
+    root: Final = parse_xml(f"<root>{text * 65536}</root>").find("root")
     assert root is not None
     assert root.text == text * 65536
 
@@ -828,7 +812,7 @@ def test_xml_text_block_width(text: str) -> None:
 )
 def test_xml_text_block_error_position(length: int, tail: str, code: str) -> None:
     with pytest.raises(HTMLParseError) as error:
-        parse_xml("<root>" + "a" * length + tail + "</root>")
+        parse_xml(f"<root>{'a' * length}{tail}</root>")
     assert (error.value.error.code, error.value.error.line, error.value.error.col) == (code, 1, length + 6)
 
 

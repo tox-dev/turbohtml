@@ -1,9 +1,3 @@
-"""A raw-text element given element or comment children through the DOM serializes them as markup.
-
-The WHATWG fragment serialization appends only a Text child of a raw-text element literally; any other child takes its
-ordinary markup form, in every layout and in the lossless serializer.
-"""
-
 from __future__ import annotations
 
 import threading
@@ -95,7 +89,7 @@ def test_rawtext_children_deep_nesting_stays_iterative() -> None:
         worker.join()
     finally:
         threading.stack_size(previous)
-    expected: Final = "<script><b>" * depth + "<script>x<</script>" + "</b></script>" * depth
+    expected: Final = f"{'<script><b>' * depth}<script>x<</script>{'</b></script>' * depth}"
     assert captured == {"compact": expected, "minify": expected, "lossless": expected}
 
 

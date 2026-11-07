@@ -10,7 +10,7 @@ _LINKIFY = LinkifyIt()
 
 
 def detect(case: tuple[str, str]) -> None:
-    """Scan plain text for links with linkify-it-py: match for the spans or test for any link."""
+    # Scan plain text for links with linkify-it-py: match for the spans or test for any link.
     kind, text = case
     if kind == "find":
         _LINKIFY.match(text)

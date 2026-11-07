@@ -12,13 +12,16 @@ from .round_trip_oracles import OutOfScopeError, css_semantics_check, fixpoint_c
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-__all__ = ["stylesheet_observation", "stylesheet_targets"]
-
 
 def stylesheet_targets() -> tuple[Target, ...]:
-    """Own the public minifier through an exact stylesheet input."""
+    # Own the public minifier through an exact stylesheet input.
     return (
-        Target("css-stylesheet", _stylesheet, ("turbohtml.clean.minify_css",), (UnicodeDecodeError, OutOfScopeError)),
+        Target(
+            name="css-stylesheet",
+            callback=_stylesheet,
+            exports=("turbohtml.clean.minify_css",),
+            exceptions=(UnicodeDecodeError, OutOfScopeError),
+        ),
     )
 
 
@@ -27,7 +30,7 @@ def _stylesheet(data: bytes) -> None:
 
 
 def stylesheet_observation(data: bytes, printer: Callable[[str], str] = minify_css) -> str:
-    """Check supported values and selectors against a fixed DOM context."""
+    # Check supported values and selectors against a fixed DOM context.
     source: Final = data.decode("utf-8")
     if _unclosed_css_blocks(source):
         msg = "CSS input has an unclosed block"
@@ -69,3 +72,9 @@ def _unclosed_css_blocks(source: str) -> bool:
             depth -= 1
         index += 1
     return depth > 0
+
+
+__all__ = [
+    "stylesheet_observation",
+    "stylesheet_targets",
+]

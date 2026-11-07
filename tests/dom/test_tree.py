@@ -35,10 +35,6 @@ def _doc(html: str) -> str:
     return _html._parse_tree(html).rstrip("\n")
 
 
-def _frag(html: str, context: str) -> str:
-    return _html._parse_fragment(html, context).rstrip("\n")
-
-
 def test_parse_only_returns_none() -> None:
     assert _html._parse_only("<html><body><p>hi & bye</p>") is None
 
@@ -151,7 +147,7 @@ _LONG_NAME = "z" * 130
             "|     <p>\n|     <table>",
             id="limited-quirks-4.01-frameset-nonempty-sysid",
         ),
-        pytest.param("<p>" + "x" * 70000, "x" * 40, id="text-larger-than-arena-block"),
+        pytest.param(f"<p>{'x' * 70000}", "x" * 40, id="text-larger-than-arena-block"),
         pytest.param("<html a=1><html ő=2>", 'a="1"', id="merge-wide-attr-name"),
         pytest.param("<input type=HIDDEN>", "<input>", id="uppercase-hidden-input-type"),
         pytest.param("<ruby>a<rb>b<rtc>c", "<rtc>", id="ruby-rb-rtc-in-scope"),
@@ -167,7 +163,7 @@ _LONG_NAME = "z" * 130
         pytest.param("<head></head>   ", '|   <head>\n|   "   "\n|   <body>', id="after-head-only-whitespace"),
         pytest.param("<head></head>x", '|   <head>\n|   <body>\n|     "x"', id="after-head-no-leading-whitespace"),
         pytest.param("a\x00b", '"ab"', id="nul-stripped-from-text"),
-        pytest.param("<template>" * 9 + "z", "content", id="template-stack-regrow"),
+        pytest.param(f"{'<template>' * 9}z", "content", id="template-stack-regrow"),
         pytest.param("<table><thead><tr><td>z</table>", "<td>", id="thead-table-scope-cell"),
         pytest.param("<table><tfoot><tr><td>z</table>", "<td>", id="tfoot-table-scope-cell"),
         pytest.param("<form><div>x</form>y", '"xy"', id="form-end-tag-keeps-open-div"),
@@ -356,7 +352,7 @@ _LONG_NAME = "z" * 130
         pytest.param("<table>x", '"x"', id="foster-text-target-table"),
         pytest.param("<input type>z", "<input>", id="input-valueless-type"),
         pytest.param("<input type=hidde0>z", "<input>", id="input-hidden-type-low-byte"),
-        pytest.param("<applet>" * 20 + "x", "<applet>", id="afe-marker-stack-regrow"),
+        pytest.param(f"{'<applet>' * 20}x", "<applet>", id="afe-marker-stack-regrow"),
         pytest.param("<template><tfoot>a", "content", id="template-tfoot-section"),
         pytest.param("<template><caption>b", "content", id="template-caption-section"),
         pytest.param("<template><colgroup>c", "content", id="template-colgroup-section"),
@@ -399,8 +395,8 @@ _LONG_NAME = "z" * 130
             "<svg><foreignObject><svg></p>x", "<svg svg>\n|         <p>", id="end-p-breaks-out-to-html-integration"
         ),
         pytest.param("<svg><desc><svg></br>y", "<svg svg>\n|         <br>", id="end-br-breaks-out-to-html-integration"),
-        pytest.param("<p " + _LONG_NAME + "=1 m=2>x", "z" * 40, id="attr-name-fills-sort-buffer"),
-        pytest.param("<svg " + _LONG_NAME + "=1 m=2>y</svg>", "z" * 40, id="foreign-attr-name-fills-sort-buffer"),
+        pytest.param(f"<p {_LONG_NAME}=1 m=2>x", "z" * 40, id="attr-name-fills-sort-buffer"),
+        pytest.param(f"<svg {_LONG_NAME}=1 m=2>y</svg>", "z" * 40, id="foreign-attr-name-fills-sort-buffer"),
         # a redundant <html> start tag before/in head keeps the head insertion
         # mode, so following head-only content stays in <head> (issue #46)
         pytest.param("<html><html><style>x", "<head>\n|     <style>", id="redundant-html-in-head-keeps-style"),
@@ -773,6 +769,10 @@ def test_fragment_paths(html: str, context: str, needle: str) -> None:
     assert needle in _frag(html, context)
 
 
+def _frag(html: str, context: str) -> str:
+    return _html._parse_fragment(html, context).rstrip("\n")
+
+
 def test_deeply_nested_serializers_are_iterative() -> None:
     # Each serializer (compact .html, pretty indent, #document dump) recursed one
     # C stack frame per tree level and aborted (exit 134) on a deep tree. Running
@@ -804,12 +804,14 @@ def test_deeply_nested_serializers_are_iterative() -> None:
 
 # eight+ BMP (UCS-2) code points and four+ astral (UCS-4) code points, so a run
 # of them is long enough to reach the vector block loop and leave a scalar tail
-CJK = "東京都港区六本木ヒルズ森タワー"  # UCS-2
-EMOJI = "😀🎉🚀🐍🌟🔥💡"  # UCS-4
+CJK: Final[str] = "東京都港区六本木ヒルズ森タワー"  # UCS-2
+
+
+_EMOJI: Final[str] = "😀🎉🚀🐍🌟🔥💡"  # UCS-4
 
 
 def _body_text(html: str) -> str:
-    """The serialized document tree for a whole-document parse."""
+    # The serialized document tree for a whole-document parse.
     return _html._parse_tree(html).rstrip("\n")
 
 
@@ -817,21 +819,21 @@ def _body_text(html: str) -> str:
     ("html", "needle"),
     [
         pytest.param(f"<p>{CJK}</p>", f'"{CJK}"', id="ucs2-text-run"),
-        pytest.param(f"<p>{EMOJI}</p>", f'"{EMOJI}"', id="ucs4-text-run"),
+        pytest.param(f"<p>{_EMOJI}</p>", f'"{_EMOJI}"', id="ucs4-text-run"),
         pytest.param(f"<p>{CJK}&amp;{CJK}</p>", f'"{CJK}&{CJK}"', id="ucs2-text-with-ref"),
         pytest.param(f"<!--{CJK}-->", f"<!-- {CJK} -->", id="ucs2-comment"),
-        pytest.param(f"<!--{EMOJI}-->", f"<!-- {EMOJI} -->", id="ucs4-comment"),
-        pytest.param(f'<p title="{CJK}{EMOJI}">x</p>', f'title="{CJK}{EMOJI}"', id="double-quoted-attr"),
+        pytest.param(f"<!--{_EMOJI}-->", f"<!-- {_EMOJI} -->", id="ucs4-comment"),
+        pytest.param(f'<p title="{CJK}{_EMOJI}">x</p>', f'title="{CJK}{_EMOJI}"', id="double-quoted-attr"),
         # single quotes serialize back as double quotes
-        pytest.param(f"<p title='{EMOJI}{CJK}'>x</p>", f'title="{EMOJI}{CJK}"', id="single-quoted-attr"),
+        pytest.param(f"<p title='{_EMOJI}{CJK}'>x</p>", f'title="{_EMOJI}{CJK}"', id="single-quoted-attr"),
         # an ASCII-led name carrying wide chars is a non-1-byte buffer, so it never interns to a
         # known atom and stays a plain element (a bare "<東" is not a tag - names must open ASCII)
         pytest.param(f"<a{CJK}>x</a{CJK}>", f"<a{CJK}>", id="non-ascii-tag-name"),
         # title is RCDATA, style is RAWTEXT; both take the wide run-scan
-        pytest.param(f"<title>{CJK}{EMOJI}</title>", CJK, id="rcdata-wide-run"),
-        pytest.param(f"<style>{EMOJI}{CJK}</style>", EMOJI, id="rawtext-wide-run"),
+        pytest.param(f"<title>{CJK}{_EMOJI}</title>", CJK, id="rcdata-wide-run"),
+        pytest.param(f"<style>{_EMOJI}{CJK}</style>", _EMOJI, id="rawtext-wide-run"),
         # plaintext consumes the rest of the input through the wide run-scan
-        pytest.param(f"<plaintext>{CJK}{EMOJI}", f"{CJK}{EMOJI}", id="plaintext-wide-run"),
+        pytest.param(f"<plaintext>{CJK}{_EMOJI}", f"{CJK}{_EMOJI}", id="plaintext-wide-run"),
     ],
 )
 def test_wide_character_data(html: str, needle: str) -> None:
@@ -845,9 +847,9 @@ def test_wide_character_data(html: str, needle: str) -> None:
         # still parse and the trailing text lands in the body
         pytest.param(f'<p {CJK}="1">x</p>', ['="1"', '"x"'], [], id="non-ascii-attr-name"),
         # a CR in wide input forces the copy-and-normalize path; the CR becomes LF
-        pytest.param(f"<pre>{CJK}\r\n{EMOJI}</pre>", [CJK], ["\r"], id="wide-carriage-return"),
+        pytest.param(f"<pre>{CJK}\r\n{_EMOJI}</pre>", [CJK], ["\r"], id="wide-carriage-return"),
         # a NUL in wide input sets the document NUL flag and is dropped from text
-        pytest.param(f"<p>{CJK}\x00{EMOJI}</p>", [f"{CJK}{EMOJI}"], ["\x00"], id="wide-nul"),
+        pytest.param(f"<p>{CJK}\x00{_EMOJI}</p>", [f"{CJK}{_EMOJI}"], ["\x00"], id="wide-nul"),
     ],
 )
 def test_wide_present_and_absent(html: str, present: list[str], absent: list[str]) -> None:
@@ -878,6 +880,7 @@ _DOCUMENT_CASES = [
         id="math-end-br",
     ),
 ]
+
 
 _FRAGMENT_CASES = [
     pytest.param("<svg></p><foo>", "div", "| <svg svg>\n| <p>\n| <foo>", id="div-svg-end-p"),
@@ -976,7 +979,7 @@ def test_formatting_duplicate_checks_first_of_multiple_attributes() -> None:
 
 @pytest.mark.parametrize("depth", [pytest.param(1, id="shallow"), pytest.param(256, id="deep")])
 def test_formatting_reconstruction_keeps_persistent_ancestor(depth: int) -> None:
-    source: Final = "<b>" + "<span>" * depth + "<samp>text</samp>" * 100 + "</span>" * depth + "</b>"
+    source: Final = f"<b>{'<span>' * depth}{'<samp>text</samp>' * 100}{'</span>' * depth}</b>"
     root: Final = parse(source).find("b")
     assert root is not None
     assert (root.text, [element.text for element in root.find_all("samp")]) == ("text" * 100, ["text"] * 100)
@@ -984,7 +987,7 @@ def test_formatting_reconstruction_keeps_persistent_ancestor(depth: int) -> None
 
 @pytest.mark.parametrize("depth", [pytest.param(1, id="shallow"), pytest.param(100, id="deep")])
 def test_formatting_reconstruction_after_ancestor_removal(depth: int) -> None:
-    source: Final = "<b>" + "<span>" * depth + "first</b>second" + "</span>" * depth + "<i>third</i>"
+    source: Final = f"<b>{'<span>' * depth}first</b>second{'</span>' * depth}<i>third</i>"
     root: Final = parse_fragment(source, "div")
     assert (root.text, [element.text for element in root.find_all("b")]) == ("firstsecondthird", ["first"])
 
@@ -1054,6 +1057,10 @@ def test_html_parse_builds_processing_instruction(markup: str, target: str, data
     assert (node.target, node.data) == (target, data)
 
 
+def _processing_instruction(markup: str) -> ProcessingInstruction:
+    return next(node for node in parse(markup).descendants if isinstance(node, ProcessingInstruction))
+
+
 @pytest.mark.parametrize(
     ("markup", "parent_tag"),
     [
@@ -1121,8 +1128,7 @@ def test_processing_instruction_in_fragment_and_template() -> None:
 
 
 def test_parsed_processing_instruction_clone_preserves_fields() -> None:
-    node = _processing_instruction("<body><?pi old>")
-    clone = copy.copy(node)
+    clone = copy.copy(_processing_instruction("<body><?pi old>"))
     assert (clone.target, clone.data) == ("pi", "old")
 
 
@@ -1160,10 +1166,6 @@ def test_parsed_processing_instruction_serializes_and_minifies() -> None:
 def test_minifying_processing_instruction_preserves_insertion_location(markup: str) -> None:
     document = parse(markup)
     assert parse(document.serialize(Html(layout=Minify()))).equals(document)
-
-
-def _processing_instruction(markup: str) -> ProcessingInstruction:
-    return next(node for node in parse(markup).descendants if isinstance(node, ProcessingInstruction))
 
 
 @pytest.mark.parametrize(
@@ -1307,7 +1309,7 @@ def test_nul_text_keeps_raw_text_replacement(tag: str) -> None:
 
 @pytest.mark.parametrize("depth", [pytest.param(1, id="shallow"), pytest.param(256, id="deep")])
 def test_scope_repeated_ignored_end_tags(depth: int) -> None:
-    source: Final = "<div>" + "<span>" * depth + "before" + "</address>" * 1000 + "after" + "</span>" * depth + "</div>"
+    source: Final = f"<div>{'<span>' * depth}before{'</address>' * 1000}after{'</span>' * depth}</div>"
     root: Final = parse(source).find("div")
     assert root is not None
     assert (root.text, len(root.find_all("span"))) == ("beforeafter", depth)
@@ -1443,15 +1445,13 @@ def test_unacknowledged_self_closing_start_tag_reports_the_token_position() -> N
 
 
 def test_document_ignores_the_slash_on_a_non_void_html_element() -> None:
-    document = parse("<ul><li><div id='foo'/>A</li></ul>")
-    element = document.find("div")
+    element = parse("<ul><li><div id='foo'/>A</li></ul>").find("div")
     assert element is not None
     assert element.text == "A"
 
 
 def test_fragment_ignores_the_slash_on_a_non_void_html_element() -> None:
-    fragment = parse_fragment("<div/>A", "body")
-    element = fragment.find("div")
+    element = parse_fragment("<div/>A", "body").find("div")
     assert element is not None
     assert element.text == "A"
 
@@ -1478,32 +1478,22 @@ def test_html_integration_point_does_not_acknowledge_a_non_void_start_tag() -> N
 
 
 def test_html_integration_point_ignores_the_slash() -> None:
-    document = parse("<math><mtext><ms/>X</mtext></math>")
-    element = document.find("ms")
+    element = parse("<math><mtext><ms/>X</mtext></math>").find("ms")
     assert element is not None
     assert element.text == "X"
 
 
-_PATHOLOGICAL: Final = 20000
-_DEEP: Final = 1_200
+_PATHOLOGICAL: Final[int] = 20000
 
 
-def _max_element_depth(node: Element | Document) -> int:
-    deepest = 0
-    stack: list[tuple[object, int]] = [(node, 0)]
-    while stack:
-        current, depth = stack.pop()
-        here = depth + 1 if isinstance(current, Element) else depth
-        deepest = max(deepest, here)
-        stack.extend((child, here) for child in getattr(current, "children", []) or [])
-    return deepest
+_DEEP: Final[int] = 1_200
 
 
 def _nested(tag: str, levels: int, text: str | None = "X") -> Element:
     return _nested_with_deepest(tag, levels, text)[0]
 
 
-def _nested_with_deepest(tag: str, levels: int, text: str | None = "X") -> tuple[Element, Element]:
+def _nested_with_deepest(tag: str, levels: int, text: str | None) -> tuple[Element, Element]:
     root = Element(tag)
     node = root
     for _ in range(levels):
@@ -1520,14 +1510,24 @@ def test_deeply_nested_parse_caps_element_depth() -> None:
     assert _max_element_depth(doc) <= 520  # bounded near the 512 cap, not ~20000
 
 
+def _max_element_depth(node: Element | Document) -> int:
+    deepest = 0
+    stack: list[tuple[object, int]] = [(node, 0)]
+    while stack:
+        current, depth = stack.pop()
+        here = depth + 1 if isinstance(current, Element) else depth
+        deepest = max(deepest, here)
+        stack.extend((child, here) for child in getattr(current, "children", []) or [])
+    return deepest
+
+
 def test_deeply_nested_parse_keeps_every_element() -> None:
     doc = parse("<div>" * _PATHOLOGICAL)
     assert len(doc.find_all("div")) == _PATHOLOGICAL  # capped elements survive as siblings
 
 
 def test_table_cell_rejected_at_depth_cap_keeps_html_root() -> None:
-    markup = "<!doctype html><html><body>" + "<div>" * 507 + "<table><tr><td>x</table><p>tail"
-    document = parse(markup)
+    document = parse(f"<!doctype html><html><body>{'<div>' * 507}<table><tr><td>x</table><p>tail")
     assert [child.tag for child in document.children if isinstance(child, Element)] == ["html"]
 
 
@@ -1551,7 +1551,7 @@ def test_nesting_below_the_cap_is_left_untouched(levels: int) -> None:
 @pytest.mark.parametrize("source", [pytest.param("xml", id="parsed-xml"), pytest.param("mutation", id="mutation")])
 def test_deep_text_and_serialization_are_complete(source: str) -> None:
     root = (
-        parse_xml("<x>" * _DEEP + "bottom" + "</x>" * _DEEP).root if source == "xml" else _nested("x", _DEEP, "bottom")
+        parse_xml(f"{'<x>' * _DEEP}bottom{'</x>' * _DEEP}").root if source == "xml" else _nested("x", _DEEP, "bottom")
     )
     assert isinstance(root, Element)
     expected_open_count = _DEEP if source == "xml" else _DEEP + 1
@@ -1591,9 +1591,9 @@ def test_renderers_complete_a_deep_tree(method: str, args: tuple[object, ...], e
 @pytest.mark.parametrize(
     "build",
     [
-        pytest.param(lambda: parse("<body>" + "<div>" * 511 + "x"), id="parse"),
-        pytest.param(lambda: parse_fragment("<div>" * 600 + "x"), id="parse_fragment"),
-        pytest.param(lambda: parse_xml("<a>" * _DEEP + "x" + "</a>" * _DEEP), id="parse_xml"),
+        pytest.param(lambda: parse(f"<body>{'<div>' * 511}x"), id="parse"),
+        pytest.param(lambda: parse_fragment(f"{'<div>' * 600}x"), id="parse_fragment"),
+        pytest.param(lambda: parse_xml(f"{'<a>' * _DEEP}x{'</a>' * _DEEP}"), id="parse_xml"),
     ],
 )
 def test_renderers_complete_every_parsed_depth(build: Callable[[], Document | Element]) -> None:
@@ -1607,11 +1607,11 @@ def test_renderers_complete_every_parsed_depth(build: Callable[[], Document | El
 
 def test_markdown_closes_every_nested_emphasis() -> None:
     # forty delimiters in a row would pair as strong emphasis, so the inner runs alternate and fall back to tags
-    assert _nested("i", 40).to_markdown() == "*_" + "<em>" * 37 + "_X_" + "</em>" * 37 + "_*"
+    assert _nested("i", 40).to_markdown() == f"*_{'<em>' * 37}_X_{'</em>' * 37}_*"
 
 
 def test_annotated_text_labels_every_nested_div() -> None:
-    document = parse("<body>" + "<div>" * 511 + "x")
+    document = parse(f"<body>{'<div>' * 511}x")
     assert document.to_annotated_text({"div": ["t"]}) == ("x", [(0, 1, "t")] * 510)
 
 
@@ -1686,7 +1686,7 @@ def test_range_rejects_a_deep_partial_boundary_before_mutation(method: str, deep
 
 
 def test_structured_data_methods_accept_deep_dom_with_shallow_records() -> None:
-    document = parse_xml("<x>" * _DEEP + "<item itemscope='' typeof='Thing'/>" + "</x>" * _DEEP)
+    document = parse_xml(f"{'<x>' * _DEEP}<item itemscope='' typeof='Thing'/>{'</x>' * _DEEP}")
     microdata = [MicrodataItem(type=None, id=None, properties={})]
     rdfa = [RdfaItem(vocab=None, type=["Thing"], resource=None, properties={})]
     assert (document.microdata(), document.rdfa(), document.structured_data()) == (
@@ -1723,7 +1723,7 @@ def test_rdfa_rejects_more_than_400_nested_records(method: str) -> None:
 
 def test_deep_operations_fit_a_small_thread_stack() -> None:
     roots = [
-        parse_xml("<x>" * _DEEP + "bottom" + "</x>" * _DEEP).root,
+        parse_xml(f"{'<x>' * _DEEP}bottom{'</x>' * _DEEP}").root,
         _nested("x", _DEEP, "bottom"),
     ]
 

@@ -38,8 +38,7 @@ def test_text_serializes_escaped() -> None:
 
 def test_comment_carries_its_data_and_serializes() -> None:
     comment = Comment("a note")
-    assert comment.data == "a note"
-    assert comment.html == "<!--a note-->"
+    assert (comment.data, comment.html) == ("a note", "<!--a note-->")
 
 
 @pytest.mark.parametrize(
@@ -180,8 +179,7 @@ def test_data_must_be_a_str(node_type: type[Text | Comment]) -> None:
 
 def test_element_bare() -> None:
     div = Element("div")
-    assert div.tag == "div"
-    assert div.html == "<div></div>"
+    assert (div.tag, div.html) == ("div", "<div></div>")
     assert div.parent is None
 
 
@@ -192,8 +190,10 @@ def test_element_tag_is_lowercased() -> None:
 def test_element_with_attributes() -> None:
     anchor = Element("a", {"href": "/x", "class": "btn lg"})
     assert anchor.html == '<a href="/x" class="btn lg"></a>'  # attributes in insertion order
-    assert anchor.attrs["href"] == "/x"
-    assert anchor.attrs["class"] == ["btn", "lg"]  # the class token list reads back as a list
+    assert (anchor.attrs["href"], anchor.attrs["class"]) == (
+        "/x",
+        ["btn", "lg"],
+    )  # the class token list reads back as a list
 
 
 def test_element_list_valued_attribute_joins_on_space() -> None:
@@ -313,8 +313,7 @@ def test_attribute_name_the_parser_produces_can_be_set_again(markup: str) -> Non
 
 @pytest.mark.parametrize("name", [pytest.param('a"b', id="quote"), pytest.param("a<b", id="less-than")])
 def test_element_accepts_a_parser_producible_attribute_name(name: str) -> None:
-    element = Element("div", {name: "x"})
-    reparsed = parse(element.html).select_one("div")
+    reparsed = parse(Element("div", {name: "x"}).html).select_one("div")
     assert reparsed is not None
     assert dict(reparsed.attrs) == {name: "x"}
 
@@ -345,11 +344,11 @@ def test_element_attrs_must_be_a_mapping(attrs: object) -> None:
 
 def test_element_mapping_getitem_failure_propagates() -> None:
     class BadMapping:
-        def keys(self) -> list[str]:  # ruff:ignore[no-self-use]  # a mapping protocol method must be an instance method
-            return ["x"]
-
         def __getitem__(self, key: str) -> str:
             raise KeyError(key)
+
+        def keys(self) -> list[str]:  # ruff:ignore[no-self-use]  # a mapping protocol method must be an instance method
+            return ["x"]
 
     with pytest.raises(KeyError):
         Element("div", BadMapping())  # ty: ignore[invalid-argument-type]  # a deliberately broken mapping
@@ -422,12 +421,6 @@ def test_copy_preserves_doctype_identifiers(duplicate: Callable[[Doctype], Docty
     assert (clone.public_id, clone.system_id) == ('pub"lic', 'sys"tem')
 
 
-def _doctype(markup: str) -> Doctype:
-    node = parse(markup).children[0]  # the doctype is the document's first child
-    assert isinstance(node, Doctype)
-    return node
-
-
 @pytest.mark.parametrize(
     ("markup", "public_id", "system_id"),
     [
@@ -472,9 +465,13 @@ def _doctype(markup: str) -> Doctype:
 )
 def test_doctype_identifiers(markup: str, public_id: str | None, system_id: str | None) -> None:
     doctype = _doctype(markup)
-    assert doctype.name == "html"
-    assert doctype.public_id == public_id
-    assert doctype.system_id == system_id
+    assert (doctype.name, doctype.public_id, doctype.system_id) == ("html", public_id, system_id)
+
+
+def _doctype(markup: str) -> Doctype:
+    node = parse(markup).children[0]  # the doctype is the document's first child
+    assert isinstance(node, Doctype)
+    return node
 
 
 def test_doctype_matches_on_name() -> None:
@@ -495,9 +492,7 @@ def test_document_matches_on_root() -> None:
 
 def test_pi_carries_target_and_data() -> None:
     pi = ProcessingInstruction("xml-stylesheet", 'href="a.css"')
-    assert pi.target == "xml-stylesheet"
-    assert pi.data == 'href="a.css"'
-    assert pi.html == '<?xml-stylesheet href="a.css">'
+    assert (pi.target, pi.data, pi.html) == ("xml-stylesheet", 'href="a.css"', '<?xml-stylesheet href="a.css">')
     assert pi.parent is None
 
 
@@ -545,8 +540,7 @@ def test_pi_rejects_non_str_field(target: object, data: object) -> None:
 
 def test_cdata_carries_data() -> None:
     cdata = CData("x < y & z")
-    assert cdata.data == "x < y & z"
-    assert cdata.html == "<![CDATA[x < y & z]]>"  # content is verbatim, not escaped
+    assert (cdata.data, cdata.html) == ("x < y & z", "<![CDATA[x < y & z]]>")  # content is verbatim, not escaped
     assert cdata.parent is None
 
 
@@ -588,8 +582,7 @@ def test_pi_adopts_across_trees_keeping_both_halves() -> None:
     box.append(ProcessingInstruction("xml", 'version="1.0"'))  # adopt must preserve the packed target/data split
     held = box.children[0]
     assert isinstance(held, ProcessingInstruction)
-    assert held.target == "xml"
-    assert held.data == 'version="1.0"'
+    assert (held.target, held.data) == ("xml", 'version="1.0"')
 
 
 def test_pi_and_cdata_serialize_pretty() -> None:

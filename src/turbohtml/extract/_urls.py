@@ -20,13 +20,6 @@ from typing import Final
 
 from turbohtml._html import _url_clean, _url_normalize, parse
 
-__all__ = [
-    "UrlCleaning",
-    "clean_url",
-    "extract_links",
-    "normalize_url",
-]
-
 _ISO_639_1: Final[frozenset[str]] = frozenset([
     *("aa", "ab", "ae", "af", "ak", "am", "an", "ar", "as", "av", "ay", "az", "ba", "be", "bg", "bh", "bi", "bm"),
     *("bn", "bo", "br", "bs", "ca", "ce", "ch", "co", "cr", "cs", "cu", "cv", "cy", "da", "de", "dv", "dz", "ee"),
@@ -42,25 +35,7 @@ _ISO_639_1: Final[frozenset[str]] = frozenset([
 ])
 """The ISO 639-1 two-letter language codes, gating which URL segments count as language markers."""
 
-_CONTENT_PARAMS: Final[frozenset[str]] = frozenset({
-    "aid",
-    "article_id",
-    "artnr",
-    "id",
-    "itemid",
-    "objectid",
-    "p",
-    "page",
-    "page_id",
-    "pagenum",
-    "pid",
-    "post",
-    "postid",
-    "product_id",
-})
 """The content-identifying query parameters strict mode keeps; everything else is presumed decorative."""
-
-_LANGUAGE_PARAMS: Final[frozenset[str]] = frozenset({"lang", "language"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +78,11 @@ class UrlCleaning:
 
     @classmethod
     def w3lib(cls) -> UrlCleaning:
-        """Return ``w3lib.url.canonicalize_url``'s mode: fragments dropped, every non-tracker parameter kept."""
+        """
+        Return ``w3lib.url.canonicalize_url``'s mode: fragments dropped, every non-tracker parameter kept.
+
+        :returns:
+        """
         return cls(strip_fragment=True)
 
 
@@ -127,6 +106,36 @@ def clean_url(url: str, options: UrlCleaning | None = None, /) -> str | None:
     """
     active = options or _DEFAULT
     return _url_clean(url, *_knobs(active), active.language, _ISO_639_1)
+
+
+def _knobs(
+    options: UrlCleaning,
+) -> tuple[bool, bool, bool, frozenset[str] | None, frozenset[str], frozenset[str], frozenset[str]]:
+    # Return the option fields and vocabularies every C entry point takes, in its argument order.
+    return (
+        options.strict,
+        options.trailing_slash,
+        options.strip_fragment,
+        options.query_allow,
+        options.query_deny,
+        frozenset({
+            "aid",
+            "article_id",
+            "artnr",
+            "id",
+            "itemid",
+            "objectid",
+            "p",
+            "page",
+            "page_id",
+            "pagenum",
+            "pid",
+            "post",
+            "postid",
+            "product_id",
+        }),
+        frozenset({"lang", "language"}),
+    )
 
 
 def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
@@ -196,16 +205,9 @@ def extract_links(
     )
 
 
-def _knobs(
-    options: UrlCleaning,
-) -> tuple[bool, bool, bool, frozenset[str] | None, frozenset[str], frozenset[str], frozenset[str]]:
-    """Return the option fields and vocabularies every C entry point takes, in its argument order."""
-    return (
-        options.strict,
-        options.trailing_slash,
-        options.strip_fragment,
-        options.query_allow,
-        options.query_deny,
-        _CONTENT_PARAMS,
-        _LANGUAGE_PARAMS,
-    )
+__all__ = [
+    "UrlCleaning",
+    "clean_url",
+    "extract_links",
+    "normalize_url",
+]

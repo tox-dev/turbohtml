@@ -34,25 +34,11 @@ if TYPE_CHECKING:
     from turbohtml.mutations import MutationRecord
     from turbohtml.rewrite import Element as RewriteHandle
 
-__all__: Final = [
-    "LifecycleStep",
-    "UnsupportedDomLifecycleError",
-    "dom_lifecycle_check",
-    "dom_lifecycle_controls",
-    "dom_lifecycle_generate",
-    "dom_lifecycle_race",
-    "dom_lifecycle_seeds",
-    "run_dom_lifecycle",
-]
-
 # libxml2's api.c bounds content and copies (MAX_CONTENT 100, MAX_COPY_NODES 50) so a short input cannot build an
 # unbounded tree; these keep the dom-program input bound and cap execution, nesting, registers and created nodes
-_MAX_BYTES: Final = 1024
-_MAX_STEPS: Final = 256
-_MAX_DEPTH: Final = 2
-_SLOTS: Final = 8
-_MAX_NODES: Final = 48
-_TAGS: Final = ("p", "div", "span", "template", "b")
+_MAX_BYTES: Final[int] = 1024
+_SLOTS: Final[int] = 8
+_MAX_NODES: Final[int] = 48
 _WORDS: Final = ("", "alpha", "beta gamma")
 _MARKUP: Final = (
     "<p>a<b>c</b></p>",
@@ -63,23 +49,46 @@ _MARKUP: Final = (
 _EXPECTED: Final = (ValueError, TypeError, IndexError, RuntimeError)
 
 
-class UnsupportedDomLifecycleError(ValueError):
-    """Reject unsupported encodings before allocating register state."""
-
-
 class LifecycleStep(NamedTuple):
-    """One executed instruction: its nesting depth, operation, outcome and native invariant violations."""
-
+    # One executed instruction: its nesting depth, operation, outcome and native invariant violations.
     depth: int
     operation: str
     outcome: str
     violations: tuple[int, ...]
 
 
+def dom_lifecycle_generate(rng: random.Random) -> str:
+    # Seed every register ring before random instructions.
+    return (_PREFIX + bytes(rng.randrange(256) for _ in range(rng.randrange(1, 65) * 4))).hex()
+
+
+def dom_lifecycle_controls() -> dict[str, bool]:
+    # Require a reported violation and a drifting replay to fail the registered checker.
+    seed: Final = dom_lifecycle_seeds()[0]
+    broken: Final = ((LifecycleStep(0, "element", "ok", (1, 0, 0, 0)),), ())
+    replays: Final = iter((((), ("<p></p>",)), ((), ("<div></div>",))))
+    return {
+        "missing violation": dom_lifecycle_check(seed, lambda _program: broken) is not None,
+        "replay drift": dom_lifecycle_check(seed, lambda _program: next(replays)) is not None,
+    }
+
+
+def dom_lifecycle_seeds() -> list[str]:
+    # Run every opcode on each slot with a mutating nested program, then fire the callbacks it registered.
+    return [
+        (
+            _PREFIX + bytes((opcode, slot, slot + 9, len(body) // 4 | slot % 3 << 2 | slot % 2 << 4)) + body + _TRAILER
+        ).hex()
+        for opcode in range(len(_OPERATIONS))
+        for slot in range(_SLOTS)
+        for body in (_BODIES[slot // 3 % len(_BODIES)],)
+    ]
+
+
 def dom_lifecycle_check(
     text: str, run: Callable[[bytes], tuple[tuple[LifecycleStep, ...], tuple[str, ...]]] | None = None
 ) -> str | None:
-    """Require clean native invariants after every step and an identical replay."""
+    # Require clean native invariants after every step and an identical replay.
     if len(text) > _MAX_BYTES * 2:
         msg: Final = "DOM lifecycle program exceeds the input limit"
         raise UnsupportedDomLifecycleError(msg)
@@ -95,48 +104,31 @@ def dom_lifecycle_check(
     return None if runner(program) == first else "DOM lifecycle program replays differently"
 
 
-def dom_lifecycle_generate(rng: random.Random) -> str:
-    """Seed every register ring before random instructions."""
-    return (_PREFIX + bytes(rng.randrange(256) for _ in range(rng.randrange(1, 65) * 4))).hex()
-
-
-def dom_lifecycle_seeds() -> list[str]:
-    """Run every opcode on each slot with a mutating nested program, then fire the callbacks it registered."""
-    return [
-        (
-            _PREFIX + bytes((opcode, slot, slot + 9, len(body) // 4 | slot % 3 << 2 | slot % 2 << 4)) + body + _TRAILER
-        ).hex()
-        for opcode in range(len(_OPERATIONS))
-        for slot in range(_SLOTS)
-        for body in (_BODIES[slot // 3 % len(_BODIES)],)
-    ]
-
-
-def dom_lifecycle_controls() -> dict[str, bool]:
-    """Require a reported violation and a drifting replay to fail the registered checker."""
-    seed: Final = dom_lifecycle_seeds()[0]
-    broken: Final = ((LifecycleStep(0, "element", "ok", (1, 0, 0, 0)),), ())
-    replays: Final = iter((((), ("<p></p>",)), ((), ("<div></div>",))))
-    return {
-        "missing violation": dom_lifecycle_check(seed, lambda _program: broken) is not None,
-        "replay drift": dom_lifecycle_check(seed, lambda _program: next(replays)) is not None,
-    }
+class UnsupportedDomLifecycleError(ValueError):
+    # Reject unsupported encodings before allocating register state.
+    ...
 
 
 def run_dom_lifecycle(program: bytes) -> tuple[tuple[LifecycleStep, ...], tuple[str, ...]]:
-    """Execute the program and return each step plus the final markup of every node register."""
+    # Execute the program and return each step plus the final markup of every node register.
     machine: Final = _Machine(_instructions(program))
     machine.block(range(len(machine.code)))
     return tuple(machine.trace), tuple("" if node is None else node.serialize() for node in machine.nodes)
 
 
-def dom_lifecycle_race(seeds: Sequence[str], *, shared: bool = False) -> list[tuple[LifecycleStep, ...]]:
-    """
-    Run every seed in its own thread at once, so the programs contend on the module and interpreter state.
+def _instructions(program: bytes) -> list[tuple[int, int, int, int]]:
+    bounded: Final = program[:_MAX_BYTES]
+    return [
+        (bounded[index], bounded[index + 1], bounded[index + 2], bounded[index + 3])
+        for index in range(0, len(bounded) - len(bounded) % 4, 4)
+    ]
 
-    With ``shared`` set, every program reads and writes one set of node registers, so the threads also edit, move and
-    walk the same trees.
-    """
+
+def dom_lifecycle_race(seeds: Sequence[str], *, shared: bool = False) -> list[tuple[LifecycleStep, ...]]:
+    # Run every seed in its own thread at once, so the programs contend on the module and interpreter state.
+    #
+    # With ``shared`` set, every program reads and writes one set of node registers, so the threads also edit, move and
+    # walk the same trees.
     nodes: Final[list[Node | None] | None] = [None] * _SLOTS if shared else None
     machines: Final = [_Machine(_instructions(bytes.fromhex(seed)), nodes) for seed in seeds]
     start: Final = threading.Barrier(len(machines))
@@ -153,21 +145,13 @@ def dom_lifecycle_race(seeds: Sequence[str], *, shared: bool = False) -> list[tu
     return [tuple(machine.trace) for machine in machines]
 
 
-def _instructions(program: bytes) -> list[tuple[int, int, int, int]]:
-    bounded: Final = program[:_MAX_BYTES]
-    return [
-        (bounded[index], bounded[index + 1], bounded[index + 2], bounded[index + 3])
-        for index in range(0, len(bounded) - len(bounded) % 4, 4)
-    ]
-
-
 class _UnwindError(Exception):
-    """Unwind a nested program through the native caller that invoked its callback."""
+    # Unwind a nested program through the native caller that invoked its callback.
+    ...
 
 
 class _Machine:
-    """Typed register rings over one program; operands pick slots, so overwriting a slot drops its reference."""
-
+    # Typed register rings over one program; operands pick slots, so overwriting a slot drops its reference.
     def __init__(self, code: list[tuple[int, int, int, int]], nodes: list[Node | None] | None = None) -> None:
         self.code: Final = code
         self.nodes: Final[list[Node | None]] = [None] * _SLOTS if nodes is None else nodes
@@ -178,9 +162,19 @@ class _Machine:
         self.depth = 0
         self.created = 0
 
+    def nested(self, body: range) -> None:
+        # Run a callback's program one level deeper, so reentry stays bounded by depth instead of the stack.
+        if self.depth < 2:
+            self.depth += 1
+            try:
+                self.block(body)
+            finally:
+                self.depth -= 1
+
     def block(self, span: range) -> None:
         index = span.start
-        while index < span.stop and len(self.trace) < _MAX_STEPS:
+        max_steps = 256
+        while index < span.stop and len(self.trace) < max_steps:
             opcode, first, second, third = self.code[index]
             name, operation, nested = _OPERATIONS[opcode % len(_OPERATIONS)]
             body = range(index + 1, min(index + 1 + third % 4, span.stop)) if nested else range(index + 1, index + 1)
@@ -200,21 +194,13 @@ class _Machine:
         ]
         return tuple(map(sum, zip((0, 0, 0, 0), *(_tree_verify(node) for node in roots), strict=True)))
 
-    def nested(self, body: range) -> None:
-        """Run a callback's program one level deeper, so reentry stays bounded by depth instead of the stack."""
-        if self.depth < _MAX_DEPTH:
-            self.depth += 1
-            try:
-                self.block(body)
-            finally:
-                self.depth -= 1
-
 
 def _element(machine: _Machine, slot: int, second: int, _third: int, _body: range) -> str:
     if machine.created >= _MAX_NODES:
         return "cap"
     machine.created += 1
-    machine.nodes[slot] = Element(_TAGS[second % len(_TAGS)])
+    tags = ("p", "div", "span", "template", "b")
+    machine.nodes[slot] = Element(tags[second % len(tags)])
     return "ok"
 
 
@@ -506,8 +492,7 @@ def _select(machine: _Machine, slot: int, second: int, _third: int, _body: range
 
 
 class _Conversion:
-    """An argument whose conversion method runs a nested program, then answers, raises or behaves plainly."""
-
+    # An argument whose conversion method runs a nested program, then answers, raises or behaves plainly.
     def __init__(self, machine: _Machine, body: range, third: int, mode: int) -> None:
         self.machine: Final = machine
         self.body: Final = body
@@ -544,8 +529,7 @@ class _Key(_Conversion):
 
 
 class _Items(_Conversion):
-    """Serve as an iterable of fixed items, and as a mapping keyed by a conversion key."""
-
+    # Serve as an iterable of fixed items, and as a mapping keyed by a conversion key.
     def __init__(self, machine: _Machine, body: range, third: int, mode: int, items: list[Node] | list[str]) -> None:
         super().__init__(machine, body, third, mode)
         self.items: Final = items
@@ -554,16 +538,15 @@ class _Items(_Conversion):
         self.convert()
         return iter(self.items)
 
-    def keys(self) -> list[_Key]:
-        return [_Key(self.machine, self.body, self.third, self.mode)]
-
     def __getitem__(self, _key: object) -> str:
         return _WORDS[self.third % len(_WORDS)]
 
+    def keys(self) -> list[_Key]:
+        return [_Key(self.machine, self.body, self.third, self.mode)]
+
 
 class _Sax(SaxHandler):
-    """A sax_parse handler whose start and text events run the nested program."""
-
+    # A sax_parse handler whose start and text events run the nested program.
     def __init__(self, machine: _Machine, body: range) -> None:
         self.machine: Final = machine
         self.body: Final = body
@@ -578,8 +561,7 @@ class _Sax(SaxHandler):
 
 
 class _Dispatch:
-    """A Tokenizer.dispatch handler whose every html.parser event runs the nested program."""
-
+    # A Tokenizer.dispatch handler whose every html.parser event runs the nested program.
     def __init__(self, machine: _Machine, body: range) -> None:
         self.machine: Final = machine
         self.body: Final = body
@@ -654,3 +636,15 @@ _TRAILER: Final = bytes((
     *(21, 0, 3, 3),
     *_BODIES[1],
 ))
+
+
+__all__: Final = [
+    "LifecycleStep",
+    "UnsupportedDomLifecycleError",
+    "dom_lifecycle_check",
+    "dom_lifecycle_controls",
+    "dom_lifecycle_generate",
+    "dom_lifecycle_race",
+    "dom_lifecycle_seeds",
+    "run_dom_lifecycle",
+]

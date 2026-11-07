@@ -13,12 +13,60 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
+def xml_literal_generate(rng: random.Random) -> str:
+    return (
+        f"{rng.choice(_PREFIXES)}:{rng.choice(_TAGS)}:{rng.choice(tuple(_QUOTES))}:"
+        f"{rng.randint(1, 3)}:{rng.choice(tuple(_LEAVES))}"
+    )
+
+
+def xml_literal_seeds() -> list[str]:
+    # Cover the finite productions without random sampling gaps.
+    return [
+        f"{prefix}:{tag}:{quote}:{count}:{leaf}"
+        for prefix in _PREFIXES
+        for tag in _TAGS
+        for quote in _QUOTES
+        for count in range(1, 4)
+        for leaf in _LEAVES
+    ]
+
+
+def xml_literal_controls() -> dict[str, bool]:
+    # Reject changes to names, bindings and referenced whitespace.
+    return {
+        "nested second child": xml_literal_check(
+            "p:Leaf:double:2:plain",
+            lambda _node: (
+                '<Root xmlns:p="urn:p"><p:Leaf p:Key="Value" Key="Other">MiXeD'
+                '<p:Leaf p:Key="Value" Key="Other">MiXeD</p:Leaf></p:Leaf></Root>'
+            ),
+        )
+        is not None,
+        "changed declaration": xml_literal_check(
+            "p:Leaf:double:1:plain", lambda node: node.serialize(Html(xml=True)).replace("urn:p", "urn:wrong")
+        )
+        is not None,
+        "changed qualified name": xml_literal_check(
+            "p:Leaf:double:1:plain", lambda node: node.serialize(Html(xml=True)).replace("p:Leaf", "p:leaf")
+        )
+        is not None,
+        "referenced whitespace folded": xml_literal_check(
+            "p:Leaf:double:1:numeric",
+            lambda _node: (
+                '<Root xmlns:p="urn:p"><p:Leaf p:Key="a b c d" Key="Other">a&#9;b&#10;c&#13;d</p:Leaf></Root>'
+            ),
+        )
+        is not None,
+    }
+
+
 def xml_literal_check(
     case: str,
     serialize: Callable[[Node], str] | None = None,
     read: Callable[[str], Document] = parse_xml,
 ) -> str | None:
-    """Pin XML semantics independently of a serializer or parser agreement."""
+    # Pin XML semantics independently of a serializer or parser agreement.
     if (match := _CASE.fullmatch(case)) is None:
         raise UnsupportedXmlLiteralCaseError(case)
     source, expected = _document(*match.groups())
@@ -30,6 +78,11 @@ def xml_literal_check(
     if _snapshot(reparsed) != expected:
         return "serialized XML tree differs from literals"
     return None if _serialize(reparsed, serialize) == printed else "XML serialization changes on repeat"
+
+
+class UnsupportedXmlLiteralCaseError(ValueError):
+    # Separate malformed programs from failures of generated XML.
+    ...
 
 
 def _document(prefix: str, tag: str, quote: str, count: str, leaf: str) -> tuple[str, str]:
@@ -73,59 +126,6 @@ def _snapshot(root: Document) -> str:
 
 def _serialize(root: Node, serialize: Callable[[Node], str] | None) -> str:
     return root.serialize(Html(xml=True)) if serialize is None else serialize(root)
-
-
-def xml_literal_generate(rng: random.Random) -> str:
-    """Bound expansion before XML parsing."""
-    return (
-        f"{rng.choice(_PREFIXES)}:{rng.choice(_TAGS)}:{rng.choice(tuple(_QUOTES))}:"
-        f"{rng.randint(1, 3)}:{rng.choice(tuple(_LEAVES))}"
-    )
-
-
-def xml_literal_seeds() -> list[str]:
-    """Cover the finite productions without random sampling gaps."""
-    return [
-        f"{prefix}:{tag}:{quote}:{count}:{leaf}"
-        for prefix in _PREFIXES
-        for tag in _TAGS
-        for quote in _QUOTES
-        for count in range(1, 4)
-        for leaf in _LEAVES
-    ]
-
-
-def xml_literal_controls() -> dict[str, bool]:
-    """Reject changes to names, bindings and referenced whitespace."""
-    return {
-        "nested second child": xml_literal_check(
-            "p:Leaf:double:2:plain",
-            lambda _node: (
-                '<Root xmlns:p="urn:p"><p:Leaf p:Key="Value" Key="Other">MiXeD'
-                '<p:Leaf p:Key="Value" Key="Other">MiXeD</p:Leaf></p:Leaf></Root>'
-            ),
-        )
-        is not None,
-        "changed declaration": xml_literal_check(
-            "p:Leaf:double:1:plain", lambda node: node.serialize(Html(xml=True)).replace("urn:p", "urn:wrong")
-        )
-        is not None,
-        "changed qualified name": xml_literal_check(
-            "p:Leaf:double:1:plain", lambda node: node.serialize(Html(xml=True)).replace("p:Leaf", "p:leaf")
-        )
-        is not None,
-        "referenced whitespace folded": xml_literal_check(
-            "p:Leaf:double:1:numeric",
-            lambda _node: (
-                '<Root xmlns:p="urn:p"><p:Leaf p:Key="a b c d" Key="Other">a&#9;b&#10;c&#13;d</p:Leaf></Root>'
-            ),
-        )
-        is not None,
-    }
-
-
-class UnsupportedXmlLiteralCaseError(ValueError):
-    """Separate malformed programs from failures of generated XML."""
 
 
 _CASE: Final = re.compile(r"(p|P):(Leaf|leaf):(single|double):([1-3]):(plain|escaped|literal|numeric)")

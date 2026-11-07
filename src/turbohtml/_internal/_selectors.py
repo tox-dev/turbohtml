@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from turbohtml._html import _register_selector_error
 
-__all__ = ["SelectorSyntaxError"]
-
 
 class SelectorSyntaxError(ValueError):
     """
@@ -26,3 +24,8 @@ class SelectorSyntaxError(ValueError):
 
 
 _register_selector_error(SelectorSyntaxError)
+
+
+__all__ = [
+    "SelectorSyntaxError",
+]

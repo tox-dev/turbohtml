@@ -22,8 +22,6 @@ from __future__ import annotations
 
 from turbohtml._html import Tokenizer
 
-__all__ = ["HTMLParser"]
-
 
 class HTMLParser:
     """
@@ -66,14 +64,6 @@ class HTMLParser:
         """
         return self._tokenizer.position()
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        """
-        Handle a start tag; override to act on it.
-
-        :param tag: the lowercased tag name.
-        :param attrs: the (name, value) attribute pairs, a valueless attribute's value the empty string.
-        """
-
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         """
         Handle a self-closing tag; by default fire start then end, like the standard library.
@@ -83,6 +73,14 @@ class HTMLParser:
         """
         self.handle_starttag(tag, attrs)
         self.handle_endtag(tag)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """
+        Handle a start tag; override to act on it.
+
+        :param tag: the lowercased tag name.
+        :param attrs: the (name, value) attribute pairs, a valueless attribute's value the empty string.
+        """
 
     def handle_endtag(self, tag: str) -> None:
         """
@@ -139,3 +137,8 @@ class HTMLParser:
 
         :param data: the section text.
         """
+
+
+__all__ = [
+    "HTMLParser",
+]

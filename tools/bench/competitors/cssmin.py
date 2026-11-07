@@ -11,7 +11,7 @@ REQUIREMENTS = ("cssmin>=0.2",)
 
 
 def minify_css(css: str) -> str:
-    """Minify a stylesheet with cssmin's cssmin."""
+    # Minify a stylesheet with cssmin's cssmin.
     if " + " in css and re.search(r"calc\([^)]* \+ ", css):
         unsupported: Final = "cssmin removes required whitespace around calc addition"
         raise NotImplementedError(unsupported)

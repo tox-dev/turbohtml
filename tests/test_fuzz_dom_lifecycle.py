@@ -83,10 +83,6 @@ if TYPE_CHECKING:
 _BROKEN: Final = ((LifecycleStep(0, "element", "ok", (0, 0, 1, 0)),), ())
 
 
-def _steps(*instructions: tuple[int, int, int, int]) -> tuple[LifecycleStep, ...]:
-    return run_dom_lifecycle(bytes(byte for instruction in instructions for byte in instruction))[0]
-
-
 @pytest.mark.parametrize(
     "text", [pytest.param(seed, id=f"{index:03d}") for index, seed in enumerate(dom_lifecycle_seeds())]
 )
@@ -146,7 +142,7 @@ def test_dom_lifecycle_cli_emits_violation(mocker: MockerFixture, tmp_path: Path
         ORACLES["dom-lifecycle"],
         check=partial(dom_lifecycle_check, run=lambda _program: _BROKEN),
         seeds=lambda: [dom_lifecycle_seeds()[0]],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"dom-lifecycle": oracle}, clear=True)
     status: Final = main(["--oracle", "dom-lifecycle", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -163,6 +159,10 @@ def test_dom_lifecycle_partial_instruction_is_ignored() -> None:
 
 def test_dom_lifecycle_limits_executed_steps() -> None:
     assert len(_steps(*[(1, 0, 0, 0)] * 300)) == 256
+
+
+def _steps(*instructions: tuple[int, int, int, int]) -> tuple[LifecycleStep, ...]:
+    return run_dom_lifecycle(bytes(byte for instruction in instructions for byte in instruction))[0]
 
 
 def test_dom_lifecycle_limits_created_nodes() -> None:
@@ -362,7 +362,7 @@ def test_dom_program_cli_emits_wrong_result(mocker: MockerFixture, tmp_path: Pat
         ORACLES["dom-program"],
         check=partial(dom_program_check, run=lambda _program: ()),
         seeds=lambda: [dom_program_seeds()[1]],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"dom-program": oracle}, clear=True)
     status: Final = main(["--oracle", "dom-program", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -379,7 +379,7 @@ def test_dom_program_cli_emits_wrong_result(mocker: MockerFixture, tmp_path: Pat
 def test_dom_program_cli_rejects_vacuous_input(mocker: MockerFixture, tmp_path: Path) -> None:
     mocker.patch.dict(
         ORACLES,
-        {"dom-program": replace(ORACLES["dom-program"], seeds=lambda: ["xx"], floor=Floor(1, 1))},
+        {"dom-program": replace(ORACLES["dom-program"], seeds=lambda: ["xx"], floor=Floor(count=1, ratio=1))},
         clear=True,
     )
     assert main(["--oracle", "dom-program", "--minutes", "0", "--crash-dir", str(tmp_path)]) == 2
@@ -647,7 +647,7 @@ def test_html_table_cli_emits_group_change(mocker: MockerFixture, tmp_path: Path
         ORACLES["html-table-grammar"],
         check=partial(html_table_check, serialize=lambda _node: source),
         seeds=lambda: ["td:implied:1:plain"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"html-table-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-table-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -664,7 +664,7 @@ def test_html_table_cli_emits_group_change(mocker: MockerFixture, tmp_path: Path
 def test_html_table_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["html-table-grammar"], seeds=lambda: ["invalid"], floor=Floor(1, 1))
+    oracle: Final = replace(ORACLES["html-table-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
     mocker.patch.dict(ORACLES, {"html-table-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-table-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("*.json")), "VACUOUS RUN" in capsys.readouterr().err) == (2, [], True)
@@ -857,7 +857,7 @@ def test_html_list_cli_emits_attachment_loss(mocker: MockerFixture, tmp_path: Pa
         ORACLES["html-list-grammar"],
         check=partial(html_list_check, serialize=lambda _node: source),
         seeds=lambda: ["ul:nested:explicit:plain"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"html-list-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-list-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -874,7 +874,7 @@ def test_html_list_cli_emits_attachment_loss(mocker: MockerFixture, tmp_path: Pa
 def test_html_list_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["html-list-grammar"], seeds=lambda: ["invalid"], floor=Floor(1, 1))
+    oracle: Final = replace(ORACLES["html-list-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
     mocker.patch.dict(ORACLES, {"html-list-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-list-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("*.json")), "VACUOUS RUN" in capsys.readouterr().err) == (2, [], True)
@@ -1042,7 +1042,7 @@ def test_html_foreign_cli_emits_loss(mocker: MockerFixture, tmp_path: Path) -> N
         ORACLES["html-foreign-grammar"],
         check=partial(html_foreign_check, serialize=lambda _node: ""),
         seeds=lambda: ["desc:x:double:plain"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"html-foreign-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-foreign-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -1057,7 +1057,7 @@ def test_html_foreign_cli_emits_loss(mocker: MockerFixture, tmp_path: Path) -> N
 
 
 def test_html_foreign_cli_rejection(mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    oracle: Final = replace(ORACLES["html-foreign-grammar"], seeds=lambda: ["invalid"], floor=Floor(1, 1))
+    oracle: Final = replace(ORACLES["html-foreign-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
     mocker.patch.dict(ORACLES, {"html-foreign-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-foreign-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("*.json")), "VACUOUS RUN" in capsys.readouterr().err) == (2, [], True)
@@ -1176,7 +1176,7 @@ def test_html_sibling_cli_emits_multiplicity_loss(mocker: MockerFixture, tmp_pat
         ORACLES["html-sibling-grammar"],
         check=partial(html_sibling_check, serialize=lambda _node: ""),
         seeds=lambda: ["span:title:bare:2:empty"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"html-sibling-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-sibling-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -1193,7 +1193,7 @@ def test_html_sibling_cli_emits_multiplicity_loss(mocker: MockerFixture, tmp_pat
 def test_html_sibling_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["html-sibling-grammar"], seeds=lambda: ["invalid"], floor=Floor(1, 1))
+    oracle: Final = replace(ORACLES["html-sibling-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
     mocker.patch.dict(ORACLES, {"html-sibling-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-sibling-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("*.json")), "VACUOUS RUN" in capsys.readouterr().err) == (2, [], True)
@@ -1232,7 +1232,7 @@ def test_iterator_sequence_pins_reference_and_traversal(program: str, name: str)
         pytest.param("after:é", id="non-ascii-name"),
         pytest.param("after:g<p>", id="markup-name"),
         pytest.param("after:br", id="outside-nonvoid-fixtures"),
-        pytest.param("after:g" + "1" * 16, id="overlong-name"),
+        pytest.param(f"after:g{'1' * 16}", id="overlong-name"),
     ],
 )
 def test_iterator_sequence_rejects_unsupported_grammar(case: str) -> None:
@@ -1267,7 +1267,7 @@ def test_iterator_sequence_cli_emits_missed_edit(mocker: MockerFixture, tmp_path
         ORACLES["iterator-sequence"],
         check=partial(iterator_sequence_check, run=lambda _program, _name: "[]"),
         seeds=lambda: ["after:a"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"iterator-sequence": oracle}, clear=True)
     status: Final = main(["--oracle", "iterator-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -1286,7 +1286,7 @@ def test_iterator_sequence_cli_emits_valid_program_failure(mocker: MockerFixture
         ORACLES["iterator-sequence"],
         check=partial(iterator_sequence_check, run=_reject_program),
         seeds=lambda: ["after:a"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"iterator-sequence": oracle}, clear=True)
     status: Final = main(["--oracle", "iterator-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -1303,7 +1303,11 @@ def _reject_program(_program: str, _name: str) -> str:
 def test_iterator_sequence_cli_rejects_vacuous_run(mocker: MockerFixture, tmp_path: Path) -> None:
     mocker.patch.dict(
         ORACLES,
-        {"iterator-sequence": replace(ORACLES["iterator-sequence"], seeds=lambda: ["unknown:g"], floor=Floor(1, 1))},
+        {
+            "iterator-sequence": replace(
+                ORACLES["iterator-sequence"], seeds=lambda: ["unknown:g"], floor=Floor(count=1, ratio=1)
+            )
+        },
         clear=True,
     )
     assert main(["--oracle", "iterator-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)]) == 2
@@ -1342,7 +1346,7 @@ def test_observer_sequence_pins_edits_records_and_callbacks(program: str, name: 
         pytest.param("reuse1:é", id="non-ascii-name"),
         pytest.param("reuse1:g<p>", id="markup-name"),
         pytest.param("reuse1:br", id="outside-nonvoid-fixtures"),
-        pytest.param("reuse1:g" + "1" * 16, id="overlong-name"),
+        pytest.param(f"reuse1:g{'1' * 16}", id="overlong-name"),
     ],
 )
 def test_observer_sequence_rejects_unsupported_grammar(case: str) -> None:
@@ -1377,7 +1381,7 @@ def test_observer_sequence_cli_emits_missed_edit(mocker: MockerFixture, tmp_path
         ORACLES["observer-sequence"],
         check=partial(observer_sequence_check, run=lambda _program, _name: "[]"),
         seeds=lambda: ["reuse1:a"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"observer-sequence": oracle}, clear=True)
     status: Final = main(["--oracle", "observer-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -1396,7 +1400,7 @@ def test_observer_sequence_cli_emits_valid_program_failure(mocker: MockerFixture
         ORACLES["observer-sequence"],
         check=partial(observer_sequence_check, run=_fuzz_observer_invariants_reject_program),
         seeds=lambda: ["reuse1:a"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"observer-sequence": oracle}, clear=True)
     status: Final = main(["--oracle", "observer-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -1413,7 +1417,11 @@ def _fuzz_observer_invariants_reject_program(_program: str, _name: str) -> str:
 def test_observer_sequence_cli_rejects_vacuous_run(mocker: MockerFixture, tmp_path: Path) -> None:
     mocker.patch.dict(
         ORACLES,
-        {"observer-sequence": replace(ORACLES["observer-sequence"], seeds=lambda: ["unknown:g"], floor=Floor(1, 1))},
+        {
+            "observer-sequence": replace(
+                ORACLES["observer-sequence"], seeds=lambda: ["unknown:g"], floor=Floor(count=1, ratio=1)
+            )
+        },
         clear=True,
     )
     assert main(["--oracle", "observer-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)]) == 2

@@ -1,19 +1,3 @@
-"""Guard the C-API spellings whose meaning differs between CPython and PyPy's cpyext.
-
-``core/pycompat.h`` wraps each of them behind a ``th_`` or ``TH_`` name that is an identity macro on
-CPython and an adaptation on PyPy. The wrappers only help where they are used, and reaching for the
-wrapped spelling directly compiles and passes every CPython test while being silently wrong on PyPy:
-a dropped BOM, a byte-swapped string, a one-past length, or a type that constructs without a tree and
-segfaults on first use. Nothing in the compiler catches that, so pin it here. The C sources may name
-each wrapped spelling only inside ``pycompat.h`` itself, and must reach it through the wrapper
-everywhere else.
-
-``PyUnicode_FromKindAndData`` is exempt when its kind argument is the ``PyUnicode_4BYTE_KIND``
-literal: cpyext's 4-byte path is exact, and the wrapper exists only to widen a 2-byte buffer.
-
-Upstream: https://github.com/pypy/pypy/issues/5524 and https://github.com/pypy/pypy/issues/5525.
-"""
-
 from __future__ import annotations
 
 import re

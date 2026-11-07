@@ -19,13 +19,9 @@ from .schema_mutation import mutate
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
-__all__: Final = ["Case", "Verdict", "compare", "generate", "main"]
-
-_XS: Final = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
-
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Keep compiler and validation findings in the exit status."""
+    # Keep compiler and validation findings in the exit status.
     parser: Final = argparse.ArgumentParser(description="Compare bounded inline XSD schemas with libxml2.")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cases", type=int, default=32)
@@ -59,12 +55,26 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def compare(case: Case, *, negative_control: bool = False, reference_labels: bool = False) -> Iterator[Verdict]:
-    """Compile first so invalid schemas remain part of the comparison."""
+    # Compile first so invalid schemas remain part of the comparison.
     schema_hash: Final = hashlib.sha256(case.schema.encode()).hexdigest()
     ours: Final = _compile_turbohtml(case.schema)
     reference: Final = _compile_lxml(case.schema)
-    yield Verdict(case.seed, schema_hash, "turbohtml", "compilation", case.compiles, ours is not None)
-    yield Verdict(case.seed, schema_hash, "libxml2", "compilation", case.compiles, reference is not None)
+    yield Verdict(
+        seed=case.seed,
+        sha256=schema_hash,
+        engine="turbohtml",
+        phase="compilation",
+        expected=case.compiles,
+        actual=ours is not None,
+    )
+    yield Verdict(
+        seed=case.seed,
+        sha256=schema_hash,
+        engine="libxml2",
+        phase="compilation",
+        expected=case.compiles,
+        actual=reference is not None,
+    )
     for document, expected in case.documents:
         document_hash: Final = hashlib.sha256((case.schema + "\\0" + document).encode()).hexdigest()
         actual: Final = None if ours is None else ours.is_valid(parse_xml(document))
@@ -73,25 +83,25 @@ def compare(case: Case, *, negative_control: bool = False, reference_labels: boo
         )
         expected_result: Final = reference_actual if reference_labels and reference_actual is not None else expected
         yield Verdict(
-            case.seed,
-            document_hash,
-            "turbohtml",
-            "validation",
-            expected_result,
-            not actual if negative_control and actual is not None else actual,
+            seed=case.seed,
+            sha256=document_hash,
+            engine="turbohtml",
+            phase="validation",
+            expected=expected_result,
+            actual=not actual if negative_control and actual is not None else actual,
         )
         yield Verdict(
-            case.seed,
-            document_hash,
-            "libxml2",
-            "validation",
-            expected_result,
-            reference_actual,
+            seed=case.seed,
+            sha256=document_hash,
+            engine="libxml2",
+            phase="validation",
+            expected=expected_result,
+            actual=reference_actual,
         )
 
 
 def generate(seed: int) -> Case:
-    """Known labels distinguish shared mistakes from agreement."""
+    # Known labels distinguish shared mistakes from agreement.
     rng: Final = random.Random(seed)
     number: Final = rng.randrange(1, 100)
     word: Final = f"word{number}"
@@ -136,7 +146,8 @@ def generate(seed: int) -> Case:
     else:
         declarations = '<xs:element name="v" type="xs:notAType"/>' if family == 6 else '<xs:element type="xs:string"/>'
         documents = ()
-    return Case(seed, f"<xs:schema {_XS}>{declarations}</xs:schema>", family < 6 or family == 8, documents)
+    xs: str = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
+    return Case(seed, f"<xs:schema {xs}>{declarations}</xs:schema>", family < 6 or family == 8, documents)
 
 
 def _compile_turbohtml(schema: str) -> XMLSchema | None:
@@ -157,26 +168,27 @@ def _parser() -> lxml.etree.XMLParser:
     return lxml.etree.XMLParser(resolve_entities=False, no_network=True)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Case:
-    """Expected labels retain shared compiler errors."""
-
+    # Expected labels retain shared compiler errors.
     seed: int
     schema: str
     compiles: bool
     documents: tuple[tuple[str, bool], ...]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Verdict:
-    """Unavailable document results keep compilation failures visible."""
-
+    # Unavailable document results keep compilation failures visible.
     seed: int
     sha256: str
     engine: str
     phase: str
     expected: bool
     actual: bool | None
+
+
+__all__: Final = []
 
 
 if __name__ == "__main__":

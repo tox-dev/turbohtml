@@ -1,30 +1,8 @@
-"""Validate ``turbohtml.transform`` against libxslt's own XSLT 1.0 Recommendation test corpus.
-
-libxslt (the reference C implementation behind ``lxml.etree.XSLT``) ships, under ``tests/REC``
-and ``tests/REC2``, the worked examples from the XSLT 1.0 Recommendation as
-stylesheet/source/expected-output triples: ``foo.xsl`` transforms ``foo.xml`` into ``foo.out``.
-This harness runs turbohtml over every such triple and asserts its output equals libxslt's, so it
-proves spec-correctness against an authoritative oracle rather than against turbohtml's own tests.
-
-The corpus is the pinned ``tests/conformance/libxslt`` submodule. It is a pure data checkout with no
-optional runtime dependency, so an absent submodule is a setup error, not a reason to skip: collection
-raises rather than silently passing. The dedicated ``conformance`` CI job initializes the submodule and
-runs this suite; the coverage matrix ignores ``tests/conformance`` (and the file stays in
-``[tool.coverage] run.omit``).
-
-Comparison normalizes only insignificant differences per output method: the ``xml`` and ``html``
-methods drop the XML declaration and collapse whitespace between tags; ``text`` output is compared
-verbatim. libxslt's ``runtest`` passes ``test``/``test2`` string parameters to every case, so this
-harness does too.
-
-Cases that exercise XSLT features turbohtml deliberately does not model are ``xfail`` with a
-spec-cited reason (see ``_XFAIL``); every other case is a strict correctness assertion.
-"""
-
 from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Final
 
 import pytest
 
@@ -34,14 +12,14 @@ from turbohtml.transform import transform
 _CORPUS = Path(__file__).parent / "libxslt" / "tests"
 
 if not _CORPUS.exists():  # pragma: no cover
-    msg = (
+    _MSG = (
         "submodule tests/conformance/libxslt not checked out; "
         "run: git submodule update --init tests/conformance/libxslt"
     )
-    raise RuntimeError(msg)
+    raise RuntimeError(_MSG)
 
 # Features outside turbohtml's XSLT 1.0 subset, each keyed by "<dir>/<stem>" with the spec reason.
-_XFAIL: dict[str, str] = {
+_XFAIL: Final[dict[str, str]] = {
     "REC/test-10-3": "not yet supported: locale-aware xsl:sort collation (lang='de') needs an ICU/locale layer "
     "turbohtml does not carry; the default is Unicode-codepoint collation",
     "REC/test-12.4-1": "not yet supported: generate-id over the namespace:: axis needs the XPath namespace axis",

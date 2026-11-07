@@ -10,7 +10,6 @@ _SANITIZER = html_sanitizer.Sanitizer()
 
 
 def sanitize(text: str) -> None:
-    """Sanitize with html-sanitizer's allowlist Sanitizer."""
     _SANITIZER.sanitize(text)
 
 

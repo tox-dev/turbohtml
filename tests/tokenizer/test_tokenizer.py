@@ -19,26 +19,16 @@ if TYPE_CHECKING:
     from _pytest.mark.structures import ParameterSet
 
 
-def _shape(token: Token) -> tuple[object, ...]:
-    return (token.type, token.tag, token.target, token.data, token.attrs, token.self_closing)
-
-
-def assert_streaming_matches_whole(document: str) -> None:
-    """Feeding one character at a time must match one-shot tokenization."""
-    tokenizer = Tokenizer()
-    streamed = [token for char in document for token in tokenizer.feed(char)]
-    streamed += list(tokenizer.close())
-    whole = list(tokenize(document))
-    assert [_shape(token) for token in streamed] == [_shape(token) for token in whole]
-    assert [(token.line, token.col) for token in streamed] == [(token.line, token.col) for token in whole]
-
-
 def test_tokenize_simple_document() -> None:
     head, start, body, end = list(tokenize('a<p class="x">b</p>'))
     assert _shape(head) == (TokenType.TEXT, None, None, "a", None, False)
     assert _shape(start) == (TokenType.START_TAG, "p", None, None, [("class", "x")], False)
     assert _shape(body) == (TokenType.TEXT, None, None, "b", None, False)
     assert _shape(end) == (TokenType.END_TAG, "p", None, None, [], False)
+
+
+def _shape(token: Token) -> tuple[object, ...]:
+    return (token.type, token.tag, token.target, token.data, token.attrs, token.self_closing)
 
 
 def test_tokenize_empty_input() -> None:
@@ -90,7 +80,7 @@ def test_invalid_processing_instruction_is_a_comment(document: str, data: str, w
 
 
 def test_processing_instruction_target_space_at_eof_is_dropped(width_prefix: str) -> None:
-    assert [token.data for token in tokenize(width_prefix + "<?pi ")] == ([width_prefix] if width_prefix else [])
+    assert [token.data for token in tokenize(f"{width_prefix}<?pi ")] == ([width_prefix] if width_prefix else [])
 
 
 # each expected tuple is (type, name, public_id, system_id, force_quirks)
@@ -130,8 +120,7 @@ def test_self_closing_tag() -> None:
 )
 def test_tag_attrs(document: str, tag_name: str, attrs: list[tuple[str, str | None]]) -> None:
     (tag,) = list(tokenize(document))
-    assert tag.tag == tag_name
-    assert tag.attrs == attrs
+    assert (tag.tag, tag.attrs) == (tag_name, attrs)
 
 
 @pytest.mark.parametrize("mode", ["whole", "streaming"])
@@ -204,9 +193,7 @@ def test_token_repr() -> None:
 
 def test_token_type_enum() -> None:
     assert [member.value for member in TokenType] == [0, 1, 2, 3, 4, 5, 6]
-    assert TokenType.TEXT == 0
-    assert TokenType.CHARACTER_REFERENCE == 5
-    assert TokenType.PROCESSING_INSTRUCTION == 6
+    assert (TokenType.TEXT, TokenType.CHARACTER_REFERENCE, TokenType.PROCESSING_INSTRUCTION) == (0, 5, 6)
     assert isinstance(TokenType.START_TAG, int)
 
 
@@ -308,19 +295,18 @@ def test_doctype_identifier_edge_cases(
     document: str, public_id: str | None, system_id: str | None, width_prefix: str
 ) -> None:
     doctype = list(tokenize(width_prefix + document))[-1]
-    assert doctype.public_id == public_id
-    assert doctype.system_id == system_id
+    assert (doctype.public_id, doctype.system_id) == (public_id, system_id)
 
 
 def test_large_text_runs_move_intact() -> None:
-    first, second = "&amp;" + "a" * 600, "&gt;" + "b" * 700
+    first, second = f"&amp;{'a' * 600}", f"&gt;{'b' * 700}"
     tokens = list(tokenize(f"{first}<p>{second}"))
-    expected = ["&" + "a" * 600, ">" + "b" * 700]
+    expected = [f"&{'a' * 600}", f">{'b' * 700}"]
     assert [token.data for token in tokens if token.type is TokenType.TEXT] == expected
 
 
 def test_tokens_outlive_the_source_string() -> None:
-    text = "y" * 700 + "<p>"
+    text = f"{'y' * 700}<p>"
     iterator = tokenize(text)
     del text
     gc.collect()
@@ -433,6 +419,16 @@ def test_single_text_token(text: str, expected: str) -> None:
 )
 def test_feed_char_by_char_matches_whole(document: str, width_prefix: str) -> None:
     assert_streaming_matches_whole(width_prefix + document)
+
+
+def assert_streaming_matches_whole(document: str) -> None:
+    # Feeding one character at a time must match one-shot tokenization.
+    tokenizer = Tokenizer()
+    streamed = [token for char in document for token in tokenizer.feed(char)]
+    streamed += list(tokenizer.close())
+    whole = list(tokenize(document))
+    assert [_shape(token) for token in streamed] == [_shape(token) for token in whole]
+    assert [(token.line, token.col) for token in streamed] == [(token.line, token.col) for token in whole]
 
 
 @pytest.mark.parametrize(
@@ -695,8 +691,7 @@ def test_feed_keeps_input_while_a_token_is_queued() -> None:
     # a completed token not yet pulled from the iterator still spans the input buffer, so the
     # next feed must skip compaction; the full stream stays correct either way.
     tokenizer = Tokenizer()
-    stream = tokenizer.feed("x<a>")
-    first = next(stream)  # drives the state machine, leaving a record queued behind the one returned
+    first = next(tokenizer.feed("x<a>"))  # drives the state machine, leaving a record queued behind the one returned
     tokenizer.feed("z")
     tokens = [first, *tokenizer, *tokenizer.close()]
     assert [_shape(token) for token in tokens] == [_shape(token) for token in tokenize("x<a>z")]
@@ -758,16 +753,12 @@ def test_token_attrs_returns_fresh_list(document: str) -> None:
 # Large enough that the old O(n^2) scan would take tens of seconds even on an
 # instrumented build, so a regression cannot slip under the wall-clock ceiling; the
 # linear path parses it in well under a second.
-_MANY = 60000
+_MANY: Final[int] = 60000
+
+
 # Headroom is ~30x over the linear cost and ~5x under the quadratic one, so ordinary
 # CI scheduling jitter cannot flip the result either way.
-_BUDGET_SECONDS = 6.0
-
-
-def _attrs_of(pairs: str) -> list[tuple[str, str]]:
-    (tag,) = list(tokenize(f"<a{pairs}>"))
-    assert tag.attrs is not None  # a start tag always exposes its attribute list
-    return tag.attrs
+_BUDGET_SECONDS: Final[float] = 6.0
 
 
 def test_many_distinct_attributes_parse_in_linear_time() -> None:
@@ -776,6 +767,12 @@ def test_many_distinct_attributes_parse_in_linear_time() -> None:
     attrs = _attrs_of(pairs)
     assert time.perf_counter() - start < _BUDGET_SECONDS
     assert len(attrs) == _MANY  # every distinct name is kept, none dropped
+
+
+def _attrs_of(pairs: str) -> list[tuple[str, str]]:
+    (tag,) = list(tokenize(f"<a{pairs}>"))
+    assert tag.attrs is not None  # a start tag always exposes its attribute list
+    return tag.attrs
 
 
 def test_many_distinct_attributes_keep_their_names_and_order() -> None:
@@ -801,25 +798,14 @@ def test_hash_index_resets_between_consecutive_large_tags() -> None:
     assert counts == [1500, 1500]  # neither tag drops a name
 
 
-def _reference_shape(token: Token) -> tuple[object, ...]:
-    return (token.type, token.tag, token.data, token.source, token.attrs, token.self_closing)
-
-
-def _stream_char_by_char(document: str, *, resolve_references: bool, capture_source: bool) -> list[Token]:
-    tokenizer = Tokenizer(resolve_references=resolve_references, capture_source=capture_source)
-    streamed = [token for char in document for token in tokenizer.feed(char)]
-    streamed += list(tokenizer.close())
-    return streamed
-
-
-def _refs(tokens: Iterable[Token]) -> list[tuple[str | None, str | None]]:
-    return [(token.data, token.source) for token in tokens if token.type is TokenType.CHARACTER_REFERENCE]
-
-
 def test_default_resolves_references_into_text() -> None:
     head, tag = list(tokenize("a&amp;b<p>"))
     assert _reference_shape(head) == (TokenType.TEXT, None, "a&b", None, None, False)
     assert tag.type is TokenType.START_TAG
+
+
+def _reference_shape(token: Token) -> tuple[object, ...]:
+    return (token.type, token.tag, token.data, token.source, token.attrs, token.self_closing)
 
 
 def test_default_source_is_none() -> None:
@@ -841,8 +827,7 @@ def test_default_source_is_none() -> None:
 def test_reference_becomes_its_own_token(document: str, data: str, source: str) -> None:
     (reference,) = list(tokenize(document, resolve_references=False))
     assert reference.type is TokenType.CHARACTER_REFERENCE
-    assert reference.data == data
-    assert reference.source == source
+    assert (reference.data, reference.source) == (data, source)
     assert reference.tag is None
     assert reference.attrs is None
     assert reference.self_closing is False
@@ -875,6 +860,10 @@ def test_non_reference_ampersand_stays_text(document: str, text: str) -> None:
 
 def test_consecutive_references() -> None:
     assert _refs(tokenize("&amp;&lt;&gt;", resolve_references=False)) == [("&", "&amp;"), ("<", "&lt;"), (">", "&gt;")]
+
+
+def _refs(tokens: Iterable[Token]) -> list[tuple[str | None, str | None]]:
+    return [(token.data, token.source) for token in tokens if token.type is TokenType.CHARACTER_REFERENCE]
 
 
 def test_named_vs_numeric_is_readable_from_source() -> None:
@@ -921,8 +910,7 @@ def test_reference_repr() -> None:
 )
 def test_capture_source_records_verbatim_markup(document: str, tag: str | None, source: str) -> None:
     (token,) = list(tokenize(document, capture_source=True))
-    assert token.tag == tag
-    assert token.source == source
+    assert (token.tag, token.source) == (tag, source)
 
 
 def test_capture_source_leaves_text_without_source() -> None:
@@ -936,8 +924,7 @@ def test_capture_source_leaves_text_without_source() -> None:
 def test_capture_source_preserves_original_casing_and_whitespace() -> None:
     # the resolved tag name is lowercased, but the verbatim source keeps the original spelling
     (tag,) = list(tokenize("<DIV  Class = 'x' >", capture_source=True))
-    assert tag.tag == "div"
-    assert tag.source == "<DIV  Class = 'x' >"
+    assert (tag.tag, tag.source) == ("div", "<DIV  Class = 'x' >")
 
 
 def test_capture_source_and_split_references_combine() -> None:
@@ -967,6 +954,13 @@ def test_split_streaming_matches_whole(document: str, width_prefix: str) -> None
     whole = list(tokenize(text, resolve_references=False))
     assert [_reference_shape(token) for token in streamed] == [_reference_shape(token) for token in whole]
     assert [(token.line, token.col) for token in streamed] == [(token.line, token.col) for token in whole]
+
+
+def _stream_char_by_char(document: str, *, resolve_references: bool, capture_source: bool) -> list[Token]:
+    tokenizer = Tokenizer(resolve_references=resolve_references, capture_source=capture_source)
+    streamed = [token for char in document for token in tokenizer.feed(char)]
+    streamed += list(tokenizer.close())
+    return streamed
 
 
 @pytest.mark.parametrize(
@@ -1042,8 +1036,7 @@ def test_split_reference_survives_a_queued_feed() -> None:
     # a reference token left queued behind a flushed text run must keep a valid source
     # across the next feed's compaction
     tokenizer = Tokenizer(resolve_references=False)
-    stream = tokenizer.feed("x&amp;")
-    first = next(stream)
+    first = next(tokenizer.feed("x&amp;"))
     tokenizer.feed("y")
     tokens = [first, *tokenizer, *tokenizer.close()]
     assert _refs(tokens) == [("&", "&amp;")]
@@ -1062,10 +1055,6 @@ _TokenPart: TypeAlias = str | bool | dict[str, str] | None
 _ExpectedToken: TypeAlias = list[_TokenPart]
 _ParseError: TypeAlias = tuple[str, int, int]
 _TokenizerCase: TypeAlias = tuple[str, str, str | None, list[_ExpectedToken], list[_ParseError], str]
-_PI_TOKEN_OVERRIDES: Final[dict[str, list[_ExpectedToken]]] = {
-    "<?namespace>": [["ProcessingInstruction", "namespace", ""]],
-    "<?foo-->": [["ProcessingInstruction", "foo--", ""]],
-}
 
 
 def _decode_double(text: str) -> str:
@@ -1085,7 +1074,10 @@ def _living_pi_expectation(
         return [], [("eof-in-processing-instruction", 1, 3)]
     if first.isascii() and (first.isalpha() or first == "_"):
         if text.endswith(">"):
-            return _PI_TOKEN_OVERRIDES.get(text, expected), []
+            return {
+                "<?namespace>": [["ProcessingInstruction", "namespace", ""]],
+                "<?foo-->": [["ProcessingInstruction", "foo--", ""]],
+            }.get(text, expected), []
         return [], [("eof-in-processing-instruction", 1, len(text) + 1)]
     retained = [
         error
@@ -1099,8 +1091,7 @@ def _living_pi_expectation(
 def _load_cases() -> list[_TokenizerCase]:
     cases: list[_TokenizerCase] = []
     for path in sorted(_TOKENIZER_DIR.glob("*.test")):
-        document = json.loads(path.read_text(encoding="utf-8"))
-        for index, test in enumerate(document.get("tests", [])):
+        for index, test in enumerate(json.loads(path.read_text(encoding="utf-8")).get("tests", [])):
             double_escaped = test.get("doubleEscaped", False)
             text = _decode_double(test["input"]) if double_escaped else test["input"]
             expected = [

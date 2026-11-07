@@ -1,16 +1,3 @@
-"""Evaluation of XPath location paths through ``Node.xpath`` / ``Node.xpath_one``.
-
-Covers the structural axes, the name/``*``/``node()``/``text()``/``comment()`` node
-tests, attribute access, and the namespace axis.
-
-The second half exercises the precompiled, reusable :class:`turbohtml.XPath` object
-(issue #267): ``XPath(expr)`` parses an expression once, and calling it with a context
-node plus optional ``$name`` keyword variables evaluates it, returning the same results
-as :meth:`turbohtml.Node.xpath`. The compiled program is tree-independent, so one object
-runs against many nodes and documents, with ``smart_strings`` and ``extensions`` bound at
-construction (mirroring ``lxml.etree.XPath``).
-"""
-
 from __future__ import annotations
 
 import gc
@@ -32,7 +19,7 @@ if TYPE_CHECKING:
     from types import SimpleNamespace
 
 
-HTML = (
+HTML: Final[str] = (
     "<!doctype html><html><head><title>T</title></head><body>"
     '<div id="d1" class="box"><p>a</p><p class="hi">b</p></div>'
     '<div id="d2"><span>s1</span><span>s2</span></div>'
@@ -45,7 +32,7 @@ HTML = (
 
 
 def node_list(result: object) -> list[turbohtml.Node | str]:
-    """The node-set list an expression is expected to return."""
+    # The node-set list an expression is expected to return.
     assert isinstance(result, list)
     return result
 
@@ -55,7 +42,7 @@ def tags(result: object) -> list[str]:
 
 
 def one(node: turbohtml.Node, expr: str) -> Element:
-    """The single Element an expression is expected to select."""
+    # The single Element an expression is expected to select.
     result = node.xpath_one(expr)
     assert isinstance(result, Element)
     return result
@@ -66,17 +53,17 @@ def doc() -> turbohtml.Node:
     return turbohtml.parse(HTML)
 
 
-SVG = "http://www.w3.org/2000/svg"
-MATHML = "http://www.w3.org/1998/Math/MathML"
+SVG: Final[str] = "http://www.w3.org/2000/svg"
+_MATHML: Final[str] = "http://www.w3.org/1998/Math/MathML"
 
-NS_HTML = (
+_NS_HTML: Final[str] = (
     "<html><body><p id='para'>html</p><svg width='10'><circle r='5'/><rect/></svg><math><mi>x</mi></math></body></html>"
 )
 
 
 @pytest.fixture
 def ns_doc() -> turbohtml.Node:
-    return turbohtml.parse(NS_HTML)
+    return turbohtml.parse(_NS_HTML)
 
 
 def test_descendant_name(doc: turbohtml.Node) -> None:
@@ -148,7 +135,7 @@ def test_absolute_path_in_a_parsed_fragment_starts_at_the_fragment() -> None:
     assert tags(bold.xpath("/p")) == ["p"]
 
 
-_NESTED: Final = (
+_NESTED: Final[str] = (
     '<div id="o"><div id="i"><a id="1"></a><p id="p"></p></div><a id="2"></a></div><a id="3"></a>'
     '<div id="s"><a id="4"></a></div>'
 )
@@ -207,14 +194,14 @@ def test_valueless_attribute(doc: turbohtml.Node) -> None:
 
 def test_unicode_and_overlong_attribute_names_match_nothing(doc: turbohtml.Node) -> None:
     assert doc.xpath("//a/@café") == []
-    assert doc.xpath("//a/@" + "z" * 200) == []
+    assert doc.xpath(f"//a/@{'z' * 200}") == []
 
 
 def test_step_after_attribute_yields_nothing(doc: turbohtml.Node) -> None:
     assert doc.xpath("//a/@href/x") == []
 
 
-ATTR_CONTEXT_XML: Final[str] = '<div><p n="10">x<b>i</b></p><p n="3">y</p></div>'
+_ATTR_CONTEXT_XML: Final[str] = '<div><p n="10">x<b>i</b></p><p n="3">y</p></div>'
 
 
 @pytest.mark.parametrize(
@@ -245,7 +232,7 @@ ATTR_CONTEXT_XML: Final[str] = '<div><p n="10">x<b>i</b></p><p n="3">y</p></div>
     ],
 )
 def test_attribute_node_as_context(expr: str, expected: list[str]) -> None:
-    result = parse_xml(ATTR_CONTEXT_XML).xpath(expr)
+    result = parse_xml(_ATTR_CONTEXT_XML).xpath(expr)
     assert isinstance(result, list)
     assert [node.tag if isinstance(node, Element) else node for node in result] == expected
 
@@ -274,7 +261,7 @@ def test_unknown_element_name_mismatch(doc: turbohtml.Node) -> None:
 
 def test_unicode_and_overlong_names_match_nothing(doc: turbohtml.Node) -> None:
     assert doc.xpath("//café") == []
-    assert doc.xpath("//" + "a" * 80) == []
+    assert doc.xpath(f"//{'a' * 80}") == []
 
 
 def test_self_axis(doc: turbohtml.Node) -> None:
@@ -347,8 +334,7 @@ def test_xpath_iter_yields_results(doc: turbohtml.Node) -> None:
 
 
 def test_xpath_iter_supports_partial_consumption(doc: turbohtml.Node) -> None:
-    iterator = doc.xpath_iter("//*")
-    first = next(iterator)
+    first = next(doc.xpath_iter("//*"))
     assert isinstance(first, Element)
     assert first.tag == "html"
 
@@ -377,20 +363,20 @@ def test_non_string_argument(doc: turbohtml.Node) -> None:
         doc.xpath_one(123)  # ty: ignore[invalid-argument-type]  # non-str exercises the TypeError path
 
 
-TABLE_HTML = (
+_TABLE_HTML: Final[str] = (
     '<table><tr><td class="num">1</td><td>2</td></tr><tr><td class="num">3</td><td class="num">4</td></tr></table>'
 )
-LINKS_HTML = "<html><body><a href='/x'>one</a><a href='/y'>two</a></body></html>"
+_LINKS_HTML: Final[str] = "<html><body><a href='/x'>one</a><a href='/y'>two</a></body></html>"
 
 
 @pytest.fixture
 def table_doc() -> turbohtml.Node:
-    return turbohtml.parse(TABLE_HTML)
+    return turbohtml.parse(_TABLE_HTML)
 
 
 @pytest.fixture
 def links_doc() -> turbohtml.Node:
-    return turbohtml.parse(LINKS_HTML)
+    return turbohtml.parse(_LINKS_HTML)
 
 
 @pytest.fixture
@@ -609,14 +595,14 @@ def test_predicate_survives_in_compound_expression(
         pytest.param("//svg:circle", {"svg": SVG}, ["circle"], id="svg-text-matched-local"),
         pytest.param("//svg:rect", {"svg": SVG}, ["rect"], id="svg-second-child"),
         pytest.param("//s:circle", {"s": SVG}, ["circle"], id="prefix-name-is-arbitrary"),
-        pytest.param("//m:math", {"m": MATHML}, ["math"], id="mathml-atom-matched-local"),
-        pytest.param("//m:mi", {"m": MATHML}, ["mi"], id="mathml-leaf"),
-        pytest.param("//svg:circle | //m:mi", {"svg": SVG, "m": MATHML}, ["circle", "mi"], id="two-prefixes"),
+        pytest.param("//m:math", {"m": _MATHML}, ["math"], id="mathml-atom-matched-local"),
+        pytest.param("//m:mi", {"m": _MATHML}, ["mi"], id="mathml-leaf"),
+        pytest.param("//svg:circle | //m:mi", {"svg": SVG, "m": _MATHML}, ["circle", "mi"], id="two-prefixes"),
         pytest.param("/html/body/svg:svg", {"svg": SVG}, ["svg"], id="prefixed-step-in-path"),
         # a prefix bound to the empty URI selects the null (HTML) namespace
         pytest.param("//h:p", {"h": ""}, ["p"], id="null-namespace-prefix-matches-html"),
         # a same-length-but-different bound prefix is skipped; a later exact entry still resolves
-        pytest.param("//svg:circle", {"abc": MATHML, "svg": SVG}, ["circle"], id="same-length-prefix-distinguished"),
+        pytest.param("//svg:circle", {"abc": _MATHML, "svg": SVG}, ["circle"], id="same-length-prefix-distinguished"),
     ],
 )
 def test_prefixed_match(ns_doc: turbohtml.Node, expr: str, mapping: dict[str, str], expected: list[str]) -> None:
@@ -626,7 +612,7 @@ def test_prefixed_match(ns_doc: turbohtml.Node, expr: str, mapping: dict[str, st
 @pytest.mark.parametrize(
     ("expr", "mapping"),
     [
-        pytest.param("//svg:circle", {"svg": MATHML}, id="wrong-uri-for-prefix"),
+        pytest.param("//svg:circle", {"svg": _MATHML}, id="wrong-uri-for-prefix"),
         pytest.param("//svg:p", {"svg": SVG}, id="html-local-name-not-in-svg-ns"),
         pytest.param("//html:circle", {"html": ""}, id="svg-element-not-in-null-ns"),
         pytest.param("//svg:nope", {"svg": SVG}, id="no-such-local-name"),
@@ -702,16 +688,16 @@ def test_prefixed_attribute_never_matches(ns_doc: turbohtml.Node) -> None:
     assert ns_doc.xpath("//svg:svg/@width", namespaces={"svg": SVG}) == ["10"]
 
 
-XML_NS: Final[str] = "http://www.w3.org/XML/1998/namespace"
+_XML_NS: Final[str] = "http://www.w3.org/XML/1998/namespace"
 
 
 @pytest.mark.parametrize(
     ("markup", "expr", "namespaces", "expected"),
     [
         pytest.param("<r><d xml:lang='en'/></r>", "//@xml:lang", None, ["en"], id="xml-tree-implicit-prefix"),
-        pytest.param("<r><d xml:lang='en'/></r>", "//@x:lang", {"x": XML_NS}, ["en"], id="xml-tree-rebound-prefix"),
+        pytest.param("<r><d xml:lang='en'/></r>", "//@x:lang", {"x": _XML_NS}, ["en"], id="xml-tree-rebound-prefix"),
         pytest.param("<r><d xml:lang='en'/></r>", "//@xml:space", None, [], id="xml-tree-other-local-name"),
-        pytest.param("<r><d xml:lang='en'/></r>", "//@xml:" + "z" * 130, None, [], id="xml-tree-overlong-local-name"),
+        pytest.param("<r><d xml:lang='en'/></r>", f"//@xml:{'z' * 130}", None, [], id="xml-tree-overlong-local-name"),
         pytest.param("<r><d xml:lang='en'/></r>", "//@x:lang", {"x": "urn:x"}, [], id="xml-tree-other-namespace"),
     ],
 )
@@ -734,7 +720,7 @@ def test_xpath_one_accepts_namespaces(ns_doc: turbohtml.Node) -> None:
 
 
 def test_xpath_iter_accepts_namespaces(ns_doc: turbohtml.Node) -> None:
-    assert tags(list(ns_doc.xpath_iter("//m:mi", namespaces={"m": MATHML}))) == ["mi"]
+    assert tags(list(ns_doc.xpath_iter("//m:mi", namespaces={"m": _MATHML}))) == ["mi"]
 
 
 def test_namespaces_none_is_no_mapping(ns_doc: turbohtml.Node) -> None:
@@ -749,7 +735,7 @@ def test_namespaces_combines_with_variables(ns_doc: turbohtml.Node) -> None:
 def test_same_expression_rebinds_per_call(ns_doc: turbohtml.Node) -> None:
     # The compiled program is cached by string; the prefix resolves per call.
     assert tags(ns_doc.xpath("//p:circle", namespaces={"p": SVG})) == ["circle"]
-    assert ns_doc.xpath("//p:circle", namespaces={"p": MATHML}) == []
+    assert ns_doc.xpath("//p:circle", namespaces={"p": _MATHML}) == []
 
 
 # Element.xpath_path(): the positional XPath locating a node from the root. Unlike
@@ -802,7 +788,7 @@ def test_xpath_path_of_detached_element() -> None:
 
 
 # xpath_path() round-trips: re-evaluating the path returns exactly the node it came from.
-_PATH_DOC = (
+_PATH_DOC: Final[str] = (
     "<!doctype html><html><head><title>t</title></head><body>"
     "<header><h1>Title</h1></header>"
     '<main id="content">'
@@ -879,8 +865,8 @@ def test_long_union_chain_evaluates(doc: turbohtml.Node, expr: str) -> None:
 @pytest.mark.parametrize(
     "expr",
     [
-        pytest.param("(" + "+".join(["1"] * 5000) + ") | //p", id="first-operand"),
-        pytest.param("//p | (" + "+".join(["1"] * 5000) + ") | //p", id="middle-operand"),
+        pytest.param(f"({'+'.join(['1'] * 5000)}) | //p", id="first-operand"),
+        pytest.param(f"//p | ({'+'.join(['1'] * 5000)}) | //p", id="middle-operand"),
     ],
 )
 def test_deep_union_operand_still_raises(doc: turbohtml.Node, expr: str) -> None:
@@ -892,11 +878,11 @@ def test_deep_union_operand_still_raises(doc: turbohtml.Node, expr: str) -> None
     ("expr", "expected"),
     [
         pytest.param(" or ".join(["1=0"] * 5000), False, id="or-all-false"),
-        pytest.param(" or ".join(["1=0"] * 5000) + " or 1=1", True, id="or-last-true"),
+        pytest.param(f"{' or '.join(['1=0'] * 5000)} or 1=1", True, id="or-last-true"),
         pytest.param(" and ".join(["1=1"] * 5000), True, id="and-all-true"),
-        pytest.param(" and ".join(["1=1"] * 5000) + " and 1=0", False, id="and-last-false"),
-        pytest.param("1=0 and (" + "+".join(["1"] * 5000) + ") and 1=1", False, id="and-stops-before-deep"),
-        pytest.param("1=1 or (" + "+".join(["1"] * 5000) + ") or 1=0", True, id="or-stops-before-deep"),
+        pytest.param(f"{' and '.join(['1=1'] * 5000)} and 1=0", False, id="and-last-false"),
+        pytest.param(f"1=0 and ({'+'.join(['1'] * 5000)}) and 1=1", False, id="and-stops-before-deep"),
+        pytest.param(f"1=1 or ({'+'.join(['1'] * 5000)}) or 1=0", True, id="or-stops-before-deep"),
     ],
 )
 def test_long_boolean_chain_evaluates(doc: turbohtml.Node, expr: str, *, expected: bool) -> None:
@@ -905,13 +891,13 @@ def test_long_boolean_chain_evaluates(doc: turbohtml.Node, expr: str, *, expecte
 
 def test_long_compound_selector_evaluates() -> None:
     doc = turbohtml.parse('<p class="a">x</p><p>y</p>')
-    selector = "p" + ".a" * 1100
+    selector = f"p{'.a' * 1100}"
     assert doc.xpath(css_to_xpath(selector)) == doc.select(selector)
 
 
 def test_deep_boolean_chain_operand_still_raises(doc: turbohtml.Node) -> None:
     with pytest.raises(ValueError, match="nested too deeply"):
-        doc.xpath("1=1 and (" + "+".join(["1"] * 5000) + ") and 1=1")
+        doc.xpath(f"1=1 and ({'+'.join(['1'] * 5000)}) and 1=1")
 
 
 def test_long_union_in_predicate_needs_no_c_stack() -> None:
@@ -934,7 +920,7 @@ def test_long_union_in_predicate_needs_no_c_stack() -> None:
 
 
 def test_moderately_nested_expression_still_evaluates(doc: turbohtml.Node) -> None:
-    assert doc.xpath("(" * 100 + "1 + 1" + ")" * 100) == pytest.approx(2.0)
+    assert doc.xpath(f"{'(' * 100}1 + 1{')' * 100}") == pytest.approx(2.0)
 
 
 @pytest.mark.parametrize(
@@ -1011,7 +997,7 @@ def test_sets_share_a_node(size: int, right: str, *, overlap: bool) -> None:
 
 
 def test_sets_share_a_later_node() -> None:
-    document: Final = parse_xml("<root>" + "<item/>" * 64 + "</root>")
+    document: Final = parse_xml(f"<root>{'<item/>' * 64}</root>")
     assert document.xpath("set:has-same-node(//item, //item[position() > 32])") is True
 
 
@@ -1073,7 +1059,7 @@ def test_comparison_uses_attribute_values() -> None:
 
 
 def test_comparison_uses_descendant_text() -> None:
-    document: Final = parse_xml("<root>" + "<left>a<b>b</b>c</left><right>abc</right>" * 32 + "</root>")
+    document: Final = parse_xml(f"<root>{'<left>a<b>b</b>c</left><right>abc</right>' * 32}</root>")
     assert document.xpath("//left = //right") is True
 
 
@@ -1085,7 +1071,7 @@ def test_comparison_same_nodes(selection: str) -> None:
     assert document.xpath(f"{selection} = {selection}") is True
 
 
-VARIABLE_HTML = (
+_VARIABLE_HTML: Final[str] = (
     "<html><body>"
     "<table><tr id='r1'><td>a</td><td>b</td></tr><tr id='r2'><td>c</td></tr></table>"
     "<p id='a'>one</p><p id='b'>two</p><p id='c'>three</p>"
@@ -1103,7 +1089,7 @@ def ids(result: object) -> list[str | None]:
 
 @pytest.fixture
 def variable_doc() -> turbohtml.Node:
-    return turbohtml.parse(VARIABLE_HTML)
+    return turbohtml.parse(_VARIABLE_HTML)
 
 
 @pytest.mark.parametrize(
@@ -1277,8 +1263,7 @@ def test_node_set_variable_through_xpath_one(variable_doc: turbohtml.Node) -> No
 
 
 def foreign_nodes() -> list[Element]:
-    other = turbohtml.parse("<html><body><span id='x'>elsewhere</span></body></html>")
-    return query(other, "//span")
+    return query(turbohtml.parse("<html><body><span id='x'>elsewhere</span></body></html>"), "//span")
 
 
 def yield_then_raise(node: turbohtml.Node) -> Iterator[Element]:

@@ -1,19 +1,3 @@
-"""
-Validate turbohtml's link detector against linkify-it's own fixture corpus.
-
-linkify-it (https://github.com/markdown-it/linkify-it) is the reference plain-text link scanner: markdown-it uses it,
-linkify-it-py is a line-for-line port of it, and its ``test/fixtures`` pair is the corpus every regression it ever fixed
-lives in. It is vendored as a pinned shallow submodule at ``tests/conformance/linkify-it``; ``links.txt`` holds inputs
-that must produce a link, optionally followed by the exact match expected, and ``not_links.txt`` holds inputs that must
-produce none. The parser here mirrors linkify-it's own runner, trailing ``%`` notes included, so the corpus is read the
-way upstream reads it -- a line is its own expectation unless the next line supplies one.
-
-turbohtml is not a port of linkify-it and does not aim for byte parity: it detects a narrower, less fuzzy set on
-purpose. So every case is asserted, and the cases where the two disagree are listed in ``_DEVIATIONS`` with the reason
-and with turbohtml's own answer, which is asserted just as strictly. A deviation that silently changes fails here; one
-that gets fixed fails here too, and its entry is deleted.
-"""
-
 from __future__ import annotations
 
 import re
@@ -30,11 +14,11 @@ _FIXTURES: Final = _SUBMODULE / "test" / "fixtures"
 # The corpus is a vendored data submodule: the dedicated "conformance" CI job checks it out, so its absence is a setup
 # error, not a reason to skip -- a silent skip would let the whole suite vanish.
 if not _FIXTURES.exists():  # pragma: no cover
-    msg = (
+    _MSG = (
         "submodule tests/conformance/linkify-it not checked out; "
         "run: git submodule update --init tests/conformance/linkify-it"
     )
-    raise RuntimeError(msg)
+    raise RuntimeError(_MSG)
 
 # Where turbohtml deliberately answers differently, keyed by the fixture line, valued as (turbohtml's first match or
 # None, why). Each reason is a documented design boundary, not an unfixed defect.
@@ -79,12 +63,12 @@ _DEVIATIONS: Final = {
 
 
 def _lines(name: str) -> list[str]:
-    """Return the fixture's lines with whole-line ``%`` notes blanked, the way linkify-it's own runner reads them."""
+    # Return the fixture's lines with whole-line ``%`` notes blanked, the way linkify-it's own runner reads them.
     return [re.sub(r"^%.*", "", line) for line in (_FIXTURES / name).read_text(encoding="utf-8").split("\n")]
 
 
 def _link_cases() -> list[tuple[str, str]]:
-    """Return each ``links.txt`` input with the match it must produce: the next line when there is one, else itself."""
+    # Return each ``links.txt`` input with the match it must produce: the next line when there is one, else itself.
     lines = _lines("links.txt")
     cases: list[tuple[str, str]] = []
     skip = False
@@ -99,7 +83,7 @@ def _link_cases() -> list[tuple[str, str]]:
 
 
 def _first(text: str) -> str | None:
-    """Return the text of the first link turbohtml finds, or None."""
+    # Return the text of the first link turbohtml finds, or None.
     spans = LinkDetector().find(text)
     return spans[0].text if spans else None
 

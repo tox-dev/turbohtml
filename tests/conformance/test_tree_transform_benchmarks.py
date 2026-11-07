@@ -1,5 +1,3 @@
-"""Pin the output and mutation performed by the competitor benchmark adapters."""
-
 from __future__ import annotations
 
 import shutil

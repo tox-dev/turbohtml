@@ -47,7 +47,6 @@ if TYPE_CHECKING:
 # A malformed input is expected to raise, not crash; only a sanitizer abort (which kills the process) or an unexpected
 # exception type is a finding. RecursionError from a deep Python walk is surfaced separately as a soft DoS signal.
 _EXPECTED: Final = (ValueError, UnicodeError, turbohtml.HTMLParseError)
-_SET_IDS: Final = (0, 1, 2)
 # Script text where "<!--" opens and "<script" plus a tag end follows before any "-->" breaks the script content
 # restrictions (https://html.spec.whatwg.org/multipage/scripting.html#restrictions-for-contents-of-script-elements):
 # reparsing its serialization lands in the double-escaped state, which swallows the closing "</script>". The standard
@@ -56,11 +55,11 @@ _SET_IDS: Final = (0, 1, 2)
 _SCRIPT_DOUBLE_ESCAPE: Final = re.compile(r"<!--(?:(?!-->).)*?<script[\t\n\f />]", re.IGNORECASE | re.DOTALL)
 # TH_MAX_TREE_DEPTH (src/turbohtml/_c/dom/tree.h): past 512 open elements a start tag is inserted but not pushed, so
 # further tags become siblings and reparsing the flattened output nests them differently
-_MAX_TREE_DEPTH: Final = 512
+_MAX_TREE_DEPTH: Final[int] = 512
 
 
 def main() -> int:
-    """Drive one or all targets; return 1 on any soft finding, 0 if clean (an ASan abort exits nonzero on its own)."""
+    # Drive one or all targets; return 1 on any soft finding, 0 if clean (an ASan abort exits nonzero on its own).
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=("smoke", "deep", "alloc"), required=True)
     parser.add_argument("--target", default="all")
@@ -95,15 +94,13 @@ def main() -> int:
 
 
 def _sweep(name: str, seeds: list[bytes], repro: Path, crash_dir: Path) -> list[str]:
-    """
-    Fail every PyMem allocation of every seed in turn and require ``MemoryError`` exactly when the failure fires.
-
-    libxml2's fuzzers inject failures the same way
-    (https://github.com/GNOME/libxml2/blob/c43dc98d27ac315a48d93dbd399c6c22cf7125b1/fuzz/fuzz.c#L83-L181), and its
-    ``malloc-fail`` fixes show where such bugs hide: cleanup paths. A ``failure_pos`` of 0 only counts the seed's N
-    allocations; positions 1..N then fail one each. An ASan report aborts the process, and ``fuzz.py`` keeps the framed
-    input it died on.
-    """
+    # Fail every PyMem allocation of every seed in turn and require ``MemoryError`` exactly when the failure fires.
+    #
+    # libxml2's fuzzers inject failures the same way
+    # (https://github.com/GNOME/libxml2/blob/c43dc98d27ac315a48d93dbd399c6c22cf7125b1/fuzz/fuzz.c#L83-L181), and its
+    # ``malloc-fail`` fixes show where such bugs hide: cleanup paths. A ``failure_pos`` of 0 only counts the seed's N
+    # allocations; positions 1..N then fail one each. An ASan report aborts the process, and ``fuzz.py`` keeps the
+    # framed input it died on.
     # only the fuzz-only build (meson -Dfuzzing=true) defines the hook, so the stubs omit it
     inject: Callable[[int], tuple[int, bool]] = vars(importlib.import_module("turbohtml._html"))["_fuzz_inject_failure"]
     func = _TARGETS[name]
@@ -125,13 +122,11 @@ def _sweep(name: str, seeds: list[bytes], repro: Path, crash_dir: Path) -> list[
 def _run_failing(
     inject: Callable[[int], tuple[int, bool]], func: Callable[[bytes], None], data: bytes, repro: Path
 ) -> tuple[str | None, int]:
-    """
-    Run ``func`` on the payload after a big-endian u32 ``failure_pos`` header and judge the outcome.
-
-    libxml2's fuzzers read the same 4-byte field with ``xmlFuzzReadInt(4)``. The ``finally`` closes the injection window
-    before any exception handling here can allocate. Returns the finding, or None, and the number of allocations the
-    call made.
-    """
+    # Run ``func`` on the payload after a big-endian u32 ``failure_pos`` header and judge the outcome.
+    #
+    # libxml2's fuzzers read the same 4-byte field with ``xmlFuzzReadInt(4)``. The ``finally`` closes the injection
+    # window before any exception handling here can allocate. Returns the finding, or None, and the number of
+    # allocations the call made.
     repro.write_bytes(data)
     error: Exception | None = None
     inject(int.from_bytes(data[:4], "big"))
@@ -190,7 +185,7 @@ def _phone(data: bytes) -> None:
     _PHONE_POSSIBLE.find(text)
     _PHONE_EXACT.find(text)
     _PHONE_LINKER.linkify(text)
-    for held in (text, "tel:" + text):
+    for held in (text, f"tel:{text}"):
         for require_valid in (True, False):
             with contextlib.suppress(ValueError):
                 clean.PhoneNumber.parse(held, regions=("US", "DE"), require_valid=require_valid)
@@ -231,7 +226,7 @@ def _url(data: bytes) -> None:
     text = _decode(data)
     _url_split(text)
     _url_percent_decode(text)
-    for set_id in _SET_IDS:
+    for set_id in (0, 1, 2):
         _url_percent_encode(text, set_id)
     _url_join("https://a.example/b/c?d#e", text)
     _url_join(text, "https://a.example/b/c?d#e")
@@ -267,7 +262,7 @@ _ALLOC_TARGETS: Final[tuple[str, ...]] = ("phone", "parse", "serialize", "roundt
 
 
 def _decode(data: bytes) -> str:
-    """Widen raw fuzz bytes to a str, keeping lone surrogates so the IDNA surrogate path is reachable."""
+    # Widen raw fuzz bytes to a str, keeping lone surrogates so the IDNA surrogate path is reachable.
     try:
         return data.decode("utf-8", "surrogatepass")
     except UnicodeError:
@@ -293,13 +288,11 @@ def _past_depth_cap(root: turbohtml.Node) -> bool:
 
 
 def _finding(target: str, origin: str, kind: str, data: bytes, crash_dir: Path) -> str:
-    """
-    Keep the input for the encrypted upload and log it by hash.
-
-    A public CI log must carry neither the crasher bytes nor the origin (seed and mutation index) that regenerates
-    them, so the origin goes to the encrypted ``.replay`` file. It logs at once, not at exit, so a later sanitizer abort
-    in the same run cannot swallow the line.
-    """
+    # Keep the input for the encrypted upload and log it by hash.
+    #
+    # A public CI log must carry neither the crasher bytes nor the origin (seed and mutation index) that regenerates
+    # them, so the origin goes to the encrypted ``.replay`` file. It logs at once, not at exit, so a later sanitizer
+    # abort in the same run cannot swallow the line.
     digest = hashlib.sha256(data).hexdigest()
     (crash_dir / f"crash-{digest}").write_bytes(data)
     (crash_dir / f"crash-{digest}.replay").write_text(f"{origin} PYTHONMALLOC={os.environ.get('PYTHONMALLOC')}\n")
@@ -339,40 +332,37 @@ def _structural(target: str) -> Iterator[bytes]:
         yield b"a." * 20000
 
 
-_INTERESTING: Final[tuple[bytes, ...]] = (
-    b"<script>",
-    b"</script>",
-    b"<!--",
-    b"-->",
-    b"<![CDATA[",
-    b"]]>",
-    b"<math>",
-    b"<svg>",
-    b"<mtext>",
-    b"<annotation-xml>",
-    b"<style>",
-    b"onerror=",
-    b"javascript:",
-    b"&#x9;",
-    b"xn--",
-    b"\\@",
-    b"://",
-    b"%ff",
-    b'"',
-    b"'",
-    b"\x00",
-    b"..",
-)
-
-
 def _mutate(rng: random.Random, seed: bytes) -> bytes:
     out = bytearray(seed)
+    interesting: tuple[bytes, ...] = (
+        b"<script>",
+        b"</script>",
+        b"<!--",
+        b"-->",
+        b"<![CDATA[",
+        b"]]>",
+        b"<math>",
+        b"<svg>",
+        b"<mtext>",
+        b"<annotation-xml>",
+        b"<style>",
+        b"onerror=",
+        b"javascript:",
+        b"&#x9;",
+        b"xn--",
+        b"\\@",
+        b"://",
+        b"%ff",
+        b'"',
+        b"'",
+        b"\x00",
+        b"..",
+    )
     for _ in range(rng.randint(1, 8)):
         if not out or rng.random() < 0.3:
-            out[rng.randint(0, len(out)) if out else 0 : 0] = rng.choice(_INTERESTING)
+            out[rng.randint(0, len(out)) if out else 0 : 0] = rng.choice(interesting)
         elif rng.random() < 0.5:
-            index = rng.randrange(len(out))
-            out[index] ^= 1 << rng.randrange(8)
+            out[rng.randrange(len(out))] ^= 1 << rng.randrange(8)
         else:
             del out[rng.randrange(len(out))]
     return bytes(out)

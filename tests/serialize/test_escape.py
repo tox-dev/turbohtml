@@ -150,5 +150,5 @@ def test_escape_rejects_non_str() -> None:
     ],
 )
 def test_escape_adjacent_byte_lanes(pair: str, offset: int, *, quote: bool) -> None:
-    text: Final = "x" * offset + pair * 8 + "tail"
+    text: Final = f"{'x' * offset}{pair * 8}tail"
     assert escape(text, quote=quote) == html.escape(text, quote=quote)

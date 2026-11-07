@@ -9,7 +9,7 @@ REQUIREMENTS = ("calmjs.parse>=1.3",)
 
 
 def minify_js(source: str) -> str:
-    """Minify JavaScript by parsing to an ES5 AST and printing it obfuscated."""
+    # Minify JavaScript by parsing to an ES5 AST and printing it obfuscated.
     return minify_print(es5(source), obfuscate=True)
 
 

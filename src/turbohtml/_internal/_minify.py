@@ -20,8 +20,6 @@ from turbohtml._html import Minify, _minify_js, parse
 from ._jsminify import JSMinify
 from ._render import Html
 
-__all__ = ["JSMinify", "Minify", "minify", "minify_js"]
-
 _DEFAULT: Final = Minify()
 
 
@@ -65,3 +63,10 @@ def minify_js(source: str, options: JSMinify | None = None, on_error: Literal["r
         offset, and the offending token.
     """
     return _minify_js(source, (config := options or JSMinify()).fold, config.mangle, on_error)
+
+
+__all__ = [
+    "JSMinify",
+    "minify",
+    "minify_js",
+]

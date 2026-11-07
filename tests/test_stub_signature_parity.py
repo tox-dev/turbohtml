@@ -1,21 +1,3 @@
-"""Guard against the ``.pyi`` stubs drifting from the compiled ``turbohtml._html`` extension.
-
-The stubs are the single source of types for the documentation (``docs/conf.py`` parses the same
-files to render every C signature) and for downstream type checkers. The extension itself carries
-only a ``__text_signature__`` -- parameter names, kinds, and defaults, no annotations -- so this
-suite pins that runtime signature against the one declared in the stub, stripped of its types. A
-renamed keyword, a reordered argument, a dropped default, or a keyword-only parameter that exists
-in one place but not the other fails here before it can silently mislead a reader or a checker.
-
-Three facts of the C runtime shape what can be compared, each tolerated deliberately: a
-positional-only parameter's name is synthesized by CPython (``object``, ``value``, ``key``), so
-names are pinned only where a parameter is keyword-addressable; a stub may refine the C ``**kwargs``
-catch-all into explicit keyword-only parameters (``Node.xpath`` names ``namespaces`` that the C
-function reads out of its variables dict), so the stub's keyword-only set may exceed the runtime's
-whenever the runtime keeps a ``**kwargs``; and a type slot (``__eq__``, ``__len__``, ...) reports a
-generic synthesized signature rather than the hand-written one, so dunder methods are not compared.
-"""
-
 from __future__ import annotations
 
 import ast
@@ -34,7 +16,6 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 _STUB_DIR = Path(__file__).parents[1] / "src" / "turbohtml" / "_stubs"
-_SELF_NAMES = frozenset({"self", "cls"})
 _NO_DEFAULT = object()
 _ANY_DEFAULT = object()
 _POSITIONAL = frozenset({inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD})
@@ -89,7 +70,7 @@ def _stub_params(func: ast.FunctionDef, *, drop_self: bool) -> list[_Param]:
     )
     if args.kwarg is not None:
         params.append(_Param(args.kwarg.arg, inspect.Parameter.VAR_KEYWORD, _NO_DEFAULT))
-    if drop_self and params and params[0].name in _SELF_NAMES:
+    if drop_self and params and params[0].name in frozenset({"self", "cls"}):
         params.pop(0)
     return params
 
@@ -109,7 +90,7 @@ def _is_property(method: ast.FunctionDef) -> bool:
 
 
 def _stub_entries() -> Iterator[tuple[str, ast.FunctionDef, bool]]:
-    """Yield (dotted name, function node, drop_self) for every callable the stubs declare."""
+    # Yield (dotted name, function node, drop_self) for every callable the stubs declare.
     for stub in sorted(_STUB_DIR.glob("*.pyi")):
         for node in ast.parse(stub.read_text(encoding="utf-8")).body:
             if isinstance(node, ast.FunctionDef):
@@ -118,8 +99,7 @@ def _stub_entries() -> Iterator[tuple[str, ast.FunctionDef, bool]]:
                 for method in node.body:
                     if not isinstance(method, ast.FunctionDef) or _is_property(method):
                         continue
-                    name = node.name if method.name == "__init__" else f"{node.name}.{method.name}"
-                    yield name, method, True
+                    yield (node.name if method.name == "__init__" else f"{node.name}.{method.name}"), method, True
 
 
 def _resolve(name: str) -> object | None:

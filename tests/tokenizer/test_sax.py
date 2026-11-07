@@ -1,13 +1,3 @@
-"""Behavioral tests for the DOM-less SAX API (turbohtml.saxparse).
-
-The event stream is checked two ways: against explicit expectations for the tricky
-tree-construction cases (implied tags, foster parenting, void and empty elements,
-processing instructions, the doctype identifier variants), and against a
-document-order walk of the tree turbohtml.parse builds for the same markup, which
-proves the SAX walk stays faithful to the constructed tree across a corpus of
-documents.
-"""
-
 from __future__ import annotations
 
 import gc
@@ -38,6 +28,13 @@ from turbohtml.saxparse import (
 )
 
 
+def test_sax_parse_matches_iter_events() -> None:
+    recorder = _Recorder()
+    markup = "<!DOCTYPE html><p id=x>hi<b>b</b><!--c--></p>"
+    sax_parse(markup, recorder)
+    assert recorder.events == list(iter_events(markup))
+
+
 class _Recorder(SaxHandler):
     def __init__(self) -> None:
         self.events: list[SaxEvent] = []
@@ -59,13 +56,6 @@ class _Recorder(SaxHandler):
 
     def processing_instruction(self, target: str, data: str) -> None:
         self.events.append(ProcessingInstruction(target, data))
-
-
-def test_sax_parse_matches_iter_events() -> None:
-    markup = "<!DOCTYPE html><p id=x>hi<b>b</b><!--c--></p>"
-    recorder = _Recorder()
-    sax_parse(markup, recorder)
-    assert recorder.events == list(iter_events(markup))
 
 
 def test_sax_parse_fires_every_event_and_order() -> None:
@@ -190,8 +180,7 @@ def _dom_events(markup: str) -> list[SaxEvent]:
                 events.append(EndElement(tags.pop()))
             continue
         if isinstance(node, DomElement):
-            attrs = cast("tuple[tuple[str, str | None], ...]", tuple(node.attrs.items()))
-            events.append(StartElement(node.tag, attrs))
+            events.append(StartElement(node.tag, cast("tuple[tuple[str, str | None], ...]", tuple(node.attrs.items()))))
             tags.append(node.tag)
             stack.append(iter(node.children))
         elif isinstance(node, DomText):

@@ -1,5 +1,3 @@
-"""Namespace bindings retained by XML subtree serialization."""
-
 from __future__ import annotations
 
 import pytest

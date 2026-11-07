@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Keep corpus files as materialized inputs rather than oracle mode strings."""
+    # Keep corpus files as materialized inputs rather than oracle mode strings.
     parser: Final = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--count", type=int, default=64)
@@ -47,7 +47,7 @@ def compile_grammar(
     identifiers: tuple[str, ...] = ("x", "y", "z"),
     materialize: Callable[[Generated], Generated] | None = None,
 ) -> Grammar:
-    """Reject incomplete grammars before consuming a finite input budget."""
+    # Reject incomplete grammars before consuming a finite input budget.
     if (
         not 1 <= len(identifiers) <= 64
         or len(set(identifiers)) != len(identifiers)
@@ -86,20 +86,20 @@ def compile_grammar(
         msg = f"nonproductive symbols: {sorted(missing)}"
         raise GrammarError(msg)
     return Grammar(
-        tuple(productions),
-        root,
-        {name: tuple(items) for name, items in rules.items()},
-        minimum,
-        identifiers,
-        _edges(productions, minimum),
-        materialize,
+        productions=tuple(productions),
+        root=root,
+        rules={name: tuple(items) for name, items in rules.items()},
+        minimum=minimum,
+        identifiers=identifiers,
+        edges=_edges(productions, minimum),
+        materialize=materialize,
     )
 
 
 def _edges(
     productions: Sequence[Production], minimum: dict[str, tuple[int, int]]
 ) -> tuple[tuple[Production, int, str, int, int], ...]:
-    """Price every reference once as its production's minimum cost less the referenced child's minimum."""
+    # Price every reference once as its production's minimum cost less the referenced child's minimum.
     edges: Final[list[tuple[Production, int, str, int, int]]] = []
     for production in productions:
         base: Final = _cost(production, minimum)
@@ -179,15 +179,15 @@ def generate(
     leaf: bool = False,
     force: str | None = None,
 ) -> Generated:
-    """Reserve the canonical minimum-node derivation and its expansion steps."""
+    # Reserve the canonical minimum-node derivation and its expansion steps.
     route: Final = _route(grammar, force) if force is not None else ()
     remaining = _initial_budget(grammar, budget, route)
     pending: Final[list[tuple[bytes | Reference | Identifier, int, bool, tuple[tuple[Production, int], ...]]]] = [
-        (Reference(grammar.root, 0), 0, leaf, route)
+        (Reference(symbol=grammar.root, depth=0), 0, leaf, route)
     ]
     output: Final[list[bytes]] = []
     fired: Final[list[str]] = []
-    bindings: Final = _Bindings({}, set(), set(), grammar.identifiers)
+    bindings: Final = _Bindings(values={}, definitions=set(), references=set(), pool=grammar.identifiers)
     depth = 0
     while pending:
         part, level, minimal, path = pending.pop()
@@ -216,11 +216,11 @@ def generate(
         msg = f"undefined identifiers: {sorted(missing)}"
         raise GrammarError(msg)
     case: Final = Generated(
-        b"".join(output),
-        (budget.nodes if isinstance(budget, GenerationBudget) else budget) - remaining[0],
-        depth,
-        tuple(fired),
-        tuple(sorted(bindings.values.items())),
+        data=b"".join(output),
+        nodes=(budget.nodes if isinstance(budget, GenerationBudget) else budget) - remaining[0],
+        depth=depth,
+        productions=tuple(fired),
+        bindings=tuple(sorted(bindings.values.items())),
     )
     return case if grammar.materialize is None else grammar.materialize(case)
 
@@ -289,7 +289,7 @@ def _choose(
 
 
 def generation_sweep(grammar: Grammar, minimum: int = 1, budget: int | GenerationBudget = 30) -> tuple[Generated, ...]:
-    """Force each declared production through a minimum-cost root path."""
+    # Force each declared production through a minimum-cost root path.
     if minimum < 1:
         msg = "production floors must be positive"
         raise ProductionFloorError(msg)
@@ -302,7 +302,7 @@ def generation_sweep(grammar: Grammar, minimum: int = 1, budget: int | Generatio
 
 
 def assert_production_floors(cases: Iterable[Generated], productions: Iterable[str], minimum: int = 1) -> Counter[str]:
-    """Fail a generation lane when a declared production stops executing."""
+    # Fail a generation lane when a declared production stops executing.
     if minimum < 1:
         msg = "production floors must be positive"
         raise ProductionFloorError(msg)
@@ -314,7 +314,7 @@ def assert_production_floors(cases: Iterable[Generated], productions: Iterable[s
 
 
 def write_corpus(cases: Iterable[Generated], directory: Path) -> int:
-    """Hash materialized bytes so equal inputs share one corpus entry."""
+    # Hash materialized bytes so equal inputs share one corpus entry.
     directory.mkdir(parents=True, exist_ok=True)
     paths: Final[set[Path]] = set()
     for case in cases:
@@ -324,7 +324,7 @@ def write_corpus(cases: Iterable[Generated], directory: Path) -> int:
     return len(paths)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class _Bindings:
     values: dict[str, str]
     definitions: set[str]
@@ -332,18 +332,16 @@ class _Bindings:
     pool: tuple[str, ...]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class GenerationBudget:
-    """Bound lexical recursion separately from materialized DOM nodes."""
-
+    # Bound lexical recursion separately from materialized DOM nodes.
     nodes: int
     steps: int
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Production:
-    """Charge the nodes emitted by fixed markup, including parser-created wrappers."""
-
+    # Charge the nodes emitted by fixed markup, including parser-created wrappers.
     name: str
     symbol: str
     parts: tuple[bytes | Reference | Identifier, ...]
@@ -352,26 +350,23 @@ class Production:
     height: int = 0
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Reference:
-    """Place child productions at their materialized tree depth."""
-
+    # Place child productions at their materialized tree depth.
     symbol: str
     depth: int = 1
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Identifier:
-    """Reuse allocated names so references bind to their generated definition."""
-
+    # Reuse allocated names so references bind to their generated definition.
     name: str
     definition: bool
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Grammar:
-    """Resolve minimum derivations before consuming an input's shared node budget."""
-
+    # Resolve minimum derivations before consuming an input's shared node budget.
     productions: tuple[Production, ...]
     root: str
     rules: dict[str, tuple[Production, ...]]
@@ -381,10 +376,9 @@ class Grammar:
     materialize: Callable[[Generated], Generated] | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Generated:
-    """Keep source bytes beside their node costs and executed production trace."""
-
+    # Keep source bytes beside their node costs and executed production trace.
     data: bytes
     nodes: int
     depth: int
@@ -393,77 +387,133 @@ class Generated:
 
 
 class GrammarError(ValueError):
-    """Keep invalid grammar definitions outside the input corpus."""
+    # Keep invalid grammar definitions outside the input corpus.
+    ...
 
 
 class BudgetError(ValueError):
-    """Reject budgets that cannot complete a minimum derivation."""
+    # Reject budgets that cannot complete a minimum derivation.
+    ...
 
 
 class ProductionFloorError(ValueError):
-    """Treat unused productions as failed generation coverage."""
+    # Treat unused productions as failed generation coverage.
+    ...
 
 
 def html_generate(rng: random.Random, budget: int = 30) -> Generated:
-    """Keep the general HTML oracle inside the shared node budget."""
+    # Keep the general HTML oracle inside the shared node budget.
     return generate(_HTML_GRAMMAR, rng, budget)
 
 
 def html_grammar() -> Grammar:
-    """Separate child containers so adjacent text nodes cannot merge."""
+    # Separate child containers so adjacent text nodes cannot merge.
+    html_standard: str = "https://html.spec.whatwg.org/multipage/parsing.html"
     productions: Final = [
         Production(
-            "html:root",
-            "root",
-            (
+            name="html:root",
+            symbol="root",
+            parts=(
                 b'<div id="',
                 Identifier("target", definition=True),
                 b'">',
-                Reference("node", 2),
+                Reference(symbol="node", depth=2),
                 b'<a href="#',
                 Identifier("target", definition=False),
                 b'">x</a></div>',
             ),
-            4,
-            _HTML_STANDARD,
-            3,
+            nodes=4,
+            origin=html_standard,
+            height=3,
         ),
         Production(
-            "html:nested",
-            "node",
-            (b"<div><span>", Reference("node", 2), b"</span><span>", Reference("node", 2), b"</span></div>"),
-            3,
-            _HTML_STANDARD,
-            1,
+            name="html:nested",
+            symbol="node",
+            parts=(
+                b"<div><span>",
+                Reference(symbol="node", depth=2),
+                b"</span><span>",
+                Reference(symbol="node", depth=2),
+                b"</span></div>",
+            ),
+            nodes=3,
+            origin=html_standard,
+            height=1,
         ),
     ]
+    local_tables = "https://github.com/tox-dev/turbohtml/blob/6a8722d7614a69df4b6ca6c8563f62d00f0837c1/tools/fuzz/round_trip_oracles.py"
     productions.extend(
-        Production(f"html:text:{index}", "node", (escape(text, quote=False).encode("utf-8"),), 1, _LOCAL_TABLES)
+        Production(
+            name=f"html:text:{index}",
+            symbol="node",
+            parts=(escape(text, quote=False).encode("utf-8"),),
+            nodes=1,
+            origin=local_tables,
+        )
         for index, text in enumerate(_HTML_TEXT)
+    )
+    domato_tags: str = (
+        "https://github.com/googleprojectzero/domato/blob/fadff396cc45d521cc594d3e2396e27e887b1963/html_tags.py"
     )
     for tag in _HTML_TAGS:
         source, nodes, height = _element(tag)
         productions.append(
             Production(
-                f"html:tag:{tag}",
-                "node",
-                (source,),
-                nodes,
-                _DOMATO_TAGS if tag not in {"svg", "math", "script"} else _HTML_STANDARD,
-                height,
+                name=f"html:tag:{tag}",
+                symbol="node",
+                parts=(source,),
+                nodes=nodes,
+                origin=domato_tags if tag not in {"svg", "math", "script"} else html_standard,
+                height=height,
             )
         )
-    for name in _HTML_ATTRIBUTES:
-        for index, value in enumerate(_HTML_VALUES):
+    html_attributes = (
+        "id",
+        "class",
+        "href",
+        "src",
+        "title",
+        "lang",
+        "data-x",
+        "style",
+        "alt",
+        "name",
+        "type",
+        "value",
+    )
+    html_values = ("a", "b c", "", "x y z", "&amp;", '"', "'", "1", "#f", "javascript:x", "\n", "a b", "é", "<>")
+    for name in html_attributes:
+        for index, value in enumerate(html_values):
             parts, nodes, height = _attribute(name, value, index)
             productions.append(
-                Production(f"html:attribute:{name}:{index}", "node", parts, nodes, _LOCAL_TABLES, height)
+                Production(
+                    name=f"html:attribute:{name}:{index}",
+                    symbol="node",
+                    parts=parts,
+                    nodes=nodes,
+                    origin=local_tables,
+                    height=height,
+                )
             )
     return compile_grammar(productions, "root")
 
 
 def _element(tag: str) -> tuple[bytes, int, int]:
-    if source := _CONTEXTS.get(tag):
+    if source := {
+        "table": (b"<table><tbody><tr><td>x</td></tr></tbody></table>", 5, 4),
+        "tr": (b"<table><tbody><tr><td>x</td></tr></tbody></table>", 5, 4),
+        "td": (b"<table><tbody><tr><td>x</td></tr></tbody></table>", 5, 4),
+        "th": (b"<table><tbody><tr><th>x</th></tr></tbody></table>", 5, 4),
+        "caption": (b"<table><caption>x</caption></table>", 3, 2),
+        "ul": (b"<ul><li>x</li></ul>", 3, 2),
+        "ol": (b"<ol><li>x</li></ol>", 3, 2),
+        "li": (b"<ul><li>x</li></ul>", 3, 2),
+        "dl": (b"<dl><dt>x</dt><dd>x</dd></dl>", 5, 2),
+        "dt": (b"<dl><dt>x</dt></dl>", 3, 2),
+        "dd": (b"<dl><dd>x</dd></dl>", 3, 2),
+        "select": (b"<select><option>x</option></select>", 3, 2),
+        "option": (b"<select><option>x</option></select>", 3, 2),
+    }.get(tag):
         return source
     if tag == "template":
         return b"<template></template>", 2, 0
@@ -477,7 +527,7 @@ def _attribute(name: str, value: str, index: int) -> tuple[tuple[bytes | Referen
         name, "span"
     )
     encoded: Final = escape(
-        _IDENTIFIERS[1 + index % 2] if name == "id" else ("a", "b", "c")[index % 3] if name == "class" else value,
+        ("x", "y", "z")[1 + index % 2] if name == "id" else ("a", "b", "c")[index % 3] if name == "class" else value,
         quote=True,
     ).encode("utf-8")
     parts: Final[tuple[bytes | Reference | Identifier, ...]] = (
@@ -490,28 +540,6 @@ def _attribute(name: str, value: str, index: int) -> tuple[tuple[bytes | Referen
         0 if tag in _VOID else 1,
     )
 
-
-_IDENTIFIERS: Final = ("x", "y", "z")
-_HTML_STANDARD: Final = "https://html.spec.whatwg.org/multipage/parsing.html"
-_DOMATO_TAGS: Final = (
-    "https://github.com/googleprojectzero/domato/blob/fadff396cc45d521cc594d3e2396e27e887b1963/html_tags.py"
-)
-_LOCAL_TABLES: Final = "https://github.com/tox-dev/turbohtml/blob/6a8722d7614a69df4b6ca6c8563f62d00f0837c1/tools/fuzz/round_trip_oracles.py"
-_CONTEXTS: Final = {
-    "table": (b"<table><tbody><tr><td>x</td></tr></tbody></table>", 5, 4),
-    "tr": (b"<table><tbody><tr><td>x</td></tr></tbody></table>", 5, 4),
-    "td": (b"<table><tbody><tr><td>x</td></tr></tbody></table>", 5, 4),
-    "th": (b"<table><tbody><tr><th>x</th></tr></tbody></table>", 5, 4),
-    "caption": (b"<table><caption>x</caption></table>", 3, 2),
-    "ul": (b"<ul><li>x</li></ul>", 3, 2),
-    "ol": (b"<ol><li>x</li></ol>", 3, 2),
-    "li": (b"<ul><li>x</li></ul>", 3, 2),
-    "dl": (b"<dl><dt>x</dt><dd>x</dd></dl>", 5, 2),
-    "dt": (b"<dl><dt>x</dt></dl>", 3, 2),
-    "dd": (b"<dl><dd>x</dd></dl>", 3, 2),
-    "select": (b"<select><option>x</option></select>", 3, 2),
-    "option": (b"<select><option>x</option></select>", 3, 2),
-}
 
 _HTML_TAGS: Final = (
     "div", "p", "span", "a", "b", "i", "em", "strong", "code", "pre", "ul", "ol", "li", "table", "tr", "td", "th",
@@ -526,23 +554,6 @@ _HTML_TEXT: Final = (
     "  ", "\n", "\xa0", "é", "&#0;", "&#x1F600;", "\r\n", "~", "!", "=", "'", '"', "&nbsp;", "---", "```", "> q",
     "1) x", "a|b", "<!--c-->", "]]>", "--", "&#13;", "\t", "**b**", "[l](u)", "<?pi x?>", "\x0c", "&gt", "\U0001f600",
 )  # fmt: skip
-
-_HTML_ATTRIBUTES: Final = (
-    "id",
-    "class",
-    "href",
-    "src",
-    "title",
-    "lang",
-    "data-x",
-    "style",
-    "alt",
-    "name",
-    "type",
-    "value",
-)
-
-_HTML_VALUES: Final = ("a", "b c", "", "x y z", "&amp;", '"', "'", "1", "#f", "javascript:x", "\n", "a b", "é", "<>")
 
 
 _HTML_GRAMMAR: Final = html_grammar()

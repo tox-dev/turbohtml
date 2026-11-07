@@ -189,19 +189,18 @@ def test_a_predicate_error_propagates() -> None:
         bound("a", "href", "/x")
 
 
-class _Undecided:
-    """A verdict whose truth test raises, the way a lazy proxy might."""
-
-    def __bool__(self) -> bool:
-        msg = "undecided"
-        raise RuntimeError(msg)
-
-
 def test_a_verdict_that_cannot_be_judged_propagates() -> None:
     _, bound = _bleach_attributes(lambda *_: _Undecided(), Mapping)
     assert bound is not None
     with pytest.raises(RuntimeError, match="undecided"):
         bound("a", "href", "/x")
+
+
+class _Undecided:
+    # A verdict whose truth test raises, the way a lazy proxy might.
+    def __bool__(self) -> bool:
+        msg = "undecided"
+        raise RuntimeError(msg)
 
 
 def test_the_predicate_takes_three_arguments() -> None:
@@ -258,7 +257,7 @@ def test_tag_predicate_overrides_wildcard(
                 "*": (lambda *_: True) if callable_fallback else ["title"],
             },
         )
-        == expected + '<b title="t">y</b>'
+        == f'{expected}<b title="t">y</b>'
     )
 
 
@@ -503,6 +502,12 @@ def test_attribute_predicate_propagates_mapping_lookup_errors() -> None:
         clean('<a title="t">x</a>', attributes=_UnavailableRules(a=lambda *_: True))
 
 
+class _UnavailableRules(UserDict[str, "Callable[[str, str, str], bool]"]):
+    def __getitem__(self, key: str) -> Callable[[str, str, str], bool]:
+        msg = "unavailable rule"
+        raise LookupError(msg)
+
+
 def test_attribute_rules_do_not_create_missing_defaults() -> None:
     rules: Final[defaultdict[str, list[str]]] = defaultdict(list, {"a": ["title"]})
     result: Final = clean('<a title="one">first</a><b title="two">second</b>', attributes=rules)
@@ -513,10 +518,23 @@ def test_attribute_rules_do_not_enumerate_custom_items() -> None:
     assert clean('<a title="one">first</a>', attributes=_UnenumerableRules(a=["title"])) == '<a title="one">first</a>'
 
 
+class _UnenumerableRules(UserDict[str, list[str]]):
+    def items(self) -> NoReturn:
+        raise AssertionError(self)
+
+
 def test_attribute_rules_use_custom_membership() -> None:
     assert clean('<a title="one">first</a><b title="two">second</b>', attributes=_VirtualRules()) == (
         '<a title="one">first</a><b>second</b>'
     )
+
+
+class _VirtualRules(UserDict[str, list[str]]):
+    def __contains__(self, key: object) -> bool:
+        return key == "a"
+
+    def __getitem__(self, key: str) -> list[str]:
+        return ["title"]
 
 
 @pytest.mark.parametrize(
@@ -550,6 +568,11 @@ def test_flat_attribute_sequence_uses_index_iteration() -> None:
         )
         == '<a title="one">first</a><a title="two">second</a>'
     )
+
+
+class _AttributeSequence:
+    def __getitem__(self, index: int) -> str:
+        return ("title",)[index]
 
 
 @pytest.mark.parametrize(
@@ -641,7 +664,7 @@ def test_protocols_control_relative_urls(
         pytest.param(["ftp"], "&:ftp:x", None, id="punctuation-after-ampersand"),
         pytest.param(["ftp"], "&@;ftp:x", None, id="punctuation-after-digit-range"),
         pytest.param(["ftp"], "&[;ftp:x", None, id="punctuation-after-uppercase-range"),
-        pytest.param(["ftp"], "&" + "a" * 35 + ";ftp:x", None, id="named-overlong"),
+        pytest.param(["ftp"], f"&{'a' * 35};ftp:x", None, id="named-overlong"),
         pytest.param(["ftp"], "&NotEqualTilde;ftp:x", None, id="named-unresolved-reference"),
         pytest.param(None, "&#0;ftp:x", None, id="default-decoded-replacement-before-scheme"),
         pytest.param(["ftp"], "&amp;ftp:x", None, id="named-ampersand-before-scheme"),
@@ -675,12 +698,12 @@ def test_bleach_url_normalization_uses_source_entities(
 
 
 def test_bleach_url_normalization_handles_long_relative_url() -> None:
-    value = "/" + "x" * 140
+    value = f"/{'x' * 140}"
     assert clean(f'<a href="{value}">x</a>') == f'<a href="{value}">x</a>'
 
 
 def test_bleach_url_normalization_handles_long_unicode_relative_url() -> None:
-    value = "é" + "x" * 140
+    value = f"é{'x' * 140}"
     assert clean(f'<a href="{value}">x</a>') == f'<a href="{value}">x</a>'
 
 
@@ -694,7 +717,7 @@ def test_bleach_url_normalization_checks_each_href_source() -> None:
 
 
 def test_bleach_url_normalization_rejects_long_invalid_authority() -> None:
-    value = "é//" + "x" * 140 + "[bad"
+    value = f"é//{'x' * 140}[bad"
     assert clean(f'<a href="{value}">x</a>') == "<a>x</a>"
 
 
@@ -720,25 +743,6 @@ def test_custom_rule_changes_later_tag_rules() -> None:
     )
 
 
-class _UnavailableRules(UserDict[str, "Callable[[str, str, str], bool]"]):
-    def __getitem__(self, key: str) -> Callable[[str, str, str], bool]:
-        msg = "unavailable rule"
-        raise LookupError(msg)
-
-
-class _UnenumerableRules(UserDict[str, list[str]]):
-    def items(self) -> NoReturn:
-        raise AssertionError(self)
-
-
-class _VirtualRules(UserDict[str, list[str]]):
-    def __contains__(self, key: object) -> bool:
-        return key == "a"
-
-    def __getitem__(self, key: str) -> list[str]:
-        return ["title"]
-
-
 class _MutatingRule:
     def __init__(self, rules: dict[str, Iterable[str]]) -> None:
         self.rules = rules
@@ -746,8 +750,3 @@ class _MutatingRule:
     def __contains__(self, name: str) -> bool:
         self.rules["b"] = ["title"]
         return name == "title"
-
-
-class _AttributeSequence:
-    def __getitem__(self, index: int) -> str:
-        return ("title",)[index]

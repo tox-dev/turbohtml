@@ -37,20 +37,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
 
-def _style_policy(
-    *,
-    css_properties: frozenset[str] = DEFAULT_CSS_PROPERTIES,
-    attribute_filter: Callable[[str, str, str], str | None] | None = None,
-) -> Policy:
-    """A policy that allows <p style="...">, for exercising CSS scrubbing."""
-    return Policy(
-        tags=frozenset({"p"}),
-        attributes={"p": frozenset({"style"})},
-        css_properties=css_properties,
-        attribute_filter=attribute_filter,
-    )
-
-
 # frame and frameset are absent: the parser drops them outside a frameset document, so a fragment never contains one.
 # style is absent too: unlike the others, allowlisting it keeps the element with its CSS scrubbed (see the style-body
 # tests), rather than neutralizing it.
@@ -58,6 +44,8 @@ _UNSAFE_TAGS = [
     "script", "iframe", "embed", "object", "noscript",
     "noembed", "noframes", "base", "basefont", "title", "xmp", "template",
 ]  # fmt: skip
+
+
 # (tag, markup that yields it) -- col and area need a table/map context to parse as an element.
 _VOID_CASES = [
     ("area", "<map><area></map>"), ("base", "<base>"), ("basefont", "<basefont>"), ("br", "<br>"),
@@ -65,13 +53,15 @@ _VOID_CASES = [
     ("input", "<input>"), ("keygen", "<keygen>"), ("link", "<link>"), ("meta", "<meta>"),
     ("param", "<param>"), ("source", "<source>"), ("track", "<track>"), ("wbr", "<wbr>"),
 ]  # fmt: skip
+
+
 _URL_ATTRS = [
     "href", "src", "cite", "data", "ping", "action", "poster", "longdesc", "formaction", "background", "xlink:href",
 ]  # fmt: skip
 
 
 def _allow_all(tags: set[str], attrs: set[str]) -> Policy:
-    """A permissive policy for exercising attribute and URL handling on otherwise-disallowed elements."""
+    # A permissive policy for exercising attribute and URL handling on otherwise-disallowed elements.
     return Policy(tags=frozenset(tags), attributes={"*": frozenset(attrs)}, url_schemes=DEFAULT_SCHEMES)
 
 
@@ -84,8 +74,7 @@ def test_default_keeps_allowlisted() -> None:
 
 
 def test_deep_input_is_sanitized_without_using_the_c_stack() -> None:
-    markup = "<div>" * 1_200 + "bottom" + "</div>" * 1_200
-    output = sanitize(markup, Policy(tags=frozenset({"div"})))
+    output = sanitize("<div>" * 1_200 + "bottom" + "</div>" * 1_200, Policy(tags=frozenset({"div"})))
     assert (output.count("<div>"), "bottom" in output) == (1_200, True)
 
 
@@ -118,8 +107,7 @@ def test_deep_table_unwrap_keeps_nested_content_in_order() -> None:
     ],
 )
 def test_deep_disallowed_input_completes_postorder_actions(mode: OnDisallowed, expected_open_count: int) -> None:
-    markup = "<x>" * 1_200 + "bottom" + "</x>" * 1_200
-    output = sanitize(markup, Policy(on_disallowed_tag=mode))
+    output = sanitize("<x>" * 1_200 + "bottom" + "</x>" * 1_200, Policy(on_disallowed_tag=mode))
     assert (output.count("&lt;x&gt;"), "bottom" in output) == (expected_open_count, True)
 
 
@@ -135,8 +123,7 @@ def test_valueless_attribute_kept_when_allowed() -> None:
 @pytest.mark.parametrize("tag", _UNSAFE_TAGS)
 def test_unsafe_tag_never_survives_even_if_allowed(tag: str) -> None:
     # explicitly allow the unsafe tag; the baseline must still neutralize it
-    policy = Policy(tags=DEFAULT_TAGS | {tag})
-    out = sanitize(f"<{tag}>x</{tag}>", policy)
+    out = sanitize(f"<{tag}>x</{tag}>", Policy(tags=DEFAULT_TAGS | {tag}))
     assert f"<{tag}>" not in out
     assert f"&lt;{tag}&gt;" in out
 
@@ -557,6 +544,20 @@ def test_style_scrubbing(style: str, expected: str | None) -> None:
         assert expected in out
 
 
+def _style_policy(
+    *,
+    css_properties: frozenset[str] = DEFAULT_CSS_PROPERTIES,
+    attribute_filter: Callable[[str, str, str], str | None] | None = None,
+) -> Policy:
+    # A policy that allows <p style="...">, for exercising CSS scrubbing.
+    return Policy(
+        tags=frozenset({"p"}),
+        attributes={"p": frozenset({"style"})},
+        css_properties=css_properties,
+        attribute_filter=attribute_filter,
+    )
+
+
 def test_style_escaped_double_quote_opens_no_string() -> None:
     out = sanitize('<p style="color:red\\&quot;;position:fixed;top:0">x</p>', _style_policy())
     assert out == '<p style="color:red\\&quot;">x</p>'
@@ -773,23 +774,6 @@ def test_style_double_quoted_url_scheme_is_stripped() -> None:
     assert "style=" not in sanitize("""<p style='color: url("javascript:x")'>y</p>""", _style_policy())
 
 
-_COLOR_ALIGN = {"color": [r"^#[0-9a-f]{3,6}$", r"^rgb\("], "text-align": [r"^left$|^right$|^center$"]}
-
-
-def _allowed_styles_policy(
-    allowed_styles: Mapping[str, Mapping[str, Sequence[str | re.Pattern[str]]]],
-    *,
-    css_properties: frozenset[str] = frozenset({"color", "text-align", "width"}),
-) -> Policy:
-    """A <p style> / <span style> policy carrying a per-property value allowlist for exercising allowed_styles."""
-    return Policy(
-        tags=frozenset({"p", "span"}),
-        attributes={"*": frozenset({"style"})},
-        css_properties=css_properties,
-        allowed_styles=allowed_styles,
-    )
-
-
 @pytest.mark.parametrize(
     ("style", "expected"),
     [
@@ -803,11 +787,30 @@ def _allowed_styles_policy(
     ],
 )
 def test_allowed_styles_narrows_by_value(style: str, expected: str | None) -> None:
-    out = sanitize(f'<p style="{style}">x</p>', _allowed_styles_policy({"*": _COLOR_ALIGN}))
+    out = sanitize(
+        f'<p style="{style}">x</p>',
+        _allowed_styles_policy({
+            "*": {"color": [r"^#[0-9a-f]{3,6}$", r"^rgb\("], "text-align": [r"^left$|^right$|^center$"]}
+        }),
+    )
     if expected is None:
         assert "style=" not in out
     else:
         assert expected in out
+
+
+def _allowed_styles_policy(
+    allowed_styles: Mapping[str, Mapping[str, Sequence[str | re.Pattern[str]]]],
+    *,
+    css_properties: frozenset[str] = frozenset({"color", "text-align", "width"}),
+) -> Policy:
+    # A <p style> / <span style> policy carrying a per-property value allowlist for exercising allowed_styles.
+    return Policy(
+        tags=frozenset({"p", "span"}),
+        attributes={"*": frozenset({"style"})},
+        css_properties=css_properties,
+        allowed_styles=allowed_styles,
+    )
 
 
 def test_allowed_styles_wildcard_applies_to_every_tag() -> None:
@@ -872,11 +875,6 @@ def test_allowed_styles_empty_is_a_noop() -> None:
     assert sanitize('<p style="color: red; width: 5px">x</p>', policy) == '<p style="color: red; width: 5px">x</p>'
 
 
-def _style_element_policy(*, css_properties: frozenset[str] = DEFAULT_CSS_PROPERTIES) -> Policy:
-    """A policy that allowlists the <style> element, so its stylesheet body is scrubbed rather than dropped."""
-    return Policy(tags=frozenset({"style"}), attributes={}, css_properties=css_properties)
-
-
 @pytest.mark.parametrize(
     ("css", "expected_body"),
     [
@@ -921,6 +919,11 @@ def _style_element_policy(*, css_properties: frozenset[str] = DEFAULT_CSS_PROPER
 def test_style_element_body_scrubbed(css: str, expected_body: str) -> None:
     # an allowlisted <style> keeps its element and structure; each declaration is vetted like a style attribute
     assert sanitize(f"<style>{css}</style>", _style_element_policy()) == f"<style>{expected_body}</style>"
+
+
+def _style_element_policy(*, css_properties: frozenset[str] = DEFAULT_CSS_PROPERTIES) -> Policy:
+    # A policy that allowlists the <style> element, so its stylesheet body is scrubbed rather than dropped.
+    return Policy(tags=frozenset({"style"}), attributes={}, css_properties=css_properties)
 
 
 @pytest.mark.parametrize(
@@ -1617,16 +1620,16 @@ def test_module_constants_match_bleach_defaults() -> None:
     assert frozenset({"http", "https", "mailto"}) == DEFAULT_SCHEMES
 
 
-def _prefix_policy(prefixes: frozenset[str]) -> Policy:
-    """Allow <a href> plus any attribute matching one of the given name prefixes."""
-    return Policy(tags=frozenset({"a"}), attributes={"a": frozenset({"href"})}, attribute_prefixes=prefixes)
-
-
 def test_attribute_prefix_allows_matching_family() -> None:
     out = sanitize(
         '<a href="http://x" data-id="1" data-role="nav" class="c">y</a>', _prefix_policy(frozenset({"data-"}))
     )
     assert out == '<a href="http://x" data-id="1" data-role="nav">y</a>'
+
+
+def _prefix_policy(prefixes: frozenset[str]) -> Policy:
+    # Allow <a href> plus any attribute matching one of the given name prefixes.
+    return Policy(tags=frozenset({"a"}), attributes={"a": frozenset({"href"})}, attribute_prefixes=prefixes)
 
 
 def test_attribute_prefix_multiple_prefixes_each_allow() -> None:
@@ -1723,15 +1726,6 @@ def test_attribute_prefix_non_string_raises_typeerror() -> None:
         sanitize("<a>y</a>", policy)
 
 
-def _value_policy() -> Policy:
-    """Allow <a href target> and <b>, restricting <a target> to two literal values."""
-    return Policy(
-        tags=frozenset({"a", "b"}),
-        attributes={"a": frozenset({"href", "target"}), "b": frozenset({"target"})},
-        attribute_values={"a": {"target": frozenset({"_blank", "_self"})}},
-    )
-
-
 @pytest.mark.parametrize(
     ("value", "kept"),
     [pytest.param("_blank", True, id="allowed"), pytest.param("_top", False, id="disallowed")],
@@ -1739,6 +1733,15 @@ def _value_policy() -> Policy:
 def test_attribute_value_allowlist_restricts_target(value: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
     out = sanitize(f'<a href="http://x" target="{value}">y</a>', _value_policy())
     assert (f'target="{value}"' in out) is kept
+
+
+def _value_policy() -> Policy:
+    # Allow <a href target> and <b>, restricting <a target> to two literal values.
+    return Policy(
+        tags=frozenset({"a", "b"}),
+        attributes={"a": frozenset({"href", "target"}), "b": frozenset({"target"})},
+        attribute_values={"a": {"target": frozenset({"_blank", "_self"})}},
+    )
 
 
 def test_attribute_value_allowlist_leaves_unrestricted_attribute() -> None:
@@ -1763,19 +1766,19 @@ def test_attribute_value_allowlist_only_narrows_never_allows() -> None:
     assert sanitize('<a href="http://x" target="_blank">y</a>', policy) == '<a href="http://x">y</a>'
 
 
+@pytest.mark.parametrize("tag", ["video", "audio", "source", "track"])
+def test_media_host_allowlist_keeps_allowed_host(tag: str) -> None:
+    policy = _media_policy(frozenset({"youtube.com"}))
+    assert f'<{tag} src="https://youtube.com/e/x">' in sanitize(f'<{tag} src="https://youtube.com/e/x">', policy)
+
+
 def _media_policy(hosts: frozenset[str], *, extra_attrs: frozenset[str] = frozenset()) -> Policy:
-    """Allow the embedded-media elements plus <img>, gating their src by host allowlist."""
+    # Allow the embedded-media elements plus <img>, gating their src by host allowlist.
     return Policy(
         tags=frozenset({"video", "audio", "source", "track", "img"}),
         attributes={"*": frozenset({"src"}) | extra_attrs},
         media_hosts=hosts,
     )
-
-
-@pytest.mark.parametrize("tag", ["video", "audio", "source", "track"])
-def test_media_host_allowlist_keeps_allowed_host(tag: str) -> None:
-    policy = _media_policy(frozenset({"youtube.com"}))
-    assert f'<{tag} src="https://youtube.com/e/x">' in sanitize(f'<{tag} src="https://youtube.com/e/x">', policy)
 
 
 @pytest.mark.parametrize(
@@ -1856,8 +1859,7 @@ def test_media_host_default_policy_leaves_src_unrestricted() -> None:
 def test_media_host_allowlist_host_confusion(src: str, kept: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
     # host-confusion parity: userinfo tricks resolve to the real host (the last '@' wins), a suffixed or
     # whitespace-obfuscated host never masquerades as the listed one, and an IPv6 literal is always rejected
-    policy = _media_policy(frozenset({"youtube.com", "youtube.com."}))
-    out = sanitize(f'<video src="{src}">', policy)
+    out = sanitize(f'<video src="{src}">', _media_policy(frozenset({"youtube.com", "youtube.com."})))
     assert ("src=" in out) is kept
 
 
@@ -2070,13 +2072,8 @@ def test_sanitize_attribute_benchmark(case: int, expected: str) -> None:
     ],
 )
 def test_custom_element_predicate(html: str, check: Callable[[str], bool], expected: str) -> None:
-    """An unlisted basic custom element is kept when the matcher admits its name, and escaped otherwise."""
+    # An unlisted basic custom element is kept when the matcher admits its name, and escaped otherwise.
     assert sanitize(html, Policy(tags=frozenset(), custom_element_check=check)) == expected
-
-
-def _admit_all() -> Policy:
-    """A policy whose only allowance is a matcher that keeps every custom-element name it is asked about."""
-    return Policy(tags=frozenset(), custom_element_check=lambda _tag: True)
 
 
 @pytest.mark.parametrize(
@@ -2088,9 +2085,14 @@ def _admit_all() -> Policy:
     ],
 )
 def test_custom_element_name_accepts_name_characters(tag: str) -> None:
-    """The grammar admits ``[.\\w]`` characters between and after dashes, so each of these is a custom element."""
+    # The grammar admits ``[.\\w]`` characters between and after dashes, so each of these is a custom element.
     html = f"<{tag}>x</{tag}>"
     assert sanitize(html, _admit_all()) == html
+
+
+def _admit_all() -> Policy:
+    # A policy whose only allowance is a matcher that keeps every custom-element name it is asked about.
+    return Policy(tags=frozenset(), custom_element_check=lambda _tag: True)
 
 
 @pytest.mark.parametrize(
@@ -2102,13 +2104,13 @@ def test_custom_element_name_accepts_name_characters(tag: str) -> None:
     ],
 )
 def test_custom_element_name_rejects_malformed_names(tag: str) -> None:
-    """A non-name character, a doubled dash, or a trailing dash disqualifies a name, so the matcher never sees it."""
+    # A non-name character, a doubled dash, or a trailing dash disqualifies a name, so the matcher never sees it.
     html = f"<{tag}>x</{tag}>"
     assert sanitize(html, _admit_all()) != html
 
 
 def test_custom_attribute_check_keeps_matching_and_drops_others() -> None:
-    """On a kept custom element, only attributes the attribute matcher admits survive; the rest are stripped."""
+    # On a kept custom element, only attributes the attribute matcher admits survive; the rest are stripped.
     policy = Policy(
         tags=frozenset(),
         custom_element_check=lambda _tag: True,
@@ -2118,7 +2120,7 @@ def test_custom_attribute_check_keeps_matching_and_drops_others() -> None:
 
 
 def test_custom_attribute_check_default_keeps_only_allowlisted() -> None:
-    """Without an attribute matcher, a kept custom element keeps only the attributes ``attributes`` allowlists."""
+    # Without an attribute matcher, a kept custom element keeps only the attributes ``attributes`` allowlists.
     policy = Policy(
         tags=frozenset(),
         attributes={"my-el": frozenset({"title"})},
@@ -2128,7 +2130,7 @@ def test_custom_attribute_check_default_keeps_only_allowlisted() -> None:
 
 
 def test_custom_attribute_check_applies_to_an_allowlisted_custom_element() -> None:
-    """A custom element admitted by ``tags`` still routes its unlisted attributes through the attribute matcher."""
+    # A custom element admitted by ``tags`` still routes its unlisted attributes through the attribute matcher.
     policy = Policy(
         tags=frozenset({"my-el"}),
         custom_element_check=lambda _tag: True,
@@ -2146,7 +2148,7 @@ def test_custom_attribute_check_applies_to_an_allowlisted_custom_element() -> No
     ],
 )
 def test_allow_customized_builtins(html: str, expected: str) -> None:
-    """With ``allow_customized_builtins``, an ``is`` attribute survives only when its value names a custom element."""
+    # With ``allow_customized_builtins``, an ``is`` attribute survives only when its value names a custom element.
     policy = Policy(
         tags=frozenset({"button"}),
         custom_element_check=lambda tag: tag == "my-button",
@@ -2156,14 +2158,14 @@ def test_allow_customized_builtins(html: str, expected: str) -> None:
 
 
 def test_is_attribute_is_dropped_without_allow_customized_builtins() -> None:
-    """The ``is`` attribute is not special unless ``allow_customized_builtins`` is on, so it is stripped by default."""
+    # The ``is`` attribute is not special unless ``allow_customized_builtins`` is on, so it is stripped by default.
     policy = Policy(tags=frozenset({"button"}), custom_element_check=lambda _tag: True)
     assert sanitize('<button is="my-button">x</button>', policy) == "<button>x</button>"
 
 
 def test_the_is_rule_only_touches_a_valued_is_on_a_configured_policy() -> None:
-    """Only a two-character ``is`` with a value is special: every other unlisted attribute drops as usual, and the
-    rule stays inert without a custom-element matcher to test the value against."""
+    # Only a two-character ``is`` with a value is special: every other unlisted attribute drops as usual, and the
+    # rule stays inert without a custom-element matcher to test the value against.
     configured = Policy(
         tags=frozenset({"button"}),
         custom_element_check=lambda tag: tag == "my-button",
@@ -2191,7 +2193,7 @@ def test_the_is_rule_only_touches_a_valued_is_on_a_configured_policy() -> None:
     ],
 )
 def test_baseline_holds_on_custom_elements(html: str, expected: str) -> None:
-    """The non-configurable safety baseline still scrubs a kept custom element and its subtree."""
+    # The non-configurable safety baseline still scrubs a kept custom element and its subtree.
     policy = Policy(
         tags=frozenset({"a"}),
         attributes={"a": frozenset({"href"})},
@@ -2203,13 +2205,15 @@ def test_baseline_holds_on_custom_elements(html: str, expected: str) -> None:
 
 
 def test_a_custom_matcher_never_keeps_an_unsafe_tag() -> None:
-    """An unsafe raw-text tag is escaped regardless of the custom-element matcher, since it never reaches it."""
+    # An unsafe raw-text tag is escaped regardless of the custom-element matcher, since it never reaches it.
     policy = Policy(tags=frozenset(), custom_element_check=lambda _tag: True)
     assert sanitize("<my-script>x</my-script>", policy) == "<my-script>x</my-script>"
     assert "&lt;script&gt;" in sanitize("<script>x</script>", policy)
 
 
-_PROFILE_HTML = "<b>h</b><svg><circle></circle></svg><math><mi>m</mi></math>"
+_PROFILE_HTML: Final[str] = "<b>h</b><svg><circle></circle></svg><math><mi>m</mi></math>"
+
+
 _PROFILE_TAGS = frozenset({"b", "svg", "circle", "math", "mi"})
 
 
@@ -2228,21 +2232,21 @@ _PROFILE_TAGS = frozenset({"b", "svg", "circle", "math", "mi"})
     ],
 )
 def test_content_profiles(policy: Policy, keeps: str, drops: str) -> None:
-    """Each namespace gate keeps its own content and drops the disabled namespace even when its tags are allowlisted."""
+    # Each namespace gate keeps its own content and drops the disabled namespace even when its tags are allowlisted.
     result = sanitize(_PROFILE_HTML, policy)
     assert keeps in result
     assert drops not in result
 
 
 def test_all_profiles_on_by_default_keep_every_namespace() -> None:
-    """The default gates keep HTML, SVG, and MathML together, so an allowlist governs each namespace as before."""
+    # The default gates keep HTML, SVG, and MathML together, so an allowlist governs each namespace as before.
     result = sanitize(_PROFILE_HTML, Policy(tags=_PROFILE_TAGS))
     assert "<circle>" in result
     assert "<mi>" in result
 
 
 def test_a_disabled_namespace_ignores_a_matching_custom_element() -> None:
-    """A foreign element never reaches the custom-element matcher, and a disabled HTML namespace short-circuits it."""
+    # A foreign element never reaches the custom-element matcher, and a disabled HTML namespace short-circuits it.
     svg = Policy(tags=frozenset({"svg", "circle"}), custom_element_check=lambda _tag: True)
     assert sanitize("<svg><circle></circle></svg>", svg) == "<svg><circle></circle></svg>"
     no_html = Policy(tags=frozenset(), allow_html=False, custom_element_check=lambda _tag: True)
@@ -2250,8 +2254,7 @@ def test_a_disabled_namespace_ignores_a_matching_custom_element() -> None:
 
 
 def test_a_raising_element_matcher_propagates() -> None:
-    """An exception from the custom-element matcher surfaces to the caller rather than being swallowed."""
-
+    # An exception from the custom-element matcher surfaces to the caller rather than being swallowed.
     def boom(_tag: str) -> bool:
         msg = "element"
         raise ValueError(msg)
@@ -2261,8 +2264,7 @@ def test_a_raising_element_matcher_propagates() -> None:
 
 
 def test_a_raising_attribute_matcher_propagates() -> None:
-    """An exception from the attribute matcher surfaces to the caller."""
-
+    # An exception from the attribute matcher surfaces to the caller.
     def boom(_tag: str, _name: str) -> bool:
         msg = "attribute"
         raise ValueError(msg)
@@ -2277,8 +2279,7 @@ def test_a_raising_attribute_matcher_propagates() -> None:
 
 
 def test_a_raising_is_matcher_propagates() -> None:
-    """An exception from the matcher while checking an ``is`` value surfaces to the caller."""
-
+    # An exception from the matcher while checking an ``is`` value surfaces to the caller.
     def boom(_tag: str) -> bool:
         msg = "is-value"
         raise ValueError(msg)
@@ -2296,8 +2297,14 @@ _ALLOW = {
     "img": frozenset({"name", "src"}),
     "p": frozenset({"id", "class"}),
 }
+
+
 _TAGS = frozenset({"a", "form", "input", "img", "p"})
+
+
 _ON = Policy(tags=_TAGS, attributes=_ALLOW, isolate_named_props=True)
+
+
 _OFF = Policy(tags=_TAGS, attributes=_ALLOW)
 
 
@@ -2374,11 +2381,13 @@ def test_isolate_named_props_keeps_safety_baseline() -> None:
 
 # The set of tags the reachability check reasons over, allowed together so only the namespace relationship can drop one.
 _FOREIGN_TAGS = frozenset({"svg", "math", "foreignObject", "annotation-xml", "mtext", "circle", "p", "b", "i"})
+
+
 _FOREIGN_POLICY = Policy(tags=_FOREIGN_TAGS, attributes={"annotation-xml": frozenset({"encoding"})})
 
 
 def _find(root: Element, tag: str, namespace: str | None = None) -> Element:
-    """Return the first element named ``tag`` (optionally in ``namespace``) in document order."""
+    # Return the first element named ``tag`` (optionally in ``namespace``) in document order.
     queue: list[Element] = list(getattr(root, "children", ()))
     while queue:
         node = queue.pop(0)
@@ -2409,7 +2418,7 @@ def _sanitize_tree(root: Element, tags: frozenset[str]) -> str:
 
 
 def test_find_helper_reports_a_missing_element() -> None:
-    """The navigation helper fails loudly rather than returning None when a case names a tag that is not present."""
+    # The navigation helper fails loudly rather than returning None when a case names a tag that is not present.
     with pytest.raises(AssertionError, match="no 'span' element"):
         _find(parse_fragment("<div></div>"), "span")
 
@@ -2440,7 +2449,7 @@ def test_find_helper_reports_a_missing_element() -> None:
     ],
 )
 def test_namespace_reachable_foreign_content_untouched(html: str, policy: Policy) -> None:
-    """Every namespace transition the parser produces is reachable, so the check leaves valid foreign content as-is."""
+    # Every namespace transition the parser produces is reachable, so the check leaves valid foreign content as-is.
     assert sanitize(html, policy) == parse_fragment(html).inner_html
 
 
@@ -2480,7 +2489,7 @@ _CONFUSION_CASES = [
 def test_namespace_confusion_is_dropped(
     html: str, move: tuple[str, str, str], tags: frozenset[str], marker: str
 ) -> None:
-    """A node reparented into an unreachable namespace is dropped, while the same node correctly nested is kept."""
+    # A node reparented into an unreachable namespace is dropped, while the same node correctly nested is kept.
     assert marker in _sanitize_tree(parse_fragment(html), tags)  # correctly nested: the policy keeps it
     source, source_ns, target = move
     root = parse_fragment(html)
@@ -2520,7 +2529,7 @@ _ANNOTATION_TAGS: Final = frozenset({"math", "annotation-xml", "style", "b"})
     ],
 )
 def test_annotation_xml_integration_follows_kept_encoding(html: str, policy: Policy, expected: str) -> None:
-    """annotation-xml keeps HTML children only while its serialized encoding makes it an integration point."""
+    # annotation-xml keeps HTML children only while its serialized encoding makes it an integration point.
     assert sanitize(html, policy) == expected
 
 
@@ -2552,7 +2561,7 @@ def test_annotation_xml_bare_encoding_is_not_integration_point() -> None:
     ],
 )
 def test_html_mglyph_under_mathml_text_point_is_unreachable(html: str, expected: str) -> None:
-    """A text integration point parses mglyph/malignmark as MathML, so an HTML-namespace one there is not kept."""
+    # A text integration point parses mglyph/malignmark as MathML, so an HTML-namespace one there is not kept.
     policy = Policy(tags=frozenset({"math", "mi", "mtext", "mglyph", "malignmark", "style", "b"}))
     assert sanitize(html, policy) == expected
 
@@ -2593,7 +2602,7 @@ def test_html_mglyph_under_mathml_text_point_is_unreachable(html: str, expected:
     ],
 )
 def test_escape_rechecks_children_hoisted_into_foreign_parent(html: str, tags: set[str], expected: str) -> None:
-    """Escaping an integration point escapes the HTML children it would otherwise leave directly under SVG/MathML."""
+    # Escaping an integration point escapes the HTML children it would otherwise leave directly under SVG/MathML.
     assert sanitize(html, Policy(tags=frozenset(tags))) == expected
 
 
@@ -2607,12 +2616,11 @@ def test_escape_reports_hoisted_children_it_escapes() -> None:
     assert removed == [Removed("desc"), Removed("b")]
 
 
-_POST = "<p onclick='x'>Hi <b>there</b> <script>evil()</script></p>"
+_POST: Final[str] = "<p onclick='x'>Hi <b>there</b> <script>evil()</script></p>"
 
 
 def test_node_form_returns_a_sanitized_copy_of_the_same_kind() -> None:
-    root = parse_fragment(_POST)
-    clean = assert_type(sanitize_node(root, Policy.relaxed()), Element)
+    clean = assert_type(sanitize_node(parse_fragment(_POST), Policy.relaxed()), Element)
     assert isinstance(clean, Element)
     assert clean.inner_html == sanitize(_POST, Policy.relaxed())
 
@@ -2652,15 +2660,6 @@ def test_the_copy_inherits_the_xml_flag() -> None:
     assert clean.inner_xml == "<b/>x"
 
 
-def _xml_case_policy(*tags: str, isolate_named_props: bool = False) -> Policy:
-    return Policy(
-        tags=frozenset({"div", *tags}),
-        attributes=MappingProxyType({"*": frozenset({"*"})}),
-        css_properties=frozenset({"color"}),
-        isolate_named_props=isolate_named_props,
-    )
-
-
 @pytest.mark.parametrize(
     ("xml", "expected"),
     [
@@ -2680,6 +2679,15 @@ def _xml_case_policy(*tags: str, isolate_named_props: bool = False) -> Policy:
 def test_sanitize_xml_attribute_checks_ignore_case(xml: str, expected: str) -> None:
     # the HTML parser lowercases these names when it reads the output back, so the baseline must match them any case
     assert sanitize(parse_xml(xml), _xml_case_policy()) == expected
+
+
+def _xml_case_policy(*tags: str, isolate_named_props: bool = False) -> Policy:
+    return Policy(
+        tags=frozenset({"div", *tags}),
+        attributes=MappingProxyType({"*": frozenset({"*"})}),
+        css_properties=frozenset({"color"}),
+        isolate_named_props=isolate_named_props,
+    )
 
 
 def test_sanitize_xml_isolates_upper_case_id() -> None:
@@ -2860,8 +2868,12 @@ _Compiled = tuple[
 ]
 
 
+def test_the_rel_value_is_sorted_and_space_joined() -> None:
+    assert _compile(add_link_rel=frozenset({"noreferrer", "noopener"}))[1] == "noopener noreferrer"
+
+
 def _compile(**fields: object) -> _Compiled:
-    """Compile a policy built from the given fields, returning the six compiled forms."""
+    # Compile a policy built from the given fields, returning the six compiled forms.
     policy = Policy(**fields)  # ty: ignore[invalid-argument-type]  # each test passes a valid field
     return _sanitize_policy(
         policy.attributes,
@@ -2872,10 +2884,6 @@ def _compile(**fields: object) -> _Compiled:
         policy.transform_tags,
         Transform,
     )
-
-
-def test_the_rel_value_is_sorted_and_space_joined() -> None:
-    assert _compile(add_link_rel=frozenset({"noreferrer", "noopener"}))[1] == "noopener noreferrer"
 
 
 def test_no_rel_tokens_is_none() -> None:
@@ -2980,13 +2988,13 @@ def test_a_transform_table_must_be_a_mapping() -> None:
 
 
 class _TagOnly:
-    """A transform-like object carrying a tag but no attributes, the way a caller's own record might."""
-
+    # A transform-like object carrying a tag but no attributes, the way a caller's own record might.
     tag = "em"
 
 
 class _Bare:
-    """A transform-like object carrying neither field."""
+    # A transform-like object carrying neither field.
+    ...
 
 
 @pytest.mark.parametrize(
@@ -3008,7 +3016,7 @@ def test_the_compiler_rejects_too_few_arguments() -> None:
         _sanitize_policy({}, frozenset())  # ty: ignore[missing-argument]  # the arity check is the point
 
 
-XSS_CORPUS = [
+_XSS_CORPUS = [
     pytest.param("<script>alert(1)</script>", id="script"),
     pytest.param("<scr<script>ipt>alert(1)</scr</script>ipt>", id="nested-script"),
     pytest.param("<img src=x onerror=alert(1)>", id="img-onerror"),
@@ -3053,6 +3061,7 @@ XSS_CORPUS = [
     pytest.param("<li><math><mtext><li>", id="li-math-mtext-nesting"),
 ]
 
+
 _MODES = [
     pytest.param(Policy(), id="escape"),
     pytest.param(Policy(on_disallowed_tag=OnDisallowed.STRIP), id="strip"),
@@ -3062,14 +3071,14 @@ _MODES = [
 ]
 
 
-@pytest.mark.parametrize("payload", XSS_CORPUS)
+@pytest.mark.parametrize("payload", _XSS_CORPUS)
 @pytest.mark.parametrize("policy", _MODES)
 def test_no_live_danger(payload: str, policy: Policy) -> None:
     danger = _live_danger(sanitize(payload, policy))
     assert danger == [], f"live XSS survived: {danger}"
 
 
-@pytest.mark.parametrize("payload", XSS_CORPUS)
+@pytest.mark.parametrize("payload", _XSS_CORPUS)
 @pytest.mark.parametrize("policy", _MODES)
 def test_round_trip_invariant(payload: str, policy: Policy) -> None:
     once = sanitize(payload, policy)
@@ -3285,13 +3294,12 @@ def test_parse_stable_rule_corpus_via_node(payload: str, tags: frozenset[str]) -
 
 
 def _svg_in_table() -> Element:
-    """A table holding an SVG element directly: the parser fosters that at parse time, but a built tree keeps it."""
-    svg = next(child for child in parse_fragment("<svg></svg>").children if isinstance(child, Element))
-    return E.div(E.table(svg))
+    # A table holding an SVG element directly: the parser fosters that at parse time, but a built tree keeps it.
+    return E.div(E.table(next(child for child in parse_fragment("<svg></svg>").children if isinstance(child, Element))))
 
 
 def _cell_under_math_text_point() -> Element:
-    """A td inside a MathML text integration point: the td is reachable HTML there, but its ancestor is foreign."""
+    # A td inside a MathML text integration point: the td is reachable HTML there, but its ancestor is foreign.
     math = next(
         child for child in parse_fragment("<math><mtext></mtext></math>").children if isinstance(child, Element)
     )
@@ -3351,7 +3359,7 @@ def test_parse_stable_built_trees(tree: Element, tags: frozenset[str]) -> None:
 
 
 def _math_text_point(*children: Element) -> Element:
-    """A math element whose mi text integration point holds the given HTML children."""
+    # A math element whose mi text integration point holds the given HTML children.
     math = cast("Element", parse_fragment("<math><mi></mi></math>").children[0])
     text_point = math.find("mi")
     assert text_point is not None
@@ -3361,7 +3369,7 @@ def _math_text_point(*children: Element) -> Element:
 
 
 def _foreign_object(*children: Element) -> Element:
-    """An svg element whose foreignObject integration point holds the given HTML children."""
+    # An svg element whose foreignObject integration point holds the given HTML children.
     svg = cast("Element", parse_fragment("<svg><foreignObject></foreignObject></svg>").children[0])
     point = cast("Element", svg.children[0])
     for child in children:
@@ -3370,7 +3378,7 @@ def _foreign_object(*children: Element) -> Element:
 
 
 def _svg_child_named(name: str) -> Element:
-    """An svg element holding one SVG child renamed to `name`, which the parser would never build."""
+    # An svg element holding one SVG child renamed to `name`, which the parser would never build.
     svg = cast("Element", parse_fragment("<svg><g></g></svg>").children[0])
     cast("Element", svg.children[0]).tag = name
     return svg
@@ -4030,7 +4038,7 @@ def test_templates_text_run_collapses(fragment: str, expected: str) -> None:
     ],
 )
 def test_templates_joined_text_collapses(fragment: str, mode: OnDisallowed, expected: str) -> None:
-    """Markers split across text the walk removes or unwraps an element between are still stripped."""
+    # Markers split across text the walk removes or unwraps an element between are still stripped.
     assert sanitize(fragment, replace(_SANITIZER_TEMPLATES_ON, on_disallowed_tag=mode)) == expected
 
 
@@ -4151,8 +4159,7 @@ def test_transform_canonicalizes_unsafe_html_target() -> None:
 
 
 def test_transform_reports_target_name() -> None:
-    policy = Policy(tags=frozenset({"strong"}), transform_tags={"b": "script"})
-    html, removed = sanitize_report("<b>e</b>", policy)
+    html, removed = sanitize_report("<b>e</b>", Policy(tags=frozenset({"strong"}), transform_tags={"b": "script"}))
     assert html == "&lt;script&gt;e&lt;/script&gt;"
     assert [(item.tag, item.attribute) for item in removed] == [("script", None)]
 
@@ -4182,11 +4189,6 @@ _XML = Policy(
 )
 
 
-def _well_formed(fragment: str) -> None:
-    """Assert a sanitized fragment reparses as XML once wrapped in a single root, so it is well-formed."""
-    parse_xml(f"<root>{fragment}</root>")
-
-
 @pytest.mark.parametrize(
     ("html", "expected"),
     [
@@ -4208,6 +4210,11 @@ def test_xml_output_is_well_formed(html: str, expected: str) -> None:
     _well_formed(out)
 
 
+def _well_formed(fragment: str) -> None:
+    # Assert a sanitized fragment reparses as XML once wrapped in a single root, so it is well-formed.
+    parse_xml(f"<root>{fragment}</root>")
+
+
 def test_control_characters_are_dropped_from_xml() -> None:
     out = sanitize("<p>bad\x0cchar\x01here</p>", _XML)
     assert out == "<p>badcharhere</p>"
@@ -4215,8 +4222,7 @@ def test_control_characters_are_dropped_from_xml() -> None:
 
 
 def test_kept_comment_is_neutralized_for_xml() -> None:
-    policy = Policy(tags=frozenset({"p"}), strip_comments=False, xml=True)
-    out = sanitize("<p>a</p><!-- c--d- -->", policy)
+    out = sanitize("<p>a</p><!-- c--d- -->", Policy(tags=frozenset({"p"}), strip_comments=False, xml=True))
     assert out == "<p>a</p><!-- c- -d- -->"
     _well_formed(out)
 
@@ -4283,15 +4289,14 @@ _XML_ORACLE_POLICY: Final = Policy(
 @pytest.mark.oracle
 def test_output_parses_under_lxml(html: str, tags: list[str], text: str) -> None:
     lxml_etree: Final = pytest.importorskip("lxml.etree")
-    fragment = sanitize(html, _XML_ORACLE_POLICY)
-    root = lxml_etree.fromstring(f"<root>{fragment}</root>".encode())
+    root = lxml_etree.fromstring(f"<root>{sanitize(html, _XML_ORACLE_POLICY)}</root>".encode())
     assert ([lxml_etree.QName(child).localname for child in root], root.xpath("string(.)")) == (tags, text)
 
 
 _DOMPURIFY_FIXTURE = Path(__file__).parent / "data" / "dompurify_expect.mjs"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _DompurifyCase:
     payload: str
     accepted: frozenset[str]
@@ -4299,7 +4304,7 @@ class _DompurifyCase:
 
 
 def _load_cases() -> list[_DompurifyCase]:
-    """Extract the ``{payload, expected}`` entries from the ESM fixture by decoding each object with the JSON reader."""
+    # Extract the ``{payload, expected}`` entries from the ESM fixture by decoding each object with the JSON reader.
     body = _DOMPURIFY_FIXTURE.read_text(encoding="utf-8").split("export default", 1)[1]
     decoder = json.JSONDecoder()
     index = body.index("[") + 1
@@ -4312,7 +4317,7 @@ def _load_cases() -> list[_DompurifyCase]:
         entry, index = decoder.raw_decode(body, index)
         expected = entry["expected"]
         accepted = frozenset(expected if isinstance(expected, list) else [expected])
-        cases.append(_DompurifyCase(entry["payload"], accepted, entry.get("title", "")))
+        cases.append(_DompurifyCase(payload=entry["payload"], accepted=accepted, title=entry.get("title", "")))
 
 
 _DOMPURIFY_CASES = _load_cases()
@@ -4349,7 +4354,6 @@ _DOMPURIFY_POLICIES = [
 
 # Scriptable elements that execute or load code if they survive in the HTML namespace; scheme prefixes that run script.
 _DOMPURIFY_DANGER_TAGS = frozenset({"script", "iframe", "object", "embed", "frame", "style", "noscript", "base"})
-_DOMPURIFY_DANGER_SCHEMES = ("javascript:", "data:", "vbscript:")
 _DOMPURIFY_URL_ATTRS = frozenset({
     "href",
     "src",
@@ -4361,32 +4365,36 @@ _DOMPURIFY_URL_ATTRS = frozenset({
     "cite",
     "ping",
 })
-_DOMPURIFY_SVG_ANIMATION_TAGS = frozenset({"animate", "animateColor", "animateMotion", "animateTransform", "set"})
 # CSS constructs that execute or fetch when a kept <style> body or style attribute survives the property scrub.
 _DOMPURIFY_CSS_DANGER = ("javascript:", "vbscript:", "expression(", "@import", "behavior:", "-moz-binding")
 
 
 def _attr_value(raw: str | list[str] | None) -> str:
-    """The lowercased attribute value, joining a duplicate-attribute list and reading a boolean attr as empty."""
+    # The lowercased attribute value, joining a duplicate-attribute list and reading a boolean attr as empty.
     if raw is None:
         return ""
-    joined = " ".join(raw) if isinstance(raw, list) else raw
-    return joined.lower()
+    return (" ".join(raw) if isinstance(raw, list) else raw).lower()
 
 
 def _style_body(element: Element) -> str:
-    """The lowercased text content of a ``<style>`` element (rawtext, so its children are text nodes)."""
+    # The lowercased text content of a ``<style>`` element (rawtext, so its children are text nodes).
     return "".join(getattr(child, "data", "") for child in element.children).lower()
 
 
 def _bad_scheme(value: str) -> bool:
-    """Whether a URL value resolves to a script-capable scheme once the control/whitespace obfuscation is stripped."""
-    return "".join(char for char in value if ord(char) > 0x20).startswith(_DOMPURIFY_DANGER_SCHEMES)
+    # Whether a URL value resolves to a script-capable scheme once the control/whitespace obfuscation is stripped.
+    return "".join(char for char in value if ord(char) > 0x20).startswith(("javascript:", "data:", "vbscript:"))
 
 
 def _dangerous_element(node: Element) -> str | None:
     namespace = node.namespace.value
-    if namespace == "svg" and node.tag in _DOMPURIFY_SVG_ANIMATION_TAGS:
+    if namespace == "svg" and node.tag in frozenset({
+        "animate",
+        "animateColor",
+        "animateMotion",
+        "animateTransform",
+        "set",
+    }):
         attrs = {name.lower(): _attr_value(value) for name, value in node.attrs.items()}
         target = attrs.get("attributename", "")
         if target.startswith("on"):
@@ -4405,7 +4413,7 @@ def _dangerous_element(node: Element) -> str | None:
 
 
 def _dangerous_attribute(name: str, value: str) -> str | None:
-    """A label for an executable attribute: an ``on*`` handler, dangerous CSS on ``style``, or a scriptable URL."""
+    # A label for an executable attribute: an ``on*`` handler, dangerous CSS on ``style``, or a scriptable URL.
     if name.startswith("on"):
         return f"@{name}"
     if name == "style":
@@ -4414,7 +4422,7 @@ def _dangerous_attribute(name: str, value: str) -> str | None:
 
 
 def _live_danger(html: str) -> list[str]:
-    """Reparse sanitized HTML and list every executable construct that survived; an empty list means inert."""
+    # Reparse sanitized HTML and list every executable construct that survived; an empty list means inert.
     survived: list[str] = []
     stack = list(parse_fragment(html).children)
     while stack:

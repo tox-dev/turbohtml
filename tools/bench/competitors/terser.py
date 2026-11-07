@@ -8,7 +8,7 @@ REQUIREMENTS = ()
 
 
 def minify_js(source: str) -> str:
-    """Minify JavaScript by piping source through terser's compress+mangle CLI over stdin."""
+    # Minify JavaScript by piping source through terser's compress+mangle CLI over stdin.
     return subprocess.run(
         ["terser", "--compress", "--mangle"], input=source, capture_output=True, text=True, check=True
     ).stdout

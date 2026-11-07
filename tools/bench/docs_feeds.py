@@ -23,13 +23,10 @@ from typing import Final
 
 from bench.notes import NOTES
 
-_NO_EQUIVALENT: Final = "no equivalent operation"
 
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Combined:
-    """A guide table assembled from several operations: its caption, columns, rows, and where each cell comes from."""
-
+    # A guide table assembled from several operations: its caption, columns, rows, and where each cell comes from.
     label: str
     parties: tuple[str, ...]
     rows: tuple[tuple[str, str], ...]  # (case name, the operation supplying that row)
@@ -300,12 +297,10 @@ TABLES: Final[dict[str, str | Combined]] = {
 
 
 def _cell(feed: dict, party: str, case: str, key: str = "rows") -> float | str | None:
-    """
-    Return what one party recorded for one case, or None when the operation has no such column or row.
-
-    ``key`` selects the array to read: the measurements, or the spread that says what they are worth. Both share a
-    layout, so one lookup serves each.
-    """
+    # Return what one party recorded for one case, or None when the operation has no such column or row.
+    #
+    # ``key`` selects the array to read: the measurements, or the spread that says what they are worth. Both share a
+    # layout, so one lookup serves each.
     if party not in feed["parties"]:
         return None
     source = feed.get(key)
@@ -323,16 +318,17 @@ def _cell(feed: dict, party: str, case: str, key: str = "rows") -> float | str |
 
 
 def _combine(spec: Combined, feeds: dict[str, dict]) -> dict:
-    """Assemble one guide table from the operations its rows and columns name, spread included."""
+    # Assemble one guide table from the operations its rows and columns name, spread included.
     rows: list[list[float | str | None]] = []
     spread: list[list[float | None]] = []
+    no_equivalent = "no equivalent operation"
     for case, row_operation in spec.rows:
         cells: list[float | str | None] = [case]
         noise: list[float | None] = [None]  # leading slot mirrors the case label, as in the per-operation feeds
         for party in spec.parties:
             operation, column = spec.columns.get(party, (row_operation, party))
             value = _cell(feeds[operation], column, case)
-            cells.append(_NO_EQUIVALENT if value is None else value)
+            cells.append(no_equivalent if value is None else value)
             variation = _cell(feeds[operation], column, case, key="spread")
             noise.append(variation if isinstance(variation, (int, float)) else None)
         rows.append(cells)
@@ -353,8 +349,8 @@ def _combine(spec: Combined, feeds: dict[str, dict]) -> dict:
     }
 
 
-def emit_docs_feeds(feeds_dir: Path, out_dir: Path) -> list[str]:
-    """Write every performance-guide feed from the per-operation feeds; return the tables missing an operation."""
+def _emit_docs_feeds(feeds_dir: Path, out_dir: Path) -> list[str]:
+    # Write every performance-guide feed from the per-operation feeds; return the tables missing an operation.
     out_dir.mkdir(parents=True, exist_ok=True)
     missing: list[str] = []
     for name, spec in TABLES.items():
@@ -377,18 +373,21 @@ def emit_docs_feeds(feeds_dir: Path, out_dir: Path) -> list[str]:
                 feed["notes"] = {party: NOTES[spec][party] for party in feed["parties"] if party in NOTES.get(spec, {})}
             else:
                 feed = _combine(spec, feeds)
-            (out_dir / f"{name}.json").write_text(json.dumps(feed, indent=2, ensure_ascii=False) + "\n", "utf-8")
+            (out_dir / f"{name}.json").write_text(f"{json.dumps(feed, indent=2, ensure_ascii=False)}\n", "utf-8")
     return missing
 
 
 def main() -> None:
-    """Regenerate the guide's feeds. Args: FEEDS_DIR OUT_DIR, where FEEDS_DIR holds the ``--table-json`` output."""
+    # Regenerate the guide's feeds. Args: FEEDS_DIR OUT_DIR, where FEEDS_DIR holds the ``--table-json`` output.
     feeds_dir, out_dir = (Path(argument) for argument in sys.argv[1:3])
-    if missing := emit_docs_feeds(feeds_dir, out_dir):
+    if missing := _emit_docs_feeds(feeds_dir, out_dir):
         print(f"tables with no fresh measurement, left as committed: {sorted(set(missing))}")
 
 
-__all__ = ["TABLES", "Combined", "emit_docs_feeds"]
+__all__ = [
+    "TABLES",
+    "Combined",
+]
 
 
 if __name__ == "__main__":

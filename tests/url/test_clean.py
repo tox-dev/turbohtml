@@ -1,5 +1,3 @@
-"""clean_url: the scrub pass, the web-URL validation, the language filter, and the UrlCleaning config itself."""
-
 from __future__ import annotations
 
 import itertools
@@ -481,8 +479,8 @@ def test_a_relative_href_against_an_unsplittable_base_element_is_dropped() -> No
     [
         pytest.param("HTTPS://WWW.DWDS.DE/", "https://www.dwds.de/", id="scheme-and-host-lowercased"),
         pytest.param(
-            "https://" + ".".join(("A" * 63, "B" * 63, "C" * 63, "D" * 49, "example", "org")) + "/",
-            "https://" + ".".join(("a" * 63, "b" * 63, "c" * 63, "d" * 49, "example", "org")) + "/",
+            f"https://{'.'.join(('A' * 63, 'B' * 63, 'C' * 63, 'D' * 49, 'example', 'org'))}/",
+            f"https://{'.'.join(('a' * 63, 'b' * 63, 'c' * 63, 'd' * 49, 'example', 'org'))}/",
             id="maximum-dns-host-length",
         ),
         pytest.param("https://\u212a.Example.ORG/", "https://k.example.org/", id="lowercase-narrows-host-to-ascii"),
@@ -1371,9 +1369,9 @@ def test_normalize_valid_port(normalizer: Callable[[str], str | None], url: str,
     ("port", "suffix"),
     [
         pytest.param("0080", "", id="ascii-default-control"),
-        pytest.param("0" * 20 + "80", "", id="padded-default"),
-        pytest.param("0" * 4301 + "80", "", id="padded-default-past-python-limit"),
-        pytest.param("0" * 4301 + "1", ":1", id="padded-nondefault-past-python-limit"),
+        pytest.param(f"{'0' * 20}80", "", id="padded-default"),
+        pytest.param(f"{'0' * 4301}80", "", id="padded-default-past-python-limit"),
+        pytest.param(f"{'0' * 4301}1", ":1", id="padded-nondefault-past-python-limit"),
         pytest.param("0" * 4301, ":0", id="zero-past-python-limit"),
     ],
 )

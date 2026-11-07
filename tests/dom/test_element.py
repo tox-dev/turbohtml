@@ -22,12 +22,6 @@ if TYPE_CHECKING:
     from bench.timing import Mutating
 
 
-def first(html: str, tag: str) -> Element:
-    element = parse(html).select_one(tag)
-    assert element is not None
-    return element
-
-
 @pytest.mark.parametrize(
     ("html", "tag", "name", "expected"),
     [
@@ -41,6 +35,12 @@ def first(html: str, tag: str) -> Element:
 )
 def test_attr_returns_raw_value(html: str, tag: str, name: str, expected: str) -> None:
     assert first(html, tag).attr(name) == expected
+
+
+def first(html: str, tag: str) -> Element:
+    element = parse(html).select_one(tag)
+    assert element is not None
+    return element
 
 
 def test_attr_absent_defaults_to_none() -> None:
@@ -371,14 +371,14 @@ def test_class_method_rejects_non_str_name(find: Callable[[str, str], Element], 
         getattr(find('<div class="a">', "div"), op)(1)
 
 
+def test_checked_reads_the_attribute() -> None:
+    assert _control("<input type=checkbox checked>", "input").checked is True
+
+
 def _control(markup: str, selector: str) -> Element:
     element = parse(markup).find(selector)
     assert element is not None
     return element
-
-
-def test_checked_reads_the_attribute() -> None:
-    assert _control("<input type=checkbox checked>", "input").checked is True
 
 
 def test_unchecked_reads_false() -> None:
@@ -525,8 +525,7 @@ def test_radio_group_skips_unrelated_controls_in_scope() -> None:
 
 
 def test_radio_group_falls_back_to_the_document() -> None:
-    document = parse("<input type=radio name=g value=1 checked><input type=radio name=g value=2>")
-    radios = document.find_all("input")
+    radios = parse("<input type=radio name=g value=1 checked><input type=radio name=g value=2>").find_all("input")
     radios[1].checked = True
     assert [radio.checked for radio in radios] == [False, True]
 
@@ -555,12 +554,6 @@ def test_unchecking_a_radio_leaves_the_group() -> None:
     assert [radio.checked for radio in radios] == [False, True]
 
 
-def _tree_field_value_control(markup: str, selector: str) -> Element:
-    element = parse(markup).find(selector)
-    assert element is not None
-    return element
-
-
 @pytest.mark.parametrize(
     ("markup", "expected"),
     [
@@ -579,6 +572,12 @@ def _tree_field_value_control(markup: str, selector: str) -> Element:
 )
 def test_input_field_value(markup: str, expected: str) -> None:
     assert _tree_field_value_control(markup, "input").field_value == expected
+
+
+def _tree_field_value_control(markup: str, selector: str) -> Element:
+    element = parse(markup).find(selector)
+    assert element is not None
+    return element
 
 
 def test_textarea_field_value_is_its_text() -> None:
@@ -669,8 +668,7 @@ def test_non_control_field_value_is_none() -> None:
 def test_set_input_value_writes_the_attribute() -> None:
     field = _tree_field_value_control("<input name=q value=old>", "input")
     field.field_value = "new"
-    assert field.field_value == "new"
-    assert field.html == '<input name="q" value="new">'
+    assert (field.field_value, field.html) == ("new", '<input name="q" value="new">')
 
 
 def test_set_input_value_to_none_removes_the_attribute() -> None:
@@ -694,8 +692,7 @@ def test_set_input_value_rejects_non_str() -> None:
 def test_set_textarea_value_replaces_text() -> None:
     field = _tree_field_value_control("<textarea>old</textarea>", "textarea")
     field.field_value = "new"
-    assert field.field_value == "new"
-    assert field.html == "<textarea>new</textarea>"
+    assert (field.field_value, field.html) == ("new", "<textarea>new</textarea>")
 
 
 def test_set_textarea_value_to_none_clears_it() -> None:
@@ -799,16 +796,16 @@ def test_delete_single_select_value_clears_all() -> None:
     assert "selected" not in select.find_all("option")[0].attrs
 
 
-def _form(markup: str) -> Element:
-    form = parse(markup).find("form")
-    assert form is not None
-    return form
-
-
 def test_a_blank_string_named_control_is_skipped() -> None:
     form = _form("<form></form>")
     form.append(Element("input", {"name": "", "value": "y"}))  # an empty-string name is still no name
     assert form.form_data() == []
+
+
+def _form(markup: str) -> Element:
+    form = parse(markup).find("form")
+    assert form is not None
+    return form
 
 
 def test_text_and_hidden_inputs_are_submitted() -> None:
@@ -989,22 +986,16 @@ def test_form_data_on_a_non_form_raises() -> None:
         element.form_data()
 
 
-def _div(markup: str = '<div id="a" class="x y">') -> Element:
-    element = parse(markup).find("div")
-    assert element is not None
-    return element
-
-
-def _ctx(source: str, selector: str) -> Element:
-    element = parse(source).find(selector)
-    assert element is not None
-    return element
-
-
 def test_attrs_is_a_live_view() -> None:
     element = _div()
     element.attrs["data-z"] = "1"  # mutating the view rewrites the element
     assert element.html == '<div id="a" class="x y" data-z="1"></div>'
+
+
+def _div(markup: str = '<div id="a" class="x y">') -> Element:
+    element = parse(markup).find("div")
+    assert element is not None
+    return element
 
 
 def test_attrs_set_replaces_an_existing_value() -> None:
@@ -1137,8 +1128,7 @@ def test_attrs_round_trips_through_dict() -> None:
 def test_data_setter_replaces_text() -> None:
     text = Text("old")
     text.data = "new & shiny"
-    assert text.data == "new & shiny"
-    assert text.html == "new &amp; shiny"
+    assert (text.data, text.html) == ("new & shiny", "new &amp; shiny")
 
 
 def test_data_setter_on_comment() -> None:
@@ -1211,6 +1201,12 @@ def test_set_inner_html_replaces_with_parsed_fragment(source: str, selector: str
     element = _ctx(source, selector)
     element.set_inner_html(fragment)
     assert element.html == expected
+
+
+def _ctx(source: str, selector: str) -> Element:
+    element = parse(source).find(selector)
+    assert element is not None
+    return element
 
 
 @pytest.mark.parametrize(
@@ -1443,7 +1439,7 @@ def test_insert_adjacent_html_rejects_a_lone_surrogate_context() -> None:
 
 
 def _found(root: Element | Document, selector: str) -> Element:
-    """First match of selector in an already-edited tree, asserted present."""
+    # First match of selector in an already-edited tree, asserted present.
     node = root.find(selector)
     assert node is not None, selector
     return node
@@ -1535,8 +1531,7 @@ def test_append_preserves_leaf_references(node_type: type[Text | Comment]) -> No
     leaf = source.children[0]
     assert isinstance(leaf, (Text, Comment))
     held = {leaf}
-    destination = Element("main")
-    destination.append(source)
+    Element("main").append(source)
     leaf.data = "after"
     adopted = source.children[0]
     assert isinstance(adopted, (Text, Comment))
@@ -1853,8 +1848,7 @@ def test_wrap_siblings_groups_a_run_up_to_until() -> None:
 
 def test_wrap_siblings_with_no_until_reaches_the_last_sibling() -> None:
     doc = parse("<ul><li>a</li><li>b</li><li>c</li></ul>")
-    second = list(_found(doc, "ul").children)[1]
-    second.wrap_siblings(Element("div"))
+    list(_found(doc, "ul").children)[1].wrap_siblings(Element("div"))
     assert _found(doc, "ul").html == "<ul><li>a</li><div><li>b</li><li>c</li></div></ul>"
 
 
@@ -1867,8 +1861,7 @@ def test_wrap_siblings_of_a_single_node_until_self() -> None:
 
 def test_wrap_siblings_adopts_a_wrapper_from_another_tree() -> None:
     doc = parse("<ul><li>a</li><li>b</li></ul>")
-    first = next(iter(_found(doc, "ul").children))
-    wrapper = first.wrap_siblings(_found(parse("<section></section>"), "section"))
+    wrapper = next(iter(_found(doc, "ul").children)).wrap_siblings(_found(parse("<section></section>"), "section"))
     assert _found(doc, "ul").html == "<ul><section><li>a</li><li>b</li></section></ul>"
     assert wrapper.parent == _found(doc, "ul")  # the returned wrapper is the adopted copy in the live tree
 
@@ -1909,15 +1902,13 @@ def test_wrap_siblings_rejects_an_until_outside_the_siblings(outsider: Callable[
 
 
 def test_wrap_siblings_rejects_an_until_before_the_node() -> None:
-    doc = parse("<ul><li>a</li><li>b</li></ul>")
-    items = list(_found(doc, "ul").children)
+    items = list(_found(parse("<ul><li>a</li><li>b</li></ul>"), "ul").children)
     with pytest.raises(ValueError, match="following siblings"):
         items[1].wrap_siblings(Element("div"), until=items[0])
 
 
 def test_wrap_siblings_rejects_a_wrapper_inside_the_run() -> None:
-    doc = parse("<ul><li>a</li><li>b</li></ul>")
-    items = _found(doc, "ul").find_all("li")
+    items = _found(parse("<ul><li>a</li><li>b</li></ul>"), "ul").find_all("li")
     with pytest.raises(ValueError, match="one of the wrapped nodes"):
         items[0].wrap_siblings(items[1])
 
@@ -2464,8 +2455,7 @@ def test_checked_truth_callback_adopts_input(kind: str, *, checked: bool, thread
 @pytest.mark.parametrize("checked", [pytest.param(False, id="uncheck"), pytest.param(True, id="check")])
 @pytest.mark.parametrize("mutation", [pytest.param("tag", id="tag"), pytest.param("type", id="type")])
 def test_checked_truth_callback_invalidates_input(mutation: str, *, checked: bool) -> None:
-    document = parse("<input type=radio>")
-    field = document.select("input")[0]
+    field = parse("<input type=radio>").select("input")[0]
 
     class MutatingTruth:
         def __bool__(self) -> bool:
@@ -2484,8 +2474,7 @@ def _anchor() -> Element:
 
 
 class _BrokenMapping:
-    """A mapping-like object whose keys() raises, so copying it into a dict fails."""
-
+    # A mapping-like object whose keys() raises, so copying it into a dict fails.
     @staticmethod
     def keys() -> NoReturn:
         msg = "broken"
@@ -2711,16 +2700,16 @@ def test_attrs_inplace_or_with_a_bad_value_raises() -> None:
         attrs |= {"title": 3}  # ty: ignore[unsupported-operator]
 
 
-def _selected_element(root: Document | Element, selector: str) -> Element:
-    found = root.select_one(selector)
-    assert isinstance(found, Element)
-    return found
-
-
 def test_rename_keeps_attributes_and_children() -> None:
     document = parse('<div id="a" class="c"><b>x</b></div>')
     _selected_element(document, "div").tag = "section"
     assert _selected_element(document, "body").inner_html == '<section id="a" class="c"><b>x</b></section>'
+
+
+def _selected_element(root: Document | Element, selector: str) -> Element:
+    found = root.select_one(selector)
+    assert isinstance(found, Element)
+    return found
 
 
 def test_rename_is_found_under_the_new_name() -> None:
@@ -2806,8 +2795,7 @@ def test_rename_rejects_a_bad_name(name: object, error: type[Exception], message
     ],
 )
 def test_rename_rewrites_the_source_tags(markup: str, name: str, expected: str) -> None:
-    document = parse(markup, source_locations=True)
-    body = _selected_element(document, "body")
+    body = _selected_element(parse(markup, source_locations=True), "body")
     renamed = body.children[0]
     assert isinstance(renamed, Element)
     renamed.tag = name

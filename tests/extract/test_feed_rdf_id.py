@@ -1,5 +1,3 @@
-"""RDF item identifiers with XML bases."""
-
 from __future__ import annotations
 
 from typing import Final

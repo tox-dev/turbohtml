@@ -1,5 +1,3 @@
-"""RSS 1.0 channel sequences."""
-
 from __future__ import annotations
 
 from typing import Final
@@ -8,13 +6,13 @@ import pytest
 
 from turbohtml.extract import feed
 
-RDF_START: Final = (
+_RDF_START: Final[str] = (
     '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
     'xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" '
     'xmlns:s="http://purl.org/rss/1.0/" xmlns="http://purl.org/rss/1.0/">'
 )
-ITEM_A: Final = '<item rdf:about="https://example.org/a"><title>A</title></item>'
-ITEM_B: Final = '<item rdf:about="https://example.org/b"><title>B</title></item>'
+_ITEM_A: Final[str] = '<item rdf:about="https://example.org/a"><title>A</title></item>'
+_ITEM_B: Final[str] = '<item rdf:about="https://example.org/b"><title>B</title></item>'
 
 
 @pytest.mark.parametrize(
@@ -22,17 +20,17 @@ ITEM_B: Final = '<item rdf:about="https://example.org/b"><title>B</title></item>
     [
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/b"/>\n<rdf:li rdf:resource="https://example.org/a"/></rdf:Seq>',
-            ITEM_A + ITEM_B,
+            _ITEM_A + _ITEM_B,
             ("B", "A"),
         ),
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/>\n<rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
-            ITEM_A + ITEM_B,
+            _ITEM_A + _ITEM_B,
             ("A", "B"),
         ),
         (
             '<rdf:Seq><r:li r:resource="https://example.org/b"/><r:li r:resource="https://example.org/a"/></rdf:Seq>',
-            ITEM_A + ITEM_B,
+            _ITEM_A + _ITEM_B,
             ("B", "A"),
         ),
         (
@@ -40,12 +38,12 @@ ITEM_B: Final = '<item rdf:about="https://example.org/b"><title>B</title></item>
                 '<rdf:Seq xmlns:RDF="urn:other"><RDF:li resource="https://example.org/a"/>'
                 '<rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>'
             ),
-            ITEM_A + ITEM_B,
+            _ITEM_A + _ITEM_B,
             ("B",),
         ),
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/b"/><rdf:li rdf:resource="https://example.org/a"/></rdf:Seq>',
-            ITEM_A.replace("rdf:about", "r:about") + ITEM_B,
+            _ITEM_A.replace("rdf:about", "r:about") + _ITEM_B,
             ("B", "A"),
         ),
         (
@@ -53,61 +51,68 @@ ITEM_B: Final = '<item rdf:about="https://example.org/b"><title>B</title></item>
                 '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/>'
                 '<rdf:li rdf:resource="https://example.org/missing"/></rdf:Seq>'
             ),
-            ITEM_A + ITEM_B,
+            _ITEM_A + _ITEM_B,
             ("A", "B"),
         ),
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
-            ITEM_A + "<item><title>No ID</title></item>" + ITEM_B,
+            _ITEM_A + "<item><title>No ID</title></item>" + _ITEM_B,
             ("A", "B"),
         ),
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
-            ITEM_A + ITEM_B + '<x:item xmlns:x="urn:other"><x:title>Wrong</x:title></x:item>',
+            _ITEM_A + _ITEM_B + '<x:item xmlns:x="urn:other"><x:title>Wrong</x:title></x:item>',
             ("A", "B"),
         ),
         (
             '<rdf:Seq><rdf:li resource="https://example.org/b"/><rdf:li resource="https://example.org/a"/></rdf:Seq>',
-            ITEM_A + ITEM_B,
+            _ITEM_A + _ITEM_B,
             ("B", "A"),
         ),
         (
             '<r:Seq><r:li r:resource="https://example.org/b"/><r:li r:resource="https://example.org/a"/></r:Seq>',
-            ITEM_A + ITEM_B,
+            _ITEM_A + _ITEM_B,
             ("B", "A"),
         ),
-        ('<rdf:Seq><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>', ITEM_A + ITEM_B, ("B",)),
+        ('<rdf:Seq><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>', _ITEM_A + _ITEM_B, ("B",)),
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/missing"/><rdf:li rdf:resource="https://example.org/a"/></rdf:Seq>',
-            ITEM_A + ITEM_B,
+            _ITEM_A + _ITEM_B,
             ("A",),
         ),
-        ("<rdf:Seq/>", ITEM_A + ITEM_B, ()),
-        ("", ITEM_A + ITEM_B, ("A", "B")),
-        ('<x:Seq xmlns:x="urn:other"><x:li x:resource="https://example.org/b"/></x:Seq>', ITEM_A + ITEM_B, ("A", "B")),
+        ("<rdf:Seq/>", _ITEM_A + _ITEM_B, ()),
+        ("", _ITEM_A + _ITEM_B, ("A", "B")),
+        (
+            '<x:Seq xmlns:x="urn:other"><x:li x:resource="https://example.org/b"/></x:Seq>',
+            _ITEM_A + _ITEM_B,
+            ("A", "B"),
+        ),
         (
             '<rdf:Seq><x:li xmlns:x="urn:other" resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
-            ITEM_A + ITEM_B,
+            _ITEM_A + _ITEM_B,
             ("B",),
         ),
         (
             '<rdf:Seq><rdf:li x:resource="https://example.org/a" xmlns:x="urn:other"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
-            ITEM_A + ITEM_B,
+            _ITEM_A + _ITEM_B,
             ("B",),
         ),
         (
             '<rdf:Seq><rdf:li/><rdf:li rdf:resource=""/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
-            ITEM_A + '<item rdf:about=""><title>Empty ID</title></item>' + ITEM_B,
+            _ITEM_A + '<item rdf:about=""><title>Empty ID</title></item>' + _ITEM_B,
             ("Empty ID", "B"),
         ),
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/b"/><rdf:li rdf:resource="https://example.org/a"/></rdf:Seq>',
-            ITEM_A + '<x:item xmlns:x="urn:other"><x:title>Wrong</x:title></x:item>' + ITEM_B,
+            _ITEM_A + '<x:item xmlns:x="urn:other"><x:title>Wrong</x:title></x:item>' + _ITEM_B,
             ("B", "A"),
         ),
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/b"/><rdf:li rdf:resource="https://example.org/a"/></rdf:Seq>',
-            ITEM_A + '<item rdf:about=""><title>Empty ID</title></item>' + "<item><title>No ID</title></item>" + ITEM_B,
+            _ITEM_A
+            + '<item rdf:about=""><title>Empty ID</title></item>'
+            + "<item><title>No ID</title></item>"
+            + _ITEM_B,
             ("B", "A"),
         ),
         (
@@ -116,23 +121,23 @@ ITEM_B: Final = '<item rdf:about="https://example.org/b"><title>B</title></item>
                 'x:resourcx="https://example.org/a" xmlns:x="urn:other"/>'
                 '<rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>'
             ),
-            ITEM_A + ITEM_B,
+            _ITEM_A + _ITEM_B,
             ("B",),
         ),
         (
             '<rdf:Seq><rdf:li rdf:resourcx="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
-            ITEM_A + ITEM_B,
+            _ITEM_A + _ITEM_B,
             ("B",),
         ),
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
-            ITEM_A.replace("rdf:about", "rdf:aboux") + ITEM_B,
+            _ITEM_A.replace("rdf:about", "rdf:aboux") + _ITEM_B,
             ("B",),
         ),
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
-            ITEM_A
-            + ITEM_B
+            _ITEM_A
+            + _ITEM_B
             + '<item rdf:about="https://example.org/unlisted" xml:lang="en"><title>Unlisted</title></item>',
             ("A", "B"),
         ),
@@ -166,7 +171,7 @@ ITEM_B: Final = '<item rdf:about="https://example.org/b"><title>B</title></item>
 )
 def test_feed_rdf_sequence(sequence: str, items: str, expected: tuple[str, ...]) -> None:
     xml: Final = (
-        RDF_START
+        _RDF_START
         + '<channel rdf:about="https://example.org/"><items>\n'
         + sequence
         + "\n</items></channel>\n"
@@ -180,7 +185,7 @@ def test_feed_rdf_sequence(sequence: str, items: str, expected: tuple[str, ...])
 
 def test_feed_rdf_sequence_resolves_xml_base() -> None:
     xml: Final = (
-        RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/base/" ')
+        _RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/base/" ')
         + '<channel rdf:about="https://example.org/"><items><rdf:Seq>'
         '<rdf:li rdf:resource="a"/><rdf:li rdf:resource="https://example.org/other/b"/>'
         "</rdf:Seq></items></channel>"
@@ -194,7 +199,7 @@ def test_feed_rdf_sequence_resolves_xml_base() -> None:
 
 def test_feed_rdf_sequence_resolves_empty_reference_to_xml_base() -> None:
     xml: Final = (
-        RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/feed" ')
+        _RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/feed" ')
         + '<channel rdf:about="https://example.org/"><items><rdf:Seq>'
         '<rdf:li rdf:resource=""/></rdf:Seq></items></channel>'
         '<item rdf:about="https://example.org/feed"><title>Feed item</title></item></rdf:RDF>'
@@ -212,9 +217,9 @@ def test_feed_rdf_html_about_requires_rdf_prefix() -> None:
 
 def test_feed_rdf_sequence_root_prefix_alias() -> None:
     xml: Final = (
-        RDF_START.replace("<rdf:RDF ", "<r:RDF ") + '<channel rdf:about="https://example.org/"><items><rdf:Seq>'
+        _RDF_START.replace("<rdf:RDF ", "<r:RDF ") + '<channel rdf:about="https://example.org/"><items><rdf:Seq>'
         '<rdf:li rdf:resource="https://example.org/b"/><rdf:li rdf:resource="https://example.org/a"/>'
-        "</rdf:Seq></items></channel>" + ITEM_A + ITEM_B + "</r:RDF>"
+        "</rdf:Seq></items></channel>" + _ITEM_A + _ITEM_B + "</r:RDF>"
     )
     result = feed(xml)
     assert result is not None
@@ -223,11 +228,11 @@ def test_feed_rdf_sequence_root_prefix_alias() -> None:
 
 def test_feed_rdf_sequence_root_alias_ignores_trailing_foreign_item() -> None:
     xml: Final = (
-        RDF_START.replace("<rdf:RDF ", "<r:RDF ") + '<channel rdf:about="https://example.org/"><items><rdf:Seq>'
+        _RDF_START.replace("<rdf:RDF ", "<r:RDF ") + '<channel rdf:about="https://example.org/"><items><rdf:Seq>'
         '<rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/>'
         "</rdf:Seq></items></channel>"
-        + ITEM_A
-        + ITEM_B
+        + _ITEM_A
+        + _ITEM_B
         + '<x:item xmlns:x="urn:other"><x:title>Wrong</x:title></x:item></r:RDF>'
     )
     result = feed(xml)
@@ -237,7 +242,7 @@ def test_feed_rdf_sequence_root_alias_ignores_trailing_foreign_item() -> None:
 
 def test_feed_rdf_sequence_prefixed_rss_namespace() -> None:
     xml: Final = (
-        RDF_START.replace('xmlns="http://purl.org/rss/1.0/"', 'xmlns="urn:other"')
+        _RDF_START.replace('xmlns="http://purl.org/rss/1.0/"', 'xmlns="urn:other"')
         + '<s:channel rdf:about="https://example.org/"><s:items><rdf:Seq>'
         '<rdf:li rdf:resource="https://example.org/b"/><rdf:li rdf:resource="https://example.org/a"/>'
         "</rdf:Seq></s:items></s:channel>"
@@ -265,11 +270,11 @@ def test_feed_rdf_sequence_prefixed_rss_namespace() -> None:
 )
 def test_feed_rdf_sequence_uri_forms(first_uri: str) -> None:
     xml: Final = (
-        RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/base/" ')
+        _RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/base/" ')
         + '<channel rdf:about="https://example.org/"><items><rdf:Seq>'
         '<rdf:li rdf:resource="https://example.org/b"/>'
         f'<rdf:li rdf:resource="{first_uri}"/></rdf:Seq></items></channel>'
-        f'<item rdf:about="{first_uri}"><title>A</title></item>' + ITEM_B + "</rdf:RDF>"
+        f'<item rdf:about="{first_uri}"><title>A</title></item>' + _ITEM_B + "</rdf:RDF>"
     )
     result = feed(xml)
     assert result is not None

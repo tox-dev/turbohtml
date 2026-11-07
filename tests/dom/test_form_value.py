@@ -1,17 +1,9 @@
-"""form_data: the submitted value of each control, per the WHATWG entry-list and value sanitization rules."""
-
 from __future__ import annotations
 
 import pytest
 
 from turbohtml import Element, parse
 from turbohtml.build import E
-
-
-def _submitted(markup: str) -> list[tuple[str, str]]:
-    form = parse(f"<form>{markup}</form>").find("form")
-    assert form is not None
-    return form.form_data()
 
 
 @pytest.mark.parametrize(
@@ -41,6 +33,12 @@ def _submitted(markup: str) -> list[tuple[str, str]]:
 )
 def test_form_data_text_states(attrs: str, expected: str) -> None:
     assert _submitted(f"<input name=x {attrs}>") == [("x", expected)]
+
+
+def _submitted(markup: str) -> list[tuple[str, str]]:
+    form = parse(f"<form>{markup}</form>").find("form")
+    assert form is not None
+    return form.form_data()
 
 
 @pytest.mark.parametrize("kind", ["text", "url", "email"])

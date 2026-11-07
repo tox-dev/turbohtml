@@ -14,12 +14,12 @@ _ANNOTATION_CONFIG = ParserConfig(annotation_rules=_ANNOTATION_RULES)
 
 
 def text_render(text: str) -> None:
-    """Render layout-aware visible text with inscriptis, on an lxml tree."""
+    # Render layout-aware visible text with inscriptis, on an lxml tree.
     inscriptis.get_text(text)
 
 
 def text_annotated(text: str) -> None:
-    """Render annotated layout text with inscriptis, on an lxml tree."""
+    # Render annotated layout text with inscriptis, on an lxml tree.
     inscriptis.get_annotated_text(text, _ANNOTATION_CONFIG)
 
 

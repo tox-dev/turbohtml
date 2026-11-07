@@ -39,33 +39,28 @@ Content: TypeAlias = "Attributes | Node | str"
 
 
 def _build(tag: str, args: tuple[Content, ...]) -> Element:
-    """
-    Build one element: a leading mapping sets its attributes, and the rest become children in order.
-
-    :raises ValueError: if the tag or an attribute name carries a character HTML forbids there, or if a
-        void element such as ``br`` or ``img`` is given children.
-    :raises TypeError: if an attribute mapping is not the first argument.
-    """
+    # Build one element: a leading mapping sets its attributes, and the rest become children in order.
+    #
+    # :raises ValueError: if the tag or an attribute name carries a character HTML forbids there, or if a
+    #     void element such as ``br`` or ``img`` is given children.
+    # :raises TypeError: if an attribute mapping is not the first argument.
     return _build_element(tag, args, Mapping)
 
 
 class _TagFactory:
-    """The callable returned by ``E.<tag>``; it remembers the tag name and builds that element when called."""
-
+    # The callable returned by ``E.<tag>``; it remembers the tag name and builds that element when called.
     __slots__ = ("_tag",)
 
     def __init__(self, tag: str) -> None:
-        """Remember the tag name this factory builds."""
+        # Remember the tag name this factory builds.
         self._tag = tag
 
     def __call__(self, *args: Content) -> Element:
-        """
-        Build the element from a leading attribute mapping and the child nodes and strings that follow.
-
-        :raises ValueError: if the tag or an attribute name carries a character HTML forbids there, or if a
-            void element such as ``br`` or ``img`` is given children.
-        :raises TypeError: if an attribute mapping is not the first argument.
-        """
+        # Build the element from a leading attribute mapping and the child nodes and strings that follow.
+        #
+        # :raises ValueError: if the tag or an attribute name carries a character HTML forbids there, or if a
+        #     void element such as ``br`` or ``img`` is given children.
+        # :raises TypeError: if an attribute mapping is not the first argument.
         return _build(self._tag, args)
 
 

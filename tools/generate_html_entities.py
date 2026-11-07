@@ -16,11 +16,9 @@ import sys
 from html.entities import html5
 from pathlib import Path
 
-__all__ = ["generate"]
-
 
 def _windows_1252(codepoint: int) -> str:
-    """Return the Windows-1252 character for a C1 control byte, else the byte itself."""
+    # Return the Windows-1252 character for a C1 control byte, else the byte itself.
     try:
         return bytes([codepoint]).decode("cp1252")
     except UnicodeDecodeError:  # the five undefined cp1252 slots pass through unchanged
@@ -29,10 +27,10 @@ def _windows_1252(codepoint: int) -> str:
 
 # Numeric character references in the C1 range are reinterpreted as Windows-1252,
 # with U+0000 and a bare CR getting their own replacements (HTML spec table).
-_invalid_charrefs = {0x00: "\ufffd", 0x0D: "\r", **{cp: _windows_1252(cp) for cp in range(0x80, 0xA0)}}
+_INVALID_CHARREFS = {0x00: "\ufffd", 0x0D: "\r", **{cp: _windows_1252(cp) for cp in range(0x80, 0xA0)}}
 # Code points that the spec forbids in numeric references: C0/C1 controls (minus
 # the allowed whitespace), the Arabic-block noncharacters, and the per-plane ones.
-_invalid_codepoints = (
+_INVALID_CODEPOINTS = (
     set(range(0x01, 0x09))
     | {0x0B}
     | set(range(0x0E, 0x20))
@@ -43,7 +41,7 @@ _invalid_codepoints = (
 
 
 def generate(out_path: Path) -> None:
-    """Write the generated HTML5 entity-table C header to *out_path*."""
+    # Write the generated HTML5 entity-table C header to *out_path*.
     if (longest := max(len(value) for value in html5.values())) > 2:  # a named ref expands to at most two code points
         msg = f"named value longer than 2 code points: {longest}"
         raise SystemExit(msg)
@@ -69,8 +67,8 @@ def generate(out_path: Path) -> None:
     for byte in range(256, -1, -1):
         running = min(running, first_index[byte])
         first_index[byte] = running
-    charrefs = [f"    {{{num}u, {ord(_invalid_charrefs[num])}u}}," for num in sorted(_invalid_charrefs)]
-    codepoints = sorted(_invalid_codepoints)
+    charrefs = [f"    {{{num}u, {ord(_INVALID_CHARREFS[num])}u}}," for num in sorted(_INVALID_CHARREFS)]
+    codepoints = sorted(_INVALID_CODEPOINTS)
     codepoint_lines = "\n".join(
         "    " + " ".join(f"{codepoint}u," for codepoint in codepoints[start : start + 10])
         for start in range(0, len(codepoints), 10)
@@ -107,6 +105,9 @@ def generate(out_path: Path) -> None:
         encoding="utf-8",
     )
     print(f"wrote {out_path}: {len(named)} named, {len(charrefs)} charrefs, {len(codepoints)} codepoints")
+
+
+__all__ = []
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ REQUIREMENTS = ("rjsmin>=1.2",)
 
 
 def minify_js(source: str) -> str:
-    """Minify JavaScript with rjsmin's single regex-substitution pass."""
+    # Minify JavaScript with rjsmin's single regex-substitution pass.
     return rjsmin.jsmin(source)
 
 

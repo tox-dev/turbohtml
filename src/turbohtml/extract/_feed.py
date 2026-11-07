@@ -14,8 +14,6 @@ from typing import NamedTuple
 
 from turbohtml._html import _register_feed
 
-__all__ = ["Entry", "Feed"]
-
 
 class Entry(NamedTuple):
     """
@@ -66,3 +64,9 @@ class Feed(NamedTuple):
 
 
 _register_feed(Feed, Entry)
+
+
+__all__ = [
+    "Entry",
+    "Feed",
+]

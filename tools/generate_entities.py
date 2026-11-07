@@ -21,7 +21,7 @@ from pathlib import Path
 
 
 def generate(out_path: Path) -> None:
-    """Write the generated codepoint to entity-name C header to *out_path*."""
+    # Write the generated codepoint to entity-name C header to *out_path*.
     # apos is an XML name absent from the HTML4 set; codepoint2name already omits
     # it. Every HTML4 name decodes to one HTML5 code point. Sort by codepoint so
     # the runtime can binary-search the table.

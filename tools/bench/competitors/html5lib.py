@@ -22,7 +22,7 @@ _MINIFIER: Final = HTMLSerializer(strip_whitespace=True, omit_optional_tags=True
 
 
 def parse(text: str) -> None:
-    """Parse a whole document with html5lib."""
+    # Parse a whole document with html5lib.
     html5lib.parse(text)
 
 
@@ -32,12 +32,12 @@ def _parse_encoded(case: tuple[str, bytes]) -> None:
 
 @functools.cache
 def _parsed(text: str) -> Element:
-    """Return a document parsed once, cached so the read-path operations time only the query."""
+    # Return a document parsed once, cached so the read-path operations time only the query.
     return html5lib.parse(text)
 
 
 def serialize(text: str) -> None:
-    """Serialize a parsed document back to HTML with html5lib's etree serializer."""
+    # Serialize a parsed document back to HTML with html5lib's etree serializer.
     html5lib.serialize(_parsed(text))
 
 
@@ -48,18 +48,18 @@ def _serialize_attributes(case: tuple[str, bool]) -> str:
 
 
 def navigate(text: str) -> None:
-    """Walk every node with html5lib's etree TreeWalker token stream."""
+    # Walk every node with html5lib's etree TreeWalker token stream.
     for _token in _WALKER(_parsed(text)):
         pass
 
 
 def fragment(text: str) -> None:
-    """Parse a fragment with html5lib's parseFragment."""
+    # Parse a fragment with html5lib's parseFragment.
     html5lib.parseFragment(text)
 
 
 def tokenize(text: str) -> None:
-    """Drive html5lib's tokenizer over the input."""
+    # Drive html5lib's tokenizer over the input.
     from html5lib._tokenizer import (  # ruff:ignore[import-outside-top-level, import-private-name]  # internal API
         HTMLTokenizer,
     )

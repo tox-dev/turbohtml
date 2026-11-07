@@ -1,5 +1,3 @@
-"""The topic namespaces (:mod:`turbohtml.clean`, :mod:`turbohtml.extract`) re-export the expected surface."""
-
 from __future__ import annotations
 
 import pytest

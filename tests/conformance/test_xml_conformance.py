@@ -1,34 +1,8 @@
-"""Validate ``parse_xml`` against the W3C XML Conformance Test Suite.
-
-The suite (the OASIS/NIST/Sun/IBM/James-Clark ``xmlconf`` collection) is vendored
-as the pinned ``tests/conformance/xml-conformance-suite`` submodule. Its catalog
-files classify each case by ``TYPE``:
-
-* ``not-wf`` -- not well-formed; a conformant processor MUST reject it.
-* ``valid`` / ``invalid`` -- well-formed (``invalid`` additionally violates a DTD
-  validity constraint, which a non-validating processor need not detect).
-* ``error`` -- reporting is optional; the suite lets a processor accept or reject.
-
-``parse_xml`` is a non-validating XML 1.0 well-formedness checker for the document
-instance and prolog. It deliberately does not parse the DTD internal subset grammar,
-resolve DTD-declared or external entities, validate against a DTD, or implement
-XML 1.1. The oracle here is therefore the well-formedness verdict: every in-scope
-``not-wf`` case must raise :class:`HTMLParseError`; every in-scope well-formed case
-must parse. Cases that exercise a deliberately omitted feature are ``xfail``-ed with
-a spec-grounded reason (see ``_DEVIATIONS`` and ``_classify``); the module prints the
-pass / xfail breakdown at import so the counts are visible in the test log.
-
-The normal test matrix ``--ignore``\\ s ``tests/conformance``; this suite runs only in the
-dedicated ``conformance`` tox env (the "🔬 conformance" CI job), which inits the vendored
-oracle submodules first. A missing submodule is a hard error there, not a skip -- an
-absent oracle is a misconfiguration, not a reason to pass silently. The module stays in
-``[tool.coverage] run.omit`` since it never runs under the coverage matrix.
-"""
-
 from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Final
 from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # the catalogs are trusted, pinned vendored fixtures
     ElementTree as ET,
 )
@@ -37,7 +11,6 @@ import pytest
 
 from turbohtml import HTMLParseError, parse_xml
 
-_XMLNS = "{http://www.w3.org/XML/1998/namespace}base"
 _DATA = Path(__file__).parent / "xml-conformance-suite" / "packages" / "test-data" / "xmlconf"
 
 # The leaf catalogs the top-level xmlconf.xml pulls in as external-entity includes. Listing
@@ -66,11 +39,11 @@ _CATALOGS = (
     "eduni/xml-1.1/xml11.xml",
 )
 
-_ENCODING = (
+_ENCODING: Final[str] = (
     "parse_xml takes already-decoded text; byte-level encoding errors and declared-versus-actual encoding "
     "mismatches belong to the decoding layer, not to well-formedness"
 )
-_NS_COLON = (
+_NS_COLON: Final[str] = (
     "parse_xml is namespace-aware, so a ':' is the prefix separator, not an ordinary XML 1.0 Name character; a "
     "name that uses it as one reads as an undeclared prefix, and a processing-instruction target that does reads "
     "as a non-NCName -- both rejected where plain XML 1.0 accepts them"
@@ -94,16 +67,15 @@ _DEVIATIONS = {
 
 
 def _clean(text: str) -> str:
-    """Drop a leading XML/text declaration and any DOCTYPE so a catalog fragment (several
-    top-level TEST elements, as the sun files ship) parses once wrapped in a single root."""
+    # Drop a leading XML/text declaration and any DOCTYPE so a catalog fragment (several
+    # top-level TEST elements, as the sun files ship) parses once wrapped in a single root.
     text = re.sub(r"^\s*<\?xml[^>]*\?>", "", text, count=1)
     start = text.find("<!DOCTYPE")
     if start < 0:
         return text
     depth = 0
     for index in range(start, len(text)):
-        char = text[index]
-        if char == "[":
+        if (char := text[index]) == "[":
             depth += 1
         elif char == "]":
             depth -= 1
@@ -116,8 +88,9 @@ def _catalog_tests(catalog: str) -> list[tuple[dict[str, str], Path]]:
     path = _DATA / catalog
     root = ET.fromstring(f"<WRAP>{_clean(path.read_text(encoding='utf-8', errors='replace'))}</WRAP>")  # ruff:ignore[suspicious-xml-element-tree-usage]
     out: list[tuple[dict[str, str], Path]] = []
+    xmlns: str = "{http://www.w3.org/XML/1998/namespace}base"
     for test in root.iter("TEST"):
-        base = path.parent / xml_base if (xml_base := test.get(_XMLNS)) else path.parent
+        base = path.parent / xml_base if (xml_base := test.get(xmlns)) else path.parent
         out.append((test.attrib, (base / test.attrib["URI"]).resolve()))
     return out
 
@@ -127,8 +100,7 @@ def _decode(raw: bytes) -> str:
         return raw.decode("utf-16")
     if raw.startswith(b"\xef\xbb\xbf"):
         return raw.decode("utf-8-sig")
-    head = raw[:200].decode("latin-1", "replace")
-    match = re.search(r"""encoding\s*=\s*["']([\w.\-]+)["']""", head)
+    match = re.search(r"""encoding\s*=\s*["']([\w.\-]+)["']""", raw[:200].decode("latin-1", "replace"))
     return raw.decode(match.group(1) if match else "utf-8")
 
 
@@ -137,7 +109,7 @@ def _is_xml_11(attrib: dict[str, str]) -> bool:
 
 
 def _deviation_reason(attrib: dict[str, str], kind: str, source: str) -> str | None:
-    """The reason a well-formed/not-wf case is out of scope, or None when it is a hard assertion."""
+    # The reason a well-formed/not-wf case is out of scope, or None when it is a hard assertion.
     if (reason := _DEVIATIONS.get(attrib["ID"])) is not None:
         return reason
     if _is_xml_11(attrib):
@@ -152,7 +124,7 @@ def _deviation_reason(attrib: dict[str, str], kind: str, source: str) -> str | N
 
 
 def _classify(attrib: dict[str, str], source: str) -> tuple[bool, bool, str | None]:
-    """Return (skip, expect_raise, xfail_reason) for a case given its metadata and text."""
+    # Return (skip, expect_raise, xfail_reason) for a case given its metadata and text.
     kind = attrib["TYPE"]
     if kind == "error":
         return True, False, None  # the spec leaves reporting optional; assert nothing

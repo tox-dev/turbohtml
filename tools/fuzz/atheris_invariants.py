@@ -12,10 +12,12 @@ if TYPE_CHECKING:
 
 
 def assert_invariant(check: Callable[[str], str | None], text: str) -> None:
-    """Skip only this oracle on an out-of-scope case, so the input keeps its other checks and its corpus entry."""
+    # Skip only this oracle on an out-of-scope case, so the input keeps its other checks and its corpus entry.
     with contextlib.suppress(OutOfScopeError):
         if failure := check(text):
             raise AssertionError(failure)
 
 
-__all__ = ["assert_invariant"]
+__all__ = [
+    "assert_invariant",
+]

@@ -11,8 +11,6 @@ from .atheris_runtime import failure_hook, rejecting_callback, rejection_hook
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-__all__ = ["fuzz"]
-
 
 def fuzz(
     targets: Sequence[Target],
@@ -22,7 +20,7 @@ def fuzz(
     *,
     custom_mutator: Callable[[bytes, int, int], bytes] | None = None,
 ) -> None:
-    """Require qualified ownership before loading the optional Linux runtime."""
+    # Require qualified ownership before loading the optional Linux runtime.
     validate_owners(targets, modules)
     target: Final = {target.name: target for target in targets}[target_name]
     atheris: Final = import_module("atheris")
@@ -49,3 +47,8 @@ class _Setup(Protocol):
         *,
         custom_mutator: Callable[[bytes, int, int], bytes] | None,
     ) -> None: ...
+
+
+__all__ = [
+    "fuzz",
+]

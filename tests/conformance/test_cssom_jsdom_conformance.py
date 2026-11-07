@@ -1,55 +1,3 @@
-"""Differential conformance validation of :func:`turbohtml.cssom.computed_style` (issue #546).
-
-The CSSOM cascade cannot be validated against the web-platform-tests css/ suite directly: those are ``testharness.js``
-tests that assert on ``getComputedStyle`` inside a browser and never run against a Python library. Following the
-Tier-2 (browser-JS DOM feature) pattern used for the other differential suites, this validates turbohtml against a
-reference implementation instead -- jsdom's ``getComputedStyle`` (backed by cssstyle), which passes most of WPT's CSSOM
-suite and resolves the same author-origin cascade turbohtml does. A Node runner
-(``tools/bench/node/cssom_jsdom_runner.js``) loads each input document and returns
-``getComputedStyle(el).getPropertyValue(prop)``; the Python side computes the same through turbohtml; the two are
-compared over a shared corpus that exercises every cascade axis turbohtml implements -- specificity, source order,
-``!important``, the style attribute, inheritance, ``inherit``/``initial``/``unset``/``revert``, initial values, and
-shorthand expansion.
-
-Two checks run per case:
-
-- ``test_cssom_matches_spec`` asserts turbohtml's value against a spec-derived expectation for every check. It needs no
-  Node, so it holds the coverage gate on the free-threaded, 3.15, and Windows cells where the oracle is absent. The
-  expectations are the CSS Cascade winners (which declaration wins), not turbohtml's output read back, so they are not
-  self-serving.
-- ``test_cssom_matches_jsdom`` cross-checks turbohtml against jsdom for every check where jsdom is a faithful oracle. It
-  skips cleanly when Node or jsdom is not installed.
-
-Documented boundaries, argued from the spec rather than papered over:
-
-- **Colors are not serialized.** turbohtml returns the *computed* value in the cascade sense and does not run a color
-  engine, so ``blue`` stays ``blue`` where jsdom returns ``rgb(0, 0, 255)`` (:doc:`explanation </explanation/cssom>`).
-  Color-valued properties are compared after normalizing both sides to an ``(r, g, b, a)`` tuple, so the cascade winner
-  is still validated; only the serialization is ignored. The system color ``canvastext`` (``color``'s initial value)
-  normalizes to opaque black, matching a default (light) theme.
-- **No user-agent stylesheet.** turbohtml's cascade is author-origin only; each property's initial value stands in for
-  the UA default (CSS Cascade 4 §6.4, and the explanation doc). jsdom applies a UA sheet (``p { display: block }`` and
-  the like), so every compared property is one an author declaration governs on the target element, keeping the UA
-  origin out of the diff.
-- **Curated shorthand set.** turbohtml expands the distributive shorthands (``margin``, ``padding``,
-  ``border-width``/``style``/``color``, ``overflow``) and the ``<line-width> || <line-style> || <color>`` shorthands
-  (``border``, each ``border-<side>``, ``outline``). The remaining grammar shorthands (``font``, ``background``,
-  ``list-style``) are out of scope and drop their declaration; ``test_cssom_curated_shorthand_boundary`` records that as
-  an ``xfail`` against jsdom for ``font``.
-- **jsdom is non-conformant for the ``overflow`` and ``outline`` shorthands.** jsdom's ``getComputedStyle`` leaves the
-  ``overflow-x``/``overflow-y`` and ``outline-*`` longhands at their initial values rather than propagating the
-  shorthand; turbohtml expands both per CSS Overflow 3 §2.1 and CSS UI 4 §5, matching real browsers. Those longhands are
-  validated against the spec only (``oracle=False``).
-- **jsdom does not resolve ``revert``.** cssstyle returns the literal ``revert`` keyword; turbohtml resolves it to the
-  unset behavior (CSS Cascade 4 §7.6). ``revert`` cases are validated against the spec only.
-- **css-cascade-5 ``revert-rule`` is unsupported.** turbohtml implements the cascade-4 keyword set; ``revert-rule`` is
-  left as a literal value, so no such case is asserted as passing.
-
-Input fixtures marked ``WPT`` are transcribed from web-platform-tests ``css/css-cascade`` at commit
-``ffd26826c02b5ce6d43f77e3822ac661854dd454`` (a sparse checkout of ``css/css-cascade`` and ``css/cssom``); their
-expected values are the ones the WPT test itself asserts.
-"""
-
 from __future__ import annotations
 
 import json
@@ -73,8 +21,7 @@ _RUNNER = Path(__file__).resolve().parents[2] / "tools" / "bench" / "node" / "cs
 
 
 class Check(NamedTuple):
-    """One assertion within a case: read ``prop`` off the element ``selector`` matches and check its computed value."""
-
+    # One assertion within a case: read ``prop`` off the element ``selector`` matches and check its computed value.
     selector: str
     prop: str
     expected: str
@@ -82,8 +29,7 @@ class Check(NamedTuple):
 
 
 class Case(NamedTuple):
-    """One cascade fixture: an input document and the checks to run against it."""
-
+    # One cascade fixture: an input document and the checks to run against it.
     id: str
     html: str
     checks: tuple[Check, ...]
@@ -93,8 +39,8 @@ def _c(selector: str, prop: str, expected: str, *, oracle: bool = True) -> Check
     return Check(selector, prop, expected, oracle)
 
 
-CORPUS: tuple[Case, ...] = (
-    # -- specificity ordering (Selectors 4 §17) --
+_CORPUS: Final[tuple[Case, ...]] = (
+    # specificity ordering (Selectors 4 §17)
     Case(
         "specificity-id-over-class-over-type",
         '<style>p{color:red} .x{color:green} #id{color:blue}</style><p class="x" id="id">x</p>',
@@ -130,13 +76,13 @@ CORPUS: tuple[Case, ...] = (
         "<style>p{color:red} div p{color:green}</style><div><p>x</p></div>",
         (_c("p", "color", "green"),),
     ),
-    # -- source order among equal specificity (CSS Cascade 4 §6.4.4) --
+    # source order among equal specificity (CSS Cascade 4 §6.4.4)
     Case(
         "source-order-last-wins",
         "<style>.a{color:red} .b{color:green}</style><p class='a b'>x</p>",
         (_c(".a", "color", "green"),),
     ),
-    # -- importance (CSS Cascade 4 §6.3) --
+    # importance (CSS Cascade 4 §6.3)
     Case(
         "important-beats-normal",
         "<style>p{color:red !important} p{color:green}</style><p>x</p>",
@@ -152,7 +98,7 @@ CORPUS: tuple[Case, ...] = (
         "<style>p{color:red !important} p{color:green !important}</style><p>x</p>",
         (_c("p", "color", "green"),),
     ),
-    # -- the style attribute (CSS Cascade 4 §6.4.4) --
+    # the style attribute (CSS Cascade 4 §6.4.4)
     Case(
         "inline-beats-id-rule",
         "<style>#id{color:red}</style><p id='id' style='color:green'>x</p>",
@@ -174,7 +120,7 @@ CORPUS: tuple[Case, ...] = (
         "<style>.outer{opacity:0.5 !important}</style><p class='outer' id='el' style='opacity:0.75'>x</p>",
         (_c("#el", "opacity", "0.5"),),
     ),
-    # -- inheritance (CSS Cascade 4 §7) --
+    # inheritance (CSS Cascade 4 §7)
     Case(
         "inherited-property-flows-down",
         "<style>.p{color:orange}</style><div class='p'><span id='c'>x</span></div>",
@@ -230,7 +176,7 @@ CORPUS: tuple[Case, ...] = (
             _c(":root", "background-color", "transparent"),
         ),
     ),
-    # -- initial values for the common property set (each property's spec "Initial:" line) --
+    # initial values for the common property set (each property's spec "Initial:" line)
     Case(
         "initial-values-unstyled-span",
         "<span id='s'>x</span>",
@@ -249,7 +195,7 @@ CORPUS: tuple[Case, ...] = (
             _c("#s", "box-sizing", "content-box"),
         ),
     ),
-    # -- distributive shorthand expansion (CSS Box 3 §4, the 1-to-4 rule) --
+    # distributive shorthand expansion (CSS Box 3 §4, the 1-to-4 rule)
     Case(
         "margin-shorthand-three-values",
         "<style>#p{margin:1px 2px 3px}</style><p id='p'>x</p>",
@@ -306,7 +252,7 @@ CORPUS: tuple[Case, ...] = (
         "<style>#p{overflow:auto}</style><p id='p'>x</p>",
         (_c("#p", "overflow-x", "auto", oracle=False), _c("#p", "overflow-y", "auto", oracle=False)),
     ),
-    # -- <line-width> || <line-style> || <color> shorthands (CSS Backgrounds & Borders 3 §4, CSS UI 4 §5) --
+    # <line-width> || <line-style> || <color> shorthands (CSS Backgrounds & Borders 3 §4, CSS UI 4 §5)
     Case(
         "border-shorthand-expands-every-side",
         "<style>#p{border:2px dashed green}</style><p id='p'>x</p>",
@@ -355,7 +301,7 @@ CORPUS: tuple[Case, ...] = (
             _c("#p", "outline-color", "blue", oracle=False),
         ),
     ),
-    # -- longhand and shorthand interleaving resolves by source order --
+    # longhand and shorthand interleaving resolves by source order
     Case(
         "longhand-after-shorthand-wins",
         "<style>#p{margin:5px;margin-top:9px}</style><p id='p'>x</p>",
@@ -366,7 +312,7 @@ CORPUS: tuple[Case, ...] = (
         "<style>#p{margin-top:9px;margin:5px}</style><p id='p'>x</p>",
         (_c("#p", "margin-top", "5px"),),
     ),
-    # -- a spread of the inherited and non-inherited property set --
+    # a spread of the inherited and non-inherited property set
     Case(
         "assorted-inherited-properties",
         "<style>#p{font-style:italic;text-align:center;white-space:nowrap;line-height:1.5;"
@@ -413,7 +359,7 @@ CORPUS: tuple[Case, ...] = (
 
 # A grammar shorthand still outside turbohtml's curated set (documented boundary): jsdom expands ``font`` to its
 # longhands, turbohtml drops the declaration and the longhand stays at its initial value. Recorded as xfail.
-CURATED_SHORTHAND_BOUNDARY: tuple[Case, ...] = (
+_CURATED_SHORTHAND_BOUNDARY: Final[tuple[Case, ...]] = (
     Case(
         "font-shorthand-not-expanded",
         "<style>#p{font:italic 12px serif}</style><p id='p'>x</p>",
@@ -421,43 +367,40 @@ CURATED_SHORTHAND_BOUNDARY: tuple[Case, ...] = (
     ),
 )
 
-_COLOR_PROPS = frozenset({
-    "color",
-    "background-color",
-    "border-top-color",
-    "border-right-color",
-    "border-bottom-color",
-    "border-left-color",
-    "outline-color",
-})
-_NAMED = {
-    "red": (255, 0, 0, 1.0),
-    "green": (0, 128, 0, 1.0),
-    "blue": (0, 0, 255, 1.0),
-    "black": (0, 0, 0, 1.0),
-    "white": (255, 255, 255, 1.0),
-    "pink": (255, 192, 203, 1.0),
-    "orange": (255, 165, 0, 1.0),
-    "lime": (0, 255, 0, 1.0),
-    "navy": (0, 0, 128, 1.0),
-    "gray": (128, 128, 128, 1.0),
-    "transparent": (0, 0, 0, 0.0),
-    "canvastext": (0, 0, 0, 1.0),  # color's initial value, a system color; opaque black in a default light theme
-    "currentcolor": (0, 0, 0, 1.0),  # resolves to the element's color, defaulting to canvastext (opaque black)
-}
-
 
 def _norm(prop: str, value: str) -> object:
-    """Canonicalize a computed value for comparison, folding a color to an ``(r, g, b, a)`` tuple."""
+    # Canonicalize a computed value for comparison, folding a color to an ``(r, g, b, a)`` tuple.
     text = value.strip().lower()
-    if prop not in _COLOR_PROPS:
+    if prop not in frozenset({
+        "color",
+        "background-color",
+        "border-top-color",
+        "border-right-color",
+        "border-bottom-color",
+        "border-left-color",
+        "outline-color",
+    }):
         return text
-    if text in _NAMED:
-        return _NAMED[text]
+    named = {
+        "red": (255, 0, 0, 1.0),
+        "green": (0, 128, 0, 1.0),
+        "blue": (0, 0, 255, 1.0),
+        "black": (0, 0, 0, 1.0),
+        "white": (255, 255, 255, 1.0),
+        "pink": (255, 192, 203, 1.0),
+        "orange": (255, 165, 0, 1.0),
+        "lime": (0, 255, 0, 1.0),
+        "navy": (0, 0, 128, 1.0),
+        "gray": (128, 128, 128, 1.0),
+        "transparent": (0, 0, 0, 0.0),
+        "canvastext": (0, 0, 0, 1.0),  # color's initial value, a system color; opaque black in a default light theme
+        "currentcolor": (0, 0, 0, 1.0),  # resolves to the element's color, defaulting to canvastext (opaque black)
+    }
+    if text in named:
+        return named[text]
     if (match := re.match(r"rgba?\(([^)]+)\)", text)) is not None:
         parts = [piece for piece in re.split(r"[ ,/]+", match.group(1)) if piece]
-        alpha = float(parts[3]) if len(parts) > 3 else 1.0
-        return (int(parts[0]), int(parts[1]), int(parts[2]), alpha)
+        return (int(parts[0]), int(parts[1]), int(parts[2]), (float(parts[3]) if len(parts) > 3 else 1.0))
     if text.startswith("#"):
         digits = text[1:]
         if len(digits) == 3:
@@ -484,9 +427,9 @@ def _jsdom_available() -> bool:
 
 @cache
 def _jsdom_results() -> dict[str, dict[str, dict[str, str]]]:
-    """Run every corpus and boundary case through jsdom once, keyed ``{case-id: {selector: {prop: value}}}``."""
+    # Run every corpus and boundary case through jsdom once, keyed ``{case-id: {selector: {prop: value}}}``.
     payload = []
-    for case in (*CORPUS, *CURATED_SHORTHAND_BOUNDARY):
+    for case in (*_CORPUS, *_CURATED_SHORTHAND_BOUNDARY):
         targets: dict[str, list[str]] = {}
         for check in case.checks:
             targets.setdefault(check.selector, []).append(check.prop)
@@ -504,17 +447,17 @@ def _jsdom_results() -> dict[str, dict[str, dict[str, str]]]:
 
 
 _SPEC_PARAMS = [
-    pytest.param(case.html, check, id=f"{case.id}-{check.prop}") for case in CORPUS for check in case.checks
+    pytest.param(case.html, check, id=f"{case.id}-{check.prop}") for case in _CORPUS for check in case.checks
 ]
 _ORACLE_PARAMS = [
     pytest.param(case.id, check, id=f"{case.id}-{check.prop}")
-    for case in CORPUS
+    for case in _CORPUS
     for check in case.checks
     if check.oracle
 ]
 _BOUNDARY_PARAMS = [
     pytest.param(case.id, check, id=f"{case.id}-{check.prop}")
-    for case in CURATED_SHORTHAND_BOUNDARY
+    for case in _CURATED_SHORTHAND_BOUNDARY
     for check in case.checks
 ]
 
@@ -532,8 +475,7 @@ def test_cssom_matches_jsdom(case_id: str, check: Check) -> None:
     reference = _jsdom_results()[case_id][check.selector].get(check.prop, "")
     if not reference:  # jsdom's getComputedStyle has no value for this property; nothing to diff
         pytest.skip(f"jsdom reports no computed {check.prop}")
-    case = next(entry for entry in CORPUS if entry.id == case_id)
-    got = _turbo(case.html, check.selector, check.prop)
+    got = _turbo(next(entry for entry in _CORPUS if entry.id == case_id).html, check.selector, check.prop)
     assert got is not None
     assert _norm(check.prop, got) == _norm(check.prop, reference)
 
@@ -547,20 +489,20 @@ def test_cssom_matches_jsdom(case_id: str, check: Check) -> None:
 def test_cssom_curated_shorthand_boundary(case_id: str, check: Check) -> None:
     reference = _jsdom_results()[case_id][check.selector].get(check.prop, "")
     assert reference, f"jsdom reports no computed {check.prop}"
-    case = next(entry for entry in CURATED_SHORTHAND_BOUNDARY if entry.id == case_id)
+    case = next(entry for entry in _CURATED_SHORTHAND_BOUNDARY if entry.id == case_id)
     got = _turbo(case.html, check.selector, check.prop)
     assert got is not None
     assert _norm(check.prop, got) == _norm(check.prop, reference)
 
 
 _GRAMMAR: Final = css_grammar()
-_SWEEP: Final = generation_sweep(_GRAMMAR, budget=GenerationBudget(512, 128))
+_SWEEP: Final = generation_sweep(_GRAMMAR, budget=GenerationBudget(nodes=512, steps=128))
 _CASES: Final = (
     *_SWEEP,
     *(css_generate(random.Random(seed)) for seed in range(64)),
     *(css_generate(random.Random(seed), 64, steps=12) for seed in range(32)),
     *(
-        generate(css_grammar(()), random.Random(0), GenerationBudget(128, 64), force=name)
+        generate(css_grammar(()), random.Random(0), GenerationBudget(nodes=128, steps=64), force=name)
         for name in (
             "css:leaf",
             "css:siblings",

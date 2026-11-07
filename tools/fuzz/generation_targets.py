@@ -25,14 +25,14 @@ import_module("turbohtml.detect")
 
 # html5lib scans its open-element stack on every insertion, so its time is quadratic in nesting depth: about 100 ms at
 # 2500 nested divs. turbohtml caps its own tree depth and parses the same input in milliseconds.
-_ORACLE_MAX_NESTING: Final = 2500
+_ORACLE_MAX_NESTING: Final[int] = 2500
 _TAG: Final = re.compile(r"<(/?)[a-zA-Z]")
 
 
 def generation_targets(
     encoding: str = "UTF-8", *, sniff: bool = False, render: Callable[[Node], str] = Node.to_markdown
 ) -> tuple[Target, ...]:
-    """Fix execution contexts without assigning a second qualified export owner."""
+    # Fix execution contexts without assigning a second qualified export owner.
     codecs.lookup(f"whatwg-{encoding}")
 
     def source(data: bytes) -> None:
@@ -47,9 +47,13 @@ def generation_targets(
         encoding_observation(data, encoding, sniff=sniff)
 
     return (
-        Target("markdown-source", source, (), (UnicodeDecodeError, MarkdownProfileError)),
-        Target("markdown-html", markup, (), (UnicodeDecodeError, MarkdownProfileError)),
-        Target("encoding-bytes", encoded, ()),
+        Target(
+            name="markdown-source", callback=source, exports=(), exceptions=(UnicodeDecodeError, MarkdownProfileError)
+        ),
+        Target(
+            name="markdown-html", callback=markup, exports=(), exceptions=(UnicodeDecodeError, MarkdownProfileError)
+        ),
+        Target(name="encoding-bytes", callback=encoded, exports=()),
     )
 
 
@@ -60,7 +64,7 @@ def encoding_observation(
     sniff: bool = False,
     decode: Callable[[bytes, str], str] = bytes.decode,
 ) -> str:
-    """Compare decoded text with an independent HTML parser before admitting bytes."""
+    # Compare decoded text with an independent HTML parser before admitting bytes.
     document: Final = parse(data, detect_encoding=True) if sniff else parse(data, encoding=encoding)
     # BOMs override explicit codecs; late declarations can restart sniffed parsing.
     decoded: Final = decode(data, f"whatwg-{document.encoding}").removeprefix("\ufeff")
@@ -96,7 +100,7 @@ def encoding_observation(
 
 
 def _nesting(markup: str) -> int:
-    """Most start tags left open at once; implied end tags and void elements make it an upper bound."""
+    # Most start tags left open at once; implied end tags and void elements make it an upper bound.
     deepest = depth = 0
     for match in _TAG.finditer(markup):
         depth = max(depth - 1, 0) if match[1] else depth + 1
@@ -123,4 +127,7 @@ def _reference_text(element: Element) -> str:
     return "".join(parts)
 
 
-__all__ = ["encoding_observation", "generation_targets"]
+__all__ = [
+    "encoding_observation",
+    "generation_targets",
+]
