@@ -560,65 +560,76 @@ def test_jsminify_is_frozen_and_comparable() -> None:
         JSMinify().mangle = False  # ty: ignore[invalid-assignment]  # frozen on purpose
 
 
-@pytest.mark.oracle
-@pytest.mark.skipif(_NODE is None, reason="node not available")
-@pytest.mark.parametrize(
-    ("operation", "case", "shape"),
-    [
-        pytest.param("minify-js-propagation", 0, (256, 2), id="propagation-interleaved"),
-        pytest.param("minify-js-propagation", 1, (1, 2), id="propagation-single"),
-        pytest.param("minify-js-propagation", 2, (256, 2), id="propagation-grouped"),
-        pytest.param("minify-js-var-initialization", 0, (256, 2), id="var-many"),
-        pytest.param("minify-js-var-initialization", 1, (1, 2), id="var-one"),
-        pytest.param("minify-js-var-initialization", 2, (256, 1), id="var-early"),
-        pytest.param("minify-js-unlink", 0, (256, 3), id="unlink-grouped"),
-        pytest.param("minify-js-unlink", 1, (256, 3), id="unlink-separated"),
-        pytest.param("minify-js-unlink", 2, (1, 3), id="unlink-single"),
-        pytest.param("minify-js-unused-declarations", 0, (256, 0), id="unused-many"),
-        pytest.param("minify-js-unused-declarations", 1, (1, 0), id="unused-one"),
-        pytest.param("minify-js-single-use", 0, (256, 1), id="single-use-grouped"),
-        pytest.param("minify-js-single-use", 1, (256, 1), id="single-use-separated"),
-        pytest.param("minify-js-single-use", 2, (1, 1), id="single-use-single"),
-    ],
+_CALLBACK_ORDER_ROWS: Final = (
+    ("minify-js-propagation", 0, (256, 2), "propagation-interleaved"),
+    ("minify-js-propagation", 1, (1, 2), "propagation-single"),
+    ("minify-js-propagation", 2, (256, 2), "propagation-grouped"),
+    ("minify-js-var-initialization", 0, (256, 2), "var-many"),
+    ("minify-js-var-initialization", 1, (1, 2), "var-one"),
+    ("minify-js-var-initialization", 2, (256, 1), "var-early"),
+    ("minify-js-unlink", 0, (256, 3), "unlink-grouped"),
+    ("minify-js-unlink", 1, (256, 3), "unlink-separated"),
+    ("minify-js-unlink", 2, (1, 3), "unlink-single"),
+    ("minify-js-unused-declarations", 0, (256, 0), "unused-many"),
+    ("minify-js-unused-declarations", 1, (1, 0), "unused-one"),
+    ("minify-js-single-use", 0, (256, 1), "single-use-grouped"),
+    ("minify-js-single-use", 1, (256, 1), "single-use-separated"),
+    ("minify-js-single-use", 2, (1, 1), "single-use-single"),
 )
-@pytest.mark.parametrize(
-    ("module", "executable"),
-    [
-        pytest.param("bench.core", None, id="turbohtml"),
-        pytest.param("bench.competitors.calmjs_parse", None, id="calmjs"),
-        pytest.param("bench.competitors.rjsmin", None, id="rjsmin"),
-        pytest.param("bench.competitors.jsmin", None, id="jsmin"),
-        pytest.param("bench.competitors.css_html_js_minify", None, id="css-html-js-minify"),
-        pytest.param("bench.competitors.terser", "terser", id="terser"),
-        pytest.param("bench.competitors.esbuild", "esbuild", id="esbuild"),
-        pytest.param("bench.competitors.tdewolff", "minify", id="tdewolff"),
-    ],
+_CALLBACK_ORDER_MINIFIERS: Final = (
+    ("bench.core", None, "turbohtml"),
+    ("bench.competitors.calmjs_parse", None, "calmjs"),
+    ("bench.competitors.rjsmin", None, "rjsmin"),
+    ("bench.competitors.jsmin", None, "jsmin"),
+    ("bench.competitors.css_html_js_minify", None, "css-html-js-minify"),
+    ("bench.competitors.terser", "terser", "terser"),
+    ("bench.competitors.esbuild", "esbuild", "esbuild"),
+    ("bench.competitors.tdewolff", "minify", "tdewolff"),
 )
-def test_minifiers_preserve_callback_order(
-    operation: str, case: int, shape: tuple[int, int], module: str, executable: str | None
-) -> None:
-    if module == "bench.competitors.calmjs_parse" and operation != "minify-js-var-initialization":
-        pytest.skip("ES5 parser rejects const; covered by the rejection test")
-    if executable is not None and shutil.which(executable) is None:
-        pytest.skip(f"{executable} not available")
-    minify: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_js)
-    source: Final = cast("str", INPUTS[operation]()[case][1])
+
+
+def _callback_order_expected(operation: str, case: int, shape: tuple[int, int]) -> dict[str, list[int] | list[None]]:
     count, repeat = shape
     values: Final = [index % 10 if operation == "minify-js-propagation" else index for index in range(count)]
-    expected: Final[dict[str, list[int] | list[None]]]
     if operation == "minify-js-var-initialization":
-        expected = (
-            {"calls": [None] * count, "result": [None] * count}
-            if case == 2
-            else {"calls": values, "result": [value for index in values for value in (index, index % 10)]}
-        )
-    elif operation == "minify-js-unlink":
-        expected = {
-            "calls": values,
-            "result": [value for index in values for value in (index, index % 10, index % 10)],
-        }
-    else:
-        expected = {"calls": values, "result": [value for value in values for _ in range(repeat)]}
+        if case == 2:
+            return {"calls": [None] * count, "result": [None] * count}
+        return {"calls": values, "result": [value for index in values for value in (index, index % 10)]}
+    if operation == "minify-js-unlink":
+        return {"calls": values, "result": [value for index in values for value in (index, index % 10, index % 10)]}
+    return {"calls": values, "result": [value for value in values for _ in range(repeat)]}
+
+
+_CALLBACK_ORDER_CASES: Final = [
+    pytest.param(
+        operation,
+        case,
+        module,
+        _callback_order_expected(operation, case, shape),
+        id=f"{row_id}-{minifier_id}",
+        marks=[
+            pytest.mark.skipif(
+                module == "bench.competitors.calmjs_parse" and operation != "minify-js-var-initialization",
+                reason="ES5 parser rejects const; covered by the rejection test",
+            ),
+            pytest.mark.skipif(
+                executable is not None and shutil.which(executable) is None, reason=f"{executable} not available"
+            ),
+        ],
+    )
+    for operation, case, shape, row_id in _CALLBACK_ORDER_ROWS
+    for module, executable, minifier_id in _CALLBACK_ORDER_MINIFIERS
+]
+
+
+@pytest.mark.oracle
+@pytest.mark.skipif(_NODE is None, reason="node not available")
+@pytest.mark.parametrize(("operation", "case", "module", "expected"), _CALLBACK_ORDER_CASES)
+def test_minifiers_preserve_callback_order(
+    operation: str, case: int, module: str, expected: dict[str, list[int] | list[None]]
+) -> None:
+    minify: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_js)
+    source: Final = cast("str", INPUTS[operation]()[case][1])
     assert (
         json.loads(
             subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed corpus and CLI arguments
