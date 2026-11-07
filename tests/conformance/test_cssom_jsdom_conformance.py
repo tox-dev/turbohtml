@@ -450,10 +450,17 @@ _SPEC_PARAMS = [
     pytest.param(case.html, check, id=f"{case.id}-{check.prop}") for case in _CORPUS for check in case.checks
 ]
 _ORACLE_PARAMS = [
-    pytest.param(case.id, check, id=f"{case.id}-{check.prop}")
+    pytest.param(
+        case.id,
+        check,
+        id=f"{case.id}-{check.prop}",
+        marks=pytest.mark.skip(reason=f"jsdom reports no computed {check.prop}")
+        if _jsdom_available() and not _jsdom_results()[case.id][check.selector].get(check.prop, "")
+        else (),
+    )
     for case in _CORPUS
     for check in case.checks
-    if check.oracle and _jsdom_available() and _jsdom_results()[case.id][check.selector].get(check.prop, "")
+    if check.oracle
 ]
 _BOUNDARY_PARAMS = [
     pytest.param(case.id, check, id=f"{case.id}-{check.prop}")
