@@ -1457,6 +1457,15 @@ def test_propagation_unlink_preserves_call_order(case: int, count: int) -> None:
 
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
+def _var_initialization_output(count: int, *, early: bool) -> str:
+    rows = (
+        [[None] * count, [None] * count]
+        if early
+        else [[value for index in range(count) for value in (index, index % 10)], list(range(count))]
+    )
+    return f"{json.dumps(rows, separators=(',', ':'))}\n"
+
+
 @pytest.mark.parametrize(
     ("case", "count", "early"),
     [
@@ -1469,15 +1478,7 @@ def test_var_initialization_benchmark_order(case: int, count: int, *, early: boo
     source: Final = INPUTS["minify-js-var-initialization"]()[case][1]
     assert isinstance(source, str)
     program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
-    expected: Final = (
-        json.dumps(
-            [[None] * count, [None] * count]
-            if early
-            else [[value for index in range(count) for value in (index, index % 10)], list(range(count))],
-            separators=(",", ":"),
-        )
-        + "\n"
-    )
+    expected: Final = _var_initialization_output(count, early=early)
     assert (_run(program), _run(minify_js(program))) == (expected, expected)
 
 
