@@ -43,7 +43,7 @@ class XPathString(str):  # ruff:ignore[subclass-builtin]
     attrname: str | None
     """The attribute name the value came from, or None for a text value."""
 
-    def __new__(cls, value: str, parent: Element, is_attribute: bool, attrname: str | None) -> Self:  # ruff:ignore[boolean-type-hint-positional-argument]
+    def __new__(cls, value: str, parent: Element, is_attribute: bool, attrname: str | None) -> Self:  # ruff:ignore[boolean-type-hint-positional-argument]  # the C core builds this class positionally, so the flag stays positional
         self = str.__new__(cls, value)
         self._parent = parent
         self.is_attribute = is_attribute

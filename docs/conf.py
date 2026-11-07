@@ -330,13 +330,13 @@ def _patch_autodoc_engine() -> None:
 
 
 def _stub_signature_for_alias(  # ruff:ignore[too-many-arguments, too-many-positional-arguments] -- the signature is fixed by the autodoc-process-signature event
-    app: Sphinx,  # ruff:ignore[unused-function-argument]
-    what: str,  # ruff:ignore[unused-function-argument]
+    app: Sphinx,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    what: str,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
     name: str,
-    obj: object,  # ruff:ignore[unused-function-argument]
-    options: Any,  # ruff:ignore[unused-function-argument]
-    signature: str | None,  # ruff:ignore[unused-function-argument]
-    return_annotation: str | None,  # ruff:ignore[unused-function-argument]
+    obj: object,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    options: Any,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    signature: str | None,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    return_annotation: str | None,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
 ) -> tuple[str, str] | None:
     # Supply the typed signature for the markupsafe aliases, whose compiled docstring carries an untyped one.
     #
@@ -349,9 +349,9 @@ def _stub_signature_for_alias(  # ruff:ignore[too-many-arguments, too-many-posit
 
 
 def _add_page_description(
-    app: Sphinx,  # ruff:ignore[unused-function-argument]
-    pagename: str,  # ruff:ignore[unused-function-argument]
-    templatename: str,  # ruff:ignore[unused-function-argument]
+    app: Sphinx,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    pagename: str,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    templatename: str,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
     context: dict[str, Any],
     doctree: nodes.document | None,
 ) -> None:

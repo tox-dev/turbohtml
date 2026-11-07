@@ -55,7 +55,7 @@ NormalizationForm = Literal["NFC", "NFD", "NFKC", "NFKD"]
 _FORMS: Final[dict[str, int]] = {"NFC": 0, "NFD": 1, "NFKC": 2, "NFKD": 3}
 
 
-def _refuse_encode(text: str, errors: str = "strict", /) -> tuple[bytes, int]:  # ruff:ignore[unused-function-argument]
+def _refuse_encode(text: str, errors: str = "strict", /) -> tuple[bytes, int]:  # ruff:ignore[unused-function-argument]  # the codec API passes errors; the refusal ignores it
     # Refuse to encode: the generated tables are decode-side only, and the spec's encoders are a separate algorithm.
     msg = "a whatwg-* codec decodes only; encode with the CPython codec of your choice"
     raise UnicodeError(msg)
@@ -72,7 +72,7 @@ def _search(name: str) -> codecs.CodecInfo | None:
         return None
     delegate, label = found
 
-    def decode(data: bytes, errors: str = "strict", /) -> tuple[str, int]:  # ruff:ignore[unused-function-argument]
+    def decode(data: bytes, errors: str = "strict", /) -> tuple[str, int]:  # ruff:ignore[unused-function-argument]  # the codec API passes errors; the refusal ignores it
         if delegate:
             # "replace" turns malformed bytes into U+FFFD as turbohtml.parse does, where the strict codec would raise
             return codecs.lookup(label).decode(data, "replace")
