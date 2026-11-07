@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 from bench.ci import benchmarks
@@ -14,16 +14,25 @@ if TYPE_CHECKING:
 
 @pytest.mark.parametrize(
     ("operation", "load"),
-    [pytest.param(run, load, id=name) for name, run, load in benchmarks()],
+    [pytest.param(run, load, id=name) for name, run, load in benchmarks() if not isinstance(run, Mutating)],
 )
 def test_feature(benchmark: BenchmarkFixture, operation: object, load: Callable[[], object]) -> None:
+    benchmark(cast("Callable[[object], object]", operation), _load_case(load))
+
+
+def _load_case(load: Callable[[], object]) -> object:
     try:
-        case = load()
+        return load()
     except OSError as exc:
         # this body runs only under --codspeed (conftest skips it otherwise), so a missing corpus is a hard error
         msg = f"bench corpus submodule not checked out: {exc}; run: git submodule update --init tools/bench-data"
         raise RuntimeError(msg) from exc
-    if isinstance(operation, Mutating):
-        benchmark.pedantic(operation.run, setup=lambda: ((operation.setup(case),), {}))
-    else:
-        benchmark(cast("Callable[[object], object]", operation), case)
+
+
+@pytest.mark.parametrize(
+    ("operation", "load"),
+    [pytest.param(run, load, id=name) for name, run, load in benchmarks() if isinstance(run, Mutating)],
+)
+def test_mutating_feature(benchmark: BenchmarkFixture, operation: Mutating, load: Callable[[], object]) -> None:
+    case: Final = _load_case(load)
+    benchmark.pedantic(operation.run, setup=lambda: ((operation.setup(case),), {}))
