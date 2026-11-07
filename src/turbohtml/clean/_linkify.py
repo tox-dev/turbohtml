@@ -44,7 +44,7 @@ _NODE_T = TypeVar("_NODE_T", bound="Node")
 # The ``scheme://host`` schemes autolinked when a config registers none: the fixed set linkify-it recognizes, so a typo
 # scheme or a ``javascript://`` payload stays plain text. A ``Linkify.schemes`` restricts to its own set (bleach), while
 # a ``LinkDetector``'s ``schemes`` extends this one; the low-level scanner without an allowlist stays permissive.
-_DEFAULT_URL_SCHEMES: Final = ("ftp", "http", "https")
+_DEFAULT_URL_SCHEMES: Final[tuple[str, ...]] = ("ftp", "http", "https")
 
 
 class PhoneType(Enum):
@@ -77,7 +77,12 @@ class PhoneFormat(Enum):
     """``tel:+1-650-253-0000``: the RFC 3966 URI, hyphens between groups and ``;ext=`` for an extension."""
 
 
-_PHONE_FORMATS: Final = (PhoneFormat.E164, PhoneFormat.INTERNATIONAL, PhoneFormat.NATIONAL, PhoneFormat.RFC3966)
+_PHONE_FORMATS: Final[tuple[PhoneFormat, ...]] = (
+    PhoneFormat.E164,
+    PhoneFormat.INTERNATIONAL,
+    PhoneFormat.NATIONAL,
+    PhoneFormat.RFC3966,
+)
 
 
 class PhoneGrouping(Enum):
@@ -93,9 +98,9 @@ class PhoneGrouping(Enum):
     pass."""
 
 
-_PHONE_GROUPINGS: Final = (PhoneGrouping.ANY, PhoneGrouping.STRICT, PhoneGrouping.EXACT)
+_PHONE_GROUPINGS: Final[tuple[PhoneGrouping, ...]] = (PhoneGrouping.ANY, PhoneGrouping.STRICT, PhoneGrouping.EXACT)
 # PhoneType members in the order the C recognizer numbers them (enum th_phone_type).
-_PHONE_TYPES: Final = (
+_PHONE_TYPES: Final[tuple[PhoneType, ...]] = (
     PhoneType.FIXED_LINE,
     PhoneType.MOBILE,
     PhoneType.TOLL_FREE,
@@ -111,7 +116,7 @@ _PHONE_TYPES: Final = (
 )
 
 #: Words that mark the digits right after them as an identifier rather than a phone number.
-DEFAULT_PHONE_LABELS: Final = (
+DEFAULT_PHONE_LABELS: Final[tuple[str, ...]] = (
     "account",
     "acct",
     "asin",

@@ -78,7 +78,7 @@ class Extraction:
         return cls(min_length=70, max_link_density=0.2)
 
 
-_DEFAULT: Final = Extraction()
+_DEFAULT: Final[Extraction] = Extraction()
 
 
 def microdata(html: str, base_url: str | None = None, /) -> list[MicrodataItem]:

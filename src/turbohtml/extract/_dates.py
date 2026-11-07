@@ -22,7 +22,7 @@ from turbohtml._html import parse
 Signal = Literal["url", "meta", "json-ld", "time", "text"]
 """Which engine a :class:`PublicationDate` came from, in htmldate's stage-priority order."""
 
-_EARLIEST: Final = date(1995, 1, 1)
+_EARLIEST: Final[date] = date(1995, 1, 1)
 """The default lower bound, htmldate's ``MIN_DATE``: the web's date metadata does not predate it."""
 
 
@@ -56,7 +56,7 @@ class DateExtraction:
             raise ValueError(msg)
 
 
-_DEFAULT: Final = DateExtraction()
+_DEFAULT: Final[DateExtraction] = DateExtraction()
 
 
 def dates(html: str, options: DateExtraction | None = None, /) -> PublicationDate | None:

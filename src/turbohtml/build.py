@@ -90,7 +90,7 @@ class ElementMaker:
 
 
 #: The shared builder: ``E.div(...)`` or ``E("div", ...)`` builds a ``<div>`` element.
-E: Final = ElementMaker()
+E: Final[ElementMaker] = ElementMaker()
 
 
 def document(

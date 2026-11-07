@@ -88,10 +88,10 @@ class Matching:
         return cls(namespaces=namespaces, flags=flags)
 
 
-_DEFAULT: Final = Matching()
+_DEFAULT: Final[Matching] = Matching()
 # A throwaway element to validate selector syntax at compile time; matching against it parses the selector, raising on
 # a malformed one, without needing the caller's node.
-_PROBE: Final = cast("Element", parse("<x></x>").root)
+_PROBE: Final[Element] = cast("Element", parse("<x></x>").root)
 
 
 def compile(selector: str, options: Matching | None = None, /) -> Matcher:  # ruff:ignore[builtin-variable-shadowing]  # the soupsieve entry-point name

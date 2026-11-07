@@ -310,7 +310,7 @@ class Markdown:
         return unpacked
 
 
-_MARKDOWN_DEFAULT: Final = Markdown()
+_MARKDOWN_DEFAULT: Final[Markdown] = Markdown()
 
 
 @dataclass(frozen=True)
@@ -346,7 +346,7 @@ class PlainText:
         }
 
 
-_PLAINTEXT_DEFAULT: Final = PlainText()
+_PLAINTEXT_DEFAULT: Final[PlainText] = PlainText()
 _PLAINTEXT_FIELDS: Final = fields(PlainText)
 
 
@@ -385,7 +385,7 @@ class Html:
         }
 
 
-_HTML_DEFAULT: Final = Html()
+_HTML_DEFAULT: Final[Html] = Html()
 _HTML_FIELDS: Final = fields(Html)
 
 
@@ -434,7 +434,7 @@ class Canonical:
         }
 
 
-_CANONICAL_DEFAULT: Final = Canonical()
+_CANONICAL_DEFAULT: Final[Canonical] = Canonical()
 _CANONICAL_FIELDS: Final = fields(Canonical)
 
 _register_render_configs(Markdown, PlainText, Html, Canonical)

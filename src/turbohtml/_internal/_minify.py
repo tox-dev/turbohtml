@@ -20,7 +20,7 @@ from turbohtml._html import Minify, _minify_js, parse
 from ._jsminify import JSMinify
 from ._render import Html
 
-_DEFAULT: Final = Minify()
+_DEFAULT: Final[Minify] = Minify()
 
 
 def minify(html: str, options: Minify | None = None) -> str:

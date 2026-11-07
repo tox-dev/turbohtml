@@ -171,7 +171,7 @@ class Detection:
         return cls(threshold=0.2)
 
 
-_DEFAULT: Final = Detection()
+_DEFAULT: Final[Detection] = Detection()
 
 
 def detect(data: bytes, options: Detection | None = None, /) -> EncodingMatch:
@@ -321,7 +321,7 @@ class LanguageDetection:
             raise ValueError(msg)
 
 
-_DEFAULT_LANGUAGE: Final = LanguageDetection()
+_DEFAULT_LANGUAGE: Final[LanguageDetection] = LanguageDetection()
 
 
 def detect_language(text: str, options: LanguageDetection | None = None, /) -> LanguageMatch:

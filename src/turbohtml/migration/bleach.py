@@ -11,15 +11,15 @@ serialization. Event-handler attributes and ``javascript:`` URLs are dropped unc
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from typing import TypeAlias
+from typing import Final, TypeAlias
 
 from turbohtml._html import _bleach_allow_relative, _bleach_attributes
 from turbohtml.clean import DEFAULT_ATTRIBUTES, DEFAULT_SCHEMES, DEFAULT_TAGS, OnDisallowed, Policy, sanitize
 
 #: bleach's default allowed tags, attributes, and protocols, under their bleach names.
-ALLOWED_TAGS = DEFAULT_TAGS
-ALLOWED_ATTRIBUTES = DEFAULT_ATTRIBUTES
-ALLOWED_PROTOCOLS = DEFAULT_SCHEMES
+ALLOWED_TAGS: Final[frozenset[str]] = DEFAULT_TAGS
+ALLOWED_ATTRIBUTES: Final[Mapping[str, frozenset[str]]] = DEFAULT_ATTRIBUTES
+ALLOWED_PROTOCOLS: Final[frozenset[str]] = DEFAULT_SCHEMES
 
 _AttributeRules: TypeAlias = (
     Iterable[str] | Mapping[str, Iterable[str] | Callable[[str, str, str], bool]] | Callable[[str, str, str], bool]

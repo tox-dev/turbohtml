@@ -82,7 +82,7 @@ class UrlCleaning:
         return cls(strip_fragment=True)
 
 
-_DEFAULT: Final = UrlCleaning()
+_DEFAULT: Final[UrlCleaning] = UrlCleaning()
 
 
 def clean_url(url: str, options: UrlCleaning | None = None, /) -> str | None:

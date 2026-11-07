@@ -77,7 +77,7 @@ class OnDisallowed(Enum):
 
 
 #: bleach's default allowed tags, the migration baseline.
-DEFAULT_TAGS: Final = frozenset({
+DEFAULT_TAGS: Final[frozenset[str]] = frozenset({
     "a",
     "abbr",
     "acronym",
@@ -98,9 +98,9 @@ DEFAULT_ATTRIBUTES: Final[Mapping[str, frozenset[str]]] = MappingProxyType({
     "acronym": frozenset({"title"}),
 })
 #: bleach's default URL schemes.
-DEFAULT_SCHEMES: Final = frozenset({"http", "https", "mailto"})
+DEFAULT_SCHEMES: Final[frozenset[str]] = frozenset({"http", "https", "mailto"})
 #: bleach's default allowed CSS properties (CSS 2.1 safe set plus SVG paint), for scrubbing a ``style`` attribute.
-DEFAULT_CSS_PROPERTIES: Final = frozenset({
+DEFAULT_CSS_PROPERTIES: Final[frozenset[str]] = frozenset({
     "azimuth", "background-color", "border-bottom-color", "border-collapse", "border-color", "border-left-color",
     "border-right-color", "border-top-color", "clear", "color", "cursor", "direction", "display", "elevation",
     "float", "font", "font-family", "font-size", "font-style", "font-variant", "font-weight", "height",
@@ -112,7 +112,7 @@ DEFAULT_CSS_PROPERTIES: Final = frozenset({
 })  # fmt: skip
 
 # A roomier set for the relaxed preset: typical user-generated content (headings, tables, images, figures).
-_RELAXED_TAGS: Final = DEFAULT_TAGS | {
+_RELAXED_TAGS: Final[frozenset[str]] = DEFAULT_TAGS | {
     "p", "br", "hr", "span", "div", "pre", "h1", "h2", "h3", "h4", "h5", "h6",
     "dl", "dt", "dd", "sub", "sup", "del", "ins", "mark", "small", "u", "s", "q", "cite", "img",
     "figure", "figcaption", "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col",
