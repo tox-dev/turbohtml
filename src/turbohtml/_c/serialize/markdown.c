@@ -123,7 +123,7 @@ typedef struct {
     uint8_t html;       /* enum md_html */
     uint8_t flags;      /* MD_MARK_* */
     uint8_t emitted;    /* the open run was written, so the close run must be too */
-    uint8_t spanning;   /* HTML marker kept open across blocks */
+    uint8_t spanning;   /* HTML marker for deep nesting */
 } md_marker;
 
 /* The layout state one list threads through its items, including the items it
@@ -290,10 +290,10 @@ typedef struct {
     md_marker *inline_markers;
     Py_ssize_t marker_count;
     Py_ssize_t marker_cap;
-    Py_ssize_t marker_base;   /* markers below it belong to the output a cell or converter set aside */
-    Py_ssize_t open_markdown; /* emitted markers that still need closing at a block */
-    md_marker *pending;       /* the innermost marker above marker_base, NULL when there is none */
-    md_reference *refs;       /* collected reference-link targets */
+    Py_ssize_t marker_base;  /* markers below it belong to the output a cell or converter set aside */
+    Py_ssize_t open_markers; /* emitted markers that still need closing at a block */
+    md_marker *pending;      /* the innermost marker above marker_base, NULL when there is none */
+    md_reference *refs;      /* collected reference-link targets */
     Py_ssize_t ref_count;
     Py_ssize_t ref_cap;
     int started;          /* has any block content been emitted yet */
@@ -692,9 +692,7 @@ static TH_NOINLINE void md_emit_pending(md_ctx *ctx) {
             md_puts8(&ctx->out, marker->open);
         }
         marker->emitted = 1;
-        if (!marker->spanning) {
-            ctx->open_markdown++;
-        }
+        ctx->open_markers++;
         ctx->line_has_content = 1;
     }
 }
@@ -1504,9 +1502,9 @@ static void md_settle_run(md_ctx *ctx, Py_ssize_t index, th_node *node) {
 
 /* Close the marker a frame opened, returning its closing run when the open run was
    written (so the close run must be too), NULL otherwise. */
-/* A delimiter run pairs only within one block's inline content (CommonMark 6.2), so
-   a block that starts inside an emphasis element closes every run written so far;
-   md_before_visible reopens them at the next visible character, in the new block. */
+/* A delimiter run pairs only within one block's inline content (CommonMark 6.2).
+   Deep raw HTML markers also need closing here, or the HTML reader may drop
+   formatting when it reconstructs later blocks. */
 static void md_suspend_markers(md_ctx *ctx) {
     if (ctx->out.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return;            /* GCOVR_EXCL_LINE: allocation failure */
@@ -1514,22 +1512,25 @@ static void md_suspend_markers(md_ctx *ctx) {
     if (ctx->marker_count - ctx->marker_base > 8) {
         ctx->deep_block_span = 1;
     }
-    if (ctx->open_markdown == 0) {
+    if (ctx->open_markers == 0) {
         return;
     }
     for (Py_ssize_t index = ctx->marker_count; index > ctx->marker_base; index--) {
         md_marker *marker = &ctx->markers[index - 1];
-        if (marker->emitted && !marker->spanning) {
+        if (!marker->emitted) {
+            continue;
+        }
+        if (!marker->spanning) {
             md_settle_run(ctx, index - 1, NULL);
             if (ctx->out.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure */
                 return;            /* GCOVR_EXCL_LINE: allocation failure */
             }
-            marker->emitted = 0;
-            ctx->open_markdown--;
-            md_put_close(ctx, marker->close);
-            if (ctx->out.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                return;            /* GCOVR_EXCL_LINE: allocation failure */
-            }
+        }
+        marker->emitted = 0;
+        ctx->open_markers--;
+        md_put_close(ctx, marker->close);
+        if (ctx->out.failed) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return;            /* GCOVR_EXCL_LINE: allocation failure */
         }
     }
 }
@@ -1539,8 +1540,8 @@ static const char *md_pop_marker(md_ctx *ctx, Py_ssize_t marker) {
         return NULL;
     }
     for (Py_ssize_t index = marker; index < ctx->marker_count; index++) {
-        if (ctx->markers[index].emitted && !ctx->markers[index].spanning) {
-            ctx->open_markdown--;
+        if (ctx->markers[index].emitted) {
+            ctx->open_markers--;
         }
     }
     ctx->marker_count = marker;

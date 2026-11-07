@@ -689,6 +689,8 @@ def test_markdown_unsupported_element() -> None:
         pytest.param("<span>a</span>  <span>b</span>", id="spaces-between-inline-elements"),
         pytest.param('<img src="a\nb" alt="ok">', id="plain-image-url-line-break"),
         pytest.param('<img src="a\nb" alt="ok" odd"="">', id="image-url-line-break"),
+        pytest.param("<strong>" * 9 + "<p>alpha</p><p>beta</p>" + "</strong>" * 9, id="deep-emphasis-paragraphs"),
+        pytest.param("<strong>" * 9 + "<p>alpha</p>beta" + "</strong>" * 9, id="deep-emphasis-trailing-text"),
     ],
 )
 def test_markdown_supported_html_meaning(markup: str) -> None:
