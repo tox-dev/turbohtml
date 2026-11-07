@@ -3814,6 +3814,12 @@ def test_images(html: str, opts: Markdown, expected: str) -> None:
             id="cell-html-keeps-a-tbody-that-carries-attributes",
         ),
         pytest.param(
+            '<table><tr><td><table><tr><td><!--a\nb--><img src="a\nb"></td></tr></table></td></tr></table>',
+            Markdown(),
+            '| <table><tr><td><!--a b--><img src="a&#10;b"></td></tr></table> |\n| --- |',
+            id="cell-html-preserves-line-break-in-attribute",
+        ),
+        pytest.param(
             "<table><tr><td>a|b</td></tr></table>",
             Markdown(escaping=Markdown.Escaping(mode="all")),
             "| a\\|b |\n| --- |",
