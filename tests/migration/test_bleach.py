@@ -233,7 +233,10 @@ def test_the_shape_test_must_be_a_type() -> None:
         _bleach_attributes({"a": ["href"]}, 5)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
 
-@pytest.mark.parametrize("callable_fallback", [pytest.param(False, id="listed"), pytest.param(True, id="callable")])
+@pytest.mark.parametrize(
+    "wildcard",
+    [pytest.param(["title"], id="listed"), pytest.param(lambda *_: True, id="callable")],
+)
 @pytest.mark.parametrize(
     ("verdict", "expected"),
     [
@@ -247,14 +250,14 @@ def test_the_shape_test_must_be_a_type() -> None:
     ],
 )
 def test_tag_predicate_overrides_wildcard(
-    expected: str, *, verdict: bool | int | str | None, callable_fallback: bool
+    expected: str, *, verdict: bool | int | str | None, wildcard: Callable[..., bool] | list[str]
 ) -> None:
     assert (
         clean(
             '<a title="t">x</a><b title="t">y</b>',
             attributes={
                 "a": lambda *_: cast("bool", verdict),
-                "*": (lambda *_: True) if callable_fallback else ["title"],
+                "*": wildcard,
             },
         )
         == f'{expected}<b title="t">y</b>'
@@ -473,18 +476,20 @@ def test_string_rule_uses_substring_membership() -> None:
 
 
 @pytest.mark.parametrize(
-    "position", [pytest.param(0, id="absent"), pytest.param(1, id="first"), pytest.param(2, id="last")]
+    "rules",
+    [
+        pytest.param(lambda: {"a": iter(["title", "href"])}, id="absent"),
+        pytest.param(lambda: {"b": lambda *_: True, "a": iter(["title", "href"])}, id="first"),
+        pytest.param(lambda: {"a": iter(["title", "href"]), "b": lambda *_: True}, id="last"),
+    ],
 )
-def test_policy_keeps_iterable_rule_state(position: int) -> None:
-    rules: dict[str, Iterable[str] | Callable[[str, str, str], bool]] = {"a": iter(["title", "href"])}
-    if position == 1:
-        rules = {"b": lambda *_: True, **rules}
-    elif position == 2:
-        rules["b"] = lambda *_: True
+def test_policy_keeps_iterable_rule_state(
+    rules: Callable[[], dict[str, Iterable[str] | Callable[[str, str, str], bool]]],
+) -> None:
     assert (
         clean(
             '<a title="one" href="/x">first</a><a title="two" href="/y">second</a>',
-            attributes=rules,
+            attributes=rules(),
         )
         == '<a title="one" href="/x">first</a><a>second</a>'
     )
@@ -591,87 +596,63 @@ def test_url_scheme_normalization_matches_bleach(value: str, expected: str) -> N
 
 
 @pytest.mark.parametrize(
-    ("protocols", "value", "keep"),
+    ("protocols", "value"),
     [
-        pytest.param(None, "/relative", True, id="default-relative"),
-        pytest.param([], "/relative", False, id="empty-relative"),
-        pytest.param([], "", False, id="empty-url"),
-        pytest.param([], "#fragment", True, id="fragment"),
-        pytest.param([], "#javascript:bad()", True, id="fragment-scheme-text"),
-        pytest.param([], "#%zz", True, id="fragment-malformed-percent"),
-        pytest.param([], "  #fragment", True, id="fragment-leading-space"),
-        pytest.param([], "%zz", False, id="relative-malformed-percent"),
-        pytest.param(["ftp"], "relative", False, id="ftp-relative"),
-        pytest.param(["ftp"], "ftp://example.org/x", True, id="ftp-scheme"),
-        pytest.param(["http"], "/relative", True, id="http-relative"),
-        pytest.param(["https"], "//example.org/x", True, id="https-protocol-relative"),
-        pytest.param(["https"], "http://example.org/x", False, id="http-disallowed"),
+        pytest.param(None, "/relative", id="default-relative"),
+        pytest.param([], "#fragment", id="fragment"),
+        pytest.param([], "#javascript:bad()", id="fragment-scheme-text"),
+        pytest.param([], "#%zz", id="fragment-malformed-percent"),
+        pytest.param([], "  #fragment", id="fragment-leading-space"),
+        pytest.param(["ftp"], "ftp://example.org/x", id="ftp-scheme"),
+        pytest.param(["http"], "/relative", id="http-relative"),
+        pytest.param(["https"], "//example.org/x", id="https-protocol-relative"),
     ],
 )
 @pytest.mark.parametrize(
-    ("tag", "attribute"), [pytest.param("a", "href", id="link"), pytest.param("img", "src", id="image")]
+    ("tag", "attribute", "end"),
+    [pytest.param("a", "href", "</a>", id="link"), pytest.param("img", "src", "", id="image")],
 )
-def test_protocols_control_relative_urls(
-    protocols: list[str] | None, value: str, *, keep: bool, tag: str, attribute: str
+def test_protocols_keep_relative_urls(
+    protocols: list[str] | None, value: str, tag: str, attribute: str, end: str
 ) -> None:
-    end = "</a>" if tag == "a" else ""
     html = f'<{tag} {attribute}="{value}">x{end}'
-    assert clean(html, tags=[tag], attributes={tag: [attribute]}, protocols=protocols) == (
-        html if keep else f"<{tag}>x{end}"
-    )
+    assert clean(html, tags=[tag], attributes={tag: [attribute]}, protocols=protocols) == html
+
+
+@pytest.mark.parametrize(
+    ("protocols", "value"),
+    [
+        pytest.param([], "/relative", id="empty-relative"),
+        pytest.param([], "", id="empty-url"),
+        pytest.param([], "%zz", id="relative-malformed-percent"),
+        pytest.param(["ftp"], "relative", id="ftp-relative"),
+        pytest.param(["https"], "http://example.org/x", id="http-disallowed"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("tag", "attribute", "end"),
+    [pytest.param("a", "href", "</a>", id="link"), pytest.param("img", "src", "", id="image")],
+)
+def test_protocols_drop_relative_urls(
+    protocols: list[str] | None, value: str, tag: str, attribute: str, end: str
+) -> None:
+    html = f'<{tag} {attribute}="{value}">x{end}'
+    assert clean(html, tags=[tag], attributes={tag: [attribute]}, protocols=protocols) == f"<{tag}>x{end}"
 
 
 @pytest.mark.parametrize(
     ("protocols", "value", "expected"),
     [
-        pytest.param([], "&#0;#:x", None, id="invalid-numeric-before-fragment"),
-        pytest.param(["ftp"], "&Tab;ftp:x", None, id="unresolved-named-before-scheme"),
-        pytest.param(None, "&Tab;ftp:x", None, id="default-decoded-tab-before-scheme"),
-        pytest.param(None, "&Tab;ja:x", None, id="default-decoded-tab-before-custom-scheme"),
-        pytest.param(None, "&#100ata:text/html,x", None, id="default-semicolonless-numeric-scheme"),
-        pytest.param(None, "&#118bscript:x", None, id="default-semicolonless-numeric-script-scheme"),
-        pytest.param(None, "ft&#112:x", None, id="default-semicolonless-numeric-mid-scheme"),
         pytest.param(None, "&#104ttp://example.org/", "http://example.org/", id="default-semicolonless-allowed"),
-        pytest.param(None, "&Tab;javascript:x", None, id="decoded-script-baseline"),
-        pytest.param(None, "&#0;javascript:x", None, id="decoded-script-after-invalid-numeric"),
-        pytest.param(None, "1é:x", None, id="digit-before-non-ascii"),
-        pytest.param(None, "1http:x", None, id="digit-leading-scheme"),
         pytest.param(["1http"], "1http:x", "1http:x", id="allowed-digit-leading-scheme"),
         pytest.param(["ftp"], "&#x66;tp:x", "ftp:x", id="valid-numeric-in-scheme"),
         pytest.param(["ftp"], "&#X66;tp:x", "ftp:x", id="uppercase-hex-reference"),
         pytest.param(["ftp"], "&#102;tp:x", "ftp:x", id="decimal-reference"),
         pytest.param(["ftp"], "&copy;ftp:x", "©ftp:x", id="named-non-ascii-reference"),
         pytest.param(["ftp"], "&#x80;ftp:x", "€ftp:x", id="numeric-control-before-scheme"),
-        pytest.param(["ftp"], "&#0;ftp:x", None, id="invalid-numeric-before-scheme"),
-        pytest.param(["ftp"], "&#x110000;ftp:x", None, id="numeric-out-of-range"),
-        pytest.param(["ftp"], "&#;ftp:x", None, id="numeric-missing-digits"),
-        pytest.param(["ftp"], "&#xG;ftp:x", None, id="numeric-invalid-digit"),
-        pytest.param(["ftp"], "&#102ftp:x", None, id="numeric-missing-semicolon"),
-        pytest.param(["ftp"], "&#102", None, id="numeric-at-end"),
-        pytest.param(["ftp"], "&#99999999999999999;ftp:x", None, id="numeric-overflow"),
         pytest.param(["ftp"], "&#xD800;ftp:x", "�ftp:x", id="numeric-surrogate"),
-        pytest.param(["ftp"], "&;ftp:x", None, id="named-empty"),
-        pytest.param(["ftp"], "&amp", None, id="named-at-end"),
-        pytest.param(["ftp"], "&amp:ftp:x", None, id="named-missing-semicolon"),
-        pytest.param(["ftp"], "&", None, id="ampersand-at-end"),
-        pytest.param(["ftp"], "&x", None, id="short-unresolved-name"),
-        pytest.param(["ftp"], "&#", None, id="numeric-prefix-at-end"),
-        pytest.param(["ftp"], "&#1", None, id="short-numeric-reference"),
-        pytest.param(["ftp"], "&1;ftp:x", None, id="numeric-named-reference"),
-        pytest.param(["ftp"], "&A1;ftp:x", None, id="uppercase-digit-name"),
-        pytest.param(["ftp"], "&a1;ftp:x", None, id="lowercase-digit-name"),
         pytest.param(["ftp"], "&frac12;ftp:x", "½ftp:x", id="named-reference-with-digit"),
-        pytest.param(["ftp"], "&:ftp:x", None, id="punctuation-after-ampersand"),
-        pytest.param(["ftp"], "&@;ftp:x", None, id="punctuation-after-digit-range"),
-        pytest.param(["ftp"], "&[;ftp:x", None, id="punctuation-after-uppercase-range"),
-        pytest.param(["ftp"], f"&{'a' * 35};ftp:x", None, id="named-overlong"),
-        pytest.param(["ftp"], "&NotEqualTilde;ftp:x", None, id="named-unresolved-reference"),
-        pytest.param(None, "&#0;ftp:x", None, id="default-decoded-replacement-before-scheme"),
-        pytest.param(["ftp"], "&amp;ftp:x", None, id="named-ampersand-before-scheme"),
         pytest.param(None, "&amp;ftp:x", "&amp;ftp:x", id="default-named-ampersand-relative"),
-        pytest.param(None, "`//bad[host", None, id="backtick-before-invalid-authority"),
-        pytest.param(None, "é//bad[host", None, id="unicode-before-invalid-authority"),
-        pytest.param(None, "&#x80;//bad[host", None, id="reference-before-invalid-authority"),
         pytest.param(None, ":x", ":x", id="colon-before-scheme"),
         pytest.param(["f1tp"], "f1tp:x", "f1tp:x", id="scheme-with-digit"),
         pytest.param(["ftp2"], "éftp2:x", "éftp2:x", id="non-ascii-before-scheme-digit"),
@@ -684,16 +665,72 @@ def test_protocols_control_relative_urls(
     ],
 )
 @pytest.mark.parametrize(
-    ("tag", "attribute"), [pytest.param("a", "href", id="link"), pytest.param("img", "src", id="image")]
+    "element",
+    [pytest.param(("a", "href", "</a>"), id="link"), pytest.param(("img", "src", ""), id="image")],
 )
-def test_bleach_url_normalization_uses_source_entities(
-    protocols: list[str] | None, value: str, expected: str | None, tag: str, attribute: str
+def test_bleach_url_normalization_keeps_the_rewritten_url(
+    protocols: list[str] | None, value: str, expected: str, element: tuple[str, str, str]
 ) -> None:
-    end = "</a>" if tag == "a" else ""
-    output = f'<{tag} {attribute}="{expected}">x{end}' if expected is not None else f"<{tag}>x{end}"
+    tag, attribute, end = element
     assert (
         clean(f'<{tag} {attribute}="{value}">x{end}', tags=[tag], attributes={tag: [attribute]}, protocols=protocols)
-        == output
+        == f'<{tag} {attribute}="{expected}">x{end}'
+    )
+
+
+@pytest.mark.parametrize(
+    ("protocols", "value"),
+    [
+        pytest.param([], "&#0;#:x", id="invalid-numeric-before-fragment"),
+        pytest.param(["ftp"], "&Tab;ftp:x", id="unresolved-named-before-scheme"),
+        pytest.param(None, "&Tab;ftp:x", id="default-decoded-tab-before-scheme"),
+        pytest.param(None, "&Tab;ja:x", id="default-decoded-tab-before-custom-scheme"),
+        pytest.param(None, "&#100ata:text/html,x", id="default-semicolonless-numeric-scheme"),
+        pytest.param(None, "&#118bscript:x", id="default-semicolonless-numeric-script-scheme"),
+        pytest.param(None, "ft&#112:x", id="default-semicolonless-numeric-mid-scheme"),
+        pytest.param(None, "&Tab;javascript:x", id="decoded-script-baseline"),
+        pytest.param(None, "&#0;javascript:x", id="decoded-script-after-invalid-numeric"),
+        pytest.param(None, "1é:x", id="digit-before-non-ascii"),
+        pytest.param(None, "1http:x", id="digit-leading-scheme"),
+        pytest.param(["ftp"], "&#0;ftp:x", id="invalid-numeric-before-scheme"),
+        pytest.param(["ftp"], "&#x110000;ftp:x", id="numeric-out-of-range"),
+        pytest.param(["ftp"], "&#;ftp:x", id="numeric-missing-digits"),
+        pytest.param(["ftp"], "&#xG;ftp:x", id="numeric-invalid-digit"),
+        pytest.param(["ftp"], "&#102ftp:x", id="numeric-missing-semicolon"),
+        pytest.param(["ftp"], "&#102", id="numeric-at-end"),
+        pytest.param(["ftp"], "&#99999999999999999;ftp:x", id="numeric-overflow"),
+        pytest.param(["ftp"], "&;ftp:x", id="named-empty"),
+        pytest.param(["ftp"], "&amp", id="named-at-end"),
+        pytest.param(["ftp"], "&amp:ftp:x", id="named-missing-semicolon"),
+        pytest.param(["ftp"], "&", id="ampersand-at-end"),
+        pytest.param(["ftp"], "&x", id="short-unresolved-name"),
+        pytest.param(["ftp"], "&#", id="numeric-prefix-at-end"),
+        pytest.param(["ftp"], "&#1", id="short-numeric-reference"),
+        pytest.param(["ftp"], "&1;ftp:x", id="numeric-named-reference"),
+        pytest.param(["ftp"], "&A1;ftp:x", id="uppercase-digit-name"),
+        pytest.param(["ftp"], "&a1;ftp:x", id="lowercase-digit-name"),
+        pytest.param(["ftp"], "&:ftp:x", id="punctuation-after-ampersand"),
+        pytest.param(["ftp"], "&@;ftp:x", id="punctuation-after-digit-range"),
+        pytest.param(["ftp"], "&[;ftp:x", id="punctuation-after-uppercase-range"),
+        pytest.param(["ftp"], f"&{'a' * 35};ftp:x", id="named-overlong"),
+        pytest.param(["ftp"], "&NotEqualTilde;ftp:x", id="named-unresolved-reference"),
+        pytest.param(None, "&#0;ftp:x", id="default-decoded-replacement-before-scheme"),
+        pytest.param(["ftp"], "&amp;ftp:x", id="named-ampersand-before-scheme"),
+        pytest.param(None, "`//bad[host", id="backtick-before-invalid-authority"),
+        pytest.param(None, "é//bad[host", id="unicode-before-invalid-authority"),
+        pytest.param(None, "&#x80;//bad[host", id="reference-before-invalid-authority"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("tag", "attribute", "end"),
+    [pytest.param("a", "href", "</a>", id="link"), pytest.param("img", "src", "", id="image")],
+)
+def test_bleach_url_normalization_drops_the_url(
+    protocols: list[str] | None, value: str, tag: str, attribute: str, end: str
+) -> None:
+    assert (
+        clean(f'<{tag} {attribute}="{value}">x{end}', tags=[tag], attributes={tag: [attribute]}, protocols=protocols)
+        == f"<{tag}>x{end}"
     )
 
 

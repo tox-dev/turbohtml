@@ -167,12 +167,14 @@ def test_soft_str(value: object, expected_type: type, expected: str) -> None:
         pytest.param("<b>", "<b>", id="trusts-str-without-escaping"),
         pytest.param(Renderable(), "<raw & unescaped>", id="uses-html-protocol"),
         pytest.param(42, "42", id="stringifies-non-str-without-html"),
-        pytest.param(b"caf\xc3\xa9", "café", id="decodes-bytes"),
     ],
 )
 def test_markup_constructor(base: object, expected: str) -> None:
-    markup = Markup(base, "utf-8") if isinstance(base, bytes) else Markup(base)
-    assert str(markup) == expected
+    assert str(Markup(base)) == expected
+
+
+def test_markup_constructor_decodes_bytes_with_the_given_encoding() -> None:
+    assert str(Markup(b"caf\xc3\xa9", "utf-8")) == "café"
 
 
 def test_markup_default_is_empty() -> None:
