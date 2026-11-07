@@ -48,37 +48,42 @@ def test_encoding_argument_wins_over_detection() -> None:
 
 
 @pytest.mark.parametrize(
-    ("raw", "is_utf8"),
+    "raw",
     [
-        pytest.param(b"caf\xc3\xa9", True, id="two-byte"),  # é U+00E9
-        pytest.param(b"\xe4\xb8\xad", True, id="three-byte-e1-ec"),  # 中 U+4E2D
-        pytest.param(b"\xe0\xa0\x80", True, id="three-byte-e0-min"),  # U+0800
-        pytest.param(b"\xed\x80\x80", True, id="three-byte-ed-prefix"),  # U+D000
-        pytest.param(b"\xee\x80\x80", True, id="three-byte-ee-ef"),  # U+E000
-        pytest.param(b"\xf0\x9f\x98\x80", True, id="four-byte-f0"),  # 😀 U+1F600
-        pytest.param(b"\xf1\x80\x80\x80", True, id="four-byte-f1-f3"),  # U+40000
-        pytest.param(b"\xf4\x80\x80\x80", True, id="four-byte-f4-max"),  # U+100000
-        pytest.param(b"\xc0\x80", False, id="overlong-c0-lead"),
-        pytest.param(b"\xe0\x80\x80", False, id="overlong-e0"),
-        pytest.param(b"\xed\xa0\x80", False, id="surrogate-ed"),
-        pytest.param(b"\xf0\x80\x80\x80", False, id="overlong-f0"),
-        pytest.param(b"\xf4\x90\x80\x80", False, id="above-max-f4"),
-        pytest.param(b"\xff", False, id="invalid-lead-ff"),
-        pytest.param(b"\x80", False, id="stray-continuation"),
-        pytest.param(b"\xc3", False, id="truncated-two-byte"),
-        pytest.param(b"\xc3\x28", False, id="bad-first-continuation"),
-        pytest.param(b"\xe1\x80\x28", False, id="bad-later-continuation-low"),
-        pytest.param(b"\xe1\x80\xc0", False, id="bad-later-continuation-high"),
+        pytest.param(b"caf\xc3\xa9", id="two-byte"),  # é U+00E9
+        pytest.param(b"\xe4\xb8\xad", id="three-byte-e1-ec"),  # 中 U+4E2D
+        pytest.param(b"\xe0\xa0\x80", id="three-byte-e0-min"),  # U+0800
+        pytest.param(b"\xed\x80\x80", id="three-byte-ed-prefix"),  # U+D000
+        pytest.param(b"\xee\x80\x80", id="three-byte-ee-ef"),  # U+E000
+        pytest.param(b"\xf0\x9f\x98\x80", id="four-byte-f0"),  # 😀 U+1F600
+        pytest.param(b"\xf1\x80\x80\x80", id="four-byte-f1-f3"),  # U+40000
+        pytest.param(b"\xf4\x80\x80\x80", id="four-byte-f4-max"),  # U+100000
     ],
 )
-def test_utf8_validator(raw: bytes, is_utf8: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # parametrized expectation flag
+def test_utf8_validator_accepts(raw: bytes) -> None:
     # wrap so the document is non-trivial; detection runs on the whole byte buffer.
+    assert detected(b"<p>" + raw + b"</p>") == "UTF-8"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param(b"\xc0\x80", id="overlong-c0-lead"),
+        pytest.param(b"\xe0\x80\x80", id="overlong-e0"),
+        pytest.param(b"\xed\xa0\x80", id="surrogate-ed"),
+        pytest.param(b"\xf0\x80\x80\x80", id="overlong-f0"),
+        pytest.param(b"\xf4\x90\x80\x80", id="above-max-f4"),
+        pytest.param(b"\xff", id="invalid-lead-ff"),
+        pytest.param(b"\x80", id="stray-continuation"),
+        pytest.param(b"\xc3", id="truncated-two-byte"),
+        pytest.param(b"\xc3\x28", id="bad-first-continuation"),
+        pytest.param(b"\xe1\x80\x28", id="bad-later-continuation-low"),
+        pytest.param(b"\xe1\x80\xc0", id="bad-later-continuation-high"),
+    ],
+)
+def test_utf8_validator_rejects(raw: bytes) -> None:
     # invalid UTF-8 resolves to some single-byte encoding (Phase 2), never UTF-8
-    result = detected(b"<p>" + raw + b"</p>")
-    if is_utf8:
-        assert result == "UTF-8"
-    else:
-        assert result != "UTF-8"
+    assert detected(b"<p>" + raw + b"</p>") != "UTF-8"
 
 
 def test_truncated_sequence_at_eof_is_not_utf8() -> None:
