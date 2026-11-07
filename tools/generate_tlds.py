@@ -29,7 +29,7 @@ from httpfetch import fetch_bytes
 # table would drift with whatever IANA serves that day. Pin the expected version and the SHA-256 of its exact bytes;
 # a rebuild fails when either differs, so a bumped version or a poisoned/silently rewritten source cannot land without
 # review. Bump both deliberately and review the tld_table.h diff. Both match the committed table.
-IANA_VERSION: Final[str] = "Version 2026062302"
+_IANA_VERSION: Final[str] = "Version 2026062302"
 
 
 def fetch_tlds() -> tuple[str, list[str]]:
@@ -44,8 +44,8 @@ def fetch_tlds() -> tuple[str, list[str]]:
             continue
         if name := line.strip().lower():
             names.append(name)
-    if version != IANA_VERSION:
-        msg = f"IANA served {version!r}, expected the pinned {IANA_VERSION!r}; bump the pins to regenerate"
+    if version != _IANA_VERSION:
+        msg = f"IANA served {version!r}, expected the pinned {_IANA_VERSION!r}; bump the pins to regenerate"
         raise SystemExit(msg)
     iana_sha256 = "01dd82fed6299013f2e4bc4c5af2469b95497a4e9825801741ffff95b6e55d8f"
     if (digest := hashlib.sha256(raw).hexdigest()) != iana_sha256:

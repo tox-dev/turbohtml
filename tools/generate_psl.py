@@ -32,8 +32,8 @@ from httpfetch import fetch_bytes
 # the file it serves so a compromised delivery path cannot swap the content under a trusted commit URL; a rebuild
 # fails on either mismatch. Bump both deliberately and review the psl_table.h diff. Pinned to the publicsuffix/list
 # main tip of 2026-07-01.
-PSL_COMMIT: Final[str] = "d67b6cb8e70e9c76b0803809b66e7ffdd09484bd"
-_PSL_URL: Final[str] = f"https://raw.githubusercontent.com/publicsuffix/list/{PSL_COMMIT}/public_suffix_list.dat"
+_PSL_COMMIT: Final[str] = "d67b6cb8e70e9c76b0803809b66e7ffdd09484bd"
+_PSL_URL: Final[str] = f"https://raw.githubusercontent.com/publicsuffix/list/{_PSL_COMMIT}/public_suffix_list.dat"
 
 
 def _punycode(rule: str) -> str:
@@ -48,7 +48,7 @@ def fetch_rules() -> tuple[str, list[tuple[str, int]]]:
     raw = fetch_bytes(_PSL_URL)
     psl_sha256 = "da98b262f8fa86b5c19e320ba18cf83ce9a9a0e53f9317193fa84dd9f0fe80a2"
     if (digest := hashlib.sha256(raw).hexdigest()) != psl_sha256:
-        msg = f"PSL source at {PSL_COMMIT} has sha256 {digest}, not the pinned {psl_sha256}; review, then bump the pin"
+        msg = f"PSL source at {_PSL_COMMIT} has sha256 {digest}, not the pinned {psl_sha256}; review, then bump the pin"
         raise SystemExit(msg)
     text = raw.decode("utf-8")
     rules: dict[str, int] = {}
@@ -63,7 +63,7 @@ def fetch_rules() -> tuple[str, list[tuple[str, int]]]:
         rule = _punycode(line.removeprefix("!").lower())
         if rule.count(".") >= 1:  # single-label public suffixes are the IANA TLDs in tld_table.h
             rules[rule] = kind
-    return PSL_COMMIT, sorted(rules.items())
+    return _PSL_COMMIT, sorted(rules.items())
 
 
 def generate(out_path: Path) -> None:

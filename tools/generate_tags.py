@@ -24,7 +24,7 @@ _TAG_HASH_MASK: Final[int] = 1023
 # Element categories the tree-construction algorithm tests against, in the HTML
 # namespace. The foreign-content insertion mode handles MathML/SVG scoping
 # markers separately.
-SPECIAL: Final[frozenset[str]] = frozenset([
+_SPECIAL: Final[frozenset[str]] = frozenset([
     "address",
     "applet",
     "area",
@@ -214,7 +214,7 @@ _EXTRA: Final[frozenset[str]] = frozenset([
 ])
 
 _CATEGORY_FLAGS: Final[dict[str, frozenset[str]]] = {
-    "TH_TAG_SPECIAL": SPECIAL,
+    "TH_TAG_SPECIAL": _SPECIAL,
     "TH_TAG_FORMATTING": _FORMATTING,
     "TH_TAG_SCOPING": _SCOPING,
     "TH_TAG_RAWTEXT": RAWTEXT,
@@ -238,7 +238,7 @@ def _tag_hash_rows(names: list[str]) -> str:
 
 def generate(out_path: Path) -> None:
     # Write the generated tag-atom C header to *out_path*.
-    names = sorted(SPECIAL | _FORMATTING | _SCOPING | RAWTEXT | RCDATA | _FOREIGN | _EXTRA)
+    names = sorted(_SPECIAL | _FORMATTING | _SCOPING | RAWTEXT | RCDATA | _FOREIGN | _EXTRA)
     atoms = [f"TH_TAG_{name.upper().replace('-', '_')}" for name in names]
 
     flag_bits = {flag: 1 << i for i, flag in enumerate(_CATEGORY_FLAGS)}
