@@ -208,7 +208,7 @@ def test_nonbreaking_space_emphasis(html: str, expected: str) -> None:
     assert md(html) == expected
 
 
-_UNICODE_SPACES: Final = [
+_UNICODE_SPACES: Final[list[pytest.ParameterSet]] = [
     pytest.param("\u00a0", id="nbsp"),
     pytest.param("\u1680", id="ogham"),
     pytest.param("\u2000", id="en-quad"),

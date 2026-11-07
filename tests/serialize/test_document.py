@@ -670,7 +670,7 @@ def test_inner_compact(source: str, expected: str) -> None:
     assert root.serialize(inner=True) == expected
 
 
-_LAYOUTS: Final = [
+_LAYOUTS: Final[list[pytest.ParameterSet]] = [
     pytest.param(None, id="none"),
     pytest.param(Indent(), id="indent"),
     pytest.param(Minify(), id="minify"),
