@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping this test's own bytes
 from io import BytesIO
-from typing import Final, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 from bench.operations import INPUTS
 
 from turbohtml import Canonical, CData, Element, Html, ProcessingInstruction, Text, parse, parse_xml
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from turbohtml import Document
 
 
 def test_returns_utf8_bytes() -> None:
@@ -154,31 +159,41 @@ def test_document_leading_comment_dropped_without_comments() -> None:
     assert parse("<!--top--><p>x").canonicalize() == b"<html><head></head><body><p>x</p></body></html>"
 
 
+@pytest.mark.parametrize("comment_length", [pytest.param(8192, id="medium"), pytest.param(32768, id="large")])
 @pytest.mark.parametrize(
-    ("xml", "comment_length"),
+    ("parse_document", "source", "expected"),
     [
-        pytest.param(False, 8192, id="html-medium"),
-        pytest.param(False, 32768, id="html-large"),
-        pytest.param(True, 8192, id="xml-medium"),
-        pytest.param(True, 32768, id="xml-large"),
+        pytest.param(parse, "<p>x</p>", b"<html><head></head><body><p>x</p></body></html>", id="html"),
+        pytest.param(parse_xml, '<r xmlns="urn:x">x</r>', b'<r xmlns="urn:x">x</r>', id="xml"),
     ],
 )
-def test_document_drops_large_comments(*, xml: bool, comment_length: int) -> None:
-    source = '<r xmlns="urn:x">x</r>' if xml else "<p>x</p>"
-    document = parse_xml if xml else parse
-    expected = b'<r xmlns="urn:x">x</r>' if xml else b"<html><head></head><body><p>x</p></body></html>"
-    assert document(f"{source}<!--{'x' * comment_length}-->").canonicalize() == expected
+def test_document_drops_large_comments(
+    parse_document: Callable[[str], Document], source: str, expected: bytes, comment_length: int
+) -> None:
+    assert parse_document(f"{source}<!--{'x' * comment_length}-->").canonicalize() == expected
 
 
-@pytest.mark.parametrize("xml", [pytest.param(False, id="html"), pytest.param(True, id="xml")])
-def test_document_canonicalizes_many_elements(*, xml: bool) -> None:
-    if xml:
-        source = f'<r xmlns="urn:x">{"<a/>" * 1024}</r>'
-        expected = b'<r xmlns="urn:x">' + b"<a></a>" * 1024 + b"</r>"
-    else:
-        source = f"<main>{'<p>x</p>' * 512}</main>"
-        expected = b"<html><head></head><body><main>" + b"<p>x</p>" * 512 + b"</main></body></html>"
-    assert (parse_xml if xml else parse)(source).canonicalize() == expected
+@pytest.mark.parametrize(
+    ("parse_document", "source", "expected"),
+    [
+        pytest.param(
+            parse_xml,
+            f'<r xmlns="urn:x">{"<a/>" * 1024}</r>',
+            b'<r xmlns="urn:x">' + b"<a></a>" * 1024 + b"</r>",
+            id="xml",
+        ),
+        pytest.param(
+            parse,
+            f"<main>{'<p>x</p>' * 512}</main>",
+            b"<html><head></head><body><main>" + b"<p>x</p>" * 512 + b"</main></body></html>",
+            id="html",
+        ),
+    ],
+)
+def test_document_canonicalizes_many_elements(
+    parse_document: Callable[[str], Document], source: str, expected: bytes
+) -> None:
+    assert parse_document(source).canonicalize() == expected
 
 
 def test_document_processing_instructions_bracket_the_root() -> None:
@@ -580,16 +595,14 @@ def test_xml_c14n_rejects_relative_namespace_with_heap_allocated_bindings() -> N
         parse_xml(source).canonicalize()
 
 
-@pytest.mark.parametrize(
-    ("source", "scope"),
-    [
-        pytest.param('<r><c xmlns:p="relative"><p:a/></c></r>', "document", id="descendant-binding"),
-        pytest.param('<r xmlns:p="relative"><c><p:a/></c></r>', "child", id="inherited-binding"),
-    ],
-)
-def test_xml_c14n_rejects_relative_namespace_in_subtree(source: str, scope: str) -> None:
-    document: Final = parse_xml(source)
-    node = document.children[0].children[0] if scope == "child" else document
+def test_xml_c14n_rejects_relative_namespace_in_a_descendant() -> None:
+    document: Final = parse_xml('<r><c xmlns:p="relative"><p:a/></c></r>')
+    with pytest.raises(ValueError, match="relative namespace URI cannot be canonicalized"):
+        document.canonicalize()
+
+
+def test_xml_c14n_rejects_an_inherited_relative_namespace() -> None:
+    node: Final = parse_xml('<r xmlns:p="relative"><c><p:a/></c></r>').children[0].children[0]
     with pytest.raises(ValueError, match="relative namespace URI cannot be canonicalized"):
         node.canonicalize()
 
@@ -934,7 +947,6 @@ def test_xml_c14n_1_1_fixes_ancestor_base(source: str, selector: str, expected: 
         pytest.param("a/", "é", "a/é", id="unicode-reference"),
         pytest.param("a/", "", "a/", id="empty-reference"),
         pytest.param("a/", ".", "a/", id="dot-reference"),
-        pytest.param("a/", "..", "", id="parent-reference"),
         pytest.param("a/", ".b", "a/.b", id="dot-starting-reference"),
         pytest.param("a/", ".ab", "a/.ab", id="long-dot-starting-reference"),
         pytest.param("a/", "ab", "a/ab", id="two-character-reference"),
@@ -947,9 +959,13 @@ def test_xml_c14n_1_1_fixes_ancestor_base(source: str, selector: str, expected: 
 def test_xml_c14n_1_1_resolves_relative_base_segments(base: str, reference: str, expected: str) -> None:
     node = parse_xml(f'<r xml:base="{base}"><b xml:base="{reference}"/></r>').select_one("b")
     assert node is not None
-    assert node.canonicalize(Canonical(version="1.1")) == (
-        f'<b xml:base="{expected}"></b>'.encode() if expected else b"<b></b>"
-    )
+    assert node.canonicalize(Canonical(version="1.1")) == f'<b xml:base="{expected}"></b>'.encode()
+
+
+def test_xml_c14n_1_1_drops_a_base_that_resolves_to_nothing() -> None:
+    node = parse_xml('<r xml:base="a/"><b xml:base=".."/></r>').select_one("b")
+    assert node is not None
+    assert node.canonicalize(Canonical(version="1.1")) == b"<b></b>"
 
 
 def test_xml_c14n_1_0_does_not_fix_ancestor_base() -> None:

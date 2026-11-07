@@ -204,22 +204,23 @@ def test_unicode_space_emphasis(space: str) -> None:
 
 
 @pytest.mark.parametrize("space", ["\u00a0", "\u1680", "\u2000", "\u200a", "\u202f", "\u205f", "\u3000"])
+def test_unicode_space_between_letters_round_trip(space: str) -> None:
+    output: Final = md(f"<p>x{space}y</p>")
+    paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
+    assert paragraph is not None
+    assert (output, paragraph.text) == (f"x{space}y", f"x{space}y")
+
+
+@pytest.mark.parametrize("space", ["\u00a0", "\u1680", "\u2000", "\u200a", "\u202f", "\u205f", "\u3000"])
 @pytest.mark.parametrize(
     ("before", "after"),
-    [
-        pytest.param("", "x", id="leading"),
-        pytest.param("x", "", id="trailing"),
-        pytest.param("x", "y", id="between-letters"),
-    ],
+    [pytest.param("", "x", id="leading"), pytest.param("x", "", id="trailing")],
 )
-def test_unicode_space_prose_round_trip(space: str, before: str, after: str) -> None:
+def test_unicode_space_at_a_prose_edge_is_a_reference(space: str, before: str, after: str) -> None:
     output: Final = md(f"<p>{before}{space}{after}</p>")
     paragraph: Final = parse_fragment(MarkdownIt("commonmark").render(output)).find("p")
     assert paragraph is not None
-    assert (output, paragraph.text) == (
-        f"{before}{f'&#{ord(space)};' if not before or not after else space}{after}",
-        f"{before}{space}{after}",
-    )
+    assert (output, paragraph.text) == (f"{before}&#{ord(space)};{after}", f"{before}{space}{after}")
 
 
 @pytest.mark.parametrize("suffix", ["", " ", "\n"])

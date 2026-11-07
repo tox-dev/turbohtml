@@ -12,14 +12,17 @@ _RAW_TEXT_TAGS: Final[tuple[str, ...]] = ("script", "style", "xmp", "iframe", "n
 
 
 @pytest.mark.parametrize("tag", _RAW_TEXT_TAGS)
+@pytest.mark.parametrize("layout", [pytest.param(None, id="compact"), pytest.param(Indent(2), id="indent")])
+def test_rawtext_children_serialize_as_markup(tag: str, layout: Indent | None) -> None:
+    assert _mixed(tag).serialize(Html(layout=layout)) == f"<{tag}>a<<b>i&lt;</b><!--c--></{tag}>"
+
+
 @pytest.mark.parametrize(
-    "layout",
-    [pytest.param(None, id="compact"), pytest.param(Indent(2), id="indent"), pytest.param(Minify(), id="minify")],
+    ("tag", "end_tag"),
+    [pytest.param(tag, "" if tag == "plaintext" else f"</{tag}>", id=tag) for tag in _RAW_TEXT_TAGS],
 )
-def test_rawtext_children_serialize_as_markup(tag: str, layout: Indent | Minify | None) -> None:
-    minify: Final = isinstance(layout, Minify)
-    end_tag: Final = "" if minify and tag == "plaintext" else f"</{tag}>"
-    assert _mixed(tag).serialize(Html(layout=layout)) == f"<{tag}>a<<b>i&lt;</b>{'' if minify else '<!--c-->'}{end_tag}"
+def test_rawtext_children_minify_markup(tag: str, end_tag: str) -> None:
+    assert _mixed(tag).serialize(Html(layout=Minify())) == f"<{tag}>a<<b>i&lt;</b>{end_tag}"
 
 
 @pytest.mark.parametrize("tag", _RAW_TEXT_TAGS)

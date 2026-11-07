@@ -1013,11 +1013,24 @@ def test_minify_shrinks_documents() -> None:
         pytest.param("optgroup", "optgroup", id="option-group"),
     ],
 )
-@pytest.mark.parametrize("inner", [False, True], ids=["outer", "inner"])
-def test_minify_detached_root_bounds_scope(tag: str, sibling: str, *, inner: bool) -> None:
+def test_minify_detached_root_bounds_scope_inner(tag: str, sibling: str) -> None:
     root: Final = Element("div", children=[Element(tag, children=[Text("a")]), Element(sibling, children=[Text("b")])])
     content: Final = f"<{tag}>a</{tag}><{sibling}>b"
-    assert root.serialize(Html(layout=Minify()), inner=inner) == (content if inner else f"<div>{content}</div>")
+    assert root.serialize(Html(layout=Minify()), inner=True) == content
+
+
+@pytest.mark.parametrize(
+    ("tag", "sibling"),
+    [
+        pytest.param("rt", "rt", id="ruby-text"),
+        pytest.param("rt", "rp", id="ruby-parenthesis"),
+        pytest.param("optgroup", "optgroup", id="option-group"),
+    ],
+)
+def test_minify_detached_root_bounds_scope_outer(tag: str, sibling: str) -> None:
+    root: Final = Element("div", children=[Element(tag, children=[Text("a")]), Element(sibling, children=[Text("b")])])
+    content: Final = f"<{tag}>a</{tag}><{sibling}>b"
+    assert root.serialize(Html(layout=Minify())) == f"<div>{content}</div>"
 
 
 @pytest.mark.parametrize(

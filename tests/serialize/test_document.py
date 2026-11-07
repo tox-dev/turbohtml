@@ -605,6 +605,13 @@ def test_encode_surrogate_error(text: str, *, inner: bool) -> None:
     assert actual.value.args == expected.value.args
 
 
+_INDENT_RENDERS: Final = {
+    "serialize": lambda root, options, *, inner: root.serialize(options, inner=inner),
+    "encode": lambda root, options, *, inner: root.encode(options=options, inner=inner).decode(),
+    "stream": lambda root, options, *, inner: "".join(root.serialize_iter(options, inner=inner)),
+}
+
+
 @pytest.mark.parametrize(
     "unit",
     [
@@ -615,23 +622,28 @@ def test_encode_surrogate_error(text: str, *, inner: bool) -> None:
         pytest.param("\t " * 1000, id="chunk-boundary"),
     ],
 )
-@pytest.mark.parametrize("inner", [False, True], ids=["outer", "inner"])
-@pytest.mark.parametrize("method", ["serialize", "encode", "stream"])
-def test_indent_repetition(unit: str, *, inner: bool, method: str) -> None:
+@pytest.mark.parametrize("method", list(_INDENT_RENDERS))
+def test_indent_repetition_inner(unit: str, method: str) -> None:
     root: Final = parse_fragment("<section><p>x</p></section>")
-    options: Final = Html(layout=Indent(unit))
-    expected: Final = (
-        f"<section>\n{unit}<p>x</p>\n</section>"
-        if inner
-        else f"<div>\n{unit}<section>\n{unit * 2}<p>x</p>\n{unit}</section>\n</div>"
-    )
-    if method == "stream":
-        output: Final = "".join(root.serialize_iter(options, inner=inner))
-    elif method == "encode":
-        output = root.encode(options=options, inner=inner).decode()
-    else:
-        output = root.serialize(options, inner=inner)
-    assert output == expected
+    output = _INDENT_RENDERS[method](root, Html(layout=Indent(unit)), inner=True)
+    assert output == f"<section>\n{unit}<p>x</p>\n</section>"
+
+
+@pytest.mark.parametrize(
+    "unit",
+    [
+        pytest.param("", id="empty"),
+        pytest.param(" ", id="space"),
+        pytest.param("\t ", id="mixed"),
+        pytest.param("é😀", id="unicode"),
+        pytest.param("\t " * 1000, id="chunk-boundary"),
+    ],
+)
+@pytest.mark.parametrize("method", list(_INDENT_RENDERS))
+def test_indent_repetition_outer(unit: str, method: str) -> None:
+    root: Final = parse_fragment("<section><p>x</p></section>")
+    output = _INDENT_RENDERS[method](root, Html(layout=Indent(unit)), inner=False)
+    assert output == f"<div>\n{unit}<section>\n{unit * 2}<p>x</p>\n{unit}</section>\n</div>"
 
 
 @pytest.mark.parametrize(
@@ -1568,12 +1580,14 @@ def test_named_entities_reparse_to_the_same_text() -> None:
             "<div>\n  <listing>a b</listing>\n</div>",
             id="preserve-listing",
         ),
-        pytest.param("<div><p>x</p></div>", "div", None, "<div><p>x</p></div>", id="none-is-compact"),
     ],
 )
-def test_serialize_indent(html: str, selector: str, indent: int | str | None, expected: str) -> None:
-    layout = None if indent is None else Indent(indent)
-    assert _one(html, selector).serialize(Html(layout=layout)) == expected
+def test_serialize_indent(html: str, selector: str, indent: int | str, expected: str) -> None:
+    assert _one(html, selector).serialize(Html(layout=Indent(indent))) == expected
+
+
+def test_serialize_without_layout_is_compact() -> None:
+    assert _one("<div><p>x</p></div>", "div").serialize(Html()) == "<div><p>x</p></div>"
 
 
 # the parser drops one newline after <pre>; serialization restores it so a
@@ -1790,13 +1804,16 @@ def test_sort_attributes_off_keeps_source_order() -> None:
 
 
 @pytest.mark.parametrize("tag", ["pre", "textarea", "listing"])
-@pytest.mark.parametrize("clear", [False, True], ids=["empty", "cleared"])
-def test_serialize_empty_leading_text(tag: str, *, clear: bool) -> None:
-    element: Final = Element(tag)
-    text: Final = Text("x" if clear else "")
-    element.append(text)
-    if clear:
-        text.data = ""
+def test_serialize_empty_leading_text(tag: str) -> None:
+    element: Final = Element(tag, children=[Text("")])
+    assert element.serialize() == f"<{tag}></{tag}>"
+
+
+@pytest.mark.parametrize("tag", ["pre", "textarea", "listing"])
+def test_serialize_cleared_leading_text(tag: str) -> None:
+    text: Final = Text("x")
+    element: Final = Element(tag, children=[text])
+    text.data = ""
     assert element.serialize() == f"<{tag}></{tag}>"
 
 
@@ -1812,14 +1829,24 @@ def test_sort_attributes_orders_prefix_names(attrs: dict[str, str], expected: st
 
 
 @pytest.mark.parametrize("count", [8, 64, 65, 1024])
-@pytest.mark.parametrize("reverse", [False, True], ids=["sorted", "reversed"])
+@pytest.mark.parametrize(
+    "ordered",
+    [pytest.param(lambda names: names, id="sorted"), pytest.param(lambda names: list(reversed(names)), id="reversed")],
+)
 @pytest.mark.parametrize("xml", [False, True], ids=["html", "xml"])
-@pytest.mark.parametrize("encode", [False, True], ids=["serialize", "encode"])
-def test_sort_attributes_by_width(count: int, *, reverse: bool, xml: bool, encode: bool) -> None:
+@pytest.mark.parametrize(
+    "render",
+    [
+        pytest.param(lambda element, options: element.serialize(options), id="serialize"),
+        pytest.param(lambda element, options: element.encode(options=options).decode(), id="encode"),
+    ],
+)
+def test_sort_attributes_by_width(
+    count: int, ordered: Callable[[list[str]], list[str]], *, xml: bool, render: Callable[[Element, Html], str]
+) -> None:
     names: Final = sorted(f"a{index}" for index in range(count))
-    element: Final = Element("x", dict.fromkeys(reversed(names) if reverse else names, ""), children=[Text("x")])
-    options: Final = Html(xml=xml, sort_attributes=True)
-    result: Final = element.encode(options=options).decode() if encode else element.serialize(options)
+    element: Final = Element("x", dict.fromkeys(ordered(names), ""), children=[Text("x")])
+    result: Final = render(element, Html(xml=xml, sort_attributes=True))
     assert result == "<x " + " ".join(f'{name}=""' for name in names) + ">x</x>"
 
 

@@ -11,17 +11,16 @@ _DEPTH: Final[int] = 4
 
 
 @pytest.mark.parametrize(
-    ("method", "argument"),
+    ("method", "arguments"),
     [
-        pytest.param("to_text", None, id="text"),
-        pytest.param("to_markdown", None, id="markdown"),
-        pytest.param("to_markdown", Markdown(tables=Markdown.Tables(pad=True)), id="markdown-padded"),
-        pytest.param("to_markdown", Markdown(tables=Markdown.Tables(mode="strip")), id="markdown-strip"),
-        pytest.param("to_annotated_text", {"td": ["cell"]}, id="annotated-text"),
+        pytest.param("to_text", (), id="text"),
+        pytest.param("to_markdown", (), id="markdown"),
+        pytest.param("to_markdown", (Markdown(tables=Markdown.Tables(pad=True)),), id="markdown-padded"),
+        pytest.param("to_markdown", (Markdown(tables=Markdown.Tables(mode="strip")),), id="markdown-strip"),
+        pytest.param("to_annotated_text", ({"td": ["cell"]},), id="annotated-text"),
     ],
 )
-def test_nested_row_groups_render_like_a_flat_table(method: str, argument: object) -> None:
-    arguments = () if argument is None else (argument,)
+def test_nested_row_groups_render_like_a_flat_table(method: str, arguments: tuple[object, ...]) -> None:
     assert getattr(_table(_DEPTH), method)(*arguments) == getattr(_table(1), method)(*arguments)
 
 
