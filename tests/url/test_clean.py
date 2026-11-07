@@ -75,7 +75,12 @@ def test_clean_scrubs_markup_damage(url: str, expected: str) -> None:
     ],
 )
 def test_clean_dangling_amp_after_query_cleanup(url: str, expected: str) -> None:
-    assert ((cleaned := clean_url(url)), clean_url(cleaned) if cleaned is not None else None) == (expected, expected)
+    assert (clean_url(url), _clean_fixpoint(url)) == (expected, expected)
+
+
+def _clean_fixpoint(url: str) -> str | None:
+    cleaned = clean_url(url)
+    return None if cleaned is None else clean_url(cleaned)
 
 
 @pytest.mark.parametrize(
@@ -162,7 +167,7 @@ def test_clean_rejects_invalid_ipv6_hosts(url: str) -> None:
     ],
 )
 def test_clean_canonical_host_shape(url: str, expected: str | None) -> None:
-    assert ((cleaned := clean_url(url)), clean_url(cleaned) if cleaned is not None else None) == (expected, expected)
+    assert (clean_url(url), _clean_fixpoint(url)) == (expected, expected)
 
 
 @pytest.mark.parametrize(

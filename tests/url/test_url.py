@@ -1542,9 +1542,12 @@ def test_normalize_query_matches_oracle_over_corpus() -> None:
     )
     allows = (None, frozenset({"id", "page"}), frozenset({"UTM_SOURCE"}), frozenset())
     denys = (frozenset(), frozenset({"id"}), frozenset({"a", "b"}))
-    for query, allow, deny, strict in itertools.product(normalized_queries, allows, denys, (False, True)):
-        if strict and allow is not None:
-            continue
+    combinations = [
+        combination
+        for combination in itertools.product(normalized_queries, allows, denys, (False, True))
+        if not (combination[3] and combination[1] is not None)
+    ]
+    for query, allow, deny, strict in combinations:
         got = _outcome(partial(_url_normalize_query, query, allow, deny, strict, _CONTENT, _LANGUAGE))
         want = _outcome(partial(_query_oracle, query, allow, deny, strict=strict))
         assert got == want, (query, allow, deny, strict)
@@ -1908,10 +1911,8 @@ _FRAGMENTS: Final[tuple[str, ...]] = ("", "#f")
 
 
 def test_url_split_matches_urllib_after_input_trim() -> None:
-    for url in _split_corpus():
+    for url in [url for url in _split_corpus() if not _lacks_required_authority(url)]:
         reference = urlsplit(url.rstrip(_C0_OR_SPACE))
-        if reference.scheme in {"ftp", "http", "https", "ws", "wss"} and not reference.netloc:
-            continue
         scheme, netloc, path, query, fragment, _userinfo, host, *_rest = _url_split(url)
         assert (scheme, netloc, path, query, fragment) == (
             reference.scheme,
@@ -1962,6 +1963,11 @@ def _split_corpus() -> list[str]:
     urls += ["  http://x.com/y  ", "http://h\tost/p", "\x01\x02http://a.com", "HTTP://X", "//netonly/p", "a\nb\rc://x"]
     urls += [f"http://h.com/x{query}{fragment}" for query in ("", "?", "?a=1") for fragment in ("", "#", "#a=1")]
     return sorted(set(urls))
+
+
+def _lacks_required_authority(url: str) -> bool:
+    reference = urlsplit(url.rstrip(_C0_OR_SPACE))
+    return reference.scheme in {"ftp", "http", "https", "ws", "wss"} and not reference.netloc
 
 
 @pytest.mark.parametrize(
