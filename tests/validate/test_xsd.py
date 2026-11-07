@@ -2148,8 +2148,7 @@ def test_lxml_facet_validate_benchmark_output(index: int, expected: list[bool]) 
 def test_lxml_facet_compile_benchmark_output() -> None:
     module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
     etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
-    source = cast("str", INPUTS["compile-facets"]()[0][1])
-    schema: Final = module.OPERATIONS["compile-facets"][0](source)
+    schema: Final = module.OPERATIONS["compile-facets"][0](cast("str", INPUTS["compile-facets"]()[0][1]))
     assert [
         schema.validate(etree.fromstring(text.encode()))
         for text in ("<root><value>abc123</value></root>", "<root><value>ab</value></root>")
@@ -2180,8 +2179,7 @@ def test_lxml_pattern_compile_benchmark_output() -> None:
     module: Final = pytest.importorskip("bench.competitors.lxml", exc_type=ImportError)
     etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
     _, _, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == "compile-pattern")
-    source = cast("str", load())
-    schema: Final = module.OPERATIONS["compile-pattern"][0](source)
+    schema: Final = module.OPERATIONS["compile-pattern"][0](cast("str", load()))
     assert [
         schema.validate(etree.fromstring(text.encode()))
         for text in ("<root><value>abc123</value></root>", "<root><value>abc</value></root>")

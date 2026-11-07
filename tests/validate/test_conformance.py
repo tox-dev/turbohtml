@@ -382,8 +382,9 @@ def valid_doc(inner: str) -> str:
     return f"<!DOCTYPE html><html lang=en><head><title>Doc</title></head><body>{inner}</body></html>"
 
 
-_VNUJAR_SPEC: Final = find_spec("vnujar")
-_VNU_JAR: Final = Path(_VNUJAR_SPEC.origin).with_name("vnu.jar") if _VNUJAR_SPEC and _VNUJAR_SPEC.origin else None
+_VNU_JAR: Final[Path | None] = (
+    Path(spec.origin).with_name("vnu.jar") if (spec := find_spec("vnujar")) and spec.origin else None
+)
 _VNU_CASES: Final = [
     pytest.param(valid_doc("<h1>Heading</h1><p>text</p>"), id="conforming"),
     pytest.param(valid_doc('<img src="x" alt="a cat">'), id="img-with-alt-conforming"),
