@@ -488,10 +488,27 @@ def test_css_semantics_check_skips_a_document_without_style() -> None:
         css_semantics_check("<p>x")
 
 
-def test_css_semantics_check_skips_invalid_distributive_shorthand() -> None:
-    markup = "<style>i{margin-right:0}i{margin:0 1px 1r;margin-top:0;margin-bottom:0px}</style><i></i>"
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(
+            "<style>i{margin-right:0}i{margin:0 1px 1r;margin-top:0;margin-bottom:0px}</style><i></i>",
+            id="invalid-unit",
+        ),
+        pytest.param("<style>body{padding:0 a, b}</style>", id="unsupported-token"),
+        pytest.param("<style>body{padding:0 f}</style>", id="unsupported-padding-keyword"),
+        pytest.param("<style>body{margin:0 f}</style>", id="unsupported-margin-keyword"),
+        pytest.param("<style>body{border-width:0 f}</style>", id="unsupported-border-keyword"),
+    ],
+)
+def test_css_semantics_check_skips_invalid_distributive_shorthand(markup: str) -> None:
     with pytest.raises(OutOfScopeError):
         css_semantics_check(markup)
+
+
+def test_css_semantics_check_keeps_supported_shorthand_keywords() -> None:
+    markup = "<style>i{margin:0 auto;border-width:thin thick}</style><i></i>"
+    assert css_semantics_check(markup) is None
 
 
 @pytest.mark.parametrize(

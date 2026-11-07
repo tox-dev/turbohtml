@@ -1265,8 +1265,11 @@ def css_semantics_check(
 def _require_supported_css_shorthands(sheet: str) -> None:
     for rule in StyleSheet(sheet).rules:
         for name in ("margin", "padding", "border-width"):
+            keywords = {"margin": ("auto",), "padding": (), "border-width": ("thin", "medium", "thick")}[name]
             if (value := rule.style.get(name)) is not None and any(
-                _read_value("border-top-width" if name == "border-width" else f"{name}-top", part) is _INVALID
+                (read := _read_value("border-top-width" if name == "border-width" else f"{name}-top", part)) is _INVALID
+                or read is None
+                or (isinstance(read, str) and read not in keywords)
                 for part in value.split()
             ):
                 raise OutOfScopeError
