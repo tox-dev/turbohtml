@@ -16,14 +16,15 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
-_ROOT = Path(__file__).resolve().parent.parent
-_CONFIG = _ROOT / "pyproject.toml"
+_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
+_CONFIG: Final[Path] = _ROOT / "pyproject.toml"
 _DIRECTIVE = re.compile(r"^(?P<indent>[ \t]*)\.\. (?:testcode::|code-block:: (?:python|py|python3))\s*$")
 
 # Rules that fire on every well-formed doctest example, so enforcing them would only push noqa
 # noise into the rendered docs (and let --fix corrupt the migration before/after blocks).
-_SNIPPET_IGNORE = (
+_SNIPPET_IGNORE: Final[tuple[str, ...]] = (
     "T201",  # examples print to produce the testoutput block
     "INP001",  # a doc snippet is not an importable package
     "D",  # examples carry no docstrings

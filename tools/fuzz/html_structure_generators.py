@@ -373,7 +373,7 @@ Parts: TypeAlias = tuple[bytes | Identifier, ...]
 
 _TOKEN: Final = re.compile(r"<([^<>]+)>")
 _ATTRIBUTE: Final = re.compile(r'([a-zA-Z][a-zA-Z0-9:_-]*)="([^"]*)"')
-_PRIMITIVES: Final = {
+_PRIMITIVES: Final[dict[str, bytes]] = {
     "elementid": b"x",
     "class": b"a",
     "import": b"",
@@ -391,17 +391,17 @@ _PRIMITIVES: Final = {
     "lf": b"\n",
 }
 
-_TAG_ORIGINS: Final = {
+_TAG_ORIGINS: Final[dict[str, str]] = {
     tag: f"{SOURCE_URLS['common.txt']}#L{line}" for line, symbol, tag in COMMON_RULES if symbol == "tagname"
 }
-_VOCABULARY: Final = HtmlVocabulary(
+_VOCABULARY: Final[HtmlVocabulary] = HtmlVocabulary(
     tags=HTML_TAGS,
     html=HTML_RULES,
     values=ATTRIBUTE_VALUE_RULES,
     tag_attributes=TAG_ATTRIBUTE_RULES,
     common=COMMON_RULES,
 )
-_GRAMMAR: Final = html_grammar_complete()
+_GRAMMAR: Final[Grammar] = html_grammar_complete()
 
 __all__ = [
     "HtmlVocabulary",

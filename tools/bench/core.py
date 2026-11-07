@@ -120,7 +120,7 @@ _FIND_TEXT_OVERLAP_PATTERN: Final[re.Pattern[str]] = re.compile(f"{'a' * 4096}b"
 _CSS: Final[str] = "div a[href]"  # a descendant combinator with an attribute test, common in scrapers
 _HAS: Final[str] = "div:has(a)"  # the :has() relational pseudo-class
 _STRIP: Final[str] = "code, a, q"  # a bulk set of tags to drop or unwrap
-_DETECTOR = _LinkDetector()
+_DETECTOR: Final[_LinkDetector] = _LinkDetector()
 _PHONE_DETECTORS: Final[dict[str, _LinkDetector]] = {
     "valid": _LinkDetector(phones=_clean.PhoneNumbers(regions=("US",))),
     "possible": _LinkDetector(phones=_clean.PhoneNumbers(regions=("US",), require_valid=False)),
@@ -726,8 +726,8 @@ def markup(text: str) -> None:
     _markup_escape(text)
 
 
-_MARKUP_TEMPLATE = _Markup("<li>{}</li><span>{}</span>")
-_MARKUP_JOINER = _Markup(", ")
+_MARKUP_TEMPLATE: Final[_Markup] = _Markup("<li>{}</li><span>{}</span>")
+_MARKUP_JOINER: Final[_Markup] = _Markup(", ")
 
 
 @functools.cache
@@ -1115,7 +1115,7 @@ def _first_two_ext(_context: object, nodes: list[object]) -> list[object]:
     return nodes[:2]
 
 
-_SVG_NS = {"svg": "http://www.w3.org/2000/svg"}
+_SVG_NS: Final[dict[str, str]] = {"svg": "http://www.w3.org/2000/svg"}
 _COUNT_EXTENSIONS = {(None, "ext_count"): _count_ext}
 _NODESET_EXTENSIONS = {(None, "ext_first_two"): _first_two_ext}
 _REUSE = turbohtml.XPath("//a[@href]")

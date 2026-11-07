@@ -12,7 +12,7 @@ import lxml.etree
 _XSL: Final[str] = "{http://www.w3.org/1999/XSL/Transform}"
 _XS: Final[str] = "{http://www.w3.org/2001/XMLSchema}"
 _RNG: Final[str] = "{http://relaxng.org/ns/structure/1.0}"
-_PREFIXES: Final = {"x": _XSL[1:-1], "xs": _XS[1:-1], "rng": "http://relaxng.org/ns/structure/1.0"}
+_PREFIXES: Final[dict[str, str]] = {"x": _XSL[1:-1], "xs": _XS[1:-1], "rng": "http://relaxng.org/ns/structure/1.0"}
 
 
 def mutate(source: str, pool: tuple[str, ...], seed: int, *, broken: bool) -> str:
@@ -125,6 +125,6 @@ def _rng(root: lxml.etree._Element, donor: lxml.etree._Element, *, broken: bool)
         target[:] = [lxml.etree.Element(f"{_RNG}ref", {"name": "missing"})]
 
 
-__all__: Final = [
+__all__: Final[list[str]] = [
     "mutate",
 ]

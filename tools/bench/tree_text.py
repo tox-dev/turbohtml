@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Final
 
-PRESERVE_TAGS: Final = frozenset({
+PRESERVE_TAGS: Final[frozenset[str]] = frozenset({
     "pre",
     "textarea",
     "listing",

@@ -7,9 +7,11 @@ it can only be benchmarked in a venv of its own.
 
 from __future__ import annotations
 
+from typing import Final
+
 from metadata_parser import MetadataParser  # ty: ignore[import-not-found]  # undeclared: pins an older beautifulsoup4
 
-REQUIREMENTS = ("metadata-parser>=1", "legacy-cgi; python_version>='3.13'")
+REQUIREMENTS: Final[tuple[str, ...]] = ("metadata-parser>=1", "legacy-cgi; python_version>='3.13'")
 
 
 def socialcard(text: str) -> None:

@@ -116,10 +116,10 @@ def _snapshot(root: Element) -> str:
 
 
 _CASE: Final = re.compile(r"(td|th):(explicit|implied):([12]):(plain|named|numeric)")
-_CELLS: Final = ("td", "th")
-_GROUPS: Final = ("explicit", "implied")
-_COUNTS: Final = (1, 2)
-_LEAVES: Final = {
+_CELLS: Final[tuple[str, ...]] = ("td", "th")
+_GROUPS: Final[tuple[str, ...]] = ("explicit", "implied")
+_COUNTS: Final[tuple[int, ...]] = (1, 2)
+_LEAVES: Final[dict[str, tuple[str, str]]] = {
     "plain": ("MiXeD", "MiXeD"),
     "named": ("&amp;&lt;&gt;", "&<>"),
     "numeric": ("&#65;&#x42;&#67;", "ABC"),

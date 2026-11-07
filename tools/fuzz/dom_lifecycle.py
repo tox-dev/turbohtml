@@ -39,8 +39,8 @@ if TYPE_CHECKING:
 _MAX_BYTES: Final[int] = 1024
 _SLOTS: Final[int] = 8
 _MAX_NODES: Final[int] = 48
-_WORDS: Final = ("", "alpha", "beta gamma")
-_MARKUP: Final = (
+_WORDS: Final[tuple[str, ...]] = ("", "alpha", "beta gamma")
+_MARKUP: Final[tuple[str, ...]] = (
     "<p>a<b>c</b></p>",
     "<div id=x><span class=y>t</span><!--c--></div>",
     "<table><td>x<td>y</table>",
@@ -605,7 +605,7 @@ _OPERATIONS: Final[tuple[tuple[str, _Operation | None, bool], ...]] = (
 )
 
 # element p, element div, text, parsed document, then html/body/p/b of that document, a tokenizer and a fed parser
-_PREFIX: Final = bytes((
+_PREFIX: Final[bytes] = bytes((
     *(0, 0, 0, 0),
     *(0, 1, 1, 0),
     *(1, 2, 1, 0),
@@ -621,14 +621,14 @@ _PREFIX: Final = bytes((
     *(21, 1, 1, 0),
 ))
 # a nested program edits across trees, reenters the tokenizer and incremental parser, or runs a program of its own
-_BODIES: Final = (
+_BODIES: Final[tuple[bytes, ...]] = (
     bytes((*(6, 1, 0, 0), *(4, 6, 1, 0), *(7, 7, 0, 0))),
     bytes((*(21, 0, 0, 0), *(21, 0, 2, 0), *(21, 1, 0, 2))),
     bytes((*(18, 0, 0, 2), *(7, 7, 0, 0), *(8, 6, 0, 0))),
 )
 # step every walker, mutate the observed trees, deliver every observer, then dispatch the tokenizer into a program
 # that feeds and resets it
-_TRAILER: Final = bytes((
+_TRAILER: Final[bytes] = bytes((
     *(byte for slot in range(_SLOTS) for byte in (14, slot, slot, slot)),
     *(22, 0, 0, 1),
     *(5, 6, 2, 0),
@@ -638,7 +638,7 @@ _TRAILER: Final = bytes((
 ))
 
 
-__all__: Final = [
+__all__: Final[list[str]] = [
     "LifecycleStep",
     "UnsupportedDomLifecycleError",
     "dom_lifecycle_check",

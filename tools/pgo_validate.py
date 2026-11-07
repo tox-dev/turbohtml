@@ -36,9 +36,13 @@ from pgo_corpus import real_pages
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_ROOT: Final = Path(__file__).resolve().parent.parent
-_HELD_OUT_PAGES: Final = ("aclu", "citylab-1", "archive-of-our-own")  # in neither the training corpus nor the bench
-_HOT_OPERATIONS: Final = (
+_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
+_HELD_OUT_PAGES: Final[tuple[str, ...]] = (
+    "aclu",
+    "citylab-1",
+    "archive-of-our-own",
+)  # in neither the training corpus nor the bench
+_HOT_OPERATIONS: Final[tuple[str, ...]] = (
     "parse", "tokenize", "serialize", "find", "select",
     "text-content", "minify", "links-extract", "article", "sanitize",
 )  # fmt: skip

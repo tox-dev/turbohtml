@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import lxml_html_clean
 from lxml import html
@@ -12,7 +12,7 @@ from bench.timing import Mutating
 if TYPE_CHECKING:
     from lxml.html import HtmlElement
 
-REQUIREMENTS = ("lxml-html-clean>=0.4.5", "lxml>=6.1.1")
+REQUIREMENTS: Final[tuple[str, ...]] = ("lxml-html-clean>=0.4.5", "lxml>=6.1.1")
 
 _CLEANER = lxml_html_clean.Cleaner()
 

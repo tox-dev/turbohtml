@@ -14,11 +14,12 @@ from __future__ import annotations
 import subprocess
 import sys
 from pathlib import Path
+from typing import Final
 
-_ROOT = Path(__file__).resolve().parent.parent
-BUILD = _ROOT / "build" / "clang-tidy"
+_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
+BUILD: Final[Path] = _ROOT / "build" / "clang-tidy"
 # meson compiles these units only with -Dfuzzing=true, so only that build's compile database lists them
-_FUZZING_SOURCES = frozenset({"src/turbohtml/_c/core/fuzzing.c"})
+_FUZZING_SOURCES: Final[frozenset[str]] = frozenset({"src/turbohtml/_c/core/fuzzing.c"})
 
 
 def main(argv: list[str]) -> int:

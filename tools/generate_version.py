@@ -19,8 +19,8 @@ from pathlib import Path
 from typing import Final
 
 # tools/ lives next to src/, so the project root is one level up from this file.
-_ROOT = Path(__file__).resolve().parent.parent
-_VERSION_FILE = Path("src/turbohtml/_version.py")
+_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
+_VERSION_FILE: Final[Path] = Path("src/turbohtml/_version.py")
 # Used only before the first release tag exists, so dev builds still get a PEP 440 version.
 _FALLBACK: Final[str] = "0.0.0"
 

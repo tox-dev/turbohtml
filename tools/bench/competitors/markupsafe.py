@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import functools
-from typing import cast
+from typing import Final, cast
 
 import markupsafe
 
-REQUIREMENTS = ("markupsafe>=3",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("markupsafe>=3",)
 
 _TEMPLATE = markupsafe.Markup("<li>{}</li><span>{}</span>")
 _JOINER = markupsafe.Markup(", ")

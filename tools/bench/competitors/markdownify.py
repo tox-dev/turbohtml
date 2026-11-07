@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import markdownify
 
-REQUIREMENTS = ("markdownify>=0.13",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("markdownify>=0.13",)
 
 
 def markdown(case: tuple[str, str]) -> None:

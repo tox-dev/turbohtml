@@ -35,11 +35,11 @@ from wpt_tree_corpus import load_wpt_html_tree
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-_TOOLS: Final = Path(__file__).resolve().parent
-_ROOT: Final = _TOOLS.parent
-_BENCH_DATA: Final = _TOOLS / "bench-data"
-_ENCODING_SAMPLES: Final = _ROOT / "tests" / "html5lib-tests" / "encoding"
-_SLICE: Final = 1 << 16  # 64 kB of book text: enough work per call without a multi-megabyte parse in the profile
+_TOOLS: Final[Path] = Path(__file__).resolve().parent
+_ROOT: Final[Path] = _TOOLS.parent
+_BENCH_DATA: Final[Path] = _TOOLS / "bench-data"
+_ENCODING_SAMPLES: Final[Path] = _ROOT / "tests" / "html5lib-tests" / "encoding"
+_SLICE: Final[int] = 1 << 16  # 64 kB of book text: enough work per call without a multi-megabyte parse in the profile
 
 
 def _safe(load: Callable[[], list[object]]) -> list[object]:
@@ -66,7 +66,12 @@ def _tag_soup() -> tuple[str, ...]:
     return tuple(buckets)
 
 
-_TRAINING_PAGES: Final = ("bbc-1", "blogger", "buzzfeed-1", "aktualne")  # disjoint from the bench and held-out pages
+_TRAINING_PAGES: Final[tuple[str, ...]] = (
+    "bbc-1",
+    "blogger",
+    "buzzfeed-1",
+    "aktualne",
+)  # disjoint from the bench and held-out pages
 
 
 def real_pages(names: tuple[str, ...]) -> list[str]:
@@ -188,7 +193,7 @@ def _scripts() -> list[object]:
     return [path.read_text(encoding="utf-8") for path in files if path.exists()]
 
 
-_HTML_DOCUMENT_OPS: Final = frozenset({
+_HTML_DOCUMENT_OPS: Final[frozenset[str]] = frozenset({
     "parse", "parse-shadow", "tokenize", "sax", "treebuild", "rewrite", "fragment", "serialize", "minify", "htmlparser",
     "path", "path-xpath", "find", "select", "select-has", "match", "find-text", "text-content", "conformance",
     "edit", "class-edit", "strip-remove", "strip-tags", "set-html", "set-text", "observe", "navigate", "chain",

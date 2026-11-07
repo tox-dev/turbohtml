@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Final
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-REQUIREMENTS = ()
+REQUIREMENTS: Final[tuple[()]] = ()
 
 
 def escape(text: str) -> None:

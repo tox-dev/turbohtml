@@ -1593,10 +1593,10 @@ _SAMPLES: Final[dict[str, tuple[bytes, int, str]]] = {
     "x-user-defined": (b"\x80", 63360, "https://encoding.spec.whatwg.org/#x-user-defined-decoder"),
 }
 
-_PROFILES: Final = _profiles()
-_PRODUCTIONS: Final = _productions()
-_ORIGINS: Final = {production.name: production.origin for production in _PRODUCTIONS}
-_GRAMMAR: Final = compile_grammar(_PRODUCTIONS, "encoded", materialize=_materialize)
+_PROFILES: Final[dict[str, EncodingProfile]] = _profiles()
+_PRODUCTIONS: Final[tuple[Production, ...]] = _productions()
+_ORIGINS: Final[dict[str, str]] = {production.name: production.origin for production in _PRODUCTIONS}
+_GRAMMAR: Final[Grammar] = compile_grammar(_PRODUCTIONS, "encoded", materialize=_materialize)
 
 __all__ = [
     "EncodingProfile",

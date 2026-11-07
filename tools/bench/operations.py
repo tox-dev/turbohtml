@@ -23,9 +23,9 @@ from . import corpus
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_ROWS = (("100 rows", 100), ("1k rows", 1_000), ("10k rows", 10_000))
+_ROWS: Final[tuple[tuple[str, int], ...]] = (("100 rows", 100), ("1k rows", 1_000), ("10k rows", 10_000))
 
-_SOCIAL_HEAD = dedent("""\
+_SOCIAL_HEAD: Final[str] = dedent("""\
     <head>
       <meta property="og:title" content="Widget">
       <meta property="og:type" content="product">
@@ -35,7 +35,7 @@ _SOCIAL_HEAD = dedent("""\
       <meta name="twitter:site" content="@x">
     </head>""")
 
-_STRUCTURED_PAGE = dedent("""\
+_STRUCTURED_PAGE: Final[str] = dedent("""\
     <head>
       <meta property="og:title" content="Widget">
       <meta property="og:type" content="product">
@@ -59,7 +59,7 @@ _STRUCTURED_PAGE = dedent("""\
     </body>""")
 
 _MICRODATA_REFS: Final[str] = " ".join(f"r{index}" for index in range(1_000))
-_MICRODATA_ITEMREF: Final = (
+_MICRODATA_ITEMREF: Final[str] = (
     '<div itemscope itemref="'
     + _MICRODATA_REFS
     + '"></div>'
@@ -67,7 +67,7 @@ _MICRODATA_ITEMREF: Final = (
     + "".join(f"<meta id=r{index} itemprop=p content=x>" for index in range(1_000))
 )
 
-_FEED_ITEM = dedent("""\
+_FEED_ITEM: Final[str] = dedent("""\
     <item>
       <title>Release {index}: what changed</title>
       <link>https://blog.example/posts/{index}</link>
@@ -79,7 +79,7 @@ _FEED_ITEM = dedent("""\
     </item>
 """)
 
-_FEED_XML = (
+_FEED_XML: Final[str] = (
     '<?xml version="1.0" encoding="utf-8"?>\n'
     '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"'
     ' xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>\n'
@@ -103,7 +103,7 @@ _XML_ITEM: Final[str] = (
 
 # A well-formed namespaced catalog both parse_xml and lxml.etree accept: 400 records with
 # prefixes, attributes, entities and CDATA, sized to clear the CodSpeed heap-jitter floor.
-_XML_DOC = (
+_XML_DOC: Final[str] = (
     '<?xml version="1.0" encoding="UTF-8"?>\n'
     "<!-- generated catalog -->\n"
     '<catalog xmlns="urn:example:catalog">'
@@ -125,7 +125,7 @@ _SHADOW_CARD: Final[str] = (
 
 # A document of declarative shadow hosts: 200 web-component cards whose <template shadowrootmode> attaches an open
 # shadow root (with slots and the delegatesfocus/clonable flags) to each host, sized to clear the CodSpeed jitter floor.
-_SHADOW_DOC = (
+_SHADOW_DOC: Final[str] = (
     "<!doctype html><html><head><title>Component gallery</title></head><body><main>"
     + "".join(_SHADOW_CARD.format(index=index) for index in range(200))
     + "</main></body></html>"
@@ -141,7 +141,7 @@ _VALIDATE_RECORD: Final[str] = (
     "<tags><tag>alpha</tag><tag>beta</tag></tags>"
     "</record>"
 )
-_VALIDATE_DOC = (
+_VALIDATE_DOC: Final[str] = (
     '<?xml version="1.0"?>'
     '<catalog xmlns="urn:example:records">'
     + "".join(_VALIDATE_RECORD.format(index=index) for index in range(400))
@@ -163,7 +163,7 @@ _VALIDATE_XSD: Final[str] = (
     "</xs:complexType></xs:element>"
     "</xs:sequence></xs:complexType></xs:element></xs:schema>"
 )
-_VALIDATE_GLOBAL_XSD: Final = (
+_VALIDATE_GLOBAL_XSD: Final[str] = (
     '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
     + "".join(f'<xs:element name="element{index}" type="xs:string"/>' for index in range(512))
     + "".join(
@@ -192,13 +192,13 @@ _VALIDATE_RNG: Final[str] = (
     "</element></define>"
     "</grammar>"
 )
-_COMPILE_RNG: Final = (
+_COMPILE_RNG: Final[str] = (
     '<grammar xmlns="http://relaxng.org/ns/structure/1.0"><start><ref name="target"/></start>'
     + "".join(f'<define name="definition{index}"><empty/></define>' for index in range(1_023))
     + '<define name="target"><element name="target"><text/></element></define></grammar>'
 )
 
-_SANITIZE_TEMPLATES = dedent("""\
+_SANITIZE_TEMPLATES: Final[str] = dedent("""\
     <article class=card>
       <h1>{{ post.title }}</h1>
       <p data-id="${post.id}">By {{ author.name }} on <% post.date %> in {{ post.section }}.</p>
@@ -209,7 +209,7 @@ _SANITIZE_TEMPLATES = dedent("""\
     </article>
 """)
 
-_SANITIZE_POST = dedent("""\
+_SANITIZE_POST: Final[str] = dedent("""\
     <div class=post>
       <h1>Title</h1>
       <p>Some <a href='http://example.com'>link</a> and <b>bold</b> text with
@@ -219,7 +219,7 @@ _SANITIZE_POST = dedent("""\
 
 # dense in the deprecated presentational tags a transform map renames (b/i/center/font/tt/big/strike), so the walk hits
 # the rename + attribute-injection path on most elements rather than passing them through unchanged
-_SANITIZE_LEGACY = dedent("""\
+_SANITIZE_LEGACY: Final[str] = dedent("""\
     <center><font size=4><b>Heading</b></font></center>
     <p><i>Intro</i> with <tt>inline code</tt>, <strike>struck</strike>, and <big>emphatic</big> text.</p>
     <blockquote><b>Quote</b> from <i>an author</i> with a <font color=red>colored</font> aside.</blockquote>
@@ -227,7 +227,7 @@ _SANITIZE_LEGACY = dedent("""\
 
 # dense in id/name attributes whose values collide with document/form properties (DOM clobbering), so the named-prop
 # isolation prefixes most attributes rather than skipping past a value it never touches
-_SANITIZE_NAMED = dedent("""\
+_SANITIZE_NAMED: Final[str] = dedent("""\
     <form name="config" id="settings">
       <input name="attributes" id="body"><input name="method" id="location">
       <input name="submit" id="cookie"><input name="nodeName" id="documentElement">
@@ -237,7 +237,7 @@ _SANITIZE_NAMED = dedent("""\
 
 # dense in an app's own x-* custom elements and data-* attributes, so the custom-element matcher and attribute matcher
 # run on most elements rather than short-circuiting on a policy that keeps only the standard allowlist
-_SANITIZE_CUSTOM = dedent("""\
+_SANITIZE_CUSTOM: Final[str] = dedent("""\
     <x-shell data-theme="dark">
       <x-card data-id="1" onclick="steal()"><b>Title</b> and <x-badge data-kind="new">new</x-badge></x-card>
       <x-card data-id="2"><a href="javascript:evil()">bad</a> then <x-rating data-stars="4">****</x-rating> ok.</x-card>
@@ -246,7 +246,7 @@ _SANITIZE_CUSTOM = dedent("""\
 
 # rich in style attributes with a mix of pattern-matching and rejected values, so the allowed_styles scrub does real
 # per-declaration regex work rather than short-circuiting on an empty rule
-_SANITIZE_STYLES = dedent("""\
+_SANITIZE_STYLES: Final[str] = dedent("""\
     <div style="color: #ff0000; text-align: center; position: fixed">
       <p style="color: rgb(1, 2, 3); font-size: 40px">Styled
         <span style="text-align: left; color: green">inline</span> text.</p>
@@ -666,9 +666,9 @@ def _deep_tree(depth: int, leaves: int) -> str:
     return f"<!doctype html><html><body>{(spine + '</div>' * depth)}</body></html>"
 
 
-_FRAGMENT_HTML = "<tr><td>cell</td><td><a href='/x'>link</a></td></tr>" * 40
+_FRAGMENT_HTML: Final[str] = "<tr><td>cell</td><td><a href='/x'>link</a></td></tr>" * 40
 
-_MARKUP_ESCAPE_CASES = (
+_MARKUP_ESCAPE_CASES: Final[tuple[tuple[str, str], ...]] = (
     ("clean (8 B)", "a value!"),
     ("clean (32 B)", "The quick brown fox jumped ok"),
     ("clean (256 B)", "The quick brown fox jumps over the lazy dog. " * 6),
@@ -679,8 +679,8 @@ _MARKUP_ESCAPE_CASES = (
 _MARKUP_OPS_HTML: Final[str] = (
     "<p>Hello <b>bold</b> &amp; <i>italic</i>, see <a href='/x'>caf&eacute;</a> &#127881;</p>"
 )
-_MARKUP_FORMAT_ARGS = ("<script>alert(1)</script>", "Tom & Jerry")
-_MARKUP_JOIN_PARTS = ("<a href='/x'>link</a>", "Tom & Jerry", "<b>bold</b>", "plain text")
+_MARKUP_FORMAT_ARGS: Final[tuple[str, ...]] = ("<script>alert(1)</script>", "Tom & Jerry")
+_MARKUP_JOIN_PARTS: Final[tuple[str, ...]] = ("<a href='/x'>link</a>", "Tom & Jerry", "<b>bold</b>", "plain text")
 
 _LINKIFY_CASES = (
     ("comment (1 link, 1 email)", "Ping me at bob@example.com or see https://example.com for details."),
@@ -768,21 +768,23 @@ _FIND_COLD_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
     ("find_all limit=1", ("limit", f"<a>x</a>{_FIND_COLD_BODY}")),
 )
 
-_MARKDOWN_ARTICLE = "<h2>Heading</h2><p>A <b>bold</b> <a href='/x'>link</a> and <code>code</code>.</p>" * 18
-_MARKDOWN_LIST = "<ul><li>item <em>one</em></li><li>item two<ul><li>nested</li></ul></li></ul>" * 40
-_MARKDOWN_TABLE = "<table><tr><th>Name</th><th>Value</th></tr><tr><td>a</td><td>1</td></tr></table>" * 35
-_MARKDOWN_CONFIGURED = (
+_MARKDOWN_ARTICLE: Final[str] = "<h2>Heading</h2><p>A <b>bold</b> <a href='/x'>link</a> and <code>code</code>.</p>" * 18
+_MARKDOWN_LIST: Final[str] = "<ul><li>item <em>one</em></li><li>item two<ul><li>nested</li></ul></li></ul>" * 40
+_MARKDOWN_TABLE: Final[str] = "<table><tr><th>Name</th><th>Value</th></tr><tr><td>a</td><td>1</td></tr></table>" * 35
+_MARKDOWN_CONFIGURED: Final[str] = (
     "<h2>H</h2><p>A <b>b</b> & <a href='/x'>l</a>.</p>"
     "<table><tr><th>K</th><th>V</th></tr><tr><td>a</td><td>1</td></tr></table>"
 ) * 18
-_MARKDOWN_GOOGLE = (
+_MARKDOWN_GOOGLE: Final[str] = (
     '<p><span style="font-weight:700">Bold</span> and <span style="font-style:italic">italic</span> and '
     "<span style=\"font-family:'Courier New'\">code()</span> in a line.</p>"
 ) * 18
 
-_TEXT_ARTICLE = "<h2>Heading</h2><p>A paragraph of plain prose with a <a href='/x'>link</a> in it.</p>" * 16
-_TEXT_TABLE = "<table><tr><th>Region</th><th>Total</th></tr><tr><td>North</td><td>120</td></tr></table>" * 30
-_TEXT_MAIN = (
+_TEXT_ARTICLE: Final[str] = "<h2>Heading</h2><p>A paragraph of plain prose with a <a href='/x'>link</a> in it.</p>" * 16
+_TEXT_TABLE: Final[str] = (
+    "<table><tr><th>Region</th><th>Total</th></tr><tr><td>North</td><td>120</td></tr></table>" * 30
+)
+_TEXT_MAIN: Final[str] = (
     "<html><head><title>Comets</title></head><body>"
     "<nav><a href='/'>Home</a> <a href='/science'>Science</a></nav>"
     "<article><h1>Comets</h1>"
@@ -792,7 +794,7 @@ _TEXT_MAIN = (
     )
     + "</article><footer><p>Copyright notice, all rights reserved here.</p></footer></body></html>"
 )
-_TEXT_ANNOTATED = "<h1>Q3</h1><p>Up <b>12%</b> with a <a href='/x'>link</a> in prose.</p>" * 16
+_TEXT_ANNOTATED: Final[str] = "<h1>Q3</h1><p>Up <b>12%</b> with a <a href='/x'>link</a> in prose.</p>" * 16
 
 _URL_HINT_HTML: Final[str] = (
     "<html><head><base href='/sub/'>"
@@ -800,7 +802,7 @@ _URL_HINT_HTML: Final[str] = (
     "<title>Doc</title></head><body><p>Body copy.</p></body></html>"
 )
 
-_TRANSLATE_CASES = (
+_TRANSLATE_CASES: Final[tuple[tuple[str, str], ...]] = (
     ("type", "div"),
     ("compound", "div.item a[href^='https']"),
     ("structural", "ul li:nth-child(2n+1)"),
@@ -808,7 +810,7 @@ _TRANSLATE_CASES = (
     ("group", "h1, h2, h3, section .title"),
 )
 
-_XPATH_ID_DOC: Final = "".join(f"<i id=r{index}></i>" for index in range(5_000))
+_XPATH_ID_DOC: Final[str] = "".join(f"<i id=r{index}></i>" for index in range(5_000))
 
 
 def _table_html(data_rows: int) -> str:
@@ -907,7 +909,7 @@ _SPECIFICITY_STYLED_PAGES: Final = tuple(
 )
 
 
-_STYLE_SHEET = dedent("""\
+_STYLE_SHEET: Final[str] = dedent("""\
     body { color: #222; font-size: 16px; line-height: 1.5; margin: 0 }
     a { color: navy; text-decoration: underline }
     a:hover { color: teal }
@@ -1090,7 +1092,7 @@ def _xpath_cases() -> tuple[tuple[str, object], ...]:
     return structural + parity
 
 
-_XSLT_SOURCE = (
+_XSLT_SOURCE: Final[str] = (
     "<catalog>"
     + "".join(
         f'<book cat="c{index % 5}"><title>Book number {index}</title><price>{index % 97 + 0.99}</price></book>'
@@ -1271,7 +1273,7 @@ _XSLT_LATE_UNIT: Final[str] = (
     "<xsl:message>n{index}</xsl:message>"
     "<xsl:message>o{index}</xsl:message>"
 )
-_XSLT_DENSE_SHEET = (
+_XSLT_DENSE_SHEET: Final[str] = (
     '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
     '<xsl:output method="xml"/>'
     '<xsl:template match="/"><out><xsl:apply-templates select="catalog/book"/></out></xsl:template>'
@@ -1280,7 +1282,7 @@ _XSLT_DENSE_SHEET = (
     + "</row></xsl:template>"
     "</xsl:stylesheet>"
 )
-_XSLT_DENSE_SOURCE = (
+_XSLT_DENSE_SOURCE: Final[str] = (
     "<catalog>"
     + "".join(
         f'<book cat="c{index % 5}"><title>Book number {index}</title><price>{index % 97 + 0.99}</price></book>'
@@ -1543,14 +1545,14 @@ def _minify_js_cases() -> tuple[tuple[str, object], ...]:
     return tuple((name, corpus.large_text(filename, url)) for name, filename, url in corpus.JS_FILES)
 
 
-_URL_SHAPES = (
+_URL_SHAPES: Final[tuple[str, ...]] = (
     "https://www.example.org/dir/page-{index}.html",
     "HTTPS://EXAMPLE.ORG:443/dir/../page/{index}?utm_source=rss&utm_medium=email&id={index}",
     "https://example.org/de/beitrag-{index}?lang=de&page={index}#frag",
     " https://sub.example.org//double/{index}/&amp;x=1 ",
     "http://münchen.example/straße/{index}?b=2&a=1",
 )
-_URL_BATCH = tuple(shape.format(index=index) for index in range(20) for shape in _URL_SHAPES)
+_URL_BATCH: Final[tuple[str, ...]] = tuple(shape.format(index=index) for index in range(20) for shape in _URL_SHAPES)
 _IDNA_URLS: Final[tuple[str, ...]] = tuple(f"https://münchen-{index}.example/" for index in range(4100))
 # The münchen workload repeats one host, so every lookup walks the same rows. These labels spread the searches across
 # ranges a single Latin-1 vowel does not reach: Latin Extended, Greek (with the final sigma the mapping rewrites),
@@ -1582,7 +1584,7 @@ _IDNA_LABELS: Final[tuple[str, ...]] = (
 _IDNA_VARIED_URLS: Final[tuple[str, ...]] = tuple(
     f"https://{_IDNA_LABELS[index % len(_IDNA_LABELS)]}-{index}.example/" for index in range(4100)
 )
-_EXTERNAL_LINKS_HTML: Final = "".join(
+_EXTERNAL_LINKS_HTML: Final[str] = "".join(
     f'<a href="https://{host}/post/{index}">link</a>'
     for index in range(300)
     for host in (f"news-{index}.example.co.uk", f"tenant-{index}.github.io", f"bucket-{index}.s3.amazonaws.com")

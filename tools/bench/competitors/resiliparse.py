@@ -19,7 +19,7 @@ from bench.timing import Mutating
 if TYPE_CHECKING:
     from resiliparse.parse.html import DocumentNode
 
-REQUIREMENTS = ("resiliparse>=1.0.8",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("resiliparse>=1.0.8",)
 
 _LINKS_BASE: Final[str] = "https://example.com/base/"  # the base turbohtml resolves relative hrefs against
 

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from boilerpy3 import extractors
 
-REQUIREMENTS = ("boilerpy3>=1.0.7",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("boilerpy3>=1.0.7",)
 
 _EXTRACTOR = extractors.ArticleExtractor(raise_on_failure=False)
 

@@ -203,27 +203,27 @@ _SCRIPT_DOUBLE_ESCAPE: Final = re.compile(r"<!--(?:(?!-->).)*?<script[\t\n\f />]
 # 1e-38), so a numeric rewrite may settle on the second pass:
 # https://github.com/servo/rust-cssparser/blob/106021c7bc55ed2cac83f590c0d356fa530b7061/fuzz/fuzz_targets/cssparser.rs
 _NUMBER: Final = re.compile(r"(?<![\w$#\\.])[+-]?(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(?:[eE][+-]?\d+)?n?")
-_JS_OFF: Final = JSMinify(mangle=False, fold=False)
+_JS_OFF: Final[JSMinify] = JSMinify(mangle=False, fold=False)
 # cap one case's input: generators stay under a few KiB, but a mutated .dat seed can grow, and to_markdown/to_text
 # amplify nested input about 100-240x (tox-dev/turbohtml#1028), so an input this long could print hundreds of MiB
-MAX_INPUT: Final = 64 * 1024
+MAX_INPUT: Final[int] = 64 * 1024
 # parse() allocates without bound on a selectedcontent nested in its own option (findings/01); the generators never
 # emit the tag, so skipping it keeps a machine-safe run while the defect is tracked on its own
 UNBOUNDED: Final = re.compile(r"selectedcontent", re.IGNORECASE)
-_HEADINGS: Final = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
+_HEADINGS: Final[frozenset[str]] = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
 _SELF_NESTING: Final[dict[str, frozenset[str]]] = {
     **{tag: frozenset({tag}) for tag in ("a", "nobr", "p", "button", "select", "form", "table", "option", "li")},
     **dict.fromkeys(("dd", "dt"), frozenset({"dd", "dt"})),
     **dict.fromkeys(_HEADINGS, _HEADINGS),
     **dict.fromkeys(("rb", "rt", "rp", "rtc"), frozenset({"rb", "rt", "rp", "rtc"})),
 }
-_MARKDOWN_BLOCKS: Final = frozenset({
+_MARKDOWN_BLOCKS: Final[frozenset[str]] = frozenset({
     "address", "article", "aside", "blockquote", "dd", "details", "div", "dl", "dt", "fieldset", "figure", "footer",
     "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section",
     "table", "ul",
 })  # fmt: skip
 # the elements whose Markdown form holds only inline content: phrasing elements and GFM table cells
-_MARKDOWN_HOSTS: Final = frozenset({
+_MARKDOWN_HOSTS: Final[frozenset[str]] = frozenset({
     "a", "abbr", "b", "bdi", "bdo", "cite", "code", "del", "dfn", "em", "i", "ins", "kbd", "mark", "q", "s", "samp",
     "small", "span", "strike", "strong", "sub", "sup", "td", "th", "u", "var",
 })  # fmt: skip
@@ -240,7 +240,7 @@ class _FaithfulMarkdown(MarkdownIt):
         return True
 
 
-_MARKDOWN: Final = _FaithfulMarkdown("gfm-like", {"linkify": False})
+_MARKDOWN: Final[_FaithfulMarkdown] = _FaithfulMarkdown("gfm-like", {"linkify": False})
 # markdown-it-py 4.2.0 strips a paragraph with str.strip (rules_block/paragraph.py), so a paragraph of only U+00A0
 # reads as an empty one, where CommonMark strips only spaces and tabs; an empty paragraph shows nothing either way
 _EMPTY_PARAGRAPH: Final = re.compile(r"<p></p>\n")
@@ -1146,7 +1146,9 @@ class JsNames:
         return self._process
 
 
-_OPTION_SETS: Final = tuple(JSMinify(mangle=mangle, fold=fold) for fold in (False, True) for mangle in (False, True))
+_OPTION_SETS: Final[tuple[JSMinify, ...]] = tuple(
+    JSMinify(mangle=mangle, fold=fold) for fold in (False, True) for mangle in (False, True)
+)
 
 
 def js_names_check(source: str, names: JsNames, minify: Callable[[str, JSMinify], str] = minify_js) -> str | None:
@@ -1250,8 +1252,8 @@ def _value_verdict(name: str, before: str, after: str) -> str | None:
     return None if want == got else "value changed"
 
 
-_INVALID: Final = ("invalid",)
-_SIDES: Final = ("top", "right", "bottom", "left")
+_INVALID: Final[tuple[str, ...]] = ("invalid",)
+_SIDES: Final[tuple[str, ...]] = ("top", "right", "bottom", "left")
 _VALUE_KIND: Final[dict[str, str]] = {
     **dict.fromkeys(
         ("color", "background-color", "outline-color", *(f"border-{side}-color" for side in _SIDES)), "color"
@@ -1277,7 +1279,7 @@ _VALUE_KIND: Final[dict[str, str]] = {
     "opacity": "alpha",
     "font-weight": "weight",
 }
-_LENGTH_UNITS: Final = frozenset({
+_LENGTH_UNITS: Final[frozenset[str]] = frozenset({
     "px", "em", "rem", "ex", "ch", "vw", "vh", "vmin", "vmax", "cm", "mm", "q", "in", "pt", "pc", "%",
 })  # fmt: skip
 _NUMERIC: Final = re.compile(r"([+-]?(?:\d+\.\d+|\d+|\.\d+)(?:[eE][+-]?\d+)?)([a-zA-Z]+|%)?")
@@ -1674,7 +1676,7 @@ def _js_fixpoint(text: str) -> str | None:
     return fixpoint_check(text, lambda source: minify_js(source, _JS_OFF), numeric=True)
 
 
-_JS_NAMES: Final = JsNames()
+_JS_NAMES: Final[JsNames] = JsNames()
 
 
 def _js_names(text: str) -> str | None:
@@ -1751,10 +1753,10 @@ def _mutate(rng: random.Random, text: str, tokens: Sequence[str]) -> str:
     return text
 
 
-_IDS: Final = ("x", "y", "z")
+_IDS: Final[tuple[str, ...]] = ("x", "y", "z")
 
 
-_HTML_TOKENS: Final = (
+_HTML_TOKENS: Final[tuple[str, ...]] = (
     "<p>", "</p>", "<b>", "</b>", "<table>", "<td>", "<svg>", "<math>", "<template>", "<script>", "</script>", "<!--",
     "-->", "<![CDATA[", "]]>", "<a href=x>", "</a>", "<select>", "<option>", "<br>", "</br>", "<image>", "&amp;",
     "&#x0;", "\r", "\n", "<!DOCTYPE html>", "<frameset>", "<plaintext>", "<textarea>", "<style>", "<noscript>",
@@ -1863,8 +1865,8 @@ _CSS_TOKENS: Final = (
     'url("x")', '"s\\"t"', "'q'", "\\", "\\61", "#fff", "0px", "1e3", "+.5", "-0", "calc(1px + 2px)", "var(--x)",
     "--x:", "a,b", ">", "+", "~", "*", "[x=y]", ":not(", ")", "::before", "@import", "@charset", "\n", " ", "%",
 )  # fmt: skip
-_SELECTOR_TAGS: Final = ("div", "p", "span", "a", "b", "i", "li", "ul", "section", "em")
-_PSEUDOS: Final = (
+_SELECTOR_TAGS: Final[tuple[str, ...]] = ("div", "p", "span", "a", "b", "i", "li", "ul", "section", "em")
+_PSEUDOS: Final[tuple[str, ...]] = (
     ":first-child", ":last-child", ":only-child", ":nth-child(2n+1)", ":nth-child(odd)", ":nth-child(even)",
     ":nth-last-child(-n+3)", ":nth-of-type(2)", ":first-of-type", ":last-of-type", ":empty", ":root", ":link",
     ":any-link", ":checked", ":disabled", ":enabled", ":lang(en)", ":nth-child(+0n+1)", ":nth-child(1 of .a)",
@@ -1934,8 +1936,15 @@ def _vocabulary_tree(rng: random.Random, budget: int = 25) -> str:
     return "".join(out)
 
 
-_LENGTHS: Final = (*_VALUE_SPELLINGS["0"], *_VALUE_SPELLINGS["1.5px"], *_VALUE_SPELLINGS["10px"], "2em", "5%", "auto")
-_COLORS: Final = (
+_LENGTHS: Final[tuple[str, ...]] = (
+    *_VALUE_SPELLINGS["0"],
+    *_VALUE_SPELLINGS["1.5px"],
+    *_VALUE_SPELLINGS["10px"],
+    "2em",
+    "5%",
+    "auto",
+)
+_COLORS: Final[tuple[str, ...]] = (
     *_VALUE_SPELLINGS["red"], *_VALUE_SPELLINGS["white"], *_VALUE_SPELLINGS["black"], *_VALUE_SPELLINGS["navy"],
     *_VALUE_SPELLINGS["transparent"], "currentcolor", "currentColor", "inherit",
 )  # fmt: skip
@@ -2054,7 +2063,7 @@ def _generate_selector_case(rng: random.Random) -> str:
     return json.dumps({"html": _root(rng) + _vocabulary_tree(rng), "css": _selector(rng)})
 
 
-_AXES: Final = (
+_AXES: Final[tuple[str, ...]] = (
     "child", "descendant", "descendant-or-self", "parent", "ancestor", "ancestor-or-self", "following-sibling",
     "preceding-sibling", "following", "preceding", "self", "attribute",
 )  # fmt: skip
@@ -2106,9 +2115,19 @@ def _path(rng: random.Random) -> str:
     )
 
 
-_JS_FREE: Final = ("console", "window", "Math", "JSON", "undefined", "NaN", "Infinity", "globalThis", "zz")
-_JS_BOUND: Final = ("a", "b", "c", "foo", "bar", "$", "_x", "\\u0061b", "of", "async", "yield", "let")
-_JS_STRINGS: Final = (
+_JS_FREE: Final[tuple[str, ...]] = (
+    "console",
+    "window",
+    "Math",
+    "JSON",
+    "undefined",
+    "NaN",
+    "Infinity",
+    "globalThis",
+    "zz",
+)
+_JS_BOUND: Final[tuple[str, ...]] = ("a", "b", "c", "foo", "bar", "$", "_x", "\\u0061b", "of", "async", "yield", "let")
+_JS_STRINGS: Final[tuple[str, ...]] = (
     "'a'", '"b"', "'it\\'s'", '"\\x41"', "'\\u{1F600}'", '"\\n"', "''", '"use strict"', "'\\0'", '"q\\\r\nr"',
     "'</script>'", '"\\u2028"', "'a\"b'", '"1"', "'if'",
 )  # fmt: skip

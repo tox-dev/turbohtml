@@ -150,7 +150,7 @@ def _expected(program: str, name: str) -> str:
 _Record: TypeAlias = tuple[
     str, int | None, tuple[int | None, ...], tuple[int | None, ...], int | None, int | None, str | None, str | None
 ]
-_PROGRAMS: Final = ("reuse1", "reuse2", "reuse3", "replace", "nested", "error")
+_PROGRAMS: Final[tuple[str, ...]] = ("reuse1", "reuse2", "reuse3", "replace", "nested", "error")
 
 
 __all__ = [

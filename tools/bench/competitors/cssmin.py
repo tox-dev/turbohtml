@@ -7,7 +7,7 @@ from typing import Final
 
 import cssmin
 
-REQUIREMENTS = ("cssmin>=0.2",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("cssmin>=0.2",)
 
 
 def minify_css(css: str) -> str:

@@ -22,7 +22,7 @@ from typing import Final, TypeAlias
 TableRule: TypeAlias = tuple[int, str, str]
 
 
-HTML_TAGS: Final = (
+HTML_TAGS: Final[tuple[str, ...]] = (
     "a",
     "abbr",
     "acronym",
@@ -5471,7 +5471,7 @@ COMMON_RULES: Final[tuple[TableRule, ...]] = (
     ),
 )
 
-SOURCE_URLS: Final = {
+SOURCE_URLS: Final[dict[str, str]] = {
     "html_tags.py": "https://github.com/googleprojectzero/domato/blob/fadff396cc45d521cc594d3e2396e27e887b1963/html_tags.py",
     "html.txt": "https://github.com/googleprojectzero/domato/blob/fadff396cc45d521cc594d3e2396e27e887b1963/rules/html.txt",
     "attributevalues.txt": "https://github.com/googleprojectzero/domato/blob/fadff396cc45d521cc594d3e2396e27e887b1963/rules/attributevalues.txt",

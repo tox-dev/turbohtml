@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import subprocess
+from typing import Final
 
-REQUIREMENTS = ()
+REQUIREMENTS: Final[tuple[()]] = ()
 
 
 def minify_js(source: str) -> str:

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import justext
 
-REQUIREMENTS = ("justext>=3.0",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("justext>=3.0",)
 
 _STOPLIST = justext.get_stoplist("English")
 

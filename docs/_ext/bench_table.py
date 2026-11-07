@@ -45,8 +45,8 @@ _MISSING_REASON: Final[str] = "no measurement recorded"
 # below a minimum span, so a near-parity row reads green throughout instead of stretching a few percent across the
 # whole ladder. A few percent of size is as telling as a multiple of time, so its minimum span is tighter; peak memory
 # spans multiples like time, so it shares time's wider span.
-_TIME_SPAN: Final = math.log(8.0)
-_MIN_SPAN: Final = {"size": math.log(1.10), "time": _TIME_SPAN, "memory": _TIME_SPAN}
+_TIME_SPAN: Final[float] = math.log(8.0)
+_MIN_SPAN: Final[dict[str, float]] = {"size": math.log(1.10), "time": _TIME_SPAN, "memory": _TIME_SPAN}
 
 # microseconds carry the micro sign the docs use throughout; the escape keeps the literal unambiguous
 _TIME_UNITS: Final = (("s", 1.0), ("ms", 1e-3), ("\u00b5s", 1e-6), ("ns", 1e-9))
@@ -55,7 +55,7 @@ _TIME_UNITS: Final = (("s", 1.0), ("ms", 1e-3), ("\u00b5s", 1e-6), ("ns", 1e-9))
 _RATIO_SPREAD_FLOOR: Final[float] = 0.005
 
 # every competitor header links to the project's home; a party absent here (the turbohtml columns) stays plain text
-_HOMEPAGES: Final = {
+_HOMEPAGES: Final[dict[str, str]] = {
     "airium": "https://pypi.org/project/airium/",
     "BeautifulSoup": "https://www.crummy.com/software/BeautifulSoup/",
     "bleach": "https://bleach.readthedocs.io/",

@@ -11,9 +11,9 @@ from selectolax.lexbor import LexborHTMLParser, LexborNode
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 
-REQUIREMENTS = ("selectolax>=0.4.10",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("selectolax>=0.4.10",)
 
-_STRIP_TAGS = ["code", "a", "q"]  # the bulk tag set turbohtml drops/unwraps, as a lexbor tag list
+_STRIP_TAGS: Final[list[str]] = ["code", "a", "q"]  # the bulk tag set turbohtml drops/unwraps, as a lexbor tag list
 _LINKS_BASE: Final[str] = "https://example.com/base/"  # the base turbohtml resolves relative hrefs against
 
 

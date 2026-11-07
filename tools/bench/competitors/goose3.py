@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from goose3 import Goose
 
-REQUIREMENTS = ("goose3>=3.1.19",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("goose3>=3.1.19",)
 
-_GOOSE = Goose({"enable_image_fetching": False})
+_GOOSE: Final[Goose] = Goose({"enable_image_fetching": False})
 
 
 def article(text: str) -> None:

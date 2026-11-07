@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from fast_html import li, render, ul
 
-REQUIREMENTS = ("fast-html>=1.0.12",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("fast-html>=1.0.12",)
 
 
 def build_e(count: int) -> None:

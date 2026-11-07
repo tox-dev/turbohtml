@@ -6,7 +6,7 @@ from typing import Final
 
 import nh3
 
-REQUIREMENTS = ("nh3>=0.3.6",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("nh3>=0.3.6",)
 
 
 def sanitize(text: str) -> None:

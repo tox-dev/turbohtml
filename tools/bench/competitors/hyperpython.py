@@ -9,10 +9,11 @@ Benchmarked only in a venv of its own: hyperpython pins ``markupsafe<2``, older 
 from __future__ import annotations
 
 import functools
+from typing import Final
 
 from hyperpython import li, ul  # ty: ignore[import-not-found]  # undeclared: pins an older markupsafe
 
-REQUIREMENTS = ("hyperpython>=1.1.1", "sidekick<0.7")
+REQUIREMENTS: Final[tuple[str, ...]] = ("hyperpython>=1.1.1", "sidekick<0.7")
 
 
 def build_e(count: int) -> None:

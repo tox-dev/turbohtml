@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import minify_html
 
-REQUIREMENTS = ("minify-html>=0.18.1",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("minify-html>=0.18.1",)
 
 
 def minify(text: str) -> str:

@@ -13,9 +13,9 @@ import subprocess
 from pathlib import Path
 from typing import Final
 
-REQUIREMENTS = ()
+REQUIREMENTS: Final[tuple[()]] = ()
 
-_RUNNER = str(Path(__file__).resolve().parent.parent / "node" / "parse5_runner.js")
+_RUNNER: Final[str] = str(Path(__file__).resolve().parent.parent / "node" / "parse5_runner.js")
 
 
 def parse_locations(text: str) -> str:
@@ -23,7 +23,7 @@ def parse_locations(text: str) -> str:
     return subprocess.run(["node", _RUNNER], input=text, capture_output=True, text=True, check=True).stdout
 
 
-_INNER_RUNNER: Final = str(Path(__file__).resolve().parent.parent / "node" / "inner_runner.js")
+_INNER_RUNNER: Final[str] = str(Path(__file__).resolve().parent.parent / "node" / "inner_runner.js")
 
 
 def _parse_inner(text: str) -> str:

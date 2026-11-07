@@ -8,7 +8,7 @@ from typing import Final
 import soupsieve
 from bs4 import BeautifulSoup
 
-REQUIREMENTS = ("soupsieve>=2.8.4", "beautifulsoup4>=4.15")
+REQUIREMENTS: Final[tuple[str, ...]] = ("soupsieve>=2.8.4", "beautifulsoup4>=4.15")
 
 _SELECT = soupsieve.compile("div a[href]")
 _HAS = soupsieve.compile("div:has(a)")

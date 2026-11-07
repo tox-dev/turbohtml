@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 from functools import cache
+from typing import Final
 
 import inscriptis
 from inscriptis.model.config import ParserConfig
 
-REQUIREMENTS = ("inscriptis>=2.5",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("inscriptis>=2.5",)
 
-_ANNOTATION_RULES = {"h1": ["heading"], "b": ["emphasis"], "a": ["link"]}
-_ANNOTATION_CONFIG = ParserConfig(annotation_rules=_ANNOTATION_RULES)
+_ANNOTATION_RULES: Final[dict[str, list[str]]] = {"h1": ["heading"], "b": ["emphasis"], "a": ["link"]}
+_ANNOTATION_CONFIG: Final[ParserConfig] = ParserConfig(annotation_rules=_ANNOTATION_RULES)
 
 
 def text_render(text: str) -> None:

@@ -66,7 +66,7 @@ _UNICODE_VERSION: Final[str] = "16.0.0"
 
 _UPSTREAM: Final[str] = f"https://raw.githubusercontent.com/google/libphonenumber/{LIBPHONENUMBER_TAG}"
 _UCD: Final[str] = f"https://www.unicode.org/Public/{_UNICODE_VERSION}/ucd"
-SOURCES: Final = {
+SOURCES: Final[dict[str, tuple[str, str]]] = {
     "PhoneNumberMetadata.xml": (
         f"{_UPSTREAM}/resources/PhoneNumberMetadata.xml",
         "505eb93659bb6cc7daff90576c1db3d7cfca6591b0038f2f3fcc187e7ea7ea35",
@@ -84,7 +84,7 @@ SOURCES: Final = {
 }
 
 # The type descriptions in libphonenumber's order; the bit of each is its index, generalDesc is bit 10.
-TYPES: Final = (
+TYPES: Final[tuple[str, ...]] = (
     "fixedLine",
     "mobile",
     "tollFree",
@@ -96,16 +96,16 @@ TYPES: Final = (
     "uan",
     "voicemail",
 )
-GENERAL_BIT: Final = 1 << len(TYPES)
+GENERAL_BIT: Final[int] = 1 << len(TYPES)
 MAX_NSN: Final[int] = 17
 MIN_NSN: Final[int] = 2
 _MAX_ROUTER_REPLAY: Final[int] = 8
 _MAX_FORMAT_GROUPS: Final[int] = 6
 _MAX_TEMPLATE_CHARS: Final[int] = 24
-MAX_TABLE_BYTES: Final = 400 * 1024
+MAX_TABLE_BYTES: Final[int] = 400 * 1024
 
 # Copied from PhoneNumberUtil.java at the pinned tag; ``check_java_constants`` proves each still occurs there verbatim.
-JAVA_CONSTANTS: Final = {
+JAVA_CONSTANTS: Final[dict[str, tuple[str, ...]]] = {
     "VALID_PUNCTUATION": (
         '"-x\\u2010-\\u2015\\u2212\\u30FC\\uFF0D-\\uFF0F "',
         '"\\u00A0\\u00AD\\u200B\\u2060\\u3000()\\uFF08\\uFF09\\uFF3B\\uFF3D.\\\\[\\\\]/~\\u2053\\u223C\\uFF5E"',
@@ -155,7 +155,7 @@ _PARSING_EXTENSION_FORMS: Final = (
 )
 
 # Words that mark the digit run right after them as an identifier, not a phone number; sorted, lowercase, ASCII.
-DEFAULT_LABELS: Final = (
+DEFAULT_LABELS: Final[tuple[str, ...]] = (
     "account",
     "acct",
     "asin",
@@ -180,7 +180,7 @@ DEFAULT_LABELS: Final = (
 )
 
 # The six Java UnicodeBlocks PhoneNumberMatcher.isLatinLetter names, by their Blocks.txt names.
-_LATIN_BLOCKS: Final = (
+_LATIN_BLOCKS: Final[tuple[str, ...]] = (
     "Basic Latin",
     "Latin-1 Supplement",
     "Latin Extended-A",

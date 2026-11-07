@@ -49,7 +49,7 @@ from typing import Final, TypeAlias
 
 CssRow: TypeAlias = tuple[str, int, str, str, str, int, int, int, int, int, bool]
 
-SOURCE_URLS: Final = {
+SOURCE_URLS: Final[dict[str, str]] = {
     "css.txt": "https://github.com/googleprojectzero/domato/blob/fadff396cc45d521cc594d3e2396e27e887b1963/css.txt",
     "cssproperties.txt": (
         "https://github.com/googleprojectzero/domato/blob/fadff396cc45d521cc594d3e2396e27e887b1963/cssproperties.txt"

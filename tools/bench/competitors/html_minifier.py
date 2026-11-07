@@ -8,8 +8,9 @@ quotes); inline CSS/JS is left untouched so the size comparison stays like-for-l
 from __future__ import annotations
 
 import subprocess
+from typing import Final
 
-REQUIREMENTS = ()
+REQUIREMENTS: Final[tuple[()]] = ()
 
 
 def minify(text: str) -> str:

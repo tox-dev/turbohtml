@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import functools
+from typing import Final
 
 import htpy
 
-REQUIREMENTS = ("htpy>=26.5.1",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("htpy>=26.5.1",)
 
 
 def build_e(count: int) -> None:

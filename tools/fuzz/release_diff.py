@@ -53,7 +53,7 @@ _SOURCES: Final[dict[str, str]] = {
     "css_to_xpath": "selector-entry",
     "xpath": "xpath-entry",
 }
-_FLOOR: Final = Floor(count=200, ratio=0.9)
+_FLOOR: Final[Floor] = Floor(count=200, ratio=0.9)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

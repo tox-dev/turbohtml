@@ -140,7 +140,7 @@ class Verdict:
     leaked: bool
 
 
-__all__: Final = [
+__all__: Final[list[str]] = [
     "ESCAPES",
     "Attempt",
     "Verdict",

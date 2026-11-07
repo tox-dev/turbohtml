@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 
 # the javascript target checks the minifier against acorn and eslint-scope running in Node, which the OSS-Fuzz runner
 # image does not carry; build.sh fuzzes the same engine through the native js_minify harness instead
-_NEEDS_NODE: Final = frozenset({"javascript"})
-_ROOT: Final = Path(__file__).resolve().parents[2]
+_NEEDS_NODE: Final[frozenset[str]] = frozenset({"javascript"})
+_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
 
 def main(argv: Sequence[str] | None = None) -> int:

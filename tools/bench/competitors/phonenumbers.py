@@ -7,9 +7,9 @@ from typing import Final
 import phonenumbers
 from phonenumbers import Leniency, PhoneNumberFormat, PhoneNumberMatcher
 
-REQUIREMENTS = ("phonenumbers>=9.0.38",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("phonenumbers>=9.0.38",)
 
-_LENIENCY: Final = {"valid": Leniency.VALID, "possible": Leniency.POSSIBLE}
+_LENIENCY: Final[dict[str, int]] = {"valid": Leniency.VALID, "possible": Leniency.POSSIBLE}
 
 
 def phone(case: tuple[str, str]) -> None:
@@ -46,7 +46,7 @@ def phone_construct(held: tuple[tuple[str, str], ...]) -> bool:
     return matches
 
 
-_STYLES: Final = {
+_STYLES: Final[dict[str, int]] = {
     "e164": PhoneNumberFormat.E164,
     "international": PhoneNumberFormat.INTERNATIONAL,
     "national": PhoneNumberFormat.NATIONAL,

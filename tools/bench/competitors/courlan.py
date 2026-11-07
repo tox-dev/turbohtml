@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import courlan
 
-REQUIREMENTS = ("courlan>=1.4",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("courlan>=1.4",)
 
 
 def urls_clean(case: tuple[str, tuple[str, ...]]) -> None:

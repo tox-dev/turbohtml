@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 from typing import Final
 
-_ROOT: Final = Path(__file__).resolve().parent.parent
+_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 
 
 def _install(python: str, build_dir: Path, root: Path, phase: str, *, system: bool) -> None:

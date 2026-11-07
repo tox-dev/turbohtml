@@ -158,7 +158,7 @@ _PREFIX: Final[Parts] = (
     Identifier(name="anim", definition=True),
     b"{from{opacity:0}}",
 )
-_GRAMMAR: Final = css_grammar()
+_GRAMMAR: Final[Grammar] = css_grammar()
 
 __all__ = [
     "css_generate",

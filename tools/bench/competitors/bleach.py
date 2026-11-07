@@ -6,7 +6,7 @@ from typing import Final
 
 import bleach
 
-REQUIREMENTS = ("bleach>=6.4",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("bleach>=6.4",)
 
 
 def sanitize(text: str) -> None:

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
 _FIELD_SIZE: Final[int] = 4
-HEADER_SIZE: Final = 3 * _FIELD_SIZE
+HEADER_SIZE: Final[int] = 3 * _FIELD_SIZE
 
 
 def split_header(data: bytes) -> tuple[Header, bytes]:
@@ -63,9 +63,9 @@ class Header(NamedTuple):
 
 # libxml2's seed generator writes options 0, no failure and a 256-byte push chunk
 # (https://github.com/GNOME/libxml2/blob/c43dc98d27ac315a48d93dbd399c6c22cf7125b1/fuzz/genSeed.c#L133-L141).
-SEED_HEADER: Final = Header(0, 0, 256).encode()
+SEED_HEADER: Final[bytes] = Header(0, 0, 256).encode()
 # One unit per feed cuts inside every multibyte sequence.
-BYTEWISE: Final = Header(0, 0, 1)
+BYTEWISE: Final[Header] = Header(0, 0, 1)
 
 __all__ = [
     "BYTEWISE",

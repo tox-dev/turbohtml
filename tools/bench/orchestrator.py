@@ -23,9 +23,9 @@ import pgo_build
 
 from . import corpus, operations, report
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-_TOOLS_DIR = Path(__file__).resolve().parents[1]
-_COMPETITOR_DIR = Path(__file__).resolve().parent / "competitors"
+REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
+_TOOLS_DIR: Final[Path] = Path(__file__).resolve().parents[1]
+_COMPETITOR_DIR: Final[Path] = Path(__file__).resolve().parent / "competitors"
 _COMPETITOR_TIMEOUT: Final[float] = (
     5400.0  # seconds for one competitor's whole operation; generous so a slow library that reparses
 )
@@ -61,7 +61,7 @@ def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, 
     return found
 
 
-_COMPETITORS = _discover()
+_COMPETITORS: Final[dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]]] = _discover()
 
 
 def run(command: str, pyperf_args: tuple[str, ...], *, pgo: bool) -> None:

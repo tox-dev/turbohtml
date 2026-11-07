@@ -27,10 +27,10 @@ from bench.operations import OPERATIONS, SIZE_OPS
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-_SIZE_OPS: Final = SIZE_OPS
+_SIZE_OPS: Final[frozenset[str]] = SIZE_OPS
 # a memory op leads with peak resident bytes, so its rows are two cells wide like a size op's
-_MEMORY_OPS: Final = frozenset({"find-cold", "parse-dense", "rewrite"})
-_WIDE_OPS: Final = _SIZE_OPS | _MEMORY_OPS
+_MEMORY_OPS: Final[frozenset[str]] = frozenset({"find-cold", "parse-dense", "rewrite"})
+_WIDE_OPS: Final[frozenset[str]] = _SIZE_OPS | _MEMORY_OPS
 
 # Why a variant repeats the sibling's figure when the library is measured in more than one configuration: the
 # operation runs the same code whichever one is chosen, so benchmarking it twice would publish a duplicate column.
@@ -39,7 +39,7 @@ _SHARED_WITH_OTHER_VARIANT: Final[str] = "same in both configurations, so measur
 # A competitor module's stem maps to its migration page's slug by turning ``_`` into ``-``; these libraries
 # name the two differently, so the map pins them. A stem with no ``docs/migration/<slug>.rst`` is skipped, so
 # columns that only appear inside another library's table (cchardet, cssmin, css_html_js_minify) fall out.
-_SLUG_OVERRIDES: Final = {
+_SLUG_OVERRIDES: Final[dict[str, str]] = {
     "beautifulsoup4": "beautifulsoup",
     # the two tree-builder backends share one migration page, so a reader sees what the choice costs
     "beautifulsoup4_lxml": "beautifulsoup",

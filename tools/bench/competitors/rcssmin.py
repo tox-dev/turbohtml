@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import rcssmin
 
-REQUIREMENTS = ("rcssmin>=1.2",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("rcssmin>=1.2",)
 
 
 def minify_css(css: str) -> str:

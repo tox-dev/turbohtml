@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import io
+from typing import Final
 
 import pandas as pd
 
-REQUIREMENTS = ("pandas>=2.2", "lxml>=6.1.1")
+REQUIREMENTS: Final[tuple[str, ...]] = ("pandas>=2.2", "lxml>=6.1.1")
 
 
 def tables(case: tuple[str, str]) -> None:

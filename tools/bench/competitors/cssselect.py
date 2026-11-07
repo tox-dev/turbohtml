@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from cssselect import HTMLTranslator, parse
 
-REQUIREMENTS = ("cssselect>=1.4",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("cssselect>=1.4",)
 
-_TRANSLATOR = HTMLTranslator()
+_TRANSLATOR: Final[HTMLTranslator] = HTMLTranslator()
 
 
 def translate(selector: str) -> None:

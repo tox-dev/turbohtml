@@ -15,11 +15,11 @@ from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 
 # UnicodeDammit only sniffs when an optional detector backend is installed. Without one it answers windows-1252 for
 # every high-byte stream and utf-8 for Shift_JIS, which is fast and wrong; chardet is the backend bs4 documents first.
-REQUIREMENTS = ("beautifulsoup4[chardet]>=4.15",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("beautifulsoup4[chardet]>=4.15",)
 
 _FIND_TEXT_PATTERN = re.compile(r"test")
 _SET_HTML: Final[str] = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
-_STRIP = ("code", "a", "q")
+_STRIP: Final[tuple[str, ...]] = ("code", "a", "q")
 _LINKS_BASE: Final[str] = "https://example.com/base/"
 
 

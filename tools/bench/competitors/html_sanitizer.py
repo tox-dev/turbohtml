@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import html_sanitizer
 
-REQUIREMENTS = ("html-sanitizer>=2.6",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("html-sanitizer>=2.6",)
 
 _SANITIZER = html_sanitizer.Sanitizer()
 

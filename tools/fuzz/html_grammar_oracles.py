@@ -104,10 +104,10 @@ def _snapshot(root: Element) -> str:
 
 
 _CASE: Final = re.compile(r"(span|em|code):(title|data-x):(single|double|bare):([1-4]):(empty|plain|named|numeric)")
-_TAGS: Final = ("span", "em", "code")
-_ATTRIBUTES: Final = ("title", "data-x")
-_QUOTES: Final = {"single": "'", "double": '"', "bare": ""}
-_LEAVES: Final = {
+_TAGS: Final[tuple[str, ...]] = ("span", "em", "code")
+_ATTRIBUTES: Final[tuple[str, ...]] = ("title", "data-x")
+_QUOTES: Final[dict[str, str]] = {"single": "'", "double": '"', "bare": ""}
+_LEAVES: Final[dict[str, tuple[str, str, str, str]]] = {
     "empty": ("", "", "Token", "Token"),
     "plain": ("MiXeD", "MiXeD", "Token", "Token"),
     "named": ("&amp;&lt;&gt;", "&<>", "&quot;&apos;&amp;", "\"'&"),

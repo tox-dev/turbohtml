@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import functools
+from typing import Final
 
 from simple_html import Node, li, render, ul
 
-REQUIREMENTS = ("simple-html>=3.1.1",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("simple-html>=3.1.1",)
 
 
 def build_e(count: int) -> None:

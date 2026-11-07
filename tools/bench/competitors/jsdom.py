@@ -6,9 +6,9 @@ import subprocess
 from pathlib import Path
 from typing import Final
 
-REQUIREMENTS = ()
+REQUIREMENTS: Final[tuple[()]] = ()
 
-_INNER_RUNNER: Final = str(Path(__file__).resolve().parent.parent / "node" / "inner_runner.js")
+_INNER_RUNNER: Final[str] = str(Path(__file__).resolve().parent.parent / "node" / "inner_runner.js")
 
 
 def _parse_inner(text: str) -> str:

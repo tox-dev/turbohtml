@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import htmldate
 
-REQUIREMENTS = ("htmldate>=1.10",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("htmldate>=1.10",)
 
 
 def date(text: str) -> None:

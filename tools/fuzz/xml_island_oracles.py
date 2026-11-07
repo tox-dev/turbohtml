@@ -111,9 +111,17 @@ def _serialize(root: Node, serialize: Callable[[Node], str] | None) -> str:
 
 
 _CASE: Final = re.compile(r"(inside|outside):(plain|markup|lines):(plain|markup|lines):([1-3])")
-_MODES: Final = ("inside", "outside")
-_COMMENTS: Final = {"plain": ("note", "note"), "markup": ("<x> &amp;", "<x> &amp;"), "lines": ("a\r\nb\rc", "a\nb\nc")}
-_CDATA: Final = {"plain": ("Value", "Value"), "markup": ("<x>&amp;", "<x>&amp;"), "lines": ("a\r\nb\rc", "a\nb\nc")}
+_MODES: Final[tuple[str, ...]] = ("inside", "outside")
+_COMMENTS: Final[dict[str, tuple[str, str]]] = {
+    "plain": ("note", "note"),
+    "markup": ("<x> &amp;", "<x> &amp;"),
+    "lines": ("a\r\nb\rc", "a\nb\nc"),
+}
+_CDATA: Final[dict[str, tuple[str, str]]] = {
+    "plain": ("Value", "Value"),
+    "markup": ("<x>&amp;", "<x>&amp;"),
+    "lines": ("a\r\nb\rc", "a\nb\nc"),
+}
 
 __all__ = [
     "UnsupportedXmlIslandCaseError",

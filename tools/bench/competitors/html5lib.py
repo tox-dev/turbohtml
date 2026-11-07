@@ -14,11 +14,13 @@ if TYPE_CHECKING:
 
 import html5lib
 
-REQUIREMENTS = ("html5lib>=1.1",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("html5lib>=1.1",)
 
 _WALKER = html5lib.getTreeWalker("etree")
-_SERIALIZER: Final = HTMLSerializer(omit_optional_tags=False, quote_attr_values="always")
-_MINIFIER: Final = HTMLSerializer(strip_whitespace=True, omit_optional_tags=True, quote_attr_values="spec")
+_SERIALIZER: Final[HTMLSerializer] = HTMLSerializer(omit_optional_tags=False, quote_attr_values="always")
+_MINIFIER: Final[HTMLSerializer] = HTMLSerializer(
+    strip_whitespace=True, omit_optional_tags=True, quote_attr_values="spec"
+)
 
 
 def parse(text: str) -> None:

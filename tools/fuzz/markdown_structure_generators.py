@@ -658,7 +658,7 @@ _GFM: Final[str] = "https://github.github.com/gfm/"
 _MARKDOWN_READER_SOURCE: Final[str] = (
     "https://github.com/executablebooks/markdown-it-py/tree/36c5f547144df2d01970a5792d68c71a3380b227"
 )
-_MARKDOWN_RULES: Final = (
+_MARKDOWN_RULES: Final[tuple[str, ...]] = (
     "table",
     "code",
     "fence",
@@ -711,8 +711,8 @@ _HTML: Final = (
     ("break", "<p>x<br>y</p>", 4, 1),
     ("special", "<p>*x* [y] &amp; é漢</p>", 2, 1),
 )
-_FLOW_INLINE: Final = frozenset({"#text", "a", "em", "strong", "s", "img", "br", "code"})
-_INLINE_HOSTS: Final = frozenset({
+_FLOW_INLINE: Final[frozenset[str]] = frozenset({"#text", "a", "em", "strong", "s", "img", "br", "code"})
+_INLINE_HOSTS: Final[frozenset[str]] = frozenset({
     "p",
     "li",
     "td",
@@ -732,9 +732,9 @@ _INLINE_HOSTS: Final = frozenset({
     "h5",
     "h6",
 })
-_INLINE_TEXT: Final = frozenset({"a", "em", "strong", "b", "i", "s", "del", "span"})
-_LITERAL_INLINE: Final = _INLINE_TEXT | {"code", "img"}
-_ALLOWED: Final = _INLINE_HOSTS | {
+_INLINE_TEXT: Final[frozenset[str]] = frozenset({"a", "em", "strong", "b", "i", "s", "del", "span"})
+_LITERAL_INLINE: Final[frozenset[str]] = _INLINE_TEXT | {"code", "img"}
+_ALLOWED: Final[frozenset[str]] = _INLINE_HOSTS | {
     "div",
     "hr",
     "pre",
@@ -751,12 +751,12 @@ _ALLOWED: Final = _INLINE_HOSTS | {
 }
 # CommonMark and GFM write none of these without content: emphasis and code spans need a character (6.1, 6.2), a
 # paragraph a non-blank line (4.8), a list an item (5.3) and a table a header cell (GFM 4.10)
-_CONTENT_REQUIRED: Final = frozenset({"p", "strong", "em", "s", "code", "ul", "ol", "table", "tr"})
-_EMPHASIS: Final = frozenset({"strong", "em", "s"})
+_CONTENT_REQUIRED: Final[frozenset[str]] = frozenset({"p", "strong", "em", "s", "code", "ul", "ol", "table", "tr"})
+_EMPHASIS: Final[frozenset[str]] = frozenset({"strong", "em", "s"})
 _BOUNDARY: Final[_Meaning] = ("#block", (), ())
-_HEADINGS: Final = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
+_HEADINGS: Final[frozenset[str]] = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
 # WHATWG Rendering 15.3.1 draws none of these; script and style hold code in every namespace
-_HIDDEN: Final = frozenset({
+_HIDDEN: Final[frozenset[str]] = frozenset({
     "area",
     "base",
     "basefont",
@@ -782,9 +782,9 @@ _CONTENT_MODEL: Final[dict[str, frozenset[str]]] = {
     "tbody": frozenset({"tr", "script"}),
     "tr": frozenset({"td", "th", "script"}),
 }
-_READER: Final = _FaithfulMarkdown("gfm-like", {"linkify": False}, renderer_cls=_FaithfulAltRenderer)
-_RAW_GRAMMAR: Final = _raw_grammar()
-_HTML_GRAMMAR: Final = _html_grammar()
+_READER: Final[_FaithfulMarkdown] = _FaithfulMarkdown("gfm-like", {"linkify": False}, renderer_cls=_FaithfulAltRenderer)
+_RAW_GRAMMAR: Final[Grammar] = _raw_grammar()
+_HTML_GRAMMAR: Final[Grammar] = _html_grammar()
 
 __all__ = [
     "MarkdownProfileError",

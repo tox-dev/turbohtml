@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 _MAX_BYTES: Final[int] = 1024
 _MAX_NODES: Final[int] = 16
-_TAGS: Final = ("p", "span", "section", "div")
+_TAGS: Final[tuple[str, ...]] = ("p", "span", "section", "div")
 
 
 def dom_program_generate(rng: random.Random) -> str:
@@ -190,7 +190,7 @@ def dom_program_seeds() -> list[str]:
     ]
 
 
-__all__: Final = [
+__all__: Final[list[str]] = [
     "UnsupportedDomProgramError",
     "dom_program_check",
     "dom_program_controls",

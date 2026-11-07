@@ -41,7 +41,7 @@ def public_modules(package: str) -> tuple[str, ...]:
     )
 
 
-MODULES: Final = public_modules("turbohtml")
+MODULES: Final[tuple[str, ...]] = public_modules("turbohtml")
 
 
 def main(argv: Sequence[str] | None = None) -> int:

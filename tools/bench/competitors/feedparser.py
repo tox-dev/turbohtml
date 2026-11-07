@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import feedparser
 
-REQUIREMENTS = ("feedparser>=6.0",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("feedparser>=6.0",)
 
 
 def syndication(text: str) -> None:

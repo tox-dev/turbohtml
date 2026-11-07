@@ -6,7 +6,7 @@ from typing import Final
 
 import chardet
 
-REQUIREMENTS = ("chardet>=5.2",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("chardet>=5.2",)
 
 
 def encoding(data: bytes) -> None:

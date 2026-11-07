@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import html_text
 
-REQUIREMENTS = ("html-text>=0.6",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("html-text>=0.6",)
 
 
 def text_render(text: str) -> None:

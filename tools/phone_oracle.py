@@ -16,7 +16,7 @@ from typing import Final, TypeAlias
 import phonenumbers
 from phonenumbers import PhoneNumberFormat, PhoneNumberMatcher
 
-CONTEXTS: Final = (
+CONTEXTS: Final[tuple[str, ...]] = (
     "{}",
     "call {} now",
     "Tel: {}.",
@@ -33,11 +33,11 @@ CONTEXTS: Final = (
     "{0}/{0}",
 )
 # the extension digits the renderings append; the oracle's dot rule reads them as a number of their own
-_EXTENSION_DIGITS: Final = frozenset({"123", "4567", "89"})
+_EXTENSION_DIGITS: Final[frozenset[str]] = frozenset({"123", "4567", "89"})
 _CARD: Final = re.compile(r"4111 1111 1111 1111")
 _SLASH_DATE: Final = re.compile(r"(?:[0-3]?\d/[01]?\d|[01]?\d/[0-3]?\d)/(?:[12]\d)?\d{2}")
-_FULLWIDTH: Final = str.maketrans(string.digits, "".join(chr(0xFF10 + value) for value in range(10)))
-_ARABIC_INDIC: Final = str.maketrans(string.digits, "".join(chr(0x660 + value) for value in range(10)))
+_FULLWIDTH: Final[dict[int, int]] = str.maketrans(string.digits, "".join(chr(0xFF10 + value) for value in range(10)))
+_ARABIC_INDIC: Final[dict[int, int]] = str.maketrans(string.digits, "".join(chr(0x660 + value) for value in range(10)))
 
 Found: TypeAlias = set[tuple[int, int, str, str]]
 

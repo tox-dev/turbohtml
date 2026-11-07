@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from charset_normalizer import from_bytes
 
-REQUIREMENTS = ("charset-normalizer>=3.4",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("charset-normalizer>=3.4",)
 
 
 def encoding(data: bytes) -> None:

@@ -10,9 +10,9 @@ from langdetect.detector_factory import PROFILES_DIRECTORY
 if TYPE_CHECKING:
     from langdetect.language import Language
 
-REQUIREMENTS = ("langdetect>=1.0.9",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("langdetect>=1.0.9",)
 
-_FACTORY: Final = DetectorFactory()
+_FACTORY: Final[DetectorFactory] = DetectorFactory()
 _FACTORY.load_profile(PROFILES_DIRECTORY)
 _FACTORY.set_seed(0)
 

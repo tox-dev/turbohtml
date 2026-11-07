@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Final
 
-REQUIREMENTS = ()
+REQUIREMENTS: Final[tuple[()]] = ()
 
-_RUNNER = str(Path(__file__).resolve().parent.parent / "node" / "sanitize_html_runner.js")
+_RUNNER: Final[str] = str(Path(__file__).resolve().parent.parent / "node" / "sanitize_html_runner.js")
 
 
 def sanitize_transform(text: str) -> str:

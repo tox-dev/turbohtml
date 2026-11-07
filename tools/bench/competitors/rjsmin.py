@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import rjsmin
 
-REQUIREMENTS = ("rjsmin>=1.2",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("rjsmin>=1.2",)
 
 
 def minify_js(source: str) -> str:

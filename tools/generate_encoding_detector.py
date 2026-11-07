@@ -29,11 +29,11 @@ from typing import Final
 _CLASS_TABLE_LEN: Final[int] = 128
 
 # The 16-bit CJK frequency tables, kept apart from the 8-bit single-byte tables.
-_U16_FIELDS = ("frequent_simplified", "frequent_kanji", "frequent_hangul")
+_U16_FIELDS: Final[tuple[str, ...]] = ("frequent_simplified", "frequent_kanji", "frequent_hangul")
 
 # The WHATWG/Python codec label each chardetng Encoding maps to, keyed by the
 # chardetng ``*_INIT`` static name. The detector never returns one outside this map.
-_ENCODING_LABEL = {
+_ENCODING_LABEL: Final[dict[str, str]] = {
     "WINDOWS_1258_INIT": "windows-1258",
     "WINDOWS_1250_INIT": "windows-1250",
     "ISO_8859_2_INIT": "iso-8859-2",

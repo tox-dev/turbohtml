@@ -18,13 +18,13 @@ import sys
 from pathlib import Path
 from typing import Final
 
-_TAG_HASH_COEFFICIENTS: Final = (845, 797, 163, 777)
+_TAG_HASH_COEFFICIENTS: Final[tuple[int, ...]] = (845, 797, 163, 777)
 _TAG_HASH_MASK: Final[int] = 1023
 
 # Element categories the tree-construction algorithm tests against, in the HTML
 # namespace. The foreign-content insertion mode handles MathML/SVG scoping
 # markers separately.
-SPECIAL = frozenset([
+SPECIAL: Final[frozenset[str]] = frozenset([
     "address",
     "applet",
     "area",
@@ -112,7 +112,7 @@ SPECIAL = frozenset([
     "wbr",
     "xmp",
 ])
-_FORMATTING = frozenset([
+_FORMATTING: Final[frozenset[str]] = frozenset([
     "a",
     "b",
     "big",
@@ -130,14 +130,25 @@ _FORMATTING = frozenset([
 ])
 # Elements that form a scope boundary (the "default" scope marker set; select
 # joined it with the customizable-select parsing change).
-_SCOPING = frozenset(["applet", "caption", "html", "marquee", "object", "select", "table", "td", "th", "template"])
+_SCOPING: Final[frozenset[str]] = frozenset([
+    "applet",
+    "caption",
+    "html",
+    "marquee",
+    "object",
+    "select",
+    "table",
+    "td",
+    "th",
+    "template",
+])
 # Start tags that switch the tokenizer's content model (tree construction owns this).
-RAWTEXT = frozenset(["style", "xmp", "iframe", "noembed", "noframes", "noscript"])
-RCDATA = frozenset(["title", "textarea"])
+RAWTEXT: Final[frozenset[str]] = frozenset(["style", "xmp", "iframe", "noembed", "noframes", "noscript"])
+RCDATA: Final[frozenset[str]] = frozenset(["title", "textarea"])
 
 # MathML / SVG element names the foreign-content insertion mode special-cases
 # (text integration points, HTML integration points, name adjustments).
-_FOREIGN = frozenset([
+_FOREIGN: Final[frozenset[str]] = frozenset([
     "mi",
     "mo",
     "mn",
@@ -154,7 +165,7 @@ _FOREIGN = frozenset([
 
 # Extra commonly-seen names so frequent elements get a stable atom even when not
 # in a special category (keeps the intern hit-rate high for real documents).
-_EXTRA = frozenset([
+_EXTRA: Final[frozenset[str]] = frozenset([
     "abbr",
     "address",
     "b",
@@ -202,7 +213,7 @@ _EXTRA = frozenset([
     "svg",
 ])
 
-_CATEGORY_FLAGS = {
+_CATEGORY_FLAGS: Final[dict[str, frozenset[str]]] = {
     "TH_TAG_SPECIAL": SPECIAL,
     "TH_TAG_FORMATTING": _FORMATTING,
     "TH_TAG_SCOPING": _SCOPING,

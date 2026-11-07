@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from readability import Document
 
-REQUIREMENTS = ("readability-lxml>=0.8.1",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("readability-lxml>=0.8.1",)
 
 
 def article(text: str) -> None:

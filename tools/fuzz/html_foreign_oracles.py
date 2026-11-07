@@ -118,10 +118,10 @@ def _snapshot(root: Element) -> str:
 
 
 _CASE: Final = re.compile(r"(foreignObject|desc|title):(x|y):(single|double):(plain|named|numeric)")
-_BOUNDARIES: Final = ("foreignObject", "desc", "title")
-_IDENTIFIERS: Final = ("x", "y")
-_QUOTES: Final = {"single": "'", "double": '"'}
-_LEAVES: Final = {
+_BOUNDARIES: Final[tuple[str, ...]] = ("foreignObject", "desc", "title")
+_IDENTIFIERS: Final[tuple[str, ...]] = ("x", "y")
+_QUOTES: Final[dict[str, str]] = {"single": "'", "double": '"'}
+_LEAVES: Final[dict[str, tuple[str, str]]] = {
     "plain": ("MiXeD", "MiXeD"),
     "named": ("&amp;&lt;&gt;", "&<>"),
     "numeric": ("&#65;&#x42;&#67;", "ABC"),

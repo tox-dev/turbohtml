@@ -28,9 +28,16 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Final
 
-_MULTI_SCRIPTS = ("Latin", "Cyrillic", "Arabic", "Devanagari", "Hebrew")
-_PROFILE_STATICS = ("LATIN_LANGS", "CYRILLIC_LANGS", "ARABIC_LANGS", "DEVANAGARI_LANGS", "HEBREW_LANGS")
+_MULTI_SCRIPTS: Final[tuple[str, ...]] = ("Latin", "Cyrillic", "Arabic", "Devanagari", "Hebrew")
+_PROFILE_STATICS: Final[tuple[str, ...]] = (
+    "LATIN_LANGS",
+    "CYRILLIC_LANGS",
+    "ARABIC_LANGS",
+    "DEVANAGARI_LANGS",
+    "HEBREW_LANGS",
+)
 
 #: The parsed trigram model: per script static, an ordered list of (language, [code-point triples]).
 Profiles = dict[str, list[tuple[str, list[tuple[int, int, int]]]]]

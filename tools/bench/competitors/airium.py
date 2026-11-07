@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from airium import Airium
 
-REQUIREMENTS = ("airium>=0.2.7",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("airium>=0.2.7",)
 
 
 def build_e(count: int) -> None:

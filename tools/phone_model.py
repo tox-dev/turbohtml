@@ -22,16 +22,16 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 _MAX_LEAD_PUNCTUATION: Final[int] = 4
-_TYPE_UNKNOWN: Final = len(TYPES) + 1
+_TYPE_UNKNOWN: Final[int] = len(TYPES) + 1
 
 # libphonenumber's VALID_PUNCTUATION, the characters that may sit between digit groups, and its lead characters.
-_PUNCTUATION: Final = frozenset(
+_PUNCTUATION: Final[frozenset[str]] = frozenset(
     "-x\u2010\u2011\u2012\u2013\u2014\u2015\u2212\u30fc\uff0d\uff0e\uff0f \u00a0\u00ad\u200b\u2060\u3000()"
     "\uff08\uff09\uff3b\uff3d.[]/~\u2053\u223c\uff5e"
 )
-_PLUS: Final = frozenset("+\uff0b")
-_OPENERS: Final = frozenset("([\uff08\uff3b")
-_EXTENSION_MARKERS: Final = frozenset("xX\uff58#\uff03~\uff5e")
+_PLUS: Final[frozenset[str]] = frozenset("+\uff0b")
+_OPENERS: Final[frozenset[str]] = frozenset("([\uff08\uff3b")
+_EXTENSION_MARKERS: Final[frozenset[str]] = frozenset("xX\uff58#\uff03~\uff5e")
 
 # Java's \p{Z}: the space separators plus the line and paragraph separators.
 _SPACES: Final[str] = "\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000"
@@ -49,7 +49,7 @@ _INNER_MATCHES: Final = (
 
 # getNumberTypeHelper's precedence: the first matching type wins, fixedLine becomes FIXED_LINE_OR_MOBILE when mobile
 # also matches.
-_TYPE_PRECEDENCE: Final = (
+_TYPE_PRECEDENCE: Final[tuple[int, ...]] = (
     TYPES.index("premiumRate"),
     TYPES.index("tollFree"),
     TYPES.index("sharedCost"),
@@ -804,7 +804,7 @@ def _brackets_match(candidate: str) -> bool:
     )
 
 
-_HEX_DIGITS: Final = frozenset(string.hexdigits)
+_HEX_DIGITS: Final[frozenset[str]] = frozenset(string.hexdigits)
 
 
 def _is_ipv6_literal(chain: str) -> bool:

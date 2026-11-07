@@ -129,10 +129,10 @@ def _serialize(root: Node, serialize: Callable[[Node], str] | None) -> str:
 
 
 _CASE: Final = re.compile(r"(p|P):(Leaf|leaf):(single|double):([1-3]):(plain|escaped|literal|numeric)")
-_PREFIXES: Final = ("p", "P")
-_TAGS: Final = ("Leaf", "leaf")
-_QUOTES: Final = {"single": "'", "double": '"'}
-_LEAVES: Final = {
+_PREFIXES: Final[tuple[str, ...]] = ("p", "P")
+_TAGS: Final[tuple[str, ...]] = ("Leaf", "leaf")
+_QUOTES: Final[dict[str, str]] = {"single": "'", "double": '"'}
+_LEAVES: Final[dict[str, tuple[str, str, str, str]]] = {
     "plain": ("MiXeD", "MiXeD", "Value", "Value"),
     "escaped": ("&amp;&lt;&gt;", "&<>", "&quot;&apos;&amp;&lt;", "\"'&<"),
     "literal": ("a\tb\r\nc\rd", "a\tb\nc\nd", "a\tb\r\nc\rd", "a b c d"),

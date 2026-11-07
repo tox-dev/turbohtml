@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 DIGIT_SYMBOLS: Final[int] = 10
 _END: Final[int] = 10
-ALL_DIGITS: Final = (1 << DIGIT_SYMBOLS) - 1
+ALL_DIGITS: Final[int] = (1 << DIGIT_SYMBOLS) - 1
 
 CHAR: Final[int] = 0
 SPLIT: Final[int] = 1

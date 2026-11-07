@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import css_html_js_minify
 
-REQUIREMENTS = ("css-html-js-minify>=2.5",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("css-html-js-minify>=2.5",)
 
 
 def minify_css(css: str) -> str:

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import unicodedata
+from typing import Final
 
-REQUIREMENTS = ()
+REQUIREMENTS: Final[tuple[()]] = ()
 
 
 def normalize(text: str) -> None:

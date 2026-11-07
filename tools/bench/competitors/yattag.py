@@ -7,9 +7,11 @@ Loaded only inside its own worker venv, where yattag is guaranteed present; the 
 
 from __future__ import annotations
 
+from typing import Final
+
 from yattag import Doc
 
-REQUIREMENTS = ("yattag>=1.16.1",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("yattag>=1.16.1",)
 
 
 def build_e(count: int) -> None:

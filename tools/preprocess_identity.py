@@ -19,8 +19,8 @@ import tempfile
 from pathlib import Path
 from typing import Final
 
-_ROOT: Final = Path(__file__).resolve().parent.parent
-_BUILD: Final = _ROOT / "build" / "preprocess-identity"
+_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
+_BUILD: Final[Path] = _ROOT / "build" / "preprocess-identity"
 
 
 def main() -> int:

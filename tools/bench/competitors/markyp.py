@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import functools
+from typing import Final
 
 from markyp_html.lists import li, ul
 
-REQUIREMENTS = ("markyp-html>=0.2306.2",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("markyp-html>=0.2306.2",)
 
 
 def build_e(count: int) -> None:

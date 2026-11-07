@@ -25,7 +25,9 @@ from .operations import INPUTS
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-_TEXT_BYTES = 1 << 16  # a 64 kB slice of the book: representative work without a multi-megabyte parse under Valgrind
+_TEXT_BYTES: Final[int] = (
+    1 << 16
+)  # a 64 kB slice of the book: representative work without a multi-megabyte parse under Valgrind
 
 
 @cache
@@ -42,7 +44,7 @@ def _xpath_case() -> tuple[str, str]:
 
 # read-path, parse and tokenize all run over one shared real document (bench.core caches the parse), so they measure the
 # query, not a re-parse; xpath, the text corpora and the minifier corpora load their own real inputs.
-_DOCUMENT_OPS = (
+_DOCUMENT_OPS: Final[tuple[str, ...]] = (
     "parse",
     "tokenize",
     "find",

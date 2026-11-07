@@ -118,10 +118,10 @@ def _snapshot(root: Element) -> str:
 
 
 _CASE: Final = re.compile(r"(ul|ol):(flat|nested):(explicit|implied):(plain|named|numeric)")
-_TAGS: Final = ("ul", "ol")
-_SHAPES: Final = ("flat", "nested")
-_ENDINGS: Final = {"explicit": "</li>", "implied": ""}
-_LEAVES: Final = {
+_TAGS: Final[tuple[str, ...]] = ("ul", "ol")
+_SHAPES: Final[tuple[str, ...]] = ("flat", "nested")
+_ENDINGS: Final[dict[str, str]] = {"explicit": "</li>", "implied": ""}
+_LEAVES: Final[dict[str, tuple[str, str]]] = {
     "plain": ("MiXeD", "MiXeD"),
     "named": ("&amp;&lt;&gt;", "&<>"),
     "numeric": ("&#65;&#x42;&#67;", "ABC"),

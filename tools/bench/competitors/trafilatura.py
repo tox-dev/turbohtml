@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import trafilatura
 
-REQUIREMENTS = ("trafilatura>=1.12",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("trafilatura>=1.12",)
 
 
 def article(text: str) -> None:

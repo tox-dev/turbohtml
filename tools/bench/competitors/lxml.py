@@ -19,7 +19,10 @@ if TYPE_CHECKING:
 
     from lxml.html import HtmlElement
 
-REQUIREMENTS = ("lxml>=6.1.1", "cssselect>=1.2")  # cssselect backs lxml.html.cssselect() for the select/:has ops
+REQUIREMENTS: Final[tuple[str, ...]] = (
+    "lxml>=6.1.1",
+    "cssselect>=1.2",
+)  # cssselect backs lxml.html.cssselect() for the select/:has ops
 _SET_HTML: Final[str] = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
 _LINKS_BASE: Final[str] = "https://example.com/base/"
 
@@ -298,12 +301,12 @@ def getpath(text: str) -> None:
             root.getpath(element)
 
 
-_EXSLT_NS = {
+_EXSLT_NS: Final[dict[str, str]] = {
     "re": "http://exslt.org/regular-expressions",
     "set": "http://exslt.org/sets",
     "str": "http://exslt.org/strings",
 }
-_SVG_NS = {"svg": "http://www.w3.org/2000/svg"}
+_SVG_NS: Final[dict[str, str]] = {"svg": "http://www.w3.org/2000/svg"}
 
 
 def _count_ext(_context: object, nodes: list[object]) -> float:

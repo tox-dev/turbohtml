@@ -73,8 +73,8 @@ class UnsupportedCssCustomCaseError(ValueError):
 
 
 _CASE: Final = re.compile(r"(sheet|inline):(ident|string):([1-4]):([0-7])")
-_MODES: Final = ("sheet", "inline")
-_KINDS: Final = ("ident", "string")
+_MODES: Final[tuple[str, ...]] = ("sheet", "inline")
+_KINDS: Final[tuple[str, ...]] = ("ident", "string")
 
 __all__ = [
     "UnsupportedCssCustomCaseError",

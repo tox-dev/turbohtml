@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from opengraph_py3 import OpenGraph
 
-REQUIREMENTS = ("opengraph-py3>=0.71", "html5lib>=1.1")
+REQUIREMENTS: Final[tuple[str, ...]] = ("opengraph-py3>=0.71", "html5lib>=1.1")
 
 
 def socialcard(text: str) -> None:

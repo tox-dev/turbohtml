@@ -60,9 +60,9 @@ _DEPTH_CAP: Final[int] = 512
 _MIN_COMPARED_RATIO: Final[float] = 0.9
 _DOM_BUILDER: Final = html5lib.getTreeBuilder("dom")
 _NAMESPACE_PREFIX: Final[dict[str, str]] = {namespaces["svg"]: "svg", namespaces["mathml"]: "math"}
-_C0_OR_SPACE: Final = "".join(map(chr, range(0x21)))
+_C0_OR_SPACE: Final[str] = "".join(map(chr, range(0x21)))
 _SCHEME: Final = re.compile(r"([a-z][a-z0-9+.-]*):")
-_UNSAFE_HTML: Final = frozenset({
+_UNSAFE_HTML: Final[frozenset[str]] = frozenset({
     "script",
     "iframe",
     "embed",
@@ -77,8 +77,14 @@ _UNSAFE_HTML: Final = frozenset({
     "xmp",
     "template",
 })
-_SVG_ANIMATION: Final = frozenset({"animate", "animateColor", "animateMotion", "animateTransform", "set"})
-_URL_ATTRS: Final = frozenset({
+_SVG_ANIMATION: Final[frozenset[str]] = frozenset({
+    "animate",
+    "animateColor",
+    "animateMotion",
+    "animateTransform",
+    "set",
+})
+_URL_ATTRS: Final[frozenset[str]] = frozenset({
     "href",
     "src",
     "action",
@@ -92,7 +98,7 @@ _URL_ATTRS: Final = frozenset({
     "longdesc",
 })
 # the code points sanitize.c is_url_ignorable skips besides C0, space and DEL
-_URL_IGNORABLE: Final = frozenset("\u00ad\u200b\u200c\u200d\u2060\ufeff")
+_URL_IGNORABLE: Final[frozenset[str]] = frozenset("\u00ad\u200b\u200c\u200d\u2060\ufeff")
 
 
 def main() -> int:
@@ -330,7 +336,7 @@ def _element_violations(element: DomElement, policy: Policy) -> list[str]:
     return found
 
 
-_BASELINE_ELEMENTS: Final = frozenset({
+_BASELINE_ELEMENTS: Final[frozenset[tuple[str, str]]] = frozenset({
     *(("html", tag) for tag in _UNSAFE_HTML),
     *(("svg", tag) for tag in _SVG_ANIMATION),
     ("svg", "script"),
@@ -785,7 +791,17 @@ _HAZARD_ATTRS: Final = (
     "rel",
     "type",
 )
-_SCHEMES: Final = ("http", "https", "mailto", "data", "javascript", "vbscript", "ftp", "tel", "x-custom")
+_SCHEMES: Final[tuple[str, ...]] = (
+    "http",
+    "https",
+    "mailto",
+    "data",
+    "javascript",
+    "vbscript",
+    "ftp",
+    "tel",
+    "x-custom",
+)
 
 
 def _wpt_cases() -> Iterator[tuple[str, Policy]]:
@@ -1053,7 +1069,9 @@ def _insert(text: str, value: str, at: int) -> str:
     return value[:at] + text + value[at:]
 
 
-_FULLWIDTH: Final = {code: code + 0xFEE0 for code in range(ord("A"), ord("z") + 1) if chr(code).isalpha()}
+_FULLWIDTH: Final[dict[int, int]] = {
+    code: code + 0xFEE0 for code in range(ord("A"), ord("z") + 1) if chr(code).isalpha()
+}
 _OBFUSCATIONS: Final[tuple[tuple[str, Callable[[str, int], str]], ...]] = (
     ("plain", lambda value, _at: value),
     ("leading c0", lambda value, _at: f"\x01 \x1f{value}"),

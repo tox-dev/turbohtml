@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     from tinycss2.ast import Node
 
-_NODE_DIR: Final = Path(__file__).resolve().parents[1] / "bench" / "node"
+_NODE_DIR: Final[Path] = Path(__file__).resolve().parents[1] / "bench" / "node"
 
 
 def minimize(

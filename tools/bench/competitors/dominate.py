@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import functools
+from typing import Final
 
 from dominate import tags
 from dominate.util import escape as _escape
 from dominate.util import unescape as _unescape
 
-REQUIREMENTS = ("dominate>=2.9.1",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("dominate>=2.9.1",)
 
 
 def build_e(count: int) -> None:

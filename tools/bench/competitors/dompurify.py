@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import Final
 
-REQUIREMENTS = ()
+REQUIREMENTS: Final[tuple[()]] = ()
 
-_RUNNER = str(Path(__file__).resolve().parent.parent / "node" / "dompurify_runner.js")
+_RUNNER: Final[str] = str(Path(__file__).resolve().parent.parent / "node" / "dompurify_runner.js")
 
 
 def _run(mode: str, text: str) -> str:

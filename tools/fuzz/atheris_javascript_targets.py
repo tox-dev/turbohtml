@@ -12,8 +12,8 @@ from .round_trip_oracles import JsNames, OutOfScopeError, fixpoint_check, js_nam
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_NAMES: Final = JsNames()
-_STRICT: Final = JSMinify(mangle=False, fold=False)
+_NAMES: Final[JsNames] = JsNames()
+_STRICT: Final[JSMinify] = JSMinify(mangle=False, fold=False)
 
 
 def javascript_targets() -> tuple[Target, ...]:

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import functools
+from typing import Final
 
 from htbuilder import li, ul
 
-REQUIREMENTS = ("htbuilder>=0.9",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("htbuilder>=0.9",)
 
 
 def build_e(count: int) -> None:

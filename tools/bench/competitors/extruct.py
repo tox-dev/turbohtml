@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import extruct
 
-REQUIREMENTS = ("extruct>=0.18",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("extruct>=0.18",)
 
 
 def structured(text: str) -> None:

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import w3lib.html
 import w3lib.url
 
-REQUIREMENTS = ("w3lib>=2.4.1",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("w3lib>=2.4.1",)
 
 
 def unescape(text: str) -> None:

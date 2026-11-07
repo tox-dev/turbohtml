@@ -10,7 +10,7 @@ from pyquery import PyQuery
 
 from bench.timing import Mutating
 
-REQUIREMENTS = ("pyquery>=2.0.1",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("pyquery>=2.0.1",)
 _LINKS_BASE: Final[str] = "https://example.com/base/"
 
 

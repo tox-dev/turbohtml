@@ -541,13 +541,13 @@ def _attribute(name: str, value: str, index: int) -> tuple[tuple[bytes | Referen
     )
 
 
-_HTML_TAGS: Final = (
+_HTML_TAGS: Final[tuple[str, ...]] = (
     "div", "p", "span", "a", "b", "i", "em", "strong", "code", "pre", "ul", "ol", "li", "table", "tr", "td", "th",
     "h1", "h2", "blockquote", "section", "img", "br", "hr", "input", "label", "select", "option", "textarea", "svg",
     "math", "template", "del", "sup", "script", "style", "title", "dl", "dt", "dd", "caption", "button", "form",
 )  # fmt: skip
 
-_VOID: Final = frozenset({"img", "br", "hr", "input"})
+_VOID: Final[frozenset[str]] = frozenset({"img", "br", "hr", "input"})
 
 _HTML_TEXT: Final = (
     "x", "hello world", "*", "_", "#", "|", "[", "]", "(", ")", "\\", "`", "&amp;", "&lt;", "<", ">", "1.", "-", "+",
@@ -556,7 +556,7 @@ _HTML_TEXT: Final = (
 )  # fmt: skip
 
 
-_HTML_GRAMMAR: Final = html_grammar()
+_HTML_GRAMMAR: Final[Grammar] = html_grammar()
 
 __all__ = [
     "BudgetError",

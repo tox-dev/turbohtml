@@ -14,9 +14,9 @@ import random
 from pathlib import Path
 from typing import Final
 
-_TOOLS = Path(__file__).resolve().parent.parent
+_TOOLS: Final[Path] = Path(__file__).resolve().parent.parent
 
-_CORPUS_DIR = _TOOLS / "html5lib-python" / "benchmarks" / "data"
+_CORPUS_DIR: Final[Path] = _TOOLS / "html5lib-python" / "benchmarks" / "data"
 CORPUS_FILES: Final[tuple[tuple[str, str, str], ...]] = (
     ("wpt tiny (0.6 kB)", "wpt/weighted/toBlob.png.html", "utf-8"),
     ("wpt small (4 kB)", "wpt/weighted/align-content-wrap-002.html", "utf-8"),
@@ -36,7 +36,7 @@ def corpus_text(relative: str, encoding: str) -> str:
     return target.read_text(encoding=encoding, errors="replace")
 
 
-_LARGE_DIR = _TOOLS / ".bench_data"
+_LARGE_DIR: Final[Path] = _TOOLS / ".bench_data"
 LARGE_FILES: Final[tuple[tuple[str, str, str], ...]] = (
     (
         "ecmascript spec (3 MB)",
@@ -91,7 +91,7 @@ STYLESHEETS: Final[tuple[tuple[str, str, str], ...]] = (
 )
 
 
-_DATA_DIR = _TOOLS / "bench-data"
+_DATA_DIR: Final[Path] = _TOOLS / "bench-data"
 
 
 # Real-world un-minified JavaScript libraries for the minify suite, a size ladder every
@@ -105,28 +105,38 @@ JS_FILES: Final[tuple[tuple[str, str, str], ...]] = (
 )
 
 
-_ASCII_WORDS = (
+_ASCII_WORDS: Final[tuple[str, ...]] = (
     "the", "quick", "brown", "fox", "jumps", "over", "lazy", "dogs", "while", "zealous",
     "wizards", "vex", "sphinx", "judges", "of", "black", "quartz", "monoliths",
 )  # fmt: skip
 
 
-_UCS2_WORDS = (*_ASCII_WORDS, "résumé", "café", "naïve", "Москва", "über", "façade", "πλάτων", "Ω")
+_UCS2_WORDS: Final[tuple[str, ...]] = (
+    *_ASCII_WORDS,
+    "résumé",
+    "café",
+    "naïve",
+    "Москва",
+    "über",
+    "façade",
+    "πλάτων",
+    "Ω",
+)
 
 
-_UCS4_WORDS = (*_UCS2_WORDS, "😀", "🎉", "🚀", "🐍")
+_UCS4_WORDS: Final[tuple[str, ...]] = (*_UCS2_WORDS, "😀", "🎉", "🚀", "🐍")
 
 
 _TINY: Final[int] = 64
 
 
-_MEDIUM = 4 * 2**10
+_MEDIUM: Final[int] = 4 * 2**10
 
 
-_LARGE = 4 * 2**20
+_LARGE: Final[int] = 4 * 2**20
 
 
-_CHUNK = 64 * 2**10
+_CHUNK: Final[int] = 64 * 2**10
 
 
 def escape_cases() -> tuple[tuple[str, str], ...]:

@@ -56,7 +56,7 @@ _HANGUL_SBASE: Final[int] = 0xAC00
 _HANGUL_LCOUNT: Final[int] = 19
 _HANGUL_VCOUNT: Final[int] = 21
 _HANGUL_TCOUNT: Final[int] = 28
-_HANGUL_SCOUNT = _HANGUL_LCOUNT * _HANGUL_VCOUNT * _HANGUL_TCOUNT
+_HANGUL_SCOUNT: Final[int] = _HANGUL_LCOUNT * _HANGUL_VCOUNT * _HANGUL_TCOUNT
 
 
 def _fetch(url: str, expected_sha256: str) -> str:

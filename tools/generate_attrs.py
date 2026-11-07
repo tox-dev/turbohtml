@@ -19,11 +19,12 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Final
 
 # Attributes the HTML standard defines as space-separated token lists; these
 # surface in Element.attrs as a list[str]. Kept as a set so the generated header
 # can mark them and tree_type.c can switch on the atom instead of memcmp.
-_TOKEN_LIST = frozenset([
+_TOKEN_LIST: Final[frozenset[str]] = frozenset([
     "accept-charset",
     "accesskey",
     "archive",
@@ -39,7 +40,7 @@ _TOKEN_LIST = frozenset([
 # Common attribute names worth a stable compile-time atom: the token-list set
 # plus the names that drive selectors and real markup. Open-ended families
 # (data-*, aria-*) are left to the per-tree dynamic table.
-_COMMON = _TOKEN_LIST | frozenset([
+_COMMON: Final[frozenset[str]] = _TOKEN_LIST | frozenset([
     "action",
     "align",
     "alink",

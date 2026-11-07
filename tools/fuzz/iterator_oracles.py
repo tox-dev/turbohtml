@@ -107,7 +107,12 @@ def _expected(program: str, name: str) -> str:
     return json.dumps((*trace, f"<{name}>{children}</{name}>"))
 
 
-_PROGRAMS: Final = {"after": (4, 0, 3), "before": (4, 1, 3), "last": (5, 1, 4), "ancestor": (3, 0, 1)}
+_PROGRAMS: Final[dict[str, tuple[int, int, int]]] = {
+    "after": (4, 0, 3),
+    "before": (4, 1, 3),
+    "last": (5, 1, 4),
+    "ancestor": (3, 0, 1),
+}
 
 __all__ = [
     "UnsupportedIteratorCaseError",

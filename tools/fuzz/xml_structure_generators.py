@@ -339,7 +339,15 @@ def _rules() -> dict[str, _Rule]:
     return {rule.production.name: rule for rule in rules}
 
 
-_MISC: Final = (
+_MISC: Final[
+    tuple[
+        tuple[bytes, tuple[()]],
+        tuple[bytes, tuple[()]],
+        tuple[bytes, tuple[_Literal]],
+        tuple[bytes, tuple[_Literal]],
+        tuple[bytes, tuple[_Literal, _Literal]],
+    ]
+] = (
     (b"", ()),
     (b" \t\r\n", ()),
     (b"<!--before-->", (_Literal(kind="comment", data="before"),)),
@@ -458,8 +466,8 @@ _RAW: Final = (
     b"<Root a='x' a='y'/>",
     b"<Root><!--a--b--></Root>",
 )
-_RULES: Final = _rules()
-_GRAMMAR: Final = compile_grammar(tuple(rule.production for rule in _RULES.values()), "document")
+_RULES: Final[dict[str, _Rule]] = _rules()
+_GRAMMAR: Final[Grammar] = compile_grammar(tuple(rule.production for rule in _RULES.values()), "document")
 
 __all__ = [
     "XmlRecord",

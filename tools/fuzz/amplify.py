@@ -53,7 +53,7 @@ _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _C_SOURCES: Final[Path] = _ROOT / "src" / "turbohtml" / "_c"
 _REGRESSIONS: Final[Path] = Path(__file__).with_name("amplify_regressions.json")
 _INFLIGHT: Final[str] = "inflight.json"
-_KINDS: Final = ("repeat", "sandwich", "tree")
+_KINDS: Final[tuple[str, ...]] = ("repeat", "sandwich", "tree")
 _COUNTER: Final[str] = "{n}"
 # comrak quadratic.rs and pulldown-cmark's dos-fuzzer both cap each pattern string at 128 bytes
 _MAX_PIECE: Final[int] = 128
@@ -62,7 +62,7 @@ _BASE_BYTES: Final[int] = 1024
 # code points (16,384), CSS_MAX_MERGE_REACH merged rules (256). A 1 KiB to 8 KiB run can sit inside such a cap, so a
 # search hit is re-scored from 128 KiB, past 512 pieces of 128 bytes and 16,384 code points of 4 bytes; a slope gone
 # by then is a cap, counted but not reported.
-_PAST_CAPS: Final = 128 * 1024
+_PAST_CAPS: Final[int] = 128 * 1024
 # Doubling the input of a linear target doubles its time (growth 2) and of a quadratic one quadruples it (4). comrak
 # (https://github.com/kivikakk/comrak/blob/c8a2589fd3c085017724600c4e264639300ae905/fuzz/fuzz_targets/quadratic.rs#L322-L337)
 # applies its 2.5 to the time per byte, where a quadratic scores 2 and passes, so the 2.5 here applies to the time.
@@ -655,7 +655,7 @@ _TREE_XPATHS: Final = (
 )
 _XML_SOURCES: Final = ("tokenizer/xml.c", "tokenizer/xml_names.h", "dom/*")
 _HTML_SOURCES: Final = ("tokenizer/*", "dom/*", _TAG_TABLE, "data/attr_atom.h")
-_AMBIGUOUS_GRAMMAR: Final = RelaxNG(
+_AMBIGUOUS_GRAMMAR: Final[RelaxNG] = RelaxNG(
     '<element name="doc" xmlns="http://relaxng.org/ns/structure/1.0"><oneOrMore><choice>'
     '<element name="a"><empty/></element>'
     '<group><element name="a"><empty/></element><element name="a"><empty/></element></group>'
@@ -663,7 +663,7 @@ _AMBIGUOUS_GRAMMAR: Final = RelaxNG(
 )
 # an identity copy plus every element name sorted against document order, the worst case of the insertion sort #652
 # replaced
-_STYLESHEET: Final = Transform(
+_STYLESHEET: Final[Transform] = Transform(
     parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
         '<xsl:template match="/"><out><xsl:apply-templates/>'
@@ -678,7 +678,7 @@ _STYLESHEET: Final = Transform(
 # pages and tools/fuzz/corpus for the HTML targets (plus the linkify-it fixtures for linkify), normalize.css and pico
 # for CSS, underscore, backbone and tests/js/_corpus for JS, the libxslt test documents for XSLT and XPath, and every
 # harvested literal repeated to 8 KiB. The offsets cover the largest output of an input of at most 64 characters.
-_SERIALIZED: Final = Bound(
+_SERIALIZED: Final[Bound] = Bound(
     slope=6.0, offset=256
 )  # &quot; and &nbsp; turn one character into six; corpora peak 2.20, offset 230
 TARGETS: Final[dict[str, Target]] = {

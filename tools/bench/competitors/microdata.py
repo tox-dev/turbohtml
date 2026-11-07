@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import microdata
 
-REQUIREMENTS = ("microdata>=0.8",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("microdata>=0.8",)
 
 
 def microdata_items(text: str) -> None:

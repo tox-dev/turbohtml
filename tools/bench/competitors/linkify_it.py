@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from linkify_it import LinkifyIt
 
-REQUIREMENTS = ("linkify-it-py>=2.0.3",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("linkify-it-py>=2.0.3",)
 
-_LINKIFY = LinkifyIt()
+_LINKIFY: Final[LinkifyIt] = LinkifyIt()
 
 
 def detect(case: tuple[str, str]) -> None:

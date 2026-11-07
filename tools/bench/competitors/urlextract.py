@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from urlextract import URLExtract
 
-REQUIREMENTS = ("urlextract>=1.9",)
+REQUIREMENTS: Final[tuple[str, ...]] = ("urlextract>=1.9",)
 
-_EXTRACTOR = URLExtract(extract_email=True)
+_EXTRACTOR: Final[URLExtract] = URLExtract(extract_email=True)
 
 
 def detect(case: tuple[str, str]) -> None:

@@ -14,10 +14,10 @@ from parsel import Selector
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-REQUIREMENTS = ("parsel>=1.11", "cssselect>=1.2")
+REQUIREMENTS: Final[tuple[str, ...]] = ("parsel>=1.11", "cssselect>=1.2")
 
 _LINKS_BASE: Final[str] = "https://example.com/base/"  # the base turbohtml resolves relative hrefs against
-_TRANSLATOR = HTMLTranslator()
+_TRANSLATOR: Final[HTMLTranslator] = HTMLTranslator()
 
 
 @functools.cache
@@ -128,7 +128,7 @@ def _first_two_ext(_context: object, nodes: list[object]) -> list[object]:
     return nodes[:2]
 
 
-_SVG_NS = {"svg": "http://www.w3.org/2000/svg"}
+_SVG_NS: Final[dict[str, str]] = {"svg": "http://www.w3.org/2000/svg"}
 _COUNT_EXTENSIONS = {(None, "ext_count"): _count_ext}
 _NODESET_EXTENSIONS = {(None, "ext_first_two"): _first_two_ext}
 _PRECOMPILED: Final = _lxml_etree.XPath("//a[@href]")

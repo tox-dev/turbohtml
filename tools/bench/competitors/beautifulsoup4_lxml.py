@@ -13,7 +13,7 @@ from bs4.element import AttributeValueList, CData, NavigableString, Script, Styl
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 
-REQUIREMENTS = ("beautifulsoup4>=4.15", "lxml>=5.2", "soupsieve>=2.5")
+REQUIREMENTS: Final[tuple[str, ...]] = ("beautifulsoup4>=4.15", "lxml>=5.2", "soupsieve>=2.5")
 
 # Only the operations whose cost depends on the tree builder appear here. Building a tree through ``new_tag`` and
 # sniffing bytes through UnicodeDammit run the same code on either backend, so measuring them twice would add a
@@ -21,7 +21,7 @@ REQUIREMENTS = ("beautifulsoup4>=4.15", "lxml>=5.2", "soupsieve>=2.5")
 _BACKEND: Final[str] = "lxml"
 _FIND_TEXT_PATTERN = re.compile(r"test")
 _SET_HTML: Final[str] = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
-_STRIP = ("code", "a", "q")
+_STRIP: Final[tuple[str, ...]] = ("code", "a", "q")
 _LINKS_BASE: Final[str] = "https://example.com/base/"
 
 
