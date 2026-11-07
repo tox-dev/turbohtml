@@ -41,13 +41,6 @@ def tags(result: object) -> list[str]:
     return [node.tag for node in node_list(result) if isinstance(node, Element)]
 
 
-def one(node: turbohtml.Node, expr: str) -> Element:
-    # The single Element an expression is expected to select.
-    result = node.xpath_one(expr)
-    assert isinstance(result, Element)
-    return result
-
-
 @pytest.fixture
 def doc() -> turbohtml.Node:
     return turbohtml.parse(HTML)
@@ -99,17 +92,6 @@ def test_root_node(doc: turbohtml.Node) -> None:
     assert doc.xpath("/") == [doc]
 
 
-def _detached_tree(holder: str) -> tuple[turbohtml.Node, Element]:
-    top: turbohtml.Node = turbohtml.DocumentFragment() if holder == "fragment" else Element("div")
-    top.append(Element("div") if holder == "fragment" else Element("span"))
-    parent = top.children[0]
-    assert isinstance(parent, Element)
-    parent.append(Element("p", {"id": "x"}))
-    paragraph = parent.children[0]
-    assert isinstance(paragraph, Element)
-    return top, paragraph
-
-
 @pytest.mark.parametrize("holder", [pytest.param("fragment", id="fragment"), pytest.param("element", id="element")])
 @pytest.mark.parametrize(
     "expression",
@@ -121,6 +103,17 @@ def _detached_tree(holder: str) -> tuple[turbohtml.Node, Element]:
 def test_absolute_path_outside_a_document_starts_at_its_root(holder: str, expression: str) -> None:
     _, paragraph = _detached_tree(holder)
     assert paragraph.xpath(expression) == [paragraph]
+
+
+def _detached_tree(holder: str) -> tuple[turbohtml.Node, Element]:
+    top: turbohtml.Node = turbohtml.DocumentFragment() if holder == "fragment" else Element("div")
+    top.append(Element("div") if holder == "fragment" else Element("span"))
+    parent = top.children[0]
+    assert isinstance(parent, Element)
+    parent.append(Element("p", {"id": "x"}))
+    paragraph = parent.children[0]
+    assert isinstance(paragraph, Element)
+    return top, paragraph
 
 
 @pytest.mark.parametrize("holder", [pytest.param("fragment", id="fragment"), pytest.param("element", id="element")])
@@ -181,6 +174,13 @@ def test_attribute_values(doc: turbohtml.Node) -> None:
 
 def test_attribute_wildcard(doc: turbohtml.Node) -> None:
     assert one(doc, "//div").xpath("@*") == ["d1", "box"]
+
+
+def one(node: turbohtml.Node, expr: str) -> Element:
+    # The single Element an expression is expected to select.
+    result = node.xpath_one(expr)
+    assert isinstance(result, Element)
+    return result
 
 
 def test_attribute_node_test_matches_all(doc: turbohtml.Node) -> None:
@@ -738,14 +738,6 @@ def test_same_expression_rebinds_per_call(ns_doc: turbohtml.Node) -> None:
     assert ns_doc.xpath("//p:circle", namespaces={"p": _MATHML}) == []
 
 
-# Element.xpath_path(): the positional XPath locating a node from the root. Unlike
-# css_path() it never anchors on an id, indexing only among same-name siblings.
-def _xpath_path(html: str, selector: str) -> str:
-    element = turbohtml.parse(html).select_one(selector)
-    assert isinstance(element, Element)
-    return element.xpath_path()
-
-
 @pytest.mark.parametrize(
     ("html", "selector", "expected"),
     [
@@ -781,6 +773,14 @@ def _xpath_path(html: str, selector: str) -> str:
 )
 def test_xpath_path(html: str, selector: str, expected: str) -> None:
     assert _xpath_path(html, selector) == expected
+
+
+# Element.xpath_path(): the positional XPath locating a node from the root. Unlike
+# css_path() it never anchors on an id, indexing only among same-name siblings.
+def _xpath_path(html: str, selector: str) -> str:
+    element = turbohtml.parse(html).select_one(selector)
+    assert isinstance(element, Element)
+    return element.xpath_path()
 
 
 def test_xpath_path_of_detached_element() -> None:
@@ -1079,10 +1079,6 @@ _VARIABLE_HTML: Final[str] = (
 )
 
 
-def variable_tags(result: object) -> list[str]:
-    return [node.tag if isinstance(node, Element) else str(node) for node in node_list(result)]
-
-
 def ids(result: object) -> list[str | None]:
     return [node.attr("id") for node in node_list(result) if isinstance(node, Element)]
 
@@ -1106,6 +1102,10 @@ def test_variable_node_set(
     variable_doc: turbohtml.Node, expr: str, kwargs: dict[str, str | int | float | bool], expected: list[str]
 ) -> None:
     assert variable_tags(variable_doc.xpath(expr, **kwargs)) == expected  # ty: ignore[invalid-argument-type]  # variables unpacked as a dict
+
+
+def variable_tags(result: object) -> list[str]:
+    return [node.tag if isinstance(node, Element) else str(node) for node in node_list(result)]
 
 
 @pytest.mark.parametrize(
