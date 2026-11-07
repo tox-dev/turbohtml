@@ -252,7 +252,14 @@ def test_dispositions(disposition: OnDisallowed, expected: str) -> None:
     assert sanitize("<div><b>x</b></div>", Policy(on_disallowed_tag=disposition)) == expected
 
 
-@pytest.mark.parametrize("disposition", [OnDisallowed.ESCAPE, OnDisallowed.STRIP, OnDisallowed.REMOVE])
+@pytest.mark.parametrize(
+    "disposition",
+    [
+        pytest.param(OnDisallowed.ESCAPE, id="escape"),
+        pytest.param(OnDisallowed.STRIP, id="strip"),
+        pytest.param(OnDisallowed.REMOVE, id="remove"),
+    ],
+)
 def test_foreign_content_never_unwrapped(disposition: OnDisallowed) -> None:
     # an SVG <a> shares the name of an allowed HTML <a> but must not be treated as one
     out = sanitize("<svg><a href='http://x'>t</a></svg>", Policy(on_disallowed_tag=disposition))
@@ -451,7 +458,14 @@ def test_remove_with_content_leaves_other_disallowed_tags_to_the_mode() -> None:
     assert "&lt;unknown&gt;" in sanitize("<b>ok</b><unknown>x</unknown>", policy)
 
 
-@pytest.mark.parametrize("mode", [OnDisallowed.ESCAPE, OnDisallowed.STRIP, OnDisallowed.REMOVE])
+@pytest.mark.parametrize(
+    "mode",
+    [
+        pytest.param(OnDisallowed.ESCAPE, id="escape"),
+        pytest.param(OnDisallowed.STRIP, id="strip"),
+        pytest.param(OnDisallowed.REMOVE, id="remove"),
+    ],
+)
 def test_remove_with_content_overrides_every_disposition(mode: OnDisallowed) -> None:
     # content removal happens before the escape/strip/remove dispatch, so it wins in every mode
     policy = Policy(tags=frozenset({"b"}), on_disallowed_tag=mode, remove_with_content=frozenset({"script"}))
