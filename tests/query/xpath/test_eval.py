@@ -1441,12 +1441,12 @@ def test_xpath_callback_attribute_union(*, compiled: bool, smart: bool, change: 
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [
-        ("name((@id | mutate())[1])", "id"),
-        ("str:concat(@id | mutate())", "old"),
-        ("set:distinct(@id | mutate())", ["old"]),
-        ("set:intersection(@id | mutate(), @id)", ["old"]),
-        ("set:difference(@id | mutate(), @id)", []),
-        ("@id = string(mutate())", False),
+        pytest.param("name((@id | mutate())[1])", "id", id="name-first"),
+        pytest.param("str:concat(@id | mutate())", "old", id="concat"),
+        pytest.param("set:distinct(@id | mutate())", ["old"], id="distinct"),
+        pytest.param("set:intersection(@id | mutate(), @id)", ["old"], id="intersection"),
+        pytest.param("set:difference(@id | mutate(), @id)", [], id="difference"),
+        pytest.param("@id = string(mutate())", False, id="comparison"),
     ],
 )
 def test_xpath_callback_attribute_consumers(expression: str, *, expected: str | bool | list[str]) -> None:
@@ -1588,9 +1588,9 @@ def test_xpath_callback_preserves_text_parent() -> None:
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [
-        ("set:leading(@*, .)", []),
-        ("@*[position() > 1 and keep()]", ["two", "three"]),
-        ("@*/../@*", ["one", "two", "three"]),
+        pytest.param("set:leading(@*, .)", [], id="leading"),
+        pytest.param("@*[position() > 1 and keep()]", ["two", "three"], id="predicate-callback"),
+        pytest.param("@*/../@*", ["one", "two", "three"], id="parent-round-trip"),
     ],
 )
 def test_xpath_callback_attribute_paths(expression: str, expected: list[str]) -> None:

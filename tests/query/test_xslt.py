@@ -538,7 +538,10 @@ def test_transform_sort_numeric_expression_coercion(
     "extra_sort",
     [pytest.param("", id="one-key"), pytest.param('<xsl:sort select="@id"/>', id="two-keys")],
 )
-@pytest.mark.parametrize(("order", "expected"), [("ascending", "acdfbe"), ("descending", "bedfac")])
+@pytest.mark.parametrize(
+    ("order", "expected"),
+    [pytest.param("ascending", "acdfbe", id="ascending"), pytest.param("descending", "bedfac", id="descending")],
+)
 def test_transform_sort_numeric_nan_order(select: str, order: str, expected: str, *, extra_sort: str) -> None:
     source: Final = (
         '<r><n id="a" key="bad"/><n id="b" key="2"/><n id="c" key="bad"/>'

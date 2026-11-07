@@ -281,7 +281,13 @@ def test_callable_error_propagates(id_filter: Filter) -> None:
         parse("<p>").find(id=id_filter)
 
 
-@pytest.mark.parametrize("query", [lambda doc: doc.find("p", id=_raise), lambda doc: doc.find_all("p", id=_raise)])
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param(lambda doc: doc.find("p", id=_raise), id="find"),
+        pytest.param(lambda doc: doc.find_all("p", id=_raise), id="find-all"),
+    ],
+)
 def test_indexed_tag_filter_error_propagates(query: Callable[[Document], object]) -> None:
     document = parse("<p>x</p>")
     document.find_all("p")
