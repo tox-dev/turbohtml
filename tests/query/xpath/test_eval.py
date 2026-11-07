@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
     from types import SimpleNamespace
 
+    from _pytest.mark.structures import ParameterSet
+
 
 HTML: Final[str] = (
     "<!doctype html><html><head><title>T</title></head><body>"
@@ -1685,7 +1687,7 @@ def test_xpath_callback_initial_attribute_context(expression: str, expected: lis
     assert (result, tuple(target.children)) == (expected, (source,)[:moved])
 
 
-_XPATH_EVALUATORS: Final = [
+_XPATH_EVALUATORS: Final[list[ParameterSet]] = [
     pytest.param(lambda node, expression, extensions: node.xpath(expression, extensions=extensions), id="method"),
     pytest.param(lambda node, expression, extensions: XPath(expression, extensions=extensions)(node), id="compiled"),
 ]

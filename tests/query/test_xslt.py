@@ -6076,7 +6076,7 @@ def test_transform_number_unprefixed_selection(level: str, children: str, expect
     assert Transform(sheet)(parse_xml(f"<root>{children}</root>")) == expected
 
 
-_RENAMED_PREFIX_SHEET: Final = (
+_RENAMED_PREFIX_SHEET: Final[str] = (
     '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
     '<xsl:output method="text"/><xsl:template match="/">'
     '<xsl:for-each select="root/*[last()]"><xsl:number from="root"/>'
