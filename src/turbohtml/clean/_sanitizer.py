@@ -132,7 +132,7 @@ _RELAXED_ATTRIBUTES: Final[Mapping[str, frozenset[str]]] = MappingProxyType({
 })
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Policy:
     r"""
     An immutable, thread-safe description of what sanitizing keeps.

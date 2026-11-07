@@ -133,7 +133,7 @@ class EncodingMatch:
 _TLD_ALPHABET: Final[frozenset[str]] = frozenset(f"{string.ascii_lowercase}{string.digits}-")
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True)
 class Detection:
     """
     Options for :func:`detect`, :func:`detect_all`, and :class:`EncodingDetector`.
@@ -308,7 +308,7 @@ def _rank(
     )
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True)
 class LanguageDetection:
     """
     Options for :func:`detect_language`.

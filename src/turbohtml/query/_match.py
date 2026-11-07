@@ -55,7 +55,7 @@ def escape_identifier(ident: str) -> str:
     return _css_escape_identifier(ident)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Matching:
     """
     The soupsieve ``namespaces`` and ``flags`` arguments, bundled into one immutable, thread-safe config.

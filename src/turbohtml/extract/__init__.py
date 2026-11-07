@@ -45,7 +45,7 @@ from ._structured_data import MicrodataItem, OpenGraph, RdfaItem, StructuredData
 from ._urls import UrlCleaning, clean_url, extract_links, normalize_url
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True)
 class Extraction:
     """
     Options for :func:`boilerplate`: the per-paragraph thresholds refining the main-content scoring.

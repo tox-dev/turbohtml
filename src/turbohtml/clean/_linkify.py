@@ -463,7 +463,7 @@ def target_blank(link: LinkCandidate) -> LinkCandidate:
 DEFAULT_CALLBACKS: Final = (nofollow,)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Linkify:
     """
     An immutable, thread-safe description of how :func:`linkify` and :class:`Linker` find and rewrite links.
