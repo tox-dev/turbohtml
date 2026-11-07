@@ -80,7 +80,9 @@ def test_invalid_processing_instruction_is_a_comment(document: str, data: str, w
 
 
 def test_processing_instruction_target_space_at_eof_is_dropped(width_prefix: str) -> None:
-    assert [token.data for token in tokenize(f"{width_prefix}<?pi ")] == ([width_prefix] if width_prefix else [])
+    assert [token.data for token in tokenize(f"{width_prefix}<?pi ")] == [
+        token.data for token in tokenize(width_prefix)
+    ]
 
 
 # each expected tuple is (type, name, public_id, system_id, force_quirks)
@@ -123,17 +125,21 @@ def test_tag_attrs(document: str, tag_name: str, attrs: list[tuple[str, str | No
     assert (tag.tag, tag.attrs) == (tag_name, attrs)
 
 
-@pytest.mark.parametrize("mode", ["whole", "streaming"])
-def test_capture_attributes_can_be_disabled(mode: str) -> None:
-    document = '<a href="a&amp;b" download>text</a>'
-    if mode == "streaming":
-        tokenizer = Tokenizer(capture_attributes=False)
-        tokens = [token for char in document for token in tokenizer.feed(char)]
-        tokens += list(tokenizer.close())
-    else:
-        tokens = list(tokenize(document, capture_attributes=False))
+def _whole_tokens(document: str) -> list[Token]:
+    return list(tokenize(document, capture_attributes=False))
 
-    start, text, end = tokens
+
+def _streamed_tokens(document: str) -> list[Token]:
+    tokenizer = Tokenizer(capture_attributes=False)
+    return [token for char in document for token in tokenizer.feed(char)] + list(tokenizer.close())
+
+
+@pytest.mark.parametrize(
+    "tokens_of",
+    [pytest.param(_whole_tokens, id="whole"), pytest.param(_streamed_tokens, id="streaming")],
+)
+def test_capture_attributes_can_be_disabled(tokens_of: Callable[[str], list[Token]]) -> None:
+    start, text, end = tokens_of('<a href="a&amp;b" download>text</a>')
     assert (start.tag, start.attrs, start.attr("href")) == ("a", [], None)
     assert (text.data, end.tag) == ("text", "a")
 
@@ -271,8 +277,9 @@ def test_content_model_switching(document: str, expected: list[str]) -> None:
     ],
 )
 def test_script_end_tag_variants(document: str, kinds: list[TokenType], width_prefix: str) -> None:
-    lead = [TokenType.TEXT] if width_prefix else []
-    assert [token.type for token in tokenize(width_prefix + document)] == lead + kinds
+    assert [token.type for token in tokenize(width_prefix + document)] == [
+        token.type for token in tokenize(width_prefix)
+    ] + kinds
 
 
 @pytest.mark.parametrize(
@@ -1124,5 +1131,5 @@ def test_tokenizer_conformance(case: _TokenizerCase, storage_kind: int) -> None:
     assert (
         [list(token) for token in result[0]],
         [code for code, _, _ in result[1]],
-        [(code, line, col + 1) for code, line, col in result[1]] if check_positions else None,
-    ) == (case[3], [code for code, _, _ in errors], errors if check_positions else None)
+        [(code, line, col + 1) for code, line, col in result[1] if check_positions],
+    ) == (case[3], [code for code, _, _ in errors], [error for error in errors if check_positions])
