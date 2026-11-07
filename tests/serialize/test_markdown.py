@@ -1715,6 +1715,11 @@ def test_trailing_break_at_an_inline_root_is_dropped() -> None:
             id="table-nested-becomes-cell-html",
         ),
         pytest.param(
+            "<table><tr><td><blockquote><em>alpha<p>beta</p></em></blockquote></td></tr></table>",
+            "| *alpha* *beta* |\n| --- |",
+            id="table-block-splits-cell-emphasis",
+        ),
+        pytest.param(
             "<table><tr><td><ul><li>x</li><li>y</li></ul></td></tr><tr><td>z</td></tr></table>",
             "| <ul><li>x</li><li>y</li></ul> |\n| --- |\n| z |",
             id="table-list-in-cell-becomes-html",
