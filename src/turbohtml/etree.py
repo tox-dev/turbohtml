@@ -22,10 +22,14 @@ if TYPE_CHECKING:
 
 
 class ElementFactory(Protocol):
+    """Create an element with the given tag, attributes and extra attributes."""
+
     def __call__(self, tag: str, attrib: Mapping[str, str] | None = None, **extra: str) -> ElementView: ...
 
 
 class SubElementFactory(Protocol):
+    """Create an element as the last child of ``parent``."""
+
     def __call__(
         self, parent: ElementView, /, tag: str, attrib: Mapping[str, str] | None = None, **extra: str
     ) -> ElementView: ...
