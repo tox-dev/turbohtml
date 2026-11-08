@@ -6,7 +6,7 @@ from collections.abc import MutableMapping
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Final, NoReturn, assert_type, cast
+from typing import TYPE_CHECKING, Final, NoReturn, assert_type, cast
 
 import pytest
 from bench.ci import benchmarks
@@ -405,8 +405,8 @@ def test_set_checked_false_removes_the_attribute() -> None:
 
 
 def test_set_checked_accepts_truthy_values() -> None:
-    field: Any = _control("<input type=radio>", "input")
-    field.checked = 1
+    field = _control("<input type=radio>", "input")
+    setattr(field, "checked", 1)  # ruff:ignore[set-attr-with-constant]  # ty rejects the deliberate invalid value; setattr keeps the runtime check under test
     assert field.checked is True
 
 
@@ -416,9 +416,9 @@ def test_set_checked_propagates_a_failing_bool() -> None:
             msg = "nope"
             raise ValueError(msg)
 
-    field: Any = _control("<input type=checkbox>", "input")
+    field = _control("<input type=checkbox>", "input")
     with pytest.raises(ValueError, match="nope"):
-        field.checked = Boom()
+        setattr(field, "checked", Boom())  # ruff:ignore[set-attr-with-constant]  # ty rejects the deliberate invalid value; setattr keeps the runtime check under test
 
 
 def test_set_checked_on_a_text_input_raises() -> None:
@@ -446,9 +446,9 @@ def test_set_checked_on_a_non_input_raises() -> None:
 
 
 def test_delete_checked_raises() -> None:
-    field: Any = _control("<input type=checkbox checked>", "input")
+    field = _control("<input type=checkbox checked>", "input")
     with pytest.raises(TypeError, match="cannot delete checked"):
-        del field.checked
+        delattr(field, "checked")  # ruff:ignore[del-attr-with-constant]  # ty rejects deleting this property; delattr keeps the runtime check under test
 
 
 def test_checking_a_radio_clears_the_group() -> None:
@@ -679,15 +679,15 @@ def test_set_input_value_to_none_removes_the_attribute() -> None:
 
 
 def test_delete_input_value_removes_the_attribute() -> None:
-    field: Any = _tree_field_value_control("<input name=q value=old>", "input")
-    del field.field_value
+    field = _tree_field_value_control("<input name=q value=old>", "input")
+    delattr(field, "field_value")  # ruff:ignore[del-attr-with-constant]  # ty rejects deleting this property; delattr keeps the runtime check under test
     assert field.html == '<input name="q">'
 
 
 def test_set_input_value_rejects_non_str() -> None:
-    field: Any = _tree_field_value_control("<input name=q>", "input")
+    field = _tree_field_value_control("<input name=q>", "input")
     with pytest.raises(TypeError, match="must be a str or None"):
-        field.field_value = 5
+        setattr(field, "field_value", 5)  # ruff:ignore[set-attr-with-constant]  # ty rejects the deliberate invalid value; setattr keeps the runtime check under test
 
 
 def test_set_textarea_value_replaces_text() -> None:
@@ -762,9 +762,9 @@ def test_set_multiple_select_rejects_a_bare_str() -> None:
 
 
 def test_set_multiple_select_rejects_non_str_member() -> None:
-    select: Any = _tree_field_value_control("<select multiple><option value=a>A</select>", "select")
+    select = _tree_field_value_control("<select multiple><option value=a>A</select>", "select")
     with pytest.raises(TypeError, match="multiple select must be a list of str or None"):
-        select.field_value = [1]
+        setattr(select, "field_value", [1])  # ruff:ignore[set-attr-with-constant]  # ty rejects the deliberate invalid value; setattr keeps the runtime check under test
 
 
 def test_set_field_value_on_non_control_raises() -> None:
@@ -786,16 +786,14 @@ def test_select_skips_an_optgroup_wrapper() -> None:
 
 
 def test_delete_textarea_value_clears_it() -> None:
-    field: Any = _tree_field_value_control("<textarea>old</textarea>", "textarea")
-    del field.field_value
+    field = _tree_field_value_control("<textarea>old</textarea>", "textarea")
+    delattr(field, "field_value")  # ruff:ignore[del-attr-with-constant]  # ty rejects deleting this property; delattr keeps the runtime check under test
     assert field.html == "<textarea></textarea>"
 
 
 def test_delete_single_select_value_clears_all() -> None:
-    select: Any = _tree_field_value_control(
-        "<select><option value=r selected>Red<option value=g>Green</select>", "select"
-    )
-    del select.field_value
+    select = _tree_field_value_control("<select><option value=r selected>Red<option value=g>Green</select>", "select")
+    delattr(select, "field_value")  # ruff:ignore[del-attr-with-constant]  # ty rejects deleting this property; delattr keeps the runtime check under test
     assert "selected" not in select.find_all("option")[0].attrs
 
 
