@@ -100,12 +100,12 @@ def _summary(env: BuildEnvironment, docname: str) -> str:
     return ""
 
 
-class _Link(Protocol):
-    def __call__(self, docname: str, label: str | None = None) -> str: ...
-
-
 def _section_of(docname: str) -> str:
     return docname.split("/", 1)[0]
+
+
+class _Link(Protocol):
+    def __call__(self, docname: str, label: str | None = None) -> str: ...
 
 
 def _render_curated(
