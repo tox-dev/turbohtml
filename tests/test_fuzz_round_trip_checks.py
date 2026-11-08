@@ -350,22 +350,22 @@ def test_markdown_check_passes_to_markdown() -> None:
     [
         "<ol><li><i> </i></><li>&",
         "<ul><li><d> <i><li>/",
-        "<strong><b><<b>😀</b></b><b>*",
-        "<em><code>\\</code></em><b><del>*<br></b>&",
+        pytest.param("<strong><b><<b>😀</b></b><b>*", id="html-1"),
+        pytest.param("<em><code>\\</code></em><b><del>*<br></b>&", id="html-2"),
         "<table><td>&nbsp </><br>]",
         "<em><br>[<br>",
-        "d<b>😀=</b><del>;<strong>&gt",
-        "<b><b>\\ </b><strong>\\<g></b>~",
+        pytest.param("d<b>😀=</b><del>;<strong>&gt", id="html-3"),
+        pytest.param("<b><b>\\ </b><strong>\\<g></b>~", id="html-4"),
         "><b><br> <br>",
         "<strong><br>x<br></strong>[",
         "><em><br><m><br><i>#<br></i>o",
-        "<ol><li><i><br></i><br><em><b>😀",
+        pytest.param("<ol><li><i><br></i><br><em><b>😀", id="html-5"),
         "<br><strong>><br></strong><",
-        "<ol><li><i><br></i><br>><b>😀",
-        ";<strong><b>d </b><b>\\<t",
-        "<strong><b></b></strong><p><i><br></i><br>é",
+        pytest.param("<ol><li><i><br></i><br>><b>😀", id="html-6"),
+        pytest.param(";<strong><b>d </b><b>\\<t", id="html-7"),
+        pytest.param("<strong><b></b></strong><p><i><br></i><br>é", id="html-8"),
         "<br><i>*<br></i> <",
-        "<del>[</del>\\<em><em>h|</em>>(<br><del><br><el",
+        pytest.param("<del>[</del>\\<em><em>h|</em>>(<br><del><br><el", id="html-9"),
     ],
 )
 def test_markdown_check_accepts_equivalent_html(markup: str) -> None:
@@ -405,15 +405,15 @@ def test_markdown_check_skips_break_inside_table_cell_formatting() -> None:
     "source",
     [
         "@media{[",
-        '@media{["\n',
+        pytest.param('@media{["\n', id="css-1"),
         "a{font:x -E",
-        "\\1;-",
+        pytest.param("\\1;-", id="css-2"),
         "0;@a}t",
         "@supports(){(x+2",
         "a{h:calc(+c(x+2",
         "a{t:''({",
         ":::before{x:1}",
-        "[/\n**/f\"\"]{x:''}",
+        pytest.param("[/\n**/f\"\"]{x:''}", id="css-3"),
         "@media{a b{{}}a b{f:1}a b{{()}}}",
     ],
 )
@@ -1199,7 +1199,13 @@ def test_stylesheet_consumer_rejects_wrong_output(kind: str) -> None:
         stylesheet_observation(b"p { color: red; }", wrong)
 
 
-@pytest.mark.parametrize("source", [b"y{(:{", b'a{r:(""{'])
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(b"y{(:{", id="unclosed-block"),
+        pytest.param(b'a{r:(""{', id="unclosed-paren"),
+    ],
+)
 def test_stylesheet_consumer_skips_unclosed_css_blocks(source: bytes) -> None:
     with pytest.raises(OutOfScopeError, match="unclosed block"):
         stylesheet_observation(source)
@@ -3199,7 +3205,17 @@ def test_idna_invariant_pins_public_output(case: str, source: str, expected: str
     assert (normalize_url(f"https://{source}/"), normalize_url(url), idna_host_check(case)) == (url, url, None)
 
 
-@pytest.mark.parametrize("case", ["", "umlaut", "unknown\n", "umlaut\nA", "umlaut\nabcdefghi", "umlaut\na\nb"])
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param("", id="empty"),
+        pytest.param("umlaut", id="umlaut"),
+        pytest.param("unknown\n", id="unknown-newline"),
+        pytest.param("umlaut\nA", id="umlaut-newline-a"),
+        pytest.param("umlaut\nabcdefghi", id="umlaut-newline-long"),
+        pytest.param("umlaut\na\nb", id="umlaut-two-newlines"),
+    ],
+)
 def test_idna_invariant_counts_unsupported_cases(case: str) -> None:
     with pytest.raises(OutOfScopeError):
         idna_host_check(case)

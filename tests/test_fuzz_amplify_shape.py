@@ -638,7 +638,14 @@ def test_markdown_random_corpus(tmp_path: Path, arguments: list[str], *, html: b
     assert {path.read_bytes() for path in tmp_path.iterdir()} == {markdown_generate(random.Random(4), html=html).data}
 
 
-@pytest.mark.parametrize("arguments", [["--count", "-1"], ["--budget", "0"], ["--steps", "0"]])
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        pytest.param(["--count", "-1"], id="count-negative"),
+        pytest.param(["--budget", "0"], id="budget-zero"),
+        pytest.param(["--steps", "0"], id="steps-zero"),
+    ],
+)
 def test_markdown_cli_errors(tmp_path: Path, arguments: list[str]) -> None:
     with pytest.raises(SystemExit) as error:
         fuzz_markdown_structure_generation_main(["--output", str(tmp_path), *arguments])

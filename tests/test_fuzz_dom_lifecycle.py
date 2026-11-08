@@ -307,7 +307,14 @@ def test_dom_program_unoccupied_element_registers(opcode: int) -> None:
     assert json.loads(run_dom_program(program)[-1]) == ["<main></main>", []]
 
 
-@pytest.mark.parametrize("extra", [b"\x01", b"\x01\x02", b"\x01\x02\x03"])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        pytest.param(b"\x01", id="one-byte"),
+        pytest.param(b"\x01\x02", id="two-bytes"),
+        pytest.param(b"\x01\x02\x03", id="three-bytes"),
+    ],
+)
 def test_dom_program_partial_instruction_is_ignored(extra: bytes) -> None:
     program: Final = bytes((0, 0, 0, 0))
     assert run_dom_program(program + extra) == run_dom_program(program)
@@ -322,7 +329,10 @@ def test_dom_program_limits_executed_steps() -> None:
     assert len(run_dom_program(bytes((0, 0, 0, 0)) * 300)) == 65
 
 
-@pytest.mark.parametrize("text", ["xx", "0", "00" * 1025])
+@pytest.mark.parametrize(
+    "text",
+    [pytest.param("xx", id="two-letters"), pytest.param("0", id="one-digit"), pytest.param("00" * 1025, id="too-long")],
+)
 def test_dom_program_rejects_unsupported_encoding(text: str) -> None:
     with pytest.raises(UnsupportedDomProgramError):
         dom_program_check(text)
