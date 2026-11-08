@@ -46,6 +46,9 @@ class ValidationResult(NamedTuple):
 
     The result is truthy exactly when the document is valid, so ``if schema.validate(doc):``
     reads naturally.
+
+    :param valid: whether the document is valid.
+    :param errors: the errors found, empty when the document is valid.
     """
 
     valid: bool
@@ -57,10 +60,18 @@ class ValidationResult(NamedTuple):
 
 
 class SchemaValidationError(Exception):
-    """Raised by :meth:`XMLSchema.assert_valid` / :meth:`RelaxNG.assert_valid` when a document is invalid."""
+    """
+    Raised by :meth:`XMLSchema.assert_valid` / :meth:`RelaxNG.assert_valid` when a document is invalid.
+
+    :param errors: the errors the failed validation produced.
+    """
 
     def __init__(self, errors: tuple[ValidationError, ...]) -> None:
-        """Carry the ``errors`` the failed validation produced, the first of which becomes the message."""
+        """
+        Carry the ``errors`` the failed validation produced, the first of which becomes the message.
+
+        :param errors: the errors the failed validation produced.
+        """
         self.errors = errors
         super().__init__(errors[0].message if errors else "document is invalid")
 
@@ -71,17 +82,29 @@ class _Schema:
         self._compiled: Final = compiled
 
     def is_valid(self, document: Document | Node) -> bool:
-        """Whether the document satisfies the schema."""
+        """
+        Whether the document satisfies the schema.
+
+        :param document: the parsed document or element to check.
+        """
         return _schema_validate(self._compiled, document, collect_errors=False)[0]
 
     def assert_valid(self, document: Document | Node) -> None:
-        """Validate the document, raising :class:`SchemaValidationError` with the errors when it is invalid."""
+        """
+        Validate the document, raising :class:`SchemaValidationError` with the errors when it is invalid.
+
+        :param document: the parsed document or element to check.
+        """
         result = self.validate(document)
         if not result.valid:
             raise SchemaValidationError(result.errors)
 
     def validate(self, document: Document | Node) -> ValidationResult:
-        """Validate a parsed document (or element), returning the full :class:`ValidationResult`."""
+        """
+        Validate a parsed document (or element), returning the full :class:`ValidationResult`.
+
+        :param document: the parsed document or element to check.
+        """
         valid, errors = _schema_validate(self._compiled, document)
         return ValidationResult(valid, tuple(starmap(ValidationError, errors)))
 
@@ -97,7 +120,11 @@ class XMLSchema(_Schema):
     """
 
     def __init__(self, source: str | Node) -> None:
-        """Compile the schema once; every validation reuses the result."""
+        """
+        Compile the schema once; every validation reuses the result.
+
+        :param source: the schema as XSD text, or a schema document parsed with :func:`turbohtml.parse_xml`.
+        """
         super().__init__(_schema_compile(0, _text(source)))
 
 
@@ -119,7 +146,15 @@ class RelaxNG(_Schema):
     def __init__(
         self, source: str | Node, *, base_url: str | None = None, include_root: str | Path | None = None
     ) -> None:
-        """Compile the schema, reading the files it references, once; every validation reuses the result."""
+        """
+        Compile the schema, reading the files it references, once; every validation reuses the result.
+
+        :param source: the schema as RELAX NG text, or a schema document parsed with :func:`turbohtml.parse_xml`.
+        :param base_url: the schema's path or file URL, against which each ``include`` and ``externalRef`` href resolves
+            (after any ``xml:base``); required only when the schema references other files.
+        :param include_root: when set, referenced files must resolve inside this directory, including through nested
+            references.
+        """
         super().__init__(_schema_compile(1, _text(source), base_url, include_root))
 
 

@@ -176,6 +176,10 @@ class Paragraph(NamedTuple):
     ``is_boilerplate`` is ``True`` for navigation, footers, sidebars, and any in-content unit that fails the
     :class:`Extraction` thresholds; the ``False`` entries concatenate to the article. ``is_heading`` marks
     ``<h1>``-``<h6>`` units whatever their classification.
+
+    :param text: the unit's whitespace-normalized visible text.
+    :param is_boilerplate: whether the unit is navigation, a footer, a sidebar, or other non-article text.
+    :param is_heading: whether the unit is an ``<h1>`` to ``<h6>`` heading.
     """
 
     text: str

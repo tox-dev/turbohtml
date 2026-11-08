@@ -73,7 +73,11 @@ class ElementMaker:
     """
 
     def __getattr__(self, tag: str) -> _TagFactory:
-        """Return the factory for ``tag``; dunder lookups fall through so copy and pickle protocols are not hijacked."""
+        """
+        Return the factory for ``tag``; dunder lookups fall through so copy and pickle protocols are not hijacked.
+
+        :param tag: the tag name.
+        """
         if tag.startswith("__") and tag.endswith("__"):
             raise AttributeError(tag)
         return _TagFactory(tag)
@@ -82,6 +86,8 @@ class ElementMaker:
         """
         Build ``tag`` from a leading attribute mapping and the child nodes and strings that follow.
 
+        :param tag: the element's tag name.
+        :param args: an optional leading attribute mapping, then the child nodes and strings.
         :raises ValueError: if the tag or an attribute name carries a character HTML forbids there, or if a
             void element such as ``br`` or ``img`` is given children.
         :raises TypeError: if an attribute mapping is not the first argument.

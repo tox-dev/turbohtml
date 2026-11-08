@@ -40,12 +40,19 @@ class StyleDeclaration:
     Each declaration keeps its property name, value, and ``!important`` flag in source order. A property may appear more
     than once (an important declaration wins, then the later duplicate); :meth:`get` and indexing return the winning
     value, while iteration and :meth:`properties` visit each distinct property once, in first-seen order.
+
+    :param items: the ``(name, value, important)`` triples, or ``(name, value, important, source)`` quadruples, in
+        source order.
     """
 
     __slots__ = ("_items", "_last")
 
     def __init__(self, items: tuple[tuple[str, str, bool] | tuple[str, str, bool, str], ...]) -> None:
-        """Wrap the parsed declarations in source order."""
+        """
+        Wrap the parsed declarations in source order.
+
+        :param items: the parsed declarations, in source order.
+        """
         self._items = items
         self._last = _css_declaration_index(items)
 
@@ -60,7 +67,11 @@ class StyleDeclaration:
         return cls(_css_parse_declarations(text))
 
     def __getitem__(self, name: str) -> str:
-        """Return a property's winning value, raising :class:`KeyError` when it is not set."""
+        """
+        Return a property's winning value, raising :class:`KeyError` when it is not set.
+
+        :param name: the property name.
+        """
         index = self._last.get(name)
         if index is None:
             return self._missing_value(name)
@@ -80,7 +91,11 @@ class StyleDeclaration:
         return self._last.get("".join(chr(ord(char) + 32) if "A" <= char <= "Z" else char for char in name))
 
     def __contains__(self, name: str) -> bool:
-        """Return whether a property is set."""
+        """
+        Return whether a property is set.
+
+        :param name: the property name.
+        """
         return name in self._last or self._fallback_index(name) is not None
 
     def __iter__(self) -> Iterator[str]:
@@ -140,7 +155,12 @@ class StyleDeclaration:
 
 @final
 class StyleRule:
-    """One CSS style rule, the turbohtml spelling of CSSOM's ``CSSStyleRule``: a selector and its declarations."""
+    """
+    One CSS style rule, the turbohtml spelling of CSSOM's ``CSSStyleRule``: a selector and its declarations.
+
+    :param selector_text: the rule's selector list, verbatim.
+    :param style: the rule's declaration block.
+    """
 
     __slots__ = ("_style", "selector_text")
 
@@ -148,7 +168,12 @@ class StyleRule:
     """The rule's selector list, verbatim (for example ``"a, .box"``)."""
 
     def __init__(self, selector_text: str, style: StyleDeclaration) -> None:
-        """Bind a selector to its declaration block."""
+        """
+        Bind a selector to its declaration block.
+
+        :param selector_text: the rule's selector list, verbatim.
+        :param style: the rule's declaration block.
+        """
         self.selector_text = selector_text
         self._style = style
 
@@ -164,16 +189,28 @@ class StyleRule:
 
 @final
 class RuleList:
-    """A read-only sequence of :class:`StyleRule`, the turbohtml spelling of CSSOM's ``CSSRuleList``."""
+    """
+    A read-only sequence of :class:`StyleRule`, the turbohtml spelling of CSSOM's ``CSSRuleList``.
+
+    :param rules: the rules, in document order.
+    """
 
     __slots__ = ("_rules",)
 
     def __init__(self, rules: tuple[StyleRule, ...]) -> None:
-        """Wrap the rules in document order."""
+        """
+        Wrap the rules in document order.
+
+        :param rules: the rules, in document order.
+        """
         self._rules = rules
 
     def __getitem__(self, index: int) -> StyleRule:
-        """Return the rule at an index."""
+        """
+        Return the rule at an index.
+
+        :param index: the position of the rule in document order.
+        """
         return self._rules[index]
 
     def __iter__(self) -> Iterator[StyleRule]:
@@ -202,7 +239,11 @@ class StyleSheet:
     __slots__ = ("_rules",)
 
     def __init__(self, text: str) -> None:
-        """Parse CSS source into a stylesheet."""
+        """
+        Parse CSS source into a stylesheet.
+
+        :param text: the CSS source, such as the text of a ``<style>`` element.
+        """
         self._rules = RuleList(
             tuple(StyleRule(selector, StyleDeclaration(decls)) for selector, decls in _css_parse_rules(text))
         )
@@ -239,20 +280,34 @@ class ComputedStyle:
     It exposes one value per supported longhand property (never a shorthand), each already resolved through the cascade,
     inheritance, and initial values. Missing properties fall back to their initial value, so :meth:`get` never returns
     ``None`` for a supported property.
+
+    :param values: the ``(name, value)`` pairs the cascade resolved.
     """
 
     __slots__ = ("_values",)
 
     def __init__(self, values: tuple[tuple[str, str], ...]) -> None:
-        """Wrap the ``(name, value)`` pairs the cascade resolved."""
+        """
+        Wrap the ``(name, value)`` pairs the cascade resolved.
+
+        :param values: the ``(name, value)`` pairs the cascade resolved.
+        """
         self._values = dict(values)
 
     def __getitem__(self, name: str) -> str:
-        """Return a property's computed value, raising :class:`KeyError` for an unsupported property."""
+        """
+        Return a property's computed value, raising :class:`KeyError` for an unsupported property.
+
+        :param name: the property name.
+        """
         return self._values[name]
 
     def __contains__(self, name: str) -> bool:
-        """Return whether a property is a supported longhand."""
+        """
+        Return whether a property is a supported longhand.
+
+        :param name: the property name.
+        """
         return name in self._values
 
     def __iter__(self) -> Iterator[str]:

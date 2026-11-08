@@ -34,7 +34,11 @@ class HTMLParser:
     """Accepted for compatibility; references are always resolved regardless of its value."""
 
     def __init__(self, *, convert_charrefs: bool = True) -> None:
-        """Create a parser."""
+        """
+        Create a parser.
+
+        :param convert_charrefs: accepted for compatibility; references are always resolved.
+        """
         self.convert_charrefs = convert_charrefs
         self._tokenizer = Tokenizer()
 

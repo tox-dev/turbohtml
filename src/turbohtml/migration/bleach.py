@@ -81,7 +81,12 @@ def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # 
 def attribute_policy(
     attributes: _AttributeRules,
 ) -> tuple[dict[str, frozenset[str]], Callable[[str, str, str], bool] | None]:
-    """Keep bleach attribute rules when configuring a native ``Policy``."""
+    """
+    Keep bleach attribute rules when configuring a native ``Policy``.
+
+    :param attributes: the bleach attribute rules, a mapping, a list, or a callable.
+    :returns: the allowed attributes per tag and the attribute callable, or ``None`` when there is none.
+    """
     return _bleach_attributes(attributes, Mapping)
 
 

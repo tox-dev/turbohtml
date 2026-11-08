@@ -148,15 +148,29 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         return self.__class__(str.join(self, map(self.escape, iterable)))
 
     def split(self, sep: str | None = None, maxsplit: SupportsIndex = -1) -> list[str]:
-        """Split into parts that stay safe; the list type is str since list is invariant, but each part is a Markup."""
+        """
+        Split into parts that stay safe; the list type is str since list is invariant, but each part is a Markup.
+
+        :param sep: the separator to split on, or ``None`` for runs of whitespace.
+        :param maxsplit: the most splits to make, or ``-1`` for no limit.
+        """
         return [self.__class__(part) for part in str.split(self, sep, maxsplit)]
 
     def rsplit(self, sep: str | None = None, maxsplit: SupportsIndex = -1) -> list[str]:
-        """Split from the right into parts that each stay a Markup."""
+        """
+        Split from the right into parts that each stay a Markup.
+
+        :param sep: the separator to split on, or ``None`` for runs of whitespace.
+        :param maxsplit: the most splits to make, or ``-1`` for no limit.
+        """
         return [self.__class__(part) for part in str.rsplit(self, sep, maxsplit)]
 
     def splitlines(self, keepends: bool = False) -> list[str]:  # ruff:ignore[boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # keepends is str's own flag
-        """Split into lines that each stay a Markup."""
+        """
+        Split into lines that each stay a Markup.
+
+        :param keepends: whether the line breaks stay on the lines.
+        """
         return [self.__class__(line) for line in str.splitlines(self, keepends)]
 
     def unescape(self) -> str:
@@ -203,60 +217,121 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         return self.__class__(str.casefold(self))
 
     def replace(self, old: str, new: str, /, count: SupportsIndex = -1) -> Markup:
-        """Replace occurrences, escaping ``new`` so substituted text stays safe."""
+        """
+        Replace occurrences, escaping ``new`` so substituted text stays safe.
+
+        :param old: the text to replace.
+        :param new: the replacement text, escaped before it is substituted.
+        :param count: the most replacements to make, or ``-1`` for all of them.
+        """
         return self.__class__(str.replace(self, old, self.escape(new), count))
 
     def ljust(self, width: SupportsIndex, fillchar: str = " ", /) -> Markup:
-        """Left-justify, escaping the fill character so padding stays safe."""
+        """
+        Left-justify, escaping the fill character so padding stays safe.
+
+        :param width: the minimum width of the result.
+        :param fillchar: the padding character, escaped before it is used.
+        """
         return self.__class__(str.ljust(self, width, self.escape(fillchar)))
 
     def rjust(self, width: SupportsIndex, fillchar: str = " ", /) -> Markup:
-        """Right-justify, escaping the fill character so padding stays safe."""
+        """
+        Right-justify, escaping the fill character so padding stays safe.
+
+        :param width: the minimum width of the result.
+        :param fillchar: the padding character, escaped before it is used.
+        """
         return self.__class__(str.rjust(self, width, self.escape(fillchar)))
 
     def center(self, width: SupportsIndex, fillchar: str = " ", /) -> Markup:
-        """Center, escaping the fill character so padding stays safe."""
+        """
+        Center, escaping the fill character so padding stays safe.
+
+        :param width: the minimum width of the result.
+        :param fillchar: the padding character, escaped before it is used.
+        """
         return self.__class__(str.center(self, width, self.escape(fillchar)))
 
     def strip(self, chars: str | None = None, /) -> Markup:
-        """Strip surrounding characters, keeping the result a Markup."""
+        """
+        Strip surrounding characters, keeping the result a Markup.
+
+        :param chars: the characters to strip, or ``None`` for whitespace.
+        """
         return self.__class__(str.strip(self, chars))
 
     def lstrip(self, chars: str | None = None, /) -> Markup:
-        """Strip leading characters, keeping the result a Markup."""
+        """
+        Strip leading characters, keeping the result a Markup.
+
+        :param chars: the characters to strip, or ``None`` for whitespace.
+        """
         return self.__class__(str.lstrip(self, chars))
 
     def rstrip(self, chars: str | None = None, /) -> Markup:
-        """Strip trailing characters, keeping the result a Markup."""
+        """
+        Strip trailing characters, keeping the result a Markup.
+
+        :param chars: the characters to strip, or ``None`` for whitespace.
+        """
         return self.__class__(str.rstrip(self, chars))
 
     def removeprefix(self, prefix: str, /) -> Markup:
-        """Remove a prefix, keeping the result a Markup."""
+        """
+        Remove a prefix, keeping the result a Markup.
+
+        :param prefix: the prefix to remove when present.
+        """
         return self.__class__(str.removeprefix(self, prefix))
 
     def removesuffix(self, suffix: str) -> Markup:
-        """Remove a suffix, keeping the result a Markup."""
+        """
+        Remove a suffix, keeping the result a Markup.
+
+        :param suffix: the suffix to remove when present.
+        """
         return self.__class__(str.removesuffix(self, suffix))
 
     def expandtabs(self, tabsize: SupportsIndex = 8) -> Markup:
-        """Expand tabs, keeping the result a Markup."""
+        """
+        Expand tabs, keeping the result a Markup.
+
+        :param tabsize: the tab stop width.
+        """
         return self.__class__(str.expandtabs(self, tabsize))
 
     def zfill(self, width: SupportsIndex, /) -> Markup:
-        """Zero-fill, keeping the result a Markup."""
+        """
+        Zero-fill, keeping the result a Markup.
+
+        :param width: the minimum width of the result.
+        """
         return self.__class__(str.zfill(self, width))
 
     def translate(self, table: _SupportsIntGetItem, /) -> Markup:
-        """Translate through a table, keeping the result a Markup; the caller's table values are trusted."""
+        """
+        Translate through a table, keeping the result a Markup; the caller's table values are trusted.
+
+        :param table: the translation table mapping code points to replacements.
+        """
         return self.__class__(str.translate(self, table))
 
     def partition(self, sep: str, /) -> tuple[Markup, Markup, Markup]:
-        """Partition into three parts that each stay a Markup."""
+        """
+        Partition into three parts that each stay a Markup.
+
+        :param sep: the separator to partition on.
+        """
         left, middle, right = str.partition(self, sep)
         return self.__class__(left), self.__class__(middle), self.__class__(right)
 
     def rpartition(self, sep: str, /) -> tuple[Markup, Markup, Markup]:
-        """Partition from the right into three parts that each stay a Markup."""
+        """
+        Partition from the right into three parts that each stay a Markup.
+
+        :param sep: the separator to partition on.
+        """
         left, middle, right = str.rpartition(self, sep)
         return self.__class__(left), self.__class__(middle), self.__class__(right)
 
@@ -271,7 +346,11 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         return self.__class__(EscapeFormatter(self.escape).vformat(self, args, kwargs))
 
     def format_map(self, mapping: _SupportsStrGetItem, /) -> Markup:
-        """Format from a mapping, escaping each field the way :meth:`format` does."""
+        """
+        Format from a mapping, escaping each field the way :meth:`format` does.
+
+        :param mapping: the values for the named format fields.
+        """
         return self.__class__(EscapeFormatter(self.escape).vformat(self, (), cast("Mapping[str, object]", mapping)))
 
 

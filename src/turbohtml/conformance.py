@@ -55,6 +55,9 @@ class ConformanceReport(NamedTuple):
 
     The report is truthy exactly when the document is valid (no message is an error), so
     ``if check(doc):`` reads naturally. Warnings and info messages never affect the verdict.
+
+    :param valid: whether the document is valid.
+    :param messages: every message found, in the order the checker reported them.
     """
 
     valid: bool

@@ -65,7 +65,11 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
     """
 
     def __init__(self, source: str | Element | Document | Iterable[Element]) -> None:
-        """Wrap a source into a query set."""
+        """
+        Wrap a source into a query set.
+
+        :param source: HTML to parse, a single Element or Document, or an iterable of Elements.
+        """
         if isinstance(source, str):
             source = parse(source)
         if isinstance(source, Document):
@@ -113,11 +117,19 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         return len(self._nodes)
 
     def __getitem__(self, index: int) -> Element:
-        """Return the wrapped element at the given index."""
+        """
+        Return the wrapped element at the given index.
+
+        :param index: the position of the element in the set.
+        """
         return self._nodes[index]
 
     def __eq__(self, other: object) -> bool:
-        """Return whether other is a query wrapping the same elements in the same order."""
+        """
+        Return whether other is a query wrapping the same elements in the same order.
+
+        :param other: the object to compare with.
+        """
         return isinstance(other, Query) and self._nodes == other._nodes
 
     def __hash__(self) -> int:

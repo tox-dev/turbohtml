@@ -106,6 +106,9 @@ class PublicationDate(NamedTuple):
     ``date`` is the formatted string (``output_format``, ISO ``YYYY-MM-DD`` by default). ``signal`` names the engine:
     ``"meta"`` a publication/modification ``<meta>`` tag, ``"json-ld"`` a JSON-LD ``datePublished``/``dateModified``,
     ``"time"`` a ``<time>`` element, ``"url"`` a date pattern in the canonical URL, ``"text"`` visible page text.
+
+    :param date: the formatted date string.
+    :param signal: the engine that recovered the date.
     """
 
     date: str

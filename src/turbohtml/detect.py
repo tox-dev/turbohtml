@@ -114,6 +114,12 @@ class EncodingMatch:
     ...); it is ``None`` for UTF-8 and the Latin encodings whose model spans several languages. ``bom`` is true only
     when a byte-order mark decided the result, telling a caller the decoded text still carries the mark unless the
     codec strips it.
+
+    :param encoding: the WHATWG canonical name, or ``None`` when the input is empty or every candidate was ruled out.
+    :param confidence: how sure the detector is, from 0.0 (no positive evidence) to 1.0 (certain).
+    :param language: the language the winning frequency model targets, or ``None`` for a multi-language model.
+    :param bom: whether a byte-order mark decided the result.
+    :param codec: the name to hand :meth:`bytes.decode`, or ``None`` with a ``None`` encoding.
     """
 
     encoding: str | None
@@ -356,6 +362,11 @@ class LanguageMatch:
     to separate them. ``script`` is the Unicode script name the text is written in (``"Latin"``, ``"Cyrillic"``,
     ``"Han"`` reported as ``"Mandarin"``, ...), or ``None`` with a ``None`` language. ``name`` is the English name of
     the language (``"English"``, ``"German"``, ``"Mandarin"``, ...), or ``None`` with a ``None`` language.
+
+    :param language: the ISO 639-3 code, or ``None`` when the text carries no modeled script.
+    :param confidence: how sure the detector is, from 0.0 to 1.0.
+    :param script: the Unicode script name, or ``None`` with a ``None`` language.
+    :param name: the English name of the language, or ``None`` with a ``None`` language.
     """
 
     language: str | None

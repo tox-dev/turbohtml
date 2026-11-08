@@ -194,7 +194,19 @@ class PhoneNumbers:
         types: Iterable[PhoneType] | None = None,
         ignore_numbers_after: Iterable[str] = DEFAULT_PHONE_LABELS,
     ) -> None:
-        """Raise on any mistake here, never at scan time."""
+        """
+        Raise on any mistake here, never at scan time.
+
+        :param regions: the ordered fallback regions, ISO 3166-1 alpha-2 codes.
+        :param require_valid: link only numbers the region's numbering plan assigns.
+        :param require_separators: a bare digit run is not a number.
+        :param skip_card_numbers: a Luhn-valid payment-card shape is not a number.
+        :param require_national_prefix: a number written without ``+`` must carry its national prefix.
+        :param collapse_whitespace: read a run of HTML whitespace as a single space.
+        :param grouping: how closely the written digit groups must follow the number's format.
+        :param types: link only numbers of these resolved types; ``None`` links every type.
+        :param ignore_numbers_after: words that mark the digits right after them as an identifier.
+        """
         for name, flag in (
             ("require_valid", require_valid),
             ("require_separators", require_separators),
@@ -728,7 +740,16 @@ class LinkSpan:
         *,
         phone: PhoneNumber | None = None,
     ) -> None:
-        """Create a link span."""
+        """
+        Create a link span.
+
+        :param start: the offset where the link starts.
+        :param end: the offset just past the link.
+        :param text: the linked text.
+        :param url: the link target.
+        :param is_email: whether the link is a ``mailto:`` address.
+        :param phone: the parsed phone number, or ``None`` for a non-phone link.
+        """
         self.start = start
         self.end = end
         self.text = text
@@ -742,7 +763,11 @@ class LinkSpan:
         return f"LinkSpan(start={self.start}, end={self.end}, text={self.text!r}, url={self.url!r}{phone})"
 
     def __eq__(self, other: object) -> bool:
-        """Two spans are equal when every field matches; comparing to a non-span defers to the other operand."""
+        """
+        Two spans are equal when every field matches; comparing to a non-span defers to the other operand.
+
+        :param other: the object to compare with.
+        """
         if not isinstance(other, LinkSpan):
             return NotImplemented
         return (self.start, self.end, self.text, self.url, self.is_email, self.phone) == (

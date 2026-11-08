@@ -55,28 +55,44 @@ class ElementHandler(Protocol):
     """A callback invoked with the matched :class:`Element` for each element a selector matches."""
 
     def __call__(self, element: Element, /) -> None:
-        """Edit the matched ``element`` in place."""
+        """
+        Edit the matched ``element`` in place.
+
+        :param element: the matched element.
+        """
 
 
 class TextHandler(Protocol):
     """A callback invoked with each run of character data as an :class:`Element` handle of text kind."""
 
     def __call__(self, text: Element, /) -> None:
-        """Edit the ``text`` run in place."""
+        """
+        Edit the ``text`` run in place.
+
+        :param text: the text run.
+        """
 
 
 class CommentHandler(Protocol):
     """A callback invoked with each comment as an :class:`Element` handle of comment kind."""
 
     def __call__(self, comment: Element, /) -> None:
-        """Edit the ``comment`` in place."""
+        """
+        Edit the ``comment`` in place.
+
+        :param comment: the comment.
+        """
 
 
 class DoctypeHandler(Protocol):
     """A callback invoked with the document type declaration as an :class:`Element` handle of doctype kind."""
 
     def __call__(self, doctype: Element, /) -> None:
-        """Edit the ``doctype`` in place."""
+        """
+        Edit the ``doctype`` in place.
+
+        :param doctype: the document type declaration.
+        """
 
 
 def rewrite(
