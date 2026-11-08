@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess  # ruff: ignore[suspicious-subprocess-import] - the conformance oracle runs the installed vnu.jar
+from enum import Enum, auto
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Final, NamedTuple, cast
@@ -361,9 +362,13 @@ class _Unlabelled(NamedTuple):
     severity: int
 
 
+class _NotAMessage(Enum):
+    SENTINEL = auto()
+
+
 def test_the_filter_needs_a_severity_on_every_message() -> None:
     with pytest.raises(AttributeError):
-        _conformance_filter((object(),), "error")  # ty: ignore[invalid-argument-type]  # the attribute read is the point
+        _conformance_filter((_NotAMessage.SENTINEL,), "error")  # ty: ignore[invalid-argument-type]  # the attribute read is the point
 
 
 @pytest.mark.parametrize(
@@ -373,7 +378,9 @@ def test_the_filter_needs_a_severity_on_every_message() -> None:
         pytest.param(((_ERROR,), 1), id="severity-is-not-a-str"),
     ],
 )
-def test_the_filter_rejects_bad_arguments(args: tuple[object, ...]) -> None:
+def test_the_filter_rejects_bad_arguments(
+    args: tuple[list[ConformanceMessage], str] | tuple[tuple[ConformanceMessage], int],
+) -> None:
     with pytest.raises(TypeError):
         _conformance_filter(*args)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
