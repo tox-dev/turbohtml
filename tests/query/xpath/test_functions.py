@@ -290,13 +290,13 @@ def tags(result: XPathResult) -> list[str]:
     return [node.tag if isinstance(node, Element) else str(node) for node in node_list(result)]
 
 
-XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
-
-
 def node_list(result: XPathResult) -> Sequence[turbohtml.Node | str | float]:
     # The node-set list an expression is expected to return.
     assert isinstance(result, list)
     return result
+
+
+XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
 
 
 # An unknown function name is a static error (XPath 1.0 §3.2); nested inside any
