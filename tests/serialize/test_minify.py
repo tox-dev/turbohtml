@@ -736,8 +736,7 @@ def test_minify_idempotent_over_large_document() -> None:
     )
     big = (
         "<!doctype html><html><head><title>Big</title></head><body>\n"
-        + "".join(section.format(i=index) for index in range(500))
-        + "</body></html>"
+        f"{''.join(section.format(i=index) for index in range(500))}</body></html>"
     )
     layout = Minify()
     once = parse(big).serialize(Html(layout=layout))

@@ -475,7 +475,7 @@ def test_serialize_iter_raises_when_a_versionless_edit_detaches_the_cursor() -> 
     ],
 )
 def test_serialize_iter_raises_after_a_move_within_the_subtree(moved: Callable[[str], int]) -> None:
-    root = parse("<div>" + "".join(f"<p>par{index:04d}</p>" for index in range(4000)) + "</div>").select_one("div")
+    root = parse(f"<div>{''.join(f'<p>par{index:04d}</p>' for index in range(4000))}</div>").select_one("div")
     assert root is not None
     walk = root.serialize_iter()
     root.append(root.select("p")[moved(next(walk))])

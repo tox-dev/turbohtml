@@ -513,7 +513,7 @@ def test_annotated_text_rejects_another_renderers_config() -> None:
 
 
 def test_many_spans_grow_the_buffer() -> None:
-    _, labels = annotate("<p>" + "".join(f"<b>{i}</b>" for i in range(20)) + "</p>", {"b": ["bold"]})
+    _, labels = annotate(f"<p>{''.join(f'<b>{i}</b>' for i in range(20))}</p>", {"b": ["bold"]})
     assert len(labels) == 20
 
 
