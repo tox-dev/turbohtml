@@ -553,7 +553,7 @@ def idna_host_check(case: str, normalize: Callable[[str], str] = normalize_url) 
     expected: Final = (
         "https://"
         + ".".join(
-            label if label.isascii() else "xn--" + label.encode("punycode").decode("ascii")
+            label if label.isascii() else f"xn--{label.encode('punycode').decode('ascii')}"
             for label in mapped.split(".")
         )
         + ".example/"

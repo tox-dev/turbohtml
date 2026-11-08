@@ -66,7 +66,7 @@ def html_table_check(
         f'<tr id="{identifier}"><{cell} id="x">{encoded}</{cell}><{cell} id="y">{encoded}</{cell}></tr>'
         for identifier in row_ids[:row_count]
     )
-    source: Final = '<table id="z">' + (f"<tbody>{rows}</tbody>" if group == "explicit" else rows) + "</table>"
+    source: Final = f'<table id="z">{f"<tbody>{rows}</tbody>" if group == "explicit" else rows}</table>'
     expected: Final = json.dumps([
         ("element", "html", "table", (("id", "z"),), 0),
         ("element", "html", "tbody", (), 1),

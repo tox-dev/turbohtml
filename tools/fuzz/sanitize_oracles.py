@@ -236,7 +236,7 @@ def _dump_turbohtml(nodes: Sequence[Node], depth: int = 0) -> list[str]:
             pending_text = ""
         if isinstance(node, Element):
             foreign = node.namespace is not Namespace.HTML
-            out.append(f"{pad}<{node.namespace.value + ' ' if foreign else ''}{node.tag}>")
+            out.append(f"{pad}<{f'{node.namespace.value} ' if foreign else ''}{node.tag}>")
             out.extend(
                 sorted(
                     f'{pad}  {_attr_name(name, foreign=foreign)}="{_attr_text(value)}"'
@@ -587,7 +587,7 @@ def _value_repr(value: _PolicyValue) -> str:
     if isinstance(value, frozenset):
         return f"frozenset({sorted(value)!r})"
     if isinstance(value, Mapping):
-        return "{" + ", ".join(f"{key!r}: {_value_repr(item)}" for key, item in sorted(value.items())) + "}"
+        return f"{{{', '.join(f'{key!r}: {_value_repr(item)}' for key, item in sorted(value.items()))}}}"
     return repr(value)
 
 

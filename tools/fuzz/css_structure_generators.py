@@ -105,8 +105,8 @@ def css_grammar(rows: Sequence[CssRow] = CSS_ROWS) -> Grammar:
 
 
 def _production(row: CssRow) -> Production:
-    origin: Final = SOURCE_URLS[row[0]] + f"#L{row[1]}"
-    name: Final = f"css:{'blink' if row[0] == 'blink-css.dict' else 'domato:' + row[0]}:{row[1]}"
+    origin: Final = f"{SOURCE_URLS[row[0]]}#L{row[1]}"
+    name: Final = f"css:{'blink' if row[0] == 'blink-css.dict' else f'domato:{row[0]}'}:{row[1]}"
     parts: Final = _references(row[4])
     if row[9] or row[10]:
         return Production(

@@ -65,7 +65,7 @@ def _js(text: str, reproduces: Callable[[str], bool], budget: int) -> str:
     ) as process:
         stdin = cast("TextIO", process.stdin)
         stdout = cast("TextIO", process.stdout)
-        stdin.write(json.dumps({"text": text, "budget": budget}) + "\n")
+        stdin.write(f"{json.dumps({'text': text, 'budget': budget})}\n")
         stdin.flush()
         while line := stdout.readline():
             reply = cast("_Reply", json.loads(line))

@@ -229,7 +229,7 @@ class _Run:
             data = json.dumps({"operation": operation, "input": text}).encode()
             digest = hashlib.sha256(data).hexdigest()
             (crash_dir / f"crash-{digest}").write_bytes(data)
-            sidecar = json.dumps({"oracle": "release-diff", "detail": key, "hits": hits}, indent=2) + "\n"
+            sidecar = f"{json.dumps({'oracle': 'release-diff', 'detail': key, 'hits': hits}, indent=2)}\n"
             (crash_dir / f"crash-{digest}.json").write_text(sidecar, encoding="utf-8")
             # only the oracle and a hash reach the log: the input may be an unreported bug (DESIGN-v2 decision D5)
             print(f"FINDING release-diff sha256={digest}", file=sys.stderr, flush=True)
