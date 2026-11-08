@@ -1435,136 +1435,146 @@ def _transform_number_cases() -> tuple[tuple[str, Case], ...]:
                 (200, 0, "forward"),
             )
         )
-        + tuple(
+        + _transform_any_number_cases()
+        + _transform_pattern_number_cases()
+        + _transform_number_prefix_cases()
+    )
+
+
+def _transform_any_number_cases() -> tuple[tuple[str, Case], ...]:
+    return tuple(
+        (
+            f"any: {rows:,} {'node' if rows == 1 else 'nodes'} / {variant}",
             (
-                f"any: {rows:,} {'node' if rows == 1 else 'nodes'} / {variant}",
                 (
-                    (
-                        """<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">"""
-                        """<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root/*"""
-                        f"""{"[last()]" if variant == "last-only" else ""}">"""
-                        f"""{
-                            '<xsl:sort select="@id" data-type="number" order="descending"/>'
-                            if variant == "reverse"
-                            else ""
-                        }"""
-                        f"""{
-                            (
-                                '<xsl:number level="any" count="p"/><xsl:text>:</xsl:text>'
-                                if variant == "explicit-count"
-                                else '<xsl:number level="any"/><xsl:text>:</xsl:text>'
-                            )
-                            * (8 if variant == "repeated" else 1)
-                        }"""
-                        "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
-                    ),
-                    (
-                        "<root>"
-                        f"""{
-                            "".join(
-                                f"{'text<!--gap-->' if variant == 'mixed-nodes' else ''}"
-                                f'<{"q" if variant == "alternating" and index % 2 == 0 else "p"} id="{index}"/>'
-                                for index in range(1, rows + 1)
-                            )
-                        }"""
-                        "</root>"
-                    ),
+                    """<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">"""
+                    """<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root/*"""
+                    f"""{"[last()]" if variant == "last-only" else ""}">"""
+                    f"""{
+                        '<xsl:sort select="@id" data-type="number" order="descending"/>' if variant == "reverse" else ""
+                    }"""
+                    f"""{
+                        (
+                            '<xsl:number level="any" count="p"/><xsl:text>:</xsl:text>'
+                            if variant == "explicit-count"
+                            else '<xsl:number level="any"/><xsl:text>:</xsl:text>'
+                        )
+                        * (8 if variant == "repeated" else 1)
+                    }"""
+                    "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
                 ),
-            )
-            for rows, variant in (
-                (32, "forward"),
-                (1_024, "forward"),
-                (1_024, "reverse"),
-                (1_024, "last-only"),
-                (1_024, "alternating"),
-                (1_024, "mixed-nodes"),
-                (1, "repeated"),
-                (1_024, "explicit-count"),
-                (2, "forward"),
-                (8, "forward"),
-            )
+                (
+                    "<root>"
+                    f"""{
+                        "".join(
+                            f"{'text<!--gap-->' if variant == 'mixed-nodes' else ''}"
+                            f'<{"q" if variant == "alternating" and index % 2 == 0 else "p"} id="{index}"/>'
+                            for index in range(1, rows + 1)
+                        )
+                    }"""
+                    "</root>"
+                ),
+            ),
         )
-        + tuple(
-            (
-                f"any: {rows:,} {'node' if rows == 1 else 'nodes'} / {variant}",
-                (
-                    (
-                        """<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">"""
-                        """<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root//p">"""
-                        f"""{
-                            '<xsl:sort select="@id" data-type="number" order="descending"/>'
-                            if variant == "count-reverse"
-                            else ""
-                        }"""
-                        f"""{
-                            (
-                                f'<xsl:number level="any" count="{pattern}" from="section"/><xsl:text>:</xsl:text>'
-                                if variant == "count-from-sections"
-                                else f'<xsl:number level="any" count="{pattern}"/><xsl:text>:</xsl:text>'
-                            )
-                            * (8 if variant == "count-repeated" else 1)
-                        }"""
-                        "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
-                    ),
-                    (
-                        "<root>"
-                        f"""{
-                            "".join(
-                                f'''{
-                                    "<section>" if variant == "count-from-sections" and index % 64 == 1 else ""
-                                }<p id="{index}" '''
-                                f'''cat="{index % 2}"/>{
-                                    "</section>" if variant == "count-from-sections" and index % 64 == 0 else ""
-                                }'''
-                                for index in range(1, rows + 1)
-                            )
-                        }"""
-                        "</root>"
-                    ),
-                ),
-            )
-            for rows, pattern, variant in (
-                (1, "p", "count-single-call"),
-                (1, "p[true()]", "predicate-single-call"),
-                (1, "p|q", "union-single-call"),
-                (1_024, "p[true()]", "count-predicate"),
-                (1_024, "p[@cat=current()/@cat]", "count-current"),
-                (1_024, "p", "count-from-sections"),
-                (1_024, "p", "count-reverse"),
-                (1_024, "p", "count-repeated"),
-                (1_024, "*", "count-wildcard"),
-                (1_024, "missing", "count-empty"),
-            )
+        for rows, variant in (
+            (32, "forward"),
+            (1_024, "forward"),
+            (1_024, "reverse"),
+            (1_024, "last-only"),
+            (1_024, "alternating"),
+            (1_024, "mixed-nodes"),
+            (1, "repeated"),
+            (1_024, "explicit-count"),
+            (2, "forward"),
+            (8, "forward"),
         )
-        + tuple(
+    )
+
+
+def _transform_pattern_number_cases() -> tuple[tuple[str, Case], ...]:
+    return tuple(
+        (
+            f"any: {rows:,} {'node' if rows == 1 else 'nodes'} / {variant}",
             (
-                f"any: 1,024 nodes / {variant}",
                 (
-                    (
-                        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-                        '<xsl:output method="text"/><xsl:template match="/">'
-                        f'<xsl:for-each select="{select}"><xsl:number level="any" {attributes}/>'
-                        "<xsl:text>:|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
-                    ),
-                    (
-                        "<root>"
-                        f"""{
-                            "".join(
-                                f"{'<section>' if sections and index % 64 == 1 else ''}"
-                                f"<{'q' if alternating and index % 2 == 0 else 'p'}"
-                                f' id="{index}"/>{"</section>" if sections and index % 64 == 0 else ""}'
-                                for index in range(1, 1_025)
-                            )
-                        }"""
-                        "</root>"
-                    ),
+                    """<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output """
+                    """method="text"/><xsl:template match="/"><xsl:for-each select="root//p">"""
+                    f"""{
+                        '<xsl:sort select="@id" data-type="number" order="descending"/>'
+                        if variant == "count-reverse"
+                        else ""
+                    }"""
+                    f"""{
+                        (
+                            f'<xsl:number level="any" count="{pattern}" from="section"/><xsl:text>:</xsl:text>'
+                            if variant == "count-from-sections"
+                            else f'<xsl:number level="any" count="{pattern}"/><xsl:text>:</xsl:text>'
+                        )
+                        * (8 if variant == "count-repeated" else 1)
+                    }"""
+                    "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
                 ),
-            )
-            for variant, select, attributes, sections, alternating in (
-                ("count-last-only", "root/p[last()]", 'count="p"', False, False),
-                ("count-from-last-only", "(root/section/p)[last()]", 'count="p" from="section"', True, False),
-                ("from-sections-alternating", "root/section/*", 'from="section"', True, True),
-            )
+                (
+                    "<root>"
+                    f"""{
+                        "".join(
+                            f'''{"<section>" if variant == "count-from-sections" and index % 64 == 1 else ""}<p id="{
+                                index
+                            }" '''
+                            f'''cat="{index % 2}"/>{
+                                "</section>" if variant == "count-from-sections" and index % 64 == 0 else ""
+                            }'''
+                            for index in range(1, rows + 1)
+                        )
+                    }"""
+                    "</root>"
+                ),
+            ),
+        )
+        for rows, pattern, variant in (
+            (1, "p", "count-single-call"),
+            (1, "p[true()]", "predicate-single-call"),
+            (1, "p|q", "union-single-call"),
+            (1_024, "p[true()]", "count-predicate"),
+            (1_024, "p[@cat=current()/@cat]", "count-current"),
+            (1_024, "p", "count-from-sections"),
+            (1_024, "p", "count-reverse"),
+            (1_024, "p", "count-repeated"),
+            (1_024, "*", "count-wildcard"),
+            (1_024, "missing", "count-empty"),
+        )
+    )
+
+
+def _transform_number_prefix_cases() -> tuple[tuple[str, Case], ...]:
+    return tuple(
+        (
+            f"any: 1,024 nodes / {variant}",
+            (
+                (
+                    '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+                    '<xsl:output method="text"/><xsl:template match="/">'
+                    f'<xsl:for-each select="{select}"><xsl:number level="any" {attributes}/>'
+                    "<xsl:text>:|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
+                ),
+                (
+                    "<root>"
+                    f"""{
+                        "".join(
+                            f"{'<section>' if sections and index % 64 == 1 else ''}"
+                            f"<{'q' if alternating and index % 2 == 0 else 'p'}"
+                            f' id="{index}"/>{"</section>" if sections and index % 64 == 0 else ""}'
+                            for index in range(1, 1_025)
+                        )
+                    }"""
+                    "</root>"
+                ),
+            ),
+        )
+        for variant, select, attributes, sections, alternating in (
+            ("count-last-only", "root/p[last()]", 'count="p"', False, False),
+            ("count-from-last-only", "(root/section/p)[last()]", 'count="p" from="section"', True, False),
+            ("from-sections-alternating", "root/section/*", 'from="section"', True, True),
         )
     )
 
