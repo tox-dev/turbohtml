@@ -42,8 +42,8 @@ def render(operation: str, stats: dict[str, _Stat]) -> None:
     print()
     competitor_col: int = 26
     turbo_col = 18
-    header = f"{meta.title:32} {'turbohtml':>{turbo_col}}" + "".join(
-        f"{label:>{competitor_col}}" for label in competitors
+    header = (
+        f"{meta.title:32} {'turbohtml':>{turbo_col}}{''.join(f'{label:>{competitor_col}}' for label in competitors)}"
     )
     print(header)
     for case_name in _case_names(operation, stats):

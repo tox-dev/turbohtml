@@ -172,7 +172,7 @@ def disagreements(workdir: Path) -> list[str]:
         width = max(len(name) for name in results)
         probes = sorted({probe for row in results.values() for probe in row})
         print(f"\n===== {label} =====")
-        print(f"{'party':{width}}  " + "  ".join(f"{probe:>18}" for probe in probes))
+        print(f"{'party':{width}}  {'  '.join(f'{probe:>18}' for probe in probes)}")
         for name, row in results.items():
             print(f"{name:{width}}  " + "  ".join(f"{row.get(probe, '-')!s:>18}" for probe in probes))
         for probe in probes:
