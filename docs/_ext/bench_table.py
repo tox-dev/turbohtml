@@ -49,7 +49,7 @@ _TIME_SPAN: Final[float] = math.log(8.0)
 _MIN_SPAN: Final[dict[str, float]] = {"size": math.log(1.10), "time": _TIME_SPAN, "memory": _TIME_SPAN}
 
 # microseconds carry the micro sign the docs use throughout; the escape keeps the literal unambiguous
-_TIME_UNITS: Final = (("s", 1.0), ("ms", 1e-3), ("\u00b5s", 1e-6), ("ns", 1e-9))
+_TIME_UNITS: Final[tuple[tuple[str, float], ...]] = (("s", 1.0), ("ms", 1e-3), ("\u00b5s", 1e-6), ("ns", 1e-9))
 
 # below this the uncertainty rounds to nothing at the shown precision, so printing it only adds noise to the table
 _RATIO_SPREAD_FLOOR: Final[float] = 0.005
