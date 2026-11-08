@@ -35,8 +35,13 @@ import sys
 from pathlib import Path
 from typing import Final
 
-_SINGLE_BYTE_TABLE: Final[re.Pattern[str]] = re.compile(r'"([^"]+)":\[([^\]]*)\]')
-_ISO_2022_JP_CASE: Final[re.Pattern[str]] = re.compile(r'decode\(\[([^\]]*)\],\s*("(?:[^"\\]|\\.)*")\s*,\s*"([^"]*)"\)')
+_SINGLE_BYTE_TABLE: Final[re.Pattern[str]] = re.compile(
+    r'(?#a quoted table key, then its bracketed list of code points)"(?P<name>[^"]+)":\[(?P<body>[^\]]*)\]'
+)
+_ISO_2022_JP_CASE: Final[re.Pattern[str]] = re.compile(
+    r"(?#a decode call: a byte list, a quoted input, then a quoted string)"
+    r'decode\(\[(?P<raw>[^\]]*)\],\s*(?P<expected>"(?:[^"\\]|\\.)*")\s*,\s*"(?P<arm>[^"]*)"\)'
+)
 
 
 def _revision(checkout: Path) -> str:

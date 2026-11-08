@@ -67,28 +67,34 @@ def parse_numbers(text: str) -> list[int]:
 
 def parse_detector_data(source: str) -> dict[str, list[int]]:
     # Parse the named arrays inside the ``DETECTOR_DATA`` struct instance.
-    body = re.search(r"pub static DETECTOR_DATA: DetectorData = DetectorData \{(.*?)\n\};", source, re.DOTALL)
+    body = re.search(r"pub static DETECTOR_DATA: DetectorData = DetectorData \{(?P<fields>.*?)\n\};", source, re.DOTALL)
     if body is None:
         msg = "DETECTOR_DATA instance not found; chardetng layout changed"
         raise SystemExit(msg)
     tables: dict[str, list[int]] = {}
     # the trailing newline lets the last field (whose closing "]," abuts the struct
     # close) match the same "]," + newline pattern as every earlier field
-    for name, content in re.findall(r"(\w+):\s*\[(.*?)\],\s*\n", f"{body.group(1)}\n", re.DOTALL):
+    for name, content in re.findall(
+        r"(?P<name>\w+):\s*\[(?P<content>.*?)\],\s*\n", f"{body.group('fields')}\n", re.DOTALL
+    ):
         tables[name] = parse_numbers(content)
     return tables
 
 
 def parse_single_byte(source: str) -> list[tuple[str, ...]]:
     # Parse the 20 ``SINGLE_BYTE_DATA`` rows into (encoding, lower, upper, prob, ascii, non_ascii).
-    block = re.search(r"pub static SINGLE_BYTE_DATA: \[SingleByteData; 20\] = \[(.*?)\n\];", source, re.DOTALL)
+    block = re.search(r"pub static SINGLE_BYTE_DATA: \[SingleByteData; 20\] = \[(?P<rows>.*?)\n\];", source, re.DOTALL)
     if block is None:
         msg = "SINGLE_BYTE_DATA not found; chardetng layout changed"
         raise SystemExit(msg)
     rows = re.findall(
-        r"encoding:\s*&(\w+),\s*lower:\s*&DETECTOR_DATA\.(\w+),\s*upper:\s*&DETECTOR_DATA\.(\w+),"
-        r"\s*probabilities:\s*&DETECTOR_DATA\.(\w+),\s*ascii:\s*(\w+),\s*non_ascii:\s*(\w+),",
-        block.group(1),
+        r"(?#one SingleByteData row: the encoding, then its lower, upper and probability tables, then the ascii"
+        r" and non-ascii class values)"
+        r"encoding:\s*&(?P<encoding>\w+),\s*lower:\s*&DETECTOR_DATA\.(?P<lower>\w+),"
+        r"\s*upper:\s*&DETECTOR_DATA\.(?P<upper>\w+),"
+        r"\s*probabilities:\s*&DETECTOR_DATA\.(?P<probabilities>\w+),"
+        r"\s*ascii:\s*(?P<ascii>\w+),\s*non_ascii:\s*(?P<non_ascii>\w+),",
+        block.group("rows"),
     )
     single_byte_count = 20
     if len(rows) != single_byte_count:
@@ -99,7 +105,7 @@ def parse_single_byte(source: str) -> list[tuple[str, ...]]:
 
 def parse_consts(source: str) -> dict[str, int]:
     # Parse the ``const NAME: usize = N;`` boundary constants the rows reference.
-    return {name: int(value) for name, value in re.findall(r"const (\w+): usize = (\d+);", source)}
+    return {name: int(value) for name, value in re.findall(r"const (?P<name>\w+): usize = (?P<value>\d+);", source)}
 
 
 def emit_array(name: str, values: list[int], ctype: str) -> str:
@@ -162,11 +168,11 @@ def parse_block(source: str, header: str) -> str:
 
 def tld_variants(source: str) -> list[str]:
     # Return the ``Tld`` enum's variants in declaration order; every per-TLD table below is indexed by it.
-    enum_body = re.search(r"pub enum Tld \{(.*?)\n\}", source, re.DOTALL)
+    enum_body = re.search(r"pub enum Tld \{(?P<body>.*?)\n\}", source, re.DOTALL)
     if enum_body is None:
         msg = "the Tld enum was not found; chardetng's tld.rs layout changed"
         raise SystemExit(msg)
-    return re.findall(r"\s+(\w+),", enum_body.group(1))
+    return re.findall(r"\s+(\w+),", enum_body.group("body"))
 
 
 def snake(variant: str) -> str:
@@ -181,7 +187,7 @@ def emit_tld(source: str, variants: list[str]) -> list[str]:
     # upstream, so no lower-cased label matches them; reproducing the typo keeps the C classifier answering what
     # chardetng answers, which is what the differential asserts.
     two_values = [snake(name) for name in re.findall(r"Tld::(\w+)", parse_block(source, "static TWO_LETTER_VALUES"))]
-    two_keys = re.findall(r"\[b'(.)', b'(.)'\]", parse_block(source, "static TWO_LETTER_KEYS"))
+    two_keys = re.findall(r"\[b'(?P<first>.)', b'(?P<second>.)'\]", parse_block(source, "static TWO_LETTER_KEYS"))
     puny_keys = re.findall(r'b"([^"]+)"', parse_block(source, "static PUNYCODE_KEYS"))
     puny_values = [snake(name) for name in re.findall(r"Tld::(\w+)", parse_block(source, "static PUNYCODE_VALUES"))]
     if not (len(two_keys) == len(two_values) and len(puny_keys) == len(puny_values)):
@@ -248,7 +254,7 @@ def emit_tld_scoring(source: str, variants: list[str]) -> list[str]:
     #
     # ``encoding_for_tld`` becomes one index per TLD. ``encoding_is_native_to_tld`` and the encodings
     # ``score_adjustment`` drops to zero become bitmasks over those indices; the Rust writes both as match arms.
-    indices = re.findall(r"const (\w+_INDEX): usize = (\d+);", source)
+    indices = re.findall(r"const (?P<name>\w+_INDEX): usize = (?P<value>\d+);", source)
     default = {tld: arm for group, arm in match_tld(source, "fn encoding_for_tld") for tld in group}
     native = {tld: arm for group, arm in match_tld(source, "fn encoding_is_native_to_tld") for tld in group}
     zeroed = {}

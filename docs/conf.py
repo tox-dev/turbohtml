@@ -238,9 +238,13 @@ def _render_signature(
         name="_", args=arguments, body=[ast.Expr(ast.Constant(...))], decorator_list=[], returns=returns, type_params=[]
     )
     ast.fix_missing_locations(dummy)
-    matched = re.match(r"^def _(\(.*\))(?: -> (.*))?:$", ast.unparse(dummy).splitlines()[0])
+    matched = re.match(
+        r"^(?#header of a one-line def: a parameter list in parentheses, then an optional return annotation)"
+        r"def _(?P<params>\(.*\))(?: -> (?P<returns>.*))?:$",
+        ast.unparse(dummy).splitlines()[0],
+    )
     assert matched is not None  # ruff:ignore[assert] -- a one-line ``def`` header always matches
-    return matched.group(1), matched.group(2)
+    return matched.group("params"), matched.group("returns")
 
 
 def _collect_stub_types() -> tuple[dict[str, tuple[str, str | None]], dict[str, str]]:

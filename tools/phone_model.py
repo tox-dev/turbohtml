@@ -786,8 +786,13 @@ def _word_before(tables: Tables, text: str, start: int) -> str:
 
 
 # PhoneNumberMatcher.PUB_PAGES: "pages 1-5 (3 pages)", a page range with a bracketed count, is not a number.
-_PUB_PAGES: Final[re.Pattern[str]] = re.compile(r"[0-9]{1,5}-+[0-9]{1,5}[ \t\n\x0b\f\r]{0,4}\([0-9]{1,5}")
-_MATCHING_BRACKETS: Final[re.Pattern[str]] = re.compile(r"\(?(?:x+\))?x+(?:\(x+\)){0,3}x*")
+_PUB_PAGES: Final[re.Pattern[str]] = re.compile(
+    r"(?#a page range such as 1-5, then an opening bracket and a count)"
+    r"[0-9]{1,5}-+[0-9]{1,5}[ \t\n\x0b\f\r]{0,4}\([0-9]{1,5}"
+)
+_MATCHING_BRACKETS: Final[re.Pattern[str]] = re.compile(
+    r"(?#x runs standing for digits, with up to three of them in brackets)\(?(?:x+\))?x+(?:\(x+\)){0,3}x*"
+)
 
 
 def _brackets_match(candidate: str) -> bool:

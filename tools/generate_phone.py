@@ -194,11 +194,19 @@ _WHITESPACE: Final[re.Pattern[str]] = re.compile(r"\s+")
 _FIRST_GROUP_ONLY: Final[re.Pattern[str]] = re.compile(r"\(?\$1\)?")
 # a numberFormat pattern is a run of capture groups over digits, each `\d`, `\d{n}` or `\d{n,m}`, so choosing it is
 # a length test and formatNsn's replacement is a greedy split of the digits into those groups, no regex engine needed
-_GROUP_RUN: Final[re.Pattern[str]] = re.compile(r"(?:\(\\d(?:\{\d+(?:,\d+)?\})?\))+")
-_GROUP_PART: Final[re.Pattern[str]] = re.compile(r"\(\\d(?:\{(\d+)(?:,(\d+))?\})?\)")
+_GROUP_RUN: Final[re.Pattern[str]] = re.compile(
+    r"(?#one or more digit groups, each a \d, \d{n} or \d{n,m} in parentheses)(?:\(\\d(?:\{\d+(?:,\d+)?\})?\))+"
+)
+_GROUP_PART: Final[re.Pattern[str]] = re.compile(
+    r"(?#one group of a numberFormat pattern: \d{low} or \d{low,high}, in parentheses)"
+    r"\(\\d(?:\{(?P<low>\d+)(?:,(?P<high>\d+))?\})?\)"
+)
 _TEMPLATE_REF: Final[re.Pattern[str]] = re.compile(r"\$(\d)")
-_TRANSFORM_RULE: Final[re.Pattern[str]] = re.compile(r"^(\d{0,4})\$(\d)$")
-_LENGTH_ITEM: Final[re.Pattern[str]] = re.compile(r"^(\d+)$|^\[(\d+)-(\d+)\]$")
+_TRANSFORM_RULE: Final[re.Pattern[str]] = re.compile(r"^(?P<literal>\d{0,4})\$(?P<group>\d)$")
+_LENGTH_ITEM: Final[re.Pattern[str]] = re.compile(
+    r"(?#a single possibleLengths count, or a bracketed low-high range)"
+    r"^(?P<single>\d+)$|^\[(?P<low>\d+)-(?P<high>\d+)\]$"
+)
 
 
 class GenerationError(RuntimeError):
@@ -410,10 +418,10 @@ def _lengths(text: str | None) -> frozenset[int]:
         if matched is None:
             msg = f"unparsable possibleLengths item {item!r}"
             raise GenerationError(msg)
-        if matched.group(1):
-            values.add(int(matched.group(1)))
+        if matched["single"]:
+            values.add(int(matched["single"]))
         else:
-            values.update(range(int(matched.group(2)), int(matched.group(3)) + 1))
+            values.update(range(int(matched["low"]), int(matched["high"]) + 1))
     return frozenset(values)
 
 
@@ -523,7 +531,7 @@ def parse_transform(rule: str | None, prefix_program: Program | None) -> tuple[s
     if matched is None:
         msg = f"unsupported nationalPrefixTransformRule {rule!r}"
         raise GenerationError(msg)
-    literal, group = matched.group(1), int(matched.group(2))
+    literal, group = matched["literal"], int(matched["group"])
     if len(literal) > 4 or group == 0 or prefix_program is None or 2 * group + 1 >= prefix_program.slots:
         msg = f"transform rule {rule!r} does not fit the prefix pattern"
         raise GenerationError(msg)

@@ -66,7 +66,7 @@ def parse_script_ranges(chars_src: str) -> dict[str, list[tuple[int, int]]]:
     # Parse each ``is_<name>`` matches! body into a list of inclusive code-point ranges.
     ranges: dict[str, list[tuple[int, int]]] = {}
     for name, body in re.findall(
-        r"fn is_(\w+)\(ch: char\) -> bool \{\s*matches!\(ch,\s*(.*?)\)\s*\}", chars_src, re.DOTALL
+        r"fn is_(?P<name>\w+)\(ch: char\) -> bool \{\s*matches!\(ch,\s*(?P<body>.*?)\)\s*\}", chars_src, re.DOTALL
     ):
         spans: list[tuple[int, int]] = []
         for raw in body.split("|"):
@@ -85,11 +85,13 @@ def parse_script_ranges(chars_src: str) -> dict[str, list[tuple[int, int]]]:
 
 def parse_script_order(detect_src: str) -> list[tuple[str, str]]:
     # Parse the ``script_counters`` array into ordered (Script, is_<fn>) pairs; the index is the script id.
-    block = re.search(r"let mut script_counters: \[ScriptCounter; 25\] = \[(.*?)\n    \];", detect_src, re.DOTALL)
+    block = re.search(
+        r"let mut script_counters: \[ScriptCounter; 25\] = \[(?P<counters>.*?)\n    \];", detect_src, re.DOTALL
+    )
     if block is None:
         msg = "script_counters array not found; whatlang layout changed"
         raise SystemExit(msg)
-    pairs = re.findall(r"\(Script::(\w+), chars::is_(\w+), 0\)", block.group(1))
+    pairs = re.findall(r"\(Script::(?P<script>\w+), chars::is_(?P<check>\w+), 0\)", block.group("counters"))
     if len(pairs) != 25:
         msg = f"expected 25 scripts, parsed {len(pairs)}"
         raise SystemExit(msg)
@@ -98,12 +100,16 @@ def parse_script_order(detect_src: str) -> list[tuple[str, str]]:
 
 def parse_lang_groups(grouping_src: str) -> dict[str, tuple[str, str]]:
     # Parse ``to_lang_group`` into Script -> (kind, payload): ('multi', mls) | ('one', lang) | ('mandarin', '').
-    block = re.search(r"fn to_lang_group.*?match self \{(.*?)\n        \}", grouping_src, re.DOTALL)
+    block = re.search(r"fn to_lang_group.*?match self \{(?P<arms>.*?)\n        \}", grouping_src, re.DOTALL)
     if block is None:
         msg = "to_lang_group match not found; whatlang layout changed"
         raise SystemExit(msg)
     groups: dict[str, tuple[str, str]] = {}
-    for scripts, raw_arm in re.findall(r"((?:Script::\w+(?:\s*\|\s*)?)+)\s*=>\s*([^,]+),", block.group(1)):
+    for scripts, raw_arm in re.findall(
+        r"(?#one match arm: a run of Script:: alternatives, the arrow, then the payload up to the comma)"
+        r"(?P<scripts>(?:Script::\w+(?:\s*\|\s*)?)+)\s*=>\s*(?P<raw_arm>[^,]+),",
+        block.group("arms"),
+    ):
         names = re.findall(r"Script::(\w+)", scripts)
         if (arm := raw_arm.strip()) == "Mandarin":
             target = ("mandarin", "")
@@ -121,9 +127,9 @@ def parse_lang_table(lang_src: str) -> tuple[list[str], dict[str, str], dict[str
     values = require(re.search(r"const VALUES: \[Lang; 70\] = \[(.*?)\];", lang_src, re.DOTALL), "VALUES array")
     order = re.findall(r"Lang::(\w+)", values.group(1))
     code_fn = require(re.search(r"fn lang_to_code.*?\n\}", lang_src, re.DOTALL), "lang_to_code").group()
-    code = dict(re.findall(r'Lang::(\w+) => "(\w+)",', code_fn))
+    code = dict(re.findall(r'Lang::(?P<lang>\w+) => "(?P<code>\w+)",', code_fn))
     eng_fn = require(re.search(r"fn lang_to_eng_name.*?\n\}", lang_src, re.DOTALL), "lang_to_eng_name").group()
-    eng = dict(re.findall(r'Lang::(\w+) => "([^"]+)",', eng_fn))
+    eng = dict(re.findall(r'Lang::(?P<lang>\w+) => "(?P<name>[^"]+)",', eng_fn))
     if len(order) != 70 or len(code) != 70 or len(eng) != 70:
         msg = f"expected 70 languages, parsed order={len(order)} code={len(code)} eng={len(eng)}"
         raise SystemExit(msg)
@@ -139,8 +145,13 @@ def parse_profiles(profiles_src: str) -> Profiles:
             msg = f"{static} not found; whatlang layout changed"
             raise SystemExit(msg)
         langs: list[tuple[str, list[tuple[int, int, int]]]] = []
-        for lang, body in re.findall(r"Lang::(\w+),\s*&\[(.*?)\],\s*\n\s*\)", block.group(1), re.DOTALL):
-            trigrams = [(ord(a), ord(b), ord(c)) for a, b, c in re.findall(r"Trigram\('(.)', '(.)', '(.)'\)", body)]
+        for lang, body in re.findall(
+            r"Lang::(?P<lang>\w+),\s*&\[(?P<body>.*?)\],\s*\n\s*\)", block.group(1), re.DOTALL
+        ):
+            trigrams = [
+                (ord(a), ord(b), ord(c))
+                for a, b, c in re.findall(r"Trigram\('(?P<first>.)', '(?P<second>.)', '(?P<third>.)'\)", body)
+            ]
             langs.append((lang, trigrams))
         out[static] = langs
     return out

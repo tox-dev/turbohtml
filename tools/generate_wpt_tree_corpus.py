@@ -54,9 +54,13 @@ _WPT_BASE: Final[str] = (
     "https://github.com/web-platform-tests/wpt/blob/4830edb033cb486fd0cd6f85b5e937cfc718704d/"
     "html/syntax/parsing/resources"
 )
-_NEW_ERROR: Final[re.Pattern[str]] = re.compile(r"\((\d+):(\d+)(?:-(\d+):(\d+))?\) ([a-z0-9-]+)")
+_NEW_ERROR: Final[re.Pattern[str]] = re.compile(
+    r"(?#one #new-errors entry: a line:col position or a line:col-line:col range, then the error code)"
+    r"\((?P<line>\d+):(?P<col>\d+)(?:-(?P<end_line>\d+):(?P<end_col>\d+))?\) (?P<code>[a-z0-9-]+)"
+)
 _SECTION: Final[re.Pattern[str]] = re.compile(
-    r"(?m)^#(errors|new-errors|document-fragment|script-on|script-off)(?:\n|$)"
+    r"(?m)(?#a line holding one of the test-file section headers)"
+    r"^#(errors|new-errors|document-fragment|script-on|script-off)(?:\n|$)"
 )
 
 _SCRIPT_EXECUTION_EXCLUSIONS: Final[dict[_Key, tuple[str, str]]] = {
@@ -280,11 +284,11 @@ def _new_errors(value: str | None, path: Path) -> list[_Error] | None:
             msg = f"{path}: invalid #new-errors entry: {line!r}"
             raise ValueError(msg)
         errors.append({
-            "code": match[5],
-            "line": int(match[1]),
-            "col": int(match[2]),
-            "end_line": int(match[3]) if match[3] is not None else None,
-            "end_col": int(match[4]) if match[4] is not None else None,
+            "code": match["code"],
+            "line": int(match["line"]),
+            "col": int(match["col"]),
+            "end_line": int(match["end_line"]) if match["end_line"] is not None else None,
+            "end_col": int(match["end_col"]) if match["end_col"] is not None else None,
         })
     return errors
 
