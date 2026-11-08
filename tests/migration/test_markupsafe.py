@@ -395,11 +395,11 @@ def test_striptags(markup: str, expected: str) -> None:
 
 
 def test_escape_formatter_is_public_and_subclassable() -> None:
-    seen: list[object] = []
+    seen: list[object] = []  # simplint: ignore[SMP602]  # the override records any field value
 
     class Recording(EscapeFormatter):
         # Record each field, to show EscapeFormatter cooperates with subclassing the way Jinja2 needs.
-        def format_field(self, value: object, format_spec: str) -> str:
+        def format_field(self, value: object, format_spec: str) -> str:  # simplint: ignore[SMP602]  # any field value
             seen.append(value)
             return super().format_field(value, format_spec)
 
