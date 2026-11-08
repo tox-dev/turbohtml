@@ -2320,20 +2320,6 @@ def test_atheris_runtime_build_keeps_archive(
     _assert_runtime_archive_kept(archive, output, [call.args[0] for call in run.call_args_list], flags)
 
 
-@pytest.mark.parametrize("flags", [[], ["--coverage"]], ids=["release", "coverage"])
-def test_atheris_runtime_cli_keeps_archive(
-    mocker: MockerFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: list[str]
-) -> None:
-    archive = tmp_path / "wheel-runtime.a"
-    archive.write_bytes(b"original archive")
-    for name in ("CC", "CXX", "OBJCOPY"):
-        monkeypatch.delenv(name, raising=False)
-    output = tmp_path / "built"
-    run = mocker.patch("subprocess.run", autospec=True, return_value=None)
-    assert fuzz_atheris_runtime_main(["--archive", str(archive), "--output", str(output), *flags]) == 0
-    _assert_runtime_archive_kept(archive, output, [call.args[0] for call in run.call_args_list], flags)
-
-
 def _assert_runtime_archive_kept(archive: Path, output: Path, commands: list[list[str]], flags: list[str]) -> None:
     assert (archive.read_bytes(), (output / "runtime.a").read_bytes(), len(commands), commands[0], commands[2]) == (
         b"original archive",
@@ -2359,6 +2345,20 @@ def _assert_runtime_archive_kept(archive: Path, output: Path, commands: list[lis
             *flags,
         ],
     )
+
+
+@pytest.mark.parametrize("flags", [[], ["--coverage"]], ids=["release", "coverage"])
+def test_atheris_runtime_cli_keeps_archive(
+    mocker: MockerFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: list[str]
+) -> None:
+    archive = tmp_path / "wheel-runtime.a"
+    archive.write_bytes(b"original archive")
+    for name in ("CC", "CXX", "OBJCOPY"):
+        monkeypatch.delenv(name, raising=False)
+    output = tmp_path / "built"
+    run = mocker.patch("subprocess.run", autospec=True, return_value=None)
+    assert fuzz_atheris_runtime_main(["--archive", str(archive), "--output", str(output), *flags]) == 0
+    _assert_runtime_archive_kept(archive, output, [call.args[0] for call in run.call_args_list], flags)
 
 
 @pytest.mark.parametrize(
@@ -3612,10 +3612,6 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-def _island_value(node: Node) -> str:
-    return node.tag if isinstance(node, Element) else cast("Text", node).data
-
-
 def _island_parent(node: Node) -> str:
     return node.parent.tag if isinstance(node.parent, Element) else "Document"
 
@@ -3684,6 +3680,10 @@ def test_xml_island_literal_nodes(case: str, source: str, expected: list[tuple[s
         xml_island_check(case, lambda _node: source.replace("\r\n", "\n").replace("\r", "\n")),
         xml_island_check(case, lambda _node: "<Root/>"),
     ) == (expected, None, None, "serialized XML islands differ from literals")
+
+
+def _island_value(node: Node) -> str:
+    return node.tag if isinstance(node, Element) else cast("Text", node).data
 
 
 def test_xml_island_checks_first_parse() -> None:
