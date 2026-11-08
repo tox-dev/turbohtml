@@ -35,7 +35,7 @@ def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # 
     protocols: Iterable[str] | None = None,
     strip: bool = False,  # ruff:ignore[boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # bleach keeps strip a positional flag
     strip_comments: bool = True,  # ruff:ignore[boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # bleach keeps strip_comments a positional flag
-    css_sanitizer: object = None,
+    css_sanitizer: object = None,  # simplint: ignore[SMP602]  # bleach takes any object, tests pass object()
 ) -> str:
     """
     Sanitize HTML against a bleach-style allowlist, the way ``bleach.clean`` did.

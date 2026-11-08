@@ -38,11 +38,11 @@ if TYPE_CHECKING:
 
     class _SupportsGetItem(Protocol):
         # Any object supporting subscript, the shape a ``%`` mapping operand needs.
-        def __getitem__(self, key: object, /) -> object: ...
+        def __getitem__(self, key: object, /) -> object: ...  # simplint: ignore[SMP602]  # mapping values are arbitrary
 
     class _SupportsStrGetItem(Protocol):
         # The mapping shape ``str.format_map`` accepts: a string-keyed ``__getitem__``.
-        def __getitem__(self, key: str, /) -> object: ...
+        def __getitem__(self, key: str, /) -> object: ...  # simplint: ignore[SMP602]  # format_map formats any value
 
     class _SupportsIntGetItem(Protocol):
         # The table shape ``str.translate`` accepts: an int-keyed ``__getitem__``.
@@ -103,7 +103,7 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]  # 
         return NotImplemented
 
     @classmethod
-    def escape(cls, value: object, /) -> Markup:
+    def escape(cls, value: object, /) -> Markup:  # simplint: ignore[SMP602]  # any object, as markupsafe.escape
         """
         Escape a value to this class, the entry point the composing operations use to make operands safe.
 
@@ -429,7 +429,7 @@ class EscapeFormatter(string.Formatter):
         self.escape = escape
         super().__init__()
 
-    def format_field(self, value: object, format_spec: str) -> str:
+    def format_field(self, value: object, format_spec: str) -> str:  # simplint: ignore[SMP602]  # any field value
         """
         Render one field: trust its safe-rendering protocol if present, else escape the formatted value.
 
