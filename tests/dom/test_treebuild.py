@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Final, Protocol, cast
+from typing import TYPE_CHECKING, Final, Protocol
 
 from turbohtml import Comment as DomComment
 from turbohtml import Doctype as DomDoctype
@@ -371,7 +371,8 @@ _LXML_CORPUS: Final[list[pytest.ParameterSet]] = [
 @pytest.mark.oracle
 def test_parse_into_rebuilds_the_tree_in_lxml(markup: str) -> None:
     lxml_etree: Final = pytest.importorskip("lxml.etree")
-    built: Final = cast("_LxmlNode", parse_into(markup, _LxmlBuilder(lxml_etree)))
+    built: Final = parse_into(markup, _LxmlBuilder(lxml_etree))
+    assert not isinstance(built, tuple)
     mine: Final[list[_LxmlEvent]] = []
     _flatten_lxml(built[0], mine, lxml_etree)
     theirs: Final[list[_LxmlEvent]] = []
@@ -389,7 +390,8 @@ def test_parse_into_rebuilds_the_tree_in_lxml(markup: str) -> None:
 )
 def test_lxml_builder_preserves_processing_instruction(data: str, expected: str) -> None:
     lxml_etree: Final = pytest.importorskip("lxml.etree")
-    built: Final = cast("_LxmlNode", parse_into(f"<body><?php {data}?></body>", _LxmlBuilder(lxml_etree)))
+    built: Final = parse_into(f"<body><?php {data}?></body>", _LxmlBuilder(lxml_etree))
+    assert not isinstance(built, tuple)
     assert lxml_etree.tostring(built[0]) == expected.encode()
 
 
