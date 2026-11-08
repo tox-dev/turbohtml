@@ -30,10 +30,11 @@ import time
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
+from enum import Enum
 from functools import cache, partial
 from itertools import pairwise, starmap
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Final, Literal, TypeAlias
 from urllib.parse import urlsplit
 
 import tinycss2
@@ -148,6 +149,7 @@ from fuzz.xml_structure_generators import (
 )
 from markdown_it import MarkdownIt
 from tinycss2.ast import AtRule, ParseError, QualifiedRule
+from tinycss2.ast import Node as CssNode
 from typing_extensions import override
 
 from turbohtml import (
@@ -1254,7 +1256,12 @@ def _value_verdict(name: str, before: str, after: str) -> str | None:
     return None if want == got else "value changed"
 
 
-_INVALID: Final[tuple[str, ...]] = ("invalid",)
+class _Invalid(Enum):
+    INVALID = "invalid"
+
+
+_INVALID: Final = _Invalid.INVALID
+_Value: TypeAlias = _Invalid | str | int | float | tuple[str | int | float, ...] | None
 _SIDES: Final[tuple[str, ...]] = ("top", "right", "bottom", "left")
 _VALUE_KIND: Final[dict[str, str]] = {
     **dict.fromkeys(
@@ -1289,7 +1296,7 @@ _NUMERIC: Final[re.Pattern[str]] = re.compile(r"([+-]?(?:\d+\.\d+|\d+|\.\d+)(?:[
 _TRAILING_DOT: Final[re.Pattern[str]] = re.compile(r"[+-]?\d+\.(?:[a-zA-Z]+|%)?")
 
 
-def _read_value(name: str, value: str) -> object:
+def _read_value(name: str, value: str) -> _Value:
     # Read one computed value with its property's grammar, for the properties the generator writes.
     #
     # Returns a comparable value, ``_INVALID`` when the grammar rejects it, or None when it falls outside what this
@@ -1310,9 +1317,9 @@ def _read_value(name: str, value: str) -> object:
     return {"bold": 700.0, "normal": 400.0}.get(keyword, keyword) if kind == "weight" else keyword
 
 
-def _read_number(kind: str | None, digits: str, unit: str) -> object:
+def _read_number(kind: str | None, digits: str, unit: str) -> _Value:
     number = float(digits)
-    readers: dict[str | None, Callable[[], object]] = {
+    readers: dict[str | None, Callable[[], _Value]] = {
         "integer": lambda: int(number) if not unit and re.fullmatch(r"[+-]?\d+", digits) else _INVALID,
         "alpha": lambda: {"": number, "%": number / 100}.get(unit, _INVALID),
         "weight": lambda: number if not unit and 1 <= number <= 1000 else _INVALID,
@@ -1322,7 +1329,7 @@ def _read_number(kind: str | None, digits: str, unit: str) -> object:
     return readers.get(kind, lambda: None)()
 
 
-def _read_length(number: float, unit: str) -> object:
+def _read_length(number: float, unit: str) -> _Value:
     if unit and unit not in _LENGTH_UNITS:
         return _INVALID
     if number == 0 and unit != "%":
@@ -1330,7 +1337,7 @@ def _read_length(number: float, unit: str) -> object:
     return ("length", number, unit) if unit else _INVALID
 
 
-def _read_color(text: str) -> object:
+def _read_color(text: str) -> _Value:
     named_colors = {
         "red": (255, 0, 0, 1.0),
         "white": (255, 255, 255, 1.0),
@@ -1352,7 +1359,7 @@ def _read_color(text: str) -> object:
     return _read_rgb(function[1])
 
 
-def _read_rgb(arguments: str) -> object:
+def _read_rgb(arguments: str) -> _Value:
     # Read ``rgb()`` arguments: three comma- or space-separated channels and an alpha, after ``/`` in the latter.
     parts = [part.strip() for part in arguments.split(",")]
     legacy = len(parts) > 1
@@ -1390,8 +1397,12 @@ _VALUE_SPELLINGS: Final[dict[str, tuple[str, ...]]] = {
 
 def xpath_entry_check(
     case: str,
-    iterate: Callable[[Node, str], Sequence[object]] = lambda node, expression: list(node.xpath_iter(expression)),
-    first: Callable[[Node, str], object] = lambda node, expression: node.xpath_one(expression),
+    iterate: Callable[[Node, str], Sequence[Node | str | float | bool]] = lambda node, expression: list(
+        node.xpath_iter(expression)
+    ),
+    first: Callable[[Node, str], Node | str | float | bool | None] = lambda node, expression: node.xpath_one(
+        expression
+    ),
 ) -> str | None:
     # Require ``xpath``, ``xpath_iter``, ``xpath_one`` and a compiled ``XPath`` to agree on one expression.
     #
@@ -1427,14 +1438,17 @@ class _Raised:
     kind: str
 
 
-def _outcome(call: Callable[[], object]) -> object:
+_XPathValue: TypeAlias = "Node | str | float | bool | Sequence[_XPathValue] | None"
+
+
+def _outcome(call: Callable[[], _XPathValue]) -> _XPathValue | _Raised:
     try:
         return call()
     except (ValueError, TypeError) as error:
         return _Raised(type(error).__name__)
 
 
-def _same(left: object, right: object) -> bool:
+def _same(left: _XPathValue | _Raised, right: _XPathValue | _Raised) -> bool:
     # Compare XPath results: nodes by identity (``Node.__eq__``), NaN equal to itself, lists item by item.
     if isinstance(left, list) and isinstance(right, list):
         return len(left) == len(right) and all(starmap(_same, zip(left, right, strict=False)))
@@ -1637,7 +1651,7 @@ def _css_valid_source(text: str) -> bool:
     )
 
 
-def _css_rule_valid(rule: object) -> bool:
+def _css_rule_valid(rule: CssNode) -> bool:
     if isinstance(rule, ParseError):
         return False
     if isinstance(rule, QualifiedRule):
@@ -1655,7 +1669,7 @@ def _css_rule_valid(rule: object) -> bool:
     return True
 
 
-def _css_has_parse_error(tokens: list[object]) -> bool:
+def _css_has_parse_error(tokens: list[CssNode]) -> bool:
     return any(
         getattr(token, "type", "") == "error"
         or _css_has_parse_error(getattr(token, "content", getattr(token, "arguments", [])))

@@ -38,7 +38,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 from turbohtml import Document, HTMLParseError, parse, parse_xml, tokenize
 from turbohtml.clean import linkify, minify_css, minify_js, sanitize
@@ -48,6 +48,8 @@ from turbohtml.validate import RelaxNG, XMLSchema
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
+
+JSON: TypeAlias = "dict[str, JSON] | list[JSON] | tuple[JSON, ...] | str | int | float | bool | None"
 
 _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _C_SOURCES: Final[Path] = _ROOT / "src" / "turbohtml" / "_c"
@@ -485,7 +487,7 @@ def _fit(text: str) -> str:
     return text
 
 
-def _measurements(result: Score) -> dict[str, object]:
+def _measurements(result: Score) -> dict[str, JSON]:
     return {
         "sizes": result.sizes,
         "seconds": result.seconds,
@@ -496,7 +498,7 @@ def _measurements(result: Score) -> dict[str, object]:
     }
 
 
-def _record(crash_dir: Path, target: str, shape: dict[str, object], details: dict[str, object]) -> None:
+def _record(crash_dir: Path, target: str, shape: dict[str, JSON], details: dict[str, JSON]) -> None:
     identity = {"target": target, "shape": shape}
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     (crash_dir / f"crash-{digest}.json").write_text(f"{json.dumps(identity | details, indent=2)}\n", encoding="utf-8")

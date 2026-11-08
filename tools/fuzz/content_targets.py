@@ -6,7 +6,7 @@ import html
 import json
 import unicodedata
 from functools import partial
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, TypeVar, cast
 
 import turbohtml
 from turbohtml import clean, detect, extract, parse_fragment
@@ -562,7 +562,10 @@ def _text(data: bytes) -> str:
     return f"value{data[:32].hex()}"
 
 
-def _equal(actual: object, expected: object) -> None:
+_T = TypeVar("_T")
+
+
+def _equal(actual: _T, expected: _T) -> None:
     if actual != expected:
         msg = f"Content API mismatch: {actual!r} != {expected!r}"
         raise AssertionError(msg)

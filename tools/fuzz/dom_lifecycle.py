@@ -17,6 +17,7 @@ from turbohtml import (
     NodeIterator,
     Range,
     Text,
+    Token,
     Tokenizer,
     TreeWalker,
     parse,
@@ -155,7 +156,7 @@ class _Machine:
     def __init__(self, code: list[tuple[int, int, int, int]], nodes: list[Node | None] | None = None) -> None:
         self.code: Final = code
         self.nodes: Final[list[Node | None]] = [None] * _SLOTS if nodes is None else nodes
-        self.walkers: Final[list[TreeWalker | NodeIterator | Iterator[object] | None]] = [None] * _SLOTS
+        self.walkers: Final[list[TreeWalker | NodeIterator | Iterator[Node | str | Token] | None]] = [None] * _SLOTS
         self.parsers: Final[list[Tokenizer | IncrementalParser | None]] = [None] * _SLOTS
         self.observers: Final[list[MutationObserver | None]] = [None] * _SLOTS
         self.trace: Final[list[LifecycleStep]] = []
@@ -357,7 +358,7 @@ def _step(machine: _Machine, slot: int, second: int, third: int, _body: range) -
             walker.next_sibling,
             walker.previous_sibling,
         )
-        found: object = moves[second % len(moves)]()
+        found: Node | str | Token | None = moves[second % len(moves)]()
     elif isinstance(walker, NodeIterator):
         found = walker.next_node() if second % 2 else walker.previous_node()
     elif walker is None:

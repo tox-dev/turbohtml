@@ -14,9 +14,10 @@ from turbohtml.clean import minify_js
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from fuzz.release_worker import JSON
     from pytest_mock import MockerFixture
 
-_TYPE_ERROR: Final[dict[str, object]] = {"error": ["ValueError", "a"]}
+_TYPE_ERROR: Final[dict[str, JSON]] = {"error": ["ValueError", "a"]}
 
 
 @pytest.mark.parametrize(
@@ -35,7 +36,7 @@ _TYPE_ERROR: Final[dict[str, object]] = {"error": ["ValueError", "a"]}
     ],
 )
 def test_release_diff_compare(
-    head: dict[str, object], release: dict[str, object], errors: str, expected: str | None
+    head: dict[str, JSON], release: dict[str, JSON], errors: str, expected: str | None
 ) -> None:
     assert compare(head, release, errors) == expected
 

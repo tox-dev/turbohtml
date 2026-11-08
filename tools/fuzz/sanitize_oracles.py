@@ -45,6 +45,8 @@ if TYPE_CHECKING:
     from xml.dom.minidom import DocumentFragment as DomFragment
     from xml.dom.minidom import Element as DomElement
 
+    from tinycss2.ast import Node as CssNode
+
 _T = TypeVar("_T")
 _Check = Callable[[str], str | None]
 _PolicyValue = frozenset[str] | Mapping[str, frozenset[str]] | bool | OnDisallowed
@@ -360,7 +362,7 @@ def _css_script_url(value: str) -> bool:
     return value.strip(" \t\r\n\f\"'").lower().startswith(("javascript:", "vbscript:"))
 
 
-def _css_value_danger(tokens: list[object]) -> bool:
+def _css_value_danger(tokens: list[CssNode]) -> bool:
     for token in tokens:
         kind = getattr(token, "type", "")
         if kind == "url" and _css_script_url(getattr(token, "value", "")):
@@ -375,7 +377,7 @@ def _css_value_danger(tokens: list[object]) -> bool:
     return False
 
 
-def _css_declarations_danger(declarations: list[object]) -> bool:
+def _css_declarations_danger(declarations: list[CssNode]) -> bool:
     return any(
         getattr(declaration, "type", "") == "declaration"
         and (
@@ -386,7 +388,7 @@ def _css_declarations_danger(declarations: list[object]) -> bool:
     )
 
 
-def _css_rules_danger(rules: list[object]) -> bool:
+def _css_rules_danger(rules: list[CssNode]) -> bool:
     for rule in rules:
         if (kind := getattr(rule, "type", "")) == "qualified-rule":
             prelude = getattr(rule, "prelude", [])

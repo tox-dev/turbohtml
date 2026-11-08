@@ -34,6 +34,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Self
 
+    from fuzz.release_worker import JSON
+
 _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _WORKER: Final[Path] = Path(__file__).with_name("release_worker.py")
 # each operation reads inputs from the round-trip oracle whose generator writes its language
@@ -158,7 +160,7 @@ class Worker:
         self._process.stdout.close()
         return code
 
-    def answer(self, operation: str, text: str) -> dict[str, object]:
+    def answer(self, operation: str, text: str) -> dict[str, JSON]:
         # Return the worker's answer for one operation on one input; a worker that dies answers ``crashed``.
         assert self._process.stdin is not None  # ruff: ignore[assert]  # Popen with stdin=PIPE always sets it
         assert self._process.stdout is not None  # ruff: ignore[assert]  # Popen with stdout=PIPE always sets it
@@ -177,7 +179,7 @@ class Worker:
         return {"crashed": code}
 
 
-def compare(head: dict[str, object], release: dict[str, object], errors: str) -> str | None:
+def compare(head: dict[str, JSON], release: dict[str, JSON], errors: str) -> str | None:
     # Name how two answers differ, or return None when they agree.
     #
     # ``errors`` is the normalization knob: ``message`` compares a failure's type and message, ``type`` its type only,
