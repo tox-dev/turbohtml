@@ -41,7 +41,7 @@ def _desc(node: Node | None) -> str:
     if isinstance(node, Element):
         ident = node.attr("id")
         slot = node.attr("slot")
-        return f"E[{node.tag}{'#' + ident if ident else ''}{'@' + slot if slot else ''}]"
+        return f"E[{node.tag}{f'#{ident}' if ident else ''}{f'@{slot}' if slot else ''}]"
     if isinstance(node, Text):
         return f"T[{node.data}]"
     if isinstance(node, Comment):

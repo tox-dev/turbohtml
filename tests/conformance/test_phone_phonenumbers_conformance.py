@@ -176,7 +176,7 @@ def _formats_agree(number: phonenumbers.PhoneNumber) -> None:
                 expected[PhoneFormat.RFC3966].removeprefix(f"tel:+{number.country_code}-").partition(";ext=")
             )
             expected[PhoneFormat.RFC3966] = (
-                f"tel:{digits}{';ext=' + ext if ext else ''};phone-context=+{number.country_code}"
+                f"tel:{digits}{f';ext={ext}' if ext else ''};phone-context=+{number.country_code}"
             )
         assert {style: ours.format(style) for style in PhoneFormat} == expected, (number.country_code, nsn, extension)
 
