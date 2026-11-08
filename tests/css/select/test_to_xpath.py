@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 import pytest
 
@@ -15,6 +15,13 @@ from turbohtml.convert import (
     css_specificity,
     css_to_xpath,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from turbohtml import Node
+
+XPathValue: TypeAlias = "Sequence[Node | str | float] | float | bool | str"
 
 
 @pytest.mark.parametrize(
@@ -451,7 +458,7 @@ _SELECTORS: Final[tuple[str, ...]] = (
 )
 
 
-def _ids(nodes: object) -> list[str]:
+def _ids(nodes: XPathValue) -> list[str]:
     assert isinstance(nodes, list)
     out: list[str] = []
     for node in nodes:

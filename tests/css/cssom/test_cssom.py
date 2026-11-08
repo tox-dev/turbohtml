@@ -1105,7 +1105,14 @@ def test_the_text_of_nothing_is_empty() -> None:
         pytest.param(("color",), id="a-bare-str"),
     ],
 )
-def test_the_entries_reject_malformed_items(items: object) -> None:
+def test_the_entries_reject_malformed_items(
+    items: list[tuple[str, str, bool]]
+    | tuple[tuple[str, str]]
+    | tuple[tuple[int, str, bool]]
+    | tuple[tuple[str, int, bool]]
+    | tuple[tuple[str, str, bool, int]]
+    | tuple[str],
+) -> None:
     with pytest.raises(TypeError):
         _css_declaration_index(items)  # ty: ignore[invalid-argument-type]  # the argument check is the point
     with pytest.raises(TypeError):
