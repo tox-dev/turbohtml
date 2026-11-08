@@ -250,7 +250,7 @@ def content_targets() -> tuple[Target, ...]:
                 ),
                 *(
                     f"turbohtml.migration.markupsafe.{name}"
-                    for name in ("EscapeFormatter", "Markup", "escape", "escape_silent", "soft_str")
+                    for name in ("EscapeFormatter", "Markup", "MarkupPartition", "escape", "escape_silent", "soft_str")
                 ),
             ),
         ),

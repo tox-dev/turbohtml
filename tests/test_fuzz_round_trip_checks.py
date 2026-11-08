@@ -850,7 +850,7 @@ def test_generation_cli_execution_context(tmp_path: Path, mocker: MockerFixture)
 
 
 def test_generation_preserves_qualified_owners() -> None:
-    assert (len(owner_inventory()), len(public_targets())) == (226, 34)
+    assert (len(owner_inventory()), len(public_targets())) == (227, 34)
 
 
 @pytest.mark.parametrize(
@@ -1701,7 +1701,7 @@ def test_content_target_behaviors(target: Target, data: bytes) -> None:
 
 def test_content_targets_have_unique_owners() -> None:
     exports: Final = [export for target in _TARGETS for export in target.exports]
-    assert len(exports) == len(set(exports)) == 90
+    assert len(exports) == len(set(exports)) == 91
 
 
 def test_content_sanitizer_removes_attributes_and_comments() -> None:
@@ -2163,7 +2163,7 @@ def test_atheris_targets_complete_qualified_inventory() -> None:
         len(MODULES),
         {name: owners[name] for name in ("turbohtml.parse", "turbohtml.parse_xml", "turbohtml.__main__.main")},
     ) == (
-        226,
+        227,
         21,
         {
             "turbohtml.parse": "html-document",
