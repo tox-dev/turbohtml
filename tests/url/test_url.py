@@ -1570,7 +1570,7 @@ def test_normalize_query_matches_oracle_over_corpus(
     assert got == want
 
 
-def _outcome(call: Callable[[], str]) -> tuple[object, ...]:
+def _outcome(call: Callable[[], str]) -> tuple[str, ...]:
     try:
         return ("ok", call())
     except ValueError as exc:  # UnicodeEncodeError subclasses ValueError, so a lone-surrogate failure lands here too
@@ -2047,7 +2047,7 @@ def test_url_split_reads_the_host_after_one_slash(url: str, expected: tuple[str,
         ),
     ],
 )
-def test_url_split_reports_components(url: str, expected: tuple[object, ...]) -> None:
+def test_url_split_reports_components(url: str, expected: tuple[str | bool | int, ...]) -> None:
     assert _url_split(url) == expected
 
 
