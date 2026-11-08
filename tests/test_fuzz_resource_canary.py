@@ -9,7 +9,7 @@ from fuzz.resource_canary import ESCAPES, Attempt, compare, generate, main
 
 @pytest.mark.parametrize("escape", sorted(ESCAPES))
 def test_resource_canary_escape_stays_contained(escape: str) -> None:
-    attempt: Final = Attempt(seed=0, escape=escape, token=f"canary{0x0123456789ABCDEF:016x}")
+    attempt: Final = Attempt(seed=0, escape=escape, token="canary0123456789abcdef")
     assert [(row.engine, row.leaked) for row in compare(attempt)] == [
         ("xslt", False),
         ("relaxng", False),
@@ -18,7 +18,7 @@ def test_resource_canary_escape_stays_contained(escape: str) -> None:
 
 @pytest.mark.parametrize("escape", ["parent", "symlink"])
 def test_resource_canary_inside_root_is_observed(escape: str) -> None:
-    attempt: Final = Attempt(seed=0, escape=escape, token=f"canary{0x0123456789ABCDEF:016x}")
+    attempt: Final = Attempt(seed=0, escape=escape, token="canary0123456789abcdef")
     assert [(row.engine, row.leaked) for row in compare(attempt, negative_control=True)] == [
         ("xslt", True),
         ("relaxng", True),
