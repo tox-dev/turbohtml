@@ -153,7 +153,7 @@ def test_processing_instruction_vs_comment() -> None:
     assert events == [ProcessingInstruction("php", "echo 1"), Comment("c")]
 
 
-_CORPUS = [
+_CORPUS: Final[list[pytest.ParameterSet]] = [
     pytest.param("<!DOCTYPE html><title>t</title><p>hi</p>", id="basic"),
     pytest.param("<a><b><i>x</i></b></a>y", id="nested-formatting"),
     pytest.param("<table><caption>c<tbody><tr><td>d</td></tr>", id="table"),

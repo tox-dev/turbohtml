@@ -1059,7 +1059,7 @@ if not _TOKENIZER_DIR.is_dir() or not any(_TOKENIZER_DIR.glob("*.test")):  # pra
     msg = "submodule tests/html5lib-tests not checked out; run: git submodule update --init tests/html5lib-tests"
     raise RuntimeError(msg)
 
-_DOUBLE_ESCAPE = re.compile(r"\\u([0-9A-Fa-f]{4})")
+_DOUBLE_ESCAPE: Final[re.Pattern[str]] = re.compile(r"\\u([0-9A-Fa-f]{4})")
 _TokenPart: TypeAlias = str | bool | dict[str, str] | None
 _ExpectedToken: TypeAlias = list[_TokenPart]
 _ParseError: TypeAlias = tuple[str, int, int]
