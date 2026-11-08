@@ -323,17 +323,18 @@ def test_computed_style_inheritance_and_initial() -> None:
     span = document.select_one("span")
     assert isinstance(span, Element)
     style = computed_style(span)
-    assert style["color"] == "green"  # inherited
-    assert style["margin-top"] == "0"  # margin does not inherit -> initial
-    assert style["display"] == "inline"  # never set -> initial
+    # color inherits, margin does not (initial), display is never set (initial)
+    assert (style["color"], style["margin-top"], style["display"]) == ("green", "0", "inline")
 
 
 def test_computed_style_unset_supported_property_falls_back_to_initial() -> None:
     style = _style("<div></div>")
-    assert style["display"] == "inline"
-    assert style["color"] == "canvastext"
-    assert style["opacity"] == "1"
-    assert style["background-color"] == "transparent"
+    assert (style["display"], style["color"], style["opacity"], style["background-color"]) == (
+        "inline",
+        "canvastext",
+        "1",
+        "transparent",
+    )
 
 
 @pytest.mark.parametrize(
@@ -360,12 +361,14 @@ def test_computed_style_padding_and_border_family_shorthands() -> None:
         "<div></div>",
         css="div { padding: 1px 2px; border-width: 3px; border-style: solid dashed; border-color: rgb(1, 2, 3) }",
     )
-    assert style["padding-top"] == "1px"
-    assert style["padding-right"] == "2px"
-    assert style["border-top-width"] == "3px"
-    assert style["border-top-style"] == "solid"
-    assert style["border-right-style"] == "dashed"
-    assert style["border-left-color"] == "rgb(1, 2, 3)"
+    assert (
+        style["padding-top"],
+        style["padding-right"],
+        style["border-top-width"],
+        style["border-top-style"],
+        style["border-right-style"],
+        style["border-left-color"],
+    ) == ("1px", "2px", "3px", "solid", "dashed", "rgb(1, 2, 3)")
 
 
 def test_computed_style_overflow_shorthand() -> None:
@@ -377,9 +380,11 @@ def test_computed_style_overflow_shorthand() -> None:
 def test_computed_style_border_shorthand_expands_all_twelve_longhands() -> None:
     style = _style("<div></div>", css="div { border: 2px dashed green }")
     for side in ("top", "right", "bottom", "left"):
-        assert style[f"border-{side}-width"] == "2px"
-        assert style[f"border-{side}-style"] == "dashed"
-        assert style[f"border-{side}-color"] == "green"
+        assert (style[f"border-{side}-width"], style[f"border-{side}-style"], style[f"border-{side}-color"]) == (
+            "2px",
+            "dashed",
+            "green",
+        )
 
 
 @pytest.mark.parametrize(
@@ -425,9 +430,12 @@ def test_computed_style_border_longhand_after_shorthand_wins() -> None:
 
 def test_computed_style_border_shorthand_after_longhand_resets_it() -> None:
     style = _style("<div></div>", css="div { border-top-color: red; border-top: 2px solid }")
-    assert style["border-top-width"] == "2px"
-    assert style["border-top-style"] == "solid"
-    assert style["border-top-color"] == "currentcolor"  # the omitted component resets to the initial
+    # the omitted color component resets to its initial value
+    assert (style["border-top-width"], style["border-top-style"], style["border-top-color"]) == (
+        "2px",
+        "solid",
+        "currentcolor",
+    )
 
 
 def test_computed_style_border_shorthand_higher_priority_longhand_survives() -> None:
