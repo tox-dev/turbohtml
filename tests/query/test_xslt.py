@@ -2765,11 +2765,13 @@ _CYCLE_HINT: Final[str] = "; remove one of these use-attribute-sets references"
             id="cycle-below-entry",
         ),
         pytest.param(
-            "".join(
-                f'<xsl:attribute-set name="{name}" use-attribute-sets="s{index} s{index}"/>'
-                for index, name in enumerate(["s", *(f"s{level}" for level in range(60))])
-            )
-            + '<xsl:attribute-set name="s60"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>',
+            f"""{
+                "".join(
+                    f'<xsl:attribute-set name="{name}" use-attribute-sets="s{index} s{index}"/>'
+                    for index, name in enumerate(["s", *(f"s{level}" for level in range(60))])
+                )
+            }"""
+            """<xsl:attribute-set name="s60"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>""",
             '<?xml version="1.0"?>\n<out a="1"/>',
             id="shared-sets-apply-once",
         ),
@@ -4506,10 +4508,10 @@ def content_transform() -> Callable[[tuple[str, ...]], Transform]:
     def compile_patterns(patterns: tuple[str, ...]) -> Transform:
         return Transform(
             parse_xml(
-                '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
-                '<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root/p">'
-                + "".join(f'<xsl:number level="any" {pattern}/><xsl:text>,</xsl:text>' for pattern in patterns)
-                + "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
+                """<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" """
+                """version="1.0"><xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root/p">"""
+                f"""{"".join(f'<xsl:number level="any" {pattern}/><xsl:text>,</xsl:text>' for pattern in patterns)}"""
+                "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
             )
         )
 
@@ -5285,16 +5287,17 @@ def indexed_transform() -> Callable[[int, str, str], Transform]:
     def compile_transform(padding: int, declarations: str, body: str) -> Transform:
         return Transform(
             parse_xml(
-                '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
-                '<xsl:output method="xml" omit-xml-declaration="yes"/>'
-                + "".join(
-                    f'<xsl:template name="unused{index}"/>'
-                    f'<xsl:key name="unused{index}" match="unused" use="@value"/>'
-                    f'<xsl:attribute-set name="unused{index}"/>'
-                    for index in range(padding)
-                )
-                + declarations
-                + f'<xsl:template match="/"><out>{body}</out></xsl:template></xsl:stylesheet>'
+                """<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" """
+                """version="1.0"><xsl:output method="xml" omit-xml-declaration="yes"/>"""
+                f"""{
+                    "".join(
+                        f'<xsl:template name="unused{index}"/>'
+                        f'<xsl:key name="unused{index}" match="unused" use="@value"/>'
+                        f'<xsl:attribute-set name="unused{index}"/>'
+                        for index in range(padding)
+                    )
+                }"""
+                f"""{declarations}<xsl:template match="/"><out>{body}</out></xsl:template></xsl:stylesheet>"""
             )
         )
 
@@ -5314,13 +5317,15 @@ def indexed_transform() -> Callable[[int, str, str], Transform]:
         pytest.param(
             "<root><p/></root>",
             (
-                '<xsl:apply-templates select="root/p"/>'
-                + "".join(f'<xsl:apply-templates select="root/p" mode="view{index}"/>' for index in range(64))
-                + '<xsl:apply-templates select="root/p"/>'
+                """<xsl:apply-templates select="root/p"/>"""
+                f"""{"".join(f'<xsl:apply-templates select="root/p" mode="view{index}"/>' for index in range(64))}"""
+                """<xsl:apply-templates select="root/p"/>"""
             )
             * 2,
-            '<xsl:template match="p">default|</xsl:template>'
-            + "".join(f'<xsl:template match="p" mode="view{index}">{index}|</xsl:template>' for index in range(64)),
+            """<xsl:template match="p">default|</xsl:template>"""
+            f"""{
+                "".join(f'<xsl:template match="p" mode="view{index}">{index}|</xsl:template>' for index in range(64))
+            }""",
             (f"default|{''.join(f'{index}|' for index in range(64))}default|") * 2,
             id="many-named-and-default-modes",
         ),
@@ -5418,10 +5423,10 @@ def cached_transform() -> Callable[[str, str], Transform]:
     def compile_transform(instructions: str, rules: str) -> Transform:
         return Transform(
             parse_xml(
-                '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
-                '<xsl:output method="text"/>'
-                + "".join(f'<xsl:template match="unused{index}"/>' for index in range(16))
-                + f'<xsl:template match="/">{instructions}</xsl:template>{rules}</xsl:stylesheet>'
+                """<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" """
+                """version="1.0"><xsl:output method="text"/>"""
+                f"""{"".join(f'<xsl:template match="unused{index}"/>' for index in range(16))}"""
+                f"""<xsl:template match="/">{instructions}</xsl:template>{rules}</xsl:stylesheet>"""
             )
         )
 
@@ -5532,15 +5537,19 @@ def test_dense_number_benchmark_output(library: str) -> None:
     module: Final = pytest.importorskip(f"bench.{library}", exc_type=ImportError)
     operation: Final = module.OPERATIONS["transform-dense"][0]
     expected: Final = (
-        '<?xml version="1.0"?>\n<out>'
-        + "".join(
-            (
-                f"<row>Book number {index}"
-                f"{''.join(f'{index + 1}<!--c{unit}--><title>Book number {index}</title>' for unit in range(8))}</row>"
+        """<?xml version="1.0"?>\n<out>"""
+        f"""{
+            "".join(
+                (
+                    f"<row>Book number {index}"
+                    f'''{
+                        ''.join(f'{index + 1}<!--c{unit}--><title>Book number {index}</title>' for unit in range(8))
+                    }</row>'''
+                )
+                for index in range(200)
             )
-            for index in range(200)
-        )
-        + "</out>"
+        }"""
+        "</out>"
     )
     assert str(operation(cast("tuple[str, str]", INPUTS["transform-dense"]()[0][1]))).strip() == expected
 
@@ -5972,9 +5981,9 @@ def test_transform_number_namespace_scope_restoration(order: str, expected: str)
 
 def test_transform_number_growing_unicode_prefixes() -> None:
     source: Final = parse_xml(
-        "<root>"
-        + "".join(f'<{prefix}:n xmlns:{prefix}="urn:x"/>' for prefix in ("日", "日" * 32, "日" * 64))
-        + "</root>"
+        f"""<root>{
+            "".join(f'<{prefix}:n xmlns:{prefix}="urn:x"/>' for prefix in ("日", "日" * 32, "日" * 64))
+        }</root>"""
     )
     sheet: Final = parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'

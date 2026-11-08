@@ -1223,8 +1223,8 @@ def test_replace_benchmark_output(name: str) -> None:
 def test_regex_dynamic_patterns(function: str) -> None:
     document: Final = parse_xml(
         "<root>"
-        + "".join(f'<n pattern="^{index}$">{index}</n><n pattern="^{index}$">miss</n>' for index in range(160))
-        + "</root>"
+        f"""{"".join(f'<n pattern="^{index}$">{index}</n><n pattern="^{index}$">miss</n>' for index in range(160))}"""
+        "</root>"
     )
     assert document.xpath(f"count(//n[{function}(., @pattern)])") == 160
 
@@ -1883,11 +1883,13 @@ def test_regex_patterns_within_query(patterns: tuple[str, ...], flags: tuple[str
     assert (
         parse_xml(
             "<r>"
-            + "".join(
-                f'<item id="{index}" pattern="{pattern}" flags="{flag}"/>'
-                for index, (pattern, flag) in enumerate(zip(patterns, flags, strict=True))
-            )
-            + "</r>"
+            f"""{
+                "".join(
+                    f'<item id="{index}" pattern="{pattern}" flags="{flag}"/>'
+                    for index, (pattern, flag) in enumerate(zip(patterns, flags, strict=True))
+                )
+            }"""
+            "</r>"
         ).xpath("//item[re:test('A', @pattern, @flags)]/@id")
         == expected
     )
