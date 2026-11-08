@@ -1951,10 +1951,8 @@ def test_scrub_rejects_non_str() -> None:
 _REGNAME, _IPV4, _IPV6 = 0, 1, 2
 
 
-_FRAGMENTS: Final[tuple[str, ...]] = ("", "#f")
-
-
 def _split_corpus() -> list[str]:
+    fragments: tuple[str, ...] = ("", "#f")
     schemes = ("http", "https", "ftp", "HTTP", "mailto", "", "javascript", "ws", "wss", "file")
     authorities = (
         "",
@@ -1988,7 +1986,7 @@ def _split_corpus() -> list[str]:
         for auth in authorities
         for path in split_paths
         for query in split_queries
-        for fragment in _FRAGMENTS
+        for fragment in fragments
     ]
     urls += ["  http://x.com/y  ", "http://h\tost/p", "\x01\x02http://a.com", "HTTP://X", "//netonly/p", "a\nb\rc://x"]
     urls += [f"http://h.com/x{query}{fragment}" for query in ("", "?", "?a=1") for fragment in ("", "#", "#a=1")]

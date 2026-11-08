@@ -54,14 +54,14 @@ def doc() -> turbohtml.Node:
 SVG: Final[str] = "http://www.w3.org/2000/svg"
 _MATHML: Final[str] = "http://www.w3.org/1998/Math/MathML"
 
-_NS_HTML: Final[str] = (
-    "<html><body><p id='para'>html</p><svg width='10'><circle r='5'/><rect/></svg><math><mi>x</mi></math></body></html>"
-)
-
 
 @pytest.fixture
 def ns_doc() -> turbohtml.Node:
-    return turbohtml.parse(_NS_HTML)
+    ns_html: str = (
+        "<html><body><p id='para'>html</p><svg width='10'><circle r='5'/><rect/></svg>"
+        "<math><mi>x</mi></math></body></html>"
+    )
+    return turbohtml.parse(ns_html)
 
 
 def test_descendant_name(doc: turbohtml.Node) -> None:
@@ -133,12 +133,6 @@ def test_absolute_path_in_a_parsed_fragment_starts_at_the_fragment() -> None:
     assert tags(bold.xpath("/p")) == ["p"]
 
 
-_NESTED: Final[str] = (
-    '<div id="o"><div id="i"><a id="1"></a><p id="p"></p></div><a id="2"></a></div><a id="3"></a>'
-    '<div id="s"><a id="4"></a></div>'
-)
-
-
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [
@@ -161,7 +155,11 @@ _NESTED: Final[str] = (
     ],
 )
 def test_descendant_step_from_nested_contexts(expression: str, expected: list[str]) -> None:
-    found = turbohtml.parse(_NESTED).xpath(expression)
+    nested: str = (
+        '<div id="o"><div id="i"><a id="1"></a><p id="p"></p></div><a id="2"></a></div><a id="3"></a>'
+        '<div id="s"><a id="4"></a></div>'
+    )
+    found = turbohtml.parse(nested).xpath(expression)
     assert isinstance(found, list)
     assert [node if isinstance(node, str) else _id_of(node) for node in found] == expected
 
@@ -206,9 +204,6 @@ def test_step_after_attribute_yields_nothing(doc: turbohtml.Node) -> None:
     assert doc.xpath("//a/@href/x") == []
 
 
-_ATTR_CONTEXT_XML: Final[str] = '<div><p n="10">x<b>i</b></p><p n="3">y</p></div>'
-
-
 @pytest.mark.parametrize(
     ("expr", "expected"),
     [
@@ -237,7 +232,8 @@ _ATTR_CONTEXT_XML: Final[str] = '<div><p n="10">x<b>i</b></p><p n="3">y</p></div
     ],
 )
 def test_attribute_node_as_context(expr: str, expected: list[str]) -> None:
-    result = parse_xml(_ATTR_CONTEXT_XML).xpath(expr)
+    attr_context_xml: str = '<div><p n="10">x<b>i</b></p><p n="3">y</p></div>'
+    result = parse_xml(attr_context_xml).xpath(expr)
     assert isinstance(result, list)
     assert [node.tag if isinstance(node, Element) else node for node in result] == expected
 
@@ -368,20 +364,18 @@ def test_non_string_argument(doc: turbohtml.Node) -> None:
         doc.xpath_one(123)  # ty: ignore[invalid-argument-type]  # non-str exercises the TypeError path
 
 
-_TABLE_HTML: Final[str] = (
-    '<table><tr><td class="num">1</td><td>2</td></tr><tr><td class="num">3</td><td class="num">4</td></tr></table>'
-)
-_LINKS_HTML: Final[str] = "<html><body><a href='/x'>one</a><a href='/y'>two</a></body></html>"
-
-
 @pytest.fixture
 def table_doc() -> turbohtml.Node:
-    return turbohtml.parse(_TABLE_HTML)
+    table_html: str = (
+        '<table><tr><td class="num">1</td><td>2</td></tr><tr><td class="num">3</td><td class="num">4</td></tr></table>'
+    )
+    return turbohtml.parse(table_html)
 
 
 @pytest.fixture
 def links_doc() -> turbohtml.Node:
-    return turbohtml.parse(_LINKS_HTML)
+    links_html: str = "<html><body><a href='/x'>one</a><a href='/y'>two</a></body></html>"
+    return turbohtml.parse(links_html)
 
 
 @pytest.fixture
@@ -1072,21 +1066,19 @@ def test_comparison_same_nodes(selection: str) -> None:
     assert document.xpath(f"{selection} = {selection}") is True
 
 
-_VARIABLE_HTML: Final[str] = (
-    "<html><body>"
-    "<table><tr id='r1'><td>a</td><td>b</td></tr><tr id='r2'><td>c</td></tr></table>"
-    "<p id='a'>one</p><p id='b'>two</p><p id='c'>three</p>"
-    "</body></html>"
-)
-
-
 def ids(result: XPathResult) -> list[str | None]:
     return [node.attr("id") for node in node_list(result) if isinstance(node, Element)]
 
 
 @pytest.fixture
 def variable_doc() -> turbohtml.Node:
-    return turbohtml.parse(_VARIABLE_HTML)
+    variable_html: str = (
+        "<html><body>"
+        "<table><tr id='r1'><td>a</td><td>b</td></tr><tr id='r2'><td>c</td></tr></table>"
+        "<p id='a'>one</p><p id='b'>two</p><p id='c'>three</p>"
+        "</body></html>"
+    )
+    return turbohtml.parse(variable_html)
 
 
 @pytest.mark.parametrize(

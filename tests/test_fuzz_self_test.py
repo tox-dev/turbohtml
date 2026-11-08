@@ -1287,7 +1287,9 @@ def consume(data: bytes) -> None:
         raise UnicodeError("documented control")
 """
 
-_CHILD: Final[str] = """
+
+def _run_native_child(tmp_path: Path, mode: str) -> tuple[CompletedProcess[bytes], Path]:
+    child_source: str = """
 from __future__ import annotations
 
 import sys
@@ -1320,14 +1322,11 @@ fuzz(
     custom_mutator=None if sys.argv[2] == "default" else mutate,
 )
 """
-
-
-def _run_native_child(tmp_path: Path, mode: str) -> tuple[CompletedProcess[bytes], Path]:
     archive = Path(cast("_Runtime", importlib.import_module("atheris")).path()) / "libclang_rt.fuzzer_no_main.a"
     library = build_runtime(archive, tmp_path / "build", coverage=True)
     (tmp_path / "capability_target.py").write_text(_TARGET, encoding="utf-8")
     child = tmp_path / "child.py"
-    child.write_text(_CHILD, encoding="utf-8")
+    child.write_text(child_source, encoding="utf-8")
     environment = {
         **os.environ,
         "LD_PRELOAD": str(library),

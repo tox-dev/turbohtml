@@ -3314,9 +3314,6 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-_BASE: Final[str] = "http://example.test/b/c/d;p?q"
-
-
 @pytest.mark.parametrize(
     ("case", "reference", "expected"),
     [
@@ -3331,11 +3328,12 @@ _BASE: Final[str] = "http://example.test/b/c/d;p?q"
     ],
 )
 def test_resolve_links_oracle_pins_first_and_repeated_targets(case: str, reference: str, expected: str) -> None:
+    base: str = "http://example.test/b/c/d;p?q"
     document = parse_fragment('<a href="">link</a>')
     document.select("a")[0].attrs["href"] = reference
-    document.resolve_links(_BASE)
+    document.resolve_links(base)
     first: Final = document.links()[0].url
-    document.resolve_links(_BASE)
+    document.resolve_links(base)
     assert (first, document.links()[0].url, resolve_links_check(f"{case}:g")) == (expected, expected, None)
 
 
