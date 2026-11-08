@@ -10,7 +10,6 @@ from turbohtml.extract import feed
 _ATOM: Final[str] = "http://www.w3.org/2005/Atom"
 _RDF: Final[str] = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
 _RSS: Final[str] = "http://purl.org/rss/1.0/"
-_DC: Final[str] = "http://purl.org/dc/elements/1.1/"
 
 
 @pytest.mark.parametrize("uri", ["urn:other", "http://www.w3.org/2005/Xtom"])
@@ -172,8 +171,9 @@ def test_feed_rdf_foreign_default_item_field_is_skipped() -> None:
 
 
 def test_feed_first_dublin_core_date_wins() -> None:
+    dc: Final = "http://purl.org/dc/elements/1.1/"
     xml: Final = (
-        f'<rss version="2.0" xmlns:dc="{_DC}"><channel><item>'
+        f'<rss version="2.0" xmlns:dc="{dc}"><channel><item>'
         "<dc:date>first</dc:date><dc:date>second</dc:date></item></channel></rss>"
     )
     result = parse_xml(xml).feed()

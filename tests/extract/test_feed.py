@@ -35,22 +35,6 @@ _ATOM_PREFIXED: Final[str] = """<a:feed xmlns:a="http://www.w3.org/2005/Atom">
 <a:link href="https://example.org/entry"/><a:summary>Summary</a:summary><a:content>Body</a:content>
 <a:author><a:name>Alice</a:name></a:author></a:entry></a:feed>"""
 
-_RDF: Final[str] = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
-<channel rdf:about="http://example.com/">
-<title>RDF Title</title>
-<link>http://example.com/</link>
-<description>RDF description</description>
-<dc:date>2026-07-06</dc:date>
-</channel>
-<item rdf:about="http://example.com/1">
-<title>RDF Item</title>
-<link>http://example.com/1</link>
-<description>RDF item summary</description>
-<dc:date>2026-07-06</dc:date>
-<dc:creator>Bob Loblaw</dc:creator>
-</item>
-</rdf:RDF>"""
-
 _RDF_PREFIXED: Final[
     str
 ] = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:s="http://purl.org/rss/1.0/">
@@ -342,7 +326,22 @@ def test_feed_atom_prefixed_author_name_namespace_shadowing() -> None:
 
 
 def test_feed_rdf_shape() -> None:
-    result = parse_feed(_RDF)
+    rdf: Final[str] = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
+<channel rdf:about="http://example.com/">
+<title>RDF Title</title>
+<link>http://example.com/</link>
+<description>RDF description</description>
+<dc:date>2026-07-06</dc:date>
+</channel>
+<item rdf:about="http://example.com/1">
+<title>RDF Item</title>
+<link>http://example.com/1</link>
+<description>RDF item summary</description>
+<dc:date>2026-07-06</dc:date>
+<dc:creator>Bob Loblaw</dc:creator>
+</item>
+</rdf:RDF>"""
+    result = parse_feed(rdf)
     assert result.type == "rdf"
     assert (result.title, result.link, result.description) == ("RDF Title", "http://example.com/", "RDF description")
     assert (result.updated, result.entries) == (

@@ -21,17 +21,6 @@ if TYPE_CHECKING:
     from _pytest.mark.structures import ParameterSet
 
 
-_HTML: Final[str] = (
-    "<!doctype html><html><head><title>T</title></head><body>"
-    '<div id="d1" class="box"><p>a</p><p class="hi">b</p></div>'
-    '<div id="d2"><span>s1</span><span>s2</span></div>'
-    "<ul><li>1</li><li>2</li></ul>"
-    '<a href="/x">L1</a><a href="/y" rel="next">L2</a>'
-    "<input disabled>"
-    '<my-widget data-k="v">w</my-widget>'
-    "<!-- cmt --></body></html>"
-)
-
 
 XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
 
@@ -48,7 +37,17 @@ def tags(result: XPathResult) -> list[str]:
 
 @pytest.fixture
 def doc() -> turbohtml.Node:
-    return turbohtml.parse(_HTML)
+    html: Final[str] = (
+        "<!doctype html><html><head><title>T</title></head><body>"
+        '<div id="d1" class="box"><p>a</p><p class="hi">b</p></div>'
+        '<div id="d2"><span>s1</span><span>s2</span></div>'
+        "<ul><li>1</li><li>2</li></ul>"
+        '<a href="/x">L1</a><a href="/y" rel="next">L2</a>'
+        "<input disabled>"
+        '<my-widget data-k="v">w</my-widget>'
+        "<!-- cmt --></body></html>"
+    )
+    return turbohtml.parse(html)
 
 
 _SVG: Final[str] = "http://www.w3.org/2000/svg"
