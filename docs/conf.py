@@ -350,7 +350,7 @@ def _stub_signature_for_alias(  # ruff:ignore[too-many-arguments, too-many-posit
     app: Sphinx,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
     what: str,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
     name: str,
-    obj: object,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    obj: object,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API  # simplint: ignore[SMP602]  # Sphinx passes any documented object
     options: Any,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
     signature: str | None,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
     return_annotation: str | None,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
