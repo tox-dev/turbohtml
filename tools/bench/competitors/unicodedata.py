@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import unicodedata
-from typing import Final
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[()]] = ()
 
@@ -13,7 +16,7 @@ def normalize(text: str) -> None:
     unicodedata.normalize("NFC", text)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "normalize": (normalize, "unicodedata"),
     "normalize-marks": (normalize, "unicodedata"),
 }

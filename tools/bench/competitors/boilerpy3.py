@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from boilerpy3 import extractors
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("boilerpy3>=1.0.7",)
 
@@ -21,7 +24,7 @@ def text_main(text: str) -> None:
     _EXTRACTOR.get_content(text)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "boilerplate": (boilerplate, "boilerpy3"),
     "text-main": (text_main, "boilerpy3"),
 }

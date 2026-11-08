@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[()]] = ()
 
@@ -43,7 +46,7 @@ def _sanitize_attributes(text: str) -> str:
     return _run("attributes", text)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "sanitize-templates": (sanitize_templates, "DOMPurify"),
     "sanitize-named-props": (sanitize_named_props, "DOMPurify"),
     "sanitize-custom-elements": (sanitize_custom_elements, "DOMPurify"),

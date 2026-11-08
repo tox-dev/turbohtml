@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import functools
 import re
-from typing import Final
+from typing import TYPE_CHECKING, Final
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Comment, UnicodeDammit
@@ -13,6 +13,9 @@ from bs4.element import AttributeValueList, CData, NavigableString, Script, Styl
 from bench._attributes import fill_equality_pair
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 # UnicodeDammit only sniffs when an optional detector backend is installed. Without one it answers windows-1252 for
 # every high-byte stream and utf-8 for Shift_JIS, which is fast and wrong; chardet is the backend bs4 documents first.
@@ -323,7 +326,7 @@ def _equality_pair(count: int, variant: str) -> tuple[Tag, Tag]:
     return left, right
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "node-equals": (_node_equals, "BeautifulSoup (html.parser)"),
     "collapse-whitespace": (Mutating(setup=_fresh, run=_collapse_whitespace), "BeautifulSoup (html.parser)"),
     "transform-tree": (Mutating(setup=_fresh, run=_transform_tree), "BeautifulSoup (html.parser)"),

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import functools
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import htpy
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("htpy>=26.5.1",)
 
@@ -32,7 +35,7 @@ def emit(count: int) -> None:
     _ = str(_tree(count))
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "build-e": (build_e, "htpy"),
     "construct": (construct, "htpy"),
     "emit": (emit, "htpy"),

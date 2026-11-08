@@ -12,6 +12,8 @@ from bench.timing import Mutating
 if TYPE_CHECKING:
     from lxml.html import HtmlElement
 
+    from bench.operations import Timed
+
 _REQUIREMENTS: Final[tuple[str, ...]] = ("lxml-html-clean>=0.4.5", "lxml>=6.1.1")
 
 _CLEANER: Final[lxml_html_clean.Cleaner] = lxml_html_clean.Cleaner()
@@ -39,7 +41,7 @@ def _linkify_node(node: HtmlElement) -> HtmlElement:
     return node
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "sanitize-node": (Mutating(setup=_fresh, run=_sanitize_node), "lxml-html-clean"),
     "linkify-node": (Mutating(setup=_fresh, run=_linkify_node), "lxml-html-clean"),
     "sanitize": (sanitize, "lxml-html-clean"),

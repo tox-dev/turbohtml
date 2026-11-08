@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Final, cast
 import markupsafe
 
 if TYPE_CHECKING:
-    from bench.operations import Case
+    from bench.operations import Case, Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("markupsafe>=3",)
 
@@ -40,4 +40,7 @@ def markup_op(case: tuple[str, Case]) -> None:
         _JOINER.join(cast("tuple[str, ...]", payload))
 
 
-OPERATIONS = {"markup": (markup, "markupsafe"), "markup-op": (markup_op, "markupsafe")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
+    "markup": (markup, "markupsafe"),
+    "markup-op": (markup_op, "markupsafe"),
+}

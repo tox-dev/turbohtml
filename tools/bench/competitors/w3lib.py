@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import w3lib.html
 import w3lib.url
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("w3lib>=2.4.1",)
 
@@ -43,7 +46,7 @@ def urls_clean(case: tuple[str, tuple[str, ...]]) -> None:
         transform(url)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "unescape": (unescape, "w3lib"),
     "strip-tags": (strip_tags, "w3lib"),
     "strip-remove": (strip_remove, "w3lib"),

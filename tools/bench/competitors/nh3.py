@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import nh3
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("nh3>=0.3.6",)
 
@@ -24,7 +27,7 @@ def _sanitize_attributes(text: str) -> str:
 
 _ATTRIBUTE_CLEANER: Final[nh3.Cleaner] = nh3.Cleaner(tags={"p"}, attributes={}, generic_attribute_prefixes={"data-"})
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "sanitize": (sanitize, "nh3"),
     "escape": (escape, "nh3"),
     "sanitize-attributes": (_sanitize_attributes, "nh3"),

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from readability import Document
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("readability-lxml>=0.8.1",)
 
@@ -16,4 +19,4 @@ def article(text: str) -> None:
     document.short_title()
 
 
-OPERATIONS = {"article": (article, "readability-lxml")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"article": (article, "readability-lxml")}

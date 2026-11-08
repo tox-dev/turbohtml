@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import functools
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from dominate import tags
 from dominate.util import escape as _escape
 from dominate.util import unescape as _unescape
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("dominate>=2.9.1",)
 
@@ -46,7 +49,7 @@ def unescape(text: str) -> None:
     _unescape(text)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "build-e": (build_e, "dominate"),
     "construct": (construct, "dominate"),
     "emit": (emit, "dominate"),

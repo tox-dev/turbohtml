@@ -14,6 +14,8 @@ from parsel import Selector
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from bench.operations import Timed
+
 _REQUIREMENTS: Final[tuple[str, ...]] = ("parsel>=1.11", "cssselect>=1.2")
 
 _LINKS_BASE: Final[str] = "https://example.com/base/"  # the base turbohtml resolves relative hrefs against
@@ -129,8 +131,12 @@ def _first_two_ext(_context: object, nodes: list[_lxml_etree._Element]) -> list[
 
 
 _SVG_NS: Final[dict[str, str]] = {"svg": "http://www.w3.org/2000/svg"}
-_COUNT_EXTENSIONS = {(None, "ext_count"): _count_ext}
-_NODESET_EXTENSIONS = {(None, "ext_first_two"): _first_two_ext}
+_COUNT_EXTENSIONS: Final[dict[tuple[str | None, str], Callable[[object, list[_lxml_etree._Element]], float]]] = {
+    (None, "ext_count"): _count_ext
+}
+_NODESET_EXTENSIONS: Final[
+    dict[tuple[str | None, str], Callable[[object, list[_lxml_etree._Element]], list[_lxml_etree._Element]]]
+] = {(None, "ext_first_two"): _first_two_ext}
 _PRECOMPILED: Final[_lxml_etree.XPath] = _lxml_etree.XPath("//a[@href]")
 
 
@@ -198,7 +204,7 @@ def _encode_inner(text: str) -> bytes:
     return _serialize_inner(text).encode()
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "serialize-inner": (_serialize_inner, "parsel"),
     "encode-inner": (_encode_inner, "parsel"),
     "parse": (parse, "parsel"),

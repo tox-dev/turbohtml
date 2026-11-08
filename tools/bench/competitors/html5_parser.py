@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import html5_parser
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("html5-parser>=0.4.12", "lxml>=6.1.1")
 # html5-parser's wheel bundles libxml2 and returns an lxml tree, so lxml must link the identical libxml2 or the import
@@ -17,7 +20,7 @@ def parse(text: str) -> None:
     html5_parser.parse(text)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "parse": (parse, "html5-parser"),
     "parse-formatting": (parse, "html5-parser"),
     "parse-foster": (parse, "html5-parser"),

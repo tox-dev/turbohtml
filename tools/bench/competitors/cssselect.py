@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from cssselect import HTMLTranslator, parse
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("cssselect>=1.4",)
 
@@ -21,4 +24,7 @@ def specificity(selector: str) -> None:
     [parsed.specificity() for parsed in parse(selector)]
 
 
-OPERATIONS = {"translate": (translate, "cssselect"), "specificity": (specificity, "cssselect")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
+    "translate": (translate, "cssselect"),
+    "specificity": (specificity, "cssselect"),
+}

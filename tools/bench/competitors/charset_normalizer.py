@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from charset_normalizer import from_bytes
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("charset-normalizer>=3.4",)
 
@@ -14,4 +17,7 @@ def encoding(data: bytes) -> None:
     from_bytes(data).best()
 
 
-OPERATIONS = {"encoding": (encoding, "charset-normalizer"), "encoding-result": (encoding, "charset-normalizer")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
+    "encoding": (encoding, "charset-normalizer"),
+    "encoding-result": (encoding, "charset-normalizer"),
+}

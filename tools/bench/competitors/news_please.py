@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 # not a bench group dependency: its newspaper4k requirement clobbers newspaper3k's newspaper module
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from newsplease import NewsPlease  # ty: ignore[import-not-found]  # optional competitor package, absent from the lint environment
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("news-please>=1.6",)
 
@@ -27,7 +30,7 @@ def date(text: str) -> None:
     _ = NewsPlease.from_html(text, url=_URL).date_publish
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "article": (article, "news-please"),
     "text-main": (text_main, "news-please"),
     "date": (date, "news-please"),

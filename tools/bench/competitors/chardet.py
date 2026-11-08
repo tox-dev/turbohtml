@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import chardet
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("chardet>=5.2",)
 
@@ -28,7 +31,7 @@ def _encoding_stream(data: bytes) -> None:
     detector.close()
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "encoding-result-stream": (_encoding_stream, "chardet"),
     "encoding-chunks": (_encoding_chunks, "chardet"),
     "encoding": (encoding, "chardet"),

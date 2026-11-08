@@ -10,6 +10,8 @@ from langdetect.detector_factory import PROFILES_DIRECTORY
 if TYPE_CHECKING:
     from langdetect.language import Language
 
+    from bench.operations import Timed
+
 _REQUIREMENTS: Final[tuple[str, ...]] = ("langdetect>=1.0.9",)
 
 _FACTORY: Final[DetectorFactory] = DetectorFactory()
@@ -24,7 +26,7 @@ def _detect_language(text: str) -> list[Language]:
     return detector.get_probabilities()
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "detect-language": (_detect_language, "langdetect"),
     "detect-language-long": (_detect_language, "langdetect"),
 }

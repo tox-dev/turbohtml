@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import extruct
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("extruct>=0.18",)
 
@@ -19,7 +22,7 @@ def socialcard(text: str) -> None:
     extruct.extract(text, syntaxes=["opengraph"])
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "structured": (structured, "extruct"),
     "socialcard": (socialcard, "extruct"),
 }

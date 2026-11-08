@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from functools import cache
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import inscriptis
 from inscriptis.model.config import ParserConfig
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("inscriptis>=2.5",)
 
@@ -34,7 +37,7 @@ def _annotation_config(rules: tuple[tuple[str, tuple[str, ...]], ...]) -> Parser
     return ParserConfig(annotation_rules={name: list(labels) for name, labels in rules})
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "text-render": (text_render, "inscriptis"),
     "text-annotated": (text_annotated, "inscriptis"),
     "text-annotation-rules": (_text_annotation_rules, "inscriptis"),

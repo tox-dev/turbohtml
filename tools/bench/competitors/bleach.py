@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import bleach
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("bleach>=6.4",)
 
@@ -36,7 +39,7 @@ _DISALLOWED_CLEANERS: Final[dict[str, bleach.Cleaner]] = {
 }
 _ATTRIBUTE_CLEANER: Final[bleach.Cleaner] = bleach.Cleaner(tags={"p"}, attributes=_allow_data_attribute)
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "sanitize": (sanitize, "bleach"),
     "sanitize-disallowed": (_sanitize_disallowed, "bleach"),
     "linkify": (linkify, "bleach"),

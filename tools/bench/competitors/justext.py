@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import justext
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("justext>=3.0",)
 
@@ -21,7 +24,7 @@ def text_main(text: str) -> None:
     "\n".join(p.text for p in justext.justext(text, _STOPLIST) if not p.is_boilerplate)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "boilerplate": (boilerplate, "justext"),
     "text-main": (text_main, "justext"),
 }

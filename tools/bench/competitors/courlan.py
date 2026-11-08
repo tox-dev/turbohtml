@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import courlan
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("courlan>=1.4",)
 
@@ -22,7 +25,7 @@ def links_filter(text: str) -> None:
     courlan.extract_links(text, url="https://example.com/base/")
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "urls-clean": (urls_clean, "courlan"),
     "links-filter": (links_filter, "courlan"),
 }

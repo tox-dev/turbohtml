@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from urlextract import URLExtract
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("urlextract>=1.9",)
 
@@ -22,4 +25,4 @@ def detect(case: tuple[str, str]) -> None:
 
 # urlextract only finds URLs in plain text; it never rewrites HTML, so it maps to detect, not the parse-and-rewrite
 # linkify op.
-OPERATIONS = {"detect": (detect, "urlextract")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"detect": (detect, "urlextract")}

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import trafilatura
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("trafilatura>=1.12",)
 
@@ -24,7 +27,7 @@ def date(text: str) -> None:
     _ = trafilatura.extract_metadata(text).date
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "article": (article, "trafilatura"),
     "text-main": (text_main, "trafilatura"),
     "date": (date, "trafilatura"),

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from fast_html import li, render, ul
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("fast-html>=1.0.12",)
 
@@ -14,4 +17,4 @@ def build_e(count: int) -> None:
     _ = render(ul([li(f"item {index}", class_="item", data_i=str(index)) for index in range(count)]))
 
 
-OPERATIONS = {"build-e": (build_e, "fast-html")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"build-e": (build_e, "fast-html")}

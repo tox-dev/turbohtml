@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import phonenumbers
 from phonenumbers import Leniency, PhoneNumberFormat, PhoneNumberMatcher
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("phonenumbers>=9.0.38",)
 
@@ -67,7 +70,7 @@ def phone_format(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
 
 # PhoneNumberMatcher takes one default region, so the eight-region rows run it with the first of them; the scan cost
 # it reports is the single-region cost, which favors it on those rows.
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "phone": (phone, "phonenumbers"),
     "phone-parse": (phone_parse, "phonenumbers"),
     "phone-format": (phone_format, "phonenumbers"),

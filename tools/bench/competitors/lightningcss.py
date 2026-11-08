@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import lightningcss
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("lightningcss>=0.3",)
 
@@ -17,7 +20,7 @@ def minify_css(css: str) -> str:
     return lightningcss.process_stylesheet(css, minify=True)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "minify-css": (minify_css, "lightningcss"),
     "minify-css-merges": (minify_css, "lightningcss"),
     "minify-css-conflicts": (minify_css, "lightningcss"),

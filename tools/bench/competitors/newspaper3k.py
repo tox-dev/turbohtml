@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from newspaper import Article
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 # lxml-html-clean restores the lxml.html.clean module newspaper imports, split out of lxml 5.2
 _REQUIREMENTS: Final[tuple[str, ...]] = ("newspaper3k>=0.2.8", "lxml-html-clean>=0.4.5")
@@ -33,7 +36,7 @@ def date(text: str) -> None:
     _ = parsed.publish_date
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "article": (article, "newspaper3k"),
     "text-main": (text_main, "newspaper3k"),
     "date": (date, "newspaper3k"),

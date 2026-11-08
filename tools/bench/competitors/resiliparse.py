@@ -19,6 +19,8 @@ from bench.timing import Mutating
 if TYPE_CHECKING:
     from resiliparse.parse.html import DocumentNode
 
+    from bench.operations import Timed
+
 _REQUIREMENTS: Final[tuple[str, ...]] = ("resiliparse>=1.0.8",)
 
 _LINKS_BASE: Final[str] = "https://example.com/base/"  # the base turbohtml resolves relative hrefs against
@@ -169,7 +171,7 @@ def links_absolutize(tree: HTMLTree) -> None:
             anchor.setattr("href", urljoin(_LINKS_BASE, href))
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "parse": (parse, "resiliparse"),
     "parse-formatting": (parse, "resiliparse"),
     "parse-foster": (parse, "resiliparse"),

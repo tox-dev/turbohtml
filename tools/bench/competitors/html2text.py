@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from functools import cache
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import html2text
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("html2text>=2024.2.26",)
 
@@ -63,7 +66,7 @@ def _wrapped(width: int) -> html2text.HTML2Text:
     return converter
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "markdown": (markdown, "html2text"),
     "markdown-google": (markdown_google, "html2text"),
     "markdown-wrap": (markdown_wrap, "html2text"),

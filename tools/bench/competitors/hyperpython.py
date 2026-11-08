@@ -9,9 +9,12 @@ Benchmarked only in a venv of its own: hyperpython pins ``markupsafe<2``, older 
 from __future__ import annotations
 
 import functools
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from hyperpython import li, ul  # ty: ignore[import-not-found]  # undeclared: pins an older markupsafe
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("hyperpython>=1.1.1", "sidekick<0.7")
 
@@ -38,7 +41,7 @@ def emit(count: int) -> None:
     _ = str(_tree(count))
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "build-e": (build_e, "hyperpython"),
     "construct": (construct, "hyperpython"),
     "emit": (emit, "hyperpython"),

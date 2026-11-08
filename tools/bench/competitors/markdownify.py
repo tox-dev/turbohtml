@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import markdownify
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("markdownify>=0.13",)
 
@@ -24,4 +27,7 @@ def markdown_wrap(case: tuple[int, str]) -> str:
     return markdownify.markdownify(text, wrap=True, wrap_width=width)
 
 
-OPERATIONS = {"markdown": (markdown, "markdownify"), "markdown-wrap": (markdown_wrap, "markdownify")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
+    "markdown": (markdown, "markdownify"),
+    "markdown-wrap": (markdown_wrap, "markdownify"),
+}

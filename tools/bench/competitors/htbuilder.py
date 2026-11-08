@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import functools
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from htbuilder import HtmlElement, li, ul
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("htbuilder>=0.9",)
 
@@ -32,7 +35,7 @@ def emit(count: int) -> None:
     _ = str(_tree(count))
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "build-e": (build_e, "htbuilder"),
     "construct": (construct, "htbuilder"),
     "emit": (emit, "htbuilder"),

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import css_html_js_minify
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("css-html-js-minify>=2.5",)
 
@@ -24,7 +27,7 @@ def minify_js(source: str) -> str:
     return css_html_js_minify.js_minify(source)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "minify-css": (minify_css, "css-html-js-minify"),
     "minify-css-merges": (minify_css, "css-html-js-minify"),
     "minify-css-conflicts": (minify_css, "css-html-js-minify"),

@@ -12,11 +12,15 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from xml.etree.ElementTree import Element
 
+    from html5lib.treewalkers.base import TreeWalker
+
+    from bench.operations import Timed
+
 import html5lib
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("html5lib>=1.1",)
 
-_WALKER = html5lib.getTreeWalker("etree")
+_WALKER: Final[type[TreeWalker]] = html5lib.getTreeWalker("etree")
 _SERIALIZER: Final[HTMLSerializer] = HTMLSerializer(omit_optional_tags=False, quote_attr_values="always")
 _MINIFIER: Final[HTMLSerializer] = HTMLSerializer(
     strip_whitespace=True, omit_optional_tags=True, quote_attr_values="spec"
@@ -123,7 +127,7 @@ def _whitespace_roundtrip(text: str) -> str:
     )
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "serialize-inner": (_serialize_inner, "html5lib"),
     "encode-inner": (_encode_inner, "html5lib"),
     "iterate-inner": (_iterate_inner, "html5lib"),

@@ -10,6 +10,8 @@ from turbohtml import Node, parse_fragment
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from bench.operations import Timed
+
 _REQUIREMENTS: Final[tuple[str, ...]] = ("turbohtml>=1.8",)
 
 
@@ -41,7 +43,7 @@ def _identity(node: Node) -> Node:
     return node
 
 
-OPERATIONS = {"transform-dispatch": (_dispatch, "Python (validated)")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"transform-dispatch": (_dispatch, "Python (validated)")}
 
 __all__ = [
     "OPERATIONS",

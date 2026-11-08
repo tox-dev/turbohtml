@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[()]] = ()
 
@@ -38,7 +41,7 @@ def _parse_inner_encode(text: str) -> bytes:
     ).stdout
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "parse-inner": (_parse_inner, "parse5"),
     "parse-inner-encode": (_parse_inner_encode, "parse5"),
     "parse-locations": (parse_locations, "parse5"),

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import functools
-from typing import Final, cast
+from typing import TYPE_CHECKING, Final, cast
 from urllib.parse import urljoin
 
 from selectolax.lexbor import LexborHTMLParser, LexborNode
 
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("selectolax>=0.4.10",)
 
@@ -216,7 +219,7 @@ def _strip_comments(tree: LexborHTMLParser) -> None:
             node.remove()
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "collapse-whitespace": (Mutating(setup=_fresh_transform, run=_collapse_whitespace), "selectolax"),
     "transform-tree": (Mutating(setup=_fresh_transform, run=_transform_tree), "selectolax"),
     "serialize-inner": (_serialize_inner, "selectolax"),

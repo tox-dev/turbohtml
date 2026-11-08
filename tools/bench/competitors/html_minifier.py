@@ -8,7 +8,10 @@ quotes); inline CSS/JS is left untouched so the size comparison stays like-for-l
 from __future__ import annotations
 
 import subprocess
-from typing import Final
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[()]] = ()
 
@@ -24,4 +27,4 @@ def minify(text: str) -> str:
     ).stdout
 
 
-OPERATIONS = {"minify": (minify, "html-minifier-terser")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"minify": (minify, "html-minifier-terser")}

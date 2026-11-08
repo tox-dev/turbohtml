@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from goose3 import Goose
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("goose3>=3.1.19",)
 
@@ -31,7 +34,7 @@ def socialcard(text: str) -> None:
     _ = _GOOSE.extract(raw_html=text).opengraph
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "article": (article, "goose3"),
     "date": (date, "goose3"),
     "text-main": (text_main, "goose3"),

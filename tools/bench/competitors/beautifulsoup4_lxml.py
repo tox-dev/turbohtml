@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import functools
 import re
-from typing import Final
+from typing import TYPE_CHECKING, Final
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Comment
@@ -12,6 +12,9 @@ from bs4.element import AttributeValueList, CData, NavigableString, Script, Styl
 
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("beautifulsoup4>=4.15", "lxml>=5.2", "soupsieve>=2.5")
 
@@ -268,7 +271,7 @@ def _strip_comments(soup: BeautifulSoup) -> None:
         comment.extract()
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "collapse-whitespace": (Mutating(setup=_fresh, run=_collapse_whitespace), "BeautifulSoup (lxml)"),
     "transform-tree": (Mutating(setup=_fresh, run=_transform_tree), "BeautifulSoup (lxml)"),
     "serialize-inner": (_serialize_inner, "BeautifulSoup (lxml)"),

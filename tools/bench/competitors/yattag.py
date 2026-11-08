@@ -7,9 +7,12 @@ Loaded only inside its own worker venv, where yattag is guaranteed present; the 
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from yattag import Doc
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("yattag>=1.16.1",)
 
@@ -24,4 +27,4 @@ def build_e(count: int) -> None:
     _ = doc.getvalue()
 
 
-OPERATIONS = {"build-e": (build_e, "yattag")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"build-e": (build_e, "yattag")}

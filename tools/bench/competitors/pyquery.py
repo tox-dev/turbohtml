@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import functools
-from typing import Final
+from typing import TYPE_CHECKING, Final
 from urllib.parse import urljoin
 
 from pyquery import PyQuery
 
 from bench.timing import Mutating
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("pyquery>=2.0.1",)
 _LINKS_BASE: Final[str] = "https://example.com/base/"
@@ -229,7 +232,7 @@ def _query_siblings_case(case: tuple[int, bool]) -> PyQuery:
     return PyQuery(f"<main>{'<p>x</p>' * count}</main>", parser="html")("p").eq(0)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "query-closest": (_query_closest, "pyquery"),
     "query-parents": (_query_parents, "pyquery"),
     "query-siblings": (_query_siblings, "pyquery"),

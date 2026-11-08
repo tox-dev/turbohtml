@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 
     from lxml.html import HtmlElement
 
+    from bench.operations import Timed
+
 _REQUIREMENTS: Final[tuple[str, ...]] = (
     "lxml>=6.1.1",
     "cssselect>=1.2",
@@ -319,8 +321,12 @@ def _first_two_ext(_context: object, nodes: list[lxml_etree._Element]) -> list[l
     return nodes[:2]
 
 
-_COUNT_EXTENSIONS = {(None, "ext_count"): _count_ext}
-_NODESET_EXTENSIONS = {(None, "ext_first_two"): _first_two_ext}
+_COUNT_EXTENSIONS: Final[dict[tuple[str | None, str], Callable[[object, list[lxml_etree._Element]], float]]] = {
+    (None, "ext_count"): _count_ext
+}
+_NODESET_EXTENSIONS: Final[
+    dict[tuple[str | None, str], Callable[[object, list[lxml_etree._Element]], list[lxml_etree._Element]]]
+] = {(None, "ext_first_two"): _first_two_ext}
 _REUSE: Final[lxml_etree.XPath] = lxml_etree.XPath("//a[@href]")
 
 
@@ -492,7 +498,7 @@ def _strip_comments(tree: HtmlElement) -> None:
     lxml_etree.strip_elements(tree, lxml_etree.Comment, with_tail=False)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "collapse-whitespace": (Mutating(setup=lxml_html.document_fromstring, run=_collapse_whitespace), "lxml"),
     "transform-tree": (Mutating(setup=lxml_html.document_fromstring, run=_transform_tree), "lxml"),
     "serialize-inner": (_serialize_inner, "lxml"),

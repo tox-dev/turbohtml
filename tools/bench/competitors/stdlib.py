@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Final
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from bench.operations import Timed
+
 _REQUIREMENTS: Final[tuple[()]] = ()
 
 
@@ -85,7 +87,7 @@ def _identity(node: str) -> str:
     return node
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "transform-dispatch": (_transform_dispatch, "stdlib"),
     "decode": (decode, "stdlib"),
     "escape": (escape, "stdlib"),

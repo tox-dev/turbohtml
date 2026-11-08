@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import htmlmin
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("htmlmin2>=0.1.13",)
 
@@ -14,4 +17,4 @@ def minify(text: str) -> str:
     return htmlmin.minify(text, remove_comments=True, remove_optional_attribute_quotes=True)
 
 
-OPERATIONS = {"minify": (minify, "htmlmin")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"minify": (minify, "htmlmin")}

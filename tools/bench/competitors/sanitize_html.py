@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[()]] = ()
 
@@ -23,4 +26,4 @@ def sanitize_transform(text: str) -> str:
     return subprocess.run(["node", _RUNNER], input=text, capture_output=True, text=True, check=True).stdout
 
 
-OPERATIONS = {"sanitize-transform": (sanitize_transform, "sanitize-html")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"sanitize-transform": (sanitize_transform, "sanitize-html")}

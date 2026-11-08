@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import htmldate
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("htmldate>=1.10",)
 
@@ -19,4 +22,4 @@ def date_tally(text: str) -> str | None:
     return htmldate.find_date(text, original_date=False)
 
 
-OPERATIONS = {"date": (date, "htmldate"), "date-tally": (date_tally, "htmldate")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"date": (date, "htmldate"), "date-tally": (date_tally, "htmldate")}

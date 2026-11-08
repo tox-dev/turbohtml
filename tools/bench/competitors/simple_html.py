@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import functools
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from simple_html import Node, li, render, ul
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("simple-html>=3.1.1",)
 
@@ -32,7 +35,7 @@ def emit(count: int) -> None:
     _ = render(_tree(count))
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "build-e": (build_e, "simple-html"),
     "construct": (construct, "simple-html"),
     "emit": (emit, "simple-html"),

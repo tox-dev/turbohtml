@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import functools
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import soupsieve
 from bs4 import BeautifulSoup
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("soupsieve>=2.8.4", "beautifulsoup4>=4.15")
 
@@ -59,7 +62,7 @@ def escape_identifier(idents: tuple[str, ...]) -> None:
         soupsieve.escape(ident)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "escape-identifier": (escape_identifier, "soupsieve"),
     "find": (find, "soupsieve"),
     "select": (select, "soupsieve"),

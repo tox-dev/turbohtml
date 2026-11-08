@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import subprocess
-from typing import Final
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[()]] = ()
 
@@ -15,7 +18,7 @@ def minify_js(source: str) -> str:
     ).stdout
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "minify-js-guards": (minify_js, "terser"),
     "minify-js-propagation": (minify_js, "terser"),
     "minify-js-var-initialization": (minify_js, "terser"),

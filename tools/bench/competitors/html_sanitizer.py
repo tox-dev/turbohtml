@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import html_sanitizer
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("html-sanitizer>=2.6",)
 
@@ -15,4 +18,4 @@ def sanitize(text: str) -> None:
     _SANITIZER.sanitize(text)
 
 
-OPERATIONS = {"sanitize": (sanitize, "html-sanitizer")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"sanitize": (sanitize, "html-sanitizer")}

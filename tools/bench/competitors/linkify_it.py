@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from linkify_it import LinkifyIt
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("linkify-it-py>=2.0.3",)
 
@@ -22,4 +25,4 @@ def detect(case: tuple[str, str]) -> None:
 
 # linkify-it-py only finds link spans in plain text; it never rewrites HTML, so it maps to detect, not the parse-and-
 # rewrite linkify op -- comparing its plain-text scan against turbohtml's full linkify would not be like-for-like.
-OPERATIONS = {"detect": (detect, "linkify-it-py")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"detect": (detect, "linkify-it-py")}

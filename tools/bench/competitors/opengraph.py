@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from opengraph_py3 import OpenGraph
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("opengraph-py3>=0.71", "html5lib>=1.1")
 
@@ -14,4 +17,4 @@ def socialcard(text: str) -> None:
     OpenGraph(html=text)
 
 
-OPERATIONS = {"socialcard": (socialcard, "opengraph")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"socialcard": (socialcard, "opengraph")}

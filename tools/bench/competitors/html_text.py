@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import html_text
+
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("html-text>=0.6",)
 
@@ -19,4 +22,7 @@ def text_collapsed(text: str) -> None:
     html_text.extract_text(text, guess_layout=False)
 
 
-OPERATIONS = {"text-render": (text_render, "html-text"), "text-collapsed": (text_collapsed, "html-text")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
+    "text-render": (text_render, "html-text"),
+    "text-collapsed": (text_collapsed, "html-text"),
+}
