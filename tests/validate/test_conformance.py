@@ -64,10 +64,12 @@ def test_conformance_severity_views_partition_the_messages() -> None:
 def test_conformance_message_carries_code_severity_and_position() -> None:
     (message,) = check_html(body("<img src=x>")).messages
     assert isinstance(message, ConformanceMessage)
-    assert message.code == "img-missing-alt"
-    assert message.severity == "error"
-    assert message.message == "img element has no alt attribute"
-    assert message.line == 1
+    assert (message.code, message.severity, message.message, message.line) == (
+        "img-missing-alt",
+        "error",
+        "img element has no alt attribute",
+        1,
+    )
     assert message.column > 0
 
 
