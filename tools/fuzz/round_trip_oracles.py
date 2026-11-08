@@ -1283,6 +1283,14 @@ class _Invalid(Enum):
 
 _INVALID: Final[_Invalid] = _Invalid.INVALID
 _Value: TypeAlias = _Invalid | str | int | float | tuple[str | int | float, ...] | None
+
+
+class _Length(NamedTuple):
+    kind: str
+    number: float
+    unit: str
+
+
 _SIDES: Final[tuple[str, ...]] = ("top", "right", "bottom", "left")
 _VALUE_KIND: Final[dict[str, str]] = {
     **dict.fromkeys(
@@ -1360,8 +1368,8 @@ def _read_length(number: float, unit: str) -> _Value:
     if unit and unit not in _LENGTH_UNITS:
         return _INVALID
     if number == 0 and unit != "%":
-        return ("length", 0.0, "")
-    return ("length", number, unit) if unit else _INVALID
+        return _Length("length", 0.0, "")
+    return _Length("length", number, unit) if unit else _INVALID
 
 
 def _read_color(text: str) -> _Value:
