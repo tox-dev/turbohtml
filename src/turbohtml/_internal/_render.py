@@ -16,15 +16,24 @@ default handling.
 
 from __future__ import annotations
 
-from dataclasses import Field, dataclass, field, fields
-from typing import TYPE_CHECKING, Final, Literal
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, field, fields
+from typing import Final, Literal, TypeAlias
 
-from turbohtml._html import Formatter, Indent, Minify, _register_render_configs
+from turbohtml._html import Element, Formatter, Indent, Minify, _register_render_configs
 
-if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping
-
-    from turbohtml._html import Element
+_Option: TypeAlias = (
+    str
+    | bool
+    | int
+    | Formatter
+    | Indent
+    | Minify
+    | tuple[str, ...]
+    | Iterable[str]
+    | Mapping[str, Callable[[Element, str], str]]
+    | None
+)
 
 
 @dataclass(frozen=True)
@@ -259,7 +268,7 @@ class Markdown:
             google=cls.GoogleDoc(enabled=True),
         )
 
-    def _unpack(self) -> dict[str, object]:
+    def _unpack(self) -> dict[str, _Option]:
         # Flatten to the renderer's keyword names, emitting only values that differ from its defaults.
         default = _MARKDOWN_DEFAULT
         flat = {
@@ -302,7 +311,7 @@ class Markdown:
             "google_doc": (self.google.enabled, default.google.enabled),
             "google_list_indent": (self.google.list_indent, default.google.list_indent),
         }
-        unpacked: dict[str, object] = {name: value for name, (value, base) in flat.items() if value != base}
+        unpacked: dict[str, _Option] = {name: value for name, (value, base) in flat.items() if value != base}
         # pass the tag filters through unchanged: the renderer rejects a bare str (so
         # ``strip="div"`` is an error, not "strip tags d, i, v") and accepts any other iterable
         if self.strip is not None:
@@ -340,7 +349,7 @@ class PlainText:
     table_cell_separator: str = "  "
     bullet: str = "* "
 
-    def _unpack(self) -> dict[str, object]:
+    def _unpack(self) -> dict[str, _Option]:
         # Flatten to the renderer's keyword names, emitting only values that differ from its defaults.
         default = _PLAINTEXT_DEFAULT
         return {
@@ -351,7 +360,7 @@ class PlainText:
 
 
 _PLAINTEXT_DEFAULT: Final[PlainText] = PlainText()
-_PLAINTEXT_FIELDS: Final[tuple[Field[object], ...]] = fields(PlainText)
+_PLAINTEXT_FIELDS: Final = fields(PlainText)
 
 
 @dataclass(frozen=True)
@@ -379,7 +388,7 @@ class Html:
     meta_charset: bool = False
     xml: bool = False
 
-    def _unpack(self) -> dict[str, object]:
+    def _unpack(self) -> dict[str, _Option]:
         # Flatten to the renderer's keyword names, emitting only values that differ from its defaults.
         default = _HTML_DEFAULT
         return {
@@ -390,7 +399,7 @@ class Html:
 
 
 _HTML_DEFAULT: Final[Html] = Html()
-_HTML_FIELDS: Final[tuple[Field[object], ...]] = fields(Html)
+_HTML_FIELDS: Final = fields(Html)
 
 
 @dataclass(frozen=True)
@@ -432,7 +441,7 @@ class Canonical:
             msg = "inclusive_ns_prefixes applies only in exclusive mode"
             raise ValueError(msg)
 
-    def _unpack(self) -> dict[str, object]:
+    def _unpack(self) -> dict[str, _Option]:
         # Flatten to the renderer's keyword names, emitting only values that differ from its defaults.
         default = _CANONICAL_DEFAULT
         return {
@@ -443,7 +452,7 @@ class Canonical:
 
 
 _CANONICAL_DEFAULT: Final[Canonical] = Canonical()
-_CANONICAL_FIELDS: Final[tuple[Field[object], ...]] = fields(Canonical)
+_CANONICAL_FIELDS: Final = fields(Canonical)
 
 _register_render_configs(Markdown, PlainText, Html, Canonical)
 
