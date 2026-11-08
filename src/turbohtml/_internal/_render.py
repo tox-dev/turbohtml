@@ -17,7 +17,7 @@ default handling.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, field, fields
+from dataclasses import Field, dataclass, field, fields
 from typing import Final, Literal, TypeAlias
 
 from turbohtml._html import Element, Formatter, Indent, Minify, _register_render_configs
@@ -360,7 +360,7 @@ class PlainText:
 
 
 _PLAINTEXT_DEFAULT: Final[PlainText] = PlainText()
-_PLAINTEXT_FIELDS: Final = fields(PlainText)
+_PLAINTEXT_FIELDS: Final[tuple[Field[_Option], ...]] = fields(PlainText)
 
 
 @dataclass(frozen=True)
@@ -399,7 +399,7 @@ class Html:
 
 
 _HTML_DEFAULT: Final[Html] = Html()
-_HTML_FIELDS: Final = fields(Html)
+_HTML_FIELDS: Final[tuple[Field[_Option], ...]] = fields(Html)
 
 
 @dataclass(frozen=True)
@@ -452,7 +452,7 @@ class Canonical:
 
 
 _CANONICAL_DEFAULT: Final[Canonical] = Canonical()
-_CANONICAL_FIELDS: Final = fields(Canonical)
+_CANONICAL_FIELDS: Final[tuple[Field[_Option], ...]] = fields(Canonical)
 
 _register_render_configs(Markdown, PlainText, Html, Canonical)
 
