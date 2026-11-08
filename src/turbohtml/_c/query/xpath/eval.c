@@ -1859,7 +1859,7 @@ static int eval_expr_inner(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_
 int eval_expr(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *out) {
     if (ctx->depth >= XP_MAX_DEPTH) {
         *ctx->feature = "an expression nested too deeply";
-        return -3;
+        return -5;
     }
 #ifdef TH_OPERATION_LIMIT
     if (xp_charge(ctx, 1) < 0) {

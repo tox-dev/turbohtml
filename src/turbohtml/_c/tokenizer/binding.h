@@ -90,6 +90,7 @@ typedef struct {
     PyObject *xpath_string_type;      /* turbohtml._xpath.XPathString, for smart_strings xpath() results */
     PyObject *xpath_type;             /* XPath, the precompiled reusable expression object */
     PyObject *selector_error;         /* turbohtml.SelectorSyntaxError, raised on a malformed CSS selector or XPath */
+    PyObject *xpath_depth_error;      /* turbohtml.XPathDepthError, raised when an XPath expression nests past the cap */
     PyObject *link_type;              /* turbohtml._links.Link, the (element, attribute, url) record links() yields */
     PyObject *json_ld_parser;         /* turbohtml._structured_data._parse_json_ld, the JSON-LD text parser */
     PyObject *microdata_item_type;    /* turbohtml._structured_data.MicrodataItem, one Microdata item record */

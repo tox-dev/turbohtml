@@ -170,6 +170,7 @@ from turbohtml import (
     SourceSpan,
     Text,
     XPath,
+    XPathDepthError,
     parse,
     parse_fragment,
     parse_xml,
@@ -1521,10 +1522,8 @@ def selector_entry_check(case: str, translate: Callable[[str], str] = css_to_xpa
         return None
     try:
         xpath_selected = document.xpath(translated)
-    except ValueError as error:
-        if str(error) == "xpath: an expression nested too deeply":
-            raise OutOfScopeError from error
-        raise
+    except XPathDepthError as error:
+        raise OutOfScopeError from error
     return None if xpath_selected == selected else "xpath(css_to_xpath()) != select()"
 
 

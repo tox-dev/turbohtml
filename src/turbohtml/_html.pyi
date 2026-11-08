@@ -372,6 +372,9 @@ from ._stubs.query import (
     _register_selector_error as _register_selector_error,
 )
 from ._stubs.query import (
+    _register_xpath_depth_error as _register_xpath_depth_error,
+)
+from ._stubs.query import (
     _register_xpath_string as _register_xpath_string,
 )
 from ._stubs.query import (

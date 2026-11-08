@@ -103,6 +103,7 @@ PyObject *turbohtml_css_escape_identifier(PyObject *module, PyObject *arg);
    and XPath parsers raise on a malformed expression (METH_O); turbohtml._selectors
    registers it on import. */
 PyObject *turbohtml_register_selector_error(PyObject *module, PyObject *type);
+PyObject *turbohtml_register_xpath_depth_error(PyObject *module, PyObject *type);
 
 /* Implemented in linkify.c. The scan methods find URL/email spans in text runs;
    _linkify_apply snapshots targets and rewrites them around callback invocations. */

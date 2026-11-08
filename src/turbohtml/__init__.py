@@ -55,7 +55,7 @@ from .extract._structured_data import (  # registers the JSON-LD parser and reco
     StructuredData,
 )
 from .mutations import MutationObserver, MutationRecord  # registers the MutationRecord type on import
-from .query._xpath import XPathString  # registers the smart-string type with the C core on import
+from .query._xpath import XPathDepthError, XPathString  # registers the error and smart-string types with the C core
 from .traverse import NodeFilter, NodeIterator, TreeWalker
 
 __all__ = [
@@ -105,6 +105,7 @@ __all__ = [
     "Tokenizer",
     "TreeWalker",
     "XPath",
+    "XPathDepthError",
     "XPathString",
     "__version__",
     "annotation_surface",

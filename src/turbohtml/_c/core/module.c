@@ -178,6 +178,7 @@ static PyMethodDef html_methods[] = {
     {"_register_xpath_string", turbohtml_register_xpath_string, METH_O, NULL},
     {"_register_links", turbohtml_register_links, METH_O, NULL},
     {"_register_selector_error", turbohtml_register_selector_error, METH_O, NULL},
+    {"_register_xpath_depth_error", turbohtml_register_xpath_depth_error, METH_O, NULL},
     {"_query_unique", turbohtml_query_unique, METH_O, NULL},
     {"_query_siblings", turbohtml_query_siblings, METH_VARARGS, NULL},
     {"_query_parents", turbohtml_query_parents, METH_VARARGS, NULL},
@@ -393,6 +394,7 @@ static int html_traverse(PyObject *module, visitproc visit, void *arg) {
     Py_VISIT(state->xpath_string_type);      /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->xpath_type);             /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->selector_error);         /* GCOVR_EXCL_BR_LINE: same */
+    Py_VISIT(state->xpath_depth_error);      /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->link_type);              /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->json_ld_parser);         /* GCOVR_EXCL_BR_LINE: same */
     Py_VISIT(state->microdata_item_type);    /* GCOVR_EXCL_BR_LINE: same */
@@ -480,6 +482,7 @@ static int html_clear(PyObject *module) {
     Py_CLEAR(state->xpath_string_type);
     Py_CLEAR(state->xpath_type);
     Py_CLEAR(state->selector_error);
+    Py_CLEAR(state->xpath_depth_error);
     Py_CLEAR(state->link_type);
     Py_CLEAR(state->json_ld_parser);
     Py_CLEAR(state->microdata_item_type);

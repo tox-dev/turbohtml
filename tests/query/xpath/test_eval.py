@@ -11,7 +11,7 @@ from weakref import finalize, ref
 import pytest
 
 import turbohtml
-from turbohtml import Document, Element, Text, XPath, XPathString, parse, parse_xml
+from turbohtml import Document, Element, Text, XPath, XPathDepthError, XPathString, parse, parse_xml
 from turbohtml.convert import css_to_xpath
 
 if TYPE_CHECKING:
@@ -844,7 +844,7 @@ def test_attribute_axis_of_a_text_node_is_empty() -> None:
 def test_deep_operator_spine_raises_instead_of_overflowing(doc: turbohtml.Node, expr: str) -> None:
     # a long left-associative chain parses iteratively but the evaluator descends its
     # spine; the depth cap raises before the C stack overflows (issue #421)
-    with pytest.raises(ValueError, match="nested too deeply"):
+    with pytest.raises(XPathDepthError, match="nested too deeply"):
         doc.xpath(expr)
 
 
@@ -869,7 +869,7 @@ def test_long_union_chain_evaluates(doc: turbohtml.Node, expr: str) -> None:
     ],
 )
 def test_deep_union_operand_still_raises(doc: turbohtml.Node, expr: str) -> None:
-    with pytest.raises(ValueError, match="nested too deeply"):
+    with pytest.raises(XPathDepthError, match="nested too deeply"):
         doc.xpath(expr)
 
 
@@ -895,7 +895,7 @@ def test_long_compound_selector_evaluates() -> None:
 
 
 def test_deep_boolean_chain_operand_still_raises(doc: turbohtml.Node) -> None:
-    with pytest.raises(ValueError, match="nested too deeply"):
+    with pytest.raises(XPathDepthError, match="nested too deeply"):
         doc.xpath(f"1=1 and ({'+'.join(['1'] * 5000)}) and 1=1")
 
 
