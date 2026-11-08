@@ -6,7 +6,7 @@ from typing import Final
 
 from boilerpy3 import extractors
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("boilerpy3>=1.0.7",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("boilerpy3>=1.0.7",)
 
 _EXTRACTOR: Final[extractors.ArticleExtractor] = extractors.ArticleExtractor(raise_on_failure=False)
 

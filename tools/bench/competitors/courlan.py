@@ -6,7 +6,7 @@ from typing import Final
 
 import courlan
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("courlan>=1.4",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("courlan>=1.4",)
 
 
 def urls_clean(case: tuple[str, tuple[str, ...]]) -> None:

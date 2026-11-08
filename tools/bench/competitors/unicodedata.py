@@ -5,7 +5,7 @@ from __future__ import annotations
 import unicodedata
 from typing import Final
 
-REQUIREMENTS: Final[tuple[()]] = ()
+_REQUIREMENTS: Final[tuple[()]] = ()
 
 
 def normalize(text: str) -> None:

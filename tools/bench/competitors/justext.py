@@ -6,7 +6,7 @@ from typing import Final
 
 import justext
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("justext>=3.0",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("justext>=3.0",)
 
 _STOPLIST: Final[frozenset[str]] = justext.get_stoplist("English")
 

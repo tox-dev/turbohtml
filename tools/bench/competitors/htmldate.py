@@ -6,7 +6,7 @@ from typing import Final
 
 import htmldate
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("htmldate>=1.10",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("htmldate>=1.10",)
 
 
 def date(text: str) -> None:

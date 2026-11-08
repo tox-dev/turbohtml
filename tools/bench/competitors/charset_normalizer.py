@@ -6,7 +6,7 @@ from typing import Final
 
 from charset_normalizer import from_bytes
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("charset-normalizer>=3.4",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("charset-normalizer>=3.4",)
 
 
 def encoding(data: bytes) -> None:

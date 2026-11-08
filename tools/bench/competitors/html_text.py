@@ -6,7 +6,7 @@ from typing import Final
 
 import html_text
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("html-text>=0.6",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("html-text>=0.6",)
 
 
 def text_render(text: str) -> None:

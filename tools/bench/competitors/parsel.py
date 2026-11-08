@@ -14,7 +14,7 @@ from parsel import Selector
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("parsel>=1.11", "cssselect>=1.2")
+_REQUIREMENTS: Final[tuple[str, ...]] = ("parsel>=1.11", "cssselect>=1.2")
 
 _LINKS_BASE: Final[str] = "https://example.com/base/"  # the base turbohtml resolves relative hrefs against
 _TRANSLATOR: Final[HTMLTranslator] = HTMLTranslator()

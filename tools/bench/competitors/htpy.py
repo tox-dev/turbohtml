@@ -7,7 +7,7 @@ from typing import Final
 
 import htpy
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("htpy>=26.5.1",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("htpy>=26.5.1",)
 
 
 def build_e(count: int) -> None:

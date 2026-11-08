@@ -7,7 +7,7 @@ from typing import Final
 
 import pandas as pd
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("pandas>=2.2", "lxml>=6.1.1")
+_REQUIREMENTS: Final[tuple[str, ...]] = ("pandas>=2.2", "lxml>=6.1.1")
 
 
 def tables(case: tuple[str, str]) -> None:

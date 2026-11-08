@@ -6,7 +6,7 @@ from typing import Final
 
 import trafilatura
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("trafilatura>=1.12",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("trafilatura>=1.12",)
 
 
 def article(text: str) -> None:

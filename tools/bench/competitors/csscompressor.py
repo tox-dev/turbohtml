@@ -6,7 +6,7 @@ from typing import Final
 
 import csscompressor
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("csscompressor>=0.9",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("csscompressor>=0.9",)
 
 
 def minify_css(css: str) -> str:

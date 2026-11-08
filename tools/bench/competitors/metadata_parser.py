@@ -11,7 +11,7 @@ from typing import Final
 
 from metadata_parser import MetadataParser  # ty: ignore[import-not-found]  # undeclared: pins an older beautifulsoup4
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("metadata-parser>=1", "legacy-cgi; python_version>='3.13'")
+_REQUIREMENTS: Final[tuple[str, ...]] = ("metadata-parser>=1", "legacy-cgi; python_version>='3.13'")
 
 
 def socialcard(text: str) -> None:

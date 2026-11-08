@@ -6,7 +6,7 @@ from typing import Final
 
 import minify_html
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("minify-html>=0.18.1",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("minify-html>=0.18.1",)
 
 
 def minify(text: str) -> str:

@@ -66,7 +66,7 @@ def _competitor_dir(root: Path, modules: dict[str, dict[str, str]]) -> Path:
     directory.mkdir(parents=True)
     module = '''\
 """Fake competitor."""
-REQUIREMENTS = ("nothing",)
+_REQUIREMENTS = ("nothing",)
 OPERATIONS = {{{entries}}}
 '''
     for stem, op_labels in modules.items():

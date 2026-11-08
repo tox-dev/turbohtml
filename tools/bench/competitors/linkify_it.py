@@ -6,7 +6,7 @@ from typing import Final
 
 from linkify_it import LinkifyIt
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("linkify-it-py>=2.0.3",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("linkify-it-py>=2.0.3",)
 
 _LINKIFY: Final[LinkifyIt] = LinkifyIt()
 

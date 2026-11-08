@@ -6,7 +6,7 @@ from typing import Final
 
 import cchardet
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("faust-cchardet>=2.1.19",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("faust-cchardet>=2.1.19",)
 
 
 def encoding(data: bytes) -> None:

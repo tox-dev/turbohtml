@@ -7,7 +7,7 @@ from typing import Final
 
 from simple_html import Node, li, render, ul
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("simple-html>=3.1.1",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("simple-html>=3.1.1",)
 
 
 def build_e(count: int) -> None:

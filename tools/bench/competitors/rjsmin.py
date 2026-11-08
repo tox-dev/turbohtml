@@ -6,7 +6,7 @@ from typing import Final
 
 import rjsmin
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("rjsmin>=1.2",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("rjsmin>=1.2",)
 
 
 def minify_js(source: str) -> str:

@@ -6,7 +6,7 @@ from typing import Final
 
 import html_sanitizer
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("html-sanitizer>=2.6",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("html-sanitizer>=2.6",)
 
 _SANITIZER: Final[html_sanitizer.Sanitizer] = html_sanitizer.Sanitizer()
 

@@ -6,7 +6,7 @@ from typing import Final
 
 from readability import Document
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("readability-lxml>=0.8.1",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("readability-lxml>=0.8.1",)
 
 
 def article(text: str) -> None:

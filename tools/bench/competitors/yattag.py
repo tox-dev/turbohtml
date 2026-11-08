@@ -1,7 +1,7 @@
 """
 yattag: assemble a tree with the ``tag``/``text`` context managers.
 
-Loaded only inside its own worker venv, where yattag is guaranteed present; the orchestrator reads ``REQUIREMENTS`` and
+Loaded only inside its own worker venv, where yattag is guaranteed present; the orchestrator reads ``_REQUIREMENTS`` and
 ``OPERATIONS`` statically (via AST) and never imports this module.
 """
 
@@ -11,7 +11,7 @@ from typing import Final
 
 from yattag import Doc
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("yattag>=1.16.1",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("yattag>=1.16.1",)
 
 
 def build_e(count: int) -> None:

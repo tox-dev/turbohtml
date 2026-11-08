@@ -10,7 +10,7 @@ import markupsafe
 if TYPE_CHECKING:
     from bench.operations import Case
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("markupsafe>=3",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("markupsafe>=3",)
 
 _TEMPLATE: Final[markupsafe.Markup] = markupsafe.Markup("<li>{}</li><span>{}</span>")
 _JOINER: Final[markupsafe.Markup] = markupsafe.Markup(", ")

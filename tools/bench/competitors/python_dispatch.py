@@ -10,7 +10,7 @@ from turbohtml import Node, parse_fragment
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("turbohtml>=1.8",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("turbohtml>=1.8",)
 
 
 def _dispatch(count: int) -> Node:

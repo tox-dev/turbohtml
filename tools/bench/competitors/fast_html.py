@@ -6,7 +6,7 @@ from typing import Final
 
 from fast_html import li, render, ul
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("fast-html>=1.0.12",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("fast-html>=1.0.12",)
 
 
 def build_e(count: int) -> None:

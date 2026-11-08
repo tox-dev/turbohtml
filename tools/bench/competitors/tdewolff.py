@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from typing import Final
 
-REQUIREMENTS: Final[tuple[()]] = ()
+_REQUIREMENTS: Final[tuple[()]] = ()
 
 
 def _run(kind: str, source: str) -> str:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from typing import Final
 
-REQUIREMENTS: Final[tuple[()]] = ()
+_REQUIREMENTS: Final[tuple[()]] = ()
 
 
 def minify_js(source: str) -> str:

@@ -2,7 +2,7 @@
 Provision an isolated venv per target, run the worker in each, and render the merged tables.
 
 Competitors are discovered statically: this module never imports a ``bench.competitors`` submodule (that would pull in
-its library), it parses each one's ``REQUIREMENTS`` and ``OPERATIONS`` keys out of the source. So the orchestrator
+its library), it parses each one's ``_REQUIREMENTS`` and ``OPERATIONS`` keys out of the source. So the orchestrator
 imports only stdlib plus the pure-data ``operations`` and the ``report`` renderer, and runs in a minimal environment.
 It builds the turbohtml wheel once for the ``core`` baseline venv; every competitor venv installs only that competitor.
 """
@@ -40,7 +40,7 @@ def _string_tuple(node: ast.Tuple) -> tuple[str, ...]:
 
 
 def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]]:
-    # Read each competitor's REQUIREMENTS, OPERATIONS keys, and optional PIP_OPTIONS from source, without importing.
+    # Read each competitor's _REQUIREMENTS, OPERATIONS keys, and optional PIP_OPTIONS from source, without importing.
     found: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]] = {}
     for path in sorted(_COMPETITOR_DIR.glob("*.py")):
         if path.stem == "__init__":
@@ -51,7 +51,7 @@ def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, 
         for node in ast.parse(path.read_text(encoding="utf-8")).body:
             if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
                 continue
-            if node.targets[0].id == "REQUIREMENTS" and isinstance(node.value, ast.Tuple):
+            if node.targets[0].id == "_REQUIREMENTS" and isinstance(node.value, ast.Tuple):
                 requirements = _string_tuple(node.value)
             elif node.targets[0].id == "PIP_OPTIONS" and isinstance(node.value, ast.Tuple):
                 pip_options = _string_tuple(node.value)

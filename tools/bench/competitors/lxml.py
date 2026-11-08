@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     from lxml.html import HtmlElement
 
-REQUIREMENTS: Final[tuple[str, ...]] = (
+_REQUIREMENTS: Final[tuple[str, ...]] = (
     "lxml>=6.1.1",
     "cssselect>=1.2",
 )  # cssselect backs lxml.html.cssselect() for the select/:has ops

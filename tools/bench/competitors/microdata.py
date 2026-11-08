@@ -6,7 +6,7 @@ from typing import Final
 
 import microdata
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("microdata>=0.8",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("microdata>=0.8",)
 
 
 def microdata_items(text: str) -> None:

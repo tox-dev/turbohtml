@@ -6,7 +6,7 @@ from typing import Final
 
 from urlextract import URLExtract
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("urlextract>=1.9",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("urlextract>=1.9",)
 
 _EXTRACTOR: Final[URLExtract] = URLExtract(extract_email=True)
 

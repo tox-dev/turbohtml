@@ -6,7 +6,7 @@ from typing import Final
 
 import feedparser
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("feedparser>=6.0",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("feedparser>=6.0",)
 
 
 def syndication(text: str) -> None:

@@ -7,7 +7,7 @@ from typing import Final
 
 from htbuilder import HtmlElement, li, ul
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("htbuilder>=0.9",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("htbuilder>=0.9",)
 
 
 def build_e(count: int) -> None:

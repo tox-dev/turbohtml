@@ -6,7 +6,7 @@ from typing import Final
 
 import extruct
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("extruct>=0.18",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("extruct>=0.18",)
 
 
 def structured(text: str) -> None:

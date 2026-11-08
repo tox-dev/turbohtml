@@ -6,7 +6,7 @@ from typing import Final
 
 from airium import Airium
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("airium>=0.2.7",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("airium>=0.2.7",)
 
 
 def build_e(count: int) -> None:

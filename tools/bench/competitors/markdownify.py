@@ -6,7 +6,7 @@ from typing import Final
 
 import markdownify
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("markdownify>=0.13",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("markdownify>=0.13",)
 
 
 def markdown(case: tuple[str, str]) -> None:

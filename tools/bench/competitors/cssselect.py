@@ -6,7 +6,7 @@ from typing import Final
 
 from cssselect import HTMLTranslator, parse
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("cssselect>=1.4",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("cssselect>=1.4",)
 
 _TRANSLATOR: Final[HTMLTranslator] = HTMLTranslator()
 

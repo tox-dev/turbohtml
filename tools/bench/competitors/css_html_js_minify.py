@@ -6,7 +6,7 @@ from typing import Final
 
 import css_html_js_minify
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("css-html-js-minify>=2.5",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("css-html-js-minify>=2.5",)
 
 
 def minify_css(css: str) -> str:

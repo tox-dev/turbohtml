@@ -13,7 +13,7 @@ from bs4.element import AttributeValueList, CData, NavigableString, Script, Styl
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("beautifulsoup4>=4.15", "lxml>=5.2", "soupsieve>=2.5")
+_REQUIREMENTS: Final[tuple[str, ...]] = ("beautifulsoup4>=4.15", "lxml>=5.2", "soupsieve>=2.5")
 
 # Only the operations whose cost depends on the tree builder appear here. Building a tree through ``new_tag`` and
 # sniffing bytes through UnicodeDammit run the same code on either backend, so measuring them twice would add a

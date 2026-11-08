@@ -7,7 +7,7 @@ from typing import Final
 
 from markyp_html.lists import li, ul
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("markyp-html>=0.2306.2",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("markyp-html>=0.2306.2",)
 
 
 def build_e(count: int) -> None:

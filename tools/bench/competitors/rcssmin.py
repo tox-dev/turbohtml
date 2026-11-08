@@ -6,7 +6,7 @@ from typing import Final
 
 import rcssmin
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("rcssmin>=1.2",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("rcssmin>=1.2",)
 
 
 def minify_css(css: str) -> str:

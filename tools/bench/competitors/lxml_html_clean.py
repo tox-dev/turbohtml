@@ -12,7 +12,7 @@ from bench.timing import Mutating
 if TYPE_CHECKING:
     from lxml.html import HtmlElement
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("lxml-html-clean>=0.4.5", "lxml>=6.1.1")
+_REQUIREMENTS: Final[tuple[str, ...]] = ("lxml-html-clean>=0.4.5", "lxml>=6.1.1")
 
 _CLEANER: Final[lxml_html_clean.Cleaner] = lxml_html_clean.Cleaner()
 

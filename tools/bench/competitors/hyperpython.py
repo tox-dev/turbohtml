@@ -13,7 +13,7 @@ from typing import Final
 
 from hyperpython import li, ul  # ty: ignore[import-not-found]  # undeclared: pins an older markupsafe
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("hyperpython>=1.1.1", "sidekick<0.7")
+_REQUIREMENTS: Final[tuple[str, ...]] = ("hyperpython>=1.1.1", "sidekick<0.7")
 
 
 def build_e(count: int) -> None:

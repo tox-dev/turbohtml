@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 import html5lib
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("html5lib>=1.1",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("html5lib>=1.1",)
 
 _WALKER = html5lib.getTreeWalker("etree")
 _SERIALIZER: Final[HTMLSerializer] = HTMLSerializer(omit_optional_tags=False, quote_attr_values="always")

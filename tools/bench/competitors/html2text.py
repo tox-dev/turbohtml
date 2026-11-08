@@ -7,7 +7,7 @@ from typing import Final
 
 import html2text
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("html2text>=2024.2.26",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("html2text>=2024.2.26",)
 
 
 def _configured() -> html2text.HTML2Text:

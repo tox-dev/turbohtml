@@ -6,7 +6,7 @@ from typing import Final
 
 from goose3 import Goose
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("goose3>=3.1.19",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("goose3>=3.1.19",)
 
 _GOOSE: Final[Goose] = Goose({"enable_image_fetching": False})
 

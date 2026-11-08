@@ -8,7 +8,7 @@ from typing import Final
 import inscriptis
 from inscriptis.model.config import ParserConfig
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("inscriptis>=2.5",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("inscriptis>=2.5",)
 
 _ANNOTATION_RULES: Final[dict[str, list[str]]] = {"h1": ["heading"], "b": ["emphasis"], "a": ["link"]}
 _ANNOTATION_CONFIG: Final[ParserConfig] = ParserConfig(annotation_rules=_ANNOTATION_RULES)

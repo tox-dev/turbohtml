@@ -9,7 +9,7 @@ from dominate import tags
 from dominate.util import escape as _escape
 from dominate.util import unescape as _unescape
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("dominate>=2.9.1",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("dominate>=2.9.1",)
 
 
 def build_e(count: int) -> None:

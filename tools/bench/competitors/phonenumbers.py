@@ -7,7 +7,7 @@ from typing import Final
 import phonenumbers
 from phonenumbers import Leniency, PhoneNumberFormat, PhoneNumberMatcher
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("phonenumbers>=9.0.38",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("phonenumbers>=9.0.38",)
 
 _LENIENCY: Final[dict[str, int]] = {"valid": Leniency.VALID, "possible": Leniency.POSSIBLE}
 

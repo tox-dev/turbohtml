@@ -6,7 +6,7 @@ from typing import Final
 
 from jsmin import jsmin
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("jsmin>=3.0",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("jsmin>=3.0",)
 
 
 def minify_js(source: str) -> str:

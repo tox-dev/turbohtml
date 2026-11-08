@@ -7,7 +7,7 @@ from typing import Final
 from calmjs.parse import es5
 from calmjs.parse.unparsers.es5 import minify_print
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("calmjs.parse>=1.3",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("calmjs.parse>=1.3",)
 
 
 def minify_js(source: str) -> str:

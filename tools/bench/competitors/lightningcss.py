@@ -6,7 +6,7 @@ from typing import Final
 
 import lightningcss
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("lightningcss>=0.3",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("lightningcss>=0.3",)
 
 
 def minify_css(css: str) -> str:

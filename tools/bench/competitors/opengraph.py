@@ -6,7 +6,7 @@ from typing import Final
 
 from opengraph_py3 import OpenGraph
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("opengraph-py3>=0.71", "html5lib>=1.1")
+_REQUIREMENTS: Final[tuple[str, ...]] = ("opengraph-py3>=0.71", "html5lib>=1.1")
 
 
 def socialcard(text: str) -> None:

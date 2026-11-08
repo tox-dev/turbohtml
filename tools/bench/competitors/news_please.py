@@ -7,7 +7,7 @@ from typing import Final
 
 from newsplease import NewsPlease  # ty: ignore[import-not-found]  # optional competitor package, absent from the lint environment
 
-REQUIREMENTS: Final[tuple[str, ...]] = ("news-please>=1.6",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("news-please>=1.6",)
 
 _URL: Final[str] = "https://example.com/article"
 
