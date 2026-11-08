@@ -22,6 +22,9 @@ from typing import Final, Literal, TypeAlias
 
 from turbohtml._html import Element, Formatter, Indent, Minify, _register_render_configs
 
+from ._cssmin import CSSMinify  # ruff:ignore[unused-import]  # registers the CSSMinify record type on import
+from ._jsminify import JSMinify  # ruff:ignore[unused-import]  # registers the JSMinify record type on import
+
 _Option: TypeAlias = (
     str
     | bool

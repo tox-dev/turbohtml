@@ -36,10 +36,6 @@ from ._html import (
     tokenize,
     unescape,
 )
-from ._internal import (
-    _cssmin,  # ruff:ignore[unused-import]  # registers the CSSMinify record type with the C core on import
-    _jsminify,  # ruff:ignore[unused-import]  # registers the JSMinify record type with the C core on import
-)
 from ._internal._locations import SourceLocation, SourceSpan  # registers the source-location record types on import
 from ._internal._render import Canonical, Html, Markdown, PlainText
 from ._internal._selectors import SelectorSyntaxError  # registers the selector error type with the C core on import
