@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import TYPE_CHECKING, Final, cast
+from types import FunctionType
+from typing import TYPE_CHECKING, Final, TypeIs
 
 import pytest
 from bench.competitors.python_dispatch import OPERATIONS
@@ -13,17 +14,24 @@ from turbohtml.clean import collapse_whitespace_node, transform_node
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from bench.operations import Timed
+
+
+def _is_dispatch_operation(operation: Timed) -> TypeIs[Callable[[int], Node]]:
+    return isinstance(operation, FunctionType) and operation.__name__ == "_dispatch"
+
 
 @pytest.mark.parametrize("count", [0, 1, 4, 16], ids=["empty", "one", "four", "sixteen"])
 def test_dispatch_benchmark(count: int) -> None:
-    operation: Final = cast("Callable[[int], Node]", OPERATIONS["transform-dispatch"][0])
+    operation: Final = OPERATIONS["transform-dispatch"][0]
+    assert _is_dispatch_operation(operation)
     root: Final = operation(count)
     assert (root.inner_html, operation(count) is root) == ("<p>x</p>", True)
 
 
 @pytest.fixture(params=[transform_node, python_transform_node], ids=["native", "python"])
 def dispatch(request: pytest.FixtureRequest) -> Callable[..., Node]:
-    return cast("Callable[..., Node]", request.param)
+    return request.param
 
 
 def test_dispatch_empty(dispatch: Callable[..., Node]) -> None:
@@ -34,7 +42,8 @@ def test_dispatch_empty(dispatch: Callable[..., Node]) -> None:
 @pytest.mark.parametrize("kind", ["function", "partial", "bound-method"])
 def test_dispatch_stages(dispatch: Callable[..., Node], kind: str) -> None:
     def uppercase(node: Node) -> None:
-        cast("Text", node).data = node.text.upper()
+        assert isinstance(node, Text)
+        node.data = node.text.upper()
 
     def replace(node: Node) -> Node:
         return Text(f"{node.text}  end  ")
