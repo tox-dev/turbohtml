@@ -5,5 +5,3 @@ Each module imports exactly one competitor and exposes ``OPERATIONS`` mapping th
 ``(timing function, label)``. The worker imports a single one of these by name, so a competitor venv only ever needs
 that one library installed.
 """
-
-from __future__ import annotations
