@@ -10,7 +10,7 @@ _C_ROOT: Final[Path] = Path(__file__).parents[2] / "src" / "turbohtml" / "_c"
 _COMPAT_HEADER: Final[Path] = _C_ROOT / "core" / "pycompat.h"
 
 # the wrapper each guarded spelling must be reached through, and the pattern finding a direct use
-_WRAPPERS = {
+_WRAPPERS: Final[dict[str, re.Pattern[str]]] = {
     "TH_SEALED": re.compile(r"\bPy_TPFLAGS_DISALLOW_INSTANTIATION\b"),
     "th_copy_characters": re.compile(r"\bPyUnicode_CopyCharacters\s*\("),
     "th_str_format": re.compile(r"\bPyUnicode_FromFormatV?\s*\("),
