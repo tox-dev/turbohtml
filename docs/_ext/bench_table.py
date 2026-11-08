@@ -225,7 +225,6 @@ class BenchTable(Directive):
     def _body_row(
         self, cells: list[Any], layout: _Layout, spread: list[Any] | None = None, caveat: int | None = None
     ) -> nodes.row:
-        parties, metrics, reasons = layout.parties, layout.metrics, layout.reasons
         row = nodes.row()
         label = self._entry(str(cells[0]))
         # a caveat that belongs to one operation marks that row, not the library's whole column
@@ -236,32 +235,10 @@ class BenchTable(Directive):
         row += label
         rendered: dict[int, tuple[str, str | None]] = {}
         marks: dict[int, int] = {}
-        for metric_index, metric in enumerate(metrics):
-            # _order_columns has already put the baseline first, so column 0 is what every ratio is read against; a
-            # feed whose columns are all turbohtml (the interpreter comparison) still gets a ratio on every other one
-            turbo = cells[1 + metric_index]
-            positions: list[int] = []
-            ratios: list[float] = []
-            for party_index in range(len(parties)):
-                index = 1 + party_index * len(metrics) + metric_index
-                value = cells[index]
-                if isinstance(value, (int, float)):
-                    if metric == "size":
-                        figure = _format_size(value)
-                    elif metric == "memory":
-                        figure = _format_memory(value)
-                    else:
-                        figure = _format_time(value)
-                    ratio = value / turbo
-                    if party_index:
-                        figure += f" {_format_ratio(ratio, metric, _ratio_spread(spread, index, 1 + metric_index))}"
-                    positions.append(index)
-                    ratios.append(ratio)
-                    rendered[index] = (figure, None)
-                else:  # an empty cell points at the reason spelled out in the legend
-                    marks[index] = reasons[value if isinstance(value, str) else _MISSING_REASON]
-            for index, bucket in zip(positions, _row_buckets(ratios, metric), strict=True):
-                rendered[index] = (rendered[index][0], bucket)
+        for metric_index in range(len(layout.metrics)):
+            metric_rendered, metric_marks = _render_metric(cells, layout, metric_index, spread)
+            rendered |= metric_rendered
+            marks |= metric_marks
         for index in range(1, len(cells)):
             row += _mark_entry(marks[index]) if index in marks else self._entry(*rendered[index])
         return row
@@ -386,6 +363,40 @@ def _legend(reasons: dict[str, int]) -> nodes.container:
         line += nodes.Text(f" {reason}")
         legend += line
     return legend
+
+
+def _render_metric(
+    cells: list[Any], layout: _Layout, metric_index: int, spread: list[Any] | None
+) -> tuple[dict[int, tuple[str, str | None]], dict[int, int]]:
+    # _order_columns has already put the baseline first, so column 0 is what every ratio is read against; a
+    # feed whose columns are all turbohtml (the interpreter comparison) still gets a ratio on every other one
+    metric = layout.metrics[metric_index]
+    turbo = cells[1 + metric_index]
+    rendered: dict[int, tuple[str, str | None]] = {}
+    marks: dict[int, int] = {}
+    positions: list[int] = []
+    ratios: list[float] = []
+    for party_index in range(len(layout.parties)):
+        index = 1 + party_index * len(layout.metrics) + metric_index
+        value = cells[index]
+        if isinstance(value, (int, float)):
+            if metric == "size":
+                figure = _format_size(value)
+            elif metric == "memory":
+                figure = _format_memory(value)
+            else:
+                figure = _format_time(value)
+            ratio = value / turbo
+            if party_index:
+                figure += f" {_format_ratio(ratio, metric, _ratio_spread(spread, index, 1 + metric_index))}"
+            positions.append(index)
+            ratios.append(ratio)
+            rendered[index] = (figure, None)
+        else:  # an empty cell points at the reason spelled out in the legend
+            marks[index] = layout.reasons[value if isinstance(value, str) else _MISSING_REASON]
+    for index, bucket in zip(positions, _row_buckets(ratios, metric), strict=True):
+        rendered[index] = (rendered[index][0], bucket)
+    return rendered, marks
 
 
 def _format_size(size: float) -> str:

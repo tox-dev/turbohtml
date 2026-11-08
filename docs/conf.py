@@ -192,6 +192,14 @@ class _QualifyNames(ast.NodeTransformer):
         return node
 
 
+def _from_import_aliases(node: ast.ImportFrom) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for name in node.names:
+        module = "typing" if node.module == "typing_extensions" and name.name == "Self" else node.module
+        aliases[name.asname or name.name] = f"{module}.{name.name}"
+    return aliases
+
+
 def _import_aliases(tree: ast.Module) -> dict[str, str]:
     aliases: dict[str, str] = {}
     for node in tree.body:
@@ -201,9 +209,7 @@ def _import_aliases(tree: ast.Module) -> dict[str, str]:
             and node.module
             and not node.module.startswith("turbohtml")
         ):
-            for name in node.names:
-                module = "typing" if node.module == "typing_extensions" and name.name == "Self" else node.module
-                aliases[name.asname or name.name] = f"{module}.{name.name}"
+            aliases |= _from_import_aliases(node)
         elif (
             isinstance(node, ast.Assign)
             and isinstance(node.value, ast.Call)
@@ -247,6 +253,28 @@ def _render_signature(
     return matched.group("params"), matched.group("returns")
 
 
+def _class_entries(
+    node: ast.ClassDef, aliases: dict[str, str]
+) -> tuple[dict[str, tuple[str, str | None]], dict[str, str]]:
+    signatures: dict[str, tuple[str, str | None]] = {}
+    property_types: dict[str, str] = {}
+    for item in node.body:
+        if not isinstance(item, ast.FunctionDef):
+            continue
+        decorators = item.decorator_list
+        if any(isinstance(deco, ast.Attribute) and deco.attr in {"setter", "deleter"} for deco in decorators):
+            continue
+        key = f"turbohtml.{node.name}.{item.name}"
+        if any(isinstance(deco, ast.Name) and deco.id == "property" for deco in decorators):
+            property_types[key] = _render_signature(item, aliases, drop_self=True, keep_return=True)[1] or ""
+        elif item.name == "__init__":
+            arguments, _ = _render_signature(item, aliases, drop_self=True, keep_return=False)
+            signatures[f"turbohtml.{node.name}"] = (arguments, None)
+        else:
+            signatures[key] = _render_signature(item, aliases, drop_self=True, keep_return=True)
+    return signatures, property_types
+
+
 def _collect_stub_types() -> tuple[dict[str, tuple[str, str | None]], dict[str, str]]:
     signatures: dict[str, tuple[str, str | None]] = {}
     property_types: dict[str, str] = {}
@@ -259,24 +287,9 @@ def _collect_stub_types() -> tuple[dict[str, tuple[str, str | None]], dict[str, 
                     node, aliases, drop_self=False, keep_return=True
                 )
             elif isinstance(node, ast.ClassDef):
-                for item in node.body:
-                    if not isinstance(item, ast.FunctionDef):
-                        continue
-                    decorators = item.decorator_list
-                    if any(
-                        isinstance(deco, ast.Attribute) and deco.attr in {"setter", "deleter"} for deco in decorators
-                    ):
-                        continue
-                    key = f"turbohtml.{node.name}.{item.name}"
-                    if any(isinstance(deco, ast.Name) and deco.id == "property" for deco in decorators):
-                        property_types[key] = (
-                            _render_signature(item, aliases, drop_self=True, keep_return=True)[1] or ""
-                        )
-                    elif item.name == "__init__":
-                        arguments, _ = _render_signature(item, aliases, drop_self=True, keep_return=False)
-                        signatures[f"turbohtml.{node.name}"] = (arguments, None)
-                    else:
-                        signatures[key] = _render_signature(item, aliases, drop_self=True, keep_return=True)
+                class_signatures, class_property_types = _class_entries(node, aliases)
+                signatures |= class_signatures
+                property_types |= class_property_types
     return signatures, property_types
 
 
