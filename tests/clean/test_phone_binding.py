@@ -210,7 +210,7 @@ def test_compile_accepts_the_bounds() -> None:
             _spec(
                 regions=("US", "GB", "DE", "FR", "IT", "ES", "NL", "BE"),
                 labels=tuple(
-                    "l" + "".join("abcdefghij"[int(digit)] for digit in f"{index:03d}") for index in range(256)
+                    f"l{''.join('abcdefghij'[int(digit)] for digit in f'{index:03d}')}" for index in range(256)
                 ),
                 type_mask=frozenset({PhoneType.FIXED_LINE}),
             )

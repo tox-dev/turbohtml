@@ -90,11 +90,8 @@ def test_deep_table_unwrap_keeps_nested_content_in_order() -> None:
         node = E.div(node)
     root: Final = E.div(E.table(E.tbody(E.tr(E.td(node)))))
     expected: Final = (
-        "<div>&lt;table&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td&gt;"
-        + "<div>" * 40
-        + "<span>x</span>"
-        + "</div>" * 40
-        + "&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;</div>"
+        f"<div>&lt;table&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td&gt;{'<div>' * 40}<span>x</span>{'</div>' * 40}"
+        "&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;</div>"
     )
     assert sanitize_node(root, Policy(tags=frozenset({"div", "tr", "td", "span"}))).html == expected
 
