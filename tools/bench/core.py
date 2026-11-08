@@ -358,15 +358,6 @@ def _parsed(text: str) -> turbohtml.Document:
     return turbohtml.parse(text)
 
 
-def _whole(text: str) -> turbohtml.Document:
-    # Parse the string afresh, for an operation whose competitors take a string rather than a tree.
-    #
-    # turbohtml exposes these as node methods, so timing them off the cached tree would compare a conversion against
-    # every competitor's parse plus conversion. The comparison these tables make is end to end, string in and result
-    # out, so the parse belongs inside the measurement on both sides.
-    return turbohtml.parse(text)
-
-
 def find(text: str) -> None:
     # Collect every anchor with turbohtml's find_all.
     _parsed(text).find_all("a")
@@ -831,11 +822,14 @@ def _phone_format(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
         number.format(_PHONE_STYLES[style])
 
 
+# The operations parse the string afresh: turbohtml exposes these as node methods, so timing them off the cached tree
+# would compare a conversion against every competitor's parse plus conversion. The comparison these tables make is end
+# to end, string in and result out, so the parse belongs inside the measurement on both sides.
 def markdown(case: tuple[str, str]) -> None:
     # Convert HTML to Markdown with turbohtml, with the default or the fully-configured option surface.
     kind, text = case
     if kind == "configured":
-        _whole(text).to_markdown(
+        turbohtml.parse(text).to_markdown(
             _Markdown(
                 inline=_Markdown.Inline(strong="__", emphasis="_"),
                 links=_Markdown.Links(style="reference"),
@@ -844,7 +838,7 @@ def markdown(case: tuple[str, str]) -> None:
             )
         )
     else:
-        _whole(text).to_markdown()
+        turbohtml.parse(text).to_markdown()
 
 
 def _markdown_wrap(case: tuple[int, str]) -> None:
@@ -856,26 +850,26 @@ def _markdown_wrap(case: tuple[int, str]) -> None:
 @functools.cache
 def _markdown_wrap_case(case: tuple[int, str]) -> tuple[_Markdown, turbohtml.Document]:
     width, source = case
-    return _Markdown(wrapping=_Markdown.Wrapping(width=width)), _whole(source)
+    return _Markdown(wrapping=_Markdown.Wrapping(width=width)), turbohtml.parse(source)
 
 
 def _markdown_google(text: str) -> None:
     # Convert a Google Docs export to Markdown with turbohtml's google_doc mode.
-    _whole(text).to_markdown(_Markdown.google_doc())
+    turbohtml.parse(text).to_markdown(_Markdown.google_doc())
 
 
 def tables(case: tuple[str, str]) -> None:
     # Extract table grids with turbohtml: every table as rows, or the first table keyed by its header.
     kind, text = case
     if kind == "rows":
-        _whole(text).tables()
-    elif (table := _whole(text).find("table")) is not None:
+        turbohtml.parse(text).tables()
+    elif (table := turbohtml.parse(text).find("table")) is not None:
         table.records()
 
 
 def article(text: str) -> None:
     # Extract the content body and metadata with turbohtml in one C pass.
-    _whole(text).article()
+    turbohtml.parse(text).article()
 
 
 def boilerplate(text: str) -> None:
@@ -890,27 +884,27 @@ def date(text: str) -> None:
 
 def _text_render(text: str) -> None:
     # Render layout-aware visible text with turbohtml's to_text, walking the tree in C.
-    _whole(text).to_text()
+    turbohtml.parse(text).to_text()
 
 
 def _text_collapsed(text: str) -> None:
     # Join turbohtml's stripped_strings into the collapsed, layout-free word stream.
-    " ".join(_whole(text).stripped_strings)
+    " ".join(turbohtml.parse(text).stripped_strings)
 
 
 def _text_main(text: str) -> None:
     # Extract the boilerplate-stripped main text with turbohtml's main_text in one C pass.
-    _whole(text).main_text()
+    turbohtml.parse(text).main_text()
 
 
 def _text_annotated(text: str) -> None:
     # Render annotated layout text with turbohtml, recording spans for matching elements in C.
-    _whole(text).to_annotated_text({"h1": ["heading"], "b": ["emphasis"], "a": ["link"]})
+    turbohtml.parse(text).to_annotated_text({"h1": ["heading"], "b": ["emphasis"], "a": ["link"]})
 
 
 def _text_annotation_rules(case: tuple[str, tuple[tuple[str, tuple[str, ...]], ...]]) -> None:
     text, rules = case
-    _whole(text).to_annotated_text(_annotation_rule_map(rules))
+    turbohtml.parse(text).to_annotated_text(_annotation_rule_map(rules))
 
 
 @functools.cache
