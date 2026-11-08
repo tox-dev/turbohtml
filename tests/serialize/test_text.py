@@ -540,10 +540,10 @@ def test_invalid_rules(
 
 
 def call_with(
-    convert: Callable[..., object],
+    convert: Callable[..., tuple[str, list[tuple[int, int, str]]]],
     *args: str | dict[int, list[str]] | dict[str, str] | dict[str, int],
     **kwargs: str | int,
-) -> object:
+) -> tuple[str, list[tuple[int, int, str]]]:
     # Invoke the converter with arguments the static signature would reject, to drive
     # the runtime validation; the converter arrives signature-erased on purpose.
     return convert(*args, **kwargs)
