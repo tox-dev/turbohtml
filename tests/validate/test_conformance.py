@@ -364,13 +364,13 @@ class _Unlabelled(NamedTuple):
     severity: int
 
 
-class _NotAMessage(Enum):
-    SENTINEL = auto()
-
-
 def test_the_filter_needs_a_severity_on_every_message() -> None:
     with pytest.raises(AttributeError):
         _conformance_filter((_NotAMessage.SENTINEL,), "error")  # ty: ignore[invalid-argument-type]  # the attribute read is the point
+
+
+class _NotAMessage(Enum):
+    SENTINEL = auto()
 
 
 @pytest.mark.parametrize(
