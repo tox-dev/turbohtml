@@ -27,11 +27,11 @@ def test_tokenize_simple_document() -> None:
     assert _shape(end) == (TokenType.END_TAG, "p", None, None, [], False)
 
 
-_Shape: TypeAlias = tuple[TokenType, str | None, str | None, str | None, list[tuple[str, str]] | None, bool]
-
-
 def _shape(token: Token) -> _Shape:
     return (token.type, token.tag, token.target, token.data, token.attrs, token.self_closing)
+
+
+_Shape: TypeAlias = tuple[TokenType, str | None, str | None, str | None, list[tuple[str, str]] | None, bool]
 
 
 def test_tokenize_empty_input() -> None:
