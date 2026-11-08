@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup, Comment, UnicodeDammit
 from bs4.element import AttributeValueList, CData, NavigableString, Script, Stylesheet, Tag, TemplateString
 
+from bench import _beautifulsoup
 from bench._attributes import fill_equality_pair
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
@@ -66,20 +67,10 @@ def emit(count: int) -> None:
     _ = _tree(count).decode()
 
 
-def _fresh(text: str) -> BeautifulSoup:
-    # Parse a fresh document for the mutating operations, which each iteration must run on an unmodified tree.
-    return BeautifulSoup(text, "html.parser")
-
-
-@functools.cache
-def _parsed(text: str) -> BeautifulSoup:
-    # Return a document parsed once, cached so the read-path operations time only the query.
-    return BeautifulSoup(text, "html.parser")
-
-
-def find(text: str) -> None:
-    # Collect every anchor with BeautifulSoup's find_all.
-    _parsed(text).find_all("a")
+_fresh = functools.partial(_beautifulsoup.fresh, "html.parser")
+_parsed = functools.partial(_beautifulsoup.parsed, "html.parser")
+find = functools.partial(_beautifulsoup.find, "html.parser")
+socialcard = functools.partial(_beautifulsoup.socialcard, "html.parser")
 
 
 def select(text: str) -> None:
@@ -238,13 +229,6 @@ def links_filter(text: str) -> None:
         if href := anchor.get("href"):
             seen[urljoin(_LINKS_BASE, str(href))] = None
     _ = list(seen)
-
-
-def socialcard(text: str) -> None:
-    # Read every meta property and content off a freshly parsed tree, BeautifulSoup's take on card extraction.
-    for meta in _fresh(text).find_all("meta"):
-        meta.get("property")
-        meta.get("content")
 
 
 def extract_url(case: tuple[str, str]) -> None:
