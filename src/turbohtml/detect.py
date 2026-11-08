@@ -173,7 +173,11 @@ class Detection:
 
     @classmethod
     def chardet(cls) -> Detection:
-        """Chardet's ``UniversalDetector`` mode: report ``None`` under its 0.2 minimum confidence."""
+        """
+        Chardet's ``UniversalDetector`` mode: report ``None`` under its 0.2 minimum confidence.
+
+        :returns: the detection with chardet's 0.2 minimum confidence threshold.
+        """
         return cls(threshold=0.2)
 
 
@@ -254,7 +258,11 @@ class EncodingDetector:
         self.done = self._stream.feed(data)
 
     def close(self) -> EncodingMatch:
-        """Read the detector's answer, cache it, and return it."""
+        """
+        Read the detector's answer, cache it, and return it.
+
+        :returns: the detector's answer.
+        """
         if self._result is None:
             self._result = EncodingMatch(*_rank(self._stream.close(), self._options)[0])
             self.done = True

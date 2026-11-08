@@ -64,7 +64,11 @@ class ConformanceReport(NamedTuple):
     messages: tuple[ConformanceMessage, ...]
 
     def __bool__(self) -> bool:
-        """Whether the document is valid, so the report reads as a truth value."""
+        """
+        Whether the document is valid, so the report reads as a truth value.
+
+        :returns: whether the document is valid.
+        """
         return self.valid
 
     @property

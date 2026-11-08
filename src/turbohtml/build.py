@@ -77,6 +77,8 @@ class ElementMaker:
         Return the factory for ``tag``; dunder lookups fall through so copy and pickle protocols are not hijacked.
 
         :param tag: the tag name.
+
+        :returns: the factory that builds ``tag`` elements.
         """
         if tag.startswith("__") and tag.endswith("__"):
             raise AttributeError(tag)
@@ -91,6 +93,8 @@ class ElementMaker:
         :raises ValueError: if the tag or an attribute name carries a character HTML forbids there, or if a
             void element such as ``br`` or ``img`` is given children.
         :raises TypeError: if an attribute mapping is not the first argument.
+
+        :returns: the element built from ``tag``, its attributes, and its children.
         """
         return _build(tag, args)
 

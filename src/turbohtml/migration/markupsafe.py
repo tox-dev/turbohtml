@@ -153,6 +153,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
 
         :param sep: the separator to split on, or ``None`` for runs of whitespace.
         :param maxsplit: the most splits to make, or ``-1`` for no limit.
+
+        :returns: the parts, each a Markup.
         """
         return [self.__class__(part) for part in str.split(self, sep, maxsplit)]
 
@@ -162,6 +164,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
 
         :param sep: the separator to split on, or ``None`` for runs of whitespace.
         :param maxsplit: the most splits to make, or ``-1`` for no limit.
+
+        :returns: the parts, each a Markup.
         """
         return [self.__class__(part) for part in str.rsplit(self, sep, maxsplit)]
 
@@ -170,6 +174,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         Split into lines that each stay a Markup.
 
         :param keepends: whether the line breaks stay on the lines.
+
+        :returns: the lines, each a Markup.
         """
         return [self.__class__(line) for line in str.splitlines(self, keepends)]
 
@@ -193,27 +199,51 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         return _collapse_whitespace(parse_fragment(str(self)).text)
 
     def capitalize(self) -> Markup:
-        """Capitalize, keeping the result a Markup so autoescaping does not re-escape it."""
+        """
+        Capitalize, keeping the result a Markup so autoescaping does not re-escape it.
+
+        :returns: the capitalized text as a Markup.
+        """
         return self.__class__(str.capitalize(self))
 
     def title(self) -> Markup:
-        """Title-case, keeping the result a Markup."""
+        """
+        Title-case, keeping the result a Markup.
+
+        :returns: the title-cased text as a Markup.
+        """
         return self.__class__(str.title(self))
 
     def lower(self) -> Markup:
-        """Lowercase, keeping the result a Markup."""
+        """
+        Lowercase, keeping the result a Markup.
+
+        :returns: the lowercased text as a Markup.
+        """
         return self.__class__(str.lower(self))
 
     def upper(self) -> Markup:
-        """Uppercase, keeping the result a Markup."""
+        """
+        Uppercase, keeping the result a Markup.
+
+        :returns: the uppercased text as a Markup.
+        """
         return self.__class__(str.upper(self))
 
     def swapcase(self) -> Markup:
-        """Swap case, keeping the result a Markup."""
+        """
+        Swap case, keeping the result a Markup.
+
+        :returns: the case-swapped text as a Markup.
+        """
         return self.__class__(str.swapcase(self))
 
     def casefold(self) -> Markup:
-        """Casefold, keeping the result a Markup."""
+        """
+        Casefold, keeping the result a Markup.
+
+        :returns: the casefolded text as a Markup.
+        """
         return self.__class__(str.casefold(self))
 
     def replace(self, old: str, new: str, /, count: SupportsIndex = -1) -> Markup:
@@ -223,6 +253,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         :param old: the text to replace.
         :param new: the replacement text, escaped before it is substituted.
         :param count: the most replacements to make, or ``-1`` for all of them.
+
+        :returns: the text with replacements made, as a Markup.
         """
         return self.__class__(str.replace(self, old, self.escape(new), count))
 
@@ -232,6 +264,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
 
         :param width: the minimum width of the result.
         :param fillchar: the padding character, escaped before it is used.
+
+        :returns: the left-justified text as a Markup.
         """
         return self.__class__(str.ljust(self, width, self.escape(fillchar)))
 
@@ -241,6 +275,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
 
         :param width: the minimum width of the result.
         :param fillchar: the padding character, escaped before it is used.
+
+        :returns: the right-justified text as a Markup.
         """
         return self.__class__(str.rjust(self, width, self.escape(fillchar)))
 
@@ -250,6 +286,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
 
         :param width: the minimum width of the result.
         :param fillchar: the padding character, escaped before it is used.
+
+        :returns: the centered text as a Markup.
         """
         return self.__class__(str.center(self, width, self.escape(fillchar)))
 
@@ -258,6 +296,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         Strip surrounding characters, keeping the result a Markup.
 
         :param chars: the characters to strip, or ``None`` for whitespace.
+
+        :returns: the stripped text as a Markup.
         """
         return self.__class__(str.strip(self, chars))
 
@@ -266,6 +306,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         Strip leading characters, keeping the result a Markup.
 
         :param chars: the characters to strip, or ``None`` for whitespace.
+
+        :returns: the text with leading characters removed, as a Markup.
         """
         return self.__class__(str.lstrip(self, chars))
 
@@ -274,6 +316,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         Strip trailing characters, keeping the result a Markup.
 
         :param chars: the characters to strip, or ``None`` for whitespace.
+
+        :returns: the text with trailing characters removed, as a Markup.
         """
         return self.__class__(str.rstrip(self, chars))
 
@@ -282,6 +326,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         Remove a prefix, keeping the result a Markup.
 
         :param prefix: the prefix to remove when present.
+
+        :returns: the text without the prefix, as a Markup.
         """
         return self.__class__(str.removeprefix(self, prefix))
 
@@ -290,6 +336,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         Remove a suffix, keeping the result a Markup.
 
         :param suffix: the suffix to remove when present.
+
+        :returns: the text without the suffix, as a Markup.
         """
         return self.__class__(str.removesuffix(self, suffix))
 
@@ -298,6 +346,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         Expand tabs, keeping the result a Markup.
 
         :param tabsize: the tab stop width.
+
+        :returns: the text with tabs expanded, as a Markup.
         """
         return self.__class__(str.expandtabs(self, tabsize))
 
@@ -306,6 +356,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         Zero-fill, keeping the result a Markup.
 
         :param width: the minimum width of the result.
+
+        :returns: the zero-filled text as a Markup.
         """
         return self.__class__(str.zfill(self, width))
 
@@ -314,6 +366,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         Translate through a table, keeping the result a Markup; the caller's table values are trusted.
 
         :param table: the translation table mapping code points to replacements.
+
+        :returns: the translated text as a Markup.
         """
         return self.__class__(str.translate(self, table))
 
@@ -322,6 +376,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         Partition into three parts that each stay a Markup.
 
         :param sep: the separator to partition on.
+
+        :returns: the text before, the separator, and the text after, each a Markup.
         """
         left, middle, right = str.partition(self, sep)
         return self.__class__(left), self.__class__(middle), self.__class__(right)
@@ -331,6 +387,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         Partition from the right into three parts that each stay a Markup.
 
         :param sep: the separator to partition on.
+
+        :returns: the text before, the separator, and the text after, each a Markup.
         """
         left, middle, right = str.rpartition(self, sep)
         return self.__class__(left), self.__class__(middle), self.__class__(right)
@@ -350,6 +408,8 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         Format from a mapping, escaping each field the way :meth:`format` does.
 
         :param mapping: the values for the named format fields.
+
+        :returns: the formatted text as a Markup.
         """
         return self.__class__(EscapeFormatter(self.escape).vformat(self, (), cast("Mapping[str, object]", mapping)))
 

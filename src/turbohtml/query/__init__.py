@@ -109,11 +109,19 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         return query
 
     def __iter__(self) -> Iterator[Element]:
-        """Iterate the wrapped elements."""
+        """
+        Iterate the wrapped elements.
+
+        :returns: an iterator over the wrapped elements.
+        """
         return iter(self._nodes)
 
     def __len__(self) -> int:
-        """Return the number of wrapped elements."""
+        """
+        Return the number of wrapped elements.
+
+        :returns: the number of wrapped elements.
+        """
         return len(self._nodes)
 
     def __getitem__(self, index: int) -> Element:
@@ -121,6 +129,8 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         Return the wrapped element at the given index.
 
         :param index: the position of the element in the set.
+
+        :returns: the wrapped element at the index.
         """
         return self._nodes[index]
 
@@ -129,15 +139,25 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         Return whether other is a query wrapping the same elements in the same order.
 
         :param other: the object to compare with.
+
+        :returns: whether the other object is a query with the same elements in order.
         """
         return isinstance(other, Query) and self._nodes == other._nodes
 
     def __hash__(self) -> int:
-        """Hash the wrapped elements by node identity."""
+        """
+        Hash the wrapped elements by node identity.
+
+        :returns: the hash of the wrapped elements' identities.
+        """
         return hash(tuple(self._nodes))
 
     def __repr__(self) -> str:
-        """Return a representation listing the wrapped elements' tags."""
+        """
+        Return a representation listing the wrapped elements' tags.
+
+        :returns: the query's repr.
+        """
         return f"Query({[node.tag for node in self._nodes]!r})"
 
     def filter(self, selector: str) -> Query:

@@ -39,7 +39,11 @@ class TreeBuilder(Protocol[H]):
     """
 
     def create_document(self) -> H:
-        """Create the document root and return its handle; :func:`parse_into` returns this handle."""
+        """
+        Create the document root and return its handle; :func:`parse_into` returns this handle.
+
+        :returns: the handle of the new document root.
+        """
 
     def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> H:
         """
@@ -48,6 +52,8 @@ class TreeBuilder(Protocol[H]):
         :param name: the document type name, e.g. ``html``.
         :param public_id: the public identifier, or None when the source omits it.
         :param system_id: the system identifier, or None when the source omits it.
+
+        :returns: the handle of the new doctype node.
         """
 
     def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> H:
@@ -57,6 +63,8 @@ class TreeBuilder(Protocol[H]):
         :param name: the element's tag name.
         :param namespace: the element's namespace URI.
         :param attrs: the attributes, each a ``(name, value)`` pair with ``value`` None for a valueless attribute.
+
+        :returns: the handle of the new element.
         """
 
     def create_text(self, data: str) -> H:
@@ -64,6 +72,8 @@ class TreeBuilder(Protocol[H]):
         Create a text node holding ``data``.
 
         :param data: the text.
+
+        :returns: the handle of the new text node.
         """
 
     def create_comment(self, data: str) -> H:
@@ -71,6 +81,8 @@ class TreeBuilder(Protocol[H]):
         Create a comment node holding ``data``.
 
         :param data: the comment body.
+
+        :returns: the handle of the new comment node.
         """
 
     def create_pi(self, target: str, data: str) -> H:
@@ -79,6 +91,8 @@ class TreeBuilder(Protocol[H]):
 
         :param target: the ASCII target, preserving source case.
         :param data: the text after leading whitespace and before the closing delimiter.
+
+        :returns: the handle of the new instruction node.
         """
 
     def append(self, parent: H, child: H) -> None:

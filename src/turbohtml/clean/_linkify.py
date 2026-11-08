@@ -758,7 +758,11 @@ class LinkSpan:
         self.phone = phone
 
     def __repr__(self) -> str:
-        """Render the span with its offsets and url, the way a debugger or a failing test wants to see it."""
+        """
+        Render the span with its offsets and url, the way a debugger or a failing test wants to see it.
+
+        :returns: the span's repr, with its offsets, text, url, and phone.
+        """
         phone = f", phone={self.phone!r}" if self.phone is not None else ""
         return f"LinkSpan(start={self.start}, end={self.end}, text={self.text!r}, url={self.url!r}{phone})"
 
@@ -767,6 +771,8 @@ class LinkSpan:
         Two spans are equal when every field matches; comparing to a non-span defers to the other operand.
 
         :param other: the object to compare with.
+
+        :returns: whether the spans match field for field, or ``NotImplemented`` for a non-span.
         """
         if not isinstance(other, LinkSpan):
             return NotImplemented

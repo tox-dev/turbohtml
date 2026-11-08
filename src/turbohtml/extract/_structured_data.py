@@ -49,6 +49,8 @@ class MicrodataItem:
         Return the property's first value, or ``None`` when the item lacks it (``microdata.Item.get``).
 
         :param name: the property name.
+
+        :returns: the property's first value, or ``None`` when absent.
         """
         values = self.properties.get(name)
         return values[0] if values else None
@@ -58,11 +60,17 @@ class MicrodataItem:
         Return the property's values in document order, an empty list when absent (``microdata.Item.get_all``).
 
         :param name: the property name.
+
+        :returns: the property's values in document order.
         """
         return self.properties.get(name, [])
 
     def json(self) -> str:
-        """Serialize as ``microdata.Item.json`` does: a two-space-indented JSON object of the tree below the item."""
+        """
+        Serialize as ``microdata.Item.json`` does: a two-space-indented JSON object of the tree below the item.
+
+        :returns: the item serialized as JSON.
+        """
         return json.dumps(_microdata_as_dict(self), indent=2)
 
 
@@ -99,6 +107,8 @@ class RdfaItem:
         Return the property's first value, or ``None`` when the item lacks it.
 
         :param name: the property name.
+
+        :returns: the property's first value, or ``None`` when absent.
         """
         values = self.properties.get(name)
         return values[0] if values else None
@@ -108,6 +118,8 @@ class RdfaItem:
         Return the property's values in document order, an empty list when absent.
 
         :param name: the property name.
+
+        :returns: the property's values in document order.
         """
         return self.properties.get(name, [])
 
@@ -183,6 +195,8 @@ class OpenGraph(Mapping[str, str]):
         Mirrors the ``opengraph`` library's ``is_valid``: every one of ``og:title``, ``og:type``, ``og:image``, and
         ``og:url`` is present with a non-empty value. The ``opengraph_py3`` fork also demands ``og:description``; the
         `Open Graph protocol <https://ogp.me/>`_ does not, so it is not required here.
+
+        :returns: whether all four required properties are present.
         """
         og_required = ("title", "type", "image", "url")
         return all(self._properties.get(name) for name in og_required)

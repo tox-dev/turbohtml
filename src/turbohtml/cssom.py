@@ -71,6 +71,8 @@ class StyleDeclaration:
         Return a property's winning value, raising :class:`KeyError` when it is not set.
 
         :param name: the property name.
+
+        :returns: the winning value of the property.
         """
         index = self._last.get(name)
         if index is None:
@@ -95,19 +97,33 @@ class StyleDeclaration:
         Return whether a property is set.
 
         :param name: the property name.
+
+        :returns: whether the property is set.
         """
         return name in self._last or self._fallback_index(name) is not None
 
     def __iter__(self) -> Iterator[str]:
-        """Iterate the distinct property names, in first-seen order."""
+        """
+        Iterate the distinct property names, in first-seen order.
+
+        :returns: an iterator over the distinct property names.
+        """
         return iter(self._last)
 
     def __len__(self) -> int:
-        """Return the number of distinct properties."""
+        """
+        Return the number of distinct properties.
+
+        :returns: the number of distinct properties.
+        """
         return len(self._last)
 
     def __repr__(self) -> str:
-        """Return the declaration as ``StyleDeclaration('...')``."""
+        """
+        Return the declaration as ``StyleDeclaration('...')``.
+
+        :returns: the declaration as ``StyleDeclaration('...')``.
+        """
         return f"StyleDeclaration({self.text!r})"
 
     @property
@@ -178,7 +194,11 @@ class StyleRule:
         self._style = style
 
     def __repr__(self) -> str:
-        """Return the rule as ``StyleRule('selector { ... }')``."""
+        """
+        Return the rule as ``StyleRule('selector { ... }')``.
+
+        :returns: the rule as ``StyleRule('selector { ... }')``.
+        """
         return f"StyleRule({self.selector_text!r} {{ {self._style.text} }})"
 
     @property
@@ -210,19 +230,33 @@ class RuleList:
         Return the rule at an index.
 
         :param index: the position of the rule in document order.
+
+        :returns: the rule at the index.
         """
         return self._rules[index]
 
     def __iter__(self) -> Iterator[StyleRule]:
-        """Iterate the rules in document order."""
+        """
+        Iterate the rules in document order.
+
+        :returns: an iterator over the rules in document order.
+        """
         return iter(self._rules)
 
     def __len__(self) -> int:
-        """Return the number of rules."""
+        """
+        Return the number of rules.
+
+        :returns: the number of rules.
+        """
         return len(self._rules)
 
     def __repr__(self) -> str:
-        """Return the rule list as ``RuleList([...])``."""
+        """
+        Return the rule list as ``RuleList([...])``.
+
+        :returns: the rule list as ``RuleList([...])``.
+        """
         return f"RuleList({list(self._rules)!r})"
 
 
@@ -249,7 +283,11 @@ class StyleSheet:
         )
 
     def __repr__(self) -> str:
-        """Return the stylesheet as ``StyleSheet(<n> rules)``."""
+        """
+        Return the stylesheet as ``StyleSheet(<n> rules)``.
+
+        :returns: the stylesheet as ``StyleSheet(<n> rules)``.
+        """
         return f"StyleSheet({len(self._rules)} rules)"
 
     @property
@@ -299,6 +337,8 @@ class ComputedStyle:
         Return a property's computed value, raising :class:`KeyError` for an unsupported property.
 
         :param name: the property name.
+
+        :returns: the computed value of the property.
         """
         return self._values[name]
 
@@ -307,19 +347,33 @@ class ComputedStyle:
         Return whether a property is a supported longhand.
 
         :param name: the property name.
+
+        :returns: whether the property is a supported longhand.
         """
         return name in self._values
 
     def __iter__(self) -> Iterator[str]:
-        """Iterate the supported property names."""
+        """
+        Iterate the supported property names.
+
+        :returns: an iterator over the supported property names.
+        """
         return iter(self._values)
 
     def __len__(self) -> int:
-        """Return the number of supported properties."""
+        """
+        Return the number of supported properties.
+
+        :returns: the number of supported properties.
+        """
         return len(self._values)
 
     def __repr__(self) -> str:
-        """Return the computed style as ``ComputedStyle(<n> properties)``."""
+        """
+        Return the computed style as ``ComputedStyle(<n> properties)``.
+
+        :returns: the computed style as ``ComputedStyle(<n> properties)``.
+        """
         return f"ComputedStyle({len(self._values)} properties)"
 
     def get(self, name: str, default: str | None = None) -> str | None:

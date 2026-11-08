@@ -78,7 +78,11 @@ class UrlCleaning:
 
     @classmethod
     def w3lib(cls) -> UrlCleaning:
-        """Return ``w3lib.url.canonicalize_url``'s mode: fragments dropped, every non-tracker parameter kept."""
+        """
+        Return ``w3lib.url.canonicalize_url``'s mode: fragments dropped, every non-tracker parameter kept.
+
+        :returns: the cleaning mode that matches ``w3lib``'s canonicalization.
+        """
         return cls(strip_fragment=True)
 
 

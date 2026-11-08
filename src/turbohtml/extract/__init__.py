@@ -74,7 +74,11 @@ class Extraction:
 
     @classmethod
     def justext(cls) -> Extraction:
-        """Justext's defaults: its 70-character ``length_low`` floor and 0.2 ``max_link_density``."""
+        """
+        Justext's defaults: its 70-character ``length_low`` floor and 0.2 ``max_link_density``.
+
+        :returns: the extraction with justext's default thresholds.
+        """
         return cls(min_length=70, max_link_density=0.2)
 
 

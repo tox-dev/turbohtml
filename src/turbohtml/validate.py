@@ -55,7 +55,11 @@ class ValidationResult(NamedTuple):
     errors: tuple[ValidationError, ...]
 
     def __bool__(self) -> bool:
-        """Whether the document is valid, so the result reads as a truth value."""
+        """
+        Whether the document is valid, so the result reads as a truth value.
+
+        :returns: whether the document is valid.
+        """
         return self.valid
 
 
@@ -86,6 +90,8 @@ class _Schema:
         Whether the document satisfies the schema.
 
         :param document: the parsed document or element to check.
+
+        :returns: whether the document satisfies the schema.
         """
         return _schema_validate(self._compiled, document, collect_errors=False)[0]
 
@@ -104,6 +110,8 @@ class _Schema:
         Validate a parsed document (or element), returning the full :class:`ValidationResult`.
 
         :param document: the parsed document or element to check.
+
+        :returns: the validation outcome, its verdict and the errors found.
         """
         valid, errors = _schema_validate(self._compiled, document)
         return ValidationResult(valid, tuple(starmap(ValidationError, errors)))
