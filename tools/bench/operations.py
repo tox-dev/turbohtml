@@ -1441,7 +1441,9 @@ def _transform_number_cases() -> tuple[tuple[str, Case], ...]:
     )
 
 
-def _transform_any_number_cases() -> tuple[tuple[str, Case], ...]:
+def _transform_any_number_cases() -> tuple[  # simplint: ignore[SMP505]  # inlining breaks complexity limit
+    tuple[str, Case], ...
+]:
     return tuple(
         (
             f"any: {rows:,} {'node' if rows == 1 else 'nodes'} / {variant}",
@@ -1491,7 +1493,9 @@ def _transform_any_number_cases() -> tuple[tuple[str, Case], ...]:
     )
 
 
-def _transform_pattern_number_cases() -> tuple[tuple[str, Case], ...]:
+def _transform_pattern_number_cases() -> tuple[  # simplint: ignore[SMP505]  # inlining breaks complexity limit
+    tuple[str, Case], ...
+]:
     return tuple(
         (
             f"any: {rows:,} {'node' if rows == 1 else 'nodes'} / {variant}",
@@ -1546,7 +1550,9 @@ def _transform_pattern_number_cases() -> tuple[tuple[str, Case], ...]:
     )
 
 
-def _transform_number_prefix_cases() -> tuple[tuple[str, Case], ...]:
+def _transform_number_prefix_cases() -> tuple[  # simplint: ignore[SMP505]  # inlining breaks complexity limit
+    tuple[str, Case], ...
+]:
     return tuple(
         (
             f"any: 1,024 nodes / {variant}",

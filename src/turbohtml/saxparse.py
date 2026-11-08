@@ -170,7 +170,9 @@ class ProcessingInstruction(NamedTuple):
 SaxEvent = StartElement | EndElement | Characters | Comment | Doctype | ProcessingInstruction
 """The union of every event :func:`iter_events` yields."""
 
-_EVENTS: Final[tuple[Callable[..., SaxEvent], ...]] = (
+_EVENTS: Final[
+    tuple[Callable[..., SaxEvent], ...]  # simplint: ignore[SMP603]  # typed dispatch needs a cast or Callable[..., T]
+] = (
     StartElement,
     EndElement,
     Characters,

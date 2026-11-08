@@ -99,7 +99,7 @@ class ElementMaker:
 
 
 #: The shared builder: ``E.div(...)`` or ``E("div", ...)`` builds a ``<div>`` element.
-E: Final[ElementMaker] = ElementMaker()
+E: Final[ElementMaker] = ElementMaker()  # simplint: ignore[SMP101]  # public name exported by turbohtml
 
 
 def document(

@@ -1072,7 +1072,7 @@ from fuzz.atheris_targets import public_targets
 _TARGET: Final = next(target for target in public_targets() if target.name == sys.argv[1])
 header, payload = split_header(Path(sys.argv[2]).read_bytes())
 _TARGET.run(payload, header)
-"""
+"""  # simplint: ignore[SMP202]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
 
 # the window results go to preallocated slots, since an append would allocate inside the window and take the failure
 _FAIL: Final[str] = """
@@ -1106,11 +1106,16 @@ assert [target.name for target in generation_targets("windows-1252")] == [
 ]
 from fuzz.atheris_targets import owner_inventory, public_targets
 print(json.dumps({"owners": len(owner_inventory()), "targets": [target.name for target in public_targets()]}))
-"""
+"""  # simplint: ignore[SMP202]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
 
 
-_GENERATION_COUNTS: Final[dict[str, list[str]]] = {"encoding": ["--count", "0", "--sweep"]}
-_FALLBACK_PAYLOADS: Final[dict[str, bytes]] = {"css-translate": b"p.x", "javascript": b'consume("kept",external);'}
+_GENERATION_COUNTS: Final[dict[str, list[str]]] = {
+    "encoding": ["--count", "0", "--sweep"]
+}  # simplint: ignore[SMP202]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
+_FALLBACK_PAYLOADS: Final[dict[str, bytes]] = {
+    "css-translate": b"p.x",
+    "javascript": b'consume("kept",external);',
+}  # simplint: ignore[SMP202]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
 
 
 _NATIVE_ATHERIS_SKIP: Final[pytest.MarkDecorator] = pytest.mark.skipif(
@@ -1141,7 +1146,14 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
     targets: Final = json.loads(inventory.stdout)
     assert (targets["owners"], len(targets["targets"])) == (223, 34)
     generated_seeds: Final[dict[str, bytes]] = {}
-    for profile in ("html", "xml", "css-stylesheet", "markdown-source", "markdown-html", "encoding"):
+    for profile in (  # simplint: ignore[SMP813]  # one seed map is shared by later per-target runs
+        "html",
+        "xml",
+        "css-stylesheet",
+        "markdown-source",
+        "markdown-html",
+        "encoding",
+    ):
         generated: Final = tmp_path / (f"generated-{profile}")
         run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed interpreter and finite production sweep.
             [

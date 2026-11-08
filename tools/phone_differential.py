@@ -28,7 +28,9 @@ if TYPE_CHECKING:
     from generate_phone import Region
 
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(  # simplint: ignore[SMP701]  # mutable counters; slotted class would trip Ruff B903
+    slots=True, kw_only=True
+)
 class _RunState:
     # The settings every case is compared under, and the counts and printed-example budget across all regions.
     leniency: int
