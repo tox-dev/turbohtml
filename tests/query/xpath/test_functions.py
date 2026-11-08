@@ -1265,7 +1265,7 @@ _REGEX_REPLACE: Final[XPath] = XPath("re:replace($text, $pattern, $flags, $repla
 _FN_REPLACE: Final[XPath] = XPath("replace($text, $pattern, $replacement)")
 
 
-_PYTHON_FLAGS: Final = {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL, "x": re.VERBOSE}
+_PYTHON_FLAGS: Final[dict[str, re.RegexFlag]] = {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL, "x": re.VERBOSE}
 
 
 @pytest.fixture

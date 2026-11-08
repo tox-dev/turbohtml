@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 
 _STUBS: Final[Path] = Path(__file__).parents[3] / "src" / "turbohtml" / "_stubs"
 _NAMES: Final[dict[str, type]] = {"Node": Node, "str": str, "float": float, "bool": bool}
-_DOCUMENT: Final = turbohtml.parse("<p>a</p><!--c--><p>b</p><?pi x?>")
-_EXPRESSIONS: Final = [
+_DOCUMENT: Final[turbohtml.Document] = turbohtml.parse("<p>a</p><!--c--><p>b</p><?pi x?>")
+_EXPRESSIONS: Final[list[pytest.ParameterSet]] = [
     pytest.param("count(//p)", id="number"),
     pytest.param("boolean(//p)", id="boolean"),
     pytest.param("string(//p)", id="string"),

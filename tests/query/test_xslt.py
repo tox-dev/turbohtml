@@ -3203,7 +3203,7 @@ def test_transform_import_root_reads_large_file(tmp_path: Path) -> None:
     assert _canon(result) == "ok"
 
 
-_IMPORT_CONFINEMENT: Final = [
+_IMPORT_CONFINEMENT: Final[list[pytest.ParameterSet]] = [
     pytest.param(lambda path: path, id="import-root"),
     pytest.param(lambda _: None, id="unconfined"),
 ]
@@ -5558,7 +5558,7 @@ _ORACLE_CATALOG: Final[str] = (
     '<book id="b3" cat="fiction"><title>1984</title><price>8.00</price></book></catalog>'
 )
 
-_ORACLE_CASES: Final = [
+_ORACLE_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "<r><name>World</name></r>",
         _oracle_sheet('<xsl:template match="/">Hi <xsl:value-of select="//name"/></xsl:template>', method="text"),
