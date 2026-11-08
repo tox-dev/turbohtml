@@ -23,7 +23,6 @@ REQUIREMENTS: Final[tuple[str, ...]] = (
     "lxml>=6.1.1",
     "cssselect>=1.2",
 )  # cssselect backs lxml.html.cssselect() for the select/:has ops
-_SET_HTML: Final[str] = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
 _LINKS_BASE: Final[str] = "https://example.com/base/"
 
 
@@ -217,9 +216,10 @@ def class_edit(text: str) -> None:
 
 def set_html(tree: HtmlElement) -> None:
     # Clear a freshly parsed body and append a reparsed fragment, lxml's nearest inner-HTML shape.
+    markup: str = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
     body = tree.findall(".//body")[0]
     body.clear()
-    for piece in lxml_html.fragments_fromstring(_SET_HTML, no_leading_text=True):
+    for piece in lxml_html.fragments_fromstring(markup, no_leading_text=True):
         body.append(piece)
 
 

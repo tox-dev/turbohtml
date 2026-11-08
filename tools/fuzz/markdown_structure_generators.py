@@ -609,6 +609,34 @@ def _raw_grammar() -> Grammar:
 
 
 def _html_grammar() -> Grammar:
+    html_rows: tuple[tuple[str, str, int, int], ...] = (
+        ("paragraph", "<p>x</p>", 2, 1),
+        ("heading1", "<h1>x</h1>", 2, 1),
+        ("heading2", "<h2>x</h2>", 2, 1),
+        ("heading3", "<h3>x</h3>", 2, 1),
+        ("heading4", "<h4>x</h4>", 2, 1),
+        ("heading5", "<h5>x</h5>", 2, 1),
+        ("heading6", "<h6>x</h6>", 2, 1),
+        ("thematic", "<hr>", 1, 0),
+        ("code-block", "<pre><code>x\n</code></pre>", 3, 2),
+        ("quote", "<blockquote><p>x</p></blockquote>", 3, 2),
+        ("bullet", "<ul><li>x</li></ul>", 3, 2),
+        ("ordered", "<ol><li>x</li></ol>", 3, 2),
+        ("loose", "<ul><li><p>x</p></li><li><p>y</p></li></ul>", 7, 3),
+        ("nested", "<ul><li>x<ul><li>y</li></ul></li></ul>", 6, 4),
+        ("table", "<table><thead><tr><th>a</th></tr></thead><tbody><tr><td>b</td></tr></tbody></table>", 9, 4),
+        ("em", "<p><em>x</em></p>", 3, 2),
+        ("strong", "<p><strong>x</strong></p>", 3, 2),
+        ("b", "<p><b>x</b></p>", 3, 2),
+        ("i", "<p><i>x</i></p>", 3, 2),
+        ("s", "<p><s>x</s></p>", 3, 2),
+        ("del", "<p><del>x</del></p>", 3, 2),
+        ("code", "<p><code>x</code></p>", 3, 2),
+        ("link", '<p><a href="/target" title="t">x</a></p>', 3, 2),
+        ("image", '<p><img src="/image" alt="x" title="t"></p>', 2, 1),
+        ("break", "<p>x<br>y</p>", 4, 1),
+        ("special", "<p>*x* [y] &amp; é漢</p>", 2, 1),
+    )
     productions: Final = [
         Production(
             name="markdown-html:root",
@@ -650,7 +678,7 @@ def _html_grammar() -> Grammar:
             origin=_GFM if name in {"table", "s", "del"} else _COMMONMARK,
             height=height,
         )
-        for name, source, nodes, height in _HTML
+        for name, source, nodes, height in html_rows
     )
     return compile_grammar(productions, "root")
 
@@ -684,34 +712,6 @@ _MARKDOWN_RULES: Final[tuple[str, ...]] = (
     "autolink",
     "html_inline",
     "entity",
-)
-_HTML: Final[tuple[tuple[str, str, int, int], ...]] = (
-    ("paragraph", "<p>x</p>", 2, 1),
-    ("heading1", "<h1>x</h1>", 2, 1),
-    ("heading2", "<h2>x</h2>", 2, 1),
-    ("heading3", "<h3>x</h3>", 2, 1),
-    ("heading4", "<h4>x</h4>", 2, 1),
-    ("heading5", "<h5>x</h5>", 2, 1),
-    ("heading6", "<h6>x</h6>", 2, 1),
-    ("thematic", "<hr>", 1, 0),
-    ("code-block", "<pre><code>x\n</code></pre>", 3, 2),
-    ("quote", "<blockquote><p>x</p></blockquote>", 3, 2),
-    ("bullet", "<ul><li>x</li></ul>", 3, 2),
-    ("ordered", "<ol><li>x</li></ol>", 3, 2),
-    ("loose", "<ul><li><p>x</p></li><li><p>y</p></li></ul>", 7, 3),
-    ("nested", "<ul><li>x<ul><li>y</li></ul></li></ul>", 6, 4),
-    ("table", "<table><thead><tr><th>a</th></tr></thead><tbody><tr><td>b</td></tr></tbody></table>", 9, 4),
-    ("em", "<p><em>x</em></p>", 3, 2),
-    ("strong", "<p><strong>x</strong></p>", 3, 2),
-    ("b", "<p><b>x</b></p>", 3, 2),
-    ("i", "<p><i>x</i></p>", 3, 2),
-    ("s", "<p><s>x</s></p>", 3, 2),
-    ("del", "<p><del>x</del></p>", 3, 2),
-    ("code", "<p><code>x</code></p>", 3, 2),
-    ("link", '<p><a href="/target" title="t">x</a></p>', 3, 2),
-    ("image", '<p><img src="/image" alt="x" title="t"></p>', 2, 1),
-    ("break", "<p>x<br>y</p>", 4, 1),
-    ("special", "<p>*x* [y] &amp; é漢</p>", 2, 1),
 )
 _FLOW_INLINE: Final[frozenset[str]] = frozenset({"#text", "a", "em", "strong", "s", "img", "br", "code"})
 _INLINE_HOSTS: Final[frozenset[str]] = frozenset({

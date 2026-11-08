@@ -193,9 +193,21 @@ def xml_raw_generate(rng: random.Random, budget: int) -> Generated:
 
 def xml_raw_inputs() -> tuple[Generated, ...]:
     # Preserve invalid UTF-8 and XML delimiters as bounded byte inputs.
+    raw_sources: tuple[bytes, ...] = (
+        b"",
+        b"\xff",
+        b"\xc0\xaf",
+        b"<",
+        b"<Root>",
+        b"<Root/>tail",
+        b"<Root>&unknown;</Root>",
+        b"<Root>&#0;</Root>",
+        b"<Root a='x' a='y'/>",
+        b"<Root><!--a--b--></Root>",
+    )
     return tuple(
         Generated(data=source, nodes=0, depth=0, productions=(f"xml:raw:{index}",), bindings=())
-        for index, source in enumerate(_RAW)
+        for index, source in enumerate(raw_sources)
     )
 
 
@@ -453,18 +465,6 @@ _LEAVES: Final[tuple[tuple[bytes, tuple[_Literal, ...]], ...]] = (
             _Literal(kind="element:html", name="p:Inner", attrs=(("xmlns:p", "urn:b"),), parent="leaf"),
         ),
     ),
-)
-_RAW: Final[tuple[bytes, ...]] = (
-    b"",
-    b"\xff",
-    b"\xc0\xaf",
-    b"<",
-    b"<Root>",
-    b"<Root/>tail",
-    b"<Root>&unknown;</Root>",
-    b"<Root>&#0;</Root>",
-    b"<Root a='x' a='y'/>",
-    b"<Root><!--a--b--></Root>",
 )
 _RULES: Final[dict[str, _Rule]] = _rules()
 _GRAMMAR: Final[Grammar] = compile_grammar(tuple(rule.production for rule in _RULES.values()), "document")

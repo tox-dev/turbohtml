@@ -18,7 +18,6 @@ from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 REQUIREMENTS: Final[tuple[str, ...]] = ("beautifulsoup4[chardet]>=4.15",)
 
 _FIND_TEXT_PATTERN: Final[re.Pattern[str]] = re.compile(r"test")
-_SET_HTML: Final[str] = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
 _STRIP: Final[tuple[str, ...]] = ("code", "a", "q")
 _LINKS_BASE: Final[str] = "https://example.com/base/"
 
@@ -192,9 +191,10 @@ def edit(soup: BeautifulSoup) -> None:
 
 def set_html(soup: BeautifulSoup) -> None:
     # Clear a freshly parsed body and append a reparsed fragment, BeautifulSoup's inner-HTML shape.
+    markup: str = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
     body = soup.find_all("body")[0]
     body.clear()
-    for node in list(BeautifulSoup(_SET_HTML, "html.parser").children):
+    for node in list(BeautifulSoup(markup, "html.parser").children):
         body.append(node)
 
 
