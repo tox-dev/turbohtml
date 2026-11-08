@@ -131,7 +131,7 @@ def rejecting_callback(
                 try:
                     target(payload, header)
                 except exceptions as replay_error:
-                    if type(replay_error) is type(error) and str(replay_error) == str(error):
+                    if type(replay_error) is type(error) and replay_error.args == error.args:
                         reject()
                         return
                 message = f"{type(error).__name__} for an injected allocation failure"
