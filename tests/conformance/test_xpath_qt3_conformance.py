@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass
 from math import isinf, isnan
 from pathlib import Path
@@ -12,7 +13,7 @@ import pytest
 import turbohtml
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator, Iterator
 
     from _pytest.mark.structures import ParameterSet
 
@@ -466,11 +467,10 @@ def test_qt3_error_raises(case: Case) -> None:
         context.xpath(case.query)
 
 
-@pytest.mark.parametrize("case", [case for case in _QT3_CASES if not _expects_error(case)])
-def test_qt3_fn(case: Case) -> None:
-    context = context_for(case.environment)
+@contextmanager
+def _known_deviation() -> Generator[None]:
     try:
-        result = context.xpath(case.query)
+        yield
     except Exception as error:  # dispatch known XPath-1.0/Python-re-dialect deviations, re-raise the rest
         message = str(error)
         if "non-node-set" in message:
@@ -480,4 +480,11 @@ def test_qt3_fn(case: Case) -> None:
         if any(marker in message for marker in _RUNTIME_REGEX_ERRORS):
             pytest.xfail("fn:matches/fn:replace take Python's re syntax, not the XSD regex dialect")
         raise
+
+
+@pytest.mark.parametrize("case", [case for case in _QT3_CASES if not _expects_error(case)])
+def test_qt3_fn(case: Case) -> None:
+    context = context_for(case.environment)
+    with _known_deviation():
+        result = context.xpath(case.query)
     assert matches_expected(case.expected, result), f"{case.query!r} -> {result!r}, expected {case.expected}"
