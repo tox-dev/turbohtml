@@ -10,7 +10,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup, Comment
 from bs4.element import AttributeValueList, CData, NavigableString, Script, Stylesheet, Tag, TemplateString
 
-from bench import _beautifulsoup
+from bench._beautifulsoup import find, fresh, parsed, socialcard
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 
@@ -33,37 +33,31 @@ def parse(text: str) -> None:
     BeautifulSoup(text, _BACKEND)
 
 
-_fresh = functools.partial(_beautifulsoup.fresh, _BACKEND)
-_parsed = functools.partial(_beautifulsoup.parsed, _BACKEND)
-find = functools.partial(_beautifulsoup.find, _BACKEND)
-socialcard = functools.partial(_beautifulsoup.socialcard, _BACKEND)
-
-
 def select(text: str) -> None:
     # Run the CSS selector with BeautifulSoup's soupsieve select.
-    _parsed(text).select("div a[href]")
+    parsed(_BACKEND, text).select("div a[href]")
 
 
 def select_has(text: str) -> None:
     # Run the :has() relational selector with BeautifulSoup's soupsieve.
-    _parsed(text).select("div:has(a)")
+    parsed(_BACKEND, text).select("div:has(a)")
 
 
 def find_text(text: str) -> None:
     # Collect every matching string with BeautifulSoup's find_all(string=...).
-    _parsed(text).find_all(string=_FIND_TEXT_PATTERN)
+    parsed(_BACKEND, text).find_all(string=_FIND_TEXT_PATTERN)
 
 
 def _find_text_exact(case: tuple[str, str]) -> None:
     _ = [
         node
-        for node in _parsed(case[0]).find_all("div")
+        for node in parsed(_BACKEND, case[0]).find_all("div")
         if node.get_text(types=(NavigableString, CData, Script, Stylesheet, TemplateString)) == case[1]
     ]
 
 
 def _find_attr_presence(case: tuple[str, bool]) -> None:
-    _parsed(case[0]).find_all("p", attrs={"data-x": case[1]})
+    parsed(_BACKEND, case[0]).find_all("p", attrs={"data-x": case[1]})
 
 
 def _select_default(case: tuple[str, str]) -> None:
@@ -74,26 +68,26 @@ def _select_default(case: tuple[str, str]) -> None:
 
 
 def _select_relative(case: tuple[str, str]) -> None:
-    _parsed(case[1]).select(case[0])
+    parsed(_BACKEND, case[1]).select(case[0])
 
 
 def text_content(text: str) -> None:
     # Collect the document's visible text with BeautifulSoup's get_text().
-    _parsed(text).get_text()
+    parsed(_BACKEND, text).get_text()
 
 
 def _serialize_named(text: str) -> str:
-    return _parsed(text).decode(formatter="html")
+    return parsed(_BACKEND, text).decode(formatter="html")
 
 
 def serialize(text: str) -> None:
     # Serialize a parsed document back to HTML with BeautifulSoup's decode.
-    _parsed(text).decode()
+    parsed(_BACKEND, text).decode()
 
 
 def class_edit(text: str) -> None:
     # Add then drop a class token on every link through BeautifulSoup's multi-valued class list (a net no-op).
-    for anchor in _parsed(text).find_all("a"):
+    for anchor in parsed(_BACKEND, text).find_all("a"):
         tokens = anchor.get_attribute_list("class")
         anchor["class"] = AttributeValueList([*tokens, "seen"])
         anchor["class"] = tokens
@@ -101,19 +95,19 @@ def class_edit(text: str) -> None:
 
 def extract_attr(text: str) -> None:
     # Read every anchor's href by selecting once and reading the attribute off each node.
-    for anchor in _parsed(text).select("a"):
+    for anchor in parsed(_BACKEND, text).select("a"):
         anchor.get("href")
 
 
 def extract_text(text: str) -> None:
     # Read every anchor's visible text by selecting once and reading get_text off each node.
-    for anchor in _parsed(text).select("a"):
+    for anchor in parsed(_BACKEND, text).select("a"):
         anchor.get_text()
 
 
 def strip_remove(text: str) -> None:
     # Drop every code/a/q subtree with BeautifulSoup's decompose on a fresh parse, then serialize.
-    soup = _fresh(text)
+    soup = fresh(_BACKEND, text)
     for tag in list(soup.find_all(_STRIP)):
         tag.decompose()
     _ = soup.decode()
@@ -121,7 +115,7 @@ def strip_remove(text: str) -> None:
 
 def strip_tags(text: str) -> None:
     # Unwrap every code/a/q element keeping its content with BeautifulSoup's unwrap on a fresh parse, then emit.
-    soup = _fresh(text)
+    soup = fresh(_BACKEND, text)
     for tag in list(soup.find_all(_STRIP)):
         tag.unwrap()
     _ = soup.decode()
@@ -161,24 +155,24 @@ def set_text(soup: BeautifulSoup) -> None:
 
 def navigate(text: str) -> None:
     # Walk every descendant with BeautifulSoup's descendants iterator.
-    for _node in _parsed(text).descendants:
+    for _node in parsed(_BACKEND, text).descendants:
         pass
 
 
 def match(text: str) -> None:
     # Test every anchor against a selector with BeautifulSoup's soupsieve-backed css.match.
-    for anchor in _parsed(text).find_all("a"):
+    for anchor in parsed(_BACKEND, text).find_all("a"):
         anchor.css.match("div a[href]")
 
 
 def links_extract(text: str) -> None:
     # Collect every anchor's href with BeautifulSoup, the shape a scraper reads links in.
-    _ = [anchor.get("href") for anchor in _parsed(text).find_all("a")]
+    _ = [anchor.get("href") for anchor in parsed(_BACKEND, text).find_all("a")]
 
 
 def links_rewrite(text: str) -> None:
     # Rewrite every link with an identity map, idempotent so the cached tree stays reusable.
-    for anchor in _parsed(text).find_all("a"):
+    for anchor in parsed(_BACKEND, text).find_all("a"):
         if (href := anchor.get("href")) is not None:
             anchor["href"] = href
 
@@ -195,7 +189,7 @@ def links_filter(text: str) -> None:
 def extract_url(case: tuple[str, str]) -> None:
     # Read a freshly parsed document's own URL hint with BeautifulSoup: the base href or the meta refresh.
     kind, text = case
-    soup = _fresh(text)
+    soup = fresh(_BACKEND, text)
     if kind == "base":
         if (base := soup.find("base")) is not None:
             base.get("href")
@@ -216,7 +210,7 @@ def _serialize_inner(text: str) -> str:
 
 @functools.cache
 def _body(text: str) -> Tag:
-    return _parsed(text).find_all("body")[0]
+    return parsed(_BACKEND, text).find_all("body")[0]
 
 
 def _encode_inner(text: str) -> bytes:
@@ -256,13 +250,16 @@ def _strip_comments(soup: BeautifulSoup) -> None:
 
 
 OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
-    "collapse-whitespace": (Mutating(setup=_fresh, run=_collapse_whitespace), "BeautifulSoup (lxml)"),
-    "transform-tree": (Mutating(setup=_fresh, run=_transform_tree), "BeautifulSoup (lxml)"),
+    "collapse-whitespace": (
+        Mutating(setup=functools.partial(fresh, _BACKEND), run=_collapse_whitespace),
+        "BeautifulSoup (lxml)",
+    ),
+    "transform-tree": (Mutating(setup=functools.partial(fresh, _BACKEND), run=_transform_tree), "BeautifulSoup (lxml)"),
     "serialize-inner": (_serialize_inner, "BeautifulSoup (lxml)"),
     "encode-inner": (_encode_inner, "BeautifulSoup (lxml)"),
     "serialize-inner-indent": (_serialize_inner_indent, "BeautifulSoup (lxml)"),
     "encode-inner-indent": (_encode_inner_indent, "BeautifulSoup (lxml)"),
-    "strip-comments": (Mutating(setup=_fresh, run=_strip_comments), "BeautifulSoup (lxml)"),
+    "strip-comments": (Mutating(setup=functools.partial(fresh, _BACKEND), run=_strip_comments), "BeautifulSoup (lxml)"),
     "parse": (parse, "BeautifulSoup (lxml)"),
     "parse-formatting": (parse, "BeautifulSoup (lxml)"),
     "parse-foster": (parse, "BeautifulSoup (lxml)"),
@@ -270,7 +267,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "parse-nul": (parse, "BeautifulSoup (lxml)"),
     "parse-afe": (parse, "BeautifulSoup (lxml)"),
     "parse-scope": (parse, "BeautifulSoup (lxml)"),
-    "find": (find, "BeautifulSoup (lxml)"),
+    "find": (functools.partial(find, _BACKEND), "BeautifulSoup (lxml)"),
     "select": (select, "BeautifulSoup (lxml)"),
     "select-nth": (_select_relative, "BeautifulSoup (lxml)"),
     "select-relative": (_select_relative, "BeautifulSoup (lxml)"),
@@ -287,16 +284,19 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "strip-remove": (strip_remove, "BeautifulSoup (lxml)"),
     "strip-tags": (strip_tags, "BeautifulSoup (lxml)"),
     "rewrite": (rewrite, "BeautifulSoup (lxml)"),
-    "edit": (Mutating(setup=_fresh, run=edit), "BeautifulSoup (lxml)"),
-    "set-html": (Mutating(setup=_fresh, run=set_html), "BeautifulSoup (lxml)"),
-    "set-text": (Mutating(setup=_fresh, run=set_text), "BeautifulSoup (lxml)"),
+    "edit": (Mutating(setup=functools.partial(fresh, _BACKEND), run=edit), "BeautifulSoup (lxml)"),
+    "set-html": (Mutating(setup=functools.partial(fresh, _BACKEND), run=set_html), "BeautifulSoup (lxml)"),
+    "set-text": (Mutating(setup=functools.partial(fresh, _BACKEND), run=set_text), "BeautifulSoup (lxml)"),
     "navigate": (navigate, "BeautifulSoup (lxml)"),
     "match": (match, "BeautifulSoup (lxml)"),
     "links-extract": (links_extract, "BeautifulSoup (lxml)"),
     "links-rewrite": (links_rewrite, "BeautifulSoup (lxml)"),
     "links-filter": (links_filter, "BeautifulSoup (lxml)"),
-    "socialcard": (socialcard, "BeautifulSoup (lxml)"),
+    "socialcard": (functools.partial(socialcard, _BACKEND), "BeautifulSoup (lxml)"),
     "extract-url": (extract_url, "BeautifulSoup (lxml)"),
-    "links-absolutize": (Mutating(setup=_fresh, run=links_absolutize), "BeautifulSoup (lxml)"),
+    "links-absolutize": (
+        Mutating(setup=functools.partial(fresh, _BACKEND), run=links_absolutize),
+        "BeautifulSoup (lxml)",
+    ),
     "serialize-named": (_serialize_named, "BeautifulSoup (lxml)"),
 }
