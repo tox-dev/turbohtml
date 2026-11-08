@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 _RAW_TEXT_TAGS: Final[tuple[str, ...]] = ("script", "style", "xmp", "iframe", "noembed", "noframes", "plaintext")
 
-_INNER_KEEPING_COMMENTS: Final = [
+_INNER_KEEPING_COMMENTS: Final[list[pytest.ParameterSet]] = [
     pytest.param(lambda node: node.inner_html, id="inner_html"),
     pytest.param(lambda node: node.serialize(inner=True), id="serialize"),
     pytest.param(lambda node: "".join(node.serialize_iter(inner=True)), id="serialize_iter"),
@@ -19,7 +19,7 @@ _INNER_KEEPING_COMMENTS: Final = [
     pytest.param(lambda node: node.serialize(Html(layout=Indent(2)), inner=True), id="indent"),
     pytest.param(lambda node: "".join(node.serialize_iter(Html(layout=Indent(2)), inner=True)), id="indent-iter"),
 ]
-_INNER: Final = [
+_INNER: Final[list[pytest.ParameterSet]] = [
     *_INNER_KEEPING_COMMENTS,
     pytest.param(lambda node: node.serialize(Html(layout=Minify()), inner=True), id="minify"),
 ]

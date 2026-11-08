@@ -1888,7 +1888,7 @@ def test_escaping(html: str, expected: str) -> None:
     assert md(html) == expected
 
 
-_COMMONMARK_TEXT_CASES: Final = [
+_COMMONMARK_TEXT_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("<ul><li>1. x</li></ul>", "- 1\\. x", id="li-ordered-marker"),
     pytest.param("<ul><li>2) x</li></ul>", "- 2\\) x", id="li-paren-marker"),
     pytest.param("<ol><li>1) x</li></ol>", "1. 1\\) x", id="ol-paren-marker"),
@@ -2312,7 +2312,7 @@ def test_kitchen_sink() -> None:
     assert md(html) == expected
 
 
-_WORD = re.compile(r"[0-9a-z]+")
+_WORD: Final[re.Pattern[str]] = re.compile(r"[0-9a-z]+")
 
 
 def _render(markdown: str) -> str:

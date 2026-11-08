@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
     from _pytest.mark.structures import ParameterSet
 
-CASES: Final = [
+CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("no character references", "no character references", id="no-refs"),
     pytest.param("&\n&\t& &&", "&\n&\t& &&", id="bare-amp"),
     pytest.param("&0 &9 &a &0; &9; &a;", "&0 &9 &a &0; &9; &a;", id="amp-then-alnum"),

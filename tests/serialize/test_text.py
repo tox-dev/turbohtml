@@ -355,7 +355,7 @@ def test_invalid_options(opts: Mapping[str, str | int], exc: type[Exception], ma
         parse("<p>x</p>").to_text(PlainText(**opts))  # ty: ignore[invalid-argument-type]  # pass invalid options to test they are rejected
 
 
-_WORD = re.compile(r"[0-9a-z]+")
+_WORD: Final[re.Pattern[str]] = re.compile(r"[0-9a-z]+")
 
 
 @pytest.mark.parametrize(
