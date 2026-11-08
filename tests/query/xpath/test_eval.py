@@ -1429,7 +1429,7 @@ class _UnionEvaluate(Protocol):
         extensions: dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]],
         *,
         smart: bool,
-    ) -> object: ...
+    ) -> XPathResult: ...
 
 
 def _union_compiled(
@@ -1438,7 +1438,7 @@ def _union_compiled(
     extensions: dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]],
     *,
     smart: bool,
-) -> object:
+) -> XPathResult:
     return XPath(expression, extensions=extensions, smart_strings=smart)(source)
 
 
@@ -1448,7 +1448,7 @@ def _union_method(
     extensions: dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]],
     *,
     smart: bool,
-) -> object:
+) -> XPathResult:
     return source.xpath(expression, extensions=extensions, smart_strings=smart)
 
 
@@ -2095,11 +2095,11 @@ def test_xpath_snapshot_during_collection(offset: int, *, smart_strings: bool, m
         ]
 
 
-def _empty_snapshot_compiled(document: turbohtml.Node) -> object:
+def _empty_snapshot_compiled(document: turbohtml.Node) -> XPathResult:
     return XPath("//a", smart_strings=True)(document)
 
 
-def _empty_snapshot_method(document: turbohtml.Node) -> object:
+def _empty_snapshot_method(document: turbohtml.Node) -> XPathResult:
     return document.xpath("//a", smart_strings=True)
 
 
