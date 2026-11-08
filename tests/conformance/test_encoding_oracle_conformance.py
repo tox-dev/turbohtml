@@ -125,7 +125,6 @@ def decoder_oracle() -> Path:
 
 
 def _oracle(name: str) -> Path:
-    """Build the Rust oracle named *name* and return its binary, raising when the submodule or toolchain is absent."""
     crate = _ORACLES / name
     if not (crate.parent.parent / ("encoding_rs" if name == "decoder" else "chardetng") / "Cargo.toml").exists():
         msg = f"submodule tests/conformance/{'encoding_rs' if name == 'decoder' else 'chardetng'} not checked out"
@@ -152,7 +151,6 @@ def test_every_decoder_agrees_with_encoding_rs(decoder_oracle: Path) -> None:
 
 
 def _decode_cases() -> Iterator[tuple[str, bytes]]:
-    """Every one- and two-byte sequence of each encoding, plus seeded four-byte and escape-shaped sequences."""
     rng = random.Random(20260709)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a corpus seed, not a security decision
     for label in (*_SINGLE_BYTE, *_MULTI_BYTE):
         for first in range(256):
@@ -180,7 +178,6 @@ def _decode_cases() -> Iterator[tuple[str, bytes]]:
 
 
 def _run(binary: Path, stdin: str, count: int) -> list[str]:
-    """Feed *stdin* to *binary* and return its lines, one per case."""
     result = subprocess.run([binary], input=stdin, capture_output=True, text=True, check=True)  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
     lines = result.stdout.splitlines()
     assert len(lines) == count, f"{binary.name} answered {len(lines)} of {count} cases"
@@ -202,12 +199,10 @@ def test_the_detector_agrees_with_chardetng(detector_oracle: Path) -> None:
 
 
 def _content_cases() -> list[bytes]:
-    """The corpus chardetng and turbohtml must agree on: a byte-order mark or a pure-ASCII stream is not one."""
     return [raw for raw in _detect_cases() if any(byte >= 0x80 for byte in raw) and not raw.startswith(_BOMS)]
 
 
 def _detect_cases() -> Iterator[bytes]:
-    """Real text in each encoding the detector models, plus adversarial byte soup and lead-seeded sequences."""
     for codec, text in _SAMPLES.items():
         for pad in ("", " ", "\n", " abc", "ZZ "):
             yield (text + pad).encode(codec)
@@ -229,7 +224,6 @@ def test_the_tld_hint_agrees_with_chardetng(detector_oracle: Path) -> None:
 
 
 def _assert_agrees_under_tlds(detector_oracle: Path, cases: list[tuple[bytes, str]]) -> None:
-    """Drive both implementations over (bytes, label) pairs and report every pair whose answers differ."""
     expected = _run(detector_oracle, "".join(f"{raw.hex()}\t{tld}\n" for raw, tld in cases), len(cases))
     divergent = [
         (raw.hex(), tld, got, want)
@@ -240,13 +234,6 @@ def _assert_agrees_under_tlds(detector_oracle: Path, cases: list[tuple[bytes, st
 
 
 def _tld_labels() -> list[str]:
-    """
-    Every DNS label chardetng's classifier carries, plus the unlisted shapes, lower-cased.
-
-    Reading them out of ``tld.rs`` rather than restating them ties the sweep to the pinned revision. Two Punycode keys
-    carry an upper-case ``S`` upstream, which no real label matches and which ``guess`` panics on, so lower-casing them
-    here drives both implementations down their not-found path.
-    """
     source = (_ORACLES.parent / "chardetng" / "src" / "tld.rs").read_text(encoding="utf-8")
     keys = re.search(r"static TWO_LETTER_KEYS.*?\n\];", source, re.DOTALL)
     punycode_keys = re.search(r"static PUNYCODE_KEYS.*?\n\];", source, re.DOTALL)
@@ -261,7 +248,6 @@ def _tld_labels() -> list[str]:
 
 
 def _tld_samples() -> list[bytes]:
-    """Text in each modeled encoding, which is what a TLD hint discriminates; byte soup is swept separately below."""
     return [(text + pad).encode(codec) for codec, text in _SAMPLES.items() for pad in ("", " abc")]
 
 
