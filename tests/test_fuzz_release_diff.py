@@ -1,12 +1,10 @@
-"""The previous-release differential: its error-normalization knob, its workers, and a HEAD-against-HEAD run."""
-
 from __future__ import annotations
 
 import sys
 import time
 import venv
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import pytest
 from fuzz.release_diff import Worker, compare, main
@@ -16,9 +14,10 @@ from turbohtml.clean import minify_js
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from fuzz.release_worker import JSON
     from pytest_mock import MockerFixture
 
-_TYPE_ERROR: dict[str, object] = {"error": ["ValueError", "a"]}
+_TYPE_ERROR: Final[dict[str, JSON]] = {"error": ["ValueError", "a"]}
 
 
 @pytest.mark.parametrize(
@@ -37,7 +36,7 @@ _TYPE_ERROR: dict[str, object] = {"error": ["ValueError", "a"]}
     ],
 )
 def test_release_diff_compare(
-    head: dict[str, object], release: dict[str, object], errors: str, expected: str | None
+    head: dict[str, JSON], release: dict[str, JSON], errors: str, expected: str | None
 ) -> None:
     assert compare(head, release, errors) == expected
 
@@ -78,7 +77,7 @@ def test_release_worker_reports_a_worker_that_exited_before_reading(
     (python := tmp_path / "python").write_text("#!/bin/sh\nexit 3\n", encoding="utf-8")
     python.chmod(0o755)
     with Worker(python) as worker:
-        time.sleep(1)  # the stand-in has exited before the first case is written, so the write meets a closed pipe
+        time.sleep(1)  # simplint: ignore[SMP808]  # Worker exposes no wait; the stand-in must exit first
         assert worker.answer("minify_css", "a{}") == {"crashed": 3}
 
 
@@ -103,14 +102,6 @@ def test_release_diff_cli_fails_without_a_release(tmp_path: Path, capsys: pytest
     assert (code, capsys.readouterr().err) == (2, "VACUOUS RUN: the release answered too few cases\n")
 
 
-def test_release_diff_cli_fails_a_blind_control(
-    mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    mocker.patch("fuzz.release_diff.compare", return_value=None)
-    code = main(["--minutes", "0", "--release-python", sys.executable, "--crash-dir", str(tmp_path)])
-    assert (code, capsys.readouterr().err) == (2, "BLIND ORACLE: the perturbed worker went unreported\n")
-
-
 def _python_without_turbohtml(tmp_path: Path) -> Path:
     if sys.platform == "win32":  # pragma: win32 cover
         venv.create(tmp_path / "empty", with_pip=False)
@@ -121,3 +112,11 @@ def _python_without_turbohtml(tmp_path: Path) -> Path:
         (python := tmp_path / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" -S "$@"\n', encoding="utf-8")
         python.chmod(0o755)
     return python
+
+
+def test_release_diff_cli_fails_a_blind_control(
+    mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mocker.patch("fuzz.release_diff.compare", autospec=True, return_value=None)
+    code = main(["--minutes", "0", "--release-python", sys.executable, "--crash-dir", str(tmp_path)])
+    assert (code, capsys.readouterr().err) == (2, "BLIND ORACLE: the perturbed worker went unreported\n")

@@ -7,14 +7,19 @@ it can only be benchmarked in a venv of its own.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 from metadata_parser import MetadataParser  # ty: ignore[import-not-found]  # undeclared: pins an older beautifulsoup4
 
-REQUIREMENTS = ("metadata-parser>=1", "legacy-cgi; python_version>='3.13'")
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("metadata-parser>=1", "legacy-cgi; python_version>='3.13'")
 
 
 def socialcard(text: str) -> None:
-    """Read the social-card tags with metadata_parser, which parses then maps the meta block."""
+    # Read the social-card tags with metadata_parser, which parses then maps the meta block.
     MetadataParser(html=text)
 
 
-OPERATIONS = {"socialcard": (socialcard, "metadata_parser")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"socialcard": (socialcard, "metadata_parser")}

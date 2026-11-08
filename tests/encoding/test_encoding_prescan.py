@@ -1,12 +1,8 @@
-"""The WHATWG "prescan a byte stream to determine its encoding" algorithm, byte for byte."""
-
 from __future__ import annotations
 
 import pytest
 
 from turbohtml import parse
-
-_FILLER = b"x" * 130
 
 
 @pytest.mark.parametrize(
@@ -27,7 +23,7 @@ def test_a_repeated_attribute_name_is_ignored(markup: bytes, encoding: str) -> N
 
 def test_charset_beyond_the_first_bytes_of_a_content_value_is_still_found() -> None:
     # the spec caps only the 1024-byte prescan window, never a single attribute value
-    markup = b'<meta http-equiv=content-type content="text/html; a=' + _FILLER + b'; charset=utf-8">'
+    markup = b'<meta http-equiv=content-type content="text/html; a=' + (b"x" * 130) + b'; charset=utf-8">'
     assert parse(markup).encoding == "UTF-8"
 
 

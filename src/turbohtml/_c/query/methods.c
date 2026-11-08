@@ -173,6 +173,13 @@ PyObject *turbohtml_register_selector_error(PyObject *module, PyObject *type) {
     Py_RETURN_NONE;
 }
 
+/* Store the XPathDepthError type the evaluator raises past its nesting cap; turbohtml.query._xpath registers it. */
+PyObject *turbohtml_register_xpath_depth_error(PyObject *module, PyObject *type) {
+    module_state *state = PyModule_GetState(module);
+    Py_XSETREF(state->xpath_depth_error, Py_NewRef(type));
+    Py_RETURN_NONE;
+}
+
 static int append_selected(PyObject *out, module_state *state, PyObject *handle, th_node *origin,
                            sel_compiled *compiled, Py_ssize_t limit, const sel_simple *single) {
     int error = 0;
@@ -1075,15 +1082,20 @@ static PyObject *xpath_item_to_py(module_state *state, PyObject *handle, th_tree
 }
 
 /* Translate an xp_eval status into a Python error: -4 a TypeError (a value where a
-   node-set is required), -3 a ValueError (an unbound variable, an unbound prefix, or an
-   over-deep expression), -1 an allocation failure or an already-set exception (an unknown
-   function, a wrong-arity call, a malformed regex, or an extension failure). */
-static void *xpath_raise_status(int status, const char *feature) {
+   node-set is required), -5 an XPathDepthError (an expression nested past the evaluator cap),
+   -3 a ValueError (an unbound variable or an unbound prefix), -1 an allocation failure or an
+   already-set exception (an unknown function, a wrong-arity call, a malformed regex, or an
+   extension failure). */
+static void *xpath_raise_status(module_state *state, int status, const char *feature) {
     if (PyErr_Occurred()) { /* a borrowed Python call already set the exception (regex, unknown function, ...) */
         return NULL;
     }
     if (status == -4) {
         PyErr_Format(PyExc_TypeError, "xpath: %s", feature);
+        return NULL;
+    }
+    if (status == -5) {
+        PyErr_Format(state->xpath_depth_error, "xpath: %s", feature);
         return NULL;
     }
     if (status == -3) { /* GCOVR_EXCL_BR_LINE: the remaining status -1 is an allocation failure */
@@ -1687,7 +1699,7 @@ static PyObject *xpath_eval_object(PyObject *self, PyObject *arg, const xp_bindi
         return NULL; /* a compile error left a Python exception set */
     }
     if (status < 0) {
-        return xpath_raise_status(status, feature);
+        return xpath_raise_status(state, status, feature);
     }
     return out; /* the result, or NULL with an error set if marshaling hit an allocation failure */
 }
@@ -1723,7 +1735,7 @@ static PyObject *xpath_run_program(module_state *state, PyObject *handle, th_nod
     Py_XDECREF(extensions);
     Py_DECREF(handle);
     if (status < 0) {
-        return xpath_raise_status(status, feature);
+        return xpath_raise_status(state, status, feature);
     }
     return out;
 }

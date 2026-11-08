@@ -14,8 +14,6 @@ from typing import NamedTuple
 
 from turbohtml._html import _register_feed
 
-__all__ = ["Entry", "Feed"]
-
 
 class Entry(NamedTuple):
     """
@@ -28,6 +26,7 @@ class Entry(NamedTuple):
         permalink ``<guid>`` when the entry has no ``<link>``.
     :param id: the stable identifier: an RSS ``<guid>``, an Atom ``<id>``, or an RDF item's ``rdf:about``.
     :param updated: the last-modified timestamp (Atom ``<updated>``, RSS ``<lastBuildDate>``), verbatim.
+
     :param published: the publication timestamp (Atom ``<published>``, RSS ``<pubDate>``, RDF ``<dc:date>``), verbatim.
     :param summary: the short description (Atom ``<summary>``, RSS ``<description>``, ``<dc:description>``).
     :param content: the full body (RSS ``<content:encoded>``, Atom ``<content>``), preferred over ``summary``. Atom
@@ -66,3 +65,9 @@ class Feed(NamedTuple):
 
 
 _register_feed(Feed, Entry)
+
+
+__all__ = [
+    "Entry",
+    "Feed",
+]

@@ -1,20 +1,13 @@
-"""turbohtml.annotation_surface(): group the annotated substrings by label.
-
-The inscriptis surface-form extractor over the (text, spans) pair
-Node.to_annotated_text() returns, as a pure transform.
-"""
-
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from functools import partial
+from typing import Final
 
 import pytest
 
 from turbohtml import annotation_surface, annotation_tags, parse
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
-from typing import Final
+_Spans = list[list[int | str] | tuple[int | str, ...]]
 
 
 @pytest.mark.parametrize(
@@ -73,20 +66,22 @@ def test_round_trips_to_annotated_text() -> None:
     assert annotation_surface(text, spans) == {"heading": ["Q3"], "metric": ["12%"]}
 
 
-def call_with(exporter: Callable[..., object], *args: object) -> object:
-    """Invoke an exporter with arguments its static signature rejects, to drive the
-    runtime validation; the exporter arrives signature-erased on purpose."""
-    return exporter(*args)
-
-
-@pytest.mark.parametrize("exporter", [annotation_surface, annotation_tags], ids=["surface", "tags"])
-def test_text_must_be_str(exporter: Callable[..., object]) -> None:
+@pytest.mark.parametrize("exporter", [partial(annotation_surface), partial(annotation_tags)], ids=["surface", "tags"])
+def test_text_must_be_str(exporter: partial[dict[str, list[str]]] | partial[str]) -> None:
     with pytest.raises(TypeError, match="str"):
         call_with(exporter, 5, [])
 
 
-@pytest.mark.parametrize("exporter", [annotation_surface, annotation_tags], ids=["surface", "tags"])
-def test_spans_must_be_iterable(exporter: Callable[..., object]) -> None:
+def call_with(
+    exporter: partial[dict[str, list[str]]] | partial[str], *args: int | str | _Spans
+) -> dict[str, list[str]] | str:
+    # Invoke an exporter with arguments its static signature rejects, to drive the
+    # runtime validation; the exporter arrives signature-erased on purpose.
+    return exporter(*args)
+
+
+@pytest.mark.parametrize("exporter", [partial(annotation_surface), partial(annotation_tags)], ids=["surface", "tags"])
+def test_spans_must_be_iterable(exporter: partial[dict[str, list[str]]] | partial[str]) -> None:
     with pytest.raises(TypeError, match="iterable"):
         call_with(exporter, "ab", 5)
 
@@ -104,15 +99,15 @@ def test_spans_must_be_iterable(exporter: Callable[..., object]) -> None:
         pytest.param([(10**100, 0, "x")], OverflowError, "too large", id="offset-overflows"),
     ],
 )
-def test_malformed_spans_raise(spans: object, exc: type[Exception], match: str) -> None:
+def test_malformed_spans_raise(spans: _Spans, exc: type[Exception], match: str) -> None:
     with pytest.raises(exc, match=match):
-        call_with(annotation_surface, "ab", spans)
+        call_with(partial(annotation_surface), "ab", spans)
 
 
 def test_tags_validates_spans_too() -> None:
     # the inline exporter shares the parser, so it rejects the same out-of-range span
     with pytest.raises(ValueError, match="out of range"):
-        call_with(annotation_tags, "ab", [(0, 9, "x")])
+        call_with(partial(annotation_tags), "ab", [(0, 9, "x")])
 
 
 @pytest.mark.parametrize(

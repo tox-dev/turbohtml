@@ -32,32 +32,23 @@ if TYPE_CHECKING:
 
     from turbohtml import SourceLocation
 
-__all__ = [
-    "document_observation",
-    "fragment_observation",
-    "incremental_observation",
-    "parser_targets",
-    "token_observation",
-]
-
-
 # One node-set, one scalar and one attribute expression reach each XPath result shape on the fuzzed tree.
-_XPATH_ENTRIES: Final = ("//*", "count(//*)", "//*/@*")
+_XPATH_ENTRIES: Final[tuple[str, ...]] = ("//*", "count(//*)", "//*/@*")
 
 
 def parser_targets() -> tuple[Target, ...]:
-    """Keep document and fragment grammar contexts distinct."""
+    # Keep document and fragment grammar contexts distinct.
     return (
         Target(
-            "html-document",
-            _document,
-            ("turbohtml.parse", "turbohtml.Document", "turbohtml.Node"),
-            (UnicodeDecodeError,),
+            name="html-document",
+            callback=_document,
+            exports=("turbohtml.parse", "turbohtml.Document", "turbohtml.Node"),
+            exceptions=(UnicodeDecodeError,),
         ),
         Target(
-            "html-fragment",
-            _fragment,
-            (
+            name="html-fragment",
+            callback=_fragment,
+            exports=(
                 "turbohtml.parse_fragment",
                 "turbohtml.Element",
                 "turbohtml.Html",
@@ -65,21 +56,21 @@ def parser_targets() -> tuple[Target, ...]:
                 "turbohtml.Indent",
                 "turbohtml.Minify",
             ),
-            (UnicodeDecodeError,),
+            exceptions=(UnicodeDecodeError,),
         ),
         Target(
-            "html-incremental",
-            _incremental,
-            ("turbohtml.IncrementalParser",),
-            (UnicodeDecodeError,),
-            _incremental_chunks,
+            name="html-incremental",
+            callback=_incremental,
+            exports=("turbohtml.IncrementalParser",),
+            exceptions=(UnicodeDecodeError,),
+            chunked=_incremental_chunks,
         ),
         Target(
-            "html-tokenizer",
-            _tokens,
-            ("turbohtml.tokenize", "turbohtml.Tokenizer", "turbohtml.Token", "turbohtml.TokenType"),
-            (UnicodeDecodeError,),
-            _token_chunks,
+            name="html-tokenizer",
+            callback=_tokens,
+            exports=("turbohtml.tokenize", "turbohtml.Tokenizer", "turbohtml.Token", "turbohtml.TokenType"),
+            exceptions=(UnicodeDecodeError,),
+            chunked=_token_chunks,
         ),
     )
 
@@ -88,33 +79,13 @@ def _document(data: bytes) -> None:
     document_observation(data)
 
 
-def _fragment(data: bytes) -> None:
-    fragment_observation(data)
-
-
-def _incremental(data: bytes) -> None:
-    incremental_observation(data)
-
-
-def _incremental_chunks(data: bytes, header: Header) -> None:
-    incremental_observation(data, header)
-
-
-def _tokens(data: bytes) -> None:
-    token_observation(data)
-
-
-def _token_chunks(data: bytes, header: Header) -> None:
-    token_observation(data, header)
-
-
 def document_observation(
     data: bytes,
     html: Callable[[str], str | None] = html_check,
     spans: Callable[[str], str | None] = span_check,
     entries: Callable[[str], str | None] = xpath_entry_check,
 ) -> str:
-    """Exercise returned document records through serialization consumers, span and XPath entry-point oracles."""
+    # Exercise returned document records through serialization consumers, span and XPath entry-point oracles.
     source: Final = data.decode("utf-8")
     document: Final = parse(source)
     _require("Document result type", condition=isinstance(document, (Document, Node)))
@@ -125,19 +96,47 @@ def document_observation(
     return _serialization(document)
 
 
+def _require(message: str, *, condition: bool) -> None:
+    if not condition:
+        raise AssertionError(message)
+
+
+def _serialization(node: Node) -> str:
+    for formatter in Formatter:
+        for layout in (None, Indent(2)):
+            options: Final = Html(formatter=formatter, layout=layout)
+            rendered: Final = node.serialize(options)
+            _require("Iterator serialization differs", condition="".join(node.serialize_iter(options)) == rendered)
+            _require(
+                "Encoded serialization differs", condition=node.encode("utf-8", options) == rendered.encode("utf-8")
+            )
+    minified_options: Final = Html(layout=Minify())
+    _require(
+        "Minified encoding differs",
+        condition=node.encode("utf-8", minified_options) == node.serialize(minified_options).encode("utf-8"),
+    )
+    return node.serialize()
+
+
+def _fragment(data: bytes) -> None:
+    fragment_observation(data)
+
+
 def fragment_observation(data: bytes) -> str:
-    """Grammar fragments use a div context rather than document insertion modes."""
+    # Grammar fragments use a div context rather than document insertion modes.
     fragment: Final = parse_fragment(data.decode("utf-8"), "div")
     _require("Fragment result type", condition=isinstance(fragment, Element))
     return _serialization(fragment)
 
 
-def incremental_observation(data: bytes, header: Header = BYTEWISE) -> tuple[str, _Positions]:
-    """
-    Empty feeds and splits inside UTF-8 sequences must preserve the one-shot parse and its positions.
+def _incremental(data: bytes) -> None:
+    incremental_observation(data)
 
-    The opts bits flip the defaults: 1 feeds decoded text, 2 drops positions, 4 records source locations.
-    """
+
+def incremental_observation(data: bytes, header: Header = BYTEWISE) -> tuple[str, _Positions]:
+    # Empty feeds and splits inside UTF-8 sequences must preserve the one-shot parse and its positions.
+    #
+    # The opts bits flip the defaults: 1 feeds decoded text, 2 drops positions, 4 records source locations.
     source: Final = data.decode("utf-8")
     positions: Final = not header.opts & 2
     locations: Final = bool(header.opts & 4)
@@ -156,12 +155,24 @@ def incremental_observation(data: bytes, header: Header = BYTEWISE) -> tuple[str
     return observed, placed
 
 
-def token_observation(data: bytes, header: Header = BYTEWISE) -> tuple[_TokenSnapshot, ...]:
-    """
-    Streaming and reset must preserve token fields and source positions.
+def _positions(document: Document) -> _Positions:
+    return tuple(
+        (element.source_line, element.source_col, element.source_location) for element in document.iter_elements()
+    )
 
-    The opts bits flip the defaults: 1 keeps character references apart, 2 captures source, 4 drops attributes.
-    """
+
+def _incremental_chunks(data: bytes, header: Header) -> None:
+    incremental_observation(data, header)
+
+
+def _tokens(data: bytes) -> None:
+    token_observation(data)
+
+
+def token_observation(data: bytes, header: Header = BYTEWISE) -> tuple[_TokenSnapshot, ...]:
+    # Streaming and reset must preserve token fields and source positions.
+    #
+    # The opts bits flip the defaults: 1 keeps character references apart, 2 captures source, 4 drops attributes.
     source: Final = data.decode("utf-8")
     options: Final = {
         "resolve_references": not header.opts & 1,
@@ -187,29 +198,6 @@ def token_observation(data: bytes, header: Header = BYTEWISE) -> tuple[_TokenSna
     return observed
 
 
-def _positions(document: Document) -> _Positions:
-    return tuple(
-        (element.source_line, element.source_col, element.source_location) for element in document.iter_elements()
-    )
-
-
-def _serialization(node: Node) -> str:
-    for formatter in Formatter:
-        for layout in (None, Indent(2)):
-            options: Final = Html(formatter=formatter, layout=layout)
-            rendered: Final = node.serialize(options)
-            _require("Iterator serialization differs", condition="".join(node.serialize_iter(options)) == rendered)
-            _require(
-                "Encoded serialization differs", condition=node.encode("utf-8", options) == rendered.encode("utf-8")
-            )
-    minified_options: Final = Html(layout=Minify())
-    _require(
-        "Minified encoding differs",
-        condition=node.encode("utf-8", minified_options) == node.serialize(minified_options).encode("utf-8"),
-    )
-    return node.serialize()
-
-
 def _token_snapshot(token: Token) -> _TokenSnapshot:
     _require("Token result type", condition=isinstance(token, Token))
     _require("Token kind type", condition=isinstance(token.type, TokenType))
@@ -224,11 +212,6 @@ def _token_snapshot(token: Token) -> _TokenSnapshot:
     )
 
 
-def _require(message: str, *, condition: bool) -> None:
-    if not condition:
-        raise AssertionError(message)
-
-
 class _TokenSnapshot(NamedTuple):
     kind: str
     tag: str | None
@@ -239,4 +222,17 @@ class _TokenSnapshot(NamedTuple):
     col: int
 
 
+def _token_chunks(data: bytes, header: Header) -> None:
+    token_observation(data, header)
+
+
 _Positions = tuple[tuple[int | None, int | None, "SourceLocation | None"], ...]
+
+
+__all__ = [
+    "document_observation",
+    "fragment_observation",
+    "incremental_observation",
+    "parser_targets",
+    "token_observation",
+]

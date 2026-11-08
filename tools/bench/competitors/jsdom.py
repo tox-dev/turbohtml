@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
-REQUIREMENTS = ()
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
-_INNER_RUNNER: Final = str(Path(__file__).resolve().parent.parent / "node" / "inner_runner.js")
+_REQUIREMENTS: Final[tuple[()]] = ()
+
+_INNER_RUNNER: Final[str] = str(Path(__file__).resolve().parent.parent / "node" / "inner_runner.js")
 
 
 def _parse_inner(text: str) -> str:
@@ -21,9 +24,9 @@ def _parse_inner_encode(text: str) -> bytes:
     return subprocess.run(["node", _INNER_RUNNER, "jsdom"], input=text.encode(), capture_output=True, check=True).stdout
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "parse-inner": (_parse_inner, "jsdom"),
     "parse-inner-encode": (_parse_inner_encode, "jsdom"),
 }
 
-__all__ = ["OPERATIONS", "REQUIREMENTS"]
+__all__ = []

@@ -3,23 +3,31 @@ from __future__ import annotations
 import re
 import sys
 from contextlib import nullcontext
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
 from turbohtml import Element, parse_xml
 from turbohtml.transform import Transform
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from contextlib import AbstractContextManager
+
 
 @pytest.mark.parametrize(
-    ("expression", "expected"),
+    ("expression", "expected", "outcome"),
     [
-        pytest.param("re:test('a', 'a')", "true", id="test"),
-        pytest.param("re:replace('a', 'a', '', 'b')", "b", id="replace"),
-        pytest.param("re:test('a', '(')", None, id="invalid-pattern"),
+        pytest.param("re:test('a', 'a')", "true1", nullcontext, id="test"),
+        pytest.param("re:replace('a', 'a', '', 'b')", "b1", nullcontext, id="replace"),
+        pytest.param("re:test('a', '(')", None, lambda: pytest.raises(re.error), id="invalid-pattern"),
     ],
 )
-def test_transform_regex_runs_no_python_code(expression: str, expected: str | None) -> None:
+def test_transform_regex_runs_no_python_code(
+    expression: str,
+    expected: str | None,
+    outcome: Callable[[], AbstractContextManager[None] | AbstractContextManager[pytest.ExceptionInfo[re.error]]],
+) -> None:
     transform: Final = Transform(
         parse_xml(
             '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
@@ -38,9 +46,9 @@ def test_transform_regex_runs_no_python_code(expression: str, expected: str | No
     re.purge()
     try:
         sys.setprofile(lambda frame, event, _: event == "call" and frame.f_code in codes and target.append(source))
-        with pytest.raises(re.error) if expected is None else nullcontext():
+        with outcome():
             result = transform(source)
     finally:
         sys.setprofile(previous)
     # the regex engine is native, so the hook that would move the source never fires
-    assert (result, source.parent) == (None if expected is None else f"{expected}1", parent)
+    assert (result, source.parent) == (expected, parent)

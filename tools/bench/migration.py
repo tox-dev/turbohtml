@@ -19,27 +19,27 @@ import ast
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NamedTuple
 
-from bench import operations
 from bench.notes import NOTES
+from bench.operations import OPERATIONS, SIZE_OPS
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-_SIZE_OPS: Final = operations.SIZE_OPS
+_SIZE_OPS: Final[frozenset[str]] = SIZE_OPS
 # a memory op leads with peak resident bytes, so its rows are two cells wide like a size op's
-_MEMORY_OPS: Final = frozenset({"find-cold", "parse-dense", "rewrite"})
-_WIDE_OPS: Final = _SIZE_OPS | _MEMORY_OPS
+_MEMORY_OPS: Final[frozenset[str]] = frozenset({"find-cold", "parse-dense", "rewrite"})
+_WIDE_OPS: Final[frozenset[str]] = _SIZE_OPS | _MEMORY_OPS
 
 # Why a variant repeats the sibling's figure when the library is measured in more than one configuration: the
 # operation runs the same code whichever one is chosen, so benchmarking it twice would publish a duplicate column.
-_SHARED_WITH_OTHER_VARIANT: Final = "same in both configurations, so measured once"
+_SHARED_WITH_OTHER_VARIANT: Final[str] = "same in both configurations, so measured once"
 
 # A competitor module's stem maps to its migration page's slug by turning ``_`` into ``-``; these libraries
 # name the two differently, so the map pins them. A stem with no ``docs/migration/<slug>.rst`` is skipped, so
 # columns that only appear inside another library's table (cchardet, cssmin, css_html_js_minify) fall out.
-_SLUG_OVERRIDES: Final = {
+_SLUG_OVERRIDES: Final[dict[str, str]] = {
     "beautifulsoup4": "beautifulsoup",
     # the two tree-builder backends share one migration page, so a reader sees what the choice costs
     "beautifulsoup4_lxml": "beautifulsoup",
@@ -49,30 +49,34 @@ _SLUG_OVERRIDES: Final = {
 
 
 def _merge_caveat(note: str | None, *, shared: bool) -> str | None:
-    """Join an operation note with the measured-once caveat when a row repeats one figure across configurations."""
+    # Join an operation note with the measured-once caveat when a row repeats one figure across configurations.
     if not shared:
         return note
     return _SHARED_WITH_OTHER_VARIANT if note is None else f"{note}; {_SHARED_WITH_OTHER_VARIANT}"
 
 
 def _slug(stem: str) -> str:
-    """Return the migration page slug for a competitor module stem."""
+    # Return the migration page slug for a competitor module stem.
     return _SLUG_OVERRIDES.get(stem, stem.replace("_", "-"))
 
 
 def discover_labels(competitor_dir: Path) -> dict[str, dict[str, str]]:
-    """Read every competitor module's ``{op_key: party label}`` from source without importing the library."""
+    # Read every competitor module's ``{op_key: party label}`` from source without importing the library.
     found: dict[str, dict[str, str]] = {}
     for path in sorted(competitor_dir.glob("*.py")):
         if path.stem == "__init__":
             continue
         for node in ast.parse(path.read_text(encoding="utf-8")).body:
-            if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                name, table = node.target.id, node.value
+            elif isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                name, table = node.targets[0].id, node.value
+            else:
                 continue
-            if node.targets[0].id == "OPERATIONS" and isinstance(node.value, ast.Dict):
+            if name == "OPERATIONS" and isinstance(table, ast.Dict):
                 found[path.stem] = {
                     key.value: value.elts[1].value
-                    for key, value in zip(node.value.keys, node.value.values, strict=True)
+                    for key, value in zip(table.keys, table.values, strict=True)
                     if isinstance(key, ast.Constant)
                     and isinstance(key.value, str)
                     and isinstance(value, ast.Tuple)
@@ -83,7 +87,7 @@ def discover_labels(competitor_dir: Path) -> dict[str, dict[str, str]]:
 
 
 def _case_names(operation: str, stats: dict[str, dict[str, float]]) -> list[str]:
-    """Return the operation's case names in run order, recovered from the turbohtml baseline keys."""
+    # Return the operation's case names in run order, recovered from the turbohtml baseline keys.
     names: list[str] = []
     for key in stats:  # a case name can itself contain "|" (the XPath union operator), so split off the ends
         operation_name, rest = key.split("|", 1)
@@ -93,16 +97,39 @@ def _case_names(operation: str, stats: dict[str, dict[str, float]]) -> list[str]
     return names
 
 
-def _rows(
-    variants: list[dict[str, str]], stats: dict[str, dict[str, float]]
-) -> tuple[list[list[str | float]], list[list[float | None]], list[str | None]]:
-    """
-    Build a library's rows and their spread across every shared operation-case, prefixing labels that span ops.
+class _Rows(NamedTuple):
+    rows: list[list[str | float]]
+    spread: list[list[float | None]]
+    caveats: list[str | None]
 
-    ``variants`` holds one ``{op: label}`` per competitor module sharing this page, so a library benchmarked in more
-    than one configuration (BeautifulSoup over each of its tree builders) columns them side by side. A variant that
-    does not measure an operation shows the sibling's shared figure rather than dropping the row for the ones that do.
-    """
+
+def _measured_row(
+    label: str, operation: str, turbo: dict[str, float], filled: list[dict[str, float]], *, wide: bool
+) -> tuple[list[str | float], list[float | None]]:
+    row: list[str | float]
+    noise: list[float | None]
+    if wide:
+        lead = "size" if operation in _SIZE_OPS else "peak"
+        row = [label, turbo[lead], turbo["mean"]]
+        noise = [None, None, turbo.get("cv")]
+        for other in filled:
+            row += [other[lead], other["mean"]]
+            noise += [None, other.get("cv")]
+    else:
+        row = [label, turbo["mean"]]
+        noise = [None, turbo.get("cv")]
+        for other in filled:
+            row.append(other["mean"])
+            noise.append(other.get("cv"))
+    return row, noise
+
+
+def _rows(variants: list[dict[str, str]], stats: dict[str, dict[str, float]]) -> _Rows:
+    # Build a library's rows and their spread across every shared operation-case, prefixing labels that span ops.
+    #
+    # ``variants`` holds one ``{op: label}`` per competitor module sharing this page, so a library benchmarked in more
+    # than one configuration (BeautifulSoup over each of its tree builders) columns them side by side. A variant that
+    # does not measure an operation shows the sibling's shared figure rather than dropping the row for the ones that do.
     covered = {operation for variant in variants for operation in variant}
     # a leading metric only makes sense when every shared operation carries one; a library that spans a memory
     # operation and timing-only ones would otherwise emit rows of two different widths into one table
@@ -110,7 +137,7 @@ def _rows(
     rows: list[list[str | float]] = []
     spread: list[list[float | None]] = []
     caveats: list[str | None] = []
-    for operation, meta in ((op, operations.OPERATIONS[op]) for op in operations.OPERATIONS if op in covered):
+    for operation, meta in ((op, OPERATIONS[op]) for op in OPERATIONS if op in covered):
         for case in _case_names(operation, stats):
             turbo = stats.get(f"{operation}|{case}|turbohtml")
             others = [
@@ -127,20 +154,7 @@ def _rows(
             measured = next(other for other in others if other is not None)
             shared = any(other is None for other in others)
             filled = [other if other is not None else measured for other in others]
-            row: list[str | float]
-            if wide:
-                lead = "size" if operation in _SIZE_OPS else "peak"
-                row = [row_label, turbo[lead], turbo["mean"]]
-                noise: list[float | None] = [None, None, turbo.get("cv")]
-                for other in filled:
-                    row += [other[lead], other["mean"]]
-                    noise += [None, other.get("cv")]
-            else:
-                row = [row_label, turbo["mean"]]
-                noise = [None, turbo.get("cv")]
-                for other in filled:
-                    row.append(other["mean"])
-                    noise.append(other.get("cv"))
+            row, noise = _measured_row(row_label, operation, turbo, filled, wide=wide)
             rows.append(row)
             spread.append(noise)
             # a library page mixes operations, so a caveat belongs on the rows of the operation it describes; a row
@@ -158,11 +172,11 @@ def _rows(
                     shared=shared,
                 )
             )
-    return rows, spread, caveats
+    return _Rows(rows, spread, caveats)
 
 
 def _leading_metric(ops: Iterable[str]) -> list[str]:
-    """Name the metric column a library's table leads with, empty when every shared operation is timing only."""
+    # Name the metric column a library's table leads with, empty when every shared operation is timing only.
     names = set(ops)
     if names <= _SIZE_OPS:
         return ["size", "time"]
@@ -172,19 +186,17 @@ def _leading_metric(ops: Iterable[str]) -> list[str]:
 
 
 def _caption(path: Path) -> str:
-    """Reuse a committed feed's caption (``stylesheet``, ``JavaScript library``, ...); default to ``operation``."""
+    # Reuse a committed feed's caption (``stylesheet``, ``JavaScript library``, ...); default to ``operation``.
     return json.loads(path.read_text(encoding="utf-8")).get("label", "operation") if path.exists() else "operation"
 
 
 def emit_migration_feeds(
     stats: dict[str, dict[str, float]], competitor_dir: Path, directory: Path, docs_root: Path
 ) -> list[str]:
-    """
-    Write one ``docs/migration/bench/<slug>.json`` per library with a migration page; return the slugs skipped.
-
-    ``stats`` is the merged ``{"op|case|label": {"mean", "size"?}}`` across every operation. A library whose page
-    is absent, or that produced no shared measurement, is skipped and reported.
-    """
+    # Write one ``docs/migration/bench/<slug>.json`` per library with a migration page; return the slugs skipped.
+    #
+    # ``stats`` is the merged ``{"op|case|label": {"mean", "size"?}}`` across every operation. A library whose page
+    # is absent, or that produced no shared measurement, is skipped and reported.
     skipped: list[str] = []
     by_slug: dict[str, list[dict[str, str]]] = {}
     for stem, op_labels in discover_labels(competitor_dir).items():
@@ -207,43 +219,51 @@ def emit_migration_feeds(
             # of them would otherwise read as covering every row the library appears in
             "row_notes": {str(index): note for index, note in enumerate(caveats) if note is not None},
         }
-        (directory / f"{slug}.json").write_text(json.dumps(feed, indent=2, ensure_ascii=False) + "\n", "utf-8")
+        (directory / f"{slug}.json").write_text(f"{json.dumps(feed, indent=2, ensure_ascii=False)}\n", "utf-8")
     return skipped
 
 
-def stats_from_feeds(feeds_dir: Path) -> dict[str, dict[str, float]]:
-    """Reconstruct ``{"op|case|party": {"mean", "size"?}}`` from a directory of per-operation ``report`` feeds."""
+def _stats_from_feeds(feeds_dir: Path) -> dict[str, dict[str, float]]:
+    # Reconstruct ``{"op|case|party": {"mean", "size"?}}`` from a directory of per-operation ``report`` feeds.
     stats: dict[str, dict[str, float]] = {}
     for path in feeds_dir.glob("*.json"):
         feed = json.loads(path.read_text(encoding="utf-8"))
         width = 2 if len(feed.get("metrics") or []) == 2 else 1
+        lead = "size" if (feed.get("metrics") or [""])[0] == "size" else "peak"
         spread = feed.get("spread") or []
         for position, row in enumerate(feed["rows"]):
-            noise = spread[position] if position < len(spread) else None
             for index, party in enumerate(feed["parties"]):
                 start = 1 + index * width
                 cells = row[start : start + width]
+                key = f"{path.stem}|{row[0]}|{party}"
                 # the timing's coefficient of variation travels with the value, so the migration table can show it
-                variation = noise[start + width - 1] if noise else None
-                variation = variation if isinstance(variation, (int, float)) else 0.0
+                variation = _variation(spread, position, start + width - 1)
                 if width == 2 and isinstance(cells[-1], (int, float)):
-                    lead = "size" if feed.get("metrics", [""])[0] == "size" else "peak"
-                    stats[f"{path.stem}|{row[0]}|{party}"] = {"mean": cells[1], "cv": variation, lead: cells[0]}
+                    stats[key] = {"mean": cells[1], "cv": variation, lead: cells[0]}
                 elif width == 1 and isinstance(cells[0], (int, float)):
-                    stats[f"{path.stem}|{row[0]}|{party}"] = {"mean": cells[0], "cv": variation}
+                    stats[key] = {"mean": cells[0], "cv": variation}
     return stats
 
 
+def _variation(spread: list[list[float | str | None] | None], position: int, index: int) -> float:
+    noise = spread[position] if position < len(spread) else None
+    value = noise[index] if noise else None
+    return value if isinstance(value, (int, float)) else 0.0
+
+
 def main() -> None:
-    """Regenerate migration feeds from per-operation feeds. Args: FEEDS_DIR OUT_DIR DOCS_ROOT COMPETITOR_DIR."""
+    # Regenerate migration feeds from per-operation feeds. Args: FEEDS_DIR OUT_DIR DOCS_ROOT COMPETITOR_DIR.
     feeds_dir, out_dir, docs_root, competitor_dir = (Path(argument) for argument in sys.argv[1:5])
-    if skipped := emit_migration_feeds(stats_from_feeds(feeds_dir), competitor_dir, out_dir, docs_root):
+    if skipped := emit_migration_feeds(_stats_from_feeds(feeds_dir), competitor_dir, out_dir, docs_root):
         # to stderr so a redirected sweep still surfaces it: a page silently losing its table is the failure to catch
         message = f"migration: {len(skipped)} page(s) with no shared measurement, left as committed: {skipped}"
         print(message, file=sys.stderr)
 
 
-__all__ = ["discover_labels", "emit_migration_feeds", "stats_from_feeds"]
+__all__ = [
+    "discover_labels",
+    "emit_migration_feeds",
+]
 
 
 if __name__ == "__main__":

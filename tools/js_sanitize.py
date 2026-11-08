@@ -21,19 +21,10 @@ from pathlib import Path
 from typing import Final
 
 _ROOT: Final[Path] = Path(__file__).resolve().parent.parent
-_ENGINE: Final[tuple[str, ...]] = (
-    "lexer.c",
-    "ast.c",
-    "parser.c",
-    "printer.c",
-    "fold.c",
-    "mangle.c",
-    "minify.c",
-)
 
 
 def main() -> int:
-    """Return the harness's exit code: 0 for a clean run, the sanitizer's abort code otherwise."""
+    # Return the harness's exit code: 0 for a clean run, the sanitizer's abort code otherwise.
     corpus_dir = Path(tempfile.mkdtemp(prefix="jsmin-corpus-"))
     count = 0
     for fixture in sorted((_ROOT / "tests" / "js" / "_corpus").glob("*.json")):
@@ -42,6 +33,15 @@ def main() -> int:
             count += 1
 
     binary = corpus_dir / "jsmin_harness"
+    engine: tuple[str, ...] = (
+        "lexer.c",
+        "ast.c",
+        "parser.c",
+        "printer.c",
+        "fold.c",
+        "mangle.c",
+        "minify.c",
+    )
     cmd = [
         os.environ.get("CC", "clang"),
         "-DJM_STANDALONE",
@@ -55,7 +55,7 @@ def main() -> int:
         "-I",
         str(_ROOT / "src" / "turbohtml" / "_c"),
         str(_ROOT / "tools" / "js_minify_harness.c"),
-        *[str(_ROOT / "src" / "turbohtml" / "_c" / "js" / name) for name in _ENGINE],
+        *[str(_ROOT / "src" / "turbohtml" / "_c" / "js" / name) for name in engine],
         "-o",
         str(binary),
     ]

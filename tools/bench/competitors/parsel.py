@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import functools
 from html import escape
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Protocol
 from urllib.parse import urljoin
 
 from cssselect import HTMLTranslator
@@ -14,40 +14,42 @@ from parsel import Selector
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-REQUIREMENTS = ("parsel>=1.11", "cssselect>=1.2")
+    from bench.operations import Timed
 
-_LINKS_BASE = "https://example.com/base/"  # the base turbohtml resolves relative hrefs against
-_TRANSLATOR = HTMLTranslator()
+_REQUIREMENTS: Final[tuple[str, ...]] = ("parsel>=1.11", "cssselect>=1.2")
+
+_LINKS_BASE: Final[str] = "https://example.com/base/"  # the base turbohtml resolves relative hrefs against
+_TRANSLATOR: Final[HTMLTranslator] = HTMLTranslator()
 
 
 @functools.cache
 def _parsed(text: str) -> Selector:
-    """Return a document parsed once, cached so the read-path operations time only the query."""
+    # Return a document parsed once, cached so the read-path operations time only the query.
     return Selector(text=text, namespaces={"str": "http://exslt.org/strings"})
 
 
 def parse(text: str) -> None:
-    """Parse a whole document into a selectable tree through parsel's Selector."""
+    # Parse a whole document into a selectable tree through parsel's Selector.
     Selector(text=text)
 
 
 def find(text: str) -> None:
-    """Collect every anchor with parsel's css."""
+    # Collect every anchor with parsel's css.
     _parsed(text).css("a")
 
 
 def select(text: str) -> None:
-    """Run the CSS selector with parsel's css (cssselect translates it to XPath on libxml2)."""
+    # Run the CSS selector with parsel's css (cssselect translates it to XPath on libxml2).
     _parsed(text).css("div a[href]")
 
 
 def select_has(text: str) -> None:
-    """Run the :has() relational selector expressed as an XPath predicate (cssselect :has is version-fragile)."""
+    # Run the :has() relational selector expressed as an XPath predicate (cssselect :has is version-fragile).
     _parsed(text).xpath("//div[.//a]")
 
 
 def find_text(text: str) -> None:
-    """Collect every element whose text contains the marker with an XPath contains() predicate."""
+    # Collect every element whose text contains the marker with an XPath contains() predicate.
     _parsed(text).xpath('//*[contains(., "test")]')
 
 
@@ -64,22 +66,22 @@ def _select_relative(case: tuple[str, str]) -> None:
 
 
 def text_content(text: str) -> None:
-    """Collect the document's visible text with an XPath text() sweep that skips script/style."""
+    # Collect the document's visible text with an XPath text() sweep that skips script/style.
     _parsed(text).xpath("//body//text()[not(ancestor::script or ancestor::style)]").getall()
 
 
 def serialize(text: str) -> None:
-    """Serialize a parsed document back to HTML with parsel's get()."""
+    # Serialize a parsed document back to HTML with parsel's get().
     _parsed(text).get()
 
 
 def links_extract(text: str) -> None:
-    """Collect every anchor's href with parsel's ``::attr(href)`` getall."""
+    # Collect every anchor's href with parsel's ``::attr(href)`` getall.
     _parsed(text).css("a::attr(href)").getall()
 
 
 def links_filter(text: str) -> None:
-    """Collect the cleaned, absolutized, deduplicated page links, the work turbohtml's extract_links does."""
+    # Collect the cleaned, absolutized, deduplicated page links, the work turbohtml's extract_links does.
     seen: dict[str, None] = {}
     for href in Selector(text=text).css("a::attr(href)").getall():
         if href:
@@ -88,17 +90,17 @@ def links_filter(text: str) -> None:
 
 
 def extract_attr(text: str) -> None:
-    """Pull every anchor's href with parsel's ``::attr(href)`` getall."""
+    # Pull every anchor's href with parsel's ``::attr(href)`` getall.
     _parsed(text).css("a::attr(href)").getall()
 
 
 def extract_text(text: str) -> None:
-    """Pull every anchor's text with parsel's ``::text`` getall."""
+    # Pull every anchor's text with parsel's ``::text`` getall.
     _parsed(text).css("a::text").getall()
 
 
 def extract_url(case: tuple[str, str]) -> None:
-    """Read a freshly parsed document's own URL hint with parsel: the base href or the meta refresh."""
+    # Read a freshly parsed document's own URL hint with parsel: the base href or the meta refresh.
     kind, text = case
     selector = Selector(text=text)
     if kind == "base":
@@ -108,39 +110,46 @@ def extract_url(case: tuple[str, str]) -> None:
 
 
 def path_xpath(text: str) -> None:
-    """Generate the positional XPath that re-finds every element with lxml's getpath under parsel."""
+    # Generate the positional XPath that re-finds every element with lxml's getpath under parsel.
     tree = _parsed(text).root.getroottree()
     _ = [tree.getpath(element) for element in _parsed(text).root.iter()]
 
 
 def translate(selector: str) -> None:
-    """Translate one CSS selector to XPath 1.0 with the cssselect HTMLTranslator parsel's css() builds on."""
+    # Translate one CSS selector to XPath 1.0 with the cssselect HTMLTranslator parsel's css() builds on.
     _TRANSLATOR.css_to_xpath(selector)
 
 
-def _count_ext(_context: object, nodes: list[object]) -> float:
-    """Count the node-set; a trivial extension registered for the engine."""
+class _ExtensionContext(Protocol): ...
+
+
+def _count_ext(_context: _ExtensionContext, nodes: list[_lxml_etree._Element]) -> float:
+    # Count the node-set; a trivial extension registered for the engine.
     return float(len(nodes))
 
 
-def _first_two_ext(_context: object, nodes: list[object]) -> list[object]:
-    """Return the first two nodes as a node-set; the cheapest non-trivial node-set return."""
+def _first_two_ext(_context: _ExtensionContext, nodes: list[_lxml_etree._Element]) -> list[_lxml_etree._Element]:
+    # Return the first two nodes as a node-set; the cheapest non-trivial node-set return.
     return nodes[:2]
 
 
-_SVG_NS = {"svg": "http://www.w3.org/2000/svg"}
-_COUNT_EXTENSIONS = {(None, "ext_count"): _count_ext}
-_NODESET_EXTENSIONS = {(None, "ext_first_two"): _first_two_ext}
-_PRECOMPILED: Final = _lxml_etree.XPath("//a[@href]")
+_SVG_NS: Final[dict[str, str]] = {"svg": "http://www.w3.org/2000/svg"}
+_COUNT_EXTENSIONS: Final[dict[tuple[None, str], Callable[[_ExtensionContext, list[_lxml_etree._Element]], float]]] = {
+    (None, "ext_count"): _count_ext
+}
+_NODESET_EXTENSIONS: Final[
+    dict[tuple[None, str], Callable[[_ExtensionContext, list[_lxml_etree._Element]], list[_lxml_etree._Element]]]
+] = {(None, "ext_first_two"): _first_two_ext}
+_PRECOMPILED: Final[_lxml_etree.XPath] = _lxml_etree.XPath("//a[@href]")
 
 
 @functools.cache
-def _div_rows(text: str) -> list[object]:
-    """Return the document's <div> lxml elements, cached so the node-set variable case times only the reuse."""
+def _div_rows(text: str) -> list[_lxml_etree._Element]:
+    # Return the document's <div> lxml elements, cached so the node-set variable case times only the reuse.
     return [selector.root for selector in _parsed(text).xpath("//div")]
 
 
-_XPATH_CALLS: dict[str, Callable[..., object]] = {
+_XPATH_CALLS: Final[dict[str, Callable[[Selector, str], object]]] = {
     "//div": lambda sel, _text: sel.xpath("//div"),
     "//a[@href]": lambda sel, _text: sel.xpath("//a[@href]"),
     "//div//a[@href]": lambda sel, _text: sel.xpath("//div//a[@href]"),
@@ -173,7 +182,7 @@ def _xpath_scaling(case: tuple[str, str]) -> None:
 
 
 def xpath(case: tuple[str, str]) -> None:
-    """Evaluate one XPath feature class with parsel's lxml-backed engine, by case kind."""
+    # Evaluate one XPath feature class with parsel's lxml-backed engine, by case kind.
     kind, text = case
     if (call := _XPATH_CALLS.get(kind)) is None:
         # parsel runs on lxml's libxml2, an XPath 1.0 engine, so the same message keys both columns to one legend note
@@ -198,7 +207,7 @@ def _encode_inner(text: str) -> bytes:
     return _serialize_inner(text).encode()
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "serialize-inner": (_serialize_inner, "parsel"),
     "encode-inner": (_encode_inner, "parsel"),
     "parse": (parse, "parsel"),

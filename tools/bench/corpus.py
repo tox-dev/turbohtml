@@ -12,11 +12,12 @@ from __future__ import annotations
 import html
 import random
 from pathlib import Path
+from typing import Final
 
-_TOOLS = Path(__file__).resolve().parent.parent
+_TOOLS: Final[Path] = Path(__file__).resolve().parent.parent
 
-CORPUS_DIR = _TOOLS / "html5lib-python" / "benchmarks" / "data"
-CORPUS_FILES: tuple[tuple[str, str, str], ...] = (
+_CORPUS_DIR: Final[Path] = _TOOLS / "html5lib-python" / "benchmarks" / "data"
+CORPUS_FILES: Final[tuple[tuple[str, str, str], ...]] = (
     ("wpt tiny (0.6 kB)", "wpt/weighted/toBlob.png.html", "utf-8"),
     ("wpt small (4 kB)", "wpt/weighted/align-content-wrap-002.html", "utf-8"),
     ("wpt medium (9.6 kB)", "wpt/weighted/grid-auto-fill-rows-001.html", "utf-8"),
@@ -27,16 +28,16 @@ CORPUS_FILES: tuple[tuple[str, str, str], ...] = (
 
 
 def corpus_text(relative: str, encoding: str) -> str:
-    """Return a corpus document from the html5lib-python submodule."""
-    target = CORPUS_DIR / relative
+    # Return a corpus document from the html5lib-python submodule.
+    target = _CORPUS_DIR / relative
     if not target.exists():
         msg = f"{target} is missing; run 'git submodule update --init tools/html5lib-python'"
         raise FileNotFoundError(msg)
     return target.read_text(encoding=encoding, errors="replace")
 
 
-_LARGE_DIR = _TOOLS / ".bench_data"
-LARGE_FILES: tuple[tuple[str, str, str], ...] = (
+_LARGE_DIR: Final[Path] = _TOOLS / ".bench_data"
+LARGE_FILES: Final[tuple[tuple[str, str, str], ...]] = (
     (
         "ecmascript spec (3 MB)",
         "ecma262-spec.html",
@@ -53,9 +54,9 @@ LARGE_FILES: tuple[tuple[str, str, str], ...] = (
 # nested div/a or links, so the selector and link operations matched nothing on them; these are real
 # saved web pages (a blog, a news article, a product blog) from the mozilla/readability test corpus,
 # pinned by commit, so find/select/:has/edit/chain/extract all run against genuine structure.
-_READABILITY = "08be6b4bdb204dd333c9b7a0cfbc0e730b257252"
-_RP = f"https://raw.githubusercontent.com/mozilla/readability/{_READABILITY}/test/test-pages"
-REAL_PAGES: tuple[tuple[str, str, str], ...] = (
+_READABILITY: Final[str] = "08be6b4bdb204dd333c9b7a0cfbc0e730b257252"
+_RP: Final[str] = f"https://raw.githubusercontent.com/mozilla/readability/{_READABILITY}/test/test-pages"
+REAL_PAGES: Final[tuple[tuple[str, str, str], ...]] = (
     ("daring fireball (10 kB)", "real-daringfireball.html", f"{_RP}/daringfireball-1/source.html"),
     ("ars technica (56 kB)", "real-ars.html", f"{_RP}/ars-1/source.html"),
     ("mozilla blog (95 kB)", "real-mozilla.html", f"{_RP}/mozilla-1/source.html"),
@@ -64,7 +65,7 @@ REAL_PAGES: tuple[tuple[str, str, str], ...] = (
 
 # Real-world stylesheets for the CSS-minify suite, pinned to release tags and fetched on first use (too many to
 # vendor), spanning a 6 kB reset to a 745 kB framework -- the unminified source CSS those projects publish.
-STYLESHEETS: tuple[tuple[str, str, str], ...] = (
+STYLESHEETS: Final[tuple[tuple[str, str, str], ...]] = (
     (
         "normalize.css (6 kB)",
         "normalize.css",
@@ -90,35 +91,13 @@ STYLESHEETS: tuple[tuple[str, str, str], ...] = (
 )
 
 
-def large_text(filename: str, url: str) -> str:
-    """Return a multi-megabyte document, downloading and caching it on first use."""
-    return _cached(filename, url).read_text(encoding="utf-8")
+_DATA_DIR: Final[Path] = _TOOLS / "bench-data"
 
-
-def _cached(filename: str, url: str) -> Path:
-    """
-    Return the cache path for a downloaded corpus, fetching it on a miss.
-
-    httpfetch pulls in httpx2, which a worker venv holds no reason to install: it carries pyperf, turbohtml, and at
-    most one competitor. So this module imports under the standard library alone, as its docstring promises, and the
-    import that needs the network sits at the miss. :func:`prefetch` fills the cache from the orchestrator, which does
-    have httpx2, before any worker starts, so a worker only ever hits.
-    """
-    target = _LARGE_DIR / filename
-    if not target.exists():
-        target.parent.mkdir(parents=True, exist_ok=True)
-        from httpfetch import fetch_bytes  # ruff:ignore[import-outside-top-level]  # see the docstring above
-
-        target.write_bytes(fetch_bytes(url))
-    return target
-
-
-_DATA_DIR = _TOOLS / "bench-data"
 
 # Real-world un-minified JavaScript libraries for the minify suite, a size ladder every
 # benchmarked minifier (including ES5-only calmjs.parse) parses. Downloaded and cached on
 # first use through large_text, like the multi-megabyte specs, rather than vendored.
-JS_FILES: tuple[tuple[str, str, str], ...] = (
+JS_FILES: Final[tuple[tuple[str, str, str], ...]] = (
     ("underscore 1.13 (67 kB)", "underscore-1.13.6.js", "https://cdn.jsdelivr.net/npm/underscore@1.13.6/underscore.js"),
     ("backbone 1.6 (79 kB)", "backbone-1.6.0.js", "https://cdn.jsdelivr.net/npm/backbone@1.6.0/backbone.js"),
     ("jquery 3.7 (279 kB)", "jquery-3.7.1.js", "https://code.jquery.com/jquery-3.7.1.js"),
@@ -126,32 +105,59 @@ JS_FILES: tuple[tuple[str, str, str], ...] = (
 )
 
 
-_ASCII_WORDS = (
+_ASCII_WORDS: Final[tuple[str, ...]] = (
     "the", "quick", "brown", "fox", "jumps", "over", "lazy", "dogs", "while", "zealous",
     "wizards", "vex", "sphinx", "judges", "of", "black", "quartz", "monoliths",
 )  # fmt: skip
-_UCS2_WORDS = (*_ASCII_WORDS, "résumé", "café", "naïve", "Москва", "über", "façade", "πλάτων", "Ω")
-_UCS4_WORDS = (*_UCS2_WORDS, "😀", "🎉", "🚀", "🐍")
-_REFERENCES = ("&amp;", "&lt;", "&gt;", "&quot;", "&#x27;", "&copy;", "&mdash;", "&eacute;", "&#62;", "&#127881;")
-_NUMERIC_REFERENCES = ("&#62;", "&#x3e;", "&#38;", "&#127881;", "&#x1F600;")
-
-TINY = 64
-MEDIUM = 4 * 2**10
-LARGE = 4 * 2**20
-_CHUNK = 64 * 2**10
 
 
-def corpus(relative: str, size: int) -> str:
-    """Return a latin-1-decoded byte slice of a vendored document (always a 1-byte unicode object)."""
-    path = _DATA_DIR / relative
-    if not path.exists():
-        msg = f"{path} is missing; run: git submodule update --init --depth 1 tools/bench-data/war-and-peace"
-        raise FileNotFoundError(msg)
-    return path.read_bytes()[:size].decode("latin-1")
+_UCS2_WORDS: Final[tuple[str, ...]] = (
+    *_ASCII_WORDS,
+    "résumé",
+    "café",
+    "naïve",
+    "Москва",
+    "über",
+    "façade",
+    "πλάτων",
+    "Ω",
+)
+
+
+_UCS4_WORDS: Final[tuple[str, ...]] = (*_UCS2_WORDS, "😀", "🎉", "🚀", "🐍")
+
+
+_TINY: Final[int] = 64
+
+
+_MEDIUM: Final[int] = 4 * 2**10
+
+
+_LARGE: Final[int] = 4 * 2**20
+
+
+_CHUNK: Final[int] = 64 * 2**10
+
+
+def escape_cases() -> tuple[tuple[str, str], ...]:
+    # Return the (case name, input) pairs for the escape operation.
+    rng = random.Random(0)
+    return (
+        ("tiny plain (64 B)", _prose_of(rng, _ASCII_WORDS, _TINY)),
+        ("medium markup (4 KiB)", _markup_of(rng, _ASCII_WORDS, _MEDIUM)),
+        ("no-op prose (4 MiB)", _tile(_prose_of(rng, _ASCII_WORDS, _CHUNK), _LARGE)),
+        ("book text (3 MiB)", corpus("war-and-peace/2600.txt", _LARGE)),
+        ("book HTML (4 MiB)", corpus("war-and-peace/2600-h/2600-h.htm", _LARGE)),
+        ("spec HTML, dense (4 MiB)", large_text(*LARGE_FILES[1][1:]).encode()[:_LARGE].decode("latin-1")),
+        ("UCS-2 plain (4 MiB)", _tile(_prose_of(rng, _UCS2_WORDS, _CHUNK), _LARGE)),
+        ("UCS-2 markup (4 MiB)", _tile(_markup_of(rng, _UCS2_WORDS, _CHUNK), _LARGE)),
+        ("UCS-4 plain (4 MiB)", _tile(_prose_of(rng, _UCS4_WORDS, _CHUNK), _LARGE)),
+        ("UCS-4 markup (4 MiB)", _tile(_markup_of(rng, _UCS4_WORDS, _CHUNK), _LARGE)),
+    )
 
 
 def _prose_of(rng: random.Random, vocabulary: tuple[str, ...], size: int) -> str:
-    """Build at least ``size`` characters of word soup with nothing to escape."""
+    # Build at least ``size`` characters of word soup with nothing to escape.
     pieces: list[str] = []
     total = 0
     while total < size:
@@ -162,7 +168,7 @@ def _prose_of(rng: random.Random, vocabulary: tuple[str, ...], size: int) -> str
 
 
 def _markup_of(rng: random.Random, vocabulary: tuple[str, ...], size: int) -> str:
-    """Build at least ``size`` characters of HTML-looking text rich in characters escape() rewrites."""
+    # Build at least ``size`` characters of HTML-looking text rich in characters escape() rewrites.
     pieces: list[str] = []
     total = 0
     while total < size:
@@ -174,8 +180,62 @@ def _markup_of(rng: random.Random, vocabulary: tuple[str, ...], size: int) -> st
     return "".join(pieces)
 
 
+def _tile(chunk: str, size: int) -> str:
+    # Repeat ``chunk`` up to exactly ``size`` characters.
+    return (chunk * (size // len(chunk) + 1))[:size]
+
+
+def corpus(relative: str, size: int) -> str:
+    # Return a latin-1-decoded byte slice of a vendored document (always a 1-byte unicode object).
+    path = _DATA_DIR / relative
+    if not path.exists():
+        msg = f"{path} is missing; run: git submodule update --init --depth 1 tools/bench-data/war-and-peace"
+        raise FileNotFoundError(msg)
+    return path.read_bytes()[:size].decode("latin-1")
+
+
+def large_text(filename: str, url: str) -> str:
+    # Return a multi-megabyte document, downloading and caching it on first use.
+    return _cached(filename, url).read_text(encoding="utf-8")
+
+
+def _cached(filename: str, url: str) -> Path:
+    # Return the cache path for a downloaded corpus, fetching it on a miss.
+    #
+    # httpfetch pulls in httpx2, which a worker venv holds no reason to install: it carries pyperf, turbohtml, and at
+    # most one competitor. So this module imports under the standard library alone, as its docstring promises, and the
+    # import that needs the network sits at the miss. :func:`prefetch` fills the cache from the orchestrator, which does
+    # have httpx2, before any worker starts, so a worker only ever hits.
+    target = _LARGE_DIR / filename
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        from httpfetch import fetch_bytes  # ruff:ignore[import-outside-top-level]  # see the docstring above
+
+        target.write_bytes(fetch_bytes(url))
+    return target
+
+
+def unescape_cases() -> tuple[tuple[str, str], ...]:
+    # Return the (case name, input) pairs for the unescape operation.
+    rng = random.Random(1)
+    book_html = corpus("war-and-peace/2600-h/2600-h.htm", _LARGE)
+    references = ("&amp;", "&lt;", "&gt;", "&quot;", "&#x27;", "&copy;", "&mdash;", "&eacute;", "&#62;", "&#127881;")
+    return (
+        ("tiny plain (64 B)", _prose_of(rng, _ASCII_WORDS, _TINY)),
+        ("medium dense refs (4 KiB)", _references_of(rng, _ASCII_WORDS, 1, _MEDIUM, references)),
+        (
+            "numeric refs (4 KiB)",
+            _references_of(rng, _ASCII_WORDS, 1, _MEDIUM, ("&#62;", "&#x3e;", "&#38;", "&#127881;", "&#x1F600;")),
+        ),
+        ("book HTML, real refs (4 MiB)", book_html),
+        ("escaped book HTML (5 MiB)", html.escape(book_html)),
+        ("dense refs (4 MiB)", _tile(_references_of(rng, _ASCII_WORDS, 1, _CHUNK, references), _LARGE)),
+        ("UCS-2 refs (4 MiB)", _tile(_references_of(rng, _UCS2_WORDS, 10, _CHUNK, references), _LARGE)),
+    )
+
+
 def _references_of(rng: random.Random, vocab: tuple[str, ...], gap: int, size: int, refs: tuple[str, ...]) -> str:
-    """Build at least ``size`` characters of prose with a character reference after every ``gap`` words."""
+    # Build at least ``size`` characters of prose with a character reference after every ``gap`` words.
     pieces: list[str] = []
     total = 0
     while total < size:
@@ -189,45 +249,23 @@ def _references_of(rng: random.Random, vocab: tuple[str, ...], gap: int, size: i
     return " ".join(pieces)
 
 
-def _tile(chunk: str, size: int) -> str:
-    """Repeat ``chunk`` up to exactly ``size`` characters."""
-    return (chunk * (size // len(chunk) + 1))[:size]
-
-
-def escape_cases() -> tuple[tuple[str, str], ...]:
-    """Return the (case name, input) pairs for the escape operation."""
-    rng = random.Random(0)
-    return (
-        ("tiny plain (64 B)", _prose_of(rng, _ASCII_WORDS, TINY)),
-        ("medium markup (4 KiB)", _markup_of(rng, _ASCII_WORDS, MEDIUM)),
-        ("no-op prose (4 MiB)", _tile(_prose_of(rng, _ASCII_WORDS, _CHUNK), LARGE)),
-        ("book text (3 MiB)", corpus("war-and-peace/2600.txt", LARGE)),
-        ("book HTML (4 MiB)", corpus("war-and-peace/2600-h/2600-h.htm", LARGE)),
-        ("spec HTML, dense (4 MiB)", large_text(*LARGE_FILES[1][1:]).encode()[:LARGE].decode("latin-1")),
-        ("UCS-2 plain (4 MiB)", _tile(_prose_of(rng, _UCS2_WORDS, _CHUNK), LARGE)),
-        ("UCS-2 markup (4 MiB)", _tile(_markup_of(rng, _UCS2_WORDS, _CHUNK), LARGE)),
-        ("UCS-4 plain (4 MiB)", _tile(_prose_of(rng, _UCS4_WORDS, _CHUNK), LARGE)),
-        ("UCS-4 markup (4 MiB)", _tile(_markup_of(rng, _UCS4_WORDS, _CHUNK), LARGE)),
-    )
-
-
-def unescape_cases() -> tuple[tuple[str, str], ...]:
-    """Return the (case name, input) pairs for the unescape operation."""
-    rng = random.Random(1)
-    book_html = corpus("war-and-peace/2600-h/2600-h.htm", LARGE)
-    return (
-        ("tiny plain (64 B)", _prose_of(rng, _ASCII_WORDS, TINY)),
-        ("medium dense refs (4 KiB)", _references_of(rng, _ASCII_WORDS, 1, MEDIUM, _REFERENCES)),
-        ("numeric refs (4 KiB)", _references_of(rng, _ASCII_WORDS, 1, MEDIUM, _NUMERIC_REFERENCES)),
-        ("book HTML, real refs (4 MiB)", book_html),
-        ("escaped book HTML (5 MiB)", html.escape(book_html)),
-        ("dense refs (4 MiB)", _tile(_references_of(rng, _ASCII_WORDS, 1, _CHUNK, _REFERENCES), LARGE)),
-        ("UCS-2 refs (4 MiB)", _tile(_references_of(rng, _UCS2_WORDS, 10, _CHUNK, _REFERENCES), LARGE)),
-    )
-
-
 def prefetch() -> None:
-    """Download every cached corpus that is missing, so the worker venvs only ever read from the cache."""
+    # Download every cached corpus that is missing, so the worker venvs only ever read from the cache.
     for table in (LARGE_FILES, REAL_PAGES, STYLESHEETS, JS_FILES):
         for _name, filename, url in table:
             _cached(filename, url)
+
+
+__all__ = [
+    "CORPUS_FILES",
+    "JS_FILES",
+    "LARGE_FILES",
+    "REAL_PAGES",
+    "STYLESHEETS",
+    "corpus",
+    "corpus_text",
+    "escape_cases",
+    "large_text",
+    "prefetch",
+    "unescape_cases",
+]

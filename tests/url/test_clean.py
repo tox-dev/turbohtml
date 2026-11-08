@@ -1,8 +1,7 @@
-"""clean_url: the scrub pass, the web-URL validation, the language filter, and the UrlCleaning config itself."""
-
 from __future__ import annotations
 
 import itertools
+from functools import partial
 from ipaddress import IPv6Address
 from typing import TYPE_CHECKING, Final
 
@@ -77,7 +76,7 @@ def test_clean_scrubs_markup_damage(url: str, expected: str) -> None:
     ],
 )
 def test_clean_dangling_amp_after_query_cleanup(url: str, expected: str) -> None:
-    assert ((cleaned := clean_url(url)), clean_url(cleaned) if cleaned is not None else None) == (expected, expected)
+    assert (clean_url(url), clean_url(expected)) == (expected, expected)
 
 
 @pytest.mark.parametrize(
@@ -125,14 +124,7 @@ def test_clean_rejects_invalid_ipv6_hosts(url: str) -> None:
 @pytest.mark.parametrize(
     ("url", "expected"),
     [
-        pytest.param("HTTP://LOCALHOST:/x", None, id="dotless-empty-port"),
-        pytest.param("HTTP://LOCALHOST:80/x", None, id="dotless-http-default"),
-        pytest.param("HTTPS://LOCALHOST:443/x", None, id="dotless-https-default"),
-        pytest.param("HTTP://LOCALHOST:0080/x", None, id="dotless-padded-default"),
-        pytest.param("HTTP://user.name@LOCALHOST:/x", None, id="userinfo-dot-is-not-host-dot"),
-        pytest.param("HTTP://\u00ad:8000/x", None, id="mapped-empty-host"),
         pytest.param("HTTP://LOCALHOST:08000/a/../x", "http://localhost:8000/x", id="nondefault-port"),
-        pytest.param("HTTP://LOCALHOST:80x/a/../x", None, id="invalid-port"),
         pytest.param("HTTP://[0:0:0:0:0:0:0:1]:80/a/../x", "http://[::1]/x", id="ipv6-default-port"),
         pytest.param("HTTP://[::1]:/a/../x", "http://[::1]/x", id="ipv6-empty-port"),
         pytest.param("HTTP://EXAMPLE.ORG:80/a/../x", "http://example.org/x", id="dotted-default-port"),
@@ -144,27 +136,43 @@ def test_clean_rejects_invalid_ipv6_hosts(url: str) -> None:
         pytest.param("HTTP://user:pw@LOCALHOST:80/a/../x", "http://user:pw@localhost/x", id="userinfo-colon-kept"),
         pytest.param("HTTP://m\xfcnchen.de:80/a/../x", "http://xn--mnchen-3ya.de/x", id="latin1-host"),
         pytest.param("HTTP://\xe9:pw@LOCALHOST:80/a/../x", "http://%C3%A9:pw@localhost/x", id="latin1-userinfo-colon"),
-        pytest.param("HTTP://\xe9@LOCALHOST:80/a/../x", None, id="latin1-userinfo-no-colon"),
         pytest.param("HTTP://\u0100:pw@LOCALHOST:80/a/../x", "http://%C4%80:pw@localhost/x", id="bmp-userinfo-colon"),
-        pytest.param("HTTP://\u0100@LOCALHOST:80/a/../x", None, id="bmp-userinfo-no-colon"),
         pytest.param(
             "HTTP://\U00010000:pw@LOCALHOST:80/a/../x", "http://%F0%90%80%80:pw@localhost/x", id="astral-userinfo-colon"
         ),
-        pytest.param("HTTP://\U00010000@LOCALHOST:80/a/../x", None, id="astral-userinfo-no-colon"),
-        pytest.param("HTTP://a\u202eb/a/../x", None, id="bmp-host-low-byte-dot"),
-        pytest.param("HTTP://a\U0001002eb/a/../x", None, id="astral-host-low-byte-dot"),
-        pytest.param("HTTP://\u203a@LOCALHOST:80/a/../x", None, id="bmp-userinfo-low-byte-colon"),
-        pytest.param("HTTP://\U0001003a@LOCALHOST:80/a/../x", None, id="astral-userinfo-low-byte-colon"),
-        pytest.param("HTTP://a\ufffeb.EXAMPLE:80/a/../x", None, id="wide-host-dot"),
         pytest.param(
             "HTTP://u\x00:pw@LOCALHOST:80/a/../x", "http://u%00:pw@localhost/x", id="nul-before-userinfo-colon"
         ),
-        pytest.param("HTTP://a\x00b.EXAMPLE:80/a/../x", None, id="nul-before-host-dot"),
-        pytest.param("HTTP://:8000/a/../x", None, id="empty-host"),
     ],
 )
-def test_clean_canonical_host_shape(url: str, expected: str | None) -> None:
-    assert ((cleaned := clean_url(url)), clean_url(cleaned) if cleaned is not None else None) == (expected, expected)
+def test_clean_canonical_host_shape(url: str, expected: str) -> None:
+    assert (clean_url(url), clean_url(expected)) == (expected, expected)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("HTTP://LOCALHOST:/x", id="dotless-empty-port"),
+        pytest.param("HTTP://LOCALHOST:80/x", id="dotless-http-default"),
+        pytest.param("HTTPS://LOCALHOST:443/x", id="dotless-https-default"),
+        pytest.param("HTTP://LOCALHOST:0080/x", id="dotless-padded-default"),
+        pytest.param("HTTP://user.name@LOCALHOST:/x", id="userinfo-dot-is-not-host-dot"),
+        pytest.param("HTTP://\u00ad:8000/x", id="mapped-empty-host"),
+        pytest.param("HTTP://LOCALHOST:80x/a/../x", id="invalid-port"),
+        pytest.param("HTTP://\xe9@LOCALHOST:80/a/../x", id="latin1-userinfo-no-colon"),
+        pytest.param("HTTP://\u0100@LOCALHOST:80/a/../x", id="bmp-userinfo-no-colon"),
+        pytest.param("HTTP://\U00010000@LOCALHOST:80/a/../x", id="astral-userinfo-no-colon"),
+        pytest.param("HTTP://a\u202eb/a/../x", id="bmp-host-low-byte-dot"),
+        pytest.param("HTTP://a\U0001002eb/a/../x", id="astral-host-low-byte-dot"),
+        pytest.param("HTTP://\u203a@LOCALHOST:80/a/../x", id="bmp-userinfo-low-byte-colon"),
+        pytest.param("HTTP://\U0001003a@LOCALHOST:80/a/../x", id="astral-userinfo-low-byte-colon"),
+        pytest.param("HTTP://a\ufffeb.EXAMPLE:80/a/../x", id="wide-host-dot"),
+        pytest.param("HTTP://a\x00b.EXAMPLE:80/a/../x", id="nul-before-host-dot"),
+        pytest.param("HTTP://:8000/a/../x", id="empty-host"),
+    ],
+)
+def test_clean_rejects_non_canonical_hosts(url: str) -> None:
+    assert clean_url(url) is None
 
 
 @pytest.mark.parametrize(
@@ -245,32 +253,42 @@ def test_language_must_be_iso_639_1() -> None:
         UrlCleaning(language="german")
 
 
-_KNOBS: Final = (False, True, False, None, frozenset(), frozenset({"id"}), frozenset({"lang"}))
+_KNOBS: Final[tuple[bool | frozenset[str] | None, ...]] = (
+    False,
+    True,
+    False,
+    None,
+    frozenset(),
+    frozenset({"id"}),
+    frozenset({"lang"}),
+)
 
 
 @pytest.mark.parametrize(
     ("entry", "args"),
     [
-        pytest.param(_url_normalize, ("http://x.com", *_KNOBS[:-1]), id="normalize-too-few"),
-        pytest.param(_url_clean, ("http://x.com", *_KNOBS), id="clean-too-few"),
-        pytest.param(_url_normalize, ("http://x.com", *_KNOBS[:3], 5, *_KNOBS[4:]), id="allow-not-iterable"),
-        pytest.param(_url_normalize, ("http://x.com", *_KNOBS[:3], {1}, *_KNOBS[4:]), id="allow-holds-an-int"),
-        pytest.param(_url_normalize, ("http://x.com", *_KNOBS[:4], {1}, *_KNOBS[5:]), id="deny-holds-an-int"),
+        pytest.param(partial(_url_normalize), ("http://x.com", *_KNOBS[:-1]), id="normalize-too-few"),
+        pytest.param(partial(_url_clean), ("http://x.com", *_KNOBS), id="clean-too-few"),
+        pytest.param(partial(_url_normalize), ("http://x.com", *_KNOBS[:3], 5, *_KNOBS[4:]), id="allow-not-iterable"),
+        pytest.param(partial(_url_normalize), ("http://x.com", *_KNOBS[:3], {1}, *_KNOBS[4:]), id="allow-holds-an-int"),
+        pytest.param(partial(_url_normalize), ("http://x.com", *_KNOBS[:4], {1}, *_KNOBS[5:]), id="deny-holds-an-int"),
         pytest.param(
-            _url_clean,
+            partial(_url_clean),
             ("http://x.com", *_KNOBS[:3], {1}, *_KNOBS[4:], None, frozenset()),
             id="clean-allow-holds-an-int",
         ),
     ],
 )
-def test_the_entry_points_reject_bad_arguments(entry: Callable[..., object], args: tuple[object, ...]) -> None:
+def test_the_entry_points_reject_bad_arguments(
+    entry: partial[str], args: tuple[str | bool | int | set[int] | frozenset[str] | None, ...]
+) -> None:
     with pytest.raises(TypeError):
         entry(*args)
 
 
 def test_extract_links_rejects_a_parameter_name_that_is_not_a_str() -> None:
     with pytest.raises(TypeError, match="query parameter names must be str"):
-        extract_links("", "https://a.com/", UrlCleaning(query_deny=frozenset({1})))  # ty: ignore[invalid-argument-type]
+        extract_links("", "https://a.com/", UrlCleaning(query_deny=frozenset({1})))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_the_document_entry_point_rejects_too_few_arguments() -> None:
@@ -481,8 +499,8 @@ def test_a_relative_href_against_an_unsplittable_base_element_is_dropped() -> No
     [
         pytest.param("HTTPS://WWW.DWDS.DE/", "https://www.dwds.de/", id="scheme-and-host-lowercased"),
         pytest.param(
-            "https://" + ".".join(("A" * 63, "B" * 63, "C" * 63, "D" * 49, "example", "org")) + "/",
-            "https://" + ".".join(("a" * 63, "b" * 63, "c" * 63, "d" * 49, "example", "org")) + "/",
+            f"https://{'.'.join(('A' * 63, 'B' * 63, 'C' * 63, 'D' * 49, 'example', 'org'))}/",
+            f"https://{'.'.join(('a' * 63, 'b' * 63, 'c' * 63, 'd' * 49, 'example', 'org'))}/",
             id="maximum-dns-host-length",
         ),
         pytest.param("https://\u212a.Example.ORG/", "https://k.example.org/", id="lowercase-narrows-host-to-ascii"),
@@ -599,7 +617,9 @@ def test_normalize_rejects_unclosed_host_bracket_after_userinfo() -> None:
         normalize_url("http://]u@[::1/x")
 
 
-@pytest.mark.parametrize("url", ["http://[::1]x/", "git://[::1]\\.."])
+@pytest.mark.parametrize(
+    "url", [pytest.param("http://[::1]x/", id="http-trailing-text"), pytest.param("git://[::1]\\..", id="git-dots")]
+)
 def test_normalize_rejects_ipv6_host_tail(url: str) -> None:
     with pytest.raises(ValueError, match="Invalid IPv6 URL"):
         normalize_url(url)
@@ -1371,9 +1391,9 @@ def test_normalize_valid_port(normalizer: Callable[[str], str | None], url: str,
     ("port", "suffix"),
     [
         pytest.param("0080", "", id="ascii-default-control"),
-        pytest.param("0" * 20 + "80", "", id="padded-default"),
-        pytest.param("0" * 4301 + "80", "", id="padded-default-past-python-limit"),
-        pytest.param("0" * 4301 + "1", ":1", id="padded-nondefault-past-python-limit"),
+        pytest.param(f"{'0' * 20}80", "", id="padded-default"),
+        pytest.param(f"{'0' * 4301}80", "", id="padded-default-past-python-limit"),
+        pytest.param(f"{'0' * 4301}1", ":1", id="padded-nondefault-past-python-limit"),
         pytest.param("0" * 4301, ":0", id="zero-past-python-limit"),
     ],
 )

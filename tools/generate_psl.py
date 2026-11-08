@@ -4,11 +4,13 @@ Generate src/turbohtml/_c/data/psl_table.h from the Public Suffix List.
 The registrable-domain boundary behind :func:`turbohtml.extract.extract_links`'s ``external_only`` needs the multi-label
 public suffixes (``co.uk``, ``github.io``, the ``*.ck`` wildcards) that the single-label IANA table cannot express: a
 label such as ``co`` or ``tv`` is itself a delegated TLD, so a plain "trailing TLD labels" rule would wrongly fold
-``sub.tv.com`` into ``tv.com``. The canonical source of the multi-label rules is the Public Suffix List, so this
-downloads it, keeps only the rules with at least two labels (the single-label public suffixes are the IANA TLDs already
-in ``tld_table.h``), punycodes any Unicode labels so they match the ASCII hosts ``normalize_url`` emits, and writes a
-generated header shaped like ``tld_table.h``: a sorted ``{name, len, labels, kind}`` array plus a 256-entry first-byte
-index, so a candidate suffix is matched by bucketing on its first byte and a case-insensitive ``memcmp``.
+``sub.tv.com`` into ``tv.com``.
+
+The canonical source of the multi-label rules is the Public Suffix List, so this downloads it, keeps only the rules with
+at least two labels (the single-label public suffixes are the IANA TLDs already in ``tld_table.h``), punycodes any
+Unicode labels so they match the ASCII hosts ``normalize_url`` emits, and writes a generated header shaped like
+``tld_table.h``: a sorted ``{name, len, labels, kind}`` array plus a 256-entry first-byte index, so a candidate suffix
+is matched by bucketing on its first byte and a case-insensitive ``memcmp``.
 
 A rule's ``kind`` is 0 for a normal rule (``co.uk``), 1 for a wildcard rule stored with its ``*.`` prefix (``*.ck``,
 matching any single label in that position), and 2 for an exception rule stored without its leading ``!`` (``www.ck``,
@@ -23,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import sys
 from pathlib import Path
+from typing import Final
 
 from httpfetch import fetch_bytes
 
@@ -31,43 +34,42 @@ from httpfetch import fetch_bytes
 # the file it serves so a compromised delivery path cannot swap the content under a trusted commit URL; a rebuild
 # fails on either mismatch. Bump both deliberately and review the psl_table.h diff. Pinned to the publicsuffix/list
 # main tip of 2026-07-01.
-PSL_COMMIT = "d67b6cb8e70e9c76b0803809b66e7ffdd09484bd"
-PSL_SHA256 = "da98b262f8fa86b5c19e320ba18cf83ce9a9a0e53f9317193fa84dd9f0fe80a2"
-PSL_URL = f"https://raw.githubusercontent.com/publicsuffix/list/{PSL_COMMIT}/public_suffix_list.dat"
-
-_NORMAL = 0
-_WILDCARD = 1
-_EXCEPTION = 2
+_PSL_COMMIT: Final[str] = "d67b6cb8e70e9c76b0803809b66e7ffdd09484bd"
+_PSL_URL: Final[str] = f"https://raw.githubusercontent.com/publicsuffix/list/{_PSL_COMMIT}/public_suffix_list.dat"
 
 
 def _punycode(rule: str) -> str:
-    """Return *rule* with every non-ASCII label converted to its ``xn--`` form, leaving ``*`` and ASCII untouched."""
+    # Return *rule* with every non-ASCII label converted to its ``xn--`` form, leaving ``*`` and ASCII untouched.
     return ".".join(
         label if label == "*" or label.isascii() else label.encode("idna").decode("ascii") for label in rule.split(".")
     )
 
 
 def fetch_rules() -> tuple[str, list[tuple[str, int]]]:
-    """Return the fetched-commit marker and the ``(rule_text, kind)`` pairs for every multi-label PSL rule."""
-    raw = fetch_bytes(PSL_URL)
-    if (digest := hashlib.sha256(raw).hexdigest()) != PSL_SHA256:
-        msg = f"PSL source at {PSL_COMMIT} has sha256 {digest}, not the pinned {PSL_SHA256}; review, then bump the pin"
+    # Return the fetched-commit marker and the ``(rule_text, kind)`` pairs for every multi-label PSL rule.
+    raw = fetch_bytes(_PSL_URL)
+    psl_sha256 = "da98b262f8fa86b5c19e320ba18cf83ce9a9a0e53f9317193fa84dd9f0fe80a2"
+    if (digest := hashlib.sha256(raw).hexdigest()) != psl_sha256:
+        msg = f"PSL source at {_PSL_COMMIT} has sha256 {digest}, not the pinned {psl_sha256}; review, then bump the pin"
         raise SystemExit(msg)
     text = raw.decode("utf-8")
     rules: dict[str, int] = {}
+    normal = 0
+    exception: int = 2
+    wildcard = 1
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith("//"):
             continue
-        kind = _EXCEPTION if line.startswith("!") else (_WILDCARD if line.startswith("*.") else _NORMAL)
+        kind = exception if line.startswith("!") else (wildcard if line.startswith("*.") else normal)
         rule = _punycode(line.removeprefix("!").lower())
         if rule.count(".") >= 1:  # single-label public suffixes are the IANA TLDs in tld_table.h
             rules[rule] = kind
-    return PSL_COMMIT, sorted(rules.items())
+    return _PSL_COMMIT, sorted(rules.items())
 
 
 def generate(out_path: Path) -> None:
-    """Write the generated public-suffix-table C header to *out_path*."""
+    # Write the generated public-suffix-table C header to *out_path*.
     commit, pairs = fetch_rules()
     names = [name for name, _kind in pairs]
     table_lines = "\n".join(f'    {{"{name}", {len(name)}u, {name.count(".") + 1}u, {kind}u}},' for name, kind in pairs)

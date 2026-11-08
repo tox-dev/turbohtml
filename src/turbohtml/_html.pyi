@@ -372,6 +372,9 @@ from ._stubs.query import (
     _register_selector_error as _register_selector_error,
 )
 from ._stubs.query import (
+    _register_xpath_depth_error as _register_xpath_depth_error,
+)
+from ._stubs.query import (
     _register_xpath_string as _register_xpath_string,
 )
 from ._stubs.query import (
@@ -497,3 +500,9 @@ from .extract._structured_data import (
 from .extract._structured_data import (
     StructuredData as StructuredData,
 )
+
+# Fuzz-only hooks: only the fuzz-only build (meson -Dfuzzing=true) defines them.
+def _fuzz_crash(kind: str, /) -> None: ...
+def _fuzz_escape_iterators(owner: Node, /) -> int: ...
+def _fuzz_inject_failure(position: int, /) -> tuple[int, bool]: ...
+def _fuzz_verify_broken(kind: str, /) -> tuple[int, int, int, int]: ...

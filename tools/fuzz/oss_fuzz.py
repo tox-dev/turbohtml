@@ -13,36 +13,27 @@ from .atheris_targets import public_targets
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-__all__ = ["atheris_target_names", "fuzzer_name", "main", "write_harnesses", "write_seeds"]
-
 # the javascript target checks the minifier against acorn and eslint-scope running in Node, which the OSS-Fuzz runner
 # image does not carry; build.sh fuzzes the same engine through the native js_minify harness instead
-_NEEDS_NODE: Final = frozenset({"javascript"})
-_ROOT: Final = Path(__file__).resolve().parents[2]
-_ENTRY: Final = """import sys
-
-from fuzz.atheris_driver import fuzz
-from fuzz.atheris_targets import MODULES, public_targets
-
-fuzz(public_targets(), MODULES, {name!r}, sys.argv)
-"""
+_NEEDS_NODE: Final[frozenset[str]] = frozenset({"javascript"})
+_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Print the written harnesses or seeds for build.sh to package."""
+    # Print the written harnesses or seeds for build.sh to package.
     parser: Final = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["harnesses", "seeds"])
     parser.add_argument("--output", type=Path, required=True)
     arguments: Final = parser.parse_args(argv)
     for path in (
-        write_harnesses(arguments.output) if arguments.command == "harnesses" else write_seeds(arguments.output)
+        write_harnesses(arguments.output) if arguments.command == "harnesses" else _write_seeds(arguments.output)
     ):
         print(path)
     return 0
 
 
-def write_seeds(output: Path) -> list[Path]:
-    """Give every Atheris seed a no-failure header so corpus replay reaches the target."""
+def _write_seeds(output: Path) -> list[Path]:
+    # Give every Atheris seed a no-failure header so corpus replay reaches the target.
     output.mkdir(parents=True, exist_ok=True)
     paths: Final[list[Path]] = []
     for pattern in ("tools/fuzz/corpus/*/*", "tests/fuzz_regressions/*"):
@@ -55,24 +46,39 @@ def write_seeds(output: Path) -> list[Path]:
 
 
 def write_harnesses(output: Path) -> list[Path]:
-    """Write one script per target; compile_python_fuzzer packages each into its own fuzzer."""
+    # Write one script per target; compile_python_fuzzer packages each into its own fuzzer.
     output.mkdir(parents=True, exist_ok=True)
     paths: Final[list[Path]] = []
+    entry = """import sys
+
+from fuzz.atheris_driver import fuzz
+from fuzz.atheris_targets import MODULES, public_targets
+
+fuzz(public_targets(), MODULES, {name!r}, sys.argv)
+"""
     for name in atheris_target_names():
         path = output / f"{fuzzer_name(name)}.py"
-        path.write_text(_ENTRY.format(name=name), encoding="utf-8")
+        path.write_text(entry.format(name=name), encoding="utf-8")
         paths.append(path)
     return paths
 
 
 def fuzzer_name(target: str) -> str:
-    """Name the entry script, and so the fuzzer OSS-Fuzz derives from it, as a Python identifier."""
-    return "fuzz_" + target.replace("-", "_")
+    # Name the entry script, and so the fuzzer OSS-Fuzz derives from it, as a Python identifier.
+    return f"fuzz_{target.replace('-', '_')}"
 
 
 def atheris_target_names() -> tuple[str, ...]:
-    """Every registered Atheris target the runner image can execute."""
+    # Every registered Atheris target the runner image can execute.
     return tuple(target.name for target in public_targets() if target.name not in _NEEDS_NODE)
+
+
+__all__ = [
+    "atheris_target_names",
+    "fuzzer_name",
+    "main",
+    "write_harnesses",
+]
 
 
 if __name__ == "__main__":

@@ -18,16 +18,6 @@ from __future__ import annotations
 from ._html import _css_specificity, _css_to_xpath
 from ._internal._selectors import SelectorSyntaxError
 
-__all__ = [
-    "ExpressionError",
-    "GenericTranslator",
-    "HTMLTranslator",
-    "SelectorError",
-    "SelectorSyntaxError",
-    "css_specificity",
-    "css_to_xpath",
-]
-
 
 class SelectorError(Exception):
     """Parent of :class:`ExpressionError`, mirroring cssselect's error base for a valid-but-untranslatable selector."""
@@ -107,3 +97,14 @@ class HTMLTranslator(GenericTranslator):
     def __init__(self, xhtml: bool = False) -> None:  # ruff:ignore[boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # positional bool mirrors cssselect
         """Record the cssselect-compatible ``xhtml`` flag."""
         self.xhtml = xhtml
+
+
+__all__ = [
+    "ExpressionError",
+    "GenericTranslator",
+    "HTMLTranslator",
+    "SelectorError",
+    "SelectorSyntaxError",
+    "css_specificity",
+    "css_to_xpath",
+]

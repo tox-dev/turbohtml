@@ -19,18 +19,34 @@ import tempfile
 from pathlib import Path
 from typing import Final
 
-_ROOT: Final = Path(__file__).resolve().parent.parent
-_BUILD: Final = _ROOT / "build" / "preprocess-identity"
+_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
+_BUILD: Final[Path] = _ROOT / "build" / "preprocess-identity"
 
 
 def main() -> int:
-    """Return 0 when every translation unit preprocesses identically with the fuzz-only branches stripped."""
+    # Return 0 when every translation unit preprocesses identically with the fuzz-only branches stripped.
     if not (_BUILD / "compile_commands.json").is_file():
         subprocess.run(["meson", "setup", str(_BUILD), "--buildtype=release", "-Db_lto=true"], cwd=_ROOT, check=True)
     entries = json.loads((_BUILD / "compile_commands.json").read_text(encoding="utf-8"))
     with tempfile.TemporaryDirectory(prefix="th-preprocess-") as scratch:
         mirror = Path(scratch)
-        _strip(mirror)
+        # Mirror ``src`` with the fuzz-only branches blanked and the build directory's include paths created.
+        for source in sorted((_ROOT / "src").rglob("*")):
+            target = mirror / source.relative_to(_ROOT)
+            if source.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            elif source.suffix in {".c", ".h"}:
+                result = subprocess.run(
+                    ["unifdef", "-b", "-UFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION", "-o", str(target), str(source)],
+                    check=False,
+                    capture_output=True,
+                )
+                # unifdef exits 0 when the output equals the input, 1 when it removed a branch, 2 on an error
+                if result.returncode not in {0, 1}:
+                    msg = f"unifdef failed on {source}: {result.stderr.decode()}"
+                    raise SystemExit(msg)
+        for directory in (_BUILD, *(path for path in _BUILD.rglob("*") if path.is_dir())):
+            (mirror / directory.relative_to(_ROOT)).mkdir(parents=True, exist_ok=True)
         differing = [
             entry["file"]
             for entry in entries
@@ -41,26 +57,6 @@ def main() -> int:
         print(f"production preprocessing changes with the fuzz-only branches stripped: {name}", file=sys.stderr)
     print(f"{len(entries) - len(differing)} of {len(entries)} translation units preprocess identically")
     return 1 if differing else 0
-
-
-def _strip(mirror: Path) -> None:
-    """Mirror ``src`` with the fuzz-only branches blanked and the build directory's include paths created."""
-    for source in sorted((_ROOT / "src").rglob("*")):
-        target = mirror / source.relative_to(_ROOT)
-        if source.is_dir():
-            target.mkdir(parents=True, exist_ok=True)
-        elif source.suffix in {".c", ".h"}:
-            result = subprocess.run(
-                ["unifdef", "-b", "-UFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION", "-o", str(target), str(source)],
-                check=False,
-                capture_output=True,
-            )
-            # unifdef exits 0 when the output equals the input, 1 when it removed a branch, 2 on an error
-            if result.returncode not in {0, 1}:
-                msg = f"unifdef failed on {source}: {result.stderr.decode()}"
-                raise SystemExit(msg)
-    for directory in (_BUILD, *(path for path in _BUILD.rglob("*") if path.is_dir())):
-        (mirror / directory.relative_to(_ROOT)).mkdir(parents=True, exist_ok=True)
 
 
 def _preprocess(entry: dict[str, str], directory: Path) -> bytes:

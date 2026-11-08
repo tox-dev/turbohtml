@@ -15,7 +15,22 @@ from turbohtml import _version
 
 @pytest.mark.parametrize("version", ["1.2.3", "1.2.3.dev4+gabc"], ids=["release", "development"])
 def test_generate_version_configured_value(version_project: Path, version: str) -> None:
-    assert _version_cli(version_project, "--version", version) == version + "\n"
+    assert _version_cli(version_project, "--version", version) == f"{version}\n"
+
+
+def _version_cli(project: Path, *args: str) -> str:
+    return subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed Python executable and CLI
+        [sys.executable, str(project / "tools/generate_version.py"), *args],
+        cwd=project,
+        env={
+            **os.environ,
+            "GIT_CEILING_DIRECTORIES": str(project.parent.parent),
+            "MESON_DIST_ROOT": str(project / "sdist"),
+        },
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
 
 
 @pytest.mark.parametrize(
@@ -26,7 +41,7 @@ def test_generate_version_configured_value(version_project: Path, version: str) 
 def test_generate_version_reads_frozen_value(version_project: Path, declaration: str) -> None:
     target: Final = version_project / "src/turbohtml/_version.py"
     target.parent.mkdir(parents=True)
-    target.write_text(declaration + "\n", encoding="utf-8")
+    target.write_text(f"{declaration}\n", encoding="utf-8")
     assert _version_cli(version_project) == "1.2.3\n"
 
 
@@ -35,11 +50,13 @@ def test_generate_version_written_value_round_trips(version_project: Path) -> No
     assert _version_cli(version_project) == "1.2.3.dev4+gabc\n"
 
 
-@pytest.mark.parametrize(("editable", "expected"), [(False, "1.2.3"), (True, "9.8.7")], ids=["wheel", "editable"])
-def test_generate_version_import_matches_layout(version_project: Path, *, editable: bool, expected: str) -> None:
+@pytest.mark.parametrize(
+    ("generated_dir", "expected"), [("sample", "1.2.3"), ("generated", "9.8.7")], ids=["wheel", "editable"]
+)
+def test_generate_version_import_matches_layout(version_project: Path, *, generated_dir: str, expected: str) -> None:
     package: Final = version_project / "sample"
     package.mkdir()
-    generated: Final = version_project / "generated" if editable else package
+    generated: Final = version_project / generated_dir
     _version_cli(version_project, "--write", str(generated / "_version.py"), "--version", "1.2.3")
     package.joinpath("__init__.py").write_text(
         f"__path__.append({str(generated)!r})\nfrom ._version import __version__\n", encoding="utf-8"
@@ -56,7 +73,7 @@ def test_generate_version_import_matches_layout(version_project: Path, *, editab
         text=True,
         check=True,
     )
-    assert result.stdout == expected + "\n"
+    assert result.stdout == f"{expected}\n"
 
 
 def test_generate_version_installed_source_in_wheel_layout(version_project: Path) -> None:
@@ -81,7 +98,7 @@ def test_generate_version_installed_source_in_wheel_layout(version_project: Path
     sys.path.insert(0, str(version_project))
     try:
         spec.loader.exec_module(module)
-        assert module.__version__ + "\n" == _version_cli(version_project)
+        assert f"{module.__version__}\n" == _version_cli(version_project)
     finally:
         sys.path.remove(str(version_project))
         sys.modules.pop(f"{spec.name}._version", None)
@@ -104,21 +121,27 @@ def test_generate_version_sdist_ignores_enclosing_repository(version_repository:
     assert _version_cli(dist) == "1.2.3\n"
 
 
-@pytest.mark.parametrize("worktree", [False, True], ids=["git-directory", "git-file"])
-def test_generate_version_uses_own_repository(version_repository: Path, *, worktree: bool) -> None:
-    project: Final = version_repository / "checkout" if worktree else version_repository
-    if worktree:
-        git: Final = shutil.which("git")
-        assert git is not None
-        subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # local fixture repository
-            [git, "-C", str(version_repository), "worktree", "add", "--detach", str(project)],
-            check=True,
-            capture_output=True,
-        )
-        project.joinpath("tools").mkdir()
-        shutil.copyfile(version_repository / "tools/generate_version.py", project / "tools/generate_version.py")
+def test_generate_version_uses_own_repository(version_repository: Path) -> None:
+    _assert_own_version(version_repository)
+
+
+def _assert_own_version(project: Path) -> None:
     _version_cli(project, "--write", "src/turbohtml/_version.py", "--version", "1.2.3")
     assert _version_cli(project) == "2.0.0\n"
+
+
+def test_generate_version_uses_worktree_checkout(version_repository: Path) -> None:
+    project: Final = version_repository / "checkout"
+    git: Final = shutil.which("git")
+    assert git is not None
+    subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # local fixture repository
+        [git, "-C", str(version_repository), "worktree", "add", "--detach", str(project)],
+        check=True,
+        capture_output=True,
+    )
+    project.joinpath("tools").mkdir()
+    shutil.copyfile(version_repository / "tools/generate_version.py", project / "tools/generate_version.py")
+    _assert_own_version(project)
 
 
 @pytest.fixture
@@ -155,18 +178,3 @@ def version_repository(version_project: Path) -> Path:
             capture_output=True,
         )
     return version_project
-
-
-def _version_cli(project: Path, *args: str) -> str:
-    return subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed Python executable and CLI
-        [sys.executable, str(project / "tools/generate_version.py"), *args],
-        cwd=project,
-        env={
-            **os.environ,
-            "GIT_CEILING_DIRECTORIES": str(project.parent.parent),
-            "MESON_DIST_ROOT": str(project / "sdist"),
-        },
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout

@@ -4,28 +4,22 @@ URL cleaning, normalization, and page-level link extraction for :mod:`turbohtml.
 The normalization core follows the `WHATWG URL standard <https://url.spec.whatwg.org/>`__ wherever it defines the
 behavior: input stripping (basic URL parser, spec 4.4), scheme lowercasing (scheme state), domain-to-ASCII for special
 URL hosts and percent-encoding for opaque hosts (host parsing, spec 3.5), default-port removal (port state), and
-dot-segment resolution including the
-``%2e`` forms (path state), the empty-path-to-``/`` serialization of special URLs (URL serializing, spec 4.5), and
-the path/query/fragment percent-encode sets (percent-encoded bytes, spec 1.3). On top of that sits the crawl-oriented
-canonicalization ``courlan`` and ``w3lib`` users expect -- query-parameter sorting, tracking-parameter removal, an
-optional strict parameter allowlist, and a URL-based language filter -- each documented where it goes beyond the spec.
-The pipeline runs in C (``_url_clean``, ``_url_normalize`` and ``Document._extract_links``); this module holds the
-option record and the two vocabularies it hands over.
+dot-segment resolution including the ``%2e`` forms (path state), the empty-path-to-``/`` serialization of special URLs
+(URL serializing, spec 4.5), and the path/query/fragment percent-encode sets (percent-encoded bytes, spec 1.3).
+
+On top of that sits the crawl-oriented canonicalization ``courlan`` and ``w3lib`` users expect -- query-parameter
+sorting, tracking-parameter removal, an optional strict parameter allowlist, and a URL-based language filter -- each
+documented where it goes beyond the spec. The pipeline runs in C (``_url_clean``, ``_url_normalize`` and
+``Document._extract_links``); this module holds the option record and the two vocabularies it hands over.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cache
 from typing import Final
 
 from turbohtml._html import _url_clean, _url_normalize, parse
-
-__all__ = [
-    "UrlCleaning",
-    "clean_url",
-    "extract_links",
-    "normalize_url",
-]
 
 _ISO_639_1: Final[frozenset[str]] = frozenset([
     *("aa", "ab", "ae", "af", "ak", "am", "an", "ar", "as", "av", "ay", "az", "ba", "be", "bg", "bh", "bi", "bm"),
@@ -40,27 +34,7 @@ _ISO_639_1: Final[frozenset[str]] = frozenset([
     *("tn", "to", "tr", "ts", "tt", "tw", "ty", "ug", "uk", "ur", "uz", "ve", "vi", "vo", "wa", "wo", "xh", "yi"),
     *("yo", "za", "zh", "zu"),
 ])
-"""The ISO 639-1 two-letter language codes, gating which URL segments count as language markers."""
-
-_CONTENT_PARAMS: Final[frozenset[str]] = frozenset({
-    "aid",
-    "article_id",
-    "artnr",
-    "id",
-    "itemid",
-    "objectid",
-    "p",
-    "page",
-    "page_id",
-    "pagenum",
-    "pid",
-    "post",
-    "postid",
-    "product_id",
-})
-"""The content-identifying query parameters strict mode keeps; everything else is presumed decorative."""
-
-_LANGUAGE_PARAMS: Final[frozenset[str]] = frozenset({"lang", "language"})
+#: The ISO 639-1 two-letter language codes, gating which URL segments count as language markers.
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,9 +49,11 @@ class UrlCleaning:
         query string follows, folding ``/dir/`` and ``/dir`` into one form.
     :param strip_fragment: always drop the fragment. The default keeps it (scrubbed of tracker parameters), since the
         fragment can address content (``#page2``, text fragments).
+
     :param language: an ISO 639-1 code; :func:`clean_url` and :func:`extract_links` then reject URLs whose language
         markers (a leading path segment such as ``/de/``, a ``lang``/``language`` query parameter, or an anchor's
         ``hreflang``) point at another language. :func:`normalize_url` ignores this field.
+
     :param query_allow: when set, keep only these query parameters (matched case-insensitively against the decoded
         name), the ``w3lib.url.url_query_cleaner`` keep-list; a listed parameter survives even when it is a known
         tracker. Mutually exclusive with ``strict``, which is itself an allowlist.
@@ -103,11 +79,15 @@ class UrlCleaning:
 
     @classmethod
     def w3lib(cls) -> UrlCleaning:
-        """Return ``w3lib.url.canonicalize_url``'s mode: fragments dropped, every non-tracker parameter kept."""
+        """
+        Return ``w3lib.url.canonicalize_url``'s mode: fragments dropped, every non-tracker parameter kept.
+
+        :returns: the cleaning mode that matches ``w3lib``'s canonicalization.
+        """
         return cls(strip_fragment=True)
 
 
-_DEFAULT: Final = UrlCleaning()
+_DEFAULT: Final[UrlCleaning] = UrlCleaning()
 
 
 def clean_url(url: str, options: UrlCleaning | None = None, /) -> str | None:
@@ -126,7 +106,41 @@ def clean_url(url: str, options: UrlCleaning | None = None, /) -> str | None:
     :raises TypeError: if ``url`` is not a ``str``.
     """
     active = options or _DEFAULT
-    return _url_clean(url, *_knobs(active), active.language, _ISO_639_1)
+    return _url_clean(
+        url,
+        active.strict,
+        active.trailing_slash,
+        active.strip_fragment,
+        active.query_allow,
+        active.query_deny,
+        *_vocabularies(),
+        active.language,
+        _ISO_639_1,
+    )
+
+
+@cache
+def _vocabularies() -> tuple[frozenset[str], frozenset[str]]:
+    # Built once: the C entry points test membership in these sets, so a per-call literal would allocate on every URL.
+    return (
+        frozenset({
+            "aid",
+            "article_id",
+            "artnr",
+            "id",
+            "itemid",
+            "objectid",
+            "p",
+            "page",
+            "page_id",
+            "pagenum",
+            "pid",
+            "post",
+            "postid",
+            "product_id",
+        }),
+        frozenset({"lang", "language"}),
+    )
 
 
 def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
@@ -136,14 +150,15 @@ def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
     The spec-defined part lowercases the scheme. Special URL hosts are lowercased and converted to ASCII (browsers
     serialize ``http://münchen.de`` as ``http://xn--mnchen-3ya.de``). Non-special hosts preserve ASCII case and
     percent-encode Unicode (``git://münchen.de`` becomes ``git://m%C3%BCnchen.de``). Normalization also drops a default
-    port (port state), resolves ``.``/``..``/``%2e`` path segments (path state), percent-encodes what
-    the path/query/fragment percent-encode sets require -- with uppercase hex digits, leaving existing escapes alone
-    -- and serializes an empty special-URL path as ``/`` (URL serializing). Beyond the spec, query parameters are
-    sorted and known tracking parameters dropped (strict mode instead keeps only the content-identifying allowlist),
-    and a fragment shaped like a query string is scrubbed the same way. Unlike ``courlan``, repeated slashes are kept
-    (the spec preserves them) and punycode is the output form, not the input form.
-    For special schemes, a host after the scheme is recognized even when the input omits the authority slashes;
-    a hostless ``file:`` path is serialized with an empty authority.
+    port (port state), resolves ``.``/``..``/``%2e`` path segments (path state), percent-encodes what the
+    path/query/fragment percent-encode sets require -- with uppercase hex digits, leaving existing escapes alone -- and
+    serializes an empty special-URL path as ``/`` (URL serializing).
+
+    Beyond the spec, query parameters are sorted and known tracking parameters dropped (strict mode instead keeps only
+    the content-identifying allowlist), and a fragment shaped like a query string is scrubbed the same way. Unlike
+    ``courlan``, repeated slashes are kept (the spec preserves them) and punycode is the output form, not the input
+    form. For special schemes, a host after the scheme is recognized even when the input omits the authority slashes; a
+    hostless ``file:`` path is serialized with an empty authority.
 
     A Unicode host longer than 16384 code points, or holding a code point UTS #46 disallows in a domain (a C1
     control, a noncharacter), keeps its lowercased Unicode form instead of punycode. The cap bounds the domain-to-ASCII
@@ -159,7 +174,16 @@ def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
         forbidden or empty domain after host decoding or IDNA mapping, or a character that cannot be percent-encoded
         (a lone surrogate).
     """
-    return _url_normalize(url, *_knobs(options or _DEFAULT))
+    active = options or _DEFAULT
+    return _url_normalize(
+        url,
+        active.strict,
+        active.trailing_slash,
+        active.strip_fragment,
+        active.query_allow,
+        active.query_deny,
+        *_vocabularies(),
+    )
 
 
 def extract_links(
@@ -184,6 +208,7 @@ def extract_links(
     :param base_url: the URL the page was fetched from; relative links resolve against it, and it anchors the
         external/internal split. Without it relative links are dropped, since they cannot be made absolute.
     :param options: the cleaning options; defaults to :class:`UrlCleaning` (drop trackers, keep slash and fragment).
+
     :param external_only: keep only links leaving ``base_url``'s site, where the site boundary is the registrable
         domain (the public suffix plus one label, ``spam.example.co.uk`` and ``example.co.uk`` counting as one site);
         the eTLD+1 is read from the shipped IANA and Public Suffix List tables, so sibling subdomains stay internal.
@@ -192,20 +217,22 @@ def extract_links(
     """
     active = options or _DEFAULT
     return parse(html)._extract_links(  # ruff:ignore[private-member-access]  # the Document type's private C entry point
-        base_url, external_only, *_knobs(active), active.language, _ISO_639_1
+        base_url,
+        external_only,
+        active.strict,
+        active.trailing_slash,
+        active.strip_fragment,
+        active.query_allow,
+        active.query_deny,
+        *_vocabularies(),
+        active.language,
+        _ISO_639_1,
     )
 
 
-def _knobs(
-    options: UrlCleaning,
-) -> tuple[bool, bool, bool, frozenset[str] | None, frozenset[str], frozenset[str], frozenset[str]]:
-    """Return the option fields and vocabularies every C entry point takes, in its argument order."""
-    return (
-        options.strict,
-        options.trailing_slash,
-        options.strip_fragment,
-        options.query_allow,
-        options.query_deny,
-        _CONTENT_PARAMS,
-        _LANGUAGE_PARAMS,
-    )
+__all__ = [
+    "UrlCleaning",
+    "clean_url",
+    "extract_links",
+    "normalize_url",
+]

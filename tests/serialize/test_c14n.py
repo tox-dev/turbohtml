@@ -1,27 +1,30 @@
-"""Canonical XML (c14n) serialization: ``Node.canonicalize`` and the ``Canonical`` config."""
-
 from __future__ import annotations
 
 import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping this test's own bytes
 from io import BytesIO
-from typing import Final, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 from bench.operations import INPUTS
 
 from turbohtml import Canonical, CData, Element, Html, ProcessingInstruction, Text, parse, parse_xml
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
-def _one(markup: str, selector: str) -> Element:
-    node = parse(markup).select_one(selector)
-    assert node is not None
-    return node
+    from turbohtml import Document
 
 
 def test_returns_utf8_bytes() -> None:
     out = _one("<p>x</p>", "p").canonicalize()
     assert isinstance(out, bytes)
     assert out == b"<p>x</p>"
+
+
+def _one(markup: str, selector: str) -> Element:
+    node = parse(markup).select_one(selector)
+    assert node is not None
+    return node
 
 
 def test_default_options_are_1_0_without_comments() -> None:
@@ -156,31 +159,41 @@ def test_document_leading_comment_dropped_without_comments() -> None:
     assert parse("<!--top--><p>x").canonicalize() == b"<html><head></head><body><p>x</p></body></html>"
 
 
+@pytest.mark.parametrize("comment_length", [pytest.param(8192, id="medium"), pytest.param(32768, id="large")])
 @pytest.mark.parametrize(
-    ("xml", "comment_length"),
+    ("parse_document", "source", "expected"),
     [
-        pytest.param(False, 8192, id="html-medium"),
-        pytest.param(False, 32768, id="html-large"),
-        pytest.param(True, 8192, id="xml-medium"),
-        pytest.param(True, 32768, id="xml-large"),
+        pytest.param(parse, "<p>x</p>", b"<html><head></head><body><p>x</p></body></html>", id="html"),
+        pytest.param(parse_xml, '<r xmlns="urn:x">x</r>', b'<r xmlns="urn:x">x</r>', id="xml"),
     ],
 )
-def test_document_drops_large_comments(*, xml: bool, comment_length: int) -> None:
-    source = '<r xmlns="urn:x">x</r>' if xml else "<p>x</p>"
-    document = parse_xml if xml else parse
-    expected = b'<r xmlns="urn:x">x</r>' if xml else b"<html><head></head><body><p>x</p></body></html>"
-    assert document(source + "<!--" + "x" * comment_length + "-->").canonicalize() == expected
+def test_document_drops_large_comments(
+    parse_document: Callable[[str], Document], source: str, expected: bytes, comment_length: int
+) -> None:
+    assert parse_document(f"{source}<!--{'x' * comment_length}-->").canonicalize() == expected
 
 
-@pytest.mark.parametrize("xml", [pytest.param(False, id="html"), pytest.param(True, id="xml")])
-def test_document_canonicalizes_many_elements(*, xml: bool) -> None:
-    if xml:
-        source = '<r xmlns="urn:x">' + "<a/>" * 1024 + "</r>"
-        expected = b'<r xmlns="urn:x">' + b"<a></a>" * 1024 + b"</r>"
-    else:
-        source = "<main>" + "<p>x</p>" * 512 + "</main>"
-        expected = b"<html><head></head><body><main>" + b"<p>x</p>" * 512 + b"</main></body></html>"
-    assert (parse_xml if xml else parse)(source).canonicalize() == expected
+@pytest.mark.parametrize(
+    ("parse_document", "source", "expected"),
+    [
+        pytest.param(
+            parse_xml,
+            f'<r xmlns="urn:x">{"<a/>" * 1024}</r>',
+            b'<r xmlns="urn:x">' + b"<a></a>" * 1024 + b"</r>",
+            id="xml",
+        ),
+        pytest.param(
+            parse,
+            f"<main>{'<p>x</p>' * 512}</main>",
+            b"<html><head></head><body><main>" + b"<p>x</p>" * 512 + b"</main></body></html>",
+            id="html",
+        ),
+    ],
+)
+def test_document_canonicalizes_many_elements(
+    parse_document: Callable[[str], Document], source: str, expected: bytes
+) -> None:
+    assert parse_document(source).canonicalize() == expected
 
 
 def test_document_processing_instructions_bracket_the_root() -> None:
@@ -253,8 +266,7 @@ def test_inclusive_ns_prefixes_matches_within_a_longer_list() -> None:
 
 
 def test_exclusive_nested_use_renders_prefix_once() -> None:
-    node = _one("<svg xlink:href=a><g xlink:href=b><rect/></g></svg>", "svg")
-    out = node.canonicalize(Canonical(exclusive=True))
+    out = _one("<svg xlink:href=a><g xlink:href=b><rect/></g></svg>", "svg").canonicalize(Canonical(exclusive=True))
     assert out.count(b"xmlns:xlink") == 1
 
 
@@ -411,8 +423,7 @@ def test_xml_c14n_apex_inherits_namespace_axis() -> None:
 
 
 def test_xml_c14n_pickle_preserves_namespace_axis() -> None:
-    document = parse_xml('<r xmlns:p="urn:p"><p:a/></r>')
-    restored = pickle.loads(pickle.dumps(document))  # ruff:ignore[suspicious-pickle-usage]  # this test's own bytes
+    restored = pickle.loads(pickle.dumps(parse_xml('<r xmlns:p="urn:p"><p:a/></r>')))  # ruff:ignore[suspicious-pickle-usage]  # this test's own bytes
     assert restored.canonicalize() == b'<r xmlns:p="urn:p"><p:a></p:a></r>'
 
 
@@ -549,13 +560,10 @@ def test_xml_c14n_1_1_does_not_inherit_xml_id() -> None:
 
 def test_xml_c14n_many_namespaces_and_attributes() -> None:
     names: Final = tuple(f"p{index:02d}" for index in range(33))
-    source: Final = "<r " + " ".join(f'xmlns:{name}="urn:{name}" {name}:x="v"' for name in names) + "/>"
+    source: Final = f"""<r {" ".join(f'xmlns:{name}="urn:{name}" {name}:x="v"' for name in names)}/>"""
     expected: Final = (
-        "<r "
-        + " ".join(f'xmlns:{name}="urn:{name}"' for name in names)
-        + " "
-        + " ".join(f'{name}:x="v"' for name in names)
-        + "></r>"
+        f"""<r {" ".join(f'xmlns:{name}="urn:{name}"' for name in names)} """
+        f"""{" ".join(f'{name}:x="v"' for name in names)}></r>"""
     ).encode()
     assert parse_xml(source).canonicalize() == expected
 
@@ -579,21 +587,19 @@ def test_xml_c14n_rejects_relative_namespace(namespace: str, options: Canonical)
 
 
 def test_xml_c14n_rejects_relative_namespace_with_heap_allocated_bindings() -> None:
-    source: Final = "<r " + " ".join(f'xmlns:p{index}="urn:{index}"' for index in range(33)) + ' xmlns:bad="rel"/>'
+    source: Final = f"""<r {" ".join(f'xmlns:p{index}="urn:{index}"' for index in range(33))} xmlns:bad="rel"/>"""
     with pytest.raises(ValueError, match="relative namespace URI cannot be canonicalized"):
         parse_xml(source).canonicalize()
 
 
-@pytest.mark.parametrize(
-    ("source", "scope"),
-    [
-        pytest.param('<r><c xmlns:p="relative"><p:a/></c></r>', "document", id="descendant-binding"),
-        pytest.param('<r xmlns:p="relative"><c><p:a/></c></r>', "child", id="inherited-binding"),
-    ],
-)
-def test_xml_c14n_rejects_relative_namespace_in_subtree(source: str, scope: str) -> None:
-    document: Final = parse_xml(source)
-    node = document.children[0].children[0] if scope == "child" else document
+def test_xml_c14n_rejects_relative_namespace_in_a_descendant() -> None:
+    document: Final = parse_xml('<r><c xmlns:p="relative"><p:a/></c></r>')
+    with pytest.raises(ValueError, match="relative namespace URI cannot be canonicalized"):
+        document.canonicalize()
+
+
+def test_xml_c14n_rejects_an_inherited_relative_namespace() -> None:
+    node: Final = parse_xml('<r xmlns:p="relative"><c><p:a/></c></r>').children[0].children[0]
     with pytest.raises(ValueError, match="relative namespace URI cannot be canonicalized"):
         node.canonicalize()
 
@@ -918,8 +924,7 @@ def test_xml_c14n_1_1_keeps_only_named_inherited_attributes() -> None:
     ],
 )
 def test_xml_c14n_1_1_fixes_ancestor_base(source: str, selector: str, expected: bytes) -> None:
-    document = parse_xml(source)
-    node = document.select_one(selector)
+    node = parse_xml(source).select_one(selector)
     assert node is not None
     assert node.canonicalize(Canonical(version="1.1")) == expected
 
@@ -939,7 +944,6 @@ def test_xml_c14n_1_1_fixes_ancestor_base(source: str, selector: str, expected: 
         pytest.param("a/", "é", "a/é", id="unicode-reference"),
         pytest.param("a/", "", "a/", id="empty-reference"),
         pytest.param("a/", ".", "a/", id="dot-reference"),
-        pytest.param("a/", "..", "", id="parent-reference"),
         pytest.param("a/", ".b", "a/.b", id="dot-starting-reference"),
         pytest.param("a/", ".ab", "a/.ab", id="long-dot-starting-reference"),
         pytest.param("a/", "ab", "a/ab", id="two-character-reference"),
@@ -952,9 +956,13 @@ def test_xml_c14n_1_1_fixes_ancestor_base(source: str, selector: str, expected: 
 def test_xml_c14n_1_1_resolves_relative_base_segments(base: str, reference: str, expected: str) -> None:
     node = parse_xml(f'<r xml:base="{base}"><b xml:base="{reference}"/></r>').select_one("b")
     assert node is not None
-    assert node.canonicalize(Canonical(version="1.1")) == (
-        f'<b xml:base="{expected}"></b>'.encode() if expected else b"<b></b>"
-    )
+    assert node.canonicalize(Canonical(version="1.1")) == f'<b xml:base="{expected}"></b>'.encode()
+
+
+def test_xml_c14n_1_1_drops_a_base_that_resolves_to_nothing() -> None:
+    node = parse_xml('<r xml:base="a/"><b xml:base=".."/></r>').select_one("b")
+    assert node is not None
+    assert node.canonicalize(Canonical(version="1.1")) == b"<b></b>"
 
 
 def test_xml_c14n_1_0_does_not_fix_ancestor_base() -> None:
@@ -1114,16 +1122,14 @@ def test_inclusive_ns_prefixes_requires_exclusive() -> None:
 
 
 def test_deep_subtree_does_not_overflow() -> None:
-    node = _one("<div>" + "<span>" * 200 + "x" + "</span>" * 200 + "</div>", "div")
-    out = node.canonicalize()
+    out = _one(f"<div>{'<span>' * 200}x{'</span>' * 200}</div>", "div").canonicalize()
     assert out.startswith(b"<div>" + b"<span>" * 200)
     assert out.endswith(b"</span>" * 200 + b"</div>")
 
 
 def test_many_attributes_beyond_stack_buffer_sort() -> None:
     names = [f"a{index:02d}" for index in range(40)]
-    node = Element("p", dict.fromkeys(reversed(names), "1"))
-    out = node.canonicalize().decode()
+    out = Element("p", dict.fromkeys(reversed(names), "1")).canonicalize().decode()
     positions = [out.index(f'{name}="1"') for name in names]
     assert positions == sorted(positions)
 
@@ -1153,16 +1159,16 @@ def test_w3c_spec_example_pis_and_comments() -> None:
 )
 def test_canonicalize_orders_many_attributes(size: int) -> None:
     element: Final[Element] = parse(
-        "<div " + " ".join(f'data-{index:05d}="{index}"' for index in range(size, 0, -1)) + "></div>"
+        f"""<div {" ".join(f'data-{index:05d}="{index}"' for index in range(size, 0, -1))}></div>"""
     ).select("div")[0]
     assert (
         element.canonicalize()
-        == ("<div " + " ".join(f'data-{index:05d}="{index}"' for index in range(1, size + 1)) + "></div>").encode()
+        == (f"""<div {" ".join(f'data-{index:05d}="{index}"' for index in range(1, size + 1))}></div>""").encode()
     )
 
 
-_XLINK: Final = ' xmlns:xlink="http://www.w3.org/1999/xlink"'
-_SVG: Final = ' xmlns="http://www.w3.org/2000/svg"'
+_XLINK: Final[str] = ' xmlns:xlink="http://www.w3.org/1999/xlink"'
+_SVG: Final[str] = ' xmlns="http://www.w3.org/2000/svg"'
 
 
 @pytest.mark.parametrize("exclusive", [False, True], ids=["inclusive", "exclusive"])
@@ -1232,7 +1238,7 @@ def test_canonicalize_shared_sparse_xlink_input() -> None:
         parse(source).canonicalize()
         == (
             "<html><head></head><body>"
-            f"<svg{_SVG}>" + f'<g><use{_XLINK} xlink:href="#x"></use>' * 150 + "</g>" * 150 + "</svg></body></html>"
+            f"""<svg{_SVG}>{f'<g><use{_XLINK} xlink:href="#x"></use>' * 150}{"</g>" * 150}</svg></body></html>"""
         ).encode()
     )
 

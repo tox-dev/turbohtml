@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 from calmjs.parse import es5
 from calmjs.parse.unparsers.es5 import minify_print
 
-REQUIREMENTS = ("calmjs.parse>=1.3",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("calmjs.parse>=1.3",)
 
 
 def minify_js(source: str) -> str:
-    """Minify JavaScript by parsing to an ES5 AST and printing it obfuscated."""
+    # Minify JavaScript by parsing to an ES5 AST and printing it obfuscated.
     return minify_print(es5(source), obfuscate=True)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "minify-js-guards": (minify_js, "calmjs.parse"),
     "minify-js-propagation": (minify_js, "calmjs.parse"),
     "minify-js-var-initialization": (minify_js, "calmjs.parse"),
@@ -24,3 +29,8 @@ OPERATIONS = {
     "minify-js": (minify_js, "calmjs.parse"),
     "minify-js-names": (minify_js, "calmjs.parse"),
 }
+
+
+__all__ = [
+    "minify_js",
+]

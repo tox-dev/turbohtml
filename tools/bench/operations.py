@@ -16,16 +16,101 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from itertools import product
 from textwrap import dedent
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypeAlias
 
-from bench import corpus
+from . import corpus
+from .corpus import (
+    CORPUS_FILES,
+    JS_FILES,
+    LARGE_FILES,
+    REAL_PAGES,
+    STYLESHEETS,
+    corpus_text,
+    escape_cases,
+    large_text,
+    unescape_cases,
+)
+
+Case: TypeAlias = str | int | bytes | tuple["Case", ...]
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Buffer, Callable
 
-_ROWS = (("100 rows", 100), ("1k rows", 1_000), ("10k rows", 10_000))
+    from bs4 import BeautifulSoup
+    from langdetect.language import Language
+    from lxml.etree import RelaxNG, XMLSchema, _XSLTResultTree
+    from lxml.html import HtmlElement
+    from pyquery import PyQuery
+    from resiliparse.parse.html import HTMLTree
+    from selectolax.lexbor import LexborHTMLParser
 
-_SOCIAL_HEAD = dedent("""\
+    from turbohtml import Document, Element, Node, Token
+    from turbohtml.query import Query
+    from turbohtml.validate import XMLSchema as TurboXMLSchema
+
+    from .timing import Mutating
+
+    Timed: TypeAlias = (
+        Callable[[str], None]
+        | Callable[[str], str]
+        | Callable[[str], bytes]
+        | Callable[[str], str | None]
+        | Callable[[str], list[Language]]
+        | Callable[[str], list[tuple[str, str]]]
+        | Callable[[str], XMLSchema]
+        | Callable[[str], RelaxNG]
+        | Callable[[str], TurboXMLSchema]
+        | Callable[[bytes], None]
+        | Callable[[int], None]
+        | Callable[[int], str]
+        | Callable[[int], Node]
+        | Callable[[tuple[str, str]], None]
+        | Callable[[tuple[str, str]], str]
+        | Callable[[tuple[str, str]], _XSLTResultTree]
+        | Callable[[tuple[str, int]], Query]
+        | Callable[[tuple[str, str, str, str]], list[Node | str] | float | bool | str]
+        | Callable[[tuple[str, bool]], None]
+        | Callable[[tuple[str, bool]], str]
+        | Callable[[tuple[str, bytes]], None]
+        | Callable[[tuple[str, tuple[tuple[str, str], ...]]], None]
+        | Callable[[tuple[str, tuple[str, ...]]], None]
+        | Callable[[tuple[str, tuple[tuple[str, tuple[str, ...]], ...]]], None]
+        | Callable[[tuple[str, Case]], None]
+        | Callable[[tuple[int, str]], None]
+        | Callable[[tuple[int, str]], str]
+        | Callable[[tuple[int, str]], bool]
+        | Callable[[tuple[int, bool]], None]
+        | Callable[[tuple[int, bool]], PyQuery]
+        | Callable[[tuple[int, bytes]], None]
+        | Callable[[tuple[str, ...]], None]
+        | Callable[[tuple[tuple[str, str], ...]], None]
+        | Callable[[tuple[tuple[str, str], ...]], bool]
+        | Mutating[str, BeautifulSoup, None]
+        | Mutating[str | Buffer, HtmlElement, None]
+        | Mutating[str, HtmlElement, HtmlElement]
+        | Mutating[str, PyQuery, None]
+        | Mutating[str, HTMLTree, None]
+        | Mutating[str, LexborHTMLParser, None]
+        | Mutating[tuple[int, int, int, str], Callable[[], tuple[bool, ...]], tuple[bool, ...]]
+        | Mutating[tuple[int, int], Element, None]
+        | Mutating[tuple[int, str], Callable[[], None], None]
+        | Mutating[tuple[str, bool], Callable[[], str | bytes], str | bytes]
+        | Mutating[str, Token, list[tuple[str, str]] | None]
+        | Mutating[tuple[str, str], tuple[str, Document], None]
+        | Mutating[str | bytes, Document, Document]
+        | Mutating[str | bytes, Document, str]
+        | Mutating[str | bytes, Document, None]
+        | Mutating[str, Document, str]
+        | Mutating[str, Element, Node]
+        | Mutating[tuple[int, str], Element, None]
+        | Mutating[tuple[int, bool], tuple[Element, tuple[str, ...]], None]
+        | Mutating[str, Element, str]
+    )
+
+
+_ROWS: Final[tuple[tuple[str, int], ...]] = (("100 rows", 100), ("1k rows", 1_000), ("10k rows", 10_000))
+
+_SOCIAL_HEAD: Final[str] = dedent("""\
     <head>
       <meta property="og:title" content="Widget">
       <meta property="og:type" content="product">
@@ -35,7 +120,7 @@ _SOCIAL_HEAD = dedent("""\
       <meta name="twitter:site" content="@x">
     </head>""")
 
-_STRUCTURED_PAGE = dedent("""\
+_STRUCTURED_PAGE: Final[str] = dedent("""\
     <head>
       <meta property="og:title" content="Widget">
       <meta property="og:type" content="product">
@@ -59,15 +144,12 @@ _STRUCTURED_PAGE = dedent("""\
     </body>""")
 
 _MICRODATA_REFS: Final[str] = " ".join(f"r{index}" for index in range(1_000))
-_MICRODATA_ITEMREF: Final = (
-    '<div itemscope itemref="'
-    + _MICRODATA_REFS
-    + '"></div>'
-    + "<i></i>" * 4_000
-    + "".join(f"<meta id=r{index} itemprop=p content=x>" for index in range(1_000))
+_MICRODATA_ITEMREF: Final[str] = (
+    f'<div itemscope itemref="{_MICRODATA_REFS}"></div>{"<i></i>" * 4_000}'
+    f"{''.join(f'<meta id=r{index} itemprop=p content=x>' for index in range(1_000))}"
 )
 
-_FEED_ITEM = dedent("""\
+_FEED_ITEM: Final[str] = dedent("""\
     <item>
       <title>Release {index}: what changed</title>
       <link>https://blog.example/posts/{index}</link>
@@ -79,19 +161,16 @@ _FEED_ITEM = dedent("""\
     </item>
 """)
 
-_FEED_XML = (
-    '<?xml version="1.0" encoding="utf-8"?>\n'
-    '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"'
-    ' xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>\n'
-    "<title>Example Engineering Blog</title>\n"
-    "<link>https://blog.example/</link>\n"
-    "<description>Notes from the Example engineering team.</description>\n"
-    "<lastBuildDate>Tue, 07 Jul 2026 09:00:00 GMT</lastBuildDate>\n"
-    + "".join(_FEED_ITEM.format(index=index) for index in range(30))
-    + "</channel></rss>"
+_FEED_XML: Final[str] = (
+    f'<?xml version="1.0" encoding="utf-8"?>\n<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" '
+    f'xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>\n<title>Example Engineering '
+    f"Blog</title>\n<link>https://blog.example/</link>\n<description>Notes "
+    f"from the Example engineering team.</description>\n<lastBuildDate>Tue, "
+    f"07 Jul 2026 09:00:00 "
+    f"GMT</lastBuildDate>\n{''.join(_FEED_ITEM.format(index=index) for index in range(30))}</channel></rss>"
 )
 
-_XML_ITEM = (
+_XML_ITEM: Final[str] = (
     '<book id="b{index}" xmlns:dc="http://purl.org/dc/elements/1.1/">'
     "<dc:title>Book number {index} &amp; friends</dc:title>"
     "<dc:creator>Author {index}</dc:creator>"
@@ -103,15 +182,12 @@ _XML_ITEM = (
 
 # A well-formed namespaced catalog both parse_xml and lxml.etree accept: 400 records with
 # prefixes, attributes, entities and CDATA, sized to clear the CodSpeed heap-jitter floor.
-_XML_DOC = (
-    '<?xml version="1.0" encoding="UTF-8"?>\n'
-    "<!-- generated catalog -->\n"
-    '<catalog xmlns="urn:example:catalog">'
-    + "".join(_XML_ITEM.format(index=index) for index in range(400))
-    + "</catalog>"
+_XML_DOC: Final[str] = (
+    f'<?xml version="1.0" encoding="UTF-8"?>\n<!-- generated catalog -->\n<catalog '
+    f'xmlns="urn:example:catalog">{"".join(_XML_ITEM.format(index=index) for index in range(400))}</catalog>'
 )
 
-_SHADOW_CARD = (
+_SHADOW_CARD: Final[str] = (
     '<article class="card">'
     '<template shadowrootmode="open" shadowrootclonable shadowrootdelegatesfocus>'
     '<style>:host{{display:block}}</style><header><slot name="title">Untitled {index}</slot></header>'
@@ -125,15 +201,15 @@ _SHADOW_CARD = (
 
 # A document of declarative shadow hosts: 200 web-component cards whose <template shadowrootmode> attaches an open
 # shadow root (with slots and the delegatesfocus/clonable flags) to each host, sized to clear the CodSpeed jitter floor.
-_SHADOW_DOC = (
-    "<!doctype html><html><head><title>Component gallery</title></head><body><main>"
-    + "".join(_SHADOW_CARD.format(index=index) for index in range(200))
-    + "</main></body></html>"
+_SHADOW_DOC: Final[str] = (
+    f"<!doctype html><html><head><title>Component "
+    f"gallery</title></head><body><main>{''.join(_SHADOW_CARD.format(index=index) for index in range(200))}"
+    f"</main></body></html>"
 )
 
 # A single-namespace records catalog and a matching XSD, sized like the parse corpus so the
 # validation walk clears the CodSpeed heap-jitter floor. Both turbohtml and lxml validate it.
-_VALIDATE_RECORD = (
+_VALIDATE_RECORD: Final[str] = (
     '<record id="r{index}">'
     "<name>Item {index}</name>"
     "<qty>{index}</qty>"
@@ -141,13 +217,11 @@ _VALIDATE_RECORD = (
     "<tags><tag>alpha</tag><tag>beta</tag></tags>"
     "</record>"
 )
-_VALIDATE_DOC = (
-    '<?xml version="1.0"?>'
-    '<catalog xmlns="urn:example:records">'
-    + "".join(_VALIDATE_RECORD.format(index=index) for index in range(400))
-    + "</catalog>"
+_VALIDATE_DOC: Final[str] = (
+    f'<?xml version="1.0"?><catalog '
+    f'xmlns="urn:example:records">{"".join(_VALIDATE_RECORD.format(index=index) for index in range(400))}</catalog>'
 )
-_VALIDATE_XSD = (
+_VALIDATE_XSD: Final[str] = (
     '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:example:records"'
     ' xmlns="urn:example:records" elementFormDefault="qualified">'
     '<xs:element name="catalog"><xs:complexType><xs:sequence>'
@@ -163,20 +237,23 @@ _VALIDATE_XSD = (
     "</xs:complexType></xs:element>"
     "</xs:sequence></xs:complexType></xs:element></xs:schema>"
 )
-_VALIDATE_GLOBAL_XSD: Final = (
-    '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
-    + "".join(f'<xs:element name="element{index}" type="xs:string"/>' for index in range(512))
-    + "".join(
-        f'<xs:simpleType name="Type{index}"><xs:restriction base="xs:string"/></xs:simpleType>' for index in range(512)
-    )
-    + '<xs:simpleType name="TargetType"><xs:restriction base="xs:string"/></xs:simpleType>'
-    '<xs:element name="target" type="TargetType"/></xs:schema>'
+_VALIDATE_GLOBAL_XSD: Final[str] = (
+    """<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">"""
+    f"""{"".join(f'<xs:element name="element{index}" type="xs:string"/>' for index in range(512))}"""
+    f"""{
+        "".join(
+            f'<xs:simpleType name="Type{index}"><xs:restriction base="xs:string"/></xs:simpleType>'
+            for index in range(512)
+        )
+    }"""
+    """<xs:simpleType name="TargetType"><xs:restriction base="xs:string"/></xs:simpleType><xs:element name="target" """
+    """type="TargetType"/></xs:schema>"""
 )
-_VALIDATE_GLOBAL_DOC: Final = "<target>value</target>"
+_VALIDATE_GLOBAL_DOC: Final[str] = "<target>value</target>"
 # the same records catalog described in RELAX NG (XML syntax): grammar/define/ref, an interleave over the record's four
 # child patterns, oneOrMore, and XSD datatypes. RelaxNG drives a separate C compiler and validator (relaxng.h) that the
 # XSD validate op never reaches, so this is the only bench that exercises the RELAX NG engine.
-_VALIDATE_RNG = (
+_VALIDATE_RNG: Final[str] = (
     '<grammar xmlns="http://relaxng.org/ns/structure/1.0"'
     ' datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes" ns="urn:example:records">'
     '<start><ref name="catalog"/></start>'
@@ -192,13 +269,13 @@ _VALIDATE_RNG = (
     "</element></define>"
     "</grammar>"
 )
-_COMPILE_RNG: Final = (
-    '<grammar xmlns="http://relaxng.org/ns/structure/1.0"><start><ref name="target"/></start>'
-    + "".join(f'<define name="definition{index}"><empty/></define>' for index in range(1_023))
-    + '<define name="target"><element name="target"><text/></element></define></grammar>'
+_COMPILE_RNG: Final[str] = (
+    """<grammar xmlns="http://relaxng.org/ns/structure/1.0"><start><ref name="target"/></start>"""
+    f"""{"".join(f'<define name="definition{index}"><empty/></define>' for index in range(1_023))}"""
+    """<define name="target"><element name="target"><text/></element></define></grammar>"""
 )
 
-_SANITIZE_TEMPLATES = dedent("""\
+_SANITIZE_TEMPLATES: Final[str] = dedent("""\
     <article class=card>
       <h1>{{ post.title }}</h1>
       <p data-id="${post.id}">By {{ author.name }} on <% post.date %> in {{ post.section }}.</p>
@@ -209,7 +286,7 @@ _SANITIZE_TEMPLATES = dedent("""\
     </article>
 """)
 
-_SANITIZE_POST = dedent("""\
+_SANITIZE_POST: Final[str] = dedent("""\
     <div class=post>
       <h1>Title</h1>
       <p>Some <a href='http://example.com'>link</a> and <b>bold</b> text with
@@ -219,7 +296,7 @@ _SANITIZE_POST = dedent("""\
 
 # dense in the deprecated presentational tags a transform map renames (b/i/center/font/tt/big/strike), so the walk hits
 # the rename + attribute-injection path on most elements rather than passing them through unchanged
-_SANITIZE_LEGACY = dedent("""\
+_SANITIZE_LEGACY: Final[str] = dedent("""\
     <center><font size=4><b>Heading</b></font></center>
     <p><i>Intro</i> with <tt>inline code</tt>, <strike>struck</strike>, and <big>emphatic</big> text.</p>
     <blockquote><b>Quote</b> from <i>an author</i> with a <font color=red>colored</font> aside.</blockquote>
@@ -227,7 +304,7 @@ _SANITIZE_LEGACY = dedent("""\
 
 # dense in id/name attributes whose values collide with document/form properties (DOM clobbering), so the named-prop
 # isolation prefixes most attributes rather than skipping past a value it never touches
-_SANITIZE_NAMED = dedent("""\
+_SANITIZE_NAMED: Final[str] = dedent("""\
     <form name="config" id="settings">
       <input name="attributes" id="body"><input name="method" id="location">
       <input name="submit" id="cookie"><input name="nodeName" id="documentElement">
@@ -237,7 +314,7 @@ _SANITIZE_NAMED = dedent("""\
 
 # dense in an app's own x-* custom elements and data-* attributes, so the custom-element matcher and attribute matcher
 # run on most elements rather than short-circuiting on a policy that keeps only the standard allowlist
-_SANITIZE_CUSTOM = dedent("""\
+_SANITIZE_CUSTOM: Final[str] = dedent("""\
     <x-shell data-theme="dark">
       <x-card data-id="1" onclick="steal()"><b>Title</b> and <x-badge data-kind="new">new</x-badge></x-card>
       <x-card data-id="2"><a href="javascript:evil()">bad</a> then <x-rating data-stars="4">****</x-rating> ok.</x-card>
@@ -246,7 +323,7 @@ _SANITIZE_CUSTOM = dedent("""\
 
 # rich in style attributes with a mix of pattern-matching and rejected values, so the allowed_styles scrub does real
 # per-declaration regex work rather than short-circuiting on an empty rule
-_SANITIZE_STYLES = dedent("""\
+_SANITIZE_STYLES: Final[str] = dedent("""\
     <div style="color: #ff0000; text-align: center; position: fixed">
       <p style="color: rgb(1, 2, 3); font-size: 40px">Styled
         <span style="text-align: left; color: green">inline</span> text.</p>
@@ -254,10 +331,9 @@ _SANITIZE_STYLES = dedent("""\
     </div>""")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Operation:
-    """One benchmarked operation: its display title and the time unit (``ns``, ``us``, ``ms``) its table prints in."""
-
+    # One benchmarked operation: its display title and the time unit (``ns``, ``us``, ``ms``) its table prints in.
     title: str
     unit: str
 
@@ -291,302 +367,300 @@ MEMORY_OPS: Final[frozenset[str]] = frozenset({
 })
 
 
-OPERATIONS: dict[str, Operation] = {
-    "radio-group": Operation("change a radio group selection", "us"),
-    "form-data-fieldsets": Operation("collect form controls around disabled fieldsets", "us"),
-    "build": Operation("build a list (constructors)", "us"),
-    "build-e": Operation("build a list (terse builders)", "us"),
-    "construct": Operation("construct N elements (no serialize)", "us"),
-    "emit": Operation("emit a built tree", "us"),
-    "shadow": Operation("attach a shadow tree with slots and flatten", "us"),
-    "shadow-slot": Operation("collect children assigned to a late shadow slot", "us"),
-    "shadow-assignment": Operation("flatten uniquely named shadow slots", "us"),
-    "shadow-fallback": Operation("flatten nested fallback slots", "us"),
-    "startup": Operation("start a fresh Python process", "ms"),
-    "parse": Operation("parse to a tree", "us"),
-    "parse-encoded": Operation("parse encoded bytes to a tree", "us"),
-    "parse-formatting": Operation("parse under a formatting ancestor", "us"),
-    "parse-foster": Operation("parse foster-parented text", "us"),
-    "parse-crlf": Operation("parse normalized newlines", "us"),
-    "parse-nul": Operation("parse text beside a NUL", "us"),
-    "parse-afe": Operation("parse nested formatting attributes", "us"),
-    "parse-scope": Operation("parse ignored block end tags", "us"),
-    "parse-dense": Operation("parse a node-dense document", "ms"),
-    "parse-xml": Operation("parse XML to a tree", "us"),
-    "parse-xml-append": Operation("parse XML with distinct attribute names", "us"),
-    "parse-xml-attrs": Operation("parse XML with growing attribute counts", "us"),
-    "parse-xml-values": Operation("parse XML attribute values", "us"),
-    "parse-xml-text": Operation("parse XML text runs", "us"),
-    "parse-xml-prefixes": Operation("parse XML namespace attributes", "us"),
-    "parse-xml-names": Operation("parse growing XML names", "ms"),
-    "is-valid": Operation("XSD validation verdict", "us"),
-    "is-valid-rng": Operation("RELAX NG validation verdict", "us"),
-    "validate": Operation("validate a document against an XSD schema", "us"),
-    "validate-rng": Operation("validate a document against a RELAX NG schema", "us"),
-    "validate-rng-reuse": Operation("validate repeated RELAX NG content models", "us"),
-    "compile-rng-reuse": Operation("compile repeated RELAX NG content models", "us"),
-    "validate-attributes": Operation("validate XSD attribute declarations", "us"),
-    "validate-numeric-facets": Operation("validate numeric values with optional bounds", "us"),
-    "validate-facets": Operation("validate inherited facet metadata", "us"),
-    "compile-facets": Operation("compile inherited facet metadata", "us"),
-    "validate-pattern-reuse": Operation("validate repeated pattern facets", "us"),
-    "compile-pattern": Operation("compile pattern facets", "us"),
-    "validate-pattern": Operation("validate growing regex character classes", "us"),
-    "compile-rng": Operation("compile a RELAX NG schema", "us"),
-    "parse-scripting": Operation("parse to a tree (scripting on)", "us"),
-    "parse-locations": Operation("parse to a tree (source locations)", "us"),
-    "parse-shadow": Operation("parse declarative shadow roots", "us"),
-    "fragment": Operation("parse a fragment", "us"),
-    "escape": Operation("escape", "us"),
-    "unescape": Operation("unescape", "us"),
-    "tokenize": Operation("tokenize", "us"),
-    "html-options": Operation("serialize with reused options", "us"),
-    "text-options": Operation("render text with reused options", "us"),
-    "canonical-options": Operation("canonicalize with reused options", "us"),
-    "token-attributes": Operation("read token attributes", "us"),
-    "tokenize-attributes": Operation("tokenize and read attributes", "us"),
-    "find": Operation("find every anchor", "us"),
-    "find-cold": Operation("query a cold 10,000-element tree", "us"),
-    "select": Operation("select div a[href]", "us"),
-    "select-has": Operation("select div:has(a)", "us"),
-    "select-default": Operation("select default form controls", "us"),
-    "select-nth": Operation("select sibling positions in wide trees", "ms"),
-    "select-relative": Operation("select child and sibling relationships", "us"),
-    "xpath-wide": Operation("order XPath results in wide trees", "ms"),
-    "xpath-distinct": Operation("deduplicate XPath string values", "us"),
-    "xpath-set": Operation("compare XPath node-set membership", "us"),
-    "xpath-compare": Operation("compare XPath values", "us"),
-    "node-equals": Operation("compare element attributes", "us"),
-    "xpath-id-nodes": Operation("resolve XPath ID argument nodes", "us"),
-    "xpath-replace": Operation("replace XPath string literals", "us"),
-    "xpath-concat": Operation("concatenate XPath node strings", "us"),
-    "xpath-translate": Operation("translate XPath characters", "us"),
-    "xpath-order": Operation("compare numeric XPath node sets", "us"),
-    "computed-style-deep": Operation("compute styles through nested ancestors", "ms"),
-    "microdata-wide": Operation("extract properties from one wide item", "ms"),
-    "microdata-empty-scope": Operation("traverse an item without properties", "ms"),
-    "structured-empty": Operation("extract metadata from an unannotated tree", "ms"),
-    "article-wide": Operation("score many article candidates", "ms"),
-    "article-deep": Operation("score nested article candidates", "us"),
-    "path-wide": Operation("build CSS paths for wide sibling lists", "ms"),
-    "path-xpath-wide": Operation("build XPath paths for wide sibling lists", "ms"),
-    "path-cold": Operation("build CSS paths on a fresh tree", "ms"),
-    "path-xpath-cold": Operation("build XPath paths on a fresh tree", "ms"),
-    "path-one-cold": Operation("build one CSS path on a fresh tree", "us"),
-    "path-xpath-one-cold": Operation("build one XPath path on a fresh tree", "us"),
-    "path-class-edit": Operation("build CSS paths after class edits", "ms"),
-    "computed-style-filter": Operation("reject CSS rules before traversal predicates", "ms"),
-    "computed-style-filter-cold": Operation("compile CSS predicate order and resolve one element", "ms"),
-    "computed-style-specificity": Operation("compute styles across matching selector alternatives", "ms"),
-    "computed-style-specificity-cold": Operation("compile styles and resolve the first element", "ms"),
-    "computed-style-selectors": Operation("reuse computed-style selector matches", "ms"),
-    "computed-style-selectors-reverse": Operation("compute styles in reverse document order", "ms"),
-    "computed-style": Operation("computed style for every element", "us"),
-    "computed-style-dense": Operation("computed style over a property-dense sheet", "us"),
-    "match": Operation("match each anchor against div a[href]", "us"),
-    "find-text": Operation("find by text content", "us"),
-    "find-text-exact": Operation("find by exact descendant text", "us"),
-    "find-attr-presence": Operation("find by attribute presence", "us"),
-    "find-text-overlap": Operation("find by overlapping literal regex", "us"),
-    "text-content": Operation("collect visible text", "us"),
-    "parse-inner": Operation("parse and serialize body children", "us"),
-    "parse-inner-encode": Operation("parse and encode body children", "us"),
-    "serialize-inner": Operation("serialize body children", "us"),
-    "serialize-inner-indent": Operation("serialize indented body children", "us"),
-    "serialize-inner-minify": Operation("serialize minified body children", "us"),
-    "encode-inner": Operation("encode body children as UTF-8", "us"),
-    "encode-inner-indent": Operation("encode indented body children as UTF-8", "us"),
-    "encode-inner-minify": Operation("encode minified body children as UTF-8", "us"),
-    "iterate-inner": Operation("consume body children chunks", "us"),
-    "iterate-inner-indent": Operation("consume indented body children chunks", "us"),
-    "transform-dispatch": Operation("compose identity callbacks", "ns"),
-    "collapse-whitespace": Operation("collapse DOM text whitespace", "us"),
-    "strip-comments": Operation("remove DOM comments", "us"),
-    "whitespace-roundtrip": Operation("normalize DOM whitespace then serialize", "us"),
-    "transform-tree": Operation("remove comments then collapse whitespace", "us"),
-    "serialize": Operation("serialize a parsed tree", "us"),
-    "conformance": Operation("check HTML5 authoring conformance", "us"),
-    "serialize-xml": Operation("serialize a parsed tree to XML", "us"),
-    "canonicalize": Operation("canonicalize a parsed tree (c14n)", "us"),
-    "canonicalize-attrs": Operation("canonicalize an element with many attributes", "ms"),
-    "canonicalize-deep": Operation("canonicalize deep trees with and without xlink attributes (c14n)", "us"),
-    "lossless-serialize": Operation("edit then re-emit untouched bytes (to_source)", "us"),
-    "minify": Operation("minify a document", "us"),
-    "edit": Operation("tag every link rel=nofollow", "us"),
-    "class-edit": Operation("class add/remove on every link", "us"),
-    "strip-remove": Operation("drop tags with content (remove)", "us"),
-    "strip-tags": Operation("unwrap tags keep content (strip_tags)", "us"),
-    "set-html": Operation("replace body inner HTML", "us"),
-    "set-text": Operation("replace body text", "us"),
-    "observe": Operation("observe a subtree through many edits", "us"),
-    "query-root-groups": Operation("select descendants across connected root groups", "us"),
-    "query-roots": Operation("select within ordered root groups", "us"),
-    "query-closest": Operation("collect closest matching ancestors", "us"),
-    "node-closest": Operation("find a node's closest matching ancestor", "us"),
-    "query-parents": Operation("collect selected nodes' parents", "us"),
-    "query-siblings": Operation("collect selected nodes' siblings", "us"),
-    "prune-shared": Operation("prune shared ancestors", "us"),
-    "observe-registrations": Operation("reject unrelated observer registrations", "us"),
-    "navigate": Operation("walk every descendant", "us"),
-    "treewalk": Operation("walk every element (TreeWalker)", "us"),
-    "chain": Operation("fluent jQuery-style chain", "us"),
-    "range-clone": Operation("clone a Range over the body", "us"),
-    "range-boundary": Operation("construct a Range at a child boundary", "us"),
-    "range-contained": Operation("clone a Range of complete children", "us"),
-    "range-partial": Operation("clone a Range with a partial element", "us"),
-    "links-extract": Operation("extract every link", "us"),
-    "links-absolutize": Operation("absolutize every link", "us"),
-    "links-rewrite": Operation("rewrite every link", "us"),
-    "socialcard": Operation("social-card extraction", "us"),
-    "structured": Operation("structured-data extraction", "us"),
-    "microdata": Operation("Microdata item extraction", "us"),
-    "microdata-itemref": Operation("resolve Microdata item references", "ms"),
-    "syndication": Operation("RSS/Atom feed parsing", "us"),
-    "sanitize": Operation("sanitize", "us"),
-    "sanitize-disallowed": Operation("sanitize disallowed tags", "us"),
-    "sanitize-templates": Operation("sanitize (template-safe)", "us"),
-    "sanitize-named-props": Operation("sanitize (named-prop isolation)", "us"),
-    "sanitize-report": Operation("sanitize with audit trail", "us"),
-    "sanitize-node": Operation("sanitize a parsed tree", "us"),
-    "sanitize-attributes": Operation("sanitize attribute allowlists", "us"),
-    "sanitize-styles": Operation("sanitize (style allowlist)", "us"),
-    "sanitize-transform": Operation("sanitize (tag transform)", "us"),
-    "sanitize-custom-elements": Operation("sanitize (custom elements)", "us"),
-    "sanitize-xml": Operation("sanitize (XML/XHTML output)", "us"),
-    "markup": Operation("markupsafe-compatible escape", "ns"),
-    "markup-op": Operation("Markup operations", "ns"),
-    "linkify": Operation("linkify HTML", "us"),
-    "linkify-node": Operation("linkify a parsed tree", "us"),
-    "linkify-traversal": Operation("linkify with native tree traversal", "us"),
-    "detect": Operation("detect links in text", "us"),
-    "phone": Operation("detect phone numbers in text", "us"),
-    "phone-parse": Operation("parse held phone numbers", "us"),
-    "phone-format": Operation("format phone numbers", "us"),
-    "phone-construct": Operation("construct and validate phone numbers", "us"),
-    "markdown-wrap": Operation("wrap short Markdown words", "us"),
-    "markdown": Operation("HTML to Markdown", "us"),
-    "markdown-google": Operation("Google Docs export to Markdown", "us"),
-    "tables": Operation("extract table grids", "us"),
-    "tables-wide": Operation("extract a wide table grid", "us"),
-    "tables-spans": Operation("extract repeated table span text", "us"),
-    "article": Operation("article extraction", "us"),
-    "boilerplate": Operation("paragraph boilerplate classification", "us"),
-    "date-tally": Operation("score visible date candidates", "us"),
-    "date": Operation("publication-date extraction", "us"),
-    "text-render": Operation("layout-aware text", "us"),
-    "text-collapsed": Operation("collapsed word stream", "us"),
-    "text-main": Operation("main-content text", "us"),
-    "text-annotated": Operation("annotated layout text", "us"),
-    "text-annotation-rules": Operation("annotated layout text by rule distribution", "us"),
-    "extract-attr": Operation("extract @href per match", "us"),
-    "extract-text": Operation("extract text per match", "us"),
-    "extract-url": Operation("extract URL hints", "us"),
-    "htmlparser": Operation("feed and dispatch a page", "us"),
-    "sax": Operation("SAX parse a page (no tree)", "us"),
-    "sax-records": Operation("iterate typed SAX records", "us"),
-    "sax-records-callback": Operation("dispatch SAX callbacks", "us"),
-    "treebuild": Operation("parse into a custom tree (no DOM)", "us"),
-    "rewrite": Operation("streaming rewrite a page (no tree)", "us"),
-    "rewrite-attributes": Operation("add custom attributes", "us"),
-    "path": Operation("css_path for every element", "us"),
-    "path-xpath": Operation("xpath_path for every element", "us"),
-    "translate": Operation("CSS selector to XPath 1.0", "us"),
-    "specificity": Operation("CSS selector specificity", "us"),
-    "xpath": Operation("XPath feature surface (9.6 kB)", "us"),
-    "xpath-id": Operation("resolve 1,000 XPath id tokens", "us"),
-    "transform": Operation("XSLT transform a catalog (120 rows)", "us"),
-    "transform-compile": Operation("compile an XSLT stylesheet with 300 templates", "us"),
-    "transform-reuse": Operation("apply one compiled 300-template stylesheet ten times", "us"),
-    "transform-sort": Operation("XSLT sort node sets", "ms"),
-    "transform-key": Operation("build XSLT key indexes", "us"),
-    "transform-scope": Operation("bind XSLT variables", "us"),
-    "transform-namespaces": Operation("copy XSLT namespace declarations", "us"),
-    "transform-namespaces-once": Operation("compile and apply a namespaced XSLT stylesheet", "us"),
-    "transform-dense": Operation("XSLT transform an instruction-dense sheet", "us"),
-    "transform-names-compile": Operation("compile XSLT declaration indexes", "us"),
-    "transform-names": Operation("resolve XSLT declaration names", "us"),
-    "transform-rules": Operation("dispatch XSLT template rules", "us"),
-    "transform-number": Operation("XSLT number nodes", "us"),
-    "minify-css": Operation("minify CSS", "us"),
-    "minify-css-conflicts": Operation("merge CSS rules across disjoint declarations", "us"),
-    "minify-css-merges": Operation("batch CSS rule merges", "us"),
-    "minify-js": Operation("minify a JS library", "ms"),
-    "minify-js-names": Operation("minify JavaScript with function parameters", "us"),
-    "minify-js-integers": Operation("print JavaScript integer arrays", "us"),
-    "minify-js-unlink": Operation("remove mixed JavaScript declarators", "us"),
-    "minify-js-unused-declarations": Operation("remove unused JavaScript declarators", "us"),
-    "minify-js-var-initialization": Operation("check JavaScript var initialization order", "us"),
-    "minify-js-sequences": Operation("minify expression sequences", "us"),
-    "minify-js-propagation": Operation("propagate repeated JavaScript literal reads", "us"),
-    "minify-js-single-use": Operation("check single-use JavaScript initializers", "us"),
-    "minify-js-guards": Operation("minify guard return chains", "us"),
-    "stream": Operation("push-parse a page in chunks", "us"),
-    "encoding-result": Operation("construct the winning encoding result", "us"),
-    "encoding-result-stream": Operation("construct the streamed encoding result", "us"),
-    "encoding-chunks": Operation("detect encoding across byte chunks", "us"),
-    "encoding": Operation("detect a byte stream's encoding", "us"),
-    "decode": Operation("decode a legacy byte stream", "us"),
-    "normalize": Operation("normalize text to Unicode NFC", "us"),
-    "normalize-dom": Operation("merge adjacent text nodes", "ns"),
-    "attribute-grow": Operation("set element attributes", "us"),
-    "normalize-marks": Operation("normalize long combining-mark runs", "ms"),
-    "detect-language": Operation("detect a text's natural language", "us"),
-    "detect-language-long": Operation("count trigrams in long prose", "ms"),
-    "escape-identifier": Operation("escape 1,000 raw CSS identifiers", "us"),
-    "idna": Operation("normalize 4,100 URLs with Unicode hosts", "ms"),
-    "urls-clean": Operation("clean and normalize 100 URLs", "us"),
-    "links-filter": Operation("extract filtered page links", "us"),
-    "links-external": Operation("extract links outside the base site", "ms"),
-    "serialize-attributes": Operation("serialize HTML attribute order", "us"),
-    "serialize-named": Operation("serialize HTML named entities", "us"),
-    "transform-text": Operation("XSLT text emission", "us"),
+OPERATIONS: Final[dict[str, Operation]] = {
+    "radio-group": Operation(title="change a radio group selection", unit="us"),
+    "form-data-fieldsets": Operation(title="collect form controls around disabled fieldsets", unit="us"),
+    "build": Operation(title="build a list (constructors)", unit="us"),
+    "build-e": Operation(title="build a list (terse builders)", unit="us"),
+    "construct": Operation(title="construct N elements (no serialize)", unit="us"),
+    "emit": Operation(title="emit a built tree", unit="us"),
+    "shadow": Operation(title="attach a shadow tree with slots and flatten", unit="us"),
+    "shadow-slot": Operation(title="collect children assigned to a late shadow slot", unit="us"),
+    "shadow-assignment": Operation(title="flatten uniquely named shadow slots", unit="us"),
+    "shadow-fallback": Operation(title="flatten nested fallback slots", unit="us"),
+    "startup": Operation(title="start a fresh Python process", unit="ms"),
+    "parse": Operation(title="parse to a tree", unit="us"),
+    "parse-encoded": Operation(title="parse encoded bytes to a tree", unit="us"),
+    "parse-formatting": Operation(title="parse under a formatting ancestor", unit="us"),
+    "parse-foster": Operation(title="parse foster-parented text", unit="us"),
+    "parse-crlf": Operation(title="parse normalized newlines", unit="us"),
+    "parse-nul": Operation(title="parse text beside a NUL", unit="us"),
+    "parse-afe": Operation(title="parse nested formatting attributes", unit="us"),
+    "parse-scope": Operation(title="parse ignored block end tags", unit="us"),
+    "parse-dense": Operation(title="parse a node-dense document", unit="ms"),
+    "parse-xml": Operation(title="parse XML to a tree", unit="us"),
+    "parse-xml-append": Operation(title="parse XML with distinct attribute names", unit="us"),
+    "parse-xml-attrs": Operation(title="parse XML with growing attribute counts", unit="us"),
+    "parse-xml-values": Operation(title="parse XML attribute values", unit="us"),
+    "parse-xml-text": Operation(title="parse XML text runs", unit="us"),
+    "parse-xml-prefixes": Operation(title="parse XML namespace attributes", unit="us"),
+    "parse-xml-names": Operation(title="parse growing XML names", unit="ms"),
+    "is-valid": Operation(title="XSD validation verdict", unit="us"),
+    "is-valid-rng": Operation(title="RELAX NG validation verdict", unit="us"),
+    "validate": Operation(title="validate a document against an XSD schema", unit="us"),
+    "validate-rng": Operation(title="validate a document against a RELAX NG schema", unit="us"),
+    "validate-rng-reuse": Operation(title="validate repeated RELAX NG content models", unit="us"),
+    "compile-rng-reuse": Operation(title="compile repeated RELAX NG content models", unit="us"),
+    "validate-attributes": Operation(title="validate XSD attribute declarations", unit="us"),
+    "validate-numeric-facets": Operation(title="validate numeric values with optional bounds", unit="us"),
+    "validate-facets": Operation(title="validate inherited facet metadata", unit="us"),
+    "compile-facets": Operation(title="compile inherited facet metadata", unit="us"),
+    "validate-pattern-reuse": Operation(title="validate repeated pattern facets", unit="us"),
+    "compile-pattern": Operation(title="compile pattern facets", unit="us"),
+    "validate-pattern": Operation(title="validate growing regex character classes", unit="us"),
+    "compile-rng": Operation(title="compile a RELAX NG schema", unit="us"),
+    "parse-scripting": Operation(title="parse to a tree (scripting on)", unit="us"),
+    "parse-locations": Operation(title="parse to a tree (source locations)", unit="us"),
+    "parse-shadow": Operation(title="parse declarative shadow roots", unit="us"),
+    "fragment": Operation(title="parse a fragment", unit="us"),
+    "escape": Operation(title="escape", unit="us"),
+    "unescape": Operation(title="unescape", unit="us"),
+    "tokenize": Operation(title="tokenize", unit="us"),
+    "html-options": Operation(title="serialize with reused options", unit="us"),
+    "text-options": Operation(title="render text with reused options", unit="us"),
+    "canonical-options": Operation(title="canonicalize with reused options", unit="us"),
+    "token-attributes": Operation(title="read token attributes", unit="us"),
+    "tokenize-attributes": Operation(title="tokenize and read attributes", unit="us"),
+    "find": Operation(title="find every anchor", unit="us"),
+    "find-cold": Operation(title="query a cold 10,000-element tree", unit="us"),
+    "select": Operation(title="select div a[href]", unit="us"),
+    "select-has": Operation(title="select div:has(a)", unit="us"),
+    "select-default": Operation(title="select default form controls", unit="us"),
+    "select-nth": Operation(title="select sibling positions in wide trees", unit="ms"),
+    "select-relative": Operation(title="select child and sibling relationships", unit="us"),
+    "xpath-wide": Operation(title="order XPath results in wide trees", unit="ms"),
+    "xpath-distinct": Operation(title="deduplicate XPath string values", unit="us"),
+    "xpath-set": Operation(title="compare XPath node-set membership", unit="us"),
+    "xpath-compare": Operation(title="compare XPath values", unit="us"),
+    "node-equals": Operation(title="compare element attributes", unit="us"),
+    "xpath-id-nodes": Operation(title="resolve XPath ID argument nodes", unit="us"),
+    "xpath-replace": Operation(title="replace XPath string literals", unit="us"),
+    "xpath-concat": Operation(title="concatenate XPath node strings", unit="us"),
+    "xpath-translate": Operation(title="translate XPath characters", unit="us"),
+    "xpath-order": Operation(title="compare numeric XPath node sets", unit="us"),
+    "computed-style-deep": Operation(title="compute styles through nested ancestors", unit="ms"),
+    "microdata-wide": Operation(title="extract properties from one wide item", unit="ms"),
+    "microdata-empty-scope": Operation(title="traverse an item without properties", unit="ms"),
+    "structured-empty": Operation(title="extract metadata from an unannotated tree", unit="ms"),
+    "article-wide": Operation(title="score many article candidates", unit="ms"),
+    "article-deep": Operation(title="score nested article candidates", unit="us"),
+    "path-wide": Operation(title="build CSS paths for wide sibling lists", unit="ms"),
+    "path-xpath-wide": Operation(title="build XPath paths for wide sibling lists", unit="ms"),
+    "path-cold": Operation(title="build CSS paths on a fresh tree", unit="ms"),
+    "path-xpath-cold": Operation(title="build XPath paths on a fresh tree", unit="ms"),
+    "path-one-cold": Operation(title="build one CSS path on a fresh tree", unit="us"),
+    "path-xpath-one-cold": Operation(title="build one XPath path on a fresh tree", unit="us"),
+    "path-class-edit": Operation(title="build CSS paths after class edits", unit="ms"),
+    "computed-style-filter": Operation(title="reject CSS rules before traversal predicates", unit="ms"),
+    "computed-style-filter-cold": Operation(title="compile CSS predicate order and resolve one element", unit="ms"),
+    "computed-style-specificity": Operation(title="compute styles across matching selector alternatives", unit="ms"),
+    "computed-style-specificity-cold": Operation(title="compile styles and resolve the first element", unit="ms"),
+    "computed-style-selectors": Operation(title="reuse computed-style selector matches", unit="ms"),
+    "computed-style-selectors-reverse": Operation(title="compute styles in reverse document order", unit="ms"),
+    "computed-style": Operation(title="computed style for every element", unit="us"),
+    "computed-style-dense": Operation(title="computed style over a property-dense sheet", unit="us"),
+    "match": Operation(title="match each anchor against div a[href]", unit="us"),
+    "find-text": Operation(title="find by text content", unit="us"),
+    "find-text-exact": Operation(title="find by exact descendant text", unit="us"),
+    "find-attr-presence": Operation(title="find by attribute presence", unit="us"),
+    "find-text-overlap": Operation(title="find by overlapping literal regex", unit="us"),
+    "text-content": Operation(title="collect visible text", unit="us"),
+    "parse-inner": Operation(title="parse and serialize body children", unit="us"),
+    "parse-inner-encode": Operation(title="parse and encode body children", unit="us"),
+    "serialize-inner": Operation(title="serialize body children", unit="us"),
+    "serialize-inner-indent": Operation(title="serialize indented body children", unit="us"),
+    "serialize-inner-minify": Operation(title="serialize minified body children", unit="us"),
+    "encode-inner": Operation(title="encode body children as UTF-8", unit="us"),
+    "encode-inner-indent": Operation(title="encode indented body children as UTF-8", unit="us"),
+    "encode-inner-minify": Operation(title="encode minified body children as UTF-8", unit="us"),
+    "iterate-inner": Operation(title="consume body children chunks", unit="us"),
+    "iterate-inner-indent": Operation(title="consume indented body children chunks", unit="us"),
+    "transform-dispatch": Operation(title="compose identity callbacks", unit="ns"),
+    "collapse-whitespace": Operation(title="collapse DOM text whitespace", unit="us"),
+    "strip-comments": Operation(title="remove DOM comments", unit="us"),
+    "whitespace-roundtrip": Operation(title="normalize DOM whitespace then serialize", unit="us"),
+    "transform-tree": Operation(title="remove comments then collapse whitespace", unit="us"),
+    "serialize": Operation(title="serialize a parsed tree", unit="us"),
+    "conformance": Operation(title="check HTML5 authoring conformance", unit="us"),
+    "serialize-xml": Operation(title="serialize a parsed tree to XML", unit="us"),
+    "canonicalize": Operation(title="canonicalize a parsed tree (c14n)", unit="us"),
+    "canonicalize-attrs": Operation(title="canonicalize an element with many attributes", unit="ms"),
+    "canonicalize-deep": Operation(title="canonicalize deep trees with and without xlink attributes (c14n)", unit="us"),
+    "lossless-serialize": Operation(title="edit then re-emit untouched bytes (to_source)", unit="us"),
+    "minify": Operation(title="minify a document", unit="us"),
+    "edit": Operation(title="tag every link rel=nofollow", unit="us"),
+    "class-edit": Operation(title="class add/remove on every link", unit="us"),
+    "strip-remove": Operation(title="drop tags with content (remove)", unit="us"),
+    "strip-tags": Operation(title="unwrap tags keep content (strip_tags)", unit="us"),
+    "set-html": Operation(title="replace body inner HTML", unit="us"),
+    "set-text": Operation(title="replace body text", unit="us"),
+    "observe": Operation(title="observe a subtree through many edits", unit="us"),
+    "query-root-groups": Operation(title="select descendants across connected root groups", unit="us"),
+    "query-roots": Operation(title="select within ordered root groups", unit="us"),
+    "query-closest": Operation(title="collect closest matching ancestors", unit="us"),
+    "node-closest": Operation(title="find a node's closest matching ancestor", unit="us"),
+    "query-parents": Operation(title="collect selected nodes' parents", unit="us"),
+    "query-siblings": Operation(title="collect selected nodes' siblings", unit="us"),
+    "prune-shared": Operation(title="prune shared ancestors", unit="us"),
+    "observe-registrations": Operation(title="reject unrelated observer registrations", unit="us"),
+    "navigate": Operation(title="walk every descendant", unit="us"),
+    "treewalk": Operation(title="walk every element (TreeWalker)", unit="us"),
+    "chain": Operation(title="fluent jQuery-style chain", unit="us"),
+    "range-clone": Operation(title="clone a Range over the body", unit="us"),
+    "range-boundary": Operation(title="construct a Range at a child boundary", unit="us"),
+    "range-contained": Operation(title="clone a Range of complete children", unit="us"),
+    "range-partial": Operation(title="clone a Range with a partial element", unit="us"),
+    "links-extract": Operation(title="extract every link", unit="us"),
+    "links-absolutize": Operation(title="absolutize every link", unit="us"),
+    "links-rewrite": Operation(title="rewrite every link", unit="us"),
+    "socialcard": Operation(title="social-card extraction", unit="us"),
+    "structured": Operation(title="structured-data extraction", unit="us"),
+    "microdata": Operation(title="Microdata item extraction", unit="us"),
+    "microdata-itemref": Operation(title="resolve Microdata item references", unit="ms"),
+    "syndication": Operation(title="RSS/Atom feed parsing", unit="us"),
+    "sanitize": Operation(title="sanitize", unit="us"),
+    "sanitize-disallowed": Operation(title="sanitize disallowed tags", unit="us"),
+    "sanitize-templates": Operation(title="sanitize (template-safe)", unit="us"),
+    "sanitize-named-props": Operation(title="sanitize (named-prop isolation)", unit="us"),
+    "sanitize-report": Operation(title="sanitize with audit trail", unit="us"),
+    "sanitize-node": Operation(title="sanitize a parsed tree", unit="us"),
+    "sanitize-attributes": Operation(title="sanitize attribute allowlists", unit="us"),
+    "sanitize-styles": Operation(title="sanitize (style allowlist)", unit="us"),
+    "sanitize-transform": Operation(title="sanitize (tag transform)", unit="us"),
+    "sanitize-custom-elements": Operation(title="sanitize (custom elements)", unit="us"),
+    "sanitize-xml": Operation(title="sanitize (XML/XHTML output)", unit="us"),
+    "markup": Operation(title="markupsafe-compatible escape", unit="ns"),
+    "markup-op": Operation(title="Markup operations", unit="ns"),
+    "linkify": Operation(title="linkify HTML", unit="us"),
+    "linkify-node": Operation(title="linkify a parsed tree", unit="us"),
+    "linkify-traversal": Operation(title="linkify with native tree traversal", unit="us"),
+    "detect": Operation(title="detect links in text", unit="us"),
+    "phone": Operation(title="detect phone numbers in text", unit="us"),
+    "phone-parse": Operation(title="parse held phone numbers", unit="us"),
+    "phone-format": Operation(title="format phone numbers", unit="us"),
+    "phone-construct": Operation(title="construct and validate phone numbers", unit="us"),
+    "markdown-wrap": Operation(title="wrap short Markdown words", unit="us"),
+    "markdown": Operation(title="HTML to Markdown", unit="us"),
+    "markdown-google": Operation(title="Google Docs export to Markdown", unit="us"),
+    "tables": Operation(title="extract table grids", unit="us"),
+    "tables-wide": Operation(title="extract a wide table grid", unit="us"),
+    "tables-spans": Operation(title="extract repeated table span text", unit="us"),
+    "article": Operation(title="article extraction", unit="us"),
+    "boilerplate": Operation(title="paragraph boilerplate classification", unit="us"),
+    "date-tally": Operation(title="score visible date candidates", unit="us"),
+    "date": Operation(title="publication-date extraction", unit="us"),
+    "text-render": Operation(title="layout-aware text", unit="us"),
+    "text-collapsed": Operation(title="collapsed word stream", unit="us"),
+    "text-main": Operation(title="main-content text", unit="us"),
+    "text-annotated": Operation(title="annotated layout text", unit="us"),
+    "text-annotation-rules": Operation(title="annotated layout text by rule distribution", unit="us"),
+    "extract-attr": Operation(title="extract @href per match", unit="us"),
+    "extract-text": Operation(title="extract text per match", unit="us"),
+    "extract-url": Operation(title="extract URL hints", unit="us"),
+    "htmlparser": Operation(title="feed and dispatch a page", unit="us"),
+    "sax": Operation(title="SAX parse a page (no tree)", unit="us"),
+    "sax-records": Operation(title="iterate typed SAX records", unit="us"),
+    "sax-records-callback": Operation(title="dispatch SAX callbacks", unit="us"),
+    "treebuild": Operation(title="parse into a custom tree (no DOM)", unit="us"),
+    "rewrite": Operation(title="streaming rewrite a page (no tree)", unit="us"),
+    "rewrite-attributes": Operation(title="add custom attributes", unit="us"),
+    "path": Operation(title="css_path for every element", unit="us"),
+    "path-xpath": Operation(title="xpath_path for every element", unit="us"),
+    "translate": Operation(title="CSS selector to XPath 1.0", unit="us"),
+    "specificity": Operation(title="CSS selector specificity", unit="us"),
+    "xpath": Operation(title="XPath feature surface (9.6 kB)", unit="us"),
+    "xpath-id": Operation(title="resolve 1,000 XPath id tokens", unit="us"),
+    "transform": Operation(title="XSLT transform a catalog (120 rows)", unit="us"),
+    "transform-compile": Operation(title="compile an XSLT stylesheet with 300 templates", unit="us"),
+    "transform-reuse": Operation(title="apply one compiled 300-template stylesheet ten times", unit="us"),
+    "transform-sort": Operation(title="XSLT sort node sets", unit="ms"),
+    "transform-key": Operation(title="build XSLT key indexes", unit="us"),
+    "transform-scope": Operation(title="bind XSLT variables", unit="us"),
+    "transform-namespaces": Operation(title="copy XSLT namespace declarations", unit="us"),
+    "transform-namespaces-once": Operation(title="compile and apply a namespaced XSLT stylesheet", unit="us"),
+    "transform-dense": Operation(title="XSLT transform an instruction-dense sheet", unit="us"),
+    "transform-names-compile": Operation(title="compile XSLT declaration indexes", unit="us"),
+    "transform-names": Operation(title="resolve XSLT declaration names", unit="us"),
+    "transform-rules": Operation(title="dispatch XSLT template rules", unit="us"),
+    "transform-number": Operation(title="XSLT number nodes", unit="us"),
+    "minify-css": Operation(title="minify CSS", unit="us"),
+    "minify-css-conflicts": Operation(title="merge CSS rules across disjoint declarations", unit="us"),
+    "minify-css-merges": Operation(title="batch CSS rule merges", unit="us"),
+    "minify-js": Operation(title="minify a JS library", unit="ms"),
+    "minify-js-names": Operation(title="minify JavaScript with function parameters", unit="us"),
+    "minify-js-integers": Operation(title="print JavaScript integer arrays", unit="us"),
+    "minify-js-unlink": Operation(title="remove mixed JavaScript declarators", unit="us"),
+    "minify-js-unused-declarations": Operation(title="remove unused JavaScript declarators", unit="us"),
+    "minify-js-var-initialization": Operation(title="check JavaScript var initialization order", unit="us"),
+    "minify-js-sequences": Operation(title="minify expression sequences", unit="us"),
+    "minify-js-propagation": Operation(title="propagate repeated JavaScript literal reads", unit="us"),
+    "minify-js-single-use": Operation(title="check single-use JavaScript initializers", unit="us"),
+    "minify-js-guards": Operation(title="minify guard return chains", unit="us"),
+    "stream": Operation(title="push-parse a page in chunks", unit="us"),
+    "encoding-result": Operation(title="construct the winning encoding result", unit="us"),
+    "encoding-result-stream": Operation(title="construct the streamed encoding result", unit="us"),
+    "encoding-chunks": Operation(title="detect encoding across byte chunks", unit="us"),
+    "encoding": Operation(title="detect a byte stream's encoding", unit="us"),
+    "decode": Operation(title="decode a legacy byte stream", unit="us"),
+    "normalize": Operation(title="normalize text to Unicode NFC", unit="us"),
+    "normalize-dom": Operation(title="merge adjacent text nodes", unit="ns"),
+    "attribute-grow": Operation(title="set element attributes", unit="us"),
+    "normalize-marks": Operation(title="normalize long combining-mark runs", unit="ms"),
+    "detect-language": Operation(title="detect a text's natural language", unit="us"),
+    "detect-language-long": Operation(title="count trigrams in long prose", unit="ms"),
+    "escape-identifier": Operation(title="escape 1,000 raw CSS identifiers", unit="us"),
+    "idna": Operation(title="normalize 4,100 URLs with Unicode hosts", unit="ms"),
+    "urls-clean": Operation(title="clean and normalize 100 URLs", unit="us"),
+    "links-filter": Operation(title="extract filtered page links", unit="us"),
+    "links-external": Operation(title="extract links outside the base site", unit="ms"),
+    "serialize-attributes": Operation(title="serialize HTML attribute order", unit="us"),
+    "serialize-named": Operation(title="serialize HTML named entities", unit="us"),
+    "transform-text": Operation(title="XSLT text emission", unit="us"),
 }
 
 
-def _sax_record_cases() -> tuple[tuple[str, object], ...]:
+def _sax_record_cases() -> tuple[tuple[str, Case], ...]:
     return (
-        ("4,096 small elements", "<!DOCTYPE html>" + "<p>x</p>" * 4096),
+        ("4,096 small elements", f"<!DOCTYPE html>{'<p>x</p>' * 4096}"),
         ("one small element", "<p>x</p>"),
     )
 
 
-def _parse_cases() -> tuple[tuple[str, object], ...]:
-    """Return the corpus documents the parse suite runs over (loaded from the html5lib-python submodule)."""
+def _parse_cases() -> tuple[tuple[str, Case], ...]:
+    # Return the corpus documents the parse suite runs over (loaded from the html5lib-python submodule).
     return (
-        *((name, corpus.corpus_text(relative, encoding)) for name, relative, encoding in corpus.CORPUS_FILES),
+        *((name, corpus_text(relative, encoding)) for name, relative, encoding in CORPUS_FILES),
         ("common tags (13 kB)", "<div><span>x</span></div>" * 500),
     )
 
 
-def _dispatch_cases() -> tuple[tuple[str, object], ...]:
+def _dispatch_cases() -> tuple[tuple[str, Case], ...]:
     return tuple((f"{count} stages", count) for count in (0, 1, 4, 16))
 
 
-def _collapse_cases() -> tuple[tuple[str, object], ...]:
+def _collapse_cases() -> tuple[tuple[str, Case], ...]:
     return (
         *_readpath_cases(),
-        ("unchanged text (1 MiB)", "<p>" + "x" * 1_048_576 + "</p>"),
-        ("whitespace runs (1 MiB)", "<p>" + "x  " * 349_525 + "</p>"),
+        ("unchanged text (1 MiB)", f"<p>{'x' * 1_048_576}</p>"),
+        ("whitespace runs (1 MiB)", f"<p>{'x  ' * 349_525}</p>"),
     )
 
 
-def _readpath_cases() -> tuple[tuple[str, object], ...]:
-    """
-    Return the pages the read-path operations parse once then query.
-
-    Real saved web pages (a blog, a news article, a product blog) spanning 10-95 kB, plus the whatwg spec at 235 kB.
-    The wpt fixtures they replace are CSS layout tests with no nested ``div``/``a`` or links, so ``div a[href]``,
-    ``div:has(a)``, and the link/edit/chain/extract operations matched nothing and timed empty walks; these carry the
-    real structure those operations exist to traverse.
-    """
-    pages = [(name, corpus.large_text(filename, url)) for name, filename, url in corpus.REAL_PAGES]
-    label, relative, encoding = corpus.CORPUS_FILES[5]  # whatwg spec (235 kB), the large content page
-    pages.append((label, corpus.corpus_text(relative, encoding)))
+def _readpath_cases() -> tuple[tuple[str, Case], ...]:
+    # Return the pages the read-path operations parse once then query.
+    #
+    # Real saved web pages (a blog, a news article, a product blog) spanning 10-95 kB, plus the whatwg spec at 235 kB.
+    # The wpt fixtures they replace are CSS layout tests with no nested ``div``/``a`` or links, so ``div a[href]``,
+    # ``div:has(a)``, and the link/edit/chain/extract operations matched nothing and timed empty walks; these carry the
+    # real structure those operations exist to traverse.
+    pages = [(name, large_text(filename, url)) for name, filename, url in REAL_PAGES]
+    label, relative, encoding = CORPUS_FILES[5]  # whatwg spec (235 kB), the large content page
+    pages.append((label, corpus_text(relative, encoding)))
     return tuple(pages)
 
 
-def _stream_cases() -> tuple[tuple[str, object], ...]:
-    wide_paragraph: Final = "<p>" + "名" * 4089 + "</p>"
+def _stream_cases() -> tuple[tuple[str, Case], ...]:
+    wide_paragraph: Final = f"<p>{'名' * 4089}</p>"
     wide_body: Final = wide_paragraph * 64
     prefix: Final = "<html><head></head><body>"
     suffix: Final = "</body></html>"
@@ -597,8 +671,8 @@ def _stream_cases() -> tuple[tuple[str, object], ...]:
         ("one BMP paragraph, early NUL", prefix + nul_element + wide_paragraph + suffix),
         ("64 BMP paragraphs, late NUL", prefix + wide_body + nul_element + suffix),
         ("64 BMP paragraphs, no NUL", prefix + wide_body + suffix),
-        ("64 ASCII paragraphs, early NUL", prefix + nul_element + ("<p>" + "a" * 4089 + "</p>") * 64 + suffix),
-        ("64 supplementary paragraphs, early NUL", prefix + nul_element + ("<p>" + "😀" * 4089 + "</p>") * 64 + suffix),
+        ("64 ASCII paragraphs, early NUL", prefix + nul_element + (f"<p>{'a' * 4089}</p>") * 64 + suffix),
+        ("64 supplementary paragraphs, early NUL", prefix + nul_element + (f"<p>{'😀' * 4089}</p>") * 64 + suffix),
     )
 
 
@@ -615,13 +689,13 @@ def _form_data_fieldset_cases() -> tuple[tuple[str, str], ...]:
     return tuple(
         (
             label,
-            "<form>"
-            + opening
-            + "<div>" * depth
-            + "".join(f'<input name="n{index}" value="v{index}">' for index in range(count))
-            + "</div>" * depth
-            + closing
-            + '<input name="tail" value="ok"></form>',
+            (
+                f"""<form>{opening}{"<div>" * depth}"""
+                f"""{"".join(f'<input name="n{index}" value="v{index}">' for index in range(count))}{
+                    "</div>" * depth
+                }"""
+                f"""{closing}<input name="tail" value="ok"></form>"""
+            ),
         )
         for label, opening, closing, depth, count in (
             ("disabled / 2,048 controls / depth 64", "<fieldset disabled>", "</fieldset>", 64, 2_048),
@@ -642,8 +716,10 @@ def _computed_style_selector_cases() -> tuple[tuple[str, str], ...]:
     return tuple(
         (
             label,
-            f"<!doctype html><style>div{{color:blue}}div{selector}{{color:red}}</style>"
-            + ("<div>" * count + leaf + "</div>" * count if nested else ("<div></div>" + leaf) * count),
+            (
+                f"<!doctype html><style>div{{color:blue}}div{selector}{{color:red}}</style>"
+                f"{'<div>' * count + leaf + '</div>' * count if nested else (f'<div></div>{leaf}') * count}"
+            ),
         )
         for label, selector, count, nested, leaf in (
             ("deep missing :has / 512 elements", ":has(.hit)", 512, True, "<span></span>"),
@@ -656,37 +732,22 @@ def _computed_style_selector_cases() -> tuple[tuple[str, str], ...]:
 
 
 def _deep_tree(depth: int, leaves: int) -> str:
-    """
-    Build a deep, wide, xlink-free tree: a spine of ``depth`` nested divs, each carrying ``leaves`` leaf spans.
-
-    Canonicalization decides every element's xmlns:xlink from whether the prefix is in scope, which the c14n serializer
-    resolved by walking node->root; the deep spine makes that per-element walk O(depth) and, xlink-free, the walk always
-    ran to the root before short-circuiting. It is the workload the drop-the-redundant-walk change (#603) turned into a
-    single local attr scan, which a shallow real page barely registers.
-    """
+    # Build a deep, wide, xlink-free tree: a spine of ``depth`` nested divs, each carrying ``leaves`` leaf spans.
+    #
+    # Canonicalization decides every element's xmlns:xlink from whether the prefix is in scope, which the c14n
+    # serializer resolved by walking node->root; the deep spine makes that per-element walk O(depth) and, xlink-free,
+    # the walk always ran to the root before short-circuiting. It is the workload the drop-the-redundant-walk change
+    # (#603) turned into a single local attr scan, which a shallow real page barely registers.
     spine = "".join(
-        f"<div class='n{level}'>" + "".join(f"<span>t{level}-{leaf}</span>" for leaf in range(leaves))
+        f"""<div class='n{level}'>{"".join(f"<span>t{level}-{leaf}</span>" for leaf in range(leaves))}"""
         for level in range(depth)
     )
-    body = spine + "</div>" * depth
-    return f"<!doctype html><html><body>{body}</body></html>"
+    return f"<!doctype html><html><body>{(spine + '</div>' * depth)}</body></html>"
 
 
-_TOKENIZE_CASES = (
-    ("typical markup", '<div class="row"><p>Tom &amp; Jerry said "hi" to <b>O\'Brien</b>!</p><br/></div>\n' * 60),
-    ("text-heavy prose", "<p>" + "the quick brown fox jumps over the lazy dog " * 100 + "</p>"),
-    (
-        "attribute-heavy",
-        '<a href="https://example.com/path?q=1" title="example" rel="noopener" target="_blank" data-x=y>link</a>\n'
-        * 60,
-    ),
-    ("script-heavy", "<script>function f(a, b) { return a < b && b > a; }</script>\n" * 60),
-    ("entity-heavy", "<p>caf&eacute; &amp; r&eacute;sum&eacute; &#127881; &lt;tag&gt;</p>\n" * 60),
-)
+_FRAGMENT_HTML: Final[str] = "<tr><td>cell</td><td><a href='/x'>link</a></td></tr>" * 40
 
-_FRAGMENT_HTML = "<tr><td>cell</td><td><a href='/x'>link</a></td></tr>" * 40
-
-_MARKUP_ESCAPE_CASES = (
+_MARKUP_ESCAPE_CASES: Final[tuple[tuple[str, str], ...]] = (
     ("clean (8 B)", "a value!"),
     ("clean (32 B)", "The quick brown fox jumped ok"),
     ("clean (256 B)", "The quick brown fox jumps over the lazy dog. " * 6),
@@ -694,31 +755,33 @@ _MARKUP_ESCAPE_CASES = (
     ("escape-heavy markup", '<a href="/x?a=1&b=2">click & go</a>' * 2),
 )
 
-_MARKUP_OPS_HTML = "<p>Hello <b>bold</b> &amp; <i>italic</i>, see <a href='/x'>caf&eacute;</a> &#127881;</p>"
-_MARKUP_FORMAT_ARGS = ("<script>alert(1)</script>", "Tom & Jerry")
-_MARKUP_JOIN_PARTS = ("<a href='/x'>link</a>", "Tom & Jerry", "<b>bold</b>", "plain text")
+_MARKUP_OPS_HTML: Final[str] = (
+    "<p>Hello <b>bold</b> &amp; <i>italic</i>, see <a href='/x'>caf&eacute;</a> &#127881;</p>"
+)
+_MARKUP_FORMAT_ARGS: Final[tuple[str, ...]] = ("<script>alert(1)</script>", "Tom & Jerry")
+_MARKUP_JOIN_PARTS: Final[tuple[str, ...]] = ("<a href='/x'>link</a>", "Tom & Jerry", "<b>bold</b>", "plain text")
 
-_LINKIFY_CASES = (
+_LINKIFY_CASES: Final[tuple[tuple[str, str], ...]] = (
     ("comment (1 link, 1 email)", "Ping me at bob@example.com or see https://example.com for details."),
     ("prose (1 KiB)", "See https://example.com/path?q=1 and visit www.example.org for more. " * 15),
     ("markup (4 KiB)", '<p>Read <a href="https://kept.example">the post</a> then go to https://example.com/x. ' * 45),
 )
 
-_PHONE_PROSE = (
+_PHONE_PROSE: Final[str] = (
     "Our office moved last spring, so the front desk now answers on 650-253-0000 during business hours and the "
     "support line +44 20 7946 0958 ext. 12 after six. Invoices quote order 48213 and ship within 3 days; the "
     "warehouse (2 pages) lists 12 pallets, 4 crates and 1,240 units per lot. "
 )
-_PHONE_NOISE = (
+_PHONE_NOISE: Final[str] = (
     "Released 3/10/2011 at 12:30:45 from 192.168.0.1; ISBN 978-0-306-40615-7, card 4111 1111 1111 1111, ticket "
     "4711, pages 1-5 (3 pages), version 2.4.16.1, 2012-01-02 08:00, order 10293847, ref 5551234, +1 (555) 555-5555. "
 )
-_PHONE_MIXED = (
+_PHONE_MIXED: Final[str] = (
     "Call 650-253-0000 or (650) 253-0001, fax 011 44 20 7946 0958, mobile 07400 123456, Berlin 030 12345678, "
     "Mumbai 022 2345 6789, +55 11 96123-4567, +81 3-1234-5678, order 98211 shipped 3/10/2011; not 123-456-7890. "
 )
-_PHONE_ADVERSARIAL = " ".join(["1234"] * 21) + " " + "1" * 21 + " " + ".".join(["12"] * 21) + " "
-_PHONE_FULLWIDTH = (
+_PHONE_ADVERSARIAL: Final[str] = f"{' '.join(['1234'] * 21)} {'1' * 21} {'.'.join(['12'] * 21)} "
+_PHONE_FULLWIDTH: Final[str] = (
     "\uff0b\uff14\uff14 \uff12\uff10 \uff17\uff19\uff14\uff16 \uff10\uff19\uff15\uff18 or "
     "\uff16\uff15\uff10-\uff12\uff15\uff13-\uff10\uff10\uff10\uff10, then prose. "
 )
@@ -764,59 +827,60 @@ _PHONE_HELD: Final[tuple[tuple[str, str], ...]] = (
     ("SG", "6123 4567"),
 )
 _LINKIFY_TRAVERSAL_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
-    ("text-heavy tree", ("default", "<article><p>" + "plain prose " * 8_000 + "https://example.com</p></article>")),
-    ("2,000 small text nodes", ("default", "<div>" + "<span>plain</span>" * 2_000 + "</div>")),
+    ("text-heavy tree", ("default", f"<article><p>{'plain prose ' * 8_000}https://example.com</p></article>")),
+    ("2,000 small text nodes", ("default", f"<div>{'<span>plain</span>' * 2_000}</div>")),
     ("2,000 skipped nodes", ("skip", "<code><span>https://example.com</span></code>" * 2_000)),
     (
         "400 callback links",
         ("callbacks", '<a href="https://kept.example">kept</a> https://example.com ' * 200),
     ),
     ("2,000 nodes without text", ("default", "<div></div>" * 2_000)),
-    ("wide text, two callbacks", ("callbacks", "<p>" + "😀 " * 32_768 + "https://example.com</p>")),
+    ("wide text, two callbacks", ("callbacks", f"<p>{'😀 ' * 32_768}https://example.com</p>")),
 )
 
 _FIND_COLD_BODY: Final[str] = "<span>x</span>" * 10_000
 _FIND_COLD_CASES: Final[tuple[tuple[str, tuple[str, str]], ...]] = (
-    ("find early hit", ("find", "<a>x</a>" + _FIND_COLD_BODY)),
-    ("find late hit", ("find", _FIND_COLD_BODY + "<a>x</a>")),
+    ("find early hit", ("find", f"<a>x</a>{_FIND_COLD_BODY}")),
+    ("find late hit", ("find", f"{_FIND_COLD_BODY}<a>x</a>")),
     ("find miss", ("find", _FIND_COLD_BODY)),
-    ("find_all", ("all", "<a>x</a>" + _FIND_COLD_BODY)),
-    ("find_all limit=1", ("limit", "<a>x</a>" + _FIND_COLD_BODY)),
+    ("find_all", ("all", f"<a>x</a>{_FIND_COLD_BODY}")),
+    ("find_all limit=1", ("limit", f"<a>x</a>{_FIND_COLD_BODY}")),
 )
 
-_MARKDOWN_ARTICLE = "<h2>Heading</h2><p>A <b>bold</b> <a href='/x'>link</a> and <code>code</code>.</p>" * 18
-_MARKDOWN_LIST = "<ul><li>item <em>one</em></li><li>item two<ul><li>nested</li></ul></li></ul>" * 40
-_MARKDOWN_TABLE = "<table><tr><th>Name</th><th>Value</th></tr><tr><td>a</td><td>1</td></tr></table>" * 35
-_MARKDOWN_CONFIGURED = (
+_MARKDOWN_ARTICLE: Final[str] = "<h2>Heading</h2><p>A <b>bold</b> <a href='/x'>link</a> and <code>code</code>.</p>" * 18
+_MARKDOWN_LIST: Final[str] = "<ul><li>item <em>one</em></li><li>item two<ul><li>nested</li></ul></li></ul>" * 40
+_MARKDOWN_TABLE: Final[str] = "<table><tr><th>Name</th><th>Value</th></tr><tr><td>a</td><td>1</td></tr></table>" * 35
+_MARKDOWN_CONFIGURED: Final[str] = (
     "<h2>H</h2><p>A <b>b</b> & <a href='/x'>l</a>.</p>"
     "<table><tr><th>K</th><th>V</th></tr><tr><td>a</td><td>1</td></tr></table>"
 ) * 18
-_MARKDOWN_GOOGLE = (
+_MARKDOWN_GOOGLE: Final[str] = (
     '<p><span style="font-weight:700">Bold</span> and <span style="font-style:italic">italic</span> and '
     "<span style=\"font-family:'Courier New'\">code()</span> in a line.</p>"
 ) * 18
 
-_TEXT_ARTICLE = "<h2>Heading</h2><p>A paragraph of plain prose with a <a href='/x'>link</a> in it.</p>" * 16
-_TEXT_TABLE = "<table><tr><th>Region</th><th>Total</th></tr><tr><td>North</td><td>120</td></tr></table>" * 30
-_TEXT_MAIN = (
-    "<html><head><title>Comets</title></head><body>"
-    "<nav><a href='/'>Home</a> <a href='/science'>Science</a></nav>"
-    "<article><h1>Comets</h1>"
-    + (
+_TEXT_ARTICLE: Final[str] = "<h2>Heading</h2><p>A paragraph of plain prose with a <a href='/x'>link</a> in it.</p>" * 16
+_TEXT_TABLE: Final[str] = (
+    "<table><tr><th>Region</th><th>Total</th></tr><tr><td>North</td><td>120</td></tr></table>" * 30
+)
+_TEXT_MAIN: Final[str] = (
+    "<html><head><title>Comets</title></head><body><nav><a href='/'>Home</a> <a "
+    "href='/science'>Science</a></nav><article><h1>Comets</h1>"
+    f"""{
         "<p>A comet is an icy small body that, when it passes close to the Sun, warms up and releases gases, forming a "
         "glowing coma around it.</p>" * 12
-    )
-    + "</article><footer><p>Copyright notice, all rights reserved here.</p></footer></body></html>"
+    }"""
+    "</article><footer><p>Copyright notice, all rights reserved here.</p></footer></body></html>"
 )
-_TEXT_ANNOTATED = "<h1>Q3</h1><p>Up <b>12%</b> with a <a href='/x'>link</a> in prose.</p>" * 16
+_TEXT_ANNOTATED: Final[str] = "<h1>Q3</h1><p>Up <b>12%</b> with a <a href='/x'>link</a> in prose.</p>" * 16
 
-_URL_HINT_HTML = (
+_URL_HINT_HTML: Final[str] = (
     "<html><head><base href='/sub/'>"
     "<meta http-equiv='refresh' content='5; url=next.html'>"
     "<title>Doc</title></head><body><p>Body copy.</p></body></html>"
 )
 
-_TRANSLATE_CASES = (
+_TRANSLATE_CASES: Final[tuple[tuple[str, str], ...]] = (
     ("type", "div"),
     ("compound", "div.item a[href^='https']"),
     ("structural", "ul li:nth-child(2n+1)"),
@@ -824,48 +888,16 @@ _TRANSLATE_CASES = (
     ("group", "h1, h2, h3, section .title"),
 )
 
-_SVG_FRAGMENT = "<svg><rect/><rect/></svg>"
-_XPATH_FEATURES = (
-    "//div",
-    "//a[@href]",
-    "//div//a[@href]",
-    "/html/body/div",
-    "//div//a[1]",
-    "//a[contains(@href, '/')]",
-    "//div[position() <= 3]",
-    "//a/ancestor::div",
-    "//a | //span",
-    "//*[local-name() = 'a']",
-    "count(//a)",
-)
-_XPATH_PARITY = (
-    ("//a[@href=$x] (variable)", "variable"),
-    ("//a[re:test(@href, ...)] (EXSLT)", "re:test"),
-    ("//a[ends-with(@href, ...)] (XPath 2.0)", "ends-with"),
-    ("string-join(//a/@href, ...) (XPath 2.0)", "string-join"),
-    ("//a[lower-case(@href) = ...] (XPath 2.0)", "lower-case"),
-    ("//a[matches(@href, ...)] (XPath 2.0)", "matches"),
-    ("replace(//a/@href, ...) (XPath 2.0)", "replace"),
-    ("set:distinct(//a) (EXSLT)", "set:distinct"),
-    ("//a/@href (smart_strings)", "smart_strings"),
-    ("ext(//a) (extensions)", "extension"),
-    ("ext(//a)/@href (node-set extension)", "nodeset_extension"),
-    ("//svg:rect (namespaces=)", "namespaces"),
-    ("$rows/div (node-set variable)", "node_set_variable"),
-    ("//a[@href] (precompiled, reused)", "precompiled"),
-    ("article classes (EXSLT)", "re:alternatives"),
-)
-_XPATH_ID_DOC: Final = "".join(f"<i id=r{index}></i>" for index in range(5_000))
+_XPATH_ID_DOC: Final[str] = "".join(f"<i id=r{index}></i>" for index in range(5_000))
 
 
 def _table_html(data_rows: int) -> str:
-    """Build a header plus ``data_rows`` four-column body rows, with a colspan to exercise span resolution."""
-    header = "<tr><th>Region</th><th>Quarter</th><th>Revenue</th><th>Units</th></tr>"
+    # Build a header plus ``data_rows`` four-column body rows, with a colspan to exercise span resolution.
     body = "".join(
         f"<tr><td>R{index}</td><td>Q{index % 4 + 1}</td><td colspan=2>{index * 10}</td></tr>"
         for index in range(data_rows)
     )
-    return f"<table>{header}{body}</table>"
+    return f"<table>{'<tr><th>Region</th><th>Quarter</th><th>Revenue</th><th>Units</th></tr>'}{body}</table>"
 
 
 def _css_merge_inputs() -> tuple[tuple[str, str], ...]:
@@ -894,12 +926,8 @@ def _css_conflict_inputs() -> tuple[tuple[str, str], ...]:
         (
             f"{repeats} rule pairs, {properties} properties, {value_length} value bytes",
             (
-                ".a{"
-                + ";".join(f"--a{index}:f({'x' * value_length})" for index in range(properties))
-                + "}"
-                + ".b{"
-                + ";".join(f"--b{index}:f({'y' * value_length})" for index in range(properties))
-                + "}"
+                f""".a{{{";".join(f"--a{index}:f({'x' * value_length})" for index in range(properties))}}}.b{{"""
+                f"""{";".join(f"--b{index}:f({'y' * value_length})" for index in range(properties))}}}"""
             )
             * repeats,
         )
@@ -908,7 +936,7 @@ def _css_conflict_inputs() -> tuple[tuple[str, str], ...]:
 
 
 def _article_page(paragraphs: int) -> str:
-    """Build a full page -- navigation, a scored article of ``paragraphs`` paragraphs, and a footer."""
+    # Build a full page -- navigation, a scored article of ``paragraphs`` paragraphs, and a footer.
     head = (
         "<html lang=en><head><title>Comets: A Field Guide</title>"
         "<meta name=author content='Ada Lovelace'>"
@@ -924,13 +952,13 @@ def _article_page(paragraphs: int) -> str:
     return f"{head}{nav}{article}<footer><p>Copyright notice, all rights reserved here.</p></footer></body></html>"
 
 
-_FILTER_STYLED_PAGES: Final = tuple(
+_FILTER_STYLED_PAGES: Final[tuple[tuple[str, str], ...]] = tuple(
     (
         f"256 rules / 128 parent-child pairs / {label}",
-        "<style>"
-        + (selector + "{color:red}") * 256
-        + "div{color:blue}</style>"
-        + '<div class="hit"><span></span></div>' * 128,
+        (
+            f"""<style>{(f"{selector}{{color:red}}") * 256}div{{color:blue}}</style>"""
+            f"""{'<div class="hit"><span></span></div>' * 128}"""
+        ),
     )
     for label, selector in (
         ("irrelevant pseudo-first", ":has(span).missing"),
@@ -940,22 +968,22 @@ _FILTER_STYLED_PAGES: Final = tuple(
 )
 
 
-_SPECIFICITY_STYLED_PAGES: Final = tuple(
+_SPECIFICITY_STYLED_PAGES: Final[tuple[tuple[str, str], ...]] = tuple(
     (
         f"256 rules / 128 elements / {label}",
-        "<style>" + (selector + "{color:red}") * 256 + "</style>" + '<div class="hit"></div>' * 128,
+        f"""<style>{(f"{selector}{{color:red}}") * 256}</style>{'<div class="hit"></div>' * 128}""",
     )
     for label, selector in (
         (
             "nested alternatives",
-            ":is(.hit," + ",".join(f"#absent{index}" for index in range(32)) + "):where(.hit),#missing",
+            f":is(.hit,{','.join(f'#absent{index}' for index in range(32))}):where(.hit),#missing",
         ),
         ("ordinary alternatives", ".hit,#missing"),
     )
 )
 
 
-_STYLE_SHEET = dedent("""\
+_STYLE_SHEET: Final[str] = dedent("""\
     body { color: #222; font-size: 16px; line-height: 1.5; margin: 0 }
     a { color: navy; text-decoration: underline }
     a:hover { color: teal }
@@ -972,7 +1000,7 @@ _STYLE_SHEET = dedent("""\
 
 
 def _styled_page(sections: int) -> str:
-    """Build a styled page: a ``<style>`` sheet plus ``sections`` repeated, class- and id-tagged content blocks."""
+    # Build a styled page: a ``<style>`` sheet plus ``sections`` repeated, class- and id-tagged content blocks.
     section = (
         "<article><h2>Comets</h2><p id=lead>An icy small body that warms near the Sun.</p>"
         "<p class=note>Read the <a href='/space'>space</a> guide.</p>"
@@ -988,7 +1016,7 @@ def _styled_page(sections: int) -> str:
 
 # every longhand the cascade tracks, each declared once, so resolving one rule runs css_prop_id (the name->id lookup)
 # over the whole property surface -- the lookup the property table's binary search (#604) replaced a 63-row linear scan
-_DENSE_DECLS = (
+_DENSE_DECLS: Final[str] = (
     "color:#123456;font-size:15px;font-style:italic;font-weight:600;font-variant:small-caps;"
     "line-height:1.4;text-align:justify;text-indent:2px;text-transform:uppercase;letter-spacing:1px;"
     "word-spacing:2px;white-space:nowrap;visibility:visible;list-style-type:square;list-style-position:inside;"
@@ -1004,11 +1032,11 @@ _DENSE_DECLS = (
 )
 # four rules every element matches (the universal rule plus the three classes it carries), so each element resolves the
 # full longhand set four times over, the per-declaration css_prop_id lookup a utility-class framework really produces
-_DENSE_SHEET = "".join(f"{selector} {{{_DENSE_DECLS}}}\n" for selector in ("*", ".u", ".v", ".w"))
+_DENSE_SHEET: Final[str] = "".join(f"{selector} {{{_DENSE_DECLS}}}\n" for selector in ("*", ".u", ".v", ".w"))
 
 
 def _dense_styled_page(sections: int) -> str:
-    """Build a page whose stylesheet declares every longhand across four rules each of ``sections`` blocks matches."""
+    # Build a page whose stylesheet declares every longhand across four rules each of ``sections`` blocks matches.
     section = (
         "<section class='u v w'><div class='u v w'><p class='u v w'>Text with a "
         "<a class='u v w' href='/x'>link</a> and <span class='u v w'>inline</span>.</p>"
@@ -1017,7 +1045,7 @@ def _dense_styled_page(sections: int) -> str:
     return f"<html><head><style>{_DENSE_SHEET}</style></head><body>{section * sections}</body></html>"
 
 
-def _annotation_rule_cases() -> tuple[tuple[str, object], ...]:
+def _annotation_rule_cases() -> tuple[tuple[str, Case], ...]:
     unrelated = (
         *tuple(
             (tag, (tag,))
@@ -1077,18 +1105,18 @@ def _annotation_rule_cases() -> tuple[tuple[str, object], ...]:
     attributes = " ".join(f'data-{index}="yes"' for index in range(49))
     broad = f"<p>{f'<span {attributes}>x</span>' * 1_000}</p>"
     return (
-        ("49 mostly irrelevant rules, 1,000 spans", ("<p>" + "<span>x</span>" * 1_000 + "</p>", unrelated)),
+        ("49 mostly irrelevant rules, 1,000 spans", (f"<p>{'<span>x</span>' * 1_000}</p>", unrelated)),
         ("49 wildcard rules, 1,000 spans", (broad, tuple((f"#data-{index}", (str(index),)) for index in range(49)))),
         (
             "49 matching tag rules, 1,000 spans",
             (broad, tuple((f"span#data-{index}", (str(index),)) for index in range(49))),
         ),
         ("49 mostly irrelevant rules, one span", ("<p><span>x</span></p>", unrelated)),
-        ("three rules, 1,000 spans", ("<p>" + "<span>x</span>" * 1_000 + "</p>", unrelated[-3:])),
+        ("three rules, 1,000 spans", (f"<p>{'<span>x</span>' * 1_000}</p>", unrelated[-3:])),
         (
             "interleaved wildcard rules, alternating tags",
             (
-                "<p>" + '<span data-x="yes">x</span><b data-x="yes">y</b>' * 500 + "</p>",
+                f"""<p>{'<span data-x="yes">x</span><b data-x="yes">y</b>' * 500}</p>""",
                 (("span", ("span",)), ("#data-x", ("wild",)), ("b", ("bold",)), *unrelated[:5]),
             ),
         ),
@@ -1096,61 +1124,80 @@ def _annotation_rule_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _xpath_cases() -> tuple[tuple[str, object], ...]:
-    """Return one (label, (kind, text)) pair per XPath feature over the 9.6 kB page; the namespaced row carries SVG."""
-    _name, relative, encoding = corpus.CORPUS_FILES[2]
-    text = corpus.corpus_text(relative, encoding)
-    structural = tuple((f"``{feature}``", (feature, text)) for feature in _XPATH_FEATURES)
+def _xpath_cases() -> tuple[tuple[str, Case], ...]:
+    # Return one (label, (kind, text)) pair per XPath feature over the 9.6 kB page; the namespaced row carries SVG.
+    _name, relative, encoding = CORPUS_FILES[2]
+    text = corpus_text(relative, encoding)
+    xpath_features = (
+        "//div",
+        "//a[@href]",
+        "//div//a[@href]",
+        "/html/body/div",
+        "//div//a[1]",
+        "//a[contains(@href, '/')]",
+        "//div[position() <= 3]",
+        "//a/ancestor::div",
+        "//a | //span",
+        "//*[local-name() = 'a']",
+        "count(//a)",
+    )
+    structural = tuple((f"``{feature}``", (feature, text)) for feature in xpath_features)
+    svg_fragment = "<svg><rect/><rect/></svg>"
+    xpath_parity = (
+        ("//a[@href=$x] (variable)", "variable"),
+        ("//a[re:test(@href, ...)] (EXSLT)", "re:test"),
+        ("//a[ends-with(@href, ...)] (XPath 2.0)", "ends-with"),
+        ("string-join(//a/@href, ...) (XPath 2.0)", "string-join"),
+        ("//a[lower-case(@href) = ...] (XPath 2.0)", "lower-case"),
+        ("//a[matches(@href, ...)] (XPath 2.0)", "matches"),
+        ("replace(//a/@href, ...) (XPath 2.0)", "replace"),
+        ("set:distinct(//a) (EXSLT)", "set:distinct"),
+        ("//a/@href (smart_strings)", "smart_strings"),
+        ("ext(//a) (extensions)", "extension"),
+        ("ext(//a)/@href (node-set extension)", "nodeset_extension"),
+        ("//svg:rect (namespaces=)", "namespaces"),
+        ("$rows/div (node-set variable)", "node_set_variable"),
+        ("//a[@href] (precompiled, reused)", "precompiled"),
+        ("article classes (EXSLT)", "re:alternatives"),
+    )
     parity = tuple(
-        (label, (kind, text + _SVG_FRAGMENT if kind == "namespaces" else text)) for label, kind in _XPATH_PARITY
+        (label, (kind, text + svg_fragment if kind == "namespaces" else text)) for label, kind in xpath_parity
     )
     return structural + parity
 
 
-_XSLT_SHEET = (
-    '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-    '<xsl:output method="html"/>'
-    '<xsl:key name="by-cat" match="book" use="@cat"/>'
-    '<xsl:template match="/"><table>'
-    '<xsl:apply-templates select="catalog/book">'
-    '<xsl:sort select="price" data-type="number" order="descending"/></xsl:apply-templates>'
-    "</table></xsl:template>"
-    '<xsl:template match="book"><tr class="{@cat}"><td><xsl:number format="1"/></td>'
-    '<td><xsl:value-of select="title"/></td>'
-    "<td><xsl:value-of select=\"format-number(price, '#,##0.00')\"/></td>"
-    "<td><xsl:value-of select=\"count(key('by-cat', @cat))\"/></td></tr></xsl:template>"
-    "</xsl:stylesheet>"
-)
-_XSLT_SOURCE = (
+_XSLT_SOURCE: Final[str] = (
     "<catalog>"
-    + "".join(
-        f'<book cat="c{index % 5}"><title>Book number {index}</title><price>{index % 97 + 0.99}</price></book>'
-        for index in range(120)
-    )
-    + "</catalog>"
+    f"""{
+        "".join(
+            f'<book cat="c{index % 5}"><title>Book number {index}</title><price>{index % 97 + 0.99}</price></book>'
+            for index in range(120)
+        )
+    }"""
+    "</catalog>"
 )
 
 
-def _transform_text_cases() -> tuple[tuple[str, object], ...]:
-    cases: Final[list[tuple[str, object]]] = []
+def _transform_text_cases() -> tuple[tuple[str, Case], ...]:
+    cases: Final[list[tuple[str, Case]]] = []
     payload: Final = "payload " * 8
     for kind in ("builtin", "literal", "xsl:text"):
         for count in (4096, 4):
             if kind == "builtin":
                 body = "<xsl:apply-templates/>"
-                source = "<r>" + ("<p>" + payload + "</p>") * count + "</r>"
+                source = f"<r>{(f'<p>{payload}</p>') * count}</r>"
             else:
-                body = (payload + "<!--gap-->" if kind == "literal" else "<xsl:text>" + payload + "</xsl:text>") * count
+                body = (f"{payload}<!--gap-->" if kind == "literal" else f"<xsl:text>{payload}</xsl:text>") * count
                 source = "<r/>"
             sheet = (
-                '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-                '<xsl:output method="text"/><xsl:template match="/">' + body + "</xsl:template></xsl:stylesheet>"
+                f'<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+                f'<xsl:output method="text"/><xsl:template match="/">{body}</xsl:template></xsl:stylesheet>'
             )
             cases.append((f"{count} {kind} text nodes", (sheet, source)))
     return tuple(cases)
 
 
-def _transform_key_cases() -> tuple[tuple[str, object], ...]:
+def _transform_key_cases() -> tuple[tuple[str, Case], ...]:
     return tuple(
         (
             f"{label} ({count:,} nodes)",
@@ -1161,7 +1208,7 @@ def _transform_key_cases() -> tuple[tuple[str, object], ...]:
                     f'<xsl:template match="/"><xsl:value-of select="count(key(&quot;k&quot;,&quot;{wanted}&quot;))"/>'
                     "</xsl:template></xsl:stylesheet>"
                 ),
-                "<r>" + "".join(item.format(index=index) for index in range(count)) + "</r>",
+                f"<r>{''.join(item.format(index=index) for index in range(count))}</r>",
             ),
         )
         for label, use, wanted, item, count in (
@@ -1174,8 +1221,8 @@ def _transform_key_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _transform_scope_cases() -> tuple[tuple[str, object], ...]:
-    cases: Final[list[tuple[str, object]]] = []
+def _transform_scope_cases() -> tuple[tuple[str, Case], ...]:
+    cases: Final[list[tuple[str, Case]]] = []
     for scope, count in (("local", 1024), ("local", 4), ("global", 1024), ("global", 4)):
         declarations: Final = "".join(f'<xsl:variable name="v{index}" select="{index}"/>' for index in range(count))
         sheet: Final = (
@@ -1189,8 +1236,8 @@ def _transform_scope_cases() -> tuple[tuple[str, object], ...]:
     return tuple(cases)
 
 
-def _transform_namespace_cases() -> tuple[tuple[str, object], ...]:
-    cases: Final[list[tuple[str, object]]] = []
+def _transform_namespace_cases() -> tuple[tuple[str, Case], ...]:
+    cases: Final[list[tuple[str, Case]]] = []
     for label, depth, count, namespaced, alternating in (
         ("deep repeated leaf", 32, 512, True, False),
         ("deep alternating leaves", 32, 512, True, True),
@@ -1211,17 +1258,37 @@ def _transform_namespace_cases() -> tuple[tuple[str, object], ...]:
             '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
             '<xsl:output method="xml" omit-xml-declaration="yes"/><xsl:template match="/">'
             f'<out><xsl:for-each select="r/n">{ancestors}<{prefix}leaf{attributes}/>'
-            + (f"<{prefix}other{attributes}/>" if alternating else "")
-            + "</xsl:if>" * depth
-            + "</xsl:for-each></out></xsl:template></xsl:stylesheet>"
+            f"""{f"<{prefix}other{attributes}/>" if alternating else ""}"""
+            f"""{"</xsl:if>" * depth}</xsl:for-each></out></xsl:template></xsl:stylesheet>"""
         )
-        cases.append((f"{label} ({depth} ancestors, {count} rows)", (sheet, "<r>" + "<n/>" * count + "</r>")))
+        cases.append((f"{label} ({depth} ancestors, {count} rows)", (sheet, f"<r>{'<n/>' * count}</r>")))
     return tuple(cases)
 
 
-def _transform_cases() -> tuple[tuple[str, object], ...]:
-    """Return the one XSLT case: a real stylesheet (sort, key, number, format-number) over a 120-row catalog."""
-    return (("catalog (120 rows)", (_XSLT_SHEET, _XSLT_SOURCE)),)
+def _transform_cases() -> tuple[tuple[str, Case], ...]:
+    # Return the one XSLT case: a real stylesheet (sort, key, number, format-number) over a 120-row catalog.
+    return (
+        (
+            "catalog (120 rows)",
+            (
+                (
+                    '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+                    '<xsl:output method="html"/>'
+                    '<xsl:key name="by-cat" match="book" use="@cat"/>'
+                    '<xsl:template match="/"><table>'
+                    '<xsl:apply-templates select="catalog/book">'
+                    '<xsl:sort select="price" data-type="number" order="descending"/></xsl:apply-templates>'
+                    "</table></xsl:template>"
+                    '<xsl:template match="book"><tr class="{@cat}"><td><xsl:number format="1"/></td>'
+                    '<td><xsl:value-of select="title"/></td>'
+                    "<td><xsl:value-of select=\"format-number(price, '#,##0.00')\"/></td>"
+                    "<td><xsl:value-of select=\"count(key('by-cat', @cat))\"/></td></tr></xsl:template>"
+                    "</xsl:stylesheet>"
+                ),
+                _XSLT_SOURCE,
+            ),
+        ),
+    )
 
 
 _XSLT_COMPILE_SHEET: Final[str] = (
@@ -1237,26 +1304,24 @@ _XSLT_COMPILE_SHEET: Final[str] = (
 )
 
 
-def _transform_compile_cases() -> tuple[tuple[str, object], ...]:
-    """Make static analysis outweigh the one used template."""
+def _transform_compile_cases() -> tuple[tuple[str, Case], ...]:
+    # Make static analysis outweigh the one used template.
     return (("300 templates", (_XSLT_COMPILE_SHEET, "<root/>")),)
 
 
-_XSLT_SORT_SHEET: Final = (
-    '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-    '<xsl:template match="/"><out><xsl:for-each select="r/n">'
-    '<xsl:sort select="@key" data-type="number"/><xsl:value-of select="@key"/><xsl:text>,</xsl:text>'
-    "</xsl:for-each></out></xsl:template></xsl:stylesheet>"
-)
-
-
-def _transform_sort_cases() -> tuple[tuple[str, object], ...]:
+def _transform_sort_cases() -> tuple[tuple[str, Case], ...]:
+    xslt_sort_sheet = (
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:template match="/"><out><xsl:for-each select="r/n">'
+        '<xsl:sort select="@key" data-type="number"/><xsl:value-of select="@key"/><xsl:text>,</xsl:text>'
+        "</xsl:for-each></out></xsl:template></xsl:stylesheet>"
+    )
     return tuple(
         (
             f"{label} ({rows:,} rows)",
             (
-                _XSLT_SORT_SHEET.replace('select="@key" data-type="number"', f'select="{select}" data-type="{kind}"'),
-                "<r>" + "".join(f'<n key="{index * 73 % rows}"/>' for index in range(rows)) + "</r>",
+                xslt_sort_sheet.replace('select="@key" data-type="number"', f'select="{select}" data-type="{kind}"'),
+                f"""<r>{"".join(f'<n key="{index * 73 % rows}"/>' for index in range(rows))}</r>""",
             ),
         )
         for label, select, kind, sizes in (
@@ -1274,7 +1339,7 @@ def _transform_sort_cases() -> tuple[tuple[str, object], ...]:
 # comment and message (the last probe). Instantiating each dispatched through a chain of is_xsl calls that re-tested
 # the xsl prefix per candidate; the classify-once switch (#605) tests it once, so a late instruction stops paying for
 # the earlier probes. message is near free to run (a non-terminating one is discarded), so dispatch dominates its cost.
-_XSLT_LATE_UNIT = (
+_XSLT_LATE_UNIT: Final[str] = (
     '<xsl:variable name="v{index}" select="@cat"/>'
     '<xsl:number format="1"/>'
     "<xsl:comment>c{index}</xsl:comment>"
@@ -1283,50 +1348,53 @@ _XSLT_LATE_UNIT = (
     "<xsl:message>n{index}</xsl:message>"
     "<xsl:message>o{index}</xsl:message>"
 )
-_XSLT_DENSE_SHEET = (
-    '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-    '<xsl:output method="xml"/>'
-    '<xsl:template match="/"><out><xsl:apply-templates select="catalog/book"/></out></xsl:template>'
-    '<xsl:template match="book"><row><xsl:value-of select="title"/>'
-    + "".join(_XSLT_LATE_UNIT.format(index=unit) for unit in range(8))
-    + "</row></xsl:template>"
-    "</xsl:stylesheet>"
+_XSLT_DENSE_SHEET: Final[str] = (
+    f'<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output '
+    f'method="xml"/><xsl:template match="/"><out><xsl:apply-templates '
+    f'select="catalog/book"/></out></xsl:template><xsl:template match="book"><row><xsl:value-of '
+    f'select="title"/>{"".join(_XSLT_LATE_UNIT.format(index=unit) for unit in range(8))}'
+    f"</row></xsl:template></xsl:stylesheet>"
 )
-_XSLT_DENSE_SOURCE = (
+_XSLT_DENSE_SOURCE: Final[str] = (
     "<catalog>"
-    + "".join(
-        f'<book cat="c{index % 5}"><title>Book number {index}</title><price>{index % 97 + 0.99}</price></book>'
-        for index in range(200)
-    )
-    + "</catalog>"
+    f"""{
+        "".join(
+            f'<book cat="c{index % 5}"><title>Book number {index}</title><price>{index % 97 + 0.99}</price></book>'
+            for index in range(200)
+        )
+    }"""
+    "</catalog>"
 )
 
 
-def _transform_dense_cases() -> tuple[tuple[str, object], ...]:
-    """Return the instruction-dense XSLT case: a template of 56 xsl:* instructions applied over 200 nodes."""
+def _transform_dense_cases() -> tuple[tuple[str, Case], ...]:
+    # Return the instruction-dense XSLT case: a template of 56 xsl:* instructions applied over 200 nodes.
     return (("instruction-dense (200 nodes)", (_XSLT_DENSE_SHEET, _XSLT_DENSE_SOURCE)),)
 
 
-def _transform_name_cases() -> tuple[tuple[str, object], ...]:
+def _transform_name_cases() -> tuple[tuple[str, Case], ...]:
     return tuple(
         (
             f"{count} unused declarations per kind, 256 calls",
             (
-                '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
-                '<xsl:output method="xml" omit-xml-declaration="yes"/>'
-                + "".join(
-                    f'<xsl:template name="unused{index}"/>'
-                    f'<xsl:key name="unused{index}" match="unused" use="@value"/>'
-                    f'<xsl:attribute-set name="unused{index}"/>'
-                    for index in range(count)
-                )
-                + '<xsl:key name="target" match="p" use="@value"/>'
-                '<xsl:attribute-set name="target"><xsl:attribute name="marker">hit</xsl:attribute></xsl:attribute-set>'
-                '<xsl:template name="target"><item xsl:use-attribute-sets="target">'
-                "<xsl:value-of select=\"count(key('target','v'))\"/></item></xsl:template>"
-                '<xsl:template match="/"><out>'
-                + '<xsl:call-template name="target"/>' * 256
-                + "</out></xsl:template></xsl:stylesheet>",
+                (
+                    """<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" """
+                    """version="1.0"><xsl:output method="xml" omit-xml-declaration="yes"/>"""
+                    f"""{
+                        "".join(
+                            f'<xsl:template name="unused{index}"/>'
+                            f'<xsl:key name="unused{index}" match="unused" use="@value"/>'
+                            f'<xsl:attribute-set name="unused{index}"/>'
+                            for index in range(count)
+                        )
+                    }"""
+                    """<xsl:key name="target" match="p" use="@value"/>"""
+                    """<xsl:attribute-set name="target"><xsl:attribute """
+                    """name="marker">hit</xsl:attribute></xsl:attribute-set><xsl:template """
+                    """name="target"><item xsl:use-attribute-sets="target"><xsl:value-of """
+                    """select="count(key('target','v'))"/></item></xsl:template><xsl:template match="/"><out>"""
+                    f"""{'<xsl:call-template name="target"/>' * 256}</out></xsl:template></xsl:stylesheet>"""
+                ),
                 '<root><p value="v"/></root>',
             ),
         )
@@ -1334,7 +1402,7 @@ def _transform_name_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _transform_number_cases() -> tuple[tuple[str, object], ...]:
+def _transform_number_cases() -> tuple[tuple[str, Case], ...]:
     return (
         tuple(
             (
@@ -1343,12 +1411,18 @@ def _transform_number_cases() -> tuple[tuple[str, object], ...]:
                     f"{instructions} {'instruction' if instructions == 1 else 'instructions'} / {order}"
                 ),
                 (
-                    '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-                    '<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root/n">'
-                    + ('<xsl:sort select="@id" data-type="number" order="descending"/>' if order == "reverse" else "")
-                    + "<xsl:number/><xsl:text>:</xsl:text>" * instructions
-                    + "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>",
-                    "<root>" + "".join(f'<n id="{index}"/>' for index in range(1, rows + 1)) + "</root>",
+                    (
+                        """<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">"""
+                        """<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root/n">"""
+                        f"""{
+                            '<xsl:sort select="@id" data-type="number" order="descending"/>'
+                            if order == "reverse"
+                            else ""
+                        }"""
+                        f"""{"<xsl:number/><xsl:text>:</xsl:text>" * instructions}"""
+                        "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
+                    ),
+                    f"""<root>{"".join(f'<n id="{index}"/>' for index in range(1, rows + 1))}</root>""",
                 ),
             )
             for rows, instructions, order in (
@@ -1367,30 +1441,41 @@ def _transform_number_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _transform_any_number_cases() -> tuple[tuple[str, object], ...]:
+def _transform_any_number_cases() -> tuple[  # simplint: ignore[SMP505]  # inlining breaks complexity limit
+    tuple[str, Case], ...
+]:
     return tuple(
         (
             f"any: {rows:,} {'node' if rows == 1 else 'nodes'} / {variant}",
             (
-                '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-                '<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root/*'
-                + ("[last()]" if variant == "last-only" else "")
-                + '">'
-                + ('<xsl:sort select="@id" data-type="number" order="descending"/>' if variant == "reverse" else "")
-                + (
-                    '<xsl:number level="any"'
-                    + (' count="p"' if variant == "explicit-count" else "")
-                    + "/><xsl:text>:</xsl:text>"
-                )
-                * (8 if variant == "repeated" else 1)
-                + "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>",
-                "<root>"
-                + "".join(
-                    ("text<!--gap-->" if variant == "mixed-nodes" else "")
-                    + f'<{"q" if variant == "alternating" and index % 2 == 0 else "p"} id="{index}"/>'
-                    for index in range(1, rows + 1)
-                )
-                + "</root>",
+                (
+                    """<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">"""
+                    """<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root/*"""
+                    f"""{"[last()]" if variant == "last-only" else ""}">"""
+                    f"""{
+                        '<xsl:sort select="@id" data-type="number" order="descending"/>' if variant == "reverse" else ""
+                    }"""
+                    f"""{
+                        (
+                            '<xsl:number level="any" count="p"/><xsl:text>:</xsl:text>'
+                            if variant == "explicit-count"
+                            else '<xsl:number level="any"/><xsl:text>:</xsl:text>'
+                        )
+                        * (8 if variant == "repeated" else 1)
+                    }"""
+                    "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
+                ),
+                (
+                    "<root>"
+                    f"""{
+                        "".join(
+                            f"{'text<!--gap-->' if variant == 'mixed-nodes' else ''}"
+                            f'<{"q" if variant == "alternating" and index % 2 == 0 else "p"} id="{index}"/>'
+                            for index in range(1, rows + 1)
+                        )
+                    }"""
+                    "</root>"
+                ),
             ),
         )
         for rows, variant in (
@@ -1408,33 +1493,46 @@ def _transform_any_number_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _transform_pattern_number_cases() -> tuple[tuple[str, object], ...]:
+def _transform_pattern_number_cases() -> tuple[  # simplint: ignore[SMP505]  # inlining breaks complexity limit
+    tuple[str, Case], ...
+]:
     return tuple(
         (
             f"any: {rows:,} {'node' if rows == 1 else 'nodes'} / {variant}",
             (
-                '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-                '<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root//p">'
-                + (
-                    '<xsl:sort select="@id" data-type="number" order="descending"/>'
-                    if variant == "count-reverse"
-                    else ""
-                )
-                + (
-                    f'<xsl:number level="any" count="{pattern}"'
-                    + (' from="section"' if variant == "count-from-sections" else "")
-                    + "/><xsl:text>:</xsl:text>"
-                )
-                * (8 if variant == "count-repeated" else 1)
-                + "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>",
-                "<root>"
-                + "".join(
-                    ("<section>" if variant == "count-from-sections" and index % 64 == 1 else "")
-                    + f'<p id="{index}" cat="{index % 2}"/>'
-                    + ("</section>" if variant == "count-from-sections" and index % 64 == 0 else "")
-                    for index in range(1, rows + 1)
-                )
-                + "</root>",
+                (
+                    """<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output """
+                    """method="text"/><xsl:template match="/"><xsl:for-each select="root//p">"""
+                    f"""{
+                        '<xsl:sort select="@id" data-type="number" order="descending"/>'
+                        if variant == "count-reverse"
+                        else ""
+                    }"""
+                    f"""{
+                        (
+                            f'<xsl:number level="any" count="{pattern}" from="section"/><xsl:text>:</xsl:text>'
+                            if variant == "count-from-sections"
+                            else f'<xsl:number level="any" count="{pattern}"/><xsl:text>:</xsl:text>'
+                        )
+                        * (8 if variant == "count-repeated" else 1)
+                    }"""
+                    "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
+                ),
+                (
+                    "<root>"
+                    f"""{
+                        "".join(
+                            f'''{"<section>" if variant == "count-from-sections" and index % 64 == 1 else ""}<p id="{
+                                index
+                            }" '''
+                            f'''cat="{index % 2}"/>{
+                                "</section>" if variant == "count-from-sections" and index % 64 == 0 else ""
+                            }'''
+                            for index in range(1, rows + 1)
+                        )
+                    }"""
+                    "</root>"
+                ),
             ),
         )
         for rows, pattern, variant in (
@@ -1452,7 +1550,9 @@ def _transform_pattern_number_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _transform_number_prefix_cases() -> tuple[tuple[str, object], ...]:
+def _transform_number_prefix_cases() -> tuple[  # simplint: ignore[SMP505]  # inlining breaks complexity limit
+    tuple[str, Case], ...
+]:
     return tuple(
         (
             f"any: 1,024 nodes / {variant}",
@@ -1463,14 +1563,18 @@ def _transform_number_prefix_cases() -> tuple[tuple[str, object], ...]:
                     f'<xsl:for-each select="{select}"><xsl:number level="any" {attributes}/>'
                     "<xsl:text>:|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
                 ),
-                "<root>"
-                + "".join(
-                    ("<section>" if sections and index % 64 == 1 else "")
-                    + f'<{"q" if alternating and index % 2 == 0 else "p"} id="{index}"/>'
-                    + ("</section>" if sections and index % 64 == 0 else "")
-                    for index in range(1, 1_025)
-                )
-                + "</root>",
+                (
+                    "<root>"
+                    f"""{
+                        "".join(
+                            f"{'<section>' if sections and index % 64 == 1 else ''}"
+                            f"<{'q' if alternating and index % 2 == 0 else 'p'}"
+                            f' id="{index}"/>{"</section>" if sections and index % 64 == 0 else ""}'
+                            for index in range(1, 1_025)
+                        )
+                    }"""
+                    "</root>"
+                ),
             ),
         )
         for variant, select, attributes, sections, alternating in (
@@ -1481,31 +1585,43 @@ def _transform_number_prefix_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _token_attribute_cases() -> tuple[tuple[str, object], ...]:
+def _token_attribute_cases() -> tuple[tuple[str, Case], ...]:
     return tuple(
         (f"{count} attributes", f"<p {' '.join(f'a{index}={index}' for index in range(count))}>")
         for count in (100, 0, 1, 10)
     )
 
 
-def _tokenize_cases() -> tuple[tuple[str, object], ...]:
-    """Return synthetic and corpus documents for the tokenization table."""
-    corpus_cases = tuple(
-        (name, corpus.corpus_text(relative, encoding)) for name, relative, encoding in corpus.CORPUS_FILES
-    )
-    large_cases = tuple((name, corpus.large_text(filename, url)) for name, filename, url in corpus.LARGE_FILES)
-    return _TOKENIZE_CASES + corpus_cases + large_cases
-
-
-def _minify_cases() -> tuple[tuple[str, object], ...]:
+def _tokenize_cases() -> tuple[tuple[str, Case], ...]:
+    # Return synthetic and corpus documents for the tokenization table.
+    corpus_cases = tuple((name, corpus_text(relative, encoding)) for name, relative, encoding in CORPUS_FILES)
+    large_cases = tuple((name, large_text(filename, url)) for name, filename, url in LARGE_FILES)
     return (
-        *((name, corpus.large_text(filename, url)) for name, filename, url in corpus.STYLESHEETS),
+        ("typical markup", '<div class="row"><p>Tom &amp; Jerry said "hi" to <b>O\'Brien</b>!</p><br/></div>\n' * 60),
+        ("text-heavy prose", f"<p>{'the quick brown fox jumps over the lazy dog ' * 100}</p>"),
+        (
+            "attribute-heavy",
+            '<a href="https://example.com/path?q=1" title="example" rel="noopener" target="_blank" data-x=y>link</a>\n'
+            * 60,
+        ),
+        ("script-heavy", "<script>function f(a, b) { return a < b && b > a; }</script>\n" * 60),
+        ("entity-heavy", "<p>caf&eacute; &amp; r&eacute;sum&eacute; &#127881; &lt;tag&gt;</p>\n" * 60),
+        *corpus_cases,
+        *large_cases,
+    )
+
+
+def _minify_cases() -> tuple[tuple[str, Case], ...]:
+    return (
+        *((name, large_text(filename, url)) for name, filename, url in STYLESHEETS),
         *(
             (
                 f"{count} {'reversed' if reverse else 'sorted'} Unicode ranges",
-                "@font-face{unicode-range:"
-                + ",".join(f"U+{index * 2:X}" for index in (reversed(range(count)) if reverse else range(count)))
-                + "}",
+                (
+                    "@font-face{unicode-range:"
+                    f"{','.join(f'U+{index * 2:X}' for index in (reversed(range(count)) if reverse else range(count)))}"
+                    "}"
+                ),
             )
             for count, reverse in ((8, True), (1024, False), (1024, True))
         ),
@@ -1527,7 +1643,7 @@ def _minify_cases() -> tuple[tuple[str, object], ...]:
         *(
             (
                 f"{depth} nested variable fallbacks",
-                "a{width:" + "var(--x," * depth + "1px" + ")" * depth + "}",
+                f"a{{width:{'var(--x,' * depth}1px{')' * depth}}}",
             )
             for depth in (64, 4)
         ),
@@ -1538,19 +1654,19 @@ def _minify_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _minify_js_cases() -> tuple[tuple[str, object], ...]:
-    """Return the real-world JavaScript libraries the minify operation shrinks, a size ladder."""
-    return tuple((name, corpus.large_text(filename, url)) for name, filename, url in corpus.JS_FILES)
+def _minify_js_cases() -> tuple[tuple[str, Case], ...]:
+    # Return the real-world JavaScript libraries the minify operation shrinks, a size ladder.
+    return tuple((name, large_text(filename, url)) for name, filename, url in JS_FILES)
 
 
-_URL_SHAPES = (
+_URL_SHAPES: Final[tuple[str, ...]] = (
     "https://www.example.org/dir/page-{index}.html",
     "HTTPS://EXAMPLE.ORG:443/dir/../page/{index}?utm_source=rss&utm_medium=email&id={index}",
     "https://example.org/de/beitrag-{index}?lang=de&page={index}#frag",
     " https://sub.example.org//double/{index}/&amp;x=1 ",
     "http://münchen.example/straße/{index}?b=2&a=1",
 )
-_URL_BATCH = tuple(shape.format(index=index) for index in range(20) for shape in _URL_SHAPES)
+_URL_BATCH: Final[tuple[str, ...]] = tuple(shape.format(index=index) for index in range(20) for shape in _URL_SHAPES)
 _IDNA_URLS: Final[tuple[str, ...]] = tuple(f"https://münchen-{index}.example/" for index in range(4100))
 # The münchen workload repeats one host, so every lookup walks the same rows. These labels spread the searches across
 # ranges a single Latin-1 vowel does not reach: Latin Extended, Greek (with the final sigma the mapping rewrites),
@@ -1582,45 +1698,41 @@ _IDNA_LABELS: Final[tuple[str, ...]] = (
 _IDNA_VARIED_URLS: Final[tuple[str, ...]] = tuple(
     f"https://{_IDNA_LABELS[index % len(_IDNA_LABELS)]}-{index}.example/" for index in range(4100)
 )
-_EXTERNAL_LINKS_HTML: Final = "".join(
+_EXTERNAL_LINKS_HTML: Final[str] = "".join(
     f'<a href="https://{host}/post/{index}">link</a>'
     for index in range(300)
     for host in (f"news-{index}.example.co.uk", f"tenant-{index}.github.io", f"bucket-{index}.s3.amazonaws.com")
 )
 
-_ENCODING_ASCII = "The quick brown fox jumps over the lazy dog near the river bank early today. "
-_ENCODING_FRENCH = "Précédemment, la créativité française était très développée près de Paris ici. "
-_ENCODING_RUSSIAN = "Программирование помогает понять структуру вычислительных систем сегодня здесь. "
-_ENCODING_JAPANESE = "日本語のテキストをここに書きます。今日はとても良い天気ですね。"
+_ENCODING_ASCII: Final[str] = "The quick brown fox jumps over the lazy dog near the river bank early today. "
+_ENCODING_FRENCH: Final[str] = "Précédemment, la créativité française était très développée près de Paris ici. "
+_ENCODING_RUSSIAN: Final[str] = "Программирование помогает понять структуру вычислительных систем сегодня здесь. "
+_ENCODING_JAPANESE: Final[str] = "日本語のテキストをここに書きます。今日はとても良い天気ですね。"
 
 
-def _encoding_cases() -> tuple[tuple[str, object], ...]:
-    """
-    Return the byte streams the encoding-detection suite sniffs.
-
-    Natural-language prose re-encoded into the legacy encodings the detectors compete on, plus pure ASCII (the
-    short-circuit every detector special-cases) and a real saved page (the whole-document workload).
-    """
-    _name, filename, url = corpus.REAL_PAGES[2]  # the mozilla blog, 95 kB of real UTF-8 markup
+def _encoding_cases() -> tuple[tuple[str, Case], ...]:
+    # Return the byte streams the encoding-detection suite sniffs.
+    #
+    # Natural-language prose re-encoded into the legacy encodings the detectors compete on, plus pure ASCII (the
+    # short-circuit every detector special-cases) and a real saved page (the whole-document workload).
+    _name, filename, url = REAL_PAGES[2]  # the mozilla blog, 95 kB of real UTF-8 markup
     return (
         ("ascii (1 kB)", (_ENCODING_ASCII * 13).encode()),
         ("utf-8 russian (4 kB)", (_ENCODING_RUSSIAN * 27).encode()),
         ("windows-1251 russian (4 kB)", (_ENCODING_RUSSIAN * 50).encode("cp1251")),
         ("windows-1252 french (4 kB)", (_ENCODING_FRENCH * 50).encode("cp1252")),
         ("shift_jis japanese (4 kB)", (_ENCODING_JAPANESE * 70).encode("shift_jis")),
-        ("utf-8 page (95 kB)", corpus.large_text(filename, url).encode()),
+        ("utf-8 page (95 kB)", large_text(filename, url).encode()),
     )
 
 
-def _decode_cases() -> tuple[tuple[str, object], ...]:
-    """
-    Return the byte streams the WHATWG decoders turn into str, each paired with the label that names its decoder.
-
-    windows-1252 covers the single-byte tables, shift_jis and gb18030 the two- and four-byte state machines, and
-    iso-2022-jp the stateful escapes. Every case encodes with the CPython codec the spec's decoder maps back to the
-    prose, so a case times decoding rather than error recovery. Shift_JIS leads because CodSpeed gates the first case,
-    and it is the state machine an inlined decoder regressed.
-    """
+def _decode_cases() -> tuple[tuple[str, Case], ...]:
+    # Return the byte streams the WHATWG decoders turn into str, each paired with the label that names its decoder.
+    #
+    # windows-1252 covers the single-byte tables, shift_jis and gb18030 the two- and four-byte state machines, and
+    # iso-2022-jp the stateful escapes. Every case encodes with the CPython codec the spec's decoder maps back to the
+    # prose, so a case times decoding rather than error recovery. Shift_JIS leads because CodSpeed gates the first case,
+    # and it is the state machine an inlined decoder regressed.
     japanese = _decode_page(_ENCODING_JAPANESE)
     return (
         ("shift_jis japanese (8 kB)", ("shift_jis", japanese.encode("cp932"))),
@@ -1635,35 +1747,33 @@ def _decode_cases() -> tuple[tuple[str, object], ...]:
 
 
 def _decode_page(text: str) -> str:
-    """Wrap prose in tags, so the bytes are mostly ASCII markup: the shape of a real page in a legacy encoding."""
+    # Wrap prose in tags, so the bytes are mostly ASCII markup: the shape of a real page in a legacy encoding.
     rows = "".join(f'<p class="line" id="l{index}">{text}</p>' for index in range(60))
     return f"<html><body>{rows}</body></html>"
 
 
-def _normalize_cases() -> tuple[tuple[str, object], ...]:
-    """
-    Return the strings the Unicode-normalization suite folds to NFC.
-
-    The ASCII book matches the CodSpeed case. Already-NFC prose and a real page exercise the quick-check path, while
-    the NFD-decomposed French forces the full decompose/reorder/compose pipeline.
-    """
-    _name, filename, url = corpus.REAL_PAGES[2]  # the mozilla blog, 95 kB of real UTF-8 markup
+def _normalize_cases() -> tuple[tuple[str, Case], ...]:
+    # Return the strings the Unicode-normalization suite folds to NFC.
+    #
+    # The ASCII book matches the CodSpeed case. Already-NFC prose and a real page exercise the quick-check path, while
+    # the NFD-decomposed French forces the full decompose/reorder/compose pipeline.
+    _name, filename, url = REAL_PAGES[2]  # the mozilla blog, 95 kB of real UTF-8 markup
     french = _ENCODING_FRENCH * 50
     return (
         ("ascii book (64 KiB)", corpus.corpus("war-and-peace/2600.txt", 1 << 16)),
         ("nfc french (4 kB)", french),
         ("nfd french (4 kB)", unicodedata.normalize("NFD", french)),
-        ("utf-8 page (95 kB)", corpus.large_text(filename, url)),
-        ("32 KiB ASCII prefix, composable suffix", "abc " * 8192 + "e\u0301"),
+        ("utf-8 page (95 kB)", large_text(filename, url)),
+        ("32 KiB ASCII prefix, composable suffix", f"{'abc ' * 8192}e\u0301"),
         ("small ASCII prefix, composable suffix", "abc e\u0301"),
         ("4,096 composable combining pairs", "e\u0301" * 4096),
         ("4,096 Hangul jamo triples", "\u1100\u1161\u11a8" * 4096),
         ("10,000 Hebrew combining marks", "\u05d0" + "\u05b1" * 5000 + "\u05b0" * 5000),
-        ("4,096 supplementary characters, composable suffix", "😀" * 4096 + "e\u0301"),
+        ("4,096 supplementary characters, composable suffix", f"{'😀' * 4096}e\u0301"),
     )
 
 
-def _language_cases() -> tuple[tuple[str, object], ...]:
+def _language_cases() -> tuple[tuple[str, Case], ...]:
     return (
         ("english book (64 KiB)", corpus.corpus("war-and-peace/2600.txt", 1 << 16)),
         ("cyrillic prose (4 KiB)", _ENCODING_RUSSIAN * 50),
@@ -1681,16 +1791,16 @@ def _validate_rng_reuse_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
             (
                 f"{width} {kind} fields across {rows} rows",
                 (
-                    '<element xmlns="http://relaxng.org/ns/structure/1.0" name="root"><oneOrMore>'
-                    '<element name="row">'
-                    f"<{kind}>"
-                    + "".join(
-                        f'<optional><element name="field{index}"><text/></element></optional>' for index in range(width)
-                    )
-                    + '<element name="value"><text/></element>'
-                    + f"</{kind}>"
-                    + "</element></oneOrMore></element>",
-                    "<root>" + "<row><value>text</value></row>" * rows + "</root>",
+                    (
+                        f"""<element xmlns="http://relaxng.org/ns/structure/1.0" name="root"><oneOrMore>"""
+                        f"""<element name="row"><{kind}>{
+                            "".join(
+                                f'<optional><element name="field{index}"><text/></element></optional>'
+                                for index in range(width)
+                            )
+                        }<element name="value"><text/></element></{kind}></element></oneOrMore></element>"""
+                    ),
+                    f"<root>{'<row><value>text</value></row>' * rows}</root>",
                 ),
             )
             for kind, width, rows in (("group", 128, 64), ("interleave", 32, 64), ("group", 4, 4))
@@ -1721,7 +1831,7 @@ def _validate_numeric_facet_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
                     f'<xs:restriction base="xs:{kind}">{facets}</xs:restriction>'
                     "</xs:simpleType></xs:element></xs:sequence></xs:complexType></xs:element></xs:schema>"
                 ),
-                "<root>" + "<value>1234567890.1234567890123456789012</value>" * count + "</root>",
+                f"<root>{'<value>1234567890.1234567890123456789012</value>' * count}</root>",
             ),
         )
         for label, kind, count, facets in (
@@ -1743,10 +1853,13 @@ def _validate_attribute_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
         (
             f"{size:,} attributes",
             (
-                '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="root"><xs:complexType>'
-                + "".join(f'<xs:attribute name="item{index}" type="xs:string"/>' for index in range(size))
-                + "</xs:complexType></xs:element></xs:schema>",
-                "<root " + " ".join(f'item{index}="value"' for index in reversed(range(size))) + "/>",
+                (
+                    """<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="root">"""
+                    """<xs:complexType>"""
+                    f"""{"".join(f'<xs:attribute name="item{index}" type="xs:string"/>' for index in range(size))}"""
+                    "</xs:complexType></xs:element></xs:schema>"
+                ),
+                f"""<root {" ".join(f'item{index}="value"' for index in reversed(range(size)))}/>""",
             ),
         )
         for size in (512, 4)
@@ -1758,13 +1871,14 @@ def _validate_pattern_reuse_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
         (
             label,
             (
-                '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
-                '<xs:simpleType name="item"><xs:restriction base="xs:string">'
-                + facets
-                + '</xs:restriction></xs:simpleType><xs:element name="root"><xs:complexType><xs:sequence>'
-                '<xs:element name="value" type="item" maxOccurs="unbounded"/>'
-                "</xs:sequence></xs:complexType></xs:element></xs:schema>",
-                "<root>" + "<value>abc123</value>" * 1000 + "</root>",
+                (
+                    f'<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:simpleType '
+                    f'name="item"><xs:restriction base="xs:string">{facets}</xs:restriction></xs:simpleType>'
+                    f"<xs:element "
+                    f'name="root"><xs:complexType><xs:sequence><xs:element name="value" type="item" '
+                    f'maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element></xs:schema>'
+                ),
+                f"<root>{'<value>abc123</value>' * 1000}</root>",
             ),
         )
         for label, facets in (
@@ -1779,12 +1893,13 @@ def _validate_facet_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
         (
             label,
             (
-                '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
-                + declarations
-                + '<xs:element name="root"><xs:complexType><xs:sequence>'
-                f'<xs:element name="value" type="{type_name}" maxOccurs="unbounded"/>'
-                "</xs:sequence></xs:complexType></xs:element></xs:schema>",
-                "<root>" + "<value>abc123</value>" * 1000 + "</root>",
+                (
+                    f"""<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">{declarations}"""
+                    '<xs:element name="root"><xs:complexType><xs:sequence>'
+                    f'<xs:element name="value" type="{type_name}" maxOccurs="unbounded"/>'
+                    "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+                ),
+                f"<root>{'<value>abc123</value>' * 1000}</root>",
             ),
         )
         for label, type_name, declarations in (
@@ -1827,7 +1942,7 @@ def _encoding_result_cases() -> tuple[tuple[str, bytes], ...]:
     )
 
 
-INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
+INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "startup": lambda: (("fresh import and version", "import"), ("fresh CLI minification", "minify")),
     "radio-group": _radio_group_cases,
     "form-data-fieldsets": _form_data_fieldset_cases,
@@ -1856,12 +1971,12 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("tiny UTF-16LE", ("utf-16le", "<p>café</p>".encode("utf-16le"))),
         ("tiny UTF-16BE", ("utf-16be", "<p>café</p>".encode("utf-16be"))),
         ("tiny UTF-8", ("utf-8", "<p>café</p>".encode())),
-        ("16 KiB UTF-16LE", ("utf-16le", ("<p>" + "café" * 2048 + "</p>").encode("utf-16le"))),
+        ("16 KiB UTF-16LE", ("utf-16le", (f"<p>{'café' * 2048}</p>").encode("utf-16le"))),
     ),
     "parse-foster": lambda: tuple(
         (
             f"{count:,} table rows / fostered text runs",
-            "<div><table>" + "a<tr><td>cell</td></tr>" * count + "</table></div>",
+            f"<div><table>{'a<tr><td>cell</td></tr>' * count}</table></div>",
         )
         for count in (1024, 1)
     ),
@@ -1875,67 +1990,67 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "parse-nul": lambda: tuple(
         (
             f"1,000 paragraphs / {label}",
-            f"<p>{first}</p>" + f"<p>{'a' * 80}</p>" * 999,
+            f"""<p>{first}</p>{f"<p>{'a' * 80}</p>" * 999}""",
         )
         for label, first in (("early NUL", "first\0a"), ("no NUL", "a" * 80))
     ),
     "parse-afe": lambda: tuple(
         (
             f"256 b elements / {variant} attributes",
-            "".join(f'<b title="{index if variant == "distinct" else "same"}">' for index in range(256))
-            + "a"
-            + "</b>" * 256,
+            (
+                f"""{"".join(f'<b title="{index if variant == "distinct" else "same"}">' for index in range(256))}a"""
+                f"""{"</b>" * 256}"""
+            ),
         )
         for variant in ("distinct", "identical")
     ),
     "parse-scope": lambda: (
         (
             "256 spans / 1,000 ignored address end tags",
-            "<div>" + "<span>" * 256 + "a" + "</address>" * 1000 + "a" + "</span>" * 256 + "</div>",
+            f"<div>{'<span>' * 256}a{'</address>' * 1000}a{'</span>' * 256}</div>",
         ),
     ),
     "parse-formatting": lambda: tuple(
         (
             f"{depth} spans / 1,000 samp elements",
-            "<b>" + "<span>" * depth + "<samp>a</samp>" * 1000 + "</span>" * depth + "</b>",
+            f"<b>{'<span>' * depth}{'<samp>a</samp>' * 1000}{'</span>' * depth}</b>",
         )
         for depth in (256, 0)
     ),
     "parse-dense": lambda: (("2.6 MB / 200k nodes", "<div><span>x</span></div>" * 100_000),),
     "parse-xml": lambda: (("catalog XML", _XML_DOC),),
     "parse-xml-attrs": lambda: tuple(
-        (f"{count} attributes", "<root " + " ".join(f'a{index}="value"' for index in range(count)) + "/>")
+        (f"{count} attributes", f"""<root {" ".join(f'a{index}="value"' for index in range(count))}/>""")
         for count in (1, 10, 100, 1_000)
     ),
     "parse-xml-append": lambda: tuple(
-        (f"{label} / value=a", "<root " + " ".join(f'a{index}="a"' for index in range(count)) + "/>")
+        (f"{label} / value=a", f"""<root {" ".join(f'a{index}="a"' for index in range(count))}/>""")
         for count, label in ((1_000, "1,000 attributes"), (1, "1 attribute"))
     ),
     "parse-xml-values": lambda: (
-        ("64 KiB clean value", '<root value="' + "a" * 65536 + '"/>'),
-        ("64 KiB reference-rich source", '<root value="' + "a&amp;b " * 8192 + '"/>'),
+        ("64 KiB clean value", f'<root value="{"a" * 65536}"/>'),
+        ("64 KiB reference-rich source", f'<root value="{"a&amp;b " * 8192}"/>'),
         ("five value characters", '<root value="hello"/>'),
     ),
     "parse-xml-text": lambda: (
-        ("64 KiB clean text", "<root>" + "a" * 65536 + "</root>"),
-        ("64 KiB reference-rich source", "<root>" + "a&amp;b " * 8192 + "</root>"),
+        ("64 KiB clean text", f"<root>{'a' * 65536}</root>"),
+        ("64 KiB reference-rich source", f"<root>{'a&amp;b ' * 8192}</root>"),
         ("five text characters", "<root>hello</root>"),
     ),
     "parse-xml-prefixes": lambda: tuple(
         (
             f"{count} prefixes and attributes",
-            "<root "
-            + " ".join(f'xmlns:p{index}="urn:{index}"' for index in range(count))
-            + " "
-            + " ".join(f'p{index}:value="x"' for index in range(count))
-            + "/>",
+            (
+                f"""<root {" ".join(f'xmlns:p{index}="urn:{index}"' for index in range(count))} """
+                f"""{" ".join(f'p{index}:value="x"' for index in range(count))}/>"""
+            ),
         )
         for count in (128, 1, 1_000)
     ),
     "parse-xml-names": lambda: (
         (
             "1k growing attributes",
-            "<r>" + "".join("<e " + "a" * length + '="x"/>' for length in range(1, 1_001)) + "</r>",
+            f"""<r>{"".join(f'<e {"a" * length}="x"/>' for length in range(1, 1_001))}</r>""",
         ),
     ),
     "validate": lambda: (
@@ -1959,7 +2074,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
                     '<xs:element name="value" maxOccurs="unbounded"><xs:complexType>'
                     '<xs:attribute name="data" type="item"/></xs:complexType></xs:element>',
                 ),
-                "<root>" + '<value data="abc123"/>' * 1000 + "</root>",
+                f"""<root>{'<value data="abc123"/>' * 1000}</root>""",
             ),
         ),
         (
@@ -1990,10 +2105,12 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         (
             f"{size:,} character alternatives",
             (
-                '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="value">'
-                '<xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="['
-                + "".join(chr(0x400 + index) for index in range(size))
-                + ']"/></xs:restriction></xs:simpleType></xs:element></xs:schema>',
+                (
+                    '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element '
+                    'name="value"><xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="['
+                    f"{''.join(chr(0x400 + index) for index in range(size))}"
+                    ']"/></xs:restriction></xs:simpleType></xs:element></xs:schema>'
+                ),
                 f"<value>{chr(0x400 + size - 1)}</value>",
             ),
         )
@@ -2004,8 +2121,8 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "parse-locations": _readpath_cases,  # real attribute-dense pages exercise the per-attribute span stamping
     "parse-shadow": lambda: (("component gallery", _SHADOW_DOC),),
     "fragment": lambda: (("table-row fragment (2 kB)", _FRAGMENT_HTML),),
-    "escape": corpus.escape_cases,
-    "unescape": corpus.unescape_cases,
+    "escape": escape_cases,
+    "unescape": unescape_cases,
     "tokenize": _tokenize_cases,
     "html-options": lambda: (("reused defaults", ("html", True)), ("no options", ("html", False))),
     "text-options": lambda: (("reused defaults", ("text", True)), ("no options", ("text", False))),
@@ -2067,7 +2184,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         *tuple(
             (
                 f"{size} nested elements, {relative}",
-                (f"div:has({relative})", "<div>" * size + "<a></a>" + "</div>" * size),
+                (f"div:has({relative})", f"{'<div>' * size}<a></a>{'</div>' * size}"),
             )
             for size in (8, 100)
             for relative in ("> a", "+ a", "~ a", "a")
@@ -2077,7 +2194,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
                 f"64 siblings with {depth} descendants, {relative}",
                 (
                     f"section:has({relative})",
-                    ("<section>" + "<div>" * depth + "<a></a>" + "</div>" * depth + "</section>") * 64,
+                    (f"<section>{'<div>' * depth}<a></a>{'</div>' * depth}</section>") * 64,
                 ),
             )
             for depth in (0, 64)
@@ -2090,7 +2207,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
                 f"{forms} forms, {prefix} spans, {buttons} buttons, {selector}",
                 (
                     selector,
-                    ("<form>" + "<span>x</span>" * prefix + "<button>go</button>" * buttons + "</form>") * forms,
+                    (f"<form>{'<span>x</span>' * prefix}{'<button>go</button>' * buttons}</form>") * forms,
                 ),
             )
             for forms, prefix, buttons, selector in (
@@ -2105,7 +2222,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
             "1 form, 4096 spans, 128 explicit submit buttons",
             (
                 ":default",
-                "<form>" + "<span>x</span>" * 4096 + "<button type=submit>go</button>" * 128 + "</form>",
+                f"<form>{'<span>x</span>' * 4096}{'<button type=submit>go</button>' * 128}</form>",
             ),
         ),
     ),
@@ -2125,7 +2242,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
             for size in (100, 1_000, 10_000)
         ),
         *(
-            (f".//div//a ({size:,} levels)", (".//div//a", "<div>" * size + "<a>x</a>" + "</div>" * size))
+            (f".//div//a ({size:,} levels)", (".//div//a", f"{'<div>' * size}<a>x</a>{'</div>' * size}"))
             for size in (100, 1_000, 10_000)
         ),
     ),
@@ -2135,7 +2252,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
                 f"{size:,} nodes, {unique} values",
                 (
                     "set:distinct(//li)",
-                    "<ul>" + "".join(f"<li>value-{index % unique}</li>" for index in range(size)) + "</ul>",
+                    f"<ul>{''.join(f'<li>value-{index % unique}</li>' for index in range(size))}</ul>",
                 ),
             )
             for size in (100, 1_000, 10_000)
@@ -2150,11 +2267,10 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
                 f"{operation}, {size:,} nodes per set",
                 (
                     f"//li {operation} //b",
-                    "<main><ul>"
-                    + "<li>a</li>" * size
-                    + "</ul><section>"
-                    + f"<b>{'b' if operation == '=' else 'a'}</b>" * size
-                    + "</section></main>",
+                    (
+                        f"""<main><ul>{"<li>a</li>" * size}</ul><section>"""
+                        f"""{f"<b>{'b' if operation == '=' else 'a'}</b>" * size}</section></main>"""
+                    ),
                 ),
             )
             for operation in ("=", "!=")
@@ -2163,11 +2279,11 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         + tuple(
             (
                 f"scalar equality, {size:,} characters",
-                ("string(//li) = string(//b)", "<ul><li>" + "a" * size + "</li></ul><b>" + "a" * size + "</b>"),
+                ("string(//li) = string(//b)", f"<ul><li>{'a' * size}</li></ul><b>{'a' * size}</b>"),
             )
             for size in (32, 32_768)
         )
-        + (("first-node equality, 1,000 nodes", ("//li = //li", "<ul>" + "<li>a</li>" * 1_000 + "</ul>")),)
+        + (("first-node equality, 1,000 nodes", ("//li = //li", f"<ul>{'<li>a</li>' * 1_000}</ul>")),)
     ),
     "xpath-order": lambda: ((
         *tuple(
@@ -2175,11 +2291,10 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
                 f"{operation}, {size:,} nodes per set",
                 (
                     f"//li {operation} //b",
-                    "<main><ul>"
-                    + f"<li>{2 if operation.startswith('<') else 1}</li>" * size
-                    + "</ul><section>"
-                    + f"<b>{1 if operation.startswith('<') else 2}</b>" * size
-                    + "</section></main>",
+                    (
+                        f"""<main><ul>{f"<li>{2 if operation.startswith('<') else 1}</li>" * size}</ul><section>"""
+                        f"""{f"<b>{1 if operation.startswith('<') else 2}</b>" * size}</section></main>"""
+                    ),
                 ),
             )
             for operation in ("<", "<=", ">", ">=")
@@ -2187,7 +2302,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ),
         (
             "first-pair match, 1,000 nodes",
-            ("//li < //b", "<ul>" + "<li>1</li>" * 1000 + "</ul><section>" + "<b>2</b>" * 1000 + "</section>"),
+            ("//li < //b", f"<ul>{'<li>1</li>' * 1000}</ul><section>{'<b>2</b>' * 1000}</section>"),
         ),
     )),
     "node-equals": lambda: tuple(
@@ -2213,9 +2328,10 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
             label,
             (
                 "id(//i)/@id",
-                '<main><b id="first"></b><b id="second"></b>'
-                + ("<i>" + " second first second " * repetitions + "</i>") * count
-                + "</main>",
+                (
+                    """<main><b id="first"></b><b id="second"></b>"""
+                    f"""{(f"<i>{' second first second ' * repetitions}</i>") * count}</main>"""
+                ),
             ),
         )
         for count, repetitions, label in (
@@ -2226,7 +2342,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "xpath-replace": lambda: (
         (
             "KMP sparse matches",
-            (("a" * 4096 + "b" + "a" * 64 + "x") * 8, "a" * 64 + "b" + "a" * 64, "X", ("a" * 4032 + "Xx") * 8),
+            ((f"{'a' * 4096}b{'a' * 64}x") * 8, f"{'a' * 64}b{'a' * 64}", "X", (f"{'a' * 4032}Xx") * 8),
         ),
         ("short ASCII", ("A short paragraph", "a", "A", "A short pArAgrAph")),
     ),
@@ -2234,19 +2350,19 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         *tuple(
             (
                 f"{count:,} nodes, {length} characters",
-                ("str:concat(//i)", "<main>" + ("<i>" + "a" * length + "</i>") * count + "</main>"),
+                ("str:concat(//i)", f"<main>{'<i>{}</i>'.format('a' * length) * count}</main>"),
             )
             for count, length in ((10000, 32), (10, 32768), (10, 32))
         ),
         (
             "10 nested nodes, 32768 characters",
-            ("str:concat(//i)", "<main>" + ("<i><b>" + "a" * 32768 + "</b></i>") * 10 + "</main>"),
+            ("str:concat(//i)", f"<main>{'<i><b>{}</b></i>'.format('a' * 32768) * 10}</main>"),
         ),
         (
             "mixed nodes and attributes",
             (
                 "str:concat(//i | //i/@* | //comment())",
-                "<main>" + '<i a="attribute">text<b>nested</b><!--comment--></i>' * 100 + "</main>",
+                f"""<main>{'<i a="attribute">text<b>nested</b><!--comment--></i>' * 100}</main>""",
             ),
         ),
     )),
@@ -2255,8 +2371,8 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
             (
                 f"{size:,} map characters, 32 KiB text",
                 (
-                    "translate(string(//p), '" + "".join(chr(256 + index) for index in range(size)) + "', '')",
-                    "<p>" + "z" * 32768 + "</p>",
+                    f"translate(string(//p), '{''.join(chr(256 + index) for index in range(size))}', '')",
+                    f"<p>{'z' * 32768}</p>",
                 ),
             )
             for size in (32, 128, 512)
@@ -2294,7 +2410,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
                 f"{operation}, {size:,} nodes per set",
                 (
                     f"set:{operation}(//li, //b)",
-                    "<main><ul>" + "<li></li>" * size + "</ul><section>" + "<b></b>" * size + "</section></main>",
+                    f"<main><ul>{'<li></li>' * size}</ul><section>{'<b></b>' * size}</section></main>",
                 ),
             )
             for operation in ("intersection", "difference", "has-same-node")
@@ -2303,7 +2419,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         + tuple(
             (
                 f"first-node overlap, {size:,} nodes",
-                ("set:has-same-node(//li, //li)", "<ul>" + "<li></li>" * size + "</ul>"),
+                ("set:has-same-node(//li, //li)", f"<ul>{'<li></li>' * size}</ul>"),
             )
             for size in (10, 100, 1_000, 10_000)
         )
@@ -2320,7 +2436,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "path-xpath-one-cold": _wide_path_cases,
     "path-class-edit": _wide_path_cases,
     "microdata-wide": lambda: tuple(
-        (f"{size:,} properties", "<div itemscope>" + "<span itemprop=name>x</span>" * size + "</div>")
+        (f"{size:,} properties", f"<div itemscope>{'<span itemprop=name>x</span>' * size}</div>")
         for size in (100, 1_000, 10_000)
     ),
     "microdata-empty-scope": lambda: tuple(
@@ -2332,17 +2448,14 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "article-wide": lambda: tuple(
         (
             f"{size:,} candidates",
-            "<div>"
-            + ("<section><p>" + "A sentence with enough text to score. " * 3 + "</p></section>") * size
-            + "</div>",
+            f"<div>{'<section><p>{}</p></section>'.format('A sentence with enough text to score. ' * 3) * size}</div>",
         )
         for size in (100, 1_000, 10_000)
     ),
     "article-deep": lambda: tuple(
         (
             f"{depth} nested candidates",
-            ("<div><p>" + "A sentence with enough prose, and a clause, to score. " * 3 + "</p>") * depth
-            + "</div>" * depth,
+            (f"<div><p>{'A sentence with enough prose, and a clause, to score. ' * 3}</p>") * depth + "</div>" * depth,
         )
         for depth in (10, 100, 500)
     ),
@@ -2358,11 +2471,11 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "find-text": _readpath_cases,
     "find-text-exact": lambda: (
         ("flat matches", ("<div>needle</div>" * 1_000, "needle")),
-        ("nested matches", ("<div>" * 100 + "needle" + "</div>" * 100, "needle")),
+        ("nested matches", (f"{'<div>' * 100}needle{'</div>' * 100}", "needle")),
         ("nested short expectation", ("<div>" * 100 + "x" * 10_000 + "</div>" * 100, "needle")),
-        ("wide early mismatch", ("<div>x" + "<b>needle</b>" * 1_000 + "</div>", "y" + "needle" * 1_000)),
-        ("wide match", ("<div>" + "<b>needle</b>" * 1_000 + "</div>", "needle" * 1_000)),
-        ("wide late mismatch", ("<div>" + "<b>needle</b>" * 1_000 + "</div>", "needle" * 999 + "needlx")),
+        ("wide early mismatch", (f"<div>x{'<b>needle</b>' * 1_000}</div>", f"y{'needle' * 1_000}")),
+        ("wide match", (f"<div>{'<b>needle</b>' * 1_000}</div>", "needle" * 1_000)),
+        ("wide late mismatch", (f"<div>{'<b>needle</b>' * 1_000}</div>", f"{'needle' * 999}needlx")),
     ),
     "find-attr-presence": lambda: tuple(
         (
@@ -2375,12 +2488,12 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "find-text-overlap": lambda: (("100 KiB overlapping miss", f"<p>{'a' * 100_000}</p>"),),
     "text-content": lambda: (
         *_readpath_cases(),
-        ("4,096 short Text descendants", "<main>" + "<span>a</span>" * 4096 + "</main>"),
-        ("one Text descendant (256 KiB)", "<main>" + "a" * (256 << 10) + "</main>"),
+        ("4,096 short Text descendants", f"<main>{'<span>a</span>' * 4096}</main>"),
+        ("one Text descendant (256 KiB)", f"<main>{'a' * (256 << 10)}</main>"),
         ("tiny Text descendant", "<p>text</p>"),
-        ("Latin-1 Text descendant (16 Ki chars)", "<p>" + "é" * 16_384 + "</p>"),
-        ("BMP Text descendant (16 Ki chars)", "<p>" + "雪" * 16_384 + "</p>"),
-        ("astral Text descendant (16 Ki chars)", "<p>" + "😀" * 16_384 + "</p>"),
+        ("Latin-1 Text descendant (16 Ki chars)", f"<p>{'é' * 16_384}</p>"),
+        ("BMP Text descendant (16 Ki chars)", f"<p>{'雪' * 16_384}</p>"),
+        ("astral Text descendant (16 Ki chars)", f"<p>{'😀' * 16_384}</p>"),
     ),
     "serialize": _readpath_cases,
     "parse-inner": _readpath_cases,
@@ -2401,17 +2514,17 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "conformance": lambda: (
         *_readpath_cases(),
         *(
-            (name, '<!doctype html><html lang="en"><title>Sections</title><body>' + content + "</body></html>")
+            (name, f'<!doctype html><html lang="en"><title>Sections</title><body>{content}</body></html>')
             for name, content in (
                 *(
                     (
                         f"{count} heading-free nested sections",
-                        "<section>" * count + "<p>Text</p>" + "</section>" * count,
+                        f"{'<section>' * count}<p>Text</p>{'</section>' * count}",
                     )
                     for count in (8, 64, 512)
                 ),
                 ("512 heading-free sibling sections", "<section><p>Text</p></section>" * 512),
-                ("512 nested sections with heading", "<section>" * 512 + "<h2>Title</h2>" + "</section>" * 512),
+                ("512 nested sections with heading", f"{'<section>' * 512}<h2>Title</h2>{'</section>' * 512}"),
             )
         ),
     ),
@@ -2420,7 +2533,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "canonicalize-attrs": lambda: tuple(
         (
             f"{size:,} attributes",
-            "<div " + " ".join(f'data-{index:05d}="x"' for index in range(size, 0, -1)) + "></div>",
+            f"""<div {" ".join(f'data-{index:05d}="x"' for index in range(size, 0, -1))}></div>""",
         )
         for size in (100, 1_000, 10_000)
     ),
@@ -2428,7 +2541,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("deep tree (150 deep)", _deep_tree(150, 3)),
         (
             "sparse xlink (150 deep)",
-            "<svg>" + ('<g><use xlink:href="#x"/>' * 150) + "</g>" * 150 + "</svg>",
+            f"""<svg>{'<g><use xlink:href="#x"/>' * 150}{"</g>" * 150}</svg>""",
         ),
         ("shallow ordinary", "<main><p>plain text</p><div id=a>more text</div></main>"),
     ),
@@ -2439,15 +2552,19 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("article 8 KiB", f"{_SOCIAL_HEAD}<body>{'<p>filler text</p>' * 400}</body>"),
         (
             "1,024 OpenGraph properties",
-            "<head>"
-            + "".join(f'<meta property="og:field{index}" content="value{index}">' for index in range(1_024))
-            + "</head>",
+            (
+                "<head>"
+                f"""{"".join(f'<meta property="og:field{index}" content="value{index}">' for index in range(1_024))}"""
+                "</head>"
+            ),
         ),
         (
             "1,024 Twitter properties",
-            "<head>"
-            + "".join(f'<meta name="twitter:field{index}" content="value{index}">' for index in range(1_024))
-            + "</head>",
+            (
+                "<head>"
+                f"""{"".join(f'<meta name="twitter:field{index}" content="value{index}">' for index in range(1_024))}"""
+                "</head>"
+            ),
         ),
         ("mixed duplicate properties", _SOCIAL_HEAD * 128),
     ),
@@ -2471,26 +2588,32 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ),
         (
             "4 shuffled references",
-            '<div itemscope itemref="r0 r2 r1 r3"></div>'
-            + "".join(f'<meta id=r{index} itemprop=p content="{index}">' for index in range(4)),
+            (
+                """<div itemscope itemref="r0 r2 r1 r3"></div>"""
+                f"""{"".join(f'<meta id=r{index} itemprop=p content="{index}">' for index in range(4))}"""
+            ),
         ),
     ),
     "syndication": lambda: (
         ("rss 30 items", _FEED_XML),
         (
             "rss 30 items / 128 extensions each",
-            _FEED_XML.replace("<item>", "<item>" + "<extension>x</extension>" * 128),
+            _FEED_XML.replace("<item>", f"<item>{'<extension>x</extension>' * 128}"),
         ),
         (
             "atom 30 entries",
-            '<feed xmlns="http://www.w3.org/2005/Atom"><title>Example</title>'
-            + "".join(
-                f'<entry><title>Entry {index}</title><link href="https://example.com/{index}"/>'
-                f"<id>urn:{index}</id><updated>2026-07-06</updated><summary>Summary {index}</summary>"
-                "<content>Full body</content><author><name>Writer</name></author></entry>"
-                for index in range(30)
-            )
-            + "</feed>",
+            (
+                """<feed xmlns="http://www.w3.org/2005/Atom"><title>Example</title>"""
+                f"""{
+                    "".join(
+                        f'<entry><title>Entry {index}</title><link href="https://example.com/{index}"/>'
+                        f"<id>urn:{index}</id><updated>2026-07-06</updated><summary>Summary {index}</summary>"
+                        "<content>Full body</content><author><name>Writer</name></author></entry>"
+                        for index in range(30)
+                    )
+                }"""
+                "</feed>"
+            ),
         ),
     ),
     "sanitize": lambda: (
@@ -2500,23 +2623,23 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "sanitize-disallowed": lambda: tuple(
         (
             f"{mode} tag with {count} attribute{'s' if count != 1 else ''}",
-            (mode, "<x" + "".join(f' a{index}="value"' for index in range(count)) + ">text</x>"),
+            (mode, f"""<x{"".join(f' a{index}="value"' for index in range(count))}>text</x>"""),
         )
         for mode in ("escape", "strip")
         for count in (1, 64, 1024)
     ),
     "sanitize-templates": lambda: (
         ("templated 4 KiB", _SANITIZE_TEMPLATES * 20),
-        ("plain 64 KiB text", "<p>" + "Plain text " * 6_000 + "</p>"),
-        ("plain 64 KiB attribute", '<a title="' + "Plain text " * 6_000 + '">label</a>'),
-        ("late template in 64 KiB text", "<p>" + "Plain text " * 6_000 + "{{value}}</p>"),
+        ("plain 64 KiB text", f"<p>{'Plain text ' * 6_000}</p>"),
+        ("plain 64 KiB attribute", f'<a title="{"Plain text " * 6_000}">label</a>'),
+        ("late template in 64 KiB text", f"<p>{'Plain text ' * 6_000}{{{{value}}}}</p>"),
     ),
     "sanitize-named-props": lambda: (("clobbering 4 KiB", _SANITIZE_NAMED * 11),),
     "sanitize-report": lambda: (("post 4 KiB", _SANITIZE_POST * 20),),
     "sanitize-node": lambda: (("post 4 KiB", _SANITIZE_POST * 20),),
     "sanitize-attributes": lambda: (
-        ("1024 rejected attributes", "<p " + " ".join(f'a{index}="x"' for index in range(1_024)) + ">x</p>"),
-        ("1024 allowed attributes", "<p " + " ".join(f'data-{index}="x"' for index in range(1_024)) + ">x</p>"),
+        ("1024 rejected attributes", f"""<p {" ".join(f'a{index}="x"' for index in range(1_024))}>x</p>"""),
+        ("1024 allowed attributes", f"""<p {" ".join(f'data-{index}="x"' for index in range(1_024))}>x</p>"""),
         ("four allowed attributes", '<p data-a="x" data-b="x" data-c="x" data-d="x">x</p>'),
         ("256 elements with four allowed attributes", '<p data-a="x" data-b="x" data-c="x" data-d="x">x</p>' * 256),
     ),
@@ -2534,10 +2657,10 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "linkify": lambda: _LINKIFY_CASES,
     "linkify-node": lambda: (
         ("markup (4 KiB)", _LINKIFY_CASES[2][1]),
-        ("wide text, one link", "<p>" + "😀 " * 32_768 + "https://example.com</p>"),
-        ("ASCII text, one link", "<p>" + "a " * 32_768 + "https://example.com</p>"),
-        ("wide text, no links", "<p>" + "😀 " * 32_768 + "</p>"),
-        ("1024 wide-text links", "<p>" + "😀 https://example.com " * 1_024 + "</p>"),
+        ("wide text, one link", f"<p>{'😀 ' * 32_768}https://example.com</p>"),
+        ("ASCII text, one link", f"<p>{'a ' * 32_768}https://example.com</p>"),
+        ("wide text, no links", f"<p>{'😀 ' * 32_768}</p>"),
+        ("1024 wide-text links", f"<p>{'😀 https://example.com ' * 1_024}</p>"),
     ),
     "linkify-traversal": lambda: _LINKIFY_TRAVERSAL_CASES,
     "detect": lambda: (
@@ -2545,7 +2668,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("find prose (1 KiB)", ("find", _LINKIFY_CASES[1][1])),
         ("has_link comment", ("has", _LINKIFY_CASES[0][1])),
         ("has_link prose (1 KiB)", ("has", _LINKIFY_CASES[1][1])),
-        ("has_link early (220 KiB tail)", ("has", "https://example.com " + "tail " * 45_000)),
+        ("has_link early (220 KiB tail)", ("has", f"https://example.com {'tail ' * 45_000}")),
         ("find numeric prose, phones off (1 KiB)", ("find", _PHONE_MIXED * 5)),
         ("find ucs2 prose, phones off (100 KiB)", ("find", _PHONE_CASES[9][1][1])),
         ("find ucs4 prose, phones off (100 KiB)", ("find", _PHONE_CASES[10][1][1])),
@@ -2607,8 +2730,8 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ("list (4 KiB)", ("default", _MARKDOWN_LIST)),
         ("table (4 KiB)", ("default", _MARKDOWN_TABLE)),
         ("configured (4 KiB)", ("configured", _MARKDOWN_CONFIGURED)),
-        ("8192 asterisks", ("escaped", "<p>" + "*" * 8192 + "</p>")),
-        ("8192 letters", ("escaped", "<p>" + "a" * 8192 + "</p>")),
+        ("8192 asterisks", ("escaped", f"<p>{'*' * 8192}</p>")),
+        ("8192 letters", ("escaped", f"<p>{'a' * 8192}</p>")),
         (
             "100 blocks with inline emphasis",
             (
@@ -2618,8 +2741,8 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         ),
     ),
     "markdown-wrap": lambda: (
-        ("10000 words, width8192", (8192, "<p>" + "aa " * 10_000 + "</p>")),
-        ("10000 words, width80", (80, "<p>" + "aa " * 10_000 + "</p>")),
+        ("10000 words, width8192", (8192, f"<p>{'aa ' * 10_000}</p>")),
+        ("10000 words, width80", (80, f"<p>{'aa ' * 10_000}</p>")),
     ),
     "markdown-google": lambda: (("google_doc (4 KiB)", _MARKDOWN_GOOGLE),),
     "tables": lambda: (
@@ -2635,37 +2758,34 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
             f"{kind} / {span} columns / {size} text characters",
             (
                 kind,
-                "<table><tr><th colspan="
-                + str(span)
-                + ">header</th></tr><tr><td colspan="
-                + str(span)
-                + ">"
-                + "x" * size
-                + "</td></tr></table>",
+                (
+                    f"<table><tr><th colspan={span!s}>header</th></tr><tr><td "
+                    f"colspan={span!s}>{'x' * size}</td></tr></table>"
+                ),
             ),
         )
         for kind, span, size in (("rows", 128, 4096), ("rows", 1, 16), ("records", 128, 4096))
     ),
-    "tables-wide": lambda: (("10k columns", ("rows", "<table><tr>" + "<td>x</td>" * 10_000 + "</tr></table>")),),
+    "tables-wide": lambda: (("10k columns", ("rows", f"<table><tr>{'<td>x</td>' * 10_000}</tr></table>")),),
     "article": lambda: (("post (4 KiB)", _article_page(16)), ("longform (16 KiB)", _article_page(72))),
     "boilerplate": lambda: (("post (4 KiB)", _article_page(16)), ("longform (16 KiB)", _article_page(72))),
     "date-tally": lambda: (
         (
             "1000 distinct visible dates",
-            "<p>" + " ".join((date(2000, 1, 1) + timedelta(days=index)).isoformat() for index in range(1000)) + "</p>",
+            f"<p>{' '.join((date(2000, 1, 1) + timedelta(days=index)).isoformat() for index in range(1000))}</p>",
         ),
-        ("1000 repeated visible dates", "<p>" + "2000-01-01 " * 1000 + "</p>"),
+        ("1000 repeated visible dates", f"<p>{'2000-01-01 ' * 1000}</p>"),
     ),
     "date": lambda: (
         ("post (4 KiB)", _article_page(16)),
         ("longform (16 KiB)", _article_page(72)),
-        ("100 meta candidates", "<head>" + "<meta name=date content=2024-05-06>" * 100 + "</head>"),
-        ("early temporal ISO date, 36 KiB text", "<time>2024-05-06 " + "ordinary " * 4096 + "</time>"),
-        ("late temporal ISO date, 36 KiB text", "<time>" + "ordinary " * 4096 + "2024-05-06</time>"),
-        ("temporal text without dates, 36 KiB", "<time>" + "ordinary " * 4096 + "</time>"),
+        ("100 meta candidates", f"<head>{'<meta name=date content=2024-05-06>' * 100}</head>"),
+        ("early temporal ISO date, 36 KiB text", f"<time>2024-05-06 {'ordinary ' * 4096}</time>"),
+        ("late temporal ISO date, 36 KiB text", f"<time>{'ordinary ' * 4096}2024-05-06</time>"),
+        ("temporal text without dates, 36 KiB", f"<time>{'ordinary ' * 4096}</time>"),
         ("single temporal ISO date", "<time>2024-05-06</time>"),
-        ("early temporal numeric date, 36 KiB text", "<time>06/05/2024 " + "ordinary " * 4096 + "</time>"),
-        ("early temporal written date, 36 KiB text", "<time>May 6, 2024 " + "ordinary " * 4096 + "</time>"),
+        ("early temporal numeric date, 36 KiB text", f"<time>06/05/2024 {'ordinary ' * 4096}</time>"),
+        ("early temporal written date, 36 KiB text", f"<time>May 6, 2024 {'ordinary ' * 4096}</time>"),
     ),
     "text-render": lambda: (("article (2 KiB)", _TEXT_ARTICLE), ("table (4 KiB)", _TEXT_TABLE)),
     "text-collapsed": lambda: (("collapsed (2 KiB)", _TEXT_ARTICLE),),
@@ -2684,26 +2804,27 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "sax-records-callback": _sax_record_cases,
     "treebuild": lambda: (
         *_readpath_cases(),
-        ("32 ASCII text nodes, 32 KiB each", "<main>" + ("<p>" + "a" * 32768 + "</p>") * 32 + "</main>"),
-        ("32 comments, 2 KiB each", "<body>" + ("<!--" + "a" * 2048 + "-->") * 32 + "</body>"),
+        ("32 ASCII text nodes, 32 KiB each", f"<main>{'<p>{}</p>'.format('a' * 32768) * 32}</main>"),
+        ("32 comments, 2 KiB each", f"<body>{'<!--{}-->'.format('a' * 2048) * 32}</body>"),
         *(
-            (f"{label} text, 65,536 characters", "<p>" + character * 65536 + "</p>")
+            (f"{label} text, 65,536 characters", f"<p>{character * 65536}</p>")
             for label, character in (("Latin-1", "é"), ("BMP", "水"), ("astral", "😀"))
         ),
         ("normalized newlines, 64 KiB", "<p>" + "a\r\n" * 21845 + "</p>"),
-        ("entity text, 64 KiB", "<p>" + "a&amp;" * 10922 + "</p>"),
+        ("entity text, 64 KiB", f"<p>{'a&amp;' * 10922}</p>"),
         ("small text and empty comment", "<p>x</p><!---->"),
-        ("10,000 empty elements", "<main>" + "<i></i>" * 10_000 + "</main>"),
+        ("10,000 empty elements", f"<main>{'<i></i>' * 10_000}</main>"),
         ("tiny custom tree", "<p>x</p>"),
         (
             "mixed foreign namespaces",
-            "<main>"
-            + "<svg><foreignObject><p>x</p></foreignObject><circle/></svg><math><mi>x</mi></math>" * 1_000
-            + "</main>",
+            (
+                f"<main>{'<svg><foreignObject><p>x</p></foreignObject><circle/></svg><math><mi>x</mi></math>' * 1_000}"
+                f"</main>"
+            ),
         ),
         (
             "text and comment callbacks",
-            "<!DOCTYPE html><main>" + '<p class="x">text<!--comment--></p>' * 1_000 + "</main>",
+            f"""<!DOCTYPE html><main>{'<p class="x">text<!--comment--></p>' * 1_000}</main>""",
         ),
     ),
     "rewrite": _readpath_cases,
@@ -2718,7 +2839,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
             for kind, selector in (
                 ("ID", "#identifier"),
                 ("equality", '[data-x="value"]'),
-                ("long equality", '[data-x="' + "value" * 32 + '"]'),
+                ("long equality", f'[data-x="{"value" * 32}"]'),
                 ("mixed quotes", r'[data-x="it\27 s\22 x"]'),
                 ("case folded", '[data-x="VALUE" i]'),
                 ("class token", ".identifier"),
@@ -2744,14 +2865,15 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         (
             f"128 unmatched templates, 1,024 nodes, {passes} passes",
             (
-                '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
-                '<xsl:output method="text"/>'
-                + "".join(f'<xsl:template match="unused{index}" priority="0"/>' for index in range(128))
-                + '<xsl:template match="/">'
-                + '<xsl:apply-templates select="root/p"/>' * passes
-                + '</xsl:template><xsl:template match="p" priority="-1">'
-                '<xsl:value-of select="@id"/><xsl:text>|</xsl:text></xsl:template></xsl:stylesheet>',
-                "<root>" + "".join(f'<p id="{index}"/>' for index in range(1, 1_025)) + "</root>",
+                (
+                    """<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" """
+                    """version="1.0"><xsl:output method="text"/>"""
+                    f"""{"".join(f'<xsl:template match="unused{index}" priority="0"/>' for index in range(128))}"""
+                    f"""<xsl:template match="/">{'<xsl:apply-templates select="root/p"/>' * passes}"""
+                    """</xsl:template><xsl:template match="p" priority="-1"><xsl:value-of """
+                    """select="@id"/><xsl:text>|</xsl:text></xsl:template></xsl:stylesheet>"""
+                ),
+                f"""<root>{"".join(f'<p id="{index}"/>' for index in range(1, 1_025))}</root>""",
             ),
         )
         for passes in (8, 1)
@@ -2765,11 +2887,10 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         *tuple(
             (
                 f"{count} live parameters",
-                "function transform("
-                + ",".join(f"argument{index}" for index in range(count))
-                + "){return ["
-                + ",".join(f"argument{index}" for index in range(count))
-                + "]}",
+                (
+                    f"function transform({','.join(f'argument{index}' for index in range(count))}){{return ["
+                    f"{','.join(f'argument{index}' for index in range(count))}]}}"
+                ),
             )
             for count in (8, 32, 54, 80)
         ),
@@ -2779,7 +2900,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "minify-js-integers": lambda: tuple(
         (
             f"{count} integers / {label}",
-            "x=[" + ",".join(str((index + 1) * scale + offset) for index in range(count)) + "]",
+            f"x=[{','.join(str((index + 1) * scale + offset) for index in range(count))}]",
         )
         for count, scale, offset, label in (
             (4096, 10, 1, "no trailing zeros"),
@@ -2790,70 +2911,75 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "minify-js-var-initialization": lambda: tuple(
         (
             f"{count} var pairs / {'read before initialization' if early else 'read after initialization'}",
-            "function f(g){var "
-            + ",".join(
-                f"keep{index}=g({'value' + str(index) if early else str(index)}),value{index}={index % 10}"
-                for index in range(count)
-            )
-            + ";return["
-            + ",".join(f"keep{index}" if early else f"keep{index},value{index}" for index in range(count))
-            + "]}",
+            (
+                "function f(g){var "
+                f"""{
+                    ",".join(
+                        f"keep{index}=g({f'value{index!s}' if early else str(index)}),value{index}={index % 10}"
+                        for index in range(count)
+                    )
+                }"""
+                ";return["
+                f"""{",".join(f"keep{index}" if early else f"keep{index},value{index}" for index in range(count))}]}}"""
+            ),
         )
         for count, early in ((256, False), (1, False), (256, True))
     ),
     "minify-js-single-use": lambda: tuple(
         (
             f"{count} call initializers / {layout}",
-            "function f(g){"
-            + (
-                "const " + ",".join(f"v{index}=g({index})" for index in range(count)) + ";"
-                if layout == "one declaration"
-                else "".join(f"const v{index}=g({index});" for index in range(count))
-            )
-            + "return["
-            + ",".join(f"v{index}" for index in range(count))
-            + "]}",
+            (
+                "function f(g){"
+                f"""{
+                    f"const {','.join(f'v{index}=g({index})' for index in range(count))};"
+                    if layout == "one declaration"
+                    else "".join(f"const v{index}=g({index});" for index in range(count))
+                }"""
+                f"""return[{",".join(f"v{index}" for index in range(count))}]}}"""
+            ),
         )
         for count, layout in ((256, "one declaration"), (256, "separate declarations"), (1, "one declaration"))
     ),
     "minify-js-unused-declarations": lambda: tuple(
         (
             f"{count} unused retained/literal pairs",
-            "function f(g){const "
-            + ",".join(f"keep{index}=g({index}),value{index}={index % 10}" for index in range(count))
-            + ";return[]}",
+            (
+                "function f(g){const "
+                f"{','.join(f'keep{index}=g({index}),value{index}={index % 10}' for index in range(count))};return[]}}"
+            ),
         )
         for count in (256, 1)
     ),
     "minify-js-unlink": lambda: tuple(
         (
             f"{count} retained/literal pairs / {layout}",
-            "function f(g){"
-            "const "
-            + ("," if layout == "one declaration" else ";const ").join(
-                f"keep{index}=g({index}),value{index}={index % 10}" for index in range(count)
-            )
-            + ";return["
-            + ",".join(f"keep{index},value{index},value{index}" for index in range(count))
-            + "]}",
+            (
+                "function f(g){const "
+                f"""{
+                    ("," if layout == "one declaration" else ";const ").join(
+                        f"keep{index}=g({index}),value{index}={index % 10}" for index in range(count)
+                    )
+                }"""
+                f""";return[{",".join(f"keep{index},value{index},value{index}" for index in range(count))}]}}"""
+            ),
         )
         for count, layout in ((256, "one declaration"), (256, "separate declarations"), (1, "one declaration"))
     ),
     "minify-js-propagation": lambda: tuple(
         (
             f"{count} literal bindings / {layout}",
-            "function f(g){"
-            + (
-                "".join(f"const v{index}={index % 10};g(v{index});" for index in range(count))
-                if layout == "interleaved declarations"
-                else "const "
-                + ",".join(f"v{index}={index % 10}" for index in range(count))
-                + ";"
-                + "".join(f"g(v{index});" for index in range(count))
-            )
-            + "return["
-            + ",".join(f"v{index},v{index}" for index in range(count))
-            + "]}",
+            (
+                "function f(g){"
+                f"""{
+                    "".join(f"const v{index}={index % 10};g(v{index});" for index in range(count))
+                    if layout == "interleaved declarations"
+                    else (
+                        f"const {','.join(f'v{index}={index % 10}' for index in range(count))};"
+                        f"{''.join(f'g(v{index});' for index in range(count))}"
+                    )
+                }"""
+                f"""return[{",".join(f"v{index},v{index}" for index in range(count))}]}}"""
+            ),
         )
         for count, layout in (
             (256, "interleaved declarations"),
@@ -2864,9 +2990,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "minify-js-guards": lambda: tuple(
         (
             f"{count} guard returns",
-            "function f(x){"
-            + "".join(f"if(x==={index})return g({index});" for index in range(count))
-            + "return g(-1)}",
+            f"function f(x){{{''.join(f'if(x==={index})return g({index});' for index in range(count))}return g(-1)}}",
         )
         for count in (512, 1)
     ),
@@ -2938,22 +3062,22 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
         *tuple(
             (
                 f"normalize 100 URLs, 100 {kind} query keys",
-                ("normalize", ("https://example.org/?" + "&".join(f"{key}{index}=1" for index in range(100)),) * 100),
+                ("normalize", (f"https://example.org/?{'&'.join(f'{key}{index}=1' for index in range(100))}",) * 100),
             )
             for kind, key in (("plain", "key"), ("escaped", "%6Bey"))
         ),
         *tuple(
-            (f"normalize 100 URLs, {name}", ("normalize", ("https://example.org/" + path,) * 100))
+            (f"normalize 100 URLs, {name}", ("normalize", (f"https://example.org/{path}",) * 100))
             for name, path in (
                 ("8 KiB undotted paths", "a" * 8192),
                 ("short undotted paths", "products/item"),
-                ("8 KiB paths with parent segments", "a" * 8192 + "/../item"),
-                ("8 KiB paths with encoded parent segments", "a" * 8192 + "/%2e%2e/item"),
-                ("8 KiB paths with file extensions", "a" * 8192 + ".html"),
+                ("8 KiB paths with parent segments", f"{'a' * 8192}/../item"),
+                ("8 KiB paths with encoded parent segments", f"{'a' * 8192}/%2e%2e/item"),
+                ("8 KiB paths with file extensions", f"{'a' * 8192}.html"),
             )
         ),
         *tuple(
-            (f"normalize 100 URLs, {name}", ("normalize", ("https://" + host + "/",) * 100))
+            (f"normalize 100 URLs, {name}", ("normalize", (f"https://{host}/",) * 100))
             for name, host in (
                 ("253-character ASCII hosts", ".".join(("A" * 63, "B" * 63, "C" * 63, "D" * 49, "example", "org"))),
                 ("short ASCII hosts", "EXAMPLE.ORG"),
@@ -2965,18 +3089,22 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "links-filter": _readpath_cases,
     "links-external": lambda: (
         ("900 mixed-site links", _EXTERNAL_LINKS_HTML),
-        ("900 mixed-site links / 64 subdomains", _EXTERNAL_LINKS_HTML.replace("https://", "https://" + "s." * 64)),
+        ("900 mixed-site links / 64 subdomains", _EXTERNAL_LINKS_HTML.replace("https://", f"https://{'s.' * 64}")),
     ),
     "serialize-attributes": lambda: tuple(
         (
             f"{count} attributes, {order}, sorting {sorting}",
             (
-                "<div "
-                + " ".join(
-                    f'a{index:04d}="value"'
-                    for index in (reversed(range(count)) if order == "reversed" else range(count))
-                )
-                + ">text</div>",
+                (
+                    "<div "
+                    f"""{
+                        " ".join(
+                            f'a{index:04d}="value"'
+                            for index in (reversed(range(count)) if order == "reversed" else range(count))
+                        )
+                    }"""
+                    ">text</div>"
+                ),
                 sorting,
             ),
         )
@@ -2990,7 +3118,7 @@ INPUTS: dict[str, Callable[[], tuple[tuple[str, object], ...]]] = {
     "is-valid": lambda: _validation_verdict_cases(_VALIDATE_XSD),
     "is-valid-rng": lambda: _validation_verdict_cases(_VALIDATE_RNG),
     "serialize-named": lambda: tuple(
-        (label, "<html><head></head><body><p>" + text + "</p></body></html>")
+        (label, f"<html><head></head><body><p>{text}</p></body></html>")
         for label, text in (
             ("48k named characters", "é©\u03b1Ω∑€" * 8192),
             ("48k ASCII characters", "abcxyz" * 8192),
@@ -3008,3 +3136,12 @@ def _validation_verdict_cases(schema: str) -> tuple[tuple[str, tuple[str, str]],
         ("valid catalog", (schema, _VALIDATE_DOC)),
         ("one invalid quantity", (schema, _VALIDATE_DOC.replace("<qty>", "<qty>invalid", 1))),
     )
+
+
+__all__ = [
+    "INPUTS",
+    "MEMORY_OPS",
+    "OPERATIONS",
+    "SIZE_OPS",
+    "Case",
+]

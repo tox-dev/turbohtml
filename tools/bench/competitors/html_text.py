@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 import html_text
 
-REQUIREMENTS = ("html-text>=0.6",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("html-text>=0.6",)
 
 
 def text_render(text: str) -> None:
-    """Extract layout-aware visible text with html-text, walking an lxml tree."""
+    # Extract layout-aware visible text with html-text, walking an lxml tree.
     html_text.extract_text(text)
 
 
 def text_collapsed(text: str) -> None:
-    """Extract the collapsed word stream with html-text, layout guessing off."""
+    # Extract the collapsed word stream with html-text, layout guessing off.
     html_text.extract_text(text, guess_layout=False)
 
 
-OPERATIONS = {"text-render": (text_render, "html-text"), "text-collapsed": (text_collapsed, "html-text")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
+    "text-render": (text_render, "html-text"),
+    "text-collapsed": (text_collapsed, "html-text"),
+}

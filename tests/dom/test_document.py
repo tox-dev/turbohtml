@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 # attributes, rawtext (script/style/title/textarea) whose content can split across a
 # feed, table foster-parenting, select, template, foreign content, the adoption
 # agency, comments, doctype, and CR normalization.
-DOCUMENTS = [
+_DOCUMENTS: Final[list[pytest.ParameterSet]] = [
     pytest.param("", id="empty"),
     pytest.param("<!DOCTYPE html><p class=x>Hello <b>wo</b>rld</p>", id="doctype-text-attr"),
     pytest.param("<title>A &amp; B</title><script>var x = 1 < 2;</script>", id="rawtext"),
@@ -57,7 +57,9 @@ DOCUMENTS = [
     pytest.param("plain text with no tags at all", id="plain-text"),
 ]
 
-CHUNK_SIZES = [pytest.param(size, id=f"chunk-{size}") for size in (1, 2, 3, 5, 8, 13)]
+_CHUNK_SIZES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(size, id=f"chunk-{size}") for size in (1, 2, 3, 5, 8, 13)
+]
 
 
 def _stream(document: str, chunk: int) -> str:
@@ -67,13 +69,13 @@ def _stream(document: str, chunk: int) -> str:
     return parser.close().html
 
 
-@pytest.mark.parametrize("document", DOCUMENTS)
-@pytest.mark.parametrize("chunk", CHUNK_SIZES)
+@pytest.mark.parametrize("document", _DOCUMENTS)
+@pytest.mark.parametrize("chunk", _CHUNK_SIZES)
 def test_chunked_str_matches_whole(document: str, chunk: int) -> None:
     assert _stream(document, chunk) == parse(document).html
 
 
-@pytest.mark.parametrize("document", DOCUMENTS)
+@pytest.mark.parametrize("document", _DOCUMENTS)
 def test_one_character_at_a_time_matches_whole(document: str) -> None:
     parser = IncrementalParser()
     for character in document:
@@ -83,7 +85,7 @@ def test_one_character_at_a_time_matches_whole(document: str) -> None:
 
 # A U+0000 makes the text builder filter NUL; the streaming path must flag it from
 # whatever storage width the fed chunk happens to use, so feed each width whole.
-WIDE_WIDTHS = [
+_WIDE_WIDTHS: Final[list[pytest.ParameterSet]] = [
     pytest.param("<p>café ☃ two-byte plain</p>", id="two-byte"),
     pytest.param("<p>café\x00☃ two-byte nul</p>", id="two-byte-nul"),
     pytest.param("<p>math 🦄 four-byte plain</p>", id="four-byte"),
@@ -91,7 +93,7 @@ WIDE_WIDTHS = [
 ]
 
 
-@pytest.mark.parametrize("document", WIDE_WIDTHS)
+@pytest.mark.parametrize("document", _WIDE_WIDTHS)
 def test_wide_storage_widths_single_feed_match_whole(document: str) -> None:
     parser = IncrementalParser()
     parser.feed(document)  # one feed keeps the chunk at the string's natural width
@@ -114,16 +116,16 @@ def test_str_parse_has_no_encoding() -> None:
     assert parser.close().encoding is None
 
 
-MULTIBYTE = "<p>café — ☃ — 🦄</p>"  # 2-, 3-, and 4-byte UTF-8 sequences
+_MULTIBYTE: Final[str] = "<p>café — ☃ — 🦄</p>"  # 2-, 3-, and 4-byte UTF-8 sequences
 
 
 @pytest.mark.parametrize("chunk", [1, 2, 3, 4, 7])
 def test_utf8_chunked_matches_decoded_str(chunk: int) -> None:
-    raw = MULTIBYTE.encode("utf-8")
+    raw = _MULTIBYTE.encode("utf-8")
     parser = IncrementalParser()
     for start in range(0, len(raw), chunk):
         parser.feed(raw[start : start + chunk])
-    assert parser.close().html == parse(MULTIBYTE).html
+    assert parser.close().html == parse(_MULTIBYTE).html
 
 
 def test_bytes_parse_reports_its_encoding() -> None:
@@ -179,13 +181,6 @@ def test_surrogate_encoding_name_raises_on_first_bytes_feed() -> None:
         parser.feed(b"<p>x</p>")
 
 
-def _streamed(raw: bytes, encoding: str, chunk: int) -> str:
-    parser = IncrementalParser(encoding=encoding)
-    for start in range(0, len(raw), chunk):
-        parser.feed(raw[start : start + chunk])
-    return parser.close().text
-
-
 @pytest.mark.parametrize(
     ("encoding", "raw"),
     [
@@ -207,6 +202,13 @@ def test_a_sequence_split_across_chunks_decodes_as_one_piece(encoding: str, raw:
     # the decoder holds back the trailing bytes of a sequence the next chunk may complete, and its ISO-2022-JP mode
     # survives the boundary even though its bytes do not
     assert _streamed(raw, encoding, chunk) == parse(raw, encoding=encoding).text
+
+
+def _streamed(raw: bytes, encoding: str, chunk: int) -> str:
+    parser = IncrementalParser(encoding=encoding)
+    for start in range(0, len(raw), chunk):
+        parser.feed(raw[start : start + chunk])
+    return parser.close().text
 
 
 @pytest.mark.parametrize(
@@ -264,8 +266,8 @@ def test_an_escape_that_ends_a_chunk_keeps_the_mode_it_interrupted() -> None:
     # 0x1B abandons the pair 0x24 opened, and lands the decoder in the escape state with nothing left in the chunk. The
     # end-of-stream probe that finds the escape incomplete falls back to the output state, so the next chunk has to
     # resume in the escape state rather than read 0x38 as a lead byte.
-    raw = b"\x1b$B$\x1b8M"
     parser = IncrementalParser(encoding="iso-2022-jp")
+    raw = b"\x1b$B$\x1b8M"
     parser.feed(raw[:5])
     parser.feed(raw[5:])
     assert parser.close().text == "��戸"
@@ -300,12 +302,12 @@ def test_double_close_raises() -> None:
 def test_feed_rejects_other_types() -> None:
     parser = IncrementalParser()
     with pytest.raises(TypeError, match="str or a bytes-like object"):
-        parser.feed(123)  # ty: ignore[invalid-argument-type]
+        parser.feed(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_encoding_must_be_str() -> None:
     with pytest.raises(TypeError):
-        IncrementalParser(encoding=b"utf-8")  # ty: ignore[invalid-argument-type]
+        IncrementalParser(encoding=b"utf-8")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_context_manager_closes_inside_block() -> None:
@@ -377,8 +379,7 @@ def test_parser_produced_invalid_tag_name_round_trips() -> None:
     assert element.tag == "a<b"
     clone = _roundtrip(element)
     assert isinstance(clone, Element)
-    assert clone.tag == "a<b"
-    assert clone.html == element.html
+    assert (clone.tag, clone.html) == ("a<b", element.html)
 
 
 def test_nested_pi_and_cdata_survive_pickling() -> None:
@@ -406,8 +407,7 @@ def test_document_round_trips() -> None:
 
 
 def test_xml_document_round_trips_case_sensitively() -> None:
-    doc = parse_xml('<Root Attr="v"><Child X="1"/><![CDATA[r]]><?pi d?></Root>')
-    clone = _roundtrip(doc)
+    clone = _roundtrip(parse_xml('<Root Attr="v"><Child X="1"/><![CDATA[r]]><?pi d?></Root>'))
     assert isinstance(clone, Document)
     root = clone.root
     assert isinstance(root, Element)
@@ -453,9 +453,7 @@ def test_doctype_round_trips(markup: str, public_id: str | None, system_id: str 
     assert isinstance(doctype, Doctype)
     clone = _roundtrip(doctype)
     assert isinstance(clone, Doctype)
-    assert clone.name == "html"
-    assert clone.public_id == public_id
-    assert clone.system_id == system_id
+    assert (clone.name, clone.public_id, clone.system_id) == ("html", public_id, system_id)
 
 
 def test_pickled_element_is_independent() -> None:
@@ -512,8 +510,7 @@ def test_reconstruct_accepts_names_the_constructor_rejects() -> None:
 
 
 def test_reconstruct_propagates_a_construction_failure() -> None:
-    reduced = Element("div").__reduce__()
-    kind = reduced[1][0]  # the (kind, data, children) payload pickle would store
+    kind = Element("div").__reduce__()[1][0]  # the (kind, data, children) payload pickle would store
     # a genuinely broken payload still fails: a non-mapping attrs value cannot build an element,
     # and reconstruction surfaces that TypeError instead of returning a half-built node
     with pytest.raises(TypeError):
@@ -599,7 +596,11 @@ def test_preprocessing_errors_interleave_by_position(markup: str, expected: list
 
 
 # the tokenizer core is stamped once per PyUnicode storage width, so each width has to run
-_WIDTHS = [pytest.param("", id="ucs1"), pytest.param("\u20ac", id="ucs2"), pytest.param("\U0001f600", id="ucs4")]
+_WIDTHS: Final[list[pytest.ParameterSet]] = [
+    pytest.param("", id="ucs1"),
+    pytest.param("\u20ac", id="ucs2"),
+    pytest.param("\U0001f600", id="ucs4"),
+]
 
 
 @pytest.mark.parametrize("prefix", _WIDTHS)
@@ -618,7 +619,7 @@ def test_ascii_whitespace_references_are_not_control_references(prefix: str, ref
 
 @pytest.mark.parametrize("prefix", _WIDTHS)
 def test_a_name_longer_than_the_table_still_reports_the_semicolon(prefix: str) -> None:
-    errors = parse(prefix + "&" + "a1" * 40 + ";").errors
+    errors = parse(f"{prefix}&{'a1' * 40};").errors
     assert [error.code for error in errors] == ["unknown-named-character-reference"]
 
 
@@ -628,7 +629,7 @@ def test_a_name_longer_than_the_table_still_reports_the_semicolon(prefix: str) -
     [pytest.param(" ", id="followed-by-text"), pytest.param("", id="ends-the-input")],
 )
 def test_a_name_longer_than_the_table_without_a_semicolon_is_literal(prefix: str, tail: str) -> None:
-    assert parse(prefix + "&" + "a1" * 40 + tail).errors == []
+    assert parse(f"{prefix}&{'a1' * 40}{tail}").errors == []
 
 
 @pytest.mark.parametrize("prefix", _WIDTHS[1:])
@@ -642,7 +643,7 @@ def test_a_name_longer_than_the_table_without_a_semicolon_is_literal(prefix: str
 )
 def test_wide_input_normalizes_newlines_when_locating_errors(prefix: str, newline: str, expected_line: int) -> None:
     # the preprocessing walk counts lines over the newline-normalized stream the tokenizer reads
-    errors = parse(prefix + "\x01" + newline + "\x02").errors
+    errors = parse(f"{prefix}\x01{newline}\x02").errors
     assert [(error.code, error.line) for error in errors] == [
         ("control-character-in-input-stream", 1),
         ("control-character-in-input-stream", expected_line),
@@ -652,20 +653,20 @@ def test_wide_input_normalizes_newlines_when_locating_errors(prefix: str, newlin
 @pytest.mark.parametrize("prefix", _WIDTHS[1:])
 def test_wide_input_ending_in_a_carriage_return(prefix: str) -> None:
     # the CR has no character after it to pair with, so the lookahead must not read past the end
-    assert [error.code for error in parse(prefix + "\x01\r").errors] == ["control-character-in-input-stream"]
+    assert [error.code for error in parse(f"{prefix}\x01\r").errors] == ["control-character-in-input-stream"]
 
 
 def test_a_long_text_run_still_reports_a_null() -> None:
     # the run scanners are vectorized, so the NUL must stop a block, not only a scalar tail
-    assert [error.code for error in parse("a" * 64 + "\x00").errors] == ["unexpected-null-character"]
+    assert [error.code for error in parse(f"{'a' * 64}\x00").errors] == ["unexpected-null-character"]
 
 
 @pytest.mark.parametrize("prefix", _WIDTHS)
 def test_an_overlong_reference_suspends_until_the_input_ends(prefix: str) -> None:
     # the reference helper waits for more input rather than deciding on a partial name
     tokenizer = Tokenizer()
-    assert list(tokenizer.feed(prefix + "&" + "a" * 40)) == []
-    assert [token.data for token in tokenizer.close()] == [prefix + "&" + "a" * 40]
+    assert list(tokenizer.feed(f"{prefix}&{'a' * 40}")) == []
+    assert [token.data for token in tokenizer.close()] == [f"{prefix}&{'a' * 40}"]
 
 
 def test_reading_errors_twice_reports_the_same_list() -> None:
@@ -674,13 +675,6 @@ def test_reading_errors_twice_reports_the_same_list() -> None:
     first = [error.code for error in document.errors]
     assert first == ["control-character-in-input-stream"]
     assert [error.code for error in document.errors] == first
-
-
-def _tree_parse_errors_streamed(markup: str, chunk: int = 1) -> list[tuple[str, int, int]]:
-    parser = IncrementalParser()
-    for start in range(0, len(markup), chunk):
-        parser.feed(markup[start : start + chunk])
-    return [(error.code, error.line, error.col) for error in parser.close().errors]
 
 
 @pytest.mark.parametrize(
@@ -703,6 +697,13 @@ def test_a_streamed_document_reports_the_errors_parse_reports(markup: str) -> No
     expected = [(error.code, error.line, error.col) for error in parse(markup).errors]
     assert _tree_parse_errors_streamed(markup) == expected
     assert expected != []
+
+
+def _tree_parse_errors_streamed(markup: str, chunk: int = 1) -> list[tuple[str, int, int]]:
+    parser = IncrementalParser()
+    for start in range(0, len(markup), chunk):
+        parser.feed(markup[start : start + chunk])
+    return [(error.code, error.line, error.col) for error in parser.close().errors]
 
 
 def test_a_crlf_split_across_a_feed_counts_one_line_break() -> None:
@@ -738,9 +739,9 @@ def test_a_pending_cr_survives_the_chunk_that_follows(chunks: list[str], line: i
 @pytest.mark.parametrize(
     "markup",
     [
-        pytest.param("\t\x08" + "A" * 6, id="tab-then-control"),
-        pytest.param("\x00\x01" + "A" * 6, id="null-then-control"),
-        pytest.param("\x0c\x1f" + "A" * 6, id="form-feed-then-control"),
+        pytest.param(f"\t\x08{'A' * 6}", id="tab-then-control"),
+        pytest.param(f"\x00\x01{'A' * 6}", id="null-then-control"),
+        pytest.param(f"\x0c\x1f{'A' * 6}", id="form-feed-then-control"),
     ],
 )
 def test_a_control_beside_an_ordinary_low_byte_is_still_reported(markup: str) -> None:
@@ -791,8 +792,7 @@ def test_errors_is_a_fresh_list_each_call() -> None:
 
 def test_error_position_tracks_newlines() -> None:
     error = parse("\n\n<div").errors[0]  # the open tag starts on the third line
-    assert error.code == "eof-in-tag"
-    assert error.line == 3
+    assert (error.code, error.line) == ("eof-in-tag", 3)
 
 
 def test_multiple_errors_in_document_order() -> None:
@@ -807,7 +807,7 @@ def test_bytes_input_collects_errors() -> None:
 def test_collects_more_errors_than_the_initial_capacity() -> None:
     # one unique attribute then eleven duplicates, growing the sink past its
     # initial capacity so every duplicate is still recorded
-    document = parse("<a" + " b" * 12 + ">")
+    document = parse(f"<a{' b' * 12}>")
     assert len(document.errors) == 11
     assert {error.code for error in document.errors} == {"duplicate-attribute"}
 
@@ -840,7 +840,7 @@ def test_ordering_is_unsupported() -> None:
 
 def test_cannot_instantiate_parse_error() -> None:
     with pytest.raises(TypeError):
-        ParseError()  # type: ignore[call-arg]
+        ParseError()  # type: ignore[call-arg]  # instantiates ParseError without its arguments on purpose; the test expects the TypeError
 
 
 def test_strict_raises_on_first_error() -> None:
@@ -855,8 +855,10 @@ def test_strict_raises_on_first_error() -> None:
 def test_strict_reports_only_the_first_error() -> None:
     with pytest.raises(HTMLParseError) as raised:
         parse("<a b b><c d d>", strict=True)
-    assert raised.value.error.code == "duplicate-attribute"
-    assert raised.value.error.col == 6  # the first duplicate, not the second
+    assert (raised.value.error.code, raised.value.error.col) == (
+        "duplicate-attribute",
+        6,
+    )  # the first duplicate, not the second
 
 
 def test_strict_on_bytes_input() -> None:
@@ -914,20 +916,20 @@ def test_parser_text_coalescing_keeps_one_node_across_feeds(text: str, *, locati
 
 
 def test_parser_text_coalescing_switches_between_nodes() -> None:
-    source: Final = "<p>" + "x</missing>" * 40 + "<i>" + "y</missing>" * 40 + "</i>" + "z</missing>" * 40 + "</p>"
+    source: Final = f"<p>{'x</missing>' * 40}<i>{'y</missing>' * 40}</i>{'z</missing>' * 40}</p>"
     paragraph: Final = parse(source).find("p")
     assert paragraph is not None
     assert [node.text for node in paragraph.children] == ["x" * 40, "y" * 40, "z" * 40]
 
 
 def test_parser_text_coalescing_keeps_fostered_text_before_table() -> None:
-    root: Final = parse("<div><table>" + "x<tr><td>cell</td></tr>" * 40 + "</table></div>").find("div")
+    root: Final = parse(f"<div><table>{'x<tr><td>cell</td></tr>' * 40}</table></div>").find("div")
     assert root is not None
     assert [node.text for node in root.children] == ["x" * 40, "cell" * 40]
 
 
 def test_independent_parsers_in_parallel_each_build_correctly() -> None:
-    document: Final = "<html><body>" + "".join(f"<div><p>x{index}</p></div>" for index in range(200)) + "</body></html>"
+    document: Final = f"<html><body>{''.join(f'<div><p>x{index}</p></div>' for index in range(200))}</body></html>"
     expected: Final = parse(document).html
     results: Final[list[str]] = []
     lock: Final = threading.Lock()
@@ -966,24 +968,7 @@ def test_concurrent_feeds_on_one_parser_are_memory_safe() -> None:
     assert isinstance(parser.close().html, str)  # interleaving is undefined, but never a crash
 
 
-_QUIRKS = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"><p class=Foo>x<table></table></p>'
-
-
-def _element(node: Node | None) -> Element:
-    assert isinstance(node, Element)
-    return node
-
-
-def _kind(node: Node) -> int:
-    reduced = node.__reduce__()
-    assert isinstance(reduced, tuple)
-    return reduced[1][0]
-
-
-class _Unbooleanable:
-    def __bool__(self) -> NoReturn:
-        msg = "no truth value"
-        raise RuntimeError(msg)
+_QUIRKS: Final[str] = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"><p class=Foo>x<table></table></p>'
 
 
 def test_pickled_document_keeps_the_doctype_identifiers() -> None:
@@ -1020,6 +1005,11 @@ def test_pickled_document_keeps_adjacent_text_nodes() -> None:
     assert [child.html for child in paragraph.children] == ["a", "b"]
 
 
+def _element(node: Node | None) -> Element:
+    assert isinstance(node, Element)
+    return node
+
+
 def test_pickled_document_keeps_a_structure_the_parser_would_repair() -> None:
     document = parse("<p id=a></p>")
     _element(document.select_one("#a")).append(Element("div"))
@@ -1052,8 +1042,7 @@ def test_pickled_fragment_round_trips() -> None:
 
 @pytest.mark.parametrize("mode", ["open", "closed"])
 def test_pickled_shadow_root_is_a_shadow_root(mode: str) -> None:
-    host = Element("div", {"id": "h"}, [Text("light")])
-    root = host.attach_shadow(mode)
+    root = Element("div", {"id": "h"}, [Text("light")]).attach_shadow(mode)
     root.append(Element("b"))
     clone = _roundtrip(root)
     assert isinstance(clone, ShadowRoot)
@@ -1066,6 +1055,12 @@ def test_reconstruct_accepts_a_legacy_markup_document() -> None:
     assert node.html == "<html><head></head><body><p>x</p></body></html>"
 
 
+def _kind(node: Node) -> int:
+    reduced = node.__reduce__()
+    assert isinstance(reduced, tuple)
+    return reduced[1][0]
+
+
 def test_reconstruct_accepts_a_legacy_markup_xml_document() -> None:
     node = _reconstruct(_kind(parse("")), "<R><Q/></R>", [], 1)
     assert node.html == "<R><Q></Q></R>"
@@ -1076,9 +1071,15 @@ def test_reconstruct_rejects_an_unreadable_quirks_flag() -> None:
         _reconstruct(_kind(parse("")), _Unbooleanable(), [])
 
 
+class _Unbooleanable:
+    def __bool__(self) -> NoReturn:
+        msg = "no truth value"
+        raise RuntimeError(msg)
+
+
 def test_reconstruct_rejects_a_non_node_child() -> None:
     with pytest.raises(TypeError, match="must be a node"):
-        _reconstruct(_kind(Element("div")), ("div", {}), ["x"])  # ty: ignore[invalid-argument-type]
+        _reconstruct(_kind(Element("div")), ("div", {}), ["x"])  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_reconstruct_rejects_a_document_child() -> None:
@@ -1093,7 +1094,9 @@ def test_reconstruct_rejects_a_document_child() -> None:
         pytest.param((Element("div"), 2), ValueError, "mode out of range", id="mode-out-of-range"),
     ],
 )
-def test_reconstruct_rejects_a_malformed_shadow_payload(payload: object, error: type[Exception], message: str) -> None:
+def test_reconstruct_rejects_a_malformed_shadow_payload(
+    payload: tuple[str | Element, int], error: type[Exception], message: str
+) -> None:
     kind = _kind(Element("div").attach_shadow("open"))
     with pytest.raises(error, match=message):
         _reconstruct(kind, payload, [])

@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 from urlextract import URLExtract
 
-REQUIREMENTS = ("urlextract>=1.9",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
-_EXTRACTOR = URLExtract(extract_email=True)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("urlextract>=1.9",)
+
+_EXTRACTOR: Final[URLExtract] = URLExtract(extract_email=True)
 
 
 def detect(case: tuple[str, str]) -> None:
-    """Scan plain text for URLs with urlextract: find_urls for the list, has_urls for the presence test."""
+    # Scan plain text for URLs with urlextract: find_urls for the list, has_urls for the presence test.
     kind, text = case
     if kind == "find":
         _EXTRACTOR.find_urls(text)
@@ -20,4 +25,4 @@ def detect(case: tuple[str, str]) -> None:
 
 # urlextract only finds URLs in plain text; it never rewrites HTML, so it maps to detect, not the parse-and-rewrite
 # linkify op.
-OPERATIONS = {"detect": (detect, "urlextract")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"detect": (detect, "urlextract")}

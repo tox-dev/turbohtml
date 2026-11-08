@@ -6,7 +6,7 @@ from collections.abc import MutableMapping
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Final, NoReturn, assert_type, cast
+from typing import TYPE_CHECKING, Final, NoReturn, assert_type, cast
 
 import pytest
 from bench.ci import benchmarks
@@ -17,15 +17,10 @@ from turbohtml import Comment, Document, Element, Namespace, Node, Text, parse, 
 from turbohtml.mutations import MutationObserver
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterator, Mapping
 
+    from _pytest.mark.structures import ParameterSet
     from bench.timing import Mutating
-
-
-def first(html: str, tag: str) -> Element:
-    element = parse(html).select_one(tag)
-    assert element is not None
-    return element
 
 
 @pytest.mark.parametrize(
@@ -41,6 +36,12 @@ def first(html: str, tag: str) -> Element:
 )
 def test_attr_returns_raw_value(html: str, tag: str, name: str, expected: str) -> None:
     assert first(html, tag).attr(name) == expected
+
+
+def first(html: str, tag: str) -> Element:
+    element = parse(html).select_one(tag)
+    assert element is not None
+    return element
 
 
 def test_attr_absent_defaults_to_none() -> None:
@@ -61,12 +62,12 @@ def test_attr_present_ignores_default() -> None:
 
 def test_attr_name_must_be_str() -> None:
     with pytest.raises(TypeError, match="attribute name must be a str"):
-        first('<a href="/x">', "a").attr(123)  # ty: ignore[invalid-argument-type]
+        first('<a href="/x">', "a").attr(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_attr_requires_a_name() -> None:
     with pytest.raises(TypeError):
-        first('<a href="/x">', "a").attr()  # ty: ignore[missing-argument]
+        first('<a href="/x">', "a").attr()  # ty: ignore[missing-argument]  # omits a required argument on purpose to check the error
 
 
 def test_attr_getall_over_a_selection_is_a_comprehension() -> None:
@@ -371,14 +372,14 @@ def test_class_method_rejects_non_str_name(find: Callable[[str, str], Element], 
         getattr(find('<div class="a">', "div"), op)(1)
 
 
+def test_checked_reads_the_attribute() -> None:
+    assert _control("<input type=checkbox checked>", "input").checked is True
+
+
 def _control(markup: str, selector: str) -> Element:
     element = parse(markup).find(selector)
     assert element is not None
     return element
-
-
-def test_checked_reads_the_attribute() -> None:
-    assert _control("<input type=checkbox checked>", "input").checked is True
 
 
 def test_unchecked_reads_false() -> None:
@@ -404,8 +405,8 @@ def test_set_checked_false_removes_the_attribute() -> None:
 
 
 def test_set_checked_accepts_truthy_values() -> None:
-    field: Any = _control("<input type=radio>", "input")
-    field.checked = 1
+    field = _control("<input type=radio>", "input")
+    setattr(field, "checked", 1)  # ruff:ignore[set-attr-with-constant]  # ty rejects the deliberate invalid value; setattr keeps the runtime check under test
     assert field.checked is True
 
 
@@ -415,9 +416,9 @@ def test_set_checked_propagates_a_failing_bool() -> None:
             msg = "nope"
             raise ValueError(msg)
 
-    field: Any = _control("<input type=checkbox>", "input")
+    field = _control("<input type=checkbox>", "input")
     with pytest.raises(ValueError, match="nope"):
-        field.checked = Boom()
+        setattr(field, "checked", Boom())  # ruff:ignore[set-attr-with-constant]  # ty rejects the deliberate invalid value; setattr keeps the runtime check under test
 
 
 def test_set_checked_on_a_text_input_raises() -> None:
@@ -445,9 +446,9 @@ def test_set_checked_on_a_non_input_raises() -> None:
 
 
 def test_delete_checked_raises() -> None:
-    field: Any = _control("<input type=checkbox checked>", "input")
+    field = _control("<input type=checkbox checked>", "input")
     with pytest.raises(TypeError, match="cannot delete checked"):
-        del field.checked
+        delattr(field, "checked")  # ruff:ignore[del-attr-with-constant]  # ty rejects deleting this property; delattr keeps the runtime check under test
 
 
 def test_checking_a_radio_clears_the_group() -> None:
@@ -525,8 +526,7 @@ def test_radio_group_skips_unrelated_controls_in_scope() -> None:
 
 
 def test_radio_group_falls_back_to_the_document() -> None:
-    document = parse("<input type=radio name=g value=1 checked><input type=radio name=g value=2>")
-    radios = document.find_all("input")
+    radios = parse("<input type=radio name=g value=1 checked><input type=radio name=g value=2>").find_all("input")
     radios[1].checked = True
     assert [radio.checked for radio in radios] == [False, True]
 
@@ -555,12 +555,6 @@ def test_unchecking_a_radio_leaves_the_group() -> None:
     assert [radio.checked for radio in radios] == [False, True]
 
 
-def _tree_field_value_control(markup: str, selector: str) -> Element:
-    element = parse(markup).find(selector)
-    assert element is not None
-    return element
-
-
 @pytest.mark.parametrize(
     ("markup", "expected"),
     [
@@ -581,6 +575,12 @@ def test_input_field_value(markup: str, expected: str) -> None:
     assert _tree_field_value_control(markup, "input").field_value == expected
 
 
+def _tree_field_value_control(markup: str, selector: str) -> Element:
+    element = parse(markup).find(selector)
+    assert element is not None
+    return element
+
+
 def test_textarea_field_value_is_its_text() -> None:
     assert _tree_field_value_control("<textarea> hi there </textarea>", "textarea").field_value == " hi there "
 
@@ -590,7 +590,7 @@ def test_button_field_value() -> None:
 
 
 def test_button_field_value_defaults_empty() -> None:
-    assert _tree_field_value_control("<button>Go</button>", "button").field_value == ""  # ruff:ignore[compare-to-empty-string]
+    assert _tree_field_value_control("<button>Go</button>", "button").field_value == ""  # ruff:ignore[compare-to-empty-string]  # the field value is a string by contract; the test checks the empty default
 
 
 @pytest.mark.parametrize(
@@ -669,8 +669,7 @@ def test_non_control_field_value_is_none() -> None:
 def test_set_input_value_writes_the_attribute() -> None:
     field = _tree_field_value_control("<input name=q value=old>", "input")
     field.field_value = "new"
-    assert field.field_value == "new"
-    assert field.html == '<input name="q" value="new">'
+    assert (field.field_value, field.html) == ("new", '<input name="q" value="new">')
 
 
 def test_set_input_value_to_none_removes_the_attribute() -> None:
@@ -680,29 +679,28 @@ def test_set_input_value_to_none_removes_the_attribute() -> None:
 
 
 def test_delete_input_value_removes_the_attribute() -> None:
-    field: Any = _tree_field_value_control("<input name=q value=old>", "input")
-    del field.field_value
+    field = _tree_field_value_control("<input name=q value=old>", "input")
+    delattr(field, "field_value")  # ruff:ignore[del-attr-with-constant]  # ty rejects deleting this property; delattr keeps the runtime check under test
     assert field.html == '<input name="q">'
 
 
 def test_set_input_value_rejects_non_str() -> None:
-    field: Any = _tree_field_value_control("<input name=q>", "input")
+    field = _tree_field_value_control("<input name=q>", "input")
     with pytest.raises(TypeError, match="must be a str or None"):
-        field.field_value = 5
+        setattr(field, "field_value", 5)  # ruff:ignore[set-attr-with-constant]  # ty rejects the deliberate invalid value; setattr keeps the runtime check under test
 
 
 def test_set_textarea_value_replaces_text() -> None:
     field = _tree_field_value_control("<textarea>old</textarea>", "textarea")
     field.field_value = "new"
-    assert field.field_value == "new"
-    assert field.html == "<textarea>new</textarea>"
+    assert (field.field_value, field.html) == ("new", "<textarea>new</textarea>")
 
 
 def test_set_textarea_value_to_none_clears_it() -> None:
     field = _tree_field_value_control("<textarea>old</textarea>", "textarea")
     field.field_value = None
-    assert field.field_value == ""  # ruff:ignore[compare-to-empty-string]
-    assert field.html == "<textarea></textarea>"
+    # the field value is a string by contract; the test checks the empty default
+    assert (field.field_value, field.html) == ("", "<textarea></textarea>")
 
 
 def test_set_textarea_value_rejects_a_list() -> None:
@@ -714,8 +712,10 @@ def test_set_textarea_value_rejects_a_list() -> None:
 def test_set_single_select_selects_the_match() -> None:
     select = _tree_field_value_control("<select><option value=r selected>Red<option value=g>Green</select>", "select")
     select.field_value = "g"
-    assert select.field_value == "g"
-    assert select.html == '<select><option value="r">Red</option><option value="g" selected="">Green</option></select>'
+    assert (select.field_value, select.html) == (
+        "g",
+        '<select><option value="r">Red</option><option value="g" selected="">Green</option></select>',
+    )
 
 
 def test_set_single_select_only_selects_the_first_match() -> None:
@@ -762,9 +762,9 @@ def test_set_multiple_select_rejects_a_bare_str() -> None:
 
 
 def test_set_multiple_select_rejects_non_str_member() -> None:
-    select: Any = _tree_field_value_control("<select multiple><option value=a>A</select>", "select")
+    select = _tree_field_value_control("<select multiple><option value=a>A</select>", "select")
     with pytest.raises(TypeError, match="multiple select must be a list of str or None"):
-        select.field_value = [1]
+        setattr(select, "field_value", [1])  # ruff:ignore[set-attr-with-constant]  # ty rejects the deliberate invalid value; setattr keeps the runtime check under test
 
 
 def test_set_field_value_on_non_control_raises() -> None:
@@ -775,7 +775,7 @@ def test_set_field_value_on_non_control_raises() -> None:
 
 def test_option_value_strips_whitespace_only_text() -> None:
     select = _tree_field_value_control("<select><option selected>   </option></select>", "select")
-    assert select.field_value == ""  # ruff:ignore[compare-to-empty-string]
+    assert select.field_value == ""  # ruff:ignore[compare-to-empty-string]  # the field value is a string by contract; the test checks the empty default
 
 
 def test_select_skips_an_optgroup_wrapper() -> None:
@@ -786,29 +786,27 @@ def test_select_skips_an_optgroup_wrapper() -> None:
 
 
 def test_delete_textarea_value_clears_it() -> None:
-    field: Any = _tree_field_value_control("<textarea>old</textarea>", "textarea")
-    del field.field_value
+    field = _tree_field_value_control("<textarea>old</textarea>", "textarea")
+    delattr(field, "field_value")  # ruff:ignore[del-attr-with-constant]  # ty rejects deleting this property; delattr keeps the runtime check under test
     assert field.html == "<textarea></textarea>"
 
 
 def test_delete_single_select_value_clears_all() -> None:
-    select: Any = _tree_field_value_control(
-        "<select><option value=r selected>Red<option value=g>Green</select>", "select"
-    )
-    del select.field_value
+    select = _tree_field_value_control("<select><option value=r selected>Red<option value=g>Green</select>", "select")
+    delattr(select, "field_value")  # ruff:ignore[del-attr-with-constant]  # ty rejects deleting this property; delattr keeps the runtime check under test
     assert "selected" not in select.find_all("option")[0].attrs
-
-
-def _form(markup: str) -> Element:
-    form = parse(markup).find("form")
-    assert form is not None
-    return form
 
 
 def test_a_blank_string_named_control_is_skipped() -> None:
     form = _form("<form></form>")
     form.append(Element("input", {"name": "", "value": "y"}))  # an empty-string name is still no name
     assert form.form_data() == []
+
+
+def _form(markup: str) -> Element:
+    form = parse(markup).find("form")
+    assert form is not None
+    return form
 
 
 def test_text_and_hidden_inputs_are_submitted() -> None:
@@ -989,22 +987,16 @@ def test_form_data_on_a_non_form_raises() -> None:
         element.form_data()
 
 
-def _div(markup: str = '<div id="a" class="x y">') -> Element:
-    element = parse(markup).find("div")
-    assert element is not None
-    return element
-
-
-def _ctx(source: str, selector: str) -> Element:
-    element = parse(source).find(selector)
-    assert element is not None
-    return element
-
-
 def test_attrs_is_a_live_view() -> None:
     element = _div()
     element.attrs["data-z"] = "1"  # mutating the view rewrites the element
     assert element.html == '<div id="a" class="x y" data-z="1"></div>'
+
+
+def _div(markup: str = '<div id="a" class="x y">') -> Element:
+    element = parse(markup).find("div")
+    assert element is not None
+    return element
 
 
 def test_attrs_set_replaces_an_existing_value() -> None:
@@ -1021,8 +1013,7 @@ def test_attrs_set_valueless_and_empty() -> None:
     element.attrs["value"] = ""
     assert element.html == '<input disabled="" value="">'
     # a valueless or empty attribute reads back as the empty string, like getAttribute
-    assert element.attrs["disabled"] == ""  # ruff:ignore[compare-to-empty-string]  # exactly "", not None
-    assert element.attrs["value"] == ""  # ruff:ignore[compare-to-empty-string]  # exactly ""
+    assert (element.attrs["disabled"], element.attrs["value"]) == ("", "")
 
 
 def test_attrs_set_existing_to_empty() -> None:
@@ -1137,8 +1128,7 @@ def test_attrs_round_trips_through_dict() -> None:
 def test_data_setter_replaces_text() -> None:
     text = Text("old")
     text.data = "new & shiny"
-    assert text.data == "new & shiny"
-    assert text.html == "new &amp; shiny"
+    assert (text.data, text.html) == ("new & shiny", "new &amp; shiny")
 
 
 def test_data_setter_on_comment() -> None:
@@ -1211,6 +1201,12 @@ def test_set_inner_html_replaces_with_parsed_fragment(source: str, selector: str
     element = _ctx(source, selector)
     element.set_inner_html(fragment)
     assert element.html == expected
+
+
+def _ctx(source: str, selector: str) -> Element:
+    element = parse(source).find(selector)
+    assert element is not None
+    return element
 
 
 @pytest.mark.parametrize(
@@ -1443,7 +1439,7 @@ def test_insert_adjacent_html_rejects_a_lone_surrogate_context() -> None:
 
 
 def _found(root: Element | Document, selector: str) -> Element:
-    """First match of selector in an already-edited tree, asserted present."""
+    # First match of selector in an already-edited tree, asserted present.
     node = root.find(selector)
     assert node is not None, selector
     return node
@@ -1499,7 +1495,7 @@ def test_append_preserves_descendant_references() -> None:
 
 @pytest.mark.parametrize("count", [pytest.param(32, id="small"), pytest.param(65_570, id="large")])
 def test_append_preserves_many_descendant_views(count: int) -> None:
-    source: Final = _found(parse("<section>" + "<b>x</b>" * count + "</section>"), "section")
+    source: Final = _found(parse(f"<section>{'<b>x</b>' * count}</section>"), "section")
     held: Final = source.select("b")
     destination: Final = Element("main")
     destination.append(source)
@@ -1509,7 +1505,7 @@ def test_append_preserves_many_descendant_views(count: int) -> None:
 
 
 def test_append_preserves_views_after_partial_release() -> None:
-    source: Final = _found(parse("<section>" + "<b>x</b>" * 65_570 + "</section>"), "section")
+    source: Final = _found(parse(f"<section>{'<b>x</b>' * 65_570}</section>"), "section")
     held: Final = source.select("b")
     del held[65_530:]
     held.extend(source.select("b")[65_530:])
@@ -1535,8 +1531,7 @@ def test_append_preserves_leaf_references(node_type: type[Text | Comment]) -> No
     leaf = source.children[0]
     assert isinstance(leaf, (Text, Comment))
     held = {leaf}
-    destination = Element("main")
-    destination.append(source)
+    Element("main").append(source)
     leaf.data = "after"
     adopted = source.children[0]
     assert isinstance(adopted, (Text, Comment))
@@ -1571,9 +1566,7 @@ def test_append_adopts_every_attribute_shape() -> None:
     box = Element("div")
     box.append(source)
     held = _found(box, "x")
-    assert held.attrs["data-custom-xyz"] == "1"
-    assert held.attrs["disabled"] == ""  # ruff:ignore[compare-to-empty-string]  # exactly "" (valueless reads empty), not None
-    assert held.attrs["value"] == ""  # ruff:ignore[compare-to-empty-string]  # exactly ""
+    assert (held.attrs["data-custom-xyz"], held.attrs["disabled"], held.attrs["value"]) == ("1", "", "")
 
 
 def test_append_adopts_an_empty_data_node() -> None:
@@ -1734,7 +1727,7 @@ def test_sibling_insertion_relative_to_first_li(html: str, method: str, nodes: l
     assert _found(doc, "ul").html == expected
 
 
-_SIBLING_METHODS = [
+_SIBLING_METHODS: Final[list[pytest.ParameterSet]] = [
     pytest.param("insert_before", id="insert_before"),
     pytest.param("insert_after", id="insert_after"),
     pytest.param("replace_with", id="replace_with"),
@@ -1814,7 +1807,7 @@ def test_wrap_a_standalone_node() -> None:
     # a Text cannot hold children, and a bare string is not a node at all
     [pytest.param(Text("y"), id="text"), pytest.param("y", id="non-node")],
 )
-def test_wrap_rejects_a_non_element_wrapper(wrapper: object) -> None:
+def test_wrap_rejects_a_non_element_wrapper(wrapper: Text | str) -> None:
     with pytest.raises(TypeError, match="must be an element"):
         Text("x").wrap(wrapper)  # ty: ignore[invalid-argument-type]  # wrapper must be an element node
 
@@ -1853,8 +1846,7 @@ def test_wrap_siblings_groups_a_run_up_to_until() -> None:
 
 def test_wrap_siblings_with_no_until_reaches_the_last_sibling() -> None:
     doc = parse("<ul><li>a</li><li>b</li><li>c</li></ul>")
-    second = list(_found(doc, "ul").children)[1]
-    second.wrap_siblings(Element("div"))
+    list(_found(doc, "ul").children)[1].wrap_siblings(Element("div"))
     assert _found(doc, "ul").html == "<ul><li>a</li><div><li>b</li><li>c</li></div></ul>"
 
 
@@ -1867,8 +1859,7 @@ def test_wrap_siblings_of_a_single_node_until_self() -> None:
 
 def test_wrap_siblings_adopts_a_wrapper_from_another_tree() -> None:
     doc = parse("<ul><li>a</li><li>b</li></ul>")
-    first = next(iter(_found(doc, "ul").children))
-    wrapper = first.wrap_siblings(_found(parse("<section></section>"), "section"))
+    wrapper = next(iter(_found(doc, "ul").children)).wrap_siblings(_found(parse("<section></section>"), "section"))
     assert _found(doc, "ul").html == "<ul><section><li>a</li><li>b</li></section></ul>"
     assert wrapper.parent == _found(doc, "ul")  # the returned wrapper is the adopted copy in the live tree
 
@@ -1877,7 +1868,7 @@ def test_wrap_siblings_adopts_a_wrapper_from_another_tree() -> None:
     "wrapper",
     [pytest.param(Text("y"), id="text"), pytest.param("y", id="non-node")],
 )
-def test_wrap_siblings_rejects_a_non_element_wrapper(wrapper: object) -> None:
+def test_wrap_siblings_rejects_a_non_element_wrapper(wrapper: Text | str) -> None:
     li = _found(parse("<ul><li>a</li></ul>"), "li")
     with pytest.raises(TypeError, match="must be an element"):
         li.wrap_siblings(wrapper)  # ty: ignore[invalid-argument-type]  # wrapper must be an element node
@@ -1909,15 +1900,13 @@ def test_wrap_siblings_rejects_an_until_outside_the_siblings(outsider: Callable[
 
 
 def test_wrap_siblings_rejects_an_until_before_the_node() -> None:
-    doc = parse("<ul><li>a</li><li>b</li></ul>")
-    items = list(_found(doc, "ul").children)
+    items = list(_found(parse("<ul><li>a</li><li>b</li></ul>"), "ul").children)
     with pytest.raises(ValueError, match="following siblings"):
         items[1].wrap_siblings(Element("div"), until=items[0])
 
 
 def test_wrap_siblings_rejects_a_wrapper_inside_the_run() -> None:
-    doc = parse("<ul><li>a</li><li>b</li></ul>")
-    items = _found(doc, "ul").find_all("li")
+    items = _found(parse("<ul><li>a</li><li>b</li></ul>"), "ul").find_all("li")
     with pytest.raises(ValueError, match="one of the wrapped nodes"):
         items[0].wrap_siblings(items[1])
 
@@ -1952,7 +1941,7 @@ def test_wrap_children_of_an_empty_element_nests_an_empty_wrapper() -> None:
     "wrapper",
     [pytest.param(Text("y"), id="text"), pytest.param("y", id="non-node")],
 )
-def test_wrap_children_rejects_a_non_element_wrapper(wrapper: object) -> None:
+def test_wrap_children_rejects_a_non_element_wrapper(wrapper: Text | str) -> None:
     div = _found(parse("<div>x</div>"), "div")
     with pytest.raises(TypeError, match="must be an element"):
         div.wrap_children(wrapper)  # ty: ignore[invalid-argument-type]  # wrapper must be an element node
@@ -2119,15 +2108,21 @@ def test_normalize_preserves_separate_runs() -> None:
     assert [(type(child), child.html) for child in root] == [(Text, "ab"), (Comment, "<!--boundary-->"), (Text, "cd")]
 
 
-@pytest.mark.parametrize("existing", [False, True], ids=["new", "replacement"])
-def test_attribute_benchmark_rebuilds_input(*, existing: bool) -> None:
+@pytest.mark.parametrize(
+    ("existing", "expected_untouched"),
+    [
+        pytest.param(False, {}, id="new"),
+        pytest.param(True, {f"data-{index}": "before" for index in range(3)}, id="replacement"),
+    ],
+)
+def test_attribute_benchmark_rebuilds_input(*, existing: bool, expected_untouched: dict[str, str]) -> None:
     operation: Final = cast("Mutating", OPERATIONS["attribute-grow"][0])
     case: Final = cast("tuple[Element, tuple[str, ...]]", operation.setup((3, existing)))
     untouched: Final = cast("tuple[Element, tuple[str, ...]]", operation.setup((3, existing)))
     operation.run(case)
     assert (dict(case[0].attrs), dict(untouched[0].attrs)) == (
         {f"data-{index}": "after" for index in range(3)},
-        {f"data-{index}": "before" for index in range(3)} if existing else {},
+        expected_untouched,
     )
 
 
@@ -2208,35 +2203,41 @@ def test_form_data_fieldset_boundaries(markup: str, expected: list[tuple[str, st
     assert form.form_data() == [*expected, ("tail", "ok")]
 
 
-@pytest.mark.parametrize("case_index", [0, 1, 2, 3], ids=["disabled", "legend", "enabled", "plain"])
-def test_form_data_fieldset_shared_inputs(case_index: int) -> None:
+@pytest.mark.parametrize(
+    ("case_index", "expected"),
+    [
+        pytest.param(0, [], id="disabled"),
+        pytest.param(1, [("allowed", "yes")], id="legend"),
+        pytest.param(2, [(f"n{index}", f"v{index}") for index in range(2_048)], id="enabled"),
+        pytest.param(3, [(f"n{index}", f"v{index}") for index in range(4)], id="plain"),
+    ],
+)
+def test_form_data_fieldset_shared_inputs(case_index: int, expected: list[tuple[str, str]]) -> None:
     source: Final = cast("str", INPUTS["form-data-fieldsets"]()[case_index][1])
     operation: Final = cast("Callable[[str], list[tuple[str, str]]]", OPERATIONS["form-data-fieldsets"][0])
-    expected: Final = (
-        []
-        if case_index == 0
-        else [("allowed", "yes")]
-        if case_index == 1
-        else [(f"n{index}", f"v{index}") for index in range(2_048 if case_index == 2 else 4)]
-    )
     assert operation(source) == [*expected, ("tail", "ok")]
 
 
 @pytest.mark.parametrize("count", [0, 1, 15, 16, 17, 32, 33, 2_049])
-@pytest.mark.parametrize("control", ["input", "option"])
-def test_form_data_preserves_many_values_after_detaching_controls(count: int, control: str) -> None:
+def test_form_data_preserves_many_values_after_detaching_inputs(count: int) -> None:
     expected: Final = [("field", f"é水😀{index}") for index in range(count)]
     markup: Final = "".join(
-        f'<input name="field" value="{value}"><input disabled name="skip">'
-        if control == "input"
-        else f'<option selected value="{value}"></option><option selected disabled value="skip"></option>'
+        f'<input name="field" value="{value}"><input disabled name="skip">' for _, value in expected
+    )
+    form: Final = parse(f"<form>{markup}</form>").select("form")[0]
+    result: Final = form.form_data()
+    form.clear()
+    assert result == expected
+
+
+@pytest.mark.parametrize("count", [0, 1, 15, 16, 17, 32, 33, 2_049])
+def test_form_data_preserves_many_values_after_detaching_options(count: int) -> None:
+    expected: Final = [("field", f"é水😀{index}") for index in range(count)]
+    markup: Final = "".join(
+        f'<option selected value="{value}"></option><option selected disabled value="skip"></option>'
         for _, value in expected
     )
-    form: Final = parse(
-        f"<form>{markup}</form>"
-        if control == "input"
-        else f'<form><select multiple name="field">{markup}</select></form>'
-    ).select("form")[0]
+    form: Final = parse(f'<form><select multiple name="field">{markup}</select></form>').select("form")[0]
     result: Final = form.form_data()
     form.clear()
     assert result == expected
@@ -2252,21 +2253,81 @@ def test_form_data_fieldset_refreshes_after_enabling() -> None:
 
 
 @pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
-@pytest.mark.parametrize("mutation", ["detach", "remove", "replace"])
-def test_form_data_handles_legend_changes_during_collection(mutation: str) -> None:
+@pytest.mark.parametrize(
+    ("mutation", "markup", "suffix", "counts", "replaced"),
+    [
+        pytest.param(
+            "detach",
+            '<form><fieldset disabled><legend>{controls}</legend><input name="blocked"></fieldset>'
+            '<input name="tail" value="ok"></form>',
+            [],
+            range(1, 256),
+            False,
+            id="detach-before-3.12",
+            marks=pytest.mark.skipif(sys.version_info >= (3, 12), reason="Python 3.12 collects the full run"),
+        ),
+        pytest.param(
+            "detach",
+            '<form><fieldset disabled><legend>{controls}</legend><input name="blocked"></fieldset>'
+            '<input name="tail" value="ok"></form>',
+            [("tail", "ok")],
+            range(256, 257),
+            False,
+            id="detach-3.12",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="Python 3.12 collects the full run"),
+        ),
+        pytest.param(
+            "remove",
+            '<form><fieldset><legend></legend><div>{controls}</div><input name="blocked"></fieldset>'
+            '<input name="tail" value="ok"></form>',
+            [("tail", "ok")],
+            range(1, 256),
+            False,
+            id="remove-before-3.12",
+            marks=pytest.mark.skipif(sys.version_info >= (3, 12), reason="Python 3.12 collects the full run"),
+        ),
+        pytest.param(
+            "remove",
+            '<form><fieldset><legend></legend><div>{controls}</div><input name="blocked"></fieldset>'
+            '<input name="tail" value="ok"></form>',
+            [("blocked", ""), ("tail", "ok")],
+            range(256, 257),
+            False,
+            id="remove-3.12",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="Python 3.12 collects the full run"),
+        ),
+        pytest.param(
+            "replace",
+            '<form><fieldset disabled><legend>{controls}</legend><input name="blocked"></fieldset>'
+            '<input name="tail" value="ok"></form>',
+            [("tail", "ok")],
+            range(1, 256),
+            True,
+            id="replace-before-3.12",
+            marks=pytest.mark.skipif(sys.version_info >= (3, 12), reason="Python 3.12 collects the full run"),
+        ),
+        pytest.param(
+            "replace",
+            '<form><fieldset disabled><legend>{controls}</legend><input name="blocked"></fieldset>'
+            '<input name="tail" value="ok"></form>',
+            [("tail", "ok")],
+            range(256, 257),
+            True,
+            id="replace-3.12",
+            marks=pytest.mark.skipif(sys.version_info < (3, 12), reason="Python 3.12 collects the full run"),
+        ),
+    ],
+)
+def test_form_data_handles_legend_changes_during_collection(
+    mutation: str, markup: str, suffix: list[tuple[str, str]], counts: range, *, replaced: bool
+) -> None:
     controls: Final = "".join(f'<input name="n{index}" value="v{index}">' for index in range(256))
-    content: Final = (
-        f"<legend></legend><div>{controls}</div>" if mutation == "remove" else f"<legend>{controls}</legend>"
-    )
-    disabled: Final = "" if mutation == "remove" else " disabled"
-    form: Final = parse(
-        f'<form><fieldset{disabled}>{content}<input name="blocked"></fieldset><input name="tail" value="ok"></form>'
-    ).select("form")[0]
+    form: Final = parse(markup.format(controls=controls)).select("form")[0]
     fieldset: Final = form.select("fieldset")[0]
     legend: Final = form.select("legend")[0]
     collect: Final = form.form_data
     thresholds: Final = gc.get_threshold()
-    restore_gc: Final = gc.enable if gc.isenabled() else gc.disable
+    assert gc.isenabled()
     changed = False
 
     def change_legend(phase: str, _info: dict[str, int]) -> None:
@@ -2292,40 +2353,74 @@ def test_form_data_handles_legend_changes_during_collection(mutation: str) -> No
         gc.disable()
         gc.callbacks.remove(change_legend)
         gc.set_threshold(*thresholds)
-        restore_gc()
+        gc.enable()
     count: Final = sum(name.startswith("n") for name, _value in pairs)
     expected: Final = [(f"n{index}", f"v{index}") for index in range(count)]
-    tail: Final = [] if sys.version_info < (3, 12) and mutation == "detach" else [("tail", "ok")]
-    blocked: Final = [("blocked", "")] if sys.version_info >= (3, 12) and mutation == "remove" else []
-    assert count == 256 if sys.version_info >= (3, 12) else 0 < count < 256
-    assert (changed, legend.parent, pairs) == (
-        True,
-        fieldset if mutation == "replace" else None,
-        [*expected, *blocked, *tail],
-    )
+    assert count in counts
+    assert (changed, legend.parent == fieldset, legend.parent is None) == (True, replaced, not replaced)
+    assert pairs == [*expected, *suffix]
 
 
-@pytest.mark.parametrize("edit", ["none", "rename", "type", "append", "detach"])
-def test_radio_group_index_tracks_scope_and_edits(edit: str) -> None:
-    document: Final = parse(
+@pytest.fixture
+def radio_scope_document() -> Document:
+    return parse(
         '<form><input type=radio name="é水😀" checked><input type=radio name="é水😀"></form>'
         '<form><input type=radio name="é水😀" checked></form>'
     )
-    form: Final = document.select("form")[0]
-    first, selected, outside = document.select("input")
-    if edit == "rename":
-        first.attrs["name"] = "other"
-    elif edit == "type":
-        first.attrs["type"] = "checkbox"
-    elif edit == "append":
-        form.append(Element("input", {"type": "radio", "name": "é水😀", "checked": ""}))
-        document.select("input")
-    elif edit == "detach":
-        form.extract()
-        document.select("input")
+
+
+def test_radio_group_index_keeps_unedited_scope(radio_scope_document: Document) -> None:
+    form: Final = radio_scope_document.select("form")[0]
+    _first, selected, outside = radio_scope_document.select("input")
     selected.checked = True
     assert ([node.checked for node in form.children if isinstance(node, Element)], outside.checked) == (
-        [edit in {"rename", "type"}, True, *([False] if edit == "append" else [])],
+        [False, True],
+        True,
+    )
+
+
+def test_radio_group_index_follows_renamed_radio(radio_scope_document: Document) -> None:
+    form: Final = radio_scope_document.select("form")[0]
+    first, selected, outside = radio_scope_document.select("input")
+    first.attrs["name"] = "other"
+    selected.checked = True
+    assert ([node.checked for node in form.children if isinstance(node, Element)], outside.checked) == (
+        [True, True],
+        True,
+    )
+
+
+def test_radio_group_index_follows_retyped_radio(radio_scope_document: Document) -> None:
+    form: Final = radio_scope_document.select("form")[0]
+    first, selected, outside = radio_scope_document.select("input")
+    first.attrs["type"] = "checkbox"
+    selected.checked = True
+    assert ([node.checked for node in form.children if isinstance(node, Element)], outside.checked) == (
+        [True, True],
+        True,
+    )
+
+
+def test_radio_group_index_follows_appended_radio(radio_scope_document: Document) -> None:
+    form: Final = radio_scope_document.select("form")[0]
+    _first, selected, outside = radio_scope_document.select("input")
+    form.append(Element("input", {"type": "radio", "name": "é水😀", "checked": ""}))
+    radio_scope_document.select("input")
+    selected.checked = True
+    assert ([node.checked for node in form.children if isinstance(node, Element)], outside.checked) == (
+        [False, True, False],
+        True,
+    )
+
+
+def test_radio_group_index_follows_detached_form(radio_scope_document: Document) -> None:
+    form: Final = radio_scope_document.select("form")[0]
+    _first, selected, outside = radio_scope_document.select("input")
+    form.extract()
+    radio_scope_document.select("input")
+    selected.checked = True
+    assert ([node.checked for node in form.children if isinstance(node, Element)], outside.checked) == (
+        [False, True],
         True,
     )
 
@@ -2358,15 +2453,27 @@ def test_radio_group_benchmark_output(case: int, selected: int) -> None:
     assert operation.run(operation.setup(data)) == tuple(index == selected for index in range(16))
 
 
-@pytest.mark.parametrize("indexed", [pytest.param(False, id="unindexed"), pytest.param(True, id="indexed")])
-def test_radio_group_document_scope_keeps_other_names_and_types(*, indexed: bool) -> None:
-    document: Final = parse(
+@pytest.fixture
+def document_scope_radios() -> Document:
+    return parse(
         '<input type=radio name="é水😀" checked><input type=radio name="é水😀">'
         '<input type=radio name=other checked><input type=checkbox name="é水😀" checked>'
     )
-    radios: Final = [node for node in document.children[0].children[-1].children if isinstance(node, Element)]
-    if indexed:
-        document.select("input")
+
+
+def test_radio_group_document_scope_keeps_other_names_and_types(document_scope_radios: Document) -> None:
+    radios: Final = [
+        node for node in document_scope_radios.children[0].children[-1].children if isinstance(node, Element)
+    ]
+    radios[1].checked = True
+    assert [node.checked for node in radios] == [False, True, True, True]
+
+
+def test_radio_group_document_scope_after_index_keeps_other_names_and_types(document_scope_radios: Document) -> None:
+    radios: Final = [
+        node for node in document_scope_radios.children[0].children[-1].children if isinstance(node, Element)
+    ]
+    document_scope_radios.select("input")
     radios[1].checked = True
     assert [node.checked for node in radios] == [False, True, True, True]
 
@@ -2387,7 +2494,7 @@ def test_attrs_snapshot_during_collection(
     offset: int,
 ) -> None:
     thresholds: Final = gc.get_threshold()
-    restore_gc: Final = gc.enable if gc.isenabled() else gc.disable
+    assert gc.isenabled()
     gc.disable()
     gc.collect()
     attrs: Final = Element("a", {"id": "old", "class": "before value", "title": "tail"}).attrs
@@ -2415,7 +2522,7 @@ def test_attrs_snapshot_during_collection(
         gc.disable()
         gc.callbacks.remove(replace_values)
         gc.set_threshold(*thresholds)
-        restore_gc()
+        gc.enable()
         lists.clear()
         tuples.clear()
     assert (changed, result, attrs.copy()) == (
@@ -2425,25 +2532,42 @@ def test_attrs_snapshot_during_collection(
     )
 
 
-@pytest.mark.parametrize("method", ["keys", "values", "items", "copy"])
-def test_attrs_empty_snapshot(method: str) -> None:
+@pytest.mark.parametrize(
+    ("method", "expected"),
+    [
+        pytest.param("keys", [], id="keys"),
+        pytest.param("values", [], id="values"),
+        pytest.param("items", [], id="items"),
+        pytest.param("copy", {}, id="copy"),
+    ],
+)
+def test_attrs_empty_snapshot(method: str, expected: list[str] | list[tuple[str, str]] | dict[str, str]) -> None:
     attrs: Final = Element("div").attrs
-    assert getattr(attrs, method)() == ({} if method == "copy" else [])
+    assert getattr(attrs, method)() == expected
 
 
-@pytest.mark.parametrize("method", ["iter", "keys"])
-def test_attrs_names_snapshot(method: str) -> None:
+def test_attrs_names_iterator_snapshot() -> None:
     attrs: Final = Element("div", {"id": "first", "data-name": "second"}).attrs
-    snapshot: Final = iter(attrs) if method == "iter" else attrs.keys()
+    snapshot: Final = iter(attrs)
+    attrs["later"] = "third"
+    assert list(snapshot) == ["id", "data-name"]
+
+
+def test_attrs_names_keys_snapshot() -> None:
+    attrs: Final = Element("div", {"id": "first", "data-name": "second"}).attrs
+    snapshot: Final = attrs.keys()
     attrs["later"] = "third"
     assert list(snapshot) == ["id", "data-name"]
 
 
 @pytest.mark.parametrize("threaded", [pytest.param(False, id="same-thread"), pytest.param(True, id="other-thread")])
-@pytest.mark.parametrize("checked", [pytest.param(False, id="uncheck"), pytest.param(True, id="check")])
+@pytest.mark.parametrize(
+    ("checked", "source_checked"),
+    [pytest.param(False, "checked", id="uncheck"), pytest.param(True, "", id="check")],
+)
 @pytest.mark.parametrize("kind", [pytest.param("radio", id="radio"), pytest.param("checkbox", id="checkbox")])
-def test_checked_truth_callback_adopts_input(kind: str, *, checked: bool, threaded: bool) -> None:
-    source = parse(f'<form><input type="{kind}" name="group" {"" if checked else "checked"}></form>')
+def test_checked_truth_callback_adopts_input(kind: str, *, checked: bool, source_checked: str, threaded: bool) -> None:
+    source = parse(f'<form><input type="{kind}" name="group" {source_checked}></form>')
     destination = parse(f'<form><input type="{kind}" name="group" checked></form>')
     field = source.select("input")[0]
     form = destination.select("form")[0]
@@ -2464,8 +2588,7 @@ def test_checked_truth_callback_adopts_input(kind: str, *, checked: bool, thread
 @pytest.mark.parametrize("checked", [pytest.param(False, id="uncheck"), pytest.param(True, id="check")])
 @pytest.mark.parametrize("mutation", [pytest.param("tag", id="tag"), pytest.param("type", id="type")])
 def test_checked_truth_callback_invalidates_input(mutation: str, *, checked: bool) -> None:
-    document = parse("<input type=radio>")
-    field = document.select("input")[0]
+    field = parse("<input type=radio>").select("input")[0]
 
     class MutatingTruth:
         def __bool__(self) -> bool:
@@ -2484,8 +2607,7 @@ def _anchor() -> Element:
 
 
 class _BrokenMapping:
-    """A mapping-like object whose keys() raises, so copying it into a dict fails."""
-
+    # A mapping-like object whose keys() raises, so copying it into a dict fails.
     @staticmethod
     def keys() -> NoReturn:
         msg = "broken"
@@ -2514,14 +2636,14 @@ def test_attrs_pop_removes_the_attribute() -> None:
 
 
 @pytest.mark.parametrize("key", [pytest.param("missing", id="absent-name"), pytest.param(3, id="non-str")])
-def test_attrs_pop_missing_returns_the_default(key: object) -> None:
-    assert _anchor().attrs.pop(key, "fallback") == "fallback"  # ty: ignore[no-matching-overload]
+def test_attrs_pop_missing_returns_the_default(key: str | int) -> None:
+    assert _anchor().attrs.pop(key, "fallback") == "fallback"  # ty: ignore[no-matching-overload]  # passes arguments no overload accepts on purpose to check the error
 
 
 @pytest.mark.parametrize("key", [pytest.param("missing", id="absent-name"), pytest.param(3, id="non-str")])
-def test_attrs_pop_missing_without_default_raises(key: object) -> None:
+def test_attrs_pop_missing_without_default_raises(key: str | int) -> None:
     with pytest.raises(KeyError):
-        _anchor().attrs.pop(key)  # ty: ignore[invalid-argument-type]
+        _anchor().attrs.pop(key)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 @pytest.mark.parametrize(
@@ -2569,9 +2691,9 @@ def test_attrs_setdefault_stores_a_missing_value() -> None:
         pytest.param("title", 3, TypeError, id="bad-value"),
     ],
 )
-def test_attrs_setdefault_rejects_invalid_input(key: object, value: object, error: type[Exception]) -> None:
+def test_attrs_setdefault_rejects_invalid_input(key: int | str, value: int | str, error: type[Exception]) -> None:
     with pytest.raises(error):
-        _anchor().attrs.setdefault(key, value)  # ty: ignore[no-matching-overload]
+        _anchor().attrs.setdefault(key, value)  # ty: ignore[no-matching-overload]  # passes arguments no overload accepts on purpose to check the error
 
 
 @pytest.mark.parametrize(
@@ -2598,18 +2720,18 @@ def test_attrs_update_without_arguments_changes_nothing() -> None:
 def test_attrs_update_with_malformed_pairs_changes_nothing() -> None:
     element = _anchor()
     with pytest.raises(ValueError, match=r"length|pairs"):  # CPython and PyPy word the error differently
-        element.attrs.update([("title", "t"), ("bad",)])  # ty: ignore[no-matching-overload]
+        element.attrs.update([("title", "t"), ("bad",)])  # ty: ignore[no-matching-overload]  # passes arguments no overload accepts on purpose to check the error
     assert element.html == '<a id="x" class="c1 c2" href="h"></a>'
 
 
 def test_attrs_update_takes_at_most_one_positional_argument() -> None:
     with pytest.raises(TypeError, match="update"):
-        _anchor().attrs.update({}, {})  # ty: ignore[no-matching-overload]
+        _anchor().attrs.update({}, {})  # ty: ignore[no-matching-overload]  # passes arguments no overload accepts on purpose to check the error
 
 
 def test_attrs_update_with_a_bad_value_raises() -> None:
     with pytest.raises(TypeError, match="attribute value"):
-        _anchor().attrs.update({"title": 3})  # ty: ignore[no-matching-overload]
+        _anchor().attrs.update({"title": 3})  # ty: ignore[no-matching-overload]  # passes arguments no overload accepts on purpose to check the error
 
 
 @pytest.mark.parametrize(
@@ -2622,7 +2744,7 @@ def test_attrs_update_with_a_bad_value_raises() -> None:
         pytest.param([("id", "x")], False, id="non-mapping"),
     ],
 )
-def test_attrs_equality(other: object, *, expected: bool) -> None:
+def test_attrs_equality(other: Mapping[str, str | list[str] | None] | list[tuple[str, str]], *, expected: bool) -> None:
     assert (_anchor().attrs == other) is expected
 
 
@@ -2632,7 +2754,7 @@ def test_attrs_inequality_with_a_dict() -> None:
 
 def test_attrs_ordering_is_unsupported() -> None:
     with pytest.raises(TypeError):
-        _ = _anchor().attrs < {}  # ty: ignore[unsupported-operator]
+        _ = _anchor().attrs < {}  # ty: ignore[unsupported-operator]  # applies an operator the mapping rejects on purpose to check the error
 
 
 def test_attrs_equality_with_a_broken_mapping_raises() -> None:
@@ -2675,7 +2797,9 @@ def test_attrs_or_leaves_the_element_unchanged() -> None:
         pytest.param(lambda attrs: 3 | attrs, id="non-mapping-left"),
     ],
 )
-def test_attrs_or_non_mapping_is_unsupported(combine: Callable[[object], object]) -> None:
+def test_attrs_or_non_mapping_is_unsupported(
+    combine: Callable[[MutableMapping[str, str | list[str] | None]], object],
+) -> None:
     with pytest.raises(TypeError):
         combine(_anchor().attrs)
 
@@ -2687,7 +2811,9 @@ def test_attrs_or_non_mapping_is_unsupported(combine: Callable[[object], object]
         pytest.param(lambda attrs: _BrokenMapping() | attrs, id="broken-left"),
     ],
 )
-def test_attrs_or_broken_mapping_raises(combine: Callable[[object], object]) -> None:
+def test_attrs_or_broken_mapping_raises(
+    combine: Callable[[MutableMapping[str, str | list[str] | None]], object],
+) -> None:
     with pytest.raises(RuntimeError, match="broken"):
         combine(_anchor().attrs)
 
@@ -2702,25 +2828,25 @@ def test_attrs_inplace_or_updates_the_element() -> None:
 def test_attrs_inplace_or_non_mapping_is_unsupported() -> None:
     attrs = _anchor().attrs
     with pytest.raises(TypeError):
-        attrs |= 3  # ty: ignore[unsupported-operator]
+        attrs |= 3  # ty: ignore[unsupported-operator]  # applies an operator the mapping rejects on purpose to check the error
 
 
 def test_attrs_inplace_or_with_a_bad_value_raises() -> None:
     attrs = _anchor().attrs
     with pytest.raises(TypeError, match="attribute value"):
-        attrs |= {"title": 3}  # ty: ignore[unsupported-operator]
-
-
-def _selected_element(root: Document | Element, selector: str) -> Element:
-    found = root.select_one(selector)
-    assert isinstance(found, Element)
-    return found
+        attrs |= {"title": 3}  # ty: ignore[unsupported-operator]  # applies an operator the mapping rejects on purpose to check the error
 
 
 def test_rename_keeps_attributes_and_children() -> None:
     document = parse('<div id="a" class="c"><b>x</b></div>')
     _selected_element(document, "div").tag = "section"
     assert _selected_element(document, "body").inner_html == '<section id="a" class="c"><b>x</b></section>'
+
+
+def _selected_element(root: Document | Element, selector: str) -> Element:
+    found = root.select_one(selector)
+    assert isinstance(found, Element)
+    return found
 
 
 def test_rename_is_found_under_the_new_name() -> None:
@@ -2790,7 +2916,7 @@ def test_rename_to_or_from_template_is_rejected(markup: str, selector: str, name
         pytest.param(3, TypeError, "tag must be a str, not int", id="not-a-str"),
     ],
 )
-def test_rename_rejects_a_bad_name(name: object, error: type[Exception], message: str) -> None:
+def test_rename_rejects_a_bad_name(name: str | int, error: type[Exception], message: str) -> None:
     with pytest.raises(error, match=message):
         Element("div").tag = name  # ty: ignore[invalid-assignment]  # the invalid value tests the runtime check
 
@@ -2806,8 +2932,7 @@ def test_rename_rejects_a_bad_name(name: object, error: type[Exception], message
     ],
 )
 def test_rename_rewrites_the_source_tags(markup: str, name: str, expected: str) -> None:
-    document = parse(markup, source_locations=True)
-    body = _selected_element(document, "body")
+    body = _selected_element(parse(markup, source_locations=True), "body")
     renamed = body.children[0]
     assert isinstance(renamed, Element)
     renamed.tag = name
@@ -2820,90 +2945,113 @@ def test_tag_cannot_be_deleted() -> None:
         del element.tag  # ty: ignore[invalid-assignment]  # deleting the tag tests the runtime check
 
 
-@pytest.mark.parametrize(
-    ("markup", "same_owner"),
-    [
-        pytest.param("<form><input></form><input>", False, id="outside-form"),
-        pytest.param(
-            "<form><svg><form><foreignObject><input></foreignObject></form></svg><input></form>",
-            True,
-            id="foreign-form-descendant",
-        ),
-        pytest.param("<form><input></form><form><input></form>", False, id="separate-forms"),
-        pytest.param("<form id=f><input></form><input form=f>", True, id="external-owner"),
-        pytest.param("<form id=f><input></form><input form=F>", False, id="case-sensitive-owner"),
-        pytest.param("<form id=é水😀><input></form><input form=é水😀>", True, id="unicode-owner"),
-        pytest.param("<form id=f></form><input form=f><input form=f>", True, id="external-pair"),
-        pytest.param("<form id=f></form><form id=g></form><input form=f><input form=g>", False, id="external-forms"),
-        pytest.param("<form id=f></form><input form=f><input form=missing>", False, id="external-missing"),
-        pytest.param('<form id=f></form><input form=f><input form="">', False, id="external-empty"),
-        pytest.param("<form id=f><input><input form=missing></form>", False, id="missing-owner"),
-        pytest.param('<form id=f><input><input form=""></form>', False, id="empty-owner"),
-        pytest.param("<form id=f><input><input form></form>", False, id="boolean-owner"),
-        pytest.param("<input><form><input form=missing></form>", True, id="both-ownerless"),
-        pytest.param("<form id=f><input></form><form><input form=f></form>", True, id="owner-overrides-ancestor"),
-        pytest.param("<div id=f></div><form id=f><input></form><input form=f>", False, id="nonform-id-first"),
-        pytest.param("<form id=f><input></form><div id=f></div><input form=f>", True, id="form-id-first"),
-        pytest.param("<svg><g id=f></g></svg><form id=f><input></form><input form=f>", False, id="foreign-id-first"),
-        pytest.param(
-            "<div id=a></div><div id=i></div><form id=q><input></form><input form=q>", True, id="id-collision"
-        ),
-        pytest.param(
-            '<b id=""></b><div id=a></div><div id=i></div><form id=q><input form=y></form><input>',
-            True,
-            id="missing-collision",
-        ),
-        pytest.param("text<!--c--><i id></i><form id=f><input></form><input form=f>", True, id="id-walk"),
-    ],
-)
+_RADIO_FORM_OWNER_CASES: Final[list[ParameterSet]] = [
+    pytest.param("<form><input></form><input>", False, id="outside-form"),
+    pytest.param(
+        "<form><svg><form><foreignObject><input></foreignObject></form></svg><input></form>",
+        True,
+        id="foreign-form-descendant",
+    ),
+    pytest.param("<form><input></form><form><input></form>", False, id="separate-forms"),
+    pytest.param("<form id=f><input></form><input form=f>", True, id="external-owner"),
+    pytest.param("<form id=f><input></form><input form=F>", False, id="case-sensitive-owner"),
+    pytest.param("<form id=é水😀><input></form><input form=é水😀>", True, id="unicode-owner"),
+    pytest.param("<form id=f></form><input form=f><input form=f>", True, id="external-pair"),
+    pytest.param("<form id=f></form><form id=g></form><input form=f><input form=g>", False, id="external-forms"),
+    pytest.param("<form id=f></form><input form=f><input form=missing>", False, id="external-missing"),
+    pytest.param('<form id=f></form><input form=f><input form="">', False, id="external-empty"),
+    pytest.param("<form id=f><input><input form=missing></form>", False, id="missing-owner"),
+    pytest.param('<form id=f><input><input form=""></form>', False, id="empty-owner"),
+    pytest.param("<form id=f><input><input form></form>", False, id="boolean-owner"),
+    pytest.param("<input><form><input form=missing></form>", True, id="both-ownerless"),
+    pytest.param("<form id=f><input></form><form><input form=f></form>", True, id="owner-overrides-ancestor"),
+    pytest.param("<div id=f></div><form id=f><input></form><input form=f>", False, id="nonform-id-first"),
+    pytest.param("<form id=f><input></form><div id=f></div><input form=f>", True, id="form-id-first"),
+    pytest.param("<svg><g id=f></g></svg><form id=f><input></form><input form=f>", False, id="foreign-id-first"),
+    pytest.param("<div id=a></div><div id=i></div><form id=q><input></form><input form=q>", True, id="id-collision"),
+    pytest.param(
+        '<b id=""></b><div id=a></div><div id=i></div><form id=q><input form=y></form><input>',
+        True,
+        id="missing-collision",
+    ),
+    pytest.param("text<!--c--><i id></i><form id=f><input></form><input form=f>", True, id="id-walk"),
+]
+
+
+@pytest.mark.parametrize(("markup", "same_owner"), _RADIO_FORM_OWNER_CASES)
 @pytest.mark.parametrize("selected", [pytest.param(0, id="first"), pytest.param(1, id="second")])
-@pytest.mark.parametrize("indexed", [pytest.param(False, id="walk"), pytest.param(True, id="index")])
-def test_radio_group_form_owner(markup: str, selected: int, *, same_owner: bool, indexed: bool) -> None:
+def test_radio_group_form_owner_walks_descendants(markup: str, selected: int, *, same_owner: bool) -> None:
     document: Final = parse(markup)
     radios: Final = [node for node in document.descendants if isinstance(node, Element) and node.tag == "input"]
     for radio in radios:
         radio.attrs.update(type="radio", name="group", checked="")
-    if indexed:
-        document.select("input")
+    radios[selected].checked = True
+    assert [radio.checked for radio in radios] == [index == selected or not same_owner for index in range(2)]
+
+
+@pytest.mark.parametrize(("markup", "same_owner"), _RADIO_FORM_OWNER_CASES)
+@pytest.mark.parametrize("selected", [pytest.param(0, id="first"), pytest.param(1, id="second")])
+def test_radio_group_form_owner_uses_index(markup: str, selected: int, *, same_owner: bool) -> None:
+    document: Final = parse(markup)
+    radios: Final = [node for node in document.descendants if isinstance(node, Element) and node.tag == "input"]
+    for radio in radios:
+        radio.attrs.update(type="radio", name="group", checked="")
+    document.select("input")
     radios[selected].checked = True
     assert [radio.checked for radio in radios] == [index == selected or not same_owner for index in range(2)]
 
 
 @pytest.mark.parametrize("selected", [pytest.param(0, id="outer"), pytest.param(1, id="inner")])
-@pytest.mark.parametrize("trailing", [pytest.param(False, id="last"), pytest.param(True, id="followed")])
-def test_radio_group_nested_forms(selected: int, *, trailing: bool) -> None:
+def test_radio_group_nested_forms(selected: int) -> None:
     outer: Final = Element("form")
     inner: Final = Element("form")
     outer.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
     inner.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
     outer.append(Element("div", children=[inner]))
-    if trailing:
-        outer.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
     radios: Final = list(outer.find_all("input"))
     radios[selected].checked = True
-    assert [radio.checked for radio in radios] == [True, True, *([selected == 1] if trailing else [])]
+    assert [radio.checked for radio in radios] == [True, True]
 
 
-@pytest.mark.parametrize("connected", [pytest.param(False, id="detached"), pytest.param(True, id="connected")])
+@pytest.mark.parametrize("selected", [pytest.param(0, id="outer"), pytest.param(1, id="inner")])
+def test_radio_group_nested_forms_followed(selected: int) -> None:
+    outer: Final = Element("form")
+    inner: Final = Element("form")
+    outer.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
+    inner.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
+    outer.append(Element("div", children=[inner]))
+    outer.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
+    radios: Final = list(outer.find_all("input"))
+    radios[selected].checked = True
+    assert [radio.checked for radio in radios] == [True, True, selected == 1]
+
+
 @pytest.mark.parametrize("selected", [pytest.param(0, id="first"), pytest.param(1, id="second")])
-def test_radio_group_explicit_owner_requires_connection(selected: int, *, connected: bool) -> None:
+def test_radio_group_explicit_owner_detached(selected: int) -> None:
     document: Final = parse(
         "<form><input type=radio name=x checked><input type=radio name=x form=missing checked></form>"
     )
     form: Final = document.select("form")[0]
     radios: Final = list(form.find_all("input"))
-    if not connected:
-        form.extract()
+    form.extract()
     radios[selected].checked = True
-    assert [radio.checked for radio in radios] == [index == selected or connected for index in range(2)]
+    assert [radio.checked for radio in radios] == [index == selected for index in range(2)]
 
 
-@pytest.mark.parametrize("connected", [pytest.param(False, id="detached"), pytest.param(True, id="connected")])
-def test_radio_group_shadow_form_owner(*, connected: bool) -> None:
+@pytest.mark.parametrize("selected", [pytest.param(0, id="first"), pytest.param(1, id="second")])
+def test_radio_group_explicit_owner_connected(selected: int) -> None:
+    document: Final = parse(
+        "<form><input type=radio name=x checked><input type=radio name=x form=missing checked></form>"
+    )
+    radios: Final = list(document.select("form")[0].find_all("input"))
+    radios[selected].checked = True
+    assert [radio.checked for radio in radios] == [True, True]
+
+
+def test_radio_group_shadow_form_owner_detached() -> None:
     document: Final = parse("<form id=f><input type=radio name=x checked></form><div></div>")
     host: Final = document.select("div")[0]
-    if not connected:
-        host.extract()
+    host.extract()
     shadow: Final = host.attach_shadow()
     form: Final = Element("form", {"id": "f"})
     form.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
@@ -2911,7 +3059,20 @@ def test_radio_group_shadow_form_owner(*, connected: bool) -> None:
     shadow.append(Element("input", {"type": "radio", "name": "x", "form": "f"}))
     first, selected = shadow.find_all("input")
     selected.checked = True
-    assert (document.select("input")[0].checked, first.checked, selected.checked) == (True, not connected, True)
+    assert (document.select("input")[0].checked, first.checked, selected.checked) == (True, True, True)
+
+
+def test_radio_group_shadow_form_owner_connected() -> None:
+    document: Final = parse("<form id=f><input type=radio name=x checked></form><div></div>")
+    host: Final = document.select("div")[0]
+    shadow: Final = host.attach_shadow()
+    form: Final = Element("form", {"id": "f"})
+    form.append(Element("input", {"type": "radio", "name": "x", "checked": ""}))
+    shadow.append(form)
+    shadow.append(Element("input", {"type": "radio", "name": "x", "form": "f"}))
+    first, selected = shadow.find_all("input")
+    selected.checked = True
+    assert (document.select("input")[0].checked, first.checked, selected.checked) == (True, False, True)
 
 
 @pytest.mark.parametrize("selected", [pytest.param(0, id="inside"), pytest.param(1, id="outside")])
@@ -2934,49 +3095,54 @@ def test_radio_group_includes_radio_root() -> None:
     assert (root.checked, child.checked) == (False, True)
 
 
-@pytest.mark.parametrize("count", [pytest.param(1, id="small"), pytest.param(64, id="wide")])
-@pytest.mark.parametrize("external", [pytest.param(False, id="inside"), pytest.param(True, id="outside")])
-def test_radio_group_many_explicit_owners(count: int, *, external: bool) -> None:
+@pytest.mark.parametrize(
+    ("count", "selected_index"),
+    [
+        pytest.param(1, 0, id="small-inside"),
+        pytest.param(1, 2, id="small-outside"),
+        pytest.param(64, 0, id="wide-inside"),
+        pytest.param(64, 65, id="wide-outside"),
+    ],
+)
+def test_radio_group_many_explicit_owners(count: int, selected_index: int) -> None:
     document: Final = parse(
-        "<div></div>" * count
-        + '<form id="target"><input type=radio name=x checked></form>'
-        + "".join(f'<input type=radio name=x form=target checked id="field{index}">' for index in range(count))
-        + "<input type=radio name=x form=target>"
+        f"""{"<div></div>" * count}<form id="target"><input type=radio name=x checked></form>"""
+        f"""{"".join(f'<input type=radio name=x form=target checked id="field{index}">' for index in range(count))}"""
+        "<input type=radio name=x form=target>"
     )
     radios: Final = list(document.find_all("input"))
-    selected: Final = len(radios) - 1 if external else 0
-    radios[selected].checked = True
-    assert [radio.checked for radio in radios] == [index == selected for index in range(len(radios))]
-
-
-@pytest.mark.parametrize("owned", [pytest.param(False, id="ownerless"), pytest.param(True, id="form")])
-@pytest.mark.parametrize("inside", [pytest.param(False, id="outside"), pytest.param(True, id="inside")])
-def test_radio_group_deep_ancestor_ownership(*, owned: bool, inside: bool) -> None:
-    container: Final = "form" if owned else "section"
-    selected_html: Final = "<input type=radio name=x>"
-    document: Final = parse(
-        f"<{container}>"
-        + "<div>" * 32
-        + "<input type=radio name=x checked><span><input type=radio name=x checked></span>"
-        + "</div>" * 32
-        + (selected_html if inside else "")
-        + f"</{container}>"
-        + ("" if inside else selected_html)
-    )
-    first, second, selected = document.find_all("input")
-    selected.checked = True
-    assert (first.checked, second.checked, selected.checked) == (owned and not inside, owned and not inside, True)
+    radios[selected_index].checked = True
+    assert [radio.checked for radio in radios] == [index == selected_index for index in range(len(radios))]
 
 
 @pytest.mark.parametrize(
-    ("attr", "value"),
+    ("container", "inside", "outside", "checked"),
     [
-        pytest.param("checked", "", id="valueless"),
-        pytest.param("type", "text", id="valued"),
+        pytest.param("form", "", "<input type=radio name=x>", True, id="form-outside"),
+        pytest.param("form", "<input type=radio name=x>", "", False, id="form-inside"),
+        pytest.param("section", "", "<input type=radio name=x>", False, id="ownerless-outside"),
+        pytest.param("section", "<input type=radio name=x>", "", False, id="ownerless-inside"),
     ],
 )
-def test_attrs_mapping(find: Callable[[str, str], Element], attr: str, value: str) -> None:
-    markup = f"{attr}={value}" if value else attr
+def test_radio_group_deep_ancestor_ownership(container: str, inside: str, outside: str, *, checked: bool) -> None:
+    document: Final = parse(
+        f"<{container}>{'<div>' * 32}"
+        f"<input type=radio name=x checked><span><input type=radio name=x checked></span>{'</div>' * 32}{inside}"
+        f"</{container}>{outside}"
+    )
+    first, second, selected = document.find_all("input")
+    selected.checked = True
+    assert (first.checked, second.checked, selected.checked) == (checked, checked, True)
+
+
+@pytest.mark.parametrize(
+    ("markup", "attr", "value"),
+    [
+        pytest.param("checked", "checked", "", id="valueless"),
+        pytest.param("type=text", "type", "text", id="valued"),
+    ],
+)
+def test_attrs_mapping(find: Callable[[str, str], Element], markup: str, attr: str, value: str) -> None:
     assert find(f"<input {markup}>", "input").attrs[attr] == value
 
 

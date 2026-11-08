@@ -9,7 +9,7 @@ from turbohtml import HTMLParseError, parse_xml
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-PREFIX_COUNT: Final = 300
+_PREFIX_COUNT: Final[int] = 300
 
 
 def _prefix(index: int) -> str:
@@ -17,17 +17,17 @@ def _prefix(index: int) -> str:
 
 
 def _declared_on_root(uses: str) -> str:
-    declarations: Final = " ".join(f'xmlns:{_prefix(index)}="urn:{index}"' for index in range(PREFIX_COUNT))
+    declarations: Final = " ".join(f'xmlns:{_prefix(index)}="urn:{index}"' for index in range(_PREFIX_COUNT))
     return f"<root {declarations}><leaf {uses}/></root>"
 
 
 def _declared_one_per_ancestor(uses: str) -> str:
-    opening: Final = "".join(f'<level xmlns:{_prefix(index)}="urn:{index}">' for index in range(PREFIX_COUNT))
-    return f"{opening}<leaf {uses}/>{'</level>' * PREFIX_COUNT}"
+    opening: Final = "".join(f'<level xmlns:{_prefix(index)}="urn:{index}">' for index in range(_PREFIX_COUNT))
+    return f"{opening}<leaf {uses}/>{'</level>' * _PREFIX_COUNT}"
 
 
 def _every_prefix_used() -> str:
-    return " ".join(f'{_prefix(index)}:k="{index}"' for index in range(PREFIX_COUNT))
+    return " ".join(f'{_prefix(index)}:k="{index}"' for index in range(_PREFIX_COUNT))
 
 
 @pytest.fixture(
@@ -43,14 +43,14 @@ def build(request: pytest.FixtureRequest) -> Callable[[str], str]:
 def test_xml_namespace_many_prefixes_resolve_to_own_uri(build: Callable[[str], str]) -> None:
     leaf: Final = parse_xml(build(_every_prefix_used())).find("leaf")
     assert leaf is not None
-    assert list(leaf.attrs.items()) == [(f"{_prefix(index)}:k", str(index)) for index in range(PREFIX_COUNT)]
+    assert list(leaf.attrs.items()) == [(f"{_prefix(index)}:k", str(index)) for index in range(_PREFIX_COUNT)]
 
 
 @pytest.mark.parametrize(
     ("uses", "code"),
     [
         pytest.param(
-            f'{_every_prefix_used()} xmlns:alias="urn:{PREFIX_COUNT - 1}" alias:k="x"',
+            f'{_every_prefix_used()} xmlns:alias="urn:{_PREFIX_COUNT - 1}" alias:k="x"',
             "xml-duplicate-attribute",
             id="alias-of-innermost",
         ),
@@ -60,7 +60,7 @@ def test_xml_namespace_many_prefixes_resolve_to_own_uri(build: Callable[[str], s
             id="alias-of-outermost",
         ),
         pytest.param(
-            f'{_every_prefix_used()} n{PREFIX_COUNT}:k="x"', "xml-undeclared-namespace", id="undeclared-among-many"
+            f'{_every_prefix_used()} n{_PREFIX_COUNT}:k="x"', "xml-undeclared-namespace", id="undeclared-among-many"
         ),
     ],
 )
@@ -76,20 +76,20 @@ def _filler(count: int) -> str:
 
 # The parser scans fewer than 16 in-scope bindings and moves them into a hash table at 16; these documents cross
 # that cutoff with a shadowed binding live, either before the switch or after it.
-SHADOWED_BEFORE_SWITCH: Final = (
-    '<r xmlns:p="urn:a" xmlns:q="urn:a"><x xmlns:p="urn:b"><y ' + _filler(14) + '><z p:k="1" q:k="2"/></y>'
-    '<w p:k="1" q:k="2"/></x>{after}</r>'
+_SHADOWED_BEFORE_SWITCH: Final[str] = (
+    f'<r xmlns:p="urn:a" xmlns:q="urn:a"><x xmlns:p="urn:b"><y {_filler(14)}'
+    '><z p:k="1" q:k="2"/></y><w p:k="1" q:k="2"/></x>{after}</r>'
 )
-SHADOWED_AFTER_SWITCH: Final = (
-    '<r xmlns:p="urn:a" xmlns:q="urn:a" ' + _filler(16) + '><x xmlns:p="urn:b"><z p:k="1" q:k="2"/></x>{after}</r>'
+_SHADOWED_AFTER_SWITCH: Final[str] = (
+    f'<r xmlns:p="urn:a" xmlns:q="urn:a" {_filler(16)}><x xmlns:p="urn:b"><z p:k="1" q:k="2"/></x>{{after}}</r>'
 )
 
 
 @pytest.mark.parametrize(
     "template",
     [
-        pytest.param(SHADOWED_BEFORE_SWITCH, id="shadowed-before-switch"),
-        pytest.param(SHADOWED_AFTER_SWITCH, id="shadowed-after-switch"),
+        pytest.param(_SHADOWED_BEFORE_SWITCH, id="shadowed-before-switch"),
+        pytest.param(_SHADOWED_AFTER_SWITCH, id="shadowed-after-switch"),
     ],
 )
 def test_xml_namespace_table_switch_keeps_shadow(template: str) -> None:
@@ -99,8 +99,8 @@ def test_xml_namespace_table_switch_keeps_shadow(template: str) -> None:
 @pytest.mark.parametrize(
     "template",
     [
-        pytest.param(SHADOWED_BEFORE_SWITCH, id="shadowed-before-switch"),
-        pytest.param(SHADOWED_AFTER_SWITCH, id="shadowed-after-switch"),
+        pytest.param(_SHADOWED_BEFORE_SWITCH, id="shadowed-before-switch"),
+        pytest.param(_SHADOWED_AFTER_SWITCH, id="shadowed-after-switch"),
     ],
 )
 def test_xml_namespace_table_switch_restores_outer(template: str) -> None:

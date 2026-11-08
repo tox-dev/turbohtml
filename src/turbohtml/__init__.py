@@ -36,10 +36,6 @@ from ._html import (
     tokenize,
     unescape,
 )
-from ._internal import (
-    _cssmin,  # ruff:ignore[unused-import]  # registers the CSSMinify record type with the C core on import
-    _jsminify,  # ruff:ignore[unused-import]  # registers the JSMinify record type with the C core on import
-)
 from ._internal._locations import SourceLocation, SourceSpan  # registers the source-location record types on import
 from ._internal._render import Canonical, Html, Markdown, PlainText
 from ._internal._selectors import SelectorSyntaxError  # registers the selector error type with the C core on import
@@ -55,7 +51,7 @@ from .extract._structured_data import (  # registers the JSON-LD parser and reco
     StructuredData,
 )
 from .mutations import MutationObserver, MutationRecord  # registers the MutationRecord type on import
-from .query._xpath import XPathString  # registers the smart-string type with the C core on import
+from .query._xpath import XPathDepthError, XPathString  # registers the error and smart-string types with the C core
 from .traverse import NodeFilter, NodeIterator, TreeWalker
 
 __all__ = [
@@ -105,6 +101,7 @@ __all__ = [
     "Tokenizer",
     "TreeWalker",
     "XPath",
+    "XPathDepthError",
     "XPathString",
     "__version__",
     "annotation_surface",

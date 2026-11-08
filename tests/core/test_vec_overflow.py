@@ -1,19 +1,12 @@
-"""The shared buffer-growth helper (``core/vec.h``) hardened against size-overflow.
-
-Every growable buffer in the C core doubles its capacity through ``th_grow_cap``, which bounds both
-the doubling step and the ``capacity * element_size`` byte size before either can wrap ``size_t`` and
-underallocate (the libxml2 CVE-2022-29824 class). The overflow arms cannot be reached through a real
-append -- they need a length no allocation could hold -- so the ``_grow_probe`` hook drives the
-helper directly to prove they fail cleanly instead of returning a short buffer.
-"""
-
 from __future__ import annotations
+
+from typing import Final
 
 import pytest
 
 from turbohtml import _html
 
-_SIZE_MAX = (1 << 64) - 1
+_SIZE_MAX: Final[int] = (1 << 64) - 1
 
 
 @pytest.mark.parametrize(

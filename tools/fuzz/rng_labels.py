@@ -20,11 +20,9 @@ from turbohtml.validate import RelaxNG
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
-__all__ = ["Verdict", "compare", "main"]
-
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Distinguish findings from invalid corpora for automated runs."""
+    # Distinguish findings from invalid corpora for automated runs.
     parser: Final = argparse.ArgumentParser(description="Compare Jing RELAX NG labels with turbohtml and libxml2.")
     parser.add_argument("--corpus", required=True)
     arguments: Final = parser.parse_args(argv)
@@ -51,7 +49,7 @@ def _report(corpus: str) -> Counter[str]:
 
 
 def compare(suite: lxml.etree._Element) -> Iterator[Verdict]:
-    """Check both engines against labels to retain shared failures."""
+    # Check both engines against labels to retain shared failures.
     for position, case in enumerate(_cases(suite), 1):
         with tempfile.TemporaryDirectory(prefix="rng-labels-") as directory:
             yield from _compare_case(f"{position:03}", case, Path(directory))
@@ -69,10 +67,30 @@ def _compare_case(case_id: str, case: lxml.etree._Element, directory: Path) -> I
     schema_path.write_bytes(schema_text)
     _write_resources(case, directory)
     schema_hash: Final = hashlib.sha256(lxml.etree.tostring(case)).hexdigest()
-    ours: Final = _compile_turbohtml(schema_text, schema_path, directory)
-    reference: Final = _compile_lxml(schema_path)
-    yield Verdict(case_id, schema_hash, "turbohtml", "compilation", expected, ours is not None)
-    yield Verdict(case_id, schema_hash, "libxml2", "compilation", expected, reference is not None)
+    try:
+        ours: RelaxNG | None = RelaxNG(schema_text.decode(), base_url=str(schema_path), include_root=directory)
+    except (ValueError, OSError):
+        ours = None
+    try:
+        reference: lxml.etree.RelaxNG | None = lxml.etree.RelaxNG(lxml.etree.parse(str(schema_path), _parser()))
+    except lxml.etree.RelaxNGParseError:
+        reference = None
+    yield Verdict(
+        case_id=case_id,
+        sha256=schema_hash,
+        engine="turbohtml",
+        phase="compilation",
+        expected=expected,
+        actual=ours is not None,
+    )
+    yield Verdict(
+        case_id=case_id,
+        sha256=schema_hash,
+        engine="libxml2",
+        phase="compilation",
+        expected=expected,
+        actual=reference is not None,
+    )
     if not expected:
         return
     documents: Final = [child for child in case if child.tag in {"valid", "invalid"}]
@@ -82,20 +100,20 @@ def _compare_case(case_id: str, case: lxml.etree._Element, directory: Path) -> I
         document_id = f"{case_id}/{document_position}"
         valid = document.tag == "valid"
         yield Verdict(
-            document_id,
-            document_hash,
-            "turbohtml",
-            "validation",
-            valid,
-            None if ours is None else ours.validate(parse_xml(document_text.decode())).valid,
+            case_id=document_id,
+            sha256=document_hash,
+            engine="turbohtml",
+            phase="validation",
+            expected=valid,
+            actual=None if ours is None else ours.validate(parse_xml(document_text.decode())).valid,
         )
         yield Verdict(
-            document_id,
-            document_hash,
-            "libxml2",
-            "validation",
-            valid,
-            None if reference is None else reference.validate(lxml.etree.fromstring(document_text, _parser())),
+            case_id=document_id,
+            sha256=document_hash,
+            engine="libxml2",
+            phase="validation",
+            expected=valid,
+            actual=None if reference is None else reference.validate(lxml.etree.fromstring(document_text, _parser())),
         )
 
 
@@ -143,34 +161,23 @@ def _parser() -> lxml.etree.XMLParser:
     return lxml.etree.XMLParser(resolve_entities="internal", no_network=True, load_dtd=False)
 
 
-def _compile_turbohtml(schema: bytes, path: Path, directory: Path) -> RelaxNG | None:
-    try:
-        return RelaxNG(schema.decode(), base_url=str(path), include_root=directory)
-    except (ValueError, OSError):
-        return None
-
-
-def _compile_lxml(path: Path) -> lxml.etree.RelaxNG | None:
-    try:
-        return lxml.etree.RelaxNG(lxml.etree.parse(str(path), _parser()))
-    except lxml.etree.RelaxNGParseError:
-        return None
-
-
 class _CorpusError(ValueError):
-    """Separate extraction limits from engine failures."""
+    # Separate extraction limits from engine failures.
+    ...
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Verdict:
-    """Retain engine-specific evidence without exposing XML content."""
-
+    # Retain engine-specific evidence without exposing XML content.
     case_id: str
     sha256: str
     engine: str
     phase: str
     expected: bool | None
     actual: bool | None
+
+
+__all__ = []
 
 
 if __name__ == "__main__":

@@ -1,9 +1,3 @@
-"""The inner serialization of a raw-text element writes its Text and CDATA children literally, as the outer form does.
-
-The WHATWG fragment serialization runs on the element itself, so a Text child whose parent is a raw-text element is
-appended as is, whichever accessor asks for the element's content.
-"""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
@@ -15,9 +9,9 @@ from turbohtml import CData, Comment, Element, Html, Indent, Minify, Text, parse
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_RAW_TEXT_TAGS: Final = ("script", "style", "xmp", "iframe", "noembed", "noframes", "plaintext")
+_RAW_TEXT_TAGS: Final[tuple[str, ...]] = ("script", "style", "xmp", "iframe", "noembed", "noframes", "plaintext")
 
-_INNER_KEEPING_COMMENTS: Final = [
+_INNER_KEEPING_COMMENTS: Final[list[pytest.ParameterSet]] = [
     pytest.param(lambda node: node.inner_html, id="inner_html"),
     pytest.param(lambda node: node.serialize(inner=True), id="serialize"),
     pytest.param(lambda node: "".join(node.serialize_iter(inner=True)), id="serialize_iter"),
@@ -25,7 +19,7 @@ _INNER_KEEPING_COMMENTS: Final = [
     pytest.param(lambda node: node.serialize(Html(layout=Indent(2)), inner=True), id="indent"),
     pytest.param(lambda node: "".join(node.serialize_iter(Html(layout=Indent(2)), inner=True)), id="indent-iter"),
 ]
-_INNER: Final = [
+_INNER: Final[list[pytest.ParameterSet]] = [
     *_INNER_KEEPING_COMMENTS,
     pytest.param(lambda node: node.serialize(Html(layout=Minify()), inner=True), id="minify"),
 ]

@@ -10,12 +10,13 @@ the profiled wheel on held-out pages the profile never trained on.
 Representativeness is code-path coverage, not input volume: the compiler lays out blocks and inlines from the branches a
 run takes, so each operation trains over a *set* spanning its branch classes rather than one clean document. The read
 path, the tokenizer, and the tree builder see clean markup (the whatwg spec and the wpt fixtures), deliberate tag soup
-(the WPT tree-construction cases, which fire the adoption-agency, foster-parenting, and
-foreign-content-breakout recovery the clean spec never reaches), and real saved pages (the vendored mozilla/readability
-corpus). Encoding detection sees legacy multi-byte streams (Shift-JIS, GBK, EUC-KR, windows-1251/1252, UTF-16 with and
-without a BOM, plus the real Japanese and Big5 html5lib samples). The extractors see structured-data markup in all four
-syntaxes (JSON-LD, microdata, RDFa, OpenGraph), and the minifiers see real vendored stylesheets and scripts. Operations
-with no corpus (the tree builders, escapers, URL and selector helpers) reuse the bench's own offline inline cases.
+(the WPT tree-construction cases, which fire the adoption-agency, foster-parenting, and foreign-content-breakout
+recovery the clean spec never reaches), and real saved pages (the vendored mozilla/readability corpus).
+
+Encoding detection sees legacy multi-byte streams (Shift-JIS, GBK, EUC-KR, windows-1251/1252, UTF-16 with and without a
+BOM, plus the real Japanese and Big5 html5lib samples). The extractors see structured-data markup in all four syntaxes
+(JSON-LD, microdata, RDFa, OpenGraph), and the minifiers see real vendored stylesheets and scripts. Operations with no
+corpus (the tree builders, escapers, URL and selector helpers) reuse the bench's own offline inline cases.
 """
 
 from __future__ import annotations
@@ -29,21 +30,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # the bench package si
 
 from bench import corpus
 from bench.core import OPERATIONS
-from bench.operations import INPUTS
+from bench.corpus import CORPUS_FILES, corpus_text
+from bench.operations import INPUTS, Case
 from wpt_tree_corpus import load_wpt_html_tree
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-_TOOLS: Final = Path(__file__).resolve().parent
-_ROOT: Final = _TOOLS.parent
-_BENCH_DATA: Final = _TOOLS / "bench-data"
-_ENCODING_SAMPLES: Final = _ROOT / "tests" / "html5lib-tests" / "encoding"
-_SLICE: Final = 1 << 16  # 64 kB of book text: enough work per call without a multi-megabyte parse in the profile
+    from bench.operations import Timed
+
+_TOOLS: Final[Path] = Path(__file__).resolve().parent
+_ROOT: Final[Path] = _TOOLS.parent
+_BENCH_DATA: Final[Path] = _TOOLS / "bench-data"
+_ENCODING_SAMPLES: Final[Path] = _ROOT / "tests" / "html5lib-tests" / "encoding"
+_SLICE: Final[int] = 1 << 16  # 64 kB of book text: enough work per call without a multi-megabyte parse in the profile
 
 
-def _safe(load: Callable[[], list[object]]) -> list[object]:
-    """Return ``load()``'s inputs, or an empty list when its vendored source is not checked out."""
+def _safe(load: Callable[[], list[Case]]) -> list[Case]:
+    # Return ``load()``'s inputs, or an empty list when its vendored source is not checked out.
     try:
         return load()
     except OSError:  # a submodule is absent, so this branch class simply goes untrained on a bare checkout
@@ -52,96 +56,66 @@ def _safe(load: Callable[[], list[object]]) -> list[object]:
 
 @cache
 def _clean_documents() -> tuple[str, ...]:
-    """Return the vendored clean markup: the wpt size ladder (0.6 to 92 kB, one Big5) and the whatwg spec (235 kB)."""
-    return tuple(corpus.corpus_text(relative, encoding) for _name, relative, encoding in corpus.CORPUS_FILES)
-
-
-_SOUP_BUCKETS: Final = 4
+    # Return the vendored clean markup: the wpt size ladder (0.6 to 92 kB, one Big5) and the whatwg spec (235 kB).
+    return tuple(corpus_text(relative, encoding) for _name, relative, encoding in CORPUS_FILES)
 
 
 @cache
 def _tag_soup() -> tuple[str, ...]:
-    """Return the tree-construction fragments concatenated into a few documents that drive the recovery paths."""
-    buckets = [""] * _SOUP_BUCKETS
+    # Return the tree-construction fragments concatenated into a few documents that drive the recovery paths.
+    soup_buckets = 4
+    buckets = [""] * soup_buckets
     for index, case in enumerate(load_wpt_html_tree()["cases"]):
-        buckets[index % _SOUP_BUCKETS] += f"{case['data']}\n"
+        buckets[index % soup_buckets] += f"{case['data']}\n"
     return tuple(buckets)
 
 
-_TRAINING_PAGES: Final = ("bbc-1", "blogger", "buzzfeed-1", "aktualne")  # disjoint from the bench and held-out pages
+_TRAINING_PAGES: Final[tuple[str, ...]] = (
+    "bbc-1",
+    "blogger",
+    "buzzfeed-1",
+    "aktualne",
+)  # disjoint from the bench and held-out pages
 
 
 def real_pages(names: tuple[str, ...]) -> list[str]:
-    """Return the named mozilla/readability saved pages; :mod:`pgo_validate` reads a held-out set through this."""
+    # Return the named mozilla/readability saved pages; :mod:`pgo_validate` reads a held-out set through this.
     base = _BENCH_DATA / "readability" / "test" / "test-pages"
     return [(base / name / "source.html").read_text(encoding="utf-8", errors="replace") for name in names]
 
 
-def _html_documents() -> list[object]:
-    """Return the parse/read-path input set: clean spec and fixtures, deliberate tag soup, and real saved pages."""
-    return [*_clean_documents(), *_tag_soup(), *_safe(lambda: list(real_pages(_TRAINING_PAGES)))]
-
-
 def _book(relative: str) -> str:
-    """Return a 64 kB latin-1 slice of a vendored War-and-Peace document."""
+    # Return a 64 kB latin-1 slice of a vendored War-and-Peace document.
     return corpus.corpus(relative, _SLICE)
 
 
-def _escape_inputs() -> list[object]:
-    """Return the escaper's input set: real book prose and HTML, plus the entity-dense spec."""
+def _escape_inputs() -> list[Case]:
+    # Return the escaper's input set: real book prose and HTML, plus the entity-dense spec.
     return [
         *_safe(lambda: [_book("war-and-peace/2600.txt"), _book("war-and-peace/2600-h/2600-h.htm")]),
         *_clean_documents()[-1:],
     ]
 
 
-_JAPANESE: Final = "日本語のテキストをここに書きます。今日はとても良い天気ですね。桜が咲いています。"
-_CHINESE: Final = "这是一段中文文本用来测试字符编码的自动检测功能。今天天气很好。"
-_KOREAN: Final = "이것은 문자 인코딩 자동 감지를 시험하기 위한 한국어 문장입니다. 오늘 날씨가 좋습니다."
-_RUSSIAN: Final = "Программирование помогает понять структуру вычислительных систем сегодня здесь снова."
-_FRENCH: Final = "Précédemment, la créativité française était très développée près de Paris ici et là."
-
-
-def _encoding_streams() -> list[object]:
-    """Return the byte streams the encoding sniffer trains on: legacy multi-byte, UTF-16 with a BOM, real samples."""
-    streams: list[object] = [
-        (_JAPANESE * 20).encode("shift_jis"),
-        (_CHINESE * 20).encode("gbk"),
-        (_KOREAN * 20).encode("euc_kr"),
-        (_RUSSIAN * 20).encode("cp1251"),
-        (_FRENCH * 20).encode("cp1252"),
-        (_RUSSIAN * 20).encode("utf-16-le"),  # BOM-less little-endian
-        (_JAPANESE * 20).encode("utf-16"),  # BOM-prefixed, native endianness
+def _encoding_streams() -> list[Case]:
+    # Return the byte streams the encoding sniffer trains on: legacy multi-byte, UTF-16 with a BOM, real samples.
+    russian: str = "Программирование помогает понять структуру вычислительных систем сегодня здесь снова."
+    japanese = "日本語のテキストをここに書きます。今日はとても良い天気ですね。桜が咲いています。"
+    streams: list[Case] = [
+        (japanese * 20).encode("shift_jis"),
+        ("这是一段中文文本用来测试字符编码的自动检测功能。今天天气很好。" * 20).encode("gbk"),
+        ("이것은 문자 인코딩 자동 감지를 시험하기 위한 한국어 문장입니다. 오늘 날씨가 좋습니다." * 20).encode("euc_kr"),
+        (russian * 20).encode("cp1251"),
+        ("Précédemment, la créativité française était très développée près de Paris ici et là." * 20).encode("cp1252"),
+        (russian * 20).encode("utf-16-le"),  # BOM-less little-endian
+        (japanese * 20).encode("utf-16"),  # BOM-prefixed, native endianness
     ]
     samples = (_ENCODING_SAMPLES / "test-yahoo-jp.dat", _ENCODING_SAMPLES / "chardet" / "test_big5.txt")
     streams.extend(sample.read_bytes() for sample in samples if sample.exists())
     return streams
 
 
-_JSONLD_PAGE: Final = """<!doctype html><html><head><title>Recipe</title>
-<script type="application/ld+json">
-{"@context":"https://schema.org","@type":"Recipe","name":"Pancakes","author":{"@type":"Person","name":"Ada"},
-"datePublished":"2024-03-01","recipeIngredient":["flour","milk","eggs"],
-"aggregateRating":{"@type":"AggregateRating","ratingValue":"4.6","reviewCount":"84"}}
-</script></head><body><h1>Pancakes</h1><p>A short recipe.</p></body></html>"""
-
-_MICRODATA_PAGE: Final = """<!doctype html><html><body>
-<div itemscope itemtype="https://schema.org/Product">
-  <span itemprop="name">Widget</span><meta itemprop="sku" content="W-1">
-  <div itemprop="offers" itemscope itemtype="https://schema.org/Offer">
-    <span itemprop="price">9.99</span><meta itemprop="priceCurrency" content="USD">
-    <link itemprop="availability" href="https://schema.org/InStock"></div>
-</div></body></html>"""
-
-_RDFA_PAGE: Final = """<!doctype html><html prefix="og: https://ogp.me/ns# schema: https://schema.org/">
-<body vocab="https://schema.org/" typeof="Article">
-  <h1 property="headline">A Field Guide</h1>
-  <span property="author" typeof="Person"><span property="name">Ada Lovelace</span></span>
-  <meta property="datePublished" content="2024-05-06">
-  <div property="articleBody">Body copy with <a property="url" href="/x">a link</a>.</div>
-</body></html>"""
-
-_OPENGRAPH_PAGE: Final = """<!doctype html><html><head>
+_OPENGRAPH_PAGE: Final[str] = """<!doctype html><html><head>
 <meta property="og:title" content="Widget"><meta property="og:type" content="product">
 <meta property="og:image" content="https://example.com/i.png">
 <meta property="og:description" content="A small widget for every desk.">
@@ -151,59 +125,81 @@ _OPENGRAPH_PAGE: Final = """<!doctype html><html><head>
 
 @cache
 def _structured_pages() -> tuple[str, ...]:
-    """Return synthetic pages carrying JSON-LD, microdata, RDFa, and OpenGraph, one per extractor syntax."""
-    return (_JSONLD_PAGE, _MICRODATA_PAGE, _RDFA_PAGE, _OPENGRAPH_PAGE)
+    # Return synthetic pages carrying JSON-LD, microdata, RDFa, and OpenGraph, one per extractor syntax.
+    microdata_page: str = """<!doctype html><html><body>
+<div itemscope itemtype="https://schema.org/Product">
+  <span itemprop="name">Widget</span><meta itemprop="sku" content="W-1">
+  <div itemprop="offers" itemscope itemtype="https://schema.org/Offer">
+    <span itemprop="price">9.99</span><meta itemprop="priceCurrency" content="USD">
+    <link itemprop="availability" href="https://schema.org/InStock"></div>
+</div></body></html>"""
+    rdfa_page: str = """<!doctype html><html prefix="og: https://ogp.me/ns# schema: https://schema.org/">
+<body vocab="https://schema.org/" typeof="Article">
+  <h1 property="headline">A Field Guide</h1>
+  <span property="author" typeof="Person"><span property="name">Ada Lovelace</span></span>
+  <meta property="datePublished" content="2024-05-06">
+  <div property="articleBody">Body copy with <a property="url" href="/x">a link</a>.</div>
+</body></html>"""
+    jsonld_page = """<!doctype html><html><head><title>Recipe</title>
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Recipe","name":"Pancakes","author":{"@type":"Person","name":"Ada"},
+"datePublished":"2024-03-01","recipeIngredient":["flour","milk","eggs"],
+"aggregateRating":{"@type":"AggregateRating","ratingValue":"4.6","reviewCount":"84"}}
+</script></head><body><h1>Pancakes</h1><p>A short recipe.</p></body></html>"""
+    return (jsonld_page, microdata_page, rdfa_page, _OPENGRAPH_PAGE)
 
 
-def _inline(operation: str) -> list[object]:
-    """Return the cases the offline bench already defines inline for ``operation`` (no corpus, no network)."""
+def _inline(operation: str) -> list[Case]:
+    # Return the cases the offline bench already defines inline for ``operation`` (no corpus, no network).
     return [case for _label, case in INPUTS[operation]()]
 
 
-def _structured_inputs() -> list[object]:
-    """Return the structured-data extractor's set: the four synthetic syntaxes, the inline cases, and a real page."""
+def _structured_inputs() -> list[Case]:
+    # Return the structured-data extractor's set: the four synthetic syntaxes, the inline cases, and a real page.
     return [*_structured_pages(), *_inline("structured"), *_safe(lambda: list(real_pages(_TRAINING_PAGES[:1])))]
 
 
-def _socialcard_inputs() -> list[object]:
-    """Return the social-card extractor's set: the OpenGraph page, the inline cases, and a real page."""
+def _socialcard_inputs() -> list[Case]:
+    # Return the social-card extractor's set: the OpenGraph page, the inline cases, and a real page.
     return [_OPENGRAPH_PAGE, *_inline("socialcard"), *_safe(lambda: list(real_pages(_TRAINING_PAGES[:1])))]
 
 
-def _sanitize_inputs() -> list[object]:
-    """Return the sanitizer's set: deliberate tag soup (its real input), the inline cases, and a real page."""
+def _sanitize_inputs() -> list[Case]:
+    # Return the sanitizer's set: deliberate tag soup (its real input), the inline cases, and a real page.
     return [*_tag_soup(), *_inline("sanitize"), *_safe(lambda: list(real_pages(_TRAINING_PAGES[:1])))]
 
 
-def _article_inputs() -> list[object]:
-    """Return the article/boilerplate/date extractors' set: the synthetic pages plus real saved pages."""
+def _article_inputs() -> list[Case]:
+    # Return the article/boilerplate/date extractors' set: the synthetic pages plus real saved pages.
     return [*_inline("article"), *_safe(lambda: list(real_pages(_TRAINING_PAGES)))]
 
 
-def _stylesheets() -> list[object]:
-    """Include Unicode-range sorting when the vendored stylesheets omit it."""
+def _stylesheets() -> list[Case]:
+    # Include Unicode-range sorting when the vendored stylesheets omit it.
     files = (_BENCH_DATA / "normalize.css" / "normalize.css", _BENCH_DATA / "pico" / "css" / "pico.css")
     return [
         *(path.read_text(encoding="utf-8") for path in files if path.exists()),
         *(
             "@font-face{unicode-range:"
-            + ",".join(
-                f"U+{0x400 + index * 4:X}-{0x401 + index * 4:X}"
-                for index in (reversed(range(count)) if reverse else range(count))
-            )
-            + "}"
+            f"""{
+                ",".join(
+                    f"U+{0x400 + index * 4:X}-{0x401 + index * 4:X}"
+                    for index in (reversed(range(count)) if reverse else range(count))
+                )
+            }"""
+            "}"
             for count, reverse in ((8, True), (96, False), (96, True))
         ),
     ]
 
 
-def _scripts() -> list[object]:
-    """Return the vendored scripts the JS minifier trains on: two ES5 libraries, underscore and backbone."""
+def _scripts() -> list[Case]:
+    # Return the vendored scripts the JS minifier trains on: two ES5 libraries, underscore and backbone.
     files = (_BENCH_DATA / "underscore" / "underscore.js", _BENCH_DATA / "backbone" / "backbone.js")
     return [path.read_text(encoding="utf-8") for path in files if path.exists()]
 
 
-_HTML_DOCUMENT_OPS: Final = frozenset({
+_HTML_DOCUMENT_OPS: Final[frozenset[str]] = frozenset({
     "parse", "parse-shadow", "tokenize", "sax", "treebuild", "rewrite", "fragment", "serialize", "minify", "htmlparser",
     "path", "path-xpath", "find", "select", "select-has", "match", "find-text", "text-content", "conformance",
     "edit", "class-edit", "strip-remove", "strip-tags", "set-html", "set-text", "observe", "navigate", "chain",
@@ -211,7 +207,8 @@ _HTML_DOCUMENT_OPS: Final = frozenset({
     "links-filter",
 })  # fmt: skip
 
-_SPECIAL: Final[dict[str, Callable[[], list[object]]]] = {
+
+_SPECIAL: Final[dict[str, Callable[[], list[Case]]]] = {
     "escape": _escape_inputs,
     "encoding": _encoding_streams,
     "structured": _structured_inputs,
@@ -226,8 +223,14 @@ _SPECIAL: Final[dict[str, Callable[[], list[object]]]] = {
 }
 
 
-def loader_for(operation: str) -> Callable[[], list[object]]:
-    """Return the loader yielding ``operation``'s training input set: an HTML document set, a special set, or inline."""
+def training_corpus() -> Iterator[tuple[str, Timed, Callable[[], list[Case]]]]:
+    # Yield ``(name, callable, load)`` for every operation, in registry order, over its offline training input set.
+    for name, (run, _owner) in OPERATIONS.items():
+        yield name, run, _loader_for(name)
+
+
+def _loader_for(operation: str) -> Callable[[], list[Case]]:
+    # Return the loader yielding ``operation``'s training input set: an HTML document set, a special set, or inline.
     if operation in _HTML_DOCUMENT_OPS:
         return _html_documents
     if operation in _SPECIAL:
@@ -235,14 +238,12 @@ def loader_for(operation: str) -> Callable[[], list[object]]:
     return partial(_inline, operation)
 
 
-def training_corpus() -> Iterator[tuple[str, object, Callable[[], list[object]]]]:
-    """Yield ``(name, callable, load)`` for every operation, in registry order, over its offline training input set."""
-    for name, (run, _owner) in OPERATIONS.items():
-        yield name, run, loader_for(name)
+def _html_documents() -> list[Case]:
+    # Return the parse/read-path input set: clean spec and fixtures, deliberate tag soup, and real saved pages.
+    return [*_clean_documents(), *_tag_soup(), *_safe(lambda: list(real_pages(_TRAINING_PAGES)))]
 
 
 __all__ = [
-    "loader_for",
     "real_pages",
     "training_corpus",
 ]

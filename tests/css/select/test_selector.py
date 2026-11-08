@@ -1,8 +1,6 @@
-"""CSS selectors: select() / select_one() over the common selector subset."""
-
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Protocol
 
 import pytest
 
@@ -11,7 +9,7 @@ from turbohtml import Document, Element, SelectorSyntaxError, parse, parse_xml
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_DOC = (
+_DOC: Final[str] = (
     '<section id="s" class="box wide">'
     '<h2 class="title">T</h2>'
     '<p class="lead first">one <a href="/x" rel="next">link</a></p>'
@@ -20,7 +18,7 @@ _DOC = (
     '<my-widget data-k="v" lang="en-US">w</my-widget>'
     "</section>"
 )
-_NON_OVERLAPPING_NEEDLE: Final = "".join(chr(0x100 + index) for index in range(70))
+_NON_OVERLAPPING_NEEDLE: Final[str] = "".join(chr(0x100 + index) for index in range(70))
 
 
 def _sel(html: str, selector: str) -> list[str]:
@@ -99,7 +97,7 @@ def _sel(html: str, selector: str) -> list[str]:
         # the encode buffers cap tag names at 60 bytes and attribute names at 124;
         # a longer name overruns the cap and cannot match any real element
         pytest.param("z" * 130, [], id="overlong-tag-name"),
-        pytest.param("[" + "z" * 130 + "]", [], id="overlong-attr-name"),
+        pytest.param(f"[{'z' * 130}]", [], id="overlong-attr-name"),
     ],
 )
 def test_select_over_doc(selector: str, tags: list[str]) -> None:
@@ -109,14 +107,14 @@ def test_select_over_doc(selector: str, tags: list[str]) -> None:
 @pytest.mark.parametrize(
     ("value", "needle", "flag", "tags"),
     [
-        pytest.param("a" * 400, "a" * 65 + "b", "", [], id="prefilter-miss"),
-        pytest.param("a" * 200 + "a" * 65 + "ba", "a" * 65 + "ba", "", ["div"], id="kmp-late-match"),
-        pytest.param("a" * 200 + "c" + "a" * 199, "a" * 65 + "ba", "", [], id="kmp-miss"),
-        pytest.param("a" * 200 + "a" * 65 + "ba", "A" * 65 + "BA", " i", ["div"], id="kmp-folded-match"),
-        pytest.param("a" * 65 + "ba", "a" * 65 + "ba", "", ["div"], id="short-value-match"),
-        pytest.param("a" * 66 + "c", "a" * 65 + "ba", "", [], id="short-value-miss"),
-        pytest.param("a" * 65, "a" * 65 + "ba", "", [], id="needle-longer-than-value"),
-        pytest.param("a" * 65 + "ba" + "z" * 300, "a" * 65 + "ba", "", ["div"], id="large-exact-match"),
+        pytest.param("a" * 400, f"{'a' * 65}b", "", [], id="prefilter-miss"),
+        pytest.param(f"{'a' * 200}{'a' * 65}ba", f"{'a' * 65}ba", "", ["div"], id="kmp-late-match"),
+        pytest.param(f"{'a' * 200}c{'a' * 199}", f"{'a' * 65}ba", "", [], id="kmp-miss"),
+        pytest.param(f"{'a' * 200}{'a' * 65}ba", f"{'A' * 65}BA", " i", ["div"], id="kmp-folded-match"),
+        pytest.param(f"{'a' * 65}ba", f"{'a' * 65}ba", "", ["div"], id="short-value-match"),
+        pytest.param(f"{'a' * 66}c", f"{'a' * 65}ba", "", [], id="short-value-miss"),
+        pytest.param("a" * 65, f"{'a' * 65}ba", "", [], id="needle-longer-than-value"),
+        pytest.param(f"{'a' * 65}ba{'z' * 300}", f"{'a' * 65}ba", "", ["div"], id="large-exact-match"),
         pytest.param(
             "x" * 100 + _NON_OVERLAPPING_NEEDLE,
             _NON_OVERLAPPING_NEEDLE,
@@ -131,15 +129,15 @@ def test_long_substring(value: str, needle: str, flag: str, tags: list[str]) -> 
 
 
 def test_long_substring_missing_attribute() -> None:
-    needle: Final = "a" * 65 + "ba"
+    needle: Final = f"{'a' * 65}ba"
     assert _sel(f'<div data-value="{needle}"></div><p></p>', f'[data-value*="{needle}"]') == ["div"]
     assert _sel("<div data-value></div>", f'[data-value*="{needle}"]') == []
     assert _sel("<div></div>", f'[missing*="{needle}"]') == []
 
 
 def test_long_substring_default_case_folding() -> None:
-    value: Final = "a" * 65 + "ba"
-    needle: Final = "A" * 65 + "BA"
+    value: Final = f"{'a' * 65}ba"
+    needle: Final = f"{'A' * 65}BA"
     assert _sel(f'<input type="{value}">', f'[type*="{needle}"]') == ["input"]
     assert _sel(f'<svg><g type="{value}"></g></svg>', f'[type*="{needle}"]') == []
 
@@ -308,7 +306,7 @@ def test_class_id_case_folds_only_in_quirks(selector: str, quirks_tags: list[str
 
 # a five-item list, a mixed-type container, and custom-element siblings so the
 # of-type pseudo-classes exercise both the builtin-atom and custom-name paths
-_PSEUDO = (
+_PSEUDO: Final[str] = (
     "<main>"
     "<ul><li>1</li><li>2</li><li>3</li><li>4</li><li>5</li></ul>"
     "<section><h2>t</h2><p>a</p><span>b</span><p></p><!--c--></section>"
@@ -359,7 +357,7 @@ def test_structural_pseudo_by_text(selector: str, texts: list[str]) -> None:
 
 
 # a list whose items alternate a class, so An+B applies to the .x-matching subset
-_NTH_OF = "<ul><li class=x>1</li><li>2</li><li class=x>3</li><li>4</li><li class=x>5</li></ul>"
+_NTH_OF: Final[str] = "<ul><li class=x>1</li><li>2</li><li class=x>3</li><li>4</li><li class=x>5</li></ul>"
 
 
 @pytest.mark.parametrize(
@@ -540,13 +538,13 @@ def test_leading_hyphen_identifier_is_valid(selector: str) -> None:
     [
         # the compound/complex/list buffers grow, so a selector is bounded only by its
         # own length, not a fixed cap at the 33rd simple/compound or 65th arm (issue #432)
-        pytest.param("p" + ".x" * 40, id="forty-simples-in-a-compound"),
+        pytest.param(f"p{'.x' * 40}", id="forty-simples-in-a-compound"),
         pytest.param(" > ".join(["div"] * 39 + ["p"]), id="forty-child-compounds"),
         pytest.param(",".join(["p"] * 70), id="seventy-list-arms"),
     ],
 )
 def test_large_selectors_grow_past_the_old_caps(selector: str) -> None:
-    html = "<div class=x>" * 39 + "<p class=x>hi</p>" + "</div>" * 39
+    html = f"{'<div class=x>' * 39}<p class=x>hi</p>{'</div>' * 39}"
     assert len(parse(html).select(selector)) == 1
 
 
@@ -562,7 +560,7 @@ def test_large_selectors_grow_past_the_old_caps(selector: str) -> None:
 def test_deeply_nested_functional_pseudo_raises_instead_of_crashing(prefix: str, suffix: str) -> None:
     depth = 20000
     with pytest.raises(ValueError, match="nested too deeply"):
-        parse("<a></a>").select(prefix * depth + "a" + suffix * depth)
+        parse("<a></a>").select(f"{prefix * depth}a{suffix * depth}")
 
 
 def test_invalid_selector_error_names_the_position_and_reason() -> None:
@@ -585,19 +583,6 @@ def test_native_selector_parse_raises_the_unified_error(call: Callable[[Element]
     assert node is not None
     with pytest.raises(SelectorSyntaxError):
         call(node)
-
-
-_PSEUDO_DOC = (
-    "<main>"
-    '<section id="s">'
-    "<h2>T</h2>"
-    '<p class="lead">one <a href="/x">link</a></p>'
-    "<p>two</p>"
-    '<ul><li>a</li><li class="sel">b</li></ul>'
-    "</section>"
-    '<aside id="a"><span>side</span></aside>'
-    "</main>"
-)
 
 
 @pytest.mark.parametrize(
@@ -677,20 +662,27 @@ _PSEUDO_DOC = (
     ],
 )
 def test_functional_pseudo_classes(selector: str, tags: list[str]) -> None:
-    assert _sel(_PSEUDO_DOC, selector) == tags
+    assert (
+        _sel(
+            "<main>"
+            '<section id="s">'
+            "<h2>T</h2>"
+            '<p class="lead">one <a href="/x">link</a></p>'
+            "<p>two</p>"
+            '<ul><li>a</li><li class="sel">b</li></ul>'
+            "</section>"
+            '<aside id="a"><span>side</span></aside>'
+            "</main>",
+            selector,
+        )
+        == tags
+    )
 
 
 def test_has_skips_non_element_following_sibling() -> None:
     # a comment between the anchor and a following sibling must not break :has()
     doc = parse("<main><section></section><!--c--><aside><b>x</b></aside></main>")
     assert [element.tag for element in doc.select("section:has(~ aside b)")] == ["section"]
-
-
-def _nested_divs(depth: int, leaf: str = "<a>x</a>") -> str:
-    # a straight chain of `depth` <div>s wrapping leaf: the shape whose per-anchor :has()
-    # subtree re-walk is O(depth^2) without the memo. At depth >= 24 (the memo's engage
-    # threshold) select() builds the subtree memo, so this drives every memo branch.
-    return f"<body>{'<div>' * depth}{leaf}{'</div>' * depth}</body>"
 
 
 # depth 30 crosses the engage threshold; depth 200 fills enough deep slots to grow and
@@ -725,6 +717,13 @@ def test_has_memo_deep_chain(depth: int, selector: str, expected: str) -> None:
     assert len(parse(_nested_divs(depth)).select(selector)) == counts[expected]
 
 
+def _nested_divs(depth: int, leaf: str = "<a>x</a>") -> str:
+    # a straight chain of `depth` <div>s wrapping leaf: the shape whose per-anchor :has()
+    # subtree re-walk is O(depth^2) without the memo. At depth >= 24 (the memo's engage
+    # threshold) select() builds the subtree memo, so this drives every memo branch.
+    return f"<body>{'<div>' * depth}{leaf}{'</div>' * depth}</body>"
+
+
 def test_has_memo_walks_next_sibling_after_leaf() -> None:
     assert len(parse(_nested_divs(30, "<i></i><!-- gap --><a>x</a>")).select("div:has(a)")) == 30
 
@@ -741,7 +740,7 @@ def test_has_memo_deep_sibling_chains() -> None:
 # a deep tree so the memo is live, carrying elements every relative-selector shape needs:
 # a <p><a> at the chain's foot and a <p> sibling of the outermost div. On this tree the
 # memo-path gate still routes each :has() form to the right evaluator.
-_DEEP_RICH = f"<body>{'<div>' * 40}<p><a>x</a></p>{'</div>' * 40}<p>s</p></body>"
+_DEEP_RICH: Final[str] = f"<body>{'<div>' * 40}<p><a>x</a></p>{'</div>' * 40}<p>s</p></body>"
 
 
 @pytest.mark.parametrize(
@@ -766,9 +765,9 @@ def test_has_memo_deep_relative_shapes(selector: str, count: int) -> None:
 
 def test_has_memo_deep_select_one_returns_outermost() -> None:
     # select_one walks in document order, so the outermost div (the first anchor) wins
-    doc = parse(_nested_divs(40))
-    found = doc.select_one("div:has(a)")
-    parent = found.parent if found is not None else None
+    found = parse(_nested_divs(40)).select_one("div:has(a)")
+    assert found is not None
+    parent = found.parent
     assert isinstance(parent, Element)
     assert parent.tag == "body"
 
@@ -892,10 +891,6 @@ def test_rejects_non_str(method: str) -> None:
 # Element.css_path(): the unique CSS selector locating a node from the root. It
 # anchors at the nearest document-unique, safely serializable id and otherwise
 # descends with child combinators, adding :nth-of-type() only among same-type siblings.
-def _css_path(html: str, selector: str, index: int = 0) -> str:
-    return parse(html).select(selector)[index].css_path()
-
-
 @pytest.mark.parametrize(
     ("html", "selector", "index", "expected"),
     [
@@ -977,9 +972,9 @@ def _css_path(html: str, selector: str, index: int = 0) -> str:
         ),
         # more ids than the id map's initial capacity, so it grows before anchoring
         pytest.param(
-            "<body>"
-            + "".join(f'<div id="d{number}"></div>' for number in range(6))
-            + '<section id="t"><p>x</p></section></body>',
+            f"""<body>{
+                "".join(f'<div id="d{number}"></div>' for number in range(6))
+            }<section id="t"><p>x</p></section></body>""",
             "p",
             0,
             "#t > p",
@@ -993,23 +988,23 @@ def _css_path(html: str, selector: str, index: int = 0) -> str:
             id="unknown-tag-uses-its-name",
         ),
         pytest.param(
-            "<ul>" + "".join(f"<li>{number}</li>" for number in range(12)) + "</ul>",
+            f"<ul>{''.join(f'<li>{number}</li>' for number in range(12))}</ul>",
             "li",
             11,
             "html > body > ul > li:nth-of-type(12)",
             id="multi-digit-index",
         ),
         pytest.param(
-            "<body>" + "<div>" * 40 + "x" + "</div>" * 40 + "</body>",
+            f"<body>{'<div>' * 40}x{'</div>' * 40}</body>",
             "div",
             39,
-            "html > body > " + " > ".join(["div"] * 40),
+            f"html > body > {' > '.join(['div'] * 40)}",
             id="deeply-nested-path-grows-buffer",
         ),
     ],
 )
 def test_css_path(html: str, selector: str, index: int, expected: str) -> None:
-    assert _css_path(html, selector, index) == expected
+    assert parse(html).select(selector)[index].css_path() == expected
 
 
 @pytest.mark.parametrize(
@@ -1097,8 +1092,7 @@ def test_css_path_reflects_renamed_tag(before: str, after: str, expected: str) -
     [pytest.param("a\x00b", id="null"), pytest.param("a\ud800b", id="surrogate")],
 )
 def test_css_path_does_not_anchor_unrepresentable_id(value: str) -> None:
-    document = parse("<p>x</p>")
-    element = document.select("p")[0]
+    element = parse("<p>x</p>").select("p")[0]
     element.attrs["id"] = value
     assert element.css_path() == "html > body > p"
 
@@ -1122,7 +1116,7 @@ def test_css_path_detached_subtree_id_is_not_an_anchor() -> None:
 
 
 # css_path() round-trips: re-selecting the path returns exactly the node it came from.
-_CSS_PATH_DOC = (
+_CSS_PATH_DOC: Final[str] = (
     "<!doctype html><html><head><title>t</title></head><body>"
     "<header><h1>Title</h1></header>"
     '<main id="content">'
@@ -1133,7 +1127,8 @@ _CSS_PATH_DOC = (
     "</body></html>"
 )
 
-_CSS_PATH_DOCUMENT = parse(_CSS_PATH_DOC)
+
+_CSS_PATH_DOCUMENT: Final[Document] = parse(_CSS_PATH_DOC)
 
 
 def _every_element(document: Document) -> list[Element]:
@@ -1147,7 +1142,7 @@ def test_css_path_reselects_only_this_element(element: Element) -> None:
     assert _CSS_PATH_DOCUMENT.select(element.css_path()) == [element]
 
 
-_MATCHES_DOC = (
+_MATCHES_DOC: Final[str] = (
     '<section id="s" class="box">'
     '<article class="post"><h2>T</h2><p class="lead">one <a href="/x">link</a></p></article>'
     "</section>"
@@ -1241,18 +1236,15 @@ def test_rejects_unterminated_attribute_string(link: Element, selector: str) -> 
         link.matches(selector)
 
 
-_QUERY_DOC = (
-    "<body>"
-    "<p class=lead id=1>first</p>"
-    "<div><p class=lead id=2>nested</p><span data-x=y>s</span></div>"
-    "<p id=3>third</p>"
-    "</body>"
-)
-
-
 @pytest.fixture
 def doc() -> Document:
-    return parse(_QUERY_DOC)
+    return parse(
+        "<body>"
+        "<p class=lead id=1>first</p>"
+        "<div><p class=lead id=2>nested</p><span data-x=y>s</span></div>"
+        "<p id=3>third</p>"
+        "</body>"
+    )
 
 
 @pytest.mark.parametrize(
@@ -1261,16 +1253,16 @@ def doc() -> Document:
         pytest.param("p", {}, "1", id="first-in-document-order"),
         pytest.param("span", {}, None, id="descends-into-subtrees"),
         pytest.param("p", {"id": "3"}, "3", id="by-attribute"),
-        pytest.param("table", {}, "__missing__", id="no-match-is-none"),
     ],
 )
 def test_find(doc: Document, tag: str, attrs: dict[str, str], first_id: str | None) -> None:
     match = doc.find(tag, attrs=attrs)
-    if first_id == "__missing__":
-        assert match is None
-    else:
-        assert match is not None
-        assert match.attrs.get("id") == first_id
+    assert match is not None
+    assert match.attrs.get("id") == first_id
+
+
+def test_find_no_match_is_none(doc: Document) -> None:
+    assert doc.find("table", attrs={}) is None
 
 
 @pytest.mark.parametrize(
@@ -1305,6 +1297,10 @@ def test_no_argument_matches_the_first_element(doc: Document) -> None:
     assert match.tag == "html"
 
 
+class _Finder(Protocol):
+    def __call__(self, *args: int | str) -> Element | list[Element] | None: ...
+
+
 @pytest.mark.parametrize("query", ["find", "find_all"])
 @pytest.mark.parametrize(
     "call",
@@ -1313,14 +1309,16 @@ def test_no_argument_matches_the_first_element(doc: Document) -> None:
         pytest.param(lambda fn: fn("a", "b"), id="extra-positional"),
     ],
 )
-def test_query_argument_errors(doc: Document, query: str, call: Callable[[Callable[..., object]], object]) -> None:
+def test_query_argument_errors(
+    doc: Document, query: str, call: Callable[[_Finder], Element | list[Element] | None]
+) -> None:
     with pytest.raises(TypeError):
         call(getattr(doc, query))
 
 
 # every element carries an id so a match set is unambiguous regardless of the
 # html/head/body wrappers the parser inserts
-_FORM = (
+_FORM: Final[str] = (
     "<form>"
     "<input id=i-checkbox type=checkbox checked>"
     "<input id=i-radio type=radio checked>"
@@ -1345,16 +1343,6 @@ _FORM = (
     "<p id=p-plain>p</p>"
     "<div id=d-noedit contenteditable=false>x</div>"
 )
-
-
-def _ids(html: str, selector: str) -> list[str]:
-    matched = [e.attrs.get("id") for e in parse(html).select(selector)]
-    return sorted(value for value in matched if isinstance(value, str))
-
-
-def _scope_ids(elements: list[Element]) -> list[str]:
-    """The id of each element in document order (the values are always present strings here)."""
-    return [value for e in elements if isinstance(value := e.attrs.get("id"), str)]
 
 
 @pytest.mark.parametrize(
@@ -1419,6 +1407,11 @@ def _scope_ids(elements: list[Element]) -> list[str]:
 )
 def test_form_pseudo_ids(selector: str, ids: list[str]) -> None:
     assert _ids(_FORM, selector) == ids
+
+
+def _ids(html: str, selector: str) -> list[str]:
+    matched = [e.attrs.get("id") for e in parse(html).select(selector)]
+    return sorted(value for value in matched if isinstance(value, str))
 
 
 def test_read_only_is_the_complement_of_read_write() -> None:
@@ -1791,6 +1784,11 @@ def test_scope_is_the_query_root() -> None:
     assert _scope_ids(p1.select(":scope > a")) == ["link"]
 
 
+def _scope_ids(elements: list[Element]) -> list[str]:
+    # The id of each element in document order (the values are always present strings here).
+    return [value for e in elements if isinstance(value := e.attrs.get("id"), str)]
+
+
 @pytest.mark.parametrize(
     ("has_selector", "leading_combinator_form"),
     [
@@ -1846,19 +1844,6 @@ def test_invalid_ui_selectors_raise(selector: str) -> None:
         parse("<p>").select(selector)
 
 
-_XML_DOC = '<Root><Child Attr="v" class="c"/><child/><div/><DIV/><Wide data-K="1"/></Root>'
-
-
-def _root(markup: str) -> Element:
-    root = parse_xml(markup).root
-    assert isinstance(root, Element)
-    return root
-
-
-def _select_xml(selector: str) -> list[str]:
-    return [element.tag for element in _root(_XML_DOC).select(selector)]
-
-
 @pytest.mark.parametrize(
     ("selector", "tags"),
     [
@@ -1876,7 +1861,14 @@ def _select_xml(selector: str) -> list[str]:
     ],
 )
 def test_xml_selectors_are_case_sensitive(selector: str, tags: list[str]) -> None:
-    assert _select_xml(selector) == tags
+    xml_doc = '<Root><Child Attr="v" class="c"/><child/><div/><DIV/><Wide data-K="1"/></Root>'
+    assert [element.tag for element in _root(xml_doc).select(selector)] == tags
+
+
+def _root(markup: str) -> Element:
+    root = parse_xml(markup).root
+    assert isinstance(root, Element)
+    return root
 
 
 # the HTML case-insensitive attribute-value set (type, lang, rel, ...) is an HTML-document
@@ -1892,7 +1884,7 @@ def test_xml_selectors_are_case_sensitive(selector: str, tags: list[str]) -> Non
     ],
 )
 def test_xml_attribute_values_ignore_the_html_case_insensitive_set(selector: str, tags: list[str]) -> None:
-    root = _root('<r><input type="CheckBox" rel="' + "A" * 80 + '"/></r>')
+    root = _root(f'<r><input type="CheckBox" rel="{"A" * 80}"/></r>')
     assert [element.tag for element in root.select(selector)] == tags
 
 
@@ -2071,7 +2063,10 @@ def test_default_individual_matches_submit_controls() -> None:
     assert [node.matches(":default") for node in document.select("button")] == [True, False]
 
 
-@pytest.mark.parametrize("xml", [pytest.param(False, id="html"), pytest.param(True, id="xml")])
+@pytest.mark.parametrize(
+    "make_document",
+    [pytest.param(parse, id="html"), pytest.param(parse_xml, id="xml")],
+)
 @pytest.mark.parametrize(
     ("selector", "expected"),
     [
@@ -2089,12 +2084,14 @@ def test_default_individual_matches_submit_controls() -> None:
         pytest.param("section:has(> svg)", ["parent"], id="foreign"),
     ],
 )
-def test_relative_type_selectors(selector: str, expected: list[str], *, xml: bool) -> None:
+def test_relative_type_selectors(
+    selector: str, expected: list[str], *, make_document: Callable[[str], Document]
+) -> None:
     markup: Final = (
         '<main><section id="parent"><a class="hit"></a><x-widget></x-widget><svg></svg></section>'
         'text<p id="next"></p><!--gap--><a></a></main>'
     )
-    document: Final = parse_xml(markup) if xml else parse(markup)
+    document: Final = make_document(markup)
     assert [element.attrs["id"] for element in document.select(selector)] == expected
 
 

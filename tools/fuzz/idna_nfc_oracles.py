@@ -13,8 +13,28 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
+def idna_nfc_generate(rng: random.Random) -> str:
+    # Limit labels to established Unicode-16 mappings without unrelated IDNA policies.
+    return f"{rng.choice(tuple(_LABELS))}:g{rng.randrange(10000)}"
+
+
+def idna_nfc_seeds() -> list[str]:
+    # Exercise composition and ordering families before random generation.
+    return [f"{variant}:g{index}" for variant in _LABELS for index in range(20)]
+
+
+def idna_nfc_controls() -> dict[str, bool]:
+    # Reject stable wrong results as well as unstable canonical output.
+    return {
+        "unchanged Unicode": idna_nfc_check("reorder:", lambda text: text) is not None,
+        "stable wrong target": idna_nfc_check("reorder:", lambda _text: "https://wrong.example/") is not None,
+        "changed repeat": idna_nfc_check("reorder:", lambda text: f"{text}x" if text.isascii() else normalize_url(text))
+        is not None,
+    }
+
+
 def idna_nfc_check(case: str, normalize: Callable[[str], str] = normalize_url) -> str | None:
-    """Pin equivalent spellings to an independent target instead of trusting their agreement."""
+    # Pin equivalent spellings to an independent target instead of trusting their agreement.
     variant, separator, affix = case.partition(":")
     if not separator or variant not in _LABELS or re.fullmatch(r"[a-z0-9]{0,8}", affix) is None:
         raise UnsupportedIdnaNfcCaseError(case)
@@ -35,28 +55,9 @@ def idna_nfc_check(case: str, normalize: Callable[[str], str] = normalize_url) -
     return None if repeated == expected else "canonical host changes on repeat"
 
 
-def idna_nfc_generate(rng: random.Random) -> str:
-    """Limit labels to established Unicode-16 mappings without unrelated IDNA policies."""
-    return f"{rng.choice(tuple(_LABELS))}:g{rng.randrange(10000)}"
-
-
-def idna_nfc_seeds() -> list[str]:
-    """Exercise composition and ordering families before random generation."""
-    return [f"{variant}:g{index}" for variant in _LABELS for index in range(20)]
-
-
-def idna_nfc_controls() -> dict[str, bool]:
-    """Reject stable wrong results as well as unstable canonical output."""
-    return {
-        "unchanged Unicode": idna_nfc_check("reorder:", lambda text: text) is not None,
-        "stable wrong target": idna_nfc_check("reorder:", lambda _text: "https://wrong.example/") is not None,
-        "changed repeat": idna_nfc_check("reorder:", lambda text: text + "x" if text.isascii() else normalize_url(text))
-        is not None,
-    }
-
-
 class UnsupportedIdnaNfcCaseError(ValueError):
-    """Keep unsupported fixture grammar distinct from rejection of valid hosts."""
+    # Keep unsupported fixture grammar distinct from rejection of valid hosts.
+    ...
 
 
 _LABELS: Final[dict[str, str]] = {

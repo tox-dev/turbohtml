@@ -81,11 +81,11 @@ contains extra whitespace and an editor comment:
 
     from typing import Final
 
-    from turbohtml import parse_fragment
+    from turbohtml import Element, parse_fragment
     from turbohtml.clean import collapse_whitespace_node, strip_comments_node, transform_node
 
-    fragment: Final = parse_fragment("<p>Hello   <b>world</b>!</p><!--editor--><p>Next  item</p>")
-    cleaned: Final = transform_node(fragment, strip_comments_node, collapse_whitespace_node)
+    fragment: Final[Element] = parse_fragment("<p>Hello   <b>world</b>!</p><!--editor--><p>Next  item</p>")
+    cleaned: Final[Element] = transform_node(fragment, strip_comments_node, collapse_whitespace_node)
     print(cleaned is fragment)
     print(cleaned.inner_html)
 

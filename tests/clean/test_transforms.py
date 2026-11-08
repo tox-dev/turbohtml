@@ -113,9 +113,11 @@ def test_clean_identity(operation: Callable[[Node], Node]) -> None:
 
 
 @pytest.mark.parametrize("operation", [collapse_whitespace_node, strip_comments_node, transform_node])
-def test_transform_invalid_root(operation: Callable[..., object]) -> None:
+def test_transform_invalid_root(
+    operation: Callable[[Node, *tuple[Callable[[Node], Node | None], ...]], object],
+) -> None:
     with pytest.raises(TypeError):
-        operation("<p>x</p>")
+        operation("<p>x</p>")  # ty: ignore[invalid-argument-type]  # passes a str on purpose to check the rejection
 
 
 def test_strip_comments_retains_references() -> None:
@@ -184,9 +186,17 @@ def test_transform_callable_object() -> None:
     assert transform_node(root, partial(collapse_whitespace_node).__call__).text == " a "
 
 
-@pytest.mark.parametrize("result", ["text", 1, (), False])
-def test_transform_invalid_result(result: object) -> None:
-    def stage(_node: Node) -> object:
+@pytest.mark.parametrize(
+    "result",
+    [
+        pytest.param("text", id="str"),
+        pytest.param(1, id="int"),
+        pytest.param((), id="tuple"),
+        pytest.param(False, id="bool"),
+    ],
+)
+def test_transform_invalid_result(*, result: str | int | tuple[()] | bool) -> None:
+    def stage(_node: Node) -> str | int | tuple[()] | bool:
         return result
 
     operation: Final = cast("Callable[..., object]", transform_node)
@@ -236,8 +246,12 @@ def test_clean_shadow_boundary() -> None:
 @pytest.mark.parametrize(
     ("parse_tree", "source", "expected"),
     [
-        (parse_xml, "<root><!--x--><child><!--y--></child></root>", "<root><child></child></root>"),
-        (parse_fragment, "<template><!--x--><b>y</b></template>", "<template><b>y</b></template>"),
+        pytest.param(
+            parse_xml, "<root><!--x--><child><!--y--></child></root>", "<root><child></child></root>", id="xml"
+        ),
+        pytest.param(
+            parse_fragment, "<template><!--x--><b>y</b></template>", "<template><b>y</b></template>", id="template"
+        ),
     ],
 )
 def test_strip_comments_context(parse_tree: Callable[[str], Node], source: str, expected: str) -> None:
@@ -249,8 +263,8 @@ def test_strip_comments_context(parse_tree: Callable[[str], Node], source: str, 
 @pytest.mark.parametrize(
     ("operation", "expected"),
     [
-        (collapse_whitespace_node, "<p>alpha beta<!--x--></p>"),
-        (strip_comments_node, "<p>alpha   beta</p>"),
+        pytest.param(collapse_whitespace_node, "<p>alpha beta<!--x--></p>", id="collapse-whitespace"),
+        pytest.param(strip_comments_node, "<p>alpha   beta</p>", id="strip-comments"),
     ],
 )
 def test_clean_concurrent_tree(operation: Callable[[Node], Node], expected: str) -> None:

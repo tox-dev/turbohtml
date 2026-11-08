@@ -1,18 +1,46 @@
-"""The html.parser-compatible callback adapter over the streaming tokenizer."""
-
 from __future__ import annotations
 
 import pytest
 
 from turbohtml.migration.stdlib import HTMLParser
 
+_Event = tuple[str, str] | tuple[str, str, list[tuple[str, str | None]]]
+
+
+@pytest.mark.parametrize(
+    ("html", "events"),
+    [
+        pytest.param("<p>", [("start", "p", [])], id="start-tag"),
+        pytest.param('<p class="x" id=y>', [("start", "p", [("class", "x"), ("id", "y")])], id="start-tag-attrs"),
+        pytest.param("</p>", [("end", "p")], id="end-tag"),
+        pytest.param("<br/>", [("startend", "br", [])], id="self-closing"),
+        pytest.param("text", [("data", "text")], id="text"),
+        pytest.param("<!--c-->", [("comment", "c")], id="comment"),
+        # references are resolved into the text, so handle_data sees decoded characters
+        pytest.param("a &amp; b &#9731;", [("data", "a & b ☃")], id="charrefs-decoded"),
+        # a valueless attribute's value is the empty string, not None
+        pytest.param("<input disabled>", [("start", "input", [("disabled", "")])], id="valueless-attr"),
+        pytest.param("<?proc?>", [("pi", "proc")], id="processing-instruction"),
+        pytest.param("<?proc data?>", [("pi", "proc data")], id="processing-instruction-data"),
+        pytest.param("<![CDATA[x]]>", [("comment", "[CDATA[x]]")], id="cdata-is-comment"),
+    ],
+)
+def test_dispatch(html: str, events: list[_Event]) -> None:
+    assert _events(html) == events
+
+
+def _events(html: str) -> list[_Event]:
+    parser = _Recorder()
+    parser.feed(html)
+    parser.close()
+    return parser.events
+
 
 class _Recorder(HTMLParser):
-    """Records every callback as a tuple, for asserting the dispatched event stream."""
-
+    # Records every callback as a tuple, for asserting the dispatched event stream.
     def __init__(self, *, convert_charrefs: bool = True) -> None:
         super().__init__(convert_charrefs=convert_charrefs)
-        self.events: list[tuple[object, ...]] = []
+        self.events: list[_Event] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.events.append(("start", tag, attrs))
@@ -34,35 +62,6 @@ class _Recorder(HTMLParser):
 
     def handle_pi(self, data: str) -> None:
         self.events.append(("pi", data))
-
-
-def _events(html: str) -> list[tuple[object, ...]]:
-    parser = _Recorder()
-    parser.feed(html)
-    parser.close()
-    return parser.events
-
-
-@pytest.mark.parametrize(
-    ("html", "events"),
-    [
-        pytest.param("<p>", [("start", "p", [])], id="start-tag"),
-        pytest.param('<p class="x" id=y>', [("start", "p", [("class", "x"), ("id", "y")])], id="start-tag-attrs"),
-        pytest.param("</p>", [("end", "p")], id="end-tag"),
-        pytest.param("<br/>", [("startend", "br", [])], id="self-closing"),
-        pytest.param("text", [("data", "text")], id="text"),
-        pytest.param("<!--c-->", [("comment", "c")], id="comment"),
-        # references are resolved into the text, so handle_data sees decoded characters
-        pytest.param("a &amp; b &#9731;", [("data", "a & b ☃")], id="charrefs-decoded"),
-        # a valueless attribute's value is the empty string, not None
-        pytest.param("<input disabled>", [("start", "input", [("disabled", "")])], id="valueless-attr"),
-        pytest.param("<?proc?>", [("pi", "proc")], id="processing-instruction"),
-        pytest.param("<?proc data?>", [("pi", "proc data")], id="processing-instruction-data"),
-        pytest.param("<![CDATA[x]]>", [("comment", "[CDATA[x]]")], id="cdata-is-comment"),
-    ],
-)
-def test_dispatch(html: str, events: list[tuple[object, ...]]) -> None:
-    assert _events(html) == events
 
 
 @pytest.mark.parametrize(
@@ -111,8 +110,8 @@ def test_full_document_event_stream() -> None:
 
 
 def test_incremental_feed_matches_one_shot() -> None:
-    chunks = ["<ul><li>on", "e<li>tw", "o</ul>"]
     incremental = _Recorder()
+    chunks = ["<ul><li>on", "e<li>tw", "o</ul>"]
     for chunk in chunks:
         incremental.feed(chunk)
     incremental.close()
@@ -124,7 +123,7 @@ def test_default_startendtag_fires_start_then_end() -> None:
     class StartEnd(HTMLParser):
         def __init__(self) -> None:
             super().__init__()
-            self.events: list[tuple[object, ...]] = []
+            self.events: list[_Event] = []
 
         def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
             self.events.append(("start", tag, attrs))

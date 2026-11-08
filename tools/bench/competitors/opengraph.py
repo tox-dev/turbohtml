@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 from opengraph_py3 import OpenGraph
 
-REQUIREMENTS = ("opengraph-py3>=0.71", "html5lib>=1.1")
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("opengraph-py3>=0.71", "html5lib>=1.1")
 
 
 def socialcard(text: str) -> None:
-    """Read the og: tags with opengraph, which builds a BeautifulSoup tree and scans the head's og-prefixed meta."""
+    # Read the og: tags with opengraph, which builds a BeautifulSoup tree and scans the head's og-prefixed meta.
     OpenGraph(html=text)
 
 
-OPERATIONS = {"socialcard": (socialcard, "opengraph")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"socialcard": (socialcard, "opengraph")}

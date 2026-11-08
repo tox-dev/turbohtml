@@ -1,15 +1,15 @@
 """
 HTML5 authoring-conformance checking with a severity model.
 
-:func:`check` runs the WHATWG document-conformance requirements the parser does not raise
-as a :class:`~turbohtml.ParseError` -- a missing ``img`` alt, obsolete presentational
-markup, a duplicate ``id``, an invalid or redundant ARIA role, an empty heading, a
-``section`` without a heading, a document with no title or language -- over a tree parsed
-with :func:`turbohtml.parse`. It returns a :class:`ConformanceReport`: a ``valid`` verdict
-(the document is valid exactly when nothing is an error) and every :class:`ConformanceMessage`
-found. Each message carries a stable ``code``, a ``severity`` (``"error"``, ``"warning"``, or
-``"info"``), a human-readable ``message``, and the source ``line``/``column``, the way the Nu
-Html Checker (validator.nu) classifies its findings by type and subType.
+:func:`check` runs the WHATWG document-conformance requirements the parser does not raise as a
+:class:`~turbohtml.ParseError` -- a missing ``img`` alt, obsolete presentational markup, a duplicate ``id``, an invalid
+or redundant ARIA role, an empty heading, a ``section`` without a heading, a document with no title or language -- over
+a tree parsed with :func:`turbohtml.parse`.
+
+It returns a :class:`ConformanceReport`: a ``valid`` verdict (the document is valid exactly when nothing is an error)
+and every :class:`ConformanceMessage` found. Each message carries a stable ``code``, a ``severity`` (``"error"``,
+``"warning"``, or ``"info"``), a human-readable ``message``, and the source ``line``/``column``, the way the Nu Html
+Checker (validator.nu) classifies its findings by type and subType.
 
 The walk, the verdict and the severity views run in the C core; the Python layer only
 wraps the C findings into the report records. :func:`check_html` is the shorthand that parses a markup
@@ -25,14 +25,6 @@ from ._html import _conformance_check, _conformance_filter, parse
 
 if TYPE_CHECKING:
     from ._html import Document, Node
-
-__all__ = [
-    "ConformanceMessage",
-    "ConformanceReport",
-    "Severity",
-    "check",
-    "check_html",
-]
 
 Severity = Literal["error", "warning", "info"]
 """The three severities a :class:`ConformanceMessage` carries, ordered most to least serious."""
@@ -63,13 +55,20 @@ class ConformanceReport(NamedTuple):
 
     The report is truthy exactly when the document is valid (no message is an error), so
     ``if check(doc):`` reads naturally. Warnings and info messages never affect the verdict.
+
+    :param valid: whether the document is valid.
+    :param messages: every message found, in the order the checker reported them.
     """
 
     valid: bool
     messages: tuple[ConformanceMessage, ...]
 
     def __bool__(self) -> bool:
-        """Whether the document is valid, so the report reads as a truth value."""
+        """
+        Whether the document is valid, so the report reads as a truth value.
+
+        :returns: whether the document is valid.
+        """
         return self.valid
 
     @property
@@ -88,6 +87,16 @@ class ConformanceReport(NamedTuple):
         return _conformance_filter(self.messages, "info")
 
 
+def check_html(markup: str) -> ConformanceReport:
+    """
+    Parse a markup string with :func:`turbohtml.parse` and check the resulting document.
+
+    :param markup: the HTML to parse and check.
+    :returns: the :class:`ConformanceReport` for the parsed document.
+    """
+    return check(parse(markup))
+
+
 def check(document: Document | Node) -> ConformanceReport:
     """
     Check a parsed document (or any subtree) against the HTML5 authoring rules.
@@ -102,11 +111,10 @@ def check(document: Document | Node) -> ConformanceReport:
     return ConformanceReport(valid, tuple(starmap(ConformanceMessage, findings)))
 
 
-def check_html(markup: str) -> ConformanceReport:
-    """
-    Parse a markup string with :func:`turbohtml.parse` and check the resulting document.
-
-    :param markup: the HTML to parse and check.
-    :returns: the :class:`ConformanceReport` for the parsed document.
-    """
-    return check(parse(markup))
+__all__ = [
+    "ConformanceMessage",
+    "ConformanceReport",
+    "Severity",
+    "check",
+    "check_html",
+]

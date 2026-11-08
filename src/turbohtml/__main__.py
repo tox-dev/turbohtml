@@ -22,16 +22,12 @@ from .detect import detect
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-__all__ = ["main"]
-
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """
-    Run the ``python -m turbohtml`` command line.
-
-    :param argv: the argument vector, excluding the program name; ``None`` reads ``sys.argv``.
-    :returns: the process exit code -- 0 on success, 1 when the library rejects the input or the file cannot be read.
-    """
+    # Run the ``python -m turbohtml`` command line.
+    #
+    # :param argv: the argument vector, excluding the program name; ``None`` reads ``sys.argv``.
+    # :returns: the process exit code -- 0 on success, 1 when the library rejects the input or the file cannot be read.
     args = _parser().parse_args(argv)
     try:
         return args.handler(args)
@@ -41,7 +37,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _parser() -> argparse.ArgumentParser:
-    """Build the argument parser: one subcommand per public entry point, each sharing the input/output arguments."""
+    # Build the argument parser: one subcommand per public entry point, each sharing the input/output arguments.
     parser = argparse.ArgumentParser(prog="python -m turbohtml", description="Command-line front end for turbohtml.")
     shared = argparse.ArgumentParser(add_help=False)
     shared.add_argument("file", nargs="?", help="input file; omit or pass - to read stdin")
@@ -91,7 +87,8 @@ def _run_minify_js(args: argparse.Namespace) -> int:
 
 
 def _run_detect(args: argparse.Namespace) -> int:
-    if (match := detect(_read_bytes(args.file))).encoding is None:
+    data = sys.stdin.buffer.read() if args.file is None or args.file == "-" else Path(args.file).read_bytes()
+    if (match := detect(data)).encoding is None:
         sys.stderr.write("turbohtml detect: no encoding detected\n")
         return 1
     _write(f"{match.encoding}\n", args.output)
@@ -114,25 +111,23 @@ def _run_sanitize(args: argparse.Namespace) -> int:
 
 
 def _read_text(path: str | None) -> str:
-    """Read text input from ``path``, or stdin when it is ``None`` or ``-``."""
+    # Read text input from ``path``, or stdin when it is ``None`` or ``-``.
     if path is None or path == "-":
         return sys.stdin.read()
     return Path(path).read_text(encoding="utf-8")
 
 
-def _read_bytes(path: str | None) -> bytes:
-    """Read binary input from ``path``, or stdin when it is ``None`` or ``-``."""
-    if path is None or path == "-":
-        return sys.stdin.buffer.read()
-    return Path(path).read_bytes()
-
-
 def _write(text: str, output: str | None) -> None:
-    """Write ``text`` to ``output``, or stdout when it is ``None`` or ``-``."""
+    # Write ``text`` to ``output``, or stdout when it is ``None`` or ``-``.
     if output is None or output == "-":
         sys.stdout.write(text)
     else:
         Path(output).write_text(text, encoding="utf-8")
+
+
+__all__ = [
+    "main",
+]
 
 
 if __name__ == "__main__":

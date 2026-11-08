@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Final, cast
 import pytest
 
 from turbohtml import Document, etree, parse
+from turbohtml.etree import Element, SubElement, XPath, document_fromstring, fromstring, tostring
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
@@ -47,19 +48,19 @@ def test_element_tree_index_counts_elements(tree: ElementView) -> None:
 
 
 def test_element_tree_absolute_root_xpath_returns_document() -> None:
-    tree: Final = etree.document_fromstring("<p>text</p>")
+    tree: Final = document_fromstring("<p>text</p>")
     result: Final = cast("list[Document]", tree.xpath("/"))
     assert [document.root for document in result] == [tree.node]
 
 
 def test_element_tree_absolute_child_xpath_selects_root() -> None:
-    tree: Final = etree.document_fromstring("<p>text</p>")
+    tree: Final = document_fromstring("<p>text</p>")
     assert tree.find("/html") is tree
 
 
 def test_element_tree_xpath_selects_unicode_name() -> None:
-    tree: Final = etree.Element("root")
-    child: Final = etree.SubElement(tree, "é")
+    tree: Final = Element("root")
+    child: Final = SubElement(tree, "é")
     assert tree.find("//é") is child
 
 
@@ -74,8 +75,8 @@ def test_element_tree_repr_contains_tag(tree: ElementView) -> None:
 
 
 def test_element_tree_keyword_factory_retains_attributes() -> None:
-    tree: Final = etree.Element(tag="p", attrib={"id": "paragraph"}, title="label")
-    assert etree.tostring(tree, encoding="unicode") == '<p id="paragraph" title="label"/>'
+    tree: Final = Element(tag="p", attrib={"id": "paragraph"}, title="label")
+    assert tostring(tree, encoding="unicode") == '<p id="paragraph" title="label"/>'
 
 
 @pytest.mark.parametrize(
@@ -119,7 +120,7 @@ def test_element_tree_xpath_boolean(tree: ElementView) -> None:
 
 
 def test_element_tree_compiled_xpath_exposes_expression() -> None:
-    expression: Final = etree.XPath(".//p")
+    expression: Final = XPath(".//p")
     assert (str(expression), expression.path) == (".//p", ".//p")
 
 
@@ -150,7 +151,7 @@ def test_element_tree_rejects_invalid_tag_filter(tree: ElementView, tag: int | l
 
 
 def test_element_tree_attributes_return_strings() -> None:
-    tree: Final = etree.fromstring('<input disabled class="one two">')
+    tree: Final = fromstring('<input disabled class="one two">')
     assert (dict(tree.attrib), tree.items(), tree.get("missing", "default")) == (
         {"disabled": "", "class": "one two"},
         [("disabled", ""), ("class", "one two")],
@@ -159,7 +160,7 @@ def test_element_tree_attributes_return_strings() -> None:
 
 
 def test_element_tree_attribute_mapping_popitem_keeps_class_flat() -> None:
-    tree: Final = etree.fromstring('<p class="one two">text</p>')
+    tree: Final = fromstring('<p class="one two">text</p>')
     assert (tree.attrib.get("class"), tree.attrib.popitem(), dict(tree.attrib)) == (
         "one two",
         ("class", "one two"),
@@ -169,4 +170,4 @@ def test_element_tree_attribute_mapping_popitem_keeps_class_flat() -> None:
 
 @pytest.fixture
 def tree() -> ElementView:
-    return etree.fromstring('<div class="one two"><a data-value="149">first<i>nested</i></a><b>last</b></div>')
+    return fromstring('<div class="one two"><a data-value="149">first<i>nested</i></a><b>last</b></div>')

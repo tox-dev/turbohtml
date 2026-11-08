@@ -7,8 +7,8 @@ import pytest
 from turbohtml import parse, parse_xml
 from turbohtml.extract import feed
 
-RDF: Final = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-RSS: Final = "http://purl.org/rss/1.0/"
+_RDF: Final[str] = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+_RSS: Final[str] = "http://purl.org/rss/1.0/"
 
 
 def test_feed_rss_xml_root_case() -> None:
@@ -99,7 +99,7 @@ def test_feed_rss_xml_item_link_case() -> None:
 
 def test_feed_rdf_xml_channel_case() -> None:
     xml: Final = (
-        f'<rdf:RDF xmlns:rdf="{RDF}" xmlns="{RSS}">'
+        f'<rdf:RDF xmlns:rdf="{_RDF}" xmlns="{_RSS}">'
         "<CHANNEL><title>Wrong</title></CHANNEL><channel><title>Right</title></channel></rdf:RDF>"
     )
     result: Final = feed(xml)
@@ -109,7 +109,7 @@ def test_feed_rdf_xml_channel_case() -> None:
 
 def test_feed_rdf_xml_item_case() -> None:
     xml: Final = (
-        f'<rdf:RDF xmlns:rdf="{RDF}" xmlns="{RSS}">'
+        f'<rdf:RDF xmlns:rdf="{_RDF}" xmlns="{_RSS}">'
         "<ITEM><title>Wrong</title></ITEM><item><title>Right</title></item></rdf:RDF>"
     )
     result: Final = feed(xml)
@@ -119,7 +119,7 @@ def test_feed_rdf_xml_item_case() -> None:
 
 def test_feed_rdf_xml_channel_title_case() -> None:
     xml: Final = (
-        f'<rdf:RDF xmlns:rdf="{RDF}" xmlns="{RSS}">'
+        f'<rdf:RDF xmlns:rdf="{_RDF}" xmlns="{_RSS}">'
         "<channel><TITLE>Wrong</TITLE><title>Right</title></channel></rdf:RDF>"
     )
     result: Final = feed(xml)
@@ -129,7 +129,7 @@ def test_feed_rdf_xml_channel_title_case() -> None:
 
 def test_feed_rdf_xml_item_title_case() -> None:
     xml: Final = (
-        f'<rdf:RDF xmlns:rdf="{RDF}" xmlns="{RSS}"><item><TITLE>Wrong</TITLE><title>Right</title></item></rdf:RDF>'
+        f'<rdf:RDF xmlns:rdf="{_RDF}" xmlns="{_RSS}"><item><TITLE>Wrong</TITLE><title>Right</title></item></rdf:RDF>'
     )
     result: Final = feed(xml)
     assert result is not None
@@ -138,7 +138,7 @@ def test_feed_rdf_xml_item_title_case() -> None:
 
 def test_feed_rdf_xml_prefixed_item_title_case() -> None:
     xml: Final = (
-        f'<rdf:RDF xmlns:rdf="{RDF}" xmlns:s="{RSS}">'
+        f'<rdf:RDF xmlns:rdf="{_RDF}" xmlns:s="{_RSS}">'
         "<s:item><s:TITLE>Wrong</s:TITLE><s:title>Right</s:title></s:item></rdf:RDF>"
     )
     result: Final = feed(xml)
@@ -154,7 +154,7 @@ def test_feed_rdf_html_item_title_case() -> None:
 
 def test_feed_rdf_xml_pubdate_case() -> None:
     xml: Final = (
-        f'<rdf:RDF xmlns:rdf="{RDF}" xmlns="{RSS}">'
+        f'<rdf:RDF xmlns:rdf="{_RDF}" xmlns="{_RSS}">'
         "<item><PUBDATE>Wrong</PUBDATE><pubDate>Right</pubDate></item></rdf:RDF>"
     )
     result: Final = parse_xml(xml).feed()

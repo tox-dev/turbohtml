@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 #: The soupsieve ``DEBUG`` flag value, re-exported so a port can pass it without importing soupsieve. turbohtml exposes
 #: no compiled-selector dump, so it is accepted and carried but has no effect.
-DEBUG: Final = 0x1
+DEBUG: Final[int] = 0x1
 
 
 def escape_identifier(ident: str) -> str:
@@ -88,10 +88,24 @@ class Matching:
         return cls(namespaces=namespaces, flags=flags)
 
 
-_DEFAULT: Final = Matching()
+_DEFAULT: Final[Matching] = Matching()
 # A throwaway element to validate selector syntax at compile time; matching against it parses the selector, raising on
 # a malformed one, without needing the caller's node.
-_PROBE: Final = cast("Element", parse("<x></x>").root)
+_PROBE: Final[Element] = cast("Element", parse("<x></x>").root)
+
+
+def compile(selector: str, options: Matching | None = None, /) -> Matcher:  # ruff:ignore[builtin-variable-shadowing]  # the soupsieve entry-point name
+    """
+    Compile a CSS selector into a reusable :class:`Matcher`, like ``soupsieve.compile``.
+
+    The selector is validated up front, so a malformed one raises :class:`turbohtml.SelectorSyntaxError` here, not at
+    the first match.
+
+    :param selector: the CSS selector.
+    :param options: the :class:`Matching` config, or ``None`` for soupsieve's defaults.
+    :returns: a matcher bound to the selector.
+    """
+    return Matcher(selector, options)
 
 
 class Matcher:
@@ -136,16 +150,6 @@ class Matcher:
         """
         return node.matches(self._selector)
 
-    def select(self, node: Element | Document, limit: int = 0) -> list[Element]:
-        """
-        Collect the descendants of an element that match the selector, in document order.
-
-        :param node: the element or document whose descendants are searched.
-        :param limit: the most matches to return, or ``0`` for all.
-        :returns: the matching descendants.
-        """
-        return _select_limited(node, self._selector, limit)
-
     def select_one(self, node: Element | Document) -> Element | None:
         """
         Return the first descendant of an element that matches the selector.
@@ -161,9 +165,19 @@ class Matcher:
 
         :param node: the element or document whose descendants are searched.
         :param limit: the most matches to yield, or ``0`` for all.
-        :returns: an iterator over the matching descendants.
+        :yields: an iterator over the matching descendants.
         """
         yield from self.select(node, limit)
+
+    def select(self, node: Element | Document, limit: int = 0) -> list[Element]:
+        """
+        Collect the descendants of an element that match the selector, in document order.
+
+        :param node: the element or document whose descendants are searched.
+        :param limit: the most matches to return, or ``0`` for all.
+        :returns: the matching descendants.
+        """
+        return _select_limited(node, self._selector, limit)
 
     def filter(self, iterable: Element | Document | Iterable[Element]) -> list[Element]:
         """
@@ -185,20 +199,6 @@ class Matcher:
         :returns: the nearest self-or-ancestor that matches, or ``None``.
         """
         return node.closest(self._selector)
-
-
-def compile(selector: str, options: Matching | None = None, /) -> Matcher:  # ruff:ignore[builtin-variable-shadowing]  # the soupsieve entry-point name
-    """
-    Compile a CSS selector into a reusable :class:`Matcher`, like ``soupsieve.compile``.
-
-    The selector is validated up front, so a malformed one raises :class:`turbohtml.SelectorSyntaxError` here, not at
-    the first match.
-
-    :param selector: the CSS selector.
-    :param options: the :class:`Matching` config, or ``None`` for soupsieve's defaults.
-    :returns: a matcher bound to the selector.
-    """
-    return Matcher(selector, options)
 
 
 def css(selector: str, options: Matching | None = None, /) -> Matcher:

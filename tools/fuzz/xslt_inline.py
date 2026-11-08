@@ -7,7 +7,7 @@ import hashlib
 import json
 import random
 from dataclasses import asdict, dataclass, replace
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 import lxml.etree
 
@@ -19,11 +19,9 @@ from .schema_mutation import mutate
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
-__all__: Final = ["Case", "ResultTree", "Verdict", "compare", "generate", "main"]
-
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Keep compiler, application and result findings in the exit status."""
+    # Keep compiler, application and result findings in the exit status.
     parser: Final = argparse.ArgumentParser(description="Compare bounded inline XSLT trees with libxslt.")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cases", type=int, default=12)
@@ -57,13 +55,32 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def compare(case: Case, *, negative_control: bool = False) -> Iterator[Verdict]:
-    """Known labels expose shared mistakes before engine agreement."""
-    ours: Final = _turbohtml(case)
+    # Known labels expose shared mistakes before engine agreement.
+    try:
+        compiled = Transform(parse_xml(case.stylesheet))
+    except (HTMLParseError, ValueError):
+        ours = _Transform(compiled=False, applied=None, output=None)
+    else:
+        try:
+            ours = _Transform(
+                compiled=True, applied=True, output=_result(compiled(parse_xml(case.document)), case.method)
+            )
+        except (HTMLParseError, ValueError, RuntimeError):
+            ours = _Transform(compiled=True, applied=False, output=None)
     reference: Final = _libxslt(case)
-    digest: Final = hashlib.sha256((case.stylesheet + "\\0" + case.document).encode()).hexdigest()
+    digest: Final = hashlib.sha256((f"{case.stylesheet}\\0{case.document}").encode()).hexdigest()
     for engine, outcome in (("turbohtml", ours), ("libxslt", reference)):
-        yield Verdict(case.seed, digest, engine, "compilation", case.compiles, outcome[0])
-        yield Verdict(case.seed, digest, engine, "application", case.applies if case.compiles else None, outcome[1])
+        yield Verdict(
+            seed=case.seed, sha256=digest, engine=engine, phase="compilation", expected=case.compiles, actual=outcome[0]
+        )
+        yield Verdict(
+            seed=case.seed,
+            sha256=digest,
+            engine=engine,
+            phase="application",
+            expected=case.applies if case.compiles else None,
+            actual=outcome[1],
+        )
         if outcome[1]:
             actual: Final = (
                 _result("wrong" if case.method == "text" else "<wrong/>", case.method)
@@ -71,17 +88,17 @@ def compare(case: Case, *, negative_control: bool = False) -> Iterator[Verdict]:
                 else outcome[2]
             )
             yield Verdict(
-                case.seed,
-                digest,
-                engine,
-                "result",
-                reference[2] if case.output is None else _result(case.output, case.method),
-                actual,
+                seed=case.seed,
+                sha256=digest,
+                engine=engine,
+                phase="result",
+                expected=reference[2] if case.output is None else _result(case.output, case.method),
+                actual=actual,
             )
 
 
 def generate(seed: int) -> Case:
-    """Independent expected results distinguish a wrong reference verdict."""
+    # Independent expected results distinguish a wrong reference verdict.
     number: Final = random.Random(seed).randrange(1, 100)
     word: Final = f"word{number}"
     variable: Final = f"label{number}"
@@ -124,37 +141,36 @@ def generate(seed: int) -> Case:
         f'<x:template match="/">{body}</x:template></x:stylesheet>'
     )
     return Case(
-        seed,
-        stylesheet,
-        '<root><item id="b" n="2">B</item><item id="a" n="1">A</item></root>',
-        method,
-        family != 10,
-        family < 10,
-        output,
+        seed=seed,
+        stylesheet=stylesheet,
+        document='<root><item id="b" n="2">B</item><item id="a" n="1">A</item></root>',
+        method=method,
+        compiles=family != 10,
+        applies=family < 10,
+        output=output,
     )
 
 
-def _turbohtml(case: Case) -> tuple[bool, bool | None, str | ResultTree | None]:
-    try:
-        compiled = Transform(parse_xml(case.stylesheet))
-    except (HTMLParseError, ValueError):
-        return False, None, None
-    try:
-        return True, True, _result(compiled(parse_xml(case.document)), case.method)
-    except (HTMLParseError, ValueError, RuntimeError):
-        return True, False, None
+class _Transform(NamedTuple):
+    compiled: bool
+    applied: bool | None
+    output: str | ResultTree | None
 
 
-def _libxslt(case: Case) -> tuple[bool, bool | None, str | ResultTree | None]:
+def _libxslt(case: Case) -> _Transform:
     parser: Final = lxml.etree.XMLParser(resolve_entities=False, no_network=True)
     try:
         compiled = lxml.etree.XSLT(lxml.etree.fromstring(case.stylesheet.encode(), parser))
     except (lxml.etree.XSLTParseError, lxml.etree.XMLSyntaxError):
-        return False, None, None
+        return _Transform(compiled=False, applied=None, output=None)
     try:
-        return True, True, _result(str(compiled(lxml.etree.fromstring(case.document.encode(), parser))), case.method)
+        return _Transform(
+            compiled=True,
+            applied=True,
+            output=_result(str(compiled(lxml.etree.fromstring(case.document.encode(), parser))), case.method),
+        )
     except (lxml.etree.XSLTApplyError, lxml.etree.XMLSyntaxError):
-        return True, False, None
+        return _Transform(compiled=True, applied=False, output=None)
 
 
 def _result(output: str, method: str) -> str | ResultTree:
@@ -169,18 +185,19 @@ def _result(output: str, method: str) -> str | ResultTree:
 
 def _tree(node: lxml.etree._Element) -> ResultTree:
     return ResultTree(
-        node.tag if isinstance(node.tag, str) else "#" + lxml.etree.tostring(node, encoding="unicode", with_tail=False),
-        tuple(sorted(node.attrib.items())),
-        node.text or "",
-        node.tail or "",
-        tuple(_tree(child) for child in node),
+        name=node.tag
+        if isinstance(node.tag, str)
+        else f"#{lxml.etree.tostring(node, encoding='unicode', with_tail=False)}",
+        attributes=tuple(sorted(node.attrib.items())),
+        text=node.text or "",
+        tail=node.tail or "",
+        children=tuple(_tree(child) for child in node),
     )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Case:
-    """Independent phase labels survive serialization and mutation."""
-
+    # Independent phase labels survive serialization and mutation.
     seed: int
     stylesheet: str
     document: str
@@ -190,10 +207,9 @@ class Case:
     output: str | None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class ResultTree:
-    """Expanded names preserve content while allowing serializer variation."""
-
+    # Expanded names preserve content while allowing serializer variation.
     name: str
     attributes: tuple[tuple[str, str], ...]
     text: str
@@ -201,16 +217,18 @@ class ResultTree:
     children: tuple[ResultTree, ...]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Verdict:
-    """Unavailable applications remain visible after compiler failures."""
-
+    # Unavailable applications remain visible after compiler failures.
     seed: int
     sha256: str
     engine: str
     phase: str
     expected: bool | str | ResultTree | None
     actual: bool | str | ResultTree | None
+
+
+__all__: Final[list[str]] = []
 
 
 if __name__ == "__main__":

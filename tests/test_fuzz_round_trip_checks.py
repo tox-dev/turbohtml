@@ -1,5 +1,3 @@
-"""Each round-trip oracle passes turbohtml's output and flags a deliberately broken printer, reader or entry point."""
-
 from __future__ import annotations
 
 import hashlib
@@ -15,7 +13,7 @@ from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from subprocess import run  # ruff: ignore[suspicious-subprocess-import] - startup resolution needs a fresh interpreter.
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
 import html5lib
 import pytest
@@ -182,20 +180,6 @@ def _xml(node: Node) -> str:
     return node.serialize(Html(xml=True))
 
 
-def _settles_on_numbers(text: str) -> str:
-    # the first pass tags the text, the second shortens its number and changes nothing else
-    return text.replace("1.50", "1.5") if text.startswith("#") else f"#{text} 1.50"
-
-
-def _reject(_text: str) -> str:
-    msg = "rejected"
-    raise ValueError(msg)
-
-
-def _reject_own_output(text: str) -> str:
-    return _reject(text) if text.startswith("#") else f"#{text}"
-
-
 @pytest.mark.parametrize(
     "name",
     [pytest.param(name, id=name) for name in sorted(ORACLES) if name != "js-names"],
@@ -216,6 +200,11 @@ def test_fixpoint_numeric_exception(*, numeric: bool, expected: str | None) -> N
     assert fixpoint_check("w", _settles_on_numbers, numeric=numeric) == expected
 
 
+def _settles_on_numbers(text: str) -> str:
+    # the first pass tags the text, the second shortens its number and changes nothing else
+    return text.replace("1.50", "1.5") if text.startswith("#") else f"#{text} 1.50"
+
+
 def test_fixpoint_holds_for_minify_css() -> None:
     assert fixpoint_check("a{color:#ff0000;margin:0px 0px}", minify_css, numeric=True) is None
 
@@ -225,8 +214,17 @@ def test_fixpoint_skips_an_input_the_printer_rejects() -> None:
         fixpoint_check("w", _reject, numeric=True)
 
 
+def _reject(_text: str) -> str:
+    msg = "rejected"
+    raise ValueError(msg)
+
+
 def test_fixpoint_flags_a_printer_rejecting_its_own_output() -> None:
     assert fixpoint_check("w", _reject_own_output, numeric=True) == "rejects its own output"
+
+
+def _reject_own_output(text: str) -> str:
+    return _reject(text) if text.startswith("#") else f"#{text}"
 
 
 @pytest.mark.parametrize(
@@ -352,22 +350,22 @@ def test_markdown_check_passes_to_markdown() -> None:
     [
         "<ol><li><i> </i></><li>&",
         "<ul><li><d> <i><li>/",
-        "<strong><b><<b>😀</b></b><b>*",
-        "<em><code>\\</code></em><b><del>*<br></b>&",
+        pytest.param("<strong><b><<b>😀</b></b><b>*", id="strong-bold-emoji-star"),
+        pytest.param("<em><code>\\</code></em><b><del>*<br></b>&", id="code-backslash-misnested-del"),
         "<table><td>&nbsp </><br>]",
         "<em><br>[<br>",
-        "d<b>😀=</b><del>;<strong>&gt",
-        "<b><b>\\ </b><strong>\\<g></b>~",
+        pytest.param("d<b>😀=</b><del>;<strong>&gt", id="del-emoji-unclosed-strong-entity"),
+        pytest.param("<b><b>\\ </b><strong>\\<g></b>~", id="escaped-space-tag-in-strong"),
         "><b><br> <br>",
         "<strong><br>x<br></strong>[",
         "><em><br><m><br><i>#<br></i>o",
-        "<ol><li><i><br></i><br><em><b>😀",
+        pytest.param("<ol><li><i><br></i><br><em><b>😀", id="list-italic-break-emoji"),
         "<br><strong>><br></strong><",
-        "<ol><li><i><br></i><br>><b>😀",
-        ";<strong><b>d </b><b>\\<t",
-        "<strong><b></b></strong><p><i><br></i><br>é",
+        pytest.param("<ol><li><i><br></i><br>><b>😀", id="list-break-stray-angle-emoji"),
+        pytest.param(";<strong><b>d </b><b>\\<t", id="semicolon-strong-escaped-tag"),
+        pytest.param("<strong><b></b></strong><p><i><br></i><br>é", id="empty-strong-paragraph-accent"),
         "<br><i>*<br></i> <",
-        "<del>[</del>\\<em><em>h|</em>>(<br><del><br><el",
+        pytest.param("<del>[</del>\\<em><em>h|</em>>(<br><del><br><el", id="del-bracket-pipe-break-nest"),
     ],
 )
 def test_markdown_check_accepts_equivalent_html(markup: str) -> None:
@@ -407,15 +405,15 @@ def test_markdown_check_skips_break_inside_table_cell_formatting() -> None:
     "source",
     [
         "@media{[",
-        '@media{["\n',
+        pytest.param('@media{["\n', id="media-string-newline"),
         "a{font:x -E",
-        "\\1;-",
+        pytest.param("\\1;-", id="escaped-digit-dash"),
         "0;@a}t",
         "@supports(){(x+2",
         "a{h:calc(+c(x+2",
         "a{t:''({",
         ":::before{x:1}",
-        "[/\n**/f\"\"]{x:''}",
+        pytest.param("[/\n**/f\"\"]{x:''}", id="bracket-comment-newline-selector"),
         "@media{a b{{}}a b{f:1}a b{{()}}}",
     ],
 )
@@ -739,7 +737,7 @@ def test_generation_public_consumers_reject_undeclared_profile(name: str, source
 
 def test_markdown_html_grammar_skips_trees_beyond_meaning_depth() -> None:
     with pytest.raises(OutOfScopeError):
-        ORACLES["markdown-html-grammar"].check("<div>" * 130 + "x" + "</div>" * 130)
+        ORACLES["markdown-html-grammar"].check(f"{'<div>' * 130}x{'</div>' * 130}")
 
 
 def test_markdown_source_grammar_skips_lost_control_whitespace() -> None:
@@ -761,7 +759,7 @@ def test_markdown_source_grammar_skips_lost_control_whitespace() -> None:
         pytest.param(b"<p>a<!--c-->b<strong>c</strong>d</p>", "UTF-8", False, "abcd", id="comment-tails"),
         pytest.param(b"<select><style>\x00", "UTF-8", False, "\ufffd", id="select-style-nul"),
         pytest.param(b"<select><title>\x00", "UTF-8", False, "\ufffd", id="select-title-nul"),
-        pytest.param(("<div>" * 1200 + "x" + "</div>" * 1200).encode(), "UTF-8", False, "x", id="deep-tree"),
+        pytest.param((f"{'<div>' * 1200}x{'</div>' * 1200}").encode(), "UTF-8", False, "x", id="deep-tree"),
         pytest.param(b"</head> <head><title>t", "UTF-8", False, "t ", id="duplicate-head-after-head"),
         pytest.param(b"</head> <html><title>t", "UTF-8", False, "t ", id="redundant-html-after-head"),
     ],
@@ -789,7 +787,7 @@ def test_generation_unknown_execution_codec() -> None:
 def test_generation_corpus_preserves_context(
     tmp_path: Path, profile: CorpusProfile, grammar: Grammar, production: str, context: tuple[str | None, bool]
 ) -> None:
-    case: Final = generate(grammar, random.SystemRandom(), GenerationBudget(64, 256), force=production)
+    case: Final = generate(grammar, random.SystemRandom(), GenerationBudget(nodes=64, steps=256), force=production)
     manifest: Final = write_corpora((case, case), grammar, tmp_path, profile)
     entry: Final = manifest.entries[0]
     assert (
@@ -797,7 +795,7 @@ def test_generation_corpus_preserves_context(
         entry.encoding,
         entry.sniff,
         entry.sha256,
-        len(tuple(tmp_path.glob("**/" + entry.sha256))),
+        len(tuple(tmp_path.glob(f"**/{entry.sha256}"))),
         manifest.entries[0] == manifest.entries[1],
         manifest.rejected,
     ) == (SEED_HEADER + case.data, *context, hashlib.sha256(SEED_HEADER + case.data).hexdigest(), 1, True, ())
@@ -805,23 +803,26 @@ def test_generation_corpus_preserves_context(
 
 def test_generation_corpus_rejects_changed_encoding_literal(tmp_path: Path) -> None:
     grammar: Final = encoding_grammar()
-    case: Final = generate(grammar, random.SystemRandom(), GenerationBudget(64, 256), force="encoding:codec:utf-8")
+    case: Final = generate(
+        grammar, random.SystemRandom(), GenerationBudget(nodes=64, steps=256), force="encoding:codec:utf-8"
+    )
     with pytest.raises(AssertionError, match="production literals"):
         write_corpora((replace(case, data=b"<p>wrong</p>"),), grammar, tmp_path, "encoding")
 
 
 @pytest.mark.parametrize("profile", ["markdown-source", "markdown-html", "encoding"])
 def test_generation_cli_sweeps_domain_productions(tmp_path: Path, profile: str) -> None:
+    grammars: Final = {
+        "encoding": encoding_grammar(),
+        "markdown-source": markdown_grammar(html=False),
+        "markdown-html": markdown_grammar(html=True),
+    }
     assert (
         corpus_main(("--output", str(tmp_path), "--profile", profile, "--count", "0", "--sweep", "--budget", "64")) == 0
     )
     manifest: Final = json.loads((tmp_path / "manifest.json").read_text())
     assert (len(manifest["entries"]), manifest["rejected"]) == (
-        len(
-            (
-                encoding_grammar() if profile == "encoding" else markdown_grammar(html=profile == "markdown-html")
-            ).productions
-        ),
+        len(grammars[profile].productions),
         [],
     )
 
@@ -849,7 +850,7 @@ def test_generation_cli_execution_context(tmp_path: Path, mocker: MockerFixture)
 
 
 def test_generation_preserves_qualified_owners() -> None:
-    assert (len(owner_inventory()), len(public_targets())) == (223, 34)
+    assert (len(owner_inventory()), len(public_targets())) == (227, 34)
 
 
 @pytest.mark.parametrize(
@@ -898,7 +899,7 @@ def test_encoding_oracle_skips_markup_past_the_nesting_limit(
     nesting: int, oracle_calls: int, mocker: MockerFixture
 ) -> None:
     parse_reference: Final = mocker.patch("fuzz.generation_targets.html5lib.parse", wraps=html5lib.parse)
-    assert encoding_observation(("<div>" * nesting + "kept").encode()) == "kept"
+    assert encoding_observation((f"{'<div>' * nesting}kept").encode()) == "kept"
     assert parse_reference.call_count == oracle_calls
 
 
@@ -917,7 +918,7 @@ if TYPE_CHECKING:
 
     from turbohtml.clean import JSMinify
 
-_JS_READER_REQUIRED: Final = pytest.mark.skipif(
+_JS_READER_REQUIRED: Final[pytest.MarkDecorator] = pytest.mark.skipif(
     shutil.which("node") is None
     or not (Path(__file__).parents[1] / "tools/bench/node/node_modules/eslint-scope").is_dir(),
     reason="Node and the pinned JavaScript reader packages are required",
@@ -966,7 +967,7 @@ def test_javascript_rejects_independent_invalid_input_first(
     source: bytes, error: type[Exception], message: str | None
 ) -> None:
     def unstable(source: str, _options: JSMinify) -> str:
-        return source + ";"
+        return f"{source};"
 
     with pytest.raises(error, match=message):
         javascript_observation(source, unstable)
@@ -1012,23 +1013,32 @@ def test_javascript_cli_initializes_reader_and_routes_corpus(tmp_path: Path, moc
 @pytest.mark.parametrize(
     ("source", "error"),
     [
-        pytest.param(b'consume("kept",external);', None, id="valid"),
         pytest.param(b"(", "OutOfScopeError", id="syntax"),
         pytest.param(b"\xff", "UnicodeDecodeError", id="utf8"),
     ],
 )
-def test_javascript_corpus_admission(tmp_path: Path, source: bytes, error: str | None) -> None:
-    grammar: Final = compile_grammar((Production("script", "root", (source,), 1, "fixture:1"),), "root")
+def test_javascript_corpus_rejects(tmp_path: Path, source: bytes, error: str) -> None:
+    grammar: Final = compile_grammar(
+        (Production(name="script", symbol="root", parts=(source,), nodes=1, origin="fixture:1"),), "root"
+    )
     manifest: Final = write_corpora((generate(grammar, random.SystemRandom()),), grammar, tmp_path, "javascript")
-    if error is not None:
-        assert (manifest.entries, tuple(entry.exception for entry in manifest.rejected)) == ((), (error,))
-    else:
-        assert (
-            tuple(entry.target for entry in manifest.entries),
-            tuple((tmp_path / entry.file).read_bytes() for entry in manifest.entries),
-            tuple(entry.productions for entry in manifest.entries),
-            manifest.rejected,
-        ) == (("javascript",), (SEED_HEADER + source,), ((("script", "fixture:1"),),), ())
+    assert (manifest.entries, tuple(entry.exception for entry in manifest.rejected)) == ((), (error,))
+
+
+@_JS_READER_REQUIRED
+@pytest.mark.oracle
+def test_javascript_corpus_admits_valid_source(tmp_path: Path) -> None:
+    source: Final = b'consume("kept",external);'
+    grammar: Final = compile_grammar(
+        (Production(name="script", symbol="root", parts=(source,), nodes=1, origin="fixture:1"),), "root"
+    )
+    manifest: Final = write_corpora((generate(grammar, random.SystemRandom()),), grammar, tmp_path, "javascript")
+    assert (
+        tuple(entry.target for entry in manifest.entries),
+        tuple((tmp_path / entry.file).read_bytes() for entry in manifest.entries),
+        tuple(entry.productions for entry in manifest.entries),
+        manifest.rejected,
+    ) == (("javascript",), (SEED_HEADER + source,), ((("script", "fixture:1"),),), ())
 
 
 @_JS_READER_REQUIRED
@@ -1070,7 +1080,9 @@ def test_javascript_cli_dependency_failure_precedes_corpus_creation(tmp_path: Pa
 def test_corpus_routes_exact_bytes(
     tmp_path: Path, profile: CorpusProfile, production: str, source: bytes, targets: tuple[str, ...]
 ) -> None:
-    grammar: Final = compile_grammar((Production(production, "root", (source,), 1, "fixture:1"),), "root")
+    grammar: Final = compile_grammar(
+        (Production(name=production, symbol="root", parts=(source,), nodes=1, origin="fixture:1"),), "root"
+    )
     case: Final = generate(grammar, random.SystemRandom())
     manifest: Final = write_corpora((case,), grammar, tmp_path, profile)
     assert (
@@ -1088,8 +1100,8 @@ def test_corpus_routes_exact_bytes(
 def test_corpus_deduplicates_bytes_preserves_traces(tmp_path: Path) -> None:
     grammar: Final = compile_grammar(
         (
-            Production("first", "root", (b"<p>x</p>",), 1, "fixture:1"),
-            Production("second", "root", (b"<p>x</p>",), 1, "fixture:2"),
+            Production(name="first", symbol="root", parts=(b"<p>x</p>",), nodes=1, origin="fixture:1"),
+            Production(name="second", symbol="root", parts=(b"<p>x</p>",), nodes=1, origin="fixture:2"),
         ),
         "root",
     )
@@ -1102,7 +1114,9 @@ def test_corpus_deduplicates_bytes_preserves_traces(tmp_path: Path) -> None:
 
 
 def test_corpus_rejects_invalid_input_before_writing(tmp_path: Path) -> None:
-    grammar: Final = compile_grammar((Production("invalid", "root", (b"\xff",), 1, "fixture:1"),), "root")
+    grammar: Final = compile_grammar(
+        (Production(name="invalid", symbol="root", parts=(b"\xff",), nodes=1, origin="fixture:1"),), "root"
+    )
     manifest: Final = write_corpora((generate(grammar, random.SystemRandom()),), grammar, tmp_path, "css-stylesheet")
     assert (
         manifest.entries,
@@ -1135,7 +1149,11 @@ def test_corpus_preserves_generated_bindings(tmp_path: Path) -> None:
     grammar: Final = compile_grammar(
         (
             Production(
-                "bound", "root", (b'<p id="', Identifier("element", definition=True), b'">text</p>'), 1, "fixture:1"
+                name="bound",
+                symbol="root",
+                parts=(b'<p id="', Identifier(name="element", definition=True), b'">text</p>'),
+                nodes=1,
+                origin="fixture:1",
             ),
         ),
         "root",
@@ -1175,13 +1193,19 @@ def test_stylesheet_owns_public_minifier() -> None:
 @pytest.mark.parametrize("kind", ["fixpoint", "selector"])
 def test_stylesheet_consumer_rejects_wrong_output(kind: str) -> None:
     def wrong(source: str) -> str:
-        return source + "x" if kind == "fixpoint" else "q{color:red}"
+        return f"{source}x" if kind == "fixpoint" else "q{color:red}"
 
     with pytest.raises(AssertionError):
         stylesheet_observation(b"p { color: red; }", wrong)
 
 
-@pytest.mark.parametrize("source", [b"y{(:{", b'a{r:(""{'])
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(b"y{(:{", id="unclosed-block"),
+        pytest.param(b'a{r:(""{', id="unclosed-paren"),
+    ],
+)
 def test_stylesheet_consumer_skips_unclosed_css_blocks(source: bytes) -> None:
     with pytest.raises(OutOfScopeError, match="unclosed block"):
         stylesheet_observation(source)
@@ -1197,7 +1221,7 @@ def test_stylesheet_consumer_skips_unclosed_css_blocks(source: bytes) -> None:
 )
 def test_stylesheet_consumer_keeps_balanced_css_findings(source: bytes) -> None:
     with pytest.raises(AssertionError):
-        stylesheet_observation(source, lambda text: text + "x")
+        stylesheet_observation(source, lambda text: f"{text}x")
 
 
 if TYPE_CHECKING:
@@ -1228,7 +1252,7 @@ def test_rng_inline_generated_labels(engine: ModuleType, seed: int) -> None:
 @pytest.mark.parametrize("schema", ["<", '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"/>'])
 def test_rng_inline_compile_verdicts(engine: ModuleType, schema: str) -> None:
     expected: Final = False
-    case: Final = engine.Case(0, schema, expected, ())
+    case: Final = engine.Case(seed=0, schema=schema, compiles=expected, documents=())
     assert [(row.engine, row.phase, row.expected, row.actual) for row in engine.compare(case)] == [
         ("turbohtml", "compilation", expected, expected),
         ("libxml2", "compilation", expected, expected),
@@ -1237,7 +1261,7 @@ def test_rng_inline_compile_verdicts(engine: ModuleType, schema: str) -> None:
 
 @pytest.mark.oracle
 def test_rng_inline_unavailable_documents_remain_findings(engine: ModuleType) -> None:
-    case: Final = engine.Case(0, "<", compiles=False, documents=(("<v/>", True),))
+    case: Final = engine.Case(seed=0, schema="<", compiles=False, documents=(("<v/>", True),))
     assert [(row.engine, row.phase, row.expected, row.actual) for row in engine.compare(case)] == [
         ("turbohtml", "compilation", False, False),
         ("libxml2", "compilation", False, False),
@@ -1329,7 +1353,7 @@ def test_rng_inline_foreign_annotations_preserve_pattern_verdicts(
         '<grammar xmlns="http://relaxng.org/ns/structure/1.0" xmlns:doc="urn:documentation">'
         f'<start><element name="v">{body}{annotation}</element></start></grammar>'
     )
-    case: Final = engine.Case(0, schema, compiles=True, documents=documents)
+    case: Final = engine.Case(seed=0, schema=schema, compiles=True, documents=documents)
     assert [(row.engine, row.phase, row.expected, row.actual) for row in engine.compare(case)] == [
         ("turbohtml", "compilation", True, True),
         ("libxml2", "compilation", True, True),
@@ -1343,7 +1367,7 @@ def test_rng_inline_foreign_annotation_preserves_explicit_name_class(engine: Mod
         '<element xmlns="http://relaxng.org/ns/structure/1.0" xmlns:doc="urn:documentation">'
         '<doc:annotation><ref name="missing"/></doc:annotation><name>v</name><empty/></element>'
     )
-    case: Final = engine.Case(0, schema, compiles=True, documents=(("<v/>", True), ("<wrong/>", False)))
+    case: Final = engine.Case(seed=0, schema=schema, compiles=True, documents=(("<v/>", True), ("<wrong/>", False)))
     assert [row.actual == row.expected for row in engine.compare(case)] == [True] * 6
 
 
@@ -1351,9 +1375,17 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
+class _Engines(NamedTuple):
+    schema_mutation: ModuleType
+    xslt_inline: ModuleType
+    xsd_inline: ModuleType
+    rng_inline: ModuleType
+    etree: ModuleType
+
+
 @pytest.fixture
-def engines() -> tuple[ModuleType, ModuleType, ModuleType, ModuleType, ModuleType]:
-    return (
+def engines() -> _Engines:
+    return _Engines(
         pytest.importorskip("fuzz.schema_mutation", exc_type=ImportError),
         pytest.importorskip("fuzz.xslt_inline", exc_type=ImportError),
         pytest.importorskip("fuzz.xsd_inline", exc_type=ImportError),
@@ -1367,19 +1399,18 @@ def engines() -> tuple[ModuleType, ModuleType, ModuleType, ModuleType, ModuleTyp
     ("index", "count"),
     [pytest.param(1, 10, id="xslt"), pytest.param(2, 6, id="xsd"), pytest.param(3, 6, id="rng")],
 )
-@pytest.mark.parametrize("broken", [False, True], ids=["repaired", "broken"])
+@pytest.mark.parametrize(
+    "extra",
+    [pytest.param([], id="repaired"), pytest.param(["--broken-references"], id="broken")],
+)
 def test_schema_mutation_registered_cli(
     engines: tuple[ModuleType, ModuleType, ModuleType, ModuleType, ModuleType],
     capsys: pytest.CaptureFixture[str],
     index: int,
     count: int,
-    *,
-    broken: bool,
+    extra: list[str],
 ) -> None:
-    arguments = ["--cases", str(count), "--mutate"]
-    if broken:
-        arguments.append("--broken-references")
-    assert engines[index].main(arguments) == 0
+    assert engines[index].main(["--cases", str(count), "--mutate", *extra]) == 0
     assert '"findings": 0' in capsys.readouterr().out
 
 
@@ -1399,7 +1430,7 @@ def test_schema_mutation_xpath_literals_and_declarations(
         """<x:template match="/"><x:value-of select="concat('$literal', $donor, key('donor-key', 'one'))"/>
         <x:call-template name="donor-template"/></x:template>""",
     )
-    mutated: Final = engines[0].mutate(root, (donor,), 0)
+    mutated: Final = engines[0].mutate(root, (donor,), 0, broken=False)
     assert str(engines[4].XSLT(engines[4].fromstring(mutated.encode()))(engines[4].fromstring(b"<root/>"))) == (
         "$literalkepttemplate"
     )
@@ -1433,7 +1464,7 @@ def test_schema_mutation_rejects_missing_seed_contract(
     message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        engines[0].mutate(source, (source,), 0)
+        engines[0].mutate(source, (source,), 0, broken=False)
 
 
 @pytest.mark.oracle
@@ -1454,8 +1485,8 @@ def test_schema_mutation_rng_missing_recipient_definition_is_not_invented(
         '<rng:grammar xmlns:rng="http://relaxng.org/ns/structure/1.0">'
         '<rng:start><rng:element name="v"><rng:empty/></rng:element></rng:start></rng:grammar>'
     )
-    mutated: Final = engines[0].mutate(source, (engines[3].generate(0).schema,), 0)
-    case: Final = engines[3].Case(0, mutated, compiles=False, documents=())
+    mutated: Final = engines[0].mutate(source, (engines[3].generate(0).schema,), 0, broken=False)
+    case: Final = engines[3].Case(seed=0, schema=mutated, compiles=False, documents=())
     assert [(row.engine, row.expected, row.actual) for row in engines[3].compare(case)] == [
         ("turbohtml", False, False),
         ("libxml2", False, False),
@@ -1485,13 +1516,14 @@ def test_schema_mutation_binds_dictionary_prefixes(
     index: int,
     source: str,
 ) -> None:
-    mutated: Final = engines[0].mutate(source, (source,), 0)
+    mutated: Final = engines[0].mutate(source, (source,), 0, broken=False)
     reference: Final = engines[4].fromstring(mutated.encode())
-    if index == 1:
-        assert str(engines[4].XSLT(reference)(engines[4].fromstring(b"<root/>"))) == "word"
-    else:
-        validator: Final = engines[4].XMLSchema(reference) if index == 2 else engines[4].RelaxNG(reference)
-        assert validator.validate(engines[4].fromstring(b"<v/>"))
+    checks: Final = {
+        1: lambda: str(engines[4].XSLT(reference)(engines[4].fromstring(b"<root/>"))) == "word",
+        2: lambda: engines[4].XMLSchema(reference).validate(engines[4].fromstring(b"<v/>")),
+        3: lambda: engines[4].RelaxNG(reference).validate(engines[4].fromstring(b"<v/>")),
+    }
+    assert checks[index]()
 
 
 @pytest.mark.oracle
@@ -1501,7 +1533,7 @@ def test_schema_mutation_requires_one_dictionary_root(
     source: str,
 ) -> None:
     with pytest.raises(ValueError, match="one root element"):
-        engines[0].mutate(source, (source,), 0)
+        engines[0].mutate(source, (source,), 0, broken=False)
 
 
 if TYPE_CHECKING:
@@ -1525,7 +1557,7 @@ def test_xslt_inline_generated_phase_labels(fuzz_xslt_inline_engines: tuple[Modu
     assert [(row.engine, row.phase, row.actual == row.expected) for row in rows] == [
         (name, phase, True)
         for name in ("turbohtml", "libxslt")
-        for phase in (("compilation", "application", "result") if case.applies else ("compilation", "application"))
+        for phase in ("compilation", "application", "result")[: 2 + int(case.applies)]
     ]
 
 
@@ -1565,10 +1597,12 @@ def test_xslt_inline_xml_content_is_preserved(
 ) -> None:
     engine: Final = fuzz_xslt_inline_engines[0]
     stylesheet: Final = (
-        '<x:stylesheet xmlns:x="http://www.w3.org/1999/XSL/Transform" version="1.0">'
-        '<x:output method="xml"/><x:template match="/">' + body + "</x:template></x:stylesheet>"
+        '<x:stylesheet xmlns:x="http://www.w3.org/1999/XSL/Transform" version="1.0"><x:output '
+        f'method="xml"/><x:template match="/">{body}</x:template></x:stylesheet>'
     )
-    case: Final = engine.Case(0, stylesheet, "<root/>", "xml", compiles=True, applies=True, output=output)
+    case: Final = engine.Case(
+        seed=0, stylesheet=stylesheet, document="<root/>", method="xml", compiles=True, applies=True, output=output
+    )
     assert [(row.engine, row.phase, row.actual == row.expected) for row in engine.compare(case)] == [
         (name, phase, True) for name in ("turbohtml", "libxslt") for phase in ("compilation", "application", "result")
     ]
@@ -1579,7 +1613,9 @@ def test_xslt_inline_malformed_stylesheet_retains_unavailable_application(
     fuzz_xslt_inline_engines: tuple[ModuleType, ModuleType],
 ) -> None:
     engine: Final = fuzz_xslt_inline_engines[0]
-    case: Final = engine.Case(0, "<", "<root/>", "text", compiles=False, applies=False, output=None)
+    case: Final = engine.Case(
+        seed=0, stylesheet="<", document="<root/>", method="text", compiles=False, applies=False, output=None
+    )
     assert [(row.engine, row.phase, row.expected, row.actual) for row in engine.compare(case)] == [
         ("turbohtml", "compilation", False, False),
         ("turbohtml", "application", None, None),
@@ -1592,26 +1628,42 @@ def test_xslt_inline_malformed_stylesheet_retains_unavailable_application(
 @pytest.mark.parametrize(
     ("arguments", "expected"),
     [
-        pytest.param([], (0, 0, 20), id="labelled-families"),
-        pytest.param(["--negative-control"], (1, 10, 20), id="wrong-result"),
-        pytest.param(["--mutate"], (0, 0, 24), id="repaired-subtrees"),
-        pytest.param(["--mutate", "--broken-references"], (0, 0, 0), id="broken-references"),
+        pytest.param(
+            [],
+            (0, 0, {"compilation": 24, "application": 24, "result": 20}),
+            id="labelled-families",
+        ),
+        pytest.param(
+            ["--negative-control"],
+            (1, 10, {"compilation": 24, "application": 24, "result": 20}),
+            id="wrong-result",
+        ),
+        pytest.param(
+            ["--mutate"],
+            (0, 0, {"compilation": 24, "application": 24, "result": 24}),
+            id="repaired-subtrees",
+        ),
+        pytest.param(
+            ["--mutate", "--broken-references"],
+            (0, 0, {"compilation": 24, "application": 24}),
+            id="broken-references",
+        ),
     ],
 )
 def test_xslt_inline_cli_outcome_counts(
     fuzz_xslt_inline_engines: tuple[ModuleType, ModuleType],
     capsys: pytest.CaptureFixture[str],
     arguments: list[str],
-    expected: tuple[int, int, int],
+    expected: tuple[int, int, dict[str, int]],
 ) -> None:
-    exit_status, findings, results = expected
+    exit_status, findings, phases = expected
     assert fuzz_xslt_inline_engines[0].main(arguments) == exit_status
     rows: Final = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert rows[-1] == {
         "summary": {
             "cases": 12,
             "findings": findings,
-            "phases": {"compilation": 24, "application": 24, **({"result": results} if results else {})},
+            "phases": phases,
         },
     }
 
@@ -1638,7 +1690,7 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
-_TARGETS: Final = content_targets()
+_TARGETS: Final[tuple[Target, ...]] = content_targets()
 
 
 @pytest.mark.parametrize("target", _TARGETS, ids=lambda target: target.name)
@@ -1649,7 +1701,7 @@ def test_content_target_behaviors(target: Target, data: bytes) -> None:
 
 def test_content_targets_have_unique_owners() -> None:
     exports: Final = [export for target in _TARGETS for export in target.exports]
-    assert len(exports) == len(set(exports)) == 90
+    assert len(exports) == len(set(exports)) == 91
 
 
 def test_content_sanitizer_removes_attributes_and_comments() -> None:
@@ -1680,13 +1732,21 @@ def test_content_sanitizer_rejects_wrong_renderer_result() -> None:
         sanitizer_check(b"wrong", render)
 
 
-@pytest.mark.parametrize("kind", ["css-semantics", "css-fixpoint", "js-fixpoint"])
-def test_content_minifier_rejects_wrong_output(kind: str) -> None:
-    def wrong(source: str) -> str:
-        return "q{color:blue}" if kind == "css-semantics" else source + "x"
-
+@pytest.mark.parametrize(
+    "wrong",
+    [
+        pytest.param(lambda _source: "q{color:blue}", id="css-semantics"),
+        pytest.param(lambda source: f"{source}x", id="css-fixpoint"),
+    ],
+)
+def test_content_minifier_rejects_wrong_css_output(wrong: Callable[[str], str]) -> None:
     with pytest.raises(AssertionError, match="Content API mismatch"):
-        minifier_check(b"x", js=wrong) if kind == "js-fixpoint" else minifier_check(b"x", css=wrong)
+        minifier_check(b"x", css=wrong)
+
+
+def test_content_minifier_rejects_wrong_js_fixpoint() -> None:
+    with pytest.raises(AssertionError, match="Content API mismatch"):
+        minifier_check(b"x", js=lambda source: f"{source}x")
 
 
 def test_content_url_rejects_stable_wrong_host() -> None:
@@ -1731,13 +1791,13 @@ def test_content_chunks_reject_dropped_chunk(
 
 def test_content_url_rejects_unstable_reparse() -> None:
     with pytest.raises(AssertionError, match="reparse changes normalized URL"):
-        url_check(b"x", lambda source: source + "/")
+        url_check(b"x", lambda source: f"{source}/")
 
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
-_DOMAINS: Final = (
+_DOMAINS: Final[tuple[str, ...]] = (
     "dom-construction",
     "dom-elementtree",
     "dom-traversal",
@@ -1779,7 +1839,7 @@ def test_dom_registered_callback(domain: str) -> None:
 def test_dom_ownership() -> None:
     targets: Final = dom_targets()
     exports: Final = [export for target in targets for export in target.exports]
-    assert (tuple(target.name for target in targets), len(exports), len(set(exports))) == (_DOMAINS, 78, 78)
+    assert (tuple(target.name for target in targets), len(exports), len(set(exports))) == (_DOMAINS, 81, 81)
 
 
 def test_dom_verification_rejects_changed_result() -> None:
@@ -1824,7 +1884,7 @@ def test_dom_elementtree_without_lxml(mocker: MockerFixture) -> None:
     ))
 
 
-_UNPLACED: Final = ((None, None, None),) * 3
+_UNPLACED: Final[tuple[tuple[None, None, None], ...]] = ((None, None, None),) * 3
 
 
 def test_atheris_parser_document_output() -> None:
@@ -1844,7 +1904,9 @@ def test_atheris_parser_document_output() -> None:
         ),
     ],
 )
-def test_atheris_parser_incremental_output(header: Header, positions: tuple[object, ...]) -> None:
+def test_atheris_parser_incremental_output(
+    header: Header, positions: tuple[tuple[int | None, int | None, SourceLocation | None], ...]
+) -> None:
     assert incremental_observation("<p>水😀</p>".encode(), header) == (
         "<html><head></head><body><p>水😀</p></body></html>",
         positions,
@@ -1890,7 +1952,11 @@ def test_atheris_parser_token_fields() -> None:
         pytest.param(b'<p id="a">', 4, (("START_TAG", "p", None, (), False, 1, 0),), id="no-attributes"),
     ],
 )
-def test_atheris_parser_token_options(data: bytes, opts: int, expected: tuple[object, ...]) -> None:
+def test_atheris_parser_token_options(
+    data: bytes,
+    opts: int,
+    expected: tuple[tuple[str, str | None, str | None, tuple[tuple[str, str], ...] | None, bool, int, int], ...],
+) -> None:
     assert token_observation(data, Header(opts, 0, 2)) == expected
 
 
@@ -2070,12 +2136,18 @@ def test_atheris_reference_xml_rejection_is_documented() -> None:
 @pytest.mark.parametrize(
     ("observe", "oracle", "data"),
     [
-        pytest.param(schema_observation, "xml", b"<root>text</root>", id="xml-fixpoint"),
-        pytest.param(cssom_observation, "style", b"color: red", id="style-fixpoint"),
-        pytest.param(selector_observation, "entries", b"p.x", id="selector-entries"),
+        pytest.param(partial(schema_observation), "xml", b"<root>text</root>", id="xml-fixpoint"),
+        pytest.param(partial(cssom_observation), "style", b"color: red", id="style-fixpoint"),
+        pytest.param(partial(selector_observation), "entries", b"p.x", id="selector-entries"),
     ],
 )
-def test_reference_reports_oracle_failure(observe: Callable[..., object], oracle: str, data: bytes) -> None:
+def test_reference_reports_oracle_failure(
+    observe: partial[tuple[bool, bool]]
+    | partial[tuple[str, tuple[tuple[int, int, int], ...]]]
+    | partial[tuple[tuple[str, str, bool], ...]],
+    oracle: str,
+    data: bytes,
+) -> None:
     with pytest.raises(AssertionError, match=r"^oracle broke$"):
         observe(data, **{oracle: lambda _text: "oracle broke"})
 
@@ -2091,7 +2163,7 @@ def test_atheris_targets_complete_qualified_inventory() -> None:
         len(MODULES),
         {name: owners[name] for name in ("turbohtml.parse", "turbohtml.parse_xml", "turbohtml.__main__.main")},
     ) == (
-        223,
+        227,
         21,
         {
             "turbohtml.parse": "html-document",
@@ -2160,7 +2232,7 @@ def test_atheris_driver_connects_exception_boundary(mocker: MockerFixture) -> No
             raise UnicodeError(message)
         accepted.append(data)
 
-    target = Target("cli", consume, ("turbohtml.__main__.main",), (UnicodeError,))
+    target = Target(name="cli", callback=consume, exports=("turbohtml.__main__.main",), exceptions=(UnicodeError,))
     runtime = mocker.MagicMock(spec=["Setup", "Fuzz", "instrument_func", "instrument_all"])
     runtime.instrument_func.side_effect = lambda callback: callback
     mocker.patch("fuzz.atheris_driver.import_module", autospec=True, return_value=runtime)
@@ -2199,8 +2271,9 @@ def test_atheris_registry_executes_qualified_owner(mocker: MockerFixture, capsys
         mocker.patch.object(sys, "stdin", io.StringIO(data.decode()))
         assert fuzz_atheris_registry_main(["minify-css"]) == 0
 
-    target = Target("cli-css", minify, ("turbohtml.__main__.main",))
-    owners = validate_owners([target], ["turbohtml.__main__"])
+    owners = validate_owners(
+        [Target(name="cli-css", callback=minify, exports=("turbohtml.__main__.main",))], ["turbohtml.__main__"]
+    )
     owners["turbohtml.__main__.main"].callback(b"a { color: red }")
     assert capsys.readouterr().out == "a{color:red}"
 
@@ -2217,35 +2290,42 @@ def test_atheris_registry_executes_qualified_owner(mocker: MockerFixture, capsys
     ],
 )
 def test_atheris_registry_rejects_ownership_gap(exports: tuple[str, ...], expected: str) -> None:
-    target = Target("unassigned", print, exports)
+    target = Target(name="unassigned", callback=print, exports=exports)
     with pytest.raises(ValueError, match="Export ownership mismatch") as raised:
         validate_owners([target], ["turbohtml.__main__"])
     assert str(raised.value) == f"Export ownership mismatch: {expected}"
 
 
 def test_atheris_registry_rejects_duplicate_qualified_owner() -> None:
-    target = Target("duplicate", print, ("turbohtml.__main__.main",))
+    target = Target(name="duplicate", callback=print, exports=("turbohtml.__main__.main",))
     with pytest.raises(ValueError, match=r"Duplicate export owners: turbohtml\.__main__\.main"):
         validate_owners([target, target], ["turbohtml.__main__"])
 
 
 def test_atheris_registry_rejects_duplicate_target_name() -> None:
-    targets = [Target("same", print, ("first.export",)), Target("same", print, ("second.export",))]
+    targets = [
+        Target(name="same", callback=print, exports=("first.export",)),
+        Target(name="same", callback=print, exports=("second.export",)),
+    ]
     with pytest.raises(ValueError, match="Duplicate target names"):
         validate_owners(targets, [])
 
 
 def test_atheris_registry_runs_whole_payload_without_chunked_consumer() -> None:
     seen: list[bytes] = []
-    Target("whole", seen.append, ()).run(b"payload", Header(1, 2, 3))
+    Target(name="whole", callback=seen.append, exports=()).run(b"payload", Header(1, 2, 3))
     assert seen == [b"payload"]
 
 
 def test_atheris_registry_runs_chunked_consumer_with_header() -> None:
     seen: list[tuple[bytes, Header]] = []
-    Target("chunked", print, (), (), lambda payload, header: seen.append((payload, header))).run(
-        b"payload", Header(1, 2, 3)
-    )
+    Target(
+        name="chunked",
+        callback=print,
+        exports=(),
+        exceptions=(),
+        chunked=lambda payload, header: seen.append((payload, header)),
+    ).run(b"payload", Header(1, 2, 3))
     assert seen == [(b"payload", Header(1, 2, 3))]
 
 
@@ -2253,10 +2333,12 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-@pytest.mark.parametrize("instrumented", [pytest.param(False, id="release"), pytest.param(True, id="coverage")])
-@pytest.mark.parametrize("via_cli", [pytest.param(False, id="build"), pytest.param(True, id="cli")])
+@pytest.mark.parametrize(
+    ("coverage", "flags"),
+    [pytest.param(False, [], id="release"), pytest.param(True, ["--coverage"], id="coverage")],
+)
 def test_atheris_runtime_build_keeps_archive(
-    mocker: MockerFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, via_cli: bool, instrumented: bool
+    mocker: MockerFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: list[str], *, coverage: bool
 ) -> None:
     archive = tmp_path / "wheel-runtime.a"
     archive.write_bytes(b"original archive")
@@ -2264,20 +2346,11 @@ def test_atheris_runtime_build_keeps_archive(
         monkeypatch.delenv(name, raising=False)
     output = tmp_path / "built"
     run = mocker.patch("subprocess.run", autospec=True, return_value=None)
-    if via_cli:
-        assert (
-            fuzz_atheris_runtime_main([
-                "--archive",
-                str(archive),
-                "--output",
-                str(output),
-                *(["--coverage"] if instrumented else []),
-            ])
-            == 0
-        )
-    else:
-        assert build_runtime(archive, output, coverage=instrumented) == output / "libatheris_fuzzer.so"
-    commands = [call.args[0] for call in run.call_args_list]
+    assert build_runtime(archive, output, coverage=coverage) == output / "libatheris_fuzzer.so"
+    _assert_runtime_archive_kept(archive, output, [call.args[0] for call in run.call_args_list], flags)
+
+
+def _assert_runtime_archive_kept(archive: Path, output: Path, commands: list[list[str]], flags: list[str]) -> None:
     assert (archive.read_bytes(), (output / "runtime.a").read_bytes(), len(commands), commands[0], commands[2]) == (
         b"original archive",
         b"original archive",
@@ -2299,20 +2372,34 @@ def test_atheris_runtime_build_keeps_archive(
             "-Wl,--no-whole-archive",
             "-ldl",
             "-pthread",
-            *(["--coverage"] if instrumented else []),
+            *flags,
         ],
     )
+
+
+@pytest.mark.parametrize("flags", [[], ["--coverage"]], ids=["release", "coverage"])
+def test_atheris_runtime_cli_keeps_archive(
+    mocker: MockerFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: list[str]
+) -> None:
+    archive = tmp_path / "wheel-runtime.a"
+    archive.write_bytes(b"original archive")
+    for name in ("CC", "CXX", "OBJCOPY"):
+        monkeypatch.delenv(name, raising=False)
+    output = tmp_path / "built"
+    run = mocker.patch("subprocess.run", autospec=True, return_value=None)
+    assert fuzz_atheris_runtime_main(["--archive", str(archive), "--output", str(output), *flags]) == 0
+    _assert_runtime_archive_kept(archive, output, [call.args[0] for call in run.call_args_list], flags)
 
 
 @pytest.mark.parametrize(
     ("members", "deleted"),
     [
         pytest.param("asan_rtl.cpp.o\nasan_preinit.cpp.o\n", ["asan_preinit.cpp.o"], id="preinit"),
-        pytest.param("ubsan_handlers.cpp.o\n", None, id="no-preinit"),
+        pytest.param("ubsan_handlers.cpp.o\n", [], id="no-preinit"),
     ],
 )
 def test_atheris_runtime_merges_sanitizer_without_preinit(
-    mocker: MockerFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, members: str, deleted: list[str] | None
+    mocker: MockerFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, members: str, deleted: list[str]
 ) -> None:
     archive = tmp_path / "wheel-runtime.a"
     archive.write_bytes(b"original archive")
@@ -2320,7 +2407,7 @@ def test_atheris_runtime_merges_sanitizer_without_preinit(
     sanitizer.write_bytes(b"sanitizer archive")
     monkeypatch.delenv("AR", raising=False)
     output = tmp_path / "built"
-    run = mocker.patch("subprocess.run", autospec=True, return_value=mocker.MagicMock(stdout=members))
+    run = mocker.patch("subprocess.run", autospec=True, return_value=mocker.MagicMock(spec=["stdout"], stdout=members))
     assert (
         fuzz_atheris_runtime_main(["--archive", str(archive), "--output", str(output), "--sanitizer", str(sanitizer)])
         == 0
@@ -2330,7 +2417,7 @@ def test_atheris_runtime_merges_sanitizer_without_preinit(
     assert (sanitizer.read_bytes(), (output / "sanitizer.a").read_bytes(), commands[2:-1], commands[-1][6:9]) == (
         b"sanitizer archive",
         b"sanitizer archive",
-        [["ar", "t", merged], *([] if deleted is None else [["ar", "d", merged, *deleted]])],
+        [["ar", "t", merged], ["ar", "d", merged, *deleted]][: 1 + bool(deleted)],
         [str(output / "runtime.a"), merged, "-Wl,--no-whole-archive"],
     )
 
@@ -2374,9 +2461,9 @@ def test_atheris_callback_preserves_unexpected_error() -> None:
 
 
 def test_atheris_callback_opens_and_closes_failure_window(mocker: MockerFixture) -> None:
-    inject = mocker.MagicMock(return_value=(3, False))
-    target = mocker.MagicMock()
-    rejecting_callback(target, (), mocker.MagicMock(), inject)(Header(2, 7, 1).encode() + b"x")
+    inject = mocker.create_autospec(lambda _position: None, return_value=(3, False))
+    target = mocker.create_autospec(lambda _data, _header: None)
+    rejecting_callback(target, (), mocker.create_autospec(lambda: None), inject)(Header(2, 7, 1).encode() + b"x")
     assert (inject.call_args_list, target.call_args_list) == (
         [mocker.call(7), mocker.call(0)],
         [mocker.call(b"x", Header(2, 7, 1))],
@@ -2387,37 +2474,41 @@ def test_atheris_callback_keeps_injected_memory_error(mocker: MockerFixture) -> 
     def consume(_data: bytes, _header: Header) -> None:
         raise MemoryError
 
-    reject = mocker.MagicMock()
+    reject = mocker.create_autospec(lambda: None)
     rejecting_callback(consume, (UnicodeError,), reject, lambda _position: (1, True))(SEED_HEADER)
     assert reject.call_count == 0
 
 
-@pytest.mark.parametrize("lossy", [False, True], ids=["strict", "lossy"])
-def test_atheris_callback_handles_injected_assertion(*, lossy: bool) -> None:
+def test_atheris_callback_handles_injected_assertion_strict() -> None:
+    def consume(_data: bytes, _header: Header) -> None:
+        msg = "record lost"
+        raise AssertionError(msg)
+
+    callback = rejecting_callback(consume, (), lambda: None, lambda _position: (1, True))
+    with pytest.raises(AssertionError, match="record lost"):
+        callback(SEED_HEADER)
+
+
+def test_atheris_callback_handles_injected_assertion_lossy() -> None:
     def consume(_data: bytes, _header: Header) -> None:
         msg = "record lost"
         raise AssertionError(msg)
 
     callback = rejecting_callback(
-        consume, (), lambda: None, lambda _position: (1, True), lossy_on_allocation_failure=lossy
+        consume, (), lambda: None, lambda _position: (1, True), lossy_on_allocation_failure=True
     )
-    if lossy:
-        callback(SEED_HEADER)
-    else:
-        with pytest.raises(AssertionError, match="record lost"):
-            callback(SEED_HEADER)
+    callback(SEED_HEADER)
 
 
 @pytest.mark.parametrize(
     ("raised", "failed", "error", "match"),
     [
         pytest.param(MemoryError, False, MemoryError, "^$", id="uninjected-memory-error"),
-        pytest.param(None, True, None, "", id="recovered-allocation"),
         pytest.param(UnicodeError, True, AssertionError, "^UnicodeError for an injected", id="injected-documented"),
     ],
 )
 def test_atheris_callback_reports_failure_mismatch(
-    mocker: MockerFixture, raised: type[Exception] | None, error: type[Exception] | None, match: str, *, failed: bool
+    mocker: MockerFixture, raised: type[Exception], error: type[Exception], match: str, *, failed: bool
 ) -> None:
     calls = 0
 
@@ -2427,13 +2518,16 @@ def test_atheris_callback_reports_failure_mismatch(
         if raised is not None and (not failed or calls == 1):
             raise raised
 
-    reject = mocker.MagicMock()
+    reject = mocker.create_autospec(lambda: None)
     callback = rejecting_callback(consume, (UnicodeError,), reject, lambda _position: (1, failed))
-    if error is None:
+    with pytest.raises(error, match=match):
         callback(SEED_HEADER)
-    else:
-        with pytest.raises(error, match=match):
-            callback(SEED_HEADER)
+    assert reject.call_count == 0
+
+
+def test_atheris_callback_recovers_from_injected_allocation(mocker: MockerFixture) -> None:
+    reject = mocker.create_autospec(lambda: None)
+    rejecting_callback(lambda _data, _header: None, (UnicodeError,), reject, lambda _position: (1, True))(SEED_HEADER)
     assert reject.call_count == 0
 
 
@@ -2442,7 +2536,7 @@ def test_atheris_callback_rejects_documented_error_after_injection(mocker: Mocke
         msg = "invalid input"
         raise UnicodeError(msg)
 
-    reject = mocker.MagicMock()
+    reject = mocker.create_autospec(lambda: None)
     rejecting_callback(consume, (UnicodeError,), reject, lambda _position: (1, True))(SEED_HEADER)
     reject.assert_called_once_with()
 
@@ -2454,7 +2548,7 @@ def test_atheris_rejection_hook_propagates_loader_error(mocker: MockerFixture) -
 
 
 def test_atheris_failure_hook_requires_fuzzing_build() -> None:
-    with pytest.raises(KeyError, match="_fuzz_inject_failure"):
+    with pytest.raises(AttributeError, match="_fuzz_inject_failure"):
         failure_hook()
 
 
@@ -2588,7 +2682,7 @@ def test_xsd_inline_generated_labels(fuzz_xsd_inline_engine: ModuleType, seed: i
 @pytest.mark.parametrize("schema", ["<", '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"/>'])
 def test_xsd_inline_compile_verdicts(fuzz_xsd_inline_engine: ModuleType, schema: str) -> None:
     expected: Final = schema != "<"
-    case: Final = fuzz_xsd_inline_engine.Case(0, schema, expected, ())
+    case: Final = fuzz_xsd_inline_engine.Case(seed=0, schema=schema, compiles=expected, documents=())
     assert [(row.engine, row.phase, row.expected, row.actual) for row in fuzz_xsd_inline_engine.compare(case)] == [
         ("turbohtml", "compilation", expected, expected),
         ("libxml2", "compilation", expected, expected),
@@ -2597,7 +2691,7 @@ def test_xsd_inline_compile_verdicts(fuzz_xsd_inline_engine: ModuleType, schema:
 
 @pytest.mark.oracle
 def test_xsd_inline_unavailable_documents_remain_findings(fuzz_xsd_inline_engine: ModuleType) -> None:
-    case: Final = fuzz_xsd_inline_engine.Case(0, "<", compiles=False, documents=(("<v/>", True),))
+    case: Final = fuzz_xsd_inline_engine.Case(seed=0, schema="<", compiles=False, documents=(("<v/>", True),))
     assert [(row.engine, row.phase, row.expected, row.actual) for row in fuzz_xsd_inline_engine.compare(case)] == [
         ("turbohtml", "compilation", False, False),
         ("libxml2", "compilation", False, False),
@@ -2693,17 +2787,23 @@ def test_encoding_aliases_preserve_public_text(declared: str) -> None:
     ("check", "expected"),
     [
         pytest.param(
-            lambda case: encoding_stream_check(case, one_shot=lambda _data: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_stream_check(
+                case, one_shot=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "one-shot detection differs from expected match",
             id="wrong-one-shot",
         ),
         pytest.param(
-            lambda case: encoding_stream_check(case, stream=lambda _data, _width: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_stream_check(
+                case, stream=lambda _data, _width: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "chunked detection differs from expected match",
             id="wrong-stream",
         ),
         pytest.param(
-            lambda case: encoding_decode_check(case, detect_bytes=lambda _data: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_decode_check(
+                case, detect_bytes=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "detection differs from expected match",
             id="wrong-detection",
         ),
@@ -2760,17 +2860,23 @@ def test_encoding_meta_remap_preserves_public_text(declared: str) -> None:
     ("check", "expected"),
     [
         pytest.param(
-            lambda case: encoding_stream_check(case, one_shot=lambda _data: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_stream_check(
+                case, one_shot=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "one-shot detection differs from expected match",
             id="wrong-one-shot",
         ),
         pytest.param(
-            lambda case: encoding_stream_check(case, stream=lambda _data, _width: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_stream_check(
+                case, stream=lambda _data, _width: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "chunked detection differs from expected match",
             id="wrong-stream",
         ),
         pytest.param(
-            lambda case: encoding_decode_check(case, detect_bytes=lambda _data: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_decode_check(
+                case, detect_bytes=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "detection differs from expected match",
             id="wrong-detection",
         ),
@@ -2852,7 +2958,7 @@ def test_idna_nfc_rejects_unsupported_grammar(case: str) -> None:
             id="output-rejection",
         ),
         pytest.param(
-            lambda text: text + "x" if text.isascii() else normalize_url(text),
+            lambda text: f"{text}x" if text.isascii() else normalize_url(text),
             "canonical host changes on repeat",
             id="changed-repeat",
         ),
@@ -2874,7 +2980,7 @@ def test_idna_nfc_registry_controls_and_seed_floor() -> None:
         len(seeds),
         all(ORACLES["idna-nfc"].check(case) is None for case in seeds),
         ORACLES["idna-nfc"].floor,
-    ) == (True, 160, True, Floor(100, 1))
+    ) == (True, 160, True, Floor(count=100, ratio=1))
 
 
 def test_idna_nfc_generated_cases_compare() -> None:
@@ -2892,7 +2998,7 @@ def test_idna_nfc_cli_detects_stable_wrong_mapping(mocker: MockerFixture, tmp_pa
         ORACLES["idna-nfc"],
         check=partial(idna_nfc_check, normalize=lambda _text: "https://wrong.example/"),
         seeds=lambda: ["reorder:"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"idna-nfc": oracle}, clear=True)
     assert (
@@ -2966,7 +3072,7 @@ def test_parser_byte_oracle_pins_text_and_canonical_label(
         pytest.param("utf8:", id="empty-prefix"),
         pytest.param("utf8:é", id="non-ascii-prefix"),
         pytest.param("utf8:g<p>", id="markup-prefix"),
-        pytest.param("utf8:g" + "1" * 16, id="overlong-prefix"),
+        pytest.param(f"utf8:g{'1' * 16}", id="overlong-prefix"),
     ],
 )
 def test_parser_byte_oracle_rejects_unsupported_grammar(source: str) -> None:
@@ -3057,7 +3163,7 @@ def test_parser_byte_cli_reports_valid_fixture_rejection(mocker: MockerFixture, 
         ORACLES["parser-bytes"],
         check=partial(parser_bytes_check, one_shot=_reject_fixture),
         seeds=lambda: ["utf8:g"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"parser-bytes": oracle}, clear=True)
     status: Final = fuzz_parser_byte_invariants_main([
@@ -3081,7 +3187,7 @@ def _reject_fixture(_data: bytes, _label: str) -> tuple[str, str | None]:
 def test_parser_byte_cli_rejects_vacuous_run(mocker: MockerFixture, tmp_path: Path) -> None:
     mocker.patch.dict(
         ORACLES,
-        {"parser-bytes": replace(ORACLES["parser-bytes"], seeds=lambda: ["unknown:g"], floor=Floor(1, 1))},
+        {"parser-bytes": replace(ORACLES["parser-bytes"], seeds=lambda: ["unknown:g"], floor=Floor(count=1, ratio=1))},
         clear=True,
     )
     assert (
@@ -3117,7 +3223,17 @@ def test_idna_invariant_pins_public_output(case: str, source: str, expected: str
     assert (normalize_url(f"https://{source}/"), normalize_url(url), idna_host_check(case)) == (url, url, None)
 
 
-@pytest.mark.parametrize("case", ["", "umlaut", "unknown\n", "umlaut\nA", "umlaut\nabcdefghi", "umlaut\na\nb"])
+@pytest.mark.parametrize(
+    "case",
+    [
+        pytest.param("", id="empty"),
+        pytest.param("umlaut", id="umlaut"),
+        pytest.param("unknown\n", id="unknown-newline"),
+        pytest.param("umlaut\nA", id="umlaut-newline-a"),
+        pytest.param("umlaut\nabcdefghi", id="umlaut-newline-long"),
+        pytest.param("umlaut\na\nb", id="umlaut-two-newlines"),
+    ],
+)
 def test_idna_invariant_counts_unsupported_cases(case: str) -> None:
     with pytest.raises(OutOfScopeError):
         idna_host_check(case)
@@ -3146,7 +3262,7 @@ def test_idna_invariant_counts_unsupported_cases(case: str) -> None:
             id="output-rejection",
         ),
         pytest.param(
-            lambda text: text + "a" if text.isascii() else normalize_url(text),
+            lambda text: f"{text}a" if text.isascii() else normalize_url(text),
             "IDNA output is not a fixpoint",
             id="unstable-output",
         ),
@@ -3173,7 +3289,7 @@ def test_idna_registry_has_discriminating_controls_and_seed_floor() -> None:
         True,
         160,
         True,
-        Floor(100, 0.95),
+        Floor(count=100, ratio=0.95),
     )
 
 
@@ -3182,7 +3298,7 @@ def test_idna_cli_writes_mapping_failure(mocker: MockerFixture, tmp_path: Path) 
         ORACLES["idna-host"],
         check=partial(idna_host_check, normalize=lambda text: text),
         seeds=lambda: ["umlaut\n"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"idna-host": oracle}, clear=True)
     status: Final = fuzz_idna_invariants_main(["--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -3208,9 +3324,6 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-_BASE: Final = "http://example.test/b/c/d;p?q"
-
-
 @pytest.mark.parametrize(
     ("case", "reference", "expected"),
     [
@@ -3225,11 +3338,12 @@ _BASE: Final = "http://example.test/b/c/d;p?q"
     ],
 )
 def test_resolve_links_oracle_pins_first_and_repeated_targets(case: str, reference: str, expected: str) -> None:
+    base: str = "http://example.test/b/c/d;p?q"
     document = parse_fragment('<a href="">link</a>')
     document.select("a")[0].attrs["href"] = reference
-    document.resolve_links(_BASE)
+    document.resolve_links(base)
     first: Final = document.links()[0].url
-    document.resolve_links(_BASE)
+    document.resolve_links(base)
     assert (first, document.links()[0].url, resolve_links_check(f"{case}:g")) == (expected, expected, None)
 
 
@@ -3241,7 +3355,7 @@ def test_resolve_links_oracle_pins_first_and_repeated_targets(case: str, referen
         pytest.param("parent:", id="empty-leaf"),
         pytest.param("parent:g/path", id="path-in-leaf"),
         pytest.param("parent:é", id="unicode-leaf"),
-        pytest.param("parent:g" + "1" * 16, id="overlong-leaf"),
+        pytest.param(f"parent:g{'1' * 16}", id="overlong-leaf"),
     ],
 )
 def test_resolve_links_oracle_counts_unsupported_grammar(source: str) -> None:
@@ -3255,7 +3369,7 @@ def _wrong_target(node: Node, _base: str) -> None:
 
 def _changed_repeat(node: Node, base: str) -> None:
     if node.links()[0].url.startswith("http:"):
-        node.select("a")[0].attrs["href"] = node.links()[0].url + "a"
+        node.select("a")[0].attrs["href"] = f"{node.links()[0].url}a"
     else:
         node.resolve_links(base)
 
@@ -3305,7 +3419,7 @@ def test_resolve_links_cli_writes_wrong_target_finding(mocker: MockerFixture, tm
         ORACLES["resolve-links"],
         check=partial(resolve_links_check, resolve=_wrong_target),
         seeds=lambda: ["parent:g"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"resolve-links": oracle}, clear=True)
     result: Final = fuzz_resolve_links_invariants_main([
@@ -3330,7 +3444,7 @@ def test_resolve_links_cli_writes_wrong_target_finding(mocker: MockerFixture, tm
 def test_resolve_links_cli_rejects_vacuous_run(mocker: MockerFixture, tmp_path: Path) -> None:
     mocker.patch.dict(
         ORACLES,
-        {"resolve-links": replace(ORACLES["resolve-links"], seeds=lambda: ["parent"], floor=Floor(1, 1))},
+        {"resolve-links": replace(ORACLES["resolve-links"], seeds=lambda: ["parent"], floor=Floor(count=1, ratio=1))},
         clear=True,
     )
     assert (
@@ -3361,7 +3475,7 @@ if TYPE_CHECKING:
         ),
         pytest.param(
             "p:Leaf:double:3:plain",
-            '<Root xmlns:p="urn:p">' + '<p:Leaf p:Key="Value" Key="Other">MiXeD</p:Leaf>' * 3 + "</Root>",
+            f"""<Root xmlns:p="urn:p">{'<p:Leaf p:Key="Value" Key="Other">MiXeD</p:Leaf>' * 3}</Root>""",
             [("Root", {"xmlns:p": "urn:p"}, "MiXeDMiXeDMiXeD")]
             + [("p:Leaf", {"p:Key": "Value", "Key": "Other"}, "MiXeD")] * 3,
             id="three-identical-children",
@@ -3495,7 +3609,7 @@ def test_xml_literal_cli_emits_changed_declaration(mocker: MockerFixture, tmp_pa
             serialize=lambda _node: '<Root xmlns:p="urn:wrong"><p:Leaf p:Key="Value" Key="Other">MiXeD</p:Leaf></Root>',
         ),
         seeds=lambda: ["p:Leaf:double:1:plain"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"xml-literal-grammar": oracle}, clear=True)
     status: Final = fuzz_xml_literal_invariants_main([
@@ -3519,7 +3633,7 @@ def test_xml_literal_cli_emits_changed_declaration(mocker: MockerFixture, tmp_pa
 def test_xml_literal_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["xml-literal-grammar"], seeds=lambda: ["invalid"], floor=Floor(1, 1))
+    oracle: Final = replace(ORACLES["xml-literal-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
     mocker.patch.dict(ORACLES, {"xml-literal-grammar": oracle}, clear=True)
     status: Final = fuzz_xml_literal_invariants_main([
         "--oracle",
@@ -3552,7 +3666,7 @@ if TYPE_CHECKING:
         ),
         pytest.param(
             "outside:plain:plain:2",
-            "<!--lead &amp;--><Root>" + "<!--note--><![CDATA[Value]]>&lt;&amp;" * 2 + "</Root><!--tail-->",
+            f"<!--lead &amp;--><Root>{'<!--note--><![CDATA[Value]]>&lt;&amp;' * 2}</Root><!--tail-->",
             [("Comment", "lead &amp;", "Document"), ("Element", "Root", "Document")]
             + [("Comment", "note", "Root"), ("CData", "Value", "Root"), ("Text", "<&", "Root")] * 2
             + [("Comment", "tail", "Document")],
@@ -3582,7 +3696,7 @@ if TYPE_CHECKING:
         ),
         pytest.param(
             "inside:plain:markup:3",
-            "<Root>" + "<!--note--><![CDATA[<x>&amp;]]>&lt;&amp;" * 3 + "</Root>",
+            f"<Root>{'<!--note--><![CDATA[<x>&amp;]]>&lt;&amp;' * 3}</Root>",
             [("Element", "Root", "Document")]
             + [("Comment", "note", "Root"), ("CData", "<x>&amp;", "Root"), ("Text", "<&", "Root")] * 3,
             id="three-lexical-groups",
@@ -3592,11 +3706,7 @@ if TYPE_CHECKING:
 def test_xml_island_literal_nodes(case: str, source: str, expected: list[tuple[str, str, str]]) -> None:
     assert (
         [
-            (
-                type(node).__name__,
-                node.tag if isinstance(node, Element) else node.data,
-                parent.tag if isinstance(parent := node.parent, Element) else "Document",
-            )
+            (type(node).__name__, _island_value(node), _island_parent(node))
             for node in parse_xml(source).descendants
             if isinstance(node, (Element, Comment, CData, Text))
         ],
@@ -3604,6 +3714,14 @@ def test_xml_island_literal_nodes(case: str, source: str, expected: list[tuple[s
         xml_island_check(case, lambda _node: source.replace("\r\n", "\n").replace("\r", "\n")),
         xml_island_check(case, lambda _node: "<Root/>"),
     ) == (expected, None, None, "serialized XML islands differ from literals")
+
+
+def _island_value(node: Node) -> str:
+    return node.tag if isinstance(node, Element) else cast("Text", node).data
+
+
+def _island_parent(node: Node) -> str:
+    return node.parent.tag if isinstance(node.parent, Element) else "Document"
 
 
 def test_xml_island_checks_first_parse() -> None:
@@ -3688,7 +3806,7 @@ def test_xml_island_cli_emits_kind_loss(mocker: MockerFixture, tmp_path: Path) -
         ORACLES["xml-island-grammar"],
         check=partial(xml_island_check, serialize=lambda _node: "<Root><!--note-->Value&lt;&amp;</Root>"),
         seeds=lambda: ["inside:plain:plain:1"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"xml-island-grammar": oracle}, clear=True)
     status: Final = fuzz_xml_island_invariants_main([
@@ -3712,7 +3830,7 @@ def test_xml_island_cli_emits_kind_loss(mocker: MockerFixture, tmp_path: Path) -
 def test_xml_island_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["xml-island-grammar"], seeds=lambda: ["invalid"], floor=Floor(1, 1))
+    oracle: Final = replace(ORACLES["xml-island-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
     mocker.patch.dict(ORACLES, {"xml-island-grammar": oracle}, clear=True)
     status: Final = fuzz_xml_island_invariants_main([
         "--oracle",
@@ -3746,7 +3864,7 @@ if TYPE_CHECKING:
     ],
 )
 def test_css_custom_literals_require_conservation_and_shortening(case: str, text: str, expected: str) -> None:
-    printer: Final = minify_css if case.startswith("sheet:") else minify_css_inline
+    printer: Final = {"sheet": minify_css, "inline": minify_css_inline}[case.split(":", maxsplit=1)[0]]
     assert (
         printer(text),
         printer(expected),
@@ -3770,7 +3888,7 @@ def test_css_custom_accepts_either_string_quote(quote: str) -> None:
 
 def test_css_custom_repeated_output_is_checked() -> None:
     expected: Final = "--Foo:MiXeD"
-    assert css_custom_check("inline:ident:1:0", lambda text: expected if text != expected else expected + " ") == (
+    assert css_custom_check("inline:ident:1:0", lambda text: expected if text != expected else f"{expected} ") == (
         "custom-property output changes on repeat"
     )
 
@@ -3830,7 +3948,7 @@ def test_css_custom_cli_emits_token_loss(mocker: MockerFixture, tmp_path: Path) 
         ORACLES["css-custom-tokens"],
         check=partial(css_custom_check, minify=lambda _text: ""),
         seeds=lambda: ["inline:ident:1:0"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"css-custom-tokens": oracle}, clear=True)
     status: Final = fuzz_css_custom_invariants_main([
@@ -3854,7 +3972,7 @@ def test_css_custom_cli_emits_token_loss(mocker: MockerFixture, tmp_path: Path) 
 def test_css_custom_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["css-custom-tokens"], seeds=lambda: ["invalid"], floor=Floor(1, 1))
+    oracle: Final = replace(ORACLES["css-custom-tokens"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
     mocker.patch.dict(ORACLES, {"css-custom-tokens": oracle}, clear=True)
     status: Final = fuzz_css_custom_invariants_main([
         "--oracle",
@@ -3872,7 +3990,7 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
-_XML: Final = '<root id="n0"><item id="n1" score="2">alpha</item><item id="n2" score="5">beta</item></root>'
+_XML: Final[str] = '<root id="n0"><item id="n1" score="2">alpha</item><item id="n2" score="5">beta</item></root>'
 
 
 @pytest.fixture
@@ -3894,13 +4012,13 @@ def anchored() -> ModuleType:
 def test_xpath_anchored_retains_target(
     anchored: ModuleType, predicate: str, target: str, expected: tuple[str, ...]
 ) -> None:
-    verdict: Final = next(anchored.compare(anchored.Case(_XML, target, predicate)))
+    verdict: Final = next(anchored.compare(anchored.Case(xml=_XML, target=target, predicate=predicate)))
     assert (verdict.ours, verdict.reference) == (("nodes", expected), ("nodes", expected))
 
 
 @pytest.mark.oracle
 def test_xpath_anchored_compares_values_and_types(anchored: ModuleType) -> None:
-    rows: Final = list(anchored.compare(anchored.Case(_XML, "n1", "@score < 3")))
+    rows: Final = list(anchored.compare(anchored.Case(xml=_XML, target="n1", predicate="@score < 3")))
     assert [(row.ours, row.reference) for row in rows] == [
         (("nodes", ("n1",)), ("nodes", ("n1",))),
         (("nodes", ("n1",)), ("nodes", ("n1",))),
@@ -3913,14 +4031,17 @@ def test_xpath_anchored_compares_values_and_types(anchored: ModuleType) -> None:
 
 @pytest.mark.oracle
 def test_xpath_anchored_reports_evaluation_rejection(anchored: ModuleType) -> None:
-    assert [(row.ours, row.reference) for row in anchored.compare(anchored.Case(_XML, "n1", "unknown()"))] == [
-        (("error", "evaluation"), ("error", "evaluation"))
-    ] * 6
+    assert [
+        (row.ours, row.reference)
+        for row in anchored.compare(anchored.Case(xml=_XML, target="n1", predicate="unknown()"))
+    ] == [(("error", "evaluation"), ("error", "evaluation"))] * 6
 
 
 @pytest.mark.oracle
 def test_xpath_anchored_control_changes_actual_boolean_answer(anchored: ModuleType) -> None:
-    rows: Final = list(anchored.compare(anchored.Case(_XML, "n1", "@score < 3"), negative_control=True))
+    rows: Final = list(
+        anchored.compare(anchored.Case(xml=_XML, target="n1", predicate="@score < 3"), negative_control=True)
+    )
     assert [(row.ours, row.reference) for row in rows if row.ours != row.reference] == [
         (("boolean", False), ("boolean", True))
     ]
@@ -3960,14 +4081,16 @@ def test_xpath_anchored_generation_is_deterministic_and_bounded(anchored: Module
 
 @pytest.mark.oracle
 @pytest.mark.parametrize(
-    ("control", "expected_status", "findings"),
-    [pytest.param(False, 0, 0, id="agreement"), pytest.param(True, 1, 2, id="actual-engine-control")],
+    ("extra", "expected_status", "findings"),
+    [
+        pytest.param([], 0, 0, id="agreement"),
+        pytest.param(["--negative-control"], 1, 2, id="actual-engine-control"),
+    ],
 )
 def test_xpath_anchored_cli_summary(
-    anchored: ModuleType, capsys: pytest.CaptureFixture[str], *, control: bool, expected_status: int, findings: int
+    anchored: ModuleType, capsys: pytest.CaptureFixture[str], extra: list[str], expected_status: int, findings: int
 ) -> None:
-    arguments: Final = ["--seed", "0", "--cases", "2"] + (["--negative-control"] if control else [])
-    status: Final = anchored.main(arguments)
+    status: Final = anchored.main(["--seed", "0", "--cases", "2", *extra])
     assert (status, json.loads(capsys.readouterr().out.splitlines()[-1])) == (
         expected_status,
         {"summary": {"cases": 2, "rows": 12, "findings": findings}},
@@ -4108,7 +4231,7 @@ def test_encoding_invariants_pin_public_outputs(case: str, data: bytes, label: s
         pytest.param("utf-8-bom", id="missing-separator"),
         pytest.param("unknown\ntext", id="unknown-fixture"),
         pytest.param("empty\ntext", id="nonempty-sentinel"),
-        pytest.param("utf-8-meta\n" + "a" * 257, id="bounded-size"),
+        pytest.param(f"utf-8-meta\n{'a' * 257}", id="bounded-size"),
         pytest.param("utf-8-meta\n\x00", id="html-nul-preprocessing"),
         pytest.param("utf-8-meta\n<p>", id="markup"),
         pytest.param("utf-8-meta\n&copy;", id="entity"),
@@ -4124,8 +4247,8 @@ def test_encoding_stream_empty_sentinel() -> None:
     detector: Final = EncodingDetector()
     detector.feed(b"")
     assert (detect(b""), detector.close(), encoding_stream_check("empty\n")) == (
-        EncodingMatch(None, 0.0, None),
-        EncodingMatch(None, 0.0, None),
+        EncodingMatch(encoding=None, confidence=0.0, language=None),
+        EncodingMatch(encoding=None, confidence=0.0, language=None),
         None,
     )
 
@@ -4139,17 +4262,23 @@ def test_encoding_decode_empty_sentinel_is_out_of_scope() -> None:
     ("check", "expected"),
     [
         pytest.param(
-            lambda case: encoding_stream_check(case, one_shot=lambda _data: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_stream_check(
+                case, one_shot=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "one-shot detection differs from expected match",
             id="wrong-one-shot",
         ),
         pytest.param(
-            lambda case: encoding_stream_check(case, stream=lambda _data, _width: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_stream_check(
+                case, stream=lambda _data, _width: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "chunked detection differs from expected match",
             id="wrong-stream",
         ),
         pytest.param(
-            lambda case: encoding_decode_check(case, detect_bytes=lambda _data: EncodingMatch(None, 0.0, None)),
+            lambda case: encoding_decode_check(
+                case, detect_bytes=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
+            ),
             "detection differs from expected match",
             id="wrong-detection",
         ),
@@ -4216,9 +4345,11 @@ def test_encoding_cli_replays_seed_floor(tmp_path: Path) -> None:
 def test_encoding_cli_emits_wrong_detection(mocker: MockerFixture, tmp_path: Path) -> None:
     oracle: Final = replace(
         ORACLES["encoding-stream"],
-        check=partial(encoding_stream_check, one_shot=lambda _data: EncodingMatch(None, 0.0, None)),
+        check=partial(
+            encoding_stream_check, one_shot=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
+        ),
         seeds=lambda: ["utf-8-meta\ncafé"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"encoding-stream": oracle}, clear=True)
     status: Final = fuzz_encoding_invariants_main([
@@ -4245,7 +4376,7 @@ def test_encoding_cli_emits_wrong_detection(mocker: MockerFixture, tmp_path: Pat
 if TYPE_CHECKING:
     from types import ModuleType
 
-_RNG: Final = "http://relaxng.org/ns/structure/1.0"
+_RNG: Final[str] = "http://relaxng.org/ns/structure/1.0"
 
 
 @pytest.fixture
@@ -4447,7 +4578,6 @@ def test_rng_labels_rejects_unsupported_extraction(
             (1, {"findings": 2, "unavailable": 2}),
             id="compilation-rejection",
         ),
-        pytest.param("", (2, {}), id="empty-corpus"),
     ],
 )
 def test_rng_labels_cli(
@@ -4458,11 +4588,23 @@ def test_rng_labels_cli(
     expected: tuple[int, dict[str, int]],
 ) -> None:
     corpus: Final = tmp_path / "suite.xml"
-    corpus.write_text(f"<testSuite><testCase>{case}</testCase></testSuite>" if case else "<testSuite/>")
+    corpus.write_text(f"<testSuite><testCase>{case}</testCase></testSuite>")
     assert (
         fuzz_rng_labels_engines[0].main(["--corpus", str(corpus)]),
         json.loads(capsys.readouterr().out.splitlines()[-1]),
     ) == (expected[0], {"summary": expected[1]})
+
+
+@pytest.mark.oracle
+def test_rng_labels_cli_empty_corpus(
+    fuzz_rng_labels_engines: tuple[ModuleType, ModuleType], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    corpus: Final = tmp_path / "suite.xml"
+    corpus.write_text("<testSuite/>")
+    assert (
+        fuzz_rng_labels_engines[0].main(["--corpus", str(corpus)]),
+        json.loads(capsys.readouterr().out.splitlines()[-1]),
+    ) == (2, {"summary": {}})
 
 
 @pytest.mark.oracle
@@ -4575,24 +4717,22 @@ def test_url_invariants_count_initial_rejection_as_out_of_scope(
 @pytest.mark.parametrize(
     ("transform", "expected"),
     [
-        pytest.param(lambda text: text + "a", "not a fixpoint: end vs letter", id="changed-output"),
+        pytest.param(lambda text: f"{text}a", "not a fixpoint: end vs letter", id="changed-output"),
         pytest.param(lambda text: "ok" if text == "raw" else None, "rejects its own output", id="none-after-success"),
         pytest.param(
             lambda text: _fuzz_url_invariants_reject() if text == "ok" else "ok",
             "rejects its own output",
             id="error-after-success",
         ),
-        pytest.param(lambda _text: _fuzz_url_invariants_reject(), None, id="error-on-input"),
     ],
 )
-def test_clean_url_invariant_discriminates_failures(
-    transform: Callable[[str], str | None], expected: str | None
-) -> None:
-    if expected is None:
-        with pytest.raises(OutOfScopeError):
-            clean_url_check("raw", transform)
-    else:
-        assert clean_url_check("raw", transform) == expected
+def test_clean_url_invariant_discriminates_failures(transform: Callable[[str], str | None], expected: str) -> None:
+    assert clean_url_check("raw", transform) == expected
+
+
+def test_clean_url_invariant_rejects_error_on_input() -> None:
+    with pytest.raises(OutOfScopeError):
+        clean_url_check("raw", lambda _text: _fuzz_url_invariants_reject())
 
 
 def _fuzz_url_invariants_reject() -> str:
@@ -4634,7 +4774,7 @@ def test_url_cli_emits_successful_cleaning_rejection(mocker: MockerFixture, tmp_
         ORACLES["clean-url-fixpoint"],
         check=partial(clean_url_check, clean=_drop_cleaned_url),
         seeds=lambda: [source],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"clean-url-fixpoint": oracle}, clear=True)
     status = fuzz_url_invariants_main(["--minutes", "0", "--crash-dir", str(tmp_path)])

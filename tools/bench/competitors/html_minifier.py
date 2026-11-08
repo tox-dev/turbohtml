@@ -8,12 +8,16 @@ quotes); inline CSS/JS is left untouched so the size comparison stays like-for-l
 from __future__ import annotations
 
 import subprocess
+from typing import TYPE_CHECKING, Final
 
-REQUIREMENTS = ()
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[()]] = ()
 
 
 def minify(text: str) -> str:
-    """Minify HTML by piping through html-minifier-terser with turbohtml's conservative fold flags over stdin."""
+    # Minify HTML by piping through html-minifier-terser with turbohtml's conservative fold flags over stdin.
     return subprocess.run(
         ["html-minifier-terser", "--collapse-whitespace", "--remove-comments", "--remove-attribute-quotes"],
         input=text,
@@ -23,4 +27,4 @@ def minify(text: str) -> str:
     ).stdout
 
 
-OPERATIONS = {"minify": (minify, "html-minifier-terser")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"minify": (minify, "html-minifier-terser")}

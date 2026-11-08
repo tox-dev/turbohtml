@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 from jsmin import jsmin
 
-REQUIREMENTS = ("jsmin>=3.0",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("jsmin>=3.0",)
 
 
 def minify_js(source: str) -> str:
-    """Minify JavaScript with jsmin's Crockford-style character state machine."""
+    # Minify JavaScript with jsmin's Crockford-style character state machine.
     return jsmin(source)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "minify-js-guards": (minify_js, "jsmin"),
     "minify-js-propagation": (minify_js, "jsmin"),
     "minify-js-var-initialization": (minify_js, "jsmin"),

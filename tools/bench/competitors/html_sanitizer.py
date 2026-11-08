@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 import html_sanitizer
 
-REQUIREMENTS = ("html-sanitizer>=2.6",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
-_SANITIZER = html_sanitizer.Sanitizer()
+_REQUIREMENTS: Final[tuple[str, ...]] = ("html-sanitizer>=2.6",)
+
+_SANITIZER: Final[html_sanitizer.Sanitizer] = html_sanitizer.Sanitizer()
 
 
 def sanitize(text: str) -> None:
-    """Sanitize with html-sanitizer's allowlist Sanitizer."""
     _SANITIZER.sanitize(text)
 
 
-OPERATIONS = {"sanitize": (sanitize, "html-sanitizer")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"sanitize": (sanitize, "html-sanitizer")}

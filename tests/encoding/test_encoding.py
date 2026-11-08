@@ -1,5 +1,3 @@
-"""parse(bytes): the WHATWG encoding sniffing order and decoding."""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -95,8 +93,7 @@ def test_bytes_like_inputs(wrap: type) -> None:
 
 def test_invalid_bytes_become_replacement_characters() -> None:
     # 0xFF is not valid UTF-8; decoding replaces it instead of raising
-    doc = parse(b'<meta charset="utf-8"><p>\xff</p>')
-    element = doc.find("p")
+    element = parse(b'<meta charset="utf-8"><p>\xff</p>').find("p")
     assert element is not None
     assert element.text == "�"
 
@@ -131,8 +128,7 @@ def test_parse_honors_a_meta_past_the_prescan_window(pad: int, expected: str) ->
 
 def test_reparse_decodes_text_before_the_late_meta() -> None:
     # the whole document is re-decoded, not just the bytes after the declaration
-    doc = parse(b"<p>\xe8\xed\xf8</p><!-- " + b"x" * 1100 + b" --><meta charset=iso-8859-2>")
-    paragraph = doc.find("p")
+    paragraph = parse(b"<p>\xe8\xed\xf8</p><!-- " + b"x" * 1100 + b" --><meta charset=iso-8859-2>").find("p")
     assert paragraph is not None
     assert paragraph.text == "číř"
 
@@ -205,11 +201,6 @@ def test_str_input_has_no_encoding_confidence() -> None:
     assert document.encoding_confidence is None
 
 
-def _past_the_window(meta: bytes) -> bytes:
-    # \xe8 keeps the document out of the structural UTF-8 check, so only the <meta> can decide
-    return b"<p>\xe8</p><!-- " + b"x" * 1100 + b" -->" + meta
-
-
 @pytest.mark.parametrize(
     "meta",
     [
@@ -223,6 +214,11 @@ def _past_the_window(meta: bytes) -> bytes:
 )
 def test_a_meta_declaring_no_encoding_does_not_reparse(meta: bytes) -> None:
     assert parse(_past_the_window(meta)).encoding == "windows-1252"
+
+
+def _past_the_window(meta: bytes) -> bytes:
+    # \xe8 keeps the document out of the structural UTF-8 check, so only the <meta> can decide
+    return b"<p>\xe8</p><!-- " + b"x" * 1100 + b" -->" + meta
 
 
 def test_reparse_looks_past_the_first_few_unresolvable_metas() -> None:
@@ -307,8 +303,7 @@ def test_windows_1252_undefined_bytes_decode_to_c1_controls(raw: bytes, text: st
     ],
 )
 def test_whatwg_label_decodes(label: str, raw: bytes, char: str) -> None:
-    doc = parse(b"<meta charset=" + label.encode() + b"><p>" + raw + b"</p>")
-    element = doc.find("p")
+    element = parse(b"<meta charset=" + label.encode() + b"><p>" + raw + b"</p>").find("p")
     assert element is not None
     assert element.text == char
 

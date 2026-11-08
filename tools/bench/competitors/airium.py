@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 from airium import Airium
 
-REQUIREMENTS = ("airium>=0.2.7",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("airium>=0.2.7",)
 
 
 def build_e(count: int) -> None:
-    """Build a ``<ul>`` of rows with airium's context-manager tags and stringify it."""
+    # Build a ``<ul>`` of rows with airium's context-manager tags and stringify it.
     air = Airium()
     with air.ul():
         for index in range(count):
@@ -17,4 +22,4 @@ def build_e(count: int) -> None:
     _ = str(air)
 
 
-OPERATIONS = {"build-e": (build_e, "airium")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"build-e": (build_e, "airium")}

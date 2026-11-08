@@ -12,29 +12,33 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING, Final
 
-REQUIREMENTS = ()
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
-_RUNNER = str(Path(__file__).resolve().parent.parent / "node" / "dompurify_runner.js")
+_REQUIREMENTS: Final[tuple[()]] = ()
+
+_RUNNER: Final[str] = str(Path(__file__).resolve().parent.parent / "node" / "dompurify_runner.js")
 
 
 def _run(mode: str, text: str) -> str:
-    """Pipe ``text`` through the Node runner in ``mode`` and read the sanitized result back."""
+    # Pipe ``text`` through the Node runner in ``mode`` and read the sanitized result back.
     return subprocess.run(["node", _RUNNER, mode], input=text, capture_output=True, text=True, check=True).stdout
 
 
 def sanitize_templates(text: str) -> str:
-    """Sanitize a document with DOMPurify's SAFE_FOR_TEMPLATES on."""
+    # Sanitize a document with DOMPurify's SAFE_FOR_TEMPLATES on.
     return _run("templates", text)
 
 
 def sanitize_named_props(text: str) -> str:
-    """Sanitize a document with DOMPurify's SANITIZE_NAMED_PROPS on, prefixing id/name with ``user-content-``."""
+    # Sanitize a document with DOMPurify's SANITIZE_NAMED_PROPS on, prefixing id/name with ``user-content-``.
     return _run("named-props", text)
 
 
 def sanitize_custom_elements(text: str) -> str:
-    """Sanitize with DOMPurify's CUSTOM_ELEMENT_HANDLING keeping x-* elements and their data-* attributes."""
+    # Sanitize with DOMPurify's CUSTOM_ELEMENT_HANDLING keeping x-* elements and their data-* attributes.
     return _run("custom-elements", text)
 
 
@@ -42,7 +46,7 @@ def _sanitize_attributes(text: str) -> str:
     return _run("attributes", text)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "sanitize-templates": (sanitize_templates, "DOMPurify"),
     "sanitize-named-props": (sanitize_named_props, "DOMPurify"),
     "sanitize-custom-elements": (sanitize_custom_elements, "DOMPurify"),

@@ -18,15 +18,13 @@ import sys
 from pathlib import Path
 from typing import Final
 
-__all__ = ["generate"]
-
-_TAG_HASH_COEFFICIENTS: Final = (845, 797, 163, 777)
-_TAG_HASH_MASK: Final = 1023
+_TAG_HASH_COEFFICIENTS: Final[tuple[int, ...]] = (845, 797, 163, 777)
+_TAG_HASH_MASK: Final[int] = 1023
 
 # Element categories the tree-construction algorithm tests against, in the HTML
 # namespace. The foreign-content insertion mode handles MathML/SVG scoping
 # markers separately.
-SPECIAL = frozenset([
+_SPECIAL: Final[frozenset[str]] = frozenset([
     "address",
     "applet",
     "area",
@@ -114,7 +112,7 @@ SPECIAL = frozenset([
     "wbr",
     "xmp",
 ])
-FORMATTING = frozenset([
+_FORMATTING: Final[frozenset[str]] = frozenset([
     "a",
     "b",
     "big",
@@ -132,14 +130,25 @@ FORMATTING = frozenset([
 ])
 # Elements that form a scope boundary (the "default" scope marker set; select
 # joined it with the customizable-select parsing change).
-SCOPING = frozenset(["applet", "caption", "html", "marquee", "object", "select", "table", "td", "th", "template"])
+_SCOPING: Final[frozenset[str]] = frozenset([
+    "applet",
+    "caption",
+    "html",
+    "marquee",
+    "object",
+    "select",
+    "table",
+    "td",
+    "th",
+    "template",
+])
 # Start tags that switch the tokenizer's content model (tree construction owns this).
-RAWTEXT = frozenset(["style", "xmp", "iframe", "noembed", "noframes", "noscript"])
-RCDATA = frozenset(["title", "textarea"])
+_RAWTEXT: Final[frozenset[str]] = frozenset(["style", "xmp", "iframe", "noembed", "noframes", "noscript"])
+_RCDATA: Final[frozenset[str]] = frozenset(["title", "textarea"])
 
 # MathML / SVG element names the foreign-content insertion mode special-cases
 # (text integration points, HTML integration points, name adjustments).
-FOREIGN = frozenset([
+_FOREIGN: Final[frozenset[str]] = frozenset([
     "mi",
     "mo",
     "mn",
@@ -156,7 +165,7 @@ FOREIGN = frozenset([
 
 # Extra commonly-seen names so frequent elements get a stable atom even when not
 # in a special category (keeps the intern hit-rate high for real documents).
-EXTRA = frozenset([
+_EXTRA: Final[frozenset[str]] = frozenset([
     "abbr",
     "address",
     "b",
@@ -204,12 +213,12 @@ EXTRA = frozenset([
     "svg",
 ])
 
-CATEGORY_FLAGS = {
-    "TH_TAG_SPECIAL": SPECIAL,
-    "TH_TAG_FORMATTING": FORMATTING,
-    "TH_TAG_SCOPING": SCOPING,
-    "TH_TAG_RAWTEXT": RAWTEXT,
-    "TH_TAG_RCDATA": RCDATA,
+_CATEGORY_FLAGS: Final[dict[str, frozenset[str]]] = {
+    "TH_TAG_SPECIAL": _SPECIAL,
+    "TH_TAG_FORMATTING": _FORMATTING,
+    "TH_TAG_SCOPING": _SCOPING,
+    "TH_TAG_RAWTEXT": _RAWTEXT,
+    "TH_TAG_RCDATA": _RCDATA,
 }
 
 
@@ -228,11 +237,11 @@ def _tag_hash_rows(names: list[str]) -> str:
 
 
 def generate(out_path: Path) -> None:
-    """Write the generated tag-atom C header to *out_path*."""
-    names = sorted(SPECIAL | FORMATTING | SCOPING | RAWTEXT | RCDATA | FOREIGN | EXTRA)
+    # Write the generated tag-atom C header to *out_path*.
+    names = sorted(_SPECIAL | _FORMATTING | _SCOPING | _RAWTEXT | _RCDATA | _FOREIGN | _EXTRA)
     atoms = [f"TH_TAG_{name.upper().replace('-', '_')}" for name in names]
 
-    flag_bits = {flag: 1 << i for i, flag in enumerate(CATEGORY_FLAGS)}
+    flag_bits = {flag: 1 << i for i, flag in enumerate(_CATEGORY_FLAGS)}
     flag_defs = "\n".join(f"#define {flag} {bit}u" for flag, bit in flag_bits.items())
 
     enum_lines = "\n".join(f"    {atom}," for atom in atoms)
@@ -240,7 +249,7 @@ def generate(out_path: Path) -> None:
     table_lines = []
     wide_names = []
     for name, atom in zip(names, atoms, strict=True):
-        flags = " | ".join(flag for flag, members in CATEGORY_FLAGS.items() if name in members) or "0"
+        flags = " | ".join(flag for flag, members in _CATEGORY_FLAGS.items() if name in members) or "0"
         table_lines.append(f'    {{"{name}", {len(name)}u, {atom}, {flags}, {len(wide_names)}u}},')
         wide_names.extend(map(ord, name))
 
@@ -309,6 +318,9 @@ def generate(out_path: Path) -> None:
         encoding="utf-8",
     )
     print(f"wrote {out_path}: {len(names)} atoms")
+
+
+__all__ = []
 
 
 if __name__ == "__main__":

@@ -338,6 +338,12 @@ lint.ignore = [
   "missing-trailing-comma",                    # conflicts with the formatter
   "multi-line-summary-first-line",             # incompatible with D213
   "single-line-implicit-string-concatenation", # conflicts with the formatter
+  "undocumented-magic-method",                 # undocumented-public-api (simplint SMP903) covers the public API instead
+  "undocumented-public-class",                 # undocumented-public-api (simplint SMP903) covers the public API instead
+  "undocumented-public-function",              # undocumented-public-api (simplint SMP903) covers the public API instead
+  "undocumented-public-init",                  # undocumented-public-api (simplint SMP903) covers the public API instead
+  "undocumented-public-method",                # undocumented-public-api (simplint SMP903) covers the public API instead
+  "undocumented-public-nested-class",          # undocumented-public-api (simplint SMP903) covers the public API instead
 ]
 lint.per-file-ignores."docs/conf.py" = [
   "any-type",                   # the autodoc-engine wrappers forward Sphinx's arbitrary *args/**kwargs
@@ -583,3 +589,6 @@ match = [ "jieba3k" ]
 allow-zip-sdists = true
 assume-universal-deps = true
 build-policy = "build-remote"
+
+[tool.simplint]
+docstring-style = "rst"

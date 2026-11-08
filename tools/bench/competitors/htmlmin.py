@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 import htmlmin
 
-REQUIREMENTS = ("htmlmin2>=0.1.13",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("htmlmin2>=0.1.13",)
 
 
 def minify(text: str) -> str:
-    """Minify with the folds htmlmin shares with turbohtml's Minify: collapse whitespace, drop comments and quotes."""
+    # Minify with the folds htmlmin shares with turbohtml's Minify: collapse whitespace, drop comments and quotes.
     return htmlmin.minify(text, remove_comments=True, remove_optional_attribute_quotes=True)
 
 
-OPERATIONS = {"minify": (minify, "htmlmin")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"minify": (minify, "htmlmin")}

@@ -12,16 +12,17 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from turbohtml import Document
 
+JSON: TypeAlias = "dict[str, JSON] | list[JSON] | str | int | float | bool | None"
+
 
 def main() -> int:
-    """Answer requests until stdin closes."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--perturb", default=None, help="append a marker to this operation's result (negative control)")
     args = parser.parse_args()
@@ -31,7 +32,7 @@ def main() -> int:
     return 0
 
 
-def _answer(operation: str, text: str, *, perturb: bool) -> dict[str, object]:
+def _answer(operation: str, text: str, *, perturb: bool) -> dict[str, JSON]:
     try:
         function = _OPERATIONS[operation]()
     except (ImportError, AttributeError) as error:
@@ -43,8 +44,8 @@ def _answer(operation: str, text: str, *, perturb: bool) -> dict[str, object]:
     return {"ok": f"{result}\0perturbed" if perturb else result}
 
 
-def _html(render: Callable[[Document], object]) -> Callable[[], Callable[[str], object]]:
-    def build() -> Callable[[str], object]:
+def _html(render: Callable[[Document], JSON]) -> Callable[[], Callable[[str], JSON]]:
+    def build() -> Callable[[str], JSON]:
         from turbohtml import parse  # ruff: ignore[import-outside-top-level]  # imported per worker so a missing name reports per operation
 
         return lambda text: render(parse(text))
@@ -52,20 +53,20 @@ def _html(render: Callable[[Document], object]) -> Callable[[], Callable[[str], 
     return build
 
 
-def _xml() -> Callable[[str], object]:
+def _xml() -> Callable[[str], JSON]:
     from turbohtml import Html, parse  # ruff: ignore[import-outside-top-level]  # see _html
 
     return lambda text: parse(text).serialize(Html(xml=True))
 
 
-def _fragment() -> Callable[[str], object]:
+def _fragment() -> Callable[[str], JSON]:
     from turbohtml import parse_fragment  # ruff: ignore[import-outside-top-level]  # see _html
 
     return lambda text: parse_fragment(text).inner_html
 
 
-def _clean(name: str, *arguments: object) -> Callable[[], Callable[[str], object]]:
-    def build() -> Callable[[str], object]:
+def _clean(name: str, *arguments: object) -> Callable[[], Callable[[str], JSON]]:
+    def build() -> Callable[[str], JSON]:
         from turbohtml import clean  # ruff: ignore[import-outside-top-level]  # see _html
 
         function = getattr(clean, name)
@@ -74,38 +75,38 @@ def _clean(name: str, *arguments: object) -> Callable[[], Callable[[str], object
     return build
 
 
-def _plain_js() -> Callable[[str], object]:
+def _plain_js() -> Callable[[str], JSON]:
     from turbohtml.clean import JSMinify, minify_js  # ruff: ignore[import-outside-top-level]  # see _html
 
     return lambda text: minify_js(text, JSMinify(mangle=False, fold=False))
 
 
-def _style() -> Callable[[str], object]:
+def _style() -> Callable[[str], JSON]:
     from turbohtml.cssom import StyleDeclaration  # ruff: ignore[import-outside-top-level]  # see _html
 
     return lambda text: StyleDeclaration.parse(text).text
 
 
-def _select() -> Callable[[str], object]:
+def _select() -> Callable[[str], JSON]:
     from turbohtml import parse  # ruff: ignore[import-outside-top-level]  # see _html
 
-    def run(case: str) -> object:
+    def run(case: str) -> JSON:
         payload = json.loads(case)
         return [element.html for element in parse(payload["html"]).select(payload["css"])]
 
     return run
 
 
-def _css_to_xpath() -> Callable[[str], object]:
+def _css_to_xpath() -> Callable[[str], JSON]:
     from turbohtml.convert import css_to_xpath  # ruff: ignore[import-outside-top-level]  # see _html
 
     return lambda case: css_to_xpath(json.loads(case)["css"])
 
 
-def _xpath() -> Callable[[str], object]:
+def _xpath() -> Callable[[str], JSON]:
     from turbohtml import Node, parse  # ruff: ignore[import-outside-top-level]  # see _html
 
-    def run(case: str) -> object:
+    def run(case: str) -> JSON:
         payload = json.loads(case)
         result = parse(payload["html"]).xpath(payload["xpath"])
         items = result if isinstance(result, list) else [result]
@@ -114,7 +115,7 @@ def _xpath() -> Callable[[str], object]:
     return run
 
 
-_OPERATIONS: Final[dict[str, Callable[[], Callable[[str], object]]]] = {
+_OPERATIONS: Final[dict[str, Callable[[], Callable[[str], JSON]]]] = {
     "serialize": _html(lambda document: document.serialize()),
     "fragment": _fragment,
     "xml": _xml,
@@ -134,3 +135,8 @@ _OPERATIONS: Final[dict[str, Callable[[], Callable[[str], object]]]] = {
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+__all__ = [
+    "JSON",
+]

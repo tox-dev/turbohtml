@@ -1,17 +1,6 @@
-"""CodSpeed benchmarks driven off the shared ``bench`` registry.
-
-The cases come from :func:`bench.ci.benchmarks`, which walks the same :data:`bench.core.OPERATIONS` the pyperf suite
-times over the same real corpora, so each tracked operation gets an instruction-count regression gate in CI. Selected
-operations register a second input when one case cannot cover the relevant branch patterns. The benchmarks run only
-under ``--codspeed`` (see ``conftest.py``): the CI benchmark job passes it, and locally it is opt-in. Mutating
-operations rebuild their tree through the pedantic ``setup`` hook, which runs untimed before each measured call, so the
-number is the mutation and not the parse. A case whose corpus is not checked out fails loudly rather than skipping, so
-a benchmark run can never silently measure nothing.
-"""
-
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Final
 
 import pytest
 from bench.ci import benchmarks
@@ -20,21 +9,31 @@ from bench.timing import Mutating
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from bench.operations import Case
     from pytest_codspeed import BenchmarkFixture
 
 
 @pytest.mark.parametrize(
     ("operation", "load"),
-    [pytest.param(run, load, id=name) for name, run, load in benchmarks()],
+    [pytest.param(run, load, id=name) for name, run, load in benchmarks() if not isinstance(run, Mutating)],
 )
-def test_feature(benchmark: BenchmarkFixture, operation: object, load: Callable[[], object]) -> None:
+def test_feature(benchmark: BenchmarkFixture, operation: Callable[[Case], object], load: Callable[[], Case]) -> None:
+    benchmark(operation, _load_case(load))
+
+
+def _load_case(load: Callable[[], Case]) -> Case:
     try:
-        case = load()
+        return load()
     except OSError as exc:
         # this body runs only under --codspeed (conftest skips it otherwise), so a missing corpus is a hard error
         msg = f"bench corpus submodule not checked out: {exc}; run: git submodule update --init tools/bench-data"
         raise RuntimeError(msg) from exc
-    if isinstance(operation, Mutating):
-        benchmark.pedantic(operation.run, setup=lambda: ((operation.setup(case),), {}))
-    else:
-        benchmark(cast("Callable[[object], object]", operation), case)
+
+
+@pytest.mark.parametrize(
+    ("operation", "load"),
+    [pytest.param(run, load, id=name) for name, run, load in benchmarks() if isinstance(run, Mutating)],
+)
+def test_mutating_feature(benchmark: BenchmarkFixture, operation: Mutating, load: Callable[[], Case]) -> None:
+    case: Final = _load_case(load)
+    benchmark.pedantic(operation.run, setup=lambda: ((operation.setup(case),), {}))

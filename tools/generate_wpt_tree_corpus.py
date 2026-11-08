@@ -50,15 +50,17 @@ class _Exclusion(_Decision):
 
 
 _Key = tuple[str, str, str | None, bool | None]
-_PI_SPEC: Final[str] = "https://html.spec.whatwg.org/multipage/parsing.html#processing-instruction-open-state"
-_SCRIPT_SPEC: Final[str] = "https://html.spec.whatwg.org/multipage/scripting.html#script-processing-model"
 _WPT_BASE: Final[str] = (
     "https://github.com/web-platform-tests/wpt/blob/4830edb033cb486fd0cd6f85b5e937cfc718704d/"
     "html/syntax/parsing/resources"
 )
-_NEW_ERROR: Final[re.Pattern[str]] = re.compile(r"\((\d+):(\d+)(?:-(\d+):(\d+))?\) ([a-z0-9-]+)")
+_NEW_ERROR: Final[re.Pattern[str]] = re.compile(
+    r"(?#one #new-errors entry: a line:col position or a line:col-line:col range, then the error code)"
+    r"\((?P<line>\d+):(?P<col>\d+)(?:-(?P<end_line>\d+):(?P<end_col>\d+))?\) (?P<code>[a-z0-9-]+)"
+)
 _SECTION: Final[re.Pattern[str]] = re.compile(
-    r"(?m)^#(errors|new-errors|document-fragment|script-on|script-off)(?:\n|$)"
+    r"(?m)(?#a line holding one of the test-file section headers)"
+    r"^#(errors|new-errors|document-fragment|script-on|script-off)(?:\n|$)"
 )
 
 _SCRIPT_EXECUTION_EXCLUSIONS: Final[dict[_Key, tuple[str, str]]] = {
@@ -189,40 +191,44 @@ _ERROR_OVERRIDES: Final[dict[_Key, tuple[list[_Error], str]]] = {
 
 
 def generate(checkout: Path, out_path: Path) -> None:
-    """Pin WPT data so upstream changes cannot alter CI without a reviewed diff."""
+    # Pin WPT data so upstream changes cannot alter CI without a reviewed diff.
     resources = checkout / "html" / "syntax" / "parsing" / "resources"
     files = sorted(resources.glob("*.dat"))
     if not files:
         msg = f"no HTML tree-construction .dat files found under {resources}"
         raise SystemExit(msg)
     cases = [case for path in files for case in _parse_file(path)]
-    revision = _revision(checkout)
+    revision = subprocess.run(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
     exclusions, error_adjustments = _decisions()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
-        json.dumps(
-            {
-                "source": f"https://github.com/web-platform-tests/wpt/tree/{revision}/html/syntax/parsing/resources",
-                "revision": revision,
-                "files": [path.name for path in files],
-                "fixture_counts": {path.name: sum(case["file"] == path.name for case in cases) for path in files},
-                "applicable_fixture_counts": {
-                    path.name: sum(
-                        case["file"] == path.name
-                        and (case["file"], case["data"], case["context"], case["scripting"])
-                        not in _SCRIPT_EXECUTION_EXCLUSIONS
-                        for case in cases
-                    )
-                    for path in files
+        f"""{
+            json.dumps(
+                {
+                    "source": f"https://github.com/web-platform-tests/wpt/tree/{revision}/html/syntax/parsing/resources",
+                    "revision": revision,
+                    "files": [path.name for path in files],
+                    "fixture_counts": {path.name: sum(case["file"] == path.name for case in cases) for path in files},
+                    "applicable_fixture_counts": {
+                        path.name: sum(
+                            case["file"] == path.name
+                            and (case["file"], case["data"], case["context"], case["scripting"])
+                            not in _SCRIPT_EXECUTION_EXCLUSIONS
+                            for case in cases
+                        )
+                        for path in files
+                    },
+                    "error_adjustments": error_adjustments,
+                    "exclusions": exclusions,
+                    "cases": cases,
                 },
-                "error_adjustments": error_adjustments,
-                "exclusions": exclusions,
-                "cases": cases,
-            },
-            ensure_ascii=False,
-            indent=1,
-        )
-        + "\n",
+                ensure_ascii=False,
+                indent=1,
+            )
+        }"""
+        "\n",
         encoding="utf-8",
     )
     print(f"wrote {out_path}: {len(cases)} cases from {len(files)} files at {revision[:12]}")
@@ -282,22 +288,17 @@ def _new_errors(value: str | None, path: Path) -> list[_Error] | None:
             msg = f"{path}: invalid #new-errors entry: {line!r}"
             raise ValueError(msg)
         errors.append({
-            "code": match[5],
-            "line": int(match[1]),
-            "col": int(match[2]),
-            "end_line": int(match[3]) if match[3] is not None else None,
-            "end_col": int(match[4]) if match[4] is not None else None,
+            "code": match["code"],
+            "line": int(match["line"]),
+            "col": int(match["col"]),
+            "end_line": int(match["end_line"]) if match["end_line"] is not None else None,
+            "end_col": int(match["end_col"]) if match["end_col"] is not None else None,
         })
     return errors
 
 
-def _revision(checkout: Path) -> str:
-    return subprocess.run(
-        ["git", "-C", str(checkout), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
-    ).stdout.strip()
-
-
 def _decisions() -> tuple[list[_Exclusion], list[_Decision]]:
+    script_spec: str = "https://html.spec.whatwg.org/multipage/scripting.html#script-processing-model"
     exclusion_reason = "The expected tree requires JavaScript execution; turbohtml has no JavaScript runtime."
     exclusions: list[_Exclusion] = [
         {
@@ -306,12 +307,13 @@ def _decisions() -> tuple[list[_Exclusion], list[_Decision]]:
             "context": context,
             "scripting": scripting,
             "reason": exclusion_reason,
-            "spec": _SCRIPT_SPEC,
+            "spec": script_spec,
             "fixture": fixture,
             "document": document,
         }
         for (file, data, context, scripting), (document, fixture) in _SCRIPT_EXECUTION_EXCLUSIONS.items()
     ]
+    pi_spec: str = "https://html.spec.whatwg.org/multipage/parsing.html#processing-instruction-open-state"
     error_reason = "These fixtures retain parse errors from the bogus-comment rules that preceded HTML instructions."
     error_adjustments: list[_Decision] = [
         {
@@ -320,7 +322,7 @@ def _decisions() -> tuple[list[_Exclusion], list[_Decision]]:
             "context": context,
             "scripting": scripting,
             "reason": error_reason,
-            "spec": _PI_SPEC,
+            "spec": pi_spec,
             "fixture": fixture,
         }
         for (file, data, context, scripting), (_, fixture) in _ERROR_OVERRIDES.items()
@@ -404,7 +406,7 @@ def _errors_match(expected: list[_Error], actual: list[_Error]) -> bool:
     return True
 
 
-__all__ = ["generate"]
+__all__ = []
 
 
 if __name__ == "__main__":

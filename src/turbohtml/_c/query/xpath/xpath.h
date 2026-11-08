@@ -129,8 +129,9 @@ typedef int (*xp_extension_fn)(void *ctx, struct th_node *context_node, const Py
    (NULL when none); extension/extension_ctx supply user functions (extension NULL when
    none). Returns 0 with *out filled (the caller frees it with xp_result_free). Returns
    -3 for an evaluation error that maps to ValueError (a reference to an unbound variable,
-   a name test whose prefix is not bound, or an expression nested past XP_MAX_DEPTH), or
-   -4 for a type error that maps to TypeError (a value used where a node-set is required),
+   or a name test whose prefix is not bound), -4 for a type error that maps to TypeError
+   (a value used where a node-set is required), or -5 for an expression nested past
+   XP_MAX_DEPTH, which maps to XPathDepthError (a ValueError subclass),
    with *feature set to a short name for the message. Returns -1 on allocation failure or
    when a Python error is already set (a malformed regex, an extension failure, or an
    unknown-function/wrong-arity call reported with the function name). */

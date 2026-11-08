@@ -16,8 +16,6 @@ from dataclasses import dataclass
 
 from turbohtml._html import _register_js_minify
 
-__all__ = ["JSMinify"]
-
 
 @dataclass(frozen=True, slots=True)
 class JSMinify:
@@ -44,3 +42,8 @@ class JSMinify:
 # Hand the type to the serializer so Minify(minify_js=...) reaches it with a module-state
 # pointer load (speed over a per-call import), not a global; mirrors the other type registers.
 _register_js_minify(JSMinify)
+
+
+__all__ = [
+    "JSMinify",
+]

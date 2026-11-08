@@ -17,8 +17,6 @@ from typing import Final
 
 from ._html import NodeIterator, TreeWalker
 
-__all__ = ["NodeFilter", "NodeIterator", "TreeWalker"]
-
 
 class NodeFilter:
     """
@@ -28,6 +26,23 @@ class NodeFilter:
     ``SHOW_ALL``. A ``filter`` callback returns one of the ``FILTER_*`` verdicts: ``FILTER_ACCEPT`` yields the node,
     ``FILTER_REJECT`` skips it and (in a :class:`TreeWalker`) its whole subtree, and ``FILTER_SKIP`` skips only the
     node. A :class:`NodeIterator` has no subtree to skip, so it treats reject and skip alike.
+
+    :cvar SHOW_ALL: show every node type.
+    :cvar SHOW_ELEMENT: show element nodes.
+    :cvar SHOW_ATTRIBUTE: show attribute nodes.
+    :cvar SHOW_TEXT: show text nodes.
+    :cvar SHOW_CDATA_SECTION: show CDATA section nodes.
+    :cvar SHOW_ENTITY_REFERENCE: show entity reference nodes.
+    :cvar SHOW_ENTITY: show entity nodes.
+    :cvar SHOW_PROCESSING_INSTRUCTION: show processing instruction nodes.
+    :cvar SHOW_COMMENT: show comment nodes.
+    :cvar SHOW_DOCUMENT: show document nodes.
+    :cvar SHOW_DOCUMENT_TYPE: show document type nodes.
+    :cvar SHOW_DOCUMENT_FRAGMENT: show document fragment nodes.
+    :cvar SHOW_NOTATION: show notation nodes.
+    :cvar FILTER_ACCEPT: yield the node.
+    :cvar FILTER_REJECT: skip the node and, in a tree walker, its subtree.
+    :cvar FILTER_SKIP: skip only the node.
     """
 
     SHOW_ALL: Final = 0xFFFFFFFF
@@ -47,3 +62,10 @@ class NodeFilter:
     FILTER_ACCEPT: Final = 1
     FILTER_REJECT: Final = 2
     FILTER_SKIP: Final = 3
+
+
+__all__ = [
+    "NodeFilter",
+    "NodeIterator",
+    "TreeWalker",
+]

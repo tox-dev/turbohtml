@@ -237,10 +237,10 @@ call with no stages returns its input. Functions, bound methods, and callable ob
 
     from typing import Final
 
-    from turbohtml import parse_fragment
+    from turbohtml import Element, parse_fragment
     from turbohtml.clean import collapse_whitespace_node, sanitize_node, transform_node
 
-    original: Final = parse_fragment("<b>  one  </b><!--note-->")
+    original: Final[Element] = parse_fragment("<b>  one  </b><!--note-->")
     print(transform_node(original, sanitize_node, collapse_whitespace_node).inner_xml)
     print(original.inner_html)
 

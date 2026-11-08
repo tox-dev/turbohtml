@@ -1,5 +1,3 @@
-"""dates: publication-date extraction over the meta, JSON-LD, time, URL, and visible-text signals."""
-
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -306,39 +304,40 @@ def test_title_attribute_dates_a_marked_element() -> None:
 
 
 @pytest.mark.parametrize("count", [1, 17, 1000], ids=["single", "growth", "collisions"])
-@pytest.mark.parametrize("original", [True, False], ids=["published", "modified"])
-def test_date_tally_ties(count: int, *, original: bool) -> None:
+def test_date_tally_ties_keeps_the_original(count: int) -> None:
     start: Final = date(2000, 1, 1)
-    source: Final = "<p>" + " ".join((start + timedelta(days=index)).isoformat() for index in range(count)) + "</p>"
-    expected: Final = start if original else start + timedelta(days=count - 1)
-    assert dates(source, DateExtraction(original=original)) == PublicationDate(expected.isoformat(), "text")
+    source: Final = f"<p>{' '.join((start + timedelta(days=index)).isoformat() for index in range(count))}</p>"
+    assert dates(source, DateExtraction(original=True)) == PublicationDate(start.isoformat(), "text")
+
+
+@pytest.mark.parametrize("count", [1, 17, 1000], ids=["single", "growth", "collisions"])
+def test_date_tally_ties_keeps_the_last_modified(count: int) -> None:
+    start: Final = date(2000, 1, 1)
+    source: Final = f"<p>{' '.join((start + timedelta(days=index)).isoformat() for index in range(count))}</p>"
+    expected: Final = start + timedelta(days=count - 1)
+    assert dates(source, DateExtraction(original=False)) == PublicationDate(expected.isoformat(), "text")
 
 
 @pytest.mark.parametrize("original", [True, False], ids=["published", "modified"])
 def test_date_tally_frequency_precedes_date_order(*, original: bool) -> None:
     start: Final = date(2000, 1, 1)
     source: Final = (
-        "<p>"
-        + " ".join((start + timedelta(days=index)).isoformat() for index in range(100))
-        + " 2000-02-01 2000-02-01</p>"
+        f"<p>{' '.join((start + timedelta(days=index)).isoformat() for index in range(100))} 2000-02-01 2000-02-01</p>"
     )
     assert dates(source, DateExtraction(original=original)) == PublicationDate("2000-02-01", "text")
 
 
 def test_date_tally_repeated_date() -> None:
-    assert dates("<p>" + "2000-01-01 " * 1000 + "</p>") == PublicationDate("2000-01-01", "text")
-
-
-_WINDOW = (1995, 1, 1, 2100, 1, 1)
-
-
-def _run(html: str, *, extensive: bool = True) -> tuple[int, int, int, str] | None:
-    """Call the entry point wanting a modification date, in the fixed window, from a 2026 vantage point."""
-    return parse(html)._dates(2, 2026, *_WINDOW, extensive)
+    assert dates(f"<p>{'2000-01-01 ' * 1000}</p>") == PublicationDate("2000-01-01", "text")
 
 
 def test_the_entry_point_names_the_winning_signal() -> None:
     assert _run('<link rel="canonical" href="http://x.com/2016/12/23/a.html">') == (2016, 12, 23, "url")
+
+
+def _run(html: str, *, extensive: bool = True) -> tuple[int, int, int, str] | None:
+    # Call the entry point wanting a modification date, in the fixed window, from a 2026 vantage point.
+    return parse(html)._dates(2, 2026, *(1995, 1, 1, 2100, 1, 1), extensive)
 
 
 def test_the_entry_point_answers_none_without_a_date() -> None:
@@ -357,7 +356,7 @@ def test_extensive_off_skips_the_text_stage() -> None:
         pytest.param((2.5, 2026, 1995, 1, 1, 2100, 1, 1, True), id="want-is-a-float"),
     ],
 )
-def test_the_entry_point_rejects_bad_arguments(args: tuple[object, ...]) -> None:
+def test_the_entry_point_rejects_bad_arguments(args: tuple[int | float | bool, ...]) -> None:
     with pytest.raises(TypeError):
         parse("")._dates(*args)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
@@ -365,7 +364,7 @@ def test_the_entry_point_rejects_bad_arguments(args: tuple[object, ...]) -> None
 def test_a_deeply_nested_json_ld_block_is_skipped_not_raised() -> None:
     # a JSON-LD block nested past the 400-level cap is skipped like any invalid block, so date extraction over it
     # returns normally rather than letting the decoder's RecursionError escape
-    html = '<script type="application/ld+json">' + "[" * 1_000_000 + "</script>"
+    html = f'<script type="application/ld+json">{"[" * 1_000_000}</script>'
     assert dates(html) is None
 
 
@@ -387,7 +386,7 @@ def test_a_deeply_nested_json_ld_block_is_skipped_not_raised() -> None:
 )
 def test_the_url_stage_reads_only_a_canonical_or_og_url(html: str, expected: str | None) -> None:
     found = dates(html, DateExtraction(extensive_search=False))
-    assert (found.date if found else None) == expected
+    assert (found and found.date) == expected
 
 
 @pytest.mark.parametrize(
@@ -407,7 +406,7 @@ def test_the_url_stage_reads_only_a_canonical_or_og_url(html: str, expected: str
 )
 def test_the_json_ld_stage_walks_the_decoded_blocks(block: str, expected: str | None) -> None:
     found = dates(f'<script type="application/ld+json">{block}</script>', DateExtraction(extensive_search=False))
-    assert (found.date if found else None) == expected
+    assert (found and found.date) == expected
 
 
 @pytest.mark.parametrize(
@@ -490,7 +489,7 @@ def test_a_text_tie_breaks_the_same_way_whichever_date_comes_first() -> None:
 
 def test_the_text_stage_tallies_more_dates_than_its_first_allocation() -> None:
     days = [date(2016, 1, day).isoformat() for day in range(1, 21)]
-    html = "<body>" + " ".join(days) + " " + days[7] + "</body>"
+    html = f"<body>{' '.join(days)} {days[7]}</body>"
     assert dates(html) == PublicationDate("2016-01-08", "text")
 
 
@@ -499,7 +498,7 @@ def test_the_text_stage_ignores_dates_outside_the_window() -> None:
     assert dates(html) == PublicationDate("2016-01-13", "text")
 
 
-_GOOD: str = '<meta name="date" content="2016-06-07">'
+_GOOD: Final[str] = '<meta name="date" content="2016-06-07">'
 """A trailing publication meta that wins whenever the element under test contributes nothing."""
 
 
@@ -553,7 +552,7 @@ def test_http_equiv_last_modified_is_a_modification_key() -> None:
 
 def test_a_date_key_meta_without_content_or_datetime_is_skipped() -> None:
     # the date key is recognized but there is no content and only a valueless datetime, so nothing is dated here
-    assert dates("<meta name=date datetime>" + _GOOD) == PublicationDate("2016-06-07", "meta")
+    assert dates(f"<meta name=date datetime>{_GOOD}") == PublicationDate("2016-06-07", "meta")
 
 
 def test_publication_key_wins_over_a_modification_key_on_one_element() -> None:
@@ -588,13 +587,13 @@ def test_a_modification_meta_is_the_reserve_when_a_publication_is_wanted() -> No
 )
 def test_window_boundary_is_inclusive(content: str, min_date: date, max_date: date, expected: str | None) -> None:
     result = dates(f'<meta name="date" content="{content}">', DateExtraction(min_date=min_date, max_date=max_date))
-    assert result == (None if expected is None else PublicationDate(expected, "meta"))
+    assert result == (expected and PublicationDate(expected, "meta"))
 
 
-_YEAR = 2026
+_YEAR: Final[int] = 2026
 """The pivot a two-digit year expands against, fixed so the two-digit-year cases stay stable over time."""
 
-_SCAN_CASES = [
+_SCAN_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("2016-12-23", (2016, 12, 23), id="iso-hyphen"),
     pytest.param("2016/1/2", (2016, 1, 2), id="iso-slash-single"),
     pytest.param("2016.12.23T09:00", (2016, 12, 23), id="iso-dot-time"),
@@ -708,7 +707,7 @@ _SCAN_CASES = [
     pytest.param("5 Jan", None, id="day-first-month-at-end"),
 ]
 
-_SCAN_ALL_CASES = [
+_SCAN_ALL_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("2016-12-23", [(2016, 12, 23)], id="iso-hyphen"),
     pytest.param("2016/1/2", [(2016, 1, 2)], id="iso-slash-single"),
     pytest.param("2016.12.23T09:00", [(2016, 12, 23)], id="iso-dot-time"),
@@ -825,7 +824,7 @@ _SCAN_ALL_CASES = [
     pytest.param("5 Jan", [], id="day-first-month-at-end"),
 ]
 
-_URL_CASES = [
+_URL_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("http://x.com/2016/12/23/post.html", (2016, 12, 23), id="url-slash"),
     pytest.param("http://x.com/2020_06_07/story", (2020, 6, 7), id="url-underscore"),
     pytest.param("http://x.com/2020-06-07/story", (2020, 6, 7), id="url-hyphen"),
@@ -872,7 +871,7 @@ def test_date_url_reads_the_path_date(url: str, expected: tuple[int, int, int] |
     assert _date_url(url) == expected
 
 
-_WIDE_STORAGE = [
+_WIDE_STORAGE: Final[list[pytest.ParameterSet]] = [
     pytest.param("★", id="ucs2"),
     pytest.param("\U0001f600", id="ucs4"),
 ]

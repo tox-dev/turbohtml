@@ -12,23 +12,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Sequence
 
 
-def _element(node: Node | None) -> Element:
-    assert isinstance(node, Element)
-    return node
-
-
-def _tags(nodes: Iterable[Node]) -> list[str]:
-    return [_element(node).tag for node in nodes]
-
-
-def _div(markup: str = "<div id=a></div>") -> Element:
-    return _element(parse(markup).find(id="a"))
-
-
-def _first_child(markup: str) -> Node:
-    return _element(parse(markup).find("div")).children[0]
-
-
 def test_child_list_append_record_shape() -> None:
     div = _div("<div id=a><span></span></div>")
     observer = MutationObserver()
@@ -37,14 +20,20 @@ def test_child_list_append_record_shape() -> None:
     div.append(added)
     (record,) = observer.take_records()
     assert isinstance(record, MutationRecord)
-    assert record.type == "childList"
-    assert record.target == div
-    assert record.added_nodes == (added,)
-    assert record.removed_nodes == ()
+    assert (record.type, record.target, record.added_nodes, record.removed_nodes) == ("childList", div, (added,), ())
     assert _element(record.previous_sibling).tag == "span"
     assert record.next_sibling is None
     assert record.attribute_name is None
     assert record.old_value is None
+
+
+def _div(markup: str = "<div id=a></div>") -> Element:
+    return _element(parse(markup).find(id="a"))
+
+
+def _element(node: Node | None) -> Element:
+    assert isinstance(node, Element)
+    return node
 
 
 def test_take_records_drains_the_queue() -> None:
@@ -75,6 +64,10 @@ def test_insert_after_and_index_insert_record() -> None:
     span.insert_after(Element("b"))
     div.insert(0, Element("i"))
     assert [_tags(record.added_nodes) for record in observer.take_records()] == [["b"], ["i"]]
+
+
+def _tags(nodes: Iterable[Node]) -> list[str]:
+    return [_element(node).tag for node in nodes]
 
 
 def test_extend_records_one_per_child() -> None:
@@ -176,8 +169,7 @@ def test_attribute_added_reports_no_old_value() -> None:
     observer.observe(div, attributes=True, attribute_old_value=True)
     div.attrs["data-x"] = "1"
     (record,) = observer.take_records()
-    assert record.type == "attributes"
-    assert record.attribute_name == "data-x"
+    assert (record.type, record.attribute_name) == ("attributes", "data-x")
     assert record.old_value is None
 
 
@@ -215,8 +207,7 @@ def test_attribute_delete_records_old_value() -> None:
     observer.observe(div, attributes=True, attribute_old_value=True)
     del div.attrs["data-x"]
     (record,) = observer.take_records()
-    assert record.attribute_name == "data-x"
-    assert record.old_value == "gone"
+    assert (record.attribute_name, record.old_value) == ("data-x", "gone")
 
 
 def test_attribute_filter_limits_names() -> None:
@@ -262,6 +253,10 @@ def test_character_data_old_value_implies_character_data() -> None:
     assert len(observer.take_records()) == 1
 
 
+def _first_child(markup: str) -> Node:
+    return _element(parse(markup).find("div")).children[0]
+
+
 def test_character_data_records_old_value() -> None:
     text = _first_child("<div>hello</div>")
     assert isinstance(text, Text)
@@ -269,8 +264,7 @@ def test_character_data_records_old_value() -> None:
     observer.observe(text, character_data=True, character_data_old_value=True)
     text.data = "world"
     (record,) = observer.take_records()
-    assert record.type == "characterData"
-    assert record.old_value == "hello"
+    assert (record.type, record.old_value) == ("characterData", "hello")
 
 
 def test_character_data_without_flag_reports_none() -> None:
@@ -423,7 +417,7 @@ def test_disconnect_one_of_several_observers() -> None:
 
 def test_deliver_calls_callback_with_records_and_observer() -> None:
     div = _div()
-    seen: list[tuple[int, object]] = []
+    seen: list[tuple[int, MutationObserver]] = []
     observer = MutationObserver(lambda records, obs: seen.append((len(records), obs)))
     observer.observe(div, child_list=True)
     div.append(Element("b"))
@@ -576,7 +570,7 @@ def test_observer_is_garbage_collected() -> None:
 
 def test_target_must_be_a_node() -> None:
     with pytest.raises(TypeError):
-        MutationObserver().observe("not a node", child_list=True)  # ty: ignore[invalid-argument-type]
+        MutationObserver().observe("not a node", child_list=True)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_observe_requires_an_option() -> None:
@@ -595,37 +589,37 @@ def test_cross_tree_target_is_rejected() -> None:
 
 def test_non_callable_callback_is_rejected() -> None:
     with pytest.raises(TypeError, match="callable"):
-        MutationObserver(42)  # ty: ignore[invalid-argument-type]
+        MutationObserver(42)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_too_many_constructor_arguments() -> None:
     with pytest.raises(TypeError):
-        MutationObserver(None, None)  # ty: ignore[too-many-positional-arguments]
+        MutationObserver(None, None)  # ty: ignore[too-many-positional-arguments]  # passes an extra positional argument on purpose to check the rejection
 
 
 def test_observe_rejects_unknown_keyword() -> None:
     with pytest.raises(TypeError):
-        MutationObserver().observe(_div(), child_list=True, bogus=1)  # ty: ignore[unknown-argument]
+        MutationObserver().observe(_div(), child_list=True, bogus=1)  # ty: ignore[unknown-argument]  # passes an unknown keyword on purpose to check the rejection
 
 
 @pytest.mark.parametrize(
     "attribute_filter",
     [pytest.param([1], id="non-str-entry"), pytest.param(["ok", 1], id="non-str-after-valid")],
 )
-def test_non_str_attribute_filter_is_rejected(attribute_filter: list[object]) -> None:
+def test_non_str_attribute_filter_is_rejected(attribute_filter: list[int | str]) -> None:
     with pytest.raises(TypeError):
-        MutationObserver().observe(_div(), attributes=True, attribute_filter=attribute_filter)  # ty: ignore[invalid-argument-type]
+        MutationObserver().observe(_div(), attributes=True, attribute_filter=attribute_filter)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_non_iterable_attribute_filter_is_rejected() -> None:
     with pytest.raises(TypeError):
-        MutationObserver().observe(_div(), attributes=True, attribute_filter=5)  # ty: ignore[invalid-argument-type]
+        MutationObserver().observe(_div(), attributes=True, attribute_filter=5)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 @pytest.mark.parametrize("attributes", [False, True], ids=["wrong-kind", "unrelated"])
 def test_observer_overlap_keeps_old_value(*, attributes: bool) -> None:
     root: Final = Element("div")
-    root.set_inner_html('<section><p data-x="before"></p></section>' + "<span></span>" * 100)
+    root.set_inner_html(f'<section><p data-x="before"></p></section>{"<span></span>" * 100}')
     observer: Final = MutationObserver()
     for node in root.select("span"):
         observer.observe(node, child_list=not attributes, attributes=attributes, subtree=True)

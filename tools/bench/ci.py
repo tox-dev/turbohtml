@@ -4,9 +4,11 @@ Real, offline benchmark cases for the CodSpeed CI regression gate.
 The pyperf suite times every operation in :data:`bench.core.OPERATIONS` over real corpora (see :mod:`bench.corpus`).
 :func:`benchmarks` walks that same registry and pairs each turbohtml operation with a lazy loader for one of those real
 inputs -- the vendored html5lib-python and War-and-Peace corpora for the markup and text operations, the pinned upstream
-stylesheet and JS library for the minifiers, and the bench's own inline cases for the rest. Selected operations add a
-second case when one input cannot cover the relevant branch patterns. The loaders are lazy so the corpus is read only
-when a benchmark runs (under ``--codspeed``); a case whose corpus is missing raises, and the test skips it.
+stylesheet and JS library for the minifiers, and the bench's own inline cases for the rest.
+
+Selected operations add a second case when one input cannot cover the relevant branch patterns. The loaders are lazy so
+the corpus is read only when a benchmark runs (under ``--codspeed``); a case whose corpus is missing raises, and the
+test skips it.
 
 Operations whose inline case is too small to clear Valgrind's heap-jitter floor are re-homed on a large real corpus and
 surfaced under a corpus-qualified benchmark id (see :data:`_RESIZED`), so the noise-prone identity retires and a stable
@@ -18,31 +20,36 @@ from __future__ import annotations
 from functools import cache, partial
 from typing import TYPE_CHECKING, Final
 
-from bench import corpus
-from bench.core import OPERATIONS
-from bench.operations import INPUTS
+from . import corpus
+from .core import OPERATIONS
+from .corpus import CORPUS_FILES, JS_FILES, REAL_PAGES, STYLESHEETS, corpus_text, large_text
+from .operations import INPUTS, Case
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-_TEXT_BYTES = 1 << 16  # a 64 kB slice of the book: representative work without a multi-megabyte parse under Valgrind
+    from .operations import Timed
+
+_TEXT_BYTES: Final[int] = (
+    1 << 16
+)  # a 64 kB slice of the book: representative work without a multi-megabyte parse under Valgrind
 
 
 @cache
 def _spec() -> str:
-    """Return the vendored whatwg HTML spec (235 kB): the read-path operations' shared real document."""
-    _name, relative, encoding = corpus.CORPUS_FILES[5]
-    return corpus.corpus_text(relative, encoding)
+    # Return the vendored whatwg HTML spec (235 kB): the read-path operations' shared real document.
+    _name, relative, encoding = CORPUS_FILES[5]
+    return corpus_text(relative, encoding)
 
 
 def _xpath_case() -> tuple[str, str]:
-    """Return the ``(kind, document)`` pair the xpath operation expects, over the spec."""
+    # Return the ``(kind, document)`` pair the xpath operation expects, over the spec.
     return "//a[@href]", _spec()
 
 
 # read-path, parse and tokenize all run over one shared real document (bench.core caches the parse), so they measure the
 # query, not a re-parse; xpath, the text corpora and the minifier corpora load their own real inputs.
-_DOCUMENT_OPS = (
+_DOCUMENT_OPS: Final[tuple[str, ...]] = (
     "parse",
     "tokenize",
     "find",
@@ -97,48 +104,50 @@ _DOCUMENT_OPS = (
     "links-filter",
 )
 
-_LOADERS: dict[str, Callable[[], object]] = dict.fromkeys(_DOCUMENT_OPS, _spec)
+_LOADERS: Final[dict[str, Callable[[], Case]]] = dict.fromkeys(_DOCUMENT_OPS, _spec)
 _LOADERS["xpath"] = _xpath_case
 _LOADERS["escape"] = partial(corpus.corpus, "war-and-peace/2600.txt", _TEXT_BYTES)
 _LOADERS["unescape"] = partial(corpus.corpus, "war-and-peace/2600-h/2600-h.htm", _TEXT_BYTES)
 _LOADERS["encoding"] = lambda: corpus.corpus("war-and-peace/2600.txt", _TEXT_BYTES).encode("cp1252")
 _LOADERS["normalize"] = partial(corpus.corpus, "war-and-peace/2600.txt", _TEXT_BYTES)
-_LOADERS["minify-css"] = partial(corpus.large_text, *corpus.STYLESHEETS[1][1:])  # pico.css (90 kB)
-_LOADERS["minify-js"] = partial(corpus.large_text, *corpus.JS_FILES[0][1:])  # underscore (67 kB)
-_LOADERS["parse-scripting"] = partial(
-    corpus.large_text, *corpus.REAL_PAGES[2][1:]
-)  # mozilla blog (95 kB), carries <noscript>
+_LOADERS["minify-css"] = partial(large_text, *STYLESHEETS[1][1:])  # pico.css (90 kB)
+_LOADERS["minify-js"] = partial(large_text, *JS_FILES[0][1:])  # underscore (67 kB)
+_LOADERS["parse-scripting"] = partial(large_text, *REAL_PAGES[2][1:])  # mozilla blog (95 kB), carries <noscript>
 _LOADERS["parse-locations"] = _spec  # the whatwg spec: many tags and attributes to stamp spans for
 _LOADERS["computed-style"] = lambda: INPUTS["computed-style"]()[0][1]
 
 
 def _spec_case(kind: str) -> tuple[str, str]:
-    """Wrap the spec in the ``(kind, document)`` pair a tuple-shaped operation expects."""
+    # Wrap the spec in the ``(kind, document)`` pair a tuple-shaped operation expects.
     return kind, _spec()
 
 
 def _book_text() -> str:
-    """Return a War-and-Peace plain-text slice: the string operations' large real input."""
+    # Return a War-and-Peace plain-text slice: the string operations' large real input.
     return corpus.corpus("war-and-peace/2600.txt", _TEXT_BYTES)
 
 
 def _book_html() -> str:
-    """Return a War-and-Peace HTML slice: the markup operations' large real input."""
+    # Return a War-and-Peace HTML slice: the markup operations' large real input.
     return corpus.corpus("war-and-peace/2600-h/2600-h.htm", _TEXT_BYTES)
 
 
 # An inline case is too few instructions under Valgrind to clear the heap-layout jitter floor, so it swings >5%
 # run-to-run (text-main and boilerplate tripped the required CodSpeed check on unrelated PRs). Re-home each on a large
-# real corpus under a new corpus-qualified id: the flaky small id retires with no base and the large one is gated
-# fresh, so the input change never reads as a regression. The synthetic tree builders, the fragment parser, the
-# single-selector translate, and the fixed URL batch have no document corpus to grow into and stay inline.
-# The eight document converters carry a ``-parse-`` id because their measurement changed: each used to query a
-# document parsed once and cached, which credited it with a parse no caller gets, and now parses the string it is
-# handed. Reusing the old id would have CodSpeed read the added parse as a regression against a figure that measured
-# less work, so the old identity retires and the new one gates from its own baseline.
+# real corpus under a new corpus-qualified id: the flaky small id retires with no base and the large one is gated fresh,
+# so the input change never reads as a regression.
+#
+# The synthetic tree builders, the fragment parser, the single-selector translate, and the fixed URL batch have no
+# document corpus to grow into and stay inline.
+#
+# The eight document converters carry a ``-parse-`` id because their measurement changed: each used to query a document
+# parsed once and cached, which credited it with a parse no caller gets, and now parses the string it is handed. Reusing
+# the old id would have CodSpeed read the added parse as a regression against a figure that measured less work, so the
+# old identity retires and the new one gates from its own baseline.
+#
 # ``structured_data()`` likewise has a new identity now that each call copies one immutable tree snapshot before
 # extraction; its old baseline measured six independent reads without the snapshot guarantee.
-_RESIZED: dict[str, tuple[str, Callable[[], object]]] = {
+_RESIZED: Final[dict[str, tuple[str, Callable[[], Case]]]] = {
     "socialcard": ("socialcard-spec", _spec),
     "structured": ("structured-snapshot-spec", _spec),
     "sanitize": ("sanitize-spec", _spec),
@@ -375,9 +384,9 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "translate-id-literals": ("translate", 19),
     "translate-long-literals": ("translate", 21),
     "translate-class-literals": ("translate", 24),
-    "minify-css-unicode-ranges-small": ("minify-css", len(corpus.STYLESHEETS)),
-    "minify-css-unicode-ranges-sorted": ("minify-css", len(corpus.STYLESHEETS) + 1),
-    "minify-css-unicode-ranges-reversed": ("minify-css", len(corpus.STYLESHEETS) + 2),
+    "minify-css-unicode-ranges-small": ("minify-css", len(STYLESHEETS)),
+    "minify-css-unicode-ranges-sorted": ("minify-css", len(STYLESHEETS) + 1),
+    "minify-css-unicode-ranges-reversed": ("minify-css", len(STYLESHEETS) + 2),
     "urls-clean-undotted-path": ("urls-clean", 4),
     "urls-clean-short-path": ("urls-clean", 5),
     "urls-clean-parent-path": ("urls-clean", 6),
@@ -390,11 +399,11 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "is-valid-rng": ("is-valid-rng", 0),
     "is-valid-rng-valid": ("is-valid-rng", 1),
     "is-valid-rng-one-error": ("is-valid-rng", 2),
-    "conformance-sections-small": ("conformance", len(corpus.REAL_PAGES) + 1),
-    "conformance-sections-medium": ("conformance", len(corpus.REAL_PAGES) + 2),
-    "conformance-sections-large": ("conformance", len(corpus.REAL_PAGES) + 3),
-    "conformance-sections-shallow": ("conformance", len(corpus.REAL_PAGES) + 4),
-    "conformance-sections-heading": ("conformance", len(corpus.REAL_PAGES) + 5),
+    "conformance-sections-small": ("conformance", len(REAL_PAGES) + 1),
+    "conformance-sections-medium": ("conformance", len(REAL_PAGES) + 2),
+    "conformance-sections-large": ("conformance", len(REAL_PAGES) + 3),
+    "conformance-sections-shallow": ("conformance", len(REAL_PAGES) + 4),
+    "conformance-sections-heading": ("conformance", len(REAL_PAGES) + 5),
     "serialize-named": ("serialize-named", 0),
     "serialize-named-ascii": ("serialize-named", 1),
     "serialize-named-unnamed": ("serialize-named", 2),
@@ -411,13 +420,13 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "transform-text-literal-small": ("transform-text", 3),
     "transform-text-explicit": ("transform-text", 4),
     "transform-text-explicit-small": ("transform-text", 5),
-    "minify-css-zero-exponent-single": ("minify-css", len(corpus.STYLESHEETS) + 3),
-    "minify-css-zero-exponent-many": ("minify-css", len(corpus.STYLESHEETS) + 4),
-    "minify-css-zero-exponent-small": ("minify-css", len(corpus.STYLESHEETS) + 5),
-    "minify-css-number-arithmetic": ("minify-css", len(corpus.STYLESHEETS) + 6),
-    "minify-css-negative-exponent": ("minify-css", len(corpus.STYLESHEETS) + 7),
-    "minify-css-dimension-exponent": ("minify-css", len(corpus.STYLESHEETS) + 8),
-    "minify-css-unitless-exponent": ("minify-css", len(corpus.STYLESHEETS) + 9),
+    "minify-css-zero-exponent-single": ("minify-css", len(STYLESHEETS) + 3),
+    "minify-css-zero-exponent-many": ("minify-css", len(STYLESHEETS) + 4),
+    "minify-css-zero-exponent-small": ("minify-css", len(STYLESHEETS) + 5),
+    "minify-css-number-arithmetic": ("minify-css", len(STYLESHEETS) + 6),
+    "minify-css-negative-exponent": ("minify-css", len(STYLESHEETS) + 7),
+    "minify-css-dimension-exponent": ("minify-css", len(STYLESHEETS) + 8),
+    "minify-css-unitless-exponent": ("minify-css", len(STYLESHEETS) + 9),
     "transform-sort-integer-small": ("transform-sort", 2),
     "transform-sort-integer-large": ("transform-sort", 3),
     "transform-sort-string-small": ("transform-sort", 4),
@@ -507,29 +516,29 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "date-temporal-small": ("date", 6),
     "date-temporal-numeric": ("date", 7),
     "date-temporal-written": ("date", 8),
-    "text-content-short-descendants": ("text-content", len(corpus.REAL_PAGES) + 1),
-    "text-content-large-descendant": ("text-content", len(corpus.REAL_PAGES) + 2),
-    "text-content-tiny-descendant": ("text-content", len(corpus.REAL_PAGES) + 3),
-    "text-content-latin1-descendant": ("text-content", len(corpus.REAL_PAGES) + 4),
-    "text-content-bmp-descendant": ("text-content", len(corpus.REAL_PAGES) + 5),
-    "text-content-astral-descendant": ("text-content", len(corpus.REAL_PAGES) + 6),
-    "treebuild-data": ("treebuild", len(corpus.REAL_PAGES) + 1),
-    "treebuild-data-comments": ("treebuild", len(corpus.REAL_PAGES) + 2),
-    "treebuild-data-latin1": ("treebuild", len(corpus.REAL_PAGES) + 3),
-    "treebuild-data-bmp": ("treebuild", len(corpus.REAL_PAGES) + 4),
-    "treebuild-data-astral": ("treebuild", len(corpus.REAL_PAGES) + 5),
-    "treebuild-data-normalized": ("treebuild", len(corpus.REAL_PAGES) + 6),
-    "treebuild-data-entities": ("treebuild", len(corpus.REAL_PAGES) + 7),
-    "treebuild-data-small": ("treebuild", len(corpus.REAL_PAGES) + 8),
-    "treebuild-elements": ("treebuild", len(corpus.REAL_PAGES) + 9),
-    "treebuild-tiny": ("treebuild", len(corpus.REAL_PAGES) + 10),
-    "treebuild-foreign": ("treebuild", len(corpus.REAL_PAGES) + 11),
-    "treebuild-callbacks": ("treebuild", len(corpus.REAL_PAGES) + 12),
+    "text-content-short-descendants": ("text-content", len(REAL_PAGES) + 1),
+    "text-content-large-descendant": ("text-content", len(REAL_PAGES) + 2),
+    "text-content-tiny-descendant": ("text-content", len(REAL_PAGES) + 3),
+    "text-content-latin1-descendant": ("text-content", len(REAL_PAGES) + 4),
+    "text-content-bmp-descendant": ("text-content", len(REAL_PAGES) + 5),
+    "text-content-astral-descendant": ("text-content", len(REAL_PAGES) + 6),
+    "treebuild-data": ("treebuild", len(REAL_PAGES) + 1),
+    "treebuild-data-comments": ("treebuild", len(REAL_PAGES) + 2),
+    "treebuild-data-latin1": ("treebuild", len(REAL_PAGES) + 3),
+    "treebuild-data-bmp": ("treebuild", len(REAL_PAGES) + 4),
+    "treebuild-data-astral": ("treebuild", len(REAL_PAGES) + 5),
+    "treebuild-data-normalized": ("treebuild", len(REAL_PAGES) + 6),
+    "treebuild-data-entities": ("treebuild", len(REAL_PAGES) + 7),
+    "treebuild-data-small": ("treebuild", len(REAL_PAGES) + 8),
+    "treebuild-elements": ("treebuild", len(REAL_PAGES) + 9),
+    "treebuild-tiny": ("treebuild", len(REAL_PAGES) + 10),
+    "treebuild-foreign": ("treebuild", len(REAL_PAGES) + 11),
+    "treebuild-callbacks": ("treebuild", len(REAL_PAGES) + 12),
 }
 
 
-def _inline(operation: str, case_index: int = 0) -> object:
-    """Return one case the bench already defines inline for ``operation`` (no corpus needed)."""
+def _inline(operation: str, case_index: int = 0) -> Case:
+    # Return one case the bench already defines inline for ``operation`` (no corpus needed).
     return INPUTS[operation]()[case_index][1]
 
 
@@ -586,30 +595,27 @@ _LOADERS.update({
 })
 
 
-def loader_for(operation: str) -> Callable[[], object]:
-    """Return the lazy loader for ``operation``: a resized real corpus, the spec, or the bench's own inline case."""
+def benchmarks() -> Iterator[tuple[str, Timed, Callable[[], Case]]]:
+    # Yield ``(name, callable, load)`` for every turbohtml operation, in registry order.
+    #
+    # A noise-prone inline operation is surfaced under its corpus-qualified id (see :data:`_RESIZED`) so CodSpeed
+    # retires the flaky small-input benchmark and gates the large-input one as a fresh identity.
+    for name, (run, _owner) in OPERATIONS.items():
+        if name == "startup" or name in _ADDITIONAL_CASES:
+            continue  # Explicit cases retain their configured position; startup needs a fresh interpreter.
+        identity = _RESIZED[name][0] if name in _RESIZED else name
+        yield identity, run, _loader_for(name)
+    for identity, (name, case_index) in _ADDITIONAL_CASES.items():
+        yield identity, OPERATIONS[name][0], partial(_inline, name, case_index)
+
+
+def _loader_for(operation: str) -> Callable[[], Case]:
+    # Return the lazy loader for ``operation``: a resized real corpus, the spec, or the bench's own inline case.
     if operation in _RESIZED:
         return _RESIZED[operation][1]
     return _LOADERS.get(operation, partial(_inline, operation))
 
 
-def benchmarks() -> Iterator[tuple[str, object, Callable[[], object]]]:
-    """
-    Yield ``(name, callable, load)`` for every turbohtml operation, in registry order.
-
-    A noise-prone inline operation is surfaced under its corpus-qualified id (see :data:`_RESIZED`) so CodSpeed
-    retires the flaky small-input benchmark and gates the large-input one as a fresh identity.
-    """
-    for name, (run, _owner) in OPERATIONS.items():
-        if name == "startup" or name in _ADDITIONAL_CASES:
-            continue  # Explicit cases retain their configured position; startup needs a fresh interpreter.
-        identity = _RESIZED[name][0] if name in _RESIZED else name
-        yield identity, run, loader_for(name)
-    for identity, (name, case_index) in _ADDITIONAL_CASES.items():
-        yield identity, OPERATIONS[name][0], partial(_inline, name, case_index)
-
-
 __all__ = [
     "benchmarks",
-    "loader_for",
 ]

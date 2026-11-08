@@ -23,14 +23,6 @@ if TYPE_CHECKING:
 
     from ._html import Document, Node
 
-__all__ = [
-    "RelaxNG",
-    "SchemaValidationError",
-    "ValidationError",
-    "ValidationResult",
-    "XMLSchema",
-]
-
 
 class ValidationError(NamedTuple):
     """
@@ -54,13 +46,20 @@ class ValidationResult(NamedTuple):
 
     The result is truthy exactly when the document is valid, so ``if schema.validate(doc):``
     reads naturally.
+
+    :param valid: whether the document is valid.
+    :param errors: the errors found, empty when the document is valid.
     """
 
     valid: bool
     errors: tuple[ValidationError, ...]
 
     def __bool__(self) -> bool:
-        """Whether the document is valid, so the result reads as a truth value."""
+        """
+        Whether the document is valid, so the result reads as a truth value.
+
+        :returns: whether the document is valid.
+        """
         return self.valid
 
 
@@ -68,45 +67,66 @@ class SchemaValidationError(Exception):
     """Raised by :meth:`XMLSchema.assert_valid` / :meth:`RelaxNG.assert_valid` when a document is invalid."""
 
     def __init__(self, errors: tuple[ValidationError, ...]) -> None:
-        """Carry the ``errors`` the failed validation produced, the first of which becomes the message."""
+        """
+        Carry the ``errors`` the failed validation produced, the first of which becomes the message.
+
+        :param errors: the errors the failed validation produced.
+        """
         self.errors = errors
         super().__init__(errors[0].message if errors else "document is invalid")
 
 
 class _Schema:
-    """Shared machinery for the two schema languages; not instantiated directly."""
-
+    # Shared machinery for the two schema languages; not instantiated directly.
     def __init__(self, compiled: object) -> None:
         self._compiled: Final = compiled
 
-    def validate(self, document: Document | Node) -> ValidationResult:
-        """Validate a parsed document (or element), returning the full :class:`ValidationResult`."""
-        valid, errors = _schema_validate(self._compiled, document)
-        return ValidationResult(valid, tuple(starmap(ValidationError, errors)))
-
     def is_valid(self, document: Document | Node) -> bool:
-        """Whether the document satisfies the schema."""
+        """
+        Whether the document satisfies the schema.
+
+        :param document: the parsed document or element to check.
+        :returns: whether the document satisfies the schema.
+        """
         return _schema_validate(self._compiled, document, collect_errors=False)[0]
 
     def assert_valid(self, document: Document | Node) -> None:
-        """Validate the document, raising :class:`SchemaValidationError` with the errors when it is invalid."""
+        """
+        Validate the document, raising :class:`SchemaValidationError` with the errors when it is invalid.
+
+        :param document: the parsed document or element to check.
+        :raises SchemaValidationError: if the document is invalid.
+        """
         result = self.validate(document)
         if not result.valid:
             raise SchemaValidationError(result.errors)
+
+    def validate(self, document: Document | Node) -> ValidationResult:
+        """
+        Validate a parsed document (or element), returning the full :class:`ValidationResult`.
+
+        :param document: the parsed document or element to check.
+        :returns: the validation outcome, its verdict and the errors found.
+        """
+        valid, errors = _schema_validate(self._compiled, document)
+        return ValidationResult(valid, tuple(starmap(ValidationError, errors)))
 
 
 class XMLSchema(_Schema):
     """
     A compiled XSD 1.0 schema.
 
-    :param source: the schema as XSD text, or a schema document parsed with :func:`turbohtml.parse_xml`.
     :raises ValueError: when the schema is malformed, its root is not ``xs:schema``, a ``ref``/``type``/``base``
         does not resolve, a group, attribute-group, or type-derivation reference forms a cycle or a chain over 100
         hops, or an ``xs:unique``/``xs:key``/``xs:keyref`` identity constraint is declared.
     """
 
     def __init__(self, source: str | Node) -> None:
-        """Compile the schema once; every validation reuses the result."""
+        """
+        Compile the schema once; every validation reuses the result.
+
+        :param source: the schema as XSD text, or a schema document parsed with :func:`turbohtml.parse_xml`.
+        """
         super().__init__(_schema_compile(0, _text(source)))
 
 
@@ -114,11 +134,6 @@ class RelaxNG(_Schema):
     """
     A compiled RELAX NG schema (XML syntax).
 
-    :param source: the schema as RELAX NG text, or a schema document parsed with :func:`turbohtml.parse_xml`.
-    :param base_url: the schema's path or file URL, against which each ``include`` and ``externalRef`` href resolves
-        (after any ``xml:base``); required only when the schema references other files.
-    :param include_root: when set, referenced files must resolve inside this directory, including through nested
-        references.
     :raises ValueError: when the schema is malformed, references a file without a ``base_url``, or a reference
         escapes ``include_root``, carries a fragment, loops, loads the wrong kind of pattern, or overrides a component
         the included grammar lacks.
@@ -128,9 +143,26 @@ class RelaxNG(_Schema):
     def __init__(
         self, source: str | Node, *, base_url: str | None = None, include_root: str | Path | None = None
     ) -> None:
-        """Compile the schema, reading the files it references, once; every validation reuses the result."""
+        """
+        Compile the schema, reading the files it references, once; every validation reuses the result.
+
+        :param source: the schema as RELAX NG text, or a schema document parsed with :func:`turbohtml.parse_xml`.
+        :param base_url: the schema's path or file URL, against which each ``include`` and ``externalRef`` href resolves
+            (after any ``xml:base``); required only when the schema references other files.
+        :param include_root: when set, referenced files must resolve inside this directory, including through nested
+            references.
+        """
         super().__init__(_schema_compile(1, _text(source), base_url, include_root))
 
 
 def _text(source: str | Node) -> str:
     return source if isinstance(source, str) else source.serialize()
+
+
+__all__ = [
+    "RelaxNG",
+    "SchemaValidationError",
+    "ValidationError",
+    "ValidationResult",
+    "XMLSchema",
+]

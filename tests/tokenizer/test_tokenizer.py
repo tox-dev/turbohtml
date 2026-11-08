@@ -7,7 +7,7 @@ import threading
 import time
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, TypeAlias
+from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 import pytest
 
@@ -19,26 +19,25 @@ if TYPE_CHECKING:
     from _pytest.mark.structures import ParameterSet
 
 
-def _shape(token: Token) -> tuple[object, ...]:
-    return (token.type, token.tag, token.target, token.data, token.attrs, token.self_closing)
-
-
-def assert_streaming_matches_whole(document: str) -> None:
-    """Feeding one character at a time must match one-shot tokenization."""
-    tokenizer = Tokenizer()
-    streamed = [token for char in document for token in tokenizer.feed(char)]
-    streamed += list(tokenizer.close())
-    whole = list(tokenize(document))
-    assert [_shape(token) for token in streamed] == [_shape(token) for token in whole]
-    assert [(token.line, token.col) for token in streamed] == [(token.line, token.col) for token in whole]
-
-
 def test_tokenize_simple_document() -> None:
     head, start, body, end = list(tokenize('a<p class="x">b</p>'))
     assert _shape(head) == (TokenType.TEXT, None, None, "a", None, False)
     assert _shape(start) == (TokenType.START_TAG, "p", None, None, [("class", "x")], False)
     assert _shape(body) == (TokenType.TEXT, None, None, "b", None, False)
     assert _shape(end) == (TokenType.END_TAG, "p", None, None, [], False)
+
+
+def _shape(token: Token) -> _Shape:
+    return _Shape(token.type, token.tag, token.target, token.data, token.attrs, token.self_closing)
+
+
+class _Shape(NamedTuple):
+    token_type: TokenType
+    tag: str | None
+    target: str | None
+    data: str | None
+    attrs: list[tuple[str, str]] | None
+    self_closing: bool
 
 
 def test_tokenize_empty_input() -> None:
@@ -90,7 +89,9 @@ def test_invalid_processing_instruction_is_a_comment(document: str, data: str, w
 
 
 def test_processing_instruction_target_space_at_eof_is_dropped(width_prefix: str) -> None:
-    assert [token.data for token in tokenize(width_prefix + "<?pi ")] == ([width_prefix] if width_prefix else [])
+    assert [token.data for token in tokenize(f"{width_prefix}<?pi ")] == [
+        token.data for token in tokenize(width_prefix)
+    ]
 
 
 # each expected tuple is (type, name, public_id, system_id, force_quirks)
@@ -107,7 +108,7 @@ def test_processing_instruction_target_space_at_eof_is_dropped(width_prefix: str
         pytest.param("<p>", (TokenType.START_TAG, None, None, None, False), id="non-doctype"),
     ],
 )
-def test_doctype_fields(document: str, expected: tuple[object, ...]) -> None:
+def test_doctype_fields(document: str, expected: tuple[TokenType, str | None, str | None, str | None, bool]) -> None:
     (token,) = list(tokenize(document))
     assert (token.type, token.name, token.public_id, token.system_id, token.force_quirks) == expected
     assert token.data is None
@@ -130,21 +131,24 @@ def test_self_closing_tag() -> None:
 )
 def test_tag_attrs(document: str, tag_name: str, attrs: list[tuple[str, str | None]]) -> None:
     (tag,) = list(tokenize(document))
-    assert tag.tag == tag_name
-    assert tag.attrs == attrs
+    assert (tag.tag, tag.attrs) == (tag_name, attrs)
 
 
-@pytest.mark.parametrize("mode", ["whole", "streaming"])
-def test_capture_attributes_can_be_disabled(mode: str) -> None:
-    document = '<a href="a&amp;b" download>text</a>'
-    if mode == "streaming":
-        tokenizer = Tokenizer(capture_attributes=False)
-        tokens = [token for char in document for token in tokenizer.feed(char)]
-        tokens += list(tokenizer.close())
-    else:
-        tokens = list(tokenize(document, capture_attributes=False))
+def _whole_tokens(document: str) -> list[Token]:
+    return list(tokenize(document, capture_attributes=False))
 
-    start, text, end = tokens
+
+def _streamed_tokens(document: str) -> list[Token]:
+    tokenizer = Tokenizer(capture_attributes=False)
+    return [token for char in document for token in tokenizer.feed(char)] + list(tokenizer.close())
+
+
+@pytest.mark.parametrize(
+    "tokens_of",
+    [pytest.param(_whole_tokens, id="whole"), pytest.param(_streamed_tokens, id="streaming")],
+)
+def test_capture_attributes_can_be_disabled(tokens_of: Callable[[str], list[Token]]) -> None:
+    start, text, end = tokens_of('<a href="a&amp;b" download>text</a>')
     assert (start.tag, start.attrs, start.attr("href")) == ("a", [], None)
     assert (text.data, end.tag) == ("text", "a")
 
@@ -183,9 +187,9 @@ def test_attr_name_must_be_str() -> None:
     # a str-typed name rejects bytes (no silent latin-1 match) and other wrong types, naming str
     (tag,) = list(tokenize("<a href=x>"))
     with pytest.raises(TypeError):
-        tag.attr(b"href")  # ty: ignore[invalid-argument-type]
+        tag.attr(b"href")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
     with pytest.raises(TypeError):
-        tag.attr(123)  # ty: ignore[invalid-argument-type]
+        tag.attr(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
     with pytest.raises(UnicodeEncodeError):
         tag.attr("\udfff")  # a lone surrogate has no UTF-8 form
 
@@ -204,9 +208,7 @@ def test_token_repr() -> None:
 
 def test_token_type_enum() -> None:
     assert [member.value for member in TokenType] == [0, 1, 2, 3, 4, 5, 6]
-    assert TokenType.TEXT == 0
-    assert TokenType.CHARACTER_REFERENCE == 5
-    assert TokenType.PROCESSING_INSTRUCTION == 6
+    assert (TokenType.TEXT, TokenType.CHARACTER_REFERENCE, TokenType.PROCESSING_INSTRUCTION) == (0, 5, 6)
     assert isinstance(TokenType.START_TAG, int)
 
 
@@ -218,9 +220,9 @@ def test_token_cannot_be_instantiated() -> None:
 def test_tokenizer_takes_no_arguments() -> None:
     # a streaming tokenizer starts empty; a constructor argument is an error, not a silent no-op
     with pytest.raises(TypeError):
-        Tokenizer("<p>")  # ty: ignore[too-many-positional-arguments]
+        Tokenizer("<p>")  # ty: ignore[too-many-positional-arguments]  # passes an extra positional argument on purpose to check the rejection
     with pytest.raises(TypeError):
-        Tokenizer(source="<p>")  # ty: ignore[unknown-argument]
+        Tokenizer(source="<p>")  # ty: ignore[unknown-argument]  # passes an unknown keyword on purpose to check the rejection
 
 
 def test_tokens_stay_valid_after_iteration() -> None:
@@ -284,8 +286,9 @@ def test_content_model_switching(document: str, expected: list[str]) -> None:
     ],
 )
 def test_script_end_tag_variants(document: str, kinds: list[TokenType], width_prefix: str) -> None:
-    lead = [TokenType.TEXT] if width_prefix else []
-    assert [token.type for token in tokenize(width_prefix + document)] == lead + kinds
+    assert [token.type for token in tokenize(width_prefix + document)] == [
+        token.type for token in tokenize(width_prefix)
+    ] + kinds
 
 
 @pytest.mark.parametrize(
@@ -308,19 +311,18 @@ def test_doctype_identifier_edge_cases(
     document: str, public_id: str | None, system_id: str | None, width_prefix: str
 ) -> None:
     doctype = list(tokenize(width_prefix + document))[-1]
-    assert doctype.public_id == public_id
-    assert doctype.system_id == system_id
+    assert (doctype.public_id, doctype.system_id) == (public_id, system_id)
 
 
 def test_large_text_runs_move_intact() -> None:
-    first, second = "&amp;" + "a" * 600, "&gt;" + "b" * 700
+    first, second = f"&amp;{'a' * 600}", f"&gt;{'b' * 700}"
     tokens = list(tokenize(f"{first}<p>{second}"))
-    expected = ["&" + "a" * 600, ">" + "b" * 700]
+    expected = [f"&{'a' * 600}", f">{'b' * 700}"]
     assert [token.data for token in tokens if token.type is TokenType.TEXT] == expected
 
 
 def test_tokens_outlive_the_source_string() -> None:
-    text = "y" * 700 + "<p>"
+    text = f"{'y' * 700}<p>"
     iterator = tokenize(text)
     del text
     gc.collect()
@@ -433,6 +435,16 @@ def test_single_text_token(text: str, expected: str) -> None:
 )
 def test_feed_char_by_char_matches_whole(document: str, width_prefix: str) -> None:
     assert_streaming_matches_whole(width_prefix + document)
+
+
+def assert_streaming_matches_whole(document: str) -> None:
+    # Feeding one character at a time must match one-shot tokenization.
+    tokenizer = Tokenizer()
+    streamed = [token for char in document for token in tokenizer.feed(char)]
+    streamed += list(tokenizer.close())
+    whole = list(tokenize(document))
+    assert [_shape(token) for token in streamed] == [_shape(token) for token in whole]
+    assert [(token.line, token.col) for token in streamed] == [(token.line, token.col) for token in whole]
 
 
 @pytest.mark.parametrize(
@@ -593,16 +605,16 @@ def test_positions_match_html_parser() -> None:
             super().__init__(convert_charrefs=True)
             self.positions: list[tuple[int, int]] = []
 
-        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # ruff:ignore[unused-method-argument]
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # ruff:ignore[unused-method-argument]  # the callback signature is fixed by the protocol; this argument is unused
             self.positions.append(self.getpos())
 
-        def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # ruff:ignore[unused-method-argument]
+        def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:  # ruff:ignore[unused-method-argument]  # the callback signature is fixed by the protocol; this argument is unused
             self.positions.append(self.getpos())
 
-        def handle_data(self, data: str) -> None:  # ruff:ignore[unused-method-argument]
+        def handle_data(self, data: str) -> None:  # ruff:ignore[unused-method-argument]  # the callback signature is fixed by the protocol; this argument is unused
             self.positions.append(self.getpos())
 
-        def handle_comment(self, data: str) -> None:  # ruff:ignore[unused-method-argument]
+        def handle_comment(self, data: str) -> None:  # ruff:ignore[unused-method-argument]  # the callback signature is fixed by the protocol; this argument is unused
             self.positions.append(self.getpos())
 
     recorder = Recorder()
@@ -758,16 +770,12 @@ def test_token_attrs_returns_fresh_list(document: str) -> None:
 # Large enough that the old O(n^2) scan would take tens of seconds even on an
 # instrumented build, so a regression cannot slip under the wall-clock ceiling; the
 # linear path parses it in well under a second.
-_MANY = 60000
+_MANY: Final[int] = 60000
+
+
 # Headroom is ~30x over the linear cost and ~5x under the quadratic one, so ordinary
 # CI scheduling jitter cannot flip the result either way.
-_BUDGET_SECONDS = 6.0
-
-
-def _attrs_of(pairs: str) -> list[tuple[str, str]]:
-    (tag,) = list(tokenize(f"<a{pairs}>"))
-    assert tag.attrs is not None  # a start tag always exposes its attribute list
-    return tag.attrs
+_BUDGET_SECONDS: Final[float] = 6.0
 
 
 def test_many_distinct_attributes_parse_in_linear_time() -> None:
@@ -776,6 +784,12 @@ def test_many_distinct_attributes_parse_in_linear_time() -> None:
     attrs = _attrs_of(pairs)
     assert time.perf_counter() - start < _BUDGET_SECONDS
     assert len(attrs) == _MANY  # every distinct name is kept, none dropped
+
+
+def _attrs_of(pairs: str) -> list[tuple[str, str]]:
+    (tag,) = list(tokenize(f"<a{pairs}>"))
+    assert tag.attrs is not None  # a start tag always exposes its attribute list
+    return tag.attrs
 
 
 def test_many_distinct_attributes_keep_their_names_and_order() -> None:
@@ -795,31 +809,29 @@ def test_interleaved_duplicates_keep_first_occurrence_order() -> None:
 def test_hash_index_resets_between_consecutive_large_tags() -> None:
     # Two big tags back to back: the second must not see the first tag's names, so the
     # per-tag epoch reset and the grow that re-seats live entries both have to be right.
-    first = "<a" + "".join(f" p{index}" for index in range(1500)) + ">"
-    second = "<b" + "".join(f" p{index}" for index in range(1500)) + ">"
+    first = f"<a{''.join(f' p{index}' for index in range(1500))}>"
+    second = f"<b{''.join(f' p{index}' for index in range(1500))}>"
     counts = [len(token.attrs) for token in tokenize(first + second) if token.attrs is not None]
     assert counts == [1500, 1500]  # neither tag drops a name
-
-
-def _reference_shape(token: Token) -> tuple[object, ...]:
-    return (token.type, token.tag, token.data, token.source, token.attrs, token.self_closing)
-
-
-def _stream_char_by_char(document: str, *, resolve_references: bool, capture_source: bool) -> list[Token]:
-    tokenizer = Tokenizer(resolve_references=resolve_references, capture_source=capture_source)
-    streamed = [token for char in document for token in tokenizer.feed(char)]
-    streamed += list(tokenizer.close())
-    return streamed
-
-
-def _refs(tokens: Iterable[Token]) -> list[tuple[str | None, str | None]]:
-    return [(token.data, token.source) for token in tokens if token.type is TokenType.CHARACTER_REFERENCE]
 
 
 def test_default_resolves_references_into_text() -> None:
     head, tag = list(tokenize("a&amp;b<p>"))
     assert _reference_shape(head) == (TokenType.TEXT, None, "a&b", None, None, False)
     assert tag.type is TokenType.START_TAG
+
+
+def _reference_shape(token: Token) -> _ReferenceShape:
+    return _ReferenceShape(token.type, token.tag, token.data, token.source, token.attrs, token.self_closing)
+
+
+class _ReferenceShape(NamedTuple):
+    token_type: TokenType
+    tag: str | None
+    data: str | None
+    source: str | None
+    attrs: list[tuple[str, str]] | None
+    self_closing: bool
 
 
 def test_default_source_is_none() -> None:
@@ -841,8 +853,7 @@ def test_default_source_is_none() -> None:
 def test_reference_becomes_its_own_token(document: str, data: str, source: str) -> None:
     (reference,) = list(tokenize(document, resolve_references=False))
     assert reference.type is TokenType.CHARACTER_REFERENCE
-    assert reference.data == data
-    assert reference.source == source
+    assert (reference.data, reference.source) == (data, source)
     assert reference.tag is None
     assert reference.attrs is None
     assert reference.self_closing is False
@@ -875,6 +886,10 @@ def test_non_reference_ampersand_stays_text(document: str, text: str) -> None:
 
 def test_consecutive_references() -> None:
     assert _refs(tokenize("&amp;&lt;&gt;", resolve_references=False)) == [("&", "&amp;"), ("<", "&lt;"), (">", "&gt;")]
+
+
+def _refs(tokens: Iterable[Token]) -> list[tuple[str | None, str | None]]:
+    return [(token.data, token.source) for token in tokens if token.type is TokenType.CHARACTER_REFERENCE]
 
 
 def test_named_vs_numeric_is_readable_from_source() -> None:
@@ -921,8 +936,7 @@ def test_reference_repr() -> None:
 )
 def test_capture_source_records_verbatim_markup(document: str, tag: str | None, source: str) -> None:
     (token,) = list(tokenize(document, capture_source=True))
-    assert token.tag == tag
-    assert token.source == source
+    assert (token.tag, token.source) == (tag, source)
 
 
 def test_capture_source_leaves_text_without_source() -> None:
@@ -936,8 +950,7 @@ def test_capture_source_leaves_text_without_source() -> None:
 def test_capture_source_preserves_original_casing_and_whitespace() -> None:
     # the resolved tag name is lowercased, but the verbatim source keeps the original spelling
     (tag,) = list(tokenize("<DIV  Class = 'x' >", capture_source=True))
-    assert tag.tag == "div"
-    assert tag.source == "<DIV  Class = 'x' >"
+    assert (tag.tag, tag.source) == ("div", "<DIV  Class = 'x' >")
 
 
 def test_capture_source_and_split_references_combine() -> None:
@@ -967,6 +980,13 @@ def test_split_streaming_matches_whole(document: str, width_prefix: str) -> None
     whole = list(tokenize(text, resolve_references=False))
     assert [_reference_shape(token) for token in streamed] == [_reference_shape(token) for token in whole]
     assert [(token.line, token.col) for token in streamed] == [(token.line, token.col) for token in whole]
+
+
+def _stream_char_by_char(document: str, *, resolve_references: bool, capture_source: bool) -> list[Token]:
+    tokenizer = Tokenizer(resolve_references=resolve_references, capture_source=capture_source)
+    streamed = [token for char in document for token in tokenizer.feed(char)]
+    streamed += list(tokenizer.close())
+    return streamed
 
 
 @pytest.mark.parametrize(
@@ -1057,15 +1077,11 @@ if not _TOKENIZER_DIR.is_dir() or not any(_TOKENIZER_DIR.glob("*.test")):  # pra
     msg = "submodule tests/html5lib-tests not checked out; run: git submodule update --init tests/html5lib-tests"
     raise RuntimeError(msg)
 
-_DOUBLE_ESCAPE = re.compile(r"\\u([0-9A-Fa-f]{4})")
+_DOUBLE_ESCAPE: Final[re.Pattern[str]] = re.compile(r"\\u([0-9A-Fa-f]{4})")
 _TokenPart: TypeAlias = str | bool | dict[str, str] | None
 _ExpectedToken: TypeAlias = list[_TokenPart]
 _ParseError: TypeAlias = tuple[str, int, int]
 _TokenizerCase: TypeAlias = tuple[str, str, str | None, list[_ExpectedToken], list[_ParseError], str]
-_PI_TOKEN_OVERRIDES: Final[dict[str, list[_ExpectedToken]]] = {
-    "<?namespace>": [["ProcessingInstruction", "namespace", ""]],
-    "<?foo-->": [["ProcessingInstruction", "foo--", ""]],
-}
 
 
 def _decode_double(text: str) -> str:
@@ -1083,9 +1099,13 @@ def _living_pi_expectation(
         return expected, errors
     if not (first := text[2:3]):
         return [], [("eof-in-processing-instruction", 1, 3)]
+    pi_token_overrides: dict[str, list[_ExpectedToken]] = {
+        "<?namespace>": [["ProcessingInstruction", "namespace", ""]],
+        "<?foo-->": [["ProcessingInstruction", "foo--", ""]],
+    }
     if first.isascii() and (first.isalpha() or first == "_"):
         if text.endswith(">"):
-            return _PI_TOKEN_OVERRIDES.get(text, expected), []
+            return pi_token_overrides.get(text, expected), []
         return [], [("eof-in-processing-instruction", 1, len(text) + 1)]
     retained = [
         error
@@ -1099,8 +1119,7 @@ def _living_pi_expectation(
 def _load_cases() -> list[_TokenizerCase]:
     cases: list[_TokenizerCase] = []
     for path in sorted(_TOKENIZER_DIR.glob("*.test")):
-        document = json.loads(path.read_text(encoding="utf-8"))
-        for index, test in enumerate(document.get("tests", [])):
+        for index, test in enumerate(json.loads(path.read_text(encoding="utf-8")).get("tests", [])):
             double_escaped = test.get("doubleEscaped", False)
             text = _decode_double(test["input"]) if double_escaped else test["input"]
             expected = [
@@ -1130,5 +1149,5 @@ def test_tokenizer_conformance(case: _TokenizerCase, storage_kind: int) -> None:
     assert (
         [list(token) for token in result[0]],
         [code for code, _, _ in result[1]],
-        [(code, line, col + 1) for code, line, col in result[1]] if check_positions else None,
-    ) == (case[3], [code for code, _, _ in errors], errors if check_positions else None)
+        [(code, line, col + 1) for code, line, col in result[1] if check_positions],
+    ) == (case[3], [code for code, _, _ in errors], [error for error in errors if check_positions])

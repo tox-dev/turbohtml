@@ -1,5 +1,3 @@
-"""Run pyperf's process protocol against filesystem operations with rejected inputs."""
-
 from __future__ import annotations
 
 import json
@@ -10,8 +8,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, cast
 
 import pytest
-from bench import core
 from bench.ci import benchmarks
+from bench.core import OPERATIONS
 from bench.operations import INPUTS
 
 from turbohtml import __version__
@@ -19,7 +17,7 @@ from turbohtml import __version__
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_SCRIPT: Final = """\
+_SCRIPT: Final[str] = """\
 from __future__ import annotations
 
 import json
@@ -47,14 +45,14 @@ worker.main()
 """
 
 
-@pytest.mark.parametrize(("case", "expected"), [(0, __version__ + "\n"), (1, "<p>a b")], ids=["import", "cli"])
+@pytest.mark.parametrize(("case", "expected"), [(0, f"{__version__}\n"), (1, "<p>a b")], ids=["import", "cli"])
 def test_worker_startup_public_output(case: int, expected: str) -> None:
-    operation: Final = cast("Callable[[object], str]", core.OPERATIONS["startup"][0])
+    operation: Final = cast("Callable[[object], str]", OPERATIONS["startup"][0])
     assert operation(INPUTS["startup"]()[case][1]) == expected
 
 
 def test_worker_startup_uses_elapsed_time() -> None:
-    assert ("startup" in core.OPERATIONS, "startup" in {name for name, _, _ in benchmarks()}) == (True, False)
+    assert ("startup" in OPERATIONS, "startup" in {name for name, _, _ in benchmarks()}) == (True, False)
 
 
 @pytest.mark.parametrize(
@@ -67,13 +65,19 @@ def test_worker_startup_uses_elapsed_time() -> None:
 )
 def test_worker_explicit_case_registered_once(name: str) -> None:
     assert [(run, load()) for identity, run, load in benchmarks() if identity == name] == [
-        (core.OPERATIONS[name][0], INPUTS[name]()[0][1]),
+        (OPERATIONS[name][0], INPUTS[name]()[0][1]),
     ]
 
 
-@pytest.mark.parametrize("mutating", [False, True], ids=["plain", "mutating"])
+@pytest.mark.parametrize(
+    "operation",
+    [
+        pytest.param("read_file", id="plain"),
+        pytest.param("Mutating(setup=read_file, run=str.upper)", id="mutating"),
+    ],
+)
 @pytest.mark.parametrize("error_index", [0, 1], ids=["error-first", "error-middle"])
-def test_worker_skips_unselected_inputs(tmp_path: Path, error_index: int, *, mutating: bool) -> None:
+def test_worker_skips_unselected_inputs(tmp_path: Path, error_index: int, *, operation: str) -> None:
     first: Final = tmp_path / "first.txt"
     first.write_text("first input", encoding="utf-8")
     second: Final = tmp_path / "second.txt"
@@ -82,7 +86,7 @@ def test_worker_skips_unselected_inputs(tmp_path: Path, error_index: int, *, mut
     cases.insert(error_index, str(tmp_path / "missing.txt"))
     script: Final = tmp_path / "worker_case.py"
     script.write_text(
-        _SCRIPT.format(cases=cases, operation="Mutating(read_file, str.upper)" if mutating else "read_file"),
+        _SCRIPT.format(cases=cases, operation=operation),
         encoding="utf-8",
     )
     output: Final = tmp_path / "stats.json"

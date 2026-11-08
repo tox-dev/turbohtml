@@ -1,13 +1,3 @@
-"""Behavioral tests for the DOM-less SAX API (turbohtml.saxparse).
-
-The event stream is checked two ways: against explicit expectations for the tricky
-tree-construction cases (implied tags, foster parenting, void and empty elements,
-processing instructions, the doctype identifier variants), and against a
-document-order walk of the tree turbohtml.parse builds for the same markup, which
-proves the SAX walk stays faithful to the constructed tree across a corpus of
-documents.
-"""
-
 from __future__ import annotations
 
 import gc
@@ -38,6 +28,13 @@ from turbohtml.saxparse import (
 )
 
 
+def test_sax_parse_matches_iter_events() -> None:
+    recorder = _Recorder()
+    markup = "<!DOCTYPE html><p id=x>hi<b>b</b><!--c--></p>"
+    sax_parse(markup, recorder)
+    assert recorder.events == list(iter_events(markup))
+
+
 class _Recorder(SaxHandler):
     def __init__(self) -> None:
         self.events: list[SaxEvent] = []
@@ -59,13 +56,6 @@ class _Recorder(SaxHandler):
 
     def processing_instruction(self, target: str, data: str) -> None:
         self.events.append(ProcessingInstruction(target, data))
-
-
-def test_sax_parse_matches_iter_events() -> None:
-    markup = "<!DOCTYPE html><p id=x>hi<b>b</b><!--c--></p>"
-    recorder = _Recorder()
-    sax_parse(markup, recorder)
-    assert recorder.events == list(iter_events(markup))
 
 
 def test_sax_parse_fires_every_event_and_order() -> None:
@@ -163,7 +153,7 @@ def test_processing_instruction_vs_comment() -> None:
     assert events == [ProcessingInstruction("php", "echo 1"), Comment("c")]
 
 
-_CORPUS = [
+_CORPUS: Final[list[pytest.ParameterSet]] = [
     pytest.param("<!DOCTYPE html><title>t</title><p>hi</p>", id="basic"),
     pytest.param("<a><b><i>x</i></b></a>y", id="nested-formatting"),
     pytest.param("<table><caption>c<tbody><tr><td>d</td></tr>", id="table"),
@@ -190,8 +180,7 @@ def _dom_events(markup: str) -> list[SaxEvent]:
                 events.append(EndElement(tags.pop()))
             continue
         if isinstance(node, DomElement):
-            attrs = cast("tuple[tuple[str, str | None], ...]", tuple(node.attrs.items()))
-            events.append(StartElement(node.tag, attrs))
+            events.append(StartElement(node.tag, cast("tuple[tuple[str, str | None], ...]", tuple(node.attrs.items()))))
             tags.append(node.tag)
             stack.append(iter(node.children))
         elif isinstance(node, DomText):
@@ -236,11 +225,11 @@ def test_iter_events_is_lazy() -> None:
 def test_gc_reclaims_a_reference_cycle_through_the_source() -> None:
     class _Cyclic(str):  # ruff:ignore[subclass-builtin]  # a real str subclass: _sax_events requires str, and the slots let it cycle
         __slots__ = ("loop", "sentinel")
-        loop: object
-        sentinel: object
+        loop: object  # simplint: ignore[SMP602]  # the stub types each sax event as tuple[object, ...]
+        sentinel: _Sentinel
 
     class _Sentinel:
-        back: object
+        back: _Cyclic
 
     source = _Cyclic("<p>x</p>")
     events = _html._sax_events(source)

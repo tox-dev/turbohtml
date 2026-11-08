@@ -3,29 +3,34 @@
 from __future__ import annotations
 
 # not a bench group dependency: its newspaper4k requirement clobbers newspaper3k's newspaper module
-from newsplease import NewsPlease  # ty: ignore[import-not-found]
+from typing import TYPE_CHECKING, Final
 
-REQUIREMENTS = ("news-please>=1.6",)
+from newsplease import NewsPlease  # ty: ignore[import-not-found]  # optional competitor package, absent from the lint environment
 
-_URL = "https://example.com/article"
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("news-please>=1.6",)
+
+_URL: Final[str] = "https://example.com/article"
 
 
 def article(text: str) -> None:
-    """Extract title, main text, and metadata with news-please's extractor ensemble."""
+    # Extract title, main text, and metadata with news-please's extractor ensemble.
     NewsPlease.from_html(text, url=_URL)
 
 
 def text_main(text: str) -> None:
-    """Read the main text off news-please's result, its only path is the full ensemble."""
+    # Read the main text off news-please's result, its only path is the full ensemble.
     _ = NewsPlease.from_html(text, url=_URL).maintext
 
 
 def date(text: str) -> None:
-    """Read the publish date off news-please's result, its only path is the full ensemble."""
+    # Read the publish date off news-please's result, its only path is the full ensemble.
     _ = NewsPlease.from_html(text, url=_URL).date_publish
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "article": (article, "news-please"),
     "text-main": (text_main, "news-please"),
     "date": (date, "news-please"),

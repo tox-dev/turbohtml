@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 import feedparser
 
-REQUIREMENTS = ("feedparser>=6.0",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("feedparser>=6.0",)
 
 
 def syndication(text: str) -> None:
-    """Parse the feed with feedparser, which runs its own SAX-based scanner and normalizes every item."""
+    # Parse the feed with feedparser, which runs its own SAX-based scanner and normalizes every item.
     feedparser.parse(text)
 
 
-OPERATIONS = {"syndication": (syndication, "feedparser")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"syndication": (syndication, "feedparser")}

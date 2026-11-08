@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 import random
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 from fuzz.structure_generators import (
     BudgetError,
@@ -37,11 +37,16 @@ if TYPE_CHECKING:
     from markdown_it.utils import EnvType, OptionsDict
 
 MarkdownRecord = tuple[str, str, str, tuple[tuple[str, str], ...], int]
-_Meaning = tuple[str, tuple[tuple[str, str], ...], tuple["_Meaning", ...]]
+
+
+class _Meaning(NamedTuple):
+    tag: str
+    attributes: tuple[tuple[str, str], ...]
+    children: tuple[_Meaning, ...]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Write source bytes so corpus consumers need no mode-string interpretation."""
+    # Write source bytes so corpus consumers need no mode-string interpretation.
     parser: Final = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--budget", type=int, default=64)
@@ -59,7 +64,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for index in range(args.count)
             )
             if args.count
-            else generation_sweep(markdown_grammar(html=args.html), budget=GenerationBudget(args.budget, args.steps))
+            else generation_sweep(
+                markdown_grammar(html=args.html), budget=GenerationBudget(nodes=args.budget, steps=args.steps)
+            )
         )
     except (BudgetError, ProductionFloorError) as error:
         parser.error(str(error))
@@ -68,17 +75,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def markdown_generate(rng: random.Random, budget: int = 64, *, steps: int = 256, html: bool = False) -> Generated:
-    """Reader wrappers and HTML elements require different node costs."""
-    return generate(markdown_grammar(html=html), rng, GenerationBudget(budget, steps))
+    # Reader wrappers and HTML elements require different node costs.
+    return generate(markdown_grammar(html=html), rng, GenerationBudget(nodes=budget, steps=steps))
 
 
 def markdown_grammar(*, html: bool = False) -> Grammar:
-    """Provenance and finite floors let corpus consumers audit coverage."""
+    # Provenance and finite floors let corpus consumers audit coverage.
     return _HTML_GRAMMAR if html else _RAW_GRAMMAR
 
 
 def markdown_snapshot(source: str) -> tuple[MarkdownRecord, ...]:
-    """Inline source spelling duplicates the semantic leaf text."""
+    # Inline source spelling duplicates the semantic leaf text.
     nodes: Final = tuple(SyntaxTreeNode(_READER.parse(source)).walk())
     return tuple(
         (
@@ -92,13 +99,32 @@ def markdown_snapshot(source: str) -> tuple[MarkdownRecord, ...]:
     )
 
 
-def markdown_source_check(source: str, render: Callable[[Node], str] = Node.to_markdown) -> str | None:
-    """Check the first conversion because repeated passes can stabilize a loss."""
-    return markdown_html_check(_READER.render(source), render)
+def markdown_source_seeds(*, html: bool = False) -> list[str]:
+    # Force named productions to make corpus coverage reproducible.
+    return [
+        case.data.decode("utf-8")
+        for case in generation_sweep(markdown_grammar(html=html), budget=GenerationBudget(nodes=64, steps=256))
+    ]
+
+
+def markdown_controls(*, html: bool = False) -> dict[str, bool]:
+    # Stable losses distinguish first-conversion and repeated-pass checks.
+    check: Final = markdown_html_check if html else markdown_source_check
+    sources: Final = (
+        ("<p><strong>x</strong></p>", '<p><a href="/target">x</a></p>', "<p>x</p>")
+        if html
+        else ("**x**", "[x](/target)", "x")
+    )
+    return {
+        "lost emphasis": check(sources[0], lambda node: node.text) is not None,
+        "changed destination": check(sources[1], lambda node: node.to_markdown().replace("/target", "/changed"))
+        is not None,
+        "empty conversion": check(sources[2], lambda _node: "") is not None,
+    }
 
 
 def markdown_html_check(markup: str, render: Callable[[Node], str] = Node.to_markdown) -> str | None:
-    """Compare source meaning because a stable conversion can lose HTML semantics."""
+    # Compare source meaning because a stable conversion can lose HTML semantics.
     expected: Final = markdown_html_meaning(markup)
     converted: Final = _READER.render(render(parse_fragment(markup)))
     if markdown_html_meaning(converted) == expected:
@@ -113,29 +139,13 @@ def markdown_html_check(markup: str, render: Callable[[Node], str] = Node.to_mar
 
 
 def markdown_html_meaning(markup: str) -> tuple[_Meaning, ...]:
-    """Collapse reader HTML to the structure and text the Markdown oracle compares."""
+    # Collapse reader HTML to the structure and text the Markdown oracle compares.
     # read the tree to_markdown converts, so a parser that lags the WHATWG tree builder cannot pose as a lost meaning
     root: Final = parse_fragment(markup)
     if any(sum(1 for _ in element.ancestors) > 128 for element in root.iter_elements()):
         msg = "HTML nesting exceeds the meaning model"
         raise MarkdownProfileError(msg)
     return _flow(_children(_tree(root), preserve=False))
-
-
-def _tree(node: Element) -> _TreeNode:
-    element: Final = _TreeNode(
-        node.tag if node.namespace is Namespace.HTML else f"{{{node.namespace.value}}}{node.tag}",
-        {name: node.attr(name) or "" for name in node.attrs},
-    )
-    for child in node.children:
-        if isinstance(child, Text):
-            if element.children:
-                element.children[-1].tail += child.text
-            else:
-                element.text += child.text
-        elif isinstance(child, Element):
-            element.children.append(_tree(child))
-    return element
 
 
 def _flow(records: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
@@ -147,16 +157,11 @@ def _flow(records: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
             continue
         # a paragraph needs a non-blank line (CommonMark 4.8), so a run of breaks alone is none, as an empty <p> is
         if content := _paragraph(inline):
-            output.append(("p", (), content))
+            output.append(_Meaning("p", (), content))
         inline.clear()
         if record != _BOUNDARY:
             output.append(record)
     return tuple(output)
-
-
-def _paragraph(records: list[_Meaning]) -> tuple[_Meaning, ...]:
-    # spreading emphasis can leave a run that starts or ends at a block, where its edge spaces collapse away
-    return _block_end(_spacing(_merge(records), preserve=False, inline=False))
 
 
 def _spread(records: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
@@ -183,12 +188,59 @@ def _holds_block(record: _Meaning) -> bool:
     return any(child[0] not in _FLOW_INLINE or _holds_block(child) for child in record[2])
 
 
+def _emphasis(tag: str, children: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
+    if all(record[0] == "#text" and not record[1][0][1].strip(" \t\n\f\r") for record in children):
+        return children  # a delimiter run cannot wrap whitespace alone (CommonMark 6.2)
+    before, inner, after = _edges(children)
+    return (*before, *((_Meaning(tag, (), inner),) if inner else ()), *after)
+
+
+def _edges(children: tuple[_Meaning, ...]) -> _Edges:
+    # emphasis and link text do not style a hard break, and spaces at their edge collapse with the ones outside (CSS
+    # Text 3, 4.1.1), so both render the same outside; a delimiter run touching whitespace cannot open or close
+    # (CommonMark 6.2), so they sit outside
+    inner: Final[list[_Meaning]] = list(children)
+    before: Final[list[_Meaning]] = []
+    after: Final[list[_Meaning]] = []
+    _peel(inner, before, 0, breaks=True)
+    _peel(inner, after, -1, breaks=True)
+    return _Edges(before, tuple(inner), after)
+
+
+def _peel(inner: list[_Meaning], outside: list[_Meaning], edge: int, *, breaks: bool) -> None:
+    spaces = frozenset(" \t\n\f\r")
+    while inner and (
+        (breaks and inner[edge][0] == "br") or (inner[edge][0] == "#text" and inner[edge][1][0][1][edge:][:1] in spaces)
+    ):
+        text: str = inner[edge][1][0][1] if inner[edge][0] == "#text" else ""
+        kept: str = text.lstrip(" \t\n\f\r") if edge == 0 else text.rstrip(" \t\n\f\r")
+        if not kept:
+            outside.insert(0 if edge else len(outside), inner.pop(edge))
+            continue
+        space: _Meaning = _Meaning(
+            "#text", (("value", text[: len(text) - len(kept)] if edge == 0 else text[len(kept) :]),), ()
+        )
+        outside.insert(0 if edge else len(outside), space)
+        inner[edge] = _Meaning("#text", (("value", kept),), ())
+
+
+class _Edges(NamedTuple):
+    before: list[_Meaning]
+    inner: tuple[_Meaning, ...]
+    after: list[_Meaning]
+
+
 def _emphasize_block(tag: str, record: _Meaning) -> _Meaning:
     if record[0] in {"p", "td", *_HEADINGS}:
-        return (record[0], record[1], _emphasis(tag, record[2]))
+        return _Meaning(record[0], record[1], _emphasis(tag, record[2]))
     if record[0] in {"blockquote", "li", "ul", "ol", "table", "tr"}:
-        return (record[0], record[1], tuple(_emphasize_block(tag, child) for child in record[2]))
+        return _Meaning(record[0], record[1], tuple(_emphasize_block(tag, child) for child in record[2]))
     return record  # code holds literal text (CommonMark 4.5), and a rule or a boundary holds none
+
+
+def _paragraph(records: list[_Meaning]) -> tuple[_Meaning, ...]:
+    # spreading emphasis can leave a run that starts or ends at a block, where its edge spaces collapse away
+    return _block_end(_spacing(_merge(records), preserve=False, inline=False))
 
 
 def _block_end(records: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
@@ -201,11 +253,46 @@ def _block_end(records: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
     if len(kept) == len(records) - tail or not tail or records[tail - 1][0] != "#text":
         return (*records[:tail], *kept)
     text: Final = records[tail - 1][1][0][1].rstrip(" \t\n\f\r")
-    return (*records[: tail - 1], *((("#text", (("value", text),), ()),) if text else ()), *kept)
+    return (*records[: tail - 1], *((_Meaning("#text", (("value", text),), ()),) if text else ()), *kept)
 
 
 def _draws_nothing(record: _Meaning) -> bool:
     return record[0] in {"a", *_EMPHASIS} and all(map(_draws_nothing, record[2]))
+
+
+def _spacing(records: tuple[_Meaning, ...], *, preserve: bool, inline: bool) -> tuple[_Meaning, ...]:
+    output: Final[list[_Meaning]] = []
+    for index, record in enumerate(records):
+        if record[0] != "#text" or preserve:
+            output.append(record)
+            continue
+        text: str = re.sub(r"[ \t\n\f\r]+", " ", record[1][0][1])
+        previous: Final = records[index - 1][0] if index else None
+        if _at_block_edge(previous, inline=inline):
+            text = text.lstrip(" \t\n\f\r")
+        following: Final = records[index + 1][0] if index + 1 < len(records) else None
+        # a line drops the collapsible spaces at its end (CSS Text 3, 4.1.2), so a space before a break draws nothing
+        if _at_block_edge(following, inline=inline):
+            text = text.rstrip(" \t\n\f\r")
+        if text:
+            output.append(_Meaning("#text", (("value", text),), ()))
+    return tuple(output)
+
+
+def _at_block_edge(neighbor: str | None, *, inline: bool) -> bool:
+    if neighbor is None:
+        return not inline
+    return neighbor not in _FLOW_INLINE or neighbor == "br"
+
+
+def _merge(records: Iterable[_Meaning]) -> tuple[_Meaning, ...]:
+    merged: Final[list[_Meaning]] = []
+    for record in records:
+        if record[0] == "#text" and merged and merged[-1][0] == "#text":
+            merged[-1] = _Meaning("#text", (("value", merged[-1][1][0][1] + record[1][0][1]),), ())
+        else:
+            merged.append(record)
+    return tuple(merged)
 
 
 def _children(element: _TreeNode, *, preserve: bool) -> tuple[_Meaning, ...]:
@@ -217,43 +304,23 @@ def _children(element: _TreeNode, *, preserve: bool) -> tuple[_Meaning, ...]:
     return spaced if preserve or element.tag in _INLINE_TEXT else _block_end(spaced)
 
 
-def _merge(records: Iterable[_Meaning]) -> tuple[_Meaning, ...]:
-    merged: Final[list[_Meaning]] = []
-    for record in records:
-        if record[0] == "#text" and merged and merged[-1][0] == "#text":
-            merged[-1] = ("#text", (("value", merged[-1][1][0][1] + record[1][0][1]),), ())
-        else:
-            merged.append(record)
-    return tuple(merged)
-
-
-def _spacing(records: tuple[_Meaning, ...], *, preserve: bool, inline: bool) -> tuple[_Meaning, ...]:
-    output: Final[list[_Meaning]] = []
-    for index, record in enumerate(records):
-        if record[0] != "#text" or preserve:
-            output.append(record)
-            continue
-        text: str = re.sub(r"[ \t\n\f\r]+", " ", record[1][0][1])
-        previous: Final = records[index - 1][0] if index else None
-        if (previous is None and not inline) or (
-            previous is not None and (previous not in _FLOW_INLINE or previous == "br")
-        ):
-            text = text.lstrip(" \t\n\f\r")
-        following: Final = records[index + 1][0] if index + 1 < len(records) else None
-        # a line drops the collapsible spaces at its end (CSS Text 3, 4.1.2), so a space before a break draws nothing
-        if (following is None and not inline) or (
-            following is not None and (following not in _FLOW_INLINE or following == "br")
-        ):
-            text = text.rstrip(" \t\n\f\r")
-        if text:
-            output.append(("#text", (("value", text),), ()))
-    return tuple(output)
+def _text(text: str, *, preserve: bool) -> tuple[_Meaning, ...]:
+    if not text:
+        return ()
+    if not preserve:
+        text = re.sub(r"[ \t\n\f\r]+", " ", text)
+    return (_Meaning("#text", (("value", text),), ()),)
 
 
 def _element(element: _TreeNode, parent: str, *, preserve: bool) -> tuple[_Meaning, ...]:
     if element.tag in _HIDDEN or element.tag.endswith(("}script", "}style")):
         return ()
-    _check_profile(element, parent)
+    if element.tag not in _ALLOWED:
+        msg = f"HTML element has no declared Markdown meaning: {element.tag}"
+        raise MarkdownProfileError(msg)
+    if _breaks_content_model(element, parent):
+        msg = f"HTML content model violated at {element.tag}"
+        raise MarkdownProfileError(msg)
     children: Final = _children(element, preserve=preserve or element.tag == "pre")
     if element.tag == "div":
         return (_BOUNDARY, *children, _BOUNDARY)  # a block ends the paragraph around it even when it holds no text
@@ -264,15 +331,6 @@ def _element(element: _TreeNode, parent: str, *, preserve: bool) -> tuple[_Meani
     ):
         return children
     return _record({"b": "strong", "i": "em", "del": "s", "th": "td"}.get(element.tag, element.tag), element, children)
-
-
-def _check_profile(element: _TreeNode, parent: str) -> None:
-    if element.tag not in _ALLOWED:
-        msg = f"HTML element has no declared Markdown meaning: {element.tag}"
-        raise MarkdownProfileError(msg)
-    if _breaks_content_model(element, parent):
-        msg = f"HTML content model violated at {element.tag}"
-        raise MarkdownProfileError(msg)
 
 
 def _breaks_content_model(element: _TreeNode, parent: str) -> bool:
@@ -297,15 +355,15 @@ def _record(tag: str, element: _TreeNode, children: tuple[_Meaning, ...]) -> tup
     if tag in {"pre", "code"}:
         # code holds literal text only (CommonMark 4.5, 6.1), so markup inside it means nothing and its text is read
         # off the tree
-        return ((tag, (), text),) if (text := _code_text(element, block=tag == "pre")) or tag == "pre" else ()
+        return (_Meaning(tag, (), text),) if (text := _code_text(element, block=tag == "pre")) or tag == "pre" else ()
     if tag in _CONTENT_REQUIRED and not children:
-        return (_BOUNDARY,) if tag in _BLOCKS else ()
+        return (_BOUNDARY,) if tag in frozenset({"p", "ul", "ol", "table"}) else ()
     if tag in _EMPHASIS:
         return _emphasis(tag, children)
     if tag in {"blockquote", "li"}:
         # quote and item content is a flow of blocks; a tight item's single paragraph renders bare (CommonMark 5.1-5.3),
         # so items compare with every inline run wrapped
-        return ((tag, (), _flow(children)),)
+        return (_Meaning(tag, (), _flow(children)),)
     if tag == "a":
         # link text holds inline content only (CommonMark 6.3), so its blocks flatten onto its line
         return _link(_attributes(tag, element.attrib), _line(children, inline=True, breaks=True))
@@ -315,69 +373,7 @@ def _record(tag: str, element: _TreeNode, children: tuple[_Meaning, ...]) -> tup
         # a heading is one line of inline content (CommonMark 4.2), so its blocks and breaks flatten onto it as spaces;
         # a table cell holds inline content too (GFM 4.10), but a raw <br> keeps its break there
         children = _line(children, inline=False, breaks=tag == "td")
-    return ((tag, _attributes(tag, element.attrib), children),)
-
-
-def _line(records: tuple[_Meaning, ...], *, inline: bool, breaks: bool) -> tuple[_Meaning, ...]:
-    # blocks flatten onto one line as spaces, and so do hard breaks where the line cannot hold one; emphasis and links
-    # keep their place on the line with their own content flattened
-    space: Final[_Meaning] = ("#text", (("value", " "),), ())
-    flat: Final[list[_Meaning]] = []
-    for record in records:
-        if record == _BOUNDARY or (record[0] == "br" and not breaks):
-            flat.append(space)
-        elif record[0] in _EMPHASIS:
-            flat.extend(_emphasis(record[0], _line(record[2], inline=True, breaks=breaks)))
-        elif record[0] == "a":
-            flat.extend(_link(record[1], _line(record[2], inline=True, breaks=breaks)))
-        elif record[0] in _FLOW_INLINE:
-            flat.append(record)
-        elif record[0] == "pre":
-            # the inline form of a code block is a code span (CommonMark 6.1), which reads its line endings as spaces
-            text = re.sub(r"[ \t\n\f\r]+", " ", record[2][0][1][0][1]) if record[2] else ""
-            flat.extend((space, *((("code", (), (("#text", (("value", text),), ()),)),) if text else ()), space))
-        else:
-            flat.extend((space, *_line(record[2], inline=False, breaks=breaks), space))
-    return _spacing(_merge(flat), preserve=False, inline=inline)
-
-
-def _emphasis(tag: str, children: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
-    if all(record[0] == "#text" and not record[1][0][1].strip(" \t\n\f\r") for record in children):
-        return children  # a delimiter run cannot wrap whitespace alone (CommonMark 6.2)
-    before, inner, after = _edges(children)
-    return (*before, *(((tag, (), inner),) if inner else ()), *after)
-
-
-def _link(attributes: tuple[tuple[str, str], ...], children: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
-    before, inner, after = _edges(children)
-    return (*before, ("a", attributes, inner), *after)
-
-
-def _edges(children: tuple[_Meaning, ...]) -> tuple[list[_Meaning], tuple[_Meaning, ...], list[_Meaning]]:
-    # emphasis and link text do not style a hard break, and spaces at their edge collapse with the ones outside (CSS
-    # Text 3, 4.1.1), so both render the same outside; a delimiter run touching whitespace cannot open or close
-    # (CommonMark 6.2), so they sit outside
-    inner: Final[list[_Meaning]] = list(children)
-    before: Final[list[_Meaning]] = []
-    after: Final[list[_Meaning]] = []
-    _peel(inner, before, 0, breaks=True)
-    _peel(inner, after, -1, breaks=True)
-    return before, tuple(inner), after
-
-
-def _peel(inner: list[_Meaning], outside: list[_Meaning], edge: int, *, breaks: bool) -> None:
-    while inner and (
-        (breaks and inner[edge][0] == "br")
-        or (inner[edge][0] == "#text" and inner[edge][1][0][1][edge:][:1] in _SPACES)
-    ):
-        text: str = inner[edge][1][0][1] if inner[edge][0] == "#text" else ""
-        kept: str = text.lstrip(" \t\n\f\r") if edge == 0 else text.rstrip(" \t\n\f\r")
-        if not kept:
-            outside.insert(0 if edge else len(outside), inner.pop(edge))
-            continue
-        space: _Meaning = ("#text", (("value", text[: len(text) - len(kept)] if edge == 0 else text[len(kept) :]),), ())
-        outside.insert(0 if edge else len(outside), space)
-        inner[edge] = ("#text", (("value", kept),), ())
+    return (_Meaning(tag, _attributes(tag, element.attrib), children),)
 
 
 def _code_text(element: _TreeNode, *, block: bool) -> tuple[_Meaning, ...]:
@@ -385,7 +381,7 @@ def _code_text(element: _TreeNode, *, block: bool) -> tuple[_Meaning, ...]:
     # draw; a span reads its line breaks as spaces (CommonMark 6.1) and collapses spaces as the normal flow does
     # (CSS Text 3, 4.1.1)
     text: Final = _literal(element).removesuffix("\n") if block else re.sub(r"[ \t\n\f\r]+", " ", _literal(element))
-    return (("#text", (("value", text),), ()),) if text else ()
+    return (_Meaning("#text", (("value", text),), ()),) if text else ()
 
 
 def _literal(element: _TreeNode) -> str:
@@ -415,54 +411,88 @@ def _literal_parts(element: _TreeNode) -> Iterator[str | None]:
         yield child.tail
 
 
+def _link(attributes: tuple[tuple[str, str], ...], children: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
+    before, inner, after = _edges(children)
+    return (*before, _Meaning("a", attributes, inner), *after)
+
+
 def _attributes(tag: str, attributes: dict[str, str]) -> tuple[tuple[str, str], ...]:
     # an empty title gives no advisory information (WHATWG 3.2.6.1), the same as none
     # URL navigation and Markdown destinations both discard tabs and line breaks.
+    semantic_attributes: dict[str, frozenset[str]] = {
+        "a": frozenset({"href", "title"}),
+        "img": frozenset({"src", "alt", "title"}),
+        "ol": frozenset({"start"}),
+        "td": frozenset({"align"}),
+    }
     semantic: Final = {
         name: re.sub(r"[\t\n\r]", "", value) if name in {"href", "src"} else value
         for name, value in attributes.items()
-        if name in _SEMANTIC_ATTRIBUTES.get(tag, ()) and (value or name != "title")
+        if name in semantic_attributes.get(tag, ()) and (value or name != "title")
     }
     # image syntax always writes both attributes (CommonMark 6.4)
     return tuple(sorted((({"src": "", "alt": ""} if tag == "img" else {}) | semantic).items()))
 
 
-def _text(text: str, *, preserve: bool) -> tuple[_Meaning, ...]:
-    if not text:
-        return ()
-    if not preserve:
-        text = re.sub(r"[ \t\n\f\r]+", " ", text)
-    return (("#text", (("value", text),), ()),)
+def _line(records: tuple[_Meaning, ...], *, inline: bool, breaks: bool) -> tuple[_Meaning, ...]:
+    # blocks flatten onto one line as spaces, and so do hard breaks where the line cannot hold one; emphasis and links
+    # keep their place on the line with their own content flattened
+    space: Final[_Meaning] = _Meaning("#text", (("value", " "),), ())
+    flat: Final[list[_Meaning]] = []
+    for record in records:
+        if record == _BOUNDARY or (record[0] == "br" and not breaks):
+            flat.append(space)
+        elif record[0] in _EMPHASIS:
+            flat.extend(_emphasis(record[0], _line(record[2], inline=True, breaks=breaks)))
+        elif record[0] == "a":
+            flat.extend(_link(record[1], _line(record[2], inline=True, breaks=breaks)))
+        elif record[0] in _FLOW_INLINE:
+            flat.append(record)
+        elif record[0] == "pre":
+            # the inline form of a code block is a code span (CommonMark 6.1), which reads its line endings as spaces
+            text = re.sub(r"[ \t\n\f\r]+", " ", record[2][0][1][0][1]) if record[2] else ""
+            flat.extend((
+                space,
+                *((_Meaning("code", (), (_Meaning("#text", (("value", text),), ()),)),) if text else ()),
+                space,
+            ))
+        else:
+            flat.extend((space, *_line(record[2], inline=False, breaks=breaks), space))
+    return _spacing(_merge(flat), preserve=False, inline=inline)
 
 
-def markdown_source_seeds(*, html: bool = False) -> list[str]:
-    """Force named productions to make corpus coverage reproducible."""
-    return [
-        case.data.decode("utf-8")
-        for case in generation_sweep(markdown_grammar(html=html), budget=GenerationBudget(64, 256))
-    ]
-
-
-def markdown_controls(*, html: bool = False) -> dict[str, bool]:
-    """Stable losses distinguish first-conversion and repeated-pass checks."""
-    check: Final = markdown_html_check if html else markdown_source_check
-    sources: Final = (
-        ("<p><strong>x</strong></p>", '<p><a href="/target">x</a></p>', "<p>x</p>")
-        if html
-        else ("**x**", "[x](/target)", "x")
+def _tree(node: Element) -> _TreeNode:
+    text: str = ""
+    children: list[_TreeNode] = []
+    for child in node.children:
+        if isinstance(child, Text):
+            if children:
+                children[-1] = replace(children[-1], tail=children[-1].tail + child.text)
+            else:
+                text += child.text
+        elif isinstance(child, Element):
+            children.append(_tree(child))
+    return _TreeNode(
+        tag=node.tag if node.namespace is Namespace.HTML else f"{{{node.namespace.value}}}{node.tag}",
+        attrib={name: node.attr(name) or "" for name in node.attrs},
+        text=text,
+        children=children,
     )
-    return {
-        "lost emphasis": check(sources[0], lambda node: node.text) is not None,
-        "changed destination": check(sources[1], lambda node: node.to_markdown().replace("/target", "/changed"))
-        is not None,
-        "empty conversion": check(sources[2], lambda _node: "") is not None,
-    }
 
 
-@dataclass(slots=True)
+class MarkdownProfileError(ValueError):
+    # Keep unsupported HTML semantics outside the Markdown conversion profile.
+    ...
+
+
+def markdown_source_check(source: str, render: Callable[[Node], str] = Node.to_markdown) -> str | None:
+    # Check the first conversion because repeated passes can stabilize a loss.
+    return markdown_html_check(_READER.render(source), render)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _TreeNode:
-    """Mirror the element/text/tail shape the meaning walk reads, built from turbohtml's own tree."""
-
+    # Mirror the element/text/tail shape the meaning walk reads, built from turbohtml's own tree.
     tag: str
     attrib: dict[str, str]
     text: str = ""
@@ -473,13 +503,8 @@ class _TreeNode:
         return iter(self.children)
 
 
-class MarkdownProfileError(ValueError):
-    """Keep unsupported HTML semantics outside the Markdown conversion profile."""
-
-
 class _FaithfulMarkdown(MarkdownIt):
-    """Keep link spelling and policy independent of the reader's URL normalization."""
-
+    # Keep link spelling and policy independent of the reader's URL normalization.
     @override
     def normalizeLink(self, url: str) -> str:
         return url
@@ -503,92 +528,183 @@ class _FaithfulAltRenderer(RendererHTML):
 
 def _raw_grammar() -> Grammar:
     productions: Final = [
-        Production("markdown:root", "root", (Reference("definition", 0), Reference("blocks", 1)), 1, _COMMONMARK),
         Production(
-            "markdown:definition",
-            "definition",
-            (b"[", Identifier("reference", definition=True), b"]: /target\n\n"),
-            0,
-            _COMMONMARK,
-        ),
-        Production("markdown:single", "blocks", (Reference("block", 0),), 0, _COMMONMARK),
-        Production(
-            "markdown:siblings",
-            "blocks",
-            (Reference("block", 0), b"\n\n---\n\n", Reference("blocks", 0)),
-            1,
-            _COMMONMARK,
+            name="markdown:root",
+            symbol="root",
+            parts=(Reference(symbol="definition", depth=0), Reference(symbol="blocks", depth=1)),
+            nodes=1,
+            origin=_COMMONMARK,
         ),
         Production(
-            "markdown:reference",
-            "block",
-            (b"[", Identifier("reference", definition=False), b"]\n"),
-            4,
-            _COMMONMARK,
-            3,
+            name="markdown:definition",
+            symbol="definition",
+            parts=(b"[", Identifier(name="reference", definition=True), b"]: /target\n\n"),
+            nodes=0,
+            origin=_COMMONMARK,
+        ),
+        Production(
+            name="markdown:single",
+            symbol="blocks",
+            parts=(Reference(symbol="block", depth=0),),
+            nodes=0,
+            origin=_COMMONMARK,
+        ),
+        Production(
+            name="markdown:siblings",
+            symbol="blocks",
+            parts=(Reference(symbol="block", depth=0), b"\n\n---\n\n", Reference(symbol="blocks", depth=0)),
+            nodes=1,
+            origin=_COMMONMARK,
+        ),
+        Production(
+            name="markdown:reference",
+            symbol="block",
+            parts=(b"[", Identifier(name="reference", definition=False), b"]\n"),
+            nodes=4,
+            origin=_COMMONMARK,
+            height=3,
         ),
     ]
+    raw = (
+        ("heading1", "# x\n", 3, 2),
+        ("heading2", "## x\n", 3, 2),
+        ("heading3", "### x\n", 3, 2),
+        ("heading4", "#### x\n", 3, 2),
+        ("heading5", "##### x\n", 3, 2),
+        ("heading6", "###### x\n", 3, 2),
+        ("setext1", "x\n===\n", 3, 2),
+        ("setext2", "x\n---\n", 3, 2),
+        ("thematic", "---\n", 1, 0),
+        ("indented", "    x\n", 1, 0),
+        ("fence-backtick", "```\nx\n```\n", 1, 0),
+        ("fence-tilde", "~~~\nx\n~~~\n", 1, 0),
+        ("html-comment", "<!-- x -->\n", 1, 0),
+        ("html-pi", "<?x?>\n", 1, 0),
+        ("html-declaration", "<!DOCTYPE html>\n", 1, 0),
+        ("html-cdata", "<![CDATA[x]]>\n", 1, 0),
+        ("html-script", "<script>x</script>\n", 1, 0),
+        ("html-block", "<p>x</p>\n", 1, 0),
+        ("html-span", "<span>x</span>\n", 5, 2),
+        ("html-tag", '<img src="/image" alt="x">\n', 1, 0),
+        ("quote", "> x\n", 4, 3),
+        ("bullet", "- x\n", 5, 4),
+        ("ordered", "1. x\n", 5, 4),
+        ("loose", "- x\n\n- y\n", 9, 4),
+        ("nested", "- x\n  - y\n", 10, 6),
+        ("table", "| a |\n|---|\n| b |\n", 11, 5),
+        ("paragraph", "x\n", 3, 2),
+        ("softbreak", "x\ny\n", 5, 2),
+        ("hardbreak", "x  \ny\n", 5, 2),
+        ("em-star", "*x*\n", 4, 3),
+        ("em-underscore", "_x_\n", 4, 3),
+        ("strong-star", "**x**\n", 6, 3),
+        ("strong-underscore", "__x__\n", 6, 3),
+        ("code", "`x`\n", 3, 2),
+        ("strike", "~~x~~\n", 4, 3),
+        ("link", "[x](/target)\n", 4, 3),
+        ("image", "![x](/image)\n", 4, 3),
+        ("autolink", "<https://e.test/>\n", 4, 3),
+        ("email", "<a@e.test>\n", 4, 3),
+        ("escape", "\\*x\\*\n", 3, 2),
+        ("entity", "&amp;\n", 3, 2),
+        ("html-inline", "a <em>x</em> b\n", 7, 2),
+        ("linkify-disabled", "https://e.test/\n", 3, 2),
+    )
     productions.extend(
         Production(
-            f"markdown:{name}",
-            "block",
-            (source.encode("utf-8"),),
-            nodes,
-            _GFM if name in {"table", "strike"} else _COMMONMARK,
-            height,
+            name=f"markdown:{name}",
+            symbol="block",
+            parts=(source.encode("utf-8"),),
+            nodes=nodes,
+            origin=_GFM if name in {"table", "strike"} else _COMMONMARK,
+            height=height,
         )
-        for name, source, nodes, height in _RAW
+        for name, source, nodes, height in raw
     )
     return compile_grammar(productions, "root")
 
 
 def _html_grammar() -> Grammar:
+    html_rows: tuple[tuple[str, str, int, int], ...] = (
+        ("paragraph", "<p>x</p>", 2, 1),
+        ("heading1", "<h1>x</h1>", 2, 1),
+        ("heading2", "<h2>x</h2>", 2, 1),
+        ("heading3", "<h3>x</h3>", 2, 1),
+        ("heading4", "<h4>x</h4>", 2, 1),
+        ("heading5", "<h5>x</h5>", 2, 1),
+        ("heading6", "<h6>x</h6>", 2, 1),
+        ("thematic", "<hr>", 1, 0),
+        ("code-block", "<pre><code>x\n</code></pre>", 3, 2),
+        ("quote", "<blockquote><p>x</p></blockquote>", 3, 2),
+        ("bullet", "<ul><li>x</li></ul>", 3, 2),
+        ("ordered", "<ol><li>x</li></ol>", 3, 2),
+        ("loose", "<ul><li><p>x</p></li><li><p>y</p></li></ul>", 7, 3),
+        ("nested", "<ul><li>x<ul><li>y</li></ul></li></ul>", 6, 4),
+        ("table", "<table><thead><tr><th>a</th></tr></thead><tbody><tr><td>b</td></tr></tbody></table>", 9, 4),
+        ("em", "<p><em>x</em></p>", 3, 2),
+        ("strong", "<p><strong>x</strong></p>", 3, 2),
+        ("b", "<p><b>x</b></p>", 3, 2),
+        ("i", "<p><i>x</i></p>", 3, 2),
+        ("s", "<p><s>x</s></p>", 3, 2),
+        ("del", "<p><del>x</del></p>", 3, 2),
+        ("code", "<p><code>x</code></p>", 3, 2),
+        ("link", '<p><a href="/target" title="t">x</a></p>', 3, 2),
+        ("image", '<p><img src="/image" alt="x" title="t"></p>', 2, 1),
+        ("break", "<p>x<br>y</p>", 4, 1),
+        ("special", "<p>*x* [y] &amp; é漢</p>", 2, 1),
+    )
     productions: Final = [
         Production(
-            "markdown-html:root",
-            "root",
-            (
+            name="markdown-html:root",
+            symbol="root",
+            parts=(
                 b'<div id="',
-                Identifier("target", definition=True),
+                Identifier(name="target", definition=True),
                 b'">',
-                Reference("blocks", 2),
+                Reference(symbol="blocks", depth=2),
                 b'<p><a href="#',
-                Identifier("target", definition=False),
+                Identifier(name="target", definition=False),
                 b'">target</a></p></div>',
             ),
-            5,
-            _COMMONMARK,
-            4,
+            nodes=5,
+            origin=_COMMONMARK,
+            height=4,
         ),
-        Production("markdown-html:single", "blocks", (Reference("block", 0),), 0, _COMMONMARK),
         Production(
-            "markdown-html:siblings",
-            "blocks",
-            (Reference("block", 0), b"<hr>", Reference("blocks", 0)),
-            1,
-            _COMMONMARK,
+            name="markdown-html:single",
+            symbol="blocks",
+            parts=(Reference(symbol="block", depth=0),),
+            nodes=0,
+            origin=_COMMONMARK,
+        ),
+        Production(
+            name="markdown-html:siblings",
+            symbol="blocks",
+            parts=(Reference(symbol="block", depth=0), b"<hr>", Reference(symbol="blocks", depth=0)),
+            nodes=1,
+            origin=_COMMONMARK,
         ),
     ]
     productions.extend(
         Production(
-            f"markdown-html:{name}",
-            "block",
-            (source.encode("utf-8"),),
-            nodes,
-            _GFM if name in {"table", "s", "del"} else _COMMONMARK,
-            height,
+            name=f"markdown-html:{name}",
+            symbol="block",
+            parts=(source.encode("utf-8"),),
+            nodes=nodes,
+            origin=_GFM if name in {"table", "s", "del"} else _COMMONMARK,
+            height=height,
         )
-        for name, source, nodes, height in _HTML
+        for name, source, nodes, height in html_rows
     )
     return compile_grammar(productions, "root")
 
 
-_COMMONMARK: Final = "https://spec.commonmark.org/0.31.2/"
-_GFM: Final = "https://github.github.com/gfm/"
-MARKDOWN_READER_SOURCE: Final = (
+_COMMONMARK: Final[str] = "https://spec.commonmark.org/0.31.2/"
+_GFM: Final[str] = "https://github.github.com/gfm/"
+_MARKDOWN_READER_SOURCE: Final[str] = (
     "https://github.com/executablebooks/markdown-it-py/tree/36c5f547144df2d01970a5792d68c71a3380b227"
 )
-MARKDOWN_RULES: Final = (
+_MARKDOWN_RULES: Final[tuple[str, ...]] = (
     "table",
     "code",
     "fence",
@@ -613,81 +729,8 @@ MARKDOWN_RULES: Final = (
     "html_inline",
     "entity",
 )
-_RAW: Final = (
-    ("heading1", "# x\n", 3, 2),
-    ("heading2", "## x\n", 3, 2),
-    ("heading3", "### x\n", 3, 2),
-    ("heading4", "#### x\n", 3, 2),
-    ("heading5", "##### x\n", 3, 2),
-    ("heading6", "###### x\n", 3, 2),
-    ("setext1", "x\n===\n", 3, 2),
-    ("setext2", "x\n---\n", 3, 2),
-    ("thematic", "---\n", 1, 0),
-    ("indented", "    x\n", 1, 0),
-    ("fence-backtick", "```\nx\n```\n", 1, 0),
-    ("fence-tilde", "~~~\nx\n~~~\n", 1, 0),
-    ("html-comment", "<!-- x -->\n", 1, 0),
-    ("html-pi", "<?x?>\n", 1, 0),
-    ("html-declaration", "<!DOCTYPE html>\n", 1, 0),
-    ("html-cdata", "<![CDATA[x]]>\n", 1, 0),
-    ("html-script", "<script>x</script>\n", 1, 0),
-    ("html-block", "<p>x</p>\n", 1, 0),
-    ("html-span", "<span>x</span>\n", 5, 2),
-    ("html-tag", '<img src="/image" alt="x">\n', 1, 0),
-    ("quote", "> x\n", 4, 3),
-    ("bullet", "- x\n", 5, 4),
-    ("ordered", "1. x\n", 5, 4),
-    ("loose", "- x\n\n- y\n", 9, 4),
-    ("nested", "- x\n  - y\n", 10, 6),
-    ("table", "| a |\n|---|\n| b |\n", 11, 5),
-    ("paragraph", "x\n", 3, 2),
-    ("softbreak", "x\ny\n", 5, 2),
-    ("hardbreak", "x  \ny\n", 5, 2),
-    ("em-star", "*x*\n", 4, 3),
-    ("em-underscore", "_x_\n", 4, 3),
-    ("strong-star", "**x**\n", 6, 3),
-    ("strong-underscore", "__x__\n", 6, 3),
-    ("code", "`x`\n", 3, 2),
-    ("strike", "~~x~~\n", 4, 3),
-    ("link", "[x](/target)\n", 4, 3),
-    ("image", "![x](/image)\n", 4, 3),
-    ("autolink", "<https://e.test/>\n", 4, 3),
-    ("email", "<a@e.test>\n", 4, 3),
-    ("escape", "\\*x\\*\n", 3, 2),
-    ("entity", "&amp;\n", 3, 2),
-    ("html-inline", "a <em>x</em> b\n", 7, 2),
-    ("linkify-disabled", "https://e.test/\n", 3, 2),
-)
-_HTML: Final = (
-    ("paragraph", "<p>x</p>", 2, 1),
-    ("heading1", "<h1>x</h1>", 2, 1),
-    ("heading2", "<h2>x</h2>", 2, 1),
-    ("heading3", "<h3>x</h3>", 2, 1),
-    ("heading4", "<h4>x</h4>", 2, 1),
-    ("heading5", "<h5>x</h5>", 2, 1),
-    ("heading6", "<h6>x</h6>", 2, 1),
-    ("thematic", "<hr>", 1, 0),
-    ("code-block", "<pre><code>x\n</code></pre>", 3, 2),
-    ("quote", "<blockquote><p>x</p></blockquote>", 3, 2),
-    ("bullet", "<ul><li>x</li></ul>", 3, 2),
-    ("ordered", "<ol><li>x</li></ol>", 3, 2),
-    ("loose", "<ul><li><p>x</p></li><li><p>y</p></li></ul>", 7, 3),
-    ("nested", "<ul><li>x<ul><li>y</li></ul></li></ul>", 6, 4),
-    ("table", "<table><thead><tr><th>a</th></tr></thead><tbody><tr><td>b</td></tr></tbody></table>", 9, 4),
-    ("em", "<p><em>x</em></p>", 3, 2),
-    ("strong", "<p><strong>x</strong></p>", 3, 2),
-    ("b", "<p><b>x</b></p>", 3, 2),
-    ("i", "<p><i>x</i></p>", 3, 2),
-    ("s", "<p><s>x</s></p>", 3, 2),
-    ("del", "<p><del>x</del></p>", 3, 2),
-    ("code", "<p><code>x</code></p>", 3, 2),
-    ("link", '<p><a href="/target" title="t">x</a></p>', 3, 2),
-    ("image", '<p><img src="/image" alt="x" title="t"></p>', 2, 1),
-    ("break", "<p>x<br>y</p>", 4, 1),
-    ("special", "<p>*x* [y] &amp; é漢</p>", 2, 1),
-)
-_FLOW_INLINE: Final = frozenset({"#text", "a", "em", "strong", "s", "img", "br", "code"})
-_INLINE_HOSTS: Final = frozenset({
+_FLOW_INLINE: Final[frozenset[str]] = frozenset({"#text", "a", "em", "strong", "s", "img", "br", "code"})
+_INLINE_HOSTS: Final[frozenset[str]] = frozenset({
     "p",
     "li",
     "td",
@@ -707,9 +750,9 @@ _INLINE_HOSTS: Final = frozenset({
     "h5",
     "h6",
 })
-_INLINE_TEXT: Final = frozenset({"a", "em", "strong", "b", "i", "s", "del", "span"})
-_LITERAL_INLINE: Final = _INLINE_TEXT | {"code", "img"}
-_ALLOWED: Final = _INLINE_HOSTS | {
+_INLINE_TEXT: Final[frozenset[str]] = frozenset({"a", "em", "strong", "b", "i", "s", "del", "span"})
+_LITERAL_INLINE: Final[frozenset[str]] = _INLINE_TEXT | {"code", "img"}
+_ALLOWED: Final[frozenset[str]] = _INLINE_HOSTS | {
     "div",
     "hr",
     "pre",
@@ -724,22 +767,14 @@ _ALLOWED: Final = _INLINE_HOSTS | {
     "img",
     "br",
 }
-_SEMANTIC_ATTRIBUTES: Final[dict[str, frozenset[str]]] = {
-    "a": frozenset({"href", "title"}),
-    "img": frozenset({"src", "alt", "title"}),
-    "ol": frozenset({"start"}),
-    "td": frozenset({"align"}),
-}
 # CommonMark and GFM write none of these without content: emphasis and code spans need a character (6.1, 6.2), a
 # paragraph a non-blank line (4.8), a list an item (5.3) and a table a header cell (GFM 4.10)
-_CONTENT_REQUIRED: Final = frozenset({"p", "strong", "em", "s", "code", "ul", "ol", "table", "tr"})
-_EMPHASIS: Final = frozenset({"strong", "em", "s"})
-_BLOCKS: Final = frozenset({"p", "ul", "ol", "table"})
-_BOUNDARY: Final[_Meaning] = ("#block", (), ())
-_SPACES: Final = frozenset(" \t\n\f\r")
-_HEADINGS: Final = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
+_CONTENT_REQUIRED: Final[frozenset[str]] = frozenset({"p", "strong", "em", "s", "code", "ul", "ol", "table", "tr"})
+_EMPHASIS: Final[frozenset[str]] = frozenset({"strong", "em", "s"})
+_BOUNDARY: Final[_Meaning] = _Meaning("#block", (), ())
+_HEADINGS: Final[frozenset[str]] = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
 # WHATWG Rendering 15.3.1 draws none of these; script and style hold code in every namespace
-_HIDDEN: Final = frozenset({
+_HIDDEN: Final[frozenset[str]] = frozenset({
     "area",
     "base",
     "basefont",
@@ -765,13 +800,11 @@ _CONTENT_MODEL: Final[dict[str, frozenset[str]]] = {
     "tbody": frozenset({"tr", "script"}),
     "tr": frozenset({"td", "th", "script"}),
 }
-_READER: Final = _FaithfulMarkdown("gfm-like", {"linkify": False}, renderer_cls=_FaithfulAltRenderer)
-_RAW_GRAMMAR: Final = _raw_grammar()
-_HTML_GRAMMAR: Final = _html_grammar()
+_READER: Final[_FaithfulMarkdown] = _FaithfulMarkdown("gfm-like", {"linkify": False}, renderer_cls=_FaithfulAltRenderer)
+_RAW_GRAMMAR: Final[Grammar] = _raw_grammar()
+_HTML_GRAMMAR: Final[Grammar] = _html_grammar()
 
 __all__ = [
-    "MARKDOWN_READER_SOURCE",
-    "MARKDOWN_RULES",
     "MarkdownProfileError",
     "MarkdownRecord",
     "main",

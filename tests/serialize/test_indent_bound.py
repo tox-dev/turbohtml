@@ -1,5 +1,3 @@
-"""Nested lists and block quotes indent no deeper than the nesting cap, keeping output linear in the input."""
-
 from __future__ import annotations
 
 from typing import Final
@@ -9,17 +7,17 @@ from markdown_it import MarkdownIt
 
 from turbohtml import Markdown, parse
 
-_NESTED_ITEMS: Final = "<ul><li>" * 12 + "x"
+_NESTED_ITEMS: Final[str] = f"{'<ul><li>' * 12}x"
 # plain-text indent spends a budget that source text funds, so cap tests lead with enough text to pay for it
-_FUNDING: Final = "w" * 1024
-
-
-def _capped_lines(marker: str) -> str:
-    return "\n".join("  " * min(level, 8) + marker for level in range(12)) + "x"
+_FUNDING: Final[str] = "w" * 1024
 
 
 def test_markdown_list_indent_stops_at_the_nesting_cap() -> None:
     assert parse(_NESTED_ITEMS).to_markdown() == _capped_lines("- ")
+
+
+def _capped_lines(marker: str) -> str:
+    return "\n".join("  " * min(level, 8) + marker for level in range(12)) + "x"
 
 
 def test_text_list_indent_stops_at_the_nesting_cap() -> None:
@@ -27,12 +25,12 @@ def test_text_list_indent_stops_at_the_nesting_cap() -> None:
 
 
 def test_markdown_blockquote_indent_stops_at_the_nesting_cap() -> None:
-    assert parse("<blockquote>" * 22 + "x").to_markdown() == "> " * 17 + "x"
+    assert parse(f"{'<blockquote>' * 22}x").to_markdown() == f"{'> ' * 17}x"
 
 
 def test_text_blockquote_indent_stops_at_the_nesting_cap() -> None:
-    text = parse(f"<p>{_FUNDING}</p>" + "<blockquote>" * 22 + "x").to_text()
-    assert text.rsplit("\n", 1)[-1] == " " * 68 + "x"
+    text = parse(f"<p>{_FUNDING}</p>{'<blockquote>' * 22}x").to_text()
+    assert text.rsplit("\n", 1)[-1] == f"{' ' * 68}x"
 
 
 @pytest.mark.parametrize(
@@ -67,13 +65,13 @@ def test_text_table_padding_stays_linear() -> None:
     assert len(parse(source).to_text()) <= 2 * len(source)
 
 
+def _uneven_table(width: int, rows: int) -> str:
+    return f"<table><tr><td>{'X' * width}</td><td>y</td></tr>{'<tr><td>x</td><td>y</td></tr>' * rows}</table>"
+
+
 def test_text_table_sparse_rows_stay_linear() -> None:
     source = f"<table><tr>{'<td>x</td>' * 200}</tr>{'<tr><td>x</td></tr>' * 200}</table>"
     assert len(parse(source).to_text()) <= 2 * len(source)
-
-
-def _uneven_table(width: int, rows: int) -> str:
-    return f"<table><tr><td>{'X' * width}</td><td>y</td></tr>{'<tr><td>x</td><td>y</td></tr>' * rows}</table>"
 
 
 def test_annotated_table_keeps_cell_spans_after_padding_limit() -> None:
@@ -83,7 +81,7 @@ def test_annotated_table_keeps_cell_spans_after_padding_limit() -> None:
 
 def test_google_doc_margin_indent_stops_at_the_nesting_cap() -> None:
     document = parse("<ul><li style='margin-left:99999999999px'>x</li><li style='margin-left:72px'>y</li></ul>")
-    assert document.to_markdown(Markdown.google_doc()) == "  " * 8 + "- x\n    - y"
+    assert document.to_markdown(Markdown.google_doc()) == f"{'  ' * 8}- x\n    - y"
 
 
 @pytest.mark.parametrize(

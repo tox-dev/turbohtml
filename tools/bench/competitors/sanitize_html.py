@@ -11,15 +11,19 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING, Final
 
-REQUIREMENTS = ()
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
-_RUNNER = str(Path(__file__).resolve().parent.parent / "node" / "sanitize_html_runner.js")
+_REQUIREMENTS: Final[tuple[()]] = ()
+
+_RUNNER: Final[str] = str(Path(__file__).resolve().parent.parent / "node" / "sanitize_html_runner.js")
 
 
 def sanitize_transform(text: str) -> str:
-    """Sanitize a document while renaming deprecated presentational tags, piping it through the Node runner."""
+    # Sanitize a document while renaming deprecated presentational tags, piping it through the Node runner.
     return subprocess.run(["node", _RUNNER], input=text, capture_output=True, text=True, check=True).stdout
 
 
-OPERATIONS = {"sanitize-transform": (sanitize_transform, "sanitize-html")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"sanitize-transform": (sanitize_transform, "sanitize-html")}

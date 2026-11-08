@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import phonenumbers
 from phonenumbers import Leniency, PhoneNumberFormat, PhoneNumberMatcher
 
-REQUIREMENTS = ("phonenumbers>=9.0.38",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
-_LENIENCY: Final = {"valid": Leniency.VALID, "possible": Leniency.POSSIBLE}
+_REQUIREMENTS: Final[tuple[str, ...]] = ("phonenumbers>=9.0.38",)
+
+_LENIENCY: Final[dict[str, int]] = {"valid": Leniency.VALID, "possible": Leniency.POSSIBLE}
 
 
 def phone(case: tuple[str, str]) -> None:
-    """Scan plain text with PhoneNumberMatcher at the case's leniency; ``has`` stops at the first match."""
+    # Scan plain text with PhoneNumberMatcher at the case's leniency; ``has`` stops at the first match.
     mode, text = case
     if mode == "has":
         PhoneNumberMatcher(text, "US", leniency=Leniency.VALID).has_next()
@@ -23,7 +26,7 @@ def phone(case: tuple[str, str]) -> None:
 
 
 def phone_parse(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
-    """Parse each held string with phonenumbers.parse and check it at the case's leniency."""
+    # Parse each held string with phonenumbers.parse and check it at the case's leniency.
     mode, held = case
     check = phonenumbers.is_valid_number if mode == "valid" else phonenumbers.is_possible_number
     for region, text in held:
@@ -31,7 +34,7 @@ def phone_parse(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
 
 
 def phone_construct(held: tuple[tuple[str, str], ...]) -> bool:
-    """Validate constructed numbers against their held region and type."""
+    # Validate constructed numbers against their held region and type.
     matches = True
     for region, text in held:
         if (number := _PARSED.get((region, text))) is None:
@@ -46,7 +49,7 @@ def phone_construct(held: tuple[tuple[str, str], ...]) -> bool:
     return matches
 
 
-_STYLES: Final = {
+_STYLES: Final[dict[str, int]] = {
     "e164": PhoneNumberFormat.E164,
     "international": PhoneNumberFormat.INTERNATIONAL,
     "national": PhoneNumberFormat.NATIONAL,
@@ -57,7 +60,7 @@ _EXPECTED_TYPES: Final[dict[tuple[str, str], int]] = {}
 
 
 def phone_format(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
-    """Write each number in the case's layout with phonenumbers.format_number."""
+    # Write each number in the case's layout with phonenumbers.format_number.
     style, held = case
     for region, text in held:
         if (number := _PARSED.get((region, text))) is None:
@@ -67,7 +70,7 @@ def phone_format(case: tuple[str, tuple[tuple[str, str], ...]]) -> None:
 
 # PhoneNumberMatcher takes one default region, so the eight-region rows run it with the first of them; the scan cost
 # it reports is the single-region cost, which favors it on those rows.
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "phone": (phone, "phonenumbers"),
     "phone-parse": (phone_parse, "phonenumbers"),
     "phone-format": (phone_format, "phonenumbers"),

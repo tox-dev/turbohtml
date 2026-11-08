@@ -3,23 +3,27 @@
 from __future__ import annotations
 
 from functools import cache
+from typing import TYPE_CHECKING, Final
 
 import inscriptis
 from inscriptis.model.config import ParserConfig
 
-REQUIREMENTS = ("inscriptis>=2.5",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
-_ANNOTATION_RULES = {"h1": ["heading"], "b": ["emphasis"], "a": ["link"]}
-_ANNOTATION_CONFIG = ParserConfig(annotation_rules=_ANNOTATION_RULES)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("inscriptis>=2.5",)
+
+_ANNOTATION_RULES: Final[dict[str, list[str]]] = {"h1": ["heading"], "b": ["emphasis"], "a": ["link"]}
+_ANNOTATION_CONFIG: Final[ParserConfig] = ParserConfig(annotation_rules=_ANNOTATION_RULES)
 
 
 def text_render(text: str) -> None:
-    """Render layout-aware visible text with inscriptis, on an lxml tree."""
+    # Render layout-aware visible text with inscriptis, on an lxml tree.
     inscriptis.get_text(text)
 
 
 def text_annotated(text: str) -> None:
-    """Render annotated layout text with inscriptis, on an lxml tree."""
+    # Render annotated layout text with inscriptis, on an lxml tree.
     inscriptis.get_annotated_text(text, _ANNOTATION_CONFIG)
 
 
@@ -33,7 +37,7 @@ def _annotation_config(rules: tuple[tuple[str, tuple[str, ...]], ...]) -> Parser
     return ParserConfig(annotation_rules={name: list(labels) for name, labels in rules})
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "text-render": (text_render, "inscriptis"),
     "text-annotated": (text_annotated, "inscriptis"),
     "text-annotation-rules": (_text_annotation_rules, "inscriptis"),

@@ -2,15 +2,16 @@
 turbohtml.detect: standalone character-encoding detection over bytes.
 
 :func:`detect` answers the question ``chardet``, ``charset-normalizer``, and ``cchardet`` exist for -- "what encoding
-are these bytes?" -- without an HTML parser in the call path. It runs the same C pipeline :func:`turbohtml.parse`
-uses for ``bytes`` input: the WHATWG sniff first (a byte-order mark, then a ``<meta>`` prescan of the first 1024
-bytes), then a content detector that validates UTF-8 structurally and otherwise scores the CJK and single-byte
-candidates on character-pair frequencies, then the spec's windows-1252 fallback. A non-mark input therefore yields the
-same encoding whether you detect it standalone or parse it with ``detect_encoding=True``, with two divergences. A UTF-8
-byte-order mark is reported here as ``UTF-8-SIG`` so a caller can strip it, where the spec-locked parse path keeps the
-plain ``UTF-8`` name; the UTF-16 marks report the same label both ways. And a ``<meta>`` charset past the prescan's
-1024-byte window is invisible here, because these functions read bytes and have no tree to consult, where
-:func:`turbohtml.parse` redoes the parse against what it declares.
+are these bytes?" -- without an HTML parser in the call path. It runs the same C pipeline :func:`turbohtml.parse` uses
+for ``bytes`` input: the WHATWG sniff first (a byte-order mark, then a ``<meta>`` prescan of the first 1024 bytes), then
+a content detector that validates UTF-8 structurally and otherwise scores the CJK and single-byte candidates on
+character-pair frequencies, then the spec's windows-1252 fallback.
+
+A non-mark input therefore yields the same encoding whether you detect it standalone or parse it with
+``detect_encoding=True``, with two divergences. A UTF-8 byte-order mark is reported here as ``UTF-8-SIG`` so a caller
+can strip it, where the spec-locked parse path keeps the plain ``UTF-8`` name; the UTF-16 marks report the same label
+both ways. And a ``<meta>`` charset past the prescan's 1024-byte window is invisible here, because these functions read
+bytes and have no tree to consult, where :func:`turbohtml.parse` redoes the parse against what it declares.
 
 A result is an :class:`EncodingMatch` with the WHATWG canonical name, a confidence, and the language the frequency
 model matched, mirroring the ``chardet.detect`` dict shape as a typed record. :func:`detect_all` ranks every
@@ -36,6 +37,7 @@ from __future__ import annotations
 import codecs
 import string
 from dataclasses import dataclass
+from functools import cache
 from itertools import starmap
 from typing import Final, Literal
 
@@ -50,45 +52,30 @@ from ._html import (
     _normalize,
 )
 
-__all__ = [
-    "Detection",
-    "EncodingDetector",
-    "EncodingMatch",
-    "LanguageDetection",
-    "LanguageMatch",
-    "NormalizationForm",
-    "detect",
-    "detect_all",
-    "detect_language",
-    "is_normalized",
-    "normalize",
-]
-
+#: The Unicode normalization forms :func:`normalize` and :func:`is_normalized` accept.
 NormalizationForm = Literal["NFC", "NFD", "NFKC", "NFKD"]
 
 _FORMS: Final[dict[str, int]] = {"NFC": 0, "NFD": 1, "NFKC": 2, "NFKD": 3}
 
 
-def _refuse_encode(text: str, errors: str = "strict", /) -> tuple[bytes, int]:  # ruff:ignore[unused-function-argument]
-    """Refuse to encode: the generated tables are decode-side only, and the spec's encoders are a separate algorithm."""
+def _refuse_encode(text: str, errors: str = "strict", /) -> tuple[bytes, int]:  # ruff:ignore[unused-function-argument]  # the codec API passes errors; the refusal ignores it
+    # Refuse to encode: the generated tables are decode-side only, and the spec's encoders are a separate algorithm.
     msg = "a whatwg-* codec decodes only; encode with the CPython codec of your choice"
     raise UnicodeError(msg)
 
 
 def _search(name: str) -> codecs.CodecInfo | None:
-    """
-    Resolve a ``whatwg-*`` codec name.
-
-    These codecs exist because no safe name already does: ``bytes.decode("big5")`` reaches CPython's Big5, a strict
-    subset of the spec's, ``koi8-u`` reaches KOI8-U where the spec means KOI8-RU, and ``x-mac-cyrillic`` reaches no
-    codec at all. Which label a name resolves to is decided in C, which knows every spec alias and the byte-order-mark
-    names that delegate to CPython's own decoders.
-    """
+    # Resolve a ``whatwg-*`` codec name.
+    #
+    # These codecs exist because no safe name already does: ``bytes.decode("big5")`` reaches CPython's Big5, a strict
+    # subset of the spec's, ``koi8-u`` reaches KOI8-U where the spec means KOI8-RU, and ``x-mac-cyrillic`` reaches no
+    # codec at all. Which label a name resolves to is decided in C, which knows every spec alias and the byte-order-mark
+    # names that delegate to CPython's own decoders.
     if (found := _codec_label(name)) is None:
         return None
     delegate, label = found
 
-    def decode(data: bytes, errors: str = "strict", /) -> tuple[str, int]:  # ruff:ignore[unused-function-argument]
+    def decode(data: bytes, errors: str = "strict", /) -> tuple[str, int]:  # ruff:ignore[unused-function-argument]  # the codec API passes errors; the refusal ignores it
         if delegate:
             # "replace" turns malformed bytes into U+FFFD as turbohtml.parse does, where the strict codec would raise
             return codecs.lookup(label).decode(data, "replace")
@@ -102,28 +89,7 @@ def _search(name: str) -> codecs.CodecInfo | None:
 codecs.register(_search)
 
 
-_LANGUAGES: Final[dict[str, str]] = {
-    "big5": "Chinese",
-    "euc-jp": "Japanese",
-    "euc-kr": "Korean",
-    "gbk": "Chinese",
-    "ibm866": "Russian",
-    "iso-2022-jp": "Japanese",
-    "iso-8859-5": "Russian",
-    "iso-8859-6": "Arabic",
-    "iso-8859-7": "Greek",
-    "iso-8859-8": "Hebrew",
-    "koi8-u": "Russian",
-    "shift_jis": "Japanese",
-    "windows-1251": "Russian",
-    "windows-1253": "Greek",
-    "windows-1254": "Turkish",
-    "windows-1255": "Hebrew",
-    "windows-1256": "Arabic",
-    "windows-1258": "Vietnamese",
-    "windows-874": "Thai",
-}
-"""The language each frequency-scored candidate models; multi-language Latin encodings stay unmapped."""
+#: The language each frequency-scored candidate models; multi-language Latin encodings stay unmapped.
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +117,12 @@ class EncodingMatch:
     ...); it is ``None`` for UTF-8 and the Latin encodings whose model spans several languages. ``bom`` is true only
     when a byte-order mark decided the result, telling a caller the decoded text still carries the mark unless the
     codec strips it.
+
+    :param encoding: the WHATWG canonical name, or ``None`` when the input is empty or every candidate was ruled out.
+    :param confidence: how sure the detector is, from 0.0 (no positive evidence) to 1.0 (certain).
+    :param language: the language the winning frequency model targets, or ``None`` for a multi-language model.
+    :param bom: whether a byte-order mark decided the result.
+    :param codec: the name to hand :meth:`bytes.decode`, or ``None`` with a ``None`` encoding.
     """
 
     encoding: str | None
@@ -161,7 +133,7 @@ class EncodingMatch:
 
 
 # Every character a DNS label may hold once it is lower-cased and Punycode-encoded (RFC 1123, plus RFC 3492's "xn--").
-_TLD_ALPHABET: Final[frozenset[str]] = frozenset(string.ascii_lowercase + string.digits + "-")
+_TLD_ALPHABET: Final[frozenset[str]] = frozenset(f"{string.ascii_lowercase}{string.digits}-")
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +147,7 @@ class Detection:
         (the value :class:`EncodingMatch` reports as its language) rank ahead of the rest, provided they scored
         positively.
     :param allowed: when set, only these encodings (WHATWG names, any case) may be returned.
+
     :param excluded: these encodings are never returned; mutually exclusive with ``allowed``.
     :param tld: the rightmost DNS label of the host that served the bytes (``"jp"``, ``"ru"``, ``"xn--p1ai"``), which
         narrows the candidates the way a browser does. Give it in lower-case ASCII, without the leading dot, and in
@@ -204,11 +177,15 @@ class Detection:
 
     @classmethod
     def chardet(cls) -> Detection:
-        """Chardet's ``UniversalDetector`` mode: report ``None`` under its 0.2 minimum confidence."""
+        """
+        Chardet's ``UniversalDetector`` mode: report ``None`` under its 0.2 minimum confidence.
+
+        :returns: the detection with chardet's 0.2 minimum confidence threshold.
+        """
         return cls(threshold=0.2)
 
 
-_DEFAULT: Final = Detection()
+_DEFAULT: Final[Detection] = Detection()
 
 
 def detect(data: bytes, options: Detection | None = None, /) -> EncodingMatch:
@@ -237,20 +214,22 @@ def detect_all(data: bytes, options: Detection | None = None, /) -> list[Encodin
         carrying its own label and ``bom``.
     :raises TypeError: when ``data`` is not a bytes-like object.
     """
-    return _matches(data, options or _DEFAULT)
+    active = options or _DEFAULT
+    return list(starmap(EncodingMatch, _rank(_detect(data, active.tld), active)))
 
 
 class EncodingDetector:
     """
     Incremental detection over a byte stream, mirroring chardet's ``UniversalDetector``.
 
-    Call :meth:`feed` with each chunk, :meth:`close` for the result, and :meth:`reset` to reuse the instance on
-    another stream. :attr:`done` turns true as soon as the result cannot change (a leading byte-order mark, or
-    :meth:`close`), so a reader loop can stop early. Every candidate carries its own state across feeds, so the
-    detector holds a fixed amount of memory whatever the stream's length; the one buffer it keeps is the leading
-    1024 bytes the byte-order-mark check and the ``<meta>`` prescan read, which the spec bounds. The result equals
-    :func:`detect` of the concatenated bytes, whatever the chunk boundaries. An instance is not thread-safe; use one
-    per stream.
+    Call :meth:`feed` with each chunk, :meth:`close` for the result, and :meth:`reset` to reuse the instance on another
+    stream. :attr:`done` turns true as soon as the result cannot change (a leading byte-order mark, or :meth:`close`),
+    so a reader loop can stop early.
+
+    Every candidate carries its own state across feeds, so the detector holds a fixed amount of memory whatever the
+    stream's length; the one buffer it keeps is the leading 1024 bytes the byte-order-mark check and the ``<meta>``
+    prescan read, which the spec bounds. The result equals :func:`detect` of the concatenated bytes, whatever the chunk
+    boundaries. An instance is not thread-safe; use one per stream.
 
     :param options: the detection options; defaults to :class:`Detection` (always answer, no constraints).
     """
@@ -281,7 +260,11 @@ class EncodingDetector:
         self.done = self._stream.feed(data)
 
     def close(self) -> EncodingMatch:
-        """Read the detector's answer, cache it, and return it."""
+        """
+        Read the detector's answer, cache it, and return it.
+
+        :returns: the detector's answer.
+        """
         if self._result is None:
             self._result = EncodingMatch(*_rank(self._stream.close(), self._options)[0])
             self.done = True
@@ -294,36 +277,36 @@ class EncodingDetector:
         self.done = False
 
 
-def _matches(data: bytes, options: Detection) -> list[EncodingMatch]:
-    return list(starmap(EncodingMatch, _rank(_detect(data, options.tld), options)))
-
-
 def _rank(
     result: tuple[str | None, bool, list[tuple[str, int]], bool] | None, options: Detection
 ) -> list[tuple[str | None, float, str | None, bool, str | None]]:
-    return _detect_rank(result, options.allowed, options.excluded, options.language, options.threshold, _LANGUAGES)
+    return _detect_rank(result, options.allowed, options.excluded, options.language, options.threshold, _languages())
 
 
-@dataclass(frozen=True, slots=True)
-class LanguageMatch:
-    """
-    One language-detection result: the ISO 639-3 code, a confidence, the Unicode script, and an English name.
-
-    ``language`` is the `ISO 639-3 <https://en.wikipedia.org/wiki/ISO_639-3>`__ code the text was written in
-    (``"eng"``, ``"deu"``, ``"cmn"``, ...), or ``None`` when the text carries no script the detector models (it is
-    empty, or all punctuation, digits, emoji, or symbols) or every candidate for its script was ruled out by
-    :class:`LanguageDetection`. ``confidence`` runs 0.0 to 1.0: it is 1.0 for a script only one modeled language uses
-    (Greek, Georgian, Korean, ...) and for a clear trigram winner, and drops toward 0.0 as the top two candidates for a
-    shared script (Latin, Cyrillic, Arabic, Devanagari, Hebrew) converge -- the usual signal that the text is too short
-    to separate them. ``script`` is the Unicode script name the text is written in (``"Latin"``, ``"Cyrillic"``,
-    ``"Han"`` reported as ``"Mandarin"``, ...), or ``None`` with a ``None`` language. ``name`` is the English name of
-    the language (``"English"``, ``"German"``, ``"Mandarin"``, ...), or ``None`` with a ``None`` language.
-    """
-
-    language: str | None
-    confidence: float
-    script: str | None
-    name: str | None = None
+@cache
+def _languages() -> dict[str, str]:
+    # Built once: every detection hands this table to the C ranker, so a per-call literal would allocate on each one.
+    return {
+        "big5": "Chinese",
+        "euc-jp": "Japanese",
+        "euc-kr": "Korean",
+        "gbk": "Chinese",
+        "ibm866": "Russian",
+        "iso-2022-jp": "Japanese",
+        "iso-8859-5": "Russian",
+        "iso-8859-6": "Arabic",
+        "iso-8859-7": "Greek",
+        "iso-8859-8": "Hebrew",
+        "koi8-u": "Russian",
+        "shift_jis": "Japanese",
+        "windows-1251": "Russian",
+        "windows-1253": "Greek",
+        "windows-1254": "Turkish",
+        "windows-1255": "Hebrew",
+        "windows-1256": "Arabic",
+        "windows-1258": "Vietnamese",
+        "windows-874": "Thai",
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,7 +336,7 @@ class LanguageDetection:
             raise ValueError(msg)
 
 
-_DEFAULT_LANGUAGE: Final = LanguageDetection()
+_DEFAULT_LANGUAGE: Final[LanguageDetection] = LanguageDetection()
 
 
 def detect_language(text: str, options: LanguageDetection | None = None, /) -> LanguageMatch:
@@ -372,6 +355,35 @@ def detect_language(text: str, options: LanguageDetection | None = None, /) -> L
     """
     settings = options or _DEFAULT_LANGUAGE
     return LanguageMatch(*_detect_language(text, settings.allowed, settings.excluded, settings.threshold))
+
+
+@dataclass(frozen=True, slots=True)
+class LanguageMatch:
+    """
+    One language-detection result: the ISO 639-3 code, a confidence, the Unicode script, and an English name.
+
+    ``language`` is the `ISO 639-3 <https://en.wikipedia.org/wiki/ISO_639-3>`__ code the text was written in (``"eng"``,
+    ``"deu"``, ``"cmn"``, ...), or ``None`` when the text carries no script the detector models (it is empty, or all
+    punctuation, digits, emoji, or symbols) or every candidate for its script was ruled out by
+    :class:`LanguageDetection`.
+
+    ``confidence`` runs 0.0 to 1.0: it is 1.0 for a script only one modeled language uses (Greek, Georgian, Korean, ...)
+    and for a clear trigram winner, and drops toward 0.0 as the top two candidates for a shared script (Latin, Cyrillic,
+    Arabic, Devanagari, Hebrew) converge -- the usual signal that the text is too short to separate them. ``script`` is
+    the Unicode script name the text is written in (``"Latin"``, ``"Cyrillic"``, ``"Han"`` reported as ``"Mandarin"``,
+    ...), or ``None`` with a ``None`` language. ``name`` is the English name of the language (``"English"``,
+    ``"German"``, ``"Mandarin"``, ...), or ``None`` with a ``None`` language.
+
+    :param language: the ISO 639-3 code, or ``None`` when the text carries no modeled script.
+    :param confidence: how sure the detector is, from 0.0 to 1.0.
+    :param script: the Unicode script name, or ``None`` with a ``None`` language.
+    :param name: the English name of the language, or ``None`` with a ``None`` language.
+    """
+
+    language: str | None
+    confidence: float
+    script: str | None
+    name: str | None = None
 
 
 def normalize(form: NormalizationForm, text: str, /) -> str:
@@ -418,3 +430,18 @@ def is_normalized(form: NormalizationForm, text: str, /) -> bool:
         msg = f"invalid normalization form {form!r}"
         raise ValueError(msg) from None
     return _is_normalized(code, text)
+
+
+__all__ = [
+    "Detection",
+    "EncodingDetector",
+    "EncodingMatch",
+    "LanguageDetection",
+    "LanguageMatch",
+    "NormalizationForm",
+    "detect",
+    "detect_all",
+    "detect_language",
+    "is_normalized",
+    "normalize",
+]

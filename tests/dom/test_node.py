@@ -65,8 +65,7 @@ def test_repr(html: str, expected: str) -> None:
 
 
 def test_template_content_is_a_document_fragment(find: Callable[[str, str], Element]) -> None:
-    template = find("<template>inner</template>", "template")
-    (content,) = template.children
+    (content,) = find("<template>inner</template>", "template").children
     assert (type(content), repr(content), content.text) == (DocumentFragment, "DocumentFragment()", "inner")
 
 
@@ -157,8 +156,9 @@ def test_equals_is_structural_while_eq_stays_identity() -> None:
 
 
 def test_equals_within_one_tree_ignores_attribute_order() -> None:
-    doc = parse("<ul><li id=x class=a>t</li><li class=a id=x>t</li></ul>")
-    first, second = doc.find_all("li")  # two nodes sharing one tree and handle
+    first, second = parse("<ul><li id=x class=a>t</li><li class=a id=x>t</li></ul>").find_all(
+        "li"
+    )  # two nodes sharing one tree and handle
     assert first.equals(second)
 
 
@@ -288,40 +288,48 @@ def test_identity_survives_alias_release_and_adoption(released: int) -> None:
 @pytest.mark.parametrize(
     "count", [pytest.param(1, id="one"), pytest.param(12, id="inline"), pytest.param(32, id="expanded")]
 )
-@pytest.mark.parametrize("keep", [pytest.param(False, id="released"), pytest.param(True, id="retained")])
-def test_adoption_preserves_descendants_after_alias_release(count: int, *, keep: bool) -> None:
+def test_adoption_preserves_descendants_after_alias_release(count: int) -> None:
     source: Final = Element("section")
     source.set_inner_html("<span>text</span>" * count)
     aliases: Final = source.select("span")
-    retained: Final = aliases[-1:] if keep else []
     aliases.clear()
     target: Final = Element("main")
     target.append(source)
-    if retained:
-        retained[0].attrs["live"] = "yes"
-    assert target.inner_html == "<section>" + "<span>text</span>" * (count - 1) + (
-        '<span live="yes">text</span></section>' if keep else "<span>text</span></section>"
-    )
+    assert target.inner_html == f"<section>{'<span>text</span>' * count}</section>"
 
 
-@pytest.mark.parametrize("operation", ["find", "indexed", "css", "xpath", "parent"])
-def test_element_result_types_after_adoption(operation: str) -> None:
+@pytest.mark.parametrize(
+    "count", [pytest.param(1, id="one"), pytest.param(12, id="inline"), pytest.param(32, id="expanded")]
+)
+def test_adoption_keeps_retained_alias_attributes(count: int) -> None:
+    source: Final = Element("section")
+    source.set_inner_html("<span>text</span>" * count)
+    aliases: Final = source.select("span")
+    retained: Final = aliases[-1]
+    aliases.clear()
+    target: Final = Element("main")
+    target.append(source)
+    retained.attrs["live"] = "yes"
+    assert target.inner_html == f'<section>{"<span>text</span>" * (count - 1)}<span live="yes">text</span></section>'
+
+
+@pytest.mark.parametrize(
+    "find_result",
+    [
+        pytest.param(lambda target: target.find_all(attrs={"data-x": True}), id="find"),
+        pytest.param(lambda target: target.find_all("a"), id="indexed"),
+        pytest.param(lambda target: target.select("a"), id="css"),
+        pytest.param(lambda target: cast("list[Element]", target.xpath("//a")), id="xpath"),
+        pytest.param(lambda target: list(Query(target.select("b")).parent()), id="parent"),
+    ],
+)
+def test_element_result_types_after_adoption(find_result: Callable[[Document], Iterable[Node]]) -> None:
     source: Final = parse('<section><a data-x="yes"><b></b></a><a data-x="yes"><b></b></a></section>')
     section: Final = source.select("section")[0]
     expected: Final = section.select("a")
     target: Final = parse("<main></main>")
     target.select("main")[0].append(section)
-    if operation == "find":
-        result = target.find_all(attrs={"data-x": True})
-    elif operation == "indexed":
-        result = target.find_all("a")
-    elif operation == "css":
-        result = target.select("a")
-    elif operation == "xpath":
-        result = cast("list[Element]", target.xpath("//a"))
-    else:
-        result = list(Query(target.select("b")).parent())
-    assert [(type(node), node) for node in result] == [(Element, node) for node in expected]
+    assert [(type(node), node) for node in find_result(target)] == [(Element, node) for node in expected]
 
 
 def test_hash_survives_release_of_all_adopted_aliases() -> None:
@@ -361,7 +369,7 @@ def test_namespace_values() -> None:
 
 # find_all()/select()/iteration recycle their node wrappers on a freelist; the count
 # exceeds the pool cap so dropping a result also frees past the pool's limit.
-_WIDE = "<ul>" + "".join(f'<li class="row">item {index}</li>' for index in range(1200)) + "</ul>"
+_WIDE: Final[str] = f"""<ul>{"".join(f'<li class="row">item {index}</li>' for index in range(1200))}</ul>"""
 
 
 def test_recycled_wrapper_does_not_alias_a_held_node() -> None:
@@ -394,17 +402,7 @@ def test_transient_iteration_reads_every_node() -> None:
     assert li_count == 1200
 
 
-_DOC = "<section><h2>T</h2><p>one</p><ul><li>a</li><li>b</li></ul></section><footer>f</footer>"
-
-
-def _tags(nodes: Iterable[Node]) -> list[str]:
-    return [node.tag for node in nodes if isinstance(node, Element)]
-
-
-def _find(html: str, tag: str) -> Element:
-    element = parse(html).find(tag)
-    assert element is not None
-    return element
+_DOC: Final[str] = "<section><h2>T</h2><p>one</p><ul><li>a</li><li>b</li></ul></section><footer>f</footer>"
 
 
 @pytest.mark.parametrize(
@@ -418,6 +416,16 @@ def _find(html: str, tag: str) -> Element:
 )
 def test_sibling_axes(tag: str, axis: str, expected: list[str]) -> None:
     assert _tags(getattr(_find(_DOC, tag), axis)) == expected
+
+
+def _tags(nodes: Iterable[Node]) -> list[str]:
+    return [node.tag for node in nodes if isinstance(node, Element)]
+
+
+def _find(html: str, tag: str) -> Element:
+    element = parse(html).find(tag)
+    assert element is not None
+    return element
 
 
 def test_following_excludes_own_subtree() -> None:
@@ -455,12 +463,9 @@ def test_text_iterators(axis: str, expected: list[str]) -> None:
     assert list(getattr(div, axis)) == expected
 
 
-_SAMPLE = "<body><p id=a>one<b>bold</b></p><p id=b>two</p></body>"
-
-
 @pytest.fixture
 def body(find: Callable[[str, str], Element]) -> Element:
-    return find(_SAMPLE, "body")
+    return find("<body><p id=a>one<b>bold</b></p><p id=b>two</p></body>", "body")
 
 
 def test_parent_chain(body: Element) -> None:
@@ -491,7 +496,7 @@ def test_siblings(body: Element) -> None:
 
 
 def test_descendants_are_document_order(body: Element) -> None:
-    def label(node: object) -> str:
+    def label(node: Node) -> str:
         if isinstance(node, Element):
             return f"Element:{node.tag}"
         assert isinstance(node, Text)
@@ -569,24 +574,31 @@ def test_node_is_truthy_regardless_of_children(
 
 
 @pytest.mark.parametrize("count", [1, 29, 30, 100], ids=["small", "below-index", "index", "large"])
-@pytest.mark.parametrize("position", ["first", "last"])
-def test_duplicate_normalized_attributes_keep_the_first(count: int, position: str) -> None:
+def test_duplicate_normalized_attributes_keep_the_first(count: int) -> None:
     ordinary: Final = {f"data-{index}": "é水😀" for index in range(count)}
     duplicates: Final = {"A": "x", "a": "y"}
     kept: Final = {"a": "x"}
-    attributes: Final = duplicates | ordinary if position == "first" else ordinary | duplicates
-    expected: Final = kept | ordinary if position == "first" else ordinary | kept
-    assert Element("div", attributes).equals(Element("div", expected))
+    assert Element("div", duplicates | ordinary).equals(Element("div", kept | ordinary))
+
+
+@pytest.mark.parametrize("count", [1, 29, 30, 100], ids=["small", "below-index", "index", "large"])
+def test_duplicate_normalized_attributes_keep_the_first_after_ordinary(count: int) -> None:
+    ordinary: Final = {f"data-{index}": "é水😀" for index in range(count)}
+    duplicates: Final = {"A": "x", "a": "y"}
+    kept: Final = {"a": "x"}
+    assert Element("div", ordinary | duplicates).equals(Element("div", ordinary | kept))
 
 
 @pytest.mark.parametrize("prefix", ["data-", "é", "水", "𐐀"], ids=["ascii", "latin1", "ucs2", "ucs4"])
 @pytest.mark.parametrize("different", [False, True], ids=["equal", "different"])
 def test_xml_attribute_equality(prefix: str, *, different: bool) -> None:
-    left: Final = parse_xml("<root " + " ".join(f'{prefix}{index}="{index}"' for index in range(40)) + "/>")
+    left: Final = parse_xml(f"""<root {" ".join(f'{prefix}{index}="{index}"' for index in range(40))}/>""")
     right: Final = parse_xml(
         "<root "
-        + " ".join(f'{prefix}{index}="{index + int(different and index == 39)}"' for index in reversed(range(40)))
-        + "/>"
+        f"""{
+            " ".join(f'{prefix}{index}="{index + int(different and index == 39)}"' for index in reversed(range(40)))
+        }"""
+        "/>"
     )
     assert left.equals(right) is not different
 
@@ -607,11 +619,9 @@ def test_attribute_equality_with_sparse_atoms(*, different: bool) -> None:
 @pytest.mark.parametrize("different", [False, True], ids=["equal", "different"])
 def test_large_attribute_equality_within_one_tree(*, different: bool) -> None:
     document: Final = parse(
-        "<div "
-        + " ".join(f'data-{index}="{index}"' for index in range(40))
-        + "></div><div "
-        + " ".join(f'data-{index}="{index + int(different and index == 39)}"' for index in reversed(range(40)))
-        + "></div>"
+        f"""<div {" ".join(f'data-{index}="{index}"' for index in range(40))}></div><div """
+        f"""{" ".join(f'data-{index}="{index + int(different and index == 39)}"' for index in reversed(range(40)))}"""
+        "></div>"
     )
     left, right = document.find_all("div")
     assert left.equals(right) is not different
@@ -629,8 +639,11 @@ def test_duplicate_attributes_reach_index_threshold_at_last_name() -> None:
     assert left.equals(right)
 
 
-@pytest.mark.parametrize("different", [False, True], ids=["equal", "different"])
-def test_many_duplicate_attributes_preserve_first_value(*, different: bool) -> None:
+@pytest.mark.parametrize(
+    ("override", "equal"),
+    [pytest.param({}, True, id="equal"), pytest.param({"abcdefghij": "different"}, False, id="different")],
+)
+def test_many_duplicate_attributes_preserve_first_value(override: dict[str, str], *, equal: bool) -> None:
     names: Final = [
         "".join(letter.upper() if variant & (1 << index) else letter for index, letter in enumerate("abcdefghij"))
         for variant in range(1000)
@@ -638,36 +651,22 @@ def test_many_duplicate_attributes_preserve_first_value(*, different: bool) -> N
     duplicates: Final = dict.fromkeys(names, "same")
     anchors: Final = {"first": "1", "second": "2", "third": "3"}
     left: Final = Element("div", anchors | duplicates)
-    right: Final = Element("div", duplicates | anchors)
-    if different:
-        right.attrs[names[0]] = "different"
-    assert left.equals(right) is not different
-
-
-def child(root: Node, tag: str) -> Element:
-    """Find a descendant by tag, narrowing the Element | None result for the checker."""
-    found = root.find(tag)
-    assert found is not None
-    return found
-
-
-def location(html: str, tag: str) -> SourceLocation:
-    """Parse with source locations and return the first matching element's record."""
-    element = parse(html, source_locations=True).find(tag)
-    assert element is not None
-    loc = element.source_location
-    assert loc is not None
-    return loc
-
-
-def offsets(span: SourceSpan) -> tuple[int, int]:
-    """The half-open code-point range a span covers."""
-    return span.start_offset, span.end_offset
+    right: Final = Element("div", duplicates | anchors | override)
+    assert left.equals(right) is equal
 
 
 def test_start_tag_span_covers_open_angle_through_close_angle() -> None:
     # 1-based line, 0-based column, code-point offset, at both endpoints
     assert location("<div>x</div>", "div").start_tag == SourceSpan(1, 0, 0, 1, 5, 5)
+
+
+def location(html: str, tag: str) -> SourceLocation:
+    # Parse with source locations and return the first matching element's record.
+    element = parse(html, source_locations=True).find(tag)
+    assert element is not None
+    loc = element.source_location
+    assert loc is not None
+    return loc
 
 
 def test_end_tag_span_covers_the_close_tag() -> None:
@@ -676,12 +675,16 @@ def test_end_tag_span_covers_the_close_tag() -> None:
     assert offsets(loc.end_tag) == (6, 12)
 
 
+def offsets(span: SourceSpan) -> tuple[int, int]:
+    # The half-open code-point range a span covers.
+    return span.start_offset, span.end_offset
+
+
 def test_attribute_span_slices_the_source() -> None:
     html = '<div id=x class="a b">y</div>'
     loc = location(html, "div")
     assert {name: offsets(span) for name, span in loc.attrs.items()} == {"id": (5, 9), "class": (10, 21)}
-    assert html[5:9] == "id=x"
-    assert html[10:21] == 'class="a b"'
+    assert (html[5:9], html[10:21]) == ("id=x", 'class="a b"')
 
 
 @pytest.mark.parametrize(
@@ -703,8 +706,13 @@ def test_attribute_span_shapes(html: str, attr: str, sliced: str) -> None:
 def test_two_unquoted_attributes_end_at_their_own_delimiters() -> None:
     html = "<x a=1 b=2>t</x>"
     attrs = location(html, "x").attrs
-    assert html[attrs["a"].start_offset : attrs["a"].end_offset] == "a=1"
-    assert html[attrs["b"].start_offset : attrs["b"].end_offset] == "b=2"
+    assert (
+        html[attrs["a"].start_offset : attrs["a"].end_offset],
+        html[attrs["b"].start_offset : attrs["b"].end_offset],
+    ) == (
+        "a=1",
+        "b=2",
+    )
 
 
 def test_duplicate_attribute_keeps_the_first_occurrence() -> None:
@@ -765,6 +773,13 @@ def test_source_locations_imply_positions() -> None:
     element = child(parse("<div>x</div>", source_locations=True), "div")
     assert element.position == (1, 0)
     assert element.source_location is not None
+
+
+def child(root: Node, tag: str) -> Element:
+    # Find a descendant by tag, narrowing the Element | None result for the checker.
+    found = root.find(tag)
+    assert found is not None
+    return found
 
 
 def test_off_by_default_reports_none() -> None:
@@ -876,8 +891,7 @@ def test_constructed_element_has_no_location() -> None:
 
 def test_fragment_locations_are_relative_to_the_fragment() -> None:
     html = '<div id="a">x</div>'
-    root = parse_fragment(html, "body", source_locations=True)
-    loc = child(root, "div").source_location
+    loc = child(parse_fragment(html, "body", source_locations=True), "div").source_location
     assert loc is not None
     assert offsets(loc.start_tag) == (0, 12)
     assert html[5:11] == 'id="a"'
@@ -893,8 +907,7 @@ def test_incremental_parser_tracks_locations_across_feeds() -> None:
     parser = IncrementalParser(source_locations=True)
     parser.feed("<ul>\n  <li>a</li>\n")
     parser.feed('  <li id="x">b</li>\n</ul>')
-    items = parser.close().find_all("li")
-    second = items[1].source_location
+    second = parser.close().find_all("li")[1].source_location
     assert second is not None
     assert second.start_tag.start_line == 3
     assert "id" in second.attrs
@@ -929,13 +942,6 @@ def test_span_is_a_named_tuple() -> None:
     assert span == (1, 0, 0, 1, 5, 5)
 
 
-def _source_position_child(root: Node, tag: str) -> Element:
-    """Find a descendant by tag, narrowing the Element | None result for the checker."""
-    found = root.find(tag)
-    assert found is not None
-    return found
-
-
 @pytest.mark.parametrize(
     ("html", "tag", "expected"),
     [
@@ -962,6 +968,13 @@ def test_nested_elements_each_carry_their_own_position() -> None:
     assert _source_position_child(doc, "p").position == (3, 4)
 
 
+def _source_position_child(root: Node, tag: str) -> Element:
+    # Find a descendant by tag, narrowing the Element | None result for the checker.
+    found = root.find(tag)
+    assert found is not None
+    return found
+
+
 @pytest.mark.parametrize(
     "newline",
     [
@@ -981,13 +994,15 @@ def test_columns_are_unaffected_by_carriage_returns() -> None:
     assert _source_position_child(parse("a\r\n  <b>x</b>"), "b").source_col == 2
 
 
-def test_positions_false_drops_every_position() -> None:
-    doc = parse("<html><body><p>x</p></body></html>", positions=False)
-    for tag in ("html", "body", "p"):
-        element = _source_position_child(doc, tag)
-        assert element.source_line is None
-        assert element.source_col is None
-        assert element.position is None
+@pytest.mark.parametrize(
+    "tag",
+    [pytest.param("html", id="html"), pytest.param("body", id="body"), pytest.param("p", id="p")],
+)
+def test_positions_false_drops_every_position(tag: str) -> None:
+    element = _source_position_child(parse("<html><body><p>x</p></body></html>", positions=False), tag)
+    assert element.source_line is None
+    assert element.source_col is None
+    assert element.position is None
 
 
 def test_implied_elements_have_no_source() -> None:
@@ -1040,15 +1055,13 @@ def test_fragment_positions_false_drops_them() -> None:
 def test_adoption_agency_clone_keeps_the_original_line() -> None:
     # </i> closes across the block <p>, so the adoption agency clones <i> into <p>;
     # the clone stands in for the same source tag, so both <i> nodes report line 1
-    doc = parse("<i><p>x</i>y</p>")
-    italics = doc.find_all("i")
+    italics = parse("<i><p>x</i>y</p>").find_all("i")
     assert len(italics) == 2
     assert [i.source_line for i in italics] == [1, 1]
 
 
 def test_adoption_agency_without_positions_is_unaffected() -> None:
-    doc = parse("<i><p>x</i>y</p>", positions=False)
-    italics = doc.find_all("i")
+    italics = parse("<i><p>x</i>y</p>", positions=False).find_all("i")
     assert len(italics) == 2
     assert all(i.source_line is None for i in italics)
 
@@ -1156,11 +1169,9 @@ def test_text_concatenates_descendant_character_data(
         pytest.param("a\x00b", id="embedded-nul"),
     ],
 )
-@pytest.mark.parametrize("wrapped", [False, True], ids=["text-root", "element-root"])
-def test_text_preserves_unicode(text: str, *, wrapped: bool) -> None:
+def test_text_preserves_unicode(text: str) -> None:
     child: Final = Text(text)
-    root: Final = Element("p", children=[child]) if wrapped else child
-    assert root.text == text
+    assert (child.text, Element("p", children=[child]).text) == (text, text)
 
 
 @pytest.mark.parametrize(

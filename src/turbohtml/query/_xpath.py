@@ -13,7 +13,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from turbohtml._html import Element, _register_xpath_string  # Element stays importable so autodoc resolves it
+from turbohtml._html import (
+    Element,  # stays importable so autodoc resolves it
+    _register_xpath_depth_error,
+    _register_xpath_string,
+)
 
 if TYPE_CHECKING:
     from typing import Self
@@ -43,7 +47,7 @@ class XPathString(str):  # ruff:ignore[subclass-builtin]
     attrname: str | None
     """The attribute name the value came from, or None for a text value."""
 
-    def __new__(cls, value: str, parent: Element, is_attribute: bool, attrname: str | None) -> Self:  # ruff:ignore[boolean-type-hint-positional-argument]
+    def __new__(cls, value: str, parent: Element, is_attribute: bool, attrname: str | None) -> Self:  # ruff:ignore[boolean-type-hint-positional-argument]  # the C core builds this class positionally, so the flag stays positional
         self = str.__new__(cls, value)
         self._parent = parent
         self.is_attribute = is_attribute
@@ -53,8 +57,29 @@ class XPathString(str):  # ruff:ignore[subclass-builtin]
         return self
 
     def getparent(self) -> Element:
-        """Return the element this attribute or text value was selected from."""
+        """
+        Return the element this attribute or text value was selected from.
+
+        :returns: the element the value was selected from.
+        """
         return self._parent
 
 
+class XPathDepthError(ValueError):
+    """
+    An XPath expression nests deeper than the evaluator allows.
+
+    Raised by :meth:`turbohtml.Node.xpath` and the precompiled :class:`turbohtml.XPath` when an expression's operator
+    spine or parenthesized groups exceed the evaluator's depth cap, rather than overflowing the C stack. It subclasses
+    :class:`ValueError`, so code catching ``ValueError`` keeps working.
+    """
+
+
 _register_xpath_string(XPathString)
+_register_xpath_depth_error(XPathDepthError)
+
+
+__all__ = [
+    "XPathDepthError",
+    "XPathString",
+]

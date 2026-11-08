@@ -11,19 +11,22 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
-REQUIREMENTS = ()
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
-_RUNNER = str(Path(__file__).resolve().parent.parent / "node" / "parse5_runner.js")
+_REQUIREMENTS: Final[tuple[()]] = ()
+
+_RUNNER: Final[str] = str(Path(__file__).resolve().parent.parent / "node" / "parse5_runner.js")
 
 
 def parse_locations(text: str) -> str:
-    """Parse a document with parse5's sourceCodeLocationInfo on, piping it through the Node runner."""
+    # Parse a document with parse5's sourceCodeLocationInfo on, piping it through the Node runner.
     return subprocess.run(["node", _RUNNER], input=text, capture_output=True, text=True, check=True).stdout
 
 
-_INNER_RUNNER: Final = str(Path(__file__).resolve().parent.parent / "node" / "inner_runner.js")
+_INNER_RUNNER: Final[str] = str(Path(__file__).resolve().parent.parent / "node" / "inner_runner.js")
 
 
 def _parse_inner(text: str) -> str:
@@ -38,7 +41,7 @@ def _parse_inner_encode(text: str) -> bytes:
     ).stdout
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "parse-inner": (_parse_inner, "parse5"),
     "parse-inner-encode": (_parse_inner_encode, "parse5"),
     "parse-locations": (parse_locations, "parse5"),

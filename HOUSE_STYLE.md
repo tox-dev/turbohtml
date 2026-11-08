@@ -67,11 +67,11 @@ Each module opens with a one-line docstring naming the module and its job:
 ```
 
 `__all__` lists every name other modules import, placed after the imports. Module-scope constants are `UPPER_CASE`,
-prefixed with `_` when no other module imports them, and typed `Final`:
+prefixed with `_` when no other module imports them, and typed `Final[<type>]`:
 
 ```python
-_EARLIEST: Final = date(1995, 1, 1)
-_MODIFIED_MARKERS: Final = ("updated", "modified", "lastmod", "revised")
+_EARLIEST: Final[date] = date(1995, 1, 1)
+_MODIFIED_MARKERS: Final[tuple[str, ...]] = ("updated", "modified", "lastmod", "revised")
 ```
 
 The shim stays a shim: if deleting a line of Python would change a returned value, that logic belongs in C.

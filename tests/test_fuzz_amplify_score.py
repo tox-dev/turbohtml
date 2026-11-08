@@ -1,10 +1,3 @@
-"""
-The super-linear scorer's verdicts against a cost model on a mocked thread clock.
-
-Each run advances the clock by a cost that depends only on the input length, so every growth figure is exact on every
-platform; the real-clock negative control lives in ``test_fuzz_amplify_cli.py`` and at the start of every lane run.
-"""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
@@ -17,14 +10,14 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
-_SHAPE: Final = Shape("repeat", "ab")
-_MILLISECOND: Final = 0.001
+_SHAPE: Final[Shape] = Shape(kind="repeat", left="ab")
+_MILLISECOND: Final[float] = 0.001
 
 
 @pytest.fixture
 def clock(mocker: MockerFixture) -> list[float]:
     now = [0.0]
-    mocker.patch("time.thread_time", side_effect=lambda: now[0])
+    mocker.patch("time.thread_time", autospec=True, side_effect=lambda: now[0])
     return now
 
 
@@ -103,7 +96,7 @@ def test_measure_records_output_sizes(clock: list[float]) -> None:
         clock[0] += _MILLISECOND
         return text * 3
 
-    result = measure(tripling, Shape("repeat", "é"))
+    result = measure(tripling, Shape(kind="repeat", left="é"))
     assert (result.characters, result.outputs) == ((512, 1024, 2048, 4096), (1536, 3072, 6144, 12288))
 
 
@@ -139,13 +132,18 @@ def test_score_super_linear_needs_every_doubling(growth: tuple[float, ...], *, s
     seconds = [1.0]
     for value in growth:
         seconds.append(seconds[-1] * value)
-    result = Score((1024, 2048, 4096, 8192), tuple(seconds), (1024, 2048, 4096, 8192), (None,) * 4)
+    result = Score(
+        sizes=(1024, 2048, 4096, 8192), seconds=tuple(seconds), characters=(1024, 2048, 4096, 8192), outputs=(None,) * 4
+    )
     assert result.super_linear is super_linear
 
 
 def test_score_pooled_keeps_the_faster_sample_per_size() -> None:
-    first = Score((1, 2), (3.0, 1.0), (1, 2), (None, None))
-    assert first.pooled(Score((1, 2), (2.0, 5.0), (1, 2), (None, None))).seconds == (2.0, 1.0)
+    first = Score(sizes=(1, 2), seconds=(3.0, 1.0), characters=(1, 2), outputs=(None, None))
+    assert first.pooled(Score(sizes=(1, 2), seconds=(2.0, 5.0), characters=(1, 2), outputs=(None, None))).seconds == (
+        2.0,
+        1.0,
+    )
 
 
 @pytest.mark.parametrize(
@@ -157,17 +155,17 @@ def test_score_pooled_keeps_the_faster_sample_per_size() -> None:
     ],
 )
 def test_bound_holds(output: int | None, *, holds: bool) -> None:
-    assert Bound(2.0, 10).holds(10, output) is holds
+    assert Bound(slope=2.0, offset=10).holds(10, output) is holds
 
 
 @pytest.mark.parametrize(
     ("bound", "within"),
     [
         pytest.param(None, True, id="unbounded-target"),
-        pytest.param(Bound(3.0, 0), True, id="every-size-fits"),
-        pytest.param(Bound(1.0, 70), False, id="largest-size-overflows"),
+        pytest.param(Bound(slope=3.0, offset=0), True, id="every-size-fits"),
+        pytest.param(Bound(slope=1.0, offset=70), False, id="largest-size-overflows"),
     ],
 )
 def test_score_within_checks_every_size(bound: Bound | None, *, within: bool) -> None:
-    result = Score((10, 20, 40), (1.0, 2.0, 4.0), (10, 20, 40), (30, 60, 120))
+    result = Score(sizes=(10, 20, 40), seconds=(1.0, 2.0, 4.0), characters=(10, 20, 40), outputs=(30, 60, 120))
     assert result.within(bound) is within

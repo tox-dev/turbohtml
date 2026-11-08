@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final, Protocol
 
 from ._html import ElementView, _elementtree_element, _elementtree_subelement
 from ._html import _elementtree_context as document_context
@@ -17,13 +17,35 @@ from ._html import _elementtree_to_lxml_html as to_lxml_html
 from ._html import _elementtree_tostring as tostring
 from ._html import _ElementXPath as XPath
 
-Element: Final = _elementtree_element
-SubElement: Final = _elementtree_subelement
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+
+class ElementFactory(Protocol):
+    """Create an element with the given tag, attributes and extra attributes."""
+
+    def __call__(self, tag: str, attrib: Mapping[str, str] | None = None, **extra: str) -> ElementView: ...
+
+
+class SubElementFactory(Protocol):
+    """Create an element as the last child of ``parent``."""
+
+    def __call__(
+        self, parent: ElementView, /, tag: str, attrib: Mapping[str, str] | None = None, **extra: str
+    ) -> ElementView: ...
+
+
+#: The ElementTree element class, built over the turbohtml tree.
+Element: Final[ElementFactory] = _elementtree_element
+#: The ElementTree subelement factory, building children of an :class:`Element`.
+SubElement: Final[SubElementFactory] = _elementtree_subelement
 
 __all__ = [
     "Element",
+    "ElementFactory",
     "ElementView",
     "SubElement",
+    "SubElementFactory",
     "XPath",
     "document_context",
     "document_fromstring",

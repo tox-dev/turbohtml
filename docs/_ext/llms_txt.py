@@ -14,13 +14,11 @@ one line; ``llms-full.txt`` enumerates every page in every section, migration gu
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Final, Protocol
 
 from docutils import nodes
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from sphinx.application import Sphinx
     from sphinx.environment import BuildEnvironment
 
@@ -46,30 +44,19 @@ _SECTION_INDEX: Final[dict[str, str]] = {
     "development": "development/index",
 }
 
-_START_HERE: Final[tuple[tuple[str, str], ...]] = (
-    ("index", "turbohtml overview"),
-    ("tutorials/index", "Tutorials"),
-    ("how-to/index", "How-to guides"),
-    ("reference", "Reference"),
-    ("explanation/index", "Explanation"),
-    ("migration/index", "Migration guides"),
-)
 
-_DIATAXIS_NOTE: Final = (
-    "The documentation follows the Diátaxis framework: tutorials to learn, how-to guides for tasks, a reference for "
-    "the API, and explanation for the design, plus migration guides from the libraries turbohtml replaces. Each index "
-    "is grouped by namespace -- parse/DOM, detect, query, clean, convert, extract, build, serialize."
-)
+class _Link(Protocol):
+    def __call__(self, docname: str, label: str | None = None) -> str: ...
 
 
-def setup(app: Sphinx) -> dict[str, Any]:
-    """Register the build-finished hook that writes the two llms map files."""
+def setup(app: Sphinx) -> dict[str, bool]:
+    # Register the build-finished hook that writes the two llms map files.
     app.connect("build-finished", _emit_llms_txt)
     return {"parallel_read_safe": True, "parallel_write_safe": True}
 
 
 def _emit_llms_txt(app: Sphinx, exception: Exception | None) -> None:
-    """Write llms.txt and llms-full.txt into the HTML output root once the build succeeds."""
+    # Write llms.txt and llms-full.txt into the HTML output root once the build succeeds.
     if exception is not None or app.builder.name != "html":
         return
     env = app.env
@@ -85,8 +72,7 @@ def _emit_llms_txt(app: Sphinx, exception: Exception | None) -> None:
     grouped: dict[str, list[str]] = {key: [] for key, _ in _SECTIONS}
     index_pages = set(_SECTION_INDEX.values())
     for docname in order:
-        section = _section_of(docname)
-        if section in grouped and docname not in index_pages:
+        if (section := _section_of(docname)) in grouped and docname not in index_pages:
             grouped[section].append(docname)
 
     project_summary = summaries.get(root, "")
@@ -96,7 +82,7 @@ def _emit_llms_txt(app: Sphinx, exception: Exception | None) -> None:
 
 
 def _ordered_docnames(env: BuildEnvironment, root: str) -> list[str]:
-    """Return every docname reachable from ``root`` in navigation order, each once."""
+    # Return every docname reachable from ``root`` in navigation order, each once.
     seen = {root}
     order: list[str] = []
     stack = list(reversed(env.toctree_includes.get(root, [])))
@@ -111,7 +97,7 @@ def _ordered_docnames(env: BuildEnvironment, root: str) -> list[str]:
 
 
 def _summary(env: BuildEnvironment, docname: str) -> str:
-    """Return the page's first paragraph, whitespace collapsed onto one line."""
+    # Return the page's first paragraph, whitespace collapsed onto one line.
     for paragraph in env.get_doctree(docname).findall(nodes.paragraph):
         if text := " ".join(paragraph.astext().split()):
             return text
@@ -127,18 +113,32 @@ def _render_curated(
     titles: dict[str, str],
     grouped: dict[str, list[str]],
     project_summary: str,
-    link: Callable[..., str],
+    link: _Link,
 ) -> str:
+    diataxis_note: str = (
+        "The documentation follows the Diátaxis framework: tutorials to learn, how-to guides for tasks, "
+        "a reference for the API, and explanation for the design, plus migration guides from the libraries "
+        "turbohtml replaces. "
+        "Each index is grouped by namespace -- parse/DOM, detect, query, clean, convert, extract, build, serialize."
+    )
     lines = [
         f"# {titles.get('index', 'turbohtml')}",
         "",
         f"> {project_summary}",
         "",
-        _DIATAXIS_NOTE,
+        diataxis_note,
         "",
         "## Start here",
     ]
-    lines += [link(docname, label) for docname, label in _START_HERE if docname in titles]
+    start_here: tuple[tuple[str, str], ...] = (
+        ("index", "turbohtml overview"),
+        ("tutorials/index", "Tutorials"),
+        ("how-to/index", "How-to guides"),
+        ("reference", "Reference"),
+        ("explanation/index", "Explanation"),
+        ("migration/index", "Migration guides"),
+    )
+    lines += [link(docname, label) for docname, label in start_here if docname in titles]
     for key, heading in (("tutorials", "Tutorials"), ("how-to", "How-to guides"), ("reference", "Reference")):
         lines += ["", f"## {heading}", *[link(docname) for docname in grouped[key]]]
     lines += ["", "## Explanation", *[link(docname) for docname in grouped["explanation"]]]
@@ -154,7 +154,7 @@ def _render_full(
     titles: dict[str, str],
     grouped: dict[str, list[str]],
     project_summary: str,
-    link: Callable[..., str],
+    link: _Link,
 ) -> str:
     note = (
         "Every documentation page, grouped by section, with a one-line description. Fetch a page's URL for its full "

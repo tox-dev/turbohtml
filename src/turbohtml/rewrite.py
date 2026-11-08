@@ -27,15 +27,6 @@ from ._html import _rewrite, _RewriteHandle
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-__all__ = [
-    "CommentHandler",
-    "DoctypeHandler",
-    "Element",
-    "ElementHandler",
-    "TextHandler",
-    "rewrite",
-]
-
 Element = _RewriteHandle
 """The node handle a rewrite handler receives.
 
@@ -64,28 +55,44 @@ class ElementHandler(Protocol):
     """A callback invoked with the matched :class:`Element` for each element a selector matches."""
 
     def __call__(self, element: Element, /) -> None:
-        """Edit the matched ``element`` in place."""
+        """
+        Edit the matched ``element`` in place.
+
+        :param element: the matched element.
+        """
 
 
 class TextHandler(Protocol):
     """A callback invoked with each run of character data as an :class:`Element` handle of text kind."""
 
     def __call__(self, text: Element, /) -> None:
-        """Edit the ``text`` run in place."""
+        """
+        Edit the ``text`` run in place.
+
+        :param text: the text run.
+        """
 
 
 class CommentHandler(Protocol):
     """A callback invoked with each comment as an :class:`Element` handle of comment kind."""
 
     def __call__(self, comment: Element, /) -> None:
-        """Edit the ``comment`` in place."""
+        """
+        Edit the ``comment`` in place.
+
+        :param comment: the comment node, whose text may be edited in place.
+        """
 
 
 class DoctypeHandler(Protocol):
     """A callback invoked with the document type declaration as an :class:`Element` handle of doctype kind."""
 
     def __call__(self, doctype: Element, /) -> None:
-        """Edit the ``doctype`` in place."""
+        """
+        Edit the ``doctype`` in place.
+
+        :param doctype: the document type declaration.
+        """
 
 
 def rewrite(
@@ -106,6 +113,7 @@ def rewrite(
     :param text: called with each run of character data (a text-kind :class:`Element`); None skips text.
     :param comments: called with each comment (a comment-kind :class:`Element`); None skips comments.
     :param doctype: called with the document type declaration (a doctype-kind :class:`Element`); None skips it.
+
     :returns: the rewritten markup. An untouched construct is reproduced verbatim, so a rewrite that edits nothing
         returns the input unchanged (character references and original quoting are preserved).
     :raises TypeError: if ``html`` is not a str.
@@ -115,3 +123,13 @@ def rewrite(
         combinator, a positional or structural pseudo-class, or ``:has()``).
     """
     return _rewrite(html, tuple(elements), text, comments, doctype)
+
+
+__all__ = [
+    "CommentHandler",
+    "DoctypeHandler",
+    "Element",
+    "ElementHandler",
+    "TextHandler",
+    "rewrite",
+]

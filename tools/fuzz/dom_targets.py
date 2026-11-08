@@ -8,22 +8,75 @@ from html import escape
 from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
 import turbohtml as dom
-from turbohtml import build, etree, mutations, query, rewrite, saxparse, traverse, treebuild
+from turbohtml import mutations, rewrite, treebuild
+from turbohtml.build import Attributes, Content, E, ElementMaker, document
+from turbohtml.etree import (
+    Element,
+    ElementView,
+    SubElement,
+    XPath,
+    document_context,
+    document_fromstring,
+    fragment_fromstring,
+    from_lxml,
+    fromstring,
+    strip_elements,
+    strip_tags,
+    to_lxml,
+    to_lxml_html,
+    tostring,
+)
+from turbohtml.query import (
+    DEBUG,
+    Matcher,
+    Matching,
+    Query,
+    SelectorSyntaxError,
+    closest,
+    css,
+    escape_identifier,
+    iselect,
+    match,
+    select,
+    select_one,
+)
+from turbohtml.query import (
+    compile as _compile,
+)
+from turbohtml.query import (
+    filter as _filter,
+)
+from turbohtml.saxparse import (
+    Characters,
+    Comment,
+    Doctype,
+    EndElement,
+    ProcessingInstruction,
+    SaxEvent,
+    SaxHandler,
+    StartElement,
+    iter_events,
+    sax_parse,
+)
+from turbohtml.traverse import NodeFilter, NodeIterator, TreeWalker
 
 from .atheris_registry import Target
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from turbohtml.rewrite import CommentHandler, DoctypeHandler, ElementHandler, TextHandler
+    from turbohtml.rewrite import Element as RewriteElement
+
 
 def dom_targets() -> tuple[Target, ...]:
-    """Keep each corpus attached to the public operations it reaches."""
+    # Keep each corpus attached to the public operations it reaches.
     return tuple(
         Target(
-            name,
-            partial(_check, domain=name),
-            exports,
-            (UnicodeDecodeError,),
+            name=name,
+            callback=partial(_check, domain=name),
+            exports=exports,
+            exceptions=(UnicodeDecodeError,),
             lossy_on_allocation_failure=name == "dom-mutation",
         )
         for name, exports in _OWNERS.items()
@@ -35,21 +88,21 @@ def _check(data: bytes, *, domain: str) -> None:
 
 
 def dom_observation(data: bytes, domain: str) -> DomObservation:
-    """Keep constructed trees small for large corpus entries."""
+    # Keep constructed trees small for large corpus entries.
     return _OBSERVERS[domain](
         data.decode("utf-8")[:64].replace("\x00", "\ufffd").replace("\r\n", "\n").replace("\r", "\n")
     )
 
 
 def _construction(text: str) -> DomObservation:
-    attrs: Final[build.Attributes] = {"id": "item"}
-    content: Final[build.Content] = text
-    maker: Final = build.ElementMaker()
+    attrs: Final[Attributes] = {"id": "item"}
+    content: Final[Content] = text
+    maker: Final = ElementMaker()
     first: Final = maker("p", attrs, content)
     second: Final = dom.ElementMaker()("p", attrs, content)
     fragment: Final = dom.DocumentFragment()
     fragment.append(dom.Text(text))
-    root: Final = build.document(body=(build.E.p(text), dom.E.p(text), first, second))
+    root: Final = document(body=(E.p(text), dom.E.p(text), first, second))
     doctype: Final = next(child for child in root.children if isinstance(child, dom.Doctype))
     foreign: Final = cast("dom.Element", dom.parse_fragment("<svg><rect></rect></svg>").find("rect"))
     return DomObservation(
@@ -70,38 +123,38 @@ def _construction(text: str) -> DomObservation:
 
 
 def _elementtree(text: str) -> DomObservation:
-    root: Final = etree.Element("div", {"class": "one two"})
-    child: Final = etree.SubElement(root, "span")
-    child.text = "prefix" + text
+    root: Final = Element("div", {"class": "one two"})
+    child: Final = SubElement(root, "span")
+    child.text = f"prefix{text}"
     child.tail = "tail"
-    matches: Final = etree.XPath(".//span")(root) == [child]
-    identity: Final = etree.ElementView(child.node) is child
+    matches: Final = XPath(".//span")(root) == [child]
+    identity: Final = ElementView(child.node) is child
 
-    @etree.document_context
+    @document_context
     def detach() -> bool:
         root.remove(child)
         return child.getroottree().getroot() is root
 
     context: Final = detach()
     root.append(child)
-    etree.strip_tags(root, "span")
-    etree.SubElement(root, "script").text = "discard"
-    etree.strip_elements(root, "script")
+    strip_tags(root, "span")
+    SubElement(root, "script").text = "discard"
+    strip_elements(root, "script")
     markup: Final = f"<p>prefix{escape(text)}</p>"
-    document: Final = etree.document_fromstring(markup)
-    snippet: Final = etree.fromstring(markup)
-    fragment: Final = etree.fragment_fromstring(markup + "trailing")
-    bridge: Final = etree.Element("p", {"data": text.encode().hex()})
+    document: Final = document_fromstring(markup)
+    snippet: Final = fromstring(markup)
+    fragment: Final = fragment_fromstring(f"{markup}trailing")
+    bridge: Final = Element("p", {"data": text.encode().hex()})
     copied: str | None = None
     html_attribute: str | None = None
     try:
-        external = etree.to_lxml(bridge)
+        external = to_lxml(bridge)
     except ModuleNotFoundError:
         # lxml is optional in the native fuzz runtime.
         pass
     else:
-        copied = etree.tostring(etree.from_lxml(external), encoding="unicode")
-        html_attribute = etree.to_lxml_html(bridge).get("data")
+        copied = tostring(from_lxml(external), encoding="unicode")
+        html_attribute = to_lxml_html(bridge).get("data")
     return DomObservation(
         repr((
             matches,
@@ -119,9 +172,9 @@ def _elementtree(text: str) -> DomObservation:
             True,
             True,
             True,
-            "prefix" + text + "tail",
-            "prefix" + text,
-            "prefix" + text,
+            f"prefix{text}tail",
+            f"prefix{text}",
+            f"prefix{text}",
             "trailing",
             None,
             f'<p data="{text.encode().hex()}"/>' if copied is not None else None,
@@ -131,11 +184,11 @@ def _elementtree(text: str) -> DomObservation:
 
 
 def _traversal(text: str) -> DomObservation:
-    root: Final = build.E.div(build.E.p(text), build.E.b("tail"))
-    walked: Final = traverse.TreeWalker(root, traverse.NodeFilter.SHOW_ELEMENT)
+    root: Final = E.div(E.p(text), E.b("tail"))
+    walked: Final = TreeWalker(root, NodeFilter.SHOW_ELEMENT)
     iterator: Final = dom.NodeIterator(root, dom.NodeFilter.SHOW_ELEMENT)
     root_walker: Final = dom.TreeWalker(root, dom.NodeFilter.SHOW_TEXT)
-    module_iterator: Final = traverse.NodeIterator(root, traverse.NodeFilter.SHOW_TEXT)
+    module_iterator: Final = NodeIterator(root, NodeFilter.SHOW_TEXT)
     names: Final = []
     while (node := walked.next_node()) is not None:
         names.append(cast("dom.Element", node).tag)
@@ -161,26 +214,26 @@ def _traversal(text: str) -> DomObservation:
 
 
 def _query(text: str) -> DomObservation:
-    root: Final = build.E.div({"id": "root"}, build.E.p({"id": "item", "class": "picked"}, text))
+    root: Final = E.div({"id": "root"}, E.p({"id": "item", "class": "picked"}, text))
     child: Final = cast("dom.Element", root.find("p"))
-    matching: Final = query.Matching.soupsieve(namespaces={"h": "http://www.w3.org/1999/xhtml"}, flags=0)
-    matcher: Final = query.Matcher("p", matching)
-    compiled: Final = query.compile("p")
+    matching: Final = Matching.soupsieve(namespaces={"h": "http://www.w3.org/1999/xhtml"}, flags=0)
+    matcher: Final = Matcher("p", matching)
+    compiled: Final = _compile("p")
     smart: Final = cast("list[dom.XPathString]", dom.XPath("//@id", smart_strings=True)(root))
     direct: Final = dom.XPathString(text, child, is_attribute=False, attrname=None)
     observed: Final = (
-        [item.tag for item in query.select("p", root)],
-        query.select_one("p", root) == child,
-        [item.tag for item in query.iselect("p", root)],
-        [item.tag for item in query.filter("p", root)],
-        query.match("p", child),
-        query.closest("div", child) == root,
+        [item.tag for item in select("p", root)],
+        select_one("p", root) == child,
+        [item.tag for item in iselect("p", root)],
+        [item.tag for item in _filter("p", root)],
+        match("p", child),
+        closest("div", child) == root,
         matcher.match(child),
         compiled.select_one(root) == child,
-        query.Query(root).find("p").text(),
-        query.css("p").select(root)[0].text,
-        query.escape_identifier("a b"),
-        query.DEBUG,
+        Query(root).find("p").text(),
+        css("p").select(root)[0].text,
+        escape_identifier("a b"),
+        DEBUG,
         matching.flags,
         smart[0].attrname,
         smart[0].getparent().tag,
@@ -189,8 +242,8 @@ def _query(text: str) -> DomObservation:
     )
     invalid = "accepted"
     try:
-        query.compile("[")
-    except query.SelectorSyntaxError:
+        _compile("[")
+    except SelectorSyntaxError:
         invalid = "rejected"
     return DomObservation(
         repr((observed, invalid)),
@@ -202,7 +255,7 @@ def _query(text: str) -> DomObservation:
 
 
 def _mutation(text: str) -> DomObservation:
-    root: Final = build.E.div()
+    root: Final = E.div()
     first: Final = dom.MutationObserver()
     second: Final = mutations.MutationObserver()
     for observer in (first, second):
@@ -221,7 +274,7 @@ def _mutation(text: str) -> DomObservation:
 
 
 def _range(text: str) -> DomObservation:
-    root: Final = build.E.div(build.E.p(text), build.E.b("tail"))
+    root: Final = E.div(E.p(text), E.b("tail"))
     boundary: Final = dom.Range(root)
     boundary.set_end(root, 1)
     snapshot: Final = dom.StaticRange(root, 0, root, 1)
@@ -242,9 +295,9 @@ def _range(text: str) -> DomObservation:
 
 
 def _shadow(text: str) -> DomObservation:
-    host: Final = build.E.div(dom.Text(text))
+    host: Final = E.div(dom.Text(text))
     shadow: Final = host.attach_shadow("open")
-    shadow.append(build.E.slot())
+    shadow.append(E.slot())
     return DomObservation(
         repr((
             isinstance(shadow, dom.ShadowRoot),
@@ -277,10 +330,10 @@ def _locations(text: str) -> DomObservation:
 
 
 def _rewrite(text: str) -> DomObservation:
-    element_handler: Final[rewrite.ElementHandler] = _rewrite_element
-    text_handler: Final[rewrite.TextHandler] = partial(_rewrite_text, value=text)
-    comment_handler: Final[rewrite.CommentHandler] = _rewrite_comment
-    doctype_handler: Final[rewrite.DoctypeHandler] = _rewrite_doctype
+    element_handler: Final[ElementHandler] = _rewrite_element
+    text_handler: Final[TextHandler] = partial(_rewrite_text, value=text)
+    comment_handler: Final[CommentHandler] = _rewrite_comment
+    doctype_handler: Final[DoctypeHandler] = _rewrite_doctype
     return DomObservation(
         rewrite.rewrite(
             "<!doctype html><!--old--><p>old</p>",
@@ -289,44 +342,44 @@ def _rewrite(text: str) -> DomObservation:
             comments=comment_handler,
             doctype=doctype_handler,
         ),
-        '&lt;!--before--&gt;<!doctype html><!--new--><p id="item">' + escape(text, quote=False) + "</p>",
+        f'&lt;!--before--&gt;<!doctype html><!--new--><p id="item">{escape(text, quote=False)}</p>',
     )
 
 
-def _rewrite_element(element: rewrite.Element) -> None:
+def _rewrite_element(element: RewriteElement) -> None:
     element.set_attribute("id", "item")
 
 
-def _rewrite_text(text: rewrite.Element, *, value: str) -> None:
+def _rewrite_text(text: RewriteElement, *, value: str) -> None:
     text.set_text(value)
 
 
-def _rewrite_comment(comment: rewrite.Element) -> None:
+def _rewrite_comment(comment: RewriteElement) -> None:
     comment.set_text("new")
 
 
-def _rewrite_doctype(doctype: rewrite.Element) -> None:
+def _rewrite_doctype(doctype: RewriteElement) -> None:
     doctype.before("<!--before-->")
 
 
 def _sax(text: str) -> DomObservation:
     source: Final = f"<!doctype html><?target data><!--note--><p>{escape(text, quote=False)}</p>"
-    events: Final[tuple[saxparse.SaxEvent, ...]] = tuple(saxparse.iter_events(source))
+    events: Final[tuple[SaxEvent, ...]] = tuple(iter_events(source))
     collector: Final = _SaxCollector()
-    saxparse.sax_parse(source, collector)
-    expected: Final[tuple[saxparse.SaxEvent, ...]] = (
-        saxparse.Doctype("html", None, None),
-        saxparse.ProcessingInstruction("target", "data"),
-        saxparse.Comment("note"),
-        saxparse.StartElement("html", ()),
-        saxparse.StartElement("head", ()),
-        saxparse.EndElement("head"),
-        saxparse.StartElement("body", ()),
-        saxparse.StartElement("p", ()),
-        *((saxparse.Characters(text),) if text else ()),
-        saxparse.EndElement("p"),
-        saxparse.EndElement("body"),
-        saxparse.EndElement("html"),
+    sax_parse(source, collector)
+    expected: Final[tuple[SaxEvent, ...]] = (
+        Doctype("html", None, None),
+        ProcessingInstruction("target", "data"),
+        Comment("note"),
+        StartElement("html", ()),
+        StartElement("head", ()),
+        EndElement("head"),
+        StartElement("body", ()),
+        StartElement("p", ()),
+        *((Characters(text),) if text else ()),
+        EndElement("p"),
+        EndElement("body"),
+        EndElement("html"),
     )
     observed: Final = (events, tuple(collector.events))
     reference: Final = (expected, expected)
@@ -335,27 +388,27 @@ def _sax(text: str) -> DomObservation:
     return DomObservation(repr(observed), repr(reference))
 
 
-class _SaxCollector(saxparse.SaxHandler):
+class _SaxCollector(SaxHandler):
     def __init__(self) -> None:
-        self.events: Final[list[saxparse.SaxEvent]] = []
+        self.events: Final[list[SaxEvent]] = []
 
     def start_element(self, tag: str, attrs: tuple[tuple[str, str | None], ...]) -> None:
-        self.events.append(saxparse.StartElement(tag, attrs))
+        self.events.append(StartElement(tag, attrs))
 
     def end_element(self, tag: str) -> None:
-        self.events.append(saxparse.EndElement(tag))
+        self.events.append(EndElement(tag))
 
     def characters(self, data: str) -> None:
-        self.events.append(saxparse.Characters(data))
+        self.events.append(Characters(data))
 
     def comment(self, data: str) -> None:
-        self.events.append(saxparse.Comment(data))
+        self.events.append(Comment(data))
 
     def doctype(self, name: str, public_id: str | None, system_id: str | None) -> None:
-        self.events.append(saxparse.Doctype(name, public_id, system_id))
+        self.events.append(Doctype(name, public_id, system_id))
 
     def processing_instruction(self, target: str, data: str) -> None:
-        self.events.append(saxparse.ProcessingInstruction(target, data))
+        self.events.append(ProcessingInstruction(target, data))
 
 
 def _tree(text: str) -> DomObservation:
@@ -374,7 +427,7 @@ def _tree(text: str) -> DomObservation:
         element("head"),
         element("body"),
         element("p"),
-        *(("text:" + text,) if text else ()),
+        *((f"text:{text}",) if text else ()),
     )
     return DomObservation(repr(_flatten(treebuild.parse_into(source, sink))), repr(expected))
 
@@ -386,47 +439,46 @@ def _flatten(node: _Built) -> tuple[str, ...]:
 class _TreeText:
     @staticmethod
     def create_document() -> _Built:
-        return _Built("document")
+        return _Built(payload="document")
 
     @staticmethod
     def create_doctype(name: str, public_id: str | None, system_id: str | None) -> _Built:
-        return _Built(repr((name, public_id, system_id)))
+        return _Built(payload=repr((name, public_id, system_id)))
 
     @staticmethod
     def create_element(name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> _Built:
-        return _Built(repr((name, namespace, attrs)))
+        return _Built(payload=repr((name, namespace, attrs)))
 
     @staticmethod
     def create_text(data: str) -> _Built:
-        return _Built("text:" + data)
+        return _Built(payload=f"text:{data}")
 
     @staticmethod
     def create_comment(data: str) -> _Built:
-        return _Built("comment:" + data)
+        return _Built(payload=f"comment:{data}")
 
     @staticmethod
     def create_pi(target: str, data: str) -> _Built:
-        return _Built(f"pi:{target}:{data}")
+        return _Built(payload=f"pi:{target}:{data}")
 
     @staticmethod
     def append(parent: _Built, child: _Built) -> None:
         parent.children.append(child)
 
 
-@dataclass
+@dataclass(kw_only=True, frozen=True, slots=True)
 class _Built:
     payload: str
     children: list[_Built] = field(default_factory=list)
 
 
 class DomObservation(NamedTuple):
-    """Expose both sides so corpus consumers can report a failed contract."""
-
+    # Expose both sides so corpus consumers can report a failed contract.
     actual: str
     expected: str
 
     def verify(self) -> None:
-        """Keep rejected oracle results visible to the fuzz driver."""
+        # Keep rejected oracle results visible to the fuzz driver.
         if self.actual != self.expected:
             raise AssertionError((self.actual, self.expected))
 
@@ -446,7 +498,7 @@ _OBSERVERS: Final[dict[str, Callable[[str], DomObservation]]] = {
 }
 _OWNERS: Final[dict[str, tuple[str, ...]]] = {
     "dom-construction": tuple(
-        "turbohtml." + name
+        f"turbohtml.{name}"
         for name in (
             "CData",
             "Comment",
@@ -459,13 +511,15 @@ _OWNERS: Final[dict[str, tuple[str, ...]]] = {
             "Text",
         )
     )
-    + tuple("turbohtml.build." + name for name in ("Attributes", "Content", "E", "ElementMaker", "document")),
+    + tuple(f"turbohtml.build.{name}" for name in ("Attributes", "Content", "E", "ElementMaker", "document")),
     "dom-elementtree": tuple(
-        "turbohtml.etree." + name
+        f"turbohtml.etree.{name}"
         for name in (
             "Element",
+            "ElementFactory",
             "ElementView",
             "SubElement",
+            "SubElementFactory",
             "XPath",
             "document_context",
             "document_fromstring",
@@ -479,13 +533,14 @@ _OWNERS: Final[dict[str, tuple[str, ...]]] = {
             "tostring",
         )
     ),
-    "dom-traversal": tuple("turbohtml." + name for name in ("Axis", "NodeFilter", "NodeIterator", "TreeWalker"))
-    + tuple("turbohtml.traverse." + name for name in ("NodeFilter", "NodeIterator", "TreeWalker")),
+    "dom-traversal": tuple(f"turbohtml.{name}" for name in ("Axis", "NodeFilter", "NodeIterator", "TreeWalker"))
+    + tuple(f"turbohtml.traverse.{name}" for name in ("NodeFilter", "NodeIterator", "TreeWalker")),
     "dom-query": (
         "turbohtml.XPath",
+        "turbohtml.XPathDepthError",
         "turbohtml.XPathString",
         *tuple(
-            "turbohtml.query." + name
+            f"turbohtml.query.{name}"
             for name in (
                 "DEBUG",
                 "Matcher",
@@ -514,11 +569,11 @@ _OWNERS: Final[dict[str, tuple[str, ...]]] = {
     "dom-shadow": ("turbohtml.ShadowRoot",),
     "dom-locations": ("turbohtml.SourceLocation", "turbohtml.SourceSpan"),
     "dom-rewrite": tuple(
-        "turbohtml.rewrite." + name
+        f"turbohtml.rewrite.{name}"
         for name in ("CommentHandler", "DoctypeHandler", "Element", "ElementHandler", "TextHandler", "rewrite")
     ),
     "dom-sax": tuple(
-        "turbohtml.saxparse." + name
+        f"turbohtml.saxparse.{name}"
         for name in (
             "Characters",
             "Comment",
@@ -534,4 +589,8 @@ _OWNERS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "dom-treebuild": ("turbohtml.treebuild.TreeBuilder", "turbohtml.treebuild.parse_into"),
 }
-__all__ = ["DomObservation", "dom_observation", "dom_targets"]
+__all__ = [
+    "DomObservation",
+    "dom_observation",
+    "dom_targets",
+]

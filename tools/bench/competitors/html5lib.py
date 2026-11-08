@@ -12,17 +12,23 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from xml.etree.ElementTree import Element
 
+    from html5lib.treewalkers.base import TreeWalker
+
+    from bench.operations import Timed
+
 import html5lib
 
-REQUIREMENTS = ("html5lib>=1.1",)
+_REQUIREMENTS: Final[tuple[str, ...]] = ("html5lib>=1.1",)
 
-_WALKER = html5lib.getTreeWalker("etree")
-_SERIALIZER: Final = HTMLSerializer(omit_optional_tags=False, quote_attr_values="always")
-_MINIFIER: Final = HTMLSerializer(strip_whitespace=True, omit_optional_tags=True, quote_attr_values="spec")
+_WALKER: Final[type[TreeWalker]] = html5lib.getTreeWalker("etree")
+_SERIALIZER: Final[HTMLSerializer] = HTMLSerializer(omit_optional_tags=False, quote_attr_values="always")
+_MINIFIER: Final[HTMLSerializer] = HTMLSerializer(
+    strip_whitespace=True, omit_optional_tags=True, quote_attr_values="spec"
+)
 
 
 def parse(text: str) -> None:
-    """Parse a whole document with html5lib."""
+    # Parse a whole document with html5lib.
     html5lib.parse(text)
 
 
@@ -32,12 +38,12 @@ def _parse_encoded(case: tuple[str, bytes]) -> None:
 
 @functools.cache
 def _parsed(text: str) -> Element:
-    """Return a document parsed once, cached so the read-path operations time only the query."""
+    # Return a document parsed once, cached so the read-path operations time only the query.
     return html5lib.parse(text)
 
 
-def serialize(text: str) -> None:
-    """Serialize a parsed document back to HTML with html5lib's etree serializer."""
+def _serialize(text: str) -> None:
+    # Serialize a parsed document back to HTML with html5lib's etree serializer.
     html5lib.serialize(_parsed(text))
 
 
@@ -47,19 +53,19 @@ def _serialize_attributes(case: tuple[str, bool]) -> str:
     )
 
 
-def navigate(text: str) -> None:
-    """Walk every node with html5lib's etree TreeWalker token stream."""
+def _navigate(text: str) -> None:
+    # Walk every node with html5lib's etree TreeWalker token stream.
     for _token in _WALKER(_parsed(text)):
         pass
 
 
-def fragment(text: str) -> None:
-    """Parse a fragment with html5lib's parseFragment."""
+def _fragment(text: str) -> None:
+    # Parse a fragment with html5lib's parseFragment.
     html5lib.parseFragment(text)
 
 
-def tokenize(text: str) -> None:
-    """Drive html5lib's tokenizer over the input."""
+def _tokenize(text: str) -> None:
+    # Drive html5lib's tokenizer over the input.
     from html5lib._tokenizer import (  # ruff:ignore[import-outside-top-level, import-private-name]  # internal API
         HTMLTokenizer,
     )
@@ -121,7 +127,7 @@ def _whitespace_roundtrip(text: str) -> str:
     )
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "serialize-inner": (_serialize_inner, "html5lib"),
     "encode-inner": (_encode_inner, "html5lib"),
     "iterate-inner": (_iterate_inner, "html5lib"),
@@ -136,9 +142,14 @@ OPERATIONS = {
     "parse-nul": (parse, "html5lib"),
     "parse-afe": (parse, "html5lib"),
     "parse-scope": (parse, "html5lib"),
-    "fragment": (fragment, "html5lib"),
-    "tokenize": (tokenize, "html5lib"),
-    "serialize": (serialize, "html5lib"),
-    "navigate": (navigate, "html5lib"),
+    "fragment": (_fragment, "html5lib"),
+    "tokenize": (_tokenize, "html5lib"),
+    "serialize": (_serialize, "html5lib"),
+    "navigate": (_navigate, "html5lib"),
     "serialize-attributes": (_serialize_attributes, "html5lib"),
 }
+
+
+__all__ = [
+    "parse",
+]

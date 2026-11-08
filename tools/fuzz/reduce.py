@@ -20,13 +20,13 @@ if TYPE_CHECKING:
 
     from tinycss2.ast import Node
 
-_NODE_DIR: Final = Path(__file__).resolve().parents[1] / "bench" / "node"
+_NODE_DIR: Final[Path] = Path(__file__).resolve().parents[1] / "bench" / "node"
 
 
 def minimize(
     text: str, reproduces: Callable[[str], bool], syntax: Literal["html", "css", "js"], budget: int = 600
 ) -> str:
-    """Accept shorter candidates only when the original finding predicate holds."""
+    # Accept shorter candidates only when the original finding predicate holds.
     if budget <= 0:
         return text
     calls = 0
@@ -65,13 +65,13 @@ def _js(text: str, reproduces: Callable[[str], bool], budget: int) -> str:
     ) as process:
         stdin = cast("TextIO", process.stdin)
         stdout = cast("TextIO", process.stdout)
-        stdin.write(json.dumps({"text": text, "budget": budget}) + "\n")
+        stdin.write(f"{json.dumps({'text': text, 'budget': budget})}\n")
         stdin.flush()
         while line := stdout.readline():
             reply = cast("_Reply", json.loads(line))
             if reply["kind"] == "done":
                 return reply["text"]
-            stdin.write(json.dumps(reproduces(reply["text"])) + "\n")
+            stdin.write(f"{json.dumps(reproduces(reply['text']))}\n")
             stdin.flush()
     msg = f"JS reducer exited without a result: {process.returncode}"
     raise RuntimeError(msg)
@@ -79,16 +79,14 @@ def _js(text: str, reproduces: Callable[[str], bool], budget: int) -> str:
 
 def _html(text: str) -> Iterator[str]:
     for root, inner in ((parse(text), False), (parse_fragment(text), True)):
-        nodes = list(root.descendants)
-        for index, node in enumerate(nodes):
+        for index, node in enumerate(list(root.descendants)):
             replacement = parse_fragment(text) if inner else parse(text)
             list(replacement.descendants)[index].extract()
             yield replacement.serialize(inner=inner)
             if isinstance(node, Element):
                 for name in node.attrs:
                     replacement = parse_fragment(text) if inner else parse(text)
-                    target = cast("Element", list(replacement.descendants)[index])
-                    del target.attrs[name]
+                    del cast("Element", list(replacement.descendants)[index]).attrs[name]
                     yield replacement.serialize(inner=inner)
 
 
@@ -116,4 +114,6 @@ class _Reply(TypedDict):
     text: str
 
 
-__all__ = ["minimize"]
+__all__ = [
+    "minimize",
+]

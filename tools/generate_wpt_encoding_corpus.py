@@ -35,12 +35,17 @@ import sys
 from pathlib import Path
 from typing import Final
 
-_SINGLE_BYTE_TABLE: Final = re.compile(r'"([^"]+)":\[([^\]]*)\]')
-_ISO_2022_JP_CASE: Final = re.compile(r'decode\(\[([^\]]*)\],\s*("(?:[^"\\]|\\.)*")\s*,\s*"([^"]*)"\)')
+_SINGLE_BYTE_TABLE: Final[re.Pattern[str]] = re.compile(
+    r'(?#a quoted table key, then its bracketed list of code points)"(?P<name>[^"]+)":\[(?P<body>[^\]]*)\]'
+)
+_ISO_2022_JP_CASE: Final[re.Pattern[str]] = re.compile(
+    r"(?#a decode call: a byte list, a quoted input, then a quoted string)"
+    r'decode\(\[(?P<raw>[^\]]*)\],\s*(?P<expected>"(?:[^"\\]|\\.)*")\s*,\s*"(?P<arm>[^"]*)"\)'
+)
 
 
 def _revision(checkout: Path) -> str:
-    """Return the commit the corpus is taken from, so a stale corpus names the wpt it came from."""
+    # Return the commit the corpus is taken from, so a stale corpus names the wpt it came from.
     result = subprocess.run(
         ["git", "-C", str(checkout), "rev-parse", "HEAD"],
         capture_output=True,
@@ -50,10 +55,10 @@ def _revision(checkout: Path) -> str:
     return result.stdout.strip()
 
 
-def _single_byte(checkout: Path) -> list[dict[str, object]]:
-    """One case per (encoding, high byte): the code point wpt says it decodes to, or null for an error."""
+def _single_byte(checkout: Path) -> list[dict[str, str | None]]:
+    # One case per (encoding, high byte): the code point wpt says it decodes to, or null for an error.
     source = (checkout / "encoding" / "resources" / "single-byte-decoder.js").read_text(encoding="utf-8")
-    cases: list[dict[str, object]] = []
+    cases: list[dict[str, str | None]] = []
     for name, body in _SINGLE_BYTE_TABLE.findall(source):
         points = [None if value.strip() == "null" else int(value) for value in body.split(",")]
         if len(points) != 128:  # the file also carries the encodings_table import, whose shape differs
@@ -68,8 +73,8 @@ def _single_byte(checkout: Path) -> list[dict[str, object]]:
     return cases
 
 
-def _iso_2022_jp(checkout: Path) -> list[dict[str, object]]:
-    """One case per decode() call in wpt's ISO-2022-JP suite, with its expected string and the arm it names."""
+def _iso_2022_jp(checkout: Path) -> list[dict[str, str | None]]:
+    # One case per decode() call in wpt's ISO-2022-JP suite, with its expected string and the arm it names.
     source = (checkout / "encoding" / "iso-2022-jp-decoder.any.js").read_text(encoding="utf-8")
     cases = [
         {
@@ -87,21 +92,23 @@ def _iso_2022_jp(checkout: Path) -> list[dict[str, object]]:
 
 
 def generate(checkout: Path, out_path: Path) -> None:
-    """Write the corpus, recording the wpt revision it came from."""
+    # Write the corpus, recording the wpt revision it came from.
     cases = [*_single_byte(checkout), *_iso_2022_jp(checkout)]
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
-        json.dumps(
-            {
-                "source": "https://github.com/web-platform-tests/wpt",
-                "revision": _revision(checkout),
-                "files": ["encoding/resources/single-byte-decoder.js", "encoding/iso-2022-jp-decoder.any.js"],
-                "cases": cases,
-            },
-            ensure_ascii=False,
-            indent=1,
-        )
-        + "\n",
+        f"""{
+            json.dumps(
+                {
+                    "source": "https://github.com/web-platform-tests/wpt",
+                    "revision": _revision(checkout),
+                    "files": ["encoding/resources/single-byte-decoder.js", "encoding/iso-2022-jp-decoder.any.js"],
+                    "cases": cases,
+                },
+                ensure_ascii=False,
+                indent=1,
+            )
+        }"""
+        "\n",
         encoding="utf-8",
     )
     print(f"wrote {out_path}: {len(cases)} cases from wpt {_revision(checkout)[:12]}")

@@ -171,6 +171,8 @@ py.install_sources(
         'src/turbohtml/extract/_dates.py',
         'src/turbohtml/extract/_feed.py',
         'src/turbohtml/extract/_links.py',
+        'src/turbohtml/extract/_paragraphs.py',
+        'src/turbohtml/extract/_shorthands.py',
         'src/turbohtml/extract/_structured_data.py',
         'src/turbohtml/extract/_urls.py',
     ],
@@ -181,6 +183,7 @@ py.install_sources(
     [
         'src/turbohtml/query/__init__.py',
         'src/turbohtml/query/_match.py',
+        'src/turbohtml/query/_query.py',
         'src/turbohtml/query/_xpath.py',
     ],
     subdir: 'turbohtml/query',

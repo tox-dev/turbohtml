@@ -1,5 +1,3 @@
-"""Tests for turbohtml.extract.boilerplate, the per-paragraph good/bad classifier over the main-content scoring."""
-
 from __future__ import annotations
 
 import gc
@@ -15,11 +13,11 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
-_PROSE = (
+_PROSE: Final[str] = (
     "A comet is an icy small body that, when it passes close to the Sun, warms up and releases gases, "
     "forming a glowing coma around it."
 )
-_PAGE = (
+_PAGE: Final[str] = (
     "<html lang=en><head><title>Comets</title></head><body>"
     "<ul><li><a href='/'>Home</a></li><li><a href='/science'>Science</a></li></ul>"
     f"<article><h1>Comets</h1><p>{_PROSE}</p><p>{_PROSE}</p><p>Short.</p>"
@@ -141,14 +139,16 @@ def test_extraction_rejects_invalid_thresholds(options: dict[str, float], messag
 
 # Thresholds the binding takes as (min_length, max_link_density, keep_headings). Wide open, so only the segmentation
 # decides the answer; a test that cares about one threshold passes its own.
-_OPEN = (0, 1.0, True)
-_ARTICLE = "<article><h2>brief</h2><p>ordinary prose long enough for this to score as the article body</p></article>"
+_OPEN: Final[tuple[int, float, bool]] = (0, 1.0, True)
+_ARTICLE: Final[str] = (
+    "<article><h2>brief</h2><p>ordinary prose long enough for this to score as the article body</p></article>"
+)
 
 
 def _classify(
     markup: str, thresholds: tuple[int, float, bool] = _OPEN, *, content: bool = True
 ) -> list[tuple[str, bool, bool]]:
-    """Run the binding over markup, passing the scored content body unless the caller withholds it."""
+    # Run the binding over markup, passing the scored content body unless the caller withholds it.
     document = turbohtml.parse(markup)
     root = document.root
     assert root is not None  # a parsed document always has an <html> root, though the type admits None
@@ -255,14 +255,13 @@ def test_a_heading_faces_the_floor_when_headings_are_not_kept() -> None:
         pytest.param((None, 0, 1.0, True), id="too-few-arguments"),
     ],
 )
-def test_the_binding_rejects_bad_arguments(args: tuple[object, ...]) -> None:
+def test_the_binding_rejects_bad_arguments(args: tuple[str | int | float | bool | None, ...]) -> None:
     with pytest.raises(TypeError):
         _boilerplate(*args)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
 
 def test_the_binding_rejects_a_content_that_is_not_an_element() -> None:
-    document = turbohtml.parse("<p>x</p>")
-    root = document.root
+    root = turbohtml.parse("<p>x</p>").root
     assert root is not None
     with pytest.raises(TypeError):
         _boilerplate(root, "notanelement", 0, 1.0, True)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional-only C binding
@@ -276,12 +275,15 @@ def test_the_public_entry_point_still_answers_paragraphs() -> None:
 
 
 @pytest.mark.parametrize(
-    "wrapper", [pytest.param("", id="direct"), pytest.param("span", id="span"), pytest.param("b", id="bold")]
+    "content",
+    [
+        pytest.param('<a href="/comet">comet</a>', id="direct"),
+        pytest.param('<span><a href="/comet">comet</a></span>', id="span"),
+        pytest.param('<b><a href="/comet">comet</a></b>', id="bold"),
+    ],
 )
-def test_boilerplate_keeps_text_after_snapshot_release(wrapper: str) -> None:
+def test_boilerplate_keeps_text_after_snapshot_release(content: str) -> None:
     prose: Final = "A comet passes near the Sun, warms up and releases gas, forming a glowing coma around it."
-    linked: Final = '<a href="/comet">comet</a>'
-    content: Final = f"<{wrapper}>{linked}</{wrapper}>" if wrapper else linked
     page: Final = f"<article><p>{prose}</p><p>Read about this {content} today.</p></article>"
     assert [paragraph.text for paragraph in boilerplate(page)] == [prose, "Read about this comet today."]
 
@@ -296,7 +298,7 @@ def test_boilerplate_classifies_owned_text() -> None:
 def test_boilerplate_releases_text_snapshots() -> None:
     # PyPy lacks tracemalloc and reclaims objects on a different schedule.
     tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
-    page: Final = "<article><p>" + "A comet passes near the Sun. " * 256 + '<a href="/more">more</a></p></article>'
+    page: Final = f'<article><p>{"A comet passes near the Sun. " * 256}<a href="/more">more</a></p></article>'
     tracing.start()
     try:
         for _ in range(128):

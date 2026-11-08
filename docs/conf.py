@@ -9,10 +9,11 @@ import inspect
 import os
 import re
 import sys
+from functools import reduce
 from html import escape as _html_escape
 from importlib.metadata import version as _version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Final, NamedTuple, TypedDict
 from urllib.parse import urlsplit
 
 from docutils import nodes
@@ -25,15 +26,15 @@ if TYPE_CHECKING:
 
 sys.path.insert(0, str(Path(__file__).parent / "_ext"))
 
-project = "turbohtml"
-author = "Bernát Gábor"
-project_copyright = "2026, Bernát Gábor and contributors"
+project: Final[str] = "turbohtml"
+author: Final[str] = "Bernát Gábor"
+project_copyright: Final[str] = "2026, Bernát Gábor and contributors"
 release = _version("turbohtml")
 version = ".".join(release.split(".")[:2])
 
 # The how-to and migration guides are split across one page per topic/library, and each page is its own doctest
 # group, so the shared ``import turbohtml`` / ``from turbohtml import parse`` the recipes lean on is set up here.
-doctest_global_setup = "import turbohtml\nfrom turbohtml import parse"
+doctest_global_setup: Final[str] = "import turbohtml\nfrom turbohtml import parse"
 
 extensions = [
     "sphinx_llm.txt",
@@ -59,31 +60,31 @@ extensions = [
     "llms_txt",  # generate llms.txt and llms-full.txt from the built tree at build-finished (docs/_ext)
 ]
 
-html_theme = "furo"
-html_title = "turbohtml"
+html_theme: Final[str] = "furo"
+html_title: Final[str] = "turbohtml"
 html_static_path = ["_static"]
 html_css_files = ["custom.css"]
-html_logo = "_static/turbohtml.svg"
-html_favicon = "_static/turbohtml.svg"
+html_logo: Final[str] = "_static/turbohtml.svg"
+html_favicon: Final[str] = "_static/turbohtml.svg"
 # Read the Docs sets the versioned canonical URL; the fallback keeps canonical links and the sitemap working on a
 # local or CI build. Sphinx emits a <link rel="canonical"> per page from this, and the sitemap below reuses it.
 html_baseurl = os.environ.get("READTHEDOCS_CANONICAL_URL", "https://turbohtml.readthedocs.io/en/latest/")
 
 # sphinx-sitemap reuses html_baseurl; the URL already carries the /en/<version>/ segment, so the per-page scheme is just
 # the page path. sphinxext-opengraph and sphinx-notfound-page derive their absolute URLs from the same base.
-sitemap_url_scheme = "{link}"
+sitemap_url_scheme: Final[str] = "{link}"
 ogp_site_url = html_baseurl
 notfound_urls_prefix = urlsplit(html_baseurl).path
 
 # autosectionlabel would collide on identical section titles across pages (every migration guide has a "Quick reference"
 # heading, say), so scope each label to its document. Label only the page title: a how-to whose opening section repeats
 # the title (main-content, sanitizing) would else clash with it in the one document, which the prefix cannot resolve.
-autosectionlabel_prefix_document = True
-autosectionlabel_maxdepth = 1
+autosectionlabel_prefix_document: Final[bool] = True
+autosectionlabel_maxdepth: Final[int] = 1
 
 # codeautolink threads the names in one page's code blocks together, so a name bound in an early block still resolves in
 # a later one, and stays quiet on the migration before/after snippets whose old-library imports it cannot resolve.
-codeautolink_concat_default = True
+codeautolink_concat_default: Final[bool] = True
 
 # Read the Docs builds from a shallow clone, so sphinx-last-updated-by-git cannot see far enough back to stamp some
 # pages and warns "Git clone too shallow"; under -W that would fail the build. Suppress just that warning -- the stamp
@@ -112,36 +113,32 @@ linkcheck_ignore = [
 # News fragments are assembled by towncrier, not rendered as standalone pages.
 exclude_patterns = ["changelog/*"]
 
-_GITHUB_BLOB = "https://github.com/tox-dev/turbohtml/blob"
 _REPO_ROOT = Path(__file__).parent.parent
 
 
 def linkcode_resolve(domain: str, info: dict[str, str]) -> str | None:
-    """
-    Link a documented Python object to the line range of its source on GitHub.
-
-    The compiled ``turbohtml._html`` objects carry no Python source, so ``inspect`` cannot locate them and the object is
-    left unlinked; the pure-Python modules (build, query, extract, clean, ...) resolve to a file and line range. The ref
-    follows the checked-out commit on Read the Docs and falls back to ``main`` for a local build.
-    """
+    # Link a documented Python object to the line range of its source on GitHub.
+    #
+    # The compiled ``turbohtml._html`` objects carry no Python source, so ``inspect`` cannot locate them and the object
+    # is left unlinked; the pure-Python modules (build, query, extract, clean, ...) resolve to a file and line range.
+    # The ref follows the checked-out commit on Read the Docs and falls back to ``main`` for a local build.
     if domain != "py" or not info["module"]:
         return None
     try:
         module = importlib.import_module(info["module"])
     except ImportError:
         return None
-    obj: object | None = module
-    for part in info["fullname"].split("."):
-        obj = getattr(obj, part, None)
     try:
-        target = inspect.unwrap(obj)
+        target = inspect.unwrap(
+            reduce(lambda parent, part: getattr(parent, part, None), info["fullname"].split("."), module)
+        )
         source_file = inspect.getsourcefile(target)
         lines, start = inspect.getsourcelines(target)
         relative = Path(source_file).resolve().relative_to(_REPO_ROOT)
     except (TypeError, OSError, ValueError):
         return None
     ref = os.environ.get("READTHEDOCS_GIT_IDENTIFIER", "main")
-    return f"{_GITHUB_BLOB}/{ref}/{relative.as_posix()}#L{start}-L{start + len(lines) - 1}"
+    return f"https://github.com/tox-dev/turbohtml/blob/{ref}/{relative.as_posix()}#L{start}-L{start + len(lines) - 1}"
 
 
 intersphinx_mapping = {
@@ -151,12 +148,12 @@ intersphinx_mapping = {
     "w3lib": ("https://w3lib.readthedocs.io/en/latest/", None),
     "html5lib": ("https://html5lib.readthedocs.io/en/latest/", None),
 }
-autodoc_member_order = "bysource"
-nitpicky = True
-always_document_param_types = True
+autodoc_member_order: Final[str] = "bysource"
+nitpicky: Final[bool] = True
+always_document_param_types: Final[bool] = True
 # Annotations sourced from the type stubs are fully qualified (collections.abc.Mapping, re.Pattern, ...) so the
 # Python domain can resolve their cross-references; display them under their short names to match the rest of the docs.
-python_use_unqualified_type_names = True
+python_use_unqualified_type_names: Final[bool] = True
 # _Filter is the private recursive alias for find()/find_all() filters; the stub-sourced signatures render it by name,
 # and it is intentionally not a documented target. JSONValue is a recursive type alias, so its expansion references
 # itself and cannot resolve to a single doc target; StructuredData and MicrodataItem are real autodoc'd classes now, so
@@ -174,9 +171,9 @@ nitpick_ignore = [
     ("py:class", "_Attrs"),
 ]
 
-issues_github_path = "tox-dev/turbohtml"
-towncrier_draft_autoversion_mode = "draft"
-towncrier_draft_include_empty = True
+issues_github_path: Final[str] = "tox-dev/turbohtml"
+towncrier_draft_autoversion_mode: Final[str] = "draft"
+towncrier_draft_include_empty: Final[bool] = True
 towncrier_draft_working_directory = Path(__file__).parent.parent
 
 
@@ -185,8 +182,7 @@ towncrier_draft_working_directory = Path(__file__).parent.parent
 # finds nothing to render. The full annotations already live in the ``*.pyi`` stubs, which are the single source of
 # types: parse them and feed the typed signatures back into autodoc, keeping the hand-written docstring prose intact.
 class _QualifyNames(ast.NodeTransformer):
-    """Rewrite stub names imported from non-turbohtml modules to their fully qualified dotted form."""
-
+    # Rewrite stub names imported from non-turbohtml modules to their fully qualified dotted form.
     def __init__(self, aliases: dict[str, str]) -> None:
         self.aliases = aliases
 
@@ -194,6 +190,14 @@ class _QualifyNames(ast.NodeTransformer):
         if (qualified := self.aliases.get(node.id)) is not None:
             return ast.copy_location(ast.parse(qualified, mode="eval").body, node)
         return node
+
+
+def _from_import_aliases(node: ast.ImportFrom) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for name in node.names:
+        module = "typing" if node.module == "typing_extensions" and name.name == "Self" else node.module
+        aliases[name.asname or name.name] = f"{module}.{name.name}"
+    return aliases
 
 
 def _import_aliases(tree: ast.Module) -> dict[str, str]:
@@ -205,9 +209,7 @@ def _import_aliases(tree: ast.Module) -> dict[str, str]:
             and node.module
             and not node.module.startswith("turbohtml")
         ):
-            for name in node.names:
-                module = "typing" if node.module == "typing_extensions" and name.name == "Self" else node.module
-                aliases[name.asname or name.name] = f"{module}.{name.name}"
+            aliases |= _from_import_aliases(node)
         elif (
             isinstance(node, ast.Assign)
             and isinstance(node.value, ast.Call)
@@ -242,10 +244,35 @@ def _render_signature(
         name="_", args=arguments, body=[ast.Expr(ast.Constant(...))], decorator_list=[], returns=returns, type_params=[]
     )
     ast.fix_missing_locations(dummy)
-    header = ast.unparse(dummy).splitlines()[0]
-    matched = re.match(r"^def _(\(.*\))(?: -> (.*))?:$", header)
+    matched = re.match(
+        r"^(?#header of a one-line def: a parameter list in parentheses, then an optional return annotation)"
+        r"def _(?P<params>\(.*\))(?: -> (?P<returns>.*))?:$",
+        ast.unparse(dummy).splitlines()[0],
+    )
     assert matched is not None  # ruff:ignore[assert] -- a one-line ``def`` header always matches
-    return matched.group(1), matched.group(2)
+    return matched.group("params"), matched.group("returns")
+
+
+def _class_entries(
+    node: ast.ClassDef, aliases: dict[str, str]
+) -> tuple[dict[str, tuple[str, str | None]], dict[str, str]]:
+    signatures: dict[str, tuple[str, str | None]] = {}
+    property_types: dict[str, str] = {}
+    for item in node.body:
+        if not isinstance(item, ast.FunctionDef):
+            continue
+        decorators = item.decorator_list
+        if any(isinstance(deco, ast.Attribute) and deco.attr in {"setter", "deleter"} for deco in decorators):
+            continue
+        key = f"turbohtml.{node.name}.{item.name}"
+        if any(isinstance(deco, ast.Name) and deco.id == "property" for deco in decorators):
+            property_types[key] = _render_signature(item, aliases, drop_self=True, keep_return=True)[1] or ""
+        elif item.name == "__init__":
+            arguments, _ = _render_signature(item, aliases, drop_self=True, keep_return=False)
+            signatures[f"turbohtml.{node.name}"] = (arguments, None)
+        else:
+            signatures[key] = _render_signature(item, aliases, drop_self=True, keep_return=True)
+    return signatures, property_types
 
 
 def _collect_stub_types() -> tuple[dict[str, tuple[str, str | None]], dict[str, str]]:
@@ -260,24 +287,9 @@ def _collect_stub_types() -> tuple[dict[str, tuple[str, str | None]], dict[str, 
                     node, aliases, drop_self=False, keep_return=True
                 )
             elif isinstance(node, ast.ClassDef):
-                for item in node.body:
-                    if not isinstance(item, ast.FunctionDef):
-                        continue
-                    decorators = item.decorator_list
-                    if any(
-                        isinstance(deco, ast.Attribute) and deco.attr in {"setter", "deleter"} for deco in decorators
-                    ):
-                        continue
-                    key = f"turbohtml.{node.name}.{item.name}"
-                    if any(isinstance(deco, ast.Name) and deco.id == "property" for deco in decorators):
-                        property_types[key] = (
-                            _render_signature(item, aliases, drop_self=True, keep_return=True)[1] or ""
-                        )
-                    elif item.name == "__init__":
-                        arguments, _ = _render_signature(item, aliases, drop_self=True, keep_return=False)
-                        signatures[f"turbohtml.{node.name}"] = (arguments, None)
-                    else:
-                        signatures[key] = _render_signature(item, aliases, drop_self=True, keep_return=True)
+                class_signatures, class_property_types = _class_entries(node, aliases)
+                signatures |= class_signatures
+                property_types |= class_property_types
     return signatures, property_types
 
 
@@ -292,6 +304,15 @@ _STUB_ALIASES = {
 }
 
 
+def setup(app: Sphinx) -> dict[str, bool]:
+    # Wire the stub-sourced type annotations into autodoc and register the badge row and per-page meta description.
+    _patch_autodoc_engine()
+    app.connect("autodoc-process-signature", _stub_signature_for_alias)
+    app.connect("html-page-context", _add_page_description)
+    app.add_directive("package-meta", _PackageMeta)
+    return {"parallel_read_safe": True, "parallel_write_safe": True}
+
+
 def _patch_autodoc_engine() -> None:
     # Sphinx 9's functional autodoc engine builds the signature and the property/attribute ``:type:`` purely from
     # runtime introspection, which yields nothing for the compiled extension. There is no public hook that can supply
@@ -303,8 +324,7 @@ def _patch_autodoc_engine() -> None:
     extract_signature = _signatures._extract_signature_from_object
 
     def _extract_signature(*, props: Any, **kwargs: Any) -> list[tuple[str, str]]:
-        full_name = _STUB_ALIASES.get(props.full_name, props.full_name)
-        if (entry := _STUB_SIGNATURES.get(full_name)) is not None:
+        if (entry := _STUB_SIGNATURES.get(_STUB_ALIASES.get(props.full_name, props.full_name))) is not None:
             arguments, return_annotation = entry
             return [(arguments, return_annotation or "")]
         return extract_signature(props=props, **kwargs)
@@ -327,37 +347,53 @@ def _patch_autodoc_engine() -> None:
 
 
 def _stub_signature_for_alias(  # ruff:ignore[too-many-arguments, too-many-positional-arguments] -- the signature is fixed by the autodoc-process-signature event
-    app: Sphinx,  # ruff:ignore[unused-function-argument]
-    what: str,  # ruff:ignore[unused-function-argument]
+    app: Sphinx,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    what: str,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
     name: str,
-    obj: object,  # ruff:ignore[unused-function-argument]
-    options: Any,  # ruff:ignore[unused-function-argument]
-    signature: str | None,  # ruff:ignore[unused-function-argument]
-    return_annotation: str | None,  # ruff:ignore[unused-function-argument]
+    obj: object,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API  # simplint: ignore[SMP602]  # Sphinx passes any documented object
+    options: Any,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    signature: str | None,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    return_annotation: str | None,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
 ) -> tuple[str, str] | None:
-    """
-    Supply the typed signature for the markupsafe aliases, whose compiled docstring carries an untyped one.
-
-    Their docstring's leading ``name(sig)`` line gives autodoc a signature before it reaches the stub hook, so the
-    only place left to inject the stub-sourced types is the ``autodoc-process-signature`` event.
-    """
+    # Supply the typed signature for the markupsafe aliases, whose compiled docstring carries an untyped one.
+    #
+    # Their docstring's leading ``name(sig)`` line gives autodoc a signature before it reaches the stub hook, so the
+    # only place left to inject the stub-sourced types is the ``autodoc-process-signature`` event.
     if (entry := _STUB_SIGNATURES.get(_STUB_ALIASES.get(name, ""))) is None:
         return None
     arguments, return_type = entry
     return arguments, return_type or ""
 
 
+def _add_page_description(
+    app: Sphinx,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    pagename: str,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    templatename: str,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    context: _PageContext,
+    doctree: nodes.document | None,
+) -> None:
+    # Give each page a ``<meta name="description">`` from its first paragraph so search results read well.
+    if doctree is None:
+        return
+    description_limit = 160
+    for paragraph in doctree.findall(nodes.paragraph):
+        if not (text := " ".join(paragraph.astext().split())):
+            continue
+        summary = text if len(text) <= description_limit else f"{text[: description_limit - 1].rstrip()}…"
+        tag = f'<meta name="description" content="{_html_escape(summary, quote=True)}" />'
+        context["metatags"] = f"{context.get('metatags', '')}\n    {tag}"
+        return
+
+
 class _PackageMeta(Directive):
-    """
-    Render one badge row of package metadata: ``.. package-meta:: [ecosystem] <name> [github-slug]``.
-
-    Every migration guide opens with the same at-a-glance facts about the library it replaces (latest release,
-    supported Pythons, license, downloads, and -- when the project lives on GitHub -- stars and recency), so a single
-    directive keeps the set and its order identical across the guides instead of hand-maintaining badge stacks. The
-    first argument may name the ecosystem -- ``npm`` or ``crates`` for the JavaScript and Rust libraries -- and defaults
-    to PyPI when it is a bare package name, so every existing ``.. package-meta:: <pypi-name>`` call is unchanged.
-    """
-
+    # Render one badge row of package metadata: ``.. package-meta:: [ecosystem] <name> [github-slug]``.
+    #
+    # Every migration guide opens with the same at-a-glance facts about the library it replaces (latest release,
+    # supported Pythons, license, downloads, and -- when the project lives on GitHub -- stars and recency), so a single
+    # directive keeps the set and its order identical across the guides instead of hand-maintaining badge stacks. The
+    # first argument may name the ecosystem -- ``npm`` or ``crates`` for the JavaScript and Rust libraries -- and
+    # defaults to PyPI when it is a bare package name, so every existing ``.. package-meta:: <pypi-name>`` call is
+    # unchanged.
     required_arguments = 1
     optional_arguments = 2
 
@@ -376,14 +412,14 @@ class _PackageMeta(Directive):
             row += link
         return [row]
 
-    def _parse_arguments(self) -> tuple[str, str, str | None]:
+    def _parse_arguments(self) -> _Arguments:
         head, *rest = self.arguments
         if head in self._ECOSYSTEMS:
             name, *tail = rest
         else:
             name, tail = head, rest
             head = "pypi"
-        return head, name, tail[0] if tail else None
+        return _Arguments(head, name, tail[0] if tail else None)
 
     @staticmethod
     def _pypi_badges(name: str) -> list[tuple[str, str, str]]:
@@ -421,35 +457,14 @@ class _PackageMeta(Directive):
     }
 
 
-_DESCRIPTION_LIMIT = 160
-
-
-def _add_page_description(
-    app: Sphinx,  # ruff:ignore[unused-function-argument]
-    pagename: str,  # ruff:ignore[unused-function-argument]
-    templatename: str,  # ruff:ignore[unused-function-argument]
-    context: dict[str, Any],
-    doctree: nodes.document | None,
-) -> None:
-    """Give each page a ``<meta name="description">`` from its first paragraph so search results read well."""
-    if doctree is None:
-        return
-    for paragraph in doctree.findall(nodes.paragraph):
-        if not (text := " ".join(paragraph.astext().split())):
-            continue
-        summary = text if len(text) <= _DESCRIPTION_LIMIT else f"{text[: _DESCRIPTION_LIMIT - 1].rstrip()}…"
-        tag = f'<meta name="description" content="{_html_escape(summary, quote=True)}" />'
-        context["metatags"] = context.get("metatags", "") + f"\n    {tag}"
-        return
-
-
-def setup(app: Sphinx) -> dict[str, Any]:
-    """Wire the stub-sourced type annotations into autodoc and register the badge row and per-page meta description."""
-    _patch_autodoc_engine()
-    app.connect("autodoc-process-signature", _stub_signature_for_alias)
-    app.connect("html-page-context", _add_page_description)
-    app.add_directive("package-meta", _PackageMeta)
-    return {"parallel_read_safe": True, "parallel_write_safe": True}
+class _Arguments(NamedTuple):
+    ecosystem: str
+    name: str
+    slug: str | None
 
 
 markdown_http_base = os.environ.get("READTHEDOCS_CANONICAL_URL", "")
+
+
+class _PageContext(TypedDict, total=False):
+    metatags: str

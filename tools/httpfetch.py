@@ -16,12 +16,10 @@ from typing import Final
 import httpx2
 from tenacity import before_sleep_log, retry, retry_if_exception, stop_after_attempt, wait_exponential
 
-__all__ = ["fetch_bytes"]
-
-_LOGGER: Final = logging.getLogger("turbohtml.tools.httpfetch")
+_LOGGER: Final[logging.Logger] = logging.getLogger("turbohtml.tools.httpfetch")
 
 # The transient statuses a later attempt can clear; a 4xx like 404 or 403 is not among them, so it raises at once.
-_RETRYABLE_STATUS: Final = frozenset({
+_RETRYABLE_STATUS: Final[frozenset[HTTPStatus]] = frozenset({
     HTTPStatus.REQUEST_TIMEOUT,
     HTTPStatus.TOO_EARLY,
     HTTPStatus.TOO_MANY_REQUESTS,
@@ -33,7 +31,7 @@ _RETRYABLE_STATUS: Final = frozenset({
 
 
 def _is_retryable(exc: BaseException) -> bool:
-    """Retry a dropped connection or a transient server status, never a 4xx a retry cannot fix."""
+    # Retry a dropped connection or a transient server status, never a 4xx a retry cannot fix.
     if isinstance(exc, httpx2.TransportError):
         return True
     return isinstance(exc, httpx2.HTTPStatusError) and exc.response.status_code in _RETRYABLE_STATUS
@@ -51,3 +49,8 @@ def fetch_bytes(url: str) -> bytes:
     response = httpx2.get(url, follow_redirects=True, timeout=30.0)
     response.raise_for_status()
     return response.content
+
+
+__all__ = [
+    "fetch_bytes",
+]

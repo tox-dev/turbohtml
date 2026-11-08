@@ -1,23 +1,14 @@
-"""Identifier mangling: exact renames plus a behavior differential under Node.
-
-The string cases pin specific renames (parameters, locals, closures, block scope,
-shorthand) and the safety rules (``with`` / ``eval`` poison a scope, globals and
-property names are never renamed). ``test_mangling_preserves_behavior`` is the real
-correctness gate: it runs each snippet and its minified form under Node and asserts
-identical output, so any capture or mis-resolution is caught. It is skipped when Node
-is unavailable (e.g. the CI unit environment) - the string cases still run there.
-"""
-
 from __future__ import annotations
 
 import shutil
-import subprocess  # ruff:ignore[suspicious-subprocess-import]
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
+from typing import Final
 
 import pytest
 
 from turbohtml.clean import JSMinify, minify_js
 
-_NODE = shutil.which("node")
+_NODE: Final[str | None] = shutil.which("node")
 
 
 @pytest.mark.parametrize(
@@ -167,12 +158,11 @@ def _run(code: str) -> str:
         # base-54 counter into two-character names, and make it skip the reserved word it
         # lands on (`if` is base-54 index 332, so 340 bindings reach and skip it)
         pytest.param(
-            "(function(){var "
-            + ",".join(f'v{index}="literal long enough to stay {index}"' for index in range(340))
-            + ";console.log("
+            f"""(function(){{var {
+                ",".join(f'v{index}="literal long enough to stay {index}"' for index in range(340))
+            };console.log("""
             # each read twice, of a long literal: a short or single-read one would inline instead
-            + "+".join(f"v{index}+v{index}" for index in range(340))
-            + ")})()",
+            f"""{"+".join(f"v{index}+v{index}" for index in range(340))})}})()""",
             id="many-locals",
         ),
         pytest.param(
@@ -180,7 +170,7 @@ def _run(code: str) -> str:
             id="array-elision-pattern",
         ),
         # more block scopes than the scope array's initial capacity, forcing it to grow
-        pytest.param("(function(){" + "{let a=1}" * 20 + "console.log('ok')})()", id="many-scopes"),
+        pytest.param(f"(function(){{{'{let a=1}' * 20}console.log('ok')}})()", id="many-scopes"),
         # a renamed named-function-expression name must keep resolving to itself (recursion)
         pytest.param(
             "(function(){var f=function fact(n){return n<=1?1:n*fact(n-1)};console.log(f(5))})()",
@@ -210,7 +200,7 @@ def _run(code: str) -> str:
         # past 52 nesting levels the label is kept verbatim rather than risk a multi-character name;
         # break to the outermost (renamed) and innermost (kept) labels both still resolve
         pytest.param(
-            "(function(){" + "".join(f"L{depth}:" for depth in range(53)) + "for(;;){break L0}})();console.log('ok')",
+            f"(function(){{{''.join(f'L{depth}:' for depth in range(53))}for(;;){{break L0}}}})();console.log('ok')",
             id="label-depth-cap",
         ),
         # a binding read after a dropped pure sequence element keeps its value, not an outer name (#1035)
@@ -471,7 +461,7 @@ def test_kept_names_preserve_behavior(snippet: str, options: JSMinify) -> None:
     assert _run(snippet) == _run(minify_js(snippet, options))
 
 
-_BS = chr(0x5C)  # backslash, kept out of the literals so the \u escapes are unambiguous
+_BS: Final[str] = chr(0x5C)  # backslash, kept out of the literals so the \u escapes are unambiguous
 
 
 @pytest.mark.parametrize(
@@ -480,25 +470,25 @@ _BS = chr(0x5C)  # backslash, kept out of the literals so the \u escapes are una
         # a Unicode-escaped IdentifierName is the same binding as its plain spelling (ECMA-262 §12.7), so
         # the declaration and the use link and rename together instead of the use being dropped as free (#438)
         pytest.param(
-            "function f(){var " + _BS + "u0061bc=1;return abc+abc}",
+            f"function f(){{var {_BS}u0061bc=1;return abc+abc}}",
             "function f(){return 2}",
             id="escaped-declaration-plain-use",
         ),
         pytest.param(
-            "function f(){var abc=1;return " + _BS + "u0061bc+abc}",
+            f"function f(){{var abc=1;return {_BS}u0061bc+abc}}",
             "function f(){return 2}",
             id="plain-declaration-escaped-use",
         ),
         # a braced \u{...} escape in an identifier decodes to the same StringValue
         pytest.param(
-            "function f(){var " + _BS + "u{61}bc=1;return abc+abc}",
+            f"function f(){{var {_BS}u{{61}}bc=1;return abc+abc}}",
             "function f(){return 2}",
             id="braced-escape-declaration",
         ),
         # a local shadow of `undefined` spelled with an escape still shadows, so `undefined` is not the
         # global and must not fold to `void 0`
         pytest.param(
-            "function f(){var " + _BS + "u0075ndefined=1;return undefined}",
+            f"function f(){{var {_BS}u0075ndefined=1;return undefined}}",
             "function f(){return 1}",
             id="escaped-undefined-shadow-kept",
         ),
@@ -513,11 +503,11 @@ def test_escaped_identifier_binds_as_stringvalue(source: str, expected: str) -> 
     "snippet",
     [
         pytest.param(
-            "(function(){var " + _BS + "u0061bc=5;return abc})()",
+            f"(function(){{var {_BS}u0061bc=5;return abc}})()",
             id="escaped-declaration",
         ),
         pytest.param(
-            "(function(){var abc=5;return " + _BS + "u0061bc})()",
+            f"(function(){{var abc=5;return {_BS}u0061bc}})()",
             id="escaped-use",
         ),
     ],

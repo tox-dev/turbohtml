@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import functools
-from typing import Final, cast
+from typing import TYPE_CHECKING, Final, cast
 from urllib.parse import urljoin
 
 from selectolax.lexbor import LexborHTMLParser, LexborNode
@@ -11,40 +11,43 @@ from selectolax.lexbor import LexborHTMLParser, LexborNode
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 
-REQUIREMENTS = ("selectolax>=0.4.10",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
-_STRIP_TAGS = ["code", "a", "q"]  # the bulk tag set turbohtml drops/unwraps, as a lexbor tag list
-_LINKS_BASE = "https://example.com/base/"  # the base turbohtml resolves relative hrefs against
+_REQUIREMENTS: Final[tuple[str, ...]] = ("selectolax>=0.4.10",)
+
+_STRIP_TAGS: Final[list[str]] = ["code", "a", "q"]  # the bulk tag set turbohtml drops/unwraps, as a lexbor tag list
+_LINKS_BASE: Final[str] = "https://example.com/base/"  # the base turbohtml resolves relative hrefs against
 
 
 def parse(text: str) -> None:
-    """Parse a whole document with lexbor through selectolax (its native input is UTF-8 bytes)."""
+    # Parse a whole document with lexbor through selectolax (its native input is UTF-8 bytes).
     LexborHTMLParser(text.encode())
 
 
 @functools.cache
 def _parsed(text: str) -> LexborHTMLParser:
-    """Return a document parsed once, cached so the read-path operations time only the query."""
+    # Return a document parsed once, cached so the read-path operations time only the query.
     return LexborHTMLParser(text.encode())
 
 
 def _fresh(text: str) -> LexborHTMLParser:
-    """Parse a fresh, un-cached tree so operations that mutate or must include parse time get their own copy."""
+    # Parse a fresh, un-cached tree so operations that mutate or must include parse time get their own copy.
     return LexborHTMLParser(text.encode())
 
 
 def find(text: str) -> None:
-    """Collect every anchor with selectolax's css."""
+    # Collect every anchor with selectolax's css.
     _parsed(text).css("a")
 
 
 def select(text: str) -> None:
-    """Run the CSS selector with selectolax's css."""
+    # Run the CSS selector with selectolax's css.
     _parsed(text).css("div a[href]")
 
 
 def select_has(text: str) -> None:
-    """Run the :has() relational selector with selectolax's css."""
+    # Run the :has() relational selector with selectolax's css.
     _parsed(text).css("div:has(a)")
 
 
@@ -53,53 +56,51 @@ def _select_relative(case: tuple[str, str]) -> None:
 
 
 def text_content(text: str) -> None:
-    """Collect the document's visible text with selectolax's text() method."""
+    # Collect the document's visible text with selectolax's text() method.
     tree = _parsed(text)
     if (node := tree.body or tree.root) is not None:
         node.text(deep=True)
 
 
 def serialize(text: str) -> None:
-    """Serialize a parsed document back to HTML with selectolax's html property."""
+    # Serialize a parsed document back to HTML with selectolax's html property.
     _ = _parsed(text).html
 
 
 def navigate(text: str) -> None:
-    """Walk every node with selectolax's traverse, text nodes included to match a full descendant walk."""
+    # Walk every node with selectolax's traverse, text nodes included to match a full descendant walk.
     if (root := _parsed(text).root) is not None:
         for _node in root.traverse(include_text=True):
             pass
 
 
 def links_extract(text: str) -> None:
-    """Collect every anchor's href with selectolax, the shape a scraper reads links in."""
+    # Collect every anchor's href with selectolax, the shape a scraper reads links in.
     _ = [anchor.attributes.get("href") for anchor in _parsed(text).css("a")]
 
 
 def extract_attr(text: str) -> None:
-    """Read every anchor's href by selecting once and reading the attribute off each node."""
+    # Read every anchor's href by selecting once and reading the attribute off each node.
     _ = [anchor.attributes.get("href") for anchor in _parsed(text).css("a")]
 
 
 def extract_text(text: str) -> None:
-    """Read every anchor's visible text by selecting once and reading text off each node."""
+    # Read every anchor's visible text by selecting once and reading text off each node.
     _ = [anchor.text() for anchor in _parsed(text).css("a")]
 
 
 def links_rewrite(text: str) -> None:
-    """Rewrite every link with an identity map, idempotent so the cached tree stays reusable."""
+    # Rewrite every link with an identity map, idempotent so the cached tree stays reusable.
     for anchor in _parsed(text).css("a"):
         anchor.attrs["href"] = anchor.attrs.get("href")
 
 
 def links_filter(text: str) -> None:
-    """
-    Collect the cleaned, absolutized, deduplicated page links, the work turbohtml's extract_links does.
-
-    Reading the raw href off each anchor is not the same operation: it leaves the on-page and script targets in,
-    resolves nothing against the base, and returns a link once per occurrence. A dict keyed by the resolved URL
-    dedupes in insertion order, which is what a caller replacing extract_links has to write for themselves.
-    """
+    # Collect the cleaned, absolutized, deduplicated page links, the work turbohtml's extract_links does.
+    #
+    # Reading the raw href off each anchor is not the same operation: it leaves the on-page and script targets in,
+    # resolves nothing against the base, and returns a link once per occurrence. A dict keyed by the resolved URL
+    # dedupes in insertion order, which is what a caller replacing extract_links has to write for themselves.
     seen: dict[str, None] = {}
     for anchor in LexborHTMLParser(text.encode()).css("a[href]"):
         if href := anchor.attributes.get("href"):
@@ -108,7 +109,7 @@ def links_filter(text: str) -> None:
 
 
 def class_edit(text: str) -> None:
-    """Add then drop a class token on every link, a net no-op so the cached tree stays valid across iterations."""
+    # Add then drop a class token on every link, a net no-op so the cached tree stays valid across iterations.
     for anchor in _parsed(text).css("a"):
         original = anchor.attrs.get("class") or ""
         anchor.attrs["class"] = f"{original} seen".strip()
@@ -116,28 +117,28 @@ def class_edit(text: str) -> None:
 
 
 def strip_remove(text: str) -> None:
-    """Drop every code/a/q subtree with selectolax's strip_tags, then serialize."""
+    # Drop every code/a/q subtree with selectolax's strip_tags, then serialize.
     tree = _fresh(text)
     tree.strip_tags(_STRIP_TAGS)
     _ = tree.html
 
 
 def strip_tags(text: str) -> None:
-    """Unwrap every code/a/q element keeping its content with selectolax's unwrap_tags, then serialize."""
+    # Unwrap every code/a/q element keeping its content with selectolax's unwrap_tags, then serialize.
     tree = _fresh(text)
     tree.unwrap_tags(_STRIP_TAGS)
     _ = tree.html
 
 
 def socialcard(text: str) -> None:
-    """Read every meta property and content off a freshly parsed tree, selectolax's take on card extraction."""
+    # Read every meta property and content off a freshly parsed tree, selectolax's take on card extraction.
     for meta in _fresh(text).css("meta"):
         meta.attributes.get("property")
         meta.attributes.get("content")
 
 
 def extract_url(case: tuple[str, str]) -> None:
-    """Read a document's own URL hint by parsing the string: the base href or the meta-refresh target."""
+    # Read a document's own URL hint by parsing the string: the base href or the meta-refresh target.
     kind, text = case
     tree = _fresh(text)
     if kind == "base":
@@ -148,20 +149,20 @@ def extract_url(case: tuple[str, str]) -> None:
 
 
 def edit(tree: LexborHTMLParser) -> None:
-    """Tag every link with rel=nofollow on a freshly parsed tree through selectolax's live attribute mapping."""
+    # Tag every link with rel=nofollow on a freshly parsed tree through selectolax's live attribute mapping.
     for anchor in tree.css("a"):
         anchor.attrs["rel"] = "nofollow"
 
 
 def links_absolutize(tree: LexborHTMLParser) -> None:
-    """Resolve every relative link on a freshly parsed tree against the base with selectolax's attribute mapping."""
+    # Resolve every relative link on a freshly parsed tree against the base with selectolax's attribute mapping.
     for anchor in tree.css("a"):
         if (href := anchor.attrs.get("href")) is not None:
             anchor.attrs["href"] = urljoin(_LINKS_BASE, href)
 
 
 def match(text: str) -> None:
-    """Test every anchor against a selector with selectolax's per-node css_matches."""
+    # Test every anchor against a selector with selectolax's per-node css_matches.
     for anchor in _parsed(text).css("a"):
         anchor.css_matches("div a[href]")
 
@@ -218,12 +219,12 @@ def _strip_comments(tree: LexborHTMLParser) -> None:
             node.remove()
 
 
-OPERATIONS = {
-    "collapse-whitespace": (Mutating(_fresh_transform, _collapse_whitespace), "selectolax"),
-    "transform-tree": (Mutating(_fresh_transform, _transform_tree), "selectolax"),
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
+    "collapse-whitespace": (Mutating(setup=_fresh_transform, run=_collapse_whitespace), "selectolax"),
+    "transform-tree": (Mutating(setup=_fresh_transform, run=_transform_tree), "selectolax"),
     "serialize-inner": (_serialize_inner, "selectolax"),
     "encode-inner": (_encode_inner, "selectolax"),
-    "strip-comments": (Mutating(_fresh_transform, _strip_comments), "selectolax"),
+    "strip-comments": (Mutating(setup=_fresh_transform, run=_strip_comments), "selectolax"),
     "parse": (parse, "selectolax"),
     "parse-formatting": (parse, "selectolax"),
     "parse-foster": (parse, "selectolax"),
@@ -249,7 +250,7 @@ OPERATIONS = {
     "strip-tags": (strip_tags, "selectolax"),
     "socialcard": (socialcard, "selectolax"),
     "extract-url": (extract_url, "selectolax"),
-    "edit": (Mutating(_fresh, edit), "selectolax"),
-    "links-absolutize": (Mutating(_fresh, links_absolutize), "selectolax"),
+    "edit": (Mutating(setup=_fresh, run=edit), "selectolax"),
+    "links-absolutize": (Mutating(setup=_fresh, run=links_absolutize), "selectolax"),
     "match": (match, "selectolax"),
 }

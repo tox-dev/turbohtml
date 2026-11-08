@@ -1,17 +1,8 @@
-"""Peephole folding: exact rewrites plus a behavior differential under Node.
-
-The folds run on the full-minify path (``minify_js``). They rewrite value-position
-boolean and undefined literals into their shorter equivalents as real AST nodes, so
-the printer re-parenthesises by precedence; property names, object keys and shadowed
-bindings are left alone. ``test_folding_preserves_behavior`` executes each snippet and
-its minified form under Node and asserts identical output.
-"""
-
 from __future__ import annotations
 
 import json
 import shutil
-import subprocess  # ruff:ignore[suspicious-subprocess-import]
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 from typing import Final
 
 import pytest
@@ -19,7 +10,7 @@ from bench.operations import INPUTS
 
 from turbohtml.clean import JSMinify, minify_js
 
-_NODE = shutil.which("node")
+_NODE: Final[str | None] = shutil.which("node")
 
 
 @pytest.mark.parametrize(
@@ -114,8 +105,8 @@ _NODE = shutil.which("node")
         pytest.param("if(!a&&!b&&!c&&!d&&e+f)x()", "a||b||c||d||!(e+f)||x()", id="demorgan-wraps-binary"),
         # past 16 fresh bangs the negation is skipped rather than half-applied (the wrap pool cap)
         pytest.param(
-            "if(" + "&&".join(f"!n{i}" for i in range(18)) + "&&" + "&&".join(f"p{i}" for i in range(17)) + ")x()",
-            "&&".join(f"!n{i}" for i in range(18)) + "&&" + "&&".join(f"p{i}" for i in range(17)) + "&&x()",
+            f"if({'&&'.join(f'!n{i}' for i in range(18))}&&{'&&'.join(f'p{i}' for i in range(17))})x()",
+            f"{'&&'.join(f'!n{i}' for i in range(18))}&&{'&&'.join(f'p{i}' for i in range(17))}&&x()",
             id="demorgan-wrap-cap-skips",
         ),
         pytest.param(
@@ -288,8 +279,8 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         pytest.param("x=\"a\"+'b'", "x=\"a\"+'b'", id="concat-mixed-quote-kept"),
         # more folded literals than the program's initial owned-buffer capacity, forcing it to grow
         pytest.param(
-            "x=[" + ",".join(f"{index}+1" for index in range(18)) + "]",
-            "x=[" + ",".join(str(index + 1) for index in range(18)) + "]",
+            f"x=[{','.join(f'{index}+1' for index in range(18))}]",
+            f"x=[{','.join(str(index + 1) for index in range(18))}]",
             id="many-folded-literals",
         ),
         # a single-use local const with a literal initializer inlines and the declaration drops; a
@@ -1105,11 +1096,11 @@ def test_folding_preserves_behavior(snippet: str) -> None:
     assert _run(snippet) == _run(minify_js(snippet))
 
 
-_BS = chr(0x5C)  # backslash, kept out of the literals so every escape is unambiguous
-_CR = chr(0x0D)
-_LF = chr(0x0A)
-_LS = chr(0x2028)
-_PS = chr(0x2029)
+_BS: Final[str] = chr(0x5C)  # backslash, kept out of the literals so every escape is unambiguous
+_CR: Final[str] = chr(0x0D)
+_LF: Final[str] = chr(0x0A)
+_LS: Final[str] = chr(0x2028)
+_PS: Final[str] = chr(0x2029)
 
 
 @pytest.mark.parametrize(
@@ -1128,8 +1119,8 @@ _PS = chr(0x2029)
         # a non-octal code point right after an octal escape ends it: a char above '7' and one below '0'
         pytest.param(r'"\1a"+"z"', r'"\x01az"', id="octal-then-high-char"),
         pytest.param(r'"\1!"+"z"', r'"\x01!z"', id="octal-then-low-char"),
-        pytest.param('"' + _BS + 'u0041"+"z"', r'"Az"', id="unicode-escape"),
-        pytest.param('"' + _BS + 'u{1F600}"+"!"', '"\U0001f600!"', id="unicode-braced-astral"),
+        pytest.param(f'"{_BS}u0041"+"z"', r'"Az"', id="unicode-escape"),
+        pytest.param(f'"{_BS}u{{1F600}}"+"!"', '"\U0001f600!"', id="unicode-braced-astral"),
         pytest.param(r'"\n"+"a"', r'"\na"', id="newline"),
         pytest.param(r'"\r"+"a"', r'"\ra"', id="carriage-return"),
         pytest.param(r'"\t"+"a"', r'"\ta"', id="tab"),
@@ -1139,15 +1130,15 @@ _PS = chr(0x2029)
         pytest.param(r'"a\\b"+"c"', r'"a\\bc"', id="backslash"),
         pytest.param(r'"x"+"a\"b"', r'"xa\"b"', id="escaped-quote-reescaped"),
         pytest.param(r'"\q"+"z"', r'"qz"', id="unknown-escape-is-literal"),
-        pytest.param('"' + _BS + 'u2028"+"a"', '"' + _BS + 'u2028a"', id="line-separator-value"),
-        pytest.param('"' + _BS + 'u2029"+"a"', '"' + _BS + 'u2029a"', id="paragraph-separator-value"),
+        pytest.param(f'"{_BS}u2028"+"a"', f'"{_BS}u2028a"', id="line-separator-value"),
+        pytest.param(f'"{_BS}u2029"+"a"', f'"{_BS}u2029a"', id="paragraph-separator-value"),
         # a LineContinuation contributes nothing to the value
-        pytest.param('"a' + _BS + _LF + 'b"+"c"', r'"abc"', id="lf-continuation"),
-        pytest.param('"a' + _BS + _CR + 'b"+"c"', r'"abc"', id="cr-continuation"),
-        pytest.param('"a' + _BS + _CR + '"+"z"', r'"az"', id="cr-continuation-at-end"),
-        pytest.param('"a' + _BS + _CR + _LF + 'b"+"c"', r'"abc"', id="crlf-continuation"),
-        pytest.param('"a' + _BS + _LS + 'b"+"c"', r'"abc"', id="ls-continuation"),
-        pytest.param('"a' + _BS + _PS + 'b"+"c"', r'"abc"', id="ps-continuation"),
+        pytest.param(f'"a{_BS}{_LF}b"+"c"', r'"abc"', id="lf-continuation"),
+        pytest.param(f'"a{_BS}{_CR}b"+"c"', r'"abc"', id="cr-continuation"),
+        pytest.param(f'"a{_BS}{_CR}"+"z"', r'"az"', id="cr-continuation-at-end"),
+        pytest.param(f'"a{_BS}{_CR}{_LF}b"+"c"', r'"abc"', id="crlf-continuation"),
+        pytest.param(f'"a{_BS}{_LS}b"+"c"', r'"abc"', id="ls-continuation"),
+        pytest.param(f'"a{_BS}{_PS}b"+"c"', r'"abc"', id="ps-continuation"),
         pytest.param(r'"ab"+"cd"', r'"abcd"', id="plain"),
         # the joined value may not spell a `</script` or `<!--` the HTML parser would act on inside <script>
         pytest.param(r'"</scr"+"ipt>"', r'"\x3c/script>"', id="script-end-tag"),
@@ -1165,16 +1156,16 @@ def test_concat_reencodes_by_value(source: str, expected: str) -> None:
     ("source", "expected"),
     [
         # truthiness reads the decoded value, so a line-continuation-only string (value "") is falsy (#436)
-        pytest.param('"' + _BS + _LF + '"?1:2', "2", id="lf-only-empty-falsy"),
-        pytest.param('"' + _BS + _CR + '"?1:2', "2", id="cr-only-empty-falsy"),
-        pytest.param('"' + _BS + _CR + _LF + '"?1:2', "2", id="crlf-only-empty-falsy"),
-        pytest.param('"' + _BS + _LS + '"?1:2', "2", id="ls-only-empty-falsy"),
-        pytest.param('"' + _BS + _PS + '"?1:2', "2", id="ps-only-empty-falsy"),
+        pytest.param(f'"{_BS}{_LF}"?1:2', "2", id="lf-only-empty-falsy"),
+        pytest.param(f'"{_BS}{_CR}"?1:2', "2", id="cr-only-empty-falsy"),
+        pytest.param(f'"{_BS}{_CR}{_LF}"?1:2', "2", id="crlf-only-empty-falsy"),
+        pytest.param(f'"{_BS}{_LS}"?1:2', "2", id="ls-only-empty-falsy"),
+        pytest.param(f'"{_BS}{_PS}"?1:2', "2", id="ps-only-empty-falsy"),
         pytest.param('""?1:2', "2", id="empty-literal-falsy"),
         pytest.param(r'"a"?1:2', "1", id="nonempty-truthy"),
         pytest.param(r'"\n"?1:2', "1", id="escape-value-truthy"),
-        pytest.param('"a' + _BS + _LF + '"?1:2', "1", id="continuation-plus-content-truthy"),
-        pytest.param('"' + _BS + _CR + 'x"?1:2', "1", id="cr-continuation-then-content-truthy"),
+        pytest.param(f'"a{_BS}{_LF}"?1:2', "1", id="continuation-plus-content-truthy"),
+        pytest.param(f'"{_BS}{_CR}x"?1:2', "1", id="cr-continuation-then-content-truthy"),
     ],
 )
 def test_string_truthiness_reads_value(source: str, expected: str) -> None:
@@ -1225,8 +1216,8 @@ def test_undefined_kept_without_mangling_when_shadowed() -> None:
         pytest.param(r'"\12"+"3"', id="octal-two-then-digit"),
         pytest.param(r'"\101"+"1"', id="octal-max-then-digit"),
         pytest.param(r'"\x0a"+"b"', id="hex-then-letter"),
-        pytest.param('"' + _BS + 'u0041"+"1"', id="unicode-then-digit"),
-        pytest.param('"a' + _BS + _CR + _LF + 'b"+"3"', id="crlf-then-digit"),
+        pytest.param(f'"{_BS}u0041"+"1"', id="unicode-then-digit"),
+        pytest.param(f'"a{_BS}{_CR}{_LF}b"+"3"', id="crlf-then-digit"),
         pytest.param(r'"</scr"+"ipt><!-"+"-"', id="script-end-tag-and-comment-open"),
     ],
 )
@@ -1237,16 +1228,16 @@ def test_concat_matches_node(source: str) -> None:
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
 def test_raw_line_separators_in_strings_match_node() -> None:
-    snippet: Final = "var s='a" + _LS + "b'+'" + _PS + "';console.log(s.length,s.charCodeAt(1),s.charCodeAt(3))"
+    snippet: Final = f"var s='a{_LS}b'+'{_PS}';console.log(s.length,s.charCodeAt(1),s.charCodeAt(3))"
     assert _run(snippet) == _run(minify_js(snippet))
 
 
 @pytest.mark.parametrize("count", [1, 17, 512], ids=["single", "heap", "long"])
 def test_guard_chain_growth_preserves_return_order(count: int) -> None:
     source: Final = (
-        "function f(x){" + "".join(f"if(x==={index})return g({index});" for index in range(count)) + "return g(-1)}"
+        f"function f(x){{{''.join(f'if(x==={index})return g({index});' for index in range(count))}return g(-1)}}"
     )
-    expected: Final = "function f(a){return " + "".join(f"a==={index}?g({index}):" for index in range(count)) + "g(-1)}"
+    expected: Final = f"function f(a){{return {''.join(f'a==={index}?g({index}):' for index in range(count))}g(-1)}}"
     assert minify_js(source) == expected
 
 
@@ -1444,9 +1435,9 @@ def test_declaration_reads_preserve_behavior(source: str, expected: str) -> None
 def test_single_use_initializers_preserve_call_order(case: int, count: int) -> None:
     source: Final = INPUTS["minify-js-single-use"]()[case][1]
     assert isinstance(source, str)
-    program: Final = source + ";const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
+    program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
     expected: Final = list(range(count))
-    assert _run(minify_js(program)) == json.dumps([expected, expected], separators=(",", ":")) + "\n"
+    assert _run(minify_js(program)) == f"{json.dumps([expected, expected], separators=(',', ':'))}\n"
 
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
@@ -1454,39 +1445,37 @@ def test_single_use_initializers_preserve_call_order(case: int, count: int) -> N
 def test_propagation_unlink_preserves_call_order(case: int, count: int) -> None:
     source: Final = INPUTS["minify-js-unlink"]()[case][1]
     assert isinstance(source, str)
-    program: Final = source + ";const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
+    program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
     expected: Final = (
-        json.dumps(
-            [[value for index in range(count) for value in (index, index % 10, index % 10)], list(range(count))],
-            separators=(",", ":"),
-        )
-        + "\n"
+        f"""{
+            json.dumps(
+                [[value for index in range(count) for value in (index, index % 10, index % 10)], list(range(count))],
+                separators=(",", ":"),
+            )
+        }"""
+        "\n"
     )
     assert (_run(program), _run(minify_js(program))) == (expected, expected)
 
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
 @pytest.mark.parametrize(
-    ("case", "count", "early"),
+    ("case", "rows"),
     [
-        pytest.param(0, 256, False, id="many"),
-        pytest.param(1, 1, False, id="one"),
-        pytest.param(2, 256, True, id="early"),
+        pytest.param(
+            0,
+            [[value for index in range(256) for value in (index, index % 10)], list(range(256))],
+            id="many",
+        ),
+        pytest.param(1, [[0, 0], [0]], id="one"),
+        pytest.param(2, [[None] * 256, [None] * 256], id="early"),
     ],
 )
-def test_var_initialization_benchmark_order(case: int, count: int, *, early: bool) -> None:
+def test_var_initialization_benchmark_order(case: int, rows: list[list[int | None]]) -> None:
     source: Final = INPUTS["minify-js-var-initialization"]()[case][1]
     assert isinstance(source, str)
-    program: Final = source + ";const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
-    expected: Final = (
-        json.dumps(
-            [[None] * count, [None] * count]
-            if early
-            else [[value for index in range(count) for value in (index, index % 10)], list(range(count))],
-            separators=(",", ":"),
-        )
-        + "\n"
-    )
+    program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
+    expected: Final = f"{json.dumps(rows, separators=(',', ':'))}\n"
     assert (_run(program), _run(minify_js(program))) == (expected, expected)
 
 
@@ -1495,8 +1484,8 @@ def test_var_initialization_benchmark_order(case: int, count: int, *, early: boo
 def test_unused_declarators_preserve_call_order(case: int, count: int) -> None:
     source: Final = INPUTS["minify-js-unused-declarations"]()[case][1]
     assert isinstance(source, str)
-    program: Final = source + ";const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
-    expected: Final = json.dumps([[], list(range(count))], separators=(",", ":")) + "\n"
+    program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
+    expected: Final = f"{json.dumps([[], list(range(count))], separators=(',', ':'))}\n"
     assert (_run(program), _run(minify_js(program))) == (expected, expected)
 
 

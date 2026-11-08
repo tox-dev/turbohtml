@@ -1,17 +1,7 @@
-"""Behavioral tests for the pluggable tree builder (turbohtml.treebuild).
-
-The builder is driven two ways: against explicit expectations for the tricky
-tree-construction cases (implied tags, foreign namespaces, template content, the
-processing-instruction and doctype-identifier variants), and against turbohtml's own
-DOM-less SAX walk of the same markup, which shares the tree builder and the same PI
-distinction, so flattening the builder tree back to an event stream must reproduce it
-across a corpus.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Final, Protocol, cast
+from typing import TYPE_CHECKING, Final, Protocol
 
 from turbohtml import Comment as DomComment
 from turbohtml import Doctype as DomDoctype
@@ -37,46 +27,48 @@ from turbohtml.saxparse import (
 )
 from turbohtml.treebuild import parse_into
 
-HTML_NS = "http://www.w3.org/1999/xhtml"
-SVG_NS = "http://www.w3.org/2000/svg"
-MATHML_NS = "http://www.w3.org/1998/Math/MathML"
+_HTML_NS: Final[str] = "http://www.w3.org/1999/xhtml"
+_SVG_NS: Final[str] = "http://www.w3.org/2000/svg"
+_MATHML_NS: Final[str] = "http://www.w3.org/1998/Math/MathML"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Built:
-    """A captured builder node: the method that made it and the payload it carried."""
-
+    # A captured builder node: the method that made it and the payload it carried.
     kind: str
-    payload: tuple[Any, ...]
+    payload: (
+        tuple[()]
+        | tuple[str, ...]
+        | tuple[str, str | None, str | None]
+        | tuple[str, str, tuple[tuple[str, str | None], ...]]
+    )
     children: list[Built] = field(default_factory=list)
 
 
 class Recorder:
-    """A :class:`turbohtml.treebuild.TreeBuilder` that records every call into a plain tree.
-
-    Every method is an instance method because :func:`~turbohtml.treebuild.parse_into` resolves the builder's methods
-    off the instance, so ``self`` is never referenced -- hence the per-method PLR6301 waivers.
-    """
-
+    # A :class:`turbohtml.treebuild.TreeBuilder` that records every call into a plain tree.
+    #
+    # Every method is an instance method because :func:`~turbohtml.treebuild.parse_into` resolves the builder's methods
+    # off the instance, so ``self`` is never referenced -- hence the per-method PLR6301 waivers.
     def create_document(self) -> Built:  # ruff:ignore[no-self-use]
-        return Built("document", ())
+        return Built(kind="document", payload=())
 
-    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> Built:  # ruff:ignore[no-self-use]
-        return Built("doctype", (name, public_id, system_id))
+    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> Built:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
+        return Built(kind="doctype", payload=(name, public_id, system_id))
 
-    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> Built:  # ruff:ignore[no-self-use]
-        return Built("element", (name, namespace, attrs))
+    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> Built:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
+        return Built(kind="element", payload=(name, namespace, attrs))
 
-    def create_text(self, data: str) -> Built:  # ruff:ignore[no-self-use]
-        return Built("text", (data,))
+    def create_text(self, data: str) -> Built:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
+        return Built(kind="text", payload=(data,))
 
-    def create_comment(self, data: str) -> Built:  # ruff:ignore[no-self-use]
-        return Built("comment", (data,))
+    def create_comment(self, data: str) -> Built:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
+        return Built(kind="comment", payload=(data,))
 
-    def create_pi(self, target: str, data: str) -> Built:  # ruff:ignore[no-self-use]
-        return Built("pi", (target, data))
+    def create_pi(self, target: str, data: str) -> Built:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
+        return Built(kind="pi", payload=(target, data))
 
-    def append(self, parent: Built, child: Built) -> None:  # ruff:ignore[no-self-use]
+    def append(self, parent: Built, child: Built) -> None:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         parent.children.append(child)
 
 
@@ -90,17 +82,14 @@ def test_returns_the_document_root_the_builder_made() -> None:
 
 
 def test_implied_html_head_body_are_emitted() -> None:
-    root = build("<p>hi</p>")
-    html = root.children[0]
+    html = build("<p>hi</p>").children[0]
     assert (html.kind, html.payload[0]) == ("element", "html")
     assert [child.payload[0] for child in html.children] == ["head", "body"]
 
 
 def test_element_carries_html_namespace_and_attribute_pairs() -> None:
-    body = build("<p class=x disabled>hi</p>").children[0].children[1]
-    paragraph = body.children[0]
-    assert paragraph.kind == "element"
-    assert paragraph.payload == ("p", HTML_NS, (("class", "x"), ("disabled", None)))
+    paragraph = build("<p class=x disabled>hi</p>").children[0].children[1].children[0]
+    assert (paragraph.kind, paragraph.payload) == ("element", ("p", _HTML_NS, (("class", "x"), ("disabled", None))))
 
 
 @pytest.mark.parametrize(
@@ -118,34 +107,29 @@ def test_element_carries_html_namespace_and_attribute_pairs() -> None:
     ],
 )
 def test_text_node_payload(data: str) -> None:
-    body = build(f"<p>{data.replace('&', '&amp;')}</p>").children[0].children[1]
-    text = body.children[0].children[0]
-    assert text.kind == "text"
-    assert text.payload == (data,)
+    text = build(f"<p>{data.replace('&', '&amp;')}</p>").children[0].children[1].children[0].children[0]
+    assert (text.kind, text.payload) == ("text", (data,))
 
 
 @pytest.mark.parametrize("data", ["note", "", "café", "水", "😀"], ids=["ascii", "empty", "latin1", "bmp", "astral"])
 def test_comment_node_payload(data: str) -> None:
     body = build(f"<body><!--{data}--></body>").children[0].children[1]
-    assert body.children[0].kind == "comment"
-    assert body.children[0].payload == (data,)
+    assert (body.children[0].kind, body.children[0].payload) == ("comment", (data,))
 
 
 def test_processing_instruction_is_distinct_from_comment() -> None:
-    body = build("<body><?php echo 1?></body>").children[0].children[1]
-    node = body.children[0]
-    assert node.kind == "pi"
-    assert node.payload == ("php", "echo 1")
+    node = build("<body><?php echo 1?></body>").children[0].children[1].children[0]
+    assert (node.kind, node.payload) == ("pi", ("php", "echo 1"))
 
 
 def test_svg_and_mathml_carry_their_foreign_namespace() -> None:
     body = build("<svg><circle/></svg><math><mi>x</mi></math>").children[0].children[1]
     svg = body.children[0]
     math = body.children[1]
-    assert svg.payload[1] == SVG_NS
-    assert svg.children[0].payload[1] == SVG_NS
-    assert math.payload[1] == MATHML_NS
-    assert math.children[0].payload[1] == MATHML_NS
+    assert svg.payload[1] == _SVG_NS
+    assert svg.children[0].payload[1] == _SVG_NS
+    assert math.payload[1] == _MATHML_NS
+    assert math.children[0].payload[1] == _MATHML_NS
 
 
 def test_namespace_values_survive_builder_reentry() -> None:
@@ -161,7 +145,7 @@ def test_namespace_values_survive_builder_reentry() -> None:
         svg.children[1].payload[1],
         math.payload[1],
         math.children[0].payload[1],
-    ) == (SVG_NS, SVG_NS, HTML_NS, SVG_NS, MATHML_NS, MATHML_NS)
+    ) == (_SVG_NS, _SVG_NS, _HTML_NS, _SVG_NS, _MATHML_NS, _MATHML_NS)
 
 
 class _NamespaceRecorder(Recorder):
@@ -175,8 +159,7 @@ class _NamespaceRecorder(Recorder):
 
 
 def test_template_content_is_appended_under_the_template() -> None:
-    body = build("<body><template><b>t</b></template></body>").children[0].children[1]
-    template = body.children[0]
+    template = build("<body><template><b>t</b></template></body>").children[0].children[1].children[0]
     assert template.payload[0] == "template"
     assert [(child.kind, child.payload[0]) for child in template.children] == [("element", "b")]
 
@@ -201,8 +184,7 @@ def test_empty_template_has_no_children() -> None:
 )
 def test_doctype_identifier_variants(markup: str, expected: tuple[str, str | None, str | None]) -> None:
     doctype = build(markup).children[0]
-    assert doctype.kind == "doctype"
-    assert doctype.payload == expected
+    assert (doctype.kind, doctype.payload) == ("doctype", expected)
 
 
 def test_foster_parenting_is_reflected() -> None:
@@ -251,36 +233,7 @@ def _stream_count(markup: str) -> int:
 def test_formatting_run_past_depth_cap_does_not_amplify(entry: Callable[[str], int], count: int) -> None:
     # past the 512 open-element cap a refused formatting tag that stayed in the active-formatting list was re-cloned
     # on each later formatting tag, O(n^2) nodes; a distinct attribute per tag defeats the Noah's Ark de-duplication
-    assert entry("".join(f"<b c{index}>" for index in range(count)) + "x") == count
-
-
-def _flatten(node: Built, out: list[SaxEvent]) -> None:
-    if node.kind == "text":
-        out.append(Characters(node.payload[0]))
-        return
-    if node.kind == "comment":
-        out.append(Comment(node.payload[0]))
-        return
-    if node.kind == "pi":
-        out.append(ProcessingInstruction(*node.payload))
-        return
-    if node.kind == "doctype":
-        out.append(Doctype(*node.payload))
-        return
-    tag = node.payload[0] if node.kind == "element" else None
-    if tag is not None:
-        _, _namespace, attrs = node.payload
-        out.append(StartElement(tag, attrs))
-    for child in node.children:  # the document (never empty) and elements (empty for voids) share this walk
-        _flatten(child, out)
-    if tag is not None:
-        out.append(EndElement(tag))
-
-
-def _events(markup: str) -> list[SaxEvent]:
-    out: list[SaxEvent] = []
-    _flatten(build(markup), out)
-    return out
+    assert entry(f"{''.join(f'<b c{index}>' for index in range(count))}x") == count
 
 
 @pytest.mark.parametrize(
@@ -299,18 +252,44 @@ def test_builder_stream_matches_the_sax_walk(markup: str) -> None:
     assert _events(markup) == list(iter_events(markup))
 
 
+def _events(markup: str) -> list[SaxEvent]:
+    out: list[SaxEvent] = []
+    _flatten(build(markup), out)
+    return out
+
+
+def _flatten(node: Built, out: list[SaxEvent]) -> None:
+    match node.kind, node.payload:
+        case "text", (str() as data,):
+            out.append(Characters(data))
+        case "comment", (str() as data,):
+            out.append(Comment(data))
+        case "pi", (str() as target, str() as data):
+            out.append(ProcessingInstruction(target, data))
+        case "doctype", (str() as name, str() | None as public_id, str() | None as system_id):
+            out.append(Doctype(name, public_id, system_id))
+        case "element", (str() as tag, str(), tuple() as attrs):
+            out.append(StartElement(tag, attrs))
+            for child in node.children:  # elements are empty for voids, so the walk ends at once
+                _flatten(child, out)
+            out.append(EndElement(tag))
+        case _:  # the document (never empty) walks its children here
+            for child in node.children:
+                _flatten(child, out)
+
+
 class _RaisingBuilder(Recorder):
     def __init__(self, at: str) -> None:
         self._at = at
+
+    def create_document(self) -> Built:
+        return self._maybe("create_document", super().create_document())
 
     def _maybe(self, method: str, value: Built) -> Built:
         if method == self._at:
             message = f"boom in {method}"
             raise ValueError(message)
         return value
-
-    def create_document(self) -> Built:
-        return self._maybe("create_document", super().create_document())
 
     def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> Built:
         return self._maybe("create_doctype", super().create_doctype(name, public_id, system_id))
@@ -359,8 +338,7 @@ def test_a_builder_method_that_raises_propagates(method: str, markup: str) -> No
 
 
 class _NoAppend:
-    """Every create_* method, but no ``append``: the bind resolves six methods then fails on the last."""
-
+    # Every create_* method, but no ``append``: the bind resolves six methods then fails on the last.
     create_document = Recorder.create_document
     create_doctype = Recorder.create_doctype
     create_element = Recorder.create_element
@@ -379,7 +357,7 @@ def test_non_str_source_raises_type_error() -> None:
         parse_into(b"<p>x</p>", Recorder())  # ty: ignore[invalid-argument-type]  # the rejected bytes is the point
 
 
-_LXML_CORPUS: Final = [
+_LXML_CORPUS: Final[list[pytest.ParameterSet]] = [
     pytest.param("<!DOCTYPE html><title>t</title><p id=a class=lead>hi<b>x</b>tail</p>", id="basic"),
     pytest.param("<ul><li>a<li>b</ul><ol><li>c</li></ol>", id="implied-close"),
     pytest.param("<table><tr><td>c</td></tr></table>", id="table"),
@@ -393,7 +371,8 @@ _LXML_CORPUS: Final = [
 @pytest.mark.oracle
 def test_parse_into_rebuilds_the_tree_in_lxml(markup: str) -> None:
     lxml_etree: Final = pytest.importorskip("lxml.etree")
-    built: Final = cast("_LxmlNode", parse_into(markup, _LxmlBuilder(lxml_etree)))
+    built: Final = parse_into(markup, _LxmlBuilder(lxml_etree))
+    assert not isinstance(built, tuple)
     mine: Final[list[_LxmlEvent]] = []
     _flatten_lxml(built[0], mine, lxml_etree)
     theirs: Final[list[_LxmlEvent]] = []
@@ -402,12 +381,18 @@ def test_parse_into_rebuilds_the_tree_in_lxml(markup: str) -> None:
 
 
 @pytest.mark.oracle
-@pytest.mark.parametrize("data", ["", "echo 1"], ids=["empty", "body"])
-def test_lxml_builder_preserves_processing_instruction(data: str) -> None:
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        pytest.param("", "<html><head/><body><!--?php?--></body></html>", id="empty"),
+        pytest.param("echo 1", "<html><head/><body><!--?php echo 1?--></body></html>", id="body"),
+    ],
+)
+def test_lxml_builder_preserves_processing_instruction(data: str, expected: str) -> None:
     lxml_etree: Final = pytest.importorskip("lxml.etree")
-    built: Final = cast("_LxmlNode", parse_into(f"<body><?php {data}?></body>", _LxmlBuilder(lxml_etree)))
-    expected: Final = f"<html><head/><body><!--?php{f' {data}' if data else ''}?--></body></html>".encode()
-    assert lxml_etree.tostring(built[0]) == expected
+    built: Final = parse_into(f"<body><?php {data}?></body>", _LxmlBuilder(lxml_etree))
+    assert not isinstance(built, tuple)
+    assert lxml_etree.tostring(built[0]) == expected.encode()
 
 
 _LxmlEvent = tuple[object, ...]
@@ -415,20 +400,25 @@ _LxmlEvent = tuple[object, ...]
 
 @pytest.mark.oracle
 class _LxmlNode(Protocol):
-    """lxml provides no stubs for the builder protocol."""
-
+    # lxml provides no stubs for the builder protocol.
     text: str | None
     tail: str | None
 
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, index: int) -> _LxmlNode: ...
+
+    def __iter__(self) -> Iterator[_LxmlNode]: ...
+
     @property
-    def tag(self) -> object: ...
+    def tag(self) -> str | Callable[[str | None], object]: ...
+
     @property
     def attrib(self) -> Mapping[str, str]: ...
+
     def set(self, key: str, value: str) -> None: ...
-    def append(self, child: object) -> None: ...
-    def __len__(self) -> int: ...
-    def __getitem__(self, index: int) -> _LxmlNode: ...
-    def __iter__(self) -> Iterator[_LxmlNode]: ...
+
+    def append(self, child: _LxmlNode) -> None: ...
 
 
 @pytest.mark.oracle
@@ -436,50 +426,53 @@ class _LxmlBuilder:
     def __init__(self, etree: ModuleType) -> None:
         self.etree = etree
 
-    def create_document(self) -> object:
+    def create_document(self) -> _LxmlNode | tuple[str, ...]:
         return self.etree.Element("document")
 
-    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> object:  # ruff:ignore[unused-method-argument, no-self-use]
+    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> _LxmlNode | tuple[str, ...]:  # ruff:ignore[unused-method-argument, no-self-use]  # the callback signature is fixed by the protocol; this argument is unused
         return ("doctype",)
 
-    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> object:  # ruff:ignore[unused-method-argument]
+    def create_element(
+        self,
+        name: str,
+        namespace: str,  # ruff:ignore[unused-method-argument]  # the callback signature is fixed by the protocol; this argument is unused
+        attrs: tuple[tuple[str, str | None], ...],
+    ) -> _LxmlNode | tuple[str, ...]:
         node: Final = self.etree.Element(name)
         for attr_name, value in attrs:
             node.set(attr_name, value or "")
         return node
 
-    def create_text(self, data: str) -> object:  # ruff:ignore[no-self-use]
+    def create_text(self, data: str) -> _LxmlNode | tuple[str, ...]:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         return ("text", data)
 
-    def create_comment(self, data: str) -> object:
+    def create_comment(self, data: str) -> _LxmlNode | tuple[str, ...]:
         return self.etree.Comment(data)
 
-    def create_pi(self, target: str, data: str) -> object:
+    def create_pi(self, target: str, data: str) -> _LxmlNode | tuple[str, ...]:
         return self.etree.Comment(f"?{target}{f' {data}' if data else ''}?")
 
-    def append(self, parent: object, child: object) -> None:  # ruff:ignore[no-self-use]
-        node: Final = cast("_LxmlNode", parent)
+    def append(self, parent: _LxmlNode, child: _LxmlNode | tuple[str, ...]) -> None:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         if isinstance(child, tuple):
             if child[0] == "text":
                 data: Final = str(child[1])
-                if len(node) == 0:
-                    node.text = (node.text or "") + data
+                if len(parent) == 0:
+                    parent.text = (parent.text or "") + data
                 else:
-                    node[-1].tail = (node[-1].tail or "") + data
+                    parent[-1].tail = (parent[-1].tail or "") + data
             return
-        node.append(child)
+        parent.append(child)
 
 
 @pytest.mark.oracle
-def _flatten_lxml(node: object, out: list[_LxmlEvent], etree: ModuleType) -> None:
-    element: Final = cast("_LxmlNode", node)
-    if element.tag is etree.Comment:
-        out.append(("comment", element.text or ""))
+def _flatten_lxml(node: _LxmlNode, out: list[_LxmlEvent], etree: ModuleType) -> None:
+    if node.tag is etree.Comment:
+        out.append(("comment", node.text or ""))
         return
-    out.append(("element", element.tag, tuple(sorted(element.attrib.items()))))
-    if element.text:
-        out.append(("text", element.text))
-    for child in element:
+    out.append(("element", node.tag, tuple(sorted(node.attrib.items()))))
+    if node.text:
+        out.append(("text", node.text))
+    for child in node:
         _flatten_lxml(child, out, etree)
         if child.tail:
             out.append(("text", child.tail))

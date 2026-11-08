@@ -13,6 +13,7 @@ from turbohtml import (
     Document,
     DocumentFragment,
     Element,
+    Node,
     Range,
     ShadowRoot,
     Text,
@@ -22,29 +23,14 @@ from turbohtml import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Sequence
 
-    from turbohtml import Node
-
-
-def _tags(nodes: Iterable[Node]) -> list[str]:
-    """The tag of each node, asserting every one is an element (so a stray text node fails the test)."""
-    tags = []
-    for node in nodes:
-        assert isinstance(node, Element)
-        tags.append(node.tag)
-    return tags
-
-
-def _element(node: Node | None) -> Element:
-    """Narrow a find/select_one result to a non-None Element."""
-    assert isinstance(node, Element)
-    return node
+    from _pytest.mark.structures import ParameterSet
 
 
 @pytest.fixture
 def slotted() -> tuple[Element, ShadowRoot]:
-    """A host of light children attached to a shadow root exposing a named and a default slot."""
+    # A host of light children attached to a shadow root exposing a named and a default slot.
     host = Element("div")
     host.append(Element("span", {"slot": "title"}, [Text("Hello")]))
     host.append(Element("p", None, [Text("body")]))
@@ -110,7 +96,7 @@ def test_attach_shadow_rejects_unknown_mode() -> None:
 
 def test_attach_shadow_rejects_non_str_mode() -> None:
     with pytest.raises(TypeError):
-        Element("div").attach_shadow(123)  # ty: ignore[invalid-argument-type]
+        Element("div").attach_shadow(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_shadow_root_not_instantiable() -> None:
@@ -127,6 +113,21 @@ def test_named_slot_collects_matching_children(slotted: tuple[Element, ShadowRoo
     _host, root = slotted
     title = _element(root.select_one('slot[name="title"]'))
     assert _tags(title.assigned_nodes()) == ["span", "em"]
+
+
+def _element(node: Node | None) -> Element:
+    # Narrow a find/select_one result to a non-None Element.
+    assert isinstance(node, Element)
+    return node
+
+
+def _tags(nodes: Iterable[Node]) -> list[str]:
+    # The tag of each node, asserting every one is an element (so a stray text node fails the test).
+    tags = []
+    for node in nodes:
+        assert isinstance(node, Element)
+        tags.append(node.tag)
+    return tags
 
 
 def test_default_slot_collects_unnamed_children(slotted: tuple[Element, ShadowRoot]) -> None:
@@ -215,7 +216,7 @@ def test_find_slot_skips_foreign_elements() -> None:
 
 def test_assigned_nodes_rejects_extra_positional() -> None:
     with pytest.raises(TypeError):
-        Element("slot").assigned_nodes(1, 2)  # ty: ignore[too-many-positional-arguments]
+        Element("slot").assigned_nodes(1, 2)  # ty: ignore[too-many-positional-arguments]  # passes an extra positional argument on purpose to check the rejection
 
 
 def test_unassigned_child_has_no_slot() -> None:
@@ -267,8 +268,7 @@ def test_slot_in_a_plain_fragment_assigns_nothing() -> None:
 
 
 def test_flatten_falls_back_to_slot_children() -> None:
-    host = Element("div")
-    root = host.attach_shadow("open")
+    root = Element("div").attach_shadow("open")
     root.set_inner_html('<slot name="x">fallback<b>bold</b></slot>')
     slot = _element(root.select_one("slot"))
     assert slot.assigned_nodes() == []
@@ -276,8 +276,7 @@ def test_flatten_falls_back_to_slot_children() -> None:
 
 
 def test_flatten_expands_nested_fallback_slot() -> None:
-    host = Element("div")
-    root = host.attach_shadow("open")
+    root = Element("div").attach_shadow("open")
     root.set_inner_html('<slot name="outer"><slot name="inner">deep</slot></slot>')
     outer = _element(root.select_one('slot[name="outer"]'))
     assert [type(node).__name__ for node in outer.assigned_nodes(flatten=True)] == ["Text"]
@@ -298,8 +297,7 @@ def test_flatten_expands_deep_fallback_slots_iteratively() -> None:
 
 
 def test_flatten_fallback_skips_non_slottable_content() -> None:
-    host = Element("div")
-    root = host.attach_shadow("open")
+    root = Element("div").attach_shadow("open")
     root.set_inner_html("<slot name='x'>text<!--comment--></slot>")
     slot = _element(root.select_one("slot"))
     assert [type(node).__name__ for node in slot.assigned_nodes(flatten=True)] == ["Text"]
@@ -318,8 +316,7 @@ def test_flattened_children_of_host_expand_top_level_slots() -> None:
     host = Element("div")
     host.append(Element("a", None, [Text("x")]))
     host.append(Element("b", {"slot": "n"}, [Text("y")]))
-    root = host.attach_shadow("open")
-    root.set_inner_html('<slot name="n"></slot><slot></slot>')
+    host.attach_shadow("open").set_inner_html('<slot name="n"></slot><slot></slot>')
     assert _tags(host.flattened_children) == ["b", "a"]
 
 
@@ -383,7 +380,7 @@ def test_iter_elements_survives_set_inner_html_clearing_siblings() -> None:
 def test_set_inner_html_requires_str() -> None:
     root = Element("div").attach_shadow("open")
     with pytest.raises(TypeError, match="html must be a str"):
-        root.set_inner_html(123)  # ty: ignore[invalid-argument-type]
+        root.set_inner_html(123)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_shadow_root_append_moves_a_same_tree_node() -> None:
@@ -429,7 +426,7 @@ def test_range_insert_node_rejects_the_shadow_host() -> None:
 def test_shadow_root_append_rejects_non_node() -> None:
     root = Element("div").attach_shadow("open")
     with pytest.raises(TypeError, match="must be a node"):
-        root.append("nope")  # ty: ignore[invalid-argument-type]
+        root.append("nope")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_multiple_shadow_hosts_in_one_tree() -> None:
@@ -452,25 +449,24 @@ def test_attach_shadow_on_a_parsed_element() -> None:
     assert app.shadow_root == root
 
 
-def _declarative_shadow_element(node: object) -> Element:
-    """Narrow a find result to a non-None Element."""
-    assert isinstance(node, Element)
-    return node
-
-
-def _shadow(node: object) -> ShadowRoot:
-    """Narrow a shadow_root result to a non-None ShadowRoot."""
-    assert isinstance(node, ShadowRoot)
-    return node
-
-
 def test_open_shadowrootmode_attaches_a_shadow_root() -> None:
     host = _declarative_shadow_element(
         parse("<div id=h><template shadowrootmode=open><p>shadow</p></template></div>").find(id="h")
     )
     root = _shadow(host.shadow_root)
-    assert root.mode == "open"
-    assert root.html == "<p>shadow</p>"
+    assert (root.mode, root.html) == ("open", "<p>shadow</p>")
+
+
+def _declarative_shadow_element(node: Element | None) -> Element:
+    # Narrow a find result to a non-None Element.
+    assert isinstance(node, Element)
+    return node
+
+
+def _shadow(node: ShadowRoot | None) -> ShadowRoot:
+    # Narrow a shadow_root result to a non-None ShadowRoot.
+    assert isinstance(node, ShadowRoot)
+    return node
 
 
 def test_declarative_template_is_off_the_light_tree() -> None:
@@ -714,7 +710,7 @@ def test_flattened_assignment_many_names() -> None:
 
 def test_shadow_flatten_keeps_sibling_fallback_order() -> None:
     shadow: Final = Element("div").attach_shadow("open")
-    shadow.set_inner_html("<slot>" + "".join(f"<slot>{index}</slot>" for index in range(100)) + "</slot>")
+    shadow.set_inner_html(f"<slot>{''.join(f'<slot>{index}</slot>' for index in range(100))}</slot>")
     assert [node.text for node in shadow.select("slot")[0].assigned_nodes(flatten=True)] == [
         str(index) for index in range(100)
     ]
@@ -724,10 +720,10 @@ def test_shadow_flatten_keeps_sibling_fallback_order() -> None:
 def test_late_slot_collects_children_in_order(mode: str) -> None:
     host: Final[Element] = Element("div")
     host.set_inner_html(
-        "<!--before-->" + "<!--between-->".join(f'<span slot="target">{index}</span>' for index in range(64))
+        f"""<!--before-->{"<!--between-->".join(f'<span slot="target">{index}</span>' for index in range(64))}"""
     )
     root: Final[ShadowRoot] = host.attach_shadow(mode)
-    root.set_inner_html('<slot name="unused"></slot>' * 64 + '<slot name="target"></slot>')
+    root.set_inner_html(f"""{'<slot name="unused"></slot>' * 64}<slot name="target"></slot>""")
     assert root.select('slot[name="target"]')[0].assigned_nodes() == host.select("span")
 
 
@@ -773,7 +769,7 @@ def test_unassigned_slot_keeps_fallback(content: str) -> None:
     host: Final[Element] = Element("div")
     host.set_inner_html(content)
     root: Final[ShadowRoot] = host.attach_shadow("open")
-    root.set_inner_html('<slot name="other"></slot>' * 64 + '<slot name="target"><b>fallback</b></slot>')
+    root.set_inner_html(f"""{'<slot name="other"></slot>' * 64}<slot name="target"><b>fallback</b></slot>""")
     slot: Final[Element] = root.select('slot[name="target"]')[0]
     assert (slot.assigned_nodes(), slot.assigned_nodes(flatten=True)) == ([], slot.select("b"))
 
@@ -797,28 +793,34 @@ def test_shadow_adoption_preserves_aliases(mode: str, depth: int) -> None:
     assert host.children == children
     for owner, root, child, saved_hash in roots:
         assert (root.host, root.children, hash(root)) == (owner, (child,), saved_hash)
-        assert owner.shadow_root == (root if mode == "open" else None)
+        assert (owner.shadow_root == root, owner.shadow_root is None) == (mode == "open", mode != "open")
 
 
-@pytest.mark.parametrize("method", ["assigned_nodes", "assigned_elements", "flattened_children"])
-def test_shadow_results_during_adoption(method: str) -> None:
+_SLOT_READS: Final[list[ParameterSet]] = [
+    pytest.param(lambda slot: slot.assigned_nodes(), Node, id="assigned_nodes"),
+    pytest.param(lambda slot: slot.assigned_elements(), Element, id="assigned_elements"),
+    pytest.param(lambda slot: slot.flattened_children, Node, id="flattened_children"),
+]
+
+
+@pytest.mark.parametrize(("read_result", "kind"), _SLOT_READS)
+def test_shadow_results_during_adoption(read_result: Callable[[Element], Sequence[Node]], kind: type[Node]) -> None:
     host: Final = Element("div")
     for index in range(32):
         host.append(Element("span", children=[Text(str(index))]))
         host.append(Text(" "))
-    expected: Final = [node for node in host.children if method != "assigned_elements" or isinstance(node, Element)]
+    expected: Final = [node for node in host.children if isinstance(node, kind)]
     root: Final = host.attach_shadow()
     root.set_inner_html("<slot></slot>")
     slot: Final = root.find("slot")
     assert slot is not None
     targets: Final = (Element("main"), Element("section"))
     start: Final = Barrier(2)
-    collect: Final = slot.assigned_elements if method == "assigned_elements" else slot.assigned_nodes
 
     def read() -> None:
         start.wait()
         for _ in range(200):
-            assert (slot.flattened_children if method == "flattened_children" else collect()) == expected
+            assert read_result(slot) == expected
 
     with ThreadPoolExecutor(max_workers=1) as pool:
         reader: Final = pool.submit(read)
@@ -830,21 +832,33 @@ def test_shadow_results_during_adoption(method: str) -> None:
 
 
 @pytest.mark.parametrize("markup", ["", "<i>one</i><b>two</b>"])
-@pytest.mark.parametrize("xml", [False, True])
-def test_shadow_adoption_preserves_content(markup: str, *, xml: bool) -> None:
+@pytest.mark.parametrize(
+    "make_target",
+    [
+        pytest.param(lambda: Element("main"), id="html"),
+        pytest.param(lambda: parse_xml("<main/>").find("main"), id="xml"),
+    ],
+)
+def test_shadow_adoption_preserves_content(markup: str, make_target: Callable[[], Element | None]) -> None:
     host: Final = Element("div")
     root: Final = host.attach_shadow()
     root.set_inner_html(markup)
     children: Final = root.children
-    target: Final = parse_xml("<main/>").find("main") if xml else Element("main")
+    target: Final = make_target()
     assert target is not None
     target.append(host)
     assert (root.inner_html, root.children, root.host) == (markup, children, host)
 
 
-@pytest.mark.parametrize("shadow", [False, True])
-def test_fragment_adopts_shadow_hosts(*, shadow: bool) -> None:
-    fragment: Final = Element("section").attach_shadow() if shadow else DocumentFragment()
+@pytest.mark.parametrize(
+    "make_fragment",
+    [
+        pytest.param(DocumentFragment, id="fragment"),
+        pytest.param(lambda: Element("section").attach_shadow(), id="shadow"),
+    ],
+)
+def test_fragment_adopts_shadow_hosts(make_fragment: Callable[[], DocumentFragment]) -> None:
+    fragment: Final = make_fragment()
     host: Final = Element("div", children=[Element("span")])
     fragment.append(host)
     root: Final = host.attach_shadow()
@@ -870,17 +884,19 @@ def test_shadow_adoption_preserves_declarative_flags() -> None:
 
 
 @pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
-@pytest.mark.parametrize("method", ["assigned_nodes", "assigned_elements", "flattened_children"])
+@pytest.mark.parametrize(("read_result", "kind"), _SLOT_READS)
 @pytest.mark.parametrize("offset", [-1, 0, 1])
-def test_shadow_results_survive_collection_adoption(method: str, offset: int) -> None:
+def test_shadow_results_survive_collection_adoption(
+    read_result: Callable[[Element], Sequence[Node]], kind: type[Node], offset: int
+) -> None:
     thresholds: Final = gc.get_threshold()
-    restore_gc: Final = gc.enable if gc.isenabled() else gc.disable
+    assert gc.isenabled()
     gc.disable()
     gc.collect()
     document: Final = parse("<div>text<span>hello</span></div>")
     host: Final = document.find("div")
     assert host is not None
-    expected: Final = [child for child in host.children if method != "assigned_elements" or isinstance(child, Element)]
+    expected: Final = [child for child in host.children if isinstance(child, kind)]
     root: Final = host.attach_shadow()
     root.set_inner_html("<slot></slot>")
     slot: Final = root.find("slot")
@@ -890,24 +906,23 @@ def test_shadow_results_survive_collection_adoption(method: str, offset: int) ->
 
     def adopt(phase: str, _info: dict[str, int]) -> None:
         nonlocal changed
-        if phase == "start" and not changed:
+        if phase == "start":
             changed = True
             target.append(host)
 
-    collect: Final = slot.assigned_elements if method == "assigned_elements" else slot.assigned_nodes
     # Retained empty lists exhaust the freelist so result allocation can trigger collection.
     reserve: Final[list[list[None]]] = [[] for _ in range(512)]
     gc.callbacks.append(adopt)
     try:
         gc.set_threshold(gc.get_count()[0] + offset, thresholds[1], thresholds[2])
         gc.enable()
-        result: Final = slot.flattened_children if method == "flattened_children" else collect()
+        result: Final = read_result(slot)
         gc.collect()
     finally:
         gc.disable()
         gc.callbacks.remove(adopt)
         gc.set_threshold(*thresholds)
-        restore_gc()
+        gc.enable()
         reserve.clear()
     assert (changed, result, host.parent) == (True, expected, target)
 
@@ -932,7 +947,7 @@ def test_document_fragment_starts_empty() -> None:
 
 def test_document_fragment_takes_no_arguments() -> None:
     with pytest.raises(TypeError):
-        DocumentFragment("x")  # ty: ignore[too-many-positional-arguments]
+        DocumentFragment("x")  # ty: ignore[too-many-positional-arguments]  # passes an extra positional argument on purpose to check the rejection
 
 
 def test_document_fragment_adoption_preserves_descendants() -> None:
@@ -959,16 +974,16 @@ def test_shadow_root_is_a_document_fragment() -> None:
     assert (isinstance(root, DocumentFragment), repr(root)) == (True, "ShadowRoot()")
 
 
-@pytest.mark.parametrize("extract", [pytest.param(False, id="clone"), pytest.param(True, id="extract")])
-def test_range_contents_are_a_document_fragment(*, extract: bool) -> None:
+@pytest.mark.parametrize("method", ["clone_contents", "extract_contents"], ids=["clone", "extract"])
+def test_range_contents_are_a_document_fragment(method: str) -> None:
     _, target = _host_page()
     boundary = Range(target, 0)
     boundary.set_end(target, 1)
-    contents = boundary.extract_contents() if extract else boundary.clone_contents()
+    contents = getattr(boundary, method)()
     assert (type(contents), contents.html) == (DocumentFragment, "<i></i>")
 
 
-_INSERTIONS = [
+_INSERTIONS: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         lambda target, fragment: target.append(fragment), '<div id="a"><i></i><b></b><u></u></div>', id="append"
     ),
@@ -1094,8 +1109,7 @@ def test_a_fragment_cannot_go_into_itself(insert: Callable[[DocumentFragment], o
 
 
 def test_a_fragment_holding_two_elements_cannot_become_a_document_s_root() -> None:
-    document = parse("<!DOCTYPE html><html></html>")
-    root = document.root
+    root = parse("<!DOCTYPE html><html></html>").root
     assert root is not None
     with pytest.raises(ValueError, match="only one element"):
         root.replace_with(_fragment("a", "b"))
@@ -1108,9 +1122,9 @@ def test_a_fragment_holding_two_elements_cannot_become_a_document_s_root() -> No
         pytest.param(parse(""), "Document cannot be inserted", id="document"),
     ],
 )
-def test_sibling_insert_rejects_a_bad_argument_before_moving_anything(argument: object, message: str) -> None:
+def test_sibling_insert_rejects_a_bad_argument_before_moving_anything(argument: str | Document, message: str) -> None:
     _, target = _host_page()
     first = Element("b")
     with pytest.raises(TypeError, match=message):
-        target.children[0].insert_before(first, argument)  # ty: ignore[invalid-argument-type]
+        target.children[0].insert_before(first, argument)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
     assert target.html == '<div id="a"><i></i></div>'

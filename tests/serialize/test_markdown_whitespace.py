@@ -30,7 +30,7 @@ from turbohtml import Element, Markdown, Text, parse
         pytest.param("--custom:[white-space:normal;];white-space:pre-wrap", id="brackets"),
         pytest.param("--custom:{white-space:normal;};white-space:pre-wrap", id="braces"),
         pytest.param(r"content:'\';white-space:normal';white-space:pre-wrap", id="escaped-quote"),
-        pytest.param("--long:" + "x" * 100 + ";white-space:pre-wrap", id="long-other-property"),
+        pytest.param(f"--long:{'x' * 100};white-space:pre-wrap", id="long-other-property"),
     ],
 )
 def test_inline_css_preserves_whitespace(style: str) -> None:
@@ -55,7 +55,7 @@ def test_inline_css_preserves_whitespace(style: str) -> None:
         pytest.param("white-space:normal!important;white-space:pre-wrap", id="important-normal"),
         pytest.param("content:';white-space:pre-wrap'", id="ignore-quoted-property"),
         pytest.param("white-space:pre/**/-wrap", id="comment-separates-tokens"),
-        pytest.param("white-space:pre-wrap " + "x" * 100, id="long-invalid-value"),
+        pytest.param(f"white-space:pre-wrap {'x' * 100}", id="long-invalid-value"),
         pytest.param("/*white-space:pre-wrap", id="only-comment"),
     ],
 )
@@ -148,7 +148,7 @@ def test_css_whitespace_table_cell(attributes: str, expected: str) -> None:
 
 
 def test_css_whitespace_deep_tree() -> None:
-    source: Final = '<div style="white-space:pre">' + "<span>" * 1000 + "one\ntwo" + "</span>" * 1000 + "</div>"
+    source: Final = f'<div style="white-space:pre">{"<span>" * 1000}one\ntwo{"</span>" * 1000}</div>'
     assert parse(source).to_markdown() == "```\none\ntwo\n```"
 
 

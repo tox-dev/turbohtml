@@ -3,12 +3,13 @@ Publication-date extraction for :mod:`turbohtml.extract`, the ``htmldate.find_da
 
 :func:`dates` reads the same signals ``htmldate`` reads -- ``<meta>`` publication/modification tags, JSON-LD
 ``datePublished``/``dateModified``, ``<time>`` elements, a date pattern in the canonical URL, and (as a last resort)
-visible text -- but off the parsed DOM and the :meth:`~turbohtml.Document.structured_data` engine rather than a
-second parse. Each signal is a stage tried in htmldate's priority order; the first stage that yields a bounded date
-wins, and within a stage the :class:`DateExtraction` ``original`` flag routes a publication date against a
-modification date. The stages and the date parsing run in C (``Document._dates``); this module holds the options,
-the result record, and the window and output formatting the :mod:`datetime` module owns. The date parsing needs no
-``dateparser``: ISO 8601, the common numeric spellings, an 8-digit stamp, and a compact multilingual month vocabulary.
+visible text -- but off the parsed DOM and the :meth:`~turbohtml.Document.structured_data` engine rather than a second
+parse. Each signal is a stage tried in htmldate's priority order; the first stage that yields a bounded date wins, and
+within a stage the :class:`DateExtraction` ``original`` flag routes a publication date against a modification date.
+
+The stages and the date parsing run in C (``Document._dates``); this module holds the options, the result record, and
+the window and output formatting the :mod:`datetime` module owns. The date parsing needs no ``dateparser``: ISO 8601,
+the common numeric spellings, an 8-digit stamp, and a compact multilingual month vocabulary.
 """
 
 from __future__ import annotations
@@ -19,30 +20,11 @@ from typing import Final, Literal, NamedTuple
 
 from turbohtml._html import parse
 
-__all__ = [
-    "DateExtraction",
-    "PublicationDate",
-    "dates",
-]
-
 Signal = Literal["url", "meta", "json-ld", "time", "text"]
 """Which engine a :class:`PublicationDate` came from, in htmldate's stage-priority order."""
 
-_EARLIEST: Final = date(1995, 1, 1)
+_EARLIEST: Final[date] = date(1995, 1, 1)
 """The default lower bound, htmldate's ``MIN_DATE``: the web's date metadata does not predate it."""
-
-
-class PublicationDate(NamedTuple):
-    """
-    A date :func:`dates` recovered and the signal it read it from.
-
-    ``date`` is the formatted string (``output_format``, ISO ``YYYY-MM-DD`` by default). ``signal`` names the engine:
-    ``"meta"`` a publication/modification ``<meta>`` tag, ``"json-ld"`` a JSON-LD ``datePublished``/``dateModified``,
-    ``"time"`` a ``<time>`` element, ``"url"`` a date pattern in the canonical URL, ``"text"`` visible page text.
-    """
-
-    date: str
-    signal: Signal
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +38,7 @@ class DateExtraction:
         ISO ``%Y-%m-%d``.
     :param min_date: the earliest acceptable date; a candidate before it is skipped. Defaults to 1995-01-01, the floor
         ``htmldate`` uses.
+
     :param max_date: the latest acceptable date; a candidate after it is skipped. Defaults to today, so a stray future
         stamp never wins.
     :param extensive_search: scan visible page text when no metadata carries a date, ``htmldate``'s
@@ -75,7 +58,7 @@ class DateExtraction:
             raise ValueError(msg)
 
 
-_DEFAULT: Final = DateExtraction()
+_DEFAULT: Final[DateExtraction] = DateExtraction()
 
 
 def dates(html: str, options: DateExtraction | None = None, /) -> PublicationDate | None:
@@ -93,7 +76,8 @@ def dates(html: str, options: DateExtraction | None = None, /) -> PublicationDat
     :returns: the date and the signal it came from, or ``None`` when no bounded date is found.
     """
     active = options or _DEFAULT
-    today = _today()
+    # Today's date in UTC, the default upper bound so a stray future stamp never wins.
+    today = datetime.now(UTC).date()
     earliest = active.min_date or _EARLIEST
     latest = active.max_date or today
     found = parse(html)._dates(  # ruff:ignore[private-member-access]  # the Document type's private C entry point
@@ -113,6 +97,25 @@ def dates(html: str, options: DateExtraction | None = None, /) -> PublicationDat
     return PublicationDate(date(year, month, day).strftime(active.output_format), signal)
 
 
-def _today() -> date:
-    """Today's date in UTC, the default upper bound so a stray future stamp never wins."""
-    return datetime.now(UTC).date()
+class PublicationDate(NamedTuple):
+    """
+    A date :func:`dates` recovered and the signal it read it from.
+
+    ``date`` is the formatted string (``output_format``, ISO ``YYYY-MM-DD`` by default). ``signal`` names the engine:
+    ``"meta"`` a publication/modification ``<meta>`` tag, ``"json-ld"`` a JSON-LD ``datePublished``/``dateModified``,
+    ``"time"`` a ``<time>`` element, ``"url"`` a date pattern in the canonical URL, ``"text"`` visible page text.
+
+    :param date: the formatted date string.
+    :param signal: the engine that recovered the date.
+    """
+
+    date: str
+    signal: Signal
+
+
+__all__ = [
+    "DateExtraction",
+    "PublicationDate",
+    "Signal",
+    "dates",
+]

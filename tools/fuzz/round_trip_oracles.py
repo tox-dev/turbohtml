@@ -29,11 +29,12 @@ import sys
 import time
 import unicodedata
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from enum import Enum
 from functools import cache, partial
 from itertools import pairwise, starmap
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple, TypeAlias
 from urllib.parse import urlsplit
 
 import tinycss2
@@ -148,6 +149,7 @@ from fuzz.xml_structure_generators import (
 )
 from markdown_it import MarkdownIt
 from tinycss2.ast import AtRule, ParseError, QualifiedRule
+from tinycss2.ast import Node as CssNode
 from typing_extensions import override
 
 from turbohtml import (
@@ -168,6 +170,7 @@ from turbohtml import (
     SourceSpan,
     Text,
     XPath,
+    XPathDepthError,
     parse,
     parse_fragment,
     parse_xml,
@@ -182,86 +185,64 @@ from turbohtml.query import compile as compile_selector
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
-    from urllib.parse import SplitResult
-
-__all__ = [
-    "MAX_INPUT",
-    "ORACLES",
-    "UNBOUNDED",
-    "Floor",
-    "JsNames",
-    "Oracle",
-    "OutOfScopeError",
-    "clean_url_check",
-    "css_semantics_check",
-    "encoding_decode_check",
-    "encoding_stream_check",
-    "fixpoint_check",
-    "html_check",
-    "idna_host_check",
-    "js_names_check",
-    "main",
-    "markdown_check",
-    "normalize_url_check",
-    "resolve_links_check",
-    "selector_entry_check",
-    "span_check",
-    "style_check",
-    "url_reparse_check",
-    "xml_check",
-    "xpath_entry_check",
-]
 
 _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _NODE_DIR: Final[Path] = _ROOT / "tools" / "bench" / "node"
-_MINIMIZE_BUDGET: Final = 600
 # TH_MAX_TREE_DEPTH (src/turbohtml/_c/dom/tree.h): past 512 open elements a start tag is inserted but not pushed, so
 # further tags become siblings and reparsing the flattened output nests them differently
-_MAX_TREE_DEPTH: Final = 512
+_MAX_TREE_DEPTH: Final[int] = 512
 # the CSS minifier caps nesting at 100 levels and drops a deeper block (docs/changelog.rst, 1.13.0)
-_CSS_MAX_NESTING: Final = 100
+_CSS_MAX_NESTING: Final[int] = 100
 # tree.h raises this RecursionError for a walk past its depth budget; the one documented depth error
-_DEPTH_ERROR: Final = re.compile(r"does not support trees nested \d+ levels or deeper")
+_DEPTH_ERROR: Final[re.Pattern[str]] = re.compile(r"does not support trees nested \d+ levels or deeper")
 # Script text where "<!--" opens and "<script" plus a tag end follows before any "-->" breaks the script content
 # restrictions (https://html.spec.whatwg.org/multipage/scripting.html#restrictions-for-contents-of-script-elements):
 # reparsing its serialization lands in the double-escaped state, which swallows the closing "</script>". The standard
 # warns that such parser-made trees need not survive serialize and reparse
 # (https://html.spec.whatwg.org/multipage/parsing.html#serialising-html-fragments).
-_SCRIPT_DOUBLE_ESCAPE: Final = re.compile(r"<!--(?:(?!-->).)*?<script[\t\n\f />]", re.IGNORECASE | re.DOTALL)
+_SCRIPT_DOUBLE_ESCAPE: Final[re.Pattern[str]] = re.compile(
+    r"(?#comment start)<!--(?#comment body with no comment close)(?:(?!-->).)*?"
+    r"(?#script start tag)<script(?#tag name end)[\t\n\f />]",
+    re.IGNORECASE | re.DOTALL,
+)
 # rust-cssparser dropped its idempotence assert because dtoa takes two passes to converge (9999995e-45 -> 10e-39 ->
 # 1e-38), so a numeric rewrite may settle on the second pass:
 # https://github.com/servo/rust-cssparser/blob/106021c7bc55ed2cac83f590c0d356fa530b7061/fuzz/fuzz_targets/cssparser.rs
-_NUMBER: Final = re.compile(r"(?<![\w$#\\.])[+-]?(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(?:[eE][+-]?\d+)?n?")
-_JS_OFF: Final = JSMinify(mangle=False, fold=False)
-_MAX_RENESTS: Final = 5
+_NUMBER: Final[re.Pattern[str]] = re.compile(
+    r"(?#not preceded by a name, sigil, hash, backslash or dot)(?<![\w$#\\.])"
+    r"(?#optional sign)[+-]?"
+    r"(?#digits with optional underscores and an optional decimal point, or a fraction)"
+    r"(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)"
+    r"(?#optional exponent)(?:[eE][+-]?\d+)?(?#optional BigInt suffix)n?"
+)
+_JS_OFF: Final[JSMinify] = JSMinify(mangle=False, fold=False)
 # cap one case's input: generators stay under a few KiB, but a mutated .dat seed can grow, and to_markdown/to_text
 # amplify nested input about 100-240x (tox-dev/turbohtml#1028), so an input this long could print hundreds of MiB
-MAX_INPUT: Final = 64 * 1024
+MAX_INPUT: Final[int] = 64 * 1024
 # parse() allocates without bound on a selectedcontent nested in its own option (findings/01); the generators never
 # emit the tag, so skipping it keeps a machine-safe run while the defect is tracked on its own
-UNBOUNDED: Final = re.compile(r"selectedcontent", re.IGNORECASE)
-_HEADINGS: Final = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
+UNBOUNDED: Final[re.Pattern[str]] = re.compile(r"selectedcontent", re.IGNORECASE)
+_HEADINGS: Final[frozenset[str]] = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
 _SELF_NESTING: Final[dict[str, frozenset[str]]] = {
     **{tag: frozenset({tag}) for tag in ("a", "nobr", "p", "button", "select", "form", "table", "option", "li")},
     **dict.fromkeys(("dd", "dt"), frozenset({"dd", "dt"})),
     **dict.fromkeys(_HEADINGS, _HEADINGS),
     **dict.fromkeys(("rb", "rt", "rp", "rtc"), frozenset({"rb", "rt", "rp", "rtc"})),
 }
-_MARKDOWN_BLOCKS: Final = frozenset({
+_MARKDOWN_BLOCKS: Final[frozenset[str]] = frozenset({
     "address", "article", "aside", "blockquote", "dd", "details", "div", "dl", "dt", "fieldset", "figure", "footer",
     "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section",
     "table", "ul",
 })  # fmt: skip
 # the elements whose Markdown form holds only inline content: phrasing elements and GFM table cells
-_MARKDOWN_HOSTS: Final = frozenset({
+_MARKDOWN_HOSTS: Final[frozenset[str]] = frozenset({
     "a", "abbr", "b", "bdi", "bdo", "cite", "code", "del", "dfn", "em", "i", "ins", "kbd", "mark", "q", "s", "samp",
     "small", "span", "strike", "strong", "sub", "sup", "td", "th", "u", "var",
 })  # fmt: skip
 
 
 class _FaithfulMarkdown(MarkdownIt):
-    """markdown-it percent-encodes link destinations and drops ``javascript:`` links, reader policy this undoes."""
-
+    # markdown-it percent-encodes link destinations and drops ``javascript:`` links, reader policy this undoes.
     @override
     def normalizeLink(self, url: str) -> str:
         return url
@@ -271,39 +252,35 @@ class _FaithfulMarkdown(MarkdownIt):
         return True
 
 
-_MARKDOWN: Final = _FaithfulMarkdown("gfm-like", {"linkify": False})
+_MARKDOWN: Final[_FaithfulMarkdown] = _FaithfulMarkdown("gfm-like", {"linkify": False})
 # markdown-it-py 4.2.0 strips a paragraph with str.strip (rules_block/paragraph.py), so a paragraph of only U+00A0
 # reads as an empty one, where CommonMark strips only spaces and tabs; an empty paragraph shows nothing either way
-_EMPTY_PARAGRAPH: Final = re.compile(r"<p></p>\n")
+_EMPTY_PARAGRAPH: Final[re.Pattern[str]] = re.compile(r"<p></p>\n")
 
 
 class OutOfScopeError(Exception):
-    """The case is outside the oracle's scope; it counts against the oracle's vacuity floor."""
+    # The case is outside the oracle's scope; it counts against the oracle's vacuity floor.
+    ...
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Floor:
-    """
-    The least an oracle must compare for a run to mean anything.
-
-    Modeled on meriyah's ``MINIMUM_COMPARED_RATIO``: ``ratio`` bounds compared cases over compared plus skipped ones,
-    ``count`` bounds the compared cases themselves.
-    """
-
+    # The least an oracle must compare for a run to mean anything.
+    #
+    # Modeled on meriyah's ``MINIMUM_COMPARED_RATIO``: ``ratio`` bounds compared cases over compared plus skipped ones,
+    # ``count`` bounds the compared cases themselves.
     count: int
     ratio: float
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Oracle:
-    """
-    One wrong-output oracle.
-
-    ``check`` returns None when the case holds, a shape-only description when it breaks, and raises
-    :class:`OutOfScopeError` when the case is out of scope. ``controls`` maps each negative control to whether it fired.
-    A case that is a JSON object names the string ``fields`` to shrink one at a time; any other case shrinks whole.
-    """
-
+    # One wrong-output oracle.
+    #
+    # ``check`` returns None when the case holds, a shape-only description when it breaks, and raises
+    # :class:`OutOfScopeError` when the case is out of scope. ``controls`` maps each negative control to whether it
+    # fired.
+    # A case that is a JSON object names the string ``fields`` to shrink one at a time; any other case shrinks whole.
     check: Callable[[str], str | None]
     generate: Callable[[random.Random], str]
     seeds: Callable[[], list[str]]
@@ -314,7 +291,7 @@ class Oracle:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Return 0 when every oracle holds, 1 on a finding, 2 when a control stayed silent or a run compared too little."""
+    # Return 0 when every oracle holds, 1 on a finding, 2 when a control stayed silent or a run compared too little.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--minutes", type=float, default=1.0, help="generation budget after the seed pass")
     parser.add_argument(
@@ -334,7 +311,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"BLIND ORACLE: the negative control did not fire for {', '.join(blind)}", file=sys.stderr)
         return 2
     args.crash_dir.mkdir(parents=True, exist_ok=True)
-    run = _Run(args.crash_dir)
+    run = _Run(crash_dir=args.crash_dir)
     for name in names:
         for seed in ORACLES[name].seeds():
             run.case(name, seed)
@@ -358,7 +335,7 @@ def _meets(floor: Floor, stats: Counter[str]) -> bool:
     return compared >= floor.count and compared >= floor.ratio * (compared + stats["skipped"])
 
 
-@dataclass
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Found:
     oracle: str
     detail: str
@@ -366,7 +343,7 @@ class _Found:
     hits: int = 1
 
 
-@dataclass
+@dataclass(kw_only=True, frozen=True, slots=True)
 class _Run:
     crash_dir: Path
     stats: dict[str, Counter[str]] = field(default_factory=lambda: {name: Counter() for name in ORACLES})
@@ -386,9 +363,9 @@ class _Run:
         self.stats[name]["compared"] += 1
         if detail is not None:
             if (key := (name, detail)) in self.found:
-                self.found[key].hits += 1
+                self.found[key] = replace(self.found[key], hits=self.found[key].hits + 1)
             else:
-                self.found[key] = _Found(name, detail, text)
+                self.found[key] = _Found(oracle=name, detail=detail, text=text)
 
     def report(self, rng_seed: int) -> int:
         for found in self.found.values():
@@ -398,14 +375,14 @@ class _Run:
             digest = hashlib.sha256(data).hexdigest()
             (self.crash_dir / f"crash-{digest}").write_bytes(data)
             sidecar = {"oracle": found.oracle, "detail": found.detail, "hits": found.hits, "rng_seed": rng_seed}
-            (self.crash_dir / f"crash-{digest}.json").write_text(json.dumps(sidecar, indent=2) + "\n", encoding="utf-8")
+            (self.crash_dir / f"crash-{digest}.json").write_text(f"{json.dumps(sidecar, indent=2)}\n", encoding="utf-8")
             # only the oracle and a hash reach the log: the input may be an unreported bug (DESIGN-v2 decision D5)
             print(f"FINDING {found.oracle} sha256={digest}", file=sys.stderr, flush=True)
         return len(self.found)
 
 
 def _guarded(check: Callable[[str], str | None], text: str) -> str | None:
-    """Run one check, turning the documented depth error into a skip and any other escape into a finding."""
+    # Run one check, turning the documented depth error into a skip and any other escape into a finding.
     try:
         return check(text)
     except RecursionError as error:
@@ -431,7 +408,7 @@ def _minimize(
     fields: Sequence[str],
     syntax: Literal["html", "css", "js"] | None,
 ) -> str:
-    remaining = _MINIMIZE_BUDGET
+    remaining = 600
 
     def check(candidate: str) -> bool:
         nonlocal remaining
@@ -456,7 +433,7 @@ def _minimize(
 
 
 def _ddmin(text: str, reproduces: Callable[[str], bool], budget: int) -> str:
-    """Shrink ``text`` while ``reproduces`` holds, with Zeller and Hildebrandt's ddmin under a call budget."""
+    # Shrink ``text`` while ``reproduces`` holds, with Zeller and Hildebrandt's ddmin under a call budget.
     calls = 0
     granularity = 2
     while len(text) >= 2 and calls < budget:
@@ -477,13 +454,11 @@ def _ddmin(text: str, reproduces: Callable[[str], bool], budget: int) -> str:
 
 
 def fixpoint_check(text: str, printer: Callable[[str], str], *, numeric: bool) -> str | None:
-    """
-    Require ``printer`` to reach a fixpoint: printing its own output changes nothing.
-
-    With ``numeric``, a second pass that only rewrites numbers may settle on the third (``f(f(f(x))) == f(f(x))``), the
-    rust-cssparser exception; anything else that moves on the second pass is a finding. A first pass that rejects the
-    input skips it; a later pass that rejects the printer's own output is a finding.
-    """
+    # Require ``printer`` to reach a fixpoint: printing its own output changes nothing.
+    #
+    # With ``numeric``, a second pass that only rewrites numbers may settle on the third (``f(f(f(x))) == f(f(x))``),
+    # the rust-cssparser exception; anything else that moves on the second pass is a finding. A first pass that rejects
+    # the input skips it; a later pass that rejects the printer's own output is a finding.
     try:
         once = printer(text)
     except ValueError as error:
@@ -577,7 +552,7 @@ _IDNA_LABELS: Final[dict[str, tuple[str, str]]] = {
 
 
 def idna_host_check(case: str, normalize: Callable[[str], str] = normalize_url) -> str | None:
-    """Pin supported Unicode 16 host mappings through the public URL normalizer."""
+    # Pin supported Unicode 16 host mappings through the public URL normalizer.
     variant, separator, affix = case.partition("\n")
     if (mapping := _IDNA_LABELS.get(variant)) is None or not separator or not re.fullmatch(r"[a-z0-9]{0,8}", affix):
         raise OutOfScopeError(case)
@@ -585,11 +560,13 @@ def idna_host_check(case: str, normalize: Callable[[str], str] = normalize_url) 
     mapped = affix + mapped
     expected: Final = (
         "https://"
-        + ".".join(
-            label if label.isascii() else "xn--" + label.encode("punycode").decode("ascii")
-            for label in mapped.split(".")
-        )
-        + ".example/"
+        f"""{
+            ".".join(
+                label if label.isascii() else f"xn--{label.encode('punycode').decode('ascii')}"
+                for label in mapped.split(".")
+            )
+        }"""
+        ".example/"
     )
     try:
         once = normalize(f"https://{affix}{source}.example/")
@@ -632,18 +609,25 @@ def _idna_nfc_check(case: str) -> str | None:
 
 
 def normalize_url_check(text: str, normalize: Callable[[str], str] = normalize_url) -> str | None:
-    """URL normalization promises a stable representation after one successful pass."""
+    # URL normalization promises a stable representation after one successful pass.
     return fixpoint_check(text, normalize, numeric=False)
 
 
 def url_reparse_check(text: str, normalize: Callable[[str], str] = normalize_url) -> str | None:
-    """Preserve delimiter presence when checking serialization through a reference split."""
+    # Preserve delimiter presence when checking serialization through a reference split.
     try:
         normalized: Final = normalize(text)
         parts: Final = urlsplit(normalized)
     except ValueError as error:
         raise OutOfScopeError(str(error)) from error
-    recomposed: Final = _url_recompose(parts, normalized)
+    body: Final = normalized[len(parts.scheme) + 1 :] if parts.scheme else normalized
+    recomposed: Final = "".join((
+        f"{parts.scheme}:" if parts.scheme else "",
+        f"//{parts.netloc}" if body.startswith("//") else "",
+        parts.path,
+        f"?{parts.query}" if "?" in body.partition("#")[0] else "",
+        f"#{parts.fragment}" if "#" in body else "",
+    ))
     if recomposed != normalized:
         return f"split/recompose changes normalized URL: {_divergence(normalized, recomposed)}"
     try:
@@ -653,19 +637,8 @@ def url_reparse_check(text: str, normalize: Callable[[str], str] = normalize_url
     return None if reparsed == normalized else f"reparse changes normalized URL: {_divergence(normalized, reparsed)}"
 
 
-def _url_recompose(parts: SplitResult, text: str) -> str:
-    body: Final = text[len(parts.scheme) + 1 :] if parts.scheme else text
-    return "".join((
-        f"{parts.scheme}:" if parts.scheme else "",
-        f"//{parts.netloc}" if body.startswith("//") else "",
-        parts.path,
-        f"?{parts.query}" if "?" in body.partition("#")[0] else "",
-        f"#{parts.fragment}" if "#" in body else "",
-    ))
-
-
 def clean_url_check(text: str, clean: Callable[[str], str | None] = clean_url) -> str | None:
-    """Skip rejected inputs; flag rejection of a cleaned URL."""
+    # Skip rejected inputs; flag rejection of a cleaned URL.
     try:
         once = clean(text)
     except ValueError as error:
@@ -718,7 +691,7 @@ def encoding_stream_check(
     one_shot: Callable[[bytes], EncodingMatch] = detect,
     stream: Callable[[bytes, int], EncodingMatch] | None = None,
 ) -> str | None:
-    """Pin expected detection independently of the chunk-boundary comparison."""
+    # Pin expected detection independently of the chunk-boundary comparison.
     expected: Final = _encoding_case(case)
     if one_shot(expected.data) != expected.match:
         return "one-shot detection differs from expected match"
@@ -734,7 +707,7 @@ def encoding_decode_check(
     decode: Callable[[bytes, str], str] = bytes.decode,
     parse_text: Callable[[bytes], str | None] | None = None,
 ) -> str | None:
-    """Require the codec and byte parser to preserve fixture text."""
+    # Require the codec and byte parser to preserve fixture text.
     expected: Final = _encoding_case(case)
     if expected.match.codec is None:
         raise OutOfScopeError(case)
@@ -752,7 +725,9 @@ def _encoding_case(case: str) -> _EncodingCase:
     if not separator or len(text) > 256 or (text and not text.isprintable()) or any(char in text for char in "<>&"):
         raise OutOfScopeError(case)
     if variant == "empty" and not text:
-        return _EncodingCase(b"", EncodingMatch(None, 0.0, None), "", "")
+        return _EncodingCase(
+            data=b"", match=EncodingMatch(encoding=None, confidence=0.0, language=None), decoded="", text=""
+        )
     if (formatting := _ENCODING_FORMATS.get(variant)) is None:
         raise OutOfScopeError(case)
     codec, prefix, label, meta = formatting
@@ -762,10 +737,17 @@ def _encoding_case(case: str) -> _EncodingCase:
     except UnicodeEncodeError as error:
         raise OutOfScopeError from error
     decoded: Final = ("\ufeff" if label in {"UTF-16LE", "UTF-16BE"} else "") + markup
-    return _EncodingCase(data, EncodingMatch(label, 1.0, None, bool(prefix), f"whatwg-{label.lower()}"), decoded, text)
+    return _EncodingCase(
+        data=data,
+        match=EncodingMatch(
+            encoding=label, confidence=1.0, language=None, bom=bool(prefix), codec=f"whatwg-{label.lower()}"
+        ),
+        decoded=decoded,
+        text=text,
+    )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class _EncodingCase:
     data: bytes
     match: EncodingMatch
@@ -787,7 +769,7 @@ def _encoding_text(data: bytes) -> str:
 
 
 def _divergence(left: str, right: str) -> str:
-    """Name the character classes at the first difference, so findings that differ only in payload share a key."""
+    # Name the character classes at the first difference, so findings that differ only in payload share a key.
     pairs = enumerate(zip(left, right, strict=False))
     index = next((position for position, (one, two) in pairs if one != two), min(len(left), len(right)))
     return f"{_char_class(left[index : index + 1])} vs {_char_class(right[index : index + 1])}"
@@ -806,19 +788,20 @@ def _char_class(char: str) -> str:
 
 
 def html_check(markup: str, serialize: Callable[[Node], str] = Node.serialize) -> str | None:
-    """
-    Require HTML serialization to keep a tree's content and reach a fixpoint, for a document and a ``<div>`` fragment.
-
-    The standard warns that parser-made trees need not survive serialize and reparse
-    (https://html.spec.whatwg.org/multipage/parsing.html#serialising-html-fragments): nested ``<a>``, a ``<table>`` in
-    a quirks-mode ``<p>`` and the like re-nest. So the first reparse may move elements but must keep every text run,
-    comment and element with its attributes, and the second serialization must equal the first byte for byte. A tree
-    flattened past the depth cap, script text that enters the double-escaped state, and a ``plaintext`` element (its
-    serialized end tag is text to the PLAINTEXT state, which never exits) skip. A carriage return compares as a line
-    feed: serialization emits it raw and input preprocessing turns it into one, and text holding one skips, since the
-    line feed it becomes can then be the one a ``pre`` drops after its start tag. Each reparse may re-nest further, so a
-    fixpoint must come within five.
-    """
+    # Require HTML serialization to keep a tree's content and reach a fixpoint, for a document and a ``<div>`` fragment.
+    #
+    # The standard warns that parser-made trees need not survive serialize and reparse
+    # (https://html.spec.whatwg.org/multipage/parsing.html#serialising-html-fragments): nested ``<a>``, a ``<table>`` in
+    # a quirks-mode ``<p>`` and the like re-nest. So the first reparse may move elements but must keep every text run,
+    # comment and element with its attributes, and the second serialization must equal the first byte for byte.
+    #
+    # A tree flattened past the depth cap, script text that enters the double-escaped state, and a ``plaintext`` element
+    # (its serialized end tag is text to the PLAINTEXT state, which never exits) skip.
+    #
+    # A carriage return compares as a line feed: serialization emits it raw and input preprocessing turns it into one,
+    # and text holding one skips, since the line feed it becomes can then be the one a ``pre`` drops after its start
+    # tag. Each reparse may re-nest further, so a fixpoint must come within five.
+    max_renests = 5
     for label, tree, reparse in (
         ("document", parse(markup), parse),
         ("fragment", parse_fragment(markup), parse_fragment),
@@ -827,14 +810,14 @@ def html_check(markup: str, serialize: Callable[[Node], str] = Node.serialize) -
             raise OutOfScopeError
         content = _content(tree)
         printed = _newlines(_print(tree, serialize))
-        for _ in range(_MAX_RENESTS):
+        for _ in range(max_renests):
             if (again := _print(reparsed := reparse(printed), serialize)) == printed:
                 break
             if _content(reparsed) != content:
                 return f"{label} reparse changed content"
             printed = again
         else:
-            return f"{label} not a fixpoint after {_MAX_RENESTS} reparses"
+            return f"{label} not a fixpoint after {max_renests} reparses"
     return None
 
 
@@ -843,8 +826,9 @@ def _print(tree: Node, serialize: Callable[[Node], str]) -> str:
 
 
 def _reparse_may_differ(root: Node) -> bool:
+    # the root node plus 512 ancestors is the deepest placement the tree builder allows, reached only on a full stack
     return (
-        _past_depth_cap(root)
+        any(sum(1 for _ in element.ancestors) > _MAX_TREE_DEPTH for element in root.iter_elements())
         or any(_SCRIPT_DOUBLE_ESCAPE.search(script.text) for script in root.iter_elements("script"))
         or any(element.namespace is Namespace.HTML for element in root.iter_elements("plaintext"))
         or any(isinstance(node, Text) and "\r" in node.data for node in root.descendants)
@@ -864,13 +848,17 @@ def _nests_in_itself(element: Element) -> bool:
     )
 
 
-def _content(root: Node) -> tuple[str, list[str], set[tuple[str, str, tuple[tuple[str, str], ...]]]]:
-    """
-    Reduce a tree to what re-nesting keeps: its text in order, its comments in order, its distinct elements.
+class _Content(NamedTuple):
+    text: str
+    comments: list[str]
+    elements: set[tuple[str, str, tuple[tuple[str, str], ...]]]
 
-    A bare ``p`` or ``br`` does not count: re-nesting can strand a ``</p>`` or meet a ``</br>``, and the tree builder
-    answers each with a new empty element (WHATWG 13.2.6.4.7, "in body").
-    """
+
+def _content(root: Node) -> _Content:
+    # Reduce a tree to what re-nesting keeps: its text in order, its comments in order, its distinct elements.
+    #
+    # A bare ``p`` or ``br`` does not count: re-nesting can strand a ``</p>`` or meet a ``</br>``, and the tree builder
+    # answers each with a new empty element (WHATWG 13.2.6.4.7, "in body").
     nodes = list(root.descendants)
     elements = {
         (
@@ -880,7 +868,7 @@ def _content(root: Node) -> tuple[str, list[str], set[tuple[str, str, tuple[tupl
         )
         for element in root.iter_elements()
     }
-    return (
+    return _Content(
         _newlines("".join(node.data for node in nodes if isinstance(node, Text))),
         [node.data for node in nodes if isinstance(node, Comment)],
         elements - {("html", "p", ()), ("html", "br", ())},
@@ -891,23 +879,16 @@ def _newlines(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
-def _past_depth_cap(root: Node) -> bool:
-    # the root node plus 512 ancestors is the deepest placement the tree builder allows, reached only on a full stack
-    return any(sum(1 for _ in element.ancestors) > _MAX_TREE_DEPTH for element in root.iter_elements())
-
-
 def _xml(node: Node) -> str:
     return node.serialize(Html(xml=True))
 
 
 def xml_check(markup: str, serialize: Callable[[Node], str] = _xml) -> str | None:
-    """
-    Require ``serialize(Html(xml=True))`` output to re-read with ``parse_xml`` into the tree it came from.
-
-    The string must also print unchanged. Content the ``Html.xml`` docstring says the serializer drops or spaces (C0
-    controls, surrogates, U+FFFE/U+FFFF, ``--`` or a trailing ``-`` in a comment, non-XML attribute names) waives only
-    the tree comparison.
-    """
+    # Require ``serialize(Html(xml=True))`` output to re-read with ``parse_xml`` into the tree it came from.
+    #
+    # The string must also print unchanged. Content the ``Html.xml`` docstring says the serializer drops or spaces (C0
+    # controls, surrogates, U+FFFE/U+FFFF, ``--`` or a trailing ``-`` in a comment, non-XML attribute names) waives only
+    # the tree comparison.
     document = parse(markup)
     if sum(isinstance(node, Element) for node in document.children) != 1 or any(
         isinstance(node, Text) for node in document.children
@@ -926,9 +907,9 @@ def xml_check(markup: str, serialize: Callable[[Node], str] = _xml) -> str | Non
     expected, got = [*_xml_dump(document), "#end"], [*_xml_dump(reread), "#end"]
     if expected == got:
         return None
-    return "xml re-read tree differs: " + next(
-        f"{want[:1]} vs {have[:1]}" for want, have in zip(expected, got, strict=False) if want != have
-    )
+    return f"""xml re-read tree differs: {
+        next(f"{want[:1]} vs {have[:1]}" for want, have in zip(expected, got, strict=False) if want != have)
+    }"""
 
 
 def _xml_has_unbound_prefix(document: Document) -> bool:
@@ -949,13 +930,12 @@ def _xml_has_unbound_prefix(document: Document) -> bool:
 
 
 # XML 1.0 Char (https://www.w3.org/TR/xml/#NT-Char) and Name (https://www.w3.org/TR/xml/#NT-Name) productions
-_XML_CHAR: Final = re.compile(r"[^\t\n\r\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
-_XML_PUBID: Final = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \r\n-'()+,./:=?;!*#@$_%")
-_NAME_START: Final = (
+_XML_CHAR: Final[re.Pattern[str]] = re.compile(r"[^\t\n\r\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
+_NAME_START: Final[str] = (
     r":A-Z_a-z\xc0-\xd6\xd8-\xf6\xf8-\u02ff\u0370-\u037d\u037f-\u1fff\u200c\u200d\u2070-\u218f\u2c00-\u2fef"
     r"\u3001-\ud7ff\uf900-\ufdcf\ufdf0-\ufffd\U00010000-\U000effff"
 )
-_XML_NAME: Final = re.compile(rf"[{_NAME_START}][{_NAME_START}\-.0-9\xb7\u0300-\u036f\u203f-\u2040]*")
+_XML_NAME: Final[re.Pattern[str]] = re.compile(rf"[{_NAME_START}][{_NAME_START}\-.0-9\xb7\u0300-\u036f\u203f-\u2040]*")
 
 
 def _xml_lossy(document: Document) -> bool:
@@ -984,8 +964,9 @@ def _xml_lossy(document: Document) -> bool:
 def _xml_doctype_lossy(node: Doctype) -> bool:
     if _XML_NAME.fullmatch(node.name) is None:
         return True
+    xml_pubid = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \r\n-'()+,./:=?;!*#@$_%")
     if node.public_id is not None and (
-        node.system_id is None or any(character not in _XML_PUBID for character in node.public_id)
+        node.system_id is None or any(character not in xml_pubid for character in node.public_id)
     ):
         return True
     return node.system_id is not None and _XML_CHAR.search(node.system_id) is not None
@@ -996,12 +977,10 @@ def _attr_text(value: str | list[str] | None) -> str:
 
 
 def _xml_dump(root: Node) -> list[str]:
-    """
-    Flatten a tree to comparable lines: element names with their non-namespace attributes, merged text, comments.
-
-    ``parse_xml`` reports every element in the HTML namespace and keeps ``xmlns`` declarations as attributes, and a
-    template's content fragment holds what XML reads as the template's children, so those three are normalized away.
-    """
+    # Flatten a tree to comparable lines: element names with their non-namespace attributes, merged text, comments.
+    #
+    # ``parse_xml`` reports every element in the HTML namespace and keeps ``xmlns`` declarations as attributes, and a
+    # template's content fragment holds what XML reads as the template's children, so those three are normalized away.
     out: list[str] = []
     text = ""
     stack: list[Node | str] = list(reversed(root.children))
@@ -1046,7 +1025,7 @@ def _xml_leaf(node: Node) -> str:
 
 
 def resolve_links_check(text: str, resolve: Callable[[Node, str], None] = Node.resolve_links) -> str | None:
-    """Check fixed RFC targets because stable wrong resolutions satisfy a fixed-point check."""
+    # Check fixed RFC targets because stable wrong resolutions satisfy a fixed-point check.
     case, separator, leaf = text.partition(":")
     if not separator or case not in _RESOLUTION_CASES or re.fullmatch(r"[a-z][a-z0-9]{0,15}", leaf) is None:
         raise OutOfScopeError(text)
@@ -1062,7 +1041,7 @@ def resolve_links_check(text: str, resolve: Callable[[Node, str], None] = Node.r
 
 
 def style_check(text: str, read: Callable[[str], StyleDeclaration] = StyleDeclaration.parse) -> str | None:
-    """Require ``StyleDeclaration.text`` to re-read to the same declarations and print unchanged."""
+    # Require ``StyleDeclaration.text`` to re-read to the same declarations and print unchanged.
     first = read(text)
     second = read(once := first.text)
     if _winning(first) != _winning(second):
@@ -1077,16 +1056,14 @@ def _winning(declaration: StyleDeclaration) -> list[tuple[str, str | None, bool]
 
 
 def markdown_check(markup: str, render: Callable[[Node], str] = Node.to_markdown) -> str | None:
-    """
-    Require ``to_markdown`` output to mean, to markdown-it-py's GFM reader, what its own re-rendering means.
-
-    ``m1 = to_markdown(html)`` is read into ``h1``, and ``m2 = to_markdown(h1)`` must read into ``h1`` again: the
-    Markdown tree is the one compared, so spelling choices (which characters get escaped, how many blank lines) do not
-    count, while emphasis delimiters that merge, a table that reads as a paragraph, or a character left unescaped that
-    starts a construct do. CommonMark has no syntax for a block inside an inline or inside a GFM table cell, so a tree
-    that nests one (a ``<pre>`` in a ``<del>``, as the parser builds from misnested tags) has no faithful Markdown form
-    and skips.
-    """
+    # Require ``to_markdown`` output to mean, to markdown-it-py's GFM reader, what its own re-rendering means.
+    #
+    # ``m1 = to_markdown(html)`` is read into ``h1``, and ``m2 = to_markdown(h1)`` must read into ``h1`` again: the
+    # Markdown tree is the one compared, so spelling choices (which characters get escaped, how many blank lines) do not
+    # count, while emphasis delimiters that merge, a table that reads as a paragraph, or a character left unescaped that
+    # starts a construct do. CommonMark has no syntax for a block inside an inline or inside a GFM table cell, so a tree
+    # that nests one (a ``<pre>`` in a ``<del>``, as the parser builds from misnested tags) has no faithful Markdown
+    # form and skips.
     document = parse(markup)
     if any(
         element.tag in _MARKDOWN_BLOCKS
@@ -1127,34 +1104,32 @@ def _markdown_html(markup: str) -> str:
     markup = markup.replace("<del>", "<s>").replace("</del>", "</s>")
     markup = re.sub(r"<br\s*/?>[ \t]*\n?", "<br>", markup)
     markup = markup.replace("<li>\n<br>", "<li><br>")
-    markup = re.sub(r"((?:<(?:strong|em|s)>)+)<br>", r"<br>\1", markup)
-    markup = re.sub(r"<br>((?:</(?:strong|em|s)>)+)", r"\1<br>", markup)
+    markup = re.sub(
+        r"(?P<open>(?#opening formatting tags)(?:<(?:strong|em|s)>)+)(?#before a break)<br>", r"<br>\g<open>", markup
+    )
+    markup = re.sub(r"<br>(?P<close>(?#closing formatting tags)(?:</(?:strong|em|s)>)+)", r"\g<close><br>", markup)
     return re.sub(r"<(strong|em|s)></\1>", "", markup)
 
 
 class JsNames:
-    """
-    The free identifiers and static strings of a JavaScript source, read by acorn and eslint-scope in one Node process.
-
-    ``tools/bench/node/js_names_runner.js`` defines both sets. Kept apart from turbohtml's own JS front end on purpose:
-    a reader that shared the minifier's lexer would share its bugs.
-    """
-
+    # The free identifiers and static strings of a JavaScript source, read by acorn and eslint-scope in one Node
+    # process.
+    #
+    # ``tools/bench/node/js_names_runner.js`` defines both sets. Kept apart from turbohtml's own JS front end on
+    # purpose: a reader that shared the minifier's lexer would share its bugs.
     def __init__(self, runner_dir: Path = _NODE_DIR) -> None:
-        """Start nothing yet; the Node process runs ``js_names_runner.js`` from ``runner_dir`` on the first read."""
+        # Start nothing yet; the Node process runs ``js_names_runner.js`` from ``runner_dir`` on the first read.
         self._runner_dir = runner_dir
         self._process: subprocess.Popen[str] | None = None
 
     def read(self, source: str) -> tuple[frozenset[str], frozenset[str]] | None:
-        """
-        Return ``(free identifiers, static strings)``, or None when acorn rejects ``source``.
-
-        :raises OutOfScopeError: eslint-scope could not scope the tree acorn built.
-        """
+        # Return ``(free identifiers, static strings)``, or None when acorn rejects ``source``.
+        #
+        # :raises OutOfScopeError: eslint-scope could not scope the tree acorn built.
         process = self._start()
         assert process.stdin is not None  # ruff: ignore[assert]  # Popen with stdin=PIPE always sets it
         assert process.stdout is not None  # ruff: ignore[assert]  # Popen with stdout=PIPE always sets it
-        process.stdin.write(json.dumps(source) + "\n")
+        process.stdin.write(f"{json.dumps(source)}\n")
         process.stdin.flush()
         if (answer := json.loads(process.stdout.readline())) is None:
             return None
@@ -1187,17 +1162,17 @@ class JsNames:
         return self._process
 
 
-_OPTION_SETS: Final = tuple(JSMinify(mangle=mangle, fold=fold) for fold in (False, True) for mangle in (False, True))
+_OPTION_SETS: Final[tuple[JSMinify, ...]] = tuple(
+    JSMinify(mangle=mangle, fold=fold) for fold in (False, True) for mangle in (False, True)
+)
 
 
 def js_names_check(source: str, names: JsNames, minify: Callable[[str, JSMinify], str] = minify_js) -> str | None:
-    """
-    Require ``minify_js`` to invent and lose no free identifier and no static string.
-
-    With ``mangle`` and ``fold`` off both sets must match exactly. ``fold`` deletes dead code and concatenates strings
-    and ``mangle`` drops unused declarations, so with either on no free identifier may appear that the input lacked.
-    Every output must parse as JavaScript.
-    """
+    # Require ``minify_js`` to invent and lose no free identifier and no static string.
+    #
+    # With ``mangle`` and ``fold`` off both sets must match exactly. ``fold`` deletes dead code and concatenates strings
+    # and ``mangle`` drops unused declarations, so with either on no free identifier may appear that the input lacked.
+    # Every output must parse as JavaScript.
     if (before := names.read(source)) is None:
         raise OutOfScopeError
     compared = False
@@ -1207,33 +1182,41 @@ def js_names_check(source: str, names: JsNames, minify: Callable[[str, JSMinify]
         except ValueError:
             continue
         compared = True
-        label = f"mangle={options.mangle} fold={options.fold}"
-        if (after := names.read(output)) is None:
-            return f"{label}: output is not JavaScript"
-        if options.fold or options.mangle:
-            if after[0] - before[0]:
-                return f"{label}: free identifier invented"
-        elif after[0] != before[0]:
-            return f"{label}: free identifier {'invented' if after[0] - before[0] else 'lost'}"
-        elif after[1] != before[1]:
-            return f"{label}: static string {'invented' if after[1] - before[1] else 'lost'}"
+        if (verdict := _js_names_verdict(options, before, names.read(output))) is not None:
+            return verdict
     if not compared:
         raise OutOfScopeError
+    return None
+
+
+def _js_names_verdict(
+    options: JSMinify,
+    before: tuple[frozenset[str], frozenset[str]],
+    after: tuple[frozenset[str], frozenset[str]] | None,
+) -> str | None:
+    label = f"mangle={options.mangle} fold={options.fold}"
+    if after is None:
+        return f"{label}: output is not JavaScript"
+    if options.fold or options.mangle:
+        if after[0] - before[0]:
+            return f"{label}: free identifier invented"
+    elif after[0] != before[0]:
+        return f"{label}: free identifier {'invented' if after[0] - before[0] else 'lost'}"
+    elif after[1] != before[1]:
+        return f"{label}: static string {'invented' if after[1] - before[1] else 'lost'}"
     return None
 
 
 def css_semantics_check(
     markup: str, minify: Callable[[str], str] = minify_css, *, stylesheet: str | None = None
 ) -> str | None:
-    """
-    Require ``minify_css`` to keep every element's computed style and every selector's match set.
-
-    cssnano's fuzzCheck model: the document's ``<style>`` sheet is minified in place and ``computed_style`` of each
-    element compared. ``computed_style`` returns values as written and keeps invalid ones, so each pair is read with
-    the CSS value grammar first: two valid values must be equal values, and a value the grammar rejects must not become
-    one it accepts. A value outside what this reader covers makes no claim. Each rule's selector is also minified on its
-    own and must select the same elements.
-    """
+    # Require ``minify_css`` to keep every element's computed style and every selector's match set.
+    #
+    # cssnano's fuzzCheck model: the document's ``<style>`` sheet is minified in place and ``computed_style`` of each
+    # element compared. ``computed_style`` returns values as written and keeps invalid ones, so each pair is read with
+    # the CSS value grammar first: two valid values must be equal values, and a value the grammar rejects must not
+    # become one it accepts. A value outside what this reader covers makes no claim. Each rule's selector is also
+    # minified on its own and must select the same elements.
     document = parse(markup)
     style = _css_style(document, stylesheet)
     sheet = style.text
@@ -1241,8 +1224,7 @@ def css_semantics_check(
     elements = list(document.iter_elements())
     before = [computed_style(element) for element in elements]
     style.text = minify(sheet)
-    after = [computed_style(element) for element in elements]
-    for want, got in zip(before, after, strict=True):
+    for want, got in zip(before, [computed_style(element) for element in elements], strict=True):
         for name in want.properties():
             if (verdict := _value_verdict(name, want[name], got[name])) is not None:
                 return f"computed {_VALUE_KIND.get(name, 'keyword')}: {verdict}"
@@ -1296,8 +1278,21 @@ def _value_verdict(name: str, before: str, after: str) -> str | None:
     return None if want == got else "value changed"
 
 
-_INVALID: Final = ("invalid",)
-_SIDES: Final = ("top", "right", "bottom", "left")
+class _Invalid(Enum):
+    INVALID = "invalid"
+
+
+_INVALID: Final[_Invalid] = _Invalid.INVALID
+_Value: TypeAlias = _Invalid | str | int | float | tuple[str | int | float, ...] | None
+
+
+class _Length(NamedTuple):
+    kind: str
+    number: float
+    unit: str
+
+
+_SIDES: Final[tuple[str, ...]] = ("top", "right", "bottom", "left")
 _VALUE_KIND: Final[dict[str, str]] = {
     **dict.fromkeys(
         ("color", "background-color", "outline-color", *(f"border-{side}-color" for side in _SIDES)), "color"
@@ -1323,29 +1318,27 @@ _VALUE_KIND: Final[dict[str, str]] = {
     "opacity": "alpha",
     "font-weight": "weight",
 }
-_LENGTH_UNITS: Final = frozenset({
+_LENGTH_UNITS: Final[frozenset[str]] = frozenset({
     "px", "em", "rem", "ex", "ch", "vw", "vh", "vmin", "vmax", "cm", "mm", "q", "in", "pt", "pc", "%",
 })  # fmt: skip
-_NUMERIC: Final = re.compile(r"([+-]?(?:\d+\.\d+|\d+|\.\d+)(?:[eE][+-]?\d+)?)([a-zA-Z]+|%)?")
+_NUMERIC: Final[re.Pattern[str]] = re.compile(
+    r"(?P<number>(?#optional sign)[+-]?(?#integer, decimal or fraction)(?:\d+\.\d+|\d+|\.\d+)"
+    r"(?#optional exponent)(?:[eE][+-]?\d+)?)(?P<unit>(?#unit letters or a percent sign)[a-zA-Z]+|%)?"
+)
 # CSS Syntax 3 4.3.12: a "." starts a fraction only before a digit, so "1." is a number and a stray "." delim
-_TRAILING_DOT: Final = re.compile(r"[+-]?\d+\.(?:[a-zA-Z]+|%)?")
-_NAMED_COLORS: Final = {
-    "red": (255, 0, 0, 1.0),
-    "white": (255, 255, 255, 1.0),
-    "black": (0, 0, 0, 1.0),
-    "navy": (0, 0, 128, 1.0),
-    "transparent": (0, 0, 0, 0.0),
-}
+_TRAILING_DOT: Final[re.Pattern[str]] = re.compile(
+    r"(?#optional sign)[+-]?(?#integer digits)\d+(?#the dot that is not followed by a digit)\."
+    r"(?#optional unit or percent sign)(?:[a-zA-Z]+|%)?"
+)
 
 
-def _read_value(name: str, value: str) -> object:
-    """
-    Read one computed value with its property's grammar, for the properties the generator writes.
-
-    Returns a comparable value, ``_INVALID`` when the grammar rejects it, or None when it falls outside what this reader
-    covers. Sources: CSS Values 4 (lengths, a unitless zero, integers), CSS Color 4 (hex, ``rgb()`` legacy and modern
-    syntax, named colors, opacity percentages), CSS Fonts 4 (``bold`` and ``normal`` are 700 and 400).
-    """
+def _read_value(name: str, value: str) -> _Value:
+    # Read one computed value with its property's grammar, for the properties the generator writes.
+    #
+    # Returns a comparable value, ``_INVALID`` when the grammar rejects it, or None when it falls outside what this
+    # reader
+    # covers. Sources: CSS Values 4 (lengths, a unitless zero, integers), CSS Color 4 (hex, ``rgb()`` legacy and modern
+    # syntax, named colors, opacity percentages), CSS Fonts 4 (``bold`` and ``normal`` are 700 and 400).
     text = value.strip()
     kind = _VALUE_KIND.get(name)
     if _TRAILING_DOT.fullmatch(text):
@@ -1353,16 +1346,16 @@ def _read_value(name: str, value: str) -> object:
     if kind == "color":
         return _read_color(text.lower())
     if (numeric := _NUMERIC.fullmatch(text)) is not None:
-        return _read_number(kind, numeric[1], (numeric[2] or "").lower())
+        return _read_number(kind, numeric["number"], (numeric["unit"] or "").lower())
     keyword = text.lower()
     if re.fullmatch(r"-?[a-z][a-z-]*", keyword) is None:
         return None
     return {"bold": 700.0, "normal": 400.0}.get(keyword, keyword) if kind == "weight" else keyword
 
 
-def _read_number(kind: str | None, digits: str, unit: str) -> object:
+def _read_number(kind: str | None, digits: str, unit: str) -> _Value:
     number = float(digits)
-    readers: dict[str | None, Callable[[], object]] = {
+    readers: dict[str | None, Callable[[], _Value]] = {
         "integer": lambda: int(number) if not unit and re.fullmatch(r"[+-]?\d+", digits) else _INVALID,
         "alpha": lambda: {"": number, "%": number / 100}.get(unit, _INVALID),
         "weight": lambda: number if not unit and 1 <= number <= 1000 else _INVALID,
@@ -1372,17 +1365,24 @@ def _read_number(kind: str | None, digits: str, unit: str) -> object:
     return readers.get(kind, lambda: None)()
 
 
-def _read_length(number: float, unit: str) -> object:
+def _read_length(number: float, unit: str) -> _Value:
     if unit and unit not in _LENGTH_UNITS:
         return _INVALID
     if number == 0 and unit != "%":
-        return ("length", 0.0, "")
-    return ("length", number, unit) if unit else _INVALID
+        return _Length("length", 0.0, "")
+    return _Length("length", number, unit) if unit else _INVALID
 
 
-def _read_color(text: str) -> object:
-    if text in _NAMED_COLORS:
-        return _NAMED_COLORS[text]
+def _read_color(text: str) -> _Value:
+    named_colors = {
+        "red": (255, 0, 0, 1.0),
+        "white": (255, 255, 255, 1.0),
+        "black": (0, 0, 0, 1.0),
+        "navy": (0, 0, 128, 1.0),
+        "transparent": (0, 0, 0, 0.0),
+    }
+    if text in named_colors:
+        return named_colors[text]
     if text.startswith("#"):
         digits = text[1:]
         if re.fullmatch(r"[0-9a-f]+", digits) is None or len(digits) not in {3, 4, 6, 8}:
@@ -1395,16 +1395,22 @@ def _read_color(text: str) -> object:
     return _read_rgb(function[1])
 
 
-def _read_rgb(arguments: str) -> object:
-    """Read ``rgb()`` arguments: three comma- or space-separated channels and an alpha, after ``/`` in the latter."""
+def _read_rgb(arguments: str) -> _Value:
+    # Read ``rgb()`` arguments: three comma- or space-separated channels and an alpha, after ``/`` in the latter.
     parts = [part.strip() for part in arguments.split(",")]
     legacy = len(parts) > 1
     if not legacy:
-        modern = re.fullmatch(r"(\S+)\s+(\S+)\s+(\S+)(?:\s*/\s*(\S+))?", parts[0])
+        modern = re.fullmatch(
+            r"(?P<first>(?#first token)\S+)(?#whitespace)\s+(?P<second>(?#second token)\S+)(?#whitespace)\s+"
+            r"(?P<third>(?#third token)\S+)(?#optional slash and fourth token)(?:\s*/\s*(?P<fourth>\S+))?",
+            parts[0],
+        )
         parts = [] if modern is None else [part for part in modern.groups() if part is not None]
     elif any(re.search(r"\s", part) for part in parts):
         parts = []
-    numbers = [match for part in parts if (match := _NUMERIC.fullmatch(part)) is not None and match[2] in {None, "%"}]
+    numbers = [
+        match for part in parts if (match := _NUMERIC.fullmatch(part)) is not None and match["unit"] in {None, "%"}
+    ]
     if len(parts) not in {3, 4} or len(numbers) != len(parts):
         return _INVALID
     if legacy and len({match[2] for match in numbers[:3]}) != 1:
@@ -1433,16 +1439,18 @@ _VALUE_SPELLINGS: Final[dict[str, tuple[str, ...]]] = {
 
 def xpath_entry_check(
     case: str,
-    iterate: Callable[[Node, str], Sequence[object]] = lambda node, expression: list(node.xpath_iter(expression)),
-    first: Callable[[Node, str], object] = lambda node, expression: node.xpath_one(expression),
+    iterate: Callable[[Node, str], Sequence[Node | str | float | bool]] = lambda node, expression: list(
+        node.xpath_iter(expression)
+    ),
+    first: Callable[[Node, str], Node | str | float | bool | None] = lambda node, expression: node.xpath_one(
+        expression
+    ),
 ) -> str | None:
-    """
-    Require ``xpath``, ``xpath_iter``, ``xpath_one`` and a compiled ``XPath`` to agree on one expression.
-
-    pugixml evaluates one query through all its result APIs; here ``list(xpath_iter(e)) == xpath(e)`` (a scalar result
-    is its single item), ``xpath_one(e)`` is the first item or None, ``XPath(e)(node) == xpath(e)``, and every entry
-    point raises the same exception type when one does.
-    """
+    # Require ``xpath``, ``xpath_iter``, ``xpath_one`` and a compiled ``XPath`` to agree on one expression.
+    #
+    # pugixml evaluates one query through all its result APIs; here ``list(xpath_iter(e)) == xpath(e)`` (a scalar result
+    # is its single item), ``xpath_one(e)`` is the first item or None, ``XPath(e)(node) == xpath(e)``, and every entry
+    # point raises the same exception type when one does.
     payload = json.loads(case)
     document = parse(payload["html"])
     expression = payload["xpath"]
@@ -1467,20 +1475,23 @@ def xpath_entry_check(
     return None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Raised:
     kind: str
 
 
-def _outcome(call: Callable[[], object]) -> object:
+_XPathValue: TypeAlias = "Node | str | float | bool | Sequence[_XPathValue] | None"
+
+
+def _outcome(call: Callable[[], _XPathValue]) -> _XPathValue | _Raised:
     try:
         return call()
     except (ValueError, TypeError) as error:
-        return _Raised(type(error).__name__)
+        return _Raised(kind=type(error).__name__)
 
 
-def _same(left: object, right: object) -> bool:
-    """Compare XPath results: nodes by identity (``Node.__eq__``), NaN equal to itself, lists item by item."""
+def _same(left: _XPathValue | _Raised, right: _XPathValue | _Raised) -> bool:
+    # Compare XPath results: nodes by identity (``Node.__eq__``), NaN equal to itself, lists item by item.
     if isinstance(left, list) and isinstance(right, list):
         return len(left) == len(right) and all(starmap(_same, zip(left, right, strict=False)))
     if isinstance(left, float) and isinstance(right, float) and math.isnan(left) and math.isnan(right):
@@ -1489,13 +1500,12 @@ def _same(left: object, right: object) -> bool:
 
 
 def selector_entry_check(case: str, translate: Callable[[str], str] = css_to_xpath) -> str | None:
-    """
-    Require the CSS entry points to agree on one selector over one document.
-
-    ``select(s) == xpath(css_to_xpath(s))`` from the document; a compiled ``Matcher`` selects, filters and matches what
-    ``Node.select`` and ``Node.matches`` do; a scoped select returns exactly the matching descendants, in order; and
-    ``closest`` finds the nearest matching ancestor-or-self.
-    """
+    # Require the CSS entry points to agree on one selector over one document.
+    #
+    # ``select(s) == xpath(css_to_xpath(s))`` from the document; a compiled ``Matcher`` selects, filters and matches
+    # what
+    # ``Node.select`` and ``Node.matches`` do; a scoped select returns exactly the matching descendants, in order; and
+    # ``closest`` finds the nearest matching ancestor-or-self.
     payload = json.loads(case)
     document = parse(payload["html"])
     selector = payload["css"]
@@ -1512,10 +1522,8 @@ def selector_entry_check(case: str, translate: Callable[[str], str] = css_to_xpa
         return None
     try:
         xpath_selected = document.xpath(translated)
-    except ValueError as error:
-        if str(error) == "xpath: an expression nested too deeply":
-            raise OutOfScopeError from error
-        raise
+    except XPathDepthError as error:
+        raise OutOfScopeError from error
     return None if xpath_selected == selected else "xpath(css_to_xpath()) != select()"
 
 
@@ -1543,15 +1551,13 @@ def _matcher_problem(document: Document, selector: str, matcher: Matcher, select
 def span_check(
     markup: str, locate: Callable[[Element], SourceLocation | None] = lambda element: element.source_location
 ) -> str | None:
-    """
-    Require source spans that slice their constructs out of the source.
-
-    html5gum and Babel's position fuzzing check the same: every span lies inside the newline-normalized source with a
-    line and column that match its offset; a start tag span begins with ``<`` and the tag name, an end tag span with
-    ``</``, both end with ``>``; attribute spans sit inside their start tag and begin with the attribute name; distinct
-    tag spans never overlap; ``source_line``/``source_col`` name the start tag; a comment prefix shifts every span by
-    exactly its length; and an ``IncrementalParser`` fed in pieces reports the spans a one-shot parse does.
-    """
+    # Require source spans that slice their constructs out of the source.
+    #
+    # html5gum and Babel's position fuzzing check the same: every span lies inside the newline-normalized source with a
+    # line and column that match its offset; a start tag span begins with ``<`` and the tag name, an end tag span with
+    # ``</``, both end with ``>``; attribute spans sit inside their start tag and begin with the attribute name;
+    # distinct tag spans never overlap; ``source_line``/``source_col`` name the start tag; a comment prefix shifts every
+    # span by exactly its length; and an ``IncrementalParser`` fed in pieces reports the spans a one-shot parse does.
     source = markup.replace("\r\n", "\n").replace("\r", "\n")
     document = parse(markup, source_locations=True)
     elements = [element for element in document.iter_elements() if locate(element) is not None]
@@ -1685,7 +1691,7 @@ def _css_valid_source(text: str) -> bool:
     )
 
 
-def _css_rule_valid(rule: object) -> bool:
+def _css_rule_valid(rule: CssNode) -> bool:
     if isinstance(rule, ParseError):
         return False
     if isinstance(rule, QualifiedRule):
@@ -1703,7 +1709,7 @@ def _css_rule_valid(rule: object) -> bool:
     return True
 
 
-def _css_has_parse_error(tokens: list[object]) -> bool:
+def _css_has_parse_error(tokens: list[CssNode]) -> bool:
     return any(
         getattr(token, "type", "") == "error"
         or _css_has_parse_error(getattr(token, "content", getattr(token, "arguments", [])))
@@ -1726,14 +1732,14 @@ def _js_fixpoint(text: str) -> str | None:
     return fixpoint_check(text, lambda source: minify_js(source, _JS_OFF), numeric=True)
 
 
-_JS_NAMES: Final = JsNames()
+_JS_NAMES: Final[JsNames] = JsNames()
 
 
 def _js_names(text: str) -> str | None:
     return js_names_check(text, _JS_NAMES)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Corpus:
     html: tuple[str, ...]
     css: tuple[str, ...]
@@ -1742,7 +1748,7 @@ class _Corpus:
 
 @cache
 def _corpus() -> _Corpus:
-    """Read the vendored seed inputs once; a missing source is a setup error, never a silent skip."""
+    # Read the vendored seed inputs once; a missing source is a setup error, never a silent skip.
     fuzz_corpus = _ROOT / "tools" / "fuzz" / "corpus"
     regressions = _ROOT / "tests" / "fuzz_regressions"
     tree_tests = _require(_ROOT / "tests" / "html5lib-tests" / "tree-construction")
@@ -1763,9 +1769,11 @@ def _corpus() -> _Corpus:
         for row in json.loads(path.read_text(encoding="utf-8"))
     ]
     return _Corpus(
-        tuple(dict.fromkeys([*html, *_texts(html_files)])),
-        tuple(dict.fromkeys([*(row[0] for row in json.loads(golden.read_text(encoding="utf-8"))), *_texts(css_files)])),
-        tuple(dict.fromkeys([*js, *_texts(regressions.glob("*.js"))])),
+        html=tuple(dict.fromkeys([*html, *_texts(html_files)])),
+        css=tuple(
+            dict.fromkeys([*(row[0] for row in json.loads(golden.read_text(encoding="utf-8"))), *_texts(css_files)])
+        ),
+        js=tuple(dict.fromkeys([*js, *_texts(regressions.glob("*.js"))])),
     )
 
 
@@ -1781,17 +1789,16 @@ def _require(path: Path) -> Path:
 
 
 def _generated(make: Callable[[random.Random], str], count: int = 150) -> Callable[[], list[str]]:
-    """Seed an oracle with a fixed batch from its generator, the same on every run."""
+    # Seed an oracle with a fixed batch from its generator, the same on every run.
     return lambda: [make(rng) for rng in [random.Random(0)] for _ in range(count)]
 
 
 def _mutate(rng: random.Random, text: str, tokens: Sequence[str]) -> str:
-    """Apply one to six edits: insert a token, delete or duplicate a slice, or flip a character's case."""
+    # Apply one to six edits: insert a token, delete or duplicate a slice, or flip a character's case.
     for _ in range(rng.randint(1, 6)):
         at = rng.randint(0, len(text))
         end = min(len(text), at + rng.randint(1, 8))
-        draw = rng.random()
-        if draw < 0.5 or not text:
+        if (draw := rng.random()) < 0.5 or not text:
             text = text[:at] + rng.choice(tokens) + text[at:]
         elif draw < 0.7:
             text = text[:at] + text[end:]
@@ -1802,11 +1809,10 @@ def _mutate(rng: random.Random, text: str, tokens: Sequence[str]) -> str:
     return text
 
 
-_CLASSES: Final = ("a", "b", "c", "a b", "b c")
-_IDS: Final = ("x", "y", "z")
+_IDS: Final[tuple[str, ...]] = ("x", "y", "z")
 
 
-_HTML_TOKENS: Final = (
+_HTML_TOKENS: Final[tuple[str, ...]] = (
     "<p>", "</p>", "<b>", "</b>", "<table>", "<td>", "<svg>", "<math>", "<template>", "<script>", "</script>", "<!--",
     "-->", "<![CDATA[", "]]>", "<a href=x>", "</a>", "<select>", "<option>", "<br>", "</br>", "<image>", "&amp;",
     "&#x0;", "\r", "\n", "<!DOCTYPE html>", "<frameset>", "<plaintext>", "<textarea>", "<style>", "<noscript>",
@@ -1821,7 +1827,7 @@ def _generate_html(rng: random.Random) -> str:
     return html_generate(rng).data.decode("utf-8")
 
 
-_MARKDOWN_TEXT: Final = (
+_MARKDOWN_TEXT: Final[tuple[str, ...]] = (
     "word", "two words", "*", "_", "#", "|", "[", "]", "(", ")", "\\", "`", "&amp;", "&lt;", "&gt;", "1.", "2)", "-",
     "+", "=", "~", "!", "<", ">", "'", '"', "&nbsp;", "---", "***", "```", "~~", "x*y", "a_b_c", "[x](y)", "\U0001f600",
     "é", "http://e.x", " ", "  ",
@@ -1851,12 +1857,10 @@ def _markdown_html_check(source: str) -> str | None:
 
 
 def _markdown_document(rng: random.Random) -> str:
-    """
-    Build conforming HTML that Markdown can express: flow blocks holding phrasing content, never a block inside it.
-
-    CommonMark has no syntax for a block inside an inline, so a parser-made tree that nests one (a ``<pre>`` inside a
-    ``<del>``) has no faithful Markdown form; the text in these blocks carries every Markdown-significant character.
-    """
+    # Build conforming HTML that Markdown can express: flow blocks holding phrasing content, never a block inside it.
+    #
+    # CommonMark has no syntax for a block inside an inline, so a parser-made tree that nests one (a ``<pre>`` inside a
+    # ``<del>``) has no faithful Markdown form; the text in these blocks carries every Markdown-significant character.
     return "".join(_markdown_block(rng, 0) for _ in range(rng.randint(1, 4)))
 
 
@@ -1874,12 +1878,12 @@ def _markdown_block(rng: random.Random, depth: int) -> str:
         choices += [
             lambda: f"<blockquote>{_markdown_block(rng, depth + 1)}</blockquote>",
             lambda: (
-                f"<{(kind := rng.choice(('ul', 'ol')))}>"
-                + "".join(
-                    f"<li>{inline() if rng.random() < 0.7 else _markdown_block(rng, depth + 1)}</li>"
-                    for _ in range(rng.randint(1, 3))
-                )
-                + f"</{kind}>"
+                f"""<{(kind := rng.choice(("ul", "ol")))}>{
+                    "".join(
+                        f"<li>{inline() if rng.random() < 0.7 else _markdown_block(rng, depth + 1)}</li>"
+                        for _ in range(rng.randint(1, 3))
+                    )
+                }</{kind}>"""
             ),
         ]
     return rng.choice(choices)()
@@ -1894,8 +1898,7 @@ def _markdown_table(rng: random.Random, columns: int) -> str:
 def _markdown_inline(rng: random.Random, depth: int) -> str:
     out = []
     for _ in range(rng.randint(1, 4)):
-        draw = rng.random()
-        if draw < 0.5 or depth >= 2:
+        if (draw := rng.random()) < 0.5 or depth >= 2:
             out.append(rng.choice(_MARKDOWN_TEXT))
         elif draw < 0.75:
             tag = rng.choice(("em", "strong", "del", "b", "i"))
@@ -1913,13 +1916,13 @@ def _markdown_inline(rng: random.Random, depth: int) -> str:
     return "".join(out)
 
 
-_CSS_TOKENS: Final = (
+_CSS_TOKENS: Final[tuple[str, ...]] = (
     "{", "}", ";", ":", "!important", "/*x*/", "/*!b*/", "@media screen{", "@supports (display:grid){", "url(a b)",
     'url("x")', '"s\\"t"', "'q'", "\\", "\\61", "#fff", "0px", "1e3", "+.5", "-0", "calc(1px + 2px)", "var(--x)",
     "--x:", "a,b", ">", "+", "~", "*", "[x=y]", ":not(", ")", "::before", "@import", "@charset", "\n", " ", "%",
 )  # fmt: skip
-_SELECTOR_TAGS: Final = ("div", "p", "span", "a", "b", "i", "li", "ul", "section", "em")
-_PSEUDOS: Final = (
+_SELECTOR_TAGS: Final[tuple[str, ...]] = ("div", "p", "span", "a", "b", "i", "li", "ul", "section", "em")
+_PSEUDOS: Final[tuple[str, ...]] = (
     ":first-child", ":last-child", ":only-child", ":nth-child(2n+1)", ":nth-child(odd)", ":nth-child(even)",
     ":nth-last-child(-n+3)", ":nth-of-type(2)", ":first-of-type", ":last-of-type", ":empty", ":root", ":link",
     ":any-link", ":checked", ":disabled", ":enabled", ":lang(en)", ":nth-child(+0n+1)", ":nth-child(1 of .a)",
@@ -1928,7 +1931,7 @@ _PSEUDOS: Final = (
 
 
 def _selector(rng: random.Random, depth: int = 0) -> str:
-    """Draw a selector list over the generators' tag, class, id and attribute vocabulary."""
+    # Draw a selector list over the generators' tag, class, id and attribute vocabulary.
     return ", ".join(_complex_selector(rng, depth) for _ in range(1 if rng.random() < 0.8 else rng.randint(2, 3)))
 
 
@@ -1942,17 +1945,15 @@ def _complex_selector(rng: random.Random, depth: int) -> str:
 def _compound(rng: random.Random, depth: int) -> str:
     out = rng.choice(("", "", "*", *_SELECTOR_TAGS, "DIV", "P"))
     for _ in range(rng.choice((0, 1, 1, 2, 3)) if out else rng.randint(1, 3)):
-        draw = rng.random()
-        if draw < 0.25:
+        if (draw := rng.random()) < 0.25:
             out += "." + rng.choice(("a", "b", "c", "\\61", "A"))
         elif draw < 0.35:
-            out += "#" + rng.choice(_IDS)
+            out += f"#{rng.choice(_IDS)}"
         elif draw < 0.6:
             name = rng.choice(("title", "data-x", "lang", "class", "id", "href", "TITLE"))
             operator = rng.choice(("", "=", "~=", "|=", "^=", "$=", "*="))
             value = rng.choice(("a", '"b c"', "'x'", '""', "e", "A", "en")) if operator else ""
-            flag = rng.choice(("", "", " i", " s", " I")) if operator else ""
-            out += f"[{name}{operator}{value}{flag}]"
+            out += f"[{name}{operator}{value}{(rng.choice(('', '', ' i', ' s', ' I')) if operator else '')}]"
         elif draw < 0.85 or depth >= 2:
             out += rng.choice(_PSEUDOS)
         else:
@@ -1963,16 +1964,17 @@ def _compound(rng: random.Random, depth: int) -> str:
 
 
 def _vocabulary_tree(rng: random.Random, budget: int = 25) -> str:
-    """Markup whose tags, classes, ids and attributes are the ones the selector and XPath generators draw from."""
+    # Markup whose tags, classes, ids and attributes are the ones the selector and XPath generators draw from.
     out: list[str] = []
     stack: list[str] = []
+    classes = ("a", "b", "c", "a b", "b c")
     for _ in range(rng.randint(3, budget)):
         if (draw := rng.random()) < 0.5:
             tag = rng.choice(_SELECTOR_TAGS)
             attrs = "".join(
                 f' {name}="{rng.choice(values)}"'
                 for name, values in (
-                    ("class", _CLASSES),
+                    ("class", classes),
                     ("id", _IDS),
                     ("title", ("a", "b c", "A", "x", "")),
                     ("lang", ("en", "en-US", "fr")),
@@ -1990,8 +1992,15 @@ def _vocabulary_tree(rng: random.Random, budget: int = 25) -> str:
     return "".join(out)
 
 
-_LENGTHS: Final = (*_VALUE_SPELLINGS["0"], *_VALUE_SPELLINGS["1.5px"], *_VALUE_SPELLINGS["10px"], "2em", "5%", "auto")
-_COLORS: Final = (
+_LENGTHS: Final[tuple[str, ...]] = (
+    *_VALUE_SPELLINGS["0"],
+    *_VALUE_SPELLINGS["1.5px"],
+    *_VALUE_SPELLINGS["10px"],
+    "2em",
+    "5%",
+    "auto",
+)
+_COLORS: Final[tuple[str, ...]] = (
     *_VALUE_SPELLINGS["red"], *_VALUE_SPELLINGS["white"], *_VALUE_SPELLINGS["black"], *_VALUE_SPELLINGS["navy"],
     *_VALUE_SPELLINGS["transparent"], "currentcolor", "currentColor", "inherit",
 )  # fmt: skip
@@ -2049,7 +2058,7 @@ def _declaration(rng: random.Random) -> str:
 
 
 def _stylesheet(rng: random.Random) -> str:
-    """Draw rules over a small selector and declaration pool, so the minifier finds rules and longhands to merge."""
+    # Draw rules over a small selector and declaration pool, so the minifier finds rules and longhands to merge.
     selectors = [_selector(rng) for _ in range(rng.randint(1, 5))]
     rules = []
     for _ in range(rng.randint(1, 8)):
@@ -2092,12 +2101,10 @@ def _generate_semantic(rng: random.Random) -> str:
 
 
 def _root(rng: random.Random) -> str:
-    """
-    Open a no-quirks document whose root element sometimes carries attributes, so root-only matches show.
-
-    Quirks mode matches class and id selectors case-insensitively (Selectors 4 §6.6, DOM §4.2.6.1), which a selector
-    translated to XPath cannot know, so every generated document declares the standard mode.
-    """
+    # Open a no-quirks document whose root element sometimes carries attributes, so root-only matches show.
+    #
+    # Quirks mode matches class and id selectors case-insensitively (Selectors 4 §6.6, DOM §4.2.6.1), which a selector
+    # translated to XPath cannot know, so every generated document declares the standard mode.
     attrs = "".join(
         f' {name}="{value}"' for name, value in (("lang", "en"), ("class", "a"), ("title", "x")) if rng.random() < 0.3
     )
@@ -2105,29 +2112,10 @@ def _root(rng: random.Random) -> str:
 
 
 def _generate_xpath_case(rng: random.Random) -> str:
-    return json.dumps({"html": _root(rng) + _vocabulary_tree(rng), "xpath": _xpath(rng)})
-
-
-def _generate_selector_case(rng: random.Random) -> str:
-    return json.dumps({"html": _root(rng) + _vocabulary_tree(rng), "css": _selector(rng)})
-
-
-_AXES: Final = (
-    "child", "descendant", "descendant-or-self", "parent", "ancestor", "ancestor-or-self", "following-sibling",
-    "preceding-sibling", "following", "preceding", "self", "attribute",
-)  # fmt: skip
-_NODE_TESTS: Final = ("*", "node()", "text()", "comment()", "processing-instruction()", *_SELECTOR_TAGS)
-_PREDICATES: Final = (
-    "1", "2", "last()", "last()-1", "position()<3", "position()=last()", "@id", "@class='a'", "@title", "not(@id)",
-    "name()='p'", "count(*)>1", "contains(.,'x')", "starts-with(@class,'a')", "string-length()>2", "text()='x'",
-    "*", "b", "0", "true()", ".//a", "@*", "lang('en')", "normalize-space()", "-1", "1.5", "@data-x='e'",
-)  # fmt: skip
-
-
-def _xpath(rng: random.Random) -> str:
-    """Draw an XPath 1.0 expression: a location path, a union, or a function or arithmetic over paths."""
+    html: Final = _root(rng) + _vocabulary_tree(rng)
+    # Draw an XPath 1.0 expression: a location path, a union, or a function or arithmetic over paths.
     path = _path(rng)
-    return rng.choice((
+    xpath = rng.choice((
         path,
         path,
         path,
@@ -2147,16 +2135,40 @@ def _xpath(rng: random.Random) -> str:
         "0 div 0",
         "-0",
     ))
+    return json.dumps({"html": html, "xpath": xpath})
+
+
+def _generate_selector_case(rng: random.Random) -> str:
+    return json.dumps({"html": _root(rng) + _vocabulary_tree(rng), "css": _selector(rng)})
+
+
+_AXES: Final[tuple[str, ...]] = (
+    "child", "descendant", "descendant-or-self", "parent", "ancestor", "ancestor-or-self", "following-sibling",
+    "preceding-sibling", "following", "preceding", "self", "attribute",
+)  # fmt: skip
+_NODE_TESTS: Final[tuple[str, ...]] = (
+    "*",
+    "node()",
+    "text()",
+    "comment()",
+    "processing-instruction()",
+    *_SELECTOR_TAGS,
+)
+_PREDICATES: Final[tuple[str, ...]] = (
+    "1", "2", "last()", "last()-1", "position()<3", "position()=last()", "@id", "@class='a'", "@title", "not(@id)",
+    "name()='p'", "count(*)>1", "contains(.,'x')", "starts-with(@class,'a')", "string-length()>2", "text()='x'",
+    "*", "b", "0", "true()", ".//a", "@*", "lang('en')", "normalize-space()", "-1", "1.5", "@data-x='e'",
+)  # fmt: skip
 
 
 def _path(rng: random.Random) -> str:
     steps = []
     for _ in range(rng.randint(1, 3)):
-        if (draw := rng.random()) < 0.15:
-            step = rng.choice(("..", ".", "@*", "@id", "@class"))
-        else:
-            axis = rng.choice(_AXES) + "::" if draw < 0.55 else ""
-            step = axis + rng.choice(_NODE_TESTS)
+        step = (
+            rng.choice(("..", ".", "@*", "@id", "@class"))
+            if (draw := rng.random()) < 0.15
+            else (f"{rng.choice(_AXES)}::" if draw < 0.55 else "") + rng.choice(_NODE_TESTS)
+        )
         steps.append(step + "".join(f"[{rng.choice(_PREDICATES)}]" for _ in range(rng.choice((0, 0, 1, 2)))))
     separators = [rng.choice(("/", "//")) for _ in steps]
     return rng.choice(("/", "//", "", "")) + "".join(
@@ -2164,43 +2176,35 @@ def _path(rng: random.Random) -> str:
     )
 
 
-_JS_FREE: Final = ("console", "window", "Math", "JSON", "undefined", "NaN", "Infinity", "globalThis", "zz")
-_JS_BOUND: Final = ("a", "b", "c", "foo", "bar", "$", "_x", "\\u0061b", "of", "async", "yield", "let")
-_JS_STRINGS: Final = (
+_JS_FREE: Final[tuple[str, ...]] = (
+    "console",
+    "window",
+    "Math",
+    "JSON",
+    "undefined",
+    "NaN",
+    "Infinity",
+    "globalThis",
+    "zz",
+)
+_JS_BOUND: Final[tuple[str, ...]] = ("a", "b", "c", "foo", "bar", "$", "_x", "\\u0061b", "of", "async", "yield", "let")
+_JS_STRINGS: Final[tuple[str, ...]] = (
     "'a'", '"b"', "'it\\'s'", '"\\x41"', "'\\u{1F600}'", '"\\n"', "''", '"use strict"', "'\\0'", '"q\\\r\nr"',
     "'</script>'", '"\\u2028"', "'a\"b'", '"1"', "'if'",
 )  # fmt: skip
-_JS_NUMBERS: Final = (
-    "0",
-    "1",
-    "1.50",
-    ".5",
-    "5.",
-    "1e3",
-    "1E-7",
-    "0x1F",
-    "0o17",
-    "0b101",
-    "1_000",
-    "123n",
-    "0.1",
-    "-0",
-)
-_JS_PROPERTIES: Final = ("a", "b", "if", "class", "length", "constructor", "1", "'q'", '"r s"', "0x10", "[c]", "1.5")
 
 
-@dataclass
 class _Script:
-    """
-    The state one generated script threads through: a source of fresh names and whether a ``return`` is legal.
+    # The state one generated script threads through: a source of fresh names and whether a ``return`` is legal.
+    #
+    # Fresh names keep ``let``/``const``/``class`` declarations from colliding, which acorn rejects as early errors;
+    # references draw from the declared and free pools, so most of them bind (Domato's scope-threading rule).
+    __slots__ = ("counter", "declared", "rng")
 
-    Fresh names keep ``let``/``const``/``class`` declarations from colliding, which acorn rejects as early errors;
-    references draw from the declared and free pools, so most of them bind (Domato's scope-threading rule).
-    """
-
-    rng: random.Random
-    declared: list[str] = field(default_factory=lambda: list(_JS_BOUND[:7]))
-    counter: int = 0
+    def __init__(self, *, rng: random.Random) -> None:
+        self.rng = rng
+        self.declared = list(_JS_BOUND[:7])
+        self.counter = 0
 
     def fresh(self) -> str:
         self.counter += 1
@@ -2212,12 +2216,6 @@ class _Script:
         return self.rng.choice((*_JS_FREE, *self.declared))
 
 
-def _program(rng: random.Random) -> str:
-    """Draw a script from statements and expressions chosen for printer hazards: ASI, operator spacing, keys."""
-    script = _Script(rng)
-    return "".join(_statement(script, 0, in_function=False) for _ in range(rng.randint(1, 6)))
-
-
 def _end(rng: random.Random) -> str:
     return rng.choice((";", ";", ";", "\n", ";\n"))
 
@@ -2227,7 +2225,7 @@ def _statement(script: _Script, depth: int, *, in_function: bool) -> str:
 
     def block(*, function: bool = in_function) -> str:
         statements = "".join(_statement(script, depth + 1, in_function=function) for _ in range(rng.randint(0, 3)))
-        return "{" + statements + "}"
+        return f"{{{statements}}}"
 
     def expression() -> str:
         return _expression(script, depth)
@@ -2278,11 +2276,27 @@ def _class(script: _Script, depth: int) -> str:
 
 def _expression(script: _Script, depth: int) -> str:
     rng = script.rng
+    js_numbers = (
+        "0",
+        "1",
+        "1.50",
+        ".5",
+        "5.",
+        "1e3",
+        "1E-7",
+        "0x1F",
+        "0o17",
+        "0b101",
+        "1_000",
+        "123n",
+        "0.1",
+        "-0",
+    )
     if depth >= 3 or rng.random() < 0.35:
         return rng.choice((
             script.reference,
             lambda: rng.choice(_JS_STRINGS),
-            lambda: rng.choice(_JS_NUMBERS),
+            lambda: rng.choice(js_numbers),
             lambda: rng.choice(("true", "false", "null", "this", "/a+/g", "/[/]/", "`t`", "``")),
         ))()
 
@@ -2292,9 +2306,10 @@ def _expression(script: _Script, depth: int) -> str:
     def target() -> str:
         return rng.choice(script.declared[:7])
 
+    js_properties = ("a", "b", "if", "class", "length", "constructor", "1", "'q'", '"r s"', "0x10", "[c]", "1.5")
     return rng.choice((
         lambda: f"{sub()}.{rng.choice(('a', 'if', 'class', 'length'))}",
-        lambda: f"{sub()}[{rng.choice(_JS_STRINGS + _JS_NUMBERS)}]",
+        lambda: f"{sub()}[{rng.choice(_JS_STRINGS + js_numbers)}]",
         lambda: f"{sub()}?.{rng.choice(('a', 'b'))}",
         lambda: f"{sub()}?.[{sub()}]",
         lambda: f"{sub()}({', '.join(sub() for _ in range(rng.randint(0, 2)))})",
@@ -2305,32 +2320,35 @@ def _expression(script: _Script, depth: int) -> str:
         lambda: f"{target()} {rng.choice(('+ +', '- -', '+ ++', '- --', '/ /x/ /'))}{target()}",
         lambda: f"({sub()} ? {sub()} : {sub()})",
         lambda: f"(({', '.join(rng.sample(_JS_BOUND[:5], rng.randint(0, 2)))}) => {sub()})",
-        lambda: f"({{{rng.choice(_JS_PROPERTIES)}: {sub()}, {target()}, m() {{ return {sub()} }}, ...{sub()}}})",
+        lambda: f"({{{rng.choice(js_properties)}: {sub()}, {target()}, m() {{ return {sub()} }}, ...{sub()}}})",
         lambda: f"[{sub()}, , ...{sub()}]",
         lambda: f"({target()} {rng.choice(('=', '+=', '??=', '||=', '**='))} {sub()})",
         lambda: f"`a${{{sub()}}}b${{{sub()}}}`",
         lambda: f"{rng.choice(_JS_FREE[:3])}`x\\x41${{{sub()}}}`",
         lambda: f"(function {rng.choice(('', 'f'))}() {{ return {sub()} }})()",
-        lambda: f"{rng.choice(_JS_NUMBERS[:6])} .toString()",
+        lambda: f"{rng.choice(js_numbers[:6])} .toString()",
         lambda: f"([{target()}, {target()}] = {sub()})",
         lambda: f"({{a: {target()}, b = 1}} = {sub()})",
         lambda: f"{target()}++",
     ))()
 
 
-_JS_BINARY: Final = (
+_JS_BINARY: Final[tuple[str, ...]] = (
     "+", "-", "*", "/", "%", "**", "==", "===", "!=", "<", ">=", "&&", "||", "??", "&", "|", "^", "<<", ">>>", "in",
     "instanceof", ",",
 )  # fmt: skip
 
 
-_JS_TOKENS: Final = ("\n", ";", "(", ")", "{", "}", ",", "+", "-", "/", "'", "`", "${", "in ", " of ", "=>", ".", "?.")
-
-
 def _generate_js(rng: random.Random) -> str:
     if rng.random() < 0.25:
-        return _mutate(rng, rng.choice(_corpus().js), _JS_TOKENS)
-    return _program(rng)
+        return _mutate(
+            rng,
+            rng.choice(_corpus().js),
+            ("\n", ";", "(", ")", "{", "}", ",", "+", "-", "/", "'", "`", "${", "in ", " of ", "=>", ".", "?."),
+        )
+    # Draw a script from statements and expressions chosen for printer hazards: ASI, operator spacing, keys.
+    script = _Script(rng=rng)
+    return "".join(_statement(script, 0, in_function=False) for _ in range(rng.randint(1, 6)))
 
 
 def _generate_url(rng: random.Random) -> str:
@@ -2343,7 +2361,7 @@ def _generate_url(rng: random.Random) -> str:
 
 
 # RFC 3986 section 5.4 supplies independent targets; safe HTTP leaves avoid scheme-specific edge policies.
-_RESOLUTION_BASE: Final = "http://example.test/b/c/d;p?q"
+_RESOLUTION_BASE: Final[str] = "http://example.test/b/c/d;p?q"
 _RESOLUTION_CASES: Final[dict[str, tuple[str, str]]] = {
     "child": ("{leaf}", "http://example.test/b/c/{leaf}"),
     "current": ("./{leaf}", "http://example.test/b/c/{leaf}"),
@@ -2374,7 +2392,7 @@ def _resolve_wrong_target(node: Node, _base: str) -> None:
 
 def _resolve_changed_repeat(node: Node, base: str) -> None:
     if node.links()[0].url.startswith("http:"):
-        node.select("a")[0].attrs["href"] = node.links()[0].url + "a"
+        node.select("a")[0].attrs["href"] = f"{node.links()[0].url}a"
     else:
         node.resolve_links(base)
 
@@ -2386,7 +2404,7 @@ def _generate_encoding(rng: random.Random) -> str:
 
 
 def _encoding_stream_controls() -> dict[str, bool]:
-    missing: Final = EncodingMatch(None, 0.0, None)
+    missing: Final = EncodingMatch(encoding=None, confidence=0.0, language=None)
     return {
         "wrong one-shot label": encoding_stream_check("utf-8-bom\ncafé", lambda _data: missing) is not None,
         "wrong chunked label": encoding_stream_check("utf-8-bom\ncafé", stream=lambda _data, _width: missing)
@@ -2399,7 +2417,7 @@ def _encoding_decode_controls() -> dict[str, bool]:
         "wrong codec text": encoding_decode_check("utf-8-meta\ncafé", decode=lambda _data, _codec: "") is not None,
         "wrong parsed text": encoding_decode_check("utf-8-meta\ncafé", parse_text=lambda _data: "") is not None,
         "wrong detected label": encoding_decode_check(
-            "utf-8-meta\ncafé", detect_bytes=lambda _data: EncodingMatch(None, 0.0, None)
+            "utf-8-meta\ncafé", detect_bytes=lambda _data: EncodingMatch(encoding=None, confidence=0.0, language=None)
         )
         is not None,
     }
@@ -2423,7 +2441,7 @@ def _idna_host_controls() -> dict[str, bool]:
         "wrong mapping": idna_host_check("umlaut\n", lambda _text: "https://wrong.example/") is not None,
         "non-NFC label": idna_host_check("umlaut\n", lambda _text: "https://xn--u-ccb.example/") is not None,
         "changed canonical output": idna_host_check(
-            "umlaut\n", lambda text: normalize_url(text) if not text.isascii() else text + "a"
+            "umlaut\n", lambda text: normalize_url(text) if not text.isascii() else f"{text}a"
         )
         is not None,
     }
@@ -2431,7 +2449,7 @@ def _idna_host_controls() -> dict[str, bool]:
 
 def _normalize_url_controls() -> dict[str, bool]:
     return {
-        "growing output": normalize_url_check("https://example.org/", lambda text: text + "a") is not None,
+        "growing output": normalize_url_check("https://example.org/", lambda text: f"{text}a") is not None,
         "rejects normalized output": normalize_url_check("raw", _reject_url_output) is not None,
     }
 
@@ -2456,7 +2474,7 @@ def _reject_url_output(text: str) -> str:
 
 def _clean_url_controls() -> dict[str, bool]:
     return {
-        "growing output": clean_url_check("https://example.org/", lambda text: text + "a") is not None,
+        "growing output": clean_url_check("https://example.org/", lambda text: f"{text}a") is not None,
         "drops cleaned output": clean_url_check("raw", lambda text: "https://example.org/" if text == "raw" else None)
         is not None,
         "rejects cleaned output": clean_url_check("raw", _reject_url_output) is not None,
@@ -2499,7 +2517,7 @@ def _xml_controls() -> dict[str, bool]:
 
 def _css_controls() -> dict[str, bool]:
     return {
-        "growing output": _css_fixpoint("a{color:red}", lambda css: minify_css(css) + "/*!x*/") is not None,
+        "growing output": _css_fixpoint("a{color:red}", lambda css: f"{minify_css(css)}/*!x*/") is not None,
         "late non-numeric convergence": fixpoint_check("aa", lambda text: text.replace("a", "b", 1), numeric=True)
         is not None,
     }
@@ -2507,14 +2525,14 @@ def _css_controls() -> dict[str, bool]:
 
 def _js_controls() -> dict[str, bool]:
     return {
-        "growing output": fixpoint_check("x", lambda source: minify_js(source, _JS_OFF) + "\n0", numeric=True)
+        "growing output": fixpoint_check("x", lambda source: f"{minify_js(source, _JS_OFF)}\n0", numeric=True)
         is not None
     }
 
 
 def _style_controls() -> dict[str, bool]:
     return {
-        "growing output": style_check("a:b", lambda text: StyleDeclaration.parse(text + ";z:1")) is not None,
+        "growing output": style_check("a:b", lambda text: StyleDeclaration.parse(f"{text};z:1")) is not None,
         "changed value": style_check("a:b", lambda text: StyleDeclaration.parse(text.replace(": ", ":x", 1)))
         is not None,
     }
@@ -2529,14 +2547,14 @@ def _js_names_controls() -> dict[str, bool]:
         return lambda source, options: edit(minify_js(source, options))
 
     return {
-        "invented free identifier": js_names_check("x", _JS_NAMES, broken(lambda out: out + ";zz")) is not None,
+        "invented free identifier": js_names_check("x", _JS_NAMES, broken(lambda out: f"{out};zz")) is not None,
         "lost string": js_names_check("f('q')", _JS_NAMES, broken(lambda out: re.sub(r"['\"]q['\"]", "0", out)))
         is not None,
         "captured free identifier": js_names_check(
             "function f(a){return b}", _JS_NAMES, lambda _source, _options: "function f(b){return b}"
         )
         is not None,
-        "output not JavaScript": js_names_check("x", _JS_NAMES, broken(lambda out: out + "(")) is not None,
+        "output not JavaScript": js_names_check("x", _JS_NAMES, broken(lambda out: f"{out}(")) is not None,
     }
 
 
@@ -2635,153 +2653,297 @@ def _xml_literal(case: str) -> str | None:
 
 ORACLES: Final[dict[str, Oracle]] = {
     "encoding-stream": Oracle(
-        encoding_stream_check, _generate_encoding, _encoding_seeds, _encoding_stream_controls, Floor(100, 0.95)
+        check=encoding_stream_check,
+        generate=_generate_encoding,
+        seeds=_encoding_seeds,
+        controls=_encoding_stream_controls,
+        floor=Floor(count=100, ratio=0.95),
     ),
     "parser-bytes": Oracle(
-        _parser_bytes_check, parser_bytes_generate, parser_bytes_seeds, parser_bytes_controls, Floor(100, 1)
+        check=_parser_bytes_check,
+        generate=parser_bytes_generate,
+        seeds=parser_bytes_seeds,
+        controls=parser_bytes_controls,
+        floor=Floor(count=100, ratio=1),
     ),
     "encoding-decode": Oracle(
-        encoding_decode_check, _generate_encoding, _encoding_seeds, _encoding_decode_controls, Floor(100, 0.95)
+        check=encoding_decode_check,
+        generate=_generate_encoding,
+        seeds=_encoding_seeds,
+        controls=_encoding_decode_controls,
+        floor=Floor(count=100, ratio=0.95),
     ),
     "css-custom-tokens": Oracle(
-        _css_custom_check, css_custom_generate, css_custom_seeds, css_custom_controls, Floor(100, 1)
+        check=_css_custom_check,
+        generate=css_custom_generate,
+        seeds=css_custom_seeds,
+        controls=css_custom_controls,
+        floor=Floor(count=100, ratio=1),
     ),
     "observer-sequence": Oracle(
-        _observer_sequence_check,
-        observer_sequence_generate,
-        observer_sequence_seeds,
-        observer_sequence_controls,
-        Floor(100, 1),
+        check=_observer_sequence_check,
+        generate=observer_sequence_generate,
+        seeds=observer_sequence_seeds,
+        controls=observer_sequence_controls,
+        floor=Floor(count=100, ratio=1),
     ),
     "dom-program": Oracle(
-        _dom_program_check, dom_program_generate, dom_program_seeds, dom_program_controls, Floor(100, 1)
+        check=_dom_program_check,
+        generate=dom_program_generate,
+        seeds=dom_program_seeds,
+        controls=dom_program_controls,
+        floor=Floor(count=100, ratio=1),
     ),
     "dom-lifecycle": Oracle(
-        _dom_lifecycle_check, dom_lifecycle_generate, dom_lifecycle_seeds, dom_lifecycle_controls, Floor(200, 1)
+        check=_dom_lifecycle_check,
+        generate=dom_lifecycle_generate,
+        seeds=dom_lifecycle_seeds,
+        controls=dom_lifecycle_controls,
+        floor=Floor(count=200, ratio=1),
     ),
-    "xml-island-grammar": Oracle(_xml_island, xml_island_generate, xml_island_seeds, xml_island_controls, Floor(54, 1)),
+    "xml-island-grammar": Oracle(
+        check=_xml_island,
+        generate=xml_island_generate,
+        seeds=xml_island_seeds,
+        controls=xml_island_controls,
+        floor=Floor(count=54, ratio=1),
+    ),
     "xml-literal-grammar": Oracle(
-        _xml_literal, xml_literal_generate, xml_literal_seeds, xml_literal_controls, Floor(96, 1)
+        check=_xml_literal,
+        generate=xml_literal_generate,
+        seeds=xml_literal_seeds,
+        controls=xml_literal_controls,
+        floor=Floor(count=96, ratio=1),
     ),
     "iterator-sequence": Oracle(
-        _iterator_sequence_check,
-        iterator_sequence_generate,
-        iterator_sequence_seeds,
-        iterator_sequence_controls,
-        Floor(100, 1),
+        check=_iterator_sequence_check,
+        generate=iterator_sequence_generate,
+        seeds=iterator_sequence_seeds,
+        controls=iterator_sequence_controls,
+        floor=Floor(count=100, ratio=1),
     ),
     "normalize-url-fixpoint": Oracle(
-        normalize_url_check, _generate_url, _seeds_url, _normalize_url_controls, Floor(100, 0.5)
+        check=normalize_url_check,
+        generate=_generate_url,
+        seeds=_seeds_url,
+        controls=_normalize_url_controls,
+        floor=Floor(count=100, ratio=0.5),
     ),
-    "url-split-reparse": Oracle(url_reparse_check, _generate_url, _seeds_url, _url_reparse_controls, Floor(100, 0.5)),
-    "idna-host": Oracle(idna_host_check, _generate_idna_host, _idna_host_seeds, _idna_host_controls, Floor(100, 0.95)),
-    "idna-nfc": Oracle(_idna_nfc_check, idna_nfc_generate, idna_nfc_seeds, idna_nfc_controls, Floor(100, 1)),
-    "clean-url-fixpoint": Oracle(clean_url_check, _generate_url, _seeds_url, _clean_url_controls, Floor(100, 0.25)),
+    "url-split-reparse": Oracle(
+        check=url_reparse_check,
+        generate=_generate_url,
+        seeds=_seeds_url,
+        controls=_url_reparse_controls,
+        floor=Floor(count=100, ratio=0.5),
+    ),
+    "idna-host": Oracle(
+        check=idna_host_check,
+        generate=_generate_idna_host,
+        seeds=_idna_host_seeds,
+        controls=_idna_host_controls,
+        floor=Floor(count=100, ratio=0.95),
+    ),
+    "idna-nfc": Oracle(
+        check=_idna_nfc_check,
+        generate=idna_nfc_generate,
+        seeds=idna_nfc_seeds,
+        controls=idna_nfc_controls,
+        floor=Floor(count=100, ratio=1),
+    ),
+    "clean-url-fixpoint": Oracle(
+        check=clean_url_check,
+        generate=_generate_url,
+        seeds=_seeds_url,
+        controls=_clean_url_controls,
+        floor=Floor(count=100, ratio=0.25),
+    ),
     "resolve-links": Oracle(
-        resolve_links_check,
-        _generate_resolution,
-        _generated(_generate_resolution, 500),
-        _resolution_controls,
-        Floor(100, 1),
+        check=resolve_links_check,
+        generate=_generate_resolution,
+        seeds=_generated(_generate_resolution, 500),
+        controls=_resolution_controls,
+        floor=Floor(count=100, ratio=1),
         syntax="html",
     ),
-    "html-fixpoint": Oracle(html_check, _generate_html, _seeds_html, _html_controls, Floor(500, 0.85), syntax="html"),
+    "html-fixpoint": Oracle(
+        check=html_check,
+        generate=_generate_html,
+        seeds=_seeds_html,
+        controls=_html_controls,
+        floor=Floor(count=500, ratio=0.85),
+        syntax="html",
+    ),
     "html-table-grammar": Oracle(
-        _html_table_check,
-        html_table_generate,
-        html_table_seeds,
-        html_table_controls,
-        Floor(24, 1),
+        check=_html_table_check,
+        generate=html_table_generate,
+        seeds=html_table_seeds,
+        controls=html_table_controls,
+        floor=Floor(count=24, ratio=1),
         syntax="html",
     ),
     "html-sibling-grammar": Oracle(
-        _html_sibling_check,
-        html_sibling_generate,
-        html_sibling_seeds,
-        html_sibling_controls,
-        Floor(100, 1),
+        check=_html_sibling_check,
+        generate=html_sibling_generate,
+        seeds=html_sibling_seeds,
+        controls=html_sibling_controls,
+        floor=Floor(count=100, ratio=1),
         syntax="html",
     ),
     "html-foreign-grammar": Oracle(
-        _html_foreign_check,
-        html_foreign_generate,
-        html_foreign_seeds,
-        html_foreign_controls,
-        Floor(36, 1),
+        check=_html_foreign_check,
+        generate=html_foreign_generate,
+        seeds=html_foreign_seeds,
+        controls=html_foreign_controls,
+        floor=Floor(count=36, ratio=1),
         syntax="html",
     ),
     "html-list-grammar": Oracle(
-        _html_list_check,
-        html_list_generate,
-        html_list_seeds,
-        html_list_controls,
-        Floor(24, 1),
+        check=_html_list_check,
+        generate=html_list_generate,
+        seeds=html_list_seeds,
+        controls=html_list_controls,
+        floor=Floor(count=24, ratio=1),
         syntax="html",
     ),
     "xml-document-grammar": Oracle(
-        xml_document_check, xml_source_generate, xml_source_seeds, xml_source_controls, Floor(60, 1)
+        check=xml_document_check,
+        generate=xml_source_generate,
+        seeds=xml_source_seeds,
+        controls=xml_source_controls,
+        floor=Floor(count=60, ratio=1),
     ),
-    "xml-fixpoint": Oracle(xml_check, _generate_html, _seeds_html, _xml_controls, Floor(500, 0.95)),
+    "xml-fixpoint": Oracle(
+        check=xml_check,
+        generate=_generate_html,
+        seeds=_seeds_html,
+        controls=_xml_controls,
+        floor=Floor(count=500, ratio=0.95),
+    ),
     "css-sheet-grammar": Oracle(
-        _css_fixpoint, css_source_generate, css_source_seeds, _css_controls, Floor(6356, 1), syntax="css"
+        check=_css_fixpoint,
+        generate=css_source_generate,
+        seeds=css_source_seeds,
+        controls=_css_controls,
+        floor=Floor(count=6356, ratio=1),
+        syntax="css",
     ),
     "css-fixpoint": Oracle(
-        _css_valid_fixpoint, _generate_css_fixpoint, _seeds_css_fixpoint, _css_controls, Floor(500, 0.95), syntax="css"
+        check=_css_valid_fixpoint,
+        generate=_generate_css_fixpoint,
+        seeds=_seeds_css_fixpoint,
+        controls=_css_controls,
+        floor=Floor(count=500, ratio=0.95),
+        syntax="css",
     ),
-    "js-fixpoint": Oracle(_js_fixpoint, _generate_js, _seeds_js, _js_controls, Floor(300, 0.6), syntax="js"),
+    "js-fixpoint": Oracle(
+        check=_js_fixpoint,
+        generate=_generate_js,
+        seeds=_seeds_js,
+        controls=_js_controls,
+        floor=Floor(count=300, ratio=0.6),
+        syntax="js",
+    ),
     "style-fixpoint": Oracle(
-        style_check, _generate_style, _seeds_style, _style_controls, Floor(300, 0.95), syntax="css"
+        check=style_check,
+        generate=_generate_style,
+        seeds=_seeds_style,
+        controls=_style_controls,
+        floor=Floor(count=300, ratio=0.95),
+        syntax="css",
     ),
     "markdown-source-grammar": Oracle(
-        _markdown_source_check,
-        _markdown_source_generate,
-        markdown_source_seeds,
-        markdown_controls,
-        Floor(48, 1),
+        check=_markdown_source_check,
+        generate=_markdown_source_generate,
+        seeds=markdown_source_seeds,
+        controls=markdown_controls,
+        floor=Floor(count=48, ratio=1),
     ),
     "markdown-html-grammar": Oracle(
-        _markdown_html_check,
-        _markdown_html_generate,
-        partial(markdown_source_seeds, html=True),
-        partial(markdown_controls, html=True),
-        Floor(29, 1),
+        check=_markdown_html_check,
+        generate=_markdown_html_generate,
+        seeds=partial(markdown_source_seeds, html=True),
+        controls=partial(markdown_controls, html=True),
+        floor=Floor(count=29, ratio=1),
         syntax="html",
     ),
     "markdown-fixpoint": Oracle(
-        markdown_check,
-        _markdown_document,
-        _generated(_markdown_document, 500),
-        _markdown_controls,
-        Floor(500, 0.95),
+        check=markdown_check,
+        generate=_markdown_document,
+        seeds=_generated(_markdown_document, 500),
+        controls=_markdown_controls,
+        floor=Floor(count=500, ratio=0.95),
         syntax="html",
     ),
-    "js-names": Oracle(_js_names, _generate_js, _seeds_js, _js_names_controls, Floor(300, 0.6), syntax="js"),
+    "js-names": Oracle(
+        check=_js_names,
+        generate=_generate_js,
+        seeds=_seeds_js,
+        controls=_js_names_controls,
+        floor=Floor(count=300, ratio=0.6),
+        syntax="js",
+    ),
     "css-semantics": Oracle(
-        css_semantics_check,
-        _generate_semantic,
-        _generated(_generate_semantic),
-        _css_semantics_controls,
-        Floor(100, 0.95),
+        check=css_semantics_check,
+        generate=_generate_semantic,
+        seeds=_generated(_generate_semantic),
+        controls=_css_semantics_controls,
+        floor=Floor(count=100, ratio=0.95),
         syntax="html",
     ),
     "xpath-entry": Oracle(
-        xpath_entry_check,
-        _generate_xpath_case,
-        _generated(_generate_xpath_case),
-        _xpath_controls,
-        Floor(100, 0.95),
+        check=xpath_entry_check,
+        generate=_generate_xpath_case,
+        seeds=_generated(_generate_xpath_case),
+        controls=_xpath_controls,
+        floor=Floor(count=100, ratio=0.95),
         fields=("html", "xpath"),
     ),
     "selector-entry": Oracle(
-        selector_entry_check,
-        _generate_selector_case,
-        _generated(_generate_selector_case),
-        _selector_controls,
-        Floor(100, 0.85),
+        check=selector_entry_check,
+        generate=_generate_selector_case,
+        seeds=_generated(_generate_selector_case),
+        controls=_selector_controls,
+        floor=Floor(count=100, ratio=0.85),
         fields=("html", "css"),
     ),
-    "spans": Oracle(span_check, _generate_html, _seeds_html, _span_controls, Floor(500, 0.95), syntax="html"),
+    "spans": Oracle(
+        check=span_check,
+        generate=_generate_html,
+        seeds=_seeds_html,
+        controls=_span_controls,
+        floor=Floor(count=500, ratio=0.95),
+        syntax="html",
+    ),
 }
+
+
+__all__ = [
+    "MAX_INPUT",
+    "ORACLES",
+    "UNBOUNDED",
+    "Floor",
+    "JsNames",
+    "Oracle",
+    "OutOfScopeError",
+    "clean_url_check",
+    "css_semantics_check",
+    "encoding_decode_check",
+    "encoding_stream_check",
+    "fixpoint_check",
+    "html_check",
+    "idna_host_check",
+    "js_names_check",
+    "main",
+    "markdown_check",
+    "normalize_url_check",
+    "resolve_links_check",
+    "selector_entry_check",
+    "span_check",
+    "style_check",
+    "url_reparse_check",
+    "xml_check",
+    "xpath_entry_check",
+]
 
 
 if __name__ == "__main__":

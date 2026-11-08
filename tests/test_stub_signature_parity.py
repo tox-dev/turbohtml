@@ -1,28 +1,11 @@
-"""Guard against the ``.pyi`` stubs drifting from the compiled ``turbohtml._html`` extension.
-
-The stubs are the single source of types for the documentation (``docs/conf.py`` parses the same
-files to render every C signature) and for downstream type checkers. The extension itself carries
-only a ``__text_signature__`` -- parameter names, kinds, and defaults, no annotations -- so this
-suite pins that runtime signature against the one declared in the stub, stripped of its types. A
-renamed keyword, a reordered argument, a dropped default, or a keyword-only parameter that exists
-in one place but not the other fails here before it can silently mislead a reader or a checker.
-
-Three facts of the C runtime shape what can be compared, each tolerated deliberately: a
-positional-only parameter's name is synthesized by CPython (``object``, ``value``, ``key``), so
-names are pinned only where a parameter is keyword-addressable; a stub may refine the C ``**kwargs``
-catch-all into explicit keyword-only parameters (``Node.xpath`` names ``namespaces`` that the C
-function reads out of its variables dict), so the stub's keyword-only set may exceed the runtime's
-whenever the runtime keeps a ``**kwargs``; and a type slot (``__eq__``, ``__len__``, ...) reports a
-generic synthesized signature rather than the hand-written one, so dunder methods are not compared.
-"""
-
 from __future__ import annotations
 
 import ast
 import inspect
 import sys
+from enum import Enum, auto
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 import pytest
 
@@ -30,25 +13,35 @@ import turbohtml._html as html
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from types import BuiltinFunctionType, FunctionType, MethodDescriptorType, ModuleType, WrapperDescriptorType
 
     from pytest_mock import MockerFixture
 
-_STUB_DIR = Path(__file__).parents[1] / "src" / "turbohtml" / "_stubs"
-_SELF_NAMES = frozenset({"self", "cls"})
-_NO_DEFAULT = object()
-_ANY_DEFAULT = object()
-_POSITIONAL = frozenset({inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD})
+_STUB_DIR: Final[Path] = Path(__file__).parents[1] / "src" / "turbohtml" / "_stubs"
+
+
+class _Default(Enum):
+    NONE = auto()
+    ANY = auto()
+
+
+_NO_DEFAULT: Final[_Default] = _Default.NONE
+_ANY_DEFAULT: Final[_Default] = _Default.ANY
+_POSITIONAL: Final[frozenset[inspect._ParameterKind]] = frozenset({
+    inspect.Parameter.POSITIONAL_ONLY,
+    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+})
 
 
 class _Param(NamedTuple):
     name: str
     kind: inspect._ParameterKind
-    default: object
+    default: _Default | str
 
 
 class _Shape(NamedTuple):
     positional: list[_Param]
-    keyword: dict[str, object]
+    keyword: dict[str, _Default | str]
     var_positional: bool
     var_keyword: bool
 
@@ -62,7 +55,7 @@ def _shape(params: list[_Param]) -> _Shape:
     )
 
 
-def _stub_default(node: ast.expr | None) -> object:
+def _stub_default(node: ast.expr | None) -> _Default | str:
     if node is None:
         return _NO_DEFAULT
     if isinstance(node, ast.Constant) and node.value is Ellipsis:
@@ -89,7 +82,7 @@ def _stub_params(func: ast.FunctionDef, *, drop_self: bool) -> list[_Param]:
     )
     if args.kwarg is not None:
         params.append(_Param(args.kwarg.arg, inspect.Parameter.VAR_KEYWORD, _NO_DEFAULT))
-    if drop_self and params and params[0].name in _SELF_NAMES:
+    if drop_self and params and params[0].name in frozenset({"self", "cls"}):
         params.pop(0)
     return params
 
@@ -108,30 +101,36 @@ def _is_property(method: ast.FunctionDef) -> bool:
     )
 
 
+def _class_entries(node: ast.ClassDef) -> Iterator[tuple[str, ast.FunctionDef, bool]]:
+    for method in node.body:
+        if not isinstance(method, ast.FunctionDef) or _is_property(method):
+            continue
+        yield (node.name if method.name == "__init__" else f"{node.name}.{method.name}"), method, True
+
+
 def _stub_entries() -> Iterator[tuple[str, ast.FunctionDef, bool]]:
-    """Yield (dotted name, function node, drop_self) for every callable the stubs declare."""
+    # Yield (dotted name, function node, drop_self) for every callable the stubs declare.
     for stub in sorted(_STUB_DIR.glob("*.pyi")):
         for node in ast.parse(stub.read_text(encoding="utf-8")).body:
             if isinstance(node, ast.FunctionDef):
                 yield node.name, node, False
             elif isinstance(node, ast.ClassDef):
-                for method in node.body:
-                    if not isinstance(method, ast.FunctionDef) or _is_property(method):
-                        continue
-                    name = node.name if method.name == "__init__" else f"{node.name}.{method.name}"
-                    yield name, method, True
+                yield from _class_entries(node)
 
 
-def _resolve(name: str) -> object | None:
-    obj: object = html
+_Attribute: TypeAlias = (
+    "ModuleType | type | FunctionType | BuiltinFunctionType | MethodDescriptorType | WrapperDescriptorType | None"
+)
+
+
+def _resolve(name: str) -> _Attribute:
+    obj: _Attribute = html
     for part in name.split("."):
         obj = getattr(obj, part, None)
-        if obj is None:
-            return None
     return obj
 
 
-def _runtime_signature(obj: object) -> inspect.Signature | None:
+def _runtime_signature(obj: _Attribute) -> inspect.Signature | None:
     if not callable(obj) or getattr(obj, "__text_signature__", None) is None:
         return None
     try:
@@ -146,8 +145,10 @@ def _is_dunder(name: str) -> bool:
     return leaf.startswith("__") and leaf.endswith("__")
 
 
-_ENTRIES = {name: (node, drop_self) for name, node, drop_self in _stub_entries()}
-_COMPARABLE = sorted(
+_ENTRIES: Final[dict[str, tuple[ast.FunctionDef, bool]]] = {
+    name: (node, drop_self) for name, node, drop_self in _stub_entries()
+}
+_COMPARABLE: Final[list[str]] = sorted(
     name for name in _ENTRIES if not _is_dunder(name) and _runtime_signature(_resolve(name)) is not None
 )
 
@@ -164,19 +165,20 @@ def test_stub_signature_matches_runtime(name: str) -> None:
     for stub_param, live_param in zip(stub.positional, live.positional, strict=True):
         _assert_default(stub_param.default, live_param.default)
         # a positional-only name is synthesized by C; pin it only where both sides make it keyword-addressable
-        if stub_param.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD is live_param.kind:
-            assert stub_param.name == live_param.name, "a keyword-addressable positional was renamed"
+        keyword_addressable: Final = stub_param.kind is inspect.Parameter.POSITIONAL_OR_KEYWORD is live_param.kind
+        assert not keyword_addressable or stub_param.name == live_param.name, (
+            "a keyword-addressable positional was renamed"
+        )
 
     assert stub.var_positional == live.var_positional, "*args presence drifted"
     assert stub.var_keyword == live.var_keyword, "**kwargs presence drifted"
     assert set(live.keyword) <= set(stub.keyword), "the runtime exposes a keyword the stub omits"
-    if not live.var_keyword:
-        assert set(stub.keyword) == set(live.keyword), "the stub declares a keyword the runtime lacks"
+    assert live.var_keyword or set(stub.keyword) == set(live.keyword), "the stub declares a keyword the runtime lacks"
     for keyword, live_default in live.keyword.items():
         _assert_default(stub.keyword[keyword], live_default)
 
 
-def _assert_default(stub_default: object, live_default: object) -> None:
+def _assert_default(stub_default: _Default | str, live_default: _Default | str) -> None:
     assert (stub_default is _NO_DEFAULT) == (live_default is _NO_DEFAULT), "a default was added or dropped"
     if stub_default not in {_NO_DEFAULT, _ANY_DEFAULT}:
         assert stub_default == live_default, "a concrete default value drifted"
@@ -196,12 +198,12 @@ def test_resolve_reports_a_name_the_extension_lacks(name: str) -> None:
 
 
 def test_runtime_signature_ignores_a_non_callable() -> None:
-    assert _runtime_signature(42) is None
+    assert _runtime_signature(42) is None  # ty: ignore[invalid-argument-type]  # passes a non-callable on purpose
 
 
 def test_runtime_signature_skips_a_signature_inspect_cannot_build(mocker: MockerFixture) -> None:
     # older CPython raises building some C text signatures; the guard skips them rather than erroring the run
-    mocker.patch("inspect.signature", side_effect=ValueError)
+    mocker.patch("inspect.signature", autospec=True, side_effect=ValueError)
     assert _runtime_signature(html.parse) is None
 
 

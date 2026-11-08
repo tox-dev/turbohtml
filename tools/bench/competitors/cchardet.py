@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import cchardet
 
-REQUIREMENTS = ("faust-cchardet>=2.1.19",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("faust-cchardet>=2.1.19",)
 
 
 def encoding(data: bytes) -> None:
-    """Detect a byte stream's character encoding with cchardet's uchardet engine."""
+    # Detect a byte stream's character encoding with cchardet's uchardet engine.
     cchardet.detect(data)
 
 
@@ -28,7 +31,7 @@ def _encoding_stream(data: bytes) -> None:
     detector.close()
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "encoding-result-stream": (_encoding_stream, "faust-cchardet"),
     "encoding-chunks": (_encoding_chunks, "faust-cchardet"),
     "encoding": (encoding, "faust-cchardet"),

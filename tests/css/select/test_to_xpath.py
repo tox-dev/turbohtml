@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 import pytest
 
@@ -15,6 +15,13 @@ from turbohtml.convert import (
     css_specificity,
     css_to_xpath,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from turbohtml import Node
+
+XPathValue: TypeAlias = "Sequence[Node | str | float] | float | bool | str"
 
 
 @pytest.mark.parametrize(
@@ -172,7 +179,7 @@ def test_html_translator_translates_like_the_function() -> None:
     assert HTMLTranslator().css_to_xpath("A[HREF]") == css_to_xpath("a[href]")
 
 
-IDS_DOC = """<!doctype html>
+_IDS_DOC: Final[str] = """<!doctype html>
 <html id="html" lang="en"><head>
   <link id="link-href" href="foo">
   <link id="link-nohref">
@@ -208,7 +215,7 @@ cde"><span id="foobar-span"></span></div>
 </body></html>
 """
 
-FORMS_DOC = """<!doctype html>
+_FORMS_DOC: Final[str] = """<!doctype html>
 <html><body>
 <form id="form">
  <input type="checkbox" id="checkbox-unchecked">
@@ -248,16 +255,16 @@ FORMS_DOC = """<!doctype html>
 </body></html>
 """
 
-LANG_DOC = """<!doctype html>
+_LANG_DOC: Final[str] = """<!doctype html>
 <div id="lang-root"><svg id="svg-it" xml:lang="it" lang="fr"><g id="g-it"/></svg>
 <p id="p-xml-lang" xml:lang="de"><b id="b-in-p">x</b></p>
 <svg id="svg-es" lang="es"><g id="g-es" xml:lang=""/></svg>
 <math id="math-fr" lang="fr"><mi id="mi-fr">x</mi></math></div>
 """
 
-DOCS = {"ids": IDS_DOC, "forms": FORMS_DOC, "lang": LANG_DOC}
+_DOCS: Final[dict[str, str]] = {"ids": _IDS_DOC, "forms": _FORMS_DOC, "lang": _LANG_DOC}
 
-SELECTORS = (
+_SELECTORS: Final[tuple[str, ...]] = (
     # type, universal, and (ignored) namespace prefixes
     "div",
     "DIV",
@@ -451,7 +458,7 @@ SELECTORS = (
 )
 
 
-def _ids(nodes: object) -> list[str]:
+def _ids(nodes: XPathValue) -> list[str]:
     assert isinstance(nodes, list)
     out: list[str] = []
     for node in nodes:
@@ -463,17 +470,17 @@ def _ids(nodes: object) -> list[str]:
 
 @pytest.fixture(scope="module")
 def documents() -> dict[str, Document]:
-    return {name: parse(source) for name, source in DOCS.items()}
+    return {name: parse(source) for name, source in _DOCS.items()}
 
 
-@pytest.mark.parametrize("selector", [pytest.param(selector, id=selector) for selector in SELECTORS])
+@pytest.mark.parametrize("selector", [pytest.param(selector, id=selector) for selector in _SELECTORS])
 def test_xpath_selects_the_same_nodes_from_the_document(selector: str, documents: dict[str, Document]) -> None:
     expression = css_to_xpath(selector)
     for name, document in documents.items():
         assert _ids(document.xpath(expression)) == _ids(document.select(selector)), (name, expression)
 
 
-@pytest.mark.parametrize("selector", [pytest.param(selector, id=selector) for selector in SELECTORS])
+@pytest.mark.parametrize("selector", [pytest.param(selector, id=selector) for selector in _SELECTORS])
 def test_xpath_selects_the_same_nodes_from_an_element(selector: str, documents: dict[str, Document]) -> None:
     # select() walks descendants only, which is exactly the descendant:: prefix
     expression = css_to_xpath(selector, prefix="descendant::")
@@ -501,8 +508,8 @@ def test_scope_matches_the_query_root(selector: str, documents: dict[str, Docume
 
 def test_most_selectors_match_something(documents: dict[str, Document]) -> None:
     # guard the corpus against rotting into vacuous empty-vs-empty comparisons
-    matching = sum(1 for selector in SELECTORS if any(document.select(selector) for document in documents.values()))
-    assert matching >= 2 * len(SELECTORS) // 3
+    matching = sum(1 for selector in _SELECTORS if any(document.select(selector) for document in documents.values()))
+    assert matching >= 2 * len(_SELECTORS) // 3
 
 
 @pytest.mark.parametrize(
@@ -553,7 +560,7 @@ def test_specificity_rejects_a_non_string() -> None:
         css_specificity(123)  # ty: ignore[invalid-argument-type]  # intentional non-str exercises the C argument guard
 
 
-_ORACLE_DOC: Final = """<!doctype html>
+_ORACLE_DOC: Final[str] = """<!doctype html>
 <html id="html"><head>
   <link id="link-href" href="foo">
   <link id="link-nohref">
@@ -588,7 +595,7 @@ cde"><span id="foobar-span"></span></div>
 </body></html>
 """
 
-_ORACLE_SELECTORS: Final = (
+_ORACLE_SELECTORS: Final[tuple[str, ...]] = (
     "*",
     "div",
     "div div",

@@ -70,7 +70,7 @@ from fuzz.observer_oracles import (
 )
 from fuzz.round_trip_oracles import ORACLES, Floor, OutOfScopeError, main
 
-from turbohtml import Element, NodeFilter, NodeIterator, Text, parse, parse_fragment
+from turbohtml import Element, Node, NodeFilter, NodeIterator, Text, parse, parse_fragment
 from turbohtml._html import _tree_verify
 
 if TYPE_CHECKING:
@@ -78,13 +78,8 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
-    from turbohtml import Node
 
-_BROKEN: Final = ((LifecycleStep(0, "element", "ok", (0, 0, 1, 0)),), ())
-
-
-def _steps(*instructions: tuple[int, int, int, int]) -> tuple[LifecycleStep, ...]:
-    return run_dom_lifecycle(bytes(byte for instruction in instructions for byte in instruction))[0]
+_BROKEN: Final[tuple[tuple[LifecycleStep], tuple[()]]] = ((LifecycleStep(0, "element", "ok", (0, 0, 1, 0)),), ())
 
 
 @pytest.mark.parametrize(
@@ -117,7 +112,7 @@ def test_dom_lifecycle_generated_case_holds(text: str) -> None:
 def test_dom_lifecycle_verifies_after_every_step(
     mocker: MockerFixture, report: tuple[int, ...], detail: str | None
 ) -> None:
-    mocker.patch("fuzz.dom_lifecycle._tree_verify", return_value=report)
+    mocker.patch("fuzz.dom_lifecycle._tree_verify", autospec=True, return_value=report)
     assert dom_lifecycle_check(dom_lifecycle_seeds()[0]) == detail
 
 
@@ -146,7 +141,7 @@ def test_dom_lifecycle_cli_emits_violation(mocker: MockerFixture, tmp_path: Path
         ORACLES["dom-lifecycle"],
         check=partial(dom_lifecycle_check, run=lambda _program: _BROKEN),
         seeds=lambda: [dom_lifecycle_seeds()[0]],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"dom-lifecycle": oracle}, clear=True)
     status: Final = main(["--oracle", "dom-lifecycle", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -163,6 +158,10 @@ def test_dom_lifecycle_partial_instruction_is_ignored() -> None:
 
 def test_dom_lifecycle_limits_executed_steps() -> None:
     assert len(_steps(*[(1, 0, 0, 0)] * 300)) == 256
+
+
+def _steps(*instructions: tuple[int, int, int, int]) -> tuple[LifecycleStep, ...]:
+    return run_dom_lifecycle(bytes(byte for instruction in instructions for byte in instruction))[0]
 
 
 def test_dom_lifecycle_limits_created_nodes() -> None:
@@ -264,7 +263,7 @@ def test_tree_verify_rejects_a_non_node() -> None:
         _tree_verify(object())  # ty: ignore[invalid-argument-type] - the hook validates its argument at runtime
 
 
-_SEEDS: Final = dom_lifecycle_seeds()[::8]  # the seeds run each opcode over 8 slots
+_SEEDS: Final[list[str]] = dom_lifecycle_seeds()[::8]  # the seeds run each opcode over 8 slots
 
 
 def test_dom_lifecycle_race_matches_the_serial_run() -> None:
@@ -308,7 +307,14 @@ def test_dom_program_unoccupied_element_registers(opcode: int) -> None:
     assert json.loads(run_dom_program(program)[-1]) == ["<main></main>", []]
 
 
-@pytest.mark.parametrize("extra", [b"\x01", b"\x01\x02", b"\x01\x02\x03"])
+@pytest.mark.parametrize(
+    "extra",
+    [
+        pytest.param(b"\x01", id="one-byte"),
+        pytest.param(b"\x01\x02", id="two-bytes"),
+        pytest.param(b"\x01\x02\x03", id="three-bytes"),
+    ],
+)
 def test_dom_program_partial_instruction_is_ignored(extra: bytes) -> None:
     program: Final = bytes((0, 0, 0, 0))
     assert run_dom_program(program + extra) == run_dom_program(program)
@@ -323,7 +329,10 @@ def test_dom_program_limits_executed_steps() -> None:
     assert len(run_dom_program(bytes((0, 0, 0, 0)) * 300)) == 65
 
 
-@pytest.mark.parametrize("text", ["xx", "0", "00" * 1025])
+@pytest.mark.parametrize(
+    "text",
+    [pytest.param("xx", id="two-letters"), pytest.param("0", id="one-digit"), pytest.param("00" * 1025, id="too-long")],
+)
 def test_dom_program_rejects_unsupported_encoding(text: str) -> None:
     with pytest.raises(UnsupportedDomProgramError):
         dom_program_check(text)
@@ -362,7 +371,7 @@ def test_dom_program_cli_emits_wrong_result(mocker: MockerFixture, tmp_path: Pat
         ORACLES["dom-program"],
         check=partial(dom_program_check, run=lambda _program: ()),
         seeds=lambda: [dom_program_seeds()[1]],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"dom-program": oracle}, clear=True)
     status: Final = main(["--oracle", "dom-program", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -379,7 +388,7 @@ def test_dom_program_cli_emits_wrong_result(mocker: MockerFixture, tmp_path: Pat
 def test_dom_program_cli_rejects_vacuous_input(mocker: MockerFixture, tmp_path: Path) -> None:
     mocker.patch.dict(
         ORACLES,
-        {"dom-program": replace(ORACLES["dom-program"], seeds=lambda: ["xx"], floor=Floor(1, 1))},
+        {"dom-program": replace(ORACLES["dom-program"], seeds=lambda: ["xx"], floor=Floor(count=1, ratio=1))},
         clear=True,
     )
     assert main(["--oracle", "dom-program", "--minutes", "0", "--crash-dir", str(tmp_path)]) == 2
@@ -411,97 +420,108 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-@pytest.mark.parametrize(
-    ("case", "source", "expected"),
-    [
-        pytest.param(
-            "td:implied:1:plain",
-            '<table id="z"><tr id="x"><td id="x">MiXeD</td><td id="y">MiXeD</td></tr></table>',
-            [
-                ("table", "z", 0),
-                ("tbody", "", 1),
-                ("tr", "x", 2),
-                ("td", "x", 3),
-                ("#text", "MiXeD", 4),
-                ("td", "y", 3),
-                ("#text", "MiXeD", 6),
-            ],
-            id="inserted-row-group",
-        ),
-        pytest.param(
-            "th:explicit:1:numeric",
-            '<table id="z"><tbody><tr id="x"><th id="x">&#65;&#x42;&#67;</th>'
-            '<th id="y">&#65;&#x42;&#67;</th></tr></tbody></table>',
-            [
-                ("table", "z", 0),
-                ("tbody", "", 1),
-                ("tr", "x", 2),
-                ("th", "x", 3),
-                ("#text", "ABC", 4),
-                ("th", "y", 3),
-                ("#text", "ABC", 6),
-            ],
-            id="explicit-numeric-cells",
-        ),
-        pytest.param(
-            "td:explicit:2:named",
-            '<table id="z"><tbody><tr id="x"><td id="x">&amp;&lt;&gt;</td><td id="y">&amp;&lt;&gt;</td></tr>'
-            '<tr id="y"><td id="x">&amp;&lt;&gt;</td><td id="y">&amp;&lt;&gt;</td></tr></tbody></table>',
-            [
-                ("table", "z", 0),
-                ("tbody", "", 1),
-                ("tr", "x", 2),
-                ("td", "x", 3),
-                ("#text", "&<>", 4),
-                ("td", "y", 3),
-                ("#text", "&<>", 6),
-                ("tr", "y", 2),
-                ("td", "x", 8),
-                ("#text", "&<>", 9),
-                ("td", "y", 8),
-                ("#text", "&<>", 11),
-            ],
-            id="explicit-two-rows-named",
-        ),
-        pytest.param(
-            "th:implied:2:plain",
-            '<table id="z"><tr id="x"><th id="x">MiXeD</th><th id="y">MiXeD</th></tr>'
-            '<tr id="y"><th id="x">MiXeD</th><th id="y">MiXeD</th></tr></table>',
-            [
-                ("table", "z", 0),
-                ("tbody", "", 1),
-                ("tr", "x", 2),
-                ("th", "x", 3),
-                ("#text", "MiXeD", 4),
-                ("th", "y", 3),
-                ("#text", "MiXeD", 6),
-                ("tr", "y", 2),
-                ("th", "x", 8),
-                ("#text", "MiXeD", 9),
-                ("th", "y", 8),
-                ("#text", "MiXeD", 11),
-            ],
-            id="inserted-group-two-rows",
-        ),
-    ],
-)
-def test_html_table_literal_trees(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
+_TABLE_CASES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        "td:implied:1:plain",
+        '<table id="z"><tr id="x"><td id="x">MiXeD</td><td id="y">MiXeD</td></tr></table>',
+        [
+            ("table", "z", 0),
+            ("tbody", "", 1),
+            ("tr", "x", 2),
+            ("td", "x", 3),
+            ("#text", "MiXeD", 4),
+            ("td", "y", 3),
+            ("#text", "MiXeD", 6),
+        ],
+        id="inserted-row-group",
+    ),
+    pytest.param(
+        "th:explicit:1:numeric",
+        '<table id="z"><tbody><tr id="x"><th id="x">&#65;&#x42;&#67;</th>'
+        '<th id="y">&#65;&#x42;&#67;</th></tr></tbody></table>',
+        [
+            ("table", "z", 0),
+            ("tbody", "", 1),
+            ("tr", "x", 2),
+            ("th", "x", 3),
+            ("#text", "ABC", 4),
+            ("th", "y", 3),
+            ("#text", "ABC", 6),
+        ],
+        id="explicit-numeric-cells",
+    ),
+    pytest.param(
+        "td:explicit:2:named",
+        '<table id="z"><tbody><tr id="x"><td id="x">&amp;&lt;&gt;</td><td id="y">&amp;&lt;&gt;</td></tr>'
+        '<tr id="y"><td id="x">&amp;&lt;&gt;</td><td id="y">&amp;&lt;&gt;</td></tr></tbody></table>',
+        [
+            ("table", "z", 0),
+            ("tbody", "", 1),
+            ("tr", "x", 2),
+            ("td", "x", 3),
+            ("#text", "&<>", 4),
+            ("td", "y", 3),
+            ("#text", "&<>", 6),
+            ("tr", "y", 2),
+            ("td", "x", 8),
+            ("#text", "&<>", 9),
+            ("td", "y", 8),
+            ("#text", "&<>", 11),
+        ],
+        id="explicit-two-rows-named",
+    ),
+    pytest.param(
+        "th:implied:2:plain",
+        '<table id="z"><tr id="x"><th id="x">MiXeD</th><th id="y">MiXeD</th></tr>'
+        '<tr id="y"><th id="x">MiXeD</th><th id="y">MiXeD</th></tr></table>',
+        [
+            ("table", "z", 0),
+            ("tbody", "", 1),
+            ("tr", "x", 2),
+            ("th", "x", 3),
+            ("#text", "MiXeD", 4),
+            ("th", "y", 3),
+            ("#text", "MiXeD", 6),
+            ("tr", "y", 2),
+            ("th", "x", 8),
+            ("#text", "MiXeD", 9),
+            ("th", "y", 8),
+            ("#text", "MiXeD", 11),
+        ],
+        id="inserted-group-two-rows",
+    ),
+]
+
+
+@pytest.mark.parametrize(("case", "source", "expected"), _TABLE_CASES)
+def test_html_table_literal_elements(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
     root: Final = parse_fragment(source)
     nodes: Final = [root, *root.descendants]
     assert (
         [
-            (
-                node.tag if isinstance(node, Element) else "#text",
-                cast("str", node.attrs.get("id", "")) if isinstance(node, Element) else cast("Text", node).data,
-                nodes.index(cast("Element", node.parent)),
-            )
-            for node in nodes[1:]
+            (node.tag, cast("str", node.attrs.get("id", "")), nodes.index(cast("Element", node.parent)))
+            for node in root.iter_elements()
         ],
         {node.namespace.value for node in root.iter_elements()},
         html_table_check(case),
         html_table_check(case, lambda _node: source),
         html_table_check(case, lambda _node: ""),
-    ) == (expected, {"html"}, None, None, "serialized table tree differs from literals")
+    ) == (
+        [row for row in expected if row[0] != "#text"],
+        {"html"},
+        None,
+        None,
+        "serialized table tree differs from literals",
+    )
+
+
+@pytest.mark.parametrize(("case", "source", "expected"), _TABLE_CASES)
+def test_html_table_literal_texts(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
+    root: Final = parse_fragment(source)
+    nodes: Final = [root, *root.descendants]
+    assert [(node.data, nodes.index(cast("Element", node.parent))) for node in nodes[1:] if isinstance(node, Text)] == [
+        (data, parent) for tag, data, parent in expected if tag == "#text"
+    ], case
 
 
 def test_html_table_checks_first_parse() -> None:
@@ -647,7 +667,7 @@ def test_html_table_cli_emits_group_change(mocker: MockerFixture, tmp_path: Path
         ORACLES["html-table-grammar"],
         check=partial(html_table_check, serialize=lambda _node: source),
         seeds=lambda: ["td:implied:1:plain"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"html-table-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-table-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -664,7 +684,7 @@ def test_html_table_cli_emits_group_change(mocker: MockerFixture, tmp_path: Path
 def test_html_table_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["html-table-grammar"], seeds=lambda: ["invalid"], floor=Floor(1, 1))
+    oracle: Final = replace(ORACLES["html-table-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
     mocker.patch.dict(ORACLES, {"html-table-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-table-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("*.json")), "VACUOUS RUN" in capsys.readouterr().err) == (2, [], True)
@@ -676,75 +696,83 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-@pytest.mark.parametrize(
-    ("case", "source", "expected"),
-    [
-        pytest.param(
-            "ul:flat:explicit:plain",
-            '<ul id="z"><li id="x">MiXeD</li><li id="y">MiXeD</li></ul>',
-            [("ul", "z", 0), ("li", "x", 1), ("#text", "MiXeD", 2), ("li", "y", 1), ("#text", "MiXeD", 4)],
-            id="flat-explicit",
-        ),
-        pytest.param(
-            "ol:flat:implied:numeric",
-            '<ol id="z"><li id="x">&#65;&#x42;&#67;<li id="y">&#65;&#x42;&#67;</ol>',
-            [("ol", "z", 0), ("li", "x", 1), ("#text", "ABC", 2), ("li", "y", 1), ("#text", "ABC", 4)],
-            id="flat-implied-numeric",
-        ),
-        pytest.param(
-            "ul:nested:explicit:named",
-            '<ul id="z"><li id="x">&amp;&lt;&gt;<ul id="z"><li id="x">&amp;&lt;&gt;</li>'
-            '<li id="y">&amp;&lt;&gt;</li></ul></li><li id="y">&amp;&lt;&gt;</li></ul>',
-            [
-                ("ul", "z", 0),
-                ("li", "x", 1),
-                ("#text", "&<>", 2),
-                ("ul", "z", 2),
-                ("li", "x", 4),
-                ("#text", "&<>", 5),
-                ("li", "y", 4),
-                ("#text", "&<>", 7),
-                ("li", "y", 1),
-                ("#text", "&<>", 9),
-            ],
-            id="nested-explicit-named",
-        ),
-        pytest.param(
-            "ol:nested:implied:plain",
-            '<ol id="z"><li id="x">MiXeD<ol id="z"><li id="x">MiXeD<li id="y">MiXeD</ol><li id="y">MiXeD</ol>',
-            [
-                ("ol", "z", 0),
-                ("li", "x", 1),
-                ("#text", "MiXeD", 2),
-                ("ol", "z", 2),
-                ("li", "x", 4),
-                ("#text", "MiXeD", 5),
-                ("li", "y", 4),
-                ("#text", "MiXeD", 7),
-                ("li", "y", 1),
-                ("#text", "MiXeD", 9),
-            ],
-            id="nested-implied",
-        ),
-    ],
-)
-def test_html_list_literal_trees(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
+_LIST_CASES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        "ul:flat:explicit:plain",
+        '<ul id="z"><li id="x">MiXeD</li><li id="y">MiXeD</li></ul>',
+        [("ul", "z", 0), ("li", "x", 1), ("#text", "MiXeD", 2), ("li", "y", 1), ("#text", "MiXeD", 4)],
+        id="flat-explicit",
+    ),
+    pytest.param(
+        "ol:flat:implied:numeric",
+        '<ol id="z"><li id="x">&#65;&#x42;&#67;<li id="y">&#65;&#x42;&#67;</ol>',
+        [("ol", "z", 0), ("li", "x", 1), ("#text", "ABC", 2), ("li", "y", 1), ("#text", "ABC", 4)],
+        id="flat-implied-numeric",
+    ),
+    pytest.param(
+        "ul:nested:explicit:named",
+        '<ul id="z"><li id="x">&amp;&lt;&gt;<ul id="z"><li id="x">&amp;&lt;&gt;</li>'
+        '<li id="y">&amp;&lt;&gt;</li></ul></li><li id="y">&amp;&lt;&gt;</li></ul>',
+        [
+            ("ul", "z", 0),
+            ("li", "x", 1),
+            ("#text", "&<>", 2),
+            ("ul", "z", 2),
+            ("li", "x", 4),
+            ("#text", "&<>", 5),
+            ("li", "y", 4),
+            ("#text", "&<>", 7),
+            ("li", "y", 1),
+            ("#text", "&<>", 9),
+        ],
+        id="nested-explicit-named",
+    ),
+    pytest.param(
+        "ol:nested:implied:plain",
+        '<ol id="z"><li id="x">MiXeD<ol id="z"><li id="x">MiXeD<li id="y">MiXeD</ol><li id="y">MiXeD</ol>',
+        [
+            ("ol", "z", 0),
+            ("li", "x", 1),
+            ("#text", "MiXeD", 2),
+            ("ol", "z", 2),
+            ("li", "x", 4),
+            ("#text", "MiXeD", 5),
+            ("li", "y", 4),
+            ("#text", "MiXeD", 7),
+            ("li", "y", 1),
+            ("#text", "MiXeD", 9),
+        ],
+        id="nested-implied",
+    ),
+]
+
+
+@pytest.mark.parametrize(("case", "source", "expected"), _LIST_CASES)
+def test_html_list_literal_elements(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
     root: Final = parse_fragment(source)
     nodes: Final = [root, *root.descendants]
     assert (
-        [
-            (
-                node.tag if isinstance(node, Element) else "#text",
-                node.attrs["id"] if isinstance(node, Element) else cast("Text", node).data,
-                nodes.index(cast("Element", node.parent)),
-            )
-            for node in nodes[1:]
-        ],
+        [(node.tag, node.attrs["id"], nodes.index(cast("Element", node.parent))) for node in root.iter_elements()],
         {node.namespace.value for node in root.iter_elements()},
         html_list_check(case),
         html_list_check(case, lambda _node: source),
         html_list_check(case, lambda _node: ""),
-    ) == (expected, {"html"}, None, None, "serialized list tree differs from literals")
+    ) == (
+        [row for row in expected if row[0] != "#text"],
+        {"html"},
+        None,
+        None,
+        "serialized list tree differs from literals",
+    )
+
+
+@pytest.mark.parametrize(("case", "source", "expected"), _LIST_CASES)
+def test_html_list_literal_texts(case: str, source: str, expected: list[tuple[str, str, int]]) -> None:
+    root: Final = parse_fragment(source)
+    nodes: Final = [root, *root.descendants]
+    assert [(node.data, nodes.index(cast("Element", node.parent))) for node in nodes[1:] if isinstance(node, Text)] == [
+        (data, parent) for tag, data, parent in expected if tag == "#text"
+    ], case
 
 
 def test_html_list_checks_first_parse() -> None:
@@ -857,7 +885,7 @@ def test_html_list_cli_emits_attachment_loss(mocker: MockerFixture, tmp_path: Pa
         ORACLES["html-list-grammar"],
         check=partial(html_list_check, serialize=lambda _node: source),
         seeds=lambda: ["ul:nested:explicit:plain"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"html-list-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-list-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -874,7 +902,7 @@ def test_html_list_cli_emits_attachment_loss(mocker: MockerFixture, tmp_path: Pa
 def test_html_list_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["html-list-grammar"], seeds=lambda: ["invalid"], floor=Floor(1, 1))
+    oracle: Final = replace(ORACLES["html-list-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
     mocker.patch.dict(ORACLES, {"html-list-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-list-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("*.json")), "VACUOUS RUN" in capsys.readouterr().err) == (2, [], True)
@@ -1042,7 +1070,7 @@ def test_html_foreign_cli_emits_loss(mocker: MockerFixture, tmp_path: Path) -> N
         ORACLES["html-foreign-grammar"],
         check=partial(html_foreign_check, serialize=lambda _node: ""),
         seeds=lambda: ["desc:x:double:plain"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"html-foreign-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-foreign-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -1057,7 +1085,7 @@ def test_html_foreign_cli_emits_loss(mocker: MockerFixture, tmp_path: Path) -> N
 
 
 def test_html_foreign_cli_rejection(mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    oracle: Final = replace(ORACLES["html-foreign-grammar"], seeds=lambda: ["invalid"], floor=Floor(1, 1))
+    oracle: Final = replace(ORACLES["html-foreign-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
     mocker.patch.dict(ORACLES, {"html-foreign-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-foreign-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("*.json")), "VACUOUS RUN" in capsys.readouterr().err) == (2, [], True)
@@ -1176,7 +1204,7 @@ def test_html_sibling_cli_emits_multiplicity_loss(mocker: MockerFixture, tmp_pat
         ORACLES["html-sibling-grammar"],
         check=partial(html_sibling_check, serialize=lambda _node: ""),
         seeds=lambda: ["span:title:bare:2:empty"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"html-sibling-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-sibling-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -1193,7 +1221,7 @@ def test_html_sibling_cli_emits_multiplicity_loss(mocker: MockerFixture, tmp_pat
 def test_html_sibling_cli_rejection_is_out_of_scope(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    oracle: Final = replace(ORACLES["html-sibling-grammar"], seeds=lambda: ["invalid"], floor=Floor(1, 1))
+    oracle: Final = replace(ORACLES["html-sibling-grammar"], seeds=lambda: ["invalid"], floor=Floor(count=1, ratio=1))
     mocker.patch.dict(ORACLES, {"html-sibling-grammar": oracle}, clear=True)
     status: Final = main(["--oracle", "html-sibling-grammar", "--minutes", "0", "--crash-dir", str(tmp_path)])
     assert (status, list(tmp_path.glob("*.json")), "VACUOUS RUN" in capsys.readouterr().err) == (2, [], True)
@@ -1232,7 +1260,7 @@ def test_iterator_sequence_pins_reference_and_traversal(program: str, name: str)
         pytest.param("after:é", id="non-ascii-name"),
         pytest.param("after:g<p>", id="markup-name"),
         pytest.param("after:br", id="outside-nonvoid-fixtures"),
-        pytest.param("after:g" + "1" * 16, id="overlong-name"),
+        pytest.param(f"after:g{'1' * 16}", id="overlong-name"),
     ],
 )
 def test_iterator_sequence_rejects_unsupported_grammar(case: str) -> None:
@@ -1267,7 +1295,7 @@ def test_iterator_sequence_cli_emits_missed_edit(mocker: MockerFixture, tmp_path
         ORACLES["iterator-sequence"],
         check=partial(iterator_sequence_check, run=lambda _program, _name: "[]"),
         seeds=lambda: ["after:a"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"iterator-sequence": oracle}, clear=True)
     status: Final = main(["--oracle", "iterator-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -1286,7 +1314,7 @@ def test_iterator_sequence_cli_emits_valid_program_failure(mocker: MockerFixture
         ORACLES["iterator-sequence"],
         check=partial(iterator_sequence_check, run=_reject_program),
         seeds=lambda: ["after:a"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"iterator-sequence": oracle}, clear=True)
     status: Final = main(["--oracle", "iterator-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -1303,7 +1331,11 @@ def _reject_program(_program: str, _name: str) -> str:
 def test_iterator_sequence_cli_rejects_vacuous_run(mocker: MockerFixture, tmp_path: Path) -> None:
     mocker.patch.dict(
         ORACLES,
-        {"iterator-sequence": replace(ORACLES["iterator-sequence"], seeds=lambda: ["unknown:g"], floor=Floor(1, 1))},
+        {
+            "iterator-sequence": replace(
+                ORACLES["iterator-sequence"], seeds=lambda: ["unknown:g"], floor=Floor(count=1, ratio=1)
+            )
+        },
         clear=True,
     )
     assert main(["--oracle", "iterator-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)]) == 2
@@ -1342,7 +1374,7 @@ def test_observer_sequence_pins_edits_records_and_callbacks(program: str, name: 
         pytest.param("reuse1:é", id="non-ascii-name"),
         pytest.param("reuse1:g<p>", id="markup-name"),
         pytest.param("reuse1:br", id="outside-nonvoid-fixtures"),
-        pytest.param("reuse1:g" + "1" * 16, id="overlong-name"),
+        pytest.param(f"reuse1:g{'1' * 16}", id="overlong-name"),
     ],
 )
 def test_observer_sequence_rejects_unsupported_grammar(case: str) -> None:
@@ -1377,7 +1409,7 @@ def test_observer_sequence_cli_emits_missed_edit(mocker: MockerFixture, tmp_path
         ORACLES["observer-sequence"],
         check=partial(observer_sequence_check, run=lambda _program, _name: "[]"),
         seeds=lambda: ["reuse1:a"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"observer-sequence": oracle}, clear=True)
     status: Final = main(["--oracle", "observer-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -1396,7 +1428,7 @@ def test_observer_sequence_cli_emits_valid_program_failure(mocker: MockerFixture
         ORACLES["observer-sequence"],
         check=partial(observer_sequence_check, run=_fuzz_observer_invariants_reject_program),
         seeds=lambda: ["reuse1:a"],
-        floor=Floor(1, 1),
+        floor=Floor(count=1, ratio=1),
     )
     mocker.patch.dict(ORACLES, {"observer-sequence": oracle}, clear=True)
     status: Final = main(["--oracle", "observer-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)])
@@ -1413,7 +1445,11 @@ def _fuzz_observer_invariants_reject_program(_program: str, _name: str) -> str:
 def test_observer_sequence_cli_rejects_vacuous_run(mocker: MockerFixture, tmp_path: Path) -> None:
     mocker.patch.dict(
         ORACLES,
-        {"observer-sequence": replace(ORACLES["observer-sequence"], seeds=lambda: ["unknown:g"], floor=Floor(1, 1))},
+        {
+            "observer-sequence": replace(
+                ORACLES["observer-sequence"], seeds=lambda: ["unknown:g"], floor=Floor(count=1, ratio=1)
+            )
+        },
         clear=True,
     )
     assert main(["--oracle", "observer-sequence", "--minutes", "0", "--crash-dir", str(tmp_path)]) == 2

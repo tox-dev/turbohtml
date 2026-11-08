@@ -1,33 +1,24 @@
-"""
-Keep the performance guide's tables and the generator that writes them naming the same files.
-
-:mod:`bench.report` emits one feed per operation, while ``docs/development/performance.rst`` names its tables for the
-section they sit in, so :data:`bench.docs_feeds.TABLES` is the only thing tying the two together. When the guide gained
-a table that the map did not know about, refreshing it meant copying files across by hand, and the committed feeds
-drifted until they carried stale numbers and had lost competitor columns. These checks fail the moment the two sides
-disagree again.
-"""
-
 from __future__ import annotations
 
 import re
 import sys
 from pathlib import Path
+from typing import Final
 
 import pytest
 
-_ROOT = Path(__file__).resolve().parents[1]
+_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "tools"))
 
-from bench.docs_feeds import TABLES, Combined  # ruff:ignore[module-import-not-at-top-of-file]
-from bench.operations import OPERATIONS  # ruff:ignore[module-import-not-at-top-of-file]
+from bench.docs_feeds import TABLES, Combined  # ruff:ignore[module-import-not-at-top-of-file]  # imports after the sys.path insert that makes the bench package importable
+from bench.operations import OPERATIONS  # ruff:ignore[module-import-not-at-top-of-file]  # imports after the sys.path insert that makes the bench package importable
 
-_GUIDE = _ROOT / "docs" / "development" / "performance.rst"
-_REFERENCED = sorted(set(re.findall(r"bench/([\w-]+)\.json", _GUIDE.read_text(encoding="utf-8"))))
+_GUIDE: Final[Path] = _ROOT / "docs" / "development" / "performance.rst"
+_REFERENCED: Final[list[str]] = sorted(set(re.findall(r"bench/([\w-]+)\.json", _GUIDE.read_text(encoding="utf-8"))))
 
 
 def _operations(table: str | Combined) -> tuple[str, ...]:
-    """Return every operation a table draws a cell from."""
+    # Return every operation a table draws a cell from.
     if isinstance(table, str):
         return (table,)
     return tuple(operation for _, operation in table.rows) + tuple(operation for operation, _ in table.columns.values())
@@ -35,13 +26,13 @@ def _operations(table: str | Combined) -> tuple[str, ...]:
 
 @pytest.mark.parametrize("name", [pytest.param(name, id=name) for name in _REFERENCED])
 def test_guide_table_has_a_generator_entry(name: str) -> None:
-    """Every table the guide renders is one the generator knows how to write."""
+    # Every table the guide renders is one the generator knows how to write.
     assert name in TABLES
 
 
 @pytest.mark.parametrize("name", [pytest.param(name, id=name) for name in sorted(TABLES)])
 def test_generator_entry_is_rendered_by_the_guide(name: str) -> None:
-    """The generator writes no feed the guide has stopped referencing."""
+    # The generator writes no feed the guide has stopped referencing.
     assert name in _REFERENCED
 
 
@@ -54,5 +45,5 @@ def test_generator_entry_is_rendered_by_the_guide(name: str) -> None:
     ],
 )
 def test_generator_entry_names_a_real_operation(operation: str) -> None:
-    """A table cannot source a cell from an operation the bench no longer runs."""
+    # A table cannot source a cell from an operation the bench no longer runs.
     assert operation in OPERATIONS

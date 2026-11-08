@@ -5,6 +5,7 @@ A sanitizer bug usually returns unsafe or altered markup without crashing, so ea
 code it does not share. ``mutation`` re-parses the output with the vendored html5lib-python and requires the tree the
 sanitizer judged; ``policy`` requires that re-parsed tree to obey the random Policy that produced it; ``url`` compares
 each keep or drop of a URL attribute with the scheme turbohtml's WHATWG ``normalize_url`` reads from the decoded value.
+
 A negative control proves every oracle still fires before the run starts. The run minimizes each divergence and
 re-checks the re-parse ones with parse5, which tells a stale html5lib rule apart from a turbohtml mutation.
 """
@@ -29,7 +30,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, TypeVar
+from typing import TYPE_CHECKING, Final, NamedTuple, TypeVar
 from urllib.parse import quote
 
 import html5lib
@@ -45,6 +46,9 @@ if TYPE_CHECKING:
     from xml.dom.minidom import DocumentFragment as DomFragment
     from xml.dom.minidom import Element as DomElement
 
+    from html5lib.treebuilders.base import TreeBuilder
+    from tinycss2.ast import Node as CssNode
+
 _T = TypeVar("_T")
 _Check = Callable[[str], str | None]
 _PolicyValue = frozenset[str] | Mapping[str, frozenset[str]] | bool | OnDisallowed
@@ -53,17 +57,16 @@ _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _DATA: Final[Path] = _ROOT / "tools" / "fuzz-data"
 _NODE_DIR: Final[Path] = _ROOT / "tools" / "bench" / "node"
 # sanitize(str) parses its input as a <div> fragment with scripting off (clean/sanitize.c, th_tree_parse_fragment)
-_CONTEXT: Final = "div"
+_CONTEXT: Final[str] = "div"
 # TH_MAX_TREE_DEPTH (dom/tree.h): past it turbohtml, Blink and Gecko flatten nesting while html5lib and parse5 do not
-_DEPTH_CAP: Final = 512
+_DEPTH_CAP: Final[int] = 512
 # meriyah's MINIMUM_COMPARED_RATIO: a run that skips more than this share compared too little to mean anything
-_MIN_COMPARED_RATIO: Final = 0.9
-_MINIMIZE_BUDGET: Final = 1500
-_DOM_BUILDER: Final = html5lib.getTreeBuilder("dom")
+_MIN_COMPARED_RATIO: Final[float] = 0.9
+_DOM_BUILDER: Final[type[TreeBuilder]] = html5lib.getTreeBuilder("dom")
 _NAMESPACE_PREFIX: Final[dict[str, str]] = {namespaces["svg"]: "svg", namespaces["mathml"]: "math"}
-_C0_OR_SPACE: Final = "".join(map(chr, range(0x21)))
-_SCHEME: Final = re.compile(r"([a-z][a-z0-9+.-]*):")
-_UNSAFE_HTML: Final = frozenset({
+_C0_OR_SPACE: Final[str] = "".join(map(chr, range(0x21)))
+_SCHEME: Final[re.Pattern[str]] = re.compile(r"([a-z][a-z0-9+.-]*):")
+_UNSAFE_HTML: Final[frozenset[str]] = frozenset({
     "script",
     "iframe",
     "embed",
@@ -78,8 +81,14 @@ _UNSAFE_HTML: Final = frozenset({
     "xmp",
     "template",
 })
-_SVG_ANIMATION: Final = frozenset({"animate", "animateColor", "animateMotion", "animateTransform", "set"})
-_URL_ATTRS: Final = frozenset({
+_SVG_ANIMATION: Final[frozenset[str]] = frozenset({
+    "animate",
+    "animateColor",
+    "animateMotion",
+    "animateTransform",
+    "set",
+})
+_URL_ATTRS: Final[frozenset[str]] = frozenset({
     "href",
     "src",
     "action",
@@ -93,12 +102,11 @@ _URL_ATTRS: Final = frozenset({
     "longdesc",
 })
 # the code points sanitize.c is_url_ignorable skips besides C0, space and DEL
-_URL_IGNORABLE: Final = frozenset("\u00ad\u200b\u200c\u200d\u2060\ufeff")
-_FAILING_ORACLES: Final = frozenset({"mutation", "string-path", "policy", "url-unsafe", "decode"})
+_URL_IGNORABLE: Final[frozenset[str]] = frozenset("\u00ad\u200b\u200c\u200d\u2060\ufeff")
 
 
 def main() -> int:
-    """Return 0 when every oracle agrees, 1 on a failing finding, 2 when the run proved nothing."""
+    # Return 0 when every oracle agrees, 1 on a failing finding, 2 when the run proved nothing.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--minutes", type=float, default=1.0, help="generation budget after the seed pass")
     parser.add_argument("--rng-seed", type=int, default=0)
@@ -131,22 +139,21 @@ def main() -> int:
         print(f"VACUOUS RUN: compared below {_MIN_COMPARED_RATIO:.0%} of attempted cases", file=sys.stderr)
         return 2
     findings = _confirm_with_parse5(run.minimized())
-    args.report.write_text(json.dumps([dataclasses.asdict(finding) for finding, _ in findings], indent=2) + "\n")
+    args.report.write_text(f"{json.dumps([dataclasses.asdict(finding) for finding, _ in findings], indent=2)}\n")
     for finding, _ in findings:
         # only a hash reaches the log: the repro may be an unreported bypass (DESIGN-v2 decision D5)
         digest = hashlib.sha256(finding.signature.encode()).hexdigest()[:12]
         print(f"FINDING {finding.oracle} {digest} x{finding.hits} parse5={finding.parse5}", file=sys.stderr)
     print(f"{len(findings)} finding(s) written to {args.report}")
-    return int(any(finding.oracle in _FAILING_ORACLES for finding, _ in findings))
+    failing_oracles = frozenset({"mutation", "string-path", "policy", "url-unsafe", "decode"})
+    return int(any(finding.oracle in failing_oracles for finding, _ in findings))
 
 
 def _negative_controls() -> Iterator[tuple[str, bool]]:
-    """
-    Feed each oracle a known-bad output and report whether it fired.
-
-    Modeled on DOMPurify's ``ADD_ATTR: ['onerror']`` control (test/fuzz/sanitize.fast-check.js:357-376) and Fuzzilli's
-    startup tests: an oracle that stops detecting fails the run instead of passing silently.
-    """
+    # Feed each oracle a known-bad output and report whether it fired.
+    #
+    # Modeled on DOMPurify's ``ADD_ATTR: ['onerror']`` control (test/fuzz/sanitize.fast-check.js:357-376) and Fuzzilli's
+    # startup tests: an oracle that stops detecting fails the run instead of passing silently.
     escaped = parse_fragment("<p>&lt;img src=x onerror=alert(1)&gt;</p>", _CONTEXT, positions=False)
     # a serializer that forgets to escape text, the SI7 class of MutaGen's detectors
     yield "mutation", _mutation_detail(escaped, html.unescape(escaped.inner_html)) is not None
@@ -188,11 +195,9 @@ def _negative_controls() -> Iterator[tuple[str, bool]]:
 
 
 def _mutation_detail(tree: Node, serialized: str) -> str | None:
-    """
-    Describe where the independent re-parse of ``serialized`` first departs from ``tree``, or return None.
-
-    The description names node shapes, not their text, so divergences that differ only in payload share a signature.
-    """
+    # Describe where the independent re-parse of ``serialized`` first departs from ``tree``, or return None.
+    #
+    # The description names node shapes, not their text, so divergences that differ only in payload share a signature.
     expected = _normalized_dump(tree)
     # html5lib-python and parse5 8.0 predate the customizable <select> parsing the pinned WPT corpus expects
     # (tests/conformance/data/wpt_html_tree.json keeps <select><div>), so only turbohtml can re-parse a select
@@ -201,7 +206,11 @@ def _mutation_detail(tree: Node, serialized: str) -> str | None:
         reparsed = _normalized_dump(parse_fragment(serialized, _CONTEXT, positions=False, scripting=True))
     else:
         reference = "html5lib"
-        reparsed = _dump_html5lib(_reparse(serialized))
+        # It nests fragment children one column deeper than the .dat files, the offset ``convertTreeDump`` strips in
+        # html5lib/tests/tree_construction.py; continuation lines of a multi-line text node carry no bar and stay as
+        # they are.
+        lines = _DOM_BUILDER(namespaceHTMLElements=False).testSerializer(_reparse(serialized)).split("\n")[1:]
+        reparsed = "\n".join(f"| {line[3:]}" if line.startswith("|") else line for line in lines)
     if expected == reparsed:
         return None
     return next(
@@ -217,13 +226,11 @@ def _normalized_dump(tree: Node) -> str:
 
 
 def _dump_turbohtml(nodes: Sequence[Node], depth: int = 0) -> list[str]:
-    """
-    Render turbohtml nodes in the html5lib-tests tree format.
-
-    Modeled on tests/dom/test_treebuilder_conformance.py ``_dump_node``. Adjacent text merges and empty text drops,
-    since no parser produces either and html5lib's ``testSerializer`` normalizes them away.
-    """
-    pad = "| " + "  " * depth
+    # Render turbohtml nodes in the html5lib-tests tree format.
+    #
+    # Modeled on tests/dom/test_treebuilder_conformance.py ``_dump_node``. Adjacent text merges and empty text drops,
+    # since no parser produces either and html5lib's ``testSerializer`` normalizes them away.
+    pad = f"| {'  ' * depth}"
     out: list[str] = []
     pending_text = ""
     for node in nodes:
@@ -235,7 +242,7 @@ def _dump_turbohtml(nodes: Sequence[Node], depth: int = 0) -> list[str]:
             pending_text = ""
         if isinstance(node, Element):
             foreign = node.namespace is not Namespace.HTML
-            out.append(f"{pad}<{node.namespace.value + ' ' if foreign else ''}{node.tag}>")
+            out.append(f"{pad}<{f'{node.namespace.value} ' if foreign else ''}{node.tag}>")
             out.extend(
                 sorted(
                     f'{pad}  {_attr_name(name, foreign=foreign)}="{_attr_text(value)}"'
@@ -255,7 +262,7 @@ def _dump_turbohtml(nodes: Sequence[Node], depth: int = 0) -> list[str]:
 
 
 def _attr_name(name: str, *, foreign: bool) -> str:
-    """Spell a namespaced attribute on a foreign element as prefix and local name apart, the .dat way."""
+    # Spell a namespaced attribute on a foreign element as prefix and local name apart, the .dat way.
     return name.replace(":", " ", 1) if foreign and name.startswith(("xlink:", "xml:", "xmlns:")) else name
 
 
@@ -273,20 +280,9 @@ def _elements(root: Node) -> Iterator[Element]:
 
 
 def _reparse(serialized: str) -> DomFragment:
-    """Parse ``serialized`` the way ``innerHTML`` assignment does: a <div> fragment with scripting on."""
+    # Parse ``serialized`` the way ``innerHTML`` assignment does: a <div> fragment with scripting on.
     parser = html5lib.HTMLParser(tree=_DOM_BUILDER, namespaceHTMLElements=False)
     return parser.parseFragment(serialized, container=_CONTEXT, scripting=True)
-
-
-def _dump_html5lib(fragment: DomFragment) -> str:
-    """
-    Render an html5lib tree in the html5lib-tests format with html5lib's own ``testSerializer``.
-
-    It nests fragment children one column deeper than the .dat files, the offset ``convertTreeDump`` strips in
-    html5lib/tests/tree_construction.py; continuation lines of a multi-line text node carry no bar and stay as they are.
-    """
-    lines = _DOM_BUILDER(namespaceHTMLElements=False).testSerializer(fragment).split("\n")[1:]
-    return "\n".join("| " + line[3:] if line.startswith("|") else line for line in lines)
 
 
 def _shape(line: str | None) -> str:
@@ -297,16 +293,14 @@ def _shape(line: str | None) -> str:
         return "#text"  # a line without the bar continues a multi-line text node
     if body.startswith("<!--"):
         return "#comment"
-    return body.split(">", 1)[0] + ">" if body.startswith("<") else "@" + body.split("=", 1)[0]
+    return f"{body.split('>', 1)[0]}>" if body.startswith("<") else f"@{body.split('=', 1)[0]}"
 
 
 def _violations(serialized: str, policy: Policy) -> list[str]:
-    """
-    List every way the independent re-parse of ``serialized`` breaks ``policy`` or the non-configurable baseline.
-
-    Modeled on OWASP java-html-sanitizer's ``checkSafe`` (HtmlPolicyBuilderFuzzerTest.java:123-155), which walks the
-    validator.nu re-parse, generalized from its one fixed policy to the Policy under test.
-    """
+    # List every way the independent re-parse of ``serialized`` breaks ``policy`` or the non-configurable baseline.
+    #
+    # Modeled on OWASP java-html-sanitizer's ``checkSafe`` (HtmlPolicyBuilderFuzzerTest.java:123-155), which walks the
+    # validator.nu re-parse, generalized from its one fixed policy to the Policy under test.
     found: list[str] = []
     stack: list[DomElement] = [node for node in _reparse(serialized).childNodes if node.nodeType == node.ELEMENT_NODE]
     while stack:
@@ -340,7 +334,7 @@ def _element_violations(element: DomElement, policy: Policy) -> list[str]:
     return found
 
 
-_BASELINE_ELEMENTS: Final = frozenset({
+_BASELINE_ELEMENTS: Final[frozenset[tuple[str, str]]] = frozenset({
     *(("html", tag) for tag in _UNSAFE_HTML),
     *(("svg", tag) for tag in _SVG_ANIMATION),
     ("svg", "script"),
@@ -348,10 +342,11 @@ _BASELINE_ELEMENTS: Final = frozenset({
 
 
 def _css_danger(text: str) -> bool:
-    """Check CSS tokens for script-capable URLs, functions, and properties."""
+    # Check CSS tokens for script-capable URLs, functions, and properties.
     decoded = re.sub(
-        r"\\([0-9a-fA-F]{1,6})[ \t\n\r\f]?|\\(.)",
-        lambda match: chr(min(int(match[1], 16), 0x10FFFF) or 0xFFFD) if match[1] else match[2],
+        r"(?#backslash and hex escape)\\(?P<hex>[0-9a-fA-F]{1,6})(?#optional whitespace terminator)[ \t\n\r\f]?"
+        r"|(?#backslash and any other character)\\(?P<char>.)",
+        lambda match: chr(min(int(match["hex"], 16), 0x10FFFF) or 0xFFFD) if match["hex"] else match["char"],
         text,
     )
     source = re.sub(r"/\*.*?(?:\*/|$)", "", decoded, flags=re.DOTALL)
@@ -364,7 +359,7 @@ def _css_script_url(value: str) -> bool:
     return value.strip(" \t\r\n\f\"'").lower().startswith(("javascript:", "vbscript:"))
 
 
-def _css_value_danger(tokens: list[object]) -> bool:
+def _css_value_danger(tokens: list[CssNode]) -> bool:
     for token in tokens:
         kind = getattr(token, "type", "")
         if kind == "url" and _css_script_url(getattr(token, "value", "")):
@@ -379,7 +374,7 @@ def _css_value_danger(tokens: list[object]) -> bool:
     return False
 
 
-def _css_declarations_danger(declarations: list[object]) -> bool:
+def _css_declarations_danger(declarations: list[CssNode]) -> bool:
     return any(
         getattr(declaration, "type", "") == "declaration"
         and (
@@ -390,31 +385,33 @@ def _css_declarations_danger(declarations: list[object]) -> bool:
     )
 
 
-def _css_rules_danger(rules: list[object]) -> bool:
+def _css_rules_danger(rules: list[CssNode]) -> bool:
     for rule in rules:
-        kind = getattr(rule, "type", "")
-        if kind == "qualified-rule":
+        if (kind := getattr(rule, "type", "")) == "qualified-rule":
             prelude = getattr(rule, "prelude", [])
             if not prelude or any(getattr(token, "type", "") == "string" for token in prelude):
                 continue
             if _css_declarations_danger(tinycss2.parse_declaration_list(getattr(rule, "content", []))):
                 return True
-        elif kind == "at-rule":
-            prelude = getattr(rule, "prelude", [])
-            if getattr(rule, "lower_at_keyword", "") == "import" and (
-                _css_value_danger(prelude)
-                or any(
-                    getattr(token, "type", "") == "string" and _css_script_url(getattr(token, "value", ""))
-                    for token in prelude
-                )
-            ):
-                return True
-            if (content := getattr(rule, "content", None)) is not None and (
-                _css_declarations_danger(tinycss2.parse_declaration_list(content))
-                or _css_rules_danger(tinycss2.parse_rule_list(content))
-            ):
-                return True
+        elif kind == "at-rule" and _at_rule_danger(rule):
+            return True
     return False
+
+
+def _at_rule_danger(rule: CssNode) -> bool:
+    prelude = getattr(rule, "prelude", [])
+    if getattr(rule, "lower_at_keyword", "") == "import" and (
+        _css_value_danger(prelude)
+        or any(
+            getattr(token, "type", "") == "string" and _css_script_url(getattr(token, "value", "")) for token in prelude
+        )
+    ):
+        return True
+    content = getattr(rule, "content", None)
+    return content is not None and (
+        _css_declarations_danger(tinycss2.parse_declaration_list(content))
+        or _css_rules_danger(tinycss2.parse_rule_list(content))
+    )
 
 
 def _attribute_violations(element: DomElement, policy: Policy) -> list[str]:
@@ -436,12 +433,11 @@ def _attribute_violations(element: DomElement, policy: Policy) -> list[str]:
 
 
 def _whatwg_allows(value: str, policy: Policy) -> bool | None:
-    """
-    Decide keep or drop for a URL attribute value from the scheme the WHATWG URL parser reads.
-
-    ``normalize_url`` applies the WHATWG scheme rules and lowercases the scheme, so a scheme the parser reads leads its
-    output. None means the URL engine rejects the value, so a browser never fetches it and either decision is safe.
-    """
+    # Decide keep or drop for a URL attribute value from the scheme the WHATWG URL parser reads.
+    #
+    # ``normalize_url`` applies the WHATWG scheme rules and lowercases the scheme, so a scheme the parser reads leads
+    # its output. None means the URL engine rejects the value, so a browser never fetches it and either decision is
+    # safe.
     try:
         normalized = normalize_url(value)
     except ValueError:
@@ -459,7 +455,7 @@ def _whatwg_allows(value: str, policy: Policy) -> bool | None:
 
 
 def _hidden_scheme(value: str) -> str | None:
-    """Mirror sanitize.c ``hidden_scheme_allowed``: the scheme a value spells without ignorable or non-ASCII points."""
+    # Mirror sanitize.c ``hidden_scheme_allowed``: the scheme a value spells without ignorable or non-ASCII points.
     scheme: list[str] = []
     for character in value:
         if character in _URL_IGNORABLE or ord(character) <= 0x20 or ord(character) == 0x7F or ord(character) >= 0x80:
@@ -493,13 +489,43 @@ class _Run:
             return
         self.stats["compared"] += 1
         if (serialized := tree.inner_html) != sanitize(markup, policy):
-            self._record(
-                "string-path", "sanitize(str) != sanitize_node().inner_html", markup, policy, _string_path_check(policy)
-            )
+
+            def string_path(markup: str) -> str | None:
+                tree = sanitize_node(parse_fragment(markup, _CONTEXT, positions=False), policy)
+                return (
+                    None
+                    if tree.inner_html == sanitize(markup, policy)
+                    else "sanitize(str) != sanitize_node().inner_html"
+                )
+
+            self._record("string-path", "sanitize(str) != sanitize_node().inner_html", markup, policy, string_path)
         if (detail := _mutation_detail(tree, serialized)) is not None:
-            self._record("mutation", detail, markup, policy, _mutation_check(policy))
+
+            def mutation(markup: str) -> str | None:
+                tree = sanitize_node(parse_fragment(markup, _CONTEXT, positions=False), policy)
+                return None if _depth(tree) >= _DEPTH_CAP else _mutation_detail(tree, tree.inner_html)
+
+            self._record("mutation", detail, markup, policy, mutation)
         for violation in _violations(serialized, policy):
             self._record("policy", violation, markup, policy, _policy_check(policy, violation))
+
+    def _record(self, oracle: str, detail: str, markup: str, policy: Policy, check: _Check | None) -> None:
+        signature = f"{oracle}: {detail}"
+        self.hits[signature] += 1
+        if signature not in self.found:
+            default: Final = Policy()
+            policy_repr: Final = "Policy({})".format(
+                ", ".join(
+                    f"{field.name}={_value_repr(value)}"
+                    for field in dataclasses.fields(Policy)
+                    if (value := getattr(policy, field.name)) != getattr(default, field.name)
+                )
+            )
+            self.found[signature] = (
+                _Finding(oracle=oracle, signature=signature, markup=markup, policy=policy_repr, detail=detail),
+                policy,
+                check,
+            )
 
     def url(self, element: str, attribute: str, recipe: str, source: str, policy: Policy) -> None:
         markup = (
@@ -531,12 +557,6 @@ class _Run:
             for markup in [finding.markup if check is None else _ddmin(finding.markup, check, finding.detail)]
         ]
 
-    def _record(self, oracle: str, detail: str, markup: str, policy: Policy, check: _Check | None) -> None:
-        signature = f"{oracle}: {detail}"
-        self.hits[signature] += 1
-        if signature not in self.found:
-            self.found[signature] = (_Finding(oracle, signature, markup, _policy_repr(policy), detail), policy, check)
-
 
 def _depth(root: Node) -> int:
     # a loop, not recursion: a seed nested near the cap would exhaust Python's recursion limit
@@ -549,15 +569,7 @@ def _depth(root: Node) -> int:
     return deepest
 
 
-def _string_path_check(policy: Policy) -> _Check:
-    def check(markup: str) -> str | None:
-        tree = sanitize_node(parse_fragment(markup, _CONTEXT, positions=False), policy)
-        return None if tree.inner_html == sanitize(markup, policy) else "sanitize(str) != sanitize_node().inner_html"
-
-    return check
-
-
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Finding:
     oracle: str
     signature: str
@@ -569,34 +581,14 @@ class _Finding:
     parse5: str = "n/a"
 
 
-def _policy_repr(policy: Policy) -> str:
-    """Spell ``policy`` as a constructor call so a finding's repro rebuilds it; default fields are left out."""
-    default = Policy()
-    return "Policy({})".format(
-        ", ".join(
-            f"{field.name}={_value_repr(value)}"
-            for field in dataclasses.fields(Policy)
-            if (value := getattr(policy, field.name)) != getattr(default, field.name)
-        )
-    )
-
-
 def _value_repr(value: _PolicyValue) -> str:
     if isinstance(value, OnDisallowed):
         return f"OnDisallowed.{value.name}"
     if isinstance(value, frozenset):
         return f"frozenset({sorted(value)!r})"
     if isinstance(value, Mapping):
-        return "{" + ", ".join(f"{key!r}: {_value_repr(item)}" for key, item in sorted(value.items())) + "}"
+        return f"{{{', '.join(f'{key!r}: {_value_repr(item)}' for key, item in sorted(value.items()))}}}"
     return repr(value)
-
-
-def _mutation_check(policy: Policy) -> _Check:
-    def check(markup: str) -> str | None:
-        tree = sanitize_node(parse_fragment(markup, _CONTEXT, positions=False), policy)
-        return None if _depth(tree) >= _DEPTH_CAP else _mutation_detail(tree, tree.inner_html)
-
-    return check
 
 
 def _policy_check(policy: Policy, violation: str) -> _Check:
@@ -617,14 +609,14 @@ def _dom_target(parent: DomFragment | DomElement) -> DomElement:
 
 
 def _ddmin(markup: str, check: _Check, detail: str) -> str:
-    """
-    Shrink ``markup`` to an input that still yields ``detail``, with Zeller and Hildebrandt's ddmin.
-
-    Written, not reused: picire 21.8, the maintained Python ddmin, imports ``pkg_resources`` and fails to load on 3.14.
-    """
+    # Shrink ``markup`` to an input that still yields ``detail``, with Zeller and Hildebrandt's ddmin.
+    #
+    # Written, not reused: picire 21.8, the maintained Python ddmin, imports ``pkg_resources`` and fails to load on
+    # 3.14.
     calls = 0
     granularity = 2
-    while len(markup) >= 2 and calls < _MINIMIZE_BUDGET:
+    minimize_budget = 1500
+    while len(markup) >= 2 and calls < minimize_budget:
         chunk = max(len(markup) // granularity, 1)
         for start in range(0, len(markup), chunk):
             candidate = markup[:start] + markup[start + chunk :]
@@ -641,12 +633,15 @@ def _ddmin(markup: str, check: _Check, detail: str) -> str:
 
 
 def _seeds(rng: random.Random) -> list[str]:
-    """Collect the vendored payload corpora; a missing one is a setup error, never a silent skip."""
+    # Collect the vendored payload corpora; a missing one is a setup error, never a silent skip.
     corpus = sorted((_ROOT / "tools" / "fuzz" / "corpus" / "sanitize").glob("*"))
+    # Unwrap the H5SC vectors from the ``<div id=N>…//["'`-->]]>]</div>`` shell vectors.txt puts around each.
+    text: Final = _require(_DATA / "h5sc" / "vectors.txt").read_text(encoding="utf-8")
+    h5sc: Final = re.findall(r'<div id="\d+">(.*?)//\["\'`-->\]\]>\]</div>', text, flags=re.DOTALL)
     return list(
         dict.fromkeys([
             *_dompurify_payloads(),
-            *_h5sc_vectors(),
+            *h5sc,
             *_dharma_payloads(rng),
             *(path.read_text(encoding="utf-8") for path in corpus),
         ])
@@ -654,11 +649,9 @@ def _seeds(rng: random.Random) -> list[str]:
 
 
 def _dompurify_payloads() -> list[str]:
-    """
-    Read the ``payload`` strings of DOMPurify's ESM fixture as JSON objects.
-
-    Mirrors ``_load_payloads`` in tests/conformance/test_sanitizer_dompurify_conformance.py.
-    """
+    # Read the ``payload`` strings of DOMPurify's ESM fixture as JSON objects.
+    #
+    # Mirrors ``_load_payloads`` in tests/conformance/test_sanitizer_dompurify_conformance.py.
     fixture = _ROOT / "tests" / "conformance" / "DOMPurify" / "test" / "fixtures" / "expect.mjs"
     body = _require(fixture).read_text(encoding="utf-8").split("export default", 1)[1]
     decoder = json.JSONDecoder()
@@ -680,18 +673,10 @@ def _require(path: Path) -> Path:
     return path
 
 
-def _h5sc_vectors() -> list[str]:
-    """Unwrap the H5SC vectors from the ``<div id=N>…//["'`-->]]>]</div>`` shell vectors.txt puts around each."""
-    text = _require(_DATA / "h5sc" / "vectors.txt").read_text(encoding="utf-8")
-    return re.findall(r'<div id="\d+">(.*?)//\["\'`-->\]\]>\]</div>', text, flags=re.DOTALL)
-
-
 def _dharma_payloads(rng: random.Random) -> list[str]:
-    """
-    Generate payloads from Dharma's ``xss.dg`` grammar with the installed dharma package, unchanged.
-
-    The child process takes a seed drawn from ``rng``, so the batch is reproducible from ``--rng-seed``.
-    """
+    # Generate payloads from Dharma's ``xss.dg`` grammar with the installed dharma package, unchanged.
+    #
+    # The child process takes a seed drawn from ``rng``, so the batch is reproducible from ``--rng-seed``.
     if (spec := importlib.util.find_spec("dharma")) is None or spec.origin is None:
         msg = "the dharma package, which ships xss.dg, is missing; tox -e fuzz-oracle installs it"
         raise ModuleNotFoundError(msg)
@@ -715,15 +700,46 @@ def _dharma_payloads(rng: random.Random) -> list[str]:
 
 
 def _draw_policy(rng: random.Random) -> Policy:
-    """
-    Draw a Policy from a base allowlist plus the hazard pool most sanitizer bypasses need.
-
-    The pool is DESIGN-v2 §4d's: foreign content, raw-text and RCDATA elements, SVG animation, ``style``, URL-bearing
-    attributes and custom schemes, since 11 of MutaGen's 16 bypasses needed a relaxed configuration.
-    """
+    # Draw a Policy from a base allowlist plus the hazard pool most sanitizer bypasses need.
+    #
+    # The pool is DESIGN-v2 §4d's: foreign content, raw-text and RCDATA elements, SVG animation, ``style``, URL-bearing
+    # attributes and custom schemes, since 11 of MutaGen's 16 bypasses needed a relaxed configuration.
+    hazard_tags = (
+        "svg",
+        "math",
+        "annotation-xml",
+        "foreignObject",
+        "desc",
+        "mtext",
+        "mglyph",
+        "mi",
+        "template",
+        "xmp",
+        "textarea",
+        "title",
+        "select",
+        "option",
+        "animate",
+        "set",
+        "style",
+        "noscript",
+        "iframe",
+        "a",
+        "form",
+        "button",
+        "img",
+        "image",
+        "use",
+        "table",
+        "noembed",
+        "noframes",
+        "listing",
+        "pre",
+        "plaintext",
+    )
     tags = {
         *rng.sample(sorted(Policy.relaxed().tags), rng.randint(0, 12)),
-        *rng.sample(_HAZARD_TAGS, rng.randint(1, 8)),
+        *rng.sample(hazard_tags, rng.randint(1, 8)),
     }
     return Policy(
         tags=frozenset(tags),
@@ -739,7 +755,7 @@ def _draw_policy(rng: random.Random) -> Policy:
         allow_fragment_urls=rng.random() < 0.5,
         on_disallowed_tag=rng.choice(list(OnDisallowed)),
         strip_comments=rng.random() < 0.5,
-        remove_with_content=frozenset(rng.sample(_HAZARD_TAGS, rng.randint(0, 3))),
+        remove_with_content=frozenset(rng.sample(hazard_tags, rng.randint(0, 3))),
         css_properties=DEFAULT_CSS_PROPERTIES | {"background-image", "list-style-image", "behavior"},
         attribute_prefixes=frozenset({"data-"}) if rng.random() < 0.3 else frozenset(),
         allow_html=rng.random() < 0.9,
@@ -748,40 +764,7 @@ def _draw_policy(rng: random.Random) -> Policy:
     )
 
 
-_HAZARD_TAGS: Final = (
-    "svg",
-    "math",
-    "annotation-xml",
-    "foreignObject",
-    "desc",
-    "mtext",
-    "mglyph",
-    "mi",
-    "template",
-    "xmp",
-    "textarea",
-    "title",
-    "select",
-    "option",
-    "animate",
-    "set",
-    "style",
-    "noscript",
-    "iframe",
-    "a",
-    "form",
-    "button",
-    "img",
-    "image",
-    "use",
-    "table",
-    "noembed",
-    "noframes",
-    "listing",
-    "pre",
-    "plaintext",
-)
-_HAZARD_ATTRS: Final = (
+_HAZARD_ATTRS: Final[tuple[str, ...]] = (
     *sorted(_URL_ATTRS),
     "style",
     "onerror",
@@ -799,16 +782,24 @@ _HAZARD_ATTRS: Final = (
     "rel",
     "type",
 )
-_SCHEMES: Final = ("http", "https", "mailto", "data", "javascript", "vbscript", "ftp", "tel", "x-custom")
+_SCHEMES: Final[tuple[str, ...]] = (
+    "http",
+    "https",
+    "mailto",
+    "data",
+    "javascript",
+    "vbscript",
+    "ftp",
+    "tel",
+    "x-custom",
+)
 
 
 def _wpt_cases() -> Iterator[tuple[str, Policy]]:
-    """
-    Yield each WPT sanitizer-api ``#data`` input with its ``#config`` mapped onto a Policy.
-
-    The block split follows tools/generate_wpt_tree_corpus.py ``_parse_file``. Only ``elements`` and ``attributes`` have
-    a Policy field to map to; a case naming neither runs under the default Policy.
-    """
+    # Yield each WPT sanitizer-api ``#data`` input with its ``#config`` mapped onto a Policy.
+    #
+    # The block split follows tools/generate_wpt_tree_corpus.py ``_parse_file``. Only ``elements`` and ``attributes``
+    # have a Policy field to map to; a case naming neither runs under the default Policy.
     for path in sorted(_require(_DATA / "wpt" / "sanitizer-api").glob("*.sub.dat")):
         for block in path.read_text(encoding="utf-8").split("#data\n")[1:]:
             data, _, rest = block.partition("\n#")
@@ -825,12 +816,10 @@ def _wpt_cases() -> Iterator[tuple[str, Policy]]:
 
 
 def _dictionary_tokens() -> list[str]:
-    r"""
-    Read the google/fuzzing html, svg, mathml and css AFL dictionaries, the set jsoup concatenates into combo.dict.
-
-    Entries are ``name="value"`` lines with ``\\``, ``\"`` and ``\xNN`` escapes, which AFL's ``load_extras_file``
-    decodes the same way.
-    """
+    # Read the google/fuzzing html, svg, mathml and css AFL dictionaries, the set jsoup concatenates into combo.dict.
+    #
+    # Entries are ``name="value"`` lines with ``\\``, ``\"`` and ``\xNN`` escapes, which AFL's ``load_extras_file``
+    # decodes the same way.
     return [
         re.sub(
             r"\\(x[0-9a-fA-F]{2}|.)",
@@ -846,16 +835,16 @@ def _dictionary_tokens() -> list[str]:
 
 
 def _mutagen(rng: random.Random, seeds: Sequence[str]) -> str:
-    """
-    Build an mXSS candidate inside-out from a trigger, the MutaGen generator (Klein and Johns, IEEE S&P 2024).
-
-    ias-tubs/HTML_parsing_differentials carries no license, so this re-implements mutagen/lib/gen.ml from its structure:
-    up to 25 weighted actions wrap the trigger, an action family's odds decay with use (``decr``), and a result of 7 or
-    fewer steps, or mostly uninteresting ones, is drawn again. Vendored seed payloads join the three MutaGen triggers.
-    """
+    # Build an mXSS candidate inside-out from a trigger, the MutaGen generator (Klein and Johns, IEEE S&P 2024).
+    #
+    # ias-tubs/HTML_parsing_differentials carries no license, so this re-implements mutagen/lib/gen.ml from its
+    # structure: up to 25 weighted actions wrap the trigger, an action family's odds decay with use (``decr``), and a
+    # result of 7 or fewer steps, or mostly uninteresting ones, is drawn again. Vendored seed payloads join the three
+    # MutaGen triggers.
+    triggers = ("<img src=x onerror=mxss(1)>", "<image src=x onerror=mxss(1)>", "<script>mxss(1)</script>")
     while True:
         counts: Counter[str] = Counter()
-        markup = rng.choice((*_TRIGGERS, rng.choice(seeds)))
+        markup = rng.choice((*triggers, rng.choice(seeds)))
         steps = interesting = 0
         while (
             steps < 25 and (action := _weighted(rng, [(name, weight(counts)) for name, weight in _ACTIONS])) != "stop"
@@ -868,7 +857,6 @@ def _mutagen(rng: random.Random, seeds: Sequence[str]) -> str:
             return markup
 
 
-_TRIGGERS: Final = ("<img src=x onerror=mxss(1)>", "<image src=x onerror=mxss(1)>", "<script>mxss(1)</script>")
 # gen.ml Action.gen, with its comment, CDATA and URI-encoding variants folded into one family each and their weights
 # summed; ``decr p c`` there is p ** (c + 1)
 _ACTIONS: Final[tuple[tuple[str, Callable[[Counter[str]], float]], ...]] = (
@@ -888,60 +876,6 @@ _ACTIONS: Final[tuple[tuple[str, Callable[[Counter[str]], float]], ...]] = (
     ("space", lambda _counts: 1.0),
     ("stop", lambda _counts: 0.05),
 )
-_TAGS: Final = (
-    ("div", 1.0),
-    ("span", 1.0),
-    ("title", 1.0),
-    ("form", 1.0),
-    ("dfn", 1.0),
-    ("header", 1.0),
-    ("p", 0.5),
-    ("br", 0.5),
-    ("a", 1.0),
-    ("style", 1.0),
-    ("noscript", 1.0),
-    ("table", 0.25),
-    ("td", 0.25),
-    ("tr", 0.25),
-    ("colgroup", 0.25),
-    ("svg", 1.0),
-    ("foreignobject", 1.0),
-    ("desc", 1.0),
-    ("path", 1.0),
-    ("math", 1.0),
-    ("mtext", 0.5),
-    ("mglyph", 0.5),
-    ("mi", 0.25),
-    ("mo", 0.25),
-    ("mn", 0.25),
-    ("ms", 0.25),
-    ("annotation-xml", 0.33),
-    ('annotation-xml encoding="text/html"', 0.33),
-    ('annotation-xml encoding="application/xhtml+xml"', 0.33),
-    ("select", 1.0),
-    ("input", 1.0),
-    ("option", 1.0),
-    ("textarea", 1.0),
-    ("keygen", 1.0),
-    ("xmp", 1.0),
-    ("noembed", 1.0),
-    ("listing", 1.0),
-    ("li", 0.5),
-    ("ul", 0.5),
-    ("pre", 1.0),
-    ("var", 1.0),
-    ("dl", 0.5),
-    ("dt", 0.5),
-    ("font", 1.0),
-    ("plaintext", 1.0),
-    ("noframes", 1.0),
-    ("iframe", 1.0),
-    ("object", 0.5),
-    ("embed", 0.5),
-    ("frameset", 0.5),
-)
-_ATTRIBUTE_QUOTES: Final = (("'", 0.4), ("&apos;", 0.05), ('"', 0.4), ("&quot;", 0.05), ("`", 0.05), ("&grave;", 0.05))
-_TOPLEVEL_QUOTES: Final = (("'", 0.4), ("&apos;", 0.1), ('"', 0.4), ("&quot;", 0.1))
 
 
 def _weighted(rng: random.Random, choices: Sequence[tuple[_T, float]]) -> _T:
@@ -949,8 +883,62 @@ def _weighted(rng: random.Random, choices: Sequence[tuple[_T, float]]) -> _T:
 
 
 def _apply(rng: random.Random, action: str, inner: str) -> str:
-    """Wrap ``inner`` with one action as gen.ml's ``Operation.print`` renders it, placed before or after at random."""
-    tag = _weighted(rng, _TAGS)
+    # Wrap ``inner`` with one action as gen.ml's ``Operation.print`` renders it, placed before or after at random.
+    tag = _weighted(
+        rng,
+        (
+            ("div", 1.0),
+            ("span", 1.0),
+            ("title", 1.0),
+            ("form", 1.0),
+            ("dfn", 1.0),
+            ("header", 1.0),
+            ("p", 0.5),
+            ("br", 0.5),
+            ("a", 1.0),
+            ("style", 1.0),
+            ("noscript", 1.0),
+            ("table", 0.25),
+            ("td", 0.25),
+            ("tr", 0.25),
+            ("colgroup", 0.25),
+            ("svg", 1.0),
+            ("foreignobject", 1.0),
+            ("desc", 1.0),
+            ("path", 1.0),
+            ("math", 1.0),
+            ("mtext", 0.5),
+            ("mglyph", 0.5),
+            ("mi", 0.25),
+            ("mo", 0.25),
+            ("mn", 0.25),
+            ("ms", 0.25),
+            ("annotation-xml", 0.33),
+            ('annotation-xml encoding="text/html"', 0.33),
+            ('annotation-xml encoding="application/xhtml+xml"', 0.33),
+            ("select", 1.0),
+            ("input", 1.0),
+            ("option", 1.0),
+            ("textarea", 1.0),
+            ("keygen", 1.0),
+            ("xmp", 1.0),
+            ("noembed", 1.0),
+            ("listing", 1.0),
+            ("li", 0.5),
+            ("ul", 0.5),
+            ("pre", 1.0),
+            ("var", 1.0),
+            ("dl", 0.5),
+            ("dt", 0.5),
+            ("font", 1.0),
+            ("plaintext", 1.0),
+            ("noframes", 1.0),
+            ("iframe", 1.0),
+            ("object", 0.5),
+            ("embed", 0.5),
+            ("frameset", 0.5),
+        ),
+    )
     attrs = "".join(
         _attribute(rng, rng.choice(("foo", "bar", "baz", "abc", "xyz")))
         for _ in range(_weighted(rng, ((0, 1.0), (1, 0.5), (2, 0.25))))
@@ -985,17 +973,18 @@ def _apply(rng: random.Random, action: str, inner: str) -> str:
                 "close_tag": f"</{tag.split(' ', 1)[0]}>",
                 "angle_bracket": rng.choice(("<", ">")),
                 "parsing_directive": "<!",
-                "quote": _weighted(rng, _TOPLEVEL_QUOTES),
+                "quote": _weighted(rng, (("'", 0.4), ("&apos;", 0.1), ('"', 0.4), ("&quot;", 0.1))),
             }.get(action, " ")
             wrapped = piece + inner if rng.random() < 0.5 else inner + piece
     return wrapped
 
 
 def _attribute(rng: random.Random, value: str) -> str:
-    """One attribute in gen.ml's ``Attribute`` forms: plain, space-after-equals or slash, then quoted per ``Quoted``."""
+    # One attribute in gen.ml's ``Attribute`` forms: plain, space-after-equals or slash, then quoted per ``Quoted``.
     name = rng.choice(("id", "title", "foo", "name", "data-foo"))
     separator = _weighted(rng, ((f" {name}=", 0.9), (f" {name}= ", 0.05), (f"/{name}=", 0.05)))
-    left, right = _weighted(rng, _ATTRIBUTE_QUOTES), _weighted(rng, _ATTRIBUTE_QUOTES)
+    attribute_quotes = (("'", 0.4), ("&apos;", 0.05), ('"', 0.4), ("&quot;", 0.05), ("`", 0.05), ("&grave;", 0.05))
+    left, right = _weighted(rng, attribute_quotes), _weighted(rng, attribute_quotes)
     return separator + _weighted(
         rng,
         (
@@ -1009,26 +998,62 @@ def _attribute(rng: random.Random, value: str) -> str:
 
 
 def _splice(rng: random.Random, seed: str, tokens: Sequence[str]) -> str:
-    """Insert dictionary tokens at random offsets, libFuzzer's dictionary mutation applied to a seed."""
+    # Insert dictionary tokens at random offsets, libFuzzer's dictionary mutation applied to a seed.
     for _ in range(rng.randint(1, 6)):
         at = rng.randint(0, len(seed))
         seed = seed[:at] + rng.choice(tokens) + seed[at:]
     return seed
 
 
-def _url_case(rng: random.Random) -> tuple[str, str, str, str, Policy]:
-    """
-    Draw an element and URL attribute, a value with one obfuscation written as attribute source, and a URL policy.
+class _UrlCase(NamedTuple):
+    element: str
+    attribute: str
+    recipe: str
+    value: str
+    policy: Policy
 
-    The obfuscations are scheme-check bypasses sanitizers shipped: character references without ``;`` and named
-    whitespace references (loofah GHSA-5qhf-9phg-95m2, GHSA-8whx-365g-h9vv), code points above U+00A0 (bleach
-    GHSA-8rfp-98v4-mmr6), NFKC look-alikes (html-sanitizer CVE-2024-34078), and ``javascript://://`` (Chromium's
-    ``ProtocolIsJavaScript`` disagreeing with KURL).
-    """
-    base = rng.choice(_URL_BASES)
+
+def _url_case(rng: random.Random) -> _UrlCase:
+    # Draw an element and URL attribute, a value with one obfuscation written as attribute source, and a URL policy.
+    #
+    # The obfuscations are scheme-check bypasses sanitizers shipped: character references without ``;`` and named
+    # whitespace references (loofah GHSA-5qhf-9phg-95m2, GHSA-8whx-365g-h9vv), code points above U+00A0 (bleach
+    # GHSA-8rfp-98v4-mmr6), NFKC look-alikes (html-sanitizer CVE-2024-34078), and ``javascript://://`` (Chromium's
+    # ``ProtocolIsJavaScript`` disagreeing with KURL).
+    base = rng.choice((
+        "javascript:alert(1)",
+        "JaVaScRiPt:alert(1)",
+        "vbscript:msgbox(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "https://example.com/",
+        "http://example.com/x?y#z",
+        "mailto:a@example.com",
+        "x-custom:1",
+        "ftp://example.com/",
+        "tel:+1",
+        "//example.com/",
+        "/path",
+        "?query",
+        "#fragment",
+        "javascript://://alert(1)",
+        "javascript:/*\n*/alert(1)",
+        "c:\\x",
+        "\\\\example.com\\share",
+        "java",
+        "",
+    ))
     recipe, obfuscate = rng.choice(_OBFUSCATIONS)
     at = rng.randint(0, colon if (colon := base.find(":")) > 0 else len(base))
-    element, attribute = rng.choice(_URL_TARGETS)
+    element, attribute = rng.choice((
+        ("a", "href"),
+        ("img", "src"),
+        ("form", "action"),
+        ("button", "formaction"),
+        ("blockquote", "cite"),
+        ("video", "poster"),
+        ("svg", "xlink:href"),
+        ("svg", "href"),
+    ))
     policy = Policy(
         tags=frozenset({"a", "img", "form", "button", "blockquote", "video", "svg"}),
         attributes={"*": _URL_ATTRS},
@@ -1036,48 +1061,16 @@ def _url_case(rng: random.Random) -> tuple[str, str, str, str, Policy]:
         allow_relative_urls=rng.random() < 0.5,
         allow_fragment_urls=rng.random() < 0.5,
     )
-    return element, attribute, recipe, obfuscate(base, at).replace('"', "&quot;"), policy
-
-
-_URL_BASES: Final = (
-    "javascript:alert(1)",
-    "JaVaScRiPt:alert(1)",
-    "vbscript:msgbox(1)",
-    "data:text/html,<script>alert(1)</script>",
-    "https://example.com/",
-    "http://example.com/x?y#z",
-    "mailto:a@example.com",
-    "x-custom:1",
-    "ftp://example.com/",
-    "tel:+1",
-    "//example.com/",
-    "/path",
-    "?query",
-    "#fragment",
-    "javascript://://alert(1)",
-    "javascript:/*\n*/alert(1)",
-    "c:\\x",
-    "\\\\example.com\\share",
-    "java",
-    "",
-)
-_URL_TARGETS: Final = (
-    ("a", "href"),
-    ("img", "src"),
-    ("form", "action"),
-    ("button", "formaction"),
-    ("blockquote", "cite"),
-    ("video", "poster"),
-    ("svg", "xlink:href"),
-    ("svg", "href"),
-)
+    return _UrlCase(element, attribute, recipe, obfuscate(base, at).replace('"', "&quot;"), policy)
 
 
 def _insert(text: str, value: str, at: int) -> str:
     return value[:at] + text + value[at:]
 
 
-_FULLWIDTH: Final = {code: code + 0xFEE0 for code in range(ord("A"), ord("z") + 1) if chr(code).isalpha()}
+_FULLWIDTH: Final[dict[int, int]] = {
+    code: code + 0xFEE0 for code in range(ord("A"), ord("z") + 1) if chr(code).isalpha()
+}
 _OBFUSCATIONS: Final[tuple[tuple[str, Callable[[str, int], str]], ...]] = (
     ("plain", lambda value, _at: value),
     ("leading c0", lambda value, _at: f"\x01 \x1f{value}"),
@@ -1116,13 +1109,11 @@ _OBFUSCATIONS: Final[tuple[tuple[str, Callable[[str, int], str]], ...]] = (
 
 
 def _confirm_with_parse5(findings: list[tuple[_Finding, Policy]]) -> list[tuple[_Finding, Policy]]:
-    """
-    Re-parse each minimized mutation finding's output with parse5 and record whether it confirms the mutation.
-
-    ``confirmed`` means parse5 also departs from turbohtml's tree, so the mutation is turbohtml's; ``html5lib-only``
-    means parse5 rebuilds turbohtml's tree, pointing at a stale html5lib rule. Node or the npm install may be absent on
-    a dev machine; the verdict then says so instead of failing the run.
-    """
+    # Re-parse each minimized mutation finding's output with parse5 and record whether it confirms the mutation.
+    #
+    # ``confirmed`` means parse5 also departs from turbohtml's tree, so the mutation is turbohtml's; ``html5lib-only``
+    # means parse5 rebuilds turbohtml's tree, pointing at a stale html5lib rule. Node or the npm install may be absent
+    # on a dev machine; the verdict then says so instead of failing the run.
     mutations = [(finding, policy) for finding, policy in findings if "!= html5lib " in finding.signature]
     if (node := shutil.which("node")) is None or not (_NODE_DIR / "node_modules" / "parse5").is_dir():
         verdicts = dict.fromkeys((finding.signature for finding, _ in mutations), "unavailable")

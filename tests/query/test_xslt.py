@@ -8,7 +8,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
 import pytest
 from bench import core
@@ -25,15 +25,12 @@ if TYPE_CHECKING:
 
     from turbohtml import Node
 
-_NS = 'xmlns:xsl="http://www.w3.org/1999/XSL/Transform"'
-
 
 def _sheet(body: str, *, method: str = "text", declare: str = "", prefix: str = "xsl") -> turbohtml.Document:
-    """Wrap a template body in a stylesheet parsed as XML, with the given output method.
-
-    The ``xml`` method suppresses the XML declaration so content comparisons stay clean; one test builds its own sheet
-    to check the declaration is emitted by default.
-    """
+    # Wrap a template body in a stylesheet parsed as XML, with the given output method.
+    #
+    # The ``xml`` method suppresses the XML declaration so content comparisons stay clean; one test builds its own sheet
+    # to check the declaration is emitted by default.
     if method == "xml":
         output = f'<{prefix}:output method="xml" omit-xml-declaration="yes"/>'
     elif method:
@@ -48,17 +45,17 @@ def _sheet(body: str, *, method: str = "text", declare: str = "", prefix: str = 
 
 
 def _run(source: str, body: str, *, method: str = "text", prefix: str = "xsl", **params: str) -> str:
-    """Parse a source document and body stylesheet and return the transform result."""
+    # Parse a source document and body stylesheet and return the transform result.
     return Transform(_sheet(body, method=method, prefix=prefix))(turbohtml.parse_xml(source), **params)
 
 
 def _collapse(text: str) -> str:
-    """Drop whitespace between tags so content compares without a serializer's layout."""
+    # Drop whitespace between tags so content compares without a serializer's layout.
     return re.sub(r">\s+<", "><", text.strip())
 
 
 def _canon(text: str) -> str:
-    """Drop the XML declaration and inter-tag whitespace, as the conformance harness compares."""
+    # Drop the XML declaration and inter-tag whitespace, as the conformance harness compares.
     return _collapse(re.sub(r"^<\?xml\s[^>]*\?>\s*", "", text))
 
 
@@ -182,16 +179,21 @@ def test_transform_variable_scope_expression_context(expression: str, expected: 
     assert _run('<r><n id="a" rank="6"/><n id="b" rank="7"/></r>', body) == expected
 
 
-@pytest.mark.parametrize("passed", [pytest.param(False, id="default"), pytest.param(True, id="override")])
-def test_transform_parameter_scope_default_and_restoration(*, passed: bool) -> None:
-    argument: Final = '<xsl:with-param name="a" select="\'passed\'"/>' if passed else ""
+@pytest.mark.parametrize(
+    ("argument", "expected"),
+    [
+        pytest.param("", "default!global", id="default"),
+        pytest.param('<xsl:with-param name="a" select="\'passed\'"/>', "passed!global", id="override"),
+    ],
+)
+def test_transform_parameter_scope_default_and_restoration(argument: str, expected: str) -> None:
     body: Final = (
         '<xsl:variable name="a" select="\'global\'"/><xsl:template match="/">'
         f'<xsl:call-template name="t">{argument}</xsl:call-template><xsl:value-of select="$a"/></xsl:template>'
         '<xsl:template name="t"><xsl:param name="a" select="\'default\'"/>'
         '<xsl:param name="b" select="concat($a,\'!\')"/><xsl:value-of select="$b"/></xsl:template>'
     )
-    assert _run("<r/>", body) == ("passed!global" if passed else "default!global")
+    assert _run("<r/>", body) == expected
 
 
 def test_transform_copy_of_restores_shadowed_fragments() -> None:
@@ -353,7 +355,7 @@ def test_transform_identity_copy() -> None:
     body = (
         '<xsl:template match="@*|node()"><xsl:copy><xsl:apply-templates select="@*|node()"/></xsl:copy></xsl:template>'
     )
-    sheet = _sheet('<xsl:output method="xml" omit-xml-declaration="yes"/>' + body, method="")
+    sheet = _sheet(f'<xsl:output method="xml" omit-xml-declaration="yes"/>{body}', method="")
     source = '<a x="1"><b>t</b><!--c--></a>'
     assert transform(sheet, turbohtml.parse_xml(source)) == source
 
@@ -373,7 +375,7 @@ def test_transform_xsl_copy_of_root_context() -> None:
         '<xsl:template match="/"><xsl:copy><xsl:apply-templates/></xsl:copy>'
         '</xsl:template><xsl:template match="v"><xsl:value-of select="."/></xsl:template>'
     )
-    sheet = _sheet('<xsl:output method="xml" omit-xml-declaration="yes"/>' + body, method="")
+    sheet = _sheet(f'<xsl:output method="xml" omit-xml-declaration="yes"/>{body}', method="")
     assert transform(sheet, turbohtml.parse_xml("<r><v>x</v></r>")) == "x"
 
 
@@ -473,27 +475,21 @@ def test_transform_html_method_writes_safe_leaf_data_unchanged(instruction: str,
     assert _run("<c/>", body, method="html") == f"<r>{expected}</r>"
 
 
-@pytest.mark.parametrize(
-    ("data_type", "order", "expected"),
-    [
-        pytest.param("text", "ascending", "ABab", id="text-asc"),
-        pytest.param("number", "descending", "403025", id="number-desc"),
-    ],
-)
-def test_transform_sort_data_type_and_order(data_type: str, order: str, expected: str) -> None:
-    if data_type == "text":
-        body = (
-            f'<xsl:template match="/"><xsl:for-each select="r/n"><xsl:sort select="." order="{order}"/>'
-            '<xsl:value-of select="."/></xsl:for-each></xsl:template>'
-        )
-        assert _run("<r><n>b</n><n>A</n><n>a</n><n>B</n></r>", body) == expected
-    else:
-        body = (
-            '<xsl:template match="/"><xsl:for-each select="r/n">'
-            f'<xsl:sort select="@age" data-type="{data_type}" order="{order}"/>'
-            '<xsl:value-of select="@age"/></xsl:for-each></xsl:template>'
-        )
-        assert _run('<r><n age="30"/><n age="25"/><n age="40"/></r>', body) == expected
+def test_transform_sort_text_ascending() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/n"><xsl:sort select="." order="ascending"/>'
+        '<xsl:value-of select="."/></xsl:for-each></xsl:template>'
+    )
+    assert _run("<r><n>b</n><n>A</n><n>a</n><n>B</n></r>", body) == "ABab"
+
+
+def test_transform_sort_number_descending() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/n">'
+        '<xsl:sort select="@age" data-type="number" order="descending"/>'
+        '<xsl:value-of select="@age"/></xsl:for-each></xsl:template>'
+    )
+    assert _run('<r><n age="30"/><n age="25"/><n age="40"/></r>', body) == "403025"
 
 
 @pytest.mark.parametrize(
@@ -520,35 +516,41 @@ def test_transform_sort_data_type_and_order(data_type: str, order: str, expected
         pytest.param("string(@key)", ("", "bad", "1"), "abc", "cab", id="string-nan-stability"),
     ],
 )
-@pytest.mark.parametrize("reverse", [False, True], ids=["ascending", "descending"])
 def test_transform_sort_numeric_expression_coercion(
-    select: str, keys: tuple[str, str, str], ascending: str, descending: str, *, reverse: bool
+    select: str, keys: tuple[str, str, str], ascending: str, descending: str
 ) -> None:
     source: Final = (
-        "<r>" + "".join(f'<n id="{name}" key="{key}"/>' for name, key in zip("abc", keys, strict=True)) + "</r>"
+        f"""<r>{"".join(f'<n id="{name}" key="{key}"/>' for name, key in zip("abc", keys, strict=True))}</r>"""
     )
-    order: Final = "descending" if reverse else "ascending"
-    body: Final = (
+    template: Final = (
         '<xsl:template match="/"><xsl:for-each select="r/n">'
-        f'<xsl:sort select="{select}" data-type="number" order="{order}"/>'
+        f'<xsl:sort select="{select}" data-type="number" order="{{order}}"/>'
         '<xsl:value-of select="@id"/></xsl:for-each></xsl:template>'
     )
-    assert _run(source, body) == (descending if reverse else ascending)
+    assert (
+        _run(source, template.format(order="ascending")),
+        _run(source, template.format(order="descending")),
+    ) == (ascending, descending)
 
 
 @pytest.mark.parametrize("select", ["@key", "number(@key)", "string(@key)"], ids=["node", "number", "string"])
-@pytest.mark.parametrize("second_key", [False, True], ids=["one-key", "two-keys"])
-@pytest.mark.parametrize(("order", "expected"), [("ascending", "acdfbe"), ("descending", "bedfac")])
-def test_transform_sort_numeric_nan_order(select: str, order: str, expected: str, *, second_key: bool) -> None:
+@pytest.mark.parametrize(
+    "extra_sort",
+    [pytest.param("", id="one-key"), pytest.param('<xsl:sort select="@id"/>', id="two-keys")],
+)
+@pytest.mark.parametrize(
+    ("order", "expected"),
+    [pytest.param("ascending", "acdfbe", id="ascending"), pytest.param("descending", "bedfac", id="descending")],
+)
+def test_transform_sort_numeric_nan_order(select: str, order: str, expected: str, *, extra_sort: str) -> None:
     source: Final = (
         '<r><n id="a" key="bad"/><n id="b" key="2"/><n id="c" key="bad"/>'
         '<n id="d" key="1"/><n id="e" key="2"/><n id="f" key="1"/></r>'
     )
     body: Final = (
         '<xsl:template match="/"><xsl:for-each select="r/n">'
-        f'<xsl:sort select="{select}" data-type="number" order="{order}"/>'
-        + ('<xsl:sort select="@id"/>' if second_key else "")
-        + '<xsl:value-of select="@id"/></xsl:for-each></xsl:template>'
+        f'<xsl:sort select="{select}" data-type="number" order="{order}"/>{extra_sort}'
+        '<xsl:value-of select="@id"/></xsl:for-each></xsl:template>'
     )
     assert _run(source, body) == expected
 
@@ -583,12 +585,12 @@ def test_transform_sort_static_attribute(source: str, expected: str) -> None:
 
 
 def test_transform_sort_static_attribute_tracks_mutation() -> None:
+    document = parse_xml('<r><n id="a" key="b"/><n id="b" key="a"/></r>')
     body = (
         '<xsl:template match="/"><xsl:for-each select="r/n">'
         '<xsl:sort select="@key"/><xsl:value-of select="@id"/>'
         "</xsl:for-each></xsl:template>"
     )
-    document = parse_xml('<r><n id="a" key="b"/><n id="b" key="a"/></r>')
     convert = Transform(_sheet(body))
     assert convert(document) == "ba"
     document.select("n")[0].attrs["key"] = "0"
@@ -943,8 +945,7 @@ def test_transform_stylesheet_without_root_element_raises() -> None:
 
 
 def test_transform_too_many_union_alternatives_raises() -> None:
-    match = "|".join(f"e{index}" for index in range(70))
-    body = f'<xsl:template match="{match}">x</xsl:template>'
+    body = f'<xsl:template match="{"|".join(f"e{index}" for index in range(70))}">x</xsl:template>'
     with pytest.raises(ValueError, match="too many alternatives"):
         _run("<r/>", body)
 
@@ -1006,7 +1007,7 @@ def test_transform_deep_recursive_named_template_raises_cleanly() -> None:
 )
 def test_transform_deep_apply_templates_recursion_raises_cleanly(body: str, message: str) -> None:
     with pytest.raises(RecursionError, match=message):
-        _run("<r>" + "<n>" * 600 + "x" + "</n>" * 600 + "</r>", body)
+        _run(f"<r>{'<n>' * 600}x{'</n>' * 600}</r>", body)
 
 
 def test_transform_anchored_patterns() -> None:
@@ -1332,8 +1333,8 @@ def test_transform_number_without_format_attribute() -> None:
 
 def test_transform_many_templates_grow_rule_array() -> None:
     templates = "".join(f'<xsl:template match="e{index}">{index},</xsl:template>' for index in range(20))
-    apply = '<xsl:template match="/"><xsl:apply-templates select="r/*"/></xsl:template>'
     elements = "".join(f"<e{index}/>" for index in range(20))
+    apply = '<xsl:template match="/"><xsl:apply-templates select="r/*"/></xsl:template>'
     assert _run(f"<r>{elements}</r>", apply + templates) == "".join(f"{index}," for index in range(20))
 
 
@@ -1707,8 +1708,7 @@ def test_transform_apply_templates_to_attribute_children_are_empty() -> None:
 
 
 def test_transform_literal_element_default_namespace_declaration() -> None:
-    body = '<xsl:template match="/"><out xmlns="urn:x"><in/></out></xsl:template>'
-    result = _run("<r/>", body, method="xml")
+    result = _run("<r/>", '<xsl:template match="/"><out xmlns="urn:x"><in/></out></xsl:template>', method="xml")
     # XSLT 1.0 section 7.1.1: the default-namespace node is copied to the output element and the
     # child inherits it (declared once), as libxslt/lxml emit it.
     assert '<out xmlns="urn:x"><in/></out>' in result
@@ -1938,14 +1938,12 @@ def test_transform_element_with_empty_name() -> None:
 
 
 def _run_computed_name(instruction: str, name: str) -> str:
-    body = f'<xsl:template match="/"><r>{instruction}</r></xsl:template>'
-    return _run(f"<n>{name}</n>", body, method="xml")
+    return _run(f"<n>{name}</n>", f'<xsl:template match="/"><r>{instruction}</r></xsl:template>', method="xml")
 
 
-_COMPUTED_ELEMENT: Final = '<xsl:element name="{/n}"><xsl:attribute name="a">1</xsl:attribute>e</xsl:element>'
-_COMPUTED_ATTRIBUTE: Final = '<xsl:attribute name="{/n}">v</xsl:attribute>'
-_COMPUTED_NAMESPACED_ATTRIBUTE: Final = '<xsl:attribute name="{/n}" namespace="urn:x">v</xsl:attribute>'
-_COMPUTED_PI: Final = '<xsl:processing-instruction name="{/n}">d</xsl:processing-instruction>'
+_COMPUTED_ELEMENT: Final[str] = '<xsl:element name="{/n}"><xsl:attribute name="a">1</xsl:attribute>e</xsl:element>'
+_COMPUTED_ATTRIBUTE: Final[str] = '<xsl:attribute name="{/n}">v</xsl:attribute>'
+_COMPUTED_NAMESPACED_ATTRIBUTE: Final[str] = '<xsl:attribute name="{/n}" namespace="urn:x">v</xsl:attribute>'
 
 
 @pytest.mark.parametrize(
@@ -2013,7 +2011,9 @@ def test_transform_computed_attribute_name(instruction: str, name: str, expected
 )
 def test_transform_computed_pi_target(name: str, expected: str) -> None:
     # XSLT 1.0 7.3 recovery: ignore an instruction whose name is not a PITarget
-    assert _run_computed_name(_COMPUTED_PI, name) == expected
+    assert (
+        _run_computed_name('<xsl:processing-instruction name="{/n}">d</xsl:processing-instruction>', name) == expected
+    )
 
 
 def test_transform_invalid_element_name_still_runs_its_content() -> None:
@@ -2140,16 +2140,18 @@ def test_transform_stylesheet_with_leading_comment_before_root() -> None:
     assert transform(sheet, turbohtml.parse_xml("<r/>")) == "ok"
 
 
-def test_transform_more_format_number_fraction_cases() -> None:
-    cases = {
-        "1.0": "1",
-        "1.50": "1.5",
-        "1.234": "1.23",
-        "10": "10",
-    }
-    for value, expected in cases.items():
-        body = f'<xsl:template match="/"><xsl:value-of select="format-number({value}, \'#.##\')"/></xsl:template>'
-        assert _run("<r/>", body) == expected
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("1.0", "1", id="trailing-zero"),
+        pytest.param("1.50", "1.5", id="trailing-zero-after-digit"),
+        pytest.param("1.234", "1.23", id="rounded-to-pattern"),
+        pytest.param("10", "10", id="integer"),
+    ],
+)
+def test_transform_more_format_number_fraction_cases(value: str, expected: str) -> None:
+    body = f'<xsl:template match="/"><xsl:value-of select="format-number({value}, \'#.##\')"/></xsl:template>'
+    assert _run("<r/>", body) == expected
 
 
 def test_transform_attribute_template_single_char_select() -> None:
@@ -2647,8 +2649,8 @@ def test_transform_strip_space_leaves_source_tree_unchanged() -> None:
     source = turbohtml.parse_xml("<r><p>  <b>x</b>  </p></r>")
     root = source.root
     assert root is not None
-    body = '<xsl:strip-space elements="p"/><xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
     before = len(root.children[0].children)
+    body = '<xsl:strip-space elements="p"/><xsl:template match="/"><xsl:apply-templates select="//p"/></xsl:template>'
     transform(_sheet(body), source)
     assert len(root.children[0].children) == before
 
@@ -2739,7 +2741,7 @@ def _attribute_set_chain(length: int, *, reverse: bool = False) -> str:
     return "".join(reversed(sets) if reverse else sets)
 
 
-_CYCLE_HINT: Final = "; remove one of these use-attribute-sets references"
+_CYCLE_HINT: Final[str] = "; remove one of these use-attribute-sets references"
 
 
 @pytest.mark.parametrize(
@@ -2762,11 +2764,13 @@ _CYCLE_HINT: Final = "; remove one of these use-attribute-sets references"
             id="cycle-below-entry",
         ),
         pytest.param(
-            "".join(
-                f'<xsl:attribute-set name="{name}" use-attribute-sets="s{index} s{index}"/>'
-                for index, name in enumerate(["s", *(f"s{level}" for level in range(60))])
-            )
-            + '<xsl:attribute-set name="s60"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>',
+            f"""{
+                "".join(
+                    f'<xsl:attribute-set name="{name}" use-attribute-sets="s{index} s{index}"/>'
+                    for index, name in enumerate(["s", *(f"s{level}" for level in range(60))])
+                )
+            }"""
+            """<xsl:attribute-set name="s60"><xsl:attribute name="a">1</xsl:attribute></xsl:attribute-set>""",
             '<?xml version="1.0"?>\n<out a="1"/>',
             id="shared-sets-apply-once",
         ),
@@ -2774,12 +2778,12 @@ _CYCLE_HINT: Final = "; remove one of these use-attribute-sets references"
 )
 def test_transform_attribute_set_chain_ends_cleanly(sets: str, expected: str) -> None:
     # a regression overflows the C stack or never finishes, so a subprocess turns it into a failed assertion
+    stylesheet = _oracle_sheet(f'{sets}<xsl:template match="/"><out xsl:use-attribute-sets="s"/></xsl:template>')
     code = (
         "import sys\nfrom turbohtml import parse_xml\nfrom turbohtml.transform import transform\n"
         "try:\n    print(transform(parse_xml(sys.stdin.read()), parse_xml('<r/>')))\n"
         "except ValueError as exc:\n    print(f'ValueError: {exc}')\n"
     )
-    stylesheet = _oracle_sheet(f'{sets}<xsl:template match="/"><out xsl:use-attribute-sets="s"/></xsl:template>')
     result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed interpreter and script
         [sys.executable, "-c", code], input=stylesheet, capture_output=True, text=True, timeout=60, check=False
     )
@@ -3174,8 +3178,14 @@ def test_transform_import_root_blocks_file_swap(
         Transform(_import_sheet("inside/base.xsl"), base_url=str(root / "main.xsl"), import_root=root)
 
 
+class _SwapPaths(NamedTuple):
+    root: Path
+    inside: Path
+    outside: Path
+
+
 @pytest.fixture
-def import_swap_paths(tmp_path: Path) -> tuple[Path, Path, Path]:
+def import_swap_paths(tmp_path: Path) -> _SwapPaths:
     root = tmp_path / "styles"
     inside = root / "inside"
     outside = tmp_path / "outside"
@@ -3187,13 +3197,15 @@ def import_swap_paths(tmp_path: Path) -> tuple[Path, Path, Path]:
             f'<xsl:template match="/">{value}</xsl:template></xsl:stylesheet>',
             encoding="utf-8",
         )
-    return root, inside, outside
+    return _SwapPaths(root, inside, outside)
 
 
 def test_transform_import_root_reads_large_file(tmp_path: Path) -> None:
     (tmp_path / "base.xsl").write_text(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:template match="/">ok</xsl:template></xsl:stylesheet>' + " " * 65536,
+        (
+            '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:template '
+            f'match="/">ok</xsl:template></xsl:stylesheet>{" " * 65536}'
+        ),
         encoding="utf-8",
     )
     result = Transform(_import_sheet(), base_url=str(tmp_path / "main.xsl"), import_root=tmp_path)(
@@ -3202,25 +3214,30 @@ def test_transform_import_root_reads_large_file(tmp_path: Path) -> None:
     assert _canon(result) == "ok"
 
 
-_IMPORT_CONFINEMENT: Final = [pytest.param(True, id="import-root"), pytest.param(False, id="unconfined")]
+_IMPORT_CONFINEMENT: Final[list[pytest.ParameterSet]] = [
+    pytest.param(lambda path: path, id="import-root"),
+    pytest.param(lambda _: None, id="unconfined"),
+]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="FIFOs are POSIX")
-@pytest.mark.parametrize("confined", _IMPORT_CONFINEMENT)
-def test_transform_import_rejects_fifo(tmp_path: Path, *, confined: bool) -> None:  # pragma: no cover - POSIX FIFO
+@pytest.mark.parametrize("confinement", _IMPORT_CONFINEMENT)
+def test_transform_import_rejects_fifo(
+    tmp_path: Path, confinement: Callable[[Path], Path | None]
+) -> None:  # pragma: no cover - POSIX FIFO
     os.mkfifo(tmp_path / "base.xsl")
     with pytest.raises(ValueError, match="not a regular file"):
-        Transform(_import_sheet(), base_url=str(tmp_path / "main.xsl"), import_root=tmp_path if confined else None)
+        Transform(_import_sheet(), base_url=str(tmp_path / "main.xsl"), import_root=confinement(tmp_path))
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows refuses to open a directory for reading")
-@pytest.mark.parametrize("confined", _IMPORT_CONFINEMENT)
+@pytest.mark.parametrize("confinement", _IMPORT_CONFINEMENT)
 def test_transform_import_rejects_directory(  # pragma: no cover - POSIX opens a directory
-    tmp_path: Path, *, confined: bool
+    tmp_path: Path, confinement: Callable[[Path], Path | None]
 ) -> None:
     (tmp_path / "base.xsl").mkdir()
     with pytest.raises(ValueError, match="not a regular file"):
-        Transform(_import_sheet(), base_url=str(tmp_path / "main.xsl"), import_root=tmp_path if confined else None)
+        Transform(_import_sheet(), base_url=str(tmp_path / "main.xsl"), import_root=confinement(tmp_path))
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX device path")
@@ -3248,26 +3265,17 @@ def test_transform_import_accepts_filesystem_root(tmp_path: Path) -> None:  # pr
     assert _canon(result) == "ok"
 
 
-@pytest.mark.parametrize(
-    ("href", "content", "raises"),
-    [
-        pytest.param("x", None, pytest.RaisesExc(FileNotFoundError, match=r"[/\\]x"), id="missing file"),
-        pytest.param(
-            "imported.xsl",
-            "<broken>",
-            pytest.RaisesExc(turbohtml.HTMLParseError, match="xml-premature-eof"),
-            id="malformed XML",
-        ),
-    ],
-)
-@pytest.mark.parametrize("confined", _IMPORT_CONFINEMENT)
-def test_transform_import_reports_file_error(
-    tmp_path: Path, href: str, content: str | None, raises: pytest.RaisesExc[Exception], *, confined: bool
-) -> None:
-    if content is not None:
-        (tmp_path / href).write_text(content, encoding="utf-8")
-    with raises:
-        Transform(_import_sheet(href), base_url=str(tmp_path / "main.xsl"), import_root=tmp_path if confined else None)
+@pytest.mark.parametrize("confinement", _IMPORT_CONFINEMENT)
+def test_transform_import_reports_missing_file(tmp_path: Path, confinement: Callable[[Path], Path | None]) -> None:
+    with pytest.RaisesExc(FileNotFoundError, match=r"[/\\]x"):
+        Transform(_import_sheet("x"), base_url=str(tmp_path / "main.xsl"), import_root=confinement(tmp_path))
+
+
+@pytest.mark.parametrize("confinement", _IMPORT_CONFINEMENT)
+def test_transform_import_reports_malformed_file(tmp_path: Path, confinement: Callable[[Path], Path | None]) -> None:
+    (tmp_path / "imported.xsl").write_text("<broken>", encoding="utf-8")
+    with pytest.RaisesExc(turbohtml.HTMLParseError, match="xml-premature-eof"):
+        Transform(_import_sheet("imported.xsl"), base_url=str(tmp_path / "main.xsl"), import_root=confinement(tmp_path))
 
 
 def test_transform_import_rejects_malformed_url() -> None:
@@ -3456,7 +3464,7 @@ def test_transform_import_resolves_file_url_href(tmp_path: Path, authority: str)
     main = tmp_path / "main.xsl"
     main.write_text(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        f'<xsl:import href="{base.as_uri().replace("file://", "file://" + authority)}"/>'
+        f'<xsl:import href="{base.as_uri().replace("file://", f"file://{authority}")}"/>'
         '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template></xsl:stylesheet>',
         encoding="utf-8",
     )
@@ -3647,9 +3655,6 @@ def test_transform_attribute_set_two_names_with_trailing_space() -> None:
     assert _collapse(_run("<r/>", body, method="xml")) == '<out a="1" b="2"/>'
 
 
-_POISON: Final = '<xsl:attribute-set name="bad"><xsl:attribute name="{$undef}">v</xsl:attribute></xsl:attribute-set>'
-
-
 @pytest.mark.parametrize(
     "body",
     [
@@ -3671,8 +3676,9 @@ _POISON: Final = '<xsl:attribute-set name="bad"><xsl:attribute name="{$undef}">v
     ],
 )
 def test_transform_attribute_set_error_propagates(body: str) -> None:
+    poison = '<xsl:attribute-set name="bad"><xsl:attribute name="{$undef}">v</xsl:attribute></xsl:attribute-set>'
     with pytest.raises(ValueError, match="unbound"):
-        _run("<r/>", f"{_POISON}{body}", method="xml")
+        _run("<r/>", f"{poison}{body}", method="xml")
 
 
 def test_transform_attribute_with_prefixed_name_and_namespace() -> None:
@@ -4138,12 +4144,14 @@ def explicit_prefix_transform() -> Callable[[str, tuple[int, ...]], Transform]:
             parse_xml(
                 '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
                 '<xsl:output method="text"/><xsl:template match="/">'
-                + "".join(
-                    f'<xsl:for-each select="{"/" if index == 0 else f"root/node()[{index}]"}">'
-                    '<xsl:call-template name="number"/></xsl:for-each>'
-                    for index in visits
-                )
-                + '</xsl:template><xsl:template name="number">'
+                f"""{
+                    "".join(
+                        f'<xsl:for-each select="{"/" if index == 0 else f"root/node()[{index}]"}">'
+                        '<xsl:call-template name="number"/></xsl:for-each>'
+                        for index in visits
+                    )
+                }"""
+                '</xsl:template><xsl:template name="number">'
                 f'<xsl:number level="any" {patterns}/><xsl:text>|</xsl:text>'
                 "</xsl:template></xsl:stylesheet>"
             )
@@ -4159,7 +4167,7 @@ def explicit_prefix_transform() -> Callable[[str, tuple[int, ...]], Transform]:
             "<root/>",
             "/|root",
             '<xsl:number count="root" from="/"/>' * 24,
-            "|" + "1" * 24 + "|",
+            f"|{'1' * 24}|",
             id="single-document-boundary-separate-instructions",
         ),
         pytest.param(
@@ -4337,15 +4345,20 @@ def test_number_matcher_contexts(
     assert [transform(parse_xml(source)) for _ in range(2)] == [expected, expected]
 
 
-@pytest.mark.parametrize("level", ["single", "any"])
-def test_number_matcher_reused_documents(level: str, matcher_transform: Callable[[str, str, str], Transform]) -> None:
+@pytest.mark.parametrize(
+    ("level", "missed"),
+    [pytest.param("single", "|", id="single"), pytest.param("any", "00|", id="any")],
+)
+def test_number_matcher_reused_documents(
+    level: str, missed: str, matcher_transform: Callable[[str, str, str], Transform]
+) -> None:
     transform: Final = matcher_transform("root/*", f'<xsl:number level="{level}" count="p"/>' * 2, "")
     documents: Final = [
         parse_xml(source) for source in ("<root><p/><p/></root>", "<root><q/></root>", "<root><p/></root>")
     ]
     assert [transform(document) for document in (*documents, documents[0])] == [
         "11|22|",
-        "|" if level == "single" else "00|",
+        missed,
         "11|",
         "11|22|",
     ]
@@ -4370,7 +4383,7 @@ def test_number_matcher_document_pattern_reuse(
     instructions: str, expected: list[str], matcher_transform: Callable[[str, str, str], Transform]
 ) -> None:
     transform: Final = matcher_transform("root/p", instructions, "")
-    documents: Final = [parse_xml("<root>" + "<p/>" * count + "</root>") for count in (2, 1, 3)]
+    documents: Final = [parse_xml(f"<root>{'<p/>' * count}</root>") for count in (2, 1, 3)]
     assert [transform(document) for document in (*documents, documents[0])] == expected
 
 
@@ -4417,17 +4430,17 @@ def matcher_transform() -> Callable[[str, str, str], Transform]:
     [
         pytest.param(
             ('count="p"',) * 8,
-            "1," * 8 + "|" + "2," * 8 + "|" + "3," * 8 + "|",
+            f"{'1,' * 8}|{'2,' * 8}|{'3,' * 8}|",
             id="eight-equal-counts",
         ),
         pytest.param(
             ('count="p" from="section"',) * 8,
-            "1," * 8 + "|" + "2," * 8 + "|" + "1," * 8 + "|",
+            f"{'1,' * 8}|{'2,' * 8}|{'1,' * 8}|",
             id="eight-equal-counts-and-froms",
         ),
         pytest.param(
             ('from="section"',) * 8,
-            "1," * 8 + "|" + "2," * 8 + "|" + "1," * 8 + "|",
+            f"{'1,' * 8}|{'2,' * 8}|{'1,' * 8}|",
             id="eight-equal-froms",
         ),
         pytest.param(
@@ -4496,17 +4509,17 @@ def content_transform() -> Callable[[tuple[str, ...]], Transform]:
     def compile_patterns(patterns: tuple[str, ...]) -> Transform:
         return Transform(
             parse_xml(
-                '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
-                '<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root/p">'
-                + "".join(f'<xsl:number level="any" {pattern}/><xsl:text>,</xsl:text>' for pattern in patterns)
-                + "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
+                """<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" """
+                """version="1.0"><xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root/p">"""
+                f"""{"".join(f'<xsl:number level="any" {pattern}/><xsl:text>,</xsl:text>' for pattern in patterns)}"""
+                "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
             )
         )
 
     return compile_patterns
 
 
-_PAIR: Final = "<xsl:number/><xsl:text>:</xsl:text><xsl:number/>"
+_PAIR: Final[str] = "<xsl:number/><xsl:text>:</xsl:text><xsl:number/>"
 
 
 @pytest.mark.parametrize(
@@ -4526,7 +4539,7 @@ _PAIR: Final = "<xsl:number/><xsl:text>:</xsl:text><xsl:number/>"
         pytest.param(
             '<r><n id="1"/><n id="2"/><n id="3"/></r>',
             "r/n",
-            '<xsl:sort select="@id" data-type="number" order="descending"/>' + _PAIR,
+            f'<xsl:sort select="@id" data-type="number" order="descending"/>{_PAIR}',
             "3:3|2:2|1:1|",
             id="reverse-siblings",
         ),
@@ -4787,14 +4800,22 @@ def test_number_any_visit_order(
     assert transform(parse_xml("<root><p/><p/><p/><p/></root>")) == expected
 
 
-@pytest.mark.parametrize("reverse", [False, True], ids=["forward", "reverse"])
+@pytest.mark.parametrize(
+    ("sort", "expected"),
+    [
+        pytest.param("", ["1|2|3|", "1|", "1|2|"], id="forward"),
+        pytest.param(
+            '<xsl:sort select="@id" data-type="number" order="descending"/>',
+            ["3|2|1|", "1|", "2|1|"],
+            id="reverse",
+        ),
+    ],
+)
 def test_number_any_compiled_reuse_across_documents(
-    prefix_transform: Callable[[str, str], Transform], *, reverse: bool
+    prefix_transform: Callable[[str, str], Transform], sort: str, expected: list[str]
 ) -> None:
     transform: Final = prefix_transform(
-        '<xsl:for-each select="root/p">'
-        + ('<xsl:sort select="@id" data-type="number" order="descending"/>' if reverse else "")
-        + '<xsl:number level="any"/><xsl:text>|</xsl:text></xsl:for-each>',
+        f'<xsl:for-each select="root/p">{sort}<xsl:number level="any"/><xsl:text>|</xsl:text></xsl:for-each>',
         "",
     )
     assert [
@@ -4804,7 +4825,7 @@ def test_number_any_compiled_reuse_across_documents(
             '<root><p id="1"/></root>',
             '<root><p id="1"/><p id="2"/></root>',
         )
-    ] == (["3|2|1|", "1|", "2|1|"] if reverse else ["1|2|3|", "1|", "1|2|"])
+    ] == expected
 
 
 @pytest.fixture
@@ -5023,12 +5044,6 @@ def static_pattern_transform() -> Callable[[str, str, str], Transform]:
 _XSLT_NS: Final[str] = "http://www.w3.org/1999/XSL/Transform"
 
 
-def _stylesheet(body: str) -> turbohtml.Document:
-    return turbohtml.parse_xml(
-        f'<xsl:stylesheet version="1.0" xmlns:xsl="{_XSLT_NS}"><xsl:output method="text"/>{body}</xsl:stylesheet>'
-    )
-
-
 @pytest.mark.parametrize(
     ("body", "message"),
     [
@@ -5055,6 +5070,12 @@ def _stylesheet(body: str) -> turbohtml.Document:
 def test_transform_compile_rejects_invalid_stylesheet(body: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         Transform(_stylesheet(body))
+
+
+def _stylesheet(body: str) -> turbohtml.Document:
+    return turbohtml.parse_xml(
+        f'<xsl:stylesheet version="1.0" xmlns:xsl="{_XSLT_NS}"><xsl:output method="text"/>{body}</xsl:stylesheet>'
+    )
 
 
 def test_transform_compile_rejects_non_node_stylesheet() -> None:
@@ -5143,8 +5164,7 @@ def test_transform_compile_is_thread_safe() -> None:
     assert results == ["0-0", "1-1", "2-2", "3-3"]
 
 
-_LEVELS: Final = 1_200
-_XSLT: Final = "http://www.w3.org/1999/XSL/Transform"
+_XSLT: Final[str] = "http://www.w3.org/1999/XSL/Transform"
 
 
 def test_transform_text_output_collects_deep_descendants() -> None:
@@ -5155,6 +5175,11 @@ def test_transform_text_output_collects_deep_descendants() -> None:
     )
 
     assert Transform(stylesheet)(source) == "bottom"
+
+
+def _nested_xml(inner: str) -> str:
+    levels = 1_200
+    return "<x>" * levels + inner + "</x>" * levels
 
 
 def test_transform_cdata_conversion_reaches_deep_descendants() -> None:
@@ -5179,10 +5204,6 @@ def test_transform_strip_space_reaches_deep_descendants_and_restores_source() ->
 
     assert Transform(stylesheet)(source) == "bottom"
     assert source.html == before
-
-
-def _nested_xml(inner: str) -> str:
-    return "<x>" * _LEVELS + inner + "</x>" * _LEVELS
 
 
 @pytest.mark.parametrize("padding", [pytest.param(1, id="small"), pytest.param(16, id="indexed")])
@@ -5267,16 +5288,17 @@ def indexed_transform() -> Callable[[int, str, str], Transform]:
     def compile_transform(padding: int, declarations: str, body: str) -> Transform:
         return Transform(
             parse_xml(
-                '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
-                '<xsl:output method="xml" omit-xml-declaration="yes"/>'
-                + "".join(
-                    f'<xsl:template name="unused{index}"/>'
-                    f'<xsl:key name="unused{index}" match="unused" use="@value"/>'
-                    f'<xsl:attribute-set name="unused{index}"/>'
-                    for index in range(padding)
-                )
-                + declarations
-                + f'<xsl:template match="/"><out>{body}</out></xsl:template></xsl:stylesheet>'
+                """<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" """
+                """version="1.0"><xsl:output method="xml" omit-xml-declaration="yes"/>"""
+                f"""{
+                    "".join(
+                        f'<xsl:template name="unused{index}"/>'
+                        f'<xsl:key name="unused{index}" match="unused" use="@value"/>'
+                        f'<xsl:attribute-set name="unused{index}"/>'
+                        for index in range(padding)
+                    )
+                }"""
+                f"""{declarations}<xsl:template match="/"><out>{body}</out></xsl:template></xsl:stylesheet>"""
             )
         )
 
@@ -5287,7 +5309,7 @@ def indexed_transform() -> Callable[[int, str, str], Transform]:
     ("source", "instructions", "rules", "expected"),
     [
         pytest.param(
-            "<root><p " + " ".join(f'a{index}="{index}"' for index in range(96)) + "/></root>",
+            f"""<root><p {" ".join(f'a{index}="{index}"' for index in range(96))}/></root>""",
             '<xsl:apply-templates select="root/p/@*"/>' * 2,
             "".join(f'<xsl:template match="@a{index}">{index}|</xsl:template>' for index in range(96)),
             "".join(f"{index}|" for index in range(96)) * 2,
@@ -5296,18 +5318,20 @@ def indexed_transform() -> Callable[[int, str, str], Transform]:
         pytest.param(
             "<root><p/></root>",
             (
-                '<xsl:apply-templates select="root/p"/>'
-                + "".join(f'<xsl:apply-templates select="root/p" mode="view{index}"/>' for index in range(64))
-                + '<xsl:apply-templates select="root/p"/>'
+                """<xsl:apply-templates select="root/p"/>"""
+                f"""{"".join(f'<xsl:apply-templates select="root/p" mode="view{index}"/>' for index in range(64))}"""
+                """<xsl:apply-templates select="root/p"/>"""
             )
             * 2,
-            '<xsl:template match="p">default|</xsl:template>'
-            + "".join(f'<xsl:template match="p" mode="view{index}">{index}|</xsl:template>' for index in range(64)),
-            ("default|" + "".join(f"{index}|" for index in range(64)) + "default|") * 2,
+            """<xsl:template match="p">default|</xsl:template>"""
+            f"""{
+                "".join(f'<xsl:template match="p" mode="view{index}">{index}|</xsl:template>' for index in range(64))
+            }""",
+            (f"default|{''.join(f'{index}|' for index in range(64))}default|") * 2,
             id="many-named-and-default-modes",
         ),
         pytest.param(
-            "<root>" + "<p/>" * 40 + "</root>",
+            f"<root>{'<p/>' * 40}</root>",
             '<xsl:apply-templates select="root/p"/>' * 2,
             '<xsl:template match="p">X</xsl:template>',
             "X" * 80,
@@ -5400,10 +5424,10 @@ def cached_transform() -> Callable[[str, str], Transform]:
     def compile_transform(instructions: str, rules: str) -> Transform:
         return Transform(
             parse_xml(
-                '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
-                '<xsl:output method="text"/>'
-                + "".join(f'<xsl:template match="unused{index}"/>' for index in range(16))
-                + f'<xsl:template match="/">{instructions}</xsl:template>{rules}</xsl:stylesheet>'
+                """<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" """
+                """version="1.0"><xsl:output method="text"/>"""
+                f"""{"".join(f'<xsl:template match="unused{index}"/>' for index in range(16))}"""
+                f"""<xsl:template match="/">{instructions}</xsl:template>{rules}</xsl:stylesheet>"""
             )
         )
 
@@ -5423,46 +5447,44 @@ def test_name_benchmark_output(library: str, name: str) -> None:
     module: Final = pytest.importorskip(f"bench.{library}", exc_type=ImportError)
     operation: Final = module.OPERATIONS["transform-names"][0]
     _, _, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == name)
-    expected: Final = "<out>" + '<item marker="hit">1</item>' * 256 + "</out>"
+    expected: Final = f"""<out>{'<item marker="hit">1</item>' * 256}</out>"""
     assert str(operation(cast("tuple[str, str]", load()))).strip() == expected
 
 
 @pytest.mark.parametrize("library", ["core", "competitors.lxml"], ids=["turbohtml", "lxml"])
 @pytest.mark.parametrize(
-    ("case", "rows", "instructions", "step"),
+    ("case", "positions", "instructions"),
     [
-        pytest.param(0, 200, 1, 1, id="single-200"),
-        pytest.param(1, 200, 8, 1, id="repeated-200"),
-        pytest.param(2, 2_000, 1, 1, id="single-2000"),
-        pytest.param(3, 2_000, 8, 1, id="repeated-2000"),
-        pytest.param(4, 1, 8, 1, id="one-node"),
-        pytest.param(5, 200, 8, -1, id="reverse"),
-        pytest.param(6, 200, 0, 1, id="no-number"),
+        pytest.param(0, range(1, 201), 1, id="single-200"),
+        pytest.param(1, range(1, 201), 8, id="repeated-200"),
+        pytest.param(2, range(1, 2_001), 1, id="single-2000"),
+        pytest.param(3, range(1, 2_001), 8, id="repeated-2000"),
+        pytest.param(4, range(1, 2), 8, id="one-node"),
+        pytest.param(5, range(200, 0, -1), 8, id="reverse"),
+        pytest.param(6, range(1, 201), 0, id="no-number"),
     ],
 )
-def test_number_benchmark_output(library: str, case: int, rows: int, instructions: int, step: int) -> None:
+def test_number_benchmark_output(library: str, case: int, positions: range, instructions: int) -> None:
     module: Final = pytest.importorskip(f"bench.{library}", exc_type=ImportError)
     operation: Final = module.OPERATIONS["transform-number"][0]
-    positions: Final = range(1, rows + 1) if step == 1 else range(rows, 0, -1)
-    expected: Final = "".join(f"{position}:" * instructions + "|" for position in positions)
+    expected: Final = "".join(f"{f'{position}:' * instructions}|" for position in positions)
     assert str(operation(cast("tuple[str, str]", INPUTS["transform-number"]()[case][1]))) == expected
 
 
 @pytest.mark.parametrize(
-    ("name", "instructions", "rows", "step"),
+    ("name", "instructions", "positions"),
     [
-        pytest.param("transform-number", 8, 2_000, 1, id="repeated"),
-        pytest.param("transform-number-single", 1, 2_000, 1, id="single"),
-        pytest.param("transform-number-any", 1, 1_024, 1, id="any-forward"),
-        pytest.param("transform-number-any-reversed", 1, 1_024, -1, id="any-reverse"),
-        pytest.param("transform-number-count", 1, 1_024, 1, id="any-count"),
-        pytest.param("transform-number-predicate", 1, 1_024, 1, id="any-predicate"),
+        pytest.param("transform-number", 8, range(1, 2_001), id="repeated"),
+        pytest.param("transform-number-single", 1, range(1, 2_001), id="single"),
+        pytest.param("transform-number-any", 1, range(1, 1_025), id="any-forward"),
+        pytest.param("transform-number-any-reversed", 1, range(1_024, 0, -1), id="any-reverse"),
+        pytest.param("transform-number-count", 1, range(1, 1_025), id="any-count"),
+        pytest.param("transform-number-predicate", 1, range(1, 1_025), id="any-predicate"),
     ],
 )
-def test_codspeed_number_benchmark_output(name: str, instructions: int, rows: int, step: int) -> None:
+def test_codspeed_number_benchmark_output(name: str, instructions: int, positions: range) -> None:
     _, operation, load = next(case for case in benchmarks() if case[0] == name)
-    positions: Final = range(1, rows + 1) if step == 1 else range(rows, 0, -1)
-    expected: Final = "".join(f"{position}:" * instructions + "|" for position in positions)
+    expected: Final = "".join(f"{f'{position}:' * instructions}|" for position in positions)
     assert cast("Callable[[tuple[str, str]], str]", operation)(cast("tuple[str, str]", load())) == expected
 
 
@@ -5476,7 +5498,7 @@ def test_codspeed_number_benchmark_output(name: str, instructions: int, rows: in
         pytest.param(10, "1024:|", id="any-last-only"),
         pytest.param(11, "".join(f"{ordinal}:|" * 2 for ordinal in range(1, 513)), id="any-alternating"),
         pytest.param(12, "".join(f"{ordinal}:|" for ordinal in range(1, 1_025)), id="any-mixed-nodes"),
-        pytest.param(13, "1:" * 8 + "|", id="any-repeated"),
+        pytest.param(13, f"{'1:' * 8}|", id="any-repeated"),
         pytest.param(14, "".join(f"{ordinal}:|" for ordinal in range(1, 1_025)), id="any-explicit-count"),
         pytest.param(15, "1:|2:|", id="any-two-nodes"),
         pytest.param(16, "".join(f"{ordinal}:|" for ordinal in range(1, 9)), id="any-eight-nodes"),
@@ -5486,7 +5508,7 @@ def test_codspeed_number_benchmark_output(name: str, instructions: int, rows: in
         pytest.param(20, "".join(f"{ordinal}:|" for ordinal in range(1, 1_025)), id="count-predicate"),
         pytest.param(22, "".join(f"{ordinal}:|" for ordinal in range(1, 65)) * 16, id="count-from-sections"),
         pytest.param(23, "".join(f"{ordinal}:|" for ordinal in range(1_024, 0, -1)), id="count-reverse"),
-        pytest.param(24, "".join(f"{ordinal}:" * 8 + "|" for ordinal in range(1, 1_025)), id="count-repeated"),
+        pytest.param(24, "".join(f"{f'{ordinal}:' * 8}|" for ordinal in range(1, 1_025)), id="count-repeated"),
         pytest.param(25, "".join(f"{ordinal}:|" for ordinal in range(2, 1_026)), id="count-wildcard"),
         pytest.param(26, "0:|" * 1_024, id="count-empty"),
         pytest.param(27, "1024:|", id="count-last-only"),
@@ -5516,14 +5538,19 @@ def test_dense_number_benchmark_output(library: str) -> None:
     module: Final = pytest.importorskip(f"bench.{library}", exc_type=ImportError)
     operation: Final = module.OPERATIONS["transform-dense"][0]
     expected: Final = (
-        '<?xml version="1.0"?>\n<out>'
-        + "".join(
-            f"<row>Book number {index}"
-            + "".join(f"{index + 1}<!--c{unit}--><title>Book number {index}</title>" for unit in range(8))
-            + "</row>"
-            for index in range(200)
-        )
-        + "</out>"
+        """<?xml version="1.0"?>\n<out>"""
+        f"""{
+            "".join(
+                (
+                    f"<row>Book number {index}"
+                    f'''{
+                        ''.join(f'{index + 1}<!--c{unit}--><title>Book number {index}</title>' for unit in range(8))
+                    }</row>'''
+                )
+                for index in range(200)
+            )
+        }"""
+        "</out>"
     )
     assert str(operation(cast("tuple[str, str]", INPUTS["transform-dense"]()[0][1]))).strip() == expected
 
@@ -5542,16 +5569,17 @@ def test_rule_benchmark_output(library: str, name: str, passes: int) -> None:
 
 
 def _oracle_sheet(body: str, *, method: str = "xml") -> str:
-    return f'<xsl:stylesheet version="1.0" {_NS}><xsl:output method="{method}"/>{body}</xsl:stylesheet>'
+    ns = 'xmlns:xsl="http://www.w3.org/1999/XSL/Transform"'
+    return f'<xsl:stylesheet version="1.0" {ns}><xsl:output method="{method}"/>{body}</xsl:stylesheet>'
 
 
-_ORACLE_CATALOG: Final = (
+_ORACLE_CATALOG: Final[str] = (
     '<catalog><book id="b1" cat="fiction"><title>Dune</title><price>9.99</price></book>'
     '<book id="b2" cat="science"><title>Cosmos</title><price>12.50</price></book>'
     '<book id="b3" cat="fiction"><title>1984</title><price>8.00</price></book></catalog>'
 )
 
-_ORACLE_CASES: Final = [
+_ORACLE_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "<r><name>World</name></r>",
         _oracle_sheet('<xsl:template match="/">Hi <xsl:value-of select="//name"/></xsl:template>', method="text"),
@@ -5689,16 +5717,30 @@ _ORACLE_CASES: Final = [
 ]
 
 
-@pytest.mark.parametrize(("source", "sheet", "params", "method"), _ORACLE_CASES)
+_TEXT_ORACLE_CASES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(*case.values[:3], id=case.id) for case in _ORACLE_CASES if case.values[3] == "text"
+]
+_MARKUP_ORACLE_CASES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(*case.values[:3], id=case.id) for case in _ORACLE_CASES if case.values[3] != "text"
+]
+
+
+@pytest.mark.parametrize(("source", "sheet", "params"), _TEXT_ORACLE_CASES)
 @pytest.mark.oracle
-def test_transform_matches_lxml(source: str, sheet: str, params: dict[str, str], method: str) -> None:
+def test_transform_text_matches_lxml(source: str, sheet: str, params: dict[str, str]) -> None:
     mine = Transform(turbohtml.parse_xml(sheet))(turbohtml.parse_xml(source), **params)
     etree: Final = pytest.importorskip("lxml.etree")
     theirs = str(etree.XSLT(etree.fromstring(sheet.encode()))(etree.fromstring(source.encode()), **params))
-    if method == "text":
-        assert mine == theirs
-    else:
-        assert _canon(mine) == _canon(theirs)
+    assert mine == theirs
+
+
+@pytest.mark.parametrize(("source", "sheet", "params"), _MARKUP_ORACLE_CASES)
+@pytest.mark.oracle
+def test_transform_markup_matches_lxml(source: str, sheet: str, params: dict[str, str]) -> None:
+    mine = Transform(turbohtml.parse_xml(sheet))(turbohtml.parse_xml(source), **params)
+    etree: Final = pytest.importorskip("lxml.etree")
+    theirs = str(etree.XSLT(etree.fromstring(sheet.encode()))(etree.fromstring(source.encode()), **params))
+    assert _canon(mine) == _canon(theirs)
 
 
 @pytest.mark.parametrize("attribute", ["count", "from"])
@@ -5738,21 +5780,29 @@ def test_transform_text_benchmark(index: int, count: int) -> None:
     assert Transform(parse_xml(case[0]))(parse_xml(case[1])) == "payload " * (8 * count)
 
 
-@pytest.mark.parametrize(
-    ("location", "cdata"),
-    [
-        pytest.param("source", False, id="builtin"),
-        pytest.param("xsl:template", False, id="literal"),
-        pytest.param("xsl:template", True, id="cdata"),
-        pytest.param("xsl:text", False, id="explicit"),
-    ],
-)
-def test_transform_empty_character_data(location: str, *, cdata: bool) -> None:
+def test_transform_empty_character_data_builtin() -> None:
     stylesheet: Final = _sheet('<xsl:template match="/"><xsl:text>kept</xsl:text><xsl:apply-templates/></xsl:template>')
     source: Final = parse_xml("<r/>")
-    parent: Final = source.find("r") if location == "source" else stylesheet.find(location)
+    parent: Final = source.find("r")
     assert parent is not None
-    parent.append(turbohtml.CData("") if cdata else turbohtml.Text(""))
+    parent.append(turbohtml.Text(""))
+    assert Transform(stylesheet)(source) == "kept"
+
+
+@pytest.mark.parametrize(
+    ("location", "node"),
+    [
+        pytest.param("xsl:template", turbohtml.Text(""), id="literal"),
+        pytest.param("xsl:template", turbohtml.CData(""), id="cdata"),
+        pytest.param("xsl:text", turbohtml.Text(""), id="explicit"),
+    ],
+)
+def test_transform_empty_character_data(location: str, node: turbohtml.Node) -> None:
+    stylesheet: Final = _sheet('<xsl:template match="/"><xsl:text>kept</xsl:text><xsl:apply-templates/></xsl:template>')
+    source: Final = parse_xml("<r/>")
+    parent: Final = stylesheet.find(location)
+    assert parent is not None
+    parent.append(node)
     assert Transform(stylesheet)(source) == "kept"
 
 
@@ -5772,7 +5822,7 @@ def test_transform_result_fragment_text_survives_output_growth() -> None:
         '<xsl:copy-of select="$fragment"/><xsl:copy-of select="$fragment"/></xsl:template>'
     )
     payload: Final = "é😀payload " * 64
-    source: Final = "<r>" + ("<p>" + payload + "</p>") * 128 + "</r>"
+    source: Final = f"<r>{(f'<p>{payload}</p>') * 128}</r>"
     assert _run(source, body) == payload * 256
 
 
@@ -5884,14 +5934,22 @@ def test_transform_number_html_foreign_namespace() -> None:
     assert Transform(sheet)(source) == "1,1,2,"
 
 
-@pytest.mark.parametrize("level", ["single", "any"])
-@pytest.mark.parametrize("prefix", ["", "alias:"], ids=["default", "prefixed"])
-def test_transform_number_deep_namespace_scopes(level: str, prefix: str) -> None:
-    declaration: Final = "xmlns:alias" if prefix else "xmlns"
+@pytest.mark.parametrize(
+    ("level", "expected"),
+    [
+        pytest.param("single", "1," * 128, id="single"),
+        pytest.param("any", "".join(f"{index}," for index in range(1, 129)), id="any"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("prefix", "declaration"),
+    [pytest.param("", "xmlns", id="default"), pytest.param("alias:", "xmlns:alias", id="prefixed")],
+)
+def test_transform_number_deep_namespace_scopes(level: str, prefix: str, declaration: str, expected: str) -> None:
     source: Final = parse_xml(
-        f'<{prefix}n {declaration}="urn:x">'
-        + "".join(f'<{prefix}n xmlns:other{index}="urn:{index}">' for index in range(127))
-        + f"</{prefix}n>" * 128
+        f"""<{prefix}n {declaration}="urn:x">{
+            "".join(f'<{prefix}n xmlns:other{index}="urn:{index}">' for index in range(127))
+        }{f"</{prefix}n>" * 128}"""
     )
     sheet: Final = parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
@@ -5899,11 +5957,14 @@ def test_transform_number_deep_namespace_scopes(level: str, prefix: str) -> None
         f'<xsl:for-each select="//*"><xsl:number level="{level}"/><xsl:text>,</xsl:text>'
         "</xsl:for-each></xsl:template></xsl:stylesheet>"
     )
-    assert Transform(sheet)(source) == "".join(f"{1 if level == 'single' else index}," for index in range(1, 129))
+    assert Transform(sheet)(source) == expected
 
 
-@pytest.mark.parametrize("reverse", [False, True], ids=["forward", "reverse"])
-def test_transform_number_namespace_scope_restoration(*, reverse: bool) -> None:
+@pytest.mark.parametrize(
+    ("order", "expected"),
+    [pytest.param("ascending", "1,1,1,2,1,3,", id="forward"), pytest.param("descending", "3,1,2,1,1,1,", id="reverse")],
+)
+def test_transform_number_namespace_scope_restoration(order: str, expected: str) -> None:
     source: Final = parse_xml(
         '<root xmlns:a="urn:x"><a:n rank="1"/>'
         '<section xmlns:a="urn:y"><a:n rank="2"/><section xmlns:a="urn:w"><n rank="3"/></section></section>'
@@ -5913,17 +5974,17 @@ def test_transform_number_namespace_scope_restoration(*, reverse: bool) -> None:
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
         '<xsl:output method="text"/><xsl:template match="/">'
         '<xsl:for-each select="//*[@rank]">'
-        f'<xsl:sort select="@rank" data-type="number" order="{"descending" if reverse else "ascending"}"/>'
+        f'<xsl:sort select="@rank" data-type="number" order="{order}"/>'
         '<xsl:number level="any"/><xsl:text>,</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>'
     )
-    assert Transform(sheet)(source) == ("3,1,2,1,1,1," if reverse else "1,1,1,2,1,3,")
+    assert Transform(sheet)(source) == expected
 
 
 def test_transform_number_growing_unicode_prefixes() -> None:
     source: Final = parse_xml(
-        "<root>"
-        + "".join(f'<{prefix}:n xmlns:{prefix}="urn:x"/>' for prefix in ("日", "日" * 32, "日" * 64))
-        + "</root>"
+        f"""<root>{
+            "".join(f'<{prefix}:n xmlns:{prefix}="urn:x"/>' for prefix in ("日", "日" * 32, "日" * 64))
+        }</root>"""
     )
     sheet: Final = parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
@@ -5950,36 +6011,66 @@ def test_transform_number_namespace_changes_between_calls() -> None:
 
 
 @pytest.mark.parametrize(
+    ("container", "tag"),
+    [pytest.param("svg", "title", id="svg"), pytest.param("math", "mi", id="mathml")],
+)
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        pytest.param({}, id="absent"),
+        pytest.param({"xmlns": ""}, id="empty"),
+        pytest.param({"xmlns": "urn:other"}, id="conflicting"),
+    ],
+)
+def test_transform_number_adopted_foreign_namespaces(container: str, tag: str, attributes: dict[str, str]) -> None:
+    source: Final = parse_xml(f"<root><{tag}/></root>")
+    root: Final = source.root
+    assert root is not None
+    foreign: Final = parse_fragment(f"<{container}><{tag}>value</{tag}></{container}>").select_one(tag)
+    assert foreign is not None
+    foreign.attrs.update(attributes)
+    root.append(foreign)
+    assert Transform(_number_any_sheet())(source) == "1,1,"
+
+
+def _number_any_sheet() -> turbohtml.Document:
+    return parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="text"/><xsl:template match="/">'
+        '<xsl:for-each select="root/*"><xsl:number level="any"/><xsl:text>,</xsl:text>'
+        "</xsl:for-each></xsl:template></xsl:stylesheet>"
+    )
+
+
+@pytest.mark.parametrize(
     ("container", "tag", "uri"),
     [
         pytest.param("svg", "title", "http://www.w3.org/2000/svg", id="svg"),
         pytest.param("math", "mi", "http://www.w3.org/1998/Math/MathML", id="mathml"),
     ],
 )
-@pytest.mark.parametrize("declaration", [None, "", "urn:other"], ids=["absent", "empty", "conflicting"])
-@pytest.mark.parametrize("equivalent", [False, True], ids=["native-only", "parsed-equivalent"])
-def test_transform_number_adopted_foreign_namespaces(
-    container: str, tag: str, uri: str, declaration: str | None, *, equivalent: bool
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        pytest.param({}, id="absent"),
+        pytest.param({"xmlns": ""}, id="empty"),
+        pytest.param({"xmlns": "urn:other"}, id="conflicting"),
+    ],
+)
+def test_transform_number_adopted_foreign_namespaces_with_parsed_equivalent(
+    container: str, tag: str, uri: str, attributes: dict[str, str]
 ) -> None:
     source: Final = parse_xml(f"<root><{tag}/></root>")
     root: Final = source.root
     assert root is not None
     foreign: Final = parse_fragment(f"<{container}><{tag}>value</{tag}></{container}>").select_one(tag)
     assert foreign is not None
-    if declaration is not None:
-        foreign.attrs["xmlns"] = declaration
+    foreign.attrs.update(attributes)
     root.append(foreign)
-    if equivalent:
-        parsed: Final = parse_xml(f'<{tag} xmlns="{uri}"/>').root
-        assert parsed is not None
-        root.append(parsed)
-    sheet: Final = parse_xml(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:output method="text"/><xsl:template match="/">'
-        '<xsl:for-each select="root/*"><xsl:number level="any"/><xsl:text>,</xsl:text>'
-        "</xsl:for-each></xsl:template></xsl:stylesheet>"
-    )
-    assert Transform(sheet)(source) == ("1,1,2," if equivalent else "1,1,")
+    parsed: Final = parse_xml(f'<{tag} xmlns="{uri}"/>').root
+    assert parsed is not None
+    root.append(parsed)
+    assert Transform(_number_any_sheet())(source) == "1,1,2,"
 
 
 def test_transform_number_shared_namespace_index() -> None:
@@ -6023,34 +6114,53 @@ def test_transform_number_unprefixed_selection(level: str, children: str, expect
     assert Transform(sheet)(parse_xml(f"<root>{children}</root>")) == expected
 
 
+_RENAMED_PREFIX_SHEET: Final[str] = (
+    '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+    '<xsl:output method="text"/><xsl:template match="/">'
+    '<xsl:for-each select="root/*[last()]"><xsl:number from="root"/>'
+    "</xsl:for-each></xsl:template></xsl:stylesheet>"
+)
+
+
 @pytest.mark.parametrize(
-    ("name", "foreign", "expected"),
+    ("name", "expected"),
     [
-        pytest.param("a:title", False, "2", id="unbound"),
-        pytest.param("abc:title", False, "2", id="three-char-prefix"),
-        pytest.param("a:other", False, "1", id="distinct-local"),
-        pytest.param("xml:title", False, "1", id="reserved"),
-        pytest.param("a:title", True, "2", id="foreign-unbound"),
-        pytest.param("xml:title", True, "2", id="foreign-reserved"),
+        pytest.param("a:title", "2", id="unbound"),
+        pytest.param("abc:title", "2", id="three-char-prefix"),
+        pytest.param("a:other", "1", id="distinct-local"),
+        pytest.param("xml:title", "1", id="reserved"),
     ],
 )
-def test_transform_number_renamed_prefix(name: str, expected: str, *, foreign: bool) -> None:
+def test_transform_number_renamed_prefix(name: str, expected: str) -> None:
     source: Final = parse_xml("<root/>")
     root: Final = source.root
     assert root is not None
-    for index in range(2):
-        node = parse_fragment("<svg><title/></svg>").select_one("title") if foreign else parse_xml("<title/>").root
-        assert node is not None
-        root.append(node)
-        if index == 0:
-            node.tag = name
-    sheet: Final = parse_xml(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:output method="text"/><xsl:template match="/">'
-        '<xsl:for-each select="root/*[last()]"><xsl:number from="root"/>'
-        "</xsl:for-each></xsl:template></xsl:stylesheet>"
-    )
-    assert Transform(sheet)(source) == expected
+    renamed: Final = parse_xml("<title/>").root
+    assert renamed is not None
+    renamed.tag = name
+    root.append(renamed)
+    unchanged: Final = parse_xml("<title/>").root
+    assert unchanged is not None
+    root.append(unchanged)
+    assert Transform(parse_xml(_RENAMED_PREFIX_SHEET))(source) == expected
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [pytest.param("a:title", "2", id="foreign-unbound"), pytest.param("xml:title", "2", id="foreign-reserved")],
+)
+def test_transform_number_renamed_prefix_foreign(name: str, expected: str) -> None:
+    source: Final = parse_xml("<root/>")
+    root: Final = source.root
+    assert root is not None
+    renamed: Final = parse_fragment("<svg><title/></svg>").select_one("title")
+    assert renamed is not None
+    renamed.tag = name
+    root.append(renamed)
+    unchanged: Final = parse_fragment("<svg><title/></svg>").select_one("title")
+    assert unchanged is not None
+    root.append(unchanged)
+    assert Transform(parse_xml(_RENAMED_PREFIX_SHEET))(source) == expected
 
 
 @pytest.mark.parametrize(
@@ -6256,38 +6366,47 @@ def test_transform_pattern_adopted_foreign_namespace(container: str, tag: str, u
 
 
 @pytest.mark.parametrize(
-    ("source_text", "pattern", "binding", "expected"),
+    ("source_text", "pattern", "child_attrs", "root_attrs", "expected"),
     [
         pytest.param(
-            '<root xmlns:abc="urn:x"><n abc:id="1"/></root>', "n[@p:id]", None, "othermatch", id="three-letter"
+            '<root xmlns:abc="urn:x"><n abc:id="1"/></root>', "n[@p:id]", {}, {}, "othermatch", id="three-letter"
         ),
-        pytest.param("<root><xml:n/><n/></root>", "xml:n", None, "othermatchother", id="implicit-xml"),
-        pytest.param("<root><n/></root>", "n[@p:id]", "unbound", "otherother", id="unbound-source"),
+        pytest.param("<root><xml:n/><n/></root>", "xml:n", {}, {}, "othermatchother", id="implicit-xml"),
+        pytest.param("<root><n/></root>", "n[@p:id]", {"abc:id": "1"}, {}, "otherother", id="unbound-source"),
         pytest.param(
-            '<root xmlns:abc="urn:x"><n abc:é="1"/></root>', "n[@p:é]", None, "othermatch", id="unicode-attribute"
-        ),
-        pytest.param(
-            '<root xmlns:abc="urn:x"><n abc:é="1"/></root>', "n[@p:ê]", None, "otherother", id="unicode-mismatch"
+            '<root xmlns:abc="urn:x"><n abc:é="1"/></root>', "n[@p:é]", {}, {}, "othermatch", id="unicode-attribute"
         ),
         pytest.param(
-            '<root xmlns:abc="urn:x"><n abc:a="1"/></root>', "n[@p:ab]", None, "otherother", id="short-attribute"
+            '<root xmlns:abc="urn:x"><n abc:é="1"/></root>', "n[@p:ê]", {}, {}, "otherother", id="unicode-mismatch"
         ),
-        pytest.param('<root xmlns:abc="urn:x"><n abc:a="1"/></root>', "n[@p:é]", None, "otherother", id="short-utf8"),
-        pytest.param('<root xmlns:abc="urn:x"><n abc:id="1"/></root>', "n[@id]", "empty", "othermatch", id="empty-uri"),
+        pytest.param(
+            '<root xmlns:abc="urn:x"><n abc:a="1"/></root>', "n[@p:ab]", {}, {}, "otherother", id="short-attribute"
+        ),
+        pytest.param('<root xmlns:abc="urn:x"><n abc:a="1"/></root>', "n[@p:é]", {}, {}, "otherother", id="short-utf8"),
+        pytest.param(
+            '<root xmlns:abc="urn:x"><n abc:id="1"/></root>',
+            "n[@id]",
+            {},
+            {"xmlns:abc": ""},
+            "othermatch",
+            id="empty-uri",
+        ),
     ],
 )
 def test_transform_pattern_source_prefix_cases(
-    source_text: str, pattern: str, binding: str | None, expected: str
+    source_text: str,
+    pattern: str,
+    child_attrs: dict[str, str],
+    root_attrs: dict[str, str],
+    expected: str,
 ) -> None:
     source: Final = parse_xml(source_text)
     root: Final = source.root
     assert root is not None
-    if binding == "unbound":
-        child: Final = root.children[0]
-        assert isinstance(child, Element)
-        child.attrs["abc:id"] = "1"
-    elif binding == "empty":
-        root.attrs["xmlns:abc"] = ""
+    child: Final = root.children[0]
+    assert isinstance(child, Element)
+    child.attrs.update(child_attrs)
+    root.attrs.update(root_attrs)
     sheet: Final = parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform" xmlns:p="urn:x">'
         '<xsl:output method="text"/><xsl:template match="/">'
@@ -6474,23 +6593,32 @@ def test_transform_html_nonroot_pattern() -> None:
     assert convert(parse_fragment("<p>x</p>")) == "hit"
 
 
-@pytest.mark.parametrize("fail", [pytest.param(False, id="success"), pytest.param(True, id="termination")])
-def test_transform_standalone_text_preserves_source(*, fail: bool) -> None:
-    source: Final = Element("root", children=[Text("  "), Element("b", children=[Text("hello")]), Text(" world")])
+def test_transform_standalone_text_preserves_source() -> None:
+    source: Final = _standalone_text_source()
     original: Final = str(source)
-    terminate: Final = '<xsl:message terminate="yes">stop</xsl:message>' if fail else ""
-    convert: Final = Transform(
+    assert _standalone_text_convert("")(source) == "hello world"
+    assert str(source) == original
+
+
+def _standalone_text_source() -> Element:
+    return Element("root", children=[Text("  "), Element("b", children=[Text("hello")]), Text(" world")])
+
+
+def _standalone_text_convert(terminate: str) -> Transform:
+    return Transform(
         parse_xml(
             '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
             '<xsl:output method="text"/><xsl:strip-space elements="*"/>'
             f'<xsl:template match="/"><xsl:copy-of select="."/>{terminate}</xsl:template></xsl:stylesheet>'
         )
     )
-    if fail:
-        with pytest.raises(RuntimeError, match="stop"):
-            convert(source)
-    else:
-        assert convert(source) == "hello world"
+
+
+def test_transform_standalone_text_preserves_source_on_termination() -> None:
+    source: Final = _standalone_text_source()
+    original: Final = str(source)
+    with pytest.raises(RuntimeError, match="stop"):
+        _standalone_text_convert('<xsl:message terminate="yes">stop</xsl:message>')(source)
     assert str(source) == original
 
 
@@ -6515,15 +6643,18 @@ def test_transform_fragment_document_context(select: str, expected: str) -> None
 
 
 @pytest.mark.parametrize("level", ["single", "multiple", "any"])
-@pytest.mark.parametrize("child", [False, True], ids=["root", "child"])
-def test_transform_detached_namespace_numbering(level: str, *, child: bool) -> None:
+@pytest.mark.parametrize(
+    "select",
+    [pytest.param(lambda root: root, id="root"), pytest.param(lambda root: root.children[0], id="child")],
+)
+def test_transform_detached_namespace_numbering(level: str, select: Callable[[Element], turbohtml.Node]) -> None:
     document: Final = parse_xml(
         '<outer><root xmlns:a="urn:same" xmlns:b="urn:same"><a:n/><b:n/><a:n xmlns:a="urn:other"/></root></outer>'
     )
     root: Final = document.find("root")
     assert root is not None
     document.remove("root")
-    source: Final = root.children[0] if child else root
+    source: Final = select(root)
     convert: Final = Transform(
         parse_xml(
             '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
@@ -6550,14 +6681,11 @@ def test_transform_detached_namespace_numbering(level: str, *, child: bool) -> N
 @pytest.mark.parametrize("depth", [pytest.param(0, id="flat"), pytest.param(64, id="nested")])
 def test_transform_text_preserves_characters(value: str, depth: int) -> None:
     sheet: Final = parse_xml(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:output method="text"/><xsl:param name="value"/><xsl:template match="/">'
-        "<xsl:text>before</xsl:text><xsl:comment>excluded</xsl:comment>"
-        '<xsl:processing-instruction name="excluded">data</xsl:processing-instruction>'
-        + "<part>" * depth
-        + '<xsl:value-of select="$value"/>'
-        + "</part>" * depth
-        + "<xsl:text>after</xsl:text></xsl:template></xsl:stylesheet>"
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output '
+        'method="text"/><xsl:param name="value"/><xsl:template '
+        'match="/"><xsl:text>before</xsl:text><xsl:comment>excluded</xsl:comment><xsl:processing-instruction '
+        f'name="excluded">data</xsl:processing-instruction>{"<part>" * depth}<xsl:value-of select="$value"/>'
+        f"{'</part>' * depth}<xsl:text>after</xsl:text></xsl:template></xsl:stylesheet>"
     )
     assert Transform(sheet)(parse_xml("<root/>"), value=f"'{value}'") == f"before{value}after"
 
@@ -6572,8 +6700,8 @@ def test_transform_text_preserves_characters(value: str, depth: int) -> None:
 )
 def test_transform_text_empty_output(body: str) -> None:
     sheet: Final = parse_xml(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:output method="text"/><xsl:template match="/">' + body + "</xsl:template></xsl:stylesheet>"
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output '
+        f'method="text"/><xsl:template match="/">{body}</xsl:template></xsl:stylesheet>'
     )
     assert not Transform(sheet)(parse_xml("<root/>"))
 
@@ -6610,10 +6738,8 @@ def test_transform_text_copies_empty_nodes(value: str) -> None:
 )
 def test_transform_literal_text_keeps_compiled_snapshot(body: str, value: str) -> None:
     sheet: Final = parse_xml(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:output method="text"/><xsl:template match="/">'
-        + body.format(value=value)
-        + "</xsl:template></xsl:stylesheet>"
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output '
+        f'method="text"/><xsl:template match="/">{body.format(value=value)}</xsl:template></xsl:stylesheet>'
     )
     convert: Final = Transform(sheet)
     template: Final = sheet.find("xsl:template")
@@ -6626,10 +6752,10 @@ def test_transform_literal_text_keeps_compiled_snapshot(body: str, value: str) -
 def test_transform_literal_text_shared_compiled_snapshot() -> None:
     convert: Final = Transform(
         parse_xml(
-            '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-            '<xsl:output method="text"/><xsl:param name="suffix"/><xsl:template match="/">'
-            + "<xsl:text>literal 日本語</xsl:text>" * 512
-            + '<xsl:value-of select="$suffix"/></xsl:template></xsl:stylesheet>'
+            '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output '
+            'method="text"/><xsl:param name="suffix"/><xsl:template match="/">'
+            f"{'<xsl:text>literal 日本語</xsl:text>' * 512}"
+            '<xsl:value-of select="$suffix"/></xsl:template></xsl:stylesheet>'
         )
     )
     barrier: Final = Barrier(4)

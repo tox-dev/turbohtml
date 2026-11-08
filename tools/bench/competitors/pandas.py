@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import io
+from typing import TYPE_CHECKING, Final
 
 import pandas as pd
 
-REQUIREMENTS = ("pandas>=2.2", "lxml>=6.1.1")
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("pandas>=2.2", "lxml>=6.1.1")
 
 
 def tables(case: tuple[str, str]) -> None:
-    """Extract table grids with pandas.read_html: every table as rows, or the first table keyed by its header."""
+    # Extract table grids with pandas.read_html: every table as rows, or the first table keyed by its header.
     kind, text = case
     if kind == "rows":
         for frame in pd.read_html(io.StringIO(text)):
@@ -19,4 +23,4 @@ def tables(case: tuple[str, str]) -> None:
         pd.read_html(io.StringIO(text), header=0)[0].to_dict("records")
 
 
-OPERATIONS = {"tables": (tables, "pandas"), "tables-spans": (tables, "pandas")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"tables": (tables, "pandas"), "tables-spans": (tables, "pandas")}

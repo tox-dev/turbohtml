@@ -14,17 +14,14 @@ if TYPE_CHECKING:
     from turbohtml.extract._structured_data import JSONValue
 
 
-_RICH = (
-    '<head><meta property="og:title" content="T"><meta name="dc.title" content="D"></head>'
-    '<body><script type="application/ld+json">{"@type": "Thing"}</script>'
-    '<div itemscope><span itemprop="name">Ada</span></div>'
-    '<div vocab="http://schema.org/" typeof="Person"><span property="name">Grace</span></div></body>'
-)
-
-
 @pytest.fixture
 def rich() -> Document:
-    return parse(_RICH)
+    return parse(
+        '<head><meta property="og:title" content="T"><meta name="dc.title" content="D"></head>'
+        '<body><script type="application/ld+json">{"@type": "Thing"}</script>'
+        '<div itemscope><span itemprop="name">Ada</span></div>'
+        '<div vocab="http://schema.org/" typeof="Person"><span property="name">Grace</span></div></body>'
+    )
 
 
 def test_structured_data_record(rich: Document) -> None:
@@ -47,13 +44,10 @@ def test_structured_data_record(rich: Document) -> None:
 
 def test_fields_match_per_format_helpers(rich: Document) -> None:
     data = rich.structured_data()
-    assert data.json_ld == rich.json_ld()
-    assert data.microdata == rich.microdata()
     # structured_data keeps the raw og:/twitter: map; opengraph() returns the og:-stripped OpenGraph record
-    assert data.opengraph == {"og:title": "T"}
+    assert (data.json_ld, data.microdata, data.opengraph) == (rich.json_ld(), rich.microdata(), {"og:title": "T"})
     assert rich.opengraph() == {"title": "T"}
-    assert data.rdfa == rich.rdfa()
-    assert data.dublin_core == rich.dublin_core()
+    assert (data.rdfa, data.dublin_core) == (rich.rdfa(), rich.dublin_core())
 
 
 def test_structured_data_includes_profiled_json_ld() -> None:
@@ -79,7 +73,7 @@ def test_empty_document() -> None:
     )
 
 
-_RELATIVE = (
+_RELATIVE: Final[str] = (
     '<meta property="og:image" content="/pic.png">'
     '<script type="application/ld+json">{"@id": "/thing"}</script>'
     '<div itemscope><a itemprop="link" href="/l">x</a></div>'
@@ -88,15 +82,20 @@ _RELATIVE = (
 
 def test_structured_data_base_url_resolves_microdata_and_opengraph_not_json_ld() -> None:
     data = parse(_RELATIVE).structured_data(base_url="http://ex.com/dir/")
-    assert data.opengraph == {"og:image": "http://ex.com/pic.png"}
-    assert data.microdata == [MicrodataItem(type=None, id=None, properties={"link": ["http://ex.com/l"]})]
-    assert data.json_ld == [{"@id": "/thing"}]  # json_ld @id resolution is out of scope, left verbatim
+    # json_ld @id resolution is out of scope, left verbatim
+    assert (data.opengraph, data.microdata, data.json_ld) == (
+        {"og:image": "http://ex.com/pic.png"},
+        [MicrodataItem(type=None, id=None, properties={"link": ["http://ex.com/l"]})],
+        [{"@id": "/thing"}],
+    )
 
 
 def test_structured_data_base_url_none_is_verbatim() -> None:
     data = parse(_RELATIVE).structured_data(base_url=None)
-    assert data.opengraph == {"og:image": "/pic.png"}
-    assert data.microdata == [MicrodataItem(type=None, id=None, properties={"link": ["/l"]})]
+    assert (data.opengraph, data.microdata) == (
+        {"og:image": "/pic.png"},
+        [MicrodataItem(type=None, id=None, properties={"link": ["/l"]})],
+    )
 
 
 def test_structured_data_malformed_base_url_raises() -> None:
@@ -104,7 +103,7 @@ def test_structured_data_malformed_base_url_raises() -> None:
         parse(_RELATIVE).structured_data(base_url="http://[bad")
 
 
-_BY_TAG = (
+_BY_TAG: Final[str] = (
     "<div itemscope>"
     '<meta itemprop="meta" content="MC">'
     '<img itemprop="img" src="i.png">'
@@ -121,7 +120,7 @@ _BY_TAG = (
     "</div>"
 )
 
-_NESTED = (
+_NESTED: Final[str] = (
     '<div itemscope itemtype="https://schema.org/Person">'
     '<span itemprop="name">Ada</span>'
     '<div itemprop="address" itemscope itemtype="https://schema.org/PostalAddress">'
@@ -130,7 +129,7 @@ _NESTED = (
     "</div>"
 )
 
-_PERSON = (
+_PERSON: Final[str] = (
     '<div itemscope itemtype="https://schema.org/Person">'
     '<span itemprop="name">Ada</span>'
     '<span itemprop="name">Lovelace</span>'
@@ -147,7 +146,7 @@ def test_microdata_returns_top_level_items() -> None:
 
 
 def test_microdata_matches_document_method() -> None:
-    """The extract.microdata function and Node.microdata() are the same walk over one input."""
+    # The extract.microdata function and Node.microdata() are the same walk over one input.
     assert microdata(_PERSON) == parse(_PERSON).microdata()
 
 
@@ -418,7 +417,7 @@ def test_microdata_document_method(html: str, expected: list[MicrodataItem]) -> 
     assert parse(html).microdata() == expected
 
 
-_BASE = "http://ex.com/dir/"
+_BASE: Final[str] = "http://ex.com/dir/"
 
 
 def test_microdata_resolves_url_props_only() -> None:
@@ -507,7 +506,7 @@ def test_microdata_base_url_wrong_type_raises() -> None:
         parse("<p>x</p>").microdata(base_url=123)  # ty: ignore[invalid-argument-type]  # non-str exercises TypeError
 
 
-_FULL = (
+_FULL: Final[str] = (
     '<meta property="og:title" content="The Rock">'
     '<meta property="og:type" content="video.movie">'
     '<meta property="og:image" content="http://x/rock.jpg">'
@@ -568,7 +567,7 @@ def test_is_valid_false_when_required_missing(html: str) -> None:
 
 
 def test_is_valid_false_when_required_empty() -> None:
-    html = '<meta property="og:url" content="">' + _FULL
+    html = f'<meta property="og:url" content="">{_FULL}'
     assert opengraph(html).is_valid() is False
 
 
@@ -654,20 +653,24 @@ def test_opengraph_document_method(html: str, expected: dict[str, str]) -> None:
     assert parse(html).opengraph() == expected
 
 
-@pytest.mark.parametrize("combined", [pytest.param(False, id="standalone"), pytest.param(True, id="combined")])
-def test_opengraph_duplicate_preserves_insertion_order(*, combined: bool) -> None:
+def test_opengraph_duplicate_preserves_insertion_order() -> None:
     document: Final = parse(
         '<meta property="og:title" content="first"><meta name="twitter:card" content="summary">'
         '<meta property="og:type" content="article"><meta property="og:title" content="last">'
     )
-    if combined:
-        assert list(document.structured_data().opengraph.items()) == [
-            ("og:title", "first"),
-            ("twitter:card", "summary"),
-            ("og:type", "article"),
-        ]
-    else:
-        assert list(document.opengraph().items()) == [("title", "first"), ("type", "article")]
+    assert list(document.opengraph().items()) == [("title", "first"), ("type", "article")]
+
+
+def test_structured_data_opengraph_keeps_the_insertion_order() -> None:
+    document: Final = parse(
+        '<meta property="og:title" content="first"><meta name="twitter:card" content="summary">'
+        '<meta property="og:type" content="article"><meta property="og:title" content="last">'
+    )
+    assert list(document.structured_data().opengraph.items()) == [
+        ("og:title", "first"),
+        ("twitter:card", "summary"),
+        ("og:type", "article"),
+    ]
 
 
 def test_opengraph_returns_record() -> None:
@@ -682,7 +685,7 @@ def test_opengraph_keeps_twitter_in_structured_data_but_drops_it_in_record() -> 
     assert parse(html).opengraph() == {"title": "T"}
 
 
-_OPENGRAPH_BASE = "http://ex.com/dir/"
+_OPENGRAPH_BASE: Final[str] = "http://ex.com/dir/"
 
 
 @pytest.mark.parametrize(
@@ -791,9 +794,7 @@ def test_opengraph_rejects_unexpected_argument() -> None:
         parse("<p>x</p>").opengraph(nope=1)  # ty: ignore[unknown-argument]  # exercises the argument-parse failure
 
 
-_SCHEMA = "http://schema.org/"
-
-_RDFA_BASE = "http://ex.com/dir/"
+_SCHEMA: Final[str] = "http://schema.org/"
 
 
 @pytest.mark.parametrize(
@@ -1035,8 +1036,7 @@ def test_rdfa_prefix_inherited_into_descendants() -> None:
 
 
 def test_rdfa_get_and_get_all() -> None:
-    html = '<div typeof="T"><span property="a">1</span><span property="a">2</span></div>'
-    item = parse(html).rdfa()[0]
+    item = parse('<div typeof="T"><span property="a">1</span><span property="a">2</span></div>').rdfa()[0]
     assert item.get("a") == "1"
     assert item.get("missing") is None
     assert item.get_all("a") == ["1", "2"]
@@ -1055,7 +1055,7 @@ def test_rdfa_resolves_iri_objects_and_subject() -> None:
         '<span property="text">/keep</span>'
         '<span property="lit" content="/keep">x</span></div>'
     )
-    assert parse(html).rdfa(base_url=_RDFA_BASE) == [
+    assert parse(html).rdfa(base_url="http://ex.com/dir/") == [
         RdfaItem(
             vocab=None,
             type=["T"],
@@ -1177,26 +1177,28 @@ def test_rdfa_resource_undeclared_curie_remains_iri() -> None:
         '<div typeof="schema:Person" about="custom:alice"><a property="schema:knows" resource="custom:bob"></a></div>'
     )
 
-    assert parse(html).rdfa()[0].resource == "custom:alice"
-    assert parse(html).rdfa()[0].properties == {"http://schema.org/knows": ["custom:bob"]}
+    assert (parse(html).rdfa()[0].resource, parse(html).rdfa()[0].properties) == (
+        "custom:alice",
+        {"http://schema.org/knows": ["custom:bob"]},
+    )
 
 
 def test_rdfa_resource_relative_iri_uses_base() -> None:
     html = '<div typeof="schema:Person" about="person"><a property="schema:knows" resource="friend"></a></div>'
 
-    assert parse(html).rdfa(base_url="https://base.test/doc")[0].resource == "https://base.test/person"
-    assert parse(html).rdfa(base_url="https://base.test/doc")[0].properties == {
-        "http://schema.org/knows": ["https://base.test/friend"],
-    }
+    assert (
+        parse(html).rdfa(base_url="https://base.test/doc")[0].resource,
+        parse(html).rdfa(base_url="https://base.test/doc")[0].properties,
+    ) == ("https://base.test/person", {"http://schema.org/knows": ["https://base.test/friend"]})
 
 
 def test_rdfa_resource_empty_iri_uses_base() -> None:
     html = '<div typeof="schema:Person" about=""><a property="schema:knows" resource=""></a></div>'
 
-    assert parse(html).rdfa(base_url="https://base.test/doc")[0].resource == "https://base.test/doc"
-    assert parse(html).rdfa(base_url="https://base.test/doc")[0].properties == {
-        "http://schema.org/knows": ["https://base.test/doc"],
-    }
+    assert (
+        parse(html).rdfa(base_url="https://base.test/doc")[0].resource,
+        parse(html).rdfa(base_url="https://base.test/doc")[0].properties,
+    ) == ("https://base.test/doc", {"http://schema.org/knows": ["https://base.test/doc"]})
 
 
 @pytest.mark.parametrize(
@@ -1308,10 +1310,9 @@ def test_microdata_nested_scope_keeps_following_properties() -> None:
 def test_microdata_shuffled_references_keep_tree_order(size: int, depth: int) -> None:
     references: Final = " ".join(f"r{index}" for offset in (0, 1) for index in range(offset, size, 2))
     document: Final = parse(
-        f'<div itemscope itemref="{references}"></div>'
-        + "<section>" * depth
-        + "".join(f'<span id="r{index}" itemprop=name>{index}</span>' for index in range(size))
-        + "</section>" * depth
+        f"""<div itemscope itemref="{references}"></div>{"<section>" * depth}{
+            "".join(f'<span id="r{index}" itemprop=name>{index}</span>' for index in range(size))
+        }{"</section>" * depth}"""
     )
     assert document.microdata() == [
         MicrodataItem(type=None, id=None, properties={"name": [str(index) for index in range(size)]})
@@ -1320,7 +1321,7 @@ def test_microdata_shuffled_references_keep_tree_order(size: int, depth: int) ->
 
 def test_microdata_wide_item_keeps_all_values() -> None:
     document: Final[Document] = parse(
-        "<div itemscope>" + "".join(f"<span itemprop=name>{index}</span>" for index in range(1_000)) + "</div>"
+        f"<div itemscope>{''.join(f'<span itemprop=name>{index}</span>' for index in range(1_000))}</div>"
     )
     assert document.microdata() == [
         MicrodataItem(type=None, id=None, properties={"name": [str(index) for index in range(1_000)]})
@@ -1341,16 +1342,16 @@ def test_microdata_empty_property_skips_cyclic_item_graph(reference: str, attrib
     assert document.microdata() == [MicrodataItem(type=None, id=None, properties={"name": ["kept"]})]
 
 
-def _item(markup: str) -> MicrodataItem:
-    """Return the first Microdata item the page carries."""
-    items = turbohtml.parse(markup).microdata()
-    assert items
-    return items[0]
-
-
 def test_a_bare_item_renders_its_properties() -> None:
     markup = '<div itemscope><span itemprop="name">Ada</span></div>'
     assert _microdata_as_dict(_item(markup)) == {"properties": {"name": ["Ada"]}}
+
+
+def _item(markup: str) -> MicrodataItem:
+    # Return the first Microdata item the page carries.
+    items = turbohtml.parse(markup).microdata()
+    assert items
+    return items[0]
 
 
 def test_the_type_is_whitespace_split() -> None:
@@ -1378,8 +1379,7 @@ def test_a_nested_item_shapes_recursively() -> None:
         '<span itemprop="street">1 Main</span>'
         "</div></div>"
     )
-    shaped = _microdata_as_dict(_item(markup))
-    properties = shaped["properties"]
+    properties = _microdata_as_dict(_item(markup))["properties"]
     assert isinstance(properties, dict)
     address = properties["address"]
     assert isinstance(address, list)
@@ -1394,14 +1394,12 @@ def test_a_property_with_several_values_keeps_document_order() -> None:
 
 
 def test_the_public_json_matches_the_shaping() -> None:
-    markup = '<div itemscope itemtype="https://schema.org/Person"><span itemprop="name">Ada</span></div>'
-    item = _item(markup)
+    item = _item('<div itemscope itemtype="https://schema.org/Person"><span itemprop="name">Ada</span></div>')
     assert json.loads(item.json()) == _microdata_as_dict(item)
 
 
 class _WrongProperties:
-    """A stand-in carrying a `properties` attribute that is not a mapping."""
-
+    # A stand-in carrying a `properties` attribute that is not a mapping.
     properties = "not a mapping"
 
 
@@ -1414,7 +1412,7 @@ class _WrongProperties:
         pytest.param(_WrongProperties(), id="properties-is-not-a-mapping"),
     ],
 )
-def test_the_binding_rejects_what_is_not_an_item(value: object) -> None:
+def test_the_binding_rejects_what_is_not_an_item(value: str | int | _WrongProperties | None) -> None:
     with pytest.raises(TypeError, match="expected a MicrodataItem"):
         _microdata_as_dict(value)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
@@ -1459,9 +1457,9 @@ def test_json_ld_nesting_past_the_cap_is_skipped(depth: int, *, kept: bool) -> N
 
 
 def test_json_ld_brackets_inside_a_string_do_not_count_toward_depth() -> None:
-    value: Final = "[" * 1000 + '\\"' + "]" * 1000  # brackets inside a JSON string, so the block nests one level deep
+    value: Final = f'{"[" * 1000}\\"{"]" * 1000}'  # brackets inside a JSON string, so the block nests one level deep
     html: Final = f'<script type="application/ld+json">{{"k": "{value}"}}</script>'
-    assert turbohtml.parse(html).json_ld() == [{"k": "[" * 1000 + '"' + "]" * 1000}]
+    assert turbohtml.parse(html).json_ld() == [{"k": f'{"[" * 1000}"{"]" * 1000}'}]
 
 
 @pytest.mark.parametrize(

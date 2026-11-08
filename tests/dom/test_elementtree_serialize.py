@@ -4,7 +4,7 @@ from typing import Final, cast
 
 import pytest
 
-from turbohtml import etree
+from turbohtml.etree import Element, fragment_fromstring, fromstring, tostring
 
 
 @pytest.mark.parametrize(
@@ -19,15 +19,15 @@ from turbohtml import etree
 def test_element_tree_serialization_encoding(
     encoding: str | type[str] | None, expected: str | bytes, *, with_tail: bool
 ) -> None:
-    tree: Final = etree.fragment_fromstring("<p>café</p>tail")
-    assert etree.tostring(tree, encoding=encoding, with_tail=with_tail) == expected
+    tree: Final = fragment_fromstring("<p>café</p>tail")
+    assert tostring(tree, encoding=encoding, with_tail=with_tail) == expected
 
 
 def test_element_tree_rejects_non_string_encoding() -> None:
     with pytest.raises(TypeError):
-        etree.tostring(etree.Element("p"), encoding=cast("str", 42))
+        tostring(Element("p"), encoding=cast("str", 42))
 
 
 def test_element_tree_own_text_excludes_descendant_text() -> None:
-    tree: Final = etree.fromstring("<div><p>child</p></div>")
+    tree: Final = fromstring("<div><p>child</p></div>")
     assert (tree.text, tree[0].text) == (None, "child")

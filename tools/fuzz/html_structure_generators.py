@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import argparse
-import random
 import re
 from collections import deque
 from dataclasses import dataclass
 from functools import cache
 from html import escape
-from pathlib import Path
-from typing import TYPE_CHECKING, Final, TypeAlias
+from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 from fuzz.html_generation_tables import (
     ATTRIBUTE_VALUE_RULES,
@@ -22,54 +19,34 @@ from fuzz.html_generation_tables import (
     TableRule,
 )
 from fuzz.structure_generators import (
-    BudgetError,
     Generated,
     Grammar,
     GrammarError,
     Identifier,
     Production,
-    ProductionFloorError,
     compile_grammar,
+    corpus_main,
     generate,
-    generation_sweep,
     html_grammar,
-    write_corpus,
 )
 
 if TYPE_CHECKING:
+    import random
     from collections.abc import Sequence
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Export bytes that the coverage-guided lane can consume directly."""
-    parser: Final = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--count", type=int, default=64)
-    parser.add_argument("--budget", type=int, default=30)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--sweep", action="store_true")
-    args: Final = parser.parse_args(argv)
-    if args.count < 1:
-        parser.error("count must be positive")
-    try:
-        cases: Final = (
-            generation_sweep(_GRAMMAR, args.count, args.budget)
-            if args.sweep
-            else tuple(html_generate(random.Random(args.seed + index), args.budget) for index in range(args.count))
-        )
-    except (GrammarError, BudgetError, ProductionFloorError) as error:
-        parser.error(str(error))
-    write_corpus(cases, args.output)
-    return 0
+    # Export bytes that the coverage-guided lane can consume directly.
+    return corpus_main(_GRAMMAR, argv)
 
 
 def html_generate(rng: random.Random, budget: int = 30) -> Generated:
-    """Use one budget across tags, attributes and parser-created wrappers."""
+    # Use one budget across tags, attributes and parser-created wrappers.
     return generate(_GRAMMAR, rng, budget)
 
 
 def html_grammar_complete(vocabulary: HtmlVocabulary | None = None) -> Grammar:
-    """Retain table alternatives separately so finite sweeps expose omitted rows."""
+    # Retain table alternatives separately so finite sweeps expose omitted rows.
     vocabulary = _VOCABULARY if vocabulary is None else vocabulary
     productions: Final = list(html_grammar().productions)
     values: Final = _Values((*vocabulary.common, *vocabulary.html, *vocabulary.values, *vocabulary.tag_attributes))
@@ -115,7 +92,36 @@ def html_grammar_complete(vocabulary: HtmlVocabulary | None = None) -> Grammar:
                 _origin(vocabulary, "tagattributes.txt", rule[0]),
             )
         )
-    productions.extend(_hostile_productions())
+    standard = "https://html.spec.whatwg.org/multipage/parsing.html"
+    productions.extend((
+        Production(
+            name="html:hostile:formatting",
+            symbol="node",
+            parts=(b"<b><i>x</b>y</i>",),
+            nodes=5,
+            origin=f"{standard}#adoption-agency-algorithm",
+            height=2,
+        ),
+        Production(
+            name="html:hostile:near-miss",
+            symbol="node",
+            parts=(b"<span>x</spna><b>y</b></span>",),
+            nodes=4,
+            origin=f"{standard}#parsing-main-inbody",
+            height=2,
+        ),
+        *(
+            Production(
+                name=f"html:foreign:svg:{tag}",
+                symbol="node",
+                parts=(f"<svg><{tag}><p>x</p></{tag}><circle/></svg>".encode("ascii"),),
+                nodes=5,
+                origin=f"{standard}#html-integration-point",
+                height=3,
+            )
+            for tag in ("foreignObject", "desc", "title")
+        ),
+    ))
     return compile_grammar(productions, "root")
 
 
@@ -124,7 +130,7 @@ def _origin(vocabulary: HtmlVocabulary, filename: str, line: int) -> str:
 
 
 def html_document(case: Generated) -> bool:
-    """Use document parsing for profiles whose tags are ignored in a div fragment."""
+    # Use document parsing for profiles whose tags are ignored in a div fragment.
     return any(name.startswith("html:document:") for name in case.productions)
 
 
@@ -132,7 +138,7 @@ def _element_production(name: str, tag: str, attributes: Parts, origin: str) -> 
     if tag in {"html", "head", "body"}:
         parts: Final = (
             b'<html id="',
-            Identifier("target", definition=True),
+            Identifier(name="target", definition=True),
             b'"',
             *(attributes if tag == "html" else ()),
             b"><head",
@@ -140,86 +146,101 @@ def _element_production(name: str, tag: str, attributes: Parts, origin: str) -> 
             b"><title>x</title></head><body",
             *(attributes if tag == "body" else ()),
             b'><a href="#',
-            Identifier("target", definition=False),
+            Identifier(name="target", definition=False),
             b'">x</a></body></html>',
         )
-        return Production("html:document:" + name, "root", parts, 8, origin, 4)
+        return Production(name=f"html:document:{name}", symbol="root", parts=parts, nodes=8, origin=origin, height=4)
     if tag in {"frame", "frameset"}:
         parts = (
             b'<frameset id="',
-            Identifier("target", definition=True),
+            Identifier(name="target", definition=True),
             b'"',
             *(attributes if tag == "frameset" else ()),
             b"><frame",
             *(attributes if tag == "frame" else ()),
             b' src="#',
-            Identifier("target", definition=False),
+            Identifier(name="target", definition=False),
             b'"></frameset>',
         )
-        return Production("html:document:" + name, "root", parts, 5, origin, 3)
+        return Production(name=f"html:document:{name}", symbol="root", parts=parts, nodes=5, origin=origin, height=3)
     if tag == "plaintext":
         return Production(
-            name,
-            "root",
-            (
+            name=name,
+            symbol="root",
+            parts=(
                 b'<div id="',
-                Identifier("target", definition=True),
+                Identifier(name="target", definition=True),
                 b'"><a href="#',
-                Identifier("target", definition=False),
+                Identifier(name="target", definition=False),
                 b'">x</a><plaintext',
                 *attributes,
                 b">x",
             ),
-            6,
-            origin,
-            3,
+            nodes=6,
+            origin=origin,
+            height=3,
         )
     prefix, suffix, nodes, height = _element_shape(tag)
-    return Production(name, "node", (prefix, *attributes, suffix), nodes, origin, height)
+    return Production(
+        name=name, symbol="node", parts=(prefix, *attributes, suffix), nodes=nodes, origin=origin, height=height
+    )
 
 
-def _element_shape(tag: str) -> tuple[bytes, bytes, int, int]:
-    if shape := _SHAPES.get(tag):
-        return shape
-    if tag in _TABLE_SECTIONS:
-        return b"<table><" + tag.encode("ascii"), b"><tr><td>x</td></tr></" + tag.encode("ascii") + b"></table>", 5, 4
+class _ElementShape(NamedTuple):
+    prefix: bytes
+    suffix: bytes
+    nodes: int
+    height: int
+
+
+def _element_shape(tag: str) -> _ElementShape:
+    if shape := {
+        "table": (b"<table", b"><tbody><tr><td>x</td></tr></tbody></table>", 5, 4),
+        "tr": (b"<table><tbody><tr", b"><td>x</td></tr></tbody></table>", 5, 4),
+        "col": (b"<table><colgroup><col", b"></colgroup></table>", 3, 2),
+        "colgroup": (b"<table><colgroup", b"><col></colgroup></table>", 3, 2),
+        "caption": (b"<table><caption", b">x</caption></table>", 3, 2),
+        "option": (b"<select><option", b">x</option></select>", 3, 2),
+        "optgroup": (b"<select><optgroup", b"><option>x</option></optgroup></select>", 4, 3),
+        "template": (b"<template", b"></template>", 2, 0),
+    }.get(tag):
+        return _ElementShape(*shape)
+    if tag in frozenset({"tbody", "thead", "tfoot"}):
+        return _ElementShape(
+            b"<table><" + tag.encode("ascii"),
+            b"><tr><td>x</td></tr></" + tag.encode("ascii") + b"></table>",
+            5,
+            4,
+        )
     if tag in {"td", "th"}:
-        return (
+        return _ElementShape(
             b"<table><tbody><tr><" + tag.encode("ascii"),
             b">x</" + tag.encode("ascii") + b"></tr></tbody></table>",
             5,
             4,
         )
-    if tag in _VOID:
-        return b"<" + tag.encode("ascii"), b">", 1, 0
-    return b"<" + tag.encode("ascii"), b">x</" + tag.encode("ascii") + b">", 2, 1
-
-
-def _hostile_productions() -> tuple[Production, ...]:
-    return (
-        Production(
-            "html:hostile:formatting", "node", (b"<b><i>x</b>y</i>",), 5, _STANDARD + "#adoption-agency-algorithm", 2
-        ),
-        Production(
-            "html:hostile:near-miss",
-            "node",
-            (b"<span>x</spna><b>y</b></span>",),
-            4,
-            _STANDARD + "#parsing-main-inbody",
-            2,
-        ),
-        *(
-            Production(
-                f"html:foreign:svg:{tag}",
-                "node",
-                (f"<svg><{tag}><p>x</p></{tag}><circle/></svg>".encode("ascii"),),
-                5,
-                _STANDARD + "#html-integration-point",
-                3,
-            )
-            for tag in ("foreignObject", "desc", "title")
-        ),
-    )
+    if tag in frozenset({
+        "area",
+        "base",
+        "basefont",
+        "bgsound",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "image",
+        "img",
+        "input",
+        "keygen",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }):
+        return _ElementShape(b"<" + tag.encode("ascii"), b">", 1, 0)
+    return _ElementShape(b"<" + tag.encode("ascii"), b">x</" + tag.encode("ascii") + b">", 2, 1)
 
 
 class _Values:
@@ -265,10 +286,10 @@ class _Values:
     def expand(self, source: str, route: tuple[TableRule, ...] = ()) -> Parts:
         if attribute := _ATTRIBUTE.fullmatch(source):
             return (
-                f' {attribute[1]}="'.encode("ascii"),
+                f' {attribute["name"]}="'.encode("ascii"),
                 *(
                     escape(part.decode("utf-8"), quote=True).encode("utf-8") if isinstance(part, bytes) else part
-                    for part in self.expand(attribute[2], route)
+                    for part in self.expand(attribute["value"], route)
                 ),
                 b'"',
             )
@@ -276,7 +297,7 @@ class _Values:
         position = 0
         for token in _TOKEN.finditer(source):
             parts.extend(_literal(source[position : token.start()]))
-            symbol, *parameters = token[1].split()
+            symbol, *parameters = token["body"].split()
             if symbol in _PRIMITIVES:
                 parts.extend(_primitive(symbol, parameters))
             else:
@@ -292,7 +313,7 @@ class _Values:
 
 @cache  # owner() re-reads the same value sources for every one of the ~1000 value alternatives
 def _symbols(source: str) -> tuple[str, ...]:
-    return tuple(token[1].split()[0] for token in _TOKEN.finditer(source))
+    return tuple(token["body"].split()[0] for token in _TOKEN.finditer(source))
 
 
 def _literal(source: str) -> Parts:
@@ -301,7 +322,7 @@ def _literal(source: str) -> Parts:
 
 def _primitive(symbol: str, parameters: Sequence[str]) -> Parts:
     if symbol == "elementid":
-        return (Identifier("target", definition=False),)
+        return (Identifier(name="target", definition=False),)
     if symbol == "class":
         return (b"a",)
     if symbol == "import":
@@ -322,10 +343,9 @@ def _primitive(symbol: str, parameters: Sequence[str]) -> Parts:
     return (_PRIMITIVES[symbol],)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class HtmlVocabulary:
-    """Keep source alternatives explicit when a pinned table is updated."""
-
+    # Keep source alternatives explicit when a pinned table is updated.
     tags: tuple[str, ...]
     html: tuple[TableRule, ...]
     values: tuple[TableRule, ...]
@@ -336,41 +356,12 @@ class HtmlVocabulary:
 
 Parts: TypeAlias = tuple[bytes | Identifier, ...]
 
-_STANDARD: Final = "https://html.spec.whatwg.org/multipage/parsing.html"
-_TOKEN: Final = re.compile(r"<([^<>]+)>")
-_ATTRIBUTE: Final = re.compile(r'([a-zA-Z][a-zA-Z0-9:_-]*)="([^"]*)"')
-_TABLE_SECTIONS: Final = frozenset({"tbody", "thead", "tfoot"})
-_SHAPES: Final = {
-    "table": (b"<table", b"><tbody><tr><td>x</td></tr></tbody></table>", 5, 4),
-    "tr": (b"<table><tbody><tr", b"><td>x</td></tr></tbody></table>", 5, 4),
-    "col": (b"<table><colgroup><col", b"></colgroup></table>", 3, 2),
-    "colgroup": (b"<table><colgroup", b"><col></colgroup></table>", 3, 2),
-    "caption": (b"<table><caption", b">x</caption></table>", 3, 2),
-    "option": (b"<select><option", b">x</option></select>", 3, 2),
-    "optgroup": (b"<select><optgroup", b"><option>x</option></optgroup></select>", 4, 3),
-    "template": (b"<template", b"></template>", 2, 0),
-}
-_VOID: Final = frozenset({
-    "area",
-    "base",
-    "basefont",
-    "bgsound",
-    "br",
-    "col",
-    "embed",
-    "hr",
-    "image",
-    "img",
-    "input",
-    "keygen",
-    "link",
-    "meta",
-    "param",
-    "source",
-    "track",
-    "wbr",
-})
-_PRIMITIVES: Final = {
+_TOKEN: Final[re.Pattern[str]] = re.compile(r"<(?P<body>[^<>]+)>")
+_ATTRIBUTE: Final[re.Pattern[str]] = re.compile(
+    r'(?P<name>(?#attribute name starting with a letter)[a-zA-Z][a-zA-Z0-9:_-]*)(?#equals and opening quote)="'
+    r'(?P<value>(?#value without quotes)[^"]*)(?#closing quote)"'
+)
+_PRIMITIVES: Final[dict[str, bytes]] = {
     "elementid": b"x",
     "class": b"a",
     "import": b"",
@@ -388,13 +379,25 @@ _PRIMITIVES: Final = {
     "lf": b"\n",
 }
 
-_TAG_ORIGINS: Final = {
+_TAG_ORIGINS: Final[dict[str, str]] = {
     tag: f"{SOURCE_URLS['common.txt']}#L{line}" for line, symbol, tag in COMMON_RULES if symbol == "tagname"
 }
-_VOCABULARY: Final = HtmlVocabulary(HTML_TAGS, HTML_RULES, ATTRIBUTE_VALUE_RULES, TAG_ATTRIBUTE_RULES, COMMON_RULES)
-_GRAMMAR: Final = html_grammar_complete()
+_VOCABULARY: Final[HtmlVocabulary] = HtmlVocabulary(
+    tags=HTML_TAGS,
+    html=HTML_RULES,
+    values=ATTRIBUTE_VALUE_RULES,
+    tag_attributes=TAG_ATTRIBUTE_RULES,
+    common=COMMON_RULES,
+)
+_GRAMMAR: Final[Grammar] = html_grammar_complete()
 
-__all__ = ["HtmlVocabulary", "html_document", "html_generate", "html_grammar_complete", "main"]
+__all__ = [
+    "HtmlVocabulary",
+    "html_document",
+    "html_generate",
+    "html_grammar_complete",
+    "main",
+]
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -1,6 +1,3 @@
-"""Nodes crossing between XML and HTML trees take the destination tree's naming rules, and an XML document's fragment
-parse (set_inner_html, insert_adjacent_html) uses the XML fragment parser."""
-
 from __future__ import annotations
 
 import pytest
@@ -8,10 +5,9 @@ import pytest
 from turbohtml import Element, HTMLParseError, Range, parse, parse_xml
 
 
-def _xml_root(xml: str) -> Element:
-    root = parse_xml(xml).root
-    assert root is not None
-    return root
+def test_xml_element_in_html_tree_folds_its_names() -> None:
+    body = _into_html('<root><Item-1 Attr="1" X-1="2" d-9Q="3" low="4"/></root>')
+    assert body.html == '<body><item-1 attr="1" x-1="2" d-9q="3" low="4"></item-1></body>'
 
 
 def _into_html(xml: str) -> Element:
@@ -22,17 +18,10 @@ def _into_html(xml: str) -> Element:
     return body
 
 
-def _xml_child() -> Element:
-    child = _xml_root(
-        '<r xmlns="urn:a" xmlns:p="urn:&quot;b&lt;" a="0" xmlnsq="1" xmlnsqq="2" attr5="3"><c/></r>'
-    ).children[0]
-    assert isinstance(child, Element)
-    return child
-
-
-def test_xml_element_in_html_tree_folds_its_names() -> None:
-    body = _into_html('<root><Item-1 Attr="1" X-1="2" d-9Q="3" low="4"/></root>')
-    assert body.html == '<body><item-1 attr="1" x-1="2" d-9q="3" low="4"></item-1></body>'
+def _xml_root(xml: str) -> Element:
+    root = parse_xml(xml).root
+    assert root is not None
+    return root
 
 
 def test_xml_subtree_in_html_tree_folds_every_element() -> None:
@@ -83,6 +72,14 @@ def test_xml_set_inner_html_parses_as_xml() -> None:
     child = _xml_child()
     child.set_inner_html('<p:x y="1">t &amp; u</p:x><Z/>')
     assert child.html == '<c><p:x y="1">t &amp; u</p:x><Z></Z></c>'
+
+
+def _xml_child() -> Element:
+    child = _xml_root(
+        '<r xmlns="urn:a" xmlns:p="urn:&quot;b&lt;" a="0" xmlnsq="1" xmlnsqq="2" attr5="3"><c/></r>'
+    ).children[0]
+    assert isinstance(child, Element)
+    return child
 
 
 def test_xml_set_inner_html_under_a_redeclared_namespace() -> None:

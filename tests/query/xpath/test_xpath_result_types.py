@@ -1,16 +1,9 @@
-"""The XPath entry points return what their stubs declare, for every XPath 1.0 result kind.
-
-A static checker trusts the ``.pyi`` return annotation, so each runtime result is checked against
-the annotation parsed from the stub itself: a stub that narrows the union (drops ``float`` for
-``count()``, or ``Node`` for a comment node) fails here.
-"""
-
 from __future__ import annotations
 
 import ast
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 import pytest
 
@@ -20,10 +13,11 @@ from turbohtml import Node, XPath
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_STUBS: Final = Path(__file__).parents[3] / "src" / "turbohtml" / "_stubs"
+_STUBS: Final[Path] = Path(__file__).parents[3] / "src" / "turbohtml" / "_stubs"
 _NAMES: Final[dict[str, type]] = {"Node": Node, "str": str, "float": float, "bool": bool}
-_DOCUMENT: Final = turbohtml.parse("<p>a</p><!--c--><p>b</p><?pi x?>")
-_EXPRESSIONS: Final = [
+_XPathValue: TypeAlias = "list[Node | str] | float | bool | str | Node | Iterator[Node | str | float | bool] | None"
+_DOCUMENT: Final[turbohtml.Document] = turbohtml.parse("<p>a</p><!--c--><p>b</p><?pi x?>")
+_EXPRESSIONS: Final[list[pytest.ParameterSet]] = [
     pytest.param("count(//p)", id="number"),
     pytest.param("boolean(//p)", id="boolean"),
     pytest.param("string(//p)", id="string"),
@@ -44,7 +38,7 @@ def _declared_return(stub: str, owner: str, method: str) -> ast.expr:
     return func.returns
 
 
-def _conforms(value: object, annotation: ast.expr) -> bool:
+def _conforms(value: _XPathValue, annotation: ast.expr) -> bool:
     if isinstance(annotation, ast.BinOp):
         return _conforms(value, annotation.left) or _conforms(value, annotation.right)
     if isinstance(annotation, ast.Constant):
@@ -68,6 +62,6 @@ def _conforms(value: object, annotation: ast.expr) -> bool:
 )
 @pytest.mark.parametrize("expression", _EXPRESSIONS)
 def test_xpath_result_matches_stub(
-    stub: str, owner: str, method: str, evaluate: Callable[[str], object], expression: str
+    stub: str, owner: str, method: str, evaluate: Callable[[str], _XPathValue], expression: str
 ) -> None:
     assert _conforms(evaluate(expression), _declared_return(stub, owner, method))

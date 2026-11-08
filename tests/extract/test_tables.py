@@ -14,8 +14,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def rows() -> Callable[[str], list[list[str]]]:
-    """Parse a fragment, find its first ``<table>``, and read it into a row grid."""
-
+    # Parse a fragment, find its first ``<table>``, and read it into a row grid.
     def extract(html: str) -> list[list[str]]:
         table = parse_fragment(html).find("table")
         assert isinstance(table, Element)
@@ -26,8 +25,7 @@ def rows() -> Callable[[str], list[list[str]]]:
 
 @pytest.fixture
 def records() -> Callable[[str], list[dict[str, str]]]:
-    """Parse a fragment, find its first ``<table>``, and read it into header-keyed records."""
-
+    # Parse a fragment, find its first ``<table>``, and read it into header-keyed records.
     def extract(html: str) -> list[dict[str, str]]:
         table = parse_fragment(html).find("table")
         assert isinstance(table, Element)
@@ -36,7 +34,7 @@ def records() -> Callable[[str], list[dict[str, str]]]:
     return extract
 
 
-ROWS_CASES = [
+_ROWS_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "<table><tr><th>H1</th><th>H2</th></tr><tr><td>a</td><td>b</td></tr></table>",
         [["H1", "H2"], ["a", "b"]],
@@ -164,7 +162,7 @@ ROWS_CASES = [
 ]
 
 
-@pytest.mark.parametrize(("html", "expected"), ROWS_CASES)
+@pytest.mark.parametrize(("html", "expected"), _ROWS_CASES)
 def test_rows(rows: Callable[[str], list[list[str]]], html: str, expected: list[list[str]]) -> None:
     assert rows(html) == expected
 
@@ -184,12 +182,11 @@ def test_huge_colspan_is_clamped(rows: Callable[[str], list[list[str]]]) -> None
     grid = rows('<table><tr><td colspan="5000">A</td></tr></table>')
     assert len(grid) == 1
     assert len(grid[0]) == 1000
-    assert grid[0][0] == "A"
-    assert grid[0][999] == "A"
+    assert (grid[0][0], grid[0][999]) == ("A", "A")
 
 
 def test_rowspan_beyond_colspan_limit(rows: Callable[[str], list[list[str]]]) -> None:
-    body: Final = "<tr><td rowspan=1002>A</td><td>0</td></tr>" + "<tr><td>x</td></tr>" * 1001
+    body: Final = f"<tr><td rowspan=1002>A</td><td>0</td></tr>{'<tr><td>x</td></tr>' * 1001}"
     grid: Final = rows(f"<table>{body}</table>")
     assert grid == [["A", "0"], *[["A", "x"] for _ in range(1001)]]
 
@@ -231,7 +228,7 @@ def test_zero_rowspan_without_a_row_group_spans_to_table_end(receiver: Callable[
     assert table.rows() == [["A", "B"], ["A", "C"]]
 
 
-RECORDS_CASES = [
+_RECORDS_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "<table><tr><th>H1</th><th>H2</th></tr><tr><td>a</td><td>b</td></tr></table>",
         [{"H1": "a", "H2": "b"}],
@@ -261,12 +258,12 @@ RECORDS_CASES = [
 ]
 
 
-@pytest.mark.parametrize(("html", "expected"), RECORDS_CASES)
+@pytest.mark.parametrize(("html", "expected"), _RECORDS_CASES)
 def test_records(records: Callable[[str], list[dict[str, str]]], html: str, expected: list[dict[str, str]]) -> None:
     assert records(html) == expected
 
 
-DOCUMENT_TABLES_CASES = [
+_DOCUMENT_TABLES_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "<table><tr><td>a</td></tr></table><p>x</p><table><tr><td>b</td><td>c</td></tr></table>",
         [[["a"]], [["b", "c"]]],
@@ -281,7 +278,7 @@ DOCUMENT_TABLES_CASES = [
 ]
 
 
-@pytest.mark.parametrize(("html", "expected"), DOCUMENT_TABLES_CASES)
+@pytest.mark.parametrize(("html", "expected"), _DOCUMENT_TABLES_CASES)
 def test_document_tables(html: str, expected: list[list[list[str]]]) -> None:
     assert parse(html).tables() == expected
 
@@ -308,7 +305,7 @@ def test_tables_called_on_a_table_returns_only_its_nested_tables() -> None:
 
 @pytest.fixture
 def non_table_div() -> Element:
-    """A ``<div>`` wrapping a table, the wrong receiver for rows()/records()."""
+    # A ``<div>`` wrapping a table, the wrong receiver for rows()/records().
     div = parse_fragment("<div><table><tr><td>a</td></tr></table></div>", "body").find("div")
     assert isinstance(div, Element)
     return div

@@ -1,18 +1,16 @@
-"""XPath front-end (lexer + parser) conformance via the ``_xpath_parse`` hook.
-
-The hook compiles an expression and returns a canonical S-expression of the AST, so
-these assert the parse shape without an evaluator. Evaluation lands in a later phase.
-"""
-
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
 from turbohtml import _html
 
-parse = _html._xpath_parse
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+_PARSE: Final[Callable[[str], str]] = _html._xpath_parse
 
 
 @pytest.mark.parametrize(
@@ -262,16 +260,16 @@ parse = _html._xpath_parse
     ],
 )
 def test_parses(expr: str, ast: str) -> None:
-    assert parse(expr) == ast
+    assert _PARSE(expr) == ast
 
 
 def test_whitespace_between_tokens_is_ignored() -> None:
-    assert parse("1\t+\r\n2") == parse("1 + 2")
+    assert _PARSE("1\t+\r\n2") == _PARSE("1 + 2")
 
 
 def test_large_expression_grows_the_arena() -> None:
     expr = "/".join(f"e{i}" for i in range(40))
-    assert parse(expr).count("step child name") == 40
+    assert _PARSE(expr).count("step child name") == 40
 
 
 @pytest.mark.parametrize(
@@ -304,12 +302,12 @@ def test_large_expression_grows_the_arena() -> None:
 )
 def test_rejects(expr: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
-        parse(expr)
+        _PARSE(expr)
 
 
 def test_non_string_argument() -> None:
     with pytest.raises(TypeError, match="must be a str"):
-        parse(123)  # ty: ignore[invalid-argument-type]  # non-str exercises the TypeError path
+        _PARSE(123)  # ty: ignore[invalid-argument-type]  # non-str exercises the TypeError path
 
 
 @pytest.mark.parametrize(
@@ -323,12 +321,12 @@ def test_non_string_argument() -> None:
 )
 def test_parse_error_names_position_and_token(expr: str, fragment: str) -> None:
     with pytest.raises(ValueError, match=re.escape(fragment)):
-        parse(expr)
+        _PARSE(expr)
 
 
 def test_parse_error_clamps_a_long_offending_token() -> None:
     with pytest.raises(ValueError, match="offset") as excinfo:
-        parse("1 " + "z" * 60)
+        _PARSE(f"1 {'z' * 60}")
     assert "z" * 31 in str(excinfo.value)
     assert "z" * 32 not in str(excinfo.value)
 
@@ -336,12 +334,12 @@ def test_parse_error_clamps_a_long_offending_token() -> None:
 @pytest.mark.parametrize(
     "expr",
     [
-        pytest.param("(" * 5000 + "1" + ")" * 5000, id="nested-groups"),
-        pytest.param("-" * 5000 + "1", id="unary-minus-chain"),
+        pytest.param(f"{'(' * 5000}1{')' * 5000}", id="nested-groups"),
+        pytest.param(f"{'-' * 5000}1", id="unary-minus-chain"),
     ],
 )
 def test_deeply_nested_expression_is_rejected(expr: str) -> None:
     # nested groups and a chain of unary minus both recurse in the parser; the depth cap
     # raises before the C stack overflows (issue #421)
     with pytest.raises(ValueError, match="nested too deeply"):
-        parse(expr)
+        _PARSE(expr)

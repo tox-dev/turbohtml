@@ -20,18 +20,34 @@ from typing import TYPE_CHECKING
 
 import pyperf
 
-from bench import operations
+from bench.operations import INPUTS, MEMORY_OPS, SIZE_OPS, Case
 from bench.timing import Mutating
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-def _timed(mutating: Mutating, arg: object) -> Callable[[int], float]:
-    """Return a ``bench_time_func`` body: rebuild a fresh tree per iteration (untimed), clock only the mutation."""
+def _case_error(func: Callable[[Case], str] | Mutating, arg: Case, *, worker: bool) -> str | None:
+    # A worker re-raises so pyperf reports the failure; the manager records it and skips the case.
+    try:
+        func.run(func.setup(arg)) if isinstance(func, Mutating) else func(arg)
+    except Exception as exc:
+        if worker:
+            raise
+        return " ".join(str(exc).split())[:200] or type(exc).__name__
+    return None
 
-    def inner(loops: int) -> float:
-        setup, run = mutating.setup, mutating.run
+
+def _bench(
+    runner: pyperf.Runner, name: str, func: Callable[[Case], str] | Mutating, arg: Case
+) -> pyperf.Benchmark | None:
+    # Measure one case: a mutating operation through ``bench_time_func``, any other through ``bench_func``.
+    if not isinstance(func, Mutating):
+        return runner.bench_func(name, func, arg)
+    # Rebuild a fresh tree per iteration (untimed), clocking only the mutation.
+    setup, run = func.setup, func.run
+
+    def timed(loops: int) -> float:
         elapsed = 0.0
         for _ in range(loops):
             # pyperf can disable automatic GC; fresh cyclic trees must not accumulate between iterations.
@@ -43,18 +59,11 @@ def _timed(mutating: Mutating, arg: object) -> Callable[[int], float]:
             del tree
         return elapsed
 
-    return inner
-
-
-def _bench(runner: pyperf.Runner, name: str, func: object, arg: object) -> pyperf.Benchmark | None:
-    """Measure one case: a mutating operation through ``bench_time_func``, any other through ``bench_func``."""
-    if isinstance(func, Mutating):
-        return runner.bench_time_func(name, _timed(func, arg))
-    return runner.bench_func(name, func, arg)
+    return runner.bench_time_func(name, timed)
 
 
 def _peak_memory(case_index: int) -> float:
-    """Spawn ``bench.memory`` in a fresh process for one case and return the peak resident bytes it prints."""
+    # Spawn ``bench.memory`` in a fresh process for one case and return the peak resident bytes it prints.
     completed = subprocess.run(
         [sys.executable, "-m", "bench.memory"],
         check=True,
@@ -66,15 +75,27 @@ def _peak_memory(case_index: int) -> float:
 
 
 def _record_memory(operation: str, label: str, stats: dict[str, dict[str, float | str]]) -> None:
-    """Add ``peak`` resident bytes to each measured case of a memory op, one fresh subprocess per case."""
-    for case_index, (case_name, _arg) in enumerate(operations.INPUTS[operation]()):
-        entry = stats.get(f"{operation}|{case_name}|{label}")
-        if entry is not None and "mean" in entry:  # skip a case that errored or was too fast to measure
+    # Add ``peak`` resident bytes to each measured case of a memory op, one fresh subprocess per case.
+    for case_index, (case_name, _arg) in enumerate(INPUTS[operation]()):
+        if (
+            entry := stats.get(f"{operation}|{case_name}|{label}")
+        ) is not None and "mean" in entry:  # skip a case that errored or was too fast to measure
             entry["peak"] = _peak_memory(case_index)
 
 
+def _case_entry(
+    runner: pyperf.Runner, operation: str, name: str, func: Callable[[Case], str], arg: Case
+) -> dict[str, float | str] | None:
+    if (result := _bench(runner, name, func, arg)) is None or result.get_nvalue() <= 1:
+        return None
+    entry: dict[str, float | str] = {"mean": result.mean(), "stdev": result.stdev()}
+    if operation in SIZE_OPS:  # deterministic output length, measured once beside the timing
+        entry["size"] = float(len(func(arg).encode("utf-8")))
+    return entry
+
+
 def main() -> None:
-    """Benchmark every case of the operation for the target; write ``{name: {mean, stdev}}`` from the pyperf manager."""
+    # Benchmark every case of the operation for the target; write ``{name: {mean, stdev}}`` from the pyperf manager.
     target = os.environ["BENCH_TARGET"]
     operation = os.environ["BENCH_OPERATION"]
     module = importlib.import_module("bench.core" if target == "core" else f"bench.competitors.{target}")
@@ -95,7 +116,7 @@ def main() -> None:
     skipped: set[int] = set(json.loads(os.environ.get("BENCH_SKIP_CASES", "[]"))) if args.worker else set()
     os.environ["BENCH_SKIP_CASES"] = json.dumps(sorted(skipped))
     task_index = 0
-    for case_index, (case_name, arg) in enumerate(operations.INPUTS[operation]()):
+    for case_index, (case_name, arg) in enumerate(INPUTS[operation]()):
         if case_index in skipped:
             continue
         name = f"{operation}|{case_name}|{label}"
@@ -104,28 +125,21 @@ def main() -> None:
             _bench(runner, name, func, arg)
             task_index += 1
             continue
-        try:
-            func.run(func.setup(arg)) if isinstance(func, Mutating) else func(arg)
-        except Exception as exc:
-            if args.worker:
-                raise
+        if (error := _case_error(func, arg, worker=args.worker)) is not None:
             skipped.add(case_index)
             os.environ["BENCH_SKIP_CASES"] = json.dumps(sorted(skipped))
-            stats[name] = {"error": " ".join(str(exc).split())[:200] or type(exc).__name__}
+            stats[name] = {"error": error}
             continue
-        if (result := _bench(runner, name, func, arg)) is not None and result.get_nvalue() > 1:
-            entry = {"mean": result.mean(), "stdev": result.stdev()}
-            if operation in operations.SIZE_OPS:  # deterministic output length, measured once beside the timing
-                entry["size"] = float(len(func(arg).encode("utf-8")))
+        if (entry := _case_entry(runner, operation, name, func, arg)) is not None:
             stats[name] = entry
         task_index += 1
     if not args.worker:  # the pyperf manager, holding every value -- not a per-value worker
-        if operation in operations.MEMORY_OPS:  # peak RSS from a fresh child, never a forked pyperf worker's timing run
+        if operation in MEMORY_OPS:  # peak RSS from a fresh child, never a forked pyperf worker's timing run
             _record_memory(operation, label, stats)
         Path(os.environ["BENCH_OUT"]).write_text(json.dumps(stats), encoding="utf-8")
 
 
-__all__ = ["main"]
+__all__ = []
 
 if __name__ == "__main__":
     main()

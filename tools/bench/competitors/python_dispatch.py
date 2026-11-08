@@ -10,7 +10,9 @@ from turbohtml import Node, parse_fragment
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-REQUIREMENTS = ("turbohtml>=1.8",)
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("turbohtml>=1.8",)
 
 
 def _dispatch(count: int) -> Node:
@@ -23,7 +25,7 @@ def _pipeline(count: int) -> partial[Node]:
 
 
 def transform_node(node: Node, /, *steps: Callable[[Node], Node | None]) -> Node:
-    """Mirror root replacement and error handling without native dispatch."""
+    # Mirror root replacement and error handling without native dispatch.
     if not isinstance(node, Node):
         message: Final = "node must be a Node"
         raise TypeError(message)
@@ -41,6 +43,9 @@ def _identity(node: Node) -> Node:
     return node
 
 
-OPERATIONS = {"transform-dispatch": (_dispatch, "Python (validated)")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"transform-dispatch": (_dispatch, "Python (validated)")}
 
-__all__ = ["OPERATIONS", "REQUIREMENTS", "transform_node"]
+__all__ = [
+    "OPERATIONS",
+    "transform_node",
+]

@@ -6,8 +6,8 @@ import pytest
 
 from turbohtml import Element, IncrementalParser, parse, parse_fragment
 
-_OPTION_HOLDS_SELECTEDCONTENT: Final = "<select><option><selectedcontent>"
-_OPTION_HOLDS_SELECTEDCONTENT_TREE: Final = "<select><option><selectedcontent></selectedcontent></option></select>"
+_OPTION_HOLDS_SELECTEDCONTENT: Final[str] = "<select><option><selectedcontent>"
+_OPTION_HOLDS_SELECTEDCONTENT_TREE: Final[str] = "<select><option><selectedcontent></selectedcontent></option></select>"
 
 
 @pytest.mark.parametrize(
@@ -209,22 +209,22 @@ def test_parse_clones_only_options_with_a_nearest_select(markup: str, body: str)
     assert parse(markup).html == f"<html><head></head><body>{body}</body></html>"
 
 
-_DEEP_OPTION_NEST: Final = "<select><button><selectedcontent></button>" + "<option selected><div>" * 3 + "</select>"
-_DEEP_OPTION_NEST_BODY: Final = (
-    "<select><button><selectedcontent>"
-    '<div><option selected=""><div><option selected=""><div></div></option></div></option></div>'
-    "</selectedcontent></button>"
-    '<option selected=""><div><option selected=""><div><option selected=""><div></div>'
-    "</option></div></option></div></option></select>"
-)
-
-
 def test_parse_clones_nested_selected_options_once() -> None:
-    assert parse(_DEEP_OPTION_NEST).html == f"<html><head></head><body>{_DEEP_OPTION_NEST_BODY}</body></html>"
+    deep_option_nest_body: str = (
+        "<select><button><selectedcontent>"
+        '<div><option selected=""><div><option selected=""><div></div></option></div></option></div>'
+        "</selectedcontent></button>"
+        '<option selected=""><div><option selected=""><div><option selected=""><div></div>'
+        "</option></div></option></div></option></select>"
+    )
+    assert (
+        parse(f"<select><button><selectedcontent></button>{'<option selected><div>' * 3}</select>").html
+        == f"<html><head></head><body>{deep_option_nest_body}</body></html>"
+    )
 
 
 def test_parse_of_deeply_nested_selected_options_stays_linear() -> None:
-    document = parse("<select><button><selectedcontent></button>" + "<option selected><div>" * 2000 + "</select>")
+    document = parse(f"<select><button><selectedcontent></button>{'<option selected><div>' * 2000}</select>")
     selectedcontent = document.find("selectedcontent")
     assert isinstance(selectedcontent, Element)
     assert len(document.html) < 8 * len("<option selected><div>" * 2000)

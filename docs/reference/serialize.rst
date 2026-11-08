@@ -31,9 +31,9 @@ See :doc:`/how-to/transforming-trees` for child encoding and streaming recipes, 
 
     from typing import Final
 
-    from turbohtml import Html, Minify, parse_fragment
+    from turbohtml import Html, Minify, Node, parse_fragment
 
-    paragraph: Final = parse_fragment("<p>  one <b>two</b>  </p>").children[0]
+    paragraph: Final[Node] = parse_fragment("<p>  one <b>two</b>  </p>").children[0]
     print(repr(paragraph.serialize(Html(layout=Minify()), inner=True)))
     print(paragraph.encode(inner=True))
 

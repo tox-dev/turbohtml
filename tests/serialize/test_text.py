@@ -1,13 +1,7 @@
-"""Layout-aware text export via Node.to_text() (the inscriptis role).
-
-Golden cases pin the layout for every block, list, table, link, and image path,
-and a token check confirms no visible text is dropped. A second helper drives the
-binding's enum validation.
-"""
-
 from __future__ import annotations
 
 import re
+from functools import partial
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -17,13 +11,9 @@ from turbohtml import Markdown, PlainText, parse
 if TYPE_CHECKING:
     from collections.abc import Mapping
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
 
     Rules = Mapping[str, Sequence[str]]
-
-
-def to_text(html: str, opts: PlainText) -> str:
-    return parse(html).to_text(opts)
 
 
 @pytest.mark.parametrize(
@@ -53,6 +43,10 @@ def to_text(html: str, opts: PlainText) -> str:
 )
 def test_blocks(html: str, opts: PlainText, expected: str) -> None:
     assert to_text(html, opts) == expected
+
+
+def to_text(html: str, opts: PlainText) -> str:
+    return parse(html).to_text(opts)
 
 
 @pytest.mark.parametrize(
@@ -296,13 +290,13 @@ def test_loose_block_in_tight_item() -> None:
 
 
 def test_footnote_links_grow_past_initial_capacity() -> None:
-    html = "<p>" + "".join(f'<a href="/{i}">L{i}</a>' for i in range(10)) + "</p>"
+    html = f"""<p>{"".join(f'<a href="/{i}">L{i}</a>' for i in range(10))}</p>"""
     out = parse(html).to_text(PlainText(links="footnote"))
     assert "[10] /9" in out
 
 
 def test_word_wrap() -> None:
-    out = parse("<p>" + "word " * 10 + "</p>").to_text(PlainText(width=20))
+    out = parse(f"<p>{'word ' * 10}</p>").to_text(PlainText(width=20))
     assert all(len(line) <= 20 for line in out.splitlines())
     assert out.split() == ["word"] * 10
 
@@ -362,7 +356,7 @@ def test_invalid_options(opts: Mapping[str, str | int], exc: type[Exception], ma
         parse("<p>x</p>").to_text(PlainText(**opts))  # ty: ignore[invalid-argument-type]  # pass invalid options to test they are rejected
 
 
-_WORD = re.compile(r"[0-9a-z]+")
+_WORD: Final[re.Pattern[str]] = re.compile(r"[0-9a-z]+")
 
 
 @pytest.mark.parametrize(
@@ -385,15 +379,9 @@ def annotate(html: str, rules: Rules) -> tuple[str, list[tuple[int, int, str]]]:
 
 
 def spans_text(html: str, rules: Rules) -> list[tuple[str, str]]:
-    """Return (label, covered-text) pairs, the offset-independent view."""
+    # Return (label, covered-text) pairs, the offset-independent view.
     text, labels = annotate(html, rules)
     return [(label, text[start:end]) for start, end, label in labels]
-
-
-def call_with(convert: Callable[..., object], *args: object, **kwargs: str | int) -> object:
-    """Invoke the converter with arguments the static signature would reject, to drive
-    the runtime validation; the converter arrives signature-erased on purpose."""
-    return convert(*args, **kwargs)
 
 
 @pytest.mark.parametrize(
@@ -526,13 +514,12 @@ def test_annotated_text_rejects_another_renderers_config() -> None:
 
 
 def test_many_spans_grow_the_buffer() -> None:
-    html = "<p>" + "".join(f"<b>{i}</b>" for i in range(20)) + "</p>"
-    _, labels = annotate(html, {"b": ["bold"]})
+    _, labels = annotate(f"<p>{''.join(f'<b>{i}</b>' for i in range(20))}</p>", {"b": ["bold"]})
     assert len(labels) == 20
 
 
 def test_deeply_nested_annotations_grow_the_active_stack() -> None:
-    text, labels = annotate("<span>" * 12 + "deep" + "</span>" * 12, {"span": ["s"]})
+    text, labels = annotate(f"{'<span>' * 12}deep{'</span>' * 12}", {"span": ["s"]})
     assert len(labels) == 12
     assert {text[s:e] for s, e, _ in labels} == {"deep"}
 
@@ -546,9 +533,21 @@ def test_deeply_nested_annotations_grow_the_active_stack() -> None:
         pytest.param({"b": 5}, TypeError, "iterable", id="value-not-iterable"),
     ],
 )
-def test_invalid_rules(rules: object, exc: type[Exception], match: str) -> None:
+def test_invalid_rules(
+    rules: str | dict[int, list[str]] | dict[str, str] | dict[str, int], exc: type[Exception], match: str
+) -> None:
     with pytest.raises(exc, match=match):
-        call_with(parse("<p>x</p>").to_annotated_text, rules)
+        call_with(partial(parse("<p>x</p>").to_annotated_text), rules)
+
+
+def call_with(
+    convert: partial[tuple[str, list[tuple[int, int, str]]]],
+    *args: str | dict[int, list[str]] | dict[str, str] | dict[str, int],
+    **kwargs: str | int,
+) -> tuple[str, list[tuple[int, int, str]]]:
+    # Invoke the converter with arguments the static signature would reject, to drive
+    # the runtime validation; the converter arrives signature-erased on purpose.
+    return convert(*args, **kwargs)
 
 
 @pytest.mark.parametrize(

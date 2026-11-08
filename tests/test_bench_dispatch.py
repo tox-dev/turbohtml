@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import TYPE_CHECKING, Final, cast
+from types import FunctionType
+from typing import TYPE_CHECKING, Final, Protocol
 
 import pytest
 from bench.competitors.python_dispatch import OPERATIONS
@@ -12,32 +13,45 @@ from turbohtml.clean import collapse_whitespace_node, transform_node
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from typing import TypeIs
+
+    from bench.operations import Timed
 
 
 @pytest.mark.parametrize("count", [0, 1, 4, 16], ids=["empty", "one", "four", "sixteen"])
 def test_dispatch_benchmark(count: int) -> None:
     operation: Final = OPERATIONS["transform-dispatch"][0]
+    assert _is_dispatch_operation(operation)
     root: Final = operation(count)
     assert (root.inner_html, operation(count) is root) == ("<p>x</p>", True)
 
 
+def _is_dispatch_operation(operation: Timed) -> TypeIs[Callable[[int], Node]]:
+    return isinstance(operation, FunctionType) and operation.__name__ == "_dispatch"
+
+
+class _Dispatch(Protocol):
+    def __call__(self, node: object, /, *stages: object) -> Node: ...
+
+
 @pytest.fixture(params=[transform_node, python_transform_node], ids=["native", "python"])
-def dispatch(request: pytest.FixtureRequest) -> Callable[..., Node]:
-    return cast("Callable[..., Node]", request.param)
+def dispatch(request: pytest.FixtureRequest) -> _Dispatch:
+    return request.param
 
 
-def test_dispatch_empty(dispatch: Callable[..., Node]) -> None:
+def test_dispatch_empty(dispatch: _Dispatch) -> None:
     root: Final = Text("value")
     assert dispatch(root) is root
 
 
 @pytest.mark.parametrize("kind", ["function", "partial", "bound-method"])
-def test_dispatch_stages(dispatch: Callable[..., Node], kind: str) -> None:
+def test_dispatch_stages(dispatch: _Dispatch, kind: str) -> None:
     def uppercase(node: Node) -> None:
-        cast("Text", node).data = node.text.upper()
+        assert isinstance(node, Text)
+        node.data = node.text.upper()
 
     def replace(node: Node) -> Node:
-        return Text(node.text + "  end  ")
+        return Text(f"{node.text}  end  ")
 
     stage: Final = {"function": uppercase, "partial": partial(uppercase), "bound-method": partial(uppercase).__call__}[
         kind
@@ -47,12 +61,12 @@ def test_dispatch_stages(dispatch: Callable[..., Node], kind: str) -> None:
     assert (root.text, result.text, result is root) == (" A   B ", " A B end ", False)
 
 
-def test_dispatch_invalid_root(dispatch: Callable[..., Node]) -> None:
+def test_dispatch_invalid_root(dispatch: _Dispatch) -> None:
     with pytest.raises(TypeError, match="node must be a Node"):
         dispatch("text")
 
 
-def test_dispatch_invalid_result(dispatch: Callable[..., Node]) -> None:
+def test_dispatch_invalid_result(dispatch: _Dispatch) -> None:
     def invalid(_node: Node) -> str:
         return "text"
 
@@ -62,7 +76,7 @@ def test_dispatch_invalid_result(dispatch: Callable[..., Node]) -> None:
     assert root.text == "a b"
 
 
-def test_dispatch_exception(dispatch: Callable[..., Node]) -> None:
+def test_dispatch_exception(dispatch: _Dispatch) -> None:
     failure: Final = ValueError("stage failure")
 
     def fail(_node: Node) -> Node:
@@ -74,13 +88,13 @@ def test_dispatch_exception(dispatch: Callable[..., Node]) -> None:
     assert (root.text, caught.value is failure) == ("a b", True)
 
 
-def test_dispatch_noncallable(dispatch: Callable[..., Node]) -> None:
+def test_dispatch_noncallable(dispatch: _Dispatch) -> None:
     with pytest.raises(TypeError, match="not callable"):
         dispatch(Text("a"), 1)
 
 
 @pytest.mark.parametrize("replacement_type", [Text, Comment, Element], ids=["text", "comment", "element"])
-def test_dispatch_replacement_type(dispatch: Callable[..., Node], replacement_type: Callable[[str], Node]) -> None:
+def test_dispatch_replacement_type(dispatch: _Dispatch, replacement_type: Callable[[str], Node]) -> None:
     replacement: Final = replacement_type("p")
 
     def replace(_node: Node) -> Node:

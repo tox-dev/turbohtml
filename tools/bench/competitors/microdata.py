@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 import microdata
 
-REQUIREMENTS = ("microdata>=0.8",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("microdata>=0.8",)
 
 
 def microdata_items(text: str) -> None:
-    """Pull the page's Microdata items, which builds an html5lib tree and walks its itemscope elements."""
+    # Pull the page's Microdata items, which builds an html5lib tree and walks its itemscope elements.
     microdata.get_items(text)
 
 
 # The library reads only Microdata, so it competes on the Microdata-only op, not the three-format structured walk.
-OPERATIONS = {"microdata": (microdata_items, "microdata")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"microdata": (microdata_items, "microdata")}

@@ -13,8 +13,6 @@ from typing import NamedTuple
 
 from turbohtml._html import _register_locations  # Element stays importable so autodoc resolves it
 
-__all__ = ["SourceLocation", "SourceSpan"]
-
 
 class SourceSpan(NamedTuple):
     r"""
@@ -24,6 +22,13 @@ class SourceSpan(NamedTuple):
     ``\\r\\n`` counts once), the same convention as :attr:`~turbohtml.Node.source_line` and
     :attr:`~turbohtml.Node.source_col`. The half-open ``[start_offset, end_offset)`` slices the construct out of the
     source.
+
+    :param start_line: the 1-based line the construct starts on.
+    :param start_col: the 0-based column the construct starts at.
+    :param start_offset: the code-point offset the construct starts at.
+    :param end_line: the 1-based line just past the construct's end.
+    :param end_col: the 0-based column just past the construct's end.
+    :param end_offset: the code-point offset just past the construct's end.
     """
 
     start_line: int
@@ -48,6 +53,10 @@ class SourceLocation(NamedTuple):
     the element (a void, self-closed, or implicitly/EOF-closed one). ``attrs`` maps each attribute's name to the span
     covering its ``name="value"`` (the name alone for a valueless attribute), keyed by the same lowercased name
     :attr:`~turbohtml.Element.attrs` uses, first occurrence winning on a duplicate.
+
+    :param start_tag: the span of the element's start tag.
+    :param end_tag: the span of the element's end tag, or ``None`` when the source did not close it.
+    :param attrs: each attribute name mapped to the span of its whole ``name="value"``.
     """
 
     start_tag: SourceSpan
@@ -59,3 +68,9 @@ class SourceLocation(NamedTuple):
 
 
 _register_locations(SourceLocation, SourceSpan)
+
+
+__all__ = [
+    "SourceLocation",
+    "SourceSpan",
+]

@@ -14,15 +14,6 @@ if TYPE_CHECKING:
     )
 
 
-def _applicable(corpus: WptHtmlTreeCorpus) -> list[WptHtmlTreeCase]:
-    exclusions = {(item["file"], item["data"], item["context"], item["scripting"]) for item in corpus["exclusions"]}
-    return [
-        case
-        for case in corpus["cases"]
-        if (case["file"], case["data"], case["context"], case["scripting"]) not in exclusions
-    ]
-
-
 def test_wpt_corpus_provenance_and_denominators(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:
     assert {
         "source": wpt_html_tree_corpus["source"],
@@ -85,6 +76,23 @@ def test_wpt_tree(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:
     assert not failures, f"{len(failures)}/{len(cases)} tree mismatches: {failures[:5]!r}"
 
 
+def _applicable(corpus: WptHtmlTreeCorpus) -> list[WptHtmlTreeCase]:
+    exclusions = {(item["file"], item["data"], item["context"], item["scripting"]) for item in corpus["exclusions"]}
+    return [
+        case
+        for case in corpus["cases"]
+        if (case["file"], case["data"], case["context"], case["scripting"]) not in exclusions
+    ]
+
+
+def _tree(case: WptHtmlTreeInput | WptHtmlTreeExclusion) -> str:
+    if (context := case["context"]) is not None:
+        result = _html._parse_fragment(case["data"], context, bool(case["scripting"]))
+    else:
+        result = _html._parse_tree(case["data"], bool(case["scripting"]))
+    return result.rstrip("\n")
+
+
 def test_wpt_tree_count(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:
     cases = _applicable(wpt_html_tree_corpus)
     assert sum(_tree(case) == case["document"] for case in cases) == 1_916
@@ -102,27 +110,6 @@ def test_wpt_exact_document_errors(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> N
     assert not failures, f"{len(failures)}/{len(cases)} error mismatches: {failures[:5]!r}"
 
 
-def test_wpt_script_exclusion_without_javascript(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:
-    exclusions = wpt_html_tree_corpus["exclusions"]
-    failures = [exclusion for exclusion in exclusions if _tree(exclusion) != exclusion["document"]]
-    assert not failures, f"{len(failures)}/{len(exclusions)} unexpected matches: {failures!r}"
-
-
-def _tree(case: WptHtmlTreeInput | WptHtmlTreeExclusion) -> str:
-    if (context := case["context"]) is not None:
-        result = _html._parse_fragment(case["data"], context, bool(case["scripting"]))
-    else:
-        result = _html._parse_tree(case["data"], bool(case["scripting"]))
-    return result.rstrip("\n")
-
-
-def _errors(case: WptHtmlTreeInput) -> list[WptHtmlTreeError]:
-    return [
-        {"code": error.code, "line": error.line, "col": error.col + 1, "end_line": None, "end_col": None}
-        for error in parse(case["data"], scripting=bool(case["scripting"])).errors
-    ]
-
-
 def _errors_match(expected: list[WptHtmlTreeError], actual: list[WptHtmlTreeError]) -> bool:
     if len(expected) != len(actual):
         return False
@@ -137,3 +124,16 @@ def _errors_match(expected: list[WptHtmlTreeError], actual: list[WptHtmlTreeErro
         elif (end_col := wanted["end_col"]) is None or not start <= position <= (end_line, end_col):
             return False
     return True
+
+
+def _errors(case: WptHtmlTreeInput) -> list[WptHtmlTreeError]:
+    return [
+        {"code": error.code, "line": error.line, "col": error.col + 1, "end_line": None, "end_col": None}
+        for error in parse(case["data"], scripting=bool(case["scripting"])).errors
+    ]
+
+
+def test_wpt_script_exclusion_without_javascript(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:
+    exclusions = wpt_html_tree_corpus["exclusions"]
+    failures = [exclusion for exclusion in exclusions if _tree(exclusion) != exclusion["document"]]
+    assert not failures, f"{len(failures)}/{len(exclusions)} unexpected matches: {failures!r}"

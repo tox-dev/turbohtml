@@ -33,23 +33,20 @@ from zipfile import ZipFile
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-__all__ = ["BUILD_IMAGE", "RUN_IMAGE", "main"]
-
 # the v1 tags the google/clusterfuzzlite actions use, pinned so a retag cannot change what runs
-_IMAGES: Final = "gcr.io/oss-fuzz-base/clusterfuzzlite-"
-BUILD_IMAGE: Final = _IMAGES + "build-fuzzers@sha256:831044bb06844a77e6b435d6476da4917386119c83a76aa9c0c0b02b3d1a2bb5"
-RUN_IMAGE: Final = _IMAGES + "run-fuzzers@sha256:35b5e685193f1f920f6627dd8f0bd9009fbb338eab795254d48bd073b45235cf"
-_BUILD_CHECK: Final = "Build check: stdout:"
-_BUILD_CHECK_VERDICT: Final = re.compile(r"BAD BUILD: |\d{4}-\d\d-\d\d [\d:,]+ - \S+ - [A-Z]+ - ")
-_BUILD_LOG_LINES: Final = 200
+_IMAGES: Final[str] = "gcr.io/oss-fuzz-base/clusterfuzzlite-"
+BUILD_IMAGE: Final[str] = (
+    f"{_IMAGES}build-fuzzers@sha256:831044bb06844a77e6b435d6476da4917386119c83a76aa9c0c0b02b3d1a2bb5"
+)
+RUN_IMAGE: Final[str] = f"{_IMAGES}run-fuzzers@sha256:35b5e685193f1f920f6627dd8f0bd9009fbb338eab795254d48bd073b45235cf"
+_BUILD_CHECK_VERDICT: Final[re.Pattern[str]] = re.compile(r"BAD BUILD: |\d{4}-\d\d-\d\d [\d:,]+ - \S+ - [A-Z]+ - ")
 # a CIFuzz run uploads the corpus and its report after its own deadline, so it gets this much less than the time left
-_UPLOAD_SECONDS: Final = 120
-_TIMED_OUT: Final = 124
-_FUZZ_TARGET_MARKER: Final = b"LLVMFuzzerTestOneInput"
+_UPLOAD_SECONDS: Final[int] = 120
+_TIMED_OUT: Final[int] = 124
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Return the run's exit code: nonzero when the build breaks or a fuzzer crashes."""
+    # Return the run's exit code: nonzero when the build breaks or a fuzzer crashes.
     parser: Final = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--mode", choices=("code-change", "batch", "prune", "coverage"), required=True)
     parser.add_argument("--sanitizer", choices=("address", "undefined", "coverage"), required=True)
@@ -62,20 +59,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments: Final = parser.parse_args(argv)
     return _run(
         _Job(
-            arguments.mode,
-            arguments.sanitizer,
-            arguments.seconds,
-            arguments.source.resolve(),
-            arguments.workspace.resolve(),
-            arguments.base_commit,
-            arguments.upload_build,
-            arguments.jobs,
+            mode=arguments.mode,
+            sanitizer=arguments.sanitizer,
+            seconds=arguments.seconds,
+            source=arguments.source.resolve(),
+            workspace=arguments.workspace.resolve(),
+            base_commit=arguments.base_commit,
+            upload_build=arguments.upload_build,
+            jobs=arguments.jobs,
         )
     )
 
 
 def _run(job: _Job) -> int:
-    """Build, then fuzz, prune or measure; the filestore under workspace/storage keeps what the run produced."""
+    # Build, then fuzz, prune or measure; the filestore under workspace/storage keeps what the run produced.
     workspace: Final = job.workspace
     storage: Final = workspace / "storage"
     storage.mkdir(parents=True, exist_ok=True)
@@ -103,10 +100,14 @@ def _run(job: _Job) -> int:
         print(_public_build_log(build_log), file=sys.stderr)
     else:
         if job.mode in {"batch", "coverage"}:
-            _add_seeds(
-                workspace / "build-out",
-                workspace / "coverage-corpus" if job.mode == "coverage" else storage / "corpus",
-            )
+            build: Final = workspace / "build-out"
+            corpus: Final = workspace / "coverage-corpus" if job.mode == "coverage" else storage / "corpus"
+            for archive_path in sorted(build.glob("fuzz_*_seed_corpus.zip")):
+                target = corpus / archive_path.name.removesuffix("_seed_corpus.zip")
+                target.mkdir(parents=True, exist_ok=True)
+                with ZipFile(archive_path) as archive:
+                    for name in archive.namelist():
+                        (target / Path(name).name).write_bytes(archive.read(name))
         run_environment: Final = {**environment, "MODE": job.mode, "OUTPUT_SARIF": "True"}
         if job.mode in {"prune", "coverage"}:
             status.update(_run_targets(job, run_environment))
@@ -117,7 +118,21 @@ def _run(job: _Job) -> int:
                 (workspace, job.source),
                 logs / f"{job.mode}-{job.sanitizer}.log",
             )
-    print(json.dumps({"status": status, "crashes": _crashes(workspace)}, indent=2, sort_keys=True))
+    # the hash names a crash for triage without exposing the input, as fuzz.py logs its crashers. CIFuzz saves each
+    # input as out/artifacts/<target>/<sanitizer>/<input> next to an <input>.summary stack trace (_target_artifact_path
+    # and _save_crash in infra/cifuzz/fuzz_target.py, google/oss-fuzz@868bfcbd1db0c8eb4dc6029598c90705d6c88e74)
+    # and the per-target runs of pruning and coverage keep theirs under targets/<target>/
+    crashes: Final = [
+        {
+            "fuzzer": path.relative_to(artifacts).parts[0],
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "bytes": path.stat().st_size,
+        }
+        for artifacts in (run / "out" / "artifacts" for run in (workspace, *sorted((workspace / "targets").glob("*"))))
+        for path in sorted(artifacts.rglob("*"))
+        if path.is_file() and path.suffix != ".summary"
+    ]
+    print(json.dumps({"status": status, "crashes": crashes}, indent=2, sort_keys=True))
     return max(status.values())
 
 
@@ -146,7 +161,12 @@ def _run_targets(job: _Job, environment: dict[str, str]) -> dict[str, int]:
 def _is_fuzz_target(path: Path) -> bool:
     # CIFuzz's own test (is_fuzz_target_local in infra/utils.py): an executable file with no extension that names the
     # libFuzzer entry point; llvm-symbolizer is executable but carries no such name
-    return path.is_file() and not path.suffix and os.access(path, os.X_OK) and _FUZZ_TARGET_MARKER in path.read_bytes()
+    return (
+        path.is_file()
+        and not path.suffix
+        and os.access(path, os.X_OK)
+        and b"LLVMFuzzerTestOneInput" in path.read_bytes()
+    )
 
 
 def _run_target(job: _Job, environment: dict[str, str], target: Path, others: frozenset[str], deadline: float) -> int:
@@ -201,15 +221,6 @@ def _run_target(job: _Job, environment: dict[str, str], target: Path, others: fr
     return code
 
 
-def _add_seeds(build: Path, corpus: Path) -> None:
-    for archive_path in sorted(build.glob("fuzz_*_seed_corpus.zip")):
-        target = corpus / archive_path.name.removesuffix("_seed_corpus.zip")
-        target.mkdir(parents=True, exist_ok=True)
-        with ZipFile(archive_path) as archive:
-            for name in archive.namelist():
-                (target / Path(name).name).write_bytes(archive.read(name))
-
-
 def _docker(
     image: str, environment: dict[str, str], mounts: Sequence[Path], log: Path, seconds: int | None = None
 ) -> int:
@@ -244,32 +255,14 @@ def _public_build_log(log: Path) -> str:
     # docker build, pip, meson and compiler output name files and flags, never a fuzz input, so a failed build can show
     # its log on the public console; the bad build check then runs each fuzzer on its first inputs and prints the run
     # of one that dies, so from there on only the verdict lines and CIFuzz's own log lines stay
-    build, _, check = log.read_text(encoding="utf-8", errors="replace").partition(_BUILD_CHECK)
+    build, _, check = log.read_text(encoding="utf-8", errors="replace").partition("Build check: stdout:")
     lines: Final = build.splitlines() + [line for line in check.splitlines() if _BUILD_CHECK_VERDICT.match(line)]
-    return "\n".join(lines[-_BUILD_LOG_LINES:])
+    return "\n".join(lines[-200:])
 
 
-def _crashes(workspace: Path) -> list[dict[str, str | int]]:
-    # the hash names a crash for triage without exposing the input, as fuzz.py logs its crashers. CIFuzz saves each
-    # input as out/artifacts/<target>/<sanitizer>/<input> next to an <input>.summary stack trace (_target_artifact_path
-    # and _save_crash in infra/cifuzz/fuzz_target.py, google/oss-fuzz@868bfcbd1db0c8eb4dc6029598c90705d6c88e74)
-    # and the per-target runs of pruning and coverage keep theirs under targets/<target>/
-    return [
-        {
-            "fuzzer": path.relative_to(artifacts).parts[0],
-            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "bytes": path.stat().st_size,
-        }
-        for artifacts in (run / "out" / "artifacts" for run in (workspace, *sorted((workspace / "targets").glob("*"))))
-        for path in sorted(artifacts.rglob("*"))
-        if path.is_file() and path.suffix != ".summary"
-    ]
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class _Job:
-    """One ClusterFuzzLite run: what it does, for how long, over which checkout, into which workspace."""
-
+    # One ClusterFuzzLite run: what it does, for how long, over which checkout, into which workspace.
     mode: str
     sanitizer: str
     seconds: int
@@ -278,6 +271,13 @@ class _Job:
     base_commit: str | None
     upload_build: bool
     jobs: int
+
+
+__all__ = [
+    "BUILD_IMAGE",
+    "RUN_IMAGE",
+    "main",
+]
 
 
 if __name__ == "__main__":

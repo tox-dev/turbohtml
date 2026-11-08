@@ -9,36 +9,39 @@ Benchmarked only in a venv of its own: hyperpython pins ``markupsafe<2``, older 
 from __future__ import annotations
 
 import functools
+from typing import TYPE_CHECKING, Final
 
 from hyperpython import li, ul  # ty: ignore[import-not-found]  # undeclared: pins an older markupsafe
 
-REQUIREMENTS = ("hyperpython>=1.1.1", "sidekick<0.7")
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("hyperpython>=1.1.1", "sidekick<0.7")
 
 
 def build_e(count: int) -> None:
-    """Build a ``<ul>`` of rows with hyperpython's subscript-children syntax and stringify it."""
-    rows = [li(class_="item", data_i=str(index))[f"item {index}"] for index in range(count)]
-    _ = str(ul(rows))
+    # Build a ``<ul>`` of rows with hyperpython's subscript-children syntax and stringify it.
+    _ = str(ul([li(class_="item", data_i=str(index))[f"item {index}"] for index in range(count)]))
 
 
 def construct(count: int) -> None:
-    """Construct ``count`` hyperpython elements with attributes and children, in isolation from stringification."""
+    # Construct ``count`` hyperpython elements with attributes and children, in isolation from stringification.
     for index in range(count):
         li(class_="item", data_i=str(index))[f"item {index}"]
 
 
 @functools.cache
-def _tree(count: int) -> object:
-    """Return a built ``<ul>`` of ``count`` rows, cached so ``str`` times only the emit step."""
+def _tree(count: int) -> object:  # simplint: ignore[SMP602]  # hyperpython is untyped to ty, see the import
+    # Return a built ``<ul>`` of ``count`` rows, cached so ``str`` times only the emit step.
     return ul([li(class_="item", data_i=str(index))[f"item {index}"] for index in range(count)])
 
 
 def emit(count: int) -> None:
-    """Stringify a pre-built ``count``-row tree, in isolation from construction."""
+    # Stringify a pre-built ``count``-row tree, in isolation from construction.
     _ = str(_tree(count))
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "build-e": (build_e, "hyperpython"),
     "construct": (construct, "hyperpython"),
     "emit": (emit, "hyperpython"),

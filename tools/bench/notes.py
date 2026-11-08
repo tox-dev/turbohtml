@@ -14,16 +14,16 @@ from __future__ import annotations
 
 from typing import Final
 
-_STRIPPER_JS: Final = (
+_STRIPPER_JS: Final[str] = (
     "strips whitespace and comments without parsing the source, so it performs none of the renaming or structural "
     "compression the parsed minifiers do: on jQuery it emits 141.1 kB where turbohtml emits 87.8 kB"
 )
-_STRIPPER_CSS: Final = (
+_STRIPPER_CSS: Final[str] = (
     "strips whitespace and comments without parsing, so it applies none of the color, number, and shorthand rewrites "
     "turbohtml does; on these stylesheets that leaves its output within 1.01-1.03x of turbohtml's, and 0.998x on "
     "bulma, so the structural shortenings change little on already-tight framework CSS"
 )
-_BUILDER: Final = (
+_BUILDER: Final[str] = (
     "concatenates a string rather than constructing a navigable tree, so nothing it builds can afterwards be queried "
     "or mutated"
 )
@@ -236,4 +236,6 @@ NOTES.update({
     for operation in ("minify-css-merges", "minify-css-conflicts")
 })
 
-__all__ = ["NOTES"]
+__all__ = [
+    "NOTES",
+]

@@ -12,11 +12,9 @@ if TYPE_CHECKING:
 
     from .atheris_header import Header
 
-__all__ = ["Target", "validate_owners"]
-
 
 def validate_owners(targets: Sequence[Target], modules: Iterable[str]) -> dict[str, Target]:
-    """Fail before fuzzing when a public export has no declared executable owner."""
+    # Fail before fuzzing when a public export has no declared executable owner.
     owners: Final = {export: target for target in targets for export in target.exports}
     duplicates: Final = sorted(
         export
@@ -41,10 +39,9 @@ def validate_owners(targets: Sequence[Target], modules: Iterable[str]) -> dict[s
     return owners
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Target:
-    """One callback owns the public contracts it exercises per input."""
-
+    # One callback owns the public contracts it exercises per input.
     name: str
     callback: Callable[[bytes], None]
     exports: tuple[str, ...]
@@ -53,8 +50,14 @@ class Target:
     lossy_on_allocation_failure: bool = False
 
     def run(self, payload: bytes, header: Header) -> None:
-        """Feed a target with an incremental API in the header's chunks instead of one piece."""
+        # Feed a target with an incremental API in the header's chunks instead of one piece.
         if self.chunked is None:
             self.callback(payload)
         else:
             self.chunked(payload, header)
+
+
+__all__ = [
+    "Target",
+    "validate_owners",
+]

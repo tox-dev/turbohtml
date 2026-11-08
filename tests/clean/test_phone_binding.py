@@ -6,6 +6,7 @@ import sys
 import weakref
 from collections import deque
 from itertools import starmap
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Final, TypedDict, cast
 
 import pytest
@@ -36,19 +37,34 @@ from turbohtml.clean import (
 from turbohtml.clean._linkify import _PHONE_TYPES
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
 
     from turbohtml._html import _PhoneConfig, _PhoneSpec
 
 
-_SPEC: Final = cast(
+_SPEC: Final[
+    tuple[
+        tuple[str, ...],
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        int,
+        frozenset[PhoneType] | None,
+        tuple[str, ...],
+        type[PhoneNumber],
+        tuple[PhoneType, ...],
+        bool,
+    ]
+] = cast(
     "_PhoneSpec",
     (("US",), True, False, True, True, False, 0, None, ("order", "ref"), PhoneNumber, _PHONE_TYPES, False),
 )
 
 
 def _spec(**overrides: object) -> _PhoneSpec:
-    """Overrides stay unvalidated, so the binding's own checks are what a test exercises."""
+    # Overrides stay unvalidated, so the binding's own checks are what a test exercises.
     return cast(
         "_PhoneSpec",
         tuple(
@@ -84,6 +100,23 @@ def test_compile_returns_an_unconstructible_config() -> None:
         type(config)()
 
 
+_SpecItem = tuple[str, ...] | bool | int | frozenset[PhoneType] | type[PhoneNumber] | tuple[PhoneType, ...] | None
+_Override = (
+    bool
+    | int
+    | str
+    | None
+    | type
+    | SimpleNamespace
+    | frozenset[PhoneType]
+    | frozenset[str]
+    | list[str]
+    | list[PhoneType]
+    | tuple[str | int, ...]
+    | tuple[PhoneType, ...]
+)
+
+
 @pytest.mark.parametrize(
     "spec",
     [
@@ -93,9 +126,9 @@ def test_compile_returns_an_unconstructible_config() -> None:
         pytest.param(None, id="none"),
     ],
 )
-def test_compile_rejects_malformed_specs(spec: object) -> None:
+def test_compile_rejects_malformed_specs(spec: list[_SpecItem] | tuple[_SpecItem, ...] | None) -> None:
     with pytest.raises(TypeError, match="tuple of 12 items"):
-        _phone_config_compile(spec)  # ty: ignore[invalid-argument-type]
+        _phone_config_compile(spec)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 @pytest.mark.parametrize(
@@ -173,7 +206,7 @@ def test_compile_accepts_every_type_in_possible_mode(wanted: frozenset[PhoneType
         pytest.param({"labels": ("ref", "order")}, ValueError, "sorted and distinct", id="unsorted-labels"),
         pytest.param({"labels": ("ref", "ref")}, ValueError, "sorted and distinct", id="repeated-label"),
         pytest.param({"labels": ("ref", 1)}, TypeError, "labels must be str", id="int-label"),
-        pytest.param({"number_type": object()}, TypeError, "must be a class", id="number-type-instance"),
+        pytest.param({"number_type": SimpleNamespace()}, TypeError, "must be a class", id="number-type-instance"),
         pytest.param({"number_type": int}, AttributeError, "_from_native", id="number-type-without-factory"),
         pytest.param(
             {"number_type": type("Odd", (), {"_from_native": 3})}, TypeError, "callable", id="factory-not-callable"
@@ -183,7 +216,7 @@ def test_compile_accepts_every_type_in_possible_mode(wanted: frozenset[PhoneType
     ],
 )
 def test_compile_rejects_each_malformed_field(
-    overrides: dict[str, object], error: type[Exception], message: str
+    overrides: dict[str, _Override], error: type[Exception], message: str
 ) -> None:
     with pytest.raises(error, match=message):
         _phone_config_compile(_spec(**overrides))
@@ -195,7 +228,7 @@ def test_compile_accepts_the_bounds() -> None:
             _spec(
                 regions=("US", "GB", "DE", "FR", "IT", "ES", "NL", "BE"),
                 labels=tuple(
-                    "l" + "".join("abcdefghij"[int(digit)] for digit in f"{index:03d}") for index in range(256)
+                    f"l{''.join('abcdefghij'[int(digit)] for digit in f'{index:03d}')}" for index in range(256)
                 ),
                 type_mask=frozenset({PhoneType.FIXED_LINE}),
             )
@@ -205,8 +238,7 @@ def test_compile_accepts_the_bounds() -> None:
 
 
 def test_phone_parse_handles_a_native_candidate() -> None:
-    config = _phone_config_compile(_SPEC)
-    found = _phone_parse(config, "Call 650-253-0000")
+    found = _phone_parse(_phone_config_compile(_SPEC), "Call 650-253-0000")
     assert found is not None
     assert (found.country_code, found.national_number, found.region, found.type) == (
         1,
@@ -216,7 +248,7 @@ def test_phone_parse_handles_a_native_candidate() -> None:
     )
 
 
-_NEEDS_GC_COLLECT: Final = pytest.mark.skipif(
+_NEEDS_GC_COLLECT: Final[pytest.MarkDecorator] = pytest.mark.skipif(
     sys.implementation.name == "pypy", reason="PyPy frees a cycle on its own schedule, not on gc.collect()"
 )
 
@@ -246,13 +278,19 @@ def test_config_cycle_through_a_class_attribute_is_collectable() -> None:
         class Holder(PhoneNumber):
             __slots__ = ()
 
-        Holder.config = _phone_config_compile(_spec(number_type=Holder))  # ty: ignore[unresolved-attribute]
+        Holder.config = _phone_config_compile(_spec(number_type=Holder))  # ty: ignore[unresolved-attribute]  # adds the cycle through a class attribute the type checker cannot resolve
         return weakref.ref(Holder)
 
     class_ref = build()
     assert class_ref() is not None
     gc.collect()
     assert class_ref() is None
+
+
+def test_factory_exception_propagates_from_find() -> None:
+    config = _phone_config_compile(_spec(number_type=_Raising))
+    with pytest.raises(RuntimeError, match="refused 1"):
+        _linkify_find("650-253-0000", False, False, (), (), ("http",), config, False)  # ruff:ignore[boolean-positional-value-in-call]  # positional booleans pass the private helper's real signature
 
 
 class _Raising(PhoneNumber):
@@ -264,6 +302,12 @@ class _Raising(PhoneNumber):
         raise RuntimeError(msg)
 
 
+def test_factory_returning_another_type_is_a_type_error() -> None:
+    config = _phone_config_compile(_spec(number_type=_Foreign))
+    with pytest.raises(TypeError, match="_from_native must return"):
+        _linkify_find("650-253-0000", False, False, (), (), ("http",), config, False)  # ruff:ignore[boolean-positional-value-in-call]  # positional booleans pass the private helper's real signature
+
+
 class _Foreign(PhoneNumber):
     __slots__ = ()
 
@@ -272,51 +316,46 @@ class _Foreign(PhoneNumber):
         return object()  # ty: ignore[invalid-return-type]  # the wrong type is the point
 
 
-def test_factory_exception_propagates_from_find() -> None:
-    config = _phone_config_compile(_spec(number_type=_Raising))
-    with pytest.raises(RuntimeError, match="refused 1"):
-        _linkify_find("650-253-0000", False, False, (), (), ("http",), config, False)  # ruff:ignore[boolean-positional-value-in-call]
-
-
-def test_factory_returning_another_type_is_a_type_error() -> None:
-    config = _phone_config_compile(_spec(number_type=_Foreign))
-    with pytest.raises(TypeError, match="_from_native must return"):
-        _linkify_find("650-253-0000", False, False, (), (), ("http",), config, False)  # ruff:ignore[boolean-positional-value-in-call]
-
-
 def test_factory_exception_propagates_from_apply() -> None:
     config = _phone_config_compile(_spec(number_type=_Raising))
     with pytest.raises(RuntimeError, match="refused 1"):
-        _linkify_apply(parse_fragment("call 650-253-0000"), (), False, (), ("http",), False, (), LinkCandidate, config)  # ruff:ignore[boolean-positional-value-in-call]
+        _linkify_apply(parse_fragment("call 650-253-0000"), (), False, (), ("http",), False, (), LinkCandidate, config)  # ruff:ignore[boolean-positional-value-in-call]  # positional booleans pass the private helper's real signature
 
 
 def test_has_never_calls_the_factory() -> None:
     config = _phone_config_compile(_spec(number_type=_Raising))
-    assert _linkify_has("650-253-0000", False, False, (), (), ("http",), config) is True  # ruff:ignore[boolean-positional-value-in-call]
+    assert _linkify_has("650-253-0000", False, False, (), (), ("http",), config) is True  # ruff:ignore[boolean-positional-value-in-call]  # positional booleans pass the private helper's real signature
 
 
 @pytest.mark.parametrize(
-    "phones", [pytest.param((), id="tuple"), pytest.param(1, id="int"), pytest.param(object(), id="object")]
+    "phones",
+    [pytest.param((), id="tuple"), pytest.param(1, id="int"), pytest.param(SimpleNamespace(), id="object")],
 )
-def test_entry_points_reject_a_foreign_config(phones: object) -> None:
+def test_entry_points_reject_a_foreign_config(phones: tuple[()] | int | SimpleNamespace) -> None:
     with pytest.raises(TypeError, match="_PhoneConfig or None"):
-        _linkify_find("x", False, False, (), (), ("http",), phones, False)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]
+        _linkify_find("x", False, False, (), (), ("http",), phones, False)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional booleans pass the private helper's real signature
     with pytest.raises(TypeError, match="_PhoneConfig or None"):
-        _linkify_has("x", False, False, (), (), ("http",), phones)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]
+        _linkify_has("x", False, False, (), (), ("http",), phones)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional booleans pass the private helper's real signature
     with pytest.raises(TypeError, match="_PhoneConfig or None"):
-        _linkify_apply(parse_fragment("x"), (), False, (), ("http",), False, (), LinkCandidate, phones)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]
+        _linkify_apply(parse_fragment("x"), (), False, (), ("http",), False, (), LinkCandidate, phones)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional booleans pass the private helper's real signature
 
 
 def test_entry_points_accept_none() -> None:
-    assert _linkify_find("650-253-0000", False, False, (), (), ("http",), None, False) == []  # ruff:ignore[boolean-positional-value-in-call]
-    assert _linkify_has("650-253-0000", False, False, (), (), ("http",), None) is False  # ruff:ignore[boolean-positional-value-in-call]
+    assert _linkify_find("650-253-0000", False, False, (), (), ("http",), None, False) == []  # ruff:ignore[boolean-positional-value-in-call]  # positional booleans pass the private helper's real signature
+    assert _linkify_has("650-253-0000", False, False, (), (), ("http",), None) is False  # ruff:ignore[boolean-positional-value-in-call]  # positional booleans pass the private helper's real signature
 
 
 def test_entry_points_need_the_phones_argument() -> None:
     with pytest.raises(TypeError):
-        _linkify_find("x", False, False, (), (), ("http",))  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[missing-argument]
+        _linkify_find("x", False, False, (), (), ("http",))  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[missing-argument]  # positional booleans pass the private helper's real signature
     with pytest.raises(TypeError):
-        _linkify_has("x", False, False, (), (), ("http",))  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[missing-argument]
+        _linkify_has("x", False, False, (), (), ("http",))  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[missing-argument]  # positional booleans pass the private helper's real signature
+
+
+def test_apply_reports_a_candidate_type_without_a_phone_slot() -> None:
+    root = parse_fragment("call 650-253-0000")
+    with pytest.raises(AttributeError, match="phone"):
+        _linkify_apply(root, (), False, (), ("http",), False, (), _NoPhoneSlot, _phone_config_compile(_SPEC))  # ruff:ignore[boolean-positional-value-in-call]  # positional booleans pass the private helper's real signature
 
 
 class _NoPhoneSlot:
@@ -329,6 +368,12 @@ class _NoPhoneSlot:
         self.existing = False
 
 
+def test_apply_reports_a_candidate_type_without_an_existing_slot() -> None:
+    root = parse_fragment('<a href="/x">link</a>')
+    with pytest.raises(AttributeError, match="existing"):
+        _linkify_apply(root, (), False, (), ("http",), True, (), _NoExistingSlot, None)  # ruff:ignore[boolean-positional-value-in-call]  # positional booleans pass the private helper's real signature
+
+
 class _NoExistingSlot:
     __slots__ = ("attrs", "phone", "text", "url")
 
@@ -339,31 +384,19 @@ class _NoExistingSlot:
         self.phone = None
 
 
+def test_apply_propagates_a_refusing_candidate_constructor() -> None:
+    with pytest.raises(RuntimeError, match=r"no candidate for http://example\.com"):
+        _linkify_apply(parse_fragment("see example.com"), (), False, (), ("http",), False, (), _Refusing, None)  # ruff:ignore[boolean-positional-value-in-call]  # positional booleans pass the private helper's real signature
+
+
 class _Refusing:
     def __init__(self, url: str, *_fields: object) -> None:
         msg = f"no candidate for {url}"
         raise RuntimeError(msg)
 
 
-def test_apply_reports_a_candidate_type_without_a_phone_slot() -> None:
-    root = parse_fragment("call 650-253-0000")
-    with pytest.raises(AttributeError, match="phone"):
-        _linkify_apply(root, (), False, (), ("http",), False, (), _NoPhoneSlot, _phone_config_compile(_SPEC))  # ruff:ignore[boolean-positional-value-in-call]
-
-
-def test_apply_reports_a_candidate_type_without_an_existing_slot() -> None:
-    root = parse_fragment('<a href="/x">link</a>')
-    with pytest.raises(AttributeError, match="existing"):
-        _linkify_apply(root, (), False, (), ("http",), True, (), _NoExistingSlot, None)  # ruff:ignore[boolean-positional-value-in-call]
-
-
-def test_apply_propagates_a_refusing_candidate_constructor() -> None:
-    with pytest.raises(RuntimeError, match=r"no candidate for http://example\.com"):
-        _linkify_apply(parse_fragment("see example.com"), (), False, (), ("http",), False, (), _Refusing, None)  # ruff:ignore[boolean-positional-value-in-call]
-
-
 def test_find_span_shape_for_a_phone() -> None:
-    spans = _linkify_find("call 650-253-0000 x12", False, False, (), (), ("http",), _phone_config_compile(_SPEC), False)  # ruff:ignore[boolean-positional-value-in-call]
+    spans = _linkify_find("call 650-253-0000 x12", False, False, (), (), ("http",), _phone_config_compile(_SPEC), False)  # ruff:ignore[boolean-positional-value-in-call]  # positional booleans pass the private helper's real signature
     assert spans == [
         (
             5,
@@ -392,7 +425,7 @@ def test_find_span_shape_for_a_phone() -> None:
         pytest.param((1, "6502530000", "US", "10"), id="str-type"),
     ],
 )
-def test_number_check_argument_types(args: tuple[object, ...]) -> None:
+def test_number_check_argument_types(args: tuple[int | float | str | bytes, ...]) -> None:
     with pytest.raises(TypeError):
         _phone_number_check(*args)  # ty: ignore[invalid-argument-type]  # the wrong types are the point
 
@@ -408,7 +441,7 @@ def test_number_check_argument_types(args: tuple[object, ...]) -> None:
         pytest.param((2**70, "6502530000", "US", 10), "between 1 and 999", id="huge-code"),
     ],
 )
-def test_number_check_value_errors(args: tuple[object, ...], message: str) -> None:
+def test_number_check_value_errors(args: tuple[int | str, ...], message: str) -> None:
     with pytest.raises(ValueError, match=message):
         _phone_number_check(*args)  # ty: ignore[invalid-argument-type]  # the wrong types are the point
 
@@ -434,7 +467,9 @@ def test_number_check_accepts_a_produced_value() -> None:
         pytest.param((1, "6502530000", "\udc80", 1), UnicodeEncodeError, "surrogates", id="extension-surrogate"),
     ],
 )
-def test_number_format_rejects_bad_arguments(args: tuple[object, ...], error: type[Exception], message: str) -> None:
+def test_number_format_rejects_bad_arguments(
+    args: tuple[int | str | None, ...], error: type[Exception], message: str
+) -> None:
     with pytest.raises(error, match=message):
         _phone_number_format(*args)  # ty: ignore[invalid-argument-type]  # the wrong types are the point
 
@@ -450,7 +485,9 @@ def test_number_format_rejects_bad_arguments(args: tuple[object, ...], error: ty
         pytest.param((1, "1234", "5", 3), "tel:+1-1234;ext=5", id="rfc3966-keeps-the-extension"),
     ],
 )
-def test_number_format_falls_back_to_the_bare_national_number(args: tuple[object, ...], expected: str) -> None:
+def test_number_format_falls_back_to_the_bare_national_number(
+    args: tuple[int | str | None, ...], expected: str
+) -> None:
     assert _phone_number_format(*args) == expected  # ty: ignore[invalid-argument-type]  # a mixed tuple of the row
 
 
@@ -463,7 +500,9 @@ def test_number_format_writes_each_style() -> None:
     ]
 
 
-_CONFIG: Final = object()  # stands for the compiled configuration in a parametrized argument list
+_CONFIG: Final[SimpleNamespace] = (
+    SimpleNamespace()
+)  # stands for the compiled configuration in a parametrized argument list
 
 
 @pytest.mark.parametrize(
@@ -474,37 +513,28 @@ _CONFIG: Final = object()  # stands for the compiled configuration in a parametr
         pytest.param((_CONFIG, b"650-253-0000"), "text must be str", id="text-bytes"),
     ],
 )
-def test_parse_rejects_bad_arguments(args: tuple[object, ...], message: str) -> None:
+def test_parse_rejects_bad_arguments(args: tuple[SimpleNamespace | str | bytes | None, ...], message: str) -> None:
     with pytest.raises(TypeError, match=message):
         _phone_parse(*(_phone_config_compile(_SPEC) if item is _CONFIG else item for item in args))  # ty: ignore[invalid-argument-type]  # the wrong shapes are the point
 
 
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        pytest.param("no digits here", None, id="none"),
-        pytest.param("650-253-0000", "+16502530000", id="number"),
-    ],
-)
-def test_parse_returns_the_number_or_none(text: str, expected: str | None) -> None:
-    number = _phone_parse(_phone_config_compile(_SPEC), text)
-    assert (None if number is None else number.international_number) == expected
+def test_parse_returns_none_without_digits() -> None:
+    assert _phone_parse(_phone_config_compile(_SPEC), "no digits here") is None
+
+
+def test_parse_returns_the_international_number() -> None:
+    number = _phone_parse(_phone_config_compile(_SPEC), "650-253-0000")
+    assert number is not None
+    assert number.international_number == "+16502530000"
 
 
 class _Codes:
-    """A caller's own iterable: neither a sequence nor a set."""
-
+    # A caller's own iterable: neither a sequence nor a set.
     def __init__(self, *codes: str) -> None:
         self._codes = codes
 
     def __iter__(self) -> Iterator[str]:
         yield from self._codes
-
-
-def _failing_codes() -> Iterator[str]:
-    yield "US"
-    msg = "boom"
-    raise RuntimeError(msg)
 
 
 def test_defaults() -> None:
@@ -535,7 +565,9 @@ def test_defaults() -> None:
         pytest.param({"ignore_numbers_after": ("\udc80",)}, UnicodeEncodeError, "surrogates", id="surrogate-label"),
     ],
 )
-def test_settings_rejections(settings: dict[str, object], error: type[Exception], message: str) -> None:
+def test_settings_rejections(
+    settings: dict[str, str | bool | PhoneGrouping | tuple[str, ...]], error: type[Exception], message: str
+) -> None:
     with pytest.raises(error, match=message):
         PhoneNumbers(**settings)  # ty: ignore[invalid-argument-type]  # the wrong values are the point
 
@@ -556,8 +588,8 @@ def test_default_labels_are_sorted_lowercase_ascii() -> None:
         pytest.param([], (), id="empty"),
     ],
 )
-def test_regions_normalize_in_order(regions: object, expected: tuple[str, ...]) -> None:
-    assert PhoneNumbers(regions=regions).regions == expected  # ty: ignore[invalid-argument-type]
+def test_regions_normalize_in_order(regions: Iterable[str], expected: tuple[str, ...]) -> None:
+    assert PhoneNumbers(regions=regions).regions == expected
 
 
 @pytest.mark.parametrize(
@@ -572,14 +604,22 @@ def test_regions_normalize_in_order(regions: object, expected: tuple[str, ...]) 
         pytest.param(["US", None], id="none-entry"),
     ],
 )
-def test_regions_reject_unordered_or_non_str(regions: object) -> None:
+def test_regions_reject_unordered_or_non_str(
+    regions: str | bytes | set[str] | frozenset[str] | dict[str, int] | list[int] | list[str | None],
+) -> None:
     with pytest.raises(TypeError, match="regions"):
-        PhoneNumbers(regions=regions)  # ty: ignore[invalid-argument-type]
+        PhoneNumbers(regions=regions)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_regions_generator_failure_propagates() -> None:
     with pytest.raises(RuntimeError, match="boom"):
         PhoneNumbers(regions=_failing_codes())
+
+
+def _failing_codes() -> Iterator[str]:
+    yield "US"
+    msg = "boom"
+    raise RuntimeError(msg)
 
 
 @pytest.mark.parametrize(
@@ -615,9 +655,9 @@ def test_regions_reject_unknown_codes(regions: tuple[str, ...], message: str) ->
 @pytest.mark.parametrize(
     "value", [pytest.param(1, id="int"), pytest.param("yes", id="str"), pytest.param(None, id="none")]
 )
-def test_flags_must_be_bool(name: str, value: object) -> None:
+def test_flags_must_be_bool(name: str, value: int | str | None) -> None:
     with pytest.raises(TypeError, match=name):
-        PhoneNumbers(**{name: value})  # ty: ignore[invalid-argument-type]
+        PhoneNumbers(**{name: value})  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 @pytest.mark.parametrize(
@@ -632,8 +672,8 @@ def test_flags_must_be_bool(name: str, value: object) -> None:
         pytest.param(None, None, id="all"),
     ],
 )
-def test_types_freeze(types: object, expected: frozenset[PhoneType] | None) -> None:
-    assert PhoneNumbers(types=types).types == expected  # ty: ignore[invalid-argument-type]
+def test_types_freeze(types: Iterable[PhoneType] | None, expected: frozenset[PhoneType] | None) -> None:
+    assert PhoneNumbers(types=types).types == expected
 
 
 @pytest.mark.parametrize(
@@ -646,9 +686,14 @@ def test_types_freeze(types: object, expected: frozenset[PhoneType] | None) -> N
         pytest.param([PhoneType.MOBILE], False, ValueError, "require_valid", id="possible-mode"),
     ],
 )
-def test_types_rejections(types: object, require_valid: bool, error: type[Exception], message: str) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a parametrize value
+def test_types_rejections(
+    types: tuple[()] | list[str | bool | PhoneType],
+    require_valid: bool,  # ruff:ignore[boolean-type-hint-positional-argument]  # a parametrize value
+    error: type[Exception],
+    message: str,
+) -> None:
     with pytest.raises(error, match=message):
-        PhoneNumbers(types=types, require_valid=require_valid)  # ty: ignore[invalid-argument-type]
+        PhoneNumbers(types=types, require_valid=require_valid)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 @pytest.mark.parametrize(
@@ -661,8 +706,8 @@ def test_types_rejections(types: object, require_valid: bool, error: type[Except
         pytest.param((word for word in ("b", "a")), ("a", "b"), id="generator"),
     ],
 )
-def test_labels_normalize(labels: object, expected: tuple[str, ...]) -> None:
-    assert PhoneNumbers(ignore_numbers_after=labels).ignore_numbers_after == expected  # ty: ignore[invalid-argument-type]
+def test_labels_normalize(labels: Iterable[str], expected: tuple[str, ...]) -> None:
+    assert PhoneNumbers(ignore_numbers_after=labels).ignore_numbers_after == expected
 
 
 @pytest.mark.parametrize(
@@ -680,9 +725,11 @@ def test_labels_normalize(labels: object, expected: tuple[str, ...]) -> None:
         pytest.param(["ünit"], ValueError, "phone label", id="non-ascii"),
     ],
 )
-def test_labels_rejections(labels: object, error: type[Exception], message: str) -> None:
+def test_labels_rejections(
+    labels: str | set[str] | list[int] | int | list[str], error: type[Exception], message: str
+) -> None:
     with pytest.raises(error, match=message):
-        PhoneNumbers(ignore_numbers_after=labels)  # ty: ignore[invalid-argument-type]
+        PhoneNumbers(ignore_numbers_after=labels)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 def test_labels_generator_failure_propagates() -> None:
@@ -699,7 +746,7 @@ def test_equality_and_repr_use_the_canonical_form() -> None:
 
 def test_value_is_frozen() -> None:
     with pytest.raises(dataclasses.FrozenInstanceError):
-        PhoneNumbers().regions = ("US",)  # ty: ignore[invalid-assignment]
+        PhoneNumbers().regions = ("US",)  # ty: ignore[invalid-assignment]  # assigns a value the type forbids on purpose to check the rejection
 
 
 def test_value_is_hashable() -> None:
@@ -709,20 +756,20 @@ def test_value_is_hashable() -> None:
 @pytest.mark.parametrize(
     "phones",
     [
-        pytest.param(object(), id="object"),
+        pytest.param(SimpleNamespace(), id="object"),
         pytest.param({}, id="dict"),
         pytest.param("US", id="str"),
         pytest.param(True, id="bool"),
     ],
 )
-def test_consumers_reject_non_phone_numbers(phones: object) -> None:
+def test_consumers_reject_non_phone_numbers(phones: SimpleNamespace | dict[str, str] | str | int) -> None:
     message = "phones must be PhoneNumbers or None"
     with pytest.raises(TypeError, match=message):
-        Linker(Linkify(phones=phones))  # ty: ignore[invalid-argument-type]
+        Linker(Linkify(phones=phones))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
     with pytest.raises(TypeError, match=message):
-        LinkDetector(phones=phones)  # ty: ignore[invalid-argument-type]
+        LinkDetector(phones=phones)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
     with pytest.raises(TypeError, match=message):
-        linkify("650-253-0000", Linkify(phones=phones))  # ty: ignore[invalid-argument-type]
+        linkify("650-253-0000", Linkify(phones=phones))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
 @pytest.mark.parametrize(
@@ -744,10 +791,6 @@ class _Settings(TypedDict, total=False):
     skip_card_numbers: bool
     types: set[PhoneType] | None
     ignore_numbers_after: tuple[str, ...]
-
-
-def _spans(text: str, settings: _Settings) -> list[str]:
-    return [span.url for span in LinkDetector(phones=PhoneNumbers(regions=("US",), **settings)).find(text)]
 
 
 @pytest.mark.parametrize(
@@ -774,7 +817,7 @@ def _spans(text: str, settings: _Settings) -> list[str]:
     ],
 )
 def test_controls_change_detection(text: str, kwargs: _Settings, expected: list[str]) -> None:
-    assert _spans(text, kwargs) == expected
+    assert [span.url for span in LinkDetector(phones=PhoneNumbers(regions=("US",), **kwargs)).find(text)] == expected
 
 
 @pytest.mark.parametrize(
@@ -784,7 +827,7 @@ def test_controls_change_detection(text: str, kwargs: _Settings, expected: list[
         pytest.param(False, ["tel:+494111", "tel:+49111111111111"], id="kept-as-the-oracle-splits-them"),
     ],
 )
-def test_skip_card_numbers(skip: bool, expected: list[str]) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]
+def test_skip_card_numbers(skip: bool, expected: list[str]) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # the parametrized flag selects the expected outcome
     assert [
         span.url
         for span in LinkDetector(
@@ -867,13 +910,6 @@ def test_settings_convert_to_a_dict_and_a_tuple() -> None:
     assert dataclasses.astuple(phones)[0] == ("US",)
 
 
-def _detected(text: str, region: str) -> PhoneNumber:
-    spans = LinkDetector(phones=PhoneNumbers(regions=(region,))).find(text)
-    assert len(spans) == 1
-    assert spans[0].phone is not None
-    return spans[0].phone
-
-
 @pytest.mark.parametrize(
     ("text", "region", "expected"),
     [
@@ -935,6 +971,13 @@ def _detected(text: str, region: str) -> PhoneNumber:
 )
 def test_styles_write_each_layout(text: str, region: str, expected: tuple[str, str, str, str]) -> None:
     assert tuple(_detected(text, region).format(style) for style in PhoneFormat) == expected
+
+
+def _detected(text: str, region: str) -> PhoneNumber:
+    spans = LinkDetector(phones=PhoneNumbers(regions=(region,))).find(text)
+    assert len(spans) == 1
+    assert spans[0].phone is not None
+    return spans[0].phone
 
 
 def test_default_style_is_international() -> None:
@@ -999,7 +1042,8 @@ def test_style_must_be_a_phone_format() -> None:
 
 
 class _Code(int):
-    """An int subclass: not the exact type the value takes."""
+    # An int subclass: not the exact type the value takes.
+    ...
 
 
 def test_fields_and_derived_strings() -> None:
@@ -1010,8 +1054,7 @@ def test_fields_and_derived_strings() -> None:
         None,
         "US",
     )
-    assert number.international_number == "+16502530000"
-    assert number.e164 == "+16502530000"
+    assert (number.international_number, number.e164) == ("+16502530000", "+16502530000")
 
 
 @pytest.mark.parametrize(
@@ -1028,14 +1071,13 @@ def test_lone_surrogates_do_not_encode(fields: tuple[int, str, str | None, str, 
 
 def test_extension_is_not_part_of_the_international_number() -> None:
     number = PhoneNumber(44, "2079460958", "123", "GB", PhoneType.FIXED_LINE)
-    assert number.international_number == "+442079460958"
-    assert number.extension == "123"
+    assert (number.international_number, number.extension) == ("+442079460958", "123")
 
 
 def test_value_is_frozen_and_hashable() -> None:
     number = PhoneNumber(1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE)
     with pytest.raises(dataclasses.FrozenInstanceError):
-        number.region = "CA"  # ty: ignore[invalid-assignment]
+        number.region = "CA"  # ty: ignore[invalid-assignment]  # assigns a value the type forbids on purpose to check the rejection
     assert hash(number) == hash(PhoneNumber(1, "6502530000", None, "US", PhoneType.FIXED_LINE_OR_MOBILE))
 
 
@@ -1057,10 +1099,14 @@ def test_value_is_frozen_and_hashable() -> None:
     ],
 )
 def test_wrong_field_types(
-    country_code: object, national_number: object, extension: object, region: object, number_type: object
+    country_code: float | str,
+    national_number: int | str | bytes,
+    extension: int | None,
+    region: str | bytes,
+    number_type: PhoneType | str | int,
 ) -> None:
     with pytest.raises(TypeError):
-        PhoneNumber(country_code, national_number, extension, region, number_type)  # ty: ignore[invalid-argument-type]
+        PhoneNumber(country_code, national_number, extension, region, number_type)  # ty: ignore[invalid-argument-type]  # passes untyped values on purpose to check the TypeError
 
 
 @pytest.mark.parametrize(
@@ -1539,7 +1585,7 @@ def test_parse_reads_one_number(
         pytest.param("+1 +650 253 0000", ("US",), id="plus-after-the-code"),
         pytest.param("+1 650 253 0000 x 1234 #", ("US",), id="hash-after-a-space"),
         pytest.param("Tel:2530000;phone-context=+1650", ("US",), id="uppercase-scheme-with-a-context"),
-        pytest.param("650-253-0000" + " " * 239, ("US",), id="over-250-characters"),
+        pytest.param(f"650-253-0000{' ' * 239}", ("US",), id="over-250-characters"),
         pytest.param("tel:2530000;phone-context=", ("US",), id="empty-context"),
         pytest.param("tel:2530000;phone-context=+", ("US",), id="context-without-digits"),
         pytest.param("tel:2530000;phone-context=+1 650!", ("US",), id="context-with-a-stray-character"),
@@ -1550,8 +1596,8 @@ def test_parse_reads_one_number(
         pytest.param("tel:2530000;phone-context=.example.com", ("US",), id="domain-starting-with-a-dot"),
         pytest.param("tel:2530000;phone-context=1", ("US",), id="top-label-starting-with-a-digit"),
         pytest.param("tel:2530000;phone-context=a.b_c", ("US",), id="domain-with-an-underscore"),
-        pytest.param("tel:1;phone-context=+" + "1" * 500, ("US",), id="context-past-any-number"),
-        pytest.param("tel:1;phone-context=+" + "1" * 25, ("US",), id="context-past-a-calling-code-and-a-number"),
+        pytest.param(f"tel:1;phone-context=+{'1' * 500}", ("US",), id="context-past-any-number"),
+        pytest.param(f"tel:1;phone-context=+{'1' * 25}", ("US",), id="context-past-a-calling-code-and-a-number"),
         pytest.param("tel:+1-650-253-0000;phone-context=+1", ("US",), id="global-number-with-a-global-context"),
         pytest.param("tel:2530000;phone-contex", ("US",), id="truncated-parameter-name"),
         pytest.param("tel:2530000;phone-context=+1\u00e9650", ("US",), id="context-with-a-non-ascii-mark"),
@@ -1559,7 +1605,7 @@ def test_parse_reads_one_number(
             "tel:2530000;phone-context=ex\u00e4mple.com", ("US",), id="domain-context-with-a-non-ascii-letter"
         ),
         pytest.param(";phone-context=+1650", ("US",), id="context-without-a-number"),
-        pytest.param("tel:" + "1 " * 300 + ";phone-context=+1", ("US",), id="number-part-past-the-buffer"),
+        pytest.param(f"tel:{'1 ' * 300};phone-context=+1", ("US",), id="number-part-past-the-buffer"),
     ],
 )
 def test_parse_refuses_text_that_is_not_one_number(text: str, regions: tuple[str, ...]) -> None:
@@ -1610,7 +1656,7 @@ def test_possible_mode_reads_a_slash_date_unlike_detection() -> None:
 
 
 def test_parse_reads_exactly_250_characters() -> None:
-    assert PhoneNumber.parse("650-253-0000" + " " * 238, regions=("US",)).national_number == "6502530000"
+    assert PhoneNumber.parse(f"650-253-0000{' ' * 238}", regions=("US",)).national_number == "6502530000"
 
 
 def test_parsed_number_formats() -> None:
@@ -1636,6 +1682,6 @@ def test_text_must_be_str() -> None:
         pytest.param(("XX",), ValueError, "XX", id="unknown-code"),
     ],
 )
-def test_regions_validate_like_phone_numbers(regions: object, error: type[Exception], message: str) -> None:
+def test_regions_validate_like_phone_numbers(regions: str | tuple[str], error: type[Exception], message: str) -> None:
     with pytest.raises(error, match=message):
-        PhoneNumber.parse("650-253-0000", regions=regions)  # ty: ignore[invalid-argument-type]  # the wrong value is the point
+        PhoneNumber.parse("650-253-0000", regions=regions)

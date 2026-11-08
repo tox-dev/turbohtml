@@ -1,12 +1,3 @@
-"""Per-rule output tests for the JavaScript minifier's structural transforms.
-
-Each case pins the exact output of one transform: whitespace and comment removal,
-semicolon insertion between statements, precedence-driven parenthesisation, and the
-adjacency guard that keeps tokens from merging. These run on the *un-mangled* output
-so identifier names stay stable; mangling has its own tests in ``test_mangle.py``.
-The corpus cases also check semantic equivalence.
-"""
-
 from __future__ import annotations
 
 import json
@@ -27,12 +18,7 @@ from turbohtml.clean import JSMinify, minify_js
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_NODE: Final = shutil.which("node")
-
-
-def minify(source: str) -> str:
-    # the structural tests pin un-mangled output, so names stay stable
-    return minify_js(source, JSMinify(mangle=False, fold=False))
+_NODE: Final[str | None] = shutil.which("node")
 
 
 @pytest.mark.parametrize(
@@ -79,6 +65,11 @@ def minify(source: str) -> str:
 )
 def test_whitespace_and_precedence(source: str, expected: str) -> None:
     assert minify(source) == expected
+
+
+def minify(source: str) -> str:
+    # the structural tests pin un-mangled output, so names stay stable
+    return minify_js(source, JSMinify(mangle=False, fold=False))
 
 
 @pytest.mark.parametrize(
@@ -148,11 +139,11 @@ def test_dropped_function_in_inline_script_leaves_no_binding_behind() -> None:
         # ECMA-262 §12.3 LineContinuation: a backslash then a LineTerminatorSequence (LF, CR, or the CR-LF
         # pair) is consumed as one unit and drops from the value, so a CRLF-authored source lexes instead
         # of the lexer rejecting the trailing LF as an unterminated string (#407)
-        pytest.param("a" + chr(0x5C) + chr(0x0A) + "b", "ab", id="lf"),
-        pytest.param("a" + chr(0x5C) + chr(0x0D) + "b", "ab", id="cr"),
-        pytest.param("a" + chr(0x5C) + chr(0x0D) + chr(0x0A) + "b", "ab", id="crlf"),
+        pytest.param(f"a{chr(0x5C)}{chr(0x0A)}b", "ab", id="lf"),
+        pytest.param(f"a{chr(0x5C)}{chr(0x0D)}b", "ab", id="cr"),
+        pytest.param(f"a{chr(0x5C)}{chr(0x0D)}{chr(0x0A)}b", "ab", id="crlf"),
         pytest.param(
-            "a" + chr(0x5C) + chr(0x0D) + chr(0x0A) + "b" + chr(0x5C) + chr(0x0D) + chr(0x0A) + "c",
+            f"a{chr(0x5C)}{chr(0x0D)}{chr(0x0A)}b{chr(0x5C)}{chr(0x0D)}{chr(0x0A)}c",
             "abc",
             id="multi-segment-crlf",
         ),
@@ -290,12 +281,12 @@ def test_speculative_backtrack_does_not_leak_error(source: str, expected: str) -
         pytest.param("x = 1000", "x=1e3", id="round-integer-exponent"),
         pytest.param("x = 100", "x=100", id="exponent-not-shorter"),
         pytest.param("x = 0", "x=0", id="zero-integer"),
-        pytest.param("x = " + "1" + "0" * 63, "x=1e63", id="long-integer-exponent"),
+        pytest.param(f"x = 1{'0' * 63}", "x=1e63", id="long-integer-exponent"),
         pytest.param("x = 0xFF", "x=0xFF", id="hex-kept"),
         pytest.param("x = 007", "x=007", id="legacy-octal-kept"),
         pytest.param("x = 0.0", "x=0", id="zero-point-zero"),
         # a literal too long for the stack buffer takes the heap path; separators still go
-        pytest.param("x = " + "1" + "_000" * 23, "x=" + "1" + "000" * 23, id="overflow-strips-separators"),
+        pytest.param(f"x = 1{'_000' * 23}", f"x=1{'000' * 23}", id="overflow-strips-separators"),
         # BigInt has no dot or exponent, so separator removal is its only safe shortening
         pytest.param("x = 1_000n", "x=1000n", id="bigint-strips-separators"),
         pytest.param("x = 0x1_0n", "x=0x10n", id="bigint-hex-strips-separators"),
@@ -480,7 +471,7 @@ def test_minify_js_long_statement_list_keeps_arena_valid() -> None:
     assert (result.returncode, result.stdout) == (0, "ok"), result.stderr
 
 
-_SOURCE = "function f(){var longName=true;return longName}"
+_SOURCE: Final[str] = "function f(){var longName=true;return longName}"
 
 
 @pytest.mark.parametrize(
@@ -535,14 +526,14 @@ def test_low_level_binding_requires_all_arguments() -> None:
         _html._minify_js("x")  # ty: ignore[missing-argument]  # too few args on purpose
 
 
-def _serialize_script(html: str) -> str:
-    return turbohtml.parse(html).serialize(Html(layout=Minify(minify_js=JSMinify())))
-
-
 def test_inline_script_keeps_bang_comment() -> None:
     # the license header survives minification of an inline <script>, as it does for the standalone call
     out = _serialize_script("<script>/*! lib v1 */\nfunction plus(a,b){return a+b}</script>")
     assert out == "<script>/*! lib v1 */function plus(b,a){return b+a}</script>"
+
+
+def _serialize_script(html: str) -> str:
+    return turbohtml.parse(html).serialize(Html(layout=Minify(minify_js=JSMinify())))
 
 
 def test_inline_script_unparsable_falls_back_verbatim() -> None:
@@ -569,73 +560,86 @@ def test_jsminify_is_frozen_and_comparable() -> None:
         JSMinify().mangle = False  # ty: ignore[invalid-assignment]  # frozen on purpose
 
 
-@pytest.mark.oracle
-@pytest.mark.skipif(_NODE is None, reason="node not available")
-@pytest.mark.parametrize(
-    ("operation", "case", "shape"),
-    [
-        pytest.param("minify-js-propagation", 0, (256, 2), id="propagation-interleaved"),
-        pytest.param("minify-js-propagation", 1, (1, 2), id="propagation-single"),
-        pytest.param("minify-js-propagation", 2, (256, 2), id="propagation-grouped"),
-        pytest.param("minify-js-var-initialization", 0, (256, 2), id="var-many"),
-        pytest.param("minify-js-var-initialization", 1, (1, 2), id="var-one"),
-        pytest.param("minify-js-var-initialization", 2, (256, 1), id="var-early"),
-        pytest.param("minify-js-unlink", 0, (256, 3), id="unlink-grouped"),
-        pytest.param("minify-js-unlink", 1, (256, 3), id="unlink-separated"),
-        pytest.param("minify-js-unlink", 2, (1, 3), id="unlink-single"),
-        pytest.param("minify-js-unused-declarations", 0, (256, 0), id="unused-many"),
-        pytest.param("minify-js-unused-declarations", 1, (1, 0), id="unused-one"),
-        pytest.param("minify-js-single-use", 0, (256, 1), id="single-use-grouped"),
-        pytest.param("minify-js-single-use", 1, (256, 1), id="single-use-separated"),
-        pytest.param("minify-js-single-use", 2, (1, 1), id="single-use-single"),
-    ],
+_CALLBACK_ORDER_ROWS: Final[tuple[tuple[str, int, tuple[int, int], str], ...]] = (
+    ("minify-js-propagation", 0, (256, 2), "propagation-interleaved"),
+    ("minify-js-propagation", 1, (1, 2), "propagation-single"),
+    ("minify-js-propagation", 2, (256, 2), "propagation-grouped"),
+    ("minify-js-var-initialization", 0, (256, 2), "var-many"),
+    ("minify-js-var-initialization", 1, (1, 2), "var-one"),
+    ("minify-js-var-initialization", 2, (256, 1), "var-early"),
+    ("minify-js-unlink", 0, (256, 3), "unlink-grouped"),
+    ("minify-js-unlink", 1, (256, 3), "unlink-separated"),
+    ("minify-js-unlink", 2, (1, 3), "unlink-single"),
+    ("minify-js-unused-declarations", 0, (256, 0), "unused-many"),
+    ("minify-js-unused-declarations", 1, (1, 0), "unused-one"),
+    ("minify-js-single-use", 0, (256, 1), "single-use-grouped"),
+    ("minify-js-single-use", 1, (256, 1), "single-use-separated"),
+    ("minify-js-single-use", 2, (1, 1), "single-use-single"),
 )
-@pytest.mark.parametrize(
-    ("module", "executable"),
-    [
-        pytest.param("bench.core", None, id="turbohtml"),
-        pytest.param("bench.competitors.calmjs_parse", None, id="calmjs"),
-        pytest.param("bench.competitors.rjsmin", None, id="rjsmin"),
-        pytest.param("bench.competitors.jsmin", None, id="jsmin"),
-        pytest.param("bench.competitors.css_html_js_minify", None, id="css-html-js-minify"),
-        pytest.param("bench.competitors.terser", "terser", id="terser"),
-        pytest.param("bench.competitors.esbuild", "esbuild", id="esbuild"),
-        pytest.param("bench.competitors.tdewolff", "minify", id="tdewolff"),
-    ],
+_CALLBACK_ORDER_MINIFIERS: Final[tuple[tuple[str, str | None, str], ...]] = (
+    ("bench.core", None, "turbohtml"),
+    ("bench.competitors.calmjs_parse", None, "calmjs"),
+    ("bench.competitors.rjsmin", None, "rjsmin"),
+    ("bench.competitors.jsmin", None, "jsmin"),
+    ("bench.competitors.css_html_js_minify", None, "css-html-js-minify"),
+    ("bench.competitors.terser", "terser", "terser"),
+    ("bench.competitors.esbuild", "esbuild", "esbuild"),
+    ("bench.competitors.tdewolff", "minify", "tdewolff"),
 )
-def test_minifiers_preserve_callback_order(
-    operation: str, case: int, shape: tuple[int, int], module: str, executable: str | None
-) -> None:
-    if module == "bench.competitors.calmjs_parse" and operation != "minify-js-var-initialization":
-        pytest.skip("ES5 parser rejects const; covered by the rejection test")
-    if executable is not None and shutil.which(executable) is None:
-        pytest.skip(f"{executable} not available")
-    minify: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_js)
-    source: Final = cast("str", INPUTS[operation]()[case][1])
+
+
+def _callback_order_expected(operation: str, case: int, shape: tuple[int, int]) -> dict[str, list[int] | list[None]]:
     count, repeat = shape
     values: Final = [index % 10 if operation == "minify-js-propagation" else index for index in range(count)]
-    expected: Final[dict[str, list[int] | list[None]]]
     if operation == "minify-js-var-initialization":
-        expected = (
-            {"calls": [None] * count, "result": [None] * count}
-            if case == 2
-            else {"calls": values, "result": [value for index in values for value in (index, index % 10)]}
-        )
-    elif operation == "minify-js-unlink":
-        expected = {
-            "calls": values,
-            "result": [value for index in values for value in (index, index % 10, index % 10)],
-        }
-    else:
-        expected = {"calls": values, "result": [value for value in values for _ in range(repeat)]}
+        if case == 2:
+            return {"calls": [None] * count, "result": [None] * count}
+        return {"calls": values, "result": [value for index in values for value in (index, index % 10)]}
+    if operation == "minify-js-unlink":
+        return {"calls": values, "result": [value for index in values for value in (index, index % 10, index % 10)]}
+    return {"calls": values, "result": [value for value in values for _ in range(repeat)]}
+
+
+_CALLBACK_ORDER_CASES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        operation,
+        case,
+        module,
+        _callback_order_expected(operation, case, shape),
+        id=f"{row_id}-{minifier_id}",
+        marks=[
+            pytest.mark.skipif(
+                module == "bench.competitors.calmjs_parse" and operation != "minify-js-var-initialization",
+                reason="ES5 parser rejects const; covered by the rejection test",
+            ),
+            pytest.mark.skipif(
+                executable is not None and shutil.which(executable) is None, reason=f"{executable} not available"
+            ),
+        ],
+    )
+    for operation, case, shape, row_id in _CALLBACK_ORDER_ROWS
+    for module, executable, minifier_id in _CALLBACK_ORDER_MINIFIERS
+]
+
+
+@pytest.mark.oracle
+@pytest.mark.skipif(_NODE is None, reason="node not available")
+@pytest.mark.parametrize(("operation", "case", "module", "expected"), _CALLBACK_ORDER_CASES)
+def test_minifiers_preserve_callback_order(
+    operation: str, case: int, module: str, expected: dict[str, list[int] | list[None]]
+) -> None:
+    minify: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_js)
+    source: Final = cast("str", INPUTS[operation]()[case][1])
     assert (
         json.loads(
             subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed corpus and CLI arguments
                 [
                     cast("str", _NODE),
                     "-e",
-                    minify(source) + ";const calls=[];const result=f(value=>(calls.push(value),value));"
-                    "console.log(JSON.stringify({calls,result}))",
+                    (
+                        f"{minify(source)};const calls=[];const "
+                        "result=f(value=>(calls.push(value),value));console.log(JSON.stringify({calls,result}))"
+                    ),
                 ],
                 capture_output=True,
                 text=True,
@@ -691,14 +695,16 @@ def nomangle(source: str) -> str:
     return minify_js(source, JSMinify(mangle=False, fold=False))
 
 
-_CORPUS = json.loads((Path(__file__).parent / "_corpus" / "tdewolff_js.json").read_text())
+_CORPUS: Final[list[dict[str, str | int]]] = json.loads(
+    (Path(__file__).parent / "_corpus" / "tdewolff_js.json").read_text()
+)
 
-_CASES = [pytest.param(row["input"], id=f"L{row['line']}") for row in _CORPUS]
+_CASES: Final[list[pytest.ParameterSet]] = [pytest.param(row["input"], id=f"L{row['line']}") for row in _CORPUS]
 
 
 def _canon_num(lexeme: str) -> str:
-    """Canonicalise a numeric lexeme exactly as the printer does, so the value-preserving
-    number minification (1.0 -> 1, 1000 -> 1e3) does not read as an AST difference."""
+    # Canonicalise a numeric lexeme exactly as the printer does, so the value-preserving
+    # number minification (1.0 -> 1, 1000 -> 1e3) does not read as an AST difference.
     digits = lexeme.replace("_", "")
     has_e = "e" in digits or "E" in digits
     dot = digits.find(".")
@@ -722,15 +728,17 @@ def _canon_num(lexeme: str) -> str:
         fend -= 1
     out = digits[istart:dot]
     if fend > dot + 1:
-        out += "." + digits[dot + 1 : fend]
+        out += f".{digits[dot + 1 : fend]}"
     return out or "0"
 
 
-_SEXPR_TOKEN = re.compile(r"\(|\)|'[^']*'|[^\s()']+")
+_SEXPR_TOKEN: Final[re.Pattern[str]] = re.compile(
+    r"(?#opening or closing parenthesis)[()]|(?#quoted atom)'[^']*'|(?#unquoted atom)[^\s()']+"
+)
 
 
 def _parse_sexpr(tokens: list[str], pos: int) -> tuple[_SExpr, int]:
-    """Parse one node of the AST dump (a `(head child...)` s-expression) into a nested list."""
+    # Parse one node of the AST dump (a `(head child...)` s-expression) into a nested list.
     if tokens[pos] != "(":
         return tokens[pos], pos + 1
     node: list[_SExpr] = []
@@ -742,10 +750,10 @@ def _parse_sexpr(tokens: list[str], pos: int) -> tuple[_SExpr, int]:
 
 
 def _unwrap_single_blocks(node: _SExpr) -> _SExpr:
-    """Canonicalize a block that holds a single statement to that statement, so the minifier dropping a
-    loop body's braces (`for(;;){g()}` -> `for(;;)g()`) does not read as a difference. Applied uniformly
-    to both sides of the comparison; the minifier only ever drops braces around a scope-free statement,
-    and that it keeps a let/const/class/function block is pinned in test_minify."""
+    # Canonicalize a block that holds a single statement to that statement, so the minifier dropping a
+    # loop body's braces (`for(;;){g()}` -> `for(;;)g()`) does not read as a difference. Applied uniformly
+    # to both sides of the comparison; the minifier only ever drops braces around a scope-free statement,
+    # and that it keeps a let/const/class/function block is pinned in test_minify.
     if not isinstance(node, list):
         return node
     node = [_unwrap_single_blocks(child) for child in node]
@@ -758,14 +766,14 @@ def _unwrap_single_blocks(node: _SExpr) -> _SExpr:
 
 def _dump_sexpr(node: _SExpr) -> str:
     if isinstance(node, list):
-        return "(" + " ".join(_dump_sexpr(child) for child in node) + ")"
+        return f"({' '.join(_dump_sexpr(child) for child in node)})"
     return node
 
 
 def _norm(dump: str) -> str:
-    """Normalize an AST dump: drop empty statements and empty blocks (minified out, or printed as
-    `;`) and canonicalize numeric and BigInt literals (value-preserving number minification, BigInt
-    separator stripping) so equivalent ASTs match."""
+    # Normalize an AST dump: drop empty statements and empty blocks (minified out, or printed as
+    # `;`) and canonicalize numeric and BigInt literals (value-preserving number minification, BigInt
+    # separator stripping) so equivalent ASTs match.
     dump = re.sub(r"\(empty\)", "", dump)
     while (stripped := re.sub(r"\(block\s*\(body\s*\)\)", "", dump)) != dump:
         dump = stripped
@@ -786,11 +794,6 @@ def _norm(dump: str) -> str:
     return dump.replace("( ", "(").replace(" )", ")").strip()
 
 
-def _ast(source: str) -> str:
-    """Return the parser's S-expression AST dump, raising ValueError if it does not parse."""
-    return _html._minify_js_parse(source)
-
-
 @pytest.mark.parametrize("source", _CASES)
 def test_semantic_equivalence(source: str) -> None:
     try:
@@ -804,7 +807,9 @@ def test_semantic_equivalence(source: str) -> None:
     # a re-parse failure raises ValueError and fails the test. Rename correctness is gated by
     # execution differentials in test_mangle_differential.py.
     structural = nomangle(source)
-    assert _norm(_ast(source)) == _norm(_ast(structural)), "minification changed the AST"
+    assert _norm(_html._minify_js_parse(source)) == _norm(_html._minify_js_parse(structural)), (
+        "minification changed the AST"
+    )
     # idempotence; minify_js re-parses out internally, so this also proves the mangled output parses
     assert minify_js(out) == out, "minification is not idempotent"
 

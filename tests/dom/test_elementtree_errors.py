@@ -12,7 +12,7 @@ import pytest
 from turbohtml import Text, etree
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
     from pytest_mock import MockerFixture
 
@@ -132,14 +132,14 @@ def test_element_tree_siblings_require_parent(method: str) -> None:
         getattr(etree.Element("div"), method)(etree.Element("p"))
 
 
-@pytest.mark.parametrize(
-    "compiled",
-    [pytest.param(True, id="compiled"), pytest.param(False, id="find")],
-)
-def test_element_tree_rejects_invalid_xpath(*, compiled: bool) -> None:
-    construct: Final = etree.XPath if compiled else etree.Element("p").find
+def test_element_tree_rejects_invalid_compiled_xpath() -> None:
     with pytest.raises(ValueError, match="expected a node test"):
-        construct(".//[")
+        etree.XPath(".//[")
+
+
+def test_element_tree_rejects_invalid_find_xpath() -> None:
+    with pytest.raises(ValueError, match="expected a node test"):
+        etree.Element("p").find(".//[")
 
 
 def test_element_tree_rejects_non_string_factory_attribute() -> None:
@@ -157,12 +157,16 @@ def test_element_tree_rejects_empty_tag() -> None:
         etree.Element("")
 
 
-@pytest.mark.parametrize("module", [pytest.param("lxml.etree", id="xml"), pytest.param("lxml.html", id="html")])
-def test_element_tree_lxml_copy_requires_optional_dependency(mocker: MockerFixture, module: str) -> None:
-    mocker.patch.dict(sys.modules, {module: None})
-    copy: Final = etree.to_lxml if module == "lxml.etree" else etree.to_lxml_html
+def test_element_tree_lxml_copy_requires_lxml_etree(mocker: MockerFixture) -> None:
+    mocker.patch.dict(sys.modules, {"lxml.etree": None})
     with pytest.raises(ModuleNotFoundError, match="halted"):
-        copy(etree.Element("p"))
+        etree.to_lxml(etree.Element("p"))
+
+
+def test_element_tree_lxml_copy_requires_lxml_html(mocker: MockerFixture) -> None:
+    mocker.patch.dict(sys.modules, {"lxml.html": None})
+    with pytest.raises(ModuleNotFoundError, match="halted"):
+        etree.to_lxml_html(etree.Element("p"))
 
 
 @pytest.mark.oracle
@@ -195,9 +199,11 @@ def test_element_tree_propagates_truth_value_error(
 @pytest.mark.parametrize(
     "function", [pytest.param(etree.strip_tags, id="unwrap"), pytest.param(etree.strip_elements, id="remove")]
 )
-def test_element_tree_rejects_invalid_strip_filter(tree: ElementView, function: Callable[..., None]) -> None:
+def test_element_tree_rejects_invalid_strip_filter(
+    tree: ElementView, function: Callable[[ElementView, *tuple[str | Iterable[str] | None, ...]], None]
+) -> None:
     with pytest.raises(TypeError):
-        function(tree, 42)
+        function(tree, 42)  # ty: ignore[invalid-argument-type]  # passes a non-str tag on purpose to check the rejection
 
 
 def test_element_tree_requires_callable_context() -> None:

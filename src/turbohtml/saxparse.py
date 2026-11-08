@@ -1,12 +1,13 @@
 """
 turbohtml.saxparse: DOM-less, event-driven HTML parsing.
 
-Where :func:`turbohtml.parse` hands back a document you navigate, :func:`sax_parse` fires a callback for each
-construct the parser builds -- a start tag, an end tag, a run of text, a comment, the doctype -- and hands back
-nothing. The events reflect the fully WHATWG-correct construction (implied ``<html>``/``<head>``/``<body>``, foster
-parenting out of tables, the adoption agency, and the rest), so you see the tree the parser *built*, not the raw token
-soup; and no per-node Python object is ever created, so a one-pass extraction over a large document never pays for a
-document-sized object graph and keeps only what your handler keeps. This is the event-driven model Python's
+Where :func:`turbohtml.parse` hands back a document you navigate, :func:`sax_parse` fires a callback for each construct
+the parser builds -- a start tag, an end tag, a run of text, a comment, the doctype -- and hands back nothing.
+
+The events reflect the fully WHATWG-correct construction (implied ``<html>``/``<head>``/``<body>``, foster parenting out
+of tables, the adoption agency, and the rest), so you see the tree the parser *built*, not the raw token soup; and no
+per-node Python object is ever created, so a one-pass extraction over a large document never pays for a document-sized
+object graph and keeps only what your handler keeps. This is the event-driven model Python's
 :class:`html.parser.HTMLParser`, expat, and htmlparser2 offer, with a spec-correct tree builder behind it and the
 tokenization, construction, and walk all in C.
 
@@ -32,19 +33,6 @@ from ._html import _sax_dispatch, _sax_events
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-__all__ = [
-    "Characters",
-    "Comment",
-    "Doctype",
-    "EndElement",
-    "ProcessingInstruction",
-    "SaxEvent",
-    "SaxHandler",
-    "StartElement",
-    "iter_events",
-    "sax_parse",
-]
-
 
 class SaxHandler:
     """
@@ -55,26 +43,59 @@ class SaxHandler:
     """
 
     def start_element(self, tag: str, attrs: tuple[tuple[str, str | None], ...]) -> None:
-        """Handle a start tag ``tag`` with its ``attrs`` (each a ``(name, value)`` pair, value None if valueless)."""
+        """
+        Handle a start tag ``tag`` with its ``attrs`` (each a ``(name, value)`` pair, value None if valueless).
+
+        :param tag: the element's tag name.
+        :param attrs: the attributes, each a ``(name, value)`` pair with ``value`` None for a valueless attribute.
+        """
 
     def end_element(self, tag: str) -> None:
-        """Handle the end of element ``tag`` (fired for every element, including empty and void ones)."""
+        """
+        Handle the end of element ``tag`` (fired for every element, including empty and void ones).
+
+        :param tag: the element's tag name.
+        """
 
     def characters(self, data: str) -> None:
-        """Handle a run of character data ``data``."""
+        """
+        Handle a run of character data ``data``.
+
+        :param data: the text.
+        """
 
     def comment(self, data: str) -> None:
-        """Handle a comment with body ``data``."""
+        """
+        Handle a comment with body ``data``.
+
+        :param data: the comment body, between ``<!--`` and ``-->``.
+        """
 
     def doctype(self, name: str, public_id: str | None, system_id: str | None) -> None:
-        """Handle the document type declaration; ``public_id``/``system_id`` are None when the source omits them."""
+        """
+        Handle the document type declaration; ``public_id``/``system_id`` are None when the source omits them.
+
+        :param name: the document type name, e.g. ``html``.
+        :param public_id: the public identifier, or None when the source omits it.
+        :param system_id: the system identifier, or None when the source omits it.
+        """
 
     def processing_instruction(self, target: str, data: str) -> None:
-        """Receive non-reserved instructions after the parser separates their target and data."""
+        """
+        Receive non-reserved instructions after the parser separates their target and data.
+
+        :param target: the ASCII target, preserving source case.
+        :param data: the text after leading whitespace and before the closing delimiter.
+        """
 
 
 class StartElement(NamedTuple):
-    """A start-tag event."""
+    """
+    A start-tag event.
+
+    :param tag: the element's tag name.
+    :param attrs: the attributes, each a ``(name, value)`` pair with ``value`` None for a valueless attribute.
+    """
 
     tag: str
     """the element's tag name."""
@@ -83,28 +104,46 @@ class StartElement(NamedTuple):
 
 
 class EndElement(NamedTuple):
-    """An end-tag event, fired for every element the parser closes."""
+    """
+    An end-tag event, fired for every element the parser closes.
+
+    :param tag: the element's tag name.
+    """
 
     tag: str
     """the element's tag name."""
 
 
 class Characters(NamedTuple):
-    """A run of character data."""
+    """
+    A run of character data.
+
+    :param data: the text.
+    """
 
     data: str
     """the text."""
 
 
 class Comment(NamedTuple):
-    """A comment event."""
+    """
+    A comment event.
+
+    :param data: the comment body, between ``<!--`` and ``-->``.
+    """
 
     data: str
     """the comment body, between ``<!--`` and ``-->``."""
 
 
 class Doctype(NamedTuple):
-    """A document type declaration event."""
+    """
+    A document type declaration event.
+
+    :param name: the document type name, e.g. ``html``.
+    :param public_id: the public identifier, or None when the source omits it.
+    :param system_id: the system identifier, or None when the source omits it.
+    """
 
     name: str
     """the document type name, e.g. ``html``."""
@@ -115,7 +154,12 @@ class Doctype(NamedTuple):
 
 
 class ProcessingInstruction(NamedTuple):
-    """An HTML instruction whose target is not reserved for XML."""
+    """
+    An HTML instruction whose target is not reserved for XML.
+
+    :param target: the ASCII target, preserving source case.
+    :param data: the text after leading whitespace and before the closing delimiter.
+    """
 
     target: str
     """the ASCII target, preserving source case."""
@@ -126,7 +170,9 @@ class ProcessingInstruction(NamedTuple):
 SaxEvent = StartElement | EndElement | Characters | Comment | Doctype | ProcessingInstruction
 """The union of every event :func:`iter_events` yields."""
 
-_EVENTS: Final[tuple[Callable[..., SaxEvent], ...]] = (
+_EVENTS: Final[
+    tuple[Callable[..., SaxEvent], ...]  # simplint: ignore[SMP603]  # typed dispatch needs a cast or Callable[..., T]
+] = (
     StartElement,
     EndElement,
     Characters,
@@ -141,7 +187,7 @@ def iter_events(html: str) -> Iterator[SaxEvent]:
     Parse ``html`` and yield its SAX events as typed records, one at a time, without building a document.
 
     :param html: the markup to parse.
-    :returns: an iterator of :class:`StartElement`/:class:`EndElement`/:class:`Characters`/:class:`Comment`/
+    :yields: an iterator of :class:`StartElement`/:class:`EndElement`/:class:`Characters`/:class:`Comment`/
         :class:`Doctype`/:class:`ProcessingInstruction` records in document order.
     :raises TypeError: if ``html`` is not a str.
     """
@@ -158,3 +204,17 @@ def sax_parse(html: str, handler: SaxHandler) -> None:
     :raises TypeError: if ``html`` is not a str.
     """
     _sax_dispatch(html, handler)
+
+
+__all__ = [
+    "Characters",
+    "Comment",
+    "Doctype",
+    "EndElement",
+    "ProcessingInstruction",
+    "SaxEvent",
+    "SaxHandler",
+    "StartElement",
+    "iter_events",
+    "sax_parse",
+]

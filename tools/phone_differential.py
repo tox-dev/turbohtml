@@ -20,30 +20,37 @@ from typing import TYPE_CHECKING
 
 import phonenumbers
 from generate_phone import compile_tables, fetch_sources
-from phone_model import Config, Match, Recognizer
-from phone_oracle import CONTEXTS, Found, classify, oracle_matches, renderings
+from phone_model import Config, Recognizer
+from phone_oracle import CONTEXTS, classify, oracle_matches, renderings
 from phonenumbers import Leniency
 
 if TYPE_CHECKING:
     from generate_phone import Region
 
 
-@dataclass
+@dataclass(  # simplint: ignore[SMP701]  # mutable counters; slotted class would trip Ruff B903
+    slots=True, kw_only=True
+)
 class _RunState:
-    """The counts and printed-example budget threaded through every region's cases."""
-
+    # The settings every case is compared under, and the counts and printed-example budget across all regions.
+    leniency: int
+    show: int
+    category: str
     counts: Counter[str] = field(default_factory=Counter)
     shown: int = 0
     cases: int = 0
 
 
 def main() -> None:
-    """Compare every region's example numbers against the phonenumbers oracle and print the disagreement summary."""
+    # Compare every region's example numbers against the phonenumbers oracle and print the disagreement summary.
     arguments = _parse_args()
     tables = compile_tables(fetch_sources(arguments.sources))
-    leniency = Leniency.VALID if arguments.mode == "valid" else Leniency.POSSIBLE
     wanted = set(arguments.regions.split(",")) if arguments.regions else None
-    state = _RunState()
+    state = _RunState(
+        leniency=Leniency.VALID if arguments.mode == "valid" else Leniency.POSSIBLE,
+        show=arguments.show,
+        category=arguments.category,
+    )
     for region_tables in tables.regions:
         region = region_tables.region
         if region.code == "001" or (wanted and region.code not in wanted):
@@ -51,7 +58,6 @@ def main() -> None:
         _check_region(
             Recognizer(tables, Config(regions=(region.code,), require_valid=arguments.mode == "valid")),
             region,
-            leniency,
             arguments,
             state,
         )
@@ -72,9 +78,7 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _check_region(
-    recognizer: Recognizer, region: Region, leniency: int, arguments: argparse.Namespace, state: _RunState
-) -> None:
+def _check_region(recognizer: Recognizer, region: Region, arguments: argparse.Namespace, state: _RunState) -> None:
     for kind, example in region.examples.items():
         try:
             number = phonenumbers.parse(example, region.code)
@@ -82,27 +86,25 @@ def _check_region(
             continue
         for form, rendered in renderings(number, region.code):
             for context in CONTEXTS:
-                text = context.format(rendered)
-                state.cases += 1
-                ours = _model_matches(recognizer.find_all(text))
-                theirs = oracle_matches(text, region.code, leniency)
-                category = classify(text, ours, theirs)
-                state.counts[category] += 1
-                if category == "agree":
-                    continue
-                if state.shown < arguments.show and (not arguments.category or category == arguments.category):
-                    state.shown += 1
-                    print(
-                        f"[{category}] {region.code} {kind} {form}: {text!r}\n"
-                        f"    ours={sorted(ours)}\n    oracle={sorted(theirs)}"
-                    )
+                _check_text(recognizer, region.code, f"{kind} {form}", context.format(rendered), state)
         if arguments.limit and state.cases >= arguments.limit:
             break
 
 
-def _model_matches(matches: list[Match]) -> Found:
-    """Reduce ``matches`` to the comparable shape ``oracle_matches`` also produces."""
-    return {(match.start, match.end, match.international_number, match.extension or "") for match in matches}
+def _check_text(recognizer: Recognizer, code: str, label: str, text: str, state: _RunState) -> None:
+    state.cases += 1
+    ours = {
+        (match.start, match.end, match.international_number, match.extension or "")
+        for match in recognizer.find_all(text)
+    }
+    theirs = oracle_matches(text, code, state.leniency)
+    category = classify(text, ours, theirs)
+    state.counts[category] += 1
+    if category == "agree":
+        return
+    if state.shown < state.show and (not state.category or category == state.category):
+        state.shown += 1
+        print(f"[{category}] {code} {label}: {text!r}\n    ours={sorted(ours)}\n    oracle={sorted(theirs)}")
 
 
 if __name__ == "__main__":

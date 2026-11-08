@@ -1,19 +1,24 @@
 """
 yattag: assemble a tree with the ``tag``/``text`` context managers.
 
-Loaded only inside its own worker venv, where yattag is guaranteed present; the orchestrator reads ``REQUIREMENTS`` and
+Loaded only inside its own worker venv, where yattag is guaranteed present; the orchestrator reads ``_REQUIREMENTS`` and
 ``OPERATIONS`` statically (via AST) and never imports this module.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 from yattag import Doc
 
-REQUIREMENTS = ("yattag>=1.16.1",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("yattag>=1.16.1",)
 
 
 def build_e(count: int) -> None:
-    """Build a ``<ul>`` of rows with yattag's context-manager tags and read the string back."""
+    # Build a ``<ul>`` of rows with yattag's context-manager tags and read the string back.
     doc, tag, text = Doc().tagtext()
     with tag("ul"):
         for index in range(count):
@@ -22,4 +27,4 @@ def build_e(count: int) -> None:
     _ = doc.getvalue()
 
 
-OPERATIONS = {"build-e": (build_e, "yattag")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {"build-e": (build_e, "yattag")}

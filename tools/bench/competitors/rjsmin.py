@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 import rjsmin
 
-REQUIREMENTS = ("rjsmin>=1.2",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
+
+_REQUIREMENTS: Final[tuple[str, ...]] = ("rjsmin>=1.2",)
 
 
 def minify_js(source: str) -> str:
-    """Minify JavaScript with rjsmin's single regex-substitution pass."""
+    # Minify JavaScript with rjsmin's single regex-substitution pass.
     return rjsmin.jsmin(source)
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "minify-js-guards": (minify_js, "rjsmin"),
     "minify-js-propagation": (minify_js, "rjsmin"),
     "minify-js-var-initialization": (minify_js, "rjsmin"),

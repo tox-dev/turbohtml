@@ -9,7 +9,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final
 
 from .atheris_header import split_header
 
@@ -18,11 +18,9 @@ if TYPE_CHECKING:
 
     from .atheris_header import Header
 
-__all__ = ["build_runtime", "failure_hook", "main", "rejecting_callback", "rejection_hook"]
-
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Build one ELF so libFuzzer and Atheris share coverage symbols."""
+    # Build one ELF so libFuzzer and Atheris share coverage symbols.
     parser: Final = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
@@ -34,7 +32,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def build_runtime(archive: Path, output: Path, *, coverage: bool = False, sanitizer: Path | None = None) -> Path:
-    """Keep the original wheel archive intact for provenance checks."""
+    # Keep the original wheel archive intact for provenance checks.
     output.mkdir(parents=True, exist_ok=True)
     runtime: Final = output / "runtime.a"
     shutil.copyfile(archive, runtime)
@@ -105,16 +103,13 @@ def rejecting_callback(
     *,
     lossy_on_allocation_failure: bool = False,
 ) -> Callable[[bytes], None]:
-    """
-    Fail the header's allocation, then reject only exceptions the selected public API documents.
-
-    A ``MemoryError`` without an injected failure and another exception after one are findings. Python can recover
-    from failed internal allocations, so a successful result remains valid. The ``finally`` block closes the window
-    before any handler here allocates. Mutation observers may drop records on allocation failure; only that target
-    accepts a resulting assertion. libxml2 checks that each API reports the failure it injected
-    (https://github.com/GNOME/libxml2/blob/c43dc98d27ac315a48d93dbd399c6c22cf7125b1/fuzz/xml.c#L72-L83).
-    """
-
+    # Fail the header's allocation, then reject only exceptions the selected public API documents.
+    #
+    # A ``MemoryError`` without an injected failure and another exception after one are findings. Python can recover
+    # from failed internal allocations, so a successful result remains valid. The ``finally`` block closes the window
+    # before any handler here allocates. Mutation observers may drop records on allocation failure; only that target
+    # accepts a resulting assertion. libxml2 checks that each API reports the failure it injected
+    # (https://github.com/GNOME/libxml2/blob/c43dc98d27ac315a48d93dbd399c6c22cf7125b1/fuzz/xml.c#L72-L83).
     def run(data: bytes) -> None:
         header, payload = split_header(data)
         inject(header.failure_pos)
@@ -136,7 +131,7 @@ def rejecting_callback(
                 try:
                     target(payload, header)
                 except exceptions as replay_error:
-                    if type(replay_error) is type(error) and str(replay_error) == str(error):
+                    if type(replay_error) is type(error) and replay_error.args == error.args:
                         reject()
                         return
                 message = f"{type(error).__name__} for an injected allocation failure"
@@ -148,15 +143,24 @@ def rejecting_callback(
 
 
 def rejection_hook() -> Callable[[], None]:
-    """Resolve the preloaded bridge before starting the callback loop."""
+    # Resolve the preloaded bridge before starting the callback loop.
     return ctypes.CFUNCTYPE(None)(("turbohtml_fuzz_reject_input", ctypes.CDLL(None)))
 
 
 def failure_hook() -> Callable[[int], tuple[int, bool]]:
-    """Resolve the PyMem failure hook, which only the fuzz-only build (``meson -Dfuzzing=true``) defines."""
-    return cast(
-        "Callable[[int], tuple[int, bool]]", vars(importlib.import_module("turbohtml._html"))["_fuzz_inject_failure"]
-    )
+    # Resolve the PyMem failure hook, which only the fuzz-only build (``meson -Dfuzzing=true``) defines. Import at call
+    # time: loading _html needs the sanitizer symbols that LD_PRELOAD supplies, and build_runtime runs before that.
+    module: Final = importlib.import_module("turbohtml._html")
+    return module._fuzz_inject_failure  # ruff:ignore[private-member-access]  # the fuzz-only hook is absent from production builds
+
+
+__all__ = [
+    "build_runtime",
+    "failure_hook",
+    "main",
+    "rejecting_callback",
+    "rejection_hook",
+]
 
 
 if __name__ == "__main__":

@@ -16,14 +16,18 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
-ROOT = Path(__file__).resolve().parent.parent
-CONFIG = ROOT / "pyproject.toml"
-DIRECTIVE = re.compile(r"^(?P<indent>[ \t]*)\.\. (?:testcode::|code-block:: (?:python|py|python3))\s*$")
+_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
+_CONFIG: Final[Path] = _ROOT / "pyproject.toml"
+_DIRECTIVE: Final[re.Pattern[str]] = re.compile(
+    r"^(?#a testcode or Python code-block directive line)(?P<indent>[ \t]*)"
+    r"\.\. (?:testcode::|code-block:: (?:python|py|python3))\s*$"
+)
 
 # Rules that fire on every well-formed doctest example, so enforcing them would only push noqa
 # noise into the rendered docs (and let --fix corrupt the migration before/after blocks).
-SNIPPET_IGNORE = (
+_SNIPPET_IGNORE: Final[tuple[str, ...]] = (
     "T201",  # examples print to produce the testoutput block
     "INP001",  # a doc snippet is not an importable package
     "D",  # examples carry no docstrings
@@ -41,10 +45,9 @@ SNIPPET_IGNORE = (
 )
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Snippet:
-    """One extracted Python block: where it lives and how it was indented."""
-
+    # One extracted Python block: where it lives and how it was indented.
     source: Path
     line_no: int
     body_start: int
@@ -54,16 +57,16 @@ class Snippet:
 
 
 def indent_of(line: str) -> int:
-    """Return the count of leading whitespace characters in ``line``."""
+    # Return the count of leading whitespace characters in ``line``.
     return len(line) - len(line.lstrip())
 
 
 def snippets_of(source: Path, lines: list[str]) -> list[Snippet]:
-    """Return every ``testcode``/``code-block:: python`` block found in ``lines``."""
+    # Return every ``testcode``/``code-block:: python`` block found in ``lines``.
     blocks: list[Snippet] = []
     cursor = 0
     while cursor < len(lines):
-        if not (directive := DIRECTIVE.match(lines[cursor])):
+        if not (directive := _DIRECTIVE.match(lines[cursor])):
             cursor += 1
             continue
         base = len(directive.group("indent"))
@@ -82,27 +85,36 @@ def snippets_of(source: Path, lines: list[str]) -> list[Snippet]:
         if body := [line for line in lines[body_start:body_end] if line.strip()]:
             content_indent = min(indent_of(line) for line in body)
             code = "\n".join(line[content_indent:] if line.strip() else "" for line in lines[body_start:body_end])
-            blocks.append(Snippet(source, line_no, body_start, body_end, content_indent, code + "\n"))
+            blocks.append(
+                Snippet(
+                    source=source,
+                    line_no=line_no,
+                    body_start=body_start,
+                    body_end=body_end,
+                    content_indent=content_indent,
+                    code=f"{code}\n",
+                )
+            )
     return blocks
 
 
 def run_ruff(staging: Path) -> dict[Path, str]:
-    """Fix and format every staged snippet file in ``staging`` and return their new contents."""
-    ignore = ["--extend-ignore", ",".join(SNIPPET_IGNORE)]
-    common = ["--config", str(CONFIG), str(staging)]
+    # Fix and format every staged snippet file in ``staging`` and return their new contents.
+    ignore = ["--extend-ignore", ",".join(_SNIPPET_IGNORE)]
+    common = ["--config", str(_CONFIG), str(staging)]
     subprocess.run(["ruff", "check", "--fix", "--quiet", *ignore, *common], check=False)
     subprocess.run(["ruff", "format", "--quiet", *common], check=False)
     return {path: path.read_text() for path in staging.glob("*.py")}
 
 
 def reindent(code: str, content_indent: int) -> list[str]:
-    """Re-apply ``content_indent`` to a dedented snippet, leaving blank lines empty."""
+    # Re-apply ``content_indent`` to a dedented snippet, leaving blank lines empty.
     pad = " " * content_indent
     return [pad + line if line.strip() else "" for line in code.rstrip("\n").split("\n")]
 
 
 def report_residuals(staging: Path, owners: dict[Path, Snippet]) -> bool:
-    """Print any lint finding Ruff could not auto-fix, mapped to its docs location."""
+    # Print any lint finding Ruff could not auto-fix, mapped to its docs location.
     result = subprocess.run(
         [
             "ruff",
@@ -111,9 +123,9 @@ def report_residuals(staging: Path, owners: dict[Path, Snippet]) -> bool:
             "--quiet",
             "--output-format=concise",
             "--extend-ignore",
-            ",".join(SNIPPET_IGNORE),
+            ",".join(_SNIPPET_IGNORE),
             "--config",
-            str(CONFIG),
+            str(_CONFIG),
             str(staging),
         ],
         capture_output=True,
@@ -124,7 +136,11 @@ def report_residuals(staging: Path, owners: dict[Path, Snippet]) -> bool:
     if not findings:
         return False
     for line in findings.splitlines():
-        if match := re.match(r"^(?P<file>.*\.py):(?P<row>\d+):(?P<col>\d+): (?P<rest>.*)$", line):
+        if match := re.match(
+            r"^(?#one ruff finding: the Python file, row and column, then the message)"
+            r"(?P<file>.*\.py):(?P<row>\d+):(?P<col>\d+): (?P<rest>.*)$",
+            line,
+        ):
             owner = owners[Path(match.group("file"))]
             print(f"{owner.source}: snippet at line {owner.line_no}: {match.group('rest')}")
         else:
@@ -133,8 +149,8 @@ def report_residuals(staging: Path, owners: dict[Path, Snippet]) -> bool:
 
 
 def main(argv: list[str]) -> int:
-    """Format and lint the snippets in the ``.rst`` paths in ``argv``; return the hook exit code."""
-    paths = [Path(arg) for arg in argv if arg.endswith(".rst")] or sorted(ROOT.joinpath("docs").rglob("*.rst"))
+    # Format and lint the snippets in the ``.rst`` paths in ``argv``; return the hook exit code.
+    paths = [Path(arg) for arg in argv if arg.endswith(".rst")] or sorted(_ROOT.joinpath("docs").rglob("*.rst"))
     documents = {path: path.read_text().splitlines() for path in paths}
     blocks = [block for path, lines in documents.items() for block in snippets_of(path, lines)]
     if not blocks:

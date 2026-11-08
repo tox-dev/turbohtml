@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess  # ruff: ignore[suspicious-subprocess-import] - the conformance oracle runs the installed vnu.jar
+from enum import Enum, auto
+from importlib.util import find_spec
 from pathlib import Path
-from typing import Final, NamedTuple
+from typing import Final, NamedTuple, cast
 
 import pytest
 
@@ -12,29 +14,25 @@ from turbohtml import Element, parse
 from turbohtml._html import _conformance_check, _conformance_filter
 from turbohtml.conformance import ConformanceMessage, ConformanceReport, check, check_html
 
-CLEAN = '<html lang="en"><head><title>Doc</title></head><body><h1>Hi</h1></body></html>'
-
-
-def codes(markup: str) -> list[str]:
-    return [message.code for message in check_html(markup).messages]
-
-
-def body(inner: str) -> str:
-    return f'<html lang="en"><head><title>Doc</title></head><body>{inner}</body></html>'
+_CLEAN: Final[str] = '<html lang="en"><head><title>Doc</title></head><body><h1>Hi</h1></body></html>'
 
 
 def test_conformance_clean_document_is_valid() -> None:
-    report = check_html(CLEAN)
+    report = check_html(_CLEAN)
     assert report.valid is True
     assert report.messages == ()
 
 
 def test_conformance_report_is_truthy_when_valid() -> None:
-    assert bool(check_html(CLEAN)) is True
+    assert bool(check_html(_CLEAN)) is True
 
 
 def test_conformance_report_is_falsy_with_an_error() -> None:
     assert bool(check_html(body("<img src=x>"))) is False
+
+
+def body(inner: str) -> str:
+    return f'<html lang="en"><head><title>Doc</title></head><body>{inner}</body></html>'
 
 
 def test_conformance_error_makes_document_invalid() -> None:
@@ -66,15 +64,17 @@ def test_conformance_severity_views_partition_the_messages() -> None:
 def test_conformance_message_carries_code_severity_and_position() -> None:
     (message,) = check_html(body("<img src=x>")).messages
     assert isinstance(message, ConformanceMessage)
-    assert message.code == "img-missing-alt"
-    assert message.severity == "error"
-    assert message.message == "img element has no alt attribute"
-    assert message.line == 1
+    assert (message.code, message.severity, message.message, message.line) == (
+        "img-missing-alt",
+        "error",
+        "img element has no alt attribute",
+        1,
+    )
     assert message.column > 0
 
 
 def test_conformance_check_accepts_a_parsed_document() -> None:
-    assert check(parse(CLEAN)).valid is True
+    assert check(parse(_CLEAN)).valid is True
 
 
 def test_conformance_check_on_a_subtree_skips_document_rules() -> None:
@@ -87,22 +87,30 @@ def test_conformance_check_on_a_subtree_skips_document_rules() -> None:
     ("inner", "expected"),
     [
         pytest.param("<img src=x>", "img-missing-alt", id="img-no-alt"),
-        pytest.param('<img src=x alt="a photo">', None, id="img-with-alt"),
         pytest.param('<area href="x">', "area-missing-alt", id="area-href-no-alt"),
-        pytest.param('<area href="x" alt="a">', None, id="area-href-with-alt"),
-        pytest.param("<area>", None, id="area-without-href"),
         pytest.param('<input type="image">', "input-image-missing-alt", id="input-image-no-alt"),
-        pytest.param('<input type="image" alt="a">', None, id="input-image-with-alt"),
-        pytest.param('<input type="text">', None, id="input-not-image"),
-        pytest.param("<input>", None, id="input-no-type"),
-        pytest.param("<input type>", None, id="input-type-valueless"),
     ],
 )
-def test_conformance_alt_text_rules(inner: str, expected: str | None) -> None:
+def test_conformance_alt_text_flags_violation(inner: str, expected: str) -> None:
     found = [message.code for message in check_html(body(inner)).messages]
-    assert (expected in found) is (expected is not None)
-    if expected is None:
-        assert found == []
+    assert expected in found
+
+
+@pytest.mark.parametrize(
+    "inner",
+    [
+        pytest.param('<img src=x alt="a photo">', id="img-with-alt"),
+        pytest.param('<area href="x" alt="a">', id="area-href-with-alt"),
+        pytest.param("<area>", id="area-without-href"),
+        pytest.param('<input type="image" alt="a">', id="input-image-with-alt"),
+        pytest.param('<input type="text">', id="input-not-image"),
+        pytest.param("<input>", id="input-no-type"),
+        pytest.param("<input type>", id="input-type-valueless"),
+    ],
+)
+def test_conformance_alt_text_accepts(inner: str) -> None:
+    found = [message.code for message in check_html(body(inner)).messages]
+    assert found == []
 
 
 @pytest.mark.parametrize(
@@ -191,24 +199,35 @@ def test_conformance_obsolete_attributes(tag: str, attr: str, *, flagged: bool) 
         pytest.param('<div role="bogus">x</div>', "aria-invalid-role", id="invalid-role"),
         pytest.param('<div role="regionx">x</div>', "aria-invalid-role", id="invalid-role-extends-a-valid-name"),
         pytest.param('<div role="widget">x</div>', "aria-invalid-role", id="abstract-role-invalid"),
-        pytest.param('<div role="note">x</div>', None, id="valid-role-no-implicit"),
         pytest.param("<nav role=navigation>x</nav>", "aria-redundant-role", id="redundant-landmark"),
         pytest.param('<a href="x" role="link">y</a>', "aria-redundant-role", id="redundant-link-on-anchor"),
-        pytest.param('<a role="link">y</a>', None, id="anchor-without-href-not-redundant"),
-        pytest.param('<div role="button">x</div>', None, id="role-not-matching-element"),
-        pytest.param('<nav role="note">x</nav>', None, id="valid-role-differs-from-implicit"),
-        pytest.param('<div role="note alert">x</div>', None, id="role-token-list-uses-first"),
-        pytest.param('<div role="  ">x</div>', None, id="whitespace-only-role"),
-        pytest.param("<div role>x</div>", None, id="valueless-role"),
     ],
 )
-def test_conformance_aria_role_rules(inner: str, expected: str | None) -> None:
+def test_conformance_aria_role_flags(inner: str, expected: str) -> None:
     found = codes(body(inner))
-    if expected is None:
-        assert "aria-invalid-role" not in found
-        assert "aria-redundant-role" not in found
-    else:
-        assert expected in found
+    assert expected in found
+
+
+def codes(markup: str) -> list[str]:
+    return [message.code for message in check_html(markup).messages]
+
+
+@pytest.mark.parametrize(
+    "inner",
+    [
+        pytest.param('<div role="note">x</div>', id="valid-role-no-implicit"),
+        pytest.param('<a role="link">y</a>', id="anchor-without-href-not-redundant"),
+        pytest.param('<div role="button">x</div>', id="role-not-matching-element"),
+        pytest.param('<nav role="note">x</nav>', id="valid-role-differs-from-implicit"),
+        pytest.param('<div role="note alert">x</div>', id="role-token-list-uses-first"),
+        pytest.param('<div role="  ">x</div>', id="whitespace-only-role"),
+        pytest.param("<div role>x</div>", id="valueless-role"),
+    ],
+)
+def test_conformance_aria_role_accepts(inner: str) -> None:
+    found = codes(body(inner))
+    assert "aria-invalid-role" not in found
+    assert "aria-redundant-role" not in found
 
 
 @pytest.mark.parametrize(
@@ -311,7 +330,7 @@ def test_conformance_rejects_a_non_node() -> None:
 
 
 def test_conformance_report_type_is_named_tuple() -> None:
-    report = check_html(CLEAN)
+    report = check_html(_CLEAN)
     assert isinstance(report, ConformanceReport)
     assert report == (True, ())
 
@@ -326,27 +345,32 @@ def test_check_is_valid_with_only_a_warning() -> None:
     assert (valid, [finding[1] for finding in findings]) == (True, ["warning"])
 
 
-_ERROR = ConformanceMessage("img-missing-alt", "error", "m", 1, 0)
-_WARNING = ConformanceMessage("missing-lang", "warning", "m", 1, 0)
+_ERROR: Final[ConformanceMessage] = ConformanceMessage("img-missing-alt", "error", "m", 1, 0)
+
+
+_WARNING: Final[ConformanceMessage] = ConformanceMessage("missing-lang", "warning", "m", 1, 0)
 
 
 def test_the_filter_keeps_only_the_named_severity_in_order() -> None:
     assert _conformance_filter((_WARNING, _ERROR, _WARNING), "warning") == (_WARNING, _WARNING)
 
 
-class _Unlabelled(NamedTuple):
-    """A record whose severity is not a string, so it can never equal one."""
-
-    severity: int
-
-
 def test_the_filter_skips_a_message_whose_severity_is_not_a_str() -> None:
-    assert _conformance_filter((_Unlabelled(1), _ERROR), "error") == (_ERROR,)  # ty: ignore[invalid-argument-type]
+    assert _conformance_filter((_Unlabelled(1), _ERROR), "error") == (_ERROR,)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
+
+
+class _Unlabelled(NamedTuple):
+    # A record whose severity is not a string, so it can never equal one.
+    severity: int
 
 
 def test_the_filter_needs_a_severity_on_every_message() -> None:
     with pytest.raises(AttributeError):
-        _conformance_filter((object(),), "error")  # ty: ignore[invalid-argument-type]  # the attribute read is the point
+        _conformance_filter((_NotAMessage.SENTINEL,), "error")  # ty: ignore[invalid-argument-type]  # the attribute read is the point
+
+
+class _NotAMessage(Enum):
+    SENTINEL = auto()
 
 
 @pytest.mark.parametrize(
@@ -356,7 +380,9 @@ def test_the_filter_needs_a_severity_on_every_message() -> None:
         pytest.param(((_ERROR,), 1), id="severity-is-not-a-str"),
     ],
 )
-def test_the_filter_rejects_bad_arguments(args: tuple[object, ...]) -> None:
+def test_the_filter_rejects_bad_arguments(
+    args: tuple[list[ConformanceMessage], str] | tuple[tuple[ConformanceMessage], int],
+) -> None:
     with pytest.raises(TypeError):
         _conformance_filter(*args)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
@@ -365,7 +391,10 @@ def valid_doc(inner: str) -> str:
     return f"<!DOCTYPE html><html lang=en><head><title>Doc</title></head><body>{inner}</body></html>"
 
 
-_VNU_CASES: Final = [
+_VNU_JAR: Final[Path | None] = (
+    Path(_SPEC.origin).with_name("vnu.jar") if (_SPEC := find_spec("vnujar")) and _SPEC.origin else None
+)
+_VNU_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(valid_doc("<h1>Heading</h1><p>text</p>"), id="conforming"),
     pytest.param(valid_doc('<img src="x" alt="a cat">'), id="img-with-alt-conforming"),
     pytest.param(valid_doc("<img src=x>"), id="img-missing-alt"),
@@ -379,12 +408,14 @@ _VNU_CASES: Final = [
 
 @pytest.mark.parametrize("markup", _VNU_CASES)
 @pytest.mark.oracle
+@pytest.mark.skipif(
+    shutil.which("java") is None or _VNU_JAR is None or not _VNU_JAR.is_file(),
+    reason="a JRE and vnu.jar are required",
+)
 def test_conformance_verdict_matches_vnu(markup: str) -> None:
-    jar: Final = Path(pytest.importorskip("vnujar").__file__).parent / "vnu.jar"
-    if (java := shutil.which("java")) is None or not jar.is_file():
-        pytest.skip("a JRE and vnu.jar are required")
+    java: Final = cast("str", shutil.which("java"))
     completed: Final = subprocess.run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed Java arguments and in-repository markup
-        [java, "-jar", str(jar), "--format", "json", "--stdin", "-"],
+        [java, "-jar", str(_VNU_JAR), "--format", "json", "--stdin", "-"],
         input=markup.encode(),
         capture_output=True,
         check=False,
@@ -397,12 +428,15 @@ def test_conformance_verdict_matches_vnu(markup: str) -> None:
 @pytest.mark.parametrize(
     "depth", [pytest.param(1, id="single"), pytest.param(64, id="nested-64"), pytest.param(256, id="nested-256")]
 )
-@pytest.mark.parametrize("heading", [pytest.param(False, id="heading-free"), pytest.param(True, id="heading")])
-def test_conformance_nested_section_headings(depth: int, *, heading: bool) -> None:
-    content: Final = "<h2>Title</h2>" if heading else "<p>Text</p>"
-    assert codes(body("<section>" * depth + content + "</section>" * depth)) == (
-        [] if heading else ["section-no-heading"] * depth
-    )
+def test_conformance_nested_section_headings_with_heading(depth: int) -> None:
+    assert codes(body(f"{'<section>' * depth}<h2>Title</h2>{'</section>' * depth}")) == []
+
+
+@pytest.mark.parametrize(
+    "depth", [pytest.param(1, id="single"), pytest.param(64, id="nested-64"), pytest.param(256, id="nested-256")]
+)
+def test_conformance_nested_section_headings_without_heading(depth: int) -> None:
+    assert codes(body(f"{'<section>' * depth}<p>Text</p>{'</section>' * depth}")) == ["section-no-heading"] * depth
 
 
 @pytest.mark.parametrize(

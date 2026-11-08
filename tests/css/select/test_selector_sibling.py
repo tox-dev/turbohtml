@@ -1,5 +1,3 @@
-"""Sibling and descendant combinator walks over long sibling runs and deep chains: exact results on every API."""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final
@@ -11,6 +9,8 @@ from turbohtml.query import compile  # ruff:ignore[builtin-import-shadowing]  # 
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+    from _pytest.mark.structures import ParameterSet
 
 
 def _siblings(*runs: tuple[str, int], filled: Iterable[int] = ()) -> str:
@@ -31,12 +31,6 @@ def _ids(nodes: Iterable[Element | None]) -> list[str | None]:
 
 def _expected(*spans: range) -> list[str | None]:
     return [f"e{index}" for span in spans for index in span]
-
-
-def _element(html: str, element_id: str) -> Element:
-    found = parse(html).select_one(f"#{element_id}")
-    assert found is not None
-    return found
 
 
 @pytest.mark.parametrize(
@@ -203,7 +197,7 @@ def test_select_sibling_runs_in_separate_parents() -> None:
 
 def test_select_sibling_runs_nested_in_each_sibling() -> None:
     # preorder leaves each run for its children's runs and comes back, so answers for many parents interleave
-    run = "<b>" + "<i></i>" * 40 + "</b>"
+    run = f"<b>{'<i></i>' * 40}</b>"
     document = parse(f"<div>{run * 40}<a></a>{run * 40}</div>")
     assert [len(document.select(selector)) for selector in ("a ~ b > i", "b > i:first-child ~ i")] == [1600, 3120]
 
@@ -227,6 +221,12 @@ def test_prune_after_long_run() -> None:
 def test_scope_select_from_container() -> None:
     container = _element(_siblings(("b", 40), ("a", 1), ("b", 40)), "p")
     assert _ids(container.select(":scope > a ~ b")) == _expected(range(41, 81))
+
+
+def _element(html: str, element_id: str) -> Element:
+    found = parse(html).select_one(f"#{element_id}")
+    assert found is not None
+    return found
 
 
 @pytest.mark.parametrize(
@@ -288,7 +288,7 @@ def test_closest_long_run() -> None:
     assert _ids([inner.closest("a ~ b")]) == ["e60"]
 
 
-_DEEP = "<div>" * 300 + "<p id=leaf></p>"
+_DEEP: Final[str] = f"{'<div>' * 300}<p id=leaf></p>"
 
 
 @pytest.mark.parametrize(
@@ -308,7 +308,7 @@ def test_select_deep_descendant_chain(selector: str, expected: list[str | None])
     ("selector", "html"),
     [
         # the nearest ancestor fails on its siblings, a higher one does not
-        pytest.param("a ~ div p", "<div><a></a><div>" + "<div>" * 40 + "<p id=leaf></p>", id="general-sibling"),
+        pytest.param("a ~ div p", f"<div><a></a><div>{'<div>' * 40}<p id=leaf></p>", id="general-sibling"),
         pytest.param(
             "section > b ~ span em",
             "<section><b></b><span><div><b></b><span><em id=leaf></em></span></div></span></section>",
@@ -362,25 +362,35 @@ def test_select_nth_sibling_skips_nonmatching_elements() -> None:
     assert _ids(document.select("i:nth-child(odd of .x)")) == ["a", "c"]
 
 
-@pytest.mark.parametrize("selection_first", [False, True], ids=["match-first", "select-first"])
-@pytest.mark.parametrize(
-    ("selector", "expected"),
-    [
-        pytest.param("a ~ b", ["hit"], id="indexed"),
-        pytest.param(".x ~ .y", ["hit", "tail"], id="classes"),
-        pytest.param("a ~ b, a ~ p", ["hit", "tail"], id="different-subjects"),
-        pytest.param("q ~ b", [], id="missing-known-left"),
-        pytest.param("widget ~ b", [], id="unknown-left"),
-    ],
-)
-def test_select_sibling_mixed_api_cache(selector: str, expected: list[str], *, selection_first: bool) -> None:
+_SIBLING_CACHE_CASES: Final[list[ParameterSet]] = [
+    pytest.param("a ~ b", ["hit"], "hit", id="indexed"),
+    pytest.param(".x ~ .y", ["hit", "tail"], "hit", id="classes"),
+    pytest.param("a ~ b, a ~ p", ["hit", "tail"], "hit", id="different-subjects"),
+    pytest.param("q ~ b", [], None, id="missing-known-left"),
+    pytest.param("widget ~ b", [], None, id="unknown-left"),
+]
+
+
+@pytest.mark.parametrize(("selector", "expected", "first"), _SIBLING_CACHE_CASES)
+def test_select_sibling_mixed_api_cache(selector: str, expected: list[str], first: str | None) -> None:
     document: Final = parse("<div><a class=x></a><b class=y id=hit></b><p class=y id=tail></p></div>")
     target: Final = document.select("#hit")[0]
-    if selection_first:
-        document.select(selector)
     assert (
         target.matches(selector),
         _ids(document.select(selector)),
         _ids([document.select_one(selector)]),
         _ids([target.closest(selector)]),
-    ) == (bool(expected), expected, [expected[0] if expected else None], ["hit" if expected else None])
+    ) == (bool(expected), expected, [first], [first])
+
+
+@pytest.mark.parametrize(("selector", "expected", "first"), _SIBLING_CACHE_CASES)
+def test_select_sibling_mixed_api_cache_after_selection(selector: str, expected: list[str], first: str | None) -> None:
+    document: Final = parse("<div><a class=x></a><b class=y id=hit></b><p class=y id=tail></p></div>")
+    target: Final = document.select("#hit")[0]
+    document.select(selector)
+    assert (
+        target.matches(selector),
+        _ids(document.select(selector)),
+        _ids([document.select_one(selector)]),
+        _ids([target.closest(selector)]),
+    ) == (bool(expected), expected, [first], [first])

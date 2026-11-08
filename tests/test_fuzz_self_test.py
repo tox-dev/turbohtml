@@ -10,8 +10,8 @@ import os
 import re
 import sys
 from pathlib import Path
-from subprocess import run  # ruff: ignore[suspicious-subprocess-import] - libFuzzer owns a separate interpreter.
-from typing import TYPE_CHECKING, Final, cast
+from subprocess import CompletedProcess, run  # ruff: ignore[suspicious-subprocess-import] - libFuzzer owns a separate interpreter.
+from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast
 
 import pytest
 from fuzz.atheris_header import HEADER_SIZE, SEED_HEADER, Header
@@ -39,6 +39,7 @@ from turbohtml.clean import (
 )
 from turbohtml.conformance import check
 from turbohtml.cssom import StyleDeclaration, StyleSheet, computed_style
+from turbohtml.detect import Detection, EncodingDetector, EncodingMatch, detect_all
 from turbohtml.extract import normalize_url
 from turbohtml.migration.stdlib import HTMLParser
 from turbohtml.mutations import MutationObserver
@@ -50,15 +51,30 @@ from turbohtml.validate import RelaxNG, XMLSchema
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from _pytest.mark.structures import ParameterSet
+
+_Node: TypeAlias = "list[_Node | str | tuple[tuple[str, str | None], ...] | None]"
+
+
+_T = TypeVar("_T")
+_R = TypeVar("_R")
+
+
+class _Sweep(Protocol):
+    def __call__(
+        self, call: Callable[[_T], _R], setup: Callable[[], _T], valid: Callable[[_R], bool] = ...
+    ) -> list[str]: ...
+
+
 # numbers from three regions, an extension, an email and a URL, so a linkify walk splits the run into many nodes
-_TEXT: Final = (
+_TEXT: Final[str] = (
     "Call +1 650-253-0000 or (650) 253-0000 ext. 123, London +44 20 7946 0958, Berlin 030 123456, "
     "mail a@example.com or see https://example.com/x"
 )
-_PHONES: Final = PhoneNumbers(regions=("US", "GB", "DE"))
-_LINKER: Final = Linker(Linkify(phones=_PHONES, parse_email=True))
-_DETECTOR: Final = LinkDetector(phones=_PHONES)
-_NUMBER: Final = PhoneNumber.parse("+44 20 7946 0958")
+_PHONES: Final[PhoneNumbers] = PhoneNumbers(regions=("US", "GB", "DE"))
+_LINKER: Final[Linker] = Linker(Linkify(phones=_PHONES, parse_email=True))
+_DETECTOR: Final[LinkDetector] = LinkDetector(phones=_PHONES)
+_NUMBER: Final[PhoneNumber] = PhoneNumber.parse("+44 20 7946 0958")
 
 
 def _fragment() -> turbohtml.Node:
@@ -79,7 +95,7 @@ def _fragment() -> turbohtml.Node:
     ],
 )
 def test_phone_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[object], object], setup: Callable[[], object]
+    alloc_sweep: _Sweep, call: Callable[[_T], object], setup: Callable[[], _T]
 ) -> None:
     call(setup())  # fill the lazily built region tables first, so the sweep counts only the call's own allocations
     assert set(alloc_sweep(call, setup)) == {"MemoryError"}
@@ -88,16 +104,16 @@ def test_phone_allocation_failure_raises_memory_error(
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_SANITIZER: Final = Sanitizer(Policy.strict())
+_SANITIZER: Final[Sanitizer] = Sanitizer(Policy.strict())
 # Elements only: a text node would add a lazy text copy, which these tests do not target. The custom attribute names
 # make every copy intern them again in its own tree.
-_TREE: Final = "<b zq=1><i></i></b><x y=1></x>"
-_LONG_TEXT: Final = "a" * 8192
+_TREE: Final[str] = "<b zq=1><i></i></b><x y=1></x>"
+_LONG_TEXT: Final[str] = "a" * 8192
 # the input, the radio and the option carry enough attributes that adding value, checked or selected outgrows their
 # arena block
-_INPUT: Final = "<input a0=1 a1=1 a2=1>"
-_RADIO: Final = "<form id=f></form><input type=radio name=r form=f a=1 b=2 c=3 d=4 e=5 f=6 g=7>"
-_SELECT: Final = "<select><option value=a a0=1 a1=1></option></select>"
+_INPUT: Final[str] = "<input a0=1 a1=1 a2=1>"
+_RADIO: Final[str] = "<form id=f></form><input type=radio name=r form=f a=1 b=2 c=3 d=4 e=5 f=6 g=7>"
+_SELECT: Final[str] = "<select><option value=a a0=1 a1=1></option></select>"
 
 
 @pytest.mark.fuzz_build
@@ -121,61 +137,63 @@ _SELECT: Final = "<select><option value=a a0=1 a1=1></option></select>"
     ],
 )
 def test_dom_construction_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], markup: str, call: Callable[[turbohtml.Node], object]
+    alloc_sweep: _Sweep, markup: str, call: Callable[[turbohtml.Node], object]
 ) -> None:
     assert set(alloc_sweep(call, lambda: turbohtml.parse_fragment(markup))) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_source_location_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_source_location_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
         alloc_sweep(
-            lambda element: cast("turbohtml.Element", element).source_location,
+            lambda element: element.source_location,
             lambda: cast("turbohtml.Element", parse("<p a=x b=y>text</p>", source_locations=True).find("p")),
+        )
+    ) == {"MemoryError"}
+
+
+@pytest.mark.fuzz_build
+def test_treebuild_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
+    assert set(
+        alloc_sweep(
+            lambda _: parse_into("<!doctype html><?target data><p a=x>text</p>", _AllocationTreeBuilder()), lambda: None
         )
     ) == {"MemoryError"}
 
 
 class _AllocationTreeBuilder:
     @staticmethod
-    def create_document() -> list[object]:
+    def create_document() -> _Node:
         return []
 
     @staticmethod
-    def create_doctype(name: str, public_id: str | None, system_id: str | None) -> list[object]:
+    def create_doctype(name: str, public_id: str | None, system_id: str | None) -> _Node:
         return [name, public_id, system_id]
 
     @staticmethod
-    def create_element(name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> list[object]:
+    def create_element(name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> _Node:
         return [name, namespace, attrs]
 
     @staticmethod
-    def create_text(data: str) -> list[object]:
+    def create_text(data: str) -> _Node:
         return [data]
 
     @staticmethod
-    def create_comment(data: str) -> list[object]:
+    def create_comment(data: str) -> _Node:
         return [data]
 
     @staticmethod
-    def create_pi(target: str, data: str) -> list[object]:
+    def create_pi(target: str, data: str) -> _Node:
         return [target, data]
 
     @staticmethod
-    def append(parent: list[object], child: list[object]) -> None:
+    def append(parent: _Node, child: _Node) -> None:
         parent.append(child)
 
 
 @pytest.mark.fuzz_build
-def test_treebuild_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    assert set(
-        alloc_sweep(lambda _: parse_into("<!doctype html><?target data><p a=x>text</p>", _AllocationTreeBuilder()))
-    ) == {"MemoryError"}
-
-
-@pytest.mark.fuzz_build
-def test_conformance_lazy_text_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    assert set(alloc_sweep(check, lambda: parse("<title>" + "a" * 8192 + "</title>"))) == {"MemoryError"}
+def test_conformance_lazy_text_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
+    assert set(alloc_sweep(check, lambda: parse(f"<title>{'a' * 8192}</title>"))) == {"MemoryError"}
 
 
 if TYPE_CHECKING:
@@ -187,7 +205,7 @@ if TYPE_CHECKING:
 # and a noncharacter for the preprocessing scan (in a wide and a one-byte str, which it reads on separate paths), a
 # duplicate attribute and a NUL reference for the tokenizer, and a second doctype and a self-closed div for the tree
 # builder.
-_SEEDS: Final = {
+_SEEDS: Final[dict[str, str]] = {
     "control-wide": "\x01\ufdd0<!DOCTYPE html>",
     "control-one-byte": "\x01\xa0<!DOCTYPE html>",
     "duplicate-attribute": "<!DOCTYPE html><p a=1 a=2>",
@@ -224,24 +242,24 @@ def _streamed(seed: str) -> list[ParseError]:
     ],
 )
 def test_parse_error_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[str], object], seed: str
+    alloc_sweep: _Sweep, call: Callable[[str], object], seed: str
 ) -> None:
-    assert set(alloc_sweep(lambda _: call(seed))) == {"MemoryError"}
+    assert set(alloc_sweep(lambda _: call(seed), lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
 def test_xml_parse_error_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]],
+    alloc_sweep: _Sweep,
 ) -> None:
-    def parse_malformed(_: object) -> None:
+    def parse_malformed(_: None) -> None:
         with contextlib.suppress(turbohtml.HTMLParseError):
             turbohtml.parse_xml("<a><b></a>")
 
-    assert set(alloc_sweep(parse_malformed)) == {"MemoryError"}
+    assert set(alloc_sweep(parse_malformed, lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_parse_error_read_retries_after_allocation_failure(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_parse_error_read_retries_after_allocation_failure(alloc_sweep: _Sweep) -> None:
     # the first read of Document.errors merges the preprocessing errors; a read that failed to allocate leaves them
     # unmerged, so the next read returns the complete list
     seed = _SEEDS["control-wide"]
@@ -263,15 +281,15 @@ if TYPE_CHECKING:
 
 # duplicate and dynamic attribute names, a non-ASCII name, leading text and a misnested formatting run reach the
 # attribute sink, the dynamic name table, the text copy and the open-element stack
-_SEED: Final = "  x<p zq=1 zq=2 \u00e9t\u00e9=3>t</p><b><i>u</b>v<table><td>w"
+_SEED: Final[str] = "  x<p zq=1 zq=2 \u00e9t\u00e9=3>t</p><b><i>u</b>v<table><td>w"
 # a selected option fills the select's selectedcontent cache, which the parse allocates on first use
-_ALLOC_TREE_BUILDER_SELECT: Final = (
+_ALLOC_TREE_BUILDER_SELECT: Final[str] = (
     "<select><button><selectedcontent></selectedcontent></button><option selected>a</option></select>"
 )
 # text that opens no element: the implied html, head and body and the text run allocate in one token
-_UNCLOSED: Final = "d>\n (min-width: 600px) { .grid {"
+_UNCLOSED: Final[str] = "d>\n (min-width: 600px) { .grid {"
 # namespaced and plain attribute names the XML parser interns into the tree's dynamic table
-_STYLESHEET: Final = (
+_STYLESHEET: Final[str] = (
     '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
     '<xsl:param name="value"/><xsl:template match="/"><xsl:value-of select="$value"/></xsl:template></xsl:stylesheet>'
 )
@@ -299,16 +317,15 @@ _STYLESHEET: Final = (
     ],
 )
 def test_tokenizer_consumer_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[object], object]
+    alloc_sweep: _Sweep, call: Callable[[None], object]
 ) -> None:
-    assert set(alloc_sweep(call)) == {"MemoryError"}
+    assert set(alloc_sweep(call, lambda: None)) == {"MemoryError"}
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-# the stubs describe the production module, which lacks the hook
-_VERIFY_BROKEN: Final[Callable[[str], tuple[int, int, int, int]]] = vars(_html)["_fuzz_verify_broken"]
+_VERIFY_BROKEN: Final[Callable[[str], tuple[int, int, int, int]]] = _html._fuzz_verify_broken
 
 
 @pytest.mark.fuzz_build
@@ -369,14 +386,12 @@ _MINIFY_JS: Final[Html] = Html(layout=Minify(minify_js=JSMinify()))
         pytest.param(lambda: minify_js(";;;;;a(); b(); c();"), id="fold-allocation"),
     ],
 )
-def test_js_minify_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[], object]
-) -> None:
-    assert set(alloc_sweep(lambda _: call())) == {"MemoryError"}
+def test_js_minify_allocation_failure_raises_memory_error(alloc_sweep: _Sweep, call: Callable[[], object]) -> None:
+    assert set(alloc_sweep(lambda _: call(), lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_html_js_minify_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_html_js_minify_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(alloc_sweep(lambda document: document.serialize(_MINIFY_JS), _page)) == {"MemoryError"}
 
 
@@ -405,23 +420,19 @@ if TYPE_CHECKING:
         ),
     ],
 )
-def test_markdown_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], markup: str, options: Markdown
-) -> None:
+def test_markdown_allocation_failure_raises_memory_error(alloc_sweep: _Sweep, markup: str, options: Markdown) -> None:
     assert set(alloc_sweep(lambda document: document.to_markdown(options), lambda: turbohtml.parse(markup))) == {
         "MemoryError"
     }
 
 
 @pytest.mark.fuzz_build
-def test_markdown_marker_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_markdown_marker_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     markup = (
         "<ul>e>sa}ff; b<b>backgr .pic><br><<d</b>.</p>\n.png) }\n co\x00\x00\x00\x00uote><rl( }\n"
         " co\x00\x00\x00\x00uote><><"
     )
-    assert set(
-        alloc_sweep(lambda document: cast("turbohtml.Document", document).to_markdown(), lambda: parse(markup))
-    ) == {"MemoryError"}
+    assert set(alloc_sweep(lambda document: document.to_markdown(), lambda: parse(markup))) == {"MemoryError"}
 
 
 if TYPE_CHECKING:
@@ -429,8 +440,7 @@ if TYPE_CHECKING:
 
     from turbohtml import Node
 
-# the stubs describe the production module, which lacks the hook
-_ESCAPE_ITERATORS: Final[Callable[[Node], int]] = vars(_html)["_fuzz_escape_iterators"]
+_ESCAPE_ITERATORS: Final[Callable[[Node], int]] = _html._fuzz_escape_iterators
 
 
 @pytest.mark.fuzz_build
@@ -462,7 +472,7 @@ _ALLOC_CSS_MINIFY_STYLESHEET: Final[str] = (
 # one selector repeated with a new property each time, so each merge re-renders a longer body into the pool
 _MERGES: Final[str] = "".join(f".m{{margin-{side}:{index}px}}" for index, side in enumerate(["top", "left"] * 12))
 # enough declarations that the dedup table outgrows its stack slots
-_DECLARATIONS: Final[str] = ";".join(f"--p{index}:{index}px" for index in range(300)) + ";color:#ff0000;margin:0 0 0 0"
+_DECLARATIONS: Final[str] = f"{';'.join(f'--p{index}:{index}px' for index in range(300))};color:#ff0000;margin:0 0 0 0"
 _ALLOC_CSS_MINIFY_PAGE: Final[str] = (
     f"<style>{_ALLOC_CSS_MINIFY_STYLESHEET}</style><p style='margin:0 0 0 0;color:#ff0000'>x</p>"
 )
@@ -486,14 +496,12 @@ _MINIFY_CSS: Final[Html] = Html(layout=Minify(minify_css=CSSMinify()))
         pytest.param(lambda: minify_css(".a{width:max( + )}"), id="math-operator"),
     ],
 )
-def test_css_minify_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[], object]
-) -> None:
-    assert set(alloc_sweep(lambda _: call())) == {"MemoryError"}
+def test_css_minify_allocation_failure_raises_memory_error(alloc_sweep: _Sweep, call: Callable[[], object]) -> None:
+    assert set(alloc_sweep(lambda _: call(), lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_html_css_minify_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_html_css_minify_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(alloc_sweep(lambda document: document.serialize(_MINIFY_CSS), _alloc_css_minify_page)) == {"MemoryError"}
 
 
@@ -507,29 +515,23 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-# only the fuzz-only build (meson -Dfuzzing=true) defines the hook, so the stubs omit it
-_HOOKS: Final = vars(importlib.import_module("turbohtml._html"))
-
-
 @pytest.fixture
-def alloc_sweep() -> Callable[..., list[str]]:
-    """
-    Fail each PyMem allocation of a call in turn and name what each failure produced.
-
-    A count-only run (position 0) measures the call's allocations, then runs 1..N each fail one of them, the failure
-    libxml2's fuzzers inject at one chosen position (``xmlFuzzInjectFailure`` in its ``fuzz/fuzz.c``). Each entry is
-    the escaping exception's name or ``result``, with a suffix when the injected failure never fired. ``setup`` builds
-    a fresh argument for each run outside the injection window, so a cache the first run fills cannot shift later
-    positions.
-    """
-    if "_fuzz_inject_failure" not in _HOOKS:
+def alloc_sweep() -> _Sweep:
+    # Fail each PyMem allocation of a call in turn and name what each failure produced.
+    #
+    # A count-only run (position 0) measures the call's allocations, then runs 1..N each fail one of them, the failure
+    # libxml2's fuzzers inject at one chosen position (``xmlFuzzInjectFailure`` in its ``fuzz/fuzz.c``). Each entry is
+    # the escaping exception's name or ``result``, with a suffix when the injected failure never fired. ``setup`` builds
+    # a fresh argument for each run outside the injection window, so a cache the first run fills cannot shift later
+    # positions.
+    if not hasattr(_html, "_fuzz_inject_failure"):
         pytest.fail("fuzz-build tests need the fuzz-only build: meson setup -Dfuzzing=true")
-    inject: Final[Callable[[int], tuple[int, bool]]] = _HOOKS["_fuzz_inject_failure"]
+    inject: Final[Callable[[int], tuple[int, bool]]] = _html._fuzz_inject_failure
 
     def sweep(
-        call: Callable[[object], object],
-        setup: Callable[[], object] = lambda: None,
-        valid: Callable[[object], bool] = lambda _: True,
+        call: Callable[[_T], _R],
+        setup: Callable[[], _T],
+        valid: Callable[[_R], bool] = lambda _: True,
     ) -> list[str]:
         argument = setup()
         inject(0)
@@ -555,14 +557,14 @@ def alloc_sweep() -> Callable[..., list[str]]:
 
 
 @pytest.mark.fuzz_build
-def test_xpath_compilation_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_xpath_compilation_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
         alloc_sweep(lambda document: document.xpath("./r/value"), lambda: parse_xml("<r><value>x</value></r>"))
     ) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_xslt_compilation_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_xslt_compilation_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     stylesheet = parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
         '<xsl:template match="/"><xsl:value-of select="/r/value"/></xsl:template>'
@@ -572,7 +574,7 @@ def test_xslt_compilation_allocation_failure_raises_memory_error(alloc_sweep: Ca
 
 
 @pytest.mark.fuzz_build
-def test_xslt_parameter_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_xslt_parameter_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     stylesheet = parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
         '<xsl:param name="value"/><xsl:template match="/"><xsl:value-of select="$value"/>'
@@ -585,7 +587,7 @@ def test_xslt_parameter_allocation_failure_raises_memory_error(alloc_sweep: Call
 
 
 @pytest.mark.fuzz_build
-def test_xslt_number_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_xslt_number_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     stylesheet = parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
         '<xsl:template match="/"><xsl:for-each select="/r/p"><xsl:number count="p"/></xsl:for-each></xsl:template>'
@@ -595,7 +597,7 @@ def test_xslt_number_allocation_failure_raises_memory_error(alloc_sweep: Callabl
 
 
 # lazily built defines and every name class form, so both the compile and the validation derivatives allocate patterns
-_RELAXNG: Final = (
+_RELAXNG: Final[str] = (
     '<grammar xmlns="http://relaxng.org/ns/structure/1.0" '
     'datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes"><start><ref name="doc"/></start>'
     '<define name="doc"><element name="doc"><attribute name="id"><data type="int">'
@@ -605,7 +607,7 @@ _RELAXNG: Final = (
     '<element><anyName><except><choice><name>c</name><nsName ns="urn:p"/></choice></except></anyName><empty/>'
     "</element></optional></mixed></element></define></grammar>"
 )
-_RELAXNG_SCHEMA: Final = RelaxNG(_RELAXNG)
+_RELAXNG_SCHEMA: Final[RelaxNG] = RelaxNG(_RELAXNG)
 
 
 @pytest.mark.fuzz_build
@@ -621,14 +623,14 @@ _RELAXNG_SCHEMA: Final = RelaxNG(_RELAXNG)
     ],
 )
 def test_relaxng_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[object], object], setup: Callable[[], object]
+    alloc_sweep: _Sweep, call: Callable[[_T], object], setup: Callable[[], _T]
 ) -> None:
     assert set(alloc_sweep(call, setup)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_url_normalization_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    assert set(alloc_sweep(lambda _: normalize_url("http://example.com/a"))) == {"MemoryError"}
+def test_url_normalization_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
+    assert set(alloc_sweep(lambda _: normalize_url("http://example.com/a"), lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
@@ -639,19 +641,18 @@ def test_url_normalization_allocation_failure_raises_memory_error(alloc_sweep: C
         pytest.param(lambda _: StyleSheet("p { color: red; margin: 0 }"), id="stylesheet"),
     ],
 )
-def test_cssom_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[object], object]
-) -> None:
-    assert set(alloc_sweep(call)) == {"MemoryError"}
+def test_cssom_allocation_failure_raises_memory_error(alloc_sweep: _Sweep, call: Callable[[None], object]) -> None:
+    assert set(alloc_sweep(call, lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_detect_rank_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    options: Final = detect.Detection()
-    expected: Final = detect.detect_all(b"\xef\xbb\xbftext", options)
+def test_detect_rank_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
+    options: Final = Detection()
+    expected: Final = detect_all(b"\xef\xbb\xbftext", options)
     outcomes: Final = set(
         alloc_sweep(
-            lambda _: detect.detect_all(b"\xef\xbb\xbftext", options),
+            lambda _: detect_all(b"\xef\xbb\xbftext", options),
+            lambda: None,
             valid=lambda result: result == expected,
         )
     )
@@ -660,45 +661,45 @@ def test_detect_rank_allocation_failure_raises_memory_error(alloc_sweep: Callabl
 
 
 @pytest.mark.fuzz_build
-def test_detect_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    assert set(alloc_sweep(lambda _: detect.detect(b"\xef\xbb\xbftext"))) == {"MemoryError"}
+def test_detect_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
+    assert set(alloc_sweep(lambda _: detect.detect(b"\xef\xbb\xbftext"), lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_detect_stream_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    def detect_stream(_: object) -> detect.EncodingMatch:
-        detector = detect.EncodingDetector()
+def test_detect_stream_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
+    def detect_stream(_: None) -> EncodingMatch:
+        detector = EncodingDetector()
         detector.feed(b"\xef\xbb\xbftext")
         return detector.close()
 
-    assert set(alloc_sweep(detect_stream)) == {"MemoryError"}
+    assert set(alloc_sweep(detect_stream, lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_structured_data_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_structured_data_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
         alloc_sweep(
-            lambda document: cast("turbohtml.Document", document).structured_data(),
+            lambda document: document.structured_data(),
             lambda: parse('<div itemscope typeof="Thing"><meta property="name" content="x"></div>'),
         )
     ) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_microdata_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_microdata_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
         alloc_sweep(
-            lambda document: cast("turbohtml.Document", document).microdata(),
+            lambda document: document.microdata(),
             lambda: parse('<div itemscope><span itemprop="name">x</span></div>'),
         )
     ) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_feed_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_feed_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
         alloc_sweep(
-            lambda document: cast("turbohtml.Document", document).feed(),
+            lambda document: document.feed(),
             lambda: parse_xml(
                 '<rss version="2.0"><channel><title>x</title><item><title>y</title></item></channel></rss>'
             ),
@@ -708,26 +709,20 @@ def test_feed_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., 
 
 @pytest.mark.fuzz_build
 @pytest.mark.parametrize("annotated", [False, True], ids=["plain", "annotated"])
-def test_text_table_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], *, annotated: bool
-) -> None:
+def test_text_table_allocation_failure_raises_memory_error(alloc_sweep: _Sweep, *, annotated: bool) -> None:
     assert set(
         alloc_sweep(
-            lambda document: (
-                cast("turbohtml.Document", document).to_annotated_text({"a": ("link",)})
-                if annotated
-                else cast("turbohtml.Document", document).to_text()
-            ),
-            lambda: parse("<table><tr><td>" + "word " * 100 + "</td></tr></table>"),
+            lambda document: document.to_annotated_text({"a": ("link",)}) if annotated else document.to_text(),
+            lambda: parse(f"<table><tr><td>{'word ' * 100}</td></tr></table>"),
         )
     ) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_text_list_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_text_list_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
         alloc_sweep(
-            lambda document: cast("turbohtml.Document", document).to_text(),
+            lambda document: document.to_text(),
             lambda: parse(
                 "<ul><li>one</li><li>two</li></ul><m\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00"
                 "</r/\x00\x10\x00\x00>cite</blockquote>\n"
@@ -737,12 +732,14 @@ def test_text_list_allocation_failure_raises_memory_error(alloc_sweep: Callable[
 
 
 @pytest.mark.fuzz_build
-def test_foreign_attributes_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    assert set(alloc_sweep(lambda _: parse("<svg viewbox='0 0 1 1' data-custom='x'></svg>"))) == {"MemoryError"}
+def test_foreign_attributes_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
+    assert set(alloc_sweep(lambda _: parse("<svg viewbox='0 0 1 1' data-custom='x'></svg>"), lambda: None)) == {
+        "MemoryError"
+    }
 
 
 @pytest.mark.fuzz_build
-def test_computed_style_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_computed_style_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     def setup() -> turbohtml.Element:
         return cast(
             "turbohtml.Element", parse("<style>:unknown{color:red}p{color:blue}</style><p>x</p>").select_one("p")
@@ -757,7 +754,7 @@ def test_computed_style_allocation_failure_raises_memory_error(alloc_sweep: Call
     [pytest.param(lambda node: node.data, id="data"), pytest.param(lambda node: node.text, id="text")],
 )
 def test_text_access_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[turbohtml.Text], object]
+    alloc_sweep: _Sweep, call: Callable[[turbohtml.Text], object]
 ) -> None:
     assert set(alloc_sweep(call, lambda: cast("turbohtml.Text", turbohtml.parse_fragment("a" * 8192).children[0]))) == {
         "MemoryError"
@@ -765,7 +762,7 @@ def test_text_access_allocation_failure_raises_memory_error(
 
 
 @pytest.mark.fuzz_build
-def test_element_text_assignment_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_element_text_assignment_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
         alloc_sweep(
             lambda node: setattr(node, "text", _LONG_TEXT),
@@ -786,7 +783,7 @@ def test_element_text_assignment_allocation_failure_raises_memory_error(alloc_sw
     ],
 )
 def test_lazy_text_serialization_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[turbohtml.Node], object]
+    alloc_sweep: _Sweep, call: Callable[[turbohtml.Node], object]
 ) -> None:
     assert set(alloc_sweep(call, lambda: turbohtml.parse_fragment(f"<p>{'text' * 2048}</p>").children[0])) == {
         "MemoryError"
@@ -798,7 +795,7 @@ if TYPE_CHECKING:
 
 # three compounds, two arms, a forgiving :is() list and a relative :has() argument grow every parser buffer; the
 # tag-subject selectors build the document's element index
-_SELECTOR: Final = "main > p[zq] a, :is(b, i, [zq]) :has(> a)"
+_SELECTOR: Final[str] = "main > p[zq] a, :is(b, i, [zq]) :has(> a)"
 
 
 def _document() -> turbohtml.Document:
@@ -819,17 +816,17 @@ def _document() -> turbohtml.Document:
     ],
 )
 def test_selector_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[turbohtml.Document], object]
+    alloc_sweep: _Sweep, call: Callable[[turbohtml.Document], object]
 ) -> None:
     assert set(alloc_sweep(call, _document)) == {"MemoryError"}
 
 
-_AB: Final = re.compile(r"ab")
+_AB: Final[re.Pattern[str]] = re.compile(r"ab")
 # more code points than the largest arena block holds, so realizing the span always allocates
-_BIG: Final = "a" * 70_000
+_BIG: Final[str] = "a" * 70_000
 
 
-def _markdown(markup: str, name: str) -> object:
+def _markdown(markup: str, name: str) -> ParameterSet:
     return pytest.param(lambda node: node.to_markdown(), lambda: parse(markup), id=f"markdown-{name}")
 
 
@@ -925,13 +922,13 @@ def _range(*, across: bool) -> turbohtml.Range:
     ],
 )
 def test_lazy_text_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[turbohtml.Node], object], setup: Callable[[], object]
+    alloc_sweep: _Sweep, call: Callable[[turbohtml.Node], object], setup: Callable[[], turbohtml.Node]
 ) -> None:
     assert set(alloc_sweep(call, setup)) == {"MemoryError"}
 
 
-_ARTICLE: Final = f"<html><body><article><p>{_BIG},</p></article></body></html>"
-_EMPTY_CONTENT: Final = XMLSchema(
+_ARTICLE: Final[str] = f"<html><body><article><p>{_BIG},</p></article></body></html>"
+_EMPTY_CONTENT: Final[XMLSchema] = XMLSchema(
     '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
     '<xs:element name="r"><xs:complexType><xs:sequence/></xs:complexType></xs:element>'
     "</xs:schema>"
@@ -973,7 +970,7 @@ def _collapse_after_failed_render(document: turbohtml.Document) -> str:
     ],
 )
 def test_lazy_text_allocation_failure_raises_or_keeps_result(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[object], object], setup: Callable[[], object]
+    alloc_sweep: _Sweep, call: Callable[[_T], object], setup: Callable[[], _T]
 ) -> None:
     # these walks already shrug off some failures they cannot report (a dropped readability candidate or mutation
     # record), so a run may still succeed; it must then match the unfailed result
@@ -988,9 +985,9 @@ if TYPE_CHECKING:
 
     from turbohtml import Document
 
-_SIBLINGS: Final = parse_xml("<r>" + "<a/>" * 100 + "</r>")
-_NESTED: Final = "count(//a[count(//a[count(//a) > 0]) > 0])"
-_DOUBLING: Final = parse_xml(
+_SIBLINGS: Final[Document] = parse_xml(f"<r>{'<a/>' * 100}</r>")
+_NESTED: Final[str] = "count(//a[count(//a[count(//a) > 0]) > 0])"
+_DOUBLING: Final[Document] = parse_xml(
     '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
     '<xsl:output method="text"/><xsl:param name="depth"/>'
     '<xsl:template match="/"><xsl:call-template name="split">'
@@ -1061,13 +1058,12 @@ def _value_of_sheet(expression: str) -> Document:
 
 
 if TYPE_CHECKING:
-    from typing import Protocol
 
     class _Runtime(Protocol):
         def path(self) -> str: ...
 
 
-_CONSUME: Final = """
+_CONSUME: Final[str] = """
 import sys
 from pathlib import Path
 from typing import Final
@@ -1076,10 +1072,10 @@ from fuzz.atheris_targets import public_targets
 _TARGET: Final = next(target for target in public_targets() if target.name == sys.argv[1])
 header, payload = split_header(Path(sys.argv[2]).read_bytes())
 _TARGET.run(payload, header)
-"""
+"""  # simplint: ignore[SMP202]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
 
 # the window results go to preallocated slots, since an append would allocate inside the window and take the failure
-_FAIL: Final = """
+_FAIL: Final[str] = """
 import sys
 from pathlib import Path
 from fuzz.atheris_runtime import failure_hook, rejecting_callback
@@ -1101,7 +1097,7 @@ assert windows[1][1], windows
 """
 
 
-_LIST: Final = """
+_LIST: Final[str] = """
 import json
 from fuzz.generation_targets import encoding_observation, generation_targets
 assert encoding_observation(b"<p>\\xe9</p>", "windows-1252") == "é"
@@ -1110,14 +1106,28 @@ assert [target.name for target in generation_targets("windows-1252")] == [
 ]
 from fuzz.atheris_targets import owner_inventory, public_targets
 print(json.dumps({"owners": len(owner_inventory()), "targets": [target.name for target in public_targets()]}))
-"""
+"""  # simplint: ignore[SMP202]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
+
+
+_GENERATION_COUNTS: Final[dict[str, list[str]]] = {
+    "encoding": ["--count", "0", "--sweep"]
+}  # simplint: ignore[SMP202]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
+_FALLBACK_PAYLOADS: Final[dict[str, bytes]] = {
+    "css-translate": b"p.x",
+    "javascript": b'consume("kept",external);',
+}  # simplint: ignore[SMP202]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
+
+
+_NATIVE_ATHERIS_SKIP: Final[pytest.MarkDecorator] = pytest.mark.skipif(
+    sys.platform != "linux" or importlib.util.find_spec("atheris") is None,
+    reason="Atheris's native runtime requires its optional Linux wheel",
+)
 
 
 @pytest.mark.atheris_native
 @pytest.mark.oracle
+@_NATIVE_ATHERIS_SKIP
 def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> None:
-    if sys.platform != "linux" or importlib.util.find_spec("atheris") is None:
-        pytest.skip("Atheris's native runtime requires its optional Linux wheel")
     runtime: Final = cast("_Runtime", importlib.import_module("atheris"))
     library: Final = build_runtime(Path(runtime.path()) / "libclang_rt.fuzzer_no_main.a", tmp_path / "runtime")
     environment: Final = {
@@ -1134,10 +1144,17 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
         check=True,
     )
     targets: Final = json.loads(inventory.stdout)
-    assert (targets["owners"], len(targets["targets"])) == (223, 34)
+    assert (targets["owners"], len(targets["targets"])) == (227, 34)
     generated_seeds: Final[dict[str, bytes]] = {}
-    for profile in ("html", "xml", "css-stylesheet", "markdown-source", "markdown-html", "encoding"):
-        generated: Final = tmp_path / ("generated-" + profile)
+    for profile in (  # simplint: ignore[SMP813]  # one seed map is shared by later per-target runs
+        "html",
+        "xml",
+        "css-stylesheet",
+        "markdown-source",
+        "markdown-html",
+        "encoding",
+    ):
+        generated: Final = tmp_path / (f"generated-{profile}")
         run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed interpreter and finite production sweep.
             [
                 sys.executable,
@@ -1145,24 +1162,24 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
                 "fuzz.atheris_corpora",
                 "--profile",
                 profile,
-                *(["--count", "0", "--sweep"] if profile == "encoding" else ["--count", "1"]),
+                *_GENERATION_COUNTS.get(profile, ["--count", "1"]),
                 "--budget",
                 "512",
                 "--output",
                 str(generated),
             ],
-            env={**environment, "GCOV_PREFIX": str(tmp_path / (profile + "-generation-gcda"))},
+            env={**environment, "GCOV_PREFIX": str(tmp_path / (f"{profile}-generation-gcda"))},
             capture_output=True,
             check=True,
         )
         generated_manifest: Final = json.loads((generated / "manifest.json").read_text())
         assert generated_manifest["entries"]
         assert not generated_manifest["rejected"]
-        for generated_entry in generated_manifest["entries"]:
-            if generated_entry["encoding"] is None or (
-                generated_entry["encoding"] == "UTF-8" and not generated_entry["sniff"]
-            ):
-                generated_seeds[generated_entry["target"]] = (generated / generated_entry["file"]).read_bytes()
+        generated_seeds.update({
+            entry["target"]: (generated / entry["file"]).read_bytes()
+            for entry in generated_manifest["entries"]
+            if entry["encoding"] is None or (entry["encoding"] == "UTF-8" and not entry["sniff"])
+        })
     assert {
         "html-tokenizer",
         "xml-schema",
@@ -1178,17 +1195,7 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
     for target in targets["targets"]:
         corpus: Final = tmp_path / target
         corpus.mkdir()
-        seed: Final = generated_seeds.get(
-            target,
-            SEED_HEADER
-            + (
-                b"p.x"
-                if target == "css-translate"
-                else b'consume("kept",external);'
-                if target == "javascript"
-                else "水😀".encode()
-            ),
-        )
+        seed: Final = generated_seeds.get(target, SEED_HEADER + _FALLBACK_PAYLOADS.get(target, "水😀".encode()))
         (corpus / "utf8").write_bytes(seed)
         counters: Final = tmp_path / f"{target}-gcda"
         run(  # ruff: ignore[subprocess-without-shell-equals-true] - public callback and private native counters.
@@ -1236,14 +1243,13 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
             "corpus": str(corpus),
             "native_counter_files": len(native_counters),
         }
-    (tmp_path / "public-targets.json").write_text(json.dumps(outcomes, indent=2) + "\n", encoding="utf-8")
+    (tmp_path / "public-targets.json").write_text(f"{json.dumps(outcomes, indent=2)}\n", encoding="utf-8")
 
 
 @pytest.mark.atheris_native
 @pytest.mark.oracle
+@_NATIVE_ATHERIS_SKIP
 def test_atheris_failure_header_reaches_allocator_hook(tmp_path: Path) -> None:
-    if sys.platform != "linux" or importlib.util.find_spec("atheris") is None:
-        pytest.skip("Atheris's native runtime requires its optional Linux wheel")
     runtime: Final = cast("_Runtime", importlib.import_module("atheris"))
     library: Final = build_runtime(Path(runtime.path()) / "libclang_rt.fuzzer_no_main.a", tmp_path / "runtime")
     # the header fails the first PyMem allocation, and the callback must answer with MemoryError
@@ -1262,7 +1268,7 @@ def test_atheris_failure_header_reaches_allocator_hook(tmp_path: Path) -> None:
     )
 
 
-_TARGET: Final = """
+_TARGET: Final[str] = """
 from __future__ import annotations
 
 import ctypes
@@ -1290,7 +1296,9 @@ def consume(data: bytes) -> None:
         raise UnicodeError("documented control")
 """
 
-_CHILD: Final = """
+
+def _run_native_child(tmp_path: Path, mode: str) -> tuple[CompletedProcess[bytes], Path]:
+    child_source: str = """
 from __future__ import annotations
 
 import sys
@@ -1308,7 +1316,7 @@ def mutate(data: bytes, max_size: int, seed: int) -> bytes:
 
 
 fuzz(
-    [Target("benign", consume, ("capability_target.consume",), (UnicodeError,))],
+    [Target(name="benign", callback=consume, exports=("capability_target.consume",), exceptions=(UnicodeError,))],
     ["capability_target"],
     "benign",
     [
@@ -1323,19 +1331,11 @@ fuzz(
     custom_mutator=None if sys.argv[2] == "default" else mutate,
 )
 """
-
-
-@pytest.mark.atheris_native
-@pytest.mark.oracle
-def test_atheris_native_corpus_rejection(tmp_path: Path) -> None:
-    if sys.platform != "linux" or importlib.util.find_spec("atheris") is None:
-        pytest.skip("Atheris's released runtime requires Linux and its optional wheel")
-    runtime = cast("_Runtime", importlib.import_module("atheris"))
-    archive = Path(runtime.path()) / "libclang_rt.fuzzer_no_main.a"
+    archive = Path(cast("_Runtime", importlib.import_module("atheris")).path()) / "libclang_rt.fuzzer_no_main.a"
     library = build_runtime(archive, tmp_path / "build", coverage=True)
     (tmp_path / "capability_target.py").write_text(_TARGET, encoding="utf-8")
     child = tmp_path / "child.py"
-    child.write_text(_CHILD, encoding="utf-8")
+    child.write_text(child_source, encoding="utf-8")
     environment = {
         **os.environ,
         "LD_PRELOAD": str(library),
@@ -1345,27 +1345,57 @@ def test_atheris_native_corpus_rejection(tmp_path: Path) -> None:
     seeds = tmp_path / "seeds"
     seeds.mkdir()
     (seeds / "seed").write_bytes(SEED_HEADER + b"SEED")
-    corpora: dict[str, list[str]] = {}
-    for mode in ("accept", "reject", "mixed", "reset", "default", "unexpected"):
-        corpus = tmp_path / f"{mode}-corpus"
-        corpus.mkdir()
-        result = run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed interpreter and local control.
-            [sys.executable, str(child), str(corpus), mode, str(seeds)],
-            env={**environment, "ATHERIS_CONTROL_MODE": mode},
-            capture_output=True,
-            check=False,
-        )
-        (tmp_path / f"{mode}.log").write_bytes(result.stdout + result.stderr)
-        assert b"ATHERIS_REJECTION_BRIDGE=1" in result.stderr
-        assert b"Coverage symbols are being provided by a library other than libFuzzer" not in result.stderr
-        if mode == "unexpected":
-            assert result.returncode != 0
-            assert b"RuntimeError: unexpected control" in result.stdout + result.stderr
-        else:
-            assert result.returncode == 0
-            assert b"Done 64" in result.stderr
-            if mode != "default":
-                assert b"ATHERIS_CUSTOM_MUTATOR_BRIDGE=1" in result.stderr
-                corpora[mode] = sorted({path.read_bytes()[HEADER_SIZE:].decode("ascii") for path in corpus.iterdir()})
-    (tmp_path / "corpora.json").write_text(json.dumps(corpora), encoding="utf-8")
-    assert corpora == {"accept": ["BENIGN_A", "BENIGN_B"], "reject": [], "mixed": ["BENIGN_B"], "reset": ["BENIGN_B"]}
+    corpus = tmp_path / f"{mode}-corpus"
+    corpus.mkdir()
+    result = run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed interpreter and local control.
+        [sys.executable, str(child), str(corpus), mode, str(seeds)],
+        env={**environment, "ATHERIS_CONTROL_MODE": mode},
+        capture_output=True,
+        check=False,
+    )
+    (tmp_path / f"{mode}.log").write_bytes(result.stdout + result.stderr)
+    return result, corpus
+
+
+@_NATIVE_ATHERIS_SKIP
+@pytest.mark.atheris_native
+@pytest.mark.oracle
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        pytest.param("accept", ["BENIGN_A", "BENIGN_B"], id="accept"),
+        pytest.param("reject", [], id="reject"),
+        pytest.param("mixed", ["BENIGN_B"], id="mixed"),
+        pytest.param("reset", ["BENIGN_B"], id="reset"),
+    ],
+)
+def test_atheris_native_corpus_rejection(tmp_path: Path, mode: str, expected: list[str]) -> None:
+    result, corpus = _run_native_child(tmp_path, mode)
+    assert result.returncode == 0
+    assert b"ATHERIS_REJECTION_BRIDGE=1" in result.stderr
+    assert b"Coverage symbols are being provided by a library other than libFuzzer" not in result.stderr
+    assert b"Done 64" in result.stderr
+    assert b"ATHERIS_CUSTOM_MUTATOR_BRIDGE=1" in result.stderr
+    assert sorted({path.read_bytes()[HEADER_SIZE:].decode("ascii") for path in corpus.iterdir()}) == expected
+
+
+@_NATIVE_ATHERIS_SKIP
+@pytest.mark.atheris_native
+@pytest.mark.oracle
+def test_atheris_native_default_mutator_runs(tmp_path: Path) -> None:
+    result, _corpus = _run_native_child(tmp_path, "default")
+    assert result.returncode == 0
+    assert b"ATHERIS_REJECTION_BRIDGE=1" in result.stderr
+    assert b"Coverage symbols are being provided by a library other than libFuzzer" not in result.stderr
+    assert b"Done 64" in result.stderr
+
+
+@_NATIVE_ATHERIS_SKIP
+@pytest.mark.atheris_native
+@pytest.mark.oracle
+def test_atheris_native_unexpected_control_fails(tmp_path: Path) -> None:
+    result, _corpus = _run_native_child(tmp_path, "unexpected")
+    assert result.returncode != 0
+    assert b"ATHERIS_REJECTION_BRIDGE=1" in result.stderr
+    assert b"Coverage symbols are being provided by a library other than libFuzzer" not in result.stderr
+    assert b"RuntimeError: unexpected control" in result.stdout + result.stderr

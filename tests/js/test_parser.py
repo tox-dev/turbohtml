@@ -1,12 +1,3 @@
-"""Parser error and backtrack coverage.
-
-``minify_js`` fails loudly on a script it cannot parse, raising ``ValueError`` rather
-than echoing the source back, so a malformed or unsupported script never passes
-unnoticed. Each ``malformed`` case drives one parse-error path; each ``backtrack`` case
-is valid syntax that forces the parser to rewind a speculative read (``get``/``set``/
-``async`` used as ordinary names, the arrow-parameter lookahead) and still parse right.
-"""
-
 from __future__ import annotations
 
 import re
@@ -15,11 +6,6 @@ import pytest
 
 from turbohtml import Minify, clean
 from turbohtml.clean import JSMinify, minify_js
-
-
-def minify(source: str) -> str:
-    # the parser tests pin un-mangled output, so names stay stable
-    return minify_js(source, JSMinify(mangle=False, fold=False))
 
 
 @pytest.mark.parametrize(
@@ -131,7 +117,7 @@ def minify(source: str) -> str:
         pytest.param("(a,b,", id="arrow-params-trailing-comma-eof"),
         # a backslash then a lone CR at end of input: the CRLF probe runs off the buffer and the string
         # is unterminated (exercises the line-continuation bound at the source end)
-        pytest.param('x="a' + chr(0x5C) + chr(0x0D), id="continuation-backslash-cr-at-eof"),
+        pytest.param(f'x="a{chr(0x5C)}{chr(0x0D)}', id="continuation-backslash-cr-at-eof"),
         # two statements sharing a line with no `;` and no line break between them: ASI cannot insert a
         # terminator (ECMA-262 12.10), so the script is rejected rather than silently dropping one (#984)
         pytest.param("{1 2}3", id="block-two-statements"),
@@ -150,6 +136,11 @@ def test_malformed_raises(source: str) -> None:
         minify(source)
 
 
+def minify(source: str) -> str:
+    # the parser tests pin un-mangled output, so names stay stable
+    return minify_js(source, JSMinify(mangle=False, fold=False))
+
+
 @pytest.mark.parametrize(
     ("source", "match"),
     [
@@ -158,9 +149,9 @@ def test_malformed_raises(source: str) -> None:
         pytest.param("x=(", "unexpected token at offset 3: reached end of input", id="end-of-input"),
         pytest.param("@", "lexical error at offset 0 near '@'", id="stray-token"),
         # a non-ASCII offending code point renders as ? so the message stays one ASCII line
-        pytest.param('"abc' + chr(0x20AC), "lexical error at offset 0 near '\"abc?'", id="non-ascii-slice"),
+        pytest.param(f'"abc{chr(0x20AC)}', "lexical error at offset 0 near '\"abc?'", id="non-ascii-slice"),
         # a long offending token is truncated to keep the slice short
-        pytest.param('"' + "a" * 40, "lexical error at offset 0 near '\"aaaaaaaaaaaaaa'", id="truncated-slice"),
+        pytest.param(f'"{"a" * 40}', "lexical error at offset 0 near '\"aaaaaaaaaaaaaa'", id="truncated-slice"),
         # a control code point in the offending token also renders as ?
         pytest.param(chr(0x01), "lexical error at offset 0 near '?'", id="control-char-slice"),
         # a literal ending in `\` is unterminated at the source end, and the slice stops there too
@@ -211,14 +202,14 @@ def test_inline_script_with_unparsable_declaration_stays_verbatim() -> None:
 @pytest.mark.parametrize(
     "source",
     [
-        pytest.param("(" * 4000 + "1" + ")" * 4000, id="nested-parens-expression"),
+        pytest.param(f"{'(' * 4000}1{')' * 4000}", id="nested-parens-expression"),
         pytest.param("[" * 4000 + "]" * 4000, id="nested-arrays"),
         pytest.param("{" * 4000 + "}" * 4000, id="nested-blocks"),
-        pytest.param("!" * 4000 + "x", id="prefix-unary-chain"),
-        pytest.param("new " * 4000 + "x", id="new-callee-chain"),
+        pytest.param(f"{'!' * 4000}x", id="prefix-unary-chain"),
+        pytest.param(f"{'new ' * 4000}x", id="new-callee-chain"),
         pytest.param("+".join(["1"] * 4000), id="binary-operator-spine"),
-        pytest.param("a" + ".a" * 4000, id="member-access-chain"),
-        pytest.param("new x" + ".a" * 4000, id="new-callee-member-chain"),
+        pytest.param(f"a{'.a' * 4000}", id="member-access-chain"),
+        pytest.param(f"new x{'.a' * 4000}", id="new-callee-member-chain"),
     ],
 )
 def test_deep_nesting_is_rejected(source: str) -> None:

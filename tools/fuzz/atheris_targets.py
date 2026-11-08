@@ -25,15 +25,11 @@ if TYPE_CHECKING:
 
     from .atheris_registry import Target
 
-__all__ = ["MODULES", "main", "owner_inventory", "public_modules", "public_targets"]
-
 
 def public_modules(package: str) -> tuple[str, ...]:
-    """
-    List the modules with no underscore in their path that declare ``__all__``, so a new one joins the gap check.
-
-    ``__main__`` stays in, since ``python -m turbohtml`` runs it.
-    """
+    # List the modules with no underscore in their path that declare ``__all__``, so a new one joins the gap check.
+    #
+    # ``__main__`` stays in, since ``python -m turbohtml`` runs it.
     walked: Final = pkgutil.walk_packages(importlib.import_module(package).__path__, f"{package}.")
     return tuple(
         sorted(
@@ -45,11 +41,11 @@ def public_modules(package: str) -> tuple[str, ...]:
     )
 
 
-MODULES: Final = public_modules("turbohtml")
+MODULES: Final[tuple[str, ...]] = public_modules("turbohtml")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """LibFuzzer receives its flags after the target and corpus arguments."""
+    # LibFuzzer receives its flags after the target and corpus arguments.
     parser: Final = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", required=True, choices=tuple(target.name for target in public_targets()))
     parser.add_argument("--encoding", default="UTF-8")
@@ -69,13 +65,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     }
     if arguments.target == "encoding-bytes":
         manifest.update(encoding=arguments.encoding, sniff=arguments.sniff)
-    arguments.corpus.with_suffix(".json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    arguments.corpus.with_suffix(".json").write_text(f"{json.dumps(manifest, indent=2)}\n", encoding="utf-8")
     fuzz(targets, MODULES, arguments.target, (sys.argv[0], str(arguments.corpus), *flags))
     return 0
 
 
 def public_targets(encoding: str = "UTF-8", *, sniff: bool = False) -> tuple[Target, ...]:
-    """Each group owns separate modules and qualified re-export aliases."""
+    # Each group owns separate modules and qualified re-export aliases.
     targets: Final = (
         parser_targets()
         + reference_targets()
@@ -90,8 +86,17 @@ def public_targets(encoding: str = "UTF-8", *, sniff: bool = False) -> tuple[Tar
 
 
 def owner_inventory() -> dict[str, str]:
-    """Read executable consumers rather than assigning ownership from mode names."""
+    # Read executable consumers rather than assigning ownership from mode names.
     return {export: target.name for export, target in validate_owners(public_targets(), MODULES).items()}
+
+
+__all__ = [
+    "MODULES",
+    "main",
+    "owner_inventory",
+    "public_modules",
+    "public_targets",
+]
 
 
 if __name__ == "__main__":

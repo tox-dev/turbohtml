@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 import courlan
 
-REQUIREMENTS = ("courlan>=1.4",)
+if TYPE_CHECKING:
+    from bench.operations import Timed
 
-_LINKS_BASE = "https://example.com/base/"
+_REQUIREMENTS: Final[tuple[str, ...]] = ("courlan>=1.4",)
 
 
 def urls_clean(case: tuple[str, tuple[str, ...]]) -> None:
-    """Run courlan's scrub-and-normalize (or bare normalize) over the shared URL batch, by case kind."""
+    # Run courlan's scrub-and-normalize (or bare normalize) over the shared URL batch, by case kind.
     kind, batch = case
     transform = courlan.clean_url if kind == "clean" else courlan.normalize_url
     for url in batch:
@@ -18,11 +21,11 @@ def urls_clean(case: tuple[str, tuple[str, ...]]) -> None:
 
 
 def links_filter(text: str) -> None:
-    """Collect the checked, deduplicated page links with courlan's regex-scanning extract_links."""
-    courlan.extract_links(text, url=_LINKS_BASE)
+    # Collect the checked, deduplicated page links with courlan's regex-scanning extract_links.
+    courlan.extract_links(text, url="https://example.com/base/")
 
 
-OPERATIONS = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "urls-clean": (urls_clean, "courlan"),
     "links-filter": (links_filter, "courlan"),
 }

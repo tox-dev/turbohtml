@@ -31,8 +31,6 @@ if TYPE_CHECKING:
 
     from ._html import Element
 
-__all__ = ["ComputedStyle", "RuleList", "StyleDeclaration", "StyleRule", "StyleSheet", "computed_style"]
-
 
 @final
 class StyleDeclaration:
@@ -47,7 +45,12 @@ class StyleDeclaration:
     __slots__ = ("_items", "_last")
 
     def __init__(self, items: tuple[tuple[str, str, bool] | tuple[str, str, bool, str], ...]) -> None:
-        """Wrap the parsed declarations in source order."""
+        """
+        Wrap the parsed declarations in source order.
+
+        :param items: the ``(name, value, important)`` triples, or ``(name, value, important, source)`` quadruples, in
+            source order.
+        """
         self._items = items
         self._last = _css_declaration_index(items)
 
@@ -61,6 +64,69 @@ class StyleDeclaration:
         """
         return cls(_css_parse_declarations(text))
 
+    def __getitem__(self, name: str) -> str:
+        """
+        Return a property's winning value, raising :class:`KeyError` when it is not set.
+
+        :param name: the property name.
+        :returns: the winning value of the property.
+        """
+        index = self._last.get(name)
+        if index is None:
+            return self._missing_value(name)
+        return self._items[index][1]
+
+    def _missing_value(self, name: str) -> str:
+        index = self._fallback_index(name)
+        if index is None:
+            raise KeyError(name)
+        return self._items[index][1]
+
+    def _fallback_index(self, name: str) -> int | None:
+        if name.startswith("--"):
+            return None
+        if name.isascii():
+            return self._last.get(name.lower())
+        return self._last.get("".join(chr(ord(char) + 32) if "A" <= char <= "Z" else char for char in name))
+
+    def __contains__(self, name: str) -> bool:
+        """
+        Return whether a property is set.
+
+        :param name: the property name.
+        :returns: whether the property is set.
+        """
+        return name in self._last or self._fallback_index(name) is not None
+
+    def __iter__(self) -> Iterator[str]:
+        """
+        Iterate the distinct property names, in first-seen order.
+
+        :returns: an iterator over the distinct property names.
+        """
+        return iter(self._last)
+
+    def __len__(self) -> int:
+        """
+        Return the number of distinct properties.
+
+        :returns: the number of distinct properties.
+        """
+        return len(self._last)
+
+    def __repr__(self) -> str:
+        """
+        Return the declaration as ``StyleDeclaration('...')``.
+
+        :returns: the declaration as ``StyleDeclaration('...')``.
+        """
+        return f"StyleDeclaration({self.text!r})"
+
+    @property
+    def text(self) -> str:
+        """The declaration serialized as ``name: value`` pairs joined by ``"; "``."""
+        return _css_declaration_text(self._items)
+
     def get(self, name: str, default: str | None = None) -> str | None:
         """
         Return a property's winning value, or ``default`` when it is not set.
@@ -72,6 +138,10 @@ class StyleDeclaration:
         index = self._last.get(name)
         return self._items[index][1] if index is not None else self._fallback_value(name, default)
 
+    def _fallback_value(self, name: str, default: str | None) -> str | None:
+        index = self._fallback_index(name)
+        return default if index is None else self._items[index][1]
+
     def important(self, name: str) -> bool:
         """
         Return whether a property's winning declaration carries ``!important``.
@@ -82,6 +152,10 @@ class StyleDeclaration:
         index = self._last.get(name)
         return self._items[index][2] if index is not None else self._fallback_important(name)
 
+    def _fallback_important(self, name: str) -> bool:
+        index = self._fallback_index(name)
+        return index is not None and self._items[index][2]
+
     def properties(self) -> tuple[str, ...]:
         """
         Return the distinct property names, in first-seen order.
@@ -89,55 +163,6 @@ class StyleDeclaration:
         :returns: the property names.
         """
         return tuple(self._last)
-
-    @property
-    def text(self) -> str:
-        """The declaration serialized as ``name: value`` pairs joined by ``"; "``."""
-        return _css_declaration_text(self._items)
-
-    def __getitem__(self, name: str) -> str:
-        """Return a property's winning value, raising :class:`KeyError` when it is not set."""
-        index = self._last.get(name)
-        if index is None:
-            return self._missing_value(name)
-        return self._items[index][1]
-
-    def __contains__(self, name: str) -> bool:
-        """Return whether a property is set."""
-        return name in self._last or self._fallback_index(name) is not None
-
-    def _fallback_index(self, name: str) -> int | None:
-        if name.startswith("--"):
-            return None
-        if name.isascii():
-            return self._last.get(name.lower())
-        return self._last.get("".join(chr(ord(char) + 32) if "A" <= char <= "Z" else char for char in name))
-
-    def _fallback_value(self, name: str, default: str | None) -> str | None:
-        index = self._fallback_index(name)
-        return default if index is None else self._items[index][1]
-
-    def _fallback_important(self, name: str) -> bool:
-        index = self._fallback_index(name)
-        return index is not None and self._items[index][2]
-
-    def _missing_value(self, name: str) -> str:
-        index = self._fallback_index(name)
-        if index is None:
-            raise KeyError(name)
-        return self._items[index][1]
-
-    def __iter__(self) -> Iterator[str]:
-        """Iterate the distinct property names, in first-seen order."""
-        return iter(self._last)
-
-    def __len__(self) -> int:
-        """Return the number of distinct properties."""
-        return len(self._last)
-
-    def __repr__(self) -> str:
-        """Return the declaration as ``StyleDeclaration('...')``."""
-        return f"StyleDeclaration({self.text!r})"
 
 
 @final
@@ -150,18 +175,27 @@ class StyleRule:
     """The rule's selector list, verbatim (for example ``"a, .box"``)."""
 
     def __init__(self, selector_text: str, style: StyleDeclaration) -> None:
-        """Bind a selector to its declaration block."""
+        """
+        Bind a selector to its declaration block.
+
+        :param selector_text: the rule's selector list, verbatim.
+        :param style: the rule's declaration block.
+        """
         self.selector_text = selector_text
         self._style = style
+
+    def __repr__(self) -> str:
+        """
+        Return the rule as ``StyleRule('selector { ... }')``.
+
+        :returns: the rule as ``StyleRule('selector { ... }')``.
+        """
+        return f"StyleRule({self.selector_text!r} {{ {self._style.text} }})"
 
     @property
     def style(self) -> StyleDeclaration:
         """The rule's declaration block."""
         return self._style
-
-    def __repr__(self) -> str:
-        """Return the rule as ``StyleRule('selector { ... }')``."""
-        return f"StyleRule({self.selector_text!r} {{ {self._style.text} }})"
 
 
 @final
@@ -171,23 +205,44 @@ class RuleList:
     __slots__ = ("_rules",)
 
     def __init__(self, rules: tuple[StyleRule, ...]) -> None:
-        """Wrap the rules in document order."""
+        """
+        Wrap the rules in document order.
+
+        :param rules: the rules, in document order.
+        """
         self._rules = rules
 
     def __getitem__(self, index: int) -> StyleRule:
-        """Return the rule at an index."""
+        """
+        Return the rule at an index.
+
+        :param index: the position of the rule in document order.
+        :returns: the rule at the index.
+        """
         return self._rules[index]
 
     def __iter__(self) -> Iterator[StyleRule]:
-        """Iterate the rules in document order."""
+        """
+        Iterate the rules in document order.
+
+        :returns: an iterator over the rules in document order.
+        """
         return iter(self._rules)
 
     def __len__(self) -> int:
-        """Return the number of rules."""
+        """
+        Return the number of rules.
+
+        :returns: the number of rules.
+        """
         return len(self._rules)
 
     def __repr__(self) -> str:
-        """Return the rule list as ``RuleList([...])``."""
+        """
+        Return the rule list as ``RuleList([...])``.
+
+        :returns: the rule list as ``RuleList([...])``.
+        """
         return f"RuleList({list(self._rules)!r})"
 
 
@@ -197,26 +252,46 @@ class StyleSheet:
     A parsed stylesheet, the turbohtml spelling of CSSOM's ``CSSStyleSheet``.
 
     At-rules (``@media``, ``@import``, and the like) are skipped: only top-level style rules join :attr:`rules`.
-
-    :param text: the CSS source, such as the text of a ``<style>`` element.
     """
 
     __slots__ = ("_rules",)
 
     def __init__(self, text: str) -> None:
-        """Parse CSS source into a stylesheet."""
+        """
+        Parse CSS source into a stylesheet.
+
+        :param text: the CSS source, such as the text of a ``<style>`` element.
+        """
         self._rules = RuleList(
             tuple(StyleRule(selector, StyleDeclaration(decls)) for selector, decls in _css_parse_rules(text))
         )
+
+    def __repr__(self) -> str:
+        """
+        Return the stylesheet as ``StyleSheet(<n> rules)``.
+
+        :returns: the stylesheet as ``StyleSheet(<n> rules)``.
+        """
+        return f"StyleSheet({len(self._rules)} rules)"
 
     @property
     def rules(self) -> RuleList:
         """The stylesheet's style rules, in document order."""
         return self._rules
 
-    def __repr__(self) -> str:
-        """Return the stylesheet as ``StyleSheet(<n> rules)``."""
-        return f"StyleSheet({len(self._rules)} rules)"
+
+def computed_style(element: Element) -> ComputedStyle:
+    """
+    Resolve the CSS cascade for one element and return its computed style.
+
+    The cascade reads every ``<style>`` element in the element's document plus the inline ``style`` attributes along its
+    ancestor chain, matches the native selector engine, and orders declarations by importance, the style attribute,
+    specificity, and source order before applying inheritance and initial values.
+
+    :param element: the element to compute the style of.
+    :returns: the resolved, read-only computed style.
+    """
+    return ComputedStyle(_css_computed_style(element))
 
 
 @final
@@ -232,8 +307,54 @@ class ComputedStyle:
     __slots__ = ("_values",)
 
     def __init__(self, values: tuple[tuple[str, str], ...]) -> None:
-        """Wrap the ``(name, value)`` pairs the cascade resolved."""
+        """
+        Wrap the ``(name, value)`` pairs the cascade resolved.
+
+        :param values: the ``(name, value)`` pairs the cascade resolved.
+        """
         self._values = dict(values)
+
+    def __getitem__(self, name: str) -> str:
+        """
+        Return a property's computed value, raising :class:`KeyError` for an unsupported property.
+
+        :param name: the property name.
+        :returns: the computed value of the property.
+        """
+        return self._values[name]
+
+    def __contains__(self, name: str) -> bool:
+        """
+        Return whether a property is a supported longhand.
+
+        :param name: the property name.
+        :returns: whether the property is a supported longhand.
+        """
+        return name in self._values
+
+    def __iter__(self) -> Iterator[str]:
+        """
+        Iterate the supported property names.
+
+        :returns: an iterator over the supported property names.
+        """
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        """
+        Return the number of supported properties.
+
+        :returns: the number of supported properties.
+        """
+        return len(self._values)
+
+    def __repr__(self) -> str:
+        """
+        Return the computed style as ``ComputedStyle(<n> properties)``.
+
+        :returns: the computed style as ``ComputedStyle(<n> properties)``.
+        """
+        return f"ComputedStyle({len(self._values)} properties)"
 
     def get(self, name: str, default: str | None = None) -> str | None:
         """
@@ -253,36 +374,12 @@ class ComputedStyle:
         """
         return tuple(self._values)
 
-    def __getitem__(self, name: str) -> str:
-        """Return a property's computed value, raising :class:`KeyError` for an unsupported property."""
-        return self._values[name]
 
-    def __contains__(self, name: str) -> bool:
-        """Return whether a property is a supported longhand."""
-        return name in self._values
-
-    def __iter__(self) -> Iterator[str]:
-        """Iterate the supported property names."""
-        return iter(self._values)
-
-    def __len__(self) -> int:
-        """Return the number of supported properties."""
-        return len(self._values)
-
-    def __repr__(self) -> str:
-        """Return the computed style as ``ComputedStyle(<n> properties)``."""
-        return f"ComputedStyle({len(self._values)} properties)"
-
-
-def computed_style(element: Element) -> ComputedStyle:
-    """
-    Resolve the CSS cascade for one element and return its computed style.
-
-    The cascade reads every ``<style>`` element in the element's document plus the inline ``style`` attributes along its
-    ancestor chain, matches the native selector engine, and orders declarations by importance, the style attribute,
-    specificity, and source order before applying inheritance and initial values.
-
-    :param element: the element to compute the style of.
-    :returns: the resolved, read-only computed style.
-    """
-    return ComputedStyle(_css_computed_style(element))
+__all__ = [
+    "ComputedStyle",
+    "RuleList",
+    "StyleDeclaration",
+    "StyleRule",
+    "StyleSheet",
+    "computed_style",
+]

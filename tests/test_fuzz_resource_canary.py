@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import json
+import secrets
 from typing import Final
 
 import pytest
-from fuzz import resource_canary
+from fuzz.resource_canary import ESCAPES, Attempt, compare, generate, main
 
 
-@pytest.mark.parametrize("escape", sorted(resource_canary.ESCAPES))
+@pytest.mark.parametrize("escape", sorted(ESCAPES))
 def test_resource_canary_escape_stays_contained(escape: str) -> None:
-    attempt: Final = resource_canary.Attempt(0, escape, "canary0123456789abcdef")
-    assert [(row.engine, row.leaked) for row in resource_canary.compare(attempt)] == [
+    token: Final = f"canary{secrets.token_hex(8)}"
+    attempt: Final = Attempt(seed=0, escape=escape, token=token)
+    assert [(row.engine, row.leaked) for row in compare(attempt)] == [
         ("xslt", False),
         ("relaxng", False),
     ]
@@ -18,15 +20,16 @@ def test_resource_canary_escape_stays_contained(escape: str) -> None:
 
 @pytest.mark.parametrize("escape", ["parent", "symlink"])
 def test_resource_canary_inside_root_is_observed(escape: str) -> None:
-    attempt: Final = resource_canary.Attempt(0, escape, "canary0123456789abcdef")
-    assert [(row.engine, row.leaked) for row in resource_canary.compare(attempt, negative_control=True)] == [
+    token: Final = f"canary{secrets.token_hex(8)}"
+    attempt: Final = Attempt(seed=0, escape=escape, token=token)
+    assert [(row.engine, row.leaked) for row in compare(attempt, negative_control=True)] == [
         ("xslt", True),
         ("relaxng", True),
     ]
 
 
 def test_resource_canary_generate_is_seeded() -> None:
-    assert [resource_canary.generate(seed) == resource_canary.generate(5) for seed in (5, 6)] == [True, False]
+    assert [generate(seed) == generate(5) for seed in (5, 6)] == [True, False]
 
 
 @pytest.mark.parametrize(
@@ -39,11 +42,11 @@ def test_resource_canary_generate_is_seeded() -> None:
 def test_resource_canary_cli(
     capsys: pytest.CaptureFixture[str], arguments: list[str], expected: tuple[int, dict[str, int]]
 ) -> None:
-    status: Final = resource_canary.main(arguments)
+    status: Final = main(arguments)
     assert (status, json.loads(capsys.readouterr().out.splitlines()[-1])["summary"]) == expected
 
 
 def test_resource_canary_cli_rejects_case_count(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit):
-        resource_canary.main(["--cases", "0"])
+        main(["--cases", "0"])
     assert "--cases must be between 1 and 256" in capsys.readouterr().err

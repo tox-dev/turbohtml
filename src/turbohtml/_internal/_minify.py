@@ -20,9 +20,7 @@ from turbohtml._html import Minify, _minify_js, parse
 from ._jsminify import JSMinify
 from ._render import Html
 
-__all__ = ["JSMinify", "Minify", "minify", "minify_js"]
-
-_DEFAULT: Final = Minify()
+_DEFAULT: Final[Minify] = Minify()
 
 
 def minify(html: str, options: Minify | None = None) -> str:
@@ -58,6 +56,7 @@ def minify_js(source: str, options: JSMinify | None = None, on_error: Literal["r
         ``"passthrough"`` to return ``source`` unchanged.
     :returns: the minified JavaScript, or ``source`` verbatim when it is unparsable and
         ``on_error="passthrough"``.
+
     :raises TypeError: if ``source`` is not a :class:`str`.
     :raises ValueError: if ``on_error`` is not ``"raise"`` or ``"passthrough"``, or -- when
         ``on_error="raise"`` -- if the parser cannot handle the script (a lexical or syntax error,
@@ -65,3 +64,10 @@ def minify_js(source: str, options: JSMinify | None = None, on_error: Literal["r
         offset, and the offending token.
     """
     return _minify_js(source, (config := options or JSMinify()).fold, config.mangle, on_error)
+
+
+__all__ = [
+    "JSMinify",
+    "minify",
+    "minify_js",
+]

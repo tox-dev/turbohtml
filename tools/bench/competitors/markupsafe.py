@@ -3,29 +3,32 @@
 from __future__ import annotations
 
 import functools
-from typing import cast
+from typing import TYPE_CHECKING, Final, cast
 
 import markupsafe
 
-REQUIREMENTS = ("markupsafe>=3",)
+if TYPE_CHECKING:
+    from bench.operations import Case, Timed
 
-_TEMPLATE = markupsafe.Markup("<li>{}</li><span>{}</span>")
-_JOINER = markupsafe.Markup(", ")
+_REQUIREMENTS: Final[tuple[str, ...]] = ("markupsafe>=3",)
+
+_TEMPLATE: Final[markupsafe.Markup] = markupsafe.Markup("<li>{}</li><span>{}</span>")
+_JOINER: Final[markupsafe.Markup] = markupsafe.Markup(", ")
 
 
 def markup(text: str) -> None:
-    """Escape a string into a Markup with markupsafe's C-accelerated escape."""
+    # Escape a string into a Markup with markupsafe's C-accelerated escape.
     markupsafe.escape(text)
 
 
 @functools.cache
 def _markup_of(text: str) -> markupsafe.Markup:
-    """Return a Markup wrapping the text, cached so the operations time only the method call."""
+    # Return a Markup wrapping the text, cached so the operations time only the method call.
     return markupsafe.Markup(text)  # ruff:ignore[unsafe-markup-use]  # fixed benchmark fixture, not untrusted input
 
 
-def markup_op(case: tuple[str, object]) -> None:
-    """Run one Markup method (striptags/unescape/format/join) on markupsafe's Markup, by case kind."""
+def markup_op(case: tuple[str, Case]) -> None:
+    # Run one Markup method (striptags/unescape/format/join) on markupsafe's Markup, by case kind.
     kind, payload = case
     if kind == "striptags":
         _markup_of(cast("str", payload)).striptags()
@@ -37,4 +40,7 @@ def markup_op(case: tuple[str, object]) -> None:
         _JOINER.join(cast("tuple[str, ...]", payload))
 
 
-OPERATIONS = {"markup": (markup, "markupsafe"), "markup-op": (markup_op, "markupsafe")}
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
+    "markup": (markup, "markupsafe"),
+    "markup-op": (markup_op, "markupsafe"),
+}

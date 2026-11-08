@@ -4,24 +4,27 @@ Build and drive the turbohtml fuzz harnesses under AddressSanitizer + UndefinedB
 Two mechanisms cover the untrusted-input entry points the security spike prioritizes (tox-dev/turbohtml#478):
 
 * standalone, malloc-backed C harnesses for the surfaces whose core decouples from CPython -- the IDNA ToASCII engine
-  (``idna_harness.c``, the highest memory-safety risk), the phone-number recognizer (``phone_harness.c``), the JS
-  minifier (``../js_minify_harness.c``) and the CSS minifier (``css_harness.c``). These compile with no interpreter,
-  exactly the ``JM_STANDALONE`` pattern the JS minifier already ships. ``--sanitizer memory`` builds them under
-  MemorySanitizer instead and skips the in-process driver, whose interpreter carries no MemorySanitizer instrumentation.
+(``idna_harness.c``, the highest memory-safety risk), the phone-number recognizer (``phone_harness.c``), the JS minifier
+(``../js_minify_harness.c``) and the CSS minifier (``css_harness.c``). These compile with no interpreter, exactly the
+``JM_STANDALONE`` pattern the JS minifier already ships. ``--sanitizer memory`` builds them under MemorySanitizer
+instead and skips the in-process driver, whose interpreter carries no MemorySanitizer instrumentation.
+
 * an in-process driver (``_targets.py``) for the surfaces that reach the live PyObject tree -- parse, serialize,
-  sanitize, the URL parser, and the HTML/CSS minifiers -- run against an extension compiled with the sanitizers so a C
-  fault aborts the interpreter with a stack trace. It calls the public API, so it survives the in-flight C refactors.
+sanitize, the URL parser, and the HTML/CSS minifiers -- run against an extension compiled with the sanitizers so a C
+fault aborts the interpreter with a stack trace. It calls the public API, so it survives the in-flight C refactors.
 
 ``smoke`` replays the past finds under ``tests/fuzz_regressions`` and a benign seed corpus once (fast, deterministic,
 gates every PR), then runs the fuzz-build tests against the operation limit and the allocation-failure hook the fuzz
 build compiles in. ``deep`` adds a mutation loop and structural probes for a per-target budget (the scheduled/manual run
 that hunts for crashes). ``alloc`` replays the same seeds once per PyMem allocation, failing that allocation through a
 ``failure_pos`` header. ``oracle`` runs the sanitizer wrong-output oracles (``sanitize_oracles.py``) instead, because a
-sanitizer bug usually returns unsafe markup without crashing. ``round-trip`` runs the printer, minifier, entry-point and
-source-span oracles (``round_trip_oracles.py``) and ``release-diff`` compares HEAD with the latest PyPI release
-(``release_diff.py``), for the bugs that return wrong text. A crashing input lands in ``--crash-dir`` as
-``crash-<sha256>``, and the log names it only by hash, length and harness, because CI logs on a public repository are
-public. The in-process extension is expected to be pre-built by the tox env; ``--build`` builds it here for a local run.
+sanitizer bug usually returns unsafe markup without crashing.
+
+``round-trip`` runs the printer, minifier, entry-point and source-span oracles (``round_trip_oracles.py``) and
+``release-diff`` compares HEAD with the latest PyPI release (``release_diff.py``), for the bugs that return wrong text.
+A crashing input lands in ``--crash-dir`` as ``crash-<sha256>``, and the log names it only by hash, length and harness,
+because CI logs on a public repository are public. The in-process extension is expected to be pre-built by the tox env;
+``--build`` builds it here for a local run.
 
 ``smoke``, ``deep`` and ``alloc`` build everything in the fuzz-only mode (meson ``-Dfuzzing=true``) and start with a
 self-test: each ``_fuzz_crash`` kind must draw its AddressSanitizer report, and an injected allocation failure must
@@ -51,11 +54,9 @@ _CORPUS: Final[Path] = _FUZZ / "corpus"
 _REGRESSIONS: Final[Path] = _ROOT / "tests" / "fuzz_regressions"
 _JS_CORPUS: Final[Path] = _ROOT / "tests" / "js" / "_corpus"
 _CC: Final[str] = os.environ.get("CC", "clang")
-_JS_ENGINE: Final[tuple[str, ...]] = ("lexer", "ast", "parser", "printer", "fold", "mangle", "minify")
 # pymalloc carves small objects out of pools, so an over-read that stays inside a pool never reaches ASan's redzones;
 # PYTHONMALLOC=malloc hands every PyMem call to the intercepted system allocator (v1 FUZZ-2 was silent under pymalloc)
 _ALLOCATORS: Final[tuple[str, ...]] = ("pymalloc", "malloc")
-_WPT: Final = "tools/fuzz-data/wpt"
 # Each _fuzz_crash kind and the ASan report it must raise: the plain heap faults prove the instrumentation, the poisoned
 # kinds prove the fuzz build's own arena and wrapper-pool poisoning.
 _CRASHES: Final[dict[str, str]] = {
@@ -77,7 +78,7 @@ _SANITIZERS: Final[dict[str, tuple[str, ...]]] = {
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Return 0 when every harness stays clean, nonzero on the first sanitizer abort or soft finding."""
+    # Return 0 when every harness stays clean, nonzero on the first sanitizer abort or soft finding.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--mode", choices=("smoke", "deep", "alloc", "oracle", "round-trip", "release-diff", "triage"), default="smoke"
@@ -151,7 +152,7 @@ def _build_extension(build_dir: Path) -> None:
 
 
 def _run_oracles(minutes: float, rng_seed: int, crash_dir: Path) -> int:
-    """Run the sanitizer oracles under the ASan preload, so a C fault on the way still aborts with a stack trace."""
+    # Run the sanitizer oracles under the ASan preload, so a C fault on the way still aborts with a stack trace.
     _checkout_sparse_wpt()
     env = _asan_preload()
     if minutes > 0:
@@ -178,14 +179,12 @@ def _run_oracles(minutes: float, rng_seed: int, crash_dir: Path) -> int:
 
 
 def _run_round_trip(mode: str, minutes: float, rng_seed: int, crash_dir: Path, passthrough: list[str]) -> int:
-    """
-    Run the round-trip oracles under the ASan preload, or the release differential without it.
-
-    The seed reaches the child only through ``FUZZ_RNG_SEED``, never its command line, because it regenerates every
-    finding from the public code. The release differential runs a PyPI wheel built without the sanitizers, so
-    preloading the runtime would only slow it. Both run as modules of ``tools/`` so the differential can reuse the
-    oracles' generators; arguments ``fuzz.py`` does not know (``--oracle``, ``--errors``) pass through to them.
-    """
+    # Run the round-trip oracles under the ASan preload, or the release differential without it.
+    #
+    # The seed reaches the child only through ``FUZZ_RNG_SEED``, never its command line, because it regenerates every
+    # finding from the public code. The release differential runs a PyPI wheel built without the sanitizers, so
+    # preloading the runtime would only slow it. Both run as modules of ``tools/`` so the differential can reuse the
+    # oracles' generators; arguments ``fuzz.py`` does not know (``--oracle``, ``--errors``) pass through to them.
     url_oracles = {"normalize-url-fixpoint", "clean-url-fixpoint"}
     if mode == "round-trip" and (
         not any(arg == "--oracle" or arg.startswith("--oracle=") for arg in passthrough)
@@ -208,24 +207,23 @@ def _run_round_trip(mode: str, minutes: float, rng_seed: int, crash_dir: Path, p
 
 
 def _checkout_sparse_wpt() -> None:
-    """
-    Check out the sanitizer and URL seeds of the pinned WPT submodule.
-
-    A depth-1 WPT clone is about 1 GB, so ``.gitmodules`` marks the submodule ``update = none`` (plain and recursive
-    ``git submodule update`` skip it) and this fetches the recorded commit blob-less with a sparse checkout instead.
-    """
-    target = _ROOT / _WPT / "sanitizer-api"
-    if target.is_dir() and (_ROOT / _WPT / "url/resources/urltestdata.json").is_file():
+    # Check out the sanitizer and URL seeds of the pinned WPT submodule.
+    #
+    # A depth-1 WPT clone is about 1 GB, so ``.gitmodules`` marks the submodule ``update = none`` (plain and recursive
+    # ``git submodule update`` skip it) and this fetches the recorded commit blob-less with a sparse checkout instead.
+    wpt = "tools/fuzz-data/wpt"
+    target = _ROOT / wpt / "sanitizer-api"
+    if target.is_dir() and (_ROOT / wpt / "url/resources/urltestdata.json").is_file():
         return
-    commit = _git("rev-parse", f"HEAD:{_WPT}")
-    url = _git("config", "--file", ".gitmodules", f"submodule.{_WPT}.url")
-    _git("init", "--quiet", _WPT)
+    commit = _git("rev-parse", f"HEAD:{wpt}")
+    url = _git("config", "--file", ".gitmodules", f"submodule.{wpt}.url")
+    _git("init", "--quiet", wpt)
     # actions/checkout's post-job cleanup reads remote.origin.url in every submodule and fails on one without it
-    _git("-C", _WPT, "config", "remote.origin.url", url)
-    _git("-C", _WPT, "fetch", "--quiet", "--depth", "1", "--filter=blob:none", "origin", commit)
+    _git("-C", wpt, "config", "remote.origin.url", url)
+    _git("-C", wpt, "fetch", "--quiet", "--depth", "1", "--filter=blob:none", "origin", commit)
     _git(
         "-C",
-        _WPT,
+        wpt,
         "sparse-checkout",
         "set",
         "--no-cone",
@@ -233,7 +231,7 @@ def _checkout_sparse_wpt() -> None:
         "/url/resources/urltestdata.json",
         "/LICENSE.md",
     )
-    _git("-C", _WPT, "checkout", "--quiet", "FETCH_HEAD")
+    _git("-C", wpt, "checkout", "--quiet", "FETCH_HEAD")
     print(f"checked out {target.relative_to(_ROOT)} at {commit[:12]}")
 
 
@@ -242,13 +240,10 @@ def _git(*args: str) -> str:
 
 
 def _self_test() -> int:
-    """
-    Fail unless the sanitizer reports every injected fault and the allocator hook fails its position.
-
-    Fuzzilli runs the same startup check, so a run whose sanitizer is missing or blind cannot pass as clean. Each fault
-    kills its own child, and only the named ASan report counts: an unrelated crash also exits nonzero.
-    """
-    crash_child = "import sys; from turbohtml import _html; _html._fuzz_crash(sys.argv[1])"
+    # Fail unless the sanitizer reports every injected fault and the allocator hook fails its position.
+    #
+    # Fuzzilli runs the same startup check, so a run whose sanitizer is missing or blind cannot pass as clean. Each
+    # fault kills its own child, and only the named ASan report counts: an unrelated crash also exits nonzero.
     injection_child = textwrap.dedent("""
         import turbohtml
         from turbohtml import _html
@@ -263,6 +258,7 @@ def _self_test() -> int:
         raise SystemExit(0 if _html._fuzz_inject_failure(0)[1] else "the allocator hook recorded no injected failure")
     """)
     env = _asan_preload()
+    crash_child = "import sys; from turbohtml import _html; _html._fuzz_crash(sys.argv[1])"
     for allocator in _ALLOCATORS:
         for kind, report in _CRASHES.items():
             result = subprocess.run(
@@ -299,9 +295,10 @@ def _run_standalone(mode: str, extra: Path | None, crash_dir: Path, sanitizer: s
     flags = _SANITIZERS[sanitizer]
     _compile(_FUZZ / "idna_harness.c", [], "-DTH_IDNA_STANDALONE", idna, flags)
     _compile(_FUZZ / "phone_harness.c", [], "-DTH_PHONE_STANDALONE", phone, flags)
+    js_engine: tuple[str, ...] = ("lexer", "ast", "parser", "printer", "fold", "mangle", "minify")
     _compile(
         _ROOT / "tools" / "js_minify_harness.c",
-        [_ROOT / "src" / "turbohtml" / "_c" / "js" / f"{name}.c" for name in _JS_ENGINE],
+        [_ROOT / "src" / "turbohtml" / "_c" / "js" / f"{name}.c" for name in js_engine],
         "-DJM_STANDALONE",
         js,
         flags,
@@ -442,7 +439,7 @@ def _run_fuzz_build_tests() -> int:
 
 
 def _asan_preload() -> dict[str, str]:
-    """Build the env preloading the ASan runtime ahead of the interpreter so the instrumented .so's interceptors arm."""
+    # Build the env preloading the ASan runtime ahead of the interpreter so the instrumented .so's interceptors arm.
     on_linux = platform.system() == "Linux"
     flag = f"libclang_rt.asan-{platform.machine()}.so" if on_linux else "libclang_rt.asan_osx_dynamic.dylib"
     runtime = subprocess.run(
@@ -461,6 +458,11 @@ def _private_reports(env: dict[str, str], crash_dir: Path) -> dict[str, str]:
     # deep run writes reports beside the crashers, where the workflow encrypts them
     log = f":log_path={crash_dir / 'crash-sanitizer'}"
     return {**env, **{key: env[key] + log for key in ("ASAN_OPTIONS", "UBSAN_OPTIONS", "MSAN_OPTIONS") if key in env}}
+
+
+__all__ = [
+    "main",
+]
 
 
 if __name__ == "__main__":

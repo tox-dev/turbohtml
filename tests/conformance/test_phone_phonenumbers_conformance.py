@@ -1,23 +1,7 @@
-"""Phone-number detection against the ``phonenumbers`` port of libphonenumber, at the pinned release.
-
-Oracle: the vendored ``python-phonenumbers`` checkout at ``tests/conformance/python-phonenumbers``, the tag whose
-version equals the metadata tag the tables were generated from (``generate_phone.LIBPHONENUMBER_TAG``), installed by the
-``conformance`` tox env. For every region and every example number its metadata carries, the number is rendered the ways
-people write it (national, international, E.164, spaced, dotted, IDD, fullwidth, Arabic-Indic, with each extension form)
-and embedded in prose, and ``LinkDetector`` is compared with ``PhoneNumberMatcher`` at the same leniency on the span,
-the E.164 number and the extension. A difference must fall into one of the categories the design chose
-(``phone_oracle.classify``): a number after a slash date, which the matcher throws away with the date; a payment-card
-shape that passes Luhn, which the recognizer rejects; the matcher reading a rendering's extension digits as a number of
-their own once its dot rule fires first; and, in possible mode, the matcher reading letters as digits (``10123 ext`` as
-a vanity number), which the recognizer never does. Every number the recognizer reports must also be valid (possible, in
-possible mode) by the oracle, with the region and type the oracle resolves. A missing submodule or a version other than
-the pin is a setup error, never a skip.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 import phonenumbers
 import pytest
@@ -32,20 +16,20 @@ if TYPE_CHECKING:
 
 if not (
     Path(__file__).parent / "python-phonenumbers" / "python" / "phonenumbers" / "__init__.py"
-).exists():  # pragma: no cover
+).exists():  # pragma: no cover  # the skip runs only without the vendored phonenumbers oracle
     _HINT = (
         "submodule tests/conformance/python-phonenumbers not checked out; "
         "run: git submodule update --init tests/conformance/python-phonenumbers"
     )
     raise RuntimeError(_HINT)
-if phonenumbers.__version__ != LIBPHONENUMBER_TAG.removeprefix("v"):  # pragma: no cover
+if phonenumbers.__version__ != LIBPHONENUMBER_TAG.removeprefix("v"):  # pragma: no cover  # only on a pin mismatch
     _MISMATCH = (
         f"phonenumbers {phonenumbers.__version__} is installed, the tables pin {LIBPHONENUMBER_TAG}; "
         "install the vendored checkout (tox -e conformance) or bump both pins together"
     )
     raise RuntimeError(_MISMATCH)
 
-_TYPES: Final = {
+_TYPES: Final[dict[int, PhoneType]] = {
     PhoneNumberType.FIXED_LINE: PhoneType.FIXED_LINE,
     PhoneNumberType.MOBILE: PhoneType.MOBILE,
     PhoneNumberType.FIXED_LINE_OR_MOBILE: PhoneType.FIXED_LINE_OR_MOBILE,
@@ -59,15 +43,10 @@ _TYPES: Final = {
     PhoneNumberType.VOICEMAIL: PhoneType.VOICEMAIL,
     PhoneNumberType.UNKNOWN: PhoneType.UNKNOWN,
 }
-_EXPLAINED: Final = frozenset({
-    "agree",
-    "poisoned date",
-    "card shape",
-    "extension digits read as a number",
-    "alpha number",
-})
-_REGION_PARAMS: Final = [pytest.param(region, id=region) for region in sorted(phonenumbers.SUPPORTED_REGIONS)]
-_NON_GEO_PARAMS: Final = [
+_REGION_PARAMS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(region, id=region) for region in sorted(phonenumbers.SUPPORTED_REGIONS)
+]
+_NON_GEO_PARAMS: Final[list[pytest.ParameterSet]] = [
     pytest.param(code, id=str(code)) for code in sorted(phonenumbers.COUNTRY_CODES_FOR_NON_GEO_REGIONS)
 ]
 
@@ -81,7 +60,7 @@ def _examples(region: str) -> list[phonenumbers.PhoneNumber]:
 
 
 def _ours(detector: LinkDetector, region: str, text: str) -> tuple[Found, list[phonenumbers.PhoneNumber]]:
-    """The recognizer's spans, each re-parsed by the oracle from its text the way the matcher parses a candidate."""
+    # The recognizer's spans, each re-parsed by the oracle from its text the way the matcher parses a candidate.
     found: Found = set()
     parsed: list[phonenumbers.PhoneNumber] = []
     for span in detector.find(text):
@@ -122,25 +101,33 @@ def _ours(detector: LinkDetector, region: str, text: str) -> tuple[Found, list[p
         ),
     ],
 )
+@pytest.mark.parametrize("context", CONTEXTS, ids=repr)
 @pytest.mark.parametrize("region", _REGION_PARAMS)
 def test_detection_matches_the_matcher(
     region: str,
+    context: str,
     settings: Callable[[str], PhoneNumbers],
     leniency: int,
     check: Callable[[phonenumbers.PhoneNumber], bool],
 ) -> None:
     detector = LinkDetector(phones=settings(region))
-    unexplained: list[tuple[str, str, list[tuple[int, int, str, str]], list[tuple[int, int, str, str]]]] = []
+    classified: list[tuple[str, str, list[tuple[int, int, str, str]], list[tuple[int, int, str, str]]]] = []
+    explained = frozenset({
+        "agree",
+        "poisoned date",
+        "card shape",
+        "extension digits read as a number",
+        "alpha number",
+    })
     for number in _examples(region):
         for _form, rendered in renderings(number, region):
-            for context in CONTEXTS:
-                text = context.format(rendered)
-                ours, parsed = _ours(detector, region, text)
-                for found in parsed:
-                    assert check(found), text
-                theirs = oracle_matches(text, region, leniency)
-                if (category := classify(text, ours, theirs)) not in _EXPLAINED:
-                    unexplained.append((category, text, sorted(ours), sorted(theirs)))
+            text = context.format(rendered)
+            ours, parsed = _ours(detector, region, text)
+            for found in parsed:
+                assert check(found), text
+            theirs = oracle_matches(text, region, leniency)
+            classified.append((classify(text, ours, theirs), text, sorted(ours), sorted(theirs)))
+    unexplained = [row for row in classified if row[0] not in explained]
     assert unexplained == []
 
 
@@ -167,7 +154,7 @@ def test_non_geographic_entities_are_found_without_a_region(country_code: int) -
     ] == [(phonenumbers.format_number(number, PhoneNumberFormat.E164), "001")]
 
 
-_STYLES: Final = {
+_STYLES: Final[dict[PhoneFormat, int]] = {
     PhoneFormat.E164: PhoneNumberFormat.E164,
     PhoneFormat.INTERNATIONAL: PhoneNumberFormat.INTERNATIONAL,
     PhoneFormat.NATIONAL: PhoneNumberFormat.NATIONAL,
@@ -190,7 +177,7 @@ def _formats_agree(number: phonenumbers.PhoneNumber) -> None:
                 expected[PhoneFormat.RFC3966].removeprefix(f"tel:+{number.country_code}-").partition(";ext=")
             )
             expected[PhoneFormat.RFC3966] = (
-                f"tel:{digits}{';ext=' + ext if ext else ''};phone-context=+{number.country_code}"
+                f"tel:{digits}{f';ext={ext}' if ext else ''};phone-context=+{number.country_code}"
             )
         assert {style: ours.format(style) for style in PhoneFormat} == expected, (number.country_code, nsn, extension)
 
@@ -208,22 +195,28 @@ def test_format_writes_non_geographic_numbers_as_the_oracle(country_code: int) -
     _formats_agree(number)
 
 
-def _oracle_parse(text: str, region: str, *, require_valid: bool = True) -> tuple[int | None, str, str | None] | None:
+class _Parsed(NamedTuple):
+    country_code: int | None
+    national_number: str
+    extension: str | None
+
+
+def _oracle_parse(text: str, region: str, *, require_valid: bool = True) -> _Parsed | None:
     try:
         number = phonenumbers.parse(text, region)
     except phonenumbers.NumberParseException:
         return None
     if not (phonenumbers.is_valid_number if require_valid else phonenumbers.is_possible_number)(number):
         return None
-    return (number.country_code, phonenumbers.national_significant_number(number), number.extension)
+    return _Parsed(number.country_code, phonenumbers.national_significant_number(number), number.extension)
 
 
-def _our_parse(text: str, region: str, *, require_valid: bool = True) -> tuple[int, str, str | None] | None:
+def _our_parse(text: str, region: str, *, require_valid: bool = True) -> _Parsed | None:
     try:
         parsed = PhoneNumber.parse(text, regions=(region,), require_valid=require_valid)
     except ValueError:
         return None
-    return (parsed.country_code, parsed.national_number, parsed.extension)
+    return _Parsed(parsed.country_code, parsed.national_number, parsed.extension)
 
 
 @pytest.mark.parametrize("region", _REGION_PARAMS)
@@ -297,9 +290,9 @@ def test_parse_reads_every_rendering_as_the_oracle(region: str) -> None:
             "+1 650 253 0000 anexo 12",
             "+1 650 253 0000 int 12",
             "011 44 20 7946 0958",
-            "650-253-0000" + " " * 238,
-            "650-253-0000" + " " * 239,
-            "+1 650 253 0000 x" + "1" * 21,
+            f"650-253-0000{' ' * 238}",
+            f"650-253-0000{' ' * 239}",
+            f"+1 650 253 0000 x{'1' * 21}",
         ])
     ],
 )

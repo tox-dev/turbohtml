@@ -14,12 +14,53 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
+def observer_sequence_generate(rng: random.Random) -> str:
+    # Bound retained references and edits before invoking callbacks.
+    return f"{rng.choice(_PROGRAMS)}:g{rng.randrange(10000)}"
+
+
+def observer_sequence_seeds() -> list[str]:
+    # Exercise each bounded program before random generation.
+    return [f"{program}:g{index}" for program in _PROGRAMS for index in range(30)]
+
+
+def observer_sequence_controls() -> dict[str, bool]:
+    # Require exact edits and callback outcomes before accepting random programs.
+    added: Final[_Record] = ("childList", 0, (1,), (), None, None, None, None)
+    return {
+        "missing edit": observer_sequence_check(
+            "reuse1:a", lambda _program, _name: json.dumps(("<div></div>", True, [], [], [], None))
+        )
+        is not None,
+        "missing callback": observer_sequence_check(
+            "nested:a", lambda _program, _name: json.dumps(("<div><a></a></div>", True, [[added]], [], [], None))
+        )
+        is not None,
+        "swallowed callback error": observer_sequence_check(
+            "error:a", lambda _program, _name: json.dumps(("<div><a></a></div>", True, [[added]], [[added]], [], None))
+        )
+        is not None,
+    }
+
+
 def observer_sequence_check(case: str, run: Callable[[str, str], str] | None = None) -> str | None:
-    """Retain detached wrappers and pin callback batches against an independent model."""
+    # Retain detached wrappers and pin callback batches against an independent model.
     program, separator, name = case.partition(":")
-    if not separator or program not in _PROGRAMS or re.fullmatch(r"(?:[ab]|div|g[a-z0-9]{0,15})", name) is None:
+    if (
+        not separator
+        or program not in _PROGRAMS
+        or re.fullmatch(
+            r"(?#a, b, div, or a g followed by up to 15 letters or digits)(?:[ab]|div|g[a-z0-9]{0,15})", name
+        )
+        is None
+    ):
         raise UnsupportedObserverCaseError(case)
     return None if (run or _run)(program, name) == _expected(program, name) else "observer sequence differs from model"
+
+
+class UnsupportedObserverCaseError(ValueError):
+    # Keep malformed programs separate from failures during valid DOM operations.
+    ...
 
 
 def _run(program: str, name: str) -> str:
@@ -86,6 +127,11 @@ def _register(node: Node | None, registers: tuple[Element, Element, Element]) ->
     return None if node is None else registers.index(cast("Element", node))
 
 
+class _ObserverCallbackError(RuntimeError):
+    # Distinguish the expected callback error from an unrelated DOM failure.
+    ...
+
+
 def _expected(program: str, name: str) -> str:
     added: Final[_Record] = ("childList", 0, (1,), (), None, None, None, None)
     if program.startswith("reuse"):
@@ -108,47 +154,10 @@ def _expected(program: str, name: str) -> str:
     return json.dumps((f"<div><{name}></{name}></div>", True, [], [[added]], [], "observer callback failed"))
 
 
-def observer_sequence_generate(rng: random.Random) -> str:
-    """Bound retained references and edits before invoking callbacks."""
-    return f"{rng.choice(_PROGRAMS)}:g{rng.randrange(10000)}"
-
-
-def observer_sequence_seeds() -> list[str]:
-    """Exercise each bounded program before random generation."""
-    return [f"{program}:g{index}" for program in _PROGRAMS for index in range(30)]
-
-
-def observer_sequence_controls() -> dict[str, bool]:
-    """Require exact edits and callback outcomes before accepting random programs."""
-    added: Final[_Record] = ("childList", 0, (1,), (), None, None, None, None)
-    return {
-        "missing edit": observer_sequence_check(
-            "reuse1:a", lambda _program, _name: json.dumps(("<div></div>", True, [], [], [], None))
-        )
-        is not None,
-        "missing callback": observer_sequence_check(
-            "nested:a", lambda _program, _name: json.dumps(("<div><a></a></div>", True, [[added]], [], [], None))
-        )
-        is not None,
-        "swallowed callback error": observer_sequence_check(
-            "error:a", lambda _program, _name: json.dumps(("<div><a></a></div>", True, [[added]], [[added]], [], None))
-        )
-        is not None,
-    }
-
-
-class UnsupportedObserverCaseError(ValueError):
-    """Keep malformed programs separate from failures during valid DOM operations."""
-
-
-class _ObserverCallbackError(RuntimeError):
-    """Distinguish the expected callback error from an unrelated DOM failure."""
-
-
 _Record: TypeAlias = tuple[
     str, int | None, tuple[int | None, ...], tuple[int | None, ...], int | None, int | None, str | None, str | None
 ]
-_PROGRAMS: Final = ("reuse1", "reuse2", "reuse3", "replace", "nested", "error")
+_PROGRAMS: Final[tuple[str, ...]] = ("reuse1", "reuse2", "reuse3", "replace", "nested", "error")
 
 
 __all__ = [

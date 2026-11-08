@@ -28,12 +28,12 @@ import tempfile
 from pathlib import Path
 from typing import Final
 
-from bench import corpus
-from bench import orchestrator as orch
+from bench.corpus import REAL_PAGES, large_text, prefetch
+from bench.orchestrator import baseline_python, venv_python
 
 # each probe body calls emit() with the counts for the page it is handed; the selectors are the ones core.py
 # benchmarks, so a disagreement here is a disagreement in a published table
-PROBES: Final[dict[str, tuple[tuple[str, ...], str]]] = {
+_PROBES: Final[dict[str, tuple[tuple[str, ...], str]]] = {
     "turbohtml": (
         (),
         """
@@ -133,7 +133,7 @@ emit(
 # text reports twice: raw length and length after collapsing whitespace runs. A party that merely joins nodes without
 # separators differs on the first and agrees on the second, which tells a formatting difference apart from content the
 # parser never produced.
-_PREAMBLE: Final = """\
+_PREAMBLE: Final[str] = """\
 import json, sys
 TEXT = open(sys.argv[1], encoding='utf-8').read()
 def emit(*, elements, anchors, css, text):
@@ -145,17 +145,13 @@ def emit(*, elements, anchors, css, text):
 
 # a party at zero, or off the median by more than this, is answering a different question rather than differing on
 # whether a comment counts as a node
-_TOLERANCE: Final = 4.0
+_TOLERANCE: Final[float] = 4.0
 
 
 def _counts(name: str, requirements: tuple[str, ...], body: str, page: Path, workdir: Path) -> dict[str, int]:
-    """Run one party's probe over one page in that party's own venv; an unbuildable party reports nothing."""
+    # Run one party's probe over one page in that party's own venv; an unbuildable party reports nothing.
     slug = "".join(char if char.isalnum() else "-" for char in name)
-    python = (
-        orch.baseline_python(workdir, pgo=False)
-        if name == "turbohtml"
-        else orch.venv_python(workdir, slug, requirements)
-    )
+    python = baseline_python(workdir, pgo=False) if name == "turbohtml" else venv_python(workdir, slug, requirements)
     script = workdir / f"probe-{slug}.py"
     script.write_text(_PREAMBLE + body, "utf-8")
     done = subprocess.run([str(python), str(script), str(page)], capture_output=True, text=True, check=False)
@@ -165,44 +161,58 @@ def _counts(name: str, requirements: tuple[str, ...], body: str, page: Path, wor
     return json.loads(done.stdout)
 
 
-def disagreements(workdir: Path) -> list[str]:
-    """Run every probe over every corpus page and return one line per party answering a different question."""
-    corpus.prefetch()
+def _probe_names(results: dict[str, dict[str, int]]) -> list[str]:
+    return sorted({probe for row in results.values() for probe in row})
+
+
+def _print_results(label: str, results: dict[str, dict[str, int]]) -> None:
+    width = max(len(name) for name in results)
+    probes = _probe_names(results)
+    print(f"\n===== {label} =====")
+    print(f"{'party':{width}}  {'  '.join(f'{probe:>18}' for probe in probes)}")
+    for name, row in results.items():
+        print(f"""{name:{width}}  {"  ".join(f"{row.get(probe, '-')!s:>18}" for probe in probes)}""")
+
+
+def _outliers(label: str, results: dict[str, dict[str, int]]) -> list[str]:
     found: list[str] = []
-    for label, filename, url in corpus.REAL_PAGES:
-        page = workdir / filename
-        page.write_text(corpus.large_text(filename, url), encoding="utf-8")
-        results = {name: _counts(name, reqs, body, page, workdir) for name, (reqs, body) in PROBES.items()}
-        width = max(len(name) for name in results)
-        probes = sorted({probe for row in results.values() for probe in row})
-        print(f"\n===== {label} =====")
-        print(f"{'party':{width}}  " + "  ".join(f"{probe:>18}" for probe in probes))
+    for probe in _probe_names(results):
+        # raw text length is a formatting difference: a party that joins runs without separators, or collapses
+        # whitespace as pyquery does, reports a different length for identical content. The collapsed length is
+        # what says whether the content itself is there.
+        if probe == "text raw":
+            continue
+        counts = [row[probe] for row in results.values() if probe in row]
+        middle = statistics.median(counts) if len(counts) > 1 else 0
+        if middle <= 0:
+            continue
         for name, row in results.items():
-            print(f"{name:{width}}  " + "  ".join(f"{row.get(probe, '-')!s:>18}" for probe in probes))
-        for probe in probes:
-            # raw text length is a formatting difference: a party that joins runs without separators, or collapses
-            # whitespace as pyquery does, reports a different length for identical content. The collapsed length is
-            # what says whether the content itself is there.
-            if probe == "text raw":
+            value = row.get(probe)
+            if value is None:
                 continue
-            counts = [row[probe] for row in results.values() if probe in row]
-            middle = statistics.median(counts) if len(counts) > 1 else 0
-            if middle <= 0:
-                continue
-            for name, row in results.items():
-                value = row.get(probe)
-                if value is None:
-                    continue
-                if value == 0 or value < middle / _TOLERANCE or value > middle * _TOLERANCE:
-                    found.append(f"{label} / {probe}: {name} answered {value} against a median of {middle:.0f}")
+            if value == 0 or value < middle / _TOLERANCE or value > middle * _TOLERANCE:
+                found.append(f"{label} / {probe}: {name} answered {value} against a median of {middle:.0f}")
+    return found
+
+
+def _disagreements(workdir: Path) -> list[str]:
+    # Run every probe over every corpus page and return one line per party answering a different question.
+    prefetch()
+    found: list[str] = []
+    for label, filename, url in REAL_PAGES:
+        page = workdir / filename
+        page.write_text(large_text(filename, url), encoding="utf-8")
+        results = {name: _counts(name, reqs, body, page, workdir) for name, (reqs, body) in _PROBES.items()}
+        _print_results(label, results)
+        found.extend(_outliers(label, results))
     return found
 
 
 def main() -> None:
-    """Report every disagreement; exit non-zero so a run can gate on the result."""
+    # Report every disagreement; exit non-zero so a run can gate on the result.
     workdir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.gettempdir()) / "bench-equivalence"
     workdir.mkdir(parents=True, exist_ok=True)
-    found = disagreements(workdir)
+    found = _disagreements(workdir)
     print("\n===== disagreements =====")
     for line in found or ["none"]:
         print(f"  {line}")
@@ -213,4 +223,4 @@ if __name__ == "__main__":
     main()
 
 
-__all__ = ["PROBES", "disagreements"]
+__all__ = []

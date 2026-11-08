@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Self
 
-__all__ = ["Worker", "compare", "main"]
+    from fuzz.release_worker import JSON
 
 _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _WORKER: Final[Path] = Path(__file__).with_name("release_worker.py")
@@ -55,12 +55,11 @@ _SOURCES: Final[dict[str, str]] = {
     "css_to_xpath": "selector-entry",
     "xpath": "xpath-entry",
 }
-_FLOOR: Final = Floor(200, 0.9)
-_SEEDS_PER_OPERATION: Final = 40
+_FLOOR: Final[Floor] = Floor(count=200, ratio=0.9)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Return 0 when both sides agree, 1 on a difference, 2 when the control stayed silent or too little compared."""
+    # Return 0 when both sides agree, 1 on a difference, 2 when the control stayed silent or too little compared.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--minutes", type=float, default=1.0, help="generation budget after the seed pass")
     parser.add_argument(
@@ -81,14 +80,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     release_python = args.release_python or _install(args.release)
+    seeds_per_operation = 40
     with Worker(Path(sys.executable)) as head, Worker(release_python) as release:
-        if not _control_fires(head):
+        with Worker(Path(sys.executable), perturb="minify_css") as perturbed:
+            control = perturbed.answer("minify_css", "a{color:red}")
+        if compare(head.answer("minify_css", "a{color:red}"), control, "any") != "output differs":
             print("BLIND ORACLE: the perturbed worker went unreported", file=sys.stderr)
             return 2
-        run = _Run(head, release, args.errors)
+        run = _Run(head=head, release=release, errors=args.errors)
         seed_rng = random.Random(0)
         for operation, source in _SOURCES.items():
-            for _ in range(_SEEDS_PER_OPERATION):
+            for _ in range(seeds_per_operation):
                 run.case(operation, ORACLES[source].generate(seed_rng))
         rng = random.Random(args.rng_seed)
         deadline = time.monotonic() + args.minutes * 60
@@ -107,7 +109,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _install(release: str) -> Path:
-    """Install the release wheel into a cached venv of this interpreter's version and return its interpreter."""
+    # Install the release wheel into a cached venv of this interpreter's version and return its interpreter.
     venv = (
         Path(tempfile.gettempdir())
         / f"turbohtml-release-{release or 'latest'}-{sys.version_info[0]}.{sys.version_info[1]}"
@@ -122,10 +124,9 @@ def _install(release: str) -> Path:
 
 
 class Worker:
-    """One ``release_worker.py`` process, answering one operation per line."""
-
+    # One ``release_worker.py`` process, answering one operation per line.
     def __init__(self, python: Path, *, perturb: str | None = None) -> None:
-        """Start the worker under ``python``; ``perturb`` names an operation whose results it marks."""
+        # Start the worker under ``python``; ``perturb`` names an operation whose results it marks.
         self._command = [str(python), str(_WORKER), *(["--perturb", perturb] if perturb else [])]
         self._process = self._start()
 
@@ -144,11 +145,11 @@ class Worker:
         )
 
     def __enter__(self) -> Self:
-        """Use the worker for the length of a ``with`` block."""
+        # Use the worker for the length of a ``with`` block.
         return self
 
     def __exit__(self, *exc_info: object) -> None:
-        """Close the worker's input, which ends its loop, and reap it."""
+        # Close the worker's input, which ends its loop, and reap it.
         self._reap()
 
     def _reap(self) -> int:
@@ -161,12 +162,12 @@ class Worker:
         self._process.stdout.close()
         return code
 
-    def answer(self, operation: str, text: str) -> dict[str, object]:
-        """Return the worker's answer for one operation on one input; a worker that dies answers ``crashed``."""
+    def answer(self, operation: str, text: str) -> dict[str, JSON]:
+        # Return the worker's answer for one operation on one input; a worker that dies answers ``crashed``.
         assert self._process.stdin is not None  # ruff: ignore[assert]  # Popen with stdin=PIPE always sets it
         assert self._process.stdout is not None  # ruff: ignore[assert]  # Popen with stdout=PIPE always sets it
         try:
-            self._process.stdin.write(json.dumps([operation, text]) + "\n")
+            self._process.stdin.write(f"{json.dumps([operation, text])}\n")
             self._process.stdin.flush()
         except OSError:
             line = ""  # the worker exited before it read the case
@@ -180,13 +181,11 @@ class Worker:
         return {"crashed": code}
 
 
-def compare(head: dict[str, object], release: dict[str, object], errors: str) -> str | None:
-    """
-    Name how two answers differ, or return None when they agree.
-
-    ``errors`` is the normalization knob: ``message`` compares a failure's type and message, ``type`` its type only,
-    ``any`` treats every failure as equal to every other.
-    """
+def compare(head: dict[str, JSON], release: dict[str, JSON], errors: str) -> str | None:
+    # Name how two answers differ, or return None when they agree.
+    #
+    # ``errors`` is the normalization knob: ``message`` compares a failure's type and message, ``type`` its type only,
+    # ``any`` treats every failure as equal to every other.
     if "crashed" in head or "crashed" in release:
         return "HEAD crashed" if "crashed" in head else "release crashed"
     if "ok" in head and "ok" in release:
@@ -200,13 +199,7 @@ def compare(head: dict[str, object], release: dict[str, object], errors: str) ->
     return "HEAD raises" if "error" in head else "release raises"
 
 
-def _control_fires(head: Worker) -> bool:
-    with Worker(Path(sys.executable), perturb="minify_css") as perturbed:
-        answer = perturbed.answer("minify_css", "a{color:red}")
-    return compare(head.answer("minify_css", "a{color:red}"), answer, "any") == "output differs"
-
-
-@dataclass
+@dataclass(kw_only=True, frozen=True, slots=True)
 class _Run:
     head: Worker
     release: Worker
@@ -232,11 +225,18 @@ class _Run:
             data = json.dumps({"operation": operation, "input": text}).encode()
             digest = hashlib.sha256(data).hexdigest()
             (crash_dir / f"crash-{digest}").write_bytes(data)
-            sidecar = json.dumps({"oracle": "release-diff", "detail": key, "hits": hits}, indent=2) + "\n"
+            sidecar = f"{json.dumps({'oracle': 'release-diff', 'detail': key, 'hits': hits}, indent=2)}\n"
             (crash_dir / f"crash-{digest}.json").write_text(sidecar, encoding="utf-8")
             # only the oracle and a hash reach the log: the input may be an unreported bug (DESIGN-v2 decision D5)
             print(f"FINDING release-diff sha256={digest}", file=sys.stderr, flush=True)
         return len(self.found)
+
+
+__all__ = [
+    "Worker",
+    "compare",
+    "main",
+]
 
 
 if __name__ == "__main__":
