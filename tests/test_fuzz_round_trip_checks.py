@@ -3612,10 +3612,6 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-def _island_parent(node: Node) -> str:
-    return node.parent.tag if isinstance(node.parent, Element) else "Document"
-
-
 @pytest.mark.parametrize(
     ("case", "source", "expected"),
     [
@@ -3680,6 +3676,10 @@ def test_xml_island_literal_nodes(case: str, source: str, expected: list[tuple[s
         xml_island_check(case, lambda _node: source.replace("\r\n", "\n").replace("\r", "\n")),
         xml_island_check(case, lambda _node: "<Root/>"),
     ) == (expected, None, None, "serialized XML islands differ from literals")
+
+
+def _island_parent(node: Node) -> str:
+    return node.parent.tag if isinstance(node.parent, Element) else "Document"
 
 
 def _island_value(node: Node) -> str:
