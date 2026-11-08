@@ -11,7 +11,7 @@ import re
 import sys
 from pathlib import Path
 from subprocess import CompletedProcess, run  # ruff: ignore[suspicious-subprocess-import] - libFuzzer owns a separate interpreter.
-from typing import TYPE_CHECKING, Any, Final, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 from fuzz.atheris_header import HEADER_SIZE, SEED_HEADER, Header
@@ -308,8 +308,7 @@ def test_tokenizer_consumer_allocation_failure_raises_memory_error(
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-# the stubs describe the production module, which lacks the hook
-_VERIFY_BROKEN: Final[Callable[[str], tuple[int, int, int, int]]] = vars(_html)["_fuzz_verify_broken"]
+_VERIFY_BROKEN: Final[Callable[[str], tuple[int, int, int, int]]] = _html._fuzz_verify_broken
 
 
 @pytest.mark.fuzz_build
@@ -430,8 +429,7 @@ if TYPE_CHECKING:
 
     from turbohtml import Node
 
-# the stubs describe the production module, which lacks the hook
-_ESCAPE_ITERATORS: Final[Callable[[Node], int]] = vars(_html)["_fuzz_escape_iterators"]
+_ESCAPE_ITERATORS: Final[Callable[[Node], int]] = _html._fuzz_escape_iterators
 
 
 @pytest.mark.fuzz_build
@@ -508,10 +506,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-# only the fuzz-only build (meson -Dfuzzing=true) defines the hook, so the stubs omit it
-_HOOKS: Final[dict[str, Any]] = vars(importlib.import_module("turbohtml._html"))
-
-
 @pytest.fixture
 def alloc_sweep() -> Callable[..., list[str]]:
     # Fail each PyMem allocation of a call in turn and name what each failure produced.
@@ -521,9 +515,9 @@ def alloc_sweep() -> Callable[..., list[str]]:
     # the escaping exception's name or ``result``, with a suffix when the injected failure never fired. ``setup`` builds
     # a fresh argument for each run outside the injection window, so a cache the first run fills cannot shift later
     # positions.
-    if "_fuzz_inject_failure" not in _HOOKS:
+    if not hasattr(_html, "_fuzz_inject_failure"):
         pytest.fail("fuzz-build tests need the fuzz-only build: meson setup -Dfuzzing=true")
-    inject: Final[Callable[[int], tuple[int, bool]]] = _HOOKS["_fuzz_inject_failure"]
+    inject: Final[Callable[[int], tuple[int, bool]]] = _html._fuzz_inject_failure
 
     def sweep(
         call: Callable[[object], object],

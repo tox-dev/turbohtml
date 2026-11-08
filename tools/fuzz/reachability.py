@@ -84,7 +84,7 @@ def _methods(cls: type) -> Iterator[FunctionType]:
     # a C type's vars hold method descriptors, and PyPy's interpreter-level functions carry a code object without
     # co_filename
     source: Final = getattr(sys.modules[cls.__module__], "__file__", None)
-    for member in vars(cls).values():
+    for member in cls.__dict__.values():
         function = member.__func__ if isinstance(member, (staticmethod, classmethod)) else member
         if inspect.isfunction(function) and getattr(function.__code__, "co_filename", None) == source:
             yield function

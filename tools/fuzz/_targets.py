@@ -21,7 +21,6 @@ import argparse
 import contextlib
 import dataclasses
 import hashlib
-import importlib
 import os
 import random
 import re
@@ -31,7 +30,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 import turbohtml
-from turbohtml import clean
+from turbohtml import _html, clean  # ruff:ignore[import-private-name]  # the fuzz-only hooks live in the private _html module
 
 # the harness targets the private URL/IDNA C bindings (th_url_split/join/percent, th_url_to_ascii) by design
 from turbohtml._html import (  # ruff:ignore[import-private-name]
@@ -120,8 +119,7 @@ def _sweep(name: str, seeds: list[bytes], repro: Path, crash_dir: Path) -> list[
     # ``malloc-fail`` fixes show where such bugs hide: cleanup paths. A ``failure_pos`` of 0 only counts the seed's N
     # allocations; positions 1..N then fail one each. An ASan report aborts the process, and ``fuzz.py`` keeps the
     # framed input it died on.
-    # only the fuzz-only build (meson -Dfuzzing=true) defines the hook, so the stubs omit it
-    inject: Callable[[int], tuple[int, bool]] = vars(importlib.import_module("turbohtml._html"))["_fuzz_inject_failure"]
+    inject: Final = _html._fuzz_inject_failure  # ruff:ignore[private-member-access]  # the fuzz-only hook is absent from production builds
     func = _TARGETS[name]
     findings: list[str] = []
     swept = 0
