@@ -117,7 +117,15 @@ def _snapshot(root: Element) -> str:
     return json.dumps(records)
 
 
-_CASE: Final[re.Pattern[str]] = re.compile(r"(ul|ol):(flat|nested):(explicit|implied):(plain|named|numeric)")
+_CASE: Final[re.Pattern[str]] = re.compile(
+    r"""
+    (?P<tag>ul|ol):                          # the list element
+    (?P<shape>flat|nested):                  # whether the items are nested
+    (?P<ending>explicit|implied):            # the word explicit or implied
+    (?P<leaf>plain|named|numeric)            # the kind of character reference
+    """,
+    re.VERBOSE,
+)
 _TAGS: Final[tuple[str, ...]] = ("ul", "ol")
 _SHAPES: Final[tuple[str, ...]] = ("flat", "nested")
 _ENDINGS: Final[dict[str, str]] = {"explicit": "</li>", "implied": ""}

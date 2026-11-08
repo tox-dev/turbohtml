@@ -117,7 +117,15 @@ def _snapshot(root: Element) -> str:
     return json.dumps(records)
 
 
-_CASE: Final[re.Pattern[str]] = re.compile(r"(foreignObject|desc|title):(x|y):(single|double):(plain|named|numeric)")
+_CASE: Final[re.Pattern[str]] = re.compile(
+    r"""
+    (?P<boundary>foreignObject|desc|title):  # the element that holds the foreign content
+    (?P<identifier>x|y):                      # the attribute name x or y
+    (?P<quote>single|double):                 # the quote character around the value
+    (?P<leaf>plain|named|numeric)             # the kind of character reference
+    """,
+    re.VERBOSE,
+)
 _BOUNDARIES: Final[tuple[str, ...]] = ("foreignObject", "desc", "title")
 _IDENTIFIERS: Final[tuple[str, ...]] = ("x", "y")
 _QUOTES: Final[dict[str, str]] = {"single": "'", "double": '"'}

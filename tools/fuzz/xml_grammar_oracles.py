@@ -128,7 +128,16 @@ def _serialize(root: Node, serialize: Callable[[Node], str] | None) -> str:
     return root.serialize(Html(xml=True)) if serialize is None else serialize(root)
 
 
-_CASE: Final[re.Pattern[str]] = re.compile(r"(p|P):(Leaf|leaf):(single|double):([1-3]):(plain|escaped|literal|numeric)")
+_CASE: Final[re.Pattern[str]] = re.compile(
+    r"""
+    (?P<prefix>p|P):                           # the prefix letter
+    (?P<tag>Leaf|leaf):                        # the element name
+    (?P<quote>single|double):                  # the quote character
+    (?P<count>[1-3]):                          # a digit from 1 to 3
+    (?P<leaf>plain|escaped|literal|numeric)    # the kind of leaf
+    """,
+    re.VERBOSE,
+)
 _PREFIXES: Final[tuple[str, ...]] = ("p", "P")
 _TAGS: Final[tuple[str, ...]] = ("Leaf", "leaf")
 _QUOTES: Final[dict[str, str]] = {"single": "'", "double": '"'}

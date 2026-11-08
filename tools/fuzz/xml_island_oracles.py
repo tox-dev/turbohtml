@@ -110,7 +110,15 @@ def _serialize(root: Node, serialize: Callable[[Node], str] | None) -> str:
     return root.serialize(Html(xml=True)) if serialize is None else serialize(root)
 
 
-_CASE: Final[re.Pattern[str]] = re.compile(r"(inside|outside):(plain|markup|lines):(plain|markup|lines):([1-3])")
+_CASE: Final[re.Pattern[str]] = re.compile(
+    r"""
+    (?P<mode>inside|outside):          # where the island sits
+    (?P<comment>plain|markup|lines):   # the comment body
+    (?P<cdata>plain|markup|lines):     # the CDATA body
+    (?P<count>[1-3])                   # a digit from 1 to 3
+    """,
+    re.VERBOSE,
+)
 _MODES: Final[tuple[str, ...]] = ("inside", "outside")
 _COMMENTS: Final[dict[str, tuple[str, str]]] = {
     "plain": ("note", "note"),

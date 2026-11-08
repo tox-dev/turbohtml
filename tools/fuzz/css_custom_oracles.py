@@ -72,7 +72,15 @@ class UnsupportedCssCustomCaseError(ValueError):
     ...
 
 
-_CASE: Final[re.Pattern[str]] = re.compile(r"(sheet|inline):(ident|string):([1-4]):([0-7])")
+_CASE: Final[re.Pattern[str]] = re.compile(
+    r"""
+    (?P<mode>sheet|inline):        # the stylesheet is a sheet or inline
+    (?P<kind>ident|string):        # the kind of value written
+    (?P<count>[1-4]):              # a digit from 1 to 4
+    (?P<offset>[0-7])              # a digit from 0 to 7
+    """,
+    re.VERBOSE,
+)
 _MODES: Final[tuple[str, ...]] = ("sheet", "inline")
 _KINDS: Final[tuple[str, ...]] = ("ident", "string")
 

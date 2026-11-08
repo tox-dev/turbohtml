@@ -115,7 +115,15 @@ def _snapshot(root: Element) -> str:
     return json.dumps(records)
 
 
-_CASE: Final[re.Pattern[str]] = re.compile(r"(td|th):(explicit|implied):([12]):(plain|named|numeric)")
+_CASE: Final[re.Pattern[str]] = re.compile(
+    r"""
+    (?P<cell>td|th):              # the cell element name
+    (?P<group>explicit|implied):   # the word explicit or implied
+    (?P<count>[12]):               # a digit 1 or 2
+    (?P<leaf>plain|named|numeric)  # the kind of character reference
+    """,
+    re.VERBOSE,
+)
 _CELLS: Final[tuple[str, ...]] = ("td", "th")
 _GROUPS: Final[tuple[str, ...]] = ("explicit", "implied")
 _COUNTS: Final[tuple[int, ...]] = (1, 2)

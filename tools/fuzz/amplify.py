@@ -513,14 +513,14 @@ _COMMENT_OR_LITERAL: Final[re.Pattern[str]] = re.compile(
 )
 _CHAR: Final[str] = r"'((?:[^'\\\n]|\\[^\n]){1,8})'"
 _COMPARED_CHAR: Final[re.Pattern[str]] = re.compile(rf"\bcase\s+{_CHAR}\s*:|[=!]=\s*{_CHAR}|{_CHAR}\s*[=!]=")
-_CASE_CODE_POINT: Final[re.Pattern[str]] = re.compile(r"\bcase\s+0[xX]([0-9A-Fa-f]+)[uU]?\s*:")
+_CASE_CODE_POINT: Final[re.Pattern[str]] = re.compile(r"\bcase\s+0[xX](?P<digits>[0-9A-Fa-f]+)[uU]?\s*:")
 _STATEMENT_END: Final[re.Pattern[str]] = re.compile(r"[;{}]")
 # a call to a comparison helper (memcmp, match_kw, css_run_ieq, u_eq_ascii, is_schema_el, ...) marks its statement
 _COMPARISON: Final[re.Pattern[str]] = re.compile(
     r"(?:cmp|eq|match|starts_with|ends_with|_kw|lookup|is_|_is)\w*\)?\s*\("
 )
 _TABLE: Final[re.Pattern[str]] = re.compile(r"static\s+const\s[^=;{}]*\[[^\]]*\]\s*=\s*\{(.*?)\};", re.DOTALL)
-_STRING: Final[re.Pattern[str]] = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
+_STRING: Final[re.Pattern[str]] = re.compile(r'"(?P<body>(?:[^"\\\n]|\\.)*)"')
 _ESCAPE: Final[re.Pattern[bytes]] = re.compile(rb"\\(x[0-9A-Fa-f]{1,2}|[0-7]{1,3}|.)")
 # the tag atom table holds bare element names; the tree builder branches on them as start and end tags
 _TAG_TABLE: Final[str] = "data/tag_atom.h"
