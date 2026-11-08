@@ -794,11 +794,6 @@ def _norm(dump: str) -> str:
     return dump.replace("( ", "(").replace(" )", ")").strip()
 
 
-def _ast(source: str) -> str:
-    # Return the parser's S-expression AST dump, raising ValueError if it does not parse.
-    return _html._minify_js_parse(source)
-
-
 @pytest.mark.parametrize("source", _CASES)
 def test_semantic_equivalence(source: str) -> None:
     try:
@@ -812,7 +807,9 @@ def test_semantic_equivalence(source: str) -> None:
     # a re-parse failure raises ValueError and fails the test. Rename correctness is gated by
     # execution differentials in test_mangle_differential.py.
     structural = nomangle(source)
-    assert _norm(_ast(source)) == _norm(_ast(structural)), "minification changed the AST"
+    assert _norm(_html._minify_js_parse(source)) == _norm(_html._minify_js_parse(structural)), (
+        "minification changed the AST"
+    )
     # idempotence; minify_js re-parses out internally, so this also proves the mangled output parses
     assert minify_js(out) == out, "minification is not idempotent"
 
