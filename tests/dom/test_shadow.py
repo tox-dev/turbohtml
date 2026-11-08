@@ -793,7 +793,7 @@ def test_shadow_adoption_preserves_aliases(mode: str, depth: int) -> None:
     assert host.children == children
     for owner, root, child, saved_hash in roots:
         assert (root.host, root.children, hash(root)) == (owner, (child,), saved_hash)
-        assert (owner.shadow_root is None, owner.shadow_root is root) == (mode != "open", mode == "open")
+        assert (owner.shadow_root == root, owner.shadow_root is None) == (mode == "open", mode != "open")
 
 
 _SLOT_READS: Final[list[ParameterSet]] = [

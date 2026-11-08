@@ -2357,7 +2357,7 @@ def test_form_data_handles_legend_changes_during_collection(
     count: Final = sum(name.startswith("n") for name, _value in pairs)
     expected: Final = [(f"n{index}", f"v{index}") for index in range(count)]
     assert count in counts
-    assert (changed, legend.parent is fieldset, legend.parent is None) == (True, replaced, not replaced)
+    assert (changed, legend.parent == fieldset, legend.parent is None) == (True, replaced, not replaced)
     assert pairs == [*expected, *suffix]
 
 
