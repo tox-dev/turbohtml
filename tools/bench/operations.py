@@ -73,11 +73,8 @@ _STRUCTURED_PAGE: Final[str] = dedent("""\
 
 _MICRODATA_REFS: Final[str] = " ".join(f"r{index}" for index in range(1_000))
 _MICRODATA_ITEMREF: Final[str] = (
-    '<div itemscope itemref="'
-    + _MICRODATA_REFS
-    + '"></div>'
-    + "<i></i>" * 4_000
-    + "".join(f"<meta id=r{index} itemprop=p content=x>" for index in range(1_000))
+    f'<div itemscope itemref="{_MICRODATA_REFS}"></div>{"<i></i>" * 4_000}'
+    f"{''.join(f'<meta id=r{index} itemprop=p content=x>' for index in range(1_000))}"
 )
 
 _FEED_ITEM: Final[str] = dedent("""\
@@ -644,8 +641,10 @@ def _computed_style_selector_cases() -> tuple[tuple[str, str], ...]:
     return tuple(
         (
             label,
-            f"<!doctype html><style>div{{color:blue}}div{selector}{{color:red}}</style>"
-            + ("<div>" * count + leaf + "</div>" * count if nested else (f"<div></div>{leaf}") * count),
+            (
+                f"<!doctype html><style>div{{color:blue}}div{selector}{{color:red}}</style>"
+                f"{'<div>' * count + leaf + '</div>' * count if nested else (f'<div></div>{leaf}') * count}"
+            ),
         )
         for label, selector, count, nested, leaf in (
             ("deep missing :has / 512 elements", ":has(.hit)", 512, True, "<span></span>"),
@@ -1114,7 +1113,7 @@ def _transform_text_cases() -> tuple[tuple[str, Case], ...]:
         for count in (4096, 4):
             if kind == "builtin":
                 body = "<xsl:apply-templates/>"
-                source = f"<r>{('<p>' + payload + '</p>') * count}</r>"
+                source = f"<r>{(f'<p>{payload}</p>') * count}</r>"
             else:
                 body = (f"{payload}<!--gap-->" if kind == "literal" else f"<xsl:text>{payload}</xsl:text>") * count
                 source = "<r/>"
@@ -1505,9 +1504,11 @@ def _minify_cases() -> tuple[tuple[str, Case], ...]:
         *(
             (
                 f"{count} {'reversed' if reverse else 'sorted'} Unicode ranges",
-                "@font-face{unicode-range:"
-                + ",".join(f"U+{index * 2:X}" for index in (reversed(range(count)) if reverse else range(count)))
-                + "}",
+                (
+                    "@font-face{unicode-range:"
+                    f"{','.join(f'U+{index * 2:X}' for index in (reversed(range(count)) if reverse else range(count)))}"
+                    "}"
+                ),
             )
             for count, reverse in ((8, True), (1024, False), (1024, True))
         ),
@@ -1987,10 +1988,12 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         (
             f"{size:,} character alternatives",
             (
-                '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="value">'
-                '<xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="['
-                + "".join(chr(0x400 + index) for index in range(size))
-                + ']"/></xs:restriction></xs:simpleType></xs:element></xs:schema>',
+                (
+                    '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element '
+                    'name="value"><xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="['
+                    f"{''.join(chr(0x400 + index) for index in range(size))}"
+                    ']"/></xs:restriction></xs:simpleType></xs:element></xs:schema>'
+                ),
                 f"<value>{chr(0x400 + size - 1)}</value>",
             ),
         )
@@ -2132,7 +2135,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 f"{size:,} nodes, {unique} values",
                 (
                     "set:distinct(//li)",
-                    "<ul>" + "".join(f"<li>value-{index % unique}</li>" for index in range(size)) + "</ul>",
+                    f"<ul>{''.join(f'<li>value-{index % unique}</li>' for index in range(size))}</ul>",
                 ),
             )
             for size in (100, 1_000, 10_000)
@@ -2757,11 +2760,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         *tuple(
             (
                 f"{count} live parameters",
-                "function transform("
-                + ",".join(f"argument{index}" for index in range(count))
-                + "){return ["
-                + ",".join(f"argument{index}" for index in range(count))
-                + "]}",
+                (
+                    f"function transform({','.join(f'argument{index}' for index in range(count))}){{return ["
+                    f"{','.join(f'argument{index}' for index in range(count))}]}}"
+                ),
             )
             for count in (8, 32, 54, 80)
         ),
@@ -2784,7 +2786,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             f"{count} var pairs / {'read before initialization' if early else 'read after initialization'}",
             "function f(g){var "
             + ",".join(
-                f"keep{index}=g({'value' + str(index) if early else str(index)}),value{index}={index % 10}"
+                f"keep{index}=g({f'value{index!s}' if early else str(index)}),value{index}={index % 10}"
                 for index in range(count)
             )
             + ";return["
@@ -2798,7 +2800,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             f"{count} call initializers / {layout}",
             "function f(g){"
             + (
-                "const " + ",".join(f"v{index}=g({index})" for index in range(count)) + ";"
+                f"const {','.join(f'v{index}=g({index})' for index in range(count))};"
                 if layout == "one declaration"
                 else "".join(f"const v{index}=g({index});" for index in range(count))
             )
@@ -2811,9 +2813,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "minify-js-unused-declarations": lambda: tuple(
         (
             f"{count} unused retained/literal pairs",
-            "function f(g){const "
-            + ",".join(f"keep{index}=g({index}),value{index}={index % 10}" for index in range(count))
-            + ";return[]}",
+            (
+                "function f(g){const "
+                f"{','.join(f'keep{index}=g({index}),value{index}={index % 10}' for index in range(count))};return[]}}"
+            ),
         )
         for count in (256, 1)
     ),
@@ -2838,10 +2841,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             + (
                 "".join(f"const v{index}={index % 10};g(v{index});" for index in range(count))
                 if layout == "interleaved declarations"
-                else "const "
-                + ",".join(f"v{index}={index % 10}" for index in range(count))
-                + ";"
-                + "".join(f"g(v{index});" for index in range(count))
+                else (
+                    f"const {','.join(f'v{index}={index % 10}' for index in range(count))};"
+                    f"{''.join(f'g(v{index});' for index in range(count))}"
+                )
             )
             + "return["
             + ",".join(f"v{index},v{index}" for index in range(count))
@@ -2856,9 +2859,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "minify-js-guards": lambda: tuple(
         (
             f"{count} guard returns",
-            "function f(x){"
-            + "".join(f"if(x==={index})return g({index});" for index in range(count))
-            + "return g(-1)}",
+            f"function f(x){{{''.join(f'if(x==={index})return g({index});' for index in range(count))}return g(-1)}}",
         )
         for count in (512, 1)
     ),
@@ -2930,7 +2931,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         *tuple(
             (
                 f"normalize 100 URLs, 100 {kind} query keys",
-                ("normalize", ("https://example.org/?" + "&".join(f"{key}{index}=1" for index in range(100)),) * 100),
+                ("normalize", (f"https://example.org/?{'&'.join(f'{key}{index}=1' for index in range(100))}",) * 100),
             )
             for kind, key in (("plain", "key"), ("escaped", "%6Bey"))
         ),
