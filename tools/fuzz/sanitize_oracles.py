@@ -205,7 +205,11 @@ def _mutation_detail(tree: Node, serialized: str) -> str | None:
         reparsed = _normalized_dump(parse_fragment(serialized, _CONTEXT, positions=False, scripting=True))
     else:
         reference = "html5lib"
-        reparsed = _dump_html5lib(_reparse(serialized))
+        # It nests fragment children one column deeper than the .dat files, the offset ``convertTreeDump`` strips in
+        # html5lib/tests/tree_construction.py; continuation lines of a multi-line text node carry no bar and stay as
+        # they are.
+        lines = _DOM_BUILDER(namespaceHTMLElements=False).testSerializer(_reparse(serialized)).split("\n")[1:]
+        reparsed = "\n".join(f"| {line[3:]}" if line.startswith("|") else line for line in lines)
     if expected == reparsed:
         return None
     return next(
@@ -278,16 +282,6 @@ def _reparse(serialized: str) -> DomFragment:
     # Parse ``serialized`` the way ``innerHTML`` assignment does: a <div> fragment with scripting on.
     parser = html5lib.HTMLParser(tree=_DOM_BUILDER, namespaceHTMLElements=False)
     return parser.parseFragment(serialized, container=_CONTEXT, scripting=True)
-
-
-def _dump_html5lib(fragment: DomFragment) -> str:
-    # Render an html5lib tree in the html5lib-tests format with html5lib's own ``testSerializer``.
-    #
-    # It nests fragment children one column deeper than the .dat files, the offset ``convertTreeDump`` strips in
-    # html5lib/tests/tree_construction.py; continuation lines of a multi-line text node carry no bar and stay as they
-    # are.
-    lines = _DOM_BUILDER(namespaceHTMLElements=False).testSerializer(fragment).split("\n")[1:]
-    return "\n".join(f"| {line[3:]}" if line.startswith("|") else line for line in lines)
 
 
 def _shape(line: str | None) -> str:
@@ -491,11 +485,23 @@ class _Run:
             return
         self.stats["compared"] += 1
         if (serialized := tree.inner_html) != sanitize(markup, policy):
-            self._record(
-                "string-path", "sanitize(str) != sanitize_node().inner_html", markup, policy, _string_path_check(policy)
-            )
+
+            def string_path(markup: str) -> str | None:
+                tree = sanitize_node(parse_fragment(markup, _CONTEXT, positions=False), policy)
+                return (
+                    None
+                    if tree.inner_html == sanitize(markup, policy)
+                    else "sanitize(str) != sanitize_node().inner_html"
+                )
+
+            self._record("string-path", "sanitize(str) != sanitize_node().inner_html", markup, policy, string_path)
         if (detail := _mutation_detail(tree, serialized)) is not None:
-            self._record("mutation", detail, markup, policy, _mutation_check(policy))
+
+            def mutation(markup: str) -> str | None:
+                tree = sanitize_node(parse_fragment(markup, _CONTEXT, positions=False), policy)
+                return None if _depth(tree) >= _DEPTH_CAP else _mutation_detail(tree, tree.inner_html)
+
+            self._record("mutation", detail, markup, policy, mutation)
         for violation in _violations(serialized, policy):
             self._record("policy", violation, markup, policy, _policy_check(policy, violation))
 
@@ -503,8 +509,16 @@ class _Run:
         signature = f"{oracle}: {detail}"
         self.hits[signature] += 1
         if signature not in self.found:
+            default: Final = Policy()
+            policy_repr: Final = "Policy({})".format(
+                ", ".join(
+                    f"{field.name}={_value_repr(value)}"
+                    for field in dataclasses.fields(Policy)
+                    if (value := getattr(policy, field.name)) != getattr(default, field.name)
+                )
+            )
             self.found[signature] = (
-                _Finding(oracle=oracle, signature=signature, markup=markup, policy=_policy_repr(policy), detail=detail),
+                _Finding(oracle=oracle, signature=signature, markup=markup, policy=policy_repr, detail=detail),
                 policy,
                 check,
             )
@@ -551,14 +565,6 @@ def _depth(root: Node) -> int:
     return deepest
 
 
-def _string_path_check(policy: Policy) -> _Check:
-    def check(markup: str) -> str | None:
-        tree = sanitize_node(parse_fragment(markup, _CONTEXT, positions=False), policy)
-        return None if tree.inner_html == sanitize(markup, policy) else "sanitize(str) != sanitize_node().inner_html"
-
-    return check
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _Finding:
     oracle: str
@@ -571,18 +577,6 @@ class _Finding:
     parse5: str = "n/a"
 
 
-def _policy_repr(policy: Policy) -> str:
-    # Spell ``policy`` as a constructor call so a finding's repro rebuilds it; default fields are left out.
-    default = Policy()
-    return "Policy({})".format(
-        ", ".join(
-            f"{field.name}={_value_repr(value)}"
-            for field in dataclasses.fields(Policy)
-            if (value := getattr(policy, field.name)) != getattr(default, field.name)
-        )
-    )
-
-
 def _value_repr(value: _PolicyValue) -> str:
     if isinstance(value, OnDisallowed):
         return f"OnDisallowed.{value.name}"
@@ -591,14 +585,6 @@ def _value_repr(value: _PolicyValue) -> str:
     if isinstance(value, Mapping):
         return f"{{{', '.join(f'{key!r}: {_value_repr(item)}' for key, item in sorted(value.items()))}}}"
     return repr(value)
-
-
-def _mutation_check(policy: Policy) -> _Check:
-    def check(markup: str) -> str | None:
-        tree = sanitize_node(parse_fragment(markup, _CONTEXT, positions=False), policy)
-        return None if _depth(tree) >= _DEPTH_CAP else _mutation_detail(tree, tree.inner_html)
-
-    return check
 
 
 def _policy_check(policy: Policy, violation: str) -> _Check:
@@ -645,10 +631,13 @@ def _ddmin(markup: str, check: _Check, detail: str) -> str:
 def _seeds(rng: random.Random) -> list[str]:
     # Collect the vendored payload corpora; a missing one is a setup error, never a silent skip.
     corpus = sorted((_ROOT / "tools" / "fuzz" / "corpus" / "sanitize").glob("*"))
+    # Unwrap the H5SC vectors from the ``<div id=N>…//["'`-->]]>]</div>`` shell vectors.txt puts around each.
+    text: Final = _require(_DATA / "h5sc" / "vectors.txt").read_text(encoding="utf-8")
+    h5sc: Final = re.findall(r'<div id="\d+">(.*?)//\["\'`-->\]\]>\]</div>', text, flags=re.DOTALL)
     return list(
         dict.fromkeys([
             *_dompurify_payloads(),
-            *_h5sc_vectors(),
+            *h5sc,
             *_dharma_payloads(rng),
             *(path.read_text(encoding="utf-8") for path in corpus),
         ])
@@ -678,12 +667,6 @@ def _require(path: Path) -> Path:
         msg = f"{path} is missing; tox -e fuzz-oracle checks out the seed submodules"
         raise FileNotFoundError(msg)
     return path
-
-
-def _h5sc_vectors() -> list[str]:
-    # Unwrap the H5SC vectors from the ``<div id=N>…//["'`-->]]>]</div>`` shell vectors.txt puts around each.
-    text = _require(_DATA / "h5sc" / "vectors.txt").read_text(encoding="utf-8")
-    return re.findall(r'<div id="\d+">(.*?)//\["\'`-->\]\]>\]</div>', text, flags=re.DOTALL)
 
 
 def _dharma_payloads(rng: random.Random) -> list[str]:

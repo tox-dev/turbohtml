@@ -223,7 +223,11 @@ def _roundtrip(data: bytes) -> None:
     document = turbohtml.parse(_decode(data))
     once = document.serialize()
     twice = turbohtml.parse(once).serialize()
-    if once != twice and not _reparse_may_differ(document, once, twice):
+    if once != twice and not (
+        _html_newline_normalization_only(once, twice)
+        or _past_depth_cap(document)
+        or any(_SCRIPT_DOUBLE_ESCAPE.search(script.text) for script in document.iter_elements("script"))
+    ):
         message = "serialize not idempotent"
         raise AssertionError(message)
 
@@ -286,14 +290,6 @@ def _decode(data: bytes) -> str:
         return data.decode("utf-8", "surrogatepass")
     except UnicodeError:
         return data.decode("latin-1")
-
-
-def _reparse_may_differ(document: turbohtml.Document, once: str, twice: str) -> bool:
-    return (
-        _html_newline_normalization_only(once, twice)
-        or _past_depth_cap(document)
-        or any(_SCRIPT_DOUBLE_ESCAPE.search(script.text) for script in document.iter_elements("script"))
-    )
 
 
 def _html_newline_normalization_only(once: str, twice: str) -> bool:

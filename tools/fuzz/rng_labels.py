@@ -67,8 +67,14 @@ def _compare_case(case_id: str, case: lxml.etree._Element, directory: Path) -> I
     schema_path.write_bytes(schema_text)
     _write_resources(case, directory)
     schema_hash: Final = hashlib.sha256(lxml.etree.tostring(case)).hexdigest()
-    ours: Final = _compile_turbohtml(schema_text, schema_path, directory)
-    reference: Final = _compile_lxml(schema_path)
+    try:
+        ours: RelaxNG | None = RelaxNG(schema_text.decode(), base_url=str(schema_path), include_root=directory)
+    except (ValueError, OSError):
+        ours = None
+    try:
+        reference: lxml.etree.RelaxNG | None = lxml.etree.RelaxNG(lxml.etree.parse(str(schema_path), _parser()))
+    except lxml.etree.RelaxNGParseError:
+        reference = None
     yield Verdict(
         case_id=case_id,
         sha256=schema_hash,
@@ -153,20 +159,6 @@ def _payload(label: lxml.etree._Element) -> bytes:
 
 def _parser() -> lxml.etree.XMLParser:
     return lxml.etree.XMLParser(resolve_entities="internal", no_network=True, load_dtd=False)
-
-
-def _compile_turbohtml(schema: bytes, path: Path, directory: Path) -> RelaxNG | None:
-    try:
-        return RelaxNG(schema.decode(), base_url=str(path), include_root=directory)
-    except (ValueError, OSError):
-        return None
-
-
-def _compile_lxml(path: Path) -> lxml.etree.RelaxNG | None:
-    try:
-        return lxml.etree.RelaxNG(lxml.etree.parse(str(path), _parser()))
-    except lxml.etree.RelaxNGParseError:
-        return None
 
 
 class _CorpusError(ValueError):

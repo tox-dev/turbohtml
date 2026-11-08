@@ -56,7 +56,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def compare(case: Case, *, negative_control: bool = False) -> Iterator[Verdict]:
     # Known labels expose shared mistakes before engine agreement.
-    ours: Final = _turbohtml(case)
+    try:
+        compiled = Transform(parse_xml(case.stylesheet))
+    except (HTMLParseError, ValueError):
+        ours = _Transform(compiled=False, applied=None, output=None)
+    else:
+        try:
+            ours = _Transform(
+                compiled=True, applied=True, output=_result(compiled(parse_xml(case.document)), case.method)
+            )
+        except (HTMLParseError, ValueError, RuntimeError):
+            ours = _Transform(compiled=True, applied=False, output=None)
     reference: Final = _libxslt(case)
     digest: Final = hashlib.sha256((f"{case.stylesheet}\\0{case.document}").encode()).hexdigest()
     for engine, outcome in (("turbohtml", ours), ("libxslt", reference)):
@@ -145,17 +155,6 @@ class _Transform(NamedTuple):
     compiled: bool
     applied: bool | None
     output: str | ResultTree | None
-
-
-def _turbohtml(case: Case) -> _Transform:
-    try:
-        compiled = Transform(parse_xml(case.stylesheet))
-    except (HTMLParseError, ValueError):
-        return _Transform(compiled=False, applied=None, output=None)
-    try:
-        return _Transform(compiled=True, applied=True, output=_result(compiled(parse_xml(case.document)), case.method))
-    except (HTMLParseError, ValueError, RuntimeError):
-        return _Transform(compiled=True, applied=False, output=None)
 
 
 def _libxslt(case: Case) -> _Transform:

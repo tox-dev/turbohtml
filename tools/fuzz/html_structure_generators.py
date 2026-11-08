@@ -115,7 +115,36 @@ def html_grammar_complete(vocabulary: HtmlVocabulary | None = None) -> Grammar:
                 _origin(vocabulary, "tagattributes.txt", rule[0]),
             )
         )
-    productions.extend(_hostile_productions())
+    standard = "https://html.spec.whatwg.org/multipage/parsing.html"
+    productions.extend((
+        Production(
+            name="html:hostile:formatting",
+            symbol="node",
+            parts=(b"<b><i>x</b>y</i>",),
+            nodes=5,
+            origin=f"{standard}#adoption-agency-algorithm",
+            height=2,
+        ),
+        Production(
+            name="html:hostile:near-miss",
+            symbol="node",
+            parts=(b"<span>x</spna><b>y</b></span>",),
+            nodes=4,
+            origin=f"{standard}#parsing-main-inbody",
+            height=2,
+        ),
+        *(
+            Production(
+                name=f"html:foreign:svg:{tag}",
+                symbol="node",
+                parts=(f"<svg><{tag}><p>x</p></{tag}><circle/></svg>".encode("ascii"),),
+                nodes=5,
+                origin=f"{standard}#html-integration-point",
+                height=3,
+            )
+            for tag in ("foreignObject", "desc", "title")
+        ),
+    ))
     return compile_grammar(productions, "root")
 
 
@@ -235,39 +264,6 @@ def _element_shape(tag: str) -> _ElementShape:
     }):
         return _ElementShape(b"<" + tag.encode("ascii"), b">", 1, 0)
     return _ElementShape(b"<" + tag.encode("ascii"), b">x</" + tag.encode("ascii") + b">", 2, 1)
-
-
-def _hostile_productions() -> tuple[Production, ...]:
-    standard = "https://html.spec.whatwg.org/multipage/parsing.html"
-    return (
-        Production(
-            name="html:hostile:formatting",
-            symbol="node",
-            parts=(b"<b><i>x</b>y</i>",),
-            nodes=5,
-            origin=f"{standard}#adoption-agency-algorithm",
-            height=2,
-        ),
-        Production(
-            name="html:hostile:near-miss",
-            symbol="node",
-            parts=(b"<span>x</spna><b>y</b></span>",),
-            nodes=4,
-            origin=f"{standard}#parsing-main-inbody",
-            height=2,
-        ),
-        *(
-            Production(
-                name=f"html:foreign:svg:{tag}",
-                symbol="node",
-                parts=(f"<svg><{tag}><p>x</p></{tag}><circle/></svg>".encode("ascii"),),
-                nodes=5,
-                origin=f"{standard}#html-integration-point",
-                height=3,
-            )
-            for tag in ("foreignObject", "desc", "title")
-        ),
-    )
 
 
 class _Values:

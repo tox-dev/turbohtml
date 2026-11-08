@@ -306,7 +306,12 @@ def _text(text: str, *, preserve: bool) -> tuple[_Meaning, ...]:
 def _element(element: _TreeNode, parent: str, *, preserve: bool) -> tuple[_Meaning, ...]:
     if element.tag in _HIDDEN or element.tag.endswith(("}script", "}style")):
         return ()
-    _check_profile(element, parent)
+    if element.tag not in _ALLOWED:
+        msg = f"HTML element has no declared Markdown meaning: {element.tag}"
+        raise MarkdownProfileError(msg)
+    if _breaks_content_model(element, parent):
+        msg = f"HTML content model violated at {element.tag}"
+        raise MarkdownProfileError(msg)
     children: Final = _children(element, preserve=preserve or element.tag == "pre")
     if element.tag == "div":
         return (_BOUNDARY, *children, _BOUNDARY)  # a block ends the paragraph around it even when it holds no text
@@ -317,15 +322,6 @@ def _element(element: _TreeNode, parent: str, *, preserve: bool) -> tuple[_Meani
     ):
         return children
     return _record({"b": "strong", "i": "em", "del": "s", "th": "td"}.get(element.tag, element.tag), element, children)
-
-
-def _check_profile(element: _TreeNode, parent: str) -> None:
-    if element.tag not in _ALLOWED:
-        msg = f"HTML element has no declared Markdown meaning: {element.tag}"
-        raise MarkdownProfileError(msg)
-    if _breaks_content_model(element, parent):
-        msg = f"HTML content model violated at {element.tag}"
-        raise MarkdownProfileError(msg)
 
 
 def _breaks_content_model(element: _TreeNode, parent: str) -> bool:

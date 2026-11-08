@@ -184,7 +184,6 @@ from turbohtml.query import compile as compile_selector
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
-    from urllib.parse import SplitResult
 
 _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _NODE_DIR: Final[Path] = _ROOT / "tools" / "bench" / "node"
@@ -620,7 +619,14 @@ def url_reparse_check(text: str, normalize: Callable[[str], str] = normalize_url
         parts: Final = urlsplit(normalized)
     except ValueError as error:
         raise OutOfScopeError(str(error)) from error
-    recomposed: Final = _url_recompose(parts, normalized)
+    body: Final = normalized[len(parts.scheme) + 1 :] if parts.scheme else normalized
+    recomposed: Final = "".join((
+        f"{parts.scheme}:" if parts.scheme else "",
+        f"//{parts.netloc}" if body.startswith("//") else "",
+        parts.path,
+        f"?{parts.query}" if "?" in body.partition("#")[0] else "",
+        f"#{parts.fragment}" if "#" in body else "",
+    ))
     if recomposed != normalized:
         return f"split/recompose changes normalized URL: {_divergence(normalized, recomposed)}"
     try:
@@ -628,17 +634,6 @@ def url_reparse_check(text: str, normalize: Callable[[str], str] = normalize_url
     except ValueError:
         return "rejects recomposed output"
     return None if reparsed == normalized else f"reparse changes normalized URL: {_divergence(normalized, reparsed)}"
-
-
-def _url_recompose(parts: SplitResult, text: str) -> str:
-    body: Final = text[len(parts.scheme) + 1 :] if parts.scheme else text
-    return "".join((
-        f"{parts.scheme}:" if parts.scheme else "",
-        f"//{parts.netloc}" if body.startswith("//") else "",
-        parts.path,
-        f"?{parts.query}" if "?" in body.partition("#")[0] else "",
-        f"#{parts.fragment}" if "#" in body else "",
-    ))
 
 
 def clean_url_check(text: str, clean: Callable[[str], str | None] = clean_url) -> str | None:
@@ -828,8 +823,9 @@ def _print(tree: Node, serialize: Callable[[Node], str]) -> str:
 
 
 def _reparse_may_differ(root: Node) -> bool:
+    # the root node plus 512 ancestors is the deepest placement the tree builder allows, reached only on a full stack
     return (
-        _past_depth_cap(root)
+        any(sum(1 for _ in element.ancestors) > _MAX_TREE_DEPTH for element in root.iter_elements())
         or any(_SCRIPT_DOUBLE_ESCAPE.search(script.text) for script in root.iter_elements("script"))
         or any(element.namespace is Namespace.HTML for element in root.iter_elements("plaintext"))
         or any(isinstance(node, Text) and "\r" in node.data for node in root.descendants)
@@ -878,11 +874,6 @@ def _content(root: Node) -> _Content:
 
 def _newlines(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
-
-
-def _past_depth_cap(root: Node) -> bool:
-    # the root node plus 512 ancestors is the deepest placement the tree builder allows, reached only on a full stack
-    return any(sum(1 for _ in element.ancestors) > _MAX_TREE_DEPTH for element in root.iter_elements())
 
 
 def _xml(node: Node) -> str:
@@ -2102,7 +2093,30 @@ def _root(rng: random.Random) -> str:
 
 
 def _generate_xpath_case(rng: random.Random) -> str:
-    return json.dumps({"html": _root(rng) + _vocabulary_tree(rng), "xpath": _xpath(rng)})
+    html: Final = _root(rng) + _vocabulary_tree(rng)
+    # Draw an XPath 1.0 expression: a location path, a union, or a function or arithmetic over paths.
+    path = _path(rng)
+    xpath = rng.choice((
+        path,
+        path,
+        path,
+        f"{path} | {_path(rng)}",
+        f"count({path})",
+        f"string({path})",
+        f"sum({path})",
+        f"boolean({path})",
+        f"name({path})",
+        f"({path})[{rng.choice(_PREDICATES)}]",
+        f"count({path}) * 2 - 1 div 0",
+        f"concat({path}, '-', {_path(rng)})",
+        f"normalize-space({path})",
+        f"number({path}) mod 3",
+        f"{path} = {_path(rng)}",
+        f"{path} != 'x'",
+        "0 div 0",
+        "-0",
+    ))
+    return json.dumps({"html": html, "xpath": xpath})
 
 
 def _generate_selector_case(rng: random.Random) -> str:
@@ -2126,31 +2140,6 @@ _PREDICATES: Final[tuple[str, ...]] = (
     "name()='p'", "count(*)>1", "contains(.,'x')", "starts-with(@class,'a')", "string-length()>2", "text()='x'",
     "*", "b", "0", "true()", ".//a", "@*", "lang('en')", "normalize-space()", "-1", "1.5", "@data-x='e'",
 )  # fmt: skip
-
-
-def _xpath(rng: random.Random) -> str:
-    # Draw an XPath 1.0 expression: a location path, a union, or a function or arithmetic over paths.
-    path = _path(rng)
-    return rng.choice((
-        path,
-        path,
-        path,
-        f"{path} | {_path(rng)}",
-        f"count({path})",
-        f"string({path})",
-        f"sum({path})",
-        f"boolean({path})",
-        f"name({path})",
-        f"({path})[{rng.choice(_PREDICATES)}]",
-        f"count({path}) * 2 - 1 div 0",
-        f"concat({path}, '-', {_path(rng)})",
-        f"normalize-space({path})",
-        f"number({path}) mod 3",
-        f"{path} = {_path(rng)}",
-        f"{path} != 'x'",
-        "0 div 0",
-        "-0",
-    ))
 
 
 def _path(rng: random.Random) -> str:
@@ -2204,12 +2193,6 @@ class _Script:
 
     def reference(self) -> str:
         return self.rng.choice((*_JS_FREE, *self.declared))
-
-
-def _program(rng: random.Random) -> str:
-    # Draw a script from statements and expressions chosen for printer hazards: ASI, operator spacing, keys.
-    script = _Script(rng=rng)
-    return "".join(_statement(script, 0, in_function=False) for _ in range(rng.randint(1, 6)))
 
 
 def _end(rng: random.Random) -> str:
@@ -2342,7 +2325,9 @@ def _generate_js(rng: random.Random) -> str:
             rng.choice(_corpus().js),
             ("\n", ";", "(", ")", "{", "}", ",", "+", "-", "/", "'", "`", "${", "in ", " of ", "=>", ".", "?."),
         )
-    return _program(rng)
+    # Draw a script from statements and expressions chosen for printer hazards: ASI, operator spacing, keys.
+    script = _Script(rng=rng)
+    return "".join(_statement(script, 0, in_function=False) for _ in range(rng.randint(1, 6)))
 
 
 def _generate_url(rng: random.Random) -> str:

@@ -82,7 +82,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     release_python = args.release_python or _install(args.release)
     seeds_per_operation = 40
     with Worker(Path(sys.executable)) as head, Worker(release_python) as release:
-        if not _control_fires(head):
+        with Worker(Path(sys.executable), perturb="minify_css") as perturbed:
+            control = perturbed.answer("minify_css", "a{color:red}")
+        if compare(head.answer("minify_css", "a{color:red}"), control, "any") != "output differs":
             print("BLIND ORACLE: the perturbed worker went unreported", file=sys.stderr)
             return 2
         run = _Run(head=head, release=release, errors=args.errors)
@@ -195,12 +197,6 @@ def compare(head: dict[str, JSON], release: dict[str, JSON], errors: str) -> str
         agree = {"message": head_error == release_error, "type": head_error[0] == release_error[0], "any": True}
         return None if agree[errors] else "error differs"
     return "HEAD raises" if "error" in head else "release raises"
-
-
-def _control_fires(head: Worker) -> bool:
-    with Worker(Path(sys.executable), perturb="minify_css") as perturbed:
-        answer = perturbed.answer("minify_css", "a{color:red}")
-    return compare(head.answer("minify_css", "a{color:red}"), answer, "any") == "output differs"
 
 
 @dataclass(kw_only=True, frozen=True, slots=True)

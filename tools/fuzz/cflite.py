@@ -100,10 +100,14 @@ def _run(job: _Job) -> int:
         print(_public_build_log(build_log), file=sys.stderr)
     else:
         if job.mode in {"batch", "coverage"}:
-            _add_seeds(
-                workspace / "build-out",
-                workspace / "coverage-corpus" if job.mode == "coverage" else storage / "corpus",
-            )
+            build: Final = workspace / "build-out"
+            corpus: Final = workspace / "coverage-corpus" if job.mode == "coverage" else storage / "corpus"
+            for archive_path in sorted(build.glob("fuzz_*_seed_corpus.zip")):
+                target = corpus / archive_path.name.removesuffix("_seed_corpus.zip")
+                target.mkdir(parents=True, exist_ok=True)
+                with ZipFile(archive_path) as archive:
+                    for name in archive.namelist():
+                        (target / Path(name).name).write_bytes(archive.read(name))
         run_environment: Final = {**environment, "MODE": job.mode, "OUTPUT_SARIF": "True"}
         if job.mode in {"prune", "coverage"}:
             status.update(_run_targets(job, run_environment))
@@ -114,7 +118,21 @@ def _run(job: _Job) -> int:
                 (workspace, job.source),
                 logs / f"{job.mode}-{job.sanitizer}.log",
             )
-    print(json.dumps({"status": status, "crashes": _crashes(workspace)}, indent=2, sort_keys=True))
+    # the hash names a crash for triage without exposing the input, as fuzz.py logs its crashers. CIFuzz saves each
+    # input as out/artifacts/<target>/<sanitizer>/<input> next to an <input>.summary stack trace (_target_artifact_path
+    # and _save_crash in infra/cifuzz/fuzz_target.py, google/oss-fuzz@868bfcbd1db0c8eb4dc6029598c90705d6c88e74)
+    # and the per-target runs of pruning and coverage keep theirs under targets/<target>/
+    crashes: Final = [
+        {
+            "fuzzer": path.relative_to(artifacts).parts[0],
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "bytes": path.stat().st_size,
+        }
+        for artifacts in (run / "out" / "artifacts" for run in (workspace, *sorted((workspace / "targets").glob("*"))))
+        for path in sorted(artifacts.rglob("*"))
+        if path.is_file() and path.suffix != ".summary"
+    ]
+    print(json.dumps({"status": status, "crashes": crashes}, indent=2, sort_keys=True))
     return max(status.values())
 
 
@@ -203,15 +221,6 @@ def _run_target(job: _Job, environment: dict[str, str], target: Path, others: fr
     return code
 
 
-def _add_seeds(build: Path, corpus: Path) -> None:
-    for archive_path in sorted(build.glob("fuzz_*_seed_corpus.zip")):
-        target = corpus / archive_path.name.removesuffix("_seed_corpus.zip")
-        target.mkdir(parents=True, exist_ok=True)
-        with ZipFile(archive_path) as archive:
-            for name in archive.namelist():
-                (target / Path(name).name).write_bytes(archive.read(name))
-
-
 def _docker(
     image: str, environment: dict[str, str], mounts: Sequence[Path], log: Path, seconds: int | None = None
 ) -> int:
@@ -249,23 +258,6 @@ def _public_build_log(log: Path) -> str:
     build, _, check = log.read_text(encoding="utf-8", errors="replace").partition("Build check: stdout:")
     lines: Final = build.splitlines() + [line for line in check.splitlines() if _BUILD_CHECK_VERDICT.match(line)]
     return "\n".join(lines[-200:])
-
-
-def _crashes(workspace: Path) -> list[dict[str, str | int]]:
-    # the hash names a crash for triage without exposing the input, as fuzz.py logs its crashers. CIFuzz saves each
-    # input as out/artifacts/<target>/<sanitizer>/<input> next to an <input>.summary stack trace (_target_artifact_path
-    # and _save_crash in infra/cifuzz/fuzz_target.py, google/oss-fuzz@868bfcbd1db0c8eb4dc6029598c90705d6c88e74)
-    # and the per-target runs of pruning and coverage keep theirs under targets/<target>/
-    return [
-        {
-            "fuzzer": path.relative_to(artifacts).parts[0],
-            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "bytes": path.stat().st_size,
-        }
-        for artifacts in (run / "out" / "artifacts" for run in (workspace, *sorted((workspace / "targets").glob("*"))))
-        for path in sorted(artifacts.rglob("*"))
-        if path.is_file() and path.suffix != ".summary"
-    ]
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
