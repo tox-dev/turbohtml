@@ -1408,7 +1408,7 @@ class _WrongProperties:
         pytest.param(_WrongProperties(), id="properties-is-not-a-mapping"),
     ],
 )
-def test_the_binding_rejects_what_is_not_an_item(value: object) -> None:
+def test_the_binding_rejects_what_is_not_an_item(value: str | int | _WrongProperties | None) -> None:
     with pytest.raises(TypeError, match="expected a MicrodataItem"):
         _microdata_as_dict(value)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 

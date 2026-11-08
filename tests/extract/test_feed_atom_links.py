@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from turbohtml.extract import Feed
 
 import pytest
 
@@ -55,7 +57,7 @@ from turbohtml.extract import feed
         pytest.param(lambda result: result.entries[0].link, id="entry"),
     ],
 )
-def test_feed_atom_link_relation(links: str, expected: str | None, target: Callable[[Any], str | None]) -> None:
+def test_feed_atom_link_relation(links: str, expected: str | None, target: Callable[[Feed], str | None]) -> None:
     xml: Final = f'<feed xmlns="http://www.w3.org/2005/Atom"><id>urn:feed</id><title>Feed</title><updated>2020-01-01T00:00:00Z</updated>{links}<entry><id>urn:entry</id><title>Entry</title><updated>2020-01-01T00:00:00Z</updated><content>Body</content>{links}</entry></feed>'
     result = feed(xml)
     assert result is not None
@@ -100,7 +102,7 @@ def test_feed_atom_link_relation(links: str, expected: str | None, target: Calla
     ],
 )
 def test_feed_atom_link_empty_reference(
-    base: str, link: str, expected: str, target: Callable[[Any], str | None]
+    base: str, link: str, expected: str, target: Callable[[Feed], str | None]
 ) -> None:
     xml: Final = (
         f'<feed xmlns="http://www.w3.org/2005/Atom"{base}>{link}<entry><content>Body</content>{link}</entry></feed>'

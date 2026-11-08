@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from html import escape
-from typing import Final
+from typing import TYPE_CHECKING, Final
 from urllib.parse import urljoin
 
 import pytest
@@ -9,6 +9,9 @@ import pytest
 from turbohtml import Element, Link, Text, parse, parse_fragment
 from turbohtml._html import _registrable_domain
 from turbohtml.extract import UrlCleaning, extract_links
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _BASE: Final[str] = "https://test.com/dir/"
 
@@ -750,7 +753,7 @@ def test_replacement_string_is_substituted() -> None:
     assert _rewritten('<a href="a">x</a>', lambda url: url.upper()) == '<a href="A">x</a>'
 
 
-def _rewritten(html: str, replace: object) -> str:
+def _rewritten(html: str, replace: Callable[[str], str | int | None]) -> str:
     root = parse_fragment(html)
     root.rewrite_links(replace)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
     return root.inner_html

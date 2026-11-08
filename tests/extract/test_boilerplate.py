@@ -255,7 +255,7 @@ def test_a_heading_faces_the_floor_when_headings_are_not_kept() -> None:
         pytest.param((None, 0, 1.0, True), id="too-few-arguments"),
     ],
 )
-def test_the_binding_rejects_bad_arguments(args: tuple[object, ...]) -> None:
+def test_the_binding_rejects_bad_arguments(args: tuple[str | int | float | bool | None, ...]) -> None:
     with pytest.raises(TypeError):
         _boilerplate(*args)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 

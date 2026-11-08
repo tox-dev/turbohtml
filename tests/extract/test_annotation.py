@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 from typing import Final
 
+_Spans = list[list[int | str] | tuple[int | str, ...]]
+
 
 @pytest.mark.parametrize(
     ("text", "spans", "expected"),
@@ -68,19 +70,21 @@ def test_round_trips_to_annotated_text() -> None:
 
 
 @pytest.mark.parametrize("exporter", [annotation_surface, annotation_tags], ids=["surface", "tags"])
-def test_text_must_be_str(exporter: Callable[..., object]) -> None:
+def test_text_must_be_str(exporter: Callable[..., dict[str, list[str]] | str]) -> None:
     with pytest.raises(TypeError, match="str"):
         call_with(exporter, 5, [])
 
 
-def call_with(exporter: Callable[..., object], *args: object) -> object:
+def call_with(
+    exporter: Callable[..., dict[str, list[str]] | str], *args: int | str | _Spans
+) -> dict[str, list[str]] | str:
     # Invoke an exporter with arguments its static signature rejects, to drive the
     # runtime validation; the exporter arrives signature-erased on purpose.
     return exporter(*args)
 
 
 @pytest.mark.parametrize("exporter", [annotation_surface, annotation_tags], ids=["surface", "tags"])
-def test_spans_must_be_iterable(exporter: Callable[..., object]) -> None:
+def test_spans_must_be_iterable(exporter: Callable[..., dict[str, list[str]] | str]) -> None:
     with pytest.raises(TypeError, match="iterable"):
         call_with(exporter, "ab", 5)
 
@@ -98,7 +102,7 @@ def test_spans_must_be_iterable(exporter: Callable[..., object]) -> None:
         pytest.param([(10**100, 0, "x")], OverflowError, "too large", id="offset-overflows"),
     ],
 )
-def test_malformed_spans_raise(spans: object, exc: type[Exception], match: str) -> None:
+def test_malformed_spans_raise(spans: _Spans, exc: type[Exception], match: str) -> None:
     with pytest.raises(exc, match=match):
         call_with(annotation_surface, "ab", spans)
 

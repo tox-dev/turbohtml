@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from turbohtml.extract import Feed
 
 import pytest
 
@@ -99,7 +101,7 @@ def test_feed_rss_channel_dc_title(channel_fields: str, expected: str) -> None:
         pytest.param(lambda result: result.entries[0].title, id="entry_title"),
     ],
 )
-def test_feed_atom_title_does_not_use_dublin_core_fallback(read_title: Callable[[Any], str | None]) -> None:
+def test_feed_atom_title_does_not_use_dublin_core_fallback(read_title: Callable[[Feed], str | None]) -> None:
     xml: Final = (
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">'
         "<dc:title>DC title</dc:title><entry><dc:title>Entry title</dc:title></entry></feed>"

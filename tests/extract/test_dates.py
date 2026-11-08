@@ -356,7 +356,7 @@ def test_extensive_off_skips_the_text_stage() -> None:
         pytest.param((2.5, 2026, 1995, 1, 1, 2100, 1, 1, True), id="want-is-a-float"),
     ],
 )
-def test_the_entry_point_rejects_bad_arguments(args: tuple[object, ...]) -> None:
+def test_the_entry_point_rejects_bad_arguments(args: tuple[int | float | bool, ...]) -> None:
     with pytest.raises(TypeError):
         parse("")._dates(*args)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
