@@ -1447,11 +1447,13 @@ def test_propagation_unlink_preserves_call_order(case: int, count: int) -> None:
     assert isinstance(source, str)
     program: Final = f"{source};const trace=[];console.log(JSON.stringify([f(value=>(trace.push(value),value)),trace]))"
     expected: Final = (
-        json.dumps(
-            [[value for index in range(count) for value in (index, index % 10, index % 10)], list(range(count))],
-            separators=(",", ":"),
-        )
-        + "\n"
+        f"""{
+            json.dumps(
+                [[value for index in range(count) for value in (index, index % 10, index % 10)], list(range(count))],
+                separators=(",", ":"),
+            )
+        }"""
+        "\n"
     )
     assert (_run(program), _run(minify_js(program))) == (expected, expected)
 
