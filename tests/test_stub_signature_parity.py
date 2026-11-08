@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import inspect
 import sys
+from enum import Enum, auto
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, NamedTuple
 
@@ -11,13 +12,21 @@ import pytest
 import turbohtml._html as html
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
+    from types import ModuleType
 
     from pytest_mock import MockerFixture
 
 _STUB_DIR: Final[Path] = Path(__file__).parents[1] / "src" / "turbohtml" / "_stubs"
-_NO_DEFAULT: Final[object] = object()
-_ANY_DEFAULT: Final[object] = object()
+
+
+class _Default(Enum):
+    NONE = auto()
+    ANY = auto()
+
+
+_NO_DEFAULT: Final[_Default] = _Default.NONE
+_ANY_DEFAULT: Final[_Default] = _Default.ANY
 _POSITIONAL: Final[frozenset[inspect._ParameterKind]] = frozenset({
     inspect.Parameter.POSITIONAL_ONLY,
     inspect.Parameter.POSITIONAL_OR_KEYWORD,
@@ -27,12 +36,12 @@ _POSITIONAL: Final[frozenset[inspect._ParameterKind]] = frozenset({
 class _Param(NamedTuple):
     name: str
     kind: inspect._ParameterKind
-    default: object
+    default: _Default | str
 
 
 class _Shape(NamedTuple):
     positional: list[_Param]
-    keyword: dict[str, object]
+    keyword: dict[str, _Default | str]
     var_positional: bool
     var_keyword: bool
 
@@ -46,7 +55,7 @@ def _shape(params: list[_Param]) -> _Shape:
     )
 
 
-def _stub_default(node: ast.expr | None) -> object:
+def _stub_default(node: ast.expr | None) -> _Default | str:
     if node is None:
         return _NO_DEFAULT
     if isinstance(node, ast.Constant) and node.value is Ellipsis:
@@ -105,16 +114,14 @@ def _stub_entries() -> Iterator[tuple[str, ast.FunctionDef, bool]]:
                     yield (node.name if method.name == "__init__" else f"{node.name}.{method.name}"), method, True
 
 
-def _resolve(name: str) -> object | None:
-    obj: object = html
+def _resolve(name: str) -> ModuleType | Callable[..., object] | None:
+    obj: ModuleType | Callable[..., object] | None = html
     for part in name.split("."):
         obj = getattr(obj, part, None)
-        if obj is None:
-            return None
     return obj
 
 
-def _runtime_signature(obj: object) -> inspect.Signature | None:
+def _runtime_signature(obj: ModuleType | Callable[..., object] | None) -> inspect.Signature | None:
     if not callable(obj) or getattr(obj, "__text_signature__", None) is None:
         return None
     try:
@@ -162,7 +169,7 @@ def test_stub_signature_matches_runtime(name: str) -> None:
         _assert_default(stub.keyword[keyword], live_default)
 
 
-def _assert_default(stub_default: object, live_default: object) -> None:
+def _assert_default(stub_default: _Default | str, live_default: _Default | str) -> None:
     assert (stub_default is _NO_DEFAULT) == (live_default is _NO_DEFAULT), "a default was added or dropped"
     if stub_default not in {_NO_DEFAULT, _ANY_DEFAULT}:
         assert stub_default == live_default, "a concrete default value drifted"
@@ -182,7 +189,7 @@ def test_resolve_reports_a_name_the_extension_lacks(name: str) -> None:
 
 
 def test_runtime_signature_ignores_a_non_callable() -> None:
-    assert _runtime_signature(42) is None
+    assert _runtime_signature(42) is None  # ty: ignore[invalid-argument-type]  # passes a non-callable on purpose
 
 
 def test_runtime_signature_skips_a_signature_inspect_cannot_build(mocker: MockerFixture) -> None:
