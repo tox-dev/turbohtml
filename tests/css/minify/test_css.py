@@ -5212,14 +5212,12 @@ def test_box_merge_empty_edge(property_name: str) -> None:
     ],
 )
 def test_box_merge_supported_edges(property_name: str, edges: tuple[str, ...], expected: str) -> None:
-    source: Final = (
-        "a{"
-        + ";".join(
+    source: Final = f"""a{{{
+        ";".join(
             f"{property_name}-{side}:{value}"
             for side, value in zip(("top", "right", "bottom", "left"), edges, strict=True)
         )
-        + "}"
-    )
+    }}}"""
     first: Final = minify_css(source)
     assert (first, minify_css(first)) == (f"a{{{property_name}:{expected}}}",) * 2
 

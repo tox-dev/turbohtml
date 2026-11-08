@@ -1189,7 +1189,7 @@ def test_computed_style_snapshot_survives_later_resolution() -> None:
     ],
 )
 def test_computed_style_preserves_alternative_specificity(css: str, expected: str) -> None:
-    document: Final = parse(f"<style>{css}</style>" + '<div class="hit" id="target"></div>' * 3)
+    document: Final = parse(f"""<style>{css}</style>{'<div class="hit" id="target"></div>' * 3}""")
     assert [computed_style(node)["color"] for node in document.select("div")] == [expected] * 3
 
 
@@ -1396,8 +1396,9 @@ def test_computed_style_sibling_positions(
     selector: str, expected: tuple[str, ...], separator: str, *, order: slice
 ) -> None:
     document: Final = parse(
-        f"<style>i{{color:blue}}i{selector}{{color:red}}</style>"
-        + separator.join(('<i class="hit"></i>', "<i></i>", '<i class="hit"></i>', "<i></i>"))
+        f"""<style>i{{color:blue}}i{selector}{{color:red}}</style>{
+            separator.join(('<i class="hit"></i>', "<i></i>", '<i class="hit"></i>', "<i></i>"))
+        }"""
     )
     nodes: Final = document.select("i")
     assert tuple(computed_style(node)["color"] for node in nodes[order]) == expected[order]

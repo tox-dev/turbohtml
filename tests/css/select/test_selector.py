@@ -969,9 +969,9 @@ def test_rejects_non_str(method: str) -> None:
         ),
         # more ids than the id map's initial capacity, so it grows before anchoring
         pytest.param(
-            "<body>"
-            + "".join(f'<div id="d{number}"></div>' for number in range(6))
-            + '<section id="t"><p>x</p></section></body>',
+            f"""<body>{
+                "".join(f'<div id="d{number}"></div>' for number in range(6))
+            }<section id="t"><p>x</p></section></body>""",
             "p",
             0,
             "#t > p",
