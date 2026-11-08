@@ -2043,10 +2043,14 @@ def test_xpath_positional_last_arity() -> None:
 
 
 @pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
+@pytest.mark.parametrize(
+    ("expression", "mixed"),
+    [("//a | //b", False), ("//a/@id | //a/text() | //b", True)],
+    ids=["nodes", "mixed"],
+)
 @pytest.mark.parametrize("smart_strings", [False, True], ids=["plain", "smart"])
-@pytest.mark.parametrize("mixed", [False, True], ids=["nodes", "mixed"])
 @pytest.mark.parametrize("offset", [0, 1, 2, 4])
-def test_xpath_snapshot_during_collection(offset: int, *, smart_strings: bool, mixed: bool) -> None:
+def test_xpath_snapshot_during_collection(offset: int, *, expression: str, smart_strings: bool, mixed: bool) -> None:
     thresholds: Final = gc.get_threshold()
     gc.disable()
     gc.collect()
@@ -2054,7 +2058,7 @@ def test_xpath_snapshot_during_collection(offset: int, *, smart_strings: bool, m
     section: Final = document.select("section")[0]
     first, second = section.select("*")
     target: Final = Element("main")
-    selector: Final = XPath("//a/@id | //a/text() | //b" if mixed else "//a | //b", smart_strings=smart_strings)
+    selector: Final = XPath(expression, smart_strings=smart_strings)
     context: Final = (document,)
     changed = False
 
@@ -2079,18 +2083,15 @@ def test_xpath_snapshot_during_collection(offset: int, *, smart_strings: bool, m
         gc.set_threshold(*thresholds)
         gc.enable()
         reserve.clear()
+    assert isinstance(result, list)
     assert (changed, result, target.select("b"), document.select("b")) == (
         True,
-        ["old", "first", second] if mixed else [first, second],
+        {False: [first, second], True: ["old", "first", second]}[mixed],
         [second],
         [],
     )
-    if smart_strings and mixed:
-        assert isinstance(result, list)
-        assert [(item.getparent(), item.attrname) for item in result if isinstance(item, XPathString)] == [
-            (first, "id"),
-            (first, None),
-        ]
+    owners: Final = {(True, True): [(first, "id"), (first, None)]}.get((smart_strings, mixed), [])
+    assert [(item.getparent(), item.attrname) for item in result if isinstance(item, XPathString)] == owners
 
 
 def _empty_snapshot_compiled(document: turbohtml.Node) -> XPathResult:
