@@ -14,13 +14,11 @@ one line; ``llms-full.txt`` enumerates every page in every section, migration gu
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Protocol
 
 from docutils import nodes
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from sphinx.application import Sphinx
     from sphinx.environment import BuildEnvironment
 
@@ -102,6 +100,10 @@ def _summary(env: BuildEnvironment, docname: str) -> str:
     return ""
 
 
+class _Link(Protocol):
+    def __call__(self, docname: str, label: str | None = None) -> str: ...
+
+
 def _section_of(docname: str) -> str:
     return docname.split("/", 1)[0]
 
@@ -111,7 +113,7 @@ def _render_curated(
     titles: dict[str, str],
     grouped: dict[str, list[str]],
     project_summary: str,
-    link: Callable[..., str],
+    link: _Link,
 ) -> str:
     diataxis_note: str = (
         "The documentation follows the Diátaxis framework: tutorials to learn, how-to guides for tasks, "
@@ -152,7 +154,7 @@ def _render_full(
     titles: dict[str, str],
     grouped: dict[str, list[str]],
     project_summary: str,
-    link: Callable[..., str],
+    link: _Link,
 ) -> str:
     note = (
         "Every documentation page, grouped by section, with a one-line description. Fetch a page's URL for its full "
