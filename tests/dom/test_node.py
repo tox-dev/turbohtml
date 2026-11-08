@@ -295,7 +295,7 @@ def test_adoption_preserves_descendants_after_alias_release(count: int) -> None:
     aliases.clear()
     target: Final = Element("main")
     target.append(source)
-    assert target.inner_html == "<section>" + "<span>text</span>" * count + "</section>"
+    assert target.inner_html == f"<section>{'<span>text</span>' * count}</section>"
 
 
 @pytest.mark.parametrize(
@@ -310,9 +310,7 @@ def test_adoption_keeps_retained_alias_attributes(count: int) -> None:
     target: Final = Element("main")
     target.append(source)
     retained.attrs["live"] = "yes"
-    assert (
-        target.inner_html == "<section>" + "<span>text</span>" * (count - 1) + '<span live="yes">text</span></section>'
-    )
+    assert target.inner_html == f'<section>{"<span>text</span>" * (count - 1)}<span live="yes">text</span></section>'
 
 
 @pytest.mark.parametrize(

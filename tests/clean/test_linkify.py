@@ -1533,7 +1533,7 @@ def test_a_digit_in_the_last_lane_of_a_block() -> None:
     [pytest.param("\u4e2d\u6587", id="ucs2"), pytest.param("\U0001f600\u4e2d", id="ucs4")],
 )
 def test_wide_text_without_digits_scans_clean(filler: str) -> None:
-    text = filler * 50_000 + " 650-253-0000"
+    text = f"{filler * 50_000} 650-253-0000"
     assert [span.url for span in _US_DETECTOR.find(text)] == ["tel:+16502530000"]
     assert LinkDetector().find(text) == []
 

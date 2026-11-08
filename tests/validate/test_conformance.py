@@ -420,14 +420,14 @@ def test_conformance_verdict_matches_vnu(markup: str) -> None:
     "depth", [pytest.param(1, id="single"), pytest.param(64, id="nested-64"), pytest.param(256, id="nested-256")]
 )
 def test_conformance_nested_section_headings_with_heading(depth: int) -> None:
-    assert codes(body("<section>" * depth + "<h2>Title</h2>" + "</section>" * depth)) == []
+    assert codes(body(f"{'<section>' * depth}<h2>Title</h2>{'</section>' * depth}")) == []
 
 
 @pytest.mark.parametrize(
     "depth", [pytest.param(1, id="single"), pytest.param(64, id="nested-64"), pytest.param(256, id="nested-256")]
 )
 def test_conformance_nested_section_headings_without_heading(depth: int) -> None:
-    assert codes(body("<section>" * depth + "<p>Text</p>" + "</section>" * depth)) == ["section-no-heading"] * depth
+    assert codes(body(f"{'<section>' * depth}<p>Text</p>{'</section>' * depth}")) == ["section-no-heading"] * depth
 
 
 @pytest.mark.parametrize(
