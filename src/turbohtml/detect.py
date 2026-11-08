@@ -37,6 +37,7 @@ from __future__ import annotations
 import codecs
 import string
 from dataclasses import dataclass
+from functools import cache
 from itertools import starmap
 from typing import Final, Literal
 
@@ -279,34 +280,33 @@ class EncodingDetector:
 def _rank(
     result: tuple[str | None, bool, list[tuple[str, int]], bool] | None, options: Detection
 ) -> list[tuple[str | None, float, str | None, bool, str | None]]:
-    return _detect_rank(
-        result,
-        options.allowed,
-        options.excluded,
-        options.language,
-        options.threshold,
-        {
-            "big5": "Chinese",
-            "euc-jp": "Japanese",
-            "euc-kr": "Korean",
-            "gbk": "Chinese",
-            "ibm866": "Russian",
-            "iso-2022-jp": "Japanese",
-            "iso-8859-5": "Russian",
-            "iso-8859-6": "Arabic",
-            "iso-8859-7": "Greek",
-            "iso-8859-8": "Hebrew",
-            "koi8-u": "Russian",
-            "shift_jis": "Japanese",
-            "windows-1251": "Russian",
-            "windows-1253": "Greek",
-            "windows-1254": "Turkish",
-            "windows-1255": "Hebrew",
-            "windows-1256": "Arabic",
-            "windows-1258": "Vietnamese",
-            "windows-874": "Thai",
-        },
-    )
+    return _detect_rank(result, options.allowed, options.excluded, options.language, options.threshold, _languages())
+
+
+@cache
+def _languages() -> dict[str, str]:
+    # Built once: every detection hands this table to the C ranker, so a per-call literal would allocate on each one.
+    return {
+        "big5": "Chinese",
+        "euc-jp": "Japanese",
+        "euc-kr": "Korean",
+        "gbk": "Chinese",
+        "ibm866": "Russian",
+        "iso-2022-jp": "Japanese",
+        "iso-8859-5": "Russian",
+        "iso-8859-6": "Arabic",
+        "iso-8859-7": "Greek",
+        "iso-8859-8": "Hebrew",
+        "koi8-u": "Russian",
+        "shift_jis": "Japanese",
+        "windows-1251": "Russian",
+        "windows-1253": "Greek",
+        "windows-1254": "Turkish",
+        "windows-1255": "Hebrew",
+        "windows-1256": "Arabic",
+        "windows-1258": "Vietnamese",
+        "windows-874": "Thai",
+    }
 
 
 @dataclass(frozen=True, slots=True)
