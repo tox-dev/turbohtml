@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import importlib
 import os
 import shutil
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
-
-from turbohtml import _html  # ruff:ignore[import-private-name]  # the fuzz-only hooks live in the private _html module
 
 from .atheris_header import split_header
 
@@ -149,8 +148,10 @@ def rejection_hook() -> Callable[[], None]:
 
 
 def failure_hook() -> Callable[[int], tuple[int, bool]]:
-    # Resolve the PyMem failure hook, which only the fuzz-only build (``meson -Dfuzzing=true``) defines.
-    return _html._fuzz_inject_failure  # ruff:ignore[private-member-access]  # the fuzz-only hook is absent from production builds
+    # Resolve the PyMem failure hook, which only the fuzz-only build (``meson -Dfuzzing=true``) defines. Import at call
+    # time: loading _html needs the sanitizer symbols that LD_PRELOAD supplies, and build_runtime runs before that.
+    module: Final = importlib.import_module("turbohtml._html")
+    return module._fuzz_inject_failure  # ruff:ignore[private-member-access]  # the fuzz-only hook is absent from production builds
 
 
 __all__ = [
