@@ -792,12 +792,14 @@ def html_check(markup: str, serialize: Callable[[Node], str] = Node.serialize) -
     # The standard warns that parser-made trees need not survive serialize and reparse
     # (https://html.spec.whatwg.org/multipage/parsing.html#serialising-html-fragments): nested ``<a>``, a ``<table>`` in
     # a quirks-mode ``<p>`` and the like re-nest. So the first reparse may move elements but must keep every text run,
-    # comment and element with its attributes, and the second serialization must equal the first byte for byte. A tree
-    # flattened past the depth cap, script text that enters the double-escaped state, and a ``plaintext`` element (its
-    # serialized end tag is text to the PLAINTEXT state, which never exits) skip. A carriage return compares as a line
-    # feed: serialization emits it raw and input preprocessing turns it into one, and text holding one skips, since the
-    # line feed it becomes can then be the one a ``pre`` drops after its start tag. Each reparse may re-nest further, so
-    # a fixpoint must come within five.
+    # comment and element with its attributes, and the second serialization must equal the first byte for byte.
+    #
+    # A tree flattened past the depth cap, script text that enters the double-escaped state, and a ``plaintext`` element
+    # (its serialized end tag is text to the PLAINTEXT state, which never exits) skip.
+    #
+    # A carriage return compares as a line feed: serialization emits it raw and input preprocessing turns it into one,
+    # and text holding one skips, since the line feed it becomes can then be the one a ``pre`` drops after its start
+    # tag. Each reparse may re-nest further, so a fixpoint must come within five.
     max_renests = 5
     for label, tree, reparse in (
         ("document", parse(markup), parse),

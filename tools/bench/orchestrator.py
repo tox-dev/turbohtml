@@ -212,15 +212,19 @@ def _try_competitor(
     #
     # Some competitors do not install on every toolchain -- newspaper3k pins long-unmaintained dependencies,
     # metadata_parser pins an older beautifulsoup4 -- so a *provisioning* failure drops just that competitor's column
-    # with a note. A competitor can also install cleanly yet fail to *import*, when its bundled native library clashes
-    # with another wheel's ABI in the shared venv (html5-parser returns an lxml tree, so the two must share one libxml2,
-    # which its ``PIP_OPTIONS`` secures by building lxml from source); that is the same environment quirk one import
-    # boundary later, so it drops the column with a note too. Only a crash *after* the library imported -- during
-    # measurement, where the fault is the benchmark and not the toolchain -- is left to propagate rather than silently
-    # blanking the column. The two are told
-    # apart by whether the worker died inside ``importlib.import_module``. A competitor that instead hangs -- runs past
-    # the per-operation timeout without finishing -- is killed and its column dropped with a note, so one pathological
-    # library or input cannot stall the whole sweep.
+    # with a note.
+    #
+    # A competitor can also install cleanly yet fail to *import*, when its bundled native library clashes with another
+    # wheel's ABI in the shared venv (html5-parser returns an lxml tree, so the two must share one libxml2, which its
+    # ``PIP_OPTIONS`` secures by building lxml from source); that is the same environment quirk one import boundary
+    # later, so it drops the column with a note too.
+    #
+    # Only a crash *after* the library imported -- during measurement, where the fault is the benchmark and not the
+    # toolchain -- is left to propagate rather than silently blanking the column. The two are told apart by whether the
+    # worker died inside ``importlib.import_module``.
+    #
+    # A competitor that instead hangs -- runs past the per-operation timeout without finishing -- is killed and its
+    # column dropped with a note, so one pathological library or input cannot stall the whole sweep.
     try:
         python = venv_python(workdir, competitor, _COMPETITORS[competitor][0], _COMPETITORS[competitor][2])
     except subprocess.CalledProcessError:

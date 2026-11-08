@@ -132,13 +132,17 @@ def _book_html() -> str:
 
 # An inline case is too few instructions under Valgrind to clear the heap-layout jitter floor, so it swings >5%
 # run-to-run (text-main and boilerplate tripped the required CodSpeed check on unrelated PRs). Re-home each on a large
-# real corpus under a new corpus-qualified id: the flaky small id retires with no base and the large one is gated
-# fresh, so the input change never reads as a regression. The synthetic tree builders, the fragment parser, the
-# single-selector translate, and the fixed URL batch have no document corpus to grow into and stay inline.
-# The eight document converters carry a ``-parse-`` id because their measurement changed: each used to query a
-# document parsed once and cached, which credited it with a parse no caller gets, and now parses the string it is
-# handed. Reusing the old id would have CodSpeed read the added parse as a regression against a figure that measured
-# less work, so the old identity retires and the new one gates from its own baseline.
+# real corpus under a new corpus-qualified id: the flaky small id retires with no base and the large one is gated fresh,
+# so the input change never reads as a regression.
+#
+# The synthetic tree builders, the fragment parser, the single-selector translate, and the fixed URL batch have no
+# document corpus to grow into and stay inline.
+#
+# The eight document converters carry a ``-parse-`` id because their measurement changed: each used to query a document
+# parsed once and cached, which credited it with a parse no caller gets, and now parses the string it is handed. Reusing
+# the old id would have CodSpeed read the added parse as a regression against a figure that measured less work, so the
+# old identity retires and the new one gates from its own baseline.
+#
 # ``structured_data()`` likewise has a new identity now that each call copies one immutable tree snapshot before
 # extraction; its old baseline measured six independent reads without the snapshot guarantee.
 _RESIZED: Final[dict[str, tuple[str, Callable[[], Case]]]] = {
