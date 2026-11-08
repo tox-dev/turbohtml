@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 @pytest.mark.parametrize("count", [0, 1, 4, 16], ids=["empty", "one", "four", "sixteen"])
 def test_dispatch_benchmark(count: int) -> None:
-    operation: Final = OPERATIONS["transform-dispatch"][0]
+    operation: Final = cast("Callable[[int], Node]", OPERATIONS["transform-dispatch"][0])
     root: Final = operation(count)
     assert (root.inner_html, operation(count) is root) == ("<p>x</p>", True)
 
