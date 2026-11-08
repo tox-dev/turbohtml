@@ -1317,7 +1317,7 @@ def test_microdata_shuffled_references_keep_tree_order(size: int, depth: int) ->
 
 def test_microdata_wide_item_keeps_all_values() -> None:
     document: Final[Document] = parse(
-        "<div itemscope>" + "".join(f"<span itemprop=name>{index}</span>" for index in range(1_000)) + "</div>"
+        f"<div itemscope>{''.join(f'<span itemprop=name>{index}</span>' for index in range(1_000))}</div>"
     )
     assert document.microdata() == [
         MicrodataItem(type=None, id=None, properties={"name": [str(index) for index in range(1_000)]})

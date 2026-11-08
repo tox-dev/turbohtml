@@ -133,9 +133,10 @@ _ITEM_B: Final[str] = '<item rdf:about="https://example.org/b"><title>B</title><
         ),
         (
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
-            _ITEM_A
-            + _ITEM_B
-            + '<item rdf:about="https://example.org/unlisted" xml:lang="en"><title>Unlisted</title></item>',
+            (
+                f"{_ITEM_A}{_ITEM_B}"
+                '<item rdf:about="https://example.org/unlisted" xml:lang="en"><title>Unlisted</title></item>'
+            ),
             ("A", "B"),
         ),
     ],
@@ -168,12 +169,8 @@ _ITEM_B: Final[str] = '<item rdf:about="https://example.org/b"><title>B</title><
 )
 def test_feed_rdf_sequence(sequence: str, items: str, expected: tuple[str, ...]) -> None:
     xml: Final = (
-        _RDF_START
-        + '<channel rdf:about="https://example.org/"><items>\n'
-        + sequence
-        + "\n</items></channel>\n"
-        + items
-        + "\n</rdf:RDF>"
+        f'{_RDF_START}<channel rdf:about="https://example.org/"><items>\n{sequence}\n</items></channel>\n{items}'
+        "\n</rdf:RDF>"
     )
     result = feed(xml)
     assert result is not None
@@ -214,9 +211,10 @@ def test_feed_rdf_html_about_requires_rdf_prefix() -> None:
 
 def test_feed_rdf_sequence_root_prefix_alias() -> None:
     xml: Final = (
-        _RDF_START.replace("<rdf:RDF ", "<r:RDF ") + '<channel rdf:about="https://example.org/"><items><rdf:Seq>'
-        '<rdf:li rdf:resource="https://example.org/b"/><rdf:li rdf:resource="https://example.org/a"/>'
-        "</rdf:Seq></items></channel>" + _ITEM_A + _ITEM_B + "</r:RDF>"
+        f"{_RDF_START.replace('<rdf:RDF ', '<r:RDF ')}"
+        '<channel rdf:about="https://example.org/"><items><rdf:Seq><rdf:li '
+        'rdf:resource="https://example.org/b"/><rdf:li '
+        f'rdf:resource="https://example.org/a"/></rdf:Seq></items></channel>{_ITEM_A}{_ITEM_B}</r:RDF>'
     )
     result = feed(xml)
     assert result is not None
@@ -225,12 +223,11 @@ def test_feed_rdf_sequence_root_prefix_alias() -> None:
 
 def test_feed_rdf_sequence_root_alias_ignores_trailing_foreign_item() -> None:
     xml: Final = (
-        _RDF_START.replace("<rdf:RDF ", "<r:RDF ") + '<channel rdf:about="https://example.org/"><items><rdf:Seq>'
-        '<rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/>'
-        "</rdf:Seq></items></channel>"
-        + _ITEM_A
-        + _ITEM_B
-        + '<x:item xmlns:x="urn:other"><x:title>Wrong</x:title></x:item></r:RDF>'
+        f"{_RDF_START.replace('<rdf:RDF ', '<r:RDF ')}"
+        '<channel rdf:about="https://example.org/"><items><rdf:Seq><rdf:li '
+        'rdf:resource="https://example.org/a"/><rdf:li '
+        f'rdf:resource="https://example.org/b"/></rdf:Seq></items></channel>{_ITEM_A}{_ITEM_B}'
+        '<x:item xmlns:x="urn:other"><x:title>Wrong</x:title></x:item></r:RDF>'
     )
     result = feed(xml)
     assert result is not None
