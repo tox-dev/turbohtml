@@ -6,7 +6,7 @@ import shutil
 import subprocess  # ruff: ignore[suspicious-subprocess-import] - Node executes the fixed benchmark corpus
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, TypeAlias, cast
+from typing import TYPE_CHECKING, Final, TypeAlias, cast
 
 import pytest
 from bench.operations import INPUTS
@@ -695,7 +695,9 @@ def nomangle(source: str) -> str:
     return minify_js(source, JSMinify(mangle=False, fold=False))
 
 
-_CORPUS: Final[list[dict[str, Any]]] = json.loads((Path(__file__).parent / "_corpus" / "tdewolff_js.json").read_text())
+_CORPUS: Final[list[dict[str, str | int]]] = json.loads(
+    (Path(__file__).parent / "_corpus" / "tdewolff_js.json").read_text()
+)
 
 _CASES: Final[list[pytest.ParameterSet]] = [pytest.param(row["input"], id=f"L{row['line']}") for row in _CORPUS]
 
