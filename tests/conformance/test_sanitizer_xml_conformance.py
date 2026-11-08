@@ -6,7 +6,7 @@ from typing import Final
 
 import pytest
 
-from turbohtml import Element, parse_fragment, parse_xml
+from turbohtml import Element, Node, parse_fragment, parse_xml
 from turbohtml.clean import Policy, sanitize
 
 _FIXTURE: Final[Path] = Path(__file__).parent / "DOMPurify" / "test" / "fixtures" / "expect.mjs"
@@ -55,7 +55,7 @@ _URL_STRIP_ANY: Final[str] = "\t\n\r"
 _URL_TRIM_LEADING: Final[str] = "".join(chr(code) for code in range(0x21))
 
 
-def _attr_value(raw: object) -> str:
+def _attr_value(raw: str | list[str] | None) -> str:
     return raw if isinstance(raw, str) else ""
 
 
@@ -68,7 +68,7 @@ def _scheme_is_scripting(value: str) -> bool:
 def _survivors(xml: str) -> list[str]:
     # Reparse the XML output as markup and list every executable construct still present; empty means inert.
     survived: list[str] = []
-    stack: list[object] = list(parse_fragment(xml).children)
+    stack: list[Node] = list(parse_fragment(xml).children)
     danger_tags = frozenset({"script", "iframe", "object", "embed", "base", "noscript"})
     url_attrs = frozenset({"href", "src", "xlink:href"})
     while stack:

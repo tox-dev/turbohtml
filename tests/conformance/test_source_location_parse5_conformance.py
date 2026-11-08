@@ -22,6 +22,7 @@ _RUNNER: Final[Path] = Path(__file__).parents[2] / "tools" / "bench" / "node" / 
 _CORPORA: Final[tuple[str, ...]] = ("cern", "dx", "github-parse5", "whatwg-html", "wiki-42")
 
 Span = tuple[int, int, int, int, int, int]
+Field = Span | dict[str, Span] | None
 
 # The parse5 corpus is a vendored submodule, so its absence is a checkout mistake, not a runtime the environment may
 # lack -- error loudly rather than skip. Node is a runtime tool, so a missing binary stays a legitimate skip below.
@@ -130,8 +131,8 @@ def test_start_tag_spans_match_parse5(paired: tuple[dict[int, _Located], dict[in
 
 
 def _mismatched(
-    expected: Mapping[int, _Located], actual: Mapping[int, _Located], span_of: Callable[[_Located], object]
-) -> dict[int, tuple[object, object]]:
+    expected: Mapping[int, _Located], actual: Mapping[int, _Located], span_of: Callable[[_Located], Field]
+) -> dict[int, tuple[Field, Field]]:
     # Every shared element whose extracted span differs between the two engines.
     return {
         key: (span_of(expected[key]), span_of(actual[key]))

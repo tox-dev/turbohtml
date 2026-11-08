@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Final, NotRequired, TypedDict
 
 import pytest
 
@@ -20,7 +20,21 @@ if not _CORPUS.is_file():
     _MISSING = f"{_CORPUS} is absent; regenerate it with tools/generate_wpt_encoding_corpus.py"
     raise RuntimeError(_MISSING)
 
-_DATA: Final[dict[str, Any]] = json.loads(_CORPUS.read_text(encoding="utf-8"))
+
+class _WptCase(TypedDict):
+    encoding: str
+    bytes: str
+    text: str | None
+    arm: NotRequired[str]
+
+
+class _WptCorpus(TypedDict):
+    source: str
+    revision: str
+    cases: list[_WptCase]
+
+
+_DATA: Final[_WptCorpus] = json.loads(_CORPUS.read_text(encoding="utf-8"))
 
 
 def _cases() -> Iterator[ParameterSet]:

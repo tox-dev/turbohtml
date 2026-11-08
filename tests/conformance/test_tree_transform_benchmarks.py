@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, cast
+from typing import TYPE_CHECKING, Final, TypeAlias, cast
 
 import pytest
 
@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from bench.timing import Mutating
+    from bs4 import BeautifulSoup
     from lxml.html import HtmlElement
     from pytest_mock import MockerFixture
     from selectolax.lexbor import LexborHTMLParser
@@ -34,7 +35,8 @@ _FRAGMENTS: Final[dict[str, str]] = {
 _CASES: Final[tuple[pytest.ParameterSet, ...]] = tuple(
     pytest.param(fragment, id=name) for name, fragment in _FRAGMENTS.items()
 )
-_RENDERERS: Final[dict[str, Callable[[Any], str]]] = {
+Tree: TypeAlias = "HtmlElement | BeautifulSoup | LexborHTMLParser"
+_RENDERERS: Final[dict[str, Callable[[Tree], str]]] = {
     "lxml": lambda tree: import_module("lxml.html").tostring(cast("HtmlElement", tree), encoding="unicode"),
     "beautifulsoup4": str,
     "beautifulsoup4_lxml": str,
@@ -63,7 +65,7 @@ def test_mutation(library: str, operation: str, fragment: str) -> None:
     source: Final = f"<html><head></head><body>{fragment}</body></html>"
     tree: Final = mutation.setup(source)
     mutation.run(tree)
-    output: Final = _RENDERERS[library](tree)
+    output: Final = _RENDERERS[library](cast("Tree", tree))
     expected: Final = parse(source)
     transform_node(
         expected,

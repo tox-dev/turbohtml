@@ -11,7 +11,7 @@ from typing import Final, NamedTuple, cast
 
 import pytest
 from fuzz.css_structure_generators import css_generate, css_grammar
-from fuzz.structure_generators import Generated, GenerationBudget, generate, generation_sweep
+from fuzz.structure_generators import Generated, GenerationBudget, Grammar, generate, generation_sweep
 
 from turbohtml import parse
 from turbohtml.cssom import computed_style
@@ -368,7 +368,7 @@ _CURATED_SHORTHAND_BOUNDARY: Final[tuple[Case, ...]] = (
 )
 
 
-def _norm(prop: str, value: str) -> object:
+def _norm(prop: str, value: str) -> str | tuple[int, int, int, float]:
     # Canonicalize a computed value for comparison, folding a color to an ``(r, g, b, a)`` tuple.
     text = value.strip().lower()
     if prop not in frozenset({
@@ -500,7 +500,7 @@ def test_cssom_curated_shorthand_boundary(case_id: str, check: Check) -> None:
     assert _norm(check.prop, got) == _norm(check.prop, reference)
 
 
-_GRAMMAR: Final[object] = css_grammar()
+_GRAMMAR: Final[Grammar] = css_grammar()
 _SWEEP: Final[tuple[Generated, ...]] = generation_sweep(_GRAMMAR, budget=GenerationBudget(nodes=512, steps=128))
 _CASES: Final[tuple[Generated, ...]] = (
     *_SWEEP,

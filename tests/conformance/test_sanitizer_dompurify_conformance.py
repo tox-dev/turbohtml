@@ -11,7 +11,7 @@ from typing import Final
 
 import pytest
 
-from turbohtml import Element, parse_fragment
+from turbohtml import Element, Node, parse_fragment
 from turbohtml.clean import DEFAULT_CSS_PROPERTIES, DEFAULT_SCHEMES, OnDisallowed, Policy, sanitize
 
 _SUBMODULE: Final[Path] = Path(__file__).parent / "DOMPurify"
@@ -207,7 +207,7 @@ def _live_danger(html: str) -> list[str]:
 
 def _canonical(html: str) -> str:
     # A serialization-independent form: reparse, then emit namespace-tagged tags with attributes in sorted order.
-    def walk(node: Element | object) -> str:
+    def walk(node: Node) -> str:
         if isinstance(node, Element):
             attrs = sorted((k, _attr_value(v)) for k, v in node.attrs.items())
             rendered = "".join(f" {name}={value!r}" for name, value in attrs)

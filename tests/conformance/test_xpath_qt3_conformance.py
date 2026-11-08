@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from math import isinf, isnan
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, TypeAlias, cast
 from xml.etree import ElementTree as ET  # ruff:ignore[suspicious-xml-etree-import]  # trusted pinned QT3 fixture
 
 import pytest
@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from _pytest.mark.structures import ParameterSet
 
 _QT3: Final[str] = "{http://www.w3.org/2010/09/qt-fots-catalog}"
+Expected: TypeAlias = "tuple[str, bool | str | list[Expected] | None]"
+XPathResult: TypeAlias = "list[turbohtml.Node | str] | float | bool | str"
 _ROOT: Final[Path] = Path(__file__).parent / "qt3tests"
 _CATALOG: Final[Path] = _ROOT / "catalog.xml"
 
@@ -265,8 +267,8 @@ def exclusion_reason(family: str, case: ET.Element, query: str) -> str | None:  
     return None
 
 
-def expected_result(result: ET.Element) -> tuple[str, object]:  # ruff:ignore[too-many-return-statements]  # one return per QT3 assertion tag reads clearest
-    constant_assertions: dict[str, tuple[str, object]] = {
+def expected_result(result: ET.Element) -> Expected:  # ruff:ignore[too-many-return-statements]  # one return per QT3 assertion tag reads clearest
+    constant_assertions: dict[str, Expected] = {
         "assert-true": ("bool", True),
         "assert-false": ("bool", False),
         "assert-empty": ("empty", None),
@@ -303,7 +305,7 @@ class Case:
     case_id: str
     query: str
     environment: str | None
-    expected: tuple[str, object]
+    expected: Expected
 
 
 def xpath_number_string(value: float) -> str:
@@ -314,7 +316,7 @@ def xpath_number_string(value: float) -> str:
     return str(int(value)) if value == int(value) else repr(value)
 
 
-def string_value(result: object) -> str | None:
+def string_value(result: XPathResult) -> str | None:
     if isinstance(result, bool):
         return "true" if result else "false"
     if isinstance(result, float):
@@ -329,7 +331,7 @@ def string_value(result: object) -> str | None:
     return None
 
 
-def matches_expected(expected: tuple[str, object], result: object) -> bool:  # ruff:ignore[too-many-return-statements]  # one return per expected-result kind reads clearest
+def matches_expected(expected: Expected, result: XPathResult) -> bool:  # ruff:ignore[too-many-return-statements]  # one return per expected-result kind reads clearest
     kind, value = expected
     if kind == "bool":
         return isinstance(result, bool) and result == value
@@ -338,7 +340,7 @@ def matches_expected(expected: tuple[str, object], result: object) -> bool:  # r
     if kind == "empty":
         return isinstance(result, (str, list)) and not result
     if kind == "any-of":
-        return any(matches_expected(option, result) for option in cast("list[tuple[str, object]]", value))
+        return any(matches_expected(option, result) for option in cast("list[Expected]", value))
     if kind == "eq":
         assert isinstance(value, str)
         if isinstance(result, bool):

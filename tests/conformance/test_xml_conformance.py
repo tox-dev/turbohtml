@@ -137,14 +137,14 @@ def _classify(attrib: dict[str, str], source: str) -> tuple[bool, bool, str | No
     return False, kind == "not-wf", _deviation_reason(attrib, kind, source)
 
 
-def _load() -> list[object]:
+def _load() -> list[pytest.ParameterSet]:
     if not _DATA.is_dir():  # pragma: no cover -- the dedicated conformance job always inits the submodule
         msg = (
             "submodule tests/conformance/xml-conformance-suite not checked out; run: "
             "git submodule update --init tests/conformance/xml-conformance-suite"
         )
         raise RuntimeError(msg)
-    params: list[object] = []
+    params: list[pytest.ParameterSet] = []
     counts = {"assert": 0, "xfail": 0, "skip": 0}
     for catalog in _CATALOGS:
         for attrib, file_path in _catalog_tests(catalog):
@@ -168,10 +168,12 @@ def _load() -> list[object]:
     return params
 
 
-_CASES: Final[list[object]] = _load()
+_CASES: Final[list[pytest.ParameterSet]] = _load()
 
 
 @pytest.mark.parametrize(("source", "outcome"), _CASES)
-def test_xml_conformance(source: str, outcome: Callable[[], AbstractContextManager[object]]) -> None:
+def test_xml_conformance(
+    source: str, outcome: Callable[[], AbstractContextManager[pytest.ExceptionInfo[HTMLParseError] | None]]
+) -> None:
     with outcome():
         parse_xml(source)  # a well-formed document must parse without a well-formedness error
