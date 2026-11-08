@@ -5701,16 +5701,30 @@ _ORACLE_CASES: Final[list[pytest.ParameterSet]] = [
 ]
 
 
-@pytest.mark.parametrize(("source", "sheet", "params", "method"), _ORACLE_CASES)
+_TEXT_ORACLE_CASES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(*case.values[:3], id=case.id) for case in _ORACLE_CASES if case.values[3] == "text"
+]
+_MARKUP_ORACLE_CASES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(*case.values[:3], id=case.id) for case in _ORACLE_CASES if case.values[3] != "text"
+]
+
+
+@pytest.mark.parametrize(("source", "sheet", "params"), _TEXT_ORACLE_CASES)
 @pytest.mark.oracle
-def test_transform_matches_lxml(source: str, sheet: str, params: dict[str, str], method: str) -> None:
+def test_transform_text_matches_lxml(source: str, sheet: str, params: dict[str, str]) -> None:
     mine = Transform(turbohtml.parse_xml(sheet))(turbohtml.parse_xml(source), **params)
     etree: Final = pytest.importorskip("lxml.etree")
     theirs = str(etree.XSLT(etree.fromstring(sheet.encode()))(etree.fromstring(source.encode()), **params))
-    if method == "text":
-        assert mine == theirs
-    else:
-        assert _canon(mine) == _canon(theirs)
+    assert mine == theirs
+
+
+@pytest.mark.parametrize(("source", "sheet", "params"), _MARKUP_ORACLE_CASES)
+@pytest.mark.oracle
+def test_transform_markup_matches_lxml(source: str, sheet: str, params: dict[str, str]) -> None:
+    mine = Transform(turbohtml.parse_xml(sheet))(turbohtml.parse_xml(source), **params)
+    etree: Final = pytest.importorskip("lxml.etree")
+    theirs = str(etree.XSLT(etree.fromstring(sheet.encode()))(etree.fromstring(source.encode()), **params))
+    assert _canon(mine) == _canon(theirs)
 
 
 @pytest.mark.parametrize("attribute", ["count", "from"])

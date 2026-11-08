@@ -5,7 +5,7 @@ import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs 
 import sys
 from functools import partial
 from operator import ge, gt, le, lt
-from typing import TYPE_CHECKING, Final, TypeAlias, cast
+from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, cast
 from weakref import finalize, ref
 
 import pytest
@@ -1391,18 +1391,30 @@ _LXML_EXPRS: Final[list[str]] = [
 ]
 
 
-@pytest.mark.parametrize("expr", _LXML_EXPRS, ids=lambda expr: expr)
+_LXML_SCALAR_PREFIXES: Final[tuple[str, ...]] = ("boolean(", "count(", "name(", "string(")
+_LXML_NODESET_EXPRS: Final[list[str]] = [expr for expr in _LXML_EXPRS if not expr.startswith(_LXML_SCALAR_PREFIXES)]
+_LXML_SCALAR_EXPRS: Final[list[str]] = [expr for expr in _LXML_EXPRS if expr.startswith(_LXML_SCALAR_PREFIXES)]
+
+
+@pytest.mark.parametrize("expr", _LXML_NODESET_EXPRS, ids=lambda expr: expr)
 @pytest.mark.parametrize("doc_name", list(_LXML_DOCS), ids=list(_LXML_DOCS))
 @pytest.mark.oracle
 def test_matches_lxml(doc_name: str, expr: str) -> None:
     lxml_html: Final = pytest.importorskip("lxml.html")
     html: Final = _LXML_DOCS[doc_name]
     ours: Final = turbohtml.parse(html).xpath(expr)
+    assert isinstance(ours, list)
     theirs: Final = lxml_html.document_fromstring(html).xpath(expr)
-    if isinstance(ours, list):
-        assert _normalize_lxml(ours) == _normalize_lxml(theirs)
-    else:
-        assert ours == theirs
+    assert _normalize_lxml(ours) == _normalize_lxml(theirs)
+
+
+@pytest.mark.parametrize("expr", _LXML_SCALAR_EXPRS, ids=lambda expr: expr)
+@pytest.mark.parametrize("doc_name", list(_LXML_DOCS), ids=list(_LXML_DOCS))
+@pytest.mark.oracle
+def test_matches_lxml_scalar(doc_name: str, expr: str) -> None:
+    lxml_html: Final = pytest.importorskip("lxml.html")
+    html: Final = _LXML_DOCS[doc_name]
+    assert turbohtml.parse(html).xpath(expr) == lxml_html.document_fromstring(html).xpath(expr)
 
 
 @pytest.mark.oracle
@@ -1417,10 +1429,44 @@ def _normalize_lxml(result: Iterable[turbohtml.Node | str]) -> list[str]:
     return out
 
 
-@pytest.mark.parametrize("compiled", [False, True], ids=["method", "compiled"])
+class _UnionEvaluate(Protocol):
+    def __call__(
+        self,
+        source: Element,
+        expression: str,
+        extensions: dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]],
+        *,
+        smart: bool,
+    ) -> object: ...
+
+
+def _union_compiled(
+    source: Element,
+    expression: str,
+    extensions: dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]],
+    *,
+    smart: bool,
+) -> object:
+    return XPath(expression, extensions=extensions, smart_strings=smart)(source)
+
+
+def _union_method(
+    source: Element,
+    expression: str,
+    extensions: dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]],
+    *,
+    smart: bool,
+) -> object:
+    return source.xpath(expression, extensions=extensions, smart_strings=smart)
+
+
+@pytest.mark.parametrize(
+    "evaluate",
+    [pytest.param(_union_method, id="method"), pytest.param(_union_compiled, id="compiled")],
+)
 @pytest.mark.parametrize("smart", [False, True], ids=["plain", "smart"])
 @pytest.mark.parametrize("change", ["replace", "remove", "readd", "unrelated"])
-def test_xpath_callback_attribute_union(*, compiled: bool, smart: bool, change: str) -> None:
+def test_xpath_callback_attribute_union(*, evaluate: _UnionEvaluate, smart: bool, change: str) -> None:
     source: Final = Element("section", {"id": "old", "other": "value"})
 
     def mutate(_context: SimpleNamespace) -> list[Element]:
@@ -1432,18 +1478,30 @@ def test_xpath_callback_attribute_union(*, compiled: bool, smart: bool, change: 
             source.attrs["other"] = "changed"
         return []
 
-    extensions: Final[dict[tuple[str | None, str], Callable[..., list[Element]]]] = {(None, "mutate"): mutate}
-    expression: Final = "@id | mutate() | @id"
-    result: Final = (
-        XPath(expression, extensions=extensions, smart_strings=smart)(source)
-        if compiled
-        else source.xpath(expression, extensions={(None, "mutate"): mutate}, smart_strings=smart)
-    )
+    extensions: Final[dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]]] = {
+        (None, "mutate"): mutate
+    }
+    assert evaluate(source, "@id | mutate() | @id", extensions, smart=smart) == ["old"]
+
+
+@pytest.mark.parametrize("change", ["replace", "remove", "readd", "unrelated"])
+def test_xpath_callback_attribute_union_smart_owner(change: str) -> None:
+    source: Final = Element("section", {"id": "old", "other": "value"})
+
+    def mutate(_context: SimpleNamespace) -> list[Element]:
+        if change in {"remove", "readd"}:
+            del source.attrs["id"]
+        if change in {"replace", "readd"}:
+            source.attrs["id"] = "new"
+        if change == "unrelated":
+            source.attrs["other"] = "changed"
+        return []
+
+    result = source.xpath("@id | mutate() | @id", extensions={(None, "mutate"): mutate}, smart_strings=True)
+    assert isinstance(result, list)
     assert result == ["old"]
-    if smart:
-        assert isinstance(result, list)
-        assert isinstance(result[0], XPathString)
-        assert (result[0].getparent(), result[0].attrname) == (source, "id")
+    assert isinstance(result[0], XPathString)
+    assert (result[0].getparent(), result[0].attrname) == (source, "id")
 
 
 @pytest.mark.parametrize(
@@ -1494,9 +1552,20 @@ def test_xpath_callback_adopted_pending_owner(*, smart: bool) -> None:
     result[0].attrs["live"] = "yes"
     assert target.select("section[live=yes]") == [source]
     assert result[1] == "old"
-    if smart:
-        assert isinstance(result[1], XPathString)
-        assert result[1].getparent() == source
+
+
+def test_xpath_callback_adopted_pending_owner_smart_string_owner() -> None:
+    source: Final = Element("section", {"id": "old"}, children=[Element("b")])
+    target: Final = Element("main")
+
+    def adopt(_context: SimpleNamespace) -> list[Element]:
+        target.append(source)
+        return []
+
+    result: Final = source.xpath(". | @id | adopt()", extensions={(None, "adopt"): adopt}, smart_strings=True)
+    assert isinstance(result, list)
+    assert isinstance(result[1], XPathString)
+    assert result[1].getparent() == source
 
 
 @pytest.mark.parametrize("size", [3, 24])
@@ -2034,7 +2103,18 @@ def test_xpath_snapshot_during_collection(offset: int, *, smart_strings: bool, m
         ]
 
 
-@pytest.mark.parametrize("compiled", [False, True], ids=["method", "compiled"])
-def test_xpath_empty_smart_snapshot(*, compiled: bool) -> None:
+def _empty_snapshot_compiled(document: turbohtml.Node) -> object:
+    return XPath("//a", smart_strings=True)(document)
+
+
+def _empty_snapshot_method(document: turbohtml.Node) -> object:
+    return document.xpath("//a", smart_strings=True)
+
+
+@pytest.mark.parametrize(
+    "evaluate",
+    [pytest.param(_empty_snapshot_method, id="method"), pytest.param(_empty_snapshot_compiled, id="compiled")],
+)
+def test_xpath_empty_smart_snapshot(evaluate: Callable[[turbohtml.Node], object]) -> None:
     document: Final = parse("<section></section>")
-    assert (XPath("//a", smart_strings=True)(document) if compiled else document.xpath("//a", smart_strings=True)) == []
+    assert evaluate(document) == []

@@ -161,11 +161,10 @@ def test_data_is_keyword() -> None:
 
 
 def test_constructed_node_matches_structurally() -> None:
-    match Text("hi"):
-        case Text(data):
-            assert data == "hi"
-        case _:  # pragma: no cover - a Text always matches Text
-            pytest.fail("did not match")
+    node = Text("hi")
+    assert Text.__match_args__ == ("data",)
+    assert isinstance(node, Text)
+    assert node.data == "hi"
 
 
 @pytest.mark.parametrize(
@@ -475,19 +474,17 @@ def _doctype(markup: str) -> Doctype:
 
 
 def test_doctype_matches_on_name() -> None:
-    match _doctype("<!DOCTYPE html>"):
-        case Doctype(name):
-            assert name == "html"
-        case _:  # pragma: no cover - the doctype always matches
-            pytest.fail("doctype did not match")
+    doctype = _doctype("<!DOCTYPE html>")
+    assert Doctype.__match_args__ == ("name",)
+    assert doctype.name == "html"
 
 
 def test_document_matches_on_root() -> None:
-    match parse("<title>t</title>"):
-        case Document(Element(tag)):
-            assert tag == "html"
-        case _:  # pragma: no cover - a parsed document always has an html root
-            pytest.fail("document did not match")
+    document = parse("<title>t</title>")
+    assert isinstance(document, Document)
+    assert Document.__match_args__ == ("root",)
+    assert isinstance(document.root, Element)
+    assert document.root.tag == "html"
 
 
 def test_pi_carries_target_and_data() -> None:
@@ -512,12 +509,10 @@ def test_pi_repr() -> None:
 
 
 def test_pi_matches_structurally() -> None:
-    match ProcessingInstruction("xml", "v=1"):
-        case ProcessingInstruction(target, data):
-            assert target == "xml"
-            assert data == "v=1"
-        case _:  # pragma: no cover - a PI always matches
-            pytest.fail("did not match")
+    pi = ProcessingInstruction("xml", "v=1")
+    assert ProcessingInstruction.__match_args__ == ("target", "data")
+    assert isinstance(pi, ProcessingInstruction)
+    assert (pi.target, pi.data) == ("xml", "v=1")
 
 
 @pytest.mark.parametrize(
@@ -553,11 +548,10 @@ def test_cdata_repr() -> None:
 
 
 def test_cdata_matches_structurally() -> None:
-    match CData("payload"):
-        case CData(data):
-            assert data == "payload"
-        case _:  # pragma: no cover - a CData always matches
-            pytest.fail("did not match")
+    cdata = CData("payload")
+    assert CData.__match_args__ == ("data",)
+    assert isinstance(cdata, CData)
+    assert cdata.data == "payload"
 
 
 def test_cdata_data_is_settable() -> None:
