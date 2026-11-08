@@ -4369,7 +4369,7 @@ def test_minify_css_starting_style_context(source: str, expected: str) -> None:
     assert minify_css(source) == expected
 
 
-_CASES: Final = [
+_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "@media screen { bad; .a { opacity: 0; } }",
         "@media screen{bad;.a{opacity:0}}",
