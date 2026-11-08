@@ -46,7 +46,14 @@ def observer_sequence_controls() -> dict[str, bool]:
 def observer_sequence_check(case: str, run: Callable[[str, str], str] | None = None) -> str | None:
     # Retain detached wrappers and pin callback batches against an independent model.
     program, separator, name = case.partition(":")
-    if not separator or program not in _PROGRAMS or re.fullmatch(r"(?:[ab]|div|g[a-z0-9]{0,15})", name) is None:
+    if (
+        not separator
+        or program not in _PROGRAMS
+        or re.fullmatch(
+            r"(?#a, b, div, or a g followed by up to 15 letters or digits)(?:[ab]|div|g[a-z0-9]{0,15})", name
+        )
+        is None
+    ):
         raise UnsupportedObserverCaseError(case)
     return None if (run or _run)(program, name) == _expected(program, name) else "observer sequence differs from model"
 

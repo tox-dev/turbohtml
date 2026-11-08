@@ -67,7 +67,9 @@ _EXPECTED: Final[tuple[type[Exception], ...]] = (ValueError, UnicodeError, turbo
 # warns that such parser-made trees need not survive serialize and reparse
 # (https://html.spec.whatwg.org/multipage/parsing.html#serialising-html-fragments).
 _SCRIPT_DOUBLE_ESCAPE: Final[re.Pattern[str]] = re.compile(
-    r"<!--(?:(?!-->).)*?<script[\t\n\f />]", re.IGNORECASE | re.DOTALL
+    r"(?#comment start)<!--(?#comment body with no comment close)(?:(?!-->).)*?"
+    r"(?#script start tag)<script(?#tag name end)[\t\n\f />]",
+    re.IGNORECASE | re.DOTALL,
 )
 # TH_MAX_TREE_DEPTH (src/turbohtml/_c/dom/tree.h): past 512 open elements a start tag is inserted but not pushed, so
 # further tags become siblings and reparsing the flattened output nests them differently

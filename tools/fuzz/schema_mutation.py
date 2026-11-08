@@ -72,7 +72,10 @@ def _stylesheet(root: lxml.etree._Element, donor: lxml.etree._Element, *, broken
         for attribute in ("select", "test"):
             if (expression := node.get(attribute)) is not None:
                 expression = re.sub(
-                    r"""(?P<key>\bkey\s*\(\s*)(?P<quote>['"])[^'"]*(?P=quote)|(?P<literal>'[^']*'|"[^"]*")|(?P<variable>\$[A-Za-z_][\w.-]*)""",
+                    r"""(?P<key>(?#key function call)\bkey\s*\(\s*)(?P<quote>(?#opening quote)['"])"""
+                    r"""(?#quoted key name)[^'"]*(?P=quote)"""
+                    r"""|(?P<literal>(?#quoted literal)'[^']*'|"[^"]*")"""
+                    r"""|(?P<variable>(?#variable reference)\$[A-Za-z_][\w.-]*)""",
                     lambda match: _reference(match, variables, keys),
                     expression,
                 )

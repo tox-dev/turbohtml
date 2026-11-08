@@ -509,19 +509,30 @@ def _record(crash_dir: Path, target: str, shape: dict[str, _JSON], details: dict
 # (https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/literals.rs#L8-L15);
 # the C equivalents are case labels, string arguments of comparison helpers, and static keyword tables
 _COMMENT_OR_LITERAL: Final[re.Pattern[str]] = re.compile(
-    r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'|/\*.*?\*/|//[^\n]*', re.DOTALL
+    r'(?#double quoted string)"(?:[^"\\\n]|\\.)*"'
+    r"|(?#single quoted string)'(?:[^'\\\n]|\\.)*'"
+    r"|(?#block comment)/\*.*?\*/"
+    r"|(?#line comment)//[^\n]*",
+    re.DOTALL,
 )
 _CHAR: Final[str] = r"'((?:[^'\\\n]|\\[^\n]){1,8})'"
 _COMPARED_CHAR: Final[re.Pattern[str]] = re.compile(rf"\bcase\s+{_CHAR}\s*:|[=!]=\s*{_CHAR}|{_CHAR}\s*[=!]=")
-_CASE_CODE_POINT: Final[re.Pattern[str]] = re.compile(r"\bcase\s+0[xX](?P<digits>[0-9A-Fa-f]+)[uU]?\s*:")
+_CASE_CODE_POINT: Final[re.Pattern[str]] = re.compile(
+    r"(?#case label)\bcase\s+(?#hex prefix)0[xX](?P<digits>[0-9A-Fa-f]+)(?#optional suffix)[uU]?(?#colon)\s*:"
+)
 _STATEMENT_END: Final[re.Pattern[str]] = re.compile(r"[;{}]")
 # a call to a comparison helper (memcmp, match_kw, css_run_ieq, u_eq_ascii, is_schema_el, ...) marks its statement
 _COMPARISON: Final[re.Pattern[str]] = re.compile(
-    r"(?:cmp|eq|match|starts_with|ends_with|_kw|lookup|is_|_is)\w*\)?\s*\("
+    r"(?#helper name prefix or suffix)(?:cmp|eq|match|starts_with|ends_with|_kw|lookup|is_|_is)"
+    r"(?#rest of the name)\w*(?#optional closing parenthesis)\)?(?#whitespace)\s*(?#opening parenthesis)\("
 )
 _TABLE: Final[re.Pattern[str]] = re.compile(r"static\s+const\s[^=;{}]*\[[^\]]*\]\s*=\s*\{(.*?)\};", re.DOTALL)
-_STRING: Final[re.Pattern[str]] = re.compile(r'"(?P<body>(?:[^"\\\n]|\\.)*)"')
-_ESCAPE: Final[re.Pattern[bytes]] = re.compile(rb"\\(x[0-9A-Fa-f]{1,2}|[0-7]{1,3}|.)")
+_STRING: Final[re.Pattern[str]] = re.compile(
+    r'(?#opening quote)"(?P<body>(?#characters that are plain or escaped)(?:[^"\\\n]|\\.)*)(?#closing quote)"'
+)
+_ESCAPE: Final[re.Pattern[bytes]] = re.compile(
+    rb"(?#backslash)\\(?P<code>(?#hex escape)x[0-9A-Fa-f]{1,2}|(?#octal escape)[0-7]{1,3}|(?#any other character).)"
+)
 # the tag atom table holds bare element names; the tree builder branches on them as start and end tags
 _TAG_TABLE: Final[str] = "data/tag_atom.h"
 
@@ -564,7 +575,7 @@ def _unescape(literal: str) -> str:
     simple_escapes = {b"n": b"\n", b"t": b"\t", b"r": b"\r", b"f": b"\f", b"v": b"\v", b"a": b"\a", b"b": b"\b"}
 
     def replace(match: re.Match[bytes]) -> bytes:
-        if (code := match[1]).startswith(b"x"):
+        if (code := match["code"]).startswith(b"x"):
             return bytes([int(code[1:], 16)])
         if code[:1].isdigit() and code[:1] < b"8":
             return bytes([int(code, 8) & 0xFF])

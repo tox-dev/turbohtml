@@ -348,8 +348,9 @@ _BASELINE_ELEMENTS: Final[frozenset[tuple[str, str]]] = frozenset({
 def _css_danger(text: str) -> bool:
     # Check CSS tokens for script-capable URLs, functions, and properties.
     decoded = re.sub(
-        r"\\([0-9a-fA-F]{1,6})[ \t\n\r\f]?|\\(.)",
-        lambda match: chr(min(int(match[1], 16), 0x10FFFF) or 0xFFFD) if match[1] else match[2],
+        r"(?#backslash and hex escape)\\(?P<hex>[0-9a-fA-F]{1,6})(?#optional whitespace terminator)[ \t\n\r\f]?"
+        r"|(?#backslash and any other character)\\(?P<char>.)",
+        lambda match: chr(min(int(match["hex"], 16), 0x10FFFF) or 0xFFFD) if match["hex"] else match["char"],
         text,
     )
     source = re.sub(r"/\*.*?(?:\*/|$)", "", decoded, flags=re.DOTALL)

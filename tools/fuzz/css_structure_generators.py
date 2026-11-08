@@ -146,7 +146,11 @@ def css_source_seeds() -> list[str]:
 
 
 Parts: TypeAlias = tuple[bytes | Identifier, ...]
-_BINDING: Final[re.Pattern[str]] = re.compile(r"(?<![a-zA-Z0-9_-])(?:--cssvar[a-d]|anim)(?![a-zA-Z0-9_-])")
+_BINDING: Final[re.Pattern[str]] = re.compile(
+    r"(?#not preceded by a name character)(?<![a-zA-Z0-9_-])"
+    r"(?#a custom property name or the animation keyword)(?:--cssvar[a-d]|anim)"
+    r"(?#not followed by a name character)(?![a-zA-Z0-9_-])"
+)
 _PREFIX: Final[Parts] = (
     b":root{",
     *(

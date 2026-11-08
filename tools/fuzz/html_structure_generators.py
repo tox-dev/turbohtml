@@ -301,10 +301,10 @@ class _Values:
     def expand(self, source: str, route: tuple[TableRule, ...] = ()) -> Parts:
         if attribute := _ATTRIBUTE.fullmatch(source):
             return (
-                f' {attribute[1]}="'.encode("ascii"),
+                f' {attribute["name"]}="'.encode("ascii"),
                 *(
                     escape(part.decode("utf-8"), quote=True).encode("utf-8") if isinstance(part, bytes) else part
-                    for part in self.expand(attribute[2], route)
+                    for part in self.expand(attribute["value"], route)
                 ),
                 b'"',
             )
@@ -312,7 +312,7 @@ class _Values:
         position = 0
         for token in _TOKEN.finditer(source):
             parts.extend(_literal(source[position : token.start()]))
-            symbol, *parameters = token[1].split()
+            symbol, *parameters = token["body"].split()
             if symbol in _PRIMITIVES:
                 parts.extend(_primitive(symbol, parameters))
             else:
@@ -328,7 +328,7 @@ class _Values:
 
 @cache  # owner() re-reads the same value sources for every one of the ~1000 value alternatives
 def _symbols(source: str) -> tuple[str, ...]:
-    return tuple(token[1].split()[0] for token in _TOKEN.finditer(source))
+    return tuple(token["body"].split()[0] for token in _TOKEN.finditer(source))
 
 
 def _literal(source: str) -> Parts:
@@ -371,8 +371,11 @@ class HtmlVocabulary:
 
 Parts: TypeAlias = tuple[bytes | Identifier, ...]
 
-_TOKEN: Final[re.Pattern[str]] = re.compile(r"<([^<>]+)>")
-_ATTRIBUTE: Final[re.Pattern[str]] = re.compile(r'([a-zA-Z][a-zA-Z0-9:_-]*)="([^"]*)"')
+_TOKEN: Final[re.Pattern[str]] = re.compile(r"<(?P<body>[^<>]+)>")
+_ATTRIBUTE: Final[re.Pattern[str]] = re.compile(
+    r'(?P<name>(?#attribute name starting with a letter)[a-zA-Z][a-zA-Z0-9:_-]*)(?#equals and opening quote)="'
+    r'(?P<value>(?#value without quotes)[^"]*)(?#closing quote)"'
+)
 _PRIMITIVES: Final[dict[str, bytes]] = {
     "elementid": b"x",
     "class": b"a",

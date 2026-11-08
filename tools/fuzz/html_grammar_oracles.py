@@ -104,7 +104,14 @@ def _snapshot(root: Element) -> str:
 
 
 _CASE: Final[re.Pattern[str]] = re.compile(
-    r"(?P<tag>span|em|code):(?P<attribute>title|data-x):(?P<quote>single|double|bare):(?P<count>[1-4]):(?P<leaf>empty|plain|named|numeric)"
+    r"""
+    (?P<tag>span|em|code):                      # the element holding the attribute
+    (?P<attribute>title|data-x):                # the attribute name
+    (?P<quote>single|double|bare):              # the quote style of the value
+    (?P<count>[1-4]):                           # a digit from 1 to 4
+    (?P<leaf>empty|plain|named|numeric)         # the kind of character reference
+    """,
+    re.VERBOSE,
 )
 _TAGS: Final[tuple[str, ...]] = ("span", "em", "code")
 _ATTRIBUTES: Final[tuple[str, ...]] = ("title", "data-x")

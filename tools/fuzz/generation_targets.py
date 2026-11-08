@@ -26,7 +26,7 @@ import_module("turbohtml.detect")
 # html5lib scans its open-element stack on every insertion, so its time is quadratic in nesting depth: about 100 ms at
 # 2500 nested divs. turbohtml caps its own tree depth and parses the same input in milliseconds.
 _ORACLE_MAX_NESTING: Final[int] = 2500
-_TAG: Final[re.Pattern[str]] = re.compile(r"<(/?)[a-zA-Z]")
+_TAG: Final[re.Pattern[str]] = re.compile(r"<(?P<closing>/?)[a-zA-Z]")
 
 
 def generation_targets(
@@ -103,7 +103,7 @@ def _nesting(markup: str) -> int:
     # Most start tags left open at once; implied end tags and void elements make it an upper bound.
     deepest = depth = 0
     for match in _TAG.finditer(markup):
-        depth = max(depth - 1, 0) if match[1] else depth + 1
+        depth = max(depth - 1, 0) if match["closing"] else depth + 1
         deepest = max(deepest, depth)
     return deepest
 

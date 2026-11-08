@@ -201,12 +201,20 @@ _DEPTH_ERROR: Final[re.Pattern[str]] = re.compile(r"does not support trees neste
 # warns that such parser-made trees need not survive serialize and reparse
 # (https://html.spec.whatwg.org/multipage/parsing.html#serialising-html-fragments).
 _SCRIPT_DOUBLE_ESCAPE: Final[re.Pattern[str]] = re.compile(
-    r"<!--(?:(?!-->).)*?<script[\t\n\f />]", re.IGNORECASE | re.DOTALL
+    r"(?#comment start)<!--(?#comment body with no comment close)(?:(?!-->).)*?"
+    r"(?#script start tag)<script(?#tag name end)[\t\n\f />]",
+    re.IGNORECASE | re.DOTALL,
 )
 # rust-cssparser dropped its idempotence assert because dtoa takes two passes to converge (9999995e-45 -> 10e-39 ->
 # 1e-38), so a numeric rewrite may settle on the second pass:
 # https://github.com/servo/rust-cssparser/blob/106021c7bc55ed2cac83f590c0d356fa530b7061/fuzz/fuzz_targets/cssparser.rs
-_NUMBER: Final[re.Pattern[str]] = re.compile(r"(?<![\w$#\\.])[+-]?(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(?:[eE][+-]?\d+)?n?")
+_NUMBER: Final[re.Pattern[str]] = re.compile(
+    r"(?#not preceded by a name, sigil, hash, backslash or dot)(?<![\w$#\\.])"
+    r"(?#optional sign)[+-]?"
+    r"(?#digits with optional underscores and an optional decimal point, or a fraction)"
+    r"(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)"
+    r"(?#optional exponent)(?:[eE][+-]?\d+)?(?#optional BigInt suffix)n?"
+)
 _JS_OFF: Final[JSMinify] = JSMinify(mangle=False, fold=False)
 # cap one case's input: generators stay under a few KiB, but a mutated .dat seed can grow, and to_markdown/to_text
 # amplify nested input about 100-240x (tox-dev/turbohtml#1028), so an input this long could print hundreds of MiB
@@ -1094,8 +1102,10 @@ def _markdown_html(markup: str) -> str:
     markup = markup.replace("<del>", "<s>").replace("</del>", "</s>")
     markup = re.sub(r"<br\s*/?>[ \t]*\n?", "<br>", markup)
     markup = markup.replace("<li>\n<br>", "<li><br>")
-    markup = re.sub(r"((?:<(?:strong|em|s)>)+)<br>", r"<br>\1", markup)
-    markup = re.sub(r"<br>((?:</(?:strong|em|s)>)+)", r"\1<br>", markup)
+    markup = re.sub(
+        r"(?P<open>(?#opening formatting tags)(?:<(?:strong|em|s)>)+)(?#before a break)<br>", r"<br>\g<open>", markup
+    )
+    markup = re.sub(r"<br>(?P<close>(?#closing formatting tags)(?:</(?:strong|em|s)>)+)", r"\g<close><br>", markup)
     return re.sub(r"<(strong|em|s)></\1>", "", markup)
 
 
@@ -1291,9 +1301,15 @@ _VALUE_KIND: Final[dict[str, str]] = {
 _LENGTH_UNITS: Final[frozenset[str]] = frozenset({
     "px", "em", "rem", "ex", "ch", "vw", "vh", "vmin", "vmax", "cm", "mm", "q", "in", "pt", "pc", "%",
 })  # fmt: skip
-_NUMERIC: Final[re.Pattern[str]] = re.compile(r"([+-]?(?:\d+\.\d+|\d+|\.\d+)(?:[eE][+-]?\d+)?)([a-zA-Z]+|%)?")
+_NUMERIC: Final[re.Pattern[str]] = re.compile(
+    r"(?P<number>(?#optional sign)[+-]?(?#integer, decimal or fraction)(?:\d+\.\d+|\d+|\.\d+)"
+    r"(?#optional exponent)(?:[eE][+-]?\d+)?)(?P<unit>(?#unit letters or a percent sign)[a-zA-Z]+|%)?"
+)
 # CSS Syntax 3 4.3.12: a "." starts a fraction only before a digit, so "1." is a number and a stray "." delim
-_TRAILING_DOT: Final[re.Pattern[str]] = re.compile(r"[+-]?\d+\.(?:[a-zA-Z]+|%)?")
+_TRAILING_DOT: Final[re.Pattern[str]] = re.compile(
+    r"(?#optional sign)[+-]?(?#integer digits)\d+(?#the dot that is not followed by a digit)\."
+    r"(?#optional unit or percent sign)(?:[a-zA-Z]+|%)?"
+)
 
 
 def _read_value(name: str, value: str) -> _Value:
@@ -1310,7 +1326,7 @@ def _read_value(name: str, value: str) -> _Value:
     if kind == "color":
         return _read_color(text.lower())
     if (numeric := _NUMERIC.fullmatch(text)) is not None:
-        return _read_number(kind, numeric[1], (numeric[2] or "").lower())
+        return _read_number(kind, numeric["number"], (numeric["unit"] or "").lower())
     keyword = text.lower()
     if re.fullmatch(r"-?[a-z][a-z-]*", keyword) is None:
         return None
@@ -1364,11 +1380,17 @@ def _read_rgb(arguments: str) -> _Value:
     parts = [part.strip() for part in arguments.split(",")]
     legacy = len(parts) > 1
     if not legacy:
-        modern = re.fullmatch(r"(\S+)\s+(\S+)\s+(\S+)(?:\s*/\s*(\S+))?", parts[0])
+        modern = re.fullmatch(
+            r"(?P<first>(?#first token)\S+)(?#whitespace)\s+(?P<second>(?#second token)\S+)(?#whitespace)\s+"
+            r"(?P<third>(?#third token)\S+)(?#optional slash and fourth token)(?:\s*/\s*(?P<fourth>\S+))?",
+            parts[0],
+        )
         parts = [] if modern is None else [part for part in modern.groups() if part is not None]
     elif any(re.search(r"\s", part) for part in parts):
         parts = []
-    numbers = [match for part in parts if (match := _NUMERIC.fullmatch(part)) is not None and match[2] in {None, "%"}]
+    numbers = [
+        match for part in parts if (match := _NUMERIC.fullmatch(part)) is not None and match["unit"] in {None, "%"}
+    ]
     if len(parts) not in {3, 4} or len(numbers) != len(parts):
         return _INVALID
     if legacy and len({match[2] for match in numbers[:3]}) != 1:

@@ -14,14 +14,26 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 _KIND: Final[re.Pattern[str]] = re.compile(
-    r"out[- ]of[- ]memory|out of memory|MemoryError|rss limit|libFuzzer: timeout|ERROR:.*timeout|TimeoutError",
+    r"(?#out of memory with dashes or spaces)out[- ]of[- ]memory"
+    r"|(?#out of memory)out of memory|(?#Python MemoryError)MemoryError|(?#rss limit)rss limit"
+    r"|(?#libFuzzer timeout)libFuzzer: timeout|(?#error line that mentions a timeout)ERROR:.*timeout"
+    r"|(?#Python timeout)TimeoutError",
     re.IGNORECASE,
 )
 _NATIVE: Final[re.Pattern[str]] = re.compile(
-    r"^\s*#(?P<index>\d+)\s+(?:0x[0-9a-f]+\s+)?(?:in\s+)?(?P<frame>.+)", re.IGNORECASE
+    r"(?#line start)^\s*(?#hash and frame index)#(?P<index>\d+)(?#whitespace)\s+"
+    r"(?#optional address)(?:0x[0-9a-f]+\s+)?(?#optional in keyword)(?:in\s+)?(?#the frame text)(?P<frame>.+)",
+    re.IGNORECASE,
 )
-_PYTHON: Final[re.Pattern[str]] = re.compile(r'^\s*File "([^"]+)", line (\d+), in (.+)$')
-_LOCATION: Final[re.Pattern[str]] = re.compile(r"(?:[A-Za-z]:)?[/\\][^\s()]+")
+_PYTHON: Final[re.Pattern[str]] = re.compile(
+    r'(?#line start)^\s*(?#File keyword)File "(?P<file>[^"]+)"(?#line keyword), line (?P<line>\d+)'
+    r"(?#in keyword), in (?P<function>.+)(?#line end)$"
+)
+_LOCATION: Final[re.Pattern[str]] = re.compile(
+    r"(?#optional drive letter)(?:[A-Za-z]:)?"
+    r"(?#a path separator)[/\\]"
+    r"(?#path characters up to a space or parenthesis)[^\s()]+"
+)
 _ADDRESS: Final[re.Pattern[str]] = re.compile(r"0x[0-9a-f]+", re.IGNORECASE)
 
 
@@ -74,7 +86,9 @@ def _frames(report: str) -> tuple[str, ...]:
             if len(native) == 5:
                 break
         elif match := _PYTHON.match(line):
-            python.append(f"{match[3]} {match[1].replace(chr(92), '/').rsplit('/', 1)[-1]}:{match[2]}")
+            python.append(
+                f"{match['function']} {match['file'].replace(chr(92), '/').rsplit('/', 1)[-1]}:{match['line']}"
+            )
     return tuple(native or list(reversed(python))[:5])
 
 
