@@ -226,10 +226,10 @@ def test_gc_reclaims_a_reference_cycle_through_the_source() -> None:
     class _Cyclic(str):  # ruff:ignore[subclass-builtin]  # a real str subclass: _sax_events requires str, and the slots let it cycle
         __slots__ = ("loop", "sentinel")
         loop: object
-        sentinel: object
+        sentinel: _Sentinel
 
     class _Sentinel:
-        back: object
+        back: _Cyclic
 
     source = _Cyclic("<p>x</p>")
     events = _html._sax_events(source)

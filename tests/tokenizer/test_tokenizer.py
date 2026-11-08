@@ -27,7 +27,10 @@ def test_tokenize_simple_document() -> None:
     assert _shape(end) == (TokenType.END_TAG, "p", None, None, [], False)
 
 
-def _shape(token: Token) -> tuple[object, ...]:
+_Shape: TypeAlias = tuple[TokenType, str | None, str | None, str | None, list[tuple[str, str]] | None, bool]
+
+
+def _shape(token: Token) -> _Shape:
     return (token.type, token.tag, token.target, token.data, token.attrs, token.self_closing)
 
 
@@ -99,7 +102,7 @@ def test_processing_instruction_target_space_at_eof_is_dropped(width_prefix: str
         pytest.param("<p>", (TokenType.START_TAG, None, None, None, False), id="non-doctype"),
     ],
 )
-def test_doctype_fields(document: str, expected: tuple[object, ...]) -> None:
+def test_doctype_fields(document: str, expected: tuple[TokenType, str | None, str | None, str | None, bool]) -> None:
     (token,) = list(tokenize(document))
     assert (token.type, token.name, token.public_id, token.system_id, token.force_quirks) == expected
     assert token.data is None
@@ -812,7 +815,7 @@ def test_default_resolves_references_into_text() -> None:
     assert tag.type is TokenType.START_TAG
 
 
-def _reference_shape(token: Token) -> tuple[object, ...]:
+def _reference_shape(token: Token) -> _Shape:
     return (token.type, token.tag, token.data, token.source, token.attrs, token.self_closing)
 
 

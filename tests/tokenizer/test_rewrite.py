@@ -12,6 +12,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 from typing import Final
 
+_Read = str | bool | None | tuple[tuple[str, str | None], ...]
+
 
 def test_rewrite_noop_returns_input_unchanged() -> None:
     src = '<!DOCTYPE html><html><body><?pi data?><p class=x>Hi &amp; bye</p><img src="a.png"></body></html>'
@@ -167,7 +169,7 @@ def test_rewrite_remove_attribute_present_and_absent() -> None:
 
 
 def test_rewrite_get_and_has_attribute() -> None:
-    seen: dict[str, object] = {}
+    seen: dict[str, _Read] = {}
 
     def handler(element: Element) -> None:
         seen["value"] = element.get("href")
@@ -571,7 +573,7 @@ def test_rewrite_comment_remove_and_before() -> None:
 
 
 def test_rewrite_doctype_handler_reads_fields() -> None:
-    seen: dict[str, object] = {}
+    seen: dict[str, _Read] = {}
 
     def handler(doctype: Element) -> None:
         seen["kind"] = doctype.kind
@@ -589,7 +591,7 @@ def test_rewrite_doctype_handler_reads_fields() -> None:
 
 
 def test_rewrite_doctype_absent_identifiers_are_none() -> None:
-    seen: dict[str, object] = {}
+    seen: dict[str, _Read] = {}
 
     def handler(doctype: Element) -> None:
         seen["public_id"] = doctype.public_id
@@ -746,7 +748,7 @@ def test_rewrite_content_escapes_ampersand() -> None:
 
 
 def test_rewrite_get_known_atom_absent_returns_default() -> None:
-    seen: dict[str, object] = {}
+    seen: dict[str, _Read] = {}
 
     def handler(element: Element) -> None:
         seen["id"] = element.get("id", "none")
@@ -798,7 +800,7 @@ def test_rewrite_text_get_after_set_text() -> None:
 
 
 def test_rewrite_doctype_empty_name_is_none() -> None:
-    seen: list[object] = []
+    seen: list[str | None] = []
 
     def handler(doctype: Element) -> None:
         seen.append(doctype.name)
