@@ -105,7 +105,7 @@ def test_filter_preserves_order_and_duplicates_across_trees() -> None:
         pytest.param([_root(), 1], id="later"),
     ],
 )
-def test_filter_rejects_non_elements(candidates: list[object]) -> None:
+def test_filter_rejects_non_elements(candidates: list[int | Element]) -> None:
     with pytest.raises(TypeError, match="filter candidates must be Element instances"):
         compile("*").filter(cast("list[Element]", candidates))
 

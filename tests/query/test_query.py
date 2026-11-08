@@ -400,7 +400,7 @@ def test_unique_reads_any_iterable() -> None:
     "source",
     [pytest.param(5, id="not-iterable"), pytest.param(["text"], id="not-an-element")],
 )
-def test_unique_rejects_what_is_not_a_set_of_elements(source: object) -> None:
+def test_unique_rejects_what_is_not_a_set_of_elements(source: int | list[str]) -> None:
     with pytest.raises(TypeError):
         _query_unique(source)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
@@ -464,7 +464,7 @@ def test_siblings_preserves_first_encounter_order(indices: list[int], expected: 
         pytest.param(_query_toggle_class, ("notalist", "x"), id="toggle_class"),
     ],
 )
-def test_a_binding_rejects_a_non_list(call: object, args: tuple[object, ...]) -> None:
+def test_a_binding_rejects_a_non_list(call: object, args: tuple[str] | tuple[str, str]) -> None:
     with pytest.raises(TypeError):
         call(*args)  # ty: ignore[call-non-callable]  # the argument check is the point
 
