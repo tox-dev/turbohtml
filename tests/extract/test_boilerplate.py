@@ -139,7 +139,7 @@ def test_extraction_rejects_invalid_thresholds(options: dict[str, float], messag
 
 # Thresholds the binding takes as (min_length, max_link_density, keep_headings). Wide open, so only the segmentation
 # decides the answer; a test that cares about one threshold passes its own.
-_OPEN = (0, 1.0, True)
+_OPEN: Final[tuple[int, float, bool]] = (0, 1.0, True)
 _ARTICLE: Final[str] = (
     "<article><h2>brief</h2><p>ordinary prose long enough for this to score as the article body</p></article>"
 )

@@ -593,7 +593,7 @@ def test_window_boundary_is_inclusive(content: str, min_date: date, max_date: da
 _YEAR: Final[int] = 2026
 """The pivot a two-digit year expands against, fixed so the two-digit-year cases stay stable over time."""
 
-_SCAN_CASES = [
+_SCAN_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("2016-12-23", (2016, 12, 23), id="iso-hyphen"),
     pytest.param("2016/1/2", (2016, 1, 2), id="iso-slash-single"),
     pytest.param("2016.12.23T09:00", (2016, 12, 23), id="iso-dot-time"),
@@ -707,7 +707,7 @@ _SCAN_CASES = [
     pytest.param("5 Jan", None, id="day-first-month-at-end"),
 ]
 
-_SCAN_ALL_CASES = [
+_SCAN_ALL_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("2016-12-23", [(2016, 12, 23)], id="iso-hyphen"),
     pytest.param("2016/1/2", [(2016, 1, 2)], id="iso-slash-single"),
     pytest.param("2016.12.23T09:00", [(2016, 12, 23)], id="iso-dot-time"),
@@ -824,7 +824,7 @@ _SCAN_ALL_CASES = [
     pytest.param("5 Jan", [], id="day-first-month-at-end"),
 ]
 
-_URL_CASES = [
+_URL_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("http://x.com/2016/12/23/post.html", (2016, 12, 23), id="url-slash"),
     pytest.param("http://x.com/2020_06_07/story", (2020, 6, 7), id="url-underscore"),
     pytest.param("http://x.com/2020-06-07/story", (2020, 6, 7), id="url-hyphen"),
@@ -871,7 +871,7 @@ def test_date_url_reads_the_path_date(url: str, expected: tuple[int, int, int] |
     assert _date_url(url) == expected
 
 
-_WIDE_STORAGE = [
+_WIDE_STORAGE: Final[list[pytest.ParameterSet]] = [
     pytest.param("★", id="ucs2"),
     pytest.param("\U0001f600", id="ucs4"),
 ]

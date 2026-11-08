@@ -34,7 +34,7 @@ def records() -> Callable[[str], list[dict[str, str]]]:
     return extract
 
 
-_ROWS_CASES = [
+_ROWS_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "<table><tr><th>H1</th><th>H2</th></tr><tr><td>a</td><td>b</td></tr></table>",
         [["H1", "H2"], ["a", "b"]],
@@ -228,7 +228,7 @@ def test_zero_rowspan_without_a_row_group_spans_to_table_end(receiver: Callable[
     assert table.rows() == [["A", "B"], ["A", "C"]]
 
 
-_RECORDS_CASES = [
+_RECORDS_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "<table><tr><th>H1</th><th>H2</th></tr><tr><td>a</td><td>b</td></tr></table>",
         [{"H1": "a", "H2": "b"}],
@@ -263,7 +263,7 @@ def test_records(records: Callable[[str], list[dict[str, str]]], html: str, expe
     assert records(html) == expected
 
 
-_DOCUMENT_TABLES_CASES = [
+_DOCUMENT_TABLES_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "<table><tr><td>a</td></tr></table><p>x</p><table><tr><td>b</td><td>c</td></tr></table>",
         [[["a"]], [["b", "c"]]],
