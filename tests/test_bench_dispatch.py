@@ -17,16 +17,16 @@ if TYPE_CHECKING:
     from bench.operations import Timed
 
 
-def _is_dispatch_operation(operation: Timed) -> TypeIs[Callable[[int], Node]]:
-    return isinstance(operation, FunctionType) and operation.__name__ == "_dispatch"
-
-
 @pytest.mark.parametrize("count", [0, 1, 4, 16], ids=["empty", "one", "four", "sixteen"])
 def test_dispatch_benchmark(count: int) -> None:
     operation: Final = OPERATIONS["transform-dispatch"][0]
     assert _is_dispatch_operation(operation)
     root: Final = operation(count)
     assert (root.inner_html, operation(count) is root) == ("<p>x</p>", True)
+
+
+def _is_dispatch_operation(operation: Timed) -> TypeIs[Callable[[int], Node]]:
+    return isinstance(operation, FunctionType) and operation.__name__ == "_dispatch"
 
 
 @pytest.fixture(params=[transform_node, python_transform_node], ids=["native", "python"])
