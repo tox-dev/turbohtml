@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import argparse
-import random
 import re
 from collections import deque
 from dataclasses import dataclass
 from functools import cache
 from html import escape
-from pathlib import Path
 from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 from fuzz.html_generation_tables import (
@@ -22,45 +19,25 @@ from fuzz.html_generation_tables import (
     TableRule,
 )
 from fuzz.structure_generators import (
-    BudgetError,
     Generated,
     Grammar,
     GrammarError,
     Identifier,
     Production,
-    ProductionFloorError,
     compile_grammar,
+    corpus_main,
     generate,
-    generation_sweep,
     html_grammar,
-    write_corpus,
 )
 
 if TYPE_CHECKING:
+    import random
     from collections.abc import Sequence
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Export bytes that the coverage-guided lane can consume directly.
-    parser: Final = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--count", type=int, default=64)
-    parser.add_argument("--budget", type=int, default=30)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--sweep", action="store_true")
-    args: Final = parser.parse_args(argv)
-    if args.count < 1:
-        parser.error("count must be positive")
-    try:
-        cases: Final = (
-            generation_sweep(_GRAMMAR, args.count, args.budget)
-            if args.sweep
-            else tuple(html_generate(random.Random(args.seed + index), args.budget) for index in range(args.count))
-        )
-    except (GrammarError, BudgetError, ProductionFloorError) as error:
-        parser.error(str(error))
-    write_corpus(cases, args.output)
-    return 0
+    return corpus_main(_GRAMMAR, argv)
 
 
 def html_generate(rng: random.Random, budget: int = 30) -> Generated:

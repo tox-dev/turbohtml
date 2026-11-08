@@ -17,6 +17,10 @@ if TYPE_CHECKING:
 
 def main(argv: Sequence[str] | None = None) -> int:
     # Keep corpus files as materialized inputs rather than oracle mode strings.
+    return corpus_main(_HTML_GRAMMAR, argv)
+
+
+def corpus_main(grammar: Grammar, argv: Sequence[str] | None) -> int:
     parser: Final = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--count", type=int, default=64)
@@ -28,11 +32,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("count must be positive")
     try:
         cases = (
-            generation_sweep(_HTML_GRAMMAR, args.count, args.budget)
+            generation_sweep(grammar, args.count, args.budget)
             if args.sweep
-            else tuple(
-                generate(_HTML_GRAMMAR, random.Random(args.seed + index), args.budget) for index in range(args.count)
-            )
+            else tuple(generate(grammar, random.Random(args.seed + index), args.budget) for index in range(args.count))
         )
     except (GrammarError, BudgetError, ProductionFloorError) as error:
         parser.error(str(error))
@@ -592,6 +594,7 @@ __all__ = [
     "Reference",
     "assert_production_floors",
     "compile_grammar",
+    "corpus_main",
     "generate",
     "generation_sweep",
     "html_generate",
