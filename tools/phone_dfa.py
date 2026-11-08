@@ -42,11 +42,6 @@ SreItems: TypeAlias = list[tuple[object, object]]
 _PriorityKey: TypeAlias = tuple[tuple[int, ...], int]
 
 
-class UnsupportedPatternError(ValueError):
-    # The pattern uses a construct outside the metadata subset (an unbounded repeat, a negated class, lookaround).
-    ...
-
-
 @dataclass(slots=True, kw_only=True)
 class _Op:
     # One program instruction; ``next`` and ``alt`` index the program, ``arg`` is a symbol mask, a slot or a label.
@@ -90,7 +85,7 @@ def _digit_symbolizer(code: int) -> int:
     if 0x30 <= code <= 0x39:
         return 1 << (code - 0x30)
     msg = f"code point U+{code:04X} is not a digit"
-    raise UnsupportedPatternError(msg)
+    raise ValueError(msg)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -136,7 +131,7 @@ class _Builder:
         if opcode is sre_constants.AT:
             if argument is not sre_constants.AT_END:
                 msg = f"unsupported anchor {argument}"
-                raise UnsupportedPatternError(msg)
+                raise ValueError(msg)
             index = self.emit(ASSERT_END)
             return _Fragment(start=index, outs=[(index, "next")])
         if opcode is sre_constants.SUBPATTERN:
@@ -158,11 +153,11 @@ class _Builder:
             if high is sre_constants.MAXREPEAT:
                 if not self.allow_unbounded:
                     msg = "unbounded repeat"
-                    raise UnsupportedPatternError(msg)
+                    raise ValueError(msg)
                 return self.star(low, items)
             return self.repeat(low, cast("int", high), items)
         msg = f"unsupported construct {opcode}"
-        raise UnsupportedPatternError(msg)
+        raise ValueError(msg)
 
     def class_mask(self, items: SreItems) -> int:
         mask = 0
@@ -177,7 +172,7 @@ class _Builder:
                 mask |= self.digit_mask
             else:
                 msg = f"unsupported class item {opcode}"
-                raise UnsupportedPatternError(msg)
+                raise ValueError(msg)
         return mask
 
     def branch(self, alternatives: list[_Fragment]) -> _Fragment:
@@ -626,7 +621,6 @@ __all__ = [
     "PriorityDfa",
     "Program",
     "SreItems",
-    "UnsupportedPatternError",
     "accepted_lengths",
     "compile_dfa",
     "compile_priority_dfa",

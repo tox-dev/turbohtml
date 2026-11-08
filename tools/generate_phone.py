@@ -211,11 +211,6 @@ _LENGTH_ITEM: Final[re.Pattern[str]] = re.compile(
 )
 
 
-class GenerationError(RuntimeError):
-    # The pinned sources or the compiled tables violate an invariant the recognizer relies on.
-    ...
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TypeDesc:
     # One phone-number type's numberDesc: its pattern, and the lengths proven possible for it.
@@ -344,7 +339,7 @@ def fetch_sources(local: Path | None) -> dict[str, bytes]:
         raw = (local / name).read_bytes() if local is not None else fetch_bytes(url)
         if (actual := hashlib.sha256(raw).hexdigest()) != digest:
             msg = f"{name} has sha256 {actual}, not the pinned {digest}; review the source, then bump the pin"
-            raise GenerationError(msg)
+            raise RuntimeError(msg)
         sources[name] = raw
     return sources
 
@@ -355,7 +350,7 @@ def check_java_constants(java: str) -> None:
         for literal in literals:
             if literal not in java:
                 msg = f"{name}: {literal!r} no longer occurs in PhoneNumberUtil.java at {LIBPHONENUMBER_TAG}"
-                raise GenerationError(msg)
+                raise RuntimeError(msg)
 
 
 def parse_metadata(xml: bytes) -> list[Region]:
@@ -365,7 +360,7 @@ def parse_metadata(xml: bytes) -> list[Region]:
         general = territory.find("generalDesc")
         if general is None or general.find("possibleLengths") is not None:
             msg = f"{territory.get('id')}: generalDesc must exist and carry no possibleLengths"
-            raise GenerationError(msg)
+            raise RuntimeError(msg)
         types, examples = _types(territory)
         national = frozenset().union(*(desc.national for desc in types.values()))
         national_prefix = territory.get("nationalPrefix")
@@ -390,7 +385,7 @@ def parse_metadata(xml: bytes) -> list[Region]:
         )
     if not regions:
         msg = "no territories in the metadata"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
     return sorted(regions, key=lambda region: (region.code, region.country_code))
 
 
@@ -412,7 +407,7 @@ def _type_desc(territory: ET.Element, name: str, desc: ET.Element) -> TypeDesc:
     lengths = desc.find("possibleLengths")
     if pattern is None or lengths is None:
         msg = f"{territory.get('id')}/{name}: a type needs a pattern and possibleLengths"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
     return TypeDesc(
         pattern=_WHITESPACE.sub("", pattern.text or ""),
         national=_lengths(lengths.get("national")),
@@ -428,7 +423,7 @@ def _lengths(text: str | None) -> frozenset[int]:
         matched = _LENGTH_ITEM.match(item.strip())
         if matched is None:
             msg = f"unparsable possibleLengths item {item!r}"
-            raise GenerationError(msg)
+            raise RuntimeError(msg)
         if matched["single"]:
             values.add(int(matched["single"]))
         else:
@@ -453,7 +448,7 @@ def parse_formats(territory: ET.Element, national_prefix: str) -> list[Format]:
         pattern = element.get("pattern")
         if not pattern:
             msg = f"{name}: a numberFormat needs a pattern"
-            raise GenerationError(msg)
+            raise RuntimeError(msg)
         groups = parse_groups(name, pattern)
         template = parse_template(name, element.findtext("format"), len(groups))
         intl_text = element.findtext("intlFormat")
@@ -475,11 +470,11 @@ def parse_groups(name: str, pattern: str) -> tuple[tuple[int, int], ...]:
     # Read the digit-count bounds of a numberFormat pattern's capture groups; refuse any other pattern shape.
     if _GROUP_RUN.fullmatch(pattern) is None:
         msg = f"{name}: numberFormat pattern {pattern!r} is not a run of digit groups"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
     groups = tuple((int(low or 1), int(high or low or 1)) for low, high in _GROUP_PART.findall(pattern))
     if len(groups) > _MAX_FORMAT_GROUPS or any(low < 1 or high < low or high > 15 for low, high in groups):
         msg = f"{name}: numberFormat pattern {pattern!r} exceeds the group bounds"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
     return groups
 
 
@@ -487,7 +482,7 @@ def parse_template(name: str, text: str | None, group_count: int) -> str:
     # Check a format template: ``$N`` references into the pattern's groups and the separators the formatter emits.
     if not text or len(text) > _MAX_TEMPLATE_CHARS:
         msg = f"{name}: format template {text!r} is empty or longer than {_MAX_TEMPLATE_CHARS}"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
     refs = _TEMPLATE_REF.findall(text)
     if (
         not refs
@@ -495,11 +490,11 @@ def parse_template(name: str, text: str | None, group_count: int) -> str:
         or not set(_TEMPLATE_REF.sub("", text)) <= frozenset(" -.()0123456789")
     ):
         msg = f"{name}: format template {text!r} references a missing group or uses an unexpected character"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
     if _TEMPLATE_REF.fullmatch(text[-2:]) is None:
         # RFC 3966's separator rewrite never has to flush a trailing run, and every group split ends on a digit
         msg = f"{name}: format template {text!r} does not end with a group"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
     return text
 
 
@@ -522,10 +517,10 @@ def parse_alternate_formats(xml: bytes) -> dict[int, list[Format]]:
         code = int(territory.get("countryCode", "0"))
         if code in formats:
             msg = f"+{code}: alternate formats listed twice"
-            raise GenerationError(msg)
+            raise RuntimeError(msg)
         if any(len(element.findall("leadingDigits")) > 1 for element in territory.iter("numberFormat")):
             msg = f"+{code}: an alternate format carries several leadingDigits; the matcher reads only the first"
-            raise GenerationError(msg)
+            raise RuntimeError(msg)
         formats[code] = parse_formats(territory, "")
     return formats
 
@@ -541,11 +536,11 @@ def parse_transform(rule: str | None, prefix_program: Program | None) -> tuple[s
     matched = _TRANSFORM_RULE.match(rule)
     if matched is None:
         msg = f"unsupported nationalPrefixTransformRule {rule!r}"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
     literal, group = matched["literal"], int(matched["group"])
     if len(literal) > 4 or group == 0 or prefix_program is None or 2 * group + 1 >= prefix_program.slots:
         msg = f"transform rule {rule!r} does not fit the prefix pattern"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
     return literal, group
 
 
@@ -564,7 +559,7 @@ def compile_region(region: Region, programs: list[Program], rng: random.Random) 
     labels = sorted({accept for accept in plan.accepts if accept} - {0})
     if len(labels) > 15:
         msg = f"{region.code}: {len(labels)} distinct plan labels, the dictionary holds 15"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
     # Prove each type regex accepts only its possible lengths, so a plan accept never needs a length test.
     for bit, name in enumerate(TYPES):
         program = type_programs[bit]
@@ -574,7 +569,7 @@ def compile_region(region: Region, programs: list[Program], rng: random.Random) 
             region.types[name].national or region.possible_national
         ):
             msg = f"{region.code}/{name}: the pattern accepts lengths {sorted(escaped)} outside its possibleLengths"
-            raise GenerationError(msg)
+            raise RuntimeError(msg)
     prefix = prefix_program = tag = None
     if region.prefix_pattern:
         prefix_program = compile_program(region.prefix_pattern)
@@ -584,7 +579,7 @@ def compile_region(region: Region, programs: list[Program], rng: random.Random) 
         tag = _PrefixTag(literal=literal, group=group, program=len(programs) - 1)
     if region.idd_pattern is None and region.code != "001":
         msg = f"{region.code}: a geographic region needs an internationalPrefix"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
     idd = compile_priority_dfa(compile_program(region.idd_pattern, capture=False)) if region.idd_pattern else None
     compiled = _CompiledRegion(region=region, plan=plan, prefix=prefix, prefix_program=prefix_program, tag=tag, idd=idd)
     # Compare every automaton with Python's ``re`` on the example numbers and seeded random digit strings.
@@ -696,7 +691,7 @@ def _check_plan(compiled: _CompiledRegion, rng: random.Random) -> None:
                 expected |= 1 << bit
         if label != expected:
             msg = f"{region.code}: plan DFA disagrees with re on {sample!r} ({label:#x} vs {expected:#x})"
-            raise GenerationError(msg)
+            raise RuntimeError(msg)
 
 
 def _check_priority_dfas(compiled: _CompiledRegion, rng: random.Random) -> None:
@@ -712,7 +707,7 @@ def _check_priority_dfas(compiled: _CompiledRegion, rng: random.Random) -> None:
             matched = pattern_re.match(sample)
             if match_end(automaton, digits) != (matched.end() if matched else -1):
                 msg = f"{region.code}: priority DFA disagrees with re.match on {sample!r} for {pattern!r}"
-                raise GenerationError(msg)
+                raise RuntimeError(msg)
             if matched and automaton is compiled.prefix:
                 _check_transform_group(compiled, sample, digits, matched)
 
@@ -725,7 +720,7 @@ def _check_transform_group(compiled: _CompiledRegion, sample: str, digits: list[
         matched.span(compiled.tag.group) if matched.span(compiled.tag.group) != (-1, -1) else None
     ):
         msg = f"{compiled.region.code}: Pike VM disagrees with re on the transform group for {sample!r}"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
 
 
 def _random_digits(rng: random.Random, low: int, high: int) -> str:
@@ -752,7 +747,7 @@ def compile_groups(regions: list[RegionTables], rng: random.Random) -> tuple[lis
         mains = [index for index in members if regions[index].region.main]
         if len(members) > 1 and len(mains) != 1:
             msg = f"+{country_code}: {len(mains)} main regions for a shared code"
-            raise GenerationError(msg)
+            raise RuntimeError(msg)
         main = mains[0] if mains else members[0]
         ordered = [main, *[index for index in members if index != main]]
         routed = [regions[index].region.leading_digits is not None for index in ordered]
@@ -791,7 +786,7 @@ def _self_check_router(router: Dfa, members: list[Region], routed: list[bool], r
                 expected |= bit
         if (router.accepts[state] if state else 0) != expected:
             msg = f"+{members[0].country_code}: router disagrees with the sequential lookingAt loop on {sample!r}"
-            raise GenerationError(msg)
+            raise RuntimeError(msg)
 
 
 def router_replay(router: Dfa) -> int:
@@ -806,7 +801,7 @@ def router_replay(router: Dfa) -> int:
         if not frontier:
             return deepest
     msg = "router first accept deeper than the replay cap"
-    raise GenerationError(msg)
+    raise RuntimeError(msg)
 
 
 def parse_unicode(unicode_data: str, blocks: str) -> _UnicodeTables:
@@ -820,7 +815,7 @@ def parse_unicode(unicode_data: str, blocks: str) -> _UnicodeTables:
     block_ranges = _blocks(blocks)
     if set(_LATIN_BLOCKS) - set(block_ranges):
         msg = "a Latin block named by isLatinLetter is missing from Blocks.txt"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
     latin_ranges: Final = tuple(block_ranges[name] for name in _LATIN_BLOCKS)
     return _UnicodeTables(
         nd_ranges=nd_ranges,
@@ -885,7 +880,7 @@ def _digit_ranges(decimal: dict[int, int]) -> list[tuple[int, int, int]]:
     for zero in sorted({code - value for code, value in decimal.items()}):
         if any(decimal.get(zero + digit) != digit for digit in range(10)):
             msg = f"decimal digits at U+{zero:04X} are not a contiguous 0-9 run"
-            raise GenerationError(msg)
+            raise RuntimeError(msg)
         ranges.append((zero, zero + 9, zero))
     return ranges
 
@@ -949,7 +944,7 @@ def _compile_extension(unicode: _UnicodeTables) -> _ExtensionTables:
         next_symbol += 1
     if next_symbol > 255:
         msg = f"extension alphabet has {next_symbol} symbols, the classifier holds 255"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
 
     def symbolize(code: int) -> int:
         return 1 << symbol_of[code]
@@ -1038,7 +1033,7 @@ def compile_tables(sources: dict[str, bytes], seed: int = 758) -> Tables:
     slots = max((program.slots for program in programs), default=0)
     if max_lag > 20 or max_prefix > 20 or replay > _MAX_ROUTER_REPLAY or threads > 64 or slots > 8:
         msg = f"bounds exceeded: lag {max_lag}, prefix {max_prefix}, replay {replay}, threads {threads}, slots {slots}"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
     return Tables(
         regions=compiled,
         groups=groups,
@@ -1060,7 +1055,7 @@ def _compile_alternates(xml: bytes, group_count: int, group_of_code: dict[int, i
     for code, items in parse_alternate_formats(xml).items():
         if code not in group_of_code:
             msg = f"+{code}: alternate formats for a calling code the metadata does not assign"
-            raise GenerationError(msg)
+            raise RuntimeError(msg)
         alternates[group_of_code[code]] = [_compile_format(item) for item in items]
     return alternates
 
@@ -1548,7 +1543,7 @@ def generate(out_path: Path, local: Path | None) -> None:
     header, payload = emit_header(tables)
     if payload > MAX_TABLE_BYTES:
         msg = f"the tables encode to {payload} bytes, over the {MAX_TABLE_BYTES} gate"
-        raise GenerationError(msg)
+        raise RuntimeError(msg)
     out_path.write_text(header, encoding="utf-8")
     print(
         f"wrote {out_path}: {len(tables.regions)} regions, {len(tables.groups)} calling codes, "
@@ -1568,7 +1563,6 @@ __all__ = [
     "SOURCES",
     "TYPES",
     "Format",
-    "GenerationError",
     "Group",
     "Region",
     "RegionTables",

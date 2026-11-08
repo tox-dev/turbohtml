@@ -14,7 +14,6 @@ from generate_phone import (
     JAVA_CONSTANTS,
     MAX_TABLE_BYTES,
     Format,
-    GenerationError,
     TypeDesc,
     check_java_constants,
     compile_groups,
@@ -33,7 +32,6 @@ from generate_phone import (
     router_replay,
 )
 from phone_dfa import (
-    UnsupportedPatternError,
     accepted_lengths,
     compile_dfa,
     compile_priority_dfa,
@@ -169,7 +167,7 @@ def test_max_threads_counts_the_live_threads() -> None:
     ],
 )
 def test_unsupported_constructs_are_refused(pattern: str) -> None:
-    with pytest.raises(UnsupportedPatternError):
+    with pytest.raises(ValueError, match=r"unsupported|unbounded repeat"):
         compile_program(pattern)
 
 
@@ -279,7 +277,7 @@ def test_parse_formats_keeps_the_last_leading_digits_and_needs_a_pattern() -> No
     number_format = territory.find("availableFormats/numberFormat")
     assert number_format is not None
     number_format.attrib.pop("pattern")
-    with pytest.raises(GenerationError, match="needs a pattern"):
+    with pytest.raises(RuntimeError, match="needs a pattern"):
         parse_formats(territory, "0")
 
 
@@ -302,7 +300,7 @@ def test_parse_formats_keeps_the_last_leading_digits_and_needs_a_pattern() -> No
     ],
 )
 def test_parse_metadata_rejects_malformed_territories(xml: bytes, message: str) -> None:
-    with pytest.raises(GenerationError, match=message):
+    with pytest.raises(RuntimeError, match=message):
         parse_metadata(b"<phoneNumberMetadata><territories>" + xml + b"</territories></phoneNumberMetadata>")
 
 
@@ -331,7 +329,7 @@ def test_parse_groups_reads_the_bounds(pattern: str, expected: tuple[tuple[int, 
     ],
 )
 def test_parse_groups_refuses_other_shapes(pattern: str, message: str) -> None:
-    with pytest.raises(GenerationError, match=message):
+    with pytest.raises(RuntimeError, match=message):
         parse_groups("XA", pattern)
 
 
@@ -348,7 +346,7 @@ def test_parse_groups_refuses_other_shapes(pattern: str, message: str) -> None:
     ],
 )
 def test_parse_template_refuses_bad_templates(text: str | None, message: str) -> None:
-    with pytest.raises(GenerationError, match=message):
+    with pytest.raises(RuntimeError, match=message):
         parse_template("XA", text, 2)
 
 
@@ -406,13 +404,13 @@ def test_parse_alternate_formats_reads_each_calling_code() -> None:
     ],
 )
 def test_parse_alternate_formats_rejects_malformed_territories(xml: bytes, message: str) -> None:
-    with pytest.raises(GenerationError, match=message):
+    with pytest.raises(RuntimeError, match=message):
         parse_alternate_formats(b"<phoneNumberMetadata><territories>" + xml + b"</territories></phoneNumberMetadata>")
 
 
 def test_compile_tables_refuses_alternate_formats_for_an_unassigned_code(sources: dict[str, bytes]) -> None:
     sources["PhoneNumberAlternateFormats.xml"] = _ALTERNATE_FORMATS.replace(b'countryCode="49"', b'countryCode="99"')
-    with pytest.raises(GenerationError, match=r"\+99: alternate formats for a calling code"):
+    with pytest.raises(RuntimeError, match=r"\+99: alternate formats for a calling code"):
         compile_tables(sources)
 
 
@@ -441,7 +439,7 @@ def test_parse_transform_accepts_the_grammar(rule: str | None, expected: tuple[s
     ],
 )
 def test_parse_transform_rejects_other_rules(rule: str) -> None:
-    with pytest.raises(GenerationError):
+    with pytest.raises(RuntimeError):
         parse_transform(rule, compile_program(r"0?(9)?(11)"))
 
 
@@ -452,7 +450,7 @@ def test_default_labels_match_the_runtime() -> None:
 def test_java_constants_must_occur_verbatim() -> None:
     every = "\n".join(literal for literals in JAVA_CONSTANTS.values() for literal in literals)
     check_java_constants(every)
-    with pytest.raises(GenerationError, match="MAX_LENGTH_FOR_NSN"):
+    with pytest.raises(RuntimeError, match="MAX_LENGTH_FOR_NSN"):
         check_java_constants(every.replace("MAX_LENGTH_FOR_NSN = 17", "MAX_LENGTH_FOR_NSN = 16"))
 
 
@@ -507,7 +505,7 @@ def test_parse_unicode_tables() -> None:
 
 
 def test_parse_unicode_needs_every_latin_block() -> None:
-    with pytest.raises(GenerationError, match="Latin block"):
+    with pytest.raises(RuntimeError, match="Latin block"):
         parse_unicode(_UNICODE_DATA, "0000..007F; Basic Latin")
 
 
@@ -566,7 +564,7 @@ def test_compile_region_and_groups_on_the_fixture() -> None:
 def test_compile_region_refuses_a_type_pattern_longer_than_its_lengths() -> None:
     region = parse_metadata(_METADATA)[0]
     region.types["mobile"] = TypeDesc(pattern=r"[2-9]\d{9,10}", national=frozenset({10}), local_only=frozenset())
-    with pytest.raises(GenerationError, match="XA/mobile: the pattern accepts lengths \\[11\\]"):
+    with pytest.raises(RuntimeError, match="XA/mobile: the pattern accepts lengths \\[11\\]"):
         compile_region(region, [], random.Random(1))  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # sampler
 
 
@@ -591,11 +589,11 @@ def test_generate_writes_the_header_from_local_sources(pinned_sources_dir: Path)
 
 
 def test_fetch_sources_rejects_a_hash_mismatch(sources_dir: Path) -> None:
-    with pytest.raises(GenerationError, match="not the pinned"):
+    with pytest.raises(RuntimeError, match="not the pinned"):
         fetch_sources(sources_dir)
 
 
 def test_generate_enforces_the_size_gate(pinned_sources_dir: Path, mocker: MockerFixture) -> None:
     mocker.patch.object(generate_phone, "MAX_TABLE_BYTES", 1)
-    with pytest.raises(GenerationError, match="over the 1 gate"):
+    with pytest.raises(RuntimeError, match="over the 1 gate"):
         generate(pinned_sources_dir / "phone_table.h", pinned_sources_dir)
