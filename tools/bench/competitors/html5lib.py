@@ -38,7 +38,7 @@ def _parsed(text: str) -> Element:
     return html5lib.parse(text)
 
 
-def serialize(text: str) -> None:
+def _serialize(text: str) -> None:
     # Serialize a parsed document back to HTML with html5lib's etree serializer.
     html5lib.serialize(_parsed(text))
 
@@ -140,7 +140,7 @@ OPERATIONS = {
     "parse-scope": (parse, "html5lib"),
     "fragment": (_fragment, "html5lib"),
     "tokenize": (_tokenize, "html5lib"),
-    "serialize": (serialize, "html5lib"),
+    "serialize": (_serialize, "html5lib"),
     "navigate": (_navigate, "html5lib"),
     "serialize-attributes": (_serialize_attributes, "html5lib"),
 }
@@ -148,5 +148,4 @@ OPERATIONS = {
 
 __all__ = [
     "parse",
-    "serialize",
 ]
