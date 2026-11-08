@@ -311,8 +311,7 @@ _EXSLT_NS: Final[dict[str, str]] = {
 _SVG_NS: Final[dict[str, str]] = {"svg": "http://www.w3.org/2000/svg"}
 
 
-class _ExtensionContext(Protocol):
-    """The private evaluation context lxml passes to an extension; no stub declares it, and these ignore it."""
+class _ExtensionContext(Protocol): ...
 
 
 def _count_ext(_context: _ExtensionContext, nodes: list[lxml_etree._Element]) -> float:

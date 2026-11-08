@@ -120,8 +120,7 @@ def translate(selector: str) -> None:
     _TRANSLATOR.css_to_xpath(selector)
 
 
-class _ExtensionContext(Protocol):
-    """The private evaluation context lxml passes to an extension; no stub declares it, and these ignore it."""
+class _ExtensionContext(Protocol): ...
 
 
 def _count_ext(_context: _ExtensionContext, nodes: list[_lxml_etree._Element]) -> float:
