@@ -31,7 +31,7 @@ def construct(count: int) -> None:
 
 
 @functools.cache
-def _tree(count: int) -> object:
+def _tree(count: int) -> object:  # simplint: ignore[SMP602]  # hyperpython is untyped to ty, see the import
     # Return a built ``<ul>`` of ``count`` rows, cached so ``str`` times only the emit step.
     return ul([li(class_="item", data_i=str(index))[f"item {index}"] for index in range(count)])
 

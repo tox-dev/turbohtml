@@ -28,6 +28,8 @@ from .operations import INPUTS, Case
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
+    from .operations import Timed
+
 _TEXT_BYTES: Final[int] = (
     1 << 16
 )  # a 64 kB slice of the book: representative work without a multi-megabyte parse under Valgrind
@@ -593,7 +595,7 @@ _LOADERS.update({
 })
 
 
-def benchmarks() -> Iterator[tuple[str, object, Callable[[], Case]]]:
+def benchmarks() -> Iterator[tuple[str, Timed, Callable[[], Case]]]:
     # Yield ``(name, callable, load)`` for every turbohtml operation, in registry order.
     #
     # A noise-prone inline operation is surfaced under its corpus-qualified id (see :data:`_RESIZED`) so CodSpeed
