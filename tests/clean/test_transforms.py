@@ -113,9 +113,11 @@ def test_clean_identity(operation: Callable[[Node], Node]) -> None:
 
 
 @pytest.mark.parametrize("operation", [collapse_whitespace_node, strip_comments_node, transform_node])
-def test_transform_invalid_root(operation: Callable[..., object]) -> None:
+def test_transform_invalid_root(
+    operation: Callable[[Node, *tuple[Callable[[Node], Node | None], ...]], object],
+) -> None:
     with pytest.raises(TypeError):
-        operation("<p>x</p>")
+        operation("<p>x</p>")  # ty: ignore[invalid-argument-type]  # passes a str on purpose to check the rejection
 
 
 def test_strip_comments_retains_references() -> None:

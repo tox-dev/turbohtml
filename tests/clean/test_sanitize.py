@@ -36,6 +36,8 @@ from turbohtml.migration.bleach import clean
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
+    from turbohtml import Node
+
 
 # frame and frameset are absent: the parser drops them outside a frameset document, so a fragment never contains one.
 # style is absent too: unlike the others, allowlisting it keeps the element with its CSS scrubbed (see the style-body
@@ -1491,10 +1493,14 @@ def test_attribute_filter_keeps_unchanged_value() -> None:
 
 
 def test_attribute_filter_must_return_str_or_none() -> None:
-    def bad_filter(_t: str, _n: str, _v: str) -> str | None:
-        return 42  # ty: ignore[invalid-return-type]  # a deliberately wrong return type, to exercise the runtime check
+    def bad_filter(_t: str, _n: str, _v: str) -> str | int | None:
+        return 42
 
-    policy = Policy(tags=frozenset({"a"}), attributes={"a": frozenset({"href"})}, attribute_filter=bad_filter)
+    policy = Policy(
+        tags=frozenset({"a"}),
+        attributes={"a": frozenset({"href"})},
+        attribute_filter=bad_filter,  # ty: ignore[invalid-argument-type]  # returns an int on purpose, to exercise the runtime check
+    )
     with pytest.raises(TypeError):
         sanitize('<a href="http://x">y</a>', policy)
 
@@ -2905,18 +2911,26 @@ def test_a_reusable_sanitizer_offers_both_node_forms() -> None:
 
 
 @pytest.mark.parametrize("entry", [sanitize_node, sanitize_report_node], ids=["sanitize_node", "sanitize_report_node"])
-def test_the_node_forms_refuse_a_str(entry: object) -> None:
+def test_the_node_forms_refuse_a_str(entry: Callable[[Node], object]) -> None:
     with pytest.raises(TypeError, match="pass a str to sanitize instead"):
-        entry(_POST)  # ty: ignore[call-non-callable]  # the argument check is the point
+        entry(_POST)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
 
 @pytest.mark.parametrize("entry", [sanitize, sanitize_node], ids=["sanitize", "sanitize_node"])
-def test_a_foreign_object_is_rejected(entry: object) -> None:
+def test_a_foreign_object_is_rejected(entry: Callable[[str | Node], object]) -> None:
     with pytest.raises(TypeError):
-        entry(42)  # ty: ignore[call-non-callable]  # the argument check is the point
+        entry(42)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
 
-_EMPTY: Final[tuple[object, ...]] = ({}, frozenset(), {}, {}, {}, {}, Transform)
+_EMPTY: Final[tuple[dict[str, str] | frozenset[str] | type[Transform], ...]] = (
+    {},
+    frozenset(),
+    {},
+    {},
+    {},
+    {},
+    Transform,
+)
 
 
 _Compiled = tuple[

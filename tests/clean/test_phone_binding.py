@@ -6,6 +6,7 @@ import sys
 import weakref
 from collections import deque
 from itertools import starmap
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Final, TypedDict, cast
 
 import pytest
@@ -99,6 +100,23 @@ def test_compile_returns_an_unconstructible_config() -> None:
         type(config)()
 
 
+_SpecItem = tuple[str, ...] | bool | int | frozenset[PhoneType] | type[PhoneNumber] | tuple[PhoneType, ...] | None
+_Override = (
+    bool
+    | int
+    | str
+    | None
+    | type
+    | SimpleNamespace
+    | frozenset[PhoneType]
+    | frozenset[str]
+    | list[str]
+    | list[PhoneType]
+    | tuple[str | int, ...]
+    | tuple[PhoneType, ...]
+)
+
+
 @pytest.mark.parametrize(
     "spec",
     [
@@ -108,7 +126,7 @@ def test_compile_returns_an_unconstructible_config() -> None:
         pytest.param(None, id="none"),
     ],
 )
-def test_compile_rejects_malformed_specs(spec: object) -> None:
+def test_compile_rejects_malformed_specs(spec: list[_SpecItem] | tuple[_SpecItem, ...] | None) -> None:
     with pytest.raises(TypeError, match="tuple of 12 items"):
         _phone_config_compile(spec)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
@@ -188,7 +206,7 @@ def test_compile_accepts_every_type_in_possible_mode(wanted: frozenset[PhoneType
         pytest.param({"labels": ("ref", "order")}, ValueError, "sorted and distinct", id="unsorted-labels"),
         pytest.param({"labels": ("ref", "ref")}, ValueError, "sorted and distinct", id="repeated-label"),
         pytest.param({"labels": ("ref", 1)}, TypeError, "labels must be str", id="int-label"),
-        pytest.param({"number_type": object()}, TypeError, "must be a class", id="number-type-instance"),
+        pytest.param({"number_type": SimpleNamespace()}, TypeError, "must be a class", id="number-type-instance"),
         pytest.param({"number_type": int}, AttributeError, "_from_native", id="number-type-without-factory"),
         pytest.param(
             {"number_type": type("Odd", (), {"_from_native": 3})}, TypeError, "callable", id="factory-not-callable"
@@ -198,7 +216,7 @@ def test_compile_accepts_every_type_in_possible_mode(wanted: frozenset[PhoneType
     ],
 )
 def test_compile_rejects_each_malformed_field(
-    overrides: dict[str, object], error: type[Exception], message: str
+    overrides: dict[str, _Override], error: type[Exception], message: str
 ) -> None:
     with pytest.raises(error, match=message):
         _phone_config_compile(_spec(**overrides))
@@ -310,9 +328,10 @@ def test_has_never_calls_the_factory() -> None:
 
 
 @pytest.mark.parametrize(
-    "phones", [pytest.param((), id="tuple"), pytest.param(1, id="int"), pytest.param(object(), id="object")]
+    "phones",
+    [pytest.param((), id="tuple"), pytest.param(1, id="int"), pytest.param(SimpleNamespace(), id="object")],
 )
-def test_entry_points_reject_a_foreign_config(phones: object) -> None:
+def test_entry_points_reject_a_foreign_config(phones: tuple[()] | int | SimpleNamespace) -> None:
     with pytest.raises(TypeError, match="_PhoneConfig or None"):
         _linkify_find("x", False, False, (), (), ("http",), phones, False)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional booleans pass the private helper's real signature
     with pytest.raises(TypeError, match="_PhoneConfig or None"):
@@ -481,7 +500,7 @@ def test_number_format_writes_each_style() -> None:
     ]
 
 
-_CONFIG: Final[object] = object()  # stands for the compiled configuration in a parametrized argument list
+_CONFIG: Final = SimpleNamespace()  # stands for the compiled configuration in a parametrized argument list
 
 
 @pytest.mark.parametrize(
@@ -492,7 +511,7 @@ _CONFIG: Final[object] = object()  # stands for the compiled configuration in a 
         pytest.param((_CONFIG, b"650-253-0000"), "text must be str", id="text-bytes"),
     ],
 )
-def test_parse_rejects_bad_arguments(args: tuple[object, ...], message: str) -> None:
+def test_parse_rejects_bad_arguments(args: tuple[SimpleNamespace | str | bytes | None, ...], message: str) -> None:
     with pytest.raises(TypeError, match=message):
         _phone_parse(*(_phone_config_compile(_SPEC) if item is _CONFIG else item for item in args))  # ty: ignore[invalid-argument-type]  # the wrong shapes are the point
 
@@ -735,13 +754,13 @@ def test_value_is_hashable() -> None:
 @pytest.mark.parametrize(
     "phones",
     [
-        pytest.param(object(), id="object"),
+        pytest.param(SimpleNamespace(), id="object"),
         pytest.param({}, id="dict"),
         pytest.param("US", id="str"),
         pytest.param(True, id="bool"),
     ],
 )
-def test_consumers_reject_non_phone_numbers(phones: object) -> None:
+def test_consumers_reject_non_phone_numbers(phones: SimpleNamespace | dict[str, str] | str | int) -> None:
     message = "phones must be PhoneNumbers or None"
     with pytest.raises(TypeError, match=message):
         Linker(Linkify(phones=phones))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection

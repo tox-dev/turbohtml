@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Final, assert_type, cast
 
 import pytest
@@ -28,6 +29,7 @@ from turbohtml.clean import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from turbohtml import Node
     from turbohtml.clean import Callback
 
 
@@ -946,11 +948,11 @@ def test_a_callback_answers_the_same_link() -> None:
 @pytest.mark.parametrize(
     "link",
     [
-        pytest.param(object(), id="not-a-candidate"),
+        pytest.param(SimpleNamespace(), id="not-a-candidate"),
         pytest.param(SystemError, id="a-type"),
     ],
 )
-def test_a_callback_rejects_a_foreign_object(callback: Callback, link: object) -> None:
+def test_a_callback_rejects_a_foreign_object(callback: Callback, link: SimpleNamespace | type[SystemError]) -> None:
     with pytest.raises(TypeError, match="expects a LinkCandidate"):
         callback(link)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
@@ -1249,9 +1251,9 @@ def test_the_node_form_refuses_a_str() -> None:
 
 
 @pytest.mark.parametrize("entry", [linkify, linkify_node], ids=["linkify", "linkify_node"])
-def test_a_foreign_object_is_rejected(entry: object) -> None:
+def test_a_foreign_object_is_rejected(entry: Callable[[str | Node], object]) -> None:
     with pytest.raises(TypeError):
-        entry(42)  # ty: ignore[call-non-callable]  # the argument check is the point
+        entry(42)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
 
 def test_link_existing_defaults_to_false() -> None:
