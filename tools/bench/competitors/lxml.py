@@ -321,12 +321,8 @@ def _first_two_ext(_context: object, nodes: list[lxml_etree._Element]) -> list[l
     return nodes[:2]
 
 
-_COUNT_EXTENSIONS: Final[dict[tuple[str | None, str], Callable[[object, list[lxml_etree._Element]], float]]] = {
-    (None, "ext_count"): _count_ext
-}
-_NODESET_EXTENSIONS: Final[
-    dict[tuple[str | None, str], Callable[[object, list[lxml_etree._Element]], list[lxml_etree._Element]]]
-] = {(None, "ext_first_two"): _first_two_ext}
+_COUNT_EXTENSIONS = {(None, "ext_count"): _count_ext}
+_NODESET_EXTENSIONS = {(None, "ext_first_two"): _first_two_ext}
 _REUSE: Final[lxml_etree.XPath] = lxml_etree.XPath("//a[@href]")
 
 
