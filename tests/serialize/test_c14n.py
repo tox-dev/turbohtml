@@ -1238,7 +1238,7 @@ def test_canonicalize_shared_sparse_xlink_input() -> None:
         parse(source).canonicalize()
         == (
             "<html><head></head><body>"
-            f"<svg{_SVG}>" + f'<g><use{_XLINK} xlink:href="#x"></use>' * 150 + "</g>" * 150 + "</svg></body></html>"
+            f"""<svg{_SVG}>{f'<g><use{_XLINK} xlink:href="#x"></use>' * 150}{"</g>" * 150}</svg></body></html>"""
         ).encode()
     )
 
