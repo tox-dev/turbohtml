@@ -45,6 +45,10 @@ _SECTION_INDEX: Final[dict[str, str]] = {
 }
 
 
+class _Link(Protocol):
+    def __call__(self, docname: str, label: str | None = None) -> str: ...
+
+
 def setup(app: Sphinx) -> dict[str, bool]:
     # Register the build-finished hook that writes the two llms map files.
     app.connect("build-finished", _emit_llms_txt)
@@ -90,10 +94,6 @@ def _ordered_docnames(env: BuildEnvironment, root: str) -> list[str]:
         order.append(docname)
         stack.extend(reversed(env.toctree_includes.get(docname, [])))
     return order
-
-
-class _Link(Protocol):
-    def __call__(self, docname: str, label: str | None = None) -> str: ...
 
 
 def _summary(env: BuildEnvironment, docname: str) -> str:
