@@ -756,7 +756,8 @@ def test_xml_repeated_plain_names_across_elements_parse(count: int) -> None:
 
 def _plain_repeated(count: int) -> str:
     # the second element re-reads already-interned names
-    return f"""<r>{("<e " + " ".join(f"a{index}='x'" for index in range(count)) + "/>") * 2}</r>"""
+    element: Final = f"""<e {" ".join(f"a{index}='x'" for index in range(count))}/>"""
+    return f"<r>{element * 2}</r>"
 
 
 @pytest.mark.parametrize(
