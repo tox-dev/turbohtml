@@ -12,7 +12,7 @@ import sys
 from html import escape as _html_escape
 from importlib.metadata import version as _version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Final
+from typing import TYPE_CHECKING, Any, ClassVar, Final, NamedTuple
 from urllib.parse import urlsplit
 
 from docutils import nodes
@@ -372,6 +372,12 @@ def _add_page_description(
         return
 
 
+class _Arguments(NamedTuple):
+    ecosystem: str
+    name: str
+    slug: str | None
+
+
 class _PackageMeta(Directive):
     # Render one badge row of package metadata: ``.. package-meta:: [ecosystem] <name> [github-slug]``.
     #
@@ -399,14 +405,14 @@ class _PackageMeta(Directive):
             row += link
         return [row]
 
-    def _parse_arguments(self) -> tuple[str, str, str | None]:
+    def _parse_arguments(self) -> _Arguments:
         head, *rest = self.arguments
         if head in self._ECOSYSTEMS:
             name, *tail = rest
         else:
             name, tail = head, rest
             head = "pypi"
-        return head, name, tail[0] if tail else None
+        return _Arguments(head, name, tail[0] if tail else None)
 
     @staticmethod
     def _pypi_badges(name: str) -> list[tuple[str, str, str]]:

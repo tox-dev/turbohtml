@@ -27,7 +27,7 @@ import hashlib
 import sys
 import unicodedata
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple
 
 from httpfetch import fetch_bytes
 
@@ -69,7 +69,13 @@ def _code_points() -> Iterable[int]:
         yield code
 
 
-def _character_tables() -> tuple[dict[int, list[int]], dict[int, list[int]], dict[int, int]]:
+class _CharacterTables(NamedTuple):
+    canonical: dict[int, list[int]]
+    compatibility: dict[int, list[int]]
+    combining: dict[int, int]
+
+
+def _character_tables() -> _CharacterTables:
     # Collect combining classes during the decomposition scan to avoid another scalar pass.
     #
     # ``unicodedata.normalize`` on a single character yields its fully-resolved, canonically-ordered decomposition, so
@@ -89,7 +95,7 @@ def _character_tables() -> tuple[dict[int, list[int]], dict[int, list[int]], dic
             canonical[code] = [ord(part) for part in nfd]
         if (nfkd := unicodedata.normalize("NFKD", char)) != nfd:
             compatibility[code] = [ord(part) for part in nfkd]
-    return canonical, compatibility, combining
+    return _CharacterTables(canonical, compatibility, combining)
 
 
 def _composition_pairs(canonical: dict[int, list[int]]) -> list[tuple[int, int, int]]:

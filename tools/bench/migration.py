@@ -19,7 +19,7 @@ import ast
 import json
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 from bench.notes import NOTES
 from bench.operations import OPERATIONS, SIZE_OPS
@@ -93,9 +93,13 @@ def _case_names(operation: str, stats: dict[str, dict[str, float]]) -> list[str]
     return names
 
 
-def _rows(
-    variants: list[dict[str, str]], stats: dict[str, dict[str, float]]
-) -> tuple[list[list[str | float]], list[list[float | None]], list[str | None]]:
+class _Rows(NamedTuple):
+    rows: list[list[str | float]]
+    spread: list[list[float | None]]
+    caveats: list[str | None]
+
+
+def _rows(variants: list[dict[str, str]], stats: dict[str, dict[str, float]]) -> _Rows:
     # Build a library's rows and their spread across every shared operation-case, prefixing labels that span ops.
     #
     # ``variants`` holds one ``{op: label}`` per competitor module sharing this page, so a library benchmarked in more
@@ -156,7 +160,7 @@ def _rows(
                     shared=shared,
                 )
             )
-    return rows, spread, caveats
+    return _Rows(rows, spread, caveats)
 
 
 def _leading_metric(ops: Iterable[str]) -> list[str]:

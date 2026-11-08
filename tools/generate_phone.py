@@ -24,7 +24,7 @@ import sys
 import xml.etree.ElementTree as ET  # ruff:ignore[suspicious-xml-etree-import]  # the metadata is pinned by SHA-256, never untrusted
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
 from httpfetch import fetch_bytes
 from phone_dfa import (
@@ -835,9 +835,15 @@ def parse_unicode(unicode_data: str, blocks: str) -> _UnicodeTables:
     )
 
 
-def _parse_unicode_records(
-    unicode_data: str,
-) -> tuple[dict[int, str], dict[int, int], dict[int, int], dict[int, int], dict[int, int]]:
+class _UnicodeRecords(NamedTuple):
+    categories: dict[int, str]
+    decimal: dict[int, int]
+    upper: dict[int, int]
+    lower: dict[int, int]
+    title: dict[int, int]
+
+
+def _parse_unicode_records(unicode_data: str) -> _UnicodeRecords:
     # Read UnicodeData.txt into per-code-point category, decimal value and case mappings, expanding First/Last runs.
     categories: dict[int, str] = {}
     decimal: dict[int, int] = {}
@@ -868,7 +874,7 @@ def _parse_unicode_records(
             lower[code] = int(fields[13], 16)
         if fields[14]:
             title[code] = int(fields[14], 16)
-    return categories, decimal, upper, lower, title
+    return _UnicodeRecords(categories, decimal, upper, lower, title)
 
 
 def _digit_ranges(decimal: dict[int, int]) -> list[tuple[int, int, int]]:
@@ -1418,9 +1424,14 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
     )
 
 
-def _rows(
-    dfas: list[tuple[Dfa | PriorityDfa, int]],
-) -> tuple[list[int], list[int], list[int], list[tuple[int, int, int, int, int]]]:
+class _Layout(NamedTuple):
+    rows8: list[int]
+    rows16: list[int]
+    accepts: list[int]
+    descriptors: list[tuple[int, int, int, int, int]]
+
+
+def _rows(dfas: list[tuple[Dfa | PriorityDfa, int]]) -> _Layout:
     # Lay every automaton out as narrow or wide rows plus one accept word per state.
     rows8: list[int] = []
     rows16: list[int] = []
@@ -1439,7 +1450,7 @@ def _rows(
             else:
                 word = automaton.accepts[state]
             accepts.append(word)
-    return rows8, rows16, accepts, descriptors
+    return _Layout(rows8, rows16, accepts, descriptors)
 
 
 def _array(ctype: str, name: str, values: list, *, raw: bool = False) -> str:

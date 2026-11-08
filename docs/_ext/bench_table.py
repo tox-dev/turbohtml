@@ -28,7 +28,7 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Final
+from typing import TYPE_CHECKING, Any, ClassVar, Final, NamedTuple
 
 from docutils import nodes
 from docutils.parsers.rst import Directive, directives
@@ -265,9 +265,15 @@ class BenchTable(Directive):
         return row
 
 
+class _OrderedColumns(NamedTuple):
+    parties: list[str]
+    rows: list[list[Any]]
+    spread: list[list[Any]]
+
+
 def _order_columns(
     parties: list[str], metrics: list[str], rows: list[list[Any]], spread: list[list[Any]]
-) -> tuple[list[str], list[list[Any]], list[list[Any]]]:
+) -> _OrderedColumns:
     # Put turbohtml first, then each competitor by how close it comes overall, permuting every row to match.
     #
     # Each metric is averaged per party, scaled to [0, 1] across the parties on a log axis, and the metrics weigh
@@ -304,7 +310,9 @@ def _order_columns(
 
     # the spread shares the row layout, so it has to travel through the same permutation or a cell would inherit
     # another party's uncertainty
-    return [parties[party_index] for party_index in order], permute(rows), permute(spread) if spread else []
+    return _OrderedColumns(
+        [parties[party_index] for party_index in order], permute(rows), permute(spread) if spread else []
+    )
 
 
 def _table_frame(ncols: int) -> tuple[nodes.table, nodes.tgroup]:

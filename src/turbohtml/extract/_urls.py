@@ -16,7 +16,7 @@ option record and the two vocabularies it hands over.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, NamedTuple
 
 from turbohtml._html import _url_clean, _url_normalize, parse
 
@@ -108,11 +108,19 @@ def clean_url(url: str, options: UrlCleaning | None = None, /) -> str | None:
     return _url_clean(url, *_knobs(active), active.language, _ISO_639_1)
 
 
-def _knobs(
-    options: UrlCleaning,
-) -> tuple[bool, bool, bool, frozenset[str] | None, frozenset[str], frozenset[str], frozenset[str]]:
+class _Knobs(NamedTuple):
+    strict: bool
+    trailing_slash: bool
+    strip_fragment: bool
+    query_allow: frozenset[str] | None
+    query_deny: frozenset[str]
+    id_params: frozenset[str]
+    language_params: frozenset[str]
+
+
+def _knobs(options: UrlCleaning) -> _Knobs:
     # Return the option fields and vocabularies every C entry point takes, in its argument order.
-    return (
+    return _Knobs(
         options.strict,
         options.trailing_slash,
         options.strip_fragment,

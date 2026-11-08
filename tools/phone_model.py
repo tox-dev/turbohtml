@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 import string
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 from generate_phone import GENERAL_BIT, MAX_NSN, MIN_NSN, TYPES, Group, RegionTables, Tables
 from phone_dfa import Dfa, match_end, pike_spans
@@ -119,6 +119,12 @@ class _Reading:
     region_index: int | None
     type: int
     general: bool
+
+
+class _Chunk(NamedTuple):
+    reading: _Reading
+    end: int
+    extension: str | None
 
 
 class Recognizer:
@@ -372,7 +378,7 @@ class Recognizer:
                 ranges.append((start + found.start(1), start + found.end(1)))
         return ranges
 
-    def _read_chunk(self, text: str, run: _Run, start: int, end: int) -> tuple[_Reading, int, str | None] | None:
+    def _read_chunk(self, text: str, run: _Run, start: int, end: int) -> _Chunk | None:
         # ParseAndVerify on one chunk: its groups, the brackets and neighbor rules, then the readings in order.
         inside = [index for index, group in enumerate(run.groups) if group.start >= start and group.end <= end]
         if not inside:
@@ -414,7 +420,7 @@ class Recognizer:
             )
         if reading is None or not self._accepted_x_rules(text, start, chunk_end, reading, extension):
             return None
-        return reading, chunk_end, extension
+        return _Chunk(reading, chunk_end, extension)
 
     def _blocked_by_neighbors(self, text: str, start: int, end: int) -> bool:
         before = text[start - 1] if start > 0 else ""

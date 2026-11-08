@@ -28,7 +28,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Final
+from typing import Final, NamedTuple
 
 _MULTI_SCRIPTS: Final[tuple[str, ...]] = ("Latin", "Cyrillic", "Arabic", "Devanagari", "Hebrew")
 _PROFILE_STATICS: Final[tuple[str, ...]] = (
@@ -122,7 +122,13 @@ def parse_lang_groups(grouping_src: str) -> dict[str, tuple[str, str]]:
     return groups
 
 
-def parse_lang_table(lang_src: str) -> tuple[list[str], dict[str, str], dict[str, str]]:
+class _LangTable(NamedTuple):
+    order: list[str]
+    code: dict[str, str]
+    eng: dict[str, str]
+
+
+def parse_lang_table(lang_src: str) -> _LangTable:
     # Parse the Lang enum order plus lang_to_code and lang_to_eng_name maps, keyed by the Lang variant.
     values = require(re.search(r"const VALUES: \[Lang; 70\] = \[(.*?)\];", lang_src, re.DOTALL), "VALUES array")
     order = re.findall(r"Lang::(\w+)", values.group(1))
@@ -133,7 +139,7 @@ def parse_lang_table(lang_src: str) -> tuple[list[str], dict[str, str], dict[str
     if len(order) != 70 or len(code) != 70 or len(eng) != 70:
         msg = f"expected 70 languages, parsed order={len(order)} code={len(code)} eng={len(eng)}"
         raise SystemExit(msg)
-    return order, code, eng
+    return _LangTable(order, code, eng)
 
 
 def parse_profiles(profiles_src: str) -> Profiles:
