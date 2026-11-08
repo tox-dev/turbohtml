@@ -20,7 +20,7 @@ PRESERVE_TAGS: Final[frozenset[str]] = frozenset({
     "svg",
     "math",
 })
-SPACE_RUN: Final = re.compile(r"[ \t\n\f\r]+")
+SPACE_RUN: Final[re.Pattern[str]] = re.compile(r"[ \t\n\f\r]+")
 
 __all__ = [
     "PRESERVE_TAGS",

@@ -8,7 +8,7 @@ import justext
 
 REQUIREMENTS: Final[tuple[str, ...]] = ("justext>=3.0",)
 
-_STOPLIST = justext.get_stoplist("English")
+_STOPLIST: Final[frozenset[str]] = justext.get_stoplist("English")
 
 
 def boilerplate(text: str) -> None:

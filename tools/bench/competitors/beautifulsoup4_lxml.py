@@ -19,7 +19,7 @@ REQUIREMENTS: Final[tuple[str, ...]] = ("beautifulsoup4>=4.15", "lxml>=5.2", "so
 # sniffing bytes through UnicodeDammit run the same code on either backend, so measuring them twice would add a
 # duplicate column to those tables without telling a reader anything.
 _BACKEND: Final[str] = "lxml"
-_FIND_TEXT_PATTERN = re.compile(r"test")
+_FIND_TEXT_PATTERN: Final[re.Pattern[str]] = re.compile(r"test")
 _SET_HTML: Final[str] = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
 _STRIP: Final[tuple[str, ...]] = ("code", "a", "q")
 _LINKS_BASE: Final[str] = "https://example.com/base/"

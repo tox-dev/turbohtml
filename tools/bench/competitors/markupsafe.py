@@ -9,8 +9,8 @@ import markupsafe
 
 REQUIREMENTS: Final[tuple[str, ...]] = ("markupsafe>=3",)
 
-_TEMPLATE = markupsafe.Markup("<li>{}</li><span>{}</span>")
-_JOINER = markupsafe.Markup(", ")
+_TEMPLATE: Final[markupsafe.Markup] = markupsafe.Markup("<li>{}</li><span>{}</span>")
+_JOINER: Final[markupsafe.Markup] = markupsafe.Markup(", ")
 
 
 def markup(text: str) -> None:

@@ -30,13 +30,13 @@ def _google() -> html2text.HTML2Text:
     return converter
 
 
-_DEFAULT = html2text.HTML2Text()
+_DEFAULT: Final[html2text.HTML2Text] = html2text.HTML2Text()
 _DEFAULT.body_width = 0
-_ESCAPED: Final = html2text.HTML2Text()
+_ESCAPED: Final[html2text.HTML2Text] = html2text.HTML2Text()
 _ESCAPED.body_width = 0
 _ESCAPED.escape_snob = True
-_CONFIGURED = _configured()
-_GOOGLE = _google()
+_CONFIGURED: Final[html2text.HTML2Text] = _configured()
+_GOOGLE: Final[html2text.HTML2Text] = _google()
 
 
 def markdown(case: tuple[str, str]) -> None:

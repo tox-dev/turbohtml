@@ -73,14 +73,16 @@ if TYPE_CHECKING:
 
     from turbohtml import Node
 
-_SANITIZER = _Sanitizer(_Policy.relaxed())
+_SANITIZER: Final[_Sanitizer] = _Sanitizer(_Policy.relaxed())
 _DISALLOWED_SANITIZERS: Final[dict[str, _Sanitizer]] = {
     mode.name.lower(): _Sanitizer(_Policy(tags=frozenset(), on_disallowed_tag=mode))
     for mode in (_OnDisallowed.ESCAPE, _OnDisallowed.STRIP)
 }
-_SANITIZER_ATTRIBUTES: Final = _Sanitizer(_Policy(tags=frozenset({"p"}), attribute_prefixes=frozenset({"data-"})))
-_SANITIZER_TEMPLATES = _Sanitizer(replace(_Policy.relaxed(), strip_template_markers=True))
-_SANITIZER_STYLES = _Sanitizer(
+_SANITIZER_ATTRIBUTES: Final[_Sanitizer] = _Sanitizer(
+    _Policy(tags=frozenset({"p"}), attribute_prefixes=frozenset({"data-"}))
+)
+_SANITIZER_TEMPLATES: Final[_Sanitizer] = _Sanitizer(replace(_Policy.relaxed(), strip_template_markers=True))
+_SANITIZER_STYLES: Final[_Sanitizer] = _Sanitizer(
     replace(
         _Policy.relaxed(),
         attributes={"*": frozenset({"style", "title", "lang", "dir"})},
@@ -90,8 +92,8 @@ _SANITIZER_STYLES = _Sanitizer(
 )
 # rename the deprecated presentational tags a real feed still carries to their modern equivalents in the same walk,
 # sanitize-html's transformTags; the added class exercises the attribute-injection path alongside the rename
-_RELAXED = _Policy.relaxed()
-_SANITIZER_TRANSFORM = _Sanitizer(
+_RELAXED: Final[_Policy] = _Policy.relaxed()
+_SANITIZER_TRANSFORM: Final[_Sanitizer] = _Sanitizer(
     replace(
         _RELAXED,
         attributes={**_RELAXED.attributes, "div": frozenset({"class"})},
@@ -108,7 +110,7 @@ _SANITIZER_TRANSFORM = _Sanitizer(
 )
 # allow id/name broadly and keep the form controls that carry the clobbering-prone values, so isolation prefixes most
 # attributes rather than skipping a value it never touches
-_SANITIZER_NAMED_PROPS = _Sanitizer(
+_SANITIZER_NAMED_PROPS: Final[_Sanitizer] = _Sanitizer(
     replace(
         _RELAXED,
         attributes={**_RELAXED.attributes, "*": frozenset({"id", "name", "title", "lang", "dir"})},
@@ -118,16 +120,18 @@ _SANITIZER_NAMED_PROPS = _Sanitizer(
 )
 # keep an app's own x-* custom elements and their data-* attributes by predicate, DOMPurify's CUSTOM_ELEMENT_HANDLING,
 # so the walk runs the tag and attribute matchers on most elements rather than escaping every unlisted one
-_SANITIZER_CUSTOM = _Sanitizer(
+_SANITIZER_CUSTOM: Final[_Sanitizer] = _Sanitizer(
     replace(
         _RELAXED,
         custom_element_check=re.compile(r"^x-").search,
         custom_attribute_check=lambda _tag, name: name.startswith("data-"),
     )
 )
-_SANITIZER_XML = _Sanitizer(replace(_Policy.relaxed(), xml=True))
+_SANITIZER_XML: Final[_Sanitizer] = _Sanitizer(replace(_Policy.relaxed(), xml=True))
 _LINKS_BASE: Final[str] = "https://example.com/base/"
-_FIND_TEXT_PATTERN = re.compile(r"test")  # ubiquitous in the wpt corpus, so the predicate does real work
+_FIND_TEXT_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"test"
+)  # ubiquitous in the wpt corpus, so the predicate does real work
 _FIND_TEXT_OVERLAP_PATTERN: Final[re.Pattern[str]] = re.compile(f"{'a' * 4096}b")
 _CSS: Final[str] = "div a[href]"  # a descendant combinator with an attribute test, common in scrapers
 _HAS: Final[str] = "div:has(a)"  # the :has() relational pseudo-class
@@ -143,9 +147,11 @@ _PHONE_PARSED: Final[dict[tuple[str, str], _PhoneNumber]] = {}  # exclude parsin
 _LINKER: Final[_Linker] = _Linker()
 _LINKER_SKIP: Final[_Linker] = _Linker(_Linkify(skip_tags=("code",)))
 _LINKER_CALLBACKS: Final[_Linker] = _Linker(_Linkify(callbacks=(_nofollow, _target_blank), process_existing=True))
-_INNER_INDENT: Final = turbohtml.Html(layout=turbohtml.Indent())
-_INNER_MINIFY: Final = turbohtml.Html(layout=turbohtml.Minify())
-_XML = turbohtml.Html(xml=True)  # the XML/XHTML serialization config, reused across the timed calls
+_INNER_INDENT: Final[turbohtml.Html] = turbohtml.Html(layout=turbohtml.Indent())
+_INNER_MINIFY: Final[turbohtml.Html] = turbohtml.Html(layout=turbohtml.Minify())
+_XML: Final[turbohtml.Html] = turbohtml.Html(
+    xml=True
+)  # the XML/XHTML serialization config, reused across the timed calls
 
 
 def build(count: int) -> None:
@@ -392,7 +398,7 @@ def _select_scaling(case: tuple[str, str]) -> None:
     _parsed(case[1]).select(case[0])
 
 
-_XPATH_REPLACE_DOCUMENT: Final = turbohtml.parse("<p></p>")
+_XPATH_REPLACE_DOCUMENT: Final[turbohtml.Document] = turbohtml.parse("<p></p>")
 
 
 def _xpath_replace(case: tuple[str, str, str, str]) -> list[turbohtml.Node | str] | float | bool | str:
@@ -1128,8 +1134,8 @@ def _first_two_ext(_context: object, nodes: list[object]) -> list[object]:
 _SVG_NS: Final[dict[str, str]] = {"svg": "http://www.w3.org/2000/svg"}
 _COUNT_EXTENSIONS = {(None, "ext_count"): _count_ext}
 _NODESET_EXTENSIONS = {(None, "ext_first_two"): _first_two_ext}
-_REUSE = turbohtml.XPath("//a[@href]")
-_ID_REUSE = turbohtml.XPath("id('" + " ".join(f"r{index}" for index in range(1_000)) + "')")
+_REUSE: Final[turbohtml.XPath] = turbohtml.XPath("//a[@href]")
+_ID_REUSE: Final[turbohtml.XPath] = turbohtml.XPath("id('" + " ".join(f"r{index}" for index in range(1_000)) + "')")
 
 
 @functools.cache

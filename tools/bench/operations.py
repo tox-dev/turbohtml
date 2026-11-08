@@ -693,7 +693,7 @@ _MARKUP_OPS_HTML: Final[str] = (
 _MARKUP_FORMAT_ARGS: Final[tuple[str, ...]] = ("<script>alert(1)</script>", "Tom & Jerry")
 _MARKUP_JOIN_PARTS: Final[tuple[str, ...]] = ("<a href='/x'>link</a>", "Tom & Jerry", "<b>bold</b>", "plain text")
 
-_LINKIFY_CASES = (
+_LINKIFY_CASES: Final[tuple[tuple[str, str], ...]] = (
     ("comment (1 link, 1 email)", "Ping me at bob@example.com or see https://example.com for details."),
     ("prose (1 KiB)", "See https://example.com/path?q=1 and visit www.example.org for more. " * 15),
     ("markup (4 KiB)", '<p>Read <a href="https://kept.example">the post</a> then go to https://example.com/x. ' * 45),
@@ -712,7 +712,7 @@ _PHONE_MIXED: Final[str] = (
     "Call 650-253-0000 or (650) 253-0001, fax 011 44 20 7946 0958, mobile 07400 123456, Berlin 030 12345678, "
     "Mumbai 022 2345 6789, +55 11 96123-4567, +81 3-1234-5678, order 98211 shipped 3/10/2011; not 123-456-7890. "
 )
-_PHONE_ADVERSARIAL = f"{' '.join(['1234'] * 21)} {'1' * 21} {'.'.join(['12'] * 21)} "
+_PHONE_ADVERSARIAL: Final[str] = f"{' '.join(['1234'] * 21)} {'1' * 21} {'.'.join(['12'] * 21)} "
 _PHONE_FULLWIDTH: Final[str] = (
     "\uff0b\uff14\uff14 \uff12\uff10 \uff17\uff19\uff14\uff16 \uff10\uff19\uff15\uff18 or "
     "\uff16\uff15\uff10-\uff12\uff15\uff13-\uff10\uff10\uff10\uff10, then prose. "
@@ -889,7 +889,7 @@ def _article_page(paragraphs: int) -> str:
     return f"{head}{nav}{article}<footer><p>Copyright notice, all rights reserved here.</p></footer></body></html>"
 
 
-_FILTER_STYLED_PAGES: Final = tuple(
+_FILTER_STYLED_PAGES: Final[tuple[tuple[str, str], ...]] = tuple(
     (
         f"256 rules / 128 parent-child pairs / {label}",
         "<style>"
@@ -905,7 +905,7 @@ _FILTER_STYLED_PAGES: Final = tuple(
 )
 
 
-_SPECIFICITY_STYLED_PAGES: Final = tuple(
+_SPECIFICITY_STYLED_PAGES: Final[tuple[tuple[str, str], ...]] = tuple(
     (
         f"256 rules / 128 elements / {label}",
         "<style>" + (selector + "{color:red}") * 256 + "</style>" + '<div class="hit"></div>' * 128,
@@ -969,7 +969,7 @@ _DENSE_DECLS: Final[str] = (
 )
 # four rules every element matches (the universal rule plus the three classes it carries), so each element resolves the
 # full longhand set four times over, the per-declaration css_prop_id lookup a utility-class framework really produces
-_DENSE_SHEET = "".join(f"{selector} {{{_DENSE_DECLS}}}\n" for selector in ("*", ".u", ".v", ".w"))
+_DENSE_SHEET: Final[str] = "".join(f"{selector} {{{_DENSE_DECLS}}}\n" for selector in ("*", ".u", ".v", ".w"))
 
 
 def _dense_styled_page(sections: int) -> str:

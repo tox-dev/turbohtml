@@ -8,7 +8,7 @@ import html_sanitizer
 
 REQUIREMENTS: Final[tuple[str, ...]] = ("html-sanitizer>=2.6",)
 
-_SANITIZER = html_sanitizer.Sanitizer()
+_SANITIZER: Final[html_sanitizer.Sanitizer] = html_sanitizer.Sanitizer()
 
 
 def sanitize(text: str) -> None:

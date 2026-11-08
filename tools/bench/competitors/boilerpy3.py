@@ -8,7 +8,7 @@ from boilerpy3 import extractors
 
 REQUIREMENTS: Final[tuple[str, ...]] = ("boilerpy3>=1.0.7",)
 
-_EXTRACTOR = extractors.ArticleExtractor(raise_on_failure=False)
+_EXTRACTOR: Final[extractors.ArticleExtractor] = extractors.ArticleExtractor(raise_on_failure=False)
 
 
 def boilerplate(text: str) -> None:

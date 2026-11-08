@@ -10,9 +10,9 @@ from bs4 import BeautifulSoup
 
 REQUIREMENTS: Final[tuple[str, ...]] = ("soupsieve>=2.8.4", "beautifulsoup4>=4.15")
 
-_SELECT = soupsieve.compile("div a[href]")
-_HAS = soupsieve.compile("div:has(a)")
-_ANCHOR = soupsieve.compile("a")
+_SELECT: Final[soupsieve.SoupSieve] = soupsieve.compile("div a[href]")
+_HAS: Final[soupsieve.SoupSieve] = soupsieve.compile("div:has(a)")
+_ANCHOR: Final[soupsieve.SoupSieve] = soupsieve.compile("a")
 
 
 @functools.cache

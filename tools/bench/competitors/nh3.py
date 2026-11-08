@@ -22,7 +22,7 @@ def _sanitize_attributes(text: str) -> str:
     return _ATTRIBUTE_CLEANER.clean(text)
 
 
-_ATTRIBUTE_CLEANER: Final = nh3.Cleaner(tags={"p"}, attributes={}, generic_attribute_prefixes={"data-"})
+_ATTRIBUTE_CLEANER: Final[nh3.Cleaner] = nh3.Cleaner(tags={"p"}, attributes={}, generic_attribute_prefixes={"data-"})
 
 OPERATIONS = {
     "sanitize": (sanitize, "nh3"),

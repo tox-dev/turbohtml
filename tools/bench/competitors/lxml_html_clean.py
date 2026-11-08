@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 REQUIREMENTS: Final[tuple[str, ...]] = ("lxml-html-clean>=0.4.5", "lxml>=6.1.1")
 
-_CLEANER = lxml_html_clean.Cleaner()
+_CLEANER: Final[lxml_html_clean.Cleaner] = lxml_html_clean.Cleaner()
 
 
 def sanitize(text: str) -> None:

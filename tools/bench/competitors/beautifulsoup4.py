@@ -17,7 +17,7 @@ from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 # every high-byte stream and utf-8 for Shift_JIS, which is fast and wrong; chardet is the backend bs4 documents first.
 REQUIREMENTS: Final[tuple[str, ...]] = ("beautifulsoup4[chardet]>=4.15",)
 
-_FIND_TEXT_PATTERN = re.compile(r"test")
+_FIND_TEXT_PATTERN: Final[re.Pattern[str]] = re.compile(r"test")
 _SET_HTML: Final[str] = "<p>Updated <a href='/x'>link</a> and <b>bold</b>.</p><ul><li>one</li><li>two</li></ul>"
 _STRIP: Final[tuple[str, ...]] = ("code", "a", "q")
 _LINKS_BASE: Final[str] = "https://example.com/base/"

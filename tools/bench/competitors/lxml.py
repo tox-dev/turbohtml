@@ -321,7 +321,7 @@ def _first_two_ext(_context: object, nodes: list[object]) -> list[object]:
 
 _COUNT_EXTENSIONS = {(None, "ext_count"): _count_ext}
 _NODESET_EXTENSIONS = {(None, "ext_first_two"): _first_two_ext}
-_REUSE: Final = lxml_etree.XPath("//a[@href]")
+_REUSE: Final[lxml_etree.XPath] = lxml_etree.XPath("//a[@href]")
 
 
 @functools.cache

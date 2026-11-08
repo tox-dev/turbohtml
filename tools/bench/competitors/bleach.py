@@ -31,10 +31,10 @@ def _allow_data_attribute(_tag: str, name: str, _value: str) -> bool:
     return name.startswith("data-")
 
 
-_DISALLOWED_CLEANERS: Final = {
+_DISALLOWED_CLEANERS: Final[dict[str, bleach.Cleaner]] = {
     mode: bleach.Cleaner(tags=frozenset(), strip=mode == "strip") for mode in ("escape", "strip")
 }
-_ATTRIBUTE_CLEANER: Final = bleach.Cleaner(tags={"p"}, attributes=_allow_data_attribute)
+_ATTRIBUTE_CLEANER: Final[bleach.Cleaner] = bleach.Cleaner(tags={"p"}, attributes=_allow_data_attribute)
 
 OPERATIONS = {
     "sanitize": (sanitize, "bleach"),
