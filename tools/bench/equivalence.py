@@ -174,7 +174,7 @@ def disagreements(workdir: Path) -> list[str]:
         print(f"\n===== {label} =====")
         print(f"{'party':{width}}  {'  '.join(f'{probe:>18}' for probe in probes)}")
         for name, row in results.items():
-            print(f"{name:{width}}  " + "  ".join(f"{row.get(probe, '-')!s:>18}" for probe in probes))
+            print(f"""{name:{width}}  {"  ".join(f"{row.get(probe, '-')!s:>18}" for probe in probes)}""")
         for probe in probes:
             # raw text length is a formatting difference: a party that joins runs without separators, or collapses
             # whitespace as pyquery does, reports a different length for identical content. The collapsed length is

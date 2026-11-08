@@ -166,13 +166,16 @@ _VALIDATE_XSD: Final[str] = (
     "</xs:sequence></xs:complexType></xs:element></xs:schema>"
 )
 _VALIDATE_GLOBAL_XSD: Final[str] = (
-    '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
-    + "".join(f'<xs:element name="element{index}" type="xs:string"/>' for index in range(512))
-    + "".join(
-        f'<xs:simpleType name="Type{index}"><xs:restriction base="xs:string"/></xs:simpleType>' for index in range(512)
-    )
-    + '<xs:simpleType name="TargetType"><xs:restriction base="xs:string"/></xs:simpleType>'
-    '<xs:element name="target" type="TargetType"/></xs:schema>'
+    """<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">"""
+    f"""{"".join(f'<xs:element name="element{index}" type="xs:string"/>' for index in range(512))}"""
+    f"""{
+        "".join(
+            f'<xs:simpleType name="Type{index}"><xs:restriction base="xs:string"/></xs:simpleType>'
+            for index in range(512)
+        )
+    }"""
+    """<xs:simpleType name="TargetType"><xs:restriction base="xs:string"/></xs:simpleType><xs:element name="target" """
+    """type="TargetType"/></xs:schema>"""
 )
 _VALIDATE_GLOBAL_DOC: Final[str] = "<target>value</target>"
 # the same records catalog described in RELAX NG (XML syntax): grammar/define/ref, an interleave over the record's four
@@ -195,9 +198,9 @@ _VALIDATE_RNG: Final[str] = (
     "</grammar>"
 )
 _COMPILE_RNG: Final[str] = (
-    '<grammar xmlns="http://relaxng.org/ns/structure/1.0"><start><ref name="target"/></start>'
-    + "".join(f'<define name="definition{index}"><empty/></define>' for index in range(1_023))
-    + '<define name="target"><element name="target"><text/></element></define></grammar>'
+    """<grammar xmlns="http://relaxng.org/ns/structure/1.0"><start><ref name="target"/></start>"""
+    f"""{"".join(f'<define name="definition{index}"><empty/></define>' for index in range(1_023))}"""
+    """<define name="target"><element name="target"><text/></element></define></grammar>"""
 )
 
 _SANITIZE_TEMPLATES: Final[str] = dedent("""\
@@ -614,13 +617,13 @@ def _form_data_fieldset_cases() -> tuple[tuple[str, str], ...]:
     return tuple(
         (
             label,
-            "<form>"
-            + opening
-            + "<div>" * depth
-            + "".join(f'<input name="n{index}" value="v{index}">' for index in range(count))
-            + "</div>" * depth
-            + closing
-            + '<input name="tail" value="ok"></form>',
+            (
+                f"""<form>{opening}{"<div>" * depth}"""
+                f"""{"".join(f'<input name="n{index}" value="v{index}">' for index in range(count))}{
+                    "</div>" * depth
+                }"""
+                f"""{closing}<input name="tail" value="ok"></form>"""
+            ),
         )
         for label, opening, closing, depth, count in (
             ("disabled / 2,048 controls / depth 64", "<fieldset disabled>", "</fieldset>", 64, 2_048),
@@ -664,7 +667,7 @@ def _deep_tree(depth: int, leaves: int) -> str:
     # the walk always ran to the root before short-circuiting. It is the workload the drop-the-redundant-walk change
     # (#603) turned into a single local attr scan, which a shallow real page barely registers.
     spine = "".join(
-        f"<div class='n{level}'>" + "".join(f"<span>t{level}-{leaf}</span>" for leaf in range(leaves))
+        f"""<div class='n{level}'>{"".join(f"<span>t{level}-{leaf}</span>" for leaf in range(leaves))}"""
         for level in range(depth)
     )
     return f"<!doctype html><html><body>{(spine + '</div>' * depth)}</body></html>"
@@ -789,14 +792,13 @@ _TEXT_TABLE: Final[str] = (
     "<table><tr><th>Region</th><th>Total</th></tr><tr><td>North</td><td>120</td></tr></table>" * 30
 )
 _TEXT_MAIN: Final[str] = (
-    "<html><head><title>Comets</title></head><body>"
-    "<nav><a href='/'>Home</a> <a href='/science'>Science</a></nav>"
-    "<article><h1>Comets</h1>"
-    + (
+    "<html><head><title>Comets</title></head><body><nav><a href='/'>Home</a> <a "
+    "href='/science'>Science</a></nav><article><h1>Comets</h1>"
+    f"""{
         "<p>A comet is an icy small body that, when it passes close to the Sun, warms up and releases gases, forming a "
         "glowing coma around it.</p>" * 12
-    )
-    + "</article><footer><p>Copyright notice, all rights reserved here.</p></footer></body></html>"
+    }"""
+    "</article><footer><p>Copyright notice, all rights reserved here.</p></footer></body></html>"
 )
 _TEXT_ANNOTATED: Final[str] = "<h1>Q3</h1><p>Up <b>12%</b> with a <a href='/x'>link</a> in prose.</p>" * 16
 
@@ -852,12 +854,8 @@ def _css_conflict_inputs() -> tuple[tuple[str, str], ...]:
         (
             f"{repeats} rule pairs, {properties} properties, {value_length} value bytes",
             (
-                ".a{"
-                + ";".join(f"--a{index}:f({'x' * value_length})" for index in range(properties))
-                + "}"
-                + ".b{"
-                + ";".join(f"--b{index}:f({'y' * value_length})" for index in range(properties))
-                + "}"
+                f""".a{{{";".join(f"--a{index}:f({'x' * value_length})" for index in range(properties))}}}.b{{"""
+                f"""{";".join(f"--b{index}:f({'y' * value_length})" for index in range(properties))}}}"""
             )
             * repeats,
         )
@@ -885,10 +883,10 @@ def _article_page(paragraphs: int) -> str:
 _FILTER_STYLED_PAGES: Final[tuple[tuple[str, str], ...]] = tuple(
     (
         f"256 rules / 128 parent-child pairs / {label}",
-        "<style>"
-        + (f"{selector}{{color:red}}") * 256
-        + "div{color:blue}</style>"
-        + '<div class="hit"><span></span></div>' * 128,
+        (
+            f"""<style>{(f"{selector}{{color:red}}") * 256}div{{color:blue}}</style>"""
+            f"""{'<div class="hit"><span></span></div>' * 128}"""
+        ),
     )
     for label, selector in (
         ("irrelevant pseudo-first", ":has(span).missing"),
@@ -1098,11 +1096,13 @@ def _xpath_cases() -> tuple[tuple[str, Case], ...]:
 
 _XSLT_SOURCE: Final[str] = (
     "<catalog>"
-    + "".join(
-        f'<book cat="c{index % 5}"><title>Book number {index}</title><price>{index % 97 + 0.99}</price></book>'
-        for index in range(120)
-    )
-    + "</catalog>"
+    f"""{
+        "".join(
+            f'<book cat="c{index % 5}"><title>Book number {index}</title><price>{index % 97 + 0.99}</price></book>'
+            for index in range(120)
+        )
+    }"""
+    "</catalog>"
 )
 
 
@@ -1186,9 +1186,8 @@ def _transform_namespace_cases() -> tuple[tuple[str, Case], ...]:
             '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
             '<xsl:output method="xml" omit-xml-declaration="yes"/><xsl:template match="/">'
             f'<out><xsl:for-each select="r/n">{ancestors}<{prefix}leaf{attributes}/>'
-            + (f"<{prefix}other{attributes}/>" if alternating else "")
-            + "</xsl:if>" * depth
-            + "</xsl:for-each></out></xsl:template></xsl:stylesheet>"
+            f"""{f"<{prefix}other{attributes}/>" if alternating else ""}"""
+            f"""{"</xsl:if>" * depth}</xsl:for-each></out></xsl:template></xsl:stylesheet>"""
         )
         cases.append((f"{label} ({depth} ancestors, {count} rows)", (sheet, f"<r>{'<n/>' * count}</r>")))
     return tuple(cases)
@@ -1286,11 +1285,13 @@ _XSLT_DENSE_SHEET: Final[str] = (
 )
 _XSLT_DENSE_SOURCE: Final[str] = (
     "<catalog>"
-    + "".join(
-        f'<book cat="c{index % 5}"><title>Book number {index}</title><price>{index % 97 + 0.99}</price></book>'
-        for index in range(200)
-    )
-    + "</catalog>"
+    f"""{
+        "".join(
+            f'<book cat="c{index % 5}"><title>Book number {index}</title><price>{index % 97 + 0.99}</price></book>'
+            for index in range(200)
+        )
+    }"""
+    "</catalog>"
 )
 
 
@@ -1304,21 +1305,24 @@ def _transform_name_cases() -> tuple[tuple[str, Case], ...]:
         (
             f"{count} unused declarations per kind, 256 calls",
             (
-                '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
-                '<xsl:output method="xml" omit-xml-declaration="yes"/>'
-                + "".join(
-                    f'<xsl:template name="unused{index}"/>'
-                    f'<xsl:key name="unused{index}" match="unused" use="@value"/>'
-                    f'<xsl:attribute-set name="unused{index}"/>'
-                    for index in range(count)
-                )
-                + '<xsl:key name="target" match="p" use="@value"/>'
-                '<xsl:attribute-set name="target"><xsl:attribute name="marker">hit</xsl:attribute></xsl:attribute-set>'
-                '<xsl:template name="target"><item xsl:use-attribute-sets="target">'
-                "<xsl:value-of select=\"count(key('target','v'))\"/></item></xsl:template>"
-                '<xsl:template match="/"><out>'
-                + '<xsl:call-template name="target"/>' * 256
-                + "</out></xsl:template></xsl:stylesheet>",
+                (
+                    """<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" """
+                    """version="1.0"><xsl:output method="xml" omit-xml-declaration="yes"/>"""
+                    f"""{
+                        "".join(
+                            f'<xsl:template name="unused{index}"/>'
+                            f'<xsl:key name="unused{index}" match="unused" use="@value"/>'
+                            f'<xsl:attribute-set name="unused{index}"/>'
+                            for index in range(count)
+                        )
+                    }"""
+                    """<xsl:key name="target" match="p" use="@value"/>"""
+                    """<xsl:attribute-set name="target"><xsl:attribute """
+                    """name="marker">hit</xsl:attribute></xsl:attribute-set><xsl:template """
+                    """name="target"><item xsl:use-attribute-sets="target"><xsl:value-of """
+                    """select="count(key('target','v'))"/></item></xsl:template><xsl:template match="/"><out>"""
+                    f"""{'<xsl:call-template name="target"/>' * 256}</out></xsl:template></xsl:stylesheet>"""
+                ),
                 '<root><p value="v"/></root>',
             ),
         )
@@ -1335,11 +1339,17 @@ def _transform_number_cases() -> tuple[tuple[str, Case], ...]:
                     f"{instructions} {'instruction' if instructions == 1 else 'instructions'} / {order}"
                 ),
                 (
-                    '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-                    '<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root/n">'
-                    + ('<xsl:sort select="@id" data-type="number" order="descending"/>' if order == "reverse" else "")
-                    + "<xsl:number/><xsl:text>:</xsl:text>" * instructions
-                    + "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>",
+                    (
+                        """<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">"""
+                        """<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root/n">"""
+                        f"""{
+                            '<xsl:sort select="@id" data-type="number" order="descending"/>'
+                            if order == "reverse"
+                            else ""
+                        }"""
+                        f"""{"<xsl:number/><xsl:text>:</xsl:text>" * instructions}"""
+                        "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
+                    ),
                     f"""<root>{"".join(f'<n id="{index}"/>' for index in range(1, rows + 1))}</root>""",
                 ),
             )
@@ -1364,25 +1374,34 @@ def _transform_any_number_cases() -> tuple[tuple[str, Case], ...]:
         (
             f"any: {rows:,} {'node' if rows == 1 else 'nodes'} / {variant}",
             (
-                '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-                '<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root/*'
-                + ("[last()]" if variant == "last-only" else "")
-                + '">'
-                + ('<xsl:sort select="@id" data-type="number" order="descending"/>' if variant == "reverse" else "")
-                + (
-                    '<xsl:number level="any"'
-                    + (' count="p"' if variant == "explicit-count" else "")
-                    + "/><xsl:text>:</xsl:text>"
-                )
-                * (8 if variant == "repeated" else 1)
-                + "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>",
-                "<root>"
-                + "".join(
-                    f"{'text<!--gap-->' if variant == 'mixed-nodes' else ''}"
-                    f'<{"q" if variant == "alternating" and index % 2 == 0 else "p"} id="{index}"/>'
-                    for index in range(1, rows + 1)
-                )
-                + "</root>",
+                (
+                    """<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">"""
+                    """<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root/*"""
+                    f"""{"[last()]" if variant == "last-only" else ""}">"""
+                    f"""{
+                        '<xsl:sort select="@id" data-type="number" order="descending"/>' if variant == "reverse" else ""
+                    }"""
+                    f"""{
+                        (
+                            '<xsl:number level="any" count="p"/><xsl:text>:</xsl:text>'
+                            if variant == "explicit-count"
+                            else '<xsl:number level="any"/><xsl:text>:</xsl:text>'
+                        )
+                        * (8 if variant == "repeated" else 1)
+                    }"""
+                    "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
+                ),
+                (
+                    "<root>"
+                    f"""{
+                        "".join(
+                            f"{'text<!--gap-->' if variant == 'mixed-nodes' else ''}"
+                            f'<{"q" if variant == "alternating" and index % 2 == 0 else "p"} id="{index}"/>'
+                            for index in range(1, rows + 1)
+                        )
+                    }"""
+                    "</root>"
+                ),
             ),
         )
         for rows, variant in (
@@ -1405,27 +1424,39 @@ def _transform_pattern_number_cases() -> tuple[tuple[str, Case], ...]:
         (
             f"any: {rows:,} {'node' if rows == 1 else 'nodes'} / {variant}",
             (
-                '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-                '<xsl:output method="text"/><xsl:template match="/"><xsl:for-each select="root//p">'
-                + (
-                    '<xsl:sort select="@id" data-type="number" order="descending"/>'
-                    if variant == "count-reverse"
-                    else ""
-                )
-                + (
-                    f'<xsl:number level="any" count="{pattern}"'
-                    + (' from="section"' if variant == "count-from-sections" else "")
-                    + "/><xsl:text>:</xsl:text>"
-                )
-                * (8 if variant == "count-repeated" else 1)
-                + "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>",
-                "<root>"
-                + "".join(
-                    f'{"<section>" if variant == "count-from-sections" and index % 64 == 1 else ""}<p id="{index}" '
-                    f'cat="{index % 2}"/>{"</section>" if variant == "count-from-sections" and index % 64 == 0 else ""}'
-                    for index in range(1, rows + 1)
-                )
-                + "</root>",
+                (
+                    """<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output """
+                    """method="text"/><xsl:template match="/"><xsl:for-each select="root//p">"""
+                    f"""{
+                        '<xsl:sort select="@id" data-type="number" order="descending"/>'
+                        if variant == "count-reverse"
+                        else ""
+                    }"""
+                    f"""{
+                        (
+                            f'<xsl:number level="any" count="{pattern}" from="section"/><xsl:text>:</xsl:text>'
+                            if variant == "count-from-sections"
+                            else f'<xsl:number level="any" count="{pattern}"/><xsl:text>:</xsl:text>'
+                        )
+                        * (8 if variant == "count-repeated" else 1)
+                    }"""
+                    "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
+                ),
+                (
+                    "<root>"
+                    f"""{
+                        "".join(
+                            f'''{"<section>" if variant == "count-from-sections" and index % 64 == 1 else ""}<p id="{
+                                index
+                            }" '''
+                            f'''cat="{index % 2}"/>{
+                                "</section>" if variant == "count-from-sections" and index % 64 == 0 else ""
+                            }'''
+                            for index in range(1, rows + 1)
+                        )
+                    }"""
+                    "</root>"
+                ),
             ),
         )
         for rows, pattern, variant in (
@@ -1454,14 +1485,18 @@ def _transform_number_prefix_cases() -> tuple[tuple[str, Case], ...]:
                     f'<xsl:for-each select="{select}"><xsl:number level="any" {attributes}/>'
                     "<xsl:text>:|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>"
                 ),
-                "<root>"
-                + "".join(
-                    f"{'<section>' if sections and index % 64 == 1 else ''}"
-                    f"<{'q' if alternating and index % 2 == 0 else 'p'}"
-                    f' id="{index}"/>{"</section>" if sections and index % 64 == 0 else ""}'
-                    for index in range(1, 1_025)
-                )
-                + "</root>",
+                (
+                    "<root>"
+                    f"""{
+                        "".join(
+                            f"{'<section>' if sections and index % 64 == 1 else ''}"
+                            f"<{'q' if alternating and index % 2 == 0 else 'p'}"
+                            f' id="{index}"/>{"</section>" if sections and index % 64 == 0 else ""}'
+                            for index in range(1, 1_025)
+                        )
+                    }"""
+                    "</root>"
+                ),
             ),
         )
         for variant, select, attributes, sections, alternating in (
@@ -1678,15 +1713,15 @@ def _validate_rng_reuse_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
             (
                 f"{width} {kind} fields across {rows} rows",
                 (
-                    '<element xmlns="http://relaxng.org/ns/structure/1.0" name="root"><oneOrMore>'
-                    '<element name="row">'
-                    f"<{kind}>"
-                    + "".join(
-                        f'<optional><element name="field{index}"><text/></element></optional>' for index in range(width)
-                    )
-                    + '<element name="value"><text/></element>'
-                    + f"</{kind}>"
-                    + "</element></oneOrMore></element>",
+                    (
+                        f"""<element xmlns="http://relaxng.org/ns/structure/1.0" name="root"><oneOrMore>"""
+                        f"""<element name="row"><{kind}>{
+                            "".join(
+                                f'<optional><element name="field{index}"><text/></element></optional>'
+                                for index in range(width)
+                            )
+                        }<element name="value"><text/></element></{kind}></element></oneOrMore></element>"""
+                    ),
                     f"<root>{'<row><value>text</value></row>' * rows}</root>",
                 ),
             )
@@ -1740,9 +1775,12 @@ def _validate_attribute_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
         (
             f"{size:,} attributes",
             (
-                '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="root"><xs:complexType>'
-                + "".join(f'<xs:attribute name="item{index}" type="xs:string"/>' for index in range(size))
-                + "</xs:complexType></xs:element></xs:schema>",
+                (
+                    """<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="root">"""
+                    """<xs:complexType>"""
+                    f"""{"".join(f'<xs:attribute name="item{index}" type="xs:string"/>' for index in range(size))}"""
+                    "</xs:complexType></xs:element></xs:schema>"
+                ),
                 f"""<root {" ".join(f'item{index}="value"' for index in reversed(range(size)))}/>""",
             ),
         )
@@ -1777,11 +1815,12 @@ def _validate_facet_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
         (
             label,
             (
-                '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
-                + declarations
-                + '<xs:element name="root"><xs:complexType><xs:sequence>'
-                f'<xs:element name="value" type="{type_name}" maxOccurs="unbounded"/>'
-                "</xs:sequence></xs:complexType></xs:element></xs:schema>",
+                (
+                    f"""<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">{declarations}"""
+                    '<xs:element name="root"><xs:complexType><xs:sequence>'
+                    f'<xs:element name="value" type="{type_name}" maxOccurs="unbounded"/>'
+                    "</xs:sequence></xs:complexType></xs:element></xs:schema>"
+                ),
                 f"<root>{'<value>abc123</value>' * 1000}</root>",
             ),
         )
@@ -1873,16 +1912,17 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "parse-nul": lambda: tuple(
         (
             f"1,000 paragraphs / {label}",
-            f"<p>{first}</p>" + f"<p>{'a' * 80}</p>" * 999,
+            f"""<p>{first}</p>{f"<p>{'a' * 80}</p>" * 999}""",
         )
         for label, first in (("early NUL", "first\0a"), ("no NUL", "a" * 80))
     ),
     "parse-afe": lambda: tuple(
         (
             f"256 b elements / {variant} attributes",
-            "".join(f'<b title="{index if variant == "distinct" else "same"}">' for index in range(256))
-            + "a"
-            + "</b>" * 256,
+            (
+                f"""{"".join(f'<b title="{index if variant == "distinct" else "same"}">' for index in range(256))}a"""
+                f"""{"</b>" * 256}"""
+            ),
         )
         for variant in ("distinct", "identical")
     ),
@@ -1922,11 +1962,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "parse-xml-prefixes": lambda: tuple(
         (
             f"{count} prefixes and attributes",
-            "<root "
-            + " ".join(f'xmlns:p{index}="urn:{index}"' for index in range(count))
-            + " "
-            + " ".join(f'p{index}:value="x"' for index in range(count))
-            + "/>",
+            (
+                f"""<root {" ".join(f'xmlns:p{index}="urn:{index}"' for index in range(count))} """
+                f"""{" ".join(f'p{index}:value="x"' for index in range(count))}/>"""
+            ),
         )
         for count in (128, 1, 1_000)
     ),
@@ -2150,11 +2189,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 f"{operation}, {size:,} nodes per set",
                 (
                     f"//li {operation} //b",
-                    "<main><ul>"
-                    + "<li>a</li>" * size
-                    + "</ul><section>"
-                    + f"<b>{'b' if operation == '=' else 'a'}</b>" * size
-                    + "</section></main>",
+                    (
+                        f"""<main><ul>{"<li>a</li>" * size}</ul><section>"""
+                        f"""{f"<b>{'b' if operation == '=' else 'a'}</b>" * size}</section></main>"""
+                    ),
                 ),
             )
             for operation in ("=", "!=")
@@ -2175,11 +2213,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 f"{operation}, {size:,} nodes per set",
                 (
                     f"//li {operation} //b",
-                    "<main><ul>"
-                    + f"<li>{2 if operation.startswith('<') else 1}</li>" * size
-                    + "</ul><section>"
-                    + f"<b>{1 if operation.startswith('<') else 2}</b>" * size
-                    + "</section></main>",
+                    (
+                        f"""<main><ul>{f"<li>{2 if operation.startswith('<') else 1}</li>" * size}</ul><section>"""
+                        f"""{f"<b>{1 if operation.startswith('<') else 2}</b>" * size}</section></main>"""
+                    ),
                 ),
             )
             for operation in ("<", "<=", ">", ">=")
@@ -2213,9 +2250,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
             label,
             (
                 "id(//i)/@id",
-                '<main><b id="first"></b><b id="second"></b>'
-                + (f"<i>{' second first second ' * repetitions}</i>") * count
-                + "</main>",
+                (
+                    """<main><b id="first"></b><b id="second"></b>"""
+                    f"""{(f"<i>{' second first second ' * repetitions}</i>") * count}</main>"""
+                ),
             ),
         )
         for count, repetitions, label in (
@@ -2436,15 +2474,19 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ("article 8 KiB", f"{_SOCIAL_HEAD}<body>{'<p>filler text</p>' * 400}</body>"),
         (
             "1,024 OpenGraph properties",
-            "<head>"
-            + "".join(f'<meta property="og:field{index}" content="value{index}">' for index in range(1_024))
-            + "</head>",
+            (
+                "<head>"
+                f"""{"".join(f'<meta property="og:field{index}" content="value{index}">' for index in range(1_024))}"""
+                "</head>"
+            ),
         ),
         (
             "1,024 Twitter properties",
-            "<head>"
-            + "".join(f'<meta name="twitter:field{index}" content="value{index}">' for index in range(1_024))
-            + "</head>",
+            (
+                "<head>"
+                f"""{"".join(f'<meta name="twitter:field{index}" content="value{index}">' for index in range(1_024))}"""
+                "</head>"
+            ),
         ),
         ("mixed duplicate properties", _SOCIAL_HEAD * 128),
     ),
@@ -2468,8 +2510,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ),
         (
             "4 shuffled references",
-            '<div itemscope itemref="r0 r2 r1 r3"></div>'
-            + "".join(f'<meta id=r{index} itemprop=p content="{index}">' for index in range(4)),
+            (
+                """<div itemscope itemref="r0 r2 r1 r3"></div>"""
+                f"""{"".join(f'<meta id=r{index} itemprop=p content="{index}">' for index in range(4))}"""
+            ),
         ),
     ),
     "syndication": lambda: (
@@ -2480,14 +2524,18 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ),
         (
             "atom 30 entries",
-            '<feed xmlns="http://www.w3.org/2005/Atom"><title>Example</title>'
-            + "".join(
-                f'<entry><title>Entry {index}</title><link href="https://example.com/{index}"/>'
-                f"<id>urn:{index}</id><updated>2026-07-06</updated><summary>Summary {index}</summary>"
-                "<content>Full body</content><author><name>Writer</name></author></entry>"
-                for index in range(30)
-            )
-            + "</feed>",
+            (
+                """<feed xmlns="http://www.w3.org/2005/Atom"><title>Example</title>"""
+                f"""{
+                    "".join(
+                        f'<entry><title>Entry {index}</title><link href="https://example.com/{index}"/>'
+                        f"<id>urn:{index}</id><updated>2026-07-06</updated><summary>Summary {index}</summary>"
+                        "<content>Full body</content><author><name>Writer</name></author></entry>"
+                        for index in range(30)
+                    )
+                }"""
+                "</feed>"
+            ),
         ),
     ),
     "sanitize": lambda: (
@@ -2739,13 +2787,14 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         (
             f"128 unmatched templates, 1,024 nodes, {passes} passes",
             (
-                '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
-                '<xsl:output method="text"/>'
-                + "".join(f'<xsl:template match="unused{index}" priority="0"/>' for index in range(128))
-                + '<xsl:template match="/">'
-                + '<xsl:apply-templates select="root/p"/>' * passes
-                + '</xsl:template><xsl:template match="p" priority="-1">'
-                '<xsl:value-of select="@id"/><xsl:text>|</xsl:text></xsl:template></xsl:stylesheet>',
+                (
+                    """<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" """
+                    """version="1.0"><xsl:output method="text"/>"""
+                    f"""{"".join(f'<xsl:template match="unused{index}" priority="0"/>' for index in range(128))}"""
+                    f"""<xsl:template match="/">{'<xsl:apply-templates select="root/p"/>' * passes}"""
+                    """</xsl:template><xsl:template match="p" priority="-1"><xsl:value-of """
+                    """select="@id"/><xsl:text>|</xsl:text></xsl:template></xsl:stylesheet>"""
+                ),
                 f"""<root>{"".join(f'<p id="{index}"/>' for index in range(1, 1_025))}</root>""",
             ),
         )
@@ -2784,29 +2833,32 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "minify-js-var-initialization": lambda: tuple(
         (
             f"{count} var pairs / {'read before initialization' if early else 'read after initialization'}",
-            "function f(g){var "
-            + ",".join(
-                f"keep{index}=g({f'value{index!s}' if early else str(index)}),value{index}={index % 10}"
-                for index in range(count)
-            )
-            + ";return["
-            + ",".join(f"keep{index}" if early else f"keep{index},value{index}" for index in range(count))
-            + "]}",
+            (
+                "function f(g){var "
+                f"""{
+                    ",".join(
+                        f"keep{index}=g({f'value{index!s}' if early else str(index)}),value{index}={index % 10}"
+                        for index in range(count)
+                    )
+                }"""
+                ";return["
+                f"""{",".join(f"keep{index}" if early else f"keep{index},value{index}" for index in range(count))}]}}"""
+            ),
         )
         for count, early in ((256, False), (1, False), (256, True))
     ),
     "minify-js-single-use": lambda: tuple(
         (
             f"{count} call initializers / {layout}",
-            "function f(g){"
-            + (
-                f"const {','.join(f'v{index}=g({index})' for index in range(count))};"
-                if layout == "one declaration"
-                else "".join(f"const v{index}=g({index});" for index in range(count))
-            )
-            + "return["
-            + ",".join(f"v{index}" for index in range(count))
-            + "]}",
+            (
+                "function f(g){"
+                f"""{
+                    f"const {','.join(f'v{index}=g({index})' for index in range(count))};"
+                    if layout == "one declaration"
+                    else "".join(f"const v{index}=g({index});" for index in range(count))
+                }"""
+                f"""return[{",".join(f"v{index}" for index in range(count))}]}}"""
+            ),
         )
         for count, layout in ((256, "one declaration"), (256, "separate declarations"), (1, "one declaration"))
     ),
@@ -2823,32 +2875,33 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "minify-js-unlink": lambda: tuple(
         (
             f"{count} retained/literal pairs / {layout}",
-            "function f(g){"
-            "const "
-            + ("," if layout == "one declaration" else ";const ").join(
-                f"keep{index}=g({index}),value{index}={index % 10}" for index in range(count)
-            )
-            + ";return["
-            + ",".join(f"keep{index},value{index},value{index}" for index in range(count))
-            + "]}",
+            (
+                "function f(g){const "
+                f"""{
+                    ("," if layout == "one declaration" else ";const ").join(
+                        f"keep{index}=g({index}),value{index}={index % 10}" for index in range(count)
+                    )
+                }"""
+                f""";return[{",".join(f"keep{index},value{index},value{index}" for index in range(count))}]}}"""
+            ),
         )
         for count, layout in ((256, "one declaration"), (256, "separate declarations"), (1, "one declaration"))
     ),
     "minify-js-propagation": lambda: tuple(
         (
             f"{count} literal bindings / {layout}",
-            "function f(g){"
-            + (
-                "".join(f"const v{index}={index % 10};g(v{index});" for index in range(count))
-                if layout == "interleaved declarations"
-                else (
-                    f"const {','.join(f'v{index}={index % 10}' for index in range(count))};"
-                    f"{''.join(f'g(v{index});' for index in range(count))}"
-                )
-            )
-            + "return["
-            + ",".join(f"v{index},v{index}" for index in range(count))
-            + "]}",
+            (
+                "function f(g){"
+                f"""{
+                    "".join(f"const v{index}={index % 10};g(v{index});" for index in range(count))
+                    if layout == "interleaved declarations"
+                    else (
+                        f"const {','.join(f'v{index}={index % 10}' for index in range(count))};"
+                        f"{''.join(f'g(v{index});' for index in range(count))}"
+                    )
+                }"""
+                f"""return[{",".join(f"v{index},v{index}" for index in range(count))}]}}"""
+            ),
         )
         for count, layout in (
             (256, "interleaved declarations"),
@@ -2964,12 +3017,16 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         (
             f"{count} attributes, {order}, sorting {sorting}",
             (
-                "<div "
-                + " ".join(
-                    f'a{index:04d}="value"'
-                    for index in (reversed(range(count)) if order == "reversed" else range(count))
-                )
-                + ">text</div>",
+                (
+                    "<div "
+                    f"""{
+                        " ".join(
+                            f'a{index:04d}="value"'
+                            for index in (reversed(range(count)) if order == "reversed" else range(count))
+                        )
+                    }"""
+                    ">text</div>"
+                ),
                 sorting,
             ),
         )
