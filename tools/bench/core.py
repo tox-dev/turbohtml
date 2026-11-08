@@ -1138,7 +1138,7 @@ _SVG_NS: Final[dict[str, str]] = {"svg": "http://www.w3.org/2000/svg"}
 _COUNT_EXTENSIONS = {(None, "ext_count"): _count_ext}
 _NODESET_EXTENSIONS = {(None, "ext_first_two"): _first_two_ext}
 _REUSE: Final[turbohtml.XPath] = turbohtml.XPath("//a[@href]")
-_ID_REUSE: Final[turbohtml.XPath] = turbohtml.XPath("id('" + " ".join(f"r{index}" for index in range(1_000)) + "')")
+_ID_REUSE: Final[turbohtml.XPath] = turbohtml.XPath(f"id('{' '.join(f'r{index}' for index in range(1_000))}')")
 
 
 @functools.cache
