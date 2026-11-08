@@ -919,7 +919,7 @@ def test_reset_insertion_mode_skips_a_foreign_html_in_a_document() -> None:
 @pytest.mark.parametrize("distinct", [pytest.param(True, id="distinct-values"), pytest.param(False, id="same-values")])
 def test_formatting_duplicate_scan_keeps_all_source_elements(*, distinct: bool) -> None:
     values: Final = [str(index) if distinct else "same" for index in range(256)]
-    source: Final = "".join(f'<b title="{value}">' for value in values) + "a" + "</b>" * 256
+    source: Final = f"""{"".join(f'<b title="{value}">' for value in values)}a{"</b>" * 256}"""
     assert [(element.attrs["title"], element.text) for element in parse(source).find_all("b")] == [
         (value, "a") for value in values
     ]
@@ -935,7 +935,7 @@ def test_formatting_duplicate_scan_keeps_all_source_elements(*, distinct: bool) 
     ],
 )
 def test_formatting_duplicate_limit_keeps_distinct_attributes(other: str, attributes: dict[str, str]) -> None:
-    source: Final = '<p><b title="same">' + f"<b {other}>" + '<b title="same">' * 3 + "one</p>two"
+    source: Final = f"""<p><b title="same">{f"<b {other}>"}{'<b title="same">' * 3}one</p>two"""
     assert [(element.text, dict(element.attrs)) for element in parse(source).find_all("b")] == [
         ("one", {"title": "same"}),
         ("one", attributes),
@@ -968,7 +968,7 @@ def test_formatting_duplicate_limit_preserves_nested_structure(source: str, expe
 
 def test_formatting_duplicate_checks_first_of_multiple_attributes() -> None:
     source: Final = (
-        '<p><b title="same" lang="en"><b title="other" lang="en">' + '<b title="same" lang="en">' * 3 + "one</p>two"
+        f"""<p><b title="same" lang="en"><b title="other" lang="en">{'<b title="same" lang="en">' * 3}one</p>two"""
     )
     assert [(element.text, dict(element.attrs)) for element in parse(source).find_all("b")] == [
         ("one", {"title": "same", "lang": "en"}),
@@ -1748,14 +1748,14 @@ def test_microdata_rejects_cyclic_itemref_graph(method: str) -> None:
 
 @pytest.mark.parametrize("method", ["microdata", "structured_data"])
 def test_microdata_rejects_more_than_400_nested_records(method: str) -> None:
-    document = parse("<div itemscope>" + "<div itemprop='next' itemscope>" * 400 + "</div>" * 401)
+    document = parse(f"""<div itemscope>{"<div itemprop='next' itemscope>" * 400}{"</div>" * 401}""")
     with pytest.raises(RecursionError, match=r"microdata\(\).*400 nested items"):
         getattr(document, method)()
 
 
 @pytest.mark.parametrize("method", ["rdfa", "structured_data"])
 def test_rdfa_rejects_more_than_400_nested_records(method: str) -> None:
-    document = parse("<div typeof='Thing'>" + "<div property='next' typeof='Thing'>" * 400 + "</div>" * 401)
+    document = parse(f"""<div typeof='Thing'>{"<div property='next' typeof='Thing'>" * 400}{"</div>" * 401}""")
     with pytest.raises(RecursionError, match=r"rdfa\(\).*400 nested items"):
         getattr(document, method)()
 

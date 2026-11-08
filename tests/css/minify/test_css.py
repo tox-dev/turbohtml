@@ -2001,7 +2001,7 @@ def test_minify_css_final_at_statement_is_a_fixed_point(source: str, expected: s
 
 
 def test_minify_css_final_at_statement_survives_concatenation() -> None:
-    assert minify_css(minify_css('@import "a"') + "b{c:d}") == '@import"a";b{c:d}'
+    assert minify_css(f"""{minify_css('@import "a"')}b{{c:d}}""") == '@import"a";b{c:d}'
 
 
 # a closed string ends at its quote and nothing reads past one (CSS Syntax 3 §4.3.5), so an at-rule prelude needs no

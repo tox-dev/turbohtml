@@ -1583,7 +1583,7 @@ def test_linkify_wide_snapshot_callback_veto() -> None:
         pytest.param(3, f"<p>{'😀 ' * 32768}</p>", id="wide-no-links"),
         pytest.param(
             4,
-            "<p>" + '😀 <a href="https://example.com" rel="nofollow">https://example.com</a> ' * 1_024 + "</p>",
+            f"""<p>{'😀 <a href="https://example.com" rel="nofollow">https://example.com</a> ' * 1_024}</p>""",
             id="wide-many-links",
         ),
     ],

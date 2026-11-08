@@ -64,7 +64,7 @@ def test_element_tree_context_type_requires_factory() -> None:
     [pytest.param("iterchildren", (), id="children"), pytest.param("iter", ("p",), id="descendants")],
 )
 def test_element_tree_shared_iterator_visits_each_element_once(method: str, args: tuple[str, ...]) -> None:
-    tree: Final = fromstring("<div>" + "".join(f'<p id="{index}"></p>' for index in range(1000)) + "</div>")
+    tree: Final = fromstring(f"""<div>{"".join(f'<p id="{index}"></p>' for index in range(1000))}</div>""")
     iterator: Final = getattr(tree, method)(*args)
     start: Final = Barrier(4)
 

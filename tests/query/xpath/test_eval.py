@@ -976,7 +976,7 @@ def test_numeric_node_set_comparison(
 )
 def test_set_filter_preserves_nodes(size: int, operation: str) -> None:
     document: Final = parse_xml(
-        "<root>" + "".join(f'<item id="{index}">same</item>' for index in range(size)) + "</root>"
+        f"""<root>{"".join(f'<item id="{index}">same</item>' for index in range(size))}</root>"""
     )
     assert document.xpath(f"set:{operation}(//item, //item[position() mod 2 = 0])/@id") == [
         str(index) for index in range(size) if (index % 2 == 1) == (operation == "intersection")
@@ -987,7 +987,7 @@ def test_set_filter_preserves_nodes(size: int, operation: str) -> None:
     "operation", [pytest.param("intersection", id="intersection"), pytest.param("difference", id="difference")]
 )
 def test_set_filter_distinguishes_attributes(operation: str) -> None:
-    document: Final = parse_xml("<root>" + '<item a="same" b="same"/>' * 64 + "</root>")
+    document: Final = parse_xml(f"""<root>{'<item a="same" b="same"/>' * 64}</root>""")
     assert document.xpath(f"set:{operation}(//item/@*, //item/@a)") == ["same"] * 64
 
 
@@ -1055,7 +1055,7 @@ def test_node_set_value_comparison(
 
 
 def test_comparison_uses_attribute_values() -> None:
-    document: Final = parse_xml("<root>" + '<item left="same" right="same"/>' * 32 + "</root>")
+    document: Final = parse_xml(f"""<root>{'<item left="same" right="same"/>' * 32}</root>""")
     assert document.xpath("//item/@left = //item/@right") is True
 
 
@@ -1068,7 +1068,7 @@ def test_comparison_uses_descendant_text() -> None:
     "selection", [pytest.param("//item", id="elements"), pytest.param("//item/@value", id="attributes")]
 )
 def test_comparison_same_nodes(selection: str) -> None:
-    document: Final = parse_xml("<root>" + '<item value="same">same</item>' * 32 + "</root>")
+    document: Final = parse_xml(f"""<root>{'<item value="same">same</item>' * 32}</root>""")
     assert document.xpath(f"{selection} = {selection}") is True
 
 

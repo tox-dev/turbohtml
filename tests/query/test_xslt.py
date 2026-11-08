@@ -520,7 +520,7 @@ def test_transform_sort_numeric_expression_coercion(
     select: str, keys: tuple[str, str, str], ascending: str, descending: str
 ) -> None:
     source: Final = (
-        "<r>" + "".join(f'<n id="{name}" key="{key}"/>' for name, key in zip("abc", keys, strict=True)) + "</r>"
+        f"""<r>{"".join(f'<n id="{name}" key="{key}"/>' for name, key in zip("abc", keys, strict=True))}</r>"""
     )
     template: Final = (
         '<xsl:template match="/"><xsl:for-each select="r/n">'
@@ -5297,7 +5297,7 @@ def indexed_transform() -> Callable[[int, str, str], Transform]:
     ("source", "instructions", "rules", "expected"),
     [
         pytest.param(
-            "<root><p " + " ".join(f'a{index}="{index}"' for index in range(96)) + "/></root>",
+            f"""<root><p {" ".join(f'a{index}="{index}"' for index in range(96))}/></root>""",
             '<xsl:apply-templates select="root/p/@*"/>' * 2,
             "".join(f'<xsl:template match="@a{index}">{index}|</xsl:template>' for index in range(96)),
             "".join(f"{index}|" for index in range(96)) * 2,
@@ -5433,7 +5433,7 @@ def test_name_benchmark_output(library: str, name: str) -> None:
     module: Final = pytest.importorskip(f"bench.{library}", exc_type=ImportError)
     operation: Final = module.OPERATIONS["transform-names"][0]
     _, _, load = next(benchmark for benchmark in benchmarks() if benchmark[0] == name)
-    expected: Final = "<out>" + '<item marker="hit">1</item>' * 256 + "</out>"
+    expected: Final = f"""<out>{'<item marker="hit">1</item>' * 256}</out>"""
     assert str(operation(cast("tuple[str, str]", load()))).strip() == expected
 
 

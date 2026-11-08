@@ -591,7 +591,7 @@ def test_rng_interleave_choice_same_name() -> None:
             id="7.4-interleave-conflict-in-grammar",
         ),
         pytest.param(
-            rwrap("<interleave>" + '<optional><element name="e"><empty/></element></optional>' * 3 + "</interleave>"),
+            rwrap(f"""<interleave>{'<optional><element name="e"><empty/></element></optional>' * 3}</interleave>"""),
             "same element name in more than one branch",
             id="7.4-overlapping-interleave",
         ),

@@ -1902,7 +1902,7 @@ def test_sort_attributes_by_width(
     names: Final = sorted(f"a{index}" for index in range(count))
     element: Final = Element("x", dict.fromkeys(ordered(names), ""), children=[Text("x")])
     result: Final = render(element, Html(xml=xml, sort_attributes=True))
-    assert result == "<x " + " ".join(f'{name}=""' for name in names) + ">x</x>"
+    assert result == f"""<x {" ".join(f'{name}=""' for name in names)}>x</x>"""
 
 
 def test_sort_attributes_composes_with_indent() -> None:

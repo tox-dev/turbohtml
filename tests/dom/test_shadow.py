@@ -720,10 +720,10 @@ def test_shadow_flatten_keeps_sibling_fallback_order() -> None:
 def test_late_slot_collects_children_in_order(mode: str) -> None:
     host: Final[Element] = Element("div")
     host.set_inner_html(
-        "<!--before-->" + "<!--between-->".join(f'<span slot="target">{index}</span>' for index in range(64))
+        f"""<!--before-->{"<!--between-->".join(f'<span slot="target">{index}</span>' for index in range(64))}"""
     )
     root: Final[ShadowRoot] = host.attach_shadow(mode)
-    root.set_inner_html('<slot name="unused"></slot>' * 64 + '<slot name="target"></slot>')
+    root.set_inner_html(f"""{'<slot name="unused"></slot>' * 64}<slot name="target"></slot>""")
     assert root.select('slot[name="target"]')[0].assigned_nodes() == host.select("span")
 
 
@@ -769,7 +769,7 @@ def test_unassigned_slot_keeps_fallback(content: str) -> None:
     host: Final[Element] = Element("div")
     host.set_inner_html(content)
     root: Final[ShadowRoot] = host.attach_shadow("open")
-    root.set_inner_html('<slot name="other"></slot>' * 64 + '<slot name="target"><b>fallback</b></slot>')
+    root.set_inner_html(f"""{'<slot name="other"></slot>' * 64}<slot name="target"><b>fallback</b></slot>""")
     slot: Final[Element] = root.select('slot[name="target"]')[0]
     assert (slot.assigned_nodes(), slot.assigned_nodes(flatten=True)) == ([], slot.select("b"))
 

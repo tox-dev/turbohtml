@@ -560,7 +560,7 @@ def test_xml_c14n_1_1_does_not_inherit_xml_id() -> None:
 
 def test_xml_c14n_many_namespaces_and_attributes() -> None:
     names: Final = tuple(f"p{index:02d}" for index in range(33))
-    source: Final = "<r " + " ".join(f'xmlns:{name}="urn:{name}" {name}:x="v"' for name in names) + "/>"
+    source: Final = f"""<r {" ".join(f'xmlns:{name}="urn:{name}" {name}:x="v"' for name in names)}/>"""
     expected: Final = (
         "<r "
         + " ".join(f'xmlns:{name}="urn:{name}"' for name in names)
@@ -590,7 +590,7 @@ def test_xml_c14n_rejects_relative_namespace(namespace: str, options: Canonical)
 
 
 def test_xml_c14n_rejects_relative_namespace_with_heap_allocated_bindings() -> None:
-    source: Final = "<r " + " ".join(f'xmlns:p{index}="urn:{index}"' for index in range(33)) + ' xmlns:bad="rel"/>'
+    source: Final = f"""<r {" ".join(f'xmlns:p{index}="urn:{index}"' for index in range(33))} xmlns:bad="rel"/>"""
     with pytest.raises(ValueError, match="relative namespace URI cannot be canonicalized"):
         parse_xml(source).canonicalize()
 
@@ -1162,11 +1162,11 @@ def test_w3c_spec_example_pis_and_comments() -> None:
 )
 def test_canonicalize_orders_many_attributes(size: int) -> None:
     element: Final[Element] = parse(
-        "<div " + " ".join(f'data-{index:05d}="{index}"' for index in range(size, 0, -1)) + "></div>"
+        f"""<div {" ".join(f'data-{index:05d}="{index}"' for index in range(size, 0, -1))}></div>"""
     ).select("div")[0]
     assert (
         element.canonicalize()
-        == ("<div " + " ".join(f'data-{index:05d}="{index}"' for index in range(1, size + 1)) + "></div>").encode()
+        == (f"""<div {" ".join(f'data-{index:05d}="{index}"' for index in range(1, size + 1))}></div>""").encode()
     )
 
 

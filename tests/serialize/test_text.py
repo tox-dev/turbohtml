@@ -289,7 +289,7 @@ def test_loose_block_in_tight_item() -> None:
 
 
 def test_footnote_links_grow_past_initial_capacity() -> None:
-    html = "<p>" + "".join(f'<a href="/{i}">L{i}</a>' for i in range(10)) + "</p>"
+    html = f"""<p>{"".join(f'<a href="/{i}">L{i}</a>' for i in range(10))}</p>"""
     out = parse(html).to_text(PlainText(links="footnote"))
     assert "[10] /9" in out
 

@@ -1085,7 +1085,7 @@ def test_date_leap_year(exslt_doc: turbohtml.Node, expr: str, *, expected: bool)
 @pytest.mark.parametrize("unique", [pytest.param(1, id="identical"), pytest.param(64, id="many-values")])
 def test_distinct_retains_first_occurrences(unique: int) -> None:
     document: Final[Document] = parse_xml(
-        "<root>" + "".join(f'<item id="{index}">value-{index % unique}</item>' for index in range(256)) + "</root>"
+        f"""<root>{"".join(f'<item id="{index}">value-{index % unique}</item>' for index in range(256))}</root>"""
     )
     assert document.xpath("set:distinct(//item)/@id") == [str(index) for index in range(unique)]
 

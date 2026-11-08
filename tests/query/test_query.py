@@ -715,16 +715,14 @@ def test_css_path_of_detached_element_with_id_absent_from_document() -> None:
 @pytest.mark.parametrize("selector", ["i", ":scope > i"], ids=["descendant", "scoped"])
 def test_find_root_document_order(count: int, order: Callable[[list[Element]], list[Element]], selector: str) -> None:
     nodes = order(
-        parse("<main>" + "".join(f'<div><i id="{index}"></i></div>' for index in range(count)) + "</main>").select(
-            "div"
-        )
+        parse(f"""<main>{"".join(f'<div><i id="{index}"></i></div>' for index in range(count))}</main>""").select("div")
     )
     assert [node.attrs["id"] for node in Query(nodes).find(selector)] == [str(index) for index in range(count)]
 
 
 def test_find_duplicate_roots_preserve_document_order() -> None:
     nodes: Final = parse(
-        "<main>" + "".join(f'<div><i id="{index}"></i></div>' for index in range(32)) + "</main>"
+        f"""<main>{"".join(f'<div><i id="{index}"></i></div>' for index in range(32))}</main>"""
     ).select("div")
     assert [node.attrs["id"] for node in Query([*reversed(nodes), *nodes]).find("i")] == [
         str(index) for index in range(32)
@@ -732,7 +730,7 @@ def test_find_duplicate_roots_preserve_document_order() -> None:
 
 
 def test_find_root_order_after_mutation() -> None:
-    document: Final = parse("<main>" + "".join(f'<div><i id="{index}"></i></div>' for index in range(32)) + "</main>")
+    document: Final = parse(f"""<main>{"".join(f'<div><i id="{index}"></i></div>' for index in range(32))}</main>""")
     nodes: Final = document.select("div")
     query: Final = Query(list(reversed(nodes)))
     before: Final = [node.attrs["id"] for node in query.find("i")]

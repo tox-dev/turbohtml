@@ -1750,7 +1750,7 @@ def test_attribute_prefix_surrogate_raises(
     policy: Final = Policy(
         tags=frozenset({"a"}), attributes=attributes, attribute_prefixes=cast("frozenset[str]", prefixes)
     )
-    html: Final = "<a " + " ".join(f'data-{index}="1"' for index in range(count)) + ">x</a>"
+    html: Final = f"""<a {" ".join(f'data-{index}="1"' for index in range(count))}>x</a>"""
     with pytest.raises(UnicodeEncodeError, match="surrogates not allowed"):
         sanitize(html, policy)
 
@@ -2062,7 +2062,7 @@ def test_attribute_compaction_value_rewrites(policy: Policy, attribute: str, exp
 
 
 def test_attribute_compaction_copies_source(policy: Policy) -> None:
-    html: Final = "<a" + "".join(f' bad-{index}="x"' for index in range(32)) + ' href="/safe">x</a>'
+    html: Final = f"""<a{"".join(f' bad-{index}="x"' for index in range(32))} href="/safe">x</a>"""
     source: Final = parse_fragment(html)
     sanitized: Final = Sanitizer(policy).sanitize_node(source)
     assert (source.inner_html, sanitized.inner_html) == (html, '<a href="/safe">x</a>')
@@ -2072,7 +2072,7 @@ def test_attribute_compaction_copies_source(policy: Policy) -> None:
     ("case", "expected"),
     [
         pytest.param(0, "<p>x</p>", id="rejected"),
-        pytest.param(1, "<p" + "".join(f' data-{index}="x"' for index in range(1_024)) + ">x</p>", id="allowed"),
+        pytest.param(1, f"""<p{"".join(f' data-{index}="x"' for index in range(1_024))}>x</p>""", id="allowed"),
         pytest.param(2, '<p data-a="x" data-b="x" data-c="x" data-d="x">x</p>', id="tiny"),
     ],
 )

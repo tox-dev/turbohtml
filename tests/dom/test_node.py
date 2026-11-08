@@ -369,7 +369,7 @@ def test_namespace_values() -> None:
 
 # find_all()/select()/iteration recycle their node wrappers on a freelist; the count
 # exceeds the pool cap so dropping a result also frees past the pool's limit.
-_WIDE: Final[str] = "<ul>" + "".join(f'<li class="row">item {index}</li>' for index in range(1200)) + "</ul>"
+_WIDE: Final[str] = f"""<ul>{"".join(f'<li class="row">item {index}</li>' for index in range(1200))}</ul>"""
 
 
 def test_recycled_wrapper_does_not_alias_a_held_node() -> None:
@@ -592,7 +592,7 @@ def test_duplicate_normalized_attributes_keep_the_first_after_ordinary(count: in
 @pytest.mark.parametrize("prefix", ["data-", "é", "水", "𐐀"], ids=["ascii", "latin1", "ucs2", "ucs4"])
 @pytest.mark.parametrize("different", [False, True], ids=["equal", "different"])
 def test_xml_attribute_equality(prefix: str, *, different: bool) -> None:
-    left: Final = parse_xml("<root " + " ".join(f'{prefix}{index}="{index}"' for index in range(40)) + "/>")
+    left: Final = parse_xml(f"""<root {" ".join(f'{prefix}{index}="{index}"' for index in range(40))}/>""")
     right: Final = parse_xml(
         "<root "
         + " ".join(f'{prefix}{index}="{index + int(different and index == 39)}"' for index in reversed(range(40)))

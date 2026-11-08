@@ -2035,7 +2035,7 @@ def test_wide_attribute_declaration_order(declarations: str, attributes: str, ex
         + "</xs:complexType></xs:element></xs:schema>"
     )
     document: Final = parse_xml(
-        "<root " + " ".join(f'item{index}="text"' for index in reversed(range(32))) + " " + attributes + "/>"
+        f"""<root {" ".join(f'item{index}="text"' for index in reversed(range(32)))} {attributes}/>"""
     )
     assert [error.message for error in schema.validate(document).errors] == expected
 

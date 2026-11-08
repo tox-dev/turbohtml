@@ -616,7 +616,7 @@ def test_non_str_raises_type_error() -> None:
 @pytest.mark.parametrize("count", [pytest.param(1, id="single"), pytest.param(1000, id="many")])
 def test_xml_attribute_append_preserves_values_and_order(count: int) -> None:
     expected: Final = [(f"a{index}", str(index)) for index in range(count)]
-    source: Final = "<root " + " ".join(f'{name}="{value}"' for name, value in expected) + "/>"
+    source: Final = f"""<root {" ".join(f'{name}="{value}"' for name, value in expected)}/>"""
     root: Final = parse_xml(source).find("root")
     assert root is not None
     assert list(root.attrs.items()) == expected
@@ -700,7 +700,7 @@ def test_xml_namespace_attribute_order(prefix: str, count: int) -> None:
     expected: Final = [(f"xmlns:{prefix}{index}", f"urn:{index}") for index in range(count)] + [
         (f"{prefix}{index}:value", "x") for index in range(count)
     ]
-    root: Final = parse_xml("<root " + " ".join(f'{name}="{value}"' for name, value in expected) + "/>").find("root")
+    root: Final = parse_xml(f"""<root {" ".join(f'{name}="{value}"' for name, value in expected)}/>""").find("root")
     assert root is not None
     assert list(root.attrs.items()) == expected
 
@@ -743,7 +743,7 @@ def test_xml_many_distinct_namespaced_attributes_parse(count: int) -> None:
 
 
 def _namespaced_distinct(count: int) -> str:
-    return "<r xmlns:p='u' " + " ".join(f"p:a{index}='x'" for index in range(count)) + "/>"
+    return f"""<r xmlns:p='u' {" ".join(f"p:a{index}='x'" for index in range(count))}/>"""
 
 
 @pytest.mark.parametrize("count", [pytest.param(2000, id="interned-second-element")])
@@ -756,17 +756,15 @@ def test_xml_repeated_plain_names_across_elements_parse(count: int) -> None:
 
 def _plain_repeated(count: int) -> str:
     # the second element re-reads already-interned names
-    return "<r>" + ("<e " + " ".join(f"a{index}='x'" for index in range(count)) + "/>") * 2 + "</r>"
+    return f"""<r>{("<e " + " ".join(f"a{index}='x'" for index in range(count)) + "/>") * 2}</r>"""
 
 
 @pytest.mark.parametrize(
     "source",
     [
+        pytest.param(f"""<r {" ".join(f"a{index}='x'" for index in range(2000))} a0='y'/>""", id="raw-name-after-many"),
         pytest.param(
-            "<r " + " ".join(f"a{index}='x'" for index in range(2000)) + " a0='y'/>", id="raw-name-after-many"
-        ),
-        pytest.param(
-            "<r xmlns:p='u' xmlns:q='u' " + " ".join(f"p:a{index}='x'" for index in range(2000)) + " q:a0='y'/>",
+            f"""<r xmlns:p='u' xmlns:q='u' {" ".join(f"p:a{index}='x'" for index in range(2000))} q:a0='y'/>""",
             id="expanded-name-after-many",
         ),
     ],

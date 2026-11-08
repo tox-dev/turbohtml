@@ -942,7 +942,7 @@ def test_find_all_results_during_collection(offset: int, count: int, expected: l
     thresholds: Final = gc.get_threshold()
     gc.disable()
     gc.collect()
-    document: Final = parse("<main>" + "<p id='old'>x</p>" * 33 + "</main>")
+    document: Final = parse(f"""<main>{"<p id='old'>x</p>" * 33}</main>""")
     document.find_all("p")
     main: Final = document.find("main")
     assert main is not None

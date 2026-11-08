@@ -4302,7 +4302,7 @@ def test_href_resolution(html: str, opts: Markdown, expected: str) -> None:
 
 
 def test_reference_links_grow_past_initial_capacity() -> None:
-    html = "<p>" + "".join(f'<a href="/{i}">L{i}</a>' for i in range(10)) + "</p>"
+    html = f"""<p>{"".join(f'<a href="/{i}">L{i}</a>' for i in range(10))}</p>"""
     out = _configured_markdown(html, Markdown(links=Markdown.Links(style="reference")))
     assert "[10]: /9" in out
 

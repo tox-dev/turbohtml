@@ -759,7 +759,7 @@ def test_select_indexed_collection(offset: int, count: int) -> None:
     thresholds: Final = gc.get_threshold()
     gc.disable()
     gc.collect()
-    document: Final = parse("<main>" + "<input id='old'>" * 33 + "</main>")
+    document: Final = parse(f"""<main>{"<input id='old'>" * 33}</main>""")
     document.select("input")
     main: Final = document.find("main")
     assert main is not None
