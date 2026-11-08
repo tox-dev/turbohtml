@@ -904,12 +904,12 @@ def test_repeated_query_is_consistent(compiled_doc: turbohtml.Node) -> None:
         assert tags(compiled_doc.xpath("//p")) == ["p", "p"]
 
 
-XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
-
-
 def tags(result: XPathResult) -> list[str]:
     assert isinstance(result, list)
     return [node.tag for node in result if isinstance(node, Element)]
+
+
+XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
 
 
 def test_move_to_front(compiled_doc: turbohtml.Node) -> None:

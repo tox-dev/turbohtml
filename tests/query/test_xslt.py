@@ -5978,15 +5978,6 @@ def test_transform_number_namespace_changes_between_calls() -> None:
     assert (before, transform(source)) == ("1,1,", "1,2,")
 
 
-def _number_any_sheet() -> turbohtml.Document:
-    return parse_xml(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:output method="text"/><xsl:template match="/">'
-        '<xsl:for-each select="root/*"><xsl:number level="any"/><xsl:text>,</xsl:text>'
-        "</xsl:for-each></xsl:template></xsl:stylesheet>"
-    )
-
-
 @pytest.mark.parametrize(
     ("container", "tag"),
     [pytest.param("svg", "title", id="svg"), pytest.param("math", "mi", id="mathml")],
@@ -6008,6 +5999,15 @@ def test_transform_number_adopted_foreign_namespaces(container: str, tag: str, a
     foreign.attrs.update(attributes)
     root.append(foreign)
     assert Transform(_number_any_sheet())(source) == "1,1,"
+
+
+def _number_any_sheet() -> turbohtml.Document:
+    return parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        '<xsl:output method="text"/><xsl:template match="/">'
+        '<xsl:for-each select="root/*"><xsl:number level="any"/><xsl:text>,</xsl:text>'
+        "</xsl:for-each></xsl:template></xsl:stylesheet>"
+    )
 
 
 @pytest.mark.parametrize(
@@ -6561,6 +6561,17 @@ def test_transform_html_nonroot_pattern() -> None:
     assert convert(parse_fragment("<p>x</p>")) == "hit"
 
 
+def test_transform_standalone_text_preserves_source() -> None:
+    source: Final = _standalone_text_source()
+    original: Final = str(source)
+    assert _standalone_text_convert("")(source) == "hello world"
+    assert str(source) == original
+
+
+def _standalone_text_source() -> Element:
+    return Element("root", children=[Text("  "), Element("b", children=[Text("hello")]), Text(" world")])
+
+
 def _standalone_text_convert(terminate: str) -> Transform:
     return Transform(
         parse_xml(
@@ -6569,17 +6580,6 @@ def _standalone_text_convert(terminate: str) -> Transform:
             f'<xsl:template match="/"><xsl:copy-of select="."/>{terminate}</xsl:template></xsl:stylesheet>'
         )
     )
-
-
-def _standalone_text_source() -> Element:
-    return Element("root", children=[Text("  "), Element("b", children=[Text("hello")]), Text(" world")])
-
-
-def test_transform_standalone_text_preserves_source() -> None:
-    source: Final = _standalone_text_source()
-    original: Final = str(source)
-    assert _standalone_text_convert("")(source) == "hello world"
-    assert str(source) == original
 
 
 def test_transform_standalone_text_preserves_source_on_termination() -> None:
