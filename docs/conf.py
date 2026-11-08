@@ -9,10 +9,11 @@ import inspect
 import os
 import re
 import sys
+from functools import reduce
 from html import escape as _html_escape
 from importlib.metadata import version as _version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Final, NamedTuple
+from typing import TYPE_CHECKING, Any, ClassVar, Final, NamedTuple, TypedDict
 from urllib.parse import urlsplit
 
 from docutils import nodes
@@ -127,11 +128,10 @@ def linkcode_resolve(domain: str, info: dict[str, str]) -> str | None:
         module = importlib.import_module(info["module"])
     except ImportError:
         return None
-    obj: object | None = module
-    for part in info["fullname"].split("."):
-        obj = getattr(obj, part, None)
     try:
-        target = inspect.unwrap(obj)
+        target = inspect.unwrap(
+            reduce(lambda parent, part: getattr(parent, part, None), info["fullname"].split("."), module)
+        )
         source_file = inspect.getsourcefile(target)
         lines, start = inspect.getsourcelines(target)
         relative = Path(source_file).resolve().relative_to(_REPO_ROOT)
@@ -369,7 +369,7 @@ def _add_page_description(
     app: Sphinx,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
     pagename: str,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
     templatename: str,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
-    context: dict[str, Any],
+    context: _PageContext,
     doctree: nodes.document | None,
 ) -> None:
     # Give each page a ``<meta name="description">`` from its first paragraph so search results read well.
@@ -464,3 +464,7 @@ class _Arguments(NamedTuple):
 
 
 markdown_http_base = os.environ.get("READTHEDOCS_CANONICAL_URL", "")
+
+
+class _PageContext(TypedDict, total=False):
+    metatags: str

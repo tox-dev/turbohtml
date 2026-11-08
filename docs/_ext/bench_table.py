@@ -30,7 +30,7 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Final, NamedTuple
+from typing import TYPE_CHECKING, ClassVar, Final, NamedTuple, NotRequired, TypedDict
 
 from docutils import nodes
 from docutils.parsers.rst import Directive, directives
@@ -143,7 +143,7 @@ class BenchTable(Directive):
     def run(self) -> list[nodes.Node]:
         source = Path(self.state.document["source"]).parent / self.options["file"]
         self.state.document.settings.record_dependencies.add(str(source))
-        feed = json.loads(source.read_text(encoding="utf-8"))
+        feed: _Feed = json.loads(source.read_text(encoding="utf-8"))
         metrics = feed["metrics"] or ["time"]
         parties, rows, spread = _order_columns(feed["parties"], metrics, feed["rows"], feed.get("spread") or [])
         ncols = 1 + len(parties) * len(metrics)
@@ -208,8 +208,8 @@ class BenchTable(Directive):
 
     def _body(
         self,
-        rows: list[list[Any]],
-        spread: list[Any],
+        rows: list[list[float | str | None]],
+        spread: list[list[float | str | None]],
         layout: _Layout,
         row_marks: dict[int, int],
         ncols: int,
@@ -223,7 +223,11 @@ class BenchTable(Directive):
         return body
 
     def _body_row(
-        self, cells: list[Any], layout: _Layout, spread: list[Any] | None = None, caveat: int | None = None
+        self,
+        cells: list[float | str | None],
+        layout: _Layout,
+        spread: list[float | str | None] | None = None,
+        caveat: int | None = None,
     ) -> nodes.row:
         row = nodes.row()
         label = self._entry(str(cells[0]))
@@ -245,7 +249,7 @@ class BenchTable(Directive):
 
 
 def _order_columns(
-    parties: list[str], metrics: list[str], rows: list[list[Any]], spread: list[list[Any]]
+    parties: list[str], metrics: list[str], rows: list[list[float | str | None]], spread: list[list[float | str | None]]
 ) -> _OrderedColumns:
     # Put turbohtml first, then each competitor by how close it comes overall, permuting every row to match.
     #
@@ -275,7 +279,7 @@ def _order_columns(
 
     order = sorted(range(len(parties)), key=lambda index: ("turbohtml" not in parties[index], scores[index]))
 
-    def permute(source: list[list[Any]]) -> list[list[Any]]:
+    def permute(source: list[list[float | str | None]]) -> list[list[float | str | None]]:
         return [
             [row[0], *[cell for party_index in order for cell in row[1 + party_index * width :][:width]]]
             for row in source
@@ -290,8 +294,8 @@ def _order_columns(
 
 class _OrderedColumns(NamedTuple):
     parties: list[str]
-    rows: list[list[Any]]
-    spread: list[list[Any]]
+    rows: list[list[float | str | None]]
+    spread: list[list[float | str | None]]
 
 
 def _table_frame(ncols: int) -> tuple[nodes.table, nodes.tgroup]:
@@ -313,7 +317,7 @@ class _Layout:
     reasons: dict[str, int]
 
 
-def _reason_map(rows: list[list[Any]]) -> dict[str, int]:
+def _reason_map(rows: list[list[float | str | None]]) -> dict[str, int]:
     # Assign each distinct empty-cell reason a number in first-appearance order, scanning rows then cells.
     reasons: dict[str, int] = {}
     for row in rows:
@@ -325,13 +329,13 @@ def _reason_map(rows: list[list[Any]]) -> dict[str, int]:
     return reasons
 
 
-def _ordered_notes(feed: dict[str, Any], parties: list[str]) -> list[str]:
+def _ordered_notes(feed: _Feed, parties: list[str]) -> list[str]:
     # Return the noted parties in the order their columns appear, so ordinals read left to right.
     notes = feed.get("notes") or {}
     return [party for party in parties if party in notes]
 
 
-def _row_caveats(feed: dict[str, Any], taken: int) -> tuple[dict[str, int], dict[int, int]]:
+def _row_caveats(feed: _Feed, taken: int) -> tuple[dict[str, int], dict[int, int]]:
     # Assign each distinct per-row caveat an ordinal after those already taken, and map each row to its ordinal.
     notes: dict[str, int] = {}
     marks: dict[int, int] = {}
@@ -342,7 +346,7 @@ def _row_caveats(feed: dict[str, Any], taken: int) -> tuple[dict[str, int], dict
 
 
 def _merge_legend(
-    reasons: dict[str, int], notes: dict[str, int], row_notes: dict[str, int], feed: dict[str, Any]
+    reasons: dict[str, int], notes: dict[str, int], row_notes: dict[str, int], feed: _Feed
 ) -> dict[str, int]:
     # Gather the empty-cell reasons, the column notes and the row caveats into one numbered legend.
     legend = dict(reasons)
@@ -442,7 +446,7 @@ def _format_ratio(ratio: float, metric: str, spread: float | None) -> str:
     return f"({shown} ±{spread * 100:.0f}%)"
 
 
-def _ratio_spread(spread: list[Any] | None, index: int, turbo_index: int) -> float | None:
+def _ratio_spread(spread: list[float | str | None] | None, index: int, turbo_index: int) -> float | None:
     # Return the relative uncertainty of one ratio, or None when either side carries no spread.
     #
     # The two timings are measured independently, so their relative uncertainties add in quadrature. A ratio quoted
@@ -473,6 +477,16 @@ def _mark_entry(ordinal: int) -> nodes.entry:
     paragraph += superscript
     entry += paragraph
     return entry
+
+
+class _Feed(TypedDict):
+    label: str
+    parties: list[str]
+    metrics: list[str]
+    rows: list[list[float | str | None]]
+    spread: NotRequired[list[list[float | str | None]]]
+    notes: NotRequired[dict[str, str]]
+    row_notes: NotRequired[dict[str, str]]
 
 
 __all__ = [
