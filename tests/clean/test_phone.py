@@ -1362,7 +1362,7 @@ _PIECES: Final[tuple[str, ...]] = (
 )  # fmt: skip
 
 
-_RUNS: Final = re.compile(r"[ \t\n\f\r]+")
+_RUNS: Final[re.Pattern[str]] = re.compile(r"[ \t\n\f\r]+")
 
 
 def test_collapse_whitespace_matches_the_text_as_it_renders() -> None:

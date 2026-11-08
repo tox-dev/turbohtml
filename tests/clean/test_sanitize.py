@@ -1309,7 +1309,7 @@ def test_relative_url_dropped_when_disallowed() -> None:
 # A code point the WHATWG scheme state stops on (anything but an ASCII scheme character or a removed tab/LF/CR) ends the
 # scheme, so the value is a relative URL -- a browser resolves it same-origin, not as the allowlisted scheme spelled
 # around the character. Dropping such a code point to read a scheme would bypass allow_relative_urls=False.
-_SCHEME_SPLITTERS = [
+_SCHEME_SPLITTERS: Final[list[pytest.ParameterSet]] = [
     pytest.param("\u00a0", id="nbsp"),
     pytest.param("\u00ad", id="soft-hyphen"),
     pytest.param("\u200b", id="zero-width-space"),
@@ -2522,7 +2522,7 @@ def test_namespace_reachable_foreign_content_untouched(html: str, policy: Policy
 # producing a namespace-confused node the reachability check must drop. move is (source, source-namespace, target):
 # source-namespace disambiguates a name that exists in more than one namespace. marker is the node's start tag, absent
 # once it is dropped and present while correctly nested.
-_CONFUSION_CASES = [
+_CONFUSION_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "<div></div><svg><circle></circle></svg>", ("circle", "svg", "div"), {"div", "svg", "circle"}, "<circle",
         id="svg-element-reparented-under-html",
@@ -2920,7 +2920,7 @@ def test_a_foreign_object_is_rejected(entry: object) -> None:
         entry(42)  # ty: ignore[call-non-callable]  # the argument check is the point
 
 
-_EMPTY = ({}, frozenset(), {}, {}, {}, {}, Transform)
+_EMPTY: Final[tuple[object, ...]] = ({}, frozenset(), {}, {}, {}, {}, Transform)
 
 
 _Compiled = tuple[
@@ -3081,7 +3081,7 @@ def test_the_compiler_rejects_too_few_arguments() -> None:
         _sanitize_policy({}, frozenset())  # ty: ignore[missing-argument]  # the arity check is the point
 
 
-_XSS_CORPUS = [
+_XSS_CORPUS: Final[list[pytest.ParameterSet]] = [
     pytest.param("<script>alert(1)</script>", id="script"),
     pytest.param("<scr<script>ipt>alert(1)</scr</script>ipt>", id="nested-script"),
     pytest.param("<img src=x onerror=alert(1)>", id="img-onerror"),
@@ -3127,7 +3127,7 @@ _XSS_CORPUS = [
 ]
 
 
-_MODES = [
+_MODES: Final[list[pytest.ParameterSet]] = [
     pytest.param(Policy(), id="escape"),
     pytest.param(Policy(on_disallowed_tag=OnDisallowed.STRIP), id="strip"),
     pytest.param(Policy(on_disallowed_tag=OnDisallowed.REMOVE), id="remove"),
@@ -3154,7 +3154,7 @@ def test_round_trip_invariant(payload: str, policy: Policy) -> None:
 # cannot rebuild a different, live tree from it (the F-1 mXSS surface). Each case pins the exact output string and the
 # re-parse invariant, and names the tree-construction rule family it exercises. The script-bypass PoC is the headline:
 # two forms the form-element pointer would collapse on re-parse, re-exposing a MathML breakout into a live <img>.
-_PARSE_STABLE_CASES = [
+_PARSE_STABLE_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "<li><header><li>", Policy(tags=frozenset({"li"})), "<li>&lt;header&gt;&lt;li&gt;</li>", id="li-auto-close"
     ),
@@ -3269,7 +3269,7 @@ def test_form_pointer_breakout_poc_is_inert() -> None:
 # exposes (a flow or foreign element stranded in a table context, a block or list item or form that closes an open p, a
 # nested select, a table part under a foreign ancestor, an adoption-agency marker). The property checked is the
 # guarantee, not a pinned string: re-parsing the output rebuilds its own tree, and nothing executable survives.
-_PARSE_STABLE_RULES = [
+_PARSE_STABLE_RULES: Final[list[pytest.ParameterSet]] = [
     pytest.param("<h3><object><h4>x", frozenset({"h3", "h4"}), id="heading-h3-h4"),
     pytest.param("<h5><object><h6>x", frozenset({"h5", "h6"}), id="heading-h5-h6"),
     pytest.param("<dt><object><dt>x", frozenset({"dt"}), id="dt-closes-dt"),
@@ -3374,7 +3374,7 @@ def _cell_under_math_text_point() -> Element:
     return E.div(math)
 
 
-_BUILT_TREE_CASES = [
+_BUILT_TREE_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(E.div(E.li(E.div(E.li("x")))), frozenset({"li", "div"}), id="li-through-div"),
     pytest.param(E.div(E.li(E.address(E.li("x")))), frozenset({"li", "address"}), id="li-through-address"),
     pytest.param(E.div(E.li(E.p(E.li("x")))), frozenset({"li", "p"}), id="li-through-p"),
@@ -3449,7 +3449,7 @@ def _svg_child_named(name: str) -> Element:
     return svg
 
 
-_BALANCED_WALK_CASES: Final = [
+_BALANCED_WALK_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         lambda: E.div(E.li(E.span(E.li("x"), E.li("y")))),
         frozenset({"div", "li"}),
@@ -3553,7 +3553,7 @@ def test_node_balanced_walk(build: Callable[[], Element], tags: frozenset[str], 
     assert parse_fragment(once).inner_html == once
 
 
-_SETTLE_SCAN_CASES: Final = [
+_SETTLE_SCAN_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         lambda: E.div(E.b(E.section(E.li("x")))),
         frozenset({"div", "li", "b"}),
@@ -3672,7 +3672,7 @@ def test_node_pass_keeps_valid_table_structure(group: str) -> None:
     assert sanitize_node(parse_fragment(html), policy).inner_html == html
 
 
-_ESCAPED_TABLE_ORDER_CASES: Final = [
+_ESCAPED_TABLE_ORDER_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "<table><tbody><tr><td>x</td></tr></tbody></table>",
         frozenset({"table", "td"}),
@@ -3723,7 +3723,7 @@ def test_escaped_table_parts_keep_document_order(source: str, tags: frozenset[st
     assert (sanitize(source, policy), sanitize_node(parse_fragment(source), policy).inner_html) == (expected, expected)
 
 
-_TABLE_CONTENT_CASES: Final = [
+_TABLE_CONTENT_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         lambda: E.div(E.table(E.tbody(E.td("a"), Comment("c"), E.td("b")))),
         "<div><table><tbody><tr><td>a</td><!--c--><td>b</td></tr></tbody></table></div>",
@@ -3798,7 +3798,7 @@ def test_xml_output_keeps_a_nesting_only_html_reparsing_changes() -> None:
     assert sanitize("<h1><b><h2>x", Policy(tags=frozenset({"h1", "h2"}), xml=True)) == "<h1>&lt;b&gt;<h2>x</h2></h1>"
 
 
-_IMPLIED_END_CASES = [
+_IMPLIED_END_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("select", "dd", "option", True, id="option-closes-dd"),
     pytest.param("select", "dt", "option", True, id="option-closes-dt"),
     pytest.param("select", "li", "option", True, id="option-closes-li"),
@@ -3920,7 +3920,7 @@ def test_oracle_detects_a_dangerous_url() -> None:
 # Scheme-evasion parity: routing the sanitizer's scheme scan onto the shared grammar predicates keeps the exact
 # allow/block decision. Every obfuscated dangerous scheme stays blocked; the benign counterparts stay allowed (a
 # regression there would be over-blocking, not a hole, but the allowlist is only useful if normal URLs survive).
-_SCHEME_PARITY = [
+_SCHEME_PARITY: Final[list[pytest.ParameterSet]] = [
     pytest.param("javascript:alert(1)", False, id="javascript"),
     pytest.param("JaVaScRiPt:alert(1)", False, id="javascript-mixed-case"),
     pytest.param("DATA:text/html,x", False, id="data-upper"),
@@ -4411,7 +4411,7 @@ _DOMPURIFY_PERMISSIVE: Final[Policy] = Policy(
     url_schemes=DEFAULT_SCHEMES,
     css_properties=DEFAULT_CSS_PROPERTIES,
 )
-_DOMPURIFY_POLICIES = [
+_DOMPURIFY_POLICIES: Final[list[pytest.ParameterSet]] = [
     pytest.param(Policy(), id="default"),
     pytest.param(Policy.relaxed(), id="relaxed"),
     pytest.param(_DOMPURIFY_PERMISSIVE, id="permissive"),
@@ -4440,7 +4440,14 @@ _DOMPURIFY_URL_ATTRS: Final[frozenset[str]] = frozenset({
     "ping",
 })
 # CSS constructs that execute or fetch when a kept <style> body or style attribute survives the property scrub.
-_DOMPURIFY_CSS_DANGER = ("javascript:", "vbscript:", "expression(", "@import", "behavior:", "-moz-binding")
+_DOMPURIFY_CSS_DANGER: Final[tuple[str, ...]] = (
+    "javascript:",
+    "vbscript:",
+    "expression(",
+    "@import",
+    "behavior:",
+    "-moz-binding",
+)
 
 
 def _attr_value(raw: str | list[str] | None) -> str:
@@ -4751,7 +4758,7 @@ def test_clean_url_authority_keeps_the_href(value: str, expected: str) -> None:
     assert dict(parse_fragment(result).select("a")[0].attrs) == {"href": expected}
 
 
-_URL_AUTHORITY_VALUES: Final = [
+_URL_AUTHORITY_VALUES: Final[list[pytest.ParameterSet]] = [
     pytest.param(attribute, value, id=attribute)
     for attribute, value in (
         ("href", "http://["),

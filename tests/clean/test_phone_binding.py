@@ -230,7 +230,7 @@ def test_phone_parse_handles_a_native_candidate() -> None:
     )
 
 
-_NEEDS_GC_COLLECT: Final = pytest.mark.skipif(
+_NEEDS_GC_COLLECT: Final[pytest.MarkDecorator] = pytest.mark.skipif(
     sys.implementation.name == "pypy", reason="PyPy frees a cycle on its own schedule, not on gc.collect()"
 )
 
