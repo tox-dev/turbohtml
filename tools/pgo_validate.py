@@ -101,7 +101,7 @@ def _measured(python: str) -> dict[str, float]:
     return json.loads(result.stdout)
 
 
-def validate(work: Path) -> bool:
+def _validate(work: Path) -> bool:
     # Build both variants under ``work``, measure the held-out mix, print the deltas, and return whether PGO passed.
     baseline_py, pgo_py = _venv(work, "baseline"), _venv(work, "pgo")
     # Install the extension LTO-only (no profile), the baseline the CodSpeed gate ships and PGO must beat.
@@ -163,7 +163,7 @@ def main() -> None:
     work = args.work or Path(tempfile.mkdtemp(prefix="pgo-validate-"))
     work.mkdir(parents=True, exist_ok=True)
     try:
-        passed = validate(work)
+        passed = _validate(work)
     finally:
         if args.work is None:
             shutil.rmtree(work, ignore_errors=True)

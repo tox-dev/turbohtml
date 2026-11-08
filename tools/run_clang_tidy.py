@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Final
 
 _ROOT: Final[Path] = Path(__file__).resolve().parent.parent
-BUILD: Final[Path] = _ROOT / "build" / "clang-tidy"
+_BUILD: Final[Path] = _ROOT / "build" / "clang-tidy"
 # meson compiles these units only with -Dfuzzing=true, so only that build's compile database lists them
 _FUZZING_SOURCES: Final[frozenset[str]] = frozenset({"src/turbohtml/_c/core/fuzzing.c"})
 
@@ -35,7 +35,7 @@ def main(argv: list[str]) -> int:
         command += ["--extra-arg=-isysroot", f"--extra-arg={sdk.stdout.strip()}"]
     status = 0
     for build, options, selected in (
-        (BUILD, [], [source for source in sources if source not in _FUZZING_SOURCES]),
+        (_BUILD, [], [source for source in sources if source not in _FUZZING_SOURCES]),
         (
             _ROOT / "build" / "clang-tidy-fuzzing",
             ["-Dfuzzing=true"],

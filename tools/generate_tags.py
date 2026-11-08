@@ -143,8 +143,8 @@ _SCOPING: Final[frozenset[str]] = frozenset([
     "template",
 ])
 # Start tags that switch the tokenizer's content model (tree construction owns this).
-RAWTEXT: Final[frozenset[str]] = frozenset(["style", "xmp", "iframe", "noembed", "noframes", "noscript"])
-RCDATA: Final[frozenset[str]] = frozenset(["title", "textarea"])
+_RAWTEXT: Final[frozenset[str]] = frozenset(["style", "xmp", "iframe", "noembed", "noframes", "noscript"])
+_RCDATA: Final[frozenset[str]] = frozenset(["title", "textarea"])
 
 # MathML / SVG element names the foreign-content insertion mode special-cases
 # (text integration points, HTML integration points, name adjustments).
@@ -217,8 +217,8 @@ _CATEGORY_FLAGS: Final[dict[str, frozenset[str]]] = {
     "TH_TAG_SPECIAL": _SPECIAL,
     "TH_TAG_FORMATTING": _FORMATTING,
     "TH_TAG_SCOPING": _SCOPING,
-    "TH_TAG_RAWTEXT": RAWTEXT,
-    "TH_TAG_RCDATA": RCDATA,
+    "TH_TAG_RAWTEXT": _RAWTEXT,
+    "TH_TAG_RCDATA": _RCDATA,
 }
 
 
@@ -238,7 +238,7 @@ def _tag_hash_rows(names: list[str]) -> str:
 
 def generate(out_path: Path) -> None:
     # Write the generated tag-atom C header to *out_path*.
-    names = sorted(_SPECIAL | _FORMATTING | _SCOPING | RAWTEXT | RCDATA | _FOREIGN | _EXTRA)
+    names = sorted(_SPECIAL | _FORMATTING | _SCOPING | _RAWTEXT | _RCDATA | _FOREIGN | _EXTRA)
     atoms = [f"TH_TAG_{name.upper().replace('-', '_')}" for name in names]
 
     flag_bits = {flag: 1 << i for i, flag in enumerate(_CATEGORY_FLAGS)}
