@@ -364,7 +364,7 @@ def _add_page_description(
             continue
         summary = text if len(text) <= description_limit else f"{text[: description_limit - 1].rstrip()}…"
         tag = f'<meta name="description" content="{_html_escape(summary, quote=True)}" />'
-        context["metatags"] = context.get("metatags", "") + f"\n    {tag}"
+        context["metatags"] = f"{context.get('metatags', '')}\n    {tag}"
         return
 
 
