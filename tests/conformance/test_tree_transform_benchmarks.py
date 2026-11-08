@@ -31,14 +31,16 @@ _FRAGMENTS: Final[dict[str, str]] = {
     "root-text": "lead &amp; <br> tail <!--one--><!--two-->",
     "empty-adjacent-text": "<p>a <!--one--> <!--two--> b</p>",
 }
-_CASES: Final = tuple(pytest.param(fragment, id=name) for name, fragment in _FRAGMENTS.items())
+_CASES: Final[tuple[pytest.ParameterSet, ...]] = tuple(
+    pytest.param(fragment, id=name) for name, fragment in _FRAGMENTS.items()
+)
 _RENDERERS: Final[dict[str, Callable[[Any], str]]] = {
     "lxml": lambda tree: import_module("lxml.html").tostring(cast("HtmlElement", tree), encoding="unicode"),
     "beautifulsoup4": str,
     "beautifulsoup4_lxml": str,
     "selectolax": lambda tree: cast("str", cast("LexborHTMLParser", tree).html),
 }
-_NODE_BENCH: Final = Path(__file__).parents[2] / "tools/bench/node/node_modules"
+_NODE_BENCH: Final[Path] = Path(__file__).parents[2] / "tools/bench/node/node_modules"
 
 
 def _as_text(output: str | bytes) -> str:

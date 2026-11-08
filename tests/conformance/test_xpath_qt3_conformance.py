@@ -27,11 +27,11 @@ if not _CATALOG.exists():
     )
     raise RuntimeError(_MSG)  # pragma: no cover  # raises only without the vendored QT3 suite
 
-_RAW_MARKERS = (
+_RAW_MARKERS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
     (re.compile(r"collation"), "collation URI (XPath 2.0 collations)"),
     (re.compile(r"&#"), "XQuery character reference in string literal"),
 )
-_GRAMMAR_MARKERS = (
+_GRAMMAR_MARKERS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
     (re.compile(r"\bxs:"), "xs: schema type constructor/cast (schema-aware)"),
     (re.compile(r"\*:|:\*"), "namespace wildcard (XPath 2.0)"),
     (re.compile(r"\b(array|map|math|err):"), "XPath 3.x namespaced function"),
@@ -423,7 +423,7 @@ def collect() -> Iterator[ParameterSet]:
                 yield pytest.param(case, id=case_id)
 
 
-_QT3_CASES: Final = list(collect())
+_QT3_CASES: Final[list[pytest.ParameterSet]] = list(collect())
 
 
 def _expects_error(param: ParameterSet) -> bool:

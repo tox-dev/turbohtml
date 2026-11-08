@@ -43,8 +43,10 @@ _TYPES: Final[dict[int, PhoneType]] = {
     PhoneNumberType.VOICEMAIL: PhoneType.VOICEMAIL,
     PhoneNumberType.UNKNOWN: PhoneType.UNKNOWN,
 }
-_REGION_PARAMS: Final = [pytest.param(region, id=region) for region in sorted(phonenumbers.SUPPORTED_REGIONS)]
-_NON_GEO_PARAMS: Final = [
+_REGION_PARAMS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(region, id=region) for region in sorted(phonenumbers.SUPPORTED_REGIONS)
+]
+_NON_GEO_PARAMS: Final[list[pytest.ParameterSet]] = [
     pytest.param(code, id=str(code)) for code in sorted(phonenumbers.COUNTRY_CODES_FOR_NON_GEO_REGIONS)
 ]
 

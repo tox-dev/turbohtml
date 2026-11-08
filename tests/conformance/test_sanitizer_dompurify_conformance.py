@@ -33,7 +33,9 @@ if not _FIXTURE.exists():  # pragma: no cover
 if _NODE is None or not (_NODE_DIR / "node_modules" / "isomorphic-dompurify").exists():
     pytest.skip("node or isomorphic-dompurify absent (run `npm install` in tools/bench/node)", allow_module_level=True)
 
-_NODE_BIN = _NODE or "node"  # the skip above guarantees a real path here; the fallback only narrows str | None for ty
+_NODE_BIN: Final[str] = (
+    _NODE or "node"
+)  # the skip above guarantees a real path here; the fallback only narrows str | None for ty
 
 
 def _load_payloads() -> list[str]:
@@ -133,7 +135,14 @@ _URL_ATTRS: Final[frozenset[str]] = frozenset({
     "cite",
     "ping",
 })
-_CSS_DANGER = ("javascript:", "vbscript:", "expression(", "@import", "behavior:", "-moz-binding")
+_CSS_DANGER: Final[tuple[str, ...]] = (
+    "javascript:",
+    "vbscript:",
+    "expression(",
+    "@import",
+    "behavior:",
+    "-moz-binding",
+)
 
 
 def _attr_value(raw: str | list[str] | None) -> str:
@@ -247,7 +256,7 @@ def test_templates_strip_every_opening_marker(index: int, payload: str) -> None:
     assert not any(marker in theirs for marker in template_openers), f"DOMPurify left an opener: {theirs!r}"
 
 
-_TEMPLATE_DEVIATIONS = [
+_TEMPLATE_DEVIATIONS: Final[list[pytest.ParameterSet]] = [
     pytest.param("<p>a{{x}}b</p>", id="mustache-keeps-leading-text"),
     pytest.param("<p>x{{a}b}}y</p>", id="mustache-keeps-trailing-text"),
     pytest.param("<p>lead %> tail</p>", id="bare-erb-close-kept-as-text"),
@@ -264,7 +273,7 @@ def test_templates_greedy_text_eating_deviation(payload: str) -> None:
     assert _canonical(sanitize(payload, _MODES["templates"])) == _canonical(_dompurify_one("templates", payload))
 
 
-_NAMED_PROPS_CORPUS = [
+_NAMED_PROPS_CORPUS: Final[list[pytest.ParameterSet]] = [
     pytest.param('<a id="location" href="http://x/">x</a>', id="id-collision"),
     pytest.param("<input name=attributes>", id="name-collision"),
     pytest.param('<img name=body id=cfg src="http://x/i">', id="id-and-name"),
@@ -282,7 +291,7 @@ def test_named_props_parity(payload: str) -> None:
     assert _canonical(sanitize(payload, _MODES["named-props"])) == _canonical(_dompurify_one("named-props", payload))
 
 
-_CUSTOM_ELEMENT_CORPUS = [
+_CUSTOM_ELEMENT_CORPUS: Final[list[pytest.ParameterSet]] = [
     pytest.param("<x-a data-x=1>hi</x-a><y-b>no</y-b>", id="keep-matching-drop-other"),
     pytest.param("<x-foo onclick=alert(1) data-ok=1>t</x-foo>", id="baseline-scrubs-handler-on-kept"),
     pytest.param("<my-el>drop</my-el>", id="non-matching-stripped"),
@@ -299,7 +308,7 @@ def test_custom_element_parity(payload: str) -> None:
     assert _canonical(ours) == _canonical(_dompurify_one("custom-elements", payload))
 
 
-_PROFILE_CORPUS = [
+_PROFILE_CORPUS: Final[list[pytest.ParameterSet]] = [
     pytest.param("<p>text</p><svg><circle/></svg><math><mi>x</mi></math>", id="all-three-namespaces"),
     pytest.param("<b>bold</b><i>it</i>", id="plain-html"),
     pytest.param("<svg><rect/></svg>", id="top-level-svg"),
@@ -314,7 +323,7 @@ def test_profile_parity(mode: str, payload: str) -> None:
     assert _canonical(sanitize(payload, _MODES[mode])) == _canonical(_dompurify_one(mode, payload))
 
 
-_PROFILE_DEVIATIONS = [
+_PROFILE_DEVIATIONS: Final[list[pytest.ParameterSet]] = [
     pytest.param("profile-svg", "<div><svg><g><path/></g></svg></div>", id="svg-child-of-disallowed-html"),
     pytest.param("profile-mathml", "<p><math><mo>+</mo></math></p>", id="mathml-child-of-disallowed-html"),
 ]

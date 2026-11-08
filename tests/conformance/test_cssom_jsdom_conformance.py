@@ -446,10 +446,10 @@ def _jsdom_results() -> dict[str, dict[str, dict[str, str]]]:
     return json.loads(completed.stdout)
 
 
-_SPEC_PARAMS = [
+_SPEC_PARAMS: Final[list[pytest.ParameterSet]] = [
     pytest.param(case.html, check, id=f"{case.id}-{check.prop}") for case in _CORPUS for check in case.checks
 ]
-_ORACLE_PARAMS = [
+_ORACLE_PARAMS: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         case.id,
         check,
@@ -462,7 +462,7 @@ _ORACLE_PARAMS = [
     for check in case.checks
     if check.oracle
 ]
-_BOUNDARY_PARAMS = [
+_BOUNDARY_PARAMS: Final[list[pytest.ParameterSet]] = [
     pytest.param(case.id, check, id=f"{case.id}-{check.prop}")
     for case in _CURATED_SHORTHAND_BOUNDARY
     for check in case.checks
@@ -518,7 +518,7 @@ _CASES: Final[tuple[Generated, ...]] = (
         )
     ),
 )
-_NODE: Final = shutil.which("node") or "node"
+_NODE: Final[str] = shutil.which("node") or "node"
 _AST: Final[Path] = Path(__file__).resolve().parents[2] / "tools" / "bench" / "node" / "node_modules" / "css-tree"
 
 

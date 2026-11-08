@@ -1302,7 +1302,7 @@ _RANGE_CASES += [
     },
 ]
 
-_ALL_DIFF_CASES = _RANGE_CASES + _TRAVERSAL_CASES + _SHADOW_CASES
+_ALL_DIFF_CASES: Final[list[dict[str, Any]]] = _RANGE_CASES + _TRAVERSAL_CASES + _SHADOW_CASES
 
 
 @pytest.fixture(scope="session")
