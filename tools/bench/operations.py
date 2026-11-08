@@ -91,15 +91,12 @@ _FEED_ITEM: Final[str] = dedent("""\
 """)
 
 _FEED_XML: Final[str] = (
-    '<?xml version="1.0" encoding="utf-8"?>\n'
-    '<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/"'
-    ' xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>\n'
-    "<title>Example Engineering Blog</title>\n"
-    "<link>https://blog.example/</link>\n"
-    "<description>Notes from the Example engineering team.</description>\n"
-    "<lastBuildDate>Tue, 07 Jul 2026 09:00:00 GMT</lastBuildDate>\n"
-    + "".join(_FEED_ITEM.format(index=index) for index in range(30))
-    + "</channel></rss>"
+    f'<?xml version="1.0" encoding="utf-8"?>\n<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" '
+    f'xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>\n<title>Example Engineering '
+    f"Blog</title>\n<link>https://blog.example/</link>\n<description>Notes "
+    f"from the Example engineering team.</description>\n<lastBuildDate>Tue, "
+    f"07 Jul 2026 09:00:00 "
+    f"GMT</lastBuildDate>\n{''.join(_FEED_ITEM.format(index=index) for index in range(30))}</channel></rss>"
 )
 
 _XML_ITEM: Final[str] = (
@@ -115,11 +112,8 @@ _XML_ITEM: Final[str] = (
 # A well-formed namespaced catalog both parse_xml and lxml.etree accept: 400 records with
 # prefixes, attributes, entities and CDATA, sized to clear the CodSpeed heap-jitter floor.
 _XML_DOC: Final[str] = (
-    '<?xml version="1.0" encoding="UTF-8"?>\n'
-    "<!-- generated catalog -->\n"
-    '<catalog xmlns="urn:example:catalog">'
-    + "".join(_XML_ITEM.format(index=index) for index in range(400))
-    + "</catalog>"
+    f'<?xml version="1.0" encoding="UTF-8"?>\n<!-- generated catalog -->\n<catalog '
+    f'xmlns="urn:example:catalog">{"".join(_XML_ITEM.format(index=index) for index in range(400))}</catalog>'
 )
 
 _SHADOW_CARD: Final[str] = (
@@ -137,9 +131,9 @@ _SHADOW_CARD: Final[str] = (
 # A document of declarative shadow hosts: 200 web-component cards whose <template shadowrootmode> attaches an open
 # shadow root (with slots and the delegatesfocus/clonable flags) to each host, sized to clear the CodSpeed jitter floor.
 _SHADOW_DOC: Final[str] = (
-    "<!doctype html><html><head><title>Component gallery</title></head><body><main>"
-    + "".join(_SHADOW_CARD.format(index=index) for index in range(200))
-    + "</main></body></html>"
+    f"<!doctype html><html><head><title>Component "
+    f"gallery</title></head><body><main>{''.join(_SHADOW_CARD.format(index=index) for index in range(200))}"
+    f"</main></body></html>"
 )
 
 # A single-namespace records catalog and a matching XSD, sized like the parse corpus so the
@@ -153,10 +147,8 @@ _VALIDATE_RECORD: Final[str] = (
     "</record>"
 )
 _VALIDATE_DOC: Final[str] = (
-    '<?xml version="1.0"?>'
-    '<catalog xmlns="urn:example:records">'
-    + "".join(_VALIDATE_RECORD.format(index=index) for index in range(400))
-    + "</catalog>"
+    f'<?xml version="1.0"?><catalog '
+    f'xmlns="urn:example:records">{"".join(_VALIDATE_RECORD.format(index=index) for index in range(400))}</catalog>'
 )
 _VALIDATE_XSD: Final[str] = (
     '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:example:records"'
@@ -651,7 +643,7 @@ def _computed_style_selector_cases() -> tuple[tuple[str, str], ...]:
         (
             label,
             f"<!doctype html><style>div{{color:blue}}div{selector}{{color:red}}</style>"
-            + ("<div>" * count + leaf + "</div>" * count if nested else ("<div></div>" + leaf) * count),
+            + ("<div>" * count + leaf + "</div>" * count if nested else (f"<div></div>{leaf}") * count),
         )
         for label, selector, count, nested, leaf in (
             ("deep missing :has / 512 elements", ":has(.hit)", 512, True, "<span></span>"),
@@ -893,7 +885,7 @@ _FILTER_STYLED_PAGES: Final[tuple[tuple[str, str], ...]] = tuple(
     (
         f"256 rules / 128 parent-child pairs / {label}",
         "<style>"
-        + (selector + "{color:red}") * 256
+        + (f"{selector}{{color:red}}") * 256
         + "div{color:blue}</style>"
         + '<div class="hit"><span></span></div>' * 128,
     )
@@ -908,7 +900,7 @@ _FILTER_STYLED_PAGES: Final[tuple[tuple[str, str], ...]] = tuple(
 _SPECIFICITY_STYLED_PAGES: Final[tuple[tuple[str, str], ...]] = tuple(
     (
         f"256 rules / 128 elements / {label}",
-        "<style>" + (selector + "{color:red}") * 256 + "</style>" + '<div class="hit"></div>' * 128,
+        "<style>" + (f"{selector}{{color:red}}") * 256 + "</style>" + '<div class="hit"></div>' * 128,
     )
     for label, selector in (
         (
@@ -1125,8 +1117,8 @@ def _transform_text_cases() -> tuple[tuple[str, object], ...]:
                 body = (f"{payload}<!--gap-->" if kind == "literal" else f"<xsl:text>{payload}</xsl:text>") * count
                 source = "<r/>"
             sheet = (
-                '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-                '<xsl:output method="text"/><xsl:template match="/">' + body + "</xsl:template></xsl:stylesheet>"
+                f'<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+                f'<xsl:output method="text"/><xsl:template match="/">{body}</xsl:template></xsl:stylesheet>'
             )
             cases.append((f"{count} {kind} text nodes", (sheet, source)))
     return tuple(cases)
@@ -1285,13 +1277,11 @@ _XSLT_LATE_UNIT: Final[str] = (
     "<xsl:message>o{index}</xsl:message>"
 )
 _XSLT_DENSE_SHEET: Final[str] = (
-    '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-    '<xsl:output method="xml"/>'
-    '<xsl:template match="/"><out><xsl:apply-templates select="catalog/book"/></out></xsl:template>'
-    '<xsl:template match="book"><row><xsl:value-of select="title"/>'
-    + "".join(_XSLT_LATE_UNIT.format(index=unit) for unit in range(8))
-    + "</row></xsl:template>"
-    "</xsl:stylesheet>"
+    f'<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output '
+    f'method="xml"/><xsl:template match="/"><out><xsl:apply-templates '
+    f'select="catalog/book"/></out></xsl:template><xsl:template match="book"><row><xsl:value-of '
+    f'select="title"/>{"".join(_XSLT_LATE_UNIT.format(index=unit) for unit in range(8))}'
+    f"</row></xsl:template></xsl:stylesheet>"
 )
 _XSLT_DENSE_SOURCE: Final[str] = (
     "<catalog>"
@@ -1387,8 +1377,8 @@ def _transform_any_number_cases() -> tuple[tuple[str, object], ...]:
                 + "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>",
                 "<root>"
                 + "".join(
-                    ("text<!--gap-->" if variant == "mixed-nodes" else "")
-                    + f'<{"q" if variant == "alternating" and index % 2 == 0 else "p"} id="{index}"/>'
+                    f"{'text<!--gap-->' if variant == 'mixed-nodes' else ''}"
+                    f'<{"q" if variant == "alternating" and index % 2 == 0 else "p"} id="{index}"/>'
                     for index in range(1, rows + 1)
                 )
                 + "</root>",
@@ -1430,9 +1420,8 @@ def _transform_pattern_number_cases() -> tuple[tuple[str, object], ...]:
                 + "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>",
                 "<root>"
                 + "".join(
-                    ("<section>" if variant == "count-from-sections" and index % 64 == 1 else "")
-                    + f'<p id="{index}" cat="{index % 2}"/>'
-                    + ("</section>" if variant == "count-from-sections" and index % 64 == 0 else "")
+                    f'{"<section>" if variant == "count-from-sections" and index % 64 == 1 else ""}<p id="{index}" '
+                    f'cat="{index % 2}"/>{"</section>" if variant == "count-from-sections" and index % 64 == 0 else ""}'
                     for index in range(1, rows + 1)
                 )
                 + "</root>",
@@ -1466,9 +1455,9 @@ def _transform_number_prefix_cases() -> tuple[tuple[str, object], ...]:
                 ),
                 "<root>"
                 + "".join(
-                    ("<section>" if sections and index % 64 == 1 else "")
-                    + f'<{"q" if alternating and index % 2 == 0 else "p"} id="{index}"/>'
-                    + ("</section>" if sections and index % 64 == 0 else "")
+                    f"{'<section>' if sections and index % 64 == 1 else ''}"
+                    f"<{'q' if alternating and index % 2 == 0 else 'p'}"
+                    f' id="{index}"/>{"</section>" if sections and index % 64 == 0 else ""}'
                     for index in range(1, 1_025)
                 )
                 + "</root>",
@@ -1763,12 +1752,13 @@ def _validate_pattern_reuse_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
         (
             label,
             (
-                '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">'
-                '<xs:simpleType name="item"><xs:restriction base="xs:string">'
-                + facets
-                + '</xs:restriction></xs:simpleType><xs:element name="root"><xs:complexType><xs:sequence>'
-                '<xs:element name="value" type="item" maxOccurs="unbounded"/>'
-                "</xs:sequence></xs:complexType></xs:element></xs:schema>",
+                (
+                    f'<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:simpleType '
+                    f'name="item"><xs:restriction base="xs:string">{facets}</xs:restriction></xs:simpleType>'
+                    f"<xs:element "
+                    f'name="root"><xs:complexType><xs:sequence><xs:element name="value" type="item" '
+                    f'maxOccurs="unbounded"/></xs:sequence></xs:complexType></xs:element></xs:schema>'
+                ),
                 f"<root>{'<value>abc123</value>' * 1000}</root>",
             ),
         )
@@ -1940,7 +1930,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
     "parse-xml-names": lambda: (
         (
             "1k growing attributes",
-            "<r>" + "".join("<e " + "a" * length + '="x"/>' for length in range(1, 1_001)) + "</r>",
+            "<r>" + "".join(f'<e {"a" * length}="x"/>' for length in range(1, 1_001)) + "</r>",
         ),
     ),
     "validate": lambda: (
@@ -2219,7 +2209,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
             (
                 "id(//i)/@id",
                 '<main><b id="first"></b><b id="second"></b>'
-                + ("<i>" + " second first second " * repetitions + "</i>") * count
+                + (f"<i>{' second first second ' * repetitions}</i>") * count
                 + "</main>",
             ),
         )
@@ -2637,13 +2627,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
             f"{kind} / {span} columns / {size} text characters",
             (
                 kind,
-                "<table><tr><th colspan="
-                + str(span)
-                + ">header</th></tr><tr><td colspan="
-                + str(span)
-                + ">"
-                + "x" * size
-                + "</td></tr></table>",
+                (
+                    f"<table><tr><th colspan={span!s}>header</th></tr><tr><td "
+                    f"colspan={span!s}>{'x' * size}</td></tr></table>"
+                ),
             ),
         )
         for kind, span, size in (("rows", 128, 4096), ("rows", 1, 16), ("records", 128, 4096))
@@ -2699,9 +2686,10 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
         ("tiny custom tree", "<p>x</p>"),
         (
             "mixed foreign namespaces",
-            "<main>"
-            + "<svg><foreignObject><p>x</p></foreignObject><circle/></svg><math><mi>x</mi></math>" * 1_000
-            + "</main>",
+            (
+                f"<main>{'<svg><foreignObject><p>x</p></foreignObject><circle/></svg><math><mi>x</mi></math>' * 1_000}"
+                f"</main>"
+            ),
         ),
         (
             "text and comment callbacks",

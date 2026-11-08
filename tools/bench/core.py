@@ -1338,7 +1338,7 @@ def _equality_pair(count: int, variant: str) -> tuple[turbohtml.Element, turboht
 def _radio_group_setup(case: tuple[int, int, int, str]) -> Callable[[], tuple[bool, ...]]:
     padding, forms, repeats, mode = case
     tag: Final = "section" if mode in {"document", "mutate"} else "form"
-    markup: Final = f"<{tag}>" + "<input type=radio name=choice>" * 16 + "<div></div>" * padding + f"</{tag}>"
+    markup: Final = f"<{tag}>{'<input type=radio name=choice>' * 16}{'<div></div>' * padding}</{tag}>"
     document: Final = turbohtml.parse(markup * forms)
     form: Final = cast("turbohtml.Element", document.children[0].children[-1].children[0])
     radios: Final = [node for node in form.children if isinstance(node, turbohtml.Element) and node.tag == "input"]
