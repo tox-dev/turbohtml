@@ -101,9 +101,11 @@ def _ours(detector: LinkDetector, region: str, text: str) -> tuple[Found, list[p
         ),
     ],
 )
+@pytest.mark.parametrize("context", CONTEXTS, ids=repr)
 @pytest.mark.parametrize("region", _REGION_PARAMS)
 def test_detection_matches_the_matcher(
     region: str,
+    context: str,
     settings: Callable[[str], PhoneNumbers],
     leniency: int,
     check: Callable[[phonenumbers.PhoneNumber], bool],
@@ -119,13 +121,12 @@ def test_detection_matches_the_matcher(
     })
     for number in _examples(region):
         for _form, rendered in renderings(number, region):
-            for context in CONTEXTS:
-                text = context.format(rendered)
-                ours, parsed = _ours(detector, region, text)
-                for found in parsed:
-                    assert check(found), text
-                theirs = oracle_matches(text, region, leniency)
-                classified.append((classify(text, ours, theirs), text, sorted(ours), sorted(theirs)))
+            text = context.format(rendered)
+            ours, parsed = _ours(detector, region, text)
+            for found in parsed:
+                assert check(found), text
+            theirs = oracle_matches(text, region, leniency)
+            classified.append((classify(text, ours, theirs), text, sorted(ours), sorted(theirs)))
     unexplained = [row for row in classified if row[0] not in explained]
     assert unexplained == []
 

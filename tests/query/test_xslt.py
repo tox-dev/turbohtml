@@ -2141,16 +2141,18 @@ def test_transform_stylesheet_with_leading_comment_before_root() -> None:
     assert transform(sheet, turbohtml.parse_xml("<r/>")) == "ok"
 
 
-def test_transform_more_format_number_fraction_cases() -> None:
-    cases = {
-        "1.0": "1",
-        "1.50": "1.5",
-        "1.234": "1.23",
-        "10": "10",
-    }
-    for value, expected in cases.items():
-        body = f'<xsl:template match="/"><xsl:value-of select="format-number({value}, \'#.##\')"/></xsl:template>'
-        assert _run("<r/>", body) == expected
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("1.0", "1", id="trailing-zero"),
+        pytest.param("1.50", "1.5", id="trailing-zero-after-digit"),
+        pytest.param("1.234", "1.23", id="rounded-to-pattern"),
+        pytest.param("10", "10", id="integer"),
+    ],
+)
+def test_transform_more_format_number_fraction_cases(value: str, expected: str) -> None:
+    body = f'<xsl:template match="/"><xsl:value-of select="format-number({value}, \'#.##\')"/></xsl:template>'
+    assert _run("<r/>", body) == expected
 
 
 def test_transform_attribute_template_single_char_select() -> None:

@@ -232,16 +232,16 @@ def _text_and_attrs(html: str) -> str:
     return "".join(parts)
 
 
+@pytest.mark.parametrize("mode", list(_MODES), ids=list(_MODES))
 @pytest.mark.parametrize(("index", "payload"), _CASES, ids=_IDS)
-def test_turbohtml_is_inert_and_never_less_safe_than_dompurify(index: int, payload: str) -> None:
+def test_turbohtml_is_inert_and_never_less_safe_than_dompurify(mode: str, index: int, payload: str) -> None:
     # The absolute gate, over every DOMPurify config: turbohtml's output is inert, and every executable construct it
     # keeps DOMPurify keeps too (so it is never a downgrade). Inertness makes the subset trivially hold; asserting both
     # documents the head-to-head claim and would flag a regression that made turbohtml keep something new.
-    for mode, policy in _MODES.items():
-        theirs = _live_danger(_dompurify(mode)[index])
-        ours = _live_danger(sanitize(payload, policy))
-        assert ours == [], f"sanitizer bypass under {mode}: {ours} survived {payload!r}"
-        assert set(ours) <= set(theirs), f"less safe than DOMPurify under {mode}: {ours} vs {theirs}"
+    theirs = _live_danger(_dompurify(mode)[index])
+    ours = _live_danger(sanitize(payload, _MODES[mode]))
+    assert ours == [], f"sanitizer bypass under {mode}: {ours} survived {payload!r}"
+    assert set(ours) <= set(theirs), f"less safe than DOMPurify under {mode}: {ours} vs {theirs}"
 
 
 @pytest.mark.parametrize(("index", "payload"), _CASES, ids=_IDS)

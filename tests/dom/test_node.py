@@ -994,13 +994,15 @@ def test_columns_are_unaffected_by_carriage_returns() -> None:
     assert _source_position_child(parse("a\r\n  <b>x</b>"), "b").source_col == 2
 
 
-def test_positions_false_drops_every_position() -> None:
-    doc = parse("<html><body><p>x</p></body></html>", positions=False)
-    for tag in ("html", "body", "p"):
-        element = _source_position_child(doc, tag)
-        assert element.source_line is None
-        assert element.source_col is None
-        assert element.position is None
+@pytest.mark.parametrize(
+    "tag",
+    [pytest.param("html", id="html"), pytest.param("body", id="body"), pytest.param("p", id="p")],
+)
+def test_positions_false_drops_every_position(tag: str) -> None:
+    element = _source_position_child(parse("<html><body><p>x</p></body></html>", positions=False), tag)
+    assert element.source_line is None
+    assert element.source_col is None
+    assert element.position is None
 
 
 def test_implied_elements_have_no_source() -> None:

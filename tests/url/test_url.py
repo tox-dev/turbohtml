@@ -1419,47 +1419,66 @@ _ISO: Final[frozenset[str]] = frozenset({"de", "en", "fr", "es", "ru", "nl"})
 _SEGMENT: Final[re.Pattern[str]] = re.compile(r"([a-z]{2})(?:[-_][a-z]{2,3})?$")
 
 
-def test_language_matches_matches_oracle_over_corpus() -> None:
-    paths = (
-        "",
-        "/",
-        "/de/beitrag",
-        "/en-us/page",
-        "/en_us/page",
-        "/fr-fra/x",
-        "/de",
-        "//de//x",
-        "de/x",
-        "/DE/UPPER",
-        "/e1/x",
-        "/abc/x",
-        "/abcd/x",
-        "/en-u1/x",
-        "/en-u/x",
-        "/xy-ab/x",
-        "/ru/y",
-        "/zz/y",
-        "/en-abcd/x",
-        "/%64%65/x",
-        "/enxab/x",
-        "/z{/x",
-    )
-    queries = (
-        "",
-        "x=1",
-        "lang=de",
-        "language=fr",
-        "lang=en-US",
-        "lang=",
-        "lang=de&language=en",
-        "LANG=fr",
-        "%6c%61%6e%67=de",
-    )
-    hosts = ("example.org", "de.example.org", "en.example.org", "zz.example.org", "e.org", "fr.a.b", "de", "localhost")
-    for path, query, host, lang, strict in itertools.product(paths, queries, hosts, ("de", "en", "fr"), (False, True)):
-        got = _url_language_matches(query, path, host, lang, strict, _LANGUAGE_PARAMS, _ISO)
-        want = _language_oracle(query, path, host, lang, strict=strict)
-        assert got is want, (query, path, host, lang, strict)
+_LANGUAGE_PATHS: Final[tuple[str, ...]] = (
+    "",
+    "/",
+    "/de/beitrag",
+    "/en-us/page",
+    "/en_us/page",
+    "/fr-fra/x",
+    "/de",
+    "//de//x",
+    "de/x",
+    "/DE/UPPER",
+    "/e1/x",
+    "/abc/x",
+    "/abcd/x",
+    "/en-u1/x",
+    "/en-u/x",
+    "/xy-ab/x",
+    "/ru/y",
+    "/zz/y",
+    "/en-abcd/x",
+    "/%64%65/x",
+    "/enxab/x",
+    "/z{/x",
+)
+_LANGUAGE_QUERIES: Final[tuple[str, ...]] = (
+    "",
+    "x=1",
+    "lang=de",
+    "language=fr",
+    "lang=en-US",
+    "lang=",
+    "lang=de&language=en",
+    "LANG=fr",
+    "%6c%61%6e%67=de",
+)
+_LANGUAGE_HOSTS: Final[tuple[str, ...]] = (
+    "example.org",
+    "de.example.org",
+    "en.example.org",
+    "zz.example.org",
+    "e.org",
+    "fr.a.b",
+    "de",
+    "localhost",
+)
+
+
+@pytest.mark.parametrize("path", _LANGUAGE_PATHS, ids=repr)
+@pytest.mark.parametrize("query", _LANGUAGE_QUERIES, ids=repr)
+@pytest.mark.parametrize("host", _LANGUAGE_HOSTS, ids=repr)
+@pytest.mark.parametrize(
+    "lang", [pytest.param("de", id="de"), pytest.param("en", id="en"), pytest.param("fr", id="fr")]
+)
+@pytest.mark.parametrize("strict", [pytest.param(False, id="lax"), pytest.param(True, id="strict")])
+def test_language_matches_matches_oracle_over_corpus(
+    path: str, query: str, host: str, lang: str, *, strict: bool
+) -> None:
+    got = _url_language_matches(query, path, host, lang, strict, _LANGUAGE_PARAMS, _ISO)
+    want = _language_oracle(query, path, host, lang, strict=strict)
+    assert got is want
 
 
 def _language_oracle(query: str, path: str, hostname: str, language: str, *, strict: bool) -> bool:
@@ -1665,10 +1684,6 @@ _SAFE: Final[dict[int, str]] = {
 _ESCAPE: Final[re.Pattern[str]] = re.compile(r"%[0-9a-fA-F]{2}")
 
 
-def _oracle_encode(text: str, url_set: int) -> str:
-    return quote(_ESCAPE.sub(lambda match: match[0].upper(), text) if "%" in text else text, safe=_SAFE[url_set])
-
-
 # A spread that reaches every encode/decode branch: kept and out-of-set bytes, lowercase and already-uppercase escapes,
 # both malformed-escape shapes, a truncated escape at the very end, a '%' before a non-ASCII byte, and multi-byte input.
 _CORPUS: Final[tuple[str, ...]] = (
@@ -1700,18 +1715,20 @@ _CORPUS: Final[tuple[str, ...]] = (
 )
 
 
+@pytest.mark.parametrize("text", _CORPUS, ids=repr)
 @pytest.mark.parametrize(
     "url_set",
     [pytest.param(_PATH, id="path"), pytest.param(_QUERY, id="query"), pytest.param(_FRAGMENT, id="fragment")],
 )
-def test_percent_encode_matches_urllib_over_corpus(url_set: int) -> None:
-    for text in _CORPUS:
-        assert _url_percent_encode(text, url_set) == _oracle_encode(text, url_set), text
+def test_percent_encode_matches_urllib_over_corpus(text: str, url_set: int) -> None:
+    assert _url_percent_encode(text, url_set) == quote(
+        _ESCAPE.sub(lambda match: match[0].upper(), text), safe=_SAFE[url_set]
+    )
 
 
-def test_percent_decode_matches_urllib_over_corpus() -> None:
-    for text in _CORPUS:
-        assert _url_percent_decode(text) == unquote(text), text
+@pytest.mark.parametrize("text", _CORPUS, ids=repr)
+def test_percent_decode_matches_urllib_over_corpus(text: str) -> None:
+    assert _url_percent_decode(text) == unquote(text)
 
 
 @pytest.mark.parametrize(
