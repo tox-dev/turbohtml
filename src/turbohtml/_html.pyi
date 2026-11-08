@@ -501,7 +501,6 @@ from .extract._structured_data import (
     StructuredData as StructuredData,
 )
 
-
 # Fuzz-only hooks: only the fuzz-only build (meson -Dfuzzing=true) defines them.
 def _fuzz_crash(kind: str, /) -> None: ...
 def _fuzz_escape_iterators(owner: Node, /) -> int: ...
