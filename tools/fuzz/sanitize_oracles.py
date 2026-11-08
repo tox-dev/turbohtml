@@ -392,22 +392,25 @@ def _css_rules_danger(rules: list[CssNode]) -> bool:
                 continue
             if _css_declarations_danger(tinycss2.parse_declaration_list(getattr(rule, "content", []))):
                 return True
-        elif kind == "at-rule":
-            prelude = getattr(rule, "prelude", [])
-            if getattr(rule, "lower_at_keyword", "") == "import" and (
-                _css_value_danger(prelude)
-                or any(
-                    getattr(token, "type", "") == "string" and _css_script_url(getattr(token, "value", ""))
-                    for token in prelude
-                )
-            ):
-                return True
-            if (content := getattr(rule, "content", None)) is not None and (
-                _css_declarations_danger(tinycss2.parse_declaration_list(content))
-                or _css_rules_danger(tinycss2.parse_rule_list(content))
-            ):
-                return True
+        elif kind == "at-rule" and _at_rule_danger(rule):
+            return True
     return False
+
+
+def _at_rule_danger(rule: CssNode) -> bool:
+    prelude = getattr(rule, "prelude", [])
+    if getattr(rule, "lower_at_keyword", "") == "import" and (
+        _css_value_danger(prelude)
+        or any(
+            getattr(token, "type", "") == "string" and _css_script_url(getattr(token, "value", "")) for token in prelude
+        )
+    ):
+        return True
+    content = getattr(rule, "content", None)
+    return content is not None and (
+        _css_declarations_danger(tinycss2.parse_declaration_list(content))
+        or _css_rules_danger(tinycss2.parse_rule_list(content))
+    )
 
 
 def _attribute_violations(element: DomElement, policy: Policy) -> list[str]:

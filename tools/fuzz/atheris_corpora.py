@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
     from types import FunctionType
 
+    from .atheris_targets import Target
+    from .encoding_structure_generators import EncodingProfile
     from .structure_generators import Generated, Grammar
 
 CorpusProfile = Literal[
@@ -89,11 +91,7 @@ def write_corpora(
         digest: Final = hashlib.sha256(seed).hexdigest()
         for name in _routes(case, profile):
             context: Final = encoding_profile(case) if profile == "encoding" else None
-            target: Final = (
-                next(target for target in public_targets(context.encoding, sniff=context.sniff) if target.name == name)
-                if context
-                else targets[name]
-            )
+            target: Final = _target(name, targets, context)
             if context and (error := encoding_check(case)):
                 raise AssertionError(error)
             try:
@@ -104,29 +102,48 @@ def write_corpora(
             subdirectory: Final = (
                 f"{name}/{context.encoding}-{'sniff' if context.sniff else 'fixed'}" if context else name
             )
-            destination: Final = directory / subdirectory / digest
-            if (subdirectory, digest) not in admitted:
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                destination.write_bytes(seed)
-                admitted.add((subdirectory, digest))
-            entries.append(
-                CorpusEntry(
-                    target=name,
-                    exports=target.exports,
-                    callback=f"{target.callback.__module__}.{cast('FunctionType', target.callback).__qualname__}",
-                    file=str(destination.relative_to(directory)),
-                    sha256=digest,
-                    generation_nodes=case.nodes,
-                    generation_depth=case.depth,
-                    productions=tuple((production, origins[production]) for production in case.productions),
-                    bindings=case.bindings,
-                    encoding=context.encoding if context else None,
-                    sniff=context.sniff if context else False,
-                )
-            )
+            destination: Final = _admit(directory, subdirectory, digest, seed, admitted)
+            entries.append(_corpus_entry(case, target, context, str(destination.relative_to(directory)), origins))
     manifest: Final = CorpusManifest(entries=tuple(entries), rejected=tuple(rejected))
     (directory / "manifest.json").write_text(f"{json.dumps(asdict(manifest), indent=2)}\n", encoding="utf-8")
     return manifest
+
+
+def _target(name: str, targets: dict[str, Target], context: EncodingProfile | None) -> Target:
+    if context is None:
+        return targets[name]
+    return next(target for target in public_targets(context.encoding, sniff=context.sniff) if target.name == name)
+
+
+def _admit(directory: Path, subdirectory: str, digest: str, seed: bytes, admitted: set[tuple[str, str]]) -> Path:
+    destination: Final = directory / subdirectory / digest
+    if (subdirectory, digest) not in admitted:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(seed)
+        admitted.add((subdirectory, digest))
+    return destination
+
+
+def _corpus_entry(
+    case: Generated,
+    target: Target,
+    context: EncodingProfile | None,
+    file: str,
+    origins: dict[str, str],
+) -> CorpusEntry:
+    return CorpusEntry(
+        target=target.name,
+        exports=target.exports,
+        callback=f"{target.callback.__module__}.{cast('FunctionType', target.callback).__qualname__}",
+        file=file,
+        sha256=Path(file).name,
+        generation_nodes=case.nodes,
+        generation_depth=case.depth,
+        productions=tuple((production, origins[production]) for production in case.productions),
+        bindings=case.bindings,
+        encoding=context.encoding if context else None,
+        sniff=context.sniff if context else False,
+    )
 
 
 def _routes(case: Generated, profile: CorpusProfile) -> tuple[str, ...]:

@@ -1181,18 +1181,28 @@ def js_names_check(source: str, names: JsNames, minify: Callable[[str, JSMinify]
         except ValueError:
             continue
         compared = True
-        label = f"mangle={options.mangle} fold={options.fold}"
-        if (after := names.read(output)) is None:
-            return f"{label}: output is not JavaScript"
-        if options.fold or options.mangle:
-            if after[0] - before[0]:
-                return f"{label}: free identifier invented"
-        elif after[0] != before[0]:
-            return f"{label}: free identifier {'invented' if after[0] - before[0] else 'lost'}"
-        elif after[1] != before[1]:
-            return f"{label}: static string {'invented' if after[1] - before[1] else 'lost'}"
+        if (verdict := _js_names_verdict(options, before, names.read(output))) is not None:
+            return verdict
     if not compared:
         raise OutOfScopeError
+    return None
+
+
+def _js_names_verdict(
+    options: JSMinify,
+    before: tuple[frozenset[str], frozenset[str]],
+    after: tuple[frozenset[str], frozenset[str]] | None,
+) -> str | None:
+    label = f"mangle={options.mangle} fold={options.fold}"
+    if after is None:
+        return f"{label}: output is not JavaScript"
+    if options.fold or options.mangle:
+        if after[0] - before[0]:
+            return f"{label}: free identifier invented"
+    elif after[0] != before[0]:
+        return f"{label}: free identifier {'invented' if after[0] - before[0] else 'lost'}"
+    elif after[1] != before[1]:
+        return f"{label}: static string {'invented' if after[1] - before[1] else 'lost'}"
     return None
 
 

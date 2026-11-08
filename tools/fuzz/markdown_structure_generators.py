@@ -261,19 +261,21 @@ def _spacing(records: tuple[_Meaning, ...], *, preserve: bool, inline: bool) -> 
             continue
         text: str = re.sub(r"[ \t\n\f\r]+", " ", record[1][0][1])
         previous: Final = records[index - 1][0] if index else None
-        if (previous is None and not inline) or (
-            previous is not None and (previous not in _FLOW_INLINE or previous == "br")
-        ):
+        if _at_block_edge(previous, inline=inline):
             text = text.lstrip(" \t\n\f\r")
         following: Final = records[index + 1][0] if index + 1 < len(records) else None
         # a line drops the collapsible spaces at its end (CSS Text 3, 4.1.2), so a space before a break draws nothing
-        if (following is None and not inline) or (
-            following is not None and (following not in _FLOW_INLINE or following == "br")
-        ):
+        if _at_block_edge(following, inline=inline):
             text = text.rstrip(" \t\n\f\r")
         if text:
             output.append(("#text", (("value", text),), ()))
     return tuple(output)
+
+
+def _at_block_edge(neighbor: str | None, *, inline: bool) -> bool:
+    if neighbor is None:
+        return not inline
+    return neighbor not in _FLOW_INLINE or neighbor == "br"
 
 
 def _merge(records: Iterable[_Meaning]) -> tuple[_Meaning, ...]:
