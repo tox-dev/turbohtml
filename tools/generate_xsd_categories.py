@@ -98,7 +98,7 @@ def _write_table(kind: str, description: str, pages: list[int], mixed: list[list
     page_rows = [
         f"    {', '.join(str(page) for page in pages[index : index + 32])}," for index in range(0, len(pages), 32)
     ]
-    mixed_rows = ["    {" + ", ".join(f"0x{word:016X}u" for word in bits) + "}," for bits in mixed]
+    mixed_rows = [f"    {{{', '.join(f'0x{word:016X}u' for word in bits)}}}," for bits in mixed]
     ascii_bits = (
         f"static const uint64_t TH_WORD_ASCII_BITS[2] = {{0x{mixed[pages[0] - 2][0]:016X}u, "
         f"0x{mixed[pages[0] - 2][1]:016X}u}};\n\n"

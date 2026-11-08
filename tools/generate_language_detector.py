@@ -301,12 +301,12 @@ def emit_trigram_arrays(profiles: Profiles, lang_code: dict[str, str]) -> list[s
             ranked = sorted((((a << 42) | (b << 21) | c, rank) for rank, (a, b, c) in enumerate(trigrams)))
             lines.append(f"static const uint64_t th_lang_keys_{lang_code[lang]}[{len(ranked)}] = {{")
             lines.extend(
-                "    " + " ".join(f"0x{key:016X}," for key, _rank in ranked[start : start + 4])
+                f"    {' '.join(f'0x{key:016X},' for key, _rank in ranked[start : start + 4])}"
                 for start in range(0, len(ranked), 4)
             )
             lines.extend(("};", f"static const uint16_t th_lang_ranks_{lang_code[lang]}[{len(ranked)}] = {{"))
             lines.extend(
-                "    " + " ".join(f"{rank}," for _key, rank in ranked[start : start + 20])
+                f"    {' '.join(f'{rank},' for _key, rank in ranked[start : start + 20])}"
                 for start in range(0, len(ranked), 20)
             )
             lines.append("};")

@@ -179,12 +179,16 @@ def generate(out_path: Path) -> None:
             "#include <stdint.h>\n\n"
             f"#define TH_SB_INDEX_COUNT {len(_SINGLE_BYTE)}\n"
         ),
-        "/* The row each single-byte encoding occupies in th_sb_index; the label table names one of these. */\n"
-        + sb_slots,
-        "/* Byte -> code point for each legacy single-byte encoding. The ASCII half is the identity;\n"
-        "   U+FFFD marks a byte the spec's index leaves null, which the decoder reports as an error.\n"
-        "   No index maps a byte below U+0080, so a decoder reaching this table always emits a\n"
-        "   non-ASCII code point. */\n" + sb_table,
+        (
+            "/* The row each single-byte encoding occupies in th_sb_index; the label table names one of these. */\n"
+            f"{sb_slots}"
+        ),
+        (
+            "/* Byte -> code point for each legacy single-byte encoding. The ASCII half is the identity;\n   U+FFFD "
+            "marks a byte the spec's index leaves null, which the decoder reports as an error.\n   No index maps a "
+            "byte below U+0080, so a decoder reaching this table always emits a\n   non-ASCII code point. */\n"
+            f"{sb_table}"
+        ),
         _big5_tables(indexes["big5"]),
         _flat_table("euc_kr", indexes["euc-kr"]),
         _flat_table("gb18030", indexes["gb18030"]),

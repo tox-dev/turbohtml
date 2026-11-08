@@ -75,7 +75,7 @@ def generate(out_path: Path) -> None:
     charrefs = [f"    {{{num}u, {ord(_INVALID_CHARREFS[num])}u}}," for num in sorted(_INVALID_CHARREFS)]
     codepoints = sorted(_INVALID_CODEPOINTS)
     codepoint_lines = "\n".join(
-        "    " + " ".join(f"{codepoint}u," for codepoint in codepoints[start : start + 10])
+        f"    {' '.join(f'{codepoint}u,' for codepoint in codepoints[start : start + 10])}"
         for start in range(0, len(codepoints), 10)
     )
 

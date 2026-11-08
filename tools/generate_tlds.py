@@ -95,7 +95,7 @@ def render(out_path: Path, version: str, names: list[str]) -> None:
     index_rows = ", ".join(str(first_index[byte_value]) for byte_value in range(257))
 
     labels = unicode_labels(names)
-    point_rows = "\n".join("    " + " ".join(f"0x{ord(point):04X}," for point in label) for label in labels)
+    point_rows = "\n".join(f"    {' '.join(f'0x{ord(point):04X},' for point in label)}" for label in labels)
     offsets = itertools.accumulate((len(label) for label in labels), initial=0)
     unicode_rows = "\n".join(
         f"    {{th_tld_unicode_points + {offset}, {len(label)}u}},"
