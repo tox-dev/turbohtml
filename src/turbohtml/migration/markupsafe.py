@@ -54,14 +54,20 @@ if TYPE_CHECKING:
 # class mirrors str's full method surface on purpose: any text-returning method that fell back to str would have its
 # already-safe result escaped a second time under autoescaping.
 class MarkupPartition(NamedTuple):
-    """The three Markup parts a partition returns, in order."""
+    """
+    The three Markup parts a partition returns, in order.
+
+    :param before: the text before the separator.
+    :param separator: the separator, or an empty Markup when it was not found.
+    :param after: the text after the separator.
+    """
 
     before: Markup
     separator: Markup
     after: Markup
 
 
-class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
+class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]  # mirrors str's full method surface
     """
     Text that is already safe to embed in HTML and is not escaped again.
 
