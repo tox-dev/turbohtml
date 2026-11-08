@@ -385,7 +385,7 @@ def valid_doc(inner: str) -> str:
 _VNU_JAR: Final[Path | None] = (
     Path(spec.origin).with_name("vnu.jar") if (spec := find_spec("vnujar")) and spec.origin else None
 )
-_VNU_CASES: Final = [
+_VNU_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(valid_doc("<h1>Heading</h1><p>text</p>"), id="conforming"),
     pytest.param(valid_doc('<img src="x" alt="a cat">'), id="img-with-alt-conforming"),
     pytest.param(valid_doc("<img src=x>"), id="img-missing-alt"),
