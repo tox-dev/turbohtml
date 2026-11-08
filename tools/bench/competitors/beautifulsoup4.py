@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup, Comment, UnicodeDammit
 from bs4.element import AttributeValueList, CData, NavigableString, Script, Stylesheet, Tag, TemplateString
 
+from bench._attributes import fill_equality_pair
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 
@@ -318,21 +319,7 @@ def _equality_pair(count: int, variant: str) -> tuple[Tag, Tag]:
         raise ValueError(message)
     left: Final = BeautifulSoup("", "html.parser").new_tag("div")
     right: Final = BeautifulSoup("", "html.parser").new_tag("div")
-    right.attrs["data-seed"] = ""
-    del right.attrs["data-seed"]
-    names: Final = [f"data-{index}" for index in range(count)]
-    for name in names:
-        left.attrs[name] = "é水😀"
-    order: Final = names[count // 2 :] + names[: count // 2] if variant == "rotated" else names
-    for name in reversed(order) if variant == "reversed" else order:
-        right.attrs[name] = "é水😀"
-    if variant == "early-value":
-        right.attrs[names[0]] = "different"
-    elif variant == "late-value":
-        right.attrs[names[-1]] = "different"
-    elif variant == "disjoint":
-        del right.attrs[names[-1]]
-        right.attrs["data-missing"] = "é水😀"
+    fill_equality_pair(left.attrs, right.attrs, count, variant)
     return left, right
 
 

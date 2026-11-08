@@ -66,6 +66,7 @@ from turbohtml.treebuild import parse_into as _parse_into
 from turbohtml.validate import RelaxNG as _RelaxNG
 from turbohtml.validate import XMLSchema as _XMLSchema
 
+from ._attributes import fill_equality_pair
 from .timing import Mutating
 
 if TYPE_CHECKING:
@@ -1314,21 +1315,7 @@ def _equality_pair(count: int, variant: str) -> tuple[turbohtml.Element, turboht
         return turbohtml.Element("div", anchors | duplicates), turbohtml.Element("div", duplicates | anchors)
     left: Final = turbohtml.Element("div")
     right: Final = turbohtml.Element("div")
-    right.attrs["data-seed"] = ""
-    del right.attrs["data-seed"]
-    names: Final = [f"data-{index}" for index in range(count)]
-    for name in names:
-        left.attrs[name] = "é水😀"
-    order: Final = names[count // 2 :] + names[: count // 2] if variant == "rotated" else names
-    for name in reversed(order) if variant == "reversed" else order:
-        right.attrs[name] = "é水😀"
-    if variant == "early-value":
-        right.attrs[names[0]] = "different"
-    elif variant == "late-value":
-        right.attrs[names[-1]] = "different"
-    elif variant == "disjoint":
-        del right.attrs[names[-1]]
-        right.attrs["data-missing"] = "é水😀"
+    fill_equality_pair(left.attrs, right.attrs, count, variant)
     return left, right
 
 
