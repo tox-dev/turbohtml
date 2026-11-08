@@ -475,7 +475,7 @@ def target_blank(link: LinkCandidate) -> LinkCandidate:
     return _linkify_target_blank(link)
 
 
-DEFAULT_CALLBACKS: Final = (nofollow,)
+DEFAULT_CALLBACKS: Final[tuple[Callback, ...]] = (nofollow,)
 
 
 @dataclass(frozen=True)
