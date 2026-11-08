@@ -681,7 +681,9 @@ def test_concurrent_adoption_preserves_descendant_aliases() -> None:
         pytest.param(lambda node: len(node.find_all(text=lambda text: text == "text")), 1, id="callback"),
     ],
 )
-def test_concurrent_adoption_and_reads(read: Callable[[turbohtml.Element], object], expected: object) -> None:
+def test_concurrent_adoption_and_reads(
+    read: Callable[[turbohtml.Element], object], expected: int | str | dict[str, str]
+) -> None:
     source: Final = turbohtml.Element(
         "section", {"live": "yes"}, children=[turbohtml.Element("b", children=[turbohtml.Text("text")])]
     )

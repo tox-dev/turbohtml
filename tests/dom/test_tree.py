@@ -1540,7 +1540,7 @@ def test_deeply_nested_parse_caps_element_depth() -> None:
 
 def _max_element_depth(node: Element | Document) -> int:
     deepest = 0
-    stack: list[tuple[object, int]] = [(node, 0)]
+    stack: list[tuple[Node, int]] = [(node, 0)]
     while stack:
         current, depth = stack.pop()
         here = depth + 1 if isinstance(current, Element) else depth

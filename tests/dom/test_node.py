@@ -496,7 +496,7 @@ def test_siblings(body: Element) -> None:
 
 
 def test_descendants_are_document_order(body: Element) -> None:
-    def label(node: object) -> str:
+    def label(node: Node) -> str:
         if isinstance(node, Element):
             return f"Element:{node.tag}"
         assert isinstance(node, Text)

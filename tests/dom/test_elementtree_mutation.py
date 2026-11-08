@@ -8,7 +8,7 @@ from turbohtml import Element, Text, etree, parse
 from turbohtml.etree import document_fromstring, fragment_fromstring, fromstring, strip_elements, strip_tags, tostring
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
     from turbohtml.etree import ElementView
 
@@ -142,7 +142,9 @@ def test_element_tree_detaches_document_root() -> None:
 
 
 @pytest.mark.parametrize("function", [pytest.param(strip_tags, id="unwrap"), pytest.param(strip_elements, id="remove")])
-def test_element_tree_empty_strip_filter_retains_content(tree: ElementView, function: Callable[..., None]) -> None:
+def test_element_tree_empty_strip_filter_retains_content(
+    tree: ElementView, function: Callable[[ElementView, *tuple[str | Iterable[str] | None, ...]], None]
+) -> None:
     function(tree)
     assert tostring(tree, encoding="unicode") == "<div>start<a>A</a>one<b>B</b>two</div>"
 

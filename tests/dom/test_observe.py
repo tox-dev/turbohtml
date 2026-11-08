@@ -417,7 +417,7 @@ def test_disconnect_one_of_several_observers() -> None:
 
 def test_deliver_calls_callback_with_records_and_observer() -> None:
     div = _div()
-    seen: list[tuple[int, object]] = []
+    seen: list[tuple[int, MutationObserver]] = []
     observer = MutationObserver(lambda records, obs: seen.append((len(records), obs)))
     observer.observe(div, child_list=True)
     div.append(Element("b"))

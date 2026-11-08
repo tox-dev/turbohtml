@@ -17,7 +17,7 @@ from turbohtml import Comment, Document, Element, Namespace, Node, Text, parse, 
 from turbohtml.mutations import MutationObserver
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterator, Mapping
 
     from _pytest.mark.structures import ParameterSet
     from bench.timing import Mutating
@@ -2543,7 +2543,7 @@ def test_attrs_snapshot_during_collection(
         pytest.param("copy", {}, id="copy"),
     ],
 )
-def test_attrs_empty_snapshot(method: str, expected: list[object] | dict[str, str]) -> None:
+def test_attrs_empty_snapshot(method: str, expected: list[str] | list[tuple[str, str]] | dict[str, str]) -> None:
     attrs: Final = Element("div").attrs
     assert getattr(attrs, method)() == expected
 
@@ -2746,7 +2746,7 @@ def test_attrs_update_with_a_bad_value_raises() -> None:
         pytest.param([("id", "x")], False, id="non-mapping"),
     ],
 )
-def test_attrs_equality(other: object, *, expected: bool) -> None:
+def test_attrs_equality(other: Mapping[str, str | list[str] | None] | list[tuple[str, str]], *, expected: bool) -> None:
     assert (_anchor().attrs == other) is expected
 
 
@@ -2799,7 +2799,9 @@ def test_attrs_or_leaves_the_element_unchanged() -> None:
         pytest.param(lambda attrs: 3 | attrs, id="non-mapping-left"),
     ],
 )
-def test_attrs_or_non_mapping_is_unsupported(combine: Callable[[object], object]) -> None:
+def test_attrs_or_non_mapping_is_unsupported(
+    combine: Callable[[MutableMapping[str, str | list[str] | None]], object],
+) -> None:
     with pytest.raises(TypeError):
         combine(_anchor().attrs)
 
@@ -2811,7 +2813,9 @@ def test_attrs_or_non_mapping_is_unsupported(combine: Callable[[object], object]
         pytest.param(lambda attrs: _BrokenMapping() | attrs, id="broken-left"),
     ],
 )
-def test_attrs_or_broken_mapping_raises(combine: Callable[[object], object]) -> None:
+def test_attrs_or_broken_mapping_raises(
+    combine: Callable[[MutableMapping[str, str | list[str] | None]], object],
+) -> None:
     with pytest.raises(RuntimeError, match="broken"):
         combine(_anchor().attrs)
 

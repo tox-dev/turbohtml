@@ -12,7 +12,7 @@ import pytest
 from turbohtml import Text, etree
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
     from pytest_mock import MockerFixture
 
@@ -199,9 +199,11 @@ def test_element_tree_propagates_truth_value_error(
 @pytest.mark.parametrize(
     "function", [pytest.param(etree.strip_tags, id="unwrap"), pytest.param(etree.strip_elements, id="remove")]
 )
-def test_element_tree_rejects_invalid_strip_filter(tree: ElementView, function: Callable[..., None]) -> None:
+def test_element_tree_rejects_invalid_strip_filter(
+    tree: ElementView, function: Callable[[ElementView, *tuple[str | Iterable[str] | None, ...]], None]
+) -> None:
     with pytest.raises(TypeError):
-        function(tree, 42)
+        function(tree, 42)  # ty: ignore[invalid-argument-type]  # passes a non-str tag on purpose to check the rejection
 
 
 def test_element_tree_requires_callable_context() -> None:

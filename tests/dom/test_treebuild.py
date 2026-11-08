@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Final, Protocol, cast
+from typing import TYPE_CHECKING, Final, Protocol, cast
 
 from turbohtml import Comment as DomComment
 from turbohtml import Doctype as DomDoctype
@@ -36,7 +36,12 @@ _MATHML_NS: Final[str] = "http://www.w3.org/1998/Math/MathML"
 class Built:
     # A captured builder node: the method that made it and the payload it carried.
     kind: str
-    payload: tuple[Any, ...]
+    payload: (
+        tuple[()]
+        | tuple[str, ...]
+        | tuple[str, str | None, str | None]
+        | tuple[str, str, tuple[tuple[str, str | None], ...]]
+    )
     children: list[Built] = field(default_factory=list)
 
 
@@ -261,19 +266,20 @@ def _flatten(node: Built, out: list[SaxEvent]) -> None:
         out.append(Comment(node.payload[0]))
         return
     if node.kind == "pi":
-        out.append(ProcessingInstruction(*node.payload))
+        out.append(ProcessingInstruction(*cast("tuple[str, str]", node.payload)))
         return
     if node.kind == "doctype":
-        out.append(Doctype(*node.payload))
+        out.append(Doctype(*cast("tuple[str, str | None, str | None]", node.payload)))
         return
-    tag = node.payload[0] if node.kind == "element" else None
-    if tag is not None:
-        _, _namespace, attrs = node.payload
+    if node.kind == "element":
+        tag, _namespace, attrs = cast("tuple[str, str, tuple[tuple[str, str | None], ...]]", node.payload)
         out.append(StartElement(tag, attrs))
-    for child in node.children:  # the document (never empty) and elements (empty for voids) share this walk
-        _flatten(child, out)
-    if tag is not None:
+        for child in node.children:  # elements are empty for voids, so the walk ends at once
+            _flatten(child, out)
         out.append(EndElement(tag))
+        return
+    for child in node.children:  # the document (never empty) walks its children here
+        _flatten(child, out)
 
 
 class _RaisingBuilder(Recorder):
@@ -407,14 +413,14 @@ class _LxmlNode(Protocol):
     def __iter__(self) -> Iterator[_LxmlNode]: ...
 
     @property
-    def tag(self) -> object: ...
+    def tag(self) -> str | Callable[[str | None], object]: ...
 
     @property
     def attrib(self) -> Mapping[str, str]: ...
 
     def set(self, key: str, value: str) -> None: ...
 
-    def append(self, child: object) -> None: ...
+    def append(self, child: _LxmlNode) -> None: ...
 
 
 @pytest.mark.oracle
@@ -422,50 +428,53 @@ class _LxmlBuilder:
     def __init__(self, etree: ModuleType) -> None:
         self.etree = etree
 
-    def create_document(self) -> object:
+    def create_document(self) -> _LxmlNode | tuple[str, ...]:
         return self.etree.Element("document")
 
-    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> object:  # ruff:ignore[unused-method-argument, no-self-use]  # the callback signature is fixed by the protocol; this argument is unused
+    def create_doctype(self, name: str, public_id: str | None, system_id: str | None) -> _LxmlNode | tuple[str, ...]:  # ruff:ignore[unused-method-argument, no-self-use]  # the callback signature is fixed by the protocol; this argument is unused
         return ("doctype",)
 
-    def create_element(self, name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> object:  # ruff:ignore[unused-method-argument]  # the callback signature is fixed by the protocol; this argument is unused
+    def create_element(
+        self,
+        name: str,
+        namespace: str,  # ruff:ignore[unused-method-argument]  # the callback signature is fixed by the protocol; this argument is unused
+        attrs: tuple[tuple[str, str | None], ...],
+    ) -> _LxmlNode | tuple[str, ...]:
         node: Final = self.etree.Element(name)
         for attr_name, value in attrs:
             node.set(attr_name, value or "")
         return node
 
-    def create_text(self, data: str) -> object:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
+    def create_text(self, data: str) -> _LxmlNode | tuple[str, ...]:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         return ("text", data)
 
-    def create_comment(self, data: str) -> object:
+    def create_comment(self, data: str) -> _LxmlNode | tuple[str, ...]:
         return self.etree.Comment(data)
 
-    def create_pi(self, target: str, data: str) -> object:
+    def create_pi(self, target: str, data: str) -> _LxmlNode | tuple[str, ...]:
         return self.etree.Comment(f"?{target}{f' {data}' if data else ''}?")
 
-    def append(self, parent: object, child: object) -> None:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
-        node: Final = cast("_LxmlNode", parent)
+    def append(self, parent: _LxmlNode, child: _LxmlNode | tuple[str, ...]) -> None:  # ruff:ignore[no-self-use]  # the method implements a protocol that takes no instance state
         if isinstance(child, tuple):
             if child[0] == "text":
                 data: Final = str(child[1])
-                if len(node) == 0:
-                    node.text = (node.text or "") + data
+                if len(parent) == 0:
+                    parent.text = (parent.text or "") + data
                 else:
-                    node[-1].tail = (node[-1].tail or "") + data
+                    parent[-1].tail = (parent[-1].tail or "") + data
             return
-        node.append(child)
+        parent.append(child)
 
 
 @pytest.mark.oracle
-def _flatten_lxml(node: object, out: list[_LxmlEvent], etree: ModuleType) -> None:
-    element: Final = cast("_LxmlNode", node)
-    if element.tag is etree.Comment:
-        out.append(("comment", element.text or ""))
+def _flatten_lxml(node: _LxmlNode, out: list[_LxmlEvent], etree: ModuleType) -> None:
+    if node.tag is etree.Comment:
+        out.append(("comment", node.text or ""))
         return
-    out.append(("element", element.tag, tuple(sorted(element.attrib.items()))))
-    if element.text:
-        out.append(("text", element.text))
-    for child in element:
+    out.append(("element", node.tag, tuple(sorted(node.attrib.items()))))
+    if node.text:
+        out.append(("text", node.text))
+    for child in node:
         _flatten_lxml(child, out, etree)
         if child.tail:
             out.append(("text", child.tail))

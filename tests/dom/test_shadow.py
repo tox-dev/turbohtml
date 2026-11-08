@@ -457,13 +457,13 @@ def test_open_shadowrootmode_attaches_a_shadow_root() -> None:
     assert (root.mode, root.html) == ("open", "<p>shadow</p>")
 
 
-def _declarative_shadow_element(node: object) -> Element:
+def _declarative_shadow_element(node: Element | None) -> Element:
     # Narrow a find result to a non-None Element.
     assert isinstance(node, Element)
     return node
 
 
-def _shadow(node: object) -> ShadowRoot:
+def _shadow(node: ShadowRoot | None) -> ShadowRoot:
     # Narrow a shadow_root result to a non-None ShadowRoot.
     assert isinstance(node, ShadowRoot)
     return node
