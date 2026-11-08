@@ -699,22 +699,22 @@ def test_nested_candidates_keep_link_density(read_root: Callable[[Document], Ele
     classes: Final = {32: "article"}
     document: Final = parse(
         "<main>"
-        + "".join(
-            f'<div id="candidate-{index}" class="{classes.get(index, "")}">'
-            '<p>A sentence with enough prose, and a clause, to score. <a href="/">linked words</a></p>'
-            "<!--gap--><img><script>ignored</script><svg><text>ignored</text></svg>"
-            for index in range(64)
-        )
-        + "</div>" * 64
-        + "</main>"
+        f"""{
+            "".join(
+                f'<div id="candidate-{index}" class="{classes.get(index, "")}">'
+                '<p>A sentence with enough prose, and a clause, to score. <a href="/">linked words</a></p>'
+                "<!--gap--><img><script>ignored</script><svg><text>ignored</text></svg>"
+                for index in range(64)
+            )
+        }"""
+        f"""{"</div>" * 64}</main>"""
     )
     assert read_root(document).main_content() == document.select("#candidate-32")[0]
 
 
 def test_many_link_only_candidates_have_no_main_content() -> None:
     document: Final = parse(
-        "<main>"
-        + '<section><p><a href="/">A linked sentence with enough text to score.</a></p></section>' * 64
-        + "</main>"
+        f"""<main>{'<section><p><a href="/">A linked sentence with enough text to score.</a></p></section>' * 64}"""
+        "</main>"
     )
     assert document.main_content() is None

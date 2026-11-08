@@ -179,12 +179,11 @@ def test_feed_rdf_sequence(sequence: str, items: str, expected: tuple[str, ...])
 
 def test_feed_rdf_sequence_resolves_xml_base() -> None:
     xml: Final = (
-        _RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/base/" ')
-        + '<channel rdf:about="https://example.org/"><items><rdf:Seq>'
-        '<rdf:li rdf:resource="a"/><rdf:li rdf:resource="https://example.org/other/b"/>'
-        "</rdf:Seq></items></channel>"
-        '<item rdf:about="https://example.org/base/a"><title>A</title></item>'
-        '<item xml:base="https://example.org/other/" rdf:about="b"><title>B</title></item></rdf:RDF>'
+        f"""{_RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/base/" ')}"""
+        """<channel rdf:about="https://example.org/"><items><rdf:Seq><rdf:li rdf:resource="a"/><rdf:li """
+        """rdf:resource="https://example.org/other/b"/></rdf:Seq></items></channel><item """
+        """rdf:about="https://example.org/base/a"><title>A</title></item><item xml:base="https://example.org/other/" """
+        """rdf:about="b"><title>B</title></item></rdf:RDF>"""
     )
     result = feed(xml)
     assert result is not None
@@ -193,10 +192,10 @@ def test_feed_rdf_sequence_resolves_xml_base() -> None:
 
 def test_feed_rdf_sequence_resolves_empty_reference_to_xml_base() -> None:
     xml: Final = (
-        _RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/feed" ')
-        + '<channel rdf:about="https://example.org/"><items><rdf:Seq>'
-        '<rdf:li rdf:resource=""/></rdf:Seq></items></channel>'
-        '<item rdf:about="https://example.org/feed"><title>Feed item</title></item></rdf:RDF>'
+        f"""{_RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/feed" ')}"""
+        """<channel rdf:about="https://example.org/"><items><rdf:Seq><rdf:li """
+        """rdf:resource=""/></rdf:Seq></items></channel><item """
+        """rdf:about="https://example.org/feed"><title>Feed item</title></item></rdf:RDF>"""
     )
     result = feed(xml)
     assert result is not None
@@ -236,12 +235,12 @@ def test_feed_rdf_sequence_root_alias_ignores_trailing_foreign_item() -> None:
 
 def test_feed_rdf_sequence_prefixed_rss_namespace() -> None:
     xml: Final = (
-        _RDF_START.replace('xmlns="http://purl.org/rss/1.0/"', 'xmlns="urn:other"')
-        + '<s:channel rdf:about="https://example.org/"><s:items><rdf:Seq>'
-        '<rdf:li rdf:resource="https://example.org/b"/><rdf:li rdf:resource="https://example.org/a"/>'
-        "</rdf:Seq></s:items></s:channel>"
-        '<s:item rdf:about="https://example.org/a"><s:title>A</s:title></s:item>'
-        '<s:item rdf:about="https://example.org/b"><s:title>B</s:title></s:item></rdf:RDF>'
+        f"""{_RDF_START.replace('xmlns="http://purl.org/rss/1.0/"', 'xmlns="urn:other"')}"""
+        """<s:channel rdf:about="https://example.org/"><s:items><rdf:Seq><rdf:li """
+        """rdf:resource="https://example.org/b"/><rdf:li """
+        """rdf:resource="https://example.org/a"/></rdf:Seq></s:items></s:channel><s:item """
+        """rdf:about="https://example.org/a"><s:title>A</s:title></s:item><s:item """
+        """rdf:about="https://example.org/b"><s:title>B</s:title></s:item></rdf:RDF>"""
     )
     result = feed(xml)
     assert result is not None
