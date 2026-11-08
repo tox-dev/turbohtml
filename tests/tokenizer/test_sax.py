@@ -225,7 +225,7 @@ def test_iter_events_is_lazy() -> None:
 def test_gc_reclaims_a_reference_cycle_through_the_source() -> None:
     class _Cyclic(str):  # ruff:ignore[subclass-builtin]  # a real str subclass: _sax_events requires str, and the slots let it cycle
         __slots__ = ("loop", "sentinel")
-        loop: object
+        loop: object  # simplint: ignore[SMP602]  # the stub types each sax event as tuple[object, ...]
         sentinel: _Sentinel
 
     class _Sentinel:
