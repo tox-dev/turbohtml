@@ -77,6 +77,9 @@ def boilerplate(html: str, options: Extraction | None = None, /) -> list[Paragra
     return list(starmap(Paragraph, rows))
 
 
+boilerplate.__module__ = "turbohtml.extract"  # documented and imported from turbohtml.extract, not this module
+
+
 class Paragraph(NamedTuple):
     """
     One paragraph unit of a page and its classification, the record :func:`boilerplate` returns.

@@ -8,6 +8,7 @@ import turbohtml
 from turbohtml import clean, extract, query
 
 _EXTRACT_RECORDS: Final[tuple[str, ...]] = ("Article", "Link", "MicrodataItem", "RdfaItem", "StructuredData")
+_EXTRACT_MOVED: Final[tuple[str, ...]] = ("Extraction", "Paragraph", "boilerplate", "feed", "microdata", "opengraph")
 _QUERY_SURFACE: Final[tuple[str, ...]] = (
     "DEBUG",
     "Matcher",
@@ -54,6 +55,15 @@ _CLEAN_LINKIFY: Final[tuple[str, ...]] = (
 @pytest.mark.parametrize("name", [pytest.param(name, id=name) for name in _EXTRACT_RECORDS])
 def test_extract_reexports_package_root_records(name: str) -> None:
     assert getattr(extract, name) is getattr(turbohtml, name)
+
+
+@pytest.mark.parametrize("name", [pytest.param(name, id=name) for name in _EXTRACT_MOVED])
+def test_extract_moved_names_report_the_package_module(name: str) -> None:
+    assert getattr(extract, name).__module__ == "turbohtml.extract"
+
+
+def test_query_class_reports_the_package_module() -> None:
+    assert query.Query.__module__ == "turbohtml.query"
 
 
 @pytest.mark.parametrize("name", [pytest.param(name, id=name) for name in (*_CLEAN_SANITIZE, *_CLEAN_LINKIFY)])

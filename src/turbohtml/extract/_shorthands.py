@@ -73,6 +73,11 @@ def feed(xml: str, /) -> Feed | None:
     return document.feed()
 
 
+microdata.__module__ = "turbohtml.extract"  # documented and imported from turbohtml.extract, not this module
+opengraph.__module__ = "turbohtml.extract"
+feed.__module__ = "turbohtml.extract"
+
+
 __all__ = [
     "feed",
     "microdata",
