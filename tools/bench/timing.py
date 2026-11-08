@@ -14,17 +14,21 @@ operations keep their cached parse and stay plain callables.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+_Arg = TypeVar("_Arg")
+_Tree = TypeVar("_Tree")
+_Result = TypeVar("_Result")
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class Mutating:
+class Mutating(Generic[_Arg, _Tree, _Result]):
     # A mutating operation: ``setup(case)`` builds a fresh tree (untimed), ``run(tree)`` mutates it (timed).
-    setup: Callable[..., object]
-    run: Callable[..., object]
+    setup: Callable[[_Arg], _Tree]
+    run: Callable[[_Tree], _Result]
 
 
 __all__ = [

@@ -31,10 +31,82 @@ from .corpus import (
     unescape_cases,
 )
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
 Case: TypeAlias = str | int | bytes | tuple["Case", ...]
+
+if TYPE_CHECKING:
+    from collections.abc import Buffer, Callable
+
+    from bs4 import BeautifulSoup
+    from langdetect.language import Language
+    from lxml.etree import RelaxNG, XMLSchema, _XSLTResultTree
+    from lxml.html import HtmlElement
+    from pyquery import PyQuery
+    from resiliparse.parse.html import HTMLTree
+    from selectolax.lexbor import LexborHTMLParser
+
+    from turbohtml import Document, Element, Node, Token
+    from turbohtml.query import Query
+    from turbohtml.validate import XMLSchema as TurboXMLSchema
+
+    from .timing import Mutating
+
+    Timed: TypeAlias = (
+        Callable[[str], None]
+        | Callable[[str], str]
+        | Callable[[str], bytes]
+        | Callable[[str], str | None]
+        | Callable[[str], list[Language]]
+        | Callable[[str], list[tuple[str, str]]]
+        | Callable[[str], XMLSchema]
+        | Callable[[str], RelaxNG]
+        | Callable[[str], TurboXMLSchema]
+        | Callable[[bytes], None]
+        | Callable[[int], None]
+        | Callable[[int], str]
+        | Callable[[int], Node]
+        | Callable[[tuple[str, str]], None]
+        | Callable[[tuple[str, str]], str]
+        | Callable[[tuple[str, str]], _XSLTResultTree]
+        | Callable[[tuple[str, int]], Query]
+        | Callable[[tuple[str, str, str, str]], list[Node | str] | float | bool | str]
+        | Callable[[tuple[str, bool]], None]
+        | Callable[[tuple[str, bool]], str]
+        | Callable[[tuple[str, bytes]], None]
+        | Callable[[tuple[str, tuple[tuple[str, str], ...]]], None]
+        | Callable[[tuple[str, tuple[str, ...]]], None]
+        | Callable[[tuple[str, tuple[tuple[str, tuple[str, ...]], ...]]], None]
+        | Callable[[tuple[str, Case]], None]
+        | Callable[[tuple[int, str]], None]
+        | Callable[[tuple[int, str]], str]
+        | Callable[[tuple[int, str]], bool]
+        | Callable[[tuple[int, bool]], None]
+        | Callable[[tuple[int, bool]], PyQuery]
+        | Callable[[tuple[int, bytes]], None]
+        | Callable[[tuple[str, ...]], None]
+        | Callable[[tuple[tuple[str, str], ...]], None]
+        | Callable[[tuple[tuple[str, str], ...]], bool]
+        | Mutating[str, BeautifulSoup, None]
+        | Mutating[str | Buffer, HtmlElement, None]
+        | Mutating[str, HtmlElement, HtmlElement]
+        | Mutating[str, PyQuery, None]
+        | Mutating[str, HTMLTree, None]
+        | Mutating[str, LexborHTMLParser, None]
+        | Mutating[tuple[int, int, int, str], Callable[[], tuple[bool, ...]], tuple[bool, ...]]
+        | Mutating[tuple[int, int], Element, None]
+        | Mutating[tuple[int, str], Callable[[], None], None]
+        | Mutating[tuple[str, bool], Callable[[], str | bytes], str | bytes]
+        | Mutating[str, Token, list[tuple[str, str]] | None]
+        | Mutating[tuple[str, str], tuple[str, Document], None]
+        | Mutating[str | bytes, Document, Document]
+        | Mutating[str | bytes, Document, str]
+        | Mutating[str | bytes, Document, None]
+        | Mutating[str, Document, str]
+        | Mutating[str, Element, Node]
+        | Mutating[tuple[int, str], Element, None]
+        | Mutating[tuple[int, bool], tuple[Element, tuple[str, ...]], None]
+        | Mutating[str, Element, str]
+    )
+
 
 _ROWS: Final[tuple[tuple[str, int], ...]] = (("100 rows", 100), ("1k rows", 1_000), ("10k rows", 10_000))
 

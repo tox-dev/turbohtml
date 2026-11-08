@@ -67,12 +67,16 @@ def discover_labels(competitor_dir: Path) -> dict[str, dict[str, str]]:
         if path.stem == "__init__":
             continue
         for node in ast.parse(path.read_text(encoding="utf-8")).body:
-            if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                name, table = node.target.id, node.value
+            elif isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                name, table = node.targets[0].id, node.value
+            else:
                 continue
-            if node.targets[0].id == "OPERATIONS" and isinstance(node.value, ast.Dict):
+            if name == "OPERATIONS" and isinstance(table, ast.Dict):
                 found[path.stem] = {
                     key.value: value.elts[1].value
-                    for key, value in zip(node.value.keys, node.value.values, strict=True)
+                    for key, value in zip(table.keys, table.values, strict=True)
                     if isinstance(key, ast.Constant)
                     and isinstance(key.value, str)
                     and isinstance(value, ast.Tuple)

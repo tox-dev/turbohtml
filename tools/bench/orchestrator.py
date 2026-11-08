@@ -49,15 +49,19 @@ def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, 
         operation_names: tuple[str, ...] = ()
         pip_options: tuple[str, ...] = ()
         for node in ast.parse(path.read_text(encoding="utf-8")).body:
-            if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                name, value = node.target.id, node.value
+            elif isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                name, value = node.targets[0].id, node.value
+            else:
                 continue
-            if node.targets[0].id == "_REQUIREMENTS" and isinstance(node.value, ast.Tuple):
-                requirements = _string_tuple(node.value)
-            elif node.targets[0].id == "PIP_OPTIONS" and isinstance(node.value, ast.Tuple):
-                pip_options = _string_tuple(node.value)
-            elif node.targets[0].id == "OPERATIONS" and isinstance(node.value, ast.Dict):
+            if name == "_REQUIREMENTS" and isinstance(value, ast.Tuple):
+                requirements = _string_tuple(value)
+            elif name == "PIP_OPTIONS" and isinstance(value, ast.Tuple):
+                pip_options = _string_tuple(value)
+            elif name == "OPERATIONS" and isinstance(value, ast.Dict):
                 operation_names = tuple(
-                    key.value for key in node.value.keys if isinstance(key, ast.Constant) and isinstance(key.value, str)
+                    key.value for key in value.keys if isinstance(key, ast.Constant) and isinstance(key.value, str)
                 )
         found[path.stem] = (requirements, operation_names, pip_options)
     return found

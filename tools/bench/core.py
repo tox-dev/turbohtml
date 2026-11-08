@@ -75,7 +75,7 @@ if TYPE_CHECKING:
 
     from turbohtml import Element, Node
 
-    from .operations import Case
+    from .operations import Case, Timed
 
 _SANITIZER: Final[_Sanitizer] = _Sanitizer(_Policy.relaxed())
 _DISALLOWED_SANITIZERS: Final[dict[str, _Sanitizer]] = {
@@ -1130,8 +1130,12 @@ def _first_two_ext(_context: SimpleNamespace, nodes: list[Element]) -> list[Elem
 
 
 _SVG_NS: Final[dict[str, str]] = {"svg": "http://www.w3.org/2000/svg"}
-_COUNT_EXTENSIONS = {(None, "ext_count"): _count_ext}
-_NODESET_EXTENSIONS = {(None, "ext_first_two"): _first_two_ext}
+_COUNT_EXTENSIONS: Final[dict[tuple[str | None, str], Callable[[SimpleNamespace, list[Element]], float]]] = {
+    (None, "ext_count"): _count_ext
+}
+_NODESET_EXTENSIONS: Final[dict[tuple[str | None, str], Callable[[SimpleNamespace, list[Element]], list[Element]]]] = {
+    (None, "ext_first_two"): _first_two_ext
+}
 _REUSE: Final[turbohtml.XPath] = turbohtml.XPath("//a[@href]")
 _ID_REUSE: Final[turbohtml.XPath] = turbohtml.XPath(f"id('{' '.join(f'r{index}' for index in range(1_000))}')")
 
@@ -1518,7 +1522,7 @@ def _query_root_group_case(case: tuple[str, int]) -> _Query:
     return _Query(roots)
 
 
-OPERATIONS: Final[dict[str, tuple[object, str]]] = {
+OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "query-root-groups": (_query_root_groups, "turbohtml"),
     "radio-group": (Mutating(setup=_radio_group_setup, run=_run_radio_group), "turbohtml"),
     "form-data-fieldsets": (_form_data_fieldsets, "turbohtml"),
