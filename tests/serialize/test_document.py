@@ -2079,32 +2079,32 @@ def test_serialize_rejects_another_renderers_config() -> None:
         parse("<p>x</p>").serialize(Markdown())  # ty: ignore[invalid-argument-type]  # the wrong config class is rejected
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _SortedHtml(Html):
     sort_attributes: bool = True
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _ImageText(PlainText):
     images: bool = True
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _CommentedCanonical(Canonical):
     with_comments: bool = True
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _ExtendedHtml(_SortedHtml):
     extra: str = "value"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _ExtendedText(_ImageText):
     extra: str = "value"
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _ExtendedCanonical(_CommentedCanonical):
     extra: str = "value"
 

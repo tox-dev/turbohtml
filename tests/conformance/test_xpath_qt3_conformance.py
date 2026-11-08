@@ -327,7 +327,7 @@ def expected_result(result: ET.Element) -> Expected:  # ruff:ignore[too-many-ret
     return ("unmodeled", "no-assertion")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Case:
     case_id: str
     query: str
@@ -427,7 +427,7 @@ def collect() -> Iterator[ParameterSet]:
             result = element.find(f"{_QT3}result")
             assert result is not None  # every QT3 test case carries a result element
             expected = expected_result(result)
-            case = Case(case_id, strip_function_prefix(raw_query), env, expected)
+            case = Case(case_id=case_id, query=strip_function_prefix(raw_query), environment=env, expected=expected)
 
             reason = environment_reason(env) or exclusion_reason(family, element, strip_function_prefix(raw_query))
             if reason is not None:
