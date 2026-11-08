@@ -2389,7 +2389,7 @@ def test_atheris_runtime_merges_sanitizer_without_preinit(
     sanitizer.write_bytes(b"sanitizer archive")
     monkeypatch.delenv("AR", raising=False)
     output = tmp_path / "built"
-    run = mocker.patch("subprocess.run", autospec=True, return_value=mocker.MagicMock(stdout=members))
+    run = mocker.patch("subprocess.run", autospec=True, return_value=mocker.MagicMock(spec=["stdout"], stdout=members))
     assert (
         fuzz_atheris_runtime_main(["--archive", str(archive), "--output", str(output), "--sanitizer", str(sanitizer)])
         == 0
@@ -2443,9 +2443,9 @@ def test_atheris_callback_preserves_unexpected_error() -> None:
 
 
 def test_atheris_callback_opens_and_closes_failure_window(mocker: MockerFixture) -> None:
-    inject = mocker.MagicMock(return_value=(3, False))
-    target = mocker.MagicMock()
-    rejecting_callback(target, (), mocker.MagicMock(), inject)(Header(2, 7, 1).encode() + b"x")
+    inject = mocker.create_autospec(lambda _position: None, return_value=(3, False))
+    target = mocker.create_autospec(lambda _data, _header: None)
+    rejecting_callback(target, (), mocker.create_autospec(lambda: None), inject)(Header(2, 7, 1).encode() + b"x")
     assert (inject.call_args_list, target.call_args_list) == (
         [mocker.call(7), mocker.call(0)],
         [mocker.call(b"x", Header(2, 7, 1))],
@@ -2456,7 +2456,7 @@ def test_atheris_callback_keeps_injected_memory_error(mocker: MockerFixture) -> 
     def consume(_data: bytes, _header: Header) -> None:
         raise MemoryError
 
-    reject = mocker.MagicMock()
+    reject = mocker.create_autospec(lambda: None)
     rejecting_callback(consume, (UnicodeError,), reject, lambda _position: (1, True))(SEED_HEADER)
     assert reject.call_count == 0
 
@@ -2500,7 +2500,7 @@ def test_atheris_callback_reports_failure_mismatch(
         if raised is not None and (not failed or calls == 1):
             raise raised
 
-    reject = mocker.MagicMock()
+    reject = mocker.create_autospec(lambda: None)
     callback = rejecting_callback(consume, (UnicodeError,), reject, lambda _position: (1, failed))
     with pytest.raises(error, match=match):
         callback(SEED_HEADER)
@@ -2508,7 +2508,7 @@ def test_atheris_callback_reports_failure_mismatch(
 
 
 def test_atheris_callback_recovers_from_injected_allocation(mocker: MockerFixture) -> None:
-    reject = mocker.MagicMock()
+    reject = mocker.create_autospec(lambda: None)
     rejecting_callback(lambda _data, _header: None, (UnicodeError,), reject, lambda _position: (1, True))(SEED_HEADER)
     assert reject.call_count == 0
 
@@ -2518,7 +2518,7 @@ def test_atheris_callback_rejects_documented_error_after_injection(mocker: Mocke
         msg = "invalid input"
         raise UnicodeError(msg)
 
-    reject = mocker.MagicMock()
+    reject = mocker.create_autospec(lambda: None)
     rejecting_callback(consume, (UnicodeError,), reject, lambda _position: (1, True))(SEED_HEADER)
     reject.assert_called_once_with()
 

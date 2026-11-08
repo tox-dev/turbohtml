@@ -112,7 +112,7 @@ def test_dom_lifecycle_generated_case_holds(text: str) -> None:
 def test_dom_lifecycle_verifies_after_every_step(
     mocker: MockerFixture, report: tuple[int, ...], detail: str | None
 ) -> None:
-    mocker.patch("fuzz.dom_lifecycle._tree_verify", return_value=report)
+    mocker.patch("fuzz.dom_lifecycle._tree_verify", autospec=True, return_value=report)
     assert dom_lifecycle_check(dom_lifecycle_seeds()[0]) == detail
 
 

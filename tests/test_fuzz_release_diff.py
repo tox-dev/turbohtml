@@ -117,6 +117,6 @@ def _python_without_turbohtml(tmp_path: Path) -> Path:
 def test_release_diff_cli_fails_a_blind_control(
     mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    mocker.patch("fuzz.release_diff.compare", return_value=None)
+    mocker.patch("fuzz.release_diff.compare", autospec=True, return_value=None)
     code = main(["--minutes", "0", "--release-python", sys.executable, "--crash-dir", str(tmp_path)])
     assert (code, capsys.readouterr().err) == (2, "BLIND ORACLE: the perturbed worker went unreported\n")

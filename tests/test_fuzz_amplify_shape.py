@@ -1120,24 +1120,24 @@ def test_reduce_keeps_original_finding_class() -> None:
 
 
 def test_reduce_js_protocol_checks_candidates(mocker: MockerFixture) -> None:
-    mocker.patch("fuzz.reduce.shutil.which", return_value="node")
-    mocker.patch("fuzz.reduce.Path.is_dir", return_value=True)
+    mocker.patch("fuzz.reduce.shutil.which", autospec=True, return_value="node")
+    mocker.patch("fuzz.reduce.Path.is_dir", autospec=True, return_value=True)
     replies = io.StringIO(
         f"{json.dumps({'kind': 'candidate', 'text': 'keep();'})}\n{json.dumps({'kind': 'done', 'text': 'keep();'})}\n"
     )
     answers = io.StringIO()
     mocker.patch("fuzz.reduce.subprocess.Popen", autospec=True).return_value.__enter__.return_value = mocker.MagicMock(
-        stdin=answers, stdout=replies
+        spec=["stdin", "stdout", "returncode"], stdin=answers, stdout=replies
     )
     assert minimize("discard();keep();", lambda source: source == "keep();", "js") == "keep();"
     assert answers.getvalue() == '{"text": "discard();keep();", "budget": 600}\ntrue\n'
 
 
 def test_reduce_js_reports_premature_exit(mocker: MockerFixture) -> None:
-    mocker.patch("fuzz.reduce.shutil.which", return_value="node")
-    mocker.patch("fuzz.reduce.Path.is_dir", return_value=True)
+    mocker.patch("fuzz.reduce.shutil.which", autospec=True, return_value="node")
+    mocker.patch("fuzz.reduce.Path.is_dir", autospec=True, return_value=True)
     mocker.patch("fuzz.reduce.subprocess.Popen", autospec=True).return_value.__enter__.return_value = mocker.MagicMock(
-        stdin=io.StringIO(), stdout=io.StringIO(), returncode=3
+        spec=["stdin", "stdout", "returncode"], stdin=io.StringIO(), stdout=io.StringIO(), returncode=3
     )
     with pytest.raises(RuntimeError, match="exited without a result: 3"):
         minimize("keep();", lambda _source: True, "js")
@@ -1145,8 +1145,8 @@ def test_reduce_js_reports_premature_exit(mocker: MockerFixture) -> None:
 
 @pytest.mark.parametrize("which", [pytest.param(None, id="node"), pytest.param("node", id="package")])
 def test_reduce_js_reports_missing_backend(mocker: MockerFixture, which: str | None) -> None:
-    mocker.patch("fuzz.reduce.shutil.which", return_value=which)
-    mocker.patch("fuzz.reduce.Path.is_dir", return_value=False)
+    mocker.patch("fuzz.reduce.shutil.which", autospec=True, return_value=which)
+    mocker.patch("fuzz.reduce.Path.is_dir", autospec=True, return_value=False)
     with pytest.raises(FileNotFoundError, match="required for JS reduction"):
         minimize("keep();", lambda _source: True, "js")
 
@@ -1410,7 +1410,7 @@ def test_triage_runner_rejects_unknown_smoke_arguments() -> None:
 
 
 def test_triage_runner_keeps_release_dispatch(mocker: MockerFixture, tmp_path: Path) -> None:
-    mocker.patch("subprocess.run", autospec=True, return_value=mocker.MagicMock(returncode=0))
+    mocker.patch("subprocess.run", autospec=True, return_value=mocker.MagicMock(spec=["returncode"], returncode=0))
     assert fuzz_main(["--mode", "release-diff", "--minutes", "0", "--crash-dir", str(tmp_path)]) == 0
 
 

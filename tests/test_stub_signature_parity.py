@@ -194,7 +194,7 @@ def test_runtime_signature_ignores_a_non_callable() -> None:
 
 def test_runtime_signature_skips_a_signature_inspect_cannot_build(mocker: MockerFixture) -> None:
     # older CPython raises building some C text signatures; the guard skips them rather than erroring the run
-    mocker.patch("inspect.signature", side_effect=ValueError)
+    mocker.patch("inspect.signature", autospec=True, side_effect=ValueError)
     assert _runtime_signature(html.parse) is None
 
 

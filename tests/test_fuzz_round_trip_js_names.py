@@ -100,7 +100,7 @@ def test_js_names_check_skips_a_source_every_option_set_rejects(
 
 
 def test_js_names_reader_requires_node(mocker: MockerFixture, tmp_path: Path) -> None:
-    mocker.patch("fuzz.round_trip_oracles.shutil.which", return_value=None)
+    mocker.patch("fuzz.round_trip_oracles.shutil.which", autospec=True, return_value=None)
     with pytest.raises(FileNotFoundError, match="are required by the js-names oracle"):
         JsNames(tmp_path).read("x")
 
@@ -116,17 +116,17 @@ def test_js_names_reader_speaks_json_lines(
     mocker: MockerFixture, tmp_path: Path, answer: dict[str, list[str]] | None, expected: _Names | None
 ) -> None:
     (tmp_path / "node_modules" / "eslint-scope").mkdir(parents=True)
-    mocker.patch("fuzz.round_trip_oracles.shutil.which", return_value="node")
-    process = mocker.MagicMock(**{"stdout.readline.return_value": f"{json.dumps(answer)}\n"})
-    mocker.patch("fuzz.round_trip_oracles.subprocess.Popen", return_value=process)
+    mocker.patch("fuzz.round_trip_oracles.shutil.which", autospec=True, return_value="node")
+    process = mocker.MagicMock(spec=["stdin", "stdout"], **{"stdout.readline.return_value": f"{json.dumps(answer)}\n"})
+    mocker.patch("fuzz.round_trip_oracles.subprocess.Popen", autospec=True, return_value=process)
     result = JsNames(tmp_path).read("a.b\n")
     assert (result, process.stdin.write.call_args.args) == (expected, ('"a.b\\n"\n',))
 
 
 def test_js_names_reader_skips_a_tree_eslint_scope_cannot_scope(mocker: MockerFixture, tmp_path: Path) -> None:
     (tmp_path / "node_modules" / "eslint-scope").mkdir(parents=True)
-    mocker.patch("fuzz.round_trip_oracles.shutil.which", return_value="node")
-    process = mocker.MagicMock(**{"stdout.readline.return_value": '{"error": "TypeError"}\n'})
-    mocker.patch("fuzz.round_trip_oracles.subprocess.Popen", return_value=process)
+    mocker.patch("fuzz.round_trip_oracles.shutil.which", autospec=True, return_value="node")
+    process = mocker.MagicMock(spec=["stdin", "stdout"], **{"stdout.readline.return_value": '{"error": "TypeError"}\n'})
+    mocker.patch("fuzz.round_trip_oracles.subprocess.Popen", autospec=True, return_value=process)
     with pytest.raises(OutOfScopeError):
         JsNames(tmp_path).read("x")

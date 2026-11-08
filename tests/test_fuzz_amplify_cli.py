@@ -26,7 +26,7 @@ _SHAPE: Final[Shape] = Shape(kind="repeat", left="ab")
 def synthetic(mocker: MockerFixture) -> list[float]:  # pragma: win32 no cover
     real = time.thread_time
     extra = [0.0]
-    mocker.patch("time.thread_time", side_effect=lambda: real() + extra[0])
+    mocker.patch("time.thread_time", autospec=True, side_effect=lambda: real() + extra[0])
     return extra
 
 

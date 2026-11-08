@@ -2694,7 +2694,7 @@ def test_reference_link_inside_converter_registers() -> None:
 
 
 def test_converter_receives_element_and_content(mocker: MockerFixture) -> None:
-    converter = mocker.MagicMock(return_value="X")
+    converter = mocker.create_autospec(lambda _element, _content: "", return_value="X")
     out = parse("<p><b>hi <i>there</i></b></p>").to_markdown(Markdown(converters={"b": converter}))
     assert out == "X"
     converter.assert_called_once()

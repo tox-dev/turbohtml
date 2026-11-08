@@ -17,7 +17,7 @@ _MILLISECOND: Final[float] = 0.001
 @pytest.fixture
 def clock(mocker: MockerFixture) -> list[float]:
     now = [0.0]
-    mocker.patch("time.thread_time", side_effect=lambda: now[0])
+    mocker.patch("time.thread_time", autospec=True, side_effect=lambda: now[0])
     return now
 
 
