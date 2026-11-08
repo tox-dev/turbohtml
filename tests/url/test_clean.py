@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+from functools import partial
 from ipaddress import IPv6Address
 from typing import TYPE_CHECKING, Final
 
@@ -266,20 +267,20 @@ _KNOBS: Final[tuple[bool | frozenset[str] | None, ...]] = (
 @pytest.mark.parametrize(
     ("entry", "args"),
     [
-        pytest.param(_url_normalize, ("http://x.com", *_KNOBS[:-1]), id="normalize-too-few"),
-        pytest.param(_url_clean, ("http://x.com", *_KNOBS), id="clean-too-few"),
-        pytest.param(_url_normalize, ("http://x.com", *_KNOBS[:3], 5, *_KNOBS[4:]), id="allow-not-iterable"),
-        pytest.param(_url_normalize, ("http://x.com", *_KNOBS[:3], {1}, *_KNOBS[4:]), id="allow-holds-an-int"),
-        pytest.param(_url_normalize, ("http://x.com", *_KNOBS[:4], {1}, *_KNOBS[5:]), id="deny-holds-an-int"),
+        pytest.param(partial(_url_normalize), ("http://x.com", *_KNOBS[:-1]), id="normalize-too-few"),
+        pytest.param(partial(_url_clean), ("http://x.com", *_KNOBS), id="clean-too-few"),
+        pytest.param(partial(_url_normalize), ("http://x.com", *_KNOBS[:3], 5, *_KNOBS[4:]), id="allow-not-iterable"),
+        pytest.param(partial(_url_normalize), ("http://x.com", *_KNOBS[:3], {1}, *_KNOBS[4:]), id="allow-holds-an-int"),
+        pytest.param(partial(_url_normalize), ("http://x.com", *_KNOBS[:4], {1}, *_KNOBS[5:]), id="deny-holds-an-int"),
         pytest.param(
-            _url_clean,
+            partial(_url_clean),
             ("http://x.com", *_KNOBS[:3], {1}, *_KNOBS[4:], None, frozenset()),
             id="clean-allow-holds-an-int",
         ),
     ],
 )
 def test_the_entry_points_reject_bad_arguments(
-    entry: Callable[..., object], args: tuple[str | bool | int | set[int] | frozenset[str] | None, ...]
+    entry: partial[object], args: tuple[str | bool | int | set[int] | frozenset[str] | None, ...]
 ) -> None:
     with pytest.raises(TypeError):
         entry(*args)

@@ -250,7 +250,7 @@ def test_the_shape_test_must_be_a_type() -> None:
     ],
 )
 def test_tag_predicate_overrides_wildcard(
-    expected: str, *, verdict: bool | int | str | None, wildcard: Callable[..., bool] | list[str]
+    expected: str, *, verdict: bool | int | str | None, wildcard: Callable[[str, str, str], bool] | list[str]
 ) -> None:
     assert (
         clean(

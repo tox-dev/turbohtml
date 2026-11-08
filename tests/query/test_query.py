@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from functools import partial
 from typing import TYPE_CHECKING, Final, cast
 
 import pytest
@@ -455,18 +456,16 @@ def test_siblings_preserves_first_encounter_order(indices: list[int], expected: 
 @pytest.mark.parametrize(
     ("call", "args"),
     [
-        pytest.param(_query_siblings, ("notalist",), id="siblings"),
-        pytest.param(_query_text, ("notalist",), id="text"),
-        pytest.param(_query_attr, ("notalist", "id"), id="attr"),
-        pytest.param(_query_has_class, ("notalist", "x"), id="has_class"),
-        pytest.param(_query_add_class, ("notalist", "x"), id="add_class"),
-        pytest.param(_query_remove_class, ("notalist", "x"), id="remove_class"),
-        pytest.param(_query_toggle_class, ("notalist", "x"), id="toggle_class"),
+        pytest.param(partial(_query_siblings), ("notalist",), id="siblings"),
+        pytest.param(partial(_query_text), ("notalist",), id="text"),
+        pytest.param(partial(_query_attr), ("notalist", "id"), id="attr"),
+        pytest.param(partial(_query_has_class), ("notalist", "x"), id="has_class"),
+        pytest.param(partial(_query_add_class), ("notalist", "x"), id="add_class"),
+        pytest.param(partial(_query_remove_class), ("notalist", "x"), id="remove_class"),
+        pytest.param(partial(_query_toggle_class), ("notalist", "x"), id="toggle_class"),
     ],
 )
-def test_a_binding_rejects_a_non_list(
-    call: Callable[..., list[Element] | None], args: tuple[str] | tuple[str, str]
-) -> None:
+def test_a_binding_rejects_a_non_list(call: partial[list[Element] | None], args: tuple[str] | tuple[str, str]) -> None:
     with pytest.raises(TypeError):
         call(*args)  # the argument check is the point
 
@@ -599,18 +598,18 @@ def test_select_limited_stops_early_on_an_indexed_tree() -> None:
 @pytest.mark.parametrize(
     ("entry", "args"),
     [
-        pytest.param(_query_parents, (["p"],), id="parents-of-a-non-node"),
-        pytest.param(_query_children, (["p"],), id="children-of-a-non-node"),
-        pytest.param(_query_closest, (["p"], "p"), id="closest-of-a-non-node"),
-        pytest.param(_select_limited, ("p", "p", 0), id="select-from-a-non-node"),
-        pytest.param(_query_parents, ("p",), id="parents-of-a-non-list"),
-        pytest.param(_query_children, ("p",), id="children-of-a-non-list"),
-        pytest.param(_query_closest, ("p", "p"), id="closest-of-a-non-list"),
-        pytest.param(_select_limited, (turbohtml.parse(""), 5, 0), id="select-with-a-non-str-selector"),
+        pytest.param(partial(_query_parents), (["p"],), id="parents-of-a-non-node"),
+        pytest.param(partial(_query_children), (["p"],), id="children-of-a-non-node"),
+        pytest.param(partial(_query_closest), (["p"], "p"), id="closest-of-a-non-node"),
+        pytest.param(partial(_select_limited), ("p", "p", 0), id="select-from-a-non-node"),
+        pytest.param(partial(_query_parents), ("p",), id="parents-of-a-non-list"),
+        pytest.param(partial(_query_children), ("p",), id="children-of-a-non-list"),
+        pytest.param(partial(_query_closest), ("p", "p"), id="closest-of-a-non-list"),
+        pytest.param(partial(_select_limited), (turbohtml.parse(""), 5, 0), id="select-with-a-non-str-selector"),
     ],
 )
 def test_the_entries_reject_a_non_node(
-    entry: Callable[..., list[Element]], args: tuple[list[str] | str | Document | int, ...]
+    entry: partial[list[Element]], args: tuple[list[str] | str | Document | int, ...]
 ) -> None:
     with pytest.raises(TypeError):
         entry(*args)

@@ -5,15 +5,15 @@ import inspect
 import sys
 from enum import Enum, auto
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, NamedTuple
+from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 import pytest
 
 import turbohtml._html as html
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
-    from types import ModuleType
+    from collections.abc import Iterator
+    from types import BuiltinFunctionType, FunctionType, MethodDescriptorType, ModuleType, WrapperDescriptorType
 
     from pytest_mock import MockerFixture
 
@@ -118,14 +118,19 @@ def _stub_entries() -> Iterator[tuple[str, ast.FunctionDef, bool]]:
                 yield from _class_entries(node)
 
 
-def _resolve(name: str) -> ModuleType | Callable[..., object] | None:
-    obj: ModuleType | Callable[..., object] | None = html
+_Attribute: TypeAlias = (
+    "ModuleType | type | FunctionType | BuiltinFunctionType | MethodDescriptorType | WrapperDescriptorType | None"
+)
+
+
+def _resolve(name: str) -> _Attribute:
+    obj: _Attribute = html
     for part in name.split("."):
         obj = getattr(obj, part, None)
     return obj
 
 
-def _runtime_signature(obj: ModuleType | Callable[..., object] | None) -> inspect.Signature | None:
+def _runtime_signature(obj: _Attribute) -> inspect.Signature | None:
     if not callable(obj) or getattr(obj, "__text_signature__", None) is None:
         return None
     try:

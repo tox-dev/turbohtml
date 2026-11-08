@@ -862,7 +862,7 @@ def test_collect_with_live_objects_traverses_them() -> None:
     def extension(_context: SimpleNamespace) -> str:
         return "x"
 
-    extensions: dict[tuple[str | None, str], Callable[..., str | float | bool]] = {(None, "x"): extension}
+    extensions: dict[tuple[str | None, str], Callable[[SimpleNamespace], str | float | bool]] = {(None, "x"): extension}
     plain = XPath("//a")
     with_extensions = XPath("x()", extensions=extensions)
     gc.collect()
@@ -884,7 +884,9 @@ def test_extension_reference_cycle_is_collected() -> None:
             return repr(self.ref)
 
     holder = Holder()
-    extensions: dict[tuple[str | None, str], Callable[..., str | float | bool]] = {(None, "x"): holder.extension}
+    extensions: dict[tuple[str | None, str], Callable[[SimpleNamespace], str | float | bool]] = {
+        (None, "x"): holder.extension
+    }
     selector = XPath("x()", extensions=extensions)
     holder.ref = selector  # selector -> extensions -> bound method -> holder -> selector
     assert selector(turbohtml.parse("<a>one</a>")) == "XPath('x()')"
@@ -910,6 +912,7 @@ def tags(result: XPathResult) -> list[str]:
 
 
 XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
+ExtensionValue: TypeAlias = "str | float | bool | Element | Iterable[Element]"
 
 
 def test_move_to_front(compiled_doc: turbohtml.Node) -> None:
@@ -1027,7 +1030,15 @@ def context_tag(context: SimpleNamespace) -> str:
     return context.context_node.tag
 
 
-_EXTENSIONS: Final[dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]]] = {
+_EXTENSIONS: Final[
+    dict[
+        tuple[str | None, str],
+        Callable[[SimpleNamespace, list[Element]], ExtensionValue]
+        | Callable[[SimpleNamespace, str], ExtensionValue]
+        | Callable[[SimpleNamespace, float | bool], ExtensionValue]
+        | Callable[[SimpleNamespace], ExtensionValue],
+    ]
+] = {
     (None, "count_nodes"): count_nodes,
     (None, "shout"): shout,
     (None, "echo"): echo,
@@ -1140,9 +1151,7 @@ def empty(_context: SimpleNamespace, _nodes: list[Element]) -> list[Element]:
     return []
 
 
-_NODESET_EXTENSIONS: Final[
-    dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]]
-] = {
+_NODESET_EXTENSIONS: Final[dict[tuple[str | None, str], Callable[[SimpleNamespace, list[Element]], ExtensionValue]]] = {
     (None, "first_node"): first_node,
     (None, "first_two"): first_two,
     (None, "each"): each,
@@ -1230,7 +1239,7 @@ def steal(_context: SimpleNamespace) -> Element:
 def test_extension_result_marshaling_is_rejected(
     extension_doc: turbohtml.Node,
     *,
-    function: Callable[..., str | float | bool | Element | Iterable[Element]],
+    function: Callable[[SimpleNamespace], ExtensionValue] | Callable[[SimpleNamespace, list[Element]], ExtensionValue],
     expression: str,
     exception: type[Exception],
     match: str,

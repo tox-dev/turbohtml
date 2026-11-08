@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from functools import partial
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -10,7 +11,7 @@ from turbohtml import Markdown, PlainText, parse
 if TYPE_CHECKING:
     from collections.abc import Mapping
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
 
     Rules = Mapping[str, Sequence[str]]
 
@@ -536,11 +537,11 @@ def test_invalid_rules(
     rules: str | dict[int, list[str]] | dict[str, str] | dict[str, int], exc: type[Exception], match: str
 ) -> None:
     with pytest.raises(exc, match=match):
-        call_with(parse("<p>x</p>").to_annotated_text, rules)
+        call_with(partial(parse("<p>x</p>").to_annotated_text), rules)
 
 
 def call_with(
-    convert: Callable[..., tuple[str, list[tuple[int, int, str]]]],
+    convert: partial[tuple[str, list[tuple[int, int, str]]]],
     *args: str | dict[int, list[str]] | dict[str, str] | dict[str, int],
     **kwargs: str | int,
 ) -> tuple[str, list[tuple[int, int, str]]]:

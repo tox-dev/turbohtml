@@ -22,6 +22,9 @@ if TYPE_CHECKING:
 
 
 XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
+XPathExtensions: TypeAlias = (
+    "dict[tuple[str | None, str], Callable[[SimpleNamespace], str | float | bool | Element | Iterable[Element]]]"
+)
 
 
 def node_list(result: XPathResult) -> Sequence[turbohtml.Node | str | float]:
@@ -525,7 +528,9 @@ def test_compiled_extensions_bound_at_construction(links_doc: turbohtml.Node) ->
     def count_nodes(_context: SimpleNamespace, nodes: list[Element]) -> float:
         return float(len(nodes))
 
-    extensions: dict[tuple[str | None, str], Callable[..., str | float | bool]] = {(None, "count_nodes"): count_nodes}
+    extensions: dict[tuple[str | None, str], Callable[[SimpleNamespace, list[Element]], str | float | bool]] = {
+        (None, "count_nodes"): count_nodes
+    }
     selector = XPath("count_nodes(//a)", extensions=extensions)
     assert selector(links_doc) == pytest.approx(2.0)
 
@@ -534,7 +539,7 @@ def test_compiled_extension_receives_context_node(links_doc: turbohtml.Node) -> 
     def context_tag(context: SimpleNamespace) -> str:
         return context.context_node.tag
 
-    extensions: dict[tuple[str | None, str], Callable[..., str | float | bool]] = {(None, "tag"): context_tag}
+    extensions: XPathExtensions = {(None, "tag"): context_tag}
     matched = node_list(XPath("//a[tag()='a']", extensions=extensions)(links_doc))
     assert all(isinstance(node, Element) and node.tag == "a" for node in matched)
     assert len(matched) == 2
@@ -546,7 +551,7 @@ def test_compiled_extension_receives_context_node(links_doc: turbohtml.Node) -> 
 )
 def test_compiled_falsy_extensions_bind_nothing(
     links_doc: turbohtml.Node,
-    extensions: dict[tuple[str | None, str], Callable[..., str | float | bool]] | None,
+    extensions: XPathExtensions | None,
 ) -> None:
     assert XPath("//a/@href", extensions=extensions)(links_doc) == ["/x", "/y"]
 
@@ -1419,12 +1424,16 @@ def _normalize_lxml(result: Iterable[turbohtml.Node | str]) -> list[str]:
     return out
 
 
+class _Evaluate(Protocol):
+    def __call__(self, source: Element, expression: str, extensions: XPathExtensions, /) -> object: ...
+
+
 class _UnionEvaluate(Protocol):
     def __call__(
         self,
         source: Element,
         expression: str,
-        extensions: dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]],
+        extensions: XPathExtensions,
         *,
         smart: bool,
     ) -> XPathResult: ...
@@ -1433,7 +1442,7 @@ class _UnionEvaluate(Protocol):
 def _union_compiled(
     source: Element,
     expression: str,
-    extensions: dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]],
+    extensions: XPathExtensions,
     *,
     smart: bool,
 ) -> XPathResult:
@@ -1443,7 +1452,7 @@ def _union_compiled(
 def _union_method(
     source: Element,
     expression: str,
-    extensions: dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]],
+    extensions: XPathExtensions,
     *,
     smart: bool,
 ) -> XPathResult:
@@ -1468,9 +1477,7 @@ def test_xpath_callback_attribute_union(*, evaluate: _UnionEvaluate, smart: bool
             source.attrs["other"] = "changed"
         return []
 
-    extensions: Final[dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]]] = {
-        (None, "mutate"): mutate
-    }
+    extensions: Final[XPathExtensions] = {(None, "mutate"): mutate}
     assert evaluate(source, "@id | mutate() | @id", extensions, smart=smart) == ["old"]
 
 
@@ -1761,7 +1768,7 @@ _XPATH_EVALUATORS: Final[list[ParameterSet]] = [
 
 
 @pytest.mark.parametrize("evaluate", _XPATH_EVALUATORS)
-def test_xpath_extension_keeps_source_arena(evaluate: Callable[..., object]) -> None:
+def test_xpath_extension_keeps_source_arena(evaluate: _Evaluate) -> None:
     source: Final = Element("section")
     target: Final = Element("main")
 
@@ -1769,9 +1776,7 @@ def test_xpath_extension_keeps_source_arena(evaluate: Callable[..., object]) -> 
         target.append(source)
         return 41.0
 
-    extensions: Final[dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]]] = {
-        (None, "adopt"): adopt
-    }
+    extensions: Final[XPathExtensions] = {(None, "adopt"): adopt}
     result: Final = evaluate(source, "adopt() + count(.)", extensions)
     assert (result, target.children) == (42.0, (source,))
 
@@ -1788,11 +1793,9 @@ def test_xpath_extension_keeps_cached_program() -> None:
 
 
 @pytest.mark.parametrize("evaluate", _XPATH_EVALUATORS)
-def test_xpath_extension_keeps_removed_callable(evaluate: Callable[..., object]) -> None:
+def test_xpath_extension_keeps_removed_callable(evaluate: _Evaluate) -> None:
     source: Final = Element("section")
-    extensions: Final[
-        dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]]
-    ] = {}
+    extensions: Final[XPathExtensions] = {}
 
     def remove(_context: SimpleNamespace) -> bool:
         extensions.clear()
@@ -1806,7 +1809,7 @@ def test_xpath_extension_keeps_removed_callable(evaluate: Callable[..., object])
 
 
 @pytest.mark.parametrize("evaluate", _XPATH_EVALUATORS)
-def test_xpath_extension_validates_yielded_owner(evaluate: Callable[..., object]) -> None:
+def test_xpath_extension_validates_yielded_owner(evaluate: _Evaluate) -> None:
     source: Final = Element("section", children=[Element("b")])
     child: Final = source.children[0]
     target: Final = Element("main")
@@ -1816,9 +1819,7 @@ def test_xpath_extension_validates_yielded_owner(evaluate: Callable[..., object]
         yield child
         target.append(child)
 
-    extensions: Final[dict[tuple[str | None, str], Callable[..., str | float | bool | Element | Iterable[Element]]]] = {
-        (None, "move"): move_after_yield
-    }
+    extensions: Final[XPathExtensions] = {(None, "move"): move_after_yield}
     with pytest.raises(ValueError, match="different document"):
         evaluate(source, "move()", extensions)
     assert target.children == (child,)
@@ -1838,7 +1839,9 @@ def test_xpath_extension_snapshots_arguments(offset: int) -> None:
     def inspect(_context: SimpleNamespace, attrs: list[str], nodes: list[Element]) -> bool:
         return attrs == ["old"] and nodes == [second]
 
-    extensions: Final[dict[tuple[str | None, str], Callable[..., bool]]] = {(None, "inspect"): inspect}
+    extensions: Final[dict[tuple[str | None, str], Callable[[SimpleNamespace, list[str], list[Element]], bool]]] = {
+        (None, "inspect"): inspect
+    }
     selector: Final = XPath("inspect(.//a/@id, .//b)", extensions=extensions)
     context: Final = (source,)
 

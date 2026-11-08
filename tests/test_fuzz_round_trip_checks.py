@@ -2136,12 +2136,18 @@ def test_atheris_reference_xml_rejection_is_documented() -> None:
 @pytest.mark.parametrize(
     ("observe", "oracle", "data"),
     [
-        pytest.param(schema_observation, "xml", b"<root>text</root>", id="xml-fixpoint"),
-        pytest.param(cssom_observation, "style", b"color: red", id="style-fixpoint"),
-        pytest.param(selector_observation, "entries", b"p.x", id="selector-entries"),
+        pytest.param(partial(schema_observation), "xml", b"<root>text</root>", id="xml-fixpoint"),
+        pytest.param(partial(cssom_observation), "style", b"color: red", id="style-fixpoint"),
+        pytest.param(partial(selector_observation), "entries", b"p.x", id="selector-entries"),
     ],
 )
-def test_reference_reports_oracle_failure(observe: Callable[..., object], oracle: str, data: bytes) -> None:
+def test_reference_reports_oracle_failure(
+    observe: partial[tuple[bool, bool]]
+    | partial[tuple[str, tuple[tuple[int, int, int], ...]]]
+    | partial[tuple[tuple[str, str, bool], ...]],
+    oracle: str,
+    data: bytes,
+) -> None:
     with pytest.raises(AssertionError, match=r"^oracle broke$"):
         observe(data, **{oracle: lambda _text: "oracle broke"})
 

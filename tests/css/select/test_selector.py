@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Protocol
 
 import pytest
 
@@ -1297,6 +1297,10 @@ def test_no_argument_matches_the_first_element(doc: Document) -> None:
     assert match.tag == "html"
 
 
+class _Finder(Protocol):
+    def __call__(self, *args: object) -> object: ...
+
+
 @pytest.mark.parametrize("query", ["find", "find_all"])
 @pytest.mark.parametrize(
     "call",
@@ -1305,7 +1309,7 @@ def test_no_argument_matches_the_first_element(doc: Document) -> None:
         pytest.param(lambda fn: fn("a", "b"), id="extra-positional"),
     ],
 )
-def test_query_argument_errors(doc: Document, query: str, call: Callable[[Callable[..., object]], object]) -> None:
+def test_query_argument_errors(doc: Document, query: str, call: Callable[[_Finder], object]) -> None:
     with pytest.raises(TypeError):
         call(getattr(doc, query))
 

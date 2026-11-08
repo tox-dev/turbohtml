@@ -854,7 +854,7 @@ def test_fuzz_smoke_self_test_gates_the_run(
     assert fuzz_smoke_main(["--mode", "smoke", "--crash-dir", str(tmp_path)]) == expected
 
 
-def _runner(crash: tuple[int, str | None], injection: int) -> Callable[..., CompletedProcess[str]]:
+def _runner(crash: tuple[int, str | None], injection: int) -> Callable[[list[str]], CompletedProcess[str]]:
     # Fake the children: a ``None`` crash report gives each kind the ASan report it expects.
     code, stderr = crash
 
