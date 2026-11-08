@@ -1810,7 +1810,7 @@ def test_wrap_a_standalone_node() -> None:
     # a Text cannot hold children, and a bare string is not a node at all
     [pytest.param(Text("y"), id="text"), pytest.param("y", id="non-node")],
 )
-def test_wrap_rejects_a_non_element_wrapper(wrapper: object) -> None:
+def test_wrap_rejects_a_non_element_wrapper(wrapper: Text | str) -> None:
     with pytest.raises(TypeError, match="must be an element"):
         Text("x").wrap(wrapper)  # ty: ignore[invalid-argument-type]  # wrapper must be an element node
 
@@ -1871,7 +1871,7 @@ def test_wrap_siblings_adopts_a_wrapper_from_another_tree() -> None:
     "wrapper",
     [pytest.param(Text("y"), id="text"), pytest.param("y", id="non-node")],
 )
-def test_wrap_siblings_rejects_a_non_element_wrapper(wrapper: object) -> None:
+def test_wrap_siblings_rejects_a_non_element_wrapper(wrapper: Text | str) -> None:
     li = _found(parse("<ul><li>a</li></ul>"), "li")
     with pytest.raises(TypeError, match="must be an element"):
         li.wrap_siblings(wrapper)  # ty: ignore[invalid-argument-type]  # wrapper must be an element node
@@ -1944,7 +1944,7 @@ def test_wrap_children_of_an_empty_element_nests_an_empty_wrapper() -> None:
     "wrapper",
     [pytest.param(Text("y"), id="text"), pytest.param("y", id="non-node")],
 )
-def test_wrap_children_rejects_a_non_element_wrapper(wrapper: object) -> None:
+def test_wrap_children_rejects_a_non_element_wrapper(wrapper: Text | str) -> None:
     div = _found(parse("<div>x</div>"), "div")
     with pytest.raises(TypeError, match="must be an element"):
         div.wrap_children(wrapper)  # ty: ignore[invalid-argument-type]  # wrapper must be an element node
@@ -2639,12 +2639,12 @@ def test_attrs_pop_removes_the_attribute() -> None:
 
 
 @pytest.mark.parametrize("key", [pytest.param("missing", id="absent-name"), pytest.param(3, id="non-str")])
-def test_attrs_pop_missing_returns_the_default(key: object) -> None:
+def test_attrs_pop_missing_returns_the_default(key: str | int) -> None:
     assert _anchor().attrs.pop(key, "fallback") == "fallback"  # ty: ignore[no-matching-overload]  # passes arguments no overload accepts on purpose to check the error
 
 
 @pytest.mark.parametrize("key", [pytest.param("missing", id="absent-name"), pytest.param(3, id="non-str")])
-def test_attrs_pop_missing_without_default_raises(key: object) -> None:
+def test_attrs_pop_missing_without_default_raises(key: str | int) -> None:
     with pytest.raises(KeyError):
         _anchor().attrs.pop(key)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
@@ -2694,7 +2694,7 @@ def test_attrs_setdefault_stores_a_missing_value() -> None:
         pytest.param("title", 3, TypeError, id="bad-value"),
     ],
 )
-def test_attrs_setdefault_rejects_invalid_input(key: object, value: object, error: type[Exception]) -> None:
+def test_attrs_setdefault_rejects_invalid_input(key: int | str, value: int | str, error: type[Exception]) -> None:
     with pytest.raises(error):
         _anchor().attrs.setdefault(key, value)  # ty: ignore[no-matching-overload]  # passes arguments no overload accepts on purpose to check the error
 
@@ -2915,7 +2915,7 @@ def test_rename_to_or_from_template_is_rejected(markup: str, selector: str, name
         pytest.param(3, TypeError, "tag must be a str, not int", id="not-a-str"),
     ],
 )
-def test_rename_rejects_a_bad_name(name: object, error: type[Exception], message: str) -> None:
+def test_rename_rejects_a_bad_name(name: str | int, error: type[Exception], message: str) -> None:
     with pytest.raises(error, match=message):
         Element("div").tag = name  # ty: ignore[invalid-assignment]  # the invalid value tests the runtime check
 

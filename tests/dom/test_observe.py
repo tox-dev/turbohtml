@@ -606,7 +606,7 @@ def test_observe_rejects_unknown_keyword() -> None:
     "attribute_filter",
     [pytest.param([1], id="non-str-entry"), pytest.param(["ok", 1], id="non-str-after-valid")],
 )
-def test_non_str_attribute_filter_is_rejected(attribute_filter: list[object]) -> None:
+def test_non_str_attribute_filter_is_rejected(attribute_filter: list[int | str]) -> None:
     with pytest.raises(TypeError):
         MutationObserver().observe(_div(), attributes=True, attribute_filter=attribute_filter)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 

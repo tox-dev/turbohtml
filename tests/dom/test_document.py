@@ -1094,7 +1094,9 @@ def test_reconstruct_rejects_a_document_child() -> None:
         pytest.param((Element("div"), 2), ValueError, "mode out of range", id="mode-out-of-range"),
     ],
 )
-def test_reconstruct_rejects_a_malformed_shadow_payload(payload: object, error: type[Exception], message: str) -> None:
+def test_reconstruct_rejects_a_malformed_shadow_payload(
+    payload: tuple[str | Element, int], error: type[Exception], message: str
+) -> None:
     kind = _kind(Element("div").attach_shadow("open"))
     with pytest.raises(error, match=message):
         _reconstruct(kind, payload, [])

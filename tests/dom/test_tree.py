@@ -1617,7 +1617,9 @@ def test_css_has_reads_a_deep_programmatic_tree() -> None:
         ),
     ],
 )
-def test_renderers_complete_a_deep_tree(method: str, args: tuple[object, ...], expected: object) -> None:
+def test_renderers_complete_a_deep_tree(
+    method: str, args: tuple[()] | tuple[dict[str, list[str]]], expected: str | tuple[str, list[tuple[int, int, str]]]
+) -> None:
     assert getattr(_nested("div", _DEEP), method)(*args) == expected
 
 

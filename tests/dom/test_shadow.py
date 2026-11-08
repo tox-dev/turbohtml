@@ -1122,7 +1122,7 @@ def test_a_fragment_holding_two_elements_cannot_become_a_document_s_root() -> No
         pytest.param(parse(""), "Document cannot be inserted", id="document"),
     ],
 )
-def test_sibling_insert_rejects_a_bad_argument_before_moving_anything(argument: object, message: str) -> None:
+def test_sibling_insert_rejects_a_bad_argument_before_moving_anything(argument: str | Document, message: str) -> None:
     _, target = _host_page()
     first = Element("b")
     with pytest.raises(TypeError, match=message):

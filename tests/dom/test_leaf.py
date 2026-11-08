@@ -325,7 +325,7 @@ def test_element_accepts_a_parser_producible_attribute_name(name: str) -> None:
         pytest.param({1: "x"}, "attribute name", id="non-str-name"),
     ],
 )
-def test_element_rejects_non_str_attribute(attrs: dict[object, object], message: str) -> None:
+def test_element_rejects_non_str_attribute(attrs: dict[int | str, int | str], message: str) -> None:
     with pytest.raises(TypeError, match=message):
         Element("div", attrs)  # ty: ignore[invalid-argument-type]  # name and value must be str/list/None
 
@@ -336,7 +336,7 @@ def test_element_list_member_must_be_str() -> None:
 
 
 @pytest.mark.parametrize("attrs", [5, [("a", "b")]], ids=["int", "list"])
-def test_element_attrs_must_be_a_mapping(attrs: object) -> None:
+def test_element_attrs_must_be_a_mapping(attrs: int | list[tuple[str, str]]) -> None:
     # a value without keys() is not a mapping; report that as a TypeError, not the raw AttributeError
     with pytest.raises(TypeError, match="attrs must be a mapping"):
         Element("div", attrs)  # ty: ignore[invalid-argument-type]  # attrs must be a mapping
@@ -533,7 +533,7 @@ def test_pi_rejects_bad_target(target: str) -> None:
     ("target", "data"),
     [pytest.param(1, "d", id="target"), pytest.param("t", 1, id="data")],
 )
-def test_pi_rejects_non_str_field(target: object, data: object) -> None:
+def test_pi_rejects_non_str_field(target: int | str, data: int | str) -> None:
     with pytest.raises(TypeError):
         ProcessingInstruction(target, data)  # ty: ignore[invalid-argument-type]  # target and data must be str
 
