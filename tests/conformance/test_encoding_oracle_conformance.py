@@ -253,7 +253,9 @@ def _tld_labels() -> list[str]:
     if keys is None or punycode_keys is None:
         msg = "chardetng's tld.rs key tables were not found"
         raise RuntimeError(msg)
-    two_letter = [first + second for first, second in re.findall(r"\[b'(.)', b'(.)'\]", keys.group())]
+    two_letter = [
+        first + second for first, second in re.findall(r"\[b'(?P<first>.)', b'(?P<second>.)'\]", keys.group())
+    ]
     punycode = [f"xn--{key.lower()}" for key in re.findall(r'b"([^"]+)"', punycode_keys.group())]
     return two_letter + punycode + list(_UNLISTED_TLDS)
 

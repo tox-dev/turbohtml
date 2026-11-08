@@ -44,8 +44,8 @@ _CASES: Final[list[tuple[str, Path]]] = _iter_cases()
 
 
 def _output_method(stylesheet: str) -> str:
-    match = re.search(r"<xsl:output[^>]*\bmethod\s*=\s*[\"'](\w+)", stylesheet)
-    return match.group(1) if match else "xml"
+    match = re.search(r"<xsl:output[^>]*\bmethod\s*=\s*[\"'](?P<method>\w+)", stylesheet)
+    return match["method"] if match else "xml"
 
 
 def _canonical(text: str) -> str:

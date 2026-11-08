@@ -36,26 +36,48 @@ _RAW_MARKERS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
 _GRAMMAR_MARKERS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
     (re.compile(r"\bxs:"), "xs: schema type constructor/cast (schema-aware)"),
     (re.compile(r"\*:|:\*"), "namespace wildcard (XPath 2.0)"),
-    (re.compile(r"\b(array|map|math|err):"), "XPath 3.x namespaced function"),
+    (
+        re.compile(r"(?#function namespace prefix)\b(?:array|map|math|err)(?#followed by a colon):"),
+        "XPath 3.x namespaced function",
+    ),
     (re.compile(r"\bQ\{"), "EQName braced-URI literal (3.0)"),
-    (re.compile(r"declare\s+(namespace|function|variable|option)"), "XQuery prolog"),
-    (re.compile(r"(^|[^\w$])(for|let|some|every)\s+\$"), "FLWOR/quantified expression"),
+    (re.compile(r"(?#prolog keyword)declare(?#whitespace)\s+(?:namespace|function|variable|option)"), "XQuery prolog"),
+    (
+        re.compile(
+            r"(?#start or a character that is not a name or dollar)(?:^|[^\w$])"
+            r"(?#FLWOR or quantified keyword)(?:for|let|some|every)"
+            r"(?#whitespace before the variable)\s+\$(?#variable sigil)"
+        ),
+        "FLWOR/quantified expression",
+    ),
     (re.compile(r"\breturn\b|\bsatisfies\b"), "FLWOR return/satisfies"),
     (re.compile(r"\bcastable\b|\bcast\s+as\b|\btreat\s+as\b|\binstance\s+of\b"), "cast/treat/instance-of (2.0)"),
     (re.compile(r"=>"), "arrow operator (3.1)"),
     (re.compile(r"function\s*\("), "inline function / higher-order (3.0)"),
     (
-        re.compile(r"\b(element|attribute|processing-instruction|namespace|document|text|comment)\s+[\w:]*\s*\{"),
+        re.compile(
+            r"(?#word start)\b(?:element|attribute|processing-instruction|namespace|document|text|comment)"
+            r"(?#whitespace)\s+(?#optional QName)[\w:]*(?#whitespace)\s*(?#opening brace)\{"
+        ),
         "computed node constructor (XQuery)",
     ),
     (
-        re.compile(r"\b(element|attribute|document-node|schema-element|schema-attribute)\s*\("),
+        re.compile(
+            r"(?#word start)\b(?:element|attribute|document-node|schema-element|schema-attribute)"
+            r"(?#whitespace)\s*(?#opening parenthesis)\("
+        ),
         "kind test / sequence type (2.0)",
     ),
     (re.compile(r"<[!?/a-zA-Z]"), "direct node constructor (XQuery)"),
-    (re.compile(r"\b(eq|ne|lt|le|gt|ge)\b"), "value comparison operator (2.0)"),
+    (re.compile(r"(?#word start)\b(?:eq|ne|lt|le|gt|ge)(?#word end)\b"), "value comparison operator (2.0)"),
     (re.compile(r"\bto\b"), "range expression (2.0)"),
-    (re.compile(r"\d(\.\d+)?[eE][+-]?\d"), "double literal (2.0)"),
+    (
+        re.compile(
+            r"(?#integer digit)\d(?#optional fraction)(?:\.\d+)?(?#exponent marker)[eE]"
+            r"(?#optional sign)[+-]?(?#exponent digit)\d"
+        ),
+        "double literal (2.0)",
+    ),
     (re.compile(r"\|\||&&"), "non-XPath boolean operator"),
 )
 
@@ -117,7 +139,12 @@ def called_functions(query: str) -> set[str]:
 
 
 def string_literals(query: str) -> list[str]:
-    return [double or single for double, single in re.findall(r'"([^"]*)"|\'([^\']*)\'', query)]
+    return [
+        double or single
+        for double, single in re.findall(
+            r'(?#double quoted literal)"(?P<double>[^"]*)"|(?#single quoted literal)\'(?P<single>[^\']*)\'', query
+        )
+    ]
 
 
 def regex_dialect_reason(query: str) -> str | None:

@@ -106,8 +106,12 @@ def _decode(raw: bytes) -> str:
         return raw.decode("utf-16")
     if raw.startswith(b"\xef\xbb\xbf"):
         return raw.decode("utf-8-sig")
-    match = re.search(r"""encoding\s*=\s*["']([\w.\-]+)["']""", raw[:200].decode("latin-1", "replace"))
-    return raw.decode(match.group(1) if match else "utf-8")
+    match = re.search(
+        r"""(?#XML declaration keyword)encoding(?#equals sign)\s*=\s*(?#opening quote)["']"""
+        r"""(?P<encoding>[\w.\-]+)(?#closing quote)["']""",
+        raw[:200].decode("latin-1", "replace"),
+    )
+    return raw.decode(match["encoding"] if match else "utf-8")
 
 
 def _is_xml_11(attrib: dict[str, str]) -> bool:

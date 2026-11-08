@@ -732,7 +732,9 @@ def _canon_num(lexeme: str) -> str:
     return out or "0"
 
 
-_SEXPR_TOKEN: Final[re.Pattern[str]] = re.compile(r"\(|\)|'[^']*'|[^\s()']+")
+_SEXPR_TOKEN: Final[re.Pattern[str]] = re.compile(
+    r"(?#opening or closing parenthesis)[()]|(?#quoted atom)'[^']*'|(?#unquoted atom)[^\s()']+"
+)
 
 
 def _parse_sexpr(tokens: list[str], pos: int) -> tuple[_SExpr, int]:

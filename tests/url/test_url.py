@@ -1416,7 +1416,9 @@ _LANGUAGE_PARAMS: Final[frozenset[str]] = frozenset({"lang", "language"})
 _ISO: Final[frozenset[str]] = frozenset({"de", "en", "fr", "es", "ru", "nl"})
 
 
-_SEGMENT: Final[re.Pattern[str]] = re.compile(r"([a-z]{2})(?:[-_][a-z]{2,3})?$")
+_SEGMENT: Final[re.Pattern[str]] = re.compile(
+    r"(?P<language>[a-z]{2})(?#optional region or script after a dash or underscore)(?:[-_][a-z]{2,3})?$"
+)
 
 
 _LANGUAGE_PATHS: Final[tuple[str, ...]] = (
@@ -1492,7 +1494,7 @@ def _language_oracle(query: str, path: str, hostname: str, language: str, *, str
         ):
             return False
     leading = next((segment for segment in path.lower().split("/") if segment), "")
-    if (match := _SEGMENT.fullmatch(leading)) and match[1] in _ISO and match[1] != language:
+    if (match := _SEGMENT.fullmatch(leading)) and match["language"] in _ISO and match["language"] != language:
         return False
     if strict:
         label = hostname.partition(".")[0]
@@ -2180,7 +2182,25 @@ _TRACKER_PREFIXES: Final[tuple[str, ...]] = (
 
 
 _TRACKER_WORDS: Final[re.Pattern[str]] = re.compile(
-    r"(?:^|_)(?:aff(?:i(?:liate)?)?|campaign|cl?id|keyword|kwd|medium|refer(?:r?er)?|ref|session|source|uid|xtor)(?:_|$)"
+    r"""
+    (?:^|_)                       # the word starts the key or follows an underscore
+    (?:
+        aff(?:i(?:liate)?)?       # aff, affi, affiliate
+        | campaign
+        | cl?id                   # cid, clid
+        | keyword
+        | kwd
+        | medium
+        | refer(?:r?er)?          # refer, referer, referrer
+        | ref
+        | session
+        | source
+        | uid
+        | xtor
+    )
+    (?:_|$)                       # the word ends the key or precedes an underscore
+    """,
+    re.VERBOSE,
 )
 
 
