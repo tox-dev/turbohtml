@@ -151,7 +151,7 @@ class StructuredData:
     """each ``dc.*``/``dcterms.*`` ``<meta>`` name (lower-cased) mapped to its content."""
 
 
-"""The Open Graph protocol's four required properties; the check behind :meth:`OpenGraph.is_valid`."""
+#: The Open Graph protocol's four required properties; the check behind :meth:`OpenGraph.is_valid`.
 
 
 class OpenGraph(Mapping[str, str]):

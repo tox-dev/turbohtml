@@ -33,9 +33,9 @@ _ISO_639_1: Final[frozenset[str]] = frozenset([
     *("tn", "to", "tr", "ts", "tt", "tw", "ty", "ug", "uk", "ur", "uz", "ve", "vi", "vo", "wa", "wo", "xh", "yi"),
     *("yo", "za", "zh", "zu"),
 ])
-"""The ISO 639-1 two-letter language codes, gating which URL segments count as language markers."""
+#: The ISO 639-1 two-letter language codes, gating which URL segments count as language markers.
 
-"""The content-identifying query parameters strict mode keeps; everything else is presumed decorative."""
+#: The content-identifying query parameters strict mode keeps; everything else is presumed decorative.
 
 
 @dataclass(frozen=True, slots=True)

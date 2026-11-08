@@ -87,7 +87,7 @@ def _search(name: str) -> codecs.CodecInfo | None:
 codecs.register(_search)
 
 
-"""The language each frequency-scored candidate models; multi-language Latin encodings stay unmapped."""
+#: The language each frequency-scored candidate models; multi-language Latin encodings stay unmapped.
 
 
 @dataclass(frozen=True, slots=True)
