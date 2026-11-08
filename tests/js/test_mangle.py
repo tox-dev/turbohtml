@@ -171,7 +171,7 @@ def _run(code: str) -> str:
             id="array-elision-pattern",
         ),
         # more block scopes than the scope array's initial capacity, forcing it to grow
-        pytest.param("(function(){" + "{let a=1}" * 20 + "console.log('ok')})()", id="many-scopes"),
+        pytest.param(f"(function(){{{'{let a=1}' * 20}console.log('ok')}})()", id="many-scopes"),
         # a renamed named-function-expression name must keep resolving to itself (recursion)
         pytest.param(
             "(function(){var f=function fact(n){return n<=1?1:n*fact(n-1)};console.log(f(5))})()",
@@ -201,7 +201,7 @@ def _run(code: str) -> str:
         # past 52 nesting levels the label is kept verbatim rather than risk a multi-character name;
         # break to the outermost (renamed) and innermost (kept) labels both still resolve
         pytest.param(
-            "(function(){" + "".join(f"L{depth}:" for depth in range(53)) + "for(;;){break L0}})();console.log('ok')",
+            f"(function(){{{''.join(f'L{depth}:' for depth in range(53))}for(;;){{break L0}}}})();console.log('ok')",
             id="label-depth-cap",
         ),
         # a binding read after a dropped pure sequence element keeps its value, not an outer name (#1035)

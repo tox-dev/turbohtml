@@ -105,8 +105,8 @@ _NODE: Final[str | None] = shutil.which("node")
         pytest.param("if(!a&&!b&&!c&&!d&&e+f)x()", "a||b||c||d||!(e+f)||x()", id="demorgan-wraps-binary"),
         # past 16 fresh bangs the negation is skipped rather than half-applied (the wrap pool cap)
         pytest.param(
-            "if(" + "&&".join(f"!n{i}" for i in range(18)) + "&&" + "&&".join(f"p{i}" for i in range(17)) + ")x()",
-            "&&".join(f"!n{i}" for i in range(18)) + "&&" + "&&".join(f"p{i}" for i in range(17)) + "&&x()",
+            f"if({'&&'.join(f'!n{i}' for i in range(18))}&&{'&&'.join(f'p{i}' for i in range(17))})x()",
+            f"{'&&'.join(f'!n{i}' for i in range(18))}&&{'&&'.join(f'p{i}' for i in range(17))}&&x()",
             id="demorgan-wrap-cap-skips",
         ),
         pytest.param(
@@ -279,7 +279,7 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
         pytest.param("x=\"a\"+'b'", "x=\"a\"+'b'", id="concat-mixed-quote-kept"),
         # more folded literals than the program's initial owned-buffer capacity, forcing it to grow
         pytest.param(
-            "x=[" + ",".join(f"{index}+1" for index in range(18)) + "]",
+            f"x=[{','.join(f'{index}+1' for index in range(18))}]",
             f"x=[{','.join(str(index + 1) for index in range(18))}]",
             id="many-folded-literals",
         ),
@@ -1235,9 +1235,9 @@ def test_raw_line_separators_in_strings_match_node() -> None:
 @pytest.mark.parametrize("count", [1, 17, 512], ids=["single", "heap", "long"])
 def test_guard_chain_growth_preserves_return_order(count: int) -> None:
     source: Final = (
-        "function f(x){" + "".join(f"if(x==={index})return g({index});" for index in range(count)) + "return g(-1)}"
+        f"function f(x){{{''.join(f'if(x==={index})return g({index});' for index in range(count))}return g(-1)}}"
     )
-    expected: Final = "function f(a){return " + "".join(f"a==={index}?g({index}):" for index in range(count)) + "g(-1)}"
+    expected: Final = f"function f(a){{return {''.join(f'a==={index}?g({index}):' for index in range(count))}g(-1)}}"
     assert minify_js(source) == expected
 
 

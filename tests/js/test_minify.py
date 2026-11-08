@@ -636,8 +636,10 @@ def test_minifiers_preserve_callback_order(
                 [
                     cast("str", _NODE),
                     "-e",
-                    minify(source) + ";const calls=[];const result=f(value=>(calls.push(value),value));"
-                    "console.log(JSON.stringify({calls,result}))",
+                    (
+                        f"{minify(source)};const calls=[];const "
+                        "result=f(value=>(calls.push(value),value));console.log(JSON.stringify({calls,result}))"
+                    ),
                 ],
                 capture_output=True,
                 text=True,

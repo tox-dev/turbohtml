@@ -276,7 +276,7 @@ def test_token_dump_grows_buffer() -> None:
 def test_token_dump_deep_template_nesting() -> None:
     # 65 nested template substitutions exceed the dumper's fixed nesting tracker (the cap);
     # all 65 opens must still tokenize as template heads despite the tracker giving up
-    assert _TOKENS("`${" * 65 + "0" + "}`" * 65).count("TEMPLATE_HEAD:") == 65
+    assert _TOKENS(f"{'`${' * 65}0{'}`' * 65}").count("TEMPLATE_HEAD:") == 65
 
 
 @pytest.mark.parametrize(
