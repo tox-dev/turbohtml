@@ -57,8 +57,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 def compare(case: Case, *, negative_control: bool = False, reference_labels: bool = False) -> Iterator[Verdict]:
     # Compile first so invalid schemas remain part of the comparison.
     schema_hash: Final = hashlib.sha256(case.schema.encode()).hexdigest()
-    ours: Final = _compile_turbohtml(case.schema)
-    reference: Final = _compile_lxml(case.schema)
+    try:
+        ours = RelaxNG(case.schema)
+    except ValueError:
+        ours = None
+    try:
+        reference = lxml.etree.RelaxNG(lxml.etree.fromstring(case.schema.encode(), _parser()))
+    except (lxml.etree.RelaxNGParseError, lxml.etree.XMLSyntaxError):
+        reference = None
     yield Verdict(
         seed=case.seed,
         sha256=schema_hash,
@@ -149,20 +155,6 @@ def generate(seed: int) -> Case:
         compiles=True,
         documents=documents,
     )
-
-
-def _compile_turbohtml(schema: str) -> RelaxNG | None:
-    try:
-        return RelaxNG(schema)
-    except ValueError:
-        return None
-
-
-def _compile_lxml(schema: str) -> lxml.etree.RelaxNG | None:
-    try:
-        return lxml.etree.RelaxNG(lxml.etree.fromstring(schema.encode(), _parser()))
-    except (lxml.etree.RelaxNGParseError, lxml.etree.XMLSyntaxError):
-        return None
 
 
 def _parser() -> lxml.etree.XMLParser:

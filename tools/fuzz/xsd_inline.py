@@ -57,8 +57,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 def compare(case: Case, *, negative_control: bool = False, reference_labels: bool = False) -> Iterator[Verdict]:
     # Compile first so invalid schemas remain part of the comparison.
     schema_hash: Final = hashlib.sha256(case.schema.encode()).hexdigest()
-    ours: Final = _compile_turbohtml(case.schema)
-    reference: Final = _compile_lxml(case.schema)
+    try:
+        ours = XMLSchema(case.schema)
+    except ValueError:
+        ours = None
+    try:
+        reference = lxml.etree.XMLSchema(lxml.etree.fromstring(case.schema.encode(), _parser()))
+    except (lxml.etree.XMLSchemaParseError, lxml.etree.XMLSyntaxError):
+        reference = None
     yield Verdict(
         seed=case.seed,
         sha256=schema_hash,
@@ -153,20 +159,6 @@ def generate(seed: int) -> Case:
         compiles=family < 6 or family == 8,
         documents=documents,
     )
-
-
-def _compile_turbohtml(schema: str) -> XMLSchema | None:
-    try:
-        return XMLSchema(schema)
-    except ValueError:
-        return None
-
-
-def _compile_lxml(schema: str) -> lxml.etree.XMLSchema | None:
-    try:
-        return lxml.etree.XMLSchema(lxml.etree.fromstring(schema.encode(), _parser()))
-    except (lxml.etree.XMLSchemaParseError, lxml.etree.XMLSyntaxError):
-        return None
 
 
 def _parser() -> lxml.etree.XMLParser:
