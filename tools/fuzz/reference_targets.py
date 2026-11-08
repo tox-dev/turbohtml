@@ -122,13 +122,6 @@ def _render(data: bytes) -> None:
     render_observation(data)
 
 
-class _RenderObservation(NamedTuple):
-    markdown: str
-    plain: str
-    tags: str
-    canonical: bytes
-
-
 def render_observation(data: bytes) -> _RenderObservation:
     # Escaping text must preserve it through a parsed element.
     source: Final = data.decode("utf-8")
@@ -155,14 +148,15 @@ def _require(message: str, *, condition: bool) -> None:
         raise AssertionError(message)
 
 
+class _RenderObservation(NamedTuple):
+    markdown: str
+    plain: str
+    tags: str
+    canonical: bytes
+
+
 def _conformance(data: bytes) -> None:
     conformance_observation(data)
-
-
-class _ConformanceObservation(NamedTuple):
-    valid: bool
-    codes: tuple[str, ...]
-    diagnostic: tuple[str, int, int] | None
 
 
 def conformance_observation(data: bytes) -> _ConformanceObservation:
@@ -191,6 +185,12 @@ def conformance_observation(data: bytes) -> _ConformanceObservation:
     else:
         diagnostic = None
     return _ConformanceObservation(report.valid, tuple(message.code for message in report.messages), diagnostic)
+
+
+class _ConformanceObservation(NamedTuple):
+    valid: bool
+    codes: tuple[str, ...]
+    diagnostic: tuple[str, int, int] | None
 
 
 def _selector(data: bytes) -> None:

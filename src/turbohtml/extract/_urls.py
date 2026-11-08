@@ -110,16 +110,6 @@ def clean_url(url: str, options: UrlCleaning | None = None, /) -> str | None:
     return _url_clean(url, *_knobs(active), active.language, _ISO_639_1)
 
 
-class _Knobs(NamedTuple):
-    strict: bool
-    trailing_slash: bool
-    strip_fragment: bool
-    query_allow: frozenset[str] | None
-    query_deny: frozenset[str]
-    id_params: frozenset[str]
-    language_params: frozenset[str]
-
-
 def _knobs(options: UrlCleaning) -> _Knobs:
     # Return the option fields and vocabularies every C entry point takes, in its argument order.
     return _Knobs(
@@ -146,6 +136,16 @@ def _knobs(options: UrlCleaning) -> _Knobs:
         }),
         frozenset({"lang", "language"}),
     )
+
+
+class _Knobs(NamedTuple):
+    strict: bool
+    trailing_slash: bool
+    strip_fragment: bool
+    query_allow: frozenset[str] | None
+    query_deny: frozenset[str]
+    id_params: frozenset[str]
+    language_params: frozenset[str]
 
 
 def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:

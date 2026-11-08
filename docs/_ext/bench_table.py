@@ -267,12 +267,6 @@ class BenchTable(Directive):
         return row
 
 
-class _OrderedColumns(NamedTuple):
-    parties: list[str]
-    rows: list[list[Any]]
-    spread: list[list[Any]]
-
-
 def _order_columns(
     parties: list[str], metrics: list[str], rows: list[list[Any]], spread: list[list[Any]]
 ) -> _OrderedColumns:
@@ -315,6 +309,12 @@ def _order_columns(
     return _OrderedColumns(
         [parties[party_index] for party_index in order], permute(rows), permute(spread) if spread else []
     )
+
+
+class _OrderedColumns(NamedTuple):
+    parties: list[str]
+    rows: list[list[Any]]
+    spread: list[list[Any]]
 
 
 def _table_frame(ncols: int) -> tuple[nodes.table, nodes.tgroup]:

@@ -190,12 +190,6 @@ def _emphasis(tag: str, children: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
     return (*before, *(((tag, (), inner),) if inner else ()), *after)
 
 
-class _Edges(NamedTuple):
-    before: list[_Meaning]
-    inner: tuple[_Meaning, ...]
-    after: list[_Meaning]
-
-
 def _edges(children: tuple[_Meaning, ...]) -> _Edges:
     # emphasis and link text do not style a hard break, and spaces at their edge collapse with the ones outside (CSS
     # Text 3, 4.1.1), so both render the same outside; a delimiter run touching whitespace cannot open or close
@@ -221,6 +215,12 @@ def _peel(inner: list[_Meaning], outside: list[_Meaning], edge: int, *, breaks: 
         space: _Meaning = ("#text", (("value", text[: len(text) - len(kept)] if edge == 0 else text[len(kept) :]),), ())
         outside.insert(0 if edge else len(outside), space)
         inner[edge] = ("#text", (("value", kept),), ())
+
+
+class _Edges(NamedTuple):
+    before: list[_Meaning]
+    inner: tuple[_Meaning, ...]
+    after: list[_Meaning]
 
 
 def _emphasize_block(tag: str, record: _Meaning) -> _Meaning:

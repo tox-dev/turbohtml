@@ -40,15 +40,6 @@ class _Shape(NamedTuple):
     self_closing: bool
 
 
-class _ReferenceShape(NamedTuple):
-    token_type: TokenType
-    tag: str | None
-    data: str | None
-    source: str | None
-    attrs: list[tuple[str, str]] | None
-    self_closing: bool
-
-
 def test_tokenize_empty_input() -> None:
     assert list(tokenize("")) == []
 
@@ -832,6 +823,15 @@ def test_default_resolves_references_into_text() -> None:
 
 def _reference_shape(token: Token) -> _ReferenceShape:
     return _ReferenceShape(token.type, token.tag, token.data, token.source, token.attrs, token.self_closing)
+
+
+class _ReferenceShape(NamedTuple):
+    token_type: TokenType
+    tag: str | None
+    data: str | None
+    source: str | None
+    attrs: list[tuple[str, str]] | None
+    self_closing: bool
 
 
 def test_default_source_is_none() -> None:

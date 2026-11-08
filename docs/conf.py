@@ -372,12 +372,6 @@ def _add_page_description(
         return
 
 
-class _Arguments(NamedTuple):
-    ecosystem: str
-    name: str
-    slug: str | None
-
-
 class _PackageMeta(Directive):
     # Render one badge row of package metadata: ``.. package-meta:: [ecosystem] <name> [github-slug]``.
     #
@@ -448,6 +442,12 @@ class _PackageMeta(Directive):
         "npm": _npm_badges,
         "crates": _crates_badges,
     }
+
+
+class _Arguments(NamedTuple):
+    ecosystem: str
+    name: str
+    slug: str | None
 
 
 markdown_http_base = os.environ.get("READTHEDOCS_CANONICAL_URL", "")

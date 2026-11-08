@@ -358,13 +358,6 @@ def minifier_check(
     )
 
 
-class _MinifierObservation(NamedTuple):
-    html: str
-    css: str
-    inline_css: str
-    js: str
-
-
 def minifier_observation(data: bytes) -> _MinifierObservation:
     # Keep printer results available for independent behavioral controls.
     text: Final = _text(data)
@@ -374,6 +367,13 @@ def minifier_observation(data: bytes) -> _MinifierObservation:
         minify_css_inline("color: red;", CSSMinify()),
         clean.minify_js(f'const value = "{text}";', JSMinify()),
     )
+
+
+class _MinifierObservation(NamedTuple):
+    html: str
+    css: str
+    inline_css: str
+    js: str
 
 
 def _detect(data: bytes) -> None:
