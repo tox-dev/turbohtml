@@ -516,8 +516,10 @@ _OWNERS: Final[dict[str, tuple[str, ...]]] = {
         f"turbohtml.etree.{name}"
         for name in (
             "Element",
+            "ElementFactory",
             "ElementView",
             "SubElement",
+            "SubElementFactory",
             "XPath",
             "document_context",
             "document_fromstring",
