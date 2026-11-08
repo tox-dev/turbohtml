@@ -35,8 +35,8 @@ import sys
 from pathlib import Path
 from typing import Final
 
-_SINGLE_BYTE_TABLE: Final = re.compile(r'"([^"]+)":\[([^\]]*)\]')
-_ISO_2022_JP_CASE: Final = re.compile(r'decode\(\[([^\]]*)\],\s*("(?:[^"\\]|\\.)*")\s*,\s*"([^"]*)"\)')
+_SINGLE_BYTE_TABLE: Final[re.Pattern[str]] = re.compile(r'"([^"]+)":\[([^\]]*)\]')
+_ISO_2022_JP_CASE: Final[re.Pattern[str]] = re.compile(r'decode\(\[([^\]]*)\],\s*("(?:[^"\\]|\\.)*")\s*,\s*"([^"]*)"\)')
 
 
 def _revision(checkout: Path) -> str:

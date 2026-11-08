@@ -139,7 +139,7 @@ _EXPLICIT_LABELS: Final[str] = (
     "(?:e?xt(?:ensi(?:o\u0301?|\u00f3))?n?|\uff45?\uff58\uff54\uff4e?|\u0434\u043e\u0431|anexo)"
 )
 _AMBIGUOUS_LABELS: Final[str] = "(?:[x\uff58#\uff03~\uff5e]|int|\uff49\uff4e\uff54)"
-_EXTENSION_FORMS: Final = (
+_EXTENSION_FORMS: Final[tuple[tuple[str, str, int], ...]] = (
     ("rfc", ";ext=(\\d{1,20})", 20),
     ("explicit", f"{_SEP_BEFORE_LABEL}{_EXPLICIT_LABELS}{_AFTER_LABEL}(\\d{{1,20}})#?", 20),
     ("ambiguous", f"{_SEP_BEFORE_LABEL}{_AMBIGUOUS_LABELS}{_AFTER_LABEL}(\\d{{1,9}})#?", 9),
@@ -148,7 +148,7 @@ _EXTENSION_FORMS: Final = (
 # createExtnPattern(forParsing = true) adds the auto-dialling forms a held string may carry, which the matcher never
 # reads out of prose: `,,` or `;` before the digits, or one or more commas alone.
 _SEP_BEFORE_AUTODIAL: Final[str] = "[ \u00a0\t]*"
-_PARSING_EXTENSION_FORMS: Final = (
+_PARSING_EXTENSION_FORMS: Final[tuple[tuple[str, str, int], ...]] = (
     *_EXTENSION_FORMS,
     ("autodial", f"{_SEP_BEFORE_AUTODIAL}(?:,,|;){_AFTER_LABEL}(\\d{{1,15}})#?", 15),
     ("commas", f"{_SEP_BEFORE_AUTODIAL},+{_AFTER_LABEL}(\\d{{1,9}})#?", 9),
@@ -189,16 +189,16 @@ _LATIN_BLOCKS: Final[tuple[str, ...]] = (
     "Combining Diacritical Marks",
 )
 
-_WHITESPACE: Final = re.compile(r"\s+")
+_WHITESPACE: Final[re.Pattern[str]] = re.compile(r"\s+")
 # PhoneNumberUtil.FIRST_GROUP_ONLY_PREFIX_PATTERN: a rule of just the first group needs no national prefix.
-_FIRST_GROUP_ONLY: Final = re.compile(r"\(?\$1\)?")
+_FIRST_GROUP_ONLY: Final[re.Pattern[str]] = re.compile(r"\(?\$1\)?")
 # a numberFormat pattern is a run of capture groups over digits, each `\d`, `\d{n}` or `\d{n,m}`, so choosing it is
 # a length test and formatNsn's replacement is a greedy split of the digits into those groups, no regex engine needed
-_GROUP_RUN: Final = re.compile(r"(?:\(\\d(?:\{\d+(?:,\d+)?\})?\))+")
-_GROUP_PART: Final = re.compile(r"\(\\d(?:\{(\d+)(?:,(\d+))?\})?\)")
-_TEMPLATE_REF: Final = re.compile(r"\$(\d)")
-_TRANSFORM_RULE: Final = re.compile(r"^(\d{0,4})\$(\d)$")
-_LENGTH_ITEM: Final = re.compile(r"^(\d+)$|^\[(\d+)-(\d+)\]$")
+_GROUP_RUN: Final[re.Pattern[str]] = re.compile(r"(?:\(\\d(?:\{\d+(?:,\d+)?\})?\))+")
+_GROUP_PART: Final[re.Pattern[str]] = re.compile(r"\(\\d(?:\{(\d+)(?:,(\d+))?\})?\)")
+_TEMPLATE_REF: Final[re.Pattern[str]] = re.compile(r"\$(\d)")
+_TRANSFORM_RULE: Final[re.Pattern[str]] = re.compile(r"^(\d{0,4})\$(\d)$")
+_LENGTH_ITEM: Final[re.Pattern[str]] = re.compile(r"^(\d+)$|^\[(\d+)-(\d+)\]$")
 
 
 class GenerationError(RuntimeError):

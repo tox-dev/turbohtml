@@ -16,7 +16,7 @@ from typing import Final
 import httpx2
 from tenacity import before_sleep_log, retry, retry_if_exception, stop_after_attempt, wait_exponential
 
-_LOGGER: Final = logging.getLogger("turbohtml.tools.httpfetch")
+_LOGGER: Final[logging.Logger] = logging.getLogger("turbohtml.tools.httpfetch")
 
 # The transient statuses a later attempt can clear; a 4xx like 404 or 403 is not among them, so it raises at once.
 _RETRYABLE_STATUS: Final[frozenset[HTTPStatus]] = frozenset({

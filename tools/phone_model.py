@@ -38,7 +38,7 @@ _SPACES: Final[str] = "\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u
 
 # PhoneNumberMatcher.INNER_MATCHES: after the whole candidate fails, the splits parseAndVerify is retried on, in this
 # order: the part after a slash, each bracketed part, the parts around a spaced hyphen, a wide hyphen, a dot, a space.
-_INNER_MATCHES: Final = (
+_INNER_MATCHES: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"/+(.*)"),
     re.compile(r"(\([^(]*)"),
     re.compile(rf"(?:[{_SPACES}]-|-[{_SPACES}])[{_SPACES}]*(.+)"),
@@ -786,8 +786,8 @@ def _word_before(tables: Tables, text: str, start: int) -> str:
 
 
 # PhoneNumberMatcher.PUB_PAGES: "pages 1-5 (3 pages)", a page range with a bracketed count, is not a number.
-_PUB_PAGES: Final = re.compile(r"[0-9]{1,5}-+[0-9]{1,5}[ \t\n\x0b\f\r]{0,4}\([0-9]{1,5}")
-_MATCHING_BRACKETS: Final = re.compile(r"\(?(?:x+\))?x+(?:\(x+\)){0,3}x*")
+_PUB_PAGES: Final[re.Pattern[str]] = re.compile(r"[0-9]{1,5}-+[0-9]{1,5}[ \t\n\x0b\f\r]{0,4}\([0-9]{1,5}")
+_MATCHING_BRACKETS: Final[re.Pattern[str]] = re.compile(r"\(?(?:x+\))?x+(?:\(x+\)){0,3}x*")
 
 
 def _brackets_match(candidate: str) -> bool:

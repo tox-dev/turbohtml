@@ -20,7 +20,9 @@ from typing import Final
 
 _ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 _CONFIG: Final[Path] = _ROOT / "pyproject.toml"
-_DIRECTIVE = re.compile(r"^(?P<indent>[ \t]*)\.\. (?:testcode::|code-block:: (?:python|py|python3))\s*$")
+_DIRECTIVE: Final[re.Pattern[str]] = re.compile(
+    r"^(?P<indent>[ \t]*)\.\. (?:testcode::|code-block:: (?:python|py|python3))\s*$"
+)
 
 # Rules that fire on every well-formed doctest example, so enforcing them would only push noqa
 # noise into the rendered docs (and let --fix corrupt the migration before/after blocks).
