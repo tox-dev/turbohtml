@@ -179,11 +179,13 @@ def _stylesheets() -> list[Case]:
         *(path.read_text(encoding="utf-8") for path in files if path.exists()),
         *(
             "@font-face{unicode-range:"
-            + ",".join(
-                f"U+{0x400 + index * 4:X}-{0x401 + index * 4:X}"
-                for index in (reversed(range(count)) if reverse else range(count))
-            )
-            + "}"
+            f"""{
+                ",".join(
+                    f"U+{0x400 + index * 4:X}-{0x401 + index * 4:X}"
+                    for index in (reversed(range(count)) if reverse else range(count))
+                )
+            }"""
+            "}"
             for count, reverse in ((8, True), (96, False), (96, True))
         ),
     ]

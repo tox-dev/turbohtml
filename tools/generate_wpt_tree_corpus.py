@@ -202,29 +202,31 @@ def generate(checkout: Path, out_path: Path) -> None:
     exclusions, error_adjustments = _decisions()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
-        json.dumps(
-            {
-                "source": f"https://github.com/web-platform-tests/wpt/tree/{revision}/html/syntax/parsing/resources",
-                "revision": revision,
-                "files": [path.name for path in files],
-                "fixture_counts": {path.name: sum(case["file"] == path.name for case in cases) for path in files},
-                "applicable_fixture_counts": {
-                    path.name: sum(
-                        case["file"] == path.name
-                        and (case["file"], case["data"], case["context"], case["scripting"])
-                        not in _SCRIPT_EXECUTION_EXCLUSIONS
-                        for case in cases
-                    )
-                    for path in files
+        f"""{
+            json.dumps(
+                {
+                    "source": f"https://github.com/web-platform-tests/wpt/tree/{revision}/html/syntax/parsing/resources",
+                    "revision": revision,
+                    "files": [path.name for path in files],
+                    "fixture_counts": {path.name: sum(case["file"] == path.name for case in cases) for path in files},
+                    "applicable_fixture_counts": {
+                        path.name: sum(
+                            case["file"] == path.name
+                            and (case["file"], case["data"], case["context"], case["scripting"])
+                            not in _SCRIPT_EXECUTION_EXCLUSIONS
+                            for case in cases
+                        )
+                        for path in files
+                    },
+                    "error_adjustments": error_adjustments,
+                    "exclusions": exclusions,
+                    "cases": cases,
                 },
-                "error_adjustments": error_adjustments,
-                "exclusions": exclusions,
-                "cases": cases,
-            },
-            ensure_ascii=False,
-            indent=1,
-        )
-        + "\n",
+                ensure_ascii=False,
+                indent=1,
+            )
+        }"""
+        "\n",
         encoding="utf-8",
     )
     print(f"wrote {out_path}: {len(cases)} cases from {len(files)} files at {revision[:12]}")

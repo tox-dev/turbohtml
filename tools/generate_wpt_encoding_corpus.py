@@ -96,17 +96,19 @@ def generate(checkout: Path, out_path: Path) -> None:
     cases = [*_single_byte(checkout), *_iso_2022_jp(checkout)]
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
-        json.dumps(
-            {
-                "source": "https://github.com/web-platform-tests/wpt",
-                "revision": _revision(checkout),
-                "files": ["encoding/resources/single-byte-decoder.js", "encoding/iso-2022-jp-decoder.any.js"],
-                "cases": cases,
-            },
-            ensure_ascii=False,
-            indent=1,
-        )
-        + "\n",
+        f"""{
+            json.dumps(
+                {
+                    "source": "https://github.com/web-platform-tests/wpt",
+                    "revision": _revision(checkout),
+                    "files": ["encoding/resources/single-byte-decoder.js", "encoding/iso-2022-jp-decoder.any.js"],
+                    "cases": cases,
+                },
+                ensure_ascii=False,
+                indent=1,
+            )
+        }"""
+        "\n",
         encoding="utf-8",
     )
     print(f"wrote {out_path}: {len(cases)} cases from wpt {_revision(checkout)[:12]}")
