@@ -287,7 +287,7 @@ _STUB_ALIASES = {
 }
 
 
-def setup(app: Sphinx) -> dict[str, Any]:
+def setup(app: Sphinx) -> dict[str, bool]:
     # Wire the stub-sourced type annotations into autodoc and register the badge row and per-page meta description.
     _patch_autodoc_engine()
     app.connect("autodoc-process-signature", _stub_signature_for_alias)

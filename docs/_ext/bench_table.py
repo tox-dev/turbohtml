@@ -34,6 +34,8 @@ from docutils import nodes
 from docutils.parsers.rst import Directive, directives
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sphinx.application import Sphinx
 
 # an empty cell shows this glyph and a superscript keyed to the reason the legend spells out; a bare ``null`` in a feed
@@ -127,14 +129,14 @@ _HOMEPAGES: Final[dict[str, str]] = {
 }
 
 
-def setup(app: Sphinx) -> dict[str, Any]:
+def setup(app: Sphinx) -> dict[str, bool]:
     app.add_directive("bench-table", BenchTable)
     return {"parallel_read_safe": True, "parallel_write_safe": True}
 
 
 class BenchTable(Directive):
     # Render one benchmark table from the JSON feed named by ``:file:``.
-    option_spec: ClassVar[dict[str, Any]] = {"file": directives.unchanged_required}
+    option_spec: ClassVar[dict[str, Callable[[str], str]]] = {"file": directives.unchanged_required}
 
     def run(self) -> list[nodes.Node]:
         source = Path(self.state.document["source"]).parent / self.options["file"]

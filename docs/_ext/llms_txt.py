@@ -14,7 +14,7 @@ one line; ``llms-full.txt`` enumerates every page in every section, migration gu
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Final
 
 from docutils import nodes
 
@@ -62,7 +62,7 @@ _DIATAXIS_NOTE: Final[str] = (
 )
 
 
-def setup(app: Sphinx) -> dict[str, Any]:
+def setup(app: Sphinx) -> dict[str, bool]:
     # Register the build-finished hook that writes the two llms map files.
     app.connect("build-finished", _emit_llms_txt)
     return {"parallel_read_safe": True, "parallel_write_safe": True}
