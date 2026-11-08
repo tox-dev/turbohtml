@@ -161,7 +161,7 @@ def _counts(name: str, requirements: tuple[str, ...], body: str, page: Path, wor
     return json.loads(done.stdout)
 
 
-def disagreements(workdir: Path) -> list[str]:
+def _disagreements(workdir: Path) -> list[str]:
     # Run every probe over every corpus page and return one line per party answering a different question.
     prefetch()
     found: list[str] = []
@@ -198,7 +198,7 @@ def main() -> None:
     # Report every disagreement; exit non-zero so a run can gate on the result.
     workdir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(tempfile.gettempdir()) / "bench-equivalence"
     workdir.mkdir(parents=True, exist_ok=True)
-    found = disagreements(workdir)
+    found = _disagreements(workdir)
     print("\n===== disagreements =====")
     for line in found or ["none"]:
         print(f"  {line}")

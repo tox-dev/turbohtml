@@ -49,18 +49,18 @@ def _serialize_attributes(case: tuple[str, bool]) -> str:
     )
 
 
-def navigate(text: str) -> None:
+def _navigate(text: str) -> None:
     # Walk every node with html5lib's etree TreeWalker token stream.
     for _token in _WALKER(_parsed(text)):
         pass
 
 
-def fragment(text: str) -> None:
+def _fragment(text: str) -> None:
     # Parse a fragment with html5lib's parseFragment.
     html5lib.parseFragment(text)
 
 
-def tokenize(text: str) -> None:
+def _tokenize(text: str) -> None:
     # Drive html5lib's tokenizer over the input.
     from html5lib._tokenizer import (  # ruff:ignore[import-outside-top-level, import-private-name]  # internal API
         HTMLTokenizer,
@@ -138,14 +138,15 @@ OPERATIONS = {
     "parse-nul": (parse, "html5lib"),
     "parse-afe": (parse, "html5lib"),
     "parse-scope": (parse, "html5lib"),
-    "fragment": (fragment, "html5lib"),
-    "tokenize": (tokenize, "html5lib"),
+    "fragment": (_fragment, "html5lib"),
+    "tokenize": (_tokenize, "html5lib"),
     "serialize": (serialize, "html5lib"),
-    "navigate": (navigate, "html5lib"),
+    "navigate": (_navigate, "html5lib"),
     "serialize-attributes": (_serialize_attributes, "html5lib"),
 }
 
 
 __all__ = [
     "parse",
+    "serialize",
 ]
