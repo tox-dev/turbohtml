@@ -800,8 +800,8 @@ def test_interleaved_duplicates_keep_first_occurrence_order() -> None:
 def test_hash_index_resets_between_consecutive_large_tags() -> None:
     # Two big tags back to back: the second must not see the first tag's names, so the
     # per-tag epoch reset and the grow that re-seats live entries both have to be right.
-    first = "<a" + "".join(f" p{index}" for index in range(1500)) + ">"
-    second = "<b" + "".join(f" p{index}" for index in range(1500)) + ">"
+    first = f"<a{''.join(f' p{index}' for index in range(1500))}>"
+    second = f"<b{''.join(f' p{index}' for index in range(1500))}>"
     counts = [len(token.attrs) for token in tokenize(first + second) if token.attrs is not None]
     assert counts == [1500, 1500]  # neither tag drops a name
 

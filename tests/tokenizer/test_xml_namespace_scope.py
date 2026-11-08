@@ -77,11 +77,11 @@ def _filler(count: int) -> str:
 # The parser scans fewer than 16 in-scope bindings and moves them into a hash table at 16; these documents cross
 # that cutoff with a shadowed binding live, either before the switch or after it.
 _SHADOWED_BEFORE_SWITCH: Final[str] = (
-    '<r xmlns:p="urn:a" xmlns:q="urn:a"><x xmlns:p="urn:b"><y ' + _filler(14) + '><z p:k="1" q:k="2"/></y>'
-    '<w p:k="1" q:k="2"/></x>{after}</r>'
+    f'<r xmlns:p="urn:a" xmlns:q="urn:a"><x xmlns:p="urn:b"><y {_filler(14)}'
+    '><z p:k="1" q:k="2"/></y><w p:k="1" q:k="2"/></x>{after}</r>'
 )
 _SHADOWED_AFTER_SWITCH: Final[str] = (
-    '<r xmlns:p="urn:a" xmlns:q="urn:a" ' + _filler(16) + '><x xmlns:p="urn:b"><z p:k="1" q:k="2"/></x>{after}</r>'
+    f'<r xmlns:p="urn:a" xmlns:q="urn:a" {_filler(16)}><x xmlns:p="urn:b"><z p:k="1" q:k="2"/></x>{{after}}</r>'
 )
 
 
