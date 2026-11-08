@@ -1116,10 +1116,7 @@ def test_reduce_js_protocol_checks_candidates(mocker: MockerFixture) -> None:
     mocker.patch("fuzz.reduce.shutil.which", return_value="node")
     mocker.patch("fuzz.reduce.Path.is_dir", return_value=True)
     replies = io.StringIO(
-        json.dumps({"kind": "candidate", "text": "keep();"})
-        + "\n"
-        + json.dumps({"kind": "done", "text": "keep();"})
-        + "\n"
+        f"{json.dumps({'kind': 'candidate', 'text': 'keep();'})}\n{json.dumps({'kind': 'done', 'text': 'keep();'})}\n"
     )
     answers = io.StringIO()
     mocker.patch("fuzz.reduce.subprocess.Popen", autospec=True).return_value.__enter__.return_value = mocker.MagicMock(

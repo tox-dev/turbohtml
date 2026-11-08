@@ -1583,8 +1583,8 @@ def test_xslt_inline_xml_content_is_preserved(
 ) -> None:
     engine: Final = fuzz_xslt_inline_engines[0]
     stylesheet: Final = (
-        '<x:stylesheet xmlns:x="http://www.w3.org/1999/XSL/Transform" version="1.0">'
-        '<x:output method="xml"/><x:template match="/">' + body + "</x:template></x:stylesheet>"
+        '<x:stylesheet xmlns:x="http://www.w3.org/1999/XSL/Transform" version="1.0"><x:output '
+        f'method="xml"/><x:template match="/">{body}</x:template></x:stylesheet>'
     )
     case: Final = engine.Case(0, stylesheet, "<root/>", "xml", compiles=True, applies=True, output=output)
     assert [(row.engine, row.phase, row.actual == row.expected) for row in engine.compare(case)] == [

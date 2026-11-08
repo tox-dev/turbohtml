@@ -463,7 +463,7 @@ _ALLOC_CSS_MINIFY_STYLESHEET: Final[str] = (
 # one selector repeated with a new property each time, so each merge re-renders a longer body into the pool
 _MERGES: Final[str] = "".join(f".m{{margin-{side}:{index}px}}" for index, side in enumerate(["top", "left"] * 12))
 # enough declarations that the dedup table outgrows its stack slots
-_DECLARATIONS: Final[str] = ";".join(f"--p{index}:{index}px" for index in range(300)) + ";color:#ff0000;margin:0 0 0 0"
+_DECLARATIONS: Final[str] = f"{';'.join(f'--p{index}:{index}px' for index in range(300))};color:#ff0000;margin:0 0 0 0"
 _ALLOC_CSS_MINIFY_PAGE: Final[str] = (
     f"<style>{_ALLOC_CSS_MINIFY_STYLESHEET}</style><p style='margin:0 0 0 0;color:#ff0000'>x</p>"
 )
