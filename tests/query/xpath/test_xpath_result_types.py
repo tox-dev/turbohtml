@@ -3,7 +3,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 import pytest
 
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 _STUBS: Final[Path] = Path(__file__).parents[3] / "src" / "turbohtml" / "_stubs"
 _NAMES: Final[dict[str, type]] = {"Node": Node, "str": str, "float": float, "bool": bool}
+_XPathValue: TypeAlias = "list[Node | str] | float | bool | str | Node | Iterator[Node | str | float | bool] | None"
 _DOCUMENT: Final[turbohtml.Document] = turbohtml.parse("<p>a</p><!--c--><p>b</p><?pi x?>")
 _EXPRESSIONS: Final[list[pytest.ParameterSet]] = [
     pytest.param("count(//p)", id="number"),
@@ -37,7 +38,7 @@ def _declared_return(stub: str, owner: str, method: str) -> ast.expr:
     return func.returns
 
 
-def _conforms(value: object, annotation: ast.expr) -> bool:
+def _conforms(value: _XPathValue, annotation: ast.expr) -> bool:
     if isinstance(annotation, ast.BinOp):
         return _conforms(value, annotation.left) or _conforms(value, annotation.right)
     if isinstance(annotation, ast.Constant):
@@ -61,6 +62,6 @@ def _conforms(value: object, annotation: ast.expr) -> bool:
 )
 @pytest.mark.parametrize("expression", _EXPRESSIONS)
 def test_xpath_result_matches_stub(
-    stub: str, owner: str, method: str, evaluate: Callable[[str], object], expression: str
+    stub: str, owner: str, method: str, evaluate: Callable[[str], _XPathValue], expression: str
 ) -> None:
     assert _conforms(evaluate(expression), _declared_return(stub, owner, method))
