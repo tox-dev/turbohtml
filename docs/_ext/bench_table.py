@@ -366,7 +366,7 @@ def _legend(reasons: dict[str, int]) -> nodes.container:
 
 
 def _render_metric(
-    cells: list[Any], layout: _Layout, metric_index: int, spread: list[Any] | None
+    cells: list[float | str | None], layout: _Layout, metric_index: int, spread: list[float | str | None] | None
 ) -> tuple[dict[int, tuple[str, str | None]], dict[int, int]]:
     # _order_columns has already put the baseline first, so column 0 is what every ratio is read against; a
     # feed whose columns are all turbohtml (the interpreter comparison) still gets a ratio on every other one
@@ -380,6 +380,9 @@ def _render_metric(
         index = 1 + party_index * len(layout.metrics) + metric_index
         value = cells[index]
         if isinstance(value, (int, float)):
+            if not isinstance(turbo, (int, float)):
+                msg = f"bench-table {metric} cell {index} has no numeric baseline to ratio against: {turbo!r}"
+                raise ValueError(msg)
             if metric == "size":
                 figure = _format_size(value)
             elif metric == "memory":
