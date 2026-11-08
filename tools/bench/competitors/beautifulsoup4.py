@@ -11,7 +11,16 @@ from bs4 import BeautifulSoup, Comment, UnicodeDammit
 from bs4.element import AttributeValueList, CData, NavigableString, Script, Stylesheet, Tag, TemplateString
 
 from bench._attributes import fill_equality_pair
-from bench._beautifulsoup import find, fresh, parsed, socialcard
+from bench._beautifulsoup import (
+    body,
+    encode_inner,
+    encode_inner_indent,
+    find,
+    fresh,
+    parsed,
+    serialize_inner_indent,
+    socialcard,
+)
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 
@@ -244,24 +253,7 @@ def links_absolutize(soup: BeautifulSoup) -> None:
 
 
 def _serialize_inner(text: str) -> str:
-    return _body(text).decode_contents()
-
-
-@functools.cache
-def _body(text: str) -> Tag:
-    return parsed("html.parser", text).find_all("body")[0]
-
-
-def _encode_inner(text: str) -> bytes:
-    return _body(text).encode_contents()
-
-
-def _serialize_inner_indent(text: str) -> str:
-    return _body(text).decode_contents(indent_level=0)
-
-
-def _encode_inner_indent(text: str) -> bytes:
-    return _body(text).encode_contents(indent_level=0)
+    return body("html.parser", text).decode_contents()
 
 
 def _collapse_whitespace(soup: BeautifulSoup) -> None:
@@ -315,9 +307,9 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
         "BeautifulSoup (html.parser)",
     ),
     "serialize-inner": (_serialize_inner, "BeautifulSoup (html.parser)"),
-    "encode-inner": (_encode_inner, "BeautifulSoup (html.parser)"),
-    "serialize-inner-indent": (_serialize_inner_indent, "BeautifulSoup (html.parser)"),
-    "encode-inner-indent": (_encode_inner_indent, "BeautifulSoup (html.parser)"),
+    "encode-inner": (functools.partial(encode_inner, "html.parser"), "BeautifulSoup (html.parser)"),
+    "serialize-inner-indent": (functools.partial(serialize_inner_indent, "html.parser"), "BeautifulSoup (html.parser)"),
+    "encode-inner-indent": (functools.partial(encode_inner_indent, "html.parser"), "BeautifulSoup (html.parser)"),
     "strip-comments": (
         Mutating(setup=functools.partial(fresh, "html.parser"), run=_strip_comments),
         "BeautifulSoup (html.parser)",

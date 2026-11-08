@@ -8,9 +8,18 @@ from typing import TYPE_CHECKING, Final
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Comment
-from bs4.element import AttributeValueList, CData, NavigableString, Script, Stylesheet, Tag, TemplateString
+from bs4.element import AttributeValueList, CData, NavigableString, Script, Stylesheet, TemplateString
 
-from bench._beautifulsoup import find, fresh, parsed, socialcard
+from bench._beautifulsoup import (
+    body,
+    encode_inner,
+    encode_inner_indent,
+    find,
+    fresh,
+    parsed,
+    serialize_inner_indent,
+    socialcard,
+)
 from bench.timing import Mutating
 from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 
@@ -205,24 +214,7 @@ def links_absolutize(soup: BeautifulSoup) -> None:
 
 
 def _serialize_inner(text: str) -> str:
-    return _body(text).decode_contents()
-
-
-@functools.cache
-def _body(text: str) -> Tag:
-    return parsed(_BACKEND, text).find_all("body")[0]
-
-
-def _encode_inner(text: str) -> bytes:
-    return _body(text).encode_contents()
-
-
-def _serialize_inner_indent(text: str) -> str:
-    return _body(text).decode_contents(indent_level=0)
-
-
-def _encode_inner_indent(text: str) -> bytes:
-    return _body(text).encode_contents(indent_level=0)
+    return body(_BACKEND, text).decode_contents()
 
 
 def _collapse_whitespace(soup: BeautifulSoup) -> None:
@@ -256,9 +248,9 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     ),
     "transform-tree": (Mutating(setup=functools.partial(fresh, _BACKEND), run=_transform_tree), "BeautifulSoup (lxml)"),
     "serialize-inner": (_serialize_inner, "BeautifulSoup (lxml)"),
-    "encode-inner": (_encode_inner, "BeautifulSoup (lxml)"),
-    "serialize-inner-indent": (_serialize_inner_indent, "BeautifulSoup (lxml)"),
-    "encode-inner-indent": (_encode_inner_indent, "BeautifulSoup (lxml)"),
+    "encode-inner": (functools.partial(encode_inner, _BACKEND), "BeautifulSoup (lxml)"),
+    "serialize-inner-indent": (functools.partial(serialize_inner_indent, _BACKEND), "BeautifulSoup (lxml)"),
+    "encode-inner-indent": (functools.partial(encode_inner_indent, _BACKEND), "BeautifulSoup (lxml)"),
     "strip-comments": (Mutating(setup=functools.partial(fresh, _BACKEND), run=_strip_comments), "BeautifulSoup (lxml)"),
     "parse": (parse, "BeautifulSoup (lxml)"),
     "parse-formatting": (parse, "BeautifulSoup (lxml)"),
