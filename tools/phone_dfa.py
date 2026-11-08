@@ -37,8 +37,17 @@ ASSERT_END: Final[int] = 3
 MATCH: Final[int] = 4
 
 _Symbolizer: TypeAlias = "Callable[[int], int]"
-# sre_parse's node list: (opcode, argument) pairs whose argument shape the stdlib leaves untyped, so each site casts
-SreItems: TypeAlias = list[tuple[object, object]]
+# re._parser's tree: typeshed ships no stub for it, so these describe the shapes the parser emits; each site casts
+SreNode: TypeAlias = "tuple[int, SreArgument]"
+SreItems: TypeAlias = list[SreNode]
+SreArgument: TypeAlias = (
+    int
+    | SreItems
+    | tuple[int | None, int, int, SreItems]
+    | tuple[None, list[SreItems]]
+    | tuple[int, int, SreItems]
+    | tuple[int, int]
+)
 _PriorityKey: TypeAlias = tuple[tuple[int, ...], int]
 
 
@@ -111,7 +120,7 @@ class _Builder:
         for index, attribute in outs:
             self.ops[index] = replace(self.ops[index], **{attribute: target})
 
-    def sequence(self, items: Sequence[tuple[object, object]]) -> _Fragment:
+    def sequence(self, items: Sequence[SreNode]) -> _Fragment:
         fragments = list(starmap(self.item, items))
         if not fragments:
             return self._empty()
@@ -120,7 +129,7 @@ class _Builder:
         return _Fragment(start=fragments[0].start, outs=fragments[-1].outs)
 
     def item(  # ruff:ignore[too-many-return-statements, complex-structure]  # one arm per sre opcode
-        self, opcode: object, argument: object
+        self, opcode: int, argument: SreArgument
     ) -> _Fragment:
         if opcode is sre_constants.LITERAL:
             index = self.emit(CHAR, self.symbolize(cast("int", argument)))
@@ -185,7 +194,7 @@ class _Builder:
             fragment = _Fragment(start=index, outs=alternative.outs + fragment.outs)
         return fragment
 
-    def star(self, low: int, items: Sequence[tuple[object, object]]) -> _Fragment:
+    def star(self, low: int, items: Sequence[SreNode]) -> _Fragment:
         # ``x{low,}``: the mandatory copies, then a greedy loop that prefers another copy over leaving
         copies = [self.sequence(items) for _ in range(low)]
         loop_split = self.emit(SPLIT)
@@ -199,7 +208,7 @@ class _Builder:
             return _Fragment(start=copies[0].start, outs=[(loop_split, "alt")])
         return _Fragment(start=loop_split, outs=[(loop_split, "alt")])
 
-    def repeat(self, low: int, high: int, items: Sequence[tuple[object, object]]) -> _Fragment:
+    def repeat(self, low: int, high: int, items: Sequence[SreNode]) -> _Fragment:
         copies = [self.sequence(items) for _ in range(high)]
         if not copies:
             return self._empty()
@@ -620,7 +629,9 @@ __all__ = [
     "Dfa",
     "PriorityDfa",
     "Program",
+    "SreArgument",
     "SreItems",
+    "SreNode",
     "accepted_lengths",
     "compile_dfa",
     "compile_priority_dfa",
