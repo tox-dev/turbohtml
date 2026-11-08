@@ -17,7 +17,9 @@ from ._html import _elementtree_to_lxml_html as to_lxml_html
 from ._html import _elementtree_tostring as tostring
 from ._html import _ElementXPath as XPath
 
+#: The ElementTree element class, built over the turbohtml tree.
 Element: Final = _elementtree_element
+#: The ElementTree subelement factory, building children of an :class:`Element`.
 SubElement: Final = _elementtree_subelement
 
 __all__ = [

@@ -455,8 +455,8 @@ def _compile_settings(phones: PhoneNumbers, number_type: type[PhoneNumber], *, p
     ))
 
 
-# A callback receives the generated :class:`LinkCandidate` and returns it to keep the link, or ``None`` to leave the
-# text bare.
+#: A callback receives the generated :class:`LinkCandidate` and returns it to keep the link, or ``None`` to leave the
+#: text bare.
 Callback: TypeAlias = "Callable[[LinkCandidate], LinkCandidate | None]"
 
 
@@ -481,6 +481,7 @@ def target_blank(link: LinkCandidate) -> LinkCandidate:
     return _linkify_target_blank(link)
 
 
+#: The callbacks applied when the caller passes none: by default, only :func:`nofollow`.
 DEFAULT_CALLBACKS: Final[tuple[Callback, ...]] = (nofollow,)
 
 

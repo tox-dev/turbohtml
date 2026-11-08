@@ -18,7 +18,9 @@ from turbohtml.clean import DEFAULT_ATTRIBUTES, DEFAULT_SCHEMES, DEFAULT_TAGS, O
 
 #: bleach's default allowed tags, attributes, and protocols, under their bleach names.
 ALLOWED_TAGS: Final[frozenset[str]] = DEFAULT_TAGS
+#: bleach's default allowed attributes, keyed by tag name.
 ALLOWED_ATTRIBUTES: Final[Mapping[str, frozenset[str]]] = DEFAULT_ATTRIBUTES
+#: bleach's default allowed URL schemes.
 ALLOWED_PROTOCOLS: Final[frozenset[str]] = DEFAULT_SCHEMES
 
 _AttributeRules: TypeAlias = (
