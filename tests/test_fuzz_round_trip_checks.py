@@ -850,7 +850,7 @@ def test_generation_cli_execution_context(tmp_path: Path, mocker: MockerFixture)
 
 
 def test_generation_preserves_qualified_owners() -> None:
-    assert (len(owner_inventory()), len(public_targets())) == (225, 34)
+    assert (len(owner_inventory()), len(public_targets())) == (226, 34)
 
 
 @pytest.mark.parametrize(
@@ -1839,7 +1839,7 @@ def test_dom_registered_callback(domain: str) -> None:
 def test_dom_ownership() -> None:
     targets: Final = dom_targets()
     exports: Final = [export for target in targets for export in target.exports]
-    assert (tuple(target.name for target in targets), len(exports), len(set(exports))) == (_DOMAINS, 80, 80)
+    assert (tuple(target.name for target in targets), len(exports), len(set(exports))) == (_DOMAINS, 81, 81)
 
 
 def test_dom_verification_rejects_changed_result() -> None:
@@ -2157,7 +2157,7 @@ def test_atheris_targets_complete_qualified_inventory() -> None:
         len(MODULES),
         {name: owners[name] for name in ("turbohtml.parse", "turbohtml.parse_xml", "turbohtml.__main__.main")},
     ) == (
-        225,
+        226,
         21,
         {
             "turbohtml.parse": "html-document",
@@ -2542,7 +2542,7 @@ def test_atheris_rejection_hook_propagates_loader_error(mocker: MockerFixture) -
 
 
 def test_atheris_failure_hook_requires_fuzzing_build() -> None:
-    with pytest.raises(KeyError, match="_fuzz_inject_failure"):
+    with pytest.raises(AttributeError, match="_fuzz_inject_failure"):
         failure_hook()
 
 

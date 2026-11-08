@@ -537,6 +537,7 @@ _OWNERS: Final[dict[str, tuple[str, ...]]] = {
     + tuple(f"turbohtml.traverse.{name}" for name in ("NodeFilter", "NodeIterator", "TreeWalker")),
     "dom-query": (
         "turbohtml.XPath",
+        "turbohtml.XPathDepthError",
         "turbohtml.XPathString",
         *tuple(
             f"turbohtml.query.{name}"
