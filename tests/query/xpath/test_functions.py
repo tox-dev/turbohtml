@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-HTML: Final[str] = (
+_HTML: Final[str] = (
     "<html><body><div class='a b'><p>one</p><p class='x'>two</p><p>three</p></div>"
     "<ul><li>1</li><li>2</li><li>3</li></ul>"
     "<a href='/y'>L</a><input disabled><!--note--></body></html>"
@@ -38,7 +38,7 @@ _LATE_HAY: Final[str] = "a" * 200 + _LONG_NEEDLE
 
 @pytest.fixture
 def doc() -> turbohtml.Node:
-    return turbohtml.parse(HTML)
+    return turbohtml.parse(_HTML)
 
 
 @pytest.mark.parametrize(

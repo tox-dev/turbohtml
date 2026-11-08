@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 _XS: Final[str] = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
 
 
-RELAXNG_NS: Final[str] = "http://relaxng.org/ns/structure/1.0"
+_RELAXNG_NS: Final[str] = "http://relaxng.org/ns/structure/1.0"
 
 
 @pytest.mark.parametrize(
@@ -32,7 +32,7 @@ RELAXNG_NS: Final[str] = "http://relaxng.org/ns/structure/1.0"
         ),
         pytest.param(
             RelaxNG(
-                f'<grammar xmlns="{RELAXNG_NS}"><start><ref name="a"/></start>'
+                f'<grammar xmlns="{_RELAXNG_NS}"><start><ref name="a"/></start>'
                 '<define name="a"><element name="a"><optional><ref name="a"/></optional></element></define></grammar>'
             ),
             id="relax-ng",
@@ -60,7 +60,7 @@ def test_deep_nesting_is_rejected_before_validation(schema: XMLSchema | RelaxNG,
         ),
         pytest.param(
             RelaxNG,
-            f'<grammar xmlns="{RELAXNG_NS}"><start>{"<optional>" * 1200}'
+            f'<grammar xmlns="{_RELAXNG_NS}"><start>{"<optional>" * 1200}'
             f"<empty/>{'</optional>' * 1200}</start></grammar>",
             id="relax-ng",
         ),
@@ -82,7 +82,7 @@ def test_long_names_and_values_hit_buffer_bounds() -> None:
 
 
 def rwrap(body: str) -> str:
-    return f'<element name="doc" xmlns="{RELAXNG_NS}">{body}</element>'
+    return f'<element name="doc" xmlns="{_RELAXNG_NS}">{body}</element>'
 
 
 def rng_ok(schema: str, xml: str) -> bool:

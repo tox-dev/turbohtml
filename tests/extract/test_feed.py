@@ -8,7 +8,7 @@ from bench.operations import INPUTS
 from turbohtml import Text, parse, parse_xml
 from turbohtml.extract import Entry, Feed, feed
 
-RSS: Final[str] = """<?xml version="1.0"?>
+_RSS_XML: Final[str] = """<?xml version="1.0"?>
 <rss version="2.0"><channel>
 <title>RSS Title</title>
 <link>http://example.com/</link>
@@ -35,7 +35,7 @@ _ATOM_PREFIXED: Final[str] = """<a:feed xmlns:a="http://www.w3.org/2005/Atom">
 <a:link href="https://example.org/entry"/><a:summary>Summary</a:summary><a:content>Body</a:content>
 <a:author><a:name>Alice</a:name></a:author></a:entry></a:feed>"""
 
-RDF: Final[str] = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
+_RDF: Final[str] = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
 <channel rdf:about="http://example.com/">
 <title>RDF Title</title>
 <link>http://example.com/</link>
@@ -219,7 +219,7 @@ def test_feed_rss_canonical_module_names() -> None:
 
 
 def test_feed_rss_shape() -> None:
-    result = parse_feed(RSS)
+    result = parse_feed(_RSS_XML)
     assert result.type == "rss"
     assert (result.title, result.link, result.description) == ("RSS Title", "http://example.com/", "RSS description")
     assert (result.updated, result.entries) == (
@@ -342,7 +342,7 @@ def test_feed_atom_prefixed_author_name_namespace_shadowing() -> None:
 
 
 def test_feed_rdf_shape() -> None:
-    result = parse_feed(RDF)
+    result = parse_feed(_RDF)
     assert result.type == "rdf"
     assert (result.title, result.link, result.description) == ("RDF Title", "http://example.com/", "RDF description")
     assert (result.updated, result.entries) == (
@@ -530,7 +530,7 @@ def test_feed_non_feed_returns_none(xml: str, expected: None) -> None:
 
 
 def test_feed_document_method_matches_facade() -> None:
-    assert parse(RSS).feed() == feed(RSS)
+    assert parse(_RSS_XML).feed() == feed(_RSS_XML)
 
 
 def test_feed_rss_without_channel_is_empty() -> None:

@@ -206,19 +206,19 @@ def dependency_reason(case: ET.Element) -> str | None:
     return None
 
 
-CONTEXTS: Final[dict[str | None, turbohtml.Document]] = {}
+_CONTEXTS: Final[dict[str | None, turbohtml.Document]] = {}
 
 
 def context_for(env: str | None) -> turbohtml.Document:
-    if env not in CONTEXTS:
+    if env not in _CONTEXTS:
         if env in {None, "empty"}:
-            CONTEXTS[env] = turbohtml.parse_xml("<empty/>")
+            _CONTEXTS[env] = turbohtml.parse_xml("<empty/>")
         else:
             assert env is not None
             source = _ENVIRONMENTS[env].source
             assert source is not None  # single-source guard already applied by environment_reason
-            CONTEXTS[env] = turbohtml.parse_xml((_ROOT / source).read_text(encoding="utf-8"))
-    return CONTEXTS[env]
+            _CONTEXTS[env] = turbohtml.parse_xml((_ROOT / source).read_text(encoding="utf-8"))
+    return _CONTEXTS[env]
 
 
 def environment_reason(env: str | None) -> str | None:

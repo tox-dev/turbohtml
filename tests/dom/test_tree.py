@@ -802,7 +802,7 @@ def test_deeply_nested_serializers_are_iterative() -> None:
 
 # eight+ BMP (UCS-2) code points and four+ astral (UCS-4) code points, so a run
 # of them is long enough to reach the vector block loop and leave a scalar tail
-CJK: Final[str] = "東京都港区六本木ヒルズ森タワー"  # UCS-2
+_CJK: Final[str] = "東京都港区六本木ヒルズ森タワー"  # UCS-2
 
 
 _EMOJI: Final[str] = "😀🎉🚀🐍🌟🔥💡"  # UCS-4
@@ -816,22 +816,22 @@ def _body_text(html: str) -> str:
 @pytest.mark.parametrize(
     ("html", "needle"),
     [
-        pytest.param(f"<p>{CJK}</p>", f'"{CJK}"', id="ucs2-text-run"),
+        pytest.param(f"<p>{_CJK}</p>", f'"{_CJK}"', id="ucs2-text-run"),
         pytest.param(f"<p>{_EMOJI}</p>", f'"{_EMOJI}"', id="ucs4-text-run"),
-        pytest.param(f"<p>{CJK}&amp;{CJK}</p>", f'"{CJK}&{CJK}"', id="ucs2-text-with-ref"),
-        pytest.param(f"<!--{CJK}-->", f"<!-- {CJK} -->", id="ucs2-comment"),
+        pytest.param(f"<p>{_CJK}&amp;{_CJK}</p>", f'"{_CJK}&{_CJK}"', id="ucs2-text-with-ref"),
+        pytest.param(f"<!--{_CJK}-->", f"<!-- {_CJK} -->", id="ucs2-comment"),
         pytest.param(f"<!--{_EMOJI}-->", f"<!-- {_EMOJI} -->", id="ucs4-comment"),
-        pytest.param(f'<p title="{CJK}{_EMOJI}">x</p>', f'title="{CJK}{_EMOJI}"', id="double-quoted-attr"),
+        pytest.param(f'<p title="{_CJK}{_EMOJI}">x</p>', f'title="{_CJK}{_EMOJI}"', id="double-quoted-attr"),
         # single quotes serialize back as double quotes
-        pytest.param(f"<p title='{_EMOJI}{CJK}'>x</p>", f'title="{_EMOJI}{CJK}"', id="single-quoted-attr"),
+        pytest.param(f"<p title='{_EMOJI}{_CJK}'>x</p>", f'title="{_EMOJI}{_CJK}"', id="single-quoted-attr"),
         # an ASCII-led name carrying wide chars is a non-1-byte buffer, so it never interns to a
         # known atom and stays a plain element (a bare "<東" is not a tag - names must open ASCII)
-        pytest.param(f"<a{CJK}>x</a{CJK}>", f"<a{CJK}>", id="non-ascii-tag-name"),
+        pytest.param(f"<a{_CJK}>x</a{_CJK}>", f"<a{_CJK}>", id="non-ascii-tag-name"),
         # title is RCDATA, style is RAWTEXT; both take the wide run-scan
-        pytest.param(f"<title>{CJK}{_EMOJI}</title>", CJK, id="rcdata-wide-run"),
-        pytest.param(f"<style>{_EMOJI}{CJK}</style>", _EMOJI, id="rawtext-wide-run"),
+        pytest.param(f"<title>{_CJK}{_EMOJI}</title>", _CJK, id="rcdata-wide-run"),
+        pytest.param(f"<style>{_EMOJI}{_CJK}</style>", _EMOJI, id="rawtext-wide-run"),
         # plaintext consumes the rest of the input through the wide run-scan
-        pytest.param(f"<plaintext>{CJK}{_EMOJI}", f"{CJK}{_EMOJI}", id="plaintext-wide-run"),
+        pytest.param(f"<plaintext>{_CJK}{_EMOJI}", f"{_CJK}{_EMOJI}", id="plaintext-wide-run"),
     ],
 )
 def test_wide_character_data(html: str, needle: str) -> None:
@@ -843,11 +843,11 @@ def test_wide_character_data(html: str, needle: str) -> None:
     [
         # a non-1-byte attribute name takes the per-character copy path; the element and value
         # still parse and the trailing text lands in the body
-        pytest.param(f'<p {CJK}="1">x</p>', ['="1"', '"x"'], [], id="non-ascii-attr-name"),
+        pytest.param(f'<p {_CJK}="1">x</p>', ['="1"', '"x"'], [], id="non-ascii-attr-name"),
         # a CR in wide input forces the copy-and-normalize path; the CR becomes LF
-        pytest.param(f"<pre>{CJK}\r\n{_EMOJI}</pre>", [CJK], ["\r"], id="wide-carriage-return"),
+        pytest.param(f"<pre>{_CJK}\r\n{_EMOJI}</pre>", [_CJK], ["\r"], id="wide-carriage-return"),
         # a NUL in wide input sets the document NUL flag and is dropped from text
-        pytest.param(f"<p>{CJK}\x00{_EMOJI}</p>", [f"{CJK}{_EMOJI}"], ["\x00"], id="wide-nul"),
+        pytest.param(f"<p>{_CJK}\x00{_EMOJI}</p>", [f"{_CJK}{_EMOJI}"], ["\x00"], id="wide-nul"),
     ],
 )
 def test_wide_present_and_absent(html: str, present: list[str], absent: list[str]) -> None:

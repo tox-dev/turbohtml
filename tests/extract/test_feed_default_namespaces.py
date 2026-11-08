@@ -8,9 +8,9 @@ from turbohtml import parse, parse_xml
 from turbohtml.extract import feed
 
 _ATOM: Final[str] = "http://www.w3.org/2005/Atom"
-RDF: Final[str] = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
-RSS: Final[str] = "http://purl.org/rss/1.0/"
-DC: Final[str] = "http://purl.org/dc/elements/1.1/"
+_RDF: Final[str] = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+_RSS: Final[str] = "http://purl.org/rss/1.0/"
+_DC: Final[str] = "http://purl.org/dc/elements/1.1/"
 
 
 @pytest.mark.parametrize("uri", ["urn:other", "http://www.w3.org/2005/Xtom"])
@@ -140,7 +140,7 @@ def test_feed_html_fallback_keeps_unprefixed_fields() -> None:
 
 def test_feed_rdf_foreign_default_channel_is_skipped() -> None:
     xml: Final = (
-        f'<rdf:RDF xmlns:rdf="{RDF}" xmlns="{RSS}">'
+        f'<rdf:RDF xmlns:rdf="{_RDF}" xmlns="{_RSS}">'
         '<channel xmlns="urn:other"><title>Wrong</title></channel>'
         "<channel><title>Right</title></channel></rdf:RDF>"
     )
@@ -151,7 +151,7 @@ def test_feed_rdf_foreign_default_channel_is_skipped() -> None:
 
 def test_feed_rdf_foreign_default_item_is_skipped() -> None:
     xml: Final = (
-        f'<rdf:RDF xmlns:rdf="{RDF}" xmlns="{RSS}">'
+        f'<rdf:RDF xmlns:rdf="{_RDF}" xmlns="{_RSS}">'
         '<item xmlns="urn:other"><title>Wrong</title></item>'
         "<item><title>Right</title></item></rdf:RDF>"
     )
@@ -162,7 +162,7 @@ def test_feed_rdf_foreign_default_item_is_skipped() -> None:
 
 def test_feed_rdf_foreign_default_item_field_is_skipped() -> None:
     xml: Final = (
-        f'<rdf:RDF xmlns:rdf="{RDF}" xmlns="{RSS}"><item>'
+        f'<rdf:RDF xmlns:rdf="{_RDF}" xmlns="{_RSS}"><item>'
         '<title xmlns="urn:other">wrong</title><title>right</title>'
         "</item></rdf:RDF>"
     )
@@ -173,7 +173,7 @@ def test_feed_rdf_foreign_default_item_field_is_skipped() -> None:
 
 def test_feed_first_dublin_core_date_wins() -> None:
     xml: Final = (
-        f'<rss version="2.0" xmlns:dc="{DC}"><channel><item>'
+        f'<rss version="2.0" xmlns:dc="{_DC}"><channel><item>'
         "<dc:date>first</dc:date><dc:date>second</dc:date></item></channel></rss>"
     )
     result = parse_xml(xml).feed()

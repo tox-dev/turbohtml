@@ -6,34 +6,34 @@ import pytest
 
 from turbohtml import CData, Element, IncrementalParser, ProcessingInstruction, Text, parse, parse_fragment, parse_xml
 
-DOC: Final[str] = "<!DOCTYPE html><html><head></head><body>{}</body></html>"
+_DOC: Final[str] = "<!DOCTYPE html><html><head></head><body>{}</body></html>"
 
 
 @pytest.mark.parametrize(
     "markup",
     [
-        pytest.param(DOC.format('<p class="x">Hi &amp; bye</p>'), id="attr-and-entity"),
-        pytest.param(DOC.format("<A HREF='u'>t</A>"), id="uppercase-single-quote"),
-        pytest.param(DOC.format('<p  class = "x"  id=y >z</p>'), id="whitespace-in-tag"),
-        pytest.param(DOC.format("<input disabled required>"), id="valueless-attrs"),
-        pytest.param(DOC.format("<a href=plain>t</a>"), id="unquoted-attr"),
-        pytest.param(DOC.format("<img src=x><br><hr>"), id="void-elements"),
-        pytest.param(DOC.format("<ul><li>a<li>b</li></ul>"), id="implicitly-closed"),
-        pytest.param(DOC.format("<!--a comment--><p>x</p>"), id="comment"),
-        pytest.param(DOC.format('<svg width="1"><rect/></svg>'), id="foreign-svg"),
-        pytest.param(DOC.format("<template><p>t</p></template>"), id="template-content"),
-        pytest.param(DOC.format("<script>a<b && c</script>"), id="raw-text-element"),
+        pytest.param(_DOC.format('<p class="x">Hi &amp; bye</p>'), id="attr-and-entity"),
+        pytest.param(_DOC.format("<A HREF='u'>t</A>"), id="uppercase-single-quote"),
+        pytest.param(_DOC.format('<p  class = "x"  id=y >z</p>'), id="whitespace-in-tag"),
+        pytest.param(_DOC.format("<input disabled required>"), id="valueless-attrs"),
+        pytest.param(_DOC.format("<a href=plain>t</a>"), id="unquoted-attr"),
+        pytest.param(_DOC.format("<img src=x><br><hr>"), id="void-elements"),
+        pytest.param(_DOC.format("<ul><li>a<li>b</li></ul>"), id="implicitly-closed"),
+        pytest.param(_DOC.format("<!--a comment--><p>x</p>"), id="comment"),
+        pytest.param(_DOC.format('<svg width="1"><rect/></svg>'), id="foreign-svg"),
+        pytest.param(_DOC.format("<template><p>t</p></template>"), id="template-content"),
+        pytest.param(_DOC.format("<script>a<b && c</script>"), id="raw-text-element"),
         pytest.param(
             "<!DOCTYPE html><html><head><style>\na { color: red }\nb { color: blue }\n</style></head>"
             "<body></body></html>",
             id="raw-text-span",
         ),
-        pytest.param(DOC.format("<pre>x\ny</pre>"), id="preformatted"),
-        pytest.param(DOC.format("<pre>\n\nkept</pre>"), id="preformatted-leading-newline"),
-        pytest.param(DOC.format("<table><tbody><tr><td>c</td></tr></tbody></table>"), id="explicit-table"),
-        pytest.param(DOC.format("<div>plain unicode: \xa9 keep</div>"), id="latin1-text"),
-        pytest.param(DOC.format("<div>bmp: €あ</div>"), id="bmp-text"),
-        pytest.param(DOC.format("<div>astral: \U0001f600</div>"), id="astral-text"),
+        pytest.param(_DOC.format("<pre>x\ny</pre>"), id="preformatted"),
+        pytest.param(_DOC.format("<pre>\n\nkept</pre>"), id="preformatted-leading-newline"),
+        pytest.param(_DOC.format("<table><tbody><tr><td>c</td></tr></tbody></table>"), id="explicit-table"),
+        pytest.param(_DOC.format("<div>plain unicode: \xa9 keep</div>"), id="latin1-text"),
+        pytest.param(_DOC.format("<div>bmp: €あ</div>"), id="bmp-text"),
+        pytest.param(_DOC.format("<div>astral: \U0001f600</div>"), id="astral-text"),
         pytest.param("<!DOCTYPE html><html><head></head><body></body></html>", id="empty-body"),
     ],
 )
@@ -42,86 +42,86 @@ def test_unedited_round_trip_is_byte_identical(markup: str) -> None:
 
 
 def test_carriage_returns_use_retained_normalized_source() -> None:
-    markup = DOC.format("<p>\r</p>" * 4096)
+    markup = _DOC.format("<p>\r</p>" * 4096)
     assert parse(markup, source_locations=True).to_source() == markup.replace("\r", "\n")
 
 
 def test_changing_an_attribute_rewrites_only_that_start_tag() -> None:
-    doc = parse(DOC.format('<p id="a">one</p><p id="b">two</p>'), source_locations=True)
+    doc = parse(_DOC.format('<p id="a">one</p><p id="b">two</p>'), source_locations=True)
     node = doc.select_one("#a")
     assert node is not None
     node.attrs["id"] = "CHANGED"
-    assert doc.to_source() == DOC.format('<p id="CHANGED">one</p><p id="b">two</p>')
+    assert doc.to_source() == _DOC.format('<p id="CHANGED">one</p><p id="b">two</p>')
 
 
 def test_adding_an_attribute_rebuilds_the_start_tag() -> None:
-    doc = parse(DOC.format('<p id="a">x</p>'), source_locations=True)
+    doc = parse(_DOC.format('<p id="a">x</p>'), source_locations=True)
     node = doc.select_one("#a")
     assert node is not None
     node.attrs["data-n"] = "1"
-    assert doc.to_source() == DOC.format('<p id="a" data-n="1">x</p>')
+    assert doc.to_source() == _DOC.format('<p id="a" data-n="1">x</p>')
 
 
 def test_deleting_an_attribute_rebuilds_the_start_tag() -> None:
-    doc = parse(DOC.format('<p id="a" data-n="1">x</p>'), source_locations=True)
+    doc = parse(_DOC.format('<p id="a" data-n="1">x</p>'), source_locations=True)
     node = doc.select_one("#a")
     assert node is not None
     del node.attrs["data-n"]
-    assert doc.to_source() == DOC.format('<p id="a">x</p>')
+    assert doc.to_source() == _DOC.format('<p id="a">x</p>')
 
 
 def test_editing_text_re_escapes_only_that_run() -> None:
-    doc = parse(DOC.format("<p>keep</p><p>edit</p>"), source_locations=True)
+    doc = parse(_DOC.format("<p>keep</p><p>edit</p>"), source_locations=True)
     doc.select("p")[1].text = "a < b & c"
-    assert doc.to_source() == DOC.format("<p>keep</p><p>a &lt; b &amp; c</p>")
+    assert doc.to_source() == _DOC.format("<p>keep</p><p>a &lt; b &amp; c</p>")
 
 
 def test_clearing_text_emits_nothing_for_that_run() -> None:
-    doc = parse(DOC.format("<p>gone</p>"), source_locations=True)
+    doc = parse(_DOC.format("<p>gone</p>"), source_locations=True)
     node = doc.select_one("p")
     assert node is not None
     node.text = ""
-    assert doc.to_source() == DOC.format("<p></p>")
+    assert doc.to_source() == _DOC.format("<p></p>")
 
 
 def test_removing_a_node_drops_its_span_and_preserves_siblings() -> None:
-    doc = parse(DOC.format('<p id="a">one</p><p id="b">two</p>'), source_locations=True)
+    doc = parse(_DOC.format('<p id="a">one</p><p id="b">two</p>'), source_locations=True)
     node = doc.select_one("#a")
     assert node is not None
     node.extract()
-    assert doc.to_source() == DOC.format('<p id="b">two</p>')
+    assert doc.to_source() == _DOC.format('<p id="b">two</p>')
 
 
 def test_inserting_an_element_serializes_it_canonically() -> None:
-    doc = parse(DOC.format("<p>x</p>"), source_locations=True)
+    doc = parse(_DOC.format("<p>x</p>"), source_locations=True)
     body = doc.select_one("body")
     assert body is not None
     body.append(Element("section", children=[Text("new")]))
-    assert doc.to_source() == DOC.format("<p>x</p><section>new</section>")
+    assert doc.to_source() == _DOC.format("<p>x</p><section>new</section>")
 
 
 def test_inserting_a_void_element_serializes_it_canonically() -> None:
-    doc = parse(DOC.format("<p>x</p>"), source_locations=True)
+    doc = parse(_DOC.format("<p>x</p>"), source_locations=True)
     body = doc.select_one("body")
     assert body is not None
     body.append(Element("br"))
-    assert doc.to_source() == DOC.format("<p>x</p><br>")
+    assert doc.to_source() == _DOC.format("<p>x</p><br>")
 
 
 def test_inserting_a_raw_text_element_keeps_its_content_literal() -> None:
-    doc = parse(DOC.format("<p>x</p>"), source_locations=True)
+    doc = parse(_DOC.format("<p>x</p>"), source_locations=True)
     body = doc.select_one("body")
     assert body is not None
     body.append(Element("style", children=[Text("a < b")]))
-    assert doc.to_source() == DOC.format("<p>x</p><style>a < b</style>")
+    assert doc.to_source() == _DOC.format("<p>x</p><style>a < b</style>")
 
 
 def test_editing_raw_text_content_is_reflected() -> None:
-    doc = parse(DOC.format("<style>old</style>"), source_locations=True)
+    doc = parse(_DOC.format("<style>old</style>"), source_locations=True)
     node = doc.select_one("style")
     assert node is not None
     node.text = "new & fresh"
-    assert doc.to_source() == DOC.format("<style>new & fresh</style>")
+    assert doc.to_source() == _DOC.format("<style>new & fresh</style>")
 
 
 def test_attribute_edit_on_a_synthetic_element_reserializes_it() -> None:
@@ -133,18 +133,18 @@ def test_attribute_edit_on_a_synthetic_element_reserializes_it() -> None:
 
 
 def test_to_source_on_a_subtree_root() -> None:
-    node = parse(DOC.format('<p id="a">deep &amp; verbatim</p>'), source_locations=True).select_one("#a")
+    node = parse(_DOC.format('<p id="a">deep &amp; verbatim</p>'), source_locations=True).select_one("#a")
     assert node is not None
     assert node.to_source() == '<p id="a">deep &amp; verbatim</p>'
 
 
 def test_without_source_locations_matches_serialize() -> None:
-    doc = parse(DOC.format('<p class="x">y</p>'))
+    doc = parse(_DOC.format('<p class="x">y</p>'))
     assert doc.to_source() == doc.serialize()
 
 
 def test_attribute_edit_without_locations_is_reflected() -> None:
-    doc = parse(DOC.format('<p id="a">y</p>'))
+    doc = parse(_DOC.format('<p id="a">y</p>'))
     node = doc.select_one("#a")
     assert node is not None
     node.attrs["id"] = "z"
@@ -161,7 +161,7 @@ def test_xml_processing_instruction_and_cdata_serialize() -> None:
 
 
 def test_inserted_processing_instruction_and_cdata_stay_inert() -> None:
-    doc = parse(DOC.format("<p>x</p>"), source_locations=True)
+    doc = parse(_DOC.format("<p>x</p>"), source_locations=True)
     paragraph = doc.select_one("p")
     assert paragraph is not None
     paragraph.append(ProcessingInstruction("a", "b><i>y</i>"))
@@ -193,8 +193,8 @@ def test_fragment_round_trips_are_byte_identical(markup: str) -> None:
 @pytest.mark.parametrize(
     "markup",
     [
-        pytest.param(DOC.format("<p>&copy; 2020 &mdash; done</p>"), id="named-entities"),
-        pytest.param(DOC.format("<pre>\nleading newline</pre>"), id="dropped-newline"),
+        pytest.param(_DOC.format("<p>&copy; 2020 &mdash; done</p>"), id="named-entities"),
+        pytest.param(_DOC.format("<pre>\nleading newline</pre>"), id="dropped-newline"),
         pytest.param("<!doctype html><html><head></head><body><p>x</p></body></html>", id="lowercase-doctype"),
     ],
 )
@@ -209,11 +209,11 @@ def test_normalizing_inputs_are_idempotent_and_reparse_equal(markup: str) -> Non
 @pytest.mark.parametrize(
     "chunks",
     [
-        pytest.param([DOC.format("<p id=a>x</p><b>y</b>")], id="one-chunk"),
+        pytest.param([_DOC.format("<p id=a>x</p><b>y</b>")], id="one-chunk"),
         pytest.param(
             ["<!DOCTYPE html><html><head></head><body><p id=", "a>x</p><b>y</b></body></html>"], id="two-chunks"
         ),
-        pytest.param(list(DOC.format("<p id=a>x\r\n</p><b>y</b>")), id="per-character"),
+        pytest.param(list(_DOC.format("<p id=a>x\r\n</p><b>y</b>")), id="per-character"),
     ],
 )
 def test_incremental_parser_round_trip_is_byte_identical(chunks: list[str]) -> None:

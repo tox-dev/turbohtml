@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from _pytest.mark.structures import ParameterSet
 
 
-HTML: Final[str] = (
+_HTML: Final[str] = (
     "<!doctype html><html><head><title>T</title></head><body>"
     '<div id="d1" class="box"><p>a</p><p class="hi">b</p></div>'
     '<div id="d2"><span>s1</span><span>s2</span></div>'
@@ -48,10 +48,10 @@ def tags(result: XPathResult) -> list[str]:
 
 @pytest.fixture
 def doc() -> turbohtml.Node:
-    return turbohtml.parse(HTML)
+    return turbohtml.parse(_HTML)
 
 
-SVG: Final[str] = "http://www.w3.org/2000/svg"
+_SVG: Final[str] = "http://www.w3.org/2000/svg"
 _MATHML: Final[str] = "http://www.w3.org/1998/Math/MathML"
 
 
@@ -591,17 +591,17 @@ def test_predicate_survives_union_root(union_doc: turbohtml.Node) -> None:
 @pytest.mark.parametrize(
     ("expr", "mapping", "expected"),
     [
-        pytest.param("//svg:circle", {"svg": SVG}, ["circle"], id="svg-text-matched-local"),
-        pytest.param("//svg:rect", {"svg": SVG}, ["rect"], id="svg-second-child"),
-        pytest.param("//s:circle", {"s": SVG}, ["circle"], id="prefix-name-is-arbitrary"),
+        pytest.param("//svg:circle", {"svg": _SVG}, ["circle"], id="svg-text-matched-local"),
+        pytest.param("//svg:rect", {"svg": _SVG}, ["rect"], id="svg-second-child"),
+        pytest.param("//s:circle", {"s": _SVG}, ["circle"], id="prefix-name-is-arbitrary"),
         pytest.param("//m:math", {"m": _MATHML}, ["math"], id="mathml-atom-matched-local"),
         pytest.param("//m:mi", {"m": _MATHML}, ["mi"], id="mathml-leaf"),
-        pytest.param("//svg:circle | //m:mi", {"svg": SVG, "m": _MATHML}, ["circle", "mi"], id="two-prefixes"),
-        pytest.param("/html/body/svg:svg", {"svg": SVG}, ["svg"], id="prefixed-step-in-path"),
+        pytest.param("//svg:circle | //m:mi", {"svg": _SVG, "m": _MATHML}, ["circle", "mi"], id="two-prefixes"),
+        pytest.param("/html/body/svg:svg", {"svg": _SVG}, ["svg"], id="prefixed-step-in-path"),
         # a prefix bound to the empty URI selects the null (HTML) namespace
         pytest.param("//h:p", {"h": ""}, ["p"], id="null-namespace-prefix-matches-html"),
         # a same-length-but-different bound prefix is skipped; a later exact entry still resolves
-        pytest.param("//svg:circle", {"abc": _MATHML, "svg": SVG}, ["circle"], id="same-length-prefix-distinguished"),
+        pytest.param("//svg:circle", {"abc": _MATHML, "svg": _SVG}, ["circle"], id="same-length-prefix-distinguished"),
     ],
 )
 def test_prefixed_match(ns_doc: turbohtml.Node, expr: str, mapping: dict[str, str], expected: list[str]) -> None:
@@ -612,9 +612,9 @@ def test_prefixed_match(ns_doc: turbohtml.Node, expr: str, mapping: dict[str, st
     ("expr", "mapping"),
     [
         pytest.param("//svg:circle", {"svg": _MATHML}, id="wrong-uri-for-prefix"),
-        pytest.param("//svg:p", {"svg": SVG}, id="html-local-name-not-in-svg-ns"),
+        pytest.param("//svg:p", {"svg": _SVG}, id="html-local-name-not-in-svg-ns"),
         pytest.param("//html:circle", {"html": ""}, id="svg-element-not-in-null-ns"),
-        pytest.param("//svg:nope", {"svg": SVG}, id="no-such-local-name"),
+        pytest.param("//svg:nope", {"svg": _SVG}, id="no-such-local-name"),
         pytest.param("//c:circle", {"c": "urn:custom"}, id="custom-uri-matches-no-element"),
         # a URI the same length as the SVG one but differing in content is not the SVG namespace
         pytest.param("//c:circle", {"c": "http://www.w3.org/2000/SVG"}, id="same-length-near-miss-uri"),
@@ -629,8 +629,8 @@ def test_prefixed_no_match(ns_doc: turbohtml.Node, expr: str, mapping: dict[str,
     "mapping",
     [
         pytest.param({}, id="empty-mapping"),
-        pytest.param({"other": SVG}, id="mapping-lacks-prefix"),
-        pytest.param({"abc": SVG}, id="same-length-prefix-only"),
+        pytest.param({"other": _SVG}, id="mapping-lacks-prefix"),
+        pytest.param({"abc": _SVG}, id="same-length-prefix-only"),
     ],
 )
 def test_undefined_prefix_raises(ns_doc: turbohtml.Node, mapping: dict[str, str]) -> None:
@@ -646,9 +646,9 @@ def test_undefined_prefix_raises_without_mapping(ns_doc: turbohtml.Node) -> None
 @pytest.mark.parametrize(
     ("namespaces", "message"),
     [
-        pytest.param([("svg", SVG)], "namespaces must be a dict", id="not-a-dict"),
+        pytest.param([("svg", _SVG)], "namespaces must be a dict", id="not-a-dict"),
         pytest.param({"svg": 1}, "map str prefixes to str URIs", id="non-str-value"),
-        pytest.param({1: SVG}, "map str prefixes to str URIs", id="non-str-key"),
+        pytest.param({1: _SVG}, "map str prefixes to str URIs", id="non-str-key"),
     ],
 )
 def test_namespaces_type_errors(
@@ -662,7 +662,7 @@ def test_namespaces_type_errors(
 def test_unprefixed_name_test_is_namespace_agnostic(ns_doc: turbohtml.Node) -> None:
     # Without a prefix the test matches by local name in any namespace, as before.
     assert tags(ns_doc.xpath("//circle")) == ["circle"]
-    assert tags(ns_doc.xpath("//circle", namespaces={"svg": SVG})) == ["circle"]
+    assert tags(ns_doc.xpath("//circle", namespaces={"svg": _SVG})) == ["circle"]
 
 
 @pytest.mark.parametrize(
@@ -685,8 +685,8 @@ def test_foreign_element_name_test_is_case_sensitive(expr: str, expected: list[s
 def test_prefixed_attribute_never_matches(ns_doc: turbohtml.Node) -> None:
     # HTML attributes carry no namespace, so a prefixed attribute test selects nothing,
     # while the unprefixed name still reads the attribute value.
-    assert ns_doc.xpath("//svg:svg/@svg:width", namespaces={"svg": SVG}) == []
-    assert ns_doc.xpath("//svg:svg/@width", namespaces={"svg": SVG}) == ["10"]
+    assert ns_doc.xpath("//svg:svg/@svg:width", namespaces={"svg": _SVG}) == []
+    assert ns_doc.xpath("//svg:svg/@width", namespaces={"svg": _SVG}) == ["10"]
 
 
 _XML_NS: Final[str] = "http://www.w3.org/XML/1998/namespace"
@@ -715,7 +715,7 @@ def test_xml_namespace_attribute_test_on_html_tree_matches_foreign_elements_only
 
 
 def test_xpath_one_accepts_namespaces(ns_doc: turbohtml.Node) -> None:
-    node = ns_doc.xpath_one("//svg:circle", namespaces={"svg": SVG})
+    node = ns_doc.xpath_one("//svg:circle", namespaces={"svg": _SVG})
     assert isinstance(node, Element)
     assert node.tag == "circle"
 
@@ -729,13 +729,13 @@ def test_namespaces_none_is_no_mapping(ns_doc: turbohtml.Node) -> None:
 
 
 def test_namespaces_combines_with_variables(ns_doc: turbohtml.Node) -> None:
-    result = ns_doc.xpath("//svg:circle[@r=$radius]", namespaces={"svg": SVG}, radius="5")
+    result = ns_doc.xpath("//svg:circle[@r=$radius]", namespaces={"svg": _SVG}, radius="5")
     assert tags(result) == ["circle"]
 
 
 def test_same_expression_rebinds_per_call(ns_doc: turbohtml.Node) -> None:
     # The compiled program is cached by string; the prefix resolves per call.
-    assert tags(ns_doc.xpath("//p:circle", namespaces={"p": SVG})) == ["circle"]
+    assert tags(ns_doc.xpath("//p:circle", namespaces={"p": _SVG})) == ["circle"]
     assert ns_doc.xpath("//p:circle", namespaces={"p": _MATHML}) == []
 
 
