@@ -901,12 +901,12 @@ _FILTER_STYLED_PAGES: Final[tuple[tuple[str, str], ...]] = tuple(
 _SPECIFICITY_STYLED_PAGES: Final[tuple[tuple[str, str], ...]] = tuple(
     (
         f"256 rules / 128 elements / {label}",
-        "<style>" + (f"{selector}{{color:red}}") * 256 + "</style>" + '<div class="hit"></div>' * 128,
+        f"""<style>{(f"{selector}{{color:red}}") * 256}</style>{'<div class="hit"></div>' * 128}""",
     )
     for label, selector in (
         (
             "nested alternatives",
-            ":is(.hit," + ",".join(f"#absent{index}" for index in range(32)) + "):where(.hit),#missing",
+            f":is(.hit,{','.join(f'#absent{index}' for index in range(32))}):where(.hit),#missing",
         ),
         ("ordinary alternatives", ".hit,#missing"),
     )
@@ -1046,7 +1046,7 @@ def _annotation_rule_cases() -> tuple[tuple[str, Case], ...]:
         (
             "interleaved wildcard rules, alternating tags",
             (
-                "<p>" + '<span data-x="yes">x</span><b data-x="yes">y</b>' * 500 + "</p>",
+                f"""<p>{'<span data-x="yes">x</span><b data-x="yes">y</b>' * 500}</p>""",
                 (("span", ("span",)), ("#data-x", ("wild",)), ("b", ("bold",)), *unrelated[:5]),
             ),
         ),
@@ -1250,7 +1250,7 @@ def _transform_sort_cases() -> tuple[tuple[str, Case], ...]:
             f"{label} ({rows:,} rows)",
             (
                 xslt_sort_sheet.replace('select="@key" data-type="number"', f'select="{select}" data-type="{kind}"'),
-                "<r>" + "".join(f'<n key="{index * 73 % rows}"/>' for index in range(rows)) + "</r>",
+                f"""<r>{"".join(f'<n key="{index * 73 % rows}"/>' for index in range(rows))}</r>""",
             ),
         )
         for label, select, kind, sizes in (
@@ -1340,7 +1340,7 @@ def _transform_number_cases() -> tuple[tuple[str, Case], ...]:
                     + ('<xsl:sort select="@id" data-type="number" order="descending"/>' if order == "reverse" else "")
                     + "<xsl:number/><xsl:text>:</xsl:text>" * instructions
                     + "<xsl:text>|</xsl:text></xsl:for-each></xsl:template></xsl:stylesheet>",
-                    "<root>" + "".join(f'<n id="{index}"/>' for index in range(1, rows + 1)) + "</root>",
+                    f"""<root>{"".join(f'<n id="{index}"/>' for index in range(1, rows + 1))}</root>""",
                 ),
             )
             for rows, instructions, order in (
@@ -1743,7 +1743,7 @@ def _validate_attribute_cases() -> tuple[tuple[str, tuple[str, str]], ...]:
                 '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="root"><xs:complexType>'
                 + "".join(f'<xs:attribute name="item{index}" type="xs:string"/>' for index in range(size))
                 + "</xs:complexType></xs:element></xs:schema>",
-                "<root " + " ".join(f'item{index}="value"' for index in reversed(range(size))) + "/>",
+                f"""<root {" ".join(f'item{index}="value"' for index in reversed(range(size)))}/>""",
             ),
         )
         for size in (512, 4)
@@ -1902,11 +1902,11 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "parse-dense": lambda: (("2.6 MB / 200k nodes", "<div><span>x</span></div>" * 100_000),),
     "parse-xml": lambda: (("catalog XML", _XML_DOC),),
     "parse-xml-attrs": lambda: tuple(
-        (f"{count} attributes", "<root " + " ".join(f'a{index}="value"' for index in range(count)) + "/>")
+        (f"{count} attributes", f"""<root {" ".join(f'a{index}="value"' for index in range(count))}/>""")
         for count in (1, 10, 100, 1_000)
     ),
     "parse-xml-append": lambda: tuple(
-        (f"{label} / value=a", "<root " + " ".join(f'a{index}="a"' for index in range(count)) + "/>")
+        (f"{label} / value=a", f"""<root {" ".join(f'a{index}="a"' for index in range(count))}/>""")
         for count, label in ((1_000, "1,000 attributes"), (1, "1 attribute"))
     ),
     "parse-xml-values": lambda: (
@@ -1933,7 +1933,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "parse-xml-names": lambda: (
         (
             "1k growing attributes",
-            "<r>" + "".join(f'<e {"a" * length}="x"/>' for length in range(1, 1_001)) + "</r>",
+            f"""<r>{"".join(f'<e {"a" * length}="x"/>' for length in range(1, 1_001))}</r>""",
         ),
     ),
     "validate": lambda: (
@@ -1957,7 +1957,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                     '<xs:element name="value" maxOccurs="unbounded"><xs:complexType>'
                     '<xs:attribute name="data" type="item"/></xs:complexType></xs:element>',
                 ),
-                "<root>" + '<value data="abc123"/>' * 1000 + "</root>",
+                f"""<root>{'<value data="abc123"/>' * 1000}</root>""",
             ),
         ),
         (
@@ -2234,19 +2234,19 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         *tuple(
             (
                 f"{count:,} nodes, {length} characters",
-                ("str:concat(//i)", f"<main>{('<i>' + 'a' * length + '</i>') * count}</main>"),
+                ("str:concat(//i)", f"<main>{'<i>{}</i>'.format('a' * length) * count}</main>"),
             )
             for count, length in ((10000, 32), (10, 32768), (10, 32))
         ),
         (
             "10 nested nodes, 32768 characters",
-            ("str:concat(//i)", f"<main>{('<i><b>' + 'a' * 32768 + '</b></i>') * 10}</main>"),
+            ("str:concat(//i)", f"<main>{'<i><b>{}</b></i>'.format('a' * 32768) * 10}</main>"),
         ),
         (
             "mixed nodes and attributes",
             (
                 "str:concat(//i | //i/@* | //comment())",
-                "<main>" + '<i a="attribute">text<b>nested</b><!--comment--></i>' * 100 + "</main>",
+                f"""<main>{'<i a="attribute">text<b>nested</b><!--comment--></i>' * 100}</main>""",
             ),
         ),
     )),
@@ -2332,7 +2332,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "article-wide": lambda: tuple(
         (
             f"{size:,} candidates",
-            f"<div>{('<section><p>' + 'A sentence with enough text to score. ' * 3 + '</p></section>') * size}</div>",
+            f"<div>{'<section><p>{}</p></section>'.format('A sentence with enough text to score. ' * 3) * size}</div>",
         )
         for size in (100, 1_000, 10_000)
     ),
@@ -2417,7 +2417,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "canonicalize-attrs": lambda: tuple(
         (
             f"{size:,} attributes",
-            "<div " + " ".join(f'data-{index:05d}="x"' for index in range(size, 0, -1)) + "></div>",
+            f"""<div {" ".join(f'data-{index:05d}="x"' for index in range(size, 0, -1))}></div>""",
         )
         for size in (100, 1_000, 10_000)
     ),
@@ -2425,7 +2425,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ("deep tree (150 deep)", _deep_tree(150, 3)),
         (
             "sparse xlink (150 deep)",
-            "<svg>" + ('<g><use xlink:href="#x"/>' * 150) + "</g>" * 150 + "</svg>",
+            f"""<svg>{'<g><use xlink:href="#x"/>' * 150}{"</g>" * 150}</svg>""",
         ),
         ("shallow ordinary", "<main><p>plain text</p><div id=a>more text</div></main>"),
     ),
@@ -2497,7 +2497,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "sanitize-disallowed": lambda: tuple(
         (
             f"{mode} tag with {count} attribute{'s' if count != 1 else ''}",
-            (mode, "<x" + "".join(f' a{index}="value"' for index in range(count)) + ">text</x>"),
+            (mode, f"""<x{"".join(f' a{index}="value"' for index in range(count))}>text</x>"""),
         )
         for mode in ("escape", "strip")
         for count in (1, 64, 1024)
@@ -2512,8 +2512,8 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "sanitize-report": lambda: (("post 4 KiB", _SANITIZE_POST * 20),),
     "sanitize-node": lambda: (("post 4 KiB", _SANITIZE_POST * 20),),
     "sanitize-attributes": lambda: (
-        ("1024 rejected attributes", "<p " + " ".join(f'a{index}="x"' for index in range(1_024)) + ">x</p>"),
-        ("1024 allowed attributes", "<p " + " ".join(f'data-{index}="x"' for index in range(1_024)) + ">x</p>"),
+        ("1024 rejected attributes", f"""<p {" ".join(f'a{index}="x"' for index in range(1_024))}>x</p>"""),
+        ("1024 allowed attributes", f"""<p {" ".join(f'data-{index}="x"' for index in range(1_024))}>x</p>"""),
         ("four allowed attributes", '<p data-a="x" data-b="x" data-c="x" data-d="x">x</p>'),
         ("256 elements with four allowed attributes", '<p data-a="x" data-b="x" data-c="x" data-d="x">x</p>' * 256),
     ),
@@ -2678,8 +2678,8 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "sax-records-callback": _sax_record_cases,
     "treebuild": lambda: (
         *_readpath_cases(),
-        ("32 ASCII text nodes, 32 KiB each", f"<main>{('<p>' + 'a' * 32768 + '</p>') * 32}</main>"),
-        ("32 comments, 2 KiB each", f"<body>{('<!--' + 'a' * 2048 + '-->') * 32}</body>"),
+        ("32 ASCII text nodes, 32 KiB each", f"<main>{'<p>{}</p>'.format('a' * 32768) * 32}</main>"),
+        ("32 comments, 2 KiB each", f"<body>{'<!--{}-->'.format('a' * 2048) * 32}</body>"),
         *(
             (f"{label} text, 65,536 characters", f"<p>{character * 65536}</p>")
             for label, character in (("Latin-1", "é"), ("BMP", "水"), ("astral", "😀"))
@@ -2698,7 +2698,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ),
         (
             "text and comment callbacks",
-            "<!DOCTYPE html><main>" + '<p class="x">text<!--comment--></p>' * 1_000 + "</main>",
+            f"""<!DOCTYPE html><main>{'<p class="x">text<!--comment--></p>' * 1_000}</main>""",
         ),
     ),
     "rewrite": _readpath_cases,
@@ -2746,7 +2746,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
                 + '<xsl:apply-templates select="root/p"/>' * passes
                 + '</xsl:template><xsl:template match="p" priority="-1">'
                 '<xsl:value-of select="@id"/><xsl:text>|</xsl:text></xsl:template></xsl:stylesheet>',
-                "<root>" + "".join(f'<p id="{index}"/>' for index in range(1, 1_025)) + "</root>",
+                f"""<root>{"".join(f'<p id="{index}"/>' for index in range(1, 1_025))}</root>""",
             ),
         )
         for passes in (8, 1)

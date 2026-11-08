@@ -1400,7 +1400,7 @@ def emit_header(  # ruff:ignore[complex-structure, too-many-branches, too-many-s
     out(f"#define TH_PHONE_EXT_CLASS_COUNT {len(tables.extension.classes)}")
     out(f"#define TH_PHONE_LABEL_COUNT {len(DEFAULT_LABELS)}")
     out("static const char *const th_phone_default_labels[] = {")
-    out("    " + ", ".join(f'"{label}"' for label in DEFAULT_LABELS) + ",")
+    out(f"""    {", ".join(f'"{label}"' for label in DEFAULT_LABELS)},""")
     out("};")
     out("")
     out("#endif /* TURBOHTML_PHONE_TABLE_H */")

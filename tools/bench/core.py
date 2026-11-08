@@ -217,7 +217,7 @@ def _slotted(case: tuple[int, str]) -> turbohtml.Element:
     host: Final[turbohtml.Element] = turbohtml.Element("div")
     host.set_inner_html(case[1])
     root: Final[turbohtml.ShadowRoot] = host.attach_shadow("open")
-    root.set_inner_html('<slot name="unused"></slot>' * case[0] + '<slot name="target"></slot>')
+    root.set_inner_html(f"""{'<slot name="unused"></slot>' * case[0]}<slot name="target"></slot>""")
     return root.select('slot[name="target"]')[0]
 
 
