@@ -3467,7 +3467,7 @@ if TYPE_CHECKING:
         ),
         pytest.param(
             "p:Leaf:double:3:plain",
-            '<Root xmlns:p="urn:p">' + '<p:Leaf p:Key="Value" Key="Other">MiXeD</p:Leaf>' * 3 + "</Root>",
+            f"""<Root xmlns:p="urn:p">{'<p:Leaf p:Key="Value" Key="Other">MiXeD</p:Leaf>' * 3}</Root>""",
             [("Root", {"xmlns:p": "urn:p"}, "MiXeDMiXeDMiXeD")]
             + [("p:Leaf", {"p:Key": "Value", "Key": "Other"}, "MiXeD")] * 3,
             id="three-identical-children",
