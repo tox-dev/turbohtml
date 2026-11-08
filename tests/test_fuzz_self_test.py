@@ -11,7 +11,7 @@ import re
 import sys
 from pathlib import Path
 from subprocess import CompletedProcess, run  # ruff: ignore[suspicious-subprocess-import] - libFuzzer owns a separate interpreter.
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast
 
 import pytest
 from fuzz.atheris_header import HEADER_SIZE, SEED_HEADER, Header
@@ -51,6 +51,21 @@ from turbohtml.validate import RelaxNG, XMLSchema
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from _pytest.mark.structures import ParameterSet
+
+_Node: TypeAlias = "list[_Node | str | tuple[tuple[str, str | None], ...] | None]"
+
+
+_T = TypeVar("_T")
+_R = TypeVar("_R")
+
+
+class _Sweep(Protocol):
+    def __call__(
+        self, call: Callable[[_T], _R], setup: Callable[[], _T], valid: Callable[[_R], bool] = ...
+    ) -> list[str]: ...
+
+
 # numbers from three regions, an extension, an email and a URL, so a linkify walk splits the run into many nodes
 _TEXT: Final[str] = (
     "Call +1 650-253-0000 or (650) 253-0000 ext. 123, London +44 20 7946 0958, Berlin 030 123456, "
@@ -80,7 +95,7 @@ def _fragment() -> turbohtml.Node:
     ],
 )
 def test_phone_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[object], object], setup: Callable[[], object]
+    alloc_sweep: _Sweep, call: Callable[[_T], object], setup: Callable[[], _T]
 ) -> None:
     call(setup())  # fill the lazily built region tables first, so the sweep counts only the call's own allocations
     assert set(alloc_sweep(call, setup)) == {"MemoryError"}
@@ -122,60 +137,62 @@ _SELECT: Final[str] = "<select><option value=a a0=1 a1=1></option></select>"
     ],
 )
 def test_dom_construction_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], markup: str, call: Callable[[turbohtml.Node], object]
+    alloc_sweep: _Sweep, markup: str, call: Callable[[turbohtml.Node], object]
 ) -> None:
     assert set(alloc_sweep(call, lambda: turbohtml.parse_fragment(markup))) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_source_location_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_source_location_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
         alloc_sweep(
-            lambda element: cast("turbohtml.Element", element).source_location,
+            lambda element: element.source_location,
             lambda: cast("turbohtml.Element", parse("<p a=x b=y>text</p>", source_locations=True).find("p")),
         )
     ) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_treebuild_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_treebuild_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
-        alloc_sweep(lambda _: parse_into("<!doctype html><?target data><p a=x>text</p>", _AllocationTreeBuilder()))
+        alloc_sweep(
+            lambda _: parse_into("<!doctype html><?target data><p a=x>text</p>", _AllocationTreeBuilder()), lambda: None
+        )
     ) == {"MemoryError"}
 
 
 class _AllocationTreeBuilder:
     @staticmethod
-    def create_document() -> list[object]:
+    def create_document() -> _Node:
         return []
 
     @staticmethod
-    def create_doctype(name: str, public_id: str | None, system_id: str | None) -> list[object]:
+    def create_doctype(name: str, public_id: str | None, system_id: str | None) -> _Node:
         return [name, public_id, system_id]
 
     @staticmethod
-    def create_element(name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> list[object]:
+    def create_element(name: str, namespace: str, attrs: tuple[tuple[str, str | None], ...]) -> _Node:
         return [name, namespace, attrs]
 
     @staticmethod
-    def create_text(data: str) -> list[object]:
+    def create_text(data: str) -> _Node:
         return [data]
 
     @staticmethod
-    def create_comment(data: str) -> list[object]:
+    def create_comment(data: str) -> _Node:
         return [data]
 
     @staticmethod
-    def create_pi(target: str, data: str) -> list[object]:
+    def create_pi(target: str, data: str) -> _Node:
         return [target, data]
 
     @staticmethod
-    def append(parent: list[object], child: list[object]) -> None:
+    def append(parent: _Node, child: _Node) -> None:
         parent.append(child)
 
 
 @pytest.mark.fuzz_build
-def test_conformance_lazy_text_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_conformance_lazy_text_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(alloc_sweep(check, lambda: parse(f"<title>{'a' * 8192}</title>"))) == {"MemoryError"}
 
 
@@ -225,24 +242,24 @@ def _streamed(seed: str) -> list[ParseError]:
     ],
 )
 def test_parse_error_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[str], object], seed: str
+    alloc_sweep: _Sweep, call: Callable[[str], object], seed: str
 ) -> None:
-    assert set(alloc_sweep(lambda _: call(seed))) == {"MemoryError"}
+    assert set(alloc_sweep(lambda _: call(seed), lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
 def test_xml_parse_error_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]],
+    alloc_sweep: _Sweep,
 ) -> None:
-    def parse_malformed(_: object) -> None:
+    def parse_malformed(_: None) -> None:
         with contextlib.suppress(turbohtml.HTMLParseError):
             turbohtml.parse_xml("<a><b></a>")
 
-    assert set(alloc_sweep(parse_malformed)) == {"MemoryError"}
+    assert set(alloc_sweep(parse_malformed, lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_parse_error_read_retries_after_allocation_failure(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_parse_error_read_retries_after_allocation_failure(alloc_sweep: _Sweep) -> None:
     # the first read of Document.errors merges the preprocessing errors; a read that failed to allocate leaves them
     # unmerged, so the next read returns the complete list
     seed = _SEEDS["control-wide"]
@@ -300,9 +317,9 @@ _STYLESHEET: Final[str] = (
     ],
 )
 def test_tokenizer_consumer_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[object], object]
+    alloc_sweep: _Sweep, call: Callable[[None], object]
 ) -> None:
-    assert set(alloc_sweep(call)) == {"MemoryError"}
+    assert set(alloc_sweep(call, lambda: None)) == {"MemoryError"}
 
 
 if TYPE_CHECKING:
@@ -369,14 +386,12 @@ _MINIFY_JS: Final[Html] = Html(layout=Minify(minify_js=JSMinify()))
         pytest.param(lambda: minify_js(";;;;;a(); b(); c();"), id="fold-allocation"),
     ],
 )
-def test_js_minify_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[], object]
-) -> None:
-    assert set(alloc_sweep(lambda _: call())) == {"MemoryError"}
+def test_js_minify_allocation_failure_raises_memory_error(alloc_sweep: _Sweep, call: Callable[[], object]) -> None:
+    assert set(alloc_sweep(lambda _: call(), lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_html_js_minify_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_html_js_minify_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(alloc_sweep(lambda document: document.serialize(_MINIFY_JS), _page)) == {"MemoryError"}
 
 
@@ -405,23 +420,19 @@ if TYPE_CHECKING:
         ),
     ],
 )
-def test_markdown_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], markup: str, options: Markdown
-) -> None:
+def test_markdown_allocation_failure_raises_memory_error(alloc_sweep: _Sweep, markup: str, options: Markdown) -> None:
     assert set(alloc_sweep(lambda document: document.to_markdown(options), lambda: turbohtml.parse(markup))) == {
         "MemoryError"
     }
 
 
 @pytest.mark.fuzz_build
-def test_markdown_marker_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_markdown_marker_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     markup = (
         "<ul>e>sa}ff; b<b>backgr .pic><br><<d</b>.</p>\n.png) }\n co\x00\x00\x00\x00uote><rl( }\n"
         " co\x00\x00\x00\x00uote><><"
     )
-    assert set(
-        alloc_sweep(lambda document: cast("turbohtml.Document", document).to_markdown(), lambda: parse(markup))
-    ) == {"MemoryError"}
+    assert set(alloc_sweep(lambda document: document.to_markdown(), lambda: parse(markup))) == {"MemoryError"}
 
 
 if TYPE_CHECKING:
@@ -485,14 +496,12 @@ _MINIFY_CSS: Final[Html] = Html(layout=Minify(minify_css=CSSMinify()))
         pytest.param(lambda: minify_css(".a{width:max( + )}"), id="math-operator"),
     ],
 )
-def test_css_minify_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[], object]
-) -> None:
-    assert set(alloc_sweep(lambda _: call())) == {"MemoryError"}
+def test_css_minify_allocation_failure_raises_memory_error(alloc_sweep: _Sweep, call: Callable[[], object]) -> None:
+    assert set(alloc_sweep(lambda _: call(), lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_html_css_minify_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_html_css_minify_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(alloc_sweep(lambda document: document.serialize(_MINIFY_CSS), _alloc_css_minify_page)) == {"MemoryError"}
 
 
@@ -507,7 +516,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture
-def alloc_sweep() -> Callable[..., list[str]]:
+def alloc_sweep() -> _Sweep:
     # Fail each PyMem allocation of a call in turn and name what each failure produced.
     #
     # A count-only run (position 0) measures the call's allocations, then runs 1..N each fail one of them, the failure
@@ -520,9 +529,9 @@ def alloc_sweep() -> Callable[..., list[str]]:
     inject: Final[Callable[[int], tuple[int, bool]]] = _html._fuzz_inject_failure
 
     def sweep(
-        call: Callable[[object], object],
-        setup: Callable[[], object] = lambda: None,
-        valid: Callable[[object], bool] = lambda _: True,
+        call: Callable[[_T], _R],
+        setup: Callable[[], _T],
+        valid: Callable[[_R], bool] = lambda _: True,
     ) -> list[str]:
         argument = setup()
         inject(0)
@@ -548,14 +557,14 @@ def alloc_sweep() -> Callable[..., list[str]]:
 
 
 @pytest.mark.fuzz_build
-def test_xpath_compilation_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_xpath_compilation_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
         alloc_sweep(lambda document: document.xpath("./r/value"), lambda: parse_xml("<r><value>x</value></r>"))
     ) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_xslt_compilation_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_xslt_compilation_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     stylesheet = parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
         '<xsl:template match="/"><xsl:value-of select="/r/value"/></xsl:template>'
@@ -565,7 +574,7 @@ def test_xslt_compilation_allocation_failure_raises_memory_error(alloc_sweep: Ca
 
 
 @pytest.mark.fuzz_build
-def test_xslt_parameter_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_xslt_parameter_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     stylesheet = parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
         '<xsl:param name="value"/><xsl:template match="/"><xsl:value-of select="$value"/>'
@@ -578,7 +587,7 @@ def test_xslt_parameter_allocation_failure_raises_memory_error(alloc_sweep: Call
 
 
 @pytest.mark.fuzz_build
-def test_xslt_number_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_xslt_number_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     stylesheet = parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
         '<xsl:template match="/"><xsl:for-each select="/r/p"><xsl:number count="p"/></xsl:for-each></xsl:template>'
@@ -614,14 +623,14 @@ _RELAXNG_SCHEMA: Final[RelaxNG] = RelaxNG(_RELAXNG)
     ],
 )
 def test_relaxng_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[object], object], setup: Callable[[], object]
+    alloc_sweep: _Sweep, call: Callable[[_T], object], setup: Callable[[], _T]
 ) -> None:
     assert set(alloc_sweep(call, setup)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_url_normalization_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    assert set(alloc_sweep(lambda _: normalize_url("http://example.com/a"))) == {"MemoryError"}
+def test_url_normalization_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
+    assert set(alloc_sweep(lambda _: normalize_url("http://example.com/a"), lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
@@ -632,19 +641,18 @@ def test_url_normalization_allocation_failure_raises_memory_error(alloc_sweep: C
         pytest.param(lambda _: StyleSheet("p { color: red; margin: 0 }"), id="stylesheet"),
     ],
 )
-def test_cssom_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[object], object]
-) -> None:
-    assert set(alloc_sweep(call)) == {"MemoryError"}
+def test_cssom_allocation_failure_raises_memory_error(alloc_sweep: _Sweep, call: Callable[[None], object]) -> None:
+    assert set(alloc_sweep(call, lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_detect_rank_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_detect_rank_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     options: Final = Detection()
     expected: Final = detect_all(b"\xef\xbb\xbftext", options)
     outcomes: Final = set(
         alloc_sweep(
             lambda _: detect_all(b"\xef\xbb\xbftext", options),
+            lambda: None,
             valid=lambda result: result == expected,
         )
     )
@@ -653,45 +661,45 @@ def test_detect_rank_allocation_failure_raises_memory_error(alloc_sweep: Callabl
 
 
 @pytest.mark.fuzz_build
-def test_detect_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    assert set(alloc_sweep(lambda _: detect.detect(b"\xef\xbb\xbftext"))) == {"MemoryError"}
+def test_detect_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
+    assert set(alloc_sweep(lambda _: detect.detect(b"\xef\xbb\xbftext"), lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_detect_stream_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    def detect_stream(_: object) -> EncodingMatch:
+def test_detect_stream_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
+    def detect_stream(_: None) -> EncodingMatch:
         detector = EncodingDetector()
         detector.feed(b"\xef\xbb\xbftext")
         return detector.close()
 
-    assert set(alloc_sweep(detect_stream)) == {"MemoryError"}
+    assert set(alloc_sweep(detect_stream, lambda: None)) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_structured_data_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_structured_data_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
         alloc_sweep(
-            lambda document: cast("turbohtml.Document", document).structured_data(),
+            lambda document: document.structured_data(),
             lambda: parse('<div itemscope typeof="Thing"><meta property="name" content="x"></div>'),
         )
     ) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_microdata_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_microdata_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
         alloc_sweep(
-            lambda document: cast("turbohtml.Document", document).microdata(),
+            lambda document: document.microdata(),
             lambda: parse('<div itemscope><span itemprop="name">x</span></div>'),
         )
     ) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_feed_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_feed_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
         alloc_sweep(
-            lambda document: cast("turbohtml.Document", document).feed(),
+            lambda document: document.feed(),
             lambda: parse_xml(
                 '<rss version="2.0"><channel><title>x</title><item><title>y</title></item></channel></rss>'
             ),
@@ -701,26 +709,20 @@ def test_feed_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., 
 
 @pytest.mark.fuzz_build
 @pytest.mark.parametrize("annotated", [False, True], ids=["plain", "annotated"])
-def test_text_table_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], *, annotated: bool
-) -> None:
+def test_text_table_allocation_failure_raises_memory_error(alloc_sweep: _Sweep, *, annotated: bool) -> None:
     assert set(
         alloc_sweep(
-            lambda document: (
-                cast("turbohtml.Document", document).to_annotated_text({"a": ("link",)})
-                if annotated
-                else cast("turbohtml.Document", document).to_text()
-            ),
+            lambda document: document.to_annotated_text({"a": ("link",)}) if annotated else document.to_text(),
             lambda: parse(f"<table><tr><td>{'word ' * 100}</td></tr></table>"),
         )
     ) == {"MemoryError"}
 
 
 @pytest.mark.fuzz_build
-def test_text_list_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_text_list_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
         alloc_sweep(
-            lambda document: cast("turbohtml.Document", document).to_text(),
+            lambda document: document.to_text(),
             lambda: parse(
                 "<ul><li>one</li><li>two</li></ul><m\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00"
                 "</r/\x00\x10\x00\x00>cite</blockquote>\n"
@@ -730,12 +732,14 @@ def test_text_list_allocation_failure_raises_memory_error(alloc_sweep: Callable[
 
 
 @pytest.mark.fuzz_build
-def test_foreign_attributes_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
-    assert set(alloc_sweep(lambda _: parse("<svg viewbox='0 0 1 1' data-custom='x'></svg>"))) == {"MemoryError"}
+def test_foreign_attributes_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
+    assert set(alloc_sweep(lambda _: parse("<svg viewbox='0 0 1 1' data-custom='x'></svg>"), lambda: None)) == {
+        "MemoryError"
+    }
 
 
 @pytest.mark.fuzz_build
-def test_computed_style_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_computed_style_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     def setup() -> turbohtml.Element:
         return cast(
             "turbohtml.Element", parse("<style>:unknown{color:red}p{color:blue}</style><p>x</p>").select_one("p")
@@ -750,7 +754,7 @@ def test_computed_style_allocation_failure_raises_memory_error(alloc_sweep: Call
     [pytest.param(lambda node: node.data, id="data"), pytest.param(lambda node: node.text, id="text")],
 )
 def test_text_access_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[turbohtml.Text], object]
+    alloc_sweep: _Sweep, call: Callable[[turbohtml.Text], object]
 ) -> None:
     assert set(alloc_sweep(call, lambda: cast("turbohtml.Text", turbohtml.parse_fragment("a" * 8192).children[0]))) == {
         "MemoryError"
@@ -758,7 +762,7 @@ def test_text_access_allocation_failure_raises_memory_error(
 
 
 @pytest.mark.fuzz_build
-def test_element_text_assignment_allocation_failure_raises_memory_error(alloc_sweep: Callable[..., list[str]]) -> None:
+def test_element_text_assignment_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
     assert set(
         alloc_sweep(
             lambda node: setattr(node, "text", _LONG_TEXT),
@@ -779,7 +783,7 @@ def test_element_text_assignment_allocation_failure_raises_memory_error(alloc_sw
     ],
 )
 def test_lazy_text_serialization_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[turbohtml.Node], object]
+    alloc_sweep: _Sweep, call: Callable[[turbohtml.Node], object]
 ) -> None:
     assert set(alloc_sweep(call, lambda: turbohtml.parse_fragment(f"<p>{'text' * 2048}</p>").children[0])) == {
         "MemoryError"
@@ -812,7 +816,7 @@ def _document() -> turbohtml.Document:
     ],
 )
 def test_selector_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[turbohtml.Document], object]
+    alloc_sweep: _Sweep, call: Callable[[turbohtml.Document], object]
 ) -> None:
     assert set(alloc_sweep(call, _document)) == {"MemoryError"}
 
@@ -822,7 +826,7 @@ _AB: Final[re.Pattern[str]] = re.compile(r"ab")
 _BIG: Final[str] = "a" * 70_000
 
 
-def _markdown(markup: str, name: str) -> object:
+def _markdown(markup: str, name: str) -> ParameterSet:
     return pytest.param(lambda node: node.to_markdown(), lambda: parse(markup), id=f"markdown-{name}")
 
 
@@ -918,7 +922,7 @@ def _range(*, across: bool) -> turbohtml.Range:
     ],
 )
 def test_lazy_text_allocation_failure_raises_memory_error(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[turbohtml.Node], object], setup: Callable[[], object]
+    alloc_sweep: _Sweep, call: Callable[[turbohtml.Node], object], setup: Callable[[], turbohtml.Node]
 ) -> None:
     assert set(alloc_sweep(call, setup)) == {"MemoryError"}
 
@@ -966,7 +970,7 @@ def _collapse_after_failed_render(document: turbohtml.Document) -> str:
     ],
 )
 def test_lazy_text_allocation_failure_raises_or_keeps_result(
-    alloc_sweep: Callable[..., list[str]], call: Callable[[object], object], setup: Callable[[], object]
+    alloc_sweep: _Sweep, call: Callable[[_T], object], setup: Callable[[], _T]
 ) -> None:
     # these walks already shrug off some failures they cannot report (a dropped readability candidate or mutation
     # record), so a run may still succeed; it must then match the unfailed result
@@ -1054,7 +1058,6 @@ def _value_of_sheet(expression: str) -> Document:
 
 
 if TYPE_CHECKING:
-    from typing import Protocol
 
     class _Runtime(Protocol):
         def path(self) -> str: ...
