@@ -1191,8 +1191,7 @@ def test_srcset_data_url_comma_is_not_a_candidate_separator() -> None:
     ],
 )
 def test_meta_refresh_drops_the_url(content: str) -> None:
-    html = f'<meta http-equiv="Refresh" content="{content}">'
-    out = sanitize(html, _allow_all({"meta"}, {"http-equiv", "content"}))
+    out = sanitize(f'<meta http-equiv="Refresh" content="{content}">', _allow_all({"meta"}, {"http-equiv", "content"}))
     assert out == '<meta http-equiv="Refresh">'
 
 

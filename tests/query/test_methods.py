@@ -441,8 +441,7 @@ def test_rejects_an_invalid_selector() -> None:
     ],
 )
 def test_remove_drops_each_matching_subtree(markup: str, where: str, selector: str, expected: str) -> None:
-    document = parse(markup)
-    target = _node(document, where)
+    target = _node(parse(markup), where)
     assert assert_type(target.remove(selector), Element) is target
     assert target.serialize() == expected
 
@@ -509,8 +508,7 @@ def _node(document: Document, selector: str) -> Element:
     ],
 )
 def test_strip_tags_unwraps_each_matching_element(markup: str, where: str, selector: str, expected: str) -> None:
-    document = parse(markup)
-    target = _node(document, where)
+    target = _node(parse(markup), where)
     assert assert_type(target.strip_tags(selector), Element) is target
     assert target.serialize() == expected
 
@@ -1172,15 +1170,15 @@ def test_extension_result_becomes_a_node_set(
     assert _texts(extension_doc.xpath(expression, extensions=_NODESET_EXTENSIONS)) == expected
 
 
+def _texts(result: object) -> list[str]:
+    assert isinstance(result, list)
+    return [node.text if isinstance(node, Element) else str(node) for node in result]
+
+
 def test_extension_result_grows_the_node_set(big_doc: turbohtml.Node) -> None:
     assert _texts(big_doc.xpath("all_nodes(//li)", extensions=_NODESET_EXTENSIONS)) == [
         str(index) for index in range(12)
     ]
-
-
-def _texts(result: object) -> list[str]:
-    assert isinstance(result, list)
-    return [node.text if isinstance(node, Element) else str(node) for node in result]
 
 
 def test_extension_returning_an_integer_stays_a_number(extension_doc: turbohtml.Node) -> None:

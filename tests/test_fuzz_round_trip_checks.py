@@ -2497,8 +2497,7 @@ def test_atheris_callback_reports_failure_mismatch(
 
 def test_atheris_callback_recovers_from_injected_allocation(mocker: MockerFixture) -> None:
     reject = mocker.MagicMock()
-    callback = rejecting_callback(lambda _data, _header: None, (UnicodeError,), reject, lambda _position: (1, True))
-    callback(SEED_HEADER)
+    rejecting_callback(lambda _data, _header: None, (UnicodeError,), reject, lambda _position: (1, True))(SEED_HEADER)
     assert reject.call_count == 0
 
 

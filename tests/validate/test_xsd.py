@@ -996,8 +996,7 @@ def test_occurs_multi_digit_and_bounds() -> None:
 
 @pytest.mark.parametrize("method", [pytest.param("validate", id="report"), pytest.param("is_valid", id="verdict")])
 def test_validate_rejects_non_node(*, method: str) -> None:
-    schema = XMLSchema(f'<xs:schema {XS}><xs:element name="v" type="xs:int"/></xs:schema>')
-    validate = getattr(schema, method)
+    validate = getattr(XMLSchema(f'<xs:schema {XS}><xs:element name="v" type="xs:int"/></xs:schema>'), method)
     with pytest.raises(TypeError):
         validate("not a node")
 
