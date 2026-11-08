@@ -556,7 +556,7 @@ def _minify(text: str) -> str:
     return _lib_minify(text)
 
 
-def _minify_js(source: str) -> str:
+def minify_js(source: str) -> str:
     # Minify a JavaScript source with turbohtml's native lex-parse-optimize-print minifier.
     return _clean.minify_js(source)
 
@@ -1196,7 +1196,7 @@ def _xpath_id(text: str) -> None:
     _ID_REUSE(_parsed(text))
 
 
-def _minify_css(css: str) -> str:
+def minify_css(css: str) -> str:
     # Minify a stylesheet with turbohtml's value-safe CSS minifier.
     return _clean.minify_css(css)
 
@@ -1748,19 +1748,19 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "transform-number": (transform, "turbohtml"),
     "transform-rules": (transform, "turbohtml"),
     "transform-names": (transform, "turbohtml"),
-    "minify-css": (_minify_css, "turbohtml"),
-    "minify-css-conflicts": (_minify_css, "turbohtml"),
-    "minify-css-merges": (_minify_css, "turbohtml"),
-    "minify-js": (_minify_js, "turbohtml"),
-    "minify-js-names": (_minify_js, "turbohtml"),
-    "minify-js-integers": (_minify_js, "turbohtml"),
-    "minify-js-sequences": (_minify_js, "turbohtml"),
-    "minify-js-guards": (_minify_js, "turbohtml"),
-    "minify-js-propagation": (_minify_js, "turbohtml"),
-    "minify-js-single-use": (_minify_js, "turbohtml"),
-    "minify-js-unlink": (_minify_js, "turbohtml"),
-    "minify-js-unused-declarations": (_minify_js, "turbohtml"),
-    "minify-js-var-initialization": (_minify_js, "turbohtml"),
+    "minify-css": (minify_css, "turbohtml"),
+    "minify-css-conflicts": (minify_css, "turbohtml"),
+    "minify-css-merges": (minify_css, "turbohtml"),
+    "minify-js": (minify_js, "turbohtml"),
+    "minify-js-names": (minify_js, "turbohtml"),
+    "minify-js-integers": (minify_js, "turbohtml"),
+    "minify-js-sequences": (minify_js, "turbohtml"),
+    "minify-js-guards": (minify_js, "turbohtml"),
+    "minify-js-propagation": (minify_js, "turbohtml"),
+    "minify-js-single-use": (minify_js, "turbohtml"),
+    "minify-js-unlink": (minify_js, "turbohtml"),
+    "minify-js-unused-declarations": (minify_js, "turbohtml"),
+    "minify-js-var-initialization": (minify_js, "turbohtml"),
     "stream": (_stream, "turbohtml"),
     "encoding-result": (_encoding, "turbohtml"),
     "encoding-result-stream": (_encoding_stream, "turbohtml"),
@@ -1782,5 +1782,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
 
 __all__ = [
     "OPERATIONS",
+    "minify_css",  # simplint: ignore[SMP402]  # tests read bench.core.minify_css by attribute
+    "minify_js",  # simplint: ignore[SMP402]  # tests read bench.core.minify_js by attribute
     "transform",
 ]
