@@ -5,9 +5,10 @@ The minifier rewrites a color to its shortest equivalent form: a keyword to a sh
 hash to a shorter keyword (``#000080`` -> ``navy``). Rather than hand-pick a direction per color, this derives both maps
 from the authoritative named-color list in `CSS Color 4 §6.1 <https://www.w3.org/TR/css-color-4/#named-colors>`__ (plus
 ``transparent`` from §6.2): for each color it computes the shortest hash form, then keeps whichever of keyword or hash
-is strictly shorter. Deriving the maps keeps them complete (every §6.1 color is covered) and value-safe: a name that
-§6.1 does not define, such as the X11-only ``lightslateblue``, is never emitted, so an invalid keyword is never
-rewritten into a valid color.
+is strictly shorter.
+
+Deriving the maps keeps them complete (every §6.1 color is covered) and value-safe: a name that §6.1 does not define,
+such as the X11-only ``lightslateblue``, is never emitted, so an invalid keyword is never rewritten into a valid color.
 
 The emitted header is shaped like ``tld_table.h``: the keyword table is sorted by keyword with a 256-entry first-byte
 index for a bucketed scan; the hash table is sorted by hash string for a binary search, since every hash shares the

@@ -5,20 +5,23 @@ Drives every turbohtml operation the project tracks over a representative real-w
 collects reflects the whole hot surface -- parse, tokenize, select, text-content, serialize, minify and the rest -- over
 the branch classes real inputs hit rather than one clean document. The cases come from :mod:`pgo_corpus`, the offline
 training corpus, deliberately split from :func:`bench.ci.benchmarks` (the inputs the LTO-only CodSpeed gate measures) so
-the shipped profile is tuned to real use, not overfit to the measured corpus. Every input is vendored or generated in
-process, so the wheel build collects the full profile even in an offline cibuildwheel sandbox; an operation whose
-vendored corpus is not checked out yields no cases and is skipped, so a bare-checkout build still trains on what is
-present.
+the shipped profile is tuned to real use, not overfit to the measured corpus.
+
+Every input is vendored or generated in process, so the wheel build collects the full profile even in an offline
+cibuildwheel sandbox; an operation whose vendored corpus is not checked out yields no cases and is skipped, so a
+bare-checkout build still trains on what is present.
 
 Each operation gets an equal slice of training time rather than an equal iteration count, and that slice is divided
 across the operation's input set so every branch class in the set is exercised. A whole-document parse runs orders of
 magnitude more instructions per call than a read-path query like text-content, so a flat iteration count buries the
 cheap operations' hot blocks far below the profile's global maximum: the compiler reads them as cold and leaves their
 code layout on a knife-edge that flips a few percent between non-deterministic rebuilds (the text-content CodSpeed
-flake, spike #478). Budgeting by time instead repeats a cheap operation into the thousands and an expensive one only a
-handful of times, so every hot path clears the profile's hot cutoff decisively and holds its layout across rebuilds. The
-read-path operations share one cached parse per document, so a warm-up call primes it and the timing and repetitions
-then measure the query alone, not a re-parse.
+flake, spike #478).
+
+Budgeting by time instead repeats a cheap operation into the thousands and an expensive one only a handful of times, so
+every hot path clears the profile's hot cutoff decisively and holds its layout across rebuilds. The read-path operations
+share one cached parse per document, so a warm-up call primes it and the timing and repetitions then measure the query
+alone, not a re-parse.
 
 Run against an extension built with ``-Db_pgo=generate``; each measured call writes into the instrumented counters that
 the following ``-Db_pgo=use`` build reads back. See :mod:`pgo_build` for the two-phase driver.

@@ -10,12 +10,13 @@ the profiled wheel on held-out pages the profile never trained on.
 Representativeness is code-path coverage, not input volume: the compiler lays out blocks and inlines from the branches a
 run takes, so each operation trains over a *set* spanning its branch classes rather than one clean document. The read
 path, the tokenizer, and the tree builder see clean markup (the whatwg spec and the wpt fixtures), deliberate tag soup
-(the WPT tree-construction cases, which fire the adoption-agency, foster-parenting, and
-foreign-content-breakout recovery the clean spec never reaches), and real saved pages (the vendored mozilla/readability
-corpus). Encoding detection sees legacy multi-byte streams (Shift-JIS, GBK, EUC-KR, windows-1251/1252, UTF-16 with and
-without a BOM, plus the real Japanese and Big5 html5lib samples). The extractors see structured-data markup in all four
-syntaxes (JSON-LD, microdata, RDFa, OpenGraph), and the minifiers see real vendored stylesheets and scripts. Operations
-with no corpus (the tree builders, escapers, URL and selector helpers) reuse the bench's own offline inline cases.
+(the WPT tree-construction cases, which fire the adoption-agency, foster-parenting, and foreign-content-breakout
+recovery the clean spec never reaches), and real saved pages (the vendored mozilla/readability corpus).
+
+Encoding detection sees legacy multi-byte streams (Shift-JIS, GBK, EUC-KR, windows-1251/1252, UTF-16 with and without a
+BOM, plus the real Japanese and Big5 html5lib samples). The extractors see structured-data markup in all four syntaxes
+(JSON-LD, microdata, RDFa, OpenGraph), and the minifiers see real vendored stylesheets and scripts. Operations with no
+corpus (the tree builders, escapers, URL and selector helpers) reuse the bench's own offline inline cases.
 """
 
 from __future__ import annotations

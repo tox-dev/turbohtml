@@ -130,11 +130,12 @@ def feed(xml: str, /) -> Feed | None:
     Detects the format from the root element and maps each format's spelling of a field onto one shape: the feed's
     ``title``, ``link``, ``description``, and ``updated``, and its ``entries``, each :class:`Entry` carrying ``title``,
     ``link``, ``id``, ``updated``/``published``, ``summary``/``content``, and ``author``. Timestamps are returned
-    verbatim, not parsed. A well-formed feed parses under :func:`turbohtml.parse_xml`, so CDATA sections and nested
-    elements such as a channel ``<image>`` keep their XML meaning. An Atom XML root must declare the
-    ``http://www.w3.org/2005/Atom`` namespace; an RSS 2.0 XML root must declare ``version="2.0"``. A feed that is not
-    well-formed XML falls back to the HTML tree builder's recovery. Shorthand for
-    :meth:`turbohtml.Document.feed` on either tree.
+    verbatim, not parsed.
+
+    A well-formed feed parses under :func:`turbohtml.parse_xml`, so CDATA sections and nested elements such as a channel
+    ``<image>`` keep their XML meaning. An Atom XML root must declare the ``http://www.w3.org/2005/Atom`` namespace; an
+    RSS 2.0 XML root must declare ``version="2.0"``. A feed that is not well-formed XML falls back to the HTML tree
+    builder's recovery. Shorthand for :meth:`turbohtml.Document.feed` on either tree.
 
     :param xml: the feed document.
     :returns: the parsed :class:`Feed`, or ``None`` when ``xml`` has no ``<rss>``, ``<feed>``, or ``<rdf:RDF>`` root.

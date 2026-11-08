@@ -2,13 +2,16 @@
 Generate src/turbohtml/_c/data/encoding_tables.h from the WHATWG Encoding Standard's index tables.
 
 turbohtml used to decode legacy bytes by handing the label's name to a CPython codec. That is wrong: CPython's codecs
-predate the Encoding Standard and none of them is the WHATWG decoder of the same name. ``koi8_u`` is KOI8-U where the
-spec's ``koi8-u`` is KOI8-RU; ``big5`` covers a strict subset of the spec's Big5 index; ``euc_kr`` and ``shift_jis``
-reject thousands of sequences ``cp949`` and ``cp932`` accept; CPython's ``gb18030`` is the 2000 revision and maps twenty
-code points into a private-use area the 2005 revision moved; every single-byte codec raises on the C1 bytes the spec
-maps to the C1 control itself. Beyond the tables, no CPython codec reproduces the spec's error handling: WHATWG pushes
-an ASCII trail byte back onto the stream so ``81 41`` in Big5 emits one U+FFFD and keeps the ``A``, and consumes a
-non-ASCII one so ``81 FF`` emits exactly one U+FFFD, not two.
+predate the Encoding Standard and none of them is the WHATWG decoder of the same name.
+
+``koi8_u`` is KOI8-U where the spec's ``koi8-u`` is KOI8-RU; ``big5`` covers a strict subset of the spec's Big5 index;
+``euc_kr`` and ``shift_jis`` reject thousands of sequences ``cp949`` and ``cp932`` accept; CPython's ``gb18030`` is the
+2000 revision and maps twenty code points into a private-use area the 2005 revision moved; every single-byte codec
+raises on the C1 bytes the spec maps to the C1 control itself.
+
+Beyond the tables, no CPython codec reproduces the spec's error handling: WHATWG pushes an ASCII trail byte back onto
+the stream so ``81 41`` in Big5 emits one U+FFFD and keeps the ``A``, and consumes a non-ASCII one so ``81 FF`` emits
+exactly one U+FFFD, not two.
 
 So the decoders are native, and their data comes from the spec's own index tables rather than a hand-transcribed copy.
 The tables are stored decode-side only (pointer -> code point); turbohtml never encodes to a legacy encoding.

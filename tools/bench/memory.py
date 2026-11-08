@@ -3,9 +3,11 @@ Measure one benchmark case's peak resident memory in a fresh process.
 
 Run as ``python -m bench.memory`` with the target, operation, and case index in the environment. A fresh process does
 import plus one run of the op, then prints its high-water resident memory in bytes -- the honest "memory to do this
-task" number, no baseline subtraction, so the tree a full-parse peer builds and the streaming rewriter does not shows
-up as the gap. It lives in its own process so the timed run's repeated allocations never pollute the high-water mark,
-and imports stdlib plus bench only (never turbohtml at module top) so the one measured op is all that is on the clock.
+task" number, no baseline subtraction, so the tree a full-parse peer builds and the streaming rewriter does not shows up
+as the gap.
+
+It lives in its own process so the timed run's repeated allocations never pollute the high-water mark, and imports
+stdlib plus bench only (never turbohtml at module top) so the one measured op is all that is on the clock.
 """
 
 from __future__ import annotations

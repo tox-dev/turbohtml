@@ -1,12 +1,13 @@
 """
 turbohtml.saxparse: DOM-less, event-driven HTML parsing.
 
-Where :func:`turbohtml.parse` hands back a document you navigate, :func:`sax_parse` fires a callback for each
-construct the parser builds -- a start tag, an end tag, a run of text, a comment, the doctype -- and hands back
-nothing. The events reflect the fully WHATWG-correct construction (implied ``<html>``/``<head>``/``<body>``, foster
-parenting out of tables, the adoption agency, and the rest), so you see the tree the parser *built*, not the raw token
-soup; and no per-node Python object is ever created, so a one-pass extraction over a large document never pays for a
-document-sized object graph and keeps only what your handler keeps. This is the event-driven model Python's
+Where :func:`turbohtml.parse` hands back a document you navigate, :func:`sax_parse` fires a callback for each construct
+the parser builds -- a start tag, an end tag, a run of text, a comment, the doctype -- and hands back nothing.
+
+The events reflect the fully WHATWG-correct construction (implied ``<html>``/``<head>``/``<body>``, foster parenting out
+of tables, the adoption agency, and the rest), so you see the tree the parser *built*, not the raw token soup; and no
+per-node Python object is ever created, so a one-pass extraction over a large document never pays for a document-sized
+object graph and keeps only what your handler keeps. This is the event-driven model Python's
 :class:`html.parser.HTMLParser`, expat, and htmlparser2 offer, with a spec-correct tree builder behind it and the
 tokenization, construction, and walk all in C.
 

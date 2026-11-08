@@ -2,15 +2,16 @@
 turbohtml.detect: standalone character-encoding detection over bytes.
 
 :func:`detect` answers the question ``chardet``, ``charset-normalizer``, and ``cchardet`` exist for -- "what encoding
-are these bytes?" -- without an HTML parser in the call path. It runs the same C pipeline :func:`turbohtml.parse`
-uses for ``bytes`` input: the WHATWG sniff first (a byte-order mark, then a ``<meta>`` prescan of the first 1024
-bytes), then a content detector that validates UTF-8 structurally and otherwise scores the CJK and single-byte
-candidates on character-pair frequencies, then the spec's windows-1252 fallback. A non-mark input therefore yields the
-same encoding whether you detect it standalone or parse it with ``detect_encoding=True``, with two divergences. A UTF-8
-byte-order mark is reported here as ``UTF-8-SIG`` so a caller can strip it, where the spec-locked parse path keeps the
-plain ``UTF-8`` name; the UTF-16 marks report the same label both ways. And a ``<meta>`` charset past the prescan's
-1024-byte window is invisible here, because these functions read bytes and have no tree to consult, where
-:func:`turbohtml.parse` redoes the parse against what it declares.
+are these bytes?" -- without an HTML parser in the call path. It runs the same C pipeline :func:`turbohtml.parse` uses
+for ``bytes`` input: the WHATWG sniff first (a byte-order mark, then a ``<meta>`` prescan of the first 1024 bytes), then
+a content detector that validates UTF-8 structurally and otherwise scores the CJK and single-byte candidates on
+character-pair frequencies, then the spec's windows-1252 fallback.
+
+A non-mark input therefore yields the same encoding whether you detect it standalone or parse it with
+``detect_encoding=True``, with two divergences. A UTF-8 byte-order mark is reported here as ``UTF-8-SIG`` so a caller
+can strip it, where the spec-locked parse path keeps the plain ``UTF-8`` name; the UTF-16 marks report the same label
+both ways. And a ``<meta>`` charset past the prescan's 1024-byte window is invisible here, because these functions read
+bytes and have no tree to consult, where :func:`turbohtml.parse` redoes the parse against what it declares.
 
 A result is an :class:`EncodingMatch` with the WHATWG canonical name, a confidence, and the language the frequency
 model matched, mirroring the ``chardet.detect`` dict shape as a typed record. :func:`detect_all` ranks every
@@ -144,6 +145,7 @@ class Detection:
         (the value :class:`EncodingMatch` reports as its language) rank ahead of the rest, provided they scored
         positively.
     :param allowed: when set, only these encodings (WHATWG names, any case) may be returned.
+
     :param excluded: these encodings are never returned; mutually exclusive with ``allowed``.
     :param tld: the rightmost DNS label of the host that served the bytes (``"jp"``, ``"ru"``, ``"xn--p1ai"``), which
         narrows the candidates the way a browser does. Give it in lower-case ASCII, without the leading dot, and in
@@ -221,13 +223,14 @@ class EncodingDetector:
     """
     Incremental detection over a byte stream, mirroring chardet's ``UniversalDetector``.
 
-    Call :meth:`feed` with each chunk, :meth:`close` for the result, and :meth:`reset` to reuse the instance on
-    another stream. :attr:`done` turns true as soon as the result cannot change (a leading byte-order mark, or
-    :meth:`close`), so a reader loop can stop early. Every candidate carries its own state across feeds, so the
-    detector holds a fixed amount of memory whatever the stream's length; the one buffer it keeps is the leading
-    1024 bytes the byte-order-mark check and the ``<meta>`` prescan read, which the spec bounds. The result equals
-    :func:`detect` of the concatenated bytes, whatever the chunk boundaries. An instance is not thread-safe; use one
-    per stream.
+    Call :meth:`feed` with each chunk, :meth:`close` for the result, and :meth:`reset` to reuse the instance on another
+    stream. :attr:`done` turns true as soon as the result cannot change (a leading byte-order mark, or :meth:`close`),
+    so a reader loop can stop early.
+
+    Every candidate carries its own state across feeds, so the detector holds a fixed amount of memory whatever the
+    stream's length; the one buffer it keeps is the leading 1024 bytes the byte-order-mark check and the ``<meta>``
+    prescan read, which the spec bounds. The result equals :func:`detect` of the concatenated bytes, whatever the chunk
+    boundaries. An instance is not thread-safe; use one per stream.
 
     :param options: the detection options; defaults to :class:`Detection` (always answer, no constraints).
     """
@@ -361,15 +364,17 @@ class LanguageMatch:
     """
     One language-detection result: the ISO 639-3 code, a confidence, the Unicode script, and an English name.
 
-    ``language`` is the `ISO 639-3 <https://en.wikipedia.org/wiki/ISO_639-3>`__ code the text was written in
-    (``"eng"``, ``"deu"``, ``"cmn"``, ...), or ``None`` when the text carries no script the detector models (it is
-    empty, or all punctuation, digits, emoji, or symbols) or every candidate for its script was ruled out by
-    :class:`LanguageDetection`. ``confidence`` runs 0.0 to 1.0: it is 1.0 for a script only one modeled language uses
-    (Greek, Georgian, Korean, ...) and for a clear trigram winner, and drops toward 0.0 as the top two candidates for a
-    shared script (Latin, Cyrillic, Arabic, Devanagari, Hebrew) converge -- the usual signal that the text is too short
-    to separate them. ``script`` is the Unicode script name the text is written in (``"Latin"``, ``"Cyrillic"``,
-    ``"Han"`` reported as ``"Mandarin"``, ...), or ``None`` with a ``None`` language. ``name`` is the English name of
-    the language (``"English"``, ``"German"``, ``"Mandarin"``, ...), or ``None`` with a ``None`` language.
+    ``language`` is the `ISO 639-3 <https://en.wikipedia.org/wiki/ISO_639-3>`__ code the text was written in (``"eng"``,
+    ``"deu"``, ``"cmn"``, ...), or ``None`` when the text carries no script the detector models (it is empty, or all
+    punctuation, digits, emoji, or symbols) or every candidate for its script was ruled out by
+    :class:`LanguageDetection`.
+
+    ``confidence`` runs 0.0 to 1.0: it is 1.0 for a script only one modeled language uses (Greek, Georgian, Korean, ...)
+    and for a clear trigram winner, and drops toward 0.0 as the top two candidates for a shared script (Latin, Cyrillic,
+    Arabic, Devanagari, Hebrew) converge -- the usual signal that the text is too short to separate them. ``script`` is
+    the Unicode script name the text is written in (``"Latin"``, ``"Cyrillic"``, ``"Han"`` reported as ``"Mandarin"``,
+    ...), or ``None`` with a ``None`` language. ``name`` is the English name of the language (``"English"``,
+    ``"German"``, ``"Mandarin"``, ...), or ``None`` with a ``None`` language.
 
     :param language: the ISO 639-3 code, or ``None`` when the text carries no modeled script.
     :param confidence: how sure the detector is, from 0.0 to 1.0.

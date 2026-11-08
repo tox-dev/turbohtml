@@ -5,6 +5,7 @@ A sanitizer bug usually returns unsafe or altered markup without crashing, so ea
 code it does not share. ``mutation`` re-parses the output with the vendored html5lib-python and requires the tree the
 sanitizer judged; ``policy`` requires that re-parsed tree to obey the random Policy that produced it; ``url`` compares
 each keep or drop of a URL attribute with the scheme turbohtml's WHATWG ``normalize_url`` reads from the decoded value.
+
 A negative control proves every oracle still fires before the run starts. The run minimizes each divergence and
 re-checks the re-parse ones with parse5, which tells a stale html5lib rule apart from a turbohtml mutation.
 """

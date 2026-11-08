@@ -1,15 +1,16 @@
 """
 Generate src/turbohtml/_c/data/tld_table.h from IANA's list of top-level domains.
 
-linkify recognizes a bare domain like ``example.com`` as a link only when its last label is a real TLD, the same
-rule bleach used. The canonical list is IANA's, so this downloads it, lowercases and sorts every entry (including the
-``xn--`` punycode TLDs, so a real ``xn--p1ai`` matches while a made-up ``xn--whatever`` does not), and emits a
-generated header shaped like ``tag_atom.h``: a sorted ``{name, len}`` array plus a 256-entry first-byte index, so a
-label is matched by bucketing on its first byte and a case-insensitive ``memcmp``. Alongside it goes the Unicode
-spelling of each internationalized TLD, decoded from its A-label, because that is how ``президент.рф`` is written in
-running text. IANA serves only the current list, so the expected ``IANA_VERSION`` and the SHA-256 of its exact bytes
-are pinned and a rebuild refuses a silent drift or a poisoned source; the version is also recorded in the header so a
-deliberate bump shows an auditable diff.
+linkify recognizes a bare domain like ``example.com`` as a link only when its last label is a real TLD, the same rule
+bleach used. The canonical list is IANA's, so this downloads it, lowercases and sorts every entry (including the
+``xn--`` punycode TLDs, so a real ``xn--p1ai`` matches while a made-up ``xn--whatever`` does not), and emits a generated
+header shaped like ``tag_atom.h``: a sorted ``{name, len}`` array plus a 256-entry first-byte index, so a label is
+matched by bucketing on its first byte and a case-insensitive ``memcmp``.
+
+Alongside it goes the Unicode spelling of each internationalized TLD, decoded from its A-label, because that is how
+``президент.рф`` is written in running text. IANA serves only the current list, so the expected ``IANA_VERSION`` and the
+SHA-256 of its exact bytes are pinned and a rebuild refuses a silent drift or a poisoned source; the version is also
+recorded in the header so a deliberate bump shows an auditable diff.
 
 Usage:  python tools/generate_tlds.py src/turbohtml/_c/data/tld_table.h
 """

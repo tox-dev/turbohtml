@@ -3,19 +3,21 @@ Super-linear running time and output growth lane (tox-dev/turbohtml#1009).
 
 A crash fuzzer with a short deadline rarely sees a quadratic: the slope only shows on long inputs, and a fixed deadline
 flags a slow runner as often as slow code. This lane grows an input instead and scores how thread CPU time scales with
-its size. A shape is ``head + left*N + middle + right*N + tail`` (``repeat`` leaves out the middle and right,
-``sandwich`` keeps both) or the ``tree`` interleave ``middle + left + middle + left*2 + middle ...``, each piece at most
-128 bytes. It renders at 1 KiB and doubles three times; a target is super-linear when its time grows 2.5x or more at
-every doubling, and stays so while retests pool more samples. Targets that emit text also carry a
-``len(out) <= k * len(in) + c`` bound.
+its size.
+
+A shape is ``head + left*N + middle + right*N + tail`` (``repeat`` leaves out the middle and right, ``sandwich`` keeps
+both) or the ``tree`` interleave ``middle + left + middle + left*2 + middle ...``, each piece at most 128 bytes. It
+renders at 1 KiB and doubles three times; a target is super-linear when its time grows 2.5x or more at every doubling,
+and stays so while retests pool more samples. Targets that emit text also carry a ``len(out) <= k * len(in) + c`` bound.
 
 ``regressions`` re-scores the committed list of past super-linear inputs (``amplify_regressions.json``): fast, public,
 and the per-PR gate. ``search`` draws shapes from literals harvested out of the C sources for a wall-clock budget, in a
-worker process so a hang or a crash still leaves its input behind. A finding lands in ``--crash-dir`` as
-``crash-<sha256>.json`` and the log names it only by target, shape kind and hash, because CI logs on a public
-repository are public; the seed stays out of the log too, since with the public code it regenerates every finding.
-Both modes first score a pure-Python quadratic and a linear control, so a runner too noisy to tell them apart fails
-the run instead of passing it.
+worker process so a hang or a crash still leaves its input behind.
+
+A finding lands in ``--crash-dir`` as ``crash-<sha256>.json`` and the log names it only by target, shape kind and hash,
+because CI logs on a public repository are public; the seed stays out of the log too, since with the public code it
+regenerates every finding. Both modes first score a pure-Python quadratic and a linear control, so a runner too noisy to
+tell them apart fails the run instead of passing it.
 """
 
 from __future__ import annotations

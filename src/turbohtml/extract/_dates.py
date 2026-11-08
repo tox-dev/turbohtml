@@ -3,12 +3,13 @@ Publication-date extraction for :mod:`turbohtml.extract`, the ``htmldate.find_da
 
 :func:`dates` reads the same signals ``htmldate`` reads -- ``<meta>`` publication/modification tags, JSON-LD
 ``datePublished``/``dateModified``, ``<time>`` elements, a date pattern in the canonical URL, and (as a last resort)
-visible text -- but off the parsed DOM and the :meth:`~turbohtml.Document.structured_data` engine rather than a
-second parse. Each signal is a stage tried in htmldate's priority order; the first stage that yields a bounded date
-wins, and within a stage the :class:`DateExtraction` ``original`` flag routes a publication date against a
-modification date. The stages and the date parsing run in C (``Document._dates``); this module holds the options,
-the result record, and the window and output formatting the :mod:`datetime` module owns. The date parsing needs no
-``dateparser``: ISO 8601, the common numeric spellings, an 8-digit stamp, and a compact multilingual month vocabulary.
+visible text -- but off the parsed DOM and the :meth:`~turbohtml.Document.structured_data` engine rather than a second
+parse. Each signal is a stage tried in htmldate's priority order; the first stage that yields a bounded date wins, and
+within a stage the :class:`DateExtraction` ``original`` flag routes a publication date against a modification date.
+
+The stages and the date parsing run in C (``Document._dates``); this module holds the options, the result record, and
+the window and output formatting the :mod:`datetime` module owns. The date parsing needs no ``dateparser``: ISO 8601,
+the common numeric spellings, an 8-digit stamp, and a compact multilingual month vocabulary.
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ class DateExtraction:
         ISO ``%Y-%m-%d``.
     :param min_date: the earliest acceptable date; a candidate before it is skipped. Defaults to 1995-01-01, the floor
         ``htmldate`` uses.
+
     :param max_date: the latest acceptable date; a candidate after it is skipped. Defaults to today, so a stray future
         stamp never wins.
     :param extensive_search: scan visible page text when no metadata carries a date, ``htmldate``'s

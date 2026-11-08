@@ -1,15 +1,15 @@
 """
 HTML5 authoring-conformance checking with a severity model.
 
-:func:`check` runs the WHATWG document-conformance requirements the parser does not raise
-as a :class:`~turbohtml.ParseError` -- a missing ``img`` alt, obsolete presentational
-markup, a duplicate ``id``, an invalid or redundant ARIA role, an empty heading, a
-``section`` without a heading, a document with no title or language -- over a tree parsed
-with :func:`turbohtml.parse`. It returns a :class:`ConformanceReport`: a ``valid`` verdict
-(the document is valid exactly when nothing is an error) and every :class:`ConformanceMessage`
-found. Each message carries a stable ``code``, a ``severity`` (``"error"``, ``"warning"``, or
-``"info"``), a human-readable ``message``, and the source ``line``/``column``, the way the Nu
-Html Checker (validator.nu) classifies its findings by type and subType.
+:func:`check` runs the WHATWG document-conformance requirements the parser does not raise as a
+:class:`~turbohtml.ParseError` -- a missing ``img`` alt, obsolete presentational markup, a duplicate ``id``, an invalid
+or redundant ARIA role, an empty heading, a ``section`` without a heading, a document with no title or language -- over
+a tree parsed with :func:`turbohtml.parse`.
+
+It returns a :class:`ConformanceReport`: a ``valid`` verdict (the document is valid exactly when nothing is an error)
+and every :class:`ConformanceMessage` found. Each message carries a stable ``code``, a ``severity`` (``"error"``,
+``"warning"``, or ``"info"``), a human-readable ``message``, and the source ``line``/``column``, the way the Nu Html
+Checker (validator.nu) classifies its findings by type and subType.
 
 The walk, the verdict and the severity views run in the C core; the Python layer only
 wraps the C findings into the report records. :func:`check_html` is the shorthand that parses a markup

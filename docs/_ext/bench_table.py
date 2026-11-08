@@ -15,11 +15,13 @@ A feed is ``{"label", "parties", "metrics", "rows"}``; ``metrics`` is empty for 
 label followed by one cell per party and metric -- a number, or a string naming why the cell is empty (the message a
 competitor threw on this input, or a note like ``no equivalent operation``). Each distinct reason in a table gets a
 superscript, the empty cells show ``--`` with that superscript, and a legend centered under the table spells each one
-out, so one marker never conflates two reasons. Column order is derived too: turbohtml first, then each competitor by
-its combined score with every metric weighing equally, so the best speed/size combination sits leftmost whatever order
-the feed carries. The tint scale is row-relative per metric -- a row's cells ran the same input, so they compare; a
-column mixes inputs, so it does not -- with the leftmost party competing at its defining 1.0x. Every column but the
-first carries its ratio, so a feed comparing turbohtml against itself (the interpreter table) reads like any other.
+out, so one marker never conflates two reasons.
+
+Column order is derived too: turbohtml first, then each competitor by its combined score with every metric weighing
+equally, so the best speed/size combination sits leftmost whatever order the feed carries. The tint scale is
+row-relative per metric -- a row's cells ran the same input, so they compare; a column mixes inputs, so it does not --
+with the leftmost party competing at its defining 1.0x. Every column but the first carries its ratio, so a feed
+comparing turbohtml against itself (the interpreter table) reads like any other.
 """
 
 from __future__ import annotations

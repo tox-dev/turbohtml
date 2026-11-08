@@ -55,6 +55,7 @@ class Markdown:
     :param escaping: which Markdown-significant characters are escaped.
     :param wrapping: word-wrapping of prose and constructs.
     :param document: line breaks, block spacing, trimming, and transliteration.
+
     :param google: reading inline-CSS styling the way a Google Docs export encodes it.
     :param strip: tags rendered as their text only, dropping the markup; mutually exclusive with ``convert``.
     :param convert: the only tags to render as Markdown, every other tag dropped to text; mutually exclusive with
@@ -373,6 +374,7 @@ class Html:
         :class:`~turbohtml.Minify` minifies.
     :param sort_attributes: emit each element's attributes in name order rather than source order.
     :param meta_charset: normalize (or inject) the ``<meta charset>`` declaration to the output encoding.
+
     :param xml: emit XML/XHTML syntax -- every empty element self-closes (``<br/>``), foreign SVG and MathML
         subtrees carry their namespace declarations, and text and attribute values follow the XML escaping rules.
         The HTML void-element and raw-text special casing (and the ``formatter``/``meta_charset`` options) do not

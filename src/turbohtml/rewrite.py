@@ -113,6 +113,7 @@ def rewrite(
     :param text: called with each run of character data (a text-kind :class:`Element`); None skips text.
     :param comments: called with each comment (a comment-kind :class:`Element`); None skips comments.
     :param doctype: called with the document type declaration (a doctype-kind :class:`Element`); None skips it.
+
     :returns: the rewritten markup. An untouched construct is reproduced verbatim, so a rewrite that edits nothing
         returns the input unchanged (character references and original quoting are preserved).
     :raises TypeError: if ``html`` is not a str.

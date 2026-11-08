@@ -4,9 +4,11 @@ Real, offline benchmark cases for the CodSpeed CI regression gate.
 The pyperf suite times every operation in :data:`bench.core.OPERATIONS` over real corpora (see :mod:`bench.corpus`).
 :func:`benchmarks` walks that same registry and pairs each turbohtml operation with a lazy loader for one of those real
 inputs -- the vendored html5lib-python and War-and-Peace corpora for the markup and text operations, the pinned upstream
-stylesheet and JS library for the minifiers, and the bench's own inline cases for the rest. Selected operations add a
-second case when one input cannot cover the relevant branch patterns. The loaders are lazy so the corpus is read only
-when a benchmark runs (under ``--codspeed``); a case whose corpus is missing raises, and the test skips it.
+stylesheet and JS library for the minifiers, and the bench's own inline cases for the rest.
+
+Selected operations add a second case when one input cannot cover the relevant branch patterns. The loaders are lazy so
+the corpus is read only when a benchmark runs (under ``--codspeed``); a case whose corpus is missing raises, and the
+test skips it.
 
 Operations whose inline case is too small to clear Valgrind's heap-jitter floor are re-homed on a large real corpus and
 surfaced under a corpus-qualified benchmark id (see :data:`_RESIZED`), so the noise-prone identity retires and a stable

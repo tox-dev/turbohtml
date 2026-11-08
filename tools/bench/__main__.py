@@ -1,14 +1,16 @@
 """
 CLI entry point: ``python -m bench [--pgo] <command>``.
 
-Commands: ``core`` (turbohtml baseline for every operation), ``all`` (every operation table), ``interpreters`` (the
-same turbohtml under each interpreter it supports, written straight to its docs feed), an operation name
-(cross-package table), or a package name (that package's own report). Anything after the command is forwarded verbatim
-to pyperf in every worker (e.g. ``--rigorous``, ``--affinity=2``). ``--pgo``, before the command so pyperf never sees
-it, builds the turbohtml ``core`` baseline with the shipped release recipe -- the two-phase profile-guided,
-link-time-optimized build of :mod:`pgo_build` -- so the baseline measures release-representative numbers; omit it (the
-default) for a plain wheel that builds far faster while iterating. The orchestrator provisions one isolated venv per
-target, so this entry point itself needs only uv on PATH -- no turbohtml, no competitor.
+Commands: ``core`` (turbohtml baseline for every operation), ``all`` (every operation table), ``interpreters`` (the same
+turbohtml under each interpreter it supports, written straight to its docs feed), an operation name (cross-package
+table), or a package name (that package's own report). Anything after the command is forwarded verbatim to pyperf in
+every worker (e.g. ``--rigorous``, ``--affinity=2``).
+
+``--pgo``, before the command so pyperf never sees it, builds the turbohtml ``core`` baseline with the shipped release
+recipe -- the two-phase profile-guided, link-time-optimized build of :mod:`pgo_build` -- so the baseline measures
+release-representative numbers; omit it (the default) for a plain wheel that builds far faster while iterating. The
+orchestrator provisions one isolated venv per target, so this entry point itself needs only uv on PATH -- no turbohtml,
+no competitor.
 """
 
 from __future__ import annotations

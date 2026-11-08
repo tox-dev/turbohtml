@@ -4,6 +4,7 @@ In-process fuzz worker for the CPython-coupled entry points.
 The tokenizer, tree builder, serializer, sanitizer, URL parser, and HTML/CSS minifiers reach the live PyObject tree and
 the CPython string API at more than one boundary, so -- unlike the JS minifier and the IDNA core -- they do not decouple
 into a malloc-backed standalone target without rewriting production C the sanitize-unify refactor is actively touching.
+
 This worker instead drives them through the public Python API against an extension compiled with
 ``-fsanitize=address,undefined`` (see ``tools/fuzz/fuzz.py``), so a C out-of-bounds access, use-after-free, or undefined
 operation aborts the interpreter with a sanitizer stack trace. Calling the public API keeps every target robust to the

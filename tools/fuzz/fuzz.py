@@ -4,24 +4,27 @@ Build and drive the turbohtml fuzz harnesses under AddressSanitizer + UndefinedB
 Two mechanisms cover the untrusted-input entry points the security spike prioritizes (tox-dev/turbohtml#478):
 
 * standalone, malloc-backed C harnesses for the surfaces whose core decouples from CPython -- the IDNA ToASCII engine
-  (``idna_harness.c``, the highest memory-safety risk), the phone-number recognizer (``phone_harness.c``), the JS
-  minifier (``../js_minify_harness.c``) and the CSS minifier (``css_harness.c``). These compile with no interpreter,
-  exactly the ``JM_STANDALONE`` pattern the JS minifier already ships. ``--sanitizer memory`` builds them under
-  MemorySanitizer instead and skips the in-process driver, whose interpreter carries no MemorySanitizer instrumentation.
+(``idna_harness.c``, the highest memory-safety risk), the phone-number recognizer (``phone_harness.c``), the JS minifier
+(``../js_minify_harness.c``) and the CSS minifier (``css_harness.c``). These compile with no interpreter, exactly the
+``JM_STANDALONE`` pattern the JS minifier already ships. ``--sanitizer memory`` builds them under MemorySanitizer
+instead and skips the in-process driver, whose interpreter carries no MemorySanitizer instrumentation.
+
 * an in-process driver (``_targets.py``) for the surfaces that reach the live PyObject tree -- parse, serialize,
-  sanitize, the URL parser, and the HTML/CSS minifiers -- run against an extension compiled with the sanitizers so a C
-  fault aborts the interpreter with a stack trace. It calls the public API, so it survives the in-flight C refactors.
+sanitize, the URL parser, and the HTML/CSS minifiers -- run against an extension compiled with the sanitizers so a C
+fault aborts the interpreter with a stack trace. It calls the public API, so it survives the in-flight C refactors.
 
 ``smoke`` replays the past finds under ``tests/fuzz_regressions`` and a benign seed corpus once (fast, deterministic,
 gates every PR), then runs the fuzz-build tests against the operation limit and the allocation-failure hook the fuzz
 build compiles in. ``deep`` adds a mutation loop and structural probes for a per-target budget (the scheduled/manual run
 that hunts for crashes). ``alloc`` replays the same seeds once per PyMem allocation, failing that allocation through a
 ``failure_pos`` header. ``oracle`` runs the sanitizer wrong-output oracles (``sanitize_oracles.py``) instead, because a
-sanitizer bug usually returns unsafe markup without crashing. ``round-trip`` runs the printer, minifier, entry-point and
-source-span oracles (``round_trip_oracles.py``) and ``release-diff`` compares HEAD with the latest PyPI release
-(``release_diff.py``), for the bugs that return wrong text. A crashing input lands in ``--crash-dir`` as
-``crash-<sha256>``, and the log names it only by hash, length and harness, because CI logs on a public repository are
-public. The in-process extension is expected to be pre-built by the tox env; ``--build`` builds it here for a local run.
+sanitizer bug usually returns unsafe markup without crashing.
+
+``round-trip`` runs the printer, minifier, entry-point and source-span oracles (``round_trip_oracles.py``) and
+``release-diff`` compares HEAD with the latest PyPI release (``release_diff.py``), for the bugs that return wrong text.
+A crashing input lands in ``--crash-dir`` as ``crash-<sha256>``, and the log names it only by hash, length and harness,
+because CI logs on a public repository are public. The in-process extension is expected to be pre-built by the tox env;
+``--build`` builds it here for a local run.
 
 ``smoke``, ``deep`` and ``alloc`` build everything in the fuzz-only mode (meson ``-Dfuzzing=true``) and start with a
 self-test: each ``_fuzz_crash`` kind must draw its AddressSanitizer report, and an injected allocation failure must

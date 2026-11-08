@@ -12,11 +12,12 @@ The combining classes, decompositions, and composition pairs are read straight f
 :mod:`unicodedata`, so the generated tables are the oracle the C engine is tested against -- an exact match is
 guaranteed by construction, not merely checked. The build therefore pins to the interpreter's Unicode version
 (``unicodedata.unidata_version``) and aborts if it is not the reviewed one, the same guarantee the ``idna_table.h`` pin
-gives from downloaded files. The one piece :mod:`unicodedata` does not expose is the quick-check property
-(NFC_QC/NFKC_QC No/Maybe), so that is parsed from ``DerivedNormalizationProps.txt``, fetched at the pinned version and
-verified against the SHA-256 of its exact bytes (a poisoned mirror would still serve altered content under the stable
-version URL). Hangul syllables are decomposed and composed arithmetically in C (Unicode 3.12), so their 11k rows never
-enter any table.
+gives from downloaded files.
+
+The one piece :mod:`unicodedata` does not expose is the quick-check property (NFC_QC/NFKC_QC No/Maybe), so that is
+parsed from ``DerivedNormalizationProps.txt``, fetched at the pinned version and verified against the SHA-256 of its
+exact bytes (a poisoned mirror would still serve altered content under the stable version URL). Hangul syllables are
+decomposed and composed arithmetically in C (Unicode 3.12), so their 11k rows never enter any table.
 
 Usage:  python tools/generate_normalize.py src/turbohtml/_c/data/normalize_table.h
 """

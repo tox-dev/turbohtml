@@ -3,6 +3,7 @@ Two-phase profile-guided build of the turbohtml C extension.
 
 Profile-guided optimization compiles the extension twice: once instrumented to record which branches and calls the hot
 paths take, then again with that profile so the compiler lays out the code the way the real workload runs it.
+
 This driver runs both phases against one persistent meson build directory -- an instrumented ``-Db_pgo=generate`` build,
 the representative training workload from :mod:`pgo_train`, then a ``-Db_pgo=use`` rebuild that reads the collected
 counters. gcc writes ``.gcda`` files the second build reads directly; clang writes ``.profraw`` that must first be

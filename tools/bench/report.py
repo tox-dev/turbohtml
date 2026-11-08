@@ -8,8 +8,9 @@ so a reader can tell a real gap from run-to-run noise, and (for competitors) the
 
 With ``--table-json DIR`` on the CLI, each rendered operation is also written to ``DIR/<operation>.json`` in the feed
 the docs' ``bench-table`` directive consumes: the label, parties, metrics, and rows of raw mean seconds. A competitor
-that threw on an input writes its message in place of the number, so the table can name why that cell is empty. The
-directive derives the readable units and the ratios. These files are named for the operation, which is not what the
+that threw on an input writes its message in place of the number, so the table can name why that cell is empty.
+
+The directive derives the readable units and the ratios. These files are named for the operation, which is not what the
 performance guide calls its tables, so do not copy them across by hand: :mod:`bench.docs_feeds` maps the two and writes
 the committed feeds, and :mod:`bench.migration` does the same for the per-library migration feeds.
 """

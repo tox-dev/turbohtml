@@ -163,12 +163,14 @@ class PhoneNumbers:
 
     ``regions`` are the ordered fallback regions for a number written without ``+`` (empty finds ``+`` numbers only);
     order decides which national reading wins, so any ordered iterable of ``str`` is accepted (a list, a tuple, a
-    ``deque``, a generator, a caller's own iterable) and a bare string, a set or a mapping is a ``TypeError``, a
-    runtime rule the ``Iterable[str]`` annotation cannot express. ``ignore_numbers_after`` are the words that mark
-    the digits right after them as an identifier, not a number, as far as the groups joined without whitespace reach:
-    ``Order 12345`` and ``Order 650-253-0000`` are skipped, the phone in ``Order 12345, 650-253-0000`` is still found,
-    and ``Phone no. 650-253-0000`` links because ``no`` is not in the default list. Words are ASCII letters, compared
-    case-folded against the word immediately before the digits and stored sorted; ``()`` disables the rule.
+    ``deque``, a generator, a caller's own iterable) and a bare string, a set or a mapping is a ``TypeError``, a runtime
+    rule the ``Iterable[str]`` annotation cannot express.
+
+    ``ignore_numbers_after`` are the words that mark the digits right after them as an identifier, not a number, as far
+    as the groups joined without whitespace reach: ``Order 12345`` and ``Order 650-253-0000`` are skipped, the phone in
+    ``Order 12345, 650-253-0000`` is still found, and ``Phone no. 650-253-0000`` links because ``no`` is not in the
+    default list. Words are ASCII letters, compared case-folded against the word immediately before the digits and
+    stored sorted; ``()`` disables the rule.
     """
 
     regions: tuple[str, ...]
@@ -202,13 +204,16 @@ class PhoneNumbers:
         :param require_valid: link only numbers the region's numbering plan assigns; False links every number of a
             possible length, with type ``UNKNOWN`` and possibly no region.
         :param require_separators: a bare digit run with no ``+``, separators or international prefix is not a number.
+
         :param skip_card_numbers: a Luhn-valid payment-card shape is not a number.
         :param require_national_prefix: a number written without ``+`` must carry the national prefix its number format
             writes (``20 7946 0958`` is not a British number, ``020 7946 0958`` is); False links it the way people dial
             locally. Applies with ``require_valid``.
+
         :param collapse_whitespace: read a run of HTML whitespace (tab, newline, form feed, carriage return, space) as
             the single space it renders as, so a number a source formatter broke across a line still reads as one.
         :param grouping: how closely the written digit groups must follow the number's format. Needs ``require_valid``.
+
         :param types: link only numbers of these resolved types; ``None`` links every type. Needs ``require_valid``.
         :param ignore_numbers_after: words that mark the digits right after them as an identifier.
         :raises TypeError: if a flag is not a bool, or ``grouping`` or ``types`` has the wrong type.
@@ -343,14 +348,15 @@ class PhoneNumber:
         Read a string that holds one phone number.
 
         The number starts at the first ``+`` or digit, so a ``tel:`` scheme or a word before it (``Tel: 650-253-0000``)
-        is skipped; characters that are neither digits, letters nor ``#`` are dropped from the end, and a second
-        number after ``/x`` is cut off. The remainder must be digits, separators and ASCII letters, with an extension
-        in any written form at the end, the auto-dialling ``650-253-0000,,1234`` and ``650-253-0000;1234`` included.
+        is skipped; characters that are neither digits, letters nor ``#`` are dropped from the end, and a second number
+        after ``/x`` is cut off. The remainder must be digits, separators and ASCII letters, with an extension in any
+        written form at the end, the auto-dialling ``650-253-0000,,1234`` and ``650-253-0000;1234`` included.
+
         Three or more letters make a vanity number whose letters are keypad digits (``1-800-FLOWERS``); fewer are
-        dropped. An RFC 3966 local number reads through its ``phone-context`` (``tel:2530000;phone-context=+1650``),
-        and ``;isub=`` ends the number. A number written without ``+`` is read with each of ``regions`` in turn, and
-        unlike detection it needs neither separators nor the national prefix its format writes, and a payment-card
-        shape is not refused. A string over 250 characters is no number.
+        dropped. An RFC 3966 local number reads through its ``phone-context`` (``tel:2530000;phone-context=+1650``), and
+        ``;isub=`` ends the number. A number written without ``+`` is read with each of ``regions`` in turn, and unlike
+        detection it needs neither separators nor the national prefix its format writes, and a payment-card shape is not
+        refused. A string over 250 characters is no number.
 
         :param text: the text holding the number.
         :param regions: the ordered fallback regions for a number written without ``+``.
@@ -491,6 +497,7 @@ class Linkify:
         ``mailto:`` URI.
     :param process_existing: run the callbacks over ``<a>`` tags already present, not only freshly detected links.
     :param extra_tlds: top-level domains that make a bare domain a link, on top of the built-in IANA table.
+
     :param schemes: the exact set of ``scheme://`` URL schemes that autolink; ``None`` keeps the built-in
         ``http``/``https``/``ftp`` default, so a typo scheme or a ``javascript://`` payload stays plain text. A bare
         domain is always treated as ``http`` and is governed by the TLD table, not ``schemes``.
@@ -658,6 +665,7 @@ class LinkDetector:
     :param bare_domains: detect bare domains (``example.com``) with no explicit scheme. A host behind a written
         scheme needs no dot, so ``http://localhost:8000/`` and ``http://[::1]/`` are links either way.
     :param tlds: custom top-level domains accepted for bare-domain matching, on top of the IANA table.
+
     :param schemes: extra schemes to detect, both as scheme-less opaque URLs (``tel:``, ``bitcoin:``) and as
         ``scheme://`` authority URLs, on top of the built-in ``http``/``https``/``ftp`` set; an unregistered scheme
         such as ``javascript://`` or a typo like ``hppt://`` is not detected.

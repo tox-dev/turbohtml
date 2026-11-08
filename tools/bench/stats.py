@@ -2,11 +2,13 @@
 Statistics for a measurement repeated over rounds.
 
 A robust estimate, plus enough spread to tell a real change from machine noise. A single pyperf mean is not enough to
-compare two builds. Thermal drift, background load, and memory pressure move this
-harness's numbers by tens of percent between rounds, which is larger than most changes worth shipping, so a lone
-before/after pair can point either way on identical code. :func:`summarize` reduces repeated rounds to a median and the
-dispersion around it, and :attr:`Summary.noisy` says whether that dispersion leaves room for a verdict at all. A caller
-that gates on a noisy metric is reading the machine, not the change.
+compare two builds. Thermal drift, background load, and memory pressure move this harness's numbers by tens of percent
+between rounds, which is larger than most changes worth shipping, so a lone before/after pair can point either way on
+identical code.
+
+:func:`summarize` reduces repeated rounds to a median and the dispersion around it, and :attr:`Summary.noisy` says
+whether that dispersion leaves room for a verdict at all. A caller that gates on a noisy metric is reading the machine,
+not the change.
 """
 
 from __future__ import annotations

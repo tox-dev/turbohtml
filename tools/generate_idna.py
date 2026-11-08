@@ -10,8 +10,10 @@ at the pinned Unicode version and writes one header that ``idna.c`` includes.
 The mapping status is collapsed to the four outcomes the ToASCII engine acts on -- keep, map, ignore, disallow.
 ``valid`` and ``deviation`` (non-transitional keeps the code point) both keep it; ``disallowed`` stays distinct so
 ``idna.c`` rejects the host (UTS #46 §4.1 validity criterion 6) instead of encoding a code point the WHATWG host parser
-forbids. Each fetched file is also pinned to the SHA-256 of its exact bytes, so a rebuild refuses a silently rewritten
-or poisoned mirror the version pin alone would not catch. The pinned mapping file is the "Compatible Preprocessing"
+forbids.
+
+Each fetched file is also pinned to the SHA-256 of its exact bytes, so a rebuild refuses a silently rewritten or
+poisoned mirror the version pin alone would not catch. The pinned mapping file is the "Compatible Preprocessing"
 variant, whose ``valid`` rows already fold in ``UseSTD3ASCIIRules=false`` (ASCII symbols such as ``_`` are ``valid``
 rather than ``disallowed_STD3_valid``), so no STD3 toggle is needed at run time.
 

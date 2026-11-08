@@ -3,11 +3,13 @@ Generate src/turbohtml/_c/data/phone_table.h from libphonenumber's numbering-pla
 
 The phone recognizer behind ``turbohtml.clean.linkify`` validates candidates against every numbering plan without a
 regex engine: each plan's patterns are compiled here, at generation time, into the automata ``phone_dfa`` builds, and
-the C walks tables. The source of truth is Google's ``PhoneNumberMetadata.xml`` at a pinned release tag, plus the
-``PhoneNumberUtil.java`` of the same tag for the extension grammar and the punctuation set (each copied constant must
-occur verbatim in the fetched file, so a tag bump without a grammar review fails), plus the Unicode Character Database
-files that define which code points are digits, letters, currency symbols and case-equivalent. Every fetched file is
-pinned by SHA-256 as well as by version, so a rebuild is deterministic and a poisoned mirror cannot land a table.
+the C walks tables.
+
+The source of truth is Google's ``PhoneNumberMetadata.xml`` at a pinned release tag, plus the ``PhoneNumberUtil.java``
+of the same tag for the extension grammar and the punctuation set (each copied constant must occur verbatim in the
+fetched file, so a tag bump without a grammar review fails), plus the Unicode Character Database files that define which
+code points are digits, letters, currency symbols and case-equivalent. Every fetched file is pinned by SHA-256 as well
+as by version, so a rebuild is deterministic and a poisoned mirror cannot land a table.
 
 The Python port ``phonenumbers`` is the conformance oracle, so the metadata tag follows the port's latest release.
 

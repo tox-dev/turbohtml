@@ -2,9 +2,10 @@ r"""
 Compile libphonenumber's bounded regular expressions into automata the C recognizer can walk without a regex engine.
 
 The metadata patterns use only literals, bracket classes, ``\\d``, alternation, non-capturing groups, ``?``, ``{n}``,
-``{n,m}``, capturing groups and a trailing ``$``; nothing else is accepted, so every language here is finite. One
-Thompson-style program (``CHAR``/``SPLIT``/``SAVE``/``END``/``MATCH``, RE2's ``Prog`` shape) is built from Python's own
-parse tree and then read three ways: an unordered subset construction with labeled accepts (the numbering plans, the
+``{n,m}``, capturing groups and a trailing ``$``; nothing else is accepted, so every language here is finite.
+
+One Thompson-style program (``CHAR``/``SPLIT``/``SAVE``/``END``/``MATCH``, RE2's ``Prog`` shape) is built from Python's
+own parse tree and then read three ways: an unordered subset construction with labeled accepts (the numbering plans, the
 routers, the extension grammar), an ordered-thread construction that reproduces Java's ``lookingAt`` choice without
 captures (the national-prefix and IDD patterns), and a Pike VM that recovers the transform group once that choice has
 fixed the match end. The digit alphabet is the symbols 0-9 plus ``END``; other alphabets pass a symbolizer.

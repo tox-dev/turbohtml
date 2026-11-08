@@ -4,11 +4,13 @@ Generate src/turbohtml/_c/data/psl_table.h from the Public Suffix List.
 The registrable-domain boundary behind :func:`turbohtml.extract.extract_links`'s ``external_only`` needs the multi-label
 public suffixes (``co.uk``, ``github.io``, the ``*.ck`` wildcards) that the single-label IANA table cannot express: a
 label such as ``co`` or ``tv`` is itself a delegated TLD, so a plain "trailing TLD labels" rule would wrongly fold
-``sub.tv.com`` into ``tv.com``. The canonical source of the multi-label rules is the Public Suffix List, so this
-downloads it, keeps only the rules with at least two labels (the single-label public suffixes are the IANA TLDs already
-in ``tld_table.h``), punycodes any Unicode labels so they match the ASCII hosts ``normalize_url`` emits, and writes a
-generated header shaped like ``tld_table.h``: a sorted ``{name, len, labels, kind}`` array plus a 256-entry first-byte
-index, so a candidate suffix is matched by bucketing on its first byte and a case-insensitive ``memcmp``.
+``sub.tv.com`` into ``tv.com``.
+
+The canonical source of the multi-label rules is the Public Suffix List, so this downloads it, keeps only the rules with
+at least two labels (the single-label public suffixes are the IANA TLDs already in ``tld_table.h``), punycodes any
+Unicode labels so they match the ASCII hosts ``normalize_url`` emits, and writes a generated header shaped like
+``tld_table.h``: a sorted ``{name, len, labels, kind}`` array plus a 256-entry first-byte index, so a candidate suffix
+is matched by bucketing on its first byte and a case-insensitive ``memcmp``.
 
 A rule's ``kind`` is 0 for a normal rule (``co.uk``), 1 for a wildcard rule stored with its ``*.`` prefix (``*.ck``,
 matching any single label in that position), and 2 for an exception rule stored without its leading ``!`` (``www.ck``,

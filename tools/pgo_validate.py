@@ -6,8 +6,10 @@ here. Measuring the profile-guided win on the inputs it trained on reports an op
 saw -15/-27% instructions flagged exactly that as a train-on-test ceiling -- so this harness measures a third, disjoint
 set of real pages (from the vendored mozilla/readability corpus, but different pages than either the training set or the
 bench) under two builds from identical source: LTO-only, the baseline the CodSpeed gate ships, and LTO+PGO, the release
-wheel. It reports the per-operation delta and passes only when no operation regresses beyond noise and the weighted mix
-shows a real gain, because a single per-operation regression is the overfit signature a held-out set exists to catch.
+wheel.
+
+It reports the per-operation delta and passes only when no operation regresses beyond noise and the weighted mix shows a
+real gain, because a single per-operation regression is the overfit signature a held-out set exists to catch.
 
 Instruction counts under cachegrind are the reproducible core number when Valgrind is available (as it is on the Linux
 CodSpeed runners); elsewhere the harness falls back to a best-of-batches wall-clock read. Run it directly:
