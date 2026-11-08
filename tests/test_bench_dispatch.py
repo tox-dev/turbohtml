@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import partial
 from types import FunctionType
-from typing import TYPE_CHECKING, Final, Protocol, TypeIs
+from typing import TYPE_CHECKING, Final, Protocol
 
 import pytest
 from bench.competitors.python_dispatch import OPERATIONS
@@ -13,6 +13,7 @@ from turbohtml.clean import collapse_whitespace_node, transform_node
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from typing import TypeIs
 
     from bench.operations import Timed
 
