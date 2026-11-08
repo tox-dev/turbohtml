@@ -31,7 +31,9 @@ if not (_DATA / "cern" / "data.html").exists():  # pragma: no cover
     )
     raise RuntimeError(message)
 
-pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+pytestmark: Final[pytest.MarkDecorator] = pytest.mark.skipif(
+    shutil.which("node") is None, reason="node is not installed"
+)
 
 
 class _Located(TypedDict):

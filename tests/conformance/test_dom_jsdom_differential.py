@@ -30,7 +30,9 @@ _NODE: Final[str | None] = shutil.which("node")
 _RUNNER: Final[Path] = Path(__file__).parents[2] / "tools" / "bench" / "node" / "dom_differential_runner.js"
 _JSDOM: Final[bool] = (_RUNNER.parent / "node_modules" / "jsdom").is_dir()
 
-pytestmark = pytest.mark.skipif(_NODE is None or not _JSDOM, reason="node with jsdom (tools/bench/node) not installed")
+pytestmark: Final[pytest.MarkDecorator] = pytest.mark.skipif(
+    _NODE is None or not _JSDOM, reason="node with jsdom (tools/bench/node) not installed"
+)
 
 
 def _desc(node: Node | None) -> str:

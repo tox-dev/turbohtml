@@ -500,7 +500,7 @@ def test_cssom_curated_shorthand_boundary(case_id: str, check: Check) -> None:
     assert _norm(check.prop, got) == _norm(check.prop, reference)
 
 
-_GRAMMAR: Final = css_grammar()
+_GRAMMAR: Final[object] = css_grammar()
 _SWEEP: Final[tuple[Generated, ...]] = generation_sweep(_GRAMMAR, budget=GenerationBudget(nodes=512, steps=128))
 _CASES: Final[tuple[Generated, ...]] = (
     *_SWEEP,
