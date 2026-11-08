@@ -64,7 +64,7 @@ class Program:
     slots: int
 
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Dfa:
     # Row 0 is the dead state, row 1 the start state; ``accepts[state]`` is 0 when the state does not accept.
     symbols: int
@@ -72,7 +72,7 @@ class Dfa:
     accepts: list[int]
 
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class PriorityDfa:
     # The ordered-thread automaton for a prefix or IDD pattern.
     #

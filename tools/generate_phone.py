@@ -321,7 +321,7 @@ class _ExtensionTables:
     symbol_of: dict[int, int]
 
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Tables:
     # Every compiled table the C recognizer reads: regions, groups, Unicode data and the extension grammar.
     regions: list[RegionTables]
@@ -630,7 +630,7 @@ def _prefix_shapes(program: Program, group: int) -> set[tuple[int, int]]:
     return shapes
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class _CompiledRegion:
     # One region's automata before validity floors are measured, bundled for ``_self_check_region`` and ``_floor``.
     region: Region
