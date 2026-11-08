@@ -29,7 +29,7 @@ import sys
 import time
 import unicodedata
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from functools import cache, partial
 from itertools import pairwise, starmap
@@ -335,7 +335,7 @@ def _meets(floor: Floor, stats: Counter[str]) -> bool:
     return compared >= floor.count and compared >= floor.ratio * (compared + stats["skipped"])
 
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Found:
     oracle: str
     detail: str
@@ -363,7 +363,7 @@ class _Run:
         self.stats[name]["compared"] += 1
         if detail is not None:
             if (key := (name, detail)) in self.found:
-                self.found[key].hits += 1
+                self.found[key] = replace(self.found[key], hits=self.found[key].hits + 1)
             else:
                 self.found[key] = _Found(oracle=name, detail=detail, text=text)
 
@@ -2194,15 +2194,17 @@ _JS_STRINGS: Final[tuple[str, ...]] = (
 )  # fmt: skip
 
 
-@dataclass(slots=True, kw_only=True)
 class _Script:
     # The state one generated script threads through: a source of fresh names and whether a ``return`` is legal.
     #
     # Fresh names keep ``let``/``const``/``class`` declarations from colliding, which acorn rejects as early errors;
     # references draw from the declared and free pools, so most of them bind (Domato's scope-threading rule).
-    rng: random.Random
-    declared: list[str] = field(default_factory=lambda: list(_JS_BOUND[:7]))
-    counter: int = 0
+    __slots__ = ("counter", "declared", "rng")
+
+    def __init__(self, *, rng: random.Random) -> None:
+        self.rng = rng
+        self.declared = list(_JS_BOUND[:7])
+        self.counter = 0
 
     def fresh(self) -> str:
         self.counter += 1

@@ -24,7 +24,7 @@ import re
 import string
 import sys
 import xml.etree.ElementTree as ET  # ruff:ignore[suspicious-xml-etree-import]  # the metadata is pinned by SHA-256, never untrusted
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
@@ -269,7 +269,7 @@ class _FormatTables:
     format: Format
 
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class RegionTables:
     # One region's compiled automata: plan, prefix, IDD and formats, plus the type labels and validity floors.
     region: Region
@@ -1018,9 +1018,10 @@ def compile_tables(sources: dict[str, bytes], seed: int = 758) -> Tables:
     for group in groups:
         # a reading validates against any plan of its calling code, so a region's floor is its group's shortest
         members = [compiled[index] for index in group.members]
-        for tables in members:
-            tables.floor_valid = min(item.floor_valid for item in members)
-            tables.floor_possible = min(item.floor_possible for item in members)
+        floor_valid = min(item.floor_valid for item in members)
+        floor_possible = min(item.floor_possible for item in members)
+        for index in group.members:
+            compiled[index] = replace(compiled[index], floor_valid=floor_valid, floor_possible=floor_possible)
     unicode = parse_unicode(sources["UnicodeData.txt"].decode("utf-8"), sources["Blocks.txt"].decode("utf-8"))
     max_lag = max((lag(tables.prefix) for tables in compiled if tables.prefix), default=0)
     max_lag = max(max_lag, *(lag(tables.idd) for tables in compiled if tables.idd))

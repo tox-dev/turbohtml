@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import random
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, NamedTuple
 
@@ -462,19 +462,22 @@ def _line(records: tuple[_Meaning, ...], *, inline: bool, breaks: bool) -> tuple
 
 
 def _tree(node: Element) -> _TreeNode:
-    element: Final = _TreeNode(
-        tag=node.tag if node.namespace is Namespace.HTML else f"{{{node.namespace.value}}}{node.tag}",
-        attrib={name: node.attr(name) or "" for name in node.attrs},
-    )
+    text: str = ""
+    children: list[_TreeNode] = []
     for child in node.children:
         if isinstance(child, Text):
-            if element.children:
-                element.children[-1].tail += child.text
+            if children:
+                children[-1] = replace(children[-1], tail=children[-1].tail + child.text)
             else:
-                element.text += child.text
+                text += child.text
         elif isinstance(child, Element):
-            element.children.append(_tree(child))
-    return element
+            children.append(_tree(child))
+    return _TreeNode(
+        tag=node.tag if node.namespace is Namespace.HTML else f"{{{node.namespace.value}}}{node.tag}",
+        attrib={name: node.attr(name) or "" for name in node.attrs},
+        text=text,
+        children=children,
+    )
 
 
 class MarkdownProfileError(ValueError):
@@ -487,7 +490,7 @@ def markdown_source_check(source: str, render: Callable[[Node], str] = Node.to_m
     return markdown_html_check(_READER.render(source), render)
 
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _TreeNode:
     # Mirror the element/text/tail shape the meaning walk reads, built from turbohtml's own tree.
     tag: str

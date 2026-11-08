@@ -13,7 +13,7 @@ fixed the match end. The digit alphabet is the symbols 0-9 plus ``END``; other a
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import pairwise, starmap
 from re import (
     _constants as sre_constants,  # ruff: ignore[import-private-name] # ty: ignore[import-not-found] # no public regex token API
@@ -42,7 +42,7 @@ SreItems: TypeAlias = list[tuple[object, object]]
 _PriorityKey: TypeAlias = tuple[tuple[int, ...], int]
 
 
-@dataclass(slots=True, kw_only=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Op:
     # One program instruction; ``next`` and ``alt`` index the program, ``arg`` is a symbol mask, a slot or a label.
     kind: int
@@ -109,7 +109,7 @@ class _Builder:
 
     def patch(self, outs: Iterable[tuple[int, str]], target: int) -> None:
         for index, attribute in outs:
-            setattr(self.ops[index], attribute, target)
+            self.ops[index] = replace(self.ops[index], **{attribute: target})
 
     def sequence(self, items: Sequence[tuple[object, object]]) -> _Fragment:
         fragments = list(starmap(self.item, items))
@@ -141,7 +141,7 @@ class _Builder:
             open_index = self.emit(SAVE, 2 * group)
             inner = self.sequence(items)
             close_index = self.emit(SAVE, 2 * group + 1)
-            self.ops[open_index].next = inner.start
+            self.ops[open_index] = replace(self.ops[open_index], next=inner.start)
             self.patch(inner.outs, close_index)
             self.slots = max(self.slots, 2 * group + 2)
             return _Fragment(start=open_index, outs=[(close_index, "next")])
@@ -180,8 +180,8 @@ class _Builder:
         fragment = alternatives[-1]
         for alternative in reversed(alternatives[:-1]):
             index = self.emit(SPLIT)
-            self.ops[index].next = alternative.start
-            self.ops[index].alt = fragment.start
+            self.ops[index] = replace(self.ops[index], next=alternative.start)
+            self.ops[index] = replace(self.ops[index], alt=fragment.start)
             fragment = _Fragment(start=index, outs=alternative.outs + fragment.outs)
         return fragment
 
@@ -190,7 +190,7 @@ class _Builder:
         copies = [self.sequence(items) for _ in range(low)]
         loop_split = self.emit(SPLIT)
         body = self.sequence(items)
-        self.ops[loop_split].next = body.start
+        self.ops[loop_split] = replace(self.ops[loop_split], next=body.start)
         self.patch(body.outs, loop_split)
         for previous, following in pairwise(copies):
             self.patch(previous.outs, following.start)
@@ -210,7 +210,7 @@ class _Builder:
         optional_start = -1
         for copy in reversed(copies[low:]):
             index = self.emit(SPLIT)
-            self.ops[index].next = copy.start
+            self.ops[index] = replace(self.ops[index], next=copy.start)
             if optional_start >= 0:
                 self.patch(copy.outs, optional_start)
             else:
