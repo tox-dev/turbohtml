@@ -135,3 +135,8 @@ _OPERATIONS: Final[dict[str, Callable[[], Callable[[str], JSON]]]] = {
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+__all__ = [
+    "JSON",
+]

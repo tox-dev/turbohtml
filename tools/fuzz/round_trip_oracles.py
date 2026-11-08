@@ -1260,7 +1260,7 @@ class _Invalid(Enum):
     INVALID = "invalid"
 
 
-_INVALID: Final = _Invalid.INVALID
+_INVALID: Final[_Invalid] = _Invalid.INVALID
 _Value: TypeAlias = _Invalid | str | int | float | tuple[str | int | float, ...] | None
 _SIDES: Final[tuple[str, ...]] = ("top", "right", "bottom", "left")
 _VALUE_KIND: Final[dict[str, str]] = {

@@ -49,7 +49,7 @@ from turbohtml.validate import RelaxNG, XMLSchema
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Sequence
 
-JSON: TypeAlias = "dict[str, JSON] | list[JSON] | tuple[JSON, ...] | str | int | float | bool | None"
+_JSON: TypeAlias = "dict[str, _JSON] | list[_JSON] | tuple[_JSON, ...] | str | int | float | bool | None"
 
 _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _C_SOURCES: Final[Path] = _ROOT / "src" / "turbohtml" / "_c"
@@ -92,7 +92,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     modes = parser.add_subparsers(dest="mode", required=True)
     regressions = modes.add_parser("regressions", help="re-score the committed super-linear regression list")
-    regressions.add_argument("--file", type=Path, default=_REGRESSIONS, help="the regression list (JSON)")
+    regressions.add_argument("--file", type=Path, default=_REGRESSIONS, help="the regression list (_JSON)")
     search = modes.add_parser("search", help="score shapes drawn from the harvested C literals for a budget")
     search.add_argument("--minutes", type=float, default=1.0, help="wall-clock budget of the search")
     search.add_argument(
@@ -487,7 +487,7 @@ def _fit(text: str) -> str:
     return text
 
 
-def _measurements(result: Score) -> dict[str, JSON]:
+def _measurements(result: Score) -> dict[str, _JSON]:
     return {
         "sizes": result.sizes,
         "seconds": result.seconds,
@@ -498,7 +498,7 @@ def _measurements(result: Score) -> dict[str, JSON]:
     }
 
 
-def _record(crash_dir: Path, target: str, shape: dict[str, JSON], details: dict[str, JSON]) -> None:
+def _record(crash_dir: Path, target: str, shape: dict[str, _JSON], details: dict[str, _JSON]) -> None:
     identity = {"target": target, "shape": shape}
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     (crash_dir / f"crash-{digest}.json").write_text(f"{json.dumps(identity | details, indent=2)}\n", encoding="utf-8")
