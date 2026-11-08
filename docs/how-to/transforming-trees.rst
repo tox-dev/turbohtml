@@ -16,12 +16,12 @@ the return value: later steps receive that copy, while the original remains avai
 
     from typing import Final
 
-    from turbohtml import parse_fragment
+    from turbohtml import Element, parse_fragment
     from turbohtml.clean import Policy, Sanitizer, collapse_whitespace_node, transform_node
 
-    original: Final = parse_fragment("<p>Hello   <b>world</b></p><!--editor-->")
-    sanitizer: Final = Sanitizer(Policy.relaxed())
-    cleaned: Final = transform_node(original, sanitizer.sanitize_node, collapse_whitespace_node)
+    original: Final[Element] = parse_fragment("<p>Hello   <b>world</b></p><!--editor-->")
+    sanitizer: Final[Sanitizer] = Sanitizer(Policy.relaxed())
+    cleaned: Final[Element] = transform_node(original, sanitizer.sanitize_node, collapse_whitespace_node)
     print(cleaned.inner_xml)
     print(original.inner_html)
 
@@ -44,7 +44,7 @@ Use a function, bound method, or callable object that accepts a ``Node``. Bind e
 .. testcode::
 
     from functools import partial
-    from turbohtml import Node
+    from turbohtml import Element, Node
     from turbohtml.clean import strip_comments_node
 
 
@@ -53,7 +53,7 @@ Use a function, bound method, or callable object that accepts a ``Node``. Bind e
             element.text = label
 
 
-    result: Final = transform_node(
+    result: Final[Element] = transform_node(
         original,
         partial(replace_label, label="reader"),
         strip_comments_node,
@@ -79,9 +79,11 @@ Pass ``inner=True`` to keep the context element out of the output while retainin
 
     from io import StringIO
 
-    paragraph: Final = result.find_all("p")[0]
+    from turbohtml import Element
+
+    paragraph: Final[Element] = result.find_all("p")[0]
     print(paragraph.encode(inner=True))
-    output: Final = StringIO()
+    output: Final[StringIO] = StringIO()
     for chunk in paragraph.serialize_iter(inner=True):
         _ = output.write(chunk)
     print(output.getvalue())
