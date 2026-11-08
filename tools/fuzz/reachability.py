@@ -66,12 +66,12 @@ def target_functions(target: Target) -> tuple[_Function, ...]:
     return tuple(dict.fromkeys(function for item in callables for function in _functions(item) if function.lines))
 
 
-def _resolve(export: str) -> object:
+def _resolve(export: str) -> object:  # simplint: ignore[SMP602]  # getattr returns whatever the module exports
     module, _, name = export.rpartition(".")
     return getattr(importlib.import_module(module), name)
 
 
-def _functions(item: object) -> Iterator[_Function]:
+def _functions(item: object) -> Iterator[_Function]:  # simplint: ignore[SMP602]  # any export until isfunction narrows
     if inspect.isfunction(item):
         yield _Function(name=item.__qualname__, path=_module_path(item.__module__), lines=_lines(item.__code__))
     elif inspect.isclass(item) and (methods := list(_methods(item))):
