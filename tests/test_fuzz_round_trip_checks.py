@@ -13,7 +13,7 @@ from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from subprocess import run  # ruff: ignore[suspicious-subprocess-import] - startup resolution needs a fresh interpreter.
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
 import html5lib
 import pytest
@@ -1375,9 +1375,17 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
+class _Engines(NamedTuple):
+    schema_mutation: ModuleType
+    xslt_inline: ModuleType
+    xsd_inline: ModuleType
+    rng_inline: ModuleType
+    etree: ModuleType
+
+
 @pytest.fixture
-def engines() -> tuple[ModuleType, ModuleType, ModuleType, ModuleType, ModuleType]:
-    return (
+def engines() -> _Engines:
+    return _Engines(
         pytest.importorskip("fuzz.schema_mutation", exc_type=ImportError),
         pytest.importorskip("fuzz.xslt_inline", exc_type=ImportError),
         pytest.importorskip("fuzz.xsd_inline", exc_type=ImportError),

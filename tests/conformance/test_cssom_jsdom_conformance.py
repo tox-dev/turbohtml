@@ -368,7 +368,14 @@ _CURATED_SHORTHAND_BOUNDARY: Final[tuple[Case, ...]] = (
 )
 
 
-def _norm(prop: str, value: str) -> str | tuple[int, int, int, float]:
+class _Rgba(NamedTuple):
+    red: int
+    green: int
+    blue: int
+    alpha: float
+
+
+def _norm(prop: str, value: str) -> str | _Rgba:
     # Canonicalize a computed value for comparison, folding a color to an ``(r, g, b, a)`` tuple.
     text = value.strip().lower()
     if prop not in frozenset({
@@ -397,15 +404,15 @@ def _norm(prop: str, value: str) -> str | tuple[int, int, int, float]:
         "currentcolor": (0, 0, 0, 1.0),  # resolves to the element's color, defaulting to canvastext (opaque black)
     }
     if text in named:
-        return named[text]
+        return _Rgba(*named[text])
     if (match := re.match(r"rgba?\(([^)]+)\)", text)) is not None:
         parts = [piece for piece in re.split(r"[ ,/]+", match.group(1)) if piece]
-        return (int(parts[0]), int(parts[1]), int(parts[2]), (float(parts[3]) if len(parts) > 3 else 1.0))
+        return _Rgba(int(parts[0]), int(parts[1]), int(parts[2]), (float(parts[3]) if len(parts) > 3 else 1.0))
     if text.startswith("#"):
         digits = text[1:]
         if len(digits) == 3:
             digits = "".join(char * 2 for char in digits)
-        return (int(digits[0:2], 16), int(digits[2:4], 16), int(digits[4:6], 16), 1.0)
+        return _Rgba(int(digits[0:2], 16), int(digits[2:4], 16), int(digits[4:6], 16), 1.0)
     return text
 
 

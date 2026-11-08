@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from itertools import starmap
 from pathlib import Path
-from typing import Final
+from typing import Final, NamedTuple
 
 import pytest
 
@@ -89,11 +89,17 @@ def _first(text: str) -> str | None:
     return spans[0].text if spans else None
 
 
-def _with_deviation(text: str, expected: str | None) -> tuple[str, str | None, str]:
+class _Expectation(NamedTuple):
+    text: str
+    expected: str | None
+    reason: str
+
+
+def _with_deviation(text: str, expected: str | None) -> _Expectation:
     if text in _DEVIATIONS:
         deviated, reason = _DEVIATIONS[text]
-        return text, deviated, reason
-    return text, expected, "linkify-it finds the same match"
+        return _Expectation(text, deviated, reason)
+    return _Expectation(text, expected, "linkify-it finds the same match")
 
 
 _LINKS: Final[list[tuple[str, str | None, str]]] = list(starmap(_with_deviation, _link_cases()))

@@ -4,7 +4,7 @@ import re
 from contextlib import nullcontext
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NamedTuple
 from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # the catalogs are trusted, pinned vendored fixtures
     ElementTree as ET,
 )
@@ -133,12 +133,22 @@ def _deviation_reason(attrib: dict[str, str], kind: str, source: str) -> str | N
     return None
 
 
-def _classify(attrib: dict[str, str], source: str) -> tuple[bool, bool, str | None]:
+class _Classification(NamedTuple):
+    skip: bool
+    expect_raise: bool
+    xfail_reason: str | None
+
+
+def _classify(attrib: dict[str, str], source: str) -> _Classification:
     # Return (skip, expect_raise, xfail_reason) for a case given its metadata and text.
     kind = attrib["TYPE"]
     if kind == "error":
-        return True, False, None  # the spec leaves reporting optional; assert nothing
-    return False, kind == "not-wf", _deviation_reason(attrib, kind, source)
+        return _Classification(
+            skip=True, expect_raise=False, xfail_reason=None
+        )  # the spec leaves reporting optional; assert nothing
+    return _Classification(
+        skip=False, expect_raise=kind == "not-wf", xfail_reason=_deviation_reason(attrib, kind, source)
+    )
 
 
 def _load() -> list[pytest.ParameterSet]:

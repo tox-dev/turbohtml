@@ -5,7 +5,7 @@ import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # drives the committed parse5 Node runner over a fixed argv, not external input
 from operator import itemgetter
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, TypedDict
+from typing import TYPE_CHECKING, Final, NamedTuple, TypedDict
 
 import pytest
 
@@ -21,7 +21,16 @@ _DATA: Final[Path] = _SUBMODULE / "test" / "data" / "location-info"
 _RUNNER: Final[Path] = Path(__file__).parents[2] / "tools" / "bench" / "node" / "parse5_location_runner.js"
 _CORPORA: Final[tuple[str, ...]] = ("cern", "dx", "github-parse5", "whatwg-html", "wiki-42")
 
-Span = tuple[int, int, int, int, int, int]
+
+class Span(NamedTuple):
+    start_line: int
+    start_col: int
+    start_offset: int
+    end_line: int
+    end_col: int
+    end_offset: int
+
+
 Field = Span | dict[str, Span] | None
 
 # The parse5 corpus is a vendored submodule, so its absence is a checkout mistake, not a runtime the environment may
@@ -55,7 +64,7 @@ def _p5_span(raw: list[int] | None) -> Span | None:
     if raw is None:
         return None
     start_line, start_col, start_off, end_line, end_col, end_off = raw
-    return (start_line, start_col - 1, start_off, end_line, end_col - 1, end_off)
+    return Span(start_line, start_col - 1, start_off, end_line, end_col - 1, end_off)
 
 
 def _parse5(html: str) -> dict[int, _Located]:
@@ -85,7 +94,7 @@ def _parse5(html: str) -> dict[int, _Located]:
 
 
 def _tb_span(span: SourceSpan) -> Span:
-    return (span.start_line, span.start_col, span.start_offset, span.end_line, span.end_col, span.end_offset)
+    return Span(span.start_line, span.start_col, span.start_offset, span.end_line, span.end_col, span.end_offset)
 
 
 def _turbohtml(html: str) -> dict[int, _Located]:

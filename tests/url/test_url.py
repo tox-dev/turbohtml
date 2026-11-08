@@ -4,7 +4,7 @@ import itertools
 import random
 import re
 from functools import partial
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 import pytest
 
@@ -1255,7 +1255,15 @@ def _reference_join(base: str, url: str) -> str:
     return _unsplit(scheme, bnetloc, _merge(bpath, path), query, fragment)
 
 
-def _split5(url: str) -> tuple[str | None, str | None, str, str | None, str | None]:
+class _Split(NamedTuple):
+    scheme: str | None
+    netloc: str | None
+    path: str
+    query: str | None
+    fragment: str | None
+
+
+def _split5(url: str) -> _Split:
     # CPython 3.14's ``_urlsplit`` reduced to a ``str``: leading strip, scheme, authority, query, and fragment.
     url = url.lstrip(_C0_OR_SPACE)
     for unsafe in "\t\r\n":
@@ -1275,7 +1283,7 @@ def _split5(url: str) -> tuple[str | None, str | None, str, str | None, str | No
         url, fragment = url.split("#", 1)
     if "?" in url:
         url, query = url.split("?", 1)
-    return scheme, netloc, url, query, fragment
+    return _Split(scheme, netloc, url, query, fragment)
 
 
 def _unsplit(scheme: str | None, netloc: str | None, path: str, query: str | None, fragment: str | None) -> str:

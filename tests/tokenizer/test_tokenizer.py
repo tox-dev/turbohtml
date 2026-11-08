@@ -7,7 +7,7 @@ import threading
 import time
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, TypeAlias
+from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 import pytest
 
@@ -28,10 +28,25 @@ def test_tokenize_simple_document() -> None:
 
 
 def _shape(token: Token) -> _Shape:
-    return (token.type, token.tag, token.target, token.data, token.attrs, token.self_closing)
+    return _Shape(token.type, token.tag, token.target, token.data, token.attrs, token.self_closing)
 
 
-_Shape: TypeAlias = tuple[TokenType, str | None, str | None, str | None, list[tuple[str, str]] | None, bool]
+class _Shape(NamedTuple):
+    token_type: TokenType
+    tag: str | None
+    target: str | None
+    data: str | None
+    attrs: list[tuple[str, str]] | None
+    self_closing: bool
+
+
+class _ReferenceShape(NamedTuple):
+    token_type: TokenType
+    tag: str | None
+    data: str | None
+    source: str | None
+    attrs: list[tuple[str, str]] | None
+    self_closing: bool
 
 
 def test_tokenize_empty_input() -> None:
@@ -815,8 +830,8 @@ def test_default_resolves_references_into_text() -> None:
     assert tag.type is TokenType.START_TAG
 
 
-def _reference_shape(token: Token) -> _Shape:
-    return (token.type, token.tag, token.data, token.source, token.attrs, token.self_closing)
+def _reference_shape(token: Token) -> _ReferenceShape:
+    return _ReferenceShape(token.type, token.tag, token.data, token.source, token.attrs, token.self_closing)
 
 
 def test_default_source_is_none() -> None:

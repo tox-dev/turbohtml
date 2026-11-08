@@ -8,7 +8,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Barrier
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
 import pytest
 from bench import core
@@ -3177,8 +3177,14 @@ def test_transform_import_root_blocks_file_swap(
         Transform(_import_sheet("inside/base.xsl"), base_url=str(root / "main.xsl"), import_root=root)
 
 
+class _SwapPaths(NamedTuple):
+    root: Path
+    inside: Path
+    outside: Path
+
+
 @pytest.fixture
-def import_swap_paths(tmp_path: Path) -> tuple[Path, Path, Path]:
+def import_swap_paths(tmp_path: Path) -> _SwapPaths:
     root = tmp_path / "styles"
     inside = root / "inside"
     outside = tmp_path / "outside"
@@ -3190,7 +3196,7 @@ def import_swap_paths(tmp_path: Path) -> tuple[Path, Path, Path]:
             f'<xsl:template match="/">{value}</xsl:template></xsl:stylesheet>',
             encoding="utf-8",
         )
-    return root, inside, outside
+    return _SwapPaths(root, inside, outside)
 
 
 def test_transform_import_root_reads_large_file(tmp_path: Path) -> None:

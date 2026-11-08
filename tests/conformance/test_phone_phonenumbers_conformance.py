@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 import phonenumbers
 import pytest
@@ -195,22 +195,28 @@ def test_format_writes_non_geographic_numbers_as_the_oracle(country_code: int) -
     _formats_agree(number)
 
 
-def _oracle_parse(text: str, region: str, *, require_valid: bool = True) -> tuple[int | None, str, str | None] | None:
+class _Parsed(NamedTuple):
+    country_code: int | None
+    national_number: str
+    extension: str | None
+
+
+def _oracle_parse(text: str, region: str, *, require_valid: bool = True) -> _Parsed | None:
     try:
         number = phonenumbers.parse(text, region)
     except phonenumbers.NumberParseException:
         return None
     if not (phonenumbers.is_valid_number if require_valid else phonenumbers.is_possible_number)(number):
         return None
-    return (number.country_code, phonenumbers.national_significant_number(number), number.extension)
+    return _Parsed(number.country_code, phonenumbers.national_significant_number(number), number.extension)
 
 
-def _our_parse(text: str, region: str, *, require_valid: bool = True) -> tuple[int, str, str | None] | None:
+def _our_parse(text: str, region: str, *, require_valid: bool = True) -> _Parsed | None:
     try:
         parsed = PhoneNumber.parse(text, regions=(region,), require_valid=require_valid)
     except ValueError:
         return None
-    return (parsed.country_code, parsed.national_number, parsed.extension)
+    return _Parsed(parsed.country_code, parsed.national_number, parsed.extension)
 
 
 @pytest.mark.parametrize("region", _REGION_PARAMS)
