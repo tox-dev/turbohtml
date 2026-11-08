@@ -196,34 +196,7 @@ class Recognizer:
     def _segment(self, text: str, digit_pos: int, left_bound: int) -> _Run | None:
         # a probe starts a run where the scanner or the matcher's resume put it, even inside a digit group
         digits_start = digit_pos
-        groups: list[_Group] = []
-        position = digits_start
-        second_number_cut = 0
-        separator = ""
-        while position < len(text) and len(groups) < 21 and position - digit_pos <= 250:
-            group_start = position
-            digits: list[str] = []
-            while position < len(text) and (value := _digit_value(self.tables, text[position])) >= 0:
-                digits.append(chr(0x30 + value))
-                position += 1
-            if not digits or len(digits) > 20:
-                break
-            groups.append(_Group(digits="".join(digits), separator=separator, start=group_start, end=position))
-            probe = position
-            punctuation = 0
-            while probe < len(text) and text[probe] in _PUNCTUATION and punctuation < _MAX_LEAD_PUNCTUATION:
-                if text[probe] == "/" and _second_number_start(text, probe):
-                    second_number_cut = self._second_number_end(text, probe)
-                    break
-                probe += 1
-                punctuation += 1
-            if second_number_cut:
-                break
-            if probe < len(text) and _digit_value(self.tables, text[probe]) >= 0 and probe > position:
-                separator = text[position:probe]
-                position = probe
-            else:
-                break
+        groups, second_number_cut = self._digit_groups(text, digits_start)
         if not groups:
             return None
         end = groups[-1].end
@@ -239,6 +212,39 @@ class Recognizer:
             poison=set(),
             second_number_cut=second_number_cut,
         )
+
+    def _digit_groups(self, text: str, digit_pos: int) -> tuple[list[_Group], int]:
+        groups: list[_Group] = []
+        position = digit_pos
+        separator = ""
+        while position < len(text) and len(groups) < 21 and position - digit_pos <= 250:
+            group_start = position
+            digits: list[str] = []
+            while position < len(text) and (value := _digit_value(self.tables, text[position])) >= 0:
+                digits.append(chr(0x30 + value))
+                position += 1
+            if not digits or len(digits) > 20:
+                break
+            groups.append(_Group(digits="".join(digits), separator=separator, start=group_start, end=position))
+            probe, second_number_cut = self._separator_probe(text, position)
+            if second_number_cut:
+                return groups, second_number_cut
+            if probe < len(text) and _digit_value(self.tables, text[probe]) >= 0 and probe > position:
+                separator = text[position:probe]
+                position = probe
+            else:
+                break
+        return groups, 0
+
+    def _separator_probe(self, text: str, position: int) -> tuple[int, int]:
+        probe = position
+        punctuation = 0
+        while probe < len(text) and text[probe] in _PUNCTUATION and punctuation < _MAX_LEAD_PUNCTUATION:
+            if text[probe] == "/" and _second_number_start(text, probe):
+                return probe, self._second_number_end(text, probe)
+            probe += 1
+            punctuation += 1
+        return probe, 0
 
     def _second_number_end(self, text: str, slash: int) -> int:
         position = slash + 1
@@ -395,29 +401,18 @@ class Recognizer:
                 extension = consumed[1]
                 last -= 1
         chunk = text[start:chunk_end]
-        if not _brackets_match(chunk) or _PUB_PAGES.search(chunk) or self._blocked_by_neighbors(text, start, chunk_end):
+        # MATCHING_BRACKETS folded to ``(``/``)``/``x``: an optional leading opener, an optional leading "text then
+        # closer", then at most three balanced pairs and no other bracket.
+        closers = frozenset(")]\uff09\uff3d")
+        folded = "".join("(" if char in _OPENERS else ")" if char in closers else "x" for char in chunk)
+        if (
+            not _MATCHING_BRACKETS.fullmatch(folded)
+            or _PUB_PAGES.search(chunk)
+            or self._blocked_by_neighbors(text, start, chunk_end)
+        ):
             return None
         digits = "".join(group.digits for group in run.groups[first:last])
-        lead = text[start : run.groups[first].start]
-        first_plus = next((index for index, char in enumerate(lead) if char in _PLUS), None)
-        plus = first_plus is not None
-        # VALID_PHONE_NUMBER takes plus signs at the very start only, so `+ +1` is not a viable number
-        if plus and any(char in _PLUS for char in lead[first_plus:].lstrip("".join(_PLUS))):
-            return None
-        if plus and self._country_code(digits)[0] is not None:
-            reading = self._international(digits, None)
-        else:
-            # after a plus that led to no calling code, parseHelper drops the plus and lets the default region's
-            # international prefix or own code read the digits; it never reads them as a national number
-            mode = "with-code" if plus else "idd" if self.config.require_separators and last - first == 1 else "any"
-            reading = next(
-                (
-                    found
-                    for region_index in self.regions
-                    if (found := self._national(region_index, digits, mode=mode)) is not None
-                ),
-                None,
-            )
+        reading = self._chunk_reading(digits, text[start : run.groups[first].start], last - first)
         if reading is None or not self._accepted_x_rules(text, start, chunk_end, reading, extension):
             return None
         return _Chunk(reading, chunk_end, extension)
@@ -436,6 +431,26 @@ class Recognizer:
         ):
             return True
         return bool(after) and (_is_latin_letter(self.tables, after) or _is_invalid_punctuation(self.tables, after))
+
+    def _chunk_reading(self, digits: str, lead: str, group_count: int) -> _Reading | None:
+        first_plus = next((index for index, char in enumerate(lead) if char in _PLUS), None)
+        plus = first_plus is not None
+        # VALID_PHONE_NUMBER takes plus signs at the very start only, so `+ +1` is not a viable number
+        if plus and any(char in _PLUS for char in lead[first_plus:].lstrip("".join(_PLUS))):
+            return None
+        if plus and self._country_code(digits)[0] is not None:
+            return self._international(digits, None)
+        # after a plus that led to no calling code, parseHelper drops the plus and lets the default region's
+        # international prefix or own code read the digits; it never reads them as a national number
+        mode = "with-code" if plus else "idd" if self.config.require_separators and group_count == 1 else "any"
+        return next(
+            (
+                found
+                for region_index in self.regions
+                if (found := self._national(region_index, digits, mode=mode)) is not None
+            ),
+            None,
+        )
 
     def _country_code(self, digits: str) -> tuple[int | None, int]:
         if digits.startswith("0"):
@@ -582,14 +597,7 @@ class Recognizer:
             if (not self._general(tables, digits) and self._general(tables, potential)) or len(
                 digits
             ) > self._max_possible(tables):
-                group = self.tables.groups[
-                    tables.region.country_code and self.tables.group_of_code[region.country_code]
-                ]
-                if group.main != region_index:
-                    potential = self._strip_prefix(self.tables.regions[group.main], potential, adopt=True)
-                else:
-                    potential = self._strip_prefix(tables, potential, adopt=True)
-                return self._validate(group, potential)
+                return self._code_prefixed_reading(region_index, potential)
         if mode == "with-code" or not MIN_NSN <= len(nsn := self._strip_prefix(tables, digits, adopt=True)) <= MAX_NSN:
             return None
         group = self.tables.groups[self.tables.group_of_code[region.country_code]]
@@ -604,6 +612,15 @@ class Recognizer:
     def _max_possible(tables: RegionTables) -> int:
         lengths = tables.region.possible_national | tables.region.possible_local_only
         return max(lengths) if lengths else 0
+
+    def _code_prefixed_reading(self, region_index: int, potential: str) -> _Reading | None:
+        tables = self.tables.regions[region_index]
+        group = self.tables.groups[tables.region.country_code and self.tables.group_of_code[tables.region.country_code]]
+        if group.main != region_index:
+            potential = self._strip_prefix(self.tables.regions[group.main], potential, adopt=True)
+        else:
+            potential = self._strip_prefix(tables, potential, adopt=True)
+        return self._validate(group, potential)
 
     def _prefix_present_if_required(self, main: RegionTables, raw_digits: str, nsn: str) -> bool:
         # Leniency.VALID's isNationalPrefixPresentIfRequired: the chosen format's rule, else the raw digits' prefix.
@@ -799,20 +816,6 @@ _PUB_PAGES: Final[re.Pattern[str]] = re.compile(
 _MATCHING_BRACKETS: Final[re.Pattern[str]] = re.compile(
     r"(?#x runs standing for digits, with up to three of them in brackets)\(?(?:x+\))?x+(?:\(x+\)){0,3}x*"
 )
-
-
-def _brackets_match(candidate: str) -> bool:
-    # MATCHING_BRACKETS folded to ``(``/``)``/``x``: the shape the upstream regex tests.
-    #
-    # An optional leading opener, an optional leading "text then closer", then at most three balanced pairs and
-    # no other bracket.
-    closers = frozenset(")]\uff09\uff3d")
-    return (
-        _MATCHING_BRACKETS.fullmatch(
-            "".join("(" if char in _OPENERS else ")" if char in closers else "x" for char in candidate)
-        )
-        is not None
-    )
 
 
 _HEX_DIGITS: Final[frozenset[str]] = frozenset(string.hexdigits)
