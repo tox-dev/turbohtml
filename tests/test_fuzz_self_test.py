@@ -11,7 +11,7 @@ import re
 import sys
 from pathlib import Path
 from subprocess import CompletedProcess, run  # ruff: ignore[suspicious-subprocess-import] - libFuzzer owns a separate interpreter.
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import pytest
 from fuzz.atheris_header import HEADER_SIZE, SEED_HEADER, Header
@@ -509,7 +509,7 @@ if TYPE_CHECKING:
 
 
 # only the fuzz-only build (meson -Dfuzzing=true) defines the hook, so the stubs omit it
-_HOOKS: Final = vars(importlib.import_module("turbohtml._html"))
+_HOOKS: Final[dict[str, Any]] = vars(importlib.import_module("turbohtml._html"))
 
 
 @pytest.fixture
