@@ -560,11 +560,13 @@ def idna_host_check(case: str, normalize: Callable[[str], str] = normalize_url) 
     mapped = affix + mapped
     expected: Final = (
         "https://"
-        + ".".join(
-            label if label.isascii() else f"xn--{label.encode('punycode').decode('ascii')}"
-            for label in mapped.split(".")
-        )
-        + ".example/"
+        f"""{
+            ".".join(
+                label if label.isascii() else f"xn--{label.encode('punycode').decode('ascii')}"
+                for label in mapped.split(".")
+            )
+        }"""
+        ".example/"
     )
     try:
         once = normalize(f"https://{affix}{source}.example/")
@@ -911,9 +913,9 @@ def xml_check(markup: str, serialize: Callable[[Node], str] = _xml) -> str | Non
     expected, got = [*_xml_dump(document), "#end"], [*_xml_dump(reread), "#end"]
     if expected == got:
         return None
-    return "xml re-read tree differs: " + next(
-        f"{want[:1]} vs {have[:1]}" for want, have in zip(expected, got, strict=False) if want != have
-    )
+    return f"""xml re-read tree differs: {
+        next(f"{want[:1]} vs {have[:1]}" for want, have in zip(expected, got, strict=False) if want != have)
+    }"""
 
 
 def _xml_has_unbound_prefix(document: Document) -> bool:
@@ -1866,12 +1868,12 @@ def _markdown_block(rng: random.Random, depth: int) -> str:
         choices += [
             lambda: f"<blockquote>{_markdown_block(rng, depth + 1)}</blockquote>",
             lambda: (
-                f"<{(kind := rng.choice(('ul', 'ol')))}>"
-                + "".join(
-                    f"<li>{inline() if rng.random() < 0.7 else _markdown_block(rng, depth + 1)}</li>"
-                    for _ in range(rng.randint(1, 3))
-                )
-                + f"</{kind}>"
+                f"""<{(kind := rng.choice(("ul", "ol")))}>{
+                    "".join(
+                        f"<li>{inline() if rng.random() < 0.7 else _markdown_block(rng, depth + 1)}</li>"
+                        for _ in range(rng.randint(1, 3))
+                    )
+                }</{kind}>"""
             ),
         ]
     return rng.choice(choices)()

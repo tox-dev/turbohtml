@@ -140,9 +140,7 @@ def _expected(program: bytes) -> tuple[str, ...]:
 
 def _model_snapshot(order: list[_Item], nodes: list[_Item]) -> str:
     markup: Final = "".join(
-        f"<{item.tag}"
-        + (f' data-x="{item.attribute}"' if item.attribute is not None else "")
-        + f">{item.text}</{item.tag}>"
+        f"""<{item.tag}{f' data-x="{item.attribute}"' if item.attribute is not None else ""}>{item.text}</{item.tag}>"""
         for item in order
     )
     return json.dumps((
