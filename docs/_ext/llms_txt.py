@@ -46,21 +46,6 @@ _SECTION_INDEX: Final[dict[str, str]] = {
     "development": "development/index",
 }
 
-_START_HERE: Final[tuple[tuple[str, str], ...]] = (
-    ("index", "turbohtml overview"),
-    ("tutorials/index", "Tutorials"),
-    ("how-to/index", "How-to guides"),
-    ("reference", "Reference"),
-    ("explanation/index", "Explanation"),
-    ("migration/index", "Migration guides"),
-)
-
-_DIATAXIS_NOTE: Final[str] = (
-    "The documentation follows the Diátaxis framework: tutorials to learn, how-to guides for tasks, a reference for "
-    "the API, and explanation for the design, plus migration guides from the libraries turbohtml replaces. Each index "
-    "is grouped by namespace -- parse/DOM, detect, query, clean, convert, extract, build, serialize."
-)
-
 
 def setup(app: Sphinx) -> dict[str, bool]:
     # Register the build-finished hook that writes the two llms map files.
@@ -128,16 +113,30 @@ def _render_curated(
     project_summary: str,
     link: Callable[..., str],
 ) -> str:
+    diataxis_note: str = (
+        "The documentation follows the Diátaxis framework: tutorials to learn, how-to guides for tasks, "
+        "a reference for the API, and explanation for the design, plus migration guides from the libraries "
+        "turbohtml replaces. "
+        "Each index is grouped by namespace -- parse/DOM, detect, query, clean, convert, extract, build, serialize."
+    )
     lines = [
         f"# {titles.get('index', 'turbohtml')}",
         "",
         f"> {project_summary}",
         "",
-        _DIATAXIS_NOTE,
+        diataxis_note,
         "",
         "## Start here",
     ]
-    lines += [link(docname, label) for docname, label in _START_HERE if docname in titles]
+    start_here: tuple[tuple[str, str], ...] = (
+        ("index", "turbohtml overview"),
+        ("tutorials/index", "Tutorials"),
+        ("how-to/index", "How-to guides"),
+        ("reference", "Reference"),
+        ("explanation/index", "Explanation"),
+        ("migration/index", "Migration guides"),
+    )
+    lines += [link(docname, label) for docname, label in start_here if docname in titles]
     for key, heading in (("tutorials", "Tutorials"), ("how-to", "How-to guides"), ("reference", "Reference")):
         lines += ["", f"## {heading}", *[link(docname) for docname in grouped[key]]]
     lines += ["", "## Explanation", *[link(docname) for docname in grouped["explanation"]]]
