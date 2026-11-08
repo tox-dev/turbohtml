@@ -17,13 +17,16 @@ import sys
 import tempfile
 import tomllib
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import pgo_build
 
 from .corpus import prefetch
 from .operations import OPERATIONS
 from .report import render
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _TOOLS_DIR: Final[Path] = Path(__file__).resolve().parents[1]
@@ -39,6 +42,15 @@ def _string_tuple(node: ast.Tuple) -> tuple[str, ...]:
     return tuple(el.value for el in node.elts if isinstance(el, ast.Constant) and isinstance(el.value, str))
 
 
+def _bindings(path: Path) -> Iterator[tuple[str, ast.expr | None]]:
+    # Yield each top-level name a competitor module binds, from a plain or an annotated assignment, with its value.
+    for node in ast.parse(path.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            yield node.target.id, node.value
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            yield node.targets[0].id, node.value
+
+
 def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]]:
     # Read each competitor's _REQUIREMENTS, OPERATIONS keys, and optional PIP_OPTIONS from source, without importing.
     found: dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]] = {}
@@ -48,13 +60,7 @@ def _discover() -> dict[str, tuple[tuple[str, ...], tuple[str, ...], tuple[str, 
         requirements: tuple[str, ...] = ()
         operation_names: tuple[str, ...] = ()
         pip_options: tuple[str, ...] = ()
-        for node in ast.parse(path.read_text(encoding="utf-8")).body:
-            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-                name, value = node.target.id, node.value
-            elif isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-                name, value = node.targets[0].id, node.value
-            else:
-                continue
+        for name, value in _bindings(path):
             if name == "_REQUIREMENTS" and isinstance(value, ast.Tuple):
                 requirements = _string_tuple(value)
             elif name == "PIP_OPTIONS" and isinstance(value, ast.Tuple):
