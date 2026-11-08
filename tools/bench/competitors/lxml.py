@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import functools
 from html import escape
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, Protocol, cast
 from urllib.parse import urljoin
 
 import lxml.etree as lxml_etree
@@ -311,18 +311,26 @@ _EXSLT_NS: Final[dict[str, str]] = {
 _SVG_NS: Final[dict[str, str]] = {"svg": "http://www.w3.org/2000/svg"}
 
 
-def _count_ext(_context: object, nodes: list[lxml_etree._Element]) -> float:
+class _ExtensionContext(Protocol):
+    """The private evaluation context lxml passes to an extension; no stub declares it, and these ignore it."""
+
+
+def _count_ext(_context: _ExtensionContext, nodes: list[lxml_etree._Element]) -> float:
     # Count the node-set; a trivial extension registered for the engine.
     return float(len(nodes))
 
 
-def _first_two_ext(_context: object, nodes: list[lxml_etree._Element]) -> list[lxml_etree._Element]:
+def _first_two_ext(_context: _ExtensionContext, nodes: list[lxml_etree._Element]) -> list[lxml_etree._Element]:
     # Return the first two nodes as a node-set; the cheapest non-trivial node-set return.
     return nodes[:2]
 
 
-_COUNT_EXTENSIONS = {(None, "ext_count"): _count_ext}
-_NODESET_EXTENSIONS = {(None, "ext_first_two"): _first_two_ext}
+_COUNT_EXTENSIONS: Final[dict[tuple[None, str], Callable[[_ExtensionContext, list[lxml_etree._Element]], float]]] = {
+    (None, "ext_count"): _count_ext
+}
+_NODESET_EXTENSIONS: Final[
+    dict[tuple[None, str], Callable[[_ExtensionContext, list[lxml_etree._Element]], list[lxml_etree._Element]]]
+] = {(None, "ext_first_two"): _first_two_ext}
 _REUSE: Final[lxml_etree.XPath] = lxml_etree.XPath("//a[@href]")
 
 
@@ -332,7 +340,7 @@ def _div_rows(text: str) -> list[lxml_etree._Element]:
     return _parsed(text).xpath("//div")
 
 
-_XPATH_CALLS: Final[dict[str, Callable[..., object]]] = {
+_XPATH_CALLS: Final[dict[str, Callable[[HtmlElement, str], object]]] = {
     "//div": lambda tree, _text: tree.xpath("//div"),
     "//a[@href]": lambda tree, _text: tree.xpath("//a[@href]"),
     "//div//a[@href]": lambda tree, _text: tree.xpath("//div//a[@href]"),

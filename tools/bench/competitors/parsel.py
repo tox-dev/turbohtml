@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import functools
 from html import escape
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Protocol
 from urllib.parse import urljoin
 
 from cssselect import HTMLTranslator
@@ -120,19 +120,27 @@ def translate(selector: str) -> None:
     _TRANSLATOR.css_to_xpath(selector)
 
 
-def _count_ext(_context: object, nodes: list[_lxml_etree._Element]) -> float:
+class _ExtensionContext(Protocol):
+    """The private evaluation context lxml passes to an extension; no stub declares it, and these ignore it."""
+
+
+def _count_ext(_context: _ExtensionContext, nodes: list[_lxml_etree._Element]) -> float:
     # Count the node-set; a trivial extension registered for the engine.
     return float(len(nodes))
 
 
-def _first_two_ext(_context: object, nodes: list[_lxml_etree._Element]) -> list[_lxml_etree._Element]:
+def _first_two_ext(_context: _ExtensionContext, nodes: list[_lxml_etree._Element]) -> list[_lxml_etree._Element]:
     # Return the first two nodes as a node-set; the cheapest non-trivial node-set return.
     return nodes[:2]
 
 
 _SVG_NS: Final[dict[str, str]] = {"svg": "http://www.w3.org/2000/svg"}
-_COUNT_EXTENSIONS = {(None, "ext_count"): _count_ext}
-_NODESET_EXTENSIONS = {(None, "ext_first_two"): _first_two_ext}
+_COUNT_EXTENSIONS: Final[dict[tuple[None, str], Callable[[_ExtensionContext, list[_lxml_etree._Element]], float]]] = {
+    (None, "ext_count"): _count_ext
+}
+_NODESET_EXTENSIONS: Final[
+    dict[tuple[None, str], Callable[[_ExtensionContext, list[_lxml_etree._Element]], list[_lxml_etree._Element]]]
+] = {(None, "ext_first_two"): _first_two_ext}
 _PRECOMPILED: Final[_lxml_etree.XPath] = _lxml_etree.XPath("//a[@href]")
 
 
@@ -142,7 +150,7 @@ def _div_rows(text: str) -> list[_lxml_etree._Element]:
     return [selector.root for selector in _parsed(text).xpath("//div")]
 
 
-_XPATH_CALLS: Final[dict[str, Callable[..., object]]] = {
+_XPATH_CALLS: Final[dict[str, Callable[[Selector, str], object]]] = {
     "//div": lambda sel, _text: sel.xpath("//div"),
     "//a[@href]": lambda sel, _text: sel.xpath("//a[@href]"),
     "//div//a[@href]": lambda sel, _text: sel.xpath("//div//a[@href]"),

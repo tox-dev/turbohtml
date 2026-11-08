@@ -5,7 +5,7 @@ from __future__ import annotations
 import gc
 import threading
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Final, NamedTuple, cast
+from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, cast
 
 from typing_extensions import override
 
@@ -561,13 +561,17 @@ class _Sax(SaxHandler):
         self.machine.nested(self.body)
 
 
+class _Event(Protocol):
+    def __call__(self, *args: object) -> None: ...
+
+
 class _Dispatch:
     # A Tokenizer.dispatch handler whose every html.parser event runs the nested program.
     def __init__(self, machine: _Machine, body: range) -> None:
         self.machine: Final = machine
         self.body: Final = body
 
-    def __getattr__(self, _name: str) -> Callable[..., None]:
+    def __getattr__(self, _name: str) -> _Event:
         return lambda *_args: self.machine.nested(self.body)
 
 

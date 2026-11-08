@@ -70,7 +70,7 @@ from ._attributes import fill_equality_pair
 from .timing import Mutating
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
     from types import SimpleNamespace
 
     from turbohtml import Element, Node
@@ -1130,12 +1130,18 @@ def _first_two_ext(_context: SimpleNamespace, nodes: list[Element]) -> list[Elem
 
 
 _SVG_NS: Final[dict[str, str]] = {"svg": "http://www.w3.org/2000/svg"}
-_COUNT_EXTENSIONS: Final[dict[tuple[str | None, str], Callable[[SimpleNamespace, list[Element]], float]]] = {
-    (None, "ext_count"): _count_ext
-}
-_NODESET_EXTENSIONS: Final[dict[tuple[str | None, str], Callable[[SimpleNamespace, list[Element]], list[Element]]]] = {
-    (None, "ext_first_two"): _first_two_ext
-}
+_COUNT_EXTENSIONS: Final[
+    dict[
+        tuple[str | None, str],
+        Callable[[SimpleNamespace, list[Element]], str | float | bool | Element | Iterable[Element]],
+    ]
+] = {(None, "ext_count"): _count_ext}
+_NODESET_EXTENSIONS: Final[
+    dict[
+        tuple[str | None, str],
+        Callable[[SimpleNamespace, list[Element]], str | float | bool | Element | Iterable[Element]],
+    ]
+] = {(None, "ext_first_two"): _first_two_ext}
 _REUSE: Final[turbohtml.XPath] = turbohtml.XPath("//a[@href]")
 _ID_REUSE: Final[turbohtml.XPath] = turbohtml.XPath(f"id('{' '.join(f'r{index}' for index in range(1_000))}')")
 
@@ -1146,7 +1152,7 @@ def _div_rows(text: str) -> list[turbohtml.Element]:
     return _parsed(text).select("div")
 
 
-_XPATH_CALLS: Final[dict[str, Callable[..., object]]] = {
+_XPATH_CALLS: Final[dict[str, Callable[[turbohtml.Document, str], object]]] = {
     "//div": lambda doc, _text: doc.xpath("//div"),
     "//a[@href]": lambda doc, _text: doc.xpath("//a[@href]"),
     "//div//a[@href]": lambda doc, _text: doc.xpath("//div//a[@href]"),
