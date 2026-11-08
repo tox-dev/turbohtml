@@ -1316,7 +1316,7 @@ def mutate(data: bytes, max_size: int, seed: int) -> bytes:
 
 
 fuzz(
-    [Target("benign", consume, ("capability_target.consume",), (UnicodeError,))],
+    [Target(name="benign", callback=consume, exports=("capability_target.consume",), exceptions=(UnicodeError,))],
     ["capability_target"],
     "benign",
     [
