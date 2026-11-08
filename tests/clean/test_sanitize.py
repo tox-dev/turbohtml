@@ -491,6 +491,20 @@ def test_style_scrubbing_drops_the_attribute(style: str) -> None:
     assert "style=" not in out
 
 
+def _style_policy(
+    *,
+    css_properties: frozenset[str] = DEFAULT_CSS_PROPERTIES,
+    attribute_filter: Callable[[str, str, str], str | None] | None = None,
+) -> Policy:
+    # A policy that allows <p style="...">, for exercising CSS scrubbing.
+    return Policy(
+        tags=frozenset({"p"}),
+        attributes={"p": frozenset({"style"})},
+        css_properties=css_properties,
+        attribute_filter=attribute_filter,
+    )
+
+
 @pytest.mark.parametrize(
     ("style", "expected"),
     [
@@ -560,20 +574,6 @@ def test_style_scrubbing_drops_the_attribute(style: str) -> None:
 def test_style_scrubbing_keeps_the_declarations(style: str, expected: str) -> None:
     out = sanitize(f'<p style="{style}">x</p>', _style_policy())
     assert expected in out
-
-
-def _style_policy(
-    *,
-    css_properties: frozenset[str] = DEFAULT_CSS_PROPERTIES,
-    attribute_filter: Callable[[str, str, str], str | None] | None = None,
-) -> Policy:
-    # A policy that allows <p style="...">, for exercising CSS scrubbing.
-    return Policy(
-        tags=frozenset({"p"}),
-        attributes={"p": frozenset({"style"})},
-        css_properties=css_properties,
-        attribute_filter=attribute_filter,
-    )
 
 
 def test_style_escaped_double_quote_opens_no_string() -> None:
@@ -810,6 +810,20 @@ def test_allowed_styles_drops_the_attribute(style: str) -> None:
     assert "style=" not in out
 
 
+def _allowed_styles_policy(
+    allowed_styles: Mapping[str, Mapping[str, Sequence[str | re.Pattern[str]]]],
+    *,
+    css_properties: frozenset[str] = frozenset({"color", "text-align", "width"}),
+) -> Policy:
+    # A <p style> / <span style> policy carrying a per-property value allowlist for exercising allowed_styles.
+    return Policy(
+        tags=frozenset({"p", "span"}),
+        attributes={"*": frozenset({"style"})},
+        css_properties=css_properties,
+        allowed_styles=allowed_styles,
+    )
+
+
 @pytest.mark.parametrize(
     ("style", "expected"),
     [
@@ -827,20 +841,6 @@ def test_allowed_styles_keeps_the_declarations(style: str, expected: str) -> Non
         }),
     )
     assert expected in out
-
-
-def _allowed_styles_policy(
-    allowed_styles: Mapping[str, Mapping[str, Sequence[str | re.Pattern[str]]]],
-    *,
-    css_properties: frozenset[str] = frozenset({"color", "text-align", "width"}),
-) -> Policy:
-    # A <p style> / <span style> policy carrying a per-property value allowlist for exercising allowed_styles.
-    return Policy(
-        tags=frozenset({"p", "span"}),
-        attributes={"*": frozenset({"style"})},
-        css_properties=css_properties,
-        allowed_styles=allowed_styles,
-    )
 
 
 def test_allowed_styles_wildcard_applies_to_every_tag() -> None:
