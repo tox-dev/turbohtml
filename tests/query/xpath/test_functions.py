@@ -286,11 +286,11 @@ def test_filter_base_node_set_continues_as_path(doc: turbohtml.Node) -> None:
     assert tags(doc.xpath("(//div)/p")) == ["p", "p", "p"]
 
 
-XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
-
-
 def tags(result: XPathResult) -> list[str]:
     return [node.tag if isinstance(node, Element) else str(node) for node in node_list(result)]
+
+
+XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
 
 
 def node_list(result: XPathResult) -> Sequence[turbohtml.Node | str | float]:
