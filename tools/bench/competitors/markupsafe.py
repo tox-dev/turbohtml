@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import functools
-from typing import Final, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import markupsafe
+
+if TYPE_CHECKING:
+    from bench.operations import Case
 
 REQUIREMENTS: Final[tuple[str, ...]] = ("markupsafe>=3",)
 
@@ -24,7 +27,7 @@ def _markup_of(text: str) -> markupsafe.Markup:
     return markupsafe.Markup(text)  # ruff:ignore[unsafe-markup-use]  # fixed benchmark fixture, not untrusted input
 
 
-def markup_op(case: tuple[str, object]) -> None:
+def markup_op(case: tuple[str, Case]) -> None:
     # Run one Markup method (striptags/unescape/format/join) on markupsafe's Markup, by case kind.
     kind, payload = case
     if kind == "striptags":

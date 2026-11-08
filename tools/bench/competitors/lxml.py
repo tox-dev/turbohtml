@@ -309,12 +309,12 @@ _EXSLT_NS: Final[dict[str, str]] = {
 _SVG_NS: Final[dict[str, str]] = {"svg": "http://www.w3.org/2000/svg"}
 
 
-def _count_ext(_context: object, nodes: list[object]) -> float:
+def _count_ext(_context: object, nodes: list[lxml_etree._Element]) -> float:
     # Count the node-set; a trivial extension registered for the engine.
     return float(len(nodes))
 
 
-def _first_two_ext(_context: object, nodes: list[object]) -> list[object]:
+def _first_two_ext(_context: object, nodes: list[lxml_etree._Element]) -> list[lxml_etree._Element]:
     # Return the first two nodes as a node-set; the cheapest non-trivial node-set return.
     return nodes[:2]
 
@@ -325,7 +325,7 @@ _REUSE: Final[lxml_etree.XPath] = lxml_etree.XPath("//a[@href]")
 
 
 @functools.cache
-def _div_rows(text: str) -> object:
+def _div_rows(text: str) -> list[lxml_etree._Element]:
     # Return the document's <div> elements, cached so the node-set variable case times only the reuse.
     return _parsed(text).xpath("//div")
 

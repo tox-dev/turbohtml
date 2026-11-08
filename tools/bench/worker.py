@@ -20,14 +20,14 @@ from typing import TYPE_CHECKING
 
 import pyperf
 
-from bench.operations import INPUTS, MEMORY_OPS, SIZE_OPS
+from bench.operations import INPUTS, MEMORY_OPS, SIZE_OPS, Case
 from bench.timing import Mutating
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-def _timed(mutating: Mutating, arg: object) -> Callable[[int], float]:
+def _timed(mutating: Mutating, arg: Case) -> Callable[[int], float]:
     # Return a ``bench_time_func`` body: rebuild a fresh tree per iteration (untimed), clock only the mutation.
     def inner(loops: int) -> float:
         setup, run = mutating.setup, mutating.run
@@ -45,7 +45,7 @@ def _timed(mutating: Mutating, arg: object) -> Callable[[int], float]:
     return inner
 
 
-def _bench(runner: pyperf.Runner, name: str, func: object, arg: object) -> pyperf.Benchmark | None:
+def _bench(runner: pyperf.Runner, name: str, func: object, arg: Case) -> pyperf.Benchmark | None:
     # Measure one case: a mutating operation through ``bench_time_func``, any other through ``bench_func``.
     if isinstance(func, Mutating):
         return runner.bench_time_func(name, _timed(func, arg))

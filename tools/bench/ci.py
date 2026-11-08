@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Final
 from . import corpus
 from .core import OPERATIONS
 from .corpus import CORPUS_FILES, JS_FILES, REAL_PAGES, STYLESHEETS, corpus_text, large_text
-from .operations import INPUTS
+from .operations import INPUTS, Case
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -529,7 +529,7 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
 }
 
 
-def _inline(operation: str, case_index: int = 0) -> object:
+def _inline(operation: str, case_index: int = 0) -> Case:
     # Return one case the bench already defines inline for ``operation`` (no corpus needed).
     return INPUTS[operation]()[case_index][1]
 

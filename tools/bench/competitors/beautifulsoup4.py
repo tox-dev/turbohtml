@@ -47,7 +47,7 @@ def construct(count: int) -> None:
 
 
 @functools.cache
-def _tree(count: int) -> object:
+def _tree(count: int) -> Tag:
     # Return a built ``<ul>`` of ``count`` rows, cached so ``serialize`` times only the emit step.
     soup = BeautifulSoup("", "html.parser")
     ul = soup.new_tag("ul")
@@ -60,7 +60,7 @@ def _tree(count: int) -> object:
 
 def emit(count: int) -> None:
     # Emit a pre-built ``count``-row tree with ``.decode()``.
-    _ = _tree(count).decode()  # ty: ignore[unresolved-attribute]  # bs4 Tag has no stubs
+    _ = _tree(count).decode()
 
 
 def _fresh(text: str) -> BeautifulSoup:

@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from itertools import product
 from textwrap import dedent
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, TypeAlias
 
 from . import corpus
 from .corpus import (
@@ -33,6 +33,8 @@ from .corpus import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+Case: TypeAlias = str | int | bytes | tuple["Case", ...]
 
 _ROWS: Final[tuple[tuple[str, int], ...]] = (("100 rows", 100), ("1k rows", 1_000), ("10k rows", 10_000))
 
@@ -545,14 +547,14 @@ OPERATIONS: Final[dict[str, Operation]] = {
 }
 
 
-def _sax_record_cases() -> tuple[tuple[str, object], ...]:
+def _sax_record_cases() -> tuple[tuple[str, Case], ...]:
     return (
         ("4,096 small elements", f"<!DOCTYPE html>{'<p>x</p>' * 4096}"),
         ("one small element", "<p>x</p>"),
     )
 
 
-def _parse_cases() -> tuple[tuple[str, object], ...]:
+def _parse_cases() -> tuple[tuple[str, Case], ...]:
     # Return the corpus documents the parse suite runs over (loaded from the html5lib-python submodule).
     return (
         *((name, corpus_text(relative, encoding)) for name, relative, encoding in CORPUS_FILES),
@@ -560,11 +562,11 @@ def _parse_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _dispatch_cases() -> tuple[tuple[str, object], ...]:
+def _dispatch_cases() -> tuple[tuple[str, Case], ...]:
     return tuple((f"{count} stages", count) for count in (0, 1, 4, 16))
 
 
-def _collapse_cases() -> tuple[tuple[str, object], ...]:
+def _collapse_cases() -> tuple[tuple[str, Case], ...]:
     return (
         *_readpath_cases(),
         ("unchanged text (1 MiB)", f"<p>{'x' * 1_048_576}</p>"),
@@ -572,7 +574,7 @@ def _collapse_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _readpath_cases() -> tuple[tuple[str, object], ...]:
+def _readpath_cases() -> tuple[tuple[str, Case], ...]:
     # Return the pages the read-path operations parse once then query.
     #
     # Real saved web pages (a blog, a news article, a product blog) spanning 10-95 kB, plus the whatwg spec at 235 kB.
@@ -585,7 +587,7 @@ def _readpath_cases() -> tuple[tuple[str, object], ...]:
     return tuple(pages)
 
 
-def _stream_cases() -> tuple[tuple[str, object], ...]:
+def _stream_cases() -> tuple[tuple[str, Case], ...]:
     wide_paragraph: Final = f"<p>{'名' * 4089}</p>"
     wide_body: Final = wide_paragraph * 64
     prefix: Final = "<html><head></head><body>"
@@ -974,7 +976,7 @@ def _dense_styled_page(sections: int) -> str:
     return f"<html><head><style>{_DENSE_SHEET}</style></head><body>{section * sections}</body></html>"
 
 
-def _annotation_rule_cases() -> tuple[tuple[str, object], ...]:
+def _annotation_rule_cases() -> tuple[tuple[str, Case], ...]:
     unrelated = (
         *tuple(
             (tag, (tag,))
@@ -1053,7 +1055,7 @@ def _annotation_rule_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _xpath_cases() -> tuple[tuple[str, object], ...]:
+def _xpath_cases() -> tuple[tuple[str, Case], ...]:
     # Return one (label, (kind, text)) pair per XPath feature over the 9.6 kB page; the namespaced row carries SVG.
     _name, relative, encoding = CORPUS_FILES[2]
     text = corpus_text(relative, encoding)
@@ -1105,8 +1107,8 @@ _XSLT_SOURCE: Final[str] = (
 )
 
 
-def _transform_text_cases() -> tuple[tuple[str, object], ...]:
-    cases: Final[list[tuple[str, object]]] = []
+def _transform_text_cases() -> tuple[tuple[str, Case], ...]:
+    cases: Final[list[tuple[str, Case]]] = []
     payload: Final = "payload " * 8
     for kind in ("builtin", "literal", "xsl:text"):
         for count in (4096, 4):
@@ -1124,7 +1126,7 @@ def _transform_text_cases() -> tuple[tuple[str, object], ...]:
     return tuple(cases)
 
 
-def _transform_key_cases() -> tuple[tuple[str, object], ...]:
+def _transform_key_cases() -> tuple[tuple[str, Case], ...]:
     return tuple(
         (
             f"{label} ({count:,} nodes)",
@@ -1148,8 +1150,8 @@ def _transform_key_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _transform_scope_cases() -> tuple[tuple[str, object], ...]:
-    cases: Final[list[tuple[str, object]]] = []
+def _transform_scope_cases() -> tuple[tuple[str, Case], ...]:
+    cases: Final[list[tuple[str, Case]]] = []
     for scope, count in (("local", 1024), ("local", 4), ("global", 1024), ("global", 4)):
         declarations: Final = "".join(f'<xsl:variable name="v{index}" select="{index}"/>' for index in range(count))
         sheet: Final = (
@@ -1163,8 +1165,8 @@ def _transform_scope_cases() -> tuple[tuple[str, object], ...]:
     return tuple(cases)
 
 
-def _transform_namespace_cases() -> tuple[tuple[str, object], ...]:
-    cases: Final[list[tuple[str, object]]] = []
+def _transform_namespace_cases() -> tuple[tuple[str, Case], ...]:
+    cases: Final[list[tuple[str, Case]]] = []
     for label, depth, count, namespaced, alternating in (
         ("deep repeated leaf", 32, 512, True, False),
         ("deep alternating leaves", 32, 512, True, True),
@@ -1193,7 +1195,7 @@ def _transform_namespace_cases() -> tuple[tuple[str, object], ...]:
     return tuple(cases)
 
 
-def _transform_cases() -> tuple[tuple[str, object], ...]:
+def _transform_cases() -> tuple[tuple[str, Case], ...]:
     # Return the one XSLT case: a real stylesheet (sort, key, number, format-number) over a 120-row catalog.
     return (
         (
@@ -1232,12 +1234,12 @@ _XSLT_COMPILE_SHEET: Final[str] = (
 )
 
 
-def _transform_compile_cases() -> tuple[tuple[str, object], ...]:
+def _transform_compile_cases() -> tuple[tuple[str, Case], ...]:
     # Make static analysis outweigh the one used template.
     return (("300 templates", (_XSLT_COMPILE_SHEET, "<root/>")),)
 
 
-def _transform_sort_cases() -> tuple[tuple[str, object], ...]:
+def _transform_sort_cases() -> tuple[tuple[str, Case], ...]:
     xslt_sort_sheet = (
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
         '<xsl:template match="/"><out><xsl:for-each select="r/n">'
@@ -1293,12 +1295,12 @@ _XSLT_DENSE_SOURCE: Final[str] = (
 )
 
 
-def _transform_dense_cases() -> tuple[tuple[str, object], ...]:
+def _transform_dense_cases() -> tuple[tuple[str, Case], ...]:
     # Return the instruction-dense XSLT case: a template of 56 xsl:* instructions applied over 200 nodes.
     return (("instruction-dense (200 nodes)", (_XSLT_DENSE_SHEET, _XSLT_DENSE_SOURCE)),)
 
 
-def _transform_name_cases() -> tuple[tuple[str, object], ...]:
+def _transform_name_cases() -> tuple[tuple[str, Case], ...]:
     return tuple(
         (
             f"{count} unused declarations per kind, 256 calls",
@@ -1325,7 +1327,7 @@ def _transform_name_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _transform_number_cases() -> tuple[tuple[str, object], ...]:
+def _transform_number_cases() -> tuple[tuple[str, Case], ...]:
     return (
         tuple(
             (
@@ -1358,7 +1360,7 @@ def _transform_number_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _transform_any_number_cases() -> tuple[tuple[str, object], ...]:
+def _transform_any_number_cases() -> tuple[tuple[str, Case], ...]:
     return tuple(
         (
             f"any: {rows:,} {'node' if rows == 1 else 'nodes'} / {variant}",
@@ -1399,7 +1401,7 @@ def _transform_any_number_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _transform_pattern_number_cases() -> tuple[tuple[str, object], ...]:
+def _transform_pattern_number_cases() -> tuple[tuple[str, Case], ...]:
     return tuple(
         (
             f"any: {rows:,} {'node' if rows == 1 else 'nodes'} / {variant}",
@@ -1442,7 +1444,7 @@ def _transform_pattern_number_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _transform_number_prefix_cases() -> tuple[tuple[str, object], ...]:
+def _transform_number_prefix_cases() -> tuple[tuple[str, Case], ...]:
     return tuple(
         (
             f"any: 1,024 nodes / {variant}",
@@ -1471,14 +1473,14 @@ def _transform_number_prefix_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _token_attribute_cases() -> tuple[tuple[str, object], ...]:
+def _token_attribute_cases() -> tuple[tuple[str, Case], ...]:
     return tuple(
         (f"{count} attributes", f"<p {' '.join(f'a{index}={index}' for index in range(count))}>")
         for count in (100, 0, 1, 10)
     )
 
 
-def _tokenize_cases() -> tuple[tuple[str, object], ...]:
+def _tokenize_cases() -> tuple[tuple[str, Case], ...]:
     # Return synthetic and corpus documents for the tokenization table.
     corpus_cases = tuple((name, corpus_text(relative, encoding)) for name, relative, encoding in CORPUS_FILES)
     large_cases = tuple((name, large_text(filename, url)) for name, filename, url in LARGE_FILES)
@@ -1497,7 +1499,7 @@ def _tokenize_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _minify_cases() -> tuple[tuple[str, object], ...]:
+def _minify_cases() -> tuple[tuple[str, Case], ...]:
     return (
         *((name, large_text(filename, url)) for name, filename, url in STYLESHEETS),
         *(
@@ -1538,7 +1540,7 @@ def _minify_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _minify_js_cases() -> tuple[tuple[str, object], ...]:
+def _minify_js_cases() -> tuple[tuple[str, Case], ...]:
     # Return the real-world JavaScript libraries the minify operation shrinks, a size ladder.
     return tuple((name, large_text(filename, url)) for name, filename, url in JS_FILES)
 
@@ -1594,7 +1596,7 @@ _ENCODING_RUSSIAN: Final[str] = "Программирование помогае
 _ENCODING_JAPANESE: Final[str] = "日本語のテキストをここに書きます。今日はとても良い天気ですね。"
 
 
-def _encoding_cases() -> tuple[tuple[str, object], ...]:
+def _encoding_cases() -> tuple[tuple[str, Case], ...]:
     # Return the byte streams the encoding-detection suite sniffs.
     #
     # Natural-language prose re-encoded into the legacy encodings the detectors compete on, plus pure ASCII (the
@@ -1610,7 +1612,7 @@ def _encoding_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _decode_cases() -> tuple[tuple[str, object], ...]:
+def _decode_cases() -> tuple[tuple[str, Case], ...]:
     # Return the byte streams the WHATWG decoders turn into str, each paired with the label that names its decoder.
     #
     # windows-1252 covers the single-byte tables, shift_jis and gb18030 the two- and four-byte state machines, and
@@ -1636,7 +1638,7 @@ def _decode_page(text: str) -> str:
     return f"<html><body>{rows}</body></html>"
 
 
-def _normalize_cases() -> tuple[tuple[str, object], ...]:
+def _normalize_cases() -> tuple[tuple[str, Case], ...]:
     # Return the strings the Unicode-normalization suite folds to NFC.
     #
     # The ASCII book matches the CodSpeed case. Already-NFC prose and a real page exercise the quick-check path, while
@@ -1657,7 +1659,7 @@ def _normalize_cases() -> tuple[tuple[str, object], ...]:
     )
 
 
-def _language_cases() -> tuple[tuple[str, object], ...]:
+def _language_cases() -> tuple[tuple[str, Case], ...]:
     return (
         ("english book (64 KiB)", corpus.corpus("war-and-peace/2600.txt", 1 << 16)),
         ("cyrillic prose (4 KiB)", _ENCODING_RUSSIAN * 50),
@@ -1822,7 +1824,7 @@ def _encoding_result_cases() -> tuple[tuple[str, bytes], ...]:
     )
 
 
-INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, object], ...]]]] = {
+INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "startup": lambda: (("fresh import and version", "import"), ("fresh CLI minification", "minify")),
     "radio-group": _radio_group_cases,
     "form-data-fieldsets": _form_data_fieldset_cases,
@@ -3005,4 +3007,5 @@ __all__ = [
     "MEMORY_OPS",
     "OPERATIONS",
     "SIZE_OPS",
+    "Case",
 ]

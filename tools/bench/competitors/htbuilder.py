@@ -5,7 +5,7 @@ from __future__ import annotations
 import functools
 from typing import Final
 
-from htbuilder import li, ul
+from htbuilder import HtmlElement, li, ul
 
 REQUIREMENTS: Final[tuple[str, ...]] = ("htbuilder>=0.9",)
 
@@ -22,7 +22,7 @@ def construct(count: int) -> None:
 
 
 @functools.cache
-def _tree(count: int) -> object:
+def _tree(count: int) -> HtmlElement:
     # Return a built ``<ul>`` of ``count`` rows, cached so ``str`` times only the emit step.
     return ul(*[li(_class="item", data_i=str(index))(f"item {index}") for index in range(count)])
 

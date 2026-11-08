@@ -70,8 +70,11 @@ from .timing import Mutating
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import SimpleNamespace
 
-    from turbohtml import Node
+    from turbohtml import Element, Node
+
+    from .operations import Case
 
 _SANITIZER: Final[_Sanitizer] = _Sanitizer(_Policy.relaxed())
 _DISALLOWED_SANITIZERS: Final[dict[str, _Sanitizer]] = {
@@ -752,7 +755,7 @@ def _markup_of(text: str) -> _Markup:
     return _Markup(text)
 
 
-def _markup_op(case: tuple[str, object]) -> None:
+def _markup_op(case: tuple[str, Case]) -> None:
     # Run one Markup method (striptags/unescape/format/join) on turbohtml's Markup, by case kind.
     kind, payload = case
     if kind == "striptags":
@@ -1121,12 +1124,12 @@ def _transform_reuse(case: tuple[str, str]) -> None:
         compiled(document)
 
 
-def _count_ext(_context: object, nodes: list[object]) -> float:
+def _count_ext(_context: SimpleNamespace, nodes: list[Element]) -> float:
     # Count the node-set; a trivial extension registered for the engine.
     return float(len(nodes))
 
 
-def _first_two_ext(_context: object, nodes: list[object]) -> list[object]:
+def _first_two_ext(_context: SimpleNamespace, nodes: list[Element]) -> list[Element]:
     # Return the first two nodes as a node-set; the cheapest non-trivial node-set return.
     return nodes[:2]
 
