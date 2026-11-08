@@ -58,11 +58,7 @@ if TYPE_CHECKING:
 
 
 class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors pyquery's broad chainable method set
-    """
-    An ordered, duplicate-free set of elements with chainable traversal and mutation.
-
-    :param source: HTML to parse, a single Element or Document, or an iterable of Elements.
-    """
+    """An ordered, duplicate-free set of elements with chainable traversal and mutation."""
 
     def __init__(self, source: str | Element | Document | Iterable[Element]) -> None:
         """
@@ -129,7 +125,6 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         Return the wrapped element at the given index.
 
         :param index: the position of the element in the set.
-
         :returns: the wrapped element at the index.
         """
         return self._nodes[index]
@@ -139,7 +134,6 @@ class Query:  # ruff:ignore[too-many-public-methods]  # a fluent wrapper mirrors
         Return whether other is a query wrapping the same elements in the same order.
 
         :param other: the object to compare with.
-
         :returns: whether the other object is a query with the same elements in order.
         """
         return isinstance(other, Query) and self._nodes == other._nodes

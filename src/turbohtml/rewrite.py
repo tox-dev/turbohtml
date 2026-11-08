@@ -80,7 +80,7 @@ class CommentHandler(Protocol):
         """
         Edit the ``comment`` in place.
 
-        :param comment: the comment.
+        :param comment: the comment node, whose text may be edited in place.
         """
 
 

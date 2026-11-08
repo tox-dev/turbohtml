@@ -40,9 +40,6 @@ class StyleDeclaration:
     Each declaration keeps its property name, value, and ``!important`` flag in source order. A property may appear more
     than once (an important declaration wins, then the later duplicate); :meth:`get` and indexing return the winning
     value, while iteration and :meth:`properties` visit each distinct property once, in first-seen order.
-
-    :param items: the ``(name, value, important)`` triples, or ``(name, value, important, source)`` quadruples, in
-        source order.
     """
 
     __slots__ = ("_items", "_last")
@@ -51,7 +48,8 @@ class StyleDeclaration:
         """
         Wrap the parsed declarations in source order.
 
-        :param items: the parsed declarations, in source order.
+        :param items: the ``(name, value, important)`` triples, or ``(name, value, important, source)`` quadruples, in
+            source order.
         """
         self._items = items
         self._last = _css_declaration_index(items)
@@ -71,7 +69,6 @@ class StyleDeclaration:
         Return a property's winning value, raising :class:`KeyError` when it is not set.
 
         :param name: the property name.
-
         :returns: the winning value of the property.
         """
         index = self._last.get(name)
@@ -97,7 +94,6 @@ class StyleDeclaration:
         Return whether a property is set.
 
         :param name: the property name.
-
         :returns: whether the property is set.
         """
         return name in self._last or self._fallback_index(name) is not None
@@ -171,12 +167,7 @@ class StyleDeclaration:
 
 @final
 class StyleRule:
-    """
-    One CSS style rule, the turbohtml spelling of CSSOM's ``CSSStyleRule``: a selector and its declarations.
-
-    :param selector_text: the rule's selector list, verbatim.
-    :param style: the rule's declaration block.
-    """
+    """One CSS style rule, the turbohtml spelling of CSSOM's ``CSSStyleRule``: a selector and its declarations."""
 
     __slots__ = ("_style", "selector_text")
 
@@ -209,11 +200,7 @@ class StyleRule:
 
 @final
 class RuleList:
-    """
-    A read-only sequence of :class:`StyleRule`, the turbohtml spelling of CSSOM's ``CSSRuleList``.
-
-    :param rules: the rules, in document order.
-    """
+    """A read-only sequence of :class:`StyleRule`, the turbohtml spelling of CSSOM's ``CSSRuleList``."""
 
     __slots__ = ("_rules",)
 
@@ -230,7 +217,6 @@ class RuleList:
         Return the rule at an index.
 
         :param index: the position of the rule in document order.
-
         :returns: the rule at the index.
         """
         return self._rules[index]
@@ -266,8 +252,6 @@ class StyleSheet:
     A parsed stylesheet, the turbohtml spelling of CSSOM's ``CSSStyleSheet``.
 
     At-rules (``@media``, ``@import``, and the like) are skipped: only top-level style rules join :attr:`rules`.
-
-    :param text: the CSS source, such as the text of a ``<style>`` element.
     """
 
     __slots__ = ("_rules",)
@@ -318,8 +302,6 @@ class ComputedStyle:
     It exposes one value per supported longhand property (never a shorthand), each already resolved through the cascade,
     inheritance, and initial values. Missing properties fall back to their initial value, so :meth:`get` never returns
     ``None`` for a supported property.
-
-    :param values: the ``(name, value)`` pairs the cascade resolved.
     """
 
     __slots__ = ("_values",)
@@ -337,7 +319,6 @@ class ComputedStyle:
         Return a property's computed value, raising :class:`KeyError` for an unsupported property.
 
         :param name: the property name.
-
         :returns: the computed value of the property.
         """
         return self._values[name]
@@ -347,7 +328,6 @@ class ComputedStyle:
         Return whether a property is a supported longhand.
 
         :param name: the property name.
-
         :returns: whether the property is a supported longhand.
         """
         return name in self._values

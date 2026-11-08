@@ -64,11 +64,7 @@ class ValidationResult(NamedTuple):
 
 
 class SchemaValidationError(Exception):
-    """
-    Raised by :meth:`XMLSchema.assert_valid` / :meth:`RelaxNG.assert_valid` when a document is invalid.
-
-    :param errors: the errors the failed validation produced.
-    """
+    """Raised by :meth:`XMLSchema.assert_valid` / :meth:`RelaxNG.assert_valid` when a document is invalid."""
 
     def __init__(self, errors: tuple[ValidationError, ...]) -> None:
         """
@@ -90,7 +86,6 @@ class _Schema:
         Whether the document satisfies the schema.
 
         :param document: the parsed document or element to check.
-
         :returns: whether the document satisfies the schema.
         """
         return _schema_validate(self._compiled, document, collect_errors=False)[0]
@@ -100,6 +95,7 @@ class _Schema:
         Validate the document, raising :class:`SchemaValidationError` with the errors when it is invalid.
 
         :param document: the parsed document or element to check.
+        :raises SchemaValidationError: if the document is invalid.
         """
         result = self.validate(document)
         if not result.valid:
@@ -110,7 +106,6 @@ class _Schema:
         Validate a parsed document (or element), returning the full :class:`ValidationResult`.
 
         :param document: the parsed document or element to check.
-
         :returns: the validation outcome, its verdict and the errors found.
         """
         valid, errors = _schema_validate(self._compiled, document)
@@ -121,7 +116,6 @@ class XMLSchema(_Schema):
     """
     A compiled XSD 1.0 schema.
 
-    :param source: the schema as XSD text, or a schema document parsed with :func:`turbohtml.parse_xml`.
     :raises ValueError: when the schema is malformed, its root is not ``xs:schema``, a ``ref``/``type``/``base``
         does not resolve, a group, attribute-group, or type-derivation reference forms a cycle or a chain over 100
         hops, or an ``xs:unique``/``xs:key``/``xs:keyref`` identity constraint is declared.
@@ -140,11 +134,6 @@ class RelaxNG(_Schema):
     """
     A compiled RELAX NG schema (XML syntax).
 
-    :param source: the schema as RELAX NG text, or a schema document parsed with :func:`turbohtml.parse_xml`.
-    :param base_url: the schema's path or file URL, against which each ``include`` and ``externalRef`` href resolves
-        (after any ``xml:base``); required only when the schema references other files.
-    :param include_root: when set, referenced files must resolve inside this directory, including through nested
-        references.
     :raises ValueError: when the schema is malformed, references a file without a ``base_url``, or a reference
         escapes ``include_root``, carries a fragment, loops, loads the wrong kind of pattern, or overrides a component
         the included grammar lacks.

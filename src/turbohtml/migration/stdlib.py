@@ -24,11 +24,7 @@ from turbohtml._html import Tokenizer
 
 
 class HTMLParser:
-    """
-    A subclass-and-override callback parser over the streaming tokenizer.
-
-    :param convert_charrefs: accepted for compatibility but ignored; references are always resolved.
-    """
+    """A subclass-and-override callback parser over the streaming tokenizer."""
 
     convert_charrefs: bool
     """Accepted for compatibility; references are always resolved regardless of its value."""
@@ -37,7 +33,7 @@ class HTMLParser:
         """
         Create a parser.
 
-        :param convert_charrefs: accepted for compatibility; references are always resolved.
+        :param convert_charrefs: accepted for compatibility but ignored; references are always resolved.
         """
         self.convert_charrefs = convert_charrefs
         self._tokenizer = Tokenizer()

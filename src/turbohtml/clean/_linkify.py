@@ -48,7 +48,22 @@ _DEFAULT_URL_SCHEMES: Final[tuple[str, ...]] = ("ftp", "http", "https")
 
 
 class PhoneType(Enum):
-    """The line type a numbering plan assigns a number; ``UNKNOWN`` appears only in possible mode."""
+    """
+    The line type a numbering plan assigns a number; ``UNKNOWN`` appears only in possible mode.
+
+    :cvar FIXED_LINE: a fixed-line number.
+    :cvar MOBILE: a mobile number.
+    :cvar FIXED_LINE_OR_MOBILE: a number the plan cannot tell fixed-line from mobile.
+    :cvar TOLL_FREE: a toll-free number.
+    :cvar PREMIUM_RATE: a premium-rate number.
+    :cvar SHARED_COST: a shared-cost number.
+    :cvar VOIP: a VoIP number.
+    :cvar PERSONAL_NUMBER: a personal number, such as the UK's 070 range, which forwards to any phone line.
+    :cvar PAGER: a pager number.
+    :cvar UAN: a universal access number.
+    :cvar VOICEMAIL: a voicemail number.
+    :cvar UNKNOWN: a number whose line type the plan does not assign; it appears only in possible mode.
+    """
 
     FIXED_LINE = "fixed_line"
     MOBILE = "mobile"
@@ -154,20 +169,6 @@ class PhoneNumbers:
     ``Order 12345`` and ``Order 650-253-0000`` are skipped, the phone in ``Order 12345, 650-253-0000`` is still found,
     and ``Phone no. 650-253-0000`` links because ``no`` is not in the default list. Words are ASCII letters, compared
     case-folded against the word immediately before the digits and stored sorted; ``()`` disables the rule.
-
-    :param regions: the ordered fallback regions, ISO 3166-1 alpha-2 codes (``"US"``).
-    :param require_valid: link only numbers the region's numbering plan assigns; False links every number of a
-        possible length, with type ``UNKNOWN`` and possibly no region.
-    :param require_separators: a bare digit run with no ``+``, separators or international prefix is not a number.
-    :param skip_card_numbers: a Luhn-valid payment-card shape is not a number.
-    :param require_national_prefix: a number written without ``+`` must carry the national prefix its number format
-        writes (``20 7946 0958`` is not a British number, ``020 7946 0958`` is); False links it the way people dial
-        locally. Applies with ``require_valid``.
-    :param collapse_whitespace: read a run of HTML whitespace (tab, newline, form feed, carriage return, space) as
-        the single space it renders as, so a number a source formatter broke across a line still reads as one.
-    :param grouping: how closely the written digit groups must follow the number's format. Needs ``require_valid``.
-    :param types: link only numbers of these resolved types; ``None`` links every type. Needs ``require_valid``.
-    :param ignore_numbers_after: words that mark the digits right after them as an identifier.
     """
 
     regions: tuple[str, ...]
@@ -197,15 +198,21 @@ class PhoneNumbers:
         """
         Raise on any mistake here, never at scan time.
 
-        :param regions: the ordered fallback regions, ISO 3166-1 alpha-2 codes.
-        :param require_valid: link only numbers the region's numbering plan assigns.
-        :param require_separators: a bare digit run is not a number.
+        :param regions: the ordered fallback regions, ISO 3166-1 alpha-2 codes (``"US"``).
+        :param require_valid: link only numbers the region's numbering plan assigns; False links every number of a
+            possible length, with type ``UNKNOWN`` and possibly no region.
+        :param require_separators: a bare digit run with no ``+``, separators or international prefix is not a number.
         :param skip_card_numbers: a Luhn-valid payment-card shape is not a number.
-        :param require_national_prefix: a number written without ``+`` must carry its national prefix.
-        :param collapse_whitespace: read a run of HTML whitespace as a single space.
-        :param grouping: how closely the written digit groups must follow the number's format.
-        :param types: link only numbers of these resolved types; ``None`` links every type.
+        :param require_national_prefix: a number written without ``+`` must carry the national prefix its number format
+            writes (``20 7946 0958`` is not a British number, ``020 7946 0958`` is); False links it the way people dial
+            locally. Applies with ``require_valid``.
+        :param collapse_whitespace: read a run of HTML whitespace (tab, newline, form feed, carriage return, space) as
+            the single space it renders as, so a number a source formatter broke across a line still reads as one.
+        :param grouping: how closely the written digit groups must follow the number's format. Needs ``require_valid``.
+        :param types: link only numbers of these resolved types; ``None`` links every type. Needs ``require_valid``.
         :param ignore_numbers_after: words that mark the digits right after them as an identifier.
+        :raises TypeError: if a flag is not a bool, or ``grouping`` or ``types`` has the wrong type.
+        :raises ValueError: if ``grouping`` or ``types`` needs ``require_valid``, or ``types`` names ``UNKNOWN``.
         """
         for name, flag in (
             ("require_valid", require_valid),
@@ -306,7 +313,12 @@ class PhoneNumber:
     type: PhoneType
 
     def __post_init__(self) -> None:
-        """Reject a value the tables never produce."""
+        """
+        Reject a value the tables never produce.
+
+        :raises TypeError: if a field has the wrong type.
+        :raises ValueError: if the extension is not 1-20 ASCII digits.
+        """
         if type(self.country_code) is not int or type(self.national_number) is not str:
             msg = "country_code must be int and national_number must be str"
             raise TypeError(msg)
@@ -344,6 +356,8 @@ class PhoneNumber:
         :param regions: the ordered fallback regions for a number written without ``+``.
         :param require_valid: the number must be one the plan assigns; False accepts any possible length.
         :returns: the number.
+        :raises ValueError: when the text does not hold one such number.
+        :raises TypeError: if ``text`` is not a str.
         :raises ValueError: when the text does not hold one such number.
         """
         if not isinstance(text, str):
@@ -392,6 +406,7 @@ class PhoneNumber:
 
         :param style: the layout to write.
         :returns: the formatted number, ASCII.
+        :raises TypeError: if ``style`` is not a :class:`PhoneFormat`.
         """
         if not isinstance(style, PhoneFormat):
             msg = "style must be a PhoneFormat"
@@ -511,6 +526,13 @@ class Linker:
     A reusable linkifier; build it once from a :class:`Linkify` configuration and call :meth:`linkify` per document.
 
     :param options: the configuration to apply; None uses ``DEFAULT_CALLBACKS`` and detects nothing else.
+    :ivar callbacks: the link callbacks, as a tuple.
+    :ivar skip_tags: the tags whose text is never linked, folded to lowercase.
+    :ivar parse_email: whether bare email addresses are linked.
+    :ivar process_existing: whether links already in the document are relinked.
+    :ivar extra_tlds: the extra top-level domains to recognize, folded to lowercase.
+    :ivar url_schemes: the URL schemes to recognize, folded to lowercase.
+    :ivar phones: the phone-number configuration.
     """
 
     def __init__(self, options: Linkify | None = None) -> None:
@@ -715,18 +737,7 @@ def _span_from_match(text: str, span: tuple[int, int, int, str, PhoneNumber | No
 
 
 class LinkSpan:
-    """
-    One URL, email address or phone number found in a run of plain text.
-
-    :param start: the half-open start offset of the match in the scanned text.
-    :param end: the half-open end offset of the match in the scanned text.
-    :param text: the matched substring exactly as it appeared.
-    :param url: the normalized ``href`` (``mailto:`` for an email, ``http://`` for a bare domain, the number's own
-        ``tel:`` URI for a phone number and for a written ``tel:`` URI, the text itself for a ``scheme://`` or
-        registered scheme-less URL).
-    :param is_email: whether the match is an email address.
-    :param phone: the detected number when the match is a phone number, else ``None``.
-    """
+    """One URL, email address or phone number found in a run of plain text."""
 
     __slots__ = ("end", "is_email", "phone", "start", "text", "url")
 
@@ -743,12 +754,14 @@ class LinkSpan:
         """
         Create a link span.
 
-        :param start: the offset where the link starts.
-        :param end: the offset just past the link.
-        :param text: the linked text.
-        :param url: the link target.
-        :param is_email: whether the link is a ``mailto:`` address.
-        :param phone: the parsed phone number, or ``None`` for a non-phone link.
+        :param start: the half-open start offset of the match in the scanned text.
+        :param end: the half-open end offset of the match in the scanned text.
+        :param text: the matched substring exactly as it appeared.
+        :param url: the normalized ``href`` (``mailto:`` for an email, ``http://`` for a bare domain, the number's own
+            ``tel:`` URI for a phone number and for a written ``tel:`` URI, the text itself for a ``scheme://`` or
+            registered scheme-less URL).
+        :param is_email: whether the match is an email address.
+        :param phone: the detected number when the match is a phone number, else ``None``.
         """
         self.start = start
         self.end = end
@@ -771,7 +784,6 @@ class LinkSpan:
         Two spans are equal when every field matches; comparing to a non-span defers to the other operand.
 
         :param other: the object to compare with.
-
         :returns: whether the spans match field for field, or ``NotImplemented`` for a non-span.
         """
         if not isinstance(other, LinkSpan):

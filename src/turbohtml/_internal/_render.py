@@ -238,7 +238,11 @@ class Markdown:
     converters: Mapping[str, Callable[[Element, str], str]] | None = None
 
     def __post_init__(self) -> None:
-        """Reject the one mutually exclusive pair up front, so the renderer never has to."""
+        """
+        Reject the one mutually exclusive pair up front, so the renderer never has to.
+
+        :raises ValueError: if both ``strip`` and ``convert`` are set.
+        """
         if self.strip is not None and self.convert is not None:
             msg = "strip and convert are mutually exclusive"
             raise ValueError(msg)
@@ -416,7 +420,11 @@ class Canonical:
     inclusive_ns_prefixes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        """Reject the option pairs the c14n algorithms leave undefined, so the renderer never has to."""
+        """
+        Reject the option pairs the c14n algorithms leave undefined, so the renderer never has to.
+
+        :raises ValueError: if the exclusive mode is paired with version 1.1, or inclusive prefixes are set without it.
+        """
         if self.exclusive and self.version == "1.1":
             msg = "exclusive canonicalization is defined only over version 1.0"
             raise ValueError(msg)
