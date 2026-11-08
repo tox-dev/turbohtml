@@ -205,6 +205,10 @@ def test_conformance_aria_role_flags(inner: str, expected: str) -> None:
     assert expected in found
 
 
+def codes(markup: str) -> list[str]:
+    return [message.code for message in check_html(markup).messages]
+
+
 @pytest.mark.parametrize(
     "inner",
     [
@@ -221,10 +225,6 @@ def test_conformance_aria_role_accepts(inner: str) -> None:
     found = codes(body(inner))
     assert "aria-invalid-role" not in found
     assert "aria-redundant-role" not in found
-
-
-def codes(markup: str) -> list[str]:
-    return [message.code for message in check_html(markup).messages]
 
 
 @pytest.mark.parametrize(

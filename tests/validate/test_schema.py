@@ -127,6 +127,23 @@ def test_schema_releases_validation_buffers_for_valid_documents(
     _assert_validation_buffers_released(schema_type(source), parse_xml(valid_markup), valid=True)
 
 
+def _assert_validation_buffers_released(schema: XMLSchema | RelaxNG, document: Document, *, valid: bool) -> None:
+    # PyPy has no tracemalloc; its collector also uses a different reclamation schedule.
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+    tracing.start()
+    try:
+        for _ in range(10):
+            assert schema.validate(document).valid is valid
+        gc.collect()
+        before: Final[int] = tracing.get_traced_memory()[0]
+        for _ in range(100):
+            assert schema.validate(document).valid is valid
+        gc.collect()
+        assert tracing.get_traced_memory()[0] - before < 32_768
+    finally:
+        tracing.stop()
+
+
 @pytest.mark.parametrize(
     ("schema_type", "source"),
     [
@@ -157,20 +174,3 @@ def test_schema_releases_validation_buffers_for_invalid_documents(
     schema_type: type[XMLSchema | RelaxNG], source: str
 ) -> None:
     _assert_validation_buffers_released(schema_type(source), parse_xml("<value>123</value>"), valid=False)
-
-
-def _assert_validation_buffers_released(schema: XMLSchema | RelaxNG, document: Document, *, valid: bool) -> None:
-    # PyPy has no tracemalloc; its collector also uses a different reclamation schedule.
-    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
-    tracing.start()
-    try:
-        for _ in range(10):
-            assert schema.validate(document).valid is valid
-        gc.collect()
-        before: Final[int] = tracing.get_traced_memory()[0]
-        for _ in range(100):
-            assert schema.validate(document).valid is valid
-        gc.collect()
-        assert tracing.get_traced_memory()[0] - before < 32_768
-    finally:
-        tracing.stop()
