@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from types import ModuleType
 from typing import Final
 
 _PYTHON_BLOCKS: Final[list[str]] = re.findall(
@@ -12,6 +13,6 @@ _PYTHON_BLOCKS: Final[list[str]] = re.findall(
 
 
 def test_readme_examples_run() -> None:
-    namespace: dict[str, object] = {}
+    namespace = ModuleType("readme").__dict__
     for block in _PYTHON_BLOCKS:
         exec(block, namespace)  # ruff:ignore[exec-builtin]  # our own README, run as one continuous script
