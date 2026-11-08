@@ -259,27 +259,23 @@ def _events(markup: str) -> list[SaxEvent]:
 
 
 def _flatten(node: Built, out: list[SaxEvent]) -> None:
-    if node.kind == "text":
-        out.append(Characters(node.payload[0]))
-        return
-    if node.kind == "comment":
-        out.append(Comment(node.payload[0]))
-        return
-    if node.kind == "pi":
-        out.append(ProcessingInstruction(*cast("tuple[str, str]", node.payload)))
-        return
-    if node.kind == "doctype":
-        out.append(Doctype(*cast("tuple[str, str | None, str | None]", node.payload)))
-        return
-    if node.kind == "element":
-        tag, _namespace, attrs = cast("tuple[str, str, tuple[tuple[str, str | None], ...]]", node.payload)
-        out.append(StartElement(tag, attrs))
-        for child in node.children:  # elements are empty for voids, so the walk ends at once
-            _flatten(child, out)
-        out.append(EndElement(tag))
-        return
-    for child in node.children:  # the document (never empty) walks its children here
-        _flatten(child, out)
+    match node.kind, node.payload:
+        case "text", (str() as data,):
+            out.append(Characters(data))
+        case "comment", (str() as data,):
+            out.append(Comment(data))
+        case "pi", (str() as target, str() as data):
+            out.append(ProcessingInstruction(target, data))
+        case "doctype", (str() as name, str() | None as public_id, str() | None as system_id):
+            out.append(Doctype(name, public_id, system_id))
+        case "element", (str() as tag, str(), tuple() as attrs):
+            out.append(StartElement(tag, attrs))
+            for child in node.children:  # elements are empty for voids, so the walk ends at once
+                _flatten(child, out)
+            out.append(EndElement(tag))
+        case _:  # the document (never empty) walks its children here
+            for child in node.children:
+                _flatten(child, out)
 
 
 class _RaisingBuilder(Recorder):
