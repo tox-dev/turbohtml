@@ -1252,7 +1252,7 @@ def test_rng_inline_generated_labels(engine: ModuleType, seed: int) -> None:
 @pytest.mark.parametrize("schema", ["<", '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"/>'])
 def test_rng_inline_compile_verdicts(engine: ModuleType, schema: str) -> None:
     expected: Final = False
-    case: Final = engine.Case(0, schema, expected, ())
+    case: Final = engine.Case(seed=0, schema=schema, compiles=expected, documents=())
     assert [(row.engine, row.phase, row.expected, row.actual) for row in engine.compare(case)] == [
         ("turbohtml", "compilation", expected, expected),
         ("libxml2", "compilation", expected, expected),
@@ -1261,7 +1261,7 @@ def test_rng_inline_compile_verdicts(engine: ModuleType, schema: str) -> None:
 
 @pytest.mark.oracle
 def test_rng_inline_unavailable_documents_remain_findings(engine: ModuleType) -> None:
-    case: Final = engine.Case(0, "<", compiles=False, documents=(("<v/>", True),))
+    case: Final = engine.Case(seed=0, schema="<", compiles=False, documents=(("<v/>", True),))
     assert [(row.engine, row.phase, row.expected, row.actual) for row in engine.compare(case)] == [
         ("turbohtml", "compilation", False, False),
         ("libxml2", "compilation", False, False),
@@ -1353,7 +1353,7 @@ def test_rng_inline_foreign_annotations_preserve_pattern_verdicts(
         '<grammar xmlns="http://relaxng.org/ns/structure/1.0" xmlns:doc="urn:documentation">'
         f'<start><element name="v">{body}{annotation}</element></start></grammar>'
     )
-    case: Final = engine.Case(0, schema, compiles=True, documents=documents)
+    case: Final = engine.Case(seed=0, schema=schema, compiles=True, documents=documents)
     assert [(row.engine, row.phase, row.expected, row.actual) for row in engine.compare(case)] == [
         ("turbohtml", "compilation", True, True),
         ("libxml2", "compilation", True, True),
@@ -1367,7 +1367,7 @@ def test_rng_inline_foreign_annotation_preserves_explicit_name_class(engine: Mod
         '<element xmlns="http://relaxng.org/ns/structure/1.0" xmlns:doc="urn:documentation">'
         '<doc:annotation><ref name="missing"/></doc:annotation><name>v</name><empty/></element>'
     )
-    case: Final = engine.Case(0, schema, compiles=True, documents=(("<v/>", True), ("<wrong/>", False)))
+    case: Final = engine.Case(seed=0, schema=schema, compiles=True, documents=(("<v/>", True), ("<wrong/>", False)))
     assert [row.actual == row.expected for row in engine.compare(case)] == [True] * 6
 
 
@@ -1486,7 +1486,7 @@ def test_schema_mutation_rng_missing_recipient_definition_is_not_invented(
         '<rng:start><rng:element name="v"><rng:empty/></rng:element></rng:start></rng:grammar>'
     )
     mutated: Final = engines[0].mutate(source, (engines[3].generate(0).schema,), 0, broken=False)
-    case: Final = engines[3].Case(0, mutated, compiles=False, documents=())
+    case: Final = engines[3].Case(seed=0, schema=mutated, compiles=False, documents=())
     assert [(row.engine, row.expected, row.actual) for row in engines[3].compare(case)] == [
         ("turbohtml", False, False),
         ("libxml2", False, False),
@@ -1600,7 +1600,9 @@ def test_xslt_inline_xml_content_is_preserved(
         '<x:stylesheet xmlns:x="http://www.w3.org/1999/XSL/Transform" version="1.0"><x:output '
         f'method="xml"/><x:template match="/">{body}</x:template></x:stylesheet>'
     )
-    case: Final = engine.Case(0, stylesheet, "<root/>", "xml", compiles=True, applies=True, output=output)
+    case: Final = engine.Case(
+        seed=0, stylesheet=stylesheet, document="<root/>", method="xml", compiles=True, applies=True, output=output
+    )
     assert [(row.engine, row.phase, row.actual == row.expected) for row in engine.compare(case)] == [
         (name, phase, True) for name in ("turbohtml", "libxslt") for phase in ("compilation", "application", "result")
     ]
@@ -1611,7 +1613,9 @@ def test_xslt_inline_malformed_stylesheet_retains_unavailable_application(
     fuzz_xslt_inline_engines: tuple[ModuleType, ModuleType],
 ) -> None:
     engine: Final = fuzz_xslt_inline_engines[0]
-    case: Final = engine.Case(0, "<", "<root/>", "text", compiles=False, applies=False, output=None)
+    case: Final = engine.Case(
+        seed=0, stylesheet="<", document="<root/>", method="text", compiles=False, applies=False, output=None
+    )
     assert [(row.engine, row.phase, row.expected, row.actual) for row in engine.compare(case)] == [
         ("turbohtml", "compilation", False, False),
         ("turbohtml", "application", None, None),
@@ -2672,7 +2676,7 @@ def test_xsd_inline_generated_labels(fuzz_xsd_inline_engine: ModuleType, seed: i
 @pytest.mark.parametrize("schema", ["<", '<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"/>'])
 def test_xsd_inline_compile_verdicts(fuzz_xsd_inline_engine: ModuleType, schema: str) -> None:
     expected: Final = schema != "<"
-    case: Final = fuzz_xsd_inline_engine.Case(0, schema, expected, ())
+    case: Final = fuzz_xsd_inline_engine.Case(seed=0, schema=schema, compiles=expected, documents=())
     assert [(row.engine, row.phase, row.expected, row.actual) for row in fuzz_xsd_inline_engine.compare(case)] == [
         ("turbohtml", "compilation", expected, expected),
         ("libxml2", "compilation", expected, expected),
@@ -2681,7 +2685,7 @@ def test_xsd_inline_compile_verdicts(fuzz_xsd_inline_engine: ModuleType, schema:
 
 @pytest.mark.oracle
 def test_xsd_inline_unavailable_documents_remain_findings(fuzz_xsd_inline_engine: ModuleType) -> None:
-    case: Final = fuzz_xsd_inline_engine.Case(0, "<", compiles=False, documents=(("<v/>", True),))
+    case: Final = fuzz_xsd_inline_engine.Case(seed=0, schema="<", compiles=False, documents=(("<v/>", True),))
     assert [(row.engine, row.phase, row.expected, row.actual) for row in fuzz_xsd_inline_engine.compare(case)] == [
         ("turbohtml", "compilation", False, False),
         ("libxml2", "compilation", False, False),
@@ -4002,13 +4006,13 @@ def anchored() -> ModuleType:
 def test_xpath_anchored_retains_target(
     anchored: ModuleType, predicate: str, target: str, expected: tuple[str, ...]
 ) -> None:
-    verdict: Final = next(anchored.compare(anchored.Case(_XML, target, predicate)))
+    verdict: Final = next(anchored.compare(anchored.Case(xml=_XML, target=target, predicate=predicate)))
     assert (verdict.ours, verdict.reference) == (("nodes", expected), ("nodes", expected))
 
 
 @pytest.mark.oracle
 def test_xpath_anchored_compares_values_and_types(anchored: ModuleType) -> None:
-    rows: Final = list(anchored.compare(anchored.Case(_XML, "n1", "@score < 3")))
+    rows: Final = list(anchored.compare(anchored.Case(xml=_XML, target="n1", predicate="@score < 3")))
     assert [(row.ours, row.reference) for row in rows] == [
         (("nodes", ("n1",)), ("nodes", ("n1",))),
         (("nodes", ("n1",)), ("nodes", ("n1",))),
@@ -4021,14 +4025,17 @@ def test_xpath_anchored_compares_values_and_types(anchored: ModuleType) -> None:
 
 @pytest.mark.oracle
 def test_xpath_anchored_reports_evaluation_rejection(anchored: ModuleType) -> None:
-    assert [(row.ours, row.reference) for row in anchored.compare(anchored.Case(_XML, "n1", "unknown()"))] == [
-        (("error", "evaluation"), ("error", "evaluation"))
-    ] * 6
+    assert [
+        (row.ours, row.reference)
+        for row in anchored.compare(anchored.Case(xml=_XML, target="n1", predicate="unknown()"))
+    ] == [(("error", "evaluation"), ("error", "evaluation"))] * 6
 
 
 @pytest.mark.oracle
 def test_xpath_anchored_control_changes_actual_boolean_answer(anchored: ModuleType) -> None:
-    rows: Final = list(anchored.compare(anchored.Case(_XML, "n1", "@score < 3"), negative_control=True))
+    rows: Final = list(
+        anchored.compare(anchored.Case(xml=_XML, target="n1", predicate="@score < 3"), negative_control=True)
+    )
     assert [(row.ours, row.reference) for row in rows if row.ours != row.reference] == [
         (("boolean", False), ("boolean", True))
     ]
