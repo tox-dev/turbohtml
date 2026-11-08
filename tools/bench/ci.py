@@ -100,7 +100,7 @@ _DOCUMENT_OPS: Final[tuple[str, ...]] = (
     "links-filter",
 )
 
-_LOADERS: Final[dict[str, Callable[[], object]]] = dict.fromkeys(_DOCUMENT_OPS, _spec)
+_LOADERS: Final[dict[str, Callable[[], Case]]] = dict.fromkeys(_DOCUMENT_OPS, _spec)
 _LOADERS["xpath"] = _xpath_case
 _LOADERS["escape"] = partial(corpus.corpus, "war-and-peace/2600.txt", _TEXT_BYTES)
 _LOADERS["unescape"] = partial(corpus.corpus, "war-and-peace/2600-h/2600-h.htm", _TEXT_BYTES)
@@ -139,7 +139,7 @@ def _book_html() -> str:
 # less work, so the old identity retires and the new one gates from its own baseline.
 # ``structured_data()`` likewise has a new identity now that each call copies one immutable tree snapshot before
 # extraction; its old baseline measured six independent reads without the snapshot guarantee.
-_RESIZED: Final[dict[str, tuple[str, Callable[[], object]]]] = {
+_RESIZED: Final[dict[str, tuple[str, Callable[[], Case]]]] = {
     "socialcard": ("socialcard-spec", _spec),
     "structured": ("structured-snapshot-spec", _spec),
     "sanitize": ("sanitize-spec", _spec),
@@ -587,7 +587,7 @@ _LOADERS.update({
 })
 
 
-def benchmarks() -> Iterator[tuple[str, object, Callable[[], object]]]:
+def benchmarks() -> Iterator[tuple[str, object, Callable[[], Case]]]:
     # Yield ``(name, callable, load)`` for every turbohtml operation, in registry order.
     #
     # A noise-prone inline operation is surfaced under its corpus-qualified id (see :data:`_RESIZED`) so CodSpeed
@@ -601,7 +601,7 @@ def benchmarks() -> Iterator[tuple[str, object, Callable[[], object]]]:
         yield identity, OPERATIONS[name][0], partial(_inline, name, case_index)
 
 
-def _loader_for(operation: str) -> Callable[[], object]:
+def _loader_for(operation: str) -> Callable[[], Case]:
     # Return the lazy loader for ``operation``: a resized real corpus, the spec, or the bench's own inline case.
     if operation in _RESIZED:
         return _RESIZED[operation][1]

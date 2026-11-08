@@ -9,6 +9,7 @@ from bench.timing import Mutating
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from bench.operations import Case
     from pytest_codspeed import BenchmarkFixture
 
 
@@ -16,11 +17,11 @@ if TYPE_CHECKING:
     ("operation", "load"),
     [pytest.param(run, load, id=name) for name, run, load in benchmarks() if not isinstance(run, Mutating)],
 )
-def test_feature(benchmark: BenchmarkFixture, operation: object, load: Callable[[], object]) -> None:
+def test_feature(benchmark: BenchmarkFixture, operation: object, load: Callable[[], Case]) -> None:
     benchmark(cast("Callable[[object], object]", operation), _load_case(load))
 
 
-def _load_case(load: Callable[[], object]) -> object:
+def _load_case(load: Callable[[], Case]) -> Case:
     try:
         return load()
     except OSError as exc:
@@ -33,6 +34,6 @@ def _load_case(load: Callable[[], object]) -> object:
     ("operation", "load"),
     [pytest.param(run, load, id=name) for name, run, load in benchmarks() if isinstance(run, Mutating)],
 )
-def test_mutating_feature(benchmark: BenchmarkFixture, operation: Mutating, load: Callable[[], object]) -> None:
+def test_mutating_feature(benchmark: BenchmarkFixture, operation: Mutating, load: Callable[[], Case]) -> None:
     case: Final = _load_case(load)
     benchmark.pedantic(operation.run, setup=lambda: ((operation.setup(case),), {}))
