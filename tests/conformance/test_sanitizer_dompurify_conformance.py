@@ -166,41 +166,41 @@ def _dangerous_attribute(name: str, value: str) -> str | None:
     return f"{name}={value[:32]}" if name in _URL_ATTRS and _bad_scheme(value) else None
 
 
+def _element_danger(node: Element) -> list[str]:
+    danger_tags = frozenset({"script", "iframe", "object", "embed", "frame", "style", "noscript", "base"})
+    svg_animation_tags = frozenset({"animate", "animateColor", "animateMotion", "animateTransform", "set"})
+    namespace = node.namespace.value
+    survived: list[str] = []
+    if namespace == "svg" and node.tag in svg_animation_tags:
+        attrs = {name.lower(): _attr_value(value) for name, value in node.attrs.items()}
+        target = attrs.get("attributename", "")
+        if target.startswith("on") or (
+            target in _URL_ATTRS
+            and any(_bad_scheme(value) for name in ("from", "to", "values") for value in attrs.get(name, "").split(";"))
+        ):
+            survived.append(f"<{node.tag}>->{target}")
+    if node.tag == "script" and namespace in {"html", "svg"}:
+        survived.append("<script>")
+    elif node.tag == "style" and namespace in {"html", "svg"}:
+        body = "".join(getattr(child, "data", "") for child in node.children).lower()
+        if any(token in body for token in _CSS_DANGER):
+            survived.append("style-body")
+    elif node.tag in danger_tags and namespace == "html":
+        survived.append(f"<{node.tag}>")
+    survived.extend(
+        hit for name, raw in node.attrs.items() if (hit := _dangerous_attribute(name, _attr_value(raw))) is not None
+    )
+    return survived
+
+
 def _live_danger(html: str) -> list[str]:
     # Reparse sanitized HTML and list every executable construct that survived; an empty list means inert.
     survived: list[str] = []
     stack = list(parse_fragment(html).children)
-    danger_tags = frozenset({"script", "iframe", "object", "embed", "frame", "style", "noscript", "base"})
-    svg_animation_tags = frozenset({"animate", "animateColor", "animateMotion", "animateTransform", "set"})
     while stack:
         node = stack.pop()
         if isinstance(node, Element):
-            namespace = node.namespace.value
-            if namespace == "svg" and node.tag in svg_animation_tags:
-                attrs = {name.lower(): _attr_value(value) for name, value in node.attrs.items()}
-                target = attrs.get("attributename", "")
-                if target.startswith("on") or (
-                    target in _URL_ATTRS
-                    and any(
-                        _bad_scheme(value)
-                        for name in ("from", "to", "values")
-                        for value in attrs.get(name, "").split(";")
-                    )
-                ):
-                    survived.append(f"<{node.tag}>->{target}")
-            if node.tag == "script" and namespace in {"html", "svg"}:
-                survived.append("<script>")
-            elif node.tag == "style" and namespace in {"html", "svg"}:
-                body = "".join(getattr(child, "data", "") for child in node.children).lower()
-                if any(token in body for token in _CSS_DANGER):
-                    survived.append("style-body")
-            elif node.tag in danger_tags and namespace == "html":
-                survived.append(f"<{node.tag}>")
-            survived.extend(
-                hit
-                for name, raw in node.attrs.items()
-                if (hit := _dangerous_attribute(name, _attr_value(raw))) is not None
-            )
+            survived.extend(_element_danger(node))
             stack.extend(node.children)
     return survived
 

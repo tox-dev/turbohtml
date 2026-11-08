@@ -101,6 +101,13 @@ def _is_property(method: ast.FunctionDef) -> bool:
     )
 
 
+def _class_entries(node: ast.ClassDef) -> Iterator[tuple[str, ast.FunctionDef, bool]]:
+    for method in node.body:
+        if not isinstance(method, ast.FunctionDef) or _is_property(method):
+            continue
+        yield (node.name if method.name == "__init__" else f"{node.name}.{method.name}"), method, True
+
+
 def _stub_entries() -> Iterator[tuple[str, ast.FunctionDef, bool]]:
     # Yield (dotted name, function node, drop_self) for every callable the stubs declare.
     for stub in sorted(_STUB_DIR.glob("*.pyi")):
@@ -108,10 +115,7 @@ def _stub_entries() -> Iterator[tuple[str, ast.FunctionDef, bool]]:
             if isinstance(node, ast.FunctionDef):
                 yield node.name, node, False
             elif isinstance(node, ast.ClassDef):
-                for method in node.body:
-                    if not isinstance(method, ast.FunctionDef) or _is_property(method):
-                        continue
-                    yield (node.name if method.name == "__init__" else f"{node.name}.{method.name}"), method, True
+                yield from _class_entries(node)
 
 
 def _resolve(name: str) -> ModuleType | Callable[..., object] | None:

@@ -4481,6 +4481,18 @@ def _bad_scheme(value: str) -> bool:
     return "".join(char for char in value if ord(char) > 0x20).startswith(("javascript:", "data:", "vbscript:"))
 
 
+def _svg_animation_danger(node: Element) -> str | None:
+    attrs = {name.lower(): _attr_value(value) for name, value in node.attrs.items()}
+    target = attrs.get("attributename", "")
+    if target.startswith("on"):
+        return f"<{node.tag}>->{target}"
+    if target in _DOMPURIFY_URL_ATTRS:
+        for name in ("from", "to", "values"):
+            if any(_bad_scheme(value) for value in attrs.get(name, "").split(";")):
+                return f"<{node.tag}>->{target}"
+    return None
+
+
 def _dangerous_element(node: Element) -> str | None:
     namespace = node.namespace.value
     if namespace == "svg" and node.tag in frozenset({
@@ -4490,14 +4502,7 @@ def _dangerous_element(node: Element) -> str | None:
         "animateTransform",
         "set",
     }):
-        attrs = {name.lower(): _attr_value(value) for name, value in node.attrs.items()}
-        target = attrs.get("attributename", "")
-        if target.startswith("on"):
-            return f"<{node.tag}>->{target}"
-        if target in _DOMPURIFY_URL_ATTRS:
-            for name in ("from", "to", "values"):
-                if any(_bad_scheme(value) for value in attrs.get(name, "").split(";")):
-                    return f"<{node.tag}>->{target}"
+        return _svg_animation_danger(node)
     if node.tag == "script" and namespace in {"html", "svg"}:
         return "<script>"
     if node.tag == "style" and namespace in {"html", "svg"}:

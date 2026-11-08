@@ -147,6 +147,22 @@ def _classify(attrib: dict[str, str], source: str) -> _Classification:
     )
 
 
+def _case(attrib: dict[str, str], file_path: Path) -> tuple[pytest.ParameterSet, str]:
+    try:
+        source = _decode(file_path.read_bytes())
+    except (LookupError, UnicodeDecodeError):
+        skip, expect_raise, reason = False, attrib["TYPE"] == "not-wf", _ENCODING
+        source = ""
+    else:
+        skip, expect_raise, reason = _classify(attrib, source)
+    marks = [pytest.mark.skip(reason="error-type case: reporting is optional")] if skip else []
+    if reason is not None:
+        marks.append(pytest.mark.xfail(reason=reason, strict=False))
+    outcome = partial(pytest.raises, HTMLParseError) if expect_raise else nullcontext
+    kind = "skip" if skip else "xfail" if reason else "assert"
+    return pytest.param(source, outcome, id=attrib["ID"], marks=marks), kind
+
+
 def _load() -> list[pytest.ParameterSet]:
     if not _DATA.is_dir():  # pragma: no cover -- the dedicated conformance job always inits the submodule
         msg = (
@@ -158,19 +174,9 @@ def _load() -> list[pytest.ParameterSet]:
     counts = {"assert": 0, "xfail": 0, "skip": 0}
     for catalog in _CATALOGS:
         for attrib, file_path in _catalog_tests(catalog):
-            try:
-                source = _decode(file_path.read_bytes())
-            except (LookupError, UnicodeDecodeError):
-                skip, expect_raise, reason = False, attrib["TYPE"] == "not-wf", _ENCODING
-                source = ""
-            else:
-                skip, expect_raise, reason = _classify(attrib, source)
-            marks = [pytest.mark.skip(reason="error-type case: reporting is optional")] if skip else []
-            if reason is not None:
-                marks.append(pytest.mark.xfail(reason=reason, strict=False))
-            counts["skip" if skip else "xfail" if reason else "assert"] += 1
-            outcome = partial(pytest.raises, HTMLParseError) if expect_raise else nullcontext
-            params.append(pytest.param(source, outcome, id=attrib["ID"], marks=marks))
+            param, kind = _case(attrib, file_path)
+            params.append(param)
+            counts[kind] += 1
     print(  # ruff:ignore[print] -- surface the breakdown in the test log
         f"\nxmlconf: {len(params)} cases -- {counts['assert']} hard assertions, "
         f"{counts['xfail']} xfail (documented deviations), {counts['skip']} skipped (optional)"
