@@ -17,17 +17,17 @@ if TYPE_CHECKING:
     from ._schema_inline import Verdict
 
 
-def _main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     return run(
         argv,
         description="Compare bounded inline RELAX NG schemas with libxml2.",
         pool_seeds=(0, 1, 2, 3, 4, 5),
-        generate=_generate,
-        compare=_compare,
+        generate=generate,
+        compare=compare,
     )
 
 
-def _compare(case: Case, *, negative_control: bool, reference_labels: bool) -> Iterator[Verdict]:
+def compare(case: Case, *, negative_control: bool = False, reference_labels: bool = False) -> Iterator[Verdict]:
     # Compile first so invalid schemas remain part of the comparison.
     try:
         ours = RelaxNG(case.schema)
@@ -40,7 +40,7 @@ def _compare(case: Case, *, negative_control: bool, reference_labels: bool) -> I
     return verdicts(case, ours, reference, negative_control=negative_control, reference_labels=reference_labels)
 
 
-def _generate(seed: int) -> Case:
+def generate(seed: int) -> Case:
     # Explicit value types keep whitespace semantics independent of defaulting.
     number: Final = random.Random(seed).randrange(1, 100)
     word: Final = f"word{number}"
@@ -95,4 +95,4 @@ __all__: Final[list[str]] = []
 
 
 if __name__ == "__main__":
-    raise SystemExit(_main())
+    raise SystemExit(main())
