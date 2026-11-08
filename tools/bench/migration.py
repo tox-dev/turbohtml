@@ -225,21 +225,26 @@ def _stats_from_feeds(feeds_dir: Path) -> dict[str, dict[str, float]]:
     for path in feeds_dir.glob("*.json"):
         feed = json.loads(path.read_text(encoding="utf-8"))
         width = 2 if len(feed.get("metrics") or []) == 2 else 1
+        lead = "size" if (feed.get("metrics") or [""])[0] == "size" else "peak"
         spread = feed.get("spread") or []
         for position, row in enumerate(feed["rows"]):
-            noise = spread[position] if position < len(spread) else None
             for index, party in enumerate(feed["parties"]):
                 start = 1 + index * width
                 cells = row[start : start + width]
+                key = f"{path.stem}|{row[0]}|{party}"
                 # the timing's coefficient of variation travels with the value, so the migration table can show it
-                variation = noise[start + width - 1] if noise else None
-                variation = variation if isinstance(variation, (int, float)) else 0.0
+                variation = _variation(spread, position, start + width - 1)
                 if width == 2 and isinstance(cells[-1], (int, float)):
-                    lead = "size" if feed.get("metrics", [""])[0] == "size" else "peak"
-                    stats[f"{path.stem}|{row[0]}|{party}"] = {"mean": cells[1], "cv": variation, lead: cells[0]}
+                    stats[key] = {"mean": cells[1], "cv": variation, lead: cells[0]}
                 elif width == 1 and isinstance(cells[0], (int, float)):
-                    stats[f"{path.stem}|{row[0]}|{party}"] = {"mean": cells[0], "cv": variation}
+                    stats[key] = {"mean": cells[0], "cv": variation}
     return stats
+
+
+def _variation(spread: list[list[float | str | None] | None], position: int, index: int) -> float:
+    noise = spread[position] if position < len(spread) else None
+    value = noise[index] if noise else None
+    return value if isinstance(value, (int, float)) else 0.0
 
 
 def main() -> None:
