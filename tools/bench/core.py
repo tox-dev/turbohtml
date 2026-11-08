@@ -1782,7 +1782,5 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
 
 __all__ = [
     "OPERATIONS",
-    "minify_css",
-    "minify_js",
     "transform",
 ]
