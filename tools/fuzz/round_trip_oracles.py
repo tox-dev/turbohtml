@@ -192,24 +192,26 @@ _MAX_TREE_DEPTH: Final[int] = 512
 # the CSS minifier caps nesting at 100 levels and drops a deeper block (docs/changelog.rst, 1.13.0)
 _CSS_MAX_NESTING: Final[int] = 100
 # tree.h raises this RecursionError for a walk past its depth budget; the one documented depth error
-_DEPTH_ERROR: Final = re.compile(r"does not support trees nested \d+ levels or deeper")
+_DEPTH_ERROR: Final[re.Pattern[str]] = re.compile(r"does not support trees nested \d+ levels or deeper")
 # Script text where "<!--" opens and "<script" plus a tag end follows before any "-->" breaks the script content
 # restrictions (https://html.spec.whatwg.org/multipage/scripting.html#restrictions-for-contents-of-script-elements):
 # reparsing its serialization lands in the double-escaped state, which swallows the closing "</script>". The standard
 # warns that such parser-made trees need not survive serialize and reparse
 # (https://html.spec.whatwg.org/multipage/parsing.html#serialising-html-fragments).
-_SCRIPT_DOUBLE_ESCAPE: Final = re.compile(r"<!--(?:(?!-->).)*?<script[\t\n\f />]", re.IGNORECASE | re.DOTALL)
+_SCRIPT_DOUBLE_ESCAPE: Final[re.Pattern[str]] = re.compile(
+    r"<!--(?:(?!-->).)*?<script[\t\n\f />]", re.IGNORECASE | re.DOTALL
+)
 # rust-cssparser dropped its idempotence assert because dtoa takes two passes to converge (9999995e-45 -> 10e-39 ->
 # 1e-38), so a numeric rewrite may settle on the second pass:
 # https://github.com/servo/rust-cssparser/blob/106021c7bc55ed2cac83f590c0d356fa530b7061/fuzz/fuzz_targets/cssparser.rs
-_NUMBER: Final = re.compile(r"(?<![\w$#\\.])[+-]?(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(?:[eE][+-]?\d+)?n?")
+_NUMBER: Final[re.Pattern[str]] = re.compile(r"(?<![\w$#\\.])[+-]?(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(?:[eE][+-]?\d+)?n?")
 _JS_OFF: Final[JSMinify] = JSMinify(mangle=False, fold=False)
 # cap one case's input: generators stay under a few KiB, but a mutated .dat seed can grow, and to_markdown/to_text
 # amplify nested input about 100-240x (tox-dev/turbohtml#1028), so an input this long could print hundreds of MiB
 MAX_INPUT: Final[int] = 64 * 1024
 # parse() allocates without bound on a selectedcontent nested in its own option (findings/01); the generators never
 # emit the tag, so skipping it keeps a machine-safe run while the defect is tracked on its own
-UNBOUNDED: Final = re.compile(r"selectedcontent", re.IGNORECASE)
+UNBOUNDED: Final[re.Pattern[str]] = re.compile(r"selectedcontent", re.IGNORECASE)
 _HEADINGS: Final[frozenset[str]] = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
 _SELF_NESTING: Final[dict[str, frozenset[str]]] = {
     **{tag: frozenset({tag}) for tag in ("a", "nobr", "p", "button", "select", "form", "table", "option", "li")},
@@ -243,7 +245,7 @@ class _FaithfulMarkdown(MarkdownIt):
 _MARKDOWN: Final[_FaithfulMarkdown] = _FaithfulMarkdown("gfm-like", {"linkify": False})
 # markdown-it-py 4.2.0 strips a paragraph with str.strip (rules_block/paragraph.py), so a paragraph of only U+00A0
 # reads as an empty one, where CommonMark strips only spaces and tabs; an empty paragraph shows nothing either way
-_EMPTY_PARAGRAPH: Final = re.compile(r"<p></p>\n")
+_EMPTY_PARAGRAPH: Final[re.Pattern[str]] = re.compile(r"<p></p>\n")
 
 
 class OutOfScopeError(Exception):
@@ -916,12 +918,12 @@ def _xml_has_unbound_prefix(document: Document) -> bool:
 
 
 # XML 1.0 Char (https://www.w3.org/TR/xml/#NT-Char) and Name (https://www.w3.org/TR/xml/#NT-Name) productions
-_XML_CHAR: Final = re.compile(r"[^\t\n\r\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
+_XML_CHAR: Final[re.Pattern[str]] = re.compile(r"[^\t\n\r\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
 _NAME_START: Final[str] = (
     r":A-Z_a-z\xc0-\xd6\xd8-\xf6\xf8-\u02ff\u0370-\u037d\u037f-\u1fff\u200c\u200d\u2070-\u218f\u2c00-\u2fef"
     r"\u3001-\ud7ff\uf900-\ufdcf\ufdf0-\ufffd\U00010000-\U000effff"
 )
-_XML_NAME: Final = re.compile(rf"[{_NAME_START}][{_NAME_START}\-.0-9\xb7\u0300-\u036f\u203f-\u2040]*")
+_XML_NAME: Final[re.Pattern[str]] = re.compile(rf"[{_NAME_START}][{_NAME_START}\-.0-9\xb7\u0300-\u036f\u203f-\u2040]*")
 
 
 def _xml_lossy(document: Document) -> bool:
@@ -1282,9 +1284,9 @@ _VALUE_KIND: Final[dict[str, str]] = {
 _LENGTH_UNITS: Final[frozenset[str]] = frozenset({
     "px", "em", "rem", "ex", "ch", "vw", "vh", "vmin", "vmax", "cm", "mm", "q", "in", "pt", "pc", "%",
 })  # fmt: skip
-_NUMERIC: Final = re.compile(r"([+-]?(?:\d+\.\d+|\d+|\.\d+)(?:[eE][+-]?\d+)?)([a-zA-Z]+|%)?")
+_NUMERIC: Final[re.Pattern[str]] = re.compile(r"([+-]?(?:\d+\.\d+|\d+|\.\d+)(?:[eE][+-]?\d+)?)([a-zA-Z]+|%)?")
 # CSS Syntax 3 4.3.12: a "." starts a fraction only before a digit, so "1." is a number and a stray "." delim
-_TRAILING_DOT: Final = re.compile(r"[+-]?\d+\.(?:[a-zA-Z]+|%)?")
+_TRAILING_DOT: Final[re.Pattern[str]] = re.compile(r"[+-]?\d+\.(?:[a-zA-Z]+|%)?")
 
 
 def _read_value(name: str, value: str) -> object:
@@ -1771,7 +1773,7 @@ def _generate_html(rng: random.Random) -> str:
     return html_generate(rng).data.decode("utf-8")
 
 
-_MARKDOWN_TEXT: Final = (
+_MARKDOWN_TEXT: Final[tuple[str, ...]] = (
     "word", "two words", "*", "_", "#", "|", "[", "]", "(", ")", "\\", "`", "&amp;", "&lt;", "&gt;", "1.", "2)", "-",
     "+", "=", "~", "!", "<", ">", "'", '"', "&nbsp;", "---", "***", "```", "~~", "x*y", "a_b_c", "[x](y)", "\U0001f600",
     "é", "http://e.x", " ", "  ",
@@ -1860,7 +1862,7 @@ def _markdown_inline(rng: random.Random, depth: int) -> str:
     return "".join(out)
 
 
-_CSS_TOKENS: Final = (
+_CSS_TOKENS: Final[tuple[str, ...]] = (
     "{", "}", ";", ":", "!important", "/*x*/", "/*!b*/", "@media screen{", "@supports (display:grid){", "url(a b)",
     'url("x")', '"s\\"t"', "'q'", "\\", "\\61", "#fff", "0px", "1e3", "+.5", "-0", "calc(1px + 2px)", "var(--x)",
     "--x:", "a,b", ">", "+", "~", "*", "[x=y]", ":not(", ")", "::before", "@import", "@charset", "\n", " ", "%",
@@ -2067,8 +2069,15 @@ _AXES: Final[tuple[str, ...]] = (
     "child", "descendant", "descendant-or-self", "parent", "ancestor", "ancestor-or-self", "following-sibling",
     "preceding-sibling", "following", "preceding", "self", "attribute",
 )  # fmt: skip
-_NODE_TESTS: Final = ("*", "node()", "text()", "comment()", "processing-instruction()", *_SELECTOR_TAGS)
-_PREDICATES: Final = (
+_NODE_TESTS: Final[tuple[str, ...]] = (
+    "*",
+    "node()",
+    "text()",
+    "comment()",
+    "processing-instruction()",
+    *_SELECTOR_TAGS,
+)
+_PREDICATES: Final[tuple[str, ...]] = (
     "1", "2", "last()", "last()-1", "position()<3", "position()=last()", "@id", "@class='a'", "@title", "not(@id)",
     "name()='p'", "count(*)>1", "contains(.,'x')", "starts-with(@class,'a')", "string-length()>2", "text()='x'",
     "*", "b", "0", "true()", ".//a", "@*", "lang('en')", "normalize-space()", "-1", "1.5", "@data-x='e'",
@@ -2276,7 +2285,7 @@ def _expression(script: _Script, depth: int) -> str:
     ))()
 
 
-_JS_BINARY: Final = (
+_JS_BINARY: Final[tuple[str, ...]] = (
     "+", "-", "*", "/", "%", "**", "==", "===", "!=", "<", ">=", "&&", "||", "??", "&", "|", "^", "<<", ">>>", "in",
     "instanceof", ",",
 )  # fmt: skip

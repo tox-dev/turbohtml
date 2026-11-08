@@ -549,7 +549,7 @@ _HTML_TAGS: Final[tuple[str, ...]] = (
 
 _VOID: Final[frozenset[str]] = frozenset({"img", "br", "hr", "input"})
 
-_HTML_TEXT: Final = (
+_HTML_TEXT: Final[tuple[str, ...]] = (
     "x", "hello world", "*", "_", "#", "|", "[", "]", "(", ")", "\\", "`", "&amp;", "&lt;", "<", ">", "1.", "-", "+",
     "  ", "\n", "\xa0", "é", "&#0;", "&#x1F600;", "\r\n", "~", "!", "=", "'", '"', "&nbsp;", "---", "```", "> q",
     "1) x", "a|b", "<!--c-->", "]]>", "--", "&#13;", "\t", "**b**", "[l](u)", "<?pi x?>", "\x0c", "&gt", "\U0001f600",

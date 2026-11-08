@@ -189,7 +189,7 @@ class Verdict:
     actual: bool | None
 
 
-__all__: Final = []
+__all__: Final[list[str]] = []
 
 
 if __name__ == "__main__":

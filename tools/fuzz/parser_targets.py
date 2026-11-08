@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from turbohtml import SourceLocation
 
 # One node-set, one scalar and one attribute expression reach each XPath result shape on the fuzzed tree.
-_XPATH_ENTRIES: Final = ("//*", "count(//*)", "//*/@*")
+_XPATH_ENTRIES: Final[tuple[str, ...]] = ("//*", "count(//*)", "//*/@*")
 
 
 def parser_targets() -> tuple[Target, ...]:

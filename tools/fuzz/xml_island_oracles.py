@@ -110,7 +110,7 @@ def _serialize(root: Node, serialize: Callable[[Node], str] | None) -> str:
     return root.serialize(Html(xml=True)) if serialize is None else serialize(root)
 
 
-_CASE: Final = re.compile(r"(inside|outside):(plain|markup|lines):(plain|markup|lines):([1-3])")
+_CASE: Final[re.Pattern[str]] = re.compile(r"(inside|outside):(plain|markup|lines):(plain|markup|lines):([1-3])")
 _MODES: Final[tuple[str, ...]] = ("inside", "outside")
 _COMMENTS: Final[dict[str, tuple[str, str]]] = {
     "plain": ("note", "note"),

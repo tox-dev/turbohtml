@@ -371,8 +371,8 @@ class HtmlVocabulary:
 
 Parts: TypeAlias = tuple[bytes | Identifier, ...]
 
-_TOKEN: Final = re.compile(r"<([^<>]+)>")
-_ATTRIBUTE: Final = re.compile(r'([a-zA-Z][a-zA-Z0-9:_-]*)="([^"]*)"')
+_TOKEN: Final[re.Pattern[str]] = re.compile(r"<([^<>]+)>")
+_ATTRIBUTE: Final[re.Pattern[str]] = re.compile(r'([a-zA-Z][a-zA-Z0-9:_-]*)="([^"]*)"')
 _PRIMITIVES: Final[dict[str, bytes]] = {
     "elementid": b"x",
     "class": b"a",

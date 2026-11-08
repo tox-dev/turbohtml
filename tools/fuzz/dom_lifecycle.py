@@ -46,7 +46,7 @@ _MARKUP: Final[tuple[str, ...]] = (
     "<table><td>x<td>y</table>",
     "<template><p>t</p></template><i>z</i>",
 )
-_EXPECTED: Final = (ValueError, TypeError, IndexError, RuntimeError)
+_EXPECTED: Final[tuple[type[Exception], ...]] = (ValueError, TypeError, IndexError, RuntimeError)
 
 
 class LifecycleStep(NamedTuple):

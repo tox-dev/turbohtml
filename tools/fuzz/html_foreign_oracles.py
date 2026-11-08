@@ -117,7 +117,7 @@ def _snapshot(root: Element) -> str:
     return json.dumps(records)
 
 
-_CASE: Final = re.compile(r"(foreignObject|desc|title):(x|y):(single|double):(plain|named|numeric)")
+_CASE: Final[re.Pattern[str]] = re.compile(r"(foreignObject|desc|title):(x|y):(single|double):(plain|named|numeric)")
 _BOUNDARIES: Final[tuple[str, ...]] = ("foreignObject", "desc", "title")
 _IDENTIFIERS: Final[tuple[str, ...]] = ("x", "y")
 _QUOTES: Final[dict[str, str]] = {"single": "'", "double": '"'}

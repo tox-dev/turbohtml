@@ -61,7 +61,7 @@ _MIN_COMPARED_RATIO: Final[float] = 0.9
 _DOM_BUILDER: Final = html5lib.getTreeBuilder("dom")
 _NAMESPACE_PREFIX: Final[dict[str, str]] = {namespaces["svg"]: "svg", namespaces["mathml"]: "math"}
 _C0_OR_SPACE: Final[str] = "".join(map(chr, range(0x21)))
-_SCHEME: Final = re.compile(r"([a-z][a-z0-9+.-]*):")
+_SCHEME: Final[re.Pattern[str]] = re.compile(r"([a-z][a-z0-9+.-]*):")
 _UNSAFE_HTML: Final[frozenset[str]] = frozenset({
     "script",
     "iframe",
@@ -773,7 +773,7 @@ def _draw_policy(rng: random.Random) -> Policy:
     )
 
 
-_HAZARD_ATTRS: Final = (
+_HAZARD_ATTRS: Final[tuple[str, ...]] = (
     *sorted(_URL_ATTRS),
     "style",
     "onerror",

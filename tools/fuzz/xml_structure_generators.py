@@ -357,7 +357,7 @@ _MISC: Final[
         (_Literal(kind="comment", data="before"), _Literal(kind="pi", name="probe", data="data")),
     ),
 )
-_LEAVES: Final = (
+_LEAVES: Final[tuple[tuple[bytes, tuple[_Literal, ...]], ...]] = (
     (b"<Leaf/>", (_Literal(kind="element:html", name="Leaf"),)),
     (b"<Leaf></Leaf>", (_Literal(kind="element:html", name="Leaf"),)),
     *[
@@ -454,7 +454,7 @@ _LEAVES: Final = (
         ),
     ),
 )
-_RAW: Final = (
+_RAW: Final[tuple[bytes, ...]] = (
     b"",
     b"\xff",
     b"\xc0\xaf",

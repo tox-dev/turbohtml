@@ -115,7 +115,7 @@ def _snapshot(root: Element) -> str:
     return json.dumps(records)
 
 
-_CASE: Final = re.compile(r"(td|th):(explicit|implied):([12]):(plain|named|numeric)")
+_CASE: Final[re.Pattern[str]] = re.compile(r"(td|th):(explicit|implied):([12]):(plain|named|numeric)")
 _CELLS: Final[tuple[str, ...]] = ("td", "th")
 _GROUPS: Final[tuple[str, ...]] = ("explicit", "implied")
 _COUNTS: Final[tuple[int, ...]] = (1, 2)

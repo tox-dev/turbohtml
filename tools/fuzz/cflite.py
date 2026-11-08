@@ -39,7 +39,7 @@ BUILD_IMAGE: Final[str] = (
     f"{_IMAGES}build-fuzzers@sha256:831044bb06844a77e6b435d6476da4917386119c83a76aa9c0c0b02b3d1a2bb5"
 )
 RUN_IMAGE: Final[str] = f"{_IMAGES}run-fuzzers@sha256:35b5e685193f1f920f6627dd8f0bd9009fbb338eab795254d48bd073b45235cf"
-_BUILD_CHECK_VERDICT: Final = re.compile(r"BAD BUILD: |\d{4}-\d\d-\d\d [\d:,]+ - \S+ - [A-Z]+ - ")
+_BUILD_CHECK_VERDICT: Final[re.Pattern[str]] = re.compile(r"BAD BUILD: |\d{4}-\d\d-\d\d [\d:,]+ - \S+ - [A-Z]+ - ")
 # a CIFuzz run uploads the corpus and its report after its own deadline, so it gets this much less than the time left
 _UPLOAD_SECONDS: Final[int] = 120
 _TIMED_OUT: Final[int] = 124

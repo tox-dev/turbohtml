@@ -683,7 +683,7 @@ _MARKDOWN_RULES: Final[tuple[str, ...]] = (
     "html_inline",
     "entity",
 )
-_HTML: Final = (
+_HTML: Final[tuple[tuple[str, str, int, int], ...]] = (
     ("paragraph", "<p>x</p>", 2, 1),
     ("heading1", "<h1>x</h1>", 2, 1),
     ("heading2", "<h2>x</h2>", 2, 1),

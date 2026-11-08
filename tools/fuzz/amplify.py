@@ -40,7 +40,7 @@ from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
-from turbohtml import HTMLParseError, parse, parse_xml, tokenize
+from turbohtml import Document, HTMLParseError, parse, parse_xml, tokenize
 from turbohtml.clean import linkify, minify_css, minify_js, sanitize
 from turbohtml.extract import clean_url, normalize_url
 from turbohtml.transform import Transform
@@ -80,7 +80,7 @@ _MIN_SAMPLE_SECONDS: Final[float] = 0.010
 _TOO_LONG_SECONDS: Final[float] = 0.5
 # RecursionError is how the tree consumers refuse nesting past their depth limit (dom/tree.h th_node_check_max_depth);
 # depth is the structural probes' concern in _targets.py, and the time spent refusing is still measured here
-_EXPECTED: Final = (ValueError, HTMLParseError, RecursionError)
+_EXPECTED: Final[tuple[type[Exception], ...]] = (ValueError, HTMLParseError, RecursionError)
 # the descriptor, not sys.stderr: pytest and the search worker both swap the object, the watchdog needs the file
 _STDERR: Final[int] = 2
 
@@ -506,16 +506,20 @@ def _record(crash_dir: Path, target: str, shape: dict[str, object], details: dic
 # pulldown-cmark harvests the literals its parser branches on
 # (https://github.com/pulldown-cmark/pulldown-cmark/blob/c61583e33f043e926a5cbd4423252c6cb97301d2/dos-fuzzer/src/literals.rs#L8-L15);
 # the C equivalents are case labels, string arguments of comparison helpers, and static keyword tables
-_COMMENT_OR_LITERAL: Final = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'|/\*.*?\*/|//[^\n]*', re.DOTALL)
+_COMMENT_OR_LITERAL: Final[re.Pattern[str]] = re.compile(
+    r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'|/\*.*?\*/|//[^\n]*', re.DOTALL
+)
 _CHAR: Final[str] = r"'((?:[^'\\\n]|\\[^\n]){1,8})'"
-_COMPARED_CHAR: Final = re.compile(rf"\bcase\s+{_CHAR}\s*:|[=!]=\s*{_CHAR}|{_CHAR}\s*[=!]=")
-_CASE_CODE_POINT: Final = re.compile(r"\bcase\s+0[xX]([0-9A-Fa-f]+)[uU]?\s*:")
-_STATEMENT_END: Final = re.compile(r"[;{}]")
+_COMPARED_CHAR: Final[re.Pattern[str]] = re.compile(rf"\bcase\s+{_CHAR}\s*:|[=!]=\s*{_CHAR}|{_CHAR}\s*[=!]=")
+_CASE_CODE_POINT: Final[re.Pattern[str]] = re.compile(r"\bcase\s+0[xX]([0-9A-Fa-f]+)[uU]?\s*:")
+_STATEMENT_END: Final[re.Pattern[str]] = re.compile(r"[;{}]")
 # a call to a comparison helper (memcmp, match_kw, css_run_ieq, u_eq_ascii, is_schema_el, ...) marks its statement
-_COMPARISON: Final = re.compile(r"(?:cmp|eq|match|starts_with|ends_with|_kw|lookup|is_|_is)\w*\)?\s*\(")
-_TABLE: Final = re.compile(r"static\s+const\s[^=;{}]*\[[^\]]*\]\s*=\s*\{(.*?)\};", re.DOTALL)
-_STRING: Final = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
-_ESCAPE: Final = re.compile(rb"\\(x[0-9A-Fa-f]{1,2}|[0-7]{1,3}|.)")
+_COMPARISON: Final[re.Pattern[str]] = re.compile(
+    r"(?:cmp|eq|match|starts_with|ends_with|_kw|lookup|is_|_is)\w*\)?\s*\("
+)
+_TABLE: Final[re.Pattern[str]] = re.compile(r"static\s+const\s[^=;{}]*\[[^\]]*\]\s*=\s*\{(.*?)\};", re.DOTALL)
+_STRING: Final[re.Pattern[str]] = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
+_ESCAPE: Final[re.Pattern[bytes]] = re.compile(rb"\\(x[0-9A-Fa-f]{1,2}|[0-7]{1,3}|.)")
 # the tag atom table holds bare element names; the tree builder branches on them as start and end tags
 _TAG_TABLE: Final[str] = "data/tag_atom.h"
 
@@ -639,22 +643,29 @@ def _xslt(text: str) -> str:
     return _STYLESHEET(parse_xml(text))
 
 
-_SELECTOR_HOST: Final = parse(
+_SELECTOR_HOST: Final[Document] = parse(
     "<div id=a class='x y' data-v=ab><p lang=en-US>t<a href=/u>l</a></p><ul><li>1<li>2</ul><input type=text></div>"
 )
 # a linear-time spread of the engine: descendant and sibling combinators, :has (memoized since #509), nth, attributes
-_TREE_SELECTORS: Final = ("div p", "a ~ b", "div:has(a)", "li:nth-child(2n+1)", "[data-v*='ab']", ":not(:empty)")
-_XPATH_HOST: Final = parse_xml("<r a='1'><s b='x'>text</s><s b='y'><t/></s><!--c--><?p d?></r>")
+_TREE_SELECTORS: Final[tuple[str, ...]] = (
+    "div p",
+    "a ~ b",
+    "div:has(a)",
+    "li:nth-child(2n+1)",
+    "[data-v*='ab']",
+    ":not(:empty)",
+)
+_XPATH_HOST: Final[Document] = parse_xml("<r a='1'><s b='x'>text</s><s b='y'><t/></s><!--c--><?p d?></r>")
 # node walks plus the EXSLT functions that size their result from document data (str:padding is #957)
-_TREE_XPATHS: Final = (
+_TREE_XPATHS: Final[tuple[str, ...]] = (
     "count(//*)",
     "count(//@*)",
     "string(/)",
     "str:padding(string(//@*[1]), '-')",
     "count(set:distinct(//@*))",
 )
-_XML_SOURCES: Final = ("tokenizer/xml.c", "tokenizer/xml_names.h", "dom/*")
-_HTML_SOURCES: Final = ("tokenizer/*", "dom/*", _TAG_TABLE, "data/attr_atom.h")
+_XML_SOURCES: Final[tuple[str, ...]] = ("tokenizer/xml.c", "tokenizer/xml_names.h", "dom/*")
+_HTML_SOURCES: Final[tuple[str, ...]] = ("tokenizer/*", "dom/*", _TAG_TABLE, "data/attr_atom.h")
 _AMBIGUOUS_GRAMMAR: Final[RelaxNG] = RelaxNG(
     '<element name="doc" xmlns="http://relaxng.org/ns/structure/1.0"><oneOrMore><choice>'
     '<element name="a"><empty/></element>'

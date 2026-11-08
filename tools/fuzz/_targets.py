@@ -60,13 +60,15 @@ if TYPE_CHECKING:
 
 # A malformed input is expected to raise, not crash; only a sanitizer abort (which kills the process) or an unexpected
 # exception type is a finding. RecursionError from a deep Python walk is surfaced separately as a soft DoS signal.
-_EXPECTED: Final = (ValueError, UnicodeError, turbohtml.HTMLParseError)
+_EXPECTED: Final[tuple[type[Exception], ...]] = (ValueError, UnicodeError, turbohtml.HTMLParseError)
 # Script text where "<!--" opens and "<script" plus a tag end follows before any "-->" breaks the script content
 # restrictions (https://html.spec.whatwg.org/multipage/scripting.html#restrictions-for-contents-of-script-elements):
 # reparsing its serialization lands in the double-escaped state, which swallows the closing "</script>". The standard
 # warns that such parser-made trees need not survive serialize and reparse
 # (https://html.spec.whatwg.org/multipage/parsing.html#serialising-html-fragments).
-_SCRIPT_DOUBLE_ESCAPE: Final = re.compile(r"<!--(?:(?!-->).)*?<script[\t\n\f />]", re.IGNORECASE | re.DOTALL)
+_SCRIPT_DOUBLE_ESCAPE: Final[re.Pattern[str]] = re.compile(
+    r"<!--(?:(?!-->).)*?<script[\t\n\f />]", re.IGNORECASE | re.DOTALL
+)
 # TH_MAX_TREE_DEPTH (src/turbohtml/_c/dom/tree.h): past 512 open elements a start tag is inserted but not pushed, so
 # further tags become siblings and reparsing the flattened output nests them differently
 _MAX_TREE_DEPTH: Final[int] = 512
@@ -179,12 +181,14 @@ def _run_one(func: Callable[[bytes], None], data: bytes, repro: Path) -> str | N
 
 
 # the default leaves <script>, <style> and style="" verbatim; the minifier's JS and CSS paths run only when enabled
-_MINIFY: Final = turbohtml.Minify(minify_js=JSMinify(), minify_css=CSSMinify())
-_PHONES: Final = PhoneNumbers(regions=("US", "GB", "DE", "IN"))
-_PHONE_DETECTOR: Final = LinkDetector(phones=_PHONES)
-_PHONE_LINKER: Final = Linker(Linkify(phones=_PHONES, parse_email=True))
-_PHONE_POSSIBLE: Final = LinkDetector(phones=PhoneNumbers(regions=("US",), require_valid=False))
-_PHONE_EXACT: Final = LinkDetector(phones=PhoneNumbers(regions=("US", "DE"), grouping=PhoneGrouping.EXACT))
+_MINIFY: Final[turbohtml.Minify] = turbohtml.Minify(minify_js=JSMinify(), minify_css=CSSMinify())
+_PHONES: Final[PhoneNumbers] = PhoneNumbers(regions=("US", "GB", "DE", "IN"))
+_PHONE_DETECTOR: Final[LinkDetector] = LinkDetector(phones=_PHONES)
+_PHONE_LINKER: Final[Linker] = Linker(Linkify(phones=_PHONES, parse_email=True))
+_PHONE_POSSIBLE: Final[LinkDetector] = LinkDetector(phones=PhoneNumbers(regions=("US",), require_valid=False))
+_PHONE_EXACT: Final[LinkDetector] = LinkDetector(
+    phones=PhoneNumbers(regions=("US", "DE"), grouping=PhoneGrouping.EXACT)
+)
 
 
 def _phone(data: bytes) -> None:

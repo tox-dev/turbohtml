@@ -103,7 +103,9 @@ def _snapshot(root: Element) -> str:
     return json.dumps(records)
 
 
-_CASE: Final = re.compile(r"(span|em|code):(title|data-x):(single|double|bare):([1-4]):(empty|plain|named|numeric)")
+_CASE: Final[re.Pattern[str]] = re.compile(
+    r"(span|em|code):(title|data-x):(single|double|bare):([1-4]):(empty|plain|named|numeric)"
+)
 _TAGS: Final[tuple[str, ...]] = ("span", "em", "code")
 _ATTRIBUTES: Final[tuple[str, ...]] = ("title", "data-x")
 _QUOTES: Final[dict[str, str]] = {"single": "'", "double": '"', "bare": ""}

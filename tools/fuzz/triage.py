@@ -13,14 +13,16 @@ from typing import TYPE_CHECKING, Final, Literal, TypedDict
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-_KIND: Final = re.compile(
+_KIND: Final[re.Pattern[str]] = re.compile(
     r"out[- ]of[- ]memory|out of memory|MemoryError|rss limit|libFuzzer: timeout|ERROR:.*timeout|TimeoutError",
     re.IGNORECASE,
 )
-_NATIVE: Final = re.compile(r"^\s*#(?P<index>\d+)\s+(?:0x[0-9a-f]+\s+)?(?:in\s+)?(?P<frame>.+)", re.IGNORECASE)
-_PYTHON: Final = re.compile(r'^\s*File "([^"]+)", line (\d+), in (.+)$')
-_LOCATION: Final = re.compile(r"(?:[A-Za-z]:)?[/\\][^\s()]+")
-_ADDRESS: Final = re.compile(r"0x[0-9a-f]+", re.IGNORECASE)
+_NATIVE: Final[re.Pattern[str]] = re.compile(
+    r"^\s*#(?P<index>\d+)\s+(?:0x[0-9a-f]+\s+)?(?:in\s+)?(?P<frame>.+)", re.IGNORECASE
+)
+_PYTHON: Final[re.Pattern[str]] = re.compile(r'^\s*File "([^"]+)", line (\d+), in (.+)$')
+_LOCATION: Final[re.Pattern[str]] = re.compile(r"(?:[A-Za-z]:)?[/\\][^\s()]+")
+_ADDRESS: Final[re.Pattern[str]] = re.compile(r"0x[0-9a-f]+", re.IGNORECASE)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
