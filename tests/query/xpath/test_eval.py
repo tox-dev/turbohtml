@@ -270,9 +270,9 @@ def test_unicode_and_overlong_names_match_nothing(doc: turbohtml.Node) -> None:
 
 
 def test_self_axis(doc: turbohtml.Node) -> None:
-    p = one(doc, "//p")
-    assert tags(p.xpath("self::p")) == ["p"]
-    assert p.xpath("self::div") == []
+    paragraph = one(doc, "//p")
+    assert tags(paragraph.xpath("self::p")) == ["p"]
+    assert paragraph.xpath("self::div") == []
 
 
 def test_parent_axis(doc: turbohtml.Node) -> None:

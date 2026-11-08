@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
     from turbohtml import Document
 
-R: Final[str] = "http://relaxng.org/ns/structure/1.0"
+RELAXNG_NS: Final[str] = "http://relaxng.org/ns/structure/1.0"
 _DT: Final[str] = "http://www.w3.org/2001/XMLSchema-datatypes"
 
 
@@ -69,7 +69,7 @@ def check(schema: str, xml: str) -> ValidationResult:
 
 
 def wrap(body: str, *, attrs: str = "") -> str:
-    return f'<element name="doc" xmlns="{R}" {attrs}>{body}</element>'
+    return f'<element name="doc" xmlns="{RELAXNG_NS}" {attrs}>{body}</element>'
 
 
 def test_interleave_any_order() -> None:
@@ -110,7 +110,7 @@ def test_data_with_xsd_library() -> None:
 
 
 def grammar(body: str, *, attrs: str = "") -> str:
-    return f'<grammar xmlns="{R}" {attrs}>{body}</grammar>'
+    return f'<grammar xmlns="{RELAXNG_NS}" {attrs}>{body}</grammar>'
 
 
 def test_data_param_facets() -> None:
@@ -245,7 +245,7 @@ def test_ref_to_unknown_define_raises() -> None:
 
 def test_malformed_schema_raises() -> None:
     with pytest.raises(ValueError, match="malformed schema"):
-        RelaxNG(f'<grammar xmlns="{R}"><start></grammar>')
+        RelaxNG(f'<grammar xmlns="{RELAXNG_NS}"><start></grammar>')
 
 
 def test_empty_grammar_raises() -> None:
@@ -285,11 +285,11 @@ def rng_ok(schema: str, xml: str) -> bool:
 
 
 def rwrap(body: str) -> str:
-    return f'<element name="doc" xmlns="{R}">{body}</element>'
+    return f'<element name="doc" xmlns="{RELAXNG_NS}">{body}</element>'
 
 
 def rgrammar(body: str, attrs: str = "") -> str:
-    return f'<grammar xmlns="{R}" {attrs}>{body}</grammar>'
+    return f'<grammar xmlns="{RELAXNG_NS}" {attrs}>{body}</grammar>'
 
 
 def test_rng_group_with_empty_second() -> None:
@@ -382,12 +382,15 @@ def test_rng_non_ascii_attribute_name(name: str) -> None:
 
 
 def test_rng_xml_prefixed_name() -> None:
-    schema = f'<grammar xmlns="{R}"><start><element name="xml:space"><text/></element></start></grammar>'
+    schema = f'<grammar xmlns="{RELAXNG_NS}"><start><element name="xml:space"><text/></element></start></grammar>'
     assert rng_ok(schema, "<xml:space>preserve</xml:space>")
 
 
 def test_rng_element_whitespace_before_nameclass() -> None:
-    schema = f'<grammar xmlns="{R}"><start>\n  <element>\n    <anyName/>\n    <text/>\n  </element>\n</start></grammar>'
+    schema = (
+        f'<grammar xmlns="{RELAXNG_NS}"><start>\n  <element>\n    <anyName/>\n'
+        f"    <text/>\n  </element>\n</start></grammar>"
+    )
     assert rng_ok(schema, "<x>hi</x>")
 
 
@@ -709,7 +712,7 @@ def test_rng_cdata_and_prefixed_attribute() -> None:
 
 def test_rng_data_param_without_name() -> None:
     schema = (
-        f'<grammar xmlns="{R}" datatypeLibrary="{_DT}"><start>'
+        f'<grammar xmlns="{RELAXNG_NS}" datatypeLibrary="{_DT}"><start>'
         '<element name="e"><data type="string"><param>ignored</param></data></element></start></grammar>'
     )
     assert rng_ok(schema, "<e>hello</e>")
@@ -720,19 +723,19 @@ def test_rng_default_library_string_and_unknown_xsd_type() -> None:
     assert rng_ok(rwrap('<element name="s"><data type="string"/></element>'), "<doc><s>x</s></doc>")
     # an explicit non-XSD datatype library falls back to the built-in string/token library
     assert rng_ok(
-        f'<element name="s" xmlns="{R}" datatypeLibrary=""><data type="token"/></element>',
+        f'<element name="s" xmlns="{RELAXNG_NS}" datatypeLibrary=""><data type="token"/></element>',
         "<s>x</s>",
     )
     # the XSD library with an unrecognized type name falls back to string
     assert rng_ok(
-        f'<element name="s" xmlns="{R}" datatypeLibrary="{_DT}"><data type="madeUp"/></element>',
+        f'<element name="s" xmlns="{RELAXNG_NS}" datatypeLibrary="{_DT}"><data type="madeUp"/></element>',
         "<s>anything</s>",
     )
 
 
 def test_rng_element_without_name_class_matches_any() -> None:
     # a malformed element with neither @name nor a name-class child recovers as anyName
-    schema = f'<grammar xmlns="{R}"><start><element/></start></grammar>'
+    schema = f'<grammar xmlns="{RELAXNG_NS}"><start><element/></start></grammar>'
     assert rng_ok(schema, "<whatever/>")  # no @name and no name-class child -> matches any empty element
 
 
@@ -752,7 +755,7 @@ def test_rng_whitespace_between_pattern_children() -> None:
 
 def test_rng_data_with_whitespace_and_nonparam_child() -> None:
     schema = (
-        f'<grammar xmlns="{R}" datatypeLibrary="{_DT}"><start>'
+        f'<grammar xmlns="{RELAXNG_NS}" datatypeLibrary="{_DT}"><start>'
         '<element name="s"><data type="string">\n  <param name="minLength">2</param>\n</data></element>'
         "</start></grammar>"
     )
@@ -770,7 +773,7 @@ def test_rng_data_with_whitespace_and_nonparam_child() -> None:
 )
 def test_rng_multiple_defines_dedup_and_combine(document: str) -> None:
     schema = (
-        f'<grammar xmlns="{R}"><start><element name="r"><ref name="x"/></element></start>'
+        f'<grammar xmlns="{RELAXNG_NS}"><start><element name="r"><ref name="x"/></element></start>'
         '<define name="x"><element name="a"><text/></element></define>'
         '<define name="x" combine="choice"><element name="b"><text/></element></define>'
         '<define name="x" combine="choice"><element name="c"><text/></element></define>'
@@ -801,7 +804,7 @@ def test_rng_nsname_except() -> None:
 
 def test_rng_list_with_surrounding_whitespace() -> None:
     schema = (
-        f'<grammar xmlns="{R}" datatypeLibrary="{_DT}"><start>'
+        f'<grammar xmlns="{RELAXNG_NS}" datatypeLibrary="{_DT}"><start>'
         '<element name="nums"><list><oneOrMore><data type="int"/></oneOrMore></list></element></start></grammar>'
     )
     assert rng_ok(schema, "<nums>  1   2  3  </nums>")
@@ -834,7 +837,7 @@ def test_rng_name_choice_with_except_child_is_skipped() -> None:
 
 def test_rng_grammar_with_nameless_define_and_ref() -> None:
     schema = (
-        f'<grammar xmlns="{R}"><start><element name="r"><ref name="x"/></element></start>'
+        f'<grammar xmlns="{RELAXNG_NS}"><start><element name="r"><ref name="x"/></element></start>'
         "<define><empty/></define>"  # a nameless define is skipped when resolving refs
         '<define name="x"><text/></define></grammar>'
     )
@@ -843,7 +846,7 @@ def test_rng_grammar_with_nameless_define_and_ref() -> None:
 
 def test_rng_attribute_whitespace_value_against_data() -> None:
     schema = (
-        f'<grammar xmlns="{R}" datatypeLibrary="{_DT}"><start>'
+        f'<grammar xmlns="{RELAXNG_NS}" datatypeLibrary="{_DT}"><start>'
         '<element name="r"><attribute name="n"><data type="int"/></attribute></element></start></grammar>'
     )
     assert rng_ok(schema, '<r n="5"/>')
@@ -867,7 +870,7 @@ def test_rng_nsname_except_now_enforced() -> None:
 def test_rng_define_dedup_finds_on_later_iteration() -> None:
     # defines a, b, then b again: the dedup scan skips a (index 0) then matches b (index 1)
     schema = (
-        f'<grammar xmlns="{R}"><start><element name="r"><ref name="b"/></element></start>'
+        f'<grammar xmlns="{RELAXNG_NS}"><start><element name="r"><ref name="b"/></element></start>'
         '<define name="a"><empty/></define>'
         '<define name="b"><text/></define>'
         '<define name="c"><empty/></define>'
@@ -921,53 +924,55 @@ def test_repeated_validation_preserves_character_data(pattern: str, documents: t
 @pytest.mark.parametrize(
     ("schema", "doc"),
     [
-        pytest.param(f'<element name="a" xmlns="{R}"><text/></element>', "<a>hi</a>", id="text-valid"),
+        pytest.param(f'<element name="a" xmlns="{RELAXNG_NS}"><text/></element>', "<a>hi</a>", id="text-valid"),
         pytest.param(
-            f'<element name="a" xmlns="{R}"><element name="b"><text/></element></element>',
+            f'<element name="a" xmlns="{RELAXNG_NS}"><element name="b"><text/></element></element>',
             "<a><c>x</c></a>",
             id="wrong-child-invalid",
         ),
         pytest.param(
-            f'<element name="p" xmlns="{R}"><interleave>'
+            f'<element name="p" xmlns="{RELAXNG_NS}"><interleave>'
             '<element name="a"><text/></element><element name="b"><text/></element></interleave></element>',
             "<p><b>2</b><a>1</a></p>",
             id="interleave-any-order-valid",
         ),
         pytest.param(
-            f'<element name="p" xmlns="{R}"><interleave>'
+            f'<element name="p" xmlns="{RELAXNG_NS}"><interleave>'
             '<element name="a"><text/></element><element name="b"><text/></element></interleave></element>',
             "<p><a>1</a></p>",
             id="interleave-missing-invalid",
         ),
         pytest.param(
-            f'<element name="r" xmlns="{R}"><oneOrMore><element name="i"><text/></element></oneOrMore></element>',
+            f'<element name="r" xmlns="{RELAXNG_NS}">'
+            f'<oneOrMore><element name="i"><text/></element></oneOrMore></element>',
             "<r><i>1</i><i>2</i></r>",
             id="oneOrMore-valid",
         ),
         pytest.param(
-            f'<element name="r" xmlns="{R}"><oneOrMore><element name="i"><text/></element></oneOrMore></element>',
+            f'<element name="r" xmlns="{RELAXNG_NS}">'
+            f'<oneOrMore><element name="i"><text/></element></oneOrMore></element>',
             "<r/>",
             id="oneOrMore-empty-invalid",
         ),
         pytest.param(
-            f'<element name="e" xmlns="{R}" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">'
+            f'<element name="e" xmlns="{RELAXNG_NS}" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">'
             '<data type="int"/></element>',
             "<e>7</e>",
             id="data-int-valid",
         ),
         pytest.param(
-            f'<element name="e" xmlns="{R}" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">'
+            f'<element name="e" xmlns="{RELAXNG_NS}" datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">'
             '<data type="int"/></element>',
             "<e>seven</e>",
             id="data-int-invalid",
         ),
         pytest.param(
-            f'<element name="r" xmlns="{R}"><attribute name="id"><text/></attribute><text/></element>',
+            f'<element name="r" xmlns="{RELAXNG_NS}"><attribute name="id"><text/></attribute><text/></element>',
             '<r id="1">x</r>',
             id="attribute-valid",
         ),
         pytest.param(
-            f'<element name="r" xmlns="{R}"><attribute name="id"><text/></attribute><text/></element>',
+            f'<element name="r" xmlns="{RELAXNG_NS}"><attribute name="id"><text/></attribute><text/></element>',
             "<r>x</r>",
             id="attribute-missing-invalid",
         ),

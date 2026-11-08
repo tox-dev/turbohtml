@@ -1389,7 +1389,9 @@ def test_wildcard_tag_attributes() -> None:
 
 def test_attribute_filter_rewrites_value() -> None:
     policy = _allow_all({"a"}, {"href"})
-    policy = Policy(tags=policy.tags, attributes=policy.attributes, attribute_filter=lambda _t, _n, v: v.upper())
+    policy = Policy(
+        tags=policy.tags, attributes=policy.attributes, attribute_filter=lambda _t, _n, value: value.upper()
+    )
     assert sanitize('<a href="http://x">y</a>', policy) == '<a href="HTTP://X">y</a>'
 
 
@@ -1483,12 +1485,14 @@ def test_attribute_filter_replacement_passes_through_final_rewrites() -> None:
 
 def test_attribute_filter_drops_with_none() -> None:
     policy = Policy(tags=frozenset({"a"}), attributes={"a": frozenset({"href", "title"})},
-                    attribute_filter=lambda _t, n, v: None if n == "title" else v)  # fmt: skip
+                    attribute_filter=lambda _t, name, value: None if name == "title" else value)  # fmt: skip
     assert sanitize('<a href="http://x" title="t">y</a>', policy) == '<a href="http://x">y</a>'
 
 
 def test_attribute_filter_keeps_unchanged_value() -> None:
-    policy = Policy(tags=frozenset({"a"}), attributes={"a": frozenset({"href"})}, attribute_filter=lambda _t, _n, v: v)
+    policy = Policy(
+        tags=frozenset({"a"}), attributes={"a": frozenset({"href"})}, attribute_filter=lambda _t, _n, value: value
+    )
     assert sanitize('<a href="http://x">y</a>', policy) == '<a href="http://x">y</a>'
 
 

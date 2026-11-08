@@ -231,12 +231,12 @@ def test_join_escapes_parts() -> None:
 @pytest.mark.parametrize(
     ("op", "expected"),
     [
-        pytest.param(lambda m: m.capitalize(), "Ab cd", id="capitalize"),
-        pytest.param(lambda m: m.title(), "Ab Cd", id="title"),
-        pytest.param(lambda m: m.lower(), "ab cd", id="lower"),
-        pytest.param(lambda m: m.upper(), "AB CD", id="upper"),
-        pytest.param(lambda m: m.swapcase(), "AB cD", id="swapcase"),
-        pytest.param(lambda m: m.casefold(), "ab cd", id="casefold"),
+        pytest.param(lambda markup: markup.capitalize(), "Ab cd", id="capitalize"),
+        pytest.param(lambda markup: markup.title(), "Ab Cd", id="title"),
+        pytest.param(lambda markup: markup.lower(), "ab cd", id="lower"),
+        pytest.param(lambda markup: markup.upper(), "AB CD", id="upper"),
+        pytest.param(lambda markup: markup.swapcase(), "AB cD", id="swapcase"),
+        pytest.param(lambda markup: markup.casefold(), "ab cd", id="casefold"),
     ],
 )
 def test_case_methods_keep_markup(op: Callable[[Markup], Markup], expected: str) -> None:
@@ -248,10 +248,10 @@ def test_case_methods_keep_markup(op: Callable[[Markup], Markup], expected: str)
 @pytest.mark.parametrize(
     ("op", "expected"),
     [
-        pytest.param(lambda m: m.strip(), "ab Cd", id="strip"),
-        pytest.param(lambda m: m.lstrip(), "ab Cd  ", id="lstrip"),
-        pytest.param(lambda m: m.rstrip(), "  ab Cd", id="rstrip"),
-        pytest.param(lambda m: m.expandtabs(2), "  ab Cd  ", id="expandtabs"),
+        pytest.param(lambda markup: markup.strip(), "ab Cd", id="strip"),
+        pytest.param(lambda markup: markup.lstrip(), "ab Cd  ", id="lstrip"),
+        pytest.param(lambda markup: markup.rstrip(), "  ab Cd", id="rstrip"),
+        pytest.param(lambda markup: markup.expandtabs(2), "  ab Cd  ", id="expandtabs"),
     ],
 )
 def test_trim_methods_keep_markup(op: Callable[[Markup], Markup], expected: str) -> None:
@@ -269,10 +269,10 @@ def test_getitem_keeps_markup() -> None:
 @pytest.mark.parametrize(
     ("op", "expected"),
     [
-        pytest.param(lambda m: m.removeprefix("ab"), "cd", id="removeprefix"),
-        pytest.param(lambda m: m.removesuffix("cd"), "ab", id="removesuffix"),
-        pytest.param(lambda m: m.zfill(6), "00abcd", id="zfill"),
-        pytest.param(lambda m: m.translate({ord("a"): "x"}), "xbcd", id="translate"),
+        pytest.param(lambda markup: markup.removeprefix("ab"), "cd", id="removeprefix"),
+        pytest.param(lambda markup: markup.removesuffix("cd"), "ab", id="removesuffix"),
+        pytest.param(lambda markup: markup.zfill(6), "00abcd", id="zfill"),
+        pytest.param(lambda markup: markup.translate({ord("a"): "x"}), "xbcd", id="translate"),
     ],
 )
 def test_more_wrap_only_methods_keep_markup(op: Callable[[Markup], Markup], expected: str) -> None:
@@ -326,9 +326,9 @@ def test_replace_escapes_replacement() -> None:
 @pytest.mark.parametrize(
     ("op", "expected"),
     [
-        pytest.param(lambda m: m.ljust(5, "."), "ab...", id="ljust"),
-        pytest.param(lambda m: m.rjust(5, "."), "...ab", id="rjust"),
-        pytest.param(lambda m: m.center(4, "."), ".ab.", id="center"),
+        pytest.param(lambda markup: markup.ljust(5, "."), "ab...", id="ljust"),
+        pytest.param(lambda markup: markup.rjust(5, "."), "...ab", id="rjust"),
+        pytest.param(lambda markup: markup.center(4, "."), ".ab.", id="center"),
     ],
 )
 def test_justify_keeps_markup(op: Callable[[Markup], Markup], expected: str) -> None:
@@ -340,9 +340,9 @@ def test_justify_keeps_markup(op: Callable[[Markup], Markup], expected: str) -> 
 @pytest.mark.parametrize(
     "op",
     [
-        pytest.param(lambda m: m.ljust(5, "<"), id="ljust"),
-        pytest.param(lambda m: m.rjust(5, "<"), id="rjust"),
-        pytest.param(lambda m: m.center(4, "<"), id="center"),
+        pytest.param(lambda markup: markup.ljust(5, "<"), id="ljust"),
+        pytest.param(lambda markup: markup.rjust(5, "<"), id="rjust"),
+        pytest.param(lambda markup: markup.center(4, "<"), id="center"),
     ],
 )
 def test_justify_escapes_fill_then_str_rejects_it(op: Callable[[Markup], Markup]) -> None:

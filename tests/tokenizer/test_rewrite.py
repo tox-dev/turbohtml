@@ -812,13 +812,13 @@ def test_rewrite_doctype_empty_name_is_none() -> None:
 @pytest.mark.parametrize(
     "method",
     [
-        pytest.param(lambda h: h.set_content("x"), id="set_content"),
-        pytest.param(lambda h: h.append("x"), id="append"),
-        pytest.param(lambda h: h.prepend("x"), id="prepend"),
-        pytest.param(lambda h: h.remove_and_keep_content(), id="remove_and_keep_content"),
-        pytest.param(lambda h: h.get("x"), id="get"),
-        pytest.param(lambda h: h.has_attribute("x"), id="has_attribute"),
-        pytest.param(lambda h: h.remove_attribute("x"), id="remove_attribute"),
+        pytest.param(lambda handle: handle.set_content("x"), id="set_content"),
+        pytest.param(lambda handle: handle.append("x"), id="append"),
+        pytest.param(lambda handle: handle.prepend("x"), id="prepend"),
+        pytest.param(lambda handle: handle.remove_and_keep_content(), id="remove_and_keep_content"),
+        pytest.param(lambda handle: handle.get("x"), id="get"),
+        pytest.param(lambda handle: handle.has_attribute("x"), id="has_attribute"),
+        pytest.param(lambda handle: handle.remove_attribute("x"), id="remove_attribute"),
     ],
 )
 def test_rewrite_element_only_method_on_text_raises(method: Callable[[Element], object]) -> None:
@@ -832,12 +832,12 @@ def test_rewrite_element_only_method_on_text_raises(method: Callable[[Element], 
 @pytest.mark.parametrize(
     "method",
     [
-        pytest.param(lambda h: h.before(123), id="before"),
-        pytest.param(lambda h: h.after(123), id="after"),
-        pytest.param(lambda h: h.replace(123), id="replace"),
-        pytest.param(lambda h: h.set_content(123), id="set_content"),
-        pytest.param(lambda h: h.append(123), id="append"),
-        pytest.param(lambda h: h.prepend(123), id="prepend"),
+        pytest.param(lambda handle: handle.before(123), id="before"),
+        pytest.param(lambda handle: handle.after(123), id="after"),
+        pytest.param(lambda handle: handle.replace(123), id="replace"),
+        pytest.param(lambda handle: handle.set_content(123), id="set_content"),
+        pytest.param(lambda handle: handle.append(123), id="append"),
+        pytest.param(lambda handle: handle.prepend(123), id="prepend"),
     ],
 )
 def test_rewrite_content_method_non_str_raises(method: Callable[[Element], object]) -> None:

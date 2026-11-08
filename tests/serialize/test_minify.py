@@ -14,8 +14,13 @@ from turbohtml.clean import Minify as CleanMinify
 
 
 def test_minify_defaults_all_on() -> None:
-    m = Minify()
-    assert (m.collapse_whitespace, m.omit_optional_tags, m.unquote_attributes, m.strip_comments) == (
+    minify = Minify()
+    assert (
+        minify.collapse_whitespace,
+        minify.omit_optional_tags,
+        minify.unquote_attributes,
+        minify.strip_comments,
+    ) == (
         True,
         True,
         True,
@@ -24,8 +29,13 @@ def test_minify_defaults_all_on() -> None:
 
 
 def test_minify_flags_independent() -> None:
-    m = Minify(collapse_whitespace=False, omit_optional_tags=False, unquote_attributes=False, strip_comments=False)
-    assert (m.collapse_whitespace, m.omit_optional_tags, m.unquote_attributes, m.strip_comments) == (
+    minify = Minify(collapse_whitespace=False, omit_optional_tags=False, unquote_attributes=False, strip_comments=False)
+    assert (
+        minify.collapse_whitespace,
+        minify.omit_optional_tags,
+        minify.unquote_attributes,
+        minify.strip_comments,
+    ) == (
         False,
         False,
         False,
