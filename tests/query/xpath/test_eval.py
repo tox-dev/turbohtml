@@ -1425,7 +1425,7 @@ def _normalize_lxml(result: Iterable[turbohtml.Node | str]) -> list[str]:
 
 
 class _Evaluate(Protocol):
-    def __call__(self, source: Element, expression: str, extensions: XPathExtensions, /) -> object: ...
+    def __call__(self, source: Element, expression: str, extensions: XPathExtensions, /) -> XPathResult: ...
 
 
 class _UnionEvaluate(Protocol):

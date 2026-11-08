@@ -280,7 +280,7 @@ _KNOBS: Final[tuple[bool | frozenset[str] | None, ...]] = (
     ],
 )
 def test_the_entry_points_reject_bad_arguments(
-    entry: partial[object], args: tuple[str | bool | int | set[int] | frozenset[str] | None, ...]
+    entry: partial[str], args: tuple[str | bool | int | set[int] | frozenset[str] | None, ...]
 ) -> None:
     with pytest.raises(TypeError):
         entry(*args)

@@ -1298,7 +1298,7 @@ def test_no_argument_matches_the_first_element(doc: Document) -> None:
 
 
 class _Finder(Protocol):
-    def __call__(self, *args: object) -> object: ...
+    def __call__(self, *args: int | str) -> Element | list[Element] | None: ...
 
 
 @pytest.mark.parametrize("query", ["find", "find_all"])
@@ -1309,7 +1309,9 @@ class _Finder(Protocol):
         pytest.param(lambda fn: fn("a", "b"), id="extra-positional"),
     ],
 )
-def test_query_argument_errors(doc: Document, query: str, call: Callable[[_Finder], object]) -> None:
+def test_query_argument_errors(
+    doc: Document, query: str, call: Callable[[_Finder], Element | list[Element] | None]
+) -> None:
     with pytest.raises(TypeError):
         call(getattr(doc, query))
 
