@@ -17,7 +17,7 @@ references markupsafe's regex stripping can miss.
 from __future__ import annotations
 
 import string
-from typing import TYPE_CHECKING, SupportsIndex, cast
+from typing import TYPE_CHECKING, NamedTuple, SupportsIndex, cast
 
 from turbohtml._html import _collapse_whitespace, _register_markup, parse_fragment, unescape
 from turbohtml._html import _markup_escape as escape
@@ -53,6 +53,14 @@ if TYPE_CHECKING:
 # isinstance(value, str) must hold for the template stack, so FURB189 is suppressed. PLR0904 is suppressed because the
 # class mirrors str's full method surface on purpose: any text-returning method that fell back to str would have its
 # already-safe result escaped a second time under autoescaping.
+class MarkupPartition(NamedTuple):
+    """The three Markup parts a partition returns, in order."""
+
+    before: Markup
+    separator: Markup
+    after: Markup
+
+
 class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
     """
     Text that is already safe to embed in HTML and is not escaped again.
@@ -89,14 +97,14 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         return NotImplemented
 
     @classmethod
-    def escape(cls, s: object, /) -> Markup:
+    def escape(cls, value: object, /) -> Markup:
         """
         Escape a value to this class, the entry point the composing operations use to make operands safe.
 
-        :param s: the value to escape; an ``__html__`` method marks it already safe.
+        :param value: the value to escape; an ``__html__`` method marks it already safe.
         :returns: a Markup holding the escaped text.
         """
-        rv = escape(s)
+        rv = escape(value)
         if rv.__class__ is not cls:
             return cls(rv)
         return rv
@@ -356,7 +364,7 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         """
         return self.__class__(str.translate(self, table))
 
-    def partition(self, sep: str, /) -> tuple[Markup, Markup, Markup]:
+    def partition(self, sep: str, /) -> MarkupPartition:
         """
         Partition into three parts that each stay a Markup.
 
@@ -364,9 +372,9 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         :returns: the text before, the separator, and the text after, each a Markup.
         """
         left, middle, right = str.partition(self, sep)
-        return self.__class__(left), self.__class__(middle), self.__class__(right)
+        return MarkupPartition(self.__class__(left), self.__class__(middle), self.__class__(right))
 
-    def rpartition(self, sep: str, /) -> tuple[Markup, Markup, Markup]:
+    def rpartition(self, sep: str, /) -> MarkupPartition:
         """
         Partition from the right into three parts that each stay a Markup.
 
@@ -374,7 +382,7 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]
         :returns: the text before, the separator, and the text after, each a Markup.
         """
         left, middle, right = str.rpartition(self, sep)
-        return self.__class__(left), self.__class__(middle), self.__class__(right)
+        return MarkupPartition(self.__class__(left), self.__class__(middle), self.__class__(right))
 
     def format(self, *args: object, **kwargs: object) -> Markup:
         """
@@ -475,6 +483,7 @@ _register_markup(Markup)
 __all__ = [
     "EscapeFormatter",
     "Markup",
+    "MarkupPartition",
     "escape",
     "escape_silent",
     "soft_str",
