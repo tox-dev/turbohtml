@@ -158,12 +158,11 @@ def _run(code: str) -> str:
         # base-54 counter into two-character names, and make it skip the reserved word it
         # lands on (`if` is base-54 index 332, so 340 bindings reach and skip it)
         pytest.param(
-            "(function(){var "
-            + ",".join(f'v{index}="literal long enough to stay {index}"' for index in range(340))
-            + ";console.log("
+            f"""(function(){{var {
+                ",".join(f'v{index}="literal long enough to stay {index}"' for index in range(340))
+            };console.log("""
             # each read twice, of a long literal: a short or single-read one would inline instead
-            + "+".join(f"v{index}+v{index}" for index in range(340))
-            + ")})()",
+            f"""{"+".join(f"v{index}+v{index}" for index in range(340))})}})()""",
             id="many-locals",
         ),
         pytest.param(
