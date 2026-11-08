@@ -1144,7 +1144,7 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
         check=True,
     )
     targets: Final = json.loads(inventory.stdout)
-    assert (targets["owners"], len(targets["targets"])) == (223, 34)
+    assert (targets["owners"], len(targets["targets"])) == (227, 34)
     generated_seeds: Final[dict[str, bytes]] = {}
     for profile in (  # simplint: ignore[SMP813]  # one seed map is shared by later per-target runs
         "html",
