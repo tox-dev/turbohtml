@@ -7,7 +7,7 @@ import sys
 import textwrap
 from dataclasses import dataclass
 from html.entities import codepoint2name
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Protocol
 from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # parsing turbohtml's own output, not untrusted input
     ElementTree as ET,
 )
@@ -612,7 +612,11 @@ def test_encode_surrogate_error(text: str, *, inner: bool) -> None:
     assert actual.value.args == expected.value.args
 
 
-_INDENT_RENDERS: Final = {
+class _Render(Protocol):
+    def __call__(self, root: Element, options: Html, *, inner: bool) -> str: ...
+
+
+_INDENT_RENDERS: Final[dict[str, _Render]] = {
     "serialize": lambda root, options, *, inner: root.serialize(options, inner=inner),
     "encode": lambda root, options, *, inner: root.encode(options=options, inner=inner).decode(),
     "stream": lambda root, options, *, inner: "".join(root.serialize_iter(options, inner=inner)),
