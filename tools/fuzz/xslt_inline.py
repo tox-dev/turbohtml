@@ -141,13 +141,13 @@ def generate(seed: int) -> Case:
         f'<x:template match="/">{body}</x:template></x:stylesheet>'
     )
     return Case(
-        seed,
-        stylesheet,
-        '<root><item id="b" n="2">B</item><item id="a" n="1">A</item></root>',
-        method,
-        family != 10,
-        family < 10,
-        output,
+        seed=seed,
+        stylesheet=stylesheet,
+        document='<root><item id="b" n="2">B</item><item id="a" n="1">A</item></root>',
+        method=method,
+        compiles=family != 10,
+        applies=family < 10,
+        output=output,
     )
 
 
@@ -195,7 +195,7 @@ def _tree(node: lxml.etree._Element) -> ResultTree:
     )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Case:
     # Independent phase labels survive serialization and mutation.
     seed: int

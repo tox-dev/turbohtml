@@ -139,11 +139,11 @@ def generate(seed: int) -> Case:
             if family == 6
             else "<foreign/>"
         )
-        return Case(seed, schema, compiles=False, documents=())
+        return Case(seed=seed, schema=schema, compiles=False, documents=())
     name: Final = f"entry{number}"
     return Case(
-        seed,
-        f'<rng:grammar {rng} datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">'
+        seed=seed,
+        schema=f'<rng:grammar {rng} datatypeLibrary="http://www.w3.org/2001/XMLSchema-datatypes">'
         f'<rng:start><rng:ref name="{name}"/></rng:start>'
         f'<rng:define name="{name}"><rng:element name="v">{pattern}</rng:element></rng:define></rng:grammar>',
         compiles=True,
@@ -169,7 +169,7 @@ def _parser() -> lxml.etree.XMLParser:
     return lxml.etree.XMLParser(resolve_entities=False, no_network=True)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Case:
     # Expected labels retain shared compiler errors.
     seed: int

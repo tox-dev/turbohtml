@@ -117,9 +117,9 @@ def generate(seed: int) -> Case:
         element.text = generator.choice(("alpha", "beta", "gamma"))
         elements.append(element)
     return Case(
-        lxml.etree.tostring(elements[0], encoding="unicode"),
-        generator.choice(elements).attrib["id"],
-        generator.choice((
+        xml=lxml.etree.tostring(elements[0], encoding="unicode"),
+        target=generator.choice(elements).attrib["id"],
+        predicate=generator.choice((
             "@score < 3",
             "@score >= 5",
             "@missing",
@@ -134,11 +134,11 @@ def generate(seed: int) -> Case:
             "@score < 4 and child::*",
             "@score > 4 or parent::item",
         )),
-        seed,
+        seed=seed,
     )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Case:
     # Keep replay inputs independent of engine-owned nodes.
     xml: str

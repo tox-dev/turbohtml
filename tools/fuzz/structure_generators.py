@@ -365,7 +365,7 @@ class Reference:
     depth: int = 1
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Identifier:
     # Reuse allocated names so references bind to their generated definition.
     name: str
@@ -423,11 +423,11 @@ def html_grammar() -> Grammar:
             symbol="root",
             parts=(
                 b'<div id="',
-                Identifier("target", definition=True),
+                Identifier(name="target", definition=True),
                 b'">',
                 Reference(symbol="node", depth=2),
                 b'<a href="#',
-                Identifier("target", definition=False),
+                Identifier(name="target", definition=False),
                 b'">x</a></div>',
             ),
             nodes=4,
@@ -551,7 +551,9 @@ def _attribute(name: str, value: str, index: int) -> _Attribute:
         quote=True,
     ).encode("utf-8")
     parts: Final[tuple[bytes | Reference | Identifier, ...]] = (
-        (b"#", Identifier("target", definition=False)) if value == "#f" and name not in {"id", "class"} else (encoded,)
+        (b"#", Identifier(name="target", definition=False))
+        if value == "#f" and name not in {"id", "class"}
+        else (encoded,)
     )
     ending: Final = b">" if tag in _VOID else f">x</{tag}>".encode("ascii")
     return _Attribute(

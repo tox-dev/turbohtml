@@ -147,7 +147,12 @@ def generate(seed: int) -> Case:
         declarations = '<xs:element name="v" type="xs:notAType"/>' if family == 6 else '<xs:element type="xs:string"/>'
         documents = ()
     xs: str = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
-    return Case(seed, f"<xs:schema {xs}>{declarations}</xs:schema>", family < 6 or family == 8, documents)
+    return Case(
+        seed=seed,
+        schema=f"<xs:schema {xs}>{declarations}</xs:schema>",
+        compiles=family < 6 or family == 8,
+        documents=documents,
+    )
 
 
 def _compile_turbohtml(schema: str) -> XMLSchema | None:
@@ -168,7 +173,7 @@ def _parser() -> lxml.etree.XMLParser:
     return lxml.etree.XMLParser(resolve_entities=False, no_network=True)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Case:
     # Expected labels retain shared compiler errors.
     seed: int

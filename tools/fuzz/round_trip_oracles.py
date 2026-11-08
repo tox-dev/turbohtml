@@ -1456,7 +1456,7 @@ def xpath_entry_check(
     return None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class _Raised:
     kind: str
 
@@ -1468,7 +1468,7 @@ def _outcome(call: Callable[[], _XPathValue]) -> _XPathValue | _Raised:
     try:
         return call()
     except (ValueError, TypeError) as error:
-        return _Raised(type(error).__name__)
+        return _Raised(kind=type(error).__name__)
 
 
 def _same(left: _XPathValue | _Raised, right: _XPathValue | _Raised) -> bool:
