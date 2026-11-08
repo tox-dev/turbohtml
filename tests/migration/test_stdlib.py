@@ -4,6 +4,8 @@ import pytest
 
 from turbohtml.migration.stdlib import HTMLParser
 
+_Event = tuple[str, str] | tuple[str, str, list[tuple[str, str | None]]]
+
 
 @pytest.mark.parametrize(
     ("html", "events"),
@@ -23,11 +25,11 @@ from turbohtml.migration.stdlib import HTMLParser
         pytest.param("<![CDATA[x]]>", [("comment", "[CDATA[x]]")], id="cdata-is-comment"),
     ],
 )
-def test_dispatch(html: str, events: list[tuple[object, ...]]) -> None:
+def test_dispatch(html: str, events: list[_Event]) -> None:
     assert _events(html) == events
 
 
-def _events(html: str) -> list[tuple[object, ...]]:
+def _events(html: str) -> list[_Event]:
     parser = _Recorder()
     parser.feed(html)
     parser.close()
@@ -38,7 +40,7 @@ class _Recorder(HTMLParser):
     # Records every callback as a tuple, for asserting the dispatched event stream.
     def __init__(self, *, convert_charrefs: bool = True) -> None:
         super().__init__(convert_charrefs=convert_charrefs)
-        self.events: list[tuple[object, ...]] = []
+        self.events: list[_Event] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self.events.append(("start", tag, attrs))
@@ -121,7 +123,7 @@ def test_default_startendtag_fires_start_then_end() -> None:
     class StartEnd(HTMLParser):
         def __init__(self) -> None:
             super().__init__()
-            self.events: list[tuple[object, ...]] = []
+            self.events: list[_Event] = []
 
         def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
             self.events.append(("start", tag, attrs))

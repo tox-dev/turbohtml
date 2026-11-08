@@ -218,7 +218,7 @@ def test_the_predicate_takes_three_arguments() -> None:
         pytest.param({"a": [["href"]]}, id="unhashable-attribute-name"),
     ],
 )
-def test_a_shape_that_lists_nothing_is_rejected(attributes: object) -> None:
+def test_a_shape_that_lists_nothing_is_rejected(attributes: int | dict[str, int | list[list[str]]]) -> None:
     with pytest.raises(TypeError):
         clean('<a href="/x">x</a>', attributes=cast("list[str]", attributes))
 

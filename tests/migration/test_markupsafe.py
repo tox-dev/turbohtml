@@ -44,7 +44,7 @@ class Unstringable:
 
 class HtmlReturnsUnstringable:
     # __html__ returns a value whose own str() raises, exercising the nested error path.
-    def __html__(self) -> object:
+    def __html__(self) -> Unstringable:
         return Unstringable()
 
 
@@ -155,7 +155,7 @@ def test_escape_classmethod_returns_the_calling_subclass() -> None:
         pytest.param(7, str, "7", id="int-coerced"),
     ],
 )
-def test_soft_str(value: object, expected_type: type, expected: str) -> None:
+def test_soft_str(value: Markup | str | int, expected_type: type, expected: str) -> None:
     result = soft_str(value)
     assert type(result) is expected_type
     assert result == expected
@@ -169,7 +169,7 @@ def test_soft_str(value: object, expected_type: type, expected: str) -> None:
         pytest.param(42, "42", id="stringifies-non-str-without-html"),
     ],
 )
-def test_markup_constructor(base: object, expected: str) -> None:
+def test_markup_constructor(base: str | Renderable | int, expected: str) -> None:
     assert str(Markup(base)) == expected
 
 
@@ -214,7 +214,9 @@ def test_mul_keeps_markup() -> None:
         pytest.param("%r", "<x>", "&#39;&lt;x&gt;&#39;", id="repr"),
     ],
 )
-def test_mod_escapes_interpolated_values(template: str, operand: object, expected: str) -> None:
+def test_mod_escapes_interpolated_values(
+    template: str, operand: str | tuple[str, str] | dict[str, str] | tuple[int, float], expected: str
+) -> None:
     assert str(Markup(template) % operand) == expected
 
 
@@ -359,7 +361,7 @@ def test_justify_escapes_fill_then_str_rejects_it(op: Callable[[Markup], Markup]
         pytest.param("{:>4}", "ab", "  ab", id="plain-field-with-spec"),
     ],
 )
-def test_format_escapes_fields(template: str, field: object, expected: str) -> None:
+def test_format_escapes_fields(template: str, field: Markup | str | Renderable, expected: str) -> None:
     assert str(Markup(template).format(field)) == expected
 
 
