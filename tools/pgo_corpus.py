@@ -37,6 +37,8 @@ from wpt_tree_corpus import load_wpt_html_tree
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
+    from bench.operations import Timed
+
 _TOOLS: Final[Path] = Path(__file__).resolve().parent
 _ROOT: Final[Path] = _TOOLS.parent
 _BENCH_DATA: Final[Path] = _TOOLS / "bench-data"
@@ -221,7 +223,7 @@ _SPECIAL: Final[dict[str, Callable[[], list[Case]]]] = {
 }
 
 
-def training_corpus() -> Iterator[tuple[str, object, Callable[[], list[Case]]]]:
+def training_corpus() -> Iterator[tuple[str, Timed, Callable[[], list[Case]]]]:
     # Yield ``(name, callable, load)`` for every operation, in registry order, over its offline training input set.
     for name, (run, _owner) in OPERATIONS.items():
         yield name, run, _loader_for(name)
