@@ -16,7 +16,8 @@ documented where it goes beyond the spec. The pipeline runs in C (``_url_clean``
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final, NamedTuple
+from functools import cache
+from typing import Final
 
 from turbohtml._html import _url_clean, _url_normalize, parse
 
@@ -34,8 +35,6 @@ _ISO_639_1: Final[frozenset[str]] = frozenset([
     *("yo", "za", "zh", "zu"),
 ])
 #: The ISO 639-1 two-letter language codes, gating which URL segments count as language markers.
-
-#: The content-identifying query parameters strict mode keeps; everything else is presumed decorative.
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,17 +106,23 @@ def clean_url(url: str, options: UrlCleaning | None = None, /) -> str | None:
     :raises TypeError: if ``url`` is not a ``str``.
     """
     active = options or _DEFAULT
-    return _url_clean(url, *_knobs(active), active.language, _ISO_639_1)
+    return _url_clean(
+        url,
+        active.strict,
+        active.trailing_slash,
+        active.strip_fragment,
+        active.query_allow,
+        active.query_deny,
+        *_vocabularies(),
+        active.language,
+        _ISO_639_1,
+    )
 
 
-def _knobs(options: UrlCleaning) -> _Knobs:
-    # Return the option fields and vocabularies every C entry point takes, in its argument order.
-    return _Knobs(
-        options.strict,
-        options.trailing_slash,
-        options.strip_fragment,
-        options.query_allow,
-        options.query_deny,
+@cache
+def _vocabularies() -> tuple[frozenset[str], frozenset[str]]:
+    # Built once: the C entry points test membership in these sets, so a per-call literal would allocate on every URL.
+    return (
         frozenset({
             "aid",
             "article_id",
@@ -136,16 +141,6 @@ def _knobs(options: UrlCleaning) -> _Knobs:
         }),
         frozenset({"lang", "language"}),
     )
-
-
-class _Knobs(NamedTuple):
-    strict: bool
-    trailing_slash: bool
-    strip_fragment: bool
-    query_allow: frozenset[str] | None
-    query_deny: frozenset[str]
-    id_params: frozenset[str]
-    language_params: frozenset[str]
 
 
 def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
@@ -179,7 +174,16 @@ def normalize_url(url: str, options: UrlCleaning | None = None, /) -> str:
         forbidden or empty domain after host decoding or IDNA mapping, or a character that cannot be percent-encoded
         (a lone surrogate).
     """
-    return _url_normalize(url, *_knobs(options or _DEFAULT))
+    active = options or _DEFAULT
+    return _url_normalize(
+        url,
+        active.strict,
+        active.trailing_slash,
+        active.strip_fragment,
+        active.query_allow,
+        active.query_deny,
+        *_vocabularies(),
+    )
 
 
 def extract_links(
@@ -213,7 +217,16 @@ def extract_links(
     """
     active = options or _DEFAULT
     return parse(html)._extract_links(  # ruff:ignore[private-member-access]  # the Document type's private C entry point
-        base_url, external_only, *_knobs(active), active.language, _ISO_639_1
+        base_url,
+        external_only,
+        active.strict,
+        active.trailing_slash,
+        active.strip_fragment,
+        active.query_allow,
+        active.query_deny,
+        *_vocabularies(),
+        active.language,
+        _ISO_639_1,
     )
 
 
