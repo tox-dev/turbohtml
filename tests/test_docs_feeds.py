@@ -14,7 +14,7 @@ from bench.docs_feeds import TABLES, Combined  # ruff:ignore[module-import-not-a
 from bench.operations import OPERATIONS  # ruff:ignore[module-import-not-at-top-of-file]  # imports after the sys.path insert that makes the bench package importable
 
 _GUIDE: Final[Path] = _ROOT / "docs" / "development" / "performance.rst"
-_REFERENCED = sorted(set(re.findall(r"bench/([\w-]+)\.json", _GUIDE.read_text(encoding="utf-8"))))
+_REFERENCED: Final[list[str]] = sorted(set(re.findall(r"bench/([\w-]+)\.json", _GUIDE.read_text(encoding="utf-8"))))
 
 
 def _operations(table: str | Combined) -> tuple[str, ...]:

@@ -410,7 +410,7 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-_TABLE_CASES: Final = [
+_TABLE_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "td:implied:1:plain",
         '<table id="z"><tr id="x"><td id="x">MiXeD</td><td id="y">MiXeD</td></tr></table>',
@@ -686,7 +686,7 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-_LIST_CASES: Final = [
+_LIST_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "ul:flat:explicit:plain",
         '<ul id="z"><li id="x">MiXeD</li><li id="y">MiXeD</li></ul>',

@@ -18,7 +18,10 @@ if TYPE_CHECKING:
 _STUB_DIR: Final[Path] = Path(__file__).parents[1] / "src" / "turbohtml" / "_stubs"
 _NO_DEFAULT: Final[object] = object()
 _ANY_DEFAULT: Final[object] = object()
-_POSITIONAL = frozenset({inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD})
+_POSITIONAL: Final[frozenset[inspect._ParameterKind]] = frozenset({
+    inspect.Parameter.POSITIONAL_ONLY,
+    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+})
 
 
 class _Param(NamedTuple):
@@ -126,7 +129,9 @@ def _is_dunder(name: str) -> bool:
     return leaf.startswith("__") and leaf.endswith("__")
 
 
-_ENTRIES = {name: (node, drop_self) for name, node, drop_self in _stub_entries()}
+_ENTRIES: Final[dict[str, tuple[ast.FunctionDef, bool]]] = {
+    name: (node, drop_self) for name, node, drop_self in _stub_entries()
+}
 _COMPARABLE: Final[list[str]] = sorted(
     name for name in _ENTRIES if not _is_dunder(name) and _runtime_signature(_resolve(name)) is not None
 )

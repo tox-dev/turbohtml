@@ -918,7 +918,7 @@ if TYPE_CHECKING:
 
     from turbohtml.clean import JSMinify
 
-_JS_READER_REQUIRED: Final = pytest.mark.skipif(
+_JS_READER_REQUIRED: Final[pytest.MarkDecorator] = pytest.mark.skipif(
     shutil.which("node") is None
     or not (Path(__file__).parents[1] / "tools/bench/node/node_modules/eslint-scope").is_dir(),
     reason="Node and the pinned JavaScript reader packages are required",

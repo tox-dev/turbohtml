@@ -19,7 +19,7 @@ directives.register_directive("bench-table", BenchTable)
 
 _SHARED: Final[str] = "shared caveat"
 _OTHER: Final[str] = "other caveat"
-_FEED = {
+_FEED: Final[dict[str, object]] = {
     "label": "operation",
     "parties": ["turbohtml", "other"],
     "metrics": [],

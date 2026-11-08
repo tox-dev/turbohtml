@@ -59,7 +59,7 @@ _TEXT: Final[str] = (
 _PHONES: Final[PhoneNumbers] = PhoneNumbers(regions=("US", "GB", "DE"))
 _LINKER: Final[Linker] = Linker(Linkify(phones=_PHONES, parse_email=True))
 _DETECTOR: Final[LinkDetector] = LinkDetector(phones=_PHONES)
-_NUMBER: Final = PhoneNumber.parse("+44 20 7946 0958")
+_NUMBER: Final[PhoneNumber] = PhoneNumber.parse("+44 20 7946 0958")
 
 
 def _fragment() -> turbohtml.Node:
@@ -93,7 +93,7 @@ _SANITIZER: Final[Sanitizer] = Sanitizer(Policy.strict())
 # Elements only: a text node would add a lazy text copy, which these tests do not target. The custom attribute names
 # make every copy intern them again in its own tree.
 _TREE: Final[str] = "<b zq=1><i></i></b><x y=1></x>"
-_LONG_TEXT: Final = "a" * 8192
+_LONG_TEXT: Final[str] = "a" * 8192
 # the input, the radio and the option carry enough attributes that adding value, checked or selected outgrows their
 # arena block
 _INPUT: Final[str] = "<input a0=1 a1=1 a2=1>"
@@ -823,9 +823,9 @@ def test_selector_allocation_failure_raises_memory_error(
     assert set(alloc_sweep(call, _document)) == {"MemoryError"}
 
 
-_AB: Final = re.compile(r"ab")
+_AB: Final[re.Pattern[str]] = re.compile(r"ab")
 # more code points than the largest arena block holds, so realizing the span always allocates
-_BIG: Final = "a" * 70_000
+_BIG: Final[str] = "a" * 70_000
 
 
 def _markdown(markup: str, name: str) -> object:
@@ -987,9 +987,9 @@ if TYPE_CHECKING:
 
     from turbohtml import Document
 
-_SIBLINGS: Final = parse_xml(f"<r>{'<a/>' * 100}</r>")
+_SIBLINGS: Final[Document] = parse_xml(f"<r>{'<a/>' * 100}</r>")
 _NESTED: Final[str] = "count(//a[count(//a[count(//a) > 0]) > 0])"
-_DOUBLING: Final = parse_xml(
+_DOUBLING: Final[Document] = parse_xml(
     '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
     '<xsl:output method="text"/><xsl:param name="depth"/>'
     '<xsl:template match="/"><xsl:call-template name="split">'
@@ -1112,11 +1112,11 @@ print(json.dumps({"owners": len(owner_inventory()), "targets": [target.name for 
 """
 
 
-_GENERATION_COUNTS: Final = {"encoding": ["--count", "0", "--sweep"]}
-_FALLBACK_PAYLOADS: Final = {"css-translate": b"p.x", "javascript": b'consume("kept",external);'}
+_GENERATION_COUNTS: Final[dict[str, list[str]]] = {"encoding": ["--count", "0", "--sweep"]}
+_FALLBACK_PAYLOADS: Final[dict[str, bytes]] = {"css-translate": b"p.x", "javascript": b'consume("kept",external);'}
 
 
-_NATIVE_ATHERIS_SKIP: Final = pytest.mark.skipif(
+_NATIVE_ATHERIS_SKIP: Final[pytest.MarkDecorator] = pytest.mark.skipif(
     sys.platform != "linux" or importlib.util.find_spec("atheris") is None,
     reason="Atheris's native runtime requires its optional Linux wheel",
 )

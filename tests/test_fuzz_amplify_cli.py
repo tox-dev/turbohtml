@@ -15,7 +15,9 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 # GetThreadTimes, behind time.thread_time on Windows, counts CPU time in 15.6 ms ticks, coarser than a 10 ms sample
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="the Windows thread clock advances in 15.6 ms ticks")
+pytestmark: Final[pytest.MarkDecorator] = pytest.mark.skipif(
+    sys.platform == "win32", reason="the Windows thread clock advances in 15.6 ms ticks"
+)
 
 _SHAPE: Final[Shape] = Shape(kind="repeat", left="ab")
 

@@ -806,7 +806,7 @@ def test_detector_honors_its_options() -> None:
 # The samples exercise every structural answer the stream can reach: an escape-driven
 # ISO-2022-JP run, a multi-byte UTF-8 run, a CJK run whose sequences straddle the feeds, and a
 # pure-ASCII run that carries no evidence at all.
-_SAMPLES = [
+_SAMPLES: Final[list[tuple[bytes, str | None] | pytest.ParameterSet]] = [
     pytest.param("日本語のテキスト".encode("iso-2022-jp"), id="iso-2022-jp"),
     pytest.param("café naïve 日本語".encode(), id="utf-8"),
     pytest.param(b"plain ascii only", id="ascii"),
@@ -1033,7 +1033,7 @@ def test_the_allowlist_drops_everything_else() -> None:
     assert [row[0] for row in rows] == ["koi8-r"]
 
 
-_NO_MATCH = (None, 0.0, None, False, None)
+_NO_MATCH: Final[tuple[None, float, None, bool, None]] = (None, 0.0, None, False, None)
 
 
 def test_an_empty_allowlist_leaves_the_no_match_row() -> None:

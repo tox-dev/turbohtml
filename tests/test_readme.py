@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Final
 
-_PYTHON_BLOCKS = re.findall(
+_PYTHON_BLOCKS: Final[list[str]] = re.findall(
     r"```python\n(.*?)```",
     (Path(__file__).resolve().parent.parent / "README.md").read_text(encoding="utf-8"),
     re.DOTALL,

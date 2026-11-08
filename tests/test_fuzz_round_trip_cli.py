@@ -671,7 +671,7 @@ if TYPE_CHECKING:
     from fuzz.atheris_registry import Target
 
 
-_TARGETS: Final = {target.name: target for target in public_targets()}
+_TARGETS: Final[dict[str, Target]] = {target.name: target for target in public_targets()}
 
 
 @pytest.mark.parametrize(
