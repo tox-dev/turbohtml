@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Final
+
 import pytest
 
 from turbohtml import _html
 
-_TOKENS = _html._minify_js_tokens
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+_TOKENS: Final[Callable[[str], str]] = _html._minify_js_tokens
 
 
 @pytest.mark.parametrize(
@@ -254,7 +259,7 @@ def test_non_string_argument_rejected() -> None:
         _TOKENS(123)  # ty: ignore[invalid-argument-type]  # wrong type on purpose, to test the guard
 
 
-_PARSE = _html._minify_js_parse
+_PARSE: Final[Callable[[str], str]] = _html._minify_js_parse
 
 
 def test_parse_dump_rejects_non_string() -> None:
