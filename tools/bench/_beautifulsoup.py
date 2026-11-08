@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from bs4 import BeautifulSoup, Comment
 from bs4.element import NavigableString
 
-from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
+from .tree_text import PRESERVE_TAGS, SPACE_RUN
 
 if TYPE_CHECKING:
     from bs4.element import Tag
@@ -54,19 +54,6 @@ def serialize_inner_indent(backend: str, text: str) -> str:
     return body(backend, text).decode_contents(indent_level=0)
 
 
-__all__ = [
-    "body",
-    "collapse_whitespace",
-    "encode_inner",
-    "encode_inner_indent",
-    "find",
-    "fresh",
-    "parsed",
-    "serialize_inner_indent",
-    "socialcard",
-]
-
-
 def collapse_whitespace(soup: BeautifulSoup) -> None:
     for node in list(soup.find_all(string=True)):
         if isinstance(node, Comment) or any(parent.name in PRESERVE_TAGS for parent in node.parents):
@@ -79,3 +66,16 @@ def collapse_whitespace(soup: BeautifulSoup) -> None:
             collapsed = collapsed.removeprefix(" ")
         if collapsed != node:
             node.replace_with(collapsed)
+
+
+__all__ = [
+    "body",
+    "collapse_whitespace",
+    "encode_inner",
+    "encode_inner_indent",
+    "find",
+    "fresh",
+    "parsed",
+    "serialize_inner_indent",
+    "socialcard",
+]
