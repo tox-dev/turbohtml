@@ -24,7 +24,9 @@ if TYPE_CHECKING:
     ],
 )
 def test_transform_regex_runs_no_python_code(
-    expression: str, expected: str | None, outcome: Callable[[], AbstractContextManager[object]]
+    expression: str,
+    expected: str | None,
+    outcome: Callable[[], AbstractContextManager[None] | AbstractContextManager[pytest.ExceptionInfo[re.error]]],
 ) -> None:
     transform: Final = Transform(
         parse_xml(

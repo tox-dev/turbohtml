@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, Final
+from typing import Final, TypedDict
 
 import pytest
 
@@ -13,11 +13,20 @@ sys.path.insert(0, str(_ROOT / "tools"))
 from bench.migration import emit_migration_feeds  # ruff:ignore[module-import-not-at-top-of-file]  # imports after the sys.path insert that makes the bench package importable
 
 
-def test_both_backends_column_the_same_page(paired_backend_feed: dict[str, Any]) -> None:
+class _Feed(TypedDict):
+    label: str
+    parties: list[str]
+    metrics: list[str]
+    rows: list[list[str | float | None]]
+    spread: list[list[float | None]]
+    row_notes: dict[str, str]
+
+
+def test_both_backends_column_the_same_page(paired_backend_feed: _Feed) -> None:
     assert paired_backend_feed["parties"] == ["turbohtml", "bs4 (html.parser)", "bs4 (lxml)"]
 
 
-def test_both_backends_keep_their_own_timings(paired_backend_feed: dict[str, Any]) -> None:
+def test_both_backends_keep_their_own_timings(paired_backend_feed: _Feed) -> None:
     assert paired_backend_feed["rows"] == [["a page", 1.0, 4.0, 2.0]]
 
 
@@ -43,7 +52,7 @@ def test_operation_one_backend_skips_keeps_the_row(tmp_path: Path) -> None:
     assert feed["row_notes"][str(row_index)] == "same in both configurations, so measured once"
 
 
-def _emit(tmp_path: Path, modules: dict[str, dict[str, str]], stats: dict[str, dict[str, float]]) -> dict[str, Any]:
+def _emit(tmp_path: Path, modules: dict[str, dict[str, str]], stats: dict[str, dict[str, float]]) -> _Feed:
     # Run the writer over fake competitors and return the beautifulsoup feed it wrote.
     out = tmp_path / "out"
     out.mkdir()
@@ -74,12 +83,12 @@ def _docs_root(root: Path, slug: str) -> Path:
     return docs
 
 
-def test_spread_aligns_with_every_variant(paired_backend_feed: dict[str, Any]) -> None:
+def test_spread_aligns_with_every_variant(paired_backend_feed: _Feed) -> None:
     assert paired_backend_feed["spread"] == [[None, 0.01, 0.02, 0.03]]
 
 
 @pytest.fixture
-def paired_backend_feed(tmp_path: Path) -> dict[str, Any]:
+def paired_backend_feed(tmp_path: Path) -> _Feed:
     return _emit(
         tmp_path,
         {"beautifulsoup4": {"parse": "bs4 (html.parser)"}, "beautifulsoup4_lxml": {"parse": "bs4 (lxml)"}},

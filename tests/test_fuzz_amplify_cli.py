@@ -49,7 +49,7 @@ def _tenfold(text: str) -> str:  # pragma: win32 no cover
     return text * 10
 
 
-def _rows(tmp_path: Path, target: str, shape: dict[str, object]) -> Path:  # pragma: win32 no cover
+def _rows(tmp_path: Path, target: str, shape: dict[str, str]) -> Path:  # pragma: win32 no cover
     row = {"name": "row", "source": "s", "targets": [target], "shape": shape}
     (path := tmp_path / "rows.json").write_text(json.dumps([row]), encoding="utf-8")
     return path

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import pytest
 from fuzz.amplify import TARGETS, Regression, Shape, alphabet, load_regressions
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
 
 _COMMITTED: Final[Path] = Path(__file__).parents[1] / "tools" / "fuzz" / "amplify_regressions.json"
 
@@ -25,7 +28,7 @@ def test_load_regressions_expands_one_row_per_target(tmp_path: Path) -> None:
     assert load_regressions(path) == expected
 
 
-def _write(tmp_path: Path, rows: object) -> Path:
+def _write(tmp_path: Path, rows: Sequence[Mapping[str, str | int | list[str] | dict[str, str]]]) -> Path:
     (path := tmp_path / "rows.json").write_text(json.dumps(rows), encoding="utf-8")
     return path
 

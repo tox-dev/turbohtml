@@ -1097,7 +1097,9 @@ def test_an_encoding_naming_no_language_reports_none() -> None:
         pytest.param((_SCORED, None, ()), id="too-few-arguments"),
     ],
 )
-def test_the_ranker_rejects_bad_arguments(args: tuple[object, ...]) -> None:
+def test_the_ranker_rejects_bad_arguments(
+    args: tuple[str | tuple[str, bool, list[tuple[str, int]], bool] | tuple[()] | float | dict[str, str] | None, ...],
+) -> None:
     with pytest.raises(TypeError):
         _detect_rank(*args)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 

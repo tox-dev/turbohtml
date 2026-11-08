@@ -1886,7 +1886,9 @@ def test_atheris_parser_document_output() -> None:
         ),
     ],
 )
-def test_atheris_parser_incremental_output(header: Header, positions: tuple[object, ...]) -> None:
+def test_atheris_parser_incremental_output(
+    header: Header, positions: tuple[tuple[int | None, int | None, SourceLocation | None], ...]
+) -> None:
     assert incremental_observation("<p>水😀</p>".encode(), header) == (
         "<html><head></head><body><p>水😀</p></body></html>",
         positions,
@@ -1932,7 +1934,11 @@ def test_atheris_parser_token_fields() -> None:
         pytest.param(b'<p id="a">', 4, (("START_TAG", "p", None, (), False, 1, 0),), id="no-attributes"),
     ],
 )
-def test_atheris_parser_token_options(data: bytes, opts: int, expected: tuple[object, ...]) -> None:
+def test_atheris_parser_token_options(
+    data: bytes,
+    opts: int,
+    expected: tuple[tuple[str, str | None, str | None, tuple[tuple[str, str], ...] | None, bool, int, int], ...],
+) -> None:
     assert token_observation(data, Header(opts, 0, 2)) == expected
 
 
