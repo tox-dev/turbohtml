@@ -3126,13 +3126,9 @@ def test_radio_group_many_explicit_owners(count: int, selected_index: int) -> No
 )
 def test_radio_group_deep_ancestor_ownership(container: str, inside: str, outside: str, *, checked: bool) -> None:
     document: Final = parse(
-        f"<{container}>"
-        + "<div>" * 32
-        + "<input type=radio name=x checked><span><input type=radio name=x checked></span>"
-        + "</div>" * 32
-        + inside
-        + f"</{container}>"
-        + outside
+        f"<{container}>{'<div>' * 32}"
+        f"<input type=radio name=x checked><span><input type=radio name=x checked></span>{'</div>' * 32}{inside}"
+        f"</{container}>{outside}"
     )
     first, second, selected = document.find_all("input")
     selected.checked = True

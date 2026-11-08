@@ -929,7 +929,7 @@ def test_parser_text_coalescing_keeps_fostered_text_before_table() -> None:
 
 
 def test_independent_parsers_in_parallel_each_build_correctly() -> None:
-    document: Final = "<html><body>" + "".join(f"<div><p>x{index}</p></div>" for index in range(200)) + "</body></html>"
+    document: Final = f"<html><body>{''.join(f'<div><p>x{index}</p></div>' for index in range(200))}</body></html>"
     expected: Final = parse(document).html
     results: Final[list[str]] = []
     lock: Final = threading.Lock()

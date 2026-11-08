@@ -176,7 +176,7 @@ _LONG_NAME: Final[str] = "z" * 130
             id="formatting-list-regrow",
         ),
         pytest.param(
-            "<p " + " ".join(f"a{index}=1" for index in range(70)) + ">", 'a0="1"', id="element-over-64-attributes"
+            f"<p {' '.join(f'a{index}=1' for index in range(70))}>", 'a0="1"', id="element-over-64-attributes"
         ),
         pytest.param("<![CDATA[x]]>", "[CDATA[x]]", id="cdata-in-html-is-bogus-comment"),
         pytest.param("<svg><![CDATA[x]]></svg>", '"x"', id="cdata-in-foreign-is-text"),

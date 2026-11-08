@@ -228,7 +228,7 @@ def _stream_count(markup: str) -> int:
 def test_formatting_run_past_depth_cap_does_not_amplify(entry: Callable[[str], int], count: int) -> None:
     # past the 512 open-element cap a refused formatting tag that stayed in the active-formatting list was re-cloned
     # on each later formatting tag, O(n^2) nodes; a distinct attribute per tag defeats the Noah's Ark de-duplication
-    assert entry("".join(f"<b c{index}>" for index in range(count)) + "x") == count
+    assert entry(f"{''.join(f'<b c{index}>' for index in range(count))}x") == count
 
 
 @pytest.mark.parametrize(
