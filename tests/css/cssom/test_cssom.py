@@ -1249,10 +1249,8 @@ def test_computed_style_predicate_order_preserves_foreign_elements() -> None:
 )
 def test_computed_style_deep_has_scope(selector: str, expected: str) -> None:
     document: Final = parse(
-        f"<style>div{{color:blue}}div{selector}{{color:red}}</style>"
-        + "<div>" * 64
-        + '<span class="hit"></span>'
-        + "</div>" * 64
+        f'<style>div{{color:blue}}div{selector}{{color:red}}</style>{"<div>" * 64}<span class="hit"></span>'
+        f"{'</div>' * 64}"
     )
     nodes: Final = tuple(document.select("div"))
     for node in reversed(nodes):
@@ -1262,7 +1260,7 @@ def test_computed_style_deep_has_scope(selector: str, expected: str) -> None:
 
 def test_computed_style_has_refreshes_after_attribute_change() -> None:
     document: Final = parse(
-        "<style>div{color:blue}div:has(.hit){color:red}</style>" + "<div>" * 64 + "<span></span>" + "</div>" * 64
+        f"<style>div{{color:blue}}div:has(.hit){{color:red}}</style>{'<div>' * 64}<span></span>{'</div>' * 64}"
     )
     outer: Final = document.select("div")[0]
     target: Final = document.select("span")[0]
@@ -1273,7 +1271,7 @@ def test_computed_style_has_refreshes_after_attribute_change() -> None:
 
 def test_computed_style_has_refreshes_after_insertion() -> None:
     document: Final = parse(
-        "<style>div{color:blue}div:has(.hit){color:red}</style>" + "<div>" * 64 + "<span></span>" + "</div>" * 64
+        f"<style>div{{color:blue}}div:has(.hit){{color:red}}</style>{'<div>' * 64}<span></span>{'</div>' * 64}"
     )
     outer: Final = document.select("div")[0]
     target: Final = document.select("span")[0]
@@ -1284,10 +1282,8 @@ def test_computed_style_has_refreshes_after_insertion() -> None:
 
 def test_computed_style_has_refreshes_after_removal() -> None:
     document: Final = parse(
-        "<style>div{color:blue}div:has(.hit){color:red}</style>"
-        + "<div>" * 64
-        + '<span class="hit"></span>'
-        + "</div>" * 64
+        f'<style>div{{color:blue}}div:has(.hit){{color:red}}</style>{"<div>" * 64}<span class="hit"></span>'
+        f"{'</div>' * 64}"
     )
     outer: Final = document.select("div")[0]
     target: Final = document.select("span")[0]
@@ -1298,7 +1294,7 @@ def test_computed_style_has_refreshes_after_removal() -> None:
 
 def test_computed_style_has_refreshes_after_text_change() -> None:
     document: Final = parse(
-        "<style>div{color:blue}div:has(span:empty){color:red}</style>" + "<div>" * 64 + "<span></span>" + "</div>" * 64
+        f"<style>div{{color:blue}}div:has(span:empty){{color:red}}</style>{'<div>' * 64}<span></span>{'</div>' * 64}"
     )
     outer: Final = document.select("div")[0]
     target: Final = document.select("span")[0]
@@ -1309,7 +1305,7 @@ def test_computed_style_has_refreshes_after_text_change() -> None:
 
 def test_computed_style_has_refreshes_after_stylesheet_change() -> None:
     document: Final = parse(
-        "<style>div{color:blue}div:has(.hit){color:red}</style>" + "<div>" * 64 + "<span></span>" + "</div>" * 64
+        f"<style>div{{color:blue}}div:has(.hit){{color:red}}</style>{'<div>' * 64}<span></span>{'</div>' * 64}"
     )
     outer: Final = document.select("div")[0]
     before: Final = computed_style(outer)["color"]
@@ -1419,9 +1415,7 @@ def test_computed_style_sibling_positions_after_insertion() -> None:
     ],
 )
 def test_computed_style_sibling_types(selector: str, expected: tuple[str, ...], order: tuple[int, ...]) -> None:
-    document: Final = parse(
-        f"<style>i{{color:blue}}i{selector}{{color:red}}</style>" + "<i></i> <!--gap--> <b></b>" * 4
-    )
+    document: Final = parse(f"<style>i{{color:blue}}i{selector}{{color:red}}</style>{'<i></i> <!--gap--> <b></b>' * 4}")
     nodes: Final = document.select("i")
     assert tuple(computed_style(nodes[index])["color"] for index in order) == tuple(expected[index] for index in order)
 

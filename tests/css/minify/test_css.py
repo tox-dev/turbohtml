@@ -542,11 +542,8 @@ def test_minify_css_transparent_hex_keeps_rgb(source: str, expected: str) -> Non
 
 def test_minify_css_large_dedup_remains_a_fixpoint() -> None:
     source: Final = (
-        "a{x:0;"
-        + "".join(f"p{index}:0;" for index in range(15))
-        + "x:1;x:0;"
-        + "".join(f"p{index}:0;" for index in range(15))
-        + "}"
+        f"a{{x:0;{''.join(f'p{index}:0;' for index in range(15))}x:1;x:0;"
+        f"{''.join(f'p{index}:0;' for index in range(15))}}}"
     )
     result: Final = minify_css(source)
     assert result == minify_css(result)
@@ -557,8 +554,8 @@ def test_minify_css_large_dedup_remains_a_fixpoint() -> None:
     ("source", "expected"),
     [
         pytest.param("sub{d:.}sub{d:.}sub{{}}", "sub{d:.;{}}", id="nested-after-duplicate"),
-        pytest.param("sub{d:.}" * 257 + "sub{{}}", "sub{d:.;{}}", id="nested-after-long-run"),
-        pytest.param("sub{d:.}" * 257 + "sub{e:.}", "sub{d:.;e:.}", id="declaration-after-long-run"),
+        pytest.param(f"{'sub{d:.}' * 257}sub{{{{}}}}", "sub{d:.;{}}", id="nested-after-long-run"),
+        pytest.param(f"{'sub{d:.}' * 257}sub{{e:.}}", "sub{d:.;e:.}", id="declaration-after-long-run"),
         pytest.param("r{a:1;b:0}.r{a:1}.r{b:0}", "r,.r{a:1;b:0}", id="merged-body-matches-rule-before"),
         pytest.param("r,.r{a:1}r{a:1;b:0}.r{a:1}.r{b:0}", "r,.r{a:1;b:0}", id="merges-chain-back"),
         pytest.param("c{x:1;y:1}a{x:1}b{z:1}a{y:1}a{w:1}", "c,a{x:1;y:1}b{z:1}a{w:1}", id="skips-rule-merged-away"),
@@ -2502,19 +2499,17 @@ def test_minify_css_survives_deep_nesting(mode: str) -> None:
     ("source", "expected"),
     [
         pytest.param(
-            "@media screen{" * 98 + "a{color:red}" + "}" * 98,
-            "@media screen{" * 98 + "a{color:red}" + "}" * 98,
+            f"{'@media screen{' * 98}a{{color:red}}{'}' * 98}",
+            f"{'@media screen{' * 98}a{{color:red}}{'}' * 98}",
             id="blocks-at-cap",
         ),
-        pytest.param("@media screen{" * 99 + "a{color:red}" + "}" * 99, "", id="blocks-past-cap"),
+        pytest.param(f"{'@media screen{' * 99}a{{color:red}}{'}' * 99}", "", id="blocks-past-cap"),
         pytest.param(
-            "a{" + "&{" * 98 + "color:red" + "}" * 98 + "}",
-            "a{" + "&{" * 98 + "color:red" + "}" * 98 + "}",
+            f"a{{{'&{' * 98}color:red{'}' * 98}}}",
+            f"a{{{'&{' * 98}color:red{'}' * 98}}}",
             id="declarations-at-cap",
         ),
-        pytest.param(
-            "a{" + "&{" * 99 + "color:red" + "}" * 99 + "}", "a{" + "&{" * 99 + "}" * 100, id="declarations-past-cap"
-        ),
+        pytest.param(f"a{{{'&{' * 99}color:red{'}' * 99}}}", f"a{{{'&{' * 99}{'}' * 100}", id="declarations-past-cap"),
         pytest.param(
             f"a{{b:{'f(' * 99}1.0px{')' * 99}}}",
             f"a{{b:{'f(' * 99}1px{')' * 99}}}",
@@ -2841,7 +2836,7 @@ def test_minify_css_merged_media_is_a_fixed_point(source: str, expected: str) ->
 def test_minify_css_merge_shared_inputs_media(case_index: int) -> None:
     source: Final = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
     count: Final = (10, 100, 1_000)[case_index]
-    expected: Final = "@media screen{" + ",".join(f".a{index}" for index in range(count)) + "{color:red}}"
+    expected: Final = f"@media screen{{{','.join(f'.a{index}' for index in range(count))}{{color:red}}}}"
     assert minify_css(source) == expected
 
 
@@ -2852,7 +2847,7 @@ def test_minify_css_merge_shared_inputs_media(case_index: int) -> None:
 def test_minify_css_merge_shared_inputs_selectors(case_index: int) -> None:
     source: Final = cast("str", INPUTS["minify-css-merges"]()[case_index][1])
     count: Final = (10, 100, 1_000)[case_index % 3]
-    expected: Final = ",".join(f".a{index}" for index in range(count)) + "{color:red}"
+    expected: Final = f"{','.join(f'.a{index}' for index in range(count))}{{color:red}}"
     assert minify_css(source) == expected
 
 

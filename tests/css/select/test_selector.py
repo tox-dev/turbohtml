@@ -985,7 +985,7 @@ def test_rejects_non_str(method: str) -> None:
             id="unknown-tag-uses-its-name",
         ),
         pytest.param(
-            "<ul>" + "".join(f"<li>{number}</li>" for number in range(12)) + "</ul>",
+            f"<ul>{''.join(f'<li>{number}</li>' for number in range(12))}</ul>",
             "li",
             11,
             "html > body > ul > li:nth-of-type(12)",
