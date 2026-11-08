@@ -500,7 +500,9 @@ def test_number_format_writes_each_style() -> None:
     ]
 
 
-_CONFIG: Final = SimpleNamespace()  # stands for the compiled configuration in a parametrized argument list
+_CONFIG: Final[SimpleNamespace] = (
+    SimpleNamespace()
+)  # stands for the compiled configuration in a parametrized argument list
 
 
 @pytest.mark.parametrize(
