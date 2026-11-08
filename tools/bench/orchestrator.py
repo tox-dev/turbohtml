@@ -82,7 +82,9 @@ def run(command: str, pyperf_args: tuple[str, ...], *, pgo: bool) -> None:
         if command in _COMPETITORS:
             _report_package(command, pyperf_args, workdir=workdir, core_python=baseline_python(workdir, pgo=pgo))
         elif command == "core":
-            _report_core(pyperf_args, workdir=workdir, core_python=baseline_python(workdir, pgo=pgo))
+            core_python = baseline_python(workdir, pgo=pgo)
+            for operation in OPERATIONS:
+                render(operation, run_worker(core_python, "core", operation, workdir, pyperf_args))
         elif command == "interpreters":
             from . import (  # ruff:ignore[import-outside-top-level]  # imports orchestrator, so bind it late
                 interpreters,
@@ -140,6 +142,22 @@ def _uv(*args: str) -> None:
     subprocess.run(["uv", *args], check=True, capture_output=True, text=True)
 
 
+def baseline_python(workdir: Path, *, pgo: bool) -> Path:
+    # Provision the turbohtml baseline venv, plain by default or with the shipped PGO+LTO release recipe when ``pgo``.
+    #
+    # The plain path builds the turbohtml wheel and installs it -- fast, good for iterating. The ``pgo`` path
+    # instead reproduces what ships: the venv gets the build backend, then :func:`pgo_build.build` drives the two-phase
+    # profile-guided, link-time-optimized editable install (``--no-build-isolation``, so the backend has to live in the
+    # venv), leaving the baseline measured against a release-representative binary.
+    if not pgo:
+        _uv("build", "--wheel", "--out-dir", str(workdir), str(REPO_ROOT))
+        return venv_python(workdir, "core", (str(next(workdir.glob("*.whl"))),))
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    python = venv_python(workdir, "core", tuple(pyproject["build-system"]["requires"]))
+    pgo_build.build(str(python), workdir / "core-pgo-build", REPO_ROOT, "full", system=False)
+    return python
+
+
 def run_worker(
     python: Path, target: str, operation: str, workdir: Path, pyperf_args: tuple[str, ...]
 ) -> dict[str, dict[str, float | str]]:
@@ -172,33 +190,6 @@ def run_worker(
         sys.stderr.write(error.stderr or "")
         raise
     return json.loads(out.read_text(encoding="utf-8"))
-
-
-def baseline_python(workdir: Path, *, pgo: bool) -> Path:
-    # Provision the turbohtml baseline venv, plain by default or with the shipped PGO+LTO release recipe when ``pgo``.
-    #
-    # The plain path installs the wheel :func:`_build_wheel` builds -- fast, good for iterating. The ``pgo`` path
-    # instead reproduces what ships: the venv gets the build backend, then :func:`pgo_build.build` drives the two-phase
-    # profile-guided, link-time-optimized editable install (``--no-build-isolation``, so the backend has to live in the
-    # venv), leaving the baseline measured against a release-representative binary.
-    if not pgo:
-        return venv_python(workdir, "core", (str(_build_wheel(workdir)),))
-    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    python = venv_python(workdir, "core", tuple(pyproject["build-system"]["requires"]))
-    pgo_build.build(str(python), workdir / "core-pgo-build", REPO_ROOT, "full", system=False)
-    return python
-
-
-def _build_wheel(workdir: Path) -> Path:
-    # Build the turbohtml wheel once; only the core baseline venv installs it.
-    _uv("build", "--wheel", "--out-dir", str(workdir), str(REPO_ROOT))
-    return next(workdir.glob("*.whl"))
-
-
-def _report_core(pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:
-    # Render turbohtml's own baseline for every operation in a turbohtml-only venv.
-    for operation in OPERATIONS:
-        render(operation, run_worker(core_python, "core", operation, workdir, pyperf_args))
 
 
 def _report_operation(operation: str, pyperf_args: tuple[str, ...], *, workdir: Path, core_python: Path) -> None:

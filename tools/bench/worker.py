@@ -16,21 +16,21 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pyperf
 
 from bench.operations import INPUTS, MEMORY_OPS, SIZE_OPS, Case
 from bench.timing import Mutating
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
+def _bench(runner: pyperf.Runner, name: str, func: object, arg: Case) -> pyperf.Benchmark | None:
+    # Measure one case: a mutating operation through ``bench_time_func``, any other through ``bench_func``.
+    if not isinstance(func, Mutating):
+        return runner.bench_func(name, func, arg)
+    # Rebuild a fresh tree per iteration (untimed), clocking only the mutation.
+    setup, run = func.setup, func.run
 
-def _timed(mutating: Mutating, arg: Case) -> Callable[[int], float]:
-    # Return a ``bench_time_func`` body: rebuild a fresh tree per iteration (untimed), clock only the mutation.
-    def inner(loops: int) -> float:
-        setup, run = mutating.setup, mutating.run
+    def timed(loops: int) -> float:
         elapsed = 0.0
         for _ in range(loops):
             # pyperf can disable automatic GC; fresh cyclic trees must not accumulate between iterations.
@@ -42,14 +42,7 @@ def _timed(mutating: Mutating, arg: Case) -> Callable[[int], float]:
             del tree
         return elapsed
 
-    return inner
-
-
-def _bench(runner: pyperf.Runner, name: str, func: object, arg: Case) -> pyperf.Benchmark | None:
-    # Measure one case: a mutating operation through ``bench_time_func``, any other through ``bench_func``.
-    if isinstance(func, Mutating):
-        return runner.bench_time_func(name, _timed(func, arg))
-    return runner.bench_func(name, func, arg)
+    return runner.bench_time_func(name, timed)
 
 
 def _peak_memory(case_index: int) -> float:
