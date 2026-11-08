@@ -14,11 +14,13 @@ from turbohtml.detect import NormalizationForm, is_normalized, normalize
 _FORMS: Final[tuple[NormalizationForm, ...]] = ("NFC", "NFD", "NFKC", "NFKD")
 
 # Fixed (source, NFC, NFD, NFKC, NFKD) vectors at Unicode 16.0.0, the version turbohtml's tables pin. They hold on every
-# interpreter regardless of its own Unicode version, and drive every arm of the C engine: canonical decomposition and
-# recomposition (e-acute both ways), a singleton (OHM -> OMEGA, ANGSTROM -> A-ring), compatibility decompositions
-# (ligatures, superscript, fraction, Roman numeral, math bold, halfwidth katakana), a composition-excluded precomposed
-# character (U+0958, U+0344), cross-class mark reordering, and every Hangul shape (L/V/T jamo, LV and LVT syllables, an
-# LVT that gains no trailer, an LV that gains no vowel), plus an astral start and a code point past every table range.
+# interpreter regardless of its own Unicode version.
+#
+# They drive every arm of the C engine: canonical decomposition and recomposition (e-acute both ways), a singleton (OHM
+# -> OMEGA, ANGSTROM -> A-ring), compatibility decompositions (ligatures, superscript, fraction, Roman numeral, math
+# bold, halfwidth katakana), a composition-excluded precomposed character (U+0958, U+0344), cross-class mark reordering,
+# and every Hangul shape (L/V/T jamo, LV and LVT syllables, an LVT that gains no trailer, an LV that gains no vowel),
+# plus an astral start and a code point past every table range.
 _VECTORS: Final[list[tuple[str, str, str, str, str]]] = [
     ("abc", "abc", "abc", "abc", "abc"),
     ("caf\u00e9", "caf\u00e9", "cafe\u0301", "caf\u00e9", "cafe\u0301"),
