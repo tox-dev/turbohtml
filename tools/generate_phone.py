@@ -366,24 +366,7 @@ def parse_metadata(xml: bytes) -> list[Region]:
         if general is None or general.find("possibleLengths") is not None:
             msg = f"{territory.get('id')}: generalDesc must exist and carry no possibleLengths"
             raise GenerationError(msg)
-        types: dict[str, TypeDesc] = {}
-        examples: dict[str, str] = {}
-        for name in TYPES:
-            desc = territory.find(name)
-            if desc is None:
-                continue
-            pattern = desc.find("nationalNumberPattern")
-            lengths = desc.find("possibleLengths")
-            if pattern is None or lengths is None:
-                msg = f"{territory.get('id')}/{name}: a type needs a pattern and possibleLengths"
-                raise GenerationError(msg)
-            types[name] = TypeDesc(
-                pattern=_WHITESPACE.sub("", pattern.text or ""),
-                national=_lengths(lengths.get("national")),
-                local_only=_lengths(lengths.get("localOnly")),
-            )
-            if (example := desc.find("exampleNumber")) is not None and example.text:
-                examples[name] = example.text
+        types, examples = _types(territory)
         national = frozenset().union(*(desc.national for desc in types.values()))
         national_prefix = territory.get("nationalPrefix")
         regions.append(
@@ -409,6 +392,32 @@ def parse_metadata(xml: bytes) -> list[Region]:
         msg = "no territories in the metadata"
         raise GenerationError(msg)
     return sorted(regions, key=lambda region: (region.code, region.country_code))
+
+
+def _types(territory: ET.Element) -> tuple[dict[str, TypeDesc], dict[str, str]]:
+    types: dict[str, TypeDesc] = {}
+    examples: dict[str, str] = {}
+    for name in TYPES:
+        desc = territory.find(name)
+        if desc is None:
+            continue
+        types[name] = _type_desc(territory, name, desc)
+        if (example := desc.find("exampleNumber")) is not None and example.text:
+            examples[name] = example.text
+    return types, examples
+
+
+def _type_desc(territory: ET.Element, name: str, desc: ET.Element) -> TypeDesc:
+    pattern = desc.find("nationalNumberPattern")
+    lengths = desc.find("possibleLengths")
+    if pattern is None or lengths is None:
+        msg = f"{territory.get('id')}/{name}: a type needs a pattern and possibleLengths"
+        raise GenerationError(msg)
+    return TypeDesc(
+        pattern=_WHITESPACE.sub("", pattern.text or ""),
+        national=_lengths(lengths.get("national")),
+        local_only=_lengths(lengths.get("localOnly")),
+    )
 
 
 def _lengths(text: str | None) -> frozenset[int]:
@@ -704,19 +713,19 @@ def _check_priority_dfas(compiled: _CompiledRegion, rng: random.Random) -> None:
             if match_end(automaton, digits) != (matched.end() if matched else -1):
                 msg = f"{region.code}: priority DFA disagrees with re.match on {sample!r} for {pattern!r}"
                 raise GenerationError(msg)
-            if (
-                matched
-                and automaton is compiled.prefix
-                and compiled.prefix_program is not None
-                and compiled.tag is not None
-                and compiled.tag.group
-            ):
-                spans = pike_spans(compiled.prefix_program, digits[: matched.end()]) or {}
-                if spans.get(compiled.tag.group) != (
-                    matched.span(compiled.tag.group) if matched.span(compiled.tag.group) != (-1, -1) else None
-                ):
-                    msg = f"{region.code}: Pike VM disagrees with re on the transform group for {sample!r}"
-                    raise GenerationError(msg)
+            if matched and automaton is compiled.prefix:
+                _check_transform_group(compiled, sample, digits, matched)
+
+
+def _check_transform_group(compiled: _CompiledRegion, sample: str, digits: list[int], matched: re.Match[str]) -> None:
+    if compiled.prefix_program is None or compiled.tag is None or not compiled.tag.group:
+        return
+    spans = pike_spans(compiled.prefix_program, digits[: matched.end()]) or {}
+    if spans.get(compiled.tag.group) != (
+        matched.span(compiled.tag.group) if matched.span(compiled.tag.group) != (-1, -1) else None
+    ):
+        msg = f"{compiled.region.code}: Pike VM disagrees with re on the transform group for {sample!r}"
+        raise GenerationError(msg)
 
 
 def _random_digits(rng: random.Random, low: int, high: int) -> str:
