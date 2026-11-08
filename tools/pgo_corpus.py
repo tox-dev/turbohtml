@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # the bench package si
 from bench import corpus
 from bench.core import OPERATIONS
 from bench.corpus import CORPUS_FILES, corpus_text
-from bench.operations import INPUTS
+from bench.operations import INPUTS, Case
 from wpt_tree_corpus import load_wpt_html_tree
 
 if TYPE_CHECKING:
@@ -43,7 +43,7 @@ _ENCODING_SAMPLES: Final[Path] = _ROOT / "tests" / "html5lib-tests" / "encoding"
 _SLICE: Final[int] = 1 << 16  # 64 kB of book text: enough work per call without a multi-megabyte parse in the profile
 
 
-def _safe(load: Callable[[], list[object]]) -> list[object]:
+def _safe(load: Callable[[], list[Case]]) -> list[Case]:
     # Return ``load()``'s inputs, or an empty list when its vendored source is not checked out.
     try:
         return load()
@@ -86,7 +86,7 @@ def _book(relative: str) -> str:
     return corpus.corpus(relative, _SLICE)
 
 
-def _escape_inputs() -> list[object]:
+def _escape_inputs() -> list[Case]:
     # Return the escaper's input set: real book prose and HTML, plus the entity-dense spec.
     return [
         *_safe(lambda: [_book("war-and-peace/2600.txt"), _book("war-and-peace/2600-h/2600-h.htm")]),
@@ -94,11 +94,11 @@ def _escape_inputs() -> list[object]:
     ]
 
 
-def _encoding_streams() -> list[object]:
+def _encoding_streams() -> list[Case]:
     # Return the byte streams the encoding sniffer trains on: legacy multi-byte, UTF-16 with a BOM, real samples.
     russian: str = "Программирование помогает понять структуру вычислительных систем сегодня здесь снова."
     japanese = "日本語のテキストをここに書きます。今日はとても良い天気ですね。桜が咲いています。"
-    streams: list[object] = [
+    streams: list[Case] = [
         (japanese * 20).encode("shift_jis"),
         ("这是一段中文文本用来测试字符编码的自动检测功能。今天天气很好。" * 20).encode("gbk"),
         ("이것은 문자 인코딩 자동 감지를 시험하기 위한 한국어 문장입니다. 오늘 날씨가 좋습니다." * 20).encode("euc_kr"),
@@ -146,32 +146,32 @@ def _structured_pages() -> tuple[str, ...]:
     return (jsonld_page, microdata_page, rdfa_page, _OPENGRAPH_PAGE)
 
 
-def _inline(operation: str) -> list[object]:
+def _inline(operation: str) -> list[Case]:
     # Return the cases the offline bench already defines inline for ``operation`` (no corpus, no network).
     return [case for _label, case in INPUTS[operation]()]
 
 
-def _structured_inputs() -> list[object]:
+def _structured_inputs() -> list[Case]:
     # Return the structured-data extractor's set: the four synthetic syntaxes, the inline cases, and a real page.
     return [*_structured_pages(), *_inline("structured"), *_safe(lambda: list(real_pages(_TRAINING_PAGES[:1])))]
 
 
-def _socialcard_inputs() -> list[object]:
+def _socialcard_inputs() -> list[Case]:
     # Return the social-card extractor's set: the OpenGraph page, the inline cases, and a real page.
     return [_OPENGRAPH_PAGE, *_inline("socialcard"), *_safe(lambda: list(real_pages(_TRAINING_PAGES[:1])))]
 
 
-def _sanitize_inputs() -> list[object]:
+def _sanitize_inputs() -> list[Case]:
     # Return the sanitizer's set: deliberate tag soup (its real input), the inline cases, and a real page.
     return [*_tag_soup(), *_inline("sanitize"), *_safe(lambda: list(real_pages(_TRAINING_PAGES[:1])))]
 
 
-def _article_inputs() -> list[object]:
+def _article_inputs() -> list[Case]:
     # Return the article/boilerplate/date extractors' set: the synthetic pages plus real saved pages.
     return [*_inline("article"), *_safe(lambda: list(real_pages(_TRAINING_PAGES)))]
 
 
-def _stylesheets() -> list[object]:
+def _stylesheets() -> list[Case]:
     # Include Unicode-range sorting when the vendored stylesheets omit it.
     files = (_BENCH_DATA / "normalize.css" / "normalize.css", _BENCH_DATA / "pico" / "css" / "pico.css")
     return [
@@ -188,7 +188,7 @@ def _stylesheets() -> list[object]:
     ]
 
 
-def _scripts() -> list[object]:
+def _scripts() -> list[Case]:
     # Return the vendored scripts the JS minifier trains on: two ES5 libraries, underscore and backbone.
     files = (_BENCH_DATA / "underscore" / "underscore.js", _BENCH_DATA / "backbone" / "backbone.js")
     return [path.read_text(encoding="utf-8") for path in files if path.exists()]
@@ -203,7 +203,7 @@ _HTML_DOCUMENT_OPS: Final[frozenset[str]] = frozenset({
 })  # fmt: skip
 
 
-_SPECIAL: Final[dict[str, Callable[[], list[object]]]] = {
+_SPECIAL: Final[dict[str, Callable[[], list[Case]]]] = {
     "escape": _escape_inputs,
     "encoding": _encoding_streams,
     "structured": _structured_inputs,
@@ -218,13 +218,13 @@ _SPECIAL: Final[dict[str, Callable[[], list[object]]]] = {
 }
 
 
-def training_corpus() -> Iterator[tuple[str, object, Callable[[], list[object]]]]:
+def training_corpus() -> Iterator[tuple[str, object, Callable[[], list[Case]]]]:
     # Yield ``(name, callable, load)`` for every operation, in registry order, over its offline training input set.
     for name, (run, _owner) in OPERATIONS.items():
         yield name, run, _loader_for(name)
 
 
-def _loader_for(operation: str) -> Callable[[], list[object]]:
+def _loader_for(operation: str) -> Callable[[], list[Case]]:
     # Return the loader yielding ``operation``'s training input set: an HTML document set, a special set, or inline.
     if operation in _HTML_DOCUMENT_OPS:
         return _html_documents
@@ -233,7 +233,7 @@ def _loader_for(operation: str) -> Callable[[], list[object]]:
     return partial(_inline, operation)
 
 
-def _html_documents() -> list[object]:
+def _html_documents() -> list[Case]:
     # Return the parse/read-path input set: clean spec and fixtures, deliberate tag soup, and real saved pages.
     return [*_clean_documents(), *_tag_soup(), *_safe(lambda: list(real_pages(_TRAINING_PAGES)))]
 

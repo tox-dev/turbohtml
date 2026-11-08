@@ -39,13 +39,15 @@ from pgo_corpus import training_corpus  # the corpus module sits beside this scr
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from bench.operations import Case
+
 _BUDGET_SECONDS: Final[float] = 0.2  # per operation, split across its inputs: a cheap read-path op still lands hot
 _MIN_ITERATIONS: Final[int] = 8  # even the slowest input (the full spec parse) still leaves several profile samples
 _MAX_ITERATIONS: Final[int] = 50_000  # bound the cheapest inputs so the instrumented training run stays quick
 _CALIBRATION_CALLS: Final[int] = 4  # average a few warm calls so timer jitter cannot starve one input of repetitions
 
 
-def _invoke(operation: object, case: object) -> None:
+def _invoke(operation: object, case: Case) -> None:
     # Run one operation over its case, rebuilding a fresh tree first for a mutating operation.
     if isinstance(operation, Mutating):
         operation.run(operation.setup(case))
@@ -53,7 +55,7 @@ def _invoke(operation: object, case: object) -> None:
         cast("Callable[[object], object]", operation)(case)
 
 
-def _iterations(operation: object, case: object, budget: float) -> int:
+def _iterations(operation: object, case: Case, budget: float) -> int:
     # Time a few warm calls and return how many repetitions fill ``budget`` seconds, clamped to the bounds.
     start = perf_counter()
     for _ in range(_CALIBRATION_CALLS):
