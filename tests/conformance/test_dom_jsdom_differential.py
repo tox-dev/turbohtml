@@ -4,7 +4,7 @@ import json
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, NamedTuple
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple, NotRequired, TypeAlias, TypedDict
 
 import pytest
 
@@ -22,7 +22,7 @@ from turbohtml import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping, Sequence
 
     from turbohtml import Node
 
@@ -33,6 +33,86 @@ _JSDOM: Final[bool] = (_RUNNER.parent / "node_modules" / "jsdom").is_dir()
 pytestmark: Final[pytest.MarkDecorator] = pytest.mark.skipif(
     _NODE is None or not _JSDOM, reason="node with jsdom (tools/bench/node) not installed"
 )
+
+
+_JSON: TypeAlias = "str | int | float | bool | Sequence[_JSON] | Mapping[str, _JSON] | None"
+
+
+class _ElementSpec(TypedDict):
+    kind: Literal["element"]
+    tag: str
+    html: NotRequired[str]
+
+
+class _TextSpec(TypedDict):
+    kind: Literal["text"]
+    text: str
+
+
+class _RangeCase(TypedDict):
+    id: str
+    feature: Literal["range"]
+    html: str
+    start: tuple[list[int], int]
+    end: tuple[list[int], int]
+    probe: str
+    other_start: NotRequired[tuple[list[int], int]]
+    other_end: NotRequired[tuple[list[int], int]]
+    how: NotRequired[int]
+    point: NotRequired[tuple[list[int], int]]
+    node_path: NotRequired[list[int]]
+    node: NotRequired[_ElementSpec | _TextSpec]
+    wrapper: NotRequired[_ElementSpec]
+
+
+class _TraversalCase(TypedDict):
+    id: str
+    feature: Literal["traversal"]
+    html: str
+    kind: Literal["walker", "iterator"]
+    root: list[int]
+    what: int
+    probe: str
+    filter: NotRequired[str]
+
+
+class _ShadowCase(TypedDict):
+    id: str
+    feature: Literal["shadow"]
+    probe: str
+    mode: str
+    host_html: str
+    shadow_html: str
+    slots: NotRequired[dict[str, str]]
+
+
+class _OpenDeclarativeCase(TypedDict):
+    id: str
+    html: str
+    host_id: str
+    mode: Literal["open"]
+    clonable: bool
+    delegates_focus: bool
+    shadow_html: str
+    light_html: str
+
+
+class _ClosedDeclarativeCase(TypedDict):
+    id: str
+    html: str
+    host_id: str
+    mode: Literal["closed"]
+    light_html: str
+
+
+_DiffCase: TypeAlias = _RangeCase | _TraversalCase | _ShadowCase
+
+
+class _Oracle(TypedDict):
+    id: str
+    ok: bool
+    result: NotRequired[_JSON]
+    error: NotRequired[str]
 
 
 def _desc(node: Node | None) -> str:
@@ -88,8 +168,8 @@ _FILTERS: Final[dict[str, Callable[[Node], int]]] = {
 }
 
 
-def _make_node(spec: dict[str, Any]) -> Node:
-    if "text" in spec:
+def _make_node(spec: _ElementSpec | _TextSpec) -> Node:
+    if spec["kind"] == "text":
         return Text(spec["text"])
     element = Element(spec["tag"])
     if "html" in spec:
@@ -100,17 +180,17 @@ def _make_node(spec: dict[str, Any]) -> Node:
 class _RangeCall(NamedTuple):
     live: Range
     root: Node
-    kase: dict[str, Any]
+    kase: _RangeCase
 
 
-def _boundaries(range_obj: Range) -> dict[str, Any]:
+def _boundaries(range_obj: Range) -> dict[str, _JSON]:
     return {
         "start": f"{_desc(range_obj.start_container)}:{range_obj.start_offset}",
         "end": f"{_desc(range_obj.end_container)}:{range_obj.end_offset}",
     }
 
 
-def _probe_boundaries(call: _RangeCall) -> dict[str, Any]:
+def _probe_boundaries(call: _RangeCall) -> dict[str, _JSON]:
     return {
         "collapsed": call.live.collapsed,
         "ancestor": _desc(call.live.common_ancestor_container),
@@ -118,60 +198,60 @@ def _probe_boundaries(call: _RangeCall) -> dict[str, Any]:
     }
 
 
-def _probe_clone(call: _RangeCall) -> dict[str, Any]:
+def _probe_clone(call: _RangeCall) -> dict[str, _JSON]:
     return {"frag": _frag_html(call.live.clone_contents()), "doc": call.root.html}
 
 
-def _probe_extract(call: _RangeCall) -> dict[str, Any]:
+def _probe_extract(call: _RangeCall) -> dict[str, _JSON]:
     return {"frag": _frag_html(call.live.extract_contents()), "doc": call.root.html, "collapsed": call.live.collapsed}
 
 
-def _probe_delete(call: _RangeCall) -> dict[str, Any]:
+def _probe_delete(call: _RangeCall) -> dict[str, _JSON]:
     call.live.delete_contents()
     return {"doc": call.root.html, "collapsed": call.live.collapsed}
 
 
-def _probe_insert(call: _RangeCall) -> dict[str, Any]:
+def _probe_insert(call: _RangeCall) -> dict[str, _JSON]:
     call.live.insert_node(_make_node(call.kase["node"]))
     return {"doc": call.root.html}
 
 
-def _probe_surround(call: _RangeCall) -> dict[str, Any]:
+def _probe_surround(call: _RangeCall) -> dict[str, _JSON]:
     call.live.surround_contents(_make_node(call.kase["wrapper"]))
     return {"doc": call.root.html}
 
 
-def _probe_compare_boundary(call: _RangeCall) -> dict[str, Any]:
+def _probe_compare_boundary(call: _RangeCall) -> dict[str, _JSON]:
     other = Range(_node_at(call.root, call.kase["other_start"][0]), call.kase["other_start"][1])
     other.set_end(_node_at(call.root, call.kase["other_end"][0]), call.kase["other_end"][1])
     return {"value": call.live.compare_boundary_points(call.kase["how"], other)}
 
 
-def _probe_compare_point(call: _RangeCall) -> dict[str, Any]:
+def _probe_compare_point(call: _RangeCall) -> dict[str, _JSON]:
     return {"value": call.live.compare_point(_node_at(call.root, call.kase["point"][0]), call.kase["point"][1])}
 
 
-def _probe_point_in_range(call: _RangeCall) -> dict[str, Any]:
+def _probe_point_in_range(call: _RangeCall) -> dict[str, _JSON]:
     return {"value": call.live.is_point_in_range(_node_at(call.root, call.kase["point"][0]), call.kase["point"][1])}
 
 
-def _probe_intersects(call: _RangeCall) -> dict[str, Any]:
+def _probe_intersects(call: _RangeCall) -> dict[str, _JSON]:
     return {"value": call.live.intersects_node(_node_at(call.root, call.kase["node_path"]))}
 
 
-def _probe_select_node(call: _RangeCall) -> dict[str, Any]:
+def _probe_select_node(call: _RangeCall) -> dict[str, _JSON]:
     target = Range(call.root)
     target.select_node(_node_at(call.root, call.kase["node_path"]))
     return _boundaries(target)
 
 
-def _probe_select_node_contents(call: _RangeCall) -> dict[str, Any]:
+def _probe_select_node_contents(call: _RangeCall) -> dict[str, _JSON]:
     target = Range(call.root)
     target.select_node_contents(_node_at(call.root, call.kase["node_path"]))
     return _boundaries(target)
 
 
-_RANGE_PROBES: Final[dict[str, Callable[[_RangeCall], dict[str, Any]]]] = {
+_RANGE_PROBES: Final[dict[str, Callable[[_RangeCall], dict[str, _JSON]]]] = {
     "boundaries": _probe_boundaries,
     "clone": _probe_clone,
     "extract": _probe_extract,
@@ -187,7 +267,7 @@ _RANGE_PROBES: Final[dict[str, Callable[[_RangeCall], dict[str, Any]]]] = {
 }
 
 
-def _run_range(kase: dict[str, Any]) -> dict[str, Any]:
+def _run_range(kase: _RangeCase) -> dict[str, _JSON]:
     root = parse(kase["html"]).root
     assert root is not None
     live = Range(_node_at(root, kase["start"][0]), kase["start"][1])
@@ -195,7 +275,7 @@ def _run_range(kase: dict[str, Any]) -> dict[str, Any]:
     return _RANGE_PROBES[kase["probe"]](_RangeCall(live, root, kase))
 
 
-def _run_traversal(kase: dict[str, Any]) -> dict[str, Any]:
+def _run_traversal(kase: _TraversalCase) -> dict[str, _JSON]:
     document = parse(kase["html"])
     assert document.root is not None
     root = _node_at(document.root, kase["root"])
@@ -237,14 +317,14 @@ def _run_iterator(iterator: NodeIterator, probe: str) -> list[str]:
     return out
 
 
-def _run_shadow(kase: dict[str, Any]) -> dict[str, Any]:
+def _run_shadow(kase: _ShadowCase) -> dict[str, _JSON]:
     host = parse_fragment(kase["host_html"]).children[0]
     assert isinstance(host, Element)
     shadow = host.attach_shadow(kase["mode"])
     shadow.set_inner_html(kase["shadow_html"])
     if kase["probe"] == "attach_mode":
         return {"reachable": host.shadow_root is not None, "mode": shadow.mode}
-    slots: dict[str, Any] = {}
+    slots: dict[str, _JSON] = {}
     for name, selector in kase["slots"].items():
         slot = shadow.select_one(selector)
         assert slot is not None
@@ -257,7 +337,7 @@ def _run_shadow(kase: dict[str, Any]) -> dict[str, Any]:
     return {"slots": slots, "children": children}
 
 
-def _run_turbo(kase: dict[str, Any]) -> dict[str, Any]:
+def _run_turbo(kase: _DiffCase) -> dict[str, _JSON]:
     if kase["feature"] == "range":
         return _run_range(kase)
     if kase["feature"] == "traversal":
@@ -283,7 +363,7 @@ _SHOW_ALL: Final[int] = NodeFilter.SHOW_ALL
 _SHOW_TEXT: Final[int] = NodeFilter.SHOW_TEXT
 _SHOW_COMMENT: Final[int] = NodeFilter.SHOW_COMMENT
 
-_RANGE_CASES: list[dict[str, Any]] = [
+_RANGE_CASES: list[_RangeCase] = [
     {
         "id": "range-boundaries-ul",
         "feature": "range",
@@ -387,7 +467,7 @@ _RANGE_CASES: list[dict[str, Any]] = [
         "start": ([1, 0], 1),
         "end": ([1, 0], 1),
         "probe": "insert",
-        "node": {"tag": "hr"},
+        "node": {"kind": "element", "tag": "hr"},
     },
     {
         "id": "range-insert-into-text",
@@ -396,7 +476,7 @@ _RANGE_CASES: list[dict[str, Any]] = [
         "start": (_P_TEXT, 5),
         "end": (_P_TEXT, 5),
         "probe": "insert",
-        "node": {"tag": "em", "html": "Z"},
+        "node": {"kind": "element", "tag": "em", "html": "Z"},
     },
     {
         "id": "range-insert-text-node",
@@ -405,7 +485,7 @@ _RANGE_CASES: list[dict[str, Any]] = [
         "start": ([1, 0], 0),
         "end": ([1, 0], 0),
         "probe": "insert",
-        "node": {"text": "NEW"},
+        "node": {"kind": "text", "text": "NEW"},
     },
     {
         "id": "range-surround-text",
@@ -414,7 +494,7 @@ _RANGE_CASES: list[dict[str, Any]] = [
         "start": ([1, 0, 0], 4),
         "end": ([1, 0, 0], 7),
         "probe": "surround",
-        "wrapper": {"tag": "em"},
+        "wrapper": {"kind": "element", "tag": "em"},
     },
     {
         "id": "range-surround-siblings",
@@ -423,7 +503,7 @@ _RANGE_CASES: list[dict[str, Any]] = [
         "start": (_UL_PATH, 0),
         "end": (_UL_PATH, 2),
         "probe": "surround",
-        "wrapper": {"tag": "div"},
+        "wrapper": {"kind": "element", "tag": "div"},
     },
     {
         "id": "range-cbp-start-start",
@@ -584,7 +664,7 @@ _RANGE_CASES: list[dict[str, Any]] = [
 _TRAV_ROOT: Final[list[int]] = [0]
 _SECT_ROOT: Final[list[int]] = [0]
 
-_TRAVERSAL_CASES: list[dict[str, Any]] = [
+_TRAVERSAL_CASES: list[_TraversalCase] = [
     {
         "id": "walker-elements",
         "feature": "traversal",
@@ -801,7 +881,7 @@ _SHADOW_SLOTS: Final[str] = '<header><slot name="title"></slot></header><main><s
 _HOST_FALLBACK: Final[str] = '<my-el><span slot="a">A</span></my-el>'
 _SHADOW_FALLBACK: Final[str] = '<slot name="a"></slot><slot><em>fb</em></slot>'
 
-_SHADOW_CASES: Final[list[dict[str, Any]]] = [
+_SHADOW_CASES: Final[list[_ShadowCase]] = [
     {
         "id": "shadow-attach-open",
         "feature": "shadow",
@@ -848,7 +928,7 @@ _DSD_OPEN: Final[str] = (
 )
 _DSD_CLOSED: Final[str] = "<div id=host><template shadowrootmode=closed><b>secret</b></template><p>light</p></div>"
 
-_DECLARATIVE_CASES: Final[list[dict[str, Any]]] = [
+_DECLARATIVE_CASES: Final[list[_OpenDeclarativeCase | _ClosedDeclarativeCase]] = [
     {
         "id": "dsd-open-clonable",
         "html": _DSD_OPEN,
@@ -1080,7 +1160,7 @@ _RANGE_CASES += [
         "start": ([1, 0], 1),
         "end": ([1, 0], 3),
         "probe": "surround",
-        "wrapper": {"tag": "span"},
+        "wrapper": {"kind": "element", "tag": "span"},
     },
     {
         "id": "range-insert-fragment-into-list",
@@ -1089,7 +1169,7 @@ _RANGE_CASES += [
         "start": (_UL_PATH, 1),
         "end": (_UL_PATH, 1),
         "probe": "insert",
-        "node": {"tag": "li", "html": "NEW"},
+        "node": {"kind": "element", "tag": "li", "html": "NEW"},
     },
 ]
 
@@ -1300,15 +1380,15 @@ _RANGE_CASES += [
         "start": ([1, 0, 0], 3),
         "end": ([1, 0, 0], 3),
         "probe": "insert",
-        "node": {"tag": "br"},
+        "node": {"kind": "element", "tag": "br"},
     },
 ]
 
-_ALL_DIFF_CASES: Final[list[dict[str, Any]]] = _RANGE_CASES + _TRAVERSAL_CASES + _SHADOW_CASES
+_ALL_DIFF_CASES: Final[list[_DiffCase]] = _RANGE_CASES + _TRAVERSAL_CASES + _SHADOW_CASES
 
 
 @pytest.fixture(scope="session")
-def jsdom_results() -> dict[str, dict[str, Any]]:
+def jsdom_results() -> dict[str, _Oracle]:
     assert _NODE is not None
     payload = json.dumps(_ALL_DIFF_CASES)
     completed = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
@@ -1318,7 +1398,7 @@ def jsdom_results() -> dict[str, dict[str, Any]]:
 
 
 @pytest.mark.parametrize("kase", [pytest.param(case, id=case["id"]) for case in _ALL_DIFF_CASES])
-def test_dom_matches_jsdom(kase: dict[str, Any], jsdom_results: dict[str, dict[str, Any]]) -> None:
+def test_dom_matches_jsdom(kase: _DiffCase, jsdom_results: dict[str, _Oracle]) -> None:
     oracle = jsdom_results[kase["id"]]
     assert oracle["ok"], f"jsdom runner failed: {oracle.get('error')}"
     assert _run_turbo(kase) == oracle["result"]
@@ -1327,7 +1407,7 @@ def test_dom_matches_jsdom(kase: dict[str, Any], jsdom_results: dict[str, dict[s
 @pytest.mark.parametrize(
     "kase", [pytest.param(case, id=case["id"]) for case in _DECLARATIVE_CASES if case["mode"] == "closed"]
 )
-def test_declarative_closed_shadow_is_unreachable(kase: dict[str, Any]) -> None:
+def test_declarative_closed_shadow_is_unreachable(kase: _ClosedDeclarativeCase) -> None:
     # a closed root is created but unreachable through Element.shadow_root, by spec
     host = parse(kase["html"], allow_declarative_shadow_roots=True).find(id=kase["host_id"])
     assert host is not None
@@ -1338,7 +1418,7 @@ def test_declarative_closed_shadow_is_unreachable(kase: dict[str, Any]) -> None:
 @pytest.mark.parametrize(
     "kase", [pytest.param(case, id=case["id"]) for case in _DECLARATIVE_CASES if case["mode"] == "open"]
 )
-def test_declarative_shadow_matches_spec(kase: dict[str, Any]) -> None:
+def test_declarative_shadow_matches_spec(kase: _OpenDeclarativeCase) -> None:
     # jsdom 29 cannot parse declarative shadow roots, so the oracle is the WHATWG DSD algorithm's expected tree.
     host = parse(kase["html"], allow_declarative_shadow_roots=True).find(id=kase["host_id"])
     assert host is not None
