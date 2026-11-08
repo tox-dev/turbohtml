@@ -125,16 +125,6 @@ def _combining_and_decomposition(text: str) -> tuple[dict[int, int], dict[int, l
     return combining, decomposition
 
 
-def _full_decomposition(decomposition: dict[int, list[int]]) -> dict[int, list[int]]:
-    # Expand each canonical decomposition recursively to its non-decomposable code points.
-    def expand(code: int) -> list[int]:
-        if code not in decomposition:
-            return [code]
-        return [leaf for part in decomposition[code] for leaf in expand(part)]
-
-    return {code: expand(code) for code in decomposition}
-
-
 def _composition_exclusions(text: str) -> set[int]:
     # Return the Full_Composition_Exclusion code points, the canonical decompositions that never recompose.
     excluded: set[int] = set()
@@ -199,20 +189,6 @@ def _decompose(text: str, full: dict[int, list[int]]) -> list[int]:
     return out
 
 
-def _reorder(seq: list[int], combining: dict[int, int]) -> None:
-    # Put each maximal combining-mark run of *seq* into canonical order (a stable sort by combining class).
-    start = 0
-    while start < len(seq):
-        if combining.get(seq[start], 0) == 0:
-            start += 1
-            continue
-        end = start
-        while end < len(seq) and combining.get(seq[end], 0) != 0:
-            end += 1
-        seq[start:end] = sorted(seq[start:end], key=lambda cp: combining.get(cp, 0))
-        start = end
-
-
 def _compose_pair(first: int, second: int, compose: dict[tuple[int, int], int]) -> int:
     # Return the canonical composition of a pair (Hangul arithmetically, the rest tabled), -1 when they do not.
     lindex = first - 0x1100
@@ -227,7 +203,17 @@ def _compose_pair(first: int, second: int, compose: dict[tuple[int, int], int]) 
 def _nfc(text: str, combining: dict[int, int], full: dict[int, list[int]], pairs: list[tuple[int, int, int]]) -> str:
     # Normalize *text* to NFC using only the generated tables, the reference the C port must match.
     decomposed = _decompose(text, full)
-    _reorder(decomposed, combining)
+    # Put each maximal combining-mark run of *decomposed* into canonical order (a stable sort by combining class).
+    start = 0
+    while start < len(decomposed):
+        if combining.get(decomposed[start], 0) == 0:
+            start += 1
+            continue
+        end = start
+        while end < len(decomposed) and combining.get(decomposed[end], 0) != 0:
+            end += 1
+        decomposed[start:end] = sorted(decomposed[start:end], key=lambda cp: combining.get(cp, 0))
+        start = end
     compose = {(first, second): composed for first, second, composed in pairs}
     result: list[int] = []
     starter_at = -1
@@ -364,7 +350,14 @@ def generate(out_path: Path) -> None:
     combining, raw_decomposition = _combining_and_decomposition(
         _fetch(f"{_UCD_BASE}/UnicodeData.txt", "ff58e5823bd095166564a006e47d111130813dcf8bf234ef79fa51a870edb48f")
     )
-    full = _full_decomposition(raw_decomposition)
+    # Expand each canonical decomposition recursively to its non-decomposable code points.
+
+    def expand(code: int) -> list[int]:
+        if code not in raw_decomposition:
+            return [code]
+        return [leaf for part in raw_decomposition[code] for leaf in expand(part)]
+
+    full = {code: expand(code) for code in raw_decomposition}
     derived = _fetch(
         f"{_UCD_BASE}/DerivedNormalizationProps.txt", "4d4c03892dea9146d674b686e495df2d55a28d071ac474041d73518f887abddc"
     )

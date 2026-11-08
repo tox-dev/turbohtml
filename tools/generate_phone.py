@@ -556,7 +556,16 @@ def compile_region(region: Region, programs: list[Program], rng: random.Random) 
     if len(labels) > 15:
         msg = f"{region.code}: {len(labels)} distinct plan labels, the dictionary holds 15"
         raise GenerationError(msg)
-    _check_type_lengths(region, type_programs)
+    # Prove each type regex accepts only its possible lengths, so a plan accept never needs a length test.
+    for bit, name in enumerate(TYPES):
+        program = type_programs[bit]
+        if program is None:
+            continue
+        if escaped := set(accepted_lengths(compile_dfa(program))) - (
+            region.types[name].national or region.possible_national
+        ):
+            msg = f"{region.code}/{name}: the pattern accepts lengths {sorted(escaped)} outside its possibleLengths"
+            raise GenerationError(msg)
     prefix = prefix_program = tag = None
     if region.prefix_pattern:
         prefix_program = compile_program(region.prefix_pattern)
@@ -569,7 +578,9 @@ def compile_region(region: Region, programs: list[Program], rng: random.Random) 
         raise GenerationError(msg)
     idd = compile_priority_dfa(compile_program(region.idd_pattern, capture=False)) if region.idd_pattern else None
     compiled = _CompiledRegion(region=region, plan=plan, prefix=prefix, prefix_program=prefix_program, tag=tag, idd=idd)
-    _self_check_region(compiled, rng)
+    # Compare every automaton with Python's ``re`` on the example numbers and seeded random digit strings.
+    _check_plan(compiled, rng)
+    _check_priority_dfas(compiled, rng)
     return RegionTables(
         region=region,
         plan=plan,
@@ -587,19 +598,6 @@ def compile_region(region: Region, programs: list[Program], rng: random.Random) 
 def _compile_format(item: Format) -> _FormatTables:
     # a format without leadingDigits applies to every number, so its automaton accepts any first digit
     return _FormatTables(leading=compile_dfa(compile_program(item.leading or r"\d", capture=False)), format=item)
-
-
-def _check_type_lengths(region: Region, type_programs: list[Program | None]) -> None:
-    # Prove each type regex accepts only its possible lengths, so a plan accept never needs a length test.
-    for bit, name in enumerate(TYPES):
-        program = type_programs[bit]
-        if program is None:
-            continue
-        if escaped := set(accepted_lengths(compile_dfa(program))) - (
-            region.types[name].national or region.possible_national
-        ):
-            msg = f"{region.code}/{name}: the pattern accepts lengths {sorted(escaped)} outside its possibleLengths"
-            raise GenerationError(msg)
 
 
 def _prefix_shapes(program: Program, group: int) -> set[tuple[int, int]]:
@@ -669,12 +667,6 @@ def _floor(compiled: _CompiledRegion, *, valid: bool) -> int:
         candidates.update(idd_length + len(str(region.country_code)) + length for length in nsn_lengths)
     candidates.update(len(str(region.country_code)) + length for length in nsn_lengths)
     return max(min(candidates), MIN_NSN)
-
-
-def _self_check_region(compiled: _CompiledRegion, rng: random.Random) -> None:
-    # Compare every automaton with Python's ``re`` on the example numbers and seeded random digit strings.
-    _check_plan(compiled, rng)
-    _check_priority_dfas(compiled, rng)
 
 
 def _check_plan(compiled: _CompiledRegion, rng: random.Random) -> None:

@@ -198,7 +198,9 @@ def generate(checkout: Path, out_path: Path) -> None:
         msg = f"no HTML tree-construction .dat files found under {resources}"
         raise SystemExit(msg)
     cases = [case for path in files for case in _parse_file(path)]
-    revision = _revision(checkout)
+    revision = subprocess.run(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
     exclusions, error_adjustments = _decisions()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
@@ -293,12 +295,6 @@ def _new_errors(value: str | None, path: Path) -> list[_Error] | None:
             "end_col": int(match["end_col"]) if match["end_col"] is not None else None,
         })
     return errors
-
-
-def _revision(checkout: Path) -> str:
-    return subprocess.run(
-        ["git", "-C", str(checkout), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
-    ).stdout.strip()
 
 
 def _decisions() -> tuple[list[_Exclusion], list[_Decision]]:

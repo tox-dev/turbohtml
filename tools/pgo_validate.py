@@ -79,29 +79,6 @@ def _measure() -> dict[str, float]:
     return timings
 
 
-def _install_lto(python: str, build_dir: Path) -> None:
-    # Install the extension LTO-only (no profile), the baseline the CodSpeed gate ships and PGO must beat.
-    subprocess.run(
-        [
-            "uv",
-            "pip",
-            "install",
-            "--python",
-            python,
-            "--reinstall",
-            "--no-deps",
-            "--no-build-isolation",
-            "--editable",
-            str(_ROOT),
-            f"--config-settings=build-dir={build_dir}",
-            "--config-settings=setup-args=-Dbuildtype=release",
-            "--config-settings=setup-args=-Db_pgo=off",
-            "--config-settings=setup-args=-Db_lto=true",
-        ],
-        check=True,
-    )
-
-
 def _venv(root: Path, name: str) -> str:
     # Create a scratch virtualenv seeded with the meson build backend, so ``--no-build-isolation`` can build in it.
     location = root / name
@@ -127,7 +104,26 @@ def _measured(python: str) -> dict[str, float]:
 def validate(work: Path) -> bool:
     # Build both variants under ``work``, measure the held-out mix, print the deltas, and return whether PGO passed.
     baseline_py, pgo_py = _venv(work, "baseline"), _venv(work, "pgo")
-    _install_lto(baseline_py, work / "build-lto")
+    # Install the extension LTO-only (no profile), the baseline the CodSpeed gate ships and PGO must beat.
+    subprocess.run(
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            baseline_py,
+            "--reinstall",
+            "--no-deps",
+            "--no-build-isolation",
+            "--editable",
+            str(_ROOT),
+            f"--config-settings=build-dir={work / 'build-lto'}",
+            "--config-settings=setup-args=-Dbuildtype=release",
+            "--config-settings=setup-args=-Db_pgo=off",
+            "--config-settings=setup-args=-Db_lto=true",
+        ],
+        check=True,
+    )
     pgo_build.build(pgo_py, work / "build-pgo", _ROOT, "full", system=False)
 
     baseline, profiled = _measured(baseline_py), _measured(pgo_py)

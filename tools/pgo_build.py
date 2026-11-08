@@ -56,15 +56,6 @@ def _install(python: str, build_dir: Path, root: Path, phase: str, *, system: bo
     )
 
 
-def _train(python: str, build_dir: Path, root: Path) -> None:
-    # Drive the training workload against the instrumented build, pointing clang's counters into ``build_dir``.
-    subprocess.run(
-        [python, str(root / "tools" / "pgo_train.py")],
-        check=True,
-        env={**os.environ, "LLVM_PROFILE_FILE": str(build_dir / "pgo-%p.profraw")},
-    )
-
-
 def _merge_clang_profile(build_dir: Path) -> None:
     # Merge clang's ``.profraw`` counters into the ``default.profdata`` the ``use`` build reads; gcc needs no merge.
     if not (raw := sorted(build_dir.glob("*.profraw"))):
@@ -82,7 +73,12 @@ def build(python: str, build_dir: Path, root: Path, phase: str, *, system: bool)
     # Run the instrument-train-merge sequence, then optionally the profiled ``use`` install when ``phase`` is full.
     build_dir.mkdir(parents=True, exist_ok=True)
     _install(python, build_dir, root, "generate", system=system)
-    _train(python, build_dir, root)
+    # Drive the training workload against the instrumented build, pointing clang's counters into ``build_dir``.
+    subprocess.run(
+        [python, str(root / "tools" / "pgo_train.py")],
+        check=True,
+        env={**os.environ, "LLVM_PROFILE_FILE": str(build_dir / "pgo-%p.profraw")},
+    )
     _merge_clang_profile(build_dir)
     if phase == "full":
         _install(python, build_dir, root, "use", system=system)
