@@ -382,7 +382,7 @@ def _render_metric(
         if isinstance(value, (int, float)):
             if not isinstance(turbo, (int, float)):
                 msg = f"bench-table {metric} cell {index} has no numeric baseline to ratio against: {turbo!r}"
-                raise ValueError(msg)
+                raise TypeError(msg)
             if metric == "size":
                 figure = _format_size(value)
             elif metric == "memory":
