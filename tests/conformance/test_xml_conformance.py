@@ -114,15 +114,11 @@ def _decode(raw: bytes) -> str:
     return raw.decode(match["encoding"] if match else "utf-8")
 
 
-def _is_xml_11(attrib: dict[str, str]) -> bool:
-    return attrib.get("VERSION") == "1.1" or (attrib.get("RECOMMENDATION") or "").startswith(("XML1.1", "NS1.1"))
-
-
 def _deviation_reason(attrib: dict[str, str], kind: str, source: str) -> str | None:
     # The reason a well-formed/not-wf case is out of scope, or None when it is a hard assertion.
     if (reason := _DEVIATIONS.get(attrib["ID"])) is not None:
         return reason
-    if _is_xml_11(attrib):
+    if attrib.get("VERSION") == "1.1" or (attrib.get("RECOMMENDATION") or "").startswith(("XML1.1", "NS1.1")):
         return "parse_xml targets XML 1.0; XML 1.1 documents are out of scope"
     if attrib.get("ENTITIES", "none") != "none":
         return "requires DTD-declared or external entity processing, which parse_xml omits"

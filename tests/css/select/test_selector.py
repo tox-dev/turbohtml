@@ -888,6 +888,9 @@ def test_rejects_non_str(method: str) -> None:
         getattr(parse(_DOC), method)(123)
 
 
+# Element.css_path(): the unique CSS selector locating a node from the root. It
+# anchors at the nearest document-unique, safely serializable id and otherwise
+# descends with child combinators, adding :nth-of-type() only among same-type siblings.
 @pytest.mark.parametrize(
     ("html", "selector", "index", "expected"),
     [
@@ -1001,14 +1004,7 @@ def test_rejects_non_str(method: str) -> None:
     ],
 )
 def test_css_path(html: str, selector: str, index: int, expected: str) -> None:
-    assert _css_path(html, selector, index) == expected
-
-
-# Element.css_path(): the unique CSS selector locating a node from the root. It
-# anchors at the nearest document-unique, safely serializable id and otherwise
-# descends with child combinators, adding :nth-of-type() only among same-type siblings.
-def _css_path(html: str, selector: str, index: int) -> str:
-    return parse(html).select(selector)[index].css_path()
+    assert parse(html).select(selector)[index].css_path() == expected
 
 
 @pytest.mark.parametrize(
@@ -1859,12 +1855,8 @@ def test_invalid_ui_selectors_raise(selector: str) -> None:
     ],
 )
 def test_xml_selectors_are_case_sensitive(selector: str, tags: list[str]) -> None:
-    assert _select_xml(selector) == tags
-
-
-def _select_xml(selector: str) -> list[str]:
     xml_doc = '<Root><Child Attr="v" class="c"/><child/><div/><DIV/><Wide data-K="1"/></Root>'
-    return [element.tag for element in _root(xml_doc).select(selector)]
+    assert [element.tag for element in _root(xml_doc).select(selector)] == tags
 
 
 def _root(markup: str) -> Element:

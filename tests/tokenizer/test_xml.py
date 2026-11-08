@@ -737,27 +737,19 @@ def test_xml_namespace_first_error(source: str, code: str) -> None:
 
 @pytest.mark.parametrize("count", [pytest.param(2000, id="grows-and-rehashes")])
 def test_xml_many_distinct_namespaced_attributes_parse(count: int) -> None:
-    root: Final = parse_xml(_namespaced_distinct(count)).find("r")
+    root: Final = parse_xml(f"""<r xmlns:p='u' {" ".join(f"p:a{index}='x'" for index in range(count))}/>""").find("r")
     assert root is not None
     assert list(root.attrs.keys()) == ["xmlns:p"] + [f"p:a{index}" for index in range(count)]
 
 
-def _namespaced_distinct(count: int) -> str:
-    return f"""<r xmlns:p='u' {" ".join(f"p:a{index}='x'" for index in range(count))}/>"""
-
-
 @pytest.mark.parametrize("count", [pytest.param(2000, id="interned-second-element")])
 def test_xml_repeated_plain_names_across_elements_parse(count: int) -> None:
-    root: Final = parse_xml(_plain_repeated(count)).find("r")
+    # the second element re-reads already-interned names
+    element: Final = f"""<e {" ".join(f"a{index}='x'" for index in range(count))}/>"""
+    root: Final = parse_xml(f"<r>{element * 2}</r>").find("r")
     assert root is not None
     expected: Final = [(f"a{index}", "x") for index in range(count)]
     assert [list(child.attrs.items()) for child in elements(root)] == [expected, expected]
-
-
-def _plain_repeated(count: int) -> str:
-    # the second element re-reads already-interned names
-    element: Final = f"""<e {" ".join(f"a{index}='x'" for index in range(count))}/>"""
-    return f"<r>{element * 2}</r>"
 
 
 @pytest.mark.parametrize(

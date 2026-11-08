@@ -54,11 +54,6 @@ class _Located(TypedDict):
     attrs: dict[str, Span]
 
 
-def _corpus(name: str) -> str:
-    # The newline-normalized document, the source both parsers' offsets index into.
-    return (_DATA / name / "data.html").read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
-
-
 def _p5_span(raw: list[int] | None) -> Span | None:
     # Adapt a parse5 span to turbohtml's convention: columns drop from 1-based to 0-based, lines and offsets stay.
     if raw is None:
@@ -122,7 +117,8 @@ def _turbohtml(html: str) -> dict[int, _Located]:
 @pytest.fixture(scope="module", params=_CORPORA, ids=_CORPORA)
 def paired(request: pytest.FixtureRequest) -> tuple[dict[int, _Located], dict[int, _Located]]:
     # One corpus parsed by both engines, cached so parse5's subprocess runs once per document.
-    html = _corpus(request.param)
+    # The newline-normalized document, the source both parsers' offsets index into.
+    html = (_DATA / request.param / "data.html").read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
     return _parse5(html), _turbohtml(html)
 
 

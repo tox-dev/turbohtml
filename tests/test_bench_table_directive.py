@@ -48,20 +48,14 @@ def doctree(tmp_path: Path) -> nodes.document:
     ],
 )
 def test_row_note_superscript_marks_only_noted_rows(doctree: nodes.document, index: int, expected: list[str]) -> None:
-    assert _row_superscripts(doctree)[index] == expected
-
-
-def _row_superscripts(doctree: nodes.document) -> list[list[str]]:
     # Return the superscript ordinals carried by each body row's label cell, in row order.
     body = next(iter(next(iter(doctree.findall(nodes.table))).findall(nodes.tbody)))
-    return [[sup.astext() for sup in row.children[0].findall(nodes.superscript)] for row in body.findall(nodes.row)]
+    rows = [[sup.astext() for sup in row.children[0].findall(nodes.superscript)] for row in body.findall(nodes.row)]
+    assert rows[index] == expected
 
 
 def test_row_note_legend_spells_each_distinct_caveat(doctree: nodes.document) -> None:
-    assert _legend_lines(doctree) == [f"1 {_SHARED}", f"2 {_OTHER}"]
-
-
-def _legend_lines(doctree: nodes.document) -> list[str]:
     # Return each spelled-out legend line; the directive emits exactly one container, the legend under the table.
     legend = next(doctree.findall(nodes.container))
-    return [paragraph.astext() for paragraph in legend.findall(nodes.paragraph)]
+    lines = [paragraph.astext() for paragraph in legend.findall(nodes.paragraph)]
+    assert lines == [f"1 {_SHARED}", f"2 {_OTHER}"]

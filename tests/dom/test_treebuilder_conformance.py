@@ -54,12 +54,8 @@ def test_public_tree_matches_spec(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> No
 
 def _expected(case: WptHtmlTreeCase) -> str:
     if (case["file"], case["data"], case["context"]) in _DAT_UNREPRESENTABLE:
-        return _internal_dump(case["data"])
+        return _html._parse_tree(case["data"]).rstrip("\n")
     return case["document"]
-
-
-def _internal_dump(data: str) -> str:
-    return _html._parse_tree(data).rstrip("\n")
 
 
 def _public_dump(data: str, context: str | None) -> str:

@@ -791,10 +791,6 @@ class _Settings(TypedDict, total=False):
     ignore_numbers_after: tuple[str, ...]
 
 
-def _spans(text: str, settings: _Settings) -> list[str]:
-    return [span.url for span in LinkDetector(phones=PhoneNumbers(regions=("US",), **settings)).find(text)]
-
-
 @pytest.mark.parametrize(
     ("text", "kwargs", "expected"),
     [
@@ -819,7 +815,7 @@ def _spans(text: str, settings: _Settings) -> list[str]:
     ],
 )
 def test_controls_change_detection(text: str, kwargs: _Settings, expected: list[str]) -> None:
-    assert _spans(text, kwargs) == expected
+    assert [span.url for span in LinkDetector(phones=PhoneNumbers(regions=("US",), **kwargs)).find(text)] == expected
 
 
 @pytest.mark.parametrize(

@@ -3210,11 +3210,7 @@ def test_iterator_error_propagates() -> None:
     ],
 )
 def test_google_doc(html: str, config: Markdown, expected: str) -> None:
-    assert _google_markdown(html, config) == expected
-
-
-def _google_markdown(html: str, config: Markdown) -> str:
-    return parse(html).to_markdown(config)
+    assert parse(html).to_markdown(config) == expected
 
 
 def test_google_list_indent_must_be_positive() -> None:

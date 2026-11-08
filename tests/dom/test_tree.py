@@ -768,11 +768,7 @@ def test_before_html_end_br_synthesizes_br() -> None:
     ],
 )
 def test_fragment_paths(html: str, context: str, needle: str) -> None:
-    assert needle in _frag(html, context)
-
-
-def _frag(html: str, context: str) -> str:
-    return _html._parse_fragment(html, context).rstrip("\n")
+    assert needle in _html._parse_fragment(html, context).rstrip("\n")
 
 
 def test_deeply_nested_serializers_are_iterative() -> None:
