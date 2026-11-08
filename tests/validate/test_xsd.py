@@ -2029,10 +2029,9 @@ def test_declaration_benchmark_output(name: str) -> None:
 )
 def test_wide_attribute_declaration_order(declarations: str, attributes: str, expected: list[str]) -> None:
     schema: Final = XMLSchema(
-        f'<xs:schema {XS}><xs:element name="root"><xs:complexType>'
-        + "".join(f'<xs:attribute name="item{index}" type="xs:string"/>' for index in range(32))
-        + declarations
-        + "</xs:complexType></xs:element></xs:schema>"
+        f"""<xs:schema {XS}><xs:element name="root"><xs:complexType>"""
+        f"""{"".join(f'<xs:attribute name="item{index}" type="xs:string"/>' for index in range(32))}{declarations}"""
+        "</xs:complexType></xs:element></xs:schema>"
     )
     document: Final = parse_xml(
         f"""<root {" ".join(f'item{index}="text"' for index in reversed(range(32)))} {attributes}/>"""
@@ -2042,10 +2041,9 @@ def test_wide_attribute_declaration_order(declarations: str, attributes: str, ex
 
 def test_wide_attribute_declarations_with_sparse_instance() -> None:
     schema: Final = XMLSchema(
-        f'<xs:schema {XS}><xs:element name="root"><xs:complexType>'
-        + "".join(f'<xs:attribute name="item{index}" type="xs:string"/>' for index in range(32))
-        + '<xs:attribute name="required" use="required"/>'
-        + "</xs:complexType></xs:element></xs:schema>"
+        f"""<xs:schema {XS}><xs:element name="root"><xs:complexType>"""
+        f"""{"".join(f'<xs:attribute name="item{index}" type="xs:string"/>' for index in range(32))}"""
+        """<xs:attribute name="required" use="required"/></xs:complexType></xs:element></xs:schema>"""
     )
     assert [error.message for error in schema.validate(parse_xml('<root item0="value"/>')).errors] == [
         "required attribute 'required' is missing"
@@ -2375,12 +2373,15 @@ def _identity_constraint(constraint: str) -> str:
         ),
         pytest.param(
             f"<xs:schema {XS}>"
-            + "".join(
-                f'<xs:complexType name="t{n}"><xs:complexContent><xs:extension base="t{n + 1}"><xs:sequence/>'
-                "</xs:extension></xs:complexContent></xs:complexType>"
-                for n in range(100)
-            )
-            + '<xs:complexType name="t100"><xs:sequence/></xs:complexType><xs:element name="r" type="t0"/></xs:schema>',
+            f"""{
+                "".join(
+                    f'<xs:complexType name="t{n}"><xs:complexContent><xs:extension base="t{n + 1}"><xs:sequence/>'
+                    "</xs:extension></xs:complexContent></xs:complexType>"
+                    for n in range(100)
+                )
+            }"""
+            """<xs:complexType name="t100"><xs:sequence/></xs:complexType><xs:element name="r" """
+            """type="t0"/></xs:schema>""",
             "complex type reference chain exceeds 100 hops",
             id="deep-type-extension-chain",
         ),
