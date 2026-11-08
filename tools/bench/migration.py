@@ -99,6 +99,27 @@ class _Rows(NamedTuple):
     caveats: list[str | None]
 
 
+def _measured_row(
+    label: str, operation: str, turbo: dict[str, float], filled: list[dict[str, float]], *, wide: bool
+) -> tuple[list[str | float], list[float | None]]:
+    row: list[str | float]
+    noise: list[float | None]
+    if wide:
+        lead = "size" if operation in _SIZE_OPS else "peak"
+        row = [label, turbo[lead], turbo["mean"]]
+        noise = [None, None, turbo.get("cv")]
+        for other in filled:
+            row += [other[lead], other["mean"]]
+            noise += [None, other.get("cv")]
+    else:
+        row = [label, turbo["mean"]]
+        noise = [None, turbo.get("cv")]
+        for other in filled:
+            row.append(other["mean"])
+            noise.append(other.get("cv"))
+    return row, noise
+
+
 def _rows(variants: list[dict[str, str]], stats: dict[str, dict[str, float]]) -> _Rows:
     # Build a library's rows and their spread across every shared operation-case, prefixing labels that span ops.
     #
@@ -129,20 +150,7 @@ def _rows(variants: list[dict[str, str]], stats: dict[str, dict[str, float]]) ->
             measured = next(other for other in others if other is not None)
             shared = any(other is None for other in others)
             filled = [other if other is not None else measured for other in others]
-            row: list[str | float]
-            if wide:
-                lead = "size" if operation in _SIZE_OPS else "peak"
-                row = [row_label, turbo[lead], turbo["mean"]]
-                noise: list[float | None] = [None, None, turbo.get("cv")]
-                for other in filled:
-                    row += [other[lead], other["mean"]]
-                    noise += [None, other.get("cv")]
-            else:
-                row = [row_label, turbo["mean"]]
-                noise = [None, turbo.get("cv")]
-                for other in filled:
-                    row.append(other["mean"])
-                    noise.append(other.get("cv"))
+            row, noise = _measured_row(row_label, operation, turbo, filled, wide=wide)
             rows.append(row)
             spread.append(noise)
             # a library page mixes operations, so a caveat belongs on the rows of the operation it describes; a row

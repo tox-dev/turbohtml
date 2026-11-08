@@ -161,6 +161,40 @@ def _counts(name: str, requirements: tuple[str, ...], body: str, page: Path, wor
     return json.loads(done.stdout)
 
 
+def _probe_names(results: dict[str, dict[str, int]]) -> list[str]:
+    return sorted({probe for row in results.values() for probe in row})
+
+
+def _print_results(label: str, results: dict[str, dict[str, int]]) -> None:
+    width = max(len(name) for name in results)
+    probes = _probe_names(results)
+    print(f"\n===== {label} =====")
+    print(f"{'party':{width}}  {'  '.join(f'{probe:>18}' for probe in probes)}")
+    for name, row in results.items():
+        print(f"""{name:{width}}  {"  ".join(f"{row.get(probe, '-')!s:>18}" for probe in probes)}""")
+
+
+def _outliers(label: str, results: dict[str, dict[str, int]]) -> list[str]:
+    found: list[str] = []
+    for probe in _probe_names(results):
+        # raw text length is a formatting difference: a party that joins runs without separators, or collapses
+        # whitespace as pyquery does, reports a different length for identical content. The collapsed length is
+        # what says whether the content itself is there.
+        if probe == "text raw":
+            continue
+        counts = [row[probe] for row in results.values() if probe in row]
+        middle = statistics.median(counts) if len(counts) > 1 else 0
+        if middle <= 0:
+            continue
+        for name, row in results.items():
+            value = row.get(probe)
+            if value is None:
+                continue
+            if value == 0 or value < middle / _TOLERANCE or value > middle * _TOLERANCE:
+                found.append(f"{label} / {probe}: {name} answered {value} against a median of {middle:.0f}")
+    return found
+
+
 def _disagreements(workdir: Path) -> list[str]:
     # Run every probe over every corpus page and return one line per party answering a different question.
     prefetch()
@@ -169,28 +203,8 @@ def _disagreements(workdir: Path) -> list[str]:
         page = workdir / filename
         page.write_text(large_text(filename, url), encoding="utf-8")
         results = {name: _counts(name, reqs, body, page, workdir) for name, (reqs, body) in _PROBES.items()}
-        width = max(len(name) for name in results)
-        probes = sorted({probe for row in results.values() for probe in row})
-        print(f"\n===== {label} =====")
-        print(f"{'party':{width}}  {'  '.join(f'{probe:>18}' for probe in probes)}")
-        for name, row in results.items():
-            print(f"""{name:{width}}  {"  ".join(f"{row.get(probe, '-')!s:>18}" for probe in probes)}""")
-        for probe in probes:
-            # raw text length is a formatting difference: a party that joins runs without separators, or collapses
-            # whitespace as pyquery does, reports a different length for identical content. The collapsed length is
-            # what says whether the content itself is there.
-            if probe == "text raw":
-                continue
-            counts = [row[probe] for row in results.values() if probe in row]
-            middle = statistics.median(counts) if len(counts) > 1 else 0
-            if middle <= 0:
-                continue
-            for name, row in results.items():
-                value = row.get(probe)
-                if value is None:
-                    continue
-                if value == 0 or value < middle / _TOLERANCE or value > middle * _TOLERANCE:
-                    found.append(f"{label} / {probe}: {name} answered {value} against a median of {middle:.0f}")
+        _print_results(label, results)
+        found.extend(_outliers(label, results))
     return found
 
 
