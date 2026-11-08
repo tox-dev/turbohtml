@@ -26,12 +26,12 @@ the reserved ``xml`` and ``xml-stylesheet`` targets remain comments.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final, NamedTuple, cast
+from typing import TYPE_CHECKING, NamedTuple
 
 from ._html import _sax_dispatch, _sax_events
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Iterator
 
 
 class SaxHandler:
@@ -170,15 +170,6 @@ class ProcessingInstruction(NamedTuple):
 SaxEvent = StartElement | EndElement | Characters | Comment | Doctype | ProcessingInstruction
 """The union of every event :func:`iter_events` yields."""
 
-_EVENTS: Final[tuple[Callable[..., SaxEvent], ...]] = (
-    StartElement,
-    EndElement,
-    Characters,
-    Comment,
-    Doctype,
-    ProcessingInstruction,
-)
-
 
 def iter_events(html: str) -> Iterator[SaxEvent]:
     """
@@ -190,7 +181,19 @@ def iter_events(html: str) -> Iterator[SaxEvent]:
     :raises TypeError: if ``html`` is not a str.
     """
     for event in _sax_events(html):
-        yield _EVENTS[cast("int", event[0]) - 1](*event[1:])
+        match event:
+            case (1, str(tag), tuple(attrs)):
+                yield StartElement(tag, attrs)
+            case (2, str(tag)):
+                yield EndElement(tag)
+            case (3, str(data)):
+                yield Characters(data)
+            case (4, str(data)):
+                yield Comment(data)
+            case (5, str(name), (str() | None) as public_id, (str() | None) as system_id):
+                yield Doctype(name, public_id, system_id)
+            case (6, str(target), str(data)):
+                yield ProcessingInstruction(target, data)
 
 
 def sax_parse(html: str, handler: SaxHandler) -> None:
