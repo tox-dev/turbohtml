@@ -3678,12 +3678,12 @@ def test_xml_island_literal_nodes(case: str, source: str, expected: list[tuple[s
     ) == (expected, None, None, "serialized XML islands differ from literals")
 
 
-def _island_parent(node: Node) -> str:
-    return node.parent.tag if isinstance(node.parent, Element) else "Document"
-
-
 def _island_value(node: Node) -> str:
     return node.tag if isinstance(node, Element) else cast("Text", node).data
+
+
+def _island_parent(node: Node) -> str:
+    return node.parent.tag if isinstance(node.parent, Element) else "Document"
 
 
 def test_xml_island_checks_first_parse() -> None:
