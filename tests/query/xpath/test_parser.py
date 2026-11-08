@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
 from turbohtml import _html
 
-_PARSE = _html._xpath_parse
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+_PARSE: Final[Callable[[str], str]] = _html._xpath_parse
 
 
 @pytest.mark.parametrize(
