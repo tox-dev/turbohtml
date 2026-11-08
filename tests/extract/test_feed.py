@@ -222,19 +222,21 @@ def test_feed_rss_shape() -> None:
     result = parse_feed(RSS)
     assert result.type == "rss"
     assert (result.title, result.link, result.description) == ("RSS Title", "http://example.com/", "RSS description")
-    assert result.updated == "Mon, 06 Jul 2026 00:00:00 GMT"
-    assert result.entries == (
-        Entry(
-            "Item One",
-            "http://example.com/1",
-            "urn:1",
-            None,
-            "Sun, 05 Jul 2026 00:00:00 GMT",
-            "Item summary",
-            "<p>full body</p>",
-            "writer@example.com",
+    assert (result.updated, result.entries) == (
+        "Mon, 06 Jul 2026 00:00:00 GMT",
+        (
+            Entry(
+                "Item One",
+                "http://example.com/1",
+                "urn:1",
+                None,
+                "Sun, 05 Jul 2026 00:00:00 GMT",
+                "Item summary",
+                "<p>full body</p>",
+                "writer@example.com",
+            ),
+            Entry("Item Two", "http://example.com/2", None, None, None, None, None, None),
         ),
-        Entry("Item Two", "http://example.com/2", None, None, None, None, None, None),
     )
 
 
@@ -259,17 +261,19 @@ def test_feed_atom_shape() -> None:
     result = parse_feed(atom)
     assert result.type == "atom"
     assert (result.title, result.link, result.description) == ("Atom Title", "http://example.com/", "Atom subtitle")
-    assert result.updated == "2026-07-06T00:00:00Z"
-    assert result.entries == (
-        Entry(
-            "Entry One",
-            "http://example.com/e1",
-            "urn:e1",
-            "2026-07-06T01:00:00Z",
-            "2026-07-05T01:00:00Z",
-            "Entry summary",
-            "<p>body</p>",
-            "Jane Roe",
+    assert (result.updated, result.entries) == (
+        "2026-07-06T00:00:00Z",
+        (
+            Entry(
+                "Entry One",
+                "http://example.com/e1",
+                "urn:e1",
+                "2026-07-06T01:00:00Z",
+                "2026-07-05T01:00:00Z",
+                "Entry summary",
+                "<p>body</p>",
+                "Jane Roe",
+            ),
         ),
     )
 
@@ -341,17 +345,19 @@ def test_feed_rdf_shape() -> None:
     result = parse_feed(RDF)
     assert result.type == "rdf"
     assert (result.title, result.link, result.description) == ("RDF Title", "http://example.com/", "RDF description")
-    assert result.updated == "2026-07-06"
-    assert result.entries == (
-        Entry(
-            "RDF Item",
-            "http://example.com/1",
-            "http://example.com/1",
-            None,
-            "2026-07-06",
-            "RDF item summary",
-            None,
-            "Bob Loblaw",
+    assert (result.updated, result.entries) == (
+        "2026-07-06",
+        (
+            Entry(
+                "RDF Item",
+                "http://example.com/1",
+                "http://example.com/1",
+                None,
+                "2026-07-06",
+                "RDF item summary",
+                None,
+                "Bob Loblaw",
+            ),
         ),
     )
 

@@ -44,10 +44,8 @@ def test_structured_data_record(rich: Document) -> None:
 
 def test_fields_match_per_format_helpers(rich: Document) -> None:
     data = rich.structured_data()
-    assert data.json_ld == rich.json_ld()
-    assert data.microdata == rich.microdata()
     # structured_data keeps the raw og:/twitter: map; opengraph() returns the og:-stripped OpenGraph record
-    assert data.opengraph == {"og:title": "T"}
+    assert (data.json_ld, data.microdata, data.opengraph) == (rich.json_ld(), rich.microdata(), {"og:title": "T"})
     assert rich.opengraph() == {"title": "T"}
     assert (data.rdfa, data.dublin_core) == (rich.rdfa(), rich.dublin_core())
 
@@ -84,15 +82,20 @@ _RELATIVE: Final[str] = (
 
 def test_structured_data_base_url_resolves_microdata_and_opengraph_not_json_ld() -> None:
     data = parse(_RELATIVE).structured_data(base_url="http://ex.com/dir/")
-    assert data.opengraph == {"og:image": "http://ex.com/pic.png"}
-    assert data.microdata == [MicrodataItem(type=None, id=None, properties={"link": ["http://ex.com/l"]})]
-    assert data.json_ld == [{"@id": "/thing"}]  # json_ld @id resolution is out of scope, left verbatim
+    # json_ld @id resolution is out of scope, left verbatim
+    assert (data.opengraph, data.microdata, data.json_ld) == (
+        {"og:image": "http://ex.com/pic.png"},
+        [MicrodataItem(type=None, id=None, properties={"link": ["http://ex.com/l"]})],
+        [{"@id": "/thing"}],
+    )
 
 
 def test_structured_data_base_url_none_is_verbatim() -> None:
     data = parse(_RELATIVE).structured_data(base_url=None)
-    assert data.opengraph == {"og:image": "/pic.png"}
-    assert data.microdata == [MicrodataItem(type=None, id=None, properties={"link": ["/l"]})]
+    assert (data.opengraph, data.microdata) == (
+        {"og:image": "/pic.png"},
+        [MicrodataItem(type=None, id=None, properties={"link": ["/l"]})],
+    )
 
 
 def test_structured_data_malformed_base_url_raises() -> None:
@@ -1174,26 +1177,28 @@ def test_rdfa_resource_undeclared_curie_remains_iri() -> None:
         '<div typeof="schema:Person" about="custom:alice"><a property="schema:knows" resource="custom:bob"></a></div>'
     )
 
-    assert parse(html).rdfa()[0].resource == "custom:alice"
-    assert parse(html).rdfa()[0].properties == {"http://schema.org/knows": ["custom:bob"]}
+    assert (parse(html).rdfa()[0].resource, parse(html).rdfa()[0].properties) == (
+        "custom:alice",
+        {"http://schema.org/knows": ["custom:bob"]},
+    )
 
 
 def test_rdfa_resource_relative_iri_uses_base() -> None:
     html = '<div typeof="schema:Person" about="person"><a property="schema:knows" resource="friend"></a></div>'
 
-    assert parse(html).rdfa(base_url="https://base.test/doc")[0].resource == "https://base.test/person"
-    assert parse(html).rdfa(base_url="https://base.test/doc")[0].properties == {
-        "http://schema.org/knows": ["https://base.test/friend"],
-    }
+    assert (
+        parse(html).rdfa(base_url="https://base.test/doc")[0].resource,
+        parse(html).rdfa(base_url="https://base.test/doc")[0].properties,
+    ) == ("https://base.test/person", {"http://schema.org/knows": ["https://base.test/friend"]})
 
 
 def test_rdfa_resource_empty_iri_uses_base() -> None:
     html = '<div typeof="schema:Person" about=""><a property="schema:knows" resource=""></a></div>'
 
-    assert parse(html).rdfa(base_url="https://base.test/doc")[0].resource == "https://base.test/doc"
-    assert parse(html).rdfa(base_url="https://base.test/doc")[0].properties == {
-        "http://schema.org/knows": ["https://base.test/doc"],
-    }
+    assert (
+        parse(html).rdfa(base_url="https://base.test/doc")[0].resource,
+        parse(html).rdfa(base_url="https://base.test/doc")[0].properties,
+    ) == ("https://base.test/doc", {"http://schema.org/knows": ["https://base.test/doc"]})
 
 
 @pytest.mark.parametrize(
