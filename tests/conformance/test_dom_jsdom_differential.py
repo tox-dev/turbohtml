@@ -1345,7 +1345,9 @@ def test_declarative_shadow_matches_spec(kase: dict[str, Any]) -> None:
     assert host.inner_html == kase["light_html"]
     shadow = host.shadow_root
     assert shadow is not None
-    assert shadow.mode == kase["mode"]
-    assert shadow.clonable == kase["clonable"]
-    assert shadow.delegates_focus == kase["delegates_focus"]
-    assert shadow.html == kase["shadow_html"]
+    assert (shadow.mode, shadow.clonable, shadow.delegates_focus, shadow.html) == (
+        kase["mode"],
+        kase["clonable"],
+        kase["delegates_focus"],
+        kase["shadow_html"],
+    )
