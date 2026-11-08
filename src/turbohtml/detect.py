@@ -212,11 +212,8 @@ def detect_all(data: bytes, options: Detection | None = None, /) -> list[Encodin
         carrying its own label and ``bom``.
     :raises TypeError: when ``data`` is not a bytes-like object.
     """
-    return _matches(data, options or _DEFAULT)
-
-
-def _matches(data: bytes, options: Detection) -> list[EncodingMatch]:
-    return list(starmap(EncodingMatch, _rank(_detect(data, options.tld), options)))
+    active = options or _DEFAULT
+    return list(starmap(EncodingMatch, _rank(_detect(data, active.tld), active)))
 
 
 class EncodingDetector:

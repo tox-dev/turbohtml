@@ -76,7 +76,8 @@ def dates(html: str, options: DateExtraction | None = None, /) -> PublicationDat
     :returns: the date and the signal it came from, or ``None`` when no bounded date is found.
     """
     active = options or _DEFAULT
-    today = _today()
+    # Today's date in UTC, the default upper bound so a stray future stamp never wins.
+    today = datetime.now(UTC).date()
     earliest = active.min_date or _EARLIEST
     latest = active.max_date or today
     found = parse(html)._dates(  # ruff:ignore[private-member-access]  # the Document type's private C entry point
@@ -94,11 +95,6 @@ def dates(html: str, options: DateExtraction | None = None, /) -> PublicationDat
         return None
     year, month, day, signal = found
     return PublicationDate(date(year, month, day).strftime(active.output_format), signal)
-
-
-def _today() -> date:
-    # Today's date in UTC, the default upper bound so a stray future stamp never wins.
-    return datetime.now(UTC).date()
 
 
 class PublicationDate(NamedTuple):

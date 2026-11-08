@@ -87,7 +87,8 @@ def _run_minify_js(args: argparse.Namespace) -> int:
 
 
 def _run_detect(args: argparse.Namespace) -> int:
-    if (match := detect(_read_bytes(args.file))).encoding is None:
+    data = sys.stdin.buffer.read() if args.file is None or args.file == "-" else Path(args.file).read_bytes()
+    if (match := detect(data)).encoding is None:
         sys.stderr.write("turbohtml detect: no encoding detected\n")
         return 1
     _write(f"{match.encoding}\n", args.output)
@@ -114,13 +115,6 @@ def _read_text(path: str | None) -> str:
     if path is None or path == "-":
         return sys.stdin.read()
     return Path(path).read_text(encoding="utf-8")
-
-
-def _read_bytes(path: str | None) -> bytes:
-    # Read binary input from ``path``, or stdin when it is ``None`` or ``-``.
-    if path is None or path == "-":
-        return sys.stdin.buffer.read()
-    return Path(path).read_bytes()
 
 
 def _write(text: str, output: str | None) -> None:
