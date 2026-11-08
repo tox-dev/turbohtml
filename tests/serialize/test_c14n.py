@@ -562,11 +562,8 @@ def test_xml_c14n_many_namespaces_and_attributes() -> None:
     names: Final = tuple(f"p{index:02d}" for index in range(33))
     source: Final = f"""<r {" ".join(f'xmlns:{name}="urn:{name}" {name}:x="v"' for name in names)}/>"""
     expected: Final = (
-        "<r "
-        + " ".join(f'xmlns:{name}="urn:{name}"' for name in names)
-        + " "
-        + " ".join(f'{name}:x="v"' for name in names)
-        + "></r>"
+        f"""<r {" ".join(f'xmlns:{name}="urn:{name}"' for name in names)} """
+        f"""{" ".join(f'{name}:x="v"' for name in names)}></r>"""
     ).encode()
     assert parse_xml(source).canonicalize() == expected
 
