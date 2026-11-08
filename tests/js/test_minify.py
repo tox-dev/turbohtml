@@ -6,7 +6,7 @@ import shutil
 import subprocess  # ruff: ignore[suspicious-subprocess-import] - Node executes the fixed benchmark corpus
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, Final, TypeAlias, cast
 
 import pytest
 from bench.operations import INPUTS
@@ -560,7 +560,7 @@ def test_jsminify_is_frozen_and_comparable() -> None:
         JSMinify().mangle = False  # ty: ignore[invalid-assignment]  # frozen on purpose
 
 
-_CALLBACK_ORDER_ROWS: Final = (
+_CALLBACK_ORDER_ROWS: Final[tuple[tuple[str, int, tuple[int, int], str], ...]] = (
     ("minify-js-propagation", 0, (256, 2), "propagation-interleaved"),
     ("minify-js-propagation", 1, (1, 2), "propagation-single"),
     ("minify-js-propagation", 2, (256, 2), "propagation-grouped"),
@@ -576,7 +576,7 @@ _CALLBACK_ORDER_ROWS: Final = (
     ("minify-js-single-use", 1, (256, 1), "single-use-separated"),
     ("minify-js-single-use", 2, (1, 1), "single-use-single"),
 )
-_CALLBACK_ORDER_MINIFIERS: Final = (
+_CALLBACK_ORDER_MINIFIERS: Final[tuple[tuple[str, str | None, str], ...]] = (
     ("bench.core", None, "turbohtml"),
     ("bench.competitors.calmjs_parse", None, "calmjs"),
     ("bench.competitors.rjsmin", None, "rjsmin"),
@@ -600,7 +600,7 @@ def _callback_order_expected(operation: str, case: int, shape: tuple[int, int]) 
     return {"calls": values, "result": [value for value in values for _ in range(repeat)]}
 
 
-_CALLBACK_ORDER_CASES: Final = [
+_CALLBACK_ORDER_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         operation,
         case,
@@ -693,9 +693,9 @@ def nomangle(source: str) -> str:
     return minify_js(source, JSMinify(mangle=False, fold=False))
 
 
-_CORPUS = json.loads((Path(__file__).parent / "_corpus" / "tdewolff_js.json").read_text())
+_CORPUS: Final[list[dict[str, Any]]] = json.loads((Path(__file__).parent / "_corpus" / "tdewolff_js.json").read_text())
 
-_CASES = [pytest.param(row["input"], id=f"L{row['line']}") for row in _CORPUS]
+_CASES: Final[list[pytest.ParameterSet]] = [pytest.param(row["input"], id=f"L{row['line']}") for row in _CORPUS]
 
 
 def _canon_num(lexeme: str) -> str:
@@ -728,7 +728,7 @@ def _canon_num(lexeme: str) -> str:
     return out or "0"
 
 
-_SEXPR_TOKEN = re.compile(r"\(|\)|'[^']*'|[^\s()']+")
+_SEXPR_TOKEN: Final[re.Pattern[str]] = re.compile(r"\(|\)|'[^']*'|[^\s()']+")
 
 
 def _parse_sexpr(tokens: list[str], pos: int) -> tuple[_SExpr, int]:
