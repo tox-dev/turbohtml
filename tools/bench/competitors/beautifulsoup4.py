@@ -13,6 +13,7 @@ from bs4.element import AttributeValueList, CData, NavigableString, Script, Styl
 from bench._attributes import fill_equality_pair
 from bench._beautifulsoup import (
     body,
+    collapse_whitespace,
     encode_inner,
     encode_inner_indent,
     find,
@@ -22,7 +23,6 @@ from bench._beautifulsoup import (
     socialcard,
 )
 from bench.timing import Mutating
-from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 
 if TYPE_CHECKING:
     from bench.operations import Timed
@@ -256,23 +256,9 @@ def _serialize_inner(text: str) -> str:
     return body("html.parser", text).decode_contents()
 
 
-def _collapse_whitespace(soup: BeautifulSoup) -> None:
-    for node in list(soup.find_all(string=True)):
-        if isinstance(node, Comment) or any(parent.name in PRESERVE_TAGS for parent in node.parents):
-            continue
-        collapsed = SPACE_RUN.sub(" ", str(node))
-        previous = node.previous_sibling
-        while isinstance(previous, NavigableString) and not isinstance(previous, Comment) and not previous:
-            previous = previous.previous_sibling
-        if isinstance(previous, NavigableString) and not isinstance(previous, Comment) and previous.endswith(" "):
-            collapsed = collapsed.removeprefix(" ")
-        if collapsed != node:
-            node.replace_with(collapsed)
-
-
 def _transform_tree(soup: BeautifulSoup) -> None:
     _strip_comments(soup)
-    _collapse_whitespace(soup)
+    collapse_whitespace(soup)
 
 
 def _strip_comments(soup: BeautifulSoup) -> None:
@@ -299,7 +285,7 @@ def _equality_pair(count: int, variant: str) -> tuple[Tag, Tag]:
 OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
     "node-equals": (_node_equals, "BeautifulSoup (html.parser)"),
     "collapse-whitespace": (
-        Mutating(setup=functools.partial(fresh, "html.parser"), run=_collapse_whitespace),
+        Mutating(setup=functools.partial(fresh, "html.parser"), run=collapse_whitespace),
         "BeautifulSoup (html.parser)",
     ),
     "transform-tree": (

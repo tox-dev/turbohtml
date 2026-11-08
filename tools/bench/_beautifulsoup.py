@@ -5,7 +5,10 @@ from __future__ import annotations
 import functools
 from typing import TYPE_CHECKING
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Comment
+from bs4.element import NavigableString
+
+from bench.tree_text import PRESERVE_TAGS, SPACE_RUN
 
 if TYPE_CHECKING:
     from bs4.element import Tag
@@ -34,13 +37,13 @@ def fresh(backend: str, text: str) -> BeautifulSoup:
     return BeautifulSoup(text, backend)
 
 
+def encode_inner(backend: str, text: str) -> bytes:
+    return body(backend, text).encode_contents()
+
+
 @functools.cache
 def body(backend: str, text: str) -> Tag:
     return parsed(backend, text).find_all("body")[0]
-
-
-def encode_inner(backend: str, text: str) -> bytes:
-    return body(backend, text).encode_contents()
 
 
 def encode_inner_indent(backend: str, text: str) -> bytes:
@@ -53,6 +56,7 @@ def serialize_inner_indent(backend: str, text: str) -> str:
 
 __all__ = [
     "body",
+    "collapse_whitespace",
     "encode_inner",
     "encode_inner_indent",
     "find",
@@ -61,3 +65,17 @@ __all__ = [
     "serialize_inner_indent",
     "socialcard",
 ]
+
+
+def collapse_whitespace(soup: BeautifulSoup) -> None:
+    for node in list(soup.find_all(string=True)):
+        if isinstance(node, Comment) or any(parent.name in PRESERVE_TAGS for parent in node.parents):
+            continue
+        collapsed = SPACE_RUN.sub(" ", str(node))
+        previous = node.previous_sibling
+        while isinstance(previous, NavigableString) and not isinstance(previous, Comment) and not previous:
+            previous = previous.previous_sibling
+        if isinstance(previous, NavigableString) and not isinstance(previous, Comment) and previous.endswith(" "):
+            collapsed = collapsed.removeprefix(" ")
+        if collapsed != node:
+            node.replace_with(collapsed)
