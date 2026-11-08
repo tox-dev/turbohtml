@@ -200,7 +200,7 @@ def test_malformed_xn_label_is_kept_verbatim(label: str) -> None:
 # The first case trips the pre-multiply guard, the second lands the accumulator just under the limit so the following
 # increments trip the per-code-point guard. Both stay under the 16384-code-point input cap and use CJK code points UTS
 # #46 keeps, so they reach the encoder rather than the disallowed-code-point or input-cap rejection.
-_OVERFLOW_LABELS: Final = ["\u3400" * 16000 + "\U000323af", "\u3400" * 11159 + "\U000323ab"]
+_OVERFLOW_LABELS: Final[list[str]] = ["\u3400" * 16000 + "\U000323af", "\u3400" * 11159 + "\U000323ab"]
 
 
 @pytest.mark.parametrize("label", _OVERFLOW_LABELS, ids=["pre-multiply-guard", "increment-guard"])

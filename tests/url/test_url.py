@@ -1416,7 +1416,7 @@ _LANGUAGE_PARAMS: Final[frozenset[str]] = frozenset({"lang", "language"})
 _ISO: Final[frozenset[str]] = frozenset({"de", "en", "fr", "es", "ru", "nl"})
 
 
-_SEGMENT = re.compile(r"([a-z]{2})(?:[-_][a-z]{2,3})?$")
+_SEGMENT: Final[re.Pattern[str]] = re.compile(r"([a-z]{2})(?:[-_][a-z]{2,3})?$")
 
 
 def test_language_matches_matches_oracle_over_corpus() -> None:
@@ -1662,7 +1662,7 @@ _SAFE: Final[dict[int, str]] = {
 }
 
 
-_ESCAPE = re.compile(r"%[0-9a-fA-F]{2}")
+_ESCAPE: Final[re.Pattern[str]] = re.compile(r"%[0-9a-fA-F]{2}")
 
 
 def _oracle_encode(text: str, url_set: int) -> str:
@@ -1671,7 +1671,7 @@ def _oracle_encode(text: str, url_set: int) -> str:
 
 # A spread that reaches every encode/decode branch: kept and out-of-set bytes, lowercase and already-uppercase escapes,
 # both malformed-escape shapes, a truncated escape at the very end, a '%' before a non-ASCII byte, and multi-byte input.
-_CORPUS = (
+_CORPUS: Final[tuple[str, ...]] = (
     "",
     "a",
     "abc-._~",
@@ -1779,7 +1779,7 @@ def test_percent_encode_rejects_non_str_text() -> None:
 _C0_AND_SPACE: Final[str] = "".join(map(chr, range(0x21)))
 
 
-_MARKUP_DELIMITER = re.compile(r'[<>"]')
+_MARKUP_DELIMITER: Final[re.Pattern[str]] = re.compile(r'[<>"]')
 
 
 # CPython's str whitespace (Py_UNICODE_ISSPACE), pinned because PyPy's str.split() disagrees on the C0 separators
@@ -2162,7 +2162,7 @@ _TRACKER_PREFIXES: Final[tuple[str, ...]] = (
 )
 
 
-_TRACKER_WORDS = re.compile(
+_TRACKER_WORDS: Final[re.Pattern[str]] = re.compile(
     r"(?:^|_)(?:aff(?:i(?:liate)?)?|campaign|cl?id|keyword|kwd|medium|refer(?:r?er)?|ref|session|source|uid|xtor)(?:_|$)"
 )
 

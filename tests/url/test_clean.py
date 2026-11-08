@@ -252,7 +252,15 @@ def test_language_must_be_iso_639_1() -> None:
         UrlCleaning(language="german")
 
 
-_KNOBS: Final = (False, True, False, None, frozenset(), frozenset({"id"}), frozenset({"lang"}))
+_KNOBS: Final[tuple[bool | frozenset[str] | None, ...]] = (
+    False,
+    True,
+    False,
+    None,
+    frozenset(),
+    frozenset({"id"}),
+    frozenset({"lang"}),
+)
 
 
 @pytest.mark.parametrize(
