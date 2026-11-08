@@ -312,7 +312,7 @@ def test_linkify_callback_chain_runs_in_order() -> None:
         pytest.param("attrs", [], id="attrs"),
     ],
 )
-def test_linkify_rejects_invalid_callback_field(field: str, value: object) -> None:
+def test_linkify_rejects_invalid_callback_field(field: str, value: int | list[str]) -> None:
     def invalidate(link: LinkCandidate) -> LinkCandidate:
         setattr(link, field, value)
         return link
@@ -325,7 +325,7 @@ def test_linkify_rejects_invalid_callback_field(field: str, value: object) -> No
     "attrs",
     [pytest.param({1: "value"}, id="name"), pytest.param({"name": 1}, id="value")],
 )
-def test_linkify_rejects_invalid_callback_attribute(attrs: dict[object, object]) -> None:
+def test_linkify_rejects_invalid_callback_attribute(attrs: dict[int | str, int | str]) -> None:
     def invalidate(link: LinkCandidate) -> LinkCandidate:
         link.attrs = attrs  # ty: ignore[invalid-assignment]  # callback validation requires an invalid attrs mapping
         return link
@@ -950,9 +950,9 @@ def test_a_callback_answers_the_same_link() -> None:
         pytest.param(SystemError, id="a-type"),
     ],
 )
-def test_a_callback_rejects_a_foreign_object(callback: object, link: object) -> None:
+def test_a_callback_rejects_a_foreign_object(callback: Callback, link: object) -> None:
     with pytest.raises(TypeError, match="expects a LinkCandidate"):
-        callback(link)  # ty: ignore[call-non-callable]  # the argument check is the point
+        callback(link)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
 
 class _UrlOnly:
@@ -969,15 +969,15 @@ class _UrlOnly:
         pytest.param(_UrlOnly(), id="no-attrs-at-all"),
     ],
 )
-def test_a_callback_rejects_wrongly_typed_fields(callback: object, link: object) -> None:
+def test_a_callback_rejects_wrongly_typed_fields(callback: Callback, link: LinkCandidate | _UrlOnly) -> None:
     with pytest.raises(TypeError, match="expects a LinkCandidate"):
-        callback(link)  # ty: ignore[call-non-callable]  # the field check is the point
+        callback(link)  # ty: ignore[invalid-argument-type]  # the field check is the point
 
 
 @pytest.mark.parametrize("callback", [nofollow, target_blank], ids=["nofollow", "target_blank"])
-def test_a_callback_takes_one_link(callback: object) -> None:
+def test_a_callback_takes_one_link(callback: Callback) -> None:
     with pytest.raises(TypeError):
-        callback()  # ty: ignore[call-non-callable]  # the arity check is the point
+        callback()  # ty: ignore[missing-argument]  # the arity check is the point
 
 
 @pytest.mark.parametrize(

@@ -3062,7 +3062,7 @@ class _Bare:
     ("target", "missing"),
     [pytest.param(_TagOnly(), "attributes", id="no-attributes"), pytest.param(_Bare(), "tag", id="no-tag")],
 )
-def test_a_transform_type_must_carry_both_fields(target: object, missing: str) -> None:
+def test_a_transform_type_must_carry_both_fields(target: _TagOnly | _Bare, missing: str) -> None:
     with pytest.raises(AttributeError, match=missing):
         _sanitize_policy({}, frozenset(), {}, {}, {}, {"i": target}, type(target))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 

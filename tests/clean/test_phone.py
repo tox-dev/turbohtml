@@ -1129,7 +1129,7 @@ def test_registered_tel_scheme_links_the_authority_form() -> None:
         pytest.param(Linkify(phones=_PHONE_RUNS_US), id="linkify"),
     ],
 )
-def test_settings_pickle_and_copy(value: object) -> None:
+def test_settings_pickle_and_copy(value: PhoneNumbers | Linkify) -> None:
     assert pickle.loads(pickle.dumps(value)) == value  # ruff:ignore[suspicious-pickle-usage]  # this test's own bytes
     assert copy.deepcopy(value) == value
 

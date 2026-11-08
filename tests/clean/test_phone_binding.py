@@ -36,7 +36,7 @@ from turbohtml.clean import (
 from turbohtml.clean._linkify import _PHONE_TYPES
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
 
     from turbohtml._html import _PhoneConfig, _PhoneSpec
 
@@ -406,7 +406,7 @@ def test_find_span_shape_for_a_phone() -> None:
         pytest.param((1, "6502530000", "US", "10"), id="str-type"),
     ],
 )
-def test_number_check_argument_types(args: tuple[object, ...]) -> None:
+def test_number_check_argument_types(args: tuple[int | float | str | bytes, ...]) -> None:
     with pytest.raises(TypeError):
         _phone_number_check(*args)  # ty: ignore[invalid-argument-type]  # the wrong types are the point
 
@@ -422,7 +422,7 @@ def test_number_check_argument_types(args: tuple[object, ...]) -> None:
         pytest.param((2**70, "6502530000", "US", 10), "between 1 and 999", id="huge-code"),
     ],
 )
-def test_number_check_value_errors(args: tuple[object, ...], message: str) -> None:
+def test_number_check_value_errors(args: tuple[int | str, ...], message: str) -> None:
     with pytest.raises(ValueError, match=message):
         _phone_number_check(*args)  # ty: ignore[invalid-argument-type]  # the wrong types are the point
 
@@ -448,7 +448,9 @@ def test_number_check_accepts_a_produced_value() -> None:
         pytest.param((1, "6502530000", "\udc80", 1), UnicodeEncodeError, "surrogates", id="extension-surrogate"),
     ],
 )
-def test_number_format_rejects_bad_arguments(args: tuple[object, ...], error: type[Exception], message: str) -> None:
+def test_number_format_rejects_bad_arguments(
+    args: tuple[int | str | None, ...], error: type[Exception], message: str
+) -> None:
     with pytest.raises(error, match=message):
         _phone_number_format(*args)  # ty: ignore[invalid-argument-type]  # the wrong types are the point
 
@@ -464,7 +466,9 @@ def test_number_format_rejects_bad_arguments(args: tuple[object, ...], error: ty
         pytest.param((1, "1234", "5", 3), "tel:+1-1234;ext=5", id="rfc3966-keeps-the-extension"),
     ],
 )
-def test_number_format_falls_back_to_the_bare_national_number(args: tuple[object, ...], expected: str) -> None:
+def test_number_format_falls_back_to_the_bare_national_number(
+    args: tuple[int | str | None, ...], expected: str
+) -> None:
     assert _phone_number_format(*args) == expected  # ty: ignore[invalid-argument-type]  # a mixed tuple of the row
 
 
@@ -540,7 +544,9 @@ def test_defaults() -> None:
         pytest.param({"ignore_numbers_after": ("\udc80",)}, UnicodeEncodeError, "surrogates", id="surrogate-label"),
     ],
 )
-def test_settings_rejections(settings: dict[str, object], error: type[Exception], message: str) -> None:
+def test_settings_rejections(
+    settings: dict[str, str | bool | PhoneGrouping | tuple[str, ...]], error: type[Exception], message: str
+) -> None:
     with pytest.raises(error, match=message):
         PhoneNumbers(**settings)  # ty: ignore[invalid-argument-type]  # the wrong values are the point
 
@@ -561,8 +567,8 @@ def test_default_labels_are_sorted_lowercase_ascii() -> None:
         pytest.param([], (), id="empty"),
     ],
 )
-def test_regions_normalize_in_order(regions: object, expected: tuple[str, ...]) -> None:
-    assert PhoneNumbers(regions=regions).regions == expected  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
+def test_regions_normalize_in_order(regions: Iterable[str], expected: tuple[str, ...]) -> None:
+    assert PhoneNumbers(regions=regions).regions == expected
 
 
 @pytest.mark.parametrize(
@@ -577,7 +583,9 @@ def test_regions_normalize_in_order(regions: object, expected: tuple[str, ...]) 
         pytest.param(["US", None], id="none-entry"),
     ],
 )
-def test_regions_reject_unordered_or_non_str(regions: object) -> None:
+def test_regions_reject_unordered_or_non_str(
+    regions: str | bytes | set[str] | frozenset[str] | dict[str, int] | list[int] | list[str | None],
+) -> None:
     with pytest.raises(TypeError, match="regions"):
         PhoneNumbers(regions=regions)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
@@ -626,7 +634,7 @@ def test_regions_reject_unknown_codes(regions: tuple[str, ...], message: str) ->
 @pytest.mark.parametrize(
     "value", [pytest.param(1, id="int"), pytest.param("yes", id="str"), pytest.param(None, id="none")]
 )
-def test_flags_must_be_bool(name: str, value: object) -> None:
+def test_flags_must_be_bool(name: str, value: int | str | None) -> None:
     with pytest.raises(TypeError, match=name):
         PhoneNumbers(**{name: value})  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
@@ -643,8 +651,8 @@ def test_flags_must_be_bool(name: str, value: object) -> None:
         pytest.param(None, None, id="all"),
     ],
 )
-def test_types_freeze(types: object, expected: frozenset[PhoneType] | None) -> None:
-    assert PhoneNumbers(types=types).types == expected  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
+def test_types_freeze(types: Iterable[PhoneType] | None, expected: frozenset[PhoneType] | None) -> None:
+    assert PhoneNumbers(types=types).types == expected
 
 
 @pytest.mark.parametrize(
@@ -657,7 +665,12 @@ def test_types_freeze(types: object, expected: frozenset[PhoneType] | None) -> N
         pytest.param([PhoneType.MOBILE], False, ValueError, "require_valid", id="possible-mode"),
     ],
 )
-def test_types_rejections(types: object, require_valid: bool, error: type[Exception], message: str) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a parametrize value
+def test_types_rejections(
+    types: tuple[()] | list[str | bool | PhoneType],
+    require_valid: bool,  # ruff:ignore[boolean-type-hint-positional-argument]  # a parametrize value
+    error: type[Exception],
+    message: str,
+) -> None:
     with pytest.raises(error, match=message):
         PhoneNumbers(types=types, require_valid=require_valid)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
@@ -672,8 +685,8 @@ def test_types_rejections(types: object, require_valid: bool, error: type[Except
         pytest.param((word for word in ("b", "a")), ("a", "b"), id="generator"),
     ],
 )
-def test_labels_normalize(labels: object, expected: tuple[str, ...]) -> None:
-    assert PhoneNumbers(ignore_numbers_after=labels).ignore_numbers_after == expected  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
+def test_labels_normalize(labels: Iterable[str], expected: tuple[str, ...]) -> None:
+    assert PhoneNumbers(ignore_numbers_after=labels).ignore_numbers_after == expected
 
 
 @pytest.mark.parametrize(
@@ -691,7 +704,9 @@ def test_labels_normalize(labels: object, expected: tuple[str, ...]) -> None:
         pytest.param(["ünit"], ValueError, "phone label", id="non-ascii"),
     ],
 )
-def test_labels_rejections(labels: object, error: type[Exception], message: str) -> None:
+def test_labels_rejections(
+    labels: str | set[str] | list[int] | int | list[str], error: type[Exception], message: str
+) -> None:
     with pytest.raises(error, match=message):
         PhoneNumbers(ignore_numbers_after=labels)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
@@ -1067,7 +1082,11 @@ def test_value_is_frozen_and_hashable() -> None:
     ],
 )
 def test_wrong_field_types(
-    country_code: object, national_number: object, extension: object, region: object, number_type: object
+    country_code: float | str,
+    national_number: int | str | bytes,
+    extension: int | None,
+    region: str | bytes,
+    number_type: PhoneType | str | int,
 ) -> None:
     with pytest.raises(TypeError):
         PhoneNumber(country_code, national_number, extension, region, number_type)  # ty: ignore[invalid-argument-type]  # passes untyped values on purpose to check the TypeError
@@ -1646,6 +1665,6 @@ def test_text_must_be_str() -> None:
         pytest.param(("XX",), ValueError, "XX", id="unknown-code"),
     ],
 )
-def test_regions_validate_like_phone_numbers(regions: object, error: type[Exception], message: str) -> None:
+def test_regions_validate_like_phone_numbers(regions: str | tuple[str], error: type[Exception], message: str) -> None:
     with pytest.raises(error, match=message):
-        PhoneNumber.parse("650-253-0000", regions=regions)  # ty: ignore[invalid-argument-type]  # the wrong value is the point
+        PhoneNumber.parse("650-253-0000", regions=regions)

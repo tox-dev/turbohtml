@@ -193,8 +193,8 @@ def test_transform_callable_object() -> None:
         pytest.param(False, id="bool"),
     ],
 )
-def test_transform_invalid_result(result: object) -> None:
-    def stage(_node: Node) -> object:
+def test_transform_invalid_result(*, result: str | int | tuple[()] | bool) -> None:
+    def stage(_node: Node) -> str | int | tuple[()] | bool:
         return result
 
     operation: Final = cast("Callable[..., object]", transform_node)
