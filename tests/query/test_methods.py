@@ -831,7 +831,7 @@ def test_one_compiled_expression_across_threads_each_correct() -> None:
 
 
 def test_concurrent_evaluation_on_one_document_is_memory_safe() -> None:
-    document = turbohtml.parse("<body>" + "".join(f"<p>{index}</p>" for index in range(100)) + "</body>")
+    document = turbohtml.parse(f"<body>{''.join(f'<p>{index}</p>' for index in range(100))}</body>")
     selector = XPath("//p")
     start = threading.Barrier(4)
     counts: list[int] = []
@@ -1152,7 +1152,7 @@ _NODESET_EXTENSIONS: Final[
 
 @pytest.fixture
 def big_doc() -> turbohtml.Node:
-    return turbohtml.parse("<ul>" + "".join(f"<li>{index}</li>" for index in range(12)) + "</ul>")
+    return turbohtml.parse(f"<ul>{''.join(f'<li>{index}</li>' for index in range(12))}</ul>")
 
 
 @pytest.mark.parametrize(
@@ -1261,7 +1261,7 @@ def test_find_sibling_root_order(
     count: int, stride: int, gap: str, padding: int, order: Callable[[list[Element]], list[Element]]
 ) -> None:
     document: Final = parse(
-        "<main>" + "".join(f"<div><i>{index}</i></div>{gap}" for index in range(count * stride + padding)) + "</main>"
+        f"<main>{''.join(f'<div><i>{index}</i></div>{gap}' for index in range(count * stride + padding))}</main>"
     )
     start: Final = padding // 2
     roots = order(document.select("div")[start : start + count * stride : stride])
@@ -1280,7 +1280,7 @@ def test_find_sibling_root_order(
 )
 def test_find_mixed_parent_root_order(order: Callable[[list[Element]], list[Element]]) -> None:
     document: Final = parse(
-        "<main>" + "".join(f"<section><div><i>{index}</i></div></section>" for index in range(40)) + "</main>"
+        f"<main>{''.join(f'<section><div><i>{index}</i></div></section>' for index in range(40))}</main>"
     )
     roots = order(document.select("div"))
     assert [node.text for node in Query(roots).find("i")] == [str(index) for index in range(40)]

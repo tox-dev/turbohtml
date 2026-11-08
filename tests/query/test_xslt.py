@@ -3193,8 +3193,10 @@ def import_swap_paths(tmp_path: Path) -> tuple[Path, Path, Path]:
 
 def test_transform_import_root_reads_large_file(tmp_path: Path) -> None:
     (tmp_path / "base.xsl").write_text(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:template match="/">ok</xsl:template></xsl:stylesheet>' + " " * 65536,
+        (
+            '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:template '
+            f'match="/">ok</xsl:template></xsl:stylesheet>{" " * 65536}'
+        ),
         encoding="utf-8",
     )
     result = Transform(_import_sheet(), base_url=str(tmp_path / "main.xsl"), import_root=tmp_path)(
@@ -3453,7 +3455,7 @@ def test_transform_import_resolves_file_url_href(tmp_path: Path, authority: str)
     main = tmp_path / "main.xsl"
     main.write_text(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        f'<xsl:import href="{base.as_uri().replace("file://", "file://" + authority)}"/>'
+        f'<xsl:import href="{base.as_uri().replace("file://", f"file://{authority}")}"/>'
         '<xsl:template match="/"><xsl:apply-templates select="r/a"/></xsl:template></xsl:stylesheet>',
         encoding="utf-8",
     )
@@ -4802,7 +4804,7 @@ def test_number_any_compiled_reuse_across_documents(
     prefix_transform: Callable[[str, str], Transform], sort: str, expected: list[str]
 ) -> None:
     transform: Final = prefix_transform(
-        '<xsl:for-each select="root/p">' + sort + '<xsl:number level="any"/><xsl:text>|</xsl:text></xsl:for-each>',
+        f'<xsl:for-each select="root/p">{sort}<xsl:number level="any"/><xsl:text>|</xsl:text></xsl:for-each>',
         "",
     )
     assert [
@@ -5311,7 +5313,7 @@ def indexed_transform() -> Callable[[int, str, str], Transform]:
             * 2,
             '<xsl:template match="p">default|</xsl:template>'
             + "".join(f'<xsl:template match="p" mode="view{index}">{index}|</xsl:template>' for index in range(64)),
-            ("default|" + "".join(f"{index}|" for index in range(64)) + "default|") * 2,
+            (f"default|{''.join(f'{index}|' for index in range(64))}default|") * 2,
             id="many-named-and-default-modes",
         ),
         pytest.param(
@@ -5451,7 +5453,7 @@ def test_name_benchmark_output(library: str, name: str) -> None:
 def test_number_benchmark_output(library: str, case: int, positions: range, instructions: int) -> None:
     module: Final = pytest.importorskip(f"bench.{library}", exc_type=ImportError)
     operation: Final = module.OPERATIONS["transform-number"][0]
-    expected: Final = "".join(f"{position}:" * instructions + "|" for position in positions)
+    expected: Final = "".join(f"{f'{position}:' * instructions}|" for position in positions)
     assert str(operation(cast("tuple[str, str]", INPUTS["transform-number"]()[case][1]))) == expected
 
 
@@ -5468,7 +5470,7 @@ def test_number_benchmark_output(library: str, case: int, positions: range, inst
 )
 def test_codspeed_number_benchmark_output(name: str, instructions: int, positions: range) -> None:
     _, operation, load = next(case for case in benchmarks() if case[0] == name)
-    expected: Final = "".join(f"{position}:" * instructions + "|" for position in positions)
+    expected: Final = "".join(f"{f'{position}:' * instructions}|" for position in positions)
     assert cast("Callable[[tuple[str, str]], str]", operation)(cast("tuple[str, str]", load())) == expected
 
 
@@ -5492,7 +5494,7 @@ def test_codspeed_number_benchmark_output(name: str, instructions: int, position
         pytest.param(20, "".join(f"{ordinal}:|" for ordinal in range(1, 1_025)), id="count-predicate"),
         pytest.param(22, "".join(f"{ordinal}:|" for ordinal in range(1, 65)) * 16, id="count-from-sections"),
         pytest.param(23, "".join(f"{ordinal}:|" for ordinal in range(1_024, 0, -1)), id="count-reverse"),
-        pytest.param(24, "".join(f"{ordinal}:" * 8 + "|" for ordinal in range(1, 1_025)), id="count-repeated"),
+        pytest.param(24, "".join(f"{f'{ordinal}:' * 8}|" for ordinal in range(1, 1_025)), id="count-repeated"),
         pytest.param(25, "".join(f"{ordinal}:|" for ordinal in range(2, 1_026)), id="count-wildcard"),
         pytest.param(26, "0:|" * 1_024, id="count-empty"),
         pytest.param(27, "1024:|", id="count-last-only"),
@@ -5524,9 +5526,10 @@ def test_dense_number_benchmark_output(library: str) -> None:
     expected: Final = (
         '<?xml version="1.0"?>\n<out>'
         + "".join(
-            f"<row>Book number {index}"
-            + "".join(f"{index + 1}<!--c{unit}--><title>Book number {index}</title>" for unit in range(8))
-            + "</row>"
+            (
+                f"<row>Book number {index}"
+                f"{''.join(f'{index + 1}<!--c{unit}--><title>Book number {index}</title>' for unit in range(8))}</row>"
+            )
             for index in range(200)
         )
         + "</out>"
@@ -5787,7 +5790,7 @@ def test_transform_result_fragment_text_survives_output_growth() -> None:
         '<xsl:copy-of select="$fragment"/><xsl:copy-of select="$fragment"/></xsl:template>'
     )
     payload: Final = "é😀payload " * 64
-    source: Final = f"<r>{('<p>' + payload + '</p>') * 128}</r>"
+    source: Final = f"<r>{(f'<p>{payload}</p>') * 128}</r>"
     assert _run(source, body) == payload * 256
 
 
@@ -6646,14 +6649,11 @@ def test_transform_detached_namespace_numbering(level: str, select: Callable[[El
 @pytest.mark.parametrize("depth", [pytest.param(0, id="flat"), pytest.param(64, id="nested")])
 def test_transform_text_preserves_characters(value: str, depth: int) -> None:
     sheet: Final = parse_xml(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:output method="text"/><xsl:param name="value"/><xsl:template match="/">'
-        "<xsl:text>before</xsl:text><xsl:comment>excluded</xsl:comment>"
-        '<xsl:processing-instruction name="excluded">data</xsl:processing-instruction>'
-        + "<part>" * depth
-        + '<xsl:value-of select="$value"/>'
-        + "</part>" * depth
-        + "<xsl:text>after</xsl:text></xsl:template></xsl:stylesheet>"
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output '
+        'method="text"/><xsl:param name="value"/><xsl:template '
+        'match="/"><xsl:text>before</xsl:text><xsl:comment>excluded</xsl:comment><xsl:processing-instruction '
+        f'name="excluded">data</xsl:processing-instruction>{"<part>" * depth}<xsl:value-of select="$value"/>'
+        f"{'</part>' * depth}<xsl:text>after</xsl:text></xsl:template></xsl:stylesheet>"
     )
     assert Transform(sheet)(parse_xml("<root/>"), value=f"'{value}'") == f"before{value}after"
 
@@ -6668,8 +6668,8 @@ def test_transform_text_preserves_characters(value: str, depth: int) -> None:
 )
 def test_transform_text_empty_output(body: str) -> None:
     sheet: Final = parse_xml(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:output method="text"/><xsl:template match="/">' + body + "</xsl:template></xsl:stylesheet>"
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output '
+        f'method="text"/><xsl:template match="/">{body}</xsl:template></xsl:stylesheet>'
     )
     assert not Transform(sheet)(parse_xml("<root/>"))
 
@@ -6706,10 +6706,8 @@ def test_transform_text_copies_empty_nodes(value: str) -> None:
 )
 def test_transform_literal_text_keeps_compiled_snapshot(body: str, value: str) -> None:
     sheet: Final = parse_xml(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        '<xsl:output method="text"/><xsl:template match="/">'
-        + body.format(value=value)
-        + "</xsl:template></xsl:stylesheet>"
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output '
+        f'method="text"/><xsl:template match="/">{body.format(value=value)}</xsl:template></xsl:stylesheet>'
     )
     convert: Final = Transform(sheet)
     template: Final = sheet.find("xsl:template")
@@ -6722,10 +6720,10 @@ def test_transform_literal_text_keeps_compiled_snapshot(body: str, value: str) -
 def test_transform_literal_text_shared_compiled_snapshot() -> None:
     convert: Final = Transform(
         parse_xml(
-            '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-            '<xsl:output method="text"/><xsl:param name="suffix"/><xsl:template match="/">'
-            + "<xsl:text>literal 日本語</xsl:text>" * 512
-            + '<xsl:value-of select="$suffix"/></xsl:template></xsl:stylesheet>'
+            '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform"><xsl:output '
+            'method="text"/><xsl:param name="suffix"/><xsl:template match="/">'
+            f"{'<xsl:text>literal 日本語</xsl:text>' * 512}"
+            '<xsl:value-of select="$suffix"/></xsl:template></xsl:stylesheet>'
         )
     )
     barrier: Final = Barrier(4)

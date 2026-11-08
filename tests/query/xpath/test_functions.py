@@ -1118,7 +1118,7 @@ def test_distinct_attribute_values(content: str, expected: list[str]) -> None:
     [pytest.param("", "", id="empty-values"), pytest.param("é<b>界</b>😀", "é界😀", id="descendant-text")],
 )
 def test_concat_node_strings(count: int, markup: str, text: str) -> None:
-    document: Final = parse("<main>" + f"<i>{markup}</i>" * count + "</main>")
+    document: Final = parse(f"<main>{f'<i>{markup}</i>' * count}</main>")
     assert document.xpath("str:concat(//i)") == text * count
 
 

@@ -757,7 +757,7 @@ def test_same_expression_rebinds_per_call(ns_doc: turbohtml.Node) -> None:
             id="mixed-indices",
         ),
         pytest.param(
-            "<ul>" + "".join(f"<li>{number}</li>" for number in range(15)) + "</ul>",
+            f"<ul>{''.join(f'<li>{number}</li>' for number in range(15))}</ul>",
             "li:nth-of-type(15)",
             "/html/body/ul/li[15]",
             id="multi-digit-index",
@@ -954,10 +954,8 @@ def test_numeric_node_set_comparison(
     left: tuple[str, ...], right: tuple[str, ...], operation: str, compare: Callable[[float, float], bool]
 ) -> None:
     document: Final = parse_xml(
-        "<root>"
-        + "".join(f"<left>{value}</left>" for value in left)
-        + "".join(f"<right>{value}</right>" for value in right)
-        + "</root>"
+        f"<root>{''.join(f'<left>{value}</left>' for value in left)}"
+        f"{''.join(f'<right>{value}</right>' for value in right)}</root>"
     )
     assert document.xpath(f"//left {operation} //right") is any(
         compare(float(first), float(second)) for first in left for second in right
@@ -1009,7 +1007,7 @@ def test_sets_share_a_later_node() -> None:
     ],
 )
 def test_union_orders_extension_results(expression: str, selector: str) -> None:
-    document: Final[Document] = parse("<ul>" + "".join(f"<li>{index}</li>" for index in range(100)) + "</ul>")
+    document: Final[Document] = parse(f"<ul>{''.join(f'<li>{index}</li>' for index in range(100))}</ul>")
     assert document.xpath(expression, extensions={(None, "unordered"): _unordered}) == document.select(selector)
 
 
@@ -1042,10 +1040,8 @@ def test_node_set_value_comparison(
     left: tuple[str, ...], right: tuple[str, ...], expected: tuple[bool, bool], operation: str, index: int
 ) -> None:
     document: Final = parse_xml(
-        "<root>"
-        + "".join(f"<left>{value}</left>" for value in left)
-        + "".join(f"<right>{value}</right>" for value in right)
-        + "</root>"
+        f"<root>{''.join(f'<left>{value}</left>' for value in left)}"
+        f"{''.join(f'<right>{value}</right>' for value in right)}</root>"
     )
     assert document.xpath(f"//left {operation} //right") is expected[index]
 

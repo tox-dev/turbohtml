@@ -633,8 +633,8 @@ def _path(node: Element, kind: str) -> str:
 
 def _expected(kind: str, index: int, size: int) -> str:
     if kind == "css":
-        return "html > body > ul > li" + (f":nth-of-type({index})" if size > 1 else "")
-    return "/html/body/ul/li" + (f"[{index}]" if size > 1 else "")
+        return f"html > body > ul > li{f':nth-of-type({index})' if size > 1 else ''}"
+    return f"/html/body/ul/li{f'[{index}]' if size > 1 else ''}"
 
 
 @pytest.mark.parametrize("kind", [pytest.param("css", id="css"), pytest.param("xpath", id="xpath")])
