@@ -983,7 +983,7 @@ def test_range_contents_are_a_document_fragment(method: str) -> None:
     assert (type(contents), contents.html) == (DocumentFragment, "<i></i>")
 
 
-_INSERTIONS = [
+_INSERTIONS: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         lambda target, fragment: target.append(fragment), '<div id="a"><i></i><b></b><u></u></div>', id="append"
     ),

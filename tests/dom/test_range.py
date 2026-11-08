@@ -538,7 +538,7 @@ def test_insert_node_rejects_bad_boundary(container: Node) -> None:
         boundary.insert_node(Element("b"))
 
 
-_STALE_OPERATIONS: Final = [
+_STALE_OPERATIONS: Final[list[pytest.ParameterSet]] = [
     pytest.param(lambda boundary: boundary.clone_contents(), id="clone_contents"),
     pytest.param(lambda boundary: boundary.extract_contents(), id="extract_contents"),
     pytest.param(lambda boundary: boundary.delete_contents(), id="delete_contents"),

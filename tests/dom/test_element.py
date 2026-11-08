@@ -1730,7 +1730,7 @@ def test_sibling_insertion_relative_to_first_li(html: str, method: str, nodes: l
     assert _found(doc, "ul").html == expected
 
 
-_SIBLING_METHODS = [
+_SIBLING_METHODS: Final[list[pytest.ParameterSet]] = [
     pytest.param("insert_before", id="insert_before"),
     pytest.param("insert_after", id="insert_after"),
     pytest.param("replace_with", id="replace_with"),

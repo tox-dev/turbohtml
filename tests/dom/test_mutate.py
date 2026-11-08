@@ -56,7 +56,7 @@ def _comment(document: Document, index: int) -> Comment:
     return comment
 
 
-_REJECTED = [
+_REJECTED: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         _commented,
         lambda doc: _comment(doc, 0).wrap_siblings(Element("div"), until=_comment(doc, 1)),

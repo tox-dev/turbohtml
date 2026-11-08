@@ -860,7 +860,7 @@ def test_wide_present_and_absent(html: str, present: list[str], absent: list[str
     assert all(needle not in out for needle in absent)
 
 
-_DOCUMENT_CASES = [
+_DOCUMENT_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         "<svg></p><foo>",
         "| <html>\n|   <head>\n|   <body>\n|     <svg svg>\n|     <p>\n|     <foo>",
@@ -884,7 +884,7 @@ _DOCUMENT_CASES = [
 ]
 
 
-_FRAGMENT_CASES = [
+_FRAGMENT_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("<svg></p><foo>", "div", "| <svg svg>\n| <p>\n| <foo>", id="div-svg-end-p"),
     pytest.param("<svg></br><foo>", "div", "| <svg svg>\n| <br>\n| <foo>", id="div-svg-end-br"),
     pytest.param("</p><foo>", "svg svg", "| <p>\n| <svg foo>", id="svg-root-end-p"),

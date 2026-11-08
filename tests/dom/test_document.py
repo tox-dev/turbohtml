@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 # attributes, rawtext (script/style/title/textarea) whose content can split across a
 # feed, table foster-parenting, select, template, foreign content, the adoption
 # agency, comments, doctype, and CR normalization.
-_DOCUMENTS = [
+_DOCUMENTS: Final[list[pytest.ParameterSet]] = [
     pytest.param("", id="empty"),
     pytest.param("<!DOCTYPE html><p class=x>Hello <b>wo</b>rld</p>", id="doctype-text-attr"),
     pytest.param("<title>A &amp; B</title><script>var x = 1 < 2;</script>", id="rawtext"),
@@ -57,7 +57,9 @@ _DOCUMENTS = [
     pytest.param("plain text with no tags at all", id="plain-text"),
 ]
 
-_CHUNK_SIZES = [pytest.param(size, id=f"chunk-{size}") for size in (1, 2, 3, 5, 8, 13)]
+_CHUNK_SIZES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(size, id=f"chunk-{size}") for size in (1, 2, 3, 5, 8, 13)
+]
 
 
 def _stream(document: str, chunk: int) -> str:
@@ -83,7 +85,7 @@ def test_one_character_at_a_time_matches_whole(document: str) -> None:
 
 # A U+0000 makes the text builder filter NUL; the streaming path must flag it from
 # whatever storage width the fed chunk happens to use, so feed each width whole.
-_WIDE_WIDTHS = [
+_WIDE_WIDTHS: Final[list[pytest.ParameterSet]] = [
     pytest.param("<p>café ☃ two-byte plain</p>", id="two-byte"),
     pytest.param("<p>café\x00☃ two-byte nul</p>", id="two-byte-nul"),
     pytest.param("<p>math 🦄 four-byte plain</p>", id="four-byte"),
@@ -594,7 +596,11 @@ def test_preprocessing_errors_interleave_by_position(markup: str, expected: list
 
 
 # the tokenizer core is stamped once per PyUnicode storage width, so each width has to run
-_WIDTHS = [pytest.param("", id="ucs1"), pytest.param("\u20ac", id="ucs2"), pytest.param("\U0001f600", id="ucs4")]
+_WIDTHS: Final[list[pytest.ParameterSet]] = [
+    pytest.param("", id="ucs1"),
+    pytest.param("\u20ac", id="ucs2"),
+    pytest.param("\U0001f600", id="ucs4"),
+]
 
 
 @pytest.mark.parametrize("prefix", _WIDTHS)

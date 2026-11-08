@@ -355,7 +355,7 @@ def test_non_str_source_raises_type_error() -> None:
         parse_into(b"<p>x</p>", Recorder())  # ty: ignore[invalid-argument-type]  # the rejected bytes is the point
 
 
-_LXML_CORPUS: Final = [
+_LXML_CORPUS: Final[list[pytest.ParameterSet]] = [
     pytest.param("<!DOCTYPE html><title>t</title><p id=a class=lead>hi<b>x</b>tail</p>", id="basic"),
     pytest.param("<ul><li>a<li>b</ul><ol><li>c</li></ol>", id="implied-close"),
     pytest.param("<table><tr><td>c</td></tr></table>", id="table"),
