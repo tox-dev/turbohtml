@@ -532,12 +532,18 @@ def test_deeply_nested_annotations_grow_the_active_stack() -> None:
         pytest.param({"b": 5}, TypeError, "iterable", id="value-not-iterable"),
     ],
 )
-def test_invalid_rules(rules: object, exc: type[Exception], match: str) -> None:
+def test_invalid_rules(
+    rules: str | dict[int, list[str]] | dict[str, str] | dict[str, int], exc: type[Exception], match: str
+) -> None:
     with pytest.raises(exc, match=match):
         call_with(parse("<p>x</p>").to_annotated_text, rules)
 
 
-def call_with(convert: Callable[..., object], *args: object, **kwargs: str | int) -> object:
+def call_with(
+    convert: Callable[..., object],
+    *args: str | dict[int, list[str]] | dict[str, str] | dict[str, int],
+    **kwargs: str | int,
+) -> object:
     # Invoke the converter with arguments the static signature would reject, to drive
     # the runtime validation; the converter arrives signature-erased on purpose.
     return convert(*args, **kwargs)

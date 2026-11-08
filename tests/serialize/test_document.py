@@ -783,7 +783,7 @@ def test_inner_indent_nested_preserve() -> None:
         pytest.param("encode", ("utf-8", None, True), id="encode"),
     ],
 )
-def test_inner_keyword_only(method: str, arguments: tuple[object, ...]) -> None:
+def test_inner_keyword_only(method: str, arguments: tuple[str | bool | None, ...]) -> None:
     with pytest.raises(TypeError):
         getattr(Element("p"), method)(*arguments)
 
@@ -1743,7 +1743,7 @@ def test_encode(html: str, selector: str, call: Callable[[Node], bytes], expecte
         pytest.param("<p>café</p>", {"encoding": "ascii"}, UnicodeEncodeError, id="unencodable-character"),
     ],
 )
-def test_encode_raises(html: str, kwargs: dict[str, object], exception: type[Exception]) -> None:
+def test_encode_raises(html: str, kwargs: dict[str, str], exception: type[Exception]) -> None:
     with pytest.raises(exception):
         _one(html, "p").encode(**kwargs)  # ty: ignore[invalid-argument-type]  # object-typed kwargs
 

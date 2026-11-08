@@ -20,7 +20,9 @@ _DEPTH: Final[int] = 4
         pytest.param("to_annotated_text", ({"td": ["cell"]},), id="annotated-text"),
     ],
 )
-def test_nested_row_groups_render_like_a_flat_table(method: str, arguments: tuple[object, ...]) -> None:
+def test_nested_row_groups_render_like_a_flat_table(
+    method: str, arguments: tuple[Markdown | dict[str, list[str]], ...]
+) -> None:
     assert getattr(_table(_DEPTH), method)(*arguments) == getattr(_table(1), method)(*arguments)
 
 
