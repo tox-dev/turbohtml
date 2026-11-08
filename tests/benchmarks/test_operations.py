@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final
 
 import pytest
 from bench.ci import benchmarks
@@ -17,8 +17,8 @@ if TYPE_CHECKING:
     ("operation", "load"),
     [pytest.param(run, load, id=name) for name, run, load in benchmarks() if not isinstance(run, Mutating)],
 )
-def test_feature(benchmark: BenchmarkFixture, operation: object, load: Callable[[], Case]) -> None:
-    benchmark(cast("Callable[[object], object]", operation), _load_case(load))
+def test_feature(benchmark: BenchmarkFixture, operation: Callable[[object], object], load: Callable[[], Case]) -> None:
+    benchmark(operation, _load_case(load))
 
 
 def _load_case(load: Callable[[], Case]) -> Case:
