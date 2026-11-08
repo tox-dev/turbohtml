@@ -1609,8 +1609,7 @@ def test_rng_numeric_bound(datatype: str, facet: str, value: str, *, form: tuple
     pattern: Final = f'<data type="{datatype}"><param name="{facet}">1</param></data>'
     validator: Final = RelaxNG(
         f'<element xmlns="{_RELAXNG_NUMERIC_BOUNDS_NAMESPACE}" datatypeLibrary="{_LIBRARY}" name="doc">'
-        + wrap.format(pattern)
-        + "</element>"
+        f"{wrap.format(pattern)}</element>"
     )
     document: Final = document_template.format(value)
     assert tuple(validator.validate(parse_xml(document)).valid for _ in range(2)) == (expected, expected)

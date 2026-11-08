@@ -52,11 +52,10 @@ def test_deep_nesting_is_rejected_before_validation(schema: XMLSchema | RelaxNG,
     [
         pytest.param(
             XMLSchema,
-            f'<xs:schema {_XS}><xs:element name="a"><xs:complexType>'
-            + "<xs:sequence>" * 1200
-            + '<xs:element name="b"/>'
-            + "</xs:sequence>" * 1200
-            + "</xs:complexType></xs:element></xs:schema>",
+            (
+                f'<xs:schema {_XS}><xs:element name="a"><xs:complexType>{"<xs:sequence>" * 1200}<xs:element name="b"/>'
+                f"{'</xs:sequence>' * 1200}</xs:complexType></xs:element></xs:schema>"
+            ),
             id="xsd",
         ),
         pytest.param(

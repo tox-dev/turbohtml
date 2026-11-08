@@ -1654,15 +1654,11 @@ def test_compiled_facet_type_lookup(facet_schema: Callable[[str], XMLSchema], co
     )
     elements: Final = "".join(f'<xs:element name="value{index}" type="type{index}"/>' for index in range(count))
     schema: Final = facet_schema(
-        types
-        + '<xs:element name="root"><xs:complexType><xs:sequence>'
-        + elements
-        + "</xs:sequence></xs:complexType></xs:element>"
+        f'{types}<xs:element name="root"><xs:complexType><xs:sequence>{elements}'
+        "</xs:sequence></xs:complexType></xs:element>"
     )
     documents: Final = [
-        parse_xml(
-            "<root>" + "".join(f"<value{index}>{index + offset}</value{index}>" for index in range(count)) + "</root>"
-        )
+        parse_xml(f"<root>{''.join(f'<value{index}>{index + offset}</value{index}>' for index in range(count))}</root>")
         for offset in (0, 1, 0)
     ]
     assert [schema.validate(document).valid for document in documents] == [True, False, True]
@@ -1749,11 +1745,10 @@ def test_compiled_facet_cyclic_inheritance(facet_schema: Callable[[str], XMLSche
 )
 def test_compiled_facet_string_fallback(facet_schema: Callable[[str], XMLSchema], derivation: str) -> None:
     schema: Final = facet_schema(
-        '<xs:simpleType name="item"><xs:restriction><xs:simpleType>'
-        + derivation
-        + '</xs:simpleType><xs:maxLength value="3"/></xs:restriction></xs:simpleType>'
-        '<xs:element name="root"><xs:complexType><xs:sequence><xs:element name="value" type="item"/>'
-        '</xs:sequence><xs:attribute name="code" type="item"/></xs:complexType></xs:element>'
+        f'<xs:simpleType name="item"><xs:restriction><xs:simpleType>{derivation}'
+        '</xs:simpleType><xs:maxLength value="3"/></xs:restriction></xs:simpleType><xs:element '
+        'name="root"><xs:complexType><xs:sequence><xs:element name="value" '
+        'type="item"/></xs:sequence><xs:attribute name="code" type="item"/></xs:complexType></xs:element>'
     )
     assert [
         schema.validate(parse_xml(f'<root code="{value}"><value>{value}</value></root>')).valid
