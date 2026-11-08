@@ -549,9 +549,8 @@ def test_transform_sort_numeric_nan_order(select: str, order: str, expected: str
     )
     body: Final = (
         '<xsl:template match="/"><xsl:for-each select="r/n">'
-        f'<xsl:sort select="{select}" data-type="number" order="{order}"/>'
-        + extra_sort
-        + '<xsl:value-of select="@id"/></xsl:for-each></xsl:template>'
+        f'<xsl:sort select="{select}" data-type="number" order="{order}"/>{extra_sort}'
+        '<xsl:value-of select="@id"/></xsl:for-each></xsl:template>'
     )
     assert _run(source, body) == expected
 
@@ -4145,12 +4144,14 @@ def explicit_prefix_transform() -> Callable[[str, tuple[int, ...]], Transform]:
             parse_xml(
                 '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
                 '<xsl:output method="text"/><xsl:template match="/">'
-                + "".join(
-                    f'<xsl:for-each select="{"/" if index == 0 else f"root/node()[{index}]"}">'
-                    '<xsl:call-template name="number"/></xsl:for-each>'
-                    for index in visits
-                )
-                + '</xsl:template><xsl:template name="number">'
+                f"""{
+                    "".join(
+                        f'<xsl:for-each select="{"/" if index == 0 else f"root/node()[{index}]"}">'
+                        '<xsl:call-template name="number"/></xsl:for-each>'
+                        for index in visits
+                    )
+                }"""
+                '</xsl:template><xsl:template name="number">'
                 f'<xsl:number level="any" {patterns}/><xsl:text>|</xsl:text>'
                 "</xsl:template></xsl:stylesheet>"
             )
@@ -5946,9 +5947,9 @@ def test_transform_number_html_foreign_namespace() -> None:
 )
 def test_transform_number_deep_namespace_scopes(level: str, prefix: str, declaration: str, expected: str) -> None:
     source: Final = parse_xml(
-        f'<{prefix}n {declaration}="urn:x">'
-        + "".join(f'<{prefix}n xmlns:other{index}="urn:{index}">' for index in range(127))
-        + f"</{prefix}n>" * 128
+        f"""<{prefix}n {declaration}="urn:x">{
+            "".join(f'<{prefix}n xmlns:other{index}="urn:{index}">' for index in range(127))
+        }{f"</{prefix}n>" * 128}"""
     )
     sheet: Final = parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
