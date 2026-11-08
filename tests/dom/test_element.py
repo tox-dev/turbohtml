@@ -3108,10 +3108,9 @@ def test_radio_group_includes_radio_root() -> None:
 )
 def test_radio_group_many_explicit_owners(count: int, selected_index: int) -> None:
     document: Final = parse(
-        "<div></div>" * count
-        + '<form id="target"><input type=radio name=x checked></form>'
-        + "".join(f'<input type=radio name=x form=target checked id="field{index}">' for index in range(count))
-        + "<input type=radio name=x form=target>"
+        f"""{"<div></div>" * count}<form id="target"><input type=radio name=x checked></form>"""
+        f"""{"".join(f'<input type=radio name=x form=target checked id="field{index}">' for index in range(count))}"""
+        "<input type=radio name=x form=target>"
     )
     radios: Final = list(document.find_all("input"))
     radios[selected_index].checked = True

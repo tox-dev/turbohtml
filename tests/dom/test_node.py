@@ -595,8 +595,10 @@ def test_xml_attribute_equality(prefix: str, *, different: bool) -> None:
     left: Final = parse_xml(f"""<root {" ".join(f'{prefix}{index}="{index}"' for index in range(40))}/>""")
     right: Final = parse_xml(
         "<root "
-        + " ".join(f'{prefix}{index}="{index + int(different and index == 39)}"' for index in reversed(range(40)))
-        + "/>"
+        f"""{
+            " ".join(f'{prefix}{index}="{index + int(different and index == 39)}"' for index in reversed(range(40)))
+        }"""
+        "/>"
     )
     assert left.equals(right) is not different
 
@@ -617,11 +619,9 @@ def test_attribute_equality_with_sparse_atoms(*, different: bool) -> None:
 @pytest.mark.parametrize("different", [False, True], ids=["equal", "different"])
 def test_large_attribute_equality_within_one_tree(*, different: bool) -> None:
     document: Final = parse(
-        "<div "
-        + " ".join(f'data-{index}="{index}"' for index in range(40))
-        + "></div><div "
-        + " ".join(f'data-{index}="{index + int(different and index == 39)}"' for index in reversed(range(40)))
-        + "></div>"
+        f"""<div {" ".join(f'data-{index}="{index}"' for index in range(40))}></div><div """
+        f"""{" ".join(f'data-{index}="{index + int(different and index == 39)}"' for index in reversed(range(40)))}"""
+        "></div>"
     )
     left, right = document.find_all("div")
     assert left.equals(right) is not different
