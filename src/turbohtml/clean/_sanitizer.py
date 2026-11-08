@@ -142,6 +142,11 @@ class Policy:
     Build one and reuse it across threads. Whatever a policy allows, a non-configurable baseline still removes the
     unsafe element set, event-handler attributes, and dangerous URL schemes, so every policy is safe by construction.
 
+    Patterns are strings or precompiled :class:`re.Pattern`. ``allowed_styles`` narrows on top of ``css_properties`` and
+    the non-configurable dangerous-value baseline: a property this admits is still dropped unless ``css_properties``
+    lists it too, and ``expression()`` or a ``url()`` with a disallowed scheme is dropped even if a pattern would match
+    it. Empty (the default) leaves ``css_properties`` as the only ``style`` filter.
+
     :param tags: the allowed element set; any tag outside it is handled per ``on_disallowed_tag``.
     :param attributes: allowed attribute names keyed by tag (``"*"`` as the key matches every tag, and ``"*"`` inside a
         set allows every name).
@@ -186,11 +191,6 @@ class Policy:
         [pattern, ...]}}`` with ``"*"`` as a tag matching every element (sanitize-html's ``allowedStyles``). A
         declaration survives only when its property is listed for the element's tag or ``"*"`` (their pattern lists
         union) and its value matches one of the patterns (an unanchored :func:`re.search`).
-
-    Patterns are strings or precompiled :class:`re.Pattern`. This narrows on top of ``css_properties`` and the
-        non-configurable dangerous-value baseline: a property this admits is still dropped unless ``css_properties``
-        lists it too, and ``expression()`` or a ``url()`` with a disallowed scheme is dropped even if a pattern would
-        match it. Empty (the default) leaves ``css_properties`` as the only ``style`` filter.
 
     :param transform_tags: rename rules applied before the allowlist, keyed by source tag (sanitize-html's
         ``transformTags``). A value that is a plain string renames the element to it; a :class:`Transform` renames it
