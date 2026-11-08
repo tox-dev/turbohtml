@@ -263,11 +263,11 @@ def test_feed_rdf_sequence_prefixed_rss_namespace() -> None:
 )
 def test_feed_rdf_sequence_uri_forms(first_uri: str) -> None:
     xml: Final = (
-        _RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/base/" ')
-        + '<channel rdf:about="https://example.org/"><items><rdf:Seq>'
+        f"""{_RDF_START.replace("<rdf:RDF ", '<rdf:RDF xml:base="https://example.org/base/" ')}"""
+        '<channel rdf:about="https://example.org/"><items><rdf:Seq>'
         '<rdf:li rdf:resource="https://example.org/b"/>'
         f'<rdf:li rdf:resource="{first_uri}"/></rdf:Seq></items></channel>'
-        f'<item rdf:about="{first_uri}"><title>A</title></item>' + _ITEM_B + "</rdf:RDF>"
+        f'<item rdf:about="{first_uri}"><title>A</title></item>{_ITEM_B}</rdf:RDF>'
     )
     result = feed(xml)
     assert result is not None

@@ -1310,10 +1310,9 @@ def test_microdata_nested_scope_keeps_following_properties() -> None:
 def test_microdata_shuffled_references_keep_tree_order(size: int, depth: int) -> None:
     references: Final = " ".join(f"r{index}" for offset in (0, 1) for index in range(offset, size, 2))
     document: Final = parse(
-        f'<div itemscope itemref="{references}"></div>'
-        + "<section>" * depth
-        + "".join(f'<span id="r{index}" itemprop=name>{index}</span>' for index in range(size))
-        + "</section>" * depth
+        f"""<div itemscope itemref="{references}"></div>{"<section>" * depth}{
+            "".join(f'<span id="r{index}" itemprop=name>{index}</span>' for index in range(size))
+        }{"</section>" * depth}"""
     )
     assert document.microdata() == [
         MicrodataItem(type=None, id=None, properties={"name": [str(index) for index in range(size)]})
