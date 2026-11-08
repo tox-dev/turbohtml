@@ -1430,7 +1430,7 @@ def test_schema_mutation_xpath_literals_and_declarations(
         """<x:template match="/"><x:value-of select="concat('$literal', $donor, key('donor-key', 'one'))"/>
         <x:call-template name="donor-template"/></x:template>""",
     )
-    mutated: Final = engines[0].mutate(root, (donor,), 0)
+    mutated: Final = engines[0].mutate(root, (donor,), 0, broken=False)
     assert str(engines[4].XSLT(engines[4].fromstring(mutated.encode()))(engines[4].fromstring(b"<root/>"))) == (
         "$literalkepttemplate"
     )
@@ -1464,7 +1464,7 @@ def test_schema_mutation_rejects_missing_seed_contract(
     message: str,
 ) -> None:
     with pytest.raises(ValueError, match=message):
-        engines[0].mutate(source, (source,), 0)
+        engines[0].mutate(source, (source,), 0, broken=False)
 
 
 @pytest.mark.oracle
@@ -1485,7 +1485,7 @@ def test_schema_mutation_rng_missing_recipient_definition_is_not_invented(
         '<rng:grammar xmlns:rng="http://relaxng.org/ns/structure/1.0">'
         '<rng:start><rng:element name="v"><rng:empty/></rng:element></rng:start></rng:grammar>'
     )
-    mutated: Final = engines[0].mutate(source, (engines[3].generate(0).schema,), 0)
+    mutated: Final = engines[0].mutate(source, (engines[3].generate(0).schema,), 0, broken=False)
     case: Final = engines[3].Case(0, mutated, compiles=False, documents=())
     assert [(row.engine, row.expected, row.actual) for row in engines[3].compare(case)] == [
         ("turbohtml", False, False),
@@ -1516,7 +1516,7 @@ def test_schema_mutation_binds_dictionary_prefixes(
     index: int,
     source: str,
 ) -> None:
-    mutated: Final = engines[0].mutate(source, (source,), 0)
+    mutated: Final = engines[0].mutate(source, (source,), 0, broken=False)
     reference: Final = engines[4].fromstring(mutated.encode())
     checks: Final = {
         1: lambda: str(engines[4].XSLT(reference)(engines[4].fromstring(b"<root/>"))) == "word",
@@ -1533,7 +1533,7 @@ def test_schema_mutation_requires_one_dictionary_root(
     source: str,
 ) -> None:
     with pytest.raises(ValueError, match="one root element"):
-        engines[0].mutate(source, (source,), 0)
+        engines[0].mutate(source, (source,), 0, broken=False)
 
 
 if TYPE_CHECKING:
