@@ -5,7 +5,7 @@ import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs 
 import sys
 from functools import partial
 from operator import ge, gt, le, lt
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, TypeAlias, cast
 from weakref import finalize, ref
 
 import pytest
@@ -15,7 +15,7 @@ from turbohtml import Document, Element, Text, XPath, XPathString, parse, parse_
 from turbohtml.convert import css_to_xpath
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator
+    from collections.abc import Callable, Iterable, Iterator, Sequence
     from types import SimpleNamespace
 
     from _pytest.mark.structures import ParameterSet
@@ -33,13 +33,16 @@ HTML: Final[str] = (
 )
 
 
-def node_list(result: object) -> list[turbohtml.Node | str]:
+XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
+
+
+def node_list(result: XPathResult) -> Sequence[turbohtml.Node | str | float]:
     # The node-set list an expression is expected to return.
     assert isinstance(result, list)
     return result
 
 
-def tags(result: object) -> list[str]:
+def tags(result: XPathResult) -> list[str]:
     return [node.tag for node in node_list(result) if isinstance(node, Element)]
 
 
@@ -465,7 +468,10 @@ def test_compiled_variable_named_like_an_option_is_a_variable(table_doc: turboht
     ],
 )
 def test_compiled_construction_rejects(
-    construct: Callable[[object], object], argument: object, exc: type[Exception], match: str
+    construct: Callable[[str | int | list[int]], object],
+    argument: str | int | list[int],
+    exc: type[Exception],
+    match: str,
 ) -> None:
     with pytest.raises(exc, match=match):
         construct(argument)
@@ -524,7 +530,7 @@ def test_compiled_smart_strings_on_yields_xpath_string(links_doc: turbohtml.Node
 
 
 def test_compiled_extensions_bound_at_construction(links_doc: turbohtml.Node) -> None:
-    def count_nodes(_context: SimpleNamespace, nodes: list[object]) -> float:
+    def count_nodes(_context: SimpleNamespace, nodes: list[Element]) -> float:
         return float(len(nodes))
 
     extensions: dict[tuple[str | None, str], Callable[..., str | float | bool]] = {(None, "count_nodes"): count_nodes}
@@ -651,7 +657,9 @@ def test_undefined_prefix_raises_without_mapping(ns_doc: turbohtml.Node) -> None
         pytest.param({1: SVG}, "map str prefixes to str URIs", id="non-str-key"),
     ],
 )
-def test_namespaces_type_errors(ns_doc: turbohtml.Node, namespaces: object, message: str) -> None:
+def test_namespaces_type_errors(
+    ns_doc: turbohtml.Node, namespaces: list[tuple[str, str]] | dict[str | int, str | int], message: str
+) -> None:
     with pytest.raises(TypeError, match=message):
         # a wrong-typed mapping exercises the TypeError path the C binding guards
         ns_doc.xpath("//svg:circle", namespaces=namespaces)  # ty: ignore[invalid-argument-type]
@@ -825,7 +833,7 @@ def test_xpath_path_reselects_only_this_element(element: Element) -> None:
         pytest.param("string(//@id)", "x", id="string-of-attribute"),
     ],
 )
-def test_attribute_axis_survives_text_nodes(expr: str, expected: object) -> None:
+def test_attribute_axis_survives_text_nodes(expr: str, expected: list[str] | str) -> None:
     doc = turbohtml.parse("<a id=x lang=en>hi<b>x</b></a>")
     assert doc.xpath(expr) == expected
 
@@ -1072,7 +1080,7 @@ _VARIABLE_HTML: Final[str] = (
 )
 
 
-def ids(result: object) -> list[str | None]:
+def ids(result: XPathResult) -> list[str | None]:
     return [node.attr("id") for node in node_list(result) if isinstance(node, Element)]
 
 
@@ -1097,7 +1105,7 @@ def test_variable_node_set(
     assert variable_tags(variable_doc.xpath(expr, **kwargs)) == expected  # ty: ignore[invalid-argument-type]  # variables unpacked as a dict
 
 
-def variable_tags(result: object) -> list[str]:
+def variable_tags(result: XPathResult) -> list[str]:
     return [node.tag if isinstance(node, Element) else str(node) for node in node_list(result)]
 
 
@@ -1115,7 +1123,11 @@ def variable_tags(result: object) -> list[str]:
     ],
 )
 def test_variable_scalar(
-    variable_doc: turbohtml.Node, expr: str, kwargs: dict[str, str | int | float | bool], expected: object
+    variable_doc: turbohtml.Node,
+    expr: str,
+    kwargs: dict[str, str | int | float | bool],
+    *,
+    expected: str | float | bool,
 ) -> None:
     assert variable_doc.xpath(expr, **kwargs) == expected  # ty: ignore[invalid-argument-type]  # variables unpacked as a dict
 
@@ -1394,7 +1406,7 @@ def test_matches_lxml(doc_name: str, expr: str) -> None:
 
 
 @pytest.mark.oracle
-def _normalize_lxml(result: Iterable[object]) -> list[str]:
+def _normalize_lxml(result: Iterable[turbohtml.Node | str]) -> list[str]:
     out: Final[list[str]] = []
     for item in result:
         if isinstance(item, str):

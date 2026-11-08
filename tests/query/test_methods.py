@@ -4,7 +4,7 @@ import gc
 import re
 import sys
 import threading
-from typing import TYPE_CHECKING, Final, assert_type, cast
+from typing import TYPE_CHECKING, Final, TypeAlias, assert_type, cast
 
 import pytest
 
@@ -13,7 +13,7 @@ from turbohtml import Document, Element, XPath, XPathString, parse, parse_xml
 from turbohtml.query import Query, select
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator
+    from collections.abc import Callable, Iterable, Iterator, Sequence
     from types import SimpleNamespace
 
 
@@ -904,7 +904,10 @@ def test_repeated_query_is_consistent(compiled_doc: turbohtml.Node) -> None:
         assert tags(compiled_doc.xpath("//p")) == ["p", "p"]
 
 
-def tags(result: object) -> list[str]:
+XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
+
+
+def tags(result: XPathResult) -> list[str]:
     assert isinstance(result, list)
     return [node.tag for node in result if isinstance(node, Element)]
 
@@ -951,7 +954,7 @@ def test_default_is_a_plain_string(smart_doc: turbohtml.Node) -> None:
     assert result == "/x"
 
 
-def first_xpath_result(result: object) -> object:
+def first_xpath_result(result: XPathResult) -> turbohtml.Node | str | float:
     assert isinstance(result, list)
     return result[0]
 
@@ -1008,7 +1011,7 @@ def test_smart_strings_through_xpath_iter(smart_doc: turbohtml.Node) -> None:
     assert all(isinstance(result, XPathString) for result in results)
 
 
-def count_nodes(_context: SimpleNamespace, nodes: list[object]) -> float:
+def count_nodes(_context: SimpleNamespace, nodes: list[Element]) -> float:
     return float(len(nodes))
 
 
@@ -1170,7 +1173,7 @@ def test_extension_result_becomes_a_node_set(
     assert _texts(extension_doc.xpath(expression, extensions=_NODESET_EXTENSIONS)) == expected
 
 
-def _texts(result: object) -> list[str]:
+def _texts(result: XPathResult) -> list[str]:
     assert isinstance(result, list)
     return [node.text if isinstance(node, Element) else str(node) for node in result]
 

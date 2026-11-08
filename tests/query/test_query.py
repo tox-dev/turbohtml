@@ -406,13 +406,13 @@ def test_unique_rejects_what_is_not_a_set_of_elements(source: int | list[str]) -
 
 
 def test_unique_propagates_what_the_iterable_raises() -> None:
-    def refusing() -> object:
+    def refusing() -> Iterator[Element]:
         yield from ()
         msg = "no more elements"
         raise RuntimeError(msg)
 
     with pytest.raises(RuntimeError, match="no more elements"):
-        _query_unique(refusing())  # ty: ignore[invalid-argument-type]  # the iterable raises, which is the point
+        _query_unique(refusing())
 
 
 def test_siblings_skips_the_element_itself() -> None:
@@ -464,9 +464,11 @@ def test_siblings_preserves_first_encounter_order(indices: list[int], expected: 
         pytest.param(_query_toggle_class, ("notalist", "x"), id="toggle_class"),
     ],
 )
-def test_a_binding_rejects_a_non_list(call: object, args: tuple[str] | tuple[str, str]) -> None:
+def test_a_binding_rejects_a_non_list(
+    call: Callable[..., list[Element] | None], args: tuple[str] | tuple[str, str]
+) -> None:
     with pytest.raises(TypeError):
-        call(*args)  # ty: ignore[call-non-callable]  # the argument check is the point
+        call(*args)  # the argument check is the point
 
 
 def test_siblings_rejects_a_non_element() -> None:
@@ -524,9 +526,9 @@ def test_has_class_answers_false_when_absent() -> None:
         pytest.param("<p class='a new'>x</p>", _query_toggle_class, ["a"], id="toggle-off"),
     ],
 )
-def test_a_class_edit(markup: str, edit: object, expected: list[str]) -> None:
+def test_a_class_edit(markup: str, edit: Callable[[list[Element], str], None], expected: list[str]) -> None:
     document = turbohtml.parse(markup)
-    edit(document.find_all("p"), "new")  # ty: ignore[call-non-callable]  # the parametrized binding
+    edit(document.find_all("p"), "new")
     kept = document.select_one("p")
     assert kept is not None
     assert kept.attrs.get("class", []) == expected
@@ -607,7 +609,9 @@ def test_select_limited_stops_early_on_an_indexed_tree() -> None:
         pytest.param(_select_limited, (turbohtml.parse(""), 5, 0), id="select-with-a-non-str-selector"),
     ],
 )
-def test_the_entries_reject_a_non_node(entry: Callable[..., object], args: tuple[object, ...]) -> None:
+def test_the_entries_reject_a_non_node(
+    entry: Callable[..., list[Element]], args: tuple[list[str] | str | Document | int, ...]
+) -> None:
     with pytest.raises(TypeError):
         entry(*args)
 

@@ -518,7 +518,9 @@ def test_text_scan_over_an_empty_subtree(pattern: str, expected: list[str]) -> N
         pytest.param(lambda doc: doc.find_all("table", text="go"), [], id="no-candidate-find-all"),
     ],
 )
-def test_text_no_match(query: Callable[[Document], object], expected: object) -> None:
+def test_text_no_match(
+    query: Callable[[Document], Element | list[Element] | None], expected: list[Element] | None
+) -> None:
     assert query(parse(_TEXT_DOC)) == expected
 
 

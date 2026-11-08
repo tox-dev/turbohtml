@@ -6,7 +6,7 @@ import string
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
 from string import ascii_lowercase, ascii_uppercase
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, TypeAlias, cast
 from xml.etree import ElementTree as ET  # ruff:ignore[suspicious-xml-etree-import]  # parses fixed markup from the test corpus, not untrusted input
 
 import pytest
@@ -18,7 +18,7 @@ import turbohtml
 from turbohtml import Document, Element, Text, XPath, parse, parse_xml
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from pytest_mock import MockerFixture
 
@@ -214,7 +214,7 @@ def doc() -> turbohtml.Node:
         pytest.param("count(//li[number()=2])", 1.0, id="context-number"),
     ],
 )
-def test_scalar_and_boolean(doc: turbohtml.Node, expr: str, expected: object) -> None:
+def test_scalar_and_boolean(doc: turbohtml.Node, expr: str, *, expected: float | str | bool) -> None:
     assert doc.xpath(expr) == expected
 
 
@@ -249,7 +249,9 @@ def test_scalar_and_boolean(doc: turbohtml.Node, expr: str, expected: object) ->
         pytest.param("contains($hay, $needle)", f"x{'a' * 65}ca", _LONG_NEEDLE, False, id="short-hay-miss"),
     ],
 )
-def test_long_string_search(doc: turbohtml.Node, expression: str, hay: str, needle: str, expected: object) -> None:
+def test_long_string_search(
+    doc: turbohtml.Node, expression: str, hay: str, needle: str, *, expected: str | bool
+) -> None:
     assert doc.xpath(expression, hay=hay, needle=needle) == expected
 
 
@@ -284,11 +286,14 @@ def test_filter_base_node_set_continues_as_path(doc: turbohtml.Node) -> None:
     assert tags(doc.xpath("(//div)/p")) == ["p", "p", "p"]
 
 
-def tags(result: object) -> list[str]:
+XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
+
+
+def tags(result: XPathResult) -> list[str]:
     return [node.tag if isinstance(node, Element) else str(node) for node in node_list(result)]
 
 
-def node_list(result: object) -> list[turbohtml.Node | str]:
+def node_list(result: XPathResult) -> Sequence[turbohtml.Node | str | float]:
     # The node-set list an expression is expected to return.
     assert isinstance(result, list)
     return result
@@ -779,7 +784,7 @@ def test_re_test(exslt_doc: turbohtml.Node, expr: str, expected: list[str]) -> N
     assert exslt_tags(exslt_doc.xpath(expr)) == expected
 
 
-def exslt_tags(result: object) -> list[str]:
+def exslt_tags(result: XPathResult) -> list[str | turbohtml.Node | float]:
     assert isinstance(result, list)
     return [node.tag if isinstance(node, Element) else node for node in result]
 
@@ -831,7 +836,7 @@ def test_set_nodeset_results(exslt_doc: turbohtml.Node, expr: str, expected: lis
     assert exslt_ids(exslt_doc.xpath(expr)) == expected
 
 
-def exslt_ids(result: object) -> list[str]:
+def exslt_ids(result: XPathResult) -> list[str]:
     assert isinstance(result, list)
     collected: list[str] = []
     for node in result:
@@ -1006,7 +1011,7 @@ def test_math_select(exslt_doc: turbohtml.Node, expr: str, expected: list[str]) 
     assert exslt_texts(exslt_doc.xpath(expr)) == expected
 
 
-def exslt_texts(result: object) -> list[str]:
+def exslt_texts(result: XPathResult) -> list[str]:
     assert isinstance(result, list)
     return [node.text for node in result if isinstance(node, Element)]
 
