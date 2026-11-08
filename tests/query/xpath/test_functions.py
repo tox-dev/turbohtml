@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-
 _LONG_NEEDLE: Final[str] = f"{'a' * 65}ba"
 
 

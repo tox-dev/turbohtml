@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from _pytest.mark.structures import ParameterSet
 
 
-
 XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
 
 

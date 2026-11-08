@@ -1335,8 +1335,8 @@ def _equality_pair(count: int, variant: str) -> tuple[turbohtml.Element, turboht
 def _radio_group_setup(case: tuple[int, int, int, str]) -> Callable[[], tuple[bool, ...]]:
     padding, forms, repeats, mode = case
     tag: Final = "section" if mode in {"document", "mutate"} else "form"
-    _markup: Final = f"<{tag}>{'<input type=radio name=choice>' * 16}{'<div></div>' * padding}</{tag}>"
-    document: Final = turbohtml.parse(_markup * forms)
+    markup: Final = f"<{tag}>{'<input type=radio name=choice>' * 16}{'<div></div>' * padding}</{tag}>"
+    document: Final = turbohtml.parse(markup * forms)
     form: Final = cast("turbohtml.Element", document.children[0].children[-1].children[0])
     radios: Final = [node for node in form.children if isinstance(node, turbohtml.Element) and node.tag == "input"]
 
@@ -1427,9 +1427,9 @@ def _observe_registrations_setup(case: tuple[int, str]) -> Callable[[], None]:
 
 def _shadow_fallback_setup(case: tuple[int, str]) -> Callable[[], None]:
     host: Final = turbohtml.Element("div")
-    _shadow: Final = host.attach_shadow("open")
-    _shadow.set_inner_html(f"<slot>{'<slot>fallback</slot>' * case[0]}</slot>")
-    first: Final = _shadow.select("slot")[0]
+    shadow: Final = host.attach_shadow("open")
+    shadow.set_inner_html(f"<slot>{'<slot>fallback</slot>' * case[0]}</slot>")
+    first: Final = shadow.select("slot")[0]
 
     def run() -> None:
         first.assigned_nodes(flatten=True)
@@ -1440,8 +1440,8 @@ def _shadow_fallback_setup(case: tuple[int, str]) -> Callable[[], None]:
 def _shadow_assignment_setup(case: tuple[int, str]) -> Callable[[], None]:
     host: Final = turbohtml.Element("div")
     host.set_inner_html("".join(f'<i slot="name-{index}">{index}</i>' for index in range(case[0])))
-    _shadow: Final = host.attach_shadow("open")
-    _shadow.set_inner_html("".join(f'<slot name="name-{index}">fallback</slot>' for index in range(case[0])))
+    shadow: Final = host.attach_shadow("open")
+    shadow.set_inner_html("".join(f'<slot name="name-{index}">fallback</slot>' for index in range(case[0])))
 
     def run() -> None:
         _ = host.flattened_children

@@ -326,7 +326,8 @@ def test_feed_atom_prefixed_author_name_namespace_shadowing() -> None:
 
 
 def test_feed_rdf_shape() -> None:
-    rdf: Final[str] = """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
+    rdf: Final = (
+        """<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
 <channel rdf:about="http://example.com/">
 <title>RDF Title</title>
 <link>http://example.com/</link>
@@ -341,6 +342,7 @@ def test_feed_rdf_shape() -> None:
 <dc:creator>Bob Loblaw</dc:creator>
 </item>
 </rdf:RDF>"""
+    )
     result = parse_feed(rdf)
     assert result.type == "rdf"
     assert (result.title, result.link, result.description) == ("RDF Title", "http://example.com/", "RDF description")

@@ -2061,12 +2061,16 @@ def test_numeric_facet_benchmark_output(index: int) -> None:
     ("schema", "doc"),
     [
         pytest.param(f'<xs:schema {_XS}><xs:element name="n" type="xs:int"/></xs:schema>', "<n>42</n>", id="int-valid"),
-        pytest.param(f'<xs:schema {_XS}><xs:element name="n" type="xs:int"/></xs:schema>', "<n>x</n>", id="int-invalid"),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:element name="n" type="xs:int"/></xs:schema>', "<n>x</n>", id="int-invalid"
+        ),
         pytest.param(
             f'<xs:schema {_XS}><xs:element name="d" type="xs:date"/></xs:schema>', "<d>2020-06-15</d>", id="date-valid"
         ),
         pytest.param(
-            f'<xs:schema {_XS}><xs:element name="d" type="xs:date"/></xs:schema>', "<d>2020-13-40</d>", id="date-invalid"
+            f'<xs:schema {_XS}><xs:element name="d" type="xs:date"/></xs:schema>',
+            "<d>2020-13-40</d>",
+            id="date-invalid",
         ),
         pytest.param(
             f'<xs:schema {_XS}><xs:element name="r"><xs:complexType><xs:sequence>'
