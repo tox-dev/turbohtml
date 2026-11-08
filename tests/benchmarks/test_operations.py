@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     ("operation", "load"),
     [pytest.param(run, load, id=name) for name, run, load in benchmarks() if not isinstance(run, Mutating)],
 )
-def test_feature(benchmark: BenchmarkFixture, operation: Callable[[object], object], load: Callable[[], Case]) -> None:
+def test_feature(benchmark: BenchmarkFixture, operation: Callable[[Case], object], load: Callable[[], Case]) -> None:
     benchmark(operation, _load_case(load))
 
 
