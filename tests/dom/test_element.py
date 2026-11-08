@@ -699,8 +699,8 @@ def test_set_textarea_value_replaces_text() -> None:
 def test_set_textarea_value_to_none_clears_it() -> None:
     field = _tree_field_value_control("<textarea>old</textarea>", "textarea")
     field.field_value = None
-    assert field.field_value == ""  # ruff:ignore[compare-to-empty-string]  # the field value is a string by contract; the test checks the empty default
-    assert field.html == "<textarea></textarea>"
+    # the field value is a string by contract; the test checks the empty default
+    assert (field.field_value, field.html) == ("", "<textarea></textarea>")
 
 
 def test_set_textarea_value_rejects_a_list() -> None:
@@ -712,8 +712,10 @@ def test_set_textarea_value_rejects_a_list() -> None:
 def test_set_single_select_selects_the_match() -> None:
     select = _tree_field_value_control("<select><option value=r selected>Red<option value=g>Green</select>", "select")
     select.field_value = "g"
-    assert select.field_value == "g"
-    assert select.html == '<select><option value="r">Red</option><option value="g" selected="">Green</option></select>'
+    assert (select.field_value, select.html) == (
+        "g",
+        '<select><option value="r">Red</option><option value="g" selected="">Green</option></select>',
+    )
 
 
 def test_set_single_select_only_selects_the_first_match() -> None:
@@ -1013,8 +1015,7 @@ def test_attrs_set_valueless_and_empty() -> None:
     element.attrs["value"] = ""
     assert element.html == '<input disabled="" value="">'
     # a valueless or empty attribute reads back as the empty string, like getAttribute
-    assert element.attrs["disabled"] == ""  # ruff:ignore[compare-to-empty-string]  # exactly "", not None
-    assert element.attrs["value"] == ""  # ruff:ignore[compare-to-empty-string]  # exactly ""
+    assert (element.attrs["disabled"], element.attrs["value"]) == ("", "")
 
 
 def test_attrs_set_existing_to_empty() -> None:
@@ -1567,9 +1568,7 @@ def test_append_adopts_every_attribute_shape() -> None:
     box = Element("div")
     box.append(source)
     held = _found(box, "x")
-    assert held.attrs["data-custom-xyz"] == "1"
-    assert held.attrs["disabled"] == ""  # ruff:ignore[compare-to-empty-string]  # exactly "" (valueless reads empty), not None
-    assert held.attrs["value"] == ""  # ruff:ignore[compare-to-empty-string]  # exactly ""
+    assert (held.attrs["data-custom-xyz"], held.attrs["disabled"], held.attrs["value"]) == ("1", "", "")
 
 
 def test_append_adopts_an_empty_data_node() -> None:

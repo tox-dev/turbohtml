@@ -43,10 +43,12 @@ def test_construct_collapsed_at_container() -> None:
     div = _by_id(parse("<div id=a><p>x</p></div>"), "a")
     boundary = Range(div, 0)
     assert boundary.collapsed
-    assert boundary.start_container == div
-    assert boundary.end_container == div
-    assert boundary.start_offset == 0
-    assert boundary.end_offset == 0
+    assert (boundary.start_container, boundary.end_container, boundary.start_offset, boundary.end_offset) == (
+        div,
+        div,
+        0,
+        0,
+    )
 
 
 def test_construct_defaults_offset_to_zero() -> None:
@@ -716,10 +718,12 @@ def test_char_data_length_covers_comment_and_cdata() -> None:
 def test_static_range_stores_boundaries() -> None:
     div = _by_id(parse("<div id=a><p>x</p><p>y</p></div>"), "a")
     snapshot = StaticRange(div, 0, div, 2)
-    assert snapshot.start_container == div
-    assert snapshot.start_offset == 0
-    assert snapshot.end_container == div
-    assert snapshot.end_offset == 2
+    assert (snapshot.start_container, snapshot.start_offset, snapshot.end_container, snapshot.end_offset) == (
+        div,
+        0,
+        div,
+        2,
+    )
     assert snapshot.collapsed is False
 
 

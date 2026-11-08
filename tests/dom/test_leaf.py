@@ -607,9 +607,8 @@ def test_leaf_node_accessors(
 ) -> None:
     data, text, serialized = expected
     node = first_of_type(html, node_type)
-    assert node.data == data  # ty: ignore[unresolved-attribute]  # Text and Comment both expose .data
-    assert node.text == text  # .text counts Text descendants only, so a comment contributes nothing
-    assert node.html == serialized
+    # .text counts Text descendants only, so a comment contributes nothing
+    assert (node.data, node.text, node.html) == (data, text, serialized)  # ty: ignore[unresolved-attribute]  # Text and Comment both expose .data
 
 
 @pytest.mark.parametrize(
@@ -621,5 +620,4 @@ def test_leaf_node_accessors(
 )
 def test_doctype_name(first_of_type: Callable[[str, type[Node]], Node], doctype: str, name: str) -> None:
     node = first_of_type(doctype, Doctype)
-    assert node.name == name  # ty: ignore[unresolved-attribute]  # node is a Doctype here
-    assert node.html == f"<!DOCTYPE {name}>"
+    assert (node.name, node.html) == (name, f"<!DOCTYPE {name}>")  # ty: ignore[unresolved-attribute]  # node is a Doctype here

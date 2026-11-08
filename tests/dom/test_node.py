@@ -706,8 +706,13 @@ def test_attribute_span_shapes(html: str, attr: str, sliced: str) -> None:
 def test_two_unquoted_attributes_end_at_their_own_delimiters() -> None:
     html = "<x a=1 b=2>t</x>"
     attrs = location(html, "x").attrs
-    assert html[attrs["a"].start_offset : attrs["a"].end_offset] == "a=1"
-    assert html[attrs["b"].start_offset : attrs["b"].end_offset] == "b=2"
+    assert (
+        html[attrs["a"].start_offset : attrs["a"].end_offset],
+        html[attrs["b"].start_offset : attrs["b"].end_offset],
+    ) == (
+        "a=1",
+        "b=2",
+    )
 
 
 def test_duplicate_attribute_keeps_the_first_occurrence() -> None:
