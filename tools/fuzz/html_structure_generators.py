@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from functools import cache
 from html import escape
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, TypeAlias
+from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 from fuzz.html_generation_tables import (
     ATTRIBUTE_VALUE_RULES,
@@ -180,7 +180,14 @@ def _element_production(name: str, tag: str, attributes: Parts, origin: str) -> 
     )
 
 
-def _element_shape(tag: str) -> tuple[bytes, bytes, int, int]:
+class _ElementShape(NamedTuple):
+    prefix: bytes
+    suffix: bytes
+    nodes: int
+    height: int
+
+
+def _element_shape(tag: str) -> _ElementShape:
     if shape := {
         "table": (b"<table", b"><tbody><tr><td>x</td></tr></tbody></table>", 5, 4),
         "tr": (b"<table><tbody><tr", b"><td>x</td></tr></tbody></table>", 5, 4),
@@ -191,11 +198,16 @@ def _element_shape(tag: str) -> tuple[bytes, bytes, int, int]:
         "optgroup": (b"<select><optgroup", b"><option>x</option></optgroup></select>", 4, 3),
         "template": (b"<template", b"></template>", 2, 0),
     }.get(tag):
-        return shape
+        return _ElementShape(*shape)
     if tag in frozenset({"tbody", "thead", "tfoot"}):
-        return b"<table><" + tag.encode("ascii"), b"><tr><td>x</td></tr></" + tag.encode("ascii") + b"></table>", 5, 4
+        return _ElementShape(
+            b"<table><" + tag.encode("ascii"),
+            b"><tr><td>x</td></tr></" + tag.encode("ascii") + b"></table>",
+            5,
+            4,
+        )
     if tag in {"td", "th"}:
-        return (
+        return _ElementShape(
             b"<table><tbody><tr><" + tag.encode("ascii"),
             b">x</" + tag.encode("ascii") + b"></tr></tbody></table>",
             5,
@@ -221,8 +233,8 @@ def _element_shape(tag: str) -> tuple[bytes, bytes, int, int]:
         "track",
         "wbr",
     }):
-        return b"<" + tag.encode("ascii"), b">", 1, 0
-    return b"<" + tag.encode("ascii"), b">x</" + tag.encode("ascii") + b">", 2, 1
+        return _ElementShape(b"<" + tag.encode("ascii"), b">", 1, 0)
+    return _ElementShape(b"<" + tag.encode("ascii"), b">x</" + tag.encode("ascii") + b">", 2, 1)
 
 
 def _hostile_productions() -> tuple[Production, ...]:

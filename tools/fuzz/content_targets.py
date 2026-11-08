@@ -6,7 +6,7 @@ import html
 import json
 import unicodedata
 from functools import partial
-from typing import TYPE_CHECKING, Final, TypeVar, cast
+from typing import TYPE_CHECKING, Final, NamedTuple, TypeVar, cast
 
 import turbohtml
 from turbohtml import clean, detect, extract, parse_fragment
@@ -358,10 +358,17 @@ def minifier_check(
     )
 
 
-def minifier_observation(data: bytes) -> tuple[str, str, str, str]:
+class _MinifierObservation(NamedTuple):
+    html: str
+    css: str
+    inline_css: str
+    js: str
+
+
+def minifier_observation(data: bytes) -> _MinifierObservation:
     # Keep printer results available for independent behavioral controls.
     text: Final = _text(data)
-    return (
+    return _MinifierObservation(
         minify(f"<p><!--comment-->{text}</p>", Minify(omit_optional_tags=False)),
         clean.minify_css(f".{text} {{ color: red; }}", CSSMinify()),
         minify_css_inline("color: red;", CSSMinify()),

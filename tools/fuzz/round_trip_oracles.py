@@ -34,7 +34,7 @@ from enum import Enum
 from functools import cache, partial
 from itertools import pairwise, starmap
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal, TypeAlias
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple, TypeAlias
 from urllib.parse import urlsplit
 
 import tinycss2
@@ -847,7 +847,13 @@ def _nests_in_itself(element: Element) -> bool:
     )
 
 
-def _content(root: Node) -> tuple[str, list[str], set[tuple[str, str, tuple[tuple[str, str], ...]]]]:
+class _Content(NamedTuple):
+    text: str
+    comments: list[str]
+    elements: set[tuple[str, str, tuple[tuple[str, str], ...]]]
+
+
+def _content(root: Node) -> _Content:
     # Reduce a tree to what re-nesting keeps: its text in order, its comments in order, its distinct elements.
     #
     # A bare ``p`` or ``br`` does not count: re-nesting can strand a ``</p>`` or meet a ``</br>``, and the tree builder
@@ -861,7 +867,7 @@ def _content(root: Node) -> tuple[str, list[str], set[tuple[str, str, tuple[tupl
         )
         for element in root.iter_elements()
     }
-    return (
+    return _Content(
         _newlines("".join(node.data for node in nodes if isinstance(node, Text))),
         [node.data for node in nodes if isinstance(node, Comment)],
         elements - {("html", "p", ()), ("html", "br", ())},

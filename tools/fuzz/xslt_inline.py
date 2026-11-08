@@ -7,7 +7,7 @@ import hashlib
 import json
 import random
 from dataclasses import asdict, dataclass, replace
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 import lxml.etree
 
@@ -141,27 +141,37 @@ def generate(seed: int) -> Case:
     )
 
 
-def _turbohtml(case: Case) -> tuple[bool, bool | None, str | ResultTree | None]:
+class _Transform(NamedTuple):
+    compiled: bool
+    applied: bool | None
+    output: str | ResultTree | None
+
+
+def _turbohtml(case: Case) -> _Transform:
     try:
         compiled = Transform(parse_xml(case.stylesheet))
     except (HTMLParseError, ValueError):
-        return False, None, None
+        return _Transform(compiled=False, applied=None, output=None)
     try:
-        return True, True, _result(compiled(parse_xml(case.document)), case.method)
+        return _Transform(compiled=True, applied=True, output=_result(compiled(parse_xml(case.document)), case.method))
     except (HTMLParseError, ValueError, RuntimeError):
-        return True, False, None
+        return _Transform(compiled=True, applied=False, output=None)
 
 
-def _libxslt(case: Case) -> tuple[bool, bool | None, str | ResultTree | None]:
+def _libxslt(case: Case) -> _Transform:
     parser: Final = lxml.etree.XMLParser(resolve_entities=False, no_network=True)
     try:
         compiled = lxml.etree.XSLT(lxml.etree.fromstring(case.stylesheet.encode(), parser))
     except (lxml.etree.XSLTParseError, lxml.etree.XMLSyntaxError):
-        return False, None, None
+        return _Transform(compiled=False, applied=None, output=None)
     try:
-        return True, True, _result(str(compiled(lxml.etree.fromstring(case.document.encode(), parser))), case.method)
+        return _Transform(
+            compiled=True,
+            applied=True,
+            output=_result(str(compiled(lxml.etree.fromstring(case.document.encode(), parser))), case.method),
+        )
     except (lxml.etree.XSLTApplyError, lxml.etree.XMLSyntaxError):
-        return True, False, None
+        return _Transform(compiled=True, applied=False, output=None)
 
 
 def _result(output: str, method: str) -> str | ResultTree:

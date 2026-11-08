@@ -9,7 +9,7 @@ from collections import Counter
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, cast
+from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
@@ -269,23 +269,31 @@ def _identifier(part: Identifier, bindings: _Bindings) -> bytes:
     return bindings.values[part.name].encode("ascii")
 
 
+class _Choice(NamedTuple):
+    production: Production
+    depth: int
+    minimal: bool
+
+
 def _choose(
     grammar: Grammar,
     rng: random.Random,
     frame: tuple[Reference, int, bool, tuple[tuple[Production, int], ...]],
     available: tuple[int, int],
-) -> tuple[Production, int, bool]:
+) -> _Choice:
     part, level, minimal, path = frame
     if path:
-        return path[0][0], path[0][1], True
+        return _Choice(production=path[0][0], depth=path[0][1], minimal=True)
     eligible: Final = [
         production
         for production in grammar.rules[part.symbol]
         if all(cost <= limit for cost, limit in zip(_cost(production, grammar.minimum), available, strict=True))
     ]
     if minimal or rng.random() >= 0.75 ** (level + 1):
-        return min(eligible, key=lambda production: _cost(production, grammar.minimum)), -1, True
-    return rng.choice(eligible), -1, False
+        return _Choice(
+            production=min(eligible, key=lambda production: _cost(production, grammar.minimum)), depth=-1, minimal=True
+        )
+    return _Choice(production=rng.choice(eligible), depth=-1, minimal=False)
 
 
 def generation_sweep(grammar: Grammar, minimum: int = 1, budget: int | GenerationBudget = 30) -> tuple[Generated, ...]:
@@ -498,7 +506,13 @@ def html_grammar() -> Grammar:
     return compile_grammar(productions, "root")
 
 
-def _element(tag: str) -> tuple[bytes, int, int]:
+class _Element(NamedTuple):
+    source: bytes
+    nodes: int
+    height: int
+
+
+def _element(tag: str) -> _Element:
     if source := {
         "table": (b"<table><tbody><tr><td>x</td></tr></tbody></table>", 5, 4),
         "tr": (b"<table><tbody><tr><td>x</td></tr></tbody></table>", 5, 4),
@@ -514,15 +528,21 @@ def _element(tag: str) -> tuple[bytes, int, int]:
         "select": (b"<select><option>x</option></select>", 3, 2),
         "option": (b"<select><option>x</option></select>", 3, 2),
     }.get(tag):
-        return source
+        return _Element(*source)
     if tag == "template":
-        return b"<template></template>", 2, 0
+        return _Element(b"<template></template>", 2, 0)
     if tag in _VOID:
-        return f"<{tag}>".encode("ascii"), 1, 0
-    return f"<{tag}>x</{tag}>".encode("ascii"), 2, 1
+        return _Element(f"<{tag}>".encode("ascii"), 1, 0)
+    return _Element(f"<{tag}>x</{tag}>".encode("ascii"), 2, 1)
 
 
-def _attribute(name: str, value: str, index: int) -> tuple[tuple[bytes | Reference | Identifier, ...], int, int]:
+class _Attribute(NamedTuple):
+    parts: tuple[bytes | Reference | Identifier, ...]
+    nodes: int
+    height: int
+
+
+def _attribute(name: str, value: str, index: int) -> _Attribute:
     tag: Final = {"href": "a", "src": "img", "alt": "img", "name": "input", "type": "input", "value": "input"}.get(
         name, "span"
     )
@@ -534,7 +554,7 @@ def _attribute(name: str, value: str, index: int) -> tuple[tuple[bytes | Referen
         (b"#", Identifier("target", definition=False)) if value == "#f" and name not in {"id", "class"} else (encoded,)
     )
     ending: Final = b">" if tag in _VOID else f">x</{tag}>".encode("ascii")
-    return (
+    return _Attribute(
         (f'<{tag} {name}="'.encode("ascii"), *parts, b'"' + ending),
         1 if tag in _VOID else 2,
         0 if tag in _VOID else 1,

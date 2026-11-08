@@ -29,7 +29,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, TypeVar
+from typing import TYPE_CHECKING, Final, NamedTuple, TypeVar
 from urllib.parse import quote
 
 import html5lib
@@ -1017,7 +1017,15 @@ def _splice(rng: random.Random, seed: str, tokens: Sequence[str]) -> str:
     return seed
 
 
-def _url_case(rng: random.Random) -> tuple[str, str, str, str, Policy]:
+class _UrlCase(NamedTuple):
+    element: str
+    attribute: str
+    recipe: str
+    value: str
+    policy: Policy
+
+
+def _url_case(rng: random.Random) -> _UrlCase:
     # Draw an element and URL attribute, a value with one obfuscation written as attribute source, and a URL policy.
     #
     # The obfuscations are scheme-check bypasses sanitizers shipped: character references without ``;`` and named
@@ -1065,7 +1073,7 @@ def _url_case(rng: random.Random) -> tuple[str, str, str, str, Policy]:
         allow_relative_urls=rng.random() < 0.5,
         allow_fragment_urls=rng.random() < 0.5,
     )
-    return element, attribute, recipe, obfuscate(base, at).replace('"', "&quot;"), policy
+    return _UrlCase(element, attribute, recipe, obfuscate(base, at).replace('"', "&quot;"), policy)
 
 
 def _insert(text: str, value: str, at: int) -> str:

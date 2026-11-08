@@ -7,7 +7,7 @@ import random
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 from fuzz.structure_generators import (
     BudgetError,
@@ -190,7 +190,13 @@ def _emphasis(tag: str, children: tuple[_Meaning, ...]) -> tuple[_Meaning, ...]:
     return (*before, *(((tag, (), inner),) if inner else ()), *after)
 
 
-def _edges(children: tuple[_Meaning, ...]) -> tuple[list[_Meaning], tuple[_Meaning, ...], list[_Meaning]]:
+class _Edges(NamedTuple):
+    before: list[_Meaning]
+    inner: tuple[_Meaning, ...]
+    after: list[_Meaning]
+
+
+def _edges(children: tuple[_Meaning, ...]) -> _Edges:
     # emphasis and link text do not style a hard break, and spaces at their edge collapse with the ones outside (CSS
     # Text 3, 4.1.1), so both render the same outside; a delimiter run touching whitespace cannot open or close
     # (CommonMark 6.2), so they sit outside
@@ -199,7 +205,7 @@ def _edges(children: tuple[_Meaning, ...]) -> tuple[list[_Meaning], tuple[_Meani
     after: Final[list[_Meaning]] = []
     _peel(inner, before, 0, breaks=True)
     _peel(inner, after, -1, breaks=True)
-    return before, tuple(inner), after
+    return _Edges(before, tuple(inner), after)
 
 
 def _peel(inner: list[_Meaning], outside: list[_Meaning], edge: int, *, breaks: bool) -> None:

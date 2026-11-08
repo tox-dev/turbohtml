@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Final, cast, get_args
+from typing import TYPE_CHECKING, Final, NamedTuple, cast, get_args
 
 import turbohtml
 from turbohtml import Canonical, HTMLParseError, Markdown, ParseError, PlainText, annotation_surface, annotation_tags
@@ -122,7 +122,14 @@ def _render(data: bytes) -> None:
     render_observation(data)
 
 
-def render_observation(data: bytes) -> tuple[str, str, str, bytes]:
+class _RenderObservation(NamedTuple):
+    markdown: str
+    plain: str
+    tags: str
+    canonical: bytes
+
+
+def render_observation(data: bytes) -> _RenderObservation:
     # Escaping text must preserve it through a parsed element.
     source: Final = data.decode("utf-8")
     document: Final = turbohtml.parse(source)
@@ -135,7 +142,7 @@ def render_observation(data: bytes) -> tuple[str, str, str, bytes]:
     _require(
         "Annotation values", condition=all(isinstance(value, str) for values in surface.values() for value in values)
     )
-    return (
+    return _RenderObservation(
         document.to_markdown(Markdown()),
         plain,
         annotation_tags(annotated, spans),
@@ -152,7 +159,13 @@ def _conformance(data: bytes) -> None:
     conformance_observation(data)
 
 
-def conformance_observation(data: bytes) -> tuple[bool, tuple[str, ...], tuple[str, int, int] | None]:
+class _ConformanceObservation(NamedTuple):
+    valid: bool
+    codes: tuple[str, ...]
+    diagnostic: tuple[str, int, int] | None
+
+
+def conformance_observation(data: bytes) -> _ConformanceObservation:
     # Strict parse diagnostics and conformance reports use separate records.
     source: Final = data.decode("utf-8")
     report: Final = check(turbohtml.parse(source))
@@ -177,7 +190,7 @@ def conformance_observation(data: bytes) -> tuple[bool, tuple[str, ...], tuple[s
         diagnostic = (error.error.code, error.error.line, error.error.col)
     else:
         diagnostic = None
-    return report.valid, tuple(message.code for message in report.messages), diagnostic
+    return _ConformanceObservation(report.valid, tuple(message.code for message in report.messages), diagnostic)
 
 
 def _selector(data: bytes) -> None:
