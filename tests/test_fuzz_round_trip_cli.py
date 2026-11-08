@@ -5,7 +5,7 @@ import inspect
 import json
 import sys
 from pathlib import Path
-from subprocess import TimeoutExpired  # ruff:ignore[suspicious-subprocess-import]  # stands in for a run outliving its deadline
+from subprocess import CompletedProcess, TimeoutExpired  # ruff:ignore[suspicious-subprocess-import]  # stands in for a run outliving its deadline
 from typing import TYPE_CHECKING, Final
 from zipfile import ZipFile
 
@@ -28,9 +28,8 @@ from fuzz.round_trip_oracles import ORACLES, Floor, Oracle, OutOfScopeError, mai
 if TYPE_CHECKING:
     import random
     from collections.abc import Callable
-    from unittest.mock import MagicMock
 
-    from pytest_mock import MockerFixture
+    from pytest_mock import MockerFixture, MockType
 
 
 def _out_of_scope(text: str) -> str | None:
@@ -191,9 +190,7 @@ def test_round_trip_cli_reports_an_escaping_exception(
 
 
 if TYPE_CHECKING:
-    from unittest.mock import MagicMock
-
-    from pytest_mock import MockerFixture
+    from pytest_mock import MockerFixture, MockType
 
 
 def test_fuzz_alloc_sweeps_only_the_inprocess_targets(mocker: MockerFixture, tmp_path: Path) -> None:
@@ -202,9 +199,9 @@ def test_fuzz_alloc_sweeps_only_the_inprocess_targets(mocker: MockerFixture, tmp
         for kind in ("heap-buffer-overflow", "heap-use-after-free", "use-after-poison")
     )
 
-    def run(command: list[str], **_: object) -> MagicMock:
+    def run(command: list[str], **_: object) -> CompletedProcess[str]:
         crashed = "_fuzz_crash" in (command[2] if command[1:2] == ["-c"] else "")
-        return mocker.MagicMock(returncode=-6 if crashed else 0, stdout="runtime", stderr=reports)
+        return CompletedProcess([], returncode=-6 if crashed else 0, stdout="runtime", stderr=reports)
 
     calls = mocker.patch("fuzz.fuzz.subprocess.run", autospec=True, side_effect=run).call_args_list
     assert fuzz_alloc_cli_main(["--mode", "alloc", "--crash-dir", str(tmp_path)]) == 0
@@ -214,9 +211,7 @@ def test_fuzz_alloc_sweeps_only_the_inprocess_targets(mocker: MockerFixture, tmp
 
 
 if TYPE_CHECKING:
-    from unittest.mock import MagicMock
-
-    from pytest_mock import MockerFixture
+    from pytest_mock import MockerFixture, MockType
 
 
 @pytest.mark.parametrize(
@@ -235,7 +230,7 @@ def test_fuzz_cli_builds_every_standalone_harness_under_the_sanitizer(
     run: Final = mocker.patch(
         "fuzz.fuzz.subprocess.run",
         autospec=True,
-        return_value=mocker.MagicMock(returncode=0, stdout=str(tmp_path / "runtime")),
+        return_value=CompletedProcess([], returncode=0, stdout=str(tmp_path / "runtime")),
     )
     status: Final = fuzz_sanitizer_cli_main(["--mode", "smoke", *arguments, "--crash-dir", str(tmp_path / "crashes")])
     commands: Final = [call.args[0] for call in run.call_args_list]
@@ -256,29 +251,28 @@ def test_fuzz_cli_builds_every_standalone_harness_under_the_sanitizer(
 if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import IO
-    from unittest.mock import MagicMock
 
-    from pytest_mock import MockerFixture
-
-
-@pytest.fixture
-def docker(mocker: MockerFixture) -> MagicMock:
-    return mocker.patch("fuzz.cflite.subprocess.run", autospec=True, return_value=mocker.MagicMock(returncode=0))
+    from pytest_mock import MockerFixture, MockType
 
 
 @pytest.fixture
-def build_log(docker: MagicMock, mocker: MockerFixture) -> Callable[[str, int], None]:
+def docker(mocker: MockerFixture) -> MockType:
+    return mocker.patch("fuzz.cflite.subprocess.run", autospec=True, return_value=CompletedProcess([], returncode=0))
+
+
+@pytest.fixture
+def build_log(docker: MockType) -> Callable[[str, int], None]:
     def write(log: str, returncode: int) -> None:
-        def run(*_: object, stdout: IO[bytes], **__: object) -> MagicMock:
+        def run(*_: object, stdout: IO[bytes], **__: object) -> CompletedProcess[str]:
             stdout.write(log.encode())
-            return mocker.MagicMock(returncode=returncode)
+            return CompletedProcess([], returncode=returncode)
 
         docker.side_effect = run
 
     return write
 
 
-def test_cflite_runs_build_then_mode_on_standalone_filestore(docker: MagicMock, tmp_path: Path) -> None:
+def test_cflite_runs_build_then_mode_on_standalone_filestore(docker: MockType, tmp_path: Path) -> None:
     assert fuzz_cflite_main(_arguments(tmp_path)) == 0
     workspace: Final = tmp_path / "workspace"
     commands: Final = [call.args[0] for call in docker.call_args_list]
@@ -335,17 +329,15 @@ def _expected(tmp_path: Path) -> dict[str, str]:
     }
 
 
-def test_cflite_replays_build_seeds_with_stored_corpus(
-    docker: MagicMock, mocker: MockerFixture, tmp_path: Path
-) -> None:
+def test_cflite_replays_build_seeds_with_stored_corpus(docker: MockType, tmp_path: Path) -> None:
     build: Final = tmp_path / "workspace" / "build-out"
 
-    def run(*_: object, **__: object) -> MagicMock:
+    def run(*_: object, **__: object) -> CompletedProcess[str]:
         if docker.call_count == 1:
             build.mkdir(parents=True)
             with ZipFile(build / "fuzz_content_detect_seed_corpus.zip", "w") as archive:
                 archive.writestr("normal-input", SEED_HEADER + b"abc")
-        return mocker.MagicMock(returncode=0)
+        return CompletedProcess([], returncode=0)
 
     docker.side_effect = run
     assert fuzz_cflite_main(_arguments(tmp_path)) == 0
@@ -354,7 +346,7 @@ def test_cflite_replays_build_seeds_with_stored_corpus(
     )
 
 
-def test_cflite_writes_logs_not_console(docker: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cflite_writes_logs_not_console(docker: MockType, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     fuzz_cflite_main(_arguments(tmp_path))
     logs: Final = [call.kwargs["stdout"].name for call in docker.call_args_list]
     assert (logs, json.loads(capsys.readouterr().out)) == (
@@ -374,7 +366,7 @@ def test_cflite_writes_logs_not_console(docker: MagicMock, tmp_path: Path, capsy
     ],
 )
 def test_cflite_passes_base_build_settings(
-    docker: MagicMock, tmp_path: Path, extra: tuple[str, ...], variables: dict[str, str]
+    docker: MockType, tmp_path: Path, extra: tuple[str, ...], variables: dict[str, str]
 ) -> None:
     fuzz_cflite_main(_arguments(tmp_path, *extra))
     assert [_environment(call.args[0]) for call in docker.call_args_list] == [
@@ -384,9 +376,9 @@ def test_cflite_passes_base_build_settings(
 
 
 def test_cflite_build_failure_skips_fuzzing(
-    docker: MagicMock, mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    docker: MockType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    docker.return_value = mocker.MagicMock(returncode=2)
+    docker.return_value = CompletedProcess([], returncode=2)
     assert (
         fuzz_cflite_main(_arguments(tmp_path)),
         docker.call_count,
@@ -438,9 +430,7 @@ def test_cflite_build_success_keeps_log_private(
     assert not capsys.readouterr().err
 
 
-def test_cflite_reports_crashes_by_hash(
-    docker: MagicMock, mocker: MockerFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_cflite_reports_crashes_by_hash(docker: MockType, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     artifacts: Final = tmp_path / "workspace" / "out" / "artifacts"
     for target, name, data in (
         ("fuzz_html_document", "crash-8c1ff5bd5bfa04b3c5dd2b9b5bd52bc1a0ea0d1a", b"<secret>"),
@@ -450,7 +440,7 @@ def test_cflite_reports_crashes_by_hash(
         crash.parent.mkdir(parents=True)
         crash.write_bytes(data)
         crash.with_name(f"{crash.name}.summary").write_text("==1==ERROR: AddressSanitizer: heap-buffer-overflow\n")
-    docker.side_effect = [mocker.MagicMock(returncode=0), mocker.MagicMock(returncode=1)]
+    docker.side_effect = [CompletedProcess([], returncode=0), CompletedProcess([], returncode=1)]
     status: Final = fuzz_cflite_main(_arguments(tmp_path))
     output: Final = capsys.readouterr().out
     assert (status, json.loads(output)["crashes"], "secret" in output) == (
@@ -464,7 +454,7 @@ def test_cflite_reports_crashes_by_hash(
 
 
 @pytest.fixture
-def per_target(docker: MagicMock, mocker: MockerFixture, tmp_path: Path) -> MagicMock:
+def per_target(docker: MockType, mocker: MockerFixture, tmp_path: Path) -> MockType:
     # Build two Atheris targets, a shared runtime and a non-target, with a larger stored corpus for the second.
     workspace: Final = tmp_path / "workspace"
     mocker.patch("fuzz.cflite.monotonic", autospec=True, return_value=0.0)
@@ -473,7 +463,7 @@ def per_target(docker: MagicMock, mocker: MockerFixture, tmp_path: Path) -> Magi
             (workspace / "storage" / "corpus" / target).mkdir(parents=True, exist_ok=True)
             (workspace / "storage" / "corpus" / target / str(index)).write_bytes(b"x")
 
-    def run(command: list[str], **_: object) -> MagicMock:
+    def run(command: list[str], **_: object) -> CompletedProcess[str]:
         if command[-1] == BUILD_IMAGE:
             build = workspace / "build-out"
             build.mkdir(parents=True)
@@ -492,7 +482,7 @@ def per_target(docker: MagicMock, mocker: MockerFixture, tmp_path: Path) -> Magi
         elif _environment(command).get("MODE") == "coverage":
             out = Path(_environment(command)["WORKSPACE"]) / "build-out"
             (out / f"coverage_d_{out.parent.name}").write_bytes(out.parent.name.encode())
-        return mocker.MagicMock(returncode=0)
+        return CompletedProcess([], returncode=0)
 
     docker.side_effect = run
     return docker
@@ -506,7 +496,7 @@ def per_target(docker: MagicMock, mocker: MockerFixture, tmp_path: Path) -> Magi
     ],
 )
 def test_cflite_runs_each_target_alone_largest_corpus_first(
-    per_target: MagicMock, tmp_path: Path, mode: str, ordered: tuple[str, str]
+    per_target: MockType, tmp_path: Path, mode: str, ordered: tuple[str, str]
 ) -> None:
     workspace: Final = tmp_path / "workspace"
     assert fuzz_cflite_main(_target_arguments(tmp_path, mode)) == 0
@@ -588,11 +578,11 @@ def test_cflite_coverage_uses_build_seeds_without_changing_stored_corpus(tmp_pat
 
 
 def test_cflite_stops_target_at_deadline(
-    per_target: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    per_target: MockType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     build: Final = per_target.side_effect
 
-    def run(command: list[str], **kwargs: object) -> MagicMock:
+    def run(command: list[str], **kwargs: object) -> CompletedProcess[str]:
         if command[-1] == RUN_IMAGE:
             raise TimeoutExpired(command, 3600)
         return build(command, **kwargs)
@@ -607,7 +597,7 @@ def test_cflite_stops_target_at_deadline(
     )
 
 
-def test_cflite_skips_targets_past_deadline(per_target: MagicMock, tmp_path: Path) -> None:
+def test_cflite_skips_targets_past_deadline(per_target: MockType, tmp_path: Path) -> None:
     arguments: Final = _target_arguments(tmp_path)
     arguments[5] = "120"
     assert (fuzz_cflite_main(arguments), per_target.call_count) == (124, 1)
@@ -625,7 +615,7 @@ def test_cflite_reports_per_target_crashes(tmp_path: Path, capsys: pytest.Captur
 
 
 if TYPE_CHECKING:
-    from unittest.mock import MagicMock
+    from pytest_mock import MockType
 
 
 def test_oss_fuzz_targets_skip_only_node_oracle() -> None:
@@ -666,9 +656,8 @@ def test_oss_fuzz_cli_seeds_have_no_failure_header(tmp_path: Path) -> None:
 
 
 if TYPE_CHECKING:
-    from unittest.mock import MagicMock
-
     from fuzz.atheris_registry import Target
+    from pytest_mock import MockType
 
 
 _TARGETS: Final[dict[str, Target]] = {target.name: target for target in public_targets()}
@@ -750,9 +739,7 @@ def test_reachability_cli(
 
 
 if TYPE_CHECKING:
-    from unittest.mock import MagicMock
-
-    from pytest_mock import MockerFixture
+    from pytest_mock import MockerFixture, MockType
 
 
 _URL_SPARSE_CHECKOUT: Final[list[list[str]]] = [
@@ -838,7 +825,7 @@ def test_fuzz_cli_prepares_url_seeds(
     run = mocker.patch(
         "fuzz.fuzz.subprocess.run",
         autospec=True,
-        return_value=mocker.MagicMock(returncode=2, stdout=str(tmp_path / "runtime")),
+        return_value=CompletedProcess([], returncode=2, stdout=str(tmp_path / "runtime")),
     )
     status = fuzz_url_cli_main()
     commands = [call.args[0] for call in run.call_args_list]
@@ -863,29 +850,29 @@ def test_fuzz_cli_prepares_url_seeds(
 def test_fuzz_smoke_self_test_gates_the_run(
     mocker: MockerFixture, tmp_path: Path, crash: tuple[int, str | None], injection: int, expected: int
 ) -> None:
-    mocker.patch("fuzz.fuzz.subprocess.run", autospec=True, side_effect=_runner(mocker, crash, injection))
+    mocker.patch("fuzz.fuzz.subprocess.run", autospec=True, side_effect=_runner(crash, injection))
     assert fuzz_smoke_main(["--mode", "smoke", "--crash-dir", str(tmp_path)]) == expected
 
 
-def _runner(mocker: MockerFixture, crash: tuple[int, str | None], injection: int) -> Callable[..., MagicMock]:
+def _runner(crash: tuple[int, str | None], injection: int) -> Callable[..., CompletedProcess[str]]:
     # Fake the children: a ``None`` crash report gives each kind the ASan report it expects.
     code, stderr = crash
 
     heap_reports = {"heap-buffer-overflow", "heap-use-after-free"}
 
-    def run(command: list[str], **_: object) -> MagicMock:
+    def run(command: list[str], **_: object) -> CompletedProcess[str]:
         script = command[2] if command[1:2] == ["-c"] else ""
         if "_fuzz_crash" in script:
             kind = command[3]
             report = f"ERROR: AddressSanitizer: {kind if kind in heap_reports else 'use-after-poison'} on address"
-            return mocker.MagicMock(returncode=code, stdout="", stderr=report if stderr is None else stderr)
+            return CompletedProcess([], returncode=code, stdout="", stderr=report if stderr is None else stderr)
         if "_fuzz_inject_failure" in script:
-            return mocker.MagicMock(returncode=injection, stdout="", stderr="")
-        return mocker.MagicMock(returncode=0, stdout="runtime", stderr="")
+            return CompletedProcess([], returncode=injection, stdout="", stderr="")
+        return CompletedProcess([], returncode=0, stdout="runtime", stderr="")
 
     return run
 
 
 def test_fuzz_smoke_self_test_skipped_without_inprocess(mocker: MockerFixture, tmp_path: Path) -> None:
-    mocker.patch("fuzz.fuzz.subprocess.run", autospec=True, side_effect=_runner(mocker, (0, ""), 1))
+    mocker.patch("fuzz.fuzz.subprocess.run", autospec=True, side_effect=_runner((0, ""), 1))
     assert fuzz_smoke_main(["--mode", "smoke", "--skip-inprocess", "--crash-dir", str(tmp_path)]) == 0
