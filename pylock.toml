@@ -2144,7 +2144,7 @@ sha256 = "bd0e86bc48c1e42b9e6e0000c47a9232214b6d89b124168ac3ec2abca23bbf5c"
 [[packages]]
 name = "installer"
 version = "1.1.0"
-marker = "\"build\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"pgo\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.10"
 index = "https://pypi.org/simple/"
 
@@ -3334,7 +3334,7 @@ sha256 = "4ae982cc02fceda9b47fa3e4e860aebc387210bc153c7328e76a1c85ccc94d1c"
 [[packages]]
 name = "packageurl-python"
 version = "0.17.6"
-marker = "\"build\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"pgo\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.8"
 index = "https://pypi.org/simple/"
 
@@ -4382,7 +4382,7 @@ sha256 = "b531f0f90c4d6ec22f1f8e78996980048bd7d494b7d366b0cf98e39b293565e0"
 [[packages]]
 name = "python-sbom"
 version = "0.2.0"
-marker = "\"build\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"pgo\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = ">=3.11"
 dependencies = [
     { name = "installer" },
@@ -6688,7 +6688,7 @@ sha256 = "baa8f254e7ea5d3e0618281ad2ff5610e0e5360b3608e695c29bfb3b29d051f4"
 [[packages]]
 name = "zipremove"
 version = "0.10.0"
-marker = "\"build\" in dependency_groups"
+marker = "\"bench\" in dependency_groups or \"build\" in dependency_groups or \"dev\" in dependency_groups or \"fuzz-build\" in dependency_groups or \"pgo\" in dependency_groups or \"test\" in dependency_groups or \"type\" in dependency_groups"
 requires-python = "~=3.7"
 index = "https://pypi.org/simple/"
 
