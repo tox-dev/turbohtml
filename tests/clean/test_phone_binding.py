@@ -278,7 +278,7 @@ def test_config_cycle_through_a_class_attribute_is_collectable() -> None:
         class Holder(PhoneNumber):
             __slots__ = ()
 
-        Holder.config = _phone_config_compile(_spec(number_type=Holder))  # ty: ignore[unresolved-attribute]  # adds the cycle through a class attribute the type checker cannot resolve
+        Holder.config = _phone_config_compile(_spec(number_type=Holder))  # ty: ignore[missing-attribute]  # adds the cycle through a class attribute the type checker cannot resolve
         return weakref.ref(Holder)
 
     class_ref = build()
