@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     import re
     from collections.abc import Callable, Mapping, Sequence
 
-    from turbohtml._html import Node
+    from turbohtml import Node
 
 
 _NODE_T = TypeVar("_NODE_T", bound="Node")

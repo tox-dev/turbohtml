@@ -31,7 +31,7 @@ records, the ``feedparser.parse`` entry point over :meth:`turbohtml.Document.fee
 
 from __future__ import annotations
 
-from turbohtml._html import Element
+from turbohtml import Element
 
 from ._article import Article
 from ._dates import DateExtraction, PublicationDate, dates

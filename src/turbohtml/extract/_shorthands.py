@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from turbohtml._html import HTMLParseError, parse, parse_xml
+from turbohtml import HTMLParseError, parse, parse_xml
 
 if TYPE_CHECKING:
     from ._feed import Feed
