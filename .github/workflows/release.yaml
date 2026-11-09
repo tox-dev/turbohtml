@@ -210,6 +210,23 @@ jobs:
           CIBW_BUILD: ${{ matrix.build }}
           SOURCE_DATE_EPOCH: ${{ steps.timestamp.outputs.epoch }}
           CIBW_ENVIRONMENT: UV_BUILD_CONSTRAINT=build-constraints-${{ matrix.constraints }}.txt UV_REQUIRE_BUILD_HASHES=true SOURCE_DATE_EPOCH=${{ steps.timestamp.outputs.epoch }}
+      # python_sbom.backend wrote an SBOM during the build, but cibuildwheel's repair renames the wheel and may bundle
+      # libraries, so describe the wheels again as they will be published. embed lists the packages of the environment
+      # it runs in, so it runs from one installed from the same hashed build constraints the build used.
+      - name: 📝 Write the SBOM into the finished wheels
+        shell: bash
+        env:
+          CONSTRAINTS: build-constraints-${{ matrix.constraints }}.txt
+          SOURCE_DATE_EPOCH: ${{ steps.timestamp.outputs.epoch }}
+        run: |
+          uv venv --python 3.15 "$RUNNER_TEMP/build-env"
+          uv pip install --python "$RUNNER_TEMP/build-env" --require-hashes -r "$CONSTRAINTS"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            embed="$RUNNER_TEMP/build-env/Scripts/python-sbom.exe"
+          else
+            embed="$RUNNER_TEMP/build-env/bin/python-sbom"
+          fi
+          "$embed" embed wheelhouse/*.whl
       - name: 📤 Upload wheels
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
