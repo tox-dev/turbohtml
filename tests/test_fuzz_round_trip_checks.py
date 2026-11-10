@@ -742,7 +742,7 @@ def test_markdown_html_grammar_skips_trees_beyond_meaning_depth() -> None:
 
 def test_markdown_source_grammar_skips_lost_control_whitespace() -> None:
     with pytest.raises(OutOfScopeError):
-        ORACLES["markdown-source-grammar"].check("<html>\x1c")
+        ORACLES["markdown-source-grammar"].check("<p>\x0bx</p>")
 
 
 @pytest.mark.parametrize(
