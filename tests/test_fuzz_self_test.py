@@ -630,7 +630,11 @@ def test_relaxng_allocation_failure_raises_memory_error(
 
 @pytest.mark.fuzz_build
 def test_url_normalization_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> None:
-    assert set(alloc_sweep(lambda _: normalize_url("http://example.com/a"), lambda: None)) == {"MemoryError"}
+    # normalize_url fills a one-time vocabulary cache on its first call; warm it outside the injection window so the
+    # counted run and every later run allocate the same number of times
+    assert set(alloc_sweep(lambda _: normalize_url("http://example.com/a"), lambda: normalize_url("http://a/"))) == {
+        "MemoryError"
+    }
 
 
 @pytest.mark.fuzz_build
