@@ -842,9 +842,9 @@ def test_markdown_reader_drops_control_whitespace_at_paragraph_edge(markup: str)
         markdown_html_check(markup)
 
 
-def test_markdown_reader_drops_control_whitespace_beside_a_kept_copy() -> None:
+def test_markdown_check_detects_one_lost_control_beside_a_kept_copy() -> None:
     with pytest.raises(MarkdownProfileError, match="Markdown reader discards control whitespace"):
-        markdown_html_check("<p>\x1fa\x1fb</p>")
+        markdown_html_check("<p>\x1fa\x1fb</p>", lambda node: node.to_markdown().replace("\x1f", "", 1))
 
 
 _FUZZ_XML_STRUCTURE_GENERATION_CASES: Final[tuple[Generated, ...]] = generation_sweep(
