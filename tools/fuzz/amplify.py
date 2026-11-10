@@ -37,7 +37,7 @@ import re
 import sys
 import time
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, TypeAlias
@@ -363,6 +363,7 @@ class Regression:
     shape: Shape
     source: str
     base: int = _BASE_BYTES
+    slope: float | None = None  # replaces the target's output slope for a cap that legitimately amplifies
 
 
 def load_regressions(path: Path) -> list[Regression]:
@@ -375,7 +376,14 @@ def load_regressions(path: Path) -> list[Regression]:
         shape = Shape(**entry["shape"])
         base = entry.get("base", _BASE_BYTES)
         rows.extend(
-            Regression(name=entry["name"], target=target, shape=shape, source=entry["source"], base=base)
+            Regression(
+                name=entry["name"],
+                target=target,
+                shape=shape,
+                source=entry["source"],
+                base=base,
+                slope=entry.get("slope"),
+            )
             for target in entry["targets"]
         )
     return rows
@@ -392,7 +400,8 @@ def _rescore(rows: list[Regression], targets: Sequence[str] | None) -> int:
         verdict = "super-linear" if result.super_linear else "linear"
         if result.too_long:
             verdict += f", cut short by a call over {_TOO_LONG_SECONDS} s"
-        if not (fits := result.within(target.bound)):
+        bound = target.bound if row.slope is None or target.bound is None else replace(target.bound, slope=row.slope)
+        if not (fits := result.within(bound)):
             verdict += ", output over bound"
         print(f"{_growth_text(result)}: {verdict}", flush=True)
         failed += result.super_linear or not fits

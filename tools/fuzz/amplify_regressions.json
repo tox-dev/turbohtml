@@ -782,6 +782,8 @@
     "targets": [
       "to_markdown"
     ],
+    "base": 16384,
+    "slope": 320,
     "shape": {
       "kind": "repeat",
       "left": "<i><div>x</div>"

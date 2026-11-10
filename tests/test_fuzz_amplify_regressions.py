@@ -38,6 +38,11 @@ def test_load_regressions_keeps_a_row_base(tmp_path: Path) -> None:
     assert [entry.base for entry in load_regressions(_write(tmp_path, [row]))] == [65536]
 
 
+def test_load_regressions_keeps_a_row_slope(tmp_path: Path) -> None:
+    row = {"name": "cap", "source": "s", "targets": ["idna"], "slope": 320, "shape": {"kind": "repeat", "left": "a"}}
+    assert [entry.slope for entry in load_regressions(_write(tmp_path, [row]))] == [320]
+
+
 def test_load_regressions_rejects_an_unknown_target(tmp_path: Path) -> None:
     row = {"name": "typo", "source": "s", "targets": ["parse", "prase"], "shape": {"kind": "repeat", "left": "a"}}
     with pytest.raises(ValueError, match="typo: unknown target prase"):
