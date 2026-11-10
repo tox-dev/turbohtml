@@ -308,6 +308,7 @@ deps = [
   "meson-python>=0.22.1",
   "ninja>=1.13.2",
   "pytest>=9.1.1",
+  "python-sbom>=0.2",
   "tinycss2>=1.5.1",
   "typing-extensions>=4.16",
 ]
