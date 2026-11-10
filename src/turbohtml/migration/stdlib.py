@@ -20,7 +20,7 @@ browsers run:
 
 from __future__ import annotations
 
-from turbohtml._html import Tokenizer
+from turbohtml import Tokenizer
 
 
 class HTMLParser:

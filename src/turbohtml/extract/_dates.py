@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Final, Literal, NamedTuple
 
-from turbohtml._html import parse
+from turbohtml import parse
 
 Signal = Literal["url", "meta", "json-ld", "time", "text"]
 """Which engine a :class:`PublicationDate` came from, in htmldate's stage-priority order."""
