@@ -33,7 +33,7 @@ jobs:
         exclude: ${{ fromJSON(github.event.schedule == '55 11 * * 1' && '[]' || '[{"os":"macos-15","py":"3.14"},{"os":"macos-15","py":"3.14t"},{"os":"macos-15","py":"3.13"},{"os":"macos-15","py":"3.12"}]') }}
     steps:
       - name: 📥 Check out code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -44,11 +44,11 @@ jobs:
         run: bash tools/ci_test_data.sh
       - name: 🟢 Install Node
         # zizmor: ignore[cache-poisoning] no cache: input is set, so setup-node writes no restorable cache
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: "22"
       - name: 🐍 Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           version: latest-known
           python-version: "3.15"
@@ -83,7 +83,7 @@ jobs:
         py: ["pypy3.11"]
     steps:
       - name: 📥 Check out code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -94,11 +94,11 @@ jobs:
         run: bash tools/ci_test_data.sh
       - name: 🟢 Install Node
         # zizmor: ignore[cache-poisoning] no cache: input is set, so setup-node writes no restorable cache
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: "22"
       - name: 🐍 Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           version: latest-known
           python-version: "3.15"
@@ -122,7 +122,7 @@ jobs:
           - {os: "ubuntu-24.04-arm", arch: "arm64"}
     steps:
       - name: 📥 Check out code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -133,11 +133,11 @@ jobs:
         run: bash tools/ci_test_data.sh
       - name: 🟢 Install Node
         # zizmor: ignore[cache-poisoning] no cache: input is set, so setup-node writes no restorable cache
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: "22"
       - name: 🐍 Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           version: latest-known
           python-version: "3.15"
@@ -155,14 +155,14 @@ jobs:
     # LTO inlining and the CodSpeed gate, so this compares the production preprocessing with those branches stripped
     steps:
       - name: 📥 Check out code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
       - name: 📦 Install unifdef
         run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends unifdef
       - name: 🐍 Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           version: latest-known
           python-version: "3.15"
@@ -180,12 +180,12 @@ jobs:
         tox_env: ["type", "docs", "pkg_meta", "atheris"]
     steps:
       - name: 📥 Check out code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: 🐍 Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           version: latest-known
           python-version: "3.15"
@@ -206,14 +206,14 @@ jobs:
     # on the matrix (env_run_base), deliberately not bolted on here.
     steps:
       - name: 📥 Check out code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           submodules: recursive # every conformance oracle plus the html5lib-tests data; shallow submodules init here too
           persist-credentials: false
       - name: 🟢 Install Node
         # zizmor: ignore[cache-poisoning] no cache: input is set, so setup-node writes no restorable cache
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        uses: actions/setup-node@v7.1.0
         with:
           node-version: "22"
       - parallel:
@@ -221,7 +221,7 @@ jobs:
             run: npm ci
             working-directory: tools/bench/node
           - name: 🐍 Install uv
-            uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+            uses: astral-sh/setup-uv@v10.3.3
             with:
               version: latest-known
               python-version: "3.15"
@@ -249,12 +249,12 @@ jobs:
           - {os: "macos-15", cc: "clang", label: "clang · macOS arm64"}
     steps:
       - name: 📥 Check out code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
       - name: 🐍 Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           version: latest-known
           python-version: "3.15"
@@ -280,13 +280,13 @@ jobs:
           - {os: "windows-11-arm", label: "MSVC · Windows arm64", arm: true}
     steps:
       - name: 📥 Check out code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
       - name: 🐍 Install arm64 dev Python (carries the .lib meson needs)
         if: matrix.arm
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@v10.3.3
         env:
           UV_VENV_SEED: "true"
         with:
@@ -296,11 +296,11 @@ jobs:
           python-version: "3.15"
       - name: 🪟 Activate native arm64 MSVC (so meson picks cl over MinGW gcc)
         if: matrix.arm
-        uses: TheMrMilchmann/setup-msvc-dev@368ef7d1ee4d1171b31d4a7f67f4d954f903f5a9 # v4.1.0
+        uses: TheMrMilchmann/setup-msvc-dev@v4.1.0
         with:
           arch: arm64
       - name: 🐍 Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           version: latest-known
           python-version: "3.15"
@@ -324,12 +324,12 @@ jobs:
           - {os: "ubuntu-24.04-arm", arch: "arm64"}
     steps:
       - name: 📥 Check out code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0 # meson project() derives the version from git history
           persist-credentials: false
       - name: 🐍 Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           version: latest-known
           python-version: "3.15"
@@ -362,12 +362,12 @@ jobs:
       options: --shm-size=2g # TSan shadow memory needs the headroom
     steps:
       - name: 📥 Check out code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: 🐍 Install uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           version: latest-known
           python-version: "3.15"
@@ -391,7 +391,7 @@ jobs:
       dry-run: true
   hooks:
     name: 🧹 Hooks under the cooldown
-    uses: tox-dev/github-workflows/.github/workflows/cooled-hooks.yaml@0c4cffd63033d38196319524d101caae1eef925b # 6.7.2
+    uses: tox-dev/github-workflows/.github/workflows/cooled-hooks.yaml@bf1c3ab0aa137d307a07aad844d507af73039387 # 6.8.0
     permissions:
       contents: read
   gate:
@@ -413,6 +413,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: 🚦 Require all jobs to succeed
-        uses: tox-dev/github-workflows/required-checks@2c1f5e4ceda37c41eb8367b5cbeaa741aa60a566 # 6.5.2
+        uses: tox-dev/github-workflows/required-checks@6.8.0
         with:
           needs: ${{ toJSON(needs) }}
