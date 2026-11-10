@@ -38,7 +38,7 @@ jobs:
           python-version: "3.15"
           enable-cache: false
       - name: 🛡️ Initialize CodeQL
-        uses: github/codeql-action/init@v4.39.1
+        uses: github/codeql-action/init@v4.39.2
         with:
           languages: c-cpp
           build-mode: manual
@@ -55,6 +55,6 @@ jobs:
         env:
           UV_PYTHON_PREFERENCE: only-managed
       - name: 🛡️ Analyze
-        uses: github/codeql-action/analyze@v4.39.1
+        uses: github/codeql-action/analyze@v4.39.2
         with:
           category: "/language:c-cpp"
