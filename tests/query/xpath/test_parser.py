@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import _html
+from turbohtml import XPathDepthError, _html
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -341,5 +341,5 @@ def test_parse_error_clamps_a_long_offending_token() -> None:
 def test_deeply_nested_expression_is_rejected(expr: str) -> None:
     # nested groups and a chain of unary minus both recurse in the parser; the depth cap
     # raises before the C stack overflows (issue #421)
-    with pytest.raises(ValueError, match="nested too deeply"):
+    with pytest.raises(XPathDepthError, match="nested too deeply"):
         _PARSE(expr)

@@ -212,10 +212,14 @@ def selector_observation(
     _require("Generic translator differs", condition=GenericTranslator().css_to_xpath(selector) == expression)
     _require("HTML translator differs", condition=HTMLTranslator().css_to_xpath(selector) == expression)
     document: Final = turbohtml.parse(selector_document)
+    try:
+        translated = cast("list[turbohtml.Node]", document.xpath(expression))
+    except turbohtml.XPathDepthError as error:
+        raise OutOfScopeError from error
     _require(
         "Selector translation differs",
         condition=tuple(node.serialize() for node in document.select(selector))
-        == tuple(node.serialize() for node in cast("list[turbohtml.Node]", document.xpath(expression))),
+        == tuple(node.serialize() for node in translated),
     )
     return expression, tuple(css_specificity(selector))
 
@@ -380,7 +384,8 @@ def cli_observation(data: bytes) -> str:
         output_file: Final = Path(directory) / "output.txt"
         input_file.write_text(source, encoding="utf-8")
         _require("CLI exit status", condition=main(("to-text", str(input_file), "-o", str(output_file))) == 0)
-        observed: Final = output_file.read_text(encoding="utf-8")
+        with output_file.open(encoding="utf-8", newline="") as stream:
+            observed: Final = stream.read()
     _require("CLI result differs", condition=observed == turbohtml.parse(source).to_text())
     return observed
 

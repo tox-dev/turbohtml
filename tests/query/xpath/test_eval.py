@@ -853,6 +853,16 @@ def test_deep_operator_spine_raises_instead_of_overflowing(doc: turbohtml.Node, 
         doc.xpath(expr)
 
 
+def test_nested_xpath_parser_limit_raises_depth_error(doc: turbohtml.Node) -> None:
+    with pytest.raises(XPathDepthError, match="nested too deeply"):
+        doc.xpath(f"{'(' * 1100}1{')' * 1100}")
+
+
+def test_compiled_xpath_parser_limit_raises_depth_error() -> None:
+    with pytest.raises(XPathDepthError, match="nested too deeply"):
+        XPath(f"{'(' * 1100}1{')' * 1100}")
+
+
 @pytest.mark.parametrize(
     "expr",
     [

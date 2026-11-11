@@ -247,7 +247,15 @@ static inline void sbuf_put_xml_comment(sbuf *out, const Py_UCS4 *text, Py_ssize
 
 /* The HTML comment start states end a comment at a leading `>` or `->`. */
 static inline void sbuf_put_comment_start(sbuf *out, const Py_UCS4 *text, Py_ssize_t len) {
-    if (len > 0 && (text[0] == '>' || (text[0] == '-' && len > 1 && text[1] == '>'))) {
+    Py_ssize_t first = 0;
+    while (first < len && xml_char_invalid(text[first])) {
+        first++;
+    }
+    Py_ssize_t second = first + 1;
+    while (second < len && xml_char_invalid(text[second])) {
+        second++;
+    }
+    if (first < len && (text[first] == '>' || (text[first] == '-' && second < len && text[second] == '>'))) {
         sbuf_putc(out, ' ');
     }
 }

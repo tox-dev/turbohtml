@@ -264,6 +264,7 @@ def test_html_check_skips_trees_the_standard_does_not_round_trip(markup: str) ->
         pytest.param("<p a=1>x<svg><circle r=1></circle></svg>", id="nested-content"),
         pytest.param("<p><!--end-\x01--></p>", id="comment-trailing-hyphen-after-control"),
         pytest.param("<p><!--a-\x01-b--></p>", id="comment-double-hyphen-across-control"),
+        pytest.param("!d[<!--" + "\x06" * 123 + ">-->><!----><!---->\x1c!", id="comment-leading-controls"),
     ],
 )
 def test_xml_check_passes_the_serializer(markup: str) -> None:
@@ -2085,6 +2086,11 @@ def test_atheris_reference_untranslatable_selector() -> None:
         selector_observation(b":dir(ltr)")
 
 
+def test_atheris_reference_rejects_xpath_depth_limit() -> None:
+    with pytest.raises(OutOfScopeError):
+        selector_observation(f":is({' '.join(['p'] * 1100)})".encode())
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
@@ -2106,6 +2112,10 @@ def test_atheris_reference_transform_parameter(source: bytes) -> None:
 
 def test_atheris_reference_cli_file_output() -> None:
     assert cli_observation(b"<p>one<br>two</p>") == "one\ntwo"
+
+
+def test_atheris_reference_cli_preserves_carriage_return() -> None:
+    assert cli_observation(b"<pre>a&#13;b</pre>") == "a\rb"
 
 
 @pytest.mark.parametrize("target", reference_targets(), ids=lambda target: target.name)
