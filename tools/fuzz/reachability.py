@@ -66,16 +66,12 @@ def target_functions(target: Target) -> tuple[_Function, ...]:
     return tuple(dict.fromkeys(function for item in callables for function in _functions(item) if function.lines))
 
 
-def _resolve(
-    export: str,
-) -> object:  # simplint: ignore[imprecise-annotation]  # getattr returns whatever the module exports
+def _resolve(export: str) -> object:  # simplint: ignore[SMP602]  # public export may be a value
     module, _, name = export.rpartition(".")
     return getattr(importlib.import_module(module), name)
 
 
-def _functions(
-    item: object,  # simplint: ignore[imprecise-annotation]  # exports include non-callable values
-) -> Iterator[_Function]:
+def _functions(item: object) -> Iterator[_Function]:  # simplint: ignore[SMP602]  # exports include values
     if inspect.isfunction(item):
         yield _Function(name=item.__qualname__, path=_module_path(item.__code__), lines=_lines(item.__code__))
     elif inspect.isclass(item) and not getattr(item, "_is_protocol", False) and (methods := list(_methods(item))):
