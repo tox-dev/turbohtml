@@ -380,7 +380,8 @@ def cli_observation(data: bytes) -> str:
         output_file: Final = Path(directory) / "output.txt"
         input_file.write_text(source, encoding="utf-8")
         _require("CLI exit status", condition=main(("to-text", str(input_file), "-o", str(output_file))) == 0)
-        observed: Final = output_file.read_text(encoding="utf-8")
+        with output_file.open(encoding="utf-8", newline="") as stream:
+            observed: Final = stream.read()
     _require("CLI result differs", condition=observed == turbohtml.parse(source).to_text())
     return observed
 

@@ -2109,6 +2109,10 @@ def test_atheris_reference_cli_file_output() -> None:
     assert cli_observation(b"<p>one<br>two</p>") == "one\ntwo"
 
 
+def test_atheris_reference_cli_preserves_carriage_return() -> None:
+    assert cli_observation(b"<pre>a&#13;b</pre>") == "a\rb"
+
+
 @pytest.mark.parametrize("target", reference_targets(), ids=lambda target: target.name)
 def test_atheris_reference_callback_rejects_invalid_utf8(target: Target) -> None:
     with pytest.raises(UnicodeDecodeError):

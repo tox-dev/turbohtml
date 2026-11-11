@@ -122,7 +122,7 @@ def _write(text: str, output: str | None) -> None:
     if output is None or output == "-":
         sys.stdout.write(text)
     else:
-        Path(output).write_text(text, encoding="utf-8")
+        Path(output).write_text(text, encoding="utf-8", newline="")
 
 
 __all__ = [
