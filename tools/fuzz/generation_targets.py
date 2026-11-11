@@ -68,11 +68,15 @@ def encoding_observation(
     document: Final = parse(data, detect_encoding=True) if sniff else parse(data, encoding=encoding)
     # BOMs override explicit codecs; late declarations can restart sniffed parsing.
     decoded: Final = decode(data, f"whatwg-{document.encoding}").removeprefix("\ufeff")
-    if _nesting(decoded) <= _ORACLE_MAX_NESTING:
+    nesting: Final = _nesting(decoded)
+    if nesting <= _ORACLE_MAX_NESTING:
         unicode_text: Final = parse(decoded).text
         if document.text != unicode_text:
             msg = f"Encoded parser text differs: {document.text!r} != {unicode_text!r}"
             raise AssertionError(msg)
+        # The C tree builder flattens past 512 open elements; html5lib does not.
+        if nesting > 500:
+            return document.text
         reference: Final = html5lib.parse(decoded, namespaceHTMLElements=False)
         expected: Final = _reference_text(reference)
         # html5lib's former in-select rules ignore style and title content that the current HTML parser keeps.

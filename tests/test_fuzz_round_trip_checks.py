@@ -55,7 +55,7 @@ from fuzz.css_custom_oracles import (
 )
 from fuzz.dom_targets import DomObservation, dom_observation, dom_targets
 from fuzz.encoding_structure_generators import encoding_grammar
-from fuzz.generation_targets import _ORACLE_MAX_NESTING, encoding_observation, generation_targets
+from fuzz.generation_targets import encoding_observation, generation_targets
 from fuzz.html_structure_generators import html_grammar_complete
 from fuzz.idna_nfc_oracles import (
     UnsupportedIdnaNfcCaseError,
@@ -898,7 +898,11 @@ def test_generation_foreign_unmatched_p_null(markup: str, expected: str) -> None
 
 @pytest.mark.parametrize(
     ("nesting", "oracle_calls"),
-    [pytest.param(_ORACLE_MAX_NESTING, 1, id="at-limit"), pytest.param(_ORACLE_MAX_NESTING + 1, 0, id="past-limit")],
+    [
+        pytest.param(500, 1, id="reference-at-limit"),
+        pytest.param(501, 0, id="reference-past-limit"),
+        pytest.param(2501, 0, id="parser-past-limit"),
+    ],
 )
 def test_encoding_oracle_skips_markup_past_the_nesting_limit(
     nesting: int, oracle_calls: int, mocker: MockerFixture
@@ -906,6 +910,13 @@ def test_encoding_oracle_skips_markup_past_the_nesting_limit(
     parse_reference: Final = mocker.patch("fuzz.generation_targets.html5lib.parse", wraps=html5lib.parse)
     assert encoding_observation((f"{'<div>' * nesting}kept").encode()) == "kept"
     assert parse_reference.call_count == oracle_calls
+
+
+def test_encoding_oracle_keeps_parser_text_at_the_tree_depth_cap(mocker: MockerFixture) -> None:
+    parse_reference: Final = mocker.patch("fuzz.generation_targets.html5lib.parse", wraps=html5lib.parse)
+    data: Final = (f">{'<div>' * 509}\x01\x00<table><tr><ud>a<=d>c<td>d").encode()
+    assert encoding_observation(data) == ">\x01da<=d>c"
+    assert parse_reference.call_count == 0
 
 
 @pytest.mark.parametrize(
