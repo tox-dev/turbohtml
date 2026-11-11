@@ -1,0 +1,3 @@
+Prevent phone-number extensions with many separators from writing past the recognizer's chunk buffer. Preserve XML
+comment boundaries after invalid controls are removed and exact carriage returns and line feeds in CLI text files.
+Deeply nested XPath expressions now raise ``XPathDepthError`` during parsing, matching evaluation.
