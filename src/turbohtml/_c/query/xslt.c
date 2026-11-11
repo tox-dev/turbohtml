@@ -1090,7 +1090,7 @@ static xp_program *compile_pattern_new(engine *eng, const Py_UCS4 *src, Py_ssize
         return NULL;                           /* GCOVR_EXCL_LINE */
     }
     char errbuf[256];
-    xp_program *prog = xp_compile(expr.data, expr.len, errbuf, sizeof(errbuf));
+    xp_program *prog = xp_compile(expr.data, expr.len, errbuf, sizeof(errbuf), PyExc_ValueError);
     xb_free(&expr);
     if (prog == NULL) {
         if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation error */
@@ -1835,7 +1835,7 @@ static xp_program *compile_expression(engine *eng, const Py_UCS4 *source, Py_ssi
         snprintf(error, error_size, "stylesheet expression was not compiled"); /* GCOVR_EXCL_LINE */
         return NULL;                                                           /* GCOVR_EXCL_LINE */
     }
-    program = xp_compile(source, length, error, error_size);
+    program = xp_compile(source, length, error, error_size, PyExc_ValueError);
     if (program == NULL) {
         return NULL;
     }
@@ -5876,7 +5876,7 @@ static int bind_globals(engine *eng, PyObject *params) {
                 }
                 expr_len = PyUnicode_GET_LENGTH(supplied);
                 char errbuf[256];
-                xp_program *prog = xp_compile(expr, expr_len, errbuf, sizeof(errbuf));
+                xp_program *prog = xp_compile(expr, expr_len, errbuf, sizeof(errbuf), PyExc_ValueError);
                 PyMem_Free(expr);
                 if (prog == NULL) {
                     if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation error */

@@ -984,7 +984,7 @@ TH_NODE_API(, PyObject *, node_re_first, (PyObject * self, PyObject *args, PyObj
    is tree-independent, so an entry never goes stale. The caller must hold the handle's
    critical section and have type-checked arg; the returned pointer is borrowed. NULL
    with a Python error set on a compile error. */
-static xp_program *cached_xpath_compile(HandleObject *handle, PyObject *arg) {
+static xp_program *cached_xpath_compile(HandleObject *handle, PyObject *arg, PyObject *depth_error) {
     for (int index = 0; index < handle->xpath_cache_len; index++) {
         xpath_cache_entry entry = handle->xpath_cache[index];
         if (entry.key != arg && PyUnicode_Compare(entry.key, arg) != 0) {
@@ -1000,7 +1000,7 @@ static xp_program *cached_xpath_compile(HandleObject *handle, PyObject *arg) {
         return NULL;   /* GCOVR_EXCL_LINE */
     }
     char err[128];
-    xp_program *prog = xp_compile(src, len, err, sizeof(err));
+    xp_program *prog = xp_compile(src, len, err, sizeof(err), depth_error);
     PyMem_Free(src);
     if (prog == NULL) {
         if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation error */
@@ -1672,7 +1672,7 @@ static PyObject *xpath_eval_object(PyObject *self, PyObject *arg, const xp_bindi
     HandleObject *handle_obj = (HandleObject *)handle;
     th_tree *tree = handle_obj->tree;
     xpath_ext_ctx ext_ctx = {.extensions = extensions, .handle = handle, .state = state, .tree = tree};
-    xp_program *prog = cached_xpath_compile(handle_obj, arg);
+    xp_program *prog = cached_xpath_compile(handle_obj, arg, state->xpath_depth_error);
     if (prog != NULL) {
         compiled = 1;
         int callbacks = extensions != NULL || xp_calls_python(prog);
@@ -2075,7 +2075,8 @@ static PyObject *xpath_compiled_new(PyTypeObject *type, PyObject *args, PyObject
         return NULL;   /* GCOVR_EXCL_LINE: allocation-failure path */
     }
     char err[128];
-    xp_program *prog = xp_compile(src, len, err, sizeof(err));
+    module_state *state = PyType_GetModuleState(type);
+    xp_program *prog = xp_compile(src, len, err, sizeof(err), state->xpath_depth_error);
     PyMem_Free(src);
     if (prog == NULL) {
         if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation error */

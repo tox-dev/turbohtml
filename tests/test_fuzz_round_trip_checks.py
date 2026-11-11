@@ -2086,6 +2086,11 @@ def test_atheris_reference_untranslatable_selector() -> None:
         selector_observation(b":dir(ltr)")
 
 
+def test_atheris_reference_rejects_xpath_depth_limit() -> None:
+    with pytest.raises(OutOfScopeError):
+        selector_observation(f":is({' '.join(['p'] * 1100)})".encode())
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     [

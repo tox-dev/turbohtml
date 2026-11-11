@@ -7,6 +7,7 @@
 #include "query/xpath/internal.h"
 #include "query/xpath/regex.h"
 #include "query/xpath/xpath.h"
+#include "tokenizer/binding.h"
 
 #include <math.h>
 #include <string.h>
@@ -1824,7 +1825,7 @@ int eval_function(const xp_program *prog, int32_t idx, xp_ctx *ctx, xp_result *o
     return rc;
 }
 
-PyObject *turbohtml_xpath_parse(PyObject *Py_UNUSED(module), PyObject *arg) {
+PyObject *turbohtml_xpath_parse(PyObject *module, PyObject *arg) {
     if (!PyUnicode_Check(arg)) {
         PyErr_SetString(PyExc_TypeError, "xpath expression must be a str");
         return NULL;
@@ -1835,7 +1836,8 @@ PyObject *turbohtml_xpath_parse(PyObject *Py_UNUSED(module), PyObject *arg) {
         return NULL;   /* GCOVR_EXCL_LINE */
     }
     char err[128];
-    xp_program *prog = xp_compile(src, len, err, sizeof(err));
+    module_state *state = PyModule_GetState(module);
+    xp_program *prog = xp_compile(src, len, err, sizeof(err), state->xpath_depth_error);
     PyMem_Free(src);
     if (prog == NULL) {
         if (!PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: allocation error */

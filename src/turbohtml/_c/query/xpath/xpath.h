@@ -24,9 +24,9 @@
 typedef struct xp_program xp_program;
 
 /* Compile an XPath expression given as code points. Returns the program, or NULL
-   on a syntax error with a NUL-terminated message written into errbuf (errlen is
-   its capacity). The source is not retained; names and literals are copied. */
-xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t errlen);
+   with a NUL-terminated message in errbuf (errlen is its capacity). A depth limit
+   also raises depth_error. The source is not retained; names and literals are copied. */
+xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t errlen, PyObject *depth_error);
 
 int xp_calls_python(const xp_program *prog);
 void xp_retain(xp_program *prog);

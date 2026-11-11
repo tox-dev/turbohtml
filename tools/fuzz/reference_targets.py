@@ -212,10 +212,14 @@ def selector_observation(
     _require("Generic translator differs", condition=GenericTranslator().css_to_xpath(selector) == expression)
     _require("HTML translator differs", condition=HTMLTranslator().css_to_xpath(selector) == expression)
     document: Final = turbohtml.parse(selector_document)
+    try:
+        translated = cast("list[turbohtml.Node]", document.xpath(expression))
+    except turbohtml.XPathDepthError as error:
+        raise OutOfScopeError from error
     _require(
         "Selector translation differs",
         condition=tuple(node.serialize() for node in document.select(selector))
-        == tuple(node.serialize() for node in cast("list[turbohtml.Node]", document.xpath(expression))),
+        == tuple(node.serialize() for node in translated),
     )
     return expression, tuple(css_specificity(selector))
 

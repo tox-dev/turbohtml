@@ -12,6 +12,7 @@ typedef struct {
     xp_program *prog;
     int failed;
     int out_of_memory;
+    int depth_limit;
     int depth; /* current parse recursion depth, capped at XP_MAX_DEPTH */
     const char *msg;
     Py_ssize_t err_pos;     /* offset of the offending token when failed */
@@ -452,6 +453,7 @@ static int32_t parse_union(parser *ps) {
    parser's stack use and raises past the bound instead of overflowing (issue #421). */
 static int32_t parse_unary(parser *ps) {
     if (ps->depth >= XP_MAX_DEPTH) {
+        ps->depth_limit = 1;
         fail(ps, "expression nested too deeply");
         return -1;
     }
@@ -740,7 +742,7 @@ static void format_error(char *errbuf, size_t errlen, const parser *ps) {
     }
 }
 
-xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t errlen) {
+xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t errlen, PyObject *depth_error) {
     xp_program *prog = PyMem_Malloc(sizeof(*prog));
     if (prog == NULL) {                            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
         snprintf(errbuf, errlen, "out of memory"); /* GCOVR_EXCL_LINE */
@@ -776,8 +778,10 @@ xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t 
        did not record a message, so those branches cannot be forced from a test */
     if (ps.failed || prog->root < 0) { /* GCOVR_EXCL_BR_LINE: root < 0 is an unforced arena OOM */
         format_error(errbuf, errlen, &ps);
-        if (ps.out_of_memory || ps.msg == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            PyErr_NoMemory();                     /* GCOVR_EXCL_LINE */
+        if (ps.depth_limit) {
+            PyErr_SetString(depth_error, errbuf);
+        } else if (ps.out_of_memory || ps.msg == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            PyErr_NoMemory();                            /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE */
         xp_free(prog);
         return NULL;

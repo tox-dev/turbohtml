@@ -67,10 +67,10 @@ class XPathString(str):  # ruff:ignore[subclass-builtin]
 
 class XPathDepthError(ValueError):
     """
-    An XPath expression nests deeper than the evaluator allows.
+    An XPath expression exceeds the parser or evaluator depth cap.
 
     Raised by :meth:`turbohtml.Node.xpath` and the precompiled :class:`turbohtml.XPath` when an expression's operator
-    spine or parenthesized groups exceed the evaluator's depth cap, rather than overflowing the C stack. It subclasses
+    spine or parenthesized groups nest too deeply, rather than overflowing the C stack. It subclasses
     :class:`ValueError`, so code catching ``ValueError`` keeps working.
     """
 
