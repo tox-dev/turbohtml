@@ -45,7 +45,9 @@ worker.main()
 """
 
 
-@pytest.mark.parametrize(("case", "expected"), [(0, f"{__version__}\n"), (1, "<p>a b")], ids=["import", "cli"])
+@pytest.mark.parametrize(
+    ("case", "expected"), [pytest.param(0, f"{__version__}\n", id="import"), pytest.param(1, "<p>a b", id="cli")]
+)
 def test_worker_startup_public_output(case: int, expected: str) -> None:
     operation: Final = cast("Callable[[object], str]", OPERATIONS["startup"][0])
     assert operation(INPUTS["startup"]()[case][1]) == expected
@@ -76,7 +78,7 @@ def test_worker_explicit_case_registered_once(name: str) -> None:
         pytest.param("Mutating(setup=read_file, run=str.upper)", id="mutating"),
     ],
 )
-@pytest.mark.parametrize("error_index", [0, 1], ids=["error-first", "error-middle"])
+@pytest.mark.parametrize("error_index", [pytest.param(0, id="error-first"), pytest.param(1, id="error-middle")])
 def test_worker_skips_unselected_inputs(tmp_path: Path, error_index: int, *, operation: str) -> None:
     first: Final = tmp_path / "first.txt"
     first.write_text("first input", encoding="utf-8")

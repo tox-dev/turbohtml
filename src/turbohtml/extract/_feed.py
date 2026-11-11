@@ -12,7 +12,9 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from turbohtml._html import _register_feed
+from ._native import (
+    register_feed as _register_feed,
+)
 
 
 class Entry(NamedTuple):

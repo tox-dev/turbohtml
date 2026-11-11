@@ -11,10 +11,6 @@ thread-safe config object (:class:`Policy`, :class:`Linkify`, :class:`Minify`, :
 
 from __future__ import annotations
 
-from turbohtml._html import Minify, collapse_whitespace_node, strip_comments_node, transform_node
-from turbohtml._internal._cssmin import CSSMinify, minify_css, minify_css_inline
-from turbohtml._internal._minify import JSMinify, minify, minify_js
-
 from ._linkify import (
     DEFAULT_CALLBACKS,
     DEFAULT_PHONE_LABELS,
@@ -33,6 +29,20 @@ from ._linkify import (
     linkify_node,
     nofollow,
     target_blank,
+)
+
+# Minifier implementations live with rendering because both register types in the native core.
+from ._native import (
+    CSSMinify,
+    JSMinify,
+    Minify,
+    collapse_whitespace_node,
+    minify,
+    minify_css,
+    minify_css_inline,
+    minify_js,
+    strip_comments_node,
+    transform_node,
 )
 from ._sanitizer import (
     DEFAULT_ATTRIBUTES,

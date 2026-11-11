@@ -3,18 +3,16 @@ from __future__ import annotations
 import gc
 import weakref
 from collections import UserDict, defaultdict
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Final, NoReturn, cast
 
 import pytest
 
 from turbohtml import parse_fragment
-from turbohtml._html import _bleach_attributes
 from turbohtml.clean import Policy, sanitize, sanitize_node
 from turbohtml.migration.bleach import ALLOWED_ATTRIBUTES, ALLOWED_PROTOCOLS, ALLOWED_TAGS, attribute_policy, clean
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Mapping
 
 
 @pytest.mark.parametrize(
@@ -148,7 +146,7 @@ def test_exported_constants() -> None:
 
 
 def test_a_flat_list_admits_its_names_on_every_tag() -> None:
-    assert _bleach_attributes(["href", "title"], Mapping) == ({"*": frozenset({"href", "title"})}, None)
+    assert attribute_policy(["href", "title"]) == ({"*": frozenset({"href", "title"})}, None)
 
 
 def test_a_callable_admits_every_name_and_judges_each_value() -> None:
@@ -183,28 +181,27 @@ def test_a_predicate_error_propagates() -> None:
         msg = "boom"
         raise RuntimeError(msg)
 
-    _, bound = _bleach_attributes(judge, Mapping)
+    _, bound = attribute_policy(judge)
     assert bound is not None
     with pytest.raises(RuntimeError, match="boom"):
         bound("a", "href", "/x")
 
 
 def test_a_verdict_that_cannot_be_judged_propagates() -> None:
-    _, bound = _bleach_attributes(lambda *_: _Undecided(), Mapping)
+    _, bound = attribute_policy(lambda *_: _Undecided())  # ty: ignore[invalid-argument-type]  # tests truth-test errors
     assert bound is not None
     with pytest.raises(RuntimeError, match="undecided"):
         bound("a", "href", "/x")
 
 
 class _Undecided:
-    # A verdict whose truth test raises, the way a lazy proxy might.
     def __bool__(self) -> bool:
         msg = "undecided"
         raise RuntimeError(msg)
 
 
 def test_the_predicate_takes_three_arguments() -> None:
-    _, bound = _bleach_attributes(lambda *_: True, Mapping)
+    _, bound = attribute_policy(lambda *_: True)
     assert bound is not None
     with pytest.raises(TypeError):
         bound("a", "href")  # ty: ignore[missing-argument]  # the arity check is the point
@@ -221,16 +218,6 @@ def test_the_predicate_takes_three_arguments() -> None:
 def test_a_shape_that_lists_nothing_is_rejected(attributes: int | dict[str, int | list[list[str]]]) -> None:
     with pytest.raises(TypeError):
         clean('<a href="/x">x</a>', attributes=cast("list[str]", attributes))
-
-
-def test_the_entry_takes_two_arguments() -> None:
-    with pytest.raises(TypeError):
-        _bleach_attributes(["href"])  # ty: ignore[missing-argument]  # the arity check is the point
-
-
-def test_the_shape_test_must_be_a_type() -> None:
-    with pytest.raises(TypeError):
-        _bleach_attributes({"a": ["href"]}, 5)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
 
 @pytest.mark.parametrize(

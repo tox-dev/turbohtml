@@ -10,8 +10,6 @@ from turbohtml.query import compile  # ruff:ignore[builtin-import-shadowing]  # 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from _pytest.mark.structures import ParameterSet
-
 
 def _siblings(*runs: tuple[str, int], filled: Iterable[int] = ()) -> str:
     # runs past 32 siblings reach the sibling memo, and past 48 stored answers the memo grows; the element eN at a
@@ -362,7 +360,7 @@ def test_select_nth_sibling_skips_nonmatching_elements() -> None:
     assert _ids(document.select("i:nth-child(odd of .x)")) == ["a", "c"]
 
 
-_SIBLING_CACHE_CASES: Final[list[ParameterSet]] = [
+_SIBLING_CACHE_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("a ~ b", ["hit"], "hit", id="indexed"),
     pytest.param(".x ~ .y", ["hit", "tail"], "hit", id="classes"),
     pytest.param("a ~ b, a ~ p", ["hit", "tail"], "hit", id="different-subjects"),

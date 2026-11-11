@@ -184,13 +184,15 @@ def encoding_check(
             return "sniffed codec differs from profile"
     if decode(case.data, profile.codec) != encoding_decoded(case):
         return "decoded bytes differ from production literals"
-    if xml_snapshot((read or _read)(case.data, profile)) != encoding_expected(case):
+    if read is None:
+        document = (
+            parse(case.data, detect_encoding=True) if profile.sniff else parse(case.data, encoding=profile.encoding)
+        )
+    else:
+        document = read(case.data, profile)
+    if xml_snapshot(document) != encoding_expected(case):
         return "parsed bytes differ from production literals"
     return None
-
-
-def _read(data: bytes, profile: EncodingProfile) -> Document:
-    return parse(data, detect_encoding=True) if profile.sniff else parse(data, encoding=profile.encoding)
 
 
 def encoding_expected(case: Generated) -> tuple[XmlRecord, ...]:

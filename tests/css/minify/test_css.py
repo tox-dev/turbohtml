@@ -17,8 +17,6 @@ from turbohtml.clean import CSSMinify, minify_css, minify_css_inline
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from _pytest.mark.structures import ParameterSet
-
 _NEWLY: Final[CSSMinify] = CSSMinify(baseline=2021)
 
 
@@ -963,7 +961,7 @@ def test_minify_css_escaped_space_kept(source: str, expected: str) -> None:
     assert minify_css(expected) == expected
 
 
-_ESCAPED_NAME: Final[list[ParameterSet]] = [
+_ESCAPED_NAME: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{e:\\7b x}", "a{e:\\{x}", id="leading-brace"),
     pytest.param("a{e:\\fec0}", "a{e:\ufec0}", id="non-bom-final-byte"),
     pytest.param("a{e:1E3p\\78}", "a{e:1e3px}", id="uppercase-exponent-unit"),
@@ -1053,7 +1051,7 @@ def test_minify_css_decoded_name_is_a_fixed_point(source: str, expected: str) ->
     assert minify_css(minify_css(source)) == expected
 
 
-_POSITION_DELIMITERS: Final[list[ParameterSet]] = [
+_POSITION_DELIMITERS: Final[list[pytest.ParameterSet]] = [
     pytest.param("left ~ .5px", "left~.5px", id="tilde"),
     pytest.param("left / .5px", "left/.5px", id="slash"),
     pytest.param("left + .5px", "left+ .5px", id="plus"),
@@ -1235,7 +1233,7 @@ def test_minify_css_background_position_delimiters_preserve_cascade(value: str, 
     )
 
 
-_NEGATIVE_AFTER_NUMBER: Final[list[ParameterSet]] = [
+_NEGATIVE_AFTER_NUMBER: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{e:1e-128 -1e-128}", "a{e:1e-128-1e-128}", id="signed-exponent-boundaries"),
     pytest.param("a{e:1 -.}", "a{e:1 -.}", id="bare-minus-dot"),
     pytest.param("a{e:1 -.x}", "a{e:1 -.x}", id="minus-dot-before-ident"),
@@ -1286,7 +1284,7 @@ def test_minify_css_empty_run(source: str, expected: str) -> None:
 
 
 # an empty prelude is not a selector list, so a top-level rule with one is invalid and dropped rather than merged in
-_EMPTY_SELECTOR_RULE: Final[list[ParameterSet]] = [
+_EMPTY_SELECTOR_RULE: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{color:red}{color:red}", "a{color:red}", id="after-rule-same-body"),
     pytest.param("{color:red}", "", id="lone"),
     pytest.param("a{color:red}{margin:0}", "a{color:red}", id="after-rule-other-body"),
@@ -1315,7 +1313,10 @@ def test_minify_css_same_selector_merge_is_bounded() -> None:
 
 def _max_decls_per_rule(rule_count: int) -> int:
     out: Final = minify_css("".join(f"a{{--p{index}:{index}}}" for index in range(rule_count)))
-    return max(body.count(":") for body in re.findall(r"\{([^}]*)\}", out))
+    return max(body.count(":") for body in _MAX_DECLS_PER_RULE_PATTERN.findall(out))
+
+
+_MAX_DECLS_PER_RULE_PATTERN: Final[re.Pattern[str]] = re.compile(r"\{([^}]*)\}")
 
 
 def test_minify_css_same_body_merge_is_bounded_and_stable() -> None:
@@ -1849,7 +1850,7 @@ def test_minify_css_selector_names_keep_case(source: str, expected: str) -> None
     assert (result, minify_css(result)) == (expected, expected)
 
 
-_BACKSLASH_AT_EOF: Final[list[ParameterSet]] = [
+_BACKSLASH_AT_EOF: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{e:f\\", "a{e:f\ufffd}", id="ident"),
     pytest.param("a{e:\\", "a{e:\ufffd}", id="lone"),
     pytest.param("a{e:#f\\", "a{e:#f\ufffd}", id="hash"),
@@ -1876,7 +1877,7 @@ def test_minify_css_backslash_at_eof_is_a_fixed_point(source: str, expected: str
     assert minify_css(minify_css(source)) == expected
 
 
-_OPEN_AT_EOF: Final[list[ParameterSet]] = [
+_OPEN_AT_EOF: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{e:url(x", "a{e:url(x)}", id="url"),
     pytest.param('a{e:url("x', "a{e:url(x)}", id="url-open-string"),
     pytest.param('a{e:url("x"', "a{e:url(x)}", id="url-closed-string"),
@@ -1910,7 +1911,7 @@ def test_minify_css_closes_token_open_at_eof_is_a_fixed_point(source: str, expec
 
 # a custom property's value is any token sequence, {} blocks included (CSS Variables 1 §2), so a `{` after `--name:`
 # opens a block in the value instead of a nested rule (CSS Syntax 3 §5.5.5), closed at the end of input (§5.5.9)
-_CUSTOM_PROPERTY_BLOCK: Final[list[ParameterSet]] = [
+_CUSTOM_PROPERTY_BLOCK: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{--d:{1}}", "a{--d:{1}}", id="number"),
     pytest.param("a{--d:{a b}}", "a{--d:{a b}}", id="idents"),
     pytest.param("a{--d:{color:red}}", "a{--d:{color:red}}", id="declaration"),
@@ -1962,7 +1963,7 @@ def test_minify_css_inline_custom_property_block(source: str, expected: str) -> 
 
 # a stylesheet ending in a statement at-rule keeps its `;`, so another sheet appended to it starts a new rule instead of
 # becoming the at-rule's block (CSS Syntax 3 §5.5.2); blocks its prelude leaves open close first (§5.5.9)
-_FINAL_AT_STATEMENT: Final[list[ParameterSet]] = [
+_FINAL_AT_STATEMENT: Final[list[pytest.ParameterSet]] = [
     pytest.param("@x ;", "@x;", id="whitespace-only-prelude"),
     pytest.param("@x/**/;", "@x;", id="comment-only-prelude"),
     pytest.param('@import "a";', '@import"a";', id="import"),
@@ -2006,7 +2007,7 @@ def test_minify_css_final_at_statement_survives_concatenation() -> None:
 
 # a closed string ends at its quote and nothing reads past one (CSS Syntax 3 §4.3.5), so an at-rule prelude needs no
 # space on either side of it; @charset keeps its space, as the encoding sniff matches the bytes `@charset "` (§3.2)
-_AT_PRELUDE_STRING: Final[list[ParameterSet]] = [
+_AT_PRELUDE_STRING: Final[list[pytest.ParameterSet]] = [
     pytest.param('@import "a";', '@import"a";', id="import"),
     pytest.param("@import 'a';", "@import'a';", id="import-single-quote"),
     pytest.param("@import url(a.css);", '@import"a.css";', id="import-url-unwrapped"),
@@ -2059,7 +2060,7 @@ def test_minify_css_at_prelude_cut_string_keeps_newline(source: str, expected: s
 # the declaration or rule holding it is dropped, as a browser drops it; the rules around it stay. An at-rule prelude
 # keeps it with its newline: `@media all,"a` still matches `all` (Media Queries 4 §3.2 reads the bad query as `not
 # all`), and a prelude whose grammar fails as a whole is dropped by the browser either way.
-_STRING_CUT_BY_NEWLINE: Final[list[ParameterSet]] = [
+_STRING_CUT_BY_NEWLINE: Final[list[pytest.ParameterSet]] = [
     pytest.param('a{e:"\n}', "", id="lone-quote"),
     pytest.param('a{e:f("\n)}', "", id="lone-quote-in-function"),
     pytest.param('a{e:"x\\"\n}', "", id="escaped-quote-before-newline"),
@@ -2117,7 +2118,7 @@ def test_minify_css_inline_string_cut_by_newline() -> None:
 
 # A top-level ';' or '}' is a prelude component value, so a qualified rule carrying one has an invalid selector list
 # and is dropped with its block (CSS Syntax 3 §5.4.3); with no block the stray text is kept as recovery.
-_STRAY_TOP_TOKEN: Final[list[ParameterSet]] = [
+_STRAY_TOP_TOKEN: Final[list[pytest.ParameterSet]] = [
     pytest.param("}p{color:red}", "", id="brace-before-rule"),
     pytest.param("x;p{color:red}", "", id="semicolon-before-rule"),
     pytest.param("/}*a{color:red}b{color:blue}", "b{color:blue}", id="brace-splits-comment"),
@@ -2158,7 +2159,7 @@ def test_minify_css_stray_top_token_is_a_fixed_point(source: str, expected: str)
 # A rewrite that a calc() or color fold enables applies in the same call: the color fold reads the folded arguments,
 # the shorthand handlers see a folded hex, number or dimension as such, and a comment (no token, CSS Syntax 3 §4.3.2)
 # does not hide a legacy pseudo-element.
-_ONE_CALL_REWRITE: Final[list[ParameterSet]] = [
+_ONE_CALL_REWRITE: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{color:rgb(calc(1),0,0)}", "a{color:#010000}", id="calc-in-rgb"),
     pytest.param("a{color:hsl(calc(120),100%,50%)}", "a{color:#0f0}", id="calc-in-hsl"),
     pytest.param("a{color:rgba(calc(255),0,0,calc(1))}", "a{color:red}", id="calc-in-alpha"),
@@ -2560,7 +2561,7 @@ def test_non_int_baseline_raises_type_error() -> None:
         minify_css("a{}", CSSMinify(baseline="newest"))  # ty: ignore[invalid-argument-type]
 
 
-_DIMENSION_UNIT: Final[list[ParameterSet]] = [
+_DIMENSION_UNIT: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{e:1px\u00e9}", "a{e:1px\u00e9}", id="non-ascii"),
     pytest.param("a{e:1\u00e9}", "a{e:1\u00e9}", id="non-ascii-first"),
     pytest.param("a{e:1p\\78}", "a{e:1px}", id="escape"),
@@ -2606,7 +2607,7 @@ def test_minify_css_dimension_unit_is_a_fixed_point(source: str, expected: str) 
 
 # shortening a number (dropping a zero unit or a sign) must keep a separator so it does not read as the neighboring
 # token, in an at-rule prelude and inside calc(), as the declaration-value path already does
-_NUMBER_BOUNDARY: Final[list[ParameterSet]] = [
+_NUMBER_BOUNDARY: Final[list[pytest.ParameterSet]] = [
     pytest.param("@x 0px.5;", "@x 0 .5;", id="at-prelude-zero-unit-before-fraction"),
     pytest.param("@x a.-0;", "@x a. 0;", id="at-prelude-dot-before-signed-zero"),
     pytest.param("@x (a)0px.5{b:c}", "@x(a)0 .5{b:c}", id="at-prelude-with-block"),
@@ -2869,7 +2870,7 @@ def test_minify_css_overlapping_rule_benchmark(case: int) -> None:
     assert minify_css(source) == first_pair
 
 
-_BENCHMARK_MINIFIERS: Final[list[ParameterSet]] = [
+_BENCHMARK_MINIFIERS: Final[list[pytest.ParameterSet]] = [
     pytest.param("bench.core", id="turbohtml"),
     pytest.param("bench.competitors.rcssmin", id="rcssmin"),
     pytest.param("bench.competitors.cssmin", id="cssmin"),
@@ -2937,6 +2938,11 @@ def test_merge_benchmark_preserves_conflicting_declarations(
     assert _merge_fixture_cascade(minimize(source)) == expected
 
 
+_MERGE_FIXTURE_CASCADE_PATTERN: Final[re.Pattern[str]] = re.compile(r"--[ab][0-9]+")
+
+_MERGE_FIXTURE_CASCADE_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"\.[ab][0-9]*")
+
+
 @pytest.mark.oracle
 def _merge_fixture_cascade(source: str, media: str = "all") -> dict[tuple[str, str], dict[str, str]]:
     parser: Final = pytest.importorskip("tinycss2")
@@ -2966,11 +2972,11 @@ def _merge_fixture_cascade(source: str, media: str = "all") -> dict[tuple[str, s
                 assert colors.parse_color(value) == (1.0, 0.0, 0.0, 1.0)
                 value = "red"
             else:
-                assert re.fullmatch(r"--[ab][0-9]+", declaration.name)
+                assert _MERGE_FIXTURE_CASCADE_PATTERN.fullmatch(declaration.name)
             declarations[declaration.name] = value
         for raw_selector in parser.serialize(rule.prelude).split(","):
             selector: Final = raw_selector.strip()
-            assert re.fullmatch(r"\.[ab][0-9]*", selector)
+            assert _MERGE_FIXTURE_CASCADE_PATTERN_2.fullmatch(selector)
             result.setdefault((media, selector), {}).update(declarations)
     return result
 
@@ -3302,10 +3308,7 @@ def test_text_emphasis_defaults_preserve_validity(value: str, expected: str) -> 
     assert minify_css(source) == output
 
 
-if TYPE_CHECKING:
-    from _pytest.mark.structures import ParameterSet
-
-_TYPE_CASES: Final[list[ParameterSet]] = [
+_TYPE_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{width:calc(1 - 1)}", "a{width:calc(0)}", id="number-zero-stays-number"),
     pytest.param("a{opacity:calc(1px - 1px)}", "a{opacity:calc(0px)}", id="length-zero-stays-length"),
     pytest.param("a{border-width:calc(1px + 0%)}", "a{border-width:calc(1px + 0%)}", id="zero-percent-keeps-type"),
@@ -3833,10 +3836,7 @@ def test_minify_css_border_color_preserves_repeated_substitutions(value: str, ex
     assert minify_css(source) == f"a{{border-color:{expected}}}"
 
 
-if TYPE_CHECKING:
-    from _pytest.mark.structures import ParameterSet
-
-_CALC_RANGE_CASES: Final[list[ParameterSet]] = [
+_CALC_RANGE_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{width:calc(0px - 1px)}", "a{width:calc(-1px)}", id="width-clamps-negative"),
     pytest.param("a{padding:calc(1px - 2px)}", "a{padding:calc(-1px)}", id="padding-clamps-negative"),
     pytest.param("a{opacity:calc(0 - 1)}", "a{opacity:calc(-1)}", id="opacity-clamps-negative"),
@@ -4492,10 +4492,7 @@ def test_box_substitution(source: str, expected: str) -> None:
     assert (minify_css(source), minify_css(minify_css(source))) == (expected, expected)
 
 
-if TYPE_CHECKING:
-    from _pytest.mark.structures import ParameterSet
-
-_POSITION_STRINGS: Final[list[ParameterSet]] = [
+_POSITION_STRINGS: Final[list[pytest.ParameterSet]] = [
     pytest.param('left "x" .5px', 'left "x" .5px', id="string-offset"),
     pytest.param('left "0" .5px', 'left "0" .5px', id="numeric-string"),
     pytest.param('"left" top', '"left" top', id="quoted-keyword"),
@@ -4530,10 +4527,7 @@ def test_minify_css_background_position_strings_preserve_cascade(value: str, exp
     )
 
 
-if TYPE_CHECKING:
-    from _pytest.mark.structures import ParameterSet
-
-_INTEGER_ROLES: Final[list[ParameterSet]] = [
+_INTEGER_ROLES: Final[list[pytest.ParameterSet]] = [
     pytest.param("a{order:1.0}", "a{order:1.0}", id="order-fraction"),
     pytest.param("a{order:+1.0}", "a{order:+1.0}", id="order-positive-fraction"),
     pytest.param("a{order:1e0}", "a{order:1e0}", id="order-exponent"),
@@ -4682,10 +4676,7 @@ def test_background_substitution(source: str, expected: str) -> None:
     assert (minify_css(source), minify_css(minify_css(source))) == (expected, expected)
 
 
-if TYPE_CHECKING:
-    from _pytest.mark.structures import ParameterSet
-
-_NUMERIC_CASES: Final[list[ParameterSet]] = [
+_NUMERIC_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("a { z-index:1. }", "a{z-index:1.}", id="trailing-dot"),
     pytest.param("a { width:1.", "a{width:1.}", id="trailing-dot-at-eof"),
     pytest.param(
@@ -4741,10 +4732,7 @@ def test_minify_css_numeric_token_boundaries_fixed_point(source: str, expected: 
     assert minify_css(minify_css(source)) == expected
 
 
-if TYPE_CHECKING:
-    from _pytest.mark.structures import ParameterSet
-
-_MATH_CASES: Final[list[ParameterSet]] = [
+_MATH_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("a { width:calc(1px+ 2em) }", "a{width:calc(1px+ 2em)}", id="missing-left-space"),
     pytest.param(
         "a { width:calc(1px/**/+ 2em + 2em) }", "a{width:calc(1px/**/+ 2em + 2em)}", id="comment-instead-of-left-space"

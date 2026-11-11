@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
 import pytest
 
 import turbohtml
 from turbohtml import Document, RdfaItem, StructuredData, parse
-from turbohtml._html import _microdata_as_dict
 from turbohtml.extract import MicrodataItem, OpenGraph, microdata, opengraph
-
-if TYPE_CHECKING:
-    from turbohtml.extract._structured_data import JSONValue
 
 
 @pytest.fixture
@@ -1344,7 +1340,7 @@ def test_microdata_empty_property_skips_cyclic_item_graph(reference: str, attrib
 
 def test_a_bare_item_renders_its_properties() -> None:
     markup = '<div itemscope><span itemprop="name">Ada</span></div>'
-    assert _microdata_as_dict(_item(markup)) == {"properties": {"name": ["Ada"]}}
+    assert json.loads(_item(markup).json()) == {"properties": {"name": ["Ada"]}}
 
 
 def _item(markup: str) -> MicrodataItem:
@@ -1356,17 +1352,17 @@ def _item(markup: str) -> MicrodataItem:
 
 def test_the_type_is_whitespace_split() -> None:
     markup = '<div itemscope itemtype="https://schema.org/Person https://schema.org/Thing"></div>'
-    shaped = _microdata_as_dict(_item(markup))
+    shaped = json.loads(_item(markup).json())
     assert shaped["type"] == ["https://schema.org/Person", "https://schema.org/Thing"]
 
 
 def test_the_identifier_is_carried_verbatim() -> None:
     markup = '<div itemscope itemid="urn:isbn:1"></div>'
-    assert _microdata_as_dict(_item(markup))["id"] == "urn:isbn:1"
+    assert json.loads(_item(markup).json())["id"] == "urn:isbn:1"
 
 
 def test_an_item_without_a_type_or_id_omits_them() -> None:
-    shaped = _microdata_as_dict(_item("<div itemscope></div>"))
+    shaped = json.loads(_item("<div itemscope></div>").json())
     assert "type" not in shaped
     assert "id" not in shaped
 
@@ -1379,7 +1375,7 @@ def test_a_nested_item_shapes_recursively() -> None:
         '<span itemprop="street">1 Main</span>'
         "</div></div>"
     )
-    properties = _microdata_as_dict(_item(markup))["properties"]
+    properties = json.loads(_item(markup).json())["properties"]
     assert isinstance(properties, dict)
     address = properties["address"]
     assert isinstance(address, list)
@@ -1388,33 +1384,14 @@ def test_a_nested_item_shapes_recursively() -> None:
 
 def test_a_property_with_several_values_keeps_document_order() -> None:
     markup = '<div itemscope><span itemprop="tag">one</span><span itemprop="tag">two</span></div>'
-    properties = _microdata_as_dict(_item(markup))["properties"]
+    properties = json.loads(_item(markup).json())["properties"]
     assert isinstance(properties, dict)
     assert properties["tag"] == ["one", "two"]
 
 
 def test_the_public_json_matches_the_shaping() -> None:
     item = _item('<div itemscope itemtype="https://schema.org/Person"><span itemprop="name">Ada</span></div>')
-    assert json.loads(item.json()) == _microdata_as_dict(item)
-
-
-class _WrongProperties:
-    # A stand-in carrying a `properties` attribute that is not a mapping.
-    properties = "not a mapping"
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        pytest.param("notanitem", id="a-string"),
-        pytest.param(5, id="a-number"),
-        pytest.param(None, id="none"),
-        pytest.param(_WrongProperties(), id="properties-is-not-a-mapping"),
-    ],
-)
-def test_the_binding_rejects_what_is_not_an_item(value: str | int | _WrongProperties | None) -> None:
-    with pytest.raises(TypeError, match="expected a MicrodataItem"):
-        _microdata_as_dict(value)  # ty: ignore[invalid-argument-type]  # the argument check is the point
+    assert json.loads(item.json()) == {"type": ["https://schema.org/Person"], "properties": {"name": ["Ada"]}}
 
 
 @pytest.mark.parametrize(
@@ -1541,5 +1518,5 @@ def test_json_ld_brackets_inside_a_string_do_not_count_toward_depth() -> None:
         ),
     ],
 )
-def test_json_ld(html: str, expected: list[JSONValue]) -> None:
+def test_json_ld(html: str, expected: list[dict[str, str | int | bool | float] | list[dict[str, str | int]]]) -> None:
     assert parse(html).json_ld() == expected

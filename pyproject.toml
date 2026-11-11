@@ -338,17 +338,18 @@ lint.select = [
 lint.ignore = [
   "CPY",                                       # no copyright statements
   "DOC",                                       # no support yet
-  "incorrect-blank-line-before-class",         # incompatible with D211
+  "incorrect-blank-line-before-class",         # incompatible with blank-line-before-class
   "magic-value-comparison",                    # comparing against literal numbers is clear enough on its own
   "missing-trailing-comma",                    # conflicts with the formatter
-  "multi-line-summary-first-line",             # incompatible with D213
+  "multi-line-summary-first-line",             # incompatible with multi-line-summary-second-line
   "single-line-implicit-string-concatenation", # conflicts with the formatter
-  "undocumented-magic-method",                 # undocumented-public-api (simplint SMP903) covers the public API instead
-  "undocumented-public-class",                 # undocumented-public-api (simplint SMP903) covers the public API instead
-  "undocumented-public-function",              # undocumented-public-api (simplint SMP903) covers the public API instead
-  "undocumented-public-init",                  # undocumented-public-api (simplint SMP903) covers the public API instead
-  "undocumented-public-method",                # undocumented-public-api (simplint SMP903) covers the public API instead
-  "undocumented-public-nested-class",          # undocumented-public-api (simplint SMP903) covers the public API instead
+  "undocumented-magic-method",                 # undocumented-public-api (simplint) covers the public API instead
+  "undocumented-public-class",                 # undocumented-public-api (simplint) covers the public API instead
+  "undocumented-public-function",              # undocumented-public-api (simplint) covers the public API instead
+  "undocumented-public-init",                  # undocumented-public-api (simplint) covers the public API instead
+  "undocumented-public-method",                # undocumented-public-api (simplint) covers the public API instead
+  "undocumented-public-nested-class",          # undocumented-public-api (simplint) covers the public API instead
+  "unnecessary-regular-expression-compile",    # conflicts with simplint inline-regex
 ]
 lint.per-file-ignores."docs/conf.py" = [
   "any-type",                   # the autodoc-engine wrappers forward Sphinx's arbitrary *args/**kwargs
@@ -364,8 +365,10 @@ lint.per-file-ignores."tests/**/*.py" = [
   "assert",                     # asserts allowed in tests
   "D",                          # don't document tests
   "implicit-namespace-package", # no implicit namespace
-  "import-private-name",        # the conformance harness drives the private _html._tokenize_states hook
-  "private-member-access",      # same private hook
+]
+lint.per-file-ignores."tests/_html/**/*.py" = [
+  "import-private-name",   # these tests mirror the native extension
+  "private-member-access", # fuzz-only hooks have no public wrapper
 ]
 lint.per-file-ignores."tests/conformance/test_cssom_jsdom_conformance.py" = [
   "suspicious-non-cryptographic-random-usage", # deterministic grammar seeds reproduce public parser cases
@@ -461,12 +464,12 @@ ini_options.filterwarnings = [
 # from portable coverage; the oracle marker scopes exclusions within consolidated modules.
 run.omit = [
   ".tox/*/cbuild/*",                                   # generated editable-build files can be imported during another tox env's run
+  "tests/_html/fuzz/test_self_test.py",                # dedicated fuzz-only and Atheris checks run in their own envs
   "tests/benchmarks/*",                                # run only under --codspeed (the CI benchmark job), never in the coverage run
   "tests/conformance/test_c14n_conformance.py",        # runs only in the dedicated conformance env; the matrix deselects tests/conformance
   "tests/conformance/test_cssom_jsdom_conformance.py", # differential oracle: skips when the node/jsdom toolchain is absent
   "tests/conformance/test_dom_jsdom_differential.py",
   "tests/conformance/test_xml_conformance.py",
-  "tests/test_fuzz_self_test.py",                      # dedicated fuzz-only and Atheris checks run in their own envs
 ]
 run.parallel = true
 run.plugins = [

@@ -341,15 +341,20 @@ _BASELINE_ELEMENTS: Final[frozenset[tuple[str, str]]] = frozenset({
 })
 
 
+_DECODED_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(?#backslash and hex escape)\\(?P<hex>[0-9a-fA-F]{1,6})(?#optional whitespace terminator)[ \t\n\r\f]?"
+    r"|(?#backslash and any other character)\\(?P<char>.)"
+)
+
+_SOURCE_PATTERN: Final[re.Pattern[str]] = re.compile(r"/\*.*?(?:\*/|$)", flags=re.DOTALL)
+
+
 def _css_danger(text: str) -> bool:
     # Check CSS tokens for script-capable URLs, functions, and properties.
-    decoded = re.sub(
-        r"(?#backslash and hex escape)\\(?P<hex>[0-9a-fA-F]{1,6})(?#optional whitespace terminator)[ \t\n\r\f]?"
-        r"|(?#backslash and any other character)\\(?P<char>.)",
-        lambda match: chr(min(int(match["hex"], 16), 0x10FFFF) or 0xFFFD) if match["hex"] else match["char"],
-        text,
+    decoded = _DECODED_PATTERN.sub(
+        lambda match: chr(min(int(match["hex"], 16), 0x10FFFF) or 0xFFFD) if match["hex"] else match["char"], text
     )
-    source = re.sub(r"/\*.*?(?:\*/|$)", "", decoded, flags=re.DOTALL)
+    source = _SOURCE_PATTERN.sub("", decoded)
     return _css_declarations_danger(tinycss2.parse_declaration_list(source)) or _css_rules_danger(
         tinycss2.parse_stylesheet(source)
     )
@@ -632,12 +637,15 @@ def _ddmin(markup: str, check: _Check, detail: str) -> str:
     return markup
 
 
+_H5SC_PATTERN: Final[re.Pattern[str]] = re.compile(r'<div id="\d+">(.*?)//\["\'`-->\]\]>\]</div>', flags=re.DOTALL)
+
+
 def _seeds(rng: random.Random) -> list[str]:
     # Collect the vendored payload corpora; a missing one is a setup error, never a silent skip.
     corpus = sorted((_ROOT / "tools" / "fuzz" / "corpus" / "sanitize").glob("*"))
     # Unwrap the H5SC vectors from the ``<div id=N>…//["'`-->]]>]</div>`` shell vectors.txt puts around each.
     text: Final = _require(_DATA / "h5sc" / "vectors.txt").read_text(encoding="utf-8")
-    h5sc: Final = re.findall(r'<div id="\d+">(.*?)//\["\'`-->\]\]>\]</div>', text, flags=re.DOTALL)
+    h5sc: Final = _H5SC_PATTERN.findall(text)
     return list(
         dict.fromkeys([
             *_dompurify_payloads(),
@@ -815,22 +823,25 @@ def _wpt_cases() -> Iterator[tuple[str, Policy]]:
             )
 
 
+_DICTIONARY_TOKENS_PATTERN: Final[re.Pattern[str]] = re.compile(r"\\(x[0-9a-fA-F]{2}|.)")
+
+_DICTIONARY_TOKENS_PATTERN_2: Final[re.Pattern[str]] = re.compile(r'"(.*)"\s*$')
+
+
 def _dictionary_tokens() -> list[str]:
     # Read the google/fuzzing html, svg, mathml and css AFL dictionaries, the set jsoup concatenates into combo.dict.
     #
     # Entries are ``name="value"`` lines with ``\\``, ``\"`` and ``\xNN`` escapes, which AFL's ``load_extras_file``
     # decodes the same way.
     return [
-        re.sub(
-            r"\\(x[0-9a-fA-F]{2}|.)",
-            lambda escape: chr(int(escape[1][1:], 16)) if len(escape[1]) == 3 else escape[1],
-            match[1],
+        _DICTIONARY_TOKENS_PATTERN.sub(
+            lambda escape: chr(int(escape[1][1:], 16)) if len(escape[1]) == 3 else escape[1], match[1]
         )
         for name in ("html", "svg", "mathml", "css")
         for line in _require(_DATA / "google-fuzzing" / "dictionaries" / f"{name}.dict")
         .read_text(encoding="utf-8")
         .splitlines()
-        if not line.lstrip().startswith("#") and (match := re.search(r'"(.*)"\s*$', line)) is not None
+        if not line.lstrip().startswith("#") and (match := _DICTIONARY_TOKENS_PATTERN_2.search(line)) is not None
     ]
 
 

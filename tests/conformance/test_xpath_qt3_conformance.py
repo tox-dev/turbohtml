@@ -15,8 +15,6 @@ import turbohtml
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
 
-    from _pytest.mark.structures import ParameterSet
-
 _QT3: Final[str] = "{http://www.w3.org/2010/09/qt-fots-catalog}"
 Expected: TypeAlias = "tuple[str, bool | str | list[Expected] | None]"
 XPathResult: TypeAlias = "list[turbohtml.Node | str] | float | bool | str"
@@ -97,8 +95,11 @@ _RUNTIME_REGEX_ERRORS: Final[tuple[str, ...]] = (
 )
 
 
+_STRIP_FUNCTION_PREFIX_PATTERN: Final[re.Pattern[str]] = re.compile(r"\bfn:")
+
+
 def strip_function_prefix(query: str) -> str:
-    return re.sub(r"\bfn:", "", query)
+    return _STRIP_FUNCTION_PREFIX_PATTERN.sub("", query)
 
 
 def blank_string_literals(query: str) -> str:
@@ -117,6 +118,11 @@ def blank_string_literals(query: str) -> str:
     return "".join(out)
 
 
+_HAS_SEQUENCE_PATTERN: Final[re.Pattern[str]] = re.compile(r"\(\s*\)")
+
+_HAS_SEQUENCE_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"\[[^\]]*,[^\]]*\]")
+
+
 def has_sequence(query: str) -> bool:
     # True when the query builds a sequence/array/empty-sequence literal (all XPath 2.0+).
     outside = blank_string_literals(query)
@@ -132,29 +138,39 @@ def has_sequence(query: str) -> bool:
             return True
         if not char.isspace():
             previous = char
-    return bool(re.search(r"\(\s*\)", outside)) or bool(re.search(r"\[[^\]]*,[^\]]*\]", outside))
+    return bool(_HAS_SEQUENCE_PATTERN.search(outside)) or bool(_HAS_SEQUENCE_PATTERN_2.search(outside))
+
+
+_CALLED_FUNCTIONS_PATTERN: Final[re.Pattern[str]] = re.compile(r"([a-zA-Z][\w-]*)\s*\(")
 
 
 def called_functions(query: str) -> set[str]:
-    return set(re.findall(r"([a-zA-Z][\w-]*)\s*\(", blank_string_literals(query)))
+    return set(_CALLED_FUNCTIONS_PATTERN.findall(blank_string_literals(query)))
+
+
+_STRING_LITERALS_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r'(?#double quoted literal)"(?P<double>[^"]*)"|(?#single quoted literal)\'(?P<single>[^\']*)\''
+)
 
 
 def string_literals(query: str) -> list[str]:
-    return [
-        double or single
-        for double, single in re.findall(
-            r'(?#double quoted literal)"(?P<double>[^"]*)"|(?#single quoted literal)\'(?P<single>[^\']*)\'', query
-        )
-    ]
+    return [double or single for double, single in _STRING_LITERALS_PATTERN.findall(query)]
+
+
+_REGEX_DIALECT_REASON_PATTERN: Final[re.Pattern[str]] = re.compile(r"\\[pPicIC]")
+
+_REGEX_DIALECT_REASON_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"-\[")
+
+_REGEX_DIALECT_REASON_PATTERN_3: Final[re.Pattern[str]] = re.compile(r"\\ ")
 
 
 def regex_dialect_reason(query: str) -> str | None:
     joined = " ".join(string_literals(query))
-    if re.search(r"\\[pPicIC]", joined):
+    if _REGEX_DIALECT_REASON_PATTERN.search(joined):
         return r"XSD \p/\P/\i/\c regex escape (Python re dialect)"
-    if re.search(r"-\[", joined):
+    if _REGEX_DIALECT_REASON_PATTERN_2.search(joined):
         return "XSD character-class subtraction (Python re dialect)"
-    if re.search(r"\\ ", joined):
+    if _REGEX_DIALECT_REASON_PATTERN_3.search(joined):
         return "XSD x-flag whitespace escape (Python re dialect)"
     for literal in string_literals(query):
         if 0 < len(literal) <= 4 and all(char in "imsxq " for char in literal) and ("q" in literal or " " in literal):
@@ -383,7 +399,7 @@ def matches_expected(expected: Expected, result: XPathResult) -> bool:  # ruff:i
     return False
 
 
-def collect() -> Iterator[ParameterSet]:
+def collect() -> Iterator[pytest.ParameterSet]:
     families = (
         "ends-with",
         "starts-with",
@@ -456,7 +472,7 @@ def collect() -> Iterator[ParameterSet]:
 _QT3_CASES: Final[list[pytest.ParameterSet]] = list(collect())
 
 
-def _expects_error(param: ParameterSet) -> bool:
+def _expects_error(param: pytest.ParameterSet) -> bool:
     return cast("Case", param.values[0]).expected[0] == "error"
 
 

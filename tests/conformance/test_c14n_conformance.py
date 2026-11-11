@@ -27,11 +27,14 @@ _MODES: Final[dict[str, Canonical]] = {
 }
 
 
+_OUT_OF_SCOPE_PATTERN: Final[re.Pattern[str]] = re.compile(r"xmlns(:[\w.-]+)?\s*=")
+
+
 def _out_of_scope(case_dir: Path, prefix: str, source: str) -> str | None:
     # The categorized reason this case falls outside turbohtml's infoset c14n, or None if in scope.
     if (case_dir / f"{prefix}.xpath").exists():
         return "xpath-subset: turbohtml canonicalizes a whole document or subtree, not an XPath node-set"
-    if re.search(r"xmlns(:[\w.-]+)?\s*=", source):
+    if _OUT_OF_SCOPE_PATTERN.search(source):
         return "arbitrary-namespaces: xmlns:* prefixes outside turbohtml's HTML/SVG/MathML/xlink infoset"
     if "<!ENTITY" in source:
         return "dtd-entities: turbohtml does not resolve a DTD-declared general entity"

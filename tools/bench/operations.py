@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
     from bs4 import BeautifulSoup
     from langdetect.language import Language
-    from lxml.etree import RelaxNG, XMLSchema, _XSLTResultTree
+    from lxml.etree import RelaxNG, XMLSchema, _XSLTResultTree  # simplint: ignore[private-import-path]  # lxml type
     from lxml.html import HtmlElement
     from pyquery import PyQuery
     from resiliparse.parse.html import HTMLTree
@@ -1441,9 +1441,9 @@ def _transform_number_cases() -> tuple[tuple[str, Case], ...]:
     )
 
 
-def _transform_any_number_cases() -> tuple[  # simplint: ignore[SMP505]  # inlining breaks complexity limit
-    tuple[str, Case], ...
-]:
+def _transform_any_number_cases() -> (  # simplint: ignore[single-caller-helper]  # distinct benchmark case group
+    tuple[tuple[str, Case], ...]
+):
     return tuple(
         (
             f"any: {rows:,} {'node' if rows == 1 else 'nodes'} / {variant}",
@@ -1493,9 +1493,9 @@ def _transform_any_number_cases() -> tuple[  # simplint: ignore[SMP505]  # inlin
     )
 
 
-def _transform_pattern_number_cases() -> tuple[  # simplint: ignore[SMP505]  # inlining breaks complexity limit
-    tuple[str, Case], ...
-]:
+def _transform_pattern_number_cases() -> (  # simplint: ignore[single-caller-helper]  # distinct benchmark case group
+    tuple[tuple[str, Case], ...]
+):
     return tuple(
         (
             f"any: {rows:,} {'node' if rows == 1 else 'nodes'} / {variant}",
@@ -1550,9 +1550,9 @@ def _transform_pattern_number_cases() -> tuple[  # simplint: ignore[SMP505]  # i
     )
 
 
-def _transform_number_prefix_cases() -> tuple[  # simplint: ignore[SMP505]  # inlining breaks complexity limit
-    tuple[str, Case], ...
-]:
+def _transform_number_prefix_cases() -> (  # simplint: ignore[single-caller-helper]  # distinct benchmark case group
+    tuple[tuple[str, Case], ...]
+):
     return tuple(
         (
             f"any: 1,024 nodes / {variant}",

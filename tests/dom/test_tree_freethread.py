@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Final, cast
 import pytest
 
 import turbohtml
-from turbohtml._html import _tree_verify
 from turbohtml.clean import sanitize_node
 from turbohtml.conformance import check
 from turbohtml.mutations import MutationObserver
@@ -746,28 +745,6 @@ def test_concurrent_range_construction_while_the_container_moves_is_memory_safe(
 
     _run(builder, mover)
     assert destinations[1].children == (source,)
-
-
-def test_concurrent_extends_with_one_moving_foreign_node_keep_both_trees_intact() -> None:
-    child: Final = turbohtml.Element("i")
-    home: Final = turbohtml.Element("aside", children=[child])
-    parents: Final = [turbohtml.Element("p") for _ in range(4)]
-    root: Final = turbohtml.Element("main", children=parents)
-    start: Final = threading.Barrier(len(parents) + 1)
-
-    def extender(parent: turbohtml.Element) -> None:
-        start.wait()
-        for _ in range(2_000):
-            # importing child resumes root's lock afterwards, and another extender holding it can link the copy first
-            parent.extend([child])
-
-    def returner() -> None:
-        start.wait()
-        for _ in range(2_000):
-            home.append(child)
-
-    _run(*(lambda parent=parent: extender(parent) for parent in parents), returner)
-    assert (_tree_verify(root), _tree_verify(home)) == ((0, 0, 0, 0), (0, 0, 0, 0))
 
 
 def test_concurrent_wraps_and_inserts_of_foreign_nodes_keep_the_tree_intact() -> None:

@@ -62,12 +62,15 @@ def parse_char_literal(token: str) -> int:
     return ord(inner)
 
 
+_PARSE_SCRIPT_RANGES_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"fn is_(?P<name>\w+)\(ch: char\) -> bool \{\s*matches!\(ch,\s*(?P<body>.*?)\)\s*\}", re.DOTALL
+)
+
+
 def parse_script_ranges(chars_src: str) -> dict[str, list[tuple[int, int]]]:
     # Parse each ``is_<name>`` matches! body into a list of inclusive code-point ranges.
     ranges: dict[str, list[tuple[int, int]]] = {}
-    for name, body in re.findall(
-        r"fn is_(?P<name>\w+)\(ch: char\) -> bool \{\s*matches!\(ch,\s*(?P<body>.*?)\)\s*\}", chars_src, re.DOTALL
-    ):
+    for name, body in _PARSE_SCRIPT_RANGES_PATTERN.findall(chars_src):
         spans: list[tuple[int, int]] = []
         for raw in body.split("|"):
             term = raw.strip().rstrip(",").strip()
@@ -83,40 +86,57 @@ def parse_script_ranges(chars_src: str) -> dict[str, list[tuple[int, int]]]:
     return ranges
 
 
+_BLOCK_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"let mut script_counters: \[ScriptCounter; 25\] = \[(?P<counters>.*?)\n    \];", re.DOTALL
+)
+
+_PAIRS_PATTERN: Final[re.Pattern[str]] = re.compile(r"\(Script::(?P<script>\w+), chars::is_(?P<check>\w+), 0\)")
+
+
 def parse_script_order(detect_src: str) -> list[tuple[str, str]]:
     # Parse the ``script_counters`` array into ordered (Script, is_<fn>) pairs; the index is the script id.
-    block = re.search(
-        r"let mut script_counters: \[ScriptCounter; 25\] = \[(?P<counters>.*?)\n    \];", detect_src, re.DOTALL
-    )
+    block = _BLOCK_PATTERN.search(detect_src)
     if block is None:
         msg = "script_counters array not found; whatlang layout changed"
         raise SystemExit(msg)
-    pairs = re.findall(r"\(Script::(?P<script>\w+), chars::is_(?P<check>\w+), 0\)", block.group("counters"))
+    pairs = _PAIRS_PATTERN.findall(block.group("counters"))
     if len(pairs) != 25:
         msg = f"expected 25 scripts, parsed {len(pairs)}"
         raise SystemExit(msg)
     return pairs
 
 
+_PARSE_LANG_GROUPS_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"fn to_lang_group.*?match self \{(?P<arms>.*?)\n        \}", re.DOTALL
+)
+
+_PARSE_LANG_GROUPS_PATTERN_2: Final[re.Pattern[str]] = re.compile(
+    r"(?#one match arm: a run of Script:: alternatives, the arrow, then the payload up to the comma)"
+    r"(?P<scripts>(?:Script::\w+(?:\s*\|\s*)?)+)\s*=>\s*(?P<raw_arm>[^,]+),"
+)
+
+_NAMES_PATTERN: Final[re.Pattern[str]] = re.compile(r"Script::(\w+)")
+
+_PARSE_LANG_GROUPS_PATTERN_3: Final[re.Pattern[str]] = re.compile(r"Multi\(MLS::(\w+)\)")
+
+_PARSE_LANG_GROUPS_PATTERN_4: Final[re.Pattern[str]] = re.compile(r"One\(Lang::(\w+)\)")
+
+
 def parse_lang_groups(grouping_src: str) -> dict[str, tuple[str, str]]:
     # Parse ``to_lang_group`` into Script -> (kind, payload): ('multi', mls) | ('one', lang) | ('mandarin', '').
-    block = re.search(r"fn to_lang_group.*?match self \{(?P<arms>.*?)\n        \}", grouping_src, re.DOTALL)
+    block = _PARSE_LANG_GROUPS_PATTERN.search(grouping_src)
     if block is None:
         msg = "to_lang_group match not found; whatlang layout changed"
         raise SystemExit(msg)
     groups: dict[str, tuple[str, str]] = {}
-    for scripts, raw_arm in re.findall(
-        r"(?#one match arm: a run of Script:: alternatives, the arrow, then the payload up to the comma)"
-        r"(?P<scripts>(?:Script::\w+(?:\s*\|\s*)?)+)\s*=>\s*(?P<raw_arm>[^,]+),",
-        block.group("arms"),
-    ):
-        names = re.findall(r"Script::(\w+)", scripts)
+    for scripts, raw_arm in _PARSE_LANG_GROUPS_PATTERN_2.findall(block.group("arms")):
+        names = _NAMES_PATTERN.findall(scripts)
         if (arm := raw_arm.strip()) == "Mandarin":
             target = ("mandarin", "")
-        elif (multi := re.fullmatch(r"Multi\(MLS::(\w+)\)", arm)) is not None:
+        elif (multi := _PARSE_LANG_GROUPS_PATTERN_3.fullmatch(arm)) is not None:
             target = ("multi", multi.group(1))
         else:
-            target = ("one", require(re.fullmatch(r"One\(Lang::(\w+)\)", arm), "One(Lang) arm").group(1))
+            target = ("one", require(_PARSE_LANG_GROUPS_PATTERN_4.fullmatch(arm), "One(Lang) arm").group(1))
         for name in names:
             groups[name] = target
     return groups
@@ -128,18 +148,39 @@ class _LangTable(NamedTuple):
     eng: dict[str, str]
 
 
+_PARSE_LANG_TABLE_PATTERN: Final[re.Pattern[str]] = re.compile(r"const VALUES: \[Lang; 70\] = \[(.*?)\];", re.DOTALL)
+
+_ORDER_PATTERN: Final[re.Pattern[str]] = re.compile(r"Lang::(\w+)")
+
+_PARSE_LANG_TABLE_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"fn lang_to_code.*?\n\}", re.DOTALL)
+
+_PARSE_LANG_TABLE_PATTERN_3: Final[re.Pattern[str]] = re.compile(r'Lang::(?P<lang>\w+) => "(?P<code>\w+)",')
+
+_PARSE_LANG_TABLE_PATTERN_4: Final[re.Pattern[str]] = re.compile(r"fn lang_to_eng_name.*?\n\}", re.DOTALL)
+
+_PARSE_LANG_TABLE_PATTERN_5: Final[re.Pattern[str]] = re.compile(r'Lang::(?P<lang>\w+) => "(?P<name>[^"]+)",')
+
+
 def parse_lang_table(lang_src: str) -> _LangTable:
     # Parse the Lang enum order plus lang_to_code and lang_to_eng_name maps, keyed by the Lang variant.
-    values = require(re.search(r"const VALUES: \[Lang; 70\] = \[(.*?)\];", lang_src, re.DOTALL), "VALUES array")
-    order = re.findall(r"Lang::(\w+)", values.group(1))
-    code_fn = require(re.search(r"fn lang_to_code.*?\n\}", lang_src, re.DOTALL), "lang_to_code").group()
-    code = dict(re.findall(r'Lang::(?P<lang>\w+) => "(?P<code>\w+)",', code_fn))
-    eng_fn = require(re.search(r"fn lang_to_eng_name.*?\n\}", lang_src, re.DOTALL), "lang_to_eng_name").group()
-    eng = dict(re.findall(r'Lang::(?P<lang>\w+) => "(?P<name>[^"]+)",', eng_fn))
+    order = _ORDER_PATTERN.findall(require(_PARSE_LANG_TABLE_PATTERN.search(lang_src), "VALUES array").group(1))
+    code_fn = require(_PARSE_LANG_TABLE_PATTERN_2.search(lang_src), "lang_to_code").group()
+    code = dict(_PARSE_LANG_TABLE_PATTERN_3.findall(code_fn))
+    eng_fn = require(_PARSE_LANG_TABLE_PATTERN_4.search(lang_src), "lang_to_eng_name").group()
+    eng = dict(_PARSE_LANG_TABLE_PATTERN_5.findall(eng_fn))
     if len(order) != 70 or len(code) != 70 or len(eng) != 70:
         msg = f"expected 70 languages, parsed order={len(order)} code={len(code)} eng={len(eng)}"
         raise SystemExit(msg)
     return _LangTable(order, code, eng)
+
+
+_PARSE_PROFILES_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"Lang::(?P<lang>\w+),\s*&\[(?P<body>.*?)\],\s*\n\s*\)", re.DOTALL
+)
+
+_PARSE_PROFILES_PATTERN_2: Final[re.Pattern[str]] = re.compile(
+    r"Trigram\('(?P<first>.)', '(?P<second>.)', '(?P<third>.)'\)"
+)
 
 
 def parse_profiles(profiles_src: str) -> Profiles:
@@ -151,14 +192,8 @@ def parse_profiles(profiles_src: str) -> Profiles:
             msg = f"{static} not found; whatlang layout changed"
             raise SystemExit(msg)
         langs: list[tuple[str, list[tuple[int, int, int]]]] = []
-        for lang, body in re.findall(
-            r"Lang::(?P<lang>\w+),\s*&\[(?P<body>.*?)\],\s*\n\s*\)", block.group(1), re.DOTALL
-        ):
-            trigrams = [
-                (ord(a), ord(b), ord(c))
-                for a, b, c in re.findall(r"Trigram\('(?P<first>.)', '(?P<second>.)', '(?P<third>.)'\)", body)
-            ]
-            langs.append((lang, trigrams))
+        for lang, body in _PARSE_PROFILES_PATTERN.findall(block.group(1)):
+            langs.append((lang, [(ord(a), ord(b), ord(c)) for a, b, c in _PARSE_PROFILES_PATTERN_2.findall(body)]))
         out[static] = langs
     return out
 

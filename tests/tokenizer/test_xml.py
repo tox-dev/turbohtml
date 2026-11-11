@@ -645,9 +645,19 @@ def test_xml_attribute_append_keeps_later_attribute_replacement() -> None:
     assert list(root.attrs.items()) == [("a", "after"), ("b", "new")]
 
 
-@pytest.mark.parametrize("quote", ['"', "'"], ids=["double", "single"])
-@pytest.mark.parametrize("character", ["a", "é", "λ", "𐀀"], ids=["ascii", "latin1", "ucs2", "ucs4"])
-@pytest.mark.parametrize("length", [0, 65, 65536], ids=["empty", "growth", "long"])
+@pytest.mark.parametrize("quote", [pytest.param('"', id="double"), pytest.param("'", id="single")])
+@pytest.mark.parametrize(
+    "character",
+    [
+        pytest.param("a", id="ascii"),
+        pytest.param("é", id="latin1"),
+        pytest.param("λ", id="ucs2"),
+        pytest.param("𐀀", id="ucs4"),
+    ],
+)
+@pytest.mark.parametrize(
+    "length", [pytest.param(0, id="empty"), pytest.param(65, id="growth"), pytest.param(65536, id="long")]
+)
 def test_xml_attribute_run_value(quote: str, character: str, length: int) -> None:
     value: Final = character * length
     root: Final = parse_xml(f"<root value={quote}{value}{quote}/>").find("root")
@@ -655,7 +665,7 @@ def test_xml_attribute_run_value(quote: str, character: str, length: int) -> Non
     assert root.attrs["value"] == value
 
 
-@pytest.mark.parametrize("quote", ['"', "'"], ids=["double", "single"])
+@pytest.mark.parametrize("quote", [pytest.param('"', id="double"), pytest.param("'", id="single")])
 def test_xml_attribute_run_normalization(quote: str) -> None:
     root: Final = parse_xml(f"<root value={quote}{'a' * 80}&amp;b\t&#9;\r\n{quote}/>").find("root")
     assert root is not None
@@ -685,8 +695,11 @@ def test_xml_attribute_run_error_position(tail: str, code: str) -> None:
 
 @pytest.mark.parametrize(
     ("index", "expected"),
-    [(0, "a" * 65536), (1, "a&b " * 8192), (2, "hello")],
-    ids=["clean", "references", "tiny"],
+    [
+        pytest.param(0, "a" * 65536, id="clean"),
+        pytest.param(1, "a&b " * 8192, id="references"),
+        pytest.param(2, "hello", id="tiny"),
+    ],
 )
 def test_xml_value_benchmark_output(index: int, expected: str) -> None:
     root: Final = parse_xml(cast("str", INPUTS["parse-xml-values"]()[index][1])).find("root")
@@ -694,8 +707,10 @@ def test_xml_value_benchmark_output(index: int, expected: str) -> None:
     assert root.attrs["value"] == expected
 
 
-@pytest.mark.parametrize("prefix", ["p", "λ", "𐀀"], ids=["ascii", "ucs2", "ucs4"])
-@pytest.mark.parametrize("count", [1, 128], ids=["single", "many"])
+@pytest.mark.parametrize(
+    "prefix", [pytest.param("p", id="ascii"), pytest.param("λ", id="ucs2"), pytest.param("𐀀", id="ucs4")]
+)
+@pytest.mark.parametrize("count", [pytest.param(1, id="single"), pytest.param(128, id="many")])
 def test_xml_namespace_attribute_order(prefix: str, count: int) -> None:
     expected: Final = [(f"xmlns:{prefix}{index}", f"urn:{index}") for index in range(count)] + [
         (f"{prefix}{index}:value", "x") for index in range(count)
@@ -768,7 +783,15 @@ def test_xml_duplicate_found_after_many_distinct(source: str) -> None:
     assert error.value.error.code == "xml-duplicate-attribute"
 
 
-@pytest.mark.parametrize("length", [0, 7, 8, 16], ids=["start", "last-byte", "next-block", "two-blocks"])
+@pytest.mark.parametrize(
+    "length",
+    [
+        pytest.param(0, id="start"),
+        pytest.param(7, id="last-byte"),
+        pytest.param(8, id="next-block"),
+        pytest.param(16, id="two-blocks"),
+    ],
+)
 @pytest.mark.parametrize(
     ("tail", "expected"),
     [
@@ -785,14 +808,24 @@ def test_xml_text_block_boundary(length: int, tail: str, expected: str) -> None:
     assert root.text == "a" * length + expected
 
 
-@pytest.mark.parametrize("text", ["a", "é", "λ", "𐀀"], ids=["ascii", "latin1", "ucs2", "ucs4"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("a", id="ascii"),
+        pytest.param("é", id="latin1"),
+        pytest.param("λ", id="ucs2"),
+        pytest.param("𐀀", id="ucs4"),
+    ],
+)
 def test_xml_text_block_width(text: str) -> None:
     root: Final = parse_xml(f"<root>{text * 65536}</root>").find("root")
     assert root is not None
     assert root.text == text * 65536
 
 
-@pytest.mark.parametrize("length", [7, 8, 16], ids=["last-byte", "next-block", "two-blocks"])
+@pytest.mark.parametrize(
+    "length", [pytest.param(7, id="last-byte"), pytest.param(8, id="next-block"), pytest.param(16, id="two-blocks")]
+)
 @pytest.mark.parametrize(
     ("tail", "code"),
     [
@@ -809,8 +842,11 @@ def test_xml_text_block_error_position(length: int, tail: str, code: str) -> Non
 
 @pytest.mark.parametrize(
     ("index", "expected"),
-    [(0, "a" * 65536), (1, "a&b " * 8192), (2, "hello")],
-    ids=["clean", "references", "tiny"],
+    [
+        pytest.param(0, "a" * 65536, id="clean"),
+        pytest.param(1, "a&b " * 8192, id="references"),
+        pytest.param(2, "hello", id="tiny"),
+    ],
 )
 def test_xml_text_benchmark_output(index: int, expected: str) -> None:
     root: Final = parse_xml(cast("str", INPUTS["parse-xml-text"]()[index][1])).find("root")
@@ -833,7 +869,10 @@ def test_round_trip_against_lxml() -> None:
     assert [node.tag.split(":")[-1] for node in (ours, *ours.descendants) if isinstance(node, Element)] == their_locals
 
 
-@pytest.mark.parametrize(("index", "count"), [(0, 128), (1, 1), (2, 1_000)], ids=["many", "single", "wide"])
+@pytest.mark.parametrize(
+    ("index", "count"),
+    [pytest.param(0, 128, id="many"), pytest.param(1, 1, id="single"), pytest.param(2, 1_000, id="wide")],
+)
 @pytest.mark.oracle
 def test_lxml_namespace_benchmark_output(index: int, count: int) -> None:
     etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
@@ -848,8 +887,11 @@ def test_lxml_namespace_benchmark_output(index: int, count: int) -> None:
 
 @pytest.mark.parametrize(
     ("index", "expected"),
-    [(0, "a" * 65536), (1, "a&b " * 8192), (2, "hello")],
-    ids=["clean", "references", "tiny"],
+    [
+        pytest.param(0, "a" * 65536, id="clean"),
+        pytest.param(1, "a&b " * 8192, id="references"),
+        pytest.param(2, "hello", id="tiny"),
+    ],
 )
 @pytest.mark.oracle
 def test_lxml_text_benchmark_output(index: int, expected: str) -> None:
@@ -860,8 +902,11 @@ def test_lxml_text_benchmark_output(index: int, expected: str) -> None:
 
 @pytest.mark.parametrize(
     ("index", "expected"),
-    [(0, "a" * 65536), (1, "a&b " * 8192), (2, "hello")],
-    ids=["clean", "references", "tiny"],
+    [
+        pytest.param(0, "a" * 65536, id="clean"),
+        pytest.param(1, "a&b " * 8192, id="references"),
+        pytest.param(2, "hello", id="tiny"),
+    ],
 )
 @pytest.mark.oracle
 def test_lxml_value_benchmark_output(index: int, expected: str) -> None:

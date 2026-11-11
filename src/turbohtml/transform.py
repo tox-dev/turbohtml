@@ -30,7 +30,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ._html import _xpath_literal, _xslt_compile, _xslt_resolve_imports, _xslt_transform
+from ._html import (
+    xpath_literal as _xpath_literal,
+)
+from ._html import (
+    xslt_compile as _xslt_compile,
+)
+from ._html import (
+    xslt_resolve_imports as _xslt_resolve_imports,
+)
+from ._html import (
+    xslt_transform as _xslt_transform,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path

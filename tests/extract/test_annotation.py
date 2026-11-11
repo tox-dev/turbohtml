@@ -66,7 +66,10 @@ def test_round_trips_to_annotated_text() -> None:
     assert annotation_surface(text, spans) == {"heading": ["Q3"], "metric": ["12%"]}
 
 
-@pytest.mark.parametrize("exporter", [partial(annotation_surface), partial(annotation_tags)], ids=["surface", "tags"])
+@pytest.mark.parametrize(
+    "exporter",
+    [pytest.param(partial(annotation_surface), id="surface"), pytest.param(partial(annotation_tags), id="tags")],
+)
 def test_text_must_be_str(exporter: partial[dict[str, list[str]]] | partial[str]) -> None:
     with pytest.raises(TypeError, match="str"):
         call_with(exporter, 5, [])
@@ -80,7 +83,10 @@ def call_with(
     return exporter(*args)
 
 
-@pytest.mark.parametrize("exporter", [partial(annotation_surface), partial(annotation_tags)], ids=["surface", "tags"])
+@pytest.mark.parametrize(
+    "exporter",
+    [pytest.param(partial(annotation_surface), id="surface"), pytest.param(partial(annotation_tags), id="tags")],
+)
 def test_spans_must_be_iterable(exporter: partial[dict[str, list[str]]] | partial[str]) -> None:
     with pytest.raises(TypeError, match="iterable"):
         call_with(exporter, "ab", 5)

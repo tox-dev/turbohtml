@@ -22,7 +22,7 @@ from turbohtml import (
     TreeWalker,
     parse,
 )
-from turbohtml._html import _tree_verify  # ruff: ignore[import-private-name] - the fuzz-only native invariant hook
+from turbohtml._html import _tree_verify  # ruff: ignore[import-private-name]  # simplint: ignore[private-import-path]  # native invariant probe
 from turbohtml.migration.markupsafe import escape
 from turbohtml.mutations import MutationObserver
 from turbohtml.rewrite import rewrite

@@ -99,7 +99,7 @@ def test_rdfa_without_base_keeps_relative_prefix() -> None:
 
 
 @pytest.mark.parametrize("attribute", ["about", "resource", "href", "src"])
-@pytest.mark.parametrize("value", ['=""', ""], ids=["empty", "valueless"])
+@pytest.mark.parametrize("value", [pytest.param('=""', id="empty"), pytest.param("", id="valueless")])
 def test_rdfa_present_empty_subject_resolves_to_base(attribute: str, value: str) -> None:
     html = f'<div typeof="https://schema.org/Thing" {attribute}{value}></div>'
     assert parse(html).rdfa(base_url=_BASE)[0].resource == _BASE

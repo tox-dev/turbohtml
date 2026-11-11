@@ -18,154 +18,146 @@ _ITEM_B: Final[str] = '<item rdf:about="https://example.org/b"><title>B</title><
 @pytest.mark.parametrize(
     ("sequence", "items", "expected"),
     [
-        (
+        pytest.param(
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/b"/>\n<rdf:li rdf:resource="https://example.org/a"/></rdf:Seq>',
             _ITEM_A + _ITEM_B,
             ("B", "A"),
+            id="rdf-resource-reversed",
         ),
-        (
+        pytest.param(
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/>\n<rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
             _ITEM_A + _ITEM_B,
             ("A", "B"),
+            id="rdf-resource-in-order",
         ),
-        (
+        pytest.param(
             '<rdf:Seq><r:li r:resource="https://example.org/b"/><r:li r:resource="https://example.org/a"/></rdf:Seq>',
             _ITEM_A + _ITEM_B,
             ("B", "A"),
+            id="aliased-li-in-canonical-sequence",
         ),
-        (
-            (
-                '<rdf:Seq xmlns:RDF="urn:other"><RDF:li resource="https://example.org/a"/>'
-                '<rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>'
-            ),
+        pytest.param(
+            '<rdf:Seq xmlns:RDF="urn:other"><RDF:li resource="https://example.org/a"/>'
+            '<rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
             _ITEM_A + _ITEM_B,
             ("B",),
+            id="foreign-cased-prefix",
         ),
-        (
+        pytest.param(
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/b"/><rdf:li rdf:resource="https://example.org/a"/></rdf:Seq>',
             _ITEM_A.replace("rdf:about", "r:about") + _ITEM_B,
             ("B", "A"),
+            id="aliased-about-in-canonical-sequence",
         ),
-        (
-            (
-                '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/>'
-                '<rdf:li rdf:resource="https://example.org/missing"/></rdf:Seq>'
-            ),
+        pytest.param(
+            '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/>'
+            '<rdf:li rdf:resource="https://example.org/missing"/></rdf:Seq>',
             _ITEM_A + _ITEM_B,
             ("A", "B"),
+            id="sequence-longer-than-items",
         ),
-        (
+        pytest.param(
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
             f"{_ITEM_A}<item><title>No ID</title></item>{_ITEM_B}",
             ("A", "B"),
+            id="missing-about-before-listed",
         ),
-        (
+        pytest.param(
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
             f'{_ITEM_A}{_ITEM_B}<x:item xmlns:x="urn:other"><x:title>Wrong</x:title></x:item>',
             ("A", "B"),
+            id="foreign-item-after-listed",
         ),
-        (
+        pytest.param(
             '<rdf:Seq><rdf:li resource="https://example.org/b"/><rdf:li resource="https://example.org/a"/></rdf:Seq>',
             _ITEM_A + _ITEM_B,
             ("B", "A"),
+            id="unprefixed-resource",
         ),
-        (
+        pytest.param(
             '<r:Seq><r:li r:resource="https://example.org/b"/><r:li r:resource="https://example.org/a"/></r:Seq>',
             _ITEM_A + _ITEM_B,
             ("B", "A"),
+            id="alias-prefixes",
         ),
-        ('<rdf:Seq><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>', _ITEM_A + _ITEM_B, ("B",)),
-        (
+        pytest.param(
+            '<rdf:Seq><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
+            _ITEM_A + _ITEM_B,
+            ("B",),
+            id="unlisted-item",
+        ),
+        pytest.param(
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/missing"/><rdf:li rdf:resource="https://example.org/a"/></rdf:Seq>',
             _ITEM_A + _ITEM_B,
             ("A",),
+            id="missing-target",
         ),
-        ("<rdf:Seq/>", _ITEM_A + _ITEM_B, ()),
-        ("", _ITEM_A + _ITEM_B, ("A", "B")),
-        (
+        pytest.param("<rdf:Seq/>", _ITEM_A + _ITEM_B, (), id="empty-sequence"),
+        pytest.param("", _ITEM_A + _ITEM_B, ("A", "B"), id="missing-sequence"),
+        pytest.param(
             '<x:Seq xmlns:x="urn:other"><x:li x:resource="https://example.org/b"/></x:Seq>',
             _ITEM_A + _ITEM_B,
             ("A", "B"),
+            id="foreign-sequence",
         ),
-        (
+        pytest.param(
             '<rdf:Seq><x:li xmlns:x="urn:other" resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
             _ITEM_A + _ITEM_B,
             ("B",),
+            id="foreign-li",
         ),
-        (
+        pytest.param(
             '<rdf:Seq><rdf:li x:resource="https://example.org/a" xmlns:x="urn:other"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
             _ITEM_A + _ITEM_B,
             ("B",),
+            id="foreign-resource",
         ),
-        (
+        pytest.param(
             '<rdf:Seq><rdf:li/><rdf:li rdf:resource=""/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
             f'{_ITEM_A}<item rdf:about=""><title>Empty ID</title></item>{_ITEM_B}',
             ("Empty ID", "B"),
+            id="empty-resource",
         ),
-        (
+        pytest.param(
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/b"/><rdf:li rdf:resource="https://example.org/a"/></rdf:Seq>',
             f'{_ITEM_A}<x:item xmlns:x="urn:other"><x:title>Wrong</x:title></x:item>{_ITEM_B}',
             ("B", "A"),
+            id="foreign-item",
         ),
-        (
+        pytest.param(
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/b"/><rdf:li rdf:resource="https://example.org/a"/></rdf:Seq>',
             f'{_ITEM_A}<item rdf:about=""><title>Empty ID</title></item><item><title>No ID</title></item>{_ITEM_B}',
             ("B", "A"),
+            id="missing-about",
         ),
-        (
-            (
-                '<rdf:Seq><rdf:li resourcx="https://example.org/a" '
-                'x:resourcx="https://example.org/a" xmlns:x="urn:other"/>'
-                '<rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>'
-            ),
+        pytest.param(
+            '<rdf:Seq><rdf:li resourcx="https://example.org/a" '
+            'x:resourcx="https://example.org/a" xmlns:x="urn:other"/>'
+            '<rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
             _ITEM_A + _ITEM_B,
             ("B",),
+            id="wrong-resource-name",
         ),
-        (
+        pytest.param(
             '<rdf:Seq><rdf:li rdf:resourcx="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
             _ITEM_A + _ITEM_B,
             ("B",),
+            id="wrong-prefixed-resource-name",
         ),
-        (
+        pytest.param(
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
             _ITEM_A.replace("rdf:about", "rdf:aboux") + _ITEM_B,
             ("B",),
+            id="wrong-prefixed-about-name",
         ),
-        (
+        pytest.param(
             '<rdf:Seq><rdf:li rdf:resource="https://example.org/a"/><rdf:li rdf:resource="https://example.org/b"/></rdf:Seq>',
-            (
-                f"{_ITEM_A}{_ITEM_B}"
-                '<item rdf:about="https://example.org/unlisted" xml:lang="en"><title>Unlisted</title></item>'
-            ),
+            f"{_ITEM_A}{_ITEM_B}"
+            '<item rdf:about="https://example.org/unlisted" xml:lang="en"><title>Unlisted</title></item>',
             ("A", "B"),
+            id="unlisted-item-with-extra-attribute",
         ),
     ],
-    ids=(
-        "rdf-resource-reversed",
-        "rdf-resource-in-order",
-        "aliased-li-in-canonical-sequence",
-        "foreign-cased-prefix",
-        "aliased-about-in-canonical-sequence",
-        "sequence-longer-than-items",
-        "missing-about-before-listed",
-        "foreign-item-after-listed",
-        "unprefixed-resource",
-        "alias-prefixes",
-        "unlisted-item",
-        "missing-target",
-        "empty-sequence",
-        "missing-sequence",
-        "foreign-sequence",
-        "foreign-li",
-        "foreign-resource",
-        "empty-resource",
-        "foreign-item",
-        "missing-about",
-        "wrong-resource-name",
-        "wrong-prefixed-resource-name",
-        "wrong-prefixed-about-name",
-        "unlisted-item-with-extra-attribute",
-    ),
 )
 def test_feed_rdf_sequence(sequence: str, items: str, expected: tuple[str, ...]) -> None:
     xml: Final = (
@@ -249,17 +241,16 @@ def test_feed_rdf_sequence_prefixed_rss_namespace() -> None:
 
 @pytest.mark.parametrize(
     "first_uri",
-    ["", "#a", "abc", "a/b", "a1:x", "a+b:x", "a-b:x", "a.b:x"],
-    ids=(
-        "empty",
-        "fragment",
-        "relative-name",
-        "relative-path",
-        "digit-in-scheme",
-        "plus-in-scheme",
-        "dash-in-scheme",
-        "dot-in-scheme",
-    ),
+    [
+        pytest.param("", id="empty"),
+        pytest.param("#a", id="fragment"),
+        pytest.param("abc", id="relative-name"),
+        pytest.param("a/b", id="relative-path"),
+        pytest.param("a1:x", id="digit-in-scheme"),
+        pytest.param("a+b:x", id="plus-in-scheme"),
+        pytest.param("a-b:x", id="dash-in-scheme"),
+        pytest.param("a.b:x", id="dot-in-scheme"),
+    ],
 )
 def test_feed_rdf_sequence_uri_forms(first_uri: str) -> None:
     xml: Final = (

@@ -14,7 +14,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Final, TypedDict
 
-from turbohtml import _html, parse  # ruff:ignore[import-private-name]  # native WPT-format dumper
+from turbohtml import parse
+from turbohtml._html import _parse_fragment, _parse_tree  # ruff:ignore[import-private-name]  # simplint: ignore[private-import-path]  # WPT native dump
 
 
 class _Error(TypedDict):
@@ -373,13 +374,9 @@ def _report(cases: list[_Case]) -> None:
 
 def _build(case: _Case) -> str:
     if (context := case["context"]) is not None:
-        result = _html._parse_fragment(  # ruff:ignore[private-member-access]  # native WPT-format dumper
-            case["data"], context, bool(case["scripting"])
-        )
+        result = _parse_fragment(case["data"], context, bool(case["scripting"]))
     else:
-        result = _html._parse_tree(  # ruff:ignore[private-member-access]  # native WPT-format dumper
-            case["data"], bool(case["scripting"])
-        )
+        result = _parse_tree(case["data"], bool(case["scripting"]))
     return result.rstrip("\n")
 
 

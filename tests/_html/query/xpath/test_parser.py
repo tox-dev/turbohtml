@@ -5,12 +5,13 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import XPathDepthError, _html
+from turbohtml._html import _xpath_parse
+from turbohtml.query import XPathDepthError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-_PARSE: Final[Callable[[str], str]] = _html._xpath_parse
+_PARSE: Final[Callable[[str], str]] = _xpath_parse
 
 
 @pytest.mark.parametrize(

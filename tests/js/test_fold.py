@@ -1232,7 +1232,9 @@ def test_raw_line_separators_in_strings_match_node() -> None:
     assert _run(snippet) == _run(minify_js(snippet))
 
 
-@pytest.mark.parametrize("count", [1, 17, 512], ids=["single", "heap", "long"])
+@pytest.mark.parametrize(
+    "count", [pytest.param(1, id="single"), pytest.param(17, id="heap"), pytest.param(512, id="long")]
+)
 def test_guard_chain_growth_preserves_return_order(count: int) -> None:
     source: Final = (
         f"function f(x){{{''.join(f'if(x==={index})return g({index});' for index in range(count))}return g(-1)}}"
@@ -1262,8 +1264,8 @@ def test_guard_chain_growth_preserves_unfolded_statements(source: str, expected:
     assert minify_js(source) == expected
 
 
-@pytest.mark.parametrize("count", [2, 1000], ids=["small", "long"])
-@pytest.mark.parametrize("nested", [False, True], ids=["calls", "sequences"])
+@pytest.mark.parametrize("count", [pytest.param(2, id="small"), pytest.param(1000, id="long")])
+@pytest.mark.parametrize("nested", [pytest.param(False, id="calls"), pytest.param(True, id="sequences")])
 def test_sequence_growth_preserves_call_order(count: int, *, nested: bool) -> None:
     expressions: Final = [f"f({index}),g({index})" if nested else f"f({index})" for index in range(count)]
     assert minify_js(";".join(expressions)) == ",".join(expressions)
@@ -1431,7 +1433,10 @@ def test_declaration_reads_preserve_behavior(source: str, expected: str) -> None
 
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
-@pytest.mark.parametrize(("case", "count"), [(0, 256), (1, 256), (2, 1)], ids=["grouped", "separate", "single"])
+@pytest.mark.parametrize(
+    ("case", "count"),
+    [pytest.param(0, 256, id="grouped"), pytest.param(1, 256, id="separate"), pytest.param(2, 1, id="single")],
+)
 def test_single_use_initializers_preserve_call_order(case: int, count: int) -> None:
     source: Final = INPUTS["minify-js-single-use"]()[case][1]
     assert isinstance(source, str)
@@ -1441,7 +1446,10 @@ def test_single_use_initializers_preserve_call_order(case: int, count: int) -> N
 
 
 @pytest.mark.skipif(_NODE is None, reason="node not available")
-@pytest.mark.parametrize(("case", "count"), [(0, 256), (1, 256), (2, 1)], ids=["grouped", "separate", "single"])
+@pytest.mark.parametrize(
+    ("case", "count"),
+    [pytest.param(0, 256, id="grouped"), pytest.param(1, 256, id="separate"), pytest.param(2, 1, id="single")],
+)
 def test_propagation_unlink_preserves_call_order(case: int, count: int) -> None:
     source: Final = INPUTS["minify-js-unlink"]()[case][1]
     assert isinstance(source, str)

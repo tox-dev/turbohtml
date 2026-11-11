@@ -22,7 +22,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from turbohtml._html import _minify_css, _minify_css_inline, _register_css_minify
+from ._native import (
+    minify_css as _minify_css,
+)
+from ._native import (
+    minify_css_inline as _minify_css_inline,
+)
+from ._native import (
+    register_css_minify as _register_css_minify,
+)
 
 
 @dataclass(frozen=True, slots=True)

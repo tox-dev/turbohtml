@@ -71,14 +71,7 @@ def _stylesheet(root: lxml.etree._Element, donor: lxml.etree._Element, *, broken
             node.set("name", templates[0])
         for attribute in ("select", "test"):
             if (expression := node.get(attribute)) is not None:
-                expression = re.sub(
-                    r"""(?P<key>(?#key function call)\bkey\s*\(\s*)(?P<quote>(?#opening quote)['"])"""
-                    r"""(?#quoted key name)[^'"]*(?P=quote)"""
-                    r"""|(?P<literal>(?#quoted literal)'[^']*'|"[^"]*")"""
-                    r"""|(?P<variable>(?#variable reference)\$[A-Za-z_][\w.-]*)""",
-                    lambda match: _reference(match, variables, keys),
-                    expression,
-                )
+                expression = _STYLESHEET_PATTERN.sub(lambda match: _reference(match, variables, keys), expression)
                 node.set(attribute, expression)
     if broken:
         lxml.etree.SubElement(target, f"{_XSL}call-template", {"name": "missing"})
@@ -126,6 +119,14 @@ def _rng(root: lxml.etree._Element, donor: lxml.etree._Element, *, broken: bool)
             node.set("name", definitions[0])
     if broken:
         target[:] = [lxml.etree.Element(f"{_RNG}ref", {"name": "missing"})]
+
+
+_STYLESHEET_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"""(?P<key>(?#key function call)\bkey\s*\(\s*)(?P<quote>(?#opening quote)['"])"""
+    r"""(?#quoted key name)[^'"]*(?P=quote)"""
+    r"""|(?P<literal>(?#quoted literal)'[^']*'|"[^"]*")"""
+    r"""|(?P<variable>(?#variable reference)\$[A-Za-z_][\w.-]*)"""
+)
 
 
 __all__: Final[list[str]] = [

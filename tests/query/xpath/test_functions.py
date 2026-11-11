@@ -1627,6 +1627,9 @@ def test_regex_word_boundary_on_empty_text(text: str, pattern: str, *, expected:
     assert _REGEX_TEST(parse_xml("<r/>"), text=text, pattern=pattern, flags="") is expected
 
 
+_EXPECTED_PATTERN: Final[re.Pattern[str]] = re.compile(r"unsupported regular expression syntax: ")
+
+
 @pytest.mark.parametrize(
     "pattern",
     [
@@ -1644,7 +1647,7 @@ def test_regex_word_boundary_on_empty_text(text: str, pattern: str, *, expected:
     ],
 )
 def test_regex_syntax_beyond_the_linear_engine_raises_value_error(mocker: MockerFixture, pattern: str) -> None:
-    expected: Final = re.compile(r"unsupported regular expression syntax: ")
+    expected: Final = _EXPECTED_PATTERN
     _forbid_python_re(mocker)
     with pytest.raises(ValueError, match=expected):
         _REGEX_TEST(parse_xml("<r/>"), text="ab", pattern=pattern, flags="")

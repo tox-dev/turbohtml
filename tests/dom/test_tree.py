@@ -20,10 +20,13 @@ from turbohtml import (
     RdfaItem,
     StructuredData,
     Text,
-    _html,
     parse,
     parse_fragment,
     parse_xml,
+)
+from turbohtml._html import (  # simplint: ignore[private-import-path]  # WPT oracle # ruff:ignore[import-private-name]
+    _parse_fragment,
+    _parse_tree,
 )
 from turbohtml.clean import Policy, sanitize
 
@@ -34,26 +37,7 @@ if TYPE_CHECKING:
 
 
 def _doc(html: str) -> str:
-    return _html._parse_tree(html).rstrip("\n")
-
-
-def test_parse_only_returns_none() -> None:
-    assert _html._parse_only("<html><body><p>hi & bye</p>") is None
-
-
-@pytest.mark.parametrize(
-    ("call"),
-    [
-        # bytes on purpose: the stub types these str-only (correct for real use), so ty flags the deliberate
-        # misuse; suppress rather than widen the stub, which would drop the very rejection this test asserts.
-        pytest.param(lambda: _html._parse_tree(b"x"), id="parse_tree"),  # ty: ignore[invalid-argument-type]  # non-str on purpose
-        pytest.param(lambda: _html._parse_only(b"x"), id="parse_only"),  # ty: ignore[invalid-argument-type]  # non-str on purpose
-        pytest.param(lambda: _html._parse_fragment(b"x", "div"), id="parse_fragment"),  # ty: ignore[invalid-argument-type]  # non-str
-    ],
-)
-def test_hooks_reject_non_str(call: Callable[[], object]) -> None:
-    with pytest.raises(TypeError):
-        call()
+    return _parse_tree(html).rstrip("\n")
 
 
 # Several cases below pin otherwise-unreached decision branches in the tree builder.
@@ -768,7 +752,7 @@ def test_before_html_end_br_synthesizes_br() -> None:
     ],
 )
 def test_fragment_paths(html: str, context: str, needle: str) -> None:
-    assert needle in _html._parse_fragment(html, context).rstrip("\n")
+    assert needle in _parse_fragment(html, context).rstrip("\n")
 
 
 def test_deeply_nested_serializers_are_iterative() -> None:
@@ -785,7 +769,7 @@ def test_deeply_nested_serializers_are_iterative() -> None:
         document = parse(source)
         captured["compact"] = document.html
         captured["pretty"] = document.serialize(Html(layout=Indent(2)))
-        captured["dump"] = _html._parse_tree(source)
+        captured["dump"] = _parse_tree(source)
 
     previous = threading.stack_size(256 * 1024)
     try:
@@ -810,7 +794,7 @@ _EMOJI: Final[str] = "😀🎉🚀🐍🌟🔥💡"  # UCS-4
 
 def _body_text(html: str) -> str:
     # The serialized document tree for a whole-document parse.
-    return _html._parse_tree(html).rstrip("\n")
+    return _parse_tree(html).rstrip("\n")
 
 
 @pytest.mark.parametrize(
@@ -890,12 +874,12 @@ _FRAGMENT_CASES: Final[list[pytest.ParameterSet]] = [
 
 @pytest.mark.parametrize(("data", "expected"), _DOCUMENT_CASES)
 def test_foreign_end_tag_breaks_out(data: str, expected: str) -> None:
-    assert _html._parse_tree(data).rstrip("\n") == expected
+    assert _parse_tree(data).rstrip("\n") == expected
 
 
 @pytest.mark.parametrize(("data", "context", "expected"), _FRAGMENT_CASES)
 def test_foreign_end_tag_in_fragment(data: str, context: str, expected: str) -> None:
-    assert _html._parse_fragment(data, context).rstrip("\n") == expected
+    assert _parse_fragment(data, context).rstrip("\n") == expected
 
 
 def test_reset_insertion_mode_skips_a_foreign_html_element() -> None:

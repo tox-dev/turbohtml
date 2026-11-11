@@ -375,7 +375,14 @@ def test_rng_mixed_choice_end_tag() -> None:
     assert rng_ok(schema, "<doc><b/></doc>")
 
 
-@pytest.mark.parametrize("name", ["café", "中文", "𝔸bc"], ids=["two-byte", "three-byte", "four-byte"])  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("café", id="two-byte"),
+        pytest.param("中文", id="three-byte"),
+        pytest.param("𝔸bc", id="four-byte"),  # ruff:ignore[ambiguous-unicode-character-string]  # sample text
+    ],
+)
 def test_rng_non_ascii_attribute_name(name: str) -> None:
     schema = rwrap(f'<attribute name="{name}"><text/></attribute><text/>')
     assert rng_ok(schema, f'<doc {name}="1">x</doc>')
@@ -879,7 +886,7 @@ def test_rng_define_dedup_finds_on_later_iteration() -> None:
     assert rng_ok(schema, "<r>x</r>")
 
 
-@pytest.mark.parametrize("name", ["node", "xml:node"], ids=["unqualified", "xml-prefix"])
+@pytest.mark.parametrize("name", [pytest.param("node", id="unqualified"), pytest.param("xml:node", id="xml-prefix")])
 def test_shared_schema_validates_distinct_documents(name: str) -> None:
     schema: Final = RelaxNG(
         '<grammar xmlns="http://relaxng.org/ns/structure/1.0"><start><ref name="node"/></start>'
@@ -893,7 +900,15 @@ def test_shared_schema_validates_distinct_documents(name: str) -> None:
     assert [result.valid for result in results] == [child == name for child in children]
 
 
-@pytest.mark.parametrize("index", range(4), ids=["optional-group", "optional-interleave", "small-group", "recursive"])
+@pytest.mark.parametrize(
+    "index",
+    [
+        pytest.param(0, id="optional-group"),
+        pytest.param(1, id="optional-interleave"),
+        pytest.param(2, id="small-group"),
+        pytest.param(3, id="recursive"),
+    ],
+)
 def test_reuse_benchmark_output(index: int) -> None:
     source, document = cast("tuple[str, str]", INPUTS["validate-rng-reuse"]()[index][1])
     assert RelaxNG(source).validate(parse_xml(document)).errors == ()
@@ -985,7 +1000,15 @@ def test_relaxng_matches_lxml(schema: str, doc: str) -> None:
 
 
 @pytest.mark.oracle
-@pytest.mark.parametrize("index", range(4), ids=["optional-group", "optional-interleave", "small-group", "recursive"])
+@pytest.mark.parametrize(
+    "index",
+    [
+        pytest.param(0, id="optional-group"),
+        pytest.param(1, id="optional-interleave"),
+        pytest.param(2, id="small-group"),
+        pytest.param(3, id="recursive"),
+    ],
+)
 def test_lxml_rng_reuse_benchmark_output(index: int) -> None:
     etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
     source, document = cast("tuple[str, str]", INPUTS["validate-rng-reuse"]()[index][1])
@@ -1134,7 +1157,9 @@ def test_relaxng_missing_href_preserves_ordinary_patterns() -> None:
 _NAMESPACE: Final[str] = 'xmlns="http://relaxng.org/ns/structure/1.0"'
 
 
-@pytest.mark.parametrize("count", [0, 1, 12], ids=["empty", "linear", "hashed"])
+@pytest.mark.parametrize(
+    "count", [pytest.param(0, id="empty"), pytest.param(1, id="linear"), pytest.param(12, id="hashed")]
+)
 @pytest.mark.parametrize(
     "pattern",
     [
@@ -1156,7 +1181,7 @@ def test_relaxng_undefined_short_reference_rejects_compilation() -> None:
             RelaxNG(f'<element {_NAMESPACE} name="root"><ref name="missing"/></element>')
 
 
-@pytest.mark.parametrize("count", [0, 12], ids=["linear", "hashed"])
+@pytest.mark.parametrize("count", [pytest.param(0, id="linear"), pytest.param(12, id="hashed")])
 def test_relaxng_forward_reference_preserves_recursive_validation(count: int) -> None:
     definitions: Final = "".join(f'<define name="unused{index}"><empty/></define>' for index in range(count))
     schema: Final = (

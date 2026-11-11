@@ -77,7 +77,7 @@ def test_release_worker_reports_a_worker_that_exited_before_reading(
     (python := tmp_path / "python").write_text("#!/bin/sh\nexit 3\n", encoding="utf-8")
     python.chmod(0o755)
     with Worker(python) as worker:
-        time.sleep(1)  # simplint: ignore[SMP808]  # Worker exposes no wait; the stand-in must exit first
+        time.sleep(1)  # simplint: ignore[sleep-in-test]  # Worker exposes no wait; the stand-in must exit first
         assert worker.answer("minify_css", "a{}") == {"crashed": 3}
 
 

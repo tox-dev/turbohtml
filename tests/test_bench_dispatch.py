@@ -18,7 +18,15 @@ if TYPE_CHECKING:
     from bench.operations import Timed
 
 
-@pytest.mark.parametrize("count", [0, 1, 4, 16], ids=["empty", "one", "four", "sixteen"])
+@pytest.mark.parametrize(
+    "count",
+    [
+        pytest.param(0, id="empty"),
+        pytest.param(1, id="one"),
+        pytest.param(4, id="four"),
+        pytest.param(16, id="sixteen"),
+    ],
+)
 def test_dispatch_benchmark(count: int) -> None:
     operation: Final = OPERATIONS["transform-dispatch"][0]
     assert _is_dispatch_operation(operation)
@@ -93,7 +101,10 @@ def test_dispatch_noncallable(dispatch: _Dispatch) -> None:
         dispatch(Text("a"), 1)
 
 
-@pytest.mark.parametrize("replacement_type", [Text, Comment, Element], ids=["text", "comment", "element"])
+@pytest.mark.parametrize(
+    "replacement_type",
+    [pytest.param(Text, id="text"), pytest.param(Comment, id="comment"), pytest.param(Element, id="element")],
+)
 def test_dispatch_replacement_type(dispatch: _Dispatch, replacement_type: Callable[[str], Node]) -> None:
     replacement: Final = replacement_type("p")
 

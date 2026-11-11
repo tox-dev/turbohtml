@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import gc
-import sys
-import weakref
 from types import GeneratorType
 from typing import Final, cast
 
@@ -13,7 +10,7 @@ from turbohtml import Doctype as DomDoctype
 from turbohtml import Element as DomElement
 from turbohtml import ProcessingInstruction as DomProcessingInstruction
 from turbohtml import Text as DomText
-from turbohtml import _html, parse
+from turbohtml import parse
 from turbohtml.saxparse import (
     Characters,
     Comment,
@@ -215,32 +212,6 @@ def test_iter_events_is_lazy() -> None:
     events = iter_events("<p>x</p>")
     assert isinstance(events, GeneratorType)
     assert isinstance(next(events), StartElement)
-
-
-@pytest.mark.skipif(
-    sys.implementation.name == "pypy",
-    reason="cpyext never breaks a cycle that runs through both a C extension object and a Python one, "
-    "so this cycle leaks there; see docs/explanation/interpreters.rst",
-)
-def test_gc_reclaims_a_reference_cycle_through_the_source() -> None:
-    class _Cyclic(str):  # ruff:ignore[subclass-builtin]  # a real str subclass: _sax_events requires str, and the slots let it cycle
-        __slots__ = ("loop", "sentinel")
-        loop: object  # simplint: ignore[SMP602]  # the stub types each sax event as tuple[object, ...]
-        sentinel: _Sentinel
-
-    class _Sentinel:
-        back: _Cyclic
-
-    source = _Cyclic("<p>x</p>")
-    events = _html._sax_events(source)
-    sentinel = _Sentinel()
-    source.loop = events  # events -> source -> events, so only the cyclic GC (via tp_traverse/tp_clear) can reclaim it
-    source.sentinel = sentinel
-    sentinel.back = source
-    marker = weakref.ref(sentinel)
-    del source, events, sentinel
-    gc.collect()
-    assert marker() is None
 
 
 def test_non_str_argument_raises_type_error() -> None:

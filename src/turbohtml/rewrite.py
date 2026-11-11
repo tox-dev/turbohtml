@@ -22,7 +22,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from ._html import _rewrite, _RewriteHandle
+from ._html import RewriteHandle as _RewriteHandle
+from ._html import rewrite as _rewrite
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

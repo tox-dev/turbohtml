@@ -89,7 +89,7 @@ commands = [
     "--ignore={tox_root}{/}tests{/}conformance",
     # this build compiles neither the operation limit nor the -Dfuzzing=true allocation-failure hook that
     # fuzz-only allocation tests need; fuzz-smoke runs them
-    "--ignore={tox_root}{/}tests{/}test_fuzz_self_test.py",
+    "--ignore={tox_root}{/}tests{/}_html{/}fuzz{/}test_self_test.py",
     { replace = "posargs", default = [ "tests" ], extend = true },
   ],
   { replace = "if", condition = "factor.win32 or factor['3.15'] or factor['3.14t'] or factor['3.15t']", then = [
@@ -282,7 +282,7 @@ commands = [
     "10",
     "--no-cov",
     "--ignore={tox_root}{/}tests{/}conformance",
-    "--ignore={tox_root}{/}tests{/}test_fuzz_self_test.py",
+    "--ignore={tox_root}{/}tests{/}_html{/}fuzz{/}test_self_test.py",
     { replace = "posargs", default = [ "tests" ], extend = true },
   ],
 ]
@@ -353,7 +353,7 @@ commands = [
     "python",
     "-m",
     "pytest",
-    "{tox_root}/tests/test_fuzz_self_test.py",
+    "{tox_root}/tests/_html/fuzz/test_self_test.py",
     "-m",
     "atheris_native",
     "--noconftest",
@@ -819,7 +819,7 @@ commands = [
     "pytest",
     "--no-cov",
     "--ignore={tox_root}{/}tests{/}conformance",
-    "--ignore={tox_root}{/}tests{/}test_fuzz_self_test.py",
+    "--ignore={tox_root}{/}tests{/}_html{/}fuzz{/}test_self_test.py",
     { replace = "posargs", default = [ "tests" ], extend = true },
   ],
 ]

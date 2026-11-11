@@ -28,7 +28,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
-from ._html import _sax_dispatch, _sax_events
+from ._html import sax_dispatch as _sax_dispatch
+from ._html import sax_events as _sax_events
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -171,7 +172,9 @@ SaxEvent = StartElement | EndElement | Characters | Comment | Doctype | Processi
 """The union of every event :func:`iter_events` yields."""
 
 _EVENTS: Final[
-    tuple[Callable[..., SaxEvent], ...]  # simplint: ignore[SMP603]  # typed dispatch needs a cast or Callable[..., T]
+    tuple[
+        Callable[..., SaxEvent], ...  # simplint: ignore[callable-ellipsis]  # event constructors have different arities
+    ]
 ] = (
     StartElement,
     EndElement,

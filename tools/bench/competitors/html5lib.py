@@ -66,7 +66,7 @@ def _fragment(text: str) -> None:
 
 def _tokenize(text: str) -> None:
     # Drive html5lib's tokenizer over the input.
-    from html5lib._tokenizer import (  # ruff:ignore[import-outside-top-level, import-private-name]  # internal API
+    from html5lib._tokenizer import (  # ruff:ignore[import-outside-top-level, import-private-name]  # simplint: ignore[private-import-path]  # benchmark the tokenizer
         HTMLTokenizer,
     )
 

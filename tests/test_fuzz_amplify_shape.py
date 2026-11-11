@@ -7,6 +7,7 @@ import random
 import shutil
 from dataclasses import replace
 from pathlib import Path
+from subprocess import CompletedProcess, Popen  # ruff:ignore[suspicious-subprocess-import]  # test process doubles
 from typing import TYPE_CHECKING, Final, Literal, cast
 
 import pytest
@@ -281,7 +282,11 @@ def test_encoding_structure_random_budget(seed: int) -> None:
 
 
 @pytest.mark.parametrize(
-    "budget", [GenerationBudget(nodes=3, steps=128), GenerationBudget(nodes=32, steps=0)], ids=["nodes", "steps"]
+    "budget",
+    [
+        pytest.param(GenerationBudget(nodes=3, steps=128), id="nodes"),
+        pytest.param(GenerationBudget(nodes=32, steps=0), id="steps"),
+    ],
 )
 def test_encoding_structure_insufficient_budget(budget: GenerationBudget) -> None:
     with pytest.raises(BudgetError, match="cannot complete"):
@@ -336,8 +341,11 @@ def test_encoding_structure_materialized_corpus(tmp_path: Path, count: int, case
 
 @pytest.mark.parametrize(
     "arguments",
-    [["--count", "-1"], ["--budget", "0"], ["--steps", "0"]],
-    ids=["negative-count", "node-budget", "step-budget"],
+    [
+        pytest.param(["--count", "-1"], id="negative-count"),
+        pytest.param(["--budget", "0"], id="node-budget"),
+        pytest.param(["--steps", "0"], id="step-budget"),
+    ],
 )
 def test_encoding_structure_cli_errors(tmp_path: Path, arguments: list[str]) -> None:
     with pytest.raises(SystemExit) as error:
@@ -575,7 +583,7 @@ def test_markdown_html_binding() -> None:
     ]
 
 
-@pytest.mark.parametrize("html", [False, True], ids=["raw", "html"])
+@pytest.mark.parametrize("html", [pytest.param(False, id="raw"), pytest.param(True, id="html")])
 def test_markdown_first_conversion_controls(*, html: bool) -> None:
     assert markdown_controls(html=html) == {
         "lost emphasis": True,
@@ -585,7 +593,7 @@ def test_markdown_first_conversion_controls(*, html: bool) -> None:
 
 
 @pytest.mark.parametrize("seed", range(32))
-@pytest.mark.parametrize("html", [False, True], ids=["raw", "html"])
+@pytest.mark.parametrize("html", [pytest.param(False, id="raw"), pytest.param(True, id="html")])
 def test_markdown_random_budget(seed: int, *, html: bool) -> None:
     case: Final = markdown_generate(random.Random(seed), 30, steps=24, html=html)
     assert (_materialized_shape(case, html=html), case.nodes <= 30, len(case.productions) <= 24) == (
@@ -773,7 +781,11 @@ def test_markdown_content_model_violation(markup: str, container: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "budget", [GenerationBudget(nodes=0, steps=20), GenerationBudget(nodes=20, steps=0)], ids=["nodes", "steps"]
+    "budget",
+    [
+        pytest.param(GenerationBudget(nodes=0, steps=20), id="nodes"),
+        pytest.param(GenerationBudget(nodes=20, steps=0), id="steps"),
+    ],
 )
 def test_markdown_insufficient_budget(budget: GenerationBudget) -> None:
     with pytest.raises(BudgetError, match="cannot complete"):
@@ -824,12 +836,26 @@ def test_markdown_cell_html_preserves_attribute_line_break(markup: str) -> None:
     assert markdown_html_check(markup) is None
 
 
-@pytest.mark.parametrize("space", ["\u00a0", "\u2007", "\u202f"], ids=["nbsp", "figure-space", "narrow-nbsp"])
+@pytest.mark.parametrize(
+    "space",
+    [
+        pytest.param("\u00a0", id="nbsp"),
+        pytest.param("\u2007", id="figure-space"),
+        pytest.param("\u202f", id="narrow-nbsp"),
+    ],
+)
 def test_markdown_unicode_spacing_preserved(space: str) -> None:
     assert markdown_html_check(f"<p>x{space}y</p>") is None
 
 
-@pytest.mark.parametrize("space", ["\u00a0", "\u2007", "\u202f"], ids=["nbsp", "figure-space", "narrow-nbsp"])
+@pytest.mark.parametrize(
+    "space",
+    [
+        pytest.param("\u00a0", id="nbsp"),
+        pytest.param("\u2007", id="figure-space"),
+        pytest.param("\u202f", id="narrow-nbsp"),
+    ],
+)
 def test_markdown_unicode_spacing_loss_detected(space: str) -> None:
     assert markdown_html_check(f"<p>x{space}y</p>", lambda _node: "x y") == "Markdown conversion changes meaning"
 
@@ -976,7 +1002,11 @@ def test_generation_step_reservation_for_siblings() -> None:
 
 
 @pytest.mark.parametrize(
-    "budget", [GenerationBudget(nodes=3, steps=120), GenerationBudget(nodes=30, steps=5)], ids=["nodes", "steps"]
+    "budget",
+    [
+        pytest.param(GenerationBudget(nodes=3, steps=120), id="nodes"),
+        pytest.param(GenerationBudget(nodes=30, steps=5), id="steps"),
+    ],
 )
 def test_xml_structure_insufficient_budget(budget: GenerationBudget) -> None:
     with pytest.raises(BudgetError, match="cannot complete"):
@@ -1017,7 +1047,9 @@ def test_xml_structure_custom_serializer() -> None:
     )
 
 
-@pytest.mark.parametrize("arguments", [["--count", "-1"], ["--budget", "0"]], ids=["count", "budget"])
+@pytest.mark.parametrize(
+    "arguments", [pytest.param(["--count", "-1"], id="count"), pytest.param(["--budget", "0"], id="budget")]
+)
 def test_xml_structure_cli_errors(tmp_path: Path, arguments: list[str]) -> None:
     with pytest.raises(SystemExit) as error:
         fuzz_xml_structure_generation_main(["--output", str(tmp_path), *arguments])
@@ -1126,9 +1158,9 @@ def test_reduce_js_protocol_checks_candidates(mocker: MockerFixture) -> None:
         f"{json.dumps({'kind': 'candidate', 'text': 'keep();'})}\n{json.dumps({'kind': 'done', 'text': 'keep();'})}\n"
     )
     answers = io.StringIO()
-    mocker.patch("fuzz.reduce.subprocess.Popen", autospec=True).return_value.__enter__.return_value = mocker.MagicMock(
-        spec=["stdin", "stdout", "returncode"], stdin=answers, stdout=replies
-    )
+    process = mocker.create_autospec(Popen, instance=True, stdin=answers, stdout=replies)
+    process.configure_mock(**{"__enter__.return_value": process})
+    mocker.patch("fuzz.reduce.subprocess.Popen", autospec=True, return_value=process)
     assert minimize("discard();keep();", lambda source: source == "keep();", "js") == "keep();"
     assert answers.getvalue() == '{"text": "discard();keep();", "budget": 600}\ntrue\n'
 
@@ -1136,9 +1168,9 @@ def test_reduce_js_protocol_checks_candidates(mocker: MockerFixture) -> None:
 def test_reduce_js_reports_premature_exit(mocker: MockerFixture) -> None:
     mocker.patch("fuzz.reduce.shutil.which", autospec=True, return_value="node")
     mocker.patch("fuzz.reduce.Path.is_dir", autospec=True, return_value=True)
-    mocker.patch("fuzz.reduce.subprocess.Popen", autospec=True).return_value.__enter__.return_value = mocker.MagicMock(
-        spec=["stdin", "stdout", "returncode"], stdin=io.StringIO(), stdout=io.StringIO(), returncode=3
-    )
+    process = mocker.create_autospec(Popen, instance=True, stdin=io.StringIO(), stdout=io.StringIO(), returncode=3)
+    process.configure_mock(**{"__enter__.return_value": process})
+    mocker.patch("fuzz.reduce.subprocess.Popen", autospec=True, return_value=process)
     with pytest.raises(RuntimeError, match="exited without a result: 3"):
         minimize("keep();", lambda _source: True, "js")
 
@@ -1410,7 +1442,7 @@ def test_triage_runner_rejects_unknown_smoke_arguments() -> None:
 
 
 def test_triage_runner_keeps_release_dispatch(mocker: MockerFixture, tmp_path: Path) -> None:
-    mocker.patch("subprocess.run", autospec=True, return_value=mocker.MagicMock(spec=["returncode"], returncode=0))
+    mocker.patch("subprocess.run", autospec=True, return_value=CompletedProcess([], 0))
     assert fuzz_main(["--mode", "release-diff", "--minutes", "0", "--crash-dir", str(tmp_path)]) == 0
 
 

@@ -15,8 +15,9 @@ delegate to the same engine, which always applies the HTML rules (element and at
 
 from __future__ import annotations
 
-from ._html import _css_specificity, _css_to_xpath
-from ._internal._selectors import SelectorSyntaxError
+from . import SelectorSyntaxError
+from ._html import css_specificity as _css_specificity
+from ._html import css_to_xpath as _css_to_xpath
 
 
 class SelectorError(Exception):

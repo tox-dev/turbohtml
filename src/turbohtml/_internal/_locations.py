@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from turbohtml._html import _register_locations  # Element stays importable so autodoc resolves it
+from ._native import (
+    register_locations as _register_locations,
+)
 
 
 class SourceSpan(NamedTuple):

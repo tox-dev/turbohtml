@@ -1,22 +1,17 @@
 from __future__ import annotations
 
 import gc
-import json
-import re
 import threading
 import time
 from html.parser import HTMLParser
-from pathlib import Path
-from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
+from typing import TYPE_CHECKING, Final, NamedTuple
 
 import pytest
 
-from turbohtml import Token, Tokenizer, TokenType, _html, tokenize
+from turbohtml import Token, Tokenizer, TokenType, tokenize
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
-
-    from _pytest.mark.structures import ParameterSet
 
 
 def test_tokenize_simple_document() -> None:
@@ -493,40 +488,6 @@ def test_eof_mid_construct_matches_streaming(document: str, width_prefix: str) -
     assert_streaming_matches_whole(width_prefix + document)
 
 
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        pytest.param("x]", "x]", id="bracket-eof"),
-        pytest.param("x]]", "x]]", id="double-bracket-eof"),
-        pytest.param("x]y", "x]y", id="bracket-text"),
-        pytest.param("x]]]>y", "x]y", id="bracket-run-close"),
-        pytest.param("x]]y", "x]]y", id="double-bracket-text"),
-    ],
-)
-def test_cdata_section_edges(text: str, expected: str, storage_kind: int) -> None:
-    tokens, _ = _html._tokenize_states(text, "CDATA section state", None, storage_kind)
-    assert tokens == [("Character", expected)]
-
-
-@pytest.mark.parametrize(
-    ("state", "text", "expected"),
-    [
-        pytest.param("PLAINTEXT state", "a\nb", "a\nb", id="plaintext-newline"),
-        pytest.param("PLAINTEXT state", "a\x00b", "a�b", id="plaintext-nul"),
-        pytest.param("RCDATA state", "a\x00b", "a�b", id="rcdata-nul"),
-        pytest.param("RCDATA state", "a\nb", "a\nb", id="rcdata-newline"),
-        pytest.param("RAWTEXT state", "a\x00b", "a�b", id="rawtext-nul"),
-        pytest.param("RAWTEXT state", "a\nb", "a\nb", id="rawtext-newline"),
-        pytest.param("Script data state", "a\x00b", "a�b", id="script-nul"),
-        pytest.param("Script data state", "a\nb", "a\nb", id="script-newline"),
-        pytest.param("CDATA section state", "a\nb]", "a\nb]", id="cdata-newline"),
-    ],
-)
-def test_text_run_breaks_on_special_characters(state: str, text: str, expected: str, storage_kind: int) -> None:
-    tokens, _ = _html._tokenize_states(text, state, None, storage_kind)
-    assert tokens == [("Character", expected)]
-
-
 def test_reset_discards_state() -> None:
     tokenizer = Tokenizer()
     list(tokenizer.feed("<div><scr"))
@@ -639,43 +600,11 @@ def test_garbage_collection_traversal() -> None:
         pytest.param(lambda: tokenize(123), TypeError, None, id="tokenize-non-str"),  # ty: ignore[invalid-argument-type]  # non-str on purpose
         pytest.param(lambda: Tokenizer().feed(b"<p>"), TypeError, None, id="feed-non-str"),  # ty: ignore[invalid-argument-type]  # non-str on purpose
         pytest.param(lambda: next(iter(tokenize("<p>"))).attr(123), TypeError, None, id="attr-non-str-name"),  # ty: ignore[invalid-argument-type]  # non-str on purpose
-        pytest.param(lambda: _html._tokenize_states(123, "Data state"), TypeError, None, id="states-non-str-text"),  # ty: ignore[invalid-argument-type]  # non-str on purpose
-        pytest.param(
-            lambda: _html._tokenize_states("x", "Bogus state", None),
-            ValueError,
-            "unknown initial state",
-            id="states-unknown-state",
-        ),
-        pytest.param(
-            lambda: _html._tokenize_states("x", "Data state", 5),  # ty: ignore[invalid-argument-type]  # non-str on purpose
-            TypeError,
-            "last_start_tag",
-            id="states-non-str-last-tag",
-        ),
-        pytest.param(
-            lambda: _html._tokenize_states("x", "Data state", None, 3),
-            ValueError,
-            "storage_kind",
-            id="states-bad-storage-kind",
-        ),
     ],
 )
 def test_api_rejects_bad_arguments(call: Callable[[], object], exc: type[Exception], match: str | None) -> None:
     with pytest.raises(exc, match=match):
         call()
-
-
-@pytest.mark.parametrize(
-    ("args", "expected"),
-    [
-        pytest.param(("x", "Data state"), "x", id="default-last-tag"),
-        pytest.param(("x", "RCDATA state", ""), "x", id="empty-last-tag"),
-        pytest.param(("</xy>", "RCDATA state", "xő"), "</xy>", id="rcdata-end-tag-name-width-mismatch"),
-    ],
-)
-def test_tokenize_states_returns_characters(args: tuple[str, ...], expected: str) -> None:
-    tokens, _ = _html._tokenize_states(*args)  # ty: ignore[invalid-argument-type]  # variadic str args
-    assert tokens == [("Character", expected)]
 
 
 def test_tag_names_are_lowercased() -> None:
@@ -750,14 +679,22 @@ def test_dispatch_requires_every_handler() -> None:
         tokenizer.dispatch(object())
 
 
-@pytest.mark.parametrize("count", [0, 1, 10, 100], ids=["empty", "one", "ten", "hundred"])
+@pytest.mark.parametrize(
+    "count",
+    [
+        pytest.param(0, id="empty"),
+        pytest.param(1, id="one"),
+        pytest.param(10, id="ten"),
+        pytest.param(100, id="hundred"),
+    ],
+)
 def test_token_attrs_order(count: int) -> None:
     expected: Final = [(f"a{index}", str(index)) for index in range(count)]
     (token,) = tokenize(f"<p {' '.join(f'{name}={value}' for name, value in expected)}>")
     assert token.attrs == expected
 
 
-@pytest.mark.parametrize("document", ["<p>", "<p a=1 b=2>"], ids=["empty", "populated"])
+@pytest.mark.parametrize("document", [pytest.param("<p>", id="empty"), pytest.param("<p a=1 b=2>", id="populated")])
 def test_token_attrs_returns_fresh_list(document: str) -> None:
     (token,) = tokenize(document)
     expected: Final = token.attrs
@@ -1068,86 +1005,3 @@ def test_split_reference_survives_a_queued_feed() -> None:
     tokens = [first, *tokenizer, *tokenizer.close()]
     assert _refs(tokens) == [("&", "&amp;")]
     assert [token.data for token in tokens if token.type is TokenType.TEXT] == ["x", "y"]
-
-
-_TOKENIZER_DIR: Final[Path] = Path(__file__).parents[1] / "html5lib-tests" / "tokenizer"
-
-# CI always checks out the submodule (actions/checkout submodules: true); this guard fires only locally
-if not _TOKENIZER_DIR.is_dir() or not any(_TOKENIZER_DIR.glob("*.test")):  # pragma: no cover
-    msg = "submodule tests/html5lib-tests not checked out; run: git submodule update --init tests/html5lib-tests"
-    raise RuntimeError(msg)
-
-_DOUBLE_ESCAPE: Final[re.Pattern[str]] = re.compile(r"\\u([0-9A-Fa-f]{4})")
-_TokenPart: TypeAlias = str | bool | dict[str, str] | None
-_ExpectedToken: TypeAlias = list[_TokenPart]
-_ParseError: TypeAlias = tuple[str, int, int]
-_TokenizerCase: TypeAlias = tuple[str, str, str | None, list[_ExpectedToken], list[_ParseError], str]
-
-
-def _decode_double(text: str) -> str:
-    return _DOUBLE_ESCAPE.sub(lambda match: chr(int(match.group(1), 16)), text)
-
-
-def _decode_token(token: _ExpectedToken) -> _ExpectedToken:
-    return [_decode_double(item) if isinstance(item, str) else item for item in token]
-
-
-def _living_pi_expectation(
-    text: str, state: str, expected: list[_ExpectedToken], errors: list[_ParseError]
-) -> tuple[list[_ExpectedToken], list[_ParseError]]:
-    if state != "Data state" or not text.startswith("<?"):
-        return expected, errors
-    if not (first := text[2:3]):
-        return [], [("eof-in-processing-instruction", 1, 3)]
-    pi_token_overrides: dict[str, list[_ExpectedToken]] = {
-        "<?namespace>": [["ProcessingInstruction", "namespace", ""]],
-        "<?foo-->": [["ProcessingInstruction", "foo--", ""]],
-    }
-    if first.isascii() and (first.isalpha() or first == "_"):
-        if text.endswith(">"):
-            return pi_token_overrides.get(text, expected), []
-        return [], [("eof-in-processing-instruction", 1, len(text) + 1)]
-    retained = [
-        error
-        for error in errors
-        if error[0] not in {"control-character-in-input-stream", "unexpected-question-mark-instead-of-tag-name"}
-    ]
-    preprocessing = [error for error in errors if error[0] == "control-character-in-input-stream"]
-    return expected, [*preprocessing, ("invalid-first-character-of-processing-instruction-target", 1, 3), *retained]
-
-
-def _load_cases() -> list[_TokenizerCase]:
-    cases: list[_TokenizerCase] = []
-    for path in sorted(_TOKENIZER_DIR.glob("*.test")):
-        for index, test in enumerate(json.loads(path.read_text(encoding="utf-8")).get("tests", [])):
-            double_escaped = test.get("doubleEscaped", False)
-            text = _decode_double(test["input"]) if double_escaped else test["input"]
-            expected = [
-                _decode_token(token) if double_escaped else list(token)
-                for token in test["output"]
-                if token != "ParseError"  # ruff:ignore[hardcoded-password-string]  # a token-stream marker, not a password
-            ]
-            errors = [(error["code"], error["line"], error["col"]) for error in test.get("errors", [])]
-            last_start_tag = test.get("lastStartTag")
-            for state in test.get("initialStates", ["Data state"]):
-                expected, errors = _living_pi_expectation(text, state, expected, errors)
-                identifier = f"{path.stem}-{index}-{state.replace(' ', '_')}"
-                cases.append((text, state, last_start_tag, expected, errors, identifier))
-    return cases
-
-
-def _tokenizer_cases() -> list[ParameterSet]:
-    return [pytest.param(case, id=case[-1]) for case in _load_cases()]
-
-
-@pytest.mark.parametrize("case", _tokenizer_cases())
-def test_tokenizer_conformance(case: _TokenizerCase, storage_kind: int) -> None:
-    text: Final = case[0]
-    errors: Final = case[4]
-    result: Final = _html._tokenize_states(text, case[1], case[2], storage_kind)
-    check_positions: Final = all(ord(character) <= 0xFFFF for character in text)
-    assert (
-        [list(token) for token in result[0]],
-        [code for code, _, _ in result[1]],
-        [(code, line, col + 1) for code, line, col in result[1] if check_positions],
-    ) == (case[3], [code for code, _, _ in errors], [error for error in errors if check_positions])

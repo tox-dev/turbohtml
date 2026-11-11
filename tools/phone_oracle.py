@@ -121,7 +121,7 @@ def _is_card_shape(text: str, ours: Found, theirs: Found) -> bool:
 
 def _is_luhn_card(text: str) -> bool:
     # Check whether the text's digit run has a Luhn-valid card shape, the shape the recognizer rejects.
-    runs = re.findall(r"[0-9]+", "".join(str(unicodedata.digit(char)) if char.isdigit() else char for char in text))
+    runs = _RUNS_PATTERN.findall("".join(str(unicodedata.digit(char)) if char.isdigit() else char for char in text))
     lengths = [len(run) for run in runs]
     if lengths not in ([4, 4, 4, 4], [4, 4, 4, 4, 3], [4, 6, 5], [4, 6, 4]) and not (
         len(lengths) == 1 and 13 <= lengths[0] <= 19
@@ -139,6 +139,9 @@ def _is_luhn_card(text: str) -> bool:
 def _has_letters(candidate: str) -> bool:
     # Report whether the matcher's candidate holds letters it read as digits, the vanity rule the recognizer omits.
     return any(char.isalpha() for char in candidate)
+
+
+_RUNS_PATTERN: Final[re.Pattern[str]] = re.compile(r"[0-9]+")
 
 
 __all__ = [

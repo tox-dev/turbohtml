@@ -13,10 +13,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from turbohtml._html import (
+from ._native import (
     Element,  # stays importable so autodoc resolves it
-    _register_xpath_depth_error,
-    _register_xpath_string,
+)
+from ._native import (
+    register_xpath_depth_error as _register_xpath_depth_error,
+)
+from ._native import (
+    register_xpath_string as _register_xpath_string,
 )
 
 if TYPE_CHECKING:

@@ -17,12 +17,19 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NoReturn, TypeAlias
 
-from turbohtml._html import _microdata_as_dict, _register_structured_data
+from ._native import (
+    microdata_as_dict as _microdata_as_dict,
+)
+from ._native import (
+    register_structured_data as _register_structured_data,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-JSONValue: TypeAlias = bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"] | None
+JSONValue: TypeAlias = (  # simplint: ignore[missing-from-all]  # preserve star exports
+    bool | int | float | str | list["JSONValue"] | dict[str, "JSONValue"] | None
+)
 """A decoded JSON value: a scalar, ``None``, or a list/dict nesting more of the same."""
 
 
@@ -216,7 +223,6 @@ _register_structured_data(_decode_json, MicrodataItem, RdfaItem, StructuredData,
 
 
 __all__ = [
-    "JSONValue",
     "MicrodataItem",
     "OpenGraph",
     "RdfaItem",

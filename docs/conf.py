@@ -227,6 +227,12 @@ def _import_aliases(tree: ast.Module) -> dict[str, str]:
     return aliases
 
 
+_MATCHED_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"^(?#header of a one-line def: a parameter list in parentheses, then an optional return annotation)"
+    r"def _(?P<params>\(.*\))(?: -> (?P<returns>.*))?:$"
+)
+
+
 def _render_signature(
     func: ast.FunctionDef, aliases: dict[str, str], *, drop_self: bool, keep_return: bool
 ) -> tuple[str, str | None]:
@@ -244,11 +250,7 @@ def _render_signature(
         name="_", args=arguments, body=[ast.Expr(ast.Constant(...))], decorator_list=[], returns=returns, type_params=[]
     )
     ast.fix_missing_locations(dummy)
-    matched = re.match(
-        r"^(?#header of a one-line def: a parameter list in parentheses, then an optional return annotation)"
-        r"def _(?P<params>\(.*\))(?: -> (?P<returns>.*))?:$",
-        ast.unparse(dummy).splitlines()[0],
-    )
+    matched = _MATCHED_PATTERN.match(ast.unparse(dummy).splitlines()[0])
     assert matched is not None  # ruff:ignore[assert] -- a one-line ``def`` header always matches
     return matched.group("params"), matched.group("returns")
 
@@ -319,7 +321,8 @@ def _patch_autodoc_engine() -> None:
     # types for a C object, so feed the stub-sourced values into the two private engine functions that produce them.
     import dataclasses
 
-    from sphinx.ext.autodoc._dynamic import _loader, _signatures
+    # Sphinx exposes no public hook for signatures sourced from C stubs.
+    from sphinx.ext.autodoc._dynamic import _loader, _signatures  # simplint: ignore[private-import-path]  # Sphinx hook
 
     extract_signature = _signatures._extract_signature_from_object
 
@@ -347,13 +350,13 @@ def _patch_autodoc_engine() -> None:
 
 
 def _stub_signature_for_alias(  # ruff:ignore[too-many-arguments, too-many-positional-arguments] -- the signature is fixed by the autodoc-process-signature event
-    app: Sphinx,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
-    what: str,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    app: Sphinx,  # ruff:ignore[unused-function-argument]  # Sphinx event
+    what: str,  # ruff:ignore[unused-function-argument]  # Sphinx event
     name: str,
-    obj: object,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API  # simplint: ignore[SMP602]  # Sphinx passes any documented object
-    options: Any,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
-    signature: str | None,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
-    return_annotation: str | None,  # ruff:ignore[unused-function-argument]  # Sphinx passes this argument; the hook signature is fixed by the autodoc API
+    obj: object,  # ruff:ignore[unused-function-argument]  # simplint: ignore[imprecise-annotation]  # Sphinx passes any object
+    options: Any,  # ruff:ignore[unused-function-argument]  # Sphinx event
+    signature: str | None,  # ruff:ignore[unused-function-argument]  # Sphinx event
+    return_annotation: str | None,  # ruff:ignore[unused-function-argument]  # Sphinx event
 ) -> tuple[str, str] | None:
     # Supply the typed signature for the markupsafe aliases, whose compiled docstring carries an untyped one.
     #

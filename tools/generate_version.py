@@ -52,15 +52,17 @@ def _version_from_git() -> str | None:
     return f"{_FALLBACK}.dev{(_git('rev-list', '--count', 'HEAD') or '0')}+g{commit}"
 
 
+_MATCH_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(?#the __version__ assignment, optionally annotated Final[str], with a double-quoted value)"
+    r'__version__(?:: Final\[str\])? = "(?P<version>[^"]+)"'
+)
+
+
 def _version_from_file() -> str | None:
     path = _ROOT / _VERSION_FILE
     if not path.is_file():
         return None
-    match = re.search(
-        r"(?#the __version__ assignment, optionally annotated Final[str], with a double-quoted value)"
-        r'__version__(?:: Final\[str\])? = "(?P<version>[^"]+)"',
-        path.read_text(encoding="utf-8"),
-    )
+    match = _MATCH_PATTERN.search(path.read_text(encoding="utf-8"))
     return match.group("version") if match else None
 
 

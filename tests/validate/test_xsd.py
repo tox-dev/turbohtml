@@ -1001,7 +1001,14 @@ def test_validate_rejects_non_node(*, method: str) -> None:
         validate("not a node")
 
 
-@pytest.mark.parametrize("name", ["café", "中文", "𝔸bc"], ids=["two-byte", "three-byte", "four-byte"])  # ruff:ignore[ambiguous-unicode-character-string]  # non-Latin sample text is the input under test
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("café", id="two-byte"),
+        pytest.param("中文", id="three-byte"),
+        pytest.param("𝔸bc", id="four-byte"),  # ruff:ignore[ambiguous-unicode-character-string]  # sample text
+    ],
+)
 def test_error_path_non_ascii_names(name: str) -> None:
     schema = f'<xs:schema {_XS}><xs:element name="{name}" type="xs:int"/></xs:schema>'
     result = XMLSchema(schema).validate(parse_xml(f"<{name}>bad</{name}>"))
@@ -1643,7 +1650,9 @@ def facet_schema() -> Callable[[str], XMLSchema]:
     return make
 
 
-@pytest.mark.parametrize("count", [1, 9, 32], ids=["single", "growth", "many-types"])
+@pytest.mark.parametrize(
+    "count", [pytest.param(1, id="single"), pytest.param(9, id="growth"), pytest.param(32, id="many-types")]
+)
 def test_compiled_facet_type_lookup(facet_schema: Callable[[str], XMLSchema], count: int) -> None:
     types: Final = "".join(
         f'<xs:simpleType name="type{index}"><xs:restriction base="xs:int">'
@@ -1663,7 +1672,10 @@ def test_compiled_facet_type_lookup(facet_schema: Callable[[str], XMLSchema], co
     assert [schema.validate(document).valid for document in documents] == [True, False, True]
 
 
-@pytest.mark.parametrize("count", [40, 41, 42], ids=["before-cutoff", "last-builtin", "after-cutoff"])
+@pytest.mark.parametrize(
+    "count",
+    [pytest.param(40, id="before-cutoff"), pytest.param(41, id="last-builtin"), pytest.param(42, id="after-cutoff")],
+)
 @pytest.mark.parametrize(
     ("declaration", "markup"),
     [
@@ -2050,7 +2062,15 @@ def test_wide_attribute_declarations_with_sparse_instance() -> None:
     ]
 
 
-@pytest.mark.parametrize("index", range(4), ids=["unbounded", "bounded", "small", "string"])
+@pytest.mark.parametrize(
+    "index",
+    [
+        pytest.param(0, id="unbounded"),
+        pytest.param(1, id="bounded"),
+        pytest.param(2, id="small"),
+        pytest.param(3, id="string"),
+    ],
+)
 def test_numeric_facet_benchmark_output(index: int) -> None:
     source, document = cast("tuple[str, str]", INPUTS["validate-numeric-facets"]()[index][1])
     assert XMLSchema(source).validate(parse_xml(document)).errors == ()
@@ -2183,7 +2203,15 @@ def test_lxml_pattern_compile_benchmark_output() -> None:
 
 
 @pytest.mark.oracle
-@pytest.mark.parametrize("index", range(4), ids=["wide-attributes", "small-attributes", "sparse", "few-declarations"])
+@pytest.mark.parametrize(
+    "index",
+    [
+        pytest.param(0, id="wide-attributes"),
+        pytest.param(1, id="small-attributes"),
+        pytest.param(2, id="sparse"),
+        pytest.param(3, id="few-declarations"),
+    ],
+)
 def test_lxml_attribute_benchmark_output(index: int) -> None:
     etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
     source, document = cast("tuple[str, str]", INPUTS["validate-attributes"]()[index][1])
@@ -2195,7 +2223,15 @@ def test_lxml_attribute_benchmark_output(index: int) -> None:
 
 
 @pytest.mark.oracle
-@pytest.mark.parametrize("index", range(4), ids=["unbounded", "bounded", "small", "string"])
+@pytest.mark.parametrize(
+    "index",
+    [
+        pytest.param(0, id="unbounded"),
+        pytest.param(1, id="bounded"),
+        pytest.param(2, id="small"),
+        pytest.param(3, id="string"),
+    ],
+)
 def test_lxml_numeric_facet_benchmark_output(index: int) -> None:
     etree: Final = pytest.importorskip("lxml.etree", exc_type=ImportError)
     source, document = cast("tuple[str, str]", INPUTS["validate-numeric-facets"]()[index][1])
@@ -2207,14 +2243,28 @@ def test_lxml_numeric_facet_benchmark_output(index: int) -> None:
 
 
 @pytest.mark.parametrize(
-    ("index", "errors"), [(0, 0), (1, 0), (2, 0), (3, 511)], ids=["wide", "small", "sparse", "few-declarations"]
+    ("index", "errors"),
+    [
+        pytest.param(0, 0, id="wide"),
+        pytest.param(1, 0, id="small"),
+        pytest.param(2, 0, id="sparse"),
+        pytest.param(3, 511, id="few-declarations"),
+    ],
 )
 def test_instance_attribute_index_benchmark_output(index: int, errors: int) -> None:
     source, document = cast("tuple[str, str]", INPUTS["validate-attributes"]()[index][1])
     assert len(XMLSchema(source).validate(parse_xml(document)).errors) == errors
 
 
-@pytest.mark.parametrize("index", range(4), ids=["named-elements", "builtin", "named-attributes", "small"])
+@pytest.mark.parametrize(
+    "index",
+    [
+        pytest.param(0, id="named-elements"),
+        pytest.param(1, id="builtin"),
+        pytest.param(2, id="named-attributes"),
+        pytest.param(3, id="small"),
+    ],
+)
 def test_named_facet_probe_benchmark_output(index: int) -> None:
     source, document = cast("tuple[str, str]", INPUTS["validate-facets"]()[index][1])
     schema: Final = XMLSchema(source)
@@ -2490,11 +2540,8 @@ def test_schema_compiles_and_validates(schema: str, xml: str, *, valid: bool) ->
     assert xsd_ok(schema, xml) is valid
 
 
-if TYPE_CHECKING:
-    from _pytest.mark import ParameterSet
-
 _XS: Final[str] = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
-_INVALID: Final[list[ParameterSet]] = [
+_INVALID: Final[list[pytest.ParameterSet]] = [
     pytest.param('<xs:element name="v" type="xs:notAType"/>', "does not resolve", id="unknown-global-type"),
     pytest.param('<xs:element name="v" type="xs:weirdUnknownType"/>', "does not resolve", id="old-string-fallback"),
     pytest.param(

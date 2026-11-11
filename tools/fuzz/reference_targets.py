@@ -20,6 +20,7 @@ from turbohtml.convert import (
     css_to_xpath,
 )
 from turbohtml.cssom import ComputedStyle, RuleList, StyleDeclaration, StyleRule, StyleSheet, computed_style
+from turbohtml.query import XPathDepthError
 from turbohtml.transform import Transform, strparam, transform
 from turbohtml.validate import RelaxNG, SchemaValidationError, ValidationError, ValidationResult, XMLSchema
 
@@ -214,7 +215,7 @@ def selector_observation(
     document: Final = turbohtml.parse(selector_document)
     try:
         translated = cast("list[turbohtml.Node]", document.xpath(expression))
-    except turbohtml.XPathDepthError as error:
+    except XPathDepthError as error:
         raise OutOfScopeError from error
     _require(
         "Selector translation differs",

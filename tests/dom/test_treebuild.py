@@ -111,7 +111,16 @@ def test_text_node_payload(data: str) -> None:
     assert (text.kind, text.payload) == ("text", (data,))
 
 
-@pytest.mark.parametrize("data", ["note", "", "café", "水", "😀"], ids=["ascii", "empty", "latin1", "bmp", "astral"])
+@pytest.mark.parametrize(
+    "data",
+    [
+        pytest.param("note", id="ascii"),
+        pytest.param("", id="empty"),
+        pytest.param("café", id="latin1"),
+        pytest.param("水", id="bmp"),
+        pytest.param("😀", id="astral"),
+    ],
+)
 def test_comment_node_payload(data: str) -> None:
     body = build(f"<body><!--{data}--></body>").children[0].children[1]
     assert (body.children[0].kind, body.children[0].payload) == ("comment", (data,))

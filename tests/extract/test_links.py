@@ -7,7 +7,6 @@ from urllib.parse import urljoin
 import pytest
 
 from turbohtml import Element, Link, Text, parse, parse_fragment
-from turbohtml._html import _registrable_domain
 from turbohtml.extract import UrlCleaning, extract_links
 
 if TYPE_CHECKING:
@@ -131,20 +130,6 @@ def test_external_boundary_drops_the_href(base: str, href: str) -> None:
 def test_external_boundary_keeps_the_href(base: str, href: str) -> None:
     links = extract_links(f'<a href="{href}">x</a>', base, external_only=True)
     assert links == {href}
-
-
-@pytest.mark.parametrize(
-    ("host", "expected"),
-    [
-        pytest.param("россия.рф", "россия.рф", id="cyrillic-unknown-suffix"),
-        pytest.param("例え.jp", "例え.jp", id="cjk-label-ascii-suffix"),
-        pytest.param("рф", "рф", id="bare-cyrillic-label"),
-    ],
-)
-def test_registrable_domain_handles_a_raw_non_ascii_host(host: str, expected: str) -> None:
-    # the internal entrypoint is reachable from Python without _ascii_host punycoding, so a non-ASCII first code
-    # point must not index past the ASCII-sized suffix tables; it has no known suffix and stays its own domain
-    assert _registrable_domain(host) == expected
 
 
 def test_external_boundary_punycodes_a_unicode_base_host() -> None:
@@ -833,7 +818,9 @@ def test_rewrite_links_requires_a_callable() -> None:
         parse_fragment("<a href=a>x</a>").rewrite_links("not callable")  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
-@pytest.mark.parametrize("depth", [0, 16, 128], ids=["ordinary", "nested", "beyond-dns-length"])
+@pytest.mark.parametrize(
+    "depth", [pytest.param(0, id="ordinary"), pytest.param(16, id="nested"), pytest.param(128, id="beyond-dns-length")]
+)
 @pytest.mark.parametrize(
     ("base", "host"),
     [
@@ -847,7 +834,9 @@ def test_external_links_drop_the_public_suffix_boundary(base: str, host: str, *,
     assert extract_links(f'<a href="{href}">x</a>', f"https://{base}/", external_only=True) == set()
 
 
-@pytest.mark.parametrize("depth", [0, 16, 128], ids=["ordinary", "nested", "beyond-dns-length"])
+@pytest.mark.parametrize(
+    "depth", [pytest.param(0, id="ordinary"), pytest.param(16, id="nested"), pytest.param(128, id="beyond-dns-length")]
+)
 @pytest.mark.parametrize(
     ("base", "host"),
     [

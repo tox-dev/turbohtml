@@ -47,7 +47,7 @@ def parser_bytes_check(
 ) -> str | None:
     # Check literal text and labels because two parsers can agree on a wrong decoding.
     variant, separator, leaf = case.partition(":")
-    if not separator or variant not in _FIXTURES or re.fullmatch(r"[a-z][a-z0-9]{0,15}", leaf) is None:
+    if not separator or variant not in _FIXTURES or _PARSER_BYTES_CHECK_PATTERN.fullmatch(leaf) is None:
         raise UnsupportedParserCaseError(case)
     label, encoding, prefix, payload, text, framing = _FIXTURES[variant]
     data: Final = prefix + f"<p>{leaf}:".encode(framing) + payload + "</p>".encode(framing)
@@ -78,6 +78,9 @@ def _stream_bytes(data: bytes, label: str, width: int) -> tuple[str, str | None]
         parser.feed(b"")
     document: Final = parser.close()
     return document.text, document.encoding
+
+
+_PARSER_BYTES_CHECK_PATTERN: Final[re.Pattern[str]] = re.compile(r"[a-z][a-z0-9]{0,15}")
 
 
 _FIXTURES: Final[dict[str, tuple[str, str, bytes, bytes, str, str]]] = {

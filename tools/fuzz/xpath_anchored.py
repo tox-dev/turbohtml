@@ -16,7 +16,7 @@ from turbohtml import Element, Node, parse_xml
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
-    from lxml.etree import _Element as LxmlElement
+    from lxml.etree import _Element as LxmlElement  # simplint: ignore[private-import-path]  # lxml's element type
 
 _Value: TypeAlias = tuple[str, ...] | float | bool | str
 

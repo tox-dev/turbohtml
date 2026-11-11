@@ -113,6 +113,12 @@ def reindent(code: str, content_indent: int) -> list[str]:
     return [pad + line if line.strip() else "" for line in code.rstrip("\n").split("\n")]
 
 
+_REPORT_RESIDUALS_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"^(?#one ruff finding: the Python file, row and column, then the message)"
+    r"(?P<file>.*\.py):(?P<row>\d+):(?P<col>\d+): (?P<rest>.*)$"
+)
+
+
 def report_residuals(staging: Path, owners: dict[Path, Snippet]) -> bool:
     # Print any lint finding Ruff could not auto-fix, mapped to its docs location.
     result = subprocess.run(
@@ -136,11 +142,7 @@ def report_residuals(staging: Path, owners: dict[Path, Snippet]) -> bool:
     if not findings:
         return False
     for line in findings.splitlines():
-        if match := re.match(
-            r"^(?#one ruff finding: the Python file, row and column, then the message)"
-            r"(?P<file>.*\.py):(?P<row>\d+):(?P<col>\d+): (?P<rest>.*)$",
-            line,
-        ):
+        if match := _REPORT_RESIDUALS_PATTERN.match(line):
             owner = owners[Path(match.group("file"))]
             print(f"{owner.source}: snippet at line {owner.line_no}: {match.group('rest')}")
         else:

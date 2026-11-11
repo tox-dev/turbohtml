@@ -23,16 +23,24 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, cast
 
-from turbohtml._html import (
+from ._native import (
     Document,
     Element,
-    _css_escape_identifier,
-    _matches_many,
-    _query_children,
-    _select_limited,
+    SelectorSyntaxError,
     parse,
 )
-from turbohtml._internal._selectors import SelectorSyntaxError
+from ._native import (
+    css_escape_identifier as _css_escape_identifier,
+)
+from ._native import (
+    matches_many as _matches_many,
+)
+from ._native import (
+    query_children as _query_children,
+)
+from ._native import (
+    select_limited as _select_limited,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping

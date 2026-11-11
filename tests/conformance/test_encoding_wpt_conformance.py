@@ -11,8 +11,6 @@ import turbohtml.detect  # ruff:ignore[unused-import]  # importing registers the
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from _pytest.mark import ParameterSet
-
 _CORPUS: Final[Path] = Path(__file__).parent / "data" / "wpt_encoding.json"
 
 # The corpus ships with the source tree, so an absent one is a packaging bug rather than a missing oracle.
@@ -37,7 +35,7 @@ class _WptCorpus(TypedDict):
 _DATA: Final[_WptCorpus] = json.loads(_CORPUS.read_text(encoding="utf-8"))
 
 
-def _cases() -> Iterator[ParameterSet]:
+def _cases() -> Iterator[pytest.ParameterSet]:
     for case in _DATA["cases"]:
         label, raw = case["encoding"], case["bytes"]
         # wpt spells an unmapped single-byte slot as null, which the spec's decode entry point reports as U+FFFD

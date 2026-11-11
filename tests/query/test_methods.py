@@ -196,9 +196,12 @@ def test_re_no_match_is_empty_list() -> None:
     assert first("<p>nothing</p>", "p").re(r"\d+") == []
 
 
+_TEST_RE_ACCEPTS_A_COMPILED_PATTERN: Final[re.Pattern[str]] = re.compile(r"cat", re.IGNORECASE)
+
+
 def test_re_accepts_a_compiled_pattern() -> None:
     paragraph = first("<p>CAT cat</p>", "p")
-    assert paragraph.re(re.compile(r"cat", re.IGNORECASE)) == ["CAT", "cat"]
+    assert paragraph.re(_TEST_RE_ACCEPTS_A_COMPILED_PATTERN) == ["CAT", "cat"]
 
 
 def test_re_over_descendant_text() -> None:
@@ -1249,7 +1252,9 @@ def test_extension_result_marshaling_is_rejected(
         extension_doc.xpath(expression, extensions={(None, name): function})
 
 
-@pytest.mark.parametrize("count", [31, 32, 33], ids=["small", "threshold", "large"])
+@pytest.mark.parametrize(
+    "count", [pytest.param(31, id="small"), pytest.param(32, id="threshold"), pytest.param(33, id="large")]
+)
 @pytest.mark.parametrize(
     ("stride", "gap", "padding"),
     [

@@ -22,7 +22,8 @@ from itertools import starmap
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeVar, overload
 
-from turbohtml._html import _sanitize, _sanitize_policy
+from ._native import sanitize as _sanitize
+from ._native import sanitize_policy as _sanitize_policy
 
 if TYPE_CHECKING:
     import re

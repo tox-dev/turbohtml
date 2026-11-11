@@ -5,13 +5,13 @@ from turbohtml.conformance import ConformanceMessage
 
 from .dom import Node
 
-def _schema_compile(
+def schema_compile(
     kind: int, source: str, base_url: str | None = None, include_root: str | PathLike[str] | None = None, /
 ) -> object: ...
-def _schema_validate(
+def schema_validate(
     schema: object, node: Node, /, *, collect_errors: bool = True
 ) -> tuple[bool, list[tuple[str, str, int, str]]]: ...
-def _conformance_check(node: Node, /) -> tuple[bool, list[tuple[str, str, str, int, int]]]: ...
-def _conformance_filter(
+def conformance_check(node: Node, /) -> tuple[bool, list[tuple[str, str, str, int, int]]]: ...
+def conformance_filter(
     messages: tuple[ConformanceMessage, ...], severity: str, /
 ) -> tuple[ConformanceMessage, ...]: ...

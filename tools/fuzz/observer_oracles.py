@@ -46,14 +46,7 @@ def observer_sequence_controls() -> dict[str, bool]:
 def observer_sequence_check(case: str, run: Callable[[str, str], str] | None = None) -> str | None:
     # Retain detached wrappers and pin callback batches against an independent model.
     program, separator, name = case.partition(":")
-    if (
-        not separator
-        or program not in _PROGRAMS
-        or re.fullmatch(
-            r"(?#a, b, div, or a g followed by up to 15 letters or digits)(?:[ab]|div|g[a-z0-9]{0,15})", name
-        )
-        is None
-    ):
+    if not separator or program not in _PROGRAMS or _OBSERVER_SEQUENCE_CHECK_PATTERN.fullmatch(name) is None:
         raise UnsupportedObserverCaseError(case)
     return None if (run or _run)(program, name) == _expected(program, name) else "observer sequence differs from model"
 
@@ -152,6 +145,11 @@ def _expected(program: str, name: str) -> str:
         nested: Final[_Record] = ("childList", 0, (2,), (), 1, None, None, None)
         return json.dumps((f"<div><{name}></{name}><b></b></div>", True, [[added]], [[added], [nested]], [], None))
     return json.dumps((f"<div><{name}></{name}></div>", True, [], [[added]], [], "observer callback failed"))
+
+
+_OBSERVER_SEQUENCE_CHECK_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(?#a, b, div, or a g followed by up to 15 letters or digits)(?:[ab]|div|g[a-z0-9]{0,15})"
+)
 
 
 _Record: TypeAlias = tuple[

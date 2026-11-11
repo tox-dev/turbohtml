@@ -334,7 +334,7 @@ def test_element_list_member_must_be_str() -> None:
         Element("div", {"class": [1, 2]})  # ty: ignore[invalid-argument-type]  # members must be str
 
 
-@pytest.mark.parametrize("attrs", [5, [("a", "b")]], ids=["int", "list"])
+@pytest.mark.parametrize("attrs", [pytest.param(5, id="int"), pytest.param([("a", "b")], id="list")])
 def test_element_attrs_must_be_a_mapping(attrs: int | list[tuple[str, str]]) -> None:
     # a value without keys() is not a mapping; report that as a TypeError, not the raw AttributeError
     with pytest.raises(TypeError, match="attrs must be a mapping"):

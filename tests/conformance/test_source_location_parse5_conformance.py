@@ -14,7 +14,7 @@ from turbohtml import Element, parse
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-    from turbohtml._internal._locations import SourceSpan
+    from turbohtml import SourceSpan
 
 _SUBMODULE: Final[Path] = Path(__file__).parent / "parse5"
 _DATA: Final[Path] = _SUBMODULE / "test" / "data" / "location-info"

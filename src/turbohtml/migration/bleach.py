@@ -13,8 +13,14 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping
 from typing import Final, TypeAlias
 
-from turbohtml._html import _bleach_allow_relative, _bleach_attributes
 from turbohtml.clean import DEFAULT_ATTRIBUTES, DEFAULT_SCHEMES, DEFAULT_TAGS, OnDisallowed, Policy, sanitize
+
+from ._native import (
+    bleach_allow_relative as _bleach_allow_relative,
+)
+from ._native import (
+    bleach_attributes as _bleach_attributes,
+)
 
 #: bleach's default allowed tags, attributes, and protocols, under their bleach names.
 ALLOWED_TAGS: Final[frozenset[str]] = DEFAULT_TAGS
@@ -35,7 +41,7 @@ def clean(  # ruff:ignore[too-many-arguments, too-many-positional-arguments]  # 
     protocols: Iterable[str] | None = None,
     strip: bool = False,  # ruff:ignore[boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # bleach keeps strip a positional flag
     strip_comments: bool = True,  # ruff:ignore[boolean-type-hint-positional-argument, boolean-default-value-positional-argument]  # bleach keeps strip_comments a positional flag
-    css_sanitizer: object = None,  # simplint: ignore[SMP602]  # bleach takes any object, tests pass object()
+    css_sanitizer: object = None,  # simplint: ignore[imprecise-annotation]  # bleach accepts any object
 ) -> str:
     """
     Sanitize HTML against a bleach-style allowlist, the way ``bleach.clean`` did.

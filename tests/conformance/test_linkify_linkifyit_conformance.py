@@ -63,9 +63,12 @@ _DEVIATIONS: Final[dict[str, tuple[None, str] | tuple[str, str]]] = {
 }
 
 
+_LINES_PATTERN: Final[re.Pattern[str]] = re.compile(r"^%.*")
+
+
 def _lines(name: str) -> list[str]:
     # Return the fixture's lines with whole-line ``%`` notes blanked, the way linkify-it's own runner reads them.
-    return [re.sub(r"^%.*", "", line) for line in (_FIXTURES / name).read_text(encoding="utf-8").split("\n")]
+    return [_LINES_PATTERN.sub("", line) for line in (_FIXTURES / name).read_text(encoding="utf-8").split("\n")]
 
 
 def _link_cases() -> list[tuple[str, str]]:

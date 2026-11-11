@@ -43,14 +43,22 @@ def _iter_cases() -> list[tuple[str, Path]]:
 _CASES: Final[list[tuple[str, Path]]] = _iter_cases()
 
 
+_MATCH_PATTERN: Final[re.Pattern[str]] = re.compile(r"<xsl:output[^>]*\bmethod\s*=\s*[\"'](?P<method>\w+)")
+
+
 def _output_method(stylesheet: str) -> str:
-    match = re.search(r"<xsl:output[^>]*\bmethod\s*=\s*[\"'](?P<method>\w+)", stylesheet)
+    match = _MATCH_PATTERN.search(stylesheet)
     return match["method"] if match else "xml"
 
 
+_TEXT_PATTERN: Final[re.Pattern[str]] = re.compile(r"^﻿?<\?xml\s[^>]*\?>\s*")
+
+_CANONICAL_PATTERN: Final[re.Pattern[str]] = re.compile(r">\s+<")
+
+
 def _canonical(text: str) -> str:
-    text = re.sub(r"^﻿?<\?xml\s[^>]*\?>\s*", "", text)
-    return re.sub(r">\s+<", "><", text.strip())
+    text = _TEXT_PATTERN.sub("", text)
+    return _CANONICAL_PATTERN.sub("><", text.strip())
 
 
 @pytest.mark.parametrize(

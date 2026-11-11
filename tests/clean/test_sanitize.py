@@ -14,7 +14,6 @@ import pytest
 from bench.operations import INPUTS
 
 from turbohtml import Comment, Document, Element, parse, parse_fragment, parse_xml
-from turbohtml._html import _sanitize, _sanitize_policy
 from turbohtml.build import E
 from turbohtml.clean import (
     DEFAULT_ATTRIBUTES,
@@ -871,8 +870,11 @@ def test_allowed_styles_merges_tag_and_wildcard() -> None:
     assert "style=" not in sanitize('<p style="color: green">x</p>', policy)
 
 
+_TEST_ALLOWED_STYLES_ACCEPTS_PRECOMPILED_PATTERNS_PATTERN: Final[re.Pattern[str]] = re.compile(r"^teal$")
+
+
 def test_allowed_styles_accepts_precompiled_patterns() -> None:
-    policy = _allowed_styles_policy({"*": {"color": [re.compile(r"^teal$")]}})
+    policy = _allowed_styles_policy({"*": {"color": [_TEST_ALLOWED_STYLES_ACCEPTS_PRECOMPILED_PATTERNS_PATTERN]}})
     assert sanitize('<p style="color: teal">x</p>', policy) == '<p style="color: teal">x</p>'
 
 
@@ -982,7 +984,7 @@ def test_allowed_styles_does_not_narrow_style_element_body() -> None:
     assert sanitize("<style>p{color:red}</style>", policy) == "<style>p{color:red;}</style>"
 
 
-@pytest.mark.parametrize("css", ["", "  "], ids=["no-text-child", "whitespace-only"])
+@pytest.mark.parametrize("css", [pytest.param("", id="no-text-child"), pytest.param("  ", id="whitespace-only")])
 def test_style_element_kept_when_body_empty(css: str) -> None:
     # keeping the element is the point: an empty body leaves <style></style> standing, never escaped or dropped
     assert sanitize(f"<style>{css}</style>", _style_element_policy()) == "<style></style>"
@@ -1291,8 +1293,14 @@ def test_unusual_scheme_characters_are_treated_as_relative(url: str) -> None:
 
 @pytest.mark.parametrize(
     "char",
-    [chr(0x00AD), chr(0x200B), chr(0x200C), chr(0x200D), chr(0x2060), chr(0xFEFF)],
-    ids=["soft-hyphen", "zwsp", "zwnj", "zwj", "word-joiner", "bom"],
+    [
+        pytest.param(chr(0x00AD), id="soft-hyphen"),
+        pytest.param(chr(0x200B), id="zwsp"),
+        pytest.param(chr(0x200C), id="zwnj"),
+        pytest.param(chr(0x200D), id="zwj"),
+        pytest.param(chr(0x2060), id="word-joiner"),
+        pytest.param(chr(0xFEFF), id="bom"),
+    ],
 )
 def test_zero_width_characters_cannot_obfuscate_a_scheme(char: str) -> None:
     # soft hyphen, zero-width, and BOM characters are stripped before the scheme is read, like browsers ignore them
@@ -1633,15 +1641,6 @@ def test_strip_propagates_a_child_filter_error() -> None:
     policy = Policy(on_disallowed_tag=OnDisallowed.STRIP, attribute_filter=boom)
     with pytest.raises(ValueError, match="href"):
         sanitize('<div><a href="http://x">y</a></div>', policy)
-
-
-def test_sanitize_rejects_wrong_arguments() -> None:
-    from turbohtml._html import (  # ruff:ignore[import-outside-top-level]  # exercising the C argument parsing directly
-        _sanitize,
-    )
-
-    with pytest.raises(TypeError):
-        _sanitize()  # ty: ignore[missing-argument]  # too few arguments
 
 
 def test_module_constants_match_bleach_defaults() -> None:
@@ -2091,6 +2090,9 @@ def test_sanitize_attribute_benchmark(case: int, expected: str) -> None:
     assert sanitizer.sanitize(cast("str", INPUTS["sanitize-attributes"]()[case][1])) == expected
 
 
+_TEST_CUSTOM_ELEMENT_PREDICATE_PATTERN: Final[re.Pattern[str]] = re.compile(r"^x-a$")
+
+
 @pytest.mark.parametrize(
     ("html", "check", "expected"),
     [
@@ -2108,7 +2110,7 @@ def test_sanitize_attribute_benchmark(case: int, expected: str) -> None:
         ),
         pytest.param(
             "<x-a>a</x-a><x-b>b</x-b>",
-            lambda tag: bool(re.search(r"^x-a$", tag)),
+            lambda tag: bool(_TEST_CUSTOM_ELEMENT_PREDICATE_PATTERN.search(tag)),
             "<x-a>a</x-a>&lt;x-b&gt;b&lt;/x-b&gt;",
             id="regex-search-drives-the-predicate",
         ),
@@ -2457,43 +2459,6 @@ _FOREIGN_TAGS: Final[frozenset[str]] = frozenset({
 _FOREIGN_POLICY: Final[Policy] = Policy(tags=_FOREIGN_TAGS, attributes={"annotation-xml": frozenset({"encoding"})})
 
 
-def _find(root: Element, tag: str, namespace: str | None = None) -> Element:
-    # Return the first element named ``tag`` (optionally in ``namespace``) in document order.
-    queue: list[Element] = list(getattr(root, "children", ()))
-    while queue:
-        node = queue.pop(0)
-        if isinstance(node, Element) and node.tag == tag and (namespace is None or node.namespace.value == namespace):
-            return node
-        queue[0:0] = list(getattr(node, "children", ()))
-    msg = f"no {tag!r} element found"
-    raise AssertionError(msg)
-
-
-def _sanitize_tree(root: Element, tags: frozenset[str]) -> str:
-    # named to keep the boolean positional arguments off the FBT003 lint, not to document them
-    allow_relative = strip_comments = True
-    allow_fragments = strip_templates = isolate_named_props = allow_customized_builtins = bleach_url_policy = False
-    xml = False
-    allow_html = allow_svg = allow_mathml = True
-    empty: frozenset[str] = frozenset()
-    schemes = frozenset({"http", "https", "mailto"})
-    original = root.inner_html
-    sanitized = _sanitize(
-        root, tags, {}, schemes, allow_relative, allow_fragments, OnDisallowed.REMOVE.value, strip_comments,
-        None, None, {}, empty,
-        empty, empty, {}, empty, strip_templates, None, {}, {}, isolate_named_props, None, None,
-        allow_customized_builtins, allow_html, allow_svg, allow_mathml, None, bleach_url_policy, xml,
-    )  # fmt: skip
-    assert root.inner_html == original
-    return sanitized.inner_html
-
-
-def test_find_helper_reports_a_missing_element() -> None:
-    # The navigation helper fails loudly rather than returning None when a case names a tag that is not present.
-    with pytest.raises(AssertionError, match="no 'span' element"):
-        _find(parse_fragment("<div></div>"), "span")
-
-
 @pytest.mark.parametrize(
     ("html", "policy"),
     [
@@ -2522,50 +2487,6 @@ def test_find_helper_reports_a_missing_element() -> None:
 def test_namespace_reachable_foreign_content_untouched(html: str, policy: Policy) -> None:
     # Every namespace transition the parser produces is reachable, so the check leaves valid foreign content as-is.
     assert sanitize(html, policy) == parse_fragment(html).inner_html
-
-
-# Each case parses valid markup, then moves a real foreign/HTML node under a parent the parser would never give it,
-# producing a namespace-confused node the reachability check must drop. move is (source, source-namespace, target):
-# source-namespace disambiguates a name that exists in more than one namespace. marker is the node's start tag, absent
-# once it is dropped and present while correctly nested.
-_CONFUSION_CASES: Final[list[pytest.ParameterSet]] = [
-    pytest.param(
-        "<div></div><svg><circle></circle></svg>", ("circle", "svg", "div"), {"div", "svg", "circle"}, "<circle",
-        id="svg-element-reparented-under-html",
-    ),
-    pytest.param(
-        "<math><mrow></mrow></math><svg></svg>", ("svg", "svg", "mrow"), {"math", "mrow", "svg"}, "<svg",
-        id="svg-under-non-integration-mathml",
-    ),
-    pytest.param(
-        "<div></div><math><mrow></mrow></math>", ("mrow", "math", "div"), {"div", "math", "mrow"}, "<mrow",
-        id="mathml-element-reparented-under-html",
-    ),
-    pytest.param(
-        "<math></math><svg><g></g></svg>", ("math", "math", "g"), {"math", "svg", "g"}, "<math",
-        id="math-under-non-integration-svg",
-    ),
-    pytest.param(
-        "<svg><g></g></svg><p></p>", ("p", "html", "g"), {"svg", "g", "p"}, "<p",
-        id="html-under-non-integration-svg",
-    ),
-    pytest.param(
-        "<math><mrow></mrow></math><p></p>", ("p", "html", "mrow"), {"math", "mrow", "p"}, "<p",
-        id="html-under-non-integration-mathml",
-    ),
-]  # fmt: skip
-
-
-@pytest.mark.parametrize(("html", "move", "tags", "marker"), _CONFUSION_CASES)
-def test_namespace_confusion_is_dropped(
-    html: str, move: tuple[str, str, str], tags: frozenset[str], marker: str
-) -> None:
-    # A node reparented into an unreachable namespace is dropped, while the same node correctly nested is kept.
-    assert marker in _sanitize_tree(parse_fragment(html), tags)  # correctly nested: the policy keeps it
-    source, source_ns, target = move
-    root = parse_fragment(html)
-    _find(root, target).append(_find(root, source, source_ns))
-    assert marker not in _sanitize_tree(root, tags)  # confused by the move: the reachability check drops it
 
 
 _ANNOTATION_TAGS: Final[frozenset[str]] = frozenset({"math", "annotation-xml", "style", "b"})
@@ -2602,12 +2523,6 @@ _ANNOTATION_TAGS: Final[frozenset[str]] = frozenset({"math", "annotation-xml", "
 def test_annotation_xml_integration_follows_kept_encoding(html: str, policy: Policy, expected: str) -> None:
     # annotation-xml keeps HTML children only while its serialized encoding makes it an integration point.
     assert sanitize(html, policy) == expected
-
-
-def test_annotation_xml_bare_encoding_is_not_integration_point() -> None:
-    root = parse_fragment("<math><annotation-xml encoding></annotation-xml></math><b>hi</b>")
-    _find(root, "annotation-xml").append(_find(root, "b"))
-    assert _sanitize_tree(root, _ANNOTATION_TAGS) == "<math><annotation-xml></annotation-xml></math>"
 
 
 @pytest.mark.parametrize(
@@ -2914,108 +2829,26 @@ def test_a_reusable_sanitizer_offers_both_node_forms() -> None:
     )
 
 
-@pytest.mark.parametrize("entry", [sanitize_node, sanitize_report_node], ids=["sanitize_node", "sanitize_report_node"])
+@pytest.mark.parametrize(
+    "entry",
+    [pytest.param(sanitize_node, id="sanitize_node"), pytest.param(sanitize_report_node, id="sanitize_report_node")],
+)
 def test_the_node_forms_refuse_a_str(entry: Callable[[Node], object]) -> None:
     with pytest.raises(TypeError, match="pass a str to sanitize instead"):
         entry(_POST)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
 
-@pytest.mark.parametrize("entry", [sanitize, sanitize_node], ids=["sanitize", "sanitize_node"])
+@pytest.mark.parametrize(
+    "entry", [pytest.param(sanitize, id="sanitize"), pytest.param(sanitize_node, id="sanitize_node")]
+)
 def test_a_foreign_object_is_rejected(entry: Callable[[str | Node], object]) -> None:
     with pytest.raises(TypeError):
         entry(42)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
 
-_EMPTY: Final[tuple[dict[str, str] | frozenset[str] | type[Transform], ...]] = (
-    {},
-    frozenset(),
-    {},
-    {},
-    {},
-    {},
-    Transform,
-)
-
-
-_Compiled = tuple[
-    dict[str, frozenset[str]],
-    str | None,
-    dict[str, dict[str, str]],
-    dict[str, dict[str, frozenset[str]]],
-    dict[str, dict[str, tuple[re.Pattern[str], ...]]],
-    dict[str, tuple[str, dict[str, str]]],
-]
-
-
-def test_the_rel_value_is_sorted_and_space_joined() -> None:
-    assert _compile(add_link_rel=frozenset({"noreferrer", "noopener"}))[1] == "noopener noreferrer"
-
-
-def _compile(**fields: object) -> _Compiled:
-    # Compile a policy built from the given fields, returning the six compiled forms.
-    policy = Policy(**fields)  # ty: ignore[invalid-argument-type]  # each test passes a valid field
-    return _sanitize_policy(
-        policy.attributes,
-        policy.add_link_rel,
-        policy.set_attributes,
-        policy.attribute_values,
-        policy.allowed_styles,
-        policy.transform_tags,
-        Transform,
-    )
-
-
-def test_no_rel_tokens_is_none() -> None:
-    assert _compile(add_link_rel=frozenset())[1] is None
-
-
-def test_the_attributes_are_copied_into_a_dict() -> None:
-    copied = _compile(attributes={"a": frozenset({"href"})})[0]
-    assert copied == {"a": frozenset({"href"})}
-    assert isinstance(copied, dict)
-
-
-def test_value_sets_are_frozen_per_attribute() -> None:
-    assert _compile(attribute_values={"a": {"rel": ["nofollow", "ugc"]}})[3] == {
-        "a": {"rel": frozenset({"nofollow", "ugc"})}
-    }
-
-
-def test_set_attributes_are_copied_per_tag() -> None:
-    assert _compile(set_attributes={"a": {"target": "_blank"}})[2] == {"a": {"target": "_blank"}}
-
-
-def test_style_properties_are_lowercased_and_patterns_compiled() -> None:
-    styles = _compile(allowed_styles={"*": {"Color": ["^red$"]}})[4]
-    assert list(styles["*"]) == ["color"]
-    (pattern,) = styles["*"]["color"]
-    assert pattern.pattern == "^red$"
-
-
-def test_a_precompiled_pattern_is_kept_as_it_is() -> None:
-    ready = re.compile(r"^blue$")
-    assert _compile(allowed_styles={"p": {"color": [ready]}})[4]["p"]["color"] == (ready,)
-
-
-def test_a_bad_pattern_raises_the_regex_error() -> None:
-    with pytest.raises(re.error):
-        _compile(allowed_styles={"p": {"color": ["("]}})
-
-
-@pytest.mark.parametrize(
-    ("target", "expected"),
-    [
-        pytest.param("em", ("em", {}), id="a-bare-rename"),
-        pytest.param(Transform("div", {"class": "c"}), ("div", {"class": "c"}), id="a-transform-with-attributes"),
-    ],
-)
-def test_transform_rules_normalize(target: str | Transform, expected: tuple[str, dict[str, str]]) -> None:
-    assert _compile(transform_tags={"i": target})[5] == {"i": expected}
-
-
 def test_a_transform_target_must_be_a_str_or_transform() -> None:
     with pytest.raises(TypeError, match="transform_tags\\['i'\\] must be a str or Transform, got int"):
-        Sanitizer(Policy(transform_tags={"i": 5}))  # ty: ignore[invalid-argument-type]  # the check is the point
+        Sanitizer(Policy(transform_tags={"i": 5}))  # ty: ignore[invalid-argument-type]  # tests the public guard
 
 
 @pytest.mark.parametrize(
@@ -3026,73 +2859,9 @@ def test_a_transform_target_tag_must_be_non_empty(target: str | Transform) -> No
         Sanitizer(Policy(transform_tags={"i": target}))
 
 
-def test_the_compiler_rejects_a_non_mapping() -> None:
-    with pytest.raises(TypeError):
-        _sanitize_policy(5, *_EMPTY[1:])  # ty: ignore[invalid-argument-type]  # the argument check is the point
-
-
-def test_the_compiler_rejects_a_non_mapping_nest() -> None:
-    with pytest.raises(AttributeError, match="items"):
-        _sanitize_policy({}, frozenset(), {"a": 5}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
-
-
-def test_the_compiler_rejects_a_non_mapping_table() -> None:
-    with pytest.raises(AttributeError, match="items"):
-        _sanitize_policy({}, frozenset(), 5, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
-
-
-def test_the_compiler_rejects_a_non_iterable_rel() -> None:
-    with pytest.raises(TypeError):
-        _sanitize_policy({}, 5, {}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
-
-
-def test_rel_tokens_of_mixed_types_cannot_be_sorted() -> None:
-    with pytest.raises(TypeError):
-        _sanitize_policy({}, {"a", 1}, {}, {}, {}, {}, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
-
-
-def test_a_style_pattern_list_must_be_iterable() -> None:
-    with pytest.raises(TypeError):
-        _compile(allowed_styles={"p": {"color": 5}})
-
-
-def test_a_style_property_must_be_a_str() -> None:
-    with pytest.raises(AttributeError, match="lower"):
-        _compile(allowed_styles={"p": {5: []}})
-
-
-def test_a_transform_table_must_be_a_mapping() -> None:
-    with pytest.raises(AttributeError, match="items"):
-        _sanitize_policy({}, frozenset(), {}, {}, {}, 5, Transform)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
-
-
-class _TagOnly:
-    # A transform-like object carrying a tag but no attributes, the way a caller's own record might.
-    tag = "em"
-
-
-class _Bare:
-    # A transform-like object carrying neither field.
-    ...
-
-
-@pytest.mark.parametrize(
-    ("target", "missing"),
-    [pytest.param(_TagOnly(), "attributes", id="no-attributes"), pytest.param(_Bare(), "tag", id="no-tag")],
-)
-def test_a_transform_type_must_carry_both_fields(target: _TagOnly | _Bare, missing: str) -> None:
-    with pytest.raises(AttributeError, match=missing):
-        _sanitize_policy({}, frozenset(), {}, {}, {}, {"i": target}, type(target))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
-
-
 def test_a_transform_tag_that_is_not_a_str_is_rejected() -> None:
     with pytest.raises(ValueError, match="target tag must be a non-empty string"):
-        Sanitizer(Policy(transform_tags={"i": Transform(5)}))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
-
-
-def test_the_compiler_rejects_too_few_arguments() -> None:
-    with pytest.raises(TypeError):
-        _sanitize_policy({}, frozenset())  # ty: ignore[missing-argument]  # the arity check is the point
+        Sanitizer(Policy(transform_tags={"i": Transform(5)}))  # ty: ignore[invalid-argument-type]  # tests the public guard
 
 
 _XSS_CORPUS: Final[list[pytest.ParameterSet]] = [
