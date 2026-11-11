@@ -2045,7 +2045,8 @@ def _declaration(rng: random.Random) -> str:
     if values := _SEMANTIC_VALUES[name]:
         value = rng.choice(values)
     elif name in {"margin", "padding", "border-width"}:
-        value = " ".join(rng.choice(_LENGTHS) for _ in range(rng.randint(1, 4)))
+        lengths = _LENGTHS if name == "margin" else _LENGTHS[:-1]
+        value = " ".join(rng.choice(lengths) for _ in range(rng.randint(1, 4)))
     elif name == "border-color":
         value = " ".join(rng.choice(_COLORS[:-1]) for _ in range(rng.randint(1, 4)))
     elif name == "border-style":

@@ -478,7 +478,7 @@ def per_target(docker: MockType, mocker: MockerFixture, tmp_path: Path) -> MockT
                 (build / name).write_bytes(content)
                 (build / name).chmod(mode)
             with ZipFile(build / "fuzz_dom_query_seed_corpus.zip", "w") as archive:
-                archive.writestr("seed", b"x")
+                archive.writestr("tools_fuzz_corpus_css_translate_simple.css", b"x")
         elif _environment(command).get("MODE") == "coverage":
             out = Path(_environment(command)["WORKSPACE"]) / "build-out"
             (out / f"coverage_d_{out.parent.name}").write_bytes(out.parent.name.encode())
@@ -572,9 +572,28 @@ def test_cflite_coverage_uses_build_seeds_without_changing_stored_corpus(tmp_pat
     workspace: Final = tmp_path / "workspace"
     assert (
         (workspace / "targets" / "fuzz_dom_query" / "storage" / "corpus").resolve(),
-        (workspace / "coverage-corpus" / "fuzz_dom_query" / "seed").read_bytes(),
+        (workspace / "coverage-corpus" / "fuzz_dom_query" / "tools_fuzz_corpus_css_translate_simple.css").read_bytes(),
         {path.name for path in (workspace / "storage" / "corpus" / "fuzz_dom_query").iterdir()},
     ) == (workspace / "coverage-corpus", b"x", {"0"})
+
+
+def test_cflite_coverage_replays_reachability_seeds(per_target: MockType, tmp_path: Path) -> None:
+    build: Final = per_target.side_effect
+
+    def run(command: list[str], **kwargs: object) -> CompletedProcess[str]:
+        result: Final = build(command, **kwargs)
+        if command[-1] == BUILD_IMAGE:
+            with ZipFile(tmp_path / "workspace" / "build-out" / "fuzz_dom_query_seed_corpus.zip", "a") as archive:
+                archive.writestr("tools_fuzz_corpus_xml_schema_mismatch.xml", b"xx")
+                archive.writestr("other", b"")
+        return result
+
+    per_target.side_effect = run
+    assert fuzz_cflite_main(_target_arguments(tmp_path, "coverage")) == 0
+    assert {path.name for path in (tmp_path / "workspace" / "coverage-corpus" / "fuzz_dom_query").iterdir()} == {
+        "tools_fuzz_corpus_css_translate_simple.css",
+        "tools_fuzz_corpus_xml_schema_mismatch.xml",
+    }
 
 
 def test_cflite_stops_target_at_deadline(
@@ -681,6 +700,20 @@ def test_reachability_target_functions_follow_registry(target: str, names: list[
 def test_reachability_skips_def_line() -> None:
     callback: Final = target_functions(_TARGETS["html-document"])[0]
     assert inspect.getsourcelines(_TARGETS["html-document"].callback)[1] not in callback.lines
+
+
+def test_reachability_uses_reexported_function_source() -> None:
+    paths: Final = {function.name: function.path for function in target_functions(_TARGETS["content-extract"])}
+    assert {name: paths[name] for name in ("boilerplate", "feed", "microdata", "opengraph")} == {
+        "boilerplate": "turbohtml/extract/_paragraphs.py",
+        "feed": "turbohtml/extract/_shorthands.py",
+        "microdata": "turbohtml/extract/_shorthands.py",
+        "opengraph": "turbohtml/extract/_shorthands.py",
+    }
+
+
+def test_reachability_ignores_protocol_stubs() -> None:
+    assert "SubElementFactory" not in [function.name for function in target_functions(_TARGETS["dom-elementtree"])]
 
 
 @pytest.mark.parametrize(
