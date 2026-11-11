@@ -109,6 +109,14 @@ def test_has_link_exits_early_on_a_long_tail() -> None:
     assert LinkDetector(phones=_US).has_link(f"650-253-0000 {'tail ' * 45000}") is True
 
 
+def test_extension_with_many_space_runs_keeps_the_number() -> None:
+    gap = f"{' ' * 34}\t"
+    text = f"44 20 7946 0958{gap * 140}x10958"
+    assert [span.url for span in LinkDetector(phones=PhoneNumbers(regions=("GB",))).find(text)] == [
+        "tel:+442079460958;ext=10958"
+    ]
+
+
 def test_span_repr_shows_the_phone() -> None:
     assert repr(LinkDetector(phones=_US).find("650-253-0000")[0]) == (
         "LinkSpan(start=0, end=12, text='650-253-0000', url='tel:+16502530000', phone=PhoneNumber(country_code=1, "

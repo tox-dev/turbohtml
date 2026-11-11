@@ -1271,6 +1271,10 @@ typedef struct {
 
 /* The rules overlap, so one range can arrive twice. */
 static void push_chunk(chunk_list *chunks, size_t start, size_t end) {
+    /* Separators in an extension can outnumber the bounded phone groups. */
+    if (chunks->count == MAX_CHUNKS) {
+        return;
+    }
     for (size_t index = 0; index < chunks->count; index++) {
         if (chunks->ranges[index].start == start && chunks->ranges[index].end == end) {
             return;
