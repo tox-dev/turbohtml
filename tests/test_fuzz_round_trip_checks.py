@@ -510,6 +510,13 @@ def test_css_semantics_check_keeps_supported_shorthand_keywords() -> None:
     assert css_semantics_check(markup) is None
 
 
+def test_css_semantics_generator_meets_comparison_floor() -> None:
+    oracle: Final = ORACLES["css-semantics"]
+    rng: Final = random.Random(3456)  # ruff: ignore[suspicious-non-cryptographic-random-usage] - Reproducible samples.
+    cases: Final = [oracle.generate(rng) for _ in range(1000)]
+    assert sum(oracle.check(case) is None for case in cases) >= 950
+
+
 @pytest.mark.parametrize(
     "expression",
     [
