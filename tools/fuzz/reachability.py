@@ -66,17 +66,21 @@ def target_functions(target: Target) -> tuple[_Function, ...]:
     return tuple(dict.fromkeys(function for item in callables for function in _functions(item) if function.lines))
 
 
-def _resolve(export: str) -> object:  # simplint: ignore[SMP602]  # getattr returns whatever the module exports
+def _resolve(
+    export: str,
+) -> object:  # simplint: ignore[imprecise-annotation]  # getattr returns whatever the module exports
     module, _, name = export.rpartition(".")
     return getattr(importlib.import_module(module), name)
 
 
-def _functions(item: object) -> Iterator[_Function]:  # simplint: ignore[SMP602]  # any export until isfunction narrows
+def _functions(
+    item: object,  # simplint: ignore[imprecise-annotation]  # exports include non-callable values
+) -> Iterator[_Function]:
     if inspect.isfunction(item):
-        yield _Function(name=item.__qualname__, path=_module_path(item.__module__), lines=_lines(item.__code__))
-    elif inspect.isclass(item) and (methods := list(_methods(item))):
+        yield _Function(name=item.__qualname__, path=_module_path(item.__code__), lines=_lines(item.__code__))
+    elif inspect.isclass(item) and not getattr(item, "_is_protocol", False) and (methods := list(_methods(item))):
         lines = frozenset(line for method in methods for line in _lines(method.__code__))
-        yield _Function(name=item.__qualname__, path=_module_path(item.__module__), lines=lines)
+        yield _Function(name=item.__qualname__, path=_module_path(methods[0].__code__), lines=lines)
 
 
 def _methods(cls: type) -> Iterator[FunctionType]:
@@ -90,9 +94,9 @@ def _methods(cls: type) -> Iterator[FunctionType]:
             yield function
 
 
-def _module_path(module: str) -> str:
-    file: Final = sys.modules[module].__file__ or ""
-    return module.replace(".", "/") + ("/__init__.py" if file.endswith("__init__.py") else ".py")
+def _module_path(code: CodeType) -> str:
+    path: Final = Path(code.co_filename).resolve().relative_to(Path(__file__).resolve().parents[2]).as_posix()
+    return path.removeprefix("src/").removeprefix("tools/")
 
 
 def _lines(code: CodeType) -> frozenset[int]:
