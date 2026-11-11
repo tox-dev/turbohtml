@@ -71,6 +71,20 @@ def test_google_style_inside_deep_block_keeps_both_blocks() -> None:
     assert len(result) <= len(source) * 4
 
 
+def test_deep_list_keeps_paragraph_inside_innermost_item() -> None:
+    source: Final = f"{'<ul><li>' * 9}s<p>1</p>"
+    result: Final = parse_fragment(source).to_markdown()
+    assert result.endswith("<ul><li>s<p>1</p></li></ul>")
+    assert MarkdownIt().render(result).count("<ul>") == 9
+
+
+def test_deep_list_with_attributes_keeps_markdown_output() -> None:
+    source: Final = f"{'<ul><li>' * 8}<ul class=x><li>s<p>1</p>"
+    result: Final = parse_fragment(source).to_markdown()
+    assert "<ul" not in result
+    assert result.endswith("- s\n\n                1")
+
+
 def test_many_trailing_breaks_keep_visible_text() -> None:
     assert md(f"x{'<br>' * 128}") == "x"
 

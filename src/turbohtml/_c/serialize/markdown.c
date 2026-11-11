@@ -3743,6 +3743,11 @@ static void md_enter_list(md_ctx *ctx, th_node *node) {
         raw_html = 0;
         loose = md_list_layout(ctx, node, 0, &raw_html);
     }
+    if (ctx->indent_levels >= TH_MAX_INDENT_LEVELS - 1 && loose && md_list_raw_safe(ctx->tree, node)) {
+        md_block_line(ctx, 0);
+        md_emit_raw_html(ctx, node);
+        return;
+    }
     if (raw_html) {
         md_block_line(ctx, 1);
         md_emit_raw_html(ctx, node);

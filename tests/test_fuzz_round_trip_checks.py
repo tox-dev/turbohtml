@@ -746,6 +746,10 @@ def test_markdown_source_grammar_skips_lost_control_whitespace() -> None:
         ORACLES["markdown-source-grammar"].check("<p>\x0bx</p>")
 
 
+def test_markdown_source_keeps_deep_list_paragraph() -> None:
+    assert markdown_source_check(f"{'<ul><li>' * 9}s\n\n1") is None
+
+
 @pytest.mark.parametrize(
     ("data", "encoding", "sniff", "expected"),
     [
