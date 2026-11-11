@@ -264,6 +264,7 @@ def test_html_check_skips_trees_the_standard_does_not_round_trip(markup: str) ->
         pytest.param("<p a=1>x<svg><circle r=1></circle></svg>", id="nested-content"),
         pytest.param("<p><!--end-\x01--></p>", id="comment-trailing-hyphen-after-control"),
         pytest.param("<p><!--a-\x01-b--></p>", id="comment-double-hyphen-across-control"),
+        pytest.param("!d[<!--" + "\x06" * 123 + ">-->><!----><!---->\x1c!", id="comment-leading-controls"),
     ],
 )
 def test_xml_check_passes_the_serializer(markup: str) -> None:

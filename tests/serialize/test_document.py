@@ -1331,6 +1331,8 @@ def test_serialize_xml_checks_unicode_element_names(name: str, expected: str) ->
         pytest.param("a-\x01b", "<!--a-b-->", id="hyphen-before-dropped-control"),
         pytest.param("--", "<!--- - -->", id="only-hyphens"),
         pytest.param("a\x0cb", "<!--ab-->", id="control-char-dropped"),
+        pytest.param("\x06>", "<!-- >-->", id="leading-control-before-closer"),
+        pytest.param("\x06->", "<!-- ->-->", id="leading-control-before-short-closer"),
     ],
 )
 def test_inner_xml_comment_is_made_well_formed(body: str, expected: str) -> None:
