@@ -40,7 +40,8 @@ from phone_dfa import (
     Dfa,
     PriorityDfa,
     Program,
-    SreItems,
+    RegexItems,
+    RegexOp,
     accepted_lengths,
     compile_dfa,
     compile_priority_dfa,
@@ -49,10 +50,9 @@ from phone_dfa import (
     longest_accept,
     match_end,
     max_threads,
+    parse_regex,
     pike_spans,
     shortest_accept,
-    sre_constants,
-    sre_parse,
     sticky_program,
     union_program,
 )
@@ -978,32 +978,32 @@ def _extension_literals() -> set[int]:
     # Collect every literal code point an extension form spells, the alphabet both grammars share.
     literals: set[int] = set()
     for _name, pattern, _cap in _PARSING_EXTENSION_FORMS:
-        for opcode, argument in _walk(list(sre_parse.parse(pattern))):
+        for opcode, argument in _walk(list(parse_regex(pattern))):
             if opcode == "literal":
                 literals.add(argument)
     return literals
 
 
-def _walk(items: SreItems) -> Iterable[tuple[str, int]]:
+def _walk(items: RegexItems) -> Iterable[tuple[str, int]]:
     for opcode, argument in items:
-        if opcode is sre_constants.LITERAL:
+        if opcode is RegexOp.LITERAL:
             yield "literal", cast("int", argument)
-        elif opcode is sre_constants.IN:
-            yield from _walk_in(cast("SreItems", argument))
-        elif opcode is sre_constants.SUBPATTERN:
-            yield from _walk(cast("tuple[int | None, int, int, SreItems]", argument)[3])
-        elif opcode is sre_constants.BRANCH:
-            for alternative in cast("tuple[None, list[SreItems]]", argument)[1]:
+        elif opcode is RegexOp.IN:
+            yield from _walk_in(cast("RegexItems", argument))
+        elif opcode is RegexOp.SUBPATTERN:
+            yield from _walk(cast("tuple[int | None, int, int, RegexItems]", argument)[3])
+        elif opcode is RegexOp.BRANCH:
+            for alternative in cast("tuple[None, list[RegexItems]]", argument)[1]:
                 yield from _walk(alternative)
-        elif opcode is sre_constants.MAX_REPEAT:
-            yield from _walk(cast("tuple[int, int, SreItems]", argument)[2])
+        elif opcode is RegexOp.MAX_REPEAT:
+            yield from _walk(cast("tuple[int, int | None, RegexItems]", argument)[2])
 
 
-def _walk_in(argument: SreItems) -> Iterable[tuple[str, int]]:
+def _walk_in(argument: RegexItems) -> Iterable[tuple[str, int]]:
     for inner, value in argument:
-        if inner is sre_constants.LITERAL:
+        if inner is RegexOp.LITERAL:
             yield "literal", cast("int", value)
-        elif inner is sre_constants.RANGE:
+        elif inner is RegexOp.RANGE:
             low, high = cast("tuple[int, int]", value)
             yield from (("literal", code) for code in range(low, high + 1))
 

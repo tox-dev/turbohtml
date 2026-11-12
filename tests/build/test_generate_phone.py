@@ -67,6 +67,7 @@ _DIGITS: Final[str] = string.digits
         pytest.param(r"\d{2,4}", id="bounded-repeat"),
         pytest.param(r"(?:1[02]){1,3}", id="repeated-group"),
         pytest.param(r"[13579]?[02468]", id="optional-class"),
+        pytest.param(r"[\d2-4]", id="digit-category-in-class"),
     ],
 )
 def test_dfa_agrees_with_re_on_every_short_string(pattern: str) -> None:
@@ -174,6 +175,63 @@ def test_unsupported_constructs_are_refused(pattern: str) -> None:
 def test_unbounded_repeat_is_allowed_only_on_request() -> None:
     dfa = compile_dfa(compile_program(r"1\d+", capture=False, allow_unbounded=True))
     assert (_accepts(dfa, "1"), _accepts(dfa, "12"), _accepts(dfa, "1234567")) == (0, 1, 1)
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        pytest.param("(", id="unclosed-group"),
+        pytest.param(")", id="unmatched-close"),
+        pytest.param("[", id="unclosed-class"),
+        pytest.param("[]", id="empty-class"),
+        pytest.param("[^2]", id="negated-class"),
+        pytest.param("[9-2]", id="reversed-range"),
+        pytest.param(r"[\d-2]", id="category-range"),
+        pytest.param("\\", id="incomplete-escape"),
+        pytest.param("1{2,1}", id="reversed-repeat"),
+        pytest.param("1{,2}", id="missing-repeat-count"),
+        pytest.param("1??", id="nested-quantifier"),
+        pytest.param("1$2", id="internal-end-anchor"),
+    ],
+)
+def test_malformed_patterns_are_refused(pattern: str) -> None:
+    with pytest.raises(ValueError, match="offset"):
+        compile_program(pattern)
+
+
+def test_escaped_punctuation_and_class_ranges() -> None:
+    pattern = r"(?:\[|[x-z]){1,2}"
+    dfa = compile_dfa(
+        compile_program(pattern, symbolize=lambda char: 1 << "[xyz".index(chr(char)), digit_mask=0),
+        symbols=5,
+        end_symbol=4,
+    )
+
+    def accepts(text: str) -> bool:
+        state = 1
+        for char in text:
+            state = dfa.next[state]["[xyz".index(char)]
+        return bool(dfa.accepts[state])
+
+    assert {text for text in _strings("[xyz", 3) if accepts(text)} == {
+        text for text in _strings("[xyz", 3) if re.fullmatch(pattern, text)
+    }
+
+
+@pytest.mark.parametrize(
+    ("pattern", "char"),
+    [
+        pytest.param(r"\t", "\t", id="tab"),
+        pytest.param(r"\n", "\n", id="newline"),
+        pytest.param(r"\r", "\r", id="return"),
+        pytest.param(r"\f", "\f", id="form-feed"),
+        pytest.param(r"\v", "\v", id="vertical-tab"),
+    ],
+)
+def test_escaped_control_characters(pattern: str, char: str) -> None:
+    dfa = compile_dfa(compile_program(pattern, symbolize=lambda code: int(code == ord(char)), digit_mask=0), symbols=2)
+    assert dfa.next[1][0] != 0
+    assert dfa.accepts[dfa.next[1][0]] == 1
 
 
 _METADATA: Final[bytes] = b"""<?xml version="1.0" encoding="UTF-8"?>

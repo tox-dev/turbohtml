@@ -1,26 +1,10 @@
-r"""
-Compile libphonenumber's bounded regular expressions into automata the C recognizer can walk without a regex engine.
-
-The metadata patterns use only literals, bracket classes, ``\\d``, alternation, non-capturing groups, ``?``, ``{n}``,
-``{n,m}``, capturing groups and a trailing ``$``; nothing else is accepted, so every language here is finite.
-
-One Thompson-style program (``CHAR``/``SPLIT``/``SAVE``/``END``/``MATCH``, RE2's ``Prog`` shape) is built from Python's
-own parse tree and then read three ways: an unordered subset construction with labeled accepts (the numbering plans, the
-routers, the extension grammar), an ordered-thread construction that reproduces Java's ``lookingAt`` choice without
-captures (the national-prefix and IDD patterns), and a Pike VM that recovers the transform group once that choice has
-fixed the match end. The digit alphabet is the symbols 0-9 plus ``END``; other alphabets pass a symbolizer.
-"""
+"""Compile phone metadata patterns into automata for the C recognizer."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from enum import Enum, auto
 from itertools import pairwise, starmap
-from re import (
-    _constants as sre_constants,  # ruff: ignore[import-private-name] # ty: ignore[import-not-found] # no public regex token API
-)
-from re import (
-    _parser as sre_parse,  # ruff: ignore[import-private-name] # ty: ignore[import-not-found] # no public regex token API
-)
 from typing import TYPE_CHECKING, Final, TypeAlias, cast
 
 if TYPE_CHECKING:
@@ -37,18 +21,190 @@ ASSERT_END: Final[int] = 3
 MATCH: Final[int] = 4
 
 _Symbolizer: TypeAlias = "Callable[[int], int]"
-# re._parser's tree: typeshed ships no stub for it, so these describe the shapes the parser emits; each site casts
-SreNode: TypeAlias = "tuple[int, SreArgument]"
-SreItems: TypeAlias = list[SreNode]
-SreArgument: TypeAlias = (
+
+
+class RegexOp(Enum):
+    LITERAL = auto()
+    IN = auto()
+    AT = auto()
+    SUBPATTERN = auto()
+    BRANCH = auto()
+    MAX_REPEAT = auto()
+    RANGE = auto()
+    CATEGORY = auto()
+    CATEGORY_DIGIT = auto()
+    AT_END = auto()
+
+
+RegexNode: TypeAlias = "tuple[RegexOp, RegexArgument]"
+RegexItems: TypeAlias = list[RegexNode]
+RegexArgument: TypeAlias = (
     int
-    | SreItems
-    | tuple[int | None, int, int, SreItems]
-    | tuple[None, list[SreItems]]
-    | tuple[int, int, SreItems]
+    | RegexOp
+    | RegexItems
+    | tuple[int | None, int, int, RegexItems]
+    | tuple[None, list[RegexItems]]
+    | tuple[int, int | None, RegexItems]
     | tuple[int, int]
 )
 _PriorityKey: TypeAlias = tuple[tuple[int, ...], int]
+
+
+class _Parser:
+    def __init__(self, pattern: str) -> None:
+        self.pattern = pattern
+        self.index = 0
+        self.groups = 0
+
+    def parse(self) -> RegexItems:
+        items = self.alternatives()
+        if self.index != len(self.pattern):
+            msg = f"unexpected character at offset {self.index}"
+            raise ValueError(msg)
+        return items
+
+    def alternatives(self) -> RegexItems:
+        alternatives = [self.sequence()]
+        while self.peek() == "|":
+            self.index += 1
+            alternatives.append(self.sequence())
+        if len(alternatives) == 1:
+            return alternatives[0]
+        return [(RegexOp.BRANCH, (None, alternatives))]
+
+    def sequence(self) -> RegexItems:
+        items: RegexItems = []
+        while (char := self.peek()) is not None and char not in ")|":
+            if char in "?*+{":
+                msg = f"unsupported quantifier at offset {self.index}"
+                raise ValueError(msg)
+            items.append(self.quantified(self.atom()))
+        return items
+
+    def quantified(self, atom: RegexNode) -> RegexNode:
+        if (quantifier := self.peek()) in {"?", "*", "+"}:
+            self.index += 1
+            low, high = {"?": (0, 1), "*": (0, None), "+": (1, None)}[quantifier]
+            return RegexOp.MAX_REPEAT, (low, high, [atom])
+        if quantifier != "{":
+            return atom
+        self.index += 1
+        low = self.number()
+        if self.peek() == ",":
+            self.index += 1
+            high = (
+                self.number()
+                if (next_char := self.peek()) is not None and next_char.isascii() and next_char.isdigit()
+                else None
+            )
+        else:
+            high = low
+        if self.peek() != "}" or (high is not None and high < low):
+            msg = f"invalid repeat at offset {self.index}"
+            raise ValueError(msg)
+        self.index += 1
+        return RegexOp.MAX_REPEAT, (low, high, [atom])
+
+    def number(self) -> int:
+        start = self.index
+        while (char := self.peek()) is not None and char.isascii() and char.isdigit():
+            self.index += 1
+        if start == self.index:
+            msg = f"invalid repeat at offset {self.index}"
+            raise ValueError(msg)
+        return int(self.pattern[start : self.index])
+
+    def atom(self) -> RegexNode:
+        char = self.take()
+        if char == "(":
+            group: int | None
+            if self.peek() == "?":
+                self.index += 1
+                if self.take() != ":":
+                    msg = f"unsupported group at offset {self.index}"
+                    raise ValueError(msg)
+                group = None
+            else:
+                self.groups += 1
+                group = self.groups
+            items = self.alternatives()
+            if self.peek() != ")":
+                msg = f"unclosed group at offset {self.index}"
+                raise ValueError(msg)
+            self.index += 1
+            return RegexOp.SUBPATTERN, (group, 0, 0, items)
+        if char == "[":
+            return RegexOp.IN, self.character_class()
+        if char == "\\":
+            return self.escaped(slash_consumed=True)
+        if char == "$":
+            if self.peek() not in {None, "|", ")"}:
+                msg = f"unsupported anchor at offset {self.index}"
+                raise ValueError(msg)
+            return RegexOp.AT, RegexOp.AT_END
+        if char in ".^]}":
+            msg = f"unsupported construct {char} at offset {self.index - 1}"
+            raise ValueError(msg)
+        return RegexOp.LITERAL, ord(char)
+
+    def take(self) -> str:
+        if (char := self.peek()) is None:
+            msg = f"incomplete pattern at offset {self.index}"
+            raise ValueError(msg)
+        self.index += 1
+        return char
+
+    def character_class(self) -> RegexItems:
+        if self.peek() == "^":
+            msg = f"unsupported class at offset {self.index}"
+            raise ValueError(msg)
+        items: RegexItems = []
+        while (char := self.peek()) is not None and char != "]":
+            items.append(self.class_item())
+        if not items or self.peek() != "]":
+            msg = f"unclosed or empty class at offset {self.index}"
+            raise ValueError(msg)
+        self.index += 1
+        return items
+
+    def class_item(self) -> RegexNode:
+        first = self.escaped(in_class=True) if self.peek() == "\\" else (RegexOp.LITERAL, ord(self.take()))
+        if self.peek() != "-" or self.pattern[self.index + 1 : self.index + 2] in {"", "]"}:
+            return first
+        self.index += 1
+        second = self.escaped(in_class=True) if self.peek() == "\\" else (RegexOp.LITERAL, ord(self.take()))
+        if first[0] is not RegexOp.LITERAL or second[0] is not RegexOp.LITERAL:
+            msg = f"invalid class range at offset {self.index}"
+            raise ValueError(msg)
+        low, high = cast("int", first[1]), cast("int", second[1])
+        if low > high:
+            msg = f"invalid class range at offset {self.index}"
+            raise ValueError(msg)
+        return RegexOp.RANGE, (low, high)
+
+    def escaped(self, *, slash_consumed: bool = False, in_class: bool = False) -> RegexNode:
+        if not slash_consumed:
+            self.index += 1
+        char = self.take()
+        if char == "d":
+            return (
+                (RegexOp.CATEGORY, RegexOp.CATEGORY_DIGIT)
+                if in_class
+                else (RegexOp.IN, [(RegexOp.CATEGORY, RegexOp.CATEGORY_DIGIT)])
+            )
+        if char in "tnrfv":
+            return RegexOp.LITERAL, ord({"t": "\t", "n": "\n", "r": "\r", "f": "\f", "v": "\v"}[char])
+        if char.isalnum():
+            msg = f"unsupported escape \\{char} at offset {self.index - 2}"
+            raise ValueError(msg)
+        return RegexOp.LITERAL, ord(char)
+
+    def peek(self) -> str | None:
+        return self.pattern[self.index] if self.index < len(self.pattern) else None
+
+
+def parse_regex(pattern: str) -> RegexItems:
+    return _Parser(pattern).parse()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -120,7 +276,7 @@ class _Builder:
         for index, attribute in outs:
             self.ops[index] = replace(self.ops[index], **{attribute: target})
 
-    def sequence(self, items: Sequence[SreNode]) -> _Fragment:
+    def sequence(self, items: Sequence[RegexNode]) -> _Fragment:
         fragments = list(starmap(self.item, items))
         if not fragments:
             return self._empty()
@@ -128,23 +284,23 @@ class _Builder:
             self.patch(previous.outs, following.start)
         return _Fragment(start=fragments[0].start, outs=fragments[-1].outs)
 
-    def item(  # ruff:ignore[too-many-return-statements, complex-structure]  # one arm per sre opcode
-        self, opcode: int, argument: SreArgument
+    def item(  # ruff:ignore[too-many-return-statements, complex-structure]  # one arm per regex opcode
+        self, opcode: int, argument: RegexArgument
     ) -> _Fragment:
-        if opcode is sre_constants.LITERAL:
+        if opcode is RegexOp.LITERAL:
             index = self.emit(CHAR, self.symbolize(cast("int", argument)))
             return _Fragment(start=index, outs=[(index, "next")])
-        if opcode is sre_constants.IN:
-            index = self.emit(CHAR, self.class_mask(cast("SreItems", argument)))
+        if opcode is RegexOp.IN:
+            index = self.emit(CHAR, self.class_mask(cast("RegexItems", argument)))
             return _Fragment(start=index, outs=[(index, "next")])
-        if opcode is sre_constants.AT:
-            if argument is not sre_constants.AT_END:
+        if opcode is RegexOp.AT:
+            if argument is not RegexOp.AT_END:
                 msg = f"unsupported anchor {argument}"
                 raise ValueError(msg)
             index = self.emit(ASSERT_END)
             return _Fragment(start=index, outs=[(index, "next")])
-        if opcode is sre_constants.SUBPATTERN:
-            group, _add, _remove, items = cast("tuple[int | None, int, int, SreItems]", argument)
+        if opcode is RegexOp.SUBPATTERN:
+            group, _add, _remove, items = cast("tuple[int | None, int, int, RegexItems]", argument)
             if group is None or not self.capture:
                 return self.sequence(items)
             open_index = self.emit(SAVE, 2 * group)
@@ -154,30 +310,30 @@ class _Builder:
             self.patch(inner.outs, close_index)
             self.slots = max(self.slots, 2 * group + 2)
             return _Fragment(start=open_index, outs=[(close_index, "next")])
-        if opcode is sre_constants.BRANCH:
-            _unused, alternatives = cast("tuple[None, list[SreItems]]", argument)
+        if opcode is RegexOp.BRANCH:
+            _unused, alternatives = cast("tuple[None, list[RegexItems]]", argument)
             return self.branch([self.sequence(alternative) for alternative in alternatives])
-        if opcode is sre_constants.MAX_REPEAT:
-            low, high, items = cast("tuple[int, object, SreItems]", argument)
-            if high is sre_constants.MAXREPEAT:
+        if opcode is RegexOp.MAX_REPEAT:
+            low, high, items = cast("tuple[int, int | None, RegexItems]", argument)
+            if high is None:
                 if not self.allow_unbounded:
                     msg = "unbounded repeat"
                     raise ValueError(msg)
                 return self.star(low, items)
-            return self.repeat(low, cast("int", high), items)
+            return self.repeat(low, high, items)
         msg = f"unsupported construct {opcode}"
         raise ValueError(msg)
 
-    def class_mask(self, items: SreItems) -> int:
+    def class_mask(self, items: RegexItems) -> int:
         mask = 0
         for opcode, argument in items:
-            if opcode is sre_constants.LITERAL:
+            if opcode is RegexOp.LITERAL:
                 mask |= self.symbolize(cast("int", argument))
-            elif opcode is sre_constants.RANGE:
+            elif opcode is RegexOp.RANGE:
                 low, high = cast("tuple[int, int]", argument)
                 for code in range(low, high + 1):
                     mask |= self.symbolize(code)
-            elif opcode is sre_constants.CATEGORY and argument is sre_constants.CATEGORY_DIGIT:
+            elif opcode is RegexOp.CATEGORY and argument is RegexOp.CATEGORY_DIGIT:
                 mask |= self.digit_mask
             else:
                 msg = f"unsupported class item {opcode}"
@@ -194,7 +350,7 @@ class _Builder:
             fragment = _Fragment(start=index, outs=alternative.outs + fragment.outs)
         return fragment
 
-    def star(self, low: int, items: Sequence[SreNode]) -> _Fragment:
+    def star(self, low: int, items: Sequence[RegexNode]) -> _Fragment:
         # ``x{low,}``: the mandatory copies, then a greedy loop that prefers another copy over leaving
         copies = [self.sequence(items) for _ in range(low)]
         loop_split = self.emit(SPLIT)
@@ -208,7 +364,7 @@ class _Builder:
             return _Fragment(start=copies[0].start, outs=[(loop_split, "alt")])
         return _Fragment(start=loop_split, outs=[(loop_split, "alt")])
 
-    def repeat(self, low: int, high: int, items: Sequence[SreNode]) -> _Fragment:
+    def repeat(self, low: int, high: int, items: Sequence[RegexNode]) -> _Fragment:
         copies = [self.sequence(items) for _ in range(high)]
         if not copies:
             return self._empty()
@@ -251,7 +407,7 @@ def compile_program(  # ruff:ignore[too-many-arguments]  # a public API test mod
 ) -> Program:
     # Compile ``pattern`` into an ordered program whose single ``MATCH`` carries ``label``.
     builder = _Builder(symbolize, digit_mask, capture=capture, allow_unbounded=allow_unbounded)
-    fragment = builder.sequence(list(sre_parse.parse(pattern)))
+    fragment = builder.sequence(list(parse_regex(pattern)))
     builder.patch(fragment.outs, builder.emit(MATCH, label))
     return Program(ops=builder.ops, start=fragment.start, slots=builder.slots)
 
@@ -629,9 +785,10 @@ __all__ = [
     "Dfa",
     "PriorityDfa",
     "Program",
-    "SreArgument",
-    "SreItems",
-    "SreNode",
+    "RegexArgument",
+    "RegexItems",
+    "RegexNode",
+    "RegexOp",
     "accepted_lengths",
     "compile_dfa",
     "compile_priority_dfa",
@@ -641,10 +798,9 @@ __all__ = [
     "match_end",
     "max_threads",
     "minimize",
+    "parse_regex",
     "pike_spans",
     "shortest_accept",
-    "sre_constants",
-    "sre_parse",
     "sticky_program",
     "union_program",
 ]
