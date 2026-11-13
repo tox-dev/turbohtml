@@ -1109,13 +1109,24 @@ static int markers_role(th_tree *tree, th_node *node, const date_markers *marker
     return DATE_ROLE_GENERIC;
 }
 
+/* Date-marked elements nested in one another each scan the text of their whole subtree, and the walk then descends
+   into them, so text under nested markers is scanned once per marked ancestor, up to TH_MAX_TREE_DEPTH times. Past
+   this depth an element is dated by its datetime/title attribute only. */
+#define DATE_TEXT_NESTING 8
+
 /* The temporal-markup stage: <time> elements, and elements whose class/id/itemprop marks them as a date. A
    <time datetime> is the canonical spelling, but many pages date an article in a <span class="published"> or
    <p class="entry-date"> instead. Each element contributes the date in its datetime/title attribute or its first
-   text date. Returns -1 on allocation failure. */
+   text date. Text is read for at most DATE_TEXT_NESTING levels of nesting, which keeps the stage linear in the page.
+   Returns -1 on allocation failure. */
 static int dates_time_stage(th_tree *tree, th_node *root, const int *low, const int *high, int current_year, int want,
                             date_pick *pick) {
+    th_node *reading_end[DATE_TEXT_NESTING]; /* where the walk leaves each enclosing element whose text was read */
+    int reading = 0;
     for (th_node *node = root->first_child; node != NULL; node = preorder_next(node, root)) {
+        while (reading > 0 && node == reading_end[reading - 1]) {
+            reading--;
+        }
         if (node->type != TH_NODE_ELEMENT) {
             continue;
         }
@@ -1136,6 +1147,10 @@ static int dates_time_stage(th_tree *tree, th_node *root, const int *low, const 
             hit.found =
                 scan_first_date(raw, PyUnicode_4BYTE_KIND, raw_len, current_year, &hit.year, &hit.month, &hit.day);
         } else {
+            if (reading == DATE_TEXT_NESTING) {
+                continue;
+            }
+            reading_end[reading++] = subtree_after(node, root);
             Py_ssize_t text_len = 0;
             Py_UCS4 *text = th_node_text(tree, node, &text_len);
             if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
