@@ -43,6 +43,7 @@ typedef struct nameclass {
 struct nsnode {
     const nameclass *name;
     struct nsnode *left, *right;
+    Py_ssize_t size; /* nodes in this treap; equal treaps share one node, so one size */
 };
 
 struct pattern {
@@ -1436,16 +1437,16 @@ static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth) {
 
 /* RELAX NG 7.4 compares the names each interleave branch matches. A branch keeps two persistent treaps: its exact
    names, keyed by hash, and its wildcard and choice name classes, keyed by a hash of their structure. A define's set
-   is built once and shared by every ref. A merge copies the smaller side into the larger. Work is charged to the
-   schema's budget: a name class comparison by the classes it may visit, a pair of classes by half the square of
-   their combined size, since the overlap test visits each leaf against both classes. Treap nodes are capped
-   separately, so memory stays bounded however the budget is spent. */
+   is built once and shared by every ref. Equal nodes are shared, so equal sets have one root. A merge copies the
+   smaller side into the larger. Work is charged to the schema's budget: a name class comparison by the classes it
+   may visit, a pair of classes by half the square of their combined size, since the overlap test visits each leaf
+   against both classes. Treap nodes are capped separately, so memory stays bounded however the budget is spent. */
 #define RNG_INTERLEAVE_WORK_LIMIT (1 << 25)
 #define RNG_INTERLEAVE_NODE_LIMIT (1 << 21)
 
-static int nc_overlap(const nameclass *left, const nameclass *right);
+static int nc_overlap(const nameclass *left, const nameclass *right, Py_ssize_t *work);
 static int nc_name_eq(const nameclass *left, const nameclass *right);
-static int nc_holds(const nameclass *nc, const nameclass *probe);
+static int nc_holds(const nameclass *nc, const nameclass *probe, Py_ssize_t *work);
 static nameclass *rng_pattern_nameclass(th_schema *schema, th_node *node, int is_attr);
 static int rng_names_node(th_schema *schema, th_node *node, nameset *out);
 static int rng_names_define(th_schema *schema, def_entry *entry, nameset *out);
@@ -1463,7 +1464,7 @@ static int rng_spend(th_schema *schema, Py_ssize_t units) {
     return -1;
 }
 
-/* Size of a name class: the nodes of its choice and except tree, each comparison against it is charged this. */
+/* Size of a name class: its choice and except nodes, each comparison against it is charged this. */
 static Py_ssize_t nc_size(const nameclass *nc) {
     Py_ssize_t size = 1;
     for (; nc->type == NC_CHOICE || nc->type == NC_EXCEPT; nc = nc->a) {
@@ -1513,7 +1514,7 @@ static int nc_text_order(const Py_UCS4 *left, Py_ssize_t left_len, const Py_UCS4
 /* GCOVR_EXCL_STOP */
 
 /* Orders a class against a treap node by key. Two exact names with one hash are told apart by their text; equal
-   wildcard keys are two classes of one structure, told apart by address, so one class is one entry. */
+   wildcard keys are two classes of one structure, told apart by sequence number, so one class is one entry. */
 static int ns_order(const nameclass *name, const nsnode *node) {
     uint64_t key = ns_key(name), other = ns_key(node->name);
     if (key != other) {
@@ -1533,10 +1534,12 @@ static int ns_order(const nameclass *name, const nsnode *node) {
 
 static nsnode *ns_alloc(th_schema *schema) {
     schema->rng_nodes++;
+    /* GCOVR_EXCL_START: needs about two million distinct nodes, beyond test-sized schemas */
     if (schema->rng_nodes > RNG_INTERLEAVE_NODE_LIMIT) {
         PyErr_SetString(PyExc_ValueError, "RELAX NG grammar too large to check interleave branches");
         return NULL;
     }
+    /* GCOVR_EXCL_STOP */
     nsnode *node = arena_alloc(&schema->names_mem, sizeof(*node));
     if (node == NULL) {   /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
@@ -1544,19 +1547,22 @@ static nsnode *ns_alloc(th_schema *schema) {
     return node;
 }
 
-static nsnode *ns_copy(th_schema *schema, const nsnode *node) {
-    nsnode *copy = ns_alloc(schema);
-    if (copy != NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on arena OOM */
-        *copy = *node;
+/* 1 when the class is in the treap, 0 when not, -1 on a budget or arena failure. */
+/* A comparison of two exact names reads their text when their hashes agree, so it costs their length. */
+static int ns_name_spend(th_schema *schema, const nameclass *name, const nameclass *other) {
+    if (name->type != NC_NAME || other->hash != name->hash) {
+        return 0;
     }
-    return copy;
+    return rng_spend(schema, name->local_len + name->uri_len);
 }
 
-/* 1 when the class is in the treap, 0 when not, -1 on a budget or arena failure. */
 static int ns_contains(th_schema *schema, const nsnode *node, const nameclass *name) {
     while (node != NULL) {
         if (rng_spend(schema, 1) < 0) {
             return -1;
+        }
+        if (ns_name_spend(schema, name, node->name) < 0) { /* GCOVR_EXCL_BR_LINE: name compare budget */
+            return -1;                                     /* GCOVR_EXCL_LINE */
         }
         int order = ns_order(name, node);
         if (order == 0) {
@@ -1568,7 +1574,92 @@ static int ns_contains(th_schema *schema, const nsnode *node, const nameclass *n
 }
 
 /* Splits the treap into the nodes ordered before `name` and the rest, copying the path it takes. */
-static int ns_split(th_schema *schema, const nsnode *node, const nameclass *name, nsnode **below, nsnode **above) {
+static Py_ssize_t ns_size(const nsnode *node) {
+    return node == NULL ? 0 : node->size;
+}
+
+static Py_ssize_t ns_count(const nameset *set) {
+    return ns_size(set->names.root) + ns_size(set->wild.root);
+}
+
+/* Two classes name the same member of a set: equal exact names, or one wildcard class. */
+static int ns_same(const nameclass *left, const nameclass *right) {
+    if (left->type == NC_NAME && right->type == NC_NAME) {
+        return nc_name_eq(left, right);
+    }
+    return left == right;
+}
+
+static size_t ns_table_slot(const nameclass *name, const nsnode *left, const nsnode *right, size_t mask) {
+    uint64_t hash = ns_key(name) * UINT64_C(0x9E3779B97F4A7C15);
+    hash ^= (uint64_t)(uintptr_t)left * UINT64_C(0xBF58476D1CE4E5B9);
+    hash ^= (uint64_t)(uintptr_t)right * UINT64_C(0x94D049BB133111EB);
+    return (size_t)(hash ^ (hash >> 31)) & mask;
+}
+
+static int ns_table_grow(th_schema *schema) {
+    size_t cap = schema->rng_table_cap ? schema->rng_table_cap * 2 : 16;
+    nsnode **table = arena_alloc(&schema->names_mem, cap * sizeof(nsnode *));
+    if (table == NULL) {  /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    memset(table, 0, cap * sizeof(nsnode *));
+    for (size_t index = 0; index < schema->rng_table_cap; index++) {
+        nsnode *node = schema->rng_table[index];
+        if (node == NULL) {
+            continue;
+        }
+        size_t slot = ns_table_slot(node->name, node->left, node->right, cap - 1);
+        while (table[slot] != NULL) {
+            slot = (slot + 1) & (cap - 1);
+        }
+        table[slot] = node;
+    }
+    schema->rng_table = table;
+    schema->rng_table_cap = cap;
+    return 0;
+}
+
+/* The canonical node for `name` over these children. An equal node already built is returned, so equal treaps share
+   one root and a union meets shared subtrees as the same pointer. */
+static nsnode *ns_make(th_schema *schema, const nameclass *name, nsnode *left, nsnode *right) {
+    if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted in make; reachable, hard to pin */
+        return NULL;                /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_START: arena OOM is unforceable */
+    if (schema->rng_table_len * 2 >= schema->rng_table_cap && ns_table_grow(schema) < 0) {
+        return NULL; /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    size_t mask = schema->rng_table_cap - 1;
+    size_t slot = ns_table_slot(name, left, right, mask);
+    while (schema->rng_table[slot] != NULL) {
+        nsnode *node = schema->rng_table[slot];
+        if (ns_name_spend(schema, name, node->name) < 0) { /* GCOVR_EXCL_BR_LINE: name compare budget */
+            return NULL;                                   /* GCOVR_EXCL_LINE */
+        }
+        if (node->left == left && node->right == right && ns_same(node->name, name)) {
+            return node;
+        }
+        slot = (slot + 1) & mask;
+    }
+    nsnode *node = ns_alloc(schema);
+    if (node == NULL) { /* GCOVR_EXCL_BR_LINE: the node cap or arena OOM, see ns_alloc */
+        return NULL;    /* GCOVR_EXCL_LINE */
+    }
+    node->name = name;
+    node->left = left;
+    node->right = right;
+    node->size = 1 + ns_size(left) + ns_size(right);
+    schema->rng_table[slot] = node;
+    schema->rng_table_len++;
+    return node;
+}
+
+/* Splits the treap at `name` into the nodes ordered before it and those ordered after. A node equal to `name` is
+   dropped, which lets a union split the other side without keeping its duplicate. */
+static int ns_split(th_schema *schema, nsnode *node, const nameclass *name, nsnode **below, nsnode **above) {
     if (node == NULL) {
         *below = NULL;
         *above = NULL;
@@ -1577,62 +1668,71 @@ static int ns_split(th_schema *schema, const nsnode *node, const nameclass *name
     if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted in a split; reachable, hard to pin */
         return -1;                  /* GCOVR_EXCL_LINE */
     }
-    nsnode *copy = ns_copy(schema, node);
-    if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return -1;      /* GCOVR_EXCL_LINE */
+    int order = ns_order(name, node);
+    if (order == 0) {
+        *below = node->left;
+        *above = node->right;
+        return 0;
     }
-    if (ns_order(name, node) > 0) {
-        if (ns_split(schema, node->right, name, &copy->right, above) < 0) { /* GCOVR_EXCL_BR_LINE: deeper split */
-            return -1;                                                      /* GCOVR_EXCL_LINE */
+    nsnode *inner = NULL;
+    if (order > 0) {
+        if (ns_split(schema, node->right, name, &inner, above) < 0) { /* GCOVR_EXCL_BR_LINE: deeper split */
+            return -1;                                                /* GCOVR_EXCL_LINE */
         }
-        *below = copy;
+        nsnode *kept = ns_make(schema, node->name, node->left, inner);
+        if (kept == NULL) { /* GCOVR_EXCL_BR_LINE: budget in make, see ns_make */
+            return -1;      /* GCOVR_EXCL_LINE */
+        }
+        *below = kept;
     } else {
-        if (ns_split(schema, node->left, name, below, &copy->left) < 0) { /* GCOVR_EXCL_BR_LINE: deeper split, budget */
-            return -1;                                                    /* GCOVR_EXCL_LINE */
+        if (ns_split(schema, node->left, name, below, &inner) < 0) { /* GCOVR_EXCL_BR_LINE: deeper split */
+            return -1;                                               /* GCOVR_EXCL_LINE */
         }
-        *above = copy;
+        nsnode *kept = ns_make(schema, node->name, inner, node->right);
+        if (kept == NULL) { /* GCOVR_EXCL_BR_LINE: budget in make, see ns_make */
+            return -1;      /* GCOVR_EXCL_LINE */
+        }
+        *above = kept;
     }
     return 0;
 }
 
-/* A new version of the treap with `name` added, which the caller knows is absent; the old version stays valid. */
-static nsnode *ns_insert(th_schema *schema, const nsnode *node, const nameclass *name) {
-    if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted in an insert; reachable, hard to pin */
-        return NULL;                /* GCOVR_EXCL_LINE */
+/* The union of two treaps as one canonical treap. A subtree both sides hold is the same node on each, so the recursion
+   stops there: a union of sets that differ in a few names costs about the size of the difference. */
+static int ns_union(th_schema *schema, nsnode *first, nsnode *second, nsnode **out) {
+    if (first == NULL) {
+        *out = second;
+        return 0;
     }
-    if (node == NULL || ns_node_priority(name) > ns_node_priority(node->name)) {
-        nsnode *fresh = ns_alloc(schema);
-        if (fresh == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-            return NULL;     /* GCOVR_EXCL_LINE */
-        }
-        fresh->name = name;
-        fresh->left = NULL;
-        fresh->right = NULL;
-        /* GCOVR_EXCL_BR_START: budget exhausted in the split of a new node; reachable, hard to pin */
-        if (node != NULL && ns_split(schema, node, name, &fresh->left, &fresh->right) < 0) {
-            return NULL; /* GCOVR_EXCL_LINE */
-        }
-        /* GCOVR_EXCL_BR_STOP */
-        return fresh;
+    if (second == NULL || first == second) {
+        *out = first;
+        return 0;
     }
-    nsnode *copy = ns_copy(schema, node);
-    if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        return NULL;    /* GCOVR_EXCL_LINE */
+    if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted in a union; reachable, hard to pin */
+        return -1;                  /* GCOVR_EXCL_LINE */
     }
-    if (ns_order(name, node) < 0) {
-        nsnode *left = ns_insert(schema, node->left, name);
-        if (left == NULL) { /* GCOVR_EXCL_BR_LINE: a deeper insert failed on the budget */
-            return NULL;    /* GCOVR_EXCL_LINE */
-        }
-        copy->left = left;
-    } else {
-        nsnode *right = ns_insert(schema, node->right, name);
-        if (right == NULL) { /* GCOVR_EXCL_BR_LINE: a deeper insert failed on the budget */
-            return NULL;     /* GCOVR_EXCL_LINE */
-        }
-        copy->right = right;
+    if (ns_node_priority(first->name) < ns_node_priority(second->name)) {
+        nsnode *swap = first;
+        first = second;
+        second = swap;
     }
-    return copy;
+    nsnode *below = NULL, *above = NULL;
+    if (ns_split(schema, second, first->name, &below, &above) < 0) { /* GCOVR_EXCL_BR_LINE: budget in a split */
+        return -1;                                                   /* GCOVR_EXCL_LINE */
+    }
+    nsnode *left = NULL, *right = NULL;
+    if (ns_union(schema, first->left, below, &left) < 0) { /* GCOVR_EXCL_BR_LINE: deeper union */
+        return -1;                                         /* GCOVR_EXCL_LINE */
+    }
+    if (ns_union(schema, first->right, above, &right) < 0) { /* GCOVR_EXCL_BR_LINE: deeper union */
+        return -1;                                           /* GCOVR_EXCL_LINE */
+    }
+    nsnode *joined = ns_make(schema, first->name, left, right);
+    if (joined == NULL) { /* GCOVR_EXCL_BR_LINE: budget in make, see ns_make */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    *out = joined;
+    return 0;
 }
 
 typedef int (*ns_visit)(th_schema *schema, const nsnode *node, void *context);
@@ -1655,24 +1755,6 @@ static int ns_each(th_schema *schema, const nsnode *node, ns_visit visit, void *
     return status;
 }
 
-static int ns_insert_visit(th_schema *schema, const nsnode *node, void *context) {
-    nstree *tree = context;
-    int status = ns_contains(schema, tree->root, node->name);
-    if (status < 0) {
-        return -1;
-    }
-    if (status == 1) {
-        return 0;
-    }
-    nsnode *root = ns_insert(schema, tree->root, node->name);
-    if (root == NULL) { /* GCOVR_EXCL_BR_LINE: budget exhausted inserting a new name; reachable, hard to pin */
-        return -1;      /* GCOVR_EXCL_LINE */
-    }
-    tree->root = root;
-    tree->count++;
-    return 0;
-}
-
 /* A class held as the probe of a walk: its name for an exact class, the wildcard for a wildcard class. */
 struct nc_probe {
     const nameclass *nc;
@@ -1680,18 +1762,28 @@ struct nc_probe {
 
 static int ns_wild_holds_visit(th_schema *schema, const nsnode *node, void *context) {
     const struct nc_probe *probe = context;
-    if (rng_spend(schema, nc_size(node->name)) < 0) {
+    if (rng_spend(schema, nc_size(node->name) + nc_size(probe->nc)) < 0) {
         return -1;
     }
-    return nc_holds(node->name, probe->nc);
+    Py_ssize_t work = 0;
+    int holds = nc_holds(node->name, probe->nc, &work);
+    if (rng_spend(schema, work) < 0) { /* GCOVR_EXCL_BR_LINE: budget in a name compare; reachable, hard to pin */
+        return -1;                     /* GCOVR_EXCL_LINE */
+    }
+    return holds;
 }
 
 static int ns_exact_holds_visit(th_schema *schema, const nsnode *node, void *context) {
     const struct nc_probe *probe = context;
-    if (rng_spend(schema, nc_size(probe->nc)) < 0) {
+    if (rng_spend(schema, nc_size(probe->nc) + nc_size(node->name)) < 0) {
         return -1;
     }
-    return nc_holds(probe->nc, node->name);
+    Py_ssize_t work = 0;
+    int holds = nc_holds(probe->nc, node->name, &work);
+    if (rng_spend(schema, work) < 0) { /* GCOVR_EXCL_BR_LINE: budget in a name compare; reachable, hard to pin */
+        return -1;                     /* GCOVR_EXCL_LINE */
+    }
+    return holds;
 }
 
 static int ns_wild_pair_visit(th_schema *schema, const nsnode *node, void *context) {
@@ -1700,7 +1792,12 @@ static int ns_wild_pair_visit(th_schema *schema, const nsnode *node, void *conte
     if (rng_spend(schema, size * size / 2) < 0) {
         return -1;
     }
-    return nc_overlap(probe->nc, node->name);
+    Py_ssize_t work = 0;
+    int overlap = nc_overlap(probe->nc, node->name, &work);
+    if (rng_spend(schema, work) < 0) { /* GCOVR_EXCL_BR_LINE: budget in a name compare; reachable, hard to pin */
+        return -1;                     /* GCOVR_EXCL_LINE */
+    }
+    return overlap;
 }
 
 /* An exact name of the smaller side against the larger side: the same name, or a wildcard that holds it. */
@@ -1765,7 +1862,7 @@ static int rng_names_merge(th_schema *schema, nameset *acc, nameset *other, int 
     nameset right = *other;
     nameset small = right;
     nameset large = left;
-    if (left.names.count + left.wild.count < right.names.count + right.wild.count) {
+    if (ns_count(&left) < ns_count(&right)) {
         small = left;
         large = right;
     }
@@ -1790,24 +1887,26 @@ static int rng_names_merge(th_schema *schema, nameset *acc, nameset *other, int 
     if (!keep) {
         return 0;
     }
-    large.text |= small.text;
-    if (small.names.root != large.names.root && ns_each(schema, small.names.root, ns_insert_visit, &large.names) < 0) {
-        return -1;
+    nameset merged = {0};
+    merged.text = left.text | right.text;
+    /* GCOVR_EXCL_BR_START: budget in a union, reachable and hard to pin */
+    if (ns_union(schema, left.names.root, right.names.root, &merged.names.root) < 0) {
+        return -1; /* GCOVR_EXCL_LINE */
     }
-    if (small.wild.root != large.wild.root && ns_each(schema, small.wild.root, ns_insert_visit, &large.wild) < 0) {
-        return -1;
+    if (ns_union(schema, left.wild.root, right.wild.root, &merged.wild.root) < 0) {
+        return -1; /* GCOVR_EXCL_LINE */
     }
-    *acc = large;
+    /* GCOVR_EXCL_BR_STOP */
+    *acc = merged;
     return 0;
 }
 
 static nsnode *rng_names_single(th_schema *schema, const nameclass *nc, nstree *tree) {
-    nsnode *root = ns_insert(schema, NULL, nc);
-    if (root == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+    nsnode *root = ns_make(schema, nc, NULL, NULL);
+    if (root == NULL) { /* GCOVR_EXCL_BR_LINE: the node cap or the budget, see ns_alloc */
         return NULL;    /* GCOVR_EXCL_LINE */
     }
     tree->root = root;
-    tree->count = 1;
     return root;
 }
 
@@ -2009,29 +2108,41 @@ static nameclass *rng_pattern_nameclass(th_schema *schema, th_node *node, int is
 }
 
 static int nc_name_eq(const nameclass *left, const nameclass *right) {
+    /* GCOVR_EXCL_BR_START: equal hashes with a different namespace need a 64-bit collision */
     return u_eq_u(left->local, left->local_len, right->local, right->local_len) &&
            u_eq_u(left->uri, left->uri_len, right->uri, right->uri_len);
+    /* GCOVR_EXCL_BR_STOP */
 }
 
 /* Whether `nc` holds the name leaf `probe` stands for: its own name for a <name>, a name nothing mentions in its
    namespace for an <nsName>, and a name in a namespace nothing mentions for an <anyName>. Loops down the left spine,
    which is as long as a <choice> has names. */
-static int nc_holds(const nameclass *nc, const nameclass *probe) {
+static int nc_holds(const nameclass *nc, const nameclass *probe, Py_ssize_t *work) {
     for (;; nc = nc->a) {
         switch (nc->type) {
         case NC_ANY:
             return 1;
         case NC_NAME:
-            return probe->type == NC_NAME && nc_name_eq(nc, probe);
+            if (probe->type != NC_NAME || nc->hash != probe->hash) {
+                return 0;
+            }
+            *work += probe->local_len + probe->uri_len;
+            return nc_name_eq(nc, probe);
         case NC_NS:
-            return probe->type != NC_ANY && u_eq_u(nc->uri, nc->uri_len, probe->uri, probe->uri_len);
+            if (probe->type == NC_ANY) {
+                return 0;
+            }
+            if (nc->uri_len == probe->uri_len) {
+                *work += nc->uri_len;
+            }
+            return u_eq_u(nc->uri, nc->uri_len, probe->uri, probe->uri_len);
         case NC_CHOICE:
-            if (nc_holds(nc->b, probe)) {
+            if (nc_holds(nc->b, probe, work)) {
                 return 1;
             }
             break;
         default: /* NC_EXCEPT */
-            if (nc_holds(nc->b, probe)) {
+            if (nc_holds(nc->b, probe, work)) {
                 return 0;
             }
             break;
@@ -2040,19 +2151,20 @@ static int nc_holds(const nameclass *nc, const nameclass *probe) {
 }
 
 /* Whether both classes hold the name some leaf under `part` stands for. */
-static int nc_overlap_at(const nameclass *part, const nameclass *left, const nameclass *right) {
+static int nc_overlap_at(const nameclass *part, const nameclass *left, const nameclass *right, Py_ssize_t *work) {
     for (; part->type == NC_CHOICE || part->type == NC_EXCEPT; part = part->a) {
-        if (nc_overlap_at(part->b, left, right)) {
+        if (nc_overlap_at(part->b, left, right, work)) {
             return 1;
         }
     }
-    return nc_holds(left, part) && nc_holds(right, part);
+    return nc_holds(left, part, work) && nc_holds(right, part, work);
 }
 
 /* Whether some name belongs to both classes. Membership only changes at a name or namespace that one of them mentions,
-   so testing one representative per leaf decides it, as jing's OverlapDetector does. */
-static int nc_overlap(const nameclass *left, const nameclass *right) {
-    return nc_overlap_at(left, left, right) || nc_overlap_at(right, left, right);
+   so testing one representative per leaf decides it, as jing's OverlapDetector does. The comparisons read names, and
+   their length is added to `work`. */
+static int nc_overlap(const nameclass *left, const nameclass *right, Py_ssize_t *work) {
+    return nc_overlap_at(left, left, right, work) || nc_overlap_at(right, left, right, work);
 }
 
 static void rng_validate_root(valctx *ctx, th_node *root) {

@@ -476,7 +476,6 @@ typedef struct nsnode nsnode;
 /* compile-time 7.4 check: a persistent treap of name classes and how many it holds, see rng_names_merge */
 typedef struct nstree {
     nsnode *root;
-    Py_ssize_t count;
 } nstree;
 
 /* compile-time 7.4 check: what a branch matches, as exact names and as wildcard or choice classes */
@@ -533,6 +532,8 @@ typedef struct th_schema {
     Py_ssize_t rng_work;   /* compile-time 7.4 check: units spent against RNG_INTERLEAVE_WORK_LIMIT */
     Py_ssize_t rng_nodes;  /* compile-time 7.4 check: treap nodes allocated against RNG_INTERLEAVE_NODE_LIMIT */
     th_node **rng_checked; /* compile-time 7.4 check: open-addressed set of interleaves already checked */
+    nsnode **rng_table;    /* compile-time 7.4 check: hash-consed treap nodes, open addressed */
+    size_t rng_table_cap, rng_table_len;
     size_t rng_checked_cap, rng_checked_len;
     nspair rng_disjoint[8]; /* compile-time 7.4 check: the last disjoint pairs, round robin */
     size_t rng_disjoint_len, rng_disjoint_next;

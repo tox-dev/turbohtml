@@ -799,19 +799,6 @@ def test_rng_forbidden_grammar_rejected_at_compile(schema: str, message: str) ->
         RelaxNG(schema)
 
 
-def _chain_define(index: int) -> str:
-    elements = "".join(f'<element name="e{index}_{slot}"><empty/></element>' for slot in range(10))
-    return (
-        f'<define name="d{index}"><interleave><group>{elements}</group><ref name="d{index + 1}"/></interleave></define>'
-    )
-
-
-def _interleave_chain(count: int) -> str:
-    defines = "".join(_chain_define(index) for index in range(count))
-    start = '<start><element name="r"><ref name="d0"/></element></start>'
-    return rgrammar(f'{start}{defines}<define name="d{count}"><empty/></define>')
-
-
 def _shared_define_interleaves(count: int) -> str:
     names = "".join(f'<element name="x{index}"><empty/></element>' for index in range(count))
     branches = "".join(
@@ -821,20 +808,6 @@ def _shared_define_interleaves(count: int) -> str:
         f'<start><element name="r"><group>{branches}</group></element></start>'
         f'<define name="p"><group>{names}</group></define>'
     )
-
-
-@pytest.mark.parametrize(
-    ("builder", "size", "budget"),
-    [
-        pytest.param(_interleave_chain, 8000, 5.0, id="chain-of-8000-interleaves"),
-        pytest.param(_shared_define_interleaves, 20000, 5.0, id="20000-interleaves-sharing-a-define"),
-    ],
-)
-def test_rng_interleave_check_stays_within_budget(builder: Callable[[int], str], size: int, budget: float) -> None:
-    schema = builder(size)
-    start = time.perf_counter()
-    RelaxNG(schema)
-    assert time.perf_counter() - start < budget
 
 
 def _choice_against_group(count: int) -> str:
@@ -1002,12 +975,8 @@ def test_rng_interleave_work_budget_rejects_large_sets(builder: Callable[[int], 
     assert time.perf_counter() - start < 5.0
 
 
-def test_rng_interleave_node_limit_rejects_shared_unions() -> None:
-    schema = _shared_unions(2000)
-    start = time.perf_counter()
-    with pytest.raises(ValueError, match="too large to check interleave branches"):
-        RelaxNG(schema)
-    assert time.perf_counter() - start < 5.0
+def test_rng_shared_unions_stay_accepted() -> None:
+    RelaxNG(_shared_unions(2000))
 
 
 def _shared_unions(count: int) -> str:
@@ -1022,6 +991,50 @@ def _shared_unions(count: int) -> str:
     return rgrammar(
         f'<start><element name="doc"><group>{uses}</group></element></start>'
         f'<define name="x"><choice>{left}</choice></define><define name="y"><choice>{right}</choice></define>{defines}'
+    )
+
+
+def test_rng_chained_choice_unions_of_shared_defines_stay_accepted() -> None:
+    chained = "".join(
+        f'<define name="d{index}"><choice><ref name="d{index - 1}"/><ref name="e{index - 1}"/>'
+        f'<element name="a{index}"><empty/></element></choice></define>'
+        f'<define name="e{index}"><choice><ref name="e{index - 1}"/><ref name="d{index - 1}"/>'
+        f'<element name="b{index}"><empty/></element></choice></define>'
+        for index in range(1, 2001)
+    )
+    start = (
+        '<start><element name="r"><interleave><ref name="d2000"/>'
+        '<element name="z"><empty/></element></interleave></element></start>'
+        '<define name="d0"><element name="a0"><empty/></element></define>'
+        '<define name="e0"><element name="b0"><empty/></element></define>'
+    )
+    RelaxNG(rgrammar(f"{start}{chained}"))
+
+
+def test_rng_chain_of_interleaves_scales_linearly() -> None:
+    schema_small = _interleave_chain(2000)
+    schema_large = _interleave_chain(8000)
+    timings = []
+    for schema in (schema_small, schema_large):
+        best = float("inf")
+        for _ in range(3):
+            start = time.perf_counter()
+            RelaxNG(schema)
+            best = min(best, time.perf_counter() - start)
+        timings.append(best)
+    assert timings[1] < 9 * timings[0]
+
+
+def _interleave_chain(count: int) -> str:
+    defines = "".join(_chain_define(index) for index in range(count))
+    start = '<start><element name="r"><ref name="d0"/></element></start>'
+    return rgrammar(f'{start}{defines}<define name="d{count}"><empty/></define>')
+
+
+def _chain_define(index: int) -> str:
+    elements = "".join(f'<element name="e{index}_{slot}"><empty/></element>' for slot in range(10))
+    return (
+        f'<define name="d{index}"><interleave><group>{elements}</group><ref name="d{index + 1}"/></interleave></define>'
     )
 
 
