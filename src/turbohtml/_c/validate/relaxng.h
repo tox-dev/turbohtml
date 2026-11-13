@@ -1590,11 +1590,16 @@ static int ns_same(const nameclass *left, const nameclass *right) {
     return left == right;
 }
 
+/* A wildcard is told apart by its sequence number, not by its structure: classes of one structure share a key, and
+   hashing the key alone would put every such singleton in one probe run. */
 static size_t ns_table_slot(const nameclass *name, const nsnode *left, const nsnode *right, size_t mask) {
-    uint64_t hash = ns_key(name) * UINT64_C(0x9E3779B97F4A7C15);
+    uint64_t identity = name->type == NC_NAME ? name->hash : name->seq;
+    uint64_t hash = identity * UINT64_C(0x9E3779B97F4A7C15);
     hash ^= (uint64_t)(uintptr_t)left * UINT64_C(0xBF58476D1CE4E5B9);
     hash ^= (uint64_t)(uintptr_t)right * UINT64_C(0x94D049BB133111EB);
-    return (size_t)(hash ^ (hash >> 31)) & mask;
+    hash ^= hash >> 31;
+    hash *= UINT64_C(0xD6E8FEB86659FD93);
+    return (size_t)(hash ^ (hash >> 29)) & mask;
 }
 
 static int ns_table_grow(th_schema *schema) {
@@ -1670,6 +1675,9 @@ static int ns_split(th_schema *schema, nsnode *node, const nameclass *name, nsno
     }
     int order = ns_order(name, node);
     if (order == 0) {
+        if (ns_name_spend(schema, name, node->name) < 0) { /* GCOVR_EXCL_BR_LINE: name compare budget */
+            return -1;                                     /* GCOVR_EXCL_LINE */
+        }
         *below = node->left;
         *above = node->right;
         return 0;
@@ -1971,10 +1979,129 @@ static int rng_mark_checked(th_schema *schema, th_node *node) {
     return 0;
 }
 
+/* A choice of plain names is a set of exact names, so it is compared like one. */
+static int nc_all_named(const nameclass *nc) {
+    for (; nc->type == NC_CHOICE; nc = nc->a) {
+        if (!nc_all_named(nc->b)) {
+            return 0;
+        }
+    }
+    return nc->type == NC_NAME;
+}
+
+static Py_ssize_t nc_choice_count(const nameclass *nc) {
+    Py_ssize_t count = 0;
+    for (; nc->type == NC_CHOICE; nc = nc->a) {
+        count += nc_choice_count(nc->b);
+    }
+    return count + 1;
+}
+
+static Py_ssize_t nc_choice_collect(const nameclass *nc, const nameclass **names, Py_ssize_t index) {
+    for (; nc->type == NC_CHOICE; nc = nc->a) {
+        index = nc_choice_collect(nc->b, names, index);
+    }
+    names[index] = nc;
+    return index + 1;
+}
+
+/* Orders exact names by hash, then by namespace and local name, so equal names are adjacent. */
+static int nc_name_order(const void *left, const void *right) {
+    const nameclass *first = *(const nameclass *const *)left;
+    const nameclass *second = *(const nameclass *const *)right;
+    if (first->hash != second->hash) {
+        return first->hash < second->hash ? -1 : 1;
+    }
+    int order = nc_text_order(first->uri, first->uri_len, second->uri, second->uri_len);
+    if (order != 0) { /* GCOVR_EXCL_BR_LINE: unequal names with equal hashes need a 64-bit collision */
+        return order; /* GCOVR_EXCL_LINE */
+    }
+    return nc_text_order(first->local, first->local_len, second->local, second->local_len);
+}
+
+/* The treap over sorted, distinct names: names[index] with the subtrees at left[index] and right[index]. Each node is
+   made through ns_make, so the result is the canonical treap of the set. */
+static int rng_names_build(th_schema *schema, const nameclass **names, const Py_ssize_t *left, const Py_ssize_t *right,
+                           Py_ssize_t index, nsnode **out) {
+    if (index < 0) {
+        *out = NULL;
+        return 0;
+    }
+    nsnode *below = NULL, *above = NULL;
+    if (rng_names_build(schema, names, left, right, left[index], &below) < 0) { /* GCOVR_EXCL_BR_LINE: deeper build */
+        return -1;                                                              /* GCOVR_EXCL_LINE */
+    }
+    if (rng_names_build(schema, names, left, right, right[index], &above) < 0) { /* GCOVR_EXCL_BR_LINE: deeper build */
+        return -1;                                                               /* GCOVR_EXCL_LINE */
+    }
+    nsnode *node = ns_make(schema, names[index], below, above);
+    if (node == NULL) { /* GCOVR_EXCL_BR_LINE: budget or node cap, see ns_make */
+        return -1;      /* GCOVR_EXCL_LINE */
+    }
+    *out = node;
+    return 0;
+}
+
+/* The set of sorted names: one sort and one pass over the names, not one union per name. */
+static int rng_names_sorted(th_schema *schema, const nameclass **names, Py_ssize_t total, Py_ssize_t *links,
+                            nsnode **root) {
+    Py_ssize_t bits = 1;
+    for (Py_ssize_t rest = total; rest > 1; rest >>= 1) {
+        bits++;
+    }
+    if (rng_spend(schema, total * bits) < 0) { /* GCOVR_EXCL_BR_LINE: budget in the sort, hard to pin */
+        return -1;                             /* GCOVR_EXCL_LINE */
+    }
+    qsort(names, (size_t)total, sizeof(*names), nc_name_order);
+    Py_ssize_t count = 1;
+    for (Py_ssize_t index = 1; index < total; index++) {
+        if (ns_name_spend(schema, names[count - 1], names[index]) < 0) { /* GCOVR_EXCL_BR_LINE: name compare budget */
+            return -1;                                                   /* GCOVR_EXCL_LINE */
+        }
+        if (nc_name_order(&names[count - 1], &names[index]) != 0) {
+            names[count++] = names[index];
+        }
+    }
+    Py_ssize_t *left = links, *right = links + count, *stack = links + 2 * count;
+    Py_ssize_t top = 0;
+    for (Py_ssize_t index = 0; index < count; index++) {
+        Py_ssize_t last = -1;
+        left[index] = -1;
+        right[index] = -1;
+        while (top > 0 && ns_node_priority(names[stack[top - 1]]) < ns_node_priority(names[index])) {
+            last = stack[--top];
+        }
+        left[index] = last;
+        if (top > 0) {
+            right[stack[top - 1]] = index;
+        }
+        stack[top++] = index;
+    }
+    return rng_names_build(schema, names, left, right, stack[0], root);
+}
+
+/* The exact names of a choice of plain names, as one set. */
+static int rng_names_from_choice(th_schema *schema, const nameclass *nc, nsnode **root) {
+    Py_ssize_t total = nc_choice_count(nc);
+    const nameclass **names = PyMem_Malloc((size_t)total * sizeof(*names));
+    Py_ssize_t *links = PyMem_Malloc(3 * (size_t)total * sizeof(*links));
+    if (names == NULL || links == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyMem_Free(names);                /* GCOVR_EXCL_LINE */
+        PyMem_Free(links);                /* GCOVR_EXCL_LINE */
+        PyErr_NoMemory();                 /* GCOVR_EXCL_LINE */
+        return -1;                        /* GCOVR_EXCL_LINE */
+    }
+    nc_choice_collect(nc, names, 0);
+    int status = rng_names_sorted(schema, names, total, links, root);
+    PyMem_Free(names);
+    PyMem_Free(links);
+    return status;
+}
+
 /* An <element>'s content is a new level and an <attribute>'s text is not interleave text. A <ref> adds its define's
    set, which is built once. Every node walked is charged, so a name-free group costs as much as one name. */
 static int rng_names_node(th_schema *schema, th_node *node, nameset *out) {
-    if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted while probing the checked table */
+    if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted while walking a node, hard to pin */
         return -1;                  /* GCOVR_EXCL_LINE */
     }
     if (is_schema_el(schema, node, RNG_NS, "element")) {
@@ -1987,6 +2114,9 @@ static int rng_names_node(th_schema *schema, th_node *node, nameset *out) {
         }
         if (rng_spend(schema, nc_size(nc)) < 0) { /* GCOVR_EXCL_BR_LINE: budget while hashing a class, hard to pin */
             return -1;                            /* GCOVR_EXCL_LINE */
+        }
+        if (nc_all_named(nc)) {
+            return rng_names_from_choice(schema, nc, &out->names.root) < 0 ? -1 : 0; /* GCOVR_EXCL_BR_LINE: see above */
         }
         nc->hash = nc_struct_hash(nc);
         nc->seq = (uint64_t)schema->rng_nodes;
@@ -2164,7 +2294,7 @@ static int nc_overlap_at(const nameclass *part, const nameclass *left, const nam
    so testing one representative per leaf decides it, as jing's OverlapDetector does. The comparisons read names, and
    their length is added to `work`. */
 static int nc_overlap(const nameclass *left, const nameclass *right, Py_ssize_t *work) {
-    return nc_overlap_at(left, left, right, work) || nc_overlap_at(right, left, right, work);
+    return nc_overlap_at(left, left, right, work) | nc_overlap_at(right, left, right, work);
 }
 
 static void rng_validate_root(valctx *ctx, th_node *root) {

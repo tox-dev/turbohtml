@@ -766,6 +766,14 @@ def test_rng_interleave_choice_same_name() -> None:
         ),
         pytest.param(
             rwrap(
+                '<interleave><element><choice><name>a</name><nsName ns="urn:x"/></choice><empty/></element>'
+                '<element><nsName ns="urn:x"/><empty/></element></interleave>'
+            ),
+            "same element name in more than one branch",
+            id="7.4-wildcard-inside-a-choice-overlaps",
+        ),
+        pytest.param(
+            rwrap(
                 "<interleave><element><choice><name>a</name><name>b</name></choice><empty/></element>"
                 "<element><anyName/><empty/></element></interleave>"
             ),
@@ -810,36 +818,9 @@ def _shared_define_interleaves(count: int) -> str:
     )
 
 
-def _choice_against_group(count: int) -> str:
-    names = "".join(f"<name>p{index}</name>" for index in range(count))
-    group = "".join(f'<element name="q{index}"><empty/></element>' for index in range(count))
+def _except_against_group(count: int) -> str:
     return rgrammar(
-        '<start><element name="r"><interleave>'
-        f"<element><choice>{names}</choice><empty/></element><group>{group}</group>"
-        "</interleave></element></start>"
-    )
-
-
-def _choice_pair(count: int) -> str:
-    left = "".join(f"<name>p{index}</name>" for index in range(count))
-    right = "".join(f"<name>q{index}</name>" for index in range(count))
-    return rgrammar(
-        '<start><element name="r"><interleave>'
-        f"<element><choice>{left}</choice><empty/></element><element><choice>{right}</choice><empty/></element>"
-        "</interleave></element></start>"
-    )
-
-
-def _wild_classes_against_exact(count: int) -> str:
-    classes = "".join(
-        f"<element><choice><name>w{index}a</name><name>w{index}b</name></choice><empty/></element>"
-        for index in range(count)
-    )
-    exact = "".join(f'<element name="x{index}"><empty/></element>' for index in range(count))
-    return rgrammar(
-        '<start><element name="r"><interleave>'
-        f"<group>{classes}</group><group>{exact}</group>"
-        "</interleave></element></start>"
+        f'<start><element name="r"><interleave>{_except_group_branches(count)}</interleave></element></start>'
     )
 
 
@@ -860,16 +841,16 @@ def _adversarial_interleaves(names: int) -> str:
     )
 
 
-def _choice_group_branches(count: int) -> str:
-    names = "".join(f"<name>p{index}</name>" for index in range(count))
+def _except_group_branches(count: int) -> str:
+    names = "".join(f"<name>q{index}</name>" for index in range(count))
     group = "".join(f'<element name="q{index}"><empty/></element>' for index in range(count))
-    return f"<element><choice>{names}</choice><empty/></element><group>{group}</group>"
+    return f"<element><anyName><except>{names}</except></anyName><empty/></element><group>{group}</group>"
 
 
 def _nested_interleave_budget(count: int) -> str:
     return rgrammar(
         '<start><element name="r"><interleave><interleave>'
-        f"{_choice_group_branches(count)}"
+        f"{_except_group_branches(count)}"
         '</interleave><element name="z"><empty/></element></interleave></element></start>'
     )
 
@@ -878,17 +859,18 @@ def _define_interleave_budget(count: int) -> str:
     return rgrammar(
         '<start><element name="r"><interleave><ref name="d"/><element name="z"><empty/></element>'
         "</interleave></element></start>"
-        f'<define name="d"><interleave>{_choice_group_branches(count)}</interleave></define>'
+        f'<define name="d"><interleave>{_except_group_branches(count)}</interleave></define>'
     )
 
 
 def _combine_part_budget(count: int) -> str:
-    names = "".join(f"<name>p{index}</name>" for index in range(count))
-    group = "".join(f'<element name="q{index}"><empty/></element>' for index in range(count))
+    names = "".join(f"<name>r{index}</name>" for index in range(count))
+    group = "".join(f'<element name="r{index}"><empty/></element>' for index in range(count))
     return rgrammar(
         '<start><element name="r"><ref name="c"/></element></start>'
         f'<define name="c"><group>{group}</group></define>'
-        f'<define name="c" combine="interleave"><element><choice>{names}</choice><empty/></element></define>'
+        f'<define name="c" combine="interleave"><element><anyName><except>{names}</except></anyName>'
+        "<empty/></element></define>"
     )
 
 
@@ -932,11 +914,11 @@ def _superset_wild_unions(count: int) -> str:
 
 
 def _combine_part_nested_budget(count: int) -> str:
-    group = "".join(f'<element name="q{index}"><empty/></element>' for index in range(count))
+    group = "".join(f'<element name="r{index}"><empty/></element>' for index in range(count))
     return rgrammar(
         '<start><element name="r"><ref name="c"/></element></start>'
         f'<define name="c"><group>{group}</group></define>'
-        f'<define name="c" combine="interleave"><interleave>{_choice_group_branches(count)}</interleave></define>'
+        f'<define name="c" combine="interleave"><interleave>{_except_group_branches(count)}</interleave></define>'
     )
 
 
@@ -950,13 +932,22 @@ def _except_wildcard_pair(names: int) -> str:
     return rgrammar(f'<start><element name="doc"><group>{branch}</group></element></start>{big}')
 
 
+def _wildcards_outnumber_exact(count: int) -> str:
+    classes = "".join(f'<element><nsName ns="urn:w{index}"/><empty/></element>' for index in range(count + 1))
+    exact = "".join(f'<element name="x{index}"><empty/></element>' for index in range(count))
+    return rgrammar(
+        '<start><element name="r"><interleave>'
+        f"<group>{exact}</group><group>{classes}</group>"
+        "</interleave></element></start>"
+    )
+
+
 @pytest.mark.parametrize(
     "builder",
     [
         pytest.param(_adversarial_interleaves, id="shared-define-against-variants"),
-        pytest.param(_choice_against_group, id="choice-against-exact-group"),
-        pytest.param(_choice_pair, id="choice-against-choice"),
-        pytest.param(_wild_classes_against_exact, id="many-wildcard-classes-against-exact"),
+        pytest.param(_except_against_group, id="except-class-against-exact-group"),
+        pytest.param(_wildcards_outnumber_exact, id="wildcards-outnumber-exact-names"),
         pytest.param(_nested_interleave_budget, id="nested-interleave-branch"),
         pytest.param(_define_interleave_budget, id="interleave-in-a-referenced-define"),
         pytest.param(_combine_part_budget, id="combined-interleave-part"),
@@ -1009,6 +1000,20 @@ def test_rng_chained_choice_unions_of_shared_defines_stay_accepted() -> None:
         '<define name="e0"><element name="b0"><empty/></element></define>'
     )
     RelaxNG(rgrammar(f"{start}{chained}"))
+
+
+def test_rng_same_structure_wildcards_scale_linearly() -> None:
+    timings = []
+    for count in (2000, 8000):
+        alts = "".join(f'<element><nsName ns="urn:a"/><attribute name="v{index}"/></element>' for index in range(count))
+        schema = rwrap(f'<interleave><choice>{alts}</choice><element name="b"><empty/></element></interleave>')
+        best = float("inf")
+        for _ in range(3):
+            start = time.perf_counter()
+            RelaxNG(schema)
+            best = min(best, time.perf_counter() - start)
+        timings.append(best)
+    assert timings[1] < 9 * timings[0]
 
 
 def test_rng_chain_of_interleaves_scales_linearly() -> None:
@@ -1159,6 +1164,24 @@ def test_rng_identical_wildcard_classes_stay_accepted() -> None:
             "<doc><a/><b/></doc>",
             True,
             id="7.4-name-differs-only-by-namespace",
+        ),
+        pytest.param(
+            rwrap(
+                '<interleave><element><choice><name>a</name><nsName ns="urn:x"/></choice><empty/></element>'
+                '<element name="b"><empty/></element></interleave>'
+            ),
+            "<doc><a/><b/></doc>",
+            True,
+            id="7.4-wildcard-inside-a-choice-is-not-a-name",
+        ),
+        pytest.param(
+            rwrap(
+                "<interleave><element><choice><name>a</name><name>a</name></choice><empty/></element>"
+                '<element name="b"><empty/></element></interleave>'
+            ),
+            "<doc><a/><b/></doc>",
+            True,
+            id="7.4-repeated-name-in-a-choice",
         ),
         pytest.param(
             rwrap(
