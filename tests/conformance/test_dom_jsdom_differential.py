@@ -882,7 +882,7 @@ _SHADOW_SLOTS: Final[str] = '<header><slot name="title"></slot></header><main><s
 _HOST_FALLBACK: Final[str] = '<my-el><span slot="a">A</span></my-el>'
 _SHADOW_FALLBACK: Final[str] = '<slot name="a"></slot><slot><em>fb</em></slot>'
 
-_SHADOW_CASES: Final[list[_ShadowCase]] = [
+_SHADOW_CASES: Final[tuple[_ShadowCase, ...]] = (
     {
         "id": "shadow-attach-open",
         "feature": "shadow",
@@ -917,7 +917,7 @@ _SHADOW_CASES: Final[list[_ShadowCase]] = [
         "shadow_html": _SHADOW_FALLBACK,
         "slots": {"named": 'slot[name="a"]', "default": "slot:not([name])"},
     },
-]
+)
 
 _DSD_OPEN: Final[str] = (
     "<article id=post>"
@@ -1385,7 +1385,7 @@ _RANGE_CASES += [
     },
 ]
 
-_ALL_DIFF_CASES: Final[list[_DiffCase]] = _RANGE_CASES + _TRAVERSAL_CASES + _SHADOW_CASES
+_ALL_DIFF_CASES: Final[list[_DiffCase]] = [*_RANGE_CASES, *_TRAVERSAL_CASES, *_SHADOW_CASES]
 
 
 @pytest.fixture(scope="session")

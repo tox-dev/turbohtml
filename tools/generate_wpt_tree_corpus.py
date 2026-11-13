@@ -65,7 +65,7 @@ _SECTION: Final[re.Pattern[str]] = re.compile(
     r"^#(errors|new-errors|document-fragment|script-on|script-off)(?:\n|$)"
 )
 
-_SCRIPT_EXECUTION_EXCLUSIONS: Final[dict[_Key, tuple[str, str]]] = {
+_SCRIPT_EXECUTION_EXCLUSIONS: Final[MappingProxyType[_Key, tuple[str, str]]] = MappingProxyType({
     (
         "scripted_adoption01.dat",
         '<p><b id="A"><script>document.getElementById("A").id = "B"</script></p>TEXT</b>',
@@ -152,7 +152,7 @@ _SCRIPT_EXECUTION_EXCLUSIONS: Final[dict[_Key, tuple[str, str]]] = {
         ),
         f"{_WPT_BASE}/scripted_webkit01.dat#L14-L30",
     ),
-}
+})
 
 _ERROR_OVERRIDES: Final[MappingProxyType[_Key, tuple[list[_Error], str]]] = MappingProxyType({
     ("comments01.dat", '<?xml version="1.0">Hi', None, None): (

@@ -4,6 +4,7 @@ import re
 from contextlib import nullcontext
 from functools import partial
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NamedTuple
 from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # the catalogs are trusted, pinned vendored fixtures
     ElementTree as ET,
@@ -57,7 +58,7 @@ _NS_COLON: Final[str] = (
 
 # Cases that exercise a documented parse_xml limitation rather than a bug. Every entry is a
 # deliberate spec deviation argued in the reason; all other in-scope cases are hard assertions.
-_DEVIATIONS: Final[dict[str, str]] = {
+_DEVIATIONS: Final[MappingProxyType[str, str]] = MappingProxyType({
     "not-wf-sa-170": _ENCODING,
     "rmt-e2e-61": _ENCODING,
     "hst-lhs-007": _ENCODING,
@@ -69,7 +70,7 @@ _DEVIATIONS: Final[dict[str, str]] = {
     "x-ibm-1-0.5-valid-P05-ibm05v02.xml": _NS_COLON,
     "x-ibm-1-0.5-valid-P05-ibm05v03.xml": _NS_COLON,
     "valid-sa-012": "the namespace declaration is supplied by a DTD ATTLIST default, which parse_xml does not apply",
-}
+})
 
 
 _TEXT_PATTERN: Final[re.Pattern[str]] = re.compile(r"^\s*<\?xml[^>]*\?>")

@@ -1122,13 +1122,13 @@ print(json.dumps({"owners": len(owner_inventory()), "targets": [target.name for 
 """  # simplint: ignore[single-user-constant]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
 
 
-_GENERATION_COUNTS: Final[dict[str, list[str]]] = {
-    "encoding": ["--count", "0", "--sweep"]
-}  # simplint: ignore[single-user-constant]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
-_FALLBACK_PAYLOADS: Final[dict[str, bytes]] = {
+_GENERATION_COUNTS: Final[MappingProxyType[str, tuple[str, ...]]] = MappingProxyType({
+    "encoding": ("--count", "0", "--sweep")
+})  # simplint: ignore[single-user-constant]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
+_FALLBACK_PAYLOADS: Final[MappingProxyType[str, bytes]] = MappingProxyType({
     "css-translate": b"p.x",
     "javascript": b'consume("kept",external);',
-}  # simplint: ignore[single-user-constant]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
+})  # simplint: ignore[single-user-constant]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
 
 
 _NATIVE_ATHERIS_SKIP: Final[pytest.MarkDecorator] = pytest.mark.skipif(
@@ -1175,7 +1175,7 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
                 "fuzz.atheris_corpora",
                 "--profile",
                 profile,
-                *_GENERATION_COUNTS.get(profile, ["--count", "1"]),
+                *_GENERATION_COUNTS.get(profile, ("--count", "1")),
                 "--budget",
                 "512",
                 "--output",
