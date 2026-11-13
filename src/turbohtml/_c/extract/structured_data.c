@@ -1024,6 +1024,14 @@ static const char *rdfa_initial_prefix_iri(PyObject *prefix) {
     return NULL;
 }
 
+/* The IRI a prefix maps to, or NULL when it is undeclared or the lookup fails. A prefix that goes out of scope keeps
+   its key with None rather than being deleted: deleting and re-inserting one key of a large dict is quadratic on
+   free-threaded builds. */
+static PyObject *rdfa_declared_iri(PyObject *prefixes, PyObject *prefix) {
+    PyObject *iri = PyDict_GetItemWithError(prefixes, prefix);
+    return iri == Py_None ? NULL : iri;
+}
+
 /* RDFa @property/@typeof permit terms, CURIEs, and absolute IRIs, but not SafeCURIEs; malformed terms are ignored.
    Bare terms join @vocab or the initial context; unknown terms and undeclared prefixes are kept verbatim. */
 static PyObject *rdfa_expand_term(PyObject *token, PyObject *vocab, PyObject *prefixes) {
@@ -1069,7 +1077,7 @@ static PyObject *rdfa_expand_term(PyObject *token, PyObject *vocab, PyObject *pr
     if (prefix == NULL) { /* GCOVR_EXCL_BR_LINE: substring fails only on unforceable allocation */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *iri = PyDict_GetItemWithError(prefixes, prefix);
+    PyObject *iri = rdfa_declared_iri(prefixes, prefix);
     if (iri == NULL) {
         if (PyErr_Occurred()) { /* GCOVR_EXCL_BR_LINE: lookup fails only on an unforceable error */
             Py_DECREF(prefix);  /* GCOVR_EXCL_LINE: error path */
@@ -1085,7 +1093,7 @@ static PyObject *rdfa_expand_term(PyObject *token, PyObject *vocab, PyObject *pr
                 }
                 Py_DECREF(prefix);
                 prefix = lower;
-                iri = PyDict_GetItemWithError(prefixes, prefix);
+                iri = rdfa_declared_iri(prefixes, prefix);
                 break;
             }
         }
@@ -1282,15 +1290,14 @@ static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize
     return 0;
 }
 
-/* Take back the pairs one @prefix attribute merged into the prefix map, newest first so a prefix the attribute declares
-   twice ends on the mapping it had outside the element. -1 only on the excluded failure path. */
+/* Put back the mappings one @prefix attribute replaced, newest first so a prefix the attribute declares twice ends on
+   the mapping it had outside the element. -1 only on the excluded failure path. */
 static int restore_prefixes(PyObject *prefixes, PyObject *undo) {
     for (Py_ssize_t index = PyList_GET_SIZE(undo); index > 0; index -= 2) {
         PyObject *prefix = PyList_GET_ITEM(undo, index - 2);
         PyObject *shadowed = PyList_GET_ITEM(undo, index - 1);
-        int failed =
-            shadowed == Py_None ? PyDict_DelItem(prefixes, prefix) < 0 : PyDict_SetItem(prefixes, prefix, shadowed) < 0;
-        if (failed) {  /* GCOVR_EXCL_BR_LINE: the key is in the map, so neither call allocates or fails */
+        int failed = PyDict_SetItem(prefixes, prefix, shadowed) < 0;
+        if (failed) {  /* GCOVR_EXCL_BR_LINE: the key is in the map, so replacing its value cannot fail */
             return -1; /* GCOVR_EXCL_LINE: unreachable from a test */
         }
     }
@@ -1360,7 +1367,7 @@ static void release_child_ctx(rdfa_ctx *child_ctx, int vocab_owned, PyObject *un
     Py_XDECREF(undo);
 }
 
-/* Leave the child's scope once its subtree is walked: take its @prefix declarations back out of the prefix map, then
+/* Leave the child's scope once its subtree is walked: put back the mappings its @prefix declarations replaced, then
    release the context. -1 only on the excluded failure path, which no test can reach. */
 static int leave_child_ctx(rdfa_ctx *child_ctx, int vocab_owned, PyObject *undo) {
     int status = undo != NULL ? restore_prefixes(child_ctx->prefixes, undo) : 0;

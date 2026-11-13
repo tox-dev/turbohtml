@@ -102,5 +102,5 @@ def test_rdfa_time_is_linear_in_elements_that_declare_a_prefix() -> None:
     document: Final = parse(f"<div typeof=A prefix='{inherited}'>{declaring}")
     start = time.perf_counter()
     items = document.rdfa()
-    assert time.perf_counter() - start < 10.0
+    assert time.perf_counter() - start < 2.0
     assert items == [RdfaItem(vocab=None, type=["A"], resource=None, properties={})]
