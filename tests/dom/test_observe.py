@@ -630,3 +630,45 @@ def test_observer_overlap_keeps_old_value(*, attributes: bool) -> None:
     assert [(record.target, record.attribute_name, record.old_value) for record in observer.take_records()] == [
         (target, "data-x", "before")
     ]
+
+
+@pytest.mark.parametrize("drain", ["take_records", "deliver"])
+def test_failed_drain_drops_the_batch(drain: str) -> None:
+    paragraph: Final = _element(parse(f'<p title="{"A" * 200}" \ud800 lang="{"B" * 200}">x</p>').find("p"))
+    observer: Final = MutationObserver()
+    observer.observe(paragraph, attributes=True, attribute_old_value=True)
+    paragraph.attrs.clear()  # removes last to first, so the name that has no str form sits between two old values
+    with pytest.raises(UnicodeDecodeError):
+        getattr(observer, drain)()
+    assert observer.take_records() == []  # a queue still holding the batch frees its old values a second time
+    paragraph.attrs["id"] = "a"
+    assert [record.attribute_name for record in observer.take_records()] == ["id"]
+    observer.disconnect()
+
+
+@pytest.mark.parametrize(
+    ("reenter", "result"),
+    [
+        pytest.param("take_records", [], id="take_records"),
+        pytest.param("deliver", [], id="deliver"),
+        pytest.param("disconnect", None, id="disconnect"),
+    ],
+)
+def test_drain_survives_reentry_while_building_a_record(
+    reenter: str, result: list[MutationRecord] | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    div: Final = _div(f'<div id=a title="{"A" * 200}"></div>')
+    observer: Final = MutationObserver()
+    observer.observe(div, attributes=True, attribute_old_value=True)
+    div.attrs["title"] = "after"
+    div.attrs["id"] = "b"
+    nested: Final[list[list[MutationRecord] | None]] = []
+
+    def reentering(cls: type[MutationRecord], *fields: str | Node | tuple[Node, ...] | None) -> MutationRecord:
+        nested.append(getattr(observer, reenter)())  # sees an empty queue, or drops the observer's hold on the tree
+        return tuple.__new__(cls, fields)
+
+    monkeypatch.setattr(MutationRecord, "__new__", reentering)
+    records: Final = observer.take_records()
+    assert [(record.attribute_name, record.old_value) for record in records] == [("title", "A" * 200), ("id", "a")]
+    assert nested == [result, result]
