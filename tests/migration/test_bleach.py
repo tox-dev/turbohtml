@@ -401,9 +401,9 @@ def test_bleach_predicate_retains_reconstructed_attribute_origins() -> None:
 def test_bleach_source_lookup_is_linear_in_attribute_count(
     markup: str, attributes: dict[str, list[str]] | None, expected: str
 ) -> None:
-    # The old lookup restarted at the first attribute for each one, which takes tens of seconds at this size; the
-    # linear one takes a fraction of a second, so the 6 s budget only trips on a return to quadratic cost.
-    source = markup.format(" ".join(f"a{index}" for index in range(200_000)))
+    # The old lookup restarted at the first attribute for each one; at this size it takes tens of seconds, well past
+    # the 6 s budget, while the linear one takes a fraction of a second.
+    source = markup.format(" ".join(f"a{index}" for index in range(500_000)))
     start = time.perf_counter()
     cleaned = clean(source, tags=["a", "b", "i"], attributes=attributes)
     assert time.perf_counter() - start < 6.0

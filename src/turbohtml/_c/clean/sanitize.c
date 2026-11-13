@@ -2043,9 +2043,9 @@ static int compare_bleach_origins(const void *left, const void *right) {
 }
 
 /* The source span the tokenizer recorded for `attr`, a slot of `element`'s attribute array, or NULL when the start tag
-   has none. Spans are keyed by name, but the parser records them in attribute order and the sanitizer only drops
-   attributes, so the match sits at or shortly after the attribute's own position. Searching from there, wrapping at the
-   end, keeps a walk over one start tag linear in its attribute count instead of quadratic. */
+   has none. Removing attributes compacts the array, so the span can sit past the slot. Only URL-valued names are looked
+   up after a removal, and each occurs at most once per tag, so walking forward from the slot, wrapping at the end,
+   keeps the total walk linear in the attribute count. */
 static const th_src_attr *bleach_source_attr(const th_src_loc *location, const th_node *element,
                                              const th_node_attr *attr) {
     Py_ssize_t count = location->attr_count;
