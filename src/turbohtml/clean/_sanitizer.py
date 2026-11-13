@@ -136,7 +136,7 @@ _RELAXED_ATTRIBUTES: Final[Mapping[str, frozenset[str]]] = MappingProxyType({
 
 
 @dataclass(frozen=True)
-class Policy:
+class Policy:  # simplint: ignore[too-many-attributes]  # each field is a public keyword of the 1.x constructor
     r"""
     An immutable, thread-safe description of what sanitizing keeps.
 

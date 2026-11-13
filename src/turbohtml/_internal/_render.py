@@ -47,7 +47,7 @@ _Option: TypeAlias = (
 
 
 @dataclass(frozen=True)
-class Markdown:
+class Markdown:  # simplint: ignore[too-many-attributes]  # each field is a public keyword of the 1.x constructor
     """
     How :meth:`Node.to_markdown` renders a subtree as Markdown.
 
