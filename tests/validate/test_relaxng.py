@@ -281,10 +281,6 @@ def test_prefix_resolution_skips_a_decoy_attribute() -> None:
     assert RelaxNG(schema).validate(parse_xml("<r>hi</r>")).valid
 
 
-def rng_ok(schema: str, xml: str) -> bool:
-    return RelaxNG(schema).validate(parse_xml(xml)).valid
-
-
 def rwrap(body: str) -> str:
     return f'<element name="doc" xmlns="{_RELAXNG_NS}">{body}</element>'
 
@@ -295,6 +291,10 @@ def rgrammar(body: str, attrs: str = "") -> str:
 
 def test_rng_group_with_empty_second() -> None:
     assert rng_ok(rwrap("<group><text/><empty/></group>"), "<doc>x</doc>")
+
+
+def rng_ok(schema: str, xml: str) -> bool:
+    return RelaxNG(schema).validate(parse_xml(xml)).valid
 
 
 def test_rng_one_or_more_notallowed() -> None:
@@ -967,7 +967,10 @@ def test_rng_interleave_work_budget_rejects_large_sets(builder: Callable[[int], 
 
 
 def test_rng_shared_unions_stay_accepted() -> None:
-    RelaxNG(_shared_unions(2000))
+    assert isinstance(RelaxNG(_shared_unions(2000)), RelaxNG)
+    schema = RelaxNG(_shared_unions(3))
+    assert schema.validate(parse_xml(f"<doc>{'<x0/><q/>' * 3}</doc>")).valid
+    assert not schema.validate(parse_xml("<doc><x0/></doc>")).valid
 
 
 def _shared_unions(count: int) -> str:
@@ -986,20 +989,27 @@ def _shared_unions(count: int) -> str:
 
 
 def test_rng_chained_choice_unions_of_shared_defines_stay_accepted() -> None:
+    assert isinstance(RelaxNG(_chained_unions(2000)), RelaxNG)
+    schema = RelaxNG(_chained_unions(3))
+    assert schema.validate(parse_xml("<r><b2/><z/></r>")).valid
+    assert not schema.validate(parse_xml("<r><z/></r>")).valid
+
+
+def _chained_unions(depth: int) -> str:
     chained = "".join(
         f'<define name="d{index}"><choice><ref name="d{index - 1}"/><ref name="e{index - 1}"/>'
         f'<element name="a{index}"><empty/></element></choice></define>'
         f'<define name="e{index}"><choice><ref name="e{index - 1}"/><ref name="d{index - 1}"/>'
         f'<element name="b{index}"><empty/></element></choice></define>'
-        for index in range(1, 2001)
+        for index in range(1, depth + 1)
     )
     start = (
-        '<start><element name="r"><interleave><ref name="d2000"/>'
+        f'<start><element name="r"><interleave><ref name="d{depth}"/>'
         '<element name="z"><empty/></element></interleave></element></start>'
         '<define name="d0"><element name="a0"><empty/></element></define>'
         '<define name="e0"><element name="b0"><empty/></element></define>'
     )
-    RelaxNG(rgrammar(f"{start}{chained}"))
+    return rgrammar(f"{start}{chained}")
 
 
 def test_rng_same_structure_wildcards_scale_linearly() -> None:
