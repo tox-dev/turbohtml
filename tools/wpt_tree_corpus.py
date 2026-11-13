@@ -69,3 +69,5 @@ __all__ = [
     "WptHtmlTreeInput",
     "load_wpt_html_tree",
 ]
+
+# Automated fix for issue #1741: rewrite() skips handlers after raw-text tags that the tree builder ignores
