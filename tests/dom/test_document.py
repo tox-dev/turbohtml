@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import copy
 import gc
+import os
 import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping our own trusted payloads
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # fixed argv, generated child script
+import sys
+import textwrap
 import threading
 from typing import TYPE_CHECKING, Final
 
@@ -270,6 +274,43 @@ def test_an_escape_that_ends_a_chunk_keeps_the_mode_it_interrupted() -> None:
     parser.feed(raw[:5])
     parser.feed(raw[5:])
     assert parser.close().text == "��戸"
+
+
+def test_an_escape_that_ends_a_chunk_leaves_room_for_the_error_it_owes() -> None:
+    # 0x1B is spent with the lead byte it cuts short, so the U+FFFD the failed escape costs goes out before the next
+    # chunk spends a byte: a chunk exactly as long as the decode scratch (64 code points at first) then yields one code
+    # point more than it has bytes. A regression writes that one past the scratch and still returns the right text, so
+    # the chunks run in a child whose allocator checks the bytes behind a block when the parser frees it
+    script: Final = textwrap.dedent("""
+        from turbohtml import IncrementalParser
+
+        parser = IncrementalParser(encoding="iso-2022-jp")
+        parser.feed(b"\\x1b$B!\\x1b")
+        parser.feed(bytes(64))
+        document = parser.close()
+        del parser
+        print(document.text == "\\ufffd" * 66)
+    """)
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, generated child script
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+        env={**os.environ, "PYTHONMALLOC": "debug"},
+    )
+    assert (result.returncode, result.stdout) == (0, "True\n"), result.stderr
+
+
+def test_a_chunk_that_ends_inside_a_second_escape_is_held_back_whole() -> None:
+    # an escape that only switches the mode emits nothing, so the decoder is still inside the same step when the chunk
+    # runs out two bytes into the next escape, and all five bytes wait for the chunk that completes it. The first chunk
+    # of a stream decodes its three leading bytes apart from the rest, hence the chunk ahead of it
+    parser = IncrementalParser(encoding="iso-2022-jp")
+    parser.feed(b"abc")
+    parser.feed(b"\x1b(B\x1b(")
+    parser.feed(b"J\\")
+    assert parser.close().text == "abc\ufffd\xa5"
 
 
 def test_a_chunk_past_the_scratch_capacity_grows_it_geometrically() -> None:

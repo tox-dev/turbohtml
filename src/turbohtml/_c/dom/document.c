@@ -2507,7 +2507,9 @@ typedef struct {
     th_decoder decoder; /* carries ISO-2022-JP's mode across a chunk boundary */
     Py_UCS4 *scratch;   /* grown to the largest chunk seen, so a chunked decode allocates once */
     Py_ssize_t scratch_len;
-    unsigned char tail[4]; /* the incomplete sequence a chunk ended on; gb18030 needs the most, four bytes */
+    /* the incomplete sequence a chunk ended on; ISO-2022-JP needs the most, five bytes: an escape that switched the
+       mode and the first two bytes of the escape that follows it */
+    unsigned char tail[5];
     Py_ssize_t tail_len;
     int replaced; /* the replacement encoding owes the stream exactly one U+FFFD, however many chunks arrive */
 } StreamObject;
@@ -2575,11 +2577,14 @@ static PyObject *stream_decode_legacy(StreamObject *parser, const unsigned char 
         memcpy(spliced + parser->tail_len, chunk, (size_t)chunk_len);
         joined = spliced;
     }
-    if (len > parser->scratch_len) {
+    /* one code point per byte, plus the U+FFFD an ISO-2022-JP escape the previous chunk ended on can still owe, which
+       th_decode_chunk writes before it spends a byte of this one */
+    Py_ssize_t need = len + 1;
+    if (need > parser->scratch_len) {
         /* the held-back tail makes every chunk a byte or two longer than the last, so grow geometrically rather than
            reallocate on each feed */
         Py_ssize_t capacity = parser->scratch_len > 0 ? parser->scratch_len : 64;
-        while (capacity < len) {
+        while (capacity < need) {
             capacity *= 2;
         }
         Py_UCS4 *grown = PyMem_Realloc(parser->scratch, (size_t)capacity * sizeof(Py_UCS4));
