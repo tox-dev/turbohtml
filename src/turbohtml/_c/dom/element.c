@@ -1375,24 +1375,18 @@ static control_attrs read_control_attrs(const th_node *node) {
     return found;
 }
 
-/* Append a (name, value) pair, taking ownership of value and stealing nothing from
-   name. Returns 0, or -1 with an exception set. */
-static int emit_pair(form_pairs *pairs, const th_node_attr *name, PyObject *value) {
+/* Append a (name, value) pair, taking ownership of value and a new reference to the
+   name str. Returns 0, or -1 with an exception set. */
+static int emit_named_pair(form_pairs *pairs, PyObject *name_obj, PyObject *value) {
     if (value == NULL) { /* GCOVR_EXCL_BR_LINE: a value builder only fails on OOM */
         return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *name_obj = ucs4_to_str(name->value, name->value_len);
-    if (name_obj == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        Py_DECREF(value);   /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;          /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
     PyObject *pair = PyTuple_New(2);
-    if (pair == NULL) {      /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        Py_DECREF(name_obj); /* GCOVR_EXCL_LINE: allocation-failure path */
-        Py_DECREF(value);    /* GCOVR_EXCL_LINE: allocation-failure path */
-        return -1;           /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (pair == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(value); /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;        /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyTuple_SET_ITEM(pair, 0, name_obj);
+    PyTuple_SET_ITEM(pair, 0, Py_NewRef(name_obj));
     PyTuple_SET_ITEM(pair, 1, value);
 #ifdef FORM_WALKS_ANCESTOR_FIELDSETS
     int rc = PyList_Append(pairs, pair);
@@ -1424,19 +1418,43 @@ static int emit_pair(form_pairs *pairs, const th_node_attr *name, PyObject *valu
 #endif
 }
 
+/* Append a control's single (name, value) pair, taking ownership of value and stealing
+   nothing from name. Returns 0, or -1 with an exception set. */
+static int emit_pair(form_pairs *pairs, const th_node_attr *name, PyObject *value) {
+    if (value == NULL) { /* GCOVR_EXCL_BR_LINE: a value builder only fails on OOM */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    PyObject *name_obj = ucs4_to_str(name->value, name->value_len);
+    if (name_obj == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        Py_DECREF(value);   /* GCOVR_EXCL_LINE: allocation-failure path */
+        return -1;          /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    int rc = emit_named_pair(pairs, name_obj, value);
+    Py_DECREF(name_obj);
+    return rc;
+}
+
 /* Append the submitted option(s) of a select as (name, value) pairs: every selected
    non-disabled option for a multiple select, else the resolved single selection. */
 static int collect_select(th_tree *tree, th_node *select, const th_node_attr *name, form_pairs *pairs) {
     if (find_node_attr(select, TH_ATTR_MULTIPLE) != NULL) {
+        /* One name str shared by every pair: a copy per selected option costs options x name length. */
+        PyObject *name_obj = ucs4_to_str(name->value, name->value_len);
+        if (name_obj == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return -1;          /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        int rc = 0;
         for (th_node *option = next_option(select, select); option != NULL; option = next_option(option, select)) {
             if (option_disabled(option) || find_node_attr(option, TH_ATTR_SELECTED) == NULL) {
                 continue;
             }
-            if (emit_pair(pairs, name, option_value_str(tree, option)) < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
-                return -1;                                                    /* GCOVR_EXCL_LINE: alloc-failure */
+            rc = emit_named_pair(pairs, name_obj, option_value_str(tree, option));
+            if (rc < 0) { /* GCOVR_EXCL_BR_LINE: OOM only */
+                break;    /* GCOVR_EXCL_LINE: alloc-failure */
             }
         }
-        return 0;
+        Py_DECREF(name_obj);
+        return rc;
     }
     th_node *use = single_select_selection(tree, select);
     if (use == NULL || option_disabled(use)) { /* a disabled resolved option is not submittable */
