@@ -95,7 +95,7 @@ def test_rdfa_prefix_of_top_level_item_ends_with_it() -> None:
 
 def test_rdfa_time_is_linear_in_elements_that_declare_a_prefix() -> None:
     # Copying the inherited map once per declaring element takes many seconds here; merging and taking back one pair
-    # per element takes milliseconds, so the budget only has to catch the copy.
+    # per element takes milliseconds, so the budget fails when a copy or a delete and re-insert runs per element.
     count: Final = 120000
     inherited: Final = " ".join(f"a{index:x}: u" for index in range(count))
     declaring: Final = "<p prefix='z: u'>" * count
