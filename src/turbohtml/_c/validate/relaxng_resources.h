@@ -211,16 +211,19 @@ static th_node *rng_read_reference(rng_loader *loader, PyObject *path, int inclu
         return NULL;
     }
     th_tree *loaded = parse_schema_source(text);
-    Py_DECREF(text);
     if (loaded == NULL) {
+        Py_DECREF(text);
         return NULL;
     }
     if (th_node_check_max_depth(th_tree_document(loaded), TH_VALIDATE_MAX_DEPTH, "schema compilation") < 0) {
         th_tree_free(loaded);
+        Py_DECREF(text);
         return NULL;
     }
+    /* loaded's text nodes are spans borrowing text, so text has to stay until the copy has materialized them */
     th_node *copy = th_tree_copy_node(schema->tree, loaded, document_root(loaded));
     th_tree_free(loaded);
+    Py_DECREF(text);
     if (copy == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
         return NULL;      /* GCOVR_EXCL_LINE */

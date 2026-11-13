@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # fixed interpreter and script
+import sys
+import textwrap
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -418,3 +422,49 @@ def test_relaxng_resources_reject_missing_include_root(tmp_path: Path) -> None:
         RelaxNG(
             f'<externalRef {_NS} href="x"/>', base_url=str(tmp_path / "main.rng"), include_root=tmp_path / "missing"
         )
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        pytest.param(
+            {
+                "main.rng": f'<externalRef {_NS} href="x"/>',
+                "x": f"<element {_NS}><name>r</name><value>word</value></element>",
+            },
+            id="external",
+        ),
+        pytest.param(
+            {
+                "main.rng": f'<grammar {_NS}><include href="x"/></grammar>',
+                "x": f"<grammar {_NS}><start><element><name>r</name><value>word</value></element></start></grammar>",
+            },
+            id="include",
+        ),
+    ],
+)
+def test_relaxng_resources_keep_source_until_text_is_copied(tmp_path: Path, files: dict[str, str]) -> None:
+    # A referenced file's text nodes borrow its source until the graft copies them. The debug allocator overwrites a
+    # block as it is freed, so a source released before the copy turns the name and the value into filler.
+    for name, text in files.items():
+        (tmp_path / name).write_text(text)
+    script: Final = textwrap.dedent("""
+        import sys
+        from pathlib import Path
+
+        from turbohtml import parse_xml
+        from turbohtml.validate import RelaxNG
+
+        main = Path(sys.argv[1])
+        schema = RelaxNG(main.read_text(), base_url=str(main))
+        print([schema.is_valid(parse_xml(document)) for document in sys.argv[2:]])
+    """)
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed interpreter and script
+        [sys.executable, "-c", script, str(tmp_path / "main.rng"), "<r>word</r>", "<r>other</r>", "<s>word</s>"],
+        env={**os.environ, "PYTHONMALLOC": "debug"},
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert (result.returncode, result.stdout.strip()) == (0, "[True, False, False]"), result.stderr
