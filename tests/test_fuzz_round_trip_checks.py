@@ -1398,14 +1398,6 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
-class _Engines(NamedTuple):
-    schema_mutation: ModuleType
-    xslt_inline: ModuleType
-    xsd_inline: ModuleType
-    rng_inline: ModuleType
-    etree: ModuleType
-
-
 @pytest.fixture
 def engines() -> _Engines:
     return _Engines(
@@ -1415,6 +1407,14 @@ def engines() -> _Engines:
         pytest.importorskip("fuzz.rng_inline", exc_type=ImportError),
         pytest.importorskip("lxml.etree", exc_type=ImportError),
     )
+
+
+class _Engines(NamedTuple):
+    schema_mutation: ModuleType
+    xslt_inline: ModuleType
+    xsd_inline: ModuleType
+    rng_inline: ModuleType
+    etree: ModuleType
 
 
 @pytest.mark.oracle

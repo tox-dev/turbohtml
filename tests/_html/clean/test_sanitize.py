@@ -14,6 +14,12 @@ def test_sanitize_rejects_wrong_arguments() -> None:
         _sanitize()  # ty: ignore[missing-argument]  # tests the C argument guard
 
 
+def test_find_helper_reports_a_missing_element() -> None:
+    # The navigation helper fails loudly rather than returning None when a case names a tag that is not present.
+    with pytest.raises(AssertionError, match="no 'span' element"):
+        _find(parse_fragment("<div></div>"), "span")
+
+
 def _find(root: Element, tag: str, namespace: str | None = None) -> Element:
     # Return the first element named ``tag`` (optionally in ``namespace``) in document order.
     queue: list[Element] = list(getattr(root, "children", ()))
@@ -24,31 +30,6 @@ def _find(root: Element, tag: str, namespace: str | None = None) -> Element:
         queue[0:0] = list(getattr(node, "children", ()))
     msg = f"no {tag!r} element found"
     raise AssertionError(msg)
-
-
-def _sanitize_tree(root: Element, tags: frozenset[str]) -> str:
-    # named to keep boolean positional arguments off boolean-positional-value-in-call
-    allow_relative = strip_comments = True
-    allow_fragments = strip_templates = isolate_named_props = allow_customized_builtins = bleach_url_policy = False
-    xml = False
-    allow_html = allow_svg = allow_mathml = True
-    empty: frozenset[str] = frozenset()
-    schemes = frozenset({"http", "https", "mailto"})
-    original = root.inner_html
-    sanitized = _sanitize(
-        root, tags, {}, schemes, allow_relative, allow_fragments, OnDisallowed.REMOVE.value, strip_comments,
-        None, None, {}, empty,
-        empty, empty, {}, empty, strip_templates, None, {}, {}, isolate_named_props, None, None,
-        allow_customized_builtins, allow_html, allow_svg, allow_mathml, None, bleach_url_policy, xml,
-    )  # fmt: skip
-    assert root.inner_html == original
-    return sanitized.inner_html
-
-
-def test_find_helper_reports_a_missing_element() -> None:
-    # The navigation helper fails loudly rather than returning None when a case names a tag that is not present.
-    with pytest.raises(AssertionError, match="no 'span' element"):
-        _find(parse_fragment("<div></div>"), "span")
 
 
 # Each case parses valid markup, then moves a real foreign/HTML node under a parent the parser would never give it,
@@ -93,6 +74,25 @@ def test_namespace_confusion_is_dropped(
     root = parse_fragment(html)
     _find(root, target).append(_find(root, source, source_ns))
     assert marker not in _sanitize_tree(root, tags)  # confused by the move: the reachability check drops it
+
+
+def _sanitize_tree(root: Element, tags: frozenset[str]) -> str:
+    # named to keep boolean positional arguments off boolean-positional-value-in-call
+    allow_relative = strip_comments = True
+    allow_fragments = strip_templates = isolate_named_props = allow_customized_builtins = bleach_url_policy = False
+    xml = False
+    allow_html = allow_svg = allow_mathml = True
+    empty: frozenset[str] = frozenset()
+    schemes = frozenset({"http", "https", "mailto"})
+    original = root.inner_html
+    sanitized = _sanitize(
+        root, tags, {}, schemes, allow_relative, allow_fragments, OnDisallowed.REMOVE.value, strip_comments,
+        None, None, {}, empty,
+        empty, empty, {}, empty, strip_templates, None, {}, {}, isolate_named_props, None, None,
+        allow_customized_builtins, allow_html, allow_svg, allow_mathml, None, bleach_url_policy, xml,
+    )  # fmt: skip
+    assert root.inner_html == original
+    return sanitized.inner_html
 
 
 def test_annotation_xml_bare_encoding_is_not_integration_point() -> None:

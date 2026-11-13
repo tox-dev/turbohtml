@@ -164,6 +164,11 @@ _CORPUS: Final[list[pytest.ParameterSet]] = [
 ]
 
 
+@pytest.mark.parametrize("markup", _CORPUS)
+def test_events_match_dom_document_order(markup: str) -> None:
+    assert list(iter_events(markup)) == _dom_events(markup)
+
+
 def _dom_events(markup: str) -> list[SaxEvent]:
     events: list[SaxEvent] = []
     stack = [iter(parse(markup).children)]
@@ -190,11 +195,6 @@ def _dom_events(markup: str) -> list[SaxEvent]:
             doctype = cast("DomDoctype", node)
             events.append(Doctype(doctype.name, doctype.public_id, doctype.system_id))
     return events
-
-
-@pytest.mark.parametrize("markup", _CORPUS)
-def test_events_match_dom_document_order(markup: str) -> None:
-    assert list(iter_events(markup)) == _dom_events(markup)
 
 
 def test_bare_handler_is_a_noop_for_every_event() -> None:

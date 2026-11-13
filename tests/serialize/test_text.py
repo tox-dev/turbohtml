@@ -374,16 +374,6 @@ def test_no_visible_text_lost(html: str) -> None:
     assert rendered == source
 
 
-def annotate(html: str, rules: Rules) -> tuple[str, list[tuple[int, int, str]]]:
-    return parse(html).to_annotated_text(rules)
-
-
-def spans_text(html: str, rules: Rules) -> list[tuple[str, str]]:
-    # Return (label, covered-text) pairs, the offset-independent view.
-    text, labels = annotate(html, rules)
-    return [(label, text[start:end]) for start, end, label in labels]
-
-
 @pytest.mark.parametrize(
     ("html", "rules", "expected"),
     [
@@ -469,6 +459,16 @@ def spans_text(html: str, rules: Rules) -> list[tuple[str, str]]:
 )
 def test_annotation_spans(html: str, rules: Rules, expected: list[tuple[str, str]]) -> None:
     assert spans_text(html, rules) == expected
+
+
+def spans_text(html: str, rules: Rules) -> list[tuple[str, str]]:
+    # Return (label, covered-text) pairs, the offset-independent view.
+    text, labels = annotate(html, rules)
+    return [(label, text[start:end]) for start, end, label in labels]
+
+
+def annotate(html: str, rules: Rules) -> tuple[str, list[tuple[int, int, str]]]:
+    return parse(html).to_annotated_text(rules)
 
 
 def test_offsets_are_exact() -> None:

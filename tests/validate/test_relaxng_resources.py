@@ -16,17 +16,6 @@ _LONG: Final[str] = "p" * 260
 _START_FOO: Final[str] = f'<grammar {_NS}><start><element name="foo"><empty/></element></start></grammar>'
 
 
-def _compile(directory: Path, files: dict[str, str], **options: str | Path) -> RelaxNG:
-    for name, text in files.items():
-        (directory / name).parent.mkdir(parents=True, exist_ok=True)
-        (directory / name).write_text(text)
-    return RelaxNG(files["main.rng"], base_url=str(directory / "main.rng"), **options)
-
-
-def _verdicts(schema: RelaxNG, *documents: str) -> list[bool]:
-    return [schema.validate(parse_xml(document)).valid for document in documents]
-
-
 @pytest.mark.parametrize(
     ("files", "documents", "expected"),
     [
@@ -198,6 +187,17 @@ def test_relaxng_resources_accept(
     tmp_path: Path, files: dict[str, str], documents: tuple[str, ...], expected: list[bool]
 ) -> None:
     assert _verdicts(_compile(tmp_path, files, include_root=tmp_path), *documents) == expected
+
+
+def _verdicts(schema: RelaxNG, *documents: str) -> list[bool]:
+    return [schema.validate(parse_xml(document)).valid for document in documents]
+
+
+def _compile(directory: Path, files: dict[str, str], **options: str | Path) -> RelaxNG:
+    for name, text in files.items():
+        (directory / name).parent.mkdir(parents=True, exist_ok=True)
+        (directory / name).write_text(text)
+    return RelaxNG(files["main.rng"], base_url=str(directory / "main.rng"), **options)
 
 
 @pytest.mark.parametrize(

@@ -368,62 +368,9 @@ _CURATED_SHORTHAND_BOUNDARY: Final[tuple[Case, ...]] = (
 )
 
 
-class _Rgba(NamedTuple):
-    red: int
-    green: int
-    blue: int
-    alpha: float
-
-
 _NORM_PATTERN: Final[re.Pattern[str]] = re.compile(r"rgba?\(([^)]+)\)")
 
 _NORM_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"[ ,/]+")
-
-
-def _norm(prop: str, value: str) -> str | _Rgba:
-    # Canonicalize a computed value for comparison, folding a color to an ``(r, g, b, a)`` tuple.
-    text = value.strip().lower()
-    if prop not in frozenset({
-        "color",
-        "background-color",
-        "border-top-color",
-        "border-right-color",
-        "border-bottom-color",
-        "border-left-color",
-        "outline-color",
-    }):
-        return text
-    named = {
-        "red": (255, 0, 0, 1.0),
-        "green": (0, 128, 0, 1.0),
-        "blue": (0, 0, 255, 1.0),
-        "black": (0, 0, 0, 1.0),
-        "white": (255, 255, 255, 1.0),
-        "pink": (255, 192, 203, 1.0),
-        "orange": (255, 165, 0, 1.0),
-        "lime": (0, 255, 0, 1.0),
-        "navy": (0, 0, 128, 1.0),
-        "gray": (128, 128, 128, 1.0),
-        "transparent": (0, 0, 0, 0.0),
-        "canvastext": (0, 0, 0, 1.0),  # color's initial value, a system color; opaque black in a default light theme
-        "currentcolor": (0, 0, 0, 1.0),  # resolves to the element's color, defaulting to canvastext (opaque black)
-    }
-    if text in named:
-        return _Rgba(*named[text])
-    if (match := _NORM_PATTERN.match(text)) is not None:
-        parts = [piece for piece in _NORM_PATTERN_2.split(match.group(1)) if piece]
-        return _Rgba(int(parts[0]), int(parts[1]), int(parts[2]), (float(parts[3]) if len(parts) > 3 else 1.0))
-    if text.startswith("#"):
-        digits = text[1:]
-        if len(digits) == 3:
-            digits = "".join(char * 2 for char in digits)
-        return _Rgba(int(digits[0:2], 16), int(digits[2:4], 16), int(digits[4:6], 16), 1.0)
-    return text
-
-
-def _turbo(html: str, selector: str, prop: str) -> str | None:
-    element = select_one("html" if selector == ":root" else selector, parse(html))
-    return None if element is None else computed_style(element).get(prop)
 
 
 @cache
@@ -490,6 +437,59 @@ def test_cssom_matches_spec(html: str, check: Check) -> None:
     got = _turbo(html, check.selector, check.prop)
     assert got is not None, f"no element matched {check.selector!r}"
     assert _norm(check.prop, got) == _norm(check.prop, check.expected)
+
+
+def _turbo(html: str, selector: str, prop: str) -> str | None:
+    element = select_one("html" if selector == ":root" else selector, parse(html))
+    return None if element is None else computed_style(element).get(prop)
+
+
+def _norm(prop: str, value: str) -> str | _Rgba:
+    # Canonicalize a computed value for comparison, folding a color to an ``(r, g, b, a)`` tuple.
+    text = value.strip().lower()
+    if prop not in frozenset({
+        "color",
+        "background-color",
+        "border-top-color",
+        "border-right-color",
+        "border-bottom-color",
+        "border-left-color",
+        "outline-color",
+    }):
+        return text
+    named = {
+        "red": (255, 0, 0, 1.0),
+        "green": (0, 128, 0, 1.0),
+        "blue": (0, 0, 255, 1.0),
+        "black": (0, 0, 0, 1.0),
+        "white": (255, 255, 255, 1.0),
+        "pink": (255, 192, 203, 1.0),
+        "orange": (255, 165, 0, 1.0),
+        "lime": (0, 255, 0, 1.0),
+        "navy": (0, 0, 128, 1.0),
+        "gray": (128, 128, 128, 1.0),
+        "transparent": (0, 0, 0, 0.0),
+        "canvastext": (0, 0, 0, 1.0),  # color's initial value, a system color; opaque black in a default light theme
+        "currentcolor": (0, 0, 0, 1.0),  # resolves to the element's color, defaulting to canvastext (opaque black)
+    }
+    if text in named:
+        return _Rgba(*named[text])
+    if (match := _NORM_PATTERN.match(text)) is not None:
+        parts = [piece for piece in _NORM_PATTERN_2.split(match.group(1)) if piece]
+        return _Rgba(int(parts[0]), int(parts[1]), int(parts[2]), (float(parts[3]) if len(parts) > 3 else 1.0))
+    if text.startswith("#"):
+        digits = text[1:]
+        if len(digits) == 3:
+            digits = "".join(char * 2 for char in digits)
+        return _Rgba(int(digits[0:2], 16), int(digits[2:4], 16), int(digits[4:6], 16), 1.0)
+    return text
+
+
+class _Rgba(NamedTuple):
+    red: int
+    green: int
+    blue: int
+    alpha: float
 
 
 @pytest.mark.skipif(not _jsdom_available(), reason="node with jsdom is not installed")

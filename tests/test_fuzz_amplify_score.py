@@ -21,13 +21,6 @@ def clock(mocker: MockerFixture) -> list[float]:
     return now
 
 
-def _costing(clock: list[float], cost: Callable[[int], float]) -> Callable[[str], str | None]:
-    def run(text: str) -> None:
-        clock[0] += cost(len(text))
-
-    return run
-
-
 @pytest.mark.parametrize(
     ("cost", "growth"),
     [
@@ -38,6 +31,13 @@ def _costing(clock: list[float], cost: Callable[[int], float]) -> Callable[[str]
 )
 def test_measure_growth_per_doubling(clock: list[float], cost: Callable[[int], float], growth: tuple[float]) -> None:
     assert measure(_costing(clock, cost), _SHAPE).growth == pytest.approx(growth)
+
+
+def _costing(clock: list[float], cost: Callable[[int], float]) -> Callable[[str], str | None]:
+    def run(text: str) -> None:
+        clock[0] += cost(len(text))
+
+    return run
 
 
 def test_score_flags_a_quadratic_run(clock: list[float]) -> None:

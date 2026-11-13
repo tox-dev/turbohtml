@@ -25,15 +25,6 @@ _DOC: Final[str] = (
 _LONG_NEEDLE: Final[str] = f"{'a' * 65}ba"
 
 
-def _tags(elements: list[Element]) -> list[str]:
-    return [element.tag for element in elements]
-
-
-def _el(result: Element | None) -> Element:
-    assert result is not None
-    return result
-
-
 def _raise(_value: str | None) -> bool:
     raise ZeroDivisionError
 
@@ -51,6 +42,10 @@ def _raise(_value: str | None) -> bool:
 )
 def test_tag_filter(tag_filter: Filter, tags: list[str]) -> None:
     assert _tags(parse(_DOC).find_all(tag_filter)) == tags
+
+
+def _tags(elements: list[Element]) -> list[str]:
+    return [element.tag for element in elements]
 
 
 def test_tag_string_is_case_sensitive() -> None:
@@ -90,6 +85,11 @@ def test_tag_with_class_filter_uses_the_general_path(class_filter: Filter) -> No
 )
 def test_attr_matches_h2(id_filter: Filter) -> None:
     assert _el(parse(_DOC).find(id=id_filter)).tag == "h2"
+
+
+def _el(result: Element | None) -> Element:
+    assert result is not None
+    return result
 
 
 @pytest.mark.parametrize(

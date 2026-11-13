@@ -23,10 +23,6 @@ def _siblings(*runs: tuple[str, int], filled: Iterable[int] = ()) -> str:
     return f"<div id=p>{body}</div>"
 
 
-def _ids(nodes: Iterable[Element | None]) -> list[str | None]:
-    return [None if node is None else node.attr("id") for node in nodes]
-
-
 def _expected(*spans: range) -> list[str | None]:
     return [f"e{index}" for span in spans for index in span]
 
@@ -95,6 +91,10 @@ def _expected(*spans: range) -> list[str | None]:
 )
 def test_select_sibling_runs(selector: str, html: str, expected: list[str | None]) -> None:
     assert _ids(parse(html).select(selector)) == expected
+
+
+def _ids(nodes: Iterable[Element | None]) -> list[str | None]:
+    return [None if node is None else node.attr("id") for node in nodes]
 
 
 @pytest.mark.parametrize(

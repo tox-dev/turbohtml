@@ -191,20 +191,6 @@ def test_rowspan_beyond_colspan_limit(rows: Callable[[str], list[list[str]]]) ->
     assert grid == [["A", "0"], *[["A", "x"] for _ in range(1001)]]
 
 
-def _rehome_rows(destination: Element) -> None:
-    # The parser always wraps rows in a tbody, so move real <tr> elements under `destination` to give a table
-    # rows with no row-group ancestor: a rowspan=0 cell then has no group to stop at and grows to the last row.
-    source = parse_fragment(
-        "<table><tbody><tr><td rowspan=0>A</td><td>B</td></tr><tr><td>C</td></tr></tbody></table>",
-    ).find("table")
-    assert isinstance(source, Element)
-    body = source.find("tbody")
-    assert isinstance(body, Element)
-    for row in list(body.children):
-        row.extract()
-        destination.append(row)
-
-
 def _table_itself(table: Element) -> Element:
     return table
 
@@ -226,6 +212,20 @@ def test_zero_rowspan_without_a_row_group_spans_to_table_end(receiver: Callable[
     assert isinstance(table, Element)
     _rehome_rows(receiver(table))
     assert table.rows() == [["A", "B"], ["A", "C"]]
+
+
+def _rehome_rows(destination: Element) -> None:
+    # The parser always wraps rows in a tbody, so move real <tr> elements under `destination` to give a table
+    # rows with no row-group ancestor: a rowspan=0 cell then has no group to stop at and grows to the last row.
+    source = parse_fragment(
+        "<table><tbody><tr><td rowspan=0>A</td><td>B</td></tr><tr><td>C</td></tr></tbody></table>",
+    ).find("table")
+    assert isinstance(source, Element)
+    body = source.find("tbody")
+    assert isinstance(body, Element)
+    for row in list(body.children):
+        row.extract()
+        destination.append(row)
 
 
 _RECORDS_CASES: Final[list[pytest.ParameterSet]] = [

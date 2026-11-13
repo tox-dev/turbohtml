@@ -484,6 +484,19 @@ def _tree(node: Element) -> _TreeNode:
     )
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _TreeNode:
+    # Mirror the element/text/tail shape the meaning walk reads, built from turbohtml's own tree.
+    tag: str
+    attrib: dict[str, str]
+    text: str = ""
+    tail: str = ""
+    children: list[_TreeNode] = field(default_factory=list)
+
+    def __iter__(self) -> Iterator[_TreeNode]:
+        return iter(self.children)
+
+
 class MarkdownProfileError(ValueError):
     # Keep unsupported HTML semantics outside the Markdown conversion profile.
     ...
@@ -507,19 +520,6 @@ _ATTRIBUTES_PATTERN: Final[re.Pattern[str]] = re.compile(r"[\t\n\r]")
 
 
 _LINE_PATTERN: Final[re.Pattern[str]] = re.compile(r"[ \t\n\f\r]+")
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _TreeNode:
-    # Mirror the element/text/tail shape the meaning walk reads, built from turbohtml's own tree.
-    tag: str
-    attrib: dict[str, str]
-    text: str = ""
-    tail: str = ""
-    children: list[_TreeNode] = field(default_factory=list)
-
-    def __iter__(self) -> Iterator[_TreeNode]:
-        return iter(self.children)
 
 
 class _FaithfulMarkdown(MarkdownIt):

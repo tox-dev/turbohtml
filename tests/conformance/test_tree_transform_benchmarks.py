@@ -47,10 +47,6 @@ _RENDERERS: Final[MappingProxyType[str, Callable[[Tree], str]]] = MappingProxyTy
 _NODE_BENCH: Final[Path] = Path(__file__).parents[2] / "tools/bench/node/node_modules"
 
 
-def _as_text(output: str | bytes) -> str:
-    return output.decode() if isinstance(output, bytes) else output
-
-
 @pytest.mark.parametrize(
     ("library", "operation", "fragment"),
     [
@@ -96,6 +92,10 @@ def test_inner_output(library: str, operation: str, fragment: str) -> None:
     assert parse_fragment(_as_text(output)).serialize(Html(sort_attributes=True)) == parse_fragment(fragment).serialize(
         Html(sort_attributes=True)
     )
+
+
+def _as_text(output: str | bytes) -> str:
+    return output.decode() if isinstance(output, bytes) else output
 
 
 @pytest.mark.parametrize("library", ["lxml", "beautifulsoup4", "beautifulsoup4_lxml"])

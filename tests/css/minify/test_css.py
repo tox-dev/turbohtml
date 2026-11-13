@@ -2909,40 +2909,6 @@ def test_merge_benchmark_preserves_fixture_cascade(module: str, case: int, media
     assert _merge_fixture_cascade(minimize(source)) == expected
 
 
-@pytest.mark.parametrize("module", _BENCHMARK_MINIFIERS)
-def test_merge_benchmark_preserves_alternating_media(module: str) -> None:
-    minimize: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
-    source: Final = cast("str", INPUTS["minify-css-merges"]()[6][1])
-    expected: Final = {(("print", "screen")[index % 2], f".a{index}"): {"color": "red"} for index in range(100)}
-    assert _merge_fixture_cascade(minimize(source)) == expected
-
-
-@pytest.mark.parametrize("module", _BENCHMARK_MINIFIERS)
-@pytest.mark.parametrize(
-    ("case", "properties", "value_length"),
-    [
-        pytest.param(0, 32, 128, id="long-values"),
-        pytest.param(1, 32, 1, id="short-values"),
-        pytest.param(2, 2, 1, id="single-pair"),
-    ],
-)
-def test_merge_benchmark_preserves_conflicting_declarations(
-    module: str, case: int, properties: int, value_length: int
-) -> None:
-    minimize: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
-    source: Final = cast("str", INPUTS["minify-css-conflicts"]()[case][1])
-    expected: Final = {
-        ("all", f".{name}"): {f"--{name}{index}": f"f({value * value_length})" for index in range(properties)}
-        for name, value in (("a", "x"), ("b", "y"))
-    }
-    assert _merge_fixture_cascade(minimize(source)) == expected
-
-
-_MERGE_FIXTURE_CASCADE_PATTERN: Final[re.Pattern[str]] = re.compile(r"--[ab][0-9]+")
-
-_MERGE_FIXTURE_CASCADE_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"\.[ab][0-9]*")
-
-
 @pytest.mark.oracle
 def _merge_fixture_cascade(source: str, media: str = "all") -> dict[tuple[str, str], dict[str, str]]:
     parser: Final = pytest.importorskip("tinycss2")
@@ -2979,6 +2945,40 @@ def _merge_fixture_cascade(source: str, media: str = "all") -> dict[tuple[str, s
             assert _MERGE_FIXTURE_CASCADE_PATTERN_2.fullmatch(selector)
             result.setdefault((media, selector), {}).update(declarations)
     return result
+
+
+@pytest.mark.parametrize("module", _BENCHMARK_MINIFIERS)
+def test_merge_benchmark_preserves_alternating_media(module: str) -> None:
+    minimize: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
+    source: Final = cast("str", INPUTS["minify-css-merges"]()[6][1])
+    expected: Final = {(("print", "screen")[index % 2], f".a{index}"): {"color": "red"} for index in range(100)}
+    assert _merge_fixture_cascade(minimize(source)) == expected
+
+
+@pytest.mark.parametrize("module", _BENCHMARK_MINIFIERS)
+@pytest.mark.parametrize(
+    ("case", "properties", "value_length"),
+    [
+        pytest.param(0, 32, 128, id="long-values"),
+        pytest.param(1, 32, 1, id="short-values"),
+        pytest.param(2, 2, 1, id="single-pair"),
+    ],
+)
+def test_merge_benchmark_preserves_conflicting_declarations(
+    module: str, case: int, properties: int, value_length: int
+) -> None:
+    minimize: Final = cast("Callable[[str], str]", pytest.importorskip(module).minify_css)
+    source: Final = cast("str", INPUTS["minify-css-conflicts"]()[case][1])
+    expected: Final = {
+        ("all", f".{name}"): {f"--{name}{index}": f"f({value * value_length})" for index in range(properties)}
+        for name, value in (("a", "x"), ("b", "y"))
+    }
+    assert _merge_fixture_cascade(minimize(source)) == expected
+
+
+_MERGE_FIXTURE_CASCADE_PATTERN: Final[re.Pattern[str]] = re.compile(r"--[ab][0-9]+")
+
+_MERGE_FIXTURE_CASCADE_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"\.[ab][0-9]*")
 
 
 @pytest.mark.parametrize("count", [8, 64, 65, 1024])

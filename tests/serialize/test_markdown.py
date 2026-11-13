@@ -31,10 +31,6 @@ if TYPE_CHECKING:
     from turbohtml import Node
 
 
-def md(html: str) -> str:
-    return parse(html).to_markdown()
-
-
 @pytest.mark.parametrize("depth", [16, 32, 64])
 def test_deep_inline_wrappers_spanning_blocks_have_linear_output(depth: int) -> None:
     source: Final = f"{'<i><div>' * depth}x{'</div>' * depth}"
@@ -43,6 +39,10 @@ def test_deep_inline_wrappers_spanning_blocks_have_linear_output(depth: int) -> 
     assert result.count("<em>") == depth
     assert result.count("</em>") == depth
     assert "x" in result
+
+
+def md(html: str) -> str:
+    return parse(html).to_markdown()
 
 
 @pytest.mark.parametrize("depth", [16, 32])
@@ -1199,6 +1199,11 @@ def test_trailing_break_before_nested_list_keeps_items(html: str) -> None:
     assert [[item.text for item in nested.select("li")] for nested in rendered.select("ol")] == [["", "y"]]
 
 
+def _render(markdown: str) -> str:
+
+    return MarkdownIt("gfm-like", {"linkify": False}).render(markdown)
+
+
 def test_loose_list_nested_heading_and_link_stay_structural() -> None:
     rendered: Final = parse(MarkdownIt("gfm-like", {"linkify": False}).render(md(_LOOSE_NAV_HTML)))
     assert (
@@ -1978,13 +1983,13 @@ def test_escaping_commonmark(html: str, expected: str) -> None:
     assert md(html) == expected
 
 
-def _visible(html: str) -> str:
-    return "".join(parse(html).text.split())
-
-
 @pytest.mark.parametrize(("html", "expected"), _COMMONMARK_TEXT_CASES)
 def test_escaping_commonmark_renders_source_text(html: str, expected: str) -> None:
     assert _visible(_render(expected)) == _visible(html)
+
+
+def _visible(html: str) -> str:
+    return "".join(parse(html).text.split())
 
 
 @pytest.mark.parametrize(
@@ -2327,11 +2332,6 @@ def test_kitchen_sink() -> None:
 
 
 _WORD: Final[re.Pattern[str]] = re.compile(r"[0-9a-z]+")
-
-
-def _render(markdown: str) -> str:
-
-    return MarkdownIt("gfm-like", {"linkify": False}).render(markdown)
 
 
 @pytest.mark.parametrize(

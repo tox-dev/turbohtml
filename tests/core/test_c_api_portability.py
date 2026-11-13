@@ -20,13 +20,13 @@ _WRAPPERS: Final[MappingProxyType[str, re.Pattern[str]]] = MappingProxyType({
 })
 
 
-def _sources() -> list[Path]:
-    return sorted(path for path in _C_ROOT.rglob("*") if path.suffix in {".c", ".h"} and path != _COMPAT_HEADER)
-
-
 def test_the_c_sources_are_discovered() -> None:
     # a broken glob would make every guard below vacuously pass
     assert len(_sources()) > 50
+
+
+def _sources() -> list[Path]:
+    return sorted(path for path in _C_ROOT.rglob("*") if path.suffix in {".c", ".h"} and path != _COMPAT_HEADER)
 
 
 @pytest.mark.parametrize("wrapper", sorted(_WRAPPERS), ids=sorted(_WRAPPERS))

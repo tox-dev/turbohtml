@@ -17,6 +17,10 @@ def test_rawtext_children_serialize_as_markup(tag: str, layout: Indent | None) -
     assert _mixed(tag).serialize(Html(layout=layout)) == f"<{tag}>a<<b>i&lt;</b><!--c--></{tag}>"
 
 
+def _mixed(tag: str) -> Element:
+    return Element(tag, children=[Text("a<"), Element("b", children=[Text("i<")]), Comment("c")])
+
+
 @pytest.mark.parametrize(
     ("tag", "end_tag"),
     [pytest.param(tag, "" if tag == "plaintext" else f"</{tag}>", id=tag) for tag in _RAW_TEXT_TAGS],
@@ -187,7 +191,3 @@ def test_rawtext_children_reparse_as_text() -> None:
     script: Final = parse_fragment(_mixed("script").html).find("script")
     assert script is not None
     assert [(type(child), child.text) for child in script.children] == [(Text, "a<<b>i&lt;</b><!--c-->")]
-
-
-def _mixed(tag: str) -> Element:
-    return Element(tag, children=[Text("a<"), Element("b", children=[Text("i<")]), Comment("c")])

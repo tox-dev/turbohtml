@@ -316,6 +316,23 @@ def _ordered_strings(values: Iterable[str], name: str) -> tuple[str, ...]:
     return items
 
 
+def _compile_settings(phones: PhoneNumbers, number_type: type[PhoneNumber], *, parsing: bool = False) -> _PhoneConfig:
+    return _phone_config_compile((
+        phones.regions,
+        phones.require_valid,
+        phones.require_separators,
+        phones.skip_card_numbers,
+        phones.require_national_prefix,
+        phones.collapse_whitespace,
+        _PHONE_GROUPINGS.index(phones.grouping),
+        phones.types,
+        phones.ignore_numbers_after,
+        number_type,
+        _PHONE_TYPES,
+        parsing,
+    ))
+
+
 @dataclass(frozen=True, slots=True)
 class PhoneNumber:
     """
@@ -463,23 +480,6 @@ def _parse_config(number_type: type[PhoneNumber], regions: tuple[str, ...], *, r
     )
 
 
-def _compile_settings(phones: PhoneNumbers, number_type: type[PhoneNumber], *, parsing: bool = False) -> _PhoneConfig:
-    return _phone_config_compile((
-        phones.regions,
-        phones.require_valid,
-        phones.require_separators,
-        phones.skip_card_numbers,
-        phones.require_national_prefix,
-        phones.collapse_whitespace,
-        _PHONE_GROUPINGS.index(phones.grouping),
-        phones.types,
-        phones.ignore_numbers_after,
-        number_type,
-        _PHONE_TYPES,
-        parsing,
-    ))
-
-
 #: A callback receives the generated :class:`LinkCandidate` and returns it to keep the link, or ``None`` to leave the
 #: text bare.
 Callback: TypeAlias = "Callable[[LinkCandidate], LinkCandidate | None]"
@@ -508,36 +508,6 @@ def target_blank(link: LinkCandidate) -> LinkCandidate:
 
 #: The callbacks applied when the caller passes none: by default, only :func:`nofollow`.
 DEFAULT_CALLBACKS: Final[tuple[Callback, ...]] = (nofollow,)
-
-
-@dataclass(frozen=True)
-class Linkify:
-    """
-    An immutable, thread-safe description of how :func:`linkify` and :class:`Linker` find and rewrite links.
-
-    Build one and reuse it across threads.
-
-    :param callbacks: callables run on each detected link to adjust or veto it (defaults to ``DEFAULT_CALLBACKS``).
-    :param skip_tags: tags whose text is left untouched, such as ``pre`` and ``code``.
-    :param parse_email: also autolink email addresses as ``mailto:`` links, bare or already written as a
-        ``mailto:`` URI.
-    :param process_existing: run the callbacks over ``<a>`` tags already present, not only freshly detected links.
-    :param extra_tlds: top-level domains that make a bare domain a link, on top of the built-in IANA table.
-
-    :param schemes: the exact set of ``scheme://`` URL schemes that autolink; ``None`` keeps the built-in
-        ``http``/``https``/``ftp`` default, so a typo scheme or a ``javascript://`` payload stays plain text. A bare
-        domain is always treated as ``http`` and is governed by the TLD table, not ``schemes``.
-    :param phones: also link phone numbers as ``tel:`` links, per these :class:`PhoneNumbers` settings; ``None``
-        leaves digits alone. A ``tel:`` URI already written in the text links as itself.
-    """
-
-    callbacks: Iterable[Callback] = DEFAULT_CALLBACKS
-    skip_tags: Iterable[str] | None = None
-    parse_email: bool = False
-    process_existing: bool = False
-    extra_tlds: Iterable[str] | None = None
-    schemes: Iterable[str] | None = None
-    phones: PhoneNumbers | None = None
 
 
 def linkify(text: str | Node, options: Linkify | None = None) -> str:
@@ -620,6 +590,36 @@ class Linker:
             self._phone_config,
         )
         return node
+
+
+@dataclass(frozen=True)
+class Linkify:
+    """
+    An immutable, thread-safe description of how :func:`linkify` and :class:`Linker` find and rewrite links.
+
+    Build one and reuse it across threads.
+
+    :param callbacks: callables run on each detected link to adjust or veto it (defaults to ``DEFAULT_CALLBACKS``).
+    :param skip_tags: tags whose text is left untouched, such as ``pre`` and ``code``.
+    :param parse_email: also autolink email addresses as ``mailto:`` links, bare or already written as a
+        ``mailto:`` URI.
+    :param process_existing: run the callbacks over ``<a>`` tags already present, not only freshly detected links.
+    :param extra_tlds: top-level domains that make a bare domain a link, on top of the built-in IANA table.
+
+    :param schemes: the exact set of ``scheme://`` URL schemes that autolink; ``None`` keeps the built-in
+        ``http``/``https``/``ftp`` default, so a typo scheme or a ``javascript://`` payload stays plain text. A bare
+        domain is always treated as ``http`` and is governed by the TLD table, not ``schemes``.
+    :param phones: also link phone numbers as ``tel:`` links, per these :class:`PhoneNumbers` settings; ``None``
+        leaves digits alone. A ``tel:`` URI already written in the text links as itself.
+    """
+
+    callbacks: Iterable[Callback] = DEFAULT_CALLBACKS
+    skip_tags: Iterable[str] | None = None
+    parse_email: bool = False
+    process_existing: bool = False
+    extra_tlds: Iterable[str] | None = None
+    schemes: Iterable[str] | None = None
+    phones: PhoneNumbers | None = None
 
 
 def _compile_phones(phones: PhoneNumbers | None) -> _PhoneConfig | None:

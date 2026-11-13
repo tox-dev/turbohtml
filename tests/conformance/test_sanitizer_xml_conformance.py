@@ -55,14 +55,11 @@ _URL_STRIP_ANY: Final[str] = "\t\n\r"
 _URL_TRIM_LEADING: Final[str] = "".join(chr(code) for code in range(0x21))
 
 
-def _attr_value(raw: str | list[str] | None) -> str:
-    return raw if isinstance(raw, str) else ""
-
-
-def _scheme_is_scripting(value: str) -> bool:
-    for character in _URL_STRIP_ANY:
-        value = value.replace(character, "")
-    return value.lstrip(_URL_TRIM_LEADING).lower().startswith(("javascript:", "vbscript:", "data:text/html"))
+@pytest.mark.parametrize("payload", _PAYLOADS, ids=_IDS)
+def test_every_vector_is_inert_and_well_formed(payload: str) -> None:
+    out = sanitize(payload, _XML)
+    parse_xml(f"<root>{out}</root>")
+    assert _survivors(out) == []
 
 
 def _survivors(xml: str) -> list[str]:
@@ -87,11 +84,14 @@ def _survivors(xml: str) -> list[str]:
     return survived
 
 
-@pytest.mark.parametrize("payload", _PAYLOADS, ids=_IDS)
-def test_every_vector_is_inert_and_well_formed(payload: str) -> None:
-    out = sanitize(payload, _XML)
-    parse_xml(f"<root>{out}</root>")
-    assert _survivors(out) == []
+def _scheme_is_scripting(value: str) -> bool:
+    for character in _URL_STRIP_ANY:
+        value = value.replace(character, "")
+    return value.lstrip(_URL_TRIM_LEADING).lower().startswith(("javascript:", "vbscript:", "data:text/html"))
+
+
+def _attr_value(raw: str | list[str] | None) -> str:
+    return raw if isinstance(raw, str) else ""
 
 
 def test_corpus_is_not_silently_empty() -> None:

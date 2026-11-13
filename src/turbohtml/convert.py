@@ -24,30 +24,6 @@ class SelectorError(Exception):
     """Parent of :class:`ExpressionError`, mirroring cssselect's error base for a valid-but-untranslatable selector."""
 
 
-class ExpressionError(SelectorError, RuntimeError):
-    """The selector is valid CSS but has no XPath 1.0 equivalent (for example ``:dir()`` or ``*:first-of-type``)."""
-
-
-def css_to_xpath(selector: str, *, prefix: str = "descendant-or-self::") -> str:
-    """
-    Translate a CSS selector list to an equivalent XPath 1.0 expression.
-
-    The XPath selects the same nodes as the selector does under :meth:`turbohtml.Node.select`; a comma-separated list
-    becomes a ``|`` union with the prefix prepended to each arm.
-
-    :param selector: the CSS selector list to translate.
-    :param prefix: prepended to each arm; the default scopes the expression to the context node's subtree, matching
-        cssselect.
-    :raises SelectorSyntaxError: the selector does not parse.
-    :raises ExpressionError: the selector parses but cannot be expressed in XPath 1.0.
-    :returns: the XPath 1.0 expression.
-    """
-    try:
-        return _css_to_xpath(selector, prefix)
-    except NotImplementedError as error:
-        raise ExpressionError(str(error)) from None
-
-
 def css_specificity(selector: str) -> list[tuple[int, int, int]]:
     """
     Return the specificity of each selector in a comma-separated list.
@@ -85,6 +61,30 @@ class GenericTranslator:
         :returns: the XPath 1.0 expression.
         """
         return css_to_xpath(css, prefix=prefix)
+
+
+def css_to_xpath(selector: str, *, prefix: str = "descendant-or-self::") -> str:
+    """
+    Translate a CSS selector list to an equivalent XPath 1.0 expression.
+
+    The XPath selects the same nodes as the selector does under :meth:`turbohtml.Node.select`; a comma-separated list
+    becomes a ``|`` union with the prefix prepended to each arm.
+
+    :param selector: the CSS selector list to translate.
+    :param prefix: prepended to each arm; the default scopes the expression to the context node's subtree, matching
+        cssselect.
+    :raises SelectorSyntaxError: the selector does not parse.
+    :raises ExpressionError: the selector parses but cannot be expressed in XPath 1.0.
+    :returns: the XPath 1.0 expression.
+    """
+    try:
+        return _css_to_xpath(selector, prefix)
+    except NotImplementedError as error:
+        raise ExpressionError(str(error)) from None
+
+
+class ExpressionError(SelectorError, RuntimeError):
+    """The selector is valid CSS but has no XPath 1.0 equivalent (for example ``:dir()`` or ``*:first-of-type``)."""
 
 
 class HTMLTranslator(GenericTranslator):

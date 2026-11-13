@@ -610,6 +610,10 @@ def test_parse_declarations_keeps_custom_property_block(text: str, expected: tup
     assert _pairs(StyleDeclaration.parse(text)) == expected
 
 
+def _pairs(declaration: StyleDeclaration) -> tuple[tuple[str, str], ...]:
+    return tuple((name, declaration[name]) for name in declaration)
+
+
 @pytest.mark.parametrize(("text", "expected"), _CUSTOM_PROPERTY_BLOCKS)
 def test_stylesheet_keeps_custom_property_block(text: str, expected: tuple[tuple[str, str], ...]) -> None:
     assert _pairs(StyleSheet(f"p {{ {text} }}").rules[0].style) == expected
@@ -644,10 +648,6 @@ def test_stylesheet_reads_escaped_delimiter_as_name(text: str, expected: tuple[t
 def test_stylesheet_at_rule_block_reads_escaped_closer_as_name() -> None:
     css = r"@media x { a\} { color: red } } q { color: blue }"
     assert [rule.selector_text for rule in StyleSheet(css).rules] == ["q"]
-
-
-def _pairs(declaration: StyleDeclaration) -> tuple[tuple[str, str], ...]:
-    return tuple((name, declaration[name]) for name in declaration)
 
 
 def test_computed_style_reads_declaration_after_custom_property_block() -> None:

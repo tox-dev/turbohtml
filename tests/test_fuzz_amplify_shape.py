@@ -186,14 +186,14 @@ _SNIFFED_CASES: Final[tuple[Generated, ...]] = tuple(case for case in _CASES if 
 _DECLARED_CASES: Final[tuple[Generated, ...]] = tuple(case for case in _CASES if not encoding_profile(case).sniff)
 
 
-def _assert_materialized_budget(case: Generated, document: Node) -> None:
-    nodes: Final = (document, *document.descendants)
-    assert (len(nodes), max(len(tuple(node.ancestors)) for node in nodes)) == (case.nodes, case.depth)
-
-
 @pytest.mark.parametrize("case", _SNIFFED_CASES, ids=[case.productions[0] for case in _SNIFFED_CASES])
 def test_encoding_structure_materialized_budget_sniffed(case: Generated) -> None:
     _assert_materialized_budget(case, parse(case.data, detect_encoding=True))
+
+
+def _assert_materialized_budget(case: Generated, document: Node) -> None:
+    nodes: Final = (document, *document.descendants)
+    assert (len(nodes), max(len(tuple(node.ancestors)) for node in nodes)) == (case.nodes, case.depth)
 
 
 @pytest.mark.parametrize("case", _DECLARED_CASES, ids=[case.productions[0] for case in _DECLARED_CASES])
@@ -530,6 +530,21 @@ def test_markdown_raw_materialized_budget(case: Generated) -> None:
     assert _materialized_shape(case, html=False) == (case.nodes, case.depth)
 
 
+def _materialized_shape(case: Generated, *, html: bool) -> tuple[int, int]:
+    if html:
+        root: Final = parse_fragment(case.data.decode())
+        nodes: Final = (root, *root.descendants)
+        return (
+            len(nodes),
+            max(sum(isinstance(ancestor, Element) for ancestor in node.ancestors) for node in nodes),
+        )
+    records: Final = markdown_snapshot(case.data.decode())
+    depths: Final[list[int]] = []
+    for record in records:
+        depths.append(0 if record[-1] < 0 else depths[record[-1]] + 1)
+    return len(records), max(depths)
+
+
 @pytest.mark.parametrize("case", _HTML_CASES, ids=[p.name for p in markdown_grammar(html=True).productions])
 def test_markdown_html_materialized_budget(case: Generated) -> None:
     assert _materialized_shape(case, html=True) == (case.nodes, case.depth)
@@ -808,21 +823,6 @@ def test_markdown_registry_generated_consumer(name: str) -> None:
 def test_markdown_registry_rejects_undeclared_semantics(name: str) -> None:
     with pytest.raises(OutOfScopeError):
         ORACLES[name].check("<select><option>x</option></select>")
-
-
-def _materialized_shape(case: Generated, *, html: bool) -> tuple[int, int]:
-    if html:
-        root: Final = parse_fragment(case.data.decode())
-        nodes: Final = (root, *root.descendants)
-        return (
-            len(nodes),
-            max(sum(isinstance(ancestor, Element) for ancestor in node.ancestors) for node in nodes),
-        )
-    records: Final = markdown_snapshot(case.data.decode())
-    depths: Final[list[int]] = []
-    for record in records:
-        depths.append(0 if record[-1] < 0 else depths[record[-1]] + 1)
-    return len(records), max(depths)
 
 
 @pytest.mark.parametrize(

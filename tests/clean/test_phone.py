@@ -38,10 +38,6 @@ class _Policy(TypedDict, total=False):
     schemes: list[str]
 
 
-def _urls(text: str, policy: _Policy | None = None) -> list[str]:
-    return [span.url for span in LinkDetector(phones=_US, **(policy or {})).find(text)]
-
-
 def test_acceptance_span() -> None:
     assert LinkDetector(phones=_US).find("Call 650-253-0000")[0] == LinkSpan(
         5,
@@ -174,6 +170,10 @@ def test_spans_differing_only_in_phone_are_unequal() -> None:
 )
 def test_written_forms(text: str, expected: list[str]) -> None:
     assert _urls(text) == expected
+
+
+def _urls(text: str, policy: _Policy | None = None) -> list[str]:
+    return [span.url for span in LinkDetector(phones=_US, **(policy or {})).find(text)]
 
 
 @pytest.mark.parametrize(
@@ -394,12 +394,6 @@ def test_possible_mode_accepts_local_only_lengths() -> None:
 _PHONE_EXTENSIONS_US: Final[PhoneNumbers] = PhoneNumbers(regions=("US",))
 
 
-def _find(text: str, phones: PhoneNumbers = _PHONE_EXTENSIONS_US) -> list[tuple[str, str | None]]:
-    return [
-        (span.text, span.phone.extension if span.phone else None) for span in LinkDetector(phones=phones).find(text)
-    ]
-
-
 @pytest.mark.parametrize(
     "tail",
     [
@@ -436,6 +430,12 @@ def _find(text: str, phones: PhoneNumbers = _PHONE_EXTENSIONS_US) -> list[tuple[
 def test_extension_forms(tail: str) -> None:
     text = f"650-253-0000{tail}"
     assert _find(text) == [(text, "123")]
+
+
+def _find(text: str, phones: PhoneNumbers = _PHONE_EXTENSIONS_US) -> list[tuple[str, str | None]]:
+    return [
+        (span.text, span.phone.extension if span.phone else None) for span in LinkDetector(phones=phones).find(text)
+    ]
 
 
 @pytest.mark.parametrize(
@@ -1163,10 +1163,6 @@ def test_other_schemes_keep_their_payloads() -> None:
 _PHONE_UNICODE_US: Final[PhoneNumbers] = PhoneNumbers(regions=("US",))
 
 
-def _phone_unicode_urls(text: str, phones: PhoneNumbers = _PHONE_UNICODE_US) -> list[str]:
-    return [span.url for span in LinkDetector(phones=phones).find(text)]
-
-
 def _in_script(zero: int, text: str = "650-253-0000") -> str:
     return "".join(chr(zero + int(char)) if char.isdigit() else char for char in text)
 
@@ -1184,6 +1180,10 @@ def _in_script(zero: int, text: str = "650-253-0000") -> str:
 )
 def test_digits_of_every_script(text: str) -> None:
     assert _phone_unicode_urls(text) == ["tel:+16502530000"]
+
+
+def _phone_unicode_urls(text: str, phones: PhoneNumbers = _PHONE_UNICODE_US) -> list[str]:
+    return [span.url for span in LinkDetector(phones=phones).find(text)]
 
 
 @pytest.mark.parametrize(

@@ -87,12 +87,6 @@ def _link_cases() -> list[tuple[str, str]]:
     return cases
 
 
-def _first(text: str) -> str | None:
-    # Return the text of the first link turbohtml finds, or None.
-    spans = LinkDetector().find(text)
-    return spans[0].text if spans else None
-
-
 class _Expectation(NamedTuple):
     text: str
     expected: str | None
@@ -115,6 +109,12 @@ _NOT_LINKS: Final[tuple[tuple[str, str | None, str], ...]] = tuple(
 @pytest.mark.parametrize(("text", "expected", "reason"), [pytest.param(*case, id=case[0]) for case in _LINKS])
 def test_linkifyit_links_fixture(text: str, expected: str | None, reason: str) -> None:
     assert _first(text) == expected, reason
+
+
+def _first(text: str) -> str | None:
+    # Return the text of the first link turbohtml finds, or None.
+    spans = LinkDetector().find(text)
+    return spans[0].text if spans else None
 
 
 @pytest.mark.parametrize(("text", "expected", "reason"), [pytest.param(*case, id=case[0]) for case in _NOT_LINKS])

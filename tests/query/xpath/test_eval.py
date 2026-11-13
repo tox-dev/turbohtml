@@ -33,10 +33,6 @@ def node_list(result: XPathResult) -> Sequence[turbohtml.Node | str | float]:
     return result
 
 
-def tags(result: XPathResult) -> list[str]:
-    return [node.tag for node in node_list(result) if isinstance(node, Element)]
-
-
 @pytest.fixture
 def doc() -> turbohtml.Node:
     html: Final[str] = (
@@ -67,6 +63,10 @@ def ns_doc() -> turbohtml.Node:
 
 def test_descendant_name(doc: turbohtml.Node) -> None:
     assert tags(doc.xpath("//p")) == ["p", "p"]
+
+
+def tags(result: XPathResult) -> list[str]:
+    return [node.tag for node in node_list(result) if isinstance(node, Element)]
 
 
 def test_descendant_wildcard_is_elements_only(doc: turbohtml.Node) -> None:
@@ -1079,10 +1079,6 @@ def test_comparison_same_nodes(selection: str) -> None:
     assert document.xpath(f"{selection} = {selection}") is True
 
 
-def ids(result: XPathResult) -> list[str | None]:
-    return [node.attr("id") for node in node_list(result) if isinstance(node, Element)]
-
-
 @pytest.fixture
 def variable_doc() -> turbohtml.Node:
     variable_html: str = (
@@ -1240,6 +1236,10 @@ def test_node_set_variable_resolves_to_elements(
     expected_ids: list[str],
 ) -> None:
     assert ids(variable_doc.xpath(expr, **make_kwargs(variable_doc))) == expected_ids  # ty: ignore[invalid-argument-type]  # variables unpacked as a dict
+
+
+def ids(result: XPathResult) -> list[str | None]:
+    return [node.attr("id") for node in node_list(result) if isinstance(node, Element)]
 
 
 def test_node_set_variable_feeds_a_path_step(variable_doc: turbohtml.Node) -> None:
@@ -1413,15 +1413,6 @@ def test_matches_lxml(doc_name: str, expr: str) -> None:
     assert _normalize_lxml(ours) == _normalize_lxml(theirs)
 
 
-@pytest.mark.parametrize("expr", _LXML_SCALAR_EXPRS, ids=lambda expr: expr)
-@pytest.mark.parametrize("doc_name", list(_LXML_DOCS), ids=list(_LXML_DOCS))
-@pytest.mark.oracle
-def test_matches_lxml_scalar(doc_name: str, expr: str) -> None:
-    lxml_html: Final = pytest.importorskip("lxml.html")
-    html: Final = _LXML_DOCS[doc_name]
-    assert turbohtml.parse(html).xpath(expr) == lxml_html.document_fromstring(html).xpath(expr)
-
-
 @pytest.mark.oracle
 def _normalize_lxml(result: Iterable[turbohtml.Node | str]) -> list[str]:
     out: Final[list[str]] = []
@@ -1432,6 +1423,15 @@ def _normalize_lxml(result: Iterable[turbohtml.Node | str]) -> list[str]:
             tag: Final = getattr(item, "tag", None)
             out.append(tag if isinstance(tag, str) else f"<{type(item).__name__}>")
     return out
+
+
+@pytest.mark.parametrize("expr", _LXML_SCALAR_EXPRS, ids=lambda expr: expr)
+@pytest.mark.parametrize("doc_name", list(_LXML_DOCS), ids=list(_LXML_DOCS))
+@pytest.mark.oracle
+def test_matches_lxml_scalar(doc_name: str, expr: str) -> None:
+    lxml_html: Final = pytest.importorskip("lxml.html")
+    html: Final = _LXML_DOCS[doc_name]
+    assert turbohtml.parse(html).xpath(expr) == lxml_html.document_fromstring(html).xpath(expr)
 
 
 class _Evaluate(Protocol):

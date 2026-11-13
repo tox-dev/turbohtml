@@ -687,16 +687,73 @@ def test_integer_benchmark_preserves_values(case: int, count: int, scale: int, o
 _SExpr: TypeAlias = "list[_SExpr] | str"  # an AST-dump node: a `(head child...)` list, or an atom
 
 
-def nomangle(source: str) -> str:
-    # the structural AST check compares un-mangled output, so names stay stable
-    return minify_js(source, JSMinify(mangle=False, fold=False))
-
-
 _CORPUS: Final[list[dict[str, str | int]]] = json.loads(
     (Path(__file__).parent / "_corpus" / "tdewolff_js.json").read_text()
 )
 
 _CASES: Final[list[pytest.ParameterSet]] = [pytest.param(row["input"], id=f"L{row['line']}") for row in _CORPUS]
+
+
+_SEXPR_TOKEN: Final[re.Pattern[str]] = re.compile(
+    r"(?#opening or closing parenthesis)[()]|(?#quoted atom)'[^']*'|(?#unquoted atom)[^\s()']+"
+)
+
+
+_DUMP_PATTERN: Final[re.Pattern[str]] = re.compile(r"\(empty\)")
+
+_NORM_PATTERN: Final[re.Pattern[str]] = re.compile(r"\(block\s*\(body\s*\)\)")
+
+_NORM_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"\(num '([^']*)'\)")
+
+_NORM_PATTERN_3: Final[re.Pattern[str]] = re.compile(r"\(bigint '([^']*)'\)")
+
+_NORM_PATTERN_4: Final[re.Pattern[str]] = re.compile(r"\s+")
+
+
+@pytest.mark.parametrize("source", _CASES)
+def test_semantic_equivalence(source: str) -> None:
+    try:
+        out = minify_js(source)
+    except ValueError:
+        # Parser rejection produces no minified output to compare.
+        return
+    # the structural transforms (whitespace, semicolons, parens) preserve the AST, so the
+    # un-mangled output -- where identifier names are unchanged -- parses to the same tree;
+    # a re-parse failure raises ValueError and fails the test. Rename correctness is gated by
+    # execution differentials in test_mangle_differential.py.
+    structural = nomangle(source)
+    assert _norm(_minify_js_parse(source)) == _norm(_minify_js_parse(structural)), "minification changed the AST"
+    # idempotence; minify_js re-parses out internally, so this also proves the mangled output parses
+    assert minify_js(out) == out, "minification is not idempotent"
+
+
+def nomangle(source: str) -> str:
+    # the structural AST check compares un-mangled output, so names stay stable
+    return minify_js(source, JSMinify(mangle=False, fold=False))
+
+
+def _norm(dump: str) -> str:
+    # Normalize an AST dump: drop empty statements and empty blocks (minified out, or printed as
+    # `;`) and canonicalize numeric and BigInt literals (value-preserving number minification, BigInt
+    # separator stripping) so equivalent ASTs match.
+    dump = _DUMP_PATTERN.sub("", dump)
+    while (stripped := _NORM_PATTERN.sub("", dump)) != dump:
+        dump = stripped
+    dump = _NORM_PATTERN_2.sub(lambda mt: f"(num '{_canon_num(mt.group(1))}')", dump)
+    dump = _NORM_PATTERN_3.sub(lambda mt: f"(bigint '{mt.group(1).replace('_', '')}')", dump)
+    # a["x"] == a.x and {"x":1} == {x:1} when the key is a bare identifier name; a quoted __proto__
+    # data key keeps its quotes (its meaning differs from the bare form), so it is left alone
+    name = r"""['"]([A-Za-z_$][A-Za-z0-9_$]*)['"]"""
+    dump = re.sub(rf"\(prop \(str '{name}'\)\)", r"(prop (id '\1'))", dump)
+    dump = re.sub(
+        rf"\(key \(str '{name}'\)\)",
+        lambda mt: mt.group(0) if mt.group(1) == "__proto__" else f"(key (id '{mt.group(1)}'))",
+        dump,
+    )
+    tree, _ = _parse_sexpr(_SEXPR_TOKEN.findall(dump), 0)
+    dump = _dump_sexpr(_unwrap_single_blocks(tree))
+    dump = _NORM_PATTERN_4.sub(" ", dump)
+    return dump.replace("( ", "(").replace(" )", ")").strip()
 
 
 def _canon_num(lexeme: str) -> str:
@@ -729,11 +786,6 @@ def _canon_num(lexeme: str) -> str:
     return out or "0"
 
 
-_SEXPR_TOKEN: Final[re.Pattern[str]] = re.compile(
-    r"(?#opening or closing parenthesis)[()]|(?#quoted atom)'[^']*'|(?#unquoted atom)[^\s()']+"
-)
-
-
 def _parse_sexpr(tokens: list[str], pos: int) -> tuple[_SExpr, int]:
     # Parse one node of the AST dump (a `(head child...)` s-expression) into a nested list.
     if tokens[pos] != "(":
@@ -744,6 +796,12 @@ def _parse_sexpr(tokens: list[str], pos: int) -> tuple[_SExpr, int]:
         child, pos = _parse_sexpr(tokens, pos)
         node.append(child)
     return node, pos + 1
+
+
+def _dump_sexpr(node: _SExpr) -> str:
+    if isinstance(node, list):
+        return f"({' '.join(_dump_sexpr(child) for child in node)})"
+    return node
 
 
 def _unwrap_single_blocks(node: _SExpr) -> _SExpr:
@@ -759,64 +817,6 @@ def _unwrap_single_blocks(node: _SExpr) -> _SExpr:
         if len(statements) == 1:
             return statements[0]
     return node
-
-
-def _dump_sexpr(node: _SExpr) -> str:
-    if isinstance(node, list):
-        return f"({' '.join(_dump_sexpr(child) for child in node)})"
-    return node
-
-
-_DUMP_PATTERN: Final[re.Pattern[str]] = re.compile(r"\(empty\)")
-
-_NORM_PATTERN: Final[re.Pattern[str]] = re.compile(r"\(block\s*\(body\s*\)\)")
-
-_NORM_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"\(num '([^']*)'\)")
-
-_NORM_PATTERN_3: Final[re.Pattern[str]] = re.compile(r"\(bigint '([^']*)'\)")
-
-_NORM_PATTERN_4: Final[re.Pattern[str]] = re.compile(r"\s+")
-
-
-def _norm(dump: str) -> str:
-    # Normalize an AST dump: drop empty statements and empty blocks (minified out, or printed as
-    # `;`) and canonicalize numeric and BigInt literals (value-preserving number minification, BigInt
-    # separator stripping) so equivalent ASTs match.
-    dump = _DUMP_PATTERN.sub("", dump)
-    while (stripped := _NORM_PATTERN.sub("", dump)) != dump:
-        dump = stripped
-    dump = _NORM_PATTERN_2.sub(lambda mt: f"(num '{_canon_num(mt.group(1))}')", dump)
-    dump = _NORM_PATTERN_3.sub(lambda mt: f"(bigint '{mt.group(1).replace('_', '')}')", dump)
-    # a["x"] == a.x and {"x":1} == {x:1} when the key is a bare identifier name; a quoted __proto__
-    # data key keeps its quotes (its meaning differs from the bare form), so it is left alone
-    name = r"""['"]([A-Za-z_$][A-Za-z0-9_$]*)['"]"""
-    dump = re.sub(rf"\(prop \(str '{name}'\)\)", r"(prop (id '\1'))", dump)
-    dump = re.sub(
-        rf"\(key \(str '{name}'\)\)",
-        lambda mt: mt.group(0) if mt.group(1) == "__proto__" else f"(key (id '{mt.group(1)}'))",
-        dump,
-    )
-    tree, _ = _parse_sexpr(_SEXPR_TOKEN.findall(dump), 0)
-    dump = _dump_sexpr(_unwrap_single_blocks(tree))
-    dump = _NORM_PATTERN_4.sub(" ", dump)
-    return dump.replace("( ", "(").replace(" )", ")").strip()
-
-
-@pytest.mark.parametrize("source", _CASES)
-def test_semantic_equivalence(source: str) -> None:
-    try:
-        out = minify_js(source)
-    except ValueError:
-        # Parser rejection produces no minified output to compare.
-        return
-    # the structural transforms (whitespace, semicolons, parens) preserve the AST, so the
-    # un-mangled output -- where identifier names are unchanged -- parses to the same tree;
-    # a re-parse failure raises ValueError and fails the test. Rename correctness is gated by
-    # execution differentials in test_mangle_differential.py.
-    structural = nomangle(source)
-    assert _norm(_minify_js_parse(source)) == _norm(_minify_js_parse(structural)), "minification changed the AST"
-    # idempotence; minify_js re-parses out internally, so this also proves the mangled output parses
-    assert minify_js(out) == out, "minification is not idempotent"
 
 
 def test_corpus_is_substantial() -> None:

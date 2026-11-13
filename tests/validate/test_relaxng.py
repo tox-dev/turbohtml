@@ -280,10 +280,6 @@ def test_prefix_resolution_skips_a_decoy_attribute() -> None:
     assert RelaxNG(schema).validate(parse_xml("<r>hi</r>")).valid
 
 
-def rng_ok(schema: str, xml: str) -> bool:
-    return RelaxNG(schema).validate(parse_xml(xml)).valid
-
-
 def rwrap(body: str) -> str:
     return f'<element name="doc" xmlns="{_RELAXNG_NS}">{body}</element>'
 
@@ -294,6 +290,10 @@ def rgrammar(body: str, attrs: str = "") -> str:
 
 def test_rng_group_with_empty_second() -> None:
     assert rng_ok(rwrap("<group><text/><empty/></group>"), "<doc>x</doc>")
+
+
+def rng_ok(schema: str, xml: str) -> bool:
+    return RelaxNG(schema).validate(parse_xml(xml)).valid
 
 
 def test_rng_one_or_more_notallowed() -> None:

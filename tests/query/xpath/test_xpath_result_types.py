@@ -31,12 +31,20 @@ _EXPRESSIONS: Final[list[pytest.ParameterSet]] = [
 ]
 
 
-def _declared_return(stub: str, owner: str, method: str) -> ast.expr:
-    module = ast.parse((_STUBS / stub).read_text(encoding="utf-8"))
-    cls = next(node for node in module.body if isinstance(node, ast.ClassDef) and node.name == owner)
-    func = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == method)
-    assert func.returns is not None
-    return func.returns
+@pytest.mark.parametrize(
+    ("stub", "owner", "method", "evaluate"),
+    [
+        pytest.param("dom.pyi", "Node", "xpath", _DOCUMENT.xpath, id="xpath"),
+        pytest.param("dom.pyi", "Node", "xpath_one", _DOCUMENT.xpath_one, id="xpath_one"),
+        pytest.param("dom.pyi", "Node", "xpath_iter", _DOCUMENT.xpath_iter, id="xpath_iter"),
+        pytest.param("query.pyi", "XPath", "__call__", lambda expr: XPath(expr)(_DOCUMENT), id="XPath-call"),
+    ],
+)
+@pytest.mark.parametrize("expression", _EXPRESSIONS)
+def test_xpath_result_matches_stub(
+    stub: str, owner: str, method: str, evaluate: Callable[[str], _XPathValue], expression: str
+) -> None:
+    assert _conforms(evaluate(expression), _declared_return(stub, owner, method))
 
 
 def _conforms(value: _XPathValue, annotation: ast.expr) -> bool:
@@ -52,17 +60,9 @@ def _conforms(value: _XPathValue, annotation: ast.expr) -> bool:
     return isinstance(value, _NAMES[annotation.id])
 
 
-@pytest.mark.parametrize(
-    ("stub", "owner", "method", "evaluate"),
-    [
-        pytest.param("dom.pyi", "Node", "xpath", _DOCUMENT.xpath, id="xpath"),
-        pytest.param("dom.pyi", "Node", "xpath_one", _DOCUMENT.xpath_one, id="xpath_one"),
-        pytest.param("dom.pyi", "Node", "xpath_iter", _DOCUMENT.xpath_iter, id="xpath_iter"),
-        pytest.param("query.pyi", "XPath", "__call__", lambda expr: XPath(expr)(_DOCUMENT), id="XPath-call"),
-    ],
-)
-@pytest.mark.parametrize("expression", _EXPRESSIONS)
-def test_xpath_result_matches_stub(
-    stub: str, owner: str, method: str, evaluate: Callable[[str], _XPathValue], expression: str
-) -> None:
-    assert _conforms(evaluate(expression), _declared_return(stub, owner, method))
+def _declared_return(stub: str, owner: str, method: str) -> ast.expr:
+    module = ast.parse((_STUBS / stub).read_text(encoding="utf-8"))
+    cls = next(node for node in module.body if isinstance(node, ast.ClassDef) and node.name == owner)
+    func = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == method)
+    assert func.returns is not None
+    return func.returns

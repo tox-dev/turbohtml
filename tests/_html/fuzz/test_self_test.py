@@ -811,11 +811,6 @@ if TYPE_CHECKING:
 _SELECTOR: Final[str] = "main > p[zq] a, :is(b, i, [zq]) :has(> a)"
 
 
-def _document() -> turbohtml.Document:
-    # a fresh document per run, so the compiled-selector cache of one run cannot skip the parser in the next
-    return turbohtml.parse("<!DOCTYPE html><main><p zq=1><a>t</a><b>u</b></p></main>")
-
-
 @pytest.mark.fuzz_build
 @pytest.mark.parametrize(
     "call",
@@ -832,6 +827,11 @@ def test_selector_allocation_failure_raises_memory_error(
     alloc_sweep: _Sweep, call: Callable[[turbohtml.Document], object]
 ) -> None:
     assert set(alloc_sweep(call, _document)) == {"MemoryError"}
+
+
+def _document() -> turbohtml.Document:
+    # a fresh document per run, so the compiled-selector cache of one run cannot skip the parser in the next
+    return turbohtml.parse("<!DOCTYPE html><main><p zq=1><a>t</a><b>u</b></p></main>")
 
 
 _AB: Final[re.Pattern[str]] = re.compile(r"ab")
@@ -1310,6 +1310,28 @@ def consume(data: bytes) -> None:
 """
 
 
+@_NATIVE_ATHERIS_SKIP
+@pytest.mark.atheris_native
+@pytest.mark.oracle
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        pytest.param("accept", ["BENIGN_A", "BENIGN_B"], id="accept"),
+        pytest.param("reject", [], id="reject"),
+        pytest.param("mixed", ["BENIGN_B"], id="mixed"),
+        pytest.param("reset", ["BENIGN_B"], id="reset"),
+    ],
+)
+def test_atheris_native_corpus_rejection(tmp_path: Path, mode: str, expected: list[str]) -> None:
+    result, corpus = _run_native_child(tmp_path, mode)
+    assert result.returncode == 0
+    assert b"ATHERIS_REJECTION_BRIDGE=1" in result.stderr
+    assert b"Coverage symbols are being provided by a library other than libFuzzer" not in result.stderr
+    assert b"Done 64" in result.stderr
+    assert b"ATHERIS_CUSTOM_MUTATOR_BRIDGE=1" in result.stderr
+    assert sorted({path.read_bytes()[HEADER_SIZE:].decode("ascii") for path in corpus.iterdir()}) == expected
+
+
 def _run_native_child(tmp_path: Path, mode: str) -> tuple[CompletedProcess[bytes], Path]:
     child_source: str = """
 from __future__ import annotations
@@ -1368,28 +1390,6 @@ fuzz(
     )
     (tmp_path / f"{mode}.log").write_bytes(result.stdout + result.stderr)
     return result, corpus
-
-
-@_NATIVE_ATHERIS_SKIP
-@pytest.mark.atheris_native
-@pytest.mark.oracle
-@pytest.mark.parametrize(
-    ("mode", "expected"),
-    [
-        pytest.param("accept", ["BENIGN_A", "BENIGN_B"], id="accept"),
-        pytest.param("reject", [], id="reject"),
-        pytest.param("mixed", ["BENIGN_B"], id="mixed"),
-        pytest.param("reset", ["BENIGN_B"], id="reset"),
-    ],
-)
-def test_atheris_native_corpus_rejection(tmp_path: Path, mode: str, expected: list[str]) -> None:
-    result, corpus = _run_native_child(tmp_path, mode)
-    assert result.returncode == 0
-    assert b"ATHERIS_REJECTION_BRIDGE=1" in result.stderr
-    assert b"Coverage symbols are being provided by a library other than libFuzzer" not in result.stderr
-    assert b"Done 64" in result.stderr
-    assert b"ATHERIS_CUSTOM_MUTATOR_BRIDGE=1" in result.stderr
-    assert sorted({path.read_bytes()[HEADER_SIZE:].decode("ascii") for path in corpus.iterdir()}) == expected
 
 
 @_NATIVE_ATHERIS_SKIP

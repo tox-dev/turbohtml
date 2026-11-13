@@ -41,6 +41,121 @@ if TYPE_CHECKING:
 
 
 @final
+class StyleSheet:
+    """
+    A parsed stylesheet, the turbohtml spelling of CSSOM's ``CSSStyleSheet``.
+
+    At-rules (``@media``, ``@import``, and the like) are skipped: only top-level style rules join :attr:`rules`.
+    """
+
+    __slots__ = ("_rules",)
+
+    def __init__(self, text: str) -> None:
+        """
+        Parse CSS source into a stylesheet.
+
+        :param text: the CSS source, such as the text of a ``<style>`` element.
+        """
+        self._rules = RuleList(
+            tuple(StyleRule(selector, StyleDeclaration(decls)) for selector, decls in _css_parse_rules(text))
+        )
+
+    def __repr__(self) -> str:
+        """
+        Return the stylesheet as ``StyleSheet(<n> rules)``.
+
+        :returns: the stylesheet as ``StyleSheet(<n> rules)``.
+        """
+        return f"StyleSheet({len(self._rules)} rules)"
+
+    @property
+    def rules(self) -> RuleList:
+        """The stylesheet's style rules, in document order."""
+        return self._rules
+
+
+@final
+class RuleList:
+    """A read-only sequence of :class:`StyleRule`, the turbohtml spelling of CSSOM's ``CSSRuleList``."""
+
+    __slots__ = ("_rules",)
+
+    def __init__(self, rules: tuple[StyleRule, ...]) -> None:
+        """
+        Wrap the rules in document order.
+
+        :param rules: the rules, in document order.
+        """
+        self._rules = rules
+
+    def __getitem__(self, index: int) -> StyleRule:
+        """
+        Return the rule at an index.
+
+        :param index: the position of the rule in document order.
+        :returns: the rule at the index.
+        """
+        return self._rules[index]
+
+    def __iter__(self) -> Iterator[StyleRule]:
+        """
+        Iterate the rules in document order.
+
+        :returns: an iterator over the rules in document order.
+        """
+        return iter(self._rules)
+
+    def __len__(self) -> int:
+        """
+        Return the number of rules.
+
+        :returns: the number of rules.
+        """
+        return len(self._rules)
+
+    def __repr__(self) -> str:
+        """
+        Return the rule list as ``RuleList([...])``.
+
+        :returns: the rule list as ``RuleList([...])``.
+        """
+        return f"RuleList({list(self._rules)!r})"
+
+
+@final
+class StyleRule:
+    """One CSS style rule, the turbohtml spelling of CSSOM's ``CSSStyleRule``: a selector and its declarations."""
+
+    __slots__ = ("_style", "selector_text")
+
+    selector_text: str
+    """The rule's selector list, verbatim (for example ``"a, .box"``)."""
+
+    def __init__(self, selector_text: str, style: StyleDeclaration) -> None:
+        """
+        Bind a selector to its declaration block.
+
+        :param selector_text: the rule's selector list, verbatim.
+        :param style: the rule's declaration block.
+        """
+        self.selector_text = selector_text
+        self._style = style
+
+    def __repr__(self) -> str:
+        """
+        Return the rule as ``StyleRule('selector { ... }')``.
+
+        :returns: the rule as ``StyleRule('selector { ... }')``.
+        """
+        return f"StyleRule({self.selector_text!r} {{ {self._style.text} }})"
+
+    @property
+    def style(self) -> StyleDeclaration:
+        """The rule's declaration block."""
+        return self._style
+
+
+@final
 class StyleDeclaration:
     """
     A read-only block of CSS declarations, the turbohtml spelling of CSSOM's ``CSSStyleDeclaration``.
@@ -171,121 +286,6 @@ class StyleDeclaration:
         :returns: the property names.
         """
         return tuple(self._last)
-
-
-@final
-class StyleRule:
-    """One CSS style rule, the turbohtml spelling of CSSOM's ``CSSStyleRule``: a selector and its declarations."""
-
-    __slots__ = ("_style", "selector_text")
-
-    selector_text: str
-    """The rule's selector list, verbatim (for example ``"a, .box"``)."""
-
-    def __init__(self, selector_text: str, style: StyleDeclaration) -> None:
-        """
-        Bind a selector to its declaration block.
-
-        :param selector_text: the rule's selector list, verbatim.
-        :param style: the rule's declaration block.
-        """
-        self.selector_text = selector_text
-        self._style = style
-
-    def __repr__(self) -> str:
-        """
-        Return the rule as ``StyleRule('selector { ... }')``.
-
-        :returns: the rule as ``StyleRule('selector { ... }')``.
-        """
-        return f"StyleRule({self.selector_text!r} {{ {self._style.text} }})"
-
-    @property
-    def style(self) -> StyleDeclaration:
-        """The rule's declaration block."""
-        return self._style
-
-
-@final
-class RuleList:
-    """A read-only sequence of :class:`StyleRule`, the turbohtml spelling of CSSOM's ``CSSRuleList``."""
-
-    __slots__ = ("_rules",)
-
-    def __init__(self, rules: tuple[StyleRule, ...]) -> None:
-        """
-        Wrap the rules in document order.
-
-        :param rules: the rules, in document order.
-        """
-        self._rules = rules
-
-    def __getitem__(self, index: int) -> StyleRule:
-        """
-        Return the rule at an index.
-
-        :param index: the position of the rule in document order.
-        :returns: the rule at the index.
-        """
-        return self._rules[index]
-
-    def __iter__(self) -> Iterator[StyleRule]:
-        """
-        Iterate the rules in document order.
-
-        :returns: an iterator over the rules in document order.
-        """
-        return iter(self._rules)
-
-    def __len__(self) -> int:
-        """
-        Return the number of rules.
-
-        :returns: the number of rules.
-        """
-        return len(self._rules)
-
-    def __repr__(self) -> str:
-        """
-        Return the rule list as ``RuleList([...])``.
-
-        :returns: the rule list as ``RuleList([...])``.
-        """
-        return f"RuleList({list(self._rules)!r})"
-
-
-@final
-class StyleSheet:
-    """
-    A parsed stylesheet, the turbohtml spelling of CSSOM's ``CSSStyleSheet``.
-
-    At-rules (``@media``, ``@import``, and the like) are skipped: only top-level style rules join :attr:`rules`.
-    """
-
-    __slots__ = ("_rules",)
-
-    def __init__(self, text: str) -> None:
-        """
-        Parse CSS source into a stylesheet.
-
-        :param text: the CSS source, such as the text of a ``<style>`` element.
-        """
-        self._rules = RuleList(
-            tuple(StyleRule(selector, StyleDeclaration(decls)) for selector, decls in _css_parse_rules(text))
-        )
-
-    def __repr__(self) -> str:
-        """
-        Return the stylesheet as ``StyleSheet(<n> rules)``.
-
-        :returns: the stylesheet as ``StyleSheet(<n> rules)``.
-        """
-        return f"StyleSheet({len(self._rules)} rules)"
-
-    @property
-    def rules(self) -> RuleList:
-        """The stylesheet's style rules, in document order."""
-        return self._rules
 
 
 def computed_style(element: Element) -> ComputedStyle:

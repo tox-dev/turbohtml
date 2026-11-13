@@ -352,53 +352,6 @@ class Case:
     expected: Expected
 
 
-def xpath_number_string(value: float) -> str:
-    if isnan(value):
-        return "NaN"
-    if isinf(value):
-        return "INF" if value > 0 else "-INF"
-    return str(int(value)) if value == int(value) else repr(value)
-
-
-def string_value(result: XPathResult) -> str | None:
-    if isinstance(result, bool):
-        return "true" if result else "false"
-    if isinstance(result, float):
-        return xpath_number_string(result)
-    if isinstance(result, str):
-        return result
-    if isinstance(result, list):
-        if not result:
-            return ""
-        if len(result) == 1 and isinstance(result[0], str):
-            return result[0]
-    return None
-
-
-def matches_expected(expected: Expected, result: XPathResult) -> bool:  # ruff:ignore[too-many-return-statements]  # one return per expected-result kind reads clearest
-    kind, value = expected
-    if kind == "bool":
-        return isinstance(result, bool) and result == value
-    if kind == "str":
-        return string_value(result) == value
-    if kind == "empty":
-        return isinstance(result, (str, list)) and not result
-    if kind == "any-of":
-        return any(matches_expected(option, result) for option in cast("list[Expected]", value))
-    if kind == "eq":
-        assert isinstance(value, str)
-        if isinstance(result, bool):
-            return value.lower() in (("true", "true()") if result else ("false", "false()"))
-        if isinstance(result, float):
-            try:
-                return float(value) == result  # ruff:ignore[float-equality-comparison]  # exact equality is the QT3 oracle's contract
-            except ValueError:
-                return False
-        if isinstance(result, str):
-            return result == value or result == value.strip("\"'")
-    return False
-
-
 def collect() -> Iterator[pytest.ParameterSet]:
     families = (
         "ends-with",
@@ -483,6 +436,14 @@ def test_qt3_error_raises(case: Case) -> None:
         context.xpath(case.query)
 
 
+@pytest.mark.parametrize("case", [case for case in _QT3_CASES if not _expects_error(case)])
+def test_qt3_fn(case: Case) -> None:
+    context = context_for(case.environment)
+    with _known_deviation():
+        result = context.xpath(case.query)
+    assert matches_expected(case.expected, result), f"{case.query!r} -> {result!r}, expected {case.expected}"
+
+
 @contextmanager
 def _known_deviation() -> Generator[None]:
     try:
@@ -498,9 +459,48 @@ def _known_deviation() -> Generator[None]:
         raise
 
 
-@pytest.mark.parametrize("case", [case for case in _QT3_CASES if not _expects_error(case)])
-def test_qt3_fn(case: Case) -> None:
-    context = context_for(case.environment)
-    with _known_deviation():
-        result = context.xpath(case.query)
-    assert matches_expected(case.expected, result), f"{case.query!r} -> {result!r}, expected {case.expected}"
+def matches_expected(expected: Expected, result: XPathResult) -> bool:  # ruff:ignore[too-many-return-statements]  # one return per expected-result kind reads clearest
+    kind, value = expected
+    if kind == "bool":
+        return isinstance(result, bool) and result == value
+    if kind == "str":
+        return string_value(result) == value
+    if kind == "empty":
+        return isinstance(result, (str, list)) and not result
+    if kind == "any-of":
+        return any(matches_expected(option, result) for option in cast("list[Expected]", value))
+    if kind == "eq":
+        assert isinstance(value, str)
+        if isinstance(result, bool):
+            return value.lower() in (("true", "true()") if result else ("false", "false()"))
+        if isinstance(result, float):
+            try:
+                return float(value) == result  # ruff:ignore[float-equality-comparison]  # exact equality is the QT3 oracle's contract
+            except ValueError:
+                return False
+        if isinstance(result, str):
+            return result == value or result == value.strip("\"'")
+    return False
+
+
+def string_value(result: XPathResult) -> str | None:
+    if isinstance(result, bool):
+        return "true" if result else "false"
+    if isinstance(result, float):
+        return xpath_number_string(result)
+    if isinstance(result, str):
+        return result
+    if isinstance(result, list):
+        if not result:
+            return ""
+        if len(result) == 1 and isinstance(result[0], str):
+            return result[0]
+    return None
+
+
+def xpath_number_string(value: float) -> str:
+    if isnan(value):
+        return "NaN"
+    if isinf(value):
+        return "INF" if value > 0 else "-INF"
+    return str(int(value)) if value == int(value) else repr(value)

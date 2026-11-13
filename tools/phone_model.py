@@ -75,58 +75,6 @@ class Config:
     labels: tuple[str, ...] = ()
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class Match:
-    # One recognized phone number: its text span, parsed value, and classification.
-    start: int
-    end: int
-    country_code: int
-    nsn: str
-    extension: str | None
-    region: str | None
-    type: int
-
-    @property
-    def international_number(self) -> str:
-        # The number as ``+<country_code><nsn>``, ignoring formatting.
-        return f"+{self.country_code}{self.nsn}"
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _Group:
-    digits: str
-    separator: str
-    start: int
-    end: int
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _Run:
-    start: int
-    end: int
-    plus: bool
-    groups: list[_Group]
-    extension: str | None
-    extension_end: int
-    poison: set[int]
-    second_number_cut: int
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _Reading:
-    country_code: int
-    nsn: str
-    region_index: int | None
-    type: int
-    general: bool
-
-
-class _Chunk(NamedTuple):
-    reading: _Reading
-    end: int
-    extension: str | None
-
-
 class Recognizer:
     # The recognizer over one table set and one configuration.
     def __init__(self, tables: Tables, config: Config) -> None:
@@ -673,51 +621,48 @@ def _digit_value(tables: Tables, char: str) -> int:
     return -1
 
 
-def _is_latin_letter(tables: Tables, char: str) -> bool:
-    # PhoneNumberMatcher.isLatinLetter: a letter or nonspacing mark inside the six Latin blocks.
-    return _in_ranges(ord(char), tables.unicode.latin_ranges)
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Match:
+    # One recognized phone number: its text span, parsed value, and classification.
+    start: int
+    end: int
+    country_code: int
+    nsn: str
+    extension: str | None
+    region: str | None
+    type: int
+
+    @property
+    def international_number(self) -> str:
+        # The number as ``+<country_code><nsn>``, ignoring formatting.
+        return f"+{self.country_code}{self.nsn}"
 
 
-def _is_invalid_punctuation(tables: Tables, char: str) -> bool:
-    # PhoneNumberMatcher.isInvalidPunctuationSymbol: ``%`` or a currency symbol.
-    return char == "%" or _in_ranges(ord(char), tables.unicode.currency_ranges)
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _Run:
+    start: int
+    end: int
+    plus: bool
+    groups: list[_Group]
+    extension: str | None
+    extension_end: int
+    poison: set[int]
+    second_number_cut: int
 
 
-def _in_ranges(code: int, ranges: Sequence[tuple[int, int]]) -> bool:
-    return any(first <= code <= last for first, last in ranges)
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _Group:
+    digits: str
+    separator: str
+    start: int
+    end: int
 
 
-def _looking_at(dfa: Dfa, symbols: list[int]) -> bool:
-    # Java's lookingAt: some prefix of ``symbols`` is in the language.
-    state = 1
-    for symbol in symbols:
-        state = dfa.next[state][symbol]
-        if state == 0:
-            return False
-        if dfa.accepts[state]:
-            return True
-    return False
-
-
-def _resolve_type(accept: int) -> int:
-    if not accept & GENERAL_BIT:
-        return _TYPE_UNKNOWN
-    mask = accept & ~GENERAL_BIT & 0x3FF
-    for bit in _TYPE_PRECEDENCE:
-        if mask >> bit & 1:
-            if bit == TYPES.index("fixedLine") and mask >> TYPES.index("mobile") & 1:
-                return len(TYPES)
-            return bit
-    return _TYPE_UNKNOWN
-
-
-def _cap_zeros(nsn: str) -> str:
-    stripped = nsn.lstrip("0")
-    zeros = len(nsn) - len(stripped)
-    if not stripped:
-        stripped = "0"
-        zeros -= 1
-    return "0" * min(zeros, 10) + stripped
+def _second_number_start(text: str, slash: int) -> bool:
+    position = slash + 1
+    while position < len(text) and text[position] == " ":
+        position += 1
+    return position < len(text) and text[position] == "x"
 
 
 def _lead_groups_match(segment: str) -> bool:
@@ -744,13 +689,6 @@ def _lead_groups_match_one(segment: str) -> bool:
         if len(segment) == 1 + punctuation:
             return True
     return False
-
-
-def _second_number_start(text: str, slash: int) -> bool:
-    position = slash + 1
-    while position < len(text) and text[position] == " ":
-        position += 1
-    return position < len(text) and text[position] == "x"
 
 
 def _is_slash_date(second: str, third: str) -> bool:
@@ -807,17 +745,41 @@ def _word_before(tables: Tables, text: str, start: int) -> str:
     return text[position:word_end].lower()
 
 
-# PhoneNumberMatcher.PUB_PAGES: "pages 1-5 (3 pages)", a page range with a bracketed count, is not a number.
-_PUB_PAGES: Final[re.Pattern[str]] = re.compile(
-    r"(?#a page range such as 1-5, then an opening bracket and a count)"
-    r"[0-9]{1,5}-+[0-9]{1,5}[ \t\n\x0b\f\r]{0,4}\([0-9]{1,5}"
-)
-_MATCHING_BRACKETS: Final[re.Pattern[str]] = re.compile(
-    r"(?#x runs standing for digits, with up to three of them in brackets)\(?(?:x+\))?x+(?:\(x+\)){0,3}x*"
-)
+def _luhn(digits: str) -> bool:
+    total = 0
+    for position, char in enumerate(reversed(digits)):
+        value = ord(char) - 0x30
+        if position % 2 == 1:
+            value *= 2
+            if value > 9:
+                value -= 9
+        total += value
+    return total % 10 == 0
 
 
-_HEX_DIGITS: Final[frozenset[str]] = frozenset(string.hexdigits)
+class _Chunk(NamedTuple):
+    reading: _Reading
+    end: int
+    extension: str | None
+
+
+def _in_address_chain(text: str, start: int, end: int) -> bool:
+    # Whether the candidate sits inside an IPv6 literal; a chain past any literal's length is prose.
+    max_address_chars = 48
+    if end - start > max_address_chars:
+        return False
+    left = start
+    address_chain = frozenset("0123456789abcdefABCDEF:[]")
+    while left > 0 and start - left < max_address_chars and text[left - 1] in address_chain:
+        left -= 1
+    right = end
+    while right < len(text) and right - end < max_address_chars and text[right] in address_chain:
+        right += 1
+    return (
+        not ((left > 0 and text[left - 1] in address_chain) or (right < len(text) and text[right] in address_chain))
+        and right - left > end - start
+        and _is_ipv6_literal(text[left:right])
+    )
 
 
 def _is_ipv6_literal(chain: str) -> bool:
@@ -841,35 +803,73 @@ def _is_ipv6_literal(chain: str) -> bool:
     return len(hextets) <= 7 if "::" in address else len(hextets) == 8
 
 
-def _in_address_chain(text: str, start: int, end: int) -> bool:
-    # Whether the candidate sits inside an IPv6 literal; a chain past any literal's length is prose.
-    max_address_chars = 48
-    if end - start > max_address_chars:
-        return False
-    left = start
-    address_chain = frozenset("0123456789abcdefABCDEF:[]")
-    while left > 0 and start - left < max_address_chars and text[left - 1] in address_chain:
-        left -= 1
-    right = end
-    while right < len(text) and right - end < max_address_chars and text[right] in address_chain:
-        right += 1
-    return (
-        not ((left > 0 and text[left - 1] in address_chain) or (right < len(text) and text[right] in address_chain))
-        and right - left > end - start
-        and _is_ipv6_literal(text[left:right])
-    )
+def _is_latin_letter(tables: Tables, char: str) -> bool:
+    # PhoneNumberMatcher.isLatinLetter: a letter or nonspacing mark inside the six Latin blocks.
+    return _in_ranges(ord(char), tables.unicode.latin_ranges)
 
 
-def _luhn(digits: str) -> bool:
-    total = 0
-    for position, char in enumerate(reversed(digits)):
-        value = ord(char) - 0x30
-        if position % 2 == 1:
-            value *= 2
-            if value > 9:
-                value -= 9
-        total += value
-    return total % 10 == 0
+def _in_ranges(code: int, ranges: Sequence[tuple[int, int]]) -> bool:
+    return any(first <= code <= last for first, last in ranges)
+
+
+def _is_invalid_punctuation(tables: Tables, char: str) -> bool:
+    # PhoneNumberMatcher.isInvalidPunctuationSymbol: ``%`` or a currency symbol.
+    return char == "%" or _in_ranges(ord(char), tables.unicode.currency_ranges)
+
+
+def _resolve_type(accept: int) -> int:
+    if not accept & GENERAL_BIT:
+        return _TYPE_UNKNOWN
+    mask = accept & ~GENERAL_BIT & 0x3FF
+    for bit in _TYPE_PRECEDENCE:
+        if mask >> bit & 1:
+            if bit == TYPES.index("fixedLine") and mask >> TYPES.index("mobile") & 1:
+                return len(TYPES)
+            return bit
+    return _TYPE_UNKNOWN
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _Reading:
+    country_code: int
+    nsn: str
+    region_index: int | None
+    type: int
+    general: bool
+
+
+def _cap_zeros(nsn: str) -> str:
+    stripped = nsn.lstrip("0")
+    zeros = len(nsn) - len(stripped)
+    if not stripped:
+        stripped = "0"
+        zeros -= 1
+    return "0" * min(zeros, 10) + stripped
+
+
+def _looking_at(dfa: Dfa, symbols: list[int]) -> bool:
+    # Java's lookingAt: some prefix of ``symbols`` is in the language.
+    state = 1
+    for symbol in symbols:
+        state = dfa.next[state][symbol]
+        if state == 0:
+            return False
+        if dfa.accepts[state]:
+            return True
+    return False
+
+
+# PhoneNumberMatcher.PUB_PAGES: "pages 1-5 (3 pages)", a page range with a bracketed count, is not a number.
+_PUB_PAGES: Final[re.Pattern[str]] = re.compile(
+    r"(?#a page range such as 1-5, then an opening bracket and a count)"
+    r"[0-9]{1,5}-+[0-9]{1,5}[ \t\n\x0b\f\r]{0,4}\([0-9]{1,5}"
+)
+_MATCHING_BRACKETS: Final[re.Pattern[str]] = re.compile(
+    r"(?#x runs standing for digits, with up to three of them in brackets)\(?(?:x+\))?x+(?:\(x+\)){0,3}x*"
+)
+
+
+_HEX_DIGITS: Final[frozenset[str]] = frozenset(string.hexdigits)
 
 
 __all__ = [

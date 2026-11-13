@@ -51,10 +51,6 @@ def _el(node: Node | None) -> Element:
     return node
 
 
-def _tags(node: Node | None) -> str:
-    return node.tag if isinstance(node, Element) else type(node).__name__
-
-
 def _named(node: Node, tag: str) -> bool:
     return isinstance(node, Element) and node.tag == tag
 
@@ -113,6 +109,10 @@ def test_walker_elements_only(root: Element) -> None:
         tags.append(_tags(node))
         node = walker.next_node()
     assert tags == ["p", "b", "span"]
+
+
+def _tags(node: Node | None) -> str:
+    return node.tag if isinstance(node, Element) else type(node).__name__
 
 
 def test_walker_reject_prunes_subtree() -> None:
@@ -694,22 +694,6 @@ def test_iterate_module_exports() -> None:
     assert turbohtml.NodeFilter is NodeFilter
 
 
-def _removal_doc() -> Document:
-    # A fresh tree per test: these tests mutate it, and parallel runs must not share it.
-    return parse("<div id=r><p id=p0><b></b></p><p id=p1></p><p id=p2></p></div>")
-
-
-def _ids(nodes: list[Node]) -> list[str]:
-    return [str(_el(node).attrs.get("id", _el(node).tag)) for node in nodes]
-
-
-def _walk_to(iterator: NodeIterator, forward: int, back: int = 0) -> None:
-    for _ in range(forward):
-        iterator.next_node()
-    for _ in range(back):
-        iterator.previous_node()
-
-
 def test_iterator_continues_after_removing_the_reference_ancestor() -> None:
     removal_doc = _removal_doc()
     iterator = NodeIterator(_el(removal_doc.select_one("#r")))
@@ -719,12 +703,28 @@ def test_iterator_continues_after_removing_the_reference_ancestor() -> None:
     assert _ids(visited) == ["r", "p0", "b", "p1", "p2"]
 
 
+def _removal_doc() -> Document:
+    # A fresh tree per test: these tests mutate it, and parallel runs must not share it.
+    return parse("<div id=r><p id=p0><b></b></p><p id=p1></p><p id=p2></p></div>")
+
+
+def _ids(nodes: list[Node]) -> list[str]:
+    return [str(_el(node).attrs.get("id", _el(node).tag)) for node in nodes]
+
+
 def test_iterator_removal_after_reference_moves_to_previous_last_descendant() -> None:
     removal_doc = _removal_doc()
     iterator = NodeIterator(_el(removal_doc.select_one("#r")))
     _walk_to(iterator, 4)  # reference: p1, pointer after
     _el(removal_doc.select_one("#p1")).decompose()
     assert (_tags(iterator.reference_node), iterator.pointer_before_reference_node) == ("b", False)
+
+
+def _walk_to(iterator: NodeIterator, forward: int, back: int = 0) -> None:
+    for _ in range(forward):
+        iterator.next_node()
+    for _ in range(back):
+        iterator.previous_node()
 
 
 def test_iterator_removal_before_reference_moves_to_next_sibling() -> None:

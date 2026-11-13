@@ -24,11 +24,6 @@ _PAGE: Final[str] = (
 )
 
 
-def _classified(page: str, options: Extraction | None = None) -> dict[str, bool]:
-    paragraphs = boilerplate(page) if options is None else boilerplate(page, options)
-    return {paragraph.text: paragraph.is_boilerplate for paragraph in paragraphs}
-
-
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
@@ -42,6 +37,11 @@ def _classified(page: str, options: Extraction | None = None) -> dict[str, bool]
 )
 def test_boilerplate_default_classification(text: str, *, expected: bool) -> None:
     assert _classified(_PAGE)[text] is expected
+
+
+def _classified(page: str, options: Extraction | None = None) -> dict[str, bool]:
+    paragraphs = boilerplate(page) if options is None else boilerplate(page, options)
+    return {paragraph.text: paragraph.is_boilerplate for paragraph in paragraphs}
 
 
 def test_boilerplate_preserves_document_order() -> None:
@@ -143,11 +143,6 @@ _ARTICLE: Final[str] = (
 )
 
 
-def _classify(markup: str, thresholds: tuple[int, float, bool] = _OPEN) -> list[tuple[str, bool, bool]]:
-    options = Extraction(min_length=thresholds[0], max_link_density=thresholds[1], keep_headings=thresholds[2])
-    return [(unit.text, unit.is_boilerplate, unit.is_heading) for unit in boilerplate(markup, options)]
-
-
 @pytest.mark.parametrize(
     ("tag", "wrapper"),
     [
@@ -168,6 +163,11 @@ def _classify(markup: str, thresholds: tuple[int, float, bool] = _OPEN) -> list[
 def test_every_unit_tag_becomes_a_paragraph(tag: str, wrapper: str) -> None:
     markup = wrapper.format(f"<{tag}>text of the unit</{tag}>")
     assert [row[0] for row in _classify(markup)] == ["text of the unit"]
+
+
+def _classify(markup: str, thresholds: tuple[int, float, bool] = _OPEN) -> list[tuple[str, bool, bool]]:
+    options = Extraction(min_length=thresholds[0], max_link_density=thresholds[1], keep_headings=thresholds[2])
+    return [(unit.text, unit.is_boilerplate, unit.is_heading) for unit in boilerplate(markup, options)]
 
 
 @pytest.mark.parametrize(

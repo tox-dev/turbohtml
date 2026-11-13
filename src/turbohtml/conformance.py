@@ -38,23 +38,28 @@ Severity = Literal["error", "warning", "info"]
 """The three severities a :class:`ConformanceMessage` carries, ordered most to least serious."""
 
 
-class ConformanceMessage(NamedTuple):
+def check_html(markup: str) -> ConformanceReport:
     """
-    One conformance finding.
+    Parse a markup string with :func:`turbohtml.parse` and check the resulting document.
 
-    :param code: a stable machine-readable identifier for the rule, such as ``"img-missing-alt"``.
-    :param severity: ``"error"`` for a violated requirement, ``"warning"`` for an authoring
-        recommendation, ``"info"`` for an advisory note.
-    :param message: a human-readable description of what was found.
-    :param line: the 1-based source line of the offending node, or ``0`` when unknown.
-    :param column: the 0-based source column of the offending node, or ``0`` when unknown.
+    :param markup: the HTML to parse and check.
+    :returns: the :class:`ConformanceReport` for the parsed document.
     """
+    return check(parse(markup))
 
-    code: str
-    severity: Severity
-    message: str
-    line: int
-    column: int
+
+def check(document: Document | Node) -> ConformanceReport:
+    """
+    Check a parsed document (or any subtree) against the HTML5 authoring rules.
+
+    The document-level rules (a missing title or ``lang``) apply only when ``document`` is a
+    whole :class:`~turbohtml.Document`; on a fragment or a subtree only the per-element rules run.
+
+    :param document: a tree parsed with :func:`turbohtml.parse` (or an element within one).
+    :returns: the :class:`ConformanceReport` with the verdict and every message.
+    """
+    valid, findings = _conformance_check(document)
+    return ConformanceReport(valid, tuple(starmap(ConformanceMessage, findings)))
 
 
 class ConformanceReport(NamedTuple):
@@ -95,28 +100,23 @@ class ConformanceReport(NamedTuple):
         return _conformance_filter(self.messages, "info")
 
 
-def check_html(markup: str) -> ConformanceReport:
+class ConformanceMessage(NamedTuple):
     """
-    Parse a markup string with :func:`turbohtml.parse` and check the resulting document.
+    One conformance finding.
 
-    :param markup: the HTML to parse and check.
-    :returns: the :class:`ConformanceReport` for the parsed document.
+    :param code: a stable machine-readable identifier for the rule, such as ``"img-missing-alt"``.
+    :param severity: ``"error"`` for a violated requirement, ``"warning"`` for an authoring
+        recommendation, ``"info"`` for an advisory note.
+    :param message: a human-readable description of what was found.
+    :param line: the 1-based source line of the offending node, or ``0`` when unknown.
+    :param column: the 0-based source column of the offending node, or ``0`` when unknown.
     """
-    return check(parse(markup))
 
-
-def check(document: Document | Node) -> ConformanceReport:
-    """
-    Check a parsed document (or any subtree) against the HTML5 authoring rules.
-
-    The document-level rules (a missing title or ``lang``) apply only when ``document`` is a
-    whole :class:`~turbohtml.Document`; on a fragment or a subtree only the per-element rules run.
-
-    :param document: a tree parsed with :func:`turbohtml.parse` (or an element within one).
-    :returns: the :class:`ConformanceReport` with the verdict and every message.
-    """
-    valid, findings = _conformance_check(document)
-    return ConformanceReport(valid, tuple(starmap(ConformanceMessage, findings)))
+    code: str
+    severity: Severity
+    message: str
+    line: int
+    column: int
 
 
 __all__ = [

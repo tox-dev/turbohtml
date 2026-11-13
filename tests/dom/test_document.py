@@ -61,17 +61,17 @@ _CHUNK_SIZES: Final[list[pytest.ParameterSet]] = [
 ]
 
 
+@pytest.mark.parametrize("document", _DOCUMENTS)
+@pytest.mark.parametrize("chunk", _CHUNK_SIZES)
+def test_chunked_str_matches_whole(document: str, chunk: int) -> None:
+    assert _stream(document, chunk) == parse(document).html
+
+
 def _stream(document: str, chunk: int) -> str:
     parser = IncrementalParser()
     for start in range(0, len(document), chunk):
         parser.feed(document[start : start + chunk])
     return parser.close().html
-
-
-@pytest.mark.parametrize("document", _DOCUMENTS)
-@pytest.mark.parametrize("chunk", _CHUNK_SIZES)
-def test_chunked_str_matches_whole(document: str, chunk: int) -> None:
-    assert _stream(document, chunk) == parse(document).html
 
 
 @pytest.mark.parametrize("document", _DOCUMENTS)

@@ -531,15 +531,6 @@ def test_foreign_end_tags_kept() -> None:
 _CSS: Final[CSSMinify] = CSSMinify()
 
 
-def css_frag(source: str, *, minify_css: CSSMinify | None = _CSS, unquote_attributes: bool = True) -> str:
-    # Minify source in a <div> fragment with the CSS pass, returning the inner markup.
-    layout = Minify(minify_css=minify_css, unquote_attributes=unquote_attributes)
-    out = parse_fragment(source, "div").serialize(Html(layout=layout))
-    assert out.startswith("<div>")
-    assert out.endswith("</div>")
-    return out[len("<div>") : -len("</div>")]
-
-
 def test_minify_css_defaults_off() -> None:
     assert Minify().minify_css is None
 
@@ -580,6 +571,15 @@ def test_minify_css_baseline_bounds_output_syntax() -> None:
     source = "<style>a{top:1px;right:2px;bottom:3px;left:4px}</style>"
     assert css_frag(source) == "<style>a{top:1px;right:2px;bottom:3px;left:4px}</style>"
     assert css_frag(source, minify_css=CSSMinify(baseline=2021)) == "<style>a{inset:1px 2px 3px 4px}</style>"
+
+
+def css_frag(source: str, *, minify_css: CSSMinify | None = _CSS, unquote_attributes: bool = True) -> str:
+    # Minify source in a <div> fragment with the CSS pass, returning the inner markup.
+    layout = Minify(minify_css=minify_css, unquote_attributes=unquote_attributes)
+    out = parse_fragment(source, "div").serialize(Html(layout=layout))
+    assert out.startswith("<div>")
+    assert out.endswith("</div>")
+    return out[len("<div>") : -len("</div>")]
 
 
 @pytest.mark.parametrize(

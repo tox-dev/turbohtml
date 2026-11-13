@@ -2138,6 +2138,15 @@ def test_render_options_preserve_subclass_defaults(
     assert _render(options) == expected
 
 
+def _render(options: Html | PlainText | Canonical) -> str | bytes:
+    document: Final = parse('<p z="1" a="2"><img alt="picture"><!--note--></p>').select("p")[0]
+    if isinstance(options, Html):
+        return document.serialize(options)
+    if isinstance(options, PlainText):
+        return document.to_text(options)
+    return document.canonicalize(options)
+
+
 @pytest.mark.parametrize(
     "options",
     [
@@ -2149,12 +2158,3 @@ def test_render_options_preserve_subclass_defaults(
 def test_render_options_reject_subclass_extra_fields(options: Html | PlainText | Canonical) -> None:
     with pytest.raises(AttributeError, match="has no attribute 'extra'"):
         _render(options)
-
-
-def _render(options: Html | PlainText | Canonical) -> str | bytes:
-    document: Final = parse('<p z="1" a="2"><img alt="picture"><!--note--></p>').select("p")[0]
-    if isinstance(options, Html):
-        return document.serialize(options)
-    if isinstance(options, PlainText):
-        return document.to_text(options)
-    return document.canonicalize(options)
