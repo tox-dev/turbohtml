@@ -11,10 +11,6 @@ _OUTER: Final[str] = "http://outer.example/"
 _INNER: Final[str] = "http://inner.example/"
 
 
-def _thing(properties: dict[str, list[str | RdfaItem]]) -> RdfaItem:
-    return RdfaItem(vocab=None, type=["http://schema.org/Thing"], resource=None, properties=properties)
-
-
 @pytest.mark.parametrize(
     "declaring",
     [
@@ -33,6 +29,10 @@ def _thing(properties: dict[str, list[str | RdfaItem]]) -> RdfaItem:
 def test_rdfa_prefix_ends_with_its_element(declaring: str) -> None:
     html = f'<div typeof="schema:Thing">{declaring}<span property="ex:b">2</span></div>'
     assert parse(html).rdfa() == [_thing({f"{_INNER}a": ["1"], "ex:b": ["2"]})]
+
+
+def _thing(properties: dict[str, list[str | RdfaItem]]) -> RdfaItem:
+    return RdfaItem(vocab=None, type=["http://schema.org/Thing"], resource=None, properties=properties)
 
 
 @pytest.mark.parametrize(
