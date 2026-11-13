@@ -472,16 +472,23 @@ typedef struct {
 
 typedef struct pattern pattern;
 typedef struct nsnode nsnode;
-typedef struct nswild nswild;
 
-/* compile-time 7.4 check: what a branch matches, kept as persistent sets, see rng_names_merge */
-typedef struct nameset {
-    nsnode *names;
+/* compile-time 7.4 check: a persistent treap of name classes and how many it holds, see rng_names_merge */
+typedef struct nstree {
+    nsnode *root;
     Py_ssize_t count;
-    nswild *wild;
-    Py_ssize_t wild_count;
+} nstree;
+
+/* compile-time 7.4 check: what a branch matches, as exact names and as wildcard or choice classes */
+typedef struct nameset {
+    nstree names, wild;
     int text;
 } nameset;
+
+/* compile-time 7.4 check: a pair of sets whose conflict test found no overlap, keyed by their roots */
+typedef struct nspair {
+    nsnode *roots[4]; /* small exact, small wildcard, large exact, large wildcard */
+} nspair;
 
 typedef struct def_part {
     th_node *node;
@@ -522,8 +529,12 @@ typedef struct th_schema {
     pattern *p_empty, *p_notallowed, *p_text;
     int rng_references; /* the annotation pruning walk met an include or externalRef with href */
     def_vec defines;
-    arena names_mem;          /* compile-time 7.4 check: the persistent name sets, freed when the compile ends */
-    Py_ssize_t rng_work;      /* compile-time 7.4 check: units spent against RNG_INTERLEAVE_WORK_LIMIT */
+    arena names_mem;       /* compile-time 7.4 check: the persistent name sets, freed when the compile ends */
+    Py_ssize_t rng_work;   /* compile-time 7.4 check: units spent against RNG_INTERLEAVE_WORK_LIMIT */
+    th_node **rng_checked; /* compile-time 7.4 check: open-addressed set of interleaves already checked */
+    size_t rng_checked_cap, rng_checked_len;
+    nspair rng_disjoint[8]; /* compile-time 7.4 check: the last disjoint pairs, round robin */
+    size_t rng_disjoint_len, rng_disjoint_next;
     struct patintern *intern; /* per-validation pattern hash-consing table; NULL while compiling */
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
