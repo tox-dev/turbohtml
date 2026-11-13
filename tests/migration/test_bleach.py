@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import time
 import weakref
 from collections import UserDict, defaultdict
 from typing import TYPE_CHECKING, Final, NoReturn, cast
@@ -390,6 +391,25 @@ def test_bleach_predicate_retains_reconstructed_attribute_origins() -> None:
     assert seen == [("id", "x"), ("title", "&amp;"), ("id", "x"), ("title", "&amp;")]
 
 
+@pytest.mark.parametrize(
+    ("markup", "attributes", "expected"),
+    [
+        pytest.param("<a {}>x</a>", None, "<a>x</a>", id="default-allowlist"),
+        pytest.param("<b><i {}>a</b>b</i>&amp;", {}, "<b><i>a</i></b><i>b</i>&amp;", id="reconstructed-origins"),
+    ],
+)
+def test_bleach_source_lookup_is_linear_in_attribute_count(
+    markup: str, attributes: dict[str, list[str]] | None, expected: str
+) -> None:
+    # The old lookup restarted at the first attribute for each one, which takes tens of seconds at this size; the
+    # linear one takes a fraction of a second, so the 6 s budget only trips on a return to quadratic cost.
+    source = markup.format(" ".join(f"a{index}" for index in range(200_000)))
+    start = time.perf_counter()
+    cleaned = clean(source, tags=["a", "b", "i"], attributes=attributes)
+    assert time.perf_counter() - start < 6.0
+    assert cleaned == expected
+
+
 def test_bleach_predicate_on_existing_tree_sees_parsed_value() -> None:
     seen: Final[list[str]] = []
 
@@ -738,6 +758,20 @@ def test_bleach_url_normalization_checks_each_href_source() -> None:
         attributes={"a": ["title", "href"]},
         protocols=["ftp"],
     ) == ('<p>&amp;</p><a title="first" href="ftp:x">safe</a><a title="second">unsafe</a>')
+
+
+def test_bleach_url_normalization_finds_href_source_after_dropped_attribute() -> None:
+    def keep(_tag: str, name: str, _value: str) -> bool:
+        return name != "id"
+
+    assert (
+        clean(
+            '<a id="x" title="&amp;" href="ftp:x?a&amp;b">safe</a><a id="y" lang="en" href="&Tab;ftp:x">unsafe</a>',
+            attributes=keep,
+            protocols=["ftp"],
+        )
+        == '<a title="&amp;" href="ftp:x?a&amp;b">safe</a><a lang="en">unsafe</a>'
+    )
 
 
 def test_bleach_url_normalization_rejects_long_invalid_authority() -> None:
