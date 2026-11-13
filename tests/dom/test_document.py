@@ -327,7 +327,7 @@ def test_context_manager_discards_abandoned_parse() -> None:
         parser.feed("<p>x</p>")
 
 
-def test_parser_discarded_without_close() -> None:
+def test_parser_discarded_without_close() -> None:  # simplint: ignore[test-without-assertion]  # ASan judges it
     parser = IncrementalParser()
     parser.feed("<div><p>unfinished")
     del parser  # dealloc must free the in-progress stream without a close()

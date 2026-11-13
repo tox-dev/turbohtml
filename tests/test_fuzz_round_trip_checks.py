@@ -1725,7 +1725,9 @@ _TARGETS: Final[tuple[Target, ...]] = content_targets()
         pytest.param(bytes(range(256)), id="byte-range"),
     ],
 )
-def test_content_target_behaviors(target: Target, data: bytes) -> None:
+def test_content_target_behaviors(  # simplint: ignore[test-without-assertion]  # callbacks raise on failure
+    target: Target, data: bytes
+) -> None:
     target.callback(data)
 
 

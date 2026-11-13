@@ -93,7 +93,9 @@ _SHADOWED_AFTER_SWITCH: Final[str] = (
     ],
 )
 def test_xml_namespace_table_switch_keeps_shadow(template: str) -> None:
-    parse_xml(template.format(after='<v xmlns:q="urn:c" p:k="1" q:k="2"/>'))
+    shadowed: Final = parse_xml(template.format(after='<v xmlns:q="urn:c" p:k="1" q:k="2"/>')).find("v")
+    assert shadowed is not None
+    assert dict(shadowed.attrs) == {"xmlns:q": "urn:c", "p:k": "1", "q:k": "2"}
 
 
 @pytest.mark.parametrize(
@@ -143,7 +145,7 @@ def test_xml_namespace_table_switch_restores_outer(template: str) -> None:
     ],
 )
 def test_xml_namespace_scope_parses(source: str) -> None:
-    parse_xml(source)
+    assert parse_xml(source).find("r") is not None
 
 
 @pytest.mark.parametrize(
