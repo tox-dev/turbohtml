@@ -194,7 +194,11 @@ static int32_t jm_escape_value(const Py_UCS4 *src, Py_ssize_t len, Py_ssize_t *r
         value = (value << 4) | jm_hex_digit(src[pos++]);
         digits++;
     }
-    int formed = braced ? digits > 0 && pos < len && src[pos++] == '}' : digits == width;
+    int formed = digits == width;
+    if (braced) {
+        formed = digits > 0 && pos < len && src[pos] == '}';
+        pos += formed;
+    }
     *read = pos;
     return formed && value <= 0x10FFFF ? (int32_t)value : -1;
 }
@@ -223,7 +227,11 @@ const Py_UCS4 *jm_ident_value(jm_program *prog, const Py_UCS4 *src, Py_ssize_t l
             continue;
         }
         /* the parser hands over whatever token sits where a name belongs, so the `u` is not assumed either */
-        int32_t value = read < len && src[read++] == 'u' ? jm_escape_value(src, len, &read, 4) : -1;
+        int32_t value = -1;
+        if (read < len && src[read] == 'u') {
+            read++;
+            value = jm_escape_value(src, len, &read, 4);
+        }
         /* the printer emits the decoded name, so an escape may only stand for a code point the name could have
            spelled directly (ECMA-262 12.7.1): a scalar value the lexer takes as an identifier character there */
         if (value < 0 || (value >= 0xD800 && value <= 0xDFFF) || !jm_is_ident_char((Py_UCS4)value, write == lead)) {
