@@ -157,6 +157,8 @@ def minify(source: str) -> str:
         # a literal ending in `\` is unterminated at the source end, and the slice stops there too
         pytest.param('x."\\a\\', "lexical error at offset 2 near '\"\\a\\'", id="string-ends-in-backslash"),
         pytest.param("x.`\\a\\", "lexical error at offset 2 near '`\\a\\'", id="template-ends-in-backslash"),
+        # the name after a `.` is read off the failed token as well, so a lexeme may end in its only backslash
+        pytest.param('x."\\', "lexical error at offset 2 near '\"\\'", id="string-of-one-backslash"),
     ],
 )
 def test_error_message_names_token(source: str, match: str) -> None:
@@ -194,6 +196,67 @@ def test_declaration_without_name_raises(source: str, match: str) -> None:
 
 def test_inline_script_with_unparsable_declaration_stays_verbatim() -> None:
     html = "<script>function f(){retlet function(a){return a&1?1:2}}</script>"
+    assert clean.minify(html, Minify(minify_js=JSMinify())) == html
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("var \\u0061b=1", "var ab=1", id="four-digit"),
+        pytest.param("var a\\u{62}=1", "var ab=1", id="braced"),
+        pytest.param("var \\u{0000000061}=1", "var a=1", id="braced-leading-zeros"),
+        pytest.param("var \\u0024=1", "var $=1", id="dollar-leads"),
+        pytest.param("var a\\u0030=1", "var a0=1", id="digit-follows"),
+        pytest.param("x.#\\u0061", "x.#a", id="private-name"),
+        pytest.param("x.#a\\u0030", "x.#a0", id="private-name-digit-follows"),
+        pytest.param("var \\uD7FF=1", "var " + chr(0xD7FF) + "=1", id="below-the-surrogates"),
+        pytest.param("var \\u{E000}=1", "var " + chr(0xE000) + "=1", id="above-the-surrogates"),
+        pytest.param("var \\u{10FFFF}=1", "var " + chr(0x10FFFF) + "=1", id="last-code-point"),
+        # a regex body is not an identifier: the arrow lookahead lexes across it, and nothing decodes it
+        pytest.param("f=(a=/\\u{110000}/)=>a", "f=(a=/\\u{110000}/)=>a", id="regex-crossed-by-arrow-lookahead"),
+    ],
+)
+def test_identifier_escape_decodes(source: str, expected: str) -> None:
+    assert minify(source) == expected
+
+
+# The printer emits an identifier's decoded name, so an escape has to be well formed and stand for a code point the
+# name could have spelled directly (ECMA-262 12.7.1). One past U+10FFFF would otherwise reach the returned str.
+@pytest.mark.parametrize(
+    ("source", "match"),
+    [
+        pytest.param("var \\u{110000}=1", "offset 4 near '\\u{110000}'", id="past-the-last-code-point"),
+        pytest.param("var \\u{7FFFFFFF}=1", "offset 4 near '\\u{7FFFFFFF}'", id="31-bit-value"),
+        pytest.param("var \\u{100000061}=1", "offset 4 near '\\u{100000061}'", id="value-wrapping-32-bits"),
+        pytest.param("x.\\u{}", "offset 2 near '\\u{}'", id="empty-braces"),
+        pytest.param("x=\\u{61", "offset 2 near '\\u{61'", id="unterminated-braces"),
+        pytest.param("x.\\u{6g}", "offset 2 near '\\u{6g}'", id="non-hex-in-braces"),
+        pytest.param("a\\u", "offset 0 near 'a\\u'", id="no-digits"),
+        pytest.param("x.\\u006", "offset 2 near '\\u006'", id="three-digits"),
+        pytest.param("x.\\u00zz", "offset 2 near '\\u00zz'", id="non-hex-digit"),
+        pytest.param("x.\\u" + chr(0x10FFFF) * 4, "offset 2 near '\\u????'", id="astral-digits"),
+        pytest.param("var \\uD800=1", "offset 4 near '\\uD800'", id="lead-surrogate"),
+        pytest.param("var \\u{DFFF}=1", "offset 4 near '\\u{DFFF}'", id="trail-surrogate"),
+        pytest.param("x.\\u{3c}\\u{2f}script", "offset 2 near '\\u{3c}\\u{2f}scr'", id="not-an-identifier-start"),
+        pytest.param("x=a\\u0022", "offset 2 near 'a\\u0022'", id="not-an-identifier-part"),
+        pytest.param("x=a\\u{a}b", "offset 2 near 'a\\u{a}b'", id="line-terminator"),
+        pytest.param("var \\u0030=1", "offset 4 near '\\u0030'", id="digit-leads"),
+        pytest.param("x.#\\u0030", "offset 2 near '#\\u0030'", id="digit-leads-private-name"),
+        pytest.param("({\\u{110000}:1})", "offset 2 near '\\u{110000}'", id="object-key"),
+        pytest.param("class A{#\\u{110000}=1}", "offset 8 near '#\\u{110000}'", id="private-field"),
+        # the parser reads whatever token follows a `.` as the property name, so a literal's escapes arrive here too
+        pytest.param('x."\\u{110000}"', "offset 2 near '\"\\u{110000}\"'", id="string-for-a-name"),
+        pytest.param('x."\\n"', "offset 2 near '\"\\n\"'", id="string-escape-that-is-not-u"),
+        pytest.param("x.`\\u{110000}`", "offset 2 near '`\\u{110000}`'", id="template-for-a-name"),
+    ],
+)
+def test_invalid_identifier_escape_raises(source: str, match: str) -> None:
+    with pytest.raises(ValueError, match=re.escape(f"invalid identifier escape at {match}")):
+        minify(source)
+
+
+def test_inline_script_with_invalid_identifier_escape_stays_verbatim() -> None:
+    html = "<script>var \\u{7FFFFFFF}=1</script>"
     assert clean.minify(html, Minify(minify_js=JSMinify())) == html
 
 

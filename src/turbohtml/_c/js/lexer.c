@@ -66,6 +66,10 @@ static int jm_is_id_part(Py_UCS4 ch) {
     return jm_is_id_start(ch); /* for a code point >= 0x80, identifier-part == identifier-start */
 }
 
+int jm_is_ident_char(Py_UCS4 ch, int leads) {
+    return leads ? jm_is_id_start(ch) : jm_is_id_part(ch);
+}
+
 void jm_lex_init(jm_lexer *lx, const Py_UCS4 *src, Py_ssize_t len) {
     lx->src = src;
     lx->len = len;

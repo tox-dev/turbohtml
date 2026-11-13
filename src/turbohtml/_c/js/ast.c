@@ -174,11 +174,29 @@ const Py_UCS4 *jm_program_own(jm_program *prog, const Py_UCS4 *buf, Py_ssize_t l
     return copy;
 }
 
-/* The value of one hex digit. The lexer only forms a \x / \u escape over hex digits in valid input,
-   so a non-hex code point here is malformed input outside the minifier's valid-JS contract; it
-   decodes to a bounded (harmless) value rather than reading past the lexeme. */
+/* The value of one hex digit; the caller has checked that ch is one. */
 static Py_UCS4 jm_hex_digit(Py_UCS4 ch) {
     return ch >= 'a' ? ch - ('a' - 10) : ch >= 'A' ? ch - ('A' - 10) : ch - '0';
+}
+
+/* Read what follows the `x` or `u` of an escape at src[*read], stepping *read past it: the two hex digits of `\xHH`
+   (width 2), or the four of `\uXXXX` or the braced run of `\u{X...}` (width 4). Returns the code point, or -1 for an
+   escape that has no value: a digit missing or not hex, a brace empty or unclosed, or a value past U+10FFFF, which a
+   str cannot hold either. The lexer takes an escape's text on trust, so this is where a malformed one is found; the
+   run stops at the first value past U+10FFFF, so a long one cannot wrap back into range. */
+static int32_t jm_escape_value(const Py_UCS4 *src, Py_ssize_t len, Py_ssize_t *read, int width) {
+    Py_ssize_t pos = *read;
+    int braced = width == 4 && pos < len && src[pos] == '{';
+    pos += braced;
+    Py_UCS4 value = 0;
+    int digits = 0;
+    while (pos < len && is_ascii_hexdigit(src[pos]) && (braced || digits < width) && value <= 0x10FFFF) {
+        value = (value << 4) | jm_hex_digit(src[pos++]);
+        digits++;
+    }
+    int formed = braced ? digits > 0 && pos < len && src[pos++] == '}' : digits == width;
+    *read = pos;
+    return formed && value <= 0x10FFFF ? (int32_t)value : -1;
 }
 
 const Py_UCS4 *jm_ident_value(jm_program *prog, const Py_UCS4 *src, Py_ssize_t len, Py_ssize_t *out_len) {
@@ -196,6 +214,7 @@ const Py_UCS4 *jm_ident_value(jm_program *prog, const Py_UCS4 *src, Py_ssize_t l
         *out_len = len;   /* GCOVR_EXCL_LINE */
         return src;       /* GCOVR_EXCL_LINE */
     }
+    Py_ssize_t lead = src[0] == '#'; /* a private name's first code point follows its `#` */
     Py_ssize_t write = 0;
     for (Py_ssize_t read = 0; read < len;) {
         Py_UCS4 ch = src[read++];
@@ -203,25 +222,15 @@ const Py_UCS4 *jm_ident_value(jm_program *prog, const Py_UCS4 *src, Py_ssize_t l
             buf[write++] = ch;
             continue;
         }
-        read++; /* the `u` */
-        Py_UCS4 value = 0;
-        /* GCOVR_EXCL_BR_START: the `read <` guards only stop a read past a truncated \u at the lexeme
-           end -- malformed input outside the valid-JS contract, with no defined value to assert */
-        if (read < len && src[read] == '{') {
-            for (read++; read < len && src[read] != '}'; read++) {
-                value = (value << 4) | jm_hex_digit(src[read]);
-            }
-            /* GCOVR_EXCL_BR_STOP */
-            read++; /* the closing } (present in valid input) */
-        } else {
-            for (int digit = 0; digit < 4; digit++) {
-                if (read >= len) { /* GCOVR_EXCL_BR_LINE: a truncated \uXXXX is malformed input only */
-                    break;         /* GCOVR_EXCL_LINE */
-                }
-                value = (value << 4) | jm_hex_digit(src[read++]);
-            }
+        /* the parser hands over whatever token sits where a name belongs, so the `u` is not assumed either */
+        int32_t value = read < len && src[read++] == 'u' ? jm_escape_value(src, len, &read, 4) : -1;
+        /* the printer emits the decoded name, so an escape may only stand for a code point the name could have
+           spelled directly (ECMA-262 12.7.1): a scalar value the lexer takes as an identifier character there */
+        if (value < 0 || (value >= 0xD800 && value <= 0xDFFF) || !jm_is_ident_char((Py_UCS4)value, write == lead)) {
+            jm_free(buf);
+            return NULL;
         }
-        buf[write++] = value;
+        buf[write++] = (Py_UCS4)value;
     }
     const Py_UCS4 *owned = jm_program_own(prog, buf, write);
     jm_free(buf);
@@ -263,36 +272,13 @@ Py_ssize_t jm_str_decode(const Py_UCS4 *lexeme, Py_ssize_t len, Py_UCS4 *out) {
         case 'v':
             out[write++] = 0x0B;
             break;
-        case 'x': {
-            Py_UCS4 value = 0;
-            for (int digit = 0; digit < 2; digit++) {
-                if (read >= inner_len) { /* GCOVR_EXCL_BR_LINE: a truncated \xHH is malformed input only */
-                    break;               /* GCOVR_EXCL_LINE */
-                }
-                value = (value << 4) | jm_hex_digit(inner[read++]);
-            }
-            out[write++] = value;
-            break;
-        }
+        case 'x':
         case 'u': {
-            Py_UCS4 value = 0;
-            /* GCOVR_EXCL_BR_START: the `read <` guards only stop a read past a truncated \u at the lexeme
-               end -- malformed input outside the valid-JS contract, with no defined value to assert */
-            if (read < inner_len && inner[read] == '{') {
-                for (read++; read < inner_len && inner[read] != '}'; read++) {
-                    value = (value << 4) | jm_hex_digit(inner[read]);
-                }
-                /* GCOVR_EXCL_BR_STOP */
-                read++; /* the closing } (present in valid input) */
-            } else {
-                for (int digit = 0; digit < 4; digit++) {
-                    if (read >= inner_len) { /* GCOVR_EXCL_BR_LINE: a truncated \uXXXX is malformed input only */
-                        break;               /* GCOVR_EXCL_LINE */
-                    }
-                    value = (value << 4) | jm_hex_digit(inner[read++]);
-                }
+            int32_t value = jm_escape_value(inner, inner_len, &read, esc == 'x' ? 2 : 4);
+            if (value < 0) {
+                return -1;
             }
-            out[write++] = value;
+            out[write++] = (Py_UCS4)value;
             break;
         }
         case '0':

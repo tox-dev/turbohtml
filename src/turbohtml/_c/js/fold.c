@@ -1333,7 +1333,12 @@ static void fold_concat(F *folder, int32_t idx) {
         return;                   /* GCOVR_EXCL_LINE */
     }
     Py_ssize_t value_len = jm_str_decode(left->str, left->str_len, value);
-    value_len += jm_str_decode(right->str, right->str_len, value + value_len);
+    Py_ssize_t right_len = value_len < 0 ? -1 : jm_str_decode(right->str, right->str_len, value + value_len);
+    if (right_len < 0) { /* an operand with an escape that has no value is left as written */
+        jm_free(value);
+        return;
+    }
+    value_len += right_len;
     Py_UCS4 *lexeme = jm_malloc((size_t)(value_len * 6 + 2) * sizeof(Py_UCS4)); /* the widest escape is 6 wide */
     if (lexeme == NULL) {         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         jm_free(value);           /* GCOVR_EXCL_LINE */
