@@ -98,7 +98,9 @@ def test_element_tree_root_retains_owner() -> None:
     reference: Final = weakref.ref(tree)
     del tree
     gc.collect()
-    assert root.getroot() is reference() is not None
+    owner: Final = reference()
+    assert owner is not None
+    assert root.getroot() is owner
 
 
 def test_element_tree_nested_context_retains_outer_document() -> None:
