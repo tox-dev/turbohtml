@@ -29,11 +29,6 @@ _LIST_ITEM: Final[str] = "<li><strong>Elf Modelle sind empfehlenswert in punkto 
 _BODY: Final[str] = f"<article class=post><p>{_PROSE}</p></article>"
 
 
-def main_tag(html: str) -> str | None:
-    found = parse(html).main_content()
-    return None if found is None else found.tag
-
-
 @pytest.mark.parametrize(
     ("html", "expected"),
     [
@@ -57,6 +52,11 @@ def main_tag(html: str) -> str | None:
 )
 def test_main_content_selects_article(html: str, expected: str) -> None:
     assert main_tag(html) == expected
+
+
+def main_tag(html: str) -> str | None:
+    found = parse(html).main_content()
+    return None if found is None else found.tag
 
 
 def test_main_content_returns_element() -> None:

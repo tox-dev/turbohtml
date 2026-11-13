@@ -164,6 +164,11 @@ _CORPUS: Final[list[pytest.ParameterSet]] = [
 ]
 
 
+@pytest.mark.parametrize("markup", _CORPUS)
+def test_events_match_dom_document_order(markup: str) -> None:
+    assert list(iter_events(markup)) == _dom_events(markup)
+
+
 def _dom_events(markup: str) -> list[SaxEvent]:
     events: list[SaxEvent] = []
     stack = [iter(parse(markup).children)]
@@ -192,11 +197,6 @@ def _dom_events(markup: str) -> list[SaxEvent]:
     return events
 
 
-@pytest.mark.parametrize("markup", _CORPUS)
-def test_events_match_dom_document_order(markup: str) -> None:
-    assert list(iter_events(markup)) == _dom_events(markup)
-
-
 def test_bare_handler_is_a_noop_for_every_event() -> None:
     handler = SaxHandler()
     handler.start_element("p", (("a", "b"),))
@@ -206,6 +206,17 @@ def test_bare_handler_is_a_noop_for_every_event() -> None:
     handler.doctype("html", None, None)
     handler.processing_instruction("pi", "data")
     sax_parse("<!DOCTYPE html><p>x<!--c--><?pi?></p>", handler)
+    text_only: Final = _TextOnly()
+    sax_parse("<!DOCTYPE html><p>x<!--c--><?pi?></p>", text_only)
+    assert text_only.texts == ["x"]
+
+
+class _TextOnly(SaxHandler):
+    def __init__(self) -> None:
+        self.texts: list[str] = []
+
+    def characters(self, data: str) -> None:
+        self.texts.append(data)
 
 
 def test_iter_events_is_lazy() -> None:

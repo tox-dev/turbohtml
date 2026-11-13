@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 import bleach
@@ -34,9 +35,9 @@ def _allow_data_attribute(_tag: str, name: str, _value: str) -> bool:
     return name.startswith("data-")
 
 
-_DISALLOWED_CLEANERS: Final[dict[str, bleach.Cleaner]] = {
+_DISALLOWED_CLEANERS: Final[MappingProxyType[str, bleach.Cleaner]] = MappingProxyType({
     mode: bleach.Cleaner(tags=frozenset(), strip=mode == "strip") for mode in ("escape", "strip")
-}
+})
 _ATTRIBUTE_CLEANER: Final[bleach.Cleaner] = bleach.Cleaner(tags={"p"}, attributes=_allow_data_attribute)
 
 OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {

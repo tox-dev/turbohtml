@@ -39,6 +39,7 @@ import string
 from dataclasses import dataclass
 from functools import cache
 from itertools import starmap
+from types import MappingProxyType
 from typing import Final, Literal
 
 from ._html import (
@@ -69,7 +70,7 @@ from ._html import (
 #: The Unicode normalization forms :func:`normalize` and :func:`is_normalized` accept.
 NormalizationForm = Literal["NFC", "NFD", "NFKC", "NFKD"]
 
-_FORMS: Final[dict[str, int]] = {"NFC": 0, "NFD": 1, "NFKC": 2, "NFKD": 3}
+_FORMS: Final[MappingProxyType[str, int]] = MappingProxyType({"NFC": 0, "NFD": 1, "NFKC": 2, "NFKD": 3})
 
 
 def _refuse_encode(text: str, errors: str = "strict", /) -> tuple[bytes, int]:  # ruff:ignore[unused-function-argument]  # the codec API passes errors; the refusal ignores it
@@ -104,46 +105,6 @@ codecs.register(_search)
 
 
 #: The language each frequency-scored candidate models; multi-language Latin encodings stay unmapped.
-
-
-@dataclass(frozen=True, slots=True)
-class EncodingMatch:
-    """
-    One detection result: ``chardet.detect``'s ``{"encoding", "confidence", "language"}`` dict as a typed record.
-
-    ``encoding`` is the WHATWG canonical name (the same string :attr:`turbohtml.Document.encoding` reports), or
-    ``None`` when the input is empty or every candidate was ruled out. A leading byte-order mark reports the mark's own
-    label instead: ``"UTF-8-SIG"`` for a UTF-8 mark (so a caller can decode with the ``utf-8-sig`` codec to strip it),
-    and ``"UTF-16LE"`` / ``"UTF-16BE"`` for the UTF-16 marks, which a mark identifies unambiguously with no heuristic.
-    The WHATWG BOM sniff has no UTF-32, so ``FF FE 00 00`` is ``"UTF-16LE"`` here, as in the parser.
-
-    ``codec`` is the name to hand :meth:`bytes.decode`; ``encoding`` is not. A WHATWG name and the CPython codec that
-    answers to it are different encodings: ``bytes.decode("big5")`` reaches a strict subset of the spec's Big5,
-    ``koi8-u`` reaches KOI8-U where the spec means KOI8-RU, and ``x-mac-cyrillic`` reaches no codec at all. So
-    ``codec`` names a ``whatwg-*`` codec this module registers, whose decoder is the one :func:`turbohtml.parse`
-    uses, and ``data.decode(match.codec)`` reproduces the parser's text. It is ``None`` with a ``None`` encoding.
-    Those codecs decode only: encoding to a legacy charset is a separate spec algorithm turbohtml omits.
-
-    ``confidence`` is 1.0 for a certain result (a byte-order mark, a ``<meta>`` declaration, structurally valid UTF-8,
-    escape-driven ISO-2022-JP, or pure ASCII), the candidate's share of the positive frequency scores for a
-    content-scored result, and 0.0 for the windows-1252 fallback chosen with no positive evidence. ``language`` names
-    the language the winning frequency model targets (``"Russian"`` for windows-1251, ``"Japanese"`` for Shift_JIS,
-    ...); it is ``None`` for UTF-8 and the Latin encodings whose model spans several languages. ``bom`` is true only
-    when a byte-order mark decided the result, telling a caller the decoded text still carries the mark unless the
-    codec strips it.
-
-    :param encoding: the WHATWG canonical name, or ``None`` when the input is empty or every candidate was ruled out.
-    :param confidence: how sure the detector is, from 0.0 (no positive evidence) to 1.0 (certain).
-    :param language: the language the winning frequency model targets, or ``None`` for a multi-language model.
-    :param bom: whether a byte-order mark decided the result.
-    :param codec: the name to hand :meth:`bytes.decode`, or ``None`` with a ``None`` encoding.
-    """
-
-    encoding: str | None
-    confidence: float
-    language: str | None
-    bom: bool = False
-    codec: str | None = None
 
 
 # Every character a DNS label may hold once it is lower-cased and Punycode-encoded (RFC 1123, plus RFC 3492's "xn--").
@@ -215,6 +176,78 @@ def detect(data: bytes, options: Detection | None = None, /) -> EncodingMatch:
     """
     active: Final = options or _DEFAULT
     return EncodingMatch(*_rank(_detect(data, active.tld), active)[0])
+
+
+@dataclass(frozen=True, slots=True)
+class EncodingMatch:
+    """
+    One detection result: ``chardet.detect``'s ``{"encoding", "confidence", "language"}`` dict as a typed record.
+
+    ``encoding`` is the WHATWG canonical name (the same string :attr:`turbohtml.Document.encoding` reports), or
+    ``None`` when the input is empty or every candidate was ruled out. A leading byte-order mark reports the mark's own
+    label instead: ``"UTF-8-SIG"`` for a UTF-8 mark (so a caller can decode with the ``utf-8-sig`` codec to strip it),
+    and ``"UTF-16LE"`` / ``"UTF-16BE"`` for the UTF-16 marks, which a mark identifies unambiguously with no heuristic.
+    The WHATWG BOM sniff has no UTF-32, so ``FF FE 00 00`` is ``"UTF-16LE"`` here, as in the parser.
+
+    ``codec`` is the name to hand :meth:`bytes.decode`; ``encoding`` is not. A WHATWG name and the CPython codec that
+    answers to it are different encodings: ``bytes.decode("big5")`` reaches a strict subset of the spec's Big5,
+    ``koi8-u`` reaches KOI8-U where the spec means KOI8-RU, and ``x-mac-cyrillic`` reaches no codec at all. So
+    ``codec`` names a ``whatwg-*`` codec this module registers, whose decoder is the one :func:`turbohtml.parse`
+    uses, and ``data.decode(match.codec)`` reproduces the parser's text. It is ``None`` with a ``None`` encoding.
+    Those codecs decode only: encoding to a legacy charset is a separate spec algorithm turbohtml omits.
+
+    ``confidence`` is 1.0 for a certain result (a byte-order mark, a ``<meta>`` declaration, structurally valid UTF-8,
+    escape-driven ISO-2022-JP, or pure ASCII), the candidate's share of the positive frequency scores for a
+    content-scored result, and 0.0 for the windows-1252 fallback chosen with no positive evidence. ``language`` names
+    the language the winning frequency model targets (``"Russian"`` for windows-1251, ``"Japanese"`` for Shift_JIS,
+    ...); it is ``None`` for UTF-8 and the Latin encodings whose model spans several languages. ``bom`` is true only
+    when a byte-order mark decided the result, telling a caller the decoded text still carries the mark unless the
+    codec strips it.
+
+    :param encoding: the WHATWG canonical name, or ``None`` when the input is empty or every candidate was ruled out.
+    :param confidence: how sure the detector is, from 0.0 (no positive evidence) to 1.0 (certain).
+    :param language: the language the winning frequency model targets, or ``None`` for a multi-language model.
+    :param bom: whether a byte-order mark decided the result.
+    :param codec: the name to hand :meth:`bytes.decode`, or ``None`` with a ``None`` encoding.
+    """
+
+    encoding: str | None
+    confidence: float
+    language: str | None
+    bom: bool = False
+    codec: str | None = None
+
+
+def _rank(
+    result: tuple[str | None, bool, list[tuple[str, int]], bool] | None, options: Detection
+) -> list[tuple[str | None, float, str | None, bool, str | None]]:
+    return _detect_rank(result, options.allowed, options.excluded, options.language, options.threshold, _languages())
+
+
+@cache
+def _languages() -> dict[str, str]:
+    # Built once: every detection hands this table to the C ranker, so a per-call literal would allocate on each one.
+    return {
+        "big5": "Chinese",
+        "euc-jp": "Japanese",
+        "euc-kr": "Korean",
+        "gbk": "Chinese",
+        "ibm866": "Russian",
+        "iso-2022-jp": "Japanese",
+        "iso-8859-5": "Russian",
+        "iso-8859-6": "Arabic",
+        "iso-8859-7": "Greek",
+        "iso-8859-8": "Hebrew",
+        "koi8-u": "Russian",
+        "shift_jis": "Japanese",
+        "windows-1251": "Russian",
+        "windows-1253": "Greek",
+        "windows-1254": "Turkish",
+        "windows-1255": "Hebrew",
+        "windows-1256": "Arabic",
+        "windows-1258": "Vietnamese",
+        "windows-874": "Thai",
+    }
 
 
 def detect_all(data: bytes, options: Detection | None = None, /) -> list[EncodingMatch]:
@@ -289,38 +322,6 @@ class EncodingDetector:
         self._stream = _DetectStream(self._options.tld)
         self._result = None
         self.done = False
-
-
-def _rank(
-    result: tuple[str | None, bool, list[tuple[str, int]], bool] | None, options: Detection
-) -> list[tuple[str | None, float, str | None, bool, str | None]]:
-    return _detect_rank(result, options.allowed, options.excluded, options.language, options.threshold, _languages())
-
-
-@cache
-def _languages() -> dict[str, str]:
-    # Built once: every detection hands this table to the C ranker, so a per-call literal would allocate on each one.
-    return {
-        "big5": "Chinese",
-        "euc-jp": "Japanese",
-        "euc-kr": "Korean",
-        "gbk": "Chinese",
-        "ibm866": "Russian",
-        "iso-2022-jp": "Japanese",
-        "iso-8859-5": "Russian",
-        "iso-8859-6": "Arabic",
-        "iso-8859-7": "Greek",
-        "iso-8859-8": "Hebrew",
-        "koi8-u": "Russian",
-        "shift_jis": "Japanese",
-        "windows-1251": "Russian",
-        "windows-1253": "Greek",
-        "windows-1254": "Turkish",
-        "windows-1255": "Hebrew",
-        "windows-1256": "Arabic",
-        "windows-1258": "Vietnamese",
-        "windows-874": "Thai",
-    }
 
 
 @dataclass(frozen=True, slots=True)

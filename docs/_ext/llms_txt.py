@@ -14,6 +14,7 @@ one line; ``llms-full.txt`` enumerates every page in every section, migration gu
 from __future__ import annotations
 
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Protocol
 
 from docutils import nodes
@@ -35,14 +36,14 @@ _SECTIONS: Final[tuple[tuple[str, str], ...]] = (
 )
 
 # the landing page of each section; listed under "Start here", not enumerated with the section's own pages
-_SECTION_INDEX: Final[dict[str, str]] = {
+_SECTION_INDEX: Final[MappingProxyType[str, str]] = MappingProxyType({
     "tutorials": "tutorials/index",
     "how-to": "how-to/index",
     "reference": "reference",
     "explanation": "explanation/index",
     "migration": "migration/index",
     "development": "development/index",
-}
+})
 
 
 class _Link(Protocol):

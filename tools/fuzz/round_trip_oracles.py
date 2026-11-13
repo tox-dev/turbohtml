@@ -34,6 +34,7 @@ from enum import Enum
 from functools import cache, partial
 from itertools import pairwise, starmap
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Literal, NamedTuple, TypeAlias
 from urllib.parse import urlsplit
 
@@ -222,12 +223,12 @@ MAX_INPUT: Final[int] = 64 * 1024
 # emit the tag, so skipping it keeps a machine-safe run while the defect is tracked on its own
 UNBOUNDED: Final[re.Pattern[str]] = re.compile(r"selectedcontent", re.IGNORECASE)
 _HEADINGS: Final[frozenset[str]] = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
-_SELF_NESTING: Final[dict[str, frozenset[str]]] = {
+_SELF_NESTING: Final[MappingProxyType[str, frozenset[str]]] = MappingProxyType({
     **{tag: frozenset({tag}) for tag in ("a", "nobr", "p", "button", "select", "form", "table", "option", "li")},
     **dict.fromkeys(("dd", "dt"), frozenset({"dd", "dt"})),
     **dict.fromkeys(_HEADINGS, _HEADINGS),
     **dict.fromkeys(("rb", "rt", "rp", "rtc"), frozenset({"rb", "rt", "rp", "rtc"})),
-}
+})
 _MARKDOWN_BLOCKS: Final[frozenset[str]] = frozenset({
     "address", "article", "aside", "blockquote", "dd", "details", "div", "dl", "dt", "fieldset", "figure", "footer",
     "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav", "ol", "p", "pre", "section",
@@ -536,7 +537,7 @@ def _iterator_sequence_check(case: str) -> str | None:
         raise OutOfScopeError from error
 
 
-_IDNA_LABELS: Final[dict[str, tuple[str, str]]] = {
+_IDNA_LABELS: Final[MappingProxyType[str, tuple[str, str]]] = MappingProxyType({
     "umlaut": ("münchen", "münchen"),
     "sharp-s": ("faß", "faß"),
     "acute-decomposed": ("a\u0301", "á"),
@@ -547,7 +548,7 @@ _IDNA_LABELS: Final[dict[str, tuple[str, str]]] = {
     "ignored": ("ex\u00adample", "example"),
     "fullwidth": ("\uff26\uff2f\uff2f", "foo"),
     "mapped-dot": ("日本語。\uff2a\uff30", "日本語.jp"),
-}
+})
 
 
 _IDNA_HOST_CHECK_PATTERN: Final[re.Pattern[str]] = re.compile(r"[a-z0-9]{0,8}")
@@ -656,7 +657,7 @@ def clean_url_check(text: str, clean: Callable[[str], str | None] = clean_url) -
     return None if twice == once else f"not a fixpoint: {_divergence(once, twice)}"
 
 
-_ENCODING_FORMATS: Final[dict[str, tuple[str, bytes, str, str]]] = {
+_ENCODING_FORMATS: Final[MappingProxyType[str, tuple[str, bytes, str, str]]] = MappingProxyType({
     "utf-8-bom": ("utf-8", b"\xef\xbb\xbf", "UTF-8-SIG", ""),
     "utf-16le-bom": ("utf-16-le", b"\xff\xfe", "UTF-16LE", ""),
     "utf-16be-bom": ("utf-16-be", b"\xfe\xff", "UTF-16BE", ""),
@@ -685,7 +686,7 @@ _ENCODING_FORMATS: Final[dict[str, tuple[str, bytes, str, str]]] = {
         "windows-1252",
         '<meta content="text/html; charset=windows-1252" http-equiv=Content-Type>',
     ),
-}
+})
 
 
 def encoding_stream_check(
@@ -1258,15 +1259,19 @@ def css_semantics_check(
     return None
 
 
+def _unsupported(read: _Value, keywords: tuple[str, ...]) -> bool:
+    return read is _INVALID or read is None or (isinstance(read, str) and read not in keywords)
+
+
 def _require_supported_css_shorthands(sheet: str) -> None:
     for rule in StyleSheet(sheet).rules:
-        for name in ("margin", "padding", "border-width"):
-            keywords = {"margin": ("auto",), "padding": (), "border-width": ("thin", "medium", "thick")}[name]
+        for name, longhand, keywords in (
+            ("margin", "margin-top", ("auto",)),
+            ("padding", "padding-top", ()),
+            ("border-width", "border-top-width", ("thin", "medium", "thick")),
+        ):
             if (value := rule.style.get(name)) is not None and any(
-                (read := _read_value("border-top-width" if name == "border-width" else f"{name}-top", part)) is _INVALID
-                or read is None
-                or (isinstance(read, str) and read not in keywords)
-                for part in value.split()
+                _unsupported(_read_value(longhand, part), keywords) for part in value.split()
             ):
                 raise OutOfScopeError
 
@@ -1307,7 +1312,7 @@ class _Length(NamedTuple):
 
 
 _SIDES: Final[tuple[str, ...]] = ("top", "right", "bottom", "left")
-_VALUE_KIND: Final[dict[str, str]] = {
+_VALUE_KIND: Final[MappingProxyType[str, str]] = MappingProxyType({
     **dict.fromkeys(
         ("color", "background-color", "outline-color", *(f"border-{side}-color" for side in _SIDES)), "color"
     ),
@@ -1331,7 +1336,7 @@ _VALUE_KIND: Final[dict[str, str]] = {
     "z-index": "integer",
     "opacity": "alpha",
     "font-weight": "weight",
-}
+})
 _LENGTH_UNITS: Final[frozenset[str]] = frozenset({
     "px", "em", "rem", "ex", "ch", "vw", "vh", "vmin", "vmax", "cm", "mm", "q", "in", "pt", "pc", "%",
 })  # fmt: skip
@@ -1452,7 +1457,7 @@ def _read_rgb(arguments: str) -> _Value:
 
 
 # several spellings of one value each, so the generator writes values the minifier rewrites
-_VALUE_SPELLINGS: Final[dict[str, tuple[str, ...]]] = {
+_VALUE_SPELLINGS: Final[MappingProxyType[str, tuple[str, ...]]] = MappingProxyType({
     "red": ("red", "#f00", "#ff0000", "#F00", "#FF0000", "rgb(255,0,0)", "rgb(255 0 0)", "#ff0000ff", "#f00f"),
     "white": ("white", "#fff", "#ffffff", "#FFF", "rgb(255,255,255)", "#ffffffff"),
     "black": ("black", "#000", "#000000", "rgb(0,0,0)", "#000000ff"),
@@ -1465,7 +1470,7 @@ _VALUE_SPELLINGS: Final[dict[str, tuple[str, ...]]] = {
     "0.5": ("0.5", ".5", "0.50", "+.5", "5e-1"),
     "700": ("700", "bold"),
     "400": ("400", "normal"),
-}
+})
 
 
 def xpath_entry_check(
@@ -2038,7 +2043,7 @@ _COLORS: Final[tuple[str, ...]] = (
     *_VALUE_SPELLINGS["red"], *_VALUE_SPELLINGS["white"], *_VALUE_SPELLINGS["black"], *_VALUE_SPELLINGS["navy"],
     *_VALUE_SPELLINGS["transparent"], "currentcolor", "currentColor", "inherit",
 )  # fmt: skip
-_SEMANTIC_VALUES: Final[dict[str, tuple[str, ...]]] = {
+_SEMANTIC_VALUES: Final[MappingProxyType[str, tuple[str, ...]]] = MappingProxyType({
     "color": _COLORS,
     "background-color": _COLORS,
     "border-top-color": _COLORS,
@@ -2071,7 +2076,7 @@ _SEMANTIC_VALUES: Final[dict[str, tuple[str, ...]]] = {
     "border-style": (),
     "background": (),
     "outline": (),
-}
+})
 
 
 def _declaration(rng: random.Random) -> str:
@@ -2397,7 +2402,7 @@ def _generate_url(rng: random.Random) -> str:
 
 # RFC 3986 section 5.4 supplies independent targets; safe HTTP leaves avoid scheme-specific edge policies.
 _RESOLUTION_BASE: Final[str] = "http://example.test/b/c/d;p?q"
-_RESOLUTION_CASES: Final[dict[str, tuple[str, str]]] = {
+_RESOLUTION_CASES: Final[MappingProxyType[str, tuple[str, str]]] = MappingProxyType({
     "child": ("{leaf}", "http://example.test/b/c/{leaf}"),
     "current": ("./{leaf}", "http://example.test/b/c/{leaf}"),
     "parent": ("../{leaf}", "http://example.test/b/{leaf}"),
@@ -2406,7 +2411,7 @@ _RESOLUTION_CASES: Final[dict[str, tuple[str, str]]] = {
     "query": ("?{leaf}", "http://example.test/b/c/d;p?{leaf}"),
     "fragment": ("#{leaf}", "http://example.test/b/c/d;p?q#{leaf}"),
     "directory": ("{leaf}/", "http://example.test/b/c/{leaf}/"),
-}
+})
 
 
 def _generate_resolution(rng: random.Random) -> str:
@@ -2459,7 +2464,7 @@ def _encoding_decode_controls() -> dict[str, bool]:
 
 
 def _encoding_seeds() -> list[str]:
-    return ["empty\n", *(f"{variant}\ncafé €" for variant in _ENCODING_FORMATS), *_generated(_generate_encoding, 150)()]
+    return ["empty\n", *(f"{variant}\ncafé €" for variant in _ENCODING_FORMATS), *_generated(_generate_encoding)()]
 
 
 def _generate_idna_host(rng: random.Random) -> str:
@@ -2467,7 +2472,7 @@ def _generate_idna_host(rng: random.Random) -> str:
 
 
 def _idna_host_seeds() -> list[str]:
-    return [*(f"{variant}\n" for variant in _IDNA_LABELS), *_generated(_generate_idna_host, 150)()]
+    return [*(f"{variant}\n" for variant in _IDNA_LABELS), *_generated(_generate_idna_host)()]
 
 
 def _idna_host_controls() -> dict[str, bool]:

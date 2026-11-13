@@ -30,6 +30,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NamedTuple, TypeVar
 from urllib.parse import quote
 
@@ -63,7 +64,10 @@ _DEPTH_CAP: Final[int] = 512
 # meriyah's MINIMUM_COMPARED_RATIO: a run that skips more than this share compared too little to mean anything
 _MIN_COMPARED_RATIO: Final[float] = 0.9
 _DOM_BUILDER: Final[type[TreeBuilder]] = html5lib.getTreeBuilder("dom")
-_NAMESPACE_PREFIX: Final[dict[str, str]] = {namespaces["svg"]: "svg", namespaces["mathml"]: "math"}
+_NAMESPACE_PREFIX: Final[MappingProxyType[str, str]] = MappingProxyType({
+    namespaces["svg"]: "svg",
+    namespaces["mathml"]: "math",
+})
 _C0_OR_SPACE: Final[str] = "".join(map(chr, range(0x21)))
 _SCHEME: Final[re.Pattern[str]] = re.compile(r"([a-z][a-z0-9+.-]*):")
 _UNSAFE_HTML: Final[frozenset[str]] = frozenset({

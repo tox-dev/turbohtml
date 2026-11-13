@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Iterator
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeAlias
 
 import pytest
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 _STUBS: Final[Path] = Path(__file__).parents[3] / "src" / "turbohtml" / "_stubs"
-_NAMES: Final[dict[str, type]] = {"Node": Node, "str": str, "float": float, "bool": bool}
+_NAMES: Final[MappingProxyType[str, type]] = MappingProxyType({"Node": Node, "str": str, "float": float, "bool": bool})
 _XPathValue: TypeAlias = "list[Node | str] | float | bool | str | Node | Iterator[Node | str | float | bool] | None"
 _DOCUMENT: Final[turbohtml.Document] = turbohtml.parse("<p>a</p><!--c--><p>b</p><?pi x?>")
 _EXPRESSIONS: Final[list[pytest.ParameterSet]] = [
@@ -28,27 +29,6 @@ _EXPRESSIONS: Final[list[pytest.ParameterSet]] = [
     pytest.param("/", id="document"),
     pytest.param("//p/@missing", id="empty-node-set"),
 ]
-
-
-def _declared_return(stub: str, owner: str, method: str) -> ast.expr:
-    module = ast.parse((_STUBS / stub).read_text(encoding="utf-8"))
-    cls = next(node for node in module.body if isinstance(node, ast.ClassDef) and node.name == owner)
-    func = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == method)
-    assert func.returns is not None
-    return func.returns
-
-
-def _conforms(value: _XPathValue, annotation: ast.expr) -> bool:
-    if isinstance(annotation, ast.BinOp):
-        return _conforms(value, annotation.left) or _conforms(value, annotation.right)
-    if isinstance(annotation, ast.Constant):
-        return value is None
-    if isinstance(annotation, ast.Subscript):
-        assert isinstance(annotation.value, ast.Name)
-        container = {"list": list, "Iterator": Iterator}[annotation.value.id]
-        return isinstance(value, container) and all(_conforms(item, annotation.slice) for item in value)
-    assert isinstance(annotation, ast.Name)
-    return isinstance(value, _NAMES[annotation.id])
 
 
 @pytest.mark.parametrize(
@@ -65,3 +45,24 @@ def test_xpath_result_matches_stub(
     stub: str, owner: str, method: str, evaluate: Callable[[str], _XPathValue], expression: str
 ) -> None:
     assert _conforms(evaluate(expression), _declared_return(stub, owner, method))
+
+
+def _conforms(value: _XPathValue, annotation: ast.expr) -> bool:
+    if isinstance(annotation, ast.BinOp):
+        return _conforms(value, annotation.left) or _conforms(value, annotation.right)
+    if isinstance(annotation, ast.Constant):
+        return value is None
+    if isinstance(annotation, ast.Subscript):
+        assert isinstance(annotation.value, ast.Name)
+        container = {"list": list, "Iterator": Iterator}[annotation.value.id]
+        return isinstance(value, container) and all(_conforms(item, annotation.slice) for item in value)
+    assert isinstance(annotation, ast.Name)
+    return isinstance(value, _NAMES[annotation.id])
+
+
+def _declared_return(stub: str, owner: str, method: str) -> ast.expr:
+    module = ast.parse((_STUBS / stub).read_text(encoding="utf-8"))
+    cls = next(node for node in module.body if isinstance(node, ast.ClassDef) and node.name == owner)
+    func = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == method)
+    assert func.returns is not None
+    return func.returns

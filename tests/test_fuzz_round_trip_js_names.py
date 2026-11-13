@@ -30,10 +30,6 @@ def reader(mocker: MockerFixture) -> Callable[[Callable[[str], _Names | None]], 
     return build
 
 
-def _source_or(output: _Names | None) -> Callable[[str], _Names | None]:
-    return lambda source: _INPUT if source == "source" else output
-
-
 @pytest.mark.parametrize(
     ("output", "expected"),
     [
@@ -61,6 +57,10 @@ def test_js_names_check_compares_the_unmangled_unfolded_output(
     reader: Callable[[Callable[[str], _Names | None]], JsNames], output: _Names | None, expected: str | None
 ) -> None:
     assert js_names_check("source", reader(_source_or(output)), lambda _source, _options: "out") == expected
+
+
+def _source_or(output: _Names | None) -> Callable[[str], _Names | None]:
+    return lambda source: _INPUT if source == "source" else output
 
 
 def test_js_names_check_lets_fold_drop_but_not_invent(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 import pytest
@@ -19,12 +20,12 @@ if not _CORPUS.is_dir():  # pragma: no cover  # the skip runs only without the l
     )
     raise RuntimeError(_MSG)
 
-_MODES: Final[dict[str, Canonical]] = {
+_MODES: Final[MappingProxyType[str, Canonical]] = MappingProxyType({
     "without-comments": Canonical(),
     "with-comments": Canonical(with_comments=True),
     "exc-without-comments": Canonical(exclusive=True),
     "1-1-without-comments": Canonical(version="1.1"),
-}
+})
 
 
 _OUT_OF_SCOPE_PATTERN: Final[re.Pattern[str]] = re.compile(r"xmlns(:[\w.-]+)?\s*=")

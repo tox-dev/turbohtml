@@ -27,18 +27,6 @@ def _doctype(doc: Document) -> Doctype:
     return next(child for child in doc.children if isinstance(child, Doctype))
 
 
-def _found(root: Element | Document, tag: str) -> Element:
-    node = root.find(tag)
-    assert node is not None, tag
-    return node
-
-
-def _by_id(root: Element | Document, value: str) -> Element:
-    node = root.find(id=value)
-    assert node is not None, value
-    return node
-
-
 def test_construct_collapsed_at_container() -> None:
     div = _by_id(parse("<div id=a><p>x</p></div>"), "a")
     boundary = Range(div, 0)
@@ -49,6 +37,12 @@ def test_construct_collapsed_at_container() -> None:
         0,
         0,
     )
+
+
+def _by_id(root: Element | Document, value: str) -> Element:
+    node = root.find(id=value)
+    assert node is not None, value
+    return node
 
 
 def test_construct_defaults_offset_to_zero() -> None:
@@ -88,6 +82,12 @@ def test_common_ancestor_container() -> None:
     boundary.set_start_before(section)
     boundary.set_end_after(span)
     assert boundary.common_ancestor_container == div
+
+
+def _found(root: Element | Document, tag: str) -> Element:
+    node = root.find(tag)
+    assert node is not None, tag
+    return node
 
 
 def test_set_start_after_end_drags_end() -> None:

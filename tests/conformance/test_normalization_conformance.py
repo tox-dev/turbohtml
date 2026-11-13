@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 import pytest
@@ -14,12 +15,12 @@ _FORMS: Final[tuple[NormalizationForm, ...]] = ("NFC", "NFD", "NFKC", "NFKD")
 #   NFD   c3 == toNFD(c1..c3)         c5 == toNFD(c4..c5)
 #   NFKC  c4 == toNFKC(c1..c5)
 #   NFKD  c5 == toNFKD(c1..c5)
-_INVARIANTS: Final[dict[NormalizationForm, tuple[tuple[int, tuple[int, ...]], ...]]] = {
+_INVARIANTS: Final[MappingProxyType[NormalizationForm, tuple[tuple[int, tuple[int, ...]], ...]]] = MappingProxyType({
     "NFC": ((1, (0, 1, 2)), (3, (3, 4))),
     "NFD": ((2, (0, 1, 2)), (4, (3, 4))),
     "NFKC": ((3, (0, 1, 2, 3, 4)),),
     "NFKD": ((4, (0, 1, 2, 3, 4)),),
-}
+})
 
 _ORACLE: Final[Path] = (
     Path(__file__).parent / "unicodetools" / "unicodetools" / "data" / "ucd" / "dev" / "NormalizationTest.txt"
@@ -43,8 +44,7 @@ def _load() -> tuple[list[tuple[int, int, tuple[str, str, str, str, str]]], froz
         if raw.startswith("@Part"):
             part = int(raw[5])
         elif payload := raw.split("#", 1)[0].strip():
-            columns = tuple(_decode(field) for field in payload.split(";")[:5])
-            rows.append((part, lineno, columns))  # ty: ignore[invalid-argument-type]  # split yields exactly 5
+            rows.append((part, lineno, tuple(_decode(field) for field in payload.split(";")[:5])))  # ty: ignore[invalid-argument-type]  # split yields exactly 5
     return rows, frozenset(ord(columns[0]) for part, _, columns in rows if part == 1)
 
 
@@ -53,13 +53,14 @@ _ROWS, _PART1_STARTERS = _load()
 
 @pytest.mark.parametrize("form", _FORMS)
 def test_column_invariants_hold_for_every_row(form: NormalizationForm) -> None:
-    failures = [
-        (lineno, part, ascii(columns[source]))
-        for part, lineno, columns in _ROWS
-        for target, sources in _INVARIANTS[form]
-        for source in sources
-        if normalize(form, columns[source]) != columns[target]
-    ]
+    failures: list[tuple[int, int, str]] = []
+    for part, lineno, columns in _ROWS:
+        failures.extend(
+            (lineno, part, ascii(columns[source]))
+            for target, sources in _INVARIANTS[form]
+            for source in sources
+            if normalize(form, columns[source]) != columns[target]
+        )
     assert failures == []
 
 

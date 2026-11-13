@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeAlias
 
 import pytest
@@ -262,7 +263,7 @@ _LANG_DOC: Final[str] = """<!doctype html>
 <math id="math-fr" lang="fr"><mi id="mi-fr">x</mi></math></div>
 """
 
-_DOCS: Final[dict[str, str]] = {"ids": _IDS_DOC, "forms": _FORMS_DOC, "lang": _LANG_DOC}
+_DOCS: Final[MappingProxyType[str, str]] = MappingProxyType({"ids": _IDS_DOC, "forms": _FORMS_DOC, "lang": _LANG_DOC})
 
 _SELECTORS: Final[tuple[str, ...]] = (
     # type, universal, and (ignored) namespace prefixes
@@ -458,16 +459,6 @@ _SELECTORS: Final[tuple[str, ...]] = (
 )
 
 
-def _ids(nodes: XPathValue) -> list[str]:
-    assert isinstance(nodes, list)
-    out: list[str] = []
-    for node in nodes:
-        assert isinstance(node, Element)
-        identifier = node.attrs.get("id")
-        out.append(identifier if isinstance(identifier, str) else "nil")
-    return out
-
-
 @pytest.fixture(scope="module")
 def documents() -> dict[str, Document]:
     return {name: parse(source) for name, source in _DOCS.items()}
@@ -478,6 +469,16 @@ def test_xpath_selects_the_same_nodes_from_the_document(selector: str, documents
     expression = css_to_xpath(selector)
     for name, document in documents.items():
         assert _ids(document.xpath(expression)) == _ids(document.select(selector)), (name, expression)
+
+
+def _ids(nodes: XPathValue) -> list[str]:
+    assert isinstance(nodes, list)
+    out: list[str] = []
+    for node in nodes:
+        assert isinstance(node, Element)
+        identifier = node.attrs.get("id")
+        out.append(identifier if isinstance(identifier, str) else "nil")
+    return out
 
 
 @pytest.mark.parametrize("selector", [pytest.param(selector, id=selector) for selector in _SELECTORS])

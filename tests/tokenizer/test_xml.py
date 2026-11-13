@@ -605,7 +605,8 @@ def test_default_declaration_of_a_plain_2000_length_uri_parses() -> None:
     ],
 )
 def test_attributes_with_distinct_expanded_names_are_allowed(markup: str) -> None:
-    parse_xml(markup)  # a shared prefix, URI, or local name alone is not a collision
+    # a shared prefix, URI, or local name alone is not a collision
+    assert len(root_of(parse_xml(markup)).attrs) == markup.count('="')
 
 
 def test_non_str_raises_type_error() -> None:

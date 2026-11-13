@@ -1110,7 +1110,7 @@ def test_attrs_contains() -> None:
 
 
 def test_attrs_keys_values_items() -> None:
-    attrs = _div('<div id="a" class="x y">').attrs
+    attrs = _div().attrs
     assert attrs.keys() == ["id", "class"]
     assert attrs.values() == ["a", ["x", "y"]]
     assert attrs.items() == [("id", "a"), ("class", ["x", "y"])]

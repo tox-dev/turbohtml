@@ -43,6 +43,7 @@ import sys
 import tempfile
 import textwrap
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
@@ -59,7 +60,7 @@ _CC: Final[str] = os.environ.get("CC", "clang")
 _ALLOCATORS: Final[tuple[str, ...]] = ("pymalloc", "malloc")
 # Each _fuzz_crash kind and the ASan report it must raise: the plain heap faults prove the instrumentation, the poisoned
 # kinds prove the fuzz build's own arena and wrapper-pool poisoning.
-_CRASHES: Final[dict[str, str]] = {
+_CRASHES: Final[MappingProxyType[str, str]] = MappingProxyType({
     "heap-buffer-overflow": "heap-buffer-overflow",
     "heap-use-after-free": "heap-use-after-free",
     "arena-overflow": "use-after-poison",
@@ -67,14 +68,14 @@ _CRASHES: Final[dict[str, str]] = {
     "schema-arena-overflow": "use-after-poison",
     "schema-arena-gap-overflow": "use-after-poison",
     "parked-wrapper": "use-after-poison",
-}
+})
 # MemorySanitizer flags a read only when every instruction that wrote the bytes was instrumented, so it runs on the
 # harnesses that link no interpreter; origin tracking 2 names the allocation behind each report (LLVM MemorySanitizer
 # documentation, "Origin Tracking")
-_SANITIZERS: Final[dict[str, tuple[str, ...]]] = {
+_SANITIZERS: Final[MappingProxyType[str, tuple[str, ...]]] = MappingProxyType({
     "address": ("-fsanitize=address,undefined",),
     "memory": ("-fsanitize=memory", "-fsanitize-memory-track-origins=2"),
-}
+})
 
 
 def main(argv: Sequence[str] | None = None) -> int:

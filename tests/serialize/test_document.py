@@ -7,6 +7,8 @@ import sys
 import textwrap
 from dataclasses import dataclass
 from html.entities import codepoint2name
+from itertools import product
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Protocol
 from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # parsing turbohtml's own output, not untrusted input
     ElementTree as ET,
@@ -441,7 +443,7 @@ for edit_name, edit in EDITS.items():
     iter_edits = ("extract", "decompose", "clear", "set-inner-html", "reparent-outside", "replace-with", "set-text")
     iter_layouts = ("compact", "indent", "xml")
     expected = "".join(
-        f"{edit} {layout} {_ITER_CHANGED}\n" for edit in iter_edits for layout in iter_layouts for _ in range(2)
+        f"{edit} {layout} {_ITER_CHANGED}\n" for edit, layout, _ in product(iter_edits, iter_layouts, range(2))
     )
     assert (result.returncode, result.stdout) == (0, expected), result.stderr
 
@@ -616,11 +618,11 @@ class _Render(Protocol):
     def __call__(self, root: Element, options: Html, *, inner: bool) -> str: ...
 
 
-_INDENT_RENDERS: Final[dict[str, _Render]] = {
+_INDENT_RENDERS: Final[MappingProxyType[str, _Render]] = MappingProxyType({
     "serialize": lambda root, options, *, inner: root.serialize(options, inner=inner),
     "encode": lambda root, options, *, inner: root.encode(options=options, inner=inner).decode(),
     "stream": lambda root, options, *, inner: "".join(root.serialize_iter(options, inner=inner)),
-}
+})
 
 
 @pytest.mark.parametrize(
@@ -2136,6 +2138,15 @@ def test_render_options_preserve_subclass_defaults(
     assert _render(options) == expected
 
 
+def _render(options: Html | PlainText | Canonical) -> str | bytes:
+    document: Final = parse('<p z="1" a="2"><img alt="picture"><!--note--></p>').select("p")[0]
+    if isinstance(options, Html):
+        return document.serialize(options)
+    if isinstance(options, PlainText):
+        return document.to_text(options)
+    return document.canonicalize(options)
+
+
 @pytest.mark.parametrize(
     "options",
     [
@@ -2147,12 +2158,3 @@ def test_render_options_preserve_subclass_defaults(
 def test_render_options_reject_subclass_extra_fields(options: Html | PlainText | Canonical) -> None:
     with pytest.raises(AttributeError, match="has no attribute 'extra'"):
         _render(options)
-
-
-def _render(options: Html | PlainText | Canonical) -> str | bytes:
-    document: Final = parse('<p z="1" a="2"><img alt="picture"><!--note--></p>').select("p")[0]
-    if isinstance(options, Html):
-        return document.serialize(options)
-    if isinstance(options, PlainText):
-        return document.to_text(options)
-    return document.canonicalize(options)

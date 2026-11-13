@@ -35,37 +35,6 @@ if TYPE_CHECKING:
 _NODE_T = TypeVar("_NODE_T", bound="Node")
 
 
-@dataclass(frozen=True, slots=True)
-class Removed:
-    """
-    One item a policy dropped, the shape :meth:`Sanitizer.sanitize_report` returns.
-
-    :param tag: the tag name of the dropped element, or of the element a dropped attribute was on.
-    :param attribute: the dropped attribute's name, or ``None`` when the element itself was dropped.
-    """
-
-    tag: str
-    attribute: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class Transform:
-    """
-    A rename rule for ``Policy.transform_tags``, sanitize-html's ``simpleTransform``.
-
-    Mapping a source tag to a bare string renames it; mapping it to a ``Transform`` renames it and adds attributes. The
-    added attributes are not trusted: they join the element's own attributes and go through the same allowlist and
-    URL/style scrubbing, so a transform cannot add an attribute the policy would otherwise strip.
-
-    :param tag: the target tag name to rename to.
-    :param attributes: attribute name/value pairs to add to the renamed element (added if absent, overwritten if
-        present).
-    """
-
-    tag: str
-    attributes: Mapping[str, str] = field(default_factory=dict)
-
-
 class OnDisallowed(Enum):
     """
     What to do with an element the policy does not allow.
@@ -135,8 +104,163 @@ _RELAXED_ATTRIBUTES: Final[Mapping[str, frozenset[str]]] = MappingProxyType({
 })
 
 
+def sanitize(html: str | Node, options: Policy | None = None) -> str:
+    """
+    Sanitize an HTML fragment against a policy.
+
+    :param html: the untrusted HTML fragment, or an already parsed node whose subtree to sanitize (see
+        :func:`sanitize_node`), which skips the parse.
+    :param options: the policy to enforce; None uses bleach's default allowlist.
+    :returns: the sanitized, safe HTML.
+    :raises TypeError: if a set-typed policy field (``tags``, ``url_schemes``, ``remove_with_content``,
+        ``css_properties``, ``attribute_prefixes``, ``media_hosts``) holds a value that is not a set or frozenset, or
+        ``attribute_prefixes`` contains a non-string.
+    :raises ValueError: if ``attribute_prefixes`` contains an empty string, which would match every attribute.
+    """
+    return Sanitizer(options).sanitize(html)
+
+
+class Sanitizer:
+    """
+    A reusable sanitizer; build it once from a :class:`Policy` and call :meth:`sanitize` from any thread.
+
+    :param options: the policy to enforce; None uses bleach's default allowlist.
+    :ivar policy: the policy the sanitizer enforces.
+    """
+
+    def __init__(self, options: Policy | None = None) -> None:
+        """Compile a policy into the form the C walk consumes."""
+        self.policy = options if options is not None else Policy()
+        (
+            self._attributes,
+            self._link_rel,
+            self._set_attributes,
+            self._attribute_values,
+            self._allowed_styles,
+            self._transform_tags,
+        ) = _sanitize_policy(
+            self.policy.attributes,
+            self.policy.add_link_rel,
+            self.policy.set_attributes,
+            self.policy.attribute_values,
+            self.policy.allowed_styles,
+            self.policy.transform_tags,
+            Transform,
+        )
+
+    def sanitize(self, html: str | Node) -> str:
+        """
+        Sanitize an HTML fragment.
+
+        :param html: the untrusted HTML fragment, or an already parsed node whose subtree to sanitize (see
+            :meth:`sanitize_node`), which skips the parse.
+        :returns: the sanitized, safe HTML.
+        :raises TypeError: if a set-typed policy field (``tags``, ``url_schemes``, ``remove_with_content``,
+            ``css_properties``, ``attribute_prefixes``, ``media_hosts``) holds a value that is not a set or frozenset,
+            or ``attribute_prefixes`` contains a non-string.
+        :raises ValueError: if ``attribute_prefixes`` contains an empty string, which would match every attribute.
+        """
+        return self._render(self._filter(html, None))
+
+    def _render(self, root: Node) -> str:
+        # Serialize the sanitized root's children as XML when the policy asks, else as HTML.
+        return root.inner_xml if self.policy.xml else root.inner_html
+
+    @overload
+    def _filter(self, html: _NODE_T, removed: list[tuple[str, str | None]] | None) -> _NODE_T: ...
+
+    @overload
+    def _filter(self, html: str, removed: list[tuple[str, str | None]] | None) -> Node: ...
+
+    def _filter(self, html: str | Node, removed: list[tuple[str, str | None]] | None) -> Node:
+        # Run the C walk over a freshly parsed fragment or a copy of a node, appending drops to ``removed``.
+        policy = self.policy
+        return _sanitize(
+            html,
+            policy.tags,
+            self._attributes,
+            policy.url_schemes,
+            policy.allow_relative_urls,
+            policy.allow_fragment_urls,
+            policy.on_disallowed_tag.value,
+            policy.strip_comments,
+            self._link_rel,
+            policy.attribute_filter,
+            self._set_attributes,
+            policy.remove_with_content,
+            policy.css_properties,
+            policy.attribute_prefixes,
+            self._attribute_values,
+            policy.media_hosts,
+            policy.strip_template_markers,
+            removed,
+            self._allowed_styles,
+            self._transform_tags,
+            policy.isolate_named_props,
+            policy.custom_element_check,
+            policy.custom_attribute_check,
+            policy.allow_customized_builtins,
+            policy.allow_html,
+            policy.allow_svg,
+            policy.allow_mathml,
+            policy.attribute_predicate,
+            policy._bleach_url_policy,  # ruff:ignore[private-member-access]  # bridge the migration-only C option
+            policy.xml,  # the XML serializer round-trips through parse_xml, so the HTML parse-stability pass is skipped
+        )
+
+    def sanitize_report(self, html: str | Node) -> tuple[str, list[Removed]]:
+        """
+        Sanitize a fragment and report what the policy dropped, the way DOMPurify populates ``DOMPurify.removed``.
+
+        Every disallowed element (removed, stripped, or escaped) and every stripped attribute becomes one
+        :class:`Removed` record, in the order the walk reached it, so a caller can log or tune a policy against
+        evidence instead of guessing.
+
+        :param html: the untrusted HTML fragment, or an already parsed node (see :meth:`sanitize_node`).
+        :returns: the sanitized HTML paired with the list of dropped items.
+        :raises TypeError: like :meth:`sanitize`, on a mistyped set-valued policy field.
+        :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
+        """
+        removed: list[tuple[str, str | None]] = []
+        return self._render(self._filter(html, removed)), list(starmap(Removed, removed))
+
+    def sanitize_node(self, node: _NODE_T) -> _NODE_T:
+        """
+        Sanitize an already parsed subtree and return the sanitized copy as a tree.
+
+        This is the tree-to-tree form for a pipeline that parses once, runs several transforms, and serializes once, the
+        way DOMPurify's ``RETURN_DOM`` hands back a DOM instead of a string. The node itself is the kept context, like
+        the fragment root of :meth:`sanitize`: the policy applies to its descendants, never to the node.
+
+        So pass the ``body`` of a document to clean what it holds, or a ``Document`` to have the policy judge the
+        ``html`` element itself (a ``bleach``-style allowlist then needs ``html``, ``head`` and ``body`` listed). The
+        copy lives in its own tree and inherits the source's XML flag; the source is left untouched.
+
+        :param node: the element or document whose subtree to sanitize.
+        :returns: a new node of the same kind holding the sanitized subtree.
+        :raises TypeError: if ``node`` is not a node, or on a mistyped set-valued policy field.
+        :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
+        """
+        return self._filter(_node_only(node), None)
+
+    def sanitize_report_node(self, node: _NODE_T) -> tuple[_NODE_T, list[Removed]]:
+        """
+        Sanitize an already parsed subtree and report what the policy dropped.
+
+        :meth:`sanitize_node` and :meth:`sanitize_report` combined: the copy comes back as a tree, the drops as
+        records.
+
+        :param node: the element or document whose subtree to sanitize.
+        :returns: the sanitized copy paired with one :class:`Removed` record per dropped element or attribute.
+        :raises TypeError: if ``node`` is not a node, or on a mistyped set-valued policy field.
+        :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
+        """
+        removed: list[tuple[str, str | None]] = []
+        return self._filter(_node_only(node), removed), list(starmap(Removed, removed))
+
+
 @dataclass(frozen=True)
-class Policy:
+class Policy:  # simplint: ignore[too-many-attributes]  # each field is a public keyword of the 1.x constructor
     r"""
     An immutable, thread-safe description of what sanitizing keeps.
 
@@ -306,143 +430,35 @@ class Policy:
         )
 
 
-class Sanitizer:
+@dataclass(frozen=True, slots=True)
+class Transform:
     """
-    A reusable sanitizer; build it once from a :class:`Policy` and call :meth:`sanitize` from any thread.
+    A rename rule for ``Policy.transform_tags``, sanitize-html's ``simpleTransform``.
 
-    :param options: the policy to enforce; None uses bleach's default allowlist.
-    :ivar policy: the policy the sanitizer enforces.
+    Mapping a source tag to a bare string renames it; mapping it to a ``Transform`` renames it and adds attributes. The
+    added attributes are not trusted: they join the element's own attributes and go through the same allowlist and
+    URL/style scrubbing, so a transform cannot add an attribute the policy would otherwise strip.
+
+    :param tag: the target tag name to rename to.
+    :param attributes: attribute name/value pairs to add to the renamed element (added if absent, overwritten if
+        present).
     """
 
-    def __init__(self, options: Policy | None = None) -> None:
-        """Compile a policy into the form the C walk consumes."""
-        self.policy = options if options is not None else Policy()
-        (
-            self._attributes,
-            self._link_rel,
-            self._set_attributes,
-            self._attribute_values,
-            self._allowed_styles,
-            self._transform_tags,
-        ) = _sanitize_policy(
-            self.policy.attributes,
-            self.policy.add_link_rel,
-            self.policy.set_attributes,
-            self.policy.attribute_values,
-            self.policy.allowed_styles,
-            self.policy.transform_tags,
-            Transform,
-        )
+    tag: str
+    attributes: Mapping[str, str] = field(default_factory=dict)
 
-    def sanitize(self, html: str | Node) -> str:
-        """
-        Sanitize an HTML fragment.
 
-        :param html: the untrusted HTML fragment, or an already parsed node whose subtree to sanitize (see
-            :meth:`sanitize_node`), which skips the parse.
-        :returns: the sanitized, safe HTML.
-        :raises TypeError: if a set-typed policy field (``tags``, ``url_schemes``, ``remove_with_content``,
-            ``css_properties``, ``attribute_prefixes``, ``media_hosts``) holds a value that is not a set or frozenset,
-            or ``attribute_prefixes`` contains a non-string.
-        :raises ValueError: if ``attribute_prefixes`` contains an empty string, which would match every attribute.
-        """
-        return self._render(self._filter(html, None))
+@dataclass(frozen=True, slots=True)
+class Removed:
+    """
+    One item a policy dropped, the shape :meth:`Sanitizer.sanitize_report` returns.
 
-    def _render(self, root: Node) -> str:
-        # Serialize the sanitized root's children as XML when the policy asks, else as HTML.
-        return root.inner_xml if self.policy.xml else root.inner_html
+    :param tag: the tag name of the dropped element, or of the element a dropped attribute was on.
+    :param attribute: the dropped attribute's name, or ``None`` when the element itself was dropped.
+    """
 
-    @overload
-    def _filter(self, html: _NODE_T, removed: list[tuple[str, str | None]] | None) -> _NODE_T: ...
-
-    @overload
-    def _filter(self, html: str, removed: list[tuple[str, str | None]] | None) -> Node: ...
-
-    def _filter(self, html: str | Node, removed: list[tuple[str, str | None]] | None) -> Node:
-        # Run the C walk over a freshly parsed fragment or a copy of a node, appending drops to ``removed``.
-        policy = self.policy
-        return _sanitize(
-            html,
-            policy.tags,
-            self._attributes,
-            policy.url_schemes,
-            policy.allow_relative_urls,
-            policy.allow_fragment_urls,
-            policy.on_disallowed_tag.value,
-            policy.strip_comments,
-            self._link_rel,
-            policy.attribute_filter,
-            self._set_attributes,
-            policy.remove_with_content,
-            policy.css_properties,
-            policy.attribute_prefixes,
-            self._attribute_values,
-            policy.media_hosts,
-            policy.strip_template_markers,
-            removed,
-            self._allowed_styles,
-            self._transform_tags,
-            policy.isolate_named_props,
-            policy.custom_element_check,
-            policy.custom_attribute_check,
-            policy.allow_customized_builtins,
-            policy.allow_html,
-            policy.allow_svg,
-            policy.allow_mathml,
-            policy.attribute_predicate,
-            policy._bleach_url_policy,  # ruff:ignore[private-member-access]  # bridge the migration-only C option
-            policy.xml,  # the XML serializer round-trips through parse_xml, so the HTML parse-stability pass is skipped
-        )
-
-    def sanitize_report(self, html: str | Node) -> tuple[str, list[Removed]]:
-        """
-        Sanitize a fragment and report what the policy dropped, the way DOMPurify populates ``DOMPurify.removed``.
-
-        Every disallowed element (removed, stripped, or escaped) and every stripped attribute becomes one
-        :class:`Removed` record, in the order the walk reached it, so a caller can log or tune a policy against
-        evidence instead of guessing.
-
-        :param html: the untrusted HTML fragment, or an already parsed node (see :meth:`sanitize_node`).
-        :returns: the sanitized HTML paired with the list of dropped items.
-        :raises TypeError: like :meth:`sanitize`, on a mistyped set-valued policy field.
-        :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
-        """
-        removed: list[tuple[str, str | None]] = []
-        return self._render(self._filter(html, removed)), list(starmap(Removed, removed))
-
-    def sanitize_node(self, node: _NODE_T) -> _NODE_T:
-        """
-        Sanitize an already parsed subtree and return the sanitized copy as a tree.
-
-        This is the tree-to-tree form for a pipeline that parses once, runs several transforms, and serializes once, the
-        way DOMPurify's ``RETURN_DOM`` hands back a DOM instead of a string. The node itself is the kept context, like
-        the fragment root of :meth:`sanitize`: the policy applies to its descendants, never to the node.
-
-        So pass the ``body`` of a document to clean what it holds, or a ``Document`` to have the policy judge the
-        ``html`` element itself (a ``bleach``-style allowlist then needs ``html``, ``head`` and ``body`` listed). The
-        copy lives in its own tree and inherits the source's XML flag; the source is left untouched.
-
-        :param node: the element or document whose subtree to sanitize.
-        :returns: a new node of the same kind holding the sanitized subtree.
-        :raises TypeError: if ``node`` is not a node, or on a mistyped set-valued policy field.
-        :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
-        """
-        return self._filter(_node_only(node), None)
-
-    def sanitize_report_node(self, node: _NODE_T) -> tuple[_NODE_T, list[Removed]]:
-        """
-        Sanitize an already parsed subtree and report what the policy dropped.
-
-        :meth:`sanitize_node` and :meth:`sanitize_report` combined: the copy comes back as a tree, the drops as
-        records.
-
-        :param node: the element or document whose subtree to sanitize.
-        :returns: the sanitized copy paired with one :class:`Removed` record per dropped element or attribute.
-        :raises TypeError: if ``node`` is not a node, or on a mistyped set-valued policy field.
-        :raises ValueError: like :meth:`sanitize`, on an empty ``attribute_prefixes`` entry.
-        """
-        removed: list[tuple[str, str | None]] = []
-        return self._filter(_node_only(node), removed), list(starmap(Removed, removed))
+    tag: str
+    attribute: str | None = None
 
 
 def _node_only(node: _NODE_T) -> _NODE_T:
@@ -451,22 +467,6 @@ def _node_only(node: _NODE_T) -> _NODE_T:
         msg = "sanitize_node takes a parsed node; pass a str to sanitize instead"
         raise TypeError(msg)
     return node
-
-
-def sanitize(html: str | Node, options: Policy | None = None) -> str:
-    """
-    Sanitize an HTML fragment against a policy.
-
-    :param html: the untrusted HTML fragment, or an already parsed node whose subtree to sanitize (see
-        :func:`sanitize_node`), which skips the parse.
-    :param options: the policy to enforce; None uses bleach's default allowlist.
-    :returns: the sanitized, safe HTML.
-    :raises TypeError: if a set-typed policy field (``tags``, ``url_schemes``, ``remove_with_content``,
-        ``css_properties``, ``attribute_prefixes``, ``media_hosts``) holds a value that is not a set or frozenset, or
-        ``attribute_prefixes`` contains a non-string.
-    :raises ValueError: if ``attribute_prefixes`` contains an empty string, which would match every attribute.
-    """
-    return Sanitizer(options).sanitize(html)
 
 
 def sanitize_report(html: str | Node, options: Policy | None = None) -> tuple[str, list[Removed]]:

@@ -125,14 +125,6 @@ def test_binding_read_that_moved_survives(source: str, options: JSMinify, expect
     assert minify_js(source, options) == expected
 
 
-def _run(code: str) -> str:
-    assert _NODE is not None  # the callers are skipped when node is unavailable
-    # the first node start on a cold Windows runner has taken over a minute on its own; the timeout
-    # is only here to bound a snippet that never returns, so it sits well clear of a slow launch
-    result = subprocess.run([_NODE, "-e", code], capture_output=True, text=True, timeout=300, check=False)  # ruff:ignore[subprocess-without-shell-equals-true]
-    return result.stdout + result.stderr
-
-
 @pytest.mark.skipif(_NODE is None, reason="node not available")
 @pytest.mark.parametrize(
     "snippet",
@@ -216,6 +208,14 @@ def _run(code: str) -> str:
 )
 def test_mangling_preserves_behavior(snippet: str) -> None:
     assert _run(snippet) == _run(minify_js(snippet))
+
+
+def _run(code: str) -> str:
+    assert _NODE is not None  # the callers are skipped when node is unavailable
+    # the first node start on a cold Windows runner has taken over a minute on its own; the timeout
+    # is only here to bound a snippet that never returns, so it sits well clear of a slow launch
+    result = subprocess.run([_NODE, "-e", code], capture_output=True, text=True, timeout=300, check=False)  # ruff:ignore[subprocess-without-shell-equals-true]
+    return result.stdout + result.stderr
 
 
 @pytest.mark.parametrize(

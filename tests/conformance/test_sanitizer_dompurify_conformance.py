@@ -58,35 +58,6 @@ _CASES: Final[list[tuple[int, str]]] = list(enumerate(_PAYLOADS))
 _IDS: Final[list[str]] = [f"{position:03d}" for position in range(len(_PAYLOADS))]
 
 
-@cache
-def _dompurify(mode: str) -> tuple[str, ...]:
-    # DOMPurify's output for the whole corpus under ``mode``, one Node process per mode (cached for the session).
-    request = json.dumps({"mode": mode, "inputs": _PAYLOADS})
-    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, node is the absolute path from shutil.which
-        [_NODE_BIN, str(_RUNNER)],
-        input=request,
-        capture_output=True,
-        text=True,
-        cwd=_NODE_DIR,
-        check=True,
-    )
-    return tuple(json.loads(result.stdout))
-
-
-def _dompurify_one(mode: str, html: str) -> str:
-    # DOMPurify's output for a single ad-hoc input (curated corpora that are not part of the fixture).
-    request = json.dumps({"mode": mode, "inputs": [html]})
-    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, node is the absolute path from shutil.which
-        [_NODE_BIN, str(_RUNNER)],
-        input=request,
-        capture_output=True,
-        text=True,
-        cwd=_NODE_DIR,
-        check=True,
-    )
-    return json.loads(result.stdout)[0]
-
-
 _PERMISSIVE_ATTRS: Final[MappingProxyType[str, frozenset[str]]] = MappingProxyType({"*": frozenset({"*"})})
 # DOMPurify removes these elements together with their contents; turbohtml matches with remove_with_content so the two
 # agree on script/style bodies rather than turbohtml leaking the body as inert text under a STRIP policy.
@@ -111,7 +82,7 @@ _BASE: Final[Policy] = Policy(
     on_disallowed_tag=OnDisallowed.STRIP,
     remove_with_content=_REMOVE_WITH_CONTENT,
 )
-_MODES: Final[dict[str, Policy]] = {
+_MODES: Final[MappingProxyType[str, Policy]] = MappingProxyType({
     "templates": replace(_BASE, strip_template_markers=True),
     "named-props": replace(_BASE, isolate_named_props=True),
     "custom-elements": replace(
@@ -122,7 +93,7 @@ _MODES: Final[dict[str, Policy]] = {
     "profile-html": replace(_BASE, allow_svg=False, allow_mathml=False),
     "profile-svg": replace(_BASE, allow_html=False, allow_mathml=False),
     "profile-mathml": replace(_BASE, allow_html=False, allow_svg=False),
-}
+})
 
 _URL_ATTRS: Final[frozenset[str]] = frozenset({
     "href",
@@ -145,25 +116,28 @@ _CSS_DANGER: Final[tuple[str, ...]] = (
 )
 
 
-def _attr_value(raw: str | list[str] | None) -> str:
-    # The lowercased attribute value, joining a duplicate-attribute list and reading a boolean attr as empty.
-    if raw is None:
-        return ""
-    return (" ".join(raw) if isinstance(raw, list) else raw).lower()
+@pytest.mark.parametrize("mode", list(_MODES), ids=list(_MODES))
+@pytest.mark.parametrize(("index", "payload"), _CASES, ids=_IDS)
+def test_turbohtml_is_inert_and_never_less_safe_than_dompurify(mode: str, index: int, payload: str) -> None:
+    # The absolute gate, over every DOMPurify config: turbohtml's output is inert, and every executable construct it
+    # keeps DOMPurify keeps too (so it is never a downgrade). Inertness makes the subset trivially hold; asserting both
+    # documents the head-to-head claim and would flag a regression that made turbohtml keep something new.
+    theirs = _live_danger(_dompurify(mode)[index])
+    ours = _live_danger(sanitize(payload, _MODES[mode]))
+    assert ours == [], f"sanitizer bypass under {mode}: {ours} survived {payload!r}"
+    assert set(ours) <= set(theirs), f"less safe than DOMPurify under {mode}: {ours} vs {theirs}"
 
 
-def _bad_scheme(value: str) -> bool:
-    # Whether a URL value resolves to a script-capable scheme once control/whitespace obfuscation is stripped.
-    return "".join(char for char in value if ord(char) > 0x20).startswith(("javascript:", "data:", "vbscript:"))
-
-
-def _dangerous_attribute(name: str, value: str) -> str | None:
-    # A label for an executable attribute: an ``on*`` handler, dangerous CSS on ``style``, or a scriptable URL.
-    if name.startswith("on"):
-        return f"@{name}"
-    if name == "style":
-        return "@style" if any(token in value for token in _CSS_DANGER) else None
-    return f"{name}={value[:32]}" if name in _URL_ATTRS and _bad_scheme(value) else None
+def _live_danger(html: str) -> list[str]:
+    # Reparse sanitized HTML and list every executable construct that survived; an empty list means inert.
+    survived: list[str] = []
+    stack = list(parse_fragment(html).children)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, Element):
+            survived.extend(_element_danger(node))
+            stack.extend(node.children)
+    return survived
 
 
 def _element_danger(node: Element) -> list[str]:
@@ -193,29 +167,52 @@ def _element_danger(node: Element) -> list[str]:
     return survived
 
 
-def _live_danger(html: str) -> list[str]:
-    # Reparse sanitized HTML and list every executable construct that survived; an empty list means inert.
-    survived: list[str] = []
-    stack = list(parse_fragment(html).children)
-    while stack:
-        node = stack.pop()
-        if isinstance(node, Element):
-            survived.extend(_element_danger(node))
-            stack.extend(node.children)
-    return survived
+def _attr_value(raw: str | list[str] | None) -> str:
+    # The lowercased attribute value, joining a duplicate-attribute list and reading a boolean attr as empty.
+    if raw is None:
+        return ""
+    return (" ".join(raw) if isinstance(raw, list) else raw).lower()
 
 
-def _canonical(html: str) -> str:
-    # A serialization-independent form: reparse, then emit namespace-tagged tags with attributes in sorted order.
-    def walk(node: Node) -> str:
-        if isinstance(node, Element):
-            attrs = sorted((k, _attr_value(v)) for k, v in node.attrs.items())
-            rendered = "".join(f" {name}={value!r}" for name, value in attrs)
-            body = "".join(walk(child) for child in node.children)
-            return f"<{node.namespace.value}:{node.tag}{rendered}>{body}</{node.tag}>"
-        return getattr(node, "data", "")
+def _bad_scheme(value: str) -> bool:
+    # Whether a URL value resolves to a script-capable scheme once control/whitespace obfuscation is stripped.
+    return "".join(char for char in value if ord(char) > 0x20).startswith(("javascript:", "data:", "vbscript:"))
 
-    return "".join(walk(child) for child in parse_fragment(html).children)
+
+def _dangerous_attribute(name: str, value: str) -> str | None:
+    # A label for an executable attribute: an ``on*`` handler, dangerous CSS on ``style``, or a scriptable URL.
+    if name.startswith("on"):
+        return f"@{name}"
+    if name == "style":
+        return "@style" if any(token in value for token in _CSS_DANGER) else None
+    return f"{name}={value[:32]}" if name in _URL_ATTRS and _bad_scheme(value) else None
+
+
+@cache
+def _dompurify(mode: str) -> tuple[str, ...]:
+    # DOMPurify's output for the whole corpus under ``mode``, one Node process per mode (cached for the session).
+    request = json.dumps({"mode": mode, "inputs": _PAYLOADS})
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, node is the absolute path from shutil.which
+        [_NODE_BIN, str(_RUNNER)],
+        input=request,
+        capture_output=True,
+        text=True,
+        cwd=_NODE_DIR,
+        check=True,
+    )
+    return tuple(json.loads(result.stdout))
+
+
+@pytest.mark.parametrize(("index", "payload"), _CASES, ids=_IDS)
+def test_templates_strip_every_opening_marker(index: int, payload: str) -> None:
+    # SAFE_FOR_TEMPLATES exists to stop re-injection when output is later rendered by a template engine; the vector is a
+    # delimiter that *opens* an evaluation ({{ , ${ , <%). turbohtml must leave none, and so must DOMPurify (oracle
+    # cross-check). A bare unmatched close delimiter is inert and is covered by the documented deviation below.
+    ours = _text_and_attrs(sanitize(payload, _MODES["templates"]))
+    theirs = _text_and_attrs(_dompurify("templates")[index])
+    template_openers = ("{{", "${", "<%")
+    assert not any(marker in ours for marker in template_openers), f"opening marker survived: {ours!r}"
+    assert not any(marker in theirs for marker in template_openers), f"DOMPurify left an opener: {theirs!r}"
 
 
 def _text_and_attrs(html: str) -> str:
@@ -230,30 +227,6 @@ def _text_and_attrs(html: str) -> str:
         else:
             parts.append(getattr(node, "data", ""))
     return "".join(parts)
-
-
-@pytest.mark.parametrize("mode", list(_MODES), ids=list(_MODES))
-@pytest.mark.parametrize(("index", "payload"), _CASES, ids=_IDS)
-def test_turbohtml_is_inert_and_never_less_safe_than_dompurify(mode: str, index: int, payload: str) -> None:
-    # The absolute gate, over every DOMPurify config: turbohtml's output is inert, and every executable construct it
-    # keeps DOMPurify keeps too (so it is never a downgrade). Inertness makes the subset trivially hold; asserting both
-    # documents the head-to-head claim and would flag a regression that made turbohtml keep something new.
-    theirs = _live_danger(_dompurify(mode)[index])
-    ours = _live_danger(sanitize(payload, _MODES[mode]))
-    assert ours == [], f"sanitizer bypass under {mode}: {ours} survived {payload!r}"
-    assert set(ours) <= set(theirs), f"less safe than DOMPurify under {mode}: {ours} vs {theirs}"
-
-
-@pytest.mark.parametrize(("index", "payload"), _CASES, ids=_IDS)
-def test_templates_strip_every_opening_marker(index: int, payload: str) -> None:
-    # SAFE_FOR_TEMPLATES exists to stop re-injection when output is later rendered by a template engine; the vector is a
-    # delimiter that *opens* an evaluation ({{ , ${ , <%). turbohtml must leave none, and so must DOMPurify (oracle
-    # cross-check). A bare unmatched close delimiter is inert and is covered by the documented deviation below.
-    ours = _text_and_attrs(sanitize(payload, _MODES["templates"]))
-    theirs = _text_and_attrs(_dompurify("templates")[index])
-    template_openers = ("{{", "${", "<%")
-    assert not any(marker in ours for marker in template_openers), f"opening marker survived: {ours!r}"
-    assert not any(marker in theirs for marker in template_openers), f"DOMPurify left an opener: {theirs!r}"
 
 
 _TEMPLATE_DEVIATIONS: Final[list[pytest.ParameterSet]] = [
@@ -271,6 +244,33 @@ _TEMPLATE_DEVIATIONS: Final[list[pytest.ParameterSet]] = [
 @pytest.mark.parametrize("payload", _TEMPLATE_DEVIATIONS)
 def test_templates_greedy_text_eating_deviation(payload: str) -> None:
     assert _canonical(sanitize(payload, _MODES["templates"])) == _canonical(_dompurify_one("templates", payload))
+
+
+def _canonical(html: str) -> str:
+    # A serialization-independent form: reparse, then emit namespace-tagged tags with attributes in sorted order.
+    def walk(node: Node) -> str:
+        if isinstance(node, Element):
+            attrs = sorted((k, _attr_value(v)) for k, v in node.attrs.items())
+            rendered = "".join(f" {name}={value!r}" for name, value in attrs)
+            body = "".join(walk(child) for child in node.children)
+            return f"<{node.namespace.value}:{node.tag}{rendered}>{body}</{node.tag}>"
+        return getattr(node, "data", "")
+
+    return "".join(walk(child) for child in parse_fragment(html).children)
+
+
+def _dompurify_one(mode: str, html: str) -> str:
+    # DOMPurify's output for a single ad-hoc input (curated corpora that are not part of the fixture).
+    request = json.dumps({"mode": mode, "inputs": [html]})
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, node is the absolute path from shutil.which
+        [_NODE_BIN, str(_RUNNER)],
+        input=request,
+        capture_output=True,
+        text=True,
+        cwd=_NODE_DIR,
+        check=True,
+    )
+    return json.loads(result.stdout)[0]
 
 
 _NAMED_PROPS_CORPUS: Final[list[pytest.ParameterSet]] = [

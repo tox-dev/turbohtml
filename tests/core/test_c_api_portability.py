@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 import pytest
@@ -10,22 +11,22 @@ _C_ROOT: Final[Path] = Path(__file__).parents[2] / "src" / "turbohtml" / "_c"
 _COMPAT_HEADER: Final[Path] = _C_ROOT / "core" / "pycompat.h"
 
 # the wrapper each guarded spelling must be reached through, and the pattern finding a direct use
-_WRAPPERS: Final[dict[str, re.Pattern[str]]] = {
+_WRAPPERS: Final[MappingProxyType[str, re.Pattern[str]]] = MappingProxyType({
     "TH_SEALED": re.compile(r"\bPy_TPFLAGS_DISALLOW_INSTANTIATION\b"),
     "th_copy_characters": re.compile(r"\bPyUnicode_CopyCharacters\s*\("),
     "th_str_format": re.compile(r"\bPyUnicode_FromFormatV?\s*\("),
     # the 4-byte literal is the one safe kind, so it stays a direct call
     "th_str_from_kind": re.compile(r"\bPyUnicode_FromKindAndData\s*\((?!PyUnicode_4BYTE_KIND)"),
-}
-
-
-def _sources() -> list[Path]:
-    return sorted(path for path in _C_ROOT.rglob("*") if path.suffix in {".c", ".h"} and path != _COMPAT_HEADER)
+})
 
 
 def test_the_c_sources_are_discovered() -> None:
     # a broken glob would make every guard below vacuously pass
     assert len(_sources()) > 50
+
+
+def _sources() -> list[Path]:
+    return sorted(path for path in _C_ROOT.rglob("*") if path.suffix in {".c", ".h"} and path != _COMPAT_HEADER)
 
 
 @pytest.mark.parametrize("wrapper", sorted(_WRAPPERS), ids=sorted(_WRAPPERS))

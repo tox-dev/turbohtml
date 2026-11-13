@@ -54,12 +54,12 @@ class _Located(TypedDict):
     attrs: dict[str, Span]
 
 
-def _p5_span(raw: list[int] | None) -> Span | None:
-    # Adapt a parse5 span to turbohtml's convention: columns drop from 1-based to 0-based, lines and offsets stay.
-    if raw is None:
-        return None
-    start_line, start_col, start_off, end_line, end_col, end_off = raw
-    return Span(start_line, start_col - 1, start_off, end_line, end_col - 1, end_off)
+@pytest.fixture(scope="module", params=_CORPORA, ids=_CORPORA)
+def paired(request: pytest.FixtureRequest) -> tuple[dict[int, _Located], dict[int, _Located]]:
+    # One corpus parsed by both engines, cached so parse5's subprocess runs once per document.
+    # The newline-normalized document, the source both parsers' offsets index into.
+    html = (_DATA / request.param / "data.html").read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    return _parse5(html), _turbohtml(html)
 
 
 def _parse5(html: str) -> dict[int, _Located]:
@@ -88,8 +88,12 @@ def _parse5(html: str) -> dict[int, _Located]:
     return located
 
 
-def _tb_span(span: SourceSpan) -> Span:
-    return Span(span.start_line, span.start_col, span.start_offset, span.end_line, span.end_col, span.end_offset)
+def _p5_span(raw: list[int] | None) -> Span | None:
+    # Adapt a parse5 span to turbohtml's convention: columns drop from 1-based to 0-based, lines and offsets stay.
+    if raw is None:
+        return None
+    start_line, start_col, start_off, end_line, end_col, end_off = raw
+    return Span(start_line, start_col - 1, start_off, end_line, end_col - 1, end_off)
 
 
 def _turbohtml(html: str) -> dict[int, _Located]:
@@ -114,12 +118,8 @@ def _turbohtml(html: str) -> dict[int, _Located]:
     return located
 
 
-@pytest.fixture(scope="module", params=_CORPORA, ids=_CORPORA)
-def paired(request: pytest.FixtureRequest) -> tuple[dict[int, _Located], dict[int, _Located]]:
-    # One corpus parsed by both engines, cached so parse5's subprocess runs once per document.
-    # The newline-normalized document, the source both parsers' offsets index into.
-    html = (_DATA / request.param / "data.html").read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
-    return _parse5(html), _turbohtml(html)
+def _tb_span(span: SourceSpan) -> Span:
+    return Span(span.start_line, span.start_col, span.start_offset, span.end_line, span.end_col, span.end_offset)
 
 
 def test_every_element_aligns_between_the_two_parsers(

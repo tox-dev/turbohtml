@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import string
 import sys
 import weakref
 from itertools import starmap
@@ -81,36 +82,6 @@ _SPEC: Final[
 )
 
 
-def _spec(**overrides: object) -> _PhoneSpec:
-    # Overrides stay unvalidated, so the binding's own checks are what a test exercises.
-    return cast(
-        "_PhoneSpec",
-        tuple(
-            starmap(
-                overrides.get,
-                zip(
-                    (
-                        "regions",
-                        "require_valid",
-                        "require_separators",
-                        "skip_card_numbers",
-                        "require_national_prefix",
-                        "collapse_whitespace",
-                        "grouping",
-                        "type_mask",
-                        "labels",
-                        "number_type",
-                        "types",
-                        "parsing_extensions",
-                    ),
-                    _SPEC,
-                    strict=True,
-                ),
-            )
-        ),
-    )
-
-
 def test_compile_returns_an_unconstructible_config() -> None:
     config = _phone_config_compile(_SPEC)
     assert type(config).__name__ == "_PhoneConfig"
@@ -158,6 +129,36 @@ def test_compile_rejects_malformed_specs(spec: list[_SpecItem] | tuple[_SpecItem
 )
 def test_compile_accepts_every_type_in_possible_mode(wanted: frozenset[PhoneType] | None) -> None:
     assert _phone_config_compile(_spec(require_valid=False, type_mask=wanted)) is not None
+
+
+def _spec(**overrides: object) -> _PhoneSpec:
+    # Overrides stay unvalidated, so the binding's own checks are what a test exercises.
+    return cast(
+        "_PhoneSpec",
+        tuple(
+            starmap(
+                overrides.get,
+                zip(
+                    (
+                        "regions",
+                        "require_valid",
+                        "require_separators",
+                        "skip_card_numbers",
+                        "require_national_prefix",
+                        "collapse_whitespace",
+                        "grouping",
+                        "type_mask",
+                        "labels",
+                        "number_type",
+                        "types",
+                        "parsing_extensions",
+                    ),
+                    _SPEC,
+                    strict=True,
+                ),
+            )
+        ),
+    )
 
 
 @pytest.mark.parametrize(
@@ -241,13 +242,12 @@ def test_compile_rejects_each_malformed_field(
 
 
 def test_compile_accepts_the_bounds() -> None:
+    letters: Final = str.maketrans(string.digits, string.ascii_lowercase[:10])
     assert (
         _phone_config_compile(
             _spec(
                 regions=("US", "GB", "DE", "FR", "IT", "ES", "NL", "BE"),
-                labels=tuple(
-                    f"l{''.join('abcdefghij'[int(digit)] for digit in f'{index:03d}')}" for index in range(256)
-                ),
+                labels=tuple(f"l{index:03d}".translate(letters) for index in range(256)),
                 type_mask=frozenset({PhoneType.FIXED_LINE}),
             )
         )

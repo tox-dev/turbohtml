@@ -25,58 +25,6 @@ if TYPE_CHECKING:
     from ._html import Document, Node
 
 
-class ValidationError(NamedTuple):
-    """
-    One schema violation.
-
-    :param message: a human-readable description of what failed.
-    :param path: the ``/root/child`` document-order path of the offending node.
-    :param line: the 1-based source line of the node, or ``0`` when unknown.
-    :param type: the violation category -- ``"structure"``, ``"datatype"``, or ``"facet"``.
-    """
-
-    message: str
-    path: str
-    line: int
-    type: str
-
-
-class ValidationResult(NamedTuple):
-    """
-    The outcome of validating a document: a ``valid`` flag and the errors found.
-
-    The result is truthy exactly when the document is valid, so ``if schema.validate(doc):``
-    reads naturally.
-
-    :param valid: whether the document is valid.
-    :param errors: the errors found, empty when the document is valid.
-    """
-
-    valid: bool
-    errors: tuple[ValidationError, ...]
-
-    def __bool__(self) -> bool:
-        """
-        Whether the document is valid, so the result reads as a truth value.
-
-        :returns: whether the document is valid.
-        """
-        return self.valid
-
-
-class SchemaValidationError(Exception):
-    """Raised by :meth:`XMLSchema.assert_valid` / :meth:`RelaxNG.assert_valid` when a document is invalid."""
-
-    def __init__(self, errors: tuple[ValidationError, ...]) -> None:
-        """
-        Carry the ``errors`` the failed validation produced, the first of which becomes the message.
-
-        :param errors: the errors the failed validation produced.
-        """
-        self.errors = errors
-        super().__init__(errors[0].message if errors else "document is invalid")
-
-
 class _Schema:
     # Shared machinery for the two schema languages; not instantiated directly.
     def __init__(self, compiled: object) -> None:
@@ -113,6 +61,58 @@ class _Schema:
         return ValidationResult(valid, tuple(starmap(ValidationError, errors)))
 
 
+class SchemaValidationError(Exception):
+    """Raised by :meth:`XMLSchema.assert_valid` / :meth:`RelaxNG.assert_valid` when a document is invalid."""
+
+    def __init__(self, errors: tuple[ValidationError, ...]) -> None:
+        """
+        Carry the ``errors`` the failed validation produced, the first of which becomes the message.
+
+        :param errors: the errors the failed validation produced.
+        """
+        self.errors = errors
+        super().__init__(errors[0].message if errors else "document is invalid")
+
+
+class ValidationResult(NamedTuple):
+    """
+    The outcome of validating a document: a ``valid`` flag and the errors found.
+
+    The result is truthy exactly when the document is valid, so ``if schema.validate(doc):``
+    reads naturally.
+
+    :param valid: whether the document is valid.
+    :param errors: the errors found, empty when the document is valid.
+    """
+
+    valid: bool
+    errors: tuple[ValidationError, ...]
+
+    def __bool__(self) -> bool:
+        """
+        Whether the document is valid, so the result reads as a truth value.
+
+        :returns: whether the document is valid.
+        """
+        return self.valid
+
+
+class ValidationError(NamedTuple):
+    """
+    One schema violation.
+
+    :param message: a human-readable description of what failed.
+    :param path: the ``/root/child`` document-order path of the offending node.
+    :param line: the 1-based source line of the node, or ``0`` when unknown.
+    :param type: the violation category -- ``"structure"``, ``"datatype"``, or ``"facet"``.
+    """
+
+    message: str
+    path: str
+    line: int
+    type: str
+
+
 class XMLSchema(_Schema):
     """
     A compiled XSD 1.0 schema.
@@ -129,6 +129,10 @@ class XMLSchema(_Schema):
         :param source: the schema as XSD text, or a schema document parsed with :func:`turbohtml.parse_xml`.
         """
         super().__init__(_schema_compile(0, _text(source)))
+
+
+def _text(source: str | Node) -> str:
+    return source if isinstance(source, str) else source.serialize()
 
 
 class RelaxNG(_Schema):
@@ -154,10 +158,6 @@ class RelaxNG(_Schema):
             references.
         """
         super().__init__(_schema_compile(1, _text(source), base_url, include_root))
-
-
-def _text(source: str | Node) -> str:
-    return source if isinstance(source, str) else source.serialize()
 
 
 __all__ = [

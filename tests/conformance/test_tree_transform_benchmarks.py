@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import shutil
 from importlib import import_module
+from itertools import product
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeAlias, cast
 
 import pytest
@@ -22,7 +24,7 @@ if TYPE_CHECKING:
 _MUTATORS: Final[tuple[str, ...]] = ("lxml", "beautifulsoup4", "beautifulsoup4_lxml", "selectolax")
 _OUTPUTS: Final[tuple[str, ...]] = (*_MUTATORS, "html5lib", "pyquery", "parsel")
 _MUTATIONS: Final[tuple[str, ...]] = ("collapse-whitespace", "strip-comments", "transform-tree")
-_FRAGMENTS: Final[dict[str, str]] = {
+_FRAGMENTS: Final[MappingProxyType[str, str]] = MappingProxyType({
     "comment-tail": "<p>a  <!--note--> b <b>c  d</b> e</p>",
     "unicode-escaping": "<p> café\t \u03b1\n😀 &amp; &lt; &gt; \u00a0 x </p>",
     "preserved": "<pre>a  b\n c</pre><textarea>d  e</textarea><p>x  y</p>",
@@ -31,31 +33,25 @@ _FRAGMENTS: Final[dict[str, str]] = {
     "foreign": "<svg><text>a  b</text></svg><p>x  y</p>",
     "root-text": "lead &amp; <br> tail <!--one--><!--two-->",
     "empty-adjacent-text": "<p>a <!--one--> <!--two--> b</p>",
-}
+})
 _CASES: Final[tuple[pytest.ParameterSet, ...]] = tuple(
     pytest.param(fragment, id=name) for name, fragment in _FRAGMENTS.items()
 )
 Tree: TypeAlias = "HtmlElement | BeautifulSoup | LexborHTMLParser"
-_RENDERERS: Final[dict[str, Callable[[Tree], str]]] = {
+_RENDERERS: Final[MappingProxyType[str, Callable[[Tree], str]]] = MappingProxyType({
     "lxml": lambda tree: import_module("lxml.html").tostring(cast("HtmlElement", tree), encoding="unicode"),
     "beautifulsoup4": str,
     "beautifulsoup4_lxml": str,
     "selectolax": lambda tree: cast("str", cast("LexborHTMLParser", tree).html),
-}
+})
 _NODE_BENCH: Final[Path] = Path(__file__).parents[2] / "tools/bench/node/node_modules"
-
-
-def _as_text(output: str | bytes) -> str:
-    return output.decode() if isinstance(output, bytes) else output
 
 
 @pytest.mark.parametrize(
     ("library", "operation", "fragment"),
     [
         pytest.param(library, operation, fragment, id=f"{library}-{operation}-{name}")
-        for library in _MUTATORS
-        for operation in _MUTATIONS
-        for name, fragment in _FRAGMENTS.items()
+        for library, operation, (name, fragment) in product(_MUTATORS, _MUTATIONS, _FRAGMENTS.items())
         if not (library == "selectolax" and "<template>" in fragment)
     ],
 )
@@ -96,6 +92,10 @@ def test_inner_output(library: str, operation: str, fragment: str) -> None:
     assert parse_fragment(_as_text(output)).serialize(Html(sort_attributes=True)) == parse_fragment(fragment).serialize(
         Html(sort_attributes=True)
     )
+
+
+def _as_text(output: str | bytes) -> str:
+    return output.decode() if isinstance(output, bytes) else output
 
 
 @pytest.mark.parametrize("library", ["lxml", "beautifulsoup4", "beautifulsoup4_lxml"])

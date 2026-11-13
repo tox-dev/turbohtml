@@ -298,6 +298,16 @@ def _sanitize(data: bytes) -> None:
     _equal(transform_node(node, strip_comments_node, collapse_whitespace_node).text, f"{text} x")
 
 
+def _text(data: bytes) -> str:
+    return f"value{data[:32].hex()}"
+
+
+def _equal(actual: _T, expected: _T) -> None:
+    if actual != expected:
+        msg = f"Content API mismatch: {actual!r} != {expected!r}"
+        raise AssertionError(msg)
+
+
 def _links(data: bytes) -> None:
     text: Final = _text(data)
     url: Final = f"https://example.com/{text}"
@@ -565,17 +575,7 @@ def sanitizer_check(
     _equal(render(data), (f"<b>{text}</b><b>{text}</b>", [Removed("b", "title"), Removed("b", "onclick")]))
 
 
-def _text(data: bytes) -> str:
-    return f"value{data[:32].hex()}"
-
-
 _T = TypeVar("_T")
-
-
-def _equal(actual: _T, expected: _T) -> None:
-    if actual != expected:
-        msg = f"Content API mismatch: {actual!r} != {expected!r}"
-        raise AssertionError(msg)
 
 
 __all__ = [

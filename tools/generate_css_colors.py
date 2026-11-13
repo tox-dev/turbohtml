@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 # The CSS Color 4 §6.1 named colors, each mapped to its six-digit sRGB value (the spec gives these as the normative
 # definition of every keyword). British ``grey`` spellings alias their ``gray`` twins; ``rebeccapurple`` is the Color 4
 # addition. ``transparent`` (§6.2) is handled separately below since it is the only keyword with a non-opaque value.
-_NAMED_COLORS: Final[dict[str, str]] = {
+_NAMED_COLORS: Final[MappingProxyType[str, str]] = MappingProxyType({
     "aliceblue": "f0f8ff",
     "antiquewhite": "faebd7",
     "aqua": "00ffff",
@@ -175,7 +176,7 @@ _NAMED_COLORS: Final[dict[str, str]] = {
     "whitesmoke": "f5f5f5",
     "yellow": "ffff00",
     "yellowgreen": "9acd32",
-}
+})
 
 # transparent is rgba(0,0,0,0); its four-digit hash #0000 is shorter than the keyword (CSS Color 4 §6.2).
 _TRANSPARENT_HASH: Final[str] = "#0000"

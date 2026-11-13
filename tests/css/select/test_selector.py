@@ -21,10 +21,6 @@ _DOC: Final[str] = (
 _NON_OVERLAPPING_NEEDLE: Final[str] = "".join(chr(0x100 + index) for index in range(70))
 
 
-def _sel(html: str, selector: str) -> list[str]:
-    return [element.tag for element in parse(html).select(selector)]
-
-
 @pytest.mark.parametrize(
     ("selector", "tags"),
     [
@@ -102,6 +98,10 @@ def _sel(html: str, selector: str) -> list[str]:
 )
 def test_select_over_doc(selector: str, tags: list[str]) -> None:
     assert _sel(_DOC, selector) == tags
+
+
+def _sel(html: str, selector: str) -> list[str]:
+    return [element.tag for element in parse(html).select(selector)]
 
 
 @pytest.mark.parametrize(

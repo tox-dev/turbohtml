@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import partial
 from html import escape
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
 import turbohtml as dom
@@ -483,7 +484,7 @@ class DomObservation(NamedTuple):
             raise AssertionError((self.actual, self.expected))
 
 
-_OBSERVERS: Final[dict[str, Callable[[str], DomObservation]]] = {
+_OBSERVERS: Final[MappingProxyType[str, Callable[[str], DomObservation]]] = MappingProxyType({
     "dom-construction": _construction,
     "dom-elementtree": _elementtree,
     "dom-traversal": _traversal,
@@ -495,8 +496,8 @@ _OBSERVERS: Final[dict[str, Callable[[str], DomObservation]]] = {
     "dom-rewrite": _rewrite,
     "dom-sax": _sax,
     "dom-treebuild": _tree,
-}
-_OWNERS: Final[dict[str, tuple[str, ...]]] = {
+})
+_OWNERS: Final[MappingProxyType[str, tuple[str, ...]]] = MappingProxyType({
     "dom-construction": tuple(
         f"turbohtml.{name}"
         for name in (
@@ -587,7 +588,7 @@ _OWNERS: Final[dict[str, tuple[str, ...]]] = {
         )
     ),
     "dom-treebuild": ("turbohtml.treebuild.TreeBuilder", "turbohtml.treebuild.parse_into"),
-}
+})
 __all__ = [
     "DomObservation",
     "dom_observation",

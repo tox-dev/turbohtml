@@ -36,10 +36,6 @@ if TYPE_CHECKING:
     from turbohtml import DocumentFragment, Node
 
 
-def _doc(html: str) -> str:
-    return _parse_tree(html).rstrip("\n")
-
-
 # Several cases below pin otherwise-unreached decision branches in the tree builder.
 # gcov scores each operand of a short-circuit condition separately, so they pin the
 # rarer operand value (a non-newline after <pre>, a hidden-input type with a low-ASCII
@@ -398,6 +394,10 @@ _LONG_NAME: Final[str] = "z" * 130
 )
 def test_document_paths(html: str, needle: str) -> None:
     assert needle in _doc(html)
+
+
+def _doc(html: str) -> str:
+    return _parse_tree(html).rstrip("\n")
 
 
 @pytest.mark.parametrize(
@@ -792,11 +792,6 @@ _CJK: Final[str] = "東京都港区六本木ヒルズ森タワー"  # UCS-2
 _EMOJI: Final[str] = "😀🎉🚀🐍🌟🔥💡"  # UCS-4
 
 
-def _body_text(html: str) -> str:
-    # The serialized document tree for a whole-document parse.
-    return _parse_tree(html).rstrip("\n")
-
-
 @pytest.mark.parametrize(
     ("html", "needle"),
     [
@@ -820,6 +815,11 @@ def _body_text(html: str) -> str:
 )
 def test_wide_character_data(html: str, needle: str) -> None:
     assert needle in _body_text(html)
+
+
+def _body_text(html: str) -> str:
+    # The serialized document tree for a whole-document parse.
+    return _parse_tree(html).rstrip("\n")
 
 
 @pytest.mark.parametrize(
@@ -1497,22 +1497,6 @@ _PATHOLOGICAL: Final[int] = 20000
 _DEEP: Final[int] = 1_200
 
 
-def _nested(tag: str, levels: int, text: str | None = "X") -> Element:
-    return _nested_with_deepest(tag, levels, text)[0]
-
-
-def _nested_with_deepest(tag: str, levels: int, text: str | None) -> tuple[Element, Element]:
-    root = Element(tag)
-    node = root
-    for _ in range(levels):
-        child = Element(tag)
-        node.append(child)
-        node = child
-    if text is not None:
-        node.append(Text(text))
-    return root, node
-
-
 def test_deeply_nested_parse_caps_element_depth() -> None:
     doc = parse("<div>" * _PATHOLOGICAL)
     assert _max_element_depth(doc) <= 520  # bounded near the 512 cap, not ~20000
@@ -1573,6 +1557,22 @@ def test_deep_mutated_text_and_serialization_are_complete() -> None:
         _DEEP + 1,
         True,
     )
+
+
+def _nested(tag: str, levels: int, text: str | None = "X") -> Element:
+    return _nested_with_deepest(tag, levels, text)[0]
+
+
+def _nested_with_deepest(tag: str, levels: int, text: str | None) -> tuple[Element, Element]:
+    root = Element(tag)
+    node = root
+    for _ in range(levels):
+        child = Element(tag)
+        node.append(child)
+        node = child
+    if text is not None:
+        node.append(Text(text))
+    return root, node
 
 
 def test_find_text_reads_a_deep_programmatic_tree() -> None:

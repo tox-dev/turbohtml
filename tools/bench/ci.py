@@ -18,6 +18,7 @@ one takes its place without CodSpeed reading the input change as a regression.
 from __future__ import annotations
 
 from functools import cache, partial
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 from . import corpus
@@ -147,7 +148,7 @@ def _book_html() -> str:
 #
 # ``structured_data()`` likewise has a new identity now that each call copies one immutable tree snapshot before
 # extraction; its old baseline measured six independent reads without the snapshot guarantee.
-_RESIZED: Final[dict[str, tuple[str, Callable[[], Case]]]] = {
+_RESIZED: Final[MappingProxyType[str, tuple[str, Callable[[], Case]]]] = MappingProxyType({
     "socialcard": ("socialcard-spec", _spec),
     "structured": ("structured-snapshot-spec", _spec),
     "sanitize": ("sanitize-spec", _spec),
@@ -178,8 +179,8 @@ _RESIZED: Final[dict[str, tuple[str, Callable[[], Case]]]] = {
     "detect": ("detect-book", lambda: ("find", _book_text())),
     "normalize": ("normalize-decomposed", lambda: INPUTS["normalize"]()[2][1]),
     "decode": ("decode-gb18030-ranges", lambda: INPUTS["decode"]()[1][1]),
-}
-_ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
+})
+_ADDITIONAL_CASES: Final[MappingProxyType[str, tuple[str, int]]] = MappingProxyType({
     "encoding-result-ascii": ("encoding-result", 1),
     "encoding-result-bom": ("encoding-result", 2),
     "encoding-result-stream-ascii": ("encoding-result-stream", 1),
@@ -534,7 +535,7 @@ _ADDITIONAL_CASES: Final[dict[str, tuple[str, int]]] = {
     "treebuild-tiny": ("treebuild", len(REAL_PAGES) + 10),
     "treebuild-foreign": ("treebuild", len(REAL_PAGES) + 11),
     "treebuild-callbacks": ("treebuild", len(REAL_PAGES) + 12),
-}
+})
 
 
 def _inline(operation: str, case_index: int = 0) -> Case:

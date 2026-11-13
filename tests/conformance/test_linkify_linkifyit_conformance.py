@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from itertools import starmap
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final, NamedTuple
 
 import pytest
@@ -23,7 +24,7 @@ if not _FIXTURES.exists():  # pragma: no cover
 
 # Where turbohtml deliberately answers differently, keyed by the fixture line, valued as (turbohtml's first match or
 # None, why). Each reason is a documented design boundary, not an unfixed defect.
-_DEVIATIONS: Final[dict[str, tuple[None, str] | tuple[str, str]]] = {
+_DEVIATIONS: Final[MappingProxyType[str, tuple[None, str] | tuple[str, str]]] = MappingProxyType({
     "//localhost": (None, "a dotless authority needs its scheme written"),
     "//test.123": (None, "a numeric top-level label needs its scheme written"),
     "//[2001:db8:0:0:0:0:2:1]/abc": (None, "an IP literal needs its scheme written"),
@@ -60,7 +61,7 @@ _DEVIATIONS: Final[dict[str, tuple[None, str] | tuple[str, str]]] = {
         "http://[1:2:3:4:5:6:7:8:9]/",
         "the brackets bound the literal; the address is not parsed",
     ),
-}
+})
 
 
 _LINES_PATTERN: Final[re.Pattern[str]] = re.compile(r"^%.*")
@@ -86,12 +87,6 @@ def _link_cases() -> list[tuple[str, str]]:
     return cases
 
 
-def _first(text: str) -> str | None:
-    # Return the text of the first link turbohtml finds, or None.
-    spans = LinkDetector().find(text)
-    return spans[0].text if spans else None
-
-
 class _Expectation(NamedTuple):
     text: str
     expected: str | None
@@ -105,15 +100,21 @@ def _with_deviation(text: str, expected: str | None) -> _Expectation:
     return _Expectation(text, expected, "linkify-it finds the same match")
 
 
-_LINKS: Final[list[tuple[str, str | None, str]]] = list(starmap(_with_deviation, _link_cases()))
-_NOT_LINKS: Final[list[tuple[str, str | None, str]]] = [
+_LINKS: Final[tuple[tuple[str, str | None, str], ...]] = tuple(starmap(_with_deviation, _link_cases()))
+_NOT_LINKS: Final[tuple[tuple[str, str | None, str], ...]] = tuple(
     _with_deviation(line, None) for line in _lines("not_links.txt") if line.strip()
-]
+)
 
 
 @pytest.mark.parametrize(("text", "expected", "reason"), [pytest.param(*case, id=case[0]) for case in _LINKS])
 def test_linkifyit_links_fixture(text: str, expected: str | None, reason: str) -> None:
     assert _first(text) == expected, reason
+
+
+def _first(text: str) -> str | None:
+    # Return the text of the first link turbohtml finds, or None.
+    spans = LinkDetector().find(text)
+    return spans[0].text if spans else None
 
 
 @pytest.mark.parametrize(("text", "expected", "reason"), [pytest.param(*case, id=case[0]) for case in _NOT_LINKS])

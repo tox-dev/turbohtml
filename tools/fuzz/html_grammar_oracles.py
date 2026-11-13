@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+from itertools import product
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, cast
 
 from turbohtml import Element, Node, Text, parse_fragment
@@ -25,11 +27,7 @@ def html_sibling_seeds() -> list[str]:
     # Sweep structural, attribute and terminal productions.
     return [
         f"{tag}:{attribute}:{quote}:{count}:{leaf}"
-        for tag in _TAGS
-        for attribute in _ATTRIBUTES
-        for quote in _QUOTES
-        for count in range(1, 5)
-        for leaf in _LEAVES
+        for tag, attribute, quote, count, leaf in product(_TAGS, _ATTRIBUTES, _QUOTES, range(1, 5), _LEAVES)
     ]
 
 
@@ -115,13 +113,13 @@ _CASE: Final[re.Pattern[str]] = re.compile(
 )
 _TAGS: Final[tuple[str, ...]] = ("span", "em", "code")
 _ATTRIBUTES: Final[tuple[str, ...]] = ("title", "data-x")
-_QUOTES: Final[dict[str, str]] = {"single": "'", "double": '"', "bare": ""}
-_LEAVES: Final[dict[str, tuple[str, str, str, str]]] = {
+_QUOTES: Final[MappingProxyType[str, str]] = MappingProxyType({"single": "'", "double": '"', "bare": ""})
+_LEAVES: Final[MappingProxyType[str, tuple[str, str, str, str]]] = MappingProxyType({
     "empty": ("", "", "Token", "Token"),
     "plain": ("MiXeD", "MiXeD", "Token", "Token"),
     "named": ("&amp;&lt;&gt;", "&<>", "&quot;&apos;&amp;", "\"'&"),
     "numeric": ("&#65;&#x42;&#67;", "ABC", "&#x26;&#34;", '&"'),
-}
+})
 
 __all__ = [
     "UnsupportedHtmlSiblingCaseError",

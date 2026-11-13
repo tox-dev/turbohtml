@@ -7,6 +7,7 @@ import random
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NamedTuple
 
 from fuzz.structure_generators import (
@@ -208,10 +209,7 @@ def _edges(children: tuple[_Meaning, ...]) -> _Edges:
 
 
 def _peel(inner: list[_Meaning], outside: list[_Meaning], edge: int, *, breaks: bool) -> None:
-    spaces = frozenset(" \t\n\f\r")
-    while inner and (
-        (breaks and inner[edge][0] == "br") or (inner[edge][0] == "#text" and inner[edge][1][0][1][edge:][:1] in spaces)
-    ):
+    while inner and _peelable(inner[edge], edge, breaks=breaks):
         text: str = inner[edge][1][0][1] if inner[edge][0] == "#text" else ""
         kept: str = text.lstrip(" \t\n\f\r") if edge == 0 else text.rstrip(" \t\n\f\r")
         if not kept:
@@ -222,6 +220,12 @@ def _peel(inner: list[_Meaning], outside: list[_Meaning], edge: int, *, breaks: 
         )
         outside.insert(0 if edge else len(outside), space)
         inner[edge] = _Meaning("#text", (("value", kept),), ())
+
+
+def _peelable(node: _Meaning, edge: int, *, breaks: bool) -> bool:
+    if node.tag == "br":
+        return breaks
+    return node.tag == "#text" and node.attributes[0][1][edge:][:1] in frozenset(" \t\n\f\r")
 
 
 class _Edges(NamedTuple):
@@ -480,6 +484,19 @@ def _tree(node: Element) -> _TreeNode:
     )
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _TreeNode:
+    # Mirror the element/text/tail shape the meaning walk reads, built from turbohtml's own tree.
+    tag: str
+    attrib: dict[str, str]
+    text: str = ""
+    tail: str = ""
+    children: list[_TreeNode] = field(default_factory=list)
+
+    def __iter__(self) -> Iterator[_TreeNode]:
+        return iter(self.children)
+
+
 class MarkdownProfileError(ValueError):
     # Keep unsupported HTML semantics outside the Markdown conversion profile.
     ...
@@ -503,19 +520,6 @@ _ATTRIBUTES_PATTERN: Final[re.Pattern[str]] = re.compile(r"[\t\n\r]")
 
 
 _LINE_PATTERN: Final[re.Pattern[str]] = re.compile(r"[ \t\n\f\r]+")
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class _TreeNode:
-    # Mirror the element/text/tail shape the meaning walk reads, built from turbohtml's own tree.
-    tag: str
-    attrib: dict[str, str]
-    text: str = ""
-    tail: str = ""
-    children: list[_TreeNode] = field(default_factory=list)
-
-    def __iter__(self) -> Iterator[_TreeNode]:
-        return iter(self.children)
 
 
 class _FaithfulMarkdown(MarkdownIt):
@@ -807,14 +811,14 @@ _HIDDEN: Final[frozenset[str]] = frozenset({
     "title",
 })
 # the WHATWG content models of the containers whose Markdown syntax can hold nothing else (4.4.5-4.4.8, 4.9)
-_CONTENT_MODEL: Final[dict[str, frozenset[str]]] = {
+_CONTENT_MODEL: Final[MappingProxyType[str, frozenset[str]]] = MappingProxyType({
     "ul": frozenset({"li", "script"}),
     "ol": frozenset({"li", "script"}),
     "table": frozenset({"thead", "tbody", "tr", "script"}),
     "thead": frozenset({"tr", "script"}),
     "tbody": frozenset({"tr", "script"}),
     "tr": frozenset({"td", "th", "script"}),
-}
+})
 _READER: Final[_FaithfulMarkdown] = _FaithfulMarkdown("gfm-like", {"linkify": False}, renderer_cls=_FaithfulAltRenderer)
 _RAW_GRAMMAR: Final[Grammar] = _raw_grammar()
 _HTML_GRAMMAR: Final[Grammar] = _html_grammar()

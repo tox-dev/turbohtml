@@ -21,7 +21,8 @@ def translate(selector: str) -> None:
 
 def specificity(selector: str) -> None:
     # Weigh each selector in a list with cssselect, the (a, b, c) triple per parsed arm.
-    [parsed.specificity() for parsed in parse(selector)]
+    for parsed in parse(selector):
+        parsed.specificity()
 
 
 OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {

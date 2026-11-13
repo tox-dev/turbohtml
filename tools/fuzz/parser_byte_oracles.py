@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 from turbohtml import IncrementalParser, parse
@@ -83,7 +84,7 @@ def _stream_bytes(data: bytes, label: str, width: int) -> tuple[str, str | None]
 _PARSER_BYTES_CHECK_PATTERN: Final[re.Pattern[str]] = re.compile(r"[a-z][a-z0-9]{0,15}")
 
 
-_FIXTURES: Final[dict[str, tuple[str, str, bytes, bytes, str, str]]] = {
+_FIXTURES: Final[MappingProxyType[str, tuple[str, str, bytes, bytes, str, str]]] = MappingProxyType({
     "utf8": ("utf-8", "UTF-8", b"", b"caf\xc3\xa9 \xe6\x97\xa5\xe6\x9c\xac\xf0\x9f\x98\x80", "café 日本😀", "ascii"),
     "shift-jis": ("shift_jis", "Shift_JIS", b"", b"\x93\xfa\x96{\x8c\xea", "日本語", "ascii"),
     "iso-2022-jp": ("iso-2022-jp", "ISO-2022-JP", b"", b"\x1b$BF|K\\8l\x1b(B", "日本語", "ascii"),
@@ -91,7 +92,7 @@ _FIXTURES: Final[dict[str, tuple[str, str, bytes, bytes, str, str]]] = {
     "utf8-bom": ("windows-1252", "UTF-8", b"\xef\xbb\xbf", b"\xc3\xa9", "é", "ascii"),
     "utf16le-bom": ("windows-1252", "UTF-16LE", b"\xff\xfe", b"\xe9\x00", "é", "utf-16-le"),
     "utf16be-bom": ("utf-8", "UTF-16BE", b"\xfe\xff", b"\x00\xe9", "é", "utf-16-be"),
-}
+})
 
 
 __all__ = [

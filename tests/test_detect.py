@@ -233,7 +233,7 @@ def test_non_bytes_input_is_rejected() -> None:
 # Content-based language detection (roadmap #459) scores a character-trigram rank model: the samples below detect their
 # language exactly, and the detector is validated bit-for-bit against whatlang's own Method::Trigram on all 69 entries
 # of its example corpus, confidence to 1e-6 included.
-_LANGUAGE_CASES: Final[list[tuple[str, str, str]]] = [
+_LANGUAGE_CASES: Final[tuple[tuple[str, str, str], ...]] = (
     ("There is no reason not to learn a new language every single year of your life.", "eng", "Latin"),
     ("Die Ordnung muss für immer in diesem Codebase bleiben und zuverlässig funktionieren.", "deu", "Latin"),
     ("Además de todo lo anteriormente dicho, también encontramos que resulta muy útil.", "spa", "Latin"),
@@ -256,7 +256,7 @@ _LANGUAGE_CASES: Final[list[tuple[str, str, str]]] = [
     ("한국어는 매우 아름다운 언어이며 배우기 쉽고 아주 재미있는 언어입니다 정말로요.", "kor", "Hangul"),
     ("ภาษาไทยเป็นภาษาที่สวยงามและมีประวัติศาสตร์อันยาวนานมากในภูมิภาคนี้ครับ", "tha", "Thai"),
     ("ქართული ენა არის ერთ-ერთი უძველესი ენა მსოფლიოში და მას აქვს საკუთარი ანბანი.", "kat", "Georgian"),
-]
+)
 
 
 @pytest.mark.parametrize(("text", "language", "script"), [pytest.param(*case, id=case[1]) for case in _LANGUAGE_CASES])
@@ -1079,11 +1079,11 @@ def test_detect_first_record_matches_ranked_and_streamed(data: bytes, options: D
     assert detect(data, options) == detector.close() == expected
 
 
-_ENCODING_RESULTS: Final[list[tuple[int, str, str]]] = [
+_ENCODING_RESULTS: Final[tuple[tuple[int, str, str], ...]] = (
     (0, "déjà vu, bientôt à Paris", "legacy"),
     (1, "A short plain message", "ascii"),
     (2, "hello", "bom"),
-]
+)
 _MISDECODED_XFAIL: Final[pytest.MarkDecorator] = pytest.mark.xfail(
     strict=True, reason="Detector misdecodes the CP1252 fixture instead of preserving its accented text"
 )

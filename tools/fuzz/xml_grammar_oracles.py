@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+from itertools import product
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 from turbohtml import Document, Element, Html, Node, Text, parse_xml
@@ -24,11 +26,7 @@ def xml_literal_seeds() -> list[str]:
     # Cover the finite productions without random sampling gaps.
     return [
         f"{prefix}:{tag}:{quote}:{count}:{leaf}"
-        for prefix in _PREFIXES
-        for tag in _TAGS
-        for quote in _QUOTES
-        for count in range(1, 4)
-        for leaf in _LEAVES
+        for prefix, tag, quote, count, leaf in product(_PREFIXES, _TAGS, _QUOTES, range(1, 4), _LEAVES)
     ]
 
 
@@ -140,13 +138,13 @@ _CASE: Final[re.Pattern[str]] = re.compile(
 )
 _PREFIXES: Final[tuple[str, ...]] = ("p", "P")
 _TAGS: Final[tuple[str, ...]] = ("Leaf", "leaf")
-_QUOTES: Final[dict[str, str]] = {"single": "'", "double": '"'}
-_LEAVES: Final[dict[str, tuple[str, str, str, str]]] = {
+_QUOTES: Final[MappingProxyType[str, str]] = MappingProxyType({"single": "'", "double": '"'})
+_LEAVES: Final[MappingProxyType[str, tuple[str, str, str, str]]] = MappingProxyType({
     "plain": ("MiXeD", "MiXeD", "Value", "Value"),
     "escaped": ("&amp;&lt;&gt;", "&<>", "&quot;&apos;&amp;&lt;", "\"'&<"),
     "literal": ("a\tb\r\nc\rd", "a\tb\nc\nd", "a\tb\r\nc\rd", "a b c d"),
     "numeric": ("a&#9;b&#10;c&#13;d", "a\tb\nc\rd", "a&#9;b&#10;c&#13;d", "a\tb\nc\rd"),
-}
+})
 
 __all__ = [
     "UnsupportedXmlLiteralCaseError",

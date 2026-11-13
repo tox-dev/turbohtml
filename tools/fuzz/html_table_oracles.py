@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+from itertools import product
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, cast
 
 from turbohtml import Element, Node, Text, parse_fragment
@@ -20,13 +22,7 @@ def html_table_generate(rng: random.Random) -> str:
 
 def html_table_seeds() -> list[str]:
     # Cover row-group insertion without relying on random draws.
-    return [
-        f"{cell}:{group}:{count}:{leaf}"
-        for cell in _CELLS
-        for group in _GROUPS
-        for count in _COUNTS
-        for leaf in _LEAVES
-    ]
+    return [f"{cell}:{group}:{count}:{leaf}" for cell, group, count, leaf in product(_CELLS, _GROUPS, _COUNTS, _LEAVES)]
 
 
 def html_table_controls() -> dict[str, bool]:
@@ -127,11 +123,11 @@ _CASE: Final[re.Pattern[str]] = re.compile(
 _CELLS: Final[tuple[str, ...]] = ("td", "th")
 _GROUPS: Final[tuple[str, ...]] = ("explicit", "implied")
 _COUNTS: Final[tuple[int, ...]] = (1, 2)
-_LEAVES: Final[dict[str, tuple[str, str]]] = {
+_LEAVES: Final[MappingProxyType[str, tuple[str, str]]] = MappingProxyType({
     "plain": ("MiXeD", "MiXeD"),
     "named": ("&amp;&lt;&gt;", "&<>"),
     "numeric": ("&#65;&#x42;&#67;", "ABC"),
-}
+})
 
 __all__ = [
     "UnsupportedHtmlTableCaseError",

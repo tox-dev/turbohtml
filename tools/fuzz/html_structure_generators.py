@@ -7,6 +7,7 @@ from collections import deque
 from dataclasses import dataclass
 from functools import cache
 from html import escape
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 from fuzz.html_generation_tables import (
@@ -361,7 +362,7 @@ _ATTRIBUTE: Final[re.Pattern[str]] = re.compile(
     r'(?P<name>(?#attribute name starting with a letter)[a-zA-Z][a-zA-Z0-9:_-]*)(?#equals and opening quote)="'
     r'(?P<value>(?#value without quotes)[^"]*)(?#closing quote)"'
 )
-_PRIMITIVES: Final[dict[str, bytes]] = {
+_PRIMITIVES: Final[MappingProxyType[str, bytes]] = MappingProxyType({
     "elementid": b"x",
     "class": b"a",
     "import": b"",
@@ -377,11 +378,11 @@ _PRIMITIVES: Final[dict[str, bytes]] = {
     "space": b" ",
     "cr": b"\r",
     "lf": b"\n",
-}
+})
 
-_TAG_ORIGINS: Final[dict[str, str]] = {
+_TAG_ORIGINS: Final[MappingProxyType[str, str]] = MappingProxyType({
     tag: f"{SOURCE_URLS['common.txt']}#L{line}" for line, symbol, tag in COMMON_RULES if symbol == "tagname"
-}
+})
 _VOCABULARY: Final[HtmlVocabulary] = HtmlVocabulary(
     tags=HTML_TAGS,
     html=HTML_RULES,

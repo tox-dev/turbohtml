@@ -61,11 +61,6 @@ _URL_ATTRS: Final[list[str]] = [
 ]  # fmt: skip
 
 
-def _allow_all(tags: set[str], attrs: set[str]) -> Policy:
-    # A permissive policy for exercising attribute and URL handling on otherwise-disallowed elements.
-    return Policy(tags=frozenset(tags), attributes={"*": frozenset(attrs)}, url_schemes=DEFAULT_SCHEMES)
-
-
 def test_default_escapes_unknown_tags() -> None:
     assert sanitize("<p>hi</p>") == "&lt;p&gt;hi&lt;/p&gt;"
 
@@ -116,6 +111,11 @@ def test_disallowed_attribute_dropped() -> None:
 def test_valueless_attribute_kept_when_allowed() -> None:
     policy = _allow_all({"input"}, {"disabled"})
     assert sanitize("<input disabled>", policy) == '<input disabled="">'
+
+
+def _allow_all(tags: set[str], attrs: set[str]) -> Policy:
+    # A permissive policy for exercising attribute and URL handling on otherwise-disallowed elements.
+    return Policy(tags=frozenset(tags), attributes={"*": frozenset(attrs)}, url_schemes=DEFAULT_SCHEMES)
 
 
 @pytest.mark.parametrize("tag", _UNSAFE_TAGS)
@@ -2926,6 +2926,81 @@ def test_no_live_danger(payload: str, policy: Policy) -> None:
     assert danger == [], f"live XSS survived: {danger}"
 
 
+def _live_danger(html: str) -> list[str]:
+    # Reparse sanitized HTML and list every executable construct that survived; an empty list means inert.
+    survived: list[str] = []
+    stack = list(parse_fragment(html).children)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, Element):
+            if (element_hit := _dangerous_element(node)) is not None:
+                survived.append(element_hit)
+            survived.extend(
+                hit
+                for name, raw in node.attrs.items()
+                if (hit := _dangerous_attribute(name, _attr_value(raw))) is not None
+            )
+            stack.extend(node.children)
+    return survived
+
+
+def _dangerous_element(node: Element) -> str | None:
+    namespace = node.namespace.value
+    if namespace == "svg" and node.tag in frozenset({
+        "animate",
+        "animateColor",
+        "animateMotion",
+        "animateTransform",
+        "set",
+    }):
+        return _svg_animation_danger(node)
+    if node.tag == "script" and namespace in {"html", "svg"}:
+        return "<script>"
+    if node.tag == "style" and namespace in {"html", "svg"}:
+        return "style-body" if any(token in _style_body(node) for token in _DOMPURIFY_CSS_DANGER) else None
+    if node.tag not in _DOMPURIFY_DANGER_TAGS or namespace != "html":
+        return None
+    return f"<{node.tag}>"
+
+
+def _svg_animation_danger(node: Element) -> str | None:
+    attrs = {name.lower(): _attr_value(value) for name, value in node.attrs.items()}
+    target = attrs.get("attributename", "")
+    if target.startswith("on"):
+        return f"<{node.tag}>->{target}"
+    if target in _DOMPURIFY_URL_ATTRS:
+        for name in ("from", "to", "values"):
+            if any(_bad_scheme(value) for value in attrs.get(name, "").split(";")):
+                return f"<{node.tag}>->{target}"
+    return None
+
+
+def _bad_scheme(value: str) -> bool:
+    # Whether a URL value resolves to a script-capable scheme once the control/whitespace obfuscation is stripped.
+    return "".join(char for char in value if ord(char) > 0x20).startswith(("javascript:", "data:", "vbscript:"))
+
+
+def _style_body(element: Element) -> str:
+    # The lowercased text content of a ``<style>`` element (rawtext, so its children are text nodes).
+    return "".join(getattr(child, "data", "") for child in element.children).lower()
+
+
+def _dangerous_attribute(name: str, value: str) -> str | None:
+    # A label for an executable attribute: an ``on*`` handler, dangerous CSS on ``style``, or a scriptable URL.
+    if name.startswith("on"):
+        return f"@{name}"
+    if name == "style":
+        return "@style" if any(token in value for token in _DOMPURIFY_CSS_DANGER) else None
+    return f"{name}={value[:32]}" if name in _DOMPURIFY_URL_ATTRS and _bad_scheme(value) else None
+
+
+def _attr_value(raw: str | list[str] | None) -> str:
+    # The lowercased attribute value, joining a duplicate-attribute list and reading a boolean attr as empty.
+    if raw is None:
+        return ""
+    return (" ".join(raw) if isinstance(raw, list) else raw).lower()
+
+
 @pytest.mark.parametrize("payload", _XSS_CORPUS)
 @pytest.mark.parametrize("policy", _MODES)
 def test_round_trip_invariant(payload: str, policy: Policy) -> None:
@@ -3232,6 +3307,15 @@ def _svg_child_named(name: str) -> Element:
     return svg
 
 
+def _escaped_form_in_math() -> Element:
+    # A form escaped inside a math text point, its mglyph child left behind in MathML.
+    return E.form(_math_text_point(E.form(Element("mglyph"))))
+
+
+def _option_past_item() -> Element:
+    return E.div(E.select(E.li(E.span(E.div(E.li(E.option("x")))))))
+
+
 _BALANCED_WALK_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param(
         lambda: E.div(E.li(E.span(E.li("x"), E.li("y")))),
@@ -3258,7 +3342,7 @@ _BALANCED_WALK_CASES: Final[list[pytest.ParameterSet]] = [
         id="item-scan-passes-an-address",
     ),
     pytest.param(
-        lambda: E.div(E.select(E.li(E.span(E.div(E.li(E.option("x"))))))),
+        _option_past_item,
         frozenset({"div", "select", "li", "option"}),
         "<div><select><li>&lt;span&gt;<div>&lt;li&gt;<option>x</option>&lt;/li&gt;</div>&lt;/span&gt;</li></select></div>",
         id="option-judged-past-a-recorded-item",
@@ -3294,7 +3378,7 @@ _BALANCED_WALK_CASES: Final[list[pytest.ParameterSet]] = [
         id="barrier-after-a-sibling-under-an-escaped-item",
     ),
     pytest.param(
-        lambda: E.div(E.form(_math_text_point(E.form(Element("mglyph"))))),
+        lambda: E.div(_escaped_form_in_math()),
         frozenset({"div", "form", "math", "mi", "mglyph"}),
         "<div><form><math><mi>&lt;form&gt;&lt;mglyph&gt;&lt;/mglyph&gt;&lt;/form&gt;</mi></math></form></div>",
         id="escaped-form-leaves-its-child-in-mathml",
@@ -3307,7 +3391,7 @@ _BALANCED_WALK_CASES: Final[list[pytest.ParameterSet]] = [
         id="hoisted-child-of-an-escaped-form-in-mathml",
     ),
     pytest.param(
-        lambda: E.div(E.table(E.tr(E.td(cast("Element", parse_fragment("<svg><g></g></svg>").children[0]))))),
+        lambda: E.div(E.table(E.tr(E.td(_svg_child_named("g"))))),
         frozenset({"div", "table", "tr", "td", "svg", "g"}),
         "<div><table><tbody><tr><td><svg><g></g></svg></td></tr></tbody></table></div>",
         id="foreign-content-in-a-cell",
@@ -3399,7 +3483,7 @@ _SETTLE_SCAN_CASES: Final[list[pytest.ParameterSet]] = [
         id="cell-orphaned-by-foreign-content",
     ),
     pytest.param(
-        lambda: E.table(E.tr(E.td(E.form(_math_text_point(E.form(Element("mglyph"))))))),
+        lambda: E.table(E.tr(E.td(_escaped_form_in_math()))),
         frozenset({"table", "tbody", "tr", "td", "form", "math", "mi", "mglyph"}),
         "<table><tbody><tr><td><form><math><mi>&lt;form&gt;&lt;mglyph&gt;&lt;/mglyph&gt;&lt;/form&gt;</mi></math></form>"
         "</td></tr></tbody></table>",
@@ -4231,81 +4315,6 @@ _DOMPURIFY_CSS_DANGER: Final[tuple[str, ...]] = (
     "behavior:",
     "-moz-binding",
 )
-
-
-def _attr_value(raw: str | list[str] | None) -> str:
-    # The lowercased attribute value, joining a duplicate-attribute list and reading a boolean attr as empty.
-    if raw is None:
-        return ""
-    return (" ".join(raw) if isinstance(raw, list) else raw).lower()
-
-
-def _style_body(element: Element) -> str:
-    # The lowercased text content of a ``<style>`` element (rawtext, so its children are text nodes).
-    return "".join(getattr(child, "data", "") for child in element.children).lower()
-
-
-def _bad_scheme(value: str) -> bool:
-    # Whether a URL value resolves to a script-capable scheme once the control/whitespace obfuscation is stripped.
-    return "".join(char for char in value if ord(char) > 0x20).startswith(("javascript:", "data:", "vbscript:"))
-
-
-def _svg_animation_danger(node: Element) -> str | None:
-    attrs = {name.lower(): _attr_value(value) for name, value in node.attrs.items()}
-    target = attrs.get("attributename", "")
-    if target.startswith("on"):
-        return f"<{node.tag}>->{target}"
-    if target in _DOMPURIFY_URL_ATTRS:
-        for name in ("from", "to", "values"):
-            if any(_bad_scheme(value) for value in attrs.get(name, "").split(";")):
-                return f"<{node.tag}>->{target}"
-    return None
-
-
-def _dangerous_element(node: Element) -> str | None:
-    namespace = node.namespace.value
-    if namespace == "svg" and node.tag in frozenset({
-        "animate",
-        "animateColor",
-        "animateMotion",
-        "animateTransform",
-        "set",
-    }):
-        return _svg_animation_danger(node)
-    if node.tag == "script" and namespace in {"html", "svg"}:
-        return "<script>"
-    if node.tag == "style" and namespace in {"html", "svg"}:
-        return "style-body" if any(token in _style_body(node) for token in _DOMPURIFY_CSS_DANGER) else None
-    if node.tag not in _DOMPURIFY_DANGER_TAGS or namespace != "html":
-        return None
-    return f"<{node.tag}>"
-
-
-def _dangerous_attribute(name: str, value: str) -> str | None:
-    # A label for an executable attribute: an ``on*`` handler, dangerous CSS on ``style``, or a scriptable URL.
-    if name.startswith("on"):
-        return f"@{name}"
-    if name == "style":
-        return "@style" if any(token in value for token in _DOMPURIFY_CSS_DANGER) else None
-    return f"{name}={value[:32]}" if name in _DOMPURIFY_URL_ATTRS and _bad_scheme(value) else None
-
-
-def _live_danger(html: str) -> list[str]:
-    # Reparse sanitized HTML and list every executable construct that survived; an empty list means inert.
-    survived: list[str] = []
-    stack = list(parse_fragment(html).children)
-    while stack:
-        node = stack.pop()
-        if isinstance(node, Element):
-            if (element_hit := _dangerous_element(node)) is not None:
-                survived.append(element_hit)
-            survived.extend(
-                hit
-                for name, raw in node.attrs.items()
-                if (hit := _dangerous_attribute(name, _attr_value(raw))) is not None
-            )
-            stack.extend(node.children)
-    return survived
 
 
 @pytest.mark.parametrize("policy", _DOMPURIFY_POLICIES)

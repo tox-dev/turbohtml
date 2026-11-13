@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -22,13 +23,13 @@ if not _CORPUS.exists():  # pragma: no cover  # the skip runs only without the v
     raise RuntimeError(_MSG)
 
 # Features outside turbohtml's XSLT 1.0 subset, each keyed by "<dir>/<stem>" with the spec reason.
-_XFAIL: Final[dict[str, str]] = {
+_XFAIL: Final[MappingProxyType[str, str]] = MappingProxyType({
     "REC/test-10-3": "not yet supported: locale-aware xsl:sort collation (lang='de') needs an ICU/locale layer "
     "turbohtml does not carry; the default is Unicode-codepoint collation",
     "REC/test-12.4-1": "not yet supported: generate-id over the namespace:: axis needs the XPath namespace axis",
     "REC/test-5.2-10": "not yet supported: id() over DTD-declared ID attributes needs a DTD layer the parser "
     "does not have",
-}
+})
 
 
 def _iter_cases() -> list[tuple[str, Path]]:

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 _TAG_HASH_COEFFICIENTS: Final[tuple[int, ...]] = (845, 797, 163, 777)
@@ -213,13 +214,13 @@ _EXTRA: Final[frozenset[str]] = frozenset([
     "svg",
 ])
 
-_CATEGORY_FLAGS: Final[dict[str, frozenset[str]]] = {
+_CATEGORY_FLAGS: Final[MappingProxyType[str, frozenset[str]]] = MappingProxyType({
     "TH_TAG_SPECIAL": _SPECIAL,
     "TH_TAG_FORMATTING": _FORMATTING,
     "TH_TAG_SCOPING": _SCOPING,
     "TH_TAG_RAWTEXT": _RAWTEXT,
     "TH_TAG_RCDATA": _RCDATA,
-}
+})
 
 
 def _tag_hash_rows(names: list[str]) -> str:

@@ -368,16 +368,80 @@ _CURATED_SHORTHAND_BOUNDARY: Final[tuple[Case, ...]] = (
 )
 
 
-class _Rgba(NamedTuple):
-    red: int
-    green: int
-    blue: int
-    alpha: float
-
-
 _NORM_PATTERN: Final[re.Pattern[str]] = re.compile(r"rgba?\(([^)]+)\)")
 
 _NORM_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"[ ,/]+")
+
+
+@cache
+def _jsdom_available() -> bool:
+    node = shutil.which("node")
+    if node is None or not _RUNNER.exists():
+        return False
+    probe = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true] -- fixed argv, no shell
+        [node, "-e", "require('jsdom')"], cwd=_RUNNER.parent, capture_output=True, check=False
+    )
+    return probe.returncode == 0
+
+
+@cache
+def _jsdom_results() -> dict[str, dict[str, dict[str, str]]]:
+    # Run every corpus and boundary case through jsdom once, keyed ``{case-id: {selector: {prop: value}}}``.
+    payload = []
+    for case in (*_CORPUS, *_CURATED_SHORTHAND_BOUNDARY):
+        targets: dict[str, list[str]] = {}
+        for check in case.checks:
+            targets.setdefault(check.selector, []).append(check.prop)
+        payload.append({
+            "id": case.id,
+            "html": case.html,
+            "targets": [{"selector": s, "props": p} for s, p in targets.items()],
+        })
+    node = shutil.which("node")
+    assert node is not None
+    completed = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true] -- fixed argv, no shell
+        [node, str(_RUNNER)], input=json.dumps(payload), cwd=_RUNNER.parent, capture_output=True, text=True, check=True
+    )
+    return json.loads(completed.stdout)
+
+
+def _jsdom_marks(case: Case, check: Check) -> tuple[pytest.MarkDecorator, ...]:
+    if _jsdom_available() and not _jsdom_results()[case.id][check.selector].get(check.prop, ""):
+        return (pytest.mark.skip(reason=f"jsdom reports no computed {check.prop}"),)
+    return ()
+
+
+_SPEC_PARAMS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(case.html, check, id=f"{case.id}-{check.prop}") for case in _CORPUS for check in case.checks
+]
+_ORACLE_PARAMS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        case.id,
+        check,
+        id=f"{case.id}-{check.prop}",
+        marks=_jsdom_marks(case, check),
+    )
+    for case in _CORPUS
+    for check in case.checks
+    if check.oracle
+]
+_BOUNDARY_PARAMS: Final[list[pytest.ParameterSet]] = [
+    pytest.param(case.id, check, id=f"{case.id}-{check.prop}")
+    for case in _CURATED_SHORTHAND_BOUNDARY
+    for check in case.checks
+]
+
+
+@pytest.mark.parametrize(("html", "check"), _SPEC_PARAMS)
+def test_cssom_matches_spec(html: str, check: Check) -> None:
+    got = _turbo(html, check.selector, check.prop)
+    assert got is not None, f"no element matched {check.selector!r}"
+    assert _norm(check.prop, got) == _norm(check.prop, check.expected)
+
+
+def _turbo(html: str, selector: str, prop: str) -> str | None:
+    element = select_one("html" if selector == ":root" else selector, parse(html))
+    return None if element is None else computed_style(element).get(prop)
 
 
 def _norm(prop: str, value: str) -> str | _Rgba:
@@ -421,71 +485,11 @@ def _norm(prop: str, value: str) -> str | _Rgba:
     return text
 
 
-def _turbo(html: str, selector: str, prop: str) -> str | None:
-    element = select_one("html" if selector == ":root" else selector, parse(html))
-    return None if element is None else computed_style(element).get(prop)
-
-
-@cache
-def _jsdom_available() -> bool:
-    node = shutil.which("node")
-    if node is None or not _RUNNER.exists():
-        return False
-    probe = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true] -- fixed argv, no shell
-        [node, "-e", "require('jsdom')"], cwd=_RUNNER.parent, capture_output=True, check=False
-    )
-    return probe.returncode == 0
-
-
-@cache
-def _jsdom_results() -> dict[str, dict[str, dict[str, str]]]:
-    # Run every corpus and boundary case through jsdom once, keyed ``{case-id: {selector: {prop: value}}}``.
-    payload = []
-    for case in (*_CORPUS, *_CURATED_SHORTHAND_BOUNDARY):
-        targets: dict[str, list[str]] = {}
-        for check in case.checks:
-            targets.setdefault(check.selector, []).append(check.prop)
-        payload.append({
-            "id": case.id,
-            "html": case.html,
-            "targets": [{"selector": s, "props": p} for s, p in targets.items()],
-        })
-    node = shutil.which("node")
-    assert node is not None
-    completed = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true] -- fixed argv, no shell
-        [node, str(_RUNNER)], input=json.dumps(payload), cwd=_RUNNER.parent, capture_output=True, text=True, check=True
-    )
-    return json.loads(completed.stdout)
-
-
-_SPEC_PARAMS: Final[list[pytest.ParameterSet]] = [
-    pytest.param(case.html, check, id=f"{case.id}-{check.prop}") for case in _CORPUS for check in case.checks
-]
-_ORACLE_PARAMS: Final[list[pytest.ParameterSet]] = [
-    pytest.param(
-        case.id,
-        check,
-        id=f"{case.id}-{check.prop}",
-        marks=pytest.mark.skip(reason=f"jsdom reports no computed {check.prop}")
-        if _jsdom_available() and not _jsdom_results()[case.id][check.selector].get(check.prop, "")
-        else (),
-    )
-    for case in _CORPUS
-    for check in case.checks
-    if check.oracle
-]
-_BOUNDARY_PARAMS: Final[list[pytest.ParameterSet]] = [
-    pytest.param(case.id, check, id=f"{case.id}-{check.prop}")
-    for case in _CURATED_SHORTHAND_BOUNDARY
-    for check in case.checks
-]
-
-
-@pytest.mark.parametrize(("html", "check"), _SPEC_PARAMS)
-def test_cssom_matches_spec(html: str, check: Check) -> None:
-    got = _turbo(html, check.selector, check.prop)
-    assert got is not None, f"no element matched {check.selector!r}"
-    assert _norm(check.prop, got) == _norm(check.prop, check.expected)
+class _Rgba(NamedTuple):
+    red: int
+    green: int
+    blue: int
+    alpha: float
 
 
 @pytest.mark.skipif(not _jsdom_available(), reason="node with jsdom is not installed")

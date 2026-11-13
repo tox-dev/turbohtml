@@ -932,14 +932,6 @@ def test_indirect_eval_leaves_locals_renamable() -> None:
     assert minify_js("function f(){var x=g();return(1&&eval)(x)}") == "function f(){var a=g();return(0,eval)(a)}"
 
 
-def _run(code: str) -> str:
-    assert _NODE is not None  # the callers are skipped when node is unavailable
-    # the first node start on a cold Windows runner has taken over a minute on its own; the timeout
-    # is only here to bound a snippet that never returns, so it sits well clear of a slow launch
-    result = subprocess.run([_NODE, "-e", code], capture_output=True, text=True, timeout=300, check=False)  # ruff:ignore[subprocess-without-shell-equals-true]
-    return result.stdout + result.stderr
-
-
 @pytest.mark.skipif(_NODE is None, reason="node not available")
 @pytest.mark.parametrize(
     "snippet",
@@ -1094,6 +1086,14 @@ def _run(code: str) -> str:
 )
 def test_folding_preserves_behavior(snippet: str) -> None:
     assert _run(snippet) == _run(minify_js(snippet))
+
+
+def _run(code: str) -> str:
+    assert _NODE is not None  # the callers are skipped when node is unavailable
+    # the first node start on a cold Windows runner has taken over a minute on its own; the timeout
+    # is only here to bound a snippet that never returns, so it sits well clear of a slow launch
+    result = subprocess.run([_NODE, "-e", code], capture_output=True, text=True, timeout=300, check=False)  # ruff:ignore[subprocess-without-shell-equals-true]
+    return result.stdout + result.stderr
 
 
 _BS: Final[str] = chr(0x5C)  # backslash, kept out of the literals so every escape is unambiguous

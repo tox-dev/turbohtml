@@ -925,20 +925,6 @@ def test_shadow_results_survive_collection_adoption(
     assert (changed, result, host.parent) == (True, expected, target)
 
 
-def _fragment(*tags: str) -> DocumentFragment:
-    fragment = DocumentFragment()
-    for tag in tags:
-        fragment.append(Element(tag))
-    return fragment
-
-
-def _host_page() -> tuple[Document, Element]:
-    document = parse("<div id=a><i></i></div>")
-    target = document.select_one("#a")
-    assert target is not None
-    return document, target
-
-
 def test_document_fragment_starts_empty() -> None:
     assert (DocumentFragment().html, repr(DocumentFragment())) == ("", "DocumentFragment()")
 
@@ -967,6 +953,13 @@ def test_document_fragment_adoption_preserves_descendants() -> None:
     )
 
 
+def _fragment(*tags: str) -> DocumentFragment:
+    fragment = DocumentFragment()
+    for tag in tags:
+        fragment.append(Element(tag))
+    return fragment
+
+
 def test_shadow_root_is_a_document_fragment() -> None:
     root = Element("div").attach_shadow("open")
     assert (isinstance(root, DocumentFragment), repr(root)) == (True, "ShadowRoot()")
@@ -981,6 +974,13 @@ def test_range_contents_are_a_document_fragment(method: str) -> None:
     boundary.set_end(target, 1)
     contents = getattr(boundary, method)()
     assert (type(contents), contents.html) == (DocumentFragment, "<i></i>")
+
+
+def _host_page() -> tuple[Document, Element]:
+    document = parse("<div id=a><i></i></div>")
+    target = document.select_one("#a")
+    assert target is not None
+    return document, target
 
 
 _INSERTIONS: Final[list[pytest.ParameterSet]] = [

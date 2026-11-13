@@ -556,12 +556,6 @@ _RESOLVE_BASE: Final[str] = "https://example.com/dir/page.html"
 _HTTPS: Final[str] = "https://example.com/dir/"
 
 
-def _resolved(html: str, base: str = _RESOLVE_BASE) -> str:
-    root = parse_fragment(html)
-    root.resolve_links(base)
-    return root.inner_html
-
-
 @pytest.mark.parametrize(
     ("markup", "expected"),
     [
@@ -573,6 +567,12 @@ def _resolved(html: str, base: str = _RESOLVE_BASE) -> str:
 )
 def test_href_resolution(markup: str, expected: str) -> None:
     assert _resolved(markup) == expected
+
+
+def _resolved(html: str, base: str = _RESOLVE_BASE) -> str:
+    root = parse_fragment(html)
+    root.resolve_links(base)
+    return root.inner_html
 
 
 def test_srcset_candidates_are_each_resolved() -> None:
@@ -641,6 +641,13 @@ def test_resolve_links_attributes_backslash_scheme_relative_to_the_real_host(hre
     assert _resolved_href(href, _RESOLVE_BASE) == "https://evil.test/x"
 
 
+def _resolved_href(href: str, base: str) -> str:
+    root = parse_fragment(f'<a href="{escape(href, quote=True)}">x</a>')
+    root.resolve_links(base)
+    (link,) = root.links()
+    return link.url
+
+
 @pytest.mark.parametrize(
     "html",
     [
@@ -656,13 +663,6 @@ def test_nothing_to_resolve_is_a_no_op(html: str) -> None:
 def test_resolve_links_requires_a_string_base() -> None:
     with pytest.raises(TypeError, match="base URL string"):
         parse_fragment('<a href="a">x</a>').resolve_links(None)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
-
-
-def _resolved_href(href: str, base: str) -> str:
-    root = parse_fragment(f'<a href="{escape(href, quote=True)}">x</a>')
-    root.resolve_links(base)
-    (link,) = root.links()
-    return link.url
 
 
 # resolve_links skips urljoin for an already-absolute link it would return unchanged; every case must still match the

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+from itertools import product
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, cast
 
 from turbohtml import Element, Node, Text, parse_fragment
@@ -25,10 +27,7 @@ def html_foreign_seeds() -> list[str]:
     # Cover finite productions without relying on random draws.
     return [
         f"{boundary}:{identifier}:{quote}:{leaf}"
-        for boundary in _BOUNDARIES
-        for identifier in _IDENTIFIERS
-        for quote in _QUOTES
-        for leaf in _LEAVES
+        for boundary, identifier, quote, leaf in product(_BOUNDARIES, _IDENTIFIERS, _QUOTES, _LEAVES)
     ]
 
 
@@ -128,12 +127,12 @@ _CASE: Final[re.Pattern[str]] = re.compile(
 )
 _BOUNDARIES: Final[tuple[str, ...]] = ("foreignObject", "desc", "title")
 _IDENTIFIERS: Final[tuple[str, ...]] = ("x", "y")
-_QUOTES: Final[dict[str, str]] = {"single": "'", "double": '"'}
-_LEAVES: Final[dict[str, tuple[str, str]]] = {
+_QUOTES: Final[MappingProxyType[str, str]] = MappingProxyType({"single": "'", "double": '"'})
+_LEAVES: Final[MappingProxyType[str, tuple[str, str]]] = MappingProxyType({
     "plain": ("MiXeD", "MiXeD"),
     "named": ("&amp;&lt;&gt;", "&<>"),
     "numeric": ("&#65;&#x42;&#67;", "ABC"),
-}
+})
 
 __all__ = [
     "UnsupportedHtmlForeignCaseError",

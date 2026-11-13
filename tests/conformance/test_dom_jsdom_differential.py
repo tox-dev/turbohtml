@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Literal, NamedTuple, NotRequired, TypeAlias, TypedDict
 
 import pytest
@@ -154,7 +155,7 @@ def _reject_section_skip_p(node: Node) -> int:
     return NodeFilter.FILTER_ACCEPT
 
 
-_FILTERS: Final[dict[str, Callable[[Node], int]]] = {
+_FILTERS: Final[MappingProxyType[str, Callable[[Node], int]]] = MappingProxyType({
     "reject_nav": lambda node: _tag_verdict(node, "nav", NodeFilter.FILTER_REJECT),
     "skip_nav": lambda node: _tag_verdict(node, "nav", NodeFilter.FILTER_SKIP),
     "reject_div": lambda node: _tag_verdict(node, "div", NodeFilter.FILTER_REJECT),
@@ -165,7 +166,7 @@ _FILTERS: Final[dict[str, Callable[[Node], int]]] = {
         NodeFilter.FILTER_ACCEPT if isinstance(node, Element) and node.tag == "a" else NodeFilter.FILTER_SKIP
     ),
     "reject_section_skip_p": _reject_section_skip_p,
-}
+})
 
 
 def _make_node(spec: _ElementSpec | _TextSpec) -> Node:
@@ -175,12 +176,6 @@ def _make_node(spec: _ElementSpec | _TextSpec) -> Node:
     if "html" in spec:
         element.set_inner_html(spec["html"])
     return element
-
-
-class _RangeCall(NamedTuple):
-    live: Range
-    root: Node
-    kase: _RangeCase
 
 
 def _boundaries(range_obj: Range) -> dict[str, _JSON]:
@@ -251,7 +246,7 @@ def _probe_select_node_contents(call: _RangeCall) -> dict[str, _JSON]:
     return _boundaries(target)
 
 
-_RANGE_PROBES: Final[dict[str, Callable[[_RangeCall], dict[str, _JSON]]]] = {
+_RANGE_PROBES: Final[MappingProxyType[str, Callable[[_RangeCall], dict[str, _JSON]]]] = MappingProxyType({
     "boundaries": _probe_boundaries,
     "clone": _probe_clone,
     "extract": _probe_extract,
@@ -264,85 +259,7 @@ _RANGE_PROBES: Final[dict[str, Callable[[_RangeCall], dict[str, _JSON]]]] = {
     "intersects": _probe_intersects,
     "select_node": _probe_select_node,
     "select_node_contents": _probe_select_node_contents,
-}
-
-
-def _run_range(kase: _RangeCase) -> dict[str, _JSON]:
-    root = parse(kase["html"]).root
-    assert root is not None
-    live = Range(_node_at(root, kase["start"][0]), kase["start"][1])
-    live.set_end(_node_at(root, kase["end"][0]), kase["end"][1])
-    return _RANGE_PROBES[kase["probe"]](_RangeCall(live, root, kase))
-
-
-def _run_traversal(kase: _TraversalCase) -> dict[str, _JSON]:
-    document = parse(kase["html"])
-    assert document.root is not None
-    root = _node_at(document.root, kase["root"])
-    node_filter = _FILTERS[kase["filter"]] if kase.get("filter") else None
-    if kase["kind"] == "walker":
-        return {"nodes": _run_walker(TreeWalker(root, kase["what"], node_filter), kase["probe"])}
-    return {"nodes": _run_iterator(NodeIterator(root, kase["what"], node_filter), kase["probe"])}
-
-
-def _run_walker(walker: TreeWalker, probe: str) -> list[str]:
-    out: list[str] = []
-    if probe == "forward":
-        out.extend(_desc(node) for node in iter(walker.next_node, None))
-    elif probe == "backward":
-        while walker.next_node() is not None:
-            pass
-        out.extend(_desc(node) for node in iter(walker.previous_node, None))
-    elif probe == "children":
-        node = walker.first_child()
-        while node is not None:
-            out.append(_desc(node))
-            node = walker.next_sibling()
-    elif probe == "last_child_parents":
-        node = walker.last_child()
-        while node is not None:
-            out.append(_desc(node))
-            node = walker.parent_node()
-    return out
-
-
-def _run_iterator(iterator: NodeIterator, probe: str) -> list[str]:
-    out: list[str] = []
-    if probe == "forward":
-        out.extend(_desc(node) for node in iter(iterator.next_node, None))
-    elif probe == "backward":
-        while iterator.next_node() is not None:
-            pass
-        out.extend(_desc(node) for node in iter(iterator.previous_node, None))
-    return out
-
-
-def _run_shadow(kase: _ShadowCase) -> dict[str, _JSON]:
-    host = parse_fragment(kase["host_html"]).children[0]
-    assert isinstance(host, Element)
-    shadow = host.attach_shadow(kase["mode"])
-    shadow.set_inner_html(kase["shadow_html"])
-    if kase["probe"] == "attach_mode":
-        return {"reachable": host.shadow_root is not None, "mode": shadow.mode}
-    slots: dict[str, _JSON] = {}
-    for name, selector in kase["slots"].items():
-        slot = shadow.select_one(selector)
-        assert slot is not None
-        slots[name] = {
-            "nodes": [_desc(node) for node in slot.assigned_nodes()],
-            "elements": [_desc(node) for node in slot.assigned_elements()],
-            "flatten": [_desc(node) for node in slot.assigned_nodes(flatten=True)],
-        }
-    children = [_desc(child.assigned_slot) if child.assigned_slot is not None else "null" for child in host.children]
-    return {"slots": slots, "children": children}
-
-
-def _run_turbo(kase: _DiffCase) -> dict[str, _JSON]:
-    if kase["feature"] == "range":
-        return _run_range(kase)
-    if kase["feature"] == "traversal":
-        return _run_traversal(kase)
-    return _run_shadow(kase)
+})
 
 
 _UL: Final[str] = "<ul><li>a</li><li>b</li><li>c</li></ul>"
@@ -354,7 +271,7 @@ _SECT: Final[str] = "<section id=s><p>x</p><article><p>y</p><span>z</span></arti
 _UL_PATH: Final[list[int]] = [1, 0]
 _UL_A: Final[list[int]] = [1, 0, 0]
 _P_TEXT: Final[list[int]] = [1, 0, 0]
-_SPLIT_DIV: Final[list[int]] = [1, 0]
+_SPLIT_DIV: Final[tuple[int, ...]] = (1, 0)
 _SPLIT_T1: Final[list[int]] = [1, 0, 0, 0]
 _SPLIT_T2: Final[list[int]] = [1, 0, 1, 0]
 
@@ -881,7 +798,7 @@ _SHADOW_SLOTS: Final[str] = '<header><slot name="title"></slot></header><main><s
 _HOST_FALLBACK: Final[str] = '<my-el><span slot="a">A</span></my-el>'
 _SHADOW_FALLBACK: Final[str] = '<slot name="a"></slot><slot><em>fb</em></slot>'
 
-_SHADOW_CASES: Final[list[_ShadowCase]] = [
+_SHADOW_CASES: Final[tuple[_ShadowCase, ...]] = (
     {
         "id": "shadow-attach-open",
         "feature": "shadow",
@@ -916,7 +833,7 @@ _SHADOW_CASES: Final[list[_ShadowCase]] = [
         "shadow_html": _SHADOW_FALLBACK,
         "slots": {"named": 'slot[name="a"]', "default": "slot:not([name])"},
     },
-]
+)
 
 _DSD_OPEN: Final[str] = (
     "<article id=post>"
@@ -928,7 +845,7 @@ _DSD_OPEN: Final[str] = (
 )
 _DSD_CLOSED: Final[str] = "<div id=host><template shadowrootmode=closed><b>secret</b></template><p>light</p></div>"
 
-_DECLARATIVE_CASES: Final[list[_OpenDeclarativeCase | _ClosedDeclarativeCase]] = [
+_DECLARATIVE_CASES: Final[tuple[_OpenDeclarativeCase | _ClosedDeclarativeCase, ...]] = (
     {
         "id": "dsd-open-clonable",
         "html": _DSD_OPEN,
@@ -946,7 +863,7 @@ _DECLARATIVE_CASES: Final[list[_OpenDeclarativeCase | _ClosedDeclarativeCase]] =
         "mode": "closed",
         "light_html": "<p>light</p>",
     },
-]
+)
 
 _CROSS: Final[str] = "<div><p>aa<b>bb</b>cc</p><p>dd<i>ii</i>ee</p></div>"
 _CROSS_T_AA: Final[list[int]] = [1, 0, 0, 0]
@@ -1384,7 +1301,7 @@ _RANGE_CASES += [
     },
 ]
 
-_ALL_DIFF_CASES: Final[list[_DiffCase]] = _RANGE_CASES + _TRAVERSAL_CASES + _SHADOW_CASES
+_ALL_DIFF_CASES: Final[list[_DiffCase]] = [*_RANGE_CASES, *_TRAVERSAL_CASES, *_SHADOW_CASES]
 
 
 @pytest.fixture(scope="session")
@@ -1402,6 +1319,90 @@ def test_dom_matches_jsdom(kase: _DiffCase, jsdom_results: dict[str, _Oracle]) -
     oracle = jsdom_results[kase["id"]]
     assert oracle["ok"], f"jsdom runner failed: {oracle.get('error')}"
     assert _run_turbo(kase) == oracle["result"]
+
+
+def _run_turbo(kase: _DiffCase) -> dict[str, _JSON]:
+    if kase["feature"] == "range":
+        return _run_range(kase)
+    if kase["feature"] == "traversal":
+        return _run_traversal(kase)
+    return _run_shadow(kase)
+
+
+def _run_range(kase: _RangeCase) -> dict[str, _JSON]:
+    root = parse(kase["html"]).root
+    assert root is not None
+    live = Range(_node_at(root, kase["start"][0]), kase["start"][1])
+    live.set_end(_node_at(root, kase["end"][0]), kase["end"][1])
+    return _RANGE_PROBES[kase["probe"]](_RangeCall(live, root, kase))
+
+
+class _RangeCall(NamedTuple):
+    live: Range
+    root: Node
+    kase: _RangeCase
+
+
+def _run_traversal(kase: _TraversalCase) -> dict[str, _JSON]:
+    document = parse(kase["html"])
+    assert document.root is not None
+    root = _node_at(document.root, kase["root"])
+    node_filter = _FILTERS[kase["filter"]] if kase.get("filter") else None
+    if kase["kind"] == "walker":
+        return {"nodes": _run_walker(TreeWalker(root, kase["what"], node_filter), kase["probe"])}
+    return {"nodes": _run_iterator(NodeIterator(root, kase["what"], node_filter), kase["probe"])}
+
+
+def _run_walker(walker: TreeWalker, probe: str) -> list[str]:
+    out: list[str] = []
+    if probe == "forward":
+        out.extend(_desc(node) for node in iter(walker.next_node, None))
+    elif probe == "backward":
+        while walker.next_node() is not None:
+            pass
+        out.extend(_desc(node) for node in iter(walker.previous_node, None))
+    elif probe == "children":
+        node = walker.first_child()
+        while node is not None:
+            out.append(_desc(node))
+            node = walker.next_sibling()
+    elif probe == "last_child_parents":
+        node = walker.last_child()
+        while node is not None:
+            out.append(_desc(node))
+            node = walker.parent_node()
+    return out
+
+
+def _run_iterator(iterator: NodeIterator, probe: str) -> list[str]:
+    out: list[str] = []
+    if probe == "forward":
+        out.extend(_desc(node) for node in iter(iterator.next_node, None))
+    elif probe == "backward":
+        while iterator.next_node() is not None:
+            pass
+        out.extend(_desc(node) for node in iter(iterator.previous_node, None))
+    return out
+
+
+def _run_shadow(kase: _ShadowCase) -> dict[str, _JSON]:
+    host = parse_fragment(kase["host_html"]).children[0]
+    assert isinstance(host, Element)
+    shadow = host.attach_shadow(kase["mode"])
+    shadow.set_inner_html(kase["shadow_html"])
+    if kase["probe"] == "attach_mode":
+        return {"reachable": host.shadow_root is not None, "mode": shadow.mode}
+    slots: dict[str, _JSON] = {}
+    for name, selector in kase["slots"].items():
+        slot = shadow.select_one(selector)
+        assert slot is not None
+        slots[name] = {
+            "nodes": [_desc(node) for node in slot.assigned_nodes()],
+            "elements": [_desc(node) for node in slot.assigned_elements()],
+            "flatten": [_desc(node) for node in slot.assigned_nodes(flatten=True)],
+        }
+    children = [_desc(child.assigned_slot) if child.assigned_slot is not None else "null" for child in host.children]
+    return {"slots": slots, "children": children}
 
 
 @pytest.mark.parametrize(

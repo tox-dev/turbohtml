@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+from itertools import product
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 from turbohtml import CData, Comment, Document, Element, Html, Node, Text, parse_xml
@@ -20,10 +22,7 @@ def xml_island_seeds() -> list[str]:
     # Cover the finite productions without sampling gaps.
     return [
         f"{mode}:{comment}:{cdata}:{count}"
-        for mode in _MODES
-        for comment in _COMMENTS
-        for cdata in _CDATA
-        for count in range(1, 4)
+        for mode, comment, cdata, count in product(_MODES, _COMMENTS, _CDATA, range(1, 4))
     ]
 
 
@@ -120,16 +119,16 @@ _CASE: Final[re.Pattern[str]] = re.compile(
     re.VERBOSE,
 )
 _MODES: Final[tuple[str, ...]] = ("inside", "outside")
-_COMMENTS: Final[dict[str, tuple[str, str]]] = {
+_COMMENTS: Final[MappingProxyType[str, tuple[str, str]]] = MappingProxyType({
     "plain": ("note", "note"),
     "markup": ("<x> &amp;", "<x> &amp;"),
     "lines": ("a\r\nb\rc", "a\nb\nc"),
-}
-_CDATA: Final[dict[str, tuple[str, str]]] = {
+})
+_CDATA: Final[MappingProxyType[str, tuple[str, str]]] = MappingProxyType({
     "plain": ("Value", "Value"),
     "markup": ("<x>&amp;", "<x>&amp;"),
     "lines": ("a\r\nb\rc", "a\nb\nc"),
-}
+})
 
 __all__ = [
     "UnsupportedXmlIslandCaseError",

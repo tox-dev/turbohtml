@@ -5,6 +5,7 @@ import inspect
 import sys
 from enum import Enum, auto
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 import pytest
@@ -31,67 +32,6 @@ _POSITIONAL: Final[frozenset[inspect._ParameterKind]] = frozenset({
     inspect.Parameter.POSITIONAL_ONLY,
     inspect.Parameter.POSITIONAL_OR_KEYWORD,
 })
-
-
-class _Param(NamedTuple):
-    name: str
-    kind: inspect._ParameterKind
-    default: _Default | str
-
-
-class _Shape(NamedTuple):
-    positional: list[_Param]
-    keyword: dict[str, _Default | str]
-    var_positional: bool
-    var_keyword: bool
-
-
-def _shape(params: list[_Param]) -> _Shape:
-    return _Shape(
-        positional=[param for param in params if param.kind in _POSITIONAL],
-        keyword={p.name: p.default for p in params if p.kind is inspect.Parameter.KEYWORD_ONLY},
-        var_positional=any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in params),
-        var_keyword=any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params),
-    )
-
-
-def _stub_default(node: ast.expr | None) -> _Default | str:
-    if node is None:
-        return _NO_DEFAULT
-    if isinstance(node, ast.Constant) and node.value is Ellipsis:
-        return _ANY_DEFAULT
-    return ast.unparse(node)
-
-
-def _stub_params(func: ast.FunctionDef, *, drop_self: bool) -> list[_Param]:
-    args = func.args
-    positional = [*args.posonlyargs, *args.args]
-    padded = [None] * (len(positional) - len(args.defaults)) + list(args.defaults)
-    kinds = [inspect.Parameter.POSITIONAL_ONLY] * len(args.posonlyargs) + [
-        inspect.Parameter.POSITIONAL_OR_KEYWORD
-    ] * len(args.args)
-    params = [
-        _Param(arg.arg, kind, _stub_default(default))
-        for arg, kind, default in zip(positional, kinds, padded, strict=True)
-    ]
-    if args.vararg is not None:
-        params.append(_Param(args.vararg.arg, inspect.Parameter.VAR_POSITIONAL, _NO_DEFAULT))
-    params.extend(
-        _Param(arg.arg, inspect.Parameter.KEYWORD_ONLY, _stub_default(default))
-        for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=True)
-    )
-    if args.kwarg is not None:
-        params.append(_Param(args.kwarg.arg, inspect.Parameter.VAR_KEYWORD, _NO_DEFAULT))
-    if drop_self and params and params[0].name in frozenset({"self", "cls"}):
-        params.pop(0)
-    return params
-
-
-def _runtime_params(signature: inspect.Signature) -> list[_Param]:
-    return [
-        _Param(name, param.kind, _NO_DEFAULT if param.default is inspect.Parameter.empty else repr(param.default))
-        for name, param in signature.parameters.items()
-    ]
 
 
 def _is_property(method: ast.FunctionDef) -> bool:
@@ -145,9 +85,9 @@ def _is_dunder(name: str) -> bool:
     return leaf.startswith("__") and leaf.endswith("__")
 
 
-_ENTRIES: Final[dict[str, tuple[ast.FunctionDef, bool]]] = {
+_ENTRIES: Final[MappingProxyType[str, tuple[ast.FunctionDef, bool]]] = MappingProxyType({
     name: (node, drop_self) for name, node, drop_self in _stub_entries()
-}
+})
 _COMPARABLE: Final[list[str]] = sorted(
     name for name in _ENTRIES if not _is_dunder(name) and _runtime_signature(_resolve(name)) is not None
 )
@@ -176,6 +116,67 @@ def test_stub_signature_matches_runtime(name: str) -> None:
     assert live.var_keyword or set(stub.keyword) == set(live.keyword), "the stub declares a keyword the runtime lacks"
     for keyword, live_default in live.keyword.items():
         _assert_default(stub.keyword[keyword], live_default)
+
+
+def _shape(params: list[_Param]) -> _Shape:
+    return _Shape(
+        positional=[param for param in params if param.kind in _POSITIONAL],
+        keyword={p.name: p.default for p in params if p.kind is inspect.Parameter.KEYWORD_ONLY},
+        var_positional=any(p.kind is inspect.Parameter.VAR_POSITIONAL for p in params),
+        var_keyword=any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params),
+    )
+
+
+class _Shape(NamedTuple):
+    positional: list[_Param]
+    keyword: dict[str, _Default | str]
+    var_positional: bool
+    var_keyword: bool
+
+
+def _stub_params(func: ast.FunctionDef, *, drop_self: bool) -> list[_Param]:
+    args = func.args
+    positional = [*args.posonlyargs, *args.args]
+    padded = [None] * (len(positional) - len(args.defaults)) + list(args.defaults)
+    kinds = [inspect.Parameter.POSITIONAL_ONLY] * len(args.posonlyargs) + [
+        inspect.Parameter.POSITIONAL_OR_KEYWORD
+    ] * len(args.args)
+    params = [
+        _Param(arg.arg, kind, _stub_default(default))
+        for arg, kind, default in zip(positional, kinds, padded, strict=True)
+    ]
+    if args.vararg is not None:
+        params.append(_Param(args.vararg.arg, inspect.Parameter.VAR_POSITIONAL, _NO_DEFAULT))
+    params.extend(
+        _Param(arg.arg, inspect.Parameter.KEYWORD_ONLY, _stub_default(default))
+        for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=True)
+    )
+    if args.kwarg is not None:
+        params.append(_Param(args.kwarg.arg, inspect.Parameter.VAR_KEYWORD, _NO_DEFAULT))
+    if drop_self and params and params[0].name in frozenset({"self", "cls"}):
+        params.pop(0)
+    return params
+
+
+class _Param(NamedTuple):
+    name: str
+    kind: inspect._ParameterKind
+    default: _Default | str
+
+
+def _stub_default(node: ast.expr | None) -> _Default | str:
+    if node is None:
+        return _NO_DEFAULT
+    if isinstance(node, ast.Constant) and node.value is Ellipsis:
+        return _ANY_DEFAULT
+    return ast.unparse(node)
+
+
+def _runtime_params(signature: inspect.Signature) -> list[_Param]:
+    return [
+        _Param(name, param.kind, _NO_DEFAULT if param.default is inspect.Parameter.empty else repr(param.default))
+        for name, param in signature.parameters.items()
+    ]
 
 
 def _assert_default(stub_default: _Default | str, live_default: _Default | str) -> None:

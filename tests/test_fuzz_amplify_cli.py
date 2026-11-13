@@ -49,12 +49,6 @@ def _tenfold(text: str) -> str:  # pragma: win32 no cover
     return text * 10
 
 
-def _rows(tmp_path: Path, target: str, shape: dict[str, str]) -> Path:  # pragma: win32 no cover
-    row = {"name": "row", "source": "s", "targets": [target], "shape": shape}
-    (path := tmp_path / "rows.json").write_text(json.dumps([row]), encoding="utf-8")
-    return path
-
-
 def test_score_flags_a_quadratic_run(synthetic: list[float]) -> None:  # pragma: win32 no cover
     assert score(_quadratic(synthetic), _SHAPE).super_linear is True
 
@@ -72,6 +66,12 @@ def test_regressions_pass_a_linear_row(
 ) -> None:  # pragma: win32 no cover
     code = main(["regressions", "--file", str(_rows(tmp_path, "parse", {"kind": "repeat", "left": "a<?"}))])
     assert (code, capsys.readouterr().out.splitlines()[-1]) == (0, "1 regression rows scored, 0 failed")
+
+
+def _rows(tmp_path: Path, target: str, shape: dict[str, str]) -> Path:  # pragma: win32 no cover
+    row = {"name": "row", "source": "s", "targets": [target], "shape": shape}
+    (path := tmp_path / "rows.json").write_text(json.dumps([row]), encoding="utf-8")
+    return path
 
 
 @pytest.mark.parametrize(

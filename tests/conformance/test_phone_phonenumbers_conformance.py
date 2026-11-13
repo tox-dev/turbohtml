@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NamedTuple
 
 import phonenumbers
@@ -29,7 +30,7 @@ if phonenumbers.__version__ != LIBPHONENUMBER_TAG.removeprefix("v"):  # pragma: 
     )
     raise RuntimeError(_MISMATCH)
 
-_TYPES: Final[dict[int, PhoneType]] = {
+_TYPES: Final[MappingProxyType[int, PhoneType]] = MappingProxyType({
     PhoneNumberType.FIXED_LINE: PhoneType.FIXED_LINE,
     PhoneNumberType.MOBILE: PhoneType.MOBILE,
     PhoneNumberType.FIXED_LINE_OR_MOBILE: PhoneType.FIXED_LINE_OR_MOBILE,
@@ -42,37 +43,13 @@ _TYPES: Final[dict[int, PhoneType]] = {
     PhoneNumberType.UAN: PhoneType.UAN,
     PhoneNumberType.VOICEMAIL: PhoneType.VOICEMAIL,
     PhoneNumberType.UNKNOWN: PhoneType.UNKNOWN,
-}
+})
 _REGION_PARAMS: Final[list[pytest.ParameterSet]] = [
     pytest.param(region, id=region) for region in sorted(phonenumbers.SUPPORTED_REGIONS)
 ]
 _NON_GEO_PARAMS: Final[list[pytest.ParameterSet]] = [
     pytest.param(code, id=str(code)) for code in sorted(phonenumbers.COUNTRY_CODES_FOR_NON_GEO_REGIONS)
 ]
-
-
-def _examples(region: str) -> list[phonenumbers.PhoneNumber]:
-    return [
-        number
-        for number in (phonenumbers.example_number_for_type(region, number_type) for number_type in _TYPES)
-        if number is not None
-    ]
-
-
-def _ours(detector: LinkDetector, region: str, text: str) -> tuple[Found, list[phonenumbers.PhoneNumber]]:
-    # The recognizer's spans, each re-parsed by the oracle from its text the way the matcher parses a candidate.
-    found: Found = set()
-    parsed: list[phonenumbers.PhoneNumber] = []
-    for span in detector.find(text):
-        if span.phone is None:
-            continue
-        found.add((span.start, span.end, span.phone.international_number, span.phone.extension or ""))
-        number = phonenumbers.parse(span.text, region)
-        assert phonenumbers.format_number(number, PhoneNumberFormat.E164) == span.phone.international_number, text
-        assert (number.extension or None) == span.phone.extension, text
-        assert phonenumbers.region_code_for_number(number) == span.phone.region, text
-        parsed.append(number)
-    return found, parsed
 
 
 @pytest.mark.parametrize(
@@ -131,6 +108,30 @@ def test_detection_matches_the_matcher(
     assert unexplained == []
 
 
+def _examples(region: str) -> list[phonenumbers.PhoneNumber]:
+    return [
+        number
+        for number in (phonenumbers.example_number_for_type(region, number_type) for number_type in _TYPES)
+        if number is not None
+    ]
+
+
+def _ours(detector: LinkDetector, region: str, text: str) -> tuple[Found, list[phonenumbers.PhoneNumber]]:
+    # The recognizer's spans, each re-parsed by the oracle from its text the way the matcher parses a candidate.
+    found: Found = set()
+    parsed: list[phonenumbers.PhoneNumber] = []
+    for span in detector.find(text):
+        if span.phone is None:
+            continue
+        found.add((span.start, span.end, span.phone.international_number, span.phone.extension or ""))
+        number = phonenumbers.parse(span.text, region)
+        assert phonenumbers.format_number(number, PhoneNumberFormat.E164) == span.phone.international_number, text
+        assert (number.extension or None) == span.phone.extension, text
+        assert phonenumbers.region_code_for_number(number) == span.phone.region, text
+        parsed.append(number)
+    return found, parsed
+
+
 @pytest.mark.parametrize("region", _REGION_PARAMS)
 def test_valid_mode_reports_the_oracles_type(region: str) -> None:
     detector = LinkDetector(phones=PhoneNumbers(regions=(region,)))
@@ -154,12 +155,18 @@ def test_non_geographic_entities_are_found_without_a_region(country_code: int) -
     ] == [(phonenumbers.format_number(number, PhoneNumberFormat.E164), "001")]
 
 
-_STYLES: Final[dict[PhoneFormat, int]] = {
+_STYLES: Final[MappingProxyType[PhoneFormat, int]] = MappingProxyType({
     PhoneFormat.E164: PhoneNumberFormat.E164,
     PhoneFormat.INTERNATIONAL: PhoneNumberFormat.INTERNATIONAL,
     PhoneFormat.NATIONAL: PhoneNumberFormat.NATIONAL,
     PhoneFormat.RFC3966: PhoneNumberFormat.RFC3966,
-}
+})
+
+
+@pytest.mark.parametrize("region", _REGION_PARAMS)
+def test_format_writes_every_style_as_the_oracle(region: str) -> None:
+    for number in _examples(region):
+        _formats_agree(number)
 
 
 def _formats_agree(number: phonenumbers.PhoneNumber) -> None:
@@ -182,17 +189,31 @@ def _formats_agree(number: phonenumbers.PhoneNumber) -> None:
         assert {style: ours.format(style) for style in PhoneFormat} == expected, (number.country_code, nsn, extension)
 
 
-@pytest.mark.parametrize("region", _REGION_PARAMS)
-def test_format_writes_every_style_as_the_oracle(region: str) -> None:
-    for number in _examples(region):
-        _formats_agree(number)
-
-
 @pytest.mark.parametrize("country_code", _NON_GEO_PARAMS)
 def test_format_writes_non_geographic_numbers_as_the_oracle(country_code: int) -> None:
     number = phonenumbers.example_number_for_non_geo_entity(country_code)
     assert number is not None
     _formats_agree(number)
+
+
+@pytest.mark.parametrize("region", _REGION_PARAMS)
+def test_parse_reads_every_rendering_as_the_oracle(region: str) -> None:
+    for number in _examples(region):
+        national = phonenumbers.format_number(number, PhoneNumberFormat.NATIONAL)
+        for name, text in [
+            *renderings(number, region),
+            ("ext-autodial", f"{national},,123"),
+            ("ext-semicolon", f"{national};123"),
+        ]:
+            assert _our_parse(text, region) == _oracle_parse(text, region), (name, text)
+
+
+def _our_parse(text: str, region: str, *, require_valid: bool = True) -> _Parsed | None:
+    try:
+        parsed = PhoneNumber.parse(text, regions=(region,), require_valid=require_valid)
+    except ValueError:
+        return None
+    return _Parsed(parsed.country_code, parsed.national_number, parsed.extension)
 
 
 class _Parsed(NamedTuple):
@@ -209,26 +230,6 @@ def _oracle_parse(text: str, region: str, *, require_valid: bool = True) -> _Par
     if not (phonenumbers.is_valid_number if require_valid else phonenumbers.is_possible_number)(number):
         return None
     return _Parsed(number.country_code, phonenumbers.national_significant_number(number), number.extension)
-
-
-def _our_parse(text: str, region: str, *, require_valid: bool = True) -> _Parsed | None:
-    try:
-        parsed = PhoneNumber.parse(text, regions=(region,), require_valid=require_valid)
-    except ValueError:
-        return None
-    return _Parsed(parsed.country_code, parsed.national_number, parsed.extension)
-
-
-@pytest.mark.parametrize("region", _REGION_PARAMS)
-def test_parse_reads_every_rendering_as_the_oracle(region: str) -> None:
-    for number in _examples(region):
-        national = phonenumbers.format_number(number, PhoneNumberFormat.NATIONAL)
-        for name, text in [
-            *renderings(number, region),
-            ("ext-autodial", f"{national},,123"),
-            ("ext-semicolon", f"{national};123"),
-        ]:
-            assert _our_parse(text, region) == _oracle_parse(text, region), (name, text)
 
 
 @pytest.mark.parametrize("require_valid", [pytest.param(True, id="valid"), pytest.param(False, id="possible")])

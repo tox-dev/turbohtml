@@ -1398,14 +1398,6 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
-class _Engines(NamedTuple):
-    schema_mutation: ModuleType
-    xslt_inline: ModuleType
-    xsd_inline: ModuleType
-    rng_inline: ModuleType
-    etree: ModuleType
-
-
 @pytest.fixture
 def engines() -> _Engines:
     return _Engines(
@@ -1415,6 +1407,14 @@ def engines() -> _Engines:
         pytest.importorskip("fuzz.rng_inline", exc_type=ImportError),
         pytest.importorskip("lxml.etree", exc_type=ImportError),
     )
+
+
+class _Engines(NamedTuple):
+    schema_mutation: ModuleType
+    xslt_inline: ModuleType
+    xsd_inline: ModuleType
+    rng_inline: ModuleType
+    etree: ModuleType
 
 
 @pytest.mark.oracle
@@ -1725,7 +1725,9 @@ _TARGETS: Final[tuple[Target, ...]] = content_targets()
         pytest.param(bytes(range(256)), id="byte-range"),
     ],
 )
-def test_content_target_behaviors(target: Target, data: bytes) -> None:
+def test_content_target_behaviors(  # simplint: ignore[test-without-assertion]  # callbacks raise on failure
+    target: Target, data: bytes
+) -> None:
     target.callback(data)
 
 

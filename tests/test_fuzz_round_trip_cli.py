@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 from subprocess import CompletedProcess, TimeoutExpired  # ruff:ignore[suspicious-subprocess-import]  # stands in for a run outliving its deadline
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 from zipfile import ZipFile
 
@@ -54,27 +55,11 @@ def _key_error(text: str) -> str | None:
     raise KeyError(text)
 
 
-def _seeds() -> list[str]:
-    return ["axb", "a"]
-
-
-def _generate(_rng: random.Random) -> str:
-    return "zxz"
-
-
 def _fired() -> dict[str, bool]:
     return {"control": True}
 
 
 _ONE_CASE: Final[Floor] = Floor(count=1, ratio=0.5)
-
-
-def _probe(
-    check: Callable[[str], str | None],
-    controls: Callable[[], dict[str, bool]] = _fired,
-    floor: Floor = _ONE_CASE,
-) -> dict[str, Oracle]:
-    return {"probe": Oracle(check=check, generate=_generate, seeds=_seeds, controls=controls, floor=floor)}
 
 
 @pytest.fixture
@@ -95,6 +80,22 @@ def test_round_trip_cli_writes_a_minimized_finding(
         {"oracle": "probe", "detail": "broken", "hits": 1, "rng_seed": 0},
         f"FINDING probe sha256={digest}\n",
     )
+
+
+def _probe(
+    check: Callable[[str], str | None],
+    controls: Callable[[], dict[str, bool]] = _fired,
+    floor: Floor = _ONE_CASE,
+) -> dict[str, Oracle]:
+    return {"probe": Oracle(check=check, generate=_generate, seeds=_seeds, controls=controls, floor=floor)}
+
+
+def _generate(_rng: random.Random) -> str:
+    return "zxz"
+
+
+def _seeds() -> list[str]:
+    return ["axb", "a"]
 
 
 def _flag_x(text: str) -> str | None:
@@ -684,7 +685,7 @@ if TYPE_CHECKING:
     from pytest_mock import MockType
 
 
-_TARGETS: Final[dict[str, Target]] = {target.name: target for target in public_targets()}
+_TARGETS: Final[MappingProxyType[str, Target]] = MappingProxyType({target.name: target for target in public_targets()})
 
 
 @pytest.mark.parametrize(

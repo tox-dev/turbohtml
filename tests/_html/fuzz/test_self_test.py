@@ -11,6 +11,7 @@ import re
 import sys
 from pathlib import Path
 from subprocess import CompletedProcess, run  # ruff: ignore[suspicious-subprocess-import] - libFuzzer owns a separate interpreter.
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast
 
 import pytest
@@ -213,14 +214,14 @@ if TYPE_CHECKING:
 # and a noncharacter for the preprocessing scan (in a wide and a one-byte str, which it reads on separate paths), a
 # duplicate attribute and a NUL reference for the tokenizer, and a second doctype and a self-closed div for the tree
 # builder.
-_SEEDS: Final[dict[str, str]] = {
+_SEEDS: Final[MappingProxyType[str, str]] = MappingProxyType({
     "control-wide": "\x01\ufdd0<!DOCTYPE html>",
     "control-one-byte": "\x01\xa0<!DOCTYPE html>",
     "duplicate-attribute": "<!DOCTYPE html><p a=1 a=2>",
     "nul-reference": "<!DOCTYPE html>&#0;",
     "second-doctype": "<!DOCTYPE html><!DOCTYPE x>",
     "self-closed-div": "<!DOCTYPE html><div/>",
-}
+})
 
 
 def _errors(seed: str) -> list[ParseError]:
@@ -810,11 +811,6 @@ if TYPE_CHECKING:
 _SELECTOR: Final[str] = "main > p[zq] a, :is(b, i, [zq]) :has(> a)"
 
 
-def _document() -> turbohtml.Document:
-    # a fresh document per run, so the compiled-selector cache of one run cannot skip the parser in the next
-    return turbohtml.parse("<!DOCTYPE html><main><p zq=1><a>t</a><b>u</b></p></main>")
-
-
 @pytest.mark.fuzz_build
 @pytest.mark.parametrize(
     "call",
@@ -831,6 +827,11 @@ def test_selector_allocation_failure_raises_memory_error(
     alloc_sweep: _Sweep, call: Callable[[turbohtml.Document], object]
 ) -> None:
     assert set(alloc_sweep(call, _document)) == {"MemoryError"}
+
+
+def _document() -> turbohtml.Document:
+    # a fresh document per run, so the compiled-selector cache of one run cannot skip the parser in the next
+    return turbohtml.parse("<!DOCTYPE html><main><p zq=1><a>t</a><b>u</b></p></main>")
 
 
 _AB: Final[re.Pattern[str]] = re.compile(r"ab")
@@ -1121,13 +1122,13 @@ print(json.dumps({"owners": len(owner_inventory()), "targets": [target.name for 
 """  # simplint: ignore[single-user-constant]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
 
 
-_GENERATION_COUNTS: Final[dict[str, list[str]]] = {
-    "encoding": ["--count", "0", "--sweep"]
-}  # simplint: ignore[single-user-constant]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
-_FALLBACK_PAYLOADS: Final[dict[str, bytes]] = {
+_GENERATION_COUNTS: Final[MappingProxyType[str, tuple[str, ...]]] = MappingProxyType({
+    "encoding": ("--count", "0", "--sweep")
+})  # simplint: ignore[single-user-constant]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
+_FALLBACK_PAYLOADS: Final[MappingProxyType[str, bytes]] = MappingProxyType({
     "css-translate": b"p.x",
     "javascript": b'consume("kept",external);',
-}  # simplint: ignore[single-user-constant]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
+})  # simplint: ignore[single-user-constant]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
 
 
 _NATIVE_ATHERIS_SKIP: Final[pytest.MarkDecorator] = pytest.mark.skipif(
@@ -1174,7 +1175,7 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
                 "fuzz.atheris_corpora",
                 "--profile",
                 profile,
-                *_GENERATION_COUNTS.get(profile, ["--count", "1"]),
+                *_GENERATION_COUNTS.get(profile, ("--count", "1")),
                 "--budget",
                 "512",
                 "--output",
@@ -1309,6 +1310,28 @@ def consume(data: bytes) -> None:
 """
 
 
+@_NATIVE_ATHERIS_SKIP
+@pytest.mark.atheris_native
+@pytest.mark.oracle
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        pytest.param("accept", ["BENIGN_A", "BENIGN_B"], id="accept"),
+        pytest.param("reject", [], id="reject"),
+        pytest.param("mixed", ["BENIGN_B"], id="mixed"),
+        pytest.param("reset", ["BENIGN_B"], id="reset"),
+    ],
+)
+def test_atheris_native_corpus_rejection(tmp_path: Path, mode: str, expected: list[str]) -> None:
+    result, corpus = _run_native_child(tmp_path, mode)
+    assert result.returncode == 0
+    assert b"ATHERIS_REJECTION_BRIDGE=1" in result.stderr
+    assert b"Coverage symbols are being provided by a library other than libFuzzer" not in result.stderr
+    assert b"Done 64" in result.stderr
+    assert b"ATHERIS_CUSTOM_MUTATOR_BRIDGE=1" in result.stderr
+    assert sorted({path.read_bytes()[HEADER_SIZE:].decode("ascii") for path in corpus.iterdir()}) == expected
+
+
 def _run_native_child(tmp_path: Path, mode: str) -> tuple[CompletedProcess[bytes], Path]:
     child_source: str = """
 from __future__ import annotations
@@ -1367,28 +1390,6 @@ fuzz(
     )
     (tmp_path / f"{mode}.log").write_bytes(result.stdout + result.stderr)
     return result, corpus
-
-
-@_NATIVE_ATHERIS_SKIP
-@pytest.mark.atheris_native
-@pytest.mark.oracle
-@pytest.mark.parametrize(
-    ("mode", "expected"),
-    [
-        pytest.param("accept", ["BENIGN_A", "BENIGN_B"], id="accept"),
-        pytest.param("reject", [], id="reject"),
-        pytest.param("mixed", ["BENIGN_B"], id="mixed"),
-        pytest.param("reset", ["BENIGN_B"], id="reset"),
-    ],
-)
-def test_atheris_native_corpus_rejection(tmp_path: Path, mode: str, expected: list[str]) -> None:
-    result, corpus = _run_native_child(tmp_path, mode)
-    assert result.returncode == 0
-    assert b"ATHERIS_REJECTION_BRIDGE=1" in result.stderr
-    assert b"Coverage symbols are being provided by a library other than libFuzzer" not in result.stderr
-    assert b"Done 64" in result.stderr
-    assert b"ATHERIS_CUSTOM_MUTATOR_BRIDGE=1" in result.stderr
-    assert sorted({path.read_bytes()[HEADER_SIZE:].decode("ascii") for path in corpus.iterdir()}) == expected
 
 
 @_NATIVE_ATHERIS_SKIP

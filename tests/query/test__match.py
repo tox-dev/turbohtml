@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import Final, cast
 
 import pytest
@@ -249,7 +250,7 @@ def test_closest_walks_up() -> None:
     assert found.tag == "div"
 
 
-_ORACLE_DOCS: Final[dict[str, str]] = {
+_ORACLE_DOCS: Final[MappingProxyType[str, str]] = MappingProxyType({
     "article": (
         '<!doctype html><html lang="en"><head><title>T</title></head><body>'
         '<div id="div" class="foo bar">'
@@ -285,7 +286,7 @@ _ORACLE_DOCS: Final[dict[str, str]] = {
         "<div><span>only</span> tail</div>"
         "</body></html>"
     ),
-}
+})
 
 _ORACLE_SELECTORS: Final[tuple[str, ...]] = (
     "a:active",
@@ -479,14 +480,6 @@ def test_matches_soupsieve(doc_name: str, selector: str) -> None:
 
 
 @pytest.mark.oracle
-def test_corpus_exercises_the_fixtures() -> None:
-    matching = sum(
-        1 for selector in _ORACLE_SELECTORS if any(_oracle_hits(html, selector)[0] for html in _ORACLE_DOCS.values())
-    )
-    assert matching >= 90
-
-
-@pytest.mark.oracle
 def _oracle_hits(document_html: str, selector: str) -> tuple[list[int], list[int]]:
     bs4: Final = pytest.importorskip("bs4")
     soupsieve: Final = pytest.importorskip("soupsieve")
@@ -499,3 +492,11 @@ def _oracle_hits(document_html: str, selector: str) -> tuple[list[int], list[int
     soup_index = {id(element): position for position, element in enumerate(soup.find_all(name=True))}
     ours = sorted(turbo_index[element] for element in select(selector, turbo_doc))
     return ours, sorted(soup_index[id(element)] for element in soupsieve.select(selector, soup))
+
+
+@pytest.mark.oracle
+def test_corpus_exercises_the_fixtures() -> None:
+    matching = sum(
+        1 for selector in _ORACLE_SELECTORS if any(_oracle_hits(html, selector)[0] for html in _ORACLE_DOCS.values())
+    )
+    assert matching >= 90

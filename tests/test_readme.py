@@ -13,6 +13,7 @@ _PYTHON_BLOCKS: Final[list[str]] = re.findall(
 
 
 def test_readme_examples_run() -> None:
+    assert _PYTHON_BLOCKS, "README.md lost its python examples"
     namespace = ModuleType("readme").__dict__
     for block in _PYTHON_BLOCKS:
         exec(block, namespace)  # ruff:ignore[exec-builtin]  # our own README, run as one continuous script

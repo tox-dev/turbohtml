@@ -147,6 +147,7 @@ def test_default_handlers_are_no_ops() -> None:
     parser.handle_entityref("amp")
     parser.handle_charref("9731")
     parser.unknown_decl("CDATA[x]")
+    assert parser.getpos() == (1, 44)
 
 
 def test_reset_clears_buffer_and_position() -> None:

@@ -24,13 +24,6 @@ if TYPE_CHECKING:
 _XS: Final[str] = 'xmlns:xs="http://www.w3.org/2001/XMLSchema"'
 
 
-def restricted(facets: str, base: str = "xs:string") -> str:
-    return (
-        f'<xs:schema {_XS}><xs:element name="v"><xs:simpleType>'
-        f'<xs:restriction base="{base}">{facets}</xs:restriction></xs:simpleType></xs:element></xs:schema>'
-    )
-
-
 @pytest.mark.parametrize(
     ("type_name", "value"),
     [
@@ -143,6 +136,13 @@ def test_builtin_datatype_invalid(type_name: str, value: str) -> None:
 )
 def test_facets(facets: str, base: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     assert check(restricted(facets, base), f"<v>{value}</v>").valid is ok
+
+
+def restricted(facets: str, base: str = "xs:string") -> str:
+    return (
+        f'<xs:schema {_XS}><xs:element name="v"><xs:simpleType>'
+        f'<xs:restriction base="{base}">{facets}</xs:restriction></xs:simpleType></xs:element></xs:schema>'
+    )
 
 
 @pytest.mark.parametrize(
@@ -784,10 +784,6 @@ def test_validate_element_directly() -> None:
     assert XMLSchema(typed("xs:int")).is_valid(element)
 
 
-def xsd_ok(schema: str, xml: str) -> bool:
-    return XMLSchema(schema).validate(parse_xml(xml)).valid
-
-
 @pytest.mark.parametrize(
     ("type_name", "value", "ok"),
     [
@@ -828,6 +824,10 @@ def xsd_ok(schema: str, xml: str) -> bool:
 def test_datatype_edges(type_name: str, value: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
     schema = f'<xs:schema {_XS}><xs:element name="v" type="{type_name}"/></xs:schema>'
     assert xsd_ok(schema, f"<v>{value}</v>") is ok
+
+
+def xsd_ok(schema: str, xml: str) -> bool:
+    return XMLSchema(schema).validate(parse_xml(xml)).valid
 
 
 @pytest.mark.parametrize(

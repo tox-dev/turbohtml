@@ -25,6 +25,24 @@ if TYPE_CHECKING:
     from turbohtml import Node
 
 
+_COLLAPSE_PATTERN: Final[re.Pattern[str]] = re.compile(r">\s+<")
+
+
+_CANON_PATTERN: Final[re.Pattern[str]] = re.compile(r"^<\?xml\s[^>]*\?>\s*")
+
+
+def test_transform_value_of_reads_string_value() -> None:
+    result = _run(
+        "<r><name>World</name></r>", '<xsl:template match="/">Hi <xsl:value-of select="//name"/></xsl:template>'
+    )
+    assert result == "Hi World"
+
+
+def _run(source: str, body: str, *, method: str = "text", prefix: str = "xsl", **params: str) -> str:
+    # Parse a source document and body stylesheet and return the transform result.
+    return Transform(_sheet(body, method=method, prefix=prefix))(turbohtml.parse_xml(source), **params)
+
+
 def _sheet(body: str, *, method: str = "text", declare: str = "", prefix: str = "xsl") -> turbohtml.Document:
     # Wrap a template body in a stylesheet parsed as XML, with the given output method.
     #
@@ -41,34 +59,6 @@ def _sheet(body: str, *, method: str = "text", declare: str = "", prefix: str = 
         f"{output}{body}</{prefix}:stylesheet>"
     )
     return turbohtml.parse_xml(text)
-
-
-def _run(source: str, body: str, *, method: str = "text", prefix: str = "xsl", **params: str) -> str:
-    # Parse a source document and body stylesheet and return the transform result.
-    return Transform(_sheet(body, method=method, prefix=prefix))(turbohtml.parse_xml(source), **params)
-
-
-_COLLAPSE_PATTERN: Final[re.Pattern[str]] = re.compile(r">\s+<")
-
-
-def _collapse(text: str) -> str:
-    # Drop whitespace between tags so content compares without a serializer's layout.
-    return _COLLAPSE_PATTERN.sub("><", text.strip())
-
-
-_CANON_PATTERN: Final[re.Pattern[str]] = re.compile(r"^<\?xml\s[^>]*\?>\s*")
-
-
-def _canon(text: str) -> str:
-    # Drop the XML declaration and inter-tag whitespace, as the conformance harness compares.
-    return _collapse(_CANON_PATTERN.sub("", text))
-
-
-def test_transform_value_of_reads_string_value() -> None:
-    result = _run(
-        "<r><name>World</name></r>", '<xsl:template match="/">Hi <xsl:value-of select="//name"/></xsl:template>'
-    )
-    assert result == "Hi World"
 
 
 def test_transform_apply_templates_default_children() -> None:
@@ -209,6 +199,11 @@ def test_transform_copy_of_restores_shadowed_fragments() -> None:
         '<xsl:copy-of select="$v"/></out></xsl:template>'
     )
     assert _collapse(_run("<r><n/><n/></r>", body, method="xml")) == "<out><local/><local/><global/></out>"
+
+
+def _collapse(text: str) -> str:
+    # Drop whitespace between tags so content compares without a serializer's layout.
+    return _COLLAPSE_PATTERN.sub("><", text.strip())
 
 
 def test_transform_variable_scope_recovers_after_error() -> None:
@@ -1938,10 +1933,6 @@ def test_transform_element_with_empty_name() -> None:
     assert "x" in _run("<r/>", body, method="xml")
 
 
-def _run_computed_name(instruction: str, name: str) -> str:
-    return _run(f"<n>{name}</n>", f'<xsl:template match="/"><r>{instruction}</r></xsl:template>', method="xml")
-
-
 _COMPUTED_ELEMENT: Final[str] = '<xsl:element name="{/n}"><xsl:attribute name="a">1</xsl:attribute>e</xsl:element>'
 _COMPUTED_ATTRIBUTE: Final[str] = '<xsl:attribute name="{/n}">v</xsl:attribute>'
 _COMPUTED_NAMESPACED_ATTRIBUTE: Final[str] = '<xsl:attribute name="{/n}" namespace="urn:x">v</xsl:attribute>'
@@ -1963,6 +1954,10 @@ _COMPUTED_NAMESPACED_ATTRIBUTE: Final[str] = '<xsl:attribute name="{/n}" namespa
 def test_transform_invalid_element_name_keeps_content_only(name: str) -> None:
     # XSLT 1.0 7.1.2 recovery: the content without the element or the attributes it would carry
     assert _run_computed_name(_COMPUTED_ELEMENT, name) == "<r>e</r>"
+
+
+def _run_computed_name(instruction: str, name: str) -> str:
+    return _run(f"<n>{name}</n>", f'<xsl:template match="/"><r>{instruction}</r></xsl:template>', method="xml")
 
 
 @pytest.mark.parametrize(
@@ -2962,6 +2957,11 @@ def test_transform_cdata_section_elements_wraps_text(source: str) -> None:
     assert _canon(transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>"))) == "<d><![CDATA[<x>]]></d>"
 
 
+def _canon(text: str) -> str:
+    # Drop the XML declaration and inter-tag whitespace, as the conformance harness compares.
+    return _collapse(_CANON_PATTERN.sub("", text))
+
+
 def test_transform_html_method_auto_selected_for_html_root() -> None:
     body = '<xsl:template match="/"><html><head><title>t</title></head><body>x</body></html></xsl:template>'
     result = _collapse(transform(_sheet(body, method=""), turbohtml.parse_xml("<r/>")))
@@ -3077,6 +3077,13 @@ def test_transform_import_can_be_disabled(tmp_path: Path) -> None:
         Transform(_import_sheet(), base_url=str(tmp_path / "main.xsl"), allow_imports=False)
 
 
+def _import_sheet(href: str = "base.xsl") -> turbohtml.Document:
+    return turbohtml.parse_xml(
+        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
+        f'<xsl:import href="{href}"/></xsl:stylesheet>'
+    )
+
+
 def test_transform_import_disabled_allows_self_contained_stylesheet() -> None:
     result = Transform(_sheet('<xsl:template match="/">ok</xsl:template>'), allow_imports=False)(
         turbohtml.parse_xml("<r/>")
@@ -3179,12 +3186,6 @@ def test_transform_import_root_blocks_file_swap(
         Transform(_import_sheet("inside/base.xsl"), base_url=str(root / "main.xsl"), import_root=root)
 
 
-class _SwapPaths(NamedTuple):
-    root: Path
-    inside: Path
-    outside: Path
-
-
 @pytest.fixture
 def import_swap_paths(tmp_path: Path) -> _SwapPaths:
     root = tmp_path / "styles"
@@ -3199,6 +3200,12 @@ def import_swap_paths(tmp_path: Path) -> _SwapPaths:
             encoding="utf-8",
         )
     return _SwapPaths(root, inside, outside)
+
+
+class _SwapPaths(NamedTuple):
+    root: Path
+    inside: Path
+    outside: Path
 
 
 def test_transform_import_root_reads_large_file(tmp_path: Path) -> None:
@@ -3321,13 +3328,6 @@ def test_transform_import_accepts_windows_drive_path_on_posix(
 def test_transform_import_rejects_windows_drive_relative_path(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="href must be a local path or file URL"):
         Transform(_import_sheet("C:base.xsl"), base_url=str(tmp_path / "main.xsl"))
-
-
-def _import_sheet(href: str = "base.xsl") -> turbohtml.Document:
-    return turbohtml.parse_xml(
-        '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
-        f'<xsl:import href="{href}"/></xsl:stylesheet>'
-    )
 
 
 def test_transform_import_ignores_foreign_same_length_prefix() -> None:
@@ -5563,7 +5563,8 @@ def test_dense_number_benchmark_output(library: str) -> None:
         }"""
         "</out>"
     )
-    assert str(operation(cast("tuple[str, str]", INPUTS["transform-dense"]()[0][1]))).strip() == expected
+    case: Final = cast("tuple[str, str]", INPUTS["transform-dense"]()[0][1])
+    assert str(operation(case)).strip() == expected
 
 
 @pytest.mark.parametrize("library", [pytest.param("core", id="turbohtml"), pytest.param("competitors.lxml", id="lxml")])
@@ -5590,7 +5591,7 @@ _ORACLE_CATALOG: Final[str] = (
     '<book id="b3" cat="fiction"><title>1984</title><price>8.00</price></book></catalog>'
 )
 
-_ORACLE_CASES: Final[list[pytest.ParameterSet]] = [
+_ORACLE_CASES: Final[tuple[pytest.ParameterSet, ...]] = (
     pytest.param(
         "<r><name>World</name></r>",
         _oracle_sheet('<xsl:template match="/">Hi <xsl:value-of select="//name"/></xsl:template>', method="text"),
@@ -5725,7 +5726,7 @@ _ORACLE_CASES: Final[list[pytest.ParameterSet]] = [
         "text",
         id="conflict-resolution-predicate-priority",
     ),
-]
+)
 
 
 _TEXT_ORACLE_CASES: Final[list[pytest.ParameterSet]] = [

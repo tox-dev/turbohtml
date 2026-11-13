@@ -61,17 +61,17 @@ _CHUNK_SIZES: Final[list[pytest.ParameterSet]] = [
 ]
 
 
+@pytest.mark.parametrize("document", _DOCUMENTS)
+@pytest.mark.parametrize("chunk", _CHUNK_SIZES)
+def test_chunked_str_matches_whole(document: str, chunk: int) -> None:
+    assert _stream(document, chunk) == parse(document).html
+
+
 def _stream(document: str, chunk: int) -> str:
     parser = IncrementalParser()
     for start in range(0, len(document), chunk):
         parser.feed(document[start : start + chunk])
     return parser.close().html
-
-
-@pytest.mark.parametrize("document", _DOCUMENTS)
-@pytest.mark.parametrize("chunk", _CHUNK_SIZES)
-def test_chunked_str_matches_whole(document: str, chunk: int) -> None:
-    assert _stream(document, chunk) == parse(document).html
 
 
 @pytest.mark.parametrize("document", _DOCUMENTS)
@@ -327,7 +327,7 @@ def test_context_manager_discards_abandoned_parse() -> None:
         parser.feed("<p>x</p>")
 
 
-def test_parser_discarded_without_close() -> None:
+def test_parser_discarded_without_close() -> None:  # simplint: ignore[test-without-assertion]  # ASan judges it
     parser = IncrementalParser()
     parser.feed("<div><p>unfinished")
     del parser  # dealloc must free the in-progress stream without a close()

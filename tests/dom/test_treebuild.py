@@ -72,13 +72,13 @@ class Recorder:
         parent.children.append(child)
 
 
-def build(markup: str) -> Built:
-    return parse_into(markup, Recorder())
-
-
 def test_returns_the_document_root_the_builder_made() -> None:
     root = build("<p>hi</p>")
     assert root.kind == "document"
+
+
+def build(markup: str) -> Built:
+    return parse_into(markup, Recorder())
 
 
 def test_implied_html_head_body_are_emitted() -> None:
@@ -287,6 +287,30 @@ def _flatten(node: Built, out: list[SaxEvent]) -> None:
                 _flatten(child, out)
 
 
+@pytest.mark.parametrize(
+    "method",
+    [
+        "create_document",
+        "create_doctype",
+        "create_element",
+        "create_text",
+        "create_comment",
+        "create_pi",
+        "append",
+    ],
+)
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("<!DOCTYPE html><body>text<!--c--><?pi?></body>", id="html"),
+        pytest.param("<!DOCTYPE html><svg><circle/></svg><math><mi>x</mi></math><!--c--><?pi?>", id="foreign"),
+    ],
+)
+def test_a_builder_method_that_raises_propagates(method: str, markup: str) -> None:
+    with pytest.raises(ValueError, match=f"boom in {method}"):
+        parse_into(markup, _RaisingBuilder(method))
+
+
 class _RaisingBuilder(Recorder):
     def __init__(self, at: str) -> None:
         self._at = at
@@ -322,28 +346,9 @@ class _RaisingBuilder(Recorder):
         super().append(parent, child)
 
 
-@pytest.mark.parametrize(
-    "method",
-    [
-        "create_document",
-        "create_doctype",
-        "create_element",
-        "create_text",
-        "create_comment",
-        "create_pi",
-        "append",
-    ],
-)
-@pytest.mark.parametrize(
-    "markup",
-    [
-        pytest.param("<!DOCTYPE html><body>text<!--c--><?pi?></body>", id="html"),
-        pytest.param("<!DOCTYPE html><svg><circle/></svg><math><mi>x</mi></math><!--c--><?pi?>", id="foreign"),
-    ],
-)
-def test_a_builder_method_that_raises_propagates(method: str, markup: str) -> None:
-    with pytest.raises(ValueError, match=f"boom in {method}"):
-        parse_into(markup, _RaisingBuilder(method))
+def test_a_builder_missing_a_method_raises_attribute_error() -> None:
+    with pytest.raises(AttributeError, match="append"):
+        parse_into("<p>x</p>", _NoAppend())  # ty: ignore[invalid-argument-type]  # the missing method is the point
 
 
 class _NoAppend:
@@ -354,11 +359,6 @@ class _NoAppend:
     create_text = Recorder.create_text
     create_comment = Recorder.create_comment
     create_pi = Recorder.create_pi
-
-
-def test_a_builder_missing_a_method_raises_attribute_error() -> None:
-    with pytest.raises(AttributeError, match="append"):
-        parse_into("<p>x</p>", _NoAppend())  # ty: ignore[invalid-argument-type]  # the missing method is the point
 
 
 def test_non_str_source_raises_type_error() -> None:
@@ -387,47 +387,6 @@ def test_parse_into_rebuilds_the_tree_in_lxml(markup: str) -> None:
     theirs: Final[list[_LxmlEvent]] = []
     _flatten_turbo(parse(markup), theirs)
     assert mine == theirs
-
-
-@pytest.mark.oracle
-@pytest.mark.parametrize(
-    ("data", "expected"),
-    [
-        pytest.param("", "<html><head/><body><!--?php?--></body></html>", id="empty"),
-        pytest.param("echo 1", "<html><head/><body><!--?php echo 1?--></body></html>", id="body"),
-    ],
-)
-def test_lxml_builder_preserves_processing_instruction(data: str, expected: str) -> None:
-    lxml_etree: Final = pytest.importorskip("lxml.etree")
-    built: Final = parse_into(f"<body><?php {data}?></body>", _LxmlBuilder(lxml_etree))
-    assert not isinstance(built, tuple)
-    assert lxml_etree.tostring(built[0]) == expected.encode()
-
-
-_LxmlEvent = tuple[object, ...]
-
-
-@pytest.mark.oracle
-class _LxmlNode(Protocol):
-    # lxml provides no stubs for the builder protocol.
-    text: str | None
-    tail: str | None
-
-    def __len__(self) -> int: ...
-
-    def __getitem__(self, index: int) -> _LxmlNode: ...
-
-    def __iter__(self) -> Iterator[_LxmlNode]: ...
-
-    @property
-    def tag(self) -> str | Callable[[str | None], object]: ...
-
-    @property
-    def attrib(self) -> Mapping[str, str]: ...
-
-    def set(self, key: str, value: str) -> None: ...
-
-    def append(self, child: _LxmlNode) -> None: ...
 
 
 @pytest.mark.oracle
@@ -508,6 +467,47 @@ def _attr_value(value: str | list[str] | None) -> str:
     if isinstance(value, list):
         return " ".join(value)
     return value or ""
+
+
+@pytest.mark.oracle
+@pytest.mark.parametrize(
+    ("data", "expected"),
+    [
+        pytest.param("", "<html><head/><body><!--?php?--></body></html>", id="empty"),
+        pytest.param("echo 1", "<html><head/><body><!--?php echo 1?--></body></html>", id="body"),
+    ],
+)
+def test_lxml_builder_preserves_processing_instruction(data: str, expected: str) -> None:
+    lxml_etree: Final = pytest.importorskip("lxml.etree")
+    built: Final = parse_into(f"<body><?php {data}?></body>", _LxmlBuilder(lxml_etree))
+    assert not isinstance(built, tuple)
+    assert lxml_etree.tostring(built[0]) == expected.encode()
+
+
+_LxmlEvent = tuple[object, ...]
+
+
+@pytest.mark.oracle
+class _LxmlNode(Protocol):
+    # lxml provides no stubs for the builder protocol.
+    text: str | None
+    tail: str | None
+
+    def __len__(self) -> int: ...
+
+    def __getitem__(self, index: int) -> _LxmlNode: ...
+
+    def __iter__(self) -> Iterator[_LxmlNode]: ...
+
+    @property
+    def tag(self) -> str | Callable[[str | None], object]: ...
+
+    @property
+    def attrib(self) -> Mapping[str, str]: ...
+
+    def set(self, key: str, value: str) -> None: ...
+
+    def append(self, child: _LxmlNode) -> None: ...
 
 
 def test_builder_can_reenter_while_copying_text() -> None:
