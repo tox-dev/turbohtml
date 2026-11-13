@@ -471,6 +471,7 @@ typedef struct {
 } named_vec;
 
 typedef struct pattern pattern;
+typedef struct nclevel nclevel;
 
 typedef struct def_part {
     th_node *node;
@@ -484,6 +485,8 @@ typedef struct def_entry {
     def_part *extra, *last;
     pattern *built;  /* memoized pattern, NULL until first resolved */
     int cycle_depth; /* compile-time 4.19 cycle check: -1 unvisited, -2 cleared, else the element depth in progress */
+    nclevel *level;  /* compile-time 7.4 check: what the define matches before an <element>, NULL until a branch asks */
+    int branch;      /* compile-time 7.4 check: the interleave branch that last took this define, see rng_branch */
 } def_entry;
 
 typedef struct {
@@ -492,6 +495,12 @@ typedef struct {
     Py_ssize_t len, cap;
     size_t slot_cap;
 } def_vec;
+
+typedef struct {
+    struct nameclass **items;
+    Py_ssize_t len, cap;
+    int text;
+} ncvec;
 
 typedef struct th_schema {
     int kind; /* 0 = XSD, 1 = RELAX NG */
@@ -509,6 +518,8 @@ typedef struct th_schema {
     pattern *p_empty, *p_notallowed, *p_text;
     int rng_references; /* the annotation pruning walk met an include or externalRef with href */
     def_vec defines;
+    ncvec rng_seen;           /* compile-time 7.4 check: what the branches of one interleave match, reused by each */
+    int rng_branch;           /* compile-time 7.4 check: counts the branches, stamping the defines each one takes */
     struct patintern *intern; /* per-validation pattern hash-consing table; NULL while compiling */
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;

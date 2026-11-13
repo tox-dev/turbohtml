@@ -769,6 +769,7 @@ static void rng_check_href(th_node *node) {
 }
 
 static pattern *rng_combine(th_schema *schema, const def_entry *entry);
+static int rng_combines_by_interleave(th_schema *schema, th_node *component);
 
 static pattern *rng_resolve(th_schema *schema, int def_index) {
     def_entry *entry = &schema->defines.items[def_index];
@@ -787,14 +788,9 @@ static pattern *rng_combine(th_schema *schema, const def_entry *entry) {
     def_part *part = entry->extra;
     for (;;) {
         pattern *body = rng_build_children(schema, define, NULL);
-        const th_node_attr *combine = attr_exact(schema->tree, define, "combine", 7);
-        int interleave = 0;
-        if (combine != NULL) {
-            interleave = u_eq_ascii(combine->value, combine->value_len, "interleave");
-        }
         if (combined == NULL) {
             combined = body;
-        } else if (interleave) {
+        } else if (rng_combines_by_interleave(schema, define)) {
             combined = pat_interleave(schema, combined, body);
         } else {
             combined = pat_choice(schema, combined, body);
@@ -806,6 +802,11 @@ static pattern *rng_combine(th_schema *schema, const def_entry *entry) {
         part = part->next;
     }
     return combined;
+}
+
+static int rng_combines_by_interleave(th_schema *schema, th_node *component) {
+    const th_node_attr *combine = attr_exact(schema->tree, component, "combine", 7);
+    return combine != NULL && u_eq_ascii(combine->value, combine->value_len, "interleave");
 }
 
 /* ---- derivatives ---- */
@@ -1167,6 +1168,7 @@ static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
 /* ---- compile & entry ---- */
 
 static int rng_scan(th_schema *schema, th_node *container, int depth);
+static int rng_check_combine(th_schema *schema, const def_entry *entry);
 static int rng_is_reference(th_schema *schema, th_node *node);
 static int rng_check_unused_refs(th_schema *schema, th_node *container);
 static void rng_prune_annotations(th_schema *schema, th_node *container);
@@ -1213,7 +1215,7 @@ static int rng_compile(th_schema *schema, PyObject *base_url, PyObject *include_
     for (Py_ssize_t index = 0; index < schema->defines.len; index++) {
         schema->defines.items[index].cycle_depth = -1;
     }
-    if (rng_scan(schema, starts.first, 0) < 0) {
+    if (rng_check_combine(schema, &starts) < 0 || rng_scan(schema, starts.first, 0) < 0) {
         return 0;
     }
     for (def_part *part = starts.extra; part != NULL; part = part->next) {
@@ -1401,7 +1403,10 @@ static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth) {
     def_entry *entry = &schema->defines.items[def_index];
     if (entry->cycle_depth == -1) {
         entry->cycle_depth = depth;
-        int ret = rng_scan(schema, entry->first, depth);
+        int ret = rng_check_combine(schema, entry);
+        if (ret == 0) {
+            ret = rng_scan(schema, entry->first, depth);
+        }
         for (def_part *part = entry->extra; ret == 0 && part != NULL; part = part->next) {
             ret = rng_scan(schema, part->node, depth);
         }
@@ -1417,79 +1422,174 @@ static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth) {
     return 0;
 }
 
-typedef struct {
-    nameclass **items;
-    Py_ssize_t len, cap;
-    int text;
-} ncvec;
+/* What a pattern can match before an <element> is crossed: the name class of each element, text, and the defines its
+   refs name. */
+struct nclevel {
+    ncvec names;
+    Py_ssize_t *refs;
+    Py_ssize_t ref_len, ref_cap;
+};
 
-static int rng_branch_nameclasses(th_schema *schema, th_node *node, ncvec *out);
-static int ncvec_push(th_schema *schema, ncvec *vec, nameclass *nc);
-static int nc_name_eq(const nameclass *left, const nameclass *right);
+static int rng_interleave_branch(th_schema *schema, th_node *branch, ncvec *seen, int joined);
 
 /* RELAX NG 7.4: an ambiguous interleave drives the derivative into exponential memory; libxml2 ("Element or text
    conflicts in interleave") and jing/MSV reject it too. */
 static int rng_check_interleave_node(th_schema *schema, th_node *interleave) {
-    ncvec seen = {NULL, 0, 0, 0};
+    ncvec *seen = &schema->rng_seen;
+    seen->len = 0;
+    seen->text = 0;
     for (th_node *branch = interleave->first_child; branch != NULL; branch = branch->next_sibling) {
         if (branch->type != TH_NODE_ELEMENT) {
             continue;
         }
-        ncvec here = {NULL, 0, 0, 0};
-        if (rng_branch_nameclasses(schema, branch, &here) < 0) { /* GCOVR_EXCL_BR_LINE: unforceable arena OOM */
-            return -1;                                           /* GCOVR_EXCL_LINE */
-        }
-        if (here.text && seen.text) {
-            PyErr_SetString(PyExc_ValueError, "RELAX NG interleave has text in more than one branch");
+        if (rng_interleave_branch(schema, branch, seen, 1) < 0) {
             return -1;
         }
-        for (Py_ssize_t here_index = 0; here_index < here.len; here_index++) {
-            for (Py_ssize_t seen_index = 0; seen_index < seen.len; seen_index++) {
-                if (nc_name_eq(here.items[here_index], seen.items[seen_index])) {
-                    PyErr_SetString(PyExc_ValueError,
-                                    "RELAX NG interleave has the same element name in more than one branch");
-                    return -1;
-                }
+    }
+    return 0;
+}
+
+/* The interleave rng_combine makes is under 7.4 like a written one: it folds the components left to right, so one that
+   combines by interleave is a branch against everything before it. */
+static int rng_check_combine(th_schema *schema, const def_entry *entry) {
+    if (entry->extra == NULL) {
+        return 0;
+    }
+    ncvec *seen = &schema->rng_seen;
+    seen->len = 0;
+    seen->text = 0;
+    if (rng_interleave_branch(schema, entry->first, seen, 0) < 0) { /* GCOVR_EXCL_BR_LINE: unforceable arena OOM */
+        return -1;                                                  /* GCOVR_EXCL_LINE */
+    }
+    for (def_part *part = entry->extra; part != NULL; part = part->next) {
+        if (rng_interleave_branch(schema, part->node, seen, rng_combines_by_interleave(schema, part->node)) < 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int rng_level_collect(th_schema *schema, th_node *node, nclevel *out);
+static int rng_level_expand(th_schema *schema, const nclevel *level, ncvec *out, int *text);
+static int nc_overlap(const nameclass *left, const nameclass *right);
+
+/* Adds what `branch` can match at this level to `seen`; when an interleave joins it to the earlier branches, a name or
+   text it shares with them is the 7.4 conflict. */
+static int rng_interleave_branch(th_schema *schema, th_node *branch, ncvec *seen, int joined) {
+    nclevel level = {{NULL, 0, 0, 0}, NULL, 0, 0};
+    Py_ssize_t before = seen->len;
+    int text = 0;
+    schema->rng_branch++;
+    /* GCOVR_EXCL_BR_START: unforceable arena OOM */
+    if (rng_level_collect(schema, branch, &level) < 0 || rng_level_expand(schema, &level, seen, &text) < 0) {
+        return -1; /* GCOVR_EXCL_LINE */
+    }
+    /* GCOVR_EXCL_BR_STOP */
+    if (joined && text && seen->text) {
+        PyErr_SetString(PyExc_ValueError, "RELAX NG interleave has text in more than one branch");
+        return -1;
+    }
+    seen->text |= text;
+    for (Py_ssize_t here_index = before; joined && here_index < seen->len; here_index++) {
+        for (Py_ssize_t seen_index = 0; seen_index < before; seen_index++) {
+            if (nc_overlap(seen->items[here_index], seen->items[seen_index])) {
+                PyErr_SetString(PyExc_ValueError,
+                                "RELAX NG interleave has the same element name in more than one branch");
+                return -1;
             }
         }
-        for (Py_ssize_t here_index = 0; here_index < here.len; here_index++) {
-            if (ncvec_push(schema, &seen, here.items[here_index]) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
-                return -1;                                               /* GCOVR_EXCL_LINE */
-            }
-        }
-        seen.text |= here.text;
     }
     return 0;
 }
 
 static nameclass *rng_pattern_nameclass(th_schema *schema, th_node *node, int is_attr);
+static int ncvec_push(th_schema *schema, ncvec *vec, nameclass *nc);
+static int nclevel_push_ref(th_schema *schema, nclevel *level, Py_ssize_t def_index);
 
-/* An <element>'s content is a new level and an <attribute>'s text is not interleave text. A <ref> or a wildcard/choice
-   name class is not one concrete name, so it falls to the interning backstop rather than a false rejection. */
-static int rng_branch_nameclasses(th_schema *schema, th_node *node, ncvec *out) {
+/* An <element>'s content is a new level and an <attribute>'s text is not interleave text. A <ref> is recorded, not
+   followed, so that a define is read once however many branches reach it. */
+static int rng_level_collect(th_schema *schema, th_node *node, nclevel *out) {
     if (is_schema_el(schema, node, RNG_NS, "element")) {
         nameclass *nc = rng_pattern_nameclass(schema, node, 0);
         if (nc == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM */
             return -1;    /* GCOVR_EXCL_LINE */
         }
-        return nc->type == NC_NAME ? ncvec_push(schema, out, nc) : 0;
+        return ncvec_push(schema, &out->names, nc);
     }
     if (is_schema_el(schema, node, RNG_NS, "text")) {
-        out->text = 1;
+        out->names.text = 1;
         return 0;
     }
-    if (is_schema_el(schema, node, RNG_NS, "attribute") || is_schema_el(schema, node, RNG_NS, "ref")) {
+    if (is_schema_el(schema, node, RNG_NS, "attribute")) {
         return 0;
+    }
+    if (is_schema_el(schema, node, RNG_NS, "ref")) {
+        const th_node_attr *name = attr_exact(schema->tree, node, "name", 4);
+        Py_ssize_t index = name == NULL ? -1 : def_find(&schema->defines, name->value, name->value_len);
+        /* 4.10: the scan or the build rejects a ref that names no define */
+        return index < 0 ? 0 : nclevel_push_ref(schema, out, index);
+    }
+    if (is_schema_el(schema, node, RNG_NS, "mixed")) { /* 4.13: an interleave of its content with <text/> */
+        out->names.text = 1;
     }
     for (th_node *child = node->first_child; child != NULL; child = child->next_sibling) {
         if (child->type != TH_NODE_ELEMENT) {
             continue;
         }
-        if (rng_branch_nameclasses(schema, child, out) < 0) { /* GCOVR_EXCL_BR_LINE: only ncvec_push arena OOM fails */
-            return -1;                                        /* GCOVR_EXCL_LINE */
+        if (rng_level_collect(schema, child, out) < 0) { /* GCOVR_EXCL_BR_LINE: only a push's arena OOM fails */
+            return -1;                                   /* GCOVR_EXCL_LINE */
         }
     }
     return 0;
+}
+
+static nclevel *rng_define_level(th_schema *schema, def_entry *entry);
+
+/* Adds `level` and the level of every define it reaches to `out`. The stamp takes a define once per branch, which
+   keeps a shared define linear and ends a 4.19 cycle the scan has yet to reach. */
+static int rng_level_expand(th_schema *schema, const nclevel *level, ncvec *out, int *text) {
+    *text |= level->names.text;
+    for (Py_ssize_t index = 0; index < level->names.len; index++) {
+        if (ncvec_push(schema, out, level->names.items[index]) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM */
+            return -1;                                                /* GCOVR_EXCL_LINE */
+        }
+    }
+    for (Py_ssize_t index = 0; index < level->ref_len; index++) {
+        def_entry *entry = &schema->defines.items[level->refs[index]];
+        if (entry->branch == schema->rng_branch) {
+            continue;
+        }
+        entry->branch = schema->rng_branch;
+        const nclevel *referenced = rng_define_level(schema, entry);
+        /* GCOVR_EXCL_BR_START: unforceable arena OOM */
+        if (referenced == NULL || rng_level_expand(schema, referenced, out, text) < 0) {
+            return -1; /* GCOVR_EXCL_LINE */
+        }
+        /* GCOVR_EXCL_BR_STOP */
+    }
+    return 0;
+}
+
+/* The level of a define's components together, built when a branch first reaches it; NULL on arena OOM. */
+static nclevel *rng_define_level(th_schema *schema, def_entry *entry) {
+    if (entry->level != NULL) {
+        return entry->level;
+    }
+    nclevel *level = arena_alloc(&schema->mem, sizeof(*level));
+    if (level == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return NULL;     /* GCOVR_EXCL_LINE */
+    }
+    memset(level, 0, sizeof(*level));
+    if (rng_level_collect(schema, entry->first, level) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+        return NULL;                                          /* GCOVR_EXCL_LINE */
+    }
+    for (def_part *part = entry->extra; part != NULL; part = part->next) {
+        if (rng_level_collect(schema, part->node, level) < 0) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return NULL;                                        /* GCOVR_EXCL_LINE */
+        }
+    }
+    entry->level = level;
+    return level;
 }
 
 /* mirrors how rng_build picks the name class */
@@ -1518,9 +1618,71 @@ static int ncvec_push(th_schema *schema, ncvec *vec, nameclass *nc) {
     return 0;
 }
 
+static int nclevel_push_ref(th_schema *schema, nclevel *level, Py_ssize_t def_index) {
+    if (level->ref_len == level->ref_cap) {
+        Py_ssize_t cap = level->ref_cap ? level->ref_cap * 2 : TH_INITIAL_CAPACITY(8);
+        Py_ssize_t *refs = arena_alloc(&schema->mem, (size_t)cap * sizeof(Py_ssize_t));
+        if (refs == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;      /* GCOVR_EXCL_LINE */
+        }
+        if (level->ref_len > 0) {
+            memcpy(refs, level->refs, (size_t)level->ref_len * sizeof(Py_ssize_t));
+        }
+        level->refs = refs;
+        level->ref_cap = cap;
+    }
+    level->refs[level->ref_len++] = def_index;
+    return 0;
+}
+
 static int nc_name_eq(const nameclass *left, const nameclass *right) {
     return u_eq_u(left->local, left->local_len, right->local, right->local_len) &&
            u_eq_u(left->uri, left->uri_len, right->uri, right->uri_len);
+}
+
+/* Whether `nc` holds the name leaf `probe` stands for: its own name for a <name>, a name nothing mentions in its
+   namespace for an <nsName>, and a name in a namespace nothing mentions for an <anyName>. Loops down the left spine,
+   which is as long as a <choice> has names. */
+static int nc_holds(const nameclass *nc, const nameclass *probe) {
+    for (;; nc = nc->a) {
+        switch (nc->type) {
+        case NC_ANY:
+            return 1;
+        case NC_NAME:
+            return probe->type == NC_NAME && nc_name_eq(nc, probe);
+        case NC_NS:
+            return probe->type != NC_ANY && u_eq_u(nc->uri, nc->uri_len, probe->uri, probe->uri_len);
+        case NC_CHOICE:
+            if (nc_holds(nc->b, probe)) {
+                return 1;
+            }
+            break;
+        default: /* NC_EXCEPT */
+            if (nc_holds(nc->b, probe)) {
+                return 0;
+            }
+            break;
+        }
+    }
+}
+
+/* Whether both classes hold the name some leaf under `part` stands for. */
+static int nc_overlap_at(const nameclass *part, const nameclass *left, const nameclass *right) {
+    for (; part->type == NC_CHOICE || part->type == NC_EXCEPT; part = part->a) {
+        if (nc_overlap_at(part->b, left, right)) {
+            return 1;
+        }
+    }
+    return nc_holds(left, part) && nc_holds(right, part);
+}
+
+/* Whether some name belongs to both classes. Membership only changes at a name or namespace that one of them mentions,
+   so testing one representative per leaf decides it, as jing's OverlapDetector does. */
+static int nc_overlap(const nameclass *left, const nameclass *right) {
+    if (left->type == NC_NAME && right->type == NC_NAME) {
+        return nc_name_eq(left, right);
+    }
+    return nc_overlap_at(left, left, right) || nc_overlap_at(right, left, right);
 }
 
 static void rng_validate_root(valctx *ctx, th_node *root) {
