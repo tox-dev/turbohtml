@@ -13,9 +13,12 @@ if TYPE_CHECKING:
 _REQUIREMENTS: Final[tuple[str, ...]] = ("cssmin>=0.2",)
 
 
+_MINIFY_CSS_PATTERN: Final[re.Pattern[str]] = re.compile(r"calc\([^)]* \+ ")
+
+
 def minify_css(css: str) -> str:
     # Minify a stylesheet with cssmin's cssmin.
-    if " + " in css and re.search(r"calc\([^)]* \+ ", css):
+    if " + " in css and _MINIFY_CSS_PATTERN.search(css):
         unsupported: Final = "cssmin removes required whitespace around calc addition"
         raise NotImplementedError(unsupported)
     return cssmin.cssmin(css)

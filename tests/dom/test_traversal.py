@@ -87,19 +87,19 @@ def test_iterator_defaults(root: Element) -> None:
     assert it.pointer_before_reference_node is True
 
 
-@pytest.mark.parametrize("kind", [TreeWalker, NodeIterator], ids=["walker", "iterator"])
+@pytest.mark.parametrize("kind", [pytest.param(TreeWalker, id="walker"), pytest.param(NodeIterator, id="iterator")])
 def test_root_must_be_a_node(kind: type) -> None:
     with pytest.raises(TypeError, match="root must be a Node"):
         kind("not a node")
 
 
-@pytest.mark.parametrize("kind", [TreeWalker, NodeIterator], ids=["walker", "iterator"])
+@pytest.mark.parametrize("kind", [pytest.param(TreeWalker, id="walker"), pytest.param(NodeIterator, id="iterator")])
 def test_filter_must_be_callable(kind: type, root: Element) -> None:
     with pytest.raises(TypeError, match="filter must be callable or None"):
         kind(root, NodeFilter.SHOW_ALL, 3)
 
 
-@pytest.mark.parametrize("kind", [TreeWalker, NodeIterator], ids=["walker", "iterator"])
+@pytest.mark.parametrize("kind", [pytest.param(TreeWalker, id="walker"), pytest.param(NodeIterator, id="iterator")])
 def test_what_to_show_must_be_int(kind: type, root: Element) -> None:
     with pytest.raises(TypeError):
         kind(root, [])
@@ -677,7 +677,9 @@ def test_standalone_leaf_nodes_wrap() -> None:
         assert first.equals(node)
 
 
-@pytest.mark.parametrize("node_filter", [_verdict_on("x", _ACCEPT), None], ids=["filtered", "plain"])
+@pytest.mark.parametrize(
+    "node_filter", [pytest.param(_verdict_on("x", _ACCEPT), id="filtered"), pytest.param(None, id="plain")]
+)
 def test_gc_survives_collection(root: Element, node_filter: Callable[[Node], int] | None) -> None:
     walker = TreeWalker(root, _SHOW_ELEMENT, node_filter)
     iterator = NodeIterator(root, _SHOW_ELEMENT, node_filter)

@@ -10,7 +10,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup, Comment
 from bs4.element import AttributeValueList, CData, NavigableString, Script, Stylesheet, TemplateString
 
-from bench._beautifulsoup import (
+from bench._beautifulsoup import (  # simplint: ignore[private-import-path]  # shared competitor helpers
     body,
     collapse_whitespace,
     encode_inner,

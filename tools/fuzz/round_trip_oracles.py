@@ -170,7 +170,6 @@ from turbohtml import (
     SourceSpan,
     Text,
     XPath,
-    XPathDepthError,
     parse,
     parse_fragment,
     parse_xml,
@@ -180,7 +179,7 @@ from turbohtml.convert import ExpressionError, css_to_xpath
 from turbohtml.cssom import StyleDeclaration, StyleSheet, computed_style
 from turbohtml.detect import EncodingDetector, EncodingMatch, detect
 from turbohtml.extract import clean_url, normalize_url
-from turbohtml.query import Matcher
+from turbohtml.query import Matcher, XPathDepthError
 from turbohtml.query import compile as compile_selector
 
 if TYPE_CHECKING:
@@ -551,10 +550,13 @@ _IDNA_LABELS: Final[dict[str, tuple[str, str]]] = {
 }
 
 
+_IDNA_HOST_CHECK_PATTERN: Final[re.Pattern[str]] = re.compile(r"[a-z0-9]{0,8}")
+
+
 def idna_host_check(case: str, normalize: Callable[[str], str] = normalize_url) -> str | None:
     # Pin supported Unicode 16 host mappings through the public URL normalizer.
     variant, separator, affix = case.partition("\n")
-    if (mapping := _IDNA_LABELS.get(variant)) is None or not separator or not re.fullmatch(r"[a-z0-9]{0,8}", affix):
+    if (mapping := _IDNA_LABELS.get(variant)) is None or not separator or not _IDNA_HOST_CHECK_PATTERN.fullmatch(affix):
         raise OutOfScopeError(case)
     source, mapped = mapping
     mapped = affix + mapped
@@ -715,7 +717,7 @@ def encoding_decode_check(
         return "detection differs from expected match"
     if decode(expected.data, expected.match.codec) != expected.decoded:
         return "detected codec differs from expected text"
-    if (parse_text or _encoding_text)(expected.data) != expected.text:
+    if (parse_text(expected.data) if parse_text else parse(expected.data).text) != expected.text:
         return "byte parse differs from expected text"
     return None
 
@@ -762,10 +764,6 @@ def _encoding_stream(data: bytes, width: int) -> EncodingMatch:
         detector.feed(data[start : start + width])
         detector.feed(b"")
     return detector.close()
-
-
-def _encoding_text(data: bytes) -> str:
-    return parse(data).text
 
 
 def _divergence(left: str, right: str) -> str:
@@ -1024,10 +1022,13 @@ def _xml_leaf(node: Node) -> str:
     return type(node).__name__
 
 
+_RESOLVE_LINKS_CHECK_PATTERN: Final[re.Pattern[str]] = re.compile(r"[a-z][a-z0-9]{0,15}")
+
+
 def resolve_links_check(text: str, resolve: Callable[[Node, str], None] = Node.resolve_links) -> str | None:
     # Check fixed RFC targets because stable wrong resolutions satisfy a fixed-point check.
     case, separator, leaf = text.partition(":")
-    if not separator or case not in _RESOLUTION_CASES or re.fullmatch(r"[a-z][a-z0-9]{0,15}", leaf) is None:
+    if not separator or case not in _RESOLUTION_CASES or _RESOLVE_LINKS_CHECK_PATTERN.fullmatch(leaf) is None:
         raise OutOfScopeError(text)
     reference, target = _RESOLUTION_CASES[case]
     document = parse_fragment('<a href="">link</a>')
@@ -1098,17 +1099,30 @@ def markdown_check(markup: str, render: Callable[[Node], str] = Node.to_markdown
     return None
 
 
+_MARKUP_PATTERN: Final[re.Pattern[str]] = re.compile(r"<li>\n?<p>(.*?)</p>\n?</li>", flags=re.DOTALL)
+
+_MARKDOWN_HTML_PATTERN: Final[re.Pattern[str]] = re.compile(r"<br\s*/?>[ \t]*\n?")
+
+_MARKDOWN_HTML_PATTERN_2: Final[re.Pattern[str]] = re.compile(
+    r"(?P<open>(?#opening formatting tags)(?:<(?:strong|em|s)>)+)(?#before a break)<br>"
+)
+
+_MARKDOWN_HTML_PATTERN_3: Final[re.Pattern[str]] = re.compile(
+    r"<br>(?P<close>(?#closing formatting tags)(?:</(?:strong|em|s)>)+)"
+)
+
+_MARKDOWN_HTML_PATTERN_4: Final[re.Pattern[str]] = re.compile(r"<(strong|em|s)></\1>")
+
+
 def _markdown_html(markup: str) -> str:
     markup = _EMPTY_PARAGRAPH.sub("", markup)
-    markup = re.sub(r"<li>\n?<p>(.*?)</p>\n?</li>", r"<li>\1</li>", markup, flags=re.DOTALL)
+    markup = _MARKUP_PATTERN.sub(r"<li>\1</li>", markup)
     markup = markup.replace("<del>", "<s>").replace("</del>", "</s>")
-    markup = re.sub(r"<br\s*/?>[ \t]*\n?", "<br>", markup)
+    markup = _MARKDOWN_HTML_PATTERN.sub("<br>", markup)
     markup = markup.replace("<li>\n<br>", "<li><br>")
-    markup = re.sub(
-        r"(?P<open>(?#opening formatting tags)(?:<(?:strong|em|s)>)+)(?#before a break)<br>", r"<br>\g<open>", markup
-    )
-    markup = re.sub(r"<br>(?P<close>(?#closing formatting tags)(?:</(?:strong|em|s)>)+)", r"\g<close><br>", markup)
-    return re.sub(r"<(strong|em|s)></\1>", "", markup)
+    markup = _MARKDOWN_HTML_PATTERN_2.sub(r"<br>\g<open>", markup)
+    markup = _MARKDOWN_HTML_PATTERN_3.sub(r"\g<close><br>", markup)
+    return _MARKDOWN_HTML_PATTERN_4.sub("", markup)
 
 
 class JsNames:
@@ -1332,6 +1346,9 @@ _TRAILING_DOT: Final[re.Pattern[str]] = re.compile(
 )
 
 
+_READ_VALUE_PATTERN: Final[re.Pattern[str]] = re.compile(r"-?[a-z][a-z-]*")
+
+
 def _read_value(name: str, value: str) -> _Value:
     # Read one computed value with its property's grammar, for the properties the generator writes.
     #
@@ -1348,15 +1365,18 @@ def _read_value(name: str, value: str) -> _Value:
     if (numeric := _NUMERIC.fullmatch(text)) is not None:
         return _read_number(kind, numeric["number"], (numeric["unit"] or "").lower())
     keyword = text.lower()
-    if re.fullmatch(r"-?[a-z][a-z-]*", keyword) is None:
+    if _READ_VALUE_PATTERN.fullmatch(keyword) is None:
         return None
     return {"bold": 700.0, "normal": 400.0}.get(keyword, keyword) if kind == "weight" else keyword
+
+
+_READ_NUMBER_PATTERN: Final[re.Pattern[str]] = re.compile(r"[+-]?\d+")
 
 
 def _read_number(kind: str | None, digits: str, unit: str) -> _Value:
     number = float(digits)
     readers: dict[str | None, Callable[[], _Value]] = {
-        "integer": lambda: int(number) if not unit and re.fullmatch(r"[+-]?\d+", digits) else _INVALID,
+        "integer": lambda: int(number) if not unit and _READ_NUMBER_PATTERN.fullmatch(digits) else _INVALID,
         "alpha": lambda: {"": number, "%": number / 100}.get(unit, _INVALID),
         "weight": lambda: number if not unit and 1 <= number <= 1000 else _INVALID,
         "length": lambda: _read_length(number, unit),
@@ -1373,6 +1393,13 @@ def _read_length(number: float, unit: str) -> _Value:
     return _Length("length", number, unit) if unit else _INVALID
 
 
+_READ_COLOR_PATTERN: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]+")
+
+_READ_COLOR_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"rgba?\((.*)\)", re.DOTALL)
+
+_READ_COLOR_PATTERN_3: Final[re.Pattern[str]] = re.compile(r"[a-z(]")
+
+
 def _read_color(text: str) -> _Value:
     named_colors = {
         "red": (255, 0, 0, 1.0),
@@ -1385,14 +1412,22 @@ def _read_color(text: str) -> _Value:
         return named_colors[text]
     if text.startswith("#"):
         digits = text[1:]
-        if re.fullmatch(r"[0-9a-f]+", digits) is None or len(digits) not in {3, 4, 6, 8}:
+        if _READ_COLOR_PATTERN.fullmatch(digits) is None or len(digits) not in {3, 4, 6, 8}:
             return _INVALID
         full = "".join(digit * 2 for digit in digits) if len(digits) < 6 else digits
         channels = [int(full[index : index + 2], 16) for index in range(0, len(full), 2)]
         return (*channels[:3], round(channels[3] / 255, 3) if len(channels) == 4 else 1.0)
-    if (function := re.fullmatch(r"rgba?\((.*)\)", text, re.DOTALL)) is None or re.search(r"[a-z(]", function[1]):
+    if (function := _READ_COLOR_PATTERN_2.fullmatch(text)) is None or _READ_COLOR_PATTERN_3.search(function[1]):
         return None  # other color functions, calc(), var() and none need a full value parser
     return _read_rgb(function[1])
+
+
+_MODERN_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(?P<first>(?#first token)\S+)(?#whitespace)\s+(?P<second>(?#second token)\S+)(?#whitespace)\s+"
+    r"(?P<third>(?#third token)\S+)(?#optional slash and fourth token)(?:\s*/\s*(?P<fourth>\S+))?"
+)
+
+_READ_RGB_PATTERN: Final[re.Pattern[str]] = re.compile(r"\s")
 
 
 def _read_rgb(arguments: str) -> _Value:
@@ -1400,13 +1435,9 @@ def _read_rgb(arguments: str) -> _Value:
     parts = [part.strip() for part in arguments.split(",")]
     legacy = len(parts) > 1
     if not legacy:
-        modern = re.fullmatch(
-            r"(?P<first>(?#first token)\S+)(?#whitespace)\s+(?P<second>(?#second token)\S+)(?#whitespace)\s+"
-            r"(?P<third>(?#third token)\S+)(?#optional slash and fourth token)(?:\s*/\s*(?P<fourth>\S+))?",
-            parts[0],
-        )
+        modern = _MODERN_PATTERN.fullmatch(parts[0])
         parts = [] if modern is None else [part for part in modern.groups() if part is not None]
-    elif any(re.search(r"\s", part) for part in parts):
+    elif any(_READ_RGB_PATTERN.search(part) for part in parts):
         parts = []
     numbers = [
         match for part in parts if (match := _NUMERIC.fullmatch(part)) is not None and match["unit"] in {None, "%"}
@@ -1746,6 +1777,9 @@ class _Corpus:
     js: tuple[str, ...]
 
 
+_CORPUS_PATTERN: Final[re.Pattern[str]] = re.compile(r"^#data\n(.*?)\n#errors", re.MULTILINE | re.DOTALL)
+
+
 @cache
 def _corpus() -> _Corpus:
     # Read the vendored seed inputs once; a missing source is a setup error, never a silent skip.
@@ -1755,7 +1789,7 @@ def _corpus() -> _Corpus:
     html = [
         data
         for path in sorted(tree_tests.glob("*.dat"))
-        for data in re.findall(r"^#data\n(.*?)\n#errors", path.read_text(encoding="utf-8"), re.MULTILINE | re.DOTALL)
+        for data in _CORPUS_PATTERN.findall(path.read_text(encoding="utf-8"))
     ]
     html_files = [
         *(path for name in ("parse", "roundtrip", "minify_html") for path in (fuzz_corpus / name).iterdir()),
@@ -2543,13 +2577,16 @@ def _markdown_controls() -> dict[str, bool]:
     return {"unescaped text": markdown_check("<p>*a*</p>", lambda node: node.text) is not None}
 
 
+_JS_NAMES_CONTROLS_PATTERN: Final[re.Pattern[str]] = re.compile(r"['\"]q['\"]")
+
+
 def _js_names_controls() -> dict[str, bool]:
     def broken(edit: Callable[[str], str]) -> Callable[[str, JSMinify], str]:
         return lambda source, options: edit(minify_js(source, options))
 
     return {
         "invented free identifier": js_names_check("x", _JS_NAMES, broken(lambda out: f"{out};zz")) is not None,
-        "lost string": js_names_check("f('q')", _JS_NAMES, broken(lambda out: re.sub(r"['\"]q['\"]", "0", out)))
+        "lost string": js_names_check("f('q')", _JS_NAMES, broken(lambda out: _JS_NAMES_CONTROLS_PATTERN.sub("0", out)))
         is not None,
         "captured free identifier": js_names_check(
             "function f(a){return b}", _JS_NAMES, lambda _source, _options: "function f(b){return b}"
@@ -2627,8 +2664,11 @@ def _seeds_js() -> list[str]:
     return list(_corpus().js)
 
 
+_SEEDS_STYLE_PATTERN: Final[re.Pattern[str]] = re.compile(r"\{([^{}]*)\}")
+
+
 def _seeds_style() -> list[str]:
-    return [body for css in _corpus().css for body in re.findall(r"\{([^{}]*)\}", css)]
+    return [body for css in _corpus().css for body in _SEEDS_STYLE_PATTERN.findall(css)]
 
 
 def _parser_bytes_check(case: str) -> str | None:

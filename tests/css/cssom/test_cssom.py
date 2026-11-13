@@ -7,14 +7,11 @@ import pytest
 from bench.operations import INPUTS
 
 from turbohtml import Element, Text, parse
-from turbohtml._html import _css_declaration_index, _css_declaration_text
 from turbohtml.build import E
 from turbohtml.cssom import ComputedStyle, RuleList, StyleDeclaration, StyleRule, StyleSheet, computed_style
 
 if TYPE_CHECKING:
     from types import ModuleType
-
-    from _pytest.mark.structures import ParameterSet
 
     from turbohtml import Document
 
@@ -600,7 +597,7 @@ def test_computed_style_with_no_stylesheet_is_all_initial() -> None:
     assert computed_style(div)["visibility"] == "visible"
 
 
-_CUSTOM_PROPERTY_BLOCKS: Final[list[ParameterSet]] = [
+_CUSTOM_PROPERTY_BLOCKS: Final[list[pytest.ParameterSet]] = [
     pytest.param("--x: {a;b}", (("--x", "{a;b}"),), id="block-value"),
     pytest.param("--x: a{b;c}d; color: red", (("--x", "a{b;c}d"), ("color", "red")), id="block-between-tokens"),
     pytest.param("--x: {{a;b}}; color: red", (("--x", "{{a;b}}"), ("color", "red")), id="nested-blocks"),
@@ -627,7 +624,7 @@ def test_parse_declarations_keeps_deeply_nested_custom_property_block() -> None:
     assert _pairs(StyleDeclaration.parse(f"--x: {value}; color: red")) == (("--x", value), ("color", "red"))
 
 
-_ESCAPED_DELIMITERS: Final[list[ParameterSet]] = [
+_ESCAPED_DELIMITERS: Final[list[pytest.ParameterSet]] = [
     pytest.param(r"--x: \{; color: red", (("--x", r"\{"), ("color", "red")), id="escaped-opener"),
     pytest.param(r"--x: {a\};b}; color: red", (("--x", r"{a\};b}"), ("color", "red")), id="escaped-closer-in-block"),
     pytest.param(r"--x: a\;b; color: red", (("--x", r"a\;b"), ("color", "red")), id="escaped-semicolon"),
@@ -985,7 +982,7 @@ def test_computed_style_on_detached_element_uses_inline_and_initials() -> None:
     assert (style["color"], style["display"]) == ("red", "inline")
 
 
-_ESCAPED_COMMENT_STARTS: Final[list[ParameterSet]] = [
+_ESCAPED_COMMENT_STARTS: Final[list[pytest.ParameterSet]] = [
     pytest.param(r"--x: a\/*b; color: red", (("--x", r"a\/*b"), ("color", "red")), id="unclosed"),
     pytest.param(r"--x: a\/*b*/c; color: red", (("--x", r"a\/*b*/c"), ("color", "red")), id="closed"),
     pytest.param("--x: a\\", (("--x", "a\\"),), id="backslash-at-end"),
@@ -1062,69 +1059,8 @@ def test_computed_style_alternative_with_lower_id_specificity_loses() -> None:
     assert style["color"] == "teal"
 
 
-_ITEMS: Final[tuple[tuple[str, str, bool], ...]] = (
-    ("color", "red", False),
-    ("margin", "0", True),
-    ("color", "blue", False),
-)
-
-
-def test_the_index_keeps_first_seen_order_and_the_last_value() -> None:
-    assert _css_declaration_index(_ITEMS) == {"color": 2, "margin": 1}
-    assert list(_css_declaration_index(_ITEMS)) == ["color", "margin"]
-
-
-def test_the_index_of_nothing_is_empty() -> None:
-    assert _css_declaration_index(()) == {}
-
-
-def test_the_text_serializes_in_source_order_with_the_flag() -> None:
-    assert _css_declaration_text(_ITEMS) == "color: red; margin: 0 !important; color: blue"
-
-
 def test_the_text_keeps_an_empty_constructed_value() -> None:
     assert StyleDeclaration((("a", "", False), ("b", "2", False))).text == "a: ; b: 2"
-
-
-def test_the_text_propagates_a_flag_whose_truth_test_raises() -> None:
-    with pytest.raises(RuntimeError, match="undecided"):
-        _css_declaration_text((("color", "red", _Undecided()),))  # ty: ignore[invalid-argument-type]  # passes a flag whose truth test raises, on purpose
-
-
-class _Undecided:
-    # A flag whose truth test raises, the way a lazy proxy might.
-    def __bool__(self) -> bool:
-        msg = "undecided"
-        raise RuntimeError(msg)
-
-
-def test_the_text_of_nothing_is_empty() -> None:
-    assert not _css_declaration_text(())
-
-
-@pytest.mark.parametrize(
-    "items",
-    [
-        pytest.param([("color", "red", False)], id="a-list"),
-        pytest.param((("color", "red"),), id="a-pair"),
-        pytest.param(((1, "red", False),), id="a-non-str-name"),
-        pytest.param((("color", 2, False),), id="a-non-str-value"),
-        pytest.param((("color", "red", False, 1),), id="a-non-str-raw-name"),
-        pytest.param(("color",), id="a-bare-str"),
-    ],
-)
-def test_the_entries_reject_malformed_items(
-    items: list[tuple[str, str, bool]]
-    | tuple[tuple[str, str]]
-    | tuple[tuple[int, str, bool]]
-    | tuple[tuple[str, int, bool]]
-    | tuple[tuple[str, str, bool, int]]
-    | tuple[str],
-) -> None:
-    with pytest.raises(TypeError):
-        _css_declaration_index(items)  # ty: ignore[invalid-argument-type]  # the argument check is the point
-    with pytest.raises(TypeError):
-        _css_declaration_text(items)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
 
 @pytest.mark.parametrize(

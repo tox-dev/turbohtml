@@ -19,7 +19,6 @@ from turbohtml.mutations import MutationObserver
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping
 
-    from _pytest.mark.structures import ParameterSet
     from bench.timing import Mutating
 
 
@@ -2059,7 +2058,7 @@ def test_attribute_growth_records_changes_across_capacity_boundaries() -> None:
     ]
 
 
-@pytest.mark.parametrize("count", [3, 100], ids=["small", "wide"])
+@pytest.mark.parametrize("count", [pytest.param(3, id="small"), pytest.param(100, id="wide")])
 def test_attribute_growth_preserves_xml_names_and_values(count: int) -> None:
     attributes: Final = " ".join(f'名{index}="é😀{index}"' for index in range(count))
     root: Final = parse_xml(f"<root {attributes}/>").find("root")
@@ -2126,7 +2125,7 @@ def test_attribute_benchmark_rebuilds_input(*, existing: bool, expected_untouche
     )
 
 
-@pytest.mark.parametrize("count", [2, 10], ids=["pair", "run"])
+@pytest.mark.parametrize("count", [pytest.param(2, id="pair"), pytest.param(10, id="run")])
 def test_normalize_benchmark_rebuilds_input(count: int) -> None:
     operation: Final = cast("Mutating", OPERATIONS["normalize-dom"][0])
     root: Final = cast("Element", operation.setup((count, "é😀")))
@@ -2945,7 +2944,7 @@ def test_tag_cannot_be_deleted() -> None:
         del element.tag  # ty: ignore[invalid-assignment]  # deleting the tag tests the runtime check
 
 
-_RADIO_FORM_OWNER_CASES: Final[list[ParameterSet]] = [
+_RADIO_FORM_OWNER_CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("<form><input></form><input>", False, id="outside-form"),
     pytest.param(
         "<form><svg><form><foreignObject><input></foreignObject></form></svg><input></form>",

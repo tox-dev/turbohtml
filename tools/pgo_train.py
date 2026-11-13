@@ -50,7 +50,10 @@ _MAX_ITERATIONS: Final[int] = 50_000  # bound the cheapest inputs so the instrum
 _CALIBRATION_CALLS: Final[int] = 4  # average a few warm calls so timer jitter cannot starve one input of repetitions
 
 
-def _invoke(operation: object, case: Case) -> None:  # simplint: ignore[SMP602]  # each Mutating pairs its own case type
+def _invoke(
+    operation: object,  # simplint: ignore[imprecise-annotation]  # heterogeneous operation inputs
+    case: Case,
+) -> None:
     # Run one operation over its case, rebuilding a fresh tree first for a mutating operation.
     if isinstance(operation, Mutating):
         operation.run(operation.setup(case))

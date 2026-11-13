@@ -32,7 +32,7 @@ The full XPath 2.0 sequence, type, and FLWOR machinery is out of scope.
 .. autoclass:: XPathString
     :members:
 
-.. autoexception:: XPathDepthError
+.. autoexception:: turbohtml.query.XPathDepthError
 
 .. autoclass:: XPath
     :members:

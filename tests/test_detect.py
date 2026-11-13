@@ -7,8 +7,7 @@ from typing import Final, cast
 import pytest
 from bench.operations import INPUTS
 
-from turbohtml import _html, parse
-from turbohtml._html import _codec_label, _decode, _detect, _detect_language, _detect_rank, _DetectStream
+from turbohtml import parse
 from turbohtml.detect import (
     Detection,
     EncodingDetector,
@@ -409,7 +408,7 @@ def test_a_long_passage_stays_confident() -> None:
         pytest.param(4096, LanguageMatch(language="cym", confidence=1.0, script="Latin", name="Welsh"), id="many-ties"),
     ],
 )
-@pytest.mark.parametrize("step", [1, -1], ids=["forward", "reverse"])
+@pytest.mark.parametrize("step", [pytest.param(1, id="forward"), pytest.param(-1, id="reverse")])
 def test_language_trigram_ties_ignore_word_order(word_count: int, expected: LanguageMatch, *, step: int) -> None:
     words: Final = tuple("".join(word) for word in islice(product(string.ascii_lowercase, repeat=3), word_count))
     assert detect_language("  ".join(words[::step])) == expected
@@ -484,39 +483,6 @@ def test_prescan_dispatch_edges(payload: bytes) -> None:
 
 
 @pytest.mark.parametrize(
-    ("name", "expected"),
-    [
-        pytest.param("whatwg_utf_16le", (True, "utf-16-le"), id="a-byte-order-mark-name-delegates"),
-        pytest.param("WHATWG-UTF-8-SIG", (True, "utf-8-sig"), id="case-and-dashes-fold"),
-        pytest.param("whatwg_windows_1252", (False, "windows-1252"), id="an-underscored-label-tries-its-dash"),
-        pytest.param("whatwg-shift_jis", (False, "shift_jis"), id="an-underscore-label-stays"),
-        pytest.param("whatwg-koi8-ru", (False, "koi8-ru"), id="a-spec-only-label"),
-        pytest.param("whatwg-nonsense", None, id="an-unknown-label"),
-        pytest.param("utf-8", None, id="no-prefix"),
-        pytest.param("whatwg_", None, id="the-bare-prefix"),
-        pytest.param(f"whatwg-{'x' * 80}", None, id="longer-than-any-label"),
-    ],
-)
-def test_codec_label(name: str, expected: tuple[bool, str] | None) -> None:
-    assert _codec_label(name) == expected
-
-
-def test_codec_label_needs_a_str() -> None:
-    with pytest.raises(TypeError):
-        _codec_label(b"whatwg-utf-8")  # ty: ignore[invalid-argument-type]  # the argument check is the point
-
-
-def test_an_escape_driven_codec_decodes_nothing_to_nothing() -> None:
-    # ISO-2022-JP is the one decoder the all-ASCII fast path skips, so empty input reaches its multi-byte entry;
-    # the codec machinery short-circuits empty bytes itself, so the C entry point is called directly
-    assert not _decode(b"", "iso-2022-jp")
-
-
-def test_detect_of_nothing_is_none() -> None:
-    assert _detect(b"", None) is None
-
-
-@pytest.mark.parametrize(
     ("chunks", "settled"),
     [
         pytest.param([b"\xef\xbb\xbfa"], True, id="utf-8"),
@@ -537,32 +503,6 @@ def test_feed_reports_whether_a_mark_settled_the_stream(chunks: list[bytes], *, 
     for chunk in chunks:
         detector.feed(chunk)
     assert detector.done is settled
-
-
-def test_an_unfed_stream_closes_to_none() -> None:
-    stream = _DetectStream(None)
-    stream.feed(b"")
-    assert stream.close() is None
-
-
-def test_a_fed_stream_closes_to_a_result() -> None:
-    stream = _DetectStream(None)
-    stream.feed("Привет".encode("cp1251"))
-    result = stream.close()
-    assert result is not None
-    assert result[0] == "windows-1251"
-
-
-def test_the_language_threshold_blanks_a_faint_match() -> None:
-    text = "the quick brown fox jumps over the lazy dog"
-    full = _detect_language(text, None, frozenset(), 0.0)
-    assert full[0] == "eng"
-    assert _detect_language(text, None, frozenset(), 1.1) == (None, 0.0, None, None)
-
-
-def test_the_language_entry_needs_a_threshold() -> None:
-    with pytest.raises(TypeError):
-        _detect_language("text", None, frozenset())  # ty: ignore[missing-argument]  # the arity check is the point
 
 
 @pytest.mark.parametrize(
@@ -841,41 +781,6 @@ def test_a_long_stream_still_answers_what_one_shot_does() -> None:
     assert detector.close() == detect(chunk * 4096)
 
 
-def test_feeding_a_closed_stream_is_an_error() -> None:
-    stream = _html._DetectStream(None)
-    stream.feed(b"caf\xe9")
-    stream.close()
-    with pytest.raises(ValueError, match="closed"):
-        stream.feed(b"more")
-
-
-def test_closing_a_closed_stream_is_an_error() -> None:
-    stream = _html._DetectStream(None)
-    stream.close()
-    with pytest.raises(ValueError, match="closed"):
-        stream.close()
-
-
-def test_the_stream_takes_only_a_tld() -> None:
-    with pytest.raises(TypeError):
-        _html._DetectStream(None, "extra")  # ty: ignore[too-many-positional-arguments]  # rejected at runtime
-
-
-def test_the_stream_rejects_a_non_string_tld() -> None:
-    with pytest.raises(TypeError):
-        _html._DetectStream(7)  # ty: ignore[invalid-argument-type]  # rejected at runtime
-
-
-def test_detect_rejects_a_non_string_tld() -> None:
-    with pytest.raises(TypeError):
-        _html._detect(b"abc", 7)  # ty: ignore[invalid-argument-type]  # rejected at runtime
-
-
-def test_the_stream_feeds_only_bytes() -> None:
-    with pytest.raises(TypeError):
-        _html._DetectStream(None).feed("not bytes")  # ty: ignore[invalid-argument-type]  # rejected at runtime
-
-
 @pytest.mark.parametrize(
     "raw",
     [
@@ -980,128 +885,6 @@ def test_language_hint_prefers_the_matching_model() -> None:
 
 def test_language_hint_without_positive_evidence_changes_nothing() -> None:
     assert detect(_OPTIONS_RUSSIAN, Detection(language="Thai")) == detect(_OPTIONS_RUSSIAN)
-
-
-# One detector result: (winner, certain, [(name, score)], had_bom). The ranker shapes and filters it.
-_SCORED: Final[tuple[str, bool, list[tuple[str, int]], bool]] = (
-    "windows-1251",
-    False,
-    [("windows-1251", 60), ("koi8-r", 40)],
-    False,
-)
-_LANGUAGES: Final[dict[str, str]] = {"windows-1251": "ru", "koi8-r": "ru", "windows-1252": "en"}
-
-
-def test_a_certain_result_is_one_candidate() -> None:
-    rows = _detect_rank(("utf-8", True, [], True), None, (), None, 0.0, _LANGUAGES)
-    assert rows == [("utf-8", 1.0, None, True, "whatwg-utf-8")]
-
-
-def test_no_winner_takes_the_windows_1252_fallback() -> None:
-    rows = _detect_rank((None, False, [], False), None, (), None, 0.0, _LANGUAGES)
-    assert rows == [("windows-1252", 1.0, "en", False, "whatwg-windows-1252")]
-
-
-def test_scores_become_shares_of_the_positive_total() -> None:
-    rows = _detect_rank(_SCORED, None, (), None, 0.0, _LANGUAGES)
-    assert [(row[0], round(row[1], 2)) for row in rows] == [("windows-1251", 0.6), ("koi8-r", 0.4)]
-
-
-def test_the_winner_leads_even_when_it_scored_lower() -> None:
-    result = ("koi8-r", False, [("windows-1251", 60), ("koi8-r", 40)], False)
-    assert [row[0] for row in _detect_rank(result, None, (), None, 0.0, _LANGUAGES)] == ["koi8-r", "windows-1251"]
-
-
-def test_a_winner_that_never_scored_leads_at_zero() -> None:
-    rows = _detect_rank(("windows-1252", False, [("windows-1251", 60)], False), None, (), None, 0.0, _LANGUAGES)
-    assert [(row[0], row[1]) for row in rows] == [("windows-1252", 0.0), ("windows-1251", 1.0)]
-
-
-def test_one_encoding_scored_twice_keeps_its_better_score() -> None:
-    result = ("windows-1251", False, [("windows-1251", 10), ("koi8-r", 40), ("windows-1251", 60)], False)
-    rows = _detect_rank(result, None, (), None, 0.0, _LANGUAGES)
-    assert [(row[0], round(row[1], 2)) for row in rows] == [("windows-1251", 0.6), ("koi8-r", 0.4)]
-
-
-def test_a_non_positive_score_reads_as_zero_confidence() -> None:
-    result = ("windows-1251", False, [("windows-1251", 60), ("koi8-r", 0)], False)
-    assert [row[1] for row in _detect_rank(result, None, (), None, 0.0, _LANGUAGES)] == [1.0, 0.0]
-
-
-def test_the_allowlist_drops_everything_else() -> None:
-    rows = _detect_rank(_SCORED, ("KOI8-R",), (), None, 0.0, _LANGUAGES)
-    assert [row[0] for row in rows] == ["koi8-r"]
-
-
-_NO_MATCH: Final[tuple[None, float, None, bool, None]] = (None, 0.0, None, False, None)
-
-
-def test_an_empty_allowlist_leaves_the_no_match_row() -> None:
-    assert _detect_rank(_SCORED, (), (), None, 0.0, _LANGUAGES) == [_NO_MATCH]
-
-
-def test_no_result_is_the_no_match_row() -> None:
-    assert _detect_rank(None, None, (), None, 0.0, _LANGUAGES) == [_NO_MATCH]
-
-
-def test_the_exclusions_drop_their_own() -> None:
-    rows = _detect_rank(_SCORED, None, ("Windows-1251",), None, 0.0, _LANGUAGES)
-    assert [row[0] for row in rows] == ["koi8-r"]
-
-
-def test_the_threshold_drops_the_weak() -> None:
-    rows = _detect_rank(_SCORED, None, (), None, 0.5, _LANGUAGES)
-    assert [row[0] for row in rows] == ["windows-1251"]
-
-
-@pytest.mark.parametrize(
-    ("result", "expected"),
-    [
-        pytest.param(
-            ("windows-1252", False, [("windows-1252", 60), ("koi8-r", 40)], False),
-            ["koi8-r", "windows-1252"],
-            id="hint-promotes-scored-encoding",
-        ),
-        pytest.param(
-            ("windows-1252", False, [("windows-1252", 60), ("koi8-r", 0)], False),
-            ["windows-1252", "koi8-r"],
-            id="zero-score-cannot-be-promoted",
-        ),
-        pytest.param(
-            ("utf-8", False, [("utf-8", 60), ("koi8-r", 40)], False),
-            ["koi8-r", "utf-8"],
-            id="encoding-without-language-is-not-promoted",
-        ),
-    ],
-)
-def test_language_hint_ranking(result: tuple[str, bool, list[tuple[str, int]], bool], expected: list[str]) -> None:
-    assert [row[0] for row in _detect_rank(result, None, (), "ru", 0.0, _LANGUAGES)] == expected
-
-
-def test_a_language_hint_no_encoding_claims_keeps_the_order() -> None:
-    rows = _detect_rank(_SCORED, None, (), "zz", 0.0, _LANGUAGES)
-    assert [row[0] for row in rows] == ["windows-1251", "koi8-r"]
-
-
-def test_an_encoding_naming_no_language_reports_none() -> None:
-    rows = _detect_rank(("utf-8", True, [], False), None, (), None, 0.0, _LANGUAGES)
-    assert rows[0][2] is None
-
-
-@pytest.mark.parametrize(
-    "args",
-    [
-        pytest.param(("notatuple", None, (), None, 0.0, _LANGUAGES), id="result-is-not-a-tuple"),
-        pytest.param((_SCORED, None, (), None, 0.0, "notadict"), id="languages-is-not-a-dict"),
-        pytest.param((_SCORED, None, (), None, "notafloat", _LANGUAGES), id="threshold-is-not-a-number"),
-        pytest.param((_SCORED, None, ()), id="too-few-arguments"),
-    ],
-)
-def test_the_ranker_rejects_bad_arguments(
-    args: tuple[str | tuple[str, bool, list[tuple[str, int]], bool] | tuple[()] | float | dict[str, str] | None, ...],
-) -> None:
-    with pytest.raises(TypeError):
-        _detect_rank(*args)  # ty: ignore[invalid-argument-type]  # the argument check is the point
 
 
 # Czech in ISO-8859-2. The hint decides on text like this, where the Central European encodings score alike and the

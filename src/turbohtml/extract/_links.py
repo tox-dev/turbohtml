@@ -10,7 +10,12 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from turbohtml._html import Element, _register_links  # Element stays importable so autodoc resolves it
+from ._native import (
+    Element,
+)
+from ._native import (
+    register_links as _register_links,
+)
 
 
 class Link(NamedTuple):

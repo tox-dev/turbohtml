@@ -375,6 +375,11 @@ class _Rgba(NamedTuple):
     alpha: float
 
 
+_NORM_PATTERN: Final[re.Pattern[str]] = re.compile(r"rgba?\(([^)]+)\)")
+
+_NORM_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"[ ,/]+")
+
+
 def _norm(prop: str, value: str) -> str | _Rgba:
     # Canonicalize a computed value for comparison, folding a color to an ``(r, g, b, a)`` tuple.
     text = value.strip().lower()
@@ -405,8 +410,8 @@ def _norm(prop: str, value: str) -> str | _Rgba:
     }
     if text in named:
         return _Rgba(*named[text])
-    if (match := re.match(r"rgba?\(([^)]+)\)", text)) is not None:
-        parts = [piece for piece in re.split(r"[ ,/]+", match.group(1)) if piece]
+    if (match := _NORM_PATTERN.match(text)) is not None:
+        parts = [piece for piece in _NORM_PATTERN_2.split(match.group(1)) if piece]
         return _Rgba(int(parts[0]), int(parts[1]), int(parts[2]), (float(parts[3]) if len(parts) > 3 else 1.0))
     if text.startswith("#"):
         digits = text[1:]

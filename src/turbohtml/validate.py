@@ -16,7 +16,8 @@ from __future__ import annotations
 from itertools import starmap
 from typing import TYPE_CHECKING, Final, NamedTuple
 
-from ._html import _schema_compile, _schema_validate
+from ._html import schema_compile as _schema_compile
+from ._html import schema_validate as _schema_validate
 
 if TYPE_CHECKING:
     from pathlib import Path

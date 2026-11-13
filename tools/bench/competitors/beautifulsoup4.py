@@ -10,8 +10,8 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup, Comment, UnicodeDammit
 from bs4.element import AttributeValueList, CData, NavigableString, Script, Stylesheet, Tag, TemplateString
 
-from bench._attributes import fill_equality_pair
-from bench._beautifulsoup import (
+from bench._attributes import fill_equality_pair  # simplint: ignore[private-import-path]  # shared benchmark helper
+from bench._beautifulsoup import (  # simplint: ignore[private-import-path]  # shared competitor helpers
     body,
     collapse_whitespace,
     encode_inner,

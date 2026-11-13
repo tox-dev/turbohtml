@@ -919,7 +919,7 @@ def test_static_range_rejects_doctype_end() -> None:
         pytest.param(Element("div", children=[Element("i"), Element("b")]), id="element"),
     ],
 )
-@pytest.mark.parametrize("offset", [0, 2], ids=["start", "end"])
+@pytest.mark.parametrize("offset", [pytest.param(0, id="start"), pytest.param(2, id="end")])
 def test_boundary_endpoint(container: Node, offset: int) -> None:
     boundary: Final = Range(container, offset)
     assert (boundary.start_container, boundary.start_offset, boundary.end_container, boundary.end_offset) == (
@@ -940,7 +940,13 @@ def test_boundary_endpoint(container: Node, offset: int) -> None:
     ],
 )
 @pytest.mark.parametrize(
-    "offset", [-sys.maxsize - 1, -1, 3, sys.maxsize], ids=["minimum", "negative", "past", "maximum"]
+    "offset",
+    [
+        pytest.param(-sys.maxsize - 1, id="minimum"),
+        pytest.param(-1, id="negative"),
+        pytest.param(3, id="past"),
+        pytest.param(sys.maxsize, id="maximum"),
+    ],
 )
 def test_boundary_rejects_invalid_offset(container: Node, offset: int) -> None:
     with pytest.raises(IndexError, match="out of range"):
@@ -970,7 +976,9 @@ def test_compare_descendant_with_ancestor_boundary(offset: int, expected: int) -
     assert Range(child, 1).compare_boundary_points(Range.START_TO_START, Range(parent, offset)) == expected
 
 
-@pytest.mark.parametrize("method", ["clone_contents", "extract_contents"], ids=["clone", "extract"])
+@pytest.mark.parametrize(
+    "method", [pytest.param("clone_contents", id="clone"), pytest.param("extract_contents", id="extract")]
+)
 def test_range_contained_interval(method: str) -> None:
     root: Final = Element("div")
     root.set_inner_html("".join(f"<i>{index}</i>" for index in range(100)))
@@ -980,7 +988,9 @@ def test_range_contained_interval(method: str) -> None:
     assert result.html == "".join(f"<i>{index}</i>" for index in range(10, 90))
 
 
-@pytest.mark.parametrize("method", ["clone_contents", "extract_contents"], ids=["clone", "extract"])
+@pytest.mark.parametrize(
+    "method", [pytest.param("clone_contents", id="clone"), pytest.param("extract_contents", id="extract")]
+)
 def test_range_partial_excludes_siblings(method: str) -> None:
     root: Final = Element("div")
     root.set_inner_html(f'<section data-x="é水😀">abcdef{"<i></i>" * 100}</section>tail')

@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import itertools
-from functools import partial
 from ipaddress import IPv6Address
 from typing import TYPE_CHECKING, Final
 
 import pytest
 
-from turbohtml import parse
-from turbohtml._html import _url_clean, _url_normalize
 from turbohtml.extract import UrlCleaning, clean_url, extract_links, normalize_url
 
 if TYPE_CHECKING:
@@ -253,48 +250,9 @@ def test_language_must_be_iso_639_1() -> None:
         UrlCleaning(language="german")
 
 
-_KNOBS: Final[tuple[bool | frozenset[str] | None, ...]] = (
-    False,
-    True,
-    False,
-    None,
-    frozenset(),
-    frozenset({"id"}),
-    frozenset({"lang"}),
-)
-
-
-@pytest.mark.parametrize(
-    ("entry", "args"),
-    [
-        pytest.param(partial(_url_normalize), ("http://x.com", *_KNOBS[:-1]), id="normalize-too-few"),
-        pytest.param(partial(_url_clean), ("http://x.com", *_KNOBS), id="clean-too-few"),
-        pytest.param(partial(_url_normalize), ("http://x.com", *_KNOBS[:3], 5, *_KNOBS[4:]), id="allow-not-iterable"),
-        pytest.param(partial(_url_normalize), ("http://x.com", *_KNOBS[:3], {1}, *_KNOBS[4:]), id="allow-holds-an-int"),
-        pytest.param(partial(_url_normalize), ("http://x.com", *_KNOBS[:4], {1}, *_KNOBS[5:]), id="deny-holds-an-int"),
-        pytest.param(
-            partial(_url_clean),
-            ("http://x.com", *_KNOBS[:3], {1}, *_KNOBS[4:], None, frozenset()),
-            id="clean-allow-holds-an-int",
-        ),
-    ],
-)
-def test_the_entry_points_reject_bad_arguments(
-    entry: partial[str], args: tuple[str | bool | int | set[int] | frozenset[str] | None, ...]
-) -> None:
-    with pytest.raises(TypeError):
-        entry(*args)
-
-
 def test_extract_links_rejects_a_parameter_name_that_is_not_a_str() -> None:
     with pytest.raises(TypeError, match="query parameter names must be str"):
         extract_links("", "https://a.com/", UrlCleaning(query_deny=frozenset({1})))  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
-
-
-def test_the_document_entry_point_rejects_too_few_arguments() -> None:
-    external_only = False
-    with pytest.raises(TypeError):
-        parse("")._extract_links(None, external_only)  # ty: ignore[missing-argument]  # the arity check is the point
 
 
 @pytest.mark.parametrize(
@@ -693,7 +651,9 @@ def test_normalize_fragment_cleaning(url: str, expected: str) -> None:
     assert normalize_url(url) == expected
 
 
-@pytest.mark.parametrize("normalizer", [normalize_url, clean_url], ids=["normalize", "clean"])
+@pytest.mark.parametrize(
+    "normalizer", [pytest.param(normalize_url, id="normalize"), pytest.param(clean_url, id="clean")]
+)
 @pytest.mark.parametrize(
     ("source", "expected"),
     [

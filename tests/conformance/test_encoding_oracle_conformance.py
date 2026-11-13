@@ -235,20 +235,27 @@ def _assert_agrees_under_tlds(detector_oracle: Path, cases: list[tuple[bytes, st
 
 def _tld_labels() -> list[str]:
     source = (_ORACLES.parent / "chardetng" / "src" / "tld.rs").read_text(encoding="utf-8")
-    keys = re.search(r"static TWO_LETTER_KEYS.*?\n\];", source, re.DOTALL)
-    punycode_keys = re.search(r"static PUNYCODE_KEYS.*?\n\];", source, re.DOTALL)
+    keys = _KEYS_PATTERN.search(source)
+    punycode_keys = _PUNYCODE_KEYS_PATTERN.search(source)
     if keys is None or punycode_keys is None:
         msg = "chardetng's tld.rs key tables were not found"
         raise RuntimeError(msg)
-    two_letter = [
-        first + second for first, second in re.findall(r"\[b'(?P<first>.)', b'(?P<second>.)'\]", keys.group())
-    ]
-    punycode = [f"xn--{key.lower()}" for key in re.findall(r'b"([^"]+)"', punycode_keys.group())]
+    two_letter = [first + second for first, second in _TLD_LABELS_PATTERN.findall(keys.group())]
+    punycode = [f"xn--{key.lower()}" for key in _TLD_LABELS_PATTERN_2.findall(punycode_keys.group())]
     return two_letter + punycode + list(_UNLISTED_TLDS)
 
 
 def _tld_samples() -> list[bytes]:
     return [(text + pad).encode(codec) for codec, text in _SAMPLES.items() for pad in ("", " abc")]
+
+
+_KEYS_PATTERN: Final[re.Pattern[str]] = re.compile(r"static TWO_LETTER_KEYS.*?\n\];", re.DOTALL)
+
+_PUNYCODE_KEYS_PATTERN: Final[re.Pattern[str]] = re.compile(r"static PUNYCODE_KEYS.*?\n\];", re.DOTALL)
+
+_TLD_LABELS_PATTERN: Final[re.Pattern[str]] = re.compile(r"\[b'(?P<first>.)', b'(?P<second>.)'\]")
+
+_TLD_LABELS_PATTERN_2: Final[re.Pattern[str]] = re.compile(r'b"([^"]+)"')
 
 
 def test_the_tld_hint_agrees_with_chardetng_on_byte_soup(detector_oracle: Path) -> None:

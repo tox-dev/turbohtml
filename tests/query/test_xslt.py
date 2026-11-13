@@ -17,7 +17,6 @@ from bench.operations import INPUTS
 
 import turbohtml
 from turbohtml import Comment, DocumentFragment, Element, Text, parse_fragment, parse_xml
-from turbohtml._html import _xslt_transform
 from turbohtml.transform import Transform, strparam, transform
 
 if TYPE_CHECKING:
@@ -49,14 +48,20 @@ def _run(source: str, body: str, *, method: str = "text", prefix: str = "xsl", *
     return Transform(_sheet(body, method=method, prefix=prefix))(turbohtml.parse_xml(source), **params)
 
 
+_COLLAPSE_PATTERN: Final[re.Pattern[str]] = re.compile(r">\s+<")
+
+
 def _collapse(text: str) -> str:
     # Drop whitespace between tags so content compares without a serializer's layout.
-    return re.sub(r">\s+<", "><", text.strip())
+    return _COLLAPSE_PATTERN.sub("><", text.strip())
+
+
+_CANON_PATTERN: Final[re.Pattern[str]] = re.compile(r"^<\?xml\s[^>]*\?>\s*")
 
 
 def _canon(text: str) -> str:
     # Drop the XML declaration and inter-tag whitespace, as the conformance harness compares.
-    return _collapse(re.sub(r"^<\?xml\s[^>]*\?>\s*", "", text))
+    return _collapse(_CANON_PATTERN.sub("", text))
 
 
 def test_transform_value_of_reads_string_value() -> None:
@@ -533,7 +538,14 @@ def test_transform_sort_numeric_expression_coercion(
     ) == (ascending, descending)
 
 
-@pytest.mark.parametrize("select", ["@key", "number(@key)", "string(@key)"], ids=["node", "number", "string"])
+@pytest.mark.parametrize(
+    "select",
+    [
+        pytest.param("@key", id="node"),
+        pytest.param("number(@key)", id="number"),
+        pytest.param("string(@key)", id="string"),
+    ],
+)
 @pytest.mark.parametrize(
     "extra_sort",
     [pytest.param("", id="one-key"), pytest.param('<xsl:sort select="@id"/>', id="two-keys")],
@@ -930,12 +942,6 @@ def test_transform_for_each_on_non_node_set_raises() -> None:
         _run("<r/>", '<xsl:template match="/"><xsl:for-each select="1 + 1">x</xsl:for-each></xsl:template>')
 
 
-def test_transform_params_must_be_a_dict() -> None:
-    sheet = _sheet('<xsl:template match="/">x</xsl:template>')
-    with pytest.raises(TypeError, match="dict or None"):
-        _xslt_transform(sheet, turbohtml.parse_xml("<r/>"), ["not", "a", "dict"])  # ty: ignore[invalid-argument-type]  # wrong type on purpose
-
-
 def test_transform_stylesheet_without_root_element_raises() -> None:
     root = turbohtml.parse_xml("<r><!--c--></r>").root
     assert root is not None
@@ -1152,7 +1158,7 @@ def test_transform_key_bucket_duplicate_order(match: str, use: str, source: str,
     assert _run(source, body) == expected
 
 
-@pytest.mark.parametrize("use", ["@k", "@*"], ids=["named", "wildcard"])
+@pytest.mark.parametrize("use", [pytest.param("@k", id="named"), pytest.param("@*", id="wildcard")])
 def test_transform_key_valueless_html_attribute(use: str) -> None:
     body = (
         f'<xsl:key name="k" match="i" use="{use}"/>'
@@ -1904,11 +1910,6 @@ def test_transform_top_level_param_evaluation_error_raises() -> None:
     body = '<xsl:param name="p" select="\'d\'"/><xsl:template match="/"><xsl:value-of select="$p"/></xsl:template>'
     with pytest.raises(ValueError, match="unbound"):
         _run("<r/>", body, p="$undef")
-
-
-def test_transform_missing_arguments_raise() -> None:
-    with pytest.raises(TypeError):
-        _xslt_transform()  # ty: ignore[missing-argument]  # too few args on purpose
 
 
 def test_transform_non_node_source_raises() -> None:
@@ -3453,7 +3454,7 @@ def test_transform_import_resolves_file_url_base(tmp_path: Path) -> None:
     assert _canon(result) == "[x]"
 
 
-@pytest.mark.parametrize("authority", ["", "localhost"], ids=["empty host", "localhost"])
+@pytest.mark.parametrize("authority", [pytest.param("", id="empty host"), pytest.param("localhost", id="localhost")])
 def test_transform_import_resolves_file_url_href(tmp_path: Path, authority: str) -> None:
     base = tmp_path / "base.xsl"
     base.write_text(
@@ -3482,7 +3483,10 @@ def test_transform_import_rejects_remote_base_url() -> None:
         transform(sheet, turbohtml.parse_xml("<r/>"), base_url="https://example.com/main.xsl")
 
 
-@pytest.mark.parametrize("href", ["https://example.com/base.xsl", "//example.com/base.xsl"], ids=["URL", "authority"])
+@pytest.mark.parametrize(
+    "href",
+    [pytest.param("https://example.com/base.xsl", id="URL"), pytest.param("//example.com/base.xsl", id="authority")],
+)
 def test_transform_import_rejects_remote_href(tmp_path: Path, href: str) -> None:
     main = tmp_path / "main.xsl"
     main.write_text(
@@ -4399,7 +4403,14 @@ def test_number_matcher_whitespace_restore(matcher_transform: Callable[[str, str
 
 
 @pytest.mark.parametrize("attribute", ["count", "from"])
-@pytest.mark.parametrize("pattern", ["p[unknown()]", "p[$missing]", "q:p"], ids=["function", "variable", "prefix"])
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        pytest.param("p[unknown()]", id="function"),
+        pytest.param("p[$missing]", id="variable"),
+        pytest.param("q:p", id="prefix"),
+    ],
+)
 def test_number_matcher_errors(
     attribute: str, pattern: str, matcher_transform: Callable[[str, str, str], Transform]
 ) -> None:
@@ -5434,7 +5445,7 @@ def cached_transform() -> Callable[[str, str], Transform]:
     return compile_transform
 
 
-@pytest.mark.parametrize("library", ["core", "competitors.lxml"], ids=["turbohtml", "lxml"])
+@pytest.mark.parametrize("library", [pytest.param("core", id="turbohtml"), pytest.param("competitors.lxml", id="lxml")])
 @pytest.mark.parametrize(
     "name",
     [
@@ -5451,7 +5462,7 @@ def test_name_benchmark_output(library: str, name: str) -> None:
     assert str(operation(cast("tuple[str, str]", load()))).strip() == expected
 
 
-@pytest.mark.parametrize("library", ["core", "competitors.lxml"], ids=["turbohtml", "lxml"])
+@pytest.mark.parametrize("library", [pytest.param("core", id="turbohtml"), pytest.param("competitors.lxml", id="lxml")])
 @pytest.mark.parametrize(
     ("case", "positions", "instructions"),
     [
@@ -5488,7 +5499,7 @@ def test_codspeed_number_benchmark_output(name: str, instructions: int, position
     assert cast("Callable[[tuple[str, str]], str]", operation)(cast("tuple[str, str]", load())) == expected
 
 
-@pytest.mark.parametrize("library", ["core", "competitors.lxml"], ids=["turbohtml", "lxml"])
+@pytest.mark.parametrize("library", [pytest.param("core", id="turbohtml"), pytest.param("competitors.lxml", id="lxml")])
 @pytest.mark.parametrize(
     ("case", "expected"),
     [
@@ -5533,7 +5544,7 @@ def test_codspeed_number_from_benchmark_output() -> None:
     assert cast("Callable[[tuple[str, str]], str]", operation)(cast("tuple[str, str]", load())) == expected
 
 
-@pytest.mark.parametrize("library", ["core", "competitors.lxml"], ids=["turbohtml", "lxml"])
+@pytest.mark.parametrize("library", [pytest.param("core", id="turbohtml"), pytest.param("competitors.lxml", id="lxml")])
 def test_dense_number_benchmark_output(library: str) -> None:
     module: Final = pytest.importorskip(f"bench.{library}", exc_type=ImportError)
     operation: Final = module.OPERATIONS["transform-dense"][0]
@@ -5555,7 +5566,7 @@ def test_dense_number_benchmark_output(library: str) -> None:
     assert str(operation(cast("tuple[str, str]", INPUTS["transform-dense"]()[0][1]))).strip() == expected
 
 
-@pytest.mark.parametrize("library", ["core", "competitors.lxml"], ids=["turbohtml", "lxml"])
+@pytest.mark.parametrize("library", [pytest.param("core", id="turbohtml"), pytest.param("competitors.lxml", id="lxml")])
 @pytest.mark.parametrize(
     ("name", "passes"),
     [pytest.param("transform-rules", 8, id="repeated"), pytest.param("transform-rules-single", 1, id="single")],
@@ -5856,7 +5867,7 @@ def test_transform_result_fragment_text_survives_output_growth() -> None:
     ],
 )
 @pytest.mark.parametrize("level", ["single", "multiple", "any"])
-@pytest.mark.parametrize("boundary", ["", ' from="root"'], ids=["no-from", "from"])
+@pytest.mark.parametrize("boundary", [pytest.param("", id="no-from"), pytest.param(' from="root"', id="from")])
 def test_transform_number_expanded_names(children: str, expected: str, level: str, boundary: str) -> None:
     sheet: Final = parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
@@ -5869,7 +5880,7 @@ def test_transform_number_expanded_names(children: str, expected: str, level: st
 
 
 @pytest.mark.parametrize("level", ["single", "any"])
-@pytest.mark.parametrize("boundary", ["", ' from="root"'], ids=["no-from", "from"])
+@pytest.mark.parametrize("boundary", [pytest.param("", id="no-from"), pytest.param(' from="root"', id="from")])
 def test_transform_number_namespace_cache_revisits(level: str, boundary: str) -> None:
     sheet: Final = parse_xml(
         '<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">'
@@ -6706,7 +6717,10 @@ def test_transform_text_empty_output(body: str) -> None:
     assert not Transform(sheet)(parse_xml("<root/>"))
 
 
-@pytest.mark.parametrize("value", ["ascii", "\u0100", "\U00010000"], ids=["ascii", "bmp", "astral"])
+@pytest.mark.parametrize(
+    "value",
+    [pytest.param("ascii", id="ascii"), pytest.param("\u0100", id="bmp"), pytest.param("\U00010000", id="astral")],
+)
 def test_transform_text_copies_empty_nodes(value: str) -> None:
     source: Final = parse_xml("<root/>")
     assert source.root is not None

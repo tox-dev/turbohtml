@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from generate_phone import Region
 
 
-@dataclass(  # simplint: ignore[SMP701]  # mutable counters; slotted class would trip Ruff B903
+@dataclass(  # simplint: ignore[dataclass-frozen]  # mutable counters; slots trip class-as-data-structure
     slots=True, kw_only=True
 )
 class _RunState:

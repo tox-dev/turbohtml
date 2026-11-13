@@ -5,8 +5,6 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
-import turbohtml
-from turbohtml._html import _boilerplate
 from turbohtml.extract import Extraction, Paragraph, boilerplate
 
 if TYPE_CHECKING:
@@ -145,14 +143,9 @@ _ARTICLE: Final[str] = (
 )
 
 
-def _classify(
-    markup: str, thresholds: tuple[int, float, bool] = _OPEN, *, content: bool = True
-) -> list[tuple[str, bool, bool]]:
-    # Run the binding over markup, passing the scored content body unless the caller withholds it.
-    document = turbohtml.parse(markup)
-    root = document.root
-    assert root is not None  # a parsed document always has an <html> root, though the type admits None
-    return _boilerplate(root, document.main_content() if content else None, *thresholds)
+def _classify(markup: str, thresholds: tuple[int, float, bool] = _OPEN) -> list[tuple[str, bool, bool]]:
+    options = Extraction(min_length=thresholds[0], max_link_density=thresholds[1], keep_headings=thresholds[2])
+    return [(unit.text, unit.is_boilerplate, unit.is_heading) for unit in boilerplate(markup, options)]
 
 
 @pytest.mark.parametrize(
@@ -216,10 +209,6 @@ def test_the_text_is_whitespace_collapsed(markup: str, expected: str) -> None:
     assert _classify(markup)[0][0] == expected
 
 
-def test_a_unit_outside_the_content_body_is_boilerplate() -> None:
-    assert _classify("<p>orphan</p>", content=False)[0][1] is True
-
-
 def test_a_link_dense_unit_is_boilerplate() -> None:
     markup = "<article><p><a href='/x'>all of it is a link</a></p></article>"
     assert _classify(markup, (0, 0.5, True))[0][1] is True
@@ -246,25 +235,6 @@ def test_a_kept_heading_escapes_the_length_floor() -> None:
 
 def test_a_heading_faces_the_floor_when_headings_are_not_kept() -> None:
     assert _classify(_ARTICLE, (25, 1.0, False))[0][1] is True
-
-
-@pytest.mark.parametrize(
-    "args",
-    [
-        pytest.param(("notanelement", None, 0, 1.0, True), id="root-is-not-an-element"),
-        pytest.param((None, 0, 1.0, True), id="too-few-arguments"),
-    ],
-)
-def test_the_binding_rejects_bad_arguments(args: tuple[str | int | float | bool | None, ...]) -> None:
-    with pytest.raises(TypeError):
-        _boilerplate(*args)  # ty: ignore[invalid-argument-type]  # the argument check is the point
-
-
-def test_the_binding_rejects_a_content_that_is_not_an_element() -> None:
-    root = turbohtml.parse("<p>x</p>").root
-    assert root is not None
-    with pytest.raises(TypeError):
-        _boilerplate(root, "notanelement", 0, 1.0, True)  # ruff:ignore[boolean-positional-value-in-call]  # ty: ignore[invalid-argument-type]  # positional-only C binding
 
 
 def test_the_public_entry_point_still_answers_paragraphs() -> None:

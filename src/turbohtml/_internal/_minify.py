@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from typing import Final, Literal
 
-from turbohtml._html import Minify, _minify_js, parse
-
 from ._jsminify import JSMinify
+from ._native import Minify, parse
+from ._native import minify_js as _minify_js
 from ._render import Html
 
 _DEFAULT: Final[Minify] = Minify()

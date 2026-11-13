@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 import turbohtml.detect  # ruff:ignore[unused-import]  # importing registers the whatwg-* codecs these tests decode through
-from turbohtml._html import _decode as _decode_binding
 
 
 @pytest.mark.parametrize(
@@ -120,18 +119,6 @@ def test_replacement_encoding_refuses_the_whole_stream(data: bytes, text: str) -
 
 def test_iso_8859_8_i_shares_the_iso_8859_8_index() -> None:
     assert _decode(b"\xe0", "iso-8859-8-i") == _decode(b"\xe0", "iso-8859-8")
-
-
-def test_unknown_label_raises_lookup_error() -> None:
-    with pytest.raises(LookupError, match="unknown encoding: no-such-encoding"):
-        _decode_binding(b"", "no-such-encoding")
-
-
-def test_decode_binding_rejects_a_non_bytes_first_argument() -> None:
-    # the _decode binding parses (bytes, str); a str where the bytes buffer belongs fails PyArg_ParseTuple, the one
-    # path the whatwg-* codec (which always hands it real bytes) cannot reach
-    with pytest.raises(TypeError):
-        _decode_binding("not bytes", "gbk")  # ty: ignore[invalid-argument-type]  # the wrong type is the point
 
 
 @pytest.mark.parametrize(

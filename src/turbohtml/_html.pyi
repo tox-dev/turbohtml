@@ -12,6 +12,9 @@ from ._stubs.dom import (
     Comment as Comment,
 )
 from ._stubs.dom import (
+    DetectStream as DetectStream,
+)
+from ._stubs.dom import (
     Doctype as Doctype,
 )
 from ._stubs.dom import (
@@ -63,49 +66,10 @@ from ._stubs.dom import (
     TreeWalker as TreeWalker,
 )
 from ._stubs.dom import (
-    _boilerplate as _boilerplate,
-)
-from ._stubs.dom import (
-    _build_document as _build_document,
-)
-from ._stubs.dom import (
-    _build_element as _build_element,
-)
-from ._stubs.dom import (
-    _codec_label as _codec_label,
-)
-from ._stubs.dom import (
-    _collapse_whitespace as _collapse_whitespace,
-)
-from ._stubs.dom import (
-    _decode as _decode,
-)
-from ._stubs.dom import (
-    _detect as _detect,
-)
-from ._stubs.dom import (
-    _detect_language as _detect_language,
-)
-from ._stubs.dom import (
-    _detect_rank as _detect_rank,
-)
-from ._stubs.dom import (
-    _DetectStream as _DetectStream,
-)
-from ._stubs.dom import (
     _Filter as _Filter,
 )
 from ._stubs.dom import (
-    _is_normalized as _is_normalized,
-)
-from ._stubs.dom import (
-    _normalize as _normalize,
-)
-from ._stubs.dom import (
     _parse_fragment as _parse_fragment,
-)
-from ._stubs.dom import (
-    _parse_into as _parse_into,
 )
 from ._stubs.dom import (
     _parse_only as _parse_only,
@@ -117,10 +81,40 @@ from ._stubs.dom import (
     _reconstruct as _reconstruct,
 )
 from ._stubs.dom import (
-    _register_mutation_record as _register_mutation_record,
+    _tree_verify as _tree_verify,
 )
 from ._stubs.dom import (
-    _tree_verify as _tree_verify,
+    boilerplate as boilerplate,
+)
+from ._stubs.dom import (
+    build_document as build_document,
+)
+from ._stubs.dom import (
+    build_element as build_element,
+)
+from ._stubs.dom import (
+    codec_label as codec_label,
+)
+from ._stubs.dom import (
+    collapse_whitespace as collapse_whitespace,
+)
+from ._stubs.dom import (
+    decode as decode,
+)
+from ._stubs.dom import (
+    detect as detect,
+)
+from ._stubs.dom import (
+    detect_language as detect_language,
+)
+from ._stubs.dom import (
+    detect_rank as detect_rank,
+)
+from ._stubs.dom import (
+    is_normalized as is_normalized,
+)
+from ._stubs.dom import (
+    normalize as normalize,
 )
 from ._stubs.dom import (
     parse as parse,
@@ -129,43 +123,43 @@ from ._stubs.dom import (
     parse_fragment as parse_fragment,
 )
 from ._stubs.dom import (
+    parse_into as parse_into,
+)
+from ._stubs.dom import (
     parse_xml as parse_xml,
 )
+from ._stubs.dom import (
+    register_mutation_record as register_mutation_record,
+)
 from ._stubs.etree import ElementView as ElementView
-from ._stubs.etree import _elementtree_context as _elementtree_context
-from ._stubs.etree import _elementtree_document_fromstring as _elementtree_document_fromstring
+from ._stubs.etree import ElementXPath as ElementXPath
+from ._stubs.etree import elementtree_context as elementtree_context
+from ._stubs.etree import elementtree_document_fromstring as elementtree_document_fromstring
 from ._stubs.etree import (
-    _elementtree_element as _elementtree_element,
+    elementtree_element as elementtree_element,
 )
-from ._stubs.etree import _elementtree_fragment_fromstring as _elementtree_fragment_fromstring
+from ._stubs.etree import elementtree_fragment_fromstring as elementtree_fragment_fromstring
 from ._stubs.etree import (
-    _elementtree_from_lxml as _elementtree_from_lxml,
+    elementtree_from_lxml as elementtree_from_lxml,
 )
-from ._stubs.etree import _elementtree_fromstring as _elementtree_fromstring
+from ._stubs.etree import elementtree_fromstring as elementtree_fromstring
 from ._stubs.etree import (
-    _elementtree_strip_elements as _elementtree_strip_elements,
-)
-from ._stubs.etree import (
-    _elementtree_strip_tags as _elementtree_strip_tags,
+    elementtree_strip_elements as elementtree_strip_elements,
 )
 from ._stubs.etree import (
-    _elementtree_subelement as _elementtree_subelement,
+    elementtree_strip_tags as elementtree_strip_tags,
 )
 from ._stubs.etree import (
-    _elementtree_to_lxml as _elementtree_to_lxml,
+    elementtree_subelement as elementtree_subelement,
 )
 from ._stubs.etree import (
-    _elementtree_to_lxml_html as _elementtree_to_lxml_html,
+    elementtree_to_lxml as elementtree_to_lxml,
 )
 from ._stubs.etree import (
-    _elementtree_tostring as _elementtree_tostring,
+    elementtree_to_lxml_html as elementtree_to_lxml_html,
 )
-from ._stubs.etree import _ElementXPath as _ElementXPath
-from ._stubs.features import (
-    _bleach_allow_relative as _bleach_allow_relative,
-)
-from ._stubs.features import (
-    _bleach_attributes as _bleach_attributes,
+from ._stubs.etree import (
+    elementtree_tostring as elementtree_tostring,
 )
 from ._stubs.features import (
     _date_scan as _date_scan,
@@ -177,46 +171,7 @@ from ._stubs.features import (
     _date_url as _date_url,
 )
 from ._stubs.features import (
-    _linkify_apply as _linkify_apply,
-)
-from ._stubs.features import (
-    _linkify_find as _linkify_find,
-)
-from ._stubs.features import (
-    _linkify_fold as _linkify_fold,
-)
-from ._stubs.features import (
-    _linkify_has as _linkify_has,
-)
-from ._stubs.features import (
-    _linkify_nofollow as _linkify_nofollow,
-)
-from ._stubs.features import (
     _linkify_scan as _linkify_scan,
-)
-from ._stubs.features import (
-    _linkify_target_blank as _linkify_target_blank,
-)
-from ._stubs.features import (
-    _microdata_as_dict as _microdata_as_dict,
-)
-from ._stubs.features import (
-    _phone_config_compile as _phone_config_compile,
-)
-from ._stubs.features import (
-    _phone_e164 as _phone_e164,
-)
-from ._stubs.features import (
-    _phone_number_check as _phone_number_check,
-)
-from ._stubs.features import (
-    _phone_number_format as _phone_number_format,
-)
-from ._stubs.features import (
-    _phone_parse as _phone_parse,
-)
-from ._stubs.features import (
-    _phone_regions as _phone_regions,
 )
 from ._stubs.features import (
     _PhoneConfig as _PhoneConfig,
@@ -225,34 +180,7 @@ from ._stubs.features import (
     _PhoneSpec as _PhoneSpec,
 )
 from ._stubs.features import (
-    _register_article as _register_article,
-)
-from ._stubs.features import (
-    _register_feed as _register_feed,
-)
-from ._stubs.features import (
-    _register_links as _register_links,
-)
-from ._stubs.features import (
-    _register_locations as _register_locations,
-)
-from ._stubs.features import (
-    _register_markup as _register_markup,
-)
-from ._stubs.features import (
-    _register_structured_data as _register_structured_data,
-)
-from ._stubs.features import (
     _registrable_domain as _registrable_domain,
-)
-from ._stubs.features import (
-    _sanitize as _sanitize,
-)
-from ._stubs.features import (
-    _sanitize_policy as _sanitize_policy,
-)
-from ._stubs.features import (
-    _url_clean as _url_clean,
 )
 from ._stubs.features import (
     _url_is_tracker as _url_is_tracker,
@@ -262,9 +190,6 @@ from ._stubs.features import (
 )
 from ._stubs.features import (
     _url_language_matches as _url_language_matches,
-)
-from ._stubs.features import (
-    _url_normalize as _url_normalize,
 )
 from ._stubs.features import (
     _url_normalize_query as _url_normalize_query,
@@ -297,7 +222,76 @@ from ._stubs.features import (
     annotation_tags as annotation_tags,
 )
 from ._stubs.features import (
+    bleach_allow_relative as bleach_allow_relative,
+)
+from ._stubs.features import (
+    bleach_attributes as bleach_attributes,
+)
+from ._stubs.features import (
     collapse_whitespace_node as collapse_whitespace_node,
+)
+from ._stubs.features import (
+    linkify_apply as linkify_apply,
+)
+from ._stubs.features import (
+    linkify_find as linkify_find,
+)
+from ._stubs.features import (
+    linkify_fold as linkify_fold,
+)
+from ._stubs.features import (
+    linkify_has as linkify_has,
+)
+from ._stubs.features import (
+    linkify_nofollow as linkify_nofollow,
+)
+from ._stubs.features import (
+    linkify_target_blank as linkify_target_blank,
+)
+from ._stubs.features import (
+    microdata_as_dict as microdata_as_dict,
+)
+from ._stubs.features import (
+    phone_config_compile as phone_config_compile,
+)
+from ._stubs.features import (
+    phone_e164 as phone_e164,
+)
+from ._stubs.features import (
+    phone_number_check as phone_number_check,
+)
+from ._stubs.features import (
+    phone_number_format as phone_number_format,
+)
+from ._stubs.features import (
+    phone_parse as phone_parse,
+)
+from ._stubs.features import (
+    phone_regions as phone_regions,
+)
+from ._stubs.features import (
+    register_article as register_article,
+)
+from ._stubs.features import (
+    register_feed as register_feed,
+)
+from ._stubs.features import (
+    register_links as register_links,
+)
+from ._stubs.features import (
+    register_locations as register_locations,
+)
+from ._stubs.features import (
+    register_markup as register_markup,
+)
+from ._stubs.features import (
+    register_structured_data as register_structured_data,
+)
+from ._stubs.features import (
+    sanitize as sanitize,
+)
+from ._stubs.features import (
+    sanitize_policy as sanitize_policy,
 )
 from ._stubs.features import (
     strip_comments_node as strip_comments_node,
@@ -305,98 +299,104 @@ from ._stubs.features import (
 from ._stubs.features import (
     transform_node as transform_node,
 )
+from ._stubs.features import (
+    url_clean as url_clean,
+)
+from ._stubs.features import (
+    url_normalize as url_normalize,
+)
 from ._stubs.query import (
     XPath as XPath,
-)
-from ._stubs.query import (
-    _css_computed_style as _css_computed_style,
-)
-from ._stubs.query import (
-    _css_declaration_index as _css_declaration_index,
-)
-from ._stubs.query import (
-    _css_declaration_text as _css_declaration_text,
-)
-from ._stubs.query import (
-    _css_escape_identifier as _css_escape_identifier,
-)
-from ._stubs.query import (
-    _css_parse_declarations as _css_parse_declarations,
-)
-from ._stubs.query import (
-    _css_parse_rules as _css_parse_rules,
-)
-from ._stubs.query import (
-    _css_specificity as _css_specificity,
-)
-from ._stubs.query import (
-    _css_to_xpath as _css_to_xpath,
-)
-from ._stubs.query import (
-    _matches_many as _matches_many,
-)
-from ._stubs.query import (
-    _query_add_class as _query_add_class,
-)
-from ._stubs.query import (
-    _query_attr as _query_attr,
-)
-from ._stubs.query import (
-    _query_children as _query_children,
-)
-from ._stubs.query import (
-    _query_closest as _query_closest,
-)
-from ._stubs.query import (
-    _query_has_class as _query_has_class,
-)
-from ._stubs.query import (
-    _query_parents as _query_parents,
-)
-from ._stubs.query import (
-    _query_remove_class as _query_remove_class,
-)
-from ._stubs.query import (
-    _query_siblings as _query_siblings,
-)
-from ._stubs.query import (
-    _query_text as _query_text,
-)
-from ._stubs.query import (
-    _query_toggle_class as _query_toggle_class,
-)
-from ._stubs.query import (
-    _query_unique as _query_unique,
-)
-from ._stubs.query import (
-    _register_selector_error as _register_selector_error,
-)
-from ._stubs.query import (
-    _register_xpath_depth_error as _register_xpath_depth_error,
-)
-from ._stubs.query import (
-    _register_xpath_string as _register_xpath_string,
-)
-from ._stubs.query import (
-    _select_limited as _select_limited,
-)
-from ._stubs.query import (
-    _select_many as _select_many,
-)
-from ._stubs.query import (
-    _xpath_literal as _xpath_literal,
 )
 from ._stubs.query import (
     _xpath_parse as _xpath_parse,
 )
 from ._stubs.query import (
-    _xslt_compile as _xslt_compile,
+    css_computed_style as css_computed_style,
 )
 from ._stubs.query import (
-    _xslt_resolve_imports as _xslt_resolve_imports,
+    css_declaration_index as css_declaration_index,
 )
 from ._stubs.query import (
-    _xslt_transform as _xslt_transform,
+    css_declaration_text as css_declaration_text,
+)
+from ._stubs.query import (
+    css_escape_identifier as css_escape_identifier,
+)
+from ._stubs.query import (
+    css_parse_declarations as css_parse_declarations,
+)
+from ._stubs.query import (
+    css_parse_rules as css_parse_rules,
+)
+from ._stubs.query import (
+    css_specificity as css_specificity,
+)
+from ._stubs.query import (
+    css_to_xpath as css_to_xpath,
+)
+from ._stubs.query import (
+    matches_many as matches_many,
+)
+from ._stubs.query import (
+    query_add_class as query_add_class,
+)
+from ._stubs.query import (
+    query_attr as query_attr,
+)
+from ._stubs.query import (
+    query_children as query_children,
+)
+from ._stubs.query import (
+    query_closest as query_closest,
+)
+from ._stubs.query import (
+    query_has_class as query_has_class,
+)
+from ._stubs.query import (
+    query_parents as query_parents,
+)
+from ._stubs.query import (
+    query_remove_class as query_remove_class,
+)
+from ._stubs.query import (
+    query_siblings as query_siblings,
+)
+from ._stubs.query import (
+    query_text as query_text,
+)
+from ._stubs.query import (
+    query_toggle_class as query_toggle_class,
+)
+from ._stubs.query import (
+    query_unique as query_unique,
+)
+from ._stubs.query import (
+    register_selector_error as register_selector_error,
+)
+from ._stubs.query import (
+    register_xpath_depth_error as register_xpath_depth_error,
+)
+from ._stubs.query import (
+    register_xpath_string as register_xpath_string,
+)
+from ._stubs.query import (
+    select_limited as select_limited,
+)
+from ._stubs.query import (
+    select_many as select_many,
+)
+from ._stubs.query import (
+    xpath_literal as xpath_literal,
+)
+from ._stubs.query import (
+    xslt_compile as xslt_compile,
+)
+from ._stubs.query import (
+    xslt_resolve_imports as xslt_resolve_imports,
+)
+from ._stubs.query import (
+    xslt_transform as xslt_transform,
 )
 from ._stubs.serialize import (
     Formatter as Formatter,
@@ -408,43 +408,46 @@ from ._stubs.serialize import (
     Minify as Minify,
 )
 from ._stubs.serialize import (
-    _markup_escape as _markup_escape,
-)
-from ._stubs.serialize import (
-    _markup_escape_silent as _markup_escape_silent,
-)
-from ._stubs.serialize import (
-    _markup_soft_str as _markup_soft_str,
-)
-from ._stubs.serialize import (
-    _minify_css as _minify_css,
-)
-from ._stubs.serialize import (
-    _minify_css_inline as _minify_css_inline,
-)
-from ._stubs.serialize import (
-    _minify_js as _minify_js,
-)
-from ._stubs.serialize import (
     _minify_js_parse as _minify_js_parse,
 )
 from ._stubs.serialize import (
     _minify_js_tokens as _minify_js_tokens,
 )
 from ._stubs.serialize import (
-    _register_css_minify as _register_css_minify,
-)
-from ._stubs.serialize import (
-    _register_js_minify as _register_js_minify,
-)
-from ._stubs.serialize import (
-    _register_render_configs as _register_render_configs,
-)
-from ._stubs.serialize import (
     escape as escape,
 )
 from ._stubs.serialize import (
+    markup_escape as markup_escape,
+)
+from ._stubs.serialize import (
+    markup_escape_silent as markup_escape_silent,
+)
+from ._stubs.serialize import (
+    markup_soft_str as markup_soft_str,
+)
+from ._stubs.serialize import (
+    minify_css as minify_css,
+)
+from ._stubs.serialize import (
+    minify_css_inline as minify_css_inline,
+)
+from ._stubs.serialize import (
+    minify_js as minify_js,
+)
+from ._stubs.serialize import (
+    register_css_minify as register_css_minify,
+)
+from ._stubs.serialize import (
+    register_js_minify as register_js_minify,
+)
+from ._stubs.serialize import (
+    register_render_configs as register_render_configs,
+)
+from ._stubs.serialize import (
     unescape as unescape,
+)
+from ._stubs.tokenizer import (
+    RewriteHandle as RewriteHandle,
 )
 from ._stubs.tokenizer import (
     Token as Token,
@@ -459,34 +462,31 @@ from ._stubs.tokenizer import (
     _grow_probe as _grow_probe,
 )
 from ._stubs.tokenizer import (
-    _rewrite as _rewrite,
-)
-from ._stubs.tokenizer import (
-    _RewriteHandle as _RewriteHandle,
-)
-from ._stubs.tokenizer import (
-    _sax_dispatch as _sax_dispatch,
-)
-from ._stubs.tokenizer import (
-    _sax_events as _sax_events,
-)
-from ._stubs.tokenizer import (
     _tokenize_states as _tokenize_states,
+)
+from ._stubs.tokenizer import (
+    rewrite as rewrite,
+)
+from ._stubs.tokenizer import (
+    sax_dispatch as sax_dispatch,
+)
+from ._stubs.tokenizer import (
+    sax_events as sax_events,
 )
 from ._stubs.tokenizer import (
     tokenize as tokenize,
 )
 from ._stubs.validate import (
-    _conformance_check as _conformance_check,
+    conformance_check as conformance_check,
 )
 from ._stubs.validate import (
-    _conformance_filter as _conformance_filter,
+    conformance_filter as conformance_filter,
 )
 from ._stubs.validate import (
-    _schema_compile as _schema_compile,
+    schema_compile as schema_compile,
 )
 from ._stubs.validate import (
-    _schema_validate as _schema_validate,
+    schema_validate as schema_validate,
 )
 from .extract._structured_data import (
     JSONValue as JSONValue,
@@ -500,6 +500,8 @@ from .extract._structured_data import (
 from .extract._structured_data import (
     StructuredData as StructuredData,
 )
+
+PhoneConfig = _PhoneConfig
 
 # Fuzz-only hooks: only the fuzz-only build (meson -Dfuzzing=true) defines them.
 def _fuzz_crash(kind: str, /) -> None: ...

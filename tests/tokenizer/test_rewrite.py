@@ -4,8 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from turbohtml import Comment, parse, parse_fragment
-from turbohtml._internal._selectors import SelectorSyntaxError
+from turbohtml import Comment, SelectorSyntaxError, parse, parse_fragment
 from turbohtml.rewrite import Element, rewrite
 
 if TYPE_CHECKING:
@@ -972,8 +971,7 @@ def test_rewrite_second_rule_skipped_after_first_raises() -> None:
 
 @pytest.mark.parametrize(
     ("initial", "count"),
-    [(0, 1), (0, 1000), (3, 17)],
-    ids=["single", "many", "existing-array"],
+    [pytest.param(0, 1, id="single"), pytest.param(0, 1000, id="many"), pytest.param(3, 17, id="existing-array")],
 )
 def test_rewrite_attribute_growth_order(initial: int, count: int) -> None:
     def add(element: Element) -> None:

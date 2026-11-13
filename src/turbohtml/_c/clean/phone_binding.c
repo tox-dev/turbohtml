@@ -512,7 +512,7 @@ int phone_register(PyObject *module, module_state *state) {
     if (state->phone_config_type == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return -1;                          /* GCOVR_EXCL_LINE */
     }
-    return 0;
+    return PyModule_AddObjectRef(module, "PhoneConfig", state->phone_config_type);
 }
 
 /* _phone_e164(country_code, national_number) -> str | None: the international number when it fits E.164's fifteen

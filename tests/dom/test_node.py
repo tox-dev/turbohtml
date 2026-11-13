@@ -31,7 +31,7 @@ from turbohtml.query import Query
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from turbohtml._internal._locations import SourceLocation
+    from turbohtml import SourceLocation
 
 
 def test_parse_returns_document() -> None:
@@ -90,8 +90,11 @@ def test_parse_fragment_context_with_lone_surrogate_is_rejected() -> None:
 
 @pytest.mark.parametrize(
     "context",
-    ["zzznotatag", "my-widget", "z" * 40],
-    ids=["typo", "custom-element", "overlong"],
+    [
+        pytest.param("zzznotatag", id="typo"),
+        pytest.param("my-widget", id="custom-element"),
+        pytest.param("z" * 40, id="overlong"),
+    ],
 )
 def test_parse_fragment_rejects_unknown_context(context: str) -> None:
     # an unknown context would silently parse in "in body" mode under a garbage root
@@ -573,7 +576,15 @@ def test_node_is_truthy_regardless_of_children(
     assert len(node) == child_count
 
 
-@pytest.mark.parametrize("count", [1, 29, 30, 100], ids=["small", "below-index", "index", "large"])
+@pytest.mark.parametrize(
+    "count",
+    [
+        pytest.param(1, id="small"),
+        pytest.param(29, id="below-index"),
+        pytest.param(30, id="index"),
+        pytest.param(100, id="large"),
+    ],
+)
 def test_duplicate_normalized_attributes_keep_the_first(count: int) -> None:
     ordinary: Final = {f"data-{index}": "é水😀" for index in range(count)}
     duplicates: Final = {"A": "x", "a": "y"}
@@ -581,7 +592,15 @@ def test_duplicate_normalized_attributes_keep_the_first(count: int) -> None:
     assert Element("div", duplicates | ordinary).equals(Element("div", kept | ordinary))
 
 
-@pytest.mark.parametrize("count", [1, 29, 30, 100], ids=["small", "below-index", "index", "large"])
+@pytest.mark.parametrize(
+    "count",
+    [
+        pytest.param(1, id="small"),
+        pytest.param(29, id="below-index"),
+        pytest.param(30, id="index"),
+        pytest.param(100, id="large"),
+    ],
+)
 def test_duplicate_normalized_attributes_keep_the_first_after_ordinary(count: int) -> None:
     ordinary: Final = {f"data-{index}": "é水😀" for index in range(count)}
     duplicates: Final = {"A": "x", "a": "y"}
@@ -589,8 +608,16 @@ def test_duplicate_normalized_attributes_keep_the_first_after_ordinary(count: in
     assert Element("div", ordinary | duplicates).equals(Element("div", ordinary | kept))
 
 
-@pytest.mark.parametrize("prefix", ["data-", "é", "水", "𐐀"], ids=["ascii", "latin1", "ucs2", "ucs4"])
-@pytest.mark.parametrize("different", [False, True], ids=["equal", "different"])
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("data-", id="ascii"),
+        pytest.param("é", id="latin1"),
+        pytest.param("水", id="ucs2"),
+        pytest.param("𐐀", id="ucs4"),
+    ],
+)
+@pytest.mark.parametrize("different", [pytest.param(False, id="equal"), pytest.param(True, id="different")])
 def test_xml_attribute_equality(prefix: str, *, different: bool) -> None:
     left: Final = parse_xml(f"""<root {" ".join(f'{prefix}{index}="{index}"' for index in range(40))}/>""")
     right: Final = parse_xml(
@@ -603,7 +630,7 @@ def test_xml_attribute_equality(prefix: str, *, different: bool) -> None:
     assert left.equals(right) is not different
 
 
-@pytest.mark.parametrize("different", [False, True], ids=["equal", "different"])
+@pytest.mark.parametrize("different", [pytest.param(False, id="equal"), pytest.param(True, id="different")])
 def test_attribute_equality_with_sparse_atoms(*, different: bool) -> None:
     left: Final = Element("div")
     right: Final = Element("div")
@@ -616,7 +643,7 @@ def test_attribute_equality_with_sparse_atoms(*, different: bool) -> None:
     assert left.equals(right) is not different
 
 
-@pytest.mark.parametrize("different", [False, True], ids=["equal", "different"])
+@pytest.mark.parametrize("different", [pytest.param(False, id="equal"), pytest.param(True, id="different")])
 def test_large_attribute_equality_within_one_tree(*, different: bool) -> None:
     document: Final = parse(
         f"""<div {" ".join(f'data-{index}="{index}"' for index in range(40))}></div><div """
@@ -1089,7 +1116,9 @@ def test_position_survives_a_structural_move() -> None:
     assert paragraph.position == (2, 2)
 
 
-@pytest.mark.parametrize("library", ["core", "competitors.beautifulsoup4"], ids=["turbohtml", "beautifulsoup"])
+@pytest.mark.parametrize(
+    "library", [pytest.param("core", id="turbohtml"), pytest.param("competitors.beautifulsoup4", id="beautifulsoup")]
+)
 @pytest.mark.parametrize(
     ("case", "expected"),
     [
@@ -1198,7 +1227,15 @@ def test_text_ascii_flag_ignores_non_text_data() -> None:
     assert (result, result.isascii()) == ("ascii", True)
 
 
-@pytest.mark.parametrize("tags", [None, "*", ["*"], {"*": True}], ids=["none", "star", "list", "mapping"])
+@pytest.mark.parametrize(
+    "tags",
+    [
+        pytest.param(None, id="none"),
+        pytest.param("*", id="star"),
+        pytest.param(["*"], id="list"),
+        pytest.param({"*": True}, id="mapping"),
+    ],
+)
 def test_iter_elements_skips_non_elements(tags: str | list[str] | dict[str, bool] | None) -> None:
     root: Final = Element("main", children=[Text("before"), Element("p"), Text("after")])
     assert [node.tag for node in root.iter_elements(tags)] == ["p"]

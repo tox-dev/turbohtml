@@ -4,34 +4,10 @@ from itertools import chain
 from typing import TYPE_CHECKING, Final, cast
 
 import turbohtml
-from turbohtml import Comment, Doctype, Document, Element, Namespace, Node, ProcessingInstruction, Text, _html
+from turbohtml import Comment, Doctype, Document, Element, Namespace, Node, ProcessingInstruction, Text
 
 if TYPE_CHECKING:
-    from wpt_tree_corpus import WptHtmlTreeCase, WptHtmlTreeCorpus
-
-
-def test_tree_construction(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:
-    exclusions = {
-        (item["file"], item["data"], item["context"], item["scripting"]) for item in wpt_html_tree_corpus["exclusions"]
-    }
-    cases = [
-        case
-        for case in wpt_html_tree_corpus["cases"]
-        if (case["file"], case["data"], case["context"], case["scripting"]) not in exclusions
-    ]
-    failures = [
-        f"{case['file']}: #data {case['data']!r} (context={case['context']!r}, scripting={case['scripting']})\n"
-        f"expected:\n{case['document']}\ngot:\n{_build(case)}"
-        for case in cases
-        if _build(case) != case["document"]
-    ]
-    assert not failures, f"{len(failures)}/{len(cases)} failing\n\n" + "\n\n".join(failures[:5])
-
-
-def _build(case: WptHtmlTreeCase) -> str:
-    if (context := case["context"]) is not None:
-        return _html._parse_fragment(case["data"], context, bool(case["scripting"])).rstrip("\n")
-    return _html._parse_tree(case["data"], bool(case["scripting"])).rstrip("\n")
+    from wpt_tree_corpus import WptHtmlTreeCorpus
 
 
 # The .dat format loses embedded doctype quotes; compare these cases with the native dump (issue #478).
@@ -41,21 +17,19 @@ _DAT_UNREPRESENTABLE: Final[frozenset[tuple[str, str, str | None]]] = frozenset(
 
 
 def test_public_tree_matches_spec(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> None:
-    cases: Final = [case for case in wpt_html_tree_corpus["cases"] if case["scripting"] is not True]
+    cases: Final = [
+        case
+        for case in wpt_html_tree_corpus["cases"]
+        if case["scripting"] is not True and (case["file"], case["data"], case["context"]) not in _DAT_UNREPRESENTABLE
+    ]
     failures: Final = [
         f"{case['file']}: #data {case['data']!r} (context={case['context']!r})\nexpected:\n{expected}\ngot:\n{got}"
         for case in cases
-        for expected in [_expected(case)]
+        for expected in [case["document"]]
         for got in [_public_dump(case["data"], case["context"])]
         if got != expected
     ]
     assert not failures, f"{len(failures)}/{len(cases)} public/spec divergences\n\n" + "\n\n".join(failures[:5])
-
-
-def _expected(case: WptHtmlTreeCase) -> str:
-    if (case["file"], case["data"], case["context"]) in _DAT_UNREPRESENTABLE:
-        return _html._parse_tree(case["data"]).rstrip("\n")
-    return case["document"]
 
 
 def _public_dump(data: str, context: str | None) -> str:

@@ -97,7 +97,7 @@ def test_clear_records_each_removal() -> None:
     assert [_tags(record.removed_nodes) for record in observer.take_records()] == [["span"], ["i"]]
 
 
-@pytest.mark.parametrize("method", ["extract", "decompose"], ids=["extract", "decompose"])
+@pytest.mark.parametrize("method", [pytest.param("extract", id="extract"), pytest.param("decompose", id="decompose")])
 def test_removal_methods_record(method: str) -> None:
     div = _div("<div id=a><span></span></div>")
     span = _element(div.find("span"))
@@ -616,7 +616,7 @@ def test_non_iterable_attribute_filter_is_rejected() -> None:
         MutationObserver().observe(_div(), attributes=True, attribute_filter=5)  # ty: ignore[invalid-argument-type]  # passes a wrong type on purpose to check the runtime rejection
 
 
-@pytest.mark.parametrize("attributes", [False, True], ids=["wrong-kind", "unrelated"])
+@pytest.mark.parametrize("attributes", [pytest.param(False, id="wrong-kind"), pytest.param(True, id="unrelated")])
 def test_observer_overlap_keeps_old_value(*, attributes: bool) -> None:
     root: Final = Element("div")
     root.set_inner_html(f'<section><p data-x="before"></p></section>{"<span></span>" * 100}')

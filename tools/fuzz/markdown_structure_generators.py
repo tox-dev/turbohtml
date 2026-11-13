@@ -266,7 +266,7 @@ def _spacing(records: tuple[_Meaning, ...], *, preserve: bool, inline: bool) -> 
         if record[0] != "#text" or preserve:
             output.append(record)
             continue
-        text: str = re.sub(r"[ \t\n\f\r]+", " ", record[1][0][1])
+        text: str = _TEXT_PATTERN.sub(" ", record[1][0][1])
         previous: Final = records[index - 1][0] if index else None
         if _at_block_edge(previous, inline=inline):
             text = text.lstrip(" \t\n\f\r")
@@ -308,7 +308,7 @@ def _text(text: str, *, preserve: bool) -> tuple[_Meaning, ...]:
     if not text:
         return ()
     if not preserve:
-        text = re.sub(r"[ \t\n\f\r]+", " ", text)
+        text = _TEXT_PATTERN_2.sub(" ", text)
     return (_Meaning("#text", (("value", text),), ()),)
 
 
@@ -380,7 +380,7 @@ def _code_text(element: _TreeNode, *, block: bool) -> tuple[_Meaning, ...]:
     # a block keeps its line breaks and drops the newline fenced content always ends in, which a browser does not
     # draw; a span reads its line breaks as spaces (CommonMark 6.1) and collapses spaces as the normal flow does
     # (CSS Text 3, 4.1.1)
-    text: Final = _literal(element).removesuffix("\n") if block else re.sub(r"[ \t\n\f\r]+", " ", _literal(element))
+    text: Final = _literal(element).removesuffix("\n") if block else _CODE_TEXT_PATTERN.sub(" ", _literal(element))
     return (_Meaning("#text", (("value", text),), ()),) if text else ()
 
 
@@ -426,7 +426,7 @@ def _attributes(tag: str, attributes: dict[str, str]) -> tuple[tuple[str, str], 
         "td": frozenset({"align"}),
     }
     semantic: Final = {
-        name: re.sub(r"[\t\n\r]", "", value) if name in {"href", "src"} else value
+        name: _ATTRIBUTES_PATTERN.sub("", value) if name in {"href", "src"} else value
         for name, value in attributes.items()
         if name in semantic_attributes.get(tag, ()) and (value or name != "title")
     }
@@ -450,7 +450,7 @@ def _line(records: tuple[_Meaning, ...], *, inline: bool, breaks: bool) -> tuple
             flat.append(record)
         elif record[0] == "pre":
             # the inline form of a code block is a code span (CommonMark 6.1), which reads its line endings as spaces
-            text = re.sub(r"[ \t\n\f\r]+", " ", record[2][0][1][0][1]) if record[2] else ""
+            text = _LINE_PATTERN.sub(" ", record[2][0][1][0][1]) if record[2] else ""
             flat.extend((
                 space,
                 *((_Meaning("code", (), (_Meaning("#text", (("value", text),), ()),)),) if text else ()),
@@ -488,6 +488,21 @@ class MarkdownProfileError(ValueError):
 def markdown_source_check(source: str, render: Callable[[Node], str] = Node.to_markdown) -> str | None:
     # Check the first conversion because repeated passes can stabilize a loss.
     return markdown_html_check(_READER.render(source), render)
+
+
+_TEXT_PATTERN: Final[re.Pattern[str]] = re.compile(r"[ \t\n\f\r]+")
+
+
+_TEXT_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"[ \t\n\f\r]+")
+
+
+_CODE_TEXT_PATTERN: Final[re.Pattern[str]] = re.compile(r"[ \t\n\f\r]+")
+
+
+_ATTRIBUTES_PATTERN: Final[re.Pattern[str]] = re.compile(r"[\t\n\r]")
+
+
+_LINE_PATTERN: Final[re.Pattern[str]] = re.compile(r"[ \t\n\f\r]+")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

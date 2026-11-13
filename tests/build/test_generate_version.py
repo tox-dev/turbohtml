@@ -4,16 +4,16 @@ import os
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # exercise the generator's public CLI
 import sys
-from importlib.util import module_from_spec, spec_from_file_location
+from importlib.util import find_spec, module_from_spec, spec_from_file_location
 from pathlib import Path
 from typing import Final
 
 import pytest
 
-from turbohtml import _version
 
-
-@pytest.mark.parametrize("version", ["1.2.3", "1.2.3.dev4+gabc"], ids=["release", "development"])
+@pytest.mark.parametrize(
+    "version", [pytest.param("1.2.3", id="release"), pytest.param("1.2.3.dev4+gabc", id="development")]
+)
 def test_generate_version_configured_value(version_project: Path, version: str) -> None:
     assert _version_cli(version_project, "--version", version) == f"{version}\n"
 
@@ -35,8 +35,10 @@ def _version_cli(project: Path, *args: str) -> str:
 
 @pytest.mark.parametrize(
     "declaration",
-    ['__version__ = "1.2.3"', '__version__: Final[str] = "1.2.3"'],
-    ids=["legacy", "annotated"],
+    [
+        pytest.param('__version__ = "1.2.3"', id="legacy"),
+        pytest.param('__version__: Final[str] = "1.2.3"', id="annotated"),
+    ],
 )
 def test_generate_version_reads_frozen_value(version_project: Path, declaration: str) -> None:
     target: Final = version_project / "src/turbohtml/_version.py"
@@ -51,7 +53,8 @@ def test_generate_version_written_value_round_trips(version_project: Path) -> No
 
 
 @pytest.mark.parametrize(
-    ("generated_dir", "expected"), [("sample", "1.2.3"), ("generated", "9.8.7")], ids=["wheel", "editable"]
+    ("generated_dir", "expected"),
+    [pytest.param("sample", "1.2.3", id="wheel"), pytest.param("generated", "9.8.7", id="editable")],
 )
 def test_generate_version_import_matches_layout(version_project: Path, *, generated_dir: str, expected: str) -> None:
     package: Final = version_project / "sample"
@@ -77,7 +80,10 @@ def test_generate_version_import_matches_layout(version_project: Path, *, genera
 
 
 def test_generate_version_installed_source_in_wheel_layout(version_project: Path) -> None:
-    installed: Final = Path(_version.__file__)
+    version_spec = find_spec("turbohtml._version")
+    assert version_spec is not None
+    assert version_spec.origin is not None
+    installed: Final = Path(version_spec.origin)
     frozen: Final = version_project / "src/turbohtml/_version.py"
     frozen.parent.mkdir(parents=True)
     frozen.symlink_to(installed)

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 import pytest
 
-import turbohtml._html as html
+import turbohtml._html as html  # simplint: ignore[private-import-path]  # introspects the native module dynamically
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
-_STUB_DIR: Final[Path] = Path(__file__).parents[1] / "src" / "turbohtml" / "_stubs"
+_STUB_DIR: Final[Path] = Path(__file__).parents[2] / "src" / "turbohtml" / "_stubs"
 
 
 class _Default(Enum):

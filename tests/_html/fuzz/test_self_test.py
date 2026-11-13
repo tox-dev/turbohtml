@@ -18,7 +18,17 @@ from fuzz.atheris_header import HEADER_SIZE, SEED_HEADER, Header
 from fuzz.atheris_runtime import build_runtime
 
 import turbohtml
-from turbohtml import Html, Indent, Markdown, Minify, NodeIterator, _html, detect, parse, parse_xml
+from turbohtml import (
+    Html,
+    Indent,
+    Markdown,
+    Minify,
+    NodeIterator,
+    _html,  # simplint: ignore[private-import-path]  # optional fuzz hooks
+    detect,
+    parse,
+    parse_xml,
+)
 from turbohtml._html import _tree_verify
 from turbohtml.clean import (
     CSSMinify,
@@ -50,8 +60,6 @@ from turbohtml.validate import RelaxNG, XMLSchema
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    from _pytest.mark.structures import ParameterSet
 
 _Node: TypeAlias = "list[_Node | str | tuple[tuple[str, str | None], ...] | None]"
 
@@ -712,7 +720,7 @@ def test_feed_allocation_failure_raises_memory_error(alloc_sweep: _Sweep) -> Non
 
 
 @pytest.mark.fuzz_build
-@pytest.mark.parametrize("annotated", [False, True], ids=["plain", "annotated"])
+@pytest.mark.parametrize("annotated", [pytest.param(False, id="plain"), pytest.param(True, id="annotated")])
 def test_text_table_allocation_failure_raises_memory_error(alloc_sweep: _Sweep, *, annotated: bool) -> None:
     assert set(
         alloc_sweep(
@@ -830,7 +838,7 @@ _AB: Final[re.Pattern[str]] = re.compile(r"ab")
 _BIG: Final[str] = "a" * 70_000
 
 
-def _markdown(markup: str, name: str) -> ParameterSet:
+def _markdown(markup: str, name: str) -> pytest.ParameterSet:
     return pytest.param(lambda node: node.to_markdown(), lambda: parse(markup), id=f"markdown-{name}")
 
 
@@ -1076,7 +1084,7 @@ from fuzz.atheris_targets import public_targets
 _TARGET: Final = next(target for target in public_targets() if target.name == sys.argv[1])
 header, payload = split_header(Path(sys.argv[2]).read_bytes())
 _TARGET.run(payload, header)
-"""  # simplint: ignore[SMP202]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
+"""  # simplint: ignore[single-user-constant]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
 
 # the window results go to preallocated slots, since an append would allocate inside the window and take the failure
 _FAIL: Final[str] = """
@@ -1110,16 +1118,16 @@ assert [target.name for target in generation_targets("windows-1252")] == [
 ]
 from fuzz.atheris_targets import owner_inventory, public_targets
 print(json.dumps({"owners": len(owner_inventory()), "targets": [target.name for target in public_targets()]}))
-"""  # simplint: ignore[SMP202]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
+"""  # simplint: ignore[single-user-constant]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
 
 
 _GENERATION_COUNTS: Final[dict[str, list[str]]] = {
     "encoding": ["--count", "0", "--sweep"]
-}  # simplint: ignore[SMP202]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
+}  # simplint: ignore[single-user-constant]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
 _FALLBACK_PAYLOADS: Final[dict[str, bytes]] = {
     "css-translate": b"p.x",
     "javascript": b'consume("kept",external);',
-}  # simplint: ignore[SMP202]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
+}  # simplint: ignore[single-user-constant]  # moving it into the test trips Ruff PLR0914 (19 locals > 15)
 
 
 _NATIVE_ATHERIS_SKIP: Final[pytest.MarkDecorator] = pytest.mark.skipif(
@@ -1137,7 +1145,7 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
     environment: Final = {
         **os.environ,
         "LD_PRELOAD": str(library),
-        "PYTHONPATH": str(Path(__file__).parents[1] / "tools"),
+        "PYTHONPATH": str(Path(__file__).parents[3] / "tools"),
         "GCOV_PREFIX": str(tmp_path / "inventory-gcda"),
     }
     inventory: Final = run(  # ruff: ignore[subprocess-without-shell-equals-true] - fixed interpreter and owned modules.
@@ -1148,9 +1156,9 @@ def test_atheris_public_consumers_run_with_native_coverage(tmp_path: Path) -> No
         check=True,
     )
     targets: Final = json.loads(inventory.stdout)
-    assert (targets["owners"], len(targets["targets"])) == (227, 34)
+    assert (targets["owners"], len(targets["targets"])) == (225, 34)
     generated_seeds: Final[dict[str, bytes]] = {}
-    for profile in (  # simplint: ignore[SMP813]  # one seed map is shared by later per-target runs
+    for profile in (  # simplint: ignore[loop-in-test]  # one seed map is shared by later per-target runs
         "html",
         "xml",
         "css-stylesheet",
@@ -1264,7 +1272,7 @@ def test_atheris_failure_header_reaches_allocator_hook(tmp_path: Path) -> None:
         env={
             **os.environ,
             "LD_PRELOAD": str(library),
-            "PYTHONPATH": str(Path(__file__).parents[1] / "tools"),
+            "PYTHONPATH": str(Path(__file__).parents[3] / "tools"),
             "GCOV_PREFIX": str(tmp_path / "gcda"),
         },
         capture_output=True,
@@ -1343,7 +1351,7 @@ fuzz(
     environment = {
         **os.environ,
         "LD_PRELOAD": str(library),
-        "PYTHONPATH": os.pathsep.join((str(tmp_path), str(Path(__file__).parents[1] / "tools"))),
+        "PYTHONPATH": os.pathsep.join((str(tmp_path), str(Path(__file__).parents[3] / "tools"))),
     }
     # libFuzzer reads the seed directory but writes only new units, to the first directory
     seeds = tmp_path / "seeds"

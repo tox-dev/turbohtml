@@ -301,6 +301,127 @@ static PyMethodDef html_methods[] = {
     {NULL, NULL, 0, NULL},
 };
 
+static int publish_native_names(PyObject *module) {
+    static const char *const names[] = {
+        "minify_css",
+        "minify_css_inline",
+        "markup_escape",
+        "markup_escape_silent",
+        "markup_soft_str",
+        "register_markup",
+        "register_xpath_string",
+        "register_links",
+        "register_selector_error",
+        "register_xpath_depth_error",
+        "query_unique",
+        "query_siblings",
+        "query_parents",
+        "query_children",
+        "query_closest",
+        "query_text",
+        "query_attr",
+        "query_has_class",
+        "query_add_class",
+        "query_remove_class",
+        "query_toggle_class",
+        "linkify_nofollow",
+        "linkify_target_blank",
+        "microdata_as_dict",
+        "register_structured_data",
+        "register_feed",
+        "register_article",
+        "register_locations",
+        "register_js_minify",
+        "register_css_minify",
+        "register_render_configs",
+        "register_mutation_record",
+        "build_document",
+        "build_element",
+        "sax_events",
+        "sax_dispatch",
+        "parse_into",
+        "rewrite",
+        "css_to_xpath",
+        "xpath_literal",
+        "matches_many",
+        "select_many",
+        "select_limited",
+        "xslt_resolve_imports",
+        "xslt_compile",
+        "xslt_transform",
+        "css_specificity",
+        "css_parse_declarations",
+        "css_declaration_index",
+        "css_declaration_text",
+        "css_parse_rules",
+        "css_computed_style",
+        "css_escape_identifier",
+        "minify_js",
+        "decode",
+        "boilerplate",
+        "detect",
+        "detect_rank",
+        "detect_language",
+        "codec_label",
+        "normalize",
+        "collapse_whitespace",
+        "is_normalized",
+        "linkify_find",
+        "linkify_has",
+        "linkify_apply",
+        "phone_config_compile",
+        "phone_number_check",
+        "phone_number_format",
+        "phone_e164",
+        "phone_regions",
+        "linkify_fold",
+        "phone_parse",
+        "url_normalize",
+        "url_clean",
+        "sanitize",
+        "bleach_attributes",
+        "bleach_allow_relative",
+        "sanitize_policy",
+        "schema_compile",
+        "schema_validate",
+        "conformance_check",
+        "conformance_filter",
+        "elementtree_document_fromstring",
+        "elementtree_fromstring",
+        "elementtree_fragment_fromstring",
+        "elementtree_context",
+        "elementtree_element",
+        "elementtree_subelement",
+        "elementtree_strip_tags",
+        "elementtree_strip_elements",
+        "elementtree_tostring",
+        "elementtree_from_lxml",
+        "elementtree_to_lxml",
+        "elementtree_to_lxml_html",
+        "DetectStream",
+        "ElementXPath",
+        "RewriteHandle",
+        NULL,
+    };
+    for (int index = 0; names[index] != NULL; index++) {
+        PyObject *legacy_name = th_str_format("_%s", names[index]);
+        if (legacy_name == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;             /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        PyObject *value = PyObject_GetAttr(module, legacy_name);
+        Py_DECREF(legacy_name);
+        if (value == NULL) { /* GCOVR_EXCL_BR_LINE: module initialization allocation failure */
+            return -1;       /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        int result = PyObject_SetAttrString(module, names[index], value);
+        Py_DECREF(value);
+        if (result < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;    /* GCOVR_EXCL_LINE: allocation failure */
+        }
+    }
+    return 0;
+}
+
 static int html_exec(PyObject *module) {
     module_state *state = PyModule_GetState(module);
     if (token_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -334,7 +455,10 @@ static int html_exec(PyObject *module) {
     if (elementtree_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE: module-init allocation failure */
         return -1;                                 /* GCOVR_EXCL_LINE: allocation failure */
     }
-    return observe_register(module, state);
+    if (observe_register(module, state) < 0) { /* GCOVR_EXCL_BR_LINE: module initialization allocation failure */
+        return -1;                             /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    return publish_native_names(module);
 }
 
 static int html_traverse(PyObject *module, visitproc visit, void *arg) {

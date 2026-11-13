@@ -25,8 +25,6 @@ from turbohtml import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
 
-    from _pytest.mark.structures import ParameterSet
-
 
 @pytest.fixture
 def slotted() -> tuple[Element, ShadowRoot]:
@@ -796,7 +794,7 @@ def test_shadow_adoption_preserves_aliases(mode: str, depth: int) -> None:
         assert (owner.shadow_root == root, owner.shadow_root is None) == (mode == "open", mode != "open")
 
 
-_SLOT_READS: Final[list[ParameterSet]] = [
+_SLOT_READS: Final[list[pytest.ParameterSet]] = [
     pytest.param(lambda slot: slot.assigned_nodes(), Node, id="assigned_nodes"),
     pytest.param(lambda slot: slot.assigned_elements(), Element, id="assigned_elements"),
     pytest.param(lambda slot: slot.flattened_children, Node, id="flattened_children"),
@@ -974,7 +972,9 @@ def test_shadow_root_is_a_document_fragment() -> None:
     assert (isinstance(root, DocumentFragment), repr(root)) == (True, "ShadowRoot()")
 
 
-@pytest.mark.parametrize("method", ["clone_contents", "extract_contents"], ids=["clone", "extract"])
+@pytest.mark.parametrize(
+    "method", [pytest.param("clone_contents", id="clone"), pytest.param("extract_contents", id="extract")]
+)
 def test_range_contents_are_a_document_fragment(method: str) -> None:
     _, target = _host_page()
     boundary = Range(target, 0)

@@ -19,7 +19,15 @@ from dataclasses import dataclass
 from functools import cache
 from typing import Final
 
-from turbohtml._html import _url_clean, _url_normalize, parse
+from ._native import (
+    parse,
+)
+from ._native import (
+    url_clean as _url_clean,
+)
+from ._native import (
+    url_normalize as _url_normalize,
+)
 
 _ISO_639_1: Final[frozenset[str]] = frozenset([
     *("aa", "ab", "ae", "af", "ak", "am", "an", "ar", "as", "av", "ay", "az", "ba", "be", "bg", "bh", "bi", "bm"),

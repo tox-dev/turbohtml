@@ -18,9 +18,11 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Final, Literal, NamedTuple
 
-from turbohtml import parse
+from ._native import parse
 
-Signal = Literal["url", "meta", "json-ld", "time", "text"]
+Signal = Literal[  # simplint: ignore[missing-from-all]  # preserve star exports
+    "url", "meta", "json-ld", "time", "text"
+]
 """Which engine a :class:`PublicationDate` came from, in htmldate's stage-priority order."""
 
 _EARLIEST: Final[date] = date(1995, 1, 1)
@@ -116,6 +118,5 @@ class PublicationDate(NamedTuple):
 __all__ = [
     "DateExtraction",
     "PublicationDate",
-    "Signal",
     "dates",
 ]

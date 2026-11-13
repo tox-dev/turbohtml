@@ -66,7 +66,7 @@ from turbohtml.treebuild import parse_into as _parse_into
 from turbohtml.validate import RelaxNG as _RelaxNG
 from turbohtml.validate import XMLSchema as _XMLSchema
 
-from ._attributes import fill_equality_pair
+from ._attributes import fill_equality_pair  # simplint: ignore[private-import-path]  # shared benchmark helper
 from .timing import Mutating
 
 if TYPE_CHECKING:
@@ -1782,7 +1782,7 @@ OPERATIONS: Final[dict[str, tuple[Timed, str]]] = {
 
 __all__ = [
     "OPERATIONS",
-    "minify_css",  # simplint: ignore[SMP402]  # tests read bench.core.minify_css by attribute
-    "minify_js",  # simplint: ignore[SMP402]  # tests read bench.core.minify_js by attribute
+    "minify_css",  # simplint: ignore[unused-export]  # tests read bench.core.minify_css by attribute
+    "minify_js",  # simplint: ignore[unused-export]  # tests read bench.core.minify_js by attribute
     "transform",
 ]

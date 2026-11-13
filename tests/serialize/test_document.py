@@ -588,7 +588,7 @@ def test_serialize_empty_run(html: str, expected: str) -> None:
         pytest.param(Html(xml=True), id="xml"),
     ],
 )
-@pytest.mark.parametrize("inner", [False, True], ids=["outer", "inner"])
+@pytest.mark.parametrize("inner", [pytest.param(False, id="outer"), pytest.param(True, id="inner")])
 def test_encode_unicode(text: str, encoding: str, options: Html, *, inner: bool) -> None:
     root: Final = Element("p", children=[Text(text)])
     assert root.encode(encoding, options, inner=inner) == root.serialize(options, inner=inner).encode(encoding)
@@ -602,7 +602,7 @@ def test_encode_unicode(text: str, encoding: str, options: Html, *, inner: bool)
         pytest.param("é😀\ud800\udfff", id="mixed"),
     ],
 )
-@pytest.mark.parametrize("inner", [False, True], ids=["outer", "inner"])
+@pytest.mark.parametrize("inner", [pytest.param(False, id="outer"), pytest.param(True, id="inner")])
 def test_encode_surrogate_error(text: str, *, inner: bool) -> None:
     root: Final = Element("p", children=[Text(text)])
     with pytest.raises(UnicodeEncodeError) as expected:
@@ -1894,7 +1894,7 @@ def test_sort_attributes_orders_prefix_names(attrs: dict[str, str], expected: st
     "ordered",
     [pytest.param(lambda names: names, id="sorted"), pytest.param(lambda names: list(reversed(names)), id="reversed")],
 )
-@pytest.mark.parametrize("xml", [False, True], ids=["html", "xml"])
+@pytest.mark.parametrize("xml", [pytest.param(False, id="html"), pytest.param(True, id="xml")])
 @pytest.mark.parametrize(
     "render",
     [

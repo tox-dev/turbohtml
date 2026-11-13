@@ -89,9 +89,7 @@ def encoding_observation(
                 and any(child.tag == "p" for child in parent)
                 for parent in reference.iter()
             )
-            without_p_nulls: Final = re.sub(
-                r"</p>[^<]*", lambda match: match[0].replace("\0", ""), decoded, flags=re.IGNORECASE
-            )
+            without_p_nulls: Final = _WITHOUT_P_NULLS_PATTERN.sub(lambda match: match[0].replace("\0", ""), decoded)
             if not (
                 "\0" in decoded
                 and "</p>" in decoded.lower()
@@ -129,6 +127,9 @@ def _reference_text(element: Element) -> str:
         else:
             parts.append(child.tail or "")
     return "".join(parts)
+
+
+_WITHOUT_P_NULLS_PATTERN: Final[re.Pattern[str]] = re.compile(r"</p>[^<]*", flags=re.IGNORECASE)
 
 
 __all__ = [

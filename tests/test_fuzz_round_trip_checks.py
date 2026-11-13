@@ -12,7 +12,7 @@ from collections import Counter
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
-from subprocess import run  # ruff: ignore[suspicious-subprocess-import] - startup resolution needs a fresh interpreter.
+from subprocess import CompletedProcess, run  # ruff:ignore[suspicious-subprocess-import]  # fixed test commands
 from typing import TYPE_CHECKING, Final, NamedTuple, cast
 
 import html5lib
@@ -862,7 +862,7 @@ def test_generation_cli_execution_context(tmp_path: Path, mocker: MockerFixture)
 
 
 def test_generation_preserves_qualified_owners() -> None:
-    assert (len(owner_inventory()), len(public_targets())) == (227, 34)
+    assert (len(owner_inventory()), len(public_targets())) == (225, 34)
 
 
 @pytest.mark.parametrize(
@@ -914,13 +914,13 @@ def test_generation_foreign_unmatched_p_null(markup: str, expected: str) -> None
 def test_encoding_oracle_skips_markup_past_the_nesting_limit(
     nesting: int, oracle_calls: int, mocker: MockerFixture
 ) -> None:
-    parse_reference: Final = mocker.patch("fuzz.generation_targets.html5lib.parse", wraps=html5lib.parse)
+    parse_reference: Final = mocker.spy(html5lib, "parse")
     assert encoding_observation((f"{'<div>' * nesting}kept").encode()) == "kept"
     assert parse_reference.call_count == oracle_calls
 
 
 def test_encoding_oracle_keeps_parser_text_at_the_tree_depth_cap(mocker: MockerFixture) -> None:
-    parse_reference: Final = mocker.patch("fuzz.generation_targets.html5lib.parse", wraps=html5lib.parse)
+    parse_reference: Final = mocker.spy(html5lib, "parse")
     data: Final = (f">{'<div>' * 509}\x01\x00<table><tr><ud>a<=d>c<td>d").encode()
     assert encoding_observation(data) == ">\x01da<=d>c"
     assert parse_reference.call_count == 0
@@ -1491,7 +1491,7 @@ def test_schema_mutation_rejects_missing_seed_contract(
 
 
 @pytest.mark.oracle
-@pytest.mark.parametrize("index", [2, 3], ids=["xsd", "rng"])
+@pytest.mark.parametrize("index", [pytest.param(2, id="xsd"), pytest.param(3, id="rng")])
 def test_schema_mutation_cli_requires_mutation_for_broken_references(
     engines: tuple[ModuleType, ModuleType, ModuleType, ModuleType, ModuleType],
     index: int,
@@ -1550,7 +1550,7 @@ def test_schema_mutation_binds_dictionary_prefixes(
 
 
 @pytest.mark.oracle
-@pytest.mark.parametrize("source", ["", "<root/><root/>"], ids=["empty", "multiple"])
+@pytest.mark.parametrize("source", [pytest.param("", id="empty"), pytest.param("<root/><root/>", id="multiple")])
 def test_schema_mutation_requires_one_dictionary_root(
     engines: tuple[ModuleType, ModuleType, ModuleType, ModuleType, ModuleType],
     source: str,
@@ -1716,15 +1716,22 @@ if TYPE_CHECKING:
 _TARGETS: Final[tuple[Target, ...]] = content_targets()
 
 
-@pytest.mark.parametrize("target", _TARGETS, ids=lambda target: target.name)
-@pytest.mark.parametrize("data", [b"", b"hello", bytes(range(256))], ids=["empty", "ascii", "byte-range"])
+@pytest.mark.parametrize("target", [pytest.param(target, id=target.name) for target in _TARGETS])
+@pytest.mark.parametrize(
+    "data",
+    [
+        pytest.param(b"", id="empty"),
+        pytest.param(b"hello", id="ascii"),
+        pytest.param(bytes(range(256)), id="byte-range"),
+    ],
+)
 def test_content_target_behaviors(target: Target, data: bytes) -> None:
     target.callback(data)
 
 
 def test_content_targets_have_unique_owners() -> None:
     exports: Final = [export for target in _TARGETS for export in target.exports]
-    assert len(exports) == len(set(exports)) == 91
+    assert len(exports) == len(set(exports)) == 90
 
 
 def test_content_sanitizer_removes_attributes_and_comments() -> None:
@@ -1862,7 +1869,7 @@ def test_dom_registered_callback(domain: str) -> None:
 def test_dom_ownership() -> None:
     targets: Final = dom_targets()
     exports: Final = [export for target in targets for export in target.exports]
-    assert (tuple(target.name for target in targets), len(exports), len(set(exports))) == (_DOMAINS, 81, 81)
+    assert (tuple(target.name for target in targets), len(exports), len(set(exports))) == (_DOMAINS, 80, 80)
 
 
 def test_dom_verification_rejects_changed_result() -> None:
@@ -2195,7 +2202,7 @@ def test_atheris_targets_complete_qualified_inventory() -> None:
         len(MODULES),
         {name: owners[name] for name in ("turbohtml.parse", "turbohtml.parse_xml", "turbohtml.__main__.main")},
     ) == (
-        227,
+        225,
         21,
         {
             "turbohtml.parse": "html-document",
@@ -2265,7 +2272,9 @@ def test_atheris_driver_connects_exception_boundary(mocker: MockerFixture) -> No
         accepted.append(data)
 
     target = Target(name="cli", callback=consume, exports=("turbohtml.__main__.main",), exceptions=(UnicodeError,))
-    runtime = mocker.MagicMock(spec=["Setup", "Fuzz", "instrument_func", "instrument_all"])
+    runtime = mocker.MagicMock(  # simplint: ignore[mock-without-spec]  # optional Atheris has no importable API here
+        spec=["Setup", "Fuzz", "instrument_func", "instrument_all"]
+    )
     runtime.instrument_func.side_effect = lambda callback: callback
     mocker.patch("fuzz.atheris_driver.import_module", autospec=True, return_value=runtime)
     mocker.patch("fuzz.atheris_driver.rejection_hook", autospec=True, return_value=partial(rejected.append, 1))
@@ -2409,7 +2418,7 @@ def _assert_runtime_archive_kept(archive: Path, output: Path, commands: list[lis
     )
 
 
-@pytest.mark.parametrize("flags", [[], ["--coverage"]], ids=["release", "coverage"])
+@pytest.mark.parametrize("flags", [pytest.param([], id="release"), pytest.param(["--coverage"], id="coverage")])
 def test_atheris_runtime_cli_keeps_archive(
     mocker: MockerFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: list[str]
 ) -> None:
@@ -2439,7 +2448,7 @@ def test_atheris_runtime_merges_sanitizer_without_preinit(
     sanitizer.write_bytes(b"sanitizer archive")
     monkeypatch.delenv("AR", raising=False)
     output = tmp_path / "built"
-    run = mocker.patch("subprocess.run", autospec=True, return_value=mocker.MagicMock(spec=["stdout"], stdout=members))
+    run = mocker.patch("subprocess.run", autospec=True, return_value=CompletedProcess([], 0, stdout=members))
     assert (
         fuzz_atheris_runtime_main(["--archive", str(archive), "--output", str(output), "--sanitizer", str(sanitizer)])
         == 0

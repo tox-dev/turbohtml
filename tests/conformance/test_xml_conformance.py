@@ -72,10 +72,13 @@ _DEVIATIONS: Final[dict[str, str]] = {
 }
 
 
+_TEXT_PATTERN: Final[re.Pattern[str]] = re.compile(r"^\s*<\?xml[^>]*\?>")
+
+
 def _clean(text: str) -> str:
     # Drop a leading XML/text declaration and any DOCTYPE so a catalog fragment (several
     # top-level TEST elements, as the sun files ship) parses once wrapped in a single root.
-    text = re.sub(r"^\s*<\?xml[^>]*\?>", "", text, count=1)
+    text = _TEXT_PATTERN.sub("", text, count=1)
     start = text.find("<!DOCTYPE")
     if start < 0:
         return text
@@ -101,16 +104,18 @@ def _catalog_tests(catalog: str) -> list[tuple[dict[str, str], Path]]:
     return out
 
 
+_MATCH_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"""(?#XML declaration keyword)encoding(?#equals sign)\s*=\s*(?#opening quote)["']"""
+    r"""(?P<encoding>[\w.\-]+)(?#closing quote)["']"""
+)
+
+
 def _decode(raw: bytes) -> str:
     if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
         return raw.decode("utf-16")
     if raw.startswith(b"\xef\xbb\xbf"):
         return raw.decode("utf-8-sig")
-    match = re.search(
-        r"""(?#XML declaration keyword)encoding(?#equals sign)\s*=\s*(?#opening quote)["']"""
-        r"""(?P<encoding>[\w.\-]+)(?#closing quote)["']""",
-        raw[:200].decode("latin-1", "replace"),
-    )
+    match = _MATCH_PATTERN.search(raw[:200].decode("latin-1", "replace"))
     return raw.decode(match["encoding"] if match else "utf-8")
 
 

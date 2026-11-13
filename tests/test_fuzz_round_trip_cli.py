@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import inspect
 import json
 import sys
@@ -30,6 +31,10 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from pytest_mock import MockerFixture, MockType
+
+
+def test_inprocess_worker_imports_without_fuzz_hooks() -> None:
+    assert importlib.import_module("fuzz._targets").__name__ == "fuzz._targets"
 
 
 def _out_of_scope(text: str) -> str | None:
@@ -702,13 +707,13 @@ def test_reachability_skips_def_line() -> None:
     assert inspect.getsourcelines(_TARGETS["html-document"].callback)[1] not in callback.lines
 
 
-def test_reachability_uses_reexported_function_source() -> None:
+def test_reachability_uses_public_function_source() -> None:
     paths: Final = {function.name: function.path for function in target_functions(_TARGETS["content-extract"])}
     assert {name: paths[name] for name in ("boilerplate", "feed", "microdata", "opengraph")} == {
-        "boilerplate": "turbohtml/extract/_paragraphs.py",
-        "feed": "turbohtml/extract/_shorthands.py",
-        "microdata": "turbohtml/extract/_shorthands.py",
-        "opengraph": "turbohtml/extract/_shorthands.py",
+        "boilerplate": "turbohtml/extract/__init__.py",
+        "feed": "turbohtml/extract/__init__.py",
+        "microdata": "turbohtml/extract/__init__.py",
+        "opengraph": "turbohtml/extract/__init__.py",
     }
 
 

@@ -11,14 +11,13 @@ from weakref import finalize, ref
 import pytest
 
 import turbohtml
-from turbohtml import Document, Element, Text, XPath, XPathDepthError, XPathString, parse, parse_xml
+from turbohtml import Document, Element, Text, XPath, XPathString, parse, parse_xml
 from turbohtml.convert import css_to_xpath
+from turbohtml.query import XPathDepthError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
     from types import SimpleNamespace
-
-    from _pytest.mark.structures import ParameterSet
 
 
 XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
@@ -1473,7 +1472,7 @@ def _union_method(
     "evaluate",
     [pytest.param(_union_method, id="method"), pytest.param(_union_compiled, id="compiled")],
 )
-@pytest.mark.parametrize("smart", [False, True], ids=["plain", "smart"])
+@pytest.mark.parametrize("smart", [pytest.param(False, id="plain"), pytest.param(True, id="smart")])
 @pytest.mark.parametrize("change", ["replace", "remove", "readd", "unrelated"])
 def test_xpath_callback_attribute_union(*, evaluate: _UnionEvaluate, smart: bool, change: str) -> None:
     source: Final = Element("section", {"id": "old", "other": "value"})
@@ -1543,7 +1542,7 @@ def test_xpath_callback_translate_uses_prior_attribute_value() -> None:
     assert source.xpath("translate(@id, mutate(), 'O')", extensions={(None, "mutate"): mutate}) == "Old"
 
 
-@pytest.mark.parametrize("smart", [False, True], ids=["plain", "smart"])
+@pytest.mark.parametrize("smart", [pytest.param(False, id="plain"), pytest.param(True, id="smart")])
 def test_xpath_callback_adopted_pending_owner(*, smart: bool) -> None:
     source: Final = Element("section", {"id": "old"}, children=[Element("b")])
     target: Final = Element("main")
@@ -1771,7 +1770,7 @@ def test_xpath_callback_initial_attribute_context(expression: str, expected: lis
     assert (result, tuple(target.children)) == (expected, (source,)[:moved])
 
 
-_XPATH_EVALUATORS: Final[list[ParameterSet]] = [
+_XPATH_EVALUATORS: Final[list[pytest.ParameterSet]] = [
     pytest.param(lambda node, expression, extensions: node.xpath(expression, extensions=extensions), id="method"),
     pytest.param(lambda node, expression, extensions: XPath(expression, extensions=extensions)(node), id="compiled"),
 ]
@@ -1882,11 +1881,10 @@ def test_xpath_extension_snapshots_arguments(offset: int) -> None:
 @pytest.mark.parametrize(
     ("kind", "error", "match"),
     [
-        ("type", TypeError, "extension result must be"),
-        ("owner", ValueError, "different document"),
-        ("iterator", LookupError, "iteration resumed"),
+        pytest.param("type", TypeError, "extension result must be", id="type"),
+        pytest.param("owner", ValueError, "different document", id="owner"),
+        pytest.param("iterator", LookupError, "iteration resumed", id="iterator"),
     ],
-    ids=["type", "owner", "iterator"],
 )
 def test_xpath_extension_validates_iterator(kind: str, error: type[Exception], match: str) -> None:
     source: Final = Element("section")
@@ -2023,7 +2021,7 @@ def test_xpath_positional_predicate(expression: str, expected: list[str]) -> Non
 
 
 @pytest.mark.parametrize("predicate", ["1", "last()", "0", "1.5"])
-@pytest.mark.parametrize("smart", [False, True], ids=["plain", "smart"])
+@pytest.mark.parametrize("smart", [pytest.param(False, id="plain"), pytest.param(True, id="smart")])
 def test_xpath_positional_attribute_snapshot(predicate: str, *, smart: bool) -> None:
     root: Final = Element("main", {"first": "a", "middle": "b", "last": "c"})
     target: Final = Element("section")
@@ -2058,10 +2056,9 @@ def test_xpath_positional_last_arity() -> None:
 @pytest.mark.skipif(sys.implementation.name != "cpython", reason="CPython allocation-triggered collection")
 @pytest.mark.parametrize(
     ("expression", "mixed"),
-    [("//a | //b", False), ("//a/@id | //a/text() | //b", True)],
-    ids=["nodes", "mixed"],
+    [pytest.param("//a | //b", False, id="nodes"), pytest.param("//a/@id | //a/text() | //b", True, id="mixed")],
 )
-@pytest.mark.parametrize("smart_strings", [False, True], ids=["plain", "smart"])
+@pytest.mark.parametrize("smart_strings", [pytest.param(False, id="plain"), pytest.param(True, id="smart")])
 @pytest.mark.parametrize("offset", [0, 1, 2, 4])
 def test_xpath_snapshot_during_collection(offset: int, *, expression: str, smart_strings: bool, mixed: bool) -> None:
     thresholds: Final = gc.get_threshold()

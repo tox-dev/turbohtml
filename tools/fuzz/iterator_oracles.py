@@ -61,14 +61,7 @@ def iterator_sequence_controls() -> dict[str, bool]:
 def iterator_sequence_check(case: str, run: Callable[[str, str], str] | None = None) -> str | None:
     # Pin cursor adjustment and reinsertion against literal traversal traces.
     program, separator, name = case.partition(":")
-    if (
-        not separator
-        or program not in _PROGRAMS
-        or re.fullmatch(
-            r"(?#a, b, div, or a g followed by up to 15 letters or digits)(?:[ab]|div|g[a-z0-9]{0,15})", name
-        )
-        is None
-    ):
+    if not separator or program not in _PROGRAMS or _ITERATOR_SEQUENCE_CHECK_PATTERN.fullmatch(name) is None:
         raise UnsupportedIteratorCaseError(case)
     return None if (run or _run)(program, name) == _expected(program, name) else "iterator sequence differs from model"
 
@@ -112,6 +105,11 @@ def _expected(program: str, name: str) -> str:
     }
     *trace, children = traces[program]
     return json.dumps((*trace, f"<{name}>{children}</{name}>"))
+
+
+_ITERATOR_SEQUENCE_CHECK_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(?#a, b, div, or a g followed by up to 15 letters or digits)(?:[ab]|div|g[a-z0-9]{0,15})"
+)
 
 
 _PROGRAMS: Final[dict[str, tuple[int, int, int]]] = {

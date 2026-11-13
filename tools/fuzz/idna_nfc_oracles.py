@@ -36,7 +36,7 @@ def idna_nfc_controls() -> dict[str, bool]:
 def idna_nfc_check(case: str, normalize: Callable[[str], str] = normalize_url) -> str | None:
     # Pin equivalent spellings to an independent target instead of trusting their agreement.
     variant, separator, affix = case.partition(":")
-    if not separator or variant not in _LABELS or re.fullmatch(r"[a-z0-9]{0,8}", affix) is None:
+    if not separator or variant not in _LABELS or _IDNA_NFC_CHECK_PATTERN.fullmatch(affix) is None:
         raise UnsupportedIdnaNfcCaseError(case)
     source: Final = affix + _LABELS[variant]
     composed: Final = unicodedata.normalize("NFC", source)
@@ -58,6 +58,9 @@ def idna_nfc_check(case: str, normalize: Callable[[str], str] = normalize_url) -
 class UnsupportedIdnaNfcCaseError(ValueError):
     # Keep unsupported fixture grammar distinct from rejection of valid hosts.
     ...
+
+
+_IDNA_NFC_CHECK_PATTERN: Final[re.Pattern[str]] = re.compile(r"[a-z0-9]{0,8}")
 
 
 _LABELS: Final[dict[str, str]] = {

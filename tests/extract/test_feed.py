@@ -1029,7 +1029,7 @@ def test_feed_atom_xhtml_inherits_prefix_from_div() -> None:
     assert parse_feed(xml).title == '<s:box xmlns:s="urn:s"/>'
 
 
-@pytest.mark.parametrize("binding", [None, ""], ids=["valueless", "empty"])
+@pytest.mark.parametrize("binding", [pytest.param(None, id="valueless"), pytest.param("", id="empty")])
 def test_feed_atom_xhtml_invalid_foreign_binding_falls_back(binding: str | None) -> None:
     document: Final = parse_xml(
         '<feed xmlns="http://www.w3.org/2005/Atom" xmlns:s="urn:s"><title type="xhtml">'

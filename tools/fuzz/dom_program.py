@@ -152,7 +152,7 @@ def _model_snapshot(order: list[_Item], nodes: list[_Item]) -> str:
     ))
 
 
-@dataclass(  # simplint: ignore[SMP701]  # identity-matched and mutated in place; replace breaks it
+@dataclass(  # simplint: ignore[dataclass-frozen]  # identity-matched and mutated in place; replace breaks it
     eq=False, kw_only=True, slots=True
 )
 class _Item:

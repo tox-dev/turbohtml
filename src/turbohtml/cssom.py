@@ -19,11 +19,19 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, final
 
 from ._html import (
-    _css_computed_style,
-    _css_declaration_index,
-    _css_declaration_text,
-    _css_parse_declarations,
-    _css_parse_rules,
+    css_computed_style as _css_computed_style,
+)
+from ._html import (
+    css_declaration_index as _css_declaration_index,
+)
+from ._html import (
+    css_declaration_text as _css_declaration_text,
+)
+from ._html import (
+    css_parse_declarations as _css_parse_declarations,
+)
+from ._html import (
+    css_parse_rules as _css_parse_rules,
 )
 
 if TYPE_CHECKING:

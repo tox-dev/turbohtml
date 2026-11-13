@@ -17,27 +17,52 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Final, TypeAlias, TypeVar, cast
 
-from turbohtml._html import (
-    _linkify_apply,
-    _linkify_find,
-    _linkify_fold,
-    _linkify_has,
-    _linkify_nofollow,
-    _linkify_target_blank,
-    _phone_config_compile,
-    _phone_e164,
-    _phone_number_check,
-    _phone_number_format,
-    _phone_parse,
-    _phone_regions,
+from ._native import (
+    linkify_apply as _linkify_apply,
+)
+from ._native import (
+    linkify_find as _linkify_find,
+)
+from ._native import (
+    linkify_fold as _linkify_fold,
+)
+from ._native import (
+    linkify_has as _linkify_has,
+)
+from ._native import (
+    linkify_nofollow as _linkify_nofollow,
+)
+from ._native import (
+    linkify_target_blank as _linkify_target_blank,
+)
+from ._native import (
     parse_fragment,
+)
+from ._native import (
+    phone_config_compile as _phone_config_compile,
+)
+from ._native import (
+    phone_e164 as _phone_e164,
+)
+from ._native import (
+    phone_number_check as _phone_number_check,
+)
+from ._native import (
+    phone_number_format as _phone_number_format,
+)
+from ._native import (
+    phone_parse as _phone_parse,
+)
+from ._native import (
+    phone_regions as _phone_regions,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
     from typing import Self
 
-    from turbohtml._html import Node, _PhoneConfig
+    from ._native import Node
+    from ._native import PhoneConfig as _PhoneConfig
 
 _NODE_T = TypeVar("_NODE_T", bound="Node")
 

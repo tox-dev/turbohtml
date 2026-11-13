@@ -24,7 +24,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Final, TypeAlias
 
-from ._html import _build_document, _build_element
+from ._html import build_document as _build_document
+from ._html import build_element as _build_element
 
 if TYPE_CHECKING:
     from ._html import Document, Element, Node
@@ -99,7 +100,7 @@ class ElementMaker:
 
 
 #: The shared builder: ``E.div(...)`` or ``E("div", ...)`` builds a ``<div>`` element.
-E: Final[ElementMaker] = ElementMaker()  # simplint: ignore[SMP101]  # public name exported by turbohtml
+E: Final[ElementMaker] = ElementMaker()  # simplint: ignore[single-letter-name]  # public name exported by turbohtml
 
 
 def document(

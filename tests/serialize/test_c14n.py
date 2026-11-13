@@ -1171,7 +1171,7 @@ _XLINK: Final[str] = ' xmlns:xlink="http://www.w3.org/1999/xlink"'
 _SVG: Final[str] = ' xmlns="http://www.w3.org/2000/svg"'
 
 
-@pytest.mark.parametrize("exclusive", [False, True], ids=["inclusive", "exclusive"])
+@pytest.mark.parametrize("exclusive", [pytest.param(False, id="inclusive"), pytest.param(True, id="exclusive")])
 @pytest.mark.parametrize(
     ("children", "expected"),
     [
@@ -1243,7 +1243,9 @@ def test_canonicalize_shared_sparse_xlink_input() -> None:
     )
 
 
-@pytest.mark.parametrize("case", [0, 1, 2], ids=["deep", "sparse-xlink", "shallow"])
+@pytest.mark.parametrize(
+    "case", [pytest.param(0, id="deep"), pytest.param(1, id="sparse-xlink"), pytest.param(2, id="shallow")]
+)
 @pytest.mark.oracle
 def test_canonicalize_benchmark_html_parser_difference(case: int) -> None:
     etree: Final = pytest.importorskip("lxml.etree")

@@ -19,7 +19,9 @@ if TYPE_CHECKING:
 _N = TypeVar("_N", bound=Node)
 
 _FREE_THREADED: Final[bool] = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
-_GIL_ENABLED_AT_START: Final[bool] = sys._is_gil_enabled() if _FREE_THREADED else True
+_GIL_ENABLED_AT_START: Final[bool] = (
+    sys._is_gil_enabled() if _FREE_THREADED else True  # ruff:ignore[private-member-access]  # CPython GIL API
+)
 
 
 @pytest.fixture(scope="session")
@@ -34,7 +36,9 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
     # ``_html`` declares ``Py_MOD_GIL_NOT_USED``; importing any extension that forgets that slot
     # flips the GIL back on and quietly masks every free-threaded race we test for (issue #84).
     # untestable without building a deliberately GIL-re-enabling extension to import mid-run
-    if _FREE_THREADED and not _GIL_ENABLED_AT_START and sys._is_gil_enabled():  # pragma: no cover
+    if not _GIL_ENABLED_AT_START and (  # pragma: no cover
+        sys._is_gil_enabled()  # ruff:ignore[private-member-access]  # CPython GIL API
+    ):
         session.exitstatus = 1
 
 

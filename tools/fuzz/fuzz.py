@@ -425,7 +425,7 @@ def _run_fuzz_build_tests() -> int:
             sys.executable,
             "-m",
             "pytest",
-            str(_ROOT / "tests" / "test_fuzz_self_test.py"),
+            str(_ROOT / "tests" / "_html" / "fuzz" / "test_self_test.py"),
             "-m",
             "fuzz_build",
             "--no-cov",

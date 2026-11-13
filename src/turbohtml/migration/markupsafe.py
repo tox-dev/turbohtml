@@ -19,10 +19,25 @@ from __future__ import annotations
 import string
 from typing import TYPE_CHECKING, NamedTuple, SupportsIndex, cast
 
-from turbohtml._html import _collapse_whitespace, _register_markup, parse_fragment, unescape
-from turbohtml._html import _markup_escape as escape
-from turbohtml._html import _markup_escape_silent as escape_silent
-from turbohtml._html import _markup_soft_str as soft_str
+from ._native import (
+    collapse_whitespace as _collapse_whitespace,
+)
+from ._native import (
+    markup_escape as escape,
+)
+from ._native import (
+    markup_escape_silent as escape_silent,
+)
+from ._native import (
+    markup_soft_str as soft_str,
+)
+from ._native import (
+    parse_fragment,
+    unescape,
+)
+from ._native import (
+    register_markup as _register_markup,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
@@ -38,11 +53,15 @@ if TYPE_CHECKING:
 
     class _SupportsGetItem(Protocol):
         # Any object supporting subscript, the shape a ``%`` mapping operand needs.
-        def __getitem__(self, key: object, /) -> object: ...  # simplint: ignore[SMP602]  # mapping values are arbitrary
+        def __getitem__(
+            self, key: object, /
+        ) -> object: ...  # simplint: ignore[imprecise-annotation]  # mapping values are arbitrary
 
     class _SupportsStrGetItem(Protocol):
         # The mapping shape ``str.format_map`` accepts: a string-keyed ``__getitem__``.
-        def __getitem__(self, key: str, /) -> object: ...  # simplint: ignore[SMP602]  # format_map formats any value
+        def __getitem__(
+            self, key: str, /
+        ) -> object: ...  # simplint: ignore[imprecise-annotation]  # format_map formats any value
 
     class _SupportsIntGetItem(Protocol):
         # The table shape ``str.translate`` accepts: an int-keyed ``__getitem__``.
@@ -53,7 +72,7 @@ if TYPE_CHECKING:
 # isinstance(value, str) must hold for the template stack, so FURB189 is suppressed. PLR0904 is suppressed because the
 # class mirrors str's full method surface on purpose: any text-returning method that fell back to str would have its
 # already-safe result escaped a second time under autoescaping.
-class MarkupPartition(NamedTuple):
+class MarkupPartition(NamedTuple):  # simplint: ignore[missing-from-all]  # preserve star exports
     """
     The three Markup parts a partition returns, in order.
 
@@ -103,14 +122,14 @@ class Markup(str):  # ruff:ignore[subclass-builtin, too-many-public-methods]  # 
         return NotImplemented
 
     @classmethod
-    def escape(cls, value: object, /) -> Markup:  # simplint: ignore[SMP602]  # any object, as markupsafe.escape
+    def escape(cls, s: object, /) -> Markup:  # simplint: ignore[imprecise-annotation,single-letter-name]  # MarkupSafe
         """
         Escape a value to this class, the entry point the composing operations use to make operands safe.
 
-        :param value: the value to escape; an ``__html__`` method marks it already safe.
+        :param s: the value to escape; an ``__html__`` method marks it already safe.
         :returns: a Markup holding the escaped text.
         """
-        rv = escape(value)
+        rv = escape(s)
         if rv.__class__ is not cls:
             return cls(rv)
         return rv
@@ -429,7 +448,8 @@ class EscapeFormatter(string.Formatter):
         self.escape = escape
         super().__init__()
 
-    def format_field(self, value: object, format_spec: str) -> str:  # simplint: ignore[SMP602]  # any field value
+    # Formatter passes arbitrary values to this override.
+    def format_field(self, value: object, format_spec: str) -> str:  # simplint: ignore[imprecise-annotation]
         """
         Render one field: trust its safe-rendering protocol if present, else escape the formatted value.
 
@@ -489,7 +509,6 @@ _register_markup(Markup)
 __all__ = [
     "EscapeFormatter",
     "Markup",
-    "MarkupPartition",
     "escape",
     "escape_silent",
     "soft_str",

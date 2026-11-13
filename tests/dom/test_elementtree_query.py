@@ -70,8 +70,11 @@ def test_element_tree_xpath_does_not_rewrite_quoted_slashes(tree: ElementView, q
     assert tree.findall(f"//*[@data-path={quote}//p{quote}]") == [tree]
 
 
+_TEST_ELEMENT_TREE_REPR_CONTAINS_TAG_PATTERN: Final[re.Pattern[str]] = re.compile(r"<Element div at 0x[0-9a-fA-F]+>")
+
+
 def test_element_tree_repr_contains_tag(tree: ElementView) -> None:
-    assert re.fullmatch(r"<Element div at 0x[0-9a-fA-F]+>", repr(tree))
+    assert _TEST_ELEMENT_TREE_REPR_CONTAINS_TAG_PATTERN.fullmatch(repr(tree))
 
 
 def test_element_tree_keyword_factory_retains_attributes() -> None:

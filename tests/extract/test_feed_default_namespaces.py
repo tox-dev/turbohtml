@@ -20,11 +20,10 @@ def test_feed_foreign_default_namespace_is_not_atom_root(uri: str) -> None:
 @pytest.mark.parametrize(
     "xml",
     [
-        "<feed><title>Wrong</title></feed>",
-        '<feed xmlns=""><title>Wrong</title></feed>',
-        f'<feed xmlns:a="{_ATOM}"><title>Wrong</title></feed>',
+        pytest.param("<feed><title>Wrong</title></feed>", id="missing-default"),
+        pytest.param('<feed xmlns=""><title>Wrong</title></feed>', id="empty-default"),
+        pytest.param(f'<feed xmlns:a="{_ATOM}"><title>Wrong</title></feed>', id="unrelated-prefix"),
     ],
-    ids=["missing-default", "empty-default", "unrelated-prefix"],
 )
 def test_feed_atom_root_requires_atom_namespace(xml: str) -> None:
     assert feed(xml) is None

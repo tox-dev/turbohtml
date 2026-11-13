@@ -2453,7 +2453,9 @@ def test_nested_block_code_span_survives_the_round_trip(depth: int) -> None:
     assert _tokens(_render(md(html))) == _tokens(html)
 
 
-@pytest.mark.parametrize("name", ['"', 'a"b', "é"], ids=["quote", "inner-quote", "non-ascii"])
+@pytest.mark.parametrize(
+    "name", [pytest.param('"', id="quote"), pytest.param('a"b', id="inner-quote"), pytest.param("é", id="non-ascii")]
+)
 @pytest.mark.parametrize(
     ("html", "config", "selector", "expected"),
     [
@@ -2485,7 +2487,9 @@ def test_corpus_never_crashes_and_renders(wpt_html_tree_corpus: WptHtmlTreeCorpu
         assert isinstance(_render(result), str)
 
 
-@pytest.mark.parametrize("count", [1, 10, 1000], ids=["one", "ten", "thousand"])
+@pytest.mark.parametrize(
+    "count", [pytest.param(1, id="one"), pytest.param(10, id="ten"), pytest.param(1000, id="thousand")]
+)
 def test_markdown_repeated_escapes(count: int) -> None:
     assert parse(f"<p>{'*' * count}</p>").to_markdown() == r"\*" * count
 
@@ -2504,7 +2508,7 @@ def test_markdown_escaped_word_wrapping(html: str, expected: str) -> None:
     assert parse(html).to_markdown(config) == expected
 
 
-@pytest.mark.parametrize("width", [80, 8192], ids=["ordinary", "wide"])
+@pytest.mark.parametrize("width", [pytest.param(80, id="ordinary"), pytest.param(8192, id="wide")])
 def test_markdown_many_words_wrap_at_requested_width(width: int) -> None:
     words: Final = ["aa"] * 10_000
     per_line: Final = (width + 1) // 3
@@ -2755,7 +2759,7 @@ def test_non_dict_mapping_is_accepted() -> None:
 
 def test_non_str_return_raises_type_error() -> None:
     def convert(_element: Element, _content: str) -> str:
-        return 123  # ty: ignore[invalid-return-type]  # a non-str on purpose, to exercise the runtime check
+        return 123  # ty: ignore[invalid-explicit-return]  # a non-str on purpose, to exercise the runtime check
 
     with pytest.raises(TypeError, match=r"converter for <b> must return a str, not int"):
         parse("<p><b>x</b></p>").to_markdown(Markdown(converters={"b": convert}))

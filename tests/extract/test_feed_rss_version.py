@@ -11,15 +11,14 @@ from turbohtml.extract import feed
 @pytest.mark.parametrize(
     "root",
     [
-        "<rss>",
-        '<rss version="">',
-        '<rss version="0.91">',
-        '<rss version="2.1">',
-        '<rss version="9.9">',
-        '<rss VERSION="2.0">',
-        '<rss xmlns:x="urn:other" x:version="2.0">',
+        pytest.param("<rss>", id="missing"),
+        pytest.param('<rss version="">', id="empty"),
+        pytest.param('<rss version="0.91">', id="old-version"),
+        pytest.param('<rss version="2.1">', id="new-version"),
+        pytest.param('<rss version="9.9">', id="unknown-version"),
+        pytest.param('<rss VERSION="2.0">', id="uppercase-name"),
+        pytest.param('<rss xmlns:x="urn:other" x:version="2.0">', id="prefixed-name"),
     ],
-    ids=["missing", "empty", "old-version", "new-version", "unknown-version", "uppercase-name", "prefixed-name"],
 )
 def test_feed_rss_xml_root_requires_version_2(root: str) -> None:
     assert feed(f"{root}<channel><title>Wrong</title></channel></rss>") is None
@@ -27,8 +26,10 @@ def test_feed_rss_xml_root_requires_version_2(root: str) -> None:
 
 @pytest.mark.parametrize(
     "root",
-    ['<rss version="2.0">', '<rss xmlns:x="urn:other" version="2.0">'],
-    ids=["first-attribute", "later-attribute"],
+    [
+        pytest.param('<rss version="2.0">', id="first-attribute"),
+        pytest.param('<rss xmlns:x="urn:other" version="2.0">', id="later-attribute"),
+    ],
 )
 def test_feed_rss_xml_root_accepts_version_2(root: str) -> None:
     result: Final = feed(f"{root}<channel><title>Right</title></channel></rss>")

@@ -42,14 +42,28 @@ from itertools import starmap
 from typing import Final, Literal
 
 from ._html import (
-    _codec_label,
-    _decode,
-    _detect,
-    _detect_language,
-    _detect_rank,
-    _DetectStream,
-    _is_normalized,
-    _normalize,
+    DetectStream as _DetectStream,
+)
+from ._html import (
+    codec_label as _codec_label,
+)
+from ._html import (
+    decode as _decode,
+)
+from ._html import (
+    detect as _detect,
+)
+from ._html import (
+    detect_language as _detect_language,
+)
+from ._html import (
+    detect_rank as _detect_rank,
+)
+from ._html import (
+    is_normalized as _is_normalized,
+)
+from ._html import (
+    normalize as _normalize,
 )
 
 #: The Unicode normalization forms :func:`normalize` and :func:`is_normalized` accept.

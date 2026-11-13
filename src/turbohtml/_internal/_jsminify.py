@@ -14,7 +14,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from turbohtml._html import _register_js_minify
+from ._native import (
+    register_js_minify as _register_js_minify,
+)
 
 
 @dataclass(frozen=True, slots=True)

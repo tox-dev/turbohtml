@@ -56,46 +56,62 @@ _ENCODING_LABEL: Final[dict[str, str]] = {
 }
 
 
+_PARSE_NUMBERS_PATTERN: Final[re.Pattern[str]] = re.compile(r"0[xX][0-9A-Fa-f]+|\d+")
+
+
 def parse_numbers(text: str) -> list[int]:
     # Return every integer literal in a Rust array body, in order.
     #
     # The class tables are decimal; the CJK frequency tables are hex (``0x4E2D``),
     # so match a hex literal before falling back to a decimal run (a bare ``\d+``
     # would split ``0x4E2D`` into ``0``, ``4``, ``2``).
-    return [int(token, 0) for token in re.findall(r"0[xX][0-9A-Fa-f]+|\d+", text)]
+    return [int(token, 0) for token in _PARSE_NUMBERS_PATTERN.findall(text)]
+
+
+_BODY_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"pub static DETECTOR_DATA: DetectorData = DetectorData \{(?P<fields>.*?)\n\};", re.DOTALL
+)
+
+_PARSE_DETECTOR_DATA_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(?P<name>\w+):\s*\[(?P<content>.*?)\],\s*\n", re.DOTALL
+)
 
 
 def parse_detector_data(source: str) -> dict[str, list[int]]:
     # Parse the named arrays inside the ``DETECTOR_DATA`` struct instance.
-    body = re.search(r"pub static DETECTOR_DATA: DetectorData = DetectorData \{(?P<fields>.*?)\n\};", source, re.DOTALL)
+    body = _BODY_PATTERN.search(source)
     if body is None:
         msg = "DETECTOR_DATA instance not found; chardetng layout changed"
         raise SystemExit(msg)
     tables: dict[str, list[int]] = {}
     # the trailing newline lets the last field (whose closing "]," abuts the struct
     # close) match the same "]," + newline pattern as every earlier field
-    for name, content in re.findall(
-        r"(?P<name>\w+):\s*\[(?P<content>.*?)\],\s*\n", f"{body.group('fields')}\n", re.DOTALL
-    ):
+    for name, content in _PARSE_DETECTOR_DATA_PATTERN.findall(f"{body.group('fields')}\n"):
         tables[name] = parse_numbers(content)
     return tables
 
 
+_BLOCK_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"pub static SINGLE_BYTE_DATA: \[SingleByteData; 20\] = \[(?P<rows>.*?)\n\];", re.DOTALL
+)
+
+_ROWS_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"(?#one SingleByteData row: the encoding, then its lower, upper and probability tables, then the ascii"
+    r" and non-ascii class values)"
+    r"encoding:\s*&(?P<encoding>\w+),\s*lower:\s*&DETECTOR_DATA\.(?P<lower>\w+),"
+    r"\s*upper:\s*&DETECTOR_DATA\.(?P<upper>\w+),"
+    r"\s*probabilities:\s*&DETECTOR_DATA\.(?P<probabilities>\w+),"
+    r"\s*ascii:\s*(?P<ascii>\w+),\s*non_ascii:\s*(?P<non_ascii>\w+),"
+)
+
+
 def parse_single_byte(source: str) -> list[tuple[str, ...]]:
     # Parse the 20 ``SINGLE_BYTE_DATA`` rows into (encoding, lower, upper, prob, ascii, non_ascii).
-    block = re.search(r"pub static SINGLE_BYTE_DATA: \[SingleByteData; 20\] = \[(?P<rows>.*?)\n\];", source, re.DOTALL)
+    block = _BLOCK_PATTERN.search(source)
     if block is None:
         msg = "SINGLE_BYTE_DATA not found; chardetng layout changed"
         raise SystemExit(msg)
-    rows = re.findall(
-        r"(?#one SingleByteData row: the encoding, then its lower, upper and probability tables, then the ascii"
-        r" and non-ascii class values)"
-        r"encoding:\s*&(?P<encoding>\w+),\s*lower:\s*&DETECTOR_DATA\.(?P<lower>\w+),"
-        r"\s*upper:\s*&DETECTOR_DATA\.(?P<upper>\w+),"
-        r"\s*probabilities:\s*&DETECTOR_DATA\.(?P<probabilities>\w+),"
-        r"\s*ascii:\s*(?P<ascii>\w+),\s*non_ascii:\s*(?P<non_ascii>\w+),",
-        block.group("rows"),
-    )
+    rows = _ROWS_PATTERN.findall(block.group("rows"))
     single_byte_count = 20
     if len(rows) != single_byte_count:
         msg = f"expected {single_byte_count} single-byte encodings, parsed {len(rows)}"
@@ -103,9 +119,12 @@ def parse_single_byte(source: str) -> list[tuple[str, ...]]:
     return rows
 
 
+_PARSE_CONSTS_PATTERN: Final[re.Pattern[str]] = re.compile(r"const (?P<name>\w+): usize = (?P<value>\d+);")
+
+
 def parse_consts(source: str) -> dict[str, int]:
     # Parse the ``const NAME: usize = N;`` boundary constants the rows reference.
-    return {name: int(value) for name, value in re.findall(r"const (?P<name>\w+): usize = (?P<value>\d+);", source)}
+    return {name: int(value) for name, value in _PARSE_CONSTS_PATTERN.findall(source)}
 
 
 def emit_array(name: str, values: list[int], ctype: str) -> str:
@@ -166,18 +185,35 @@ def parse_block(source: str, header: str) -> str:
     return block.group(1)
 
 
+_ENUM_BODY_PATTERN: Final[re.Pattern[str]] = re.compile(r"pub enum Tld \{(?P<body>.*?)\n\}", re.DOTALL)
+
+_TLD_VARIANTS_PATTERN: Final[re.Pattern[str]] = re.compile(r"\s+(\w+),")
+
+
 def tld_variants(source: str) -> list[str]:
     # Return the ``Tld`` enum's variants in declaration order; every per-TLD table below is indexed by it.
-    enum_body = re.search(r"pub enum Tld \{(?P<body>.*?)\n\}", source, re.DOTALL)
+    enum_body = _ENUM_BODY_PATTERN.search(source)
     if enum_body is None:
         msg = "the Tld enum was not found; chardetng's tld.rs layout changed"
         raise SystemExit(msg)
-    return re.findall(r"\s+(\w+),", enum_body.group("body"))
+    return _TLD_VARIANTS_PATTERN.findall(enum_body.group("body"))
+
+
+_SNAKE_PATTERN: Final[re.Pattern[str]] = re.compile(r"(?<!^)(?=[A-Z])")
 
 
 def snake(variant: str) -> str:
     # Render a Rust ``Tld`` variant as its C enumerator name (``CentralWindows`` -> ``TH_TLD_CENTRAL_WINDOWS``).
-    return f"TH_TLD_{re.sub(r'(?<!^)(?=[A-Z])', '_', variant).upper()}"
+    return f"TH_TLD_{_SNAKE_PATTERN.sub('_', variant).upper()}"
+
+
+_EMIT_TLD_PATTERN: Final[re.Pattern[str]] = re.compile(r"Tld::(\w+)")
+
+_TWO_KEYS_PATTERN: Final[re.Pattern[str]] = re.compile(r"\[b'(?P<first>.)', b'(?P<second>.)'\]")
+
+_PUNY_KEYS_PATTERN: Final[re.Pattern[str]] = re.compile(r'b"([^"]+)"')
+
+_EMIT_TLD_PATTERN_2: Final[re.Pattern[str]] = re.compile(r"Tld::(\w+)")
 
 
 def emit_tld(source: str, variants: list[str]) -> list[str]:
@@ -186,10 +222,10 @@ def emit_tld(source: str, variants: list[str]) -> list[str]:
     # The two-letter and Punycode keys go out byte for byte. ``fiqs8S`` and ``fiqz9S`` carry an upper-case ``S``
     # upstream, so no lower-cased label matches them; reproducing the typo keeps the C classifier answering what
     # chardetng answers, which is what the differential asserts.
-    two_values = [snake(name) for name in re.findall(r"Tld::(\w+)", parse_block(source, "static TWO_LETTER_VALUES"))]
-    two_keys = re.findall(r"\[b'(?P<first>.)', b'(?P<second>.)'\]", parse_block(source, "static TWO_LETTER_KEYS"))
-    puny_keys = re.findall(r'b"([^"]+)"', parse_block(source, "static PUNYCODE_KEYS"))
-    puny_values = [snake(name) for name in re.findall(r"Tld::(\w+)", parse_block(source, "static PUNYCODE_VALUES"))]
+    two_values = [snake(name) for name in _EMIT_TLD_PATTERN.findall(parse_block(source, "static TWO_LETTER_VALUES"))]
+    two_keys = _TWO_KEYS_PATTERN.findall(parse_block(source, "static TWO_LETTER_KEYS"))
+    puny_keys = _PUNY_KEYS_PATTERN.findall(parse_block(source, "static PUNYCODE_KEYS"))
+    puny_values = [snake(name) for name in _EMIT_TLD_PATTERN_2.findall(parse_block(source, "static PUNYCODE_VALUES"))]
     if not (len(two_keys) == len(two_values) and len(puny_keys) == len(puny_values)):
         msg = "chardetng's TLD key and value tables disagree in length"
         raise SystemExit(msg)
@@ -217,6 +253,9 @@ def emit_tld(source: str, variants: list[str]) -> list[str]:
     return out
 
 
+_MATCH_ARMS_PATTERN: Final[re.Pattern[str]] = re.compile(r"Tld::(\w+)")
+
+
 def match_arms(text: str) -> list[tuple[list[str], str]]:
     # Split a Rust ``match tld`` body into (Tld variants, arm body) pairs; an arm ends at a depth-0 ``}`` or ``,``.
     arms: list[tuple[list[str], str]] = []
@@ -232,7 +271,7 @@ def match_arms(text: str) -> list[tuple[list[str], str]]:
         buffer += char
         if (depth == 0 and (char == "}" or (char == "," and "{" not in buffer))) and "=>" in buffer:
             head, body = buffer.split("=>", 1)
-            arms.append((re.findall(r"Tld::(\w+)", head), body))
+            arms.append((_MATCH_ARMS_PATTERN.findall(head), body))
             buffer = ""
     return arms
 
@@ -249,12 +288,15 @@ def match_tld(source: str, signature: str) -> list[tuple[list[str], str]]:
     raise SystemExit(msg)
 
 
+_INDICES_PATTERN: Final[re.Pattern[str]] = re.compile(r"const (?P<name>\w+_INDEX): usize = (?P<value>\d+);")
+
+
 def emit_tld_scoring(source: str, variants: list[str]) -> list[str]:
     # Render chardetng's TLD scoring: the candidate indices and the three per-TLD tables ``Candidate::score`` reads.
     #
     # ``encoding_for_tld`` becomes one index per TLD. ``encoding_is_native_to_tld`` and the encodings
     # ``score_adjustment`` drops to zero become bitmasks over those indices; the Rust writes both as match arms.
-    indices = re.findall(r"const (?P<name>\w+_INDEX): usize = (?P<value>\d+);", source)
+    indices = _INDICES_PATTERN.findall(source)
     default = {tld: arm for group, arm in match_tld(source, "fn encoding_for_tld") for tld in group}
     native = {tld: arm for group, arm in match_tld(source, "fn encoding_is_native_to_tld") for tld in group}
     zeroed = {}
@@ -307,9 +349,12 @@ def emit_tld_scoring(source: str, variants: list[str]) -> list[str]:
     return out
 
 
+_INDICES_IN_PATTERN: Final[re.Pattern[str]] = re.compile(r"EncodingDetector::(\w+)")
+
+
 def indices_in(arm: str) -> list[str]:
     # Return the ``EncodingDetector::*_INDEX`` names a Rust match arm names, in order.
-    return re.findall(r"EncodingDetector::(\w+)", arm)
+    return _INDICES_IN_PATTERN.findall(arm)
 
 
 def mask(bits: list[str]) -> str:

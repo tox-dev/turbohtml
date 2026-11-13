@@ -20,10 +20,17 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import Field, dataclass, field, fields
 from typing import Final, Literal, TypeAlias
 
-from turbohtml._html import Element, Formatter, Indent, Minify, _register_render_configs
-
 from ._cssmin import CSSMinify  # ruff:ignore[unused-import]  # registers the CSSMinify record type on import
 from ._jsminify import JSMinify  # ruff:ignore[unused-import]  # registers the JSMinify record type on import
+from ._native import (
+    Element,
+    Formatter,
+    Indent,
+    Minify,
+)
+from ._native import (
+    register_render_configs as _register_render_configs,
+)
 
 _Option: TypeAlias = (
     str

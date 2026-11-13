@@ -21,7 +21,15 @@ from __future__ import annotations
 from itertools import starmap
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
-from ._html import _conformance_check, _conformance_filter, parse
+from ._html import (
+    conformance_check as _conformance_check,
+)
+from ._html import (
+    conformance_filter as _conformance_filter,
+)
+from ._html import (
+    parse,
+)
 
 if TYPE_CHECKING:
     from ._html import Document, Node

@@ -13,8 +13,6 @@ import turbohtml
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from _pytest.mark.structures import ParameterSet
-
 _CASES: Final[list[pytest.ParameterSet]] = [
     pytest.param("no character references", "no character references", id="no-refs"),
     pytest.param("&\n&\t& &&", "&\n&\t& &&", id="bare-amp"),
@@ -51,7 +49,7 @@ _CASES: Final[list[pytest.ParameterSet]] = [
 ]
 
 
-def _entity_cases() -> Iterator[ParameterSet]:
+def _entity_cases() -> Iterator[pytest.ParameterSet]:
     for filename in ("entities.test", "namedEntities.test", "numericEntities.test"):
         for case in json.loads(
             (Path(__file__).parents[1] / "html5lib-tests" / "tokenizer" / filename).read_text(encoding="utf-8")
