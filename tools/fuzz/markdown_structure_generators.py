@@ -209,10 +209,7 @@ def _edges(children: tuple[_Meaning, ...]) -> _Edges:
 
 
 def _peel(inner: list[_Meaning], outside: list[_Meaning], edge: int, *, breaks: bool) -> None:
-    spaces = frozenset(" \t\n\f\r")
-    while inner and (
-        (breaks and inner[edge][0] == "br") or (inner[edge][0] == "#text" and inner[edge][1][0][1][edge:][:1] in spaces)
-    ):
+    while inner and _peelable(inner[edge], edge, breaks=breaks):
         text: str = inner[edge][1][0][1] if inner[edge][0] == "#text" else ""
         kept: str = text.lstrip(" \t\n\f\r") if edge == 0 else text.rstrip(" \t\n\f\r")
         if not kept:
@@ -223,6 +220,12 @@ def _peel(inner: list[_Meaning], outside: list[_Meaning], edge: int, *, breaks: 
         )
         outside.insert(0 if edge else len(outside), space)
         inner[edge] = _Meaning("#text", (("value", kept),), ())
+
+
+def _peelable(node: _Meaning, edge: int, *, breaks: bool) -> bool:
+    if node.tag == "br":
+        return breaks
+    return node.tag == "#text" and node.attributes[0][1][edge:][:1] in frozenset(" \t\n\f\r")
 
 
 class _Edges(NamedTuple):

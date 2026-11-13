@@ -26,17 +26,19 @@ if TYPE_CHECKING:
     from .atheris_registry import Target
 
 
+def _is_private(name: str) -> bool:
+    # ``__main__`` stays public, since ``python -m turbohtml`` runs it.
+    return any(part.startswith("_") and part != "__main__" for part in name.split("."))
+
+
 def public_modules(package: str) -> tuple[str, ...]:
     # List the modules with no underscore in their path that declare ``__all__``, so a new one joins the gap check.
-    #
-    # ``__main__`` stays in, since ``python -m turbohtml`` runs it.
     walked: Final = pkgutil.walk_packages(importlib.import_module(package).__path__, f"{package}.")
     return tuple(
         sorted(
             name
             for name in (package, *(module.name for module in walked))
-            if not any(part.startswith("_") and part != "__main__" for part in name.split("."))
-            and hasattr(importlib.import_module(name), "__all__")
+            if not _is_private(name) and hasattr(importlib.import_module(name), "__all__")
         )
     )
 

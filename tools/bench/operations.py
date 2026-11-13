@@ -1942,6 +1942,18 @@ def _encoding_result_cases() -> tuple[tuple[str, bytes], ...]:
     )
 
 
+def _minify_js_integer_cases() -> tuple[tuple[str, Case], ...]:
+    cases: list[tuple[str, Case]] = []
+    for count, scale, offset, label in (
+        (4096, 10, 1, "no trailing zeros"),
+        (4096, 1000, 0, "three trailing zeros"),
+        (1, 10, 1, "no trailing zeros"),
+    ):
+        integers = ",".join(str((index + 1) * scale + offset) for index in range(count))
+        cases.append((f"{count} integers / {label}", f"x=[{integers}]"))
+    return tuple(cases)
+
+
 INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
     "startup": lambda: (("fresh import and version", "import"), ("fresh CLI minification", "minify")),
     "radio-group": _radio_group_cases,
@@ -2897,17 +2909,7 @@ INPUTS: Final[dict[str, Callable[[], tuple[tuple[str, Case], ...]]]] = {
         ("free-name conflicts", "function transform(value){return value+a+b+c}"),
         ("no local bindings", "console.log(document.title)"),
     ),
-    "minify-js-integers": lambda: tuple(
-        (
-            f"{count} integers / {label}",
-            f"x=[{','.join(str((index + 1) * scale + offset) for index in range(count))}]",
-        )
-        for count, scale, offset, label in (
-            (4096, 10, 1, "no trailing zeros"),
-            (4096, 1000, 0, "three trailing zeros"),
-            (1, 10, 1, "no trailing zeros"),
-        )
-    ),
+    "minify-js-integers": _minify_js_integer_cases,
     "minify-js-var-initialization": lambda: tuple(
         (
             f"{count} var pairs / {'read before initialization' if early else 'read after initialization'}",

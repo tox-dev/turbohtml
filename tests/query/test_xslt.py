@@ -5563,7 +5563,8 @@ def test_dense_number_benchmark_output(library: str) -> None:
         }"""
         "</out>"
     )
-    assert str(operation(cast("tuple[str, str]", INPUTS["transform-dense"]()[0][1]))).strip() == expected
+    case: Final = cast("tuple[str, str]", INPUTS["transform-dense"]()[0][1])
+    assert str(operation(case)).strip() == expected
 
 
 @pytest.mark.parametrize("library", [pytest.param("core", id="turbohtml"), pytest.param("competitors.lxml", id="lxml")])

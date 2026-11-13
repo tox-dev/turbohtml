@@ -1259,15 +1259,19 @@ def css_semantics_check(
     return None
 
 
+def _unsupported(read: _Value, keywords: tuple[str, ...]) -> bool:
+    return read is _INVALID or read is None or (isinstance(read, str) and read not in keywords)
+
+
 def _require_supported_css_shorthands(sheet: str) -> None:
     for rule in StyleSheet(sheet).rules:
-        for name in ("margin", "padding", "border-width"):
-            keywords = {"margin": ("auto",), "padding": (), "border-width": ("thin", "medium", "thick")}[name]
+        for name, longhand, keywords in (
+            ("margin", "margin-top", ("auto",)),
+            ("padding", "padding-top", ()),
+            ("border-width", "border-top-width", ("thin", "medium", "thick")),
+        ):
             if (value := rule.style.get(name)) is not None and any(
-                (read := _read_value("border-top-width" if name == "border-width" else f"{name}-top", part)) is _INVALID
-                or read is None
-                or (isinstance(read, str) and read not in keywords)
-                for part in value.split()
+                _unsupported(_read_value(longhand, part), keywords) for part in value.split()
             ):
                 raise OutOfScopeError
 

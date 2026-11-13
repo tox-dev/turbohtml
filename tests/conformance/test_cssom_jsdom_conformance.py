@@ -458,6 +458,12 @@ def _jsdom_results() -> dict[str, dict[str, dict[str, str]]]:
     return json.loads(completed.stdout)
 
 
+def _jsdom_marks(case: Case, check: Check) -> tuple[pytest.MarkDecorator, ...]:
+    if _jsdom_available() and not _jsdom_results()[case.id][check.selector].get(check.prop, ""):
+        return (pytest.mark.skip(reason=f"jsdom reports no computed {check.prop}"),)
+    return ()
+
+
 _SPEC_PARAMS: Final[list[pytest.ParameterSet]] = [
     pytest.param(case.html, check, id=f"{case.id}-{check.prop}") for case in _CORPUS for check in case.checks
 ]
@@ -466,9 +472,7 @@ _ORACLE_PARAMS: Final[list[pytest.ParameterSet]] = [
         case.id,
         check,
         id=f"{case.id}-{check.prop}",
-        marks=pytest.mark.skip(reason=f"jsdom reports no computed {check.prop}")
-        if _jsdom_available() and not _jsdom_results()[case.id][check.selector].get(check.prop, "")
-        else (),
+        marks=_jsdom_marks(case, check),
     )
     for case in _CORPUS
     for check in case.checks

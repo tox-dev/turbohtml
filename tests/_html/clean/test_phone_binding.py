@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import string
 import sys
 import weakref
 from itertools import starmap
@@ -241,13 +242,12 @@ def test_compile_rejects_each_malformed_field(
 
 
 def test_compile_accepts_the_bounds() -> None:
+    letters: Final = str.maketrans(string.digits, string.ascii_lowercase[:10])
     assert (
         _phone_config_compile(
             _spec(
                 regions=("US", "GB", "DE", "FR", "IT", "ES", "NL", "BE"),
-                labels=tuple(
-                    f"l{''.join('abcdefghij'[int(digit)] for digit in f'{index:03d}')}" for index in range(256)
-                ),
+                labels=tuple(f"l{index:03d}".translate(letters) for index in range(256)),
                 type_mask=frozenset({PhoneType.FIXED_LINE}),
             )
         )
