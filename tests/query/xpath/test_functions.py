@@ -6,6 +6,7 @@ import string
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
 from string import ascii_lowercase, ascii_uppercase
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeAlias, cast
 from xml.etree import ElementTree as ET  # ruff:ignore[suspicious-xml-etree-import]  # parses fixed markup from the test corpus, not untrusted input
 
@@ -1268,7 +1269,12 @@ _REGEX_REPLACE: Final[XPath] = XPath("re:replace($text, $pattern, $flags, $repla
 _FN_REPLACE: Final[XPath] = XPath("replace($text, $pattern, $replacement)")
 
 
-_PYTHON_FLAGS: Final[dict[str, re.RegexFlag]] = {"i": re.IGNORECASE, "m": re.MULTILINE, "s": re.DOTALL, "x": re.VERBOSE}
+_PYTHON_FLAGS: Final[MappingProxyType[str, re.RegexFlag]] = MappingProxyType({
+    "i": re.IGNORECASE,
+    "m": re.MULTILINE,
+    "s": re.DOTALL,
+    "x": re.VERBOSE,
+})
 
 
 @pytest.fixture

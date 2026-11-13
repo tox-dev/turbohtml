@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import Final, cast
 
 import pytest
@@ -249,7 +250,7 @@ def test_closest_walks_up() -> None:
     assert found.tag == "div"
 
 
-_ORACLE_DOCS: Final[dict[str, str]] = {
+_ORACLE_DOCS: Final[MappingProxyType[str, str]] = MappingProxyType({
     "article": (
         '<!doctype html><html lang="en"><head><title>T</title></head><body>'
         '<div id="div" class="foo bar">'
@@ -285,7 +286,7 @@ _ORACLE_DOCS: Final[dict[str, str]] = {
         "<div><span>only</span> tail</div>"
         "</body></html>"
     ),
-}
+})
 
 _ORACLE_SELECTORS: Final[tuple[str, ...]] = (
     "a:active",

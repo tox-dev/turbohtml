@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 from subprocess import CompletedProcess, TimeoutExpired  # ruff:ignore[suspicious-subprocess-import]  # stands in for a run outliving its deadline
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 from zipfile import ZipFile
 
@@ -684,7 +685,7 @@ if TYPE_CHECKING:
     from pytest_mock import MockType
 
 
-_TARGETS: Final[dict[str, Target]] = {target.name: target for target in public_targets()}
+_TARGETS: Final[MappingProxyType[str, Target]] = MappingProxyType({target.name: target for target in public_targets()})
 
 
 @pytest.mark.parametrize(

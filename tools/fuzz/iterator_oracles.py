@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, cast
 
 from turbohtml import Element, Node, NodeFilter, NodeIterator
@@ -112,12 +113,12 @@ _ITERATOR_SEQUENCE_CHECK_PATTERN: Final[re.Pattern[str]] = re.compile(
 )
 
 
-_PROGRAMS: Final[dict[str, tuple[int, int, int]]] = {
+_PROGRAMS: Final[MappingProxyType[str, tuple[int, int, int]]] = MappingProxyType({
     "after": (4, 0, 3),
     "before": (4, 1, 3),
     "last": (5, 1, 4),
     "ancestor": (3, 0, 1),
-}
+})
 
 __all__ = [
     "UnsupportedIteratorCaseError",

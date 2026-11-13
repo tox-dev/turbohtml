@@ -111,7 +111,7 @@ _BASE: Final[Policy] = Policy(
     on_disallowed_tag=OnDisallowed.STRIP,
     remove_with_content=_REMOVE_WITH_CONTENT,
 )
-_MODES: Final[dict[str, Policy]] = {
+_MODES: Final[MappingProxyType[str, Policy]] = MappingProxyType({
     "templates": replace(_BASE, strip_template_markers=True),
     "named-props": replace(_BASE, isolate_named_props=True),
     "custom-elements": replace(
@@ -122,7 +122,7 @@ _MODES: Final[dict[str, Policy]] = {
     "profile-html": replace(_BASE, allow_svg=False, allow_mathml=False),
     "profile-svg": replace(_BASE, allow_html=False, allow_mathml=False),
     "profile-mathml": replace(_BASE, allow_html=False, allow_svg=False),
-}
+})
 
 _URL_ATTRS: Final[frozenset[str]] = frozenset({
     "href",

@@ -39,6 +39,7 @@ import string
 from dataclasses import dataclass
 from functools import cache
 from itertools import starmap
+from types import MappingProxyType
 from typing import Final, Literal
 
 from ._html import (
@@ -69,7 +70,7 @@ from ._html import (
 #: The Unicode normalization forms :func:`normalize` and :func:`is_normalized` accept.
 NormalizationForm = Literal["NFC", "NFD", "NFKC", "NFKD"]
 
-_FORMS: Final[dict[str, int]] = {"NFC": 0, "NFD": 1, "NFKC": 2, "NFKD": 3}
+_FORMS: Final[MappingProxyType[str, int]] = MappingProxyType({"NFC": 0, "NFD": 1, "NFKC": 2, "NFKD": 3})
 
 
 def _refuse_encode(text: str, errors: str = "strict", /) -> tuple[bytes, int]:  # ruff:ignore[unused-function-argument]  # the codec API passes errors; the refusal ignores it

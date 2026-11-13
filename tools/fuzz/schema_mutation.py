@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import random
 import re
+from types import MappingProxyType
 from typing import Final
 
 import lxml.etree
@@ -12,7 +13,11 @@ import lxml.etree
 _XSL: Final[str] = "{http://www.w3.org/1999/XSL/Transform}"
 _XS: Final[str] = "{http://www.w3.org/2001/XMLSchema}"
 _RNG: Final[str] = "{http://relaxng.org/ns/structure/1.0}"
-_PREFIXES: Final[dict[str, str]] = {"x": _XSL[1:-1], "xs": _XS[1:-1], "rng": "http://relaxng.org/ns/structure/1.0"}
+_PREFIXES: Final[MappingProxyType[str, str]] = MappingProxyType({
+    "x": _XSL[1:-1],
+    "xs": _XS[1:-1],
+    "rng": "http://relaxng.org/ns/structure/1.0",
+})
 
 
 def mutate(source: str, pool: tuple[str, ...], seed: int, *, broken: bool) -> str:

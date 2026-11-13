@@ -27,6 +27,7 @@ import random
 import re
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the oracles are two vendored Rust binaries this suite builds and drives
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -63,7 +64,7 @@ _UNLISTED_TLDS: Final[tuple[str, ...]] = (
 _BOMS: Final[tuple[bytes, ...]] = (b"\xef\xbb\xbf", b"\xff\xfe", b"\xfe\xff")
 
 # One text per modeled encoding. The TLD sweeps reuse them, since a hint only discriminates real text.
-_SAMPLES: Final[dict[str, str]] = {
+_SAMPLES: Final[MappingProxyType[str, str]] = MappingProxyType({
     "cp1251": "Съешь же ещё этих мягких французских булок",
     "koi8-r": "Широкая электрификация южных губерний",
     "cp1252": "Précédemment, la créativité française",
@@ -80,7 +81,7 @@ _SAMPLES: Final[dict[str, str]] = {
     "big5": "繁體中文字元測試內容",
     "gb18030": "天地玄黄宇宙洪荒日月盈昃",
     "utf-8": "日本語のテキストです",
-}
+})
 
 # The legacy multi-byte encodings, whose one- and two-byte sequences are swept exhaustively.
 _MULTI_BYTE: Final[tuple[str, ...]] = ("big5", "euc-kr", "shift_jis", "euc-jp", "gbk", "gb18030")

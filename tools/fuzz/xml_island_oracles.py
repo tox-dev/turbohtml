@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 from turbohtml import CData, Comment, Document, Element, Html, Node, Text, parse_xml
@@ -120,16 +121,16 @@ _CASE: Final[re.Pattern[str]] = re.compile(
     re.VERBOSE,
 )
 _MODES: Final[tuple[str, ...]] = ("inside", "outside")
-_COMMENTS: Final[dict[str, tuple[str, str]]] = {
+_COMMENTS: Final[MappingProxyType[str, tuple[str, str]]] = MappingProxyType({
     "plain": ("note", "note"),
     "markup": ("<x> &amp;", "<x> &amp;"),
     "lines": ("a\r\nb\rc", "a\nb\nc"),
-}
-_CDATA: Final[dict[str, tuple[str, str]]] = {
+})
+_CDATA: Final[MappingProxyType[str, tuple[str, str]]] = MappingProxyType({
     "plain": ("Value", "Value"),
     "markup": ("<x>&amp;", "<x>&amp;"),
     "lines": ("a\r\nb\rc", "a\nb\nc"),
-}
+})
 
 __all__ = [
     "UnsupportedXmlIslandCaseError",

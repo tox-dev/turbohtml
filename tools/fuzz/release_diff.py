@@ -26,6 +26,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 from fuzz.round_trip_oracles import MAX_INPUT, ORACLES, UNBOUNDED, Floor
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
 _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _WORKER: Final[Path] = Path(__file__).with_name("release_worker.py")
 # each operation reads inputs from the round-trip oracle whose generator writes its language
-_SOURCES: Final[dict[str, str]] = {
+_SOURCES: Final[MappingProxyType[str, str]] = MappingProxyType({
     "serialize": "html-fixpoint",
     "fragment": "html-fixpoint",
     "xml": "html-fixpoint",
@@ -54,7 +55,7 @@ _SOURCES: Final[dict[str, str]] = {
     "select": "selector-entry",
     "css_to_xpath": "selector-entry",
     "xpath": "xpath-entry",
-}
+})
 _FLOOR: Final[Floor] = Floor(count=200, ratio=0.9)
 
 

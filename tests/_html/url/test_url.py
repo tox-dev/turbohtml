@@ -4,6 +4,7 @@ import itertools
 import random
 import re
 from functools import partial
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NamedTuple
 from urllib.parse import quote, unquote, urlsplit
 
@@ -215,7 +216,7 @@ def _split5(url: str) -> _Split:
     scheme_chars = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-.")
     if colon > 0 and url[0].isascii() and url[0].isalpha() and all(char in scheme_chars for char in url[:colon]):
         scheme, url = url[:colon].lower(), url[colon + 1 :]
-    if url[:2] == "//":
+    if url.startswith("//"):
         delimiter = min([len(url), *(offset for char in "/?#" if (offset := url.find(char, 2)) >= 0)])
         netloc, url = url[2:delimiter], url[delimiter:]
         if ("[" in netloc) != ("]" in netloc):
@@ -238,7 +239,7 @@ class _Split(NamedTuple):
 
 def _unsplit(scheme: str | None, netloc: str | None, path: str, query: str | None, fragment: str | None) -> str:
     if netloc is not None:
-        if path and path[:1] != "/":
+        if path and not path.startswith("/"):
             path = f"/{path}"
         path = f"//{netloc}{path}"
     prefix = f"{scheme}:" if scheme else ""
@@ -251,7 +252,7 @@ def _merge(bpath: str, path: str) -> str:
     base_parts = bpath.split("/")
     if base_parts[-1]:
         del base_parts[-1]  # the base's last segment is a file, so the reference replaces it
-    if path[:1] == "/":
+    if path.startswith("/"):
         segments = path.split("/")
     else:
         segments = base_parts + path.split("/")
@@ -634,11 +635,11 @@ _PATH, _QUERY, _FRAGMENT = 0, 1, 2
 
 # The safe run each set keeps raw, mirroring URL_PATH_KEEP / URL_QUERY_KEEP / URL_FRAGMENT_KEEP in _c/url/url.c; the
 # unreserved characters quote() always keeps are implicit, so only the set-specific additions are listed.
-_SAFE: Final[dict[int, str]] = {
+_SAFE: Final[MappingProxyType[int, str]] = MappingProxyType({
     _PATH: "!$%&'()*+,-./:;=@[\\]_|~",
     _QUERY: "!$%&()*+,-./:;=?@[\\]^`{|}~",
     _FRAGMENT: "!#$%&'()*+,-./:;=?@[\\]^_{|}~",
-}
+})
 
 
 _ESCAPE: Final[re.Pattern[str]] = re.compile(r"%[0-9a-fA-F]{2}")

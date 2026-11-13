@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeAlias
 
 import pytest
@@ -262,7 +263,7 @@ _LANG_DOC: Final[str] = """<!doctype html>
 <math id="math-fr" lang="fr"><mi id="mi-fr">x</mi></math></div>
 """
 
-_DOCS: Final[dict[str, str]] = {"ids": _IDS_DOC, "forms": _FORMS_DOC, "lang": _LANG_DOC}
+_DOCS: Final[MappingProxyType[str, str]] = MappingProxyType({"ids": _IDS_DOC, "forms": _FORMS_DOC, "lang": _LANG_DOC})
 
 _SELECTORS: Final[tuple[str, ...]] = (
     # type, universal, and (ignored) namespace prefixes

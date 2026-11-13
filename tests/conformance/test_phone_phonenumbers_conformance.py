@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NamedTuple
 
 import phonenumbers
@@ -29,7 +30,7 @@ if phonenumbers.__version__ != LIBPHONENUMBER_TAG.removeprefix("v"):  # pragma: 
     )
     raise RuntimeError(_MISMATCH)
 
-_TYPES: Final[dict[int, PhoneType]] = {
+_TYPES: Final[MappingProxyType[int, PhoneType]] = MappingProxyType({
     PhoneNumberType.FIXED_LINE: PhoneType.FIXED_LINE,
     PhoneNumberType.MOBILE: PhoneType.MOBILE,
     PhoneNumberType.FIXED_LINE_OR_MOBILE: PhoneType.FIXED_LINE_OR_MOBILE,
@@ -42,7 +43,7 @@ _TYPES: Final[dict[int, PhoneType]] = {
     PhoneNumberType.UAN: PhoneType.UAN,
     PhoneNumberType.VOICEMAIL: PhoneType.VOICEMAIL,
     PhoneNumberType.UNKNOWN: PhoneType.UNKNOWN,
-}
+})
 _REGION_PARAMS: Final[list[pytest.ParameterSet]] = [
     pytest.param(region, id=region) for region in sorted(phonenumbers.SUPPORTED_REGIONS)
 ]
@@ -154,12 +155,12 @@ def test_non_geographic_entities_are_found_without_a_region(country_code: int) -
     ] == [(phonenumbers.format_number(number, PhoneNumberFormat.E164), "001")]
 
 
-_STYLES: Final[dict[PhoneFormat, int]] = {
+_STYLES: Final[MappingProxyType[PhoneFormat, int]] = MappingProxyType({
     PhoneFormat.E164: PhoneNumberFormat.E164,
     PhoneFormat.INTERNATIONAL: PhoneNumberFormat.INTERNATIONAL,
     PhoneFormat.NATIONAL: PhoneNumberFormat.NATIONAL,
     PhoneFormat.RFC3966: PhoneNumberFormat.RFC3966,
-}
+})
 
 
 def _formats_agree(number: phonenumbers.PhoneNumber) -> None:

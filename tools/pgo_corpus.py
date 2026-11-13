@@ -24,6 +24,7 @@ from __future__ import annotations
 import sys
 from functools import cache, partial
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # the bench package sits beside this script
@@ -208,7 +209,7 @@ _HTML_DOCUMENT_OPS: Final[frozenset[str]] = frozenset({
 })  # fmt: skip
 
 
-_SPECIAL: Final[dict[str, Callable[[], list[Case]]]] = {
+_SPECIAL: Final[MappingProxyType[str, Callable[[], list[Case]]]] = MappingProxyType({
     "escape": _escape_inputs,
     "encoding": _encoding_streams,
     "structured": _structured_inputs,
@@ -220,7 +221,7 @@ _SPECIAL: Final[dict[str, Callable[[], list[Case]]]] = {
     "date": _article_inputs,
     "minify-css": _stylesheets,
     "minify-js": _scripts,
-}
+})
 
 
 def training_corpus() -> Iterator[tuple[str, Timed, Callable[[], list[Case]]]]:

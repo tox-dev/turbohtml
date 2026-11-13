@@ -26,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 from bench.corpus import REAL_PAGES, large_text, prefetch
@@ -33,7 +34,7 @@ from bench.orchestrator import baseline_python, venv_python
 
 # each probe body calls emit() with the counts for the page it is handed; the selectors are the ones core.py
 # benchmarks, so a disagreement here is a disagreement in a published table
-_PROBES: Final[dict[str, tuple[tuple[str, ...], str]]] = {
+_PROBES: Final[MappingProxyType[str, tuple[tuple[str, ...], str]]] = MappingProxyType({
     "turbohtml": (
         (),
         """
@@ -128,7 +129,7 @@ emit(
 )
 """,
     ),
-}
+})
 
 # text reports twice: raw length and length after collapsing whitespace runs. A party that merely joins nodes without
 # separators differs on the first and agrees on the second, which tells a formatting difference apart from content the

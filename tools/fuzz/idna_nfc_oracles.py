@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 from turbohtml.extract import normalize_url
@@ -63,7 +64,7 @@ class UnsupportedIdnaNfcCaseError(ValueError):
 _IDNA_NFC_CHECK_PATTERN: Final[re.Pattern[str]] = re.compile(r"[a-z0-9]{0,8}")
 
 
-_LABELS: Final[dict[str, str]] = {
+_LABELS: Final[MappingProxyType[str, str]] = MappingProxyType({
     "reorder": "q\u0301\u0323",
     "blocked": "a\u0305\u0301",
     "successive-compose": "a\u030a\u0301",
@@ -72,7 +73,7 @@ _LABELS: Final[dict[str, str]] = {
     "hangul-lv": "\u1100\u1161",
     "hangul-lvt": "\u1100\u1161\u11a8",
     "hangul-lv-plus-t": "\uac00\u11a8",
-}
+})
 
 __all__ = [
     "UnsupportedIdnaNfcCaseError",

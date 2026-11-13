@@ -44,7 +44,7 @@ def test_idna_shared_public_target(host: str, expected: str) -> None:
 # The first case trips the pre-multiply guard, the second lands the accumulator just under the limit so the following
 # increments trip the per-code-point guard. Both stay under the 16384-code-point input cap and use CJK code points UTS
 # #46 keeps, so they reach the encoder rather than the disallowed-code-point or input-cap rejection.
-_OVERFLOW_LABELS: Final[list[str]] = ["\u3400" * 16000 + "\U000323af", "\u3400" * 11159 + "\U000323ab"]
+_OVERFLOW_LABELS: Final[tuple[str, ...]] = ("\u3400" * 16000 + "\U000323af", "\u3400" * 11159 + "\U000323ab")
 
 
 @pytest.mark.parametrize(

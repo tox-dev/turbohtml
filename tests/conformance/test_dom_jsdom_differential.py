@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Literal, NamedTuple, NotRequired, TypeAlias, TypedDict
 
 import pytest
@@ -154,7 +155,7 @@ def _reject_section_skip_p(node: Node) -> int:
     return NodeFilter.FILTER_ACCEPT
 
 
-_FILTERS: Final[dict[str, Callable[[Node], int]]] = {
+_FILTERS: Final[MappingProxyType[str, Callable[[Node], int]]] = MappingProxyType({
     "reject_nav": lambda node: _tag_verdict(node, "nav", NodeFilter.FILTER_REJECT),
     "skip_nav": lambda node: _tag_verdict(node, "nav", NodeFilter.FILTER_SKIP),
     "reject_div": lambda node: _tag_verdict(node, "div", NodeFilter.FILTER_REJECT),
@@ -165,7 +166,7 @@ _FILTERS: Final[dict[str, Callable[[Node], int]]] = {
         NodeFilter.FILTER_ACCEPT if isinstance(node, Element) and node.tag == "a" else NodeFilter.FILTER_SKIP
     ),
     "reject_section_skip_p": _reject_section_skip_p,
-}
+})
 
 
 def _make_node(spec: _ElementSpec | _TextSpec) -> Node:
@@ -251,7 +252,7 @@ def _probe_select_node_contents(call: _RangeCall) -> dict[str, _JSON]:
     return _boundaries(target)
 
 
-_RANGE_PROBES: Final[dict[str, Callable[[_RangeCall], dict[str, _JSON]]]] = {
+_RANGE_PROBES: Final[MappingProxyType[str, Callable[[_RangeCall], dict[str, _JSON]]]] = MappingProxyType({
     "boundaries": _probe_boundaries,
     "clone": _probe_clone,
     "extract": _probe_extract,
@@ -264,7 +265,7 @@ _RANGE_PROBES: Final[dict[str, Callable[[_RangeCall], dict[str, _JSON]]]] = {
     "intersects": _probe_intersects,
     "select_node": _probe_select_node,
     "select_node_contents": _probe_select_node_contents,
-}
+})
 
 
 def _run_range(kase: _RangeCase) -> dict[str, _JSON]:
@@ -354,7 +355,7 @@ _SECT: Final[str] = "<section id=s><p>x</p><article><p>y</p><span>z</span></arti
 _UL_PATH: Final[list[int]] = [1, 0]
 _UL_A: Final[list[int]] = [1, 0, 0]
 _P_TEXT: Final[list[int]] = [1, 0, 0]
-_SPLIT_DIV: Final[list[int]] = [1, 0]
+_SPLIT_DIV: Final[tuple[int, ...]] = (1, 0)
 _SPLIT_T1: Final[list[int]] = [1, 0, 0, 0]
 _SPLIT_T2: Final[list[int]] = [1, 0, 1, 0]
 
@@ -928,7 +929,7 @@ _DSD_OPEN: Final[str] = (
 )
 _DSD_CLOSED: Final[str] = "<div id=host><template shadowrootmode=closed><b>secret</b></template><p>light</p></div>"
 
-_DECLARATIVE_CASES: Final[list[_OpenDeclarativeCase | _ClosedDeclarativeCase]] = [
+_DECLARATIVE_CASES: Final[tuple[_OpenDeclarativeCase | _ClosedDeclarativeCase, ...]] = (
     {
         "id": "dsd-open-clonable",
         "html": _DSD_OPEN,
@@ -946,7 +947,7 @@ _DECLARATIVE_CASES: Final[list[_OpenDeclarativeCase | _ClosedDeclarativeCase]] =
         "mode": "closed",
         "light_html": "<p>light</p>",
     },
-]
+)
 
 _CROSS: Final[str] = "<div><p>aa<b>bb</b>cc</p><p>dd<i>ii</i>ee</p></div>"
 _CROSS_T_AA: Final[list[int]] = [1, 0, 0, 0]

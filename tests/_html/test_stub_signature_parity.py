@@ -5,6 +5,7 @@ import inspect
 import sys
 from enum import Enum, auto
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NamedTuple, TypeAlias
 
 import pytest
@@ -145,9 +146,9 @@ def _is_dunder(name: str) -> bool:
     return leaf.startswith("__") and leaf.endswith("__")
 
 
-_ENTRIES: Final[dict[str, tuple[ast.FunctionDef, bool]]] = {
+_ENTRIES: Final[MappingProxyType[str, tuple[ast.FunctionDef, bool]]] = MappingProxyType({
     name: (node, drop_self) for name, node, drop_self in _stub_entries()
-}
+})
 _COMPARABLE: Final[list[str]] = sorted(
     name for name in _ENTRIES if not _is_dunder(name) and _runtime_signature(_resolve(name)) is not None
 )

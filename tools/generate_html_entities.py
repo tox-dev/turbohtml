@@ -15,6 +15,7 @@ from __future__ import annotations
 import sys
 from html.entities import html5
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 
@@ -28,11 +29,11 @@ def _windows_1252(codepoint: int) -> str:
 
 # Numeric character references in the C1 range are reinterpreted as Windows-1252,
 # with U+0000 and a bare CR getting their own replacements (HTML spec table).
-_INVALID_CHARREFS: Final[dict[int, str]] = {
+_INVALID_CHARREFS: Final[MappingProxyType[int, str]] = MappingProxyType({
     0x00: "\ufffd",
     0x0D: "\r",
     **{cp: _windows_1252(cp) for cp in range(0x80, 0xA0)},
-}
+})
 # Code points that the spec forbids in numeric references: C0/C1 controls (minus
 # the allowed whitespace), the Arabic-block noncharacters, and the per-plane ones.
 _INVALID_CODEPOINTS: Final[set[int]] = (

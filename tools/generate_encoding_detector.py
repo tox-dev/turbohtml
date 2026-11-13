@@ -22,6 +22,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 
 # A DetectorData field of this length is a per-byte character-class table; any
@@ -33,7 +34,7 @@ _U16_FIELDS: Final[tuple[str, ...]] = ("frequent_simplified", "frequent_kanji", 
 
 # The WHATWG/Python codec label each chardetng Encoding maps to, keyed by the
 # chardetng ``*_INIT`` static name. The detector never returns one outside this map.
-_ENCODING_LABEL: Final[dict[str, str]] = {
+_ENCODING_LABEL: Final[MappingProxyType[str, str]] = MappingProxyType({
     "WINDOWS_1258_INIT": "windows-1258",
     "WINDOWS_1250_INIT": "windows-1250",
     "ISO_8859_2_INIT": "iso-8859-2",
@@ -53,7 +54,7 @@ _ENCODING_LABEL: Final[dict[str, str]] = {
     "ISO_8859_13_INIT": "iso-8859-13",
     "ISO_8859_4_INIT": "iso-8859-4",
     "WINDOWS_874_INIT": "windows-874",
-}
+})
 
 
 _PARSE_NUMBERS_PATTERN: Final[re.Pattern[str]] = re.compile(r"0[xX][0-9A-Fa-f]+|\d+")

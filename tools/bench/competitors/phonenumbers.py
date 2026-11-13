@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 import phonenumbers
@@ -12,7 +13,10 @@ if TYPE_CHECKING:
 
 _REQUIREMENTS: Final[tuple[str, ...]] = ("phonenumbers>=9.0.38",)
 
-_LENIENCY: Final[dict[str, int]] = {"valid": Leniency.VALID, "possible": Leniency.POSSIBLE}
+_LENIENCY: Final[MappingProxyType[str, int]] = MappingProxyType({
+    "valid": Leniency.VALID,
+    "possible": Leniency.POSSIBLE,
+})
 
 
 def phone(case: tuple[str, str]) -> None:
@@ -49,12 +53,12 @@ def phone_construct(held: tuple[tuple[str, str], ...]) -> bool:
     return matches
 
 
-_STYLES: Final[dict[str, int]] = {
+_STYLES: Final[MappingProxyType[str, int]] = MappingProxyType({
     "e164": PhoneNumberFormat.E164,
     "international": PhoneNumberFormat.INTERNATIONAL,
     "national": PhoneNumberFormat.NATIONAL,
     "rfc3966": PhoneNumberFormat.RFC3966,
-}
+})
 _PARSED: Final[dict[tuple[str, str], phonenumbers.PhoneNumber]] = {}  # exclude parsing from formatting and construction
 _EXPECTED_TYPES: Final[dict[tuple[str, str], int]] = {}
 

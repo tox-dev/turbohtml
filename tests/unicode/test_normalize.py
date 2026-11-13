@@ -21,7 +21,7 @@ _FORMS: Final[tuple[NormalizationForm, ...]] = ("NFC", "NFD", "NFKC", "NFKD")
 # bold, halfwidth katakana), a composition-excluded precomposed character (U+0958, U+0344), cross-class mark reordering,
 # and every Hangul shape (L/V/T jamo, LV and LVT syllables, an LVT that gains no trailer, an LV that gains no vowel),
 # plus an astral start and a code point past every table range.
-_VECTORS: Final[list[tuple[str, str, str, str, str]]] = [
+_VECTORS: Final[tuple[tuple[str, str, str, str, str], ...]] = (
     ("abc", "abc", "abc", "abc", "abc"),
     ("caf\u00e9", "caf\u00e9", "cafe\u0301", "caf\u00e9", "cafe\u0301"),
     ("\u00e9", "\u00e9", "e\u0301", "\u00e9", "e\u0301"),
@@ -56,7 +56,7 @@ _VECTORS: Final[list[tuple[str, str, str, str, str]]] = [
     ("\U0010ffff", "\U0010ffff", "\U0010ffff", "\U0010ffff", "\U0010ffff"),
     ("\u1fef", "`", "`", "`", "`"),
     ("\u03d3", "\u03d3", "\u03d2\u0301", "\u038e", "\u03a5\u0301"),
-]
+)
 
 # Combining sequences whose exact output shifts across Unicode versions but whose invariants do not, so they validate
 # the engine's reordering, composition, and blocking on every interpreter. The empty prefix yields mark-leading
@@ -74,7 +74,7 @@ _MARKS: Final[tuple[str, ...]] = (
     "\u0344",
 )
 
-_CODEPOINTS: Final[list[int]] = [cp for cp in range(0x110000) if not 0xD800 <= cp <= 0xDFFF]
+_CODEPOINTS: Final[tuple[int, ...]] = tuple(cp for cp in range(0x110000) if not 0xD800 <= cp <= 0xDFFF)
 
 
 @pytest.mark.parametrize(

@@ -19,6 +19,7 @@ import ast
 import json
 import sys
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NamedTuple
 
 from bench.notes import NOTES
@@ -39,13 +40,13 @@ _SHARED_WITH_OTHER_VARIANT: Final[str] = "same in both configurations, so measur
 # A competitor module's stem maps to its migration page's slug by turning ``_`` into ``-``; these libraries
 # name the two differently, so the map pins them. A stem with no ``docs/migration/<slug>.rst`` is skipped, so
 # columns that only appear inside another library's table (cchardet, cssmin, css_html_js_minify) fall out.
-_SLUG_OVERRIDES: Final[dict[str, str]] = {
+_SLUG_OVERRIDES: Final[MappingProxyType[str, str]] = MappingProxyType({
     "beautifulsoup4": "beautifulsoup",
     # the two tree-builder backends share one migration page, so a reader sees what the choice costs
     "beautifulsoup4_lxml": "beautifulsoup",
     "linkify_it": "linkify-it-py",
     "metadata_parser": "metadata_parser",
-}
+})
 
 
 def _merge_caveat(note: str | None, *, shared: bool) -> str | None:

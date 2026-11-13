@@ -5590,7 +5590,7 @@ _ORACLE_CATALOG: Final[str] = (
     '<book id="b3" cat="fiction"><title>1984</title><price>8.00</price></book></catalog>'
 )
 
-_ORACLE_CASES: Final[list[pytest.ParameterSet]] = [
+_ORACLE_CASES: Final[tuple[pytest.ParameterSet, ...]] = (
     pytest.param(
         "<r><name>World</name></r>",
         _oracle_sheet('<xsl:template match="/">Hi <xsl:value-of select="//name"/></xsl:template>', method="text"),
@@ -5725,7 +5725,7 @@ _ORACLE_CASES: Final[list[pytest.ParameterSet]] = [
         "text",
         id="conflict-resolution-predicate-priority",
     ),
-]
+)
 
 
 _TEXT_ORACLE_CASES: Final[list[pytest.ParameterSet]] = [

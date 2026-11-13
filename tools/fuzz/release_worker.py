@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeAlias
 
 if TYPE_CHECKING:
@@ -115,7 +116,7 @@ def _xpath() -> Callable[[str], JSON]:
     return run
 
 
-_OPERATIONS: Final[dict[str, Callable[[], Callable[[str], JSON]]]] = {
+_OPERATIONS: Final[MappingProxyType[str, Callable[[], Callable[[str], JSON]]]] = MappingProxyType({
     "serialize": _html(lambda document: document.serialize()),
     "fragment": _fragment,
     "xml": _xml,
@@ -130,7 +131,7 @@ _OPERATIONS: Final[dict[str, Callable[[], Callable[[str], JSON]]]] = {
     "select": _select,
     "css_to_xpath": _css_to_xpath,
     "xpath": _xpath,
-}
+})
 
 
 if __name__ == "__main__":

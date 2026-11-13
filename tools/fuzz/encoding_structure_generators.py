@@ -8,6 +8,7 @@ import json
 import random
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Literal, TypedDict
 
 from fuzz.structure_generators import (
@@ -1552,7 +1553,7 @@ class EncodingSeed(TypedDict):
 
 _SPEC: Final[str] = "https://encoding.spec.whatwg.org"
 
-_SAMPLES: Final[dict[str, tuple[bytes, int, str]]] = {
+_SAMPLES: Final[MappingProxyType[str, tuple[bytes, int, str]]] = MappingProxyType({
     "UTF-8": (b"\xc3\xa9", 233, "https://encoding.spec.whatwg.org/#utf-8-decoder"),
     "IBM866": (b"\x80", 1040, "https://encoding.spec.whatwg.org/#single-byte-decoder"),
     "ISO-8859-2": (b"\xa1", 260, "https://encoding.spec.whatwg.org/#single-byte-decoder"),
@@ -1593,11 +1594,13 @@ _SAMPLES: Final[dict[str, tuple[bytes, int, str]]] = {
     "UTF-16BE": (b"\x00\xe9", 233, "https://encoding.spec.whatwg.org/#shared-utf-16-decoder"),
     "UTF-16LE": (b"\xe9\x00", 233, "https://encoding.spec.whatwg.org/#shared-utf-16-decoder"),
     "x-user-defined": (b"\x80", 63360, "https://encoding.spec.whatwg.org/#x-user-defined-decoder"),
-}
+})
 
 _PROFILES: Final[dict[str, EncodingProfile]] = _profiles()
 _PRODUCTIONS: Final[tuple[Production, ...]] = _productions()
-_ORIGINS: Final[dict[str, str]] = {production.name: production.origin for production in _PRODUCTIONS}
+_ORIGINS: Final[MappingProxyType[str, str]] = MappingProxyType({
+    production.name: production.origin for production in _PRODUCTIONS
+})
 _GRAMMAR: Final[Grammar] = compile_grammar(_PRODUCTIONS, "encoded", materialize=_materialize)
 
 __all__ = [

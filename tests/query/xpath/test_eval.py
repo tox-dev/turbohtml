@@ -5,6 +5,7 @@ import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs 
 import sys
 from functools import partial
 from operator import ge, gt, le, lt
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, cast
 from weakref import finalize, ref
 
@@ -1314,7 +1315,7 @@ def test_node_set_variable_rejects_unsupported_values(
         variable_doc.xpath("$items", items=make_items(variable_doc))  # ty: ignore[invalid-argument-type]  # deliberately wrong value type
 
 
-_LXML_DOCS: Final[dict[str, str]] = {
+_LXML_DOCS: Final[MappingProxyType[str, str]] = MappingProxyType({
     "article": (
         "<!doctype html><html><head><title>T</title></head><body>"
         '<main><article id="a1"><h2>One</h2><p>p1</p><p class="lead">p2</p></article>'
@@ -1328,9 +1329,9 @@ _LXML_DOCS: Final[dict[str, str]] = {
         "<tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr>"
         "</tbody></table></body></html>"
     ),
-}
+})
 
-_LXML_EXPRS: Final[list[str]] = [
+_LXML_EXPRS: Final[tuple[str, ...]] = (
     "//p",
     "//a",
     "//a/@href",
@@ -1392,7 +1393,7 @@ _LXML_EXPRS: Final[list[str]] = [
     "name(//body/namespace::*)",
     "string(//body/namespace::*)",
     "//article[position()=1]/h2/text()",
-]
+)
 
 
 _LXML_SCALAR_PREFIXES: Final[tuple[str, ...]] = ("boolean(", "count(", "name(", "string(")

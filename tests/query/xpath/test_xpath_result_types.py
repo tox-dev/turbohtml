@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Iterator
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeAlias
 
 import pytest
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 _STUBS: Final[Path] = Path(__file__).parents[3] / "src" / "turbohtml" / "_stubs"
-_NAMES: Final[dict[str, type]] = {"Node": Node, "str": str, "float": float, "bool": bool}
+_NAMES: Final[MappingProxyType[str, type]] = MappingProxyType({"Node": Node, "str": str, "float": float, "bool": bool})
 _XPathValue: TypeAlias = "list[Node | str] | float | bool | str | Node | Iterator[Node | str | float | bool] | None"
 _DOCUMENT: Final[turbohtml.Document] = turbohtml.parse("<p>a</p><!--c--><p>b</p><?pi x?>")
 _EXPRESSIONS: Final[list[pytest.ParameterSet]] = [

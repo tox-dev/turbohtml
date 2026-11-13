@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 from html import escape
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Protocol
 from urllib.parse import urljoin
 
@@ -149,7 +150,7 @@ def _div_rows(text: str) -> list[_lxml_etree._Element]:
     return [selector.root for selector in _parsed(text).xpath("//div")]
 
 
-_XPATH_CALLS: Final[dict[str, Callable[[Selector, str], object]]] = {
+_XPATH_CALLS: Final[MappingProxyType[str, Callable[[Selector, str], object]]] = MappingProxyType({
     "//div": lambda sel, _text: sel.xpath("//div"),
     "//a[@href]": lambda sel, _text: sel.xpath("//a[@href]"),
     "//div//a[@href]": lambda sel, _text: sel.xpath("//div//a[@href]"),
@@ -174,7 +175,7 @@ _XPATH_CALLS: Final[dict[str, Callable[[Selector, str], object]]] = {
     "namespaces": lambda sel, _text: sel.xpath("//svg:rect", namespaces=_SVG_NS),
     "node_set_variable": lambda sel, text: sel.xpath("$rows/div", rows=_div_rows(text)),
     "precompiled": lambda sel, _text: _PRECOMPILED(sel.root),
-}
+})
 
 
 def _xpath_scaling(case: tuple[str, str]) -> None:

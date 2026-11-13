@@ -7,6 +7,7 @@ import random
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NamedTuple
 
 from fuzz.structure_generators import (
@@ -807,14 +808,14 @@ _HIDDEN: Final[frozenset[str]] = frozenset({
     "title",
 })
 # the WHATWG content models of the containers whose Markdown syntax can hold nothing else (4.4.5-4.4.8, 4.9)
-_CONTENT_MODEL: Final[dict[str, frozenset[str]]] = {
+_CONTENT_MODEL: Final[MappingProxyType[str, frozenset[str]]] = MappingProxyType({
     "ul": frozenset({"li", "script"}),
     "ol": frozenset({"li", "script"}),
     "table": frozenset({"thead", "tbody", "tr", "script"}),
     "thead": frozenset({"tr", "script"}),
     "tbody": frozenset({"tr", "script"}),
     "tr": frozenset({"td", "th", "script"}),
-}
+})
 _READER: Final[_FaithfulMarkdown] = _FaithfulMarkdown("gfm-like", {"linkify": False}, renderer_cls=_FaithfulAltRenderer)
 _RAW_GRAMMAR: Final[Grammar] = _raw_grammar()
 _HTML_GRAMMAR: Final[Grammar] = _html_grammar()

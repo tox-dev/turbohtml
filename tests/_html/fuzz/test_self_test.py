@@ -11,6 +11,7 @@ import re
 import sys
 from pathlib import Path
 from subprocess import CompletedProcess, run  # ruff: ignore[suspicious-subprocess-import] - libFuzzer owns a separate interpreter.
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, cast
 
 import pytest
@@ -213,14 +214,14 @@ if TYPE_CHECKING:
 # and a noncharacter for the preprocessing scan (in a wide and a one-byte str, which it reads on separate paths), a
 # duplicate attribute and a NUL reference for the tokenizer, and a second doctype and a self-closed div for the tree
 # builder.
-_SEEDS: Final[dict[str, str]] = {
+_SEEDS: Final[MappingProxyType[str, str]] = MappingProxyType({
     "control-wide": "\x01\ufdd0<!DOCTYPE html>",
     "control-one-byte": "\x01\xa0<!DOCTYPE html>",
     "duplicate-attribute": "<!DOCTYPE html><p a=1 a=2>",
     "nul-reference": "<!DOCTYPE html>&#0;",
     "second-doctype": "<!DOCTYPE html><!DOCTYPE x>",
     "self-closed-div": "<!DOCTYPE html><div/>",
-}
+})
 
 
 def _errors(seed: str) -> list[ParseError]:

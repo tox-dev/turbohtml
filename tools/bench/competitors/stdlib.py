@@ -6,6 +6,7 @@ import functools
 from html import escape as _html_escape
 from html import unescape as _html_unescape
 from html.parser import HTMLParser
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 if TYPE_CHECKING:
@@ -29,12 +30,12 @@ def unescape(text: str) -> None:
 # The codec each label resolved to before turbohtml decoded natively. None of them is the spec's decoder: cp932 carries
 # the spec's Shift_JIS table but not its error handling, and gb18030 is the 2000 revision where the spec follows 2005.
 # They price what was replaced; tests/conformance measures whether it was right.
-_NEAREST_CODEC: Final[dict[str, str]] = {
+_NEAREST_CODEC: Final[MappingProxyType[str, str]] = MappingProxyType({
     "shift_jis": "cp932",
     "windows-1252": "cp1252",
     "gb18030": "gb18030",
     "iso-2022-jp": "iso2022_jp",
-}
+})
 
 
 def decode(case: tuple[str, bytes]) -> None:

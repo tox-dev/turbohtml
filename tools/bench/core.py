@@ -13,6 +13,7 @@ import subprocess
 import sys
 from collections import deque
 from dataclasses import replace
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, cast
 
 import turbohtml
@@ -78,10 +79,10 @@ if TYPE_CHECKING:
     from .operations import Case, Timed
 
 _SANITIZER: Final[_Sanitizer] = _Sanitizer(_Policy.relaxed())
-_DISALLOWED_SANITIZERS: Final[dict[str, _Sanitizer]] = {
+_DISALLOWED_SANITIZERS: Final[MappingProxyType[str, _Sanitizer]] = MappingProxyType({
     mode.name.lower(): _Sanitizer(_Policy(tags=frozenset(), on_disallowed_tag=mode))
     for mode in (_OnDisallowed.ESCAPE, _OnDisallowed.STRIP)
-}
+})
 _SANITIZER_ATTRIBUTES: Final[_Sanitizer] = _Sanitizer(
     _Policy(tags=frozenset({"p"}), attribute_prefixes=frozenset({"data-"}))
 )
@@ -141,12 +142,14 @@ _CSS: Final[str] = "div a[href]"  # a descendant combinator with an attribute te
 _HAS: Final[str] = "div:has(a)"  # the :has() relational pseudo-class
 _STRIP: Final[str] = "code, a, q"  # a bulk set of tags to drop or unwrap
 _DETECTOR: Final[_LinkDetector] = _LinkDetector()
-_PHONE_DETECTORS: Final[dict[str, _LinkDetector]] = {
+_PHONE_DETECTORS: Final[MappingProxyType[str, _LinkDetector]] = MappingProxyType({
     "valid": _LinkDetector(phones=_PhoneNumbers(regions=("US",))),
     "possible": _LinkDetector(phones=_PhoneNumbers(regions=("US",), require_valid=False)),
     "regions-8": _LinkDetector(phones=_PhoneNumbers(regions=("US", "GB", "DE", "IN", "BR", "JP", "FR", "AU"))),
-}
-_PHONE_STYLES: Final[dict[str, _PhoneFormat]] = {style.value: style for style in _PhoneFormat}
+})
+_PHONE_STYLES: Final[MappingProxyType[str, _PhoneFormat]] = MappingProxyType({
+    style.value: style for style in _PhoneFormat
+})
 _PHONE_PARSED: Final[dict[tuple[str, str], _PhoneNumber]] = {}  # exclude parsing from formatting and construction
 _LINKER: Final[_Linker] = _Linker()
 _LINKER_SKIP: Final[_Linker] = _Linker(_Linkify(skip_tags=("code",)))
@@ -1152,7 +1155,7 @@ def _div_rows(text: str) -> list[turbohtml.Element]:
     return _parsed(text).select("div")
 
 
-_XPATH_CALLS: Final[dict[str, Callable[[turbohtml.Document, str], object]]] = {
+_XPATH_CALLS: Final[MappingProxyType[str, Callable[[turbohtml.Document, str], object]]] = MappingProxyType({
     "//div": lambda doc, _text: doc.xpath("//div"),
     "//a[@href]": lambda doc, _text: doc.xpath("//a[@href]"),
     "//div//a[@href]": lambda doc, _text: doc.xpath("//div//a[@href]"),
@@ -1182,7 +1185,7 @@ _XPATH_CALLS: Final[dict[str, Callable[[turbohtml.Document, str], object]]] = {
     "namespaces": lambda doc, _text: doc.xpath("//svg:rect", namespaces=_SVG_NS),
     "node_set_variable": lambda doc, text: doc.xpath("$rows/div", rows=_div_rows(text)),
     "precompiled": lambda doc, _text: _REUSE(doc),
-}
+})
 
 
 def _xpath(case: tuple[str, str]) -> None:

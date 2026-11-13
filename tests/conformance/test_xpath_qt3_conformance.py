@@ -469,7 +469,7 @@ def collect() -> Iterator[pytest.ParameterSet]:
                 yield pytest.param(case, id=case_id)
 
 
-_QT3_CASES: Final[list[pytest.ParameterSet]] = list(collect())
+_QT3_CASES: Final[tuple[pytest.ParameterSet, ...]] = tuple(collect())
 
 
 def _expects_error(param: pytest.ParameterSet) -> bool:

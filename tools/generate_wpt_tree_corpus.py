@@ -12,6 +12,7 @@ import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final, TypedDict
 
 from turbohtml import parse
@@ -153,7 +154,7 @@ _SCRIPT_EXECUTION_EXCLUSIONS: Final[dict[_Key, tuple[str, str]]] = {
     ),
 }
 
-_ERROR_OVERRIDES: Final[dict[_Key, tuple[list[_Error], str]]] = {
+_ERROR_OVERRIDES: Final[MappingProxyType[_Key, tuple[list[_Error], str]]] = MappingProxyType({
     ("comments01.dat", '<?xml version="1.0">Hi', None, None): (
         [{"code": "disallowed-processing-instruction-target", "line": 1, "col": 6, "end_line": None, "end_col": None}],
         f"{_WPT_BASE}/comments01.dat#L155-L195",
@@ -188,7 +189,7 @@ _ERROR_OVERRIDES: Final[dict[_Key, tuple[list[_Error], str]]] = {
     ),
     ("tests1.dat", "<?COMMENT?>", None, None): ([], f"{_WPT_BASE}/tests1.dat#L602-L614"),
     ("tests1.dat", "<?COM--MENT?>", None, None): ([], f"{_WPT_BASE}/tests1.dat#L641-L653"),
-}
+})
 
 
 def generate(checkout: Path, out_path: Path) -> None:
