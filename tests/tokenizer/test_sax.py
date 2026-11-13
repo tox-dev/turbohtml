@@ -206,7 +206,17 @@ def test_bare_handler_is_a_noop_for_every_event() -> None:
     handler.doctype("html", None, None)
     handler.processing_instruction("pi", "data")
     sax_parse("<!DOCTYPE html><p>x<!--c--><?pi?></p>", handler)
-    assert vars(handler) == {}
+    text_only: Final = _TextOnly()
+    sax_parse("<!DOCTYPE html><p>x<!--c--><?pi?></p>", text_only)
+    assert text_only.texts == ["x"]
+
+
+class _TextOnly(SaxHandler):
+    def __init__(self) -> None:
+        self.texts: list[str] = []
+
+    def characters(self, data: str) -> None:
+        self.texts.append(data)
 
 
 def test_iter_events_is_lazy() -> None:
