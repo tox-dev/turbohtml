@@ -508,6 +508,15 @@ def test_computed_style_inherit_at_root_falls_back_to_initial() -> None:
     assert computed_style(root)["color"] == "canvastext"
 
 
+def test_computed_style_of_extracted_element_matches_no_root_rule() -> None:
+    # the page's own :root rule reaches an element that has no parent once it is extracted
+    paragraph = parse("<style>:root { color: red } p { display: inline }</style><p>x</p>").select_one("p")
+    assert isinstance(paragraph, Element)
+    assert computed_style(paragraph)["color"] == "red"
+    style = computed_style(paragraph.extract())
+    assert (style["color"], style["display"]) == ("canvastext", "inline")
+
+
 def test_computed_style_ignores_unsupported_selector_rules() -> None:
     style = _style("<div></div>", css="div::before { color: red } div { color: green }")
     assert style["color"] == "green"

@@ -1483,11 +1483,10 @@ static int sel_is_disabled(th_node *node) {
         return 1;
     }
     if (node->atom == TH_TAG_OPTION) {
-        /* an option always has an element parent (it is never the document root),
-           as the :root pseudo-class above also relies on; a parent with the optgroup
-           atom is necessarily HTML */
+        /* a parent with the optgroup atom is necessarily HTML; a detached option
+           (built, extracted or replaced) has no parent at all */
         th_node *parent = node->parent;
-        return parent->atom == TH_TAG_OPTGROUP && sel_has_attr(parent, TH_ATTR_DISABLED);
+        return parent != NULL && parent->atom == TH_TAG_OPTGROUP && sel_has_attr(parent, TH_ATTR_DISABLED);
     }
     if (node->atom == TH_TAG_OPTGROUP || node->atom == TH_TAG_FIELDSET) {
         return 0; /* an optgroup/fieldset is disabled only by its own attribute */
@@ -1860,9 +1859,10 @@ static int sel_match_substr_attr(th_node *node, const sel_simple *simple) {
 static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_ctx *ctx) {
     switch (simple->pseudo) { /* GCOVR_EXCL_BR_LINE: the parser only stores known pseudo ids */
     case PSEUDO_ROOT:
-        /* the root element's parent is the document, never an element (a matched
-           node always has a parent, as the '>' combinator above relies on) */
-        return node->parent->type != TH_NODE_ELEMENT;
+        /* the root element's parent is the document, never an element; the top of a
+           detached subtree (a built, extracted or replaced element) has no parent and
+           is no root */
+        return node->parent != NULL && node->parent->type != TH_NODE_ELEMENT;
     case PSEUDO_EMPTY:
         return sel_is_empty(node, ctx->tree);
     case PSEUDO_FIRST_CHILD:
@@ -1899,7 +1899,9 @@ static int sel_match_pseudo(th_node *node, const sel_simple *simple, const sel_c
         if (ctx->scope->type == TH_NODE_ELEMENT) {
             return node == ctx->scope;
         }
-        return node->parent->type != TH_NODE_ELEMENT;
+        /* a non-element scope inside a detached subtree (closest() from its text) has
+           no document element above it */
+        return node->parent != NULL && node->parent->type != TH_NODE_ELEMENT;
     /* §12 the input pseudo-classes determinable from the static tree */
     case PSEUDO_CHECKED:
         return sel_is_checked(node);
@@ -2167,13 +2169,16 @@ static enum sel_status sel_match_left(th_node *node, const sel_complex *complex,
     uint16_t target_atom = sel_compound_known_type_atom(target, ctx->tree);
     switch (complex->compounds[index].combinator) {
     case '>': {
-        /* a matched node is an element, so it always has a parent (the document
-           at the root), which sel_match_compound rejects as a non-element */
+        /* the root element's parent is the document, which sel_match_compound rejects
+           as a non-element; the top of a detached subtree (a built, extracted or
+           replaced element) has no parent at all */
         th_node *parent = node->parent;
+        if (parent == NULL) {
+            return SEL_FAILS_ALL_SIBLINGS;
+        }
         enum sel_status status = SEL_FAILS_LOCALLY;
-        if (target_atom != TH_TAG_UNKNOWN
-                ? parent != NULL && parent->type == TH_NODE_ELEMENT && parent->atom == target_atom
-                : sel_match_compound(parent, target, ctx)) {
+        if (target_atom != TH_TAG_UNKNOWN ? parent->type == TH_NODE_ELEMENT && parent->atom == target_atom
+                                          : sel_match_compound(parent, target, ctx)) {
             status = sel_match_from(parent, complex, index - 1, anchor, ctx);
         }
         /* every earlier sibling has the same parent, so it fails the same way */

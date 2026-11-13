@@ -2122,3 +2122,51 @@ def test_relative_type_after_rename() -> None:
     parent.append(child)
     child.tag = "A"
     assert parent.matches("section:has(> a)")
+
+
+@pytest.mark.parametrize(
+    ("selector", "matched"),
+    [
+        pytest.param(".c > div", False, id="class-parent"),
+        pytest.param("* > div", False, id="universal-parent"),
+        pytest.param("x-y > div", False, id="custom-element-parent"),
+        pytest.param(":not(a) > div", False, id="pseudo-parent"),
+        pytest.param(":is(.c > div)", False, id="nested"),
+        pytest.param(":root", False, id="root"),
+        pytest.param(":not(:root)", True, id="not-root"),
+    ],
+)
+def test_detached_element_has_no_parent_to_match(selector: str, *, matched: bool) -> None:
+    # the top of a detached subtree has no parent at all, not even a document
+    detached: Final = Element("div")
+    assert detached.matches(selector) is matched
+    assert (detached.closest(selector) is detached) is matched
+
+
+@pytest.mark.parametrize(
+    ("selector", "matched"),
+    [pytest.param(":disabled", False, id="disabled"), pytest.param(":enabled", True, id="enabled")],
+)
+def test_detached_option_has_no_optgroup(selector: str, *, matched: bool) -> None:
+    assert Element("option").matches(selector) is matched
+
+
+def test_child_combinator_stops_at_top_of_extracted_subtree() -> None:
+    article: Final = parse("<article class=body><p>x</p></article>").select("article")[0].extract()
+    assert article.select(".post > .body > p") == []
+    assert [element.tag for element in article.select(".body > p")] == ["p"]
+
+
+def test_child_combinator_stops_at_top_of_extracted_xml_subtree() -> None:
+    # an XML element carries no tag atom, so a bare type selector to the left of > also takes the general path
+    entry: Final = parse_xml("<feed><entry><title/></entry></feed>").select("entry")[0].extract()
+    assert entry.matches("feed > entry") is False
+    assert entry.select("feed > entry > title") == []
+    assert [element.tag for element in entry.select("entry > title")] == ["title"]
+
+
+def test_closest_scope_from_text_of_detached_element() -> None:
+    # a Text node is no scope element, so :scope falls back to the document element, which a detached subtree lacks
+    detached: Final = parse("<div>text</div>").select("div")[0].extract()
+    assert detached.children[0].closest(":scope") is None
+    assert detached.children[0].closest(":not(:scope)") is detached
