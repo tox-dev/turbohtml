@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Final, cast
 
@@ -755,11 +756,90 @@ def test_rng_interleave_choice_same_name() -> None:
             "<ref> has no matching define",
             id="undefined-ref-in-an-interleave-branch",
         ),
+        pytest.param(
+            rgrammar(
+                '<start><element name="r"><interleave><ref name="p"/><ref name="p"/></interleave></element></start>'
+                '<define name="p"><element name="a"><empty/></element></define>'
+            ),
+            "same element name in more than one branch",
+            id="7.4-conflict-through-a-shared-define",
+        ),
+        pytest.param(
+            rgrammar(
+                '<start><element name="r"><ref name="d0"/></element></start>'
+                '<define name="d0"><interleave><element name="x"><empty/></element>'
+                '<ref name="d1"/></interleave></define>'
+                '<define name="d1"><interleave><element name="y"><empty/></element>'
+                '<ref name="d2"/></interleave></define>'
+                '<define name="d2"><element name="x"><empty/></element></define>'
+            ),
+            "same element name in more than one branch",
+            id="7.4-conflict-at-the-end-of-a-ref-chain",
+        ),
     ],
 )
 def test_rng_forbidden_grammar_rejected_at_compile(schema: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         RelaxNG(schema)
+
+
+def _interleave_chain(count: int) -> str:
+    defines = "".join(
+        f'<define name="d{index}"><interleave><element name="e{index}"><empty/></element>'
+        f'<ref name="d{index + 1}"/></interleave></define>'
+        for index in range(count)
+    )
+    start = '<start><element name="r"><ref name="d0"/></element></start>'
+    return rgrammar(f'{start}{defines}<define name="d{count}"><empty/></define>')
+
+
+def _shared_define_interleaves(count: int) -> str:
+    names = "".join(f'<element name="x{index}"><empty/></element>' for index in range(count))
+    branches = "".join(
+        f'<interleave><ref name="p"/><element name="z{index}"><empty/></element></interleave>' for index in range(count)
+    )
+    return rgrammar(
+        f'<start><element name="r"><group>{branches}</group></element></start>'
+        f'<define name="p"><group>{names}</group></define>'
+    )
+
+
+@pytest.mark.parametrize(
+    ("builder", "size", "budget"),
+    [
+        pytest.param(_interleave_chain, 8000, 2.0, id="chain-of-8000-interleaves"),
+        pytest.param(_shared_define_interleaves, 20000, 5.0, id="20000-interleaves-sharing-a-define"),
+    ],
+)
+def test_rng_interleave_check_stays_within_budget(builder: Callable[[int], str], size: int, budget: float) -> None:
+    schema = builder(size)
+    start = time.perf_counter()
+    RelaxNG(schema)
+    assert time.perf_counter() - start < budget
+
+
+def test_rng_interleave_work_budget_rejects_large_sets() -> None:
+    schema = _adversarial_interleaves(200, 20000)
+    start = time.perf_counter()
+    with pytest.raises(ValueError, match="too large to check interleave branches"):
+        RelaxNG(schema)
+    assert time.perf_counter() - start < 5.0
+
+
+def _adversarial_interleaves(count: int, names: int) -> str:
+    left = "".join(f'<element name="p{index}"><empty/></element>' for index in range(names))
+    right = "".join(f'<element name="q{index}"><empty/></element>' for index in range(names))
+    branches = "".join(f'<interleave><ref name="p"/><ref name="v{index}"/></interleave>' for index in range(count))
+    variants = "".join(
+        f'<define name="v{index}"><interleave><element name="s{index}"><empty/></element>'
+        f'<ref name="q"/></interleave></define>'
+        for index in range(count)
+    )
+    return rgrammar(
+        f'<start><element name="r"><group>{branches}</group></element></start>'
+        f'<define name="p"><group>{left}</group></define><define name="q"><group>{right}</group></define>'
+        f"{variants}"
+    )
 
 
 @pytest.mark.parametrize(

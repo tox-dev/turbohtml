@@ -471,7 +471,17 @@ typedef struct {
 } named_vec;
 
 typedef struct pattern pattern;
-typedef struct nclevel nclevel;
+typedef struct nsnode nsnode;
+typedef struct nswild nswild;
+
+/* compile-time 7.4 check: what a branch matches, kept as persistent sets, see rng_names_merge */
+typedef struct nameset {
+    nsnode *names;
+    Py_ssize_t count;
+    nswild *wild;
+    Py_ssize_t wild_count;
+    int text;
+} nameset;
 
 typedef struct def_part {
     th_node *node;
@@ -485,8 +495,8 @@ typedef struct def_entry {
     def_part *extra, *last;
     pattern *built;  /* memoized pattern, NULL until first resolved */
     int cycle_depth; /* compile-time 4.19 cycle check: -1 unvisited, -2 cleared, else the element depth in progress */
-    nclevel *level;  /* compile-time 7.4 check: what the define matches before an <element>, NULL until a branch asks */
-    int branch;      /* compile-time 7.4 check: the interleave branch that last took this define, see rng_branch */
+    nameset names;   /* compile-time 7.4 check: what a ref to this define matches, final once names_state is 2 */
+    int names_state; /* compile-time 7.4 check: 0 unvisited, 1 on the DFS stack, 2 done */
 } def_entry;
 
 typedef struct {
@@ -495,12 +505,6 @@ typedef struct {
     Py_ssize_t len, cap;
     size_t slot_cap;
 } def_vec;
-
-typedef struct {
-    struct nameclass **items;
-    Py_ssize_t len, cap;
-    int text;
-} ncvec;
 
 typedef struct th_schema {
     int kind; /* 0 = XSD, 1 = RELAX NG */
@@ -518,8 +522,8 @@ typedef struct th_schema {
     pattern *p_empty, *p_notallowed, *p_text;
     int rng_references; /* the annotation pruning walk met an include or externalRef with href */
     def_vec defines;
-    ncvec rng_seen;           /* compile-time 7.4 check: what the branches of one interleave match, reused by each */
-    int rng_branch;           /* compile-time 7.4 check: counts the branches, stamping the defines each one takes */
+    arena names_mem;          /* compile-time 7.4 check: the persistent name sets, freed when the compile ends */
+    Py_ssize_t rng_work;      /* compile-time 7.4 check: units spent against RNG_INTERLEAVE_WORK_LIMIT */
     struct patintern *intern; /* per-validation pattern hash-consing table; NULL while compiling */
     /* every schema element node's resolved qname, sorted by node pointer for is_schema_el */
     sqname_entry *sqnames;
@@ -892,6 +896,7 @@ PyObject *turbohtml_schema_compile(PyObject *module, PyObject *args) {
         return PyErr_NoMemory();                             /* GCOVR_EXCL_LINE */
     }
     int ok = kind == 0 ? xsd_compile(schema) : rng_compile(schema, base_url, include_root);
+    arena_free(&schema->names_mem);
     /* a pattern that exceeds the regex limits sets a ValueError */
     ok = ok && regex_cache_schema(schema, schema->root) == 0;
     /* a build that lost an arena allocation is partial even when it raised nothing */
