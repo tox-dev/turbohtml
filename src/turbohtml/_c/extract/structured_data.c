@@ -981,8 +981,8 @@ static PyObject *build_default_prefixes(void) {
 }
 
 /* The in-scope RDFa evaluation context threaded down the walk: the current @vocab (borrowed, NULL when none), the
-   prefix map (borrowed, always non-NULL), and the base URL IRIs resolve against (borrowed, NULL to keep them verbatim).
- */
+   prefix map (borrowed, always non-NULL; the one map of the whole extraction, which holds the declarations in scope at
+   the element being visited), and the base URL IRIs resolve against (borrowed, NULL to keep them verbatim). */
 typedef struct {
     PyObject *vocab;
     PyObject *prefixes;
@@ -1196,8 +1196,11 @@ static PyObject *rdfa_resource_iri(PyObject *value, rdfa_ctx ctx) {
 
 /* Merge the whitespace-separated `prefix: iri` pairs of a @prefix attribute into `prefixes`. A `prefix:` token names a
    prefix (the trailing colon is dropped) and the next token is its IRI; a token that is neither is skipped, and a
-   trailing `prefix:` with no IRI is dropped (RDFa 1.1 processing). -1 only on the excluded allocation-failure path. */
-static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize_t len, PyObject *base) {
+   trailing `prefix:` with no IRI is dropped (RDFa 1.1 processing). Each merged pair appends the prefix and the mapping
+   it replaces (None when it had none) to the `undo` list, for restore_prefixes. -1 only on the excluded
+   allocation-failure path. */
+static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize_t len, PyObject *base,
+                              PyObject *undo) {
     PyObject *pending = NULL;
     Py_ssize_t cursor = 0;
     while (cursor < len) {
@@ -1260,7 +1263,14 @@ static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize
             }
             Py_SETREF(iri, relative);
         }
-        int failed = PyDict_SetItem(prefixes, pending, iri) < 0;
+        PyObject *shadowed = PyDict_GetItemWithError(prefixes, pending);
+        if (shadowed == NULL) {
+            shadowed = Py_None;
+        }
+        /* GCOVR_EXCL_BR_START: lookup, append and insert fail only on unforceable allocation */
+        int failed = PyErr_Occurred() != NULL || PyList_Append(undo, pending) < 0 ||
+                     PyList_Append(undo, shadowed) < 0 || PyDict_SetItem(prefixes, pending, iri) < 0;
+        /* GCOVR_EXCL_BR_STOP */
         Py_DECREF(pending);
         pending = NULL;
         Py_DECREF(iri);
@@ -1269,6 +1279,21 @@ static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize
         }
     }
     Py_XDECREF(pending);
+    return 0;
+}
+
+/* Take back the pairs one @prefix attribute merged into the prefix map, newest first so a prefix the attribute declares
+   twice ends on the mapping it had outside the element. -1 only on the excluded failure path. */
+static int restore_prefixes(PyObject *prefixes, PyObject *undo) {
+    for (Py_ssize_t index = PyList_GET_SIZE(undo); index > 0; index -= 2) {
+        PyObject *prefix = PyList_GET_ITEM(undo, index - 2);
+        PyObject *shadowed = PyList_GET_ITEM(undo, index - 1);
+        int failed =
+            shadowed == Py_None ? PyDict_DelItem(prefixes, prefix) < 0 : PyDict_SetItem(prefixes, prefix, shadowed) < 0;
+        if (failed) {  /* GCOVR_EXCL_BR_LINE: the key is in the map, so neither call allocates or fails */
+            return -1; /* GCOVR_EXCL_LINE: unreachable from a test */
+        }
+    }
     return 0;
 }
 
@@ -1304,60 +1329,63 @@ static int resolve_child_vocab(th_tree *tree, th_node *child, PyObject *parent, 
     return 0;
 }
 
-/* The child's in-scope prefix map: a copy of the parent's updated with the child's @prefix declarations, or the
-   parent's borrowed map when the child declares none. *owned records whether *out is a new reference to release. -1
-   only on the excluded allocation-failure path. */
-static int resolve_child_prefixes(th_tree *tree, th_node *child, PyObject *parent, PyObject *base, PyObject **out,
-                                  int *owned) {
+/* Bring the child's @prefix declarations into scope by merging them into `prefixes`, the one map of the extraction.
+   *undo is NULL when the child declares none, else a new list of what the merge replaced, for leave_child_ctx to take
+   the declarations back with once the subtree is walked. The child pays for the pairs it declares, where a map of its
+   own would cost a copy of every pair in scope. -1 only on the excluded allocation-failure path. */
+static int resolve_child_prefixes(th_tree *tree, th_node *child, PyObject *prefixes, PyObject *base, PyObject **undo) {
+    *undo = NULL;
     Py_ssize_t index = th_node_attr_find(tree, child, "prefix", 6);
     if (index < 0 || child->attrs[index].value == NULL) {
-        *out = parent;
-        *owned = 0;
         return 0;
     }
-    PyObject *copy = PyDict_Copy(parent);
-    if (copy == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+    *undo = PyList_New(0);
+    if (*undo == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    int prefix_rc = parse_prefix_decls(copy, child->attrs[index].value, child->attrs[index].value_len, base);
-    if (prefix_rc < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-        Py_DECREF(copy); /* GCOVR_EXCL_LINE: allocation-failure path */
+    const th_node_attr *attr = &child->attrs[index];
+    if (parse_prefix_decls(prefixes, attr->value, attr->value_len, base, *undo) < 0) { /* GCOVR_EXCL_BR_LINE */
+        Py_CLEAR(*undo); /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;       /* GCOVR_EXCL_LINE */
     }
-    *out = copy;
-    *owned = 1;
     return 0;
 }
 
-/* Drop whichever of the child context's vocab/prefixes were freshly allocated by resolve_child_ctx. */
-static void release_child_ctx(rdfa_ctx *child_ctx, int vocab_owned, int prefixes_owned) {
+/* Drop the references resolve_child_ctx took for the child: its vocab when freshly allocated, and its undo list. The
+   prefix map is left as it is: leave_child_ctx restores it first, and the error paths abandon it. */
+static void release_child_ctx(rdfa_ctx *child_ctx, int vocab_owned, PyObject *undo) {
     if (vocab_owned) {
         Py_DECREF(child_ctx->vocab);
     }
-    if (prefixes_owned) {
-        Py_DECREF(child_ctx->prefixes);
-    }
+    Py_XDECREF(undo);
 }
 
-/* Derive the child's evaluation context from the parent's, applying the child's @vocab and @prefix. *vocab_owned and
-   *prefixes_owned record which of the two carried a new reference, for release_child_ctx to drop after the subtree is
-   walked. -1 only on the excluded allocation-failure path. */
+/* Leave the child's scope once its subtree is walked: take its @prefix declarations back out of the prefix map, then
+   release the context. -1 only on the excluded failure path, which no test can reach. */
+static int leave_child_ctx(rdfa_ctx *child_ctx, int vocab_owned, PyObject *undo) {
+    int status = undo != NULL ? restore_prefixes(child_ctx->prefixes, undo) : 0;
+    release_child_ctx(child_ctx, vocab_owned, undo);
+    return status;
+}
+
+/* Derive the child's evaluation context from the parent's, applying the child's @vocab and @prefix. *vocab_owned
+   records whether the vocab carried a new reference and *undo what the @prefix replaced in the prefix map, for
+   leave_child_ctx after the subtree is walked. -1 only on the excluded allocation-failure path. */
 static int resolve_child_ctx(th_tree *tree, th_node *child, rdfa_ctx parent, rdfa_ctx *child_ctx, int *vocab_owned,
-                             int *prefixes_owned) {
+                             PyObject **undo) {
     PyObject *vocab = NULL;
     int vocab_rc = resolve_child_vocab(tree, child, parent.vocab, parent.base, &vocab, vocab_owned);
     if (vocab_rc < 0) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *prefixes = NULL;
-    int prefixes_rc = resolve_child_prefixes(tree, child, parent.prefixes, parent.base, &prefixes, prefixes_owned);
+    int prefixes_rc = resolve_child_prefixes(tree, child, parent.prefixes, parent.base, undo);
     if (prefixes_rc < 0) {                                         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
         rdfa_ctx partial = {vocab, NULL, NULL, parent.item_depth}; /* GCOVR_EXCL_LINE: allocation-failure path */
-        release_child_ctx(&partial, *vocab_owned, 0);              /* GCOVR_EXCL_LINE */
+        release_child_ctx(&partial, *vocab_owned, NULL);           /* GCOVR_EXCL_LINE */
         return -1;                                                 /* GCOVR_EXCL_LINE */
     }
     child_ctx->vocab = vocab;
-    child_ctx->prefixes = prefixes;
+    child_ctx->prefixes = parent.prefixes;
     child_ctx->base = parent.base;
     child_ctx->item_depth = parent.item_depth;
     return 0;
@@ -1579,7 +1607,7 @@ typedef struct {
     th_node *next_child;
     rdfa_ctx ctx;
     int vocab_owned;
-    int prefixes_owned;
+    PyObject *undo;
 } rdfa_frame;
 
 typedef struct {
@@ -1610,7 +1638,7 @@ static int rdfa_stack_push(rdfa_stack *stack, rdfa_frame frame) {
 static void rdfa_stack_clear(rdfa_stack *stack) {
     while (stack->len > 0) {
         rdfa_frame *frame = &stack->items[--stack->len];
-        release_child_ctx(&frame->ctx, frame->vocab_owned, frame->prefixes_owned);
+        release_child_ctx(&frame->ctx, frame->vocab_owned, frame->undo);
     }
     PyMem_Free(stack->items);
 }
@@ -1622,7 +1650,7 @@ enum rdfa_walk_mode { RDFA_WALK_PROPERTIES, RDFA_WALK_ITEMS };
 static int walk_rdfa(th_tree *tree, module_state *state, th_node *element, rdfa_ctx ctx, PyObject *output,
                      enum rdfa_walk_mode mode) {
     rdfa_stack stack = {NULL, 0, 0};
-    if (rdfa_stack_push(&stack, (rdfa_frame){element->first_child, ctx, 0, 0}) < 0) { /* GCOVR_EXCL_BR_LINE */
+    if (rdfa_stack_push(&stack, (rdfa_frame){element->first_child, ctx, 0, NULL}) < 0) { /* GCOVR_EXCL_BR_LINE */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;        /* GCOVR_EXCL_LINE */
     }
@@ -1631,8 +1659,10 @@ static int walk_rdfa(th_tree *tree, module_state *state, th_node *element, rdfa_
         rdfa_frame *frame = &stack.items[stack.len - 1];
         th_node *child = frame->next_child;
         if (child == NULL) {
-            release_child_ctx(&frame->ctx, frame->vocab_owned, frame->prefixes_owned);
             stack.len--;
+            if (leave_child_ctx(&frame->ctx, frame->vocab_owned, frame->undo) < 0) { /* GCOVR_EXCL_BR_LINE */
+                goto done;                                                           /* GCOVR_EXCL_LINE */
+            }
             continue;
         }
         frame->next_child = child->next_sibling;
@@ -1641,8 +1671,8 @@ static int walk_rdfa(th_tree *tree, module_state *state, th_node *element, rdfa_
         }
         rdfa_ctx child_ctx;
         int vocab_owned;
-        int prefixes_owned;
-        int resolve_failed = resolve_child_ctx(tree, child, frame->ctx, &child_ctx, &vocab_owned, &prefixes_owned) < 0;
+        PyObject *undo;
+        int resolve_failed = resolve_child_ctx(tree, child, frame->ctx, &child_ctx, &vocab_owned, &undo) < 0;
         if (resolve_failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             goto done;        /* GCOVR_EXCL_LINE: allocation-failure path */
         }
@@ -1652,42 +1682,43 @@ static int walk_rdfa(th_tree *tree, module_state *state, th_node *element, rdfa_
             if (property >= 0 && child->attrs[property].value != NULL) {
                 PyObject *value = rdfa_value(tree, state, child, child_ctx);
                 if (value == NULL) {
-                    release_child_ctx(&child_ctx, vocab_owned, prefixes_owned);
+                    release_child_ctx(&child_ctx, vocab_owned, undo);
                     goto done;
                 }
                 int failed = rdfa_add_property(output, child->attrs[property].value, child->attrs[property].value_len,
                                                child_ctx, value) < 0;
                 Py_DECREF(value);
-                if (failed) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-                    release_child_ctx(&child_ctx, vocab_owned, prefixes_owned); /* GCOVR_EXCL_LINE */
-                    goto done;                                                  /* GCOVR_EXCL_LINE */
+                if (failed) {                                         /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                    release_child_ctx(&child_ctx, vocab_owned, undo); /* GCOVR_EXCL_LINE */
+                    goto done;                                        /* GCOVR_EXCL_LINE */
                 }
             }
             descend = th_node_attr_find(tree, child, "typeof", 6) < 0;
         } else if (th_node_attr_find(tree, child, "typeof", 6) >= 0) {
             PyObject *item = build_rdfa_item(tree, state, child, child_ctx);
             if (item == NULL) {
-                release_child_ctx(&child_ctx, vocab_owned, prefixes_owned);
+                release_child_ctx(&child_ctx, vocab_owned, undo);
                 goto done;
             }
             int failed = PyList_Append(output, item) < 0;
             Py_DECREF(item);
             if (failed) { /* GCOVR_EXCL_BR_LINE: append fails only on unforceable allocation */
-                release_child_ctx(&child_ctx, vocab_owned, prefixes_owned); /* GCOVR_EXCL_LINE */
-                goto done;                                                  /* GCOVR_EXCL_LINE */
+                release_child_ctx(&child_ctx, vocab_owned, undo); /* GCOVR_EXCL_LINE */
+                goto done;                                        /* GCOVR_EXCL_LINE */
             }
             descend = 0;
         }
         if (!descend) {
-            release_child_ctx(&child_ctx, vocab_owned, prefixes_owned);
+            if (leave_child_ctx(&child_ctx, vocab_owned, undo) < 0) { /* GCOVR_EXCL_BR_LINE */
+                goto done;                                            /* GCOVR_EXCL_LINE */
+            }
             continue;
         }
-        int push_failed =
-            rdfa_stack_push(&stack, (rdfa_frame){child->first_child, child_ctx, vocab_owned, prefixes_owned}) < 0;
+        int push_failed = rdfa_stack_push(&stack, (rdfa_frame){child->first_child, child_ctx, vocab_owned, undo}) < 0;
         if (push_failed) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            release_child_ctx(&child_ctx, vocab_owned, prefixes_owned); /* GCOVR_EXCL_LINE: allocation-failure path */
-            PyErr_NoMemory();                                           /* GCOVR_EXCL_LINE */
-            goto done;                                                  /* GCOVR_EXCL_LINE */
+            release_child_ctx(&child_ctx, vocab_owned, undo); /* GCOVR_EXCL_LINE: allocation-failure path */
+            PyErr_NoMemory();                                 /* GCOVR_EXCL_LINE */
+            goto done;                                        /* GCOVR_EXCL_LINE */
         }
     }
     status = 0;
