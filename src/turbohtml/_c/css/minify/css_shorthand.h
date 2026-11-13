@@ -562,8 +562,10 @@ static void css_background_run(css_buf *pool, comp_vec *run) {
         css_comp *comp = &run->items[index];
         /* css_handle_background splits on ',' SEPs, so the only SEP left in a layer run is the '/' size separator */
         if (comp->kind == CK_SEP) {
-            int first_size =
-                css_comp_is_lp(pool, &run->items[index + 1]) || css_comp_kw(pool, &run->items[index + 1], "auto");
+            /* css_background_unshortenable rejects a layer that ends in '/', but a one-component layer skips that
+               check, so a lone '/' reaches here with nothing after it */
+            int first_size = index + 1 < run->len && (css_comp_is_lp(pool, &run->items[index + 1]) ||
+                                                      css_comp_kw(pool, &run->items[index + 1], "auto"));
             if (first_size) {
                 int second_size = index + 2 < run->len && (css_comp_is_lp(pool, &run->items[index + 2]) ||
                                                            css_comp_kw(pool, &run->items[index + 2], "auto"));
