@@ -833,7 +833,6 @@ static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, ed
     th_tree *tree = schema->tree;
     /* Only a complexType has a base. An attribute group or a derivation holds attributes and attribute group refs, so
        from there the walk follows nothing but the refs the attribute group cycle check covers. */
-    th_node *content = is_schema_el(schema, scope, XSD_NS, "complexType") ? xsd_type_content(schema, scope) : NULL;
     for (th_node *child = scope->first_child; child != NULL; child = child->next_sibling) {
         if (is_schema_el(schema, child, XSD_NS, "attribute")) {
             xsd_validate_attr_decl(ctx, instance, child, attrs);
@@ -863,7 +862,9 @@ static void xsd_collect_attrs(valctx *ctx, th_node *instance, th_node *scope, ed
                 /* xsd_compile has already rejected an attributeGroup ref that resolves to nothing */
                 xsd_collect_attrs(ctx, instance, named_find(&schema->attr_groups, local, local_len), declared, attrs);
             }
-        } else if (child == content) {
+        } else if ((is_schema_el(schema, child, XSD_NS, "complexContent") ||
+                    is_schema_el(schema, child, XSD_NS, "simpleContent")) &&
+                   is_schema_el(schema, scope, XSD_NS, "complexType") && child == xsd_type_content(schema, scope)) {
             th_node *derivation = first_schema_child(schema, child, XSD_NS, "extension");
             if (derivation == NULL) {
                 derivation = first_schema_child(schema, child, XSD_NS, "restriction");
