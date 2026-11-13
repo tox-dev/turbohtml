@@ -8,7 +8,7 @@ from urllib.parse import unquote
 import pytest
 from markdown_it import MarkdownIt
 
-from turbohtml import Element, Markdown, PlainText, Text, parse, parse_fragment
+from turbohtml import Element, Markdown, PlainText, Range, Text, parse, parse_fragment, parse_xml
 
 if TYPE_CHECKING:
     from wpt_tree_corpus import WptHtmlTreeCorpus
@@ -2302,6 +2302,41 @@ def test_to_markdown_on_text_node() -> None:
     paragraph = parse("<p>just text</p>").find("p")
     assert paragraph is not None
     assert paragraph.children[0].to_markdown() == "just text"
+
+
+def test_to_markdown_on_xml_document() -> None:
+    # no XML element is an HTML block, so nothing bounds the scan for what follows the trailing space
+    assert parse_xml("<note><body>Total: 42 EUR\u00a0</body></note>").to_markdown() == "Total: 42 EUR&#160;"
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param("<p>Kind regards,<br></p>", "Kind regards,", id="trailing-break"),
+        pytest.param("<p><b>Note.</b></p>", "**Note.**", id="emphasis-ending-in-punctuation"),
+        pytest.param('<p><a href="/next">next<br>page</a></p>', "[next  \npage](/next)", id="break-in-link"),
+    ],
+)
+def test_to_markdown_on_fragment_without_block(html: str, expected: str) -> None:
+    paragraph = parse(html).find("p")
+    assert paragraph is not None
+    contents = Range(paragraph, 0)
+    contents.set_end(paragraph, len(paragraph))
+    assert contents.clone_contents().to_markdown() == expected
+
+
+def test_to_markdown_on_detached_inline_element() -> None:
+    span = parse("<p><span>a<br><b>b.</b></span></p>").find("span")
+    assert span is not None
+    span.extract()
+    assert span.to_markdown() == "a  \n**b.**"
+
+
+def test_to_markdown_on_shadow_root() -> None:
+    host = parse('<div><template shadowrootmode="open"><span>a&nbsp;</span></template></div>').find("div")
+    assert host is not None
+    assert host.shadow_root is not None
+    assert host.shadow_root.to_markdown() == "a&#160;"
 
 
 def test_kitchen_sink() -> None:
