@@ -44,8 +44,7 @@ def _load() -> tuple[list[tuple[int, int, tuple[str, str, str, str, str]]], froz
         if raw.startswith("@Part"):
             part = int(raw[5])
         elif payload := raw.split("#", 1)[0].strip():
-            columns = tuple(_decode(field) for field in payload.split(";")[:5])
-            rows.append((part, lineno, columns))  # ty: ignore[invalid-argument-type]  # split yields exactly 5
+            rows.append((part, lineno, tuple(_decode(field) for field in payload.split(";")[:5])))  # ty: ignore[invalid-argument-type]  # split yields exactly 5
     return rows, frozenset(ord(columns[0]) for part, _, columns in rows if part == 1)
 
 

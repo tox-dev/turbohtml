@@ -91,18 +91,6 @@ def test_release_diff_cli_agrees_with_itself(tmp_path: Path, capsys: pytest.Capt
 
 
 def test_release_diff_cli_fails_without_a_release(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    code = main([
-        "--minutes",
-        "0",
-        "--release-python",
-        str(_python_without_turbohtml(tmp_path)),
-        "--crash-dir",
-        str(tmp_path / "crashes"),
-    ])
-    assert (code, capsys.readouterr().err) == (2, "VACUOUS RUN: the release answered too few cases\n")
-
-
-def _python_without_turbohtml(tmp_path: Path) -> Path:
     if sys.platform == "win32":  # pragma: win32 cover
         venv.create(tmp_path / "empty", with_pip=False)
         python = tmp_path / "empty" / "Scripts" / "python"
@@ -111,7 +99,15 @@ def _python_without_turbohtml(tmp_path: Path) -> Path:
         # -S keeps the stdlib and drops site-packages, which is where turbohtml lives
         (python := tmp_path / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" -S "$@"\n', encoding="utf-8")
         python.chmod(0o755)
-    return python
+    code = main([
+        "--minutes",
+        "0",
+        "--release-python",
+        str(python),
+        "--crash-dir",
+        str(tmp_path / "crashes"),
+    ])
+    assert (code, capsys.readouterr().err) == (2, "VACUOUS RUN: the release answered too few cases\n")
 
 
 def test_release_diff_cli_fails_a_blind_control(

@@ -220,11 +220,13 @@ def _nfc(text: str, combining: dict[int, int], full: dict[int, list[int]], pairs
     last_class = 0
     for code in decomposed:
         klass = combining.get(code, 0)
-        if starter_at >= 0 and (last_class < klass or last_class == 0):
-            composed = _compose_pair(result[starter_at], code, compose)
-            if composed >= 0:
-                result[starter_at] = composed
-                continue
+        if (
+            starter_at >= 0
+            and (last_class < klass or last_class == 0)
+            and (composed := _compose_pair(result[starter_at], code, compose)) >= 0
+        ):
+            result[starter_at] = composed
+            continue
         if klass == 0:
             starter_at = len(result)
         last_class = klass
