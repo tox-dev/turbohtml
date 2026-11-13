@@ -25,8 +25,8 @@ typedef struct {
     int signed_zero;
 } calc_parser;
 
-/* The sole caller (rat_set) passes a strictly positive denominator as right, so right is already positive and the
-   resulting gcd is always >= 1. */
+/* The sole caller (rat_set) passes a numerator above LLONG_MIN as left, so its negation is representable, and a
+   strictly positive denominator as right, so right is already positive and the resulting gcd is always >= 1. */
 static long long css_gcd(long long left, long long right) {
     left = left < 0 ? -left : left;
     while (right != 0) {
@@ -39,8 +39,14 @@ static long long css_gcd(long long left, long long right) {
 
 /* The denominator is always strictly positive here: css_num_to_rat builds it as a power of ten, rat_mul/rat_add
    multiply already-positive denominators, and division bails on a zero divisor and sign-normalizes the inverse before
-   multiplying (calc_parse_product), so neither a zero nor a negative denominator can reach this point. */
+   multiplying (calc_parse_product), so neither a zero nor a negative denominator can reach this point. The checked
+   arithmetic accepts LLONG_MIN as a numerator, but it has no negation: css_gcd would hand back a negative divisor
+   (LLONG_MIN / -1 traps) and the sign flips on a stored coefficient would wrap, so it stays unfolded like an
+   overflow. */
 static int rat_set(crat *out, long long num, long long den) {
+    if (num == LLONG_MIN) {
+        return 0;
+    }
     long long divisor = css_gcd(num, den);
     out->num = num / divisor;
     out->den = den / divisor;

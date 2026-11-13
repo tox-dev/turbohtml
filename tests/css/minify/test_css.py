@@ -3062,6 +3062,12 @@ def test_number_exponent_bounds(source: str, expected: str) -> None:
         pytest.param("calc(1e-19px + 1px)", id="rational-power-lower-bound"),
         pytest.param("calc(.01e-9223372036854775807px + 1px)", id="rational-power-subtract-overflow"),
         pytest.param("calc(1e9223372036854775808px + 1px)", id="rational-exponent-overflow"),
+        pytest.param("calc(-9223372036854775807 - 1)", id="rational-sum-most-negative"),
+        pytest.param("calc(-4611686018427387904*2)", id="rational-product-most-negative"),
+        pytest.param("calc((-9223372036854775807 - 1)/7)", id="rational-most-negative-divided"),
+        pytest.param("calc((-9223372036854775807px - 1px)/7)", id="rational-most-negative-dimension-divided"),
+        pytest.param("calc(1 - (-9223372036854775807 - 1))", id="rational-most-negative-subtracted"),
+        pytest.param("calc(7/(-9223372036854775807 - 1))", id="rational-most-negative-divisor"),
     ],
 )
 def test_number_outside_formatter_bounds_keeps_whole_token(value: str) -> None:
