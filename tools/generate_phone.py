@@ -235,22 +235,38 @@ class Format:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class NationalPrefix:
+    # The national prefix, the pattern that strips it while parsing, and the rule rewriting what that pattern captured.
+    digits: str | None
+    parsing: str | None
+    transform: str | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PossibleLengths:
+    # The national number lengths a territory dials, and those valid only for local dialing.
+    national: frozenset[int] = frozenset()
+    local_only: frozenset[int] = frozenset()
+
+    @property
+    def every(self) -> frozenset[int]:
+        return self.national | self.local_only
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Region:
     # One territory's numbering-plan metadata, parsed from PhoneNumberMetadata.xml.
     code: str
     country_code: int
     main: bool
     leading_digits: str | None
-    national_prefix: str | None
-    prefix_pattern: str | None
-    transform: str | None
+    national_prefix: NationalPrefix
     idd_pattern: str | None
     general: str
     types: dict[str, TypeDesc]
     ext_prefix: str | None = None
     formats: list[Format] = field(default_factory=list)
-    possible_national: frozenset[int] = frozenset()
-    possible_local_only: frozenset[int] = frozenset()
+    possible: PossibleLengths = PossibleLengths()
     examples: dict[str, str] = field(default_factory=dict)
 
 
@@ -370,16 +386,20 @@ def parse_metadata(xml: bytes) -> list[Region]:
                 country_code=int(territory.get("countryCode", "0")),
                 main=territory.get("mainCountryForCode") == "true",
                 leading_digits=_strip_or_none(territory.get("leadingDigits")),
-                national_prefix=national_prefix,
-                prefix_pattern=_strip_or_none(territory.get("nationalPrefixForParsing") or national_prefix),
-                transform=territory.get("nationalPrefixTransformRule"),
+                national_prefix=NationalPrefix(
+                    digits=national_prefix,
+                    parsing=_strip_or_none(territory.get("nationalPrefixForParsing") or national_prefix),
+                    transform=territory.get("nationalPrefixTransformRule"),
+                ),
                 idd_pattern=_strip_or_none(territory.get("internationalPrefix")),
                 general=_WHITESPACE.sub("", general.findtext("nationalNumberPattern") or ""),
                 types=types,
                 ext_prefix=territory.get("preferredExtnPrefix"),
                 formats=parse_formats(territory, national_prefix or ""),
-                possible_national=national,
-                possible_local_only=frozenset().union(*(desc.local_only for desc in types.values())) - national,
+                possible=PossibleLengths(
+                    national=national,
+                    local_only=frozenset().union(*(desc.local_only for desc in types.values())) - national,
+                ),
                 examples=examples,
             )
         )
@@ -566,15 +586,15 @@ def compile_region(region: Region, programs: list[Program], rng: random.Random) 
         if program is None:
             continue
         if escaped := set(accepted_lengths(compile_dfa(program))) - (
-            region.types[name].national or region.possible_national
+            region.types[name].national or region.possible.national
         ):
             msg = f"{region.code}/{name}: the pattern accepts lengths {sorted(escaped)} outside its possibleLengths"
             raise RuntimeError(msg)
     prefix = prefix_program = tag = None
-    if region.prefix_pattern:
-        prefix_program = compile_program(region.prefix_pattern)
+    if region.national_prefix.parsing:
+        prefix_program = compile_program(region.national_prefix.parsing)
         prefix = compile_priority_dfa(prefix_program)
-        literal, group = parse_transform(region.transform, prefix_program)
+        literal, group = parse_transform(region.national_prefix.transform, prefix_program)
         programs.append(prefix_program)
         tag = _PrefixTag(literal=literal, group=group, program=len(programs) - 1)
     if region.idd_pattern is None and region.code != "001":
@@ -655,7 +675,7 @@ def _floor(compiled: _CompiledRegion, *, valid: bool) -> int:
             if label & GENERAL_BIT and label & ~GENERAL_BIT
         }
     else:
-        nsn_lengths = set(region.possible_national | region.possible_local_only)
+        nsn_lengths = set(region.possible.every)
     nsn_lengths = {length for length in nsn_lengths if MIN_NSN <= length <= MAX_NSN}
     if not nsn_lengths:
         return 255
@@ -697,7 +717,7 @@ def _check_plan(compiled: _CompiledRegion, rng: random.Random) -> None:
 def _check_priority_dfas(compiled: _CompiledRegion, rng: random.Random) -> None:
     # Compare the prefix and IDD priority DFAs, and the prefix Pike VM's transform group, against ``re``.
     region = compiled.region
-    for automaton, pattern in ((compiled.prefix, region.prefix_pattern), (compiled.idd, region.idd_pattern)):
+    for automaton, pattern in ((compiled.prefix, region.national_prefix.parsing), (compiled.idd, region.idd_pattern)):
         if automaton is None or pattern is None:
             continue
         pattern_re = re.compile(pattern)
@@ -1464,11 +1484,11 @@ def _region_lines(tables: Tables, regions: list[_RegionRefs]) -> list[str]:
             f"{tables.group_of_code[region.country_code]}u, "
             f"{refs.dfas.get('idd', 0xFFFF)}u, {refs.dfas.get('prefix', 0xFFFF)}u, {refs.dfas['plan']}u, "
             f"{refs.labels[0]}u, {refs.labels[1]}u, {refs.tag}u, "
-            f"{sum(1 << length for length in region.possible_national)}u, "
-            f"{sum(1 << length for length in region.possible_local_only)}u, "
+            f"{sum(1 << length for length in region.possible.national)}u, "
+            f"{sum(1 << length for length in region.possible.local_only)}u, "
             f"{region_tables.floor_valid}u, {region_tables.floor_possible}u, "
             f"{refs.formats[0]}u, {refs.formats[1]}u, {refs.ext_prefix}u, "
-            f"{int(bool(region.national_prefix))}u}},"
+            f"{int(bool(region.national_prefix.digits))}u}},"
         )
     return [*lines, "};", ""]
 
@@ -1565,6 +1585,8 @@ __all__ = [
     "TYPES",
     "Format",
     "Group",
+    "NationalPrefix",
+    "PossibleLengths",
     "Region",
     "RegionTables",
     "Tables",

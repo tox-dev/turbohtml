@@ -283,10 +283,14 @@ def test_parse_metadata_reads_territories_and_derives_general_lengths() -> None:
     regions = parse_metadata(_METADATA)
     assert [region.code for region in regions] == ["XA", "XB", "XC"]
     main, routed, german = regions
-    assert (main.main, main.country_code, main.national_prefix, main.idd_pattern) == (True, 1, "1", "011")
-    assert (routed.leading_digits, routed.prefix_pattern, routed.transform) == ("268", r"([457]\d{6})$|1", "268$1")
-    assert (main.possible_national, main.possible_local_only) == (frozenset({10}), frozenset({7}))
-    assert (german.possible_national, german.possible_local_only) == (frozenset(range(7, 15)), frozenset({5, 6}))
+    assert (main.main, main.country_code, main.national_prefix.digits, main.idd_pattern) == (True, 1, "1", "011")
+    assert (routed.leading_digits, routed.national_prefix.parsing, routed.national_prefix.transform) == (
+        "268",
+        r"([457]\d{6})$|1",
+        "268$1",
+    )
+    assert (main.possible.national, main.possible.local_only) == (frozenset({10}), frozenset({7}))
+    assert (german.possible.national, german.possible.local_only) == (frozenset(range(7, 15)), frozenset({5, 6}))
     assert main.examples == {"fixedLine": "2012345678", "mobile": "2012345678", "tollFree": "8002345678"}
 
 

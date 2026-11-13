@@ -516,16 +516,16 @@ class Recognizer:
     def _length_result(tables: RegionTables, digits: str) -> str:
         region = tables.region
         length = len(digits)
-        if length in region.possible_local_only:
+        if length in region.possible.local_only:
             return "LOCAL_ONLY"
-        national = sorted(region.possible_national)
+        national = sorted(region.possible.national)
         if not national:
             return "INVALID_LENGTH"
         if length < national[0]:
             return "TOO_SHORT"
         if length > national[-1]:
             return "TOO_LONG"
-        return "POSSIBLE" if length in region.possible_national else "INVALID_LENGTH"
+        return "POSSIBLE" if length in region.possible.national else "INVALID_LENGTH"
 
     def _validate(self, group: Group, nsn: str) -> _Reading | None:
         # getRegionCodeForNumber, then isValidNumberForRegion or isPossibleNumber depending on the mode.
@@ -545,8 +545,7 @@ class Recognizer:
                 type=resolved,
                 general=True,
             )
-        main = self.tables.regions[group.main]
-        if len(nsn) not in main.region.possible_national | main.region.possible_local_only:
+        if len(nsn) not in self.tables.regions[group.main].region.possible.every:
             return None
         return _Reading(
             country_code=group.country_code,
@@ -610,7 +609,7 @@ class Recognizer:
 
     @staticmethod
     def _max_possible(tables: RegionTables) -> int:
-        lengths = tables.region.possible_national | tables.region.possible_local_only
+        lengths = tables.region.possible.every
         return max(lengths) if lengths else 0
 
     def _code_prefixed_reading(self, region_index: int, potential: str) -> _Reading | None:
