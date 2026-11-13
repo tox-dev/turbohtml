@@ -470,18 +470,18 @@ _MARKUP_ONLY: Final[DateExtraction] = DateExtraction(extensive_search=False)
 _FOUND: Final[PublicationDate] = PublicationDate("2020-01-02", "time")
 
 
-def _nested(depth: int, opener: str = "<time>") -> str:
-    # every level but the innermost opens with a date before the window, so the walk has to reach the innermost
-    outer = f"{opener}1990-01-01 " * (depth - 1)
-    return f"{outer}{opener}2020-01-02"
-
-
 @pytest.mark.parametrize(
     "depth",
     [pytest.param(1, id="single"), pytest.param(2, id="pair"), pytest.param(_TEXT_NESTING, id="at-limit")],
 )
 def test_nested_date_elements_each_read_their_text(depth: int) -> None:
     assert dates(_nested(depth), _MARKUP_ONLY) == _FOUND
+
+
+def _nested(depth: int, opener: str = "<time>") -> str:
+    # every level but the innermost opens with a date before the window, so the walk has to reach the innermost
+    outer = f"{opener}1990-01-01 " * (depth - 1)
+    return f"{outer}{opener}2020-01-02"
 
 
 @pytest.mark.parametrize(
