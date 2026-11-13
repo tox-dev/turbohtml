@@ -2476,6 +2476,13 @@ _EMPTY_COMPLEX_CONTENT: Final[str] = (
     f'<xs:schema {_XS}><xs:complexType name="t"><xs:complexContent></xs:complexContent></xs:complexType>'
     '<xs:element name="r" type="t"/></xs:schema>'
 )
+# the documentation names the group it sits in: not a particle, so neither a branch nor a reference to follow
+_ANNOTATED_GROUP: Final[str] = (
+    f'<xs:schema {_XS}><xs:group name="g"><xs:{{model}}>'
+    '<xs:annotation><xs:documentation><xs:group ref="g"/></xs:documentation></xs:annotation>'
+    f'<xs:element name="a" type="xs:string"/></xs:{{model}}></xs:group>'
+    '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>'
+)
 
 
 @pytest.mark.parametrize(
@@ -2533,6 +2540,61 @@ _EMPTY_COMPLEX_CONTENT: Final[str] = (
             "<r><x>v</x></r>",
             True,
             id="group-definition-with-a-comment-child",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:attributeGroup name="g"><xs:complexContent><xs:extension>'
+            '<xs:attributeGroup ref="g"/></xs:extension></xs:complexContent></xs:attributeGroup>'
+            '<xs:element name="r"><xs:complexType><xs:attributeGroup ref="g"/></xs:complexType></xs:element>'
+            "</xs:schema>",
+            "<r/>",
+            True,
+            id="attribute-group-content-child-not-followed",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:attributeGroup name="g"><xs:complexContent><xs:extension base="T"/>'
+            "</xs:complexContent></xs:attributeGroup>"
+            '<xs:complexType name="T"><xs:attributeGroup ref="g"/></xs:complexType>'
+            '<xs:element name="r" type="T"/></xs:schema>',
+            "<r/>",
+            True,
+            id="attribute-group-base-type-not-followed",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:complexType name="T"><xs:complexContent/>'
+            '<xs:simpleContent><xs:extension base="T"/></xs:simpleContent></xs:complexType>'
+            '<xs:element name="r" type="T"/></xs:schema>',
+            "<r/>",
+            True,
+            id="type-second-content-child-not-followed",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:complexType name="T"><xs:complexContent><xs:extension base="xs:anyType">'
+            '<xs:complexContent><xs:extension base="T"/></xs:complexContent>'
+            "</xs:extension></xs:complexContent></xs:complexType>"
+            '<xs:element name="r" type="T"/></xs:schema>',
+            "<r/>",
+            True,
+            id="derivation-content-child-not-followed",
+        ),
+        pytest.param(_ANNOTATED_GROUP.format(model="sequence"), "<r><a/></r>", True, id="annotated-sequence"),
+        pytest.param(_ANNOTATED_GROUP.format(model="sequence"), "<r/>", False, id="annotated-sequence-needs-child"),
+        pytest.param(_ANNOTATED_GROUP.format(model="choice"), "<r><a/></r>", True, id="annotated-choice"),
+        pytest.param(_ANNOTATED_GROUP.format(model="choice"), "<r/>", False, id="annotated-choice-needs-child"),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:group name="g"><xs:choice><xs:element name="a"/>'
+            '<xs:any minOccurs="0"><xs:group ref="g"/></xs:any></xs:choice></xs:group>'
+            '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>',
+            "<r/>",
+            True,
+            id="choice-wildcard-stays-an-empty-branch",
+        ),
+        pytest.param(
+            f'<xs:schema {_XS}><xs:group name="g"><xs:sequence><xs:element name="a"/>'
+            '<xs:any minOccurs="0"><xs:group ref="g"/></xs:any></xs:sequence></xs:group>'
+            '<xs:element name="r"><xs:complexType><xs:group ref="g"/></xs:complexType></xs:element></xs:schema>',
+            "<r><a/></r>",
+            True,
+            id="sequence-wildcard-not-descended",
         ),
     ],
 )
