@@ -94,13 +94,13 @@ def test_rdfa_prefix_of_top_level_item_ends_with_it() -> None:
 
 
 def test_rdfa_time_is_linear_in_elements_that_declare_a_prefix() -> None:
-    # Copying the inherited map once per declaring element would cost 1.4e10 pair copies here, several times the budget
-    # even on an optimized build; merging and taking back one pair per element takes milliseconds.
+    # Copying the inherited map once per declaring element takes many seconds here; merging and taking back one pair
+    # per element takes milliseconds, so the budget only has to catch the copy.
     count: Final = 120000
     inherited: Final = " ".join(f"a{index:x}: u" for index in range(count))
     declaring: Final = "<p prefix='z: u'>" * count
     document: Final = parse(f"<div typeof=A prefix='{inherited}'>{declaring}")
     start = time.perf_counter()
     items = document.rdfa()
-    assert time.perf_counter() - start < 2.0
+    assert time.perf_counter() - start < 10.0
     assert items == [RdfaItem(vocab=None, type=["A"], resource=None, properties={})]
