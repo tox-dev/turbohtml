@@ -2140,7 +2140,7 @@ def test_detached_element_has_no_parent_to_match(selector: str, *, matched: bool
     # the top of a detached subtree has no parent at all, not even a document
     detached: Final = Element("div")
     assert detached.matches(selector) is matched
-    assert (detached.closest(selector) is detached) is matched
+    assert (detached.closest(selector) == detached) is matched
 
 
 @pytest.mark.parametrize(
@@ -2169,4 +2169,4 @@ def test_closest_scope_from_text_of_detached_element() -> None:
     # a Text node is no scope element, so :scope falls back to the document element, which a detached subtree lacks
     detached: Final = parse("<div>text</div>").select("div")[0].extract()
     assert detached.children[0].closest(":scope") is None
-    assert detached.children[0].closest(":not(:scope)") is detached
+    assert detached.children[0].closest(":not(:scope)") == detached
