@@ -531,6 +531,7 @@ typedef struct th_schema {
     def_vec defines;
     arena names_mem;       /* compile-time 7.4 check: the persistent name sets, freed when the compile ends */
     Py_ssize_t rng_work;   /* compile-time 7.4 check: units spent against RNG_INTERLEAVE_WORK_LIMIT */
+    Py_ssize_t rng_nodes;  /* compile-time 7.4 check: treap nodes allocated against RNG_INTERLEAVE_NODE_LIMIT */
     th_node **rng_checked; /* compile-time 7.4 check: open-addressed set of interleaves already checked */
     size_t rng_checked_cap, rng_checked_len;
     nspair rng_disjoint[8]; /* compile-time 7.4 check: the last disjoint pairs, round robin */

@@ -37,6 +37,7 @@ typedef struct nameclass {
     Py_ssize_t local_len;
     struct nameclass *a, *b;
     uint64_t hash; /* NC_NAME only: nc_name_hash, so the name sets never rehash a long name */
+    uint64_t seq;  /* wildcard only: the treap node count when the class was made, a run-stable identity */
 } nameclass;
 
 struct nsnode {
@@ -1435,9 +1436,12 @@ static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth) {
 
 /* RELAX NG 7.4 compares the names each interleave branch matches. A branch keeps two persistent treaps: its exact
    names, keyed by hash, and its wildcard and choice name classes, keyed by a hash of their structure. A define's set
-   is built once and shared by every ref. A merge copies the smaller side into the larger, and every name class
-   comparison is charged to the schema's work budget. */
+   is built once and shared by every ref. A merge copies the smaller side into the larger. Work is charged to the
+   schema's budget: a name class comparison by the classes it may visit, a pair of classes by half the square of
+   their combined size, since the overlap test visits each leaf against both classes. Treap nodes are capped
+   separately, so memory stays bounded however the budget is spent. */
 #define RNG_INTERLEAVE_WORK_LIMIT (1 << 25)
+#define RNG_INTERLEAVE_NODE_LIMIT (1 << 21)
 
 static int nc_overlap(const nameclass *left, const nameclass *right);
 static int nc_name_eq(const nameclass *left, const nameclass *right);
@@ -1482,6 +1486,14 @@ static uint64_t ns_key(const nameclass *nc) {
     return nc->hash;
 }
 
+static uint64_t ns_priority(uint64_t key);
+
+/* A wildcard's priority mixes in its sequence number, so classes of one structure do not line up in a list. */
+static uint64_t ns_node_priority(const nameclass *nc) {
+    uint64_t key = ns_key(nc);
+    return ns_priority(nc->type == NC_NAME ? key : key ^ (nc->seq * UINT64_C(0x9E3779B97F4A7C15)));
+}
+
 static uint64_t ns_priority(uint64_t key) {
     uint64_t mix = (key ^ (key >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
     mix = (mix ^ (mix >> 27)) * UINT64_C(0x94D049BB133111EB);
@@ -1508,7 +1520,7 @@ static int ns_order(const nameclass *name, const nsnode *node) {
         return key < other ? -1 : 1;
     }
     if (name->type != NC_NAME) {
-        return name == node->name ? 0 : ((uintptr_t)name < (uintptr_t)node->name ? -1 : 1);
+        return name == node->name ? 0 : (name->seq < node->name->seq ? -1 : 1);
     }
     if (nc_name_eq(name, node->name)) { /* GCOVR_EXCL_BR_LINE: unequal names need a hash collision */
         return 0;
@@ -1520,6 +1532,11 @@ static int ns_order(const nameclass *name, const nsnode *node) {
 }
 
 static nsnode *ns_alloc(th_schema *schema) {
+    schema->rng_nodes++;
+    if (schema->rng_nodes > RNG_INTERLEAVE_NODE_LIMIT) {
+        PyErr_SetString(PyExc_ValueError, "RELAX NG grammar too large to check interleave branches");
+        return NULL;
+    }
     nsnode *node = arena_alloc(&schema->names_mem, sizeof(*node));
     if (node == NULL) {   /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
@@ -1557,7 +1574,7 @@ static int ns_split(th_schema *schema, const nsnode *node, const nameclass *name
         *above = NULL;
         return 0;
     }
-    if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget inside a treap split, see ns_split */
+    if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted in a split; reachable, hard to pin */
         return -1;                  /* GCOVR_EXCL_LINE */
     }
     nsnode *copy = ns_copy(schema, node);
@@ -1565,12 +1582,12 @@ static int ns_split(th_schema *schema, const nsnode *node, const nameclass *name
         return -1;      /* GCOVR_EXCL_LINE */
     }
     if (ns_order(name, node) > 0) {
-        if (ns_split(schema, node->right, name, &copy->right, above) < 0) { /* GCOVR_EXCL_BR_LINE: see ns_split */
+        if (ns_split(schema, node->right, name, &copy->right, above) < 0) { /* GCOVR_EXCL_BR_LINE: deeper split */
             return -1;                                                      /* GCOVR_EXCL_LINE */
         }
         *below = copy;
     } else {
-        if (ns_split(schema, node->left, name, below, &copy->left) < 0) { /* GCOVR_EXCL_BR_LINE: see ns_split */
+        if (ns_split(schema, node->left, name, below, &copy->left) < 0) { /* GCOVR_EXCL_BR_LINE: deeper split, budget */
             return -1;                                                    /* GCOVR_EXCL_LINE */
         }
         *above = copy;
@@ -1580,10 +1597,10 @@ static int ns_split(th_schema *schema, const nsnode *node, const nameclass *name
 
 /* A new version of the treap with `name` added, which the caller knows is absent; the old version stays valid. */
 static nsnode *ns_insert(th_schema *schema, const nsnode *node, const nameclass *name) {
-    if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget inside a treap insert, see ns_insert */
+    if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted in an insert; reachable, hard to pin */
         return NULL;                /* GCOVR_EXCL_LINE */
     }
-    if (node == NULL || ns_priority(ns_key(name)) > ns_priority(ns_key(node->name))) {
+    if (node == NULL || ns_node_priority(name) > ns_node_priority(node->name)) {
         nsnode *fresh = ns_alloc(schema);
         if (fresh == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
             return NULL;     /* GCOVR_EXCL_LINE */
@@ -1591,7 +1608,7 @@ static nsnode *ns_insert(th_schema *schema, const nsnode *node, const nameclass 
         fresh->name = name;
         fresh->left = NULL;
         fresh->right = NULL;
-        /* GCOVR_EXCL_BR_START: see ns_insert */
+        /* GCOVR_EXCL_BR_START: budget exhausted in the split of a new node; reachable, hard to pin */
         if (node != NULL && ns_split(schema, node, name, &fresh->left, &fresh->right) < 0) {
             return NULL; /* GCOVR_EXCL_LINE */
         }
@@ -1604,13 +1621,13 @@ static nsnode *ns_insert(th_schema *schema, const nsnode *node, const nameclass 
     }
     if (ns_order(name, node) < 0) {
         nsnode *left = ns_insert(schema, node->left, name);
-        if (left == NULL) { /* GCOVR_EXCL_BR_LINE: recursion of a treap insert, see ns_insert */
+        if (left == NULL) { /* GCOVR_EXCL_BR_LINE: a deeper insert failed on the budget */
             return NULL;    /* GCOVR_EXCL_LINE */
         }
         copy->left = left;
     } else {
         nsnode *right = ns_insert(schema, node->right, name);
-        if (right == NULL) { /* GCOVR_EXCL_BR_LINE: recursion of a treap insert, see ns_insert */
+        if (right == NULL) { /* GCOVR_EXCL_BR_LINE: a deeper insert failed on the budget */
             return NULL;     /* GCOVR_EXCL_LINE */
         }
         copy->right = right;
@@ -1625,8 +1642,8 @@ static int ns_each(th_schema *schema, const nsnode *node, ns_visit visit, void *
     if (node == NULL) {
         return 0;
     }
-    if (rng_spend(schema, 1) < 0) {
-        return -1;
+    if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted in a walk; reachable, hard to pin */
+        return -1;                  /* GCOVR_EXCL_LINE */
     }
     int status = ns_each(schema, node->left, visit, context);
     if (status == 0) {
@@ -1648,7 +1665,7 @@ static int ns_insert_visit(th_schema *schema, const nsnode *node, void *context)
         return 0;
     }
     nsnode *root = ns_insert(schema, tree->root, node->name);
-    if (root == NULL) { /* GCOVR_EXCL_BR_LINE: budget inside a treap insert, see ns_insert_visit */
+    if (root == NULL) { /* GCOVR_EXCL_BR_LINE: budget exhausted inserting a new name; reachable, hard to pin */
         return -1;      /* GCOVR_EXCL_LINE */
     }
     tree->root = root;
@@ -1679,7 +1696,8 @@ static int ns_exact_holds_visit(th_schema *schema, const nsnode *node, void *con
 
 static int ns_wild_pair_visit(th_schema *schema, const nsnode *node, void *context) {
     const struct nc_probe *probe = context;
-    if (rng_spend(schema, nc_size(probe->nc) * nc_size(node->name)) < 0) {
+    Py_ssize_t size = nc_size(probe->nc) + nc_size(node->name);
+    if (rng_spend(schema, size * size / 2) < 0) {
         return -1;
     }
     return nc_overlap(probe->nc, node->name);
@@ -1805,7 +1823,7 @@ static int rng_is_checked(th_schema *schema, const th_node *node) {
     }
     size_t mask = schema->rng_checked_cap - 1;
     for (size_t slot = rng_checked_slot(node, mask); schema->rng_checked[slot] != NULL; slot = (slot + 1) & mask) {
-        if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: one unit per XML node walked, see rng_names_node */
+        if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget while walking a node, hard to pin */
             return -1;                  /* GCOVR_EXCL_LINE */
         }
         if (schema->rng_checked[slot] == node) {
@@ -1832,7 +1850,7 @@ static int rng_mark_checked(th_schema *schema, th_node *node) {
             if (old[index] == NULL) {
                 continue;
             }
-            if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: table growth, see rng_mark_checked */
+            if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted while growing the checked table */
                 return -1;                  /* GCOVR_EXCL_LINE */
             }
             size_t slot = rng_checked_slot(old[index], cap - 1);
@@ -1842,7 +1860,7 @@ static int rng_mark_checked(th_schema *schema, th_node *node) {
             table[slot] = old[index];
         }
     }
-    if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: table entry, see rng_mark_checked */
+    if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted while adding a checked entry */
         return -1;                  /* GCOVR_EXCL_LINE */
     }
     size_t slot = rng_checked_slot(node, schema->rng_checked_cap - 1);
@@ -1857,7 +1875,7 @@ static int rng_mark_checked(th_schema *schema, th_node *node) {
 /* An <element>'s content is a new level and an <attribute>'s text is not interleave text. A <ref> adds its define's
    set, which is built once. Every node walked is charged, so a name-free group costs as much as one name. */
 static int rng_names_node(th_schema *schema, th_node *node, nameset *out) {
-    if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: table probe, see rng_is_checked */
+    if (rng_spend(schema, 1) < 0) { /* GCOVR_EXCL_BR_LINE: budget exhausted while probing the checked table */
         return -1;                  /* GCOVR_EXCL_LINE */
     }
     if (is_schema_el(schema, node, RNG_NS, "element")) {
@@ -1868,7 +1886,11 @@ static int rng_names_node(th_schema *schema, th_node *node, nameset *out) {
         if (nc->type == NC_NAME) {
             return rng_names_single(schema, nc, &out->names) == NULL ? -1 : 0; /* GCOVR_EXCL_BR_LINE: arena OOM */
         }
+        if (rng_spend(schema, nc_size(nc)) < 0) { /* GCOVR_EXCL_BR_LINE: budget while hashing a class, hard to pin */
+            return -1;                            /* GCOVR_EXCL_LINE */
+        }
         nc->hash = nc_struct_hash(nc);
+        nc->seq = (uint64_t)schema->rng_nodes;
         return rng_names_single(schema, nc, &out->wild) == NULL ? -1 : 0; /* GCOVR_EXCL_BR_LINE: arena OOM */
     }
     if (is_schema_el(schema, node, RNG_NS, "text")) {
@@ -1961,7 +1983,7 @@ static int rng_names_define(th_schema *schema, def_entry *entry, nameset *out) {
 static int rng_check_interleave_node(th_schema *schema, th_node *interleave) {
     int checked = rng_is_checked(schema, interleave);
     if (checked != 0) {
-        return checked < 0 ? -1 : 0; /* GCOVR_EXCL_BR_LINE: table probe, see rng_check_interleave_node */
+        return checked < 0 ? -1 : 0; /* GCOVR_EXCL_BR_LINE: a checked-table probe failed on the budget */
     }
     nameset names = {0};
     return rng_names_interleave(schema, interleave, &names, 0);

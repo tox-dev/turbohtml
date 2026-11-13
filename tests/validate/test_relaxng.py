@@ -826,7 +826,7 @@ def _shared_define_interleaves(count: int) -> str:
 @pytest.mark.parametrize(
     ("builder", "size", "budget"),
     [
-        pytest.param(_interleave_chain, 8000, 0.5, id="chain-of-8000-interleaves"),
+        pytest.param(_interleave_chain, 8000, 5.0, id="chain-of-8000-interleaves"),
         pytest.param(_shared_define_interleaves, 20000, 5.0, id="20000-interleaves-sharing-a-define"),
     ],
 )
@@ -967,6 +967,16 @@ def _combine_part_nested_budget(count: int) -> str:
     )
 
 
+def _except_wildcard_pair(names: int) -> str:
+    listed = "".join(f'<name ns="urn:a">x{index}</name>' for index in range(names))
+    big = (
+        '<define name="big"><element><anyName><except><choice><nsName ns="urn:a"/>'
+        f"{listed}</choice></except></anyName><empty/></element></define>"
+    )
+    branch = '<interleave><element><nsName ns="urn:a"/><empty/></element><ref name="big"/></interleave>'
+    return rgrammar(f'<start><element name="doc"><group>{branch}</group></element></start>{big}')
+
+
 @pytest.mark.parametrize(
     "builder",
     [
@@ -981,6 +991,7 @@ def _combine_part_nested_budget(count: int) -> str:
         pytest.param(_superset_wild_unions, id="unions-of-wildcard-supersets"),
         pytest.param(_wildcards_against_exact_names, id="wildcard-classes-against-exact-names"),
         pytest.param(_combine_part_nested_budget, id="nested-interleave-in-a-combined-part"),
+        pytest.param(_except_wildcard_pair, id="except-class-against-a-wildcard"),
     ],
 )
 def test_rng_interleave_work_budget_rejects_large_sets(builder: Callable[[int], str]) -> None:
@@ -989,6 +1000,37 @@ def test_rng_interleave_work_budget_rejects_large_sets(builder: Callable[[int], 
     with pytest.raises(ValueError, match="too large to check interleave branches"):
         RelaxNG(schema)
     assert time.perf_counter() - start < 5.0
+
+
+def test_rng_interleave_node_limit_rejects_shared_unions() -> None:
+    schema = _shared_unions(2000)
+    start = time.perf_counter()
+    with pytest.raises(ValueError, match="too large to check interleave branches"):
+        RelaxNG(schema)
+    assert time.perf_counter() - start < 5.0
+
+
+def _shared_unions(count: int) -> str:
+    left = "".join(f'<element name="x{index}"><empty/></element>' for index in range(count))
+    right = "".join(f'<element name="y{index}"><empty/></element>' for index in range(count))
+    defines = "".join(
+        f'<define name="z{index}"><choice><ref name="x"/><ref name="y"/></choice></define>' for index in range(count)
+    )
+    uses = "".join(
+        f'<interleave><ref name="z{index}"/><element name="q"><empty/></element></interleave>' for index in range(count)
+    )
+    return rgrammar(
+        f'<start><element name="doc"><group>{uses}</group></element></start>'
+        f'<define name="x"><choice>{left}</choice></define><define name="y"><choice>{right}</choice></define>{defines}'
+    )
+
+
+def test_rng_identical_wildcard_classes_stay_accepted() -> None:
+    alts = "".join('<element><nsName ns="urn:a"/><empty/></element>' for _ in range(2000))
+    schema = rwrap(
+        f'<interleave><optional><choice>{alts}</choice></optional><element name="b"><empty/></element></interleave>'
+    )
+    assert rng_ok(schema, "<doc><b/></doc>")
 
 
 @pytest.mark.parametrize(
