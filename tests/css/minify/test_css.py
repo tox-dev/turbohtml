@@ -16,6 +16,7 @@ from turbohtml.clean import CSSMinify, minify_css, minify_css_inline
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from types import ModuleType
 
 _NEWLY: Final[CSSMinify] = CSSMinify(baseline=2021)
 
@@ -1322,6 +1323,33 @@ _MAX_DECLS_PER_RULE_PATTERN: Final[re.Pattern[str]] = re.compile(r"\{([^}]*)\}")
 def test_minify_css_same_body_merge_is_bounded_and_stable() -> None:
     result = minify_css("".join(f"a{index}{{x:0}}" for index in range(4096)))
     assert (1 < result.count("{") < 4096, minify_css(result)) == (True, result)
+
+
+@pytest.mark.parametrize(
+    "between",
+    [
+        pytest.param("", id="adjacent"),
+        pytest.param("a{}", id="across-dropped-rule"),
+    ],
+)
+def test_minify_css_nested_media_merge_is_bounded_and_stable(between: str) -> None:
+    # joining two same-query blocks minifies their text again, and that pass joins the twins nested in them one level
+    # down, so twins at each of 48 levels cost 1128 passes over the innermost rules, and every pass left a copy of them
+    # per enclosing list in the arena (68 MiB here); past eight levels the twins stay apart, on the next pass too
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")  # PyPy ships none
+    source = "".join(f"r{index}{{p{index}:0}}" for index in range(256))
+    twin = "z{y:x}"
+    for level in reversed(range(48)):
+        twin = f"@media m{level}{{{twin}}}"
+        source = f"@media m{level}{{{source}}}{between}{twin}"
+    tracing.start()
+    try:
+        result: Final = minify_css(source)
+        peak: Final[int] = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    blocks: Final = [result.count(f"@media m{level}{{") for level in (7, 8)]
+    assert (blocks, peak < 512 * len(source), minify_css(result)) == ([1, 10], True, result)
 
 
 def test_minify_css_cap_stays_a_fixpoint_after_shorthand_fold() -> None:
@@ -2823,6 +2851,26 @@ def test_minify_css_batch_merge_order(source: str, expected: str) -> None:
         ),
         pytest.param("@media all{a{x:1}}@media all{b{x:1}}", "@media all{a,b{x:1}}", id="same-body"),
         pytest.param("@media a{x{y:z}}.a{}@media a{b{y:z}}", "@media a{x,b{y:z}}", id="across-empty-rule"),
+        pytest.param(
+            f"{'@layer l{' * 7}@media a{{x{{y:z}}}}@media a{{b{{y:z}}}}{'}' * 7}",
+            f"{'@layer l{' * 7}@media a{{x,b{{y:z}}}}{'}' * 7}",
+            id="at-merge-depth-cap",
+        ),
+        pytest.param(
+            f"{'@layer l{' * 8}@media a{{x{{y:z}}}}@media a{{b{{y:z}}}}{'}' * 8}",
+            f"{'@layer l{' * 8}@media a{{x{{y:z}}}}@media a{{b{{y:z}}}}{'}' * 8}",
+            id="past-merge-depth-cap",
+        ),
+        pytest.param(
+            f"{'@layer l{' * 8}@media a{{x{{y:z}}}}.a{{}}@media a{{b{{y:z}}}}{'}' * 8}",
+            f"{'@layer l{' * 8}@media a{{x{{y:z}}}}@media a{{b{{y:z}}}}{'}' * 8}",
+            id="past-merge-depth-cap-across-empty-rule",
+        ),
+        pytest.param(
+            f"{'@layer l{' * 7}@media a{{@media b{{x{{y:z}}}}}}@media a{{@media b{{q{{y:z}}}}}}{'}' * 7}",
+            f"{'@layer l{' * 7}@media a{{@media b{{x{{y:z}}}}@media b{{q{{y:z}}}}}}{'}' * 7}",
+            id="nested-twins-past-merge-depth-cap",
+        ),
     ],
 )
 def test_minify_css_merged_media_is_a_fixed_point(source: str, expected: str) -> None:
