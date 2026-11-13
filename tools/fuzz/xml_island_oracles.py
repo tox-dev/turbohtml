@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from itertools import product
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
@@ -21,10 +22,7 @@ def xml_island_seeds() -> list[str]:
     # Cover the finite productions without sampling gaps.
     return [
         f"{mode}:{comment}:{cdata}:{count}"
-        for mode in _MODES
-        for comment in _COMMENTS
-        for cdata in _CDATA
-        for count in range(1, 4)
+        for mode, comment, cdata, count in product(_MODES, _COMMENTS, _CDATA, range(1, 4))
     ]
 
 

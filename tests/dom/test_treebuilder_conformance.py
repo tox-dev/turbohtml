@@ -23,11 +23,10 @@ def test_public_tree_matches_spec(wpt_html_tree_corpus: WptHtmlTreeCorpus) -> No
         if case["scripting"] is not True and (case["file"], case["data"], case["context"]) not in _DAT_UNREPRESENTABLE
     ]
     failures: Final = [
-        f"{case['file']}: #data {case['data']!r} (context={case['context']!r})\nexpected:\n{expected}\ngot:\n{got}"
+        f"{case['file']}: #data {case['data']!r} (context={case['context']!r})\n"
+        f"expected:\n{case['document']}\ngot:\n{got}"
         for case in cases
-        for expected in [case["document"]]
-        for got in [_public_dump(case["data"], case["context"])]
-        if got != expected
+        if (got := _public_dump(case["data"], case["context"])) != case["document"]
     ]
     assert not failures, f"{len(failures)}/{len(cases)} public/spec divergences\n\n" + "\n\n".join(failures[:5])
 

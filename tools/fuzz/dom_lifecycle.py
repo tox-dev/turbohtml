@@ -5,6 +5,7 @@ from __future__ import annotations
 import gc
 import threading
 from collections.abc import Callable
+from itertools import product
 from typing import TYPE_CHECKING, Final, NamedTuple, Protocol, cast
 
 from typing_extensions import override
@@ -76,13 +77,12 @@ def dom_lifecycle_controls() -> dict[str, bool]:
 
 def dom_lifecycle_seeds() -> list[str]:
     # Run every opcode on each slot with a mutating nested program, then fire the callbacks it registered.
+    bodies = [_BODIES[slot // 3 % len(_BODIES)] for slot in range(_SLOTS)]
     return [
         (
             _PREFIX + bytes((opcode, slot, slot + 9, len(body) // 4 | slot % 3 << 2 | slot % 2 << 4)) + body + _TRAILER
         ).hex()
-        for opcode in range(len(_OPERATIONS))
-        for slot in range(_SLOTS)
-        for body in (_BODIES[slot // 3 % len(_BODIES)],)
+        for opcode, (slot, body) in product(range(len(_OPERATIONS)), enumerate(bodies))
     ]
 
 

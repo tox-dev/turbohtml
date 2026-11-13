@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from itertools import product
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, cast
 
@@ -26,11 +27,7 @@ def html_sibling_seeds() -> list[str]:
     # Sweep structural, attribute and terminal productions.
     return [
         f"{tag}:{attribute}:{quote}:{count}:{leaf}"
-        for tag in _TAGS
-        for attribute in _ATTRIBUTES
-        for quote in _QUOTES
-        for count in range(1, 5)
-        for leaf in _LEAVES
+        for tag, attribute, quote, count, leaf in product(_TAGS, _ATTRIBUTES, _QUOTES, range(1, 5), _LEAVES)
     ]
 
 

@@ -54,13 +54,14 @@ _ROWS, _PART1_STARTERS = _load()
 
 @pytest.mark.parametrize("form", _FORMS)
 def test_column_invariants_hold_for_every_row(form: NormalizationForm) -> None:
-    failures = [
-        (lineno, part, ascii(columns[source]))
-        for part, lineno, columns in _ROWS
-        for target, sources in _INVARIANTS[form]
-        for source in sources
-        if normalize(form, columns[source]) != columns[target]
-    ]
+    failures: list[tuple[int, int, str]] = []
+    for part, lineno, columns in _ROWS:
+        failures.extend(
+            (lineno, part, ascii(columns[source]))
+            for target, sources in _INVARIANTS[form]
+            for source in sources
+            if normalize(form, columns[source]) != columns[target]
+        )
     assert failures == []
 
 

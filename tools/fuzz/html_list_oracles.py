@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from itertools import product
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, cast
 
@@ -21,13 +22,7 @@ def html_list_generate(rng: random.Random) -> str:
 
 def html_list_seeds() -> list[str]:
     # Exhaust productions without depending on random draws.
-    return [
-        f"{tag}:{shape}:{ending}:{leaf}"
-        for tag in _TAGS
-        for shape in _SHAPES
-        for ending in _ENDINGS
-        for leaf in _LEAVES
-    ]
+    return [f"{tag}:{shape}:{ending}:{leaf}" for tag, shape, ending, leaf in product(_TAGS, _SHAPES, _ENDINGS, _LEAVES)]
 
 
 def html_list_controls() -> dict[str, bool]:

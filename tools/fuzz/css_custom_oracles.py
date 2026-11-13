@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from itertools import product
 from typing import TYPE_CHECKING, Final
 
 from turbohtml.clean import minify_css, minify_css_inline
@@ -21,10 +22,7 @@ def css_custom_seeds() -> list[str]:
     # Sweep each root, payload production, count and offset.
     return [
         f"{mode}:{kind}:{count}:{offset}"
-        for mode in _MODES
-        for kind in _KINDS
-        for count in range(1, 5)
-        for offset in range(8)
+        for mode, kind, count, offset in product(_MODES, _KINDS, range(1, 5), range(8))
     ]
 
 

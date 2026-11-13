@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 from importlib import import_module
+from itertools import product
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeAlias, cast
@@ -54,9 +55,7 @@ def _as_text(output: str | bytes) -> str:
     ("library", "operation", "fragment"),
     [
         pytest.param(library, operation, fragment, id=f"{library}-{operation}-{name}")
-        for library in _MUTATORS
-        for operation in _MUTATIONS
-        for name, fragment in _FRAGMENTS.items()
+        for library, operation, (name, fragment) in product(_MUTATORS, _MUTATIONS, _FRAGMENTS.items())
         if not (library == "selectolax" and "<template>" in fragment)
     ],
 )

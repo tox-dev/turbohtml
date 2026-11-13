@@ -4,6 +4,7 @@ import itertools
 import random
 import re
 from functools import partial
+from itertools import product
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, NamedTuple
 from urllib.parse import quote, unquote, urlsplit
@@ -933,11 +934,7 @@ def _split_corpus() -> list[str]:
     split_queries = ("", "?a=1", "?a=1&b=2")
     urls = [
         f"{scheme}:" * bool(scheme) + (f"//{auth}" * bool(auth or path.startswith("//"))) + path + query + fragment
-        for scheme in schemes
-        for auth in authorities
-        for path in split_paths
-        for query in split_queries
-        for fragment in fragments
+        for scheme, auth, path, query, fragment in product(schemes, authorities, split_paths, split_queries, fragments)
     ]
     urls += ["  http://x.com/y  ", "http://h\tost/p", "\x01\x02http://a.com", "HTTP://X", "//netonly/p", "a\nb\rc://x"]
     urls += [f"http://h.com/x{query}{fragment}" for query in ("", "?", "?a=1") for fragment in ("", "#", "#a=1")]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from itertools import product
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
@@ -25,11 +26,7 @@ def xml_literal_seeds() -> list[str]:
     # Cover the finite productions without random sampling gaps.
     return [
         f"{prefix}:{tag}:{quote}:{count}:{leaf}"
-        for prefix in _PREFIXES
-        for tag in _TAGS
-        for quote in _QUOTES
-        for count in range(1, 4)
-        for leaf in _LEAVES
+        for prefix, tag, quote, count, leaf in product(_PREFIXES, _TAGS, _QUOTES, range(1, 4), _LEAVES)
     ]
 
 

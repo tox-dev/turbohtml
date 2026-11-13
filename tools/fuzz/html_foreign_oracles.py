@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from itertools import product
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, cast
 
@@ -26,10 +27,7 @@ def html_foreign_seeds() -> list[str]:
     # Cover finite productions without relying on random draws.
     return [
         f"{boundary}:{identifier}:{quote}:{leaf}"
-        for boundary in _BOUNDARIES
-        for identifier in _IDENTIFIERS
-        for quote in _QUOTES
-        for leaf in _LEAVES
+        for boundary, identifier, quote, leaf in product(_BOUNDARIES, _IDENTIFIERS, _QUOTES, _LEAVES)
     ]
 
 

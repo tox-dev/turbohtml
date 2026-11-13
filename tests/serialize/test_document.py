@@ -7,6 +7,7 @@ import sys
 import textwrap
 from dataclasses import dataclass
 from html.entities import codepoint2name
+from itertools import product
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Protocol
 from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # parsing turbohtml's own output, not untrusted input
@@ -442,7 +443,7 @@ for edit_name, edit in EDITS.items():
     iter_edits = ("extract", "decompose", "clear", "set-inner-html", "reparent-outside", "replace-with", "set-text")
     iter_layouts = ("compact", "indent", "xml")
     expected = "".join(
-        f"{edit} {layout} {_ITER_CHANGED}\n" for edit in iter_edits for layout in iter_layouts for _ in range(2)
+        f"{edit} {layout} {_ITER_CHANGED}\n" for edit, layout, _ in product(iter_edits, iter_layouts, range(2))
     )
     assert (result.returncode, result.stdout) == (0, expected), result.stderr
 
