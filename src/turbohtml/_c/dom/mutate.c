@@ -396,6 +396,10 @@ int th_node_set_data(th_tree *tree, th_node *node, const Py_UCS4 *data, Py_ssize
 /* Remove the attribute with this name, shifting the rest down. Returns 1 when one
    was removed, 0 when the element had no such attribute. */
 Py_ssize_t th_node_attr_find(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
+    /* Node.re(attr=...) and the XSLT lookups pass any node here; only an element has attrs and attr_count. */
+    if (node->type != TH_NODE_ELEMENT) {
+        return -1;
+    }
     uint32_t atom = th_attr_lookup(tree, name, name_len);
     if (atom != UINT32_MAX) {
         for (Py_ssize_t index = 0; index < node->attr_count; index++) {
