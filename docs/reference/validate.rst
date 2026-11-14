@@ -11,7 +11,9 @@ per violation, each locating the offending node. The Python layer only shapes th
 
 Schema compilation and instance validation raise :class:`RecursionError` before processing a tree nested 400 levels or
 deeper. This limit keeps the remaining recursive grammar walks within small worker-thread stacks; the validator does not
-return partial results.
+return partial results. In a RELAX NG grammar the limit counts the levels of a ``define`` at each ``ref`` to it, up to
+the next ``element``: compilation raises :class:`RecursionError` when references nest patterns 400 levels or deeper with
+no ``element`` in between.
 
 Schema compilation raises :class:`ValueError` for an ``xs:pattern`` facet or RELAX NG ``pattern`` parameter that nests
 groups deeper than 250 levels, needs more than 2,000,000 automaton states, or has a ``{n,m}`` quantifier with ``n``
@@ -33,10 +35,11 @@ with no ``name`` attribute (section 4.10), a reference cycle whose expansion nev
 (section 4.19), and an ``interleave`` whose branches can match an element with the same name or can both match text
 (section 7.4). The message names the offending ``define`` or construct. The check compares name classes, so an
 ``anyName`` or ``nsName`` that overlaps the name class of another branch is a conflict. It looks through each ``<ref>``,
-counts a ``mixed`` as text, and checks a ``combine="interleave"`` part against the parts before it; a part without that
-attribute joins them as a choice. Once the interleave check has done about 33 million steps of work, compilation raises
-:class:`ValueError` with ``RELAX NG grammar too large to check interleave branches``. Validating against a legal but
-ambiguous ``choice`` or ``interleave`` takes memory bounded by the schema size, not by the number of child elements.
+counts a ``mixed`` as text, and, when any part of a name says ``combine="interleave"``, checks every part against the
+parts before it, as section 4.17 joins them all by ``interleave``. Once the interleave check has done about 33 million
+steps of work, compilation raises :class:`ValueError` with ``RELAX NG grammar too large to check interleave branches``.
+Validating against a legal but ambiguous ``choice`` or ``interleave`` takes memory bounded by the schema size, not by
+the number of child elements.
 
 A RELAX NG ``include`` or ``externalRef`` reads its ``href`` from disk when the schema compiles, resolved against
 ``base_url`` and any ``xml:base`` (sections 4.5 to 4.7). Compilation raises :class:`ValueError` when the schema

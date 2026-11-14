@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the tests run a fixed command in a subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import TYPE_CHECKING, Final, cast
@@ -13,6 +16,7 @@ from turbohtml.validate import RelaxNG, SchemaValidationError, ValidationResult
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from traced_bytes import PeakBytes
     from work_steps import WorkSteps
 
     from turbohtml import Document
@@ -640,6 +644,16 @@ def test_rng_interleave_choice_same_name() -> None:
             id="4.19-mutual-reference",
         ),
         pytest.param(
+            rgrammar(
+                '<start><element name="r"><ref name="a"/></element></start>'
+                '<define name="a"><optional><element name="x"><ref name="b"/></element></optional></define>'
+                '<define name="a" combine="choice"><ref name="b"/></define>'
+                '<define name="b"><optional><ref name="a"/></optional></define>'
+            ),
+            "define 'a' references itself with no element in between",
+            id="4.19-loop-first-met-inside-an-element",
+        ),
+        pytest.param(
             rgrammar('<start><ref/></start><define name="x"><empty/></define>'),
             "<ref> is missing the required name attribute",
             id="4.10-nameless-ref-in-grammar",
@@ -1036,7 +1050,7 @@ def _shared_unions(count: int) -> str:
 
 
 def test_rng_chained_choice_unions_of_shared_defines_stay_accepted() -> None:
-    assert isinstance(RelaxNG(_chained_unions(2000)), RelaxNG)
+    assert isinstance(RelaxNG(_chained_unions(190)), RelaxNG)
     schema = RelaxNG(_chained_unions(3))
     assert schema.validate(parse_xml("<r><b2/><z/></r>")).valid
     assert not schema.validate(parse_xml("<r><z/></r>")).valid
@@ -1068,7 +1082,7 @@ def test_rng_same_structure_wildcards_scale_linearly(work_steps: WorkSteps) -> N
 
 
 def test_rng_chain_of_interleaves_scales_linearly(work_steps: WorkSteps) -> None:
-    work_steps.assert_linear(lambda n: partial(RelaxNG, _interleave_chain(n)), (500, 2000), exponent=1.3)
+    work_steps.assert_linear(lambda n: partial(RelaxNG, _interleave_chain(n)), (45, 180), exponent=1.3)
 
 
 def _interleave_chain(count: int) -> str:
@@ -1391,7 +1405,7 @@ def test_rng_nullable_memo_rejects_blank_value_attribute() -> None:
 def test_rng_overlapping_attributes_scale_linearly(work_steps: WorkSteps) -> None:
     document = parse_xml("<doc a0='1' a1='2' a2='3'/>")
     pattern = '<optional><attribute><nsName ns=""/></attribute></optional>'
-    work_steps.assert_linear(lambda n: partial(RelaxNG(rwrap(pattern * n)).validate, document), (12, 20))
+    work_steps.assert_linear(lambda n: partial(RelaxNG(rwrap(pattern * n)).validate, document), (20, 32))
 
 
 @pytest.mark.parametrize("tail", ["b", "c"])
@@ -2661,3 +2675,242 @@ def test_rng_numeric_bound_controls(datatype: str, params: str, value: str, *, e
         f'<data type="{datatype}">{params}</data></element>'
     )
     assert tuple(validator.validate(parse_xml(f"<doc>{value}</doc>")).valid for _ in range(2)) == (expected, expected)
+
+
+_WIDE: Final[int] = 4_000
+_WIDE_START: Final[str] = '<start><element name="doc"><ref name="wide"/></element></start>'
+_NESTED_GROUP_TAIL: Final[str] = f"{'<text/>' * 300}</group>"
+_SAME_NAME_ELEMENT: Final[str] = '<element name="a"><value>w{}</value></element>'
+_OPTIONAL_ATTRIBUTE: Final[str] = '<optional><attribute name="a{}"/></optional>'
+_COMBINE_CHOICE: Final[str] = '<define name="wide" combine="choice"><element name="e{}"><empty/></element></define>'
+_COMBINE_INTERLEAVE: Final[str] = (
+    '<define name="wide" combine="interleave"><element name="e{}"><empty/></element></define>'
+)
+
+
+def _repeat(item: str, count: int = _WIDE) -> str:
+    return "".join(item.format(index) for index in range(count))
+
+
+@pytest.mark.parametrize(
+    ("schema", "document", "expected"),
+    [
+        pytest.param(wrap("<text/>" * _WIDE), "<doc>x</doc>", True, id="group"),
+        pytest.param(
+            wrap(f"{'<group>' * 20}{_NESTED_GROUP_TAIL * 20}"), "<doc>x</doc>", True, id="nested-groups-first"
+        ),
+        pytest.param(wrap(f"<choice>{'<text/>' * _WIDE}</choice>"), "<doc>x</doc>", True, id="choice"),
+        pytest.param(
+            wrap(f"<choice>{_repeat('<value>w{}</value>')}</choice>"),
+            f"<doc>w{_WIDE - 1}</doc>",
+            True,
+            id="choice-of-values",
+        ),
+        pytest.param(
+            wrap(f"<choice>{_repeat('<value>w{}</value>')}</choice>"),
+            f"<doc>w{_WIDE}</doc>",
+            False,
+            id="choice-of-values-mismatch",
+        ),
+        pytest.param(
+            wrap(f"<choice>{_repeat(_SAME_NAME_ELEMENT)}</choice>"),
+            f"<doc><a>w{_WIDE - 1}</a></doc>",
+            True,
+            id="choice-of-same-name-elements",
+        ),
+        pytest.param(
+            wrap(f"<interleave>{_repeat(_OPTIONAL_ATTRIBUTE)}</interleave>"),
+            f'<doc a{_WIDE - 1}="x" a0="y"/>',
+            True,
+            id="interleave",
+        ),
+        pytest.param(
+            f'<element xmlns="{_RELAXNG_NS}"><choice>{_repeat("<name>n{}</name>")}</choice><text/></element>',
+            "<n0>x</n0>",
+            True,
+            id="name-class-choice",
+        ),
+        pytest.param(
+            f'<element xmlns="{_RELAXNG_NS}"><choice>{_repeat("<name>n{}</name>")}</choice><text/></element>',
+            f"<n{_WIDE}>x</n{_WIDE}>",
+            False,
+            id="name-class-choice-mismatch",
+        ),
+        pytest.param(
+            grammar(f"{_WIDE_START}{_repeat(_COMBINE_CHOICE)}"),
+            f"<doc><e{_WIDE - 1}/></doc>",
+            True,
+            id="combine-choice",
+        ),
+        pytest.param(
+            grammar(f"{_WIDE_START}{_repeat(_COMBINE_INTERLEAVE)}"), "<doc>x</doc>", False, id="combine-interleave"
+        ),
+    ],
+)
+def test_rng_wide_pattern_fits_a_small_thread_stack(schema: str, document: str, *, expected: bool) -> None:
+    # the patterns of one container join into a balanced tree, so the derivative recursion grows with the log of their
+    # count; a subprocess turns a stack overflow into a failed assertion instead of a killed worker
+    code: Final = (
+        "import json, sys, threading\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import RelaxNG\n"
+        "data = json.load(sys.stdin)\nthreading.stack_size(128 * 1024)\n"
+        "run = lambda: print(RelaxNG(data['schema']).validate(parse_xml(data['xml'])).valid)\n"
+        "worker = threading.Thread(target=run)\n"
+        "worker.start()\nworker.join()\n"
+    )
+    result: Final = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # argv is a fixed list, so no shell is involved
+        [sys.executable, "-c", code],
+        input=json.dumps({"schema": schema, "xml": document}),
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert (result.returncode, result.stdout) == (0, f"{expected}\n"), result.stderr
+
+
+def test_rng_wide_group_in_order_scales_linearly(work_steps: WorkSteps) -> None:
+    # each child's start tag looks for its pattern at the bottom of the group's join, which a chain made as deep as the
+    # group is wide
+    def validate(count: int) -> Callable[[], object]:
+        names = [f"e{index}" for index in range(count)]
+        schema = RelaxNG(wrap("".join(f'<element name="{name}"><empty/></element>' for name in names)))
+        return partial(schema.validate, parse_xml(f"<doc>{''.join(f'<{name}/>' for name in names)}</doc>"))
+
+    work_steps.assert_linear(validate, (500, 2_000), exponent=1.3)
+
+
+def test_rng_wide_choice_peak_is_bounded(peak_bytes: PeakBytes) -> None:
+    # every element's derivative over a choice re-canonicalizes it; while the canonical form was a chain, that cost
+    # memory quadratic in the number of alternatives
+    script: Final = (
+        "import sys, tracemalloc\nfrom turbohtml import parse_xml\nfrom turbohtml.validate import RelaxNG\n"
+        "schema = RelaxNG(sys.argv[1])\ndocument = parse_xml('<doc><a>w0</a></doc>')\n"
+        "tracemalloc.start()\nschema.validate(document)\nprint(tracemalloc.get_traced_memory()[1])\n"
+    )
+    source: Final = wrap(f"<choice>{_repeat(_SAME_NAME_ELEMENT, 1_000)}</choice>")
+    assert peak_bytes(script, (source,)) < 64 * len(source)
+
+
+@pytest.mark.parametrize("count", [2, 3, 8, 9, 10, 17])
+@pytest.mark.parametrize(
+    ("container", "in_order", "reversed_order", "single"),
+    [
+        pytest.param("group", True, False, False, id="group"),
+        pytest.param("interleave", True, True, False, id="interleave"),
+        pytest.param("choice", False, False, True, id="choice"),
+    ],
+)
+def test_rng_balanced_join_keeps_operand_order(
+    container: str, count: int, *, in_order: bool, reversed_order: bool, single: bool
+) -> None:
+    names: Final = [f"e{index}" for index in range(count)]
+    patterns: Final = "\n".join(f'<element name="{name}"><empty/></element>' for name in names)
+    schema: Final = RelaxNG(wrap(f"<{container}>{patterns}</{container}>"))
+    children: Final = [f"<{name}/>" for name in names]
+    assert schema.is_valid(parse_xml(f"<doc>{''.join(children)}</doc>")) is in_order
+    assert schema.is_valid(parse_xml(f"<doc>{''.join(reversed(children))}</doc>")) is reversed_order
+    assert [schema.is_valid(parse_xml(f"<doc>{child}</doc>")) for child in children] == [single] * count
+
+
+@pytest.mark.parametrize(
+    ("pattern", "content", "expected"),
+    [
+        pytest.param("<group/>", "", True, id="group-empty"),
+        pytest.param("<group/>", "x", False, id="group-text"),
+        pytest.param("<interleave/>", "", True, id="interleave-empty"),
+        pytest.param("<interleave/>", "x", False, id="interleave-text"),
+        pytest.param("<choice/>", "", False, id="choice-empty"),
+        pytest.param("<choice/>", "x", False, id="choice-text"),
+    ],
+)
+def test_rng_container_without_patterns(pattern: str, content: str, *, expected: bool) -> None:
+    assert check(wrap(pattern), f"<doc>{content}</doc>").valid is expected
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "interleaved"),
+    [
+        pytest.param(' combine="interleave"', ' combine="interleave"', True, id="both-say-interleave"),
+        pytest.param("", ' combine="interleave"', True, id="second-says-interleave"),
+        pytest.param(' combine="interleave"', "", True, id="first-says-interleave"),
+        pytest.param("", ' combine="choice"', False, id="second-says-choice"),
+        pytest.param(' combine="choice"', "", False, id="first-says-choice"),
+    ],
+)
+def test_rng_combine_operator_belongs_to_the_name(first: str, second: str, *, interleaved: bool) -> None:
+    # section 4.17: one component may leave combine out, wherever it stands, and the others name the operator
+    schema: Final = RelaxNG(
+        grammar(
+            '<start><element name="doc"><ref name="part"/></element></start>'
+            f'<define name="part"{first}><element name="a"><empty/></element></define>'
+            f'<define name="part"{second}><element name="b"><empty/></element></define>'
+        )
+    )
+    assert schema.is_valid(parse_xml("<doc><b/><a/></doc>")) is interleaved
+    assert schema.is_valid(parse_xml("<doc><a/></doc>")) is not interleaved
+
+
+def test_rng_combine_interleave_checks_a_part_without_combine() -> None:
+    # the part without combine joins the others by interleave, so its name clashes with theirs under section 7.4
+    schema: Final = grammar(
+        '<start><element name="doc"><ref name="part"/></element></start>'
+        '<define name="part" combine="interleave"><element name="a"><empty/></element></define>'
+        '<define name="part"><element name="a"><empty/></element></define>'
+    )
+    with pytest.raises(ValueError, match="the same element name in more than one branch"):
+        RelaxNG(schema)
+
+
+_REF_LINK: Final[str] = '<ref name="d{}"/>'
+_ELEMENT_LINK: Final[str] = '<element name="e"><optional><ref name="d{}"/></optional></element>'
+
+
+@pytest.mark.parametrize(
+    ("count", "link", "name"),
+    [
+        pytest.param(399, _REF_LINK, "d399", id="one-past-limit"),
+        pytest.param(1_500, _REF_LINK, "d400", id="long-chain"),
+        pytest.param(3, f"{'<oneOrMore>' * 380}{_REF_LINK}{'</oneOrMore>' * 380}", "d2", id="chain-of-nested-defines"),
+    ],
+)
+def test_rng_reference_nesting_past_limit_raises(count: int, link: str, name: str) -> None:
+    # a derivative descends through every <ref> up to the next <element>, so the 400-level limit counts them too
+    message: Final = f"<ref> to '{name}' nests patterns 400 levels or deeper with no element in between"
+    with pytest.raises(RecursionError, match=message):
+        RelaxNG(_rng_define_chain(count, link))
+
+
+def _rng_define_chain(count: int, link: str) -> str:
+    defines: Final = "".join(f'<define name="d{index}">{link.format(index + 1)}</define>' for index in range(count))
+    start: Final = '<start><element name="doc"><ref name="d0"/></element></start>'
+    return grammar(f'{start}{defines}<define name="d{count}"><text/></define>')
+
+
+@pytest.mark.parametrize(
+    ("count", "link", "document"),
+    [
+        pytest.param(398, _REF_LINK, "<doc>x</doc>", id="chain-at-limit"),
+        pytest.param(1_500, _ELEMENT_LINK, "<doc><e><e/></e></doc>", id="chain-through-elements"),
+    ],
+)
+def test_rng_reference_nesting_within_limit_validates(count: int, link: str, document: str) -> None:
+    assert check(_rng_define_chain(count, link), document).valid
+
+
+def test_rng_reference_nesting_counts_a_define_expanded_earlier() -> None:
+    # the scan expands `deep` at the first <ref>; the second one, 240 levels further down, adds the depth recorded then,
+    # which is that of the deepest component
+    with pytest.raises(RecursionError, match="<ref> to 'deep' nests patterns 400 levels or deeper"):
+        RelaxNG(_rng_define_reached_twice(240))
+
+
+def _rng_define_reached_twice(groups: int) -> str:
+    return grammar(
+        f'<start><element name="doc"><ref name="deep"/>{"<group>" * groups}<ref name="deep"/>{"</group>" * groups}'
+        '</element></start><define name="deep" combine="choice"><text/></define>'
+        f'<define name="deep" combine="choice">{"<oneOrMore>" * 210}<text/>{"</oneOrMore>" * 210}</define>'
+    )
+
+
+def test_rng_reference_nesting_within_limit_reaches_a_define_twice() -> None:
+    assert check(_rng_define_reached_twice(90), "<doc>x</doc>").valid
