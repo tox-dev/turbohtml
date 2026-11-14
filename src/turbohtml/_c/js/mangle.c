@@ -214,6 +214,9 @@ typedef struct {
     int32_t catch_depth; /* enclosing catch bodies: only a var inside one can name a catch parameter */
     int32_t stmt;        /* the innermost enclosing expression, return or throw statement (-1 outside one) */
     int track_stmt;      /* a regex literal was parsed, so reads record their statement (see walk) */
+    int32_t fn_scope;    /* the scope walk_function last opened */
+    int32_t depth;       /* walk calls on the stack: how deep the node being analyzed sits */
+    int32_t deepest;     /* the largest depth reached under the function being analyzed */
     int poisoned;        /* a with / eval was seen: stop renaming entirely */
     int failed;
 } M;
@@ -402,8 +405,21 @@ static void hoist_block(M *mangler, int32_t first, int32_t scope) {
     }
 }
 
-static void walk(M *mangler, int32_t idx, int32_t scope, int bind);
+static void walk_node(M *mangler, int32_t idx, int32_t scope, int bind);
 static void walk_stmt(M *mangler, int32_t idx, int32_t scope);
+
+/* Analyze the subtree at idx, keeping count of how deep the walk stands: the single-use function inline reads the
+   depth of a read and the height of a declaration to know how tall the tree would be with the one under the other. */
+static inline void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
+    if (idx < 0) {
+        return;
+    }
+    if (++mangler->depth > mangler->deepest) {
+        mangler->deepest = mangler->depth;
+    }
+    walk_node(mangler, idx, scope, bind);
+    mangler->depth--;
+}
 
 /* A `var` in a catch block may name the catch parameter (Annex B.3.4): it binds the enclosing function's var while
    its initializer assigns the parameter, so the statement declares one binding and writes another. Pin both: they
@@ -506,6 +522,7 @@ static void walk_function(M *mangler, int32_t idx, int32_t parent) {
     }
     int32_t mark = mangler->undo_count;
     int32_t outer_args = mangler->args_scope;
+    int32_t own_scope = scope;
     if (node->kind == JN_FUNC) { /* an arrow has no arguments object of its own (§10.2.11) */
         mangler->args_scope = scope;
     }
@@ -524,6 +541,7 @@ static void walk_function(M *mangler, int32_t idx, int32_t parent) {
         walk_chain(mangler, node->a, scope, 1);
         walk(mangler, body, scope, 0);
         mangler->args_scope = outer_args;
+        mangler->fn_scope = own_scope;
         undo_to(mangler, mark);
         return;
     }
@@ -535,6 +553,7 @@ static void walk_function(M *mangler, int32_t idx, int32_t parent) {
     hoist_block(mangler, body_stmts, scope);
     walk_chain(mangler, body_stmts, scope, 0);
     mangler->args_scope = outer_args;
+    mangler->fn_scope = own_scope;
     undo_to(mangler, mark);
 }
 
@@ -542,10 +561,7 @@ static void walk_function(M *mangler, int32_t idx, int32_t parent) {
    declaration target (already declared, only resolved here), 2 an assignment/update/for-in write
    target. The read/write split lets the inline and dead-binding passes tell a value's reads from its
    reassignments. */
-static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
-    if (idx < 0) {
-        return;
-    }
+static void walk_node(M *mangler, int32_t idx, int32_t scope, int bind) {
     TH_WORK_STEP();
     jm_node *node = &mangler->prog->nodes[idx];
     switch (node->kind) {
@@ -567,6 +583,7 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
                 if (mangler->track_stmt) {
                     mangler->prog->syms[sym].ref_stmt = mangler->stmt;
                 }
+                mangler->prog->syms[sym].ref_depth = mangler->depth;
                 if (mangler->prog->syms[sym].refs == 1) {
                     mangler->prog->syms[sym].ref_scope = scope;
                 } else if (mangler->prog->syms[sym].ref_scope != scope) {
@@ -590,9 +607,23 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
         return;
     }
     case JN_FUNC:
-    case JN_ARROW:
+    case JN_ARROW: {
+        int32_t outer = mangler->deepest;
+        mangler->deepest = mangler->depth;
         walk_function(mangler, idx, scope);
+        node = &mangler->prog->nodes[idx];
+        if (node->kind == JN_FUNC && !(node->flags & JN_F_EXPR) && node->sym >= 0 &&
+            mangler->prog->syms[node->sym].decl_node == idx) {
+            jm_sym *sym = &mangler->prog->syms[node->sym];
+            sym->fn_depth = mangler->depth;
+            sym->fn_height = mangler->deepest - mangler->depth;
+            sym->fn_scope = mangler->fn_scope;
+        }
+        if (outer > mangler->deepest) {
+            mangler->deepest = outer;
+        }
         return;
+    }
     case JN_EXPR_STMT:
     case JN_RETURN:
     case JN_THROW:
@@ -1411,6 +1442,32 @@ static int read_sees_initialized(jm_program *prog, int32_t sym, int32_t stmt, in
     return !prog->syms[sym].read_before_init;
 }
 
+/* Whether moving the function declaration of sym under its one read keeps the tree within JM_MAX_REWRITE_DEPTH, and
+   if so, the bookkeeping for the move. The body lands as deep as the read sits plus its own height, so a chain of
+   nested declarations, each read under a tall expression, would otherwise stack those expressions: the parser meters
+   each on its own, the inlined tree is as tall as their sum, and every later walk recurses once per level. The
+   depths come from this pass's analysis, so moves made earlier in the pass are added in: an enclosing function that
+   was inlined took the read down with it (sunk), and one inlined inside the body made the body taller (grown). */
+static int function_inline_fits(jm_program *prog, int32_t sym) {
+    int32_t sink = prog->syms[sym].ref_depth - prog->syms[sym].fn_depth;
+    int32_t own = prog->syms[sym].fn_scope;
+    if (sink <= 0 || own < 0) {
+        return 1; /* the body moves no deeper than it stood */
+    }
+    int32_t bottom = prog->syms[sym].ref_depth + prog->syms[sym].fn_height + prog->scopes[own].grown;
+    for (int32_t scope = prog->syms[sym].scope; scope >= 0; scope = prog->scopes[scope].parent) {
+        bottom += prog->scopes[scope].sunk;
+    }
+    if (bottom > JM_MAX_REWRITE_DEPTH) {
+        return 0;
+    }
+    prog->scopes[own].sunk = sink;
+    for (int32_t scope = prog->syms[sym].scope; scope >= 0; scope = prog->scopes[scope].parent) {
+        prog->scopes[scope].grown += sink;
+    }
+    return 1;
+}
+
 /* Inline a single-declarator binding that is read exactly once into that one read and drop the
    declaration (ECMA-262 propagates the assigned value; the optimization just removes the name). The
    walk records exactly one read (`refs == 1`) and no writes (`writes == 0`), so the value the
@@ -1444,6 +1501,9 @@ static int inline_single_use(jm_program *prog, int32_t global) {
                a nested function runs repeatedly and would build a fresh closure each time (13.2.4). */
             if (prog->syms[sym].ref_scope != prog->syms[sym].scope || prog->nodes[ref].sym != sym) {
                 continue; /* a read that moved this pass waits for the next pass to resolve its new node */
+            }
+            if (!function_inline_fits(prog, sym)) {
+                continue; /* the declaration stays where the tree is still short enough to walk */
             }
             if (!expand_shorthand_ref(prog, sym)) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
                 continue;                           /* GCOVR_EXCL_LINE */

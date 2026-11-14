@@ -33,8 +33,10 @@
 
 typedef struct {
     jm_program *prog;
-    int changed;    /* a transform fired this pass: jm_fold walks again so cascades finish */
-    int with_depth; /* enclosing with bodies: their object may own an `undefined` property */
+    int changed;     /* a transform fired this pass: jm_fold walks again so cascades finish */
+    int with_depth;  /* enclosing with bodies: their object may own an `undefined` property */
+    int32_t depth;   /* walk calls on the stack: how deep the node being folded sits under the program root */
+    int32_t deepest; /* the largest depth reached under the node or statement list being folded */
 } F;
 
 static int ident_is(const jm_node *node, const char *word) {
@@ -381,7 +383,23 @@ static int declares(F *folder, int32_t idx, const char *name) {
     return 0;
 }
 
-static void walk(F *folder, int32_t idx);
+static void walk_node(F *folder, int32_t idx);
+
+/* Fold the subtree at idx, keeping count of how deep the walk stands. While a node folds, folder->deepest is the
+   deepest point under it; afterwards it joins the enclosing node's. The guard fold and the chain rotation read it to
+   know how tall the tree they are about to grow already is. */
+static inline void walk(F *folder, int32_t idx) {
+    if (idx < 0) {
+        return;
+    }
+    int32_t outer = folder->deepest;
+    folder->deepest = ++folder->depth;
+    walk_node(folder, idx);
+    folder->depth--;
+    if (outer > folder->deepest) {
+        folder->deepest = outer;
+    }
+}
 
 static void walk_chain(F *folder, int32_t first) {
     for (int32_t idx = first; idx >= 0; idx = folder->prog->nodes[idx].next) {
@@ -500,13 +518,24 @@ static int is_empty_branch(F *folder, int32_t idx) {
    result (13.13) -- and the grammar is left-associative, so only the left-leaning shape prints
    without parentheses (`a&&b&&c`) and re-parses to itself. `settled` is a left operand already
    known to be left-leaning (-1: none); the descent stops there, because walk has folded it and
-   descending the whole spine from every node of a chain is quadratic in the chain's length. */
-static void rotate_logical_chain(F *folder, int32_t idx, int32_t settled) {
+   descending the whole spine from every node of a chain is quadratic in the chain's length.
+   Each rotation moves the left operand one level down and no other operand deeper, so sibling
+   parenthesised groups, which the parser meters one at a time, would join into a spine as tall
+   as their sum. left_deepest is the deepest point under the left operand (or a bound above it):
+   once a rotation would push that past JM_MAX_REWRITE_DEPTH the rotation stops, and the printer
+   parenthesises the right operand left in place. */
+static void rotate_logical_chain(F *folder, int32_t idx, int32_t settled, int32_t left_deepest) {
     jm_program *prog = folder->prog;
     for (int32_t cur = idx;;) {
         TH_WORK_STEP();
         uint16_t op = prog->nodes[cur].op;
         while (prog->nodes[prog->nodes[cur].b].kind == JN_LOGICAL && prog->nodes[prog->nodes[cur].b].op == op) {
+            if (left_deepest >= JM_MAX_REWRITE_DEPTH) {
+                return;
+            }
+            if (++left_deepest > folder->deepest) {
+                folder->deepest = left_deepest;
+            }
             int32_t right = prog->nodes[cur].b;
             prog->nodes[cur].b = prog->nodes[right].b;
             prog->nodes[right].b = prog->nodes[right].a;
@@ -683,7 +712,7 @@ static int32_t make_logical(F *folder, int32_t test, int32_t expr) {
     prog->nodes[logic].b = expr;
     /* expr may be a same-op chain (if(a)b&&c -> a&&b&&c), and negate_test can leave one on the test's
        spine (!a&&!(b||c) -> a||(b||c)), so the descent is not bounded */
-    rotate_logical_chain(folder, logic, -1);
+    rotate_logical_chain(folder, logic, -1, folder->deepest);
     return logic;
 }
 
@@ -723,7 +752,8 @@ static void fold_to_logical(F *folder, int32_t idx, uint16_t op, int32_t left, i
     folder->prog->nodes[logic].op = op;
     folder->prog->nodes[logic].a = left;
     folder->prog->nodes[logic].b = right;
-    rotate_logical_chain(folder, logic, -1); /* right may be a same-op chain: x?x:y||z -> x||y||z */
+    /* right may be a same-op chain: x?x:y||z -> x||y||z; left is a name, one level under the node being folded */
+    rotate_logical_chain(folder, logic, -1, folder->depth + 1);
     replace_with(folder, idx, logic);
 }
 
@@ -976,10 +1006,14 @@ static void fold_if_return_chain(F *folder, int32_t first) {
             prog->nodes[next].kind != JN_RETURN || prog->nodes[next].a < 0) {
             continue;
         }
+        if (folder->deepest >= JM_MAX_REWRITE_DEPTH) {
+            break; /* this guard and the ones before it stay statements */
+        }
         int32_t cond = make_cond(folder, prog->nodes[index].a, prog->nodes[then].a, prog->nodes[next].a);
         if (cond < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
             break;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
+        folder->deepest++; /* the test and both branches, so whatever the list held deepest, now sit one level down */
         prog->nodes[index].kind = JN_RETURN;
         prog->nodes[index].a = cond;
         prog->nodes[index].b = -1;
@@ -1257,6 +1291,20 @@ static int32_t optimize_chain(F *folder, int32_t first) {
     return first;
 }
 
+/* Walk the statements of the list at first, then fold the list as a whole, and return its new head (stored as
+   optimize_chain's is). folder->deepest covers this list alone while it folds and joins the enclosing list's after:
+   sibling lists do not count against each other, and a list sees what the lists nested in it have grown to. */
+static int32_t walk_list(F *folder, int32_t first) {
+    int32_t outer = folder->deepest;
+    folder->deepest = folder->depth;
+    walk_chain(folder, first);
+    first = optimize_chain(folder, first);
+    if (outer > folder->deepest) {
+        folder->deepest = outer;
+    }
+    return first;
+}
+
 /* Parse a plain non-negative decimal integer lexeme (digits only, no dot, exponent, separator or
    radix prefix) under 10^15 so every sum/product stays an exact IEEE-754 integer. 1 and *out set,
    or 0. */
@@ -1417,10 +1465,7 @@ static TH_NOINLINE void walk_plus(F *folder, int32_t idx) {
     fold_concat(folder, idx, owned_mark);
 }
 
-static void walk(F *folder, int32_t idx) {
-    if (idx < 0) {
-        return;
-    }
+static void walk_node(F *folder, int32_t idx) {
     jm_node *node = &folder->prog->nodes[idx];
     int kind = node->kind;
     uint32_t flags = node->flags;
@@ -1428,6 +1473,7 @@ static void walk(F *folder, int32_t idx) {
     int32_t child_b = node->b;
     int32_t child_c = node->c;
     int32_t child_d = node->d;
+    int32_t deepest_a = folder->deepest; /* the deepest point under the first child, once it is walked */
     /* recurse into children first (post-order), skipping property-name positions. The kind, flags
        and child indices are captured before any recursion: a fold inside a child allocates nodes,
        which may grow the arena and move it, so `node` dangles the moment a child walk returns.
@@ -1497,8 +1543,7 @@ static void walk(F *folder, int32_t idx) {
         walk(folder, child_a);
         for (int32_t clause = child_b; clause >= 0; clause = folder->prog->nodes[clause].next) {
             walk(folder, folder->prog->nodes[clause].a);
-            walk_chain(folder, folder->prog->nodes[clause].b);
-            int32_t consequent = optimize_chain(folder, folder->prog->nodes[clause].b);
+            int32_t consequent = walk_list(folder, folder->prog->nodes[clause].b);
             folder->prog->nodes[clause].b = consequent;
         }
         return;
@@ -1516,8 +1561,7 @@ static void walk(F *folder, int32_t idx) {
         }
         return;
     case JN_BLOCK: {
-        walk_chain(folder, child_a);
-        int32_t first = optimize_chain(folder, folder->prog->nodes[idx].a);
+        int32_t first = walk_list(folder, child_a);
         folder->prog->nodes[idx].a = first;
         return;
     }
@@ -1631,6 +1675,7 @@ static void walk(F *folder, int32_t idx) {
         /* falls through */
     default:
         walk(folder, child_a);
+        deepest_a = folder->deepest;
         walk(folder, child_b);
         walk(folder, child_c);
         walk(folder, child_d);
@@ -1670,13 +1715,13 @@ static void walk(F *folder, int32_t idx) {
             } else if (is_pure_const(folder, node->a)) {
                 replace_with(folder, idx, node->a);
             } else {
-                rotate_logical_chain(folder, idx, node->a);
+                rotate_logical_chain(folder, idx, node->a, deepest_a);
             }
             return;
         }
         int truth = pure_truthy(folder, node->a);
         if (truth < 0) {
-            rotate_logical_chain(folder, idx, node->a);
+            rotate_logical_chain(folder, idx, node->a, deepest_a);
             return;
         }
         int keep_right = node->op == JT_AND ? truth : !truth;
@@ -1784,8 +1829,7 @@ int jm_fold(jm_program *prog) {
     for (int pass = 0; pass < 12; pass++) {
         /* GCOVR_EXCL_BR_STOP */
         folder.changed = 0;
-        walk_chain(&folder, prog->nodes[prog->root].a);
-        int32_t first = optimize_chain(&folder, prog->nodes[prog->root].a);
+        int32_t first = walk_list(&folder, prog->nodes[prog->root].a);
         prog->nodes[prog->root].a = first;
         if (!folder.changed) {
             break;
