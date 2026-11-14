@@ -386,9 +386,10 @@ static size_t str_hash(const Py_UCS4 *str, Py_ssize_t len) {
     return value;
 }
 
-/* The slot hash of the name index below. Its keys come from the stylesheet, so the slot is taken from the keyed
-   hash: under str_hash a stylesheet could choose names that share one probe run. */
-static size_t str_slot_hash(const Py_UCS4 *str, Py_ssize_t len) {
+/* The keyed slot hash of the name index and of keyed strmaps. Its keys come from the stylesheet, so the slot is never
+   str_hash: under str_hash a stylesheet could choose names that share one probe run. Out of line, so SipHash's body
+   stays out of the str_hash walks that callers inline. */
+static TH_NOINLINE size_t str_slot_hash(const Py_UCS4 *str, Py_ssize_t len) {
     return th_name_hash(str, len * (Py_ssize_t)sizeof(Py_UCS4));
 }
 
@@ -397,9 +398,7 @@ static int str_eq(const Py_UCS4 *left, Py_ssize_t left_len, const Py_UCS4 *right
 }
 
 static inline void strmap_reseat(strmap_slot *slots, size_t mask, const strmap_slot *entry, int keyed) {
-    size_t probe = (keyed ? th_name_hash(entry->str, entry->str_len * (Py_ssize_t)sizeof(Py_UCS4))
-                          : str_hash(entry->str, entry->str_len)) &
-                   mask;
+    size_t probe = (keyed ? str_slot_hash(entry->str, entry->str_len) : str_hash(entry->str, entry->str_len)) & mask;
     while (slots[probe].used) {
         TH_WORK_STEP();
         probe = (probe + 1) & mask;
@@ -441,7 +440,7 @@ static TH_NOINLINE int strmap_move_keyed(strmap *map, size_t new_cap) {
 
 /* The slot of str in a map on th_name_hash: its entry, or the empty slot that ends its run. */
 static size_t strmap_keyed_slot(const strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
-    size_t probe = th_name_hash(str, str_len * (Py_ssize_t)sizeof(Py_UCS4)) & (map->cap - 1);
+    size_t probe = str_slot_hash(str, str_len) & (map->cap - 1);
     while (map->slots[probe].used && !str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
         TH_WORK_STEP();
         probe = (probe + 1) & (map->cap - 1);
