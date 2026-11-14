@@ -531,14 +531,13 @@ int th_tree_reparse_hazard(const th_tree *tree);
    reads it so a scripting-parsed subtree keeps building noscript as raw text. */
 int th_tree_scripting(const th_tree *tree);
 
-/* The parentless node at the top of the tree that node belongs to. */
-th_node *th_node_root(th_node *node);
 /* The depth below a query origin at which the :has() subtree memo starts to pay. */
 #define TH_HAS_MEMO_DEPTH 24
-/* Whether some node lies at least TH_HAS_MEMO_DEPTH levels below origin. For a node of the document this reads the
-   document's depth bound, which the attach primitives keep current, so a shallow document answers in constant time;
-   for a node of another root it walks origin's subtree, which early-exits at the depth. */
+/* Whether some node lies at least TH_HAS_MEMO_DEPTH levels below origin, judged by the document's depth bound and,
+   for an origin outside a shallow document, by origin's own subtree. */
 int th_tree_depth_reaches(th_tree *tree, th_node *origin);
+/* Keeps the document's depth bound current after child is linked under parent. */
+void th_tree_note_attach(th_tree *tree, th_node *parent, th_node *child);
 int th_tree_failed(const th_tree *tree);
 
 /* Whether a text node holds only HTML ASCII whitespace (or nothing), realizing a

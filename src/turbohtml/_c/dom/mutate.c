@@ -448,43 +448,18 @@ int th_node_attr_del(th_tree *tree, th_node *node, const char *name, Py_ssize_t 
     return 1;
 }
 
-/* Keeps the document's depth bound current after child is linked under parent. A leaf inserted at a depth the bound
-   already covers costs a walk of at most TH_HAS_MEMO_DEPTH levels; a subtree leaves the bound unknown, so the next
-   :has() query measures the document again. Attaches outside the document, and removals, cannot deepen it. */
-static void note_attach(th_tree *tree, th_node *parent, th_node *child) {
-    if (!tree->depth_bound_known) {
-        return;
-    }
-    if (child->first_child != NULL) {
-        tree->depth_bound_known = 0;
-        return;
-    }
-    if (tree->depth_bound >= TH_HAS_MEMO_DEPTH) {
-        return;
-    }
-    th_node *top = parent;
-    Py_ssize_t depth = 0;
-    while (top->parent != NULL && depth < TH_HAS_MEMO_DEPTH) {
-        top = top->parent;
-        depth++;
-    }
-    if (top == th_tree_document(tree) && depth + 1 > tree->depth_bound) {
-        tree->depth_bound = depth + 1;
-    }
-}
-
 void th_node_remove(th_node *child) {
     node_remove(child);
 }
 
 void th_node_append_child(th_tree *tree, th_node *parent, th_node *child) {
     node_append(parent, child);
-    note_attach(tree, parent, child);
+    th_tree_note_attach(tree, parent, child);
 }
 
 void th_node_insert_before(th_tree *tree, th_node *parent, th_node *child, th_node *ref) {
     node_insert_before(parent, child, ref);
-    note_attach(tree, parent, child);
+    th_tree_note_attach(tree, parent, child);
 }
 
 /* The MutationObserver registry accessors dom/observe.c reaches the tree fields through. */
@@ -607,7 +582,7 @@ void th_node_remove_observed(th_tree *tree, th_node *child) {
 
 void th_node_append_child_observed(th_tree *tree, th_node *parent, th_node *child) {
     node_append(parent, child);
-    note_attach(tree, parent, child);
+    th_tree_note_attach(tree, parent, child);
     th_mo_child_inserted(tree, parent, child);
 }
 
@@ -773,7 +748,7 @@ const char *th_pre_insert_error(th_node *parent, th_node *const *nodes, Py_ssize
 
 void th_node_insert_before_observed(th_tree *tree, th_node *parent, th_node *child, th_node *ref) {
     node_insert_before(parent, child, ref);
-    note_attach(tree, parent, child);
+    th_tree_note_attach(tree, parent, child);
     th_mo_child_inserted(tree, parent, child);
 }
 

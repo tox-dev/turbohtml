@@ -338,13 +338,6 @@ int th_tree_reparse_hazard(const th_tree *tree) {
     return tree->reparse_hazard;
 }
 
-th_node *th_node_root(th_node *node) {
-    while (node->parent != NULL) {
-        node = node->parent;
-    }
-    return node;
-}
-
 /* The depth, capped at TH_HAS_MEMO_DEPTH, of the deepest node below origin. Walks down the first-child chain and stops
    at the first node that deep, so a deep subtree costs only its first levels. */
 static Py_ssize_t th_depth_below(th_node *origin) {
@@ -374,18 +367,52 @@ static Py_ssize_t th_depth_below(th_node *origin) {
     }
 }
 
+/* Attaching child under parent deepens the document by the depth of child's subtree below parent's depth. Only the
+   document's own bound is kept current, so a subtree attached outside the document, or into a document already at the
+   memo depth, changes nothing. */
+void th_tree_note_attach(th_tree *tree, th_node *parent, th_node *child) {
+    if (!tree->depth_bound_known || tree->depth_bound >= TH_HAS_MEMO_DEPTH) {
+        return;
+    }
+    th_node *top = parent;
+    Py_ssize_t depth = 0;
+    while (top->parent != NULL && depth < TH_HAS_MEMO_DEPTH) {
+        top = top->parent;
+        depth++;
+    }
+    if (top != th_tree_document(tree)) {
+        return;
+    }
+    Py_ssize_t reached = depth + 1 + th_depth_below(child);
+    if (reached > tree->depth_bound) {
+        tree->depth_bound = reached < TH_HAS_MEMO_DEPTH ? reached : TH_HAS_MEMO_DEPTH;
+    }
+}
+
+/* A document at the memo depth answers every origin at once, as the tree-wide peak did. A shallower document has no
+   node that deep, so an origin inside it is answered without a walk; only an origin outside it measures its subtree. */
 int th_tree_depth_reaches(th_tree *tree, th_node *origin) {
     th_node *document = th_tree_document(tree);
-    if (th_node_root(origin) != document) {
+    if (document == NULL) {
         return th_depth_below(origin) >= TH_HAS_MEMO_DEPTH;
     }
     if (!tree->depth_bound_known) {
         tree->depth_bound = th_depth_below(document);
         tree->depth_bound_known = 1;
     }
-    assert(tree->depth_bound >= th_depth_below(document)); /* GCOVR_EXCL_BR_LINE: the failing edge aborts; an attach
-                                                              path that sized a subtree without note_attach */
-    return tree->depth_bound >= TH_HAS_MEMO_DEPTH;
+    if (tree->depth_bound >= TH_HAS_MEMO_DEPTH) {
+        return 1;
+    }
+    assert(tree->depth_bound >= th_depth_below(document)); /* GCOVR_EXCL_BR_LINE: the failing edge aborts; a link edit
+                                                              that deepened the document without th_tree_note_attach */
+    th_node *top = origin;
+    for (Py_ssize_t up = 0; top->parent != NULL && up < TH_HAS_MEMO_DEPTH; up++) {
+        top = top->parent;
+    }
+    if (top == document) {
+        return 0;
+    }
+    return th_depth_below(origin) >= TH_HAS_MEMO_DEPTH;
 }
 
 int th_tree_failed(const th_tree *tree) {
