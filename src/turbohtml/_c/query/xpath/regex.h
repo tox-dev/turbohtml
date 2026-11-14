@@ -21,18 +21,28 @@ typedef struct {
     char message[160];
 } xr_error;
 
-/* Compiled patterns and the backtracking budget of one XPath evaluation. */
-typedef struct xr_cache xr_cache;
+#define XR_CACHE_SLOTS 64
 
-void xr_cache_free(xr_cache *cache);
+typedef struct xr_program xr_program;
+
+/* Compiled patterns and the backtracking budget of one XPath evaluation, zeroed before its first use. */
+typedef struct xr_cache {
+    xr_program *programs[XR_CACHE_SLOTS];
+    xr_program *recent;
+    Py_ssize_t allowance; /* backtracking steps granted so far in the evaluation */
+    Py_ssize_t budget;    /* the part of the allowance still unspent */
+} xr_cache;
+
+/* Free the compiled patterns; the cache's own storage belongs to the caller. */
+void xr_cache_clear(xr_cache *cache);
 
 /* 1 when pattern matches somewhere in text, 0 when not, -1 on error. */
-int xr_test(xr_cache **cache, const Py_UCS4 *pattern, Py_ssize_t pattern_len, int flags, const Py_UCS4 *text,
+int xr_test(xr_cache *cache, const Py_UCS4 *pattern, Py_ssize_t pattern_len, int flags, const Py_UCS4 *text,
             Py_ssize_t text_len, xr_error *error);
 
 /* Substitute the matches of pattern (the first only when first_only) into a PyMem buffer in *out, reading re.sub
    template syntax, or fn:replace $N references when xpath_syntax is set. 0 on success, -1 on error. */
-int xr_replace(xr_cache **cache, const Py_UCS4 *pattern, Py_ssize_t pattern_len, int flags, const Py_UCS4 *text,
+int xr_replace(xr_cache *cache, const Py_UCS4 *pattern, Py_ssize_t pattern_len, int flags, const Py_UCS4 *text,
                Py_ssize_t text_len, const Py_UCS4 *replacement, Py_ssize_t replacement_len, int xpath_syntax,
                int first_only, Py_UCS4 **out, Py_ssize_t *out_len, xr_error *error);
 
