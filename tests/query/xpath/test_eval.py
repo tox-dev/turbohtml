@@ -960,7 +960,7 @@ def _groups(count: int) -> Document:
     return parse_xml(f"<r>{f'<g><h>{children}</h>{children}</g>' * count}</r>")
 
 
-def _element_ancestors(node: turbohtml.Node) -> list[turbohtml.Node]:
+def _element_ancestors(node: Element) -> list[Element]:
     return [ancestor for ancestor in node.ancestors if isinstance(ancestor, Element)]
 
 
@@ -995,9 +995,14 @@ def _element_ancestors(node: turbohtml.Node) -> list[turbohtml.Node]:
 )
 def test_variable_node_set_in_document_order(build: Callable[[], Document], picks: list[int]) -> None:
     document: Final = build()
-    elements: Final = node_list(document.xpath("//*"))
+    elements: Final = element_list(document.xpath("//*"))
     nodes: Final = [elements[index] for index in picks]
     assert XPath("$v")(document, v=nodes) == _in_document_order(document, nodes)
+
+
+def element_list(result: XPathResult) -> list[Element]:
+    # The element node-set an expression is expected to return.
+    return [element for element in node_list(result) if isinstance(element, Element)]
 
 
 def _in_document_order(document: turbohtml.Node, nodes: Iterable[turbohtml.Node]) -> list[turbohtml.Node]:
@@ -1021,17 +1026,17 @@ def _in_document_order(document: turbohtml.Node, nodes: Iterable[turbohtml.Node]
     ],
 )
 def test_shuffled_node_sets_union_in_document_order(
-    build: Callable[[], Document], expression: str, selects: Callable[[turbohtml.Node], list[turbohtml.Node]]
+    build: Callable[[], Document], expression: str, selects: Callable[[Element], list[Element]]
 ) -> None:
     document: Final = build()
-    elements: Final = node_list(document.xpath("//*"))
+    elements: Final = element_list(document.xpath("//*"))
     first: Final = _shuffled(elements[1:], 300, 1)
     second: Final = _shuffled(elements[1:], 200, 2)
     expected: Final = _in_document_order(document, [*(found for node in first for found in selects(node)), *second])
     assert XPath(expression)(document, v=first + first[:20], w=second) == expected
 
 
-def _shuffled(nodes: Sequence[turbohtml.Node], count: int, offset: int) -> list[turbohtml.Node]:
+def _shuffled(nodes: Sequence[Element], count: int, offset: int) -> list[Element]:
     picked: Final = list(nodes[offset :: max(1, len(nodes) // count)])
     return [picked[index * 7919 % len(picked)] for index in range(len(picked))]
 
@@ -1048,7 +1053,7 @@ def test_union_merge_past_the_walk_budget(
     build: Callable[[], Document], first: list[int], second: list[int], expected: list[int]
 ) -> None:
     document: Final = build()
-    elements: Final = node_list(document.xpath("//*"))
+    elements: Final = element_list(document.xpath("//*"))
     result: Final = XPath("$v | $w")(document, v=[elements[i] for i in first], w=[elements[i] for i in second])
     assert result == [elements[index] for index in expected]
 
@@ -1062,11 +1067,11 @@ def test_union_with_the_document_node(expression: str) -> None:
 # Detached subtrees of one tree have no common ancestor, so the order between them is undefined; only membership holds.
 def test_node_set_across_detached_subtrees_keeps_every_node() -> None:
     document: Final = _groups(30)
-    groups: Final = node_list(document.xpath("/r/g"))
+    groups: Final = element_list(document.xpath("/r/g"))
     for group in groups[:2]:
-        assert isinstance(group, Element)
         group.extract()
-    leaves: Final = [*node_list(document.xpath("//c")), *node_list(XPath("//c")(groups[0])), *groups[1].children]
+    second_children: Final = [child for child in groups[1].children if isinstance(child, Element)]
+    leaves: Final = [*element_list(document.xpath("//c")), *element_list(XPath("//c")(groups[0])), *second_children]
     nodes: Final = _shuffled(leaves, 400, 3)
     assert Counter(node_list(XPath("$v")(document, v=nodes))) == Counter(nodes)
     expected: Final = {ancestor for node in nodes for ancestor in _element_ancestors(node) if ancestor.tag == "g"}
@@ -1113,18 +1118,19 @@ def test_ancestor_step_from_nested_contexts(expression: str, expected: str) -> N
     ],
 )
 def test_reverse_axis_from_one_node_in_document_order(
-    build: Callable[[], Document], expression: str, expected: Callable[[list[turbohtml.Node]], list[turbohtml.Node]]
+    build: Callable[[], Document], expression: str, expected: Callable[[list[Element]], list[Element]]
 ) -> None:
     document: Final = build()
-    assert document.xpath(expression) == expected(list(node_list(document.xpath("//*"))))
+    assert document.xpath(expression) == expected(element_list(document.xpath("//*")))
 
 
 def test_union_after_a_callback_reorders_the_tree() -> None:
     document: Final = _siblings(600)
     root: Final = node_list(document.xpath("/r"))[0]
     assert isinstance(root, Element)
-    first: Final = _shuffled(root.children, 300, 0)
-    second: Final = _shuffled(root.children, 200, 1)
+    children: Final = element_list(document.xpath("/r/c"))
+    first: Final = _shuffled(children, 300, 0)
+    second: Final = _shuffled(children, 200, 1)
     calls: Final[list[None]] = []
 
     def reverse(_context: SimpleNamespace) -> bool:
