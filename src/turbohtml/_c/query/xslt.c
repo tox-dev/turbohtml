@@ -1510,8 +1510,10 @@ static int key_union(engine *eng, const xslt_key *key, const xp_nodeset *members
             if (match_set_has(&taken, node, -1)) {
                 continue;
             }
-            if (match_set_add(&taken, node, -1) < 0 ||
-                nodevec_push(&ordered, node, bucket->slots[slot].order) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+            if (match_set_add(&taken, node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                goto done;                             /* GCOVR_EXCL_LINE */
+            }
+            if (nodevec_push(&ordered, node, bucket->slots[slot].order) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
                 goto done;                                                     /* GCOVR_EXCL_LINE */
             }
         }
@@ -1607,10 +1609,9 @@ static int build_key(engine *eng, xslt_key *key) {
                 const Py_UCS4 *value = attributes[slot].value == NULL ? &empty : attributes[slot].value;
                 Py_ssize_t value_len = attributes[slot].value == NULL ? 0 : attributes[slot].value_len;
                 nodevec *bucket = strmap_bucket(&key->table, value, value_len);
-                if (bucket == NULL ||
-                    nodevec_push(bucket, node, index) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                    xp_result_free(&matched);                /* GCOVR_EXCL_LINE */
-                    return -1;                               /* GCOVR_EXCL_LINE */
+                if (bucket == NULL || nodevec_push(bucket, node, index) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                    xp_result_free(&matched);                                  /* GCOVR_EXCL_LINE */
+                    return -1;                                                 /* GCOVR_EXCL_LINE */
                 }
                 break;
             }
