@@ -12,6 +12,7 @@ from turbohtml.build import E
 from turbohtml.cssom import ComputedStyle, RuleList, StyleDeclaration, StyleRule, StyleSheet, computed_style
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from types import ModuleType
 
     from turbohtml import Document
@@ -167,21 +168,38 @@ def test_stylesheet_at_rule_ends_at_first_semicolon_or_block(css: str, selectors
     assert [rule.selector_text for rule in StyleSheet(css).rules] == selectors
 
 
-def test_stylesheet_statement_at_rules_parse_in_linear_time() -> None:
+def _stylesheet_selectors(css: str) -> str:
+    return " ".join(rule.selector_text for rule in StyleSheet(css).rules)
+
+
+def _computed_color(css: str) -> str:
+    target = parse(f"<style>{css}</style><p>x</p>").select_one("p")
+    assert isinstance(target, Element)
+    return computed_style(target)["color"]
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        pytest.param(_stylesheet_selectors, "p", id="stylesheet"),
+        pytest.param(_computed_color, "red", id="computed-style"),
+    ],
+)
+def test_statement_at_rules_parse_in_linear_time(entry: Callable[[str], str], expected: str) -> None:
     statement: Final = "@import url(x);"
-    small: Final = _fastest_parse_seconds(f"{statement * 2_000}p {{ color: red }}")
-    large: Final = _fastest_parse_seconds(f"{statement * 8_000}p {{ color: red }}")
-    # the floor keeps a sub-millisecond baseline from inflating the ratio; a linear parse grows about 4x for 4x input
+    small: Final = _fastest_seconds(entry, f"{statement * 2_000}p {{ color: red }}", expected)
+    large: Final = _fastest_seconds(entry, f"{statement * 8_000}p {{ color: red }}", expected)
+    # the 0.01 s floor makes this a fixed budget on fast builds and a ratio on slow ones
     assert large / max(small, 0.01) < 8
 
 
-def _fastest_parse_seconds(css: str) -> float:
+def _fastest_seconds(entry: Callable[[str], str], css: str, expected: str) -> float:
     best = float("inf")
     for _ in range(3):
         start = time.perf_counter()
-        sheet = StyleSheet(css)
+        result = entry(css)
         best = min(best, time.perf_counter() - start)
-        assert [rule.selector_text for rule in sheet.rules] == ["p"]
+        assert result == expected
     return best
 
 
