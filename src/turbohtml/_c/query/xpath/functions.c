@@ -673,8 +673,10 @@ static int regex_test(xp_ctx *ctx, xp_result *args, int argc, xp_result *out) {
     Py_UCS4 *owned_pattern;
     int failed = string_arg(ctx->tree, &args[1], &pattern, &pattern_len, &owned_pattern);
     Py_UCS4 *input = to_string(ctx->tree, &args[0], &input_len);
+    struct xr_cache **cache = NULL;
     /* GCOVR_EXCL_BR_START: alloc */
-    if (failed < 0 || input == NULL || regex_flags(ctx->tree, argc >= 3 ? &args[2] : NULL, &flags, &global) < 0) {
+    if (failed < 0 || input == NULL || regex_flags(ctx->tree, argc >= 3 ? &args[2] : NULL, &flags, &global) < 0 ||
+        (cache = xp_regex_cache(ctx)) == NULL) {
         PyMem_Free(owned_pattern); /* GCOVR_EXCL_LINE */
         PyMem_Free(input);         /* GCOVR_EXCL_LINE */
         return -1;                 /* GCOVR_EXCL_LINE */
@@ -683,8 +685,7 @@ static int regex_test(xp_ctx *ctx, xp_result *args, int argc, xp_result *out) {
     xr_error error;
     /* An empty computed string can have a null buffer; the regex cache compares pattern buffers with memcmp. */
     const Py_UCS4 empty_pattern = 0;
-    int found =
-        xr_test(ctx->regex_cache, pattern_len ? pattern : &empty_pattern, pattern_len, flags, input, input_len, &error);
+    int found = xr_test(cache, pattern_len ? pattern : &empty_pattern, pattern_len, flags, input, input_len, &error);
     PyMem_Free(owned_pattern);
     PyMem_Free(input);
     if (found < 0) {
@@ -706,18 +707,21 @@ static int regex_replace(xp_ctx *ctx, xp_result *args, int argc, int exslt, xp_r
     Py_UCS4 *pattern = to_string(ctx->tree, &args[1], &pattern_len);
     Py_UCS4 *input = to_string(ctx->tree, &args[0], &input_len);
     Py_UCS4 *replacement = to_string(ctx->tree, &args[exslt ? 3 : 2], &replacement_len);
-    if (pattern == NULL || input == NULL || replacement == NULL || /* GCOVR_EXCL_BR_LINE: alloc */
-        regex_flags(ctx->tree, flags_arg, &flags, &global) < 0) {
+    struct xr_cache **cache = NULL;
+    /* GCOVR_EXCL_BR_START: alloc */
+    if (pattern == NULL || input == NULL || replacement == NULL ||
+        regex_flags(ctx->tree, flags_arg, &flags, &global) < 0 || (cache = xp_regex_cache(ctx)) == NULL) {
         PyMem_Free(pattern);     /* GCOVR_EXCL_LINE */
         PyMem_Free(input);       /* GCOVR_EXCL_LINE */
         PyMem_Free(replacement); /* GCOVR_EXCL_LINE */
         return -1;               /* GCOVR_EXCL_LINE */
     }
+    /* GCOVR_EXCL_BR_STOP */
     xr_error error;
     Py_UCS4 *result;
     Py_ssize_t result_len;
-    int rc = xr_replace(ctx->regex_cache, pattern, pattern_len, flags, input, input_len, replacement, replacement_len,
-                        !exslt, exslt && !global, &result, &result_len, &error);
+    int rc = xr_replace(cache, pattern, pattern_len, flags, input, input_len, replacement, replacement_len, !exslt,
+                        exslt && !global, &result, &result_len, &error);
     PyMem_Free(pattern);
     PyMem_Free(input);
     PyMem_Free(replacement);

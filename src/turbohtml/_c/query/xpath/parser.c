@@ -742,21 +742,6 @@ static void format_error(char *errbuf, size_t errlen, const parser *ps) {
     }
 }
 
-/* Only a union, a variable, a filter, a predicate, or a path with a filter primary or several steps can hold a node-set
-   that is not one walk from the context node, so only those can reach the document-order sort. */
-static int may_sort_node_sets(const xp_program *prog) {
-    for (int32_t index = 0; index < prog->count; index++) {
-        const xn *node = &prog->nodes[index];
-        if (node->kind == XN_UNION || node->kind == XN_VAR || node->kind == XN_FILTER || node->kind == XN_PRED) {
-            return 1;
-        }
-        if (node->kind == XN_PATH && (node->second >= 0 || (node->first >= 0 && prog->nodes[node->first].next >= 0))) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t errlen, PyObject *depth_error) {
     xp_program *prog = PyMem_Malloc(sizeof(*prog));
     if (prog == NULL) {                            /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced */
@@ -767,7 +752,6 @@ xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t 
     prog->references = 1;
     prog->has_python_calls = 0;
     prog->has_variables = 0;
-    prog->may_sort = 0;
     prog->nodes = NULL;
     prog->count = 0;
     prog->cap = 0;
@@ -818,7 +802,6 @@ xp_program *xp_compile(const Py_UCS4 *src, Py_ssize_t len, char *errbuf, size_t 
             break;
         }
     }
-    prog->may_sort = may_sort_node_sets(prog);
     return prog;
 }
 
