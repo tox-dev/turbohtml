@@ -1378,8 +1378,9 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
             }
             target = args[0].nodes.items[0].node;
         }
+        /* An address would leak the heap layout; seq is unique among the nodes an expression can reach. */
         char buffer[32];
-        int written = snprintf(buffer, sizeof(buffer), "id%zx", (size_t)(uintptr_t)target);
+        int written = snprintf(buffer, sizeof(buffer), "id%u", (unsigned)target->seq);
         Py_ssize_t str_len = 0;
         Py_UCS4 *str = ucs4_from_ascii(buffer, written, &str_len);
         if (str == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
