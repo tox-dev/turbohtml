@@ -114,7 +114,7 @@ static void run_builtins(long *cases) {
         "x.\"\\a\\", "x.`\\a\\", /* a literal ending in `\`: its lexeme must stop at the buffer end */
         "function f(){var g;try{}catch(e){function g(){}}if(1)function h(){}return[g,h]}", /* Annex B blocks */
         "function f(){function(a){return a}}", "function f(){class{}}", /* a declaration with no name */
-        "x={abc,,,,}", "class A{abc(){},(){}}", "x=abc.+.+", "x=abc?.;", /* a punctuator where a name belongs */
+        "x={q:1,,}", "class C{m(){},,}", "x=o.+.+", "x=o?.;", "x=new.;", "a.", /* a punctuator or the end of input where a name belongs */
         "x={async*[k](){yield* a}}", "label:for(;;)break label", "(function(){})()",
         /* a var redeclaring a catch parameter pins it and the function var it declares (Annex B.3.4) */
         "try{}catch(a){var a}a", "function f(){try{}catch(a){var [a=1,{a},...a]=[]}return a}",
