@@ -1,3 +1,1 @@
-Attribute names in the HTML tokenizer and tree, and the other tables keyed by text the input picks, now hash under a
-per-process secret. A document can no longer choose strings that share one probe run and make :func:`turbohtml.parse`,
-:func:`turbohtml.tokenize`, ``xsl:key`` lookups and the clean helpers take quadratic time, and results are unchanged.
+Parsing, tokenizing, and xsl:key lookups stay fast when a document uses many attribute or key names that happen to collide; output is unchanged.

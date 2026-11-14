@@ -319,45 +319,44 @@ static PyMethodDef html_methods[] = {
    interpreter that executes the module stores the same key. */
 uint64_t th_name_hash_key[2];
 
-#if defined(_WIN32)
-static SRWLOCK name_hash_key_lock = SRWLOCK_INIT;
-#else
-static pthread_mutex_t name_hash_key_lock = PTHREAD_MUTEX_INITIALIZER;
-#endif
-static int name_hash_key_ready;
+static int name_hash_key_status;
 
-static int name_hash_key_compute(void) {
+static void name_hash_key_compute(void) {
     static const char *const salts[2] = {"turbohtml:name-hash:0", "turbohtml:name-hash:1"};
     for (int index = 0; index < 2; index++) {
         PyObject *salt = PyBytes_FromString(salts[index]);
-        if (salt == NULL) { /* GCOVR_EXCL_BR_LINE: bytes allocation cannot be forced from a test */
-            return -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
+        if (salt == NULL) {            /* GCOVR_EXCL_BR_LINE: bytes allocation cannot be forced from a test */
+            name_hash_key_status = -1; /* GCOVR_EXCL_LINE: allocation-failure path */
+            return;                    /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         th_name_hash_key[index] = (uint64_t)PyObject_Hash(salt);
         Py_DECREF(salt);
     }
-    return 0;
 }
 
-/* Every interpreter that executes the module runs this, possibly on another thread, so the key is written under a
-   process-wide lock and read only after it: the lock's release publishes the words to every later caller. */
+#if defined(_WIN32)
+static INIT_ONCE name_hash_key_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK name_hash_key_compute_once(PINIT_ONCE once, PVOID parameter, PVOID *context) {
+    (void)once;
+    (void)parameter;
+    (void)context;
+    name_hash_key_compute();
+    return TRUE;
+}
+#else
+static pthread_once_t name_hash_key_once = PTHREAD_ONCE_INIT;
+#endif
+
+/* Every interpreter that executes the module runs this, possibly on another thread. The first computes the key, the
+   rest wait for it, and the once primitive publishes the words to all of them; nothing writes the key after. */
 static int name_hash_key_init(void) {
 #if defined(_WIN32)
-    AcquireSRWLockExclusive(&name_hash_key_lock);
+    InitOnceExecuteOnce(&name_hash_key_once, name_hash_key_compute_once, NULL, NULL);
 #else
-    pthread_mutex_lock(&name_hash_key_lock);
+    pthread_once(&name_hash_key_once, name_hash_key_compute);
 #endif
-    int status = 0;
-    if (!name_hash_key_ready) {
-        status = name_hash_key_compute();
-        name_hash_key_ready = status == 0;
-    }
-#if defined(_WIN32)
-    ReleaseSRWLockExclusive(&name_hash_key_lock);
-#else
-    pthread_mutex_unlock(&name_hash_key_lock);
-#endif
-    return status;
+    return name_hash_key_status;
 }
 
 static int publish_native_names(PyObject *module) {

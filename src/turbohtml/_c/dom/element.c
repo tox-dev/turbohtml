@@ -1088,6 +1088,7 @@ static int radio_ids_build(radio_group *group) {
         size_t slot = (size_t)path_id_hash(id->value, id->value_len, 0) & group->mask;
         while (group->ids[slot].value != NULL &&
                !ucs4_runs_equal(group->ids[slot].value, group->ids[slot].len, id->value, id->value_len)) {
+            TH_WORK_STEP();
             slot = (slot + 1) & group->mask;
         }
         if (group->ids[slot].value == NULL) {
@@ -1128,6 +1129,7 @@ static int radio_form_owner(radio_group *group, th_node *radio, th_node **owner,
                 *owner = group->ids[slot].form;
                 break;
             }
+            TH_WORK_STEP();
             slot = (slot + 1) & group->mask;
         }
         return 0;
@@ -2180,8 +2182,10 @@ static path_id_map *path_id_map_build(th_tree *tree, th_node *document) {
             continue;
         }
         size_t slot = (size_t)path_id_hash(id->value, id->value_len, ci) & map->mask;
+        TH_WORK_STEP();
         while (map->slots[slot].value != NULL &&
                !sel_eq(map->slots[slot].value, map->slots[slot].len, id->value, id->value_len, ci)) {
+            TH_WORK_STEP();
             slot = (slot + 1) & map->mask;
         }
         if (map->slots[slot].value == NULL) {
@@ -2199,7 +2203,9 @@ static path_id_map *path_id_map_build(th_tree *tree, th_node *document) {
    and the map counts every id there, so the candidate's own id is present and the probe ends on its slot. */
 static int path_id_unique(const path_id_map *map, const Py_UCS4 *value, Py_ssize_t len) {
     size_t slot = (size_t)path_id_hash(value, len, map->ci) & map->mask;
+    TH_WORK_STEP();
     while (!sel_eq(map->slots[slot].value, map->slots[slot].len, value, len, map->ci)) {
+        TH_WORK_STEP();
         slot = (slot + 1) & map->mask;
     }
     return map->slots[slot].count == 1;

@@ -408,6 +408,7 @@ static int micro_id_index_build(micro_id_index *index, th_node *document) {
                 duplicate = 1;
                 break;
             }
+            TH_WORK_STEP();
             probe = (probe + 1) & index->mask;
         }
         if (!duplicate) {
@@ -429,6 +430,7 @@ static int micro_id_index_find(micro_id_index *index, th_node *document, const P
     }
     for (size_t probe = micro_id_hash(id, id_len) & index->mask; index->slots[probe] != NULL;
          probe = (probe + 1) & index->mask) {
+        TH_WORK_STEP();
         const th_node_attr *stored = find_node_attr(index->slots[probe], TH_ATTR_ID);
         if (stored->value_len == id_len && memcmp(stored->value, id, (size_t)id_len * sizeof(Py_UCS4)) == 0) {
             *result = index->slots[probe];

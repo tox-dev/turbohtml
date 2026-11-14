@@ -371,6 +371,7 @@ typedef struct {
     strmap_slot *slots;
     size_t cap;
     size_t count;
+    int keyed; /* 1 once the slots moved to th_name_hash (strmap_hash) */
 } strmap;
 
 static size_t str_hash(const Py_UCS4 *str, Py_ssize_t len) {
@@ -382,8 +383,8 @@ static size_t str_hash(const Py_UCS4 *str, Py_ssize_t len) {
     return value;
 }
 
-/* The slot hash of the string tables below. Their keys come from the source document (an xsl:key value, a name), so
-   the slot is taken from the keyed hash: under str_hash a document could choose values that share one probe run. */
+/* The slot hash of the name index below. Its keys come from the stylesheet, so the slot is taken from the keyed
+   hash: under str_hash a stylesheet could choose names that share one probe run. */
 static size_t str_slot_hash(const Py_UCS4 *str, Py_ssize_t len) {
     return th_name_hash(str, len * (Py_ssize_t)sizeof(Py_UCS4));
 }
@@ -392,16 +393,34 @@ static int str_eq(const Py_UCS4 *left, Py_ssize_t left_len, const Py_UCS4 *right
     return left_len == right_len && memcmp(left, right, (size_t)left_len * sizeof(Py_UCS4)) == 0;
 }
 
-static int strmap_grow(strmap *map) {
-    size_t new_cap = map->cap == 0 ? 16 : map->cap * 2;
+/* Out of line, so SipHash's body stays out of the str_hash walks that callers inline. */
+static TH_NOINLINE size_t str_keyed_hash(const Py_UCS4 *str, Py_ssize_t len) {
+    return th_name_hash(str, len * (Py_ssize_t)sizeof(Py_UCS4));
+}
+
+/* The hash a key table is in. Its strings are xsl:key values the source document picks: str_hash first, and once a
+   walk passes TH_FAST_PROBE_LIMIT slots the table rehashes under th_name_hash, which the document cannot steer
+   (core/hash.h). */
+static size_t strmap_hash(const strmap *map, const Py_UCS4 *str, Py_ssize_t len) {
+    return map->keyed ? str_keyed_hash(str, len) : str_hash(str, len);
+}
+
+/* Move the entries into new_cap slots under th_name_hash when keyed, else str_hash. Taken in slot order, no entry of
+   a doubled map lands further from its home than it sat before, so the bound strmap_bucket keeps on how far an entry
+   sits holds on. */
+static inline int strmap_move(strmap *map, size_t new_cap, int keyed) {
     strmap_slot *slots = PyMem_Calloc(new_cap, sizeof(strmap_slot));
     if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
         return -1;       /* GCOVR_EXCL_LINE */
     }
     for (size_t index = 0; index < map->cap; index++) {
         if (map->slots[index].used) {
-            size_t probe = str_slot_hash(map->slots[index].str, map->slots[index].str_len) & (new_cap - 1);
+            const Py_UCS4 *str = map->slots[index].str;
+            Py_ssize_t len = map->slots[index].str_len;
+            size_t probe =
+                (keyed ? th_name_hash(str, len * (Py_ssize_t)sizeof(Py_UCS4)) : str_hash(str, len)) & (new_cap - 1);
             while (slots[probe].used) {
+                TH_WORK_STEP();
                 probe = (probe + 1) & (new_cap - 1);
             }
             slots[probe] = map->slots[index];
@@ -413,7 +432,58 @@ static int strmap_grow(strmap *map) {
     return 0;
 }
 
-/* Return the node-vector for a key string, creating the slot (copying str) if absent.
+/* Out of line, so the str_hash move inlined into strmap_bucket keeps its registers. */
+static TH_NOINLINE int strmap_move_keyed(strmap *map, size_t new_cap) {
+    return strmap_move(map, new_cap, 1);
+}
+
+static int strmap_grow(strmap *map) {
+    size_t new_cap = map->cap == 0 ? 16 : map->cap * 2;
+    return map->keyed ? strmap_move_keyed(map, new_cap) : strmap_move(map, new_cap, 0);
+}
+
+/* A walk on str_hash went past TH_FAST_PROBE_LIMIT slots: move the map to th_name_hash for the rest of its life. Out
+   of line, so the walks keep their registers. */
+static TH_NOINLINE int strmap_rekey(strmap *map) {
+    if (strmap_move_keyed(map, map->cap) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+        return -1;                              /* GCOVR_EXCL_LINE */
+    }
+    map->keyed = 1;
+    return 0;
+}
+
+/* The string's node-vector, or NULL when absent. A hit walks no further than its entry sits from its home, but a miss
+   walks to the end of the run its home falls in, and the document can line up homes into one long run without any
+   entry sitting far, so a long miss moves the map to th_name_hash. */
+static const nodevec *strmap_lookup(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
+    if (map->cap == 0) {
+        return NULL;
+    }
+    size_t home = strmap_hash(map, str, str_len) & (map->cap - 1);
+    size_t probe = home;
+    for (;;) {
+        if (!map->slots[probe].used) {
+            if (map->keyed || ((probe - home) & (map->cap - 1)) <= TH_FAST_PROBE_LIMIT) {
+                return NULL;
+            }
+            /* a failed move leaves the map whole on str_hash, where the walk just found no entry */
+            if (strmap_rekey(map) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+                return NULL;             /* GCOVR_EXCL_LINE */
+            }
+            home = strmap_hash(map, str, str_len) & (map->cap - 1);
+            probe = home;
+            continue;
+        }
+        if (str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
+            return &map->slots[probe].nodes;
+        }
+        TH_WORK_STEP();
+        probe = (probe + 1) & (map->cap - 1);
+    }
+}
+
+/* Return the node-vector for a key string, creating the slot (copying str) if absent. On str_hash no entry is seated
+   past TH_FAST_PROBE_LIMIT slots from its home, which bounds every walk that ends at an entry.
    NULL on allocation failure. */
 static nodevec *strmap_bucket(strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
     if ((map->count + 1) * 2 >= map->cap) {
@@ -421,12 +491,20 @@ static nodevec *strmap_bucket(strmap *map, const Py_UCS4 *str, Py_ssize_t str_le
             return NULL;            /* GCOVR_EXCL_LINE */
         }
     }
-    size_t probe = str_slot_hash(str, str_len) & (map->cap - 1);
+    size_t home = strmap_hash(map, str, str_len) & (map->cap - 1);
+    size_t probe = home;
     while (map->slots[probe].used) {
         if (str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
             return &map->slots[probe].nodes;
         }
+        TH_WORK_STEP();
         probe = (probe + 1) & (map->cap - 1);
+    }
+    if (!map->keyed && ((probe - home) & (map->cap - 1)) > TH_FAST_PROBE_LIMIT) {
+        if (strmap_rekey(map) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+            return NULL;             /* GCOVR_EXCL_LINE */
+        }
+        return strmap_bucket(map, str, str_len);
     }
     Py_UCS4 *owned = ucs4_dup(str, str_len);
     if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
@@ -437,20 +515,6 @@ static nodevec *strmap_bucket(strmap *map, const Py_UCS4 *str, Py_ssize_t str_le
     map->slots[probe].used = 1;
     map->count++;
     return &map->slots[probe].nodes;
-}
-
-static const nodevec *strmap_lookup(const strmap *map, const Py_UCS4 *str, Py_ssize_t str_len) {
-    if (map->cap == 0) {
-        return NULL;
-    }
-    size_t probe = str_slot_hash(str, str_len) & (map->cap - 1);
-    while (map->slots[probe].used) {
-        if (str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
-            return &map->slots[probe].nodes;
-        }
-        probe = (probe + 1) & (map->cap - 1);
-    }
-    return NULL;
 }
 
 static void strmap_free(strmap *map) {
@@ -464,6 +528,7 @@ static void strmap_free(strmap *map) {
     map->slots = NULL;
     map->cap = 0;
     map->count = 0;
+    map->keyed = 0;
 }
 
 typedef struct {
@@ -481,6 +546,7 @@ static size_t name_index_slot(const xslt_name_index *index, const Py_UCS4 *name,
     size_t slot = str_slot_hash(name, length) & (index->capacity - 1);
     while (index->entries[slot].first != 0 &&
            !str_eq(index->entries[slot].name, index->entries[slot].length, name, length)) {
+        TH_WORK_STEP();
         slot = (slot + 1) & (index->capacity - 1);
     }
     return slot;
@@ -1163,7 +1229,7 @@ static int build_key(engine *eng, xslt_key *key);
 
 static int copy_result_value(const xp_result *src, xp_result *dst);
 
-static int key_union(engine *eng, const xslt_key *key, const xp_nodeset *members, xp_nodeset *out);
+static int key_union(engine *eng, xslt_key *key, const xp_nodeset *members, xp_nodeset *out);
 
 /* format-number: apply a DecimalFormat picture to a number (default decimal-format
    only: '.' decimal separator, ',' grouping, '#' optional digit, '0' required digit,
@@ -1487,7 +1553,7 @@ static int nodeslot_order_cmp(const void *first, const void *second) {
    that share a value name one bucket, and a multi-valued use files one node under several values, so a bucket is
    walked once and a node taken once; appending a bucket per member instead builds members x bucket entries. Each
    bucket is in match order, which is document order, so the taken nodes are sorted by their match index. */
-static int key_union(engine *eng, const xslt_key *key, const xp_nodeset *members, xp_nodeset *out) {
+static int key_union(engine *eng, xslt_key *key, const xp_nodeset *members, xp_nodeset *out) {
     strmap walked = {0};
     match_set taken = {0};
     nodevec ordered = {0};

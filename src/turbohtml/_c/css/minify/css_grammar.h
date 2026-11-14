@@ -1109,6 +1109,7 @@ static int css_rule_hash_seen(const uint32_t *table, size_t mask, uint32_t hash)
         if (table[slot] == hash) {
             return 1;
         }
+        TH_WORK_STEP();
         slot = (slot + 1) & mask;
     }
     return 0;
@@ -1117,6 +1118,7 @@ static int css_rule_hash_seen(const uint32_t *table, size_t mask, uint32_t hash)
 static void css_rule_hash_add(uint32_t *table, size_t mask, uint32_t hash) {
     size_t slot = hash & mask;
     while (table[slot] != 0 && table[slot] != hash) {
+        TH_WORK_STEP();
         slot = (slot + 1) & mask;
     }
     table[slot] = hash;
@@ -1464,7 +1466,6 @@ static int css_type_lists_disjoint(const css_buf *pool, const rule_item *left, c
 typedef struct {
     Py_ssize_t offset;
     Py_ssize_t length;
-    uint32_t hash;
 } css_custom_name;
 
 static int css_custom_names(const css_char *body, Py_ssize_t length, css_custom_name *names) {
@@ -1485,7 +1486,7 @@ static int css_custom_names(const css_char *body, Py_ssize_t length, css_custom_
             body[index] != ':') {                    /* GCOVR_EXCL_BR_LINE: invalid decl */
             return 0;                                /* GCOVR_EXCL_LINE: invalid declaration removed earlier */
         }
-        names[count++] = (css_custom_name){start, index - start, css_hash_run(body + start, index - start)};
+        names[count++] = (css_custom_name){start, index - start};
         index++;
         while (index < length && body[index] != ';') {
             if (body[index] == '\\' || body[index] == '\'' || /* GCOVR_EXCL_BR_LINE: complex value */
@@ -1516,8 +1517,7 @@ static int css_custom_bodies_disjoint(const css_buf *pool, const rule_item *left
     }
     for (int outer = 0; outer < left_count; outer++) {
         for (int inner = 0; inner < right_count; inner++) {
-            if (left_names[outer].hash == right_names[inner].hash &&
-                left_names[outer].length == right_names[inner].length &&
+            if (left_names[outer].length == right_names[inner].length &&
                 memcmp(left_body + left_names[outer].offset, right_body + right_names[inner].offset,
                        (size_t)left_names[outer].length) == 0) {
                 return 0;

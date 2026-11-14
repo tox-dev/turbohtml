@@ -189,8 +189,10 @@ static void slot_index_clear(slot_index *index) {
 static slot_bucket *slot_index_bucket(slot_index *index, const Py_UCS4 *name, Py_ssize_t name_len) {
     size_t hash = th_name_hash(name, name_len * (Py_ssize_t)sizeof(Py_UCS4)); /* keyed: the page picks slot names */
     size_t position = hash & (index->cap - 1);
+    TH_WORK_STEP();
     while (index->buckets[position].slot != NULL &&
            !runs_equal(name, name_len, index->buckets[position].name, index->buckets[position].name_len)) {
+        TH_WORK_STEP();
         position = (position + 1) & (index->cap - 1);
     }
     return &index->buckets[position];

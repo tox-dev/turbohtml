@@ -536,6 +536,7 @@ static Py_ssize_t dedup_slot_run(dedup_entry *table, uint32_t mask, const css_bu
             memcmp(pool->data + table[slot].prop_off, key, (size_t)key_len * sizeof(css_char)) == 0) {
             break;
         }
+        TH_WORK_STEP();
         slot = (slot + 1) & mask;
     }
     return slot;
@@ -558,6 +559,7 @@ static Py_ssize_t dedup_slot_cstr(dedup_entry *table, uint32_t mask, const css_b
                 break;
             }
         }
+        TH_WORK_STEP();
         slot = (slot + 1) & mask;
     }
     return slot;

@@ -68,22 +68,31 @@ typedef struct {
     int32_t cap; /* a power of two */
     int32_t count;
     int failed;
+    int keyed; /* 1 once the slots moved to th_name_hash (htab_walked_far) */
 } htab;
 
-/* The source picks its identifiers, so inside the extension the tables hash them under the per-process key
-   (core/hash.h); the standalone engine has no interpreter to draw a key from and keeps a reproducible FNV-1a. */
 static uint32_t name_hash(const Py_UCS4 *name, Py_ssize_t len) {
-#ifdef JM_STANDALONE
     uint32_t hash = 2166136261u;
     for (Py_ssize_t index = 0; index < len; index++) {
         hash = (hash ^ (uint32_t)name[index]) * 16777619u;
     }
     return hash;
-#else
-    return th_name_hash(name, len * (Py_ssize_t)sizeof(Py_UCS4));
-#endif
 }
 
+/* The source picks its identifiers, and FNV-1a lets it pick ones that share a home. Inside the extension a table whose
+   walk passes TH_FAST_RUN_LIMIT slots moves to th_name_hash under the per-process key (core/hash.h); the standalone
+   engine has no interpreter to draw a key from and never moves. */
+#ifdef JM_STANDALONE
+#define TH_FAST_RUN_LIMIT INT32_MAX
+#define name_hash_keyed name_hash
+#else
+static uint32_t name_hash_keyed(const Py_UCS4 *name, Py_ssize_t len) {
+    return th_name_hash(name, len * (Py_ssize_t)sizeof(Py_UCS4));
+}
+#endif
+
+/* Move the slots into cap of them under the table's hash. Taken in slot order, no name of a doubled table lands further
+   from its home than it sat before, so the bound htab_slot keeps on how far a name sits holds on. */
 static void htab_resize(htab *table, int32_t cap) {
     hslot *slots = jm_calloc((size_t)cap, sizeof(hslot));
     if (slots == NULL) {   /* GCOVR_EXCL_BR_LINE: allocation-failure path */
@@ -93,8 +102,11 @@ static void htab_resize(htab *table, int32_t cap) {
     uint32_t mask = (uint32_t)cap - 1;
     for (int32_t index = 0; index < table->cap; index++) {
         if (table->slots[index].name != NULL) {
-            uint32_t probe = name_hash(table->slots[index].name, table->slots[index].len) & mask;
+            const Py_UCS4 *name = table->slots[index].name;
+            Py_ssize_t len = table->slots[index].len;
+            uint32_t probe = (table->keyed ? name_hash_keyed(name, len) : name_hash(name, len)) & mask;
             while (slots[probe].name != NULL) {
+                TH_WORK_STEP();
                 probe = (probe + 1) & mask;
             }
             slots[probe] = table->slots[index];
@@ -105,22 +117,11 @@ static void htab_resize(htab *table, int32_t cap) {
     table->cap = cap;
 }
 
-/* Find the slot for name; with create, claim an empty slot (value -1) and grow the
-   table when it passes a 3/4 load. Returns NULL only when create is 0 and absent, or
-   on allocation failure. */
-static hslot *htab_slot(htab *table, const Py_UCS4 *name, Py_ssize_t len, int create) {
-    if (create && (table->cap == 0 || (table->count + 1) * 4 >= table->cap * 3)) {
-        htab_resize(table, table->cap ? table->cap * 2 : 64);
-        if (table->failed) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
-            return NULL;     /* GCOVR_EXCL_LINE */
-        }
-    }
-    if (table->cap == 0) {
-        return NULL; /* an empty read-only table */
-    }
+/* htab_slot for a table on th_name_hash, where walks need no bound. Out of line, with the moves below, so the FNV-1a
+   loop that callers inline stays as small as it was before tables could move. */
+static TH_NOINLINE hslot *htab_slot_keyed(htab *table, const Py_UCS4 *name, Py_ssize_t len, int create) {
     uint32_t mask = (uint32_t)table->cap - 1;
-    uint32_t probe = name_hash(name, len) & mask;
-    for (;;) {
+    for (uint32_t probe = name_hash_keyed(name, len) & mask;; probe = (probe + 1) & mask) {
         hslot *slot = &table->slots[probe];
         if (slot->name == NULL) {
             if (!create) {
@@ -135,6 +136,68 @@ static hslot *htab_slot(htab *table, const Py_UCS4 *name, Py_ssize_t len, int cr
         if (name_eq(slot->name, slot->len, name, len)) {
             return slot;
         }
+        TH_WORK_STEP();
+    }
+}
+
+/* A walk on FNV-1a ended at the empty slot probe. No name is seated more than TH_FAST_RUN_LIMIT slots from its home, so
+   a hit walks no further, but a miss walks to the end of the run its home falls in, and the source can line up homes
+   into one long run without seating any name far. So when the TH_FAST_RUN_LIMIT + 1 slots before probe are all filled
+   (testing the farthest first settles most calls with one load), move the table to th_name_hash for the rest of its
+   life and return 1. The test stops at the limit, so it is no counted work step. */
+static TH_NOINLINE int htab_walked_far(htab *table, uint32_t probe) {
+    uint32_t mask = (uint32_t)table->cap - 1;
+    for (uint32_t back = (uint32_t)TH_FAST_RUN_LIMIT + 1; back > 0; back--) {
+        if (table->slots[(probe - back) & mask].name == NULL) {
+            return 0;
+        }
+    }
+    table->keyed = 1;
+    htab_resize(table, table->cap);
+    return 1;
+}
+
+/* Find the slot for name; with create, claim an empty slot (value -1) and grow the
+   table when it passes a 3/4 load. Returns NULL only when create is 0 and absent, or
+   on allocation failure. */
+static inline hslot *htab_slot(htab *table, const Py_UCS4 *name, Py_ssize_t len, int create) {
+    if (create && (table->cap == 0 || (table->count + 1) * 4 >= table->cap * 3)) {
+        htab_resize(table, table->cap ? table->cap * 2 : 64);
+        if (table->failed) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+            return NULL;     /* GCOVR_EXCL_LINE */
+        }
+    }
+    if (table->cap == 0) {
+        return NULL; /* an empty read-only table */
+    }
+    if (table->keyed) {
+        return htab_slot_keyed(table, name, len, create);
+    }
+    uint32_t mask = (uint32_t)table->cap - 1;
+    uint32_t probe = name_hash(name, len) & mask;
+    for (;;) {
+        hslot *slot = &table->slots[probe];
+        if (slot->name == NULL) {
+            /* a table of no more names than the limit holds no run that long */
+            if (table->count > TH_FAST_RUN_LIMIT && htab_walked_far(table, probe)) {
+                if (table->failed) { /* GCOVR_EXCL_BR_LINE: allocation-failure path */
+                    return NULL;     /* GCOVR_EXCL_LINE */
+                }
+                return htab_slot_keyed(table, name, len, create);
+            }
+            if (!create) {
+                return NULL;
+            }
+            slot->name = name;
+            slot->len = len;
+            slot->val = -1;
+            table->count++;
+            return slot;
+        }
+        if (name_eq(slot->name, slot->len, name, len)) {
+            return slot;
+        }
+        TH_WORK_STEP();
         probe = (probe + 1) & mask;
     }
 }

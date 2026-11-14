@@ -1,14 +1,17 @@
-/* Keyed hashing of names that arrive in untrusted input.
+/* Hashing of names that arrive in untrusted input.
 
-   The tokenizer's per-tag duplicate-attribute index (tokenizer/statemachine.c) and the tree's dynamic
-   attribute-name table (dom/tree.c) are open-addressing tables with linear probing, keyed by names the
-   document author picks. Linear probing stays O(1) only while home slots are spread over the table, so
-   both hash through the one function here: a hash that can be evaluated offline lets a document choose
-   names that land in one run of slots, and every further name then walks that run, the quadratic cost
-   the tables exist to remove (CWE-407).
+   The tokenizer's per-tag duplicate-attribute index (tokenizer/statemachine.c), the tree's dynamic
+   attribute-name table (dom/tree.c), and the string tables of XPath id() and translate(), xsl:key and
+   minify_js are open-addressing tables with linear probing, keyed by text the document author picks.
+   Linear probing stays O(1) only while home slots are spread over the table: a hash that can be
+   evaluated offline lets a document choose names that land in one run of slots, and every further
+   name then walks that run, the quadratic cost the tables exist to remove (CWE-407).
 
-   The function is SipHash-1-3 (Aumasson and Bernstein), the keyed hash CPython uses for str and bytes
-   (PEP 456), so the slot cannot be predicted from the input.
+   Each of those tables starts on its own unkeyed hash, which is cheap, and watches the runs it builds.
+   Once a run passes TH_FAST_PROBE_LIMIT the table rehashes its entries under th_name_hash (or
+   th_key_mix for code points) and stays there. th_name_hash is SipHash-1-3 (Aumasson and Bernstein),
+   the keyed hash CPython uses for str and bytes (PEP 456), under a 128-bit key the document cannot
+   see, so the slots cannot be predicted from the input.
 
    A header-only static inline, like core/vec.h, so each table inlines the rounds it runs. */
 
@@ -20,6 +23,8 @@
 
 #include <stdint.h>
 #include <string.h>
+
+#include "core/work_steps.h"
 
 /* The 128-bit key, defined and set once per process in core/module.c. */
 extern uint64_t th_name_hash_key[2];
@@ -74,10 +79,27 @@ static inline uint32_t th_name_hash(const void *data, Py_ssize_t len) {
     return (uint32_t)(state[0] ^ state[1] ^ state[2] ^ state[3]);
 }
 
-/* FNV-1a over the bytes: the unkeyed fast path every name table starts on. Only a table whose probe runs overflow
-   TH_FAST_PROBE_LIMIT switches, for good, to th_name_hash, so a document can cost a bounded probe run once per insert
-   before the switch and never after it. */
-#define TH_FAST_PROBE_LIMIT 16
+/* FNV-1a over the bytes: the hash the name tables start on, since it costs a multiply per byte where
+   th_name_hash costs its rounds. FNV-1a is fixed, so a document can still pick names that share one run of
+   slots. Each table therefore watches its runs, and once one passes the limit the table rehashes its
+   entries under th_name_hash for the rest of its life. Up to that point a probe walks at most the limit,
+   and past it the key decides the slots, so a document can buy one bounded rehash and nothing quadratic.
+
+   A table kept at most half full uses TH_FAST_PROBE_LIMIT, and one filled to 3/4 uses TH_FAST_RUN_LIMIT,
+   since runs of random names grow longer there. Both sit above the longest run random names reach in all
+   but rare large tables, so ordinary documents stay on FNV-1a. */
+#define TH_FAST_PROBE_LIMIT 64
+#define TH_FAST_RUN_LIMIT (2 * TH_FAST_PROBE_LIMIT)
+
+#ifndef TH_NOINLINE
+#if defined(_MSC_VER)
+#define TH_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define TH_NOINLINE __attribute__((noinline))
+#else
+#define TH_NOINLINE
+#endif
+#endif
 
 static inline uint32_t th_fnv1a_bytes(const void *data, Py_ssize_t len) {
     const unsigned char *bytes = data;
