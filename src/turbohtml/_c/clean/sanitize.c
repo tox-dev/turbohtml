@@ -3157,7 +3157,8 @@ typedef struct {
     th_node **verdicts; /* the escapes a CONTEXT_RECORD region recorded */
     Py_ssize_t verdict_count;
     Py_ssize_t verdict_capacity;
-    int spoiled; /* the CONTEXT_RECORD region holds a table part, so its verdicts cannot stand */
+    int spoiled;  /* the CONTEXT_RECORD region holds a table part, so its verdicts cannot stand */
+    int deferred; /* an unwrap skipped its settle, so the whole tree takes one balancing pass after the walk */
 } balance_walk;
 
 /* balance_enter's result on an allocation failure: no context word sets every bit. */
@@ -3298,12 +3299,13 @@ static inline void sanitize_leaf(const sanitizer *s, th_node *node) {
 /* sanitize_children for HTML output that must also come out parse-stable. It judges each kept element as it reaches it,
    wherever the tree around it is already final (see CONTEXT_RECORD and CONTEXT_QUIET): the balancer reads the finished
    tree top-down, the order the walk reaches it in. A walk of its own, so the plain walk carries none of this; both
-   inline sanitize_element. Returns 0, or -1 on error. */
+   inline sanitize_element. An unwrap too deep to settle in place leaves its range to one balance_subtree pass over the
+   finished tree. Returns 0, or -1 on error. */
 static int sanitize_balanced_children(sanitizer *s, th_node *root) {
     balanced_frame *frames = NULL;
     Py_ssize_t depth = 0;
     Py_ssize_t capacity = 0;
-    balance_walk walk = {root, NULL, 0, 0, 0};
+    balance_walk walk = {root, NULL, 0, 0, 0, 0};
     uint32_t bits = balancer_child_bits(root, 0);
     int parent_kept = 1; /* the root is kept context */
     th_node *child = root->first_child;
@@ -3312,7 +3314,7 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
             if (depth == 0) {
                 PyMem_Free(frames);
                 PyMem_Free(walk.verdicts);
-                return 0;
+                return walk.deferred ? balance_subtree(s, root, 1) : 0;
             }
             /* nothing below pushes, so the frame stays in place while its post-order work runs */
             const balanced_frame *frame = &frames[--depth];
@@ -3322,13 +3324,17 @@ static int sanitize_balanced_children(sanitizer *s, th_node *root) {
             if (frame->action != SANITIZE_KEEP_CHILDREN) {
                 grandparent = frame->element->parent;
                 before = frame->element->prev_sibling;
-                /* GCOVR_EXCL_BR_START: unwrapping and settling only fail on allocation */
-                status = unwrap_element(s, frame->element, frame->action) < 0 ||
-                                 settle_hoisted(s, grandparent, before, frame->next, frame->element,
-                                                balanced_unwrap_pending, frames, depth) < 0
-                             ? -1
-                             : 0;
-                /* GCOVR_EXCL_BR_STOP */
+                /* Bound repeated deep settles, as sanitize_children does; the final pass balances their hoisted
+                   descendants once. */
+                int defer_balance = depth >= 32 && !balancer_fosters_from(grandparent);
+                status = unwrap_element(s, frame->element, frame->action);
+                if (status == 0) { /* GCOVR_EXCL_BR_LINE: unwrapping and settling only fail on allocation */
+                    status = defer_balance ? settle_range(s, grandparent, before, frame->next, 0, 0, 0, 0)
+                                           : settle_hoisted(s, grandparent, before, frame->next, frame->element,
+                                                            balanced_unwrap_pending, frames, depth);
+                }
+                s->balance_edited |= defer_balance;
+                walk.deferred |= defer_balance;
             }
             if (frame->role > ROLE_RECORDED) {
                 if (status == 0) { /* GCOVR_EXCL_BR_LINE: unwrapping and settling only fail on allocation */
@@ -4247,8 +4253,8 @@ static int balancer_normalize_table_children(sanitizer *s, th_node *container, t
    foster-parent table text, and re-create implied table wrappers, so parse_fragment(serialize(root))'s subtree rebuilds
    exactly root's. Escaping hoists an element's children into its place; the traversal then revisits them against their
    new ancestors, so a cascade (a form that exposes a namespace-confused child) settles in one pass. settle_hoisted
-   calls this on each element a barrier's unwrap hoists, and a balanced walk whose root is a table part calls it once on
-   the whole tree. Table text stays put unless `foster` is set. Returns 0, or -1 on error. */
+   calls this on each element a barrier's unwrap hoists, and a walk that deferred a deep settle or whose root is a table
+   part calls it once on the whole tree. Table text stays put unless `foster` is set. Returns 0, or -1 on error. */
 static int balance_subtree_scanning(sanitizer *s, th_node *root, int foster) {
     if (balancer_normalize_table_children(s, root, NULL, NULL) < 0) { /* GCOVR_EXCL_BR_LINE: allocation */
         return -1;                                                    /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -4264,12 +4270,14 @@ static int balance_subtree_scanning(sanitizer *s, th_node *root, int foster) {
                     return -1;                     /* GCOVR_EXCL_LINE: allocation-failure path */
                 }
                 node = before != NULL ? before->next_sibling : parent->first_child;
-                continue;
-            }
-            if (balancer_normalize_table_children(s, node, NULL, NULL) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                if (node != NULL) {
+                    continue;
+                }
+                /* an implied element with no children escapes to nothing: the scan goes on past its parent */
+                node = parent;
+            } else if (balancer_normalize_table_children(s, node, NULL, NULL) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
                 return -1; /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-            if (node->first_child != NULL) {
+            } else if (node->first_child != NULL) {
                 node = node->first_child;
                 continue;
             }
