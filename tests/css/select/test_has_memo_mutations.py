@@ -254,13 +254,16 @@ def test_has_memo_chain_grown_under_an_extracted_subtree_leaves_the_document_ans
     div: Final = document.select_one("div")
     assert isinstance(div, Element)
     cursor: Element = div.extract()
+    links: Final[list[Element]] = []
     for _ in range(30):
         child = Element("i")
         cursor.append(child)
+        links.append(child)
         cursor = child
     cursor.append(Element("b"))
     assert document.select("div:has(b)") == []
     assert len(document.select("p")) == 1
+    assert len(links[24].select("i:has(b)")) == 5
 
 
 def test_computed_style_two_has_rules_on_one_element_later_wins() -> None:
