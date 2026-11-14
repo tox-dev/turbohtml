@@ -20,11 +20,13 @@ the repeat counts, or split the pattern into several ``pattern`` facets to stay 
 takes time linear in its length.
 
 The range facets ``minInclusive``, ``maxInclusive``, ``minExclusive`` and ``maxExclusive`` compare a number by value and
-an ``xs:date``, ``xs:dateTime``, ``xs:time`` or ``xs:duration`` by the order XSD 1.0 part 2 gives the type. That order
-is partial: a value with a timezone and one without are ordered only when they lie more than fourteen hours apart, and
-two durations only when they compare the same way from each of the specification's four reference dates, so ``P1M`` is
-neither below nor above ``P30D``. A value the order does not place against a bound fails the facet, and so does every
-value when the bound is not itself a value of the type.
+an ``xs:date``, ``xs:dateTime``, ``xs:time`` or ``xs:duration`` by the order XSD 1.0 part 2 gives the type. Years are
+numbered as in XSD 1.1, where 0000 is 1 BCE and -0001 is 2 BCE. That order is partial: a value with a timezone and one
+without are ordered only when they lie more than fourteen hours apart, and two durations only when they compare the same
+way from each of the specification's four reference dates, so ``P1M`` is neither below nor above ``P30D``. A value the
+order does not place against a bound fails the facet, and so does every value when the bound is not itself a value of
+the type. The range facets are not enforced on ``xs:gYear``, ``xs:gYearMonth``, ``xs:gMonth``, ``xs:gMonthDay`` or
+``xs:gDay``: those validate as strings.
 
 Compiling a RELAX NG schema raises :class:`ValueError` for a grammar the RELAX NG specification forbids: a ``<ref>``
 with no ``name`` attribute (section 4.10), a reference cycle whose expansion never passes through an ``element``

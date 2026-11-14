@@ -251,6 +251,32 @@ def restricted(facets: str, base: str = "xs:string") -> str:
         pytest.param("xs:duration", "maxInclusive", "P30D", f"P{'9' * 400}Y", False, id="duration-huge-years"),
         pytest.param("xs:duration", "minInclusive", "P30D", f"P{'9' * 400}D", True, id="duration-huge-days"),
         pytest.param("xs:duration", "maxInclusive", f"P{'9' * 400}D", f"P{'9' * 500}D", False, id="duration-both-huge"),
+        pytest.param(
+            "xs:date", "maxInclusive", f"{2**30}-01-01", f"{2**30}-01-02", False, id="date-beyond-double-above"
+        ),
+        pytest.param(
+            "xs:date", "maxInclusive", f"{2**30}-01-01", f"{2**30 - 1}-12-31", True, id="date-beyond-double-below"
+        ),
+        pytest.param(
+            "xs:date", "maxInclusive", f"{2**30}-01-01", f"{2**30}-01-01", False, id="date-beyond-double-equal"
+        ),
+        pytest.param(
+            "xs:dateTime",
+            "maxInclusive",
+            f"{2**30}-01-01T00:00:00Z",
+            f"{2**30}-01-01T00:00:01Z",
+            False,
+            id="dateTime-beyond-double-above",
+        ),
+        pytest.param(
+            "xs:duration", "maxInclusive", f"PT{2**54}S", f"PT{2**53}S", True, id="duration-beyond-double-below"
+        ),
+        pytest.param(
+            "xs:duration", "maxInclusive", f"PT{2**53}S", f"PT{2**53}S", False, id="duration-beyond-double-equal"
+        ),
+        pytest.param(
+            "xs:duration", "maxInclusive", f"PT{2**53}S", f"PT{2**53 + 1}S", False, id="duration-beyond-double-above"
+        ),
         pytest.param("xs:duration", "maxInclusive", "forever", "P1D", False, id="duration-bound-not-a-duration"),
     ],
 )

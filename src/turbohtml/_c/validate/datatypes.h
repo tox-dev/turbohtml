@@ -683,10 +683,14 @@ static int dt_is_ordered(int id) {
     return id >= DT_DATE && id <= DT_DURATION;
 }
 
-/* How two numbers stand: -1 below, 0 equal, 1 above, and 2 when they are unordered. A NaN is, and so are two
-   infinities of one sign, whose difference is a NaN: each stands for a count too long for a double. */
+/* How two numbers stand: -1 below, 0 equal, 1 above, and 2 when they are unordered. A NaN is unordered. Past 2^53
+   neighboring integers share a double, so two equal doubles there may stand for different values and are unordered
+   too. */
 static int dt_cmp(double left, double right) {
-    return left < right ? -1 : (left > right ? 1 : (left - right == 0 ? 0 : 2));
+    if (left == right) {
+        return fabs(left) < 0x1p53 ? 0 : 2;
+    }
+    return left < right ? -1 : (left > right ? 1 : 2);
 }
 
 /* The number the run of digits at `*at` writes, leaving `*at` on the character that ends the run. A year and a
@@ -703,8 +707,9 @@ static double dt_digit_run(const Py_UCS4 *value, Py_ssize_t *at) {
 
 /* Days from 0000-03-01 to the first of the month that lies `months` months after January of year 0, in the proleptic
    Gregorian calendar. Doubles carry the whole-number arithmetic because the lexical checks bound neither a year nor
-   a duration's counts: the result is exact for every date a real schema constrains, and a count long enough to
-   overflow comes out as NaN, which dt_cmp leaves unordered. */
+   a duration's counts: the result is exact for every date a real schema constrains. A count long enough to overflow
+   comes out as NaN, and past 2^53 seconds distinct dates can round to one double; dt_cmp leaves all of these
+   unordered. */
 static double dt_month_days(double months) {
     months -= 2; /* a year counted from March ends on its leap day */
     double year = floor(months / 12), month = months - year * 12;
@@ -858,16 +863,11 @@ typedef struct {
     int has_length, length;
     int has_min_length, min_length;
     int has_max_length, max_length;
-    int has_min_inclusive;
-    double min_inclusive;
-    int has_max_inclusive;
-    double max_inclusive;
-    int has_min_exclusive;
-    double min_exclusive;
-    int has_max_exclusive;
-    double max_exclusive;
-    /* the four bounds as the schema wrote them: the order of a date, dateTime, time or duration is not a double's */
-    strspan min_inclusive_text, max_inclusive_text, min_exclusive_text, max_exclusive_text;
+    int has_min_inclusive, has_max_inclusive, has_min_exclusive, has_max_exclusive;
+    double min_inclusive, max_inclusive, min_exclusive, max_exclusive;
+    /* the bounds as the schema wrote them, by RANGE_ slot: a date's, time's or duration's order is not a double's.
+       Held in the arena so the facetset that every simple value zeroes stays small. */
+    strspan *range_text;
     int has_total_digits, total_digits;
     int has_fraction_digits, fraction_digits;
     strspan *enums;
@@ -901,6 +901,19 @@ static int strspan_push(arena *mem, strspan **items, Py_ssize_t *count, Py_ssize
     return 0;
 }
 
+enum { RANGE_MIN_INCLUSIVE, RANGE_MAX_INCLUSIVE, RANGE_MIN_EXCLUSIVE, RANGE_MAX_EXCLUSIVE, RANGE_COUNT };
+
+static int facet_range_text(arena *mem, facetset *facets, int slot, const Py_UCS4 *value, Py_ssize_t value_len) {
+    if (facets->range_text == NULL) {
+        facets->range_text = arena_alloc(mem, RANGE_COUNT * sizeof(strspan));
+        if (facets->range_text == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
+            return -1;                    /* GCOVR_EXCL_LINE */
+        }
+    }
+    facets->range_text[slot] = (strspan){value, value_len};
+    return 0;
+}
+
 /* Fold one facet (name, value) into the set. */
 static int facet_add(arena *mem, facetset *facets, const Py_UCS4 *name, Py_ssize_t name_len, const Py_UCS4 *value,
                      Py_ssize_t value_len) {
@@ -922,21 +935,29 @@ static int facet_add(arena *mem, facetset *facets, const Py_UCS4 *name, Py_ssize
         facets->has_max_length = 1;
         facets->max_length = (int)dt_to_double(value, value_len);
     } else if (u_eq_ascii(name, name_len, "minInclusive")) {
+        if (facet_range_text(mem, facets, RANGE_MIN_INCLUSIVE, value, value_len) < 0) { /* GCOVR_EXCL_BR_LINE */
+            return -1;                                                                  /* GCOVR_EXCL_LINE */
+        }
         facets->has_min_inclusive = 1;
         facets->min_inclusive = dt_to_double(value, value_len);
-        facets->min_inclusive_text = (strspan){value, value_len};
     } else if (u_eq_ascii(name, name_len, "maxInclusive")) {
+        if (facet_range_text(mem, facets, RANGE_MAX_INCLUSIVE, value, value_len) < 0) { /* GCOVR_EXCL_BR_LINE */
+            return -1;                                                                  /* GCOVR_EXCL_LINE */
+        }
         facets->has_max_inclusive = 1;
         facets->max_inclusive = dt_to_double(value, value_len);
-        facets->max_inclusive_text = (strspan){value, value_len};
     } else if (u_eq_ascii(name, name_len, "minExclusive")) {
+        if (facet_range_text(mem, facets, RANGE_MIN_EXCLUSIVE, value, value_len) < 0) { /* GCOVR_EXCL_BR_LINE */
+            return -1;                                                                  /* GCOVR_EXCL_LINE */
+        }
         facets->has_min_exclusive = 1;
         facets->min_exclusive = dt_to_double(value, value_len);
-        facets->min_exclusive_text = (strspan){value, value_len};
     } else if (u_eq_ascii(name, name_len, "maxExclusive")) {
+        if (facet_range_text(mem, facets, RANGE_MAX_EXCLUSIVE, value, value_len) < 0) { /* GCOVR_EXCL_BR_LINE */
+            return -1;                                                                  /* GCOVR_EXCL_LINE */
+        }
         facets->has_max_exclusive = 1;
         facets->max_exclusive = dt_to_double(value, value_len);
-        facets->max_exclusive_text = (strspan){value, value_len};
     } else if (u_eq_ascii(name, name_len, "totalDigits")) {
         facets->has_total_digits = 1;
         facets->total_digits = (int)dt_to_double(value, value_len);
@@ -1009,19 +1030,23 @@ static int facet_check(valctx *ctx, th_node *node, const facetset *facets, const
         }
     } else if (dt_is_ordered(facets->base_id)) {
         const int id = facets->base_id;
-        if (facets->has_min_inclusive && !facet_bound_ok(id, value, len, facets->min_inclusive_text, 1, 1)) {
+        if (facets->has_min_inclusive &&
+            !facet_bound_ok(id, value, len, facets->range_text[RANGE_MIN_INCLUSIVE], 1, 1)) {
             report(ctx, node, "facet", "value is below minInclusive");
             ok = 0;
         }
-        if (facets->has_max_inclusive && !facet_bound_ok(id, value, len, facets->max_inclusive_text, -1, 1)) {
+        if (facets->has_max_inclusive &&
+            !facet_bound_ok(id, value, len, facets->range_text[RANGE_MAX_INCLUSIVE], -1, 1)) {
             report(ctx, node, "facet", "value is above maxInclusive");
             ok = 0;
         }
-        if (facets->has_min_exclusive && !facet_bound_ok(id, value, len, facets->min_exclusive_text, 1, 0)) {
+        if (facets->has_min_exclusive &&
+            !facet_bound_ok(id, value, len, facets->range_text[RANGE_MIN_EXCLUSIVE], 1, 0)) {
             report(ctx, node, "facet", "value is not above minExclusive");
             ok = 0;
         }
-        if (facets->has_max_exclusive && !facet_bound_ok(id, value, len, facets->max_exclusive_text, -1, 0)) {
+        if (facets->has_max_exclusive &&
+            !facet_bound_ok(id, value, len, facets->range_text[RANGE_MAX_EXCLUSIVE], -1, 0)) {
             report(ctx, node, "facet", "value is not below maxExclusive");
             ok = 0;
         }
