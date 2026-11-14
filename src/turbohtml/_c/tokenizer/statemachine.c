@@ -465,9 +465,6 @@ void th_tok_free(th_tokenizer *self) {
 void th_tok_switch(th_tokenizer *self, enum th_initial_state state) {
     static const enum state initial_states[] = {ST_DATA, ST_RCDATA, ST_RAWTEXT, ST_SCRIPT, ST_PLAINTEXT, ST_CDATA};
     self->state = initial_states[state];
-    /* a switch follows a start tag token, never a suspended reference; clearing here keeps a remembered scan
-       offset from ever applying to a reference read under another content model */
-    self->ref_scanned = 0;
 }
 
 void th_tok_set_cdata(th_tokenizer *self, int allowed) {

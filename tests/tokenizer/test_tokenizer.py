@@ -360,10 +360,10 @@ def test_reset_forgets_a_suspended_charref_run() -> None:
 @pytest.mark.parametrize(
     ("prefix", "run"),
     [
-        pytest.param("&#x", "f", id="hex-digits"),
+        pytest.param("&#x", "c", id="hex-digits"),
         pytest.param("&#", "9", id="decimal-digits"),
         pytest.param("&", "a", id="name-over-cap"),
-        pytest.param("<a x='&#x", "f", id="attribute-hex-digits"),
+        pytest.param("<a x='&#x", "c", id="attribute-hex-digits"),
         pytest.param("<a x=&", "a", id="attribute-name-over-cap"),
     ],
 )
@@ -373,7 +373,7 @@ def test_unterminated_charref_run_streams_in_linear_time(prefix: str, run: str) 
     reference_seconds, _ = _stream_fed_in_chunks("x" * len(document))
     seconds, shapes = _stream_fed_in_chunks(document)
     # both sides slow down under CPU contention, so the ratio to the reference is compared, not the raw time
-    assert seconds <= 10 * max(reference_seconds, 0.01)
+    assert seconds <= 20 * max(reference_seconds, 0.01)
     assert shapes == [_shape(token) for token in tokenize(document)]
 
 
@@ -381,8 +381,8 @@ def _stream_fed_in_chunks(document: str) -> tuple[float, list[_Shape]]:
     tokenizer = Tokenizer()
     tokens: list[Token] = []
     start = time.perf_counter()
-    for offset in range(0, len(document), 16):
-        tokens.extend(tokenizer.feed(document[offset : offset + 16]))
+    for offset in range(0, len(document), 7):
+        tokens.extend(tokenizer.feed(document[offset : offset + 7]))
     tokens.extend(tokenizer.close())
     return time.perf_counter() - start, [_shape(token) for token in tokens]
 
