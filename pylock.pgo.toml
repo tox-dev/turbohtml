@@ -1011,7 +1011,6 @@ command-line = [
     "pypy",
     "--output",
     "pylock.pgo.toml",
-    "-q",
 ]
 input-path = "pyproject.toml"
 mode = "universal"
