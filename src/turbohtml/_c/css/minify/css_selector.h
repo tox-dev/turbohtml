@@ -652,9 +652,6 @@ static int css_dedup_fill(css_buf *pool, decl_vec *decls, dedup_entry *table, ui
                 own_name = 0;
             }
             home = dedup_slot_run(table, mask, pool, prop, prop_len, important, keyed);
-            if (home < 0) {
-                return 1;
-            }
         }
         table[home].prop_off = later->prop_off;
         table[home].prop_len = prop_len;

@@ -424,7 +424,7 @@ static inline int strmap_move(strmap *map, size_t new_cap, int keyed) {
         return -1;       /* GCOVR_EXCL_LINE */
     }
     size_t start = 0;
-    while (start < map->cap && map->slots[start].used) {
+    while (map->slots[start].used) {
         start++;
     }
     for (size_t index = start; index < map->cap; index++) {

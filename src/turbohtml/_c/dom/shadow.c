@@ -324,9 +324,9 @@ static void collect_slotables_indexed(th_tree *tree, th_node *slot, th_node *roo
     named_value(slot, TH_ATTR_NAME, &name, &name_len);
     /* The FNV-1a walk runs on a keyed index too: the index holds each name once, so finding it anywhere is the answer,
        and runs under th_name_hash are short wherever the walk starts. Only a walk that ends empty there takes the keyed
-       one, which keeps the check off the lookups of an index on FNV-1a, where every slot finds its name. */
+       one; an index on FNV-1a always finds its slot's name, so it never does. */
     size_t position = slot_index_walk(index, slot_index_home(index, name, name_len, 0), name, name_len);
-    if (index->buckets[position].slot == NULL && TH_UNLIKELY(index->keyed)) {
+    if (index->buckets[position].slot == NULL) {
         position = slot_index_find_keyed(index, name, name_len);
     }
     slot_bucket *bucket = &index->buckets[position];
