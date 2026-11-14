@@ -13,7 +13,8 @@
 
 #include "dom/nodes.h"
 
-#include "core/vec.h" /* th_grow_cap overflow-safe growth */
+#include "core/hash.h" /* th_name_hash keyed hash for the slot-name index */
+#include "core/vec.h"  /* th_grow_cap overflow-safe growth */
 
 /* A grow-on-demand array of node pointers the assignment/flatten walks accumulate
    into, wrapped into a Python list by the binding once the walk finishes. failed is
@@ -186,10 +187,7 @@ static void slot_index_clear(slot_index *index) {
 }
 
 static slot_bucket *slot_index_bucket(slot_index *index, const Py_UCS4 *name, Py_ssize_t name_len) {
-    size_t hash = 2166136261U;
-    for (Py_ssize_t position = 0; position < name_len; position++) {
-        hash = (hash ^ name[position]) * 16777619U;
-    }
+    size_t hash = th_name_hash(name, name_len * (Py_ssize_t)sizeof(Py_UCS4)); /* keyed: the page picks slot names */
     size_t position = hash & (index->cap - 1);
     while (index->buckets[position].slot != NULL &&
            !runs_equal(name, name_len, index->buckets[position].name, index->buckets[position].name_len)) {

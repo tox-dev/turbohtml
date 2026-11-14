@@ -15,6 +15,7 @@
 
 #include "core/ascii.h"
 #include "core/common.h" /* SWAR lane probes for the serializer's clean-run scan */
+#include "core/hash.h"   /* th_name_hash keyed hash for the dynamic attribute-name table */
 #include "core/vec.h"    /* th_grow_cap overflow-safe buffer growth */
 
 #include <string.h>
@@ -104,15 +105,6 @@ static uint16_t tok_atom(const th_token *tok) {
     return tok->atom;
 }
 
-static uint32_t fnv1a(const char *bytes, Py_ssize_t len) {
-    uint32_t hash = 2166136261u;
-    for (Py_ssize_t index = 0; index < len; index++) {
-        hash ^= (unsigned char)bytes[index];
-        hash *= 16777619u;
-    }
-    return hash;
-}
-
 /* Ensure the dynamic table can take one more record: grow the record array, and
    build or grow the hash slots past a 3/4 load factor (rehashing the records). A
    failure flags the parse as arena_alloc does, so the builder drops the tree instead
@@ -175,8 +167,7 @@ static uint32_t dynamic_slot(th_tree *tree, const char *bytes, Py_ssize_t len, u
 
 /* Intern UTF-8 name bytes into the per-tree dynamic table, returning the atom
    (prototype in dom/tree_internal.h; the construction API in mutate.c reuses it). */
-uint32_t intern_attr_dynamic(th_tree *tree, const char *bytes, Py_ssize_t len) {
-    uint32_t hash = fnv1a(bytes, len);
+static uint32_t intern_attr_dynamic_hashed(th_tree *tree, const char *bytes, Py_ssize_t len, uint32_t hash) {
     uint32_t found = dynamic_slot(tree, bytes, len, hash);
     if (found != 0) {
         return TH_ATTR__DYNAMIC_BASE + (found - 1);
@@ -199,6 +190,10 @@ uint32_t intern_attr_dynamic(th_tree *tree, const char *bytes, Py_ssize_t len) {
     }
     tree->attr_slots[probe] = index + 1;
     return TH_ATTR__DYNAMIC_BASE + index;
+}
+
+uint32_t intern_attr_dynamic(th_tree *tree, const char *bytes, Py_ssize_t len) {
+    return intern_attr_dynamic_hashed(tree, bytes, len, th_name_hash(bytes, len));
 }
 
 /* UTF-8 encode a non-ASCII attribute name into the arena (NUL-terminated). Only
@@ -264,6 +259,23 @@ static uint32_t intern_attr(th_tree *tree, const th_buf *name) {
     return intern_attr_dynamic(tree, bytes, len);
 }
 
+/* The tokenizer hashed this name under the same key when it closed the attribute. An ASCII one-byte name has the
+   bytes the dynamic table stores, so that hash is reused and the name is hashed once per attribute. */
+static uint32_t intern_token_attr(th_tree *tree, const th_attr *attr) {
+    const th_buf *name = &attr->name;
+    if (name->kind == PyUnicode_1BYTE_KIND) {
+        const char *bytes = (const char *)name->data;
+        uint32_t atom = th_attr_atom(bytes, (size_t)name->len);
+        if (atom != TH_ATTR_UNKNOWN) {
+            return atom;
+        }
+        if (buf_ascii(bytes, name->len)) {
+            return intern_attr_dynamic_hashed(tree, bytes, name->len, attr->name_hash);
+        }
+    }
+    return intern_attr(tree, name);
+}
+
 /* The interned name's bytes for an atom: the static table for a common atom, the
    per-tree records otherwise. NUL-terminated; *out_len receives the length. */
 const char *th_attr_name(th_tree *tree, uint32_t atom, Py_ssize_t *out_len) {
@@ -288,7 +300,7 @@ uint32_t th_attr_lookup(th_tree *tree, const char *bytes, Py_ssize_t len) {
     if (atom != TH_ATTR_UNKNOWN) {
         return atom;
     }
-    uint32_t found = dynamic_slot(tree, bytes, len, fnv1a(bytes, len));
+    uint32_t found = dynamic_slot(tree, bytes, len, th_name_hash(bytes, len));
     return found != 0 ? TH_ATTR__DYNAMIC_BASE + (found - 1) : UINT32_MAX;
 }
 
@@ -727,7 +739,7 @@ static th_src_loc *build_source_location(th_tree *tree, th_node *node, const th_
         for (Py_ssize_t index = 0; index < token->attr_count; index++) {
             const th_attr *src = &token->attrs[index];
             const th_attr_loc *src_loc = &token->attr_locs[index];
-            loc->attrs[index].name_atom = intern_attr(tree, &src->name); /* idempotent with insert_element's */
+            loc->attrs[index].name_atom = intern_token_attr(tree, src); /* idempotent with insert_element's */
             loc->attrs[index].span = (th_src_span){src_loc->name_line, src_loc->name_col, src_loc->name_off,
                                                    src_loc->end_line,  src_loc->end_col,  src_loc->end_off};
         }
@@ -780,7 +792,7 @@ static th_node *build_element(th_tree *tree, const th_token *token) {
         for (Py_ssize_t index = 0; index < token->attr_count; index++) {
             const th_attr *src = &token->attrs[index];
             th_node_attr *dst = &node->attrs[index];
-            dst->name_atom = intern_attr(tree, &src->name);
+            dst->name_atom = intern_token_attr(tree, src);
             dst->value_len = src->has_value ? src->value.len : 0;
             dst->value = dst->value_len > 0 ? value : NULL;
             if (dst->value != NULL) {
@@ -1067,7 +1079,7 @@ static void merge_attrs(th_tree *tree, th_node *node, const th_token *token) {
     }
     Py_ssize_t add = 0;
     for (Py_ssize_t index = 0; index < token->attr_count; index++) {
-        uint32_t atom = intern_attr(tree, &token->attrs[index].name);
+        uint32_t atom = intern_token_attr(tree, &token->attrs[index]);
         if (!merge_name_present(names, node, atom)) {
             add++;
         }
@@ -1103,7 +1115,7 @@ static void merge_attrs(th_tree *tree, th_node *node, const th_token *token) {
     Py_ssize_t at = node->attr_count;
     for (Py_ssize_t index = 0; index < token->attr_count; index++) {
         const th_attr *src = &token->attrs[index];
-        uint32_t atom = intern_attr(tree, &src->name);
+        uint32_t atom = intern_token_attr(tree, src);
         if (merge_name_present(names, node, atom)) {
             continue;
         }

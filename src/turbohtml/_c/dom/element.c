@@ -3,6 +3,7 @@
 
 #include "dom/nodes.h"
 #include "dom/form_value.h"
+#include "core/hash.h"
 #include "core/node_map.h"
 
 #include "core/vec.h" /* th_grow_cap overflow-safe buffer growth */
@@ -2122,15 +2123,19 @@ static int path_id_safe(const Py_UCS4 *value, Py_ssize_t len, int *escaped) {
     return 1;
 }
 
-/* FNV-1a over an id value, folding case in quirks mode so values that the id
-   selector treats as equal hash equal. */
+/* The keyed hash (core/hash.h) of an id value, so a page cannot pick ids that share one probe run. Quirks mode folds
+   case, and values the id selector treats as equal must hash equal, so there each folded code point is chained
+   through the keyed hash in turn. */
 static uint64_t path_id_hash(const Py_UCS4 *value, Py_ssize_t len, int ci) {
-    uint64_t hash = 14695981039346656037u;
-    for (Py_ssize_t index = 0; index < len; index++) {
-        hash ^= (uint64_t)sel_fold(value[index], ci);
-        hash *= 1099511628211u;
+    if (!ci) {
+        return th_name_hash(value, len * (Py_ssize_t)sizeof(Py_UCS4));
     }
-    return hash;
+    uint32_t state[2] = {0, 0};
+    for (Py_ssize_t index = 0; index < len; index++) {
+        state[1] = (uint32_t)sel_fold(value[index], ci);
+        state[0] = th_name_hash(state, sizeof(state));
+    }
+    return state[0];
 }
 
 /* Build the document's id-occurrence map: every element's id value mapped to how

@@ -23,6 +23,7 @@
 #include "tokenizer/statemachine.h"
 
 #include "core/ascii.h"
+#include "core/hash.h"
 #include "core/vec.h"
 
 #include <stdint.h>
@@ -808,18 +809,13 @@ static int attr_name_dup(const th_attr *a, const th_attr *b) {
     return 1;
 }
 
-/* FNV-1a over a name's raw storage bytes. Equal names share width and content
-   (buffers reset to the 1-byte kind and promote only on demand), so equal names
-   always hash equal; a hash collision between distinct names is resolved by
-   attr_name_dup. */
+/* The keyed hash (core/hash.h) of a name's raw storage bytes; the key keeps a
+   document from choosing names whose slots in attr_seen_probe's table form one
+   probe run. Equal names share width and content (buffers reset to the 1-byte
+   kind and promote only on demand), so equal names always hash equal; a hash
+   collision between distinct names is resolved by attr_name_dup. */
 static uint32_t attr_name_hash(const th_buf *name) {
-    const unsigned char *bytes = name->data;
-    Py_ssize_t count = name->len * name->kind;
-    uint32_t hash = 2166136261u;
-    for (Py_ssize_t index = 0; index < count; index++) {
-        hash = (hash ^ bytes[index]) * 16777619u;
-    }
-    return hash;
+    return th_name_hash(name->data, name->len * name->kind);
 }
 
 /* Return 1 when the tag already carries attrs[cur]'s name, else record cur and

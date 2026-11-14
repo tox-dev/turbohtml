@@ -16,6 +16,7 @@
    needing to touch the core function library. */
 
 #include "core/common.h"
+#include "core/hash.h"
 #include "core/node_map.h"
 #include "core/resource.h"
 #include "core/vec.h"
@@ -373,6 +374,12 @@ static size_t str_hash(const Py_UCS4 *str, Py_ssize_t len) {
     return value;
 }
 
+/* The slot hash of the string tables below. Their keys come from the source document (an xsl:key value, a name), so
+   the slot is taken from the keyed hash: under str_hash a document could choose values that share one probe run. */
+static size_t str_slot_hash(const Py_UCS4 *str, Py_ssize_t len) {
+    return th_name_hash(str, len * (Py_ssize_t)sizeof(Py_UCS4));
+}
+
 static int str_eq(const Py_UCS4 *left, Py_ssize_t left_len, const Py_UCS4 *right, Py_ssize_t right_len) {
     return left_len == right_len && memcmp(left, right, (size_t)left_len * sizeof(Py_UCS4)) == 0;
 }
@@ -385,7 +392,7 @@ static int strmap_grow(strmap *map) {
     }
     for (size_t index = 0; index < map->cap; index++) {
         if (map->slots[index].used) {
-            size_t probe = str_hash(map->slots[index].str, map->slots[index].str_len) & (new_cap - 1);
+            size_t probe = str_slot_hash(map->slots[index].str, map->slots[index].str_len) & (new_cap - 1);
             while (slots[probe].used) {
                 probe = (probe + 1) & (new_cap - 1);
             }
@@ -406,7 +413,7 @@ static nodevec *strmap_bucket(strmap *map, const Py_UCS4 *str, Py_ssize_t str_le
             return NULL;            /* GCOVR_EXCL_LINE */
         }
     }
-    size_t probe = str_hash(str, str_len) & (map->cap - 1);
+    size_t probe = str_slot_hash(str, str_len) & (map->cap - 1);
     while (map->slots[probe].used) {
         if (str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
             return &map->slots[probe].nodes;
@@ -428,7 +435,7 @@ static const nodevec *strmap_lookup(const strmap *map, const Py_UCS4 *str, Py_ss
     if (map->cap == 0) {
         return NULL;
     }
-    size_t probe = str_hash(str, str_len) & (map->cap - 1);
+    size_t probe = str_slot_hash(str, str_len) & (map->cap - 1);
     while (map->slots[probe].used) {
         if (str_eq(map->slots[probe].str, map->slots[probe].str_len, str, str_len)) {
             return &map->slots[probe].nodes;
@@ -463,7 +470,7 @@ typedef struct {
 } xslt_name_index;
 
 static size_t name_index_slot(const xslt_name_index *index, const Py_UCS4 *name, Py_ssize_t length) {
-    size_t slot = str_hash(name, length) & (index->capacity - 1);
+    size_t slot = str_slot_hash(name, length) & (index->capacity - 1);
     while (index->entries[slot].first != 0 &&
            !str_eq(index->entries[slot].name, index->entries[slot].length, name, length)) {
         slot = (slot + 1) & (index->capacity - 1);

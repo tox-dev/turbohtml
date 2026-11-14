@@ -16,6 +16,7 @@
 
 #include "core/ascii.h"
 #include "core/common.h"
+#include "core/hash.h"
 #include "core/node_map.h"
 
 #include "core/vec.h"
@@ -360,12 +361,7 @@ static int node_stack_contains(const node_stack *stack, const th_node *node) {
 }
 
 static uint32_t micro_id_hash(const Py_UCS4 *id, Py_ssize_t id_len) {
-    uint32_t hash = 2166136261U;
-    for (Py_ssize_t index = 0; index < id_len; index++) {
-        hash ^= id[index];
-        hash *= 16777619U;
-    }
-    return hash;
+    return th_name_hash(id, id_len * (Py_ssize_t)sizeof(Py_UCS4)); /* keyed: the page picks its ids */
 }
 
 static int micro_id_index_build(micro_id_index *index, th_node *document) {

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import gc
+import itertools
+import random
+import string
 import threading
 import time
 from html.parser import HTMLParser
@@ -8,7 +11,7 @@ from typing import TYPE_CHECKING, Final, NamedTuple
 
 import pytest
 
-from turbohtml import Token, Tokenizer, TokenType, tokenize
+from turbohtml import Token, Tokenizer, TokenType, parse, tokenize
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -727,6 +730,69 @@ def _attrs_of(pairs: str) -> list[tuple[str, str]]:
     (tag,) = list(tokenize(f"<a{pairs}>"))
     assert tag.attrs is not None  # a start tag always exposes its attribute list
     return tag.attrs
+
+
+# Enough names that a single probe run through either attribute table overshoots the budget by a wide margin.
+_CLUSTERED: Final[int] = 100_000
+_RATIO: Final[float] = 10.0
+
+
+@pytest.fixture(scope="module")
+def clustered_names() -> list[str]:
+    candidates = ("".join(chars) for chars in itertools.product(string.ascii_lowercase, repeat=5))
+    return list(itertools.islice((name for name in candidates if (_fnv1a(name) >> 14) & 0xF == 0), _CLUSTERED))
+
+
+def _fnv1a(name: str) -> int:
+    # the unkeyed 32-bit hash both attribute tables indexed by before their hash was keyed
+    value = 2166136261
+    for byte in name.encode():
+        value = ((value ^ byte) * 16777619) & 0xFFFFFFFF
+    return value
+
+
+@pytest.fixture(scope="module")
+def spread_names() -> list[str]:
+    rng = random.Random(1)  # ruff: ignore[suspicious-non-cryptographic-random-usage]  # reproducible input
+    codes = rng.sample(range(26**5), _CLUSTERED)
+    return ["".join(string.ascii_lowercase[code // 26**place % 26] for place in range(5)) for code in codes]
+
+
+def test_attribute_names_chosen_to_cluster_tokenize_in_linear_time(
+    clustered_names: list[str], spread_names: list[str]
+) -> None:
+    assert _attrs_seconds(clustered_names) < _RATIO * max(_attrs_seconds(spread_names), 0.01)
+
+
+def _attrs_seconds(names: list[str]) -> float:
+    pairs = "".join(f" {name}" for name in names)
+    start = time.perf_counter()
+    attrs = _attrs_of(pairs)
+    elapsed = time.perf_counter() - start
+    assert len(attrs) == len(names)
+    return elapsed
+
+
+@pytest.mark.parametrize(
+    "separator",
+    [
+        pytest.param(" ", id="one-tag"),
+        pytest.param("><br ", id="tag-per-name"),
+    ],
+)
+def test_attribute_names_chosen_to_cluster_parse_in_linear_time(
+    separator: str, clustered_names: list[str], spread_names: list[str]
+) -> None:
+    assert _parse_seconds(separator, clustered_names) < _RATIO * max(_parse_seconds(separator, spread_names), 0.01)
+
+
+def _parse_seconds(separator: str, names: list[str]) -> float:
+    html = f"<br {separator.join(names)}>"
+    start = time.perf_counter()
+    document = parse(html)
+    elapsed = time.perf_counter() - start
+    assert sum(len(element.attrs) for element in document.select("br")) == len(names)
+    return elapsed
 
 
 def test_many_distinct_attributes_keep_their_names_and_order() -> None:

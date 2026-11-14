@@ -2,6 +2,7 @@
    parsel and scrapy lean on, and the Python hook the parser conformance tests call. */
 
 #include "core/common.h"
+#include "core/hash.h"
 #include "core/vec.h"
 #include "dom/tree.h"
 #include "query/xpath/internal.h"
@@ -287,7 +288,7 @@ static int translate(const Py_UCS4 *text, Py_ssize_t slen, const Py_UCS4 *from, 
 }
 
 static size_t translate_slot(const translate_entry *entries, size_t mask, Py_UCS4 character) {
-    size_t slot = ((size_t)character * 2654435761u) & mask;
+    size_t slot = (size_t)th_key_mix(character) & mask; /* keyed: the document picks the characters */
     while (entries[slot].position != 0 && entries[slot].character != character) {
         slot = (slot + 1) & mask;
     }
@@ -447,12 +448,7 @@ typedef struct {
 } xp_id_token;
 
 static uint64_t id_token_hash(const Py_UCS4 *value, Py_ssize_t len) {
-    uint64_t hash = 14695981039346656037u;
-    for (Py_ssize_t index = 0; index < len; index++) {
-        hash ^= value[index];
-        hash *= 1099511628211u;
-    }
-    return hash;
+    return th_name_hash(value, len * (Py_ssize_t)sizeof(Py_UCS4)); /* keyed: the document picks the tokens */
 }
 
 static int id_token_set_build(const Py_UCS4 *list, Py_ssize_t list_len, xp_id_token **slots, size_t *mask) {
@@ -494,13 +490,11 @@ static int id_token_set_build(const Py_UCS4 *list, Py_ssize_t list_len, xp_id_to
         }
         /* start < list_len here, so the token holds at least one character */
         Py_ssize_t start = index;
-        uint64_t hash = 14695981039346656037u;
         while (index < list_len && !xp_is_space(list[index])) {
-            hash ^= list[index++];
-            hash *= 1099511628211u;
+            index++;
         }
         Py_ssize_t len = index - start;
-        size_t probe = hash & *mask;
+        size_t probe = id_token_hash(list + start, len) & *mask;
         while ((*slots)[probe].value != NULL &&
                ((*slots)[probe].len != len ||
                 memcmp((*slots)[probe].value, list + start, (size_t)len * sizeof(Py_UCS4)) != 0)) {

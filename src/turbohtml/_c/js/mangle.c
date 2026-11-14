@@ -22,6 +22,10 @@
 
 #include "js/internal.h"
 
+#ifndef JM_STANDALONE
+#include "core/hash.h"
+#endif
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -65,12 +69,18 @@ typedef struct {
     int failed;
 } htab;
 
+/* The source picks its identifiers, so inside the extension the tables hash them under the per-process key
+   (core/hash.h); the standalone engine has no interpreter to draw a key from and keeps a reproducible FNV-1a. */
 static uint32_t name_hash(const Py_UCS4 *name, Py_ssize_t len) {
+#ifdef JM_STANDALONE
     uint32_t hash = 2166136261u;
     for (Py_ssize_t index = 0; index < len; index++) {
         hash = (hash ^ (uint32_t)name[index]) * 16777619u;
     }
     return hash;
+#else
+    return th_name_hash(name, len * (Py_ssize_t)sizeof(Py_UCS4));
+#endif
 }
 
 static void htab_resize(htab *table, int32_t cap) {
