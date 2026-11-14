@@ -1729,9 +1729,7 @@ static void walk(F *folder, int32_t idx) {
         splice_branch_else(folder, node->a);
         return;
     case JN_BINARY:
-        if (folder->prog->nodes[idx].kind == JN_BINARY) {
-            fold_arithmetic(folder, idx); /* integer operands; a folded concat is already done */
-        }
+        fold_arithmetic(folder, idx); /* integer operands; a folded concat is already done */
         if (node->op == JT_EQ_EQ || node->op == JT_NE || node->op == JT_EQ_EQ_EQ || node->op == JT_NE_EQ) {
             int32_t typeof_side = is_typeof_nonref(folder, node->a)   ? node->a
                                   : is_typeof_nonref(folder, node->b) ? node->b
