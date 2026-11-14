@@ -49,10 +49,7 @@ pseudo-class without a type) raises :class:`~turbohtml.convert.ExpressionError`:
     //h1 | //h2
     the of-type pseudo-classes need a type selector
 
-The same error reports a selector whose expression would pass 16,777,216 characters. XPath 1.0 cannot name a
-subexpression, so each ``An+B`` term of ``:nth-child(An+B of S)`` spells the condition for ``S`` out again, and each
-nested ``of S`` clause multiplies the expression by up to three. Split a long selector list into several calls, or nest
-fewer ``:nth-child(... of S)`` clauses, to stay under the cap.
+The same error reports a selector whose expression would pass 16,777,216 characters.
 
 ********************************
  Weigh a selector's specificity

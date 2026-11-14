@@ -58,8 +58,7 @@ a document without locating each ``<table>`` first:
 A ``<tr>`` inside a cell with no ``<table>`` in between (the parser nests them that way inside ``<svg>``, ``<math>`` and
 ``<template>``) is part of that cell's text and not a row of its own, so the cells of one table never overlap. A nested
 table is different: it is its own entry in :meth:`~turbohtml.Node.tables`, and its text is also part of the cell that
-holds it, so every level of nesting repeats the innermost text once more. A table nested inside two or more other tables
-of the same :meth:`~turbohtml.Node.tables` call counts its cell text toward a limit of 16,000,000 characters per call,
-and a call that exceeds it raises :class:`ValueError`. Tables nested inside at most one other table, tables that are not
-nested, and a single table read with :meth:`~turbohtml.Element.rows` or :meth:`~turbohtml.Element.records` are never
-counted, whatever their size.
+holds it. A table nested inside two or more other tables of the same :meth:`~turbohtml.Node.tables` call counts its cell
+text toward a limit of 16,000,000 characters per call, and a call that exceeds it raises :class:`ValueError`. Tables
+nested inside at most one other table, tables that are not nested, and a single table read with
+:meth:`~turbohtml.Element.rows` or :meth:`~turbohtml.Element.records` are never counted, whatever their size.

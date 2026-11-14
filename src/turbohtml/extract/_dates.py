@@ -70,7 +70,8 @@ def dates(html: str, options: DateExtraction | None = None, /) -> PublicationDat
     The signals are tried in htmldate's order -- a date in the canonical URL, then publication/modification
     ``<meta>`` tags, then JSON-LD, then ``<time>`` elements, then (with ``extensive_search``) visible text -- and the
     first that yields a date inside the ``[min_date, max_date]`` window wins. Within a stage the ``original`` flag
-    picks a publication date over a modification date, or the reverse.
+    picks a publication date over a modification date, or the reverse. A ``<time>`` or date-marked element nested
+    inside more than eight others contributes only its ``datetime`` or ``title`` attribute, not its text.
 
     :param html: the page markup.
     :param options: the extraction knobs; defaults to :class:`DateExtraction` (modification date, ISO output, the
