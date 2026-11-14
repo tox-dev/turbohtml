@@ -110,7 +110,9 @@ times faster.
 the adoption agency, foreign content, and the error recovery a browser performs); the pinned revision of WPT's `HTML
 parsing data
 <https://github.com/web-platform-tests/wpt/tree/4830edb033cb486fd0cd6f85b5e937cfc718704d/html/syntax/parsing/resources>`_
-validates it. The result is the tree a browser builds for the same bytes.
+validates it. The result is the tree a browser builds for the same bytes, with one bound: a ``select`` copies its
+selected option into at most 16 ``selectedcontent`` elements, and any after those keep the content the markup gave them.
+Valid markup has one per ``select``.
 
 turbohtml builds the tree in C as a pointer-linked node graph in a single bump-allocated arena, the layout `lexbor
 <https://lexbor.com>`_, Go's ``x/net/html``, and html5ever all converge on. It holds **no Python objects**. Element
