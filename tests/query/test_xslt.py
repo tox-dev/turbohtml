@@ -680,6 +680,20 @@ def test_transform_key_use_over_node_set_argument() -> None:
     assert _run('<r><want cat="x"/><item cat="x"/><item cat="x"/><item cat="y"/></r>', body) == "2"
 
 
+def test_transform_key_over_node_set_is_a_union() -> None:
+    body = (
+        '<xsl:key name="k" match="item" use="@cat|@tag"/>'
+        '<xsl:template match="/"><xsl:value-of select="count(key(\'k\', r/want))"/>:'
+        "<xsl:value-of select=\"count(key('k', r/none))\"/>:"
+        '<xsl:for-each select="key(\'k\', r/want)"><xsl:value-of select="@id"/></xsl:for-each></xsl:template>'
+    )
+    source = (
+        '<r><item id="a" cat="x" tag="y"/><item id="b" cat="x"/><item id="c" cat="y"/><item id="d" cat="z"/>'
+        "<want>x</want><want>x</want><want>y</want><want>missing</want></r>"
+    )
+    assert _run(source, body) == "3:0:abc"
+
+
 @pytest.mark.parametrize(
     ("picture", "value", "expected"),
     [

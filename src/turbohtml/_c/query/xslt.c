@@ -1148,6 +1148,8 @@ static int build_key(engine *eng, xslt_key *key);
 
 static int copy_result_value(const xp_result *src, xp_result *dst);
 
+static int key_union(engine *eng, const xslt_key *key, const xp_nodeset *members, xp_nodeset *out);
+
 /* format-number: apply a DecimalFormat picture to a number (default decimal-format
    only: '.' decimal separator, ',' grouping, '#' optional digit, '0' required digit,
    '%' percent, '-' minus). Enough of section 12.3 for the common integer/decimal
@@ -1337,23 +1339,9 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
         }
         out->kind = XP_NODESET;
         /* The lookup value: a node-set contributes each member's string-value, any
-           other type its string. */
-        if (args[1].kind == XP_NODESET) {
-            for (Py_ssize_t index = 0; index < args[1].nodes.len; index++) {
-                Py_ssize_t value_len = 0;
-                Py_UCS4 *value = item_string(eng->src_tree, args[1].nodes.items[index], &value_len);
-                if (value == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
-                    return -1;       /* GCOVR_EXCL_LINE */
-                }
-                const nodevec *bucket = strmap_lookup(&key->table, value, value_len);
-                PyMem_Free(value);
-                for (Py_ssize_t slot = 0; bucket != NULL && slot < bucket->len; slot++) {
-                    if (ns_push(&out->nodes, bucket->nodes[slot], -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
-                        return -1;                                           /* GCOVR_EXCL_LINE */
-                    }
-                }
-            }
-            return 0;
+           other type its string. A lone member's is the set's own string, one lookup. */
+        if (args[1].kind == XP_NODESET && args[1].nodes.len != 1) {
+            return key_union(eng, key, &args[1].nodes, &out->nodes);
         }
         Py_ssize_t value_len = 0;
         Py_UCS4 *value = to_string(eng->src_tree, &args[1], &value_len);
@@ -1472,6 +1460,50 @@ static int xslt_extension(void *vctx, th_node *context_node, const Py_UCS4 *name
         return 0;
     }
     return -2;
+}
+
+/* key() over a node-set: the union of the lookups for each member's string-value (XSLT 1.0 section 12.2). Members
+   that share a value name one bucket, and a multi-valued use files one node under several values, so a bucket is
+   walked once and a node taken once; appending a bucket per member instead builds members x bucket entries. */
+static int key_union(engine *eng, const xslt_key *key, const xp_nodeset *members, xp_nodeset *out) {
+    strmap walked = {0};
+    match_set taken = {0};
+    int rc = -1;
+    for (Py_ssize_t index = 0; index < members->len; index++) {
+        Py_ssize_t value_len = 0;
+        Py_UCS4 *value = item_string(eng->src_tree, members->items[index], &value_len);
+        if (value == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            goto done;       /* GCOVR_EXCL_LINE */
+        }
+        const nodevec *bucket = strmap_lookup(&key->table, value, value_len);
+        /* strmap_bucket adds a slot only for a value it has not seen, so an unchanged count is a repeated value. */
+        const size_t walked_before = walked.count;
+        const nodevec *mark = bucket == NULL ? NULL : strmap_bucket(&walked, value, value_len);
+        PyMem_Free(value);
+        if (bucket == NULL) {
+            continue;
+        }
+        if (mark == NULL) { /* GCOVR_EXCL_BR_LINE: alloc */
+            goto done;      /* GCOVR_EXCL_LINE */
+        }
+        if (walked.count == walked_before) {
+            continue;
+        }
+        for (Py_ssize_t slot = 0; slot < bucket->len; slot++) {
+            th_node *node = bucket->nodes[slot];
+            if (match_set_has(&taken, node, -1)) {
+                continue;
+            }
+            if (match_set_add(&taken, node, -1) < 0 || ns_push(out, node, -1) < 0) { /* GCOVR_EXCL_BR_LINE: alloc */
+                goto done;                                                           /* GCOVR_EXCL_LINE */
+            }
+        }
+    }
+    rc = 0;
+done:
+    strmap_free(&walked);
+    match_set_free(&taken);
+    return rc;
 }
 
 /* Evaluate a compiled program against the current node with the current scope and
