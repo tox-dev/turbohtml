@@ -2775,6 +2775,7 @@ enum mode {
     M_AFTER_HEAD,
     M_IN_BODY,
     M_TEXT,
+    M_TEXT_REFUSED, /* text of a raw-text element the depth cap kept off the stack */
     M_IN_TABLE,
     M_IN_CAPTION,
     M_IN_COLUMN_GROUP,
@@ -3005,6 +3006,17 @@ typedef struct {
 
 enum th_drain { TH_DRAIN_NEXT, TH_DRAIN_REPROCESS };
 
+/* Push a raw-text or RCDATA element and return the insertion mode for its text. An element the depth cap keeps off the
+   stack gets M_TEXT_REFUSED, so its end tag leaves the parent it was refused under open. Out of line, each of the ten
+   text-mode entries stays a call and a store. */
+static TH_NOINLINE enum mode stack_push_text(th_tree *tree, th_node *node) {
+    if (tree->open_len >= TH_MAX_TREE_DEPTH) {
+        return M_TEXT_REFUSED;
+    }
+    stack_push(tree, node);
+    return M_TEXT;
+}
+
 static enum th_drain drain_initial(th_tree *tree, th_token *tok, th_insert *dc) {
     if (tok->kind == TH_TEXT) {
         Py_ssize_t len;
@@ -3158,10 +3170,9 @@ static enum th_drain drain_in_head(th_tree *tree, th_token *tok, th_insert *dc) 
         if (atom == TH_TAG_TITLE || atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT || atom == TH_TAG_NOFRAMES) {
             int model = content_model_for(atom, flags, tree->scripting);
             th_node *node = insert_element(tree, tok);
-            tree->text_pushed = stack_push_kept(tree, node);
+            dc->mode = stack_push_text(tree, node);
             th_tok_switch(dc->sm, (enum th_initial_state)model);
             dc->original_mode = M_IN_HEAD;
-            dc->mode = M_TEXT;
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
@@ -3171,12 +3182,11 @@ static enum th_drain drain_in_head(th_tree *tree, th_token *tok, th_insert *dc) 
         }
         if (atom == TH_TAG_NOSCRIPT) {
             th_node *node = insert_element(tree, tok);
-            tree->text_pushed = stack_push_kept(tree, node);
+            dc->mode = stack_push_text(tree, node);
             if (tree->scripting) {
                 /* with scripting on, noscript follows the generic raw-text path */
                 th_tok_switch(dc->sm, TH_INIT_RAWTEXT);
                 dc->original_mode = M_IN_HEAD;
-                dc->mode = M_TEXT;
                 return TH_DRAIN_NEXT;
             }
             dc->mode = M_IN_HEAD_NOSCRIPT;
@@ -3253,10 +3263,9 @@ static enum th_drain drain_in_head_noscript(th_tree *tree, th_token *tok, th_ins
         }
         if (atom == TH_TAG_STYLE || atom == TH_TAG_NOFRAMES) {
             th_node *node = insert_element(tree, tok);
-            tree->text_pushed = stack_push_kept(tree, node);
+            dc->mode = stack_push_text(tree, node);
             th_tok_switch(dc->sm, TH_INIT_RAWTEXT);
             dc->original_mode = M_IN_HEAD_NOSCRIPT;
-            dc->mode = M_TEXT;
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_HEAD || atom == TH_TAG_NOSCRIPT) {
@@ -3334,10 +3343,9 @@ static enum th_drain drain_after_head(th_tree *tree, th_token *tok, th_insert *d
                 th_node *node = is_void_atom(atom) ? insert_void_element(tree, tok) : insert_element(tree, tok);
                 stack_pop(tree); /* remove head again */
                 if (atom == TH_TAG_TITLE || atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT || atom == TH_TAG_NOFRAMES) {
-                    tree->text_pushed = stack_push_kept(tree, node);
+                    dc->mode = stack_push_text(tree, node);
                     th_tok_switch(dc->sm, (enum th_initial_state)content_model_for(atom, flags, tree->scripting));
                     dc->original_mode = M_AFTER_HEAD;
-                    dc->mode = M_TEXT;
                 }
             }
             return TH_DRAIN_NEXT;
@@ -3378,10 +3386,9 @@ static enum th_drain drain_in_template(th_tree *tree, th_token *tok, th_insert *
         }
         if (atom == TH_TAG_TITLE || atom == TH_TAG_STYLE || atom == TH_TAG_SCRIPT || atom == TH_TAG_NOFRAMES) {
             th_node *node = insert_element(tree, tok);
-            tree->text_pushed = stack_push_kept(tree, node);
+            dc->mode = stack_push_text(tree, node);
             th_tok_switch(dc->sm, (enum th_initial_state)content_model_for(atom, flags, tree->scripting));
             dc->original_mode = M_IN_TEMPLATE;
-            dc->mode = M_TEXT;
             return TH_DRAIN_NEXT;
         }
         /* table-section tags select the matching table sub-mode (updating
@@ -3446,10 +3453,9 @@ static enum th_drain drain_in_frameset(th_tree *tree, th_token *tok, th_insert *
         }
         if (atom == TH_TAG_NOFRAMES) {
             th_node *node = insert_element(tree, tok);
-            tree->text_pushed = stack_push_kept(tree, node);
+            dc->mode = stack_push_text(tree, node);
             th_tok_switch(dc->sm, TH_INIT_RAWTEXT);
             dc->original_mode = M_IN_FRAMESET;
-            dc->mode = M_TEXT;
             return TH_DRAIN_NEXT;
         }
         return TH_DRAIN_NEXT;
@@ -3484,10 +3490,9 @@ static enum th_drain drain_after_frameset(th_tree *tree, th_token *tok, th_inser
     }
     if (tok->kind == TH_START_TAG && tok_atom(tok) == TH_TAG_NOFRAMES) {
         th_node *node = insert_element(tree, tok);
-        tree->text_pushed = stack_push_kept(tree, node);
+        dc->mode = stack_push_text(tree, node);
         th_tok_switch(dc->sm, TH_INIT_RAWTEXT);
         dc->original_mode = M_AFTER_FRAMESET;
-        dc->mode = M_TEXT;
         return TH_DRAIN_NEXT;
     }
     if (tok->kind == TH_END_TAG && tok_atom(tok) == TH_TAG_HTML) {
@@ -3815,7 +3820,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
                 tree->frameset_ok = 0;
             }
             th_node *node = insert_element(tree, tok);
-            tree->text_pushed = stack_push_kept(tree, node);
+            dc->mode = stack_push_text(tree, node);
             if (atom == TH_TAG_TEXTAREA) {
                 tree->drop_newline = 1; /* a leading LF in a textarea is ignored */
             }
@@ -3824,7 +3829,6 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
                mode is still the table mode, so the text mode must return there, not to
                in body, or the table's later rows would be dropped */
             dc->original_mode = dc->foster_pending ? dc->foster_return : M_IN_BODY;
-            dc->mode = M_TEXT;
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_PRE || atom == TH_TAG_LISTING) {
@@ -4046,7 +4050,7 @@ static void afe_push_if_open(th_tree *tree, th_node *node) {
     }
 }
 
-static enum th_drain drain_text(th_tree *tree, th_token *tok, th_insert *dc) {
+static enum th_drain drain_text(th_tree *tree, th_token *tok, th_insert *dc, int pushed) {
     if (tok->kind == TH_TEXT) {
         if (slice_can_span(tree, tok)) {
             Py_ssize_t off = tok->src_start + tree->text_offset;
@@ -4072,7 +4076,7 @@ static enum th_drain drain_text(th_tree *tree, th_token *tok, th_insert *dc) {
         return TH_DRAIN_NEXT;
     }
     /* end tag (or EOF) closes the raw-text/RCDATA element; a depth-capped one never reached the stack */
-    if (tree->text_pushed) {
+    if (pushed) {
         stack_pop(tree);
     }
     dc->mode = dc->original_mode;
@@ -4174,10 +4178,9 @@ static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc)
             uint16_t a2 = tok->atom;
             int model = content_model_for(a2, f2, tree->scripting);
             th_node *node = insert_element(tree, tok);
-            tree->text_pushed = stack_push_kept(tree, node);
+            dc->mode = stack_push_text(tree, node);
             th_tok_switch(dc->sm, (enum th_initial_state)model);
             dc->original_mode = dc->table_origin;
-            dc->mode = M_TEXT;
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_INPUT && input_is_hidden(tok)) {
@@ -4571,10 +4574,9 @@ static enum th_drain drain_after_after_frameset(th_tree *tree, th_token *tok, th
         }
         if (atom == TH_TAG_NOFRAMES) {
             th_node *node = insert_element(tree, tok);
-            tree->text_pushed = stack_push_kept(tree, node);
+            dc->mode = stack_push_text(tree, node);
             th_tok_switch(dc->sm, TH_INIT_RAWTEXT);
             dc->original_mode = M_AFTER_AFTER_FRAMESET;
-            dc->mode = M_TEXT;
         }
     }
     return TH_DRAIN_NEXT; /* everything else is a parse error and ignored */
@@ -4723,7 +4725,10 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
             action = drain_in_body(tree, tok, dc);
             break;
         case M_TEXT:
-            action = drain_text(tree, tok, dc);
+            action = drain_text(tree, tok, dc, 1);
+            break;
+        case M_TEXT_REFUSED:
+            action = drain_text(tree, tok, dc, 0);
             break;
         case M_IN_TABLE:
             action = drain_in_table(tree, tok, dc);

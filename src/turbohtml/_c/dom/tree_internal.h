@@ -109,7 +109,6 @@ struct th_tree {
     int scope_result;
     int open_p_count;
     int refused_frameset_count; /* framesets the depth cap kept off the stack; their </frameset> must not pop */
-    int text_pushed;            /* the raw-text element in text mode is on the stack; its end tag pops only then */
     Py_ssize_t open_cap;
     Py_ssize_t max_depth; /* peak open-element nesting seen while parsing; a cheap O(1)
                              lower bound on element depth that gates the :has() subtree memo */
