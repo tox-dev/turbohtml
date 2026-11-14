@@ -1082,3 +1082,79 @@ def test_option_chain_nested_in_a_target_stays_linear(work_steps: WorkSteps) -> 
     work_steps.assert_linear(
         lambda n: partial(parse, f"<select><selectedcontent><option>{'<b><option>' * n}"), (1000, 4000)
     )
+
+
+_TWO_BLOCKS_FIRST: Final[str] = "<select><option>a</option><b><option><p><selectedcontent></b></p>"
+
+
+def test_second_block_past_the_cap_fills_sixteen_targets() -> None:
+    targets = "<selectedcontent></selectedcontent>" * 17
+    document = parse(f"{_TWO_BLOCKS_FIRST}<b><option><p>{targets}</b></p><option selected>o</option></select>")
+    assert [target.inner_html for target in document.find_all("selectedcontent")] == ["o"] * 16 + ["", ""]
+    assert parse(document.html).html == document.html
+
+
+@pytest.mark.parametrize(
+    ("second", "tail"),
+    [
+        pytest.param(
+            "<span></span><selectedcontent></selectedcontent>",
+            "<b><option></option></b><p><b><span></span><selectedcontent>o</selectedcontent></b></p>",
+            id="unflagged-sibling-before-the-target",
+        ),
+        pytest.param(
+            "<div><selectedcontent></selectedcontent></div>",
+            "<b><option><p></p><div><selectedcontent></selectedcontent></div></option></b><p></p>",
+            id="target-in-a-div",
+        ),
+        pytest.param(
+            "<div><span></span><selectedcontent></selectedcontent></div>",
+            "<b><option><p></p><div><span></span><selectedcontent></selectedcontent></div></option></b><p></p>",
+            id="target-after-a-sibling-in-a-div",
+        ),
+        pytest.param(
+            "<selectedcontent></selectedcontent><span></span>",
+            "<b><option></option></b><p><b><selectedcontent>o</selectedcontent><span></span></b></p>",
+            id="target-before-the-last-sibling",
+        ),
+        pytest.param(
+            "<span><selectedcontent></selectedcontent></span>",
+            "<b><option></option></b><p><b><span><selectedcontent>o</selectedcontent></span></b></p>",
+            id="target-in-a-span",
+        ),
+        pytest.param(
+            "<div><b></b><selectedcontent></selectedcontent></div>",
+            "<b><option><p></p><div><b></b><selectedcontent></selectedcontent></div></option></b><p></p>",
+            id="target-after-an-empty-element-in-a-div",
+        ),
+        pytest.param(
+            "<div><div><selectedcontent></selectedcontent></div><span></span></div>",
+            "<b><option><p></p><div><div><selectedcontent></selectedcontent></div><span></span></div></option></b>"
+            "<p></p>",
+            id="target-in-a-nested-div",
+        ),
+    ],
+)
+def test_second_block_gained_by_a_cache_fills_each_target(second: str, tail: str) -> None:
+    markup = f"{_TWO_BLOCKS_FIRST}<b><option><p>{second}</b></p><option selected>o</option></select>"
+    body = (
+        "<select><option>a</option><b><option></option></b><p><b><selectedcontent>o</selectedcontent></b></p>"
+        f'{tail}<option selected="">o</option></select>'
+    )
+    once = parse(markup).html
+    assert once == f"<html><head></head><body>{body}</body></html>"
+    assert parse(once).html == once
+
+
+def test_recheck_scan_skips_a_select_nested_in_foreign_content() -> None:
+    markup = (
+        "<select><selectedcontent><option selected>a<option><em><option>b"
+        "<svg><foreignObject><select><option>s</option></select></foreignObject></svg></select>"
+    )
+    once = parse(markup).html
+    assert once == (
+        "<html><head></head><body><select><selectedcontent>b"
+        "<svg><foreignObject><select><option>s</option></select></foreignObject></svg>"
+        "</selectedcontent></select></body></html>"
+    )
+    assert parse(once).html == once
