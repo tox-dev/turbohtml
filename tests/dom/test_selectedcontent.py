@@ -281,6 +281,63 @@ def test_parse_many_selects_each_clone_their_option() -> None:
     assert parse(unit * 9).html == f"<html><head></head><body>{cloned * 9}</body></html>"
 
 
+_CAPPED_TARGETS: Final[str] = "<selectedcontent></selectedcontent>" * 20
+_CAPPED_MIRRORS: Final[str] = "<selectedcontent>a</selectedcontent>" * 16 + "<selectedcontent></selectedcontent>" * 4
+
+
+@pytest.mark.parametrize(
+    ("markup", "body"),
+    [
+        pytest.param(
+            f"<select>{_CAPPED_TARGETS}<option>a</option></select>",
+            f"<select>{_CAPPED_MIRRORS}<option>a</option></select>",
+            id="before-the-option",
+        ),
+        pytest.param(
+            f"<select><option>a</option>{_CAPPED_TARGETS}</select>",
+            f"<select><option>a</option>{_CAPPED_MIRRORS}</select>",
+            id="after-the-option",
+        ),
+        pytest.param(
+            f"<select><option>a</option><b><p>q</b></p>{_CAPPED_TARGETS}</select>",
+            f"<select><option>a</option><b></b><p><b>q</b></p>{_CAPPED_MIRRORS}</select>",
+            id="after-an-adoption-agency-move",
+        ),
+        pytest.param(
+            f"<select>{_CAPPED_TARGETS}<option>b</option><option selected>a</option></select>",
+            f'<select>{_CAPPED_MIRRORS}<option>b</option><option selected="">a</option></select>',
+            id="later-selected-option",
+        ),
+        pytest.param(
+            f"<select>{'<selectedcontent></selectedcontent>' * 15}<option>a</option>"
+            "<selectedcontent></selectedcontent><selectedcontent>kept</selectedcontent></select>",
+            f"<select>{'<selectedcontent>a</selectedcontent>' * 15}<option>a</option>"
+            "<selectedcontent>a</selectedcontent><selectedcontent>kept</selectedcontent></select>",
+            id="one-past-the-cap-keeps-its-own-content",
+        ),
+    ],
+)
+def test_parse_mirrors_the_option_into_sixteen_selectedcontent_at_most(markup: str, body: str) -> None:
+    assert parse(markup).html == f"<html><head></head><body>{body}</body></html>"
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        pytest.param(
+            f"<select>{'<selectedcontent></selectedcontent>' * 400}<option>{'<b>x</b>' * 100}",
+            id="selectedcontent-before-the-option",
+        ),
+        pytest.param(
+            f"<select><option>{'<b>x</b>' * 100}</option>{'<selectedcontent></selectedcontent>' * 400}",
+            id="selectedcontent-after-the-option",
+        ),
+    ],
+)
+def test_parse_of_many_selectedcontent_stays_linear(page: str) -> None:
+    assert len(parse(page).html) < 8 * len(page)
+
+
 def test_selectedcontent_inserted_after_first_option_refreshes_target() -> None:
     markup = "<select><option selected>a</option><button><selectedcontent></button><option selected>b</option></select>"
     assert parse(markup).html == (
