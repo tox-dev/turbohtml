@@ -1,2 +1,2 @@
-Malformed SVG and MathML markup no longer drops the root element, and fragments parsed in SVG or MathML contexts keep
-their content.
+Prevent an out-of-bounds read in the parser when malformed markup, nesting past the depth cap, or a foreign fragment
+context emptied its open-element stack.

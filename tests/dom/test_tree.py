@@ -782,6 +782,7 @@ def test_before_html_end_br_synthesizes_br() -> None:
         pytest.param("</dd>y", "div", '| "y"', id="end-dd-no-scope"),
         pytest.param("<frame><frameset></frameset>", "frameset", "<frame>", id="frameset-context"),
         pytest.param("<option>a<select><option>b", "select", "<option>", id="select-ignores-nested-select"),
+        pytest.param("<p>a<input>b", "select", '| <p>\n|   "ab"', id="html-select-drops-input"),
         # in a select-context fragment a second optgroup/option pops the open one, making siblings (issue #89)
         pytest.param(
             "<optgroup>1<optgroup>2",
@@ -1064,7 +1065,6 @@ def test_foreign_template_fragment_keeps_the_root() -> None:
             id="math-table-text-before-caption",
         ),
         pytest.param("<p>a<input>b", "svg select", "<p>a<input>b</p>", id="svg-select-keeps-input"),
-        pytest.param("<p>a<input>b", "select", "<p>ab</p>", id="html-select-drops-input"),
         pytest.param("<li><hr>", "svg select", "<li><hr></li>", id="svg-select-hr-after-li"),
     ],
 )
@@ -1714,8 +1714,8 @@ _DEPTH_CAP: Final[int] = 512
         ),
         pytest.param(
             f"{'<dl>' * (_DEPTH_CAP - 9)}<dd><dt><span><dl>"
-            "<table><colgroup><col><tbody><tr><td><textarea>z</textarea></tr>",
-            id="raw-text-after-colgroup",
+            "<table><colgroup><col><tbody><tr><td><style>z</style></table>",
+            id="style-after-colgroup",
         ),
     ],
 )
@@ -1735,9 +1735,9 @@ def test_element_refused_at_depth_cap_keeps_html_on_the_stack(markup: str) -> No
             id="svg-title-deep-chain",
         ),
         pytest.param(
-            f"{'<dl>' * (_DEPTH_CAP - 2)}<dd><table><caption></caption><small><p></small>",
-            "svg foreignObject",
-            id="caption-in-foreign-object",
+            f"{'<dl>' * (_DEPTH_CAP - 2)}<table><tfoot><tr><td></td></tr><small><p></small>",
+            "math mi",
+            id="tfoot-in-math-mi",
         ),
         pytest.param(
             f"{'<dl>' * (_DEPTH_CAP - 2)}<dd><ins><q><span><table><caption></caption><small><p></small>",
@@ -1746,13 +1746,13 @@ def test_element_refused_at_depth_cap_keeps_html_on_the_stack(markup: str) -> No
         ),
         pytest.param(
             f"{'<dl>' * (_DEPTH_CAP - 2)}<dd><template><tr><td></td></tr><small><p></small>",
-            "svg desc",
-            id="template-after-definition",
+            "svg title",
+            id="template-in-svg-title",
         ),
         pytest.param(
-            f"{'<blockquote>' * (_DEPTH_CAP - 2)}<table><thead><tr><td></td></tr><small><p></small>",
-            "svg path",
-            id="cell-in-thead-under-blockquotes",
+            f"{'<dl>' * (_DEPTH_CAP - 2)}<dd><table><colgroup><col><tbody><tr><td></td></tr><small><p></small>",
+            "math ms",
+            id="table-after-definition-in-math-ms",
         ),
     ],
 )
