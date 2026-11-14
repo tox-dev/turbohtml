@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-import time
-from typing import Final
+from functools import partial
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
 from turbohtml import Element, IncrementalParser, parse, parse_fragment
+
+if TYPE_CHECKING:
+    from work_steps import WorkSteps
 
 _OPTION_HOLDS_SELECTEDCONTENT: Final[str] = "<select><option><selectedcontent>"
 _OPTION_HOLDS_SELECTEDCONTENT_TREE: Final[str] = "<select><option><selectedcontent></selectedcontent></option></select>"
@@ -259,27 +262,14 @@ def test_parse_skips_the_options_of_each_disabled_optgroup(options: str, shown: 
 
 
 @pytest.mark.parametrize("disabled", [pytest.param("", id="enabled"), pytest.param(" disabled", id="disabled-last")])
-def test_parse_of_options_in_an_optgroup_of_many_attributes_stays_linear(disabled: str) -> None:
-    grown = _grouped_options_markup(40_000, disabled)
-    assert len(parse(grown).find_all("option")) == 40_000
-    # linear parsing scales the time with the input, a search of the optgroup's attributes per option with its square;
-    # the floor keeps a sub-millisecond baseline from inflating the ratio
-    baseline = _fastest_parse(_grouped_options_markup(10_000, disabled))
-    assert _fastest_parse(grown) < 8 * max(baseline, 0.01)
+def test_parse_of_options_in_an_optgroup_of_many_attributes_stays_linear(disabled: str, work_steps: WorkSteps) -> None:
+    assert len(parse(_grouped_options_markup(4_000, disabled)).find_all("option")) == 4_000
+    work_steps.assert_linear(lambda n: partial(parse, _grouped_options_markup(n, disabled)), (1000, 4000))
 
 
 def _grouped_options_markup(count: int, disabled: str) -> str:
     attributes = " ".join(f"a{index}" for index in range(count))
     return f"<select><optgroup {attributes}{disabled}>{'<option>' * count}"
-
-
-def _fastest_parse(markup: str) -> float:
-    timings: Final[list[float]] = []
-    for _ in range(3):
-        start = time.perf_counter()
-        parse(markup)
-        timings.append(time.perf_counter() - start)
-    return min(timings)
 
 
 def test_set_inner_html_clones_the_selected_option() -> None:
@@ -407,6 +397,201 @@ def test_adoption_agency_after_a_clone_refreshes_the_cache() -> None:
         "<html><head></head><body><select><button><selectedcontent>c</selectedcontent></button>"
         '<option selected="">a</option><b></b><p><b>q</b></p><option selected="">c</option></select></body></html>'
     )
+
+
+@pytest.mark.parametrize(
+    ("markup", "body"),
+    [
+        pytest.param(
+            "<select><em><section><selectedcontent>x</em></section><option selected>o</option></select>",
+            "<select><em></em><section><em><selectedcontent>o</selectedcontent></em></section>"
+            '<option selected="">o</option></select>',
+            id="selectedcontent-in-moved-block",
+        ),
+        pytest.param(
+            "<select><em><section><selectedcontent disabled></em></section><option selected>o</option></select>",
+            '<select><em></em><section><em><selectedcontent disabled=""></selectedcontent></em></section>'
+            '<option selected="">o</option></select>',
+            id="disabled-selectedcontent-in-moved-block",
+        ),
+        pytest.param(
+            "<select><option>A</option><b><option><p><svg><selectedcontent><foreignObject>"
+            "<selectedcontent></selectedcontent></foreignObject></selectedcontent></svg></b></p>"
+            "<option selected>X</option></select>",
+            "<select><option>A</option><b><option></option></b><p><b><svg><selectedcontent><foreignObject>"
+            "<selectedcontent>X</selectedcontent></foreignObject></selectedcontent></svg></b></p>"
+            '<option selected="">X</option></select>',
+            id="foreign-selectedcontent-in-moved-block",
+        ),
+        pytest.param(
+            "<select><option>A</option><b><option><p><math><selectedcontent><mi>"
+            "<selectedcontent></selectedcontent></mi></selectedcontent></math></b></p>"
+            "<option selected>X</option></select>",
+            "<select><option>A</option><b><option></option></b><p><b><math><selectedcontent><mi>"
+            "<selectedcontent>X</selectedcontent></mi></selectedcontent></math></b></p>"
+            '<option selected="">X</option></select>',
+            id="mathml-selectedcontent-in-moved-block",
+        ),
+        pytest.param(
+            "<select><em><section><option><selectedcontent></em></section><option selected>o</option></select>",
+            "<select><em></em><section><em><option><selectedcontent></selectedcontent></option></em></section>"
+            '<option selected="">o</option></select>',
+            id="selectedcontent-behind-an-option",
+        ),
+        pytest.param(
+            "<select><b><selectedcontent></selectedcontent><selectedcontent></selectedcontent></b>"
+            "<em><section><selectedcontent></em></section><option selected>o</option></select>",
+            "<select><b><selectedcontent>o</selectedcontent><selectedcontent>o</selectedcontent></b><em></em>"
+            '<section><em><selectedcontent>o</selectedcontent></em></section><option selected="">o</option></select>',
+            id="selectedcontent-under-a-marked-ancestor",
+        ),
+        pytest.param(
+            "<select><template><selectedcontent></template><em><section><selectedcontent></em></section>"
+            "<option selected>o</option></select>",
+            "<select><template><selectedcontent></selectedcontent></template><em></em>"
+            '<section><em><selectedcontent>o</selectedcontent></em></section><option selected="">o</option></select>',
+            id="selectedcontent-in-template-content",
+        ),
+        pytest.param(
+            f"<select>{'<button><selectedcontent></button>' * 17}"
+            "<em><section><selectedcontent></em></section><option selected>z</option></select>",
+            f"<select>{'<button><selectedcontent>z</selectedcontent></button>' * 16}"
+            "<button><selectedcontent></selectedcontent></button>"
+            "<em></em><section><em><selectedcontent></selectedcontent></em></section>"
+            '<option selected="">z</option></select>',
+            id="moved-selectedcontent-past-the-cap",
+        ),
+        pytest.param(
+            "<select><option>a</option><b><option><p><selectedcontent></b></p><option selected>o</option></select>",
+            "<select><option>a</option><b><option></option></b><p><b><selectedcontent>o</selectedcontent></b></p>"
+            '<option selected="">o</option></select>',
+            id="block-reaching-a-select-with-a-cache",
+        ),
+        pytest.param(
+            "<select><b><option><p><selectedcontent></b></p></select>",
+            "<select><b><option></option></b><p><b><selectedcontent></selectedcontent></b></p></select>",
+            id="block-reaching-a-select-without-a-cache",
+        ),
+        pytest.param(
+            "<select><option>a</option></select><b><option><p><selectedcontent></b></p>",
+            "<select><option>a</option></select><b><option></option></b><p><b><selectedcontent></selectedcontent></b></p>",
+            id="block-outside-any-select-after-a-select-cache",
+        ),
+        pytest.param(
+            "<select><option>a</option><i><option><div><b><p><selectedcontent></b></p></i></div></select>",
+            "<select><option>a</option><i><option></option></i><div><i><b></b><p><b><selectedcontent></selectedcontent>"
+            "</b></p></i></div></select>",
+            id="block-holding-an-emptied-formatting-element",
+        ),
+        pytest.param(
+            f"<select><b><option><p>{'<selectedcontent></selectedcontent>' * 17}</b></p>"
+            "<option selected>o</option></select>",
+            f"<select><b><option></option></b><p><b>{'<selectedcontent>o</selectedcontent>' * 16}"
+            '<selectedcontent></selectedcontent></b></p><option selected="">o</option></select>',
+            id="block-reaching-a-select-past-the-cap",
+        ),
+        pytest.param(
+            f"<select><option>a</option><b><option><p>{'<selectedcontent></selectedcontent>' * 17}</b></p>"
+            "<option selected>o</option></select>",
+            f"<select><option>a</option><b><option></option></b><p><b>{'<selectedcontent>o</selectedcontent>' * 16}"
+            '<selectedcontent></selectedcontent></b></p><option selected="">o</option></select>',
+            id="block-reaching-a-select-with-a-cache-past-the-cap",
+        ),
+        pytest.param(
+            "<select><b><selectedcontent><p><selectedcontent></b></p></select>",
+            "<select><b><selectedcontent></selectedcontent></b><p><b><selectedcontent></selectedcontent></b></p></select>",
+            id="block-reaching-a-select-past-a-selectedcontent-gate",
+        ),
+        pytest.param(
+            "<select><option>a</option><b><option><p><span></span><selectedcontent></b></p>"
+            "<option selected>o</option></select>",
+            "<select><option>a</option><b><option></option></b><p><b><span></span><selectedcontent>o</selectedcontent>"
+            '</b></p><option selected="">o</option></select>',
+            id="block-with-an-unflagged-sibling",
+        ),
+        pytest.param(
+            "<select><option>a</option></select><select><b><selectedcontent><p><selectedcontent></b></p></select>",
+            "<select><option>a</option></select><select><b><selectedcontent></selectedcontent></b>"
+            "<p><b><selectedcontent></selectedcontent></b></p></select>",
+            id="block-reaching-a-select-without-a-cache-after-another",
+        ),
+    ],
+)
+def test_adoption_agency_move_keeps_the_selectedcontent_targets(markup: str, body: str) -> None:
+    assert parse(markup).html == f"<html><head></head><body>{body}</body></html>"
+
+
+def test_adoption_agency_inside_a_select_with_options_stays_linear(work_steps: WorkSteps) -> None:
+    cycle = "<em><section>w</em></section><option>z</option>"
+    work_steps.assert_linear(lambda n: partial(parse, f"<select>{cycle * n}</select>"), (1000, 4000))
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        pytest.param("<em><section><selectedcontent></em></section><option>z</option>", id="html-selectedcontent"),
+        pytest.param(
+            "<em><section><svg><selectedcontent></svg></em></section><option>z</option>",
+            id="svg-selectedcontent",
+        ),
+    ],
+)
+def test_adoption_agency_move_with_selectedcontent_stays_linear(block: str, work_steps: WorkSteps) -> None:
+    cycle = f"<span></span>{block}"
+    work_steps.assert_linear(lambda n: partial(parse, f"<select>{cycle * n}</select>"), (1000, 4000))
+
+
+@pytest.mark.parametrize(
+    ("markup", "fragment"),
+    [
+        pytest.param(
+            "<b><p><selectedcontent></b>",
+            "<b></b><p><b><selectedcontent></selectedcontent></b></p>",
+            id="without-a-select",
+        ),
+        pytest.param(
+            "<select><option>a</option><em><section><selectedcontent></em></section>"
+            "<option selected>o</option></select>",
+            "<select><option>a</option><em></em><section><em><selectedcontent>o</selectedcontent></em></section>"
+            '<option selected="">o</option></select>',
+            id="select-with-a-cache",
+        ),
+        pytest.param(
+            "<select><option>a</option></select><select><em><section><selectedcontent></em></section></select>",
+            "<select><option>a</option></select>"
+            "<select><em></em><section><em><selectedcontent></selectedcontent></em></section></select>",
+            id="second-select-without-a-cache",
+        ),
+        pytest.param(
+            "<table><selectedcontent>x</selectedcontent></table>",
+            "<selectedcontent>x</selectedcontent><table></table>",
+            id="foster-parented-selectedcontent",
+        ),
+        pytest.param(
+            "<table><div>x</div></table>",
+            "<div>x</div><table></table>",
+            id="foster-parented-block",
+        ),
+    ],
+)
+def test_fragment_and_set_inner_html_keep_selectedcontent_targets(markup: str, fragment: str) -> None:
+    assert parse_fragment(markup).inner_html == fragment
+    host = parse("<div></div>").find("div")
+    assert isinstance(host, Element)
+    host.set_inner_html(markup)
+    assert host.inner_html == fragment
+
+
+def test_insert_before_moves_a_parsed_block_holding_selectedcontent() -> None:
+    document = parse("<main><span>after</span><div><selectedcontent>x</selectedcontent></div></main>")
+    span = document.find("span")
+    block = document.find("div")
+    assert isinstance(span, Element)
+    assert isinstance(block, Element)
+    span.insert_before(block)
+    main = document.find("main")
+    assert isinstance(main, Element)
+    assert main.inner_html == "<div><selectedcontent>x</selectedcontent></div><span>after</span>"
 
 
 def test_default_first_option_without_selected_attribute_clones() -> None:

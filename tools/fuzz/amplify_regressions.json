@@ -911,5 +911,20 @@
       "tail": "0)}",
       "counter": true
     }
+  },
+  {
+    "name": "xpath-regex-group-names",
+    "source": "https://github.com/tox-dev/turbohtml/pull/1839",
+    "targets": [
+      "xpath"
+    ],
+    "base": 4096,
+    "shape": {
+      "kind": "repeat",
+      "head": "matches('x', '",
+      "left": "(?P<a{n}>)(?P<bb{n}>)(?:x)",
+      "tail": "')",
+      "counter": true
+    }
   }
 ]

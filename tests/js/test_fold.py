@@ -3,13 +3,16 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
-import time
-from typing import Final
+from functools import partial
+from typing import TYPE_CHECKING, Final
 
 import pytest
 from bench.operations import INPUTS
 
 from turbohtml.clean import JSMinify, minify_js
+
+if TYPE_CHECKING:
+    from work_steps import WorkSteps
 
 _NODE: Final[str | None] = shutil.which("node")
 
@@ -822,24 +825,17 @@ def test_compresses(source: str, expected: str) -> None:
         pytest.param("function f(){{{declaration};h([{padding}],{names})}}", id="read-in-next"),
     ],
 )
-def test_regex_initializers_cost_no_more_than_string_ones(shape: str) -> None:
-    # a string initializer never reaches the regex branch, so it times the same script without that check
-    def cost(initializer: str) -> float:
-        names = [f"r{index:x}" for index in range(3_000)]
-        source = shape.format(
+def test_regex_initializers_cost_no_more_than_string_ones(shape: str, work_steps: WorkSteps) -> None:
+    def source(initializer: str) -> str:
+        names = [f"r{index:x}" for index in range(300)]
+        return shape.format(
             names=",".join(names),
             declaration=f"var {','.join(f'{name}={initializer}' for name in names)}",
-            padding="1," * 30_000,
+            padding="1," * 3_000,
         )
-        best = float("inf")
-        for _ in range(3):
-            start = time.perf_counter()
-            minify_js(source)
-            best = min(best, time.perf_counter() - start)
-        return best
 
-    # the floor keeps a near-zero string baseline from turning timer noise into a failure
-    assert cost("/a/") <= 20 * cost('"a"') + 0.05
+    # a string initializer never reaches the regex branch, so it times the same script without that check
+    work_steps.assert_within(partial(minify_js, source("/a/")), partial(minify_js, source('"a"')), factor=1.5)
 
 
 @pytest.mark.parametrize(

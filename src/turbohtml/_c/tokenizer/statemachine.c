@@ -24,6 +24,7 @@
 
 #include "core/ascii.h"
 #include "core/vec.h"
+#include "core/work_steps.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -263,6 +264,14 @@ struct th_tokenizer {
     th_buf ref;              /* scratch for a reference's resolved code points */
     Py_ssize_t ref_line;     /* position of the '&' that opened the reference */
     Py_ssize_t ref_col;
+    /* A reference that suspends inside a run of unbounded length (the digits after "&#", the
+       alphanumerics past the longest table name) resumes where it stopped: starting over at the
+       '&' on every feed would cost the square of a run delivered in small chunks. The offset
+       counts from the '&', which stays under `pos` until the reference resolves, so input
+       compaction does not disturb it. */
+    Py_ssize_t ref_scanned; /* code points scanned from the '&', 0 when no such run is suspended */
+    Py_UCS4 ref_num;        /* the numeric reference's value over the digits scanned so far */
+    int ref_overflow;
 
     th_token *queue[2];
     int queue_head;
@@ -421,6 +430,7 @@ void th_tok_reset(th_tokenizer *self) {
     self->slice_start = 0;
     self->slice_len = 0;
     buf_reset(&self->ref);
+    self->ref_scanned = 0;
     token_reset(&self->tok);
     token_reset(&self->charref_record);
     buf_reset(&self->last_tag);
@@ -797,6 +807,7 @@ static void new_attr(th_tokenizer *self) {
    collision between a narrow and a wide name of equal length still resolves
    correctly. */
 static int attr_name_dup(const th_attr *a, const th_attr *b) {
+    TH_WORK_STEP();
     if (a->name.len != b->name.len) {
         return 0;
     }
@@ -855,6 +866,7 @@ static int attr_seen_probe(th_tokenizer *self, Py_ssize_t cur) {
     Py_ssize_t mask = self->attr_seen_cap - 1;
     Py_ssize_t slot = (Py_ssize_t)(attrs[cur].name_hash & (uint32_t)mask);
     while (self->attr_seen[slot].epoch == self->attr_epoch) {
+        TH_WORK_STEP();
         if (attr_name_dup(&attrs[self->attr_seen[slot].index], &attrs[cur])) {
             return 1;
         }
