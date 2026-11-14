@@ -1,0 +1,2 @@
+Keep the content that follows a ``<colgroup>`` or ``<col>`` the parser refuses at its nesting limit, instead of dropping
+it.

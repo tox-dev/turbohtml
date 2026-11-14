@@ -3912,7 +3912,12 @@ static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc)
         if (atom == TH_TAG_COLGROUP) {
             clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
             th_node *node = insert_element(tree, tok);
+            Py_ssize_t open_len_before = tree->open_len;
             stack_push(tree, node);
+            /* A colgroup outside the depth-capped stack cannot be closed in column-group mode. */
+            if (tree->open_len == open_len_before) {
+                return TH_DRAIN_NEXT;
+            }
             dc->mode = M_IN_COLUMN_GROUP;
             return TH_DRAIN_NEXT;
         }
@@ -3920,7 +3925,11 @@ static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc)
             clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
             {
                 th_node *cg = insert_implicit(tree, TH_TAG_COLGROUP, TH_TAG_SPECIAL);
+                Py_ssize_t open_len_before = tree->open_len;
                 stack_push(tree, cg);
+                if (tree->open_len == open_len_before) {
+                    return TH_DRAIN_NEXT;
+                }
             }
             dc->mode = M_IN_COLUMN_GROUP;
             return TH_DRAIN_REPROCESS;

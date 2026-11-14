@@ -1601,6 +1601,25 @@ def test_table_cell_rejected_at_depth_cap_keeps_html_root() -> None:
     assert [child.tag for child in document.children if isinstance(child, Element)] == ["html"]
 
 
+# mirrors TH_MAX_TREE_DEPTH in src/turbohtml/_c/dom/tree.h
+_DEPTH_CAP: Final[int] = 512
+
+
+@pytest.mark.parametrize(
+    ("make", "nesting"),
+    [
+        pytest.param(parse, _DEPTH_CAP - 3, id="document"),
+        pytest.param(partial(parse_fragment, context="div"), _DEPTH_CAP - 2, id="fragment"),
+    ],
+)
+@pytest.mark.parametrize("entry", [pytest.param("<colgroup>", id="colgroup"), pytest.param("<col>", id="col")])
+def test_table_column_rejected_at_depth_cap_keeps_later_content(
+    make: Callable[[str], Document | DocumentFragment], nesting: int, entry: str
+) -> None:
+    root = make(f"{'<div>' * nesting}<table>{entry}<p>tail")
+    assert root.text == "tail"
+
+
 def test_capped_parse_round_trips_through_serialization() -> None:
     doc = parse("<div>" * _PATHOLOGICAL)
     assert doc.html.count("<div>") == _PATHOLOGICAL
