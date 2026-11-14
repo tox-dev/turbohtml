@@ -1596,8 +1596,9 @@ PyDoc_STRVAR(rows_doc, "rows()\n--\n\n"
                        "Return the table's cells as a list of rows, each a list[str], with rowspan and\n"
                        "colspan resolved by filling every spanned slot with a copy of the cell text.\n"
                        "Rows are padded to a rectangular width; a nested table's rows belong to that\n"
-                       "table, not this one. Cell text is the cell's text content with surrounding\n"
-                       "whitespace stripped. Raises TypeError on a non-table element.");
+                       "table, not this one, and a row inside a cell is that cell's content. Cell text\n"
+                       "is the cell's text content with surrounding whitespace stripped. Raises\n"
+                       "TypeError on a non-table element.");
 
 TH_NODE_API(static, PyObject *, element_rows, (PyObject * self, PyObject *ignored), (self, ignored),
             (PyObject * self, PyObject *Py_UNUSED(ignored)), (NodeObject *)self, NULL) {
