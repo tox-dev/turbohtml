@@ -12,6 +12,8 @@ from bench.operations import INPUTS
 from turbohtml.clean import JSMinify, minify_js
 
 if TYPE_CHECKING:
+    from types import ModuleType
+
     from work_steps import WorkSteps
 
 _NODE: Final[str | None] = shutil.which("node")
@@ -1224,6 +1226,28 @@ def test_concat_keeps_operands_with_a_valueless_escape(source: str) -> None:
 )
 def test_concat_decodes_escape_at_its_bounds(source: str, expected: str) -> None:
     assert minify_js(f"x={source}") == f"x={expected}"
+
+
+@pytest.mark.parametrize(
+    "operand",
+    [
+        pytest.param(f'"{"a" * 640}"', id="literal"),
+        pytest.param(f'("{"a" * 320}"+"{"a" * 320}")', id="folded"),
+        pytest.param(f'(0?"x"+"y":"{"a" * 640}")', id="beside-a-dropped-fold"),
+    ],
+)
+def test_concat_chain_frees_the_lexemes_it_supersedes(operand: str) -> None:
+    # every `+` of a chain joins the whole prefix again; keeping each replaced prefix until the call returned made a
+    # chain of n literals hold n/2 copies of its value
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")  # PyPy has none
+    source: Final = f"x={'+'.join([operand] * 90)}"
+    tracing.start()
+    try:
+        result: Final = minify_js(source)
+        peak: Final[int] = tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
+    assert (result, peak < 100 * len(source)) == (f'x="{"a" * 640 * 90}"', True), peak
 
 
 @pytest.mark.parametrize(
