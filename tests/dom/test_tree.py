@@ -1770,6 +1770,20 @@ def test_table_cell_rejected_at_depth_cap_keeps_html_root() -> None:
     assert [child.tag for child in document.children if isinstance(child, Element)] == ["html"]
 
 
+@pytest.mark.parametrize(
+    "nesting",
+    [
+        pytest.param(_DEPTH_CAP - 1, id="fits-under-cap"),
+        pytest.param(_DEPTH_CAP, id="first-refused"),
+        pytest.param(_DEPTH_CAP + 5, id="well-past-cap"),
+    ],
+)
+def test_frameset_refused_at_depth_cap_keeps_every_frame(nesting: int) -> None:
+    # a refused frameset's end tag must not close an ancestor, or the frames after it are dropped
+    document = parse(f"{'<frameset>' * nesting}<frame>{'</frameset><frame>' * nesting}")
+    assert len(document.find_all("frame")) == nesting
+
+
 def test_capped_parse_round_trips_through_serialization() -> None:
     doc = parse("<div>" * _PATHOLOGICAL)
     assert doc.html.count("<div>") == _PATHOLOGICAL

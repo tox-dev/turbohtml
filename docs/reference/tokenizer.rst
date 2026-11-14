@@ -171,7 +171,13 @@ the memory model and the streamable-selector constraint, and :doc:`/how-to/rewri
 
     .. py:method:: remove_and_keep_content()
 
-        Drop an element's own tags but keep its children.
+        Drop an element's own tags but keep its children. The content of ``script``, ``style``, ``xmp``, ``noscript``,
+        ``textarea``, ``title`` and the other elements whose content is text rather than markup stays text: it is
+        escaped, since without the tags around it a browser would read it as markup. The rewriter reads ``noscript``
+        as a browser with scripting on does, so the fallback markup inside an unwrapped ``noscript`` comes out as
+        escaped text. :func:`turbohtml.parse` defaults scripting off and keeps that markup as elements (see
+        :doc:`/explanation/parsing`), so ``unwrap()`` on its tree gives markup. Text passed to ``append()`` on such an
+        element is escaped the same way when ``remove()`` or ``replace()`` then drops its tags.
 
 .. autoclass:: ElementHandler
     :members:
