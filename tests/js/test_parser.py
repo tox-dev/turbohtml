@@ -194,6 +194,43 @@ def test_declaration_without_name_raises(source: str, match: str) -> None:
         minify_js(source)
 
 
+@pytest.mark.parametrize(
+    ("source", "match"),
+    [
+        pytest.param("x={q:1,,}", "expected property name at offset 7 near ','", id="object-key"),
+        pytest.param("var {q,,}=y", "expected property name at offset 7 near ','", id="pattern-key"),
+        pytest.param("x={abc,*,}", "expected property name at offset 8 near ','", id="generator-method-key"),
+        pytest.param("class C{m(){},,}", "expected property name at offset 13 near ','", id="class-member-key"),
+        pytest.param("x=o.+", "expected property name at offset 4 near '+'", id="member-name"),
+        pytest.param("x=o?.;", "expected property name at offset 5 near ';'", id="optional-member-name"),
+        pytest.param("x=new abc.+", "expected property name at offset 10 near '+'", id="new-callee-member-name"),
+        pytest.param("x=new.;", "expected property name at offset 6 near ';'", id="new-meta-property"),
+    ],
+)
+def test_punctuator_as_property_name_raises(source: str, match: str) -> None:
+    # a name must be read from a token with text of its own
+    with pytest.raises(ValueError, match=re.escape(match)):
+        minify_js(source)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("x={abc,b,}", "x={abc,b}", id="trailing-comma"),
+        pytest.param("x={if:1,1n:2}", "x={if:1,1n:2}", id="keyword-and-bigint-keys"),
+        pytest.param("class A{#p=1;m(){return this.#p}}", "class A{#p=1;m(){return this.#p}}", id="private-name"),
+        pytest.param("a.if.class", "a.if.class", id="keyword-member-names"),
+    ],
+)
+def test_token_with_text_is_a_property_name(source: str, expected: str) -> None:
+    assert minify_js(source) == expected
+
+
+def test_unparsable_inline_script_with_punctuator_name_stays_verbatim() -> None:
+    html = "<script>x={q:1,,}</script>"
+    assert clean.minify(html, Minify(minify_js=JSMinify())) == html
+
+
 def test_inline_script_with_unparsable_declaration_stays_verbatim() -> None:
     html = "<script>function f(){retlet function(a){return a&1?1:2}}</script>"
     assert clean.minify(html, Minify(minify_js=JSMinify())) == html
