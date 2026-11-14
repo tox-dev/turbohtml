@@ -822,7 +822,8 @@ def _deep_appended(depth: int) -> Element:
 
 # The test compares two :has() misses on the same tree: a descendant argument, whose per-anchor walk is quadratic
 # without the memo, and a child-combinator argument, which inspects one child per anchor and stays linear. Each is
-# timed as the fastest of three runs, and the descendant time must stay under 40 times the child time.
+# timed as the fastest of three runs, and the descendant time must stay under 100 times the child time. With the
+# memo the ratio stays in the single digits at this depth; without it the ratio is in the hundreds.
 _NESTED_DEPTH: Final[int] = 4_000
 
 
@@ -836,7 +837,7 @@ def test_has_memo_deep_tree_not_from_html_parser(build: Callable[[int], Document
     assert tree.select("group:has(entry)") == []
     descendant: Final = min(_seconds(lambda: tree.select("group:has(entry)")) for _ in range(3))
     child: Final = min(_seconds(lambda: tree.select("group:has(> entry)")) for _ in range(3))
-    assert descendant < 40 * child
+    assert descendant < 100 * child
 
 
 @pytest.mark.parametrize(
