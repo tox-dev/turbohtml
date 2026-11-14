@@ -14,6 +14,14 @@
 #include "core/ascii.h"
 #include "url/url.h"
 
+#if defined(_MSC_VER)
+#define TH_NOINLINE __declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+#define TH_NOINLINE __attribute__((noinline))
+#else
+#define TH_NOINLINE
+#endif
+
 /* The characters each URL component keeps raw, complementing the WHATWG percent-encode sets (URL standard 1.3): every
    byte outside its set is UTF-8 percent-encoded. The special-query set drops ' and keeps `, while the non-special set
    keeps both. The path set keeps neither, the fragment set keeps ' but not `, and the opaque path set keeps printable
@@ -1254,11 +1262,31 @@ static PyObject *build_url(int scheme_has, const Py_UCS4 *scheme_buf, Py_ssize_t
     return result;
 }
 
+/* https://url.spec.whatwg.org/#special-authority-ignore-slashes-state: a special scheme other than file skips every
+   slash after the two that open the authority, so the host is read after all of them. With no host after them the
+   RFC 3986 reading stands: a browser rejects the reference, so there is no host to attribute. Out of line so the
+   join's common path keeps its register allocation. */
+static TH_NOINLINE void skip_extra_authority_slashes(url_ref *ref_parts, const url_ref *base_parts) {
+    if (scheme_eq(base_parts->buf, base_parts->scheme_start, base_parts->scheme_end, "file")) {
+        return;
+    }
+    Py_ssize_t host_start = ref_parts->netloc_start;
+    while (host_start < ref_parts->path_end && url_slash(ref_parts->buf[host_start], 1)) {
+        host_start++;
+    }
+    Py_ssize_t host_end = authority_end(ref_parts->buf, host_start, ref_parts->path_end, 1, 1);
+    if (host_end > host_start) {
+        ref_parts->netloc_start = host_start;
+        ref_parts->netloc_end = host_end;
+        ref_parts->path_start = host_end;
+    }
+}
+
 /* Join a (possibly relative) reference onto a base URL, the RFC 3986 5.3 reference-transform urllib.parse.urljoin runs,
-   ported so base_url(), the extraction methods, and the extract_links shim resolve links in C rather than importing
-   urllib.parse. `base` and `target` are borrowed str references. Returns a new reference, or NULL with a ValueError set
-   when a host has an unbalanced IPv6 bracket. `link` reads the reference's host the way a browser reads an HTML link's,
-   skipping the slashes RFC 3986 takes for an empty authority and a rooted path. */
+   ported so the C entry points (th_url_join, th_url_join_link, th_url_document_join, and the c14n base join) resolve
+   links without importing urllib.parse. `base` and `target` are borrowed str references. Returns a new reference, or
+   NULL with a ValueError set when a host has an unbalanced IPv6 bracket. `link` reads the reference's host the way a
+   browser reads an HTML link's, skipping the slashes RFC 3986 takes for an empty authority and a rooted path. */
 static PyObject *join_url(PyObject *base, PyObject *target, int document, int link) {
     int c14n = document == 2;
     if (PyUnicode_GET_LENGTH(base) == 0 && !c14n) {
@@ -1382,21 +1410,8 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document, int li
         PyMem_Free(ref_parts.buf);
         return Py_NewRef(target);
     }
-    /* https://url.spec.whatwg.org/#special-authority-ignore-slashes-state: a special scheme other than file skips every
-       slash after the two that open the authority, so the host is read after all of them. With no host after them the
-       RFC 3986 reading stands: a browser rejects the reference, so there is no host to attribute. */
-    if (link && base_special && ref_parts.has_netloc && ref_parts.netloc_end == ref_parts.netloc_start &&
-        !scheme_eq(base_parts.buf, base_parts.scheme_start, base_parts.scheme_end, "file")) {
-        Py_ssize_t host_start = ref_parts.netloc_start;
-        while (host_start < ref_parts.path_end && url_slash(ref_parts.buf[host_start], 1)) {
-            host_start++;
-        }
-        Py_ssize_t host_end = authority_end(ref_parts.buf, host_start, ref_parts.path_end, 1, 1);
-        if (host_end > host_start) {
-            ref_parts.netloc_start = host_start;
-            ref_parts.netloc_end = host_end;
-            ref_parts.path_start = host_end;
-        }
+    if (ref_parts.has_netloc && ref_parts.netloc_end == ref_parts.netloc_start && link && base_special) {
+        skip_extra_authority_slashes(&ref_parts, &base_parts);
     }
     PyObject *result;
     if (ref_parts.has_netloc && ((!base_special && document) || ref_parts.netloc_end > ref_parts.netloc_start)) {
