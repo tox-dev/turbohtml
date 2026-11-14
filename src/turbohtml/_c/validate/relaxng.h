@@ -1544,6 +1544,7 @@ static nsnode *ns_alloc(th_schema *schema) {
     nsnode *node = arena_alloc(&schema->names_mem, sizeof(*node));
     if (node == NULL) {   /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return NULL;      /* GCOVR_EXCL_LINE */
     }
     return node;
 }
