@@ -2118,7 +2118,7 @@ def test_encode_meta_charset_declares_utf_8_for_the_bom_codec() -> None:
         pytest.param("iso2022_kr", id="iso2022-kr"),
         pytest.param("hz", id="hz"),
         pytest.param("utf-16", id="utf-16"),
-        pytest.param("utf-16-le", id="utf-16-le"),
+        pytest.param("utf-7", id="utf-7"),
         pytest.param("utf-32", id="utf-32"),
         pytest.param("cp950", id="cp950"),
         pytest.param("iso8859_16", id="iso8859-16"),
