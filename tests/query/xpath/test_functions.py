@@ -5,6 +5,7 @@ import re
 import string
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
+import time
 from string import ascii_lowercase, ascii_uppercase
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeAlias, cast
@@ -1789,6 +1790,27 @@ def test_regex_resolves_each_of_many_group_names() -> None:
         parse_xml("<r/>"), text=f"{digits}78", pattern=pattern, flags="", replacement="\\g<n149>\\g<n3>\\g<n42>"
     )
     assert replaced == "932"
+
+
+@pytest.mark.usefixtures("native_regex")
+def test_regex_compiles_many_named_groups_in_linear_time() -> None:
+    count: Final = 20000
+    named: Final = "".join(f"(?P<n{index}>{index % 10})" for index in range(count))
+    unnamed: Final = "".join(f"({index % 10})" for index in range(count))
+    # the baseline has the same number of groups without names; the floor keeps a fast baseline from inflating the ratio
+    baseline: Final = max(_compile_seconds(unnamed), 0.01)
+    assert _compile_seconds(named) < 10 * baseline
+
+
+def _compile_seconds(groups: str) -> float:
+    timings: Final[list[float]] = []
+    for run in range(3):
+        # a new pattern text per run, since compiled programs are cached by their text
+        pattern: Final = f"{groups}{'z' * run}"
+        start = time.perf_counter()
+        _REGEX_TEST(parse_xml("<r/>"), text="x", pattern=pattern, flags="")
+        timings.append(time.perf_counter() - start)
+    return min(timings)
 
 
 @pytest.mark.parametrize(
