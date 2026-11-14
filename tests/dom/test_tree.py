@@ -984,9 +984,9 @@ def test_reset_insertion_mode_skips_a_foreign_html_in_a_document() -> None:
     ("source", "expected"),
     [
         pytest.param(
-            "<svg><template><desc><dl></template>k",
-            "<html><head></head><body><svg><template><desc><dl>k</dl></desc></template></svg></body></html>",
-            id="svg-desc-definition-list",
+            "<svg><template><desc>j<dl>k<q></template><b>m</b>",
+            "<html><head></head><body><svg><template><desc>j<dl>k<q><b>m</b></q></dl></desc></template></svg></body></html>",
+            id="svg-desc-text-then-definition-list",
         ),
         pytest.param(
             "<math><template><mi><q></template><u><hr><u>",
@@ -1022,39 +1022,55 @@ def test_foreign_template_fragment_keeps_the_root() -> None:
     ("source", "context", "expected"),
     [
         pytest.param(
-            "<dl></template><kbd><ol></kbd>z", "math template", "<dl><kbd><ol>z</ol></kbd></dl>", id="template-end-tag"
+            "<dl>t<b>u</b></template>k<kbd><ol></kbd>z",
+            "math template",
+            "<dl>t<b>u</b>k<kbd><ol>z</ol></kbd></dl>",
+            id="math-template-end-tag-ignored",
         ),
-        pytest.param("<li>a</li><kbd><ol></kbd>y", "math li", "<li>a</li><kbd></kbd><ol>y</ol>", id="li-start-tag"),
-        pytest.param("<dd>a</dd><sub><ol></sub>y", "svg dd", "<dd>a</dd><sub><ol>y</ol></sub>", id="dd-start-tag"),
         pytest.param(
-            "<dt>a</dt><code><ol></code>y",
+            "<li>a<q>b</q></li><kbd><ol></kbd>y",
+            "math li",
+            "<li>a<q>b</q></li><kbd></kbd><ol>y</ol>",
+            id="math-li-closed-before-misnest",
+        ),
+        pytest.param(
+            "<dd>x<sub>j</sub></dd><sub><ol></sub>y",
+            "svg dd",
+            "<dd>x<sub>j</sub></dd><sub><ol>y</ol></sub>",
+            id="svg-dd-closed-before-misnest",
+        ),
+        pytest.param(
+            "<dt>k</dt>n<code><ol></code>y",
             "svg dt",
-            "<dt>a</dt><code></code><ol><code></code>y</ol>",
-            id="dt-start-tag",
+            "<dt>k</dt>n<code></code><ol><code></code>y</ol>",
+            id="svg-dt-text-before-misnest",
         ),
         pytest.param(
-            "<h4>a</h4><nobr><ol></nobr>y",
+            "<h4>a<em>b</em><nobr><ol></nobr>y",
             "math h4",
-            "<h4>a</h4><nobr></nobr><ol><nobr></nobr>y</ol>",
-            id="heading-start-tag",
+            "<h4>a<em>b</em><nobr></nobr><ol><nobr></nobr>y</ol></h4>",
+            id="math-h4-nested-before-misnest",
         ),
         pytest.param(
-            "<span>a</h2><u><ol></u>y",
+            "<span>a</h2>m<u><ol></u>y",
             "svg h2",
-            "<span>a<u></u><ol><u></u>y</ol></span>",
-            id="heading-end-tag",
+            "<span>am<u></u><ol><u></u>y</ol></span>",
+            id="svg-h2-text-before-end-tag",
         ),
         pytest.param(
-            "<dd><table></table><caption></caption><var><ol></var>y",
+            "<dd>q<table></table><caption></caption><var><ol></var>y",
             "math table",
-            "<dd><table></table><var><ol>y</ol></var></dd>",
-            id="reset-insertion-mode",
+            "<dd>q<table></table><var><ol>y</ol></var></dd>",
+            id="math-table-text-before-caption",
         ),
+        pytest.param("<p>a<input>b", "svg select", "<p>a<input>b</p>", id="svg-select-keeps-input"),
+        pytest.param("<p>a<input>b", "select", "<p>ab</p>", id="html-select-drops-input"),
+        pytest.param("<li><hr>", "svg select", "<li><hr></li>", id="svg-select-hr-after-li"),
     ],
 )
 def test_fragment_root_of_a_foreign_context_keeps_its_content(source: str, context: str, expected: str) -> None:
-    # the root is named like an HTML element but is not one: the walks must not take it for that element, so the
-    # content lands under the root and nothing is left beside it
+    # the root borrows the name of an HTML element without being one, so the walks leave it alone and the
+    # content stays under it
     root = parse_fragment(source, context)
     assert root.next_sibling is None
     assert root.inner_html == expected
@@ -1697,8 +1713,9 @@ _DEPTH_CAP: Final[int] = 512
             id="text-element-in-header-cell",
         ),
         pytest.param(
-            f"{'<dl>' * (_DEPTH_CAP - 9)}<dl><dd><dt><dl><table><tbody><tr><td>y<iframe></iframe></tbody>",
-            id="text-element-in-row",
+            f"{'<dl>' * (_DEPTH_CAP - 9)}<dd><dt><span><dl>"
+            "<table><colgroup><col><tbody><tr><td><textarea>z</textarea></tr>",
+            id="raw-text-after-colgroup",
         ),
     ],
 )
@@ -1713,29 +1730,29 @@ def test_element_refused_at_depth_cap_keeps_html_on_the_stack(markup: str) -> No
     ("markup", "context"),
     [
         pytest.param(
-            f"<svg>{'<symbol>' * (_DEPTH_CAP - 6)}<defs><g><svg><title><title></title><em><p></em>x",
+            f"<svg>{'<symbol>' * (_DEPTH_CAP - 8)}<svg><switch><defs><g><a><title><title></title><em><p></em>x",
             "div",
-            id="svg-title",
+            id="svg-title-deep-chain",
         ),
         pytest.param(
-            f"{'<dl>' * (_DEPTH_CAP - 3)}<dd><ins><table><caption></caption><small><p></small>",
+            f"{'<dl>' * (_DEPTH_CAP - 2)}<dd><table><caption></caption><small><p></small>",
             "svg foreignObject",
-            id="table-svg",
+            id="caption-in-foreign-object",
         ),
         pytest.param(
-            f"{'<dl>' * (_DEPTH_CAP - 5)}<dd><ins><q><span><table><caption></caption><small><p></small>",
+            f"{'<dl>' * (_DEPTH_CAP - 2)}<dd><ins><q><span><table><caption></caption><small><p></small>",
             "math mtext",
             id="table-mathml",
         ),
         pytest.param(
             f"{'<dl>' * (_DEPTH_CAP - 2)}<dd><template><tr><td></td></tr><small><p></small>",
             "svg desc",
-            id="template",
+            id="template-after-definition",
         ),
         pytest.param(
-            f"{'<blockquote>' * (_DEPTH_CAP - 3)}<table><tbody><tr><td></td></tr><small><p></small>",
+            f"{'<blockquote>' * (_DEPTH_CAP - 2)}<table><thead><tr><td></td></tr><small><p></small>",
             "svg path",
-            id="path",
+            id="cell-in-thead-under-blockquotes",
         ),
     ],
 )

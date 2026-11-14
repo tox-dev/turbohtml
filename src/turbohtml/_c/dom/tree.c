@@ -608,8 +608,7 @@ static int is_implied_end_atom(uint16_t atom) {
 }
 
 static void generate_implied_end_tags(th_tree *tree, uint16_t except_atom) {
-    while (tree->open_len > 1) { /* GCOVR_EXCL_BR_LINE: the html element is never an implied-end-tag element, so the
-                                    walk stops above the root */
+    while (tree->open_len > 1) {
         uint16_t atom = current_node(tree)->atom;
         if (atom == except_atom || !is_implied_end_atom(atom)) {
             return;
@@ -621,8 +620,7 @@ static void generate_implied_end_tags(th_tree *tree, uint16_t except_atom) {
 /* Pop elements until (and including) an HTML element with this atom; a foreign
    element with the same local name (e.g. a MathML td) never matches. */
 static void pop_until_atom(th_tree *tree, uint16_t atom) {
-    while (tree->open_len > 1) { /* GCOVR_EXCL_BR_LINE: pop_until_atom is only called with the target element in scope,
-                                    so the walk stops above the root */
+    while (tree->open_len > 1) {
         th_node *node = current_node(tree);
         stack_pop(tree);
         if (node->ns == TH_NS_HTML && node->atom == atom) {
@@ -2447,9 +2445,14 @@ static int is_heading_atom(uint16_t atom) {
            atom == TH_TAG_H6;
 }
 
-/* The heading rules apply only to HTML elements, so a foreign element with a heading's name is not a heading. */
+/* HTML h1-h6 only */
 static int is_heading(const th_node *node) {
     return node->ns == TH_NS_HTML && is_heading_atom(node->atom);
+}
+
+/* a foreign context root named select takes the foreign rules, so only an HTML select context counts */
+static int is_select_fragment(const th_tree *tree) {
+    return tree->fragment_root != NULL && tree->fragment_root->ns == TH_NS_HTML && tree->ctx_atom == TH_TAG_SELECT;
 }
 
 /* Start tags that close an open <p> in button scope before being inserted. */
@@ -2647,8 +2650,7 @@ static enum mode reset_insertion_mode(th_tree *tree) {
         int last = (index == 0);
         uint16_t atom;
         if (last && tree->fragment_root != NULL) {
-            /* the bottom of the stack takes the context's place only when it is HTML; a foreign root must not pick a
-               table mode, because that mode's clear_to would then pop the root */
+            /* the reset steps name HTML elements, so a foreign root matches none and the mode stays in body */
             atom = node->ns == TH_NS_HTML ? tree->ctx_atom : TH_TAG_UNKNOWN;
         } else if (node->ns != TH_NS_HTML) {
             /* the reset algorithm names HTML-namespace elements only, so a foreign
@@ -3448,7 +3450,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             tree->reparse_hazard = 1; /* ignored tags inside select can become elements after serialization */
             /* select content is plain in-body content now; a nested
                select start closes the open one instead of nesting */
-            if (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT) {
+            if (is_select_fragment(tree)) {
                 return TH_DRAIN_NEXT; /* fragment case: ignored */
             }
             if (has_in_scope(tree, TH_TAG_SELECT)) {
@@ -3514,7 +3516,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         }
         if (atom == TH_TAG_HR) {
             close_p_in_button_scope(tree);
-            if (has_in_scope(tree, TH_TAG_SELECT) || (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT)) {
+            if (has_in_scope(tree, TH_TAG_SELECT) || is_select_fragment(tree)) {
                 /* in a select (or a select-context fragment) close the open option/optgroup
                    first, so the hr lands at select level rather than inside the option */
                 generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
@@ -3534,7 +3536,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         }
         if (atom == TH_TAG_OPTION || atom == TH_TAG_OPTGROUP) {
             tree->reparse_hazard = 1; /* nested option markup can reopen as elements after serialization */
-            if (has_in_scope(tree, TH_TAG_SELECT) || (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT)) {
+            if (has_in_scope(tree, TH_TAG_SELECT) || is_select_fragment(tree)) {
                 /* inside a select (or a select-context fragment, where no select node
                    is on the stack), implied end tags close open option and (for an
                    optgroup start) optgroup elements */
@@ -3582,7 +3584,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_INPUT) {
-            if (tree->fragment_root != NULL && tree->ctx_atom == TH_TAG_SELECT) {
+            if (is_select_fragment(tree)) {
                 return TH_DRAIN_NEXT;
             }
             if (has_in_scope(tree, TH_TAG_SELECT)) {
