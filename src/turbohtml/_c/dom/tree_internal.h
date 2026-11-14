@@ -79,6 +79,7 @@ typedef struct {
     uint8_t multiple;
     uint8_t disabled; /* an option, selectedcontent or second select above the select disables its targets */
     uint8_t optgroup_disabled;
+    uint8_t detached; /* the shown option left the select, so a later first-enabled option waits for the finish */
 } th_select_cache;
 
 /* The select caches of one parse, allocated on the first selected-option clone so a
@@ -87,7 +88,9 @@ typedef struct {
     th_select_cache *caches;
     Py_ssize_t count;
     Py_ssize_t cap;
-    th_node_map index; /* select node -> 1-based position in caches */
+    th_node_map index;  /* select node -> 1-based position in caches */
+    Py_ssize_t pending; /* targets across the caches still waiting for their copy */
+    uint8_t recheck;    /* a shown option may have left its select, so the finish walks every cache */
 } th_select_state;
 
 typedef struct th_attr_names th_attr_names;
