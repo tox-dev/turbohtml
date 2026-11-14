@@ -822,20 +822,20 @@ def test_transform_generate_id_does_not_depend_on_node_address() -> None:
 def test_transform_generate_id_distinguishes_attributes() -> None:
     body = "".join(
         f'<xsl:value-of select="generate-id({select})"/><xsl:text> </xsl:text>'
-        for select in ("r", "r/@a", "r/@b", "r/namespace::*")
+        for select in ("doc", "doc/@lang", "doc/@dir", "doc/namespace::*")
     )
-    ids = _run('<r a="1" b="2"/>', f'<xsl:template match="/">{body}</xsl:template>').split()
+    ids = _run('<doc lang="en" dir="ltr"/>', f'<xsl:template match="/">{body}</xsl:template>').split()
     assert len(set(ids)) == len(ids) == 4
 
 
 @pytest.mark.parametrize("select", ["generate-id()", "generate-id(current())"])
 def test_transform_generate_id_distinguishes_attributes_in_for_each(select: str) -> None:
     body = (
-        '<xsl:template match="/"><xsl:value-of select="generate-id(r)"/><xsl:text> </xsl:text>'
-        f'<xsl:for-each select="r/@*"><xsl:value-of select="{select}"/><xsl:text> </xsl:text></xsl:for-each>'
+        '<xsl:template match="/"><xsl:value-of select="generate-id(doc)"/><xsl:text> </xsl:text>'
+        f'<xsl:for-each select="doc/@*"><xsl:value-of select="{select}"/><xsl:text> </xsl:text></xsl:for-each>'
         "</xsl:template>"
     )
-    ids = _run('<r a="1" b="2"/>', body).split()
+    ids = _run('<doc lang="en" dir="ltr"/>', body).split()
     assert len(set(ids)) == len(ids) == 3
 
 
