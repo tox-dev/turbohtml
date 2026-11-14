@@ -1394,6 +1394,30 @@ def test_rng_overlapping_attributes_scale_linearly(work_steps: WorkSteps) -> Non
     work_steps.assert_linear(lambda n: partial(RelaxNG(rwrap(pattern * n)).validate, document), (12, 20))
 
 
+@pytest.mark.parametrize("tail", ["b", "c"])
+def test_rng_repeated_start_tag_hits_keep_each_tail(tail: str) -> None:
+    assert rng_ok(_two_tail_ladder(11), f"<r><a/><{tail}/></r>")
+
+
+def _two_tail_ladder(count: int) -> str:
+    defines = "".join(
+        f'<define name="d{index}"><group><ref name="d{index + 1}"/><ref name="e{index + 1}"/></group></define>'
+        f'<define name="e{index}"><group><ref name="e{index + 1}"/><ref name="d{index + 1}"/></group></define>'
+        for index in range(count)
+    )
+    start = (
+        '<choice><group><ref name="l"/><element name="b"><empty/></element></group>'
+        '<group><ref name="l"/><element name="c"><empty/></element></group></choice>'
+    )
+    return rgrammar(
+        f'<start><element name="r">{start}</element></start>{defines}'
+        f'<define name="d{count}"><text/></define><define name="e{count}"><text/></define>'
+        '<define name="l"><group><ref name="d0"/><ref name="s"/></group></define>'
+        '<define name="s"><choice><element name="a"><empty/></element><element name="q"><empty/></element></choice>'
+        "</define>"
+    )
+
+
 def _ladder(leaf: str, *, combine: str) -> str:
     return _crossed_chain(leaf, '<ref name="d0"/>', combine, count=11)
 
