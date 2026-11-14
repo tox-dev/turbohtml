@@ -2954,7 +2954,7 @@ def test_a_transform_tag_that_is_not_a_str_is_rejected() -> None:
 
 _XSS_CORPUS: Final[list[pytest.ParameterSet]] = [
     pytest.param("<script>alert(1)</script>", id="script"),
-    pytest.param("<scr<script>ipt>alert(1)</scr</script>ipt>", id="nested-script"),
+    pytest.param("<im<script>g src=x onerror=alert(2)>", id="tag-rebuilt-from-split-script"),
     pytest.param("<img src=x onerror=alert(1)>", id="img-onerror"),
     pytest.param("<a href='javascript:alert(1)'>x</a>", id="js-url"),
     pytest.param("<a href='java\tscript:alert(1)'>x</a>", id="js-url-tab"),
@@ -3255,18 +3255,22 @@ _PARSE_STABLE_RULES: Final[list[pytest.ParameterSet]] = [
     pytest.param("<table><caption><a>x", frozenset({"table", "caption", "a"}), id="link-under-caption-marker"),
     # escaping a barrier also exposes the hoisted content's own descendants, not just its top level, to a new scan
     pytest.param("<li><header><b><li>x", frozenset({"li", "b"}), id="li-behind-unwrapped-barrier"),
-    pytest.param("<dd><header><b><dt>x", frozenset({"dd", "dt", "b"}), id="dt-behind-unwrapped-barrier"),
-    pytest.param("<p><button><b><div>x", frozenset({"p", "b", "div"}), id="block-behind-unwrapped-button"),
-    pytest.param("<a><object><b><a>x", frozenset({"a", "b"}), id="link-behind-unwrapped-marker"),
+    pytest.param("<dt><footer><i><dd>x", frozenset({"dt", "i", "dd"}), id="dd-behind-unwrapped-footer"),
+    pytest.param("<p><applet><u><ul>x", frozenset({"p", "u", "ul"}), id="list-behind-unwrapped-applet"),
+    pytest.param("<a><marquee><strong><a>x", frozenset({"a", "strong"}), id="anchor-behind-unwrapped-marquee"),
     # the implied item under the dt escapes to nothing, and the scan must still reach the nested link after it
     pytest.param(
         "<nobr><applet><s><nobr><dt><ol></nobr></s>",
         frozenset({"nobr", "s", "dt", "ol"}),
         id="nobr-behind-empty-escape",
     ),
-    pytest.param("<nobr><object><b><nobr>x", frozenset({"nobr", "b"}), id="nobr-behind-unwrapped-marker"),
-    pytest.param("<button><select><i><button>x", frozenset({"button"}), id="button-in-button"),
-    pytest.param("<optgroup><optgroup>", frozenset({"optgroup"}), id="nested-optgroup-reopens"),
+    pytest.param("<nobr><applet><em><nobr>x", frozenset({"nobr", "em"}), id="nobr-behind-unwrapped-applet"),
+    pytest.param(
+        "<button><marquee><strong><button>x", frozenset({"button", "strong"}), id="button-behind-unwrapped-marquee"
+    ),
+    pytest.param(
+        "<select><optgroup><optgroup><option>x", frozenset({"optgroup", "select"}), id="optgroup-reopens-in-select"
+    ),
     pytest.param("<select><table>", frozenset({"select", "table"}), id="select-ignored-table-reopens"),
     pytest.param("<select><object><input>x", frozenset({"select", "input"}), id="input-closes-select"),
     pytest.param(

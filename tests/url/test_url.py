@@ -968,10 +968,10 @@ def test_meta_refresh_resolves_encoded_dot_segments() -> None:
     )
 
 
-def test_meta_refresh_tabbed_authority_resolves_encoded_dots() -> None:
-    # WHATWG drops tab characters before it reads the authority, so the tab between the two slashes is removed
-    html = '<meta http-equiv=refresh content="0;url=ftp:/\t/files.test/x/%2e%2e/w">'
-    assert parse(html).meta_refresh("ftp://mirror.example/pub/x") == (0.0, "ftp://files.test/w")
+def test_meta_refresh_tab_in_repeated_scheme_keeps_colon_segment() -> None:
+    # WHATWG drops the tab before parsing, so the repeated scheme is a path segment whose colon is not a scheme
+    html = '<meta http-equiv=refresh content="0;url=wss:wss\t:q:r/%2e/s">'
+    assert parse(html).meta_refresh("wss://relay.example/room/42/q") == (0.0, "wss://relay.example/room/42/wss:q:r/s")
 
 
 def test_meta_refresh_resolves_root_backslash_before_trailing_control() -> None:
