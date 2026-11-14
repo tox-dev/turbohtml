@@ -1189,3 +1189,26 @@ def test_coverage_inputs_for_the_fill_and_scan_are_reparse_stable(markup: str, b
     once = parse(markup).html
     assert once == f"<html><head></head><body>{body}</body></html>"
     assert parse(once).html == once
+
+
+@pytest.mark.parametrize(
+    ("markup", "body"),
+    [
+        pytest.param(
+            "<select><button><selectedcontent></button><option selected>a<option><em><option disabled>d<option>b",
+            '<select><button><selectedcontent>a</selectedcontent></button><option selected="">a</option>'
+            '<option><em><option disabled="">d</option><option>b</option></em></option></select>',
+            id="disabled-option-before-the-enabled-one",
+        ),
+        pytest.param(
+            "<select><button><selectedcontent></button><option disabled>d<option selected>a<option><em><option>b",
+            '<select><button><selectedcontent>a</selectedcontent></button><option disabled="">d</option>'
+            '<option selected="">a</option><option><em><option>b</option></em></option></select>',
+            id="disabled-option-before-the-shown-one",
+        ),
+    ],
+)
+def test_disabled_option_in_the_recheck_scan_is_reparse_stable(markup: str, body: str) -> None:
+    once = parse(markup).html
+    assert once == f"<html><head></head><body>{body}</body></html>"
+    assert parse(once).html == once
