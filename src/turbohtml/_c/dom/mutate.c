@@ -455,7 +455,7 @@ static inline int node_attr_reserve(th_tree *tree, th_node *node, int indexed) {
     return 0;
 }
 
-/* Indexed growth stays out of line, so that node_attr_store inlines only the plain growth every new element takes. */
+/* Indexed growth stays out of line, so that the writers below inline only the plain growth every new element takes. */
 ATTR_INDEX_FN int node_attr_reserve_indexed(th_tree *tree, th_node *node) {
     return node_attr_reserve(tree, node, 1);
 }
@@ -472,20 +472,20 @@ ATTR_INDEX_FN Py_ssize_t node_attr_find_large(th_tree *tree, th_node *node, cons
     return node_attr_find_indexed(tree, node, name, name_len, atom);
 }
 
-#if defined(_MSC_VER)
-#define ATTR_STORE_INLINE static __forceinline
-#else
-#define ATTR_STORE_INLINE static inline __attribute__((always_inline))
-#endif
-
-/* Inlined into node_attr_write and th_node_attr_append, so the appender the XML parser calls per attribute compiles
-   without the lookup. */
-ATTR_STORE_INLINE int node_attr_store(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
-                                      const Py_UCS4 *value, Py_ssize_t value_len, int has_value, int append) {
+/* Shared by both writers. Branch-free, so inlining it adds no coverage arc. */
+static inline uint32_t node_attr_begin(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len) {
     tree->attr_version++;
     mark_start_dirty(tree, node);
     uint32_t atom = th_attr_intern_utf8(tree, name, name_len);
     tree->id_version += atom == TH_ATTR_ID;
+    return atom;
+}
+
+/* Replaces the value of a present name, or appends it. Kept apart from th_node_attr_append rather than inlined into
+   both: a shared store would hold the duplicate and index branches, which the appender never takes. */
+static TH_NOINLINE int node_attr_write(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
+                                       const Py_UCS4 *value, Py_ssize_t value_len, int has_value) {
+    uint32_t atom = node_attr_begin(tree, node, name, name_len);
     Py_UCS4 *owned = NULL;
     if (has_value) {
         owned = arena_alloc(tree, (value_len ? value_len : 1) * (Py_ssize_t)sizeof(Py_UCS4));
@@ -496,17 +496,15 @@ ATTR_STORE_INLINE int node_attr_store(th_tree *tree, th_node *node, const char *
             memcpy(owned, value, (size_t)value_len * sizeof(Py_UCS4));
         }
     }
-    Py_ssize_t existing = -1;
-    if (!append) { /* an appender has ruled a duplicate out itself */
-        /* a small array is scanned even when an index is left over from when it was large */
-        if (node->attr_count >= ATTR_INDEX_MIN) {
-            existing = node_attr_find_large(tree, node, name, name_len, atom);
-            if (existing < -1) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-                return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
-            }
-        } else {
-            existing = th_node_attr_find(tree, node, name, name_len);
+    Py_ssize_t existing;
+    /* a small array is scanned even when an index is left over from when it was large */
+    if (node->attr_count >= ATTR_INDEX_MIN) {
+        existing = node_attr_find_large(tree, node, name, name_len, atom);
+        if (existing < -1) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
         }
+    } else {
+        existing = th_node_attr_find(tree, node, name, name_len);
     }
     /* testing right after interning changed how LTO inlined the lookup and cost a class edit 150 instructions */
     if (atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
@@ -517,14 +515,11 @@ ATTR_STORE_INLINE int node_attr_store(th_tree *tree, th_node *node, const char *
     }
     if (existing >= 0) {
         th_mo_attr_changed(tree, node, atom, node->attrs[existing].value, node->attrs[existing].value_len, 1);
-    } else {
-        th_mo_attr_changed(tree, node, atom, NULL, 0, 0);
-    }
-    if (existing >= 0) {
         node->attrs[existing].value = owned;
         node->attrs[existing].value_len = has_value ? value_len : 0;
         return 0;
     }
+    th_mo_attr_changed(tree, node, atom, NULL, 0, 0);
     /* growth keeps an array indexed or plain, so the flag read here also holds after it */
     const int indexed = node->attr_capacity_shift & TH_ATTR_INDEXED;
     if ((size_t)node->attr_count >= th_node_attr_capacity(node)) {
@@ -550,23 +545,40 @@ ATTR_STORE_INLINE int node_attr_store(th_tree *tree, th_node *node, const char *
     return 0;
 }
 
-/* Out of line behind the th_node_attr_set wrapper, as on main: with the store inlined into th_node_attr_set, GCC
-   specialized three more copies of it, enough to exhaust LTO's unit-wide inlining budget and drop inlines in unrelated
-   hot code. */
-static TH_NOINLINE int node_attr_write(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
-                                       const Py_UCS4 *value, Py_ssize_t value_len, int has_value) {
-    return node_attr_store(tree, node, name, name_len, value, value_len, has_value, 0);
-}
-
 int th_node_attr_set(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len, const Py_UCS4 *value,
                      Py_ssize_t value_len, int has_value) {
     return node_attr_write(tree, node, name, name_len, value, value_len, has_value);
 }
 
-/* out of line: inlined into the XML parser's attribute loop it cost that loop more than the call */
+/* out of line: inlined into the XML parser's attribute loop it cost that loop more than the call. The XML parser is the
+   only appender and its tree is always XML, so the namespace check needs no tree->xml test. */
 TH_NOINLINE int th_node_attr_append(th_tree *tree, th_node *node, const char *name, Py_ssize_t name_len,
-                                    const Py_UCS4 *value, Py_ssize_t value_len, int has_value) {
-    return node_attr_store(tree, node, name, name_len, value, value_len, has_value, 1);
+                                    const Py_UCS4 *value, Py_ssize_t value_len) {
+    uint32_t atom = node_attr_begin(tree, node, name, name_len);
+    Py_UCS4 *owned = arena_alloc(tree, (value_len ? value_len : 1) * (Py_ssize_t)sizeof(Py_UCS4));
+    if (owned == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (value_len > 0) { /* an empty value may arrive as a NULL pointer */
+        memcpy(owned, value, (size_t)value_len * sizeof(Py_UCS4));
+    }
+    if (atom == TH_ATTR_UNKNOWN) { /* GCOVR_EXCL_BR_LINE: interning fails only to allocate */
+        return -1;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    if (is_xml_namespace_decl(name, name_len)) {
+        tree->has_xml_ns = 1;
+    }
+    th_mo_attr_changed(tree, node, atom, NULL, 0, 0);
+    if ((size_t)node->attr_count >= th_node_attr_capacity(node)) {
+        if (node_attr_reserve(tree, node, 0) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                              /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+    }
+    node->attrs[node->attr_count].name_atom = atom;
+    node->attrs[node->attr_count].value = owned;
+    node->attrs[node->attr_count].value_len = value_len;
+    node->attr_count++;
+    return 0;
 }
 
 /* Replace a node's character data with a copy of len code points (an empty buffer
@@ -861,7 +873,7 @@ void th_tree_verify(th_tree *tree, th_node *start, Py_ssize_t (*visit)(void *con
             found->iterators += !is_inclusive_ancestor_of(iterator->root, iterator->candidate);
         }
     }
-    /* every write that bumps id_version bumps attr_version with it (node_attr_store, th_node_attr_del) */
+    /* every write that bumps id_version bumps attr_version with it (node_attr_begin, th_node_attr_del) */
     found->versions = tree->id_version > tree->attr_version;
 }
 

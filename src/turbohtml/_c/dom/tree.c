@@ -1093,7 +1093,7 @@ static void merge_attrs(th_tree *tree, th_node *node, const th_token *token) {
     if (add == 0) {
         return;
     }
-    /* Grow geometrically, as node_attr_store does: the arena keeps every superseded array until the tree is freed,
+    /* Grow geometrically, as node_attr_write does: the arena keeps every superseded array until the tree is freed,
        so an exact-size copy per re-opening tag would retain memory quadratic in the number of such tags. */
     size_t capacity = th_node_attr_capacity(node);
     size_t needed = (size_t)node->attr_count + (size_t)add;
