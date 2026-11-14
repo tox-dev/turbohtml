@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping this test's own bytes
-import time
+from functools import partial
 from io import BytesIO
 from typing import TYPE_CHECKING, Final, cast
 
@@ -12,6 +12,8 @@ from turbohtml import Canonical, CData, Element, Html, ProcessingInstruction, Te
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from work_steps import WorkSteps
 
     from turbohtml import Document
 
@@ -1090,36 +1092,31 @@ def test_html_c14n_1_1_joins_ancestor_bases_at_depth() -> None:
     assert node.canonicalize(Canonical(version="1.1")) == f'<em xml:base="{"ub/" * 120}"></em>'.encode()
 
 
-def test_xml_c14n_1_1_fixup_time_stays_near_reference() -> None:
-    assert _chain_to_reference_ratio(parse_xml, "a", "s", "seg/" * 5, 6_000) < 10.0
+@pytest.mark.parametrize(
+    ("parse_markup", "element", "value", "depths"),
+    [
+        pytest.param(parse_xml, "a", "seg/" * 5, (1500, 6000), id="xml"),
+        # the HTML tree builder caps the depth at 512, so this case stays below it
+        pytest.param(parse, "section", "seg/" * 250, (100, 400), id="html"),
+    ],
+)
+def test_c14n_1_1_fixup_steps_grow_linearly(
+    parse_markup: Callable[[str], Document],
+    element: str,
+    value: str,
+    depths: tuple[int, int],
+    work_steps: WorkSteps,
+) -> None:
+    work_steps.assert_linear(lambda depth: _base_chain_apex(parse_markup, element, value, depth), depths)
 
 
-# The reference is the same chain with the values on xml:lang, which the fixup does not join. The floor keeps the ratio
-# finite when the reference is too quick to time.
-def _chain_to_reference_ratio(
-    parse_markup: Callable[[str], Document], element: str, leaf: str, value: str, depth: int
-) -> float:
+def _base_chain_apex(
+    parse_markup: Callable[[str], Document], element: str, value: str, depth: int
+) -> Callable[[], bytes]:
     opening = f'<{element} xml:base="{value}">'
-    chain = f"{opening * depth}<{leaf}></{leaf}>{f'</{element}>' * depth}"
-    reference = chain.replace("xml:base", "xml:lang")
-    chain_node = parse_markup(chain).select_one(leaf)
-    reference_node = parse_markup(reference).select_one(leaf)
-    assert chain_node is not None
-    assert reference_node is not None
-    return _fastest_canonicalize(chain_node) / max(_fastest_canonicalize(reference_node), 0.01)
-
-
-def _fastest_canonicalize(node: Element) -> float:
-    fastest = float("inf")
-    for _ in range(3):
-        start = time.process_time()
-        node.canonicalize(Canonical(version="1.1"))
-        fastest = min(fastest, time.process_time() - start)
-    return fastest
-
-
-def test_html_c14n_1_1_fixup_time_stays_near_reference() -> None:
-    assert _chain_to_reference_ratio(parse, "section", "em", "seg/" * 250, 500) < 10.0
+    node = parse_markup(f"{opening * depth}<s></s>{f'</{element}>' * depth}").select_one("s")
+    assert node is not None
+    return partial(node.canonicalize, Canonical(version="1.1"))
 
 
 def test_xml_c14n_comment_is_omitted_without_option() -> None:

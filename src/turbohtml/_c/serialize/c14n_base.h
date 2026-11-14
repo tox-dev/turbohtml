@@ -1,6 +1,7 @@
 #ifndef TURBOHTML_C14N_BASE_H
 #define TURBOHTML_C14N_BASE_H
 
+#include "core/work_steps.h"
 #include "serialize/internal.h"
 #include "url/url.h"
 
@@ -13,6 +14,12 @@ static const th_node_attr *c14n_base_attribute(th_tree *tree, const th_node *nod
         }
     }
     return NULL;
+}
+
+/* A join reads its base and its target code point by code point, so the work counter charges both lengths. */
+static PyObject *c14n_base_join(const Py_UCS4 *base, Py_ssize_t base_len, PyObject *target) {
+    TH_WORK_STEPS_ADD(base_len + PyUnicode_GET_LENGTH(target));
+    return th_url_join_c14n_raw(base, base_len, target);
 }
 
 /* The xml:base joined so far. Once it has a scheme or an authority a join only normalizes it, or lends a scheme to an
@@ -161,7 +168,7 @@ static PyObject *c14n_chain_join_proxy(const c14n_chain *chain, const Py_UCS4 *b
     if (target == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *joined = th_url_join_c14n_raw(base, base_len, target);
+    PyObject *joined = c14n_base_join(base, base_len, target);
     Py_DECREF(target);
     return joined;
 }
@@ -210,11 +217,11 @@ static int c14n_chain_join_absolute(c14n_chain *chain, const Py_UCS4 *base, Py_s
                 return -1;                    /* GCOVR_EXCL_LINE: allocation-failure path */
             }
         }
-        PyObject *checked = th_url_join_c14n_raw(base, base_len, chain->scheme_only);
+        PyObject *checked = c14n_base_join(base, base_len, chain->scheme_only);
         Py_XDECREF(checked);
         return checked == NULL ? -1 : 0;
     }
-    PyObject *joined = th_url_join_c14n_raw(base, base_len, chain->absolute);
+    PyObject *joined = c14n_base_join(base, base_len, chain->absolute);
     if (joined == NULL) {
         return -1;
     }
@@ -272,7 +279,7 @@ static int c14n_base_fixup(th_tree *tree, const th_node *apex, Py_UCS4 **value, 
             }
         }
         if (current != NULL) {
-            Py_SETREF(current, th_url_join_c14n_raw(base->value, base->value_len, current));
+            Py_SETREF(current, c14n_base_join(base->value, base->value_len, current));
             joined_once = 1;
             status = current == NULL ? -1 : 0;
         } else {
@@ -289,12 +296,10 @@ static int c14n_base_fixup(th_tree *tree, const th_node *apex, Py_UCS4 **value, 
         sbuf whole = {0};
         c14n_chain_flatten(&chain, chain.head.data, chain.head.len, chain.parents, &whole);
         *value = sbuf_finish(&whole, length);
-        /* GCOVR_EXCL_START: allocation failure cannot be forced from a test */
-        if (*value == NULL) {
-            PyErr_NoMemory();
-            status = -1;
+        if (*value == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
+            status = -1;      /* GCOVR_EXCL_LINE: allocation-failure path */
         }
-        /* GCOVR_EXCL_STOP */
     }
     Py_XDECREF(current);
     c14n_chain_clear(&chain);
