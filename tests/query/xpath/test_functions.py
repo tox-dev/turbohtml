@@ -5,7 +5,7 @@ import re
 import string
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
-import time
+from functools import partial
 from string import ascii_lowercase, ascii_uppercase
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeAlias, cast
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from pytest_mock import MockerFixture
+    from work_steps import WorkSteps
 
 
 _LONG_NEEDLE: Final[str] = f"{'a' * 65}ba"
@@ -1793,26 +1794,16 @@ def test_regex_resolves_each_of_many_group_names() -> None:
 
 
 @pytest.mark.usefixtures("native_regex")
-def test_regex_compiles_many_named_groups_in_linear_time() -> None:
-    count: Final = 40000
-    named: Final = "".join(f"(?P<n{index}>{index % 10})" for index in range(count))
-    # non-capturing groups have no names and compile in linear time on every build; 10x more of them keeps the
-    # baseline above the 10 ms floor, and capturing groups would exceed the instruction limit at that count
-    reference_count: Final = 10 * count
-    unnamed: Final = "".join(f"(?:{index % 10})" for index in range(reference_count))
-    per_group_baseline: Final = max(_compile_seconds(unnamed), 0.01) / reference_count
-    assert _compile_seconds(named) / count < 70 * per_group_baseline
+def test_regex_compiles_many_named_groups_in_linear_time(work_steps: WorkSteps) -> None:
+    document: Final = parse_xml("<r/>")
+    work_steps.assert_linear(
+        lambda count: partial(_REGEX_TEST, document, text="x", pattern=_named_groups(count), flags=""),
+        (1000, 4000),
+    )
 
 
-def _compile_seconds(groups: str) -> float:
-    timings: Final[list[float]] = []
-    for run in range(3):
-        # a new pattern text per run, since compiled programs are cached by their text
-        pattern: Final = f"{groups}{'z' * run}"
-        start = time.perf_counter()
-        _REGEX_TEST(parse_xml("<r/>"), text="x", pattern=pattern, flags="")
-        timings.append(time.perf_counter() - start)
-    return min(timings)
+def _named_groups(count: int) -> str:
+    return "".join(f"(?P<n{index}>{index % 10})" for index in range(count))
 
 
 @pytest.mark.parametrize(
