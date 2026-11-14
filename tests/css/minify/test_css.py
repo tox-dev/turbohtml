@@ -401,6 +401,25 @@ def test_minify_css_interleaved_duplicate_shorthand_keeps_longhands() -> None:
         pytest.param("a{transform:translate(1px,0)}", "a{transform:translate(1px)}", id="transform-drop-zero-arg"),
         pytest.param(r"a{transform:translate(\,0)}", r"a{transform:translate(\,0)}", id="escaped-transform-comma"),
         pytest.param("a{transform:scale(2,2)}", "a{transform:scale(2)}", id="transform-collapse-equal-args"),
+        pytest.param('a{transform:scale("m,"m)}', 'a{transform:scale("m,"m)}', id="transform-comma-in-string"),
+        pytest.param("a{transform:scale(k',k')}", "a{transform:scale(k',k')}", id="transform-comma-in-string-end"),
+        pytest.param(
+            "a{transform:scale(calc(2+/*),*/3),calc(2+/*),*/3))}",
+            "a{transform:scale(calc(2+/*),*/3))}",
+            id="transform-comma-in-comment",
+        ),
+        pytest.param("a{transform:scale([k,[k", "a{transform:scale([k,[k]])}", id="transform-comma-in-block"),
+        pytest.param(
+            'a{transform:translate(var(--k,"("),0)}',
+            'a{transform:translate(var(--k,"("))}',
+            id="transform-drop-zero-arg-after-string",
+        ),
+        pytest.param("a{transform:scale(3,4,5)}", "a{transform:scale(3,4,5)}", id="transform-three-args-kept"),
+        pytest.param(
+            'a{b:scale("m,"m);c:"}"}d{e:"n"}',
+            'a{b:scale("m,"m);c:"}"}d{e:"n"}',
+            id="transform-comma-in-string-keeps-later-string",
+        ),
         pytest.param(
             "a{background:#ffffff url(x.png) no-repeat}",
             "a{background:#fff url(x.png)no-repeat}",
