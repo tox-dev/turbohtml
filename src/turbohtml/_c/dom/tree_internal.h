@@ -65,17 +65,20 @@ typedef struct {
 } th_shadow_link;
 
 /* What maybe_clone_option needs from one select, kept while the tree is built:
-   the enabled descendant selectedcontent elements (the clone destinations) and the
-   option the select shows. */
+   the enabled descendant selectedcontent elements (the clone destinations), the
+   option the select shows, the optgroup option_is_disabled last looked at and whether
+   it carries the disabled attribute, so the next option of that group skips the search. */
 typedef struct {
     th_node *select;
     th_node **targets; /* the enabled descendant selectedcontent elements, the clone destinations */
     th_node *selected; /* the option the select shows, NULL until one closes */
+    const th_node *optgroup;
     Py_ssize_t target_count;
     Py_ssize_t target_cap;
     uint8_t valid;
     uint8_t multiple;
     uint8_t disabled; /* an option, selectedcontent or second select above the select disables its targets */
+    uint8_t optgroup_disabled;
 } th_select_cache;
 
 /* The select caches of one parse, allocated on the first selected-option clone so a
