@@ -441,6 +441,10 @@ static th_node *current_node(th_tree *tree) {
     return tree->open_len > 0 ? tree->open[tree->open_len - 1] : tree->document;
 }
 
+static int stack_at_depth_cap(const th_tree *tree) {
+    return tree->open_len >= TH_MAX_TREE_DEPTH;
+}
+
 static int stack_push(th_tree *tree, th_node *node) {
     if (tree->open_len >= TH_MAX_TREE_DEPTH) {
         /* Runaway nesting: leave the element in the DOM (it was already inserted under
@@ -2860,10 +2864,13 @@ enum mode {
     M_AFTER_AFTER_FRAMESET,
 };
 
+/* Set on the template mode record of a template the depth cap kept off the stack of open elements. */
+#define TMPL_REFUSED 0x100
+
 /* The stack of template insertion modes: a <template> pushes one, the
    in-template mode replaces its top as content selects a sub-mode, and reset
    returns the top so a closing sub-context resumes the template correctly. */
-static void tmpl_push(th_tree *tree, enum mode mode) {
+static void tmpl_push(th_tree *tree, int record) {
     if (tree->tmpl_len == tree->tmpl_cap) {
         size_t cap;
         size_t bytes;
@@ -2880,7 +2887,7 @@ static void tmpl_push(th_tree *tree, enum mode mode) {
         tree->tmpl = grown;
         tree->tmpl_cap = (Py_ssize_t)cap;
     }
-    tree->tmpl[tree->tmpl_len++] = (int)mode;
+    tree->tmpl[tree->tmpl_len++] = record;
 }
 
 static void tmpl_pop(th_tree *tree) {
@@ -2893,13 +2900,27 @@ static void tmpl_pop(th_tree *tree) {
 static void tmpl_set(th_tree *tree, enum mode mode) {
     /* tmpl_set runs only while a template insertion mode is on the stack. */
     if (tree->tmpl_len > 0 /* GCOVR_EXCL_BR_LINE */) {
-        tree->tmpl[tree->tmpl_len - 1] = (int)mode;
+        tree->tmpl[tree->tmpl_len - 1] = (tree->tmpl[tree->tmpl_len - 1] & TMPL_REFUSED) | (int)mode;
     }
 }
 
 /* tmpl_top runs only for a template element, which carries a pushed mode. */
 static enum mode tmpl_top(th_tree *tree) {
-    return tree->tmpl_len > 0 /* GCOVR_EXCL_BR_LINE */ ? (enum mode)tree->tmpl[tree->tmpl_len - 1] : M_IN_BODY;
+    return tree->tmpl_len > 0 ? (enum mode)(tree->tmpl[tree->tmpl_len - 1] & ~TMPL_REFUSED)
+                              : M_IN_BODY; /* GCOVR_EXCL_BR_LINE */
+}
+
+/* A template refused at the depth cap stays off the stack but still opens its marker and its mode record, so what
+   follows parses as its content. The record is flagged so that the template's own end tag pops it and the marker
+   instead of closing the nearest open template, an ancestor. */
+static void stack_push_template(th_tree *tree, th_node *node) {
+    int kept = stack_push_kept(tree, node);
+    afe_push_marker(tree);
+    tmpl_push(tree, kept ? M_IN_TEMPLATE : M_IN_TEMPLATE | TMPL_REFUSED);
+}
+
+static int current_template_refused(const th_tree *tree) {
+    return tree->tmpl_len > 0 && (tree->tmpl[tree->tmpl_len - 1] & TMPL_REFUSED);
 }
 
 /* Reset the insertion mode appropriately: pick the mode implied by the current
@@ -3443,10 +3464,7 @@ static enum th_drain drain_in_template(th_tree *tree, th_token *tok, th_insert *
         uint8_t flags = tok->tag_flags;
         uint16_t atom = tok->atom;
         if (atom == TH_TAG_TEMPLATE) {
-            th_node *node = insert_template(tree, tok);
-            stack_push(tree, node);
-            afe_push_marker(tree);
-            tmpl_push(tree, M_IN_TEMPLATE);
+            stack_push_template(tree, insert_template(tree, tok));
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_BASE || atom == TH_TAG_BASEFONT || atom == TH_TAG_BGSOUND || atom == TH_TAG_LINK ||
@@ -3951,10 +3969,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_TEMPLATE) {
-            th_node *node = insert_template(tree, tok);
-            stack_push(tree, node);
-            afe_push_marker(tree);
-            tmpl_push(tree, M_IN_TEMPLATE);
+            stack_push_template(tree, insert_template(tree, tok));
             dc->mode = M_IN_TEMPLATE;
             return TH_DRAIN_NEXT;
         }
@@ -4195,25 +4210,32 @@ static enum th_drain drain_in_table(th_tree *tree, th_token *tok, th_insert *dc)
         uint16_t atom = tok->atom;
         if (atom == TH_TAG_CAPTION) {
             clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
-            afe_push_marker(tree);
             th_node *node = insert_element(tree, tok);
-            stack_push(tree, node);
+            if (!stack_push_kept(tree, node)) {
+                return TH_DRAIN_NEXT;
+            }
+            afe_push_marker(tree);
             dc->mode = M_IN_CAPTION;
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_COLGROUP) {
             clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
             th_node *node = insert_element(tree, tok);
-            stack_push(tree, node);
+            if (!stack_push_kept(tree, node)) {
+                return TH_DRAIN_NEXT;
+            }
             dc->mode = M_IN_COLUMN_GROUP;
             return TH_DRAIN_NEXT;
         }
         if (atom == TH_TAG_COL) {
             clear_to(tree, TH_TAG_TABLE, TH_TAG_TABLE, TH_TAG_TABLE);
-            {
-                th_node *cg = insert_implicit(tree, TH_TAG_COLGROUP, TH_TAG_SPECIAL);
-                stack_push(tree, cg);
+            if (stack_at_depth_cap(tree)) {
+                /* no colgroup can be opened at the cap, so the col stays a child of the table */
+                insert_void_element(tree, tok);
+                return TH_DRAIN_NEXT;
             }
+            th_node *cg = insert_implicit(tree, TH_TAG_COLGROUP, TH_TAG_SPECIAL);
+            stack_push(tree, cg);
             dc->mode = M_IN_COLUMN_GROUP;
             return TH_DRAIN_REPROCESS;
         }
@@ -4461,10 +4483,8 @@ static enum th_drain drain_in_row(th_tree *tree, th_token *tok, th_insert *dc) {
         if (atom == TH_TAG_TD || atom == TH_TAG_TH) {
             clear_to(tree, TH_TAG_TR, TH_TAG_TR, TH_TAG_TR);
             th_node *node = insert_element(tree, tok);
-            Py_ssize_t open_len_before = tree->open_len;
-            stack_push(tree, node);
             /* A cell outside the depth-capped stack cannot be closed in cell mode. */
-            if (tree->open_len == open_len_before) {
+            if (!stack_push_kept(tree, node)) {
                 return TH_DRAIN_NEXT;
             }
             afe_push_marker(tree);
@@ -4716,7 +4736,11 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
            spec routes them through in-head); in-body/in-head/in-template keep
            their own handlers for the active-formatting interactions */
         if (tok->kind == TH_END_TAG && dc->mode >= M_IN_HEAD && tok_atom(tok) == TH_TAG_TEMPLATE) {
-            if (stack_index_of_atom(tree, TH_TAG_TEMPLATE) >= 0) {
+            if (current_template_refused(tree)) {
+                afe_clear_to_marker(tree);
+                tmpl_pop(tree);
+                dc->mode = reset_insertion_mode(tree);
+            } else if (stack_index_of_atom(tree, TH_TAG_TEMPLATE) >= 0) {
                 generate_implied_end_tags(tree, TH_TAG_UNKNOWN);
                 /* an element still open inside the template may have pushed its own formatting marker, which the clear
                    below leaves behind, shielding an outer a/nobr the output's explicit end tags no longer shield */
@@ -4732,10 +4756,7 @@ static void run_drain(th_tree *tree, th_tokenizer *sm, th_run_state *run_state) 
             (dc->mode == M_IN_TABLE || dc->mode == M_IN_TABLE_BODY || dc->mode == M_IN_ROW || dc->mode == M_IN_CELL ||
              dc->mode == M_IN_COLUMN_GROUP || dc->mode == M_IN_CAPTION) &&
             tok_atom(tok) == TH_TAG_TEMPLATE) {
-            th_node *node = insert_template(tree, tok);
-            stack_push(tree, node);
-            afe_push_marker(tree);
-            tmpl_push(tree, M_IN_TEMPLATE);
+            stack_push_template(tree, insert_template(tree, tok));
             dc->mode = M_IN_TEMPLATE;
             goto token_done;
         }
