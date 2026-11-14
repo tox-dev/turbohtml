@@ -1269,6 +1269,51 @@ def test_style_element_removed_with_content_when_named() -> None:
     assert sanitize("<b>ok</b><style>p{color:red}</style>", policy) == "<b>ok</b>"
 
 
+@pytest.mark.parametrize("target", ["textarea", "svg", "math"])
+@pytest.mark.parametrize("wrapper", [pytest.param("{}", id="child"), pytest.param("<b>{}</b>", id="nested")])
+def test_style_element_inside_renamed_container_is_not_kept(target: str, wrapper: str) -> None:
+    # the rename runs on the parsed tree, so the <style> is already an element below it; a reparse reads a textarea's
+    # content as RCDATA and an HTML svg or math as foreign content, neither of which holds a raw-text <style>
+    policy = Policy(tags=frozenset({target, "b", "style"}), transform_tags={"note": target})
+    style = f'<style>a{{content:"</{target}><i>x</i>"}}</style>'
+    expected = f"<{target}>{wrapper.format(escape(style, quote=False))}</{target}>"
+    assert sanitize(f"<note>{wrapper.format(style)}</note>", policy) == expected
+
+
+def test_style_element_inside_adopted_xml_textarea_is_not_kept() -> None:
+    # an XML element moved into an HTML tree takes its HTML atom, so the <style> below the textarea would be raw text
+    host = parse_fragment("")
+    root = parse_xml('<textarea><style>a{content:"&lt;/textarea&gt;&lt;i&gt;x&lt;/i&gt;"}</style>t</textarea>').root
+    assert root is not None
+    host.append(root)
+    policy = Policy(tags=frozenset({"textarea", "style"}), on_disallowed_tag=OnDisallowed.REMOVE)
+    assert sanitize_node(host, policy).inner_html == "<textarea>t</textarea>"
+
+
+def test_style_element_inside_textarea_root_is_not_kept() -> None:
+    # the root passed to sanitize_node is not judged itself, but a reparse still reads its content as RCDATA
+    root = E.textarea(E.style('a{content:"</textarea><i>x</i>"}'), "t")
+    policy = Policy(tags=frozenset({"style"}), on_disallowed_tag=OnDisallowed.REMOVE)
+    assert sanitize_node(root, policy).html == "<textarea>t</textarea>"
+
+
+def test_style_element_inside_escaped_container_is_kept() -> None:
+    # an escaped textarea is text, which opens no element on reparse, so the <style> and the comment are read in place
+    policy = Policy(tags=frozenset({"style"}), transform_tags={"note": "textarea"}, strip_comments=False)
+    html = "<note><!--c--><style>a{color:red;}</style></note>"
+    assert sanitize(html, policy) == "&lt;textarea&gt;<!--c--><style>a{color:red;}</style>&lt;/textarea&gt;"
+
+
+def test_style_element_at_parsed_integration_point_is_kept() -> None:
+    # a parsed svg is in the SVG namespace, and its foreignObject puts the <style> back in HTML, where it is raw text
+    policy = Policy(tags=frozenset({"svg", "foreignObject", "style"}))
+    html = "<svg><foreignObject><style>a{color:red;}</style></foreignObject></svg>"
+    assert sanitize(html, policy) == html
+    svg = parse_fragment(html).select_one("svg")
+    assert svg is not None
+    assert sanitize_node(svg, policy).html == html
+
+
 @pytest.mark.parametrize(
     ("url", "kept"),
     [
@@ -1708,6 +1753,26 @@ def test_comments_stripped_by_default() -> None:
 
 def test_comments_kept_when_requested() -> None:
     assert sanitize("a<!-- c -->b", Policy(strip_comments=False)) == "a<!-- c -->b"
+
+
+@pytest.mark.parametrize("wrapper", [pytest.param("{}", id="child"), pytest.param("<b>{}</b>", id="nested")])
+def test_comment_inside_renamed_textarea_is_dropped(wrapper: str) -> None:
+    # a kept comment is written verbatim, and a reparse reads one below a textarea as RCDATA its text can end
+    policy = Policy(tags=frozenset({"textarea", "b", "svg"}), transform_tags={"note": "textarea"}, strip_comments=False)
+    html = f"<svg><!--s--></svg><note>{wrapper.format('<!--</textarea><i>x</i>-->')}</note>"
+    assert sanitize(html, policy) == f"<svg><!--s--></svg><textarea>{wrapper.format('')}</textarea>"
+
+
+def test_comment_inside_built_textarea_is_dropped() -> None:
+    root = E.div(Comment("a"), E.textarea(Comment("</textarea><i>x</i>"), "t"))
+    policy = Policy(tags=frozenset({"div", "textarea"}), strip_comments=False)
+    assert sanitize_node(root, policy).html == "<div><!--a--><textarea>t</textarea></div>"
+
+
+def test_comment_inside_textarea_root_is_dropped() -> None:
+    root = E.textarea(Comment("</textarea><i>x</i>"), "t", E.b(Comment("c")))
+    policy = Policy(tags=frozenset({"b"}), strip_comments=False)
+    assert sanitize_node(root, policy).html == "<textarea>t<b></b></textarea>"
 
 
 def test_policy_basic_is_the_default_allowlist() -> None:
@@ -2927,6 +2992,14 @@ def test_sanitize_xml_svg_animation_is_judged_as_reparsed(xml: str, expected: st
 def test_sanitize_xml_scrubs_allowed_upper_case_style_element() -> None:
     xml = "<div><STYLE>p{color:red;position:fixed}</STYLE></div>"
     assert sanitize(parse_xml(xml), _xml_case_policy("STYLE")) == "<div><STYLE>p{color:red;}</STYLE></div>"
+
+
+@pytest.mark.parametrize("tag", ["TextArea", "SVG", "Math"])
+def test_sanitize_xml_style_element_inside_reparsed_container_is_not_kept(tag: str) -> None:
+    # the HTML parser reads these names back as a textarea and as the foreign roots, whatever their case
+    xml = f"<div><{tag}><STYLE>p{{color:red}}</STYLE></{tag}></div>"
+    expected = f"<div><{tag}>&lt;STYLE&gt;p{{color:red}}&lt;/STYLE&gt;</{tag}></div>"
+    assert sanitize(parse_xml(xml), _xml_case_policy(tag, "STYLE")) == expected
 
 
 @pytest.mark.parametrize(
