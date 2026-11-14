@@ -713,9 +713,9 @@ static int ucs4_contains_kmp(const Py_UCS4 *hay, Py_ssize_t hay_len, const Py_UC
     return 0;
 }
 
-/* The candidate loop is forced inline once per scan, and the reads and the substring test into each copy and into
-   text_scan_moved: GCC keeps them out of line once they have several callers, which measured slower per candidate. A
-   debug build keeps one copy of each, which the coverage gates need. */
+/* The candidate loop is forced inline once per scan, and the reads and the substring test are forced inline into each
+   copy and into text_scan_moved: GCC keeps them out of line once they have several callers, which measured slower per
+   candidate. A debug build keeps one copy of each, which the coverage gates need. */
 #if defined(_MSC_VER)
 #define TH_FORCEINLINE __forceinline
 #elif defined(__OPTIMIZE__)
@@ -789,9 +789,6 @@ static int scratch_ensure(Py_UCS4 **scratch, Py_ssize_t *cap, Py_ssize_t need) {
 #define TEXT_SCAN_INDEXED (-2)
 /* What a lookup returns for a candidate the text_index does not hold. */
 #define TEXT_SCAN_ABSENT (-3)
-/* The allowance once the text_index is built: a candidate it does not hold is read unweighed, so the allowance never
-   runs out again. SIZE_MAX rather than PY_SSIZE_T_MAX, which needs POSIX limits under -std=c11. */
-#define TEXT_SCAN_UNLIMITED ((Py_ssize_t)(SIZE_MAX >> 1))
 /* The weighing runs out of line, so the per-candidate loop keeps the registers it needs for the reads. */
 #if defined(_MSC_VER)
 #define TH_NOINLINE __declspec(noinline)
@@ -958,7 +955,6 @@ TH_NOINLINE static int text_index_weigh(query_t *query, Py_ssize_t read) {
     if (text_index_build(index->tree, index->root, query, index) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return -1;                                                      /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    query->text_left = TEXT_SCAN_UNLIMITED;
     return TEXT_SCAN_INDEXED;
 }
 
@@ -1034,6 +1030,21 @@ TH_NOINLINE static void text_index_free(text_index *index) {
     index->slices = NULL;
 }
 
+/* Out of line, for the same reason. A filter that moved a candidate the table does not hold has changed the tree, so
+   the table and the sizing walk that built it are dropped. The next table covers the whole subtree node is in, so a
+   candidate the callable detached still falls in a table. The allowance carries on, so the reads after the change are
+   charged as the earlier ones were. */
+TH_NOINLINE static void text_index_rearm(text_index *index, th_node *node) {
+    PyMem_Free(index->slices);
+    index->slices = NULL;
+    index->root = node;
+    while (index->root->parent != NULL) {
+        index->root = index->root->parent;
+    }
+    index->sizing = index->root;
+    index->cost = 0;
+}
+
 /* Whether node passes the scan, read from its own subtree with a buffer of its own: out of line, so the reading loop
    keeps its registers and its scratch buffer. */
 TH_NOINLINE static int text_scan_moved(th_node *node, query_t *query) {
@@ -1051,8 +1062,8 @@ TH_NOINLINE static int text_scan_moved(th_node *node, query_t *query) {
 /* The rest of a search once the read of node, a candidate past the structural filters, built the text_index: the
    index answers for node and every later candidate. It sets found or fills result as find_with_text_scan does, and
    error when a filter fails or a read cannot allocate. Only a filter that moved nodes after the build can hand over a
-   candidate the index does not hold. That frees the index, the candidate is read from its own subtree as before the
-   build, and the search goes on from it, reading the rest the same way, unweighed. Returns the candidate to go on
+   candidate the index does not hold. The index is dropped, and the candidate is read from its own subtree; that read is
+   weighed like any other, so a new index is built once the reads have spent enough. Returns the candidate to go on
    from, or NULL once the search is over. */
 TH_NOINLINE static th_node *text_index_search(module_state *state, PyObject *handle, th_node *origin, th_node *node,
                                               query_t *query, int want_all, text_index *index, PyObject *result,
@@ -1074,7 +1085,8 @@ TH_NOINLINE static th_node *text_index_search(module_state *state, PyObject *han
         int passed = text_index_lookup(index, node);
         th_node *resume = NULL;
         if (passed == TEXT_SCAN_ABSENT) {
-            text_index_free(index);
+            /* the read builds no table: a table needs sixteen walks of its root spent, and the root holds the read */
+            text_index_rearm(index, node);
             passed = text_scan_moved(node, query);
             if (passed < 0) {     /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
