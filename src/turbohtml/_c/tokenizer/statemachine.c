@@ -917,7 +917,7 @@ static int attr_seen_probe(th_tokenizer *self, Py_ssize_t cur) {
         }
         slot = (slot + 1) & mask;
     }
-    if (!self->attr_keyed && ((slot - home) & mask) > TH_FAST_PROBE_LIMIT) {
+    if (TH_UNLIKELY(!self->attr_keyed && ((slot - home) & mask) > TH_FAST_PROBE_LIMIT)) {
         attr_seen_rekey(self, cur, cur + 1); /* attrs[cur] missed every kept name, so it is seated as kept */
         return 0;
     }

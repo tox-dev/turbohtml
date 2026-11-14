@@ -157,7 +157,7 @@ static int attr_slots_rebuild(th_tree *tree, uint32_t cap) {
    so a document can pick names that share one run of slots, and once a run grows
    past TH_FAST_RUN_LIMIT every record is rehashed under a key the document cannot
    see and seated again. */
-static int attr_table_rekey(th_tree *tree) {
+static TH_NOINLINE int attr_table_rekey(th_tree *tree) {
     tree->attr_keyed = 1;
     for (uint32_t index = 0; index < tree->attr_rec_count; index++) {
         th_attr_record *rec = &tree->attr_recs[index];
@@ -232,7 +232,7 @@ static TH_NOINLINE uint32_t intern_attr_insert(th_tree *tree, const char *bytes,
         probe = (probe + 1) & mask;
     }
     tree->attr_slots[probe] = index + 1;
-    if (!tree->attr_keyed && tree->attr_rec_count > TH_FAST_RUN_LIMIT && attr_run_long(tree, probe)) {
+    if (TH_UNLIKELY(!tree->attr_keyed && tree->attr_rec_count > TH_FAST_RUN_LIMIT && attr_run_long(tree, probe))) {
         if (attr_table_rekey(tree) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             return TH_ATTR_UNKNOWN;       /* GCOVR_EXCL_LINE: allocation-failure path */
         }

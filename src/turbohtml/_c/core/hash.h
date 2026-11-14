@@ -101,6 +101,12 @@ static inline uint32_t th_name_hash(const void *data, Py_ssize_t len) {
 #endif
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+#define TH_UNLIKELY(cond) __builtin_expect(!!(cond), 0)
+#else
+#define TH_UNLIKELY(cond) (cond)
+#endif
+
 static inline uint32_t th_fnv1a_bytes(const void *data, Py_ssize_t len) {
     const unsigned char *bytes = data;
     uint32_t hash = 2166136261u;
