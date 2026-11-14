@@ -12,17 +12,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef TH_NOINLINE
-#if defined(_MSC_VER)
-#define TH_NOINLINE __declspec(noinline)
-#elif defined(__GNUC__) || defined(__clang__)
-#define TH_NOINLINE __attribute__((noinline))
-#else
-#define TH_NOINLINE
-#endif
-#endif
-
-#define XR_CACHE_SLOTS 64
 /* What the group parsers return besides a node index or -1 for an error: a construct that adds no item, and an opening
    whose body the caller parses next. */
 #define XR_NO_ITEM (-2)
@@ -112,7 +101,7 @@ typedef struct {
 #define XR_BUDGET_BASE 10000000
 #define XR_BUDGET_PER_CHAR 100
 
-typedef struct {
+struct xr_program {
     Py_UCS4 *pattern;
     Py_ssize_t pattern_len;
     int flags;
@@ -138,13 +127,6 @@ typedef struct {
     Py_ssize_t *best;
     xr_frame *trail;
     Py_ssize_t trail_cap;
-} xr_program;
-
-struct xr_cache {
-    xr_program *programs[XR_CACHE_SLOTS];
-    xr_program *recent;
-    Py_ssize_t allowance; /* backtracking steps granted so far in the evaluation */
-    Py_ssize_t budget;    /* the part of the allowance still unspent */
 };
 
 typedef struct {
@@ -1919,30 +1901,20 @@ static size_t xr_hash(const Py_UCS4 *pattern, Py_ssize_t len) {
     return hash;
 }
 
-/* Out of line, and only called on a cache that exists: inlined, it made LTO stop inlining xp_eval_at into the XSLT
-   callers, which cost 6.4% on the transform-key benchmark. */
-TH_NOINLINE void xr_cache_free(xr_cache *cache) {
+void xr_cache_clear(xr_cache *cache) {
     for (int index = 0; index < XR_CACHE_SLOTS; index++) {
         if (cache->programs[index] != NULL) {
             xr_program_free(cache->programs[index]);
         }
     }
-    PyMem_Free(cache);
 }
 
 /* The compiled program for pattern, from the evaluation's cache when it holds one, and the budget topped up for a
    search over text_len characters. */
-static xr_program *xr_cache_get(xr_cache **cache_ref, const Py_UCS4 *pattern, Py_ssize_t len, int flags,
-                                Py_ssize_t text_len, xr_error *error) {
+static xr_program *xr_cache_get(xr_cache *cache, const Py_UCS4 *pattern, Py_ssize_t len, int flags, Py_ssize_t text_len,
+                                xr_error *error) {
     error->pattern_error = 0;
-    xr_cache *cache = *cache_ref;
-    if (cache == NULL) {
-        cache = PyMem_Calloc(1, sizeof(xr_cache));
-        if (cache == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure */
-            PyErr_NoMemory(); /* GCOVR_EXCL_LINE: allocation-failure path */
-            return NULL;      /* GCOVR_EXCL_LINE */
-        }
-        *cache_ref = cache;
+    if (cache->allowance == 0) {
         cache->allowance = XR_BUDGET_BASE;
         cache->budget = XR_BUDGET_BASE;
     }
@@ -1971,10 +1943,10 @@ static xr_program *xr_cache_get(xr_cache **cache_ref, const Py_UCS4 *pattern, Py
     return program;
 }
 
-int xr_test(xr_cache **cache, const Py_UCS4 *pattern, Py_ssize_t pattern_len, int flags, const Py_UCS4 *text,
+int xr_test(xr_cache *cache, const Py_UCS4 *pattern, Py_ssize_t pattern_len, int flags, const Py_UCS4 *text,
             Py_ssize_t text_len, xr_error *error) {
     xr_program *program = xr_cache_get(cache, pattern, pattern_len, flags, text_len, error);
-    return program == NULL ? -1 : xr_search(program, *cache, text, text_len, 0, 0, NULL);
+    return program == NULL ? -1 : xr_search(program, cache, text, text_len, 0, 0, NULL);
 }
 
 typedef struct {
@@ -2232,7 +2204,7 @@ static int xr_expand(xr_buffer *buffer, const xr_template *template, const Py_UC
     return 0;
 }
 
-int xr_replace(xr_cache **cache, const Py_UCS4 *pattern, Py_ssize_t pattern_len, int flags, const Py_UCS4 *text,
+int xr_replace(xr_cache *cache, const Py_UCS4 *pattern, Py_ssize_t pattern_len, int flags, const Py_UCS4 *text,
                Py_ssize_t text_len, const Py_UCS4 *replacement, Py_ssize_t replacement_len, int xpath_syntax,
                int first_only, Py_UCS4 **out, Py_ssize_t *out_len, xr_error *error) {
     xr_program *program = xr_cache_get(cache, pattern, pattern_len, flags, text_len, error);
@@ -2252,7 +2224,7 @@ int xr_replace(xr_cache **cache, const Py_UCS4 *pattern, Py_ssize_t pattern_len,
     Py_ssize_t pos = 0;
     int must_advance = 0;
     while (rc == 0) {
-        int found = xr_search(program, *cache, text, text_len, pos, must_advance, spans);
+        int found = xr_search(program, cache, text, text_len, pos, must_advance, spans);
         if (found <= 0) {
             rc = found;
             break;
