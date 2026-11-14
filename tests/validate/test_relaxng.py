@@ -807,17 +807,6 @@ def test_rng_forbidden_grammar_rejected_at_compile(schema: str, message: str) ->
         RelaxNG(schema)
 
 
-def _shared_define_interleaves(count: int) -> str:
-    names = "".join(f'<element name="x{index}"><empty/></element>' for index in range(count))
-    branches = "".join(
-        f'<interleave><ref name="p"/><element name="z{index}"><empty/></element></interleave>' for index in range(count)
-    )
-    return rgrammar(
-        f'<start><element name="r"><group>{branches}</group></element></start>'
-        f'<define name="p"><group>{names}</group></define>'
-    )
-
-
 def _except_against_group(count: int) -> str:
     return rgrammar(
         f'<start><element name="r"><interleave>{_except_group_branches(count)}</interleave></element></start>'
