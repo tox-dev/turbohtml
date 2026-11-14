@@ -113,6 +113,35 @@ def test_builtin_datatype_invalid(type_name: str, value: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("type_name", "value", "valid"),
+    [
+        pytest.param("xs:date", "2023-02-28", True, id="date-february-last-day"),
+        pytest.param("xs:date", "2023-02-30", False, id="date-february-30"),
+        pytest.param("xs:date", "2023-04-31", False, id="date-april-31"),
+        pytest.param("xs:date", "2023-12-31", True, id="date-december-31"),
+        pytest.param("xs:date", "2024-02-29", True, id="date-leap-day"),
+        pytest.param("xs:date", "2023-02-29", False, id="date-common-year-february-29"),
+        pytest.param("xs:date", "1900-02-29", False, id="date-century-not-leap"),
+        pytest.param("xs:date", "2000-02-29", True, id="date-400-year-leap"),
+        pytest.param("xs:date", "0000-02-29", True, id="date-year-zero-leap"),
+        pytest.param("xs:date", "-0004-02-29", True, id="date-bce-leap"),
+        pytest.param("xs:date", "-0001-02-29", False, id="date-bce-common"),
+        pytest.param("xs:date", f"{'0' * 70}2024-02-29", True, id="date-padded-leap"),
+        pytest.param("xs:date", f"{'0' * 70}2023-02-29", False, id="date-padded-common"),
+        pytest.param("xs:date", f"1{'0' * 400}-02-29", True, id="date-long-leap"),
+        pytest.param("xs:date", f"1{'0' * 399}1-02-29", False, id="date-long-common"),
+        pytest.param("xs:date", "2023-02-30Z", False, id="date-zoned-february-30"),
+        pytest.param("xs:dateTime", "2023-02-30T12:00:00", False, id="dateTime-february-30"),
+        pytest.param("xs:dateTime", "2023-09-31T00:00:00+01:00", False, id="dateTime-september-31"),
+        pytest.param("xs:dateTime", "2024-02-29T23:59:59Z", True, id="dateTime-leap-day"),
+        pytest.param("xs:dateTime", "2023-02-29T00:00:00", False, id="dateTime-common-year-february-29"),
+    ],
+)
+def test_builtin_date_calendar_day(type_name: str, value: str, *, valid: bool) -> None:
+    assert check(typed(type_name), f"<v>{value}</v>").valid is valid
+
+
+@pytest.mark.parametrize(
     ("facets", "base", "value", "ok"),
     [
         pytest.param('<xs:enumeration value="a"/><xs:enumeration value="b"/>', "xs:string", "a", True, id="enum-ok"),
