@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping this test's own bytes
+from functools import partial
 from io import BytesIO
 from typing import TYPE_CHECKING, Final, cast
 
@@ -11,6 +12,8 @@ from turbohtml import Canonical, CData, Element, Html, ProcessingInstruction, Te
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from work_steps import WorkSteps
 
     from turbohtml import Document
 
@@ -1010,6 +1013,105 @@ def test_html_c14n_1_1_rejects_invalid_ancestor_base_with_many_attributes() -> N
     node = _one(f'<div xml:base="http://[bad"><p xml:base="x" {attributes}></p></div>', "p")
     with pytest.raises(ValueError, match="Invalid IPv6 URL"):
         node.canonicalize(Canonical(version="1.1"))
+
+
+# The fixup joins each ancestor's xml:base onto the value built from the ancestors above it. These chains carry that
+# value past the point where it moves into the chain representation, and put parent segments, dot segments and schemes
+# through the joins.
+@pytest.mark.parametrize(
+    ("bases", "apex", "expected"),
+    [
+        pytest.param(["kin/"] * 40, "", f"{'kin/' * 40}", id="exact-length-crossing"),
+        pytest.param(["pq/"] * 60, f"{'../' * 30}w", f"{'pq/' * 30}w", id="parents-kept"),
+        pytest.param(["/rt/", "lz"], f"{'../' * 25}v", "/v", id="parents-dropped-under-root"),
+        pytest.param(["http://h.example/p", "", ""], f"?{'z' * 150}", f"http://h.example/p?{'z' * 150}", id="query"),
+        pytest.param(
+            ["jk/"] * 6,
+            f"https://g.example/{'m' * 150}",
+            f"https://g.example/{'m' * 150}",
+            id="absolute-apex",
+        ),
+        pytest.param(
+            ["s:", "t/", "t/", "t/"],
+            f"//h.example/{'n' * 150}",
+            f"s://h.example/{'n' * 150}",
+            id="authority-takes-scheme",
+        ),
+        pytest.param(
+            ["qd/", "yd/", "xd/", "wd"],
+            f"../a:b/{'r' * 150}",
+            f"a:b/{'r' * 150}",
+            id="segment-becomes-scheme",
+        ),
+        pytest.param(["jk/"] * 3, f"/{'h' * 130}//d", f"/{'h' * 130}//d", id="rooted-keeps-empty-segment"),
+        pytest.param(["", "", f"p//{'h' * 130}"], "", f"p/{'h' * 130}", id="relative-drops-empty-segment"),
+        pytest.param(["", "", f"{'h' * 130}/."], "", f"{'h' * 130}/", id="trailing-dot"),
+        pytest.param(["", "", f"{'h' * 130}/x/.."], "", f"{'h' * 130}/", id="trailing-parent"),
+        pytest.param(["", "", f"{'h' * 130}/./"], "", f"{'h' * 130}/", id="trailing-dot-directory"),
+        pytest.param(["", "", f"{'h' * 130}/a../../"], "", f"{'h' * 130}/", id="parent-after-dotted-name"),
+        pytest.param(["gh/", "gh/"], f"ij/.x/{'e' * 130}", f"gh/gh/ij/.x/{'e' * 130}", id="two-character-segments"),
+        pytest.param(["u", f"{'w/' * 40}", ""], f"{'../' * 40}y", "y", id="emptied-then-replaced"),
+        pytest.param(["", "", "g/"], f"{'e' * 130}?q", f"g/{'e' * 130}?q", id="query-after-path"),
+        pytest.param(["pq/"] * 5, f"{'../' * 60}", f"{'../' * 55}", id="parents-remain-after-joins"),
+        pytest.param(
+            ["/rt/", "pq/", "pq/", "pq/", "pq/"], f"{'../' * 60}", "/", id="parents-dropped-by-rooted-ancestor"
+        ),
+    ],
+)
+def test_xml_c14n_1_1_joins_ancestor_bases(bases: list[str], apex: str, expected: str) -> None:
+    assert _fixed_base(bases, apex) == f'<s xml:base="{expected}"></s>'.encode()
+
+
+def _fixed_base(bases: list[str], apex: str) -> bytes:
+    opening = "".join(f'<a xml:base="{base}">' for base in bases)
+    node = parse_xml(f'{opening}<s xml:base="{apex}"/>{"</a>" * len(bases)}').select_one("s")
+    assert node is not None
+    return node.canonicalize(Canonical(version="1.1"))
+
+
+def test_xml_c14n_1_1_drops_base_that_deep_ancestors_empty() -> None:
+    assert _fixed_base([f"{'w/' * 30}", ""], f"{'../' * 30}") == b"<s></s>"
+
+
+@pytest.mark.parametrize(
+    ("inner", "apex"),
+    [
+        pytest.param(["gh/"], f"http://x.example/{'k' * 150}", id="absolute"),
+        pytest.param(["gh/", "gh/"], f"http://x.example/{'k' * 150}", id="absolute-settled"),
+        pytest.param(["gh/", "gh/"], "k" * 150, id="relative"),
+    ],
+)
+def test_xml_c14n_1_1_rejects_invalid_outer_base_above_long_value(inner: list[str], apex: str) -> None:
+    with pytest.raises(ValueError, match="Invalid IPv6 URL"):
+        _fixed_base(["http://[::1/", *inner], apex)
+
+
+def test_html_c14n_1_1_joins_ancestor_bases_at_depth() -> None:
+    wrapper: Final = '<aside xml:base="ub/">'
+    node = _one(f"{wrapper * 120}<em></em>", "em")
+    assert node.canonicalize(Canonical(version="1.1")) == f'<em xml:base="{"ub/" * 120}"></em>'.encode()
+
+
+@pytest.mark.parametrize(
+    ("parse_markup", "value", "apex", "depths"),
+    [
+        pytest.param(parse_xml, "seg/" * 5, "", (1500, 6000), id="xml"),
+        # the HTML tree builder caps the depth at 512, so this case stays below it
+        pytest.param(parse, "seg/" * 250, "", (100, 400), id="html"),
+        pytest.param(parse_xml, "seg/" * 5, "http://h.example/", (1000, 4000), id="absolute"),
+    ],
+)
+def test_c14n_1_1_fixup_steps_grow_linearly(
+    parse_markup: Callable[[str], Document], value: str, apex: str, depths: tuple[int, int], work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda depth: _base_chain_apex(parse_markup, value, apex, depth), depths)
+
+
+def _base_chain_apex(parse_markup: Callable[[str], Document], value: str, apex: str, depth: int) -> Callable[[], bytes]:
+    opening = f'<section xml:base="{value}">'
+    node = parse_markup(f'{opening * depth}<s xml:base="{apex}"></s>{"</section>" * depth}').select_one("s")
+    assert node is not None
+    return partial(node.canonicalize, Canonical(version="1.1"))
 
 
 def test_xml_c14n_comment_is_omitted_without_option() -> None:
