@@ -31,27 +31,27 @@ records, the ``feedparser.parse`` entry point over :meth:`turbohtml.Document.fee
 
 from __future__ import annotations
 
-from dataclasses import dataclass  # simplint: ignore[init-module-content]  # public definitions
-from itertools import starmap  # simplint: ignore[init-module-content]  # public definitions
-from typing import Final, NamedTuple, cast  # simplint: ignore[init-module-content]  # public definitions
+from dataclasses import dataclass
+from itertools import starmap
+from typing import Final, NamedTuple, cast
 
 from ._article import Article
 from ._dates import DateExtraction, PublicationDate, dates
 from ._feed import Entry, Feed
 from ._links import Link
-from ._native import (  # simplint: ignore[init-module-content]  # public definitions
+from ._native import (
     Element,
     HTMLParseError,
     parse,
     parse_xml,
 )
-from ._native import boilerplate as _boilerplate  # simplint: ignore[init-module-content]  # public definitions
+from ._native import boilerplate as _boilerplate
 from ._structured_data import MicrodataItem, OpenGraph, RdfaItem, StructuredData
 from ._urls import UrlCleaning, clean_url, extract_links, normalize_url
 
 
 @dataclass(frozen=True, slots=True)
-class Extraction:  # simplint: ignore[init-module-content]  # API identity
+class Extraction:
     """
     Options for :func:`boilerplate`: the per-paragraph thresholds refining the main-content scoring.
 
@@ -90,9 +90,7 @@ class Extraction:  # simplint: ignore[init-module-content]  # API identity
 _DEFAULT: Final[Extraction] = Extraction()
 
 
-def boilerplate(  # simplint: ignore[init-module-content]  # API identity
-    html: str, options: Extraction | None = None, /
-) -> list[Paragraph]:
+def boilerplate(html: str, options: Extraction | None = None, /) -> list[Paragraph]:
     """
     Segment a page into paragraph units and classify each as content or boilerplate, in document order.
 
@@ -118,7 +116,7 @@ def boilerplate(  # simplint: ignore[init-module-content]  # API identity
     return list(starmap(Paragraph, rows))
 
 
-class Paragraph(NamedTuple):  # simplint: ignore[init-module-content]  # API identity
+class Paragraph(NamedTuple):
     """
     One paragraph unit of a page and its classification, the record :func:`boilerplate` returns.
 
@@ -137,9 +135,7 @@ class Paragraph(NamedTuple):  # simplint: ignore[init-module-content]  # API ide
     is_heading: bool
 
 
-def microdata(  # simplint: ignore[init-module-content]  # API identity
-    html: str, base_url: str | None = None, /
-) -> list[MicrodataItem]:
+def microdata(html: str, base_url: str | None = None, /) -> list[MicrodataItem]:
     """
     Extract a page's top-level HTML Microdata items, the successor to ``microdata.get_items(html)``.
 
@@ -159,9 +155,7 @@ def microdata(  # simplint: ignore[init-module-content]  # API identity
     return parse(html).microdata(base_url)
 
 
-def opengraph(  # simplint: ignore[init-module-content]  # API identity
-    html: str, base_url: str | None = None, /
-) -> OpenGraph:
+def opengraph(html: str, base_url: str | None = None, /) -> OpenGraph:
     """
     Extract a page's Open Graph metadata, the successor to ``opengraph.OpenGraph(html=...)``.
 
@@ -179,7 +173,7 @@ def opengraph(  # simplint: ignore[init-module-content]  # API identity
     return parse(html).opengraph(base_url)
 
 
-def feed(xml: str, /) -> Feed | None:  # simplint: ignore[init-module-content]  # API identity
+def feed(xml: str, /) -> Feed | None:
     """
     Parse an RSS 2.0, Atom 1.0, or RDF/RSS-1.0 document into a :class:`Feed`, the ``feedparser.parse`` successor.
 
