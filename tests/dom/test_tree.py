@@ -1826,6 +1826,23 @@ def test_formatting_element_survives_table_part_refused_at_depth_cap(markup: str
     assert "<b>x</b>" in parse(markup).html
 
 
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param(
+            f"{'<span>' * (_DEPTH_CAP - 4)}<template><br><template><template></template><td>x", id="nested-template"
+        ),
+        pytest.param(
+            f"{'<span>' * (_DEPTH_CAP - 4)}<template><br><template><col><template></template>x", id="table-template"
+        ),
+    ],
+)
+def test_refused_template_leaves_no_mode_record(markup: str) -> None:
+    doc = parse(markup)
+    assert "<td>" not in doc.html
+    assert doc.text == "x"
+
+
 def test_capped_parse_round_trips_through_serialization() -> None:
     doc = parse("<div>" * _PATHOLOGICAL)
     assert doc.html.count("<div>") == _PATHOLOGICAL
