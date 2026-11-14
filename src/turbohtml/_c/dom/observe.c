@@ -584,8 +584,9 @@ static PyObject *build_record(module_state *state, PyObject *handle, th_tree *tr
     return result;
 }
 
-/* Build the record list and clear the queue. The caller holds the critical section. */
-static PyObject *drain_locked(MutationObserverObject *observer) {
+/* Building a record runs Python code (MutationRecord.__new__) that can fail or re-enter the observer. The batch is
+   detached before the first record is built; a record that cannot be built fails the drain, which drops the batch. */
+static PyObject *drain_locked(MutationObserverObject *observer, PyObject *handle) {
     module_state *state = state_of((PyObject *)observer);
     PyObject *records = PyList_New(0);
     if (records == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -596,19 +597,27 @@ static PyObject *drain_locked(MutationObserverObject *observer) {
     if (observer->observer == NULL) { /* GCOVR_EXCL_BR_LINE */
         return records;               /* GCOVR_EXCL_LINE: reachable only after an ensure OOM */
     }
-    th_tree *tree = ((HandleObject *)observer->handle)->tree;
+    th_tree *tree = ((HandleObject *)handle)->tree;
     th_observer *inner = observer->observer;
-    for (Py_ssize_t index = 0; index < inner->record_count; index++) {
-        PyObject *record = build_record(state, observer->handle, tree, &inner->records[index]);
-        if (record == NULL || PyList_Append(records, record) < 0) { /* GCOVR_EXCL_BR_LINE: alloc-failure path */
-            Py_XDECREF(record);                                     /* GCOVR_EXCL_LINE: allocation-failure path */
-            Py_DECREF(records);                                     /* GCOVR_EXCL_LINE: allocation-failure path */
-            return NULL;                                            /* GCOVR_EXCL_LINE: allocation-failure path */
+    th_mo_record *batch = inner->records;
+    Py_ssize_t count = inner->record_count;
+    inner->records = NULL;
+    inner->record_count = 0;
+    inner->record_cap = 0;
+    for (Py_ssize_t index = 0; index < count; index++) {
+        PyObject *record = build_record(state, handle, tree, &batch[index]);
+        if (record == NULL || PyList_Append(records, record) < 0) { /* GCOVR_EXCL_BR_LINE */
+            Py_XDECREF(record);
+            Py_DECREF(records);
+            records = NULL;
+            break;
         }
         Py_DECREF(record);
-        PyMem_Free(inner->records[index].old_value);
     }
-    inner->record_count = 0;
+    for (Py_ssize_t index = 0; index < count; index++) {
+        PyMem_Free(batch[index].old_value);
+    }
+    PyMem_Free(batch);
     return records;
 }
 
@@ -620,10 +629,13 @@ static PyObject *mo_take_records(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     if (observer->handle == NULL) {
         return PyList_New(0);
     }
+    /* keeps the tree alive when a disconnect() during the drain drops the observer's reference */
+    PyObject *handle = Py_NewRef(observer->handle);
     PyObject *records;
-    Py_BEGIN_CRITICAL_SECTION(observer->handle);
-    records = drain_locked(observer);
+    Py_BEGIN_CRITICAL_SECTION(handle);
+    records = drain_locked(observer, handle);
     Py_END_CRITICAL_SECTION();
+    Py_DECREF(handle);
     return records;
 }
 
@@ -639,12 +651,15 @@ static PyObject *mo_deliver(PyObject *self, PyObject *Py_UNUSED(ignored)) {
     if (observer->handle == NULL) {
         records = PyList_New(0);
     } else {
-        Py_BEGIN_CRITICAL_SECTION(observer->handle);
-        records = drain_locked(observer);
+        /* keeps the tree alive when a disconnect() during the drain drops the observer's reference */
+        PyObject *handle = Py_NewRef(observer->handle);
+        Py_BEGIN_CRITICAL_SECTION(handle);
+        records = drain_locked(observer, handle);
         Py_END_CRITICAL_SECTION();
+        Py_DECREF(handle);
     }
-    if (records == NULL) { /* GCOVR_EXCL_BR_LINE: drain only fails on OOM */
-        return NULL;       /* GCOVR_EXCL_LINE: allocation-failure path */
+    if (records == NULL) { /* a drain fails on a record that cannot be built or on an allocation failure */
+        return NULL;
     }
     if (observer->callback != Py_None && PyList_GET_SIZE(records) > 0) {
         PyObject *outcome = PyObject_CallFunctionObjArgs(observer->callback, records, self, NULL);
