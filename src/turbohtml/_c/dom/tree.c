@@ -1879,6 +1879,18 @@ static th_node *select_cache_shown_option(const th_select_cache *cache) {
     return option != NULL && option_nearest_select(option) == cache->select ? option : NULL;
 }
 
+/* Replaces each target's children with a copy of the option, so markup the parser
+   already gave a target is dropped, as the HTML Standard's replace-all step does. */
+static void clone_into_targets(th_tree *tree, th_select_cache *cache, th_node *option) {
+    for (Py_ssize_t index = 0; index < cache->target_count; index++) {
+        th_node *target = cache->targets[index];
+        while (target->first_child != NULL) {
+            node_remove(target->first_child);
+        }
+        deep_copy_children(tree, option, target);
+    }
+}
+
 /* "Update descendant selectedcontent elements for an option": when the option the
    select shows is popped, its children are mirrored into the select's enabled
    selectedcontent elements. */
@@ -1904,20 +1916,15 @@ static void maybe_clone_option(th_tree *tree, th_node *option) {
     if (cache->target_count == 0 || cache->disabled) {
         return;
     }
-    for (Py_ssize_t index = 0; index < cache->target_count; index++) {
-        th_node *target = cache->targets[index];
-        while (target->first_child != NULL) {
-            node_remove(target->first_child);
-        }
-        deep_copy_children(tree, option, target);
-    }
+    clone_into_targets(tree, cache, option);
 }
 
 /* The selectedcontent post-connection steps: a selectedcontent inserted under a select
-   it is enabled for joins the select's clone targets, while the cap leaves room, and
-   copies the option the select already shows. A select with no cache has had no option
-   closed, so it shows none. The walk stops at an ancestor option, so a chain of nested
-   options stays O(1) each. */
+   it is enabled for joins the select's clone targets, while the cap leaves room. Its
+   copy waits for select_cache_finish, since the parser appends the element's own
+   children after this point and the clone must replace them. A select with no cache
+   has had no option closed, so it shows none. The walk stops at an ancestor option, so
+   a chain of nested options stays O(1) each. */
 static void selectedcontent_inserted(th_tree *tree, th_node *selectedcontent) {
     th_node *select = selectedcontent->parent;
     while (select != NULL && !is_html_element(select, TH_TAG_SELECT)) {
@@ -1937,9 +1944,21 @@ static void selectedcontent_inserted(th_tree *tree, th_node *selectedcontent) {
     }
     /* listed even while the cache is invalid, so the cap counts every late target */
     select_cache_add_target(tree, cache, selectedcontent);
-    th_node *option = select_cache_shown_option(cache);
-    if (option != NULL && !cache->disabled) {
-        deep_copy_children(tree, option, selectedcontent);
+}
+
+/* The queued selectedcontent update runs once the parse has built every late target's
+   children, and it replaces them with the option the select shows. */
+static void select_cache_finish(th_tree *tree) {
+    th_select_state *state = tree->select_state;
+    if (state == NULL) {
+        return;
+    }
+    for (Py_ssize_t index = 0; index < state->count; index++) {
+        th_select_cache *cache = &state->caches[index];
+        th_node *option = select_cache_shown_option(cache);
+        if (option != NULL && !cache->disabled && cache->target_count > 0) {
+            clone_into_targets(tree, cache, option);
+        }
     }
 }
 
@@ -4564,6 +4583,7 @@ static void run_close(th_tree *tree) {
     while (tree->open_len > 0) {
         stack_pop(tree);
     }
+    select_cache_finish(tree);
     select_cache_free(tree);
 }
 

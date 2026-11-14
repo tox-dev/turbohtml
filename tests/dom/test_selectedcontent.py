@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Final
 import pytest
 
 from turbohtml import Element, IncrementalParser, parse, parse_fragment
+from turbohtml.clean import Policy, sanitize
 
 if TYPE_CHECKING:
     from work_steps import WorkSteps
@@ -479,7 +480,7 @@ def test_adoption_agency_after_a_clone_refreshes_the_cache() -> None:
         ),
         pytest.param(
             "<select><option>a</option><i><option><div><b><p><selectedcontent></b></p></i></div></select>",
-            "<select><option>a</option><i><option></option></i><div><i><b></b><p><b><selectedcontent></selectedcontent>"
+            "<select><option>a</option><i><option></option></i><div><i><b></b><p><b><selectedcontent>a</selectedcontent>"
             "</b></p></i></div></select>",
             id="block-holding-an-emptied-formatting-element",
         ),
@@ -679,8 +680,8 @@ def test_parse_selectedcontent_cache_invalidation(markup: str, body: str) -> Non
         ),
         pytest.param(
             "<select><option>a</option><button><selectedcontent>z</selectedcontent></button></select>",
-            "<select><option>a</option><button><selectedcontent>az</selectedcontent></button></select>",
-            id="parsed-content-follows-clone",
+            "<select><option>a</option><button><selectedcontent>a</selectedcontent></button></select>",
+            id="parsed-content-replaced-by-clone",
         ),
         pytest.param(
             "<select><option>a</option><button><selectedcontent></button><selectedcontent></selectedcontent></select>",
@@ -704,8 +705,7 @@ def test_parse_selectedcontent_cache_invalidation(markup: str, body: str) -> Non
         pytest.param(
             "<select><option>a</option><button><selectedcontent><selectedcontent></selectedcontent></selectedcontent>"
             "</button></select>",
-            "<select><option>a</option><button><selectedcontent>a<selectedcontent></selectedcontent></selectedcontent>"
-            "</button></select>",
+            "<select><option>a</option><button><selectedcontent>a</selectedcontent></button></select>",
             id="inner-selectedcontent-disabled",
         ),
         pytest.param(
@@ -756,3 +756,67 @@ def test_set_inner_html_fills_selectedcontent_inserted_after_the_option() -> Non
     assert host.inner_html == (
         "<select><option>pick</option><button><selectedcontent>pick</selectedcontent></button></select>"
     )
+
+
+_LATE_SOURCE_CASES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        "<select><option><b>a</b></option><selectedcontent><b>a</b></selectedcontent></select>",
+        "<select><option><b>a</b></option><selectedcontent><b>a</b></selectedcontent></select>",
+        id="element-child",
+    ),
+    pytest.param(
+        "<select><option>a</option><button><selectedcontent>zz</selectedcontent></button></select>",
+        "<select><option>a</option><button><selectedcontent>a</selectedcontent></button></select>",
+        id="text-child",
+    ),
+    pytest.param(
+        "<select><option><b>a</b></option><button><selectedcontent><i>x</i><b>y</b></selectedcontent></button></select>",
+        "<select><option><b>a</b></option><button><selectedcontent><b>a</b></selectedcontent></button></select>",
+        id="several-children",
+    ),
+    pytest.param(
+        "<select><option>a</option><button><selectedcontent><b><i>x</i></b></selectedcontent></button></select>",
+        "<select><option>a</option><button><selectedcontent>a</selectedcontent></button></select>",
+        id="nested-children",
+    ),
+    pytest.param(
+        "<select><option>a</option><selectedcontent>x</selectedcontent><button><selectedcontent>y</selectedcontent>"
+        "</button></select>",
+        "<select><option>a</option><selectedcontent>a</selectedcontent>"
+        "<button><selectedcontent>a</selectedcontent></button></select>",
+        id="every-target",
+    ),
+]
+
+
+@pytest.mark.parametrize(("markup", "body"), _LATE_SOURCE_CASES)
+def test_late_selectedcontent_children_are_replaced_by_the_option_copy(markup: str, body: str) -> None:
+    assert parse(markup).html == f"<html><head></head><body>{body}</body></html>"
+    assert parse_fragment(markup).inner_html == body
+    parser = IncrementalParser()
+    parser.feed(markup)
+    assert parser.close().html == f"<html><head></head><body>{body}</body></html>"
+
+
+@pytest.mark.parametrize(("markup", "body"), _LATE_SOURCE_CASES)
+def test_reparsing_late_selectedcontent_output_is_stable(markup: str, body: str) -> None:
+    once = parse(markup).html
+    assert once == f"<html><head></head><body>{body}</body></html>"
+    assert parse(once).html == once
+
+
+@pytest.mark.parametrize(("markup", "body"), _LATE_SOURCE_CASES)
+def test_sanitize_of_late_selectedcontent_is_idempotent(markup: str, body: str) -> None:
+    policy = Policy(tags=frozenset({"select", "option", "selectedcontent", "button", "b", "i"}))
+    once = sanitize(markup, policy)
+    assert once == sanitize(body, policy)
+    assert sanitize(once, policy) == once
+
+
+def test_disabled_late_selectedcontent_keeps_its_children() -> None:
+    markup = "<select><option>a</option><button><selectedcontent disabled><b>k</b></selectedcontent>"
+    markup += "</button></select>"
+    body = '<select><option>a</option><button><selectedcontent disabled=""><b>k</b></selectedcontent>'
+    body += "</button></select>"
+    assert parse(markup).html == f"<html><head></head><body>{body}</body></html>"
+    assert parse_fragment(markup).inner_html == body
