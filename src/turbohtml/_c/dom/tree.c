@@ -633,8 +633,7 @@ static void pop_until_atom(th_tree *tree, uint16_t atom) {
    (exclusive); used by the table modes to "clear the stack back to a
    table / body / row context". */
 static void clear_to(th_tree *tree, uint16_t atom_a, uint16_t atom_b, uint16_t atom_c) {
-    while (tree->open_len > 1) { /* GCOVR_EXCL_BR_LINE: a table-context boundary is always on the open stack, so the
-                                    loop stops above the root */
+    while (tree->open_len > 1) {
         th_node *node = current_node(tree);
         uint16_t atom = node->atom;
         /* A table-context boundary is always an html element. */
@@ -2215,8 +2214,8 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         }
         /* moving the furthest block under a formatting clone can nest it where its own start tag would not */
         tree->reparse_hazard = 1;
-        /* html, or the fragment root, sits below every formatting element; should the stack ever lose it, the document
-           stands in as it does in current_node, rather than the slot in front of the array */
+        /* html, or the fragment root, sits below every formatting element; the document stands in when no element
+           sits below the formatting element, as current_node does for an empty stack */
         th_node *common = fmt_stack > 0 /* GCOVR_EXCL_BR_LINE */ ? tree->open[fmt_stack - 1] : tree->document;
         Py_ssize_t bookmark = afe_index_of(tree, fmt);
         th_node *node, *last = furthest;
