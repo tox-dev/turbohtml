@@ -104,6 +104,29 @@ def test_value_pattern() -> None:
     assert not check(schema, "<doc><s>off</s></doc>").valid
 
 
+@pytest.mark.parametrize(
+    ("value", "text", "ok"),
+    [
+        pytest.param('<value type="string">a b</value>', "a b", True, id="string-equal"),
+        pytest.param('<value type="string">a b</value>', "a  b", False, id="string-differs"),
+        pytest.param(f'<value type="normalizedString" datatypeLibrary="{_DT}">a b</value>', "a\tb", True, id="replace"),
+        pytest.param(
+            f'<value type="normalizedString" datatypeLibrary="{_DT}">a b</value>', "a\tc", False, id="replace-bad"
+        ),
+        pytest.param(
+            f'<value type="normalizedString" datatypeLibrary="{_DT}">a b</value>', "a b ", False, id="replace-long"
+        ),
+        pytest.param("<value> a \n b </value>", "\t a  b\n", True, id="collapse-both-sides"),
+        pytest.param("<value>a b</value>", "ab", False, id="collapse-missing-space"),
+        pytest.param("<value>ab</value>", "a b", False, id="collapse-extra-space"),
+        pytest.param("<value>a</value>", "a b", False, id="collapse-longer"),
+        pytest.param("<value>ab</value>", "a", False, id="collapse-shorter"),
+    ],
+)
+def test_value_whitespace(value: str, text: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
+    assert check(wrap(f'<element name="s">{value}</element>'), f"<doc><s>{text}</s></doc>").valid is ok
+
+
 def test_data_with_xsd_library() -> None:
     schema = grammar('<start><element name="n"><data type="int"/></element></start>', attrs=f'datatypeLibrary="{_DT}"')
     assert check(schema, "<n>42</n>").valid

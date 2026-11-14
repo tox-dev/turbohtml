@@ -86,6 +86,7 @@ typedef struct patintern {
     pattern **slots;
     size_t cap; /* power of two, 0 until first grow */
     size_t count;
+    unsigned shift; /* 64 - log2(cap): the slot is the hash's top bits, where the multiply mixes every operand bit */
 } patintern;
 
 static pattern *pat_new(th_schema *schema, int type) {
@@ -134,7 +135,7 @@ static pattern *intern_find(const patintern *table, int type, pattern *p1, patte
     if (table->cap == 0) {
         return NULL;
     }
-    size_t slot = (size_t)pat_key_hash(type, p1, p2) & (table->cap - 1);
+    size_t slot = (size_t)(pat_key_hash(type, p1, p2) >> table->shift);
     while (table->slots[slot] != NULL) {
         pattern *node = table->slots[slot];
         if (node->type == type && node->p1 == p1 && node->p2 == p2) {
@@ -145,17 +146,18 @@ static pattern *intern_find(const patintern *table, int type, pattern *p1, patte
     return NULL;
 }
 
+/* Arena pointers share their high and low bits, so p2 is rotated onto the half of p1 that varies, and one Fibonacci
+   multiply spreads the key into the top bits the slot takes. The probe lengths no longer follow the heap layout. */
 static uint64_t pat_key_hash(int type, pattern *p1, pattern *p2) {
-    uint64_t hash = UINT64_C(1469598103934665603);
-    hash = (hash ^ (uint64_t)(unsigned)type) * UINT64_C(1099511628211);
-    hash = (hash ^ (uint64_t)(uintptr_t)p1) * UINT64_C(1099511628211);
-    hash = (hash ^ (uint64_t)(uintptr_t)p2) * UINT64_C(1099511628211);
-    return hash;
+    uint64_t key = (uint64_t)(uintptr_t)p1 ^ (((uint64_t)(uintptr_t)p2 << 32) | ((uint64_t)(uintptr_t)p2 >> 32)) ^
+                   (uint64_t)(unsigned)type;
+    return key * UINT64_C(0x9E3779B97F4A7C15);
 }
 
 static void intern_insert(th_schema *schema, patintern *table, pattern *node) {
     if (table->cap == 0 || table->count * 2 >= table->cap) {
         size_t cap = table->cap ? table->cap * 2 : 64;
+        unsigned shift = table->cap ? table->shift - 1 : 58;
         pattern **slots = arena_alloc(&schema->mem, cap * sizeof(pattern *));
         if (slots == NULL) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
             return;          /* GCOVR_EXCL_LINE: skipping the insert only loses dedup, not correctness */
@@ -166,7 +168,7 @@ static void intern_insert(th_schema *schema, patintern *table, pattern *node) {
             if (existing == NULL) {
                 continue;
             }
-            size_t slot = (size_t)pat_key_hash(existing->type, existing->p1, existing->p2) & (cap - 1);
+            size_t slot = (size_t)(pat_key_hash(existing->type, existing->p1, existing->p2) >> shift);
             while (slots[slot] != NULL) {
                 slot = (slot + 1) & (cap - 1);
             }
@@ -174,8 +176,9 @@ static void intern_insert(th_schema *schema, patintern *table, pattern *node) {
         }
         table->slots = slots;
         table->cap = cap;
+        table->shift = shift;
     }
-    size_t slot = (size_t)pat_key_hash(node->type, node->p1, node->p2) & (table->cap - 1);
+    size_t slot = (size_t)(pat_key_hash(node->type, node->p1, node->p2) >> table->shift);
     while (table->slots[slot] != NULL) {
         slot = (slot + 1) & (table->cap - 1);
     }
@@ -227,12 +230,13 @@ static void memo_begin_event(th_schema *schema) {
     schema->memo_budget = schema->memo_free;
 }
 
-/* Every derivative call takes one step off the budget, so only the first call past the free steps sees -1. The memos
-   still hold an earlier event's entries until then; nullability holds across events, the other entries do not. */
+/* Every derivative call takes one step off the budget, so only the first call past the free steps sees -1. The memo
+   still holds an earlier event's entries until then; nullability holds across events, the other entries do not. A list
+   token engages only the token memo, so the text that holds the list keeps its entries; each token empties the token
+   memo before it starts. */
 static void memo_engage(th_schema *schema) {
     if (schema->memo_budget == -1) {
-        memo_reset(schema->event_memo);
-        memo_reset(schema->token_memo);
+        memo_reset(schema->memo);
     }
 }
 
@@ -897,8 +901,10 @@ static pattern *rng_build(th_schema *schema, th_node *node) {
             return schema->p_notallowed; /* GCOVR_EXCL_LINE */
         }
         node_pat->datatype_id = rng_datatype_id(schema, node, DT_TOKEN);
-        node_pat->value = element_text_raw(tree, node, &node_pat->value_len);
+        Py_ssize_t raw_len = 0;
+        const Py_UCS4 *raw = element_text_raw(tree, node, &raw_len);
         node_pat->value_ws = dt_default_ws(node_pat->datatype_id);
+        node_pat->value = dt_normalize_ws(&schema->mem, node_pat->value_ws, raw, raw_len, &node_pat->value_len);
         return node_pat;
     }
     if (is_schema_el(schema, node, RNG_NS, "ref")) {
@@ -1066,6 +1072,37 @@ static int rng_is_whitespace(const Py_UCS4 *value, Py_ssize_t len) {
     return 1;
 }
 
+/* Whether `value` normalized per `ws` equals `norm`, which the compiler normalized: every list token and every value
+   test would otherwise copy its text into the arena first. */
+static int rng_ws_equal(int ws, const Py_UCS4 *value, Py_ssize_t len, const Py_UCS4 *norm, Py_ssize_t norm_len) {
+    if (ws == 0) {
+        return u_eq_u(value, len, norm, norm_len);
+    }
+    Py_ssize_t out = 0;
+    int pending = 0;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        Py_UCS4 codepoint = value[index];
+        if (is_xml_space(codepoint)) {
+            if (ws == 2) {
+                pending = out > 0;
+                continue;
+            }
+            codepoint = ' ';
+        } else if (pending) {
+            if (out == norm_len || norm[out] != ' ') {
+                return 0;
+            }
+            out++;
+            pending = 0;
+        }
+        if (out == norm_len || norm[out] != codepoint) {
+            return 0;
+        }
+        out++;
+    }
+    return out == norm_len;
+}
+
 static RNG_FORCEINLINE pattern *rng_text_deriv(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len);
 
 static int rng_value_match(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
@@ -1084,6 +1121,9 @@ static RNG_FORCEINLINE pattern *rng_text_deriv(th_schema *schema, pattern *p, co
     if ((RNG_TEXT_REJECTS >> p->type) & 1) {
         return schema->p_notallowed;
     }
+    if (p->type == P_VALUE) { /* a leaf, so like the rejects it takes no step */
+        return rng_ws_equal(p->value_ws, value, len, p->value, p->value_len) ? schema->p_empty : schema->p_notallowed;
+    }
     return rng_text_walk(schema, p, value, len);
 }
 
@@ -1092,6 +1132,41 @@ static RNG_NOINLINE pattern *rng_text_walk(th_schema *schema, pattern *p, const 
         return rng_text_deriv_step(schema, p, value, len);
     }
     return rng_text_memo(schema, p, value, len);
+}
+
+/* Each token is an event of its own, with its own free steps and the token memo: in the text's memo the derivatives of
+   every token would stay until the text event ends, and on the text's budget a long list would take the memo path for
+   tokens that never revisit a node. A token that runs past its free steps starts the next ones on the memo, and the
+   text pays the steps its tokens took. */
+static RNG_NOINLINE pattern *rng_list_deriv(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
+    pattern *derived = p->p1;
+    Py_ssize_t budget = schema->memo_budget;
+    Py_ssize_t steps = schema->memo_free;
+    Py_ssize_t spent = 0;
+    Py_ssize_t index = 0;
+    schema->memo = schema->token_memo;
+    while (index < len) {
+        while (index < len && is_xml_space(value[index])) {
+            index++;
+        }
+        Py_ssize_t start = index;
+        while (index < len && !is_xml_space(value[index])) {
+            index++;
+        }
+        if (index > start) {
+            memo_reset(schema->memo);
+            schema->memo_budget = steps;
+            derived = rng_text_deriv(schema, derived, value + start, index - start);
+            spent += steps - schema->memo_budget;
+            if (schema->memo_budget < 0) {
+                steps = 0;
+            }
+        }
+    }
+    schema->memo = schema->event_memo;
+    /* Stopping at 0 lets the text's next step see -1 and empty the memo of an earlier event. */
+    schema->memo_budget = budget < 0 ? budget : spent < budget ? budget - spent : 0;
+    return rng_nullable(schema, derived) ? schema->p_empty : schema->p_notallowed;
 }
 
 static RNG_FORCEINLINE pattern *rng_text_deriv_step(th_schema *schema, pattern *p, const Py_UCS4 *value,
@@ -1115,44 +1190,23 @@ static RNG_FORCEINLINE pattern *rng_text_deriv_step(th_schema *schema, pattern *
         return pat_group(schema, rng_text_deriv(schema, p->p1, value, len), pat_choice(schema, p, schema->p_empty));
     case P_TEXT:
         return p;
-    case P_VALUE: {
-        Py_ssize_t nl = 0;
-        const Py_UCS4 *norm = dt_normalize_ws(&schema->mem, p->value_ws, value, len, &nl);
-        Py_ssize_t vl = 0;
-        const Py_UCS4 *vnorm = dt_normalize_ws(&schema->mem, p->value_ws, p->value, p->value_len, &vl);
-        return u_eq_u(norm, nl, vnorm, vl) ? schema->p_empty : schema->p_notallowed;
-    }
     case P_DATA:
         if (!rng_datatype_ok(schema, p->datatype_id, p->facets, value, len)) {
             return schema->p_notallowed;
         }
         return p->p1 != NULL && rng_nullable(schema, rng_text_deriv(schema, p->p1, value, len)) ? schema->p_notallowed
                                                                                                 : schema->p_empty;
-    case P_LIST: {
-        pattern *derived = p->p1;
-        Py_ssize_t index = 0;
-        /* Each token is an event of its own, in the token memo: in the text's memo the derivatives of every token
-           would stay until the text event ends. */
-        schema->memo = schema->token_memo;
-        while (index < len) {
-            while (index < len && is_xml_space(value[index])) {
-                index++;
-            }
-            Py_ssize_t start = index;
-            while (index < len && !is_xml_space(value[index])) {
-                index++;
-            }
-            if (index > start) {
-                memo_reset(schema->memo);
-                derived = rng_text_deriv(schema, derived, value + start, index - start);
-            }
+    case P_LIST:
+        /* 7.1 forbids a list inside a list, but the compiler accepts one. It splits a token into that same token, so
+           it stays in the token's event. */
+        if (schema->memo == schema->token_memo) {
+            return rng_nullable(schema, rng_text_deriv(schema, p->p1, value, len)) ? schema->p_empty
+                                                                                   : schema->p_notallowed;
         }
-        schema->memo = schema->event_memo;
-        return rng_nullable(schema, derived) ? schema->p_empty : schema->p_notallowed;
-    }
+        return rng_list_deriv(schema, p, value, len);
     case P_REF: /* the compile-time 4.19 check rules out a ref that recurses here without an element */
         return rng_text_deriv(schema, rng_resolve(schema, p->def_index), value, len);
-    default:
+    default: /* a text event starts at an After pattern, so a value only comes through the wrapper */
         return schema->p_notallowed;
     }
 }
