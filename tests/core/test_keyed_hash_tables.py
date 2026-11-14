@@ -76,6 +76,28 @@ def _xsl_attribute_sets(names: list[str]) -> Callable[[], object]:
     return lambda: Transform(sheet, allow_imports=False)(source)
 
 
+def _xsl_key_names(names: list[str]) -> Callable[[], object]:
+    keys: Final = "".join(f'<xsl:key name="{name}" match="item" use="@id"/>' for name in names)
+    sheet: Final = turbohtml.parse_xml(
+        '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
+        f'<xsl:output method="text"/>{keys}<xsl:template match="/">'
+        f"<xsl:value-of select=\"count(key('{names[-1]}', 'x'))\"/></xsl:template></xsl:stylesheet>"
+    )
+    source: Final = turbohtml.parse_xml('<items><item id="x"/></items>')
+    return lambda: Transform(sheet, allow_imports=False)(source)
+
+
+def _xsl_named_templates(names: list[str]) -> Callable[[], object]:
+    templates: Final = "".join(f'<xsl:template name="{name}"><xsl:text>ok</xsl:text></xsl:template>' for name in names)
+    sheet: Final = turbohtml.parse_xml(
+        '<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">'
+        f'<xsl:output method="text"/>{templates}<xsl:template match="/">'
+        f'<xsl:call-template name="{names[-1]}"/></xsl:template></xsl:stylesheet>'
+    )
+    source: Final = turbohtml.parse_xml("<r/>")
+    return lambda: Transform(sheet, allow_imports=False)(source)
+
+
 def _minify_js_names(names: list[str]) -> Callable[[], object]:
     source: Final = f"function f(){{var {','.join(names)};return [{','.join(names)}]}}"
     return lambda: minify_js(source)
@@ -123,6 +145,8 @@ def _css_rule_selectors(names: list[str]) -> Callable[[], object]:
         pytest.param(_FNV64, _xpath_id, id="xpath-id-tokens"),
         pytest.param(_XSLT64, _xsl_key, id="xsl-key-values"),
         pytest.param(_XSLT64, _xsl_attribute_sets, id="xsl-attribute-set-names"),
+        pytest.param(_XSLT64, _xsl_key_names, id="xsl-key-names"),
+        pytest.param(_XSLT64, _xsl_named_templates, id="xsl-template-names"),
         pytest.param(_FNV32, _minify_js_names, id="minify-js-names"),
         pytest.param(_FNV32, _microdata, id="microdata-ids"),
         pytest.param(_FNV32, _shadow_slots, id="shadow-slot-names"),
@@ -226,6 +250,15 @@ def _xsl_attribute_set_misses(run: list[str], misses: list[str]) -> Callable[[],
     return lambda: Transform(sheet, allow_imports=False)(source)
 
 
+def _shadow_slot_misses(run: list[str], misses: list[str]) -> Callable[[], object]:
+    # Light children name slots the shadow root never declares, so each one's fill walks the run of declared slots.
+    # Every fourth declared slot also gets a child, so some lookups end their FNV-1a walk on an empty slot.
+    slots: Final = "".join(f"<slot name={name}></slot>" for name in run)
+    children: Final = "".join(f"<b slot={name}>y</b>" for name in [*misses, *run[::4]])
+    document: Final = turbohtml.parse(f"<div><template shadowrootmode=open>{slots}</template>{children}</div>")
+    return lambda: document.select("div")[0].flattened_children
+
+
 def _minify_js_misses(run: list[str], misses: list[str]) -> Callable[[], object]:
     # Each absent name is read four times, so its misses outweigh the steps the mangler takes on any source this size.
     source: Final = f"function f(){{var {','.join(run)};return [{','.join(misses * 4)}]}}"
@@ -241,6 +274,7 @@ def _minify_js_misses(run: list[str], misses: list[str]) -> Callable[[], object]
         pytest.param(_XSLT64, _xsl_key_misses, id="xsl-key-values"),
         pytest.param(_XSLT64, _xsl_attribute_set_misses, id="xsl-attribute-set-names"),
         pytest.param(_FNV32, _minify_js_misses, id="minify-js-names"),
+        pytest.param(_FNV32, _shadow_slot_misses, id="shadow-slot-names"),
     ],
 )
 def test_misses_along_lined_up_homes_stay_within_the_step_budget(
@@ -251,10 +285,10 @@ def test_misses_along_lined_up_homes_stay_within_the_step_budget(
     work_steps.assert_within(build(run, misses), build(control[: len(run)], control[len(run) :]), factor=_FACTOR)
 
 
-def _lined_up(fnv: tuple[int, int]) -> tuple[list[str], list[str]]:
-    # _LINED_UP names on consecutive home slots, each seated on its own home, and as many absent names, one more on each
-    # of those homes: a miss walks to the end of the run although no name sits away from its home. The low 16 bits make
-    # the homes consecutive in any table of _LINED_UP to 2**16 slots.
+def _lined_up(fnv: tuple[int, int], base: int = 0) -> tuple[list[str], list[str]]:
+    # _LINED_UP names on consecutive home slots from base, each seated on its own home, and as many absent names, one
+    # more on each of those homes: a miss walks to the end of the run although no name sits away from its home. The low
+    # 16 bits make the homes consecutive in any table of _LINED_UP to 2**16 slots.
     basis, prime = fnv
     prefixes: dict[int, str] = {}
     for letters in itertools.product(string.ascii_lowercase, repeat=3):
@@ -262,7 +296,7 @@ def _lined_up(fnv: tuple[int, int]) -> tuple[list[str], list[str]]:
         for char in letters:
             state = ((state ^ ord(char)) * prime) & _LOW
         prefixes.setdefault(state, "".join(letters))
-    run, misses = zip(*(_ending_at(fnv, prefixes, home)[:2] for home in range(_LINED_UP)), strict=True)
+    run, misses = zip(*(_ending_at(fnv, prefixes, (base + home) & _LOW)[:2] for home in range(_LINED_UP)), strict=True)
     return list(run), list(misses)
 
 
@@ -339,3 +373,62 @@ def test_translate_duplicate_from_character_on_the_keyed_fill() -> None:
     result = document.xpath(f"translate(string(/r), '{source}{source[0]}', '{target}Z')")
 
     assert result == text.translate(str.maketrans(source, target))
+
+
+def test_css_path_in_quirks_mode_after_the_id_map_moved_to_the_keyed_hash() -> None:
+    names: Final = ["".join(choice) for choice in itertools.product(*_block_pairs(_FNV64, _STEPS))]
+    long_id: Final = "q" * 70  # longer than the 64-code-point buffer the case-folding hash works in
+    document: Final = turbohtml.parse("".join(f"<p id={name}>" for name in [*names, long_id]))
+
+    assert document.select("p")[-1].css_path() == f"#{long_id}"
+
+
+def test_radio_form_miss_after_the_id_table_moved_to_the_keyed_hash() -> None:
+    run, misses = _lined_up(_FNV64)
+    forms: Final = "".join(f"<form id={name}></form>" for name in run)
+    # The first miss moves the table to the keyed hash; the later ones look up a form id whose FNV-1a home is empty.
+    misses_radios: Final = "".join(f"<input type=radio name=g checked form={name}>" for name in misses[:21])
+    document: Final = turbohtml.parse(
+        f"{forms}<input type=radio name=g checked form={run[0]}>{misses_radios}<input type=radio name=g>"
+    )
+    radios: Final = document.select("input")
+
+    radios[-1].checked = True
+
+    assert [radio.checked for radio in radios] == [True, *[False] * 21, True]
+
+
+def test_wide_keyword_resets_a_longhand_after_the_declaration_table_moved_to_the_keyed_hash() -> None:
+    # The shorthand's own name starts the walk over the run, so the FNV-1a pass gives up and the keyed pass drops the
+    # longhand the keyword resets.
+    run, _ = _lined_up(_FNV32, _low_state(_FNV32, "margin"))
+    declarations: Final = ";".join(f"{name}:1" for name in run)
+
+    assert minify_css(f"p{{margin-top:9px;{declarations};margin:inherit}}") == minify_css(
+        f"p{{{declarations};margin:inherit}}"
+    )
+
+
+def _low_state(fnv: tuple[int, int], text: str) -> int:
+    basis, prime = fnv
+    state = basis & _LOW
+    for char in text:
+        state = ((state ^ ord(char)) * prime) & _LOW
+    return state
+
+
+@pytest.mark.parametrize(
+    ("build", "expected"),
+    [
+        pytest.param(_xsl_key_names, "1", id="xsl-key-names"),
+        pytest.param(_xsl_named_templates, "ok", id="xsl-template-names"),
+    ],
+)
+def test_xsl_names_lined_up_across_the_end_of_the_index_still_resolve(
+    build: Callable[[list[str]], Callable[[], object]], expected: str
+) -> None:
+    # The run starts 100 slots before the end of a 1024-slot index, so the walk from its first full block runs back
+    # across the end, and the lookup of its last name must still find the declaration.
+    names, _ = _lined_up(_XSLT64, 1024 - 100)
+
+    assert build(names)() == expected
