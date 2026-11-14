@@ -89,6 +89,7 @@ typedef struct {
 struct sel_complex {
     sel_compound *compounds; /* left to right; matched from the rightmost (the subject) */
     int count;
+    int uses_scope; /* a written :scope in this selector or in a nested list it holds, set once at compile time */
 };
 
 typedef struct {

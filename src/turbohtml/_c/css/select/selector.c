@@ -1107,6 +1107,33 @@ static int sel_alts_have_has(const sel_complex *alts, int count) {
     return 0;
 }
 
+/* Sets uses_scope on every complex selector of alts and on the lists they nest, and returns
+   whether any writes :scope. A written :scope binds to the scope element, so an answer that
+   holds for one scope cannot be reused for another: a :has() argument that writes it keeps
+   the direct per-anchor walk, and a driver that rebinds scope per candidate keeps the
+   sibling memo out. */
+static int sel_mark_scope(sel_complex *alts, int count) {
+    int any = 0;
+    for (int index = 0; index < count; index++) {
+        sel_complex *complex = &alts[index];
+        int uses = 0;
+        for (int compound = 0; compound < complex->count; compound++) {
+            const sel_compound *target = &complex->compounds[compound];
+            for (int part = 0; part < target->count; part++) {
+                sel_simple *simple = &target->simples[part];
+                if (simple->kind != ':') {
+                    continue;
+                }
+                uses |= simple->pseudo == PSEUDO_SCOPE;
+                uses |= simple->sub != NULL && sel_mark_scope(simple->sub, simple->sub_count);
+            }
+        }
+        complex->uses_scope = uses;
+        any |= uses;
+    }
+    return any;
+}
+
 /* Compile a selector string against the tree it will run on. Returns NULL with a
    SelectorSyntaxError set on a syntax error. */
 sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject *selector_str) {
@@ -1129,6 +1156,7 @@ sel_compiled *selector_compile(PyObject *selector_error, th_tree *tree, PyObject
         return NULL;
     }
     compiled->has_relational = sel_alts_have_has(compiled->alts, compiled->count);
+    sel_mark_scope(compiled->alts, compiled->count);
     return compiled;
 }
 
@@ -2321,42 +2349,6 @@ void sel_memo_free(sel_memo *memo) {
     memo->count = 0;
 }
 
-/* Whether the complex selector writes :scope anywhere (directly or inside a nested
-   functional pseudo). A written :scope binds to the scope element, so an answer that
-   holds for one scope cannot be reused for another: a :has() argument that writes it
-   keeps the direct per-anchor walk, and a driver that rebinds scope per candidate keeps
-   the sibling memo out. */
-static int sel_rel_uses_scope(const sel_complex *rel);
-
-static int sel_compound_uses_scope(const sel_compound *compound) {
-    for (int index = 0; index < compound->count; index++) {
-        const sel_simple *simple = &compound->simples[index];
-        if (simple->kind != ':') {
-            continue;
-        }
-        if (simple->pseudo == PSEUDO_SCOPE) {
-            return 1;
-        }
-        if (simple->sub != NULL) {
-            for (int alt = 0; alt < simple->sub_count; alt++) {
-                if (sel_rel_uses_scope(&simple->sub[alt])) {
-                    return 1;
-                }
-            }
-        }
-    }
-    return 0;
-}
-
-static int sel_rel_uses_scope(const sel_complex *rel) {
-    for (int index = 0; index < rel->count; index++) {
-        if (sel_compound_uses_scope(&rel->compounds[index])) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 /* The memo only earns its keep where nesting is deep enough that candidate anchors'
    subtrees overlap heavily -- there the re-walk factor (how many nested anchors re-scan
    a node) dwarfs a hash probe. Shallower than this the direct walk wins, so a candidate
@@ -2398,58 +2390,47 @@ static void sel_has_mark_ancestors(th_node *node, th_node *root, int descent, co
     }
 }
 
-/* Whether node's subtree (its strict descendants) holds an element matching comp, the
-   lone compound of a descendant :has() argument such as :has(a). The result is a pure
-   function of the subtree, so it is memoized per (rel, node): each node's children are
-   scanned once across the whole query, turning the per-anchor O(subtree) re-walk that
-   made nested :has() quadratic into an amortized O(1) memo hit. descent is how far node
-   sits below the anchor; the memo is consulted only past SEL_HAS_MEMO_MIN_DESCENT so a
-   shallow match costs no more than the plain recursion (which this reduces to when there
-   is no memo, the memo can no longer grow, or the descent is still shallow). */
-static int sel_has_desc(th_node *node, const sel_complex *rel, const sel_compound *comp, const sel_ctx *ctx,
-                        int descent) {
-    th_node *current = node;
-    int current_descent = descent;
-    for (;;) {
-        th_node *child = sel_first_element_child(current);
+/* Whether the strict descendants of node hold an element matching comp, the lone compound
+   of a descendant :has() argument such as :has(a). The walk is the plain descent of
+   sel_has_subtree. From SEL_HAS_MEMO_MIN_DESCENT levels below the anchor on, each node's
+   answer is memoized per (rel, node), so a nested chain scans each node once across the
+   query rather than once per anchor. */
+static int sel_has_desc(th_node *node, const sel_complex *rel, const sel_compound *comp, const sel_ctx *ctx) {
+    th_node *current = sel_first_element_child(node);
+    int descent = 1;
+    while (current != NULL) {
+        int cached = 0;
+        int known = descent >= SEL_HAS_MEMO_MIN_DESCENT && sel_memo_get(ctx->has_memo, rel, current, &cached);
+        if (known ? cached : sel_match_compound(current, comp, ctx)) {
+            sel_has_mark_ancestors(current, node, descent, rel, ctx);
+            return 1;
+        }
+        th_node *child = known ? NULL : sel_first_element_child(current);
         if (child != NULL) {
             current = child;
-            current_descent++;
-        entered:
-            if (current_descent >= SEL_HAS_MEMO_MIN_DESCENT) {
-                int cached;
-                if (sel_memo_get(ctx->has_memo, rel, current, &cached)) {
-                    if (cached) {
-                        sel_has_mark_ancestors(current, node, current_descent, rel, ctx);
-                        return 1;
-                    }
-                    goto complete;
-                }
-            }
-            if (sel_match_compound(current, comp, ctx)) {
-                sel_has_mark_ancestors(current, node, current_descent, rel, ctx);
-                return 1;
-            }
+            descent++;
             continue;
         }
-    complete:
-        if (current_descent >= SEL_HAS_MEMO_MIN_DESCENT) {
+        if (!known && descent >= SEL_HAS_MEMO_MIN_DESCENT) {
             sel_memo_put(ctx->has_memo, rel, current, 0);
         }
-        while (current != node) {
+        for (;;) {
             th_node *sibling = sel_next_element_sibling(current);
             if (sibling != NULL) {
                 current = sibling;
-                goto entered;
+                break;
             }
             current = current->parent;
-            current_descent--;
-            if (current != node && current_descent >= SEL_HAS_MEMO_MIN_DESCENT) {
+            descent--;
+            if (current == node) {
+                return 0;
+            }
+            if (descent >= SEL_HAS_MEMO_MIN_DESCENT) {
                 sel_memo_put(ctx->has_memo, rel, current, 0);
             }
         }
-        return 0;
     }
+    return 0;
 }
 
 static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, th_node *anchor, const sel_ctx *ctx) {
@@ -2489,7 +2470,7 @@ static int sel_has_subtree(th_node *node, const sel_complex *rel, int subject, t
    order visits each sibling a bounded number of times. */
 static int sel_has_later_sibling(th_node *anchor, const sel_complex *rel, const sel_ctx *ctx) {
     const char lead = rel->compounds[0].combinator;
-    const sel_complex rest = {rel->compounds + 1, rel->count - 1};
+    const sel_complex rest = {rel->compounds + 1, rel->count - 1, rel->uses_scope};
     /* rest lives in this frame, so it must not key the :has() memo; the sibling memo keys a
        relative selector by its first compound instead, which outlives the frame. Without
        :scope in rel, nothing below depends on the scope, so the sibling memo carries over. */
@@ -2540,7 +2521,7 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
         int subject = rel->count - 1;
         char lead_combinator = rel->compounds[0].combinator;
         if (rel->count == 1 && (lead_combinator == '>' || lead_combinator == '+' || lead_combinator == '~')) {
-            if (lead_combinator == '~' && ctx->sibling_memo != NULL && !sel_rel_uses_scope(rel)) {
+            if (lead_combinator == '~' && ctx->sibling_memo != NULL && !rel->uses_scope) {
                 if (sel_has_later_sibling(anchor, rel, ctx)) {
                     return 1;
                 }
@@ -2564,8 +2545,8 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
             continue;
         }
         /* Reuse anchor-independent subtree results for descendant compounds without :scope. */
-        if (scoped.has_memo != NULL && rel->count == 1 && !sel_rel_uses_scope(rel)) {
-            if (sel_has_desc(anchor, rel, &rel->compounds[0], &scoped, 0)) {
+        if (scoped.has_memo != NULL && rel->count == 1 && !rel->uses_scope) {
+            if (sel_has_desc(anchor, rel, &rel->compounds[0], &scoped)) {
                 return 1;
             }
             continue;
@@ -2587,7 +2568,7 @@ static int sel_has_match(th_node *anchor, const sel_complex *alts, int count, co
         }
         /* a single test has no memo, and without one testing each later sibling y on its own
            would re-walk y's siblings for every y */
-        if ((lead == '+' || ctx->sibling_memo != NULL) && !sel_rel_uses_scope(rel)) {
+        if ((lead == '+' || ctx->sibling_memo != NULL) && !rel->uses_scope) {
             if (sel_has_later_sibling(anchor, rel, ctx)) {
                 return 1;
             }
@@ -2632,7 +2613,7 @@ int selector_uses_has_memo(const sel_compiled *compiled) {
 int selector_uses_scope(const sel_compiled *compiled) {
     int uses_scope = 0;
     for (int alt = 0; alt < compiled->count; alt++) {
-        uses_scope |= sel_rel_uses_scope(&compiled->alts[alt]);
+        uses_scope |= compiled->alts[alt].uses_scope;
     }
     return uses_scope;
 }
