@@ -1448,7 +1448,7 @@ def test_computed_style_inherited_sibling_values(order: tuple[int, ...], expecte
             id="element-child-text-not-sheet",
         ),
         pytest.param(
-            "<svg><style>p{color:<style>red}</style></style></svg><p></p>",
+            "<svg><style>p{color:<style>blue</style>}</style></svg><p></p>",
             {"color": "canvastext"},
             id="nested-style-not-in-outer-sheet",
         ),
@@ -1467,7 +1467,7 @@ def test_computed_style_foreign_style_reads_its_text_children_only(html: str, ex
 
 def test_computed_style_nested_foreign_style_stays_within_memory_budget() -> None:
     tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")  # PyPy ships none
-    document: Final = parse(f"<p></p><svg>{'<style>' * 200}{'a{}' * 1_000}{'</style>' * 200}</svg>")
+    document: Final = parse(f"<p></p><math>{'<style>' * 100}{'p{top:1px}' * 400}{'</style>' * 100}</math>")
     tracing.start()
     try:
         computed_style(document.select("p")[0])

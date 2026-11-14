@@ -755,15 +755,15 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
             "HTTPS:%2E/..?q=x", "https://example.org/dir/file", "https://example.org/?q=x", id="uppercase-encoded-dot"
         ),
         pytest.param(
-            "https:https:%2e/x",
-            "https://example.org/dir/file",
-            "https://example.org/dir/https:%2e/x",
+            "wss:wss:b:c/%2e%2e/%2e",
+            "wss://relay.example/room/42/q",
+            "wss://relay.example/room/42/",
             id="same-scheme-repeated-scheme-is-path",
         ),
         pytest.param(
-            "https:http://other.org/%2e",
-            "https://example.org/dir/file",
-            "https://example.org/dir/http://other.org/",
+            "ftp:wss://files.test/%2e/q",
+            "ftp://mirror.example/pub/x",
+            "ftp://mirror.example/pub/wss://files.test/q",
             id="same-scheme-foreign-url-is-path",
         ),
         pytest.param(
@@ -963,10 +963,10 @@ def test_meta_refresh_resolves_encoded_dot_segments() -> None:
 
 def test_meta_refresh_same_scheme_keeps_tabbed_url_a_path() -> None:
     # unlike base_url(), meta_refresh() hands the tab on, and the join's scheme scan reads through it
-    html = '<meta http-equiv=refresh content="0;url=https:ht\ttp://other.org/%2e/x">'
-    assert parse(html).meta_refresh("https://example.org/dir/file") == (
+    html = '<meta http-equiv=refresh content="0;url=ftp:ht\ttp://files.test/%2e/q">'
+    assert parse(html).meta_refresh("ftp://mirror.example/pub/x") == (
         0.0,
-        "https://example.org/dir/http://other.org/x",
+        "ftp://mirror.example/pub/http://files.test/q",
     )
 
 

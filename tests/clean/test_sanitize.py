@@ -112,9 +112,10 @@ def test_deep_unwrap_under_kept_ancestors_is_balanced_after_the_walk() -> None:
 
 def test_deep_unwrap_is_balanced_past_an_element_that_escapes_to_nothing() -> None:
     # the deferred object unwrap exposes links behind an implied, empty one: the later passes have to reach them too
-    source: Final = f"<dd>{'<u>' * 31}<a><object><b><a><dt><dl><dl><a></b>"
-    once: Final = sanitize(source)
-    assert (parse_fragment(once).inner_html, sanitize_node(parse_fragment(source)).inner_html) == (once, once)
+    source: Final = f"{'<q>' * 35}<a><object><em><a><dd><ul></a></em>"
+    policy: Final = Policy(tags=frozenset({"q", "a", "em", "dd", "ul"}))
+    once: Final = sanitize(source, policy)
+    assert (parse_fragment(once).inner_html, sanitize_node(parse_fragment(source), policy).inner_html) == (once, once)
 
 
 def test_deep_unwrap_in_table_context_settles_in_place() -> None:
@@ -3258,8 +3259,8 @@ _PARSE_STABLE_RULES: Final[list[pytest.ParameterSet]] = [
     pytest.param("<dd><header><b><dt>x", frozenset({"dd", "dt", "b"}), id="dt-behind-unwrapped-barrier"),
     pytest.param("<p><button><b><div>x", frozenset({"p", "b", "div"}), id="block-behind-unwrapped-button"),
     pytest.param("<a><object><b><a>x", frozenset({"a", "b"}), id="link-behind-unwrapped-marker"),
-    # the implied link under the li escapes to nothing, and the scan must still reach the link under the ul
-    pytest.param("<a><object><b><a><li><ul></a></b>", frozenset({"a", "b", "li", "ul"}), id="link-after-empty-escape"),
+    # the implied link under the dd escapes to nothing, and the scan must still reach the link under the dl
+    pytest.param("<a><object><b><a><dd><dl></a></b>", frozenset({"a", "b", "dd", "dl"}), id="link-after-empty-escape"),
     pytest.param("<nobr><object><b><nobr>x", frozenset({"nobr", "b"}), id="nobr-behind-unwrapped-marker"),
     pytest.param("<button><select><i><button>x", frozenset({"button"}), id="button-in-button"),
     pytest.param("<optgroup><optgroup>", frozenset({"optgroup"}), id="nested-optgroup-reopens"),

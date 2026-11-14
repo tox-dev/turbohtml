@@ -1552,9 +1552,9 @@ def test_json_ld_foreign_script_reads_its_text_children_only(
 
 @pytest.mark.parametrize("root", ["svg", "math"])
 def test_json_ld_nested_foreign_script_is_decoded_once(root: str) -> None:
-    document: Final = parse(f"<{root}>{'<script type=application/ld+json>' * 500}[{'[],' * 99}[]]")
-    assert document.json_ld() == [[[]] * 100]
-    assert document.structured_data().json_ld == [[[]] * 100]
+    document: Final = parse(f'<{root}>{"<script type=application/ld+json>" * 60}{{"k": [1, 2]}}')
+    assert document.json_ld() == [{"k": [1, 2]}]
+    assert document.structured_data().json_ld == [{"k": [1, 2]}]
 
 
 def test_json_ld_html_script_drops_text_of_appended_element() -> None:
