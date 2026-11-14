@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import copy
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -34,6 +34,8 @@ from turbohtml.clean import Policy, sanitize
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from work_steps import WorkSteps
 
     from turbohtml import DocumentFragment, Node
 
@@ -555,25 +557,10 @@ def test_repeated_html_and_body_past_scan_limit_keep_their_own_names() -> None:
     assert list(body.attrs.items()) == [(f"b{index}", "2") for index in range(9)] + [("a0", "9"), ("z", "4")]
 
 
-def test_repeated_body_tags_merge_in_time_linear_in_attributes() -> None:
+def test_repeated_body_tags_merge_in_time_linear_in_attributes(work_steps: WorkSteps) -> None:
     # a merge checks each incoming name against the names already on the element, so distinct names on repeated tags
-    # take time quadratic in their count, while one tag with the same names takes time linear in it; the floor keeps
-    # a sub-millisecond baseline from inflating the ratio
-    count: Final = 4000
-    repeated: Final = "".join(f"<body a{index}>" for index in range(count))
-    names: Final = " ".join(f"a{index}" for index in range(count))
-    single: Final = f"<body {names}>"
-    baseline: Final = max(_fastest_parse(single), 0.001)
-    assert _fastest_parse(repeated) < 5 * baseline
-
-
-def _fastest_parse(markup: str) -> float:
-    timings: Final[list[float]] = []
-    for _ in range(3):
-        start = time.perf_counter()
-        parse(markup)
-        timings.append(time.perf_counter() - start)
-    return min(timings)
+    # take time quadratic in their count
+    work_steps.assert_linear(lambda n: partial(parse, "".join(f"<body a{i}>" for i in range(n))), (1000, 4000))
 
 
 @pytest.mark.parametrize(
@@ -705,29 +692,18 @@ def test_heading_end_tag_ignored_across_foreign_scope_boundary(html: str, expect
         pytest.param(" encoding=text/html", Namespace.HTML, id="html-integration-point"),
     ],
 )
-def test_annotation_xml_start_tag_is_read_once(encoding: str, namespace: Namespace) -> None:
-    # The dispatcher checks the current element on every token, and that check used to rescan the start tag's
-    # attributes each time. The control closes the element before the same tokens arrive, so it pays the same
-    # attribute and token costs without the per-token check. The floor keeps a fast control from inflating the ratio.
-    count: Final = 60_000
-    open_tag = f"<math><annotation-xml {' '.join(f'a{index}' for index in range(count))}{encoding}>"
-    children = "<g></g>" * count
-    control = min(_parse_seconds(f"{open_tag}</annotation-xml>{children}") for _ in range(3))
-    elapsed = min(_parse_seconds(f"{open_tag}{children}") for _ in range(3))
-    document = parse(f"{open_tag}{children}")
-    assert elapsed < 10 * max(control, 0.01)
-    annotation = document.find("annotation-xml")
+def test_annotation_xml_start_tag_is_read_once(encoding: str, namespace: Namespace, work_steps: WorkSteps) -> None:
+    def markup(count: int) -> str:
+        attributes = " ".join(f"a{index}" for index in range(count))
+        return f"<math><annotation-xml {attributes}{encoding}>{'<g></g>' * count}"
+
+    work_steps.assert_linear(lambda n: partial(parse, markup(n)), (1000, 4000))
+    annotation = parse(markup(4000)).find("annotation-xml")
     assert isinstance(annotation, Element)
-    assert len(annotation.children) == count
+    assert len(annotation.children) == 4000
     child = annotation.children[-1]
     assert isinstance(child, Element)
     assert child.namespace is namespace
-
-
-def _parse_seconds(markup: str) -> float:
-    start = time.perf_counter()
-    parse(markup)
-    return time.perf_counter() - start
 
 
 @pytest.mark.parametrize(

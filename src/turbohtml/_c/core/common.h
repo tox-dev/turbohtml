@@ -394,6 +394,11 @@ int th_fuzz_register(PyObject *module);
 char th_fuzz_schema_arena_overread(size_t size);
 #endif
 
+#ifdef TH_WORK_STEPS
+/* Implemented in core/work_steps.c: the calling thread's loop-step total, which only ever grows. */
+PyObject *turbohtml_work_steps(PyObject *module, PyObject *ignored);
+#endif
+
 /* Implemented in validate/conformance.c, the HTML5 authoring-conformance checker behind
    turbohtml.conformance (issue #541). _conformance_check(node) walks a parsed document or
    subtree and returns (valid, findings), each finding a (code, severity, message, line,

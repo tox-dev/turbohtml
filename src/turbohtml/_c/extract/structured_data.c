@@ -19,6 +19,7 @@
 #include "core/node_map.h"
 
 #include "core/vec.h"
+#include "core/work_steps.h"
 #include "tokenizer/binding.h" /* Py_BEGIN_CRITICAL_SECTION shim for the GIL/pre-3.13 build */
 #include "tokenizer/xml_names.h"
 #include "dom/nodes.h"
@@ -740,7 +741,9 @@ done:
 }
 
 /* Gather the verbatim text of every <script type="application/ld+json"> under the document into a list of str, leaving
-   the JSON parsing to the Python facade. NULL only on the excluded allocation-failure path. */
+   the JSON parsing to the Python facade. NULL only on the excluded allocation-failure path. A block is the element's
+   child text content, not its descendant text: an SVG or MathML <script> can hold further <script> elements, and
+   descendant text would decode the innermost one once per enclosing element. */
 static PyObject *gather_json_ld(PyObject *self) {
     PyObject *texts = PyList_New(0);
     if (texts == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
@@ -763,7 +766,7 @@ static PyObject *gather_json_ld(PyObject *self) {
             !json_ld_type_with_parameters(type_attr->value, type_attr->value_len)) {
             continue;
         }
-        PyObject *text = str_from_accessor(th_node_text, tree, node);
+        PyObject *text = str_from_accessor(th_node_child_text, tree, node);
         if (text == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
             failed = 1;     /* GCOVR_EXCL_LINE: allocation-failure path */
             break;          /* GCOVR_EXCL_LINE */
@@ -1212,6 +1215,7 @@ static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize
     PyObject *pending = NULL;
     Py_ssize_t cursor = 0;
     while (cursor < len) {
+        TH_WORK_STEP();
         while (cursor < len && is_space(value[cursor])) {
             cursor++;
         }
@@ -1294,6 +1298,7 @@ static int parse_prefix_decls(PyObject *prefixes, const Py_UCS4 *value, Py_ssize
    the mapping it had outside the element. -1 only on the excluded failure path. */
 static int restore_prefixes(PyObject *prefixes, PyObject *undo) {
     for (Py_ssize_t index = PyList_GET_SIZE(undo); index > 0; index -= 2) {
+        TH_WORK_STEP();
         PyObject *prefix = PyList_GET_ITEM(undo, index - 2);
         PyObject *shadowed = PyList_GET_ITEM(undo, index - 1);
         int failed = PyDict_SetItem(prefixes, prefix, shadowed) < 0;

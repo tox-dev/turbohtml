@@ -10,3 +10,9 @@ option(
     value: false,
     description: 'Define TH_FORCE_SCALAR: compile the portable SWAR scan loops in place of the NEON and SSE2 ones',
 )
+option(
+    'work_steps',
+    type: 'boolean',
+    value: false,
+    description: 'Define TH_WORK_STEPS: count loop steps per thread for the deterministic complexity tests; never ship this build',
+)
