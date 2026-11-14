@@ -1312,7 +1312,7 @@ def test_rng_restricted_grammar_compiles_and_validates(schema: str, xml: str, *,
     assert rng_ok(schema, xml) is valid
 
 
-def rshared(leaf: str, content: str = '<ref name="d0"/>', combine: str = "group", *, count: int) -> str:
+def _crossed_chain(leaf: str, content: str = '<ref name="d0"/>', combine: str = "group", *, count: int) -> str:
     defines = "".join(
         f'<define name="d{index}"><{combine}><ref name="d{index + 1}"/><ref name="e{index + 1}"/></{combine}></define>'
         f'<define name="e{index}"><{combine}><ref name="e{index + 1}"/><ref name="d{index + 1}"/></{combine}></define>'
@@ -1324,69 +1324,79 @@ def rshared(leaf: str, content: str = '<ref name="d0"/>', combine: str = "group"
     )
 
 
-def _attribute_doc(count: int) -> str:
+def _named_attributes(count: int) -> str:
     attributes = " ".join(f'a{index}="1"' for index in range(count))
     return f"<doc {attributes}/>"
+
+
+_EXCEPT_WILDCARD_ATTRIBUTE: Final[str] = (
+    "<optional><attribute><anyName><except><name>secret</name></except></anyName></attribute></optional>"
+)
 
 
 @pytest.mark.parametrize(
     ("schema", "xml", "valid"),
     [
-        pytest.param(rshared("<empty/>", count=12), "<r/>", True, id="start-tag-close"),
-        pytest.param(rshared("<empty/>", count=12), '<r a="1"/>', False, id="attribute-rejected"),
-        pytest.param(rshared("<empty/>", count=12), '<r a="1" b="1"/>', False, id="attribute-after-rejected"),
+        pytest.param(_crossed_chain("<empty/>", count=10), "<r/>", True, id="empty-leaf-closes"),
+        pytest.param(_crossed_chain("<empty/>", count=10), '<r k="1"/>', False, id="empty-leaf-rejects-attribute"),
         pytest.param(
-            rshared('<optional><attribute name="a"/></optional>', count=12),
-            '<r a="1"/>',
-            True,
-            id="attribute-accepted",
-        ),
-        pytest.param(rshared("<text/>", count=12), "<r>x</r>", True, id="text"),
-        pytest.param(rshared("<text/>", count=12), "<r><e/></r>", False, id="start-tag-open"),
-        pytest.param(
-            rshared("<text/>", '<attribute name="a"><ref name="d0"/></attribute>', count=12),
-            '<r a="x"/>',
-            True,
-            id="attribute-content-nullable",
-        ),
-        pytest.param(
-            rshared("<value>x</value>", '<attribute name="a"><ref name="d0"/></attribute>', "choice", count=12),
-            '<r a=" "/>',
+            _crossed_chain("<empty/>", count=10),
+            '<r k="1" m="1"/>',
             False,
-            id="attribute-content-not-nullable",
+            id="empty-leaf-rejects-second-attribute",
         ),
         pytest.param(
-            rshared("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', count=12),
+            _crossed_chain('<optional><attribute name="k"/></optional>', count=10),
+            '<r k="1"/>',
+            True,
+            id="optional-attribute-leaf-accepts",
+        ),
+        pytest.param(_crossed_chain("<text/>", count=10), "<r>y</r>", True, id="text-leaf-accepts-text"),
+        pytest.param(_crossed_chain("<text/>", count=10), "<r><z/></r>", False, id="text-leaf-rejects-child"),
+        pytest.param(
+            _crossed_chain("<text/>", '<attribute name="k"><ref name="d0"/></attribute>', count=10),
+            '<r k="y"/>',
+            True,
+            id="attribute-content-text-nullable",
+        ),
+        pytest.param(
+            _crossed_chain("<value>x</value>", '<attribute name="k"><ref name="d0"/></attribute>', "choice", count=10),
+            '<r k=" "/>',
+            False,
+            id="attribute-content-blank-value-rejected",
+        ),
+        pytest.param(
+            _crossed_chain("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', count=10),
             "<r>x x x</r>",
             True,
-            id="list-tokens",
+            id="list-tokens-accepted",
         ),
         pytest.param(
-            rshared("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', count=12),
+            _crossed_chain("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', count=10),
             "<r>x y x</r>",
             False,
-            id="list-token-rejected",
+            id="list-token-rejected-before-more",
         ),
         pytest.param(
-            rwrap('<optional><attribute><nsName ns=""/></attribute></optional>' * 9),
-            _attribute_doc(9),
+            rwrap(_EXCEPT_WILDCARD_ATTRIBUTE * 5),
+            _named_attributes(5),
             True,
-            id="namespace-attributes-without-defines",
+            id="wildcards-with-except-fit-once-each",
         ),
         pytest.param(
-            rwrap('<optional><attribute><nsName ns=""/></attribute></optional>' * 9),
-            _attribute_doc(10),
+            rwrap(_EXCEPT_WILDCARD_ATTRIBUTE * 5),
+            _named_attributes(6),
             False,
-            id="one-namespace-attribute-too-many",
+            id="wildcards-with-except-one-extra",
         ),
     ],
 )
-def test_rng_shared_pattern_derives_once(schema: str, xml: str, *, valid: bool) -> None:
+def test_rng_shared_subpatterns_decide_each_event(schema: str, xml: str, *, valid: bool) -> None:
     assert rng_ok(schema, xml) is valid
 
 
 def _ladder(leaf: str, *, combine: str) -> str:
-    return rshared(leaf, combine=combine, count=11)
+    return _crossed_chain(leaf, combine=combine, count=11)
 
 
 def _distinct_choice_ladder(count: int) -> str:
@@ -1465,7 +1475,7 @@ def test_rng_shared_define_memo_paths_after_ladder(tail: str, xml: str, *, valid
 
 def _with_tail(tail: str, *, first: bool) -> str:
     walk = f'<ref name="d0"/>{tail}' if first else f'{tail}<ref name="d0"/>'
-    return rshared("<text/>", f"<group>{walk}</group>", count=11)
+    return _crossed_chain("<text/>", f"<group>{walk}</group>", count=11)
 
 
 @pytest.mark.parametrize(
@@ -1512,13 +1522,13 @@ def _with_tail(tail: str, *, first: bool) -> str:
             id="group-attribute-value-rejected",
         ),
         pytest.param(
-            rshared("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', count=11),
+            _crossed_chain("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', count=11),
             "<r>  x   x  </r>",
             True,
             id="list-surrounding-whitespace-accepted",
         ),
         pytest.param(
-            rshared("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', count=11),
+            _crossed_chain("<optional><value>x</value></optional>", '<list><ref name="d0"/></list>', count=11),
             "<r>   </r>",
             True,
             id="list-whitespace-only-accepted",
@@ -1546,12 +1556,30 @@ def _interleaved_ladder(*, first: bool) -> str:
     walk = '<ref name="d0"/><element name="a"><empty/></element>'
     if not first:
         walk = '<element name="a"><empty/></element><ref name="d0"/>'
-    return rshared("<text/>", f"<interleave>{walk}</interleave>", count=11)
+    return _crossed_chain("<text/>", f"<interleave>{walk}</interleave>", count=11)
 
 
-def test_rng_shared_defines_scale_linearly(work_steps: WorkSteps) -> None:
-    document = parse_xml("<r/>")
-    work_steps.assert_linear(lambda n: partial(RelaxNG(rshared("<empty/>", count=n)).validate, document), (12, 20))
+@pytest.mark.parametrize(
+    ("leaf", "content", "xml"),
+    [
+        pytest.param("<empty/>", '<ref name="d0"/>', "<r/>", id="start-tag-close"),
+        pytest.param('<optional><attribute name="k"/></optional>', '<ref name="d0"/>', '<r k="1"/>', id="attribute"),
+        pytest.param("<text/>", '<ref name="d0"/>', "<r>y</r>", id="text"),
+        pytest.param("<text/>", '<ref name="d0"/>', "<r><z/></r>", id="start-tag-open"),
+        pytest.param("<text/>", '<attribute name="k"><ref name="d0"/></attribute>', '<r k="y"/>', id="nullable"),
+        pytest.param(
+            "<optional><value>x</value></optional>",
+            '<list><ref name="d0"/></list>',
+            "<r>x x x</r>",
+            id="list-tokens",
+        ),
+    ],
+)
+def test_rng_shared_defines_scale_linearly(leaf: str, content: str, xml: str, work_steps: WorkSteps) -> None:
+    document = parse_xml(xml)
+    work_steps.assert_linear(
+        lambda n: partial(RelaxNG(_crossed_chain(leaf, content, count=n)).validate, document), (12, 20)
+    )
 
 
 @pytest.mark.parametrize(
@@ -1581,13 +1609,12 @@ def test_rng_long_optional_sequence_validates(schema: str, xml: str) -> None:
     assert rng_ok(schema, xml)
 
 
-def test_rng_memoized_start_tag_is_not_reused_for_another_name() -> None:
-    alternatives = "".join(
-        f'<element name="e{index}"><element name="c{index}"><empty/></element></element>' for index in range(600)
-    )
+def test_rng_memo_keeps_event_names_apart() -> None:
+    alternatives = "".join(f'<element name="n{index}"><attribute name="k{index}"/></element>' for index in range(300))
     schema = rwrap(f"<zeroOrMore><choice>{alternatives}</choice></zeroOrMore>")
-    children = "".join(f"<e{index}><c{index}/></e{index}>" for index in range(600))
-    assert rng_ok(schema, f"<doc>{children}</doc>")
+    elements = "".join(f'<n{index} k{index}="v"/>' for index in reversed(range(300)))
+    assert rng_ok(schema, f"<doc>{elements}</doc>")
+    assert not rng_ok(schema, f"<doc>{elements}<n0/></doc>")
 
 
 def test_rng_cdata_and_prefixed_attribute() -> None:

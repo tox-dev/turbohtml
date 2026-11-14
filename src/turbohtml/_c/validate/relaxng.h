@@ -1165,6 +1165,10 @@ static RNG_NOINLINE pattern *rng_list_deriv(th_schema *schema, pattern *p, const
             if (schema->memo_budget < 0) {
                 steps = 0;
             }
+            /* NotAllowed takes no step for the tokens after it, so the rest of the list cannot change the result. */
+            if (derived == schema->p_notallowed) {
+                break;
+            }
         }
     }
     schema->memo = schema->event_memo;
