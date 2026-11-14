@@ -1561,8 +1561,18 @@ static int select_disabled_by_ancestor(const th_node *select) {
     return 0;
 }
 
+/* The selectedcontent elements one select mirrors its shown option into. The HTML
+   Standard mirrors it into every enabled one, and a valid select holds one, in its
+   button. Uncapped, N of them under one select copy an option of M nodes N times, so
+   the tree grows as N x M from N + M of input. A target past the cap keeps the content
+   the source gave it, as a disabled one does. */
+#define MAX_CLONE_TARGETS 16
+
 /* Record one clone destination, growing the per-select buffer as needed. */
 static void select_cache_add_target(th_tree *tree, th_select_cache *cache, th_node *target) {
+    if (cache->target_count == MAX_CLONE_TARGETS) {
+        return;
+    }
     if (cache->target_count == cache->target_cap) {
         size_t cap;
         size_t bytes;
@@ -1825,9 +1835,10 @@ static void maybe_clone_option(th_tree *tree, th_node *option) {
 }
 
 /* The selectedcontent post-connection steps: a selectedcontent inserted under a select
-   it is enabled for joins the select's clone targets and copies the option the select
-   already shows. A select with no cache has had no option closed, so it shows none.
-   The walk stops at an ancestor option, so a chain of nested options stays O(1) each. */
+   it is enabled for joins the select's clone targets, while the cap leaves room, and
+   copies the option the select already shows. A select with no cache has had no option
+   closed, so it shows none. The walk stops at an ancestor option, so a chain of nested
+   options stays O(1) each. */
 static void selectedcontent_inserted(th_tree *tree, th_node *selectedcontent) {
     th_node *select = selectedcontent->parent;
     while (select != NULL && !is_html_element(select, TH_TAG_SELECT)) {
@@ -1842,9 +1853,11 @@ static void selectedcontent_inserted(th_tree *tree, th_node *selectedcontent) {
         return;
     }
     th_select_cache *cache = &tree->select_state->caches[slot - 1];
-    if (cache->valid) { /* an invalid cache refills on the next pop and finds it then */
-        select_cache_add_target(tree, cache, selectedcontent);
+    if (cache->target_count == MAX_CLONE_TARGETS) {
+        return;
     }
+    /* listed even while the cache is invalid, so the cap counts every late target */
+    select_cache_add_target(tree, cache, selectedcontent);
     th_node *option = select_cache_shown_option(cache);
     if (option != NULL && !cache->disabled) {
         deep_copy_children(tree, option, selectedcontent);
