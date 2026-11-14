@@ -5,6 +5,7 @@ import re
 import string
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
+import time
 from string import ascii_lowercase, ascii_uppercase
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeAlias, cast
@@ -1760,6 +1761,7 @@ def test_regex_replace_with_too_many_groups_raises_value_error(mocker: MockerFix
     [
         pytest.param("(a)(b)?", "[\\1\\2\\g<1>\\g<0>]", "ab a", id="group-references"),
         pytest.param("(?P<first>\\w)(?P<rest>\\w*)", "\\g<rest>\\g<first>", "hello world", id="named-references"),
+        pytest.param("(x)(?P<a>(?P<b>y)(z))(?P<c>w)(?P=b)", "\\g<c>\\g<b>\\g<a>", "xyzwy", id="named-among-numbered"),
         pytest.param("a", "\\0\\07\\101\\1011\\08", "a", id="octal-escapes"),
         pytest.param("a", "\\n\\t\\r\\f\\v\\a\\b\\\\", "a", id="control-escapes"),
         pytest.param("a", "\\-\\.\\ \\_\\~\\é", "a", id="kept-escapes"),
@@ -1777,6 +1779,40 @@ def test_re_replace_template_matches_python_re(
     expected: Final = re.sub(pattern, replacement, text)
     _forbid_python_re(mocker)
     assert _REGEX_REPLACE(parse_xml("<r/>"), text=text, pattern=pattern, flags="g", replacement=replacement) == expected
+
+
+@pytest.mark.usefixtures("native_regex")
+def test_regex_resolves_each_of_many_group_names() -> None:
+    digits: Final = "".join(str(index % 10) for index in range(150))
+    groups: Final = "".join(f"(?P<n{index}>{index % 10})" for index in range(150))
+    pattern: Final = f"{groups}(?P=n7)(?P=n148)"
+    replaced = _REGEX_REPLACE(
+        parse_xml("<r/>"), text=f"{digits}78", pattern=pattern, flags="", replacement="\\g<n149>\\g<n3>\\g<n42>"
+    )
+    assert replaced == "932"
+
+
+@pytest.mark.usefixtures("native_regex")
+def test_regex_compiles_many_named_groups_in_linear_time() -> None:
+    count: Final = 40000
+    named: Final = "".join(f"(?P<n{index}>{index % 10})" for index in range(count))
+    # non-capturing groups have no names and compile in linear time on every build; 10x more of them keeps the
+    # baseline above the 10 ms floor, and capturing groups would exceed the instruction limit at that count
+    reference_count: Final = 10 * count
+    unnamed: Final = "".join(f"(?:{index % 10})" for index in range(reference_count))
+    per_group_baseline: Final = max(_compile_seconds(unnamed), 0.01) / reference_count
+    assert _compile_seconds(named) / count < 70 * per_group_baseline
+
+
+def _compile_seconds(groups: str) -> float:
+    timings: Final[list[float]] = []
+    for run in range(3):
+        # a new pattern text per run, since compiled programs are cached by their text
+        pattern: Final = f"{groups}{'z' * run}"
+        start = time.perf_counter()
+        _REGEX_TEST(parse_xml("<r/>"), text="x", pattern=pattern, flags="")
+        timings.append(time.perf_counter() - start)
+    return min(timings)
 
 
 @pytest.mark.parametrize(

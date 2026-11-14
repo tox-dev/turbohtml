@@ -37,7 +37,15 @@ def main() -> int:
                 target.mkdir(parents=True, exist_ok=True)
             elif source.suffix in {".c", ".h"}:
                 result = subprocess.run(
-                    ["unifdef", "-b", "-UFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION", "-o", str(target), str(source)],
+                    [
+                        "unifdef",
+                        "-b",
+                        "-UFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION",
+                        "-UTH_WORK_STEPS",
+                        "-o",
+                        str(target),
+                        str(source),
+                    ],
                     check=False,
                     capture_output=True,
                 )

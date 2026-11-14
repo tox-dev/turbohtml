@@ -52,6 +52,10 @@ endif
 if get_option('force_scalar')
     mode_args += '-DTH_FORCE_SCALAR'
 endif
+if get_option('work_steps')
+    mode_args += '-DTH_WORK_STEPS'
+    mode_sources += 'src/turbohtml/_c/core/work_steps.c'
+endif
 
 py.extension_module(
     '_html',

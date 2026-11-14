@@ -381,6 +381,22 @@ static int url_has_scheme(PyObject *url) {
     return 0;
 }
 
+static int url_first_segment_colon(PyObject *url) {
+    Py_ssize_t length = PyUnicode_GET_LENGTH(url);
+    int kind = PyUnicode_KIND(url);
+    const void *data = PyUnicode_DATA(url);
+    for (Py_ssize_t index = 0; index < length; index++) {
+        Py_UCS4 point = PyUnicode_READ(kind, data, index);
+        if (point == '/' || point == '\\' || point == '?' || point == '#') {
+            break;
+        }
+        if (point == ':') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static Py_ssize_t url_base_opaque_colon(PyObject *base) {
     Py_ssize_t length = PyUnicode_GET_LENGTH(base);
     if (length < 2 || !th_scheme_start(PyUnicode_READ_CHAR(base, 0))) {
@@ -516,10 +532,19 @@ static PyObject *url_join_encoded_dot_segments(PyObject *base, PyObject *target,
                            PyUnicode_FindChar(target, '#', 0, encoded_dot, 1) < 0;
     Py_ssize_t colon = path_encoded_dot ? url_same_scheme_colon(base, target) : -1;
     if (colon >= 0 && th_url_web_authority(target) == TH_URL_WEB_AUTHORITY_NONE) {
+        /* The remainder is a relative reference, so no scheme scan may read it again; "./" keeps a first segment that
+           holds a colon a path (RFC 3986 section 4.2). */
         PyObject *relative = PyUnicode_Substring(target, colon + 1, target_len);
         if (relative == NULL) {          /* GCOVR_EXCL_BR_LINE: only allocation can fail */
             Py_XDECREF(normalized_base); /* GCOVR_EXCL_LINE: allocation-failure path */
             return NULL;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+        }
+        if (url_first_segment_colon(relative)) {
+            Py_SETREF(relative, th_str_format("./%U", relative));
+            if (relative == NULL) {          /* GCOVR_EXCL_BR_LINE: only allocation can fail */
+                Py_XDECREF(normalized_base); /* GCOVR_EXCL_LINE: allocation-failure path */
+                return NULL;                 /* GCOVR_EXCL_LINE: allocation-failure path */
+            }
         }
         PyObject *resolved =
             url_join_encoded_dot_segments(normalized_base == NULL ? base : normalized_base, relative, literalized);
@@ -2400,6 +2425,68 @@ PyObject *turbohtml_codec_label(PyObject *Py_UNUSED(module), PyObject *name) {
         return Py_BuildValue("(Os)", Py_False, dashed);
     }
     Py_RETURN_NONE;
+}
+
+/* WHATWG labels for the CPython codecs whose registry names the spec's label table does not carry as written. */
+static const struct {
+    const char *codec;
+    const char *label;
+} CODEC_WHATWG_LABELS[] = {
+    {"big5hkscs", "big5-hkscs"},
+    {"cp874", "windows-874"},
+    {"cp932", "windows-31j"},
+    {"cp949", "windows-949"},
+    {"cp950", "big5"},
+    {"iso2022_jp", "iso-2022-jp"},
+    {"iso8859-16", "iso-8859-16"},
+    {"mac-cyrillic", "x-mac-cyrillic"},
+    {"mac-roman", "x-mac-roman"},
+    {"utf-8-sig", "utf-8"},
+};
+
+/* The label-table entry a codec's registry name resolves to, or NULL when no entry names it. */
+static const th_encoding_entry *codec_label_entry(PyObject *name) {
+    if (!PyUnicode_Check(name)) {
+        return NULL;
+    }
+    const char *codec = PyUnicode_AsUTF8(name);
+    if (codec == NULL) {
+        PyErr_Clear(); /* a name the UTF-8 encoder rejects is one no label names */
+        return NULL;
+    }
+    for (size_t index = 0; index < sizeof(CODEC_WHATWG_LABELS) / sizeof(CODEC_WHATWG_LABELS[0]); index++) {
+        if (strcmp(codec, CODEC_WHATWG_LABELS[index].codec) == 0) {
+            const char *spelled = CODEC_WHATWG_LABELS[index].label;
+            return th_encoding_lookup(spelled, (Py_ssize_t)strlen(spelled));
+        }
+    }
+    size_t len = strlen(codec);
+    char label[64];
+    if (len >= sizeof(label)) {
+        return NULL;
+    }
+    for (size_t index = 0; index <= len; index++) {
+        label[index] = codec[index] == '_' ? '-' : codec[index];
+    }
+    return th_encoding_lookup(label, (Py_ssize_t)len);
+}
+
+/* The WHATWG name a <meta charset> declares for the codec encode() writes, or NULL with no exception set when no label
+   names the codec. UTF-16 has no such name, because the spec rewrites a UTF-16 declaration to UTF-8. */
+const char *meta_charset_label(const char *encoding) {
+    PyObject *name = codec_registry_name(encoding);
+    if (name == NULL) {
+        return NULL;
+    }
+    const th_encoding_entry *entry = codec_label_entry(name);
+    Py_DECREF(name);
+    if (entry == NULL || th_encoding_declared(entry) != entry) {
+        return NULL;
+    }
+    if (entry == &th_encoding_utf8) {
+        return "utf-8"; /* serialize() declares this spelling, so encode() and serialize() agree */
+    }
+    return entry->canonical;
 }
 
 PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {

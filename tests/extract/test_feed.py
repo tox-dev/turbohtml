@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-import time
-from typing import Final, cast
+from functools import partial
+from typing import TYPE_CHECKING, Final, cast
 
 import pytest
 from bench.operations import INPUTS
 
 from turbohtml import Text, parse, parse_xml
 from turbohtml.extract import Entry, Feed, feed
+
+if TYPE_CHECKING:
+    from work_steps import WorkSteps
 
 _RSS_XML: Final[str] = """<?xml version="1.0"?>
 <rss version="2.0"><channel>
@@ -1094,9 +1097,9 @@ def test_feed_atom_xhtml_more_prefixes_than_inline_slots_declare_once() -> None:
     assert parse_feed(xml).title == f'<p{inherited} a:y="9" i:y="10" k="11"></p>'
 
 
-def test_feed_atom_xhtml_prefixed_attributes_parse_in_linear_time() -> None:
+def test_feed_atom_xhtml_prefixed_attributes_parse_in_linear_time(work_steps: WorkSteps) -> None:
     prefixes: Final = [f"p{index}" for index in range(10)]
-    attributes: Final = {prefix: "".join(f' {prefix}:a{index}=""' for index in range(1500)) for prefix in prefixes}
+    attributes: Final = {prefix: "".join(f' {prefix}:a{index}=""' for index in range(300)) for prefix in prefixes}
     declarations: Final = "".join(f' xmlns:{prefix}="urn:{prefix}"' for prefix in prefixes)
     head: Final = (
         '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
@@ -1109,16 +1112,7 @@ def test_feed_atom_xhtml_prefixed_attributes_parse_in_linear_time() -> None:
     # Rescanning earlier attributes per prefix is quadratic in the attribute count. The same tag with the prefixes
     # removed from its attribute names skips that lookup, so it is the baseline.
     plain_xml: Final = head + "".join(attributes.values()).replace(":", "_") + tail
-    prefixed_seconds: Final = min(_parse_seconds(prefixed_xml) for _ in range(3))
-    plain_seconds: Final = min(_parse_seconds(plain_xml) for _ in range(3))
-    # Timings under a few milliseconds are noise, so the baseline is floored at 5 ms.
-    assert prefixed_seconds <= 10 * max(plain_seconds, 0.005)
-
-
-def _parse_seconds(xml: str) -> float:
-    start: Final = time.perf_counter()
-    parse_feed(xml)
-    return time.perf_counter() - start
+    work_steps.assert_within(partial(parse_feed, prefixed_xml), partial(parse_feed, plain_xml), factor=40)
 
 
 def test_feed_atom_xhtml_escapes_markup_text_and_attributes() -> None:
