@@ -954,6 +954,13 @@ def test_select_with_only_a_disabled_selected_option_submits_nothing() -> None:
     assert form.form_data() == []
 
 
+def test_multiple_select_pairs_share_one_name_str() -> None:
+    form = _form("<form><select multiple name=color><option selected>a<option disabled selected>b<option selected>c")
+    pairs = form.form_data()
+    assert pairs == [("color", "a"), ("color", "c")]
+    assert pairs[0][0] is pairs[1][0]
+
+
 def test_form_data_ignores_controls_inside_a_template() -> None:
     form = _form("<form><template><input name=t value=1></template><input name=a value=2></form>")
     assert form.form_data() == [("a", "2")]
