@@ -1290,6 +1290,7 @@ def _attribute_doc(count: int) -> str:
     [
         pytest.param(rshared("<empty/>", count=12), "<r/>", True, id="start-tag-close"),
         pytest.param(rshared("<empty/>", count=12), '<r a="1"/>', False, id="attribute-rejected"),
+        pytest.param(rshared("<empty/>", count=12), '<r a="1" b="1"/>', False, id="attribute-after-rejected"),
         pytest.param(
             rshared('<optional><attribute name="a"/></optional>', count=12),
             '<r a="1"/>',
