@@ -222,9 +222,18 @@ static void memo_reset(patmemo *memo) {
     memo->count = 0;
 }
 
+/* An event that stays within its free steps never reads the memo, so the memo is emptied only when it is needed. */
 static void memo_begin_event(th_schema *schema) {
     schema->memo_budget = schema->memo_free;
-    memo_reset(schema->memo);
+}
+
+/* Every derivative call takes one step off the budget, so only the first call past the free steps sees -1. The memos
+   still hold an earlier event's entries until then; nullability holds across events, the other entries do not. */
+static void memo_engage(th_schema *schema) {
+    if (schema->memo_budget == -1) {
+        memo_reset(schema->event_memo);
+        memo_reset(schema->token_memo);
+    }
 }
 
 /* The operands are arena pointers with zero low bits, which the multiply alone would leave out of the slot index. */
@@ -298,15 +307,15 @@ static RNG_NOINLINE void memo_add(th_schema *schema, size_t op, pattern *p, cons
     memo->count++;
 }
 
-/* Only a pattern that recurses into a derivative charges the step budget and uses the memo: a leaf has no subtree that
-   another path could share. */
-#define RNG_RECURSIVE_TYPES                                                                                            \
-    ((1u << P_CHOICE) | (1u << P_INTERLEAVE) | (1u << P_GROUP) | (1u << P_ONEMORE) | (1u << P_DATA) |                  \
-     (1u << P_ATTRIBUTE) | (1u << P_LIST) | (1u << P_AFTER) | (1u << P_REF))
-
-static RNG_FORCEINLINE int rng_recurses(const pattern *p) {
-    return (RNG_RECURSIVE_TYPES >> p->type) & 1;
-}
+/* The patterns a derivative answers without recursing: a leaf, or an element or attribute the derivative does not
+   enter. The wrapper answers them before the step budget, so they cost no step and no stack frame: the parent that
+   reached one already paid a step for it. */
+#define RNG_LEAF_TYPES                                                                                                 \
+    ((1u << P_EMPTY) | (1u << P_NOTALLOWED) | (1u << P_TEXT) | (1u << P_DATA) | (1u << P_VALUE) | (1u << P_LIST))
+#define RNG_TEXT_REJECTS ((1u << P_EMPTY) | (1u << P_NOTALLOWED) | (1u << P_ELEMENT) | (1u << P_ATTRIBUTE))
+#define RNG_OPEN_REJECTS (RNG_LEAF_TYPES | (1u << P_ATTRIBUTE))
+#define RNG_ATT_REJECTS (RNG_LEAF_TYPES | (1u << P_ELEMENT))
+#define RNG_CLOSE_KEEPS (RNG_LEAF_TYPES | (1u << P_ELEMENT))
 
 static pattern *pat_choice_merge(th_schema *schema, pattern *p1, pattern *p2);
 
@@ -979,10 +988,18 @@ static RNG_NOINLINE pattern *rng_att_memo(th_schema *schema, pattern *p, const q
                                           Py_ssize_t len);
 static RNG_NOINLINE pattern *rng_start_tag_close_memo(th_schema *schema, pattern *p);
 
-static int rng_nullable(th_schema *schema, pattern *p) {
+/* Each derivative is a wrapper that inlines into its caller and a walk that does not. The wrapper answers a leaf, or a
+   known nullability, where the caller stands. Only a pattern that recurses pays a call and a step of the budget. */
+static RNG_NOINLINE int rng_nullable_walk(th_schema *schema, pattern *p);
+
+static RNG_FORCEINLINE int rng_nullable(th_schema *schema, pattern *p) {
     if (p->nullable >= 0) {
         return p->nullable;
     }
+    return rng_nullable_walk(schema, p);
+}
+
+static RNG_NOINLINE int rng_nullable_walk(th_schema *schema, pattern *p) {
     if (--schema->memo_budget >= 0) {
         return rng_nullable_step(schema, p);
     }
@@ -1049,7 +1066,7 @@ static int rng_is_whitespace(const Py_UCS4 *value, Py_ssize_t len) {
     return 1;
 }
 
-static pattern *rng_text_deriv(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len);
+static RNG_FORCEINLINE pattern *rng_text_deriv(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len);
 
 static int rng_value_match(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
     if (rng_nullable(schema, rng_text_deriv(schema, p, value, len))) {
@@ -1061,7 +1078,16 @@ static int rng_value_match(th_schema *schema, pattern *p, const Py_UCS4 *value, 
 static RNG_FORCEINLINE pattern *rng_text_deriv_step(th_schema *schema, pattern *p, const Py_UCS4 *value,
                                                     Py_ssize_t len);
 
-static pattern *rng_text_deriv(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
+static RNG_NOINLINE pattern *rng_text_walk(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len);
+
+static RNG_FORCEINLINE pattern *rng_text_deriv(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
+    if ((RNG_TEXT_REJECTS >> p->type) & 1) {
+        return schema->p_notallowed;
+    }
+    return rng_text_walk(schema, p, value, len);
+}
+
+static RNG_NOINLINE pattern *rng_text_walk(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
     if (--schema->memo_budget >= 0) {
         return rng_text_deriv_step(schema, p, value, len);
     }
@@ -1107,7 +1133,6 @@ static RNG_FORCEINLINE pattern *rng_text_deriv_step(th_schema *schema, pattern *
         Py_ssize_t index = 0;
         /* Each token is an event of its own, in the token memo: in the text's memo the derivatives of every token
            would stay until the text event ends. */
-        patmemo *outer = schema->memo;
         schema->memo = schema->token_memo;
         while (index < len) {
             while (index < len && is_xml_space(value[index])) {
@@ -1122,7 +1147,7 @@ static RNG_FORCEINLINE pattern *rng_text_deriv_step(th_schema *schema, pattern *
                 derived = rng_text_deriv(schema, derived, value + start, index - start);
             }
         }
-        schema->memo = outer;
+        schema->memo = schema->event_memo;
         return rng_nullable(schema, derived) ? schema->p_empty : schema->p_notallowed;
     }
     case P_REF: /* the compile-time 4.19 check rules out a ref that recurses here without an element */
@@ -1140,7 +1165,19 @@ static pattern *rng_apply_after_interleave_right(th_schema *schema, pattern *p, 
 
 static RNG_FORCEINLINE pattern *rng_start_tag_open_step(th_schema *schema, pattern *p, const qname *name);
 
-static pattern *rng_start_tag_open(th_schema *schema, pattern *p, const qname *name) {
+static RNG_NOINLINE pattern *rng_start_tag_open_walk(th_schema *schema, pattern *p, const qname *name);
+
+static RNG_FORCEINLINE pattern *rng_start_tag_open(th_schema *schema, pattern *p, const qname *name) {
+    if ((RNG_OPEN_REJECTS >> p->type) & 1) {
+        return schema->p_notallowed;
+    }
+    if (p->type == P_ELEMENT) {
+        return nc_contains(p->nc, name) ? pat_after(schema, p->p1, schema->p_empty) : schema->p_notallowed;
+    }
+    return rng_start_tag_open_walk(schema, p, name);
+}
+
+static RNG_NOINLINE pattern *rng_start_tag_open_walk(th_schema *schema, pattern *p, const qname *name) {
     if (--schema->memo_budget >= 0) {
         return rng_start_tag_open_step(schema, p, name);
     }
@@ -1215,7 +1252,19 @@ static pattern *rng_apply_after_interleave_right(th_schema *schema, pattern *p, 
 static RNG_FORCEINLINE pattern *rng_att_deriv_step(th_schema *schema, pattern *p, const qname *name,
                                                    const Py_UCS4 *value, Py_ssize_t len);
 
-static pattern *rng_att_deriv(th_schema *schema, pattern *p, const qname *name, const Py_UCS4 *value, Py_ssize_t len) {
+static RNG_NOINLINE pattern *rng_att_walk(th_schema *schema, pattern *p, const qname *name, const Py_UCS4 *value,
+                                          Py_ssize_t len);
+
+static RNG_FORCEINLINE pattern *rng_att_deriv(th_schema *schema, pattern *p, const qname *name, const Py_UCS4 *value,
+                                              Py_ssize_t len) {
+    if ((RNG_ATT_REJECTS >> p->type) & 1) {
+        return schema->p_notallowed;
+    }
+    return rng_att_walk(schema, p, name, value, len);
+}
+
+static RNG_NOINLINE pattern *rng_att_walk(th_schema *schema, pattern *p, const qname *name, const Py_UCS4 *value,
+                                          Py_ssize_t len) {
     if (--schema->memo_budget >= 0) {
         return rng_att_deriv_step(schema, p, name, value, len);
     }
@@ -1251,7 +1300,16 @@ static RNG_FORCEINLINE pattern *rng_att_deriv_step(th_schema *schema, pattern *p
 
 static RNG_FORCEINLINE pattern *rng_start_tag_close_step(th_schema *schema, pattern *p);
 
-static pattern *rng_start_tag_close(th_schema *schema, pattern *p) {
+static RNG_NOINLINE pattern *rng_start_tag_close_walk(th_schema *schema, pattern *p);
+
+static RNG_FORCEINLINE pattern *rng_start_tag_close(th_schema *schema, pattern *p) {
+    if ((RNG_CLOSE_KEEPS >> p->type) & 1) {
+        return p;
+    }
+    return rng_start_tag_close_walk(schema, p);
+}
+
+static RNG_NOINLINE pattern *rng_start_tag_close_walk(th_schema *schema, pattern *p) {
     if (--schema->memo_budget >= 0) {
         return rng_start_tag_close_step(schema, p);
     }
@@ -1281,6 +1339,7 @@ static RNG_FORCEINLINE pattern *rng_start_tag_close_step(th_schema *schema, patt
 
 /* Nullability is no pattern, so the memo stores it as Empty or NotAllowed. */
 static RNG_NOINLINE int rng_nullable_memo(th_schema *schema, pattern *p) {
+    memo_engage(schema);
     pattern *found = memo_find(schema->memo, MEMO_NULLABLE, p, NULL, 0);
     if (found != NULL) {
         schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
@@ -1292,59 +1351,51 @@ static RNG_NOINLINE int rng_nullable_memo(th_schema *schema, pattern *p) {
 }
 
 static RNG_NOINLINE pattern *rng_text_memo(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
-    int memoize = rng_recurses(p);
-    pattern *derived = memoize ? memo_find(schema->memo, MEMO_TEXT, p, value, len) : NULL;
+    memo_engage(schema);
+    pattern *derived = memo_find(schema->memo, MEMO_TEXT, p, value, len);
     if (derived != NULL) {
         schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
         return derived;
     }
     derived = rng_text_deriv_step(schema, p, value, len);
-    if (memoize) {
-        memo_add(schema, MEMO_TEXT, p, value, len, derived);
-    }
+    memo_add(schema, MEMO_TEXT, p, value, len, derived);
     return derived;
 }
 
 static RNG_NOINLINE pattern *rng_start_tag_open_memo(th_schema *schema, pattern *p, const qname *name) {
-    int memoize = rng_recurses(p);
-    pattern *derived = memoize ? memo_find(schema->memo, MEMO_OPEN, p, NULL, 0) : NULL;
+    memo_engage(schema);
+    pattern *derived = memo_find(schema->memo, MEMO_OPEN, p, NULL, 0);
     if (derived != NULL) {
         schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
         return derived;
     }
     derived = rng_start_tag_open_step(schema, p, name);
-    if (memoize) {
-        memo_add(schema, MEMO_OPEN, p, NULL, 0, derived);
-    }
+    memo_add(schema, MEMO_OPEN, p, NULL, 0, derived);
     return derived;
 }
 
 static RNG_NOINLINE pattern *rng_att_memo(th_schema *schema, pattern *p, const qname *name, const Py_UCS4 *value,
                                           Py_ssize_t len) {
-    int memoize = rng_recurses(p);
-    pattern *derived = memoize ? memo_find(schema->memo, MEMO_ATT, p, value, len) : NULL;
+    memo_engage(schema);
+    pattern *derived = memo_find(schema->memo, MEMO_ATT, p, value, len);
     if (derived != NULL) {
         schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
         return derived;
     }
     derived = rng_att_deriv_step(schema, p, name, value, len);
-    if (memoize) {
-        memo_add(schema, MEMO_ATT, p, value, len, derived);
-    }
+    memo_add(schema, MEMO_ATT, p, value, len, derived);
     return derived;
 }
 
 static RNG_NOINLINE pattern *rng_start_tag_close_memo(th_schema *schema, pattern *p) {
-    int memoize = rng_recurses(p);
-    pattern *derived = memoize ? memo_find(schema->memo, MEMO_CLOSE, p, NULL, 0) : NULL;
+    memo_engage(schema);
+    pattern *derived = memo_find(schema->memo, MEMO_CLOSE, p, NULL, 0);
     if (derived != NULL) {
         schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
         return derived;
     }
     derived = rng_start_tag_close_step(schema, p);
-    if (memoize) {
-        memo_add(schema, MEMO_CLOSE, p, NULL, 0, derived);
-    }
+    memo_add(schema, MEMO_CLOSE, p, NULL, 0, derived);
     return derived;
 }
 
@@ -1375,13 +1426,13 @@ static pattern *rng_children_deriv(valctx *ctx, pattern *p, th_node *element) {
     }
     if (element_children == 0 && text_children == 0) {
         memo_begin_event(schema);
-        return pat_choice(schema, p, rng_text_deriv(schema, p, EMPTY_UCS4, 0));
+        return pat_choice(schema, p, rng_text_walk(schema, p, EMPTY_UCS4, 0));
     }
     if (element_children == 0) {
         Py_ssize_t len = 0;
         const Py_UCS4 *text = element_text(ctx, element, &len);
         memo_begin_event(schema);
-        pattern *derived = rng_text_deriv(schema, p, text, len);
+        pattern *derived = rng_text_walk(schema, p, text, len);
         return rng_is_whitespace(text, len) ? pat_choice(schema, p, derived) : derived;
     }
     pattern *current = p;
@@ -1398,7 +1449,7 @@ static pattern *rng_children_deriv(valctx *ctx, pattern *p, th_node *element) {
             }
             if (!rng_is_whitespace(text, len)) {
                 memo_begin_event(schema);
-                current = rng_text_deriv(schema, current, text, len);
+                current = rng_text_walk(schema, current, text, len);
             }
         }
     }
@@ -1417,7 +1468,7 @@ static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
         return schema->p_notallowed;                             /* GCOVR_EXCL_LINE */
     }
     memo_begin_event(schema);
-    pattern *opened = rng_start_tag_open(schema, p, &name);
+    pattern *opened = rng_start_tag_open_walk(schema, p, &name);
     if (opened->type == P_NOTALLOWED) {
         char buffer[256];
         report(ctx, element, "structure", "element '%s' is not allowed here",
@@ -1443,10 +1494,10 @@ static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
             value = EMPTY_UCS4; /* GCOVR_EXCL_LINE */
         } /* GCOVR_EXCL_LINE: llvm miscredits the closing brace of the unexecuted guard */
         memo_begin_event(schema);
-        after_attrs = rng_att_deriv(schema, after_attrs, &aname, value, element->attrs[index].value_len);
+        after_attrs = rng_att_walk(schema, after_attrs, &aname, value, element->attrs[index].value_len);
     }
     memo_begin_event(schema);
-    pattern *closed = rng_start_tag_close(schema, after_attrs);
+    pattern *closed = rng_start_tag_close_walk(schema, after_attrs);
     Py_ssize_t before = ctx->error_count;
     pattern *content = rng_children_deriv(ctx, closed, element);
     pattern *ended = rng_end_tag_deriv(schema, content);
@@ -2682,15 +2733,10 @@ static void rng_validate_root(valctx *ctx, th_node *root) {
     }
     memset(intern, 0, sizeof(*intern));
     schema->intern = intern;
-    patmemo *memo = arena_alloc(&schema->mem, 2 * sizeof(*memo));
-    if (memo == NULL) {   /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
-        ctx->failed = 1;  /* GCOVR_EXCL_LINE */
-        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
-        return;           /* GCOVR_EXCL_LINE */
-    }
-    memset(memo, 0, 2 * sizeof(*memo));
-    schema->memo = memo;
-    schema->token_memo = memo + 1;
+    /* On the stack, so a validation that never needs the memo lays out its arena patterns as before. */
+    patmemo memos[2] = {{NULL, 0, 0, 0}, {NULL, 0, 0, 0}};
+    schema->memo = schema->event_memo = &memos[0];
+    schema->token_memo = &memos[1];
     /* Heuristic threshold: a walk longer than twice the schema pattern count probably revisits a node, so the
        free steps grow with the schema. Patterns made during validation are not counted. */
     schema->memo_free = MEMO_FREE_STEPS == 0 ? 0
