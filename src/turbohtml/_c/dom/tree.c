@@ -640,7 +640,7 @@ static void clear_to(th_tree *tree, uint16_t atom_a, uint16_t atom_b, uint16_t a
         uint16_t atom = node->atom;
         /* A table-context boundary is always an html element. */
         if (node->ns == TH_NS_HTML /* GCOVR_EXCL_BR_LINE */ &&
-            (atom == atom_a || atom == atom_b || atom == atom_c || atom == TH_TAG_HTML || atom == TH_TAG_TEMPLATE)) {
+            (atom == atom_a || atom == atom_b || atom == atom_c || atom == TH_TAG_TEMPLATE)) {
             return; /* template is also a table-context boundary */
         }
         stack_pop(tree);
