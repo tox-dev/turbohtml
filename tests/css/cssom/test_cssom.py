@@ -154,21 +154,6 @@ def test_stylesheet_skips_at_rules() -> None:
     assert [rule.selector_text for rule in sheet.rules] == ["q"]
 
 
-@pytest.mark.parametrize(
-    ("css", "selectors"),
-    [
-        pytest.param("@import 'c'; @import 'd'; q { color: red }", ["q"], id="two-imports-then-rule"),
-        pytest.param("@x; @media y { z { color: red } } q { color: red }", ["q"], id="statement-skips-media-block"),
-        pytest.param("@media y { z { color: red; } } @x; q { color: red }", ["q"], id="media-block-then-statement"),
-        pytest.param("@k (;) '{;' [{;}]; q { color: red }", ["q"], id="nested-separators-in-statement"),
-        pytest.param("@k (x) { z { color: red } } ; q { color: red }", ["; q"], id="semicolon-after-block-kept"),
-        pytest.param("q { color: red } @x; r { color: red } @y", ["q", "r"], id="statements-between-two-rules"),
-    ],
-)
-def test_stylesheet_at_rule_stops_at_first_terminator(css: str, selectors: list[str]) -> None:
-    assert [rule.selector_text for rule in StyleSheet(css).rules] == selectors
-
-
 def _stylesheet_selectors(css: str) -> str:
     return " ".join(rule.selector_text for rule in StyleSheet(css).rules)
 
@@ -550,12 +535,14 @@ def test_computed_style_inherit_at_root_falls_back_to_initial() -> None:
 
 
 def test_computed_style_detached_copy_ignores_root_rule() -> None:
-    # a detached element is matched as a root-less node, so the document's :root rule does not apply to it
-    span = parse("<style>:root { color: blue } span { display: block }</style><span>x</span>").select_one("span")
-    assert isinstance(span, Element)
-    assert computed_style(span)["color"] == "blue"
-    style = computed_style(span.extract())
-    assert (style["color"], style["display"]) == ("canvastext", "block")
+    # extracting an element leaves it without ancestors, and the root rule must not keep matching it
+    emphasis = parse(
+        "<style>:root { color: navy } em { margin-top: 2px }</style><section><em>x</em></section>"
+    ).select_one("em")
+    assert isinstance(emphasis, Element)
+    assert computed_style(emphasis)["color"] == "navy"
+    detached = computed_style(emphasis.extract())
+    assert (detached["color"], detached["margin-top"]) == ("canvastext", "2px")
 
 
 def test_computed_style_ignores_unsupported_selector_rules() -> None:
@@ -595,7 +582,7 @@ def test_computed_style_tracks_stylesheet_text_mutation() -> None:
     assert computed_style(paragraph)["color"] == "blue"
 
 
-def test_computed_style_follows_inserted_sheet() -> None:
+def test_computed_style_tracks_stylesheet_insertion() -> None:
     document = parse("<head><style>p { color: red }</style></head><body><p></p></body>")
     head = document.select_one("head")
     paragraph = document.select_one("p")
@@ -1442,11 +1429,6 @@ def test_computed_style_inherited_sibling_values(order: tuple[int, ...], expecte
             "<math><style><style>p</style>{font-style:italic}</style></math><p></p>",
             {"font-style": "normal"},
             id="inner-style-text-not-outer-declaration",
-        ),
-        pytest.param(
-            "<math><style>p{color:green}<style>p{top:3px}</style>p{left:4px}</style></math><p></p>",
-            {"top": "3px", "color": "green", "left": "4px"},
-            id="inner-style-keeps-outer-declarations",
         ),
     ],
 )

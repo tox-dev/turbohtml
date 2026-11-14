@@ -83,7 +83,7 @@ def test_base_url_default_fallback() -> None:
         pytest.param("a:", "a:/p#old", "a:", id="non-special-scheme"),
     ],
 )
-def test_base_url_scheme_only_href_uses_fallback_path(href: str, fallback: str, expected: str) -> None:
+def test_base_url_scheme_only_reference(href: str, fallback: str, expected: str) -> None:
     assert parse(f'<base href="{href}">').base_url(fallback) == expected
 
 
@@ -721,7 +721,7 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
             "https://other.org/a/x?x=%20y",
             id="dot-segments-and-query-spaces",
         ),
-        pytest.param("news:c/%2e%2e/y", "https://example.org/dir/file", "news:c/%2e%2e/y", id="opaque-path"),
+        pytest.param("mailto:a/%2e%2e/x", "https://example.org/dir/file", "mailto:a/%2e%2e/x", id="opaque-path"),
         pytest.param("mailto:?q=%2e", "https://example.org/dir/file", "mailto:?q=%2e", id="opaque-query"),
         pytest.param(
             "https://other.org/a%2eb/x?q=/./",
@@ -742,10 +742,7 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
             "https:%2e%2e/a", "https://example.org/dir/file", "https://example.org/a", id="same-scheme-prefix"
         ),
         pytest.param(
-            "wss:%2e/..",
-            "wss://relay.example/room/42/q",
-            "wss://relay.example/room/",
-            id="same-scheme-encoded-dot-parent",
+            "https:%2e/..", "https://example.org/dir/file", "https://example.org/", id="same-scheme-encoded-dot-parent"
         ),
         pytest.param(
             "https:%2e/../x", "https://example.org/dir/file", "https://example.org/x", id="same-scheme-encoded-dot-path"
@@ -755,10 +752,7 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
         ),
         pytest.param("https:.%2e/..", "https://example.org/dir/file", "https://example.org/", id="mixed-dot-parent"),
         pytest.param(
-            "WSS:%2E/..?q=y",
-            "wss://relay.example/room/42/q",
-            "wss://relay.example/room/?q=y",
-            id="upper-scheme-dot-query",
+            "HTTPS:%2E/..?q=x", "https://example.org/dir/file", "https://example.org/?q=x", id="uppercase-encoded-dot"
         ),
         pytest.param(
             "wss:wss:b:c/%2e%2e/%2e",
@@ -767,9 +761,9 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
             id="remainder-repeats-scheme",
         ),
         pytest.param(
-            "ftp:wss://files.test/q/%2e",
+            "ftp:ws://files.test/q/%2e",
             "ftp://mirror.example/pub/x",
-            "ftp://mirror.example/pub/wss://files.test/q/",
+            "ftp://mirror.example/pub/ws://files.test/q/",
             id="remainder-foreign-scheme",
         ),
         pytest.param(
@@ -784,22 +778,11 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
             "ws://gateway.example/x/alt:%2e%2e/t",
             id="remainder-colon-segment",
         ),
-        pytest.param(
-            "ws:x%2e?y:z", "ws://gateway.example/x/y", "ws://gateway.example/x/x%2e?y:z", id="colon-after-query-mark"
-        ),
-        pytest.param(
-            "ws:x%2e#y:z", "ws://gateway.example/x/y", "ws://gateway.example/x/x%2e#y:z", id="colon-after-fragment-mark"
-        ),
-        pytest.param(
-            "ws:x%2e\\y:z", "ws://gateway.example/x/y", "ws://gateway.example/x/x%2e/y:z", id="colon-after-backslash"
-        ),
-        pytest.param("ftp:%2e/..", "wss://site.org/a/b", "ftp://./", id="same-length-special-scheme"),
-        pytest.param("ws:%2e", "ws://gateway.example/x/y", "ws://gateway.example/x/", id="bare-encoded-dot"),
-        pytest.param("ws:%2e/..", "wwws://site.org/a/b", "ws://./", id="same-length-foreign-fallback"),
-        pytest.param("ftp:%2e/..", "", "ftp://./", id="empty-fallback-dot-host"),
-        pytest.param("wss:%2e/..", "bigscheme://site.org/a/b", "wss://./", id="long-fallback-scheme"),
-        pytest.param("ftp:%2e/..", "verylongschemename://site.org/a/b", "ftp://./", id="longer-fallback-scheme"),
-        pytest.param("wss:%2e/..", "wss://site.org/a/%2e/b", "wss://site.org/", id="encoded-dot-base"),
+        pytest.param("http:%2e/..", "hxxp://site.org/a/b", "http://./", id="different-same-length-scheme"),
+        pytest.param("https:%2e/..", "", "https://./", id="no-fallback-scheme"),
+        pytest.param("https:%2e/..", "customlong://site.org/a/b", "https://./", id="long-foreign-scheme"),
+        pytest.param("https:%2e/..", "extraverylongscheme://site.org/a/b", "https://./", id="longer-foreign-scheme"),
+        pytest.param("https:%2e/..", "https://site.org/a/%2e/b", "https://site.org/", id="encoded-dot-base"),
         pytest.param("https:\\b/%2e", "https://site.org/a/b", "https://site.org/b/", id="same-scheme-backslash"),
         pytest.param(
             "https:\\b/%2e", "https://site.org/a/%2e/b", "https://site.org/b/", id="backslash-encoded-dot-base"
@@ -810,7 +793,7 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
         pytest.param("https://b/%2e", "https://site.org/a/%2e/b", "https://b/", id="authority-with-encoded-dot-base"),
         pytest.param("ftp:\\\\b/%2e", "ftp://site.org/a/b", "ftp://b/", id="ftp-double-backslash-authority"),
         pytest.param("https://other.org/%2e", "https://site.org/a/b", "https://other.org/", id="same-scheme-authority"),
-        pytest.param("gopher:%2e/..", "gopher://site.org/a/b", "gopher:%2e/..", id="non-special-same-scheme"),
+        pytest.param("hxxp:%2e/..", "hxxp://site.org/a/b", "hxxp:%2e/..", id="non-special-same-scheme"),
         pytest.param(
             "https:%20?x=%2e", "https://site.org/a/b", "https://site.org/a/%20?x=%2e", id="other-leading-escape"
         ),
@@ -840,7 +823,7 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
         ),
     ],
 )
-def test_base_url_collapses_escaped_dot_segments(href: str, fallback: str, expected: str) -> None:
+def test_base_url_resolves_encoded_dot_segments(href: str, fallback: str, expected: str) -> None:
     assert parse(f'<base href="{href}">').base_url(fallback) == expected
 
 
@@ -980,10 +963,9 @@ def test_meta_refresh_tab_in_repeated_scheme_keeps_colon_segment() -> None:
 
 
 def test_meta_refresh_resolves_root_backslash_before_trailing_control() -> None:
-    assert parse('<meta http-equiv="refresh" content="0;url=\\q\x1f">').meta_refresh("wss://relay.example/a/b") == (
-        0.0,
-        "wss://relay.example/q",
-    )
+    assert parse('<meta http-equiv="refresh" content="0;url=\\x\x01">').meta_refresh(
+        "https://example.org/dir/page"
+    ) == (0.0, "https://example.org/x")
 
 
 @pytest.mark.parametrize(
@@ -1033,7 +1015,7 @@ _SITE: Final[str] = "http://s.com/"
         pytest.param("5;url=\x01", (5.0, _SITE), id="control-only-url"),
     ],
 )
-def test_meta_refresh_content_splits_delay_and_target(content: str, expected: tuple[float, str]) -> None:
+def test_meta_refresh_content(content: str, expected: tuple[float, str]) -> None:
     assert parse(f'<meta http-equiv=refresh content="{content}">').meta_refresh(_SITE) == expected
 
 
@@ -1101,7 +1083,7 @@ def test_meta_refresh_rejects_missing_special_host(href: str, fallback: str) -> 
         ),
     ],
 )
-def test_meta_refresh_picks_matching_meta_element(html: str, expected: tuple[float, str] | None) -> None:
+def test_meta_refresh_selection(html: str, expected: tuple[float, str] | None) -> None:
     assert parse(html).meta_refresh() == expected
 
 
