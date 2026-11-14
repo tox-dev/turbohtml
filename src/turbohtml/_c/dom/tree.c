@@ -1638,29 +1638,34 @@ static void select_cache_add_target(th_tree *tree, th_select_cache *cache, th_no
         cache->target_cap = (Py_ssize_t)cap;
     }
     cache->targets[cache->target_count++] = target;
-    tree->select_state->pending++;
 }
 
-/* Marks the select's targets as waiting for a copy again, the copy the shown option gives them being out of date. */
-static void select_cache_unfill(th_tree *tree, th_select_cache *cache) {
-    tree->select_state->pending += cache->target_count - cache->filled;
-    cache->filled = 0;
-}
+static th_node *option_nearest_select(th_node *option);
 
 /* Collect the select's enabled descendant selectedcontent elements ("update a select's
    descendant selectedcontent elements"): every selectedcontent whose nearest ancestor
    select is this one (not nested under an inner select/option/selectedcontent) and that
-   carries no disabled attribute. The buffer is reused across refills. */
-static void select_cache_fill(th_tree *tree, th_select_cache *cache) {
+   carries no disabled attribute. The same walk returns the option the select shows, as
+   the selectedness setting algorithm picks it from the options so far: the last selected
+   one, else the first enabled one. */
+static th_node *select_cache_fill(th_tree *tree, th_select_cache *cache) {
     th_node *root = cache->select;
-    cache->target_count = 0;
-    cache->filled = 0;
+    th_node *first_enabled = NULL;
+    th_node *last_selected = NULL;
     th_node *node = root->first_child;
     while (node != NULL) {
         TH_WORK_STEP();
         if (disables_selectedcontent(node)) {
-            if (node->atom == TH_TAG_SELECTEDCONTENT && !node_has_attr(node, TH_ATTR_DISABLED)) {
-                select_cache_add_target(tree, cache, node);
+            if (node->atom == TH_TAG_SELECTEDCONTENT) {
+                if (!node_has_attr(node, TH_ATTR_DISABLED)) {
+                    select_cache_add_target(tree, cache, node);
+                }
+            } else if (node->atom == TH_TAG_OPTION && (node->parent == root || option_nearest_select(node) == root)) {
+                if (node_has_attr(node, TH_ATTR_SELECTED)) {
+                    last_selected = node;
+                } else if (first_enabled == NULL && !option_is_disabled(cache, node)) {
+                    first_enabled = node;
+                }
             }
         } else if (node->type != TH_NODE_CONTENT && node->first_child != NULL) {
             /* a template's content fragment holds its own selectedcontent, not the select's */
@@ -1674,9 +1679,11 @@ static void select_cache_fill(th_tree *tree, th_select_cache *cache) {
         node = node == root ? NULL : node->next_sibling;
     }
     cache->disabled = (uint8_t)select_disabled_by_ancestor(root);
+    return last_selected != NULL ? last_selected : first_enabled;
 }
 
-/* Creates the select's cache and lists its enabled selectedcontent elements. */
+/* Creates the select's cache when it gains its first selectedcontent, lists its enabled selectedcontent elements and
+   reads the option it shows from the options it holds so far. */
 static th_select_cache *select_cache_insert(th_tree *tree, th_node *select) {
     if (tree->select_state == NULL) {
         tree->select_state = PyMem_Calloc(1, sizeof(th_select_state));
@@ -1715,25 +1722,11 @@ static th_select_cache *select_cache_insert(th_tree *tree, th_node *select) {
     cache->target_count = 0;
     cache->target_cap = 0;
     cache->filled = 0;
-    cache->selected = NULL;
     cache->optgroup = NULL;
     cache->optgroup_disabled = 0;
-    cache->detached = 0;
     cache->multiple = (uint8_t)node_has_attr(select, TH_ATTR_MULTIPLE);
-    select_cache_fill(tree, cache);
+    cache->selected = select_cache_fill(tree, cache);
     return cache;
-}
-
-/* The select's cached selectedcontent targets, created on the first selectedcontent or selected-option clone of the
-   select. Every popped selected option needs them, and finding them walks the select's subtree, so without the cache
-   a run of options costs quadratic time. */
-static th_select_cache *select_cache_get(th_tree *tree, th_node *select) {
-    th_select_state *state = tree->select_state;
-    Py_ssize_t slot = state != NULL ? th_node_map_find(&state->index, select) : 0;
-    if (slot == 0) {
-        return select_cache_insert(tree, select);
-    }
-    return &state->caches[slot - 1];
 }
 
 /* The select whose target walk reaches node: the nearest boundary at or above it, when that boundary is a select. */
@@ -1894,6 +1887,30 @@ static th_node *select_cache_shown_option(const th_select_cache *cache) {
     return option != NULL && option_nearest_select(option) == cache->select ? option : NULL;
 }
 
+/* Removes the options of select that a copy carries into target. The copy lifts them out of the option they were
+   nested in, which kept them off the select's list; reparsing the output would pop them inside the target and let
+   them replace its content, so the target keeps the rest of the copy without them. */
+static void target_drop_options(th_node *select, th_node *target) {
+    th_node *node = target->first_child;
+    while (node != NULL) {
+        TH_WORK_STEP();
+        int option = is_html_element(node, TH_TAG_OPTION);
+        if (!option && node->first_child != NULL) {
+            node = node->first_child;
+            continue;
+        }
+        th_node *dropped = option && option_nearest_select(node) == select ? node : NULL;
+        while (node != target && node->next_sibling == NULL) {
+            TH_WORK_STEP();
+            node = node->parent;
+        }
+        node = node == target ? NULL : node->next_sibling;
+        if (dropped != NULL) {
+            node_remove(dropped);
+        }
+    }
+}
+
 /* Replaces the children of the unfilled targets with a copy of option. Children the parser gave a target are
    dropped, not kept beside the copy: browsers keep them, but then reparsing the output changes the tree, so this
    departs from browser output on purpose. */
@@ -1905,53 +1922,62 @@ static void replace_target_children(th_tree *tree, th_select_cache *cache, th_no
         }
         deep_copy_children(tree, option, target);
     }
-    tree->select_state->pending -= cache->target_count - cache->filled;
-    cache->filled = cache->target_count;
+    cache->filled = (uint8_t)cache->target_count;
 }
 
-/* Makes option the shown option when the selectedness setting algorithm picks it, and returns its select's cache.
-   Its targets then wait for the copy, which select_cache_finish or a later replace makes. NULL when not picked. */
+/* Makes option the shown option when the selectedness setting algorithm picks it, and returns its select's cache;
+   NULL when it is not picked. Only a select that holds a selectedcontent has a cache: the rest have nothing to copy
+   into, and a cache made later reads the shown option from the tree. */
 static th_select_cache *select_cache_pick(th_tree *tree, th_node *option) {
+    th_select_state *state = tree->select_state;
+    if (state == NULL) {
+        return NULL;
+    }
     th_node *select = option_nearest_select(option);
     if (select == NULL) {
         return NULL;
     }
-    th_select_cache *cache = select_cache_get(tree, select);
-    if (cache == NULL) { /* GCOVR_EXCL_BR_LINE: NULL only on alloc failure */
-        return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+    Py_ssize_t slot = th_node_map_find(&state->index, select);
+    if (slot == 0) {
+        return NULL;
     }
+    th_select_cache *cache = &state->caches[slot - 1];
     if (cache->multiple) {
         return NULL;
     }
     /* the selectedness setting algorithm: the last selected option wins, and the first
-       enabled one is selected only while no option is; a shown option that left the select
-       leaves that choice to the finish, which looks at the options the reparse would see */
-    th_node *shown = select_cache_shown_option(cache);
-    if (shown == NULL && cache->selected != NULL) {
-        cache->detached = 1;
-    }
+       enabled one is selected only while no option is */
     if (!node_has_attr(option, TH_ATTR_SELECTED) &&
-        (option_is_disabled(cache, option) || shown != NULL || cache->detached)) {
+        (option_is_disabled(cache, option) || select_cache_shown_option(cache) != NULL)) {
         return NULL;
     }
-    th_node *holder = option->parent;
-    if (holder != select && !(is_html_element(holder, TH_TAG_OPTGROUP) && holder->parent == select)) {
-        tree->select_state->recheck = 1;
-    }
     cache->selected = option;
-    select_cache_unfill(tree, cache);
+    cache->filled = 0;
     return cache;
 }
 
 /* "Update descendant selectedcontent elements for an option": when the option the
    select shows is popped, its children are mirrored into the select's enabled
-   selectedcontent elements. */
+   selectedcontent elements. The copy waits for select_cache_finish, which makes it once
+   for the option shown last, unless the option sits inside a selectedcontent: there the
+   copy removes it at once and the parser appends what follows to the copy. */
 static void maybe_clone_option(th_tree *tree, th_node *option) {
     th_select_cache *cache = select_cache_pick(tree, option);
-    if (cache == NULL || cache->target_count == 0 || cache->disabled) {
+    if (cache == NULL || cache->disabled) {
         return;
     }
-    replace_target_children(tree, cache, option);
+    for (const th_node *ancestor = option->parent; ancestor != cache->select; ancestor = ancestor->parent) {
+        TH_WORK_STEP();
+        if (is_html_element(ancestor, TH_TAG_SELECTEDCONTENT)) {
+            replace_target_children(tree, cache, option);
+            /* the copy removed it, so a reparse never lists it and picks from the options left; the finish does the
+               same */
+            if (option_nearest_select(option) != cache->select) {
+                tree->select_state->recheck = 1;
+            }
+            return;
+        }
+    }
 }
 
 /* The selectedcontent post-connection steps: a selectedcontent inserted under a select
@@ -1986,22 +2012,21 @@ static void selectedcontent_inserted(th_tree *tree, th_node *selectedcontent) {
     select_cache_add_target(tree, cache, selectedcontent);
 }
 
-/* The option a reparse would pick for a select that shows none: the last selected one, else the first enabled one.
-   Only the select's own options count, as in option_nearest_select. */
-static th_node *select_find_option(th_select_cache *cache, int selected_only) {
+/* The option the select shows as a parse of its current subtree would pick it: the last selected one, else the
+   first enabled one. Only the select's own options count, as in option_nearest_select. */
+static th_node *select_scan_option(th_select_cache *cache) {
     th_node *root = cache->select;
-    th_node *found = NULL;
+    th_node *first_enabled = NULL;
+    th_node *last_selected = NULL;
     th_node *node = root->first_child;
     while (node != NULL) {
         TH_WORK_STEP();
         if (is_html_element(node, TH_TAG_OPTION)) {
             if (option_nearest_select(node) == root) {
-                if (selected_only) {
-                    if (node_has_attr(node, TH_ATTR_SELECTED)) {
-                        found = node;
-                    }
-                } else if (!option_is_disabled(cache, node)) {
-                    return node;
+                if (node_has_attr(node, TH_ATTR_SELECTED)) {
+                    last_selected = node;
+                } else if (first_enabled == NULL && !option_is_disabled(cache, node)) {
+                    first_enabled = node;
                 }
             }
         } else if (node->type != TH_NODE_CONTENT && !is_html_element(node, TH_TAG_SELECT) &&
@@ -2015,34 +2040,68 @@ static th_node *select_find_option(th_select_cache *cache, int selected_only) {
         }
         node = node == root ? NULL : node->next_sibling;
     }
-    return found;
+    return last_selected != NULL ? last_selected : first_enabled;
 }
 
-/* Runs once the parse has ended. A pending target takes the copy of the shown option, or of the option a reparse
-   would select, so reparsing the output gives the same tree. Targets filled when their option closed are skipped
-   unless that option has since left the select, so no copy lands twice. */
+/* Whether option sits inside one of the select's targets, where a copy into that target removes it. */
+static int option_in_target(const th_select_cache *cache, const th_node *option) {
+    for (const th_node *ancestor = option->parent; ancestor != cache->select; ancestor = ancestor->parent) {
+        TH_WORK_STEP();
+        if (is_html_element(ancestor, TH_TAG_SELECTEDCONTENT)) {
+            for (Py_ssize_t index = 0; index < cache->target_count; index++) {
+                if (cache->targets[index] == ancestor) {
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+/* Runs once the parse has ended and gives each pending target the copy of the shown option. After the adoption
+   agency moved nodes or an option removed itself with its copy, the shown option is read from the tree again, as a
+   reparse of the output picks it. A pick inside a target removes itself and every option the targets held, and its
+   copy leaves out the options nested in it, so the second read finds an option outside the targets, or none. */
 static void select_cache_finish(th_tree *tree) {
     th_select_state *state = tree->select_state;
-    if (state == NULL || (state->pending == 0 && !state->recheck)) {
+    if (state == NULL) {
         return;
     }
     for (Py_ssize_t index = 0; index < state->count; index++) {
         th_select_cache *cache = &state->caches[index];
-        th_node *option = select_cache_shown_option(cache);
-        if (option == NULL && cache->selected != NULL) {
-            select_cache_unfill(tree, cache);
-        }
-        if (cache->filled == cache->target_count || cache->disabled || cache->multiple) {
+        if (cache->disabled || cache->multiple) {
             continue;
         }
-        if (option == NULL) {
-            option = select_find_option(cache, 1);
+        /* only the adoption agency and a copy that removed its option take the shown option out of its select, and
+           both ask for the recheck */
+        if (!state->recheck) {
+            if (cache->selected != NULL && cache->filled != cache->target_count) {
+                replace_target_children(tree, cache, cache->selected);
+            }
+            continue;
         }
-        if (option == NULL) {
-            option = select_find_option(cache, 0);
-        }
-        if (option != NULL) {
+        for (;;) {
+            th_node *option = select_scan_option(cache);
+            if (option == NULL) {
+                break;
+            }
+            /* an option inside a target is copied even when it was shown already: the adoption agency can bring it
+               back after its copy removed it */
+            int in_target = option_in_target(cache, option);
+            if (option != cache->selected || in_target) {
+                cache->selected = option;
+                cache->filled = 0;
+            }
+            if (cache->filled == cache->target_count) {
+                break;
+            }
             replace_target_children(tree, cache, option);
+            if (!in_target) {
+                break;
+            }
+            for (Py_ssize_t target = 0; target < cache->target_count; target++) {
+                target_drop_options(cache->select, cache->targets[target]);
+            }
         }
     }
 }

@@ -71,26 +71,24 @@ typedef struct {
 typedef struct {
     th_node *select;
     th_node **targets; /* the enabled descendant selectedcontent elements, the clone destinations */
-    th_node *selected; /* the option the select shows, NULL until one closes */
+    th_node *selected; /* the option the select shows, NULL while it has none */
     const th_node *optgroup;
     Py_ssize_t target_count;
     Py_ssize_t target_cap;
-    Py_ssize_t filled; /* leading targets holding the shown option's copy; the rest are pending */
+    uint8_t filled; /* leading targets holding the shown option's copy, at most MAX_CLONE_TARGETS */
     uint8_t multiple;
     uint8_t disabled; /* an option, selectedcontent or second select above the select disables its targets */
     uint8_t optgroup_disabled;
-    uint8_t detached; /* the shown option left the select, so a later first-enabled option waits for the finish */
 } th_select_cache;
 
-/* The select caches of one parse, allocated on the first selected-option clone so a
-   tree that never clones one carries a single NULL pointer. */
+/* The select caches of one parse, allocated when the first select gains a selectedcontent
+   so a tree without one carries a single NULL pointer and its options skip the lookup. */
 typedef struct {
     th_select_cache *caches;
     Py_ssize_t count;
     Py_ssize_t cap;
-    th_node_map index;  /* select node -> 1-based position in caches */
-    Py_ssize_t pending; /* targets across the caches still waiting for their copy */
-    uint8_t recheck;    /* a shown option may have left its select, so the finish walks every cache */
+    th_node_map index; /* select node -> 1-based position in caches */
+    uint8_t recheck;   /* a shown option may have left its select, so the finish walks every cache */
 } th_select_state;
 
 typedef struct th_attr_names th_attr_names;
