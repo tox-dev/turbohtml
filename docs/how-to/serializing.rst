@@ -84,7 +84,10 @@ serializations of equal trees diff cleanly:
 ``meta_charset`` makes the document ``<head>`` declare the output encoding: an existing ``<meta charset>`` (or ``<meta
 http-equiv="content-type">``) is normalized in place, and a head that declares none gets a ``<meta charset>`` injected
 as its first child, never a duplicate. ``serialize`` declares ``utf-8`` (the encoding of the returned ``str``), while
-``encode`` declares the encoding it writes:
+``encode`` declares the WHATWG name of the encoding it writes, the name a browser reads the bytes with, so Latin-1 is
+declared as ``windows-1252`` and UTF-8 as ``utf-8``, as ``serialize`` does. A codec no WHATWG label names, such as
+``iso2022_jp_2`` or ``utf-16``, raises :exc:`ValueError` under ``meta_charset`` when the output would declare it,
+because the declaration would be wrong; encode without the option instead:
 
 .. testcode::
 
@@ -98,7 +101,7 @@ as its first child, never a duplicate. ``serialize`` declares ``utf-8`` (the enc
 .. testoutput::
 
     <html><head><meta charset="utf-8"><title>Hi</title></head><body></body></html>
-    b'<html><head><meta charset="iso-8859-1"><title>Hi</title></head><body></body></html>'
+    b'<html><head><meta charset="windows-1252"><title>Hi</title></head><body></body></html>'
 
 ******************
  Emit XML / XHTML

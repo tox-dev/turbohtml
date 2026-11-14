@@ -450,10 +450,20 @@ static inline int ser_head_has_charset_meta(th_tree *tree, const th_node *head) 
     return 0;
 }
 
+/* Write the declared label. When no label names the codec, the placeholder is not written: the caller refuses the
+   output instead, so a codec is only refused for a document that would declare it. */
+static inline void ser_put_label(sbuf *out, const th_serialize_opts *opts) {
+    if (opts->charset_missing != NULL) {
+        *opts->charset_missing = 1;
+        return;
+    }
+    sbuf_put_utf8(out, opts->charset, opts->charset_len);
+}
+
 /* Emit a fresh charset declaration, <meta charset="LABEL">. */
 static inline void ser_emit_meta_charset(sbuf *out, const th_serialize_opts *opts) {
     sbuf_puts(out, "<meta charset=\"");
-    sbuf_put_utf8(out, opts->charset, opts->charset_len);
+    ser_put_label(out, opts);
     sbuf_puts(out, "\">");
 }
 
@@ -567,13 +577,13 @@ static inline int ser_put_charset_value(sbuf *out, const th_serialize_opts *opts
                                         Py_ssize_t name_len) {
     if (kind == 1 && name_len == 7 && memcmp(name, "charset", 7) == 0) {
         sbuf_puts(out, "=\"");
-        sbuf_put_utf8(out, opts->charset, opts->charset_len);
+        ser_put_label(out, opts);
         sbuf_putc(out, '"');
         return 1;
     }
     if (kind == 2 && name_len == 7 && memcmp(name, "content", 7) == 0) {
         sbuf_puts(out, "=\"text/html; charset=");
-        sbuf_put_utf8(out, opts->charset, opts->charset_len);
+        ser_put_label(out, opts);
         sbuf_putc(out, '"');
         return 1;
     }

@@ -13,6 +13,7 @@
 #include "clean/phone_binding.h"
 #include "core/ascii.h"
 #include "core/common.h"
+#include "core/work_steps.h"
 #include "dom/nodes.h"
 #include "dom/tree.h"
 #include "tokenizer/binding.h"
@@ -342,6 +343,7 @@ static Py_ssize_t scan_balanced(int kind, const void *data, Py_ssize_t begin, Py
     int square = 0;
     int curly = 0;
     while (pos < len) {
+        TH_WORK_STEP();
         Py_UCS4 c = READ(pos);
         if (!is_url_tail_char(c)) {
             break;

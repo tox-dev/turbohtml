@@ -1,6 +1,7 @@
 #ifndef TURBOHTML_CSS_VALUE_H
 #define TURBOHTML_CSS_VALUE_H
 
+#include "core/work_steps.h"
 #include <limits.h>
 
 /* A rendered value component refers to its already-minified text by (offset, length) into a per-call code-point pool,
@@ -1104,6 +1105,7 @@ static Py_ssize_t css_read_until(cursor *cur, const char *stops) {
 static Py_ssize_t css_match_paren(token_vec *vec, Py_ssize_t open_paren, Py_ssize_t end) {
     Py_ssize_t parens_open = 0;
     for (Py_ssize_t index = open_paren + 1; index < end; index++) {
+        TH_WORK_STEP();
         if (vec->items[index].kind != CSS_DELIM) {
             continue;
         }
@@ -1133,6 +1135,7 @@ CSS_NOINLINE static Py_ssize_t *css_match_blocks(token_vec *vec, Py_ssize_t star
     }
     Py_ssize_t open = -1;
     for (Py_ssize_t index = start; index < end; index++) {
+        TH_WORK_STEP();
         if (vec->items[index].kind != CSS_DELIM) {
             continue;
         }

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import time
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from threading import Barrier
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Final, assert_type, cast
@@ -28,6 +28,8 @@ from turbohtml.clean import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from work_steps import WorkSteps
 
     from turbohtml import Node
     from turbohtml.clean import Callback
@@ -549,22 +551,8 @@ def test_find_ends_a_link_before_brackets_nested_past_the_depth_cap(nest: str) -
         pytest.param("example.org/\u0101[", id="wide-text"),
     ],
 )
-def test_links_before_unclosed_brackets_scan_in_linear_time(link: str) -> None:
-    link_run = 8_000
-    # a space after each link ends every walk at its own link, so this run has the same links without re-reads
-    unclosed = _fastest_seconds(link * link_run)
-    separated = _fastest_seconds(f"{link} " * link_run)
-    # the floor keeps a sub-millisecond baseline from inflating the ratio
-    assert unclosed / max(separated, 0.002) < 50
-
-
-def _fastest_seconds(text: str) -> float:
-    timings = []
-    for _ in range(3):
-        start = time.perf_counter()
-        LinkDetector().find(text)
-        timings.append(time.perf_counter() - start)
-    return min(timings)
+def test_links_before_unclosed_brackets_scan_in_linear_time(link: str, work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(LinkDetector().find, link * n), (500, 2000))
 
 
 @pytest.mark.parametrize(

@@ -718,6 +718,57 @@ def test_transform_key_use_over_node_set_argument() -> None:
     assert _run('<r><want cat="x"/><item cat="x"/><item cat="x"/><item cat="y"/></r>', body) == "2"
 
 
+def test_transform_key_over_node_set_is_a_union() -> None:
+    body = (
+        '<xsl:key name="k" match="item" use="@cat|@tag"/>'
+        '<xsl:template match="/"><xsl:value-of select="count(key(\'k\', r/want))"/>:'
+        "<xsl:value-of select=\"count(key('k', r/none))\"/>:"
+        '<xsl:for-each select="key(\'k\', r/want)"><xsl:value-of select="@id"/></xsl:for-each></xsl:template>'
+    )
+    source = (
+        '<r><item id="a" cat="x" tag="y"/><item id="b" cat="x"/><item id="c" cat="y"/><item id="d" cat="z"/>'
+        "<want>x</want><want>x</want><want>y</want><want>missing</want></r>"
+    )
+    assert _run(source, body) == "3:0:abc"
+
+
+@pytest.mark.parametrize(
+    ("template", "expected"),
+    [
+        pytest.param(
+            '<xsl:template match="/"><xsl:for-each select="key(\'k\', r/want)"><xsl:value-of select="@id"/>'
+            "</xsl:for-each></xsl:template>",
+            "abc",
+            id="for-each",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:for-each select="key(\'k\', r/want)"><xsl:value-of select="position()"/>'
+            '<xsl:value-of select="@id"/></xsl:for-each></xsl:template>',
+            "1a2b3c",
+            id="for-each-position",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:apply-templates select="key(\'k\', r/want)"/></xsl:template>'
+            '<xsl:template match="item"><xsl:value-of select="@id"/></xsl:template>',
+            "abc",
+            id="apply-templates",
+        ),
+        pytest.param(
+            '<xsl:template match="/"><xsl:apply-templates select="key(\'k\', r/want)"/></xsl:template>'
+            '<xsl:template match="item"><xsl:value-of select="position()"/><xsl:value-of select="@id"/></xsl:template>',
+            "1a2b3c",
+            id="apply-templates-position",
+        ),
+    ],
+)
+def test_transform_key_over_node_set_is_in_document_order(template: str, expected: str) -> None:
+    source = (
+        '<r><item id="a" cat="x" tag="y"/><item id="b" cat="x"/><item id="c" cat="y"/>'
+        "<want>y</want><want>x</want><want>y</want><want>missing</want></r>"
+    )
+    assert _run(source, f'<xsl:key name="k" match="item" use="@cat|@tag"/>{template}') == expected
+
+
 @pytest.mark.parametrize(
     ("picture", "value", "expected"),
     [

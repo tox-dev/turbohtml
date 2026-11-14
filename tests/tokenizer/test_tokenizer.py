@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import gc
 import threading
-import time
+from functools import partial
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Final, NamedTuple
 
@@ -12,6 +12,8 @@ from turbohtml import Token, Tokenizer, TokenType, tokenize
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+
+    from work_steps import WorkSteps
 
 
 def test_tokenize_simple_document() -> None:
@@ -349,6 +351,44 @@ def test_streaming_charref_suspends() -> None:
     assert [token.data for token in tokenizer.close()] == ["x&y"]
 
 
+def test_reset_forgets_a_suspended_charref_run() -> None:
+    tokenizer = Tokenizer()
+    assert list(tokenizer.feed("&#x4141")) == []  # suspended in the digits, with its scan position remembered
+    tokenizer.reset()
+    assert list(tokenizer.feed("&#x42")) == []
+    assert [token.data for token in tokenizer.close()] == ["B"]
+
+
+@pytest.mark.parametrize(
+    ("prefix", "run"),
+    [
+        pytest.param("&#x", "c", id="hex-digits"),
+        pytest.param("&#", "9", id="decimal-digits"),
+        pytest.param("&", "a", id="name-over-cap"),
+        pytest.param("<a x='&#x", "c", id="attribute-hex-digits"),
+        pytest.param("<a x=&", "a", id="attribute-name-over-cap"),
+    ],
+)
+def test_unterminated_charref_run_streams_in_linear_time(prefix: str, run: str) -> None:
+    # a reference still open at the end of a feed resumes its scan there instead of restarting at its '&'
+    document = prefix + run * 200_000
+    reference_seconds, _ = _stream_fed_in_chunks("x" * len(document))
+    seconds, shapes = _stream_fed_in_chunks(document)
+    # both sides slow down under CPU contention, so the ratio to the reference is compared, not the raw time
+    assert seconds <= 20 * max(reference_seconds, 0.01)
+    assert shapes == [_shape(token) for token in tokenize(document)]
+
+
+def _stream_fed_in_chunks(document: str) -> tuple[float, list[_Shape]]:
+    tokenizer = Tokenizer()
+    tokens: list[Token] = []
+    start = time.perf_counter()
+    for offset in range(0, len(document), 7):
+        tokens.extend(tokenizer.feed(document[offset : offset + 7]))
+    tokens.extend(tokenizer.close())
+    return time.perf_counter() - start, [_shape(token) for token in tokens]
+
+
 def test_streaming_crlf_across_feeds() -> None:
     tokenizer = Tokenizer()
     list(tokenizer.feed("a\r"))
@@ -416,6 +456,9 @@ def test_single_text_token(text: str, expected: str) -> None:
         pytest.param("<!doctype html public 'p' 's'><!doctype html system 'x'>", id="doctype-keywords"),
         pytest.param("&amp; &am &#x41; &#65; &#xZ &# &cent", id="charrefs"),
         pytest.param(f"&{'a' * 40};", id="charref-name-over-cap"),
+        pytest.param(f"&#x{'0' * 40}41;&#{'0' * 40}66;&#x{'f' * 40};&#{'9' * 40}", id="charref-long-digit-runs"),
+        pytest.param(f"&{'a' * 40}&#x41;&#{'0' * 40}66&{'b' * 40};&#67;", id="charref-runs-back-to-back"),
+        pytest.param(f"<a x='&#x{'0' * 40}41;' y=&{'a' * 40}; z=\"&#{'0' * 40}66\">", id="attribute-charref-runs"),
         pytest.param("<div class='a' id=b checked>x</div>", id="attributes"),
         pytest.param("<a x='&amp;' y=\"&gt;\" z=&lt; w=&cent>", id="attribute-charrefs"),
         pytest.param("<a x=&notit y=&ampz> &0 &#", id="charref-prefix-and-digit"),
@@ -704,23 +747,9 @@ def test_token_attrs_returns_fresh_list(document: str) -> None:
     assert token.attrs == expected
 
 
-# Large enough that the old O(n^2) scan would take tens of seconds even on an
-# instrumented build, so a regression cannot slip under the wall-clock ceiling; the
-# linear path parses it in well under a second.
-_MANY: Final[int] = 60000
-
-
-# Headroom is ~30x over the linear cost and ~5x under the quadratic one, so ordinary
-# CI scheduling jitter cannot flip the result either way.
-_BUDGET_SECONDS: Final[float] = 6.0
-
-
-def test_many_distinct_attributes_parse_in_linear_time() -> None:
-    pairs = "".join(f" a{index}" for index in range(_MANY))
-    start = time.perf_counter()
-    attrs = _attrs_of(pairs)
-    assert time.perf_counter() - start < _BUDGET_SECONDS
-    assert len(attrs) == _MANY  # every distinct name is kept, none dropped
+def test_many_distinct_attributes_parse_in_linear_time(work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda n: partial(_attrs_of, "".join(f" a{i}" for i in range(n))), (2000, 8000))
+    assert len(_attrs_of("".join(f" a{index}" for index in range(8000)))) == 8000  # every distinct name is kept
 
 
 def _attrs_of(pairs: str) -> list[tuple[str, str]]:
@@ -735,7 +764,7 @@ def test_many_distinct_attributes_keep_their_names_and_order() -> None:
 
 
 def test_many_duplicate_attributes_collapse_to_the_first() -> None:
-    assert _attrs_of(" x" * _MANY) == [("x", "")]  # duplicates dropped early, count never grows
+    assert _attrs_of(" x" * 60_000) == [("x", "")]  # duplicates dropped early, count never grows
 
 
 def test_interleaved_duplicates_keep_first_occurrence_order() -> None:

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import gc
-import time
 import weakref
 from collections import UserDict, defaultdict
+from functools import partial
 from typing import TYPE_CHECKING, Final, NoReturn, cast
 
 import pytest
@@ -14,6 +14,8 @@ from turbohtml.migration.bleach import ALLOWED_ATTRIBUTES, ALLOWED_PROTOCOLS, AL
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
+
+    from work_steps import WorkSteps
 
 
 @pytest.mark.parametrize(
@@ -399,15 +401,16 @@ def test_bleach_predicate_retains_reconstructed_attribute_origins() -> None:
     ],
 )
 def test_bleach_source_lookup_is_linear_in_attribute_count(
-    markup: str, attributes: dict[str, list[str]] | None, expected: str
+    markup: str, attributes: dict[str, list[str]] | None, expected: str, work_steps: WorkSteps
 ) -> None:
-    # The old lookup restarted at the first attribute for each one; at this size it takes tens of seconds, well past
-    # the 6 s budget, while the linear one takes a fraction of a second.
-    source = markup.format(" ".join(f"a{index}" for index in range(500_000)))
-    start = time.perf_counter()
-    cleaned = clean(source, tags=["a", "b", "i"], attributes=attributes)
-    assert time.perf_counter() - start < 6.0
-    assert cleaned == expected
+    # The old lookup restarted at the first attribute for each one, so its steps grow with the square of the count
+    def source(count: int) -> str:
+        return markup.format(" ".join(f"a{index}" for index in range(count)))
+
+    work_steps.assert_linear(
+        lambda n: partial(clean, source(n), tags=["a", "b", "i"], attributes=attributes), (2000, 8000)
+    )
+    assert clean(source(2000), tags=["a", "b", "i"], attributes=attributes) == expected
 
 
 def test_bleach_predicate_on_existing_tree_sees_parsed_value() -> None:
