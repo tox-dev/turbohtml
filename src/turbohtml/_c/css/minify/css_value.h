@@ -628,6 +628,48 @@ static int css_escapes(const css_char *text, Py_ssize_t end) {
     return (end - start) % 2;
 }
 
+/* Whether a hex escape, which takes up to six hex digits, ends right before text[end], so that whitespace there would
+   close it (CSS Syntax 3 §4.3.7). */
+static int css_hex_escape_ends(const css_char *text, Py_ssize_t end) {
+    Py_ssize_t digits = 0;
+    while (digits < 6 && digits < end && css_is_hex(text[end - 1 - digits])) {
+        digits++;
+    }
+    return digits > 0 && css_escapes(text, end - digits);
+}
+
+/* Whether text ends in the whitespace closing a hex escape, where a CRLF counts as one (CSS Syntax 3 §3.3). */
+static int css_ends_in_hex_close(const css_char *text, Py_ssize_t len) {
+    Py_ssize_t last = len - 1 - (len > 1 && text[len - 1] == '\n' && text[len - 2] == '\r');
+    return css_is_ws(text[last]) && css_hex_escape_ends(text, last);
+}
+
+/* Whether the last code point of text belongs to a name through an escape: one a backslash escapes, or the whitespace
+   closing a hex escape. Such a name runs on into a following name code point although its last byte is no name code
+   point or reads as a delimiter (CSS Syntax 3 §4.3.7, §4.3.11). Either needs a backslash before the last code point or
+   whitespace as it, which the inline test checks before the walk back. */
+CSS_NOINLINE static int css_ends_in_escape_walk(const css_char *text, Py_ssize_t len) {
+    return css_escapes(text, len - 1) || css_ends_in_hex_close(text, len);
+}
+
+static CSS_FORCEINLINE int css_ends_in_escape(const css_char *text, Py_ssize_t len) {
+    return (css_is_ws(text[len - 1]) || (len > 1 && text[len - 2] == '\\')) && css_ends_in_escape_walk(text, len);
+}
+
+/* css_would_merge for text written straight after the len code points of out, which may end in an escape. */
+CSS_NOINLINE static int css_would_merge_escaped(const css_char *out, Py_ssize_t len, int last_is_ident,
+                                                const css_char *next, Py_ssize_t next_len) {
+    return (css_is_ident(next[0]) && css_ends_in_escape(out, len)) ||
+           css_would_merge(out[len - 1], last_is_ident, next, next_len);
+}
+
+/* Only input whose token_vec.escapes is set can write an escape, so the rest takes css_would_merge itself. */
+static CSS_FORCEINLINE int css_would_merge_after(int escapes, const css_char *out, Py_ssize_t len, int last_is_ident,
+                                                 const css_char *next, Py_ssize_t next_len) {
+    return escapes ? css_would_merge_escaped(out, len, last_is_ident, next, next_len)
+                   : css_would_merge(out[len - 1], last_is_ident, next, next_len);
+}
+
 /* Whether a string token ends in its own closing quote, rather than before a newline or at the end of input. */
 static int css_string_closed(const css_char *text, Py_ssize_t len) {
     return len > 1 && text[len - 1] == text[0] && !css_escapes(text, len - 1);
@@ -1053,6 +1095,15 @@ static void css_blocks_close(css_blocks *blocks, css_buf *out) {
     cbuf_free(&blocks->deep);
 }
 
+/* css_blocks_close for closers written where the input ends: the spelling pass gives a name ending in a hex escape its
+   closing space before a closer the input writes, so one written here gets that space too. */
+static void css_blocks_close_at_end(css_blocks *blocks, css_buf *out) {
+    if (blocks->len > 0 && css_hex_escape_ends(out->data, out->len)) {
+        cbuf_putc(out, ' ');
+    }
+    css_blocks_close(blocks, out);
+}
+
 /* Scans that see only parentheses count them, since only a `)` closes one; the first `[` or `{` hands the scan to
    css_scan_stacked. Starting at that opener, with parens_open `(` blocks around it, return the index of the first
    delimiter in stops outside every block, or end. Kept out of line so the counting loops stay small. */
@@ -1101,8 +1152,9 @@ static Py_ssize_t css_read_until(cursor *cur, const char *stops) {
     return cur->index;
 }
 
-/* Find the index of the ')' matching an opening '(' that sits at open_paren, or end when the arguments run to it. */
-static Py_ssize_t css_match_paren(token_vec *vec, Py_ssize_t open_paren, Py_ssize_t end) {
+/* Find the index of the ')' matching an opening '(' that sits at open_paren, or end when the arguments run to it. Kept
+   out of line: inlined into css_emit_function's nested-call path it runs slower than the call it saves. */
+CSS_NOINLINE static Py_ssize_t css_match_paren(token_vec *vec, Py_ssize_t open_paren, Py_ssize_t end) {
     Py_ssize_t parens_open = 0;
     for (Py_ssize_t index = open_paren + 1; index < end; index++) {
         TH_WORK_STEP();
@@ -1184,8 +1236,19 @@ static void css_rtrim(css_buf *buffer) {
     }
 }
 
+/* css_rtrim that keeps the space closing a hex escape. The spelling pass writes one after every name ending in a hex
+   escape, and text kept as written (stray text) keeps it, so dropping it here spells the name differently once the
+   next pass reads the output as such text. Only input whose token_vec.escapes is set can end in an escape, and the
+   at-rule name before a prelude keeps the buffer non-empty. */
+static CSS_FORCEINLINE void css_rtrim_name_end(int escapes, css_buf *buffer) {
+    if (!escapes || !css_ends_in_hex_close(buffer->data, buffer->len)) {
+        css_rtrim(buffer);
+    }
+}
+
 static void css_minify_func_args(css_buf *pool, token_vec *vec, Py_ssize_t start, Py_ssize_t end, const css_char *name,
-                                 Py_ssize_t name_len, css_buf *out, int *raw_fallback);
+                                 Py_ssize_t name_len, css_buf *out, int *raw_fallback, Py_ssize_t split,
+                                 Py_ssize_t *split_len);
 static int css_is_ident_string(const css_char *text, Py_ssize_t len);
 CSS_NOINLINE static void css_close_function_args(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *args);
 CSS_NOINLINE static void css_close_raw_blocks(token_vec *vec, Py_ssize_t start, Py_ssize_t end, css_buf *out);
@@ -1194,42 +1257,52 @@ static int css_arg_is_zero(const css_char *text, Py_ssize_t len) {
     return (len == 1 && text[0] == '0') || (len == 2 && text[0] == '0' && text[1] == '%');
 }
 
-/* Drop a redundant trailing argument from a transform function: translate(x,0) -> translate(x) and
-   translate(0,0) -> translate(0) (the omitted Y defaults to 0), scale(n,n) -> scale(n). These are exact identities,
-   so the transform is value-safe; translate3d and the single-axis variants are intentionally left untouched. */
-static void css_collapse_transform_args(const css_char *name, Py_ssize_t name_len, css_buf *args) {
-    int is_translate = css_run_ieq(name, name_len, "translate");
-    int is_scale = css_run_ieq(name, name_len, "scale");
-    if (!is_translate && !is_scale) {
-        return;
-    }
-    Py_ssize_t comma = -1;
-    int depth = 0;
-    for (Py_ssize_t index = 0; index < args->len; index++) {
-        css_char character = args->data[index];
-        if (character == '\\') {
-            index++;
+/* The index of the comma between the two arguments of a translate() or scale() whose argument tokens are [start, end),
+   or end for any other argument count. The comma is looked up among the tokens, outside every block: in the rendered
+   text a comma inside a string, a comment or a nested block reads like a separator, and cutting the text there leaves
+   that string, comment or block open. Kept out of line, as is css_collapse_transform_args: only translate() and
+   scale() reach them, and inlined into css_emit_function they cost every other call there a register. */
+CSS_NOINLINE static Py_ssize_t css_transform_comma(token_vec *vec, Py_ssize_t start, Py_ssize_t end) {
+    Py_ssize_t comma = end;
+    Py_ssize_t depth = 0;
+    for (Py_ssize_t index = start; index < end; index++) {
+        const css_token *token = &vec->items[index];
+        if (token->kind != CSS_DELIM) {
             continue;
         }
-        if (character == '(') {
+        if (token->delim == '[' || token->delim == '{') {
+            comma = css_scan_stacked(vec, start, end, 0, ",");
+            if (comma < end && css_scan_stacked(vec, comma + 1, end, 0, ",") < end) {
+                return end; /* more than two arguments: not a form we collapse */
+            }
+            return comma;
+        }
+        if (token->delim == '(') {
             depth++;
-        } else if (character == ')') {
+        } else if (token->delim == ')') { /* the call's own `)` ends the range, so no `)` here closes past it */
             depth--;
-        } else if (character == ',' && depth == 0) {
-            if (comma != -1) { /* more than two arguments: not a form we collapse */
-                return;
+        } else if (token->delim == ',' && depth == 0) {
+            if (comma < end) { /* more than two arguments: not a form we collapse */
+                return end;
             }
             comma = index;
         }
     }
-    if (comma < 0) {
-        return;
+    return comma;
+}
+
+/* Drop a redundant trailing argument from a transform function: translate(x,0) -> translate(x) and
+   translate(0,0) -> translate(0) (the omitted Y defaults to 0), scale(n,n) -> scale(n). These are exact identities,
+   so the transform is value-safe; translate3d and the single-axis variants are intentionally left untouched. args
+   holds the two rendered arguments around the comma css_transform_comma found, the first of them first_len long. */
+CSS_NOINLINE static void css_collapse_transform_args(int is_translate, css_buf *args, Py_ssize_t first_len) {
+    if (*args->oom) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        return;       /* GCOVR_EXCL_LINE: a failed growth may have dropped the comma */
     }
-    Py_ssize_t first_len = comma;
-    const css_char *second = args->data + comma + 1;
-    Py_ssize_t second_len = args->len - comma - 1;
+    const css_char *second = args->data + first_len + 1;
+    Py_ssize_t second_len = args->len - first_len - 1;
     if ((is_translate && css_arg_is_zero(second, second_len)) ||
-        (is_scale && first_len == second_len &&
+        (!is_translate && first_len == second_len &&
          memcmp(args->data, second, (size_t)first_len * sizeof(css_char)) == 0)) {
         args->len = first_len;
     }
@@ -1238,15 +1311,25 @@ static void css_collapse_transform_args(const css_char *name, Py_ssize_t name_le
 /* Argument minification uses the pool as scratch; buffer arguments separately to avoid interleaving output. A function
    with no matching `)` runs to the end of the input, as css_read_until reads blocks the same way; the arguments then
    close their own blocks before the function's `)`, which would otherwise close an inner `(` on the next pass and leave
-   the function open. */
+   the function open. A translate() or scale() renders its arguments in one pass that records where the comma falls,
+   since only a math function takes the raw fallback, which rewrites the whole buffer. */
 static void css_render_function(css_buf *pool, token_vec *vec, Py_ssize_t name_index, Py_ssize_t close_index,
                                 Py_ssize_t *out_off, Py_ssize_t *out_len) {
     css_token *name_token = &vec->items[name_index];
     css_buf args = {NULL, 0, 0, pool->oom};
     int raw_fallback = 0;
+    Py_ssize_t comma = close_index;
+    /* the lengths spare every other function the name comparisons, and tell translate from scale afterwards */
+    if ((name_token->text_len == 9 && css_run_ieq(name_token->text, name_token->text_len, "translate")) ||
+        (name_token->text_len == 5 && css_run_ieq(name_token->text, name_token->text_len, "scale"))) {
+        comma = css_transform_comma(vec, name_index + 2, close_index);
+    }
+    Py_ssize_t first_len = -1;
     css_minify_func_args(pool, vec, name_index + 2, close_index, name_token->text, name_token->text_len, &args,
-                         &raw_fallback);
-    css_collapse_transform_args(name_token->text, name_token->text_len, &args);
+                         &raw_fallback, comma, &first_len);
+    if (first_len >= 0) {
+        css_collapse_transform_args(name_token->text_len == 9, &args, first_len);
+    }
     if (close_index == vec->len) {
         if (raw_fallback) {
             /* Raw arguments still contain nested functions, so their blocks must be counted too. */

@@ -7,9 +7,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, TypeVar
 
 import pytest
-
-sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
-
 from traced_bytes import PeakBytes, RetainedBytes
 from work_steps import WorkSteps
 from wpt_tree_corpus import WptHtmlTreeCorpus, load_wpt_html_tree
