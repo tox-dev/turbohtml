@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Final
 
 import pytest
 
+from turbohtml import parse
 from turbohtml.extract import UrlCleaning, clean_url, extract_links, normalize_url
 
 if TYPE_CHECKING:
@@ -410,6 +411,51 @@ def test_extract_links_rejects_invalid_web_authorities(href: str) -> None:
 )
 def test_extract_links_resolves_extra_special_slashes(href: str) -> None:
     assert extract_links(f'<a href="{href}">x</a>', "http://site.org/dir/page") == {"http://example.com/p"}
+
+
+_HIDDEN_SLASH_HREFS: Final[list[pytest.ParameterSet]] = [
+    pytest.param("/&#x9;//elsewhere.test/p", id="tab-after-first-slash"),
+    pytest.param("//&#xA;/elsewhere.test/p", id="newline-before-third-slash"),
+    pytest.param("/&#xD;/\\elsewhere.test/p", id="carriage-return-then-backslash"),
+    pytest.param("/&#x9;/&#x9;/elsewhere.test/p", id="tab-between-each-slash"),
+    pytest.param("\\&#x9;\\\\elsewhere.test/p", id="tab-among-backslashes"),
+    pytest.param("&#x1f;///elsewhere.test/p", id="leading-control"),
+    pytest.param("http:&#x9;///elsewhere.test/p", id="same-scheme-tab-after-colon"),
+    pytest.param("http:/&#xA;///elsewhere.test/p", id="same-scheme-newline-among-slashes"),
+]
+
+
+@pytest.mark.parametrize("href", _HIDDEN_SLASH_HREFS)
+@pytest.mark.parametrize("external_only", [False, True])
+def test_extract_links_resolves_extra_special_slashes_split_by_removed_characters(
+    href: str, *, external_only: bool
+) -> None:
+    # the URL parser drops tab, LF and CR and trims leading controls before it reads the slashes, so the host is the one
+    # after them and the link leaves the page's site
+    html = f'<a href="{href}">x</a>'
+    assert extract_links(html, "http://site.test/dir/page", external_only=external_only) == {"http://elsewhere.test/p"}
+
+
+@pytest.mark.parametrize("href", _HIDDEN_SLASH_HREFS)
+def test_meta_refresh_resolves_extra_special_slashes_split_by_removed_characters(href: str) -> None:
+    doc = parse(f'<meta http-equiv="refresh" content="0; url={href}">')
+    assert doc.meta_refresh("http://site.test/dir/page") == (0.0, "http://elsewhere.test/p")
+
+
+@pytest.mark.parametrize("href", _HIDDEN_SLASH_HREFS[:3])
+def test_opengraph_resolves_extra_special_slashes_split_by_removed_characters(href: str) -> None:
+    doc = parse(f'<meta property="og:url" content="{href}">')
+    assert doc.opengraph("http://site.test/dir/page")["url"] == "http://elsewhere.test/p"
+
+
+def test_microdata_resolves_extra_special_slashes_split_by_removed_characters() -> None:
+    doc = parse('<div itemscope><a itemprop="url" href="/&#x9;//elsewhere.test/p">x</a></div>')
+    assert doc.microdata("http://site.test/dir/page")[0].properties["url"] == ["http://elsewhere.test/p"]
+
+
+def test_extract_links_keeps_single_slash_before_removed_character() -> None:
+    html = '<a href="/&#x9;elsewhere.test/p">x</a>'
+    assert extract_links(html, "http://site.test/dir/page") == {"http://site.test/elsewhere.test/p"}
 
 
 @pytest.mark.parametrize(

@@ -929,7 +929,7 @@ static PyObject *cleaned_href(PyObject *href, PyObject *base, const clean_option
             first == '\\' || (first == '/' && PyUnicode_GET_LENGTH(href) > 2 &&
                               (PyUnicode_READ(kind, data, 1) == '/' || PyUnicode_READ(kind, data, 1) == '\\') &&
                               (PyUnicode_READ(kind, data, 2) == '/' || PyUnicode_READ(kind, data, 2) == '\\'));
-        candidate = special_slashes ? th_url_resolve(base, href) : th_url_join(base, href);
+        candidate = special_slashes ? th_url_resolve(base, href) : th_url_join_link(base, href);
         if (candidate == NULL) {
             return NULL; /* the document base cannot be split (an unbalanced IPv6 bracket) */
         }

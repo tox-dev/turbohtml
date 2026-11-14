@@ -155,10 +155,15 @@ PyObject *turbohtml_url_percent_decode(PyObject *module, PyObject *arg);
 /* Implemented in url/url.c. th_url_join resolves a (possibly relative) reference against a base URL, the RFC 3986 5.3
    reference transform urllib.parse.urljoin runs; base_url() and the extraction methods call it directly, and
    _url_join(base, target) exposes it to the extract_links shim. Both arguments are borrowed str references; returns a
-   new reference, NULL with a ValueError set when a component cannot be split (an unbalanced IPv6 bracket). */
+   new reference, NULL with a ValueError set when a component cannot be split (an unbalanced IPv6 bracket).
+   th_url_join_link is th_url_join for a link a browser follows: under a special scheme other than file it skips the
+   slashes past the two that open the authority, as the WHATWG URL parser does, so the host is read after them instead
+   of as a path on the base's host; _url_join_link(base, target) exposes it to Node.resolve_links. */
 PyObject *th_url_join(PyObject *base, PyObject *target);
+PyObject *th_url_join_link(PyObject *base, PyObject *target);
 PyObject *th_url_join_c14n_raw(const Py_UCS4 *base, Py_ssize_t base_len, PyObject *target);
 PyObject *turbohtml_url_join(PyObject *module, PyObject *args);
+PyObject *turbohtml_url_join_link(PyObject *module, PyObject *args);
 
 /* _url_is_tracker(key): whether a lowercased query-parameter name names a referral rather than content, so a
    crawl-oriented cleaner drops it. Matches METH_O. */

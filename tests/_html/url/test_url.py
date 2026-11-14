@@ -14,6 +14,7 @@ import pytest
 from turbohtml._html import (
     _url_is_tracker,
     _url_join,
+    _url_join_link,
     _url_language_matches,
     _url_normalize_query,
     _url_percent_decode,
@@ -368,6 +369,43 @@ def test_url_join_rejects_unbalanced_brackets(base: str, reference: str) -> None
 )
 def test_url_join_preprocesses_operands(base: str, reference: str, expected: str) -> None:
     assert _url_join(base, reference) == expected
+
+
+@pytest.mark.parametrize(
+    ("base", "reference", "expected"),
+    [
+        pytest.param("http://a/b/c", "///h/p", "http://h/p", id="three-slashes"),
+        pytest.param("http://a/b/c", "//\\h/p?q#f", "http://h/p?q#f", id="third-backslash"),
+        pytest.param("http://a/b/c", "http:////h/p", "http://h/p", id="same-scheme-four-slashes"),
+        pytest.param("http://a/b/c", "//h/p", "http://h/p", id="two-slashes"),
+        pytest.param("http://a/b/c", "///", "http://a/", id="no-host"),
+        pytest.param("http://a/b/c", "../g", "http://a/g", id="relative-path"),
+        pytest.param("http://a/b/c", "ftp:///h/p", "ftp:///h/p", id="foreign-scheme-verbatim"),
+        pytest.param("file:///a/b", "///c/d", "file:///c/d", id="file-base"),
+        pytest.param("//a/b", "///c/d", "//a/c/d", id="scheme-less-base"),
+        pytest.param("", "///h/p", "///h/p", id="empty-base"),
+    ],
+)
+def test_url_join_link_skips_extra_special_authority_slashes(base: str, reference: str, expected: str) -> None:
+    assert _url_join_link(base, reference) == expected
+
+
+def test_url_join_link_matches_url_join_without_extra_slashes() -> None:
+    for base, reference in _corpus():
+        if not reference.startswith("///"):
+            assert _join_link(base, reference) == _join(base, reference), (base, reference)
+
+
+def _join_link(base: str, reference: str) -> tuple[str | None, bool]:
+    try:
+        return _url_join_link(base, reference), False
+    except ValueError:
+        return None, True
+
+
+def test_url_join_link_rejects_non_str_operand() -> None:
+    with pytest.raises(TypeError):
+        _url_join_link("http://a", b"g")  # ty: ignore[invalid-argument-type]  # both operands must be str
 
 
 _LANGUAGE_PARAMS: Final[frozenset[str]] = frozenset({"lang", "language"})

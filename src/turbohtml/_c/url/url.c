@@ -1257,8 +1257,9 @@ static PyObject *build_url(int scheme_has, const Py_UCS4 *scheme_buf, Py_ssize_t
 /* Join a (possibly relative) reference onto a base URL, the RFC 3986 5.3 reference-transform urllib.parse.urljoin runs,
    ported so base_url(), the extraction methods, and the extract_links shim resolve links in C rather than importing
    urllib.parse. `base` and `target` are borrowed str references. Returns a new reference, or NULL with a ValueError set
-   when a host has an unbalanced IPv6 bracket. */
-static PyObject *join_url(PyObject *base, PyObject *target, int document) {
+   when a host has an unbalanced IPv6 bracket. `link` reads the reference's host the way a browser reads an HTML link's,
+   skipping the slashes RFC 3986 takes for an empty authority and a rooted path. */
+static PyObject *join_url(PyObject *base, PyObject *target, int document, int link) {
     int c14n = document == 2;
     if (PyUnicode_GET_LENGTH(base) == 0 && !c14n) {
         return Py_NewRef(target); /* an empty base leaves the reference as the whole URL */
@@ -1381,6 +1382,22 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document) {
         PyMem_Free(ref_parts.buf);
         return Py_NewRef(target);
     }
+    /* https://url.spec.whatwg.org/#special-authority-ignore-slashes-state: a special scheme other than file skips every
+       slash after the two that open the authority, so the host is read after all of them. With no host after them the
+       RFC 3986 reading stands: a browser rejects the reference, so there is no host to attribute. */
+    if (link && base_special && ref_parts.has_netloc && ref_parts.netloc_end == ref_parts.netloc_start &&
+        !scheme_eq(base_parts.buf, base_parts.scheme_start, base_parts.scheme_end, "file")) {
+        Py_ssize_t host_start = ref_parts.netloc_start;
+        while (host_start < ref_parts.path_end && url_slash(ref_parts.buf[host_start], 1)) {
+            host_start++;
+        }
+        Py_ssize_t host_end = authority_end(ref_parts.buf, host_start, ref_parts.path_end, 1, 1);
+        if (host_end > host_start) {
+            ref_parts.netloc_start = host_start;
+            ref_parts.netloc_end = host_end;
+            ref_parts.path_start = host_end;
+        }
+    }
     PyObject *result;
     if (ref_parts.has_netloc && ((!base_special && document) || ref_parts.netloc_end > ref_parts.netloc_start)) {
         result = build_url(base_parts.has_scheme, base_parts.buf, base_parts.scheme_start, base_parts.scheme_end, 1,
@@ -1449,7 +1466,11 @@ static PyObject *join_url(PyObject *base, PyObject *target, int document) {
 }
 
 PyObject *th_url_join(PyObject *base, PyObject *target) {
-    return join_url(base, target, 0);
+    return join_url(base, target, 0, 0);
+}
+
+PyObject *th_url_join_link(PyObject *base, PyObject *target) {
+    return join_url(base, target, 0, 1);
 }
 
 static int c14n_appendable_target(PyObject *target) {
@@ -1521,7 +1542,7 @@ static PyObject *c14n_join_objects(PyObject *base, PyObject *target) {
         Py_DECREF(adjusted); /* GCOVR_EXCL_LINE: allocation-failure path */
         return NULL;         /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    PyObject *joined = join_url(adjusted, reference, 2);
+    PyObject *joined = join_url(adjusted, reference, 2, 0);
     Py_DECREF(adjusted);
     Py_DECREF(reference);
     return joined;
@@ -1584,7 +1605,7 @@ PyObject *th_url_join_c14n_raw(const Py_UCS4 *base, Py_ssize_t base_len, PyObjec
 }
 
 PyObject *th_url_document_join(PyObject *base, PyObject *target) {
-    return join_url(base, target, 1);
+    return join_url(base, target, 1, 1);
 }
 
 static int file_drive(const Py_UCS4 *buf, Py_ssize_t start, Py_ssize_t end) {
@@ -1807,6 +1828,16 @@ PyObject *turbohtml_url_join(PyObject *Py_UNUSED(module), PyObject *args) {
         return NULL;
     }
     return th_url_join(base, target);
+}
+
+/* _url_join_link(base, target): _url_join for a link a browser follows, the resolver Node.resolve_links binds. */
+PyObject *turbohtml_url_join_link(PyObject *Py_UNUSED(module), PyObject *args) {
+    PyObject *base;
+    PyObject *target;
+    if (!PyArg_ParseTuple(args, "UU", &base, &target)) {
+        return NULL;
+    }
+    return th_url_join_link(base, target);
 }
 
 /* The tracking-parameter vocabulary. A crawl-oriented cleaner drops these query keys because they identify the
