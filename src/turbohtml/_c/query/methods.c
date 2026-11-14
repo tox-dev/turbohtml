@@ -333,7 +333,6 @@ TH_NODE_API(, PyObject *, turbohtml_select_limited, (PyObject * module, PyObject
 
 typedef struct {
     NodeObject *node;
-    th_node *top; /* of node's tree, for the later roots whose climb stops at a node this one passed */
     int processed;
     Py_ssize_t next;
     Py_ssize_t tail;
@@ -627,28 +626,35 @@ static Py_ssize_t index_root_group(th_node_map *groups, th_node *root, Py_ssize_
     return 0;
 }
 
-/* node_root for roots[index]. A climb to the top from every root is quadratic for roots nested in each other, or for
-   siblings below a deep chain, so past the first levels a climb records the nodes it passes under its root and stops
-   at one an earlier root recorded, whose top it shares. Returns NULL on allocation failure. */
-static th_node *index_root_top(th_node_map *climbed, multi_root *roots, Py_ssize_t index) {
-    th_node *top = roots[index].node->node;
-    for (int level = 0; level < 32 && top->parent != NULL; level++) {
-        top = top->parent;
-    }
-    th_node *first = top;
-    Py_ssize_t earlier = 0;
-    while (top->parent != NULL && (earlier = th_node_map_find(climbed, top)) == 0) {
-        TH_WORK_STEP();
-        top = top->parent;
-    }
-    for (th_node *node = first; node != top; node = node->parent) {
-        TH_WORK_STEP();
-        if (th_node_map_insert(climbed, node, index + 1) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return NULL;                                        /* GCOVR_EXCL_LINE */
+/* node_root for a root. A climb to the top from every root is quadratic for roots nested in each other, or for siblings
+   below a deep chain, so past the first levels a climb stops at a node an earlier root recorded in groups and returns
+   that root's group; 0 means it reached *top. Either way *stop is where it stopped and *passed where recording starts.
+   Tops have no parent, so they and the recorded nodes share the map without colliding. */
+static Py_ssize_t climb_root(const th_node_map *groups, th_node *node, th_node **stop, th_node **passed) {
+    /* the fixed inner bound unrolls, so a shallow climb costs no more than node_root */
+    for (int stride = 0; stride < 4 && node->parent != NULL; stride++) {
+        for (int level = 0; level < 8 && node->parent != NULL; level++) {
+            node = node->parent;
         }
     }
-    roots[index].top = earlier != 0 ? roots[earlier - 1].top : top;
-    return roots[index].top;
+    *passed = node;
+    Py_ssize_t group = 0;
+    while (node->parent != NULL && (group = th_node_map_find(groups, node)) == 0) {
+        TH_WORK_STEP();
+        node = node->parent;
+    }
+    *stop = node;
+    return group;
+}
+
+static int record_climb(th_node_map *groups, th_node *node, th_node *stop, Py_ssize_t group) {
+    for (; node != stop; node = node->parent) {
+        TH_WORK_STEP();
+        if (th_node_map_insert(groups, node, group) < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                                     /* GCOVR_EXCL_LINE */
+        }
+    }
+    return 0;
 }
 
 PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
@@ -709,7 +715,6 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
             moved = 1;
         } else {
             th_node_map tops = {0};
-            th_node_map climbed = {0};
             th_node *first_top = NULL;
             Py_ssize_t first_group = 0;
             Py_ssize_t last_group = 0;
@@ -719,20 +724,21 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
                 if (roots[index].processed || !node_owned_by(candidate, handle)) {
                     continue;
                 }
-                th_node *top = index_root_top(&climbed, roots, index);
-                if (top == NULL) {    /* GCOVR_EXCL_BR_LINE: allocation failure */
+                th_node *top;
+                th_node *passed;
+                Py_ssize_t head = climb_root(&tops, candidate->node, &top, &passed);
+                if (head == 0) {
+                    head = top == first_top   ? first_group
+                           : first_group == 0 ? 0
+                                              : index_root_group(&tops, top, index + 1);
+                }
+                /* GCOVR_EXCL_BR_START: allocation failure */
+                if (head < 0 || record_climb(&tops, passed, top, head == 0 ? index + 1 : head) < 0) {
                     PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
                     error = 1;        /* GCOVR_EXCL_LINE */
                     break;            /* GCOVR_EXCL_LINE */
                 }
-                Py_ssize_t head = top == first_top   ? first_group
-                                  : first_group == 0 ? 0
-                                                     : index_root_group(&tops, top, index + 1);
-                if (head < 0) {       /* GCOVR_EXCL_BR_LINE: allocation failure */
-                    PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
-                    error = 1;        /* GCOVR_EXCL_LINE */
-                    break;            /* GCOVR_EXCL_LINE */
-                }
+                /* GCOVR_EXCL_BR_STOP */
                 if (head == 0) {
                     if (first_group != 0) {
                         roots[last_group - 1].next_group = index + 1;
@@ -749,7 +755,6 @@ PyObject *turbohtml_select_many(PyObject *module, PyObject *args) {
                 roots[index].processed = 1;
             }
             PyMem_Free(tops.entries);
-            PyMem_Free(climbed.entries);
             /* Keep tracked-list allocation outside the lifetime of the root grouping. */
             for (Py_ssize_t head = first_group; head != 0; head = roots[head - 1].next_group) {
                 if (error) { /* GCOVR_EXCL_BR_LINE: group-map or result allocation failure */

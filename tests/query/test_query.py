@@ -529,9 +529,9 @@ def test_find_root_order_after_mutation() -> None:
     "count", [pytest.param(4, id="small"), pytest.param(40, id="large"), pytest.param(400, id="deep")]
 )
 @pytest.mark.parametrize("order", ["sorted", "reversed", "shuffled"])
-def test_find_nested_roots_searches_the_outermost_once(count: int, order: str) -> None:
-    nodes: Final = turbohtml.parse_xml(f"<r>{'<s>' * count}<t/>{'</s>' * count}</r>").select("s")
-    assert _tags(Query(_reorder(nodes, order)).find("*")) == ["s"] * (count - 1) + ["t"]
+def test_find_nested_list_items_reports_each_match_once(count: int, order: str) -> None:
+    nodes: Final = turbohtml.parse_xml(f"<ul>{'<li><ol>' * count}<b></b>{'</ol></li>' * count}</ul>").select("li")
+    assert _tags(Query(_reorder(nodes, order)).find("li, b")) == ["li"] * (count - 1) + ["b"]
 
 
 def _reorder(nodes: list[Element], order: str) -> list[Element]:
@@ -566,17 +566,38 @@ def test_find_groups_deep_roots_by_the_tree_they_are_in(order: str, first: str, 
     ]
 
 
+@pytest.mark.parametrize("order", ["sorted", "reversed", "shuffled"])
+def test_find_roots_under_parents_with_text_and_comments_keeps_order(order: str) -> None:
+    items: Final = "".join(f'<li>lead<!--c--><b></b><a><code id="{index}"></code></a></li>' for index in range(40))
+    nodes: Final = parse(f"<ul>{items}</ul>").select("a")
+    assert [node.attrs["id"] for node in Query(_reorder(nodes, order)).find("code")] == [
+        str(index) for index in range(40)
+    ]
+
+
 @pytest.mark.parametrize(
-    "markup",
+    ("markup", "roots", "target"),
     [
-        pytest.param(lambda n: f"<r>{'<s>' * n}<t/>{'</s>' * n}</r>", id="nested"),
-        pytest.param(lambda n: f"<r>{'<x>' * n}{'<s><t/></s>' * n}{'</x>' * n}</r>", id="below-a-chain"),
-        pytest.param(lambda n: f"<r>{'<x><s><t/></s></x>' * n}</r>", id="across-a-wide-parent"),
+        pytest.param(lambda n: f"<ul>{'<li><ol>' * n}<b></b>{'</ol></li>' * n}</ul>", "li", "b", id="nested-items"),
+        pytest.param(
+            lambda n: f"<main>{'<section>' * n}{'<article><p></p></article>' * n}{'</section>' * n}</main>",
+            "article",
+            "p",
+            id="siblings-below-a-chain",
+        ),
+        pytest.param(
+            lambda n: f"<table><tbody>{'<tr><td><i></i></td></tr>' * n}</tbody></table>",
+            "td",
+            "i",
+            id="cells-of-one-body",
+        ),
     ],
 )
-def test_find_across_deep_or_wide_roots_scales_linearly(markup: Callable[[int], str], work_steps: WorkSteps) -> None:
+def test_find_many_roots_grow_linearly(
+    markup: Callable[[int], str], roots: str, target: str, work_steps: WorkSteps
+) -> None:
     # Counted steps rather than seconds: a wall-clock budget is flaky on shared runners.
-    work_steps.assert_linear(lambda n: partial(Query(turbohtml.parse_xml(markup(n)))("s").find, "t"), (500, 2000))
+    work_steps.assert_linear(lambda n: partial(Query(turbohtml.parse_xml(markup(n)))(roots).find, target), (500, 2000))
 
 
 @pytest.mark.parametrize(
