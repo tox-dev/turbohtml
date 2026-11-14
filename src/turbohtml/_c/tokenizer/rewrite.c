@@ -269,6 +269,7 @@ typedef struct {
     int drop_end_tag;         /* do not emit the element's end tag */
     PyObject *append_html;    /* emit just before the end tag (already escaped) */
     PyObject *after_html;     /* emit just after the end tag (already escaped) */
+    PyObject *append_text;    /* append_html as ordinary text, for when the tags are dropped */
     int model;                /* the content model the start tag switched to, or -1 */
     int literal;              /* a handler wrote unescaped text into this raw-text element */
     Py_ssize_t content_start; /* output offset where the element's content begins */
@@ -297,7 +298,8 @@ typedef struct {
     Py_ssize_t suppress; /* number of open ancestors suppressing their content */
     rw_out out;
     PyObject *handle_type;
-    int error; /* a Python exception is set; abort the drive */
+    int error;       /* a Python exception is set; abort the drive */
+    int escape_text; /* inside a raw-text or RCDATA element whose tags were dropped */
 } rw_ctx;
 
 /* The deepest element nesting the rewriter tracks. Past it a start tag is still emitted
@@ -323,7 +325,6 @@ typedef struct {
     PyObject *after_html;  /* emitted after the node (accumulated) */
     PyObject *set_text;    /* new text/comment body, or NULL */
     int set_text_raw;      /* set_text lands in a raw-text element, so it is written unescaped */
-    PyObject *append_text; /* a raw-text element's append_html as ordinary text, for when its tags are dropped */
 } rw_handle;
 
 /* RAWTEXT, script data and PLAINTEXT content is read as is; RCDATA and ordinary content decode references. */
@@ -765,7 +766,7 @@ static int rw_append_text(rw_handle *self, PyObject *content, int raw) {
     if (!rw_model_is_raw(self->open->model)) {
         return 0;
     }
-    return rw_accumulate(&self->append_text, content, raw);
+    return rw_accumulate(&self->open->append_text, content, raw);
 }
 
 static PyObject *rw_set_content(rw_handle *self, PyObject *args, PyObject *kwds) {
@@ -784,7 +785,7 @@ static PyObject *rw_set_content(rw_handle *self, PyObject *args, PyObject *kwds)
     /* replace the element's inner content: drop the original children, keep the tags */
     self->open->drop_content = 1;
     Py_CLEAR(self->open->append_html);
-    Py_CLEAR(self->append_text);
+    Py_CLEAR(self->open->append_text);
     PyObject *piece = rw_escape_arg(content, rw_text_is_raw(self, raw, 1));
     if (piece == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
@@ -848,7 +849,7 @@ static PyObject *rw_remove_and_keep_content(rw_handle *self, PyObject *Py_UNUSED
     if (rw_handle_check(self, RW_ELEMENT) < 0) {
         return NULL;
     }
-    /* drop the element's own tags but let its children stream through unchanged */
+    /* drop the element's own tags: its children stream through, escaped when the element is raw text */
     self->removed = 1;
     self->open->drop_end_tag = 1;
     Py_RETURN_NONE;
@@ -1013,7 +1014,6 @@ static void rw_handle_dealloc(PyObject *self) {
     Py_XDECREF(handle->before_html);
     Py_XDECREF(handle->after_html);
     Py_XDECREF(handle->set_text);
-    Py_XDECREF(handle->append_text);
     type->tp_free(self);
     Py_DECREF(type);
 }
@@ -1193,7 +1193,6 @@ static rw_handle *rw_handle_new(rw_ctx *ctx, enum rw_kind kind) {
     handle->after_html = NULL;
     handle->set_text = NULL;
     handle->set_text_raw = 0;
-    handle->append_text = NULL;
     return handle;
 }
 
@@ -1241,6 +1240,8 @@ static void rw_handle_element(rw_ctx *ctx, const th_token *token) {
             handle->live = 0;
             Py_DECREF(handle);
         }
+        Py_XDECREF(open.append_html);
+        Py_XDECREF(open.append_text);
         rw_free_node(node);
         return;
     }
@@ -1251,8 +1252,9 @@ static void rw_handle_element(rw_ctx *ctx, const th_token *token) {
         /* the tags are dropped, so nothing a handler wrote lands between them: there is no raw-text content left to
            check, and what was appended to a raw-text element is ordinary text now */
         open.literal = 0;
-        if (handle->append_text != NULL) {
-            Py_SETREF(open.append_html, Py_NewRef(handle->append_text));
+        if (open.append_text != NULL) {
+            Py_SETREF(open.append_html, open.append_text);
+            open.append_text = NULL;
         }
     }
 
@@ -1287,6 +1289,7 @@ static void rw_handle_element(rw_ctx *ctx, const th_token *token) {
             rw_out_str(&ctx->out, open.after_html);
         }
         Py_XDECREF(open.append_html);
+        Py_XDECREF(open.append_text);
         Py_XDECREF(open.after_html);
         if (handle != NULL) {
             handle->live = 0;
@@ -1304,6 +1307,8 @@ static void rw_handle_element(rw_ctx *ctx, const th_token *token) {
     if (ctx->depth >= RW_MAX_DEPTH) {
         /* keep the spine bounded: emit the element's content inline but do not track it,
            so it never nests deeper than the guard (its end tag streams as a stray) */
+        Py_XDECREF(open.append_html);
+        Py_XDECREF(open.append_text);
         rw_free_node(node);
         return;
     }
@@ -1333,6 +1338,7 @@ static void rw_handle_element(rw_ctx *ctx, const th_token *token) {
     }
     /* a rawtext/rcdata element switches the tokenizer's content model */
     if (open.model >= 0) {
+        ctx->escape_text = open.drop_end_tag;
         th_tok_switch(ctx->sm, (enum th_initial_state)open.model);
     }
 }
@@ -1408,10 +1414,12 @@ static void rw_handle_end(rw_ctx *ctx, const th_token *token) {
             ctx->suppress--;
         }
         Py_XDECREF(open->append_html);
+        Py_XDECREF(open->append_text);
         Py_XDECREF(open->after_html);
         rw_free_node(open->node);
     }
     ctx->depth = match + 1; /* an error below leaves only the closing element for rw_ctx_clear */
+    ctx->escape_text = 0;
     rw_open *closing = &ctx->stack[match];
     if (closing->drop_content) {
         ctx->suppress--;
@@ -1430,17 +1438,17 @@ static void rw_handle_end(rw_ctx *ctx, const th_token *token) {
         rw_out_str(&ctx->out, closing->after_html);
     }
     Py_XDECREF(closing->append_html);
+    Py_XDECREF(closing->append_text);
     Py_XDECREF(closing->after_html);
     rw_free_node(closing->node);
     ctx->depth = match;
 }
 
 /* Without the tags of a raw-text or RCDATA element, a browser reads the `<` and bare `&` of its text as markup, so an
-   unedited text run whose tags were dropped is escaped. RCDATA character references are separate TH_CHARREF tokens
-   and are already correct outside the element. */
+   unedited text run whose tags were dropped is escaped. An RCDATA character reference is written as its decoded,
+   escaped text: copied as written, a reference without its semicolon would join the text after the element. */
 static void rw_emit_leaf(rw_ctx *ctx, const th_token *token) {
-    const rw_open *inside = ctx->depth > 0 ? &ctx->stack[ctx->depth - 1] : NULL;
-    if (token->kind != TH_TEXT || inside == NULL || inside->model < 0 || !inside->drop_end_tag) {
+    if (!ctx->escape_text) {
         rw_emit_verbatim(&ctx->out, ctx->sm, token);
         return;
     }
@@ -1503,6 +1511,7 @@ static void rw_handle_leaf(rw_ctx *ctx, const th_token *token, PyObject *handler
 static void rw_ctx_clear(rw_ctx *ctx) {
     for (Py_ssize_t index = 0; index < ctx->depth; index++) {
         Py_XDECREF(ctx->stack[index].append_html);
+        Py_XDECREF(ctx->stack[index].append_text);
         Py_XDECREF(ctx->stack[index].after_html);
         rw_free_node(ctx->stack[index].node);
     }
@@ -1660,6 +1669,7 @@ PyObject *turbohtml_rewrite(PyObject *module, PyObject *args) {
             rw_out_str(&ctx.out, open->after_html);
         }
         Py_XDECREF(open->append_html);
+        Py_XDECREF(open->append_text);
         Py_XDECREF(open->after_html);
         rw_free_node(open->node);
     }

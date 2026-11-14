@@ -509,9 +509,10 @@ def test_rewrite_raw_text_html_content_is_not_checked() -> None:
         pytest.param("<xmp>\u20ac<\U0001f600></xmp>", "\u20ac&lt;\U0001f600&gt;", id="wide"),
         pytest.param("<plaintext>a<b></xmp>", "a&lt;b&gt;&lt;/xmp&gt;", id="plaintext"),
         pytest.param("<xmp>a<b>", "a&lt;b&gt;", id="unclosed"),
-        # RCDATA decodes references, so those stay as written and only the text around them is escaped
-        pytest.param("<textarea><b> &amp; &lt; & &#60;</textarea>", "&lt;b&gt; &amp; &lt; &amp; &#60;", id="textarea"),
+        # RCDATA decodes references, so each is written as its decoded text, escaped
+        pytest.param("<textarea><b> &amp; &lt; & &#60;</textarea>", "&lt;b&gt; &amp; &lt; &amp; &lt;", id="textarea"),
         pytest.param("<title>a<b></title><b>k</b>", "a&lt;b&gt;<b>k</b>", id="title"),
+        pytest.param("<title>&not</title>in;", "¬in;", id="reference-without-semicolon"),
     ],
 )
 def test_rewrite_unwrapped_raw_text_content_is_escaped(html: str, expected: str) -> None:
