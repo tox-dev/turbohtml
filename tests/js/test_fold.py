@@ -384,13 +384,13 @@ def test_fold_keeps_unreachable_that_hoists(source: str) -> None:
             id="regex-into-ternary-alt",
         ),
         pytest.param(
-            "function f(){var r=/a/;g(function(){return 1},r)}",
-            "function f(){g(function(){return 1},/a/)}",
+            "function f(){var q=/b/;h(function(){return 2},q)}",
+            "function f(){h(function(){return 2},/b/)}",
             id="regex-after-nested-function-in-next-statement",
         ),
         pytest.param(
-            "function f(){var r=/a/;g(()=>r)}",
-            "function f(){var a=/a/;g(()=>a)}",
+            "function f(){var q=/b/;h(()=>q)}",
+            "function f(){var a=/b/;h(()=>a)}",
             id="regex-into-arrow-in-next-statement-kept",
         ),
         pytest.param(
