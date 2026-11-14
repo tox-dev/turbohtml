@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs a fixed argv in a child interpreter
 import sys
 import sysconfig
 from pathlib import Path
@@ -9,13 +10,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
 
+from traced_bytes import PeakBytes, RetainedBytes
 from work_steps import WorkSteps
 from wpt_tree_corpus import WptHtmlTreeCorpus, load_wpt_html_tree
 
+import turbohtml
 from turbohtml import Element, Node, _html, parse  # ruff:ignore[import-private-name]  # work-step build hook
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
 _N = TypeVar("_N", bound=Node)
 
@@ -96,3 +99,28 @@ def work_steps() -> WorkSteps:
     if read is None:  # pragma: no cover  # only release-build legs (scalar) lack it, and they run without coverage
         pytest.skip("needs the work-step build: meson setup -Dwork_steps=true")
     return WorkSteps(read=read)
+
+
+@pytest.fixture
+def retained_bytes() -> Iterator[RetainedBytes]:
+    # tracemalloc is absent on PyPy, whose collector also reclaims objects on a different schedule
+    tracing = pytest.importorskip("tracemalloc")
+    tracing.start()
+    try:
+        yield RetainedBytes(tracing=tracing, package=f"{Path(turbohtml.__file__).parent}/*")
+    finally:
+        tracing.stop()
+
+
+@pytest.fixture
+def peak_bytes() -> PeakBytes:
+    # tracemalloc totals every thread of a process, so the peak is read in a fresh interpreter with no other threads
+    def measure(script: str, args: tuple[str, ...] = ()) -> int:
+        pytest.importorskip("tracemalloc")
+        run = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, no shell
+            [sys.executable, "-c", script, *args], capture_output=True, text=True, check=False
+        )
+        assert run.returncode == 0, run.stderr
+        return int(run.stdout)
+
+    return measure
