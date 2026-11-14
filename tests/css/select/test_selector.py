@@ -337,6 +337,7 @@ _PSEUDO: Final[str] = (
         pytest.param("li:nth-child(n)", ["1", "2", "3", "4", "5"], id="nth-child-bare-n"),
         pytest.param("li:nth-child( 2n + 1 )", ["1", "3", "5"], id="nth-child-whitespace"),
         pytest.param("li:nth-child(0)", [], id="nth-child-zero-matches-none"),
+        pytest.param("li:nth-child(0n-1)", [], id="nth-child-zero-step-negative-offset"),
         pytest.param("li:nth-child(2n-1)", ["1", "3", "5"], id="nth-child-minus-b"),
         pytest.param("li:nth-last-child(1)", ["5"], id="nth-last-child"),
         pytest.param("li:nth-last-child(2)", ["4"], id="nth-last-child-second-from-end"),
