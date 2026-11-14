@@ -171,10 +171,10 @@ def _mismatches(seed: int) -> list[str]:
     found: list[str] = []
     for step in range(_STEPS):
         if not list(doc.select(_CANDIDATES)):
-            body: Final = doc.select_one("body")
+            body = doc.select_one("body")
             assert body is not None
             body.append(Element("div"))
-        operation: Final = rng.choice(_OPERATIONS)
+        operation = rng.choice(_OPERATIONS)
         with contextlib.suppress(IndexError, ValueError, TypeError):
             operation(walk)
         found.extend(
@@ -211,7 +211,7 @@ def _comparisons(walk: _Walk) -> list[tuple[str, list[str], list[str]]]:
             ),
         ))
         if detached is not None and detached.parent is None:
-            reference_root: Final = parse(f"<body>{detached.html}</body>").select_one("body > *")
+            reference_root = parse(f"<body>{detached.html}</body>").select_one("body > *")
             assert reference_root is not None
             pairs.append((
                 f"detached {query}",
@@ -237,7 +237,7 @@ def test_has_memo_after_mutator_that_changes_depth_matches_fresh_copy(
     links: Final[list[Element]] = []
     innermost: Element = origin
     for _ in range(chain):
-        child: Final = Element("i")
+        child = Element("i")
         innermost.append(child)
         links.append(child)
         innermost = child
@@ -255,7 +255,7 @@ def test_has_memo_chain_grown_under_an_extracted_subtree_leaves_the_document_ans
     assert isinstance(div, Element)
     cursor: Element = div.extract()
     for _ in range(30):
-        child: Final = Element("i")
+        child = Element("i")
         cursor.append(child)
         cursor = child
     cursor.append(Element("b"))
