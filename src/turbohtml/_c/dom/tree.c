@@ -1578,20 +1578,19 @@ static int reach_stops_at(const th_node *node) {
     return node->type == TH_NODE_CONTENT || disables_selectedcontent(node);
 }
 
-/* Called as a child is attached. An enabled selectedcontent reachable from the child marks each node up to the next
-   reach_stops_at boundary, so the adoption agency can tell a moved subtree that holds selectedcontent targets. */
-void th_node_reach_attached(th_node *parent, th_node *child) {
-    if (child->atom == TH_TAG_SELECTEDCONTENT && disables_selectedcontent(child) &&
-        !node_has_attr(child, TH_ATTR_DISABLED)) {
-        child->reaches_selectedcontent = 1;
-    }
-    if (!child->reaches_selectedcontent) {
-        return;
-    }
-    th_node *node = parent;
+/* Marks node and its ancestors up to the next reach_stops_at boundary, for a flagged child just attached under node. */
+void th_node_mark_ancestors(th_node *node) {
     while (node != NULL && !node->reaches_selectedcontent && !reach_stops_at(node)) {
         node->reaches_selectedcontent = 1;
         node = node->parent;
+    }
+}
+
+/* An enabled selectedcontent is flagged once the parser has created it, when its namespace is final. */
+static void selectedcontent_flagged(th_node *node) {
+    if (!node_has_attr(node, TH_ATTR_DISABLED)) {
+        node->reaches_selectedcontent = 1;
+        th_node_mark_ancestors(node->parent);
     }
 }
 
@@ -1635,8 +1634,7 @@ static void select_cache_fill(th_tree *tree, th_select_cache *cache) {
     th_node *root = cache->select;
     cache->target_count = 0;
     th_node *node = root->first_child;
-    /* the cap keeps the first targets in document order, so the walk ends at the last of them */
-    while (node != NULL && cache->target_count < MAX_CLONE_TARGETS) {
+    while (node != NULL) {
         if (disables_selectedcontent(node)) {
             if (node->atom == TH_TAG_SELECTEDCONTENT && !node_has_attr(node, TH_ATTR_DISABLED)) {
                 select_cache_add_target(tree, cache, node);
@@ -1712,21 +1710,52 @@ static th_select_cache *select_cache_get(th_tree *tree, th_node *select) {
     return cache;
 }
 
-/* The adoption agency is the one place that reorders existing nodes, so a select
-   whose subtree it disturbs has its cache dropped and lazily refilled on the next
-   clone. This keeps the common no-move case O(1) per option without tracking moves. */
-static void select_cache_invalidate_above(th_tree *tree, th_node *node) {
+/* The select whose target walk reaches node: the nearest boundary at or above it, when that boundary is a select. */
+static th_node *select_reaching(th_node *node) {
+    for (; node != NULL; node = node->parent) {
+        if (reach_stops_at(node)) {
+            return is_html_element(node, TH_TAG_SELECT) ? node : NULL;
+        }
+    }
+    return NULL;
+}
+
+/* Appends the targets inside a block that reached the select, in document order, up to the cap. A flagged node
+   is the only kind that can hold a target, so the walk skips every other subtree. */
+static void select_cache_collect(th_tree *tree, th_select_cache *cache, th_node *block) {
+    th_node *node = block->first_child;
+    while (node != NULL && cache->target_count < MAX_CLONE_TARGETS) {
+        if (node->reaches_selectedcontent && node->atom == TH_TAG_SELECTEDCONTENT) {
+            select_cache_add_target(tree, cache, node);
+        } else {
+            th_node *down = node->reaches_selectedcontent ? node->first_child : NULL;
+            if (down != NULL) {
+                node = down;
+                continue;
+            }
+        }
+        while (node != block && node->next_sibling == NULL) {
+            node = node->parent;
+        }
+        node = node == block ? NULL : node->next_sibling;
+    }
+}
+
+/* A flagged block the adoption agency moved out of the reach of every select. The block moves along the open
+   elements, so one that reached a select before the move still reaches it, and its targets are already listed.
+   Only a block that a gate removed from the open elements gains a reach, and that is the case handled here. */
+static void select_cache_block_gained(th_tree *tree, th_node *block) {
     th_select_state *state = tree->select_state;
     if (state == NULL) {
         return;
     }
-    for (; node != NULL; node = node->parent) {
-        if (is_html_element(node, TH_TAG_SELECT)) {
-            Py_ssize_t slot = th_node_map_find(&state->index, node);
-            if (slot != 0) {
-                state->caches[slot - 1].valid = 0;
-            }
-        }
+    th_node *select = select_reaching(block);
+    if (select == NULL) {
+        return;
+    }
+    Py_ssize_t slot = th_node_map_find(&state->index, select);
+    if (slot != 0) {
+        select_cache_collect(tree, &state->caches[slot - 1], block);
     }
 }
 
@@ -2229,6 +2258,7 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         tree->reparse_hazard = 1;
         th_node *common = tree->open[fmt_stack - 1];
         Py_ssize_t bookmark = afe_index_of(tree, fmt);
+        th_node *old_select = furthest->reaches_selectedcontent ? select_reaching(furthest->parent) : NULL;
         th_node *node, *last = furthest;
         Py_ssize_t node_idx = furthest_idx;
         /* The inner loop runs until it reaches the formatting element; the
@@ -2293,10 +2323,8 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
             child = next;
         }
         node_append(furthest, fmt_clone);
-        /* a moved subtree without an enabled selectedcontent changes no select's targets; a moved select changes
-           its own disabled state */
-        if (furthest->reaches_selectedcontent || is_html_element(furthest, TH_TAG_SELECT)) {
-            select_cache_invalidate_above(tree, furthest);
+        if (furthest->reaches_selectedcontent && old_select == NULL) {
+            select_cache_block_gained(tree, furthest);
         }
         /* remove fmt from the list, insert the clone at the bookmark */
         Py_ssize_t fi = afe_index_of(tree, fmt);
@@ -3632,8 +3660,11 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
         stack_push(tree, node);
         /* every HTML selectedcontent the parser creates lands here, so a select cached before
            it arrived learns of it without a test on every other element's insert or push */
-        if (atom == TH_TAG_SELECTEDCONTENT && tree->select_state != NULL) {
-            selectedcontent_inserted(tree, node);
+        if (atom == TH_TAG_SELECTEDCONTENT) {
+            selectedcontent_flagged(node);
+            if (tree->select_state != NULL) {
+                selectedcontent_inserted(tree, node);
+            }
         }
         return TH_DRAIN_NEXT;
     }
