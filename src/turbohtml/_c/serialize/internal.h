@@ -46,29 +46,35 @@ static inline int sbuf_named_special(Py_UCS4 character) {
 }
 
 /* The WHATWG/MINIMAL special set tested over a 64-bit word of two UCS-4 code
-   points: & < > and CR always, " in any attribute value, and the no-break space
-   WHATWG folds. CR must be written as &#13; in every formatter: input
-   preprocessing folds a raw CR to LF on reparse, so the output would read back
-   as a different tree. Each probe sets the matching lane's high bit; a nonzero
-   result means a special is in the pair. */
-static inline uint64_t sbuf_special_mask(uint64_t word, int escape_quote, int escape_nbsp) {
+   points: & < > and CR always, and the no-break space WHATWG folds. CR must be
+   written as &#13; in every formatter: input preprocessing folds a raw CR to LF
+   on reparse, so the output would read back as a different tree. Each probe sets
+   the matching lane's high bit; a nonzero result means a special is in the pair. */
+static inline uint64_t sbuf_special_mask(uint64_t word, int escape_nbsp) {
     uint64_t mask =
         swar_haslane32(word, '&') | swar_haslane32(word, '<') | swar_haslane32(word, '>') | swar_haslane32(word, '\r');
-    if (escape_quote) {
-        mask |= swar_haslane32(word, '"');
-    }
     if (escape_nbsp) {
         mask |= swar_haslane32(word, 0xA0);
     }
     return mask;
 }
 
+/* The special set plus the " that ends an attribute value. Only the NEON and scalar text scans
+   use it; the SSE2 scan tests the quote in its vector block, and minify never scans a value. */
+static inline uint64_t sbuf_value_mask(uint64_t word, int escape_quote, int escape_nbsp) {
+    uint64_t mask = sbuf_special_mask(word, escape_nbsp);
+    if (escape_quote) {
+        mask |= swar_haslane32(word, '"');
+    }
+    return mask;
+}
+
 /* Skip step for the clean-run scan: the same special set tested a vector at a time rather than a
-   64-bit pair. The tree holds text as UCS-4, so every serialized run pays this scan, and eight code
-   points per step halves the probes over the long unescaped spans documents are made of. The step only
-   skips: when it reports a hit the SWAR pair loop below rescans the block and names the exact code
-   point, so the vector arms never decide where a special is. escape.c carries the same per-arch
-   split for its sizing scan. */
+   64-bit pair. The tree holds text as UCS-4, so every serialized run pays this scan. On NEON and the
+   scalar build the step only skips: when it reports a hit the SWAR pair loop in sbuf_find_special
+   rescans the block and names the exact code point. SSE2 names it from the vector mask instead, since
+   most runs are under a dozen code points and the pair loop would cost more than the step it follows.
+   escape.c carries the same per-arch split for its sizing scan. */
 #if !defined(TH_FORCE_SCALAR) && (defined(__aarch64__) || defined(_M_ARM64))
 
 #include <arm_neon.h>
@@ -94,13 +100,27 @@ static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_quote, 
 #include <emmintrin.h>
 
 #define SBUF_SCAN_STEP 8
+#define SBUF_VECTOR_FIND
+
+#if defined(_MSC_VER)
+#include <intrin.h>
+static inline int sbuf_ctz(unsigned value) {
+    unsigned long index;
+    _BitScanForward(&index, value);
+    return (int)index;
+}
+#else
+#define sbuf_ctz __builtin_ctz
+#endif
 
 /* Two vectors of four code points pack into one of eight 16-bit lanes. Every special is below 0x100 and
    the saturating pack maps anything wider to 0x7FFF, so the 16-bit compares match exactly the same code
-   points as 32-bit compares would, at half the compares per code point. */
-static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_quote, int escape_nbsp) {
-    __m128i low = _mm_loadu_si128((const __m128i *)text);
-    __m128i high = _mm_loadu_si128((const __m128i *)(text + 4));
+   points as 32-bit compares would, at half the compares per code point. Lane k owns mask bits 2k and
+   2k+1. */
+static inline unsigned sbuf_block_special_bits(const Py_UCS4 *low_half, const Py_UCS4 *high_half, int escape_quote,
+                                               int escape_nbsp) {
+    __m128i low = _mm_loadu_si128((const __m128i *)low_half);
+    __m128i high = _mm_loadu_si128((const __m128i *)high_half);
     __m128i lanes = _mm_packs_epi32(low, high);
     __m128i hits = _mm_cmpeq_epi16(lanes, _mm_set1_epi16('&'));
     hits = _mm_or_si128(
@@ -112,7 +132,51 @@ static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_quote, 
     if (escape_nbsp) {
         hits = _mm_or_si128(hits, _mm_cmpeq_epi16(lanes, _mm_set1_epi16(0xA0)));
     }
-    return _mm_movemask_epi8(hits) != 0;
+    return (unsigned)_mm_movemask_epi8(hits);
+}
+
+/* The first special at or after index, or len. Past the last full step one block laid over the final
+   eight code points, with the lanes before index shifted out, covers the rest. A run of four to seven
+   pairs its first and last four code points in one block; under four there is nothing to load, so a
+   bitmap over the ASCII specials classifies each code point. */
+static inline Py_ssize_t sbuf_find_special(const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len, int escape_quote,
+                                           int escape_nbsp) {
+    while (index + SBUF_SCAN_STEP <= len) {
+        unsigned bits = sbuf_block_special_bits(&text[index], &text[index + 4], escape_quote, escape_nbsp);
+        if (bits != 0) {
+            return index + sbuf_ctz(bits) / 2;
+        }
+        index += SBUF_SCAN_STEP;
+    }
+    if (index == len) {
+        return len;
+    }
+    if (len >= SBUF_SCAN_STEP) {
+        Py_ssize_t base = len - SBUF_SCAN_STEP;
+        unsigned bits =
+            sbuf_block_special_bits(&text[base], &text[base + 4], escape_quote, escape_nbsp) >> (2 * (index - base));
+        return bits != 0 ? index + sbuf_ctz(bits) / 2 : len;
+    }
+    if (len >= 4) {
+        /* the low lanes hold code points 0-3 and the high lanes len-4..len-1, so a code point in both
+           shows twice; the low lanes come first, so the lowest kept bit is still the first special */
+        Py_ssize_t first_high = index + 8 - len > 4 ? index + 8 - len : 4;
+        unsigned keep = (index < 4 ? 0xFFu << (2 * index) & 0xFFu : 0) | (0xFFFFu << (2 * first_high) & 0xFF00u);
+        unsigned bits = sbuf_block_special_bits(text, &text[len - 4], escape_quote, escape_nbsp) & keep;
+        if (bits == 0) {
+            return len;
+        }
+        Py_ssize_t lane = sbuf_ctz(bits) / 2;
+        return lane < 4 ? lane : len - 8 + lane;
+    }
+    uint64_t ascii = 1ULL << '&' | 1ULL << '<' | 1ULL << '>' | 1ULL << '\r' | (escape_quote ? 1ULL << '"' : 0);
+    for (; index < len; index++) {
+        Py_UCS4 character = text[index];
+        if (character < 64 ? (ascii >> character) & 1 : escape_nbsp && character == 0xA0) {
+            return index;
+        }
+    }
+    return len;
 }
 
 #else
@@ -122,9 +186,35 @@ static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_quote, 
 static inline int sbuf_block_has_special(const Py_UCS4 *text, int escape_quote, int escape_nbsp) {
     uint64_t word;
     memcpy(&word, text, sizeof(word));
-    return sbuf_special_mask(word, escape_quote, escape_nbsp) != 0;
+    return sbuf_value_mask(word, escape_quote, escape_nbsp) != 0;
 }
 
+#endif
+
+#ifndef SBUF_VECTOR_FIND
+/* The first special at or after index, or len. The pair probes name it from a word built
+   low-lane-first, so the position is independent of byte order and of which character class matched. */
+static inline Py_ssize_t sbuf_find_special(const Py_UCS4 *text, Py_ssize_t index, Py_ssize_t len, int escape_quote,
+                                           int escape_nbsp) {
+    while (index + SBUF_SCAN_STEP <= len && !sbuf_block_has_special(&text[index], escape_quote, escape_nbsp)) {
+        index += SBUF_SCAN_STEP;
+    }
+    for (; index + UCS4_LANES <= len; index += UCS4_LANES) {
+        uint64_t word;
+        memcpy(&word, &text[index], sizeof(word));
+        if (sbuf_value_mask(word, escape_quote, escape_nbsp) != 0) {
+            uint64_t ordered = (uint64_t)text[index] | ((uint64_t)text[index + 1] << 32);
+            uint64_t omask = sbuf_value_mask(ordered, escape_quote, escape_nbsp);
+            return index + (Py_ssize_t)((omask & 0x80000000ULL) == 0);
+        }
+    }
+    /* one code point trails the last full pair; pad with a non-special lane so the same mask probe
+       classifies it without a buffer overread */
+    if (index < len && sbuf_value_mask((uint64_t)text[index], escape_quote, escape_nbsp) != 0) {
+        return index;
+    }
+    return len;
+}
 #endif
 
 /* Emit the replacement for a flagged character. */
@@ -184,12 +274,9 @@ static inline void sbuf_put_named_text(sbuf *out, const Py_UCS4 *text, Py_ssize_
 
 /* Append text under the WHATWG or MINIMAL formatter, bulk-copying each run with
    nothing to escape and rewriting only the specials between. The tree stores
-   text as UCS-4, so the clean-run scan hops SBUF_SCAN_STEP code points at a time
-   over the long unescaped spans real documents are made of instead of
-   classifying every character. Once the step stops, the SWAR pair probes walk
-   the block to name the special: its exact code point is recovered from the lane
-   mask over a word built low-lane-first, so the position is independent of byte
-   order, of which character class matched, and of which arch scanned. */
+   text as UCS-4, so the clean-run scan (sbuf_find_special) hops SBUF_SCAN_STEP
+   code points at a time over the long unescaped spans real documents are made of
+   instead of classifying every character. */
 static inline void sbuf_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len, int in_attr, int formatter) {
     if (formatter == TH_FMT_NAMED) {
         sbuf_put_named_text(out, text, len);
@@ -199,38 +286,11 @@ static inline void sbuf_put_text(sbuf *out, const Py_UCS4 *text, Py_ssize_t len,
     int escape_nbsp = formatter == TH_FMT_WHATWG;
     Py_ssize_t index = 0;
     while (index < len) {
-        Py_ssize_t start = index;
-        Py_ssize_t special = -1;
-        while (index + SBUF_SCAN_STEP <= len) {
-            if (sbuf_block_has_special(&text[index], escape_quote, escape_nbsp)) {
-                break;
-            }
-            index += SBUF_SCAN_STEP;
+        Py_ssize_t special = sbuf_find_special(text, index, len, escape_quote, escape_nbsp);
+        if (special > index) {
+            sbuf_put_run(out, &text[index], special - index);
         }
-        while (index + UCS4_LANES <= len) {
-            uint64_t word;
-            memcpy(&word, &text[index], sizeof(word));
-            if (sbuf_special_mask(word, escape_quote, escape_nbsp) != 0) {
-                uint64_t ordered = (uint64_t)text[index] | ((uint64_t)text[index + 1] << 32);
-                uint64_t omask = sbuf_special_mask(ordered, escape_quote, escape_nbsp);
-                special = index + (Py_ssize_t)((omask & 0x80000000ULL) == 0);
-                break;
-            }
-            index += UCS4_LANES;
-        }
-        if (special < 0 && index < len) {
-            /* one code point trails the last full pair; pad with a non-special
-               lane so the same mask probe classifies it without a buffer overread */
-            uint64_t word = (uint64_t)text[index];
-            if (sbuf_special_mask(word, escape_quote, escape_nbsp) != 0) {
-                special = index;
-            }
-        }
-        Py_ssize_t stop = special < 0 ? len : special;
-        if (stop > start) {
-            sbuf_put_run(out, &text[start], stop - start);
-        }
-        if (special < 0) {
+        if (special == len) {
             break;
         }
         sbuf_put_special(out, text[special], formatter);

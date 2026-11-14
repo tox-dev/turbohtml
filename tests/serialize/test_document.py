@@ -8,7 +8,7 @@ import sys
 import textwrap
 from dataclasses import dataclass
 from html.entities import codepoint2name
-from itertools import product
+from itertools import combinations_with_replacement, product
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Protocol, cast
 from xml.etree import (  # ruff:ignore[suspicious-xml-etree-import]  # parsing turbohtml's own output, not untrusted input
@@ -248,6 +248,33 @@ def test_html_serialization(find: Callable[[str, str], Element], html: str, sele
 )
 def test_text_is_escaped_in_html(find: Callable[[str, str], Element], source: str, expected: str) -> None:
     assert find(f"<p>{source}</p>", "p").html == f"<p>{expected}</p>"
+
+
+@pytest.mark.parametrize("length", range(1, 18))
+@pytest.mark.parametrize(
+    ("char", "formatter", "escaped"),
+    [
+        pytest.param("&", Formatter.WHATWG, "&amp;", id="amp"),
+        pytest.param("<", Formatter.WHATWG, "&lt;", id="lt"),
+        pytest.param(">", Formatter.WHATWG, "&gt;", id="gt"),
+        pytest.param('"', Formatter.WHATWG, '"', id="quot"),
+        pytest.param("\r", Formatter.WHATWG, "&#13;", id="cr"),
+        pytest.param("\r", Formatter.MINIMAL, "&#13;", id="cr-minimal"),
+        pytest.param("\xa0", Formatter.WHATWG, "&nbsp;", id="nbsp"),
+        pytest.param("\xa0", Formatter.MINIMAL, "\xa0", id="nbsp-minimal"),
+    ],
+)
+def test_special_escaped_at_every_offset(char: str, formatter: Formatter, escaped: str, length: int) -> None:
+    # the clean-run scan takes a different path for runs under four, four to seven, and eight or more code points
+    filler = "a1é\U0001f600"
+    for first, second in combinations_with_replacement(range(length), 2):
+        value = "".join(char if index in {first, second} else filler[index % 4] for index in range(length))
+        element = Element("p")
+        element.attrs["title"] = value
+        element.append(Text(value))
+        text = "".join(escaped if character == char else character for character in value)
+        attribute = text.replace('"', "&quot;")
+        assert element.serialize(Html(formatter=formatter)) == f'<p title="{attribute}">{text}</p>'
 
 
 @pytest.mark.parametrize(
