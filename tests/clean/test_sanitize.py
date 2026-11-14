@@ -3,9 +3,9 @@ from __future__ import annotations
 import gc
 import json
 import re
-import time
 import weakref
 from dataclasses import dataclass, replace
+from functools import partial
 from html import escape
 from pathlib import Path
 from types import MappingProxyType
@@ -35,6 +35,8 @@ from turbohtml.migration.bleach import clean
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
+
+    from work_steps import WorkSteps
 
     from turbohtml import Node
 
@@ -2536,22 +2538,13 @@ def test_annotation_xml_encoding_selects_integration_point(html: str, expected: 
         pytest.param(' encoding="application/xhtml+xml"', id="application-xhtml-xml"),
     ],
 )
-def test_annotation_xml_integration_check_is_linear_in_children(encoding: str) -> None:
-    # The sanitizer asks whether an annotation-xml parent is an integration point for each child, and that answer used
-    # to rescan the parent's attributes each time. The control closes the element before the children, so it pays the
-    # same attribute costs without the per-child check. The floor keeps a fast control from inflating the ratio.
-    count: Final = 40_000
-    attributes = " ".join(f"a{index}" for index in range(count))
-    open_tag = f"<math><annotation-xml {attributes}{encoding}>"
-    children = "<i>x</i>" * count
-    control = min(_sanitize_seconds(f"{open_tag}</annotation-xml>{children}") for _ in range(3))
-    assert min(_sanitize_seconds(f"{open_tag}{children}") for _ in range(3)) < 10 * max(control, 0.01)
+def test_annotation_xml_integration_check_is_linear_in_children(encoding: str, work_steps: WorkSteps) -> None:
+    def markup(count: int) -> str:
+        attributes = " ".join(f"a{index}" for index in range(count))
+        return f"<math><annotation-xml {attributes}{encoding}>{'<i>x</i>' * count}"
 
-
-def _sanitize_seconds(markup: str) -> float:
-    start = time.perf_counter()
-    sanitize(markup)
-    return time.perf_counter() - start
+    work_steps.assert_linear(lambda n: partial(sanitize, markup(n)), (500, 2000))
+    assert work_steps(partial(sanitize, markup(500))) >= 500
 
 
 _ANNOTATION_TAGS: Final[frozenset[str]] = frozenset({"math", "annotation-xml", "style", "b"})
