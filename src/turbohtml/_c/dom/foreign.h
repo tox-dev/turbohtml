@@ -340,10 +340,9 @@ static int token_has_attr(const th_token *token, const char *name) {
 }
 
 static void pop_foreign_elements(th_tree *tree) {
-    while (tree->open_len > 0) { /* GCOVR_EXCL_BR_LINE: the html root keeps the stack nonempty */
+    while (tree->open_len > 1) {
         th_node *cur = current_node(tree);
-        if (cur->ns == TH_NS_HTML || is_mathml_text_integration(cur) || is_html_integration(cur) ||
-            cur == tree->fragment_root) {
+        if (cur->ns == TH_NS_HTML || is_mathml_text_integration(cur) || is_html_integration(cur)) {
             return;
         }
         stack_pop(tree);

@@ -3183,6 +3183,74 @@ def test_sanitize_nested_option_under_kept_container_matches_string_path(contain
     )
 
 
+_NESTED_OPTION_CASES: Final[list[pytest.ParameterSet]] = [
+    pytest.param(
+        "<option><table><optgroup><option>x<option>y",
+        Policy(tags=frozenset({"option", "optgroup", "table"})),
+        "<option>&lt;optgroup&gt;&lt;option&gt;x&lt;option&gt;y<table></table></option>",
+        id="option-run-behind-escaped-optgroup",
+    ),
+    pytest.param(
+        "<option><table><optgroup><optgroup><option>x",
+        Policy(tags=frozenset({"option", "optgroup", "table"})),
+        "<option>&lt;optgroup&gt;&lt;optgroup&gt;&lt;option&gt;x<table></table></option>",
+        id="optgroup-chain-behind-escaped-optgroup",
+    ),
+    pytest.param(
+        "<option><table><optgroup><option><select>",
+        Policy(tags=frozenset({"option", "optgroup", "table", "select"})),
+        "<option>&lt;optgroup&gt;&lt;option&gt;<select></select><table></table></option>",
+        id="option-with-select-behind-escaped-optgroup",
+    ),
+    pytest.param(
+        "<option><td><table><optgroup><option>x",
+        Policy(tags=frozenset({"option", "optgroup", "table", "td"})),
+        "<option>&lt;optgroup&gt;&lt;option&gt;x<table></table></option>",
+        id="option-behind-escaped-optgroup-in-cell-context",
+    ),
+    pytest.param(
+        "<option><table><optgroup><option><td>x",
+        Policy(tags=frozenset({"option", "optgroup", "table", "td", "tr", "tbody"})),
+        "<option>&lt;optgroup&gt;&lt;option&gt;<table><tbody><tr><td>x</td></tr></tbody></table></option>",
+        id="cell-under-nested-option",
+    ),
+    pytest.param(
+        "<optgroup><option><table><optgroup><option>x",
+        Policy(tags=frozenset({"option", "optgroup", "table"})),
+        "<optgroup><option>&lt;optgroup&gt;&lt;option&gt;x<table></table></option></optgroup>",
+        id="option-behind-escaped-optgroup-in-optgroup",
+    ),
+    pytest.param(
+        "<option><table><optgroup><option>x",
+        Policy(tags=frozenset({"option", "optgroup"}), on_disallowed_tag=OnDisallowed.STRIP),
+        "<option>&lt;optgroup&gt;&lt;option&gt;x</option>",
+        id="option-behind-stripped-table",
+    ),
+    pytest.param(
+        "<option><table><optgroup><option>x",
+        Policy(tags=frozenset({"option", "optgroup"}), on_disallowed_tag=OnDisallowed.REMOVE),
+        "<option>&lt;optgroup&gt;&lt;option&gt;x</option>",
+        id="option-behind-removed-table",
+    ),
+    pytest.param(
+        "<option><table><optgroup><option>x",
+        Policy(tags=frozenset({"option", "optgroup", "select"})),
+        "<option>&lt;optgroup&gt;&lt;option&gt;x&lt;table&gt;</option>",
+        id="option-behind-escaped-optgroup-table-escaped",
+    ),
+]
+
+
+@pytest.mark.parametrize(("payload", "policy", "expected"), _NESTED_OPTION_CASES)
+def test_nested_option_output_is_parse_stable(payload: str, policy: Policy, expected: str) -> None:
+    assert (
+        sanitize(payload, policy),
+        sanitize_node(parse_fragment(payload), policy).inner_html,
+        sanitize(expected, policy),
+        parse_fragment(expected).inner_html,
+    ) == (expected,) * 4
+
+
 @pytest.mark.parametrize(("payload", "policy", "expected"), _PARSE_STABLE_CASES)
 def test_parse_stable_output_matches_exactly(payload: str, policy: Policy, expected: str) -> None:
     assert sanitize(payload, policy) == expected

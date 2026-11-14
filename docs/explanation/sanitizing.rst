@@ -104,9 +104,9 @@ MathML.
 
 A balancer closes it. It escapes to inert text any kept element the output would not re-parse to its place, and moves
 non-whitespace table text out of the table, where a browser puts it. The rules are a browser's own: implied end tags and
-the list-item, option, select, button, heading, ruby, and block auto-close; the form-element pointer; ``a`` and ``nobr``
-re-entry; foster parenting, the implied ``tbody``/``tr``/``colgroup`` wrappers, and what a table or ``colgroup`` keeps,
-a hidden ``input`` included; the foreign-content integration points.
+the list-item, option and optgroup, select, button, heading, ruby, and block auto-close; the form-element pointer; ``a``
+and ``nobr`` re-entry; foster parenting, the implied ``tbody``/``tr``/``colgroup`` wrappers, and what a table or
+``colgroup`` keeps, a hidden ``input`` included; the foreign-content integration points.
 
 One difference remains: whitespace-only text inside a ``form`` that sits directly in a table can re-parse one position
 over, as the form's sibling. XML output skips the balancer, since the XML serializer round-trips through
