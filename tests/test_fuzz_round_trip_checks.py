@@ -576,7 +576,8 @@ def test_selector_entry_check_skips_an_invalid_selector() -> None:
 
 def test_selector_entry_check_skips_a_translation_nested_too_deeply() -> None:
     # the selector parser nests deeper than the XPath parser, which refuses the translation as its evaluator would
-    selector = f"{':not(' * 90}p{')' * 90}"
+    depth = 64 + 26
+    selector = f"{':is(' * depth}p{')' * depth}"
     with pytest.raises(OutOfScopeError):
         selector_entry_check(json.dumps({"html": "<p>x</p>", "css": selector}))
 

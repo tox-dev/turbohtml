@@ -1238,13 +1238,13 @@ def test_moderately_nested_expression_still_evaluates(doc: turbohtml.Node) -> No
 @pytest.mark.parametrize(
     ("opening", "innermost", "closing"),
     [
-        pytest.param("self::node()[", "1", "]", id="step-predicate"),
-        pytest.param("(.)[", "1", "]", id="filter-predicate"),
-        pytest.param("(", ".", ")/self::node()", id="path-base"),
-        pytest.param("count(self::node()[", "1", "])", id="function-over-predicate"),
-        pytest.param("not(", "1", ")", id="function-argument"),
-        pytest.param("(1+", "1", ")", id="operator"),
-        pytest.param("-", "1", "", id="unary-minus"),
+        pytest.param("descendant-or-self::node()[", "true()", "]", id="step-predicate"),
+        pytest.param("(self::node())[", "true()", "]", id="filter-predicate"),
+        pytest.param("(", "self::node()", ")/descendant-or-self::node()", id="path-base"),
+        pytest.param("count(ancestor-or-self::node()[", "true()", "])", id="function-over-predicate"),
+        pytest.param("boolean(", "true()", ")", id="function-argument"),
+        pytest.param("(2*", "3", ")", id="operator"),
+        pytest.param("-(", "1", ")", id="unary-minus"),
     ],
 )
 def test_nesting_the_cap_admits_fits_a_small_thread_stack(opening: str, innermost: str, closing: str) -> None:
@@ -1257,7 +1257,7 @@ def test_nesting_the_cap_admits_fits_a_small_thread_stack(opening: str, innermos
         "opening, innermost, closing = sys.argv[1:]\n"
         "evaluated = []\n"
         "def run():\n"
-        "    for depth in (*range(1, 70), 250, 500, 900):\n"
+        "    for depth in (*range(1, 64 + 7), *(64 * scale for scale in (4, 9, 15))):\n"
         "        try:\n"
         "            doc.xpath(opening * depth + innermost + closing * depth)\n"
         "        except ValueError as error:\n"
