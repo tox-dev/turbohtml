@@ -350,27 +350,63 @@ static int xhtml_inherit_prefix(sbuf *out, th_tree *tree, th_node *node, const c
     return 1;
 }
 
-/* 1 when the start tag already carried this prefix, 0 the first time, -1 on allocation failure. The set is created on
-   first use so tags without prefixed attributes allocate nothing; a lookup there keeps the tag linear in its attribute
-   count, where rescanning the earlier attributes is quadratic. */
-static int xhtml_prefix_seen(PyObject **seen, const char *prefix, Py_ssize_t prefix_len) {
-    if (*seen == NULL) {
-        *seen = PySet_New(NULL);
-        if (*seen == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
-            return -1;       /* GCOVR_EXCL_LINE: allocation failure */
-        }
-    }
+enum { XHTML_INLINE_PREFIXES = 8 };
+
+typedef struct {
+    const char *names[XHTML_INLINE_PREFIXES];
+    Py_ssize_t lengths[XHTML_INLINE_PREFIXES];
+    Py_ssize_t inline_count;
+    PyObject *overflow;
+} xhtml_prefix_set;
+
+/* 1 when the key was new, 0 when the set already held it, -1 on allocation failure. */
+static int xhtml_prefix_set_add(PyObject *set, const char *prefix, Py_ssize_t prefix_len) {
     PyObject *key = PyBytes_FromStringAndSize(prefix, prefix_len);
     if (key == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
         return -1;     /* GCOVR_EXCL_LINE: allocation failure */
     }
-    Py_ssize_t before = PySet_GET_SIZE(*seen);
-    int added = PySet_Add(*seen, key);
+    Py_ssize_t before = PySet_GET_SIZE(set);
+    int added = PySet_Add(set, key);
     Py_DECREF(key);
     if (added < 0) { /* GCOVR_EXCL_BR_LINE: a bytes insert only fails on allocation failure */
         return -1;   /* GCOVR_EXCL_LINE: allocation failure */
     }
-    return PySet_GET_SIZE(*seen) == before;
+    return PySet_GET_SIZE(set) > before;
+}
+
+/* 1 when the start tag already carried this prefix, 0 the first time, -1 on allocation failure. The first eight
+   distinct prefixes are compared in place, so an ordinary start tag allocates nothing. A tag with more moves them into
+   a set once, which keeps the work linear in its attribute count. */
+static int xhtml_prefix_seen(xhtml_prefix_set *handled, const char *prefix, Py_ssize_t prefix_len) {
+    for (Py_ssize_t index = 0; index < handled->inline_count; index++) {
+        if (handled->lengths[index] == prefix_len && memcmp(handled->names[index], prefix, (size_t)prefix_len) == 0) {
+            return 1;
+        }
+    }
+    if (handled->overflow == NULL && handled->inline_count < XHTML_INLINE_PREFIXES) {
+        handled->names[handled->inline_count] = prefix;
+        handled->lengths[handled->inline_count] = prefix_len;
+        handled->inline_count++;
+        return 0;
+    }
+    if (handled->overflow == NULL) {
+        handled->overflow = PySet_New(NULL);
+        if (handled->overflow == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+            return -1;                   /* GCOVR_EXCL_LINE: allocation failure */
+        }
+        for (Py_ssize_t index = 0; index < handled->inline_count; index++) {
+            int added = xhtml_prefix_set_add(handled->overflow, handled->names[index], handled->lengths[index]);
+            if (added < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+                return -1;   /* GCOVR_EXCL_LINE: allocation failure */
+            }
+        }
+        handled->inline_count = 0;
+    }
+    int added = xhtml_prefix_set_add(handled->overflow, prefix, prefix_len);
+    if (added < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure */
+        return -1;   /* GCOVR_EXCL_LINE: allocation failure */
+    }
+    return !added;
 }
 
 static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *element) {
@@ -379,7 +415,6 @@ static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *elem
     Py_ssize_t tag_prefix_len = 0;
     const char *tag_prefix = NULL;
     PyObject *tag_prefix_owner = NULL;
-    PyObject *seen_prefixes = NULL;
     if (element->text == node->text) {
         for (Py_ssize_t index = 0; index < element->text_len; index++) {
             if (element->text[index] == ':') {
@@ -400,6 +435,9 @@ static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *elem
             }
         }
     }
+    xhtml_prefix_set handled;
+    handled.inline_count = 0;
+    handled.overflow = NULL;
     for (Py_ssize_t index = 0; index < element->attr_count; index++) {
         th_node_attr *attr = &element->attrs[index];
         Py_ssize_t name_len;
@@ -409,14 +447,14 @@ static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *elem
             Py_ssize_t prefix_len = colon - name;
             int already_bound = tag_prefix_len == prefix_len && memcmp(tag_prefix, name, (size_t)prefix_len) == 0;
             if (!already_bound) {
-                int seen = xhtml_prefix_seen(&seen_prefixes, name, prefix_len);
+                int seen = xhtml_prefix_seen(&handled, name, prefix_len);
                 if (seen < 0) {                   /* GCOVR_EXCL_BR_LINE: allocation failure */
-                    Py_XDECREF(seen_prefixes);    /* GCOVR_EXCL_LINE: allocation failure */
+                    Py_XDECREF(handled.overflow); /* GCOVR_EXCL_LINE: allocation failure */
                     Py_XDECREF(tag_prefix_owner); /* GCOVR_EXCL_LINE: allocation failure */
                     return -1;                    /* GCOVR_EXCL_LINE: allocation failure */
                 }
                 if (!seen && xhtml_inherit_prefix(out, tree, node, name, prefix_len)) {
-                    Py_DECREF(seen_prefixes);
+                    Py_XDECREF(handled.overflow);
                     Py_XDECREF(tag_prefix_owner);
                     return 1;
                 }
@@ -428,7 +466,7 @@ static int xhtml_open_tag(sbuf *out, th_tree *tree, th_node *node, th_node *elem
         sbuf_put_xml_text(out, attr->value, attr->value_len, 1);
         sbuf_putc(out, '"');
     }
-    Py_XDECREF(seen_prefixes);
+    Py_XDECREF(handled.overflow);
     Py_XDECREF(tag_prefix_owner);
     return 0;
 }
