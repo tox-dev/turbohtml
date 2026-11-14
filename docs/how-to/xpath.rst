@@ -37,6 +37,11 @@ descendants of the context node. For a node outside any document, such as an ele
 held by a ``DocumentFragment``, the root is the top of that node's own tree, as DOM's ``getRootNode()`` defines it.
 Migrating from ``lxml``, ``parsel``, or ``pyquery`` keeps your existing expressions.
 
+An expression nests at most 64 levels and raises :class:`ValueError` past that, so the C stack it needs fits the
+smallest thread stacks. Each parenthesized group, unary minus and operator in an arithmetic or comparison chain counts
+one level, and a function call, a location path and a predicate count one more each. Chains of ``and``, ``or`` and ``|``
+count once however long they are.
+
 Two functions read the HTML document the way HTML means it, where ``lxml``'s legacy HTML parser returns nothing:
 ``lang()`` honors the HTML ``lang`` attribute (``lxml`` only consults ``xml:lang``), and ``namespace-uri()`` reports the
 real SVG and MathML namespace for foreign content (``lxml`` leaves it empty). HTML elements report no namespace in both,
