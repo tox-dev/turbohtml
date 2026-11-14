@@ -178,3 +178,5 @@ so a whole document reads back without locating each ``<table>`` first:
 - No I/O or flavors. ``read_html`` fetches URLs and picks an ``lxml``/``bs4`` parser; turbohtml parses markup you
   already hold with the one WHATWG algorithm, so fetch the page (e.g. with :mod:`urllib.request`) and pass the bytes to
   :func:`turbohtml.parse`.
+- :meth:`~turbohtml.Node.tables` raises :class:`ValueError` when nested tables repeat more than 16,000,000 characters of
+  cell text in one call. Read such a page one table at a time with :meth:`~turbohtml.Element.rows`.
