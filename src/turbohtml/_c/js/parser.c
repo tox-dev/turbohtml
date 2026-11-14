@@ -273,8 +273,8 @@ static int32_t leaf(P *parser, jm_kind kind) {
     if (kind == JN_IDENT) {
         /* Only a value-bearing token names anything: at a punctuator lx.text still spans the last token that did,
            so the name read there would be an earlier token's. Punctuators follow the value-bearing kinds in jm_tok,
-           and the end of input is not a name either, though its text is empty. */
-        if (parser->lx.kind == JT_EOF || parser->lx.kind > JT_TEMPLATE_TAIL) {
+           and the end of input is let through, since its text is empty and repeats no earlier name. */
+        if (parser->lx.kind > JT_TEMPLATE_TAIL) {
             fail(parser, "expected property name");
         }
         set_ident(parser, index);

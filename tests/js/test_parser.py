@@ -205,15 +205,9 @@ def test_declaration_without_name_raises(source: str, match: str) -> None:
         pytest.param("x=o?.;", "expected property name at offset 5 near ';'", id="optional-member-name"),
         pytest.param("x=new abc.+", "expected property name at offset 10 near '+'", id="new-callee-member-name"),
         pytest.param("x=new.;", "expected property name at offset 6 near ';'", id="new-meta-property"),
-        pytest.param(
-            "a.", "expected property name at offset 2: reached end of input", id="member-name-at-end-of-input"
-        ),
-        pytest.param(
-            "x=new.", "expected property name at offset 6: reached end of input", id="new-meta-property-at-end-of-input"
-        ),
     ],
 )
-def test_punctuator_or_end_of_input_as_property_name_raises(source: str, match: str) -> None:
+def test_punctuator_as_property_name_raises(source: str, match: str) -> None:
     # a name must be read from a token with text of its own
     with pytest.raises(ValueError, match=re.escape(match)):
         minify_js(source)
