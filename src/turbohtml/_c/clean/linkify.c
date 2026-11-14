@@ -740,6 +740,20 @@ static Py_ssize_t skip_ucs4(const Py_UCS4 *points, Py_ssize_t pos, Py_ssize_t le
     return pos;
 }
 
+/* With phone detection on, th_phone_parse refuses a tel: payload over TH_PHONE_MAX_PARSE_CHARS, so the walk stops one
+   past that limit: otherwise each tel: in a run walks to the end of the run. */
+static Py_ssize_t scheme_less_len(const scan_view *scan, Py_ssize_t colon) {
+    Py_ssize_t bound = colon + 1 + TH_PHONE_MAX_PARSE_CHARS + 1;
+    if (scan->phone == NULL || bound >= scan->len) {
+        return scan->len;
+    }
+    Py_ssize_t scheme_start = scan_scheme_start(scan->kind, scan->data, colon, scan->resume);
+    if (scheme_start < 0 || !scheme_is(scan->kind, scan->data, scheme_start, colon, "tel", 3)) {
+        return scan->len;
+    }
+    return bound;
+}
+
 static TH_FORCEINLINE int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssize_t pos, Py_ssize_t *start,
                                         Py_ssize_t *end, enum th_link_kind *link_kind, th_phone_match *number) {
     int kind = scan->kind;
@@ -755,7 +769,7 @@ static TH_FORCEINLINE int match_trigger(const scan_view *scan, Py_UCS4 c, Py_ssi
         }
         *link_kind = TH_LINK_SCHEME;
         if (scan->schemes == NULL ||
-            !match_scheme_less(kind, data, pos, scan->resume, scan->len, start, end, scan->schemes)) {
+            !match_scheme_less(kind, data, pos, scan->resume, scheme_less_len(scan, pos), start, end, scan->schemes)) {
             return 0;
         }
         /* a written tel: URI links only when its payload reads as a number, so `tel:not-a-number` stays text */

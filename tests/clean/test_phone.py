@@ -4,6 +4,7 @@ import copy
 import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping our own trusted payloads
 import random
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from typing import Final, TypedDict
@@ -1102,6 +1103,56 @@ def test_rewrite_leaves_a_tel_uri_without_a_number_alone() -> None:
 )
 def test_long_address_chains_scan_in_bounded_time(text: str, count: int) -> None:
     assert len(LinkDetector(phones=_PHONE_RUNS_US).find(text)) == count
+
+
+# A ratio to a same-size scan without triggers holds across machines, where absolute seconds would not.
+def test_a_chain_of_tel_uris_without_a_number_scans_in_linear_time() -> None:
+    detector = LinkDetector(phones=_PHONE_RUNS_US)
+    start = time.process_time()
+    repetitions = 32768
+    assert detector.find("tel:" * repetitions) == []
+    chain_seconds = time.process_time() - start
+    start = time.process_time()
+    detector.find("tel;" * repetitions)
+    reference_seconds = time.process_time() - start
+    assert chain_seconds / max(reference_seconds, 0.01) < 60
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param(f"tel:{'-' * 238}+16502530000 {'x' * 300}", [(0, 254)], id="payload-at-the-parse-limit"),
+        pytest.param(f"tel:{'-' * 239}+16502530000 {'x' * 300}", [(243, 255)], id="payload-over-the-parse-limit"),
+        pytest.param(f"tel:+16502530000{'.' * 300}x", [(0, 16)], id="punctuation-past-the-parse-limit"),
+        pytest.param(f"tel:+16502530000({'a' * 300})", [(0, 16)], id="bracket-closed-past-the-parse-limit"),
+    ],
+)
+def test_written_tel_uri_reads_its_payload_within_the_parse_limit(text: str, expected: list[tuple[int, int]]) -> None:
+    assert [(span.start, span.end) for span in LinkDetector(phones=_PHONE_RUNS_US).find(text)] == expected
+
+
+@pytest.mark.parametrize(
+    ("detector", "text", "expected"),
+    [
+        pytest.param(
+            LinkDetector(schemes=("bitcoin",), phones=_PHONE_RUNS_US),
+            f"bitcoin:{'a' * 300}",
+            [(0, 308)],
+            id="another-scheme-reads-past-the-parse-limit",
+        ),
+        pytest.param(
+            LinkDetector(schemes=("tel",)),
+            f"tel:{'a' * 300}",
+            [(0, 304)],
+            id="tel-without-phones-reads-past-the-parse-limit",
+        ),
+        pytest.param(LinkDetector(phones=_PHONE_RUNS_US), f":{'a' * 300}", [], id="colon-without-a-scheme"),
+    ],
+)
+def test_scheme_less_urls_read_past_the_parse_limit(
+    detector: LinkDetector, text: str, expected: list[tuple[int, int]]
+) -> None:
+    assert [(span.start, span.end) for span in detector.find(text)] == expected
 
 
 @pytest.mark.parametrize(
