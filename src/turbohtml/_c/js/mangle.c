@@ -212,6 +212,7 @@ typedef struct {
                             free `arguments` read names (-1 at the top level) */
     int32_t catch_depth; /* enclosing catch bodies: only a var inside one can name a catch parameter */
     int32_t stmt;        /* the innermost enclosing expression, return or throw statement (-1 outside one) */
+    int track_stmt;      /* a regex literal was parsed, so reads record their statement (see walk) */
     int poisoned;        /* a with / eval was seen: stop renaming entirely */
     int failed;
 } M;
@@ -401,6 +402,7 @@ static void hoist_block(M *mangler, int32_t first, int32_t scope) {
 }
 
 static void walk(M *mangler, int32_t idx, int32_t scope, int bind);
+static void walk_stmt(M *mangler, int32_t idx, int32_t scope);
 
 /* A `var` in a catch block may name the catch parameter (Annex B.3.4): it binds the enclosing function's var while
    its initializer assigns the parameter, so the statement declares one binding and writes another. Pin both: they
@@ -560,7 +562,9 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
             if (bind == 0) { /* a read reference */
                 mangler->prog->syms[sym].refs++;
                 mangler->prog->syms[sym].ref_node = idx;
-                mangler->prog->syms[sym].ref_stmt = mangler->stmt;
+                if (mangler->track_stmt) {
+                    mangler->prog->syms[sym].ref_stmt = mangler->stmt;
+                }
                 if (mangler->prog->syms[sym].refs == 1) {
                     mangler->prog->syms[sym].ref_scope = scope;
                 } else if (mangler->prog->syms[sym].ref_scope != scope) {
@@ -589,16 +593,12 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
         return;
     case JN_EXPR_STMT:
     case JN_RETURN:
-    case JN_THROW: {
-        /* the kinds single_shot_stmt accepts: a read below records this statement as its ref_stmt, so
-           whether a binding's one read sits in the statement after its declaration is a comparison
-           rather than a search of that statement per binding */
-        int32_t outer = mangler->stmt;
-        mangler->stmt = idx;
-        walk(mangler, node->a, scope, 0);
-        mangler->stmt = outer;
-        return;
-    }
+    case JN_THROW:
+        if (mangler->track_stmt) { /* the kinds single_shot_stmt accepts, recorded as the ref_stmt of their reads */
+            walk_stmt(mangler, idx, scope);
+            return;
+        }
+        break;
     case JN_BLOCK:
         walk_block(mangler, node->a, scope);
         return;
@@ -876,6 +876,15 @@ static void walk(M *mangler, int32_t idx, int32_t scope, int bind) {
     walk(mangler, node->b, scope, bind);
     walk(mangler, node->c, scope, bind);
     walk(mangler, node->d, scope, bind);
+}
+
+/* A read below records this statement as its ref_stmt, so whether a binding's one read sits in the statement after
+   its declaration is a comparison rather than a search of that statement per binding. */
+static void walk_stmt(M *mangler, int32_t idx, int32_t scope) {
+    int32_t outer = mangler->stmt;
+    mangler->stmt = idx;
+    walk(mangler, mangler->prog->nodes[idx].a, scope, 0);
+    mangler->stmt = outer;
 }
 
 /* Whether name is a reserved word or a name that must not be reused: a free name, or
@@ -1636,6 +1645,7 @@ static int32_t analyze(M *mangler, jm_program *prog) {
     mangler->global = global;
     mangler->args_scope = -1;
     mangler->stmt = -1;
+    mangler->track_stmt = prog->has_regex;
     int32_t stmts = prog->nodes[prog->root].a;
     hoist_vars(mangler, stmts, global);
     hoist_block(mangler, stmts, global);

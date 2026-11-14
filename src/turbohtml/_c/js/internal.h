@@ -353,6 +353,7 @@ typedef struct jm_program {
 
     int shadows_undefined; /* some binding is named `undefined`, so the fold pass must check each read */
     int resolved;          /* every identifier carries its symbol from a with/eval-free resolution */
+    int has_regex;         /* a regex literal was parsed: only then can a binding be initialized to one */
 
     int failed;     /* sticky allocation failure: the minifier raises MemoryError instead of printing the tree */
     int *parse_err; /* the parser's error flag while jm_parse runs, else NULL: a failed node allocation stops the
