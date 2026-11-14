@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Final, cast
 
 import pytest
@@ -1055,6 +1056,33 @@ def test_feed_atom_xhtml_unbound_attribute_prefix_falls_back() -> None:
     )
     del document.select("feed")[0].attrs["xmlns:s"]
     assert cast("Feed", document.feed()).title == "text"
+
+
+def test_feed_atom_xhtml_prefixed_attributes_parse_in_linear_time() -> None:
+    prefixes: Final = [f"p{index}" for index in range(10)]
+    attributes: Final = {prefix: "".join(f' {prefix}:a{index}=""' for index in range(1500)) for prefix in prefixes}
+    declarations: Final = "".join(f' xmlns:{prefix}="urn:{prefix}"' for prefix in prefixes)
+    head: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><title type="xhtml">'
+        f'<div xmlns="http://www.w3.org/1999/xhtml"{declarations}><b'
+    )
+    tail: Final = "/></div></title></feed>"
+    prefixed_xml: Final = head + "".join(attributes.values()) + tail
+    expected_attributes: Final = "".join(f' xmlns:{prefix}="urn:{prefix}"{attributes[prefix]}' for prefix in prefixes)
+    assert parse_feed(prefixed_xml).title == f"<b{expected_attributes}></b>"
+    # Rescanning earlier attributes per prefix is quadratic in the attribute count. The same tag with the prefixes
+    # removed from its attribute names skips that lookup, so it is the baseline.
+    plain_xml: Final = head + "".join(attributes.values()).replace(":", "_") + tail
+    prefixed_seconds: Final = min(_parse_seconds(prefixed_xml) for _ in range(3))
+    plain_seconds: Final = min(_parse_seconds(plain_xml) for _ in range(3))
+    # Timings under a few milliseconds are noise, so the baseline is floored at 5 ms.
+    assert prefixed_seconds <= 10 * max(plain_seconds, 0.005)
+
+
+def _parse_seconds(xml: str) -> float:
+    start: Final = time.perf_counter()
+    parse_feed(xml)
+    return time.perf_counter() - start
 
 
 def test_feed_atom_xhtml_escapes_markup_text_and_attributes() -> None:
