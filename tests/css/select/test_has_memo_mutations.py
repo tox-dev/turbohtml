@@ -48,9 +48,7 @@ def _insert(walk: _Walk) -> None:
 
 
 def _extract_reattach(walk: _Walk) -> None:
-    node: Final = _pick(walk)
-    if node.parent is not None:
-        _pick(walk).append(node.extract())
+    _pick(walk).append(_pick(walk).extract())
 
 
 def _set_inner_html(walk: _Walk) -> None:
@@ -58,33 +56,23 @@ def _set_inner_html(walk: _Walk) -> None:
 
 
 def _insert_before(walk: _Walk) -> None:
-    node: Final = _pick(walk)
-    if node.parent is not None:
-        node.insert_before(_tag(walk))
+    _pick(walk).insert_before(_tag(walk))
 
 
 def _replace_with(walk: _Walk) -> None:
-    node: Final = _pick(walk)
-    if node.parent is not None:
-        node.replace_with(_tag(walk))
+    _pick(walk).replace_with(_tag(walk))
 
 
 def _wrap(walk: _Walk) -> None:
-    node: Final = _pick(walk)
-    if node.parent is not None:
-        node.wrap(_tag(walk))
+    _pick(walk).wrap(_tag(walk))
 
 
 def _unwrap(walk: _Walk) -> None:
-    node: Final = _pick(walk)
-    if node.parent is not None:
-        node.unwrap()
+    _pick(walk).unwrap()
 
 
 def _detach(walk: _Walk) -> None:
-    node: Final = _pick(walk)
-    if node.parent is not None:
-        walk.detached = node.extract()
+    walk.detached = _pick(walk).extract()
 
 
 def _copy_attach(walk: _Walk) -> None:
@@ -111,9 +99,8 @@ def _view_mutate(walk: _Walk) -> None:
     view: Final = ElementView(_pick(walk))
     view.append(ElementView(_tag(walk)))
     view.insert(0, ElementView(_tag(walk)))
-    if len(view) > 1:
-        view.remove(view[-1])
-        view.replace(view[0], ElementView(_tag(walk)))
+    view.remove(view[-1])
+    view.replace(view[0], ElementView(_tag(walk)))
 
 
 _OPERATIONS: Final[tuple[Callable[[_Walk], None], ...]] = (
