@@ -326,6 +326,11 @@ static Py_ssize_t scan_authority_host(int kind, const void *data, Py_ssize_t sta
     return scan_host(kind, data, start, len, 0, NULL);
 }
 
+/* Real URL tails nest brackets a handful deep. A walk that finds an unclosed opener keeps reading past the link it
+   returns, so a run of links that each end in one re-reads every later link. The cap bounds how many walks re-read
+   a byte. */
+#define LINK_MAX_BRACKET_DEPTH 32
+
 /* Consume a run of URL tail characters from `begin`, balancing brackets and
    trimming trailing punctuation so a link in prose keeps only what belongs to it.
    Returns the index of the last byte that can legally end the link. Shared by the
@@ -364,6 +369,9 @@ static Py_ssize_t scan_balanced(int kind, const void *data, Py_ssize_t begin, Py
                 break;
             }
             curly--;
+        }
+        if (round + square + curly > LINK_MAX_BRACKET_DEPTH) {
+            break;
         }
         pos++;
         /* a closing bracket or a non-trailing-punctuation byte can end the link;

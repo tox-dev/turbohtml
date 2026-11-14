@@ -268,6 +268,9 @@ bare-domain detection beyond the built-in IANA table, ``schemes`` sets which exp
 to the built-in ``http``/``https``/``ftp`` set, so a typo scheme or a ``javascript://`` payload stays plain text), and
 ``phones`` turns on phone-number detection with ``tel:`` hrefs.
 
+A link keeps the parentheses, brackets and braces that balance inside its path, query and fragment, nested at most 32
+deep. A bracket opened past that depth ends the link before it, as an unclosed bracket does.
+
 .. autofunction:: linkify
 
 :func:`linkify_node` takes an already parsed node and links its text runs in place, so a pipeline of transforms parses

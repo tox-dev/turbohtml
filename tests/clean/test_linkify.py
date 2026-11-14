@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from types import SimpleNamespace
@@ -510,6 +511,46 @@ def test_find_trims_a_trailing_brace_or_apostrophe(text: str) -> None:
 def test_find_keeps_a_balanced_brace_in_the_path() -> None:
     spans = LinkDetector().find("http://example.com/{id}")
     assert _tuples(spans) == [(0, 23, "http://example.com/{id}", "http://example.com/{id}", False)]
+
+
+@pytest.mark.parametrize(
+    "nest",
+    [
+        pytest.param(f"{'(' * 33}x{')' * 33}", id="round"),
+        pytest.param(f"{'[' * 33}x{']' * 33}", id="square"),
+        pytest.param(f"{'{' * 33}x{'}' * 33}", id="curly"),
+        pytest.param(f"{'(' * 11}{'[' * 11}{'{' * 11}x{'}' * 11}{']' * 11}{')' * 11}", id="mixed"),
+    ],
+)
+def test_find_ends_a_link_before_brackets_nested_past_the_depth_cap(nest: str) -> None:
+    spans = LinkDetector().find(f"http://example.com/{nest}")
+    assert _tuples(spans) == [(0, 19, "http://example.com/", "http://example.com/", False)]
+
+
+@pytest.mark.parametrize(
+    "link",
+    [
+        pytest.param("example.org/a[", id="bare-domain"),
+        pytest.param("http://example.org/a[", id="scheme-url"),
+        pytest.param("example.org/\u0101[", id="wide-text"),
+    ],
+)
+def test_links_before_unclosed_brackets_scan_in_linear_time(link: str) -> None:
+    link_run = 4_000
+    # a space after each link ends every walk at its own link, so this run has the same links without re-reads
+    unclosed = _fastest_seconds(link * link_run)
+    separated = _fastest_seconds(f"{link} " * link_run)
+    # the floor keeps a sub-millisecond baseline from inflating the ratio
+    assert unclosed / max(separated, 0.002) < 50
+
+
+def _fastest_seconds(text: str) -> float:
+    timings = []
+    for _ in range(3):
+        start = time.perf_counter()
+        LinkDetector().find(text)
+        timings.append(time.perf_counter() - start)
+    return min(timings)
 
 
 @pytest.mark.parametrize(
