@@ -96,3 +96,14 @@ def test_feed_atom_entry_inherits_feed_author_restored_default_namespace() -> No
     result = feed(xml)
     assert result is not None
     assert result.entries[0].author == "Right"
+
+
+def test_feed_atom_entries_share_inherited_feed_author() -> None:
+    xml: Final = (
+        '<feed xmlns="http://www.w3.org/2005/Atom"><author><name>Feed author</name></author><entry/><entry/></feed>'
+    )
+    result = feed(xml)
+    assert result is not None
+    first, second = result.entries
+    assert first.author == "Feed author"
+    assert second.author is first.author
