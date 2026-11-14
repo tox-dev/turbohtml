@@ -465,6 +465,58 @@ def test_the_text_stage_ignores_dates_outside_the_window() -> None:
     assert dates(html) == PublicationDate("2016-01-13", "text")
 
 
+_TEXT_NESTING: Final[int] = 8
+_MARKUP_ONLY: Final[DateExtraction] = DateExtraction(extensive_search=False)
+_FOUND: Final[PublicationDate] = PublicationDate("2020-01-02", "time")
+
+
+@pytest.mark.parametrize(
+    "depth",
+    [pytest.param(1, id="single"), pytest.param(2, id="pair"), pytest.param(_TEXT_NESTING, id="at-limit")],
+)
+def test_nested_date_elements_each_read_their_text(depth: int) -> None:
+    assert dates(_nested(depth), _MARKUP_ONLY) == _FOUND
+
+
+def _nested(depth: int, opener: str = "<time>") -> str:
+    # every level but the innermost opens with a date before the window, so the walk has to reach the innermost
+    outer = f"{opener}1990-01-01 " * (depth - 1)
+    return f"{outer}{opener}2020-01-02"
+
+
+@pytest.mark.parametrize(
+    "opener",
+    [
+        pytest.param("<time>", id="time"),
+        pytest.param("<div class=date>", id="class"),
+        pytest.param("<div id=posted>", id="id"),
+        pytest.param("<span itemprop=date>", id="itemprop"),
+    ],
+)
+def test_an_element_nested_past_the_limit_does_not_read_its_text(opener: str) -> None:
+    assert dates(_nested(_TEXT_NESTING + 1, opener), _MARKUP_ONLY) is None
+
+
+def test_an_attribute_still_dates_an_element_nested_past_the_limit() -> None:
+    html = f'{"<time>1990-01-01 " * _TEXT_NESTING}<time datetime="2020-01-02">'
+    assert dates(html, _MARKUP_ONLY) == _FOUND
+
+
+def test_an_element_dated_by_its_attribute_does_not_count_as_nesting() -> None:
+    html = '<time datetime="1990-01-01">' * (_TEXT_NESTING + 1) + _nested(_TEXT_NESTING)
+    assert dates(html, _MARKUP_ONLY) == _FOUND
+
+
+def test_nesting_is_counted_per_element_not_per_page() -> None:
+    closed = "<time>1990-01-01 " * _TEXT_NESTING + "</time>" * _TEXT_NESTING
+    assert dates(f"<div>{closed}</div>{closed}<time>2020-01-02</time>", _MARKUP_ONLY) == _FOUND
+    assert dates(f"{closed}<p>then</p>{_nested(_TEXT_NESTING)}", _MARKUP_ONLY) == _FOUND
+
+
+def test_the_text_stage_still_reads_an_element_nested_past_the_limit() -> None:
+    assert dates(_nested(_TEXT_NESTING + 1)) == PublicationDate("2020-01-02", "text")
+
+
 _GOOD: Final[str] = '<meta name="date" content="2016-06-07">'
 """A trailing publication meta that wins whenever the element under test contributes nothing."""
 
