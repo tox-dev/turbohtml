@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import time
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -11,6 +12,7 @@ from turbohtml.build import E
 from turbohtml.cssom import ComputedStyle, RuleList, StyleDeclaration, StyleRule, StyleSheet, computed_style
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from types import ModuleType
 
     from turbohtml import Document
@@ -149,6 +151,56 @@ def test_comment_stripping_tolerates_unterminated_comment_and_string() -> None:
 def test_stylesheet_skips_at_rules() -> None:
     sheet = StyleSheet('@charset "utf-8"; @import url(x.css); @media screen { p { color: red } } q { color: blue }')
     assert [rule.selector_text for rule in sheet.rules] == ["q"]
+
+
+@pytest.mark.parametrize(
+    ("css", "selectors"),
+    [
+        pytest.param("@import 'a'; @import 'b'; p { color: red }", ["p"], id="statements-before-rule"),
+        pytest.param("@a; @media x { b { color: red } } p { color: red }", ["p"], id="statement-then-block"),
+        pytest.param("@media x { b { color: red; } } @a; p { color: red }", ["p"], id="block-then-statement"),
+        pytest.param("@a (;) '{;' [{;}]; p { color: red }", ["p"], id="nested-separators-stay-in-statement"),
+        pytest.param("@a (x) { b { color: red } } ; p { color: red }", ["; p"], id="semicolon-after-block"),
+        pytest.param("p { color: red } @a; q { color: red } @b", ["p", "q"], id="statements-between-rules"),
+    ],
+)
+def test_stylesheet_at_rule_ends_at_first_semicolon_or_block(css: str, selectors: list[str]) -> None:
+    assert [rule.selector_text for rule in StyleSheet(css).rules] == selectors
+
+
+def _stylesheet_selectors(css: str) -> str:
+    return " ".join(rule.selector_text for rule in StyleSheet(css).rules)
+
+
+def _computed_color(css: str) -> str:
+    target = parse(f"<style>{css}</style><p>x</p>").select_one("p")
+    assert isinstance(target, Element)
+    return computed_style(target)["color"]
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        pytest.param(_stylesheet_selectors, "p", id="stylesheet"),
+        pytest.param(_computed_color, "red", id="computed-style"),
+    ],
+)
+def test_statement_at_rules_parse_in_linear_time(entry: Callable[[str], str], expected: str) -> None:
+    statement: Final = "@import url(x);"
+    small: Final = _fastest_seconds(entry, f"{statement * 2_000}p {{ color: red }}", expected)
+    large: Final = _fastest_seconds(entry, f"{statement * 8_000}p {{ color: red }}", expected)
+    # the 0.01 s floor makes this a fixed budget on fast builds and a ratio on slow ones
+    assert large / max(small, 0.01) < 8
+
+
+def _fastest_seconds(entry: Callable[[str], str], css: str, expected: str) -> float:
+    best = float("inf")
+    for _ in range(3):
+        start = time.perf_counter()
+        result = entry(css)
+        best = min(best, time.perf_counter() - start)
+        assert result == expected
+    return best
 
 
 def test_stylesheet_skips_unterminated_at_block_and_trailing_selector() -> None:

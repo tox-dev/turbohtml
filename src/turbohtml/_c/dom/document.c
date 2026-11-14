@@ -2402,6 +2402,68 @@ PyObject *turbohtml_codec_label(PyObject *Py_UNUSED(module), PyObject *name) {
     Py_RETURN_NONE;
 }
 
+/* WHATWG labels for the CPython codecs whose registry names the spec's label table does not carry as written. */
+static const struct {
+    const char *codec;
+    const char *label;
+} CODEC_WHATWG_LABELS[] = {
+    {"big5hkscs", "big5-hkscs"},
+    {"cp874", "windows-874"},
+    {"cp932", "windows-31j"},
+    {"cp949", "windows-949"},
+    {"cp950", "big5"},
+    {"iso2022_jp", "iso-2022-jp"},
+    {"iso8859-16", "iso-8859-16"},
+    {"mac-cyrillic", "x-mac-cyrillic"},
+    {"mac-roman", "x-mac-roman"},
+    {"utf-8-sig", "utf-8"},
+};
+
+/* The label-table entry a codec's registry name resolves to, or NULL when no entry names it. */
+static const th_encoding_entry *codec_label_entry(PyObject *name) {
+    if (!PyUnicode_Check(name)) {
+        return NULL;
+    }
+    const char *codec = PyUnicode_AsUTF8(name);
+    if (codec == NULL) {
+        PyErr_Clear(); /* a name the UTF-8 encoder rejects is one no label names */
+        return NULL;
+    }
+    for (size_t index = 0; index < sizeof(CODEC_WHATWG_LABELS) / sizeof(CODEC_WHATWG_LABELS[0]); index++) {
+        if (strcmp(codec, CODEC_WHATWG_LABELS[index].codec) == 0) {
+            const char *spelled = CODEC_WHATWG_LABELS[index].label;
+            return th_encoding_lookup(spelled, (Py_ssize_t)strlen(spelled));
+        }
+    }
+    size_t len = strlen(codec);
+    char label[64];
+    if (len >= sizeof(label)) {
+        return NULL;
+    }
+    for (size_t index = 0; index <= len; index++) {
+        label[index] = codec[index] == '_' ? '-' : codec[index];
+    }
+    return th_encoding_lookup(label, (Py_ssize_t)len);
+}
+
+/* The WHATWG name a <meta charset> declares for the codec encode() writes, or NULL with no exception set when no label
+   names the codec. UTF-16 has no such name, because the spec rewrites a UTF-16 declaration to UTF-8. */
+const char *meta_charset_label(const char *encoding) {
+    PyObject *name = codec_registry_name(encoding);
+    if (name == NULL) {
+        return NULL;
+    }
+    const th_encoding_entry *entry = codec_label_entry(name);
+    Py_DECREF(name);
+    if (entry == NULL || th_encoding_declared(entry) != entry) {
+        return NULL;
+    }
+    if (entry == &th_encoding_utf8) {
+        return "utf-8"; /* serialize() declares this spelling, so encode() and serialize() agree */
+    }
+    return entry->canonical;
+}
+
 PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {
     static char *keywords[] = {"markup",    "encoding",         "strict",    "detect_encoding",
                                "positions", "source_locations", "scripting", "allow_declarative_shadow_roots",

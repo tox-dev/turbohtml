@@ -65,17 +65,20 @@ typedef struct {
 } th_shadow_link;
 
 /* What maybe_clone_option needs from one select, kept while the tree is built:
-   the enabled descendant selectedcontent elements (the clone destinations) and the
-   option the select shows. */
+   the enabled descendant selectedcontent elements (the clone destinations), the
+   option the select shows, the optgroup option_is_disabled last looked at and whether
+   it carries the disabled attribute, so the next option of that group skips the search. */
 typedef struct {
     th_node *select;
     th_node **targets; /* the enabled descendant selectedcontent elements, the clone destinations */
     th_node *selected; /* the option the select shows, NULL until one closes */
+    const th_node *optgroup;
     Py_ssize_t target_count;
     Py_ssize_t target_cap;
     uint8_t valid;
     uint8_t multiple;
     uint8_t disabled; /* an option, selectedcontent or second select above the select disables its targets */
+    uint8_t optgroup_disabled;
 } th_select_cache;
 
 /* The select caches of one parse, allocated on the first selected-option clone so a
@@ -362,6 +365,8 @@ static inline th_node *node_new(th_tree *tree, enum th_node_type type) {
     return node;
 }
 
+void th_node_mark_ancestors(th_node *node);
+
 static inline void node_append(th_node *parent, th_node *child) {
     child->parent = parent;
     child->prev_sibling = parent->last_child;
@@ -372,6 +377,9 @@ static inline void node_append(th_node *parent, th_node *child) {
         parent->first_child = child;
     }
     parent->last_child = child;
+    if (child->reaches_selectedcontent) {
+        th_node_mark_ancestors(parent);
+    }
 }
 
 /* Detach a node from its current parent (the adoption agency re-parents). */
@@ -411,6 +419,9 @@ static inline void node_insert_before(th_node *parent, th_node *child, th_node *
         parent->first_child = child;
     }
     ref->prev_sibling = child;
+    if (child->reaches_selectedcontent) {
+        th_node_mark_ancestors(parent);
+    }
 }
 
 /* Intern UTF-8 name bytes into the per-tree dynamic table, returning the atom.
