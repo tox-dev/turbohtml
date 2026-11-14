@@ -137,6 +137,7 @@ static Py_ssize_t c14n_xml_prefix_slot(const c14n_xml_scope *scope, uint64_t has
                                        Py_ssize_t name_len) {
     Py_ssize_t slot = (Py_ssize_t)(hash & (uint64_t)(scope->slots_cap - 1));
     while (scope->slots[slot] != 0) {
+        TH_WORK_STEP();
         const c14n_xml_prefix *known = &scope->prefixes[scope->slots[slot] - 1];
         if (known->name_len == name_len && memcmp(known->name, name, (size_t)name_len) == 0) {
             return slot;
@@ -369,10 +370,12 @@ static int c14n_xml_scope_uses(c14n_xml_scope *scope, th_tree *tree, const th_no
 /* Pop what `node` declared and used as it closes, restoring what each entry hid. */
 static void c14n_xml_scope_close(c14n_xml_scope *scope, const th_node *node) {
     while (scope->bindings_len > 0 && scope->bindings[scope->bindings_len - 1].owner == node) {
+        TH_WORK_STEP();
         const c14n_xml_binding *closing = &scope->bindings[--scope->bindings_len];
         scope->prefixes[closing->prefix].binding = closing->shadowed;
     }
     while (scope->uses_len > 0 && scope->uses[scope->uses_len - 1].owner == node) {
+        TH_WORK_STEP();
         const c14n_xml_use *closing = &scope->uses[--scope->uses_len];
         scope->prefixes[closing->prefix].use = closing->outer;
     }
@@ -426,6 +429,7 @@ static Py_ssize_t c14n_xml_ns_collect(const c14n_xml_scope *scope, int is_apex, 
     Py_ssize_t count = 0;
     if (is_apex) {
         for (Py_ssize_t index = 0; index < scope->prefixes_len; index++) {
+            TH_WORK_STEP();
             const c14n_xml_prefix *prefix = &scope->prefixes[index];
             if (prefix->binding < 0) {
                 continue;
@@ -440,6 +444,7 @@ static Py_ssize_t c14n_xml_ns_collect(const c14n_xml_scope *scope, int is_apex, 
         }
     } else {
         for (Py_ssize_t index = own_bindings; index < scope->bindings_len; index++) {
+            TH_WORK_STEP();
             const c14n_xml_binding *binding = &scope->bindings[index];
             if (c14n_xml_relative_uri(&binding->ns)) {
                 return -1;
@@ -451,6 +456,7 @@ static Py_ssize_t c14n_xml_ns_collect(const c14n_xml_scope *scope, int is_apex, 
         }
     }
     for (Py_ssize_t index = own_uses; index < scope->uses_len; index++) {
+        TH_WORK_STEP();
         const c14n_xml_use *use = &scope->uses[index];
         if (use->binding < 0) {
             continue;
@@ -576,6 +582,7 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
     Py_ssize_t attr_capacity = node->attr_count;
     if (node == apex && !opts->exclusive) {
         for (const th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
+            TH_WORK_STEP();
             if (ancestor->type == TH_NODE_ELEMENT) {
                 attr_capacity += ancestor->attr_count;
             }
@@ -603,6 +610,7 @@ static void c14n_xml_open_tag(sbuf *out, th_tree *tree, th_node *node, const th_
     }
     if (node == apex && !opts->exclusive) {
         for (const th_node *ancestor = node->parent; ancestor != NULL; ancestor = ancestor->parent) {
+            TH_WORK_STEP();
             if (ancestor->type != TH_NODE_ELEMENT) {
                 continue;
             }
@@ -743,6 +751,7 @@ static void c14n_xml_subtree(sbuf *out, th_tree *tree, th_node *apex, const th_c
     scope.hash_seed = (uint64_t)PyObject_Hash(salt);
     Py_DECREF(salt);
     for (const th_node *ancestor = apex->parent; ancestor != NULL; ancestor = ancestor->parent) {
+        TH_WORK_STEP();
         if (ancestor->type != TH_NODE_ELEMENT) {
             continue;
         }

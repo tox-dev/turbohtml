@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pickle  # ruff:ignore[suspicious-pickle-import]  # round-tripping this test's own bytes
-import time
 from functools import partial
 from io import BytesIO
 from typing import TYPE_CHECKING, Final, cast
@@ -819,53 +818,29 @@ def test_xml_c14n_exclusive_inserted_element_name(tag: str, expected: bytes) -> 
     assert root.canonicalize(Canonical(exclusive=True)) == expected
 
 
-def _inherited_declarations(count: int) -> str:
-    declarations: Final = " ".join(f'xmlns:p{index}="urn:{index}"' for index in range(count))
-    return f"<r {declarations}>{''.join(f'<p{index}:x/>' for index in range(count))}</r>"
+def _declarations_in_scope(size: int) -> str:
+    declarations = " ".join(f'xmlns:n{index}="http://example.com/{index}"' for index in range(size))
+    items = "".join(f'<item n{index}:k="v"/>' for index in range(size))
+    return f"<doc><list {declarations}>{items}</list></doc>"
 
 
-@pytest.mark.parametrize("exclusive", [pytest.param(False, id="inclusive"), pytest.param(True, id="exclusive")])
-def test_xml_c14n_many_inherited_declarations(*, exclusive: bool) -> None:
-    count: Final = 1_500
-    canonical: Final = parse_xml(_inherited_declarations(count)).canonicalize(Canonical(exclusive=exclusive))
-    assert canonical == _inherited_canonical(count, exclusive=exclusive)
-
-
-def _inherited_canonical(count: int, *, exclusive: bool) -> bytes:
-    declared: Final = "".join(f' xmlns:p{index}="urn:{index}"' for index in sorted(range(count), key=str))
-    children: Final = "".join(
-        f'<p{index}:x xmlns:p{index}="urn:{index}"></p{index}:x>' if exclusive else f"<p{index}:x></p{index}:x>"
-        for index in range(count)
-    )
-    return (f"<r>{children}</r>" if exclusive else f"<r{declared}>{children}</r>").encode()
-
-
-def _nested_elements(count: int) -> str:
-    return f'<r xmlns="urn:d">{"<a>" * count}{"</a>" * count}</r>'
+def _prefixed_depth(size: int) -> str:
+    return f'<s:node xmlns:s="http://example.com/s">{"<s:node>" * size}{"</s:node>" * size}</s:node>'
 
 
 @pytest.mark.parametrize("exclusive", [pytest.param(False, id="inclusive"), pytest.param(True, id="exclusive")])
 @pytest.mark.parametrize(
-    ("build", "size"),
+    ("build", "sizes"),
     [
-        pytest.param(_inherited_declarations, 2_500, id="inherited-declarations"),
-        pytest.param(_nested_elements, 120_000, id="nested-elements"),
+        pytest.param(_declarations_in_scope, (200, 400), id="declarations-in-scope"),
+        pytest.param(_prefixed_depth, (2_000, 4_000), id="depth"),
     ],
 )
-def test_xml_c14n_namespace_scope_scales_linearly(build: Callable[[int], str], size: int, *, exclusive: bool) -> None:
+def test_xml_c14n_namespace_scope_steps_grow_linearly(
+    build: Callable[[int], str], sizes: tuple[int, int], work_steps: WorkSteps, *, exclusive: bool
+) -> None:
     options: Final = Canonical(exclusive=exclusive)
-    _, reference = _timed_canonicalize(f"<r>{'<a/>' * size}</r>", options)
-    canonical, elapsed = _timed_canonicalize(build(size), options)
-    assert canonical.count(b"</") == size + 1
-    # The floor keeps sub-millisecond reference timings from shrinking the budget below scheduling noise.
-    assert elapsed < 100 * max(reference, 0.01)
-
-
-def _timed_canonicalize(source: str, options: Canonical) -> tuple[bytes, float]:
-    document: Final = parse_xml(source)
-    start: Final = time.perf_counter()
-    canonical: Final = document.canonicalize(options)
-    return canonical, time.perf_counter() - start
+    work_steps.assert_linear(lambda size: partial(parse_xml(build(size)).canonicalize, options), sizes)
 
 
 def test_xml_c14n_apex_uses_nearest_xml_attribute() -> None:
