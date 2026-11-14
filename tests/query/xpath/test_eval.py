@@ -3,8 +3,9 @@ from __future__ import annotations
 import gc
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
+from collections import Counter
 from functools import partial
-from operator import ge, gt, le, lt
+from operator import ge, gt, itemgetter, le, lt
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, cast
 from weakref import finalize, ref
@@ -937,6 +938,230 @@ def test_a_path_tested_for_emptiness_grows_linearly(expression: str, work_steps:
     # otherwise.
     document: Final = parse(f"<section>{'<p>y' * 16_000}</section>")
     work_steps.assert_within(partial(document.xpath, expression), partial(document.xpath, "//p[self::p]"), factor=20)
+
+
+def _siblings(count: int) -> Document:
+    children: Final = "".join(f'<c k="{index}"/>' for index in range(count))
+    return parse_xml(f"<r>{children}</r>")
+
+
+def _chain(depth: int) -> Document:
+    opened: Final = "".join(f'<d k="{index}"><e/>' for index in range(1, depth + 1))
+    return parse_xml(f"<r>{opened}{'</d>' * depth}</r>")
+
+
+def _groups(count: int) -> Document:
+    children: Final = "<c/>" * count
+    return parse_xml(f"<r>{f'<g><h>{children}</h>{children}</g>' * count}</r>")
+
+
+def _element_ancestors(node: Element) -> list[Element]:
+    return [ancestor for ancestor in node.ancestors if isinstance(ancestor, Element)]
+
+
+# The sets below pick nodes whose order the tree links settle only after a walk longer than the steps a sort may spend
+# per node (a wide sibling list, a deep chain), next to pairs that adjacent links settle at once. Index 0 is the root
+# element; in a chain, d at depth j has index 2j - 1 and its e child 2j; in three groups, 6 and 14 are children of the
+# first and second g.
+@pytest.mark.parametrize(
+    ("build", "picks"),
+    [
+        pytest.param(partial(_siblings, 2400), [501, 504], id="siblings-near"),
+        pytest.param(partial(_siblings, 2400), [504, 501], id="siblings-near-reversed"),
+        pytest.param(partial(_siblings, 2400), [4, 1500], id="siblings-from-the-first"),
+        pytest.param(partial(_siblings, 2400), [2397, 900], id="siblings-from-the-last"),
+        pytest.param(partial(_siblings, 2400), [1001, 1701], id="siblings-far"),
+        pytest.param(partial(_siblings, 2400), [1701, 1001], id="siblings-far-reversed"),
+        pytest.param(partial(_chain, 600), [19, 20], id="parent-then-child"),
+        pytest.param(partial(_chain, 600), [20, 19], id="child-then-parent"),
+        pytest.param(partial(_chain, 600), [20, 21], id="adjacent-siblings"),
+        pytest.param(partial(_chain, 600), [21, 20], id="adjacent-siblings-reversed"),
+        pytest.param(partial(_chain, 600), [19, 99], id="ancestor-then-descendant"),
+        pytest.param(partial(_chain, 600), [99, 19], id="descendant-then-ancestor"),
+        pytest.param(partial(_chain, 600), [20, 22], id="uncle-then-nephew"),
+        pytest.param(partial(_chain, 600), [22, 20], id="nephew-then-uncle"),
+        pytest.param(partial(_groups, 3), [6, 14], id="first-cousins"),
+        pytest.param(partial(_groups, 3), [14, 6], id="first-cousins-reversed"),
+        pytest.param(partial(_chain, 600), [20, 100], id="distant-cousins"),
+        pytest.param(partial(_chain, 600), [100, 20], id="distant-cousins-reversed"),
+        pytest.param(partial(_chain, 600), [200, 999], id="deep-after-shallow"),
+        pytest.param(partial(_chain, 600), [999, 200], id="deep-before-shallow"),
+    ],
+)
+def test_variable_node_set_in_document_order(build: Callable[[], Document], picks: list[int]) -> None:
+    document: Final = build()
+    elements: Final = element_list(document.xpath("//*"))
+    nodes: Final = [elements[index] for index in picks]
+    assert XPath("$v")(document, v=nodes) == _in_document_order(document, nodes)
+
+
+def element_list(result: XPathResult) -> list[Element]:
+    # The element node-set an expression is expected to return.
+    return [element for element in node_list(result) if isinstance(element, Element)]
+
+
+def _in_document_order(document: turbohtml.Node, nodes: Iterable[turbohtml.Node]) -> list[turbohtml.Node]:
+    position: Final = {node: index for index, node in enumerate(document.descendants)}
+    return sorted(set(nodes), key=position.__getitem__)
+
+
+@pytest.mark.parametrize(
+    ("build", "expression", "selects"),
+    [
+        pytest.param(partial(_siblings, 2400), "$v | $w", lambda node: [node], id="siblings"),
+        pytest.param(partial(_chain, 400), "$v | $w", lambda node: [node], id="chain"),
+        pytest.param(partial(_groups, 40), "$v | $w", lambda node: [node], id="branches"),
+        pytest.param(partial(_groups, 40), "$v/.. | $w", lambda node: [node.parent], id="branch-parents"),
+        pytest.param(
+            partial(_groups, 40),
+            "$v/ancestor-or-self::* | $w",
+            lambda node: [node, *_element_ancestors(node)],
+            id="branch-ancestors",
+        ),
+    ],
+)
+def test_shuffled_node_sets_union_in_document_order(
+    build: Callable[[], Document], expression: str, selects: Callable[[Element], list[Element]]
+) -> None:
+    document: Final = build()
+    elements: Final = element_list(document.xpath("//*"))
+    first: Final = _shuffled(elements[1:], 300, 1)
+    second: Final = _shuffled(elements[1:], 200, 2)
+    expected: Final = _in_document_order(document, [*(found for node in first for found in selects(node)), *second])
+    assert XPath(expression)(document, v=first + first[:20], w=second) == expected
+
+
+def _shuffled(nodes: Sequence[Element], count: int, offset: int) -> list[Element]:
+    picked: Final = list(nodes[offset :: max(1, len(nodes) // count)])
+    return [picked[index * 7919 % len(picked)] for index in range(len(picked))]
+
+
+@pytest.mark.parametrize(
+    ("build", "first", "second", "expected"),
+    [
+        pytest.param(partial(_siblings, 2400), [1001], [1701], [1001, 1701], id="siblings"),
+        pytest.param(partial(_siblings, 2400), [1701], [1001], [1001, 1701], id="siblings-reversed"),
+        pytest.param(partial(_chain, 600), [999, 1001], [600, 1001], [600, 999, 1001], id="chain"),
+    ],
+)
+def test_union_merge_past_the_walk_budget(
+    build: Callable[[], Document], first: list[int], second: list[int], expected: list[int]
+) -> None:
+    document: Final = build()
+    elements: Final = element_list(document.xpath("//*"))
+    result: Final = XPath("$v | $w")(document, v=[elements[i] for i in first], w=[elements[i] for i in second])
+    assert result == [elements[index] for index in expected]
+
+
+@pytest.mark.parametrize("expression", ["/ | (//e)[3]", "(//e)[3] | /"])
+def test_union_with_the_document_node(expression: str) -> None:
+    document: Final = _chain(5)
+    assert document.xpath(expression) == [document, node_list(document.xpath("//e"))[2]]
+
+
+# Detached subtrees of one tree have no common ancestor, so the order between them is undefined; only membership holds.
+def test_node_set_across_detached_subtrees_keeps_every_node() -> None:
+    document: Final = _groups(30)
+    groups: Final = element_list(document.xpath("/r/g"))
+    for group in groups[:2]:
+        group.extract()
+    second_children: Final = [child for child in groups[1].children if isinstance(child, Element)]
+    leaves: Final = [*element_list(document.xpath("//c")), *element_list(XPath("//c")(groups[0])), *second_children]
+    nodes: Final = _shuffled(leaves, 400, 3)
+    assert Counter(node_list(XPath("$v")(document, v=nodes))) == Counter(nodes)
+    expected: Final = {ancestor for node in nodes for ancestor in _element_ancestors(node) if ancestor.tag == "g"}
+    assert set(node_list(XPath("$v/ancestor::g")(document, v=nodes))) == expected
+
+
+@pytest.mark.parametrize(
+    ("expression", "expected"),
+    [
+        pytest.param("//e/ancestor::d", "//d", id="ancestor"),
+        pytest.param("//e/ancestor-or-self::*", "//*", id="ancestor-or-self"),
+        pytest.param("//@k/ancestor::d", "//d", id="attribute-contexts"),
+        pytest.param("(//d[@k = 3] | //e)/ancestor::r", "/r", id="one-top"),
+        pytest.param("//e/ancestor::d[1]", "//d", id="predicate"),
+    ],
+)
+def test_ancestor_step_from_nested_contexts(expression: str, expected: str) -> None:
+    document: Final = _chain(300)
+    assert document.xpath(expression) == document.xpath(expected)
+
+
+@pytest.mark.parametrize(
+    ("build", "expression", "expected"),
+    [
+        pytest.param(
+            partial(_chain, 50),
+            "(//e)[last()]/ancestor::*",
+            lambda elements: [elements[0], *elements[1:-1:2]],
+            id="ancestor",
+        ),
+        pytest.param(
+            partial(_chain, 50),
+            "(//e)[last()]/ancestor-or-self::*",
+            lambda elements: [elements[0], *elements[1:-1:2], elements[-1]],
+            id="ancestor-or-self",
+        ),
+        pytest.param(partial(_chain, 50), "(//e)[last()]/preceding::*", itemgetter(slice(2, -1, 2)), id="preceding"),
+        pytest.param(
+            partial(_siblings, 50),
+            "/r/c[last()]/preceding-sibling::c",
+            itemgetter(slice(1, -1)),
+            id="preceding-sibling",
+        ),
+    ],
+)
+def test_reverse_axis_from_one_node_in_document_order(
+    build: Callable[[], Document], expression: str, expected: Callable[[list[Element]], list[Element]]
+) -> None:
+    document: Final = build()
+    assert document.xpath(expression) == expected(element_list(document.xpath("//*")))
+
+
+def test_union_after_a_callback_reorders_the_tree() -> None:
+    document: Final = _siblings(600)
+    root: Final = node_list(document.xpath("/r"))[0]
+    assert isinstance(root, Element)
+    children: Final = element_list(document.xpath("/r/c"))
+    first: Final = _shuffled(children, 300, 0)
+    second: Final = _shuffled(children, 200, 1)
+    calls: Final[list[None]] = []
+
+    def reverse(_context: SimpleNamespace) -> bool:
+        if not calls:
+            for child in reversed(root.children):
+                child.extract()
+                root.append(child)
+        calls.append(None)
+        return True
+
+    before: Final = _in_document_order(document, second)
+    result: Final = document.xpath(
+        "$v[reverse() and false()] | $w", extensions={(None, "reverse"): reverse}, v=first, w=second
+    )
+    assert result == before[::-1]
+
+
+# A sort or merge walks at most a budget proportional to its set before it ranks the set once, and a step from nested
+# contexts climbs each ancestor once, so the counted steps grow linearly with the list length or the depth.
+@pytest.mark.parametrize(
+    ("build", "expression"),
+    [
+        pytest.param(_siblings, "//c[last()]/preceding-sibling::c | //c[1]", id="reverse-axis"),
+        pytest.param(
+            _siblings,
+            "//c[last()]/preceding-sibling::c | //c[last() - 1]/preceding-sibling::c",
+            id="sibling-merge",
+        ),
+        pytest.param(_chain, "(//d)[position() mod 2 = 0] | //e", id="deep-merge"),
+        pytest.param(_chain, "//d[last()]/ancestor::d", id="deep-ancestors"),
+    ],
+)
+def test_document_order_grows_linearly(
+    build: Callable[[int], Document], expression: str, work_steps: WorkSteps
+) -> None:
+    work_steps.assert_linear(lambda size: partial(build(size).xpath, expression), (1000, 4000))
 
 
 @pytest.mark.parametrize("context", ["//*", "//@*", "//text()", "//*/namespace::*"])

@@ -34,7 +34,8 @@ node's children.
 attributes, where a filter is a string, regex, callable, or list; a ``text`` predicate applies the same grammar to each
 element's collected text. A regex or callable ``text`` predicate runs Python mid-walk, which suspends the per-tree lock,
 so the C side snapshots the candidate elements and their text under the lock first and runs the predicate over that
-snapshot. A concurrent mutation cannot tear the walk.
+snapshot. A concurrent mutation cannot tear the walk. A callable filter must not modify the tree during the search; the
+result is unspecified if it does.
 
 :meth:`~turbohtml.Node.select` and :meth:`~turbohtml.Node.select_one` run a native CSS matcher covering type, id, class,
 attribute, the four combinators, the structural pseudo-classes (including ``:nth-child(An+B of S)``, which indexes only
