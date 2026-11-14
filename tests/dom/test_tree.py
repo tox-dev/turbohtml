@@ -1688,9 +1688,12 @@ _DEPTH_CAP: Final[int] = 512
 @pytest.mark.parametrize(
     "markup",
     [
-        pytest.param(f"{'<dl>' * (_DEPTH_CAP - 4)}<table><thead><tr></thead>", id="row-refused-in-thead"),
         pytest.param(
-            f"{'<dl>' * (_DEPTH_CAP - 6)}<table><tfoot><tr><th><noembed></noembed></tr>",
+            f"{'<dl>' * (_DEPTH_CAP - 9)}<dd><ins><dl><span><q><table><thead><tr></thead>",
+            id="row-refused-in-thead",
+        ),
+        pytest.param(
+            f"{'<dl>' * (_DEPTH_CAP - 10)}<dd><ins><dl><span><table><tfoot><tr><th><noembed></noembed></tr>",
             id="text-element-in-header-cell",
         ),
         pytest.param(
