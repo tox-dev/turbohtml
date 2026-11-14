@@ -689,6 +689,7 @@ static int xr_group_name(xr_parser *parser, Py_UCS4 terminator, PyObject **out) 
 
 /* The number of the group called name in the names dict of a parser or a program, 0 when none is. */
 static int32_t xr_named_group(PyObject *names, PyObject *name) {
+    TH_WORK_STEP();
     PyObject *group = names == NULL ? NULL : PyDict_GetItem(names, name); /* borrowed; a str key lookup cannot raise */
     return group == NULL ? 0 : (int32_t)PyLong_AsLong(group);
 }
