@@ -265,6 +265,8 @@ def test_html_check_skips_trees_the_standard_does_not_round_trip(markup: str) ->
         pytest.param("<p><!--end-\x01--></p>", id="comment-trailing-hyphen-after-control"),
         pytest.param("<p><!--a-\x01-b--></p>", id="comment-double-hyphen-across-control"),
         pytest.param("!d[<!--" + "\x06" * 123 + ">-->><!----><!---->\x1c!", id="comment-leading-controls"),
+        pytest.param("<svg><template><title><i></template>>", id="svg-template-text"),
+        pytest.param("<svg><template><title><i></template><b>", id="svg-template-element"),
     ],
 )
 def test_xml_check_passes_the_serializer(markup: str) -> None:
@@ -293,18 +295,6 @@ def test_xml_check_skips_unbound_prefixes(markup: str) -> None:
 @pytest.mark.parametrize("markup", ['<!DOCTYPEL PUBLIC"<', '<!DOCTYPEl PUBLIC"<""'])
 def test_xml_check_waives_unrepresentable_doctype_metadata(markup: str) -> None:
     assert xml_check(markup) is None
-
-
-@pytest.mark.parametrize(
-    "markup",
-    [
-        pytest.param("<svg><template><foreignObject><d></template>>", id="text-outside-root"),
-        pytest.param("<svg><template><foreignObject><d></template><d>", id="element-outside-root"),
-    ],
-)
-def test_xml_check_skips_content_outside_root(markup: str) -> None:
-    with pytest.raises(OutOfScopeError):
-        xml_check(markup)
 
 
 @pytest.mark.parametrize(
