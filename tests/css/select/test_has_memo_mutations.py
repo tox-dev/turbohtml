@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import random
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -19,101 +20,103 @@ if TYPE_CHECKING:
 _QUERIES: Final[tuple[str, ...]] = ("div:has(p)", "div:has(> span)", "b:has(i)", "span:has(b)")
 _TAGS: Final[tuple[str, ...]] = ("div", "span", "b", "i")
 _SNIPPETS: Final[tuple[str, ...]] = ("<p>x</p>", "<b><i>y</i></b>", "<span>z</span>", "x")
+_CANDIDATES: Final[str] = "body div, body span, body b, body i"
 _STEPS: Final[int] = 90
 
 
-_CANDIDATES: Final[str] = "body div, body span, body b, body i"
+def _pick(walk: _Walk) -> Element:
+    return walk.rng.choice(list(walk.doc.select(_CANDIDATES)))
 
 
-def _pick(rng: random.Random, doc: Document) -> Element:
-    return rng.choice(list(doc.select(_CANDIDATES)))
+def _tag(walk: _Walk) -> Element:
+    return Element(walk.rng.choice(_TAGS))
 
 
-def _deepen(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    child: Final = Element(rng.choice(_TAGS))
-    state["last"].append(child)
-    state["last"] = child
+def _deepen(walk: _Walk) -> None:
+    child: Final = _tag(walk)
+    walk.last.append(child)
+    walk.last = child
 
 
-def _append(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    _pick(rng, doc).append(Element(rng.choice(_TAGS)))
+def _append(walk: _Walk) -> None:
+    _pick(walk).append(_tag(walk))
 
 
-def _insert(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    target: Final = _pick(rng, doc)
-    target.insert(rng.randrange(len(target.children) + 1), Element(rng.choice(_TAGS)))
+def _insert(walk: _Walk) -> None:
+    target: Final = _pick(walk)
+    target.insert(walk.rng.randrange(len(target.children) + 1), _tag(walk))
 
 
-def _extract_reattach(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    node: Final = _pick(rng, doc)
+def _extract_reattach(walk: _Walk) -> None:
+    node: Final = _pick(walk)
     if node.parent is not None:
-        _pick(rng, doc).append(node.extract())
+        _pick(walk).append(node.extract())
 
 
-def _set_inner_html(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    _pick(rng, doc).set_inner_html(rng.choice(_SNIPPETS))
+def _set_inner_html(walk: _Walk) -> None:
+    _pick(walk).set_inner_html(walk.rng.choice(_SNIPPETS))
 
 
-def _insert_before(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    node: Final = _pick(rng, doc)
+def _insert_before(walk: _Walk) -> None:
+    node: Final = _pick(walk)
     if node.parent is not None:
-        node.insert_before(Element(rng.choice(_TAGS)))
+        node.insert_before(_tag(walk))
 
 
-def _replace_with(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    node: Final = _pick(rng, doc)
+def _replace_with(walk: _Walk) -> None:
+    node: Final = _pick(walk)
     if node.parent is not None:
-        node.replace_with(Element(rng.choice(_TAGS)))
+        node.replace_with(_tag(walk))
 
 
-def _wrap(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    node: Final = _pick(rng, doc)
+def _wrap(walk: _Walk) -> None:
+    node: Final = _pick(walk)
     if node.parent is not None:
-        node.wrap(Element(rng.choice(_TAGS)))
+        node.wrap(_tag(walk))
 
 
-def _unwrap(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    node: Final = _pick(rng, doc)
+def _unwrap(walk: _Walk) -> None:
+    node: Final = _pick(walk)
     if node.parent is not None:
         node.unwrap()
 
 
-def _detach(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    node: Final = _pick(rng, doc)
+def _detach(walk: _Walk) -> None:
+    node: Final = _pick(walk)
     if node.parent is not None:
-        state["detached"] = node.extract()
+        walk.detached = node.extract()
 
 
-def _copy_attach(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    _pick(rng, doc).append(copy.copy(_pick(rng, doc)))
+def _copy_attach(walk: _Walk) -> None:
+    _pick(walk).append(copy.copy(_pick(walk)))
 
 
-def _range_insert(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    Range(_pick(rng, doc)).insert_node(Element(rng.choice(_TAGS)))
+def _range_insert(walk: _Walk) -> None:
+    Range(_pick(walk)).insert_node(_tag(walk))
 
 
-def _range_extract(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    _pick(rng, doc).append(Range(_pick(rng, doc)).extract_contents())
+def _range_extract(walk: _Walk) -> None:
+    _pick(walk).append(Range(_pick(walk)).extract_contents())
 
 
-def _range_delete(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    Range(_pick(rng, doc)).delete_contents()
+def _range_delete(walk: _Walk) -> None:
+    Range(_pick(walk)).delete_contents()
 
 
-def _range_surround(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    Range(_pick(rng, doc)).surround_contents(Element(rng.choice(_TAGS)))
+def _range_surround(walk: _Walk) -> None:
+    Range(_pick(walk)).surround_contents(_tag(walk))
 
 
-def _view_mutate(rng: random.Random, doc: Document, state: dict[str, Element]) -> None:
-    view: Final = ElementView(_pick(rng, doc))
-    view.append(ElementView(Element(rng.choice(_TAGS))))
-    view.insert(0, ElementView(Element(rng.choice(_TAGS))))
+def _view_mutate(walk: _Walk) -> None:
+    view: Final = ElementView(_pick(walk))
+    view.append(ElementView(_tag(walk)))
+    view.insert(0, ElementView(_tag(walk)))
     if len(view) > 1:
         view.remove(view[-1])
-        view.replace(view[0], ElementView(Element(rng.choice(_TAGS))))
+        view.replace(view[0], ElementView(_tag(walk)))
 
 
-_OPERATIONS: Final[tuple[Callable[[random.Random, Document, dict[str, Element]], None], ...]] = (
+_OPERATIONS: Final[tuple[Callable[[_Walk], None], ...]] = (
     _deepen,
     _deepen,
     _append,
@@ -140,39 +143,47 @@ def test_has_memo_results_match_reparse_after_every_mutation(seed: int) -> None:
 
 
 def _mismatches(seed: int) -> list[str]:
-    rng = random.Random(seed)
-    doc = parse("<body><div><span>x</span></div></body>")
-    last: Final = doc.select_one("body div")
-    assert last is not None
-    state: dict[str, Element] = {"last": last}
+    rng = random.Random(seed)  # ruff:ignore[suspicious-non-cryptographic-random-usage]  # a fixed mutation corpus
+    doc: Final = parse("<body><div><span>x</span></div></body>")
+    first: Final = doc.select_one("body div")
+    assert first is not None
+    walk: Final = _Walk(rng=rng, doc=doc, last=first)
     found: list[str] = []
     for step in range(_STEPS):
         if not list(doc.select(_CANDIDATES)):
             body: Final = doc.select_one("body")
             assert body is not None
             body.append(Element("div"))
-        operation = rng.choice(_OPERATIONS)
+        operation: Final = rng.choice(_OPERATIONS)
         with contextlib.suppress(IndexError, ValueError, TypeError):
-            operation(rng, doc, state)
+            operation(walk)
         found.extend(
             f"step {step} {label}: live={live} reparsed={expected}"
-            for label, live, expected in _comparisons(doc, state)
+            for label, live, expected in _comparisons(walk)
             if live != expected
         )
     return found
 
 
-def _comparisons(doc: Document, state: dict[str, Element]) -> list[tuple[str, list[str], list[str]]]:
-    reparsed: Final = parse(doc.html)
-    body: Final = doc.select_one("body")
+@dataclass(slots=True, kw_only=True)
+class _Walk:
+    rng: random.Random
+    doc: Document
+    last: Element
+    detached: Element | None = None
+
+
+def _comparisons(walk: _Walk) -> list[tuple[str, list[str], list[str]]]:
+    reparsed: Final = parse(walk.doc.html)
+    body: Final = walk.doc.select_one("body")
     reparsed_body: Final = reparsed.select_one("body")
     assert body is not None
     assert reparsed_body is not None
-    detached: Final = state.get("detached")
+    detached: Final = walk.detached
     pairs: list[tuple[str, list[str], list[str]]] = []
     for query in _QUERIES:
         pairs.extend((
-            (query, [node.html for node in doc.select(query)], [node.html for node in reparsed.select(query)]),
+            (query, [node.html for node in walk.doc.select(query)], [node.html for node in reparsed.select(query)]),
             (
                 f"body {query}",
                 [node.html for node in body.select(query)],
