@@ -1004,6 +1004,7 @@ def _chained_unions(depth: int) -> str:
 def test_rng_same_structure_wildcards_scale_linearly() -> None:
     wildcards = _best_cpu_time(_same_structure_alternatives(12000, lambda _: '<nsName ns="urn:a"/>'))
     named = _best_cpu_time(_same_structure_alternatives(12000, lambda index: f"<name>e{index}</name>"))
+    # process_time ticks at ~15.6 ms on Windows, so the floor keeps a zero reference from dividing by it
     assert wildcards < 5 * max(named, 0.01)
 
 
