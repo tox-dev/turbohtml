@@ -30,7 +30,9 @@ jobs:
           - {os: "macos-15", label: macOS, cov: "xcrun llvm-cov gcov"}
           - {os: "windows-2025", label: Windows, cov: ""}
         # macOS keeps 3.15, 3.15t and 3.11 on every event; the other interpreters run in the weekly full matrix.
-        exclude: ${{ fromJSON(github.event.schedule == '55 11 * * 1' && '[]' || '[{"os":"macos-15","py":"3.14"},{"os":"macos-15","py":"3.14t"},{"os":"macos-15","py":"3.13"},{"os":"macos-15","py":"3.12"}]') }}
+        # Temporarily, pull requests run only the cells that caught failures during the security fix push; main
+        # still runs the full matrix after every merge.
+        exclude: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"ubuntu-24.04","py":"3.15"},{"os":"ubuntu-24.04","py":"3.12"},{"os":"ubuntu-24.04","py":"3.11"},{"os":"ubuntu-24.04","py":"3.15t"},{"os":"ubuntu-24.04","py":"3.14t"},{"os":"macos-15","py":"3.15"},{"os":"macos-15","py":"3.14"},{"os":"macos-15","py":"3.13"},{"os":"macos-15","py":"3.12"},{"os":"macos-15","py":"3.15t"},{"os":"macos-15","py":"3.14t"},{"os":"windows-2025","py":"3.15"},{"os":"windows-2025","py":"3.14"},{"os":"windows-2025","py":"3.13"},{"os":"windows-2025","py":"3.12"},{"os":"windows-2025","py":"3.11"},{"os":"windows-2025","py":"3.14t"}]' || github.event.schedule == '55 11 * * 1' && '[]' || '[{"os":"macos-15","py":"3.14"},{"os":"macos-15","py":"3.14t"},{"os":"macos-15","py":"3.13"},{"os":"macos-15","py":"3.12"}]') }}
     steps:
       - name: 📥 Check out code
         uses: actions/checkout@v7.0.1
@@ -113,6 +115,7 @@ jobs:
     # TH_FORCE_SCALAR compiles the portable SWAR scan loops in place of SSE2 (x64) and NEON (arm64), so the suite's
     # expectations, which the SIMD build already meets, diff the two arms on each architecture.
     name: 🧪 SWAR scan loops (${{ matrix.arch }})
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -347,6 +350,7 @@ jobs:
           uvx pre-commit run clang-tidy --all-files --show-diff-on-failure --color always
   tsan:
     name: 🧪 ThreadSanitizer (${{ matrix.shard }})
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04
     # Two shards trade one extra container job (~5 min of setup, build and collection per run) for wall time: TSan is
     # the longest job, and its two slowest tests plus the lifecycle races take about half its test time. tox.toml's
