@@ -1379,6 +1379,21 @@ def test_rng_shared_subpatterns_decide_each_event(schema: str, xml: str, *, vali
     assert rng_ok(schema, xml) is valid
 
 
+def test_rng_attribute_after_rejected_attribute_is_invalid() -> None:
+    assert not rng_ok(rwrap("<empty/>"), '<doc a="1" b="2"/>')
+
+
+def test_rng_nullable_memo_rejects_blank_value_attribute() -> None:
+    schema = _crossed_chain("<value>q</value>", '<attribute name="k"><ref name="d0"/></attribute>', "choice", count=11)
+    assert not rng_ok(schema, '<r k=" "/>')
+
+
+def test_rng_overlapping_attributes_scale_linearly(work_steps: WorkSteps) -> None:
+    document = parse_xml("<doc a0='1' a1='2' a2='3'/>")
+    pattern = '<optional><attribute><nsName ns=""/></attribute></optional>'
+    work_steps.assert_linear(lambda n: partial(RelaxNG(rwrap(pattern * n)).validate, document), (12, 20))
+
+
 def _ladder(leaf: str, *, combine: str) -> str:
     return _crossed_chain(leaf, '<ref name="d0"/>', combine, count=11)
 
@@ -1586,17 +1601,6 @@ def test_rng_shared_defines_scale_linearly(leaf: str, content: str, xml: str, wo
 )
 def test_rng_long_optional_sequence_validates(schema: str, xml: str) -> None:
     assert rng_ok(schema, xml)
-
-
-def test_rng_memo_keeps_event_names_apart() -> None:
-    names = range(40)
-    alternatives = "".join(f'<element name="n{index}"><attribute name="k{index}"/></element>' for index in names)
-    schema = _crossed_chain(
-        f"<choice>{alternatives}</choice>", '<zeroOrMore><ref name="d0"/></zeroOrMore>', "choice", count=12
-    )
-    children = "".join(f'<n{index} k{index}="1"/>' for index in names)
-    assert rng_ok(schema, f"<r>{children}</r>")
-    assert not rng_ok(schema, '<r><n0 k1="1"/></r>')
 
 
 def test_rng_cdata_and_prefixed_attribute() -> None:

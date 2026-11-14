@@ -205,19 +205,20 @@ typedef struct memo_key {
     pattern *p;
     const Py_UCS4 *value;
     Py_ssize_t len;
+    const Py_UCS4 *name; /* the element or attribute name a start tag or attribute derivative is taken for */
     size_t op;
 } memo_key;
 
 typedef struct memo_entry {
     memo_key key;
     pattern *derived;
-    size_t event; /* the slot is free unless this is the event the memo holds */
+    size_t event; /* a slot counts as taken only while its event number matches the memo's current one */
 } memo_entry;
 
 typedef struct patmemo {
     memo_entry *slots;
     size_t cap;   /* power of two, 0 until first grow */
-    size_t count; /* entries of the event the memo holds */
+    size_t count; /* live entries; zeroed when the event number advances */
     size_t event;
 } patmemo;
 
@@ -250,18 +251,20 @@ static uint64_t memo_key_hash(memo_key key) {
     hash = (hash ^ (uint64_t)(uintptr_t)key.p) * UINT64_C(1099511628211);
     hash = (hash ^ (uint64_t)(uintptr_t)key.value) * UINT64_C(1099511628211);
     hash = (hash ^ (uint64_t)key.len) * UINT64_C(1099511628211);
+    hash = (hash ^ (uint64_t)(uintptr_t)key.name) * UINT64_C(1099511628211);
     return hash ^ (hash >> 32);
 }
 
-/* One comparison of all four fields, so a probe that meets another key takes one branch, not one per field. */
+/* One comparison of all five fields, so a probe that meets another key takes one branch, not one per field. */
 static RNG_FORCEINLINE int memo_key_equal(memo_key stored, memo_key key) {
     return ((stored.op ^ key.op) | ((uintptr_t)stored.p ^ (uintptr_t)key.p) |
-            ((uintptr_t)stored.value ^ (uintptr_t)key.value) | ((size_t)stored.len ^ (size_t)key.len)) == 0;
+            ((uintptr_t)stored.value ^ (uintptr_t)key.value) | ((size_t)stored.len ^ (size_t)key.len) |
+            ((uintptr_t)stored.name ^ (uintptr_t)key.name)) == 0;
 }
 
-static RNG_NOINLINE pattern *memo_find(const patmemo *memo, size_t op, pattern *p, const Py_UCS4 *value,
-                                       Py_ssize_t len) {
-    memo_key key = {p, value, len, op};
+static RNG_NOINLINE pattern *memo_find(const patmemo *memo, size_t op, pattern *p, const Py_UCS4 *value, Py_ssize_t len,
+                                       const Py_UCS4 *name) {
+    memo_key key = {p, value, len, name, op};
     if (memo->cap == 0) {
         return NULL;
     }
@@ -304,8 +307,8 @@ static RNG_NOINLINE int memo_grow(th_schema *schema) {
 }
 
 static RNG_NOINLINE void memo_add(th_schema *schema, size_t op, pattern *p, const Py_UCS4 *value, Py_ssize_t len,
-                                  pattern *derived) {
-    memo_key key = {p, value, len, op};
+                                  const Py_UCS4 *name, pattern *derived) {
+    memo_key key = {p, value, len, name, op};
     patmemo *memo = schema->memo;
     if (memo->count * 2 >= memo->cap && !memo_grow(schema)) { /* GCOVR_EXCL_BR_LINE: arena OOM is unforceable */
         return;                                               /* GCOVR_EXCL_LINE: skipping the insert loses the memo */
@@ -1406,62 +1409,62 @@ static RNG_FORCEINLINE pattern *rng_start_tag_close_step(th_schema *schema, patt
 /* Nullability is no pattern, so the memo stores it as Empty or NotAllowed. */
 static RNG_NOINLINE int rng_nullable_memo(th_schema *schema, pattern *p) {
     memo_engage(schema);
-    pattern *found = memo_find(schema->memo, MEMO_NULLABLE, p, NULL, 0);
+    pattern *found = memo_find(schema->memo, MEMO_NULLABLE, p, NULL, 0, NULL);
     if (found != NULL) {
         schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
         return found == schema->p_empty;
     }
     int nullable = rng_nullable_step(schema, p);
-    memo_add(schema, MEMO_NULLABLE, p, NULL, 0, nullable ? schema->p_empty : schema->p_notallowed);
+    memo_add(schema, MEMO_NULLABLE, p, NULL, 0, NULL, nullable ? schema->p_empty : schema->p_notallowed);
     return nullable;
 }
 
 static RNG_NOINLINE pattern *rng_text_memo(th_schema *schema, pattern *p, const Py_UCS4 *value, Py_ssize_t len) {
     memo_engage(schema);
-    pattern *derived = memo_find(schema->memo, MEMO_TEXT, p, value, len);
+    pattern *derived = memo_find(schema->memo, MEMO_TEXT, p, value, len, NULL);
     if (derived != NULL) {
         schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
         return derived;
     }
     derived = rng_text_deriv_step(schema, p, value, len);
-    memo_add(schema, MEMO_TEXT, p, value, len, derived);
+    memo_add(schema, MEMO_TEXT, p, value, len, NULL, derived);
     return derived;
 }
 
 static RNG_NOINLINE pattern *rng_start_tag_open_memo(th_schema *schema, pattern *p, const qname *name) {
     memo_engage(schema);
-    pattern *derived = memo_find(schema->memo, MEMO_OPEN, p, NULL, 0);
+    pattern *derived = memo_find(schema->memo, MEMO_OPEN, p, NULL, 0, name->local);
     if (derived != NULL) {
         schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
         return derived;
     }
     derived = rng_start_tag_open_step(schema, p, name);
-    memo_add(schema, MEMO_OPEN, p, NULL, 0, derived);
+    memo_add(schema, MEMO_OPEN, p, NULL, 0, name->local, derived);
     return derived;
 }
 
 static RNG_NOINLINE pattern *rng_att_memo(th_schema *schema, pattern *p, const qname *name, const Py_UCS4 *value,
                                           Py_ssize_t len) {
     memo_engage(schema);
-    pattern *derived = memo_find(schema->memo, MEMO_ATT, p, value, len);
+    pattern *derived = memo_find(schema->memo, MEMO_ATT, p, value, len, name->local);
     if (derived != NULL) {
         schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
         return derived;
     }
     derived = rng_att_deriv_step(schema, p, name, value, len);
-    memo_add(schema, MEMO_ATT, p, value, len, derived);
+    memo_add(schema, MEMO_ATT, p, value, len, name->local, derived);
     return derived;
 }
 
 static RNG_NOINLINE pattern *rng_start_tag_close_memo(th_schema *schema, pattern *p) {
     memo_engage(schema);
-    pattern *derived = memo_find(schema->memo, MEMO_CLOSE, p, NULL, 0);
+    pattern *derived = memo_find(schema->memo, MEMO_CLOSE, p, NULL, 0, NULL);
     if (derived != NULL) {
         schema->memo_free = MEMO_FREE_STEPS; /* a memo hit is a revisit: keep the budget */
         return derived;
     }
     derived = rng_start_tag_close_step(schema, p);
-    memo_add(schema, MEMO_CLOSE, p, NULL, 0, derived);
+    memo_add(schema, MEMO_CLOSE, p, NULL, 0, NULL, derived);
     return derived;
 }
 
@@ -2805,7 +2808,7 @@ static void rng_validate_root(valctx *ctx, th_node *root) {
     memset(intern, 0, sizeof(*intern));
     schema->intern = intern;
     /* On the stack, so a validation that never needs the memo lays out its arena patterns as before. */
-    patmemo memos[2] = {{NULL, 0, 0, 0}, {NULL, 0, 0, 0}};
+    patmemo memos[2] = {{NULL, 0, 0, 1}, {NULL, 0, 0, 1}};
     schema->memo = schema->event_memo = &memos[0];
     schema->token_memo = &memos[1];
     /* Heuristic threshold: a walk longer than twice the schema pattern count probably revisits a node, so the
