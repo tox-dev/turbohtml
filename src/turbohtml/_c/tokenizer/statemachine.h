@@ -61,7 +61,8 @@ typedef struct {
     th_buf name;
     th_buf value;
     int has_value;      /* 0 for a valueless attribute (maps to None in Python) */
-    uint32_t name_hash; /* FNV-1a of the name, for O(1) duplicate detection */
+    uint32_t name_hash; /* keyed hash of the name, valid once name_hashed is set */
+    int name_hashed;    /* 1 when name_hash holds the name's keyed hash */
 } th_attr;
 
 /* Source span of one attribute, allocated only while capture_locations is on. */
