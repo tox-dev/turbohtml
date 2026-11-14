@@ -758,31 +758,38 @@ def test_base_url_preserves_query_backslash_after_extra_slashes() -> None:
             "wss:wss:b:c/%2e%2e/%2e",
             "wss://relay.example/room/42/q",
             "wss://relay.example/room/42/",
-            id="same-scheme-repeated-scheme-is-path",
+            id="remainder-repeats-scheme",
         ),
         pytest.param(
             "ftp:wss://files.test/%2e/q",
             "ftp://mirror.example/pub/x",
             "ftp://mirror.example/pub/wss://files.test/q",
-            id="same-scheme-foreign-url-is-path",
+            id="remainder-foreign-scheme",
         ),
         pytest.param(
-            "https:mailto:a/%2e%2e/x",
-            "https://example.org/dir/file",
-            "https://example.org/dir/x",
-            id="same-scheme-opaque-url-is-path",
+            "wss:urn:lab/%2E%2E/%2e/zz",
+            "wss://relay.example/room/42/a",
+            "wss://relay.example/room/42/zz",
+            id="remainder-opaque-scheme",
         ),
         pytest.param(
-            "https:foo:%2e%2e/../x", "https://example.org/dir/file", "https://example.org/dir/x", id="same-scheme-colon"
+            "ws:alt:%2e%2e/%2e/t",
+            "ws://gateway.example/x/y",
+            "ws://gateway.example/x/alt:%2e%2e/t",
+            id="remainder-colon-segment",
         ),
         pytest.param(
-            "https:b\\c:d/%2e", "https://example.org/dir/file", "https://example.org/dir/b/c:d/", id="late-colon"
+            "ftp:h\\i:j/%2e/k", "ftp://mirror.example/a/b", "ftp://mirror.example/a/h/i:j/k", id="colon-after-slash"
         ),
-        pytest.param("https:%2e?a:b", "https://example.org/dir/file", "https://example.org/dir/?a:b", id="query-colon"),
         pytest.param(
-            "https:%2e#a:b", "https://example.org/dir/file", "https://example.org/dir/#a:b", id="fragment-colon"
+            "ftp:%2E?k=v:w", "ftp://mirror.example/pub/x", "ftp://mirror.example/pub/?k=v:w", id="colon-in-query"
         ),
-        pytest.param("https:%2e%2e", "https://example.org/dir/file", "https://example.org/", id="bare-parent"),
+        pytest.param(
+            "wss:%2E#p:q", "wss://relay.example/room/9/z", "wss://relay.example/room/9/#p:q", id="colon-in-fragment"
+        ),
+        pytest.param(
+            "ftp:%2e%2E", "ftp://mirror.example/pub/x/y", "ftp://mirror.example/pub/", id="encoded-parent-only"
+        ),
         pytest.param("http:%2e/..", "hxxp://site.org/a/b", "http://./", id="different-same-length-scheme"),
         pytest.param("https:%2e/..", "", "https://./", id="no-fallback-scheme"),
         pytest.param("https:%2e/..", "customlong://site.org/a/b", "https://./", id="long-foreign-scheme"),
@@ -961,13 +968,10 @@ def test_meta_refresh_resolves_encoded_dot_segments() -> None:
     )
 
 
-def test_meta_refresh_same_scheme_keeps_tabbed_url_a_path() -> None:
-    # unlike base_url(), meta_refresh() hands the tab on, and the join's scheme scan reads through it
-    html = '<meta http-equiv=refresh content="0;url=ftp:ht\ttp://files.test/%2e/q">'
-    assert parse(html).meta_refresh("ftp://mirror.example/pub/x") == (
-        0.0,
-        "ftp://mirror.example/pub/http://files.test/q",
-    )
+def test_meta_refresh_tabbed_authority_resolves_encoded_dots() -> None:
+    # WHATWG drops tab characters before it reads the authority, so the tab between the two slashes is removed
+    html = '<meta http-equiv=refresh content="0;url=ftp:/\t/files.test/x/%2e%2e/w">'
+    assert parse(html).meta_refresh("ftp://mirror.example/pub/x") == (0.0, "ftp://files.test/w")
 
 
 def test_meta_refresh_resolves_root_backslash_before_trailing_control() -> None:

@@ -1448,33 +1448,33 @@ def test_computed_style_inherited_sibling_values(order: tuple[int, ...], expecte
             id="element-child-text-not-sheet",
         ),
         pytest.param(
-            "<svg><style>p{color:<style>blue</style>}</style></svg><p></p>",
-            {"color": "canvastext"},
-            id="nested-style-not-in-outer-sheet",
+            "<math><style><style>p</style>{font-style:italic}</style></math><p></p>",
+            {"font-style": "normal"},
+            id="inner-style-text-not-outer-declaration",
         ),
         pytest.param(
-            "<svg><style>p{top:1px}<style>p{color:red}</style>p{left:2px}</style></svg><p></p>",
-            {"top": "1px", "color": "red", "left": "2px"},
-            id="nested-style-own-sheet",
+            "<math><style>p{top:3px}<style>p{color:green}</style>p{left:4px}</style></math><p></p>",
+            {"top": "3px", "color": "green", "left": "4px"},
+            id="inner-style-own-sheet",
         ),
     ],
 )
-def test_computed_style_foreign_style_reads_its_text_children_only(html: str, expected: dict[str, str]) -> None:
+def test_computed_style_foreign_style_sheet_is_its_own_text(html: str, expected: dict[str, str]) -> None:
     # in foreign content <style> elements nest; each is a sheet of its own text children, not of its descendants' text
     style: Final = computed_style(parse(html).select("p")[0])
     assert {name: style[name] for name in expected} == expected
 
 
-def test_computed_style_nested_foreign_style_stays_within_memory_budget() -> None:
+def test_computed_style_style_staircase_stays_within_memory_budget() -> None:
     tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")  # PyPy ships none
-    document: Final = parse(f"<p></p><math>{'<style>' * 100}{'p{top:1px}' * 400}{'</style>' * 100}</math>")
+    staircase: Final = "".join(f"<style>p{{z-index:{index}}}" for index in range(250))
+    document: Final = parse(f"<p></p><math>{staircase}</math>")
     tracing.start()
     try:
         computed_style(document.select("p")[0])
-        peak: Final = tracing.get_traced_memory()[1]
+        assert tracing.get_traced_memory()[1] < 16 * 1024 * 1024
     finally:
         tracing.stop()
-    assert peak < 16 * 1024 * 1024, peak
 
 
 def test_computed_style_html_style_drops_text_of_appended_element() -> None:
