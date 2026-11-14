@@ -981,36 +981,35 @@ def test_reset_insertion_mode_skips_a_foreign_html_in_a_document() -> None:
 
 
 @pytest.mark.parametrize(
-    ("source", "body"),
+    ("source", "expected"),
     [
         pytest.param(
-            "<svg><template><title><dl></template>k",
-            "<svg><template><title><dl>k</dl></title></template></svg>",
-            id="svg-text-stays-in-place",
+            "<svg><template><desc><dl></template>k",
+            "<html><head></head><body><svg><template><desc><dl>k</dl></desc></template></svg></body></html>",
+            id="svg-desc-definition-list",
         ),
         pytest.param(
-            "<svg><template><desc><q></template><u><ins><u>",
-            "<svg><template><desc><q><u><ins><u></u></ins></u></q></desc></template></svg>",
-            id="svg-adoption-agency",
+            "<math><template><mi><q></template><u><hr><u>",
+            "<html><head></head><body><math><template><mi><q><u><hr><u></u></u></q></mi></template></math></body></html>",
+            id="math-identifier-quote",
         ),
         pytest.param(
-            "<math><template><mn><section></template><i><hr><i>",
-            "<math><template><mn><section><i><hr><i></i></i></section></mn></template></math>",
-            id="mathml-adoption-agency",
+            "<math><template><ms><nav></template><i><ul><i>",
+            "<html><head></head><body><math><template><ms><nav><i><ul><i></i></ul></i></nav></ms></template></math>"
+            "</body></html>",
+            id="math-string-nav",
         ),
         pytest.param(
-            "<svg><template><foreignObject><big></template><strike><nav></strike>",
-            "<svg><template><foreignObject><big><strike></strike><nav><strike></strike></nav></big></foreignObject></template></svg>",
-            id="svg-template-keeps-root",
+            "<svg><template><title><h3></template>j<b>",
+            "<html><head></head><body><svg><template><title><h3>j<b></b></h3></title></template></svg></body></html>",
+            id="svg-title-heading",
         ),
     ],
 )
-def test_template_end_tag_ignores_a_foreign_template_on_the_stack(source: str, body: str) -> None:
-    # only an HTML template counts as "a template element on the stack": under an SVG/MathML one the end tag is
-    # ignored instead of popping every open element, html included
-    found = parse(source).find("body")
-    assert found is not None
-    assert found.inner_html == body
+def test_foreign_template_end_tag_leaves_the_open_elements(source: str, expected: str) -> None:
+    # an SVG or MathML template is not the HTML template an end tag closes: the tag is ignored and the open
+    # elements above the template keep their place
+    assert parse(source).html == expected
 
 
 def test_foreign_template_fragment_keeps_the_root() -> None:
@@ -1023,43 +1022,42 @@ def test_foreign_template_fragment_keeps_the_root() -> None:
     ("source", "context", "expected"),
     [
         pytest.param(
-            "<title><dl></template><kbd><ol></kbd>z",
-            "svg template",
-            "<title><dl><kbd><ol>z</ol></kbd></dl></title>",
-            id="template-end-tag",
+            "<dl></template><kbd><ol></kbd>z", "math template", "<dl><kbd><ol>z</ol></kbd></dl>", id="template-end-tag"
         ),
-        pytest.param("<li>a</li><kbd><ol></kbd>y", "svg li", "<li>a</li><kbd></kbd><ol>y</ol>", id="li-start-tag"),
-        pytest.param("<dd>a</dd><sub><ol></sub>y", "math dd", "<dd>a</dd><sub><ol>y</ol></sub>", id="dd-start-tag"),
+        pytest.param("<li>a</li><kbd><ol></kbd>y", "math li", "<li>a</li><kbd></kbd><ol>y</ol>", id="li-start-tag"),
+        pytest.param("<dd>a</dd><sub><ol></sub>y", "svg dd", "<dd>a</dd><sub><ol>y</ol></sub>", id="dd-start-tag"),
         pytest.param(
             "<dt>a</dt><code><ol></code>y",
-            "math dt",
+            "svg dt",
             "<dt>a</dt><code></code><ol><code></code>y</ol>",
             id="dt-start-tag",
         ),
         pytest.param(
-            "<h6>a</h6><nobr><ol></nobr>y",
-            "svg h1",
-            "<h6>a</h6><nobr></nobr><ol><nobr></nobr>y</ol>",
+            "<h4>a</h4><nobr><ol></nobr>y",
+            "math h4",
+            "<h4>a</h4><nobr></nobr><ol><nobr></nobr>y</ol>",
             id="heading-start-tag",
         ),
         pytest.param(
-            "<span>a</h3><u><ol></u>y",
-            "math h1",
+            "<span>a</h2><u><ol></u>y",
+            "svg h2",
             "<span>a<u></u><ol><u></u>y</ol></span>",
             id="heading-end-tag",
         ),
         pytest.param(
-            "<dt><table></table><caption></caption><code><ol></code>y",
-            "svg table",
-            "<dt><table></table><code></code><ol><code></code>y</ol></dt>",
+            "<dd><table></table><caption></caption><var><ol></var>y",
+            "math table",
+            "<dd><table></table><var><ol>y</ol></var></dd>",
             id="reset-insertion-mode",
         ),
     ],
 )
-def test_foreign_fragment_context_is_not_its_html_namesake(source: str, context: str, expected: str) -> None:
-    # the root of a foreign-context fragment carries the context's atom; taking it for the HTML element of that name
-    # popped the root off the stack of open elements, and the content after it landed outside the fragment
-    assert parse_fragment(source, context).inner_html == expected
+def test_fragment_root_of_a_foreign_context_keeps_its_content(source: str, context: str, expected: str) -> None:
+    # the root is named like an HTML element but is not one: the walks must not take it for that element, so the
+    # content lands under the root and nothing is left beside it
+    root = parse_fragment(source, context)
+    assert root.next_sibling is None
+    assert root.inner_html == expected
 
 
 @pytest.mark.parametrize("distinct", [pytest.param(True, id="distinct-values"), pytest.param(False, id="same-values")])
@@ -1690,13 +1688,10 @@ _DEPTH_CAP: Final[int] = 512
 @pytest.mark.parametrize(
     "markup",
     [
+        pytest.param(f"{'<dl>' * (_DEPTH_CAP - 4)}<table><thead><tr></thead>", id="row-refused-in-thead"),
         pytest.param(
-            f"{'<dl>' * (_DEPTH_CAP - 8)}<table><tbody><tr><td><table><tbody><tr></tbody>",
-            id="row-refused-in-nested-table",
-        ),
-        pytest.param(
-            f"{'<dl>' * (_DEPTH_CAP - 7)}<table><tbody><tr><td><b>y<xmp>z</xmp></tr>",
-            id="text-element-in-cell",
+            f"{'<dl>' * (_DEPTH_CAP - 6)}<table><tfoot><tr><th><noembed></noembed></tr>",
+            id="text-element-in-header-cell",
         ),
         pytest.param(
             f"{'<dl>' * (_DEPTH_CAP - 9)}<dl><dd><dt><dl><table><tbody><tr><td>y<iframe></iframe></tbody>",
@@ -1747,11 +1742,11 @@ def test_element_refused_at_depth_cap_keeps_the_fragment_root(markup: str, conte
     assert root.find("p") is not None
 
 
-def test_end_tag_named_like_a_custom_context_keeps_the_fragment_root() -> None:
-    card = parse("<media-slot></media-slot>").find("media-slot")
+def test_closing_tag_named_like_a_custom_fragment_root_is_ignored() -> None:
+    card = parse("<pill-tag></pill-tag>").find("pill-tag")
     assert card is not None
-    card.set_inner_html("</media-slot><big><p></big>x")
-    assert card.html == "<media-slot><big></big><p><big></big>x</p></media-slot>"
+    card.set_inner_html("</pill-tag><i><p></i><em>y</em>")
+    assert card.inner_html == "<i></i><p><i></i><em>y</em></p>"
 
 
 def test_table_cell_rejected_at_depth_cap_keeps_html_root() -> None:

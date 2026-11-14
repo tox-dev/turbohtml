@@ -638,7 +638,7 @@ static void clear_to(th_tree *tree, uint16_t atom_a, uint16_t atom_b, uint16_t a
     while (tree->open_len > 1) {
         th_node *node = current_node(tree);
         uint16_t atom = node->atom;
-        /* A table-context boundary is always an html element. */
+        /* the open_len > 1 bound keeps the html root out of this walk, so html is never a boundary here */
         if (node->ns == TH_NS_HTML /* GCOVR_EXCL_BR_LINE */ &&
             (atom == atom_a || atom == atom_b || atom == atom_c || atom == TH_TAG_TEMPLATE)) {
             return; /* template is also a table-context boundary */
@@ -2145,8 +2145,8 @@ static Py_ssize_t stack_index_of(th_tree *tree, th_node *node) {
     return -1;
 }
 
-/* The index of the topmost HTML element with this atom on the stack, or -1; like pop_until_atom, which acts on the
-   answer, a foreign element with the same local name (an SVG or MathML template) never matches. */
+/* Scans down from the top and skips foreign elements, as pop_until_atom does: a foreign template is not the template
+   the rules look for. */
 static Py_ssize_t stack_index_of_atom(th_tree *tree, uint16_t atom) {
     for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) {
         if (tree->open[index]->ns == TH_NS_HTML && tree->open[index]->atom == atom) {
@@ -2279,8 +2279,8 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
         }
         /* moving the furthest block under a formatting clone can nest it where its own start tag would not */
         tree->reparse_hazard = 1;
-        /* html, or the fragment root, sits below every formatting element; the document stands in when no element
-           sits below the formatting element, as current_node does for an empty stack */
+        /* the stack bottom, html or the fragment root, is below every formatting element; without one, the document
+           takes its place */
         th_node *common = fmt_stack > 0 /* GCOVR_EXCL_BR_LINE */ ? tree->open[fmt_stack - 1] : tree->document;
         Py_ssize_t bookmark = afe_index_of(tree, fmt);
         th_node *old_select =
@@ -2447,8 +2447,7 @@ static int is_heading_atom(uint16_t atom) {
            atom == TH_TAG_H6;
 }
 
-/* An HTML h1-h6 on the stack: the heading rules name HTML elements, so a foreign element of that name (the root of an
-   "svg h1" fragment context) is not one. */
+/* The heading rules apply only to HTML elements, so a foreign element with a heading's name is not a heading. */
 static int is_heading(const th_node *node) {
     return node->ns == TH_NS_HTML && is_heading_atom(node->atom);
 }
@@ -2648,8 +2647,8 @@ static enum mode reset_insertion_mode(th_tree *tree) {
         int last = (index == 0);
         uint16_t atom;
         if (last && tree->fragment_root != NULL) {
-            /* the bottom of the stack stands in for the context; a foreign context matches no step, like the foreign
-               elements below, or a "svg table" root would select a table mode whose clear_to pops the root itself */
+            /* the bottom of the stack takes the context's place only when it is HTML; a foreign root must not pick a
+               table mode, because that mode's clear_to would then pop the root */
             atom = node->ns == TH_NS_HTML ? tree->ctx_atom : TH_TAG_UNKNOWN;
         } else if (node->ns != TH_NS_HTML) {
             /* the reset algorithm names HTML-namespace elements only, so a foreign
@@ -3475,7 +3474,7 @@ static enum th_drain drain_in_body(th_tree *tree, th_token *tok, th_insert *dc) 
             /* html bounds the stack walk */
             for (Py_ssize_t index = tree->open_len - 1; index >= 0; index--) { /* GCOVR_EXCL_BR_LINE */
                 uint16_t open_atom = tree->open[index]->atom;
-                /* an HTML li: pop_until_atom never matches a foreign one (a "svg li" fragment context) */
+                /* only an HTML li starts the walk, as pop_until_atom skips foreign elements */
                 if (tree->open[index]->ns == TH_NS_HTML && open_atom == TH_TAG_LI) {
                     generate_implied_end_tags(tree, TH_TAG_LI);
                     pop_until_atom(tree, TH_TAG_LI);
