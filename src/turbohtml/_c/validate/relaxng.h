@@ -1666,18 +1666,19 @@ static pattern *rng_child_element(valctx *ctx, pattern *p, th_node *element) {
 
 /* ---- compile & entry ---- */
 
-/* The elements the grammar scan has yet to walk. A grammar with few of them keeps the queue on the stack. */
+/* The elements the grammar scan has yet to walk, and the deepest pattern level it has reached since the define it is
+   expanding began. A grammar with few elements keeps the queue on the stack. */
 typedef struct {
     th_node **items;
     Py_ssize_t len, cap;
+    int peak;
     th_node *local[16];
 } nodevec;
 
 static int rng_scan(th_schema *schema, th_node *container, int depth, nodevec *pending);
 static int rng_check_combine(th_schema *schema, def_entry *entry);
 
-/* Scans the start components, then each element they queue, and each element those queue in turn. */
-static int rng_scan_grammar(th_schema *schema, def_entry *starts, nodevec *pending) {
+static int rng_scan_queue(th_schema *schema, def_entry *starts, nodevec *pending) {
     if (rng_check_combine(schema, starts) < 0 || rng_scan(schema, starts->first, 0, pending) < 0) {
         return -1;
     }
@@ -1692,6 +1693,20 @@ static int rng_scan_grammar(th_schema *schema, def_entry *starts, nodevec *pendi
         }
     }
     return 0;
+}
+
+/* Scans the start components, then each element they queue, and each element those queue in turn. */
+static RNG_NOINLINE int rng_scan_grammar(th_schema *schema, def_entry *starts) {
+    nodevec pending;
+    pending.items = pending.local;
+    pending.len = 0;
+    pending.cap = TH_INITIAL_CAPACITY(16);
+    pending.peak = 0;
+    int scanned = rng_scan_queue(schema, starts, &pending);
+    if (pending.items != pending.local) {
+        PyMem_Free(pending.items);
+    }
+    return scanned;
 }
 
 static int rng_is_reference(th_schema *schema, th_node *node);
@@ -1740,15 +1755,7 @@ static int rng_compile(th_schema *schema, PyObject *base_url, PyObject *include_
     for (Py_ssize_t index = 0; index < schema->defines.len; index++) {
         schema->defines.items[index].scan_height = -1;
     }
-    nodevec pending;
-    pending.items = pending.local;
-    pending.len = 0;
-    pending.cap = TH_INITIAL_CAPACITY(16);
-    int scanned = rng_scan_grammar(schema, &starts, &pending);
-    if (pending.items != pending.local) {
-        PyMem_Free(pending.items);
-    }
-    if (scanned < 0) {
+    if (rng_scan_grammar(schema, &starts) < 0) {
         return 0;
     }
     for (Py_ssize_t index = 0; index < schema->defines.len; index++) {
@@ -1863,50 +1870,38 @@ static int rng_check_unused_refs(th_schema *schema, th_node *container) {
     return 0;
 }
 
-static int rng_scan_node(th_schema *schema, th_node *node, int depth, nodevec *pending);
+static RNG_FORCEINLINE int rng_scan_node(th_schema *schema, th_node *node, int depth, nodevec *pending);
 
 /* Checks 4.10, 4.19 and 7.4 on reachable patterns only: an unreachable <define> is never built, so it can neither
    crash nor blow up, and dead definitions add no compile cost. The walk follows each <ref> into its define and stops
-   at an <element>, left in `pending` for a walk of its own: a derivative descends no further either, so the nesting
-   below `container` that this returns, counted through every <ref>, bounds the recursion of both. -1 is a failure. */
+   at an <element>, left in `pending` for a walk of its own: a derivative descends no further either, so the level
+   `pending->peak` records, counted through every <ref>, bounds the recursion of both. A container raises it to the
+   level of its pattern children, which an empty one has none of. -1 is a failure. */
 static int rng_scan(th_schema *schema, th_node *container, int depth, nodevec *pending) {
-    int height = 0;
     for (th_node *child = container->first_child; child != NULL; child = child->next_sibling) {
         if (child->type != TH_NODE_ELEMENT) {
             continue;
         }
-        int below = rng_scan_node(schema, child, depth, pending);
-        if (below < 0) {
+        if (depth >= pending->peak) {
+            pending->peak = depth + 1;
+        }
+        if (rng_scan_node(schema, child, depth, pending) < 0) {
             return -1;
         }
-        if (below >= height) {
-            height = below + 1;
-        }
     }
-    return height;
+    return 0;
 }
 
 enum { RNG_SCAN_OTHER, RNG_SCAN_REF, RNG_SCAN_INTERLEAVE, RNG_SCAN_ELEMENT };
 
-static int rng_scan_kind(th_node *node);
-static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth, nodevec *pending);
-static int nodevec_push(nodevec *vec, th_node *node);
+static RNG_FORCEINLINE int rng_scan_kind(th_node *node);
+static RNG_NOINLINE int rng_scan_ref(th_schema *schema, th_node *ref, int depth, nodevec *pending);
+static RNG_FORCEINLINE int nodevec_push(nodevec *vec, th_node *node);
 
-static int rng_scan_node(th_schema *schema, th_node *node, int depth, nodevec *pending) {
+static RNG_FORCEINLINE int rng_scan_node(th_schema *schema, th_node *node, int depth, nodevec *pending) {
     switch (rng_scan_kind(node)) {
-    case RNG_SCAN_REF: {
-        const th_node_attr *name = attr_exact(schema->tree, node, "name", 4);
-        if (name == NULL) {
-            PyErr_SetString(PyExc_ValueError, "RELAX NG <ref> is missing the required name attribute");
-            return -1;
-        }
-        Py_ssize_t index = def_find(&schema->defines, name->value, name->value_len);
-        if (index < 0) {
-            PyErr_SetString(PyExc_ValueError, "RELAX NG <ref> has no matching define");
-            return -1;
-        }
-        return rng_scan_define(schema, index, depth + 1, pending);
-    }
+    case RNG_SCAN_REF:
+        return rng_scan_ref(schema, node, depth + 1, pending);
     case RNG_SCAN_INTERLEAVE:
         return rng_check_interleave_node(schema, node) < 0 ? -1 : rng_scan(schema, node, depth + 1, pending);
     case RNG_SCAN_ELEMENT:
@@ -1916,21 +1911,59 @@ static int rng_scan_node(th_schema *schema, th_node *node, int depth, nodevec *p
     }
 }
 
-static int rng_scan_kind(th_node *node) {
-    const Py_UCS4 *local, *prefix;
-    Py_ssize_t local_len = 0, prefix_len = 0;
-    split_prefix(node->text, node->text_len, &local, &local_len, &prefix, &prefix_len);
-    int kind;
-    if (u_eq_ascii(local, local_len, "ref")) {
-        kind = RNG_SCAN_REF;
-    } else if (u_eq_ascii(local, local_len, "interleave")) {
-        kind = RNG_SCAN_INTERLEAVE;
-    } else if (u_eq_ascii(local, local_len, "element")) {
-        kind = RNG_SCAN_ELEMENT;
-    } else {
-        return RNG_SCAN_OTHER;
+static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth, nodevec *pending);
+
+static RNG_NOINLINE int rng_scan_ref(th_schema *schema, th_node *ref, int depth, nodevec *pending) {
+    const th_node_attr *name = attr_exact(schema->tree, ref, "name", 4);
+    if (name == NULL) {
+        PyErr_SetString(PyExc_ValueError, "RELAX NG <ref> is missing the required name attribute");
+        return -1;
     }
-    return kind;
+    Py_ssize_t index = def_find(&schema->defines, name->value, name->value_len);
+    if (index < 0) {
+        PyErr_SetString(PyExc_ValueError, "RELAX NG <ref> has no matching define");
+        return -1;
+    }
+    int height = rng_scan_define(schema, index, depth, pending);
+    if (height < 0) {
+        return -1;
+    }
+    if (depth + height > pending->peak) {
+        pending->peak = depth + height;
+    }
+    return 0;
+}
+
+/* Whether the local part of `name` (after its first colon, as split_prefix splits it) is `local`. Matching the end
+   first leaves the colon search to the few names that end in `local` and are longer. */
+static RNG_FORCEINLINE int rng_local_name_is(const Py_UCS4 *name, Py_ssize_t len, const char *local,
+                                             Py_ssize_t local_len) {
+    if (len < local_len || !u_eq_ascii(name + len - local_len, local_len, local)) {
+        return 0;
+    }
+    Py_ssize_t colon = len - local_len - 1;
+    if (colon < 0) {
+        return 1;
+    }
+    for (Py_ssize_t index = 0; index < colon; index++) {
+        if (name[index] == ':') {
+            return 0;
+        }
+    }
+    return name[colon] == ':';
+}
+
+static RNG_FORCEINLINE int rng_scan_kind(th_node *node) {
+    if (rng_local_name_is(node->text, node->text_len, "ref", 3)) {
+        return RNG_SCAN_REF;
+    }
+    if (rng_local_name_is(node->text, node->text_len, "interleave", 10)) {
+        return RNG_SCAN_INTERLEAVE;
+    }
+    if (rng_local_name_is(node->text, node->text_len, "element", 7)) {
+        return RNG_SCAN_ELEMENT;
+    }
+    return RNG_SCAN_OTHER;
 }
 
 /* RELAX NG 4.19: meeting a define again while its expansion is under way is a ref loop with no <element> between,
@@ -1950,16 +1983,17 @@ static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth, n
         if (rng_check_combine(schema, entry) < 0) {
             return -1;
         }
-        int height = rng_scan(schema, entry->first, depth, pending);
-        for (def_part *part = entry->extra; height >= 0 && part != NULL; part = part->next) {
-            int other = rng_scan(schema, part->node, depth, pending);
-            if (other < 0 || other > height) {
-                height = other;
-            }
+        int outer = pending->peak;
+        pending->peak = depth;
+        int scanned = rng_scan(schema, entry->first, depth, pending);
+        for (def_part *part = entry->extra; scanned == 0 && part != NULL; part = part->next) {
+            scanned = rng_scan(schema, part->node, depth, pending);
         }
-        if (height < 0) {
+        if (scanned < 0) {
             return -1;
         }
+        int height = pending->peak - depth;
+        pending->peak = outer;
         entry->scan_height = height;
     }
     if (entry->scan_height < 0 || depth + entry->scan_height > TH_VALIDATE_MAX_DEPTH) {
@@ -1972,20 +2006,26 @@ static int rng_scan_define(th_schema *schema, Py_ssize_t def_index, int depth, n
 }
 
 /* A longer queue moves to the heap, not the schema arena: it lives only as long as the scan. */
-static int nodevec_push(nodevec *vec, th_node *node) {
+static RNG_NOINLINE int nodevec_grow_push(nodevec *vec, th_node *node) {
+    int local = vec->items == vec->local;
+    size_t bytes = (size_t)vec->cap * 2 * sizeof(th_node *);
+    th_node **items = local ? PyMem_Malloc(bytes) : PyMem_Realloc(vec->items, bytes);
+    if (items == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
+        return -1;        /* GCOVR_EXCL_LINE */
+    }
+    if (local) {
+        memcpy(items, vec->local, (size_t)vec->len * sizeof(th_node *));
+    }
+    vec->items = items;
+    vec->cap *= 2;
+    vec->items[vec->len++] = node;
+    return 0;
+}
+
+static RNG_FORCEINLINE int nodevec_push(nodevec *vec, th_node *node) {
     if (vec->len == vec->cap) {
-        int local = vec->items == vec->local;
-        size_t bytes = (size_t)vec->cap * 2 * sizeof(th_node *);
-        th_node **items = local ? PyMem_Malloc(bytes) : PyMem_Realloc(vec->items, bytes);
-        if (items == NULL) {  /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            PyErr_NoMemory(); /* GCOVR_EXCL_LINE */
-            return -1;        /* GCOVR_EXCL_LINE */
-        }
-        if (local) {
-            memcpy(items, vec->local, (size_t)vec->len * sizeof(th_node *));
-        }
-        vec->items = items;
-        vec->cap *= 2;
+        return nodevec_grow_push(vec, node);
     }
     vec->items[vec->len++] = node;
     return 0;

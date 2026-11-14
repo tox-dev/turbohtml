@@ -2914,3 +2914,50 @@ def _rng_define_reached_twice(groups: int) -> str:
 
 def test_rng_reference_nesting_within_limit_reaches_a_define_twice() -> None:
     assert check(_rng_define_reached_twice(90), "<doc>x</doc>").valid
+
+
+def _prefixed_grammar(body: str) -> str:
+    return f'<rng:grammar xmlns:rng="{_RNG}">{body}</rng:grammar>'
+
+
+@pytest.mark.parametrize(("document", "expected"), [("<a><c/><b/></a>", True), ("<a><b/></a>", False)])
+def test_rng_scan_reads_prefixed_names(document: str, *, expected: bool) -> None:
+    schema: Final = _prefixed_grammar(
+        '<rng:start><rng:ref name="a"/></rng:start><rng:define name="a"><rng:element name="a"><rng:interleave>'
+        '<rng:element name="b"><rng:empty/></rng:element><rng:element name="c"><rng:empty/></rng:element>'
+        "</rng:interleave></rng:element></rng:define>"
+    )
+    assert check(schema, document).valid is expected
+
+
+def test_rng_scan_finds_a_prefixed_ref_loop() -> None:
+    schema: Final = _prefixed_grammar(
+        '<rng:start><rng:ref name="a"/></rng:start>'
+        '<rng:define name="a"><rng:choice><rng:ref name="a"/><rng:empty/></rng:choice></rng:define>'
+    )
+    with pytest.raises(ValueError, match="define 'a' references itself with no element in between"):
+        RelaxNG(schema)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        pytest.param(
+            grammar(
+                '<start><ref name="a"/></start>'
+                '<define name="a"><choice><element name="a"><empty/></element><xref name="a"/></choice></define>'
+            ),
+            id="unprefixed",
+        ),
+        pytest.param(
+            _prefixed_grammar(
+                '<rng:start><rng:ref name="a"/></rng:start><rng:define name="a"><rng:choice>'
+                '<rng:element name="a"><rng:empty/></rng:element><rng:xref name="a"/></rng:choice></rng:define>'
+            ),
+            id="prefixed",
+        ),
+    ],
+)
+def test_rng_scan_name_ending_in_ref_is_not_a_ref(schema: str) -> None:
+    # read as a <ref>, the self-reference would be a 4.19 loop
+    assert check(schema, "<a/>").valid
