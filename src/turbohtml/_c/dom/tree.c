@@ -965,12 +965,30 @@ static void merge_attrs(th_tree *tree, th_node *node, const th_token *token) {
     if (add == 0) {
         return;
     }
-    th_node_attr *merged = arena_alloc(tree, (node->attr_count + add) * (Py_ssize_t)sizeof(th_node_attr));
-    if (merged == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-        return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
-    }
-    if (node->attr_count > 0) { /* an element without attributes has a NULL attrs array */
-        memcpy(merged, node->attrs, (size_t)node->attr_count * sizeof(th_node_attr));
+    /* Grow geometrically, as node_attr_store does: the arena keeps every superseded array until the tree is freed,
+       so an exact-size copy per re-opening tag would retain memory quadratic in the number of such tags. */
+    size_t capacity = node->attr_capacity_shift ? (size_t)1 << node->attr_capacity_shift : 0;
+    size_t needed = (size_t)node->attr_count + (size_t)add;
+    th_node_attr *merged = node->attrs;
+    if (needed > capacity) {
+        size_t bytes;
+        /* GCOVR_EXCL_BR_START: allocation-size overflow */
+        if (!th_grow_cap(needed, capacity, 2, sizeof(th_node_attr), &capacity, &bytes) || bytes > PY_SSIZE_T_MAX) {
+            /* GCOVR_EXCL_BR_STOP */
+            tree->failed = 1; /* GCOVR_EXCL_LINE: allocation-size overflow */
+            return;           /* GCOVR_EXCL_LINE: allocation-size overflow */
+        }
+        merged = arena_alloc(tree, (Py_ssize_t)bytes);
+        if (merged == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            return;           /* GCOVR_EXCL_LINE: allocation-failure path, unreachable from a test */
+        }
+        if (node->attr_count > 0) { /* an element without attributes has a NULL attrs array */
+            memcpy(merged, node->attrs, (size_t)node->attr_count * sizeof(th_node_attr));
+        }
+        node->attr_capacity_shift = 0;
+        for (size_t slots = capacity; slots > 1; slots >>= 1) {
+            node->attr_capacity_shift++;
+        }
     }
     Py_ssize_t at = node->attr_count;
     for (Py_ssize_t index = 0; index < token->attr_count; index++) {
@@ -995,7 +1013,6 @@ static void merge_attrs(th_tree *tree, th_node *node, const th_token *token) {
         }
     }
     node->attrs = merged;
-    node->attr_capacity_shift = 0;
     node->attr_count += add;
 }
 
