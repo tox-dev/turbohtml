@@ -640,18 +640,22 @@ def test_annotation_xml_start_tag_is_read_once(encoding: str, namespace: Namespa
     count: Final = 60_000
     open_tag = f"<math><annotation-xml {' '.join(f'a{index}' for index in range(count))}{encoding}>"
     children = "<g></g>" * count
-    start = time.perf_counter()
-    parse(f"{open_tag}</annotation-xml>{children}")
-    control = time.perf_counter() - start
-    start = time.perf_counter()
+    control = min(_parse_seconds(f"{open_tag}</annotation-xml>{children}") for _ in range(3))
+    elapsed = min(_parse_seconds(f"{open_tag}{children}") for _ in range(3))
     document = parse(f"{open_tag}{children}")
-    assert time.perf_counter() - start < 4 * max(control, 0.05)
+    assert elapsed < 10 * max(control, 0.01)
     annotation = document.find("annotation-xml")
     assert isinstance(annotation, Element)
     assert len(annotation.children) == count
     child = annotation.children[-1]
     assert isinstance(child, Element)
     assert child.namespace is namespace
+
+
+def _parse_seconds(markup: str) -> float:
+    start = time.perf_counter()
+    parse(markup)
+    return time.perf_counter() - start
 
 
 @pytest.mark.parametrize(

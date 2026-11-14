@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import json
 import re
+import time
 import weakref
 from dataclasses import dataclass, replace
 from html import escape
@@ -2487,6 +2488,70 @@ _FOREIGN_POLICY: Final[Policy] = Policy(tags=_FOREIGN_TAGS, attributes={"annotat
 def test_namespace_reachable_foreign_content_untouched(html: str, policy: Policy) -> None:
     # Every namespace transition the parser produces is reachable, so the check leaves valid foreign content as-is.
     assert sanitize(html, policy) == parse_fragment(html).inner_html
+
+
+_ENCODING_POLICY: Final[Policy] = Policy(
+    tags=frozenset({"math", "annotation-xml", "b", "i"}), attributes={"annotation-xml": frozenset({"encoding"})}
+)
+
+
+@pytest.mark.parametrize(
+    ("html", "expected"),
+    [
+        pytest.param(
+            '<math><annotation-xml encoding="text/html"><b>x</b><i>y</i></annotation-xml></math>',
+            '<math><annotation-xml encoding="text/html"><b>x</b><i>y</i></annotation-xml></math>',
+            id="text-html",
+        ),
+        pytest.param(
+            '<math><annotation-xml encoding="application/xhtml+xml"><b>x</b><i>y</i></annotation-xml></math>',
+            '<math><annotation-xml encoding="application/xhtml+xml"><b>x</b><i>y</i></annotation-xml></math>',
+            id="application-xhtml-xml",
+        ),
+        pytest.param(
+            '<math><annotation-xml encoding="TEXT/HTML"><b>x</b><i>y</i></annotation-xml></math>',
+            '<math><annotation-xml encoding="TEXT/HTML"><b>x</b><i>y</i></annotation-xml></math>',
+            id="text-html-case-folded",
+        ),
+        pytest.param(
+            "<math><annotation-xml><b>x</b><i>y</i></annotation-xml></math>",
+            "<math><annotation-xml></annotation-xml></math><b>x</b><i>y</i>",
+            id="no-encoding",
+        ),
+        pytest.param(
+            '<math><annotation-xml encoding="text/xml"><b>x</b><i>y</i></annotation-xml></math>',
+            '<math><annotation-xml encoding="text/xml"></annotation-xml></math><b>x</b><i>y</i>',
+            id="other-encoding",
+        ),
+    ],
+)
+def test_annotation_xml_encoding_selects_integration_point(html: str, expected: str) -> None:
+    assert sanitize(html, _ENCODING_POLICY) == expected
+
+
+@pytest.mark.parametrize(
+    "encoding",
+    [
+        pytest.param(' encoding="text/html"', id="text-html"),
+        pytest.param(' encoding="application/xhtml+xml"', id="application-xhtml-xml"),
+    ],
+)
+def test_annotation_xml_integration_check_is_linear_in_children(encoding: str) -> None:
+    # The sanitizer asks whether an annotation-xml parent is an integration point for each child, and that answer used
+    # to rescan the parent's attributes each time. The control closes the element before the children, so it pays the
+    # same attribute costs without the per-child check. The floor keeps a fast control from inflating the ratio.
+    count: Final = 40_000
+    attributes = " ".join(f"a{index}" for index in range(count))
+    open_tag = f"<math><annotation-xml {attributes}{encoding}>"
+    children = "<i>x</i>" * count
+    control = min(_sanitize_seconds(f"{open_tag}</annotation-xml>{children}") for _ in range(3))
+    assert min(_sanitize_seconds(f"{open_tag}{children}") for _ in range(3)) < 10 * max(control, 0.01)
+
+
+def _sanitize_seconds(markup: str) -> float:
+    start = time.perf_counter()
+    sanitize(markup)
+    return time.perf_counter() - start
 
 
 _ANNOTATION_TAGS: Final[frozenset[str]] = frozenset({"math", "annotation-xml", "style", "b"})

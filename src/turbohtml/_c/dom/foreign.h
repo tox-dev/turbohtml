@@ -204,9 +204,8 @@ static int is_html_integration(const th_node *node) {
     if (node->ns == TH_NS_SVG) {
         return node->atom == TH_TAG_FOREIGNOBJECT || node->atom == TH_TAG_DESC || node->atom == TH_TAG_TITLE;
     }
-    /* Only foreign nodes reach here after the html case, so a non-svg node is always mathml. The dispatcher asks for
-       every token, so insert_foreign settled the annotation-xml case from the start tag: a scan of the attributes
-       here costs attributes x tokens. */
+    /* The dispatcher asks for every token, so insert_foreign settled the annotation-xml case from the start tag: a scan
+       of the attributes here costs attributes x tokens. */
     return node->html_integration;
 }
 
