@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Final, Protocol
 
 import pytest
@@ -735,6 +736,28 @@ def test_has_memo_deep_sibling_chains() -> None:
     chain = f"{'<div>' * 40}<a>x</a>{'</div>' * 40}"
     doc = parse(f"<body>{chain}{chain}</body>")
     assert len(doc.select("div:has(a)")) == 80
+
+
+# a hash that ignores the key chains one node's memo entries into a single probe run, so a selector list with many
+# :has() arguments grows quadratically; one argument per select() keeps each memo at one key and the walk linear
+def test_has_memo_many_arguments_scale_linearly() -> None:
+    selectors = [*(f"div:has(x{index})" for index in range(3000)), "div:has(a)"]
+    combined = ",".join(selectors)
+    depth = 36
+    doc = parse(_nested_divs(depth))
+    assert len(doc.select(combined)) == depth
+    together = one_at_a_time = float("inf")
+    for _ in range(3):
+        together = min(together, _seconds(lambda: doc.select(combined)))
+        one_at_a_time = min(one_at_a_time, _seconds(lambda: [doc.select(selector) for selector in selectors]))
+    # the floor keeps a baseline of a few milliseconds from turning timer noise into a failing ratio
+    assert together <= 4 * max(one_at_a_time, 0.01)
+
+
+def _seconds(select: Callable[[], object]) -> float:
+    start = time.perf_counter()
+    select()
+    return time.perf_counter() - start
 
 
 # a deep tree so the memo is live, carrying elements every relative-selector shape needs:
