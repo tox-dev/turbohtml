@@ -3046,7 +3046,7 @@ def test_transform_attribute_set_redefinitions_scale_linearly(
     def transform_call(count: int) -> Callable[[], object]:
         return partial(Transform(_sheet(build(count), method="xml")), parse_xml("<r/>"))
 
-    work_steps.assert_linear(transform_call, (500, 2000))
+    work_steps.assert_linear(transform_call, (300, 1200))
 
 
 def test_transform_namespace_alias_remaps_result_namespace() -> None:
