@@ -54,12 +54,36 @@ static int css_spell_eof(const css_token *last, const css_char *view, Py_ssize_t
 static int css_spell_names(const token_vec *tokens, const css_char *view, Py_ssize_t length, css_buf *spelled);
 static css_char *css_minify_spelled(token_vec *tokens, css_buf *spelled, int inline_mode, int baseline,
                                     Py_ssize_t *out_len);
+static css_char *css_minify_view(const css_char *view, Py_ssize_t length, int inline_mode, int baseline,
+                                 Py_ssize_t *out_len);
 static int css_spells_style_end(const css_char *text, Py_ssize_t len);
 
 /* The allocator-agnostic core: minify a code-point view into a freshly allocated buffer (free with css_free). The
    harness and the CPython binding both call this; it touches no CPython runtime. */
 css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inline_mode, int baseline,
                               Py_ssize_t *out_len) {
+    css_char *minified = css_minify_view(view, length, inline_mode, baseline, out_len);
+    /* The HTML tokenizer reads the minified result, and a `</style` in it ends the element. The input is no
+       substitute: it can spell the sequence where it closes no element, and minifying can join a sequence from
+       pieces the input keeps apart. A failed call reports a length shorter than the sequence, so a NULL result is
+       never read. */
+    if (!css_spells_style_end(minified, *out_len)) {
+        return minified;
+    }
+    css_free(minified);
+    /* a result that spells `</style` came from a non-empty input, so the size is never zero */
+    minified = css_malloc((size_t)length * sizeof(css_char));
+    if (minified == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+        *out_len = 1;       /* GCOVR_EXCL_LINE: a NULL result with a length reports the failure */
+        return NULL;        /* GCOVR_EXCL_LINE: allocation-failure path */
+    }
+    memcpy(minified, view, (size_t)length * sizeof(css_char));
+    *out_len = length;
+    return minified;
+}
+
+static css_char *css_minify_view(const css_char *view, Py_ssize_t length, int inline_mode, int baseline,
+                                 Py_ssize_t *out_len) {
     /* one flag for the whole call: every buffer and vector below points at it, so a failed allocation anywhere,
        including one whose buffer the caller then drops, fails the call */
     int oom = 0;
@@ -112,12 +136,6 @@ css_char *th_minify_css_bytes(const css_char *view, Py_ssize_t length, int inlin
         cbuf_free(&out); /* GCOVR_EXCL_LINE: allocation-failure path */
         *out_len = 1;    /* GCOVR_EXCL_LINE: a NULL result with a length reports the failure */
         return NULL;     /* GCOVR_EXCL_LINE: allocation-failure path */
-    }
-    /* Dropping a string line continuation, or a comment in a declaration kept as written, can join a `</style` that
-       closes an HTML <style>; the input then comes back unchanged. */
-    if (css_spells_style_end(out.data, out.len) && !css_spells_style_end(view, length)) {
-        out.len = 0;
-        cbuf_put_run(&out, view, length);
     }
     *out_len = out.len;
     return out.data;
@@ -180,7 +198,7 @@ static css_char *css_minify_spelled(token_vec *tokens, css_buf *spelled, int inl
         *out_len = 1;       /* GCOVR_EXCL_LINE */
         return NULL;        /* GCOVR_EXCL_LINE */
     }
-    css_char *minified = th_minify_css_bytes(spelled->data, spelled->len, inline_mode, baseline, out_len);
+    css_char *minified = css_minify_view(spelled->data, spelled->len, inline_mode, baseline, out_len);
     cbuf_free(spelled);
     return minified;
 }

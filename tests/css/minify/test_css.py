@@ -1712,7 +1712,26 @@ def test_minify_css_live_rule_search_is_bounded(count: int, first_rule: str, las
         pytest.param("a{b:c;</**//style:d}", "a{b:c;</**//style:d}", id="kept-declaration-would-join-end-tag"),
         pytest.param('a{b:"x\\\ny"}', 'a{b:"xy"}', id="string-continuation-dropped"),
         pytest.param('a{b:"</stylo"}', 'a{b:"</stylo"}', id="end-tag-prefix-of-other-name"),
-        pytest.param('a { b : "</style" }', 'a{b:"</style"}', id="end-tag-from-source-still-minified"),
+        # an end tag the source spells does not excuse a minified form that spells one
+        pytest.param('a { b : "</style" }', 'a { b : "</style" }', id="end-tag-from-source-unchanged"),
+        pytest.param(
+            'a { c : "</stylex" ; b : "<\\\n/style>" }',
+            'a { c : "</stylex" ; b : "<\\\n/style>" }',
+            id="end-tag-prefix-in-source-keeps-string-continuation",
+        ),
+        pytest.param(
+            'a{c:"</stylex";</**//style:d}', 'a{c:"</stylex";</**//style:d}', id="end-tag-prefix-in-source-keeps-join"
+        ),
+        pytest.param(
+            'a{b:"<\\\n/style>";c:"</style',
+            'a{b:"<\\\n/style>";c:"</style',
+            id="end-tag-prefix-in-string-open-at-end-of-input",
+        ),
+        # a name escape the minifier spells out is checked like a literal end tag
+        pytest.param("a{b:c;</\\73tyle:d}", "a{b:c;</\\73tyle:d}", id="kept-declaration-would-unescape-end-tag"),
+        pytest.param("a{b:</\\73tyle}", "a{b:< /style}", id="less-than-slash-unescaped-name"),
+        pytest.param("\\3c/style>{color:red}", "\\3c/style>{color:red}", id="escaped-less-than-would-spell-end-tag"),
+        pytest.param('</\\73tyle>{a:"b', '</\\73tyle>{a:"b', id="unescaped-end-tag-with-string-open-at-end-of-input"),
         # an @import/@namespace url() with a <url-modifier> keeps its function form (CSS Values 4 §4.5.4): moving the
         # modifier outside the url() would make @import read it as a media query and @namespace as the prefix
         pytest.param('@import url("a.css" screen);', '@import url("a.css" screen);', id="import-url-modifier-kept"),

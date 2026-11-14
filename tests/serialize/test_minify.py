@@ -634,6 +634,17 @@ def css_frag(source: str, *, minify_css: CSSMinify | None = _CSS, unquote_attrib
             '<style>a::before{content:"</\\\nstyle><b>x</b>"}</style>',
             id="style-body-kept-when-minifying-would-spell-end-tag",
         ),
+        # a longer name after the end tag closes no element, and does not excuse a minified form that spells one
+        pytest.param(
+            '<style>a{c:"</stylex";b:"<\\\n/style><b>x</b>"}</style>',
+            '<style>a{c:"</stylex";b:"<\\\n/style><b>x</b>"}</style>',
+            id="style-body-kept-when-source-spells-end-tag-prefix",
+        ),
+        pytest.param(
+            "<style>a{--x:</\\73tyle><b>x</b>}</style>",
+            "<style>a{--x:</\\73tyle><b>x</b>}</style>",
+            id="style-body-kept-when-an-escape-would-spell-end-tag",
+        ),
     ],
 )
 def test_minify_css_output(source: str, expected: str) -> None:

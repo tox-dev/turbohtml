@@ -615,7 +615,7 @@ static int mini_emit_script_js(sbuf *out, th_tree *tree, th_node *node, const th
    caller to emit the content verbatim -- for a non-style raw-text element or an empty <style>,
    so those cost nothing. A parsed <style> body can hold no </style close sequence (the parser
    would have ended the element there), and the CSS engine returns its input unchanged if its
-   output would spell one the input lacks, so the minified stylesheet stays inside the element. Kept out
+   output would spell </style at all, so the minified stylesheet stays inside the element. Kept out
    of line: only a <style> under minify_css reaches it, and inlined it grows the serializer's walk. */
 static TH_NOINLINE int mini_emit_style_css(sbuf *out, th_tree *tree, th_node *node, int baseline) {
     if (node->atom != TH_TAG_STYLE) {
