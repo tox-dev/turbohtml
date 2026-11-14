@@ -1630,6 +1630,31 @@ def test_xsd_attribute_group_without_ref_is_skipped() -> None:
 
 
 @pytest.mark.parametrize(
+    ("model", "xml", "ok"),
+    [
+        pytest.param("<xs:sequence><xs:group/></xs:sequence>", "<r/>", False, id="sequence"),
+        pytest.param("<xs:group/>", "<r/>", False, id="content-model"),
+        pytest.param('<xs:group name="g"/>', "<r/>", False, id="misplaced-definition"),
+        pytest.param(
+            '<xs:sequence><xs:group minOccurs="0"/><xs:element name="a" type="xs:int"/></xs:sequence>',
+            "<r><a>1</a></r>",
+            True,
+            id="optional",
+        ),
+        pytest.param(
+            '<xs:choice><xs:group/><xs:element name="a" type="xs:int"/></xs:choice>',
+            "<r><a>1</a></r>",
+            True,
+            id="choice-sibling",
+        ),
+    ],
+)
+def test_xsd_group_without_ref_matches_nothing(model: str, xml: str, ok: bool) -> None:  # ruff:ignore[boolean-type-hint-positional-argument]  # a pytest parametrize value, not a boolean-trap call site
+    schema = f'<xs:schema {_XS}><xs:element name="r"><xs:complexType>{model}</xs:complexType></xs:element></xs:schema>'
+    assert xsd_ok(schema, xml) is ok
+
+
+@pytest.mark.parametrize(
     ("type_name", "value", "ok"),
     [
         pytest.param("xs:double", ".5", True, id="double-leading-dot"),
