@@ -680,6 +680,61 @@ def test_noahs_ark_reopens_three_identical_entries(markup: str, expected: str, p
     assert element.inner_html == expected
 
 
+def _nested_clones() -> str:
+    layer = f"<em>{'<section>' * 10}</em>"
+    return f"{layer * 3}<em>{'</section>' * 30}x"
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        pytest.param("<p><em><em><em><table><tr><td><em></td></tr></table><em></p>x", id="cleared-marker"),
+        pytest.param("<p><em><em><em><strong></strong><em></p>x", id="removed-entry"),
+        pytest.param("<section><p><em><em><em></p>x<em></section>y", id="reconstructed-clones"),
+        pytest.param("<section><a><em><em><em><p>x</a><em></p></section>y", id="inner-loop-clones"),
+        pytest.param(_nested_clones(), id="formatting-clones"),
+    ],
+)
+def test_noahs_ark_counts_entries_that_outlive_a_removal(markup: str) -> None:
+    # identical entries survive each removal or clone, so the fourth drops the earliest and the text reopens three
+    body = parse(markup).find("body")
+    assert isinstance(body, Element)
+    node = body.children[-1]
+    reopened = 0
+    while isinstance(node, Element):
+        assert node.tag == "em"
+        reopened += 1
+        node = node.children[0]
+    assert reopened == 3
+
+
+# the long values stay on the list, so every rebuild of the hash set reads them again
+def _cleared_cells(count: int) -> str:
+    return f"<em title='{'x' * 8 * count}'><table><tr>{'<td><em>' * count}"
+
+
+def _cloned_rounds(count: int) -> str:
+    rounds = "".join(f"{'<section>' * 10}</em>{'</section>' * 10}<strong></strong>" for _ in range(count))
+    return f"<em title='{'x' * 30 * count}'>{rounds}"
+
+
+def _emptied_list(count: int) -> str:
+    entries = "".join(f"<em a={index}></em>" for index in range(count))
+    return f"<strong>{entries}</strong>{'<em></em>' * count}"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(_cleared_cells, id="cleared-marker"),
+        pytest.param(_cloned_rounds, id="adoption-clone"),
+        pytest.param(_emptied_list, id="emptied-list"),
+    ],
+)
+def test_formatting_entries_leave_the_list_in_linear_steps(source: Callable[[int], str], work_steps: WorkSteps) -> None:
+    work_steps.assert_linear(lambda count: partial(parse, source(count)), (500, 2000))
+
+
 def test_colgroup_fragment_keeps_whitespace_after_ignored_characters() -> None:
     # with no colgroup to pop, each non-whitespace character is ignored in "in column group" and the
     # whitespace between them is still inserted
