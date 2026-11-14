@@ -383,7 +383,8 @@ class Html:
     :param layout: ``None`` emits the compact WHATWG form, an :class:`~turbohtml.Indent` pretty-prints, a
         :class:`~turbohtml.Minify` minifies.
     :param sort_attributes: emit each element's attributes in name order rather than source order.
-    :param meta_charset: normalize (or inject) the ``<meta charset>`` declaration to the output encoding.
+    :param meta_charset: normalize (or inject) the ``<meta charset>`` declaration to the WHATWG name of the output
+        encoding; :meth:`Node.encode` raises :class:`ValueError` for a codec no WHATWG label names.
 
     :param xml: emit XML/XHTML syntax -- every empty element self-closes (``<br/>``), foreign SVG and MathML
         subtrees carry their namespace declarations, and text and attribute values follow the XML escaping rules.

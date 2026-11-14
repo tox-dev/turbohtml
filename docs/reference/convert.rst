@@ -25,8 +25,8 @@ selector, the value cssselect exposes as ``Selector.specificity()``.
 .. autoclass:: HTMLTranslator
 
 A selector the CSS grammar rejects raises :class:`turbohtml.SelectorSyntaxError` (the one error every selector-parse
-path shares); a valid selector XPath 1.0 cannot express raises :exc:`ExpressionError`, under the cssselect-shaped
-:exc:`SelectorError` base.
+path shares); a valid selector XPath 1.0 cannot express, or one whose expression would pass 16,777,216 characters,
+raises :exc:`ExpressionError`, under the cssselect-shaped :exc:`SelectorError` base.
 
 .. autoexception:: SelectorError
 

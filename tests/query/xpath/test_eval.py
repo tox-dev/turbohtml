@@ -3,7 +3,6 @@ from __future__ import annotations
 import gc
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # the test runs a fixed command in a subprocess
 import sys
-import timeit
 from functools import partial
 from operator import ge, gt, le, lt
 from types import MappingProxyType
@@ -20,6 +19,8 @@ from turbohtml.query import XPathDepthError
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
     from types import SimpleNamespace
+
+    from work_steps import WorkSteps
 
 
 XPathResult: TypeAlias = "Sequence[turbohtml.Node | str | float] | float | bool | str"
@@ -930,16 +931,12 @@ def test_deep_boolean_chain_operand_still_raises(doc: turbohtml.Node) -> None:
         pytest.param(css_to_xpath("p:last-child", prefix="//"), id="css-last-child"),
     ],
 )
-def test_a_path_tested_for_emptiness_grows_linearly(expression: str) -> None:
-    # Compares the time for expression with the time for //p[self::p] on one list of 16,000 p elements. Both visit each
-    # p once, so the ratio is near 1 when the walk stops at the first node and grows with the list length otherwise.
+def test_a_path_tested_for_emptiness_grows_linearly(expression: str, work_steps: WorkSteps) -> None:
+    # Compares the steps for expression with the steps for //p[self::p] on one list of 16,000 p elements. Both visit
+    # each p once, so the ratio is near 1 when the walk stops at the first node and grows with the list length
+    # otherwise.
     document: Final = parse(f"<section>{'<p>y' * 16_000}</section>")
-    growth: Final = _best_seconds(document, expression) / _best_seconds(document, "//p[self::p]")
-    assert growth < 20
-
-
-def _best_seconds(document: Document, expression: str) -> float:
-    return min(timeit.repeat(partial(document.xpath, expression), number=1, repeat=3))
+    work_steps.assert_within(partial(document.xpath, expression), partial(document.xpath, "//p[self::p]"), factor=20)
 
 
 @pytest.mark.parametrize("context", ["//*", "//@*", "//text()", "//*/namespace::*"])

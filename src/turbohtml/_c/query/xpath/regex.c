@@ -6,6 +6,7 @@
 #include "core/ascii.h"
 #include "core/pycompat.h"
 #include "core/vec.h"
+#include "core/work_steps.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -688,6 +689,7 @@ static int xr_group_name(xr_parser *parser, Py_UCS4 terminator, PyObject **out) 
 
 /* The number of the group called name in the names dict of a parser or a program, 0 when none is. */
 static int32_t xr_named_group(PyObject *names, PyObject *name) {
+    TH_WORK_STEP();
     PyObject *group = names == NULL ? NULL : PyDict_GetItem(names, name); /* borrowed; a str key lookup cannot raise */
     return group == NULL ? 0 : (int32_t)PyLong_AsLong(group);
 }
@@ -1062,6 +1064,7 @@ static int32_t xr_parse(xr_parser *parser) {
     parser->levels[0] = (xr_level){-1, -1, -1, -1, -1, parser->flags, 0};
     parser->level_count = 1;
     while (parser->pos < parser->len) {
+        TH_WORK_STEP();
         Py_UCS4 current = parser->pattern[parser->pos];
         xr_level *level = &parser->levels[parser->level_count - 1];
         if (current == ')' && parser->level_count == 1) {

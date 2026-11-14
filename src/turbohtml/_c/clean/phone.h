@@ -19,6 +19,8 @@
 /* the last group may hold TH_PHONE_MAX_GROUP_DIGITS digits past the run limit */
 #define TH_PHONE_DIGIT_BUFFER (TH_PHONE_MAX_RUN_CHARS + TH_PHONE_MAX_GROUP_DIGITS)
 #define TH_PHONE_MAX_EXTENSION 20
+/* MAX_INPUT_STRING_LENGTH: th_phone_parse refuses a longer string before reading any of it */
+#define TH_PHONE_MAX_PARSE_CHARS 250
 #define TH_PHONE_NSN_CAPACITY 18
 /* a formatted number: a template application per group split of at most TH_PHONE_MAX_NSN digits, the calling code,
    the RFC 3966 scheme and an extension */

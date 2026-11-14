@@ -54,7 +54,13 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
         Py_UCS4 num = 0;
         int overflow = 0;
         Py_ssize_t first_digit = cursor;
+        if (self->ref_scanned > cursor - amp) {
+            cursor = amp + self->ref_scanned;
+            num = self->ref_num;
+            overflow = self->ref_overflow;
+        }
         while (cursor < len) {
+            TH_WORK_STEP();
             Py_UCS4 digit = TH_READ(cursor);
             if (hex) {
                 int value = charref_hex_value(digit);
@@ -75,8 +81,12 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
             cursor++;
         }
         if (cursor >= len && !self->eof) {
+            self->ref_scanned = cursor - amp;
+            self->ref_num = num;
+            self->ref_overflow = overflow;
             return -1; /* the run of digits might continue */
         }
+        self->ref_scanned = 0;
         if (cursor == first_digit) {
             /* "&#" or "&#x" with no digits is not a reference: emit it literally */
             tok_error_at(self, "absence-of-digits-in-numeric-character-reference", self->col + (hex ? 3 : 2));
@@ -166,13 +176,19 @@ static Py_ssize_t TH_NAME(consume_charref)(th_tokenizer *self, th_buf *dest, int
     int named_semicolon = semicolon;
     Py_ssize_t ambiguous_end = cursor;
     if (name_len == HTML5_MAX_NAME_LEN) {
+        if (self->ref_scanned > ambiguous_end - amp) {
+            ambiguous_end = amp + self->ref_scanned;
+        }
         while (ambiguous_end < len && (is_ascii_alpha(TH_READ(ambiguous_end)) ||
                                        (TH_READ(ambiguous_end) >= '0' && TH_READ(ambiguous_end) <= '9'))) {
+            TH_WORK_STEP();
             ambiguous_end++;
         }
         if (ambiguous_end >= len && !self->eof) {
+            self->ref_scanned = ambiguous_end - amp;
             return -1; /* the run of name characters might continue */
         }
+        self->ref_scanned = 0;
         named_semicolon = ambiguous_end < len && TH_READ(ambiguous_end) == ';';
     }
     int token_len = name_len + semicolon;
