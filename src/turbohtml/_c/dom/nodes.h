@@ -859,6 +859,10 @@ char *attr_key_utf8(th_tree *tree, PyObject *key, Py_ssize_t *out_len);
    tostring() encodes through it too. */
 PyObject *markup_encode(PyObject *text, const char *encoding, int charrefs);
 
+/* The WHATWG name a meta_charset declaration writes for an encode() codec, or NULL with ValueError set when no label
+   names it. Defined in document.c beside the codec registry, which holds the label table. */
+const char *meta_charset_label(const char *encoding);
+
 PyObject *node_get_text(PyObject *self, void *Py_UNUSED(closure));
 PyObject *element_get_tag(PyObject *self, void *Py_UNUSED(closure));
 PyObject *element_get_attrs(PyObject *self, void *Py_UNUSED(closure));

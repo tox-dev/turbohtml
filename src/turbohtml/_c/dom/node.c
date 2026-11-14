@@ -2082,6 +2082,8 @@ PyDoc_STRVAR(encode_doc, "encode(encoding='utf-8', options=None, *, inner=False)
                          ":returns: the serialized markup encoded as bytes.\n"
                          ":raises TypeError: if options is not an Html configuration object.\n"
                          ":raises LookupError: if encoding names a codec Python does not know.\n"
+                         ":raises ValueError: if meta_charset is set and no WHATWG encoding label names the codec,\n"
+                         "    such as an ISO-2022 variant other than ISO-2022-JP, or UTF-16.\n"
                          ":raises UnicodeEncodeError: if the markup has characters the encoding cannot\n"
                          "    represent. Under an ISO-2022 codec those include U+000E, U+000F and U+001B,\n"
                          "    which would reach the output as the shift codes that switch a decoder's state.");
@@ -2310,11 +2312,18 @@ static int resolve_layout(module_state *state, PyObject *layout_obj, enum th_lay
 }
 
 /* Serialize self to a str under the given Formatter member, layout mode, and the
-   two output normalizations. charset is the label the meta_charset option writes
-   (the str output is conceptually UTF-8 for serialize, the target encoding for
-   encode); it is borrowed only for the duration of the call. */
+   two output normalizations. encoding is the codec encode() writes, whose WHATWG
+   name a meta_charset option declares; NULL is the str output, which declares
+   utf-8. It is borrowed only for the duration of the call. */
 static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyObject *layout_obj, int sort_attributes,
-                                    int meta_charset, int xml, const char *charset, int inner) {
+                                    int meta_charset, int xml, const char *encoding, int inner) {
+    const char *charset = "utf-8";
+    if (meta_charset && encoding != NULL) {
+        charset = meta_charset_label(encoding);
+        if (charset == NULL) {
+            return NULL;
+        }
+    }
     th_serialize_opts opts = {0,   sort_attributes, meta_charset, charset, (Py_ssize_t)strlen(charset),
                               xml, inner,           NULL,         0};
     if (resolve_formatter(state_of(self), formatter_obj, &opts.formatter) < 0) {
@@ -2347,9 +2356,6 @@ static PyObject *node_serialize_str(PyObject *self, PyObject *formatter_obj, PyO
     return result;
 }
 
-/* Serialize self to a str under the Html config in spec (a borrowed dict of the
-   config's non-default values, or NULL for the defaults), writing charset as the
-   meta_charset label. */
 /* Parse an Html config's non-default values (spec) into the four serialize settings,
    leaving each unmentioned one at the caller's default. Returns 0 on success, -1 with
    an exception set. */
@@ -2367,7 +2373,10 @@ static int parse_html_spec(PyObject *spec, PyObject **formatter_obj, PyObject **
     return parsed ? 0 : -1;
 }
 
-static PyObject *node_serialize_from_spec(PyObject *self, PyObject *spec, const char *charset, int inner) {
+/* Serialize self to a str under the Html config in spec (a borrowed dict of the
+   config's non-default values, or NULL for the defaults), declaring encoding under
+   meta_charset. */
+static PyObject *node_serialize_from_spec(PyObject *self, PyObject *spec, const char *encoding, int inner) {
     PyObject *formatter_obj = NULL;
     PyObject *layout_obj = NULL;
     int sort_attributes = 0;
@@ -2376,20 +2385,20 @@ static PyObject *node_serialize_from_spec(PyObject *self, PyObject *spec, const 
     if (parse_html_spec(spec, &formatter_obj, &layout_obj, &sort_attributes, &meta_charset, &xml) < 0) {
         return NULL;
     }
-    return node_serialize_str(self, formatter_obj, layout_obj, sort_attributes, meta_charset, xml, charset, inner);
+    return node_serialize_str(self, formatter_obj, layout_obj, sort_attributes, meta_charset, xml, encoding, inner);
 }
 
-/* Resolve a serialize/encode call's options object to a str rendering under charset.
-   None renders the defaults; otherwise the config's _unpack() supplies its keywords. */
-static PyObject *node_serialize_options(PyObject *self, PyObject *options, const char *charset, int inner) {
+/* Resolve a serialize/encode call's options object to a str rendering, declaring encoding under meta_charset
+   (NULL for the str output). None renders the defaults; otherwise the config's _unpack() supplies its keywords. */
+static PyObject *node_serialize_options(PyObject *self, PyObject *options, const char *encoding, int inner) {
     if (options == NULL || options == Py_None) {
-        return node_serialize_str(self, NULL, NULL, 0, 0, 0, charset, inner);
+        return node_serialize_str(self, NULL, NULL, 0, 0, 0, encoding, inner);
     }
     PyObject *spec = config_unpack(options, state_of(self)->html_config_type, "Html");
     if (spec == NULL) {
         return NULL;
     }
-    PyObject *result = node_serialize_from_spec(self, spec, charset, inner);
+    PyObject *result = node_serialize_from_spec(self, spec, encoding, inner);
     Py_DECREF(spec);
     return result;
 }
@@ -2403,7 +2412,7 @@ TH_NODE_API(static, PyObject *, node_serialize, (PyObject * self, PyObject *args
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "|O$p", keywords, &options, &inner)) {
         return NULL;
     }
-    return node_serialize_options(self, options, "utf-8", inner);
+    return node_serialize_options(self, options, NULL, inner);
 }
 
 /* Whether encoding resolves to one of CPython's ISO-2022 codecs (iso2022_jp and its variants, iso2022_kr): 1 or 0, or

@@ -2402,6 +2402,70 @@ PyObject *turbohtml_codec_label(PyObject *Py_UNUSED(module), PyObject *name) {
     Py_RETURN_NONE;
 }
 
+/* WHATWG labels for the CPython codecs whose registry names the spec's label table does not carry as written. */
+static const struct {
+    const char *codec;
+    const char *label;
+} CODEC_WHATWG_LABELS[] = {
+    {"big5hkscs", "big5-hkscs"},  {"cp874", "windows-874"},      {"cp932", "windows-31j"},
+    {"cp949", "windows-949"},     {"iso2022_jp", "iso-2022-jp"}, {"mac-cyrillic", "x-mac-cyrillic"},
+    {"mac-roman", "x-mac-roman"}, {"utf-8-sig", "utf-8"},
+};
+
+/* The label-table entry a codec's registry name resolves to, or NULL when no entry names it. */
+static const th_encoding_entry *codec_label_entry(PyObject *name) {
+    if (!PyUnicode_Check(name)) {
+        return NULL;
+    }
+    const char *codec = PyUnicode_AsUTF8(name);
+    if (codec == NULL) {
+        return NULL;
+    }
+    for (size_t index = 0; index < sizeof(CODEC_WHATWG_LABELS) / sizeof(CODEC_WHATWG_LABELS[0]); index++) {
+        if (strcmp(codec, CODEC_WHATWG_LABELS[index].codec) == 0) {
+            const char *spelled = CODEC_WHATWG_LABELS[index].label;
+            return th_encoding_lookup(spelled, (Py_ssize_t)strlen(spelled));
+        }
+    }
+    size_t len = strlen(codec);
+    char label[64];
+    if (len >= sizeof(label)) {
+        return NULL;
+    }
+    for (size_t index = 0; index <= len; index++) {
+        label[index] = codec[index] == '_' ? '-' : codec[index];
+    }
+    return th_encoding_lookup(label, (Py_ssize_t)len);
+}
+
+/* The WHATWG name a <meta charset> declares for the codec encode() writes. A codec no label names raises ValueError,
+   so the output never declares an encoding a browser cannot read; UTF-16 is refused too, because the spec rewrites a
+   UTF-16 declaration to UTF-8. */
+const char *meta_charset_label(const char *encoding) {
+    PyObject *codecs = PyImport_ImportModule("codecs");
+    /* GCOVR_EXCL_BR_START: the untested arm requires the codecs module to fail to import */
+    PyObject *info = codecs == NULL ? NULL : PyObject_CallMethod(codecs, "lookup", "s", encoding);
+    /* GCOVR_EXCL_BR_STOP */
+    Py_XDECREF(codecs);
+    if (info == NULL) {
+        return NULL;
+    }
+    PyObject *name = PyObject_GetAttrString(info, "name");
+    Py_DECREF(info);
+    const th_encoding_entry *entry = NULL;
+    if (name == NULL) {
+        PyErr_Clear();
+    } else {
+        entry = codec_label_entry(name);
+        Py_DECREF(name);
+    }
+    if (entry == NULL || th_encoding_declared(entry) != entry) {
+        PyErr_Format(PyExc_ValueError, "meta_charset cannot declare %s: no WHATWG encoding label names it", encoding);
+        return NULL;
+    }
+    return entry->canonical;
+}
+
 PyObject *turbohtml_parse(PyObject *module, PyObject *args, PyObject *kwargs) {
     static char *keywords[] = {"markup",    "encoding",         "strict",    "detect_encoding",
                                "positions", "source_locations", "scripting", "allow_declarative_shadow_roots",
