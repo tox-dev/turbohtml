@@ -160,6 +160,19 @@ def test_attribute_lookup_after_the_name_table_moved_to_the_keyed_hash() -> None
     assert (len(found[0]), len(found[1])) == (1, 0)
 
 
+def test_attribute_name_interned_again_after_the_name_table_moved_to_the_keyed_hash() -> None:
+    names: Final = ["".join(choice) for choice in itertools.product(*_block_pairs(_FNV32, _STEPS))]
+    document: Final = turbohtml.parse(f"{_attribute_tag(names)}<i {names[0]}>")
+
+    assert len(document.select(f"i[{names[0]}]")) == 2
+
+
+def test_xsl_key_duplicate_value_after_the_map_moved_to_the_keyed_hash() -> None:
+    names: Final = ["".join(choice) for choice in itertools.product(*_block_pairs(_XSLT64, _STEPS))]
+
+    assert _xsl_key(names + names[:1])() == str(len(names) + 1)
+
+
 def _attribute_misses(
     build: Callable[[list[str]], Callable[[], object]],
 ) -> Callable[[list[str], list[str]], Callable[[], object]]:
@@ -288,5 +301,16 @@ def test_translate_keeps_a_short_lined_up_run() -> None:
     document: Final = turbohtml.parse_xml(f"<r>{text}</r>")
 
     result = document.xpath(f"translate(string(/r), '{source}', '{target}')")
+
+    assert result == text.translate(str.maketrans(source, target))
+
+
+def test_translate_duplicate_from_character_on_the_keyed_fill() -> None:
+    source: Final = "".join(_code_points(0x400, _TRANSLATE_CAPACITY))
+    target: Final = source[::-1]
+    text: Final = source * 8
+    document: Final = turbohtml.parse_xml(f"<r>{text}</r>")
+
+    result = document.xpath(f"translate(string(/r), '{source}{source[0]}', '{target}Z')")
 
     assert result == text.translate(str.maketrans(source, target))
