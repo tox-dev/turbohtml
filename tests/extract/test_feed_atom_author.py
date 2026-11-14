@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import pytest
 
 from turbohtml.extract import feed
+
+if TYPE_CHECKING:
+    from types import ModuleType
 
 
 @pytest.mark.parametrize(
@@ -98,12 +101,29 @@ def test_feed_atom_entry_inherits_feed_author_restored_default_namespace() -> No
     assert result.entries[0].author == "Right"
 
 
-def test_feed_atom_entries_share_inherited_feed_author() -> None:
-    xml: Final = (
-        '<feed xmlns="http://www.w3.org/2005/Atom"><author><name>Feed author</name></author><entry/><entry/></feed>'
+def test_feed_atom_entries_do_not_copy_inherited_author() -> None:
+    # PyPy lacks tracemalloc and reclaims objects on a different schedule.
+    tracing: Final[ModuleType] = pytest.importorskip("tracemalloc")
+    contributor: Final = "Contributor " * 2_500
+    entries: Final = "<entry><id>urn:entry</id></entry>" * 400
+    inherited: Final = (
+        f'<feed xmlns="http://www.w3.org/2005/Atom"><author><name>{contributor}</name></author>{entries}</feed>'
     )
-    result = feed(xml)
+    own: Final = (
+        f'<feed xmlns="http://www.w3.org/2005/Atom"><entry><author><name>{contributor}</name></author>'
+        f"<id>urn:entry</id></entry>{entries}</feed>"
+    )
+    result = feed(inherited)
     assert result is not None
-    first, second = result.entries
-    assert first.author == "Feed author"
-    assert second.author is first.author
+    assert {entry.author for entry in result.entries} == {contributor.strip()}
+    # A copy kept per inheriting entry would grow the peak with the entry count, while the control keeps one copy.
+    assert _peak_bytes(tracing, inherited) <= 4 * _peak_bytes(tracing, own)
+
+
+def _peak_bytes(tracing: ModuleType, xml: str) -> int:
+    tracing.start()
+    try:
+        feed(xml)
+        return tracing.get_traced_memory()[1]
+    finally:
+        tracing.stop()
