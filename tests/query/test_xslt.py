@@ -5,7 +5,9 @@ import re
 import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs the fixed interpreter on in-repository stylesheets
 import sys
 import threading
+import timeit
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from threading import Barrier
 from typing import TYPE_CHECKING, Final, NamedTuple, cast
@@ -113,6 +115,42 @@ def test_transform_choose_when_otherwise(value: str, expected: str) -> None:
 def test_transform_choose_without_otherwise_falls_through() -> None:
     body = '<xsl:template match="/">[<xsl:choose><xsl:when test="false()">x</xsl:when></xsl:choose>]</xsl:template>'
     assert _run("<r/>", body) == "[]"
+
+
+def test_transform_test_of_a_path_grows_linearly() -> None:
+    # Compares the time for a stylesheet whose tests walk the following axes with the time for the same stylesheet with
+    # self:: tests, both run on one source of 16,000 i elements.
+    template: Final = (
+        '<xsl:template match="/"><xsl:for-each select="r/i"><xsl:choose>'
+        '<xsl:when test="{sibling}">.</xsl:when><xsl:otherwise>]</xsl:otherwise></xsl:choose>'
+        '<xsl:if test="not({following})">!</xsl:if></xsl:for-each></xsl:template>'
+    )
+    source: Final = turbohtml.parse_xml(f"<r>{'<i/>' * 16_000}</r>")
+    expensive: Final = Transform(_sheet(template.format(sibling="following-sibling::i", following="following::i")))
+    reference: Final = Transform(_sheet(template.format(sibling="self::i", following="self::i")))
+    expensive_seconds: Final = min(timeit.repeat(partial(expensive, source), number=1, repeat=3))
+    reference_seconds: Final = min(timeit.repeat(partial(reference, source), number=1, repeat=3))
+    assert expensive_seconds / reference_seconds < 20
+
+
+def test_transform_test_and_select_of_one_expression_keep_their_own_results() -> None:
+    # both attributes compile to one cached program, and only the test may stop at the first node
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/i">'
+        '<xsl:if test="following-sibling::i"><xsl:value-of select="count(following-sibling::i)"/>:'
+        '<xsl:for-each select="following-sibling::i"><xsl:value-of select="."/></xsl:for-each>;</xsl:if>'
+        "</xsl:for-each></xsl:template>"
+    )
+    assert _run("<r><i>a</i><i>b</i><i>c</i></r>", body) == "2:bc;1:c;"
+
+
+def test_transform_test_with_a_regex_releases_its_pattern_cache() -> None:
+    body = (
+        '<xsl:template match="/"><xsl:for-each select="r/i">'
+        "<xsl:if test=\"matches(., '^a+$')\">y</xsl:if><xsl:if test=\"matches(., '^b')\">n</xsl:if>"
+        "</xsl:for-each></xsl:template>"
+    )
+    assert _run("<r><i>aaa</i><i>b</i></r>", body) == "yn"
 
 
 def test_transform_call_template_with_params_and_recursion() -> None:
