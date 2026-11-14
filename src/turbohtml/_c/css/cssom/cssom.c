@@ -1014,28 +1014,28 @@ static css_rule *css_parse_sheet(Py_UCS4 *data, Py_ssize_t len, Py_ssize_t *out_
         if (pos >= len) {
             break;
         }
-        Py_ssize_t brace = css_scan_to(data, pos, len, '{', '{', NULL);
-        if (brace < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
-            goto fail;   /* GCOVR_EXCL_LINE: allocation-failure path */
-        }
         if (data[pos] == '@') {
             /* an at-rule: a statement one (@import, @charset) ends at ';', a block one
-               (@media, @supports) at its balanced '}'; either is skipped whole. The scan stops at the brace, since
-               past it a ';' outside the block lies in a later statement. */
-            Py_ssize_t semi = css_scan_to(data, pos, brace, ';', ';', NULL);
-            if (semi < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+               (@media, @supports) at its balanced '}'; either is skipped whole. The scan stops at the first of ';' and
+               '{', so a statement never scans on to a '{' that belongs to a later rule. */
+            Py_ssize_t stop = css_scan_to(data, pos, len, ';', '{', NULL);
+            if (stop < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 goto fail;  /* GCOVR_EXCL_LINE: allocation-failure path */
             }
-            if (brace >= len || semi < brace) {
-                pos = semi < len ? semi + 1 : len;
+            if (stop >= len || data[stop] == ';') {
+                pos = stop < len ? stop + 1 : len;
                 continue;
             }
-            Py_ssize_t block_end = css_scan_to(data, brace + 1, len, '}', '}', NULL);
+            Py_ssize_t block_end = css_scan_to(data, stop + 1, len, '}', '}', NULL);
             if (block_end < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
                 goto fail;       /* GCOVR_EXCL_LINE: allocation-failure path */
             }
             pos = block_end < len ? block_end + 1 : len;
             continue;
+        }
+        Py_ssize_t brace = css_scan_to(data, pos, len, '{', '{', NULL);
+        if (brace < 0) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
+            goto fail;   /* GCOVR_EXCL_LINE: allocation-failure path */
         }
         if (brace >= len) {
             break;

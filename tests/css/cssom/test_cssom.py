@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import time
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -149,6 +150,39 @@ def test_comment_stripping_tolerates_unterminated_comment_and_string() -> None:
 def test_stylesheet_skips_at_rules() -> None:
     sheet = StyleSheet('@charset "utf-8"; @import url(x.css); @media screen { p { color: red } } q { color: blue }')
     assert [rule.selector_text for rule in sheet.rules] == ["q"]
+
+
+@pytest.mark.parametrize(
+    ("css", "selectors"),
+    [
+        pytest.param("@import 'a'; @import 'b'; p { color: red }", ["p"], id="statements-before-rule"),
+        pytest.param("@a; @media x { b { color: red } } p { color: red }", ["p"], id="statement-then-block"),
+        pytest.param("@media x { b { color: red; } } @a; p { color: red }", ["p"], id="block-then-statement"),
+        pytest.param("@a (;) '{;' [{;}]; p { color: red }", ["p"], id="nested-separators-stay-in-statement"),
+        pytest.param("@a (x) { b { color: red } } ; p { color: red }", ["; p"], id="semicolon-after-block"),
+        pytest.param("p { color: red } @a; q { color: red } @b", ["p", "q"], id="statements-between-rules"),
+    ],
+)
+def test_stylesheet_at_rule_ends_at_first_semicolon_or_block(css: str, selectors: list[str]) -> None:
+    assert [rule.selector_text for rule in StyleSheet(css).rules] == selectors
+
+
+def test_stylesheet_statement_at_rules_parse_in_linear_time() -> None:
+    statement: Final = "@import url(x);"
+    small: Final = _fastest_parse_seconds(f"{statement * 2_000}p {{ color: red }}")
+    large: Final = _fastest_parse_seconds(f"{statement * 8_000}p {{ color: red }}")
+    # the floor keeps a sub-millisecond baseline from inflating the ratio; a linear parse grows about 4x for 4x input
+    assert large / max(small, 0.01) < 8
+
+
+def _fastest_parse_seconds(css: str) -> float:
+    best = float("inf")
+    for _ in range(3):
+        start = time.perf_counter()
+        sheet = StyleSheet(css)
+        best = min(best, time.perf_counter() - start)
+        assert [rule.selector_text for rule in sheet.rules] == ["p"]
+    return best
 
 
 def test_stylesheet_skips_unterminated_at_block_and_trailing_selector() -> None:
