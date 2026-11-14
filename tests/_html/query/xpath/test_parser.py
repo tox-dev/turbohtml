@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import subprocess  # ruff:ignore[suspicious-subprocess-import]  # runs a fixed argv in a child interpreter
+import sys
 from typing import TYPE_CHECKING, Final
 
 import pytest
@@ -344,3 +346,46 @@ def test_deeply_nested_expression_is_rejected(expr: str) -> None:
     # raises before the C stack overflows (issue #421)
     with pytest.raises(XPathDepthError, match="nested too deeply"):
         _PARSE(expr)
+
+
+@pytest.mark.parametrize(
+    ("expr", "message"),
+    [
+        pytest.param(
+            "concat(@lang, ' ', $ , name())",
+            r"expected a name after '\$' at offset \d+ near ','",
+            id="missing-variable-name",
+        ),
+        # the cap trips at the comma that follows the failed argument, where the next argument would be linked
+        pytest.param(
+            f"a[concat(@id, {'( ' * 1022}, 'z')]",
+            r"nested too deeply at offset \d+ near ','",
+            id="depth-cap",
+        ),
+    ],
+)
+def test_failed_argument_does_not_link_next_argument(expr: str, message: str) -> None:
+    # linking the argument after a failed one through index -1 would write before the arena
+    with pytest.raises(ValueError, match=message):
+        _PARSE(expr)
+
+
+def test_failed_argument_does_not_link_next_argument_in_large_arena() -> None:
+    # a write before a large arena faults, so the parse runs in a subprocess
+    code = (
+        "import sys\n"
+        "from turbohtml import _html\n"
+        "try:\n"
+        "    _html._xpath_parse(sys.argv[1])\n"
+        "except ValueError as error:\n"
+        "    print(error)\n"
+    )
+    result = subprocess.run(  # ruff:ignore[subprocess-without-shell-equals-true]  # fixed argv, no shell
+        [sys.executable, "-c", code, f"concat(@a, 'b', {'name(),' * 12000} $ , 'c')"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("expected a name after '$'")
