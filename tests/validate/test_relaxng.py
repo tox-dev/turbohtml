@@ -1016,30 +1016,29 @@ def test_rng_same_structure_wildcards_scale_linearly() -> None:
 
 
 def test_rng_chain_of_interleaves_scales_linearly() -> None:
-    schema_small = _interleave_chain(500)
-    schema_large = _interleave_chain(2000)
-    timings = []
-    for schema in (schema_small, schema_large):
-        best = float("inf")
-        for _ in range(3):
-            start = time.perf_counter()
-            RelaxNG(schema)
-            best = min(best, time.perf_counter() - start)
-        timings.append(best)
-    assert timings[1] < 9 * timings[0]
+    # CPU time, and a same-size chain with group in place of interleave, so runner load cancels out of the ratio
+    reference = _best_cpu_time(_interleave_chain(10000, "group"))
+    assert _best_cpu_time(_interleave_chain(10000, "interleave")) / max(reference, 0.01) < 30
 
 
-def _interleave_chain(count: int) -> str:
-    defines = "".join(_chain_define(index) for index in range(count))
+def _best_cpu_time(schema: str) -> float:
+    best = float("inf")
+    for _ in range(3):
+        start = time.process_time()
+        RelaxNG(schema)
+        best = min(best, time.process_time() - start)
+    return best
+
+
+def _interleave_chain(count: int, joiner: str) -> str:
+    defines = "".join(_chain_define(index, joiner) for index in range(count))
     start = '<start><element name="r"><ref name="d0"/></element></start>'
     return rgrammar(f'{start}{defines}<define name="d{count}"><empty/></define>')
 
 
-def _chain_define(index: int) -> str:
+def _chain_define(index: int, joiner: str) -> str:
     elements = "".join(f'<element name="e{index}_{slot}"><empty/></element>' for slot in range(10))
-    return (
-        f'<define name="d{index}"><interleave><group>{elements}</group><ref name="d{index + 1}"/></interleave></define>'
-    )
+    return f'<define name="d{index}"><{joiner}><group>{elements}</group><ref name="d{index + 1}"/></{joiner}></define>'
 
 
 def test_rng_referenced_define_with_attribute_and_value() -> None:
