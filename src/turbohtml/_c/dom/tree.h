@@ -607,7 +607,9 @@ typedef struct {
                   characters, comment spellings, and attribute names XML cannot hold so the result reparses */
     int inner; /* omit the context root while retaining its serialization rules */
     const th_node *xml_boundary;
-    int markdown; /* a th_markdown_html context, or 0 outside Markdown */
+    int markdown;         /* a th_markdown_html context, or 0 outside Markdown */
+    int *charset_missing; /* non-NULL when charset is a placeholder no label names: a writer sets *charset_missing
+                             instead of writing it, and the caller refuses the output */
 } th_serialize_opts;
 
 /* Serialize node and its subtree under opts. When indent is non-NULL it is the
