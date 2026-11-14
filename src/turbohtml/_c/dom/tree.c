@@ -1573,6 +1573,28 @@ static int select_disabled_by_ancestor(const th_node *select) {
     return 0;
 }
 
+/* The select's target walk does not descend into these, so a selectedcontent beneath one is not reachable. */
+static int reach_stops_at(const th_node *node) {
+    return node->type == TH_NODE_CONTENT || disables_selectedcontent(node);
+}
+
+/* Called as a child is attached. An enabled selectedcontent reachable from the child marks each node up to the next
+   reach_stops_at boundary, so the adoption agency can tell a moved subtree that holds selectedcontent targets. */
+void th_node_reach_attached(th_node *parent, th_node *child) {
+    if (child->atom == TH_TAG_SELECTEDCONTENT && disables_selectedcontent(child) &&
+        !node_has_attr(child, TH_ATTR_DISABLED)) {
+        child->reaches_selectedcontent = 1;
+    }
+    if (!child->reaches_selectedcontent) {
+        return;
+    }
+    th_node *node = parent;
+    while (node != NULL && !node->reaches_selectedcontent && !reach_stops_at(node)) {
+        node->reaches_selectedcontent = 1;
+        node = node->parent;
+    }
+}
+
 /* The selectedcontent elements one select mirrors its shown option into. The HTML
    Standard mirrors it into every enabled one, and a valid select holds one, in its
    button. Uncapped, N of them under one select copy an option of M nodes N times, so
@@ -1613,7 +1635,8 @@ static void select_cache_fill(th_tree *tree, th_select_cache *cache) {
     th_node *root = cache->select;
     cache->target_count = 0;
     th_node *node = root->first_child;
-    while (node != NULL) {
+    /* the cap keeps the first targets in document order, so the walk ends at the last of them */
+    while (node != NULL && cache->target_count < MAX_CLONE_TARGETS) {
         if (disables_selectedcontent(node)) {
             if (node->atom == TH_TAG_SELECTEDCONTENT && !node_has_attr(node, TH_ATTR_DISABLED)) {
                 select_cache_add_target(tree, cache, node);
@@ -2270,7 +2293,11 @@ static int adoption_agency(th_tree *tree, uint16_t atom) {
             child = next;
         }
         node_append(furthest, fmt_clone);
-        select_cache_invalidate_above(tree, furthest);
+        /* a moved subtree without an enabled selectedcontent changes no select's targets; a moved select changes
+           its own disabled state */
+        if (furthest->reaches_selectedcontent || is_html_element(furthest, TH_TAG_SELECT)) {
+            select_cache_invalidate_above(tree, furthest);
+        }
         /* remove fmt from the list, insert the clone at the bookmark */
         Py_ssize_t fi = afe_index_of(tree, fmt);
         if (fi < bookmark) {

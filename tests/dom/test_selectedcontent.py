@@ -409,6 +409,76 @@ def test_adoption_agency_after_a_clone_refreshes_the_cache() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("markup", "body"),
+    [
+        pytest.param(
+            "<select><em><section><selectedcontent>x</em></section><option selected>o</option></select>",
+            "<select><em></em><section><em><selectedcontent>o</selectedcontent></em></section>"
+            '<option selected="">o</option></select>',
+            id="selectedcontent-in-moved-block",
+        ),
+        pytest.param(
+            "<select><em><section><selectedcontent disabled></em></section><option selected>o</option></select>",
+            '<select><em></em><section><em><selectedcontent disabled=""></selectedcontent></em></section>'
+            '<option selected="">o</option></select>',
+            id="disabled-selectedcontent-in-moved-block",
+        ),
+        pytest.param(
+            "<select><em><section><svg><selectedcontent></svg></em></section><option selected>o</option></select>",
+            "<select><em></em><section><em><svg><selectedcontent></selectedcontent></svg></em></section>"
+            '<option selected="">o</option></select>',
+            id="foreign-selectedcontent-in-moved-block",
+        ),
+        pytest.param(
+            "<select><em><section><option><selectedcontent></em></section><option selected>o</option></select>",
+            "<select><em></em><section><em><option><selectedcontent></selectedcontent></option></em></section>"
+            '<option selected="">o</option></select>',
+            id="selectedcontent-behind-an-option",
+        ),
+        pytest.param(
+            "<select><b><selectedcontent></selectedcontent><selectedcontent></selectedcontent></b>"
+            "<em><section><selectedcontent></em></section><option selected>o</option></select>",
+            "<select><b><selectedcontent>o</selectedcontent><selectedcontent>o</selectedcontent></b><em></em>"
+            '<section><em><selectedcontent>o</selectedcontent></em></section><option selected="">o</option></select>',
+            id="selectedcontent-under-a-marked-ancestor",
+        ),
+        pytest.param(
+            "<select><template><selectedcontent></template><em><section><selectedcontent></em></section>"
+            "<option selected>o</option></select>",
+            "<select><template><selectedcontent></selectedcontent></template><em></em>"
+            '<section><em><selectedcontent>o</selectedcontent></em></section><option selected="">o</option></select>',
+            id="selectedcontent-in-template-content",
+        ),
+        pytest.param(
+            f"<select>{'<button><selectedcontent></button>' * 17}"
+            "<em><section><selectedcontent></em></section><option selected>z</option></select>",
+            f"<select>{'<button><selectedcontent>z</selectedcontent></button>' * 16}"
+            "<button><selectedcontent></selectedcontent></button>"
+            "<em></em><section><em><selectedcontent></selectedcontent></em></section>"
+            '<option selected="">z</option></select>',
+            id="moved-selectedcontent-past-the-cap",
+        ),
+        pytest.param(
+            "<b><select><button><selectedcontent></button><option selected>o</b>",
+            "<b><select><button><selectedcontent>o</selectedcontent></button>"
+            '<option selected="">o</option></select></b>',
+            id="moved-select",
+        ),
+    ],
+)
+def test_adoption_agency_move_keeps_the_selectedcontent_targets(markup: str, body: str) -> None:
+    assert parse(markup).html == f"<html><head></head><body>{body}</body></html>"
+
+
+def test_adoption_agency_inside_a_select_with_options_stays_linear() -> None:
+    cycle = "<em><section>w</em></section><option>z</option>"
+    # the div holds the same recoveries without a select cache, so the ratio isolates the cache's walk
+    select_seconds = _fastest_parse(f"<select>{cycle * 10_000}</select>")
+    linear_seconds = _fastest_parse(f"<div>{cycle * 10_000}</div>")
+    assert select_seconds < 8 * linear_seconds
+
+
 def test_default_first_option_without_selected_attribute_clones() -> None:
     markup = "<select><button><selectedcontent></button><div><option>x</option></div></select>"
     assert parse(markup).html == (
