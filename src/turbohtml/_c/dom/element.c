@@ -10,7 +10,7 @@
 
 #include "css/select/selector.h"
 
-static uint64_t path_id_hash(const Py_UCS4 *value, Py_ssize_t len, int ci);
+static uint64_t path_id_hash(const Py_UCS4 *value, Py_ssize_t len, int ci, int keyed);
 
 static int element_attr_value(PyObject *value, Py_UCS4 **points, Py_ssize_t *len, int *has_value);
 
@@ -1057,11 +1057,38 @@ typedef struct {
     th_node *root;
     radio_id *ids;
     size_t mask;
+    int keyed; /* 1 once a walk on FNV-1a passed TH_FAST_PROBE_LIMIT and ids moved to path_id_keyed */
     int connected;
     th_node_map ancestors;
     int local_form;
     th_node *resolved_form;
 } radio_group;
+
+/* Seat every id under the root. 1 when a walk on FNV-1a went past TH_FAST_PROBE_LIMIT, which stops the fill, so the
+   fill costs at most the limit per id before radio_ids_build starts it over keyed. */
+static int radio_ids_fill(radio_group *group) {
+    for (th_node *node = group->root; node != NULL; node = preorder_next(node, group->root)) {
+        const th_node_attr *id = node->type == TH_NODE_ELEMENT ? find_node_attr(node, TH_ATTR_ID) : NULL;
+        if (id == NULL || id->value_len == 0) {
+            continue;
+        }
+        const size_t home = (size_t)path_id_hash(id->value, id->value_len, 0, group->keyed) & group->mask;
+        size_t slot = home;
+        while (group->ids[slot].value != NULL &&
+               !ucs4_runs_equal(group->ids[slot].value, group->ids[slot].len, id->value, id->value_len)) {
+            TH_WORK_STEP();
+            slot = (slot + 1) & group->mask;
+        }
+        if (!group->keyed && ((slot - home) & group->mask) > TH_FAST_PROBE_LIMIT) {
+            return 1;
+        }
+        if (group->ids[slot].value == NULL) {
+            group->ids[slot] =
+                (radio_id){id->value, id->value_len, node->ns == TH_NS_HTML && node->atom == TH_TAG_FORM ? node : NULL};
+        }
+    }
+    return 0;
+}
 
 static int radio_ids_build(radio_group *group) {
     size_t count = 0;
@@ -1080,21 +1107,35 @@ static int radio_ids_build(radio_group *group) {
         return -1;            /* GCOVR_EXCL_LINE */
     }
     group->mask = capacity - 1;
-    for (th_node *node = group->root; node != NULL; node = preorder_next(node, group->root)) {
-        const th_node_attr *id = node->type == TH_NODE_ELEMENT ? find_node_attr(node, TH_ATTR_ID) : NULL;
-        if (id == NULL || id->value_len == 0) {
-            continue;
+    if (radio_ids_fill(group)) {
+        memset(group->ids, 0, capacity * sizeof(radio_id));
+        group->keyed = 1;
+        radio_ids_fill(group);
+    }
+    return 0;
+}
+
+/* radio_form_owner for a form id its path_id_hash walk missed: on keyed ids, the walk under path_id_keyed; on ids still
+   on path_id_hash after a walk past TH_FAST_PROBE_LIMIT, that walk once the ids move to path_id_keyed for good. A miss
+   walks to the end of the run its home falls in, and the page can line up homes into one long run without seating any
+   id far from its own. Out of line, so radio_form_owner inlines as before. */
+static TH_NOINLINE int radio_form_owner_keyed(radio_group *group, const th_node_attr *form, th_node **owner) {
+    if (!group->keyed) {
+        PyMem_Free(group->ids);
+        group->ids = NULL;
+        group->keyed = 1;
+        if (radio_ids_build(group) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
+            return -1;                    /* GCOVR_EXCL_LINE */
         }
-        size_t slot = (size_t)path_id_hash(id->value, id->value_len, 0) & group->mask;
-        while (group->ids[slot].value != NULL &&
-               !ucs4_runs_equal(group->ids[slot].value, group->ids[slot].len, id->value, id->value_len)) {
-            TH_WORK_STEP();
-            slot = (slot + 1) & group->mask;
+    }
+    size_t slot = (size_t)path_id_hash(form->value, form->value_len, 0, 1) & group->mask;
+    while (group->ids[slot].value != NULL) {
+        if (ucs4_runs_equal(form->value, form->value_len, group->ids[slot].value, group->ids[slot].len)) {
+            *owner = group->ids[slot].form;
+            return 0;
         }
-        if (group->ids[slot].value == NULL) {
-            group->ids[slot] =
-                (radio_id){id->value, id->value_len, node->ns == TH_NS_HTML && node->atom == TH_TAG_FORM ? node : NULL};
-        }
+        TH_WORK_STEP();
+        slot = (slot + 1) & group->mask;
     }
     return 0;
 }
@@ -1123,15 +1164,24 @@ static int radio_form_owner(radio_group *group, th_node *radio, th_node **owner,
         if (group->ids == NULL && radio_ids_build(group) < 0) { /* GCOVR_EXCL_BR_LINE: allocation cannot be forced */
             return -1;                                          /* GCOVR_EXCL_LINE */
         }
-        size_t slot = (size_t)path_id_hash(form->value, form->value_len, 0) & group->mask;
-        while (group->ids[slot].value != NULL) {
-            if (ucs4_runs_equal(form->value, form->value_len, group->ids[slot].value, group->ids[slot].len)) {
-                *owner = group->ids[slot].form;
-                break;
-            }
+        /* The path_id_hash walk runs on keyed ids too: they hold each id once, so finding it anywhere is the answer,
+           and runs under path_id_keyed are short wherever the walk starts. The home is kept only once the walk leaves
+           it, so a lookup that ends there pays nothing for the bound. */
+        size_t slot = (size_t)path_id_hash(form->value, form->value_len, 0, 0) & group->mask;
+        if (group->ids[slot].value == NULL) {
+            return group->keyed ? radio_form_owner_keyed(group, form, owner) : 0;
+        }
+        const size_t home = slot;
+        while (!ucs4_runs_equal(form->value, form->value_len, group->ids[slot].value, group->ids[slot].len)) {
             TH_WORK_STEP();
             slot = (slot + 1) & group->mask;
+            if (group->ids[slot].value == NULL) {
+                return group->keyed || ((slot - home) & group->mask) > TH_FAST_PROBE_LIMIT
+                           ? radio_form_owner_keyed(group, form, owner)
+                           : 0;
+            }
         }
+        *owner = group->ids[slot].form;
         return 0;
     }
     for (th_node *ancestor = radio->parent; ancestor != NULL; ancestor = ancestor->parent) {
@@ -2125,11 +2175,11 @@ static int path_id_safe(const Py_UCS4 *value, Py_ssize_t len, int *escaped) {
     return 1;
 }
 
-/* The keyed hash (core/hash.h) of an id value, so a page cannot pick ids that share one probe run. Quirks mode folds
-   case, and values the id selector treats as equal must hash equal, so there the folded code points go into a buffer
-   that is hashed in one call; an id longer than the buffer is hashed a buffer at a time, each chained behind the hash
-   of the one before. */
-static uint64_t path_id_hash(const Py_UCS4 *value, Py_ssize_t len, int ci) {
+/* The keyed hash (core/hash.h) of an id value, which an id table moves to once a walk on FNV-1a passes
+   TH_FAST_PROBE_LIMIT, since the page picks its ids. Quirks mode folds case, and values the id selector treats as
+   equal must hash equal, so there the folded code points go into a buffer that is hashed in one call; an id longer
+   than the buffer is hashed a buffer at a time, each chained behind the hash of the one before. */
+static TH_NOINLINE uint64_t path_id_keyed(const Py_UCS4 *value, Py_ssize_t len, int ci) {
     if (!ci) {
         return th_name_hash(value, len * (Py_ssize_t)sizeof(Py_UCS4));
     }
@@ -2145,6 +2195,50 @@ static uint64_t path_id_hash(const Py_UCS4 *value, Py_ssize_t len, int ci) {
         chained = th_name_hash(block, (count + 1) * (Py_ssize_t)sizeof(uint32_t));
     }
     return chained;
+}
+
+/* FNV-1a over an id value, folding case in quirks mode so values that the id selector treats as equal hash equal: the
+   hash the id tables start on (core/hash.h). path_id_keyed once keyed. */
+static uint64_t path_id_hash(const Py_UCS4 *value, Py_ssize_t len, int ci, int keyed) {
+    if (keyed) {
+        return path_id_keyed(value, len, ci);
+    }
+    uint64_t hash = 14695981039346656037u;
+    for (Py_ssize_t index = 0; index < len; index++) {
+        hash ^= (uint64_t)sel_fold(value[index], ci);
+        hash *= 1099511628211u;
+    }
+    return hash;
+}
+
+/* Count every id in the document into the map. 1 when a walk on FNV-1a went past TH_FAST_PROBE_LIMIT, which stops the
+   fill, so the fill costs at most the limit per id before path_id_map_build starts it over keyed. */
+static int path_id_map_fill(path_id_map *map, th_node *document) {
+    for (th_node *node = document->first_child; node != NULL; node = preorder_next(node, document)) {
+        const th_node_attr *id = node->type == TH_NODE_ELEMENT ? find_node_attr(node, TH_ATTR_ID) : NULL;
+        if (id == NULL || id->value == NULL) {
+            continue;
+        }
+        const size_t home = (size_t)path_id_hash(id->value, id->value_len, map->ci, map->keyed) & map->mask;
+        size_t slot = home;
+        TH_WORK_STEP();
+        while (map->slots[slot].value != NULL &&
+               !sel_eq(map->slots[slot].value, map->slots[slot].len, id->value, id->value_len, map->ci)) {
+            TH_WORK_STEP();
+            slot = (slot + 1) & map->mask;
+        }
+        if (!map->keyed && ((slot - home) & map->mask) > TH_FAST_PROBE_LIMIT) {
+            return 1;
+        }
+        if (map->slots[slot].value == NULL) {
+            map->slots[slot].value = id->value;
+            map->slots[slot].len = id->value_len;
+            map->slots[slot].count = 1;
+        } else {
+            map->slots[slot].count++;
+        }
+    }
+    return 0;
 }
 
 /* Build the document's id-occurrence map: every element's id value mapped to how
@@ -2174,35 +2268,21 @@ static path_id_map *path_id_map_build(th_tree *tree, th_node *document) {
     }
     map->mask = capacity - 1;
     map->id_version = th_tree_id_version(tree);
-    const int ci = th_tree_quirks(tree);
-    map->ci = ci;
-    for (th_node *node = document->first_child; node != NULL; node = preorder_next(node, document)) {
-        const th_node_attr *id = node->type == TH_NODE_ELEMENT ? find_node_attr(node, TH_ATTR_ID) : NULL;
-        if (id == NULL || id->value == NULL) {
-            continue;
-        }
-        size_t slot = (size_t)path_id_hash(id->value, id->value_len, ci) & map->mask;
-        TH_WORK_STEP();
-        while (map->slots[slot].value != NULL &&
-               !sel_eq(map->slots[slot].value, map->slots[slot].len, id->value, id->value_len, ci)) {
-            TH_WORK_STEP();
-            slot = (slot + 1) & map->mask;
-        }
-        if (map->slots[slot].value == NULL) {
-            map->slots[slot].value = id->value;
-            map->slots[slot].len = id->value_len;
-            map->slots[slot].count = 1;
-        } else {
-            map->slots[slot].count++;
-        }
+    map->ci = th_tree_quirks(tree);
+    map->keyed = 0;
+    if (path_id_map_fill(map, document)) {
+        memset(map->slots, 0, capacity * sizeof(path_id_slot));
+        map->keyed = 1;
+        path_id_map_fill(map, document);
     }
     return map;
 }
 
 /* Whether value names exactly one element, so #value selects it alone. Only an element inside the document probes,
-   and the map counts every id there, so the candidate's own id is present and the probe ends on its slot. */
+   and the map counts every id there, so the candidate's own id is present and the probe ends on its slot, no further
+   from its home than the fill walked to seat it. */
 static int path_id_unique(const path_id_map *map, const Py_UCS4 *value, Py_ssize_t len) {
-    size_t slot = (size_t)path_id_hash(value, len, map->ci) & map->mask;
+    size_t slot = (size_t)path_id_hash(value, len, map->ci, map->keyed) & map->mask;
     TH_WORK_STEP();
     while (!sel_eq(map->slots[slot].value, map->slots[slot].len, value, len, map->ci)) {
         TH_WORK_STEP();

@@ -870,7 +870,7 @@ static TH_NOINLINE void attr_seen_rekey(th_tokenizer *self, Py_ssize_t cur, Py_s
    exactly the distinct names kept so far, since a dropped duplicate never holds a
    permanent slot; the fresh table is zeroed to epoch 0, which no tag uses. Folding
    both into the one bound keeps the per-attribute path to a single comparison. */
-static TH_NOINLINE int attr_seen_slow(th_tokenizer *self, Py_ssize_t cur) {
+static int attr_seen_slow(th_tokenizer *self, Py_ssize_t cur) {
     th_attr *attrs = self->tok.attrs;
     if (self->attr_keyed) {
         attrs[cur].name_hash = th_name_hash(attrs[cur].name.data, attrs[cur].name.len * attrs[cur].name.kind);
@@ -879,12 +879,11 @@ static TH_NOINLINE int attr_seen_slow(th_tokenizer *self, Py_ssize_t cur) {
         return 0;
     }
     Py_ssize_t cap = self->attr_seen_cap ? self->attr_seen_cap * 2 : 16;
-    th_attr_slot *table = PyMem_New(th_attr_slot, (size_t)cap); /* GCOVR_EXCL_BR_LINE: size-overflow guard */
+    th_attr_slot *table = PyMem_Calloc((size_t)cap, sizeof(th_attr_slot));
     if (table == NULL) { /* GCOVR_EXCL_BR_LINE: allocation failure cannot be forced from a test */
         self->oom = 1;   /* GCOVR_EXCL_LINE: allocation-failure path */
         return -1;       /* GCOVR_EXCL_LINE: allocation-failure path */
     }
-    memset(table, 0, (size_t)cap * sizeof(*table));
     PyMem_Free(self->attr_seen);
     self->attr_seen = table;
     self->attr_seen_cap = cap;

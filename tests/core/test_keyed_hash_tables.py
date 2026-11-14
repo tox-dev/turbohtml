@@ -65,6 +65,17 @@ def _xsl_key(names: list[str]) -> Callable[[], object]:
     return lambda: transform(source)
 
 
+def _xsl_attribute_sets(names: list[str]) -> Callable[[], object]:
+    sets: Final = "".join(f'<xsl:attribute-set name="{name}"/>' for name in names)
+    uses: Final = " ".join(names)
+    sheet: Final = turbohtml.parse_xml(
+        f'<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">{sets}'
+        f'<xsl:template match="/"><r xsl:use-attribute-sets="{uses}"/></xsl:template></xsl:stylesheet>'
+    )
+    source: Final = turbohtml.parse_xml("<r/>")
+    return lambda: Transform(sheet, allow_imports=False)(source)
+
+
 def _minify_js_names(names: list[str]) -> Callable[[], object]:
     source: Final = f"function f(){{var {','.join(names)};return [{','.join(names)}]}}"
     return lambda: minify_js(source)
@@ -111,6 +122,7 @@ def _css_rule_selectors(names: list[str]) -> Callable[[], object]:
         pytest.param(_FNV32, _css_declarations, id="css-declarations"),
         pytest.param(_FNV64, _xpath_id, id="xpath-id-tokens"),
         pytest.param(_XSLT64, _xsl_key, id="xsl-key-values"),
+        pytest.param(_XSLT64, _xsl_attribute_sets, id="xsl-attribute-set-names"),
         pytest.param(_FNV32, _minify_js_names, id="minify-js-names"),
         pytest.param(_FNV32, _microdata, id="microdata-ids"),
         pytest.param(_FNV32, _shadow_slots, id="shadow-slot-names"),
@@ -202,6 +214,18 @@ def _xsl_key_misses(run: list[str], misses: list[str]) -> Callable[[], object]:
     return lambda: transform(source)
 
 
+def _xsl_attribute_set_misses(run: list[str], misses: list[str]) -> Callable[[], object]:
+    # An attribute set that use-attribute-sets names but the stylesheet never declares is skipped, so every element
+    # walks each such miss again.
+    sets: Final = "".join(f'<xsl:attribute-set name="{name}"/>' for name in run)
+    sheet: Final = turbohtml.parse_xml(
+        f'<xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform" version="1.0">{sets}'
+        f'<xsl:template match="/"><r xsl:use-attribute-sets="{" ".join(misses)}"/></xsl:template></xsl:stylesheet>'
+    )
+    source: Final = turbohtml.parse_xml("<r/>")
+    return lambda: Transform(sheet, allow_imports=False)(source)
+
+
 def _minify_js_misses(run: list[str], misses: list[str]) -> Callable[[], object]:
     # Each absent name is read four times, so its misses outweigh the steps the mangler takes on any source this size.
     source: Final = f"function f(){{var {','.join(run)};return [{','.join(misses * 4)}]}}"
@@ -215,6 +239,7 @@ def _minify_js_misses(run: list[str], misses: list[str]) -> Callable[[], object]
         pytest.param(_FNV32, _attribute_misses(_parse), id="tree-attribute-names"),
         pytest.param(_FNV64, _xpath_id_misses, id="xpath-id-tokens"),
         pytest.param(_XSLT64, _xsl_key_misses, id="xsl-key-values"),
+        pytest.param(_XSLT64, _xsl_attribute_set_misses, id="xsl-attribute-set-names"),
         pytest.param(_FNV32, _minify_js_misses, id="minify-js-names"),
     ],
 )

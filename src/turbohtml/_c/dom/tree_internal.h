@@ -11,6 +11,7 @@
 #include "dom/tree.h"
 
 #include "core/fuzzing.h"
+#include "core/hash.h" /* th_fnv1a_bytes for th_attr_lookup_inline */
 
 #include <stddef.h>
 #include <string.h>
@@ -367,7 +368,20 @@ static inline th_node *node_new(th_tree *tree, enum th_node_type type) {
 
 void th_node_mark_ancestors(th_node *node);
 
-static inline void node_append(th_node *parent, th_node *child) {
+/* Inlining forced on a hot call site whose callee link-time optimization stopped inlining once the hash-flood bounds
+   grew the code around it. */
+#if defined(_MSC_VER)
+#define TH_TREE_INLINE __forceinline
+#elif defined(__OPTIMIZE__)
+#define TH_TREE_INLINE inline __attribute__((always_inline))
+#else
+#define TH_TREE_INLINE inline
+#endif
+
+/* Forced into node_insert_before: insert_element appends every parsed node through it, and the inliner drops the
+   call there once tree.c grows. node_append leaves the choice to the inliner, as the XML builder runs faster with
+   its appends out of line. */
+static TH_TREE_INLINE void node_append_inline(th_node *parent, th_node *child) {
     child->parent = parent;
     child->prev_sibling = parent->last_child;
     child->next_sibling = NULL;
@@ -380,6 +394,10 @@ static inline void node_append(th_node *parent, th_node *child) {
     if (child->reaches_selectedcontent) {
         th_node_mark_ancestors(parent);
     }
+}
+
+static inline void node_append(th_node *parent, th_node *child) {
+    node_append_inline(parent, child);
 }
 
 /* Detach a node from its current parent (the adoption agency re-parents). */
@@ -407,7 +425,7 @@ static inline void node_remove(th_node *child) {
    ref==NULL appends to parent. */
 static inline void node_insert_before(th_node *parent, th_node *child, th_node *ref) {
     if (ref == NULL) {
-        node_append(parent, child);
+        node_append_inline(parent, child);
         return;
     }
     child->parent = parent;
@@ -424,8 +442,59 @@ static inline void node_insert_before(th_node *parent, th_node *child, th_node *
     }
 }
 
-/* Intern UTF-8 name bytes into the per-tree dynamic table, returning the atom.
-   Owned by the parser (tree.c); the construction API (mutate.c) reuses it. */
-uint32_t intern_attr_dynamic(th_tree *tree, const char *bytes, Py_ssize_t len);
+/* The record index + 1 for an interned name, or 0 when it is not in the built table.
+   The name comparison is by bytes, so a hash collision is not a special case. */
+static inline uint32_t dynamic_slot(th_tree *tree, const char *bytes, Py_ssize_t len, uint32_t hash) {
+    uint32_t mask = tree->attr_slot_mask;
+    for (uint32_t probe = hash & mask; tree->attr_slots[probe] != 0; probe = (probe + 1) & mask) {
+        TH_WORK_STEP();
+        const th_attr_record *rec = &tree->attr_recs[tree->attr_slots[probe] - 1];
+        if (rec->name_len == (uint32_t)len && memcmp(rec->name, bytes, (size_t)len) == 0) {
+            return tree->attr_slots[probe];
+        }
+    }
+    return 0;
+}
+
+/* intern_attr_dynamic's add of a name the table does not hold, hashed to hash under the table's current hash, and
+   its step for a table that is not built yet or is on th_name_hash (dom/tree.c). */
+uint32_t intern_attr_insert(th_tree *tree, const char *bytes, Py_ssize_t len, uint32_t hash);
+uint32_t intern_attr_slow(th_tree *tree, const char *bytes, Py_ssize_t len);
+
+/* Intern UTF-8 name bytes into the per-tree dynamic table, returning the atom. The parser (tree.c) and the
+   construction API (mutate.c) share it; inline, as the keyed step grew the extern function past what link-time
+   optimization inlines into node_attr_store. */
+static inline uint32_t intern_attr_dynamic(th_tree *tree, const char *bytes, Py_ssize_t len) {
+    if (tree->attr_fast == NULL) {
+        return intern_attr_slow(tree, bytes, len);
+    }
+    uint32_t hash = th_fnv1a_bytes(bytes, len);
+    uint32_t found = dynamic_slot(tree, bytes, len, hash);
+    if (found != 0) {
+        return TH_ATTR__DYNAMIC_BASE + (found - 1);
+    }
+    return intern_attr_insert(tree, bytes, len, hash);
+}
+
+/* th_attr_lookup for a table on th_name_hash (dom/tree.c). */
+uint32_t th_attr_lookup_slow(th_tree *tree, const char *bytes, Py_ssize_t len);
+
+/* th_attr_lookup with its FNV-1a step inline. th_node_attr_find resolves a name per
+   element, and the keyed step grew the extern function past what link-time
+   optimization inlines there. */
+static inline uint32_t th_attr_lookup_inline(th_tree *tree, const char *bytes, Py_ssize_t len) {
+    if (len == 0) {
+        return UINT32_MAX;
+    }
+    uint32_t atom = th_attr_atom(bytes, (size_t)len);
+    if (atom != TH_ATTR_UNKNOWN) {
+        return atom;
+    }
+    if (tree->attr_fast == NULL) {
+        return tree->attr_slots == NULL ? UINT32_MAX : th_attr_lookup_slow(tree, bytes, len);
+    }
+    uint32_t found = dynamic_slot(tree, bytes, len, th_fnv1a_bytes(bytes, len));
+    return found != 0 ? TH_ATTR__DYNAMIC_BASE + (found - 1) : UINT32_MAX;
+}
 
 #endif /* TURBOHTML_DOM_TREE_INTERNAL_H */

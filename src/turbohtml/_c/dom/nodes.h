@@ -56,6 +56,7 @@ typedef struct {
     size_t mask; /* capacity - 1; capacity is a power of two */
     uint64_t id_version;
     int ci;
+    int keyed; /* 1 once the fill on FNV-1a walked past TH_FAST_PROBE_LIMIT and moved to the keyed hash */
 } path_id_map;
 
 typedef struct {

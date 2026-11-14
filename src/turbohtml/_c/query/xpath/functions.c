@@ -199,6 +199,9 @@ static int translate_index(translate_entry *entries, size_t capacity, const Py_U
 static inline Py_ssize_t translate_rest(const translate_entry *entries, size_t mask, int keyed, const Py_UCS4 *text,
                                         Py_ssize_t index, Py_ssize_t slen, const Py_UCS4 *to, Py_ssize_t tlen,
                                         Py_UCS4 *buf, Py_ssize_t write_pos);
+static TH_NOINLINE Py_ssize_t translate_rest_keyed(const translate_entry *entries, size_t mask, const Py_UCS4 *text,
+                                                   Py_ssize_t index, Py_ssize_t slen, const Py_UCS4 *to,
+                                                   Py_ssize_t tlen, Py_UCS4 *buf, Py_ssize_t write_pos);
 
 static int string_arg(struct th_tree *tree, const xp_result *value, const Py_UCS4 **text, Py_ssize_t *len,
                       Py_UCS4 **owned) {
@@ -281,8 +284,8 @@ static int translate(const Py_UCS4 *text, Py_ssize_t slen, const Py_UCS4 *from, 
             buf[write_pos++] = replacement;
         }
     }
-    if (keyed) {
-        write_pos = translate_rest(entries, capacity - 1, 1, text, index, slen, to, tlen, buf, write_pos);
+    if (TH_UNLIKELY(keyed)) {
+        write_pos = translate_rest_keyed(entries, capacity - 1, text, index, slen, to, tlen, buf, write_pos);
     } else {
         write_pos = translate_rest(entries, capacity - 1, 0, text, index, slen, to, tlen, buf, write_pos);
     }
@@ -295,13 +298,16 @@ static int translate(const Py_UCS4 *text, Py_ssize_t slen, const Py_UCS4 *from, 
    share, so a translate() map can be given characters that all land on one home. Past TH_FAST_PROBE_LIMIT the table
    moves to th_key_mix, which a document cannot steer (core/hash.h). */
 static size_t translate_slot(const translate_entry *entries, size_t mask, Py_UCS4 character, int keyed) {
-    size_t slot = (keyed ? (size_t)th_key_mix(character) : (size_t)character * 2654435761u) & mask;
+    const size_t home = (keyed ? (size_t)th_key_mix(character) : (size_t)character * 2654435761u) & mask;
+    const translate_entry *entry = &entries[home];
     TH_WORK_STEP();
-    while (entries[slot].position != 0 && entries[slot].character != character) {
+    /* the walk steps a pointer, wrapping at the last slot, so each lookup keeps the slot's address alone rather than an
+       index and the address computed from it */
+    while (entry->position != 0 && entry->character != character) {
         TH_WORK_STEP();
-        slot = (slot + 1) & mask;
+        entry = entry == &entries[mask] ? entries : entry + 1;
     }
-    return slot;
+    return (size_t)(entry - entries);
 }
 
 /* 1 when a run of filled slots is longer than TH_FAST_PROBE_LIMIT. Such a run covers a whole aligned block of
@@ -390,6 +396,13 @@ static inline Py_ssize_t translate_rest(const translate_entry *entries, size_t m
         }
     }
     return write_pos;
+}
+
+/* translate_rest on th_key_mix. Out of line, so the multiplicative copy keeps translate small. */
+static TH_NOINLINE Py_ssize_t translate_rest_keyed(const translate_entry *entries, size_t mask, const Py_UCS4 *text,
+                                                   Py_ssize_t index, Py_ssize_t slen, const Py_UCS4 *to,
+                                                   Py_ssize_t tlen, Py_UCS4 *buf, Py_ssize_t write_pos) {
+    return translate_rest(entries, mask, 1, text, index, slen, to, tlen, buf, write_pos);
 }
 
 static int substring(struct th_tree *tree, xp_result *args, int argc, xp_result *out) {

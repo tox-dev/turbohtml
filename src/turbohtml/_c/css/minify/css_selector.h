@@ -500,37 +500,51 @@ typedef struct {
     int used;
 } dedup_entry;
 
-/* The stylesheet picks its property names and rules, so inside the extension both hash under the per-process key
-   (core/hash.h); the standalone harness has no interpreter to draw a key from and keeps a reproducible FNV-1a. A
-   css_char is one byte, so the two functions agree on equal text either way. */
-static uint32_t css_hash_run(const css_char *text, Py_ssize_t len) {
-#ifdef CSS_MINIFY_STANDALONE
+/* FNV-1a over a run, the hash the dedup and rule tables start on. The stylesheet picks its property names and rules,
+   and FNV-1a is fixed, so each table watches its walks and, once one passes TH_FAST_PROBE_LIMIT, starts over under
+   the per-process key (core/hash.h) when keyed is set. The standalone harness has no interpreter to draw a key from
+   and stays on FNV-1a. A css_char is one byte, so the run and C-string forms agree on equal text either way. */
+static uint32_t css_hash_run(const css_char *text, Py_ssize_t len, int keyed) {
+#ifndef CSS_MINIFY_STANDALONE
+    if (keyed) {
+        return th_name_hash(text, len);
+    }
+#else
+    (void)keyed;
+#endif
     uint32_t hash = 2166136261u;
     for (Py_ssize_t pos = 0; pos < len; pos++) {
         hash = (hash ^ (uint32_t)(text[pos] & 0xFF)) * 16777619u;
     }
     return hash;
-#else
-    return th_name_hash(text, len);
-#endif
 }
 
-static uint32_t css_hash_cstr(const char *text, Py_ssize_t len) {
-#ifdef CSS_MINIFY_STANDALONE
+static uint32_t css_hash_cstr(const char *text, Py_ssize_t len, int keyed) {
+#ifndef CSS_MINIFY_STANDALONE
+    if (keyed) {
+        return th_name_hash(text, len);
+    }
+#else
+    (void)keyed;
+#endif
     uint32_t hash = 2166136261u;
     for (Py_ssize_t pos = 0; pos < len; pos++) {
         hash = (hash ^ (uint32_t)(unsigned char)text[pos]) * 16777619u;
     }
     return hash;
-#else
-    return th_name_hash(text, len);
-#endif
 }
 
-/* Find the slot for a code-point key (a property name from the pool): the matching entry, or the empty slot to fill. */
+/* 1 when a walk from home to slot on FNV-1a went past TH_FAST_PROBE_LIMIT, so the table starts over keyed. */
+static int css_walked_far(Py_ssize_t home, Py_ssize_t slot, uint32_t mask, int keyed) {
+    return !keyed && (uint32_t)((size_t)(slot - home) & mask) > TH_FAST_PROBE_LIMIT;
+}
+
+/* Find the slot for a code-point key (a property name from the pool): the matching entry, or the empty slot to fill;
+   -1 when the walk to it went past TH_FAST_PROBE_LIMIT on FNV-1a. */
 static Py_ssize_t dedup_slot_run(dedup_entry *table, uint32_t mask, const css_buf *pool, const css_char *key,
-                                 Py_ssize_t key_len, int important) {
-    Py_ssize_t slot = css_hash_run(key, key_len) & mask;
+                                 Py_ssize_t key_len, int important, int keyed) {
+    const Py_ssize_t home = css_hash_run(key, key_len, keyed) & mask;
+    Py_ssize_t slot = home;
     while (table[slot].used) {
         if (table[slot].important == important && table[slot].prop_len == key_len &&
             memcmp(pool->data + table[slot].prop_off, key, (size_t)key_len * sizeof(css_char)) == 0) {
@@ -539,13 +553,14 @@ static Py_ssize_t dedup_slot_run(dedup_entry *table, uint32_t mask, const css_bu
         TH_WORK_STEP();
         slot = (slot + 1) & mask;
     }
-    return slot;
+    return css_walked_far(home, slot, mask, keyed) ? -1 : slot;
 }
 
-/* Find the slot for an ASCII key (a longhand name from the shorthand table). */
+/* Find the slot for an ASCII key (a longhand name from the shorthand table), as dedup_slot_run. */
 static Py_ssize_t dedup_slot_cstr(dedup_entry *table, uint32_t mask, const css_buf *pool, const char *key,
-                                  Py_ssize_t key_len, int important) {
-    Py_ssize_t slot = css_hash_cstr(key, key_len) & mask;
+                                  Py_ssize_t key_len, int important, int keyed) {
+    const Py_ssize_t home = css_hash_cstr(key, key_len, keyed) & mask;
+    Py_ssize_t slot = home;
     while (table[slot].used) {
         if (table[slot].important == important && table[slot].prop_len == key_len) {
             int same = 1;
@@ -562,7 +577,66 @@ static Py_ssize_t dedup_slot_cstr(dedup_entry *table, uint32_t mask, const css_b
         TH_WORK_STEP();
         slot = (slot + 1) & mask;
     }
-    return slot;
+    return css_walked_far(home, slot, mask, keyed) ? -1 : slot;
+}
+
+/* One pass of css_dedup over an empty table. 1 when a walk on FNV-1a went past TH_FAST_PROBE_LIMIT, which stops the
+   pass. A pass marks a declaration dropped only when that holds whatever was dropped before, so the keyed pass that
+   follows ends with the marks a single pass would have made. */
+static int css_dedup_fill(css_buf *pool, decl_vec *decls, dedup_entry *table, uint32_t mask, int keyed) {
+    for (Py_ssize_t index = 0; index < decls->len; index++) {
+        css_decl *later = &decls->items[index];
+        const css_char *prop = pool->data + later->prop_off;
+        Py_ssize_t prop_len = later->prop_len;
+        int important = later->important;
+        const char *list = css_decl_is_wide_keyword(pool, later)
+                               ? css_longhand_list(pool->data + later->prop_off, later->prop_len)
+                               : NULL;
+        Py_ssize_t home;
+        if (list == NULL) {
+            home = dedup_slot_run(table, mask, pool, prop, prop_len, important, keyed);
+            if (home < 0) {
+                return 1;
+            }
+            /* a same-name duplicate is dropped only when its value is identical (see css_dedup_pairwise) */
+            if (table[home].used && !decls->items[table[home].index].dropped &&
+                css_decl_value_eq(pool, &decls->items[table[home].index], later)) {
+                decls->items[table[home].index].dropped = 1;
+            }
+        } else {
+            /* The first word is the shorthand's own name; CSS-wide values reset every remaining longhand. */
+            const char *cursor = list;
+            int own_name = 1;
+            while (*cursor) {
+                const char *word = cursor;
+                while (*cursor && *cursor != ' ') {
+                    cursor++;
+                }
+                Py_ssize_t slot = dedup_slot_cstr(table, mask, pool, word, cursor - word, important, keyed);
+                if (slot < 0) {
+                    return 1;
+                }
+                if (table[slot].used && !decls->items[table[slot].index].dropped &&
+                    (!own_name || css_decl_value_eq(pool, &decls->items[table[slot].index], later))) {
+                    decls->items[table[slot].index].dropped = 1;
+                }
+                while (*cursor == ' ') {
+                    cursor++;
+                }
+                own_name = 0;
+            }
+            home = dedup_slot_run(table, mask, pool, prop, prop_len, important, keyed);
+            if (home < 0) {
+                return 1;
+            }
+        }
+        table[home].prop_off = later->prop_off;
+        table[home].prop_len = prop_len;
+        table[home].important = important;
+        table[home].index = index;
+        table[home].used = 1;
+    }
+    return 0;
 }
 
 /* Drop earlier declarations a later one fully overrides. Pairwise for a small rule; for a large one (a framework
@@ -592,47 +666,9 @@ static void css_dedup(css_buf *pool, decl_vec *decls) {
     }
     memset(table, 0, (size_t)cap * sizeof(dedup_entry));
     uint32_t mask = (uint32_t)(cap - 1);
-    for (Py_ssize_t index = 0; index < decls->len; index++) {
-        css_decl *later = &decls->items[index];
-        const css_char *prop = pool->data + later->prop_off;
-        Py_ssize_t prop_len = later->prop_len;
-        int important = later->important;
-        const char *list = css_decl_is_wide_keyword(pool, later)
-                               ? css_longhand_list(pool->data + later->prop_off, later->prop_len)
-                               : NULL;
-        if (list == NULL) {
-            Py_ssize_t slot = dedup_slot_run(table, mask, pool, prop, prop_len, important);
-            /* a same-name duplicate is dropped only when its value is identical (see css_dedup_pairwise) */
-            if (table[slot].used && !decls->items[table[slot].index].dropped &&
-                css_decl_value_eq(pool, &decls->items[table[slot].index], later)) {
-                decls->items[table[slot].index].dropped = 1;
-            }
-        } else {
-            /* The first word is the shorthand's own name; CSS-wide values reset every remaining longhand. */
-            const char *cursor = list;
-            int own_name = 1;
-            while (*cursor) {
-                const char *word = cursor;
-                while (*cursor && *cursor != ' ') {
-                    cursor++;
-                }
-                Py_ssize_t slot = dedup_slot_cstr(table, mask, pool, word, cursor - word, important);
-                if (table[slot].used && !decls->items[table[slot].index].dropped &&
-                    (!own_name || css_decl_value_eq(pool, &decls->items[table[slot].index], later))) {
-                    decls->items[table[slot].index].dropped = 1;
-                }
-                while (*cursor == ' ') {
-                    cursor++;
-                }
-                own_name = 0;
-            }
-        }
-        Py_ssize_t home = dedup_slot_run(table, mask, pool, prop, prop_len, important);
-        table[home].prop_off = later->prop_off;
-        table[home].prop_len = prop_len;
-        table[home].important = important;
-        table[home].index = index;
-        table[home].used = 1;
+    if (css_dedup_fill(pool, decls, table, mask, 0)) {
+        memset(table, 0, (size_t)cap * sizeof(dedup_entry));
+        css_dedup_fill(pool, decls, table, mask, 1);
     }
     if (table != stack_table) {
         css_free(table);
