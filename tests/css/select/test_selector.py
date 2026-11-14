@@ -820,11 +820,10 @@ def _deep_appended(depth: int) -> Element:
     return root
 
 
-# parse_xml and the mutation API never pass through the HTML tree builder's depth bookkeeping. The check times the
-# fastest of three runs of a miss query, which walks every subtree on a tree that is not memoized, and asserts it
-# finishes within the budget. It bounds wall-clock time, not the number of node visits.
-_NESTED_DEPTH: Final = 60_000
-_BUDGET_SECONDS: Final = 6.0
+# The test compares two :has() misses on the same tree: a descendant argument, whose per-anchor walk is quadratic
+# without the memo, and a child-combinator argument, which inspects one child per anchor and stays linear. Each is
+# timed as the fastest of three runs, and the descendant time must stay under 40 times the child time.
+_NESTED_DEPTH: Final[int] = 4_000
 
 
 @pytest.mark.parametrize(
@@ -833,9 +832,11 @@ _BUDGET_SECONDS: Final = 6.0
 def test_has_memo_deep_tree_not_from_html_parser(build: Callable[[int], Document | Element]) -> None:
     tree: Final = build(_NESTED_DEPTH)
     assert len(tree.select("group:has(item)")) == _NESTED_DEPTH
+    assert len(tree.select("group:has(> item)")) == 1
     assert tree.select("group:has(entry)") == []
-    fastest: Final = min(_seconds(lambda: tree.select("group:has(entry)")) for _ in range(3))
-    assert fastest < _BUDGET_SECONDS
+    descendant: Final = min(_seconds(lambda: tree.select("group:has(entry)")) for _ in range(3))
+    child: Final = min(_seconds(lambda: tree.select("group:has(> entry)")) for _ in range(3))
+    assert descendant < 40 * child
 
 
 @pytest.mark.parametrize(
