@@ -878,7 +878,7 @@ static int node_before(xp_caches **caches, struct th_node *left, struct th_node 
 
 /* Order items sharing a node: the node itself first, then its attributes, then its
    namespace node, mirroring document order within an element. */
-static Py_ssize_t item_rank(Py_ssize_t attr) {
+Py_ssize_t xp_item_rank(Py_ssize_t attr) {
     if (attr == -1) {
         return 0; /* the node */
     }
@@ -893,8 +893,8 @@ static int same_node_order(const xp_item *left, const xp_item *right) {
     if (left->attr == right->attr) {
         return 0;
     }
-    Py_ssize_t left_rank = item_rank(left->attr);
-    Py_ssize_t right_rank = item_rank(right->attr);
+    Py_ssize_t left_rank = xp_item_rank(left->attr);
+    Py_ssize_t right_rank = xp_item_rank(right->attr);
     if (left_rank != right_rank) {
         return left_rank < right_rank ? -1 : 1;
     }
